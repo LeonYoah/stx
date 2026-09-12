@@ -27,7 +27,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// **Feature: seatunnel-agent, Property 13: Protobuf Message Round-Trip**
+// **Feature: stx-agent, Property 13: Protobuf Message Round-Trip**
 // **Validates: Requirements 8.2, 8.3, 8.4, 8.5**
 // 对于任何有效的 RegisterRequest、HeartbeatRequest、CommandRequest 或 CommandResponse 消息，
 // 序列化为字节后再反序列化应产生等价的消息
@@ -207,7 +207,7 @@ func genCommandResponse() gopter.Gen {
 
 // TestProperty_RegisterRequestRoundTrip 测试 RegisterRequest 消息的序列化/反序列化往返一致性
 func TestProperty_RegisterRequestRoundTrip(t *testing.T) {
-	// **Feature: seatunnel-agent, Property 13: Protobuf Message Round-Trip**
+	// **Feature: stx-agent, Property 13: Protobuf Message Round-Trip**
 	// **Validates: Requirements 8.2**
 
 	parameters := gopter.DefaultTestParameters()
@@ -241,7 +241,7 @@ func TestProperty_RegisterRequestRoundTrip(t *testing.T) {
 
 // TestProperty_HeartbeatRequestRoundTrip 测试 HeartbeatRequest 消息的序列化/反序列化往返一致性
 func TestProperty_HeartbeatRequestRoundTrip(t *testing.T) {
-	// **Feature: seatunnel-agent, Property 13: Protobuf Message Round-Trip**
+	// **Feature: stx-agent, Property 13: Protobuf Message Round-Trip**
 	// **Validates: Requirements 8.3**
 
 	parameters := gopter.DefaultTestParameters()
@@ -275,7 +275,7 @@ func TestProperty_HeartbeatRequestRoundTrip(t *testing.T) {
 
 // TestProperty_CommandRequestRoundTrip 测试 CommandRequest 消息的序列化/反序列化往返一致性
 func TestProperty_CommandRequestRoundTrip(t *testing.T) {
-	// **Feature: seatunnel-agent, Property 13: Protobuf Message Round-Trip**
+	// **Feature: stx-agent, Property 13: Protobuf Message Round-Trip**
 	// **Validates: Requirements 8.4**
 
 	parameters := gopter.DefaultTestParameters()
@@ -309,7 +309,7 @@ func TestProperty_CommandRequestRoundTrip(t *testing.T) {
 
 // TestProperty_CommandResponseRoundTrip 测试 CommandResponse 消息的序列化/反序列化往返一致性
 func TestProperty_CommandResponseRoundTrip(t *testing.T) {
-	// **Feature: seatunnel-agent, Property 13: Protobuf Message Round-Trip**
+	// **Feature: stx-agent, Property 13: Protobuf Message Round-Trip**
 	// **Validates: Requirements 8.5**
 
 	parameters := gopter.DefaultTestParameters()

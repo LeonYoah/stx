@@ -1,0 +1,8 @@
+{"file": ".trellis/workflow.md", "reason": "项目质量检查流程"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "检查跨模块命名是否一致"}
+{"file": ".trellis/spec/backend/index.md", "reason": "检查后端与 Agent 约定"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "检查 Go 质量、测试和注释"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "检查日志名称及内容"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "检查前端约定"}
+{"file": ".trellis/spec/frontend/ui-conventions.md", "reason": "检查界面展示名和用户可见文案"}
+{"file": ".trellis/spec/frontend/e2e-testing.md", "reason": "检查 E2E 修改和测试覆盖"}

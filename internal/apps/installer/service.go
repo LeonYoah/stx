@@ -38,10 +38,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/LeonYoah/stx/internal/config"
+	"github.com/LeonYoah/stx/internal/logger"
+	"github.com/LeonYoah/stx/internal/seatunnel"
 	"github.com/google/uuid"
-	"github.com/seatunnel/seatunnelX/internal/config"
-	"github.com/seatunnel/seatunnelX/internal/logger"
-	"github.com/seatunnel/seatunnelX/internal/seatunnel"
 )
 
 // Common errors / 常见错误

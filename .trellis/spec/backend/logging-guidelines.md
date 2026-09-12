@@ -6,7 +6,7 @@
 
 ## 概述
 
-**主后端**（根模块 `internal/`）通过 **otelzap**（`internal/logger`）使用 **Zap**，使日志可与 **OpenTelemetry** 的 trace/span ID 关联。**Agent**（`agent/` 下独立模块）使用另一套 logger，见下文 [Agent 模块 logger](#agent-模块-agent-logger)。对外 API 为一组接收 `context.Context` 和格式字符串的函数：`DebugF`、`InfoF`、`WarnF`、`ErrorF`。**context 通过入参传递**：新写的方法、主类入口若会打日志或调下层，首参应为 `ctx context.Context`，从 handler/gRPC 一路向下传，打日志时统一用该 `ctx`。Logger 在启动时初始化一次；日志级别与输出（标准输出、文件或两者）在 `config.Config.Log` 中配置。高频或噪音较大的 HTTP 路径（如 Grafana 代理的 Prometheus 查询、Live WebSocket）在路由中间件中排除请求日志，以控制日志量。
+**主后端**（根模块 `internal/`）通过 **otelzap**（`internal/logger`）使用 **Zap**，使日志可与 **OpenTelemetry** 的 trace/span ID 关联。**Agent**（`agent/` 下独立模块）使用另一套 logger，见下文 [Agent 日志](#agent-日志)。对外 API 为一组接收 `context.Context` 和格式字符串的函数：`DebugF`、`InfoF`、`WarnF`、`ErrorF`。**context 通过入参传递**：新写的方法、主类入口若会打日志或调下层，首参应为 `ctx context.Context`，从 handler/gRPC 一路向下传，打日志时统一用该 `ctx`。Logger 在启动时初始化一次；日志级别与输出（标准输出、文件或两者）在 `config.Config.Log` 中配置。高频或噪音较大的 HTTP 路径（如 Grafana 代理的 Prometheus 查询、Live WebSocket）在路由中间件中排除请求日志，以控制日志量。
 
 ---
 
@@ -56,11 +56,11 @@
 
 ---
 
-## Agent 模块（`agent/`）logger
+## Agent 日志
 
-**SeaTunnelX Runtime Agent** 为根目录下独立 Go 模块 `agent/`，拥有自己的 logger 包 `agent/internal/logger`，但**用法与主后端一致**：统一使用 `logger.InfoF(ctx, format, args...)` 等 API。
+**STX Runtime Agent** 为根目录下独立 Go 模块 `agent/`，拥有自己的 logger 包 `agent/internal/logger`，但**用法与主后端一致**：统一使用 `logger.InfoF(ctx, format, args...)` 等 API。
 
-- **导入**：`"github.com/seatunnel/seatunnelX/agent/internal/logger"`，包名为 `logger`（与 backend 一致，不再使用 `agentlogger` 别名）。
+- **导入**：`"github.com/LeonYoah/stx/agent/internal/logger"`，包名为 `logger`（与 backend 一致，不再使用 `agentlogger` 别名）。
 - **调用方式**：与 backend 相同：`logger.DebugF(ctx, ...)`、`logger.InfoF(ctx, ...)`、`logger.WarnF(ctx, ...)`、`logger.ErrorF(ctx, ...)`，首参均为 `context.Context`。
 - **上下文传递**：**Agent 新写方法也建议将 `ctx` 作为首参并向下传递**，便于与主后端一致、后续若接 trace 可直接复用；方法内用 `a.ctx`、已有 `ctx` 的 handler 直接传入、闭包或无上下文处用 `context.Background()`。
 - **初始化**：须在 `agent/cmd/main.go` 中调用 `logger.Init(cfg)`，再使用 logger。

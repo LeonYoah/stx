@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-// Package cluster provides cluster management functionality for the SeaTunnelX Agent system.
-// cluster 包提供 SeaTunnelX Agent 系统的集群管理功能。
+// Package cluster provides cluster management functionality for the STX Agent system.
+// cluster 包提供 STX Agent 系统的集群管理功能。
 package cluster
 
 import (
@@ -27,9 +27,9 @@ import (
 	"strings"
 	"time"
 
-	appconfig "github.com/seatunnel/seatunnelX/internal/apps/config"
-	installerapp "github.com/seatunnel/seatunnelX/internal/apps/installer"
-	"github.com/seatunnel/seatunnelX/internal/logger"
+	appconfig "github.com/LeonYoah/stx/internal/apps/config"
+	installerapp "github.com/LeonYoah/stx/internal/apps/installer"
+	"github.com/LeonYoah/stx/internal/logger"
 	"gopkg.in/yaml.v3"
 )
 

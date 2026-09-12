@@ -1,4 +1,4 @@
-﻿/*
+/*
  * MIT License
  *
  * Copyright (c) 2025 linux.do
@@ -25,7 +25,7 @@
 package oauth
 
 import (
-	"github.com/seatunnel/seatunnelX/internal/config"
+	"github.com/LeonYoah/stx/internal/config"
 	"golang.org/x/oauth2"
 )
 

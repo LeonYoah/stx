@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-// Package cluster provides cluster management functionality for the SeaTunnelX Agent system.
-// cluster 包提供 SeaTunnelX Agent 系统的集群管理功能。
+// Package cluster provides cluster management functionality for the STX Agent system.
+// cluster 包提供 STX Agent 系统的集群管理功能。
 package cluster
 
 import (
@@ -29,11 +29,11 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/LeonYoah/stx/internal/apps/audit"
+	"github.com/LeonYoah/stx/internal/apps/auth"
+	installerapp "github.com/LeonYoah/stx/internal/apps/installer"
+	"github.com/LeonYoah/stx/internal/logger"
 	"github.com/gin-gonic/gin"
-	"github.com/seatunnel/seatunnelX/internal/apps/audit"
-	"github.com/seatunnel/seatunnelX/internal/apps/auth"
-	installerapp "github.com/seatunnel/seatunnelX/internal/apps/installer"
-	"github.com/seatunnel/seatunnelX/internal/logger"
 )
 
 // Handler provides HTTP handlers for cluster management operations.
@@ -252,15 +252,15 @@ type InspectIMAPRuntimeStorageResponse struct {
 	Data     *RuntimeStorageIMAPInspectResult `json:"data"`
 }
 
-// SeatunnelXJavaProxyResponse represents a managed seatunnelx-java-proxy response.
-type SeatunnelXJavaProxyResponse struct {
-	ErrorMsg string                     `json:"error_msg"`
-	Data     *SeatunnelXJavaProxyStatus `json:"data"`
+// STXJavaProxyResponse represents a managed stx-java-proxy response.
+type STXJavaProxyResponse struct {
+	ErrorMsg string              `json:"error_msg"`
+	Data     *STXJavaProxyStatus `json:"data"`
 }
 
-type SeatunnelXJavaProxyLogPreviewResponse struct {
-	ErrorMsg string                               `json:"error_msg"`
-	Data     *SeatunnelXJavaProxyLogPreviewResult `json:"data"`
+type STXJavaProxyLogPreviewResponse struct {
+	ErrorMsg string                        `json:"error_msg"`
+	Data     *STXJavaProxyLogPreviewResult `json:"data"`
 }
 
 // PrecheckNodeResponse represents the response for node precheck.
@@ -300,78 +300,78 @@ func (h *Handler) CreateCluster(c *gin.Context) {
 	c.JSON(http.StatusOK, CreateClusterResponse{Data: cluster.ToClusterInfo()})
 }
 
-// GetSeatunnelXJavaProxyStatus handles GET /api/v1/clusters/:id/seatunnelx-java-proxy/status.
-func (h *Handler) GetSeatunnelXJavaProxyStatus(c *gin.Context) {
+// GetSTXJavaProxyStatus handles GET /api/v1/clusters/:id/stx-java-proxy/status.
+func (h *Handler) GetSTXJavaProxyStatus(c *gin.Context) {
 	clusterID, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, SeatunnelXJavaProxyResponse{ErrorMsg: "invalid cluster id"})
+		c.JSON(http.StatusBadRequest, STXJavaProxyResponse{ErrorMsg: "invalid cluster id"})
 		return
 	}
-	status, err := h.service.GetSeatunnelXJavaProxyStatus(c.Request.Context(), uint(clusterID))
+	status, err := h.service.GetSTXJavaProxyStatus(c.Request.Context(), uint(clusterID))
 	if err != nil {
-		c.JSON(h.getStatusCodeForError(err), SeatunnelXJavaProxyResponse{ErrorMsg: err.Error(), Data: status})
+		c.JSON(h.getStatusCodeForError(err), STXJavaProxyResponse{ErrorMsg: err.Error(), Data: status})
 		return
 	}
-	c.JSON(http.StatusOK, SeatunnelXJavaProxyResponse{Data: status})
+	c.JSON(http.StatusOK, STXJavaProxyResponse{Data: status})
 }
 
-// StartSeatunnelXJavaProxy handles POST /api/v1/clusters/:id/seatunnelx-java-proxy/start.
-func (h *Handler) StartSeatunnelXJavaProxy(c *gin.Context) {
-	h.handleSeatunnelXJavaProxyOperation(c, func(ctx context.Context, clusterID uint) (*SeatunnelXJavaProxyStatus, error) {
-		return h.service.StartSeatunnelXJavaProxy(ctx, clusterID)
+// StartSTXJavaProxy handles POST /api/v1/clusters/:id/stx-java-proxy/start.
+func (h *Handler) StartSTXJavaProxy(c *gin.Context) {
+	h.handleSTXJavaProxyOperation(c, func(ctx context.Context, clusterID uint) (*STXJavaProxyStatus, error) {
+		return h.service.StartSTXJavaProxy(ctx, clusterID)
 	})
 }
 
-// StopSeatunnelXJavaProxy handles POST /api/v1/clusters/:id/seatunnelx-java-proxy/stop.
-func (h *Handler) StopSeatunnelXJavaProxy(c *gin.Context) {
-	h.handleSeatunnelXJavaProxyOperation(c, func(ctx context.Context, clusterID uint) (*SeatunnelXJavaProxyStatus, error) {
-		return h.service.StopSeatunnelXJavaProxy(ctx, clusterID)
+// StopSTXJavaProxy handles POST /api/v1/clusters/:id/stx-java-proxy/stop.
+func (h *Handler) StopSTXJavaProxy(c *gin.Context) {
+	h.handleSTXJavaProxyOperation(c, func(ctx context.Context, clusterID uint) (*STXJavaProxyStatus, error) {
+		return h.service.StopSTXJavaProxy(ctx, clusterID)
 	})
 }
 
-// RestartSeatunnelXJavaProxy handles POST /api/v1/clusters/:id/seatunnelx-java-proxy/restart.
-func (h *Handler) RestartSeatunnelXJavaProxy(c *gin.Context) {
-	h.handleSeatunnelXJavaProxyOperation(c, func(ctx context.Context, clusterID uint) (*SeatunnelXJavaProxyStatus, error) {
-		return h.service.RestartSeatunnelXJavaProxy(ctx, clusterID)
+// RestartSTXJavaProxy handles POST /api/v1/clusters/:id/stx-java-proxy/restart.
+func (h *Handler) RestartSTXJavaProxy(c *gin.Context) {
+	h.handleSTXJavaProxyOperation(c, func(ctx context.Context, clusterID uint) (*STXJavaProxyStatus, error) {
+		return h.service.RestartSTXJavaProxy(ctx, clusterID)
 	})
 }
 
-// PreviewSeatunnelXJavaProxyServiceLog handles GET /api/v1/clusters/:id/seatunnelx-java-proxy/logs.
-func (h *Handler) PreviewSeatunnelXJavaProxyServiceLog(c *gin.Context) {
+// PreviewSTXJavaProxyServiceLog handles GET /api/v1/clusters/:id/stx-java-proxy/logs.
+func (h *Handler) PreviewSTXJavaProxyServiceLog(c *gin.Context) {
 	clusterID, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, SeatunnelXJavaProxyLogPreviewResponse{ErrorMsg: "invalid cluster id"})
+		c.JSON(http.StatusBadRequest, STXJavaProxyLogPreviewResponse{ErrorMsg: "invalid cluster id"})
 		return
 	}
 	lines := 200
 	if linesValue := strings.TrimSpace(c.Query("lines")); linesValue != "" {
 		parsed, parseErr := strconv.Atoi(linesValue)
 		if parseErr != nil || parsed <= 0 {
-			c.JSON(http.StatusBadRequest, SeatunnelXJavaProxyLogPreviewResponse{ErrorMsg: "invalid lines"})
+			c.JSON(http.StatusBadRequest, STXJavaProxyLogPreviewResponse{ErrorMsg: "invalid lines"})
 			return
 		}
 		lines = parsed
 	}
-	result, err := h.service.GetSeatunnelXJavaProxyServiceLog(c.Request.Context(), uint(clusterID), lines)
+	result, err := h.service.GetSTXJavaProxyServiceLog(c.Request.Context(), uint(clusterID), lines)
 	if err != nil {
-		c.JSON(h.getStatusCodeForError(err), SeatunnelXJavaProxyLogPreviewResponse{ErrorMsg: err.Error(), Data: result})
+		c.JSON(h.getStatusCodeForError(err), STXJavaProxyLogPreviewResponse{ErrorMsg: err.Error(), Data: result})
 		return
 	}
-	c.JSON(http.StatusOK, SeatunnelXJavaProxyLogPreviewResponse{Data: result})
+	c.JSON(http.StatusOK, STXJavaProxyLogPreviewResponse{Data: result})
 }
 
-func (h *Handler) handleSeatunnelXJavaProxyOperation(c *gin.Context, fn func(context.Context, uint) (*SeatunnelXJavaProxyStatus, error)) {
+func (h *Handler) handleSTXJavaProxyOperation(c *gin.Context, fn func(context.Context, uint) (*STXJavaProxyStatus, error)) {
 	clusterID, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, SeatunnelXJavaProxyResponse{ErrorMsg: "invalid cluster id"})
+		c.JSON(http.StatusBadRequest, STXJavaProxyResponse{ErrorMsg: "invalid cluster id"})
 		return
 	}
 	status, err := fn(c.Request.Context(), uint(clusterID))
 	if err != nil {
-		c.JSON(h.getStatusCodeForError(err), SeatunnelXJavaProxyResponse{ErrorMsg: err.Error(), Data: status})
+		c.JSON(h.getStatusCodeForError(err), STXJavaProxyResponse{ErrorMsg: err.Error(), Data: status})
 		return
 	}
-	c.JSON(http.StatusOK, SeatunnelXJavaProxyResponse{Data: status})
+	c.JSON(http.StatusOK, STXJavaProxyResponse{Data: status})
 }
 
 // ListClusters handles GET /api/v1/clusters - lists clusters with filtering and pagination.

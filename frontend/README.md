@@ -1,6 +1,6 @@
-# Seatunnel X Frontend
+# STX Frontend
 
-🎨 Seatunnel X - 前端应用
+🎨 STX - 前端应用
 
 [![Next.js](https://img.shields.io/badge/Next.js-15-black.svg)](https://nextjs.org/)
 [![React](https://img.shields.io/badge/React-19-blue.svg)](https://reactjs.org/)

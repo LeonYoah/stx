@@ -73,8 +73,8 @@ type AppConfig struct {
 	// ExternalURL 是访问 Control Plane 的外部 URL。
 	// This is used for generating Agent install commands and other external references.
 	// 用于生成 Agent 安装命令和其他外部引用。
-	// Example: "http://192.168.1.100:8000" or "https://seatunnel.example.com"
-	// 示例: "http://192.168.1.100:8000" 或 "https://seatunnel.example.com"
+	// Example: "http://192.168.1.100:8000" or "https://stx.example.com"
+	// 示例: "http://192.168.1.100:8000" 或 "https://stx.example.com"
 	ExternalURL string `mapstructure:"external_url"`
 }
 
@@ -223,8 +223,8 @@ type ObservabilityConfig struct {
 type ObservabilityPrometheusConfig struct {
 	URL string `mapstructure:"url"`
 
-	// HTTPSDPath is the fixed HTTP SD endpoint path exposed by SeaTunnelX.
-	// HTTPSDPath 是 SeaTunnelX 暴露的 Prometheus HTTP SD 路径。
+	// HTTPSDPath is the fixed HTTP SD endpoint path exposed by STX.
+	// HTTPSDPath 是 STX 暴露的 Prometheus HTTP SD 路径。
 	HTTPSDPath string `mapstructure:"http_sd_path"`
 }
 
@@ -232,8 +232,8 @@ type ObservabilityPrometheusConfig struct {
 type ObservabilityAlertmanagerConfig struct {
 	URL string `mapstructure:"url"`
 
-	// WebhookPath is the fixed Alertmanager webhook path exposed by SeaTunnelX.
-	// WebhookPath 是 SeaTunnelX 暴露的 Alertmanager Webhook 路径。
+	// WebhookPath is the fixed Alertmanager webhook path exposed by STX.
+	// WebhookPath 是 STX 暴露的 Alertmanager Webhook 路径。
 	WebhookPath string `mapstructure:"webhook_path"`
 }
 

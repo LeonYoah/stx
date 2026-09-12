@@ -23,7 +23,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/seatunnel/seatunnelX/internal/config"
+	"github.com/LeonYoah/stx/internal/config"
 )
 
 // GetAlertPolicyCenterBootstrap returns unified policy-center bootstrap payload.
@@ -47,7 +47,7 @@ func (s *Service) GetAlertPolicyCenterBootstrap(ctx context.Context) (*AlertPoli
 		{
 			Key:     AlertPolicyCapabilityKeyPlatformHealth,
 			Title:   "Platform Health Policies",
-			Summary: "Use SeaTunnelX-managed runtime and cluster signals to detect health issues even without Prometheus.",
+			Summary: "Use STX-managed runtime and cluster signals to detect health issues even without Prometheus.",
 			Status:  AlertPolicyCapabilityStatusAvailable,
 		},
 		{
@@ -83,7 +83,7 @@ func (s *Service) GetAlertPolicyCenterBootstrap(ctx context.Context) (*AlertPoli
 		{
 			Key:     AlertPolicyCapabilityKeyInAppNotification,
 			Title:   "In-App Notification Center",
-			Summary: "Provide a built-in notification inbox, receiver experience, and recovery follow-up inside SeaTunnelX.",
+			Summary: "Provide a built-in notification inbox, receiver experience, and recovery follow-up inside STX.",
 			Status:  AlertPolicyCapabilityStatusPlanned,
 			Reason:  "Planned next step after the unified policy domain lands.",
 		},

@@ -24,10 +24,10 @@ import (
 	"strings"
 )
 
-const managedInstallMarkerFileName = ".seatunnelx-managed"
+const managedInstallMarkerFileName = ".stx-managed"
 
 // RemoveManagedInstallDir removes a SeaTunnel installation directory after validating
-// that the path is a SeaTunnelX-managed installation directory.
+// that the path is a STX-managed installation directory.
 func RemoveManagedInstallDir(installDir string) (string, error) {
 	clean, err := validateManagedInstallDir(installDir)
 	if err != nil {
@@ -47,7 +47,7 @@ func WriteManagedInstallMarker(installDir string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(clean, managedInstallMarkerFileName), []byte("managed_by=seatunnelx-agent\n"), 0644)
+	return os.WriteFile(filepath.Join(clean, managedInstallMarkerFileName), []byte("managed_by=stx-agent\n"), 0644)
 }
 
 func validateManagedInstallDir(installDir string) (string, error) {

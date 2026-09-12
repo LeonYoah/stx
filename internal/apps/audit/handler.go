@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-// Package audit provides command logging and audit trail functionality for the SeaTunnelX Agent system.
-// 审计包提供 SeaTunnelX Agent 系统的命令日志和审计追踪功能。
+// Package audit provides command logging and audit trail functionality for the STX Agent system.
+// 审计包提供 STX Agent 系统的命令日志和审计追踪功能。
 package audit
 
 import (

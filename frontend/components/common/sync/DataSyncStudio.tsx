@@ -1053,10 +1053,10 @@ function resolveBuiltinPreviewExpression(
     return formatBuiltinPreviewDate(now, 'yyyyMMddHHmmss');
   }
   if (trimmed === 'system.project.name') {
-    return 'SeaTunnelX';
+    return 'STX';
   }
   if (trimmed === 'system.project.code') {
-    return 'seatunnelx';
+    return 'stx';
   }
   if (/^add_months\((.+),(.+)\)$/.test(trimmed)) {
     const match = trimmed.match(/^add_months\((.+),(.+)\)$/);
@@ -1862,7 +1862,9 @@ function summarizeCheckpointSourceState(
       .join(' / ');
   } else if (firstSplit.database || firstSplit.table) {
     target = [firstSplit.database, firstSplit.table]
-      .filter((item) => item !== undefined && item !== null && String(item) !== '')
+      .filter(
+        (item) => item !== undefined && item !== null && String(item) !== '',
+      )
       .map((item) => String(item))
       .join('.');
   } else if (firstSplit.tableName) {
@@ -5386,7 +5388,9 @@ export function DataSyncStudio() {
         return;
       }
       const ancestorFolderIds: number[] = [];
-      let cursor = targetNode.parent_id ? findTreeNode(tree, targetNode.parent_id) : null;
+      let cursor = targetNode.parent_id
+        ? findTreeNode(tree, targetNode.parent_id)
+        : null;
       while (cursor) {
         if (cursor.node_type === 'folder') {
           ancestorFolderIds.unshift(cursor.id);
@@ -5859,7 +5863,9 @@ export function DataSyncStudio() {
           onOpenChange={(open) => {
             setScheduleDialogOpen(open);
             if (open) {
-              setScheduleDraft(extractTaskScheduleValue(editor.definition || {}));
+              setScheduleDraft(
+                extractTaskScheduleValue(editor.definition || {}),
+              );
             }
           }}
         >
@@ -5870,8 +5876,12 @@ export function DataSyncStudio() {
             <div className='min-h-0 flex-1 overflow-y-auto px-6 py-4'>
               <TaskScheduleSidebarPanel
                 value={scheduleDraft}
-                lastTriggeredAt={selectedScheduleNode?.schedule_last_triggered_at}
-                nextTriggeredAt={selectedScheduleNode?.schedule_next_triggered_at}
+                lastTriggeredAt={
+                  selectedScheduleNode?.schedule_last_triggered_at
+                }
+                nextTriggeredAt={
+                  selectedScheduleNode?.schedule_next_triggered_at
+                }
                 onChange={handleScheduleDraftChange}
                 className='mx-auto w-full max-w-6xl'
               />
@@ -5881,7 +5891,9 @@ export function DataSyncStudio() {
                 type='button'
                 variant='outline'
                 onClick={() => {
-                  setScheduleDraft(extractTaskScheduleValue(editor.definition || {}));
+                  setScheduleDraft(
+                    extractTaskScheduleValue(editor.definition || {}),
+                  );
                   setScheduleDialogOpen(false);
                 }}
               >
@@ -8542,14 +8554,22 @@ function CheckpointInspectSourceHighlightsSection({
                       </TableCell>
                       <TableCell>{formatCellValue(item.pluginName)}</TableCell>
                       <TableCell>
-                        {renderCheckpointFieldValue('currentOffset', summary.offset)}
+                        {renderCheckpointFieldValue(
+                          'currentOffset',
+                          summary.offset,
+                        )}
                       </TableCell>
                       <TableCell>
-                        {renderCheckpointFieldValue('sourceTarget', summary.target)}
+                        {renderCheckpointFieldValue(
+                          'sourceTarget',
+                          summary.target,
+                        )}
                       </TableCell>
                       <TableCell>{summary.splitCount}</TableCell>
                       <TableCell>{summary.progress}</TableCell>
-                      <TableCell>{formatCellValue(item.decodeStrategy)}</TableCell>
+                      <TableCell>
+                        {formatCellValue(item.decodeStrategy)}
+                      </TableCell>
                     </TableRow>
                   );
                 })}
@@ -8696,9 +8716,8 @@ function CheckpointInspectPrimaryTableSection({
               ? (row.sourceState?.subtasks as Record<string, unknown>[])
               : [];
             const subtaskRows = buildCheckpointSubtaskRows(row);
-            const subtaskSummaryRows = summarizeCheckpointSubtaskMetrics(
-              subtaskRows,
-            );
+            const subtaskSummaryRows =
+              summarizeCheckpointSubtaskMetrics(subtaskRows);
 
             return (
               <details
@@ -8712,15 +8731,21 @@ function CheckpointInspectPrimaryTableSection({
                     </div>
                     <div>{formatCellValue(actionState.parallelism)}</div>
                     <div>{formatCellValue(actionState.subtaskCount)}</div>
-                    <div>{formatCellValue(actionState.coordinatorStateChunks)}</div>
-                    <div>{formatCellValue(statistics.acknowledgedSubtasks)}</div>
+                    <div>
+                      {formatCellValue(actionState.coordinatorStateChunks)}
+                    </div>
+                    <div>
+                      {formatCellValue(statistics.acknowledgedSubtasks)}
+                    </div>
                     <div>
                       {renderCheckpointFieldValue(
                         'latestAckTimestamp',
                         statistics.latestAckTimestamp,
                       )}
                     </div>
-                    <div>{formatCellValue(row.sourceState?.decodeStrategy)}</div>
+                    <div>
+                      {formatCellValue(row.sourceState?.decodeStrategy)}
+                    </div>
                   </div>
                 </CheckpointDetailsSummary>
                 <div className='space-y-4 border-t border-border/50 p-3'>
@@ -8753,7 +8778,9 @@ function CheckpointInspectPrimaryTableSection({
                   {row.sourceState ? (
                     <details className='group rounded-md border border-border/50 bg-muted/5'>
                       <CheckpointDetailsSummary className='py-3 text-sm font-medium'>
-                        <span>{sourceStateTitle} / {rawDetailsLabel}</span>
+                        <span>
+                          {sourceStateTitle} / {rawDetailsLabel}
+                        </span>
                       </CheckpointDetailsSummary>
                       <div className='space-y-3 border-t border-border/50 p-3'>
                         <CheckpointInspectMiniObject

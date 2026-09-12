@@ -156,7 +156,7 @@ func buildSMTPMessage(config *NotificationChannelEmailConfig, payload *emailNoti
 	if err != nil {
 		return nil, err
 	}
-	boundary := fmt.Sprintf("=_SeaTunnelX_%d", time.Now().UTC().UnixNano())
+	boundary := fmt.Sprintf("=_STX_%d", time.Now().UTC().UnixNano())
 	headers = append(headers, fmt.Sprintf("Content-Type: multipart/alternative; boundary=%q", boundary))
 
 	var message strings.Builder

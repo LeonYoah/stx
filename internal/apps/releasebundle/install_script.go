@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-// Package releasebundle provides temporary download and install endpoints for SeaTunnelX bundles.
-// releasebundle 包提供 SeaTunnelX 离线发布包的临时下载与安装端点。
+// Package releasebundle provides temporary download and install endpoints for STX bundles.
+// releasebundle 包提供 STX 离线发布包的临时下载与安装端点。
 package releasebundle
 
 import (
@@ -36,8 +36,8 @@ type InstallScriptData struct {
 	ExampleCommand string
 }
 
-// GenerateInstallScript renders the SeaTunnelX bundle install script.
-// GenerateInstallScript 渲染 SeaTunnelX 离线包安装脚本。
+// GenerateInstallScript renders the STX bundle install script.
+// GenerateInstallScript 渲染 STX 离线包安装脚本。
 func GenerateInstallScript(data InstallScriptData) (string, error) {
 	if data.DownloadURL == "" {
 		return "", fmt.Errorf("download url is required")
@@ -62,7 +62,7 @@ func GenerateInstallScript(data InstallScriptData) (string, error) {
 const releaseBundleInstallScriptTemplate = `#!/usr/bin/env bash
 set -euo pipefail
 
-INSTALL_DIR="${INSTALL_DIR:-/opt/seatunnelx}"
+INSTALL_DIR="${INSTALL_DIR:-/opt/stx}"
 FORCE_INSTALL="${FORCE_INSTALL:-0}"
 PRESERVE_CONFIG="${PRESERVE_CONFIG:-1}"
 AUTO_START="${AUTO_START:-1}"
@@ -72,11 +72,11 @@ LOGIN_PASSWORD="${STX_PASSWORD:-}"
 DOWNLOAD_URL="{{.DownloadURL}}"
 
 log() {
-  printf '[SeaTunnelX] %s\n' "$*"
+  printf '[STX] %s\n' "$*"
 }
 
 fail() {
-  printf '[SeaTunnelX][ERROR] %s\n' "$*" >&2
+  printf '[STX][ERROR] %s\n' "$*" >&2
   exit 1
 }
 
@@ -110,11 +110,11 @@ prompt_credentials() {
   fi
 
   if [[ -z "${LOGIN_USERNAME}" ]]; then
-    printf 'SeaTunnelX username: ' > /dev/tty
+    printf 'STX username: ' > /dev/tty
     read -r LOGIN_USERNAME < /dev/tty
   fi
   if [[ -z "${LOGIN_PASSWORD}" ]]; then
-    printf 'SeaTunnelX password: ' > /dev/tty
+    printf 'STX password: ' > /dev/tty
     stty -echo < /dev/tty
     read -r LOGIN_PASSWORD < /dev/tty
     stty echo < /dev/tty
@@ -130,12 +130,12 @@ if [[ "${EUID}" -ne 0 ]]; then
   fail "please run this script with sudo or as root. Example: {{.ExampleCommand}}"
 fi
 
-WORK_DIR="$(mktemp -d "${TMP_ROOT%/}/seatunnelx-install.XXXXXX")"
+WORK_DIR="$(mktemp -d "${TMP_ROOT%/}/stx-install.XXXXXX")"
 trap cleanup EXIT
 
-ARCHIVE_PATH="${WORK_DIR}/seatunnelx.tar.gz"
+ARCHIVE_PATH="${WORK_DIR}/stx.tar.gz"
 prompt_credentials
-log "downloading SeaTunnelX bundle ..."
+log "downloading STX bundle ..."
 download_file "${DOWNLOAD_URL}" "${ARCHIVE_PATH}"
 
 log "extracting bundle ..."

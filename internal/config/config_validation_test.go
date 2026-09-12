@@ -43,7 +43,7 @@ func TestValidateConfig_MissingExternalURL(t *testing.T) {
 
 func TestValidateConfig_RemoteObservabilityHappyPath(t *testing.T) {
 	c := &configModel{}
-	c.App.ExternalURL = "https://seatunnelx.example.com"
+	c.App.ExternalURL = "https://stx.example.com"
 	c.Observability.Enabled = true
 	c.Observability.Prometheus.URL = "http://127.0.0.1:9090"
 	c.Observability.Alertmanager.URL = "http://127.0.0.1:9093"

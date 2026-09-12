@@ -15,15 +15,15 @@
  * limitations under the License.
  */
 
-// Package agent provides Agent distribution and management for the SeaTunnel Control Plane.
-// agent 包提供 SeaTunnel Control Plane 的 Agent 分发和管理功能。
+// Package agent provides Agent distribution and management for the STX Control Plane.
+// agent 包提供 STX Control Plane 的 Agent 分发和管理功能。
 package agent
 
 import (
 	"strings"
 	"testing"
 
-	seatunnelmeta "github.com/seatunnel/seatunnelX/internal/seatunnel"
+	seatunnelmeta "github.com/LeonYoah/stx/internal/seatunnel"
 )
 
 // TestNewInstallScriptGenerator tests the creation of InstallScriptGenerator.
@@ -90,7 +90,7 @@ func TestInstallScriptGenerate(t *testing.T) {
 		"#!/bin/bash",
 		"CONTROL_PLANE_ADDR=\"http://test-server:8080\"",
 		"GRPC_ADDR=\"test-server:50051\"",
-		"SUPPORT_DIR=\"/usr/local/lib/seatunnelx-agent\"",
+		"SUPPORT_DIR=\"/usr/local/lib/stx-agent\"",
 		"detect_os()",
 		"detect_arch()",
 		"download_agent",
@@ -101,14 +101,14 @@ func TestInstallScriptGenerate(t *testing.T) {
 		"start_agent",
 		"systemctl",
 		"/usr/local/bin",
-		"/etc/seatunnelx-agent",
-		"CAPABILITY_PROXY_VERSION=\"" + seatunnelmeta.DefaultSeatunnelXJavaProxyVersion + "\"",
-		"/api/v1/agent/assets/seatunnelx-java-proxy.jar?version=${CAPABILITY_PROXY_VERSION}",
-		"/api/v1/agent/assets/seatunnelx-java-proxy.sh",
-		"SEATUNNELX_JAVA_PROXY_HOME",
-		"SEATUNNELX_JAVA_PROXY_SCRIPT",
-		"seatunnelx-agent",
-		seatunnelmeta.SeatunnelXJavaProxyJarFileName(seatunnelmeta.DefaultSeatunnelXJavaProxyVersion),
+		"/etc/stx-agent",
+		"CAPABILITY_PROXY_VERSION=\"" + seatunnelmeta.DefaultSTXJavaProxyVersion + "\"",
+		"/api/v1/agent/assets/stx-java-proxy.jar?version=${CAPABILITY_PROXY_VERSION}",
+		"/api/v1/agent/assets/stx-java-proxy.sh",
+		"STX_JAVA_PROXY_HOME",
+		"STX_JAVA_PROXY_SCRIPT",
+		"stx-agent",
+		seatunnelmeta.STXJavaProxyJarFileName(seatunnelmeta.DefaultSTXJavaProxyVersion),
 	}
 
 	for _, expected := range expectedContents {
@@ -211,11 +211,11 @@ func TestGetBinaryName(t *testing.T) {
 		wantName string
 		wantOK   bool
 	}{
-		{"linux", "amd64", "seatunnelx-agent-linux-amd64", true},
-		{"linux", "arm64", "seatunnelx-agent-linux-arm64", true},
-		{"darwin", "amd64", "seatunnelx-agent-darwin-amd64", true},
-		{"darwin", "arm64", "seatunnelx-agent-darwin-arm64", true},
-		{"LINUX", "AMD64", "seatunnelx-agent-linux-amd64", true}, // Case insensitive
+		{"linux", "amd64", "stx-agent-linux-amd64", true},
+		{"linux", "arm64", "stx-agent-linux-arm64", true},
+		{"darwin", "amd64", "stx-agent-darwin-amd64", true},
+		{"darwin", "arm64", "stx-agent-darwin-arm64", true},
+		{"LINUX", "AMD64", "stx-agent-linux-amd64", true}, // Case insensitive
 		{"windows", "amd64", "", false},
 		{"linux", "386", "", false},
 	}
@@ -403,20 +403,20 @@ func TestInstallScriptContainsRequirements(t *testing.T) {
 		t.Error("Script missing download functionality (Requirement 2.2)")
 	}
 	if !strings.Contains(script, "download_support_assets") ||
-		!strings.Contains(script, "CAPABILITY_PROXY_VERSION=\""+seatunnelmeta.DefaultSeatunnelXJavaProxyVersion+"\"") ||
-		!strings.Contains(script, "/api/v1/agent/assets/seatunnelx-java-proxy.jar?version=${CAPABILITY_PROXY_VERSION}") {
-		t.Error("Script missing seatunnelx-java-proxy asset download functionality")
+		!strings.Contains(script, "CAPABILITY_PROXY_VERSION=\""+seatunnelmeta.DefaultSTXJavaProxyVersion+"\"") ||
+		!strings.Contains(script, "/api/v1/agent/assets/stx-java-proxy.jar?version=${CAPABILITY_PROXY_VERSION}") {
+		t.Error("Script missing stx-java-proxy asset download functionality")
 	}
 
 	// Requirement 2.3: Install to /usr/local/bin and create config
 	// 需求 2.3: 安装到 /usr/local/bin 并创建配置
-	if !strings.Contains(script, "/usr/local/bin") || !strings.Contains(script, "/etc/seatunnelx-agent") {
+	if !strings.Contains(script, "/usr/local/bin") || !strings.Contains(script, "/etc/stx-agent") {
 		t.Error("Script missing installation paths (Requirement 2.3)")
 	}
 	if !strings.Contains(script, "config.yaml") {
 		t.Error("Script missing config file creation (Requirement 2.3)")
 	}
-	if !strings.Contains(script, "/usr/local/lib/seatunnelx-agent") {
+	if !strings.Contains(script, "/usr/local/lib/stx-agent") {
 		t.Error("Script missing support asset installation path")
 	}
 

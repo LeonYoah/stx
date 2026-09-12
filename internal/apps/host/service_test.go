@@ -25,11 +25,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LeonYoah/stx/internal/apps/cluster"
 	"github.com/glebarez/sqlite"
 	"github.com/leanovate/gopter"
 	"github.com/leanovate/gopter/gen"
 	"github.com/leanovate/gopter/prop"
-	"github.com/seatunnel/seatunnelX/internal/apps/cluster"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
@@ -115,14 +115,14 @@ func genResourceUsage() gopter.Gen {
 	return gen.Float64Range(0.0, 100.0)
 }
 
-// **Feature: seatunnel-agent, Property 3: Agent Registration IP Matching**
+// **Feature: stx-agent, Property 3: Agent Registration IP Matching**
 // **Validates: Requirements 3.2**
 // For any Agent registration request, if the Agent's reported IP address matches
 // a registered host's IP address, the system SHALL update that host's Agent status
 // to "installed" and associate the Agent ID.
 
 func TestProperty_AgentRegistrationIPMatching(t *testing.T) {
-	// **Feature: seatunnel-agent, Property 3: Agent Registration IP Matching**
+	// **Feature: stx-agent, Property 3: Agent Registration IP Matching**
 	// **Validates: Requirements 3.2**
 
 	parameters := gopter.DefaultTestParameters()
@@ -270,14 +270,14 @@ func TestProperty_AgentRegistrationIPMatching(t *testing.T) {
 	properties.TestingRun(t)
 }
 
-// **Feature: seatunnel-agent, Property 4: Heartbeat Data Persistence**
+// **Feature: stx-agent, Property 4: Heartbeat Data Persistence**
 // **Validates: Requirements 3.3**
 // For any heartbeat message received from an Agent, the system SHALL update
 // the corresponding host's last_heartbeat timestamp and resource usage metrics
 // (CPU, memory, disk) to match the heartbeat data.
 
 func TestProperty_HeartbeatDataPersistence(t *testing.T) {
-	// **Feature: seatunnel-agent, Property 4: Heartbeat Data Persistence**
+	// **Feature: stx-agent, Property 4: Heartbeat Data Persistence**
 	// **Validates: Requirements 3.3**
 
 	parameters := gopter.DefaultTestParameters()
@@ -391,14 +391,14 @@ func floatEquals(a, b, tolerance float64) bool {
 	return diff <= tolerance
 }
 
-// **Feature: seatunnel-agent, Property 5: Host Offline Detection**
+// **Feature: stx-agent, Property 5: Host Offline Detection**
 // **Validates: Requirements 3.4**
 // For any host that has not received a heartbeat for more than 30 seconds,
 // the system SHALL mark the host's status as "offline".
 
 // 执行太久了 暂时屏蔽
 // func TestProperty_HostOfflineDetection(t *testing.T) {
-// 	// **Feature: seatunnel-agent, Property 5: Host Offline Detection**
+// 	// **Feature: stx-agent, Property 5: Host Offline Detection**
 // 	// **Validates: Requirements 3.4**
 
 // 	parameters := gopter.DefaultTestParameters()
@@ -576,13 +576,13 @@ func floatEquals(a, b, tolerance float64) bool {
 // 	properties.TestingRun(t)
 // }
 
-// **Feature: seatunnel-agent, Property 6: Host Deletion Constraint**
+// **Feature: stx-agent, Property 6: Host Deletion Constraint**
 // **Validates: Requirements 3.6**
 // For any host deletion request, if the host is associated with any cluster,
 // the system SHALL reject the deletion and return the list of associated clusters.
 
 func TestProperty_HostDeletionConstraint(t *testing.T) {
-	// **Feature: seatunnel-agent, Property 6: Host Deletion Constraint**
+	// **Feature: stx-agent, Property 6: Host Deletion Constraint**
 	// **Validates: Requirements 3.6**
 
 	parameters := gopter.DefaultTestParameters()

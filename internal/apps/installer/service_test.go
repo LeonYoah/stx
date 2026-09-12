@@ -28,7 +28,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/seatunnel/seatunnelX/internal/seatunnel"
+	"github.com/LeonYoah/stx/internal/seatunnel"
 )
 
 // TestFetchVersionsFromApache tests fetching versions from Apache Archive

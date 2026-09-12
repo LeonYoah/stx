@@ -25,10 +25,10 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/LeonYoah/stx/internal/apps/auth"
+	clusterapp "github.com/LeonYoah/stx/internal/apps/cluster"
+	hostapp "github.com/LeonYoah/stx/internal/apps/host"
 	"github.com/gin-gonic/gin"
-	"github.com/seatunnel/seatunnelX/internal/apps/auth"
-	clusterapp "github.com/seatunnel/seatunnelX/internal/apps/cluster"
-	hostapp "github.com/seatunnel/seatunnelX/internal/apps/host"
 )
 
 // Handler 处理升级预检查与计划接口。

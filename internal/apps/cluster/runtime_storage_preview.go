@@ -27,9 +27,9 @@ import (
 	"strconv"
 	"strings"
 
+	installerapp "github.com/LeonYoah/stx/internal/apps/installer"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
-	installerapp "github.com/seatunnel/seatunnelX/internal/apps/installer"
 )
 
 type RuntimeStoragePreviewResult struct {
@@ -108,7 +108,7 @@ func (s *Service) PreviewRuntimeStorage(
 	if err != nil {
 		return nil, err
 	}
-	node, hostInfo, err := s.pickSeatunnelXJavaProxyNode(ctx, clusterID)
+	node, hostInfo, err := s.pickSTXJavaProxyNode(ctx, clusterID)
 	if err != nil {
 		return nil, err
 	}
@@ -122,7 +122,7 @@ func (s *Service) PreviewRuntimeStorage(
 		maxBytes = 64 * 1024
 	}
 	params["max_bytes"] = strconv.Itoa(maxBytes)
-	success, output, err := s.agentSender.SendCommand(ctx, hostInfo.AgentID, "seatunnelx_java_proxy_preview", params)
+	success, output, err := s.agentSender.SendCommand(ctx, hostInfo.AgentID, "stx_java_proxy_preview", params)
 	result := runtimeStorageHostResultFromCommandOutput(success, output)
 	if err == nil && result.Success {
 		return decodeRuntimeStoragePreviewResult(clusterID, string(kind), result), nil
@@ -153,7 +153,7 @@ func (s *Service) InspectCheckpointRuntimeStorage(
 	if err != nil {
 		return nil, err
 	}
-	node, hostInfo, err := s.pickSeatunnelXJavaProxyNode(ctx, clusterID)
+	node, hostInfo, err := s.pickSTXJavaProxyNode(ctx, clusterID)
 	if err != nil {
 		return nil, err
 	}
@@ -175,7 +175,7 @@ func (s *Service) InspectCheckpointRuntimeStorage(
 		}
 		params := runtimeStorageProxyParams(node.InstallDir, clusterObj.Version, installerapp.RuntimeStorageValidationCheckpoint, cfg.Checkpoint, cfg.IMAP)
 		params["path"] = strings.TrimSpace(path)
-		success, output, sendErr := s.agentSender.SendCommand(ctx, hostInfo.AgentID, "seatunnelx_java_proxy_inspect_checkpoint", params)
+		success, output, sendErr := s.agentSender.SendCommand(ctx, hostInfo.AgentID, "stx_java_proxy_inspect_checkpoint", params)
 		result := runtimeStorageHostResultFromCommandOutput(success, output)
 		if sendErr == nil && result.Success {
 			inspectResult := decodeRuntimeStorageCheckpointInspectResult(clusterID, result)
@@ -202,7 +202,7 @@ func (s *Service) InspectCheckpointRuntimeStorage(
 		"path":           strings.TrimSpace(path),
 		"content_base64": contentBase64,
 	}
-	success, output, sendErr := s.agentSender.SendCommand(ctx, hostInfo.AgentID, "seatunnelx_java_proxy_inspect_checkpoint", params)
+	success, output, sendErr := s.agentSender.SendCommand(ctx, hostInfo.AgentID, "stx_java_proxy_inspect_checkpoint", params)
 	result := runtimeStorageHostResultFromCommandOutput(success, output)
 	if sendErr != nil {
 		return nil, sendErr
@@ -236,7 +236,7 @@ func (s *Service) InspectIMAPRuntimeStorage(
 	if err != nil {
 		return nil, err
 	}
-	node, hostInfo, err := s.pickSeatunnelXJavaProxyNode(ctx, clusterID)
+	node, hostInfo, err := s.pickSTXJavaProxyNode(ctx, clusterID)
 	if err != nil {
 		return nil, err
 	}
@@ -264,7 +264,7 @@ func (s *Service) InspectIMAPRuntimeStorage(
 		params = runtimeStorageProxyParams(node.InstallDir, clusterObj.Version, installerapp.RuntimeStorageValidationIMAP, cfg.Checkpoint, cfg.IMAP)
 		params["path"] = strings.TrimSpace(path)
 	}
-	success, output, sendErr := s.agentSender.SendCommand(ctx, hostInfo.AgentID, "seatunnelx_java_proxy_inspect_imap_wal", params)
+	success, output, sendErr := s.agentSender.SendCommand(ctx, hostInfo.AgentID, "stx_java_proxy_inspect_imap_wal", params)
 	result := runtimeStorageHostResultFromCommandOutput(success, output)
 	if sendErr != nil {
 		return nil, sendErr
@@ -349,7 +349,7 @@ func (s *Service) inspectCheckpointSourceStateRuntimeStorage(
 	success, output, sendErr := s.agentSender.SendCommand(
 		ctx,
 		hostInfo.AgentID,
-		"seatunnelx_java_proxy_inspect_checkpoint_source_state",
+		"stx_java_proxy_inspect_checkpoint_source_state",
 		params,
 	)
 	if sendErr != nil {

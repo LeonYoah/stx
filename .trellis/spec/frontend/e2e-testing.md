@@ -23,6 +23,7 @@
     - `cd frontend && pnpm run test:e2e`
     - `cd frontend && pnpm run test:e2e:mock`
     - `cd frontend && pnpm run test:e2e:plugin-template`
+    - `cd frontend && pnpm run test:e2e:workbench-real`
 - 现成样例：
     - `frontend/e2e/login-ui.spec.ts`
     - `frontend/e2e/dashboard.spec.ts`
@@ -35,13 +36,14 @@
     - `frontend/e2e/config-real.spec.ts`
     - `frontend/e2e/upgrade-real.spec.ts`
     - `frontend/e2e/plugin-real.spec.ts`
+    - `frontend/e2e/workbench-real.spec.ts`
 
 ### 3. Contracts
 
 - 功能代码契约：
     - 新增或修改主用户流、跨层交互、多步骤向导、核心增删改动作时，必须同步补一份 E2E 参考
     - 这份参考至少包含：场景 spec、必要锚点、夹具或真实入口页
-    - 如果本次沉淀出新的复用模式，还要把样例入口补到 `frontend/index.md` 可索引的位置
+    - 如果本次形成新的复用模式，还要把样例入口补到 `.trellis/spec/frontend/index.md` 可索引的位置
 - 反例契约：
     - 主流程模板除了“成功路径”，还应至少保留一个失败或阻断样例
 - 安装类流程优先覆盖“失败后停留在当前步骤并给出重试/回滚提示”
@@ -163,6 +165,7 @@
     - 升级准备（正向 + 阻断态）
     - 登录 / Dashboard
 - 真实环境 E2E（例如 installer-real / config-real / upgrade-real / plugin-real）不进入 smoke 选择器，改由统一 `E2E` workflow 的 suite 级 path filter 决定是否运行
+- 工作台真实套件使用 `frontend/e2e/workbench-real.spec.ts` 与 `frontend/e2e/helpers/workbench-real.ts`，通过 `pnpm run test:e2e:workbench-real` 启动。
 - 下列共享变更会退化为全量 E2E smoke：
     - `frontend/playwright.config.ts`
     - `frontend/package.json`
@@ -172,7 +175,7 @@
     - `config.e2e.yaml`
 - 选择器新增了新功能域后，要同步更新：
     - `frontend/scripts/e2e/select-e2e-specs.mjs`
-    - `frontend/index.md`
+    - `.trellis/spec/frontend/index.md`
     - 对应模板样例入口
 
 ## 落地清单

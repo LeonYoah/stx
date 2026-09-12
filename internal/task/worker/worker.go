@@ -27,7 +27,7 @@ package worker
 import "errors"
 
 // ErrWorkerRemoved 表示 legacy worker 链路已移除。
-var ErrWorkerRemoved = errors.New("legacy worker mode has been removed from SeaTunnelX")
+var ErrWorkerRemoved = errors.New("legacy worker mode has been removed from STX")
 
 // StartWorker 保留命令入口，但默认产品已不再提供该 legacy worker 能力。
 func StartWorker() error {

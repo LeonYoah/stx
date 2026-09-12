@@ -34,29 +34,28 @@ import (
 	"strings"
 	"time"
 
-	"github.com/seatunnel/seatunnelX/agent/internal/logger"
-	seatunnelmeta "github.com/seatunnel/seatunnelX/internal/seatunnel"
+	"github.com/LeonYoah/stx/agent/internal/logger"
+	seatunnelmeta "github.com/LeonYoah/stx/internal/seatunnel"
 	"gopkg.in/yaml.v3"
 )
 
 const (
-	seatunnelxJavaProxyHomeEnvVar        = "SEATUNNELX_JAVA_PROXY_HOME"
-	seatunnelxJavaProxyJarEnvVar         = "SEATUNNELX_JAVA_PROXY_JAR"
-	seatunnelxJavaProxyScriptEnvVar      = "SEATUNNELX_JAVA_PROXY_SCRIPT"
-	seatunnelxJavaProxyEndpointEnvVar    = "SEATUNNELX_JAVA_PROXY_ENDPOINT"
-	seatunnelxJavaProxyPortEnvVar        = "SEATUNNELX_JAVA_PROXY_PORT"
-	seatunnelProxyJarEnvVar              = "SEATUNNEL_PROXY_JAR"
-	seatunnelProxyVersionEnvVar          = "SEATUNNELX_JAVA_PROXY_VERSION"
-	seatunnelxJavaProxyDefaultSupportDir = "/usr/local/lib/seatunnelx-agent"
-	runtimeProbeTimeout                  = 20 * time.Second
-	runtimeProbeBusinessName             = "imap-probe"
-	runtimeProbeClusterName              = "seatunnel-cluster"
-	seatunnelxJavaProxyDefaultHost       = "127.0.0.1"
-	seatunnelxJavaProxyDefaultPort       = 18080
-	seatunnelxJavaProxyHealthPath        = "/healthz"
-	seatunnelxJavaProxyStateDirName      = ".seatunnelx"
-	seatunnelxJavaProxyServiceDirName    = "seatunnelx-java-proxy"
-	seatunnelxJavaProxyStartupWait       = 12 * time.Second
+	stxJavaProxyHomeEnvVar        = "STX_JAVA_PROXY_HOME"
+	stxJavaProxyJarEnvVar         = "STX_JAVA_PROXY_JAR"
+	stxJavaProxyScriptEnvVar      = "STX_JAVA_PROXY_SCRIPT"
+	stxJavaProxyEndpointEnvVar    = "STX_JAVA_PROXY_ENDPOINT"
+	stxJavaProxyPortEnvVar        = "STX_JAVA_PROXY_PORT"
+	stxJavaProxyVersionEnvVar     = "STX_JAVA_PROXY_VERSION"
+	stxJavaProxyDefaultSupportDir = "/usr/local/lib/stx-agent"
+	runtimeProbeTimeout           = 20 * time.Second
+	runtimeProbeBusinessName      = "imap-probe"
+	runtimeProbeClusterName       = "seatunnel-cluster"
+	stxJavaProxyDefaultHost       = "127.0.0.1"
+	stxJavaProxyDefaultPort       = 18080
+	stxJavaProxyHealthPath        = "/healthz"
+	stxJavaProxyStateDirName      = ".stx"
+	stxJavaProxyServiceDirName    = "stx-java-proxy"
+	stxJavaProxyStartupWait       = 12 * time.Second
 )
 
 type runtimeStorageProbeResponse struct {
@@ -407,7 +406,7 @@ func (m *InstallerManager) executeRuntimeStorageProbe(
 	if err != nil {
 		logger.WarnF(
 			ctx,
-			"[Install] managed seatunnelx-java-proxy service unavailable, falling back to probe-once CLI: install_dir=%s, kind=%s, error=%v",
+			"[Install] managed stx-java-proxy service unavailable, falling back to probe-once CLI: install_dir=%s, kind=%s, error=%v",
 			installDir,
 			kind,
 			err,
@@ -424,7 +423,7 @@ func (m *InstallerManager) executeRuntimeStorageProbeViaManagedService(
 	kind string,
 	request map[string]interface{},
 ) (*runtimeStorageProbeResponse, error) {
-	baseURL, err := ensureSeatunnelXJavaProxyService(ctx, installDir, seatunnelVersion)
+	baseURL, err := ensureSTXJavaProxyService(ctx, installDir, seatunnelVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -440,30 +439,30 @@ func (m *InstallerManager) executeRuntimeStorageProbeViaManagedService(
 	url := strings.TrimRight(baseURL, "/") + "/api/v1/storage/" + kind + "/probe"
 	req, err := http.NewRequestWithContext(probeCtx, http.MethodPost, url, bytes.NewReader(payload))
 	if err != nil {
-		return nil, fmt.Errorf("create managed seatunnelx-java-proxy request: %w", err)
+		return nil, fmt.Errorf("create managed stx-java-proxy request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := (&http.Client{}).Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("call managed seatunnelx-java-proxy service %s: %w", url, err)
+		return nil, fmt.Errorf("call managed stx-java-proxy service %s: %w", url, err)
 	}
 	defer resp.Body.Close()
 
 	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if readErr != nil {
-		return nil, fmt.Errorf("read managed seatunnelx-java-proxy response: %w", readErr)
+		return nil, fmt.Errorf("read managed stx-java-proxy response: %w", readErr)
 	}
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return nil, fmt.Errorf("managed seatunnelx-java-proxy returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return nil, fmt.Errorf("managed stx-java-proxy returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 	if len(body) == 0 {
-		return nil, fmt.Errorf("managed seatunnelx-java-proxy returned an empty response")
+		return nil, fmt.Errorf("managed stx-java-proxy returned an empty response")
 	}
 
 	var response runtimeStorageProbeResponse
 	if err := json.Unmarshal(body, &response); err != nil {
-		return nil, fmt.Errorf("parse managed seatunnelx-java-proxy response: %w", err)
+		return nil, fmt.Errorf("parse managed stx-java-proxy response: %w", err)
 	}
 	return &response, nil
 }
@@ -475,11 +474,11 @@ func (m *InstallerManager) executeRuntimeStorageProbeWithCLI(
 	kind string,
 	request map[string]interface{},
 ) (*runtimeStorageProbeResponse, error) {
-	scriptPath, err := resolveSeatunnelXJavaProxyScriptPath(installDir)
+	scriptPath, err := resolveSTXJavaProxyScriptPath(installDir)
 	if err != nil {
 		return nil, err
 	}
-	jarPath, err := resolveSeatunnelXJavaProxyJarPath(installDir, seatunnelVersion)
+	jarPath, err := resolveSTXJavaProxyJarPath(installDir, seatunnelVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -517,8 +516,8 @@ func (m *InstallerManager) executeRuntimeStorageProbeWithCLI(
 	cmd.Env = append(
 		os.Environ(),
 		fmt.Sprintf("SEATUNNEL_HOME=%s", installDir),
-		fmt.Sprintf("%s=%s", seatunnelProxyJarEnvVar, jarPath),
-		fmt.Sprintf("%s=%s", seatunnelProxyVersionEnvVar, defaultSeatunnelXJavaProxyVersion(seatunnelVersion)),
+		fmt.Sprintf("%s=%s", stxJavaProxyJarEnvVar, jarPath),
+		fmt.Sprintf("%s=%s", stxJavaProxyVersionEnvVar, defaultSTXJavaProxyVersion(seatunnelVersion)),
 	)
 	output, execErr := cmd.CombinedOutput()
 
@@ -528,7 +527,7 @@ func (m *InstallerManager) executeRuntimeStorageProbeWithCLI(
 	}
 	if execErr != nil {
 		return nil, fmt.Errorf(
-			"run seatunnelx-java-proxy probe with script %s and jar %s: %v: %s",
+			"run stx-java-proxy probe with script %s and jar %s: %v: %s",
 			scriptPath,
 			jarPath,
 			execErr,
@@ -541,61 +540,61 @@ func (m *InstallerManager) executeRuntimeStorageProbeWithCLI(
 	return nil, fmt.Errorf("runtime probe returned no response")
 }
 
-func ensureSeatunnelXJavaProxyService(ctx context.Context, installDir string, seatunnelVersion string) (string, error) {
-	if endpoint := strings.TrimSpace(os.Getenv(seatunnelxJavaProxyEndpointEnvVar)); endpoint != "" {
+func ensureSTXJavaProxyService(ctx context.Context, installDir string, seatunnelVersion string) (string, error) {
+	if endpoint := strings.TrimSpace(os.Getenv(stxJavaProxyEndpointEnvVar)); endpoint != "" {
 		normalized := strings.TrimRight(endpoint, "/")
-		if err := waitForSeatunnelXJavaProxyHealthy(ctx, normalized, 2*time.Second); err != nil {
-			return "", fmt.Errorf("configured seatunnelx-java-proxy endpoint %s is unhealthy: %w", normalized, err)
+		if err := waitForSTXJavaProxyHealthy(ctx, normalized, 2*time.Second); err != nil {
+			return "", fmt.Errorf("configured stx-java-proxy endpoint %s is unhealthy: %w", normalized, err)
 		}
 		return normalized, nil
 	}
 
 	if !fileExists(filepath.Join(installDir, "starter", "seatunnel-starter.jar")) {
-		return "", fmt.Errorf("seatunnel runtime is unavailable under %s; managed seatunnelx-java-proxy service requires extracted runtime", installDir)
+		return "", fmt.Errorf("seatunnel runtime is unavailable under %s; managed stx-java-proxy service requires extracted runtime", installDir)
 	}
 
-	scriptPath, err := resolveSeatunnelXJavaProxyScriptPath(installDir)
+	scriptPath, err := resolveSTXJavaProxyScriptPath(installDir)
 	if err != nil {
 		return "", err
 	}
-	jarPath, err := resolveSeatunnelXJavaProxyJarPath(installDir, seatunnelVersion)
+	jarPath, err := resolveSTXJavaProxyJarPath(installDir, seatunnelVersion)
 	if err != nil {
 		return "", err
 	}
 
-	stateDir := seatunnelxJavaProxyServiceStateDir(installDir)
+	stateDir := stxJavaProxyServiceStateDir(installDir)
 	if err := os.MkdirAll(stateDir, 0o755); err != nil {
-		return "", fmt.Errorf("create seatunnelx-java-proxy state dir: %w", err)
+		return "", fmt.Errorf("create stx-java-proxy state dir: %w", err)
 	}
 
-	for _, port := range seatunnelxJavaProxyPortCandidates(stateDir) {
+	for _, port := range stxJavaProxyPortCandidates(stateDir) {
 		if port <= 0 {
 			continue
 		}
-		baseURL := seatunnelxJavaProxyServiceBaseURL(port)
-		if err := waitForSeatunnelXJavaProxyHealthy(ctx, baseURL, 1500*time.Millisecond); err == nil {
+		baseURL := stxJavaProxyServiceBaseURL(port)
+		if err := waitForSTXJavaProxyHealthy(ctx, baseURL, 1500*time.Millisecond); err == nil {
 			_ = os.WriteFile(filepath.Join(stateDir, "service.port"), []byte(strconv.Itoa(port)+"\n"), 0o644)
 			return baseURL, nil
 		}
 	}
 
-	port := seatunnelxJavaProxyPreferredPort(stateDir)
-	baseURL, err := startSeatunnelXJavaProxyService(ctx, installDir, seatunnelVersion, scriptPath, jarPath, stateDir, port)
+	port := stxJavaProxyPreferredPort(stateDir)
+	baseURL, err := startSTXJavaProxyService(ctx, installDir, seatunnelVersion, scriptPath, jarPath, stateDir, port)
 	if err == nil {
 		return baseURL, nil
 	}
-	if os.Getenv(seatunnelxJavaProxyPortEnvVar) != "" {
+	if os.Getenv(stxJavaProxyPortEnvVar) != "" {
 		return "", err
 	}
 
-	fallbackPort, portErr := findOpenSeatunnelXJavaProxyPort()
+	fallbackPort, portErr := findOpenSTXJavaProxyPort()
 	if portErr != nil || fallbackPort == port {
 		return "", err
 	}
-	return startSeatunnelXJavaProxyService(ctx, installDir, seatunnelVersion, scriptPath, jarPath, stateDir, fallbackPort)
+	return startSTXJavaProxyService(ctx, installDir, seatunnelVersion, scriptPath, jarPath, stateDir, fallbackPort)
 }
 
-func startSeatunnelXJavaProxyService(
+func startSTXJavaProxyService(
 	ctx context.Context,
 	installDir string,
 	seatunnelVersion string,
@@ -607,12 +606,12 @@ func startSeatunnelXJavaProxyService(
 	logPath := filepath.Join(stateDir, "service.log")
 	if _, err := os.Stat(logPath); os.IsNotExist(err) {
 		if err := os.WriteFile(logPath, []byte{}, 0o644); err != nil {
-			return "", fmt.Errorf("create seatunnelx-java-proxy log file: %w", err)
+			return "", fmt.Errorf("create stx-java-proxy log file: %w", err)
 		}
 	}
 
 	command := fmt.Sprintf(
-		"nohup bash %q -Dseatunnelx.java.proxy.port=%d >> %q 2>&1 < /dev/null & echo $!",
+		"nohup bash %q -Dstx.java.proxy.port=%d >> %q 2>&1 < /dev/null & echo $!",
 		scriptPath,
 		port,
 		logPath,
@@ -624,12 +623,12 @@ func startSeatunnelXJavaProxyService(
 	cmd.Env = append(
 		os.Environ(),
 		fmt.Sprintf("SEATUNNEL_HOME=%s", installDir),
-		fmt.Sprintf("%s=%s", seatunnelProxyJarEnvVar, jarPath),
-		fmt.Sprintf("%s=%s", seatunnelProxyVersionEnvVar, defaultSeatunnelXJavaProxyVersion(seatunnelVersion)),
+		fmt.Sprintf("%s=%s", stxJavaProxyJarEnvVar, jarPath),
+		fmt.Sprintf("%s=%s", stxJavaProxyVersionEnvVar, defaultSTXJavaProxyVersion(seatunnelVersion)),
 	)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("start managed seatunnelx-java-proxy service: %v: %s", err, strings.TrimSpace(string(output)))
+		return "", fmt.Errorf("start managed stx-java-proxy service: %v: %s", err, strings.TrimSpace(string(output)))
 	}
 
 	pidText := strings.TrimSpace(string(output))
@@ -637,18 +636,18 @@ func startSeatunnelXJavaProxyService(
 		_ = os.WriteFile(filepath.Join(stateDir, "service.pid"), []byte(pidText+"\n"), 0o644)
 	}
 	if err := os.WriteFile(filepath.Join(stateDir, "service.port"), []byte(strconv.Itoa(port)+"\n"), 0o644); err != nil {
-		return "", fmt.Errorf("persist seatunnelx-java-proxy port: %w", err)
+		return "", fmt.Errorf("persist stx-java-proxy port: %w", err)
 	}
 
-	baseURL := seatunnelxJavaProxyServiceBaseURL(port)
-	if err := waitForSeatunnelXJavaProxyHealthy(ctx, baseURL, seatunnelxJavaProxyStartupWait); err != nil {
-		return "", fmt.Errorf("wait for managed seatunnelx-java-proxy service on %s: %w", baseURL, err)
+	baseURL := stxJavaProxyServiceBaseURL(port)
+	if err := waitForSTXJavaProxyHealthy(ctx, baseURL, stxJavaProxyStartupWait); err != nil {
+		return "", fmt.Errorf("wait for managed stx-java-proxy service on %s: %w", baseURL, err)
 	}
 	return baseURL, nil
 }
 
-func waitForSeatunnelXJavaProxyHealthy(ctx context.Context, baseURL string, timeout time.Duration) error {
-	healthURL := strings.TrimRight(baseURL, "/") + seatunnelxJavaProxyHealthPath
+func waitForSTXJavaProxyHealthy(ctx context.Context, baseURL string, timeout time.Duration) error {
+	healthURL := strings.TrimRight(baseURL, "/") + stxJavaProxyHealthPath
 	deadline := time.Now().Add(timeout)
 	client := &http.Client{Timeout: 1500 * time.Millisecond}
 	var lastErr error
@@ -673,7 +672,7 @@ func waitForSeatunnelXJavaProxyHealthy(ctx context.Context, baseURL string, time
 
 		if time.Now().After(deadline) {
 			if lastErr == nil {
-				lastErr = fmt.Errorf("timed out waiting for seatunnelx-java-proxy health")
+				lastErr = fmt.Errorf("timed out waiting for stx-java-proxy health")
 			}
 			return lastErr
 		}
@@ -689,25 +688,25 @@ func waitForSeatunnelXJavaProxyHealthy(ctx context.Context, baseURL string, time
 	}
 }
 
-func seatunnelxJavaProxyServiceStateDir(installDir string) string {
-	return filepath.Join(installDir, seatunnelxJavaProxyStateDirName, seatunnelxJavaProxyServiceDirName)
+func stxJavaProxyServiceStateDir(installDir string) string {
+	return filepath.Join(installDir, stxJavaProxyStateDirName, stxJavaProxyServiceDirName)
 }
 
-func seatunnelxJavaProxyServiceBaseURL(port int) string {
-	return fmt.Sprintf("http://%s:%d", seatunnelxJavaProxyDefaultHost, port)
+func stxJavaProxyServiceBaseURL(port int) string {
+	return fmt.Sprintf("http://%s:%d", stxJavaProxyDefaultHost, port)
 }
 
-func seatunnelxJavaProxyPortCandidates(stateDir string) []int {
+func stxJavaProxyPortCandidates(stateDir string) []int {
 	candidates := make([]int, 0, 3)
-	if port, ok := parseSeatunnelXJavaProxyPort(strings.TrimSpace(os.Getenv(seatunnelxJavaProxyPortEnvVar))); ok {
+	if port, ok := parseSTXJavaProxyPort(strings.TrimSpace(os.Getenv(stxJavaProxyPortEnvVar))); ok {
 		candidates = append(candidates, port)
 	}
 	if bytes, err := os.ReadFile(filepath.Join(stateDir, "service.port")); err == nil {
-		if port, ok := parseSeatunnelXJavaProxyPort(strings.TrimSpace(string(bytes))); ok {
+		if port, ok := parseSTXJavaProxyPort(strings.TrimSpace(string(bytes))); ok {
 			candidates = append(candidates, port)
 		}
 	}
-	candidates = append(candidates, seatunnelxJavaProxyDefaultPort)
+	candidates = append(candidates, stxJavaProxyDefaultPort)
 
 	seen := make(map[int]struct{}, len(candidates))
 	result := make([]int, 0, len(candidates))
@@ -724,15 +723,15 @@ func seatunnelxJavaProxyPortCandidates(stateDir string) []int {
 	return result
 }
 
-func seatunnelxJavaProxyPreferredPort(stateDir string) int {
-	candidates := seatunnelxJavaProxyPortCandidates(stateDir)
+func stxJavaProxyPreferredPort(stateDir string) int {
+	candidates := stxJavaProxyPortCandidates(stateDir)
 	if len(candidates) > 0 {
 		return candidates[0]
 	}
-	return seatunnelxJavaProxyDefaultPort
+	return stxJavaProxyDefaultPort
 }
 
-func parseSeatunnelXJavaProxyPort(value string) (int, bool) {
+func parseSTXJavaProxyPort(value string) (int, bool) {
 	if strings.TrimSpace(value) == "" {
 		return 0, false
 	}
@@ -743,8 +742,8 @@ func parseSeatunnelXJavaProxyPort(value string) (int, bool) {
 	return port, true
 }
 
-func findOpenSeatunnelXJavaProxyPort() (int, error) {
-	listener, err := net.Listen("tcp", net.JoinHostPort(seatunnelxJavaProxyDefaultHost, "0"))
+func findOpenSTXJavaProxyPort() (int, error) {
+	listener, err := net.Listen("tcp", net.JoinHostPort(stxJavaProxyDefaultHost, "0"))
 	if err != nil {
 		return 0, err
 	}
@@ -752,7 +751,7 @@ func findOpenSeatunnelXJavaProxyPort() (int, error) {
 
 	addr, ok := listener.Addr().(*net.TCPAddr)
 	if !ok || addr.Port <= 0 {
-		return 0, fmt.Errorf("failed to resolve seatunnelx-java-proxy port from listener address")
+		return 0, fmt.Errorf("failed to resolve stx-java-proxy port from listener address")
 	}
 	return addr.Port, nil
 }
@@ -779,7 +778,7 @@ func executeRuntimeStorageStatViaManagedService(
 	kind string,
 	request map[string]interface{},
 ) (*RuntimeStorageStatResult, error) {
-	baseURL, err := ensureSeatunnelXJavaProxyService(ctx, installDir, seatunnelVersion)
+	baseURL, err := ensureSTXJavaProxyService(ctx, installDir, seatunnelVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -792,27 +791,27 @@ func executeRuntimeStorageStatViaManagedService(
 	url := strings.TrimRight(baseURL, "/") + "/api/v1/storage/" + kind + "/stat"
 	req, err := http.NewRequestWithContext(statCtx, http.MethodPost, url, bytes.NewReader(payload))
 	if err != nil {
-		return nil, fmt.Errorf("create managed seatunnelx-java-proxy stat request: %w", err)
+		return nil, fmt.Errorf("create managed stx-java-proxy stat request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := (&http.Client{}).Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("call managed seatunnelx-java-proxy stat service %s: %w", url, err)
+		return nil, fmt.Errorf("call managed stx-java-proxy stat service %s: %w", url, err)
 	}
 	defer resp.Body.Close()
 	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if readErr != nil {
-		return nil, fmt.Errorf("read managed seatunnelx-java-proxy stat response: %w", readErr)
+		return nil, fmt.Errorf("read managed stx-java-proxy stat response: %w", readErr)
 	}
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return nil, fmt.Errorf("managed seatunnelx-java-proxy stat returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return nil, fmt.Errorf("managed stx-java-proxy stat returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 	if len(body) == 0 {
-		return nil, fmt.Errorf("managed seatunnelx-java-proxy stat returned an empty response")
+		return nil, fmt.Errorf("managed stx-java-proxy stat returned an empty response")
 	}
 	var result RuntimeStorageStatResult
 	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("parse managed seatunnelx-java-proxy stat response: %w", err)
+		return nil, fmt.Errorf("parse managed stx-java-proxy stat response: %w", err)
 	}
 	return &result, nil
 }
@@ -856,7 +855,7 @@ func executeRuntimeStorageListViaManagedService(
 	kind string,
 	request map[string]interface{},
 ) (*RuntimeStorageListResult, error) {
-	baseURL, err := ensureSeatunnelXJavaProxyService(ctx, installDir, seatunnelVersion)
+	baseURL, err := ensureSTXJavaProxyService(ctx, installDir, seatunnelVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -869,27 +868,27 @@ func executeRuntimeStorageListViaManagedService(
 	url := strings.TrimRight(baseURL, "/") + "/api/v1/storage/" + kind + "/list"
 	req, err := http.NewRequestWithContext(listCtx, http.MethodPost, url, bytes.NewReader(payload))
 	if err != nil {
-		return nil, fmt.Errorf("create managed seatunnelx-java-proxy list request: %w", err)
+		return nil, fmt.Errorf("create managed stx-java-proxy list request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := (&http.Client{}).Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("call managed seatunnelx-java-proxy list service %s: %w", url, err)
+		return nil, fmt.Errorf("call managed stx-java-proxy list service %s: %w", url, err)
 	}
 	defer resp.Body.Close()
 	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if readErr != nil {
-		return nil, fmt.Errorf("read managed seatunnelx-java-proxy list response: %w", readErr)
+		return nil, fmt.Errorf("read managed stx-java-proxy list response: %w", readErr)
 	}
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return nil, fmt.Errorf("managed seatunnelx-java-proxy list returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return nil, fmt.Errorf("managed stx-java-proxy list returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 	if len(body) == 0 {
-		return nil, fmt.Errorf("managed seatunnelx-java-proxy list returned an empty response")
+		return nil, fmt.Errorf("managed stx-java-proxy list returned an empty response")
 	}
 	var result RuntimeStorageListResult
 	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("parse managed seatunnelx-java-proxy list response: %w", err)
+		return nil, fmt.Errorf("parse managed stx-java-proxy list response: %w", err)
 	}
 	return &result, nil
 }
@@ -1057,31 +1056,31 @@ func resolveRuntimeProbeClusterName(installDir string, deploymentMode Deployment
 	return runtimeProbeClusterName
 }
 
-func resolveSeatunnelXJavaProxyScriptPath(installDir string) (string, error) {
-	if envPath := strings.TrimSpace(os.Getenv(seatunnelxJavaProxyScriptEnvVar)); envPath != "" {
+func resolveSTXJavaProxyScriptPath(installDir string) (string, error) {
+	if envPath := strings.TrimSpace(os.Getenv(stxJavaProxyScriptEnvVar)); envPath != "" {
 		if fileExists(envPath) {
 			return envPath, nil
 		}
-		return "", fmt.Errorf("seatunnelx-java-proxy script not found at %s", envPath)
+		return "", fmt.Errorf("stx-java-proxy script not found at %s", envPath)
 	}
 
-	for _, candidate := range seatunnelxJavaProxyScriptCandidates(installDir) {
+	for _, candidate := range stxJavaProxyScriptCandidates(installDir) {
 		if fileExists(candidate) {
 			return candidate, nil
 		}
 	}
-	return "", fmt.Errorf("seatunnelx-java-proxy script is unavailable")
+	return "", fmt.Errorf("stx-java-proxy script is unavailable")
 }
 
-func resolveSeatunnelXJavaProxyJarPath(installDir string, seatunnelVersion string) (string, error) {
-	if envPath := strings.TrimSpace(os.Getenv(seatunnelxJavaProxyJarEnvVar)); envPath != "" {
+func resolveSTXJavaProxyJarPath(installDir string, seatunnelVersion string) (string, error) {
+	if envPath := strings.TrimSpace(os.Getenv(stxJavaProxyJarEnvVar)); envPath != "" {
 		if fileExists(envPath) {
 			return envPath, nil
 		}
-		return "", fmt.Errorf("seatunnelx-java-proxy jar not found at %s", envPath)
+		return "", fmt.Errorf("stx-java-proxy jar not found at %s", envPath)
 	}
 
-	for _, candidate := range seatunnelxJavaProxyJarCandidates(installDir, seatunnelVersion) {
+	for _, candidate := range stxJavaProxyJarCandidates(installDir, seatunnelVersion) {
 		if strings.Contains(candidate, "*") {
 			matches, _ := filepath.Glob(candidate)
 			sort.Strings(matches)
@@ -1096,65 +1095,65 @@ func resolveSeatunnelXJavaProxyJarPath(installDir string, seatunnelVersion strin
 			return candidate, nil
 		}
 	}
-	return "", fmt.Errorf("seatunnelx-java-proxy jar is unavailable")
+	return "", fmt.Errorf("stx-java-proxy jar is unavailable")
 }
 
-func seatunnelxJavaProxyScriptCandidates(installDir string) []string {
+func stxJavaProxyScriptCandidates(installDir string) []string {
 	candidates := make([]string, 0, 10)
-	if homeDir := strings.TrimSpace(os.Getenv(seatunnelxJavaProxyHomeEnvVar)); homeDir != "" {
-		candidates = append(candidates, filepath.Join(homeDir, "scripts", seatunnelmeta.SeatunnelXJavaProxyScriptFileName))
+	if homeDir := strings.TrimSpace(os.Getenv(stxJavaProxyHomeEnvVar)); homeDir != "" {
+		candidates = append(candidates, filepath.Join(homeDir, "scripts", seatunnelmeta.STXJavaProxyScriptFileName))
 	}
 	candidates = append(candidates,
-		filepath.Join(seatunnelxJavaProxyDefaultSupportDir, "scripts", seatunnelmeta.SeatunnelXJavaProxyScriptFileName),
-		filepath.Join(installDir, "scripts", "seatunnelx-java-proxy.sh"),
-		filepath.Join(installDir, "bin", "seatunnelx-java-proxy.sh"),
-		filepath.Join("scripts", "seatunnelx-java-proxy.sh"),
-		filepath.Join("tools", "seatunnelx-java-proxy", "bin", "seatunnelx-java-proxy.sh"),
+		filepath.Join(stxJavaProxyDefaultSupportDir, "scripts", seatunnelmeta.STXJavaProxyScriptFileName),
+		filepath.Join(installDir, "scripts", "stx-java-proxy.sh"),
+		filepath.Join(installDir, "bin", "stx-java-proxy.sh"),
+		filepath.Join("scripts", "stx-java-proxy.sh"),
+		filepath.Join("tools", "stx-java-proxy", "bin", "stx-java-proxy.sh"),
 	)
 	if executable, err := os.Executable(); err == nil {
 		execDir := filepath.Dir(executable)
 		candidates = append(
 			candidates,
-			filepath.Join(execDir, "..", "lib", "seatunnelx-agent", "scripts", seatunnelmeta.SeatunnelXJavaProxyScriptFileName),
-			filepath.Join(execDir, "..", "..", "scripts", seatunnelmeta.SeatunnelXJavaProxyScriptFileName),
-			filepath.Join(execDir, "..", "scripts", seatunnelmeta.SeatunnelXJavaProxyScriptFileName),
-			filepath.Join(execDir, "tools", "seatunnelx-java-proxy", "bin", "seatunnelx-java-proxy.sh"),
-			filepath.Join(execDir, "..", "tools", "seatunnelx-java-proxy", "bin", "seatunnelx-java-proxy.sh"),
-			filepath.Join(execDir, "..", "..", "tools", "seatunnelx-java-proxy", "bin", "seatunnelx-java-proxy.sh"),
+			filepath.Join(execDir, "..", "lib", "stx-agent", "scripts", seatunnelmeta.STXJavaProxyScriptFileName),
+			filepath.Join(execDir, "..", "..", "scripts", seatunnelmeta.STXJavaProxyScriptFileName),
+			filepath.Join(execDir, "..", "scripts", seatunnelmeta.STXJavaProxyScriptFileName),
+			filepath.Join(execDir, "tools", "stx-java-proxy", "bin", "stx-java-proxy.sh"),
+			filepath.Join(execDir, "..", "tools", "stx-java-proxy", "bin", "stx-java-proxy.sh"),
+			filepath.Join(execDir, "..", "..", "tools", "stx-java-proxy", "bin", "stx-java-proxy.sh"),
 		)
 	}
 	return dedupeStrings(candidates)
 }
 
-func seatunnelxJavaProxyJarCandidates(installDir string, seatunnelVersion string) []string {
+func stxJavaProxyJarCandidates(installDir string, seatunnelVersion string) []string {
 	candidates := make([]string, 0, 16)
-	for _, libDir := range seatunnelxJavaProxyLibDirCandidates(installDir) {
-		for _, version := range seatunnelxJavaProxyVersionCandidates(seatunnelVersion) {
-			candidates = append(candidates, filepath.Join(libDir, seatunnelmeta.SeatunnelXJavaProxyJarFileName(version)))
+	for _, libDir := range stxJavaProxyLibDirCandidates(installDir) {
+		for _, version := range stxJavaProxyVersionCandidates(seatunnelVersion) {
+			candidates = append(candidates, filepath.Join(libDir, seatunnelmeta.STXJavaProxyJarFileName(version)))
 		}
-		candidates = append(candidates, filepath.Join(libDir, "seatunnelx-java-proxy.jar"))
+		candidates = append(candidates, filepath.Join(libDir, "stx-java-proxy.jar"))
 	}
-	candidates = append(candidates, filepath.Join(installDir, "tools", "seatunnelx-java-proxy.jar"))
-	for _, targetDir := range seatunnelxJavaProxyDevelopmentJarDirs() {
-		for _, version := range seatunnelxJavaProxyVersionCandidates(seatunnelVersion) {
-			candidates = append(candidates, filepath.Join(targetDir, fmt.Sprintf("seatunnelx-java-proxy-%s*.jar", version)))
+	candidates = append(candidates, filepath.Join(installDir, "tools", "stx-java-proxy.jar"))
+	for _, targetDir := range stxJavaProxyDevelopmentJarDirs() {
+		for _, version := range stxJavaProxyVersionCandidates(seatunnelVersion) {
+			candidates = append(candidates, filepath.Join(targetDir, fmt.Sprintf("stx-java-proxy-%s*.jar", version)))
 		}
-		candidates = append(candidates, filepath.Join(targetDir, "seatunnelx-java-proxy-*.jar"))
+		candidates = append(candidates, filepath.Join(targetDir, "stx-java-proxy-*.jar"))
 	}
 	return dedupeStrings(candidates)
 }
 
-func seatunnelxJavaProxyLibDirCandidates(installDir string) []string {
+func stxJavaProxyLibDirCandidates(installDir string) []string {
 	candidates := make([]string, 0, 9)
-	if homeDir := strings.TrimSpace(os.Getenv(seatunnelxJavaProxyHomeEnvVar)); homeDir != "" {
+	if homeDir := strings.TrimSpace(os.Getenv(stxJavaProxyHomeEnvVar)); homeDir != "" {
 		candidates = append(candidates, filepath.Join(homeDir, "lib"))
 	}
-	candidates = append(candidates, filepath.Join(seatunnelxJavaProxyDefaultSupportDir, "lib"), filepath.Join(installDir, "lib"), "lib")
+	candidates = append(candidates, filepath.Join(stxJavaProxyDefaultSupportDir, "lib"), filepath.Join(installDir, "lib"), "lib")
 	if executable, err := os.Executable(); err == nil {
 		execDir := filepath.Dir(executable)
 		candidates = append(
 			candidates,
-			filepath.Join(execDir, "..", "lib", "seatunnelx-agent", "lib"),
+			filepath.Join(execDir, "..", "lib", "stx-agent", "lib"),
 			filepath.Join(execDir, ".."),
 			filepath.Join(execDir, "..", "..", "lib"),
 		)
@@ -1162,28 +1161,28 @@ func seatunnelxJavaProxyLibDirCandidates(installDir string) []string {
 	return dedupeStrings(candidates)
 }
 
-func seatunnelxJavaProxyDevelopmentJarDirs() []string {
+func stxJavaProxyDevelopmentJarDirs() []string {
 	candidates := []string{
-		filepath.Join("tools", "seatunnelx-java-proxy", "target"),
+		filepath.Join("tools", "stx-java-proxy", "target"),
 	}
 	if executable, err := os.Executable(); err == nil {
 		execDir := filepath.Dir(executable)
 		candidates = append(
 			candidates,
-			filepath.Join(execDir, "tools", "seatunnelx-java-proxy", "target"),
-			filepath.Join(execDir, "..", "tools", "seatunnelx-java-proxy", "target"),
-			filepath.Join(execDir, "..", "..", "tools", "seatunnelx-java-proxy", "target"),
+			filepath.Join(execDir, "tools", "stx-java-proxy", "target"),
+			filepath.Join(execDir, "..", "tools", "stx-java-proxy", "target"),
+			filepath.Join(execDir, "..", "..", "tools", "stx-java-proxy", "target"),
 		)
 	}
 	return dedupeStrings(candidates)
 }
 
-func seatunnelxJavaProxyVersionCandidates(seatunnelVersion string) []string {
+func stxJavaProxyVersionCandidates(seatunnelVersion string) []string {
 	candidates := []string{}
 	if version := strings.TrimSpace(seatunnelVersion); version != "" {
 		candidates = append(candidates, version)
 	}
-	candidates = append(candidates, seatunnelmeta.DefaultSeatunnelXJavaProxyVersion)
+	candidates = append(candidates, seatunnelmeta.DefaultSTXJavaProxyVersion)
 	return dedupeStrings(candidates)
 }
 
@@ -1253,7 +1252,7 @@ func executeRuntimeStoragePreviewViaManagedService(
 	kind string,
 	request map[string]interface{},
 ) (*RuntimeStoragePreviewResult, error) {
-	baseURL, err := ensureSeatunnelXJavaProxyService(ctx, installDir, seatunnelVersion)
+	baseURL, err := ensureSTXJavaProxyService(ctx, installDir, seatunnelVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -1266,27 +1265,27 @@ func executeRuntimeStoragePreviewViaManagedService(
 	url := strings.TrimRight(baseURL, "/") + "/api/v1/storage/" + kind + "/preview"
 	req, err := http.NewRequestWithContext(previewCtx, http.MethodPost, url, bytes.NewReader(payload))
 	if err != nil {
-		return nil, fmt.Errorf("create managed seatunnelx-java-proxy preview request: %w", err)
+		return nil, fmt.Errorf("create managed stx-java-proxy preview request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := (&http.Client{}).Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("call managed seatunnelx-java-proxy preview service %s: %w", url, err)
+		return nil, fmt.Errorf("call managed stx-java-proxy preview service %s: %w", url, err)
 	}
 	defer resp.Body.Close()
 	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if readErr != nil {
-		return nil, fmt.Errorf("read managed seatunnelx-java-proxy preview response: %w", readErr)
+		return nil, fmt.Errorf("read managed stx-java-proxy preview response: %w", readErr)
 	}
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return nil, fmt.Errorf("managed seatunnelx-java-proxy preview returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return nil, fmt.Errorf("managed stx-java-proxy preview returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 	if len(body) == 0 {
-		return nil, fmt.Errorf("managed seatunnelx-java-proxy preview returned an empty response")
+		return nil, fmt.Errorf("managed stx-java-proxy preview returned an empty response")
 	}
 	var result RuntimeStoragePreviewResult
 	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("parse managed seatunnelx-java-proxy preview response: %w", err)
+		return nil, fmt.Errorf("parse managed stx-java-proxy preview response: %w", err)
 	}
 	return &result, nil
 }
@@ -1297,7 +1296,7 @@ func executeCheckpointRuntimeStorageInspectViaManagedService(
 	seatunnelVersion string,
 	request map[string]interface{},
 ) (*RuntimeStorageCheckpointInspectResult, error) {
-	baseURL, err := ensureSeatunnelXJavaProxyService(ctx, installDir, seatunnelVersion)
+	baseURL, err := ensureSTXJavaProxyService(ctx, installDir, seatunnelVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -1310,27 +1309,27 @@ func executeCheckpointRuntimeStorageInspectViaManagedService(
 	url := strings.TrimRight(baseURL, "/") + "/api/v1/storage/checkpoint/inspect"
 	req, err := http.NewRequestWithContext(inspectCtx, http.MethodPost, url, bytes.NewReader(payload))
 	if err != nil {
-		return nil, fmt.Errorf("create managed seatunnelx-java-proxy inspect request: %w", err)
+		return nil, fmt.Errorf("create managed stx-java-proxy inspect request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := (&http.Client{}).Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("call managed seatunnelx-java-proxy inspect service %s: %w", url, err)
+		return nil, fmt.Errorf("call managed stx-java-proxy inspect service %s: %w", url, err)
 	}
 	defer resp.Body.Close()
 	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
 	if readErr != nil {
-		return nil, fmt.Errorf("read managed seatunnelx-java-proxy inspect response: %w", readErr)
+		return nil, fmt.Errorf("read managed stx-java-proxy inspect response: %w", readErr)
 	}
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return nil, fmt.Errorf("managed seatunnelx-java-proxy inspect returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return nil, fmt.Errorf("managed stx-java-proxy inspect returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 	if len(body) == 0 {
-		return nil, fmt.Errorf("managed seatunnelx-java-proxy inspect returned an empty response")
+		return nil, fmt.Errorf("managed stx-java-proxy inspect returned an empty response")
 	}
 	var result RuntimeStorageCheckpointInspectResult
 	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("parse managed seatunnelx-java-proxy inspect response: %w", err)
+		return nil, fmt.Errorf("parse managed stx-java-proxy inspect response: %w", err)
 	}
 	return &result, nil
 }
@@ -1341,7 +1340,7 @@ func executeCheckpointRuntimeStorageInspectSourceStateViaManagedService(
 	seatunnelVersion string,
 	request map[string]interface{},
 ) (*RuntimeStorageCheckpointSourceStateInspectResult, error) {
-	baseURL, err := ensureSeatunnelXJavaProxyService(ctx, installDir, seatunnelVersion)
+	baseURL, err := ensureSTXJavaProxyService(ctx, installDir, seatunnelVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -1354,27 +1353,27 @@ func executeCheckpointRuntimeStorageInspectSourceStateViaManagedService(
 	url := strings.TrimRight(baseURL, "/") + "/api/v1/storage/checkpoint/inspect-source-state"
 	req, err := http.NewRequestWithContext(inspectCtx, http.MethodPost, url, bytes.NewReader(payload))
 	if err != nil {
-		return nil, fmt.Errorf("create managed seatunnelx-java-proxy source state inspect request: %w", err)
+		return nil, fmt.Errorf("create managed stx-java-proxy source state inspect request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := (&http.Client{}).Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("call managed seatunnelx-java-proxy source state inspect service %s: %w", url, err)
+		return nil, fmt.Errorf("call managed stx-java-proxy source state inspect service %s: %w", url, err)
 	}
 	defer resp.Body.Close()
 	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
 	if readErr != nil {
-		return nil, fmt.Errorf("read managed seatunnelx-java-proxy source state inspect response: %w", readErr)
+		return nil, fmt.Errorf("read managed stx-java-proxy source state inspect response: %w", readErr)
 	}
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return nil, fmt.Errorf("managed seatunnelx-java-proxy source state inspect returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return nil, fmt.Errorf("managed stx-java-proxy source state inspect returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 	if len(body) == 0 {
-		return nil, fmt.Errorf("managed seatunnelx-java-proxy source state inspect returned an empty response")
+		return nil, fmt.Errorf("managed stx-java-proxy source state inspect returned an empty response")
 	}
 	var result RuntimeStorageCheckpointSourceStateInspectResult
 	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("parse managed seatunnelx-java-proxy source state inspect response: %w", err)
+		return nil, fmt.Errorf("parse managed stx-java-proxy source state inspect response: %w", err)
 	}
 	return &result, nil
 }
@@ -1385,7 +1384,7 @@ func executeIMAPRuntimeStorageInspectViaManagedService(
 	seatunnelVersion string,
 	request map[string]interface{},
 ) (*RuntimeStorageIMAPInspectResult, error) {
-	baseURL, err := ensureSeatunnelXJavaProxyService(ctx, installDir, seatunnelVersion)
+	baseURL, err := ensureSTXJavaProxyService(ctx, installDir, seatunnelVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -1398,27 +1397,27 @@ func executeIMAPRuntimeStorageInspectViaManagedService(
 	url := strings.TrimRight(baseURL, "/") + "/api/v1/storage/imap/inspect-wal"
 	req, err := http.NewRequestWithContext(inspectCtx, http.MethodPost, url, bytes.NewReader(payload))
 	if err != nil {
-		return nil, fmt.Errorf("create managed seatunnelx-java-proxy imap inspect request: %w", err)
+		return nil, fmt.Errorf("create managed stx-java-proxy imap inspect request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := (&http.Client{}).Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("call managed seatunnelx-java-proxy imap inspect service %s: %w", url, err)
+		return nil, fmt.Errorf("call managed stx-java-proxy imap inspect service %s: %w", url, err)
 	}
 	defer resp.Body.Close()
 	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
 	if readErr != nil {
-		return nil, fmt.Errorf("read managed seatunnelx-java-proxy imap inspect response: %w", readErr)
+		return nil, fmt.Errorf("read managed stx-java-proxy imap inspect response: %w", readErr)
 	}
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return nil, fmt.Errorf("managed seatunnelx-java-proxy imap inspect returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return nil, fmt.Errorf("managed stx-java-proxy imap inspect returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 	if len(body) == 0 {
-		return nil, fmt.Errorf("managed seatunnelx-java-proxy imap inspect returned an empty response")
+		return nil, fmt.Errorf("managed stx-java-proxy imap inspect returned an empty response")
 	}
 	var result RuntimeStorageIMAPInspectResult
 	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("parse managed seatunnelx-java-proxy imap inspect response: %w", err)
+		return nil, fmt.Errorf("parse managed stx-java-proxy imap inspect response: %w", err)
 	}
 	return &result, nil
 }

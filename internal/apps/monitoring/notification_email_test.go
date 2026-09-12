@@ -27,7 +27,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/seatunnel/seatunnelX/internal/apps/auth"
+	"github.com/LeonYoah/stx/internal/apps/auth"
 )
 
 type fakeSMTPServer struct {
@@ -145,7 +145,7 @@ func TestSendEmailNotification_SMTPPlain(t *testing.T) {
 			Host:       host,
 			Port:       port,
 			From:       "alerts@example.com",
-			FromName:   "SeaTunnelX Alerts",
+			FromName:   "STX Alerts",
 			Recipients: []string{"ops@example.com"},
 		},
 	})
@@ -159,7 +159,7 @@ func TestSendEmailNotification_SMTPPlain(t *testing.T) {
 		Type:       NotificationChannelTypeEmail,
 		ConfigJSON: configJSON,
 	}, &emailNotificationPayload{
-		Subject: "SeaTunnelX restart alert",
+		Subject: "STX restart alert",
 		Text:    "cluster restart requested",
 	})
 	if err != nil {
@@ -177,10 +177,10 @@ func TestSendEmailNotification_SMTPPlain(t *testing.T) {
 	if len(server.recipients) != 1 || !strings.Contains(server.recipients[0], "ops@example.com") {
 		t.Fatalf("unexpected recipients: %+v", server.recipients)
 	}
-	if !strings.Contains(server.data, "Subject: ") || !strings.Contains(server.data, "SeaTunnelX restart alert") {
+	if !strings.Contains(server.data, "Subject: ") || !strings.Contains(server.data, "STX restart alert") {
 		t.Fatalf("unexpected message subject: %s", server.data)
 	}
-	if !strings.Contains(server.data, "SeaTunnelX Alerts") {
+	if !strings.Contains(server.data, "STX Alerts") {
 		t.Fatalf("unexpected from header: %s", server.data)
 	}
 	if !strings.Contains(server.data, "cluster restart requested") {
@@ -195,11 +195,11 @@ func TestBuildSMTPMessage_includesHTMLAlternative(t *testing.T) {
 		Host:     "smtp.example.com",
 		Port:     25,
 		From:     "alerts@example.com",
-		FromName: "SeaTunnelX Alerts",
+		FromName: "STX Alerts",
 	}
 
 	message, err := buildSMTPMessage(config, &emailNotificationPayload{
-		Subject: "SeaTunnelX node alert",
+		Subject: "STX node alert",
 		Text:    "plain text body",
 		HTML:    "<html><body><strong>formatted body</strong></body></html>",
 		To:      []string{"ops@example.com"},
@@ -318,7 +318,7 @@ func TestService_TestNotificationChannelDraft_SMTPPlain(t *testing.T) {
 	if len(server.recipients) != 1 || !strings.Contains(server.recipients[0], user.Email) {
 		t.Fatalf("unexpected recipients: %+v", server.recipients)
 	}
-	if !strings.Contains(server.data, "SeaTunnelX notification test") {
+	if !strings.Contains(server.data, "STX notification test") {
 		t.Fatalf("unexpected message data: %s", server.data)
 	}
 }

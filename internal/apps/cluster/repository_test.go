@@ -78,13 +78,13 @@ func genDeploymentMode() gopter.Gen {
 	return gen.OneConstOf(DeploymentModeHybrid, DeploymentModeSeparated)
 }
 
-// **Feature: seatunnel-agent, Property 10: Cluster Name Uniqueness Validation**
+// **Feature: stx-agent, Property 10: Cluster Name Uniqueness Validation**
 // **Validates: Requirements 7.1**
 // For any cluster creation request, if a cluster with the same name already exists,
 // the system SHALL reject the creation and return an error indicating the name conflict.
 
 func TestProperty_ClusterNameUniqueness(t *testing.T) {
-	// **Feature: seatunnel-agent, Property 10: Cluster Name Uniqueness Validation**
+	// **Feature: stx-agent, Property 10: Cluster Name Uniqueness Validation**
 	// **Validates: Requirements 7.1**
 
 	parameters := gopter.DefaultTestParameters()
@@ -133,7 +133,7 @@ func TestProperty_ClusterNameUniqueness(t *testing.T) {
 
 // TestProperty_ClusterNameUniquenessOnUpdate tests that updating a cluster to a duplicate name is rejected
 func TestProperty_ClusterNameUniquenessOnUpdate(t *testing.T) {
-	// **Feature: seatunnel-agent, Property 10: Cluster Name Uniqueness Validation**
+	// **Feature: stx-agent, Property 10: Cluster Name Uniqueness Validation**
 	// **Validates: Requirements 7.1**
 
 	parameters := gopter.DefaultTestParameters()
@@ -193,7 +193,7 @@ func TestProperty_ClusterNameUniquenessOnUpdate(t *testing.T) {
 
 // TestProperty_EmptyClusterNameRejected tests that empty cluster names are rejected
 func TestProperty_EmptyClusterNameRejected(t *testing.T) {
-	// **Feature: seatunnel-agent, Property 10: Cluster Name Uniqueness Validation**
+	// **Feature: stx-agent, Property 10: Cluster Name Uniqueness Validation**
 	// **Validates: Requirements 7.1**
 
 	db, cleanup := setupTestDB(t)

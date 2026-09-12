@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-// Package monitoring provides cluster monitoring overview APIs for SeaTunnelX.
-// monitoring 包为 SeaTunnelX 提供集群监控总览 API。
+// Package monitoring provides cluster monitoring overview APIs for STX.
+// monitoring 包为 STX 提供集群监控总览 API。
 package monitoring
 
 import (
@@ -25,7 +25,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/seatunnel/seatunnelX/internal/apps/monitor"
+	"github.com/LeonYoah/stx/internal/apps/monitor"
 )
 
 // Response is the standard API response for monitoring endpoints.

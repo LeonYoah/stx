@@ -34,9 +34,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/seatunnel/seatunnelX/internal/config"
-	"github.com/seatunnel/seatunnelX/internal/logger"
-	"github.com/seatunnel/seatunnelX/internal/seatunnel"
+	"github.com/LeonYoah/stx/internal/config"
+	"github.com/LeonYoah/stx/internal/logger"
+	"github.com/LeonYoah/stx/internal/seatunnel"
 )
 
 // Common service errors / 常见服务错误

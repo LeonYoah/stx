@@ -95,14 +95,14 @@ cleanup_on_signal() {
     kill -TERM "$child_pid" 2>/dev/null || true
     wait "$child_pid" || true
   fi
-  echo "[SeaTunnelX] local job stopped by user" >> "$LOG_FILE"
-  write_status "canceled" "130" "stopped by SeaTunnelX"
+  echo "[STX] local job stopped by user" >> "$LOG_FILE"
+  write_status "canceled" "130" "stopped by STX"
   exit 130
 }
 
 trap cleanup_on_signal TERM INT
 
-echo "[SeaTunnelX] local job bootstrap started at $(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> "$LOG_FILE"
+echo "[STX] local job bootstrap started at $(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> "$LOG_FILE"
 cd "$INSTALL_DIR"
 ./bin/seatunnel.sh -m local -c "$CONFIG_FILE" >> "$LOG_FILE" 2>&1 &
 child_pid=$!
@@ -363,21 +363,21 @@ func handleSyncLocalStop(ctx context.Context, params map[string]string) (*Preche
 			State:      "canceled",
 			ExitCode:   130,
 			FinishedAt: time.Now().Format(time.RFC3339),
-			Message:    "stopped by SeaTunnelX",
+			Message:    "stopped by STX",
 		}
 		runtime.mu.Unlock()
 		if runtime.Meta.StatusFile != "" {
 			_ = writeSyncLocalStatus(runtime.Meta.StatusFile, runtime.Status)
 		}
 		if runtime.Meta.LogFile != "" {
-			appendSyncLocalLog(runtime.Meta.LogFile, "[SeaTunnelX] local job stopped by user")
+			appendSyncLocalLog(runtime.Meta.LogFile, "[STX] local job stopped by user")
 		}
 	}
 	return &PrecheckResult{Success: true, Message: "stopped"}, nil
 }
 
 func syncLocalWorkDir(installDir, platformJobID string) string {
-	return filepath.Join(installDir, ".seatunnelx", "sync-local-jobs", platformJobID)
+	return filepath.Join(installDir, ".stx", "sync-local-jobs", platformJobID)
 }
 
 func loadOrCreateSyncLocalRuntime(installDir, platformJobID string) (*syncLocalRuntime, error) {

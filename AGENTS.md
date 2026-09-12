@@ -1,6 +1,20 @@
 ## 强制遵循
 1. 使用中文进行git提交
-2. 每个方法要有注释，函数内部的关键逻辑也要加注释
+
+## 注释约定
+- 关键方法/实现/设计及时添加注释，大多数其实都得加！
+- **自己新增或修改的前后端代码注释，要求中英双语。**
+- **默认顺序为“中文在前，英文在后”。** 两种语言应表达同一语义，不要写成两套不一致的说明。
+
+
+## Protobuf 变更说明
+
+当修改 `.proto` 后，需要重新生成并确认以下文件更新：
+
+- `internal/proto/agent/agent.pb.go`
+- `internal/proto/agent/agent_grpc.pb.go`
+
+
 <!-- TRELLIS:START -->
 # Trellis Instructions
 

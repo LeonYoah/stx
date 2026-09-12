@@ -84,7 +84,7 @@ interface RuntimeStorageResponse {
   };
 }
 
-interface SeatunnelXJavaProxyStatusResponse {
+interface StxJavaProxyStatusResponse {
   data?: {
     managed?: boolean;
     running?: boolean;
@@ -115,7 +115,6 @@ interface RuntimeStorageListResponse {
     }>;
   };
 }
-
 
 interface CreateClusterResponse {
   data?: {
@@ -192,7 +191,6 @@ export function buildInstallWizardLabURL(options: {
   return `/e2e-lab/install-wizard?${params.toString()}`;
 }
 
-
 export async function prepareClusterForInstallWizard(
   page: Page,
   options: {
@@ -208,44 +206,54 @@ export async function prepareClusterForInstallWizard(
 ): Promise<PreparedInstallClusterFixture> {
   const deploymentMode = options.deploymentMode ?? 'hybrid';
   const nodeRole = options.nodeRole ?? 'master/worker';
-  const createResponse = await page.context().request.post(`${backendBaseURL}/api/v1/clusters`, {
-    data: {
-      name: `e2e-installer-${Date.now()}`,
-      description: 'Real E2E installer managed cluster',
-      deployment_mode: deploymentMode,
-      version: options.version,
-      install_dir: options.installDir,
-    },
-  });
+  const createResponse = await page
+    .context()
+    .request.post(`${backendBaseURL}/api/v1/clusters`, {
+      data: {
+        name: `e2e-installer-${Date.now()}`,
+        description: 'Real E2E installer managed cluster',
+        deployment_mode: deploymentMode,
+        version: options.version,
+        install_dir: options.installDir,
+      },
+    });
   if (!createResponse.ok()) {
-    throw new Error(`create installer cluster failed: HTTP ${createResponse.status()} ${await createResponse.text()}`);
+    throw new Error(
+      `create installer cluster failed: HTTP ${createResponse.status()} ${await createResponse.text()}`,
+    );
   }
   const createPayload = (await createResponse.json()) as CreateClusterResponse;
   const clusterId = Number(createPayload.data?.id || 0);
   if (!clusterId) {
-    throw new Error(`create installer cluster returned no id: ${JSON.stringify(createPayload)}`);
+    throw new Error(
+      `create installer cluster returned no id: ${JSON.stringify(createPayload)}`,
+    );
   }
 
-  const addNodeResponse = await page.context().request.post(
-    `${backendBaseURL}/api/v1/clusters/${clusterId}/nodes`,
-    {
+  const addNodeResponse = await page
+    .context()
+    .request.post(`${backendBaseURL}/api/v1/clusters/${clusterId}/nodes`, {
       data: {
         host_id: options.hostId,
         role: nodeRole,
         install_dir: options.installDir,
         hazelcast_port: options.clusterPort,
         api_port: options.httpPort,
-        worker_port: deploymentMode === 'hybrid' ? options.clusterPort + 1 : undefined,
+        worker_port:
+          deploymentMode === 'hybrid' ? options.clusterPort + 1 : undefined,
         skip_precheck: true,
       },
-    },
-  );
+    });
   if (!addNodeResponse.ok()) {
-    throw new Error(`add installer node failed: HTTP ${addNodeResponse.status()} ${await addNodeResponse.text()}`);
+    throw new Error(
+      `add installer node failed: HTTP ${addNodeResponse.status()} ${await addNodeResponse.text()}`,
+    );
   }
   const addNodePayload = (await addNodeResponse.json()) as AddNodeResponse;
   if (!addNodePayload.data?.id) {
-    throw new Error(`add installer node returned no id: ${JSON.stringify(addNodePayload)}`);
+    throw new Error(
+      `add installer node returned no id: ${JSON.stringify(addNodePayload)}`,
+    );
   }
 
   return {
@@ -501,11 +509,11 @@ async function waitForClusterMasterNodeReady(
   );
 }
 
-export async function waitForSeatunnelXJavaProxyHealthy(
+export async function waitForStxJavaProxyHealthy(
   page: Page,
   clusterId: number,
   timeoutMs: number = 300000,
-): Promise<NonNullable<SeatunnelXJavaProxyStatusResponse['data']>> {
+): Promise<NonNullable<StxJavaProxyStatusResponse['data']>> {
   const startedAt = Date.now();
   let lastError = '';
   let lastStatus = '';
@@ -517,11 +525,10 @@ export async function waitForSeatunnelXJavaProxyHealthy(
     const response = await page
       .context()
       .request.get(
-        `${backendBaseURL}/api/v1/clusters/${clusterId}/seatunnelx-java-proxy/status`,
+        `${backendBaseURL}/api/v1/clusters/${clusterId}/stx-java-proxy/status`,
       );
     if (response.ok()) {
-      const payload =
-        (await response.json()) as SeatunnelXJavaProxyStatusResponse;
+      const payload = (await response.json()) as StxJavaProxyStatusResponse;
       lastStatus = JSON.stringify(payload?.data || {});
       if (
         payload?.data?.managed &&
@@ -556,7 +563,7 @@ export async function waitForSeatunnelXJavaProxyHealthy(
       const startResponse = await page
         .context()
         .request.post(
-          `${backendBaseURL}/api/v1/clusters/${clusterId}/seatunnelx-java-proxy/start`,
+          `${backendBaseURL}/api/v1/clusters/${clusterId}/stx-java-proxy/start`,
         );
       if (!startResponse.ok()) {
         try {
@@ -574,7 +581,7 @@ export async function waitForSeatunnelXJavaProxyHealthy(
     const logsResponse = await page
       .context()
       .request.get(
-        `${backendBaseURL}/api/v1/clusters/${clusterId}/seatunnelx-java-proxy/logs`,
+        `${backendBaseURL}/api/v1/clusters/${clusterId}/stx-java-proxy/logs`,
         {params: {lines: '80'}},
       );
     if (logsResponse.ok()) {
@@ -585,7 +592,7 @@ export async function waitForSeatunnelXJavaProxyHealthy(
   }
 
   throw new Error(
-    `Timed out waiting for cluster ${clusterId} seatunnelx-java-proxy; lastStatus=${lastStatus}; lastError=${lastError}; logs=${logPreview}`,
+    `Timed out waiting for cluster ${clusterId} stx-java-proxy; lastStatus=${lastStatus}; lastError=${lastError}; logs=${logPreview}`,
   );
 }
 
@@ -632,17 +639,17 @@ export async function listClusterRuntimeStorage(
   return payload.data!;
 }
 
-async function resolveSeatunnelXJavaProxyAssets(version: string) {
-  const script = path.join(repoRoot, 'scripts', 'seatunnelx-java-proxy.sh');
+async function resolveStxJavaProxyAssets(version: string) {
+  const script = path.join(repoRoot, 'scripts', 'stx-java-proxy.sh');
   const candidates = [
-    path.join(repoRoot, 'lib', `seatunnelx-java-proxy-${version}.jar`),
-    path.join(repoRoot, 'lib', 'seatunnelx-java-proxy.jar'),
+    path.join(repoRoot, 'lib', `stx-java-proxy-${version}.jar`),
+    path.join(repoRoot, 'lib', 'stx-java-proxy.jar'),
     path.join(
       repoRoot,
       'tools',
-      'seatunnelx-java-proxy',
+      'stx-java-proxy',
       'target',
-      `seatunnelx-java-proxy-${version}-2.12.15.jar`,
+      `stx-java-proxy-${version}-2.12.15.jar`,
     ),
   ];
 
@@ -661,19 +668,17 @@ async function resolveSeatunnelXJavaProxyAssets(version: string) {
   }
 
   throw new Error(
-    `seatunnelx-java-proxy jar not found, checked: ${candidates.join(', ')}`,
+    `stx-java-proxy jar not found, checked: ${candidates.join(', ')}`,
   );
 }
 
-export async function expectSeatunnelXJavaProxyProbeSuccess(options: {
+export async function expectStxJavaProxyProbeSuccess(options: {
   installDir: string;
   version: string;
   kind: 'checkpoint' | 'imap';
   request: Record<string, unknown>;
 }) {
-  const {script, jar, home} = await resolveSeatunnelXJavaProxyAssets(
-    options.version,
-  );
+  const {script, jar, home} = await resolveStxJavaProxyAssets(options.version);
 
   const tempDir = await fs.mkdtemp(
     path.join(os.tmpdir(), 'stx-java-proxy-e2e-'),
@@ -702,9 +707,9 @@ export async function expectSeatunnelXJavaProxyProbeSuccess(options: {
         env: {
           ...process.env,
           SEATUNNEL_HOME: options.installDir,
-          SEATUNNELX_JAVA_PROXY_HOME: home,
-          SEATUNNEL_PROXY_JAR: jar,
-          SEATUNNELX_JAVA_PROXY_VERSION: options.version,
+          STX_JAVA_PROXY_HOME: home,
+          STX_JAVA_PROXY_JAR: jar,
+          STX_JAVA_PROXY_VERSION: options.version,
         },
       },
     );

@@ -179,7 +179,7 @@ func TestValidateConfig(t *testing.T) {
 					Addresses: []string{"localhost:9090"},
 					TLS: TLSConfig{
 						Enabled: true,
-						CAFile:  "/etc/seatunnelx-agent/certs/ca.crt",
+						CAFile:  "/etc/stx-agent/certs/ca.crt",
 					},
 				},
 				Heartbeat: HeartbeatConfig{
@@ -198,7 +198,7 @@ func TestValidateConfig(t *testing.T) {
 					Addresses: []string{"localhost:9090"},
 					TLS: TLSConfig{
 						Enabled:  true,
-						CAFile:   "/etc/seatunnelx-agent/certs/ca.crt",
+						CAFile:   "/etc/stx-agent/certs/ca.crt",
 						CertFile: "/path/to/cert.pem",
 					},
 				},

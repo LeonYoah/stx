@@ -28,7 +28,7 @@ import (
 	"github.com/leanovate/gopter/prop"
 )
 
-// **Feature: seatunnel-platform-login, Property 5: Session store consistency**
+// **Feature: stx-platform-login, Property 5: Session store consistency**
 // **Validates: Requirements 4.3**
 // 测试内存会话存储的一致性行为：对于任何会话操作（创建、读取、删除），
 // MemoryStore 都应满足相同的基本行为约束。

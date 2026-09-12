@@ -26,7 +26,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/seatunnel/seatunnelX/internal/apps/monitor"
+	"github.com/LeonYoah/stx/internal/apps/monitor"
 )
 
 type parsedAlertSourceKey struct {

@@ -36,7 +36,7 @@
   },
   "dashboard": {
     "title": "Dashboard",
-    "subtitle": "SeaTunnelX One-stop Operation and Maintenance Management Overview",
+    "subtitle": "STX Operations Overview",
     "refresh": "Refresh",
     "totalHosts": "Total Hosts",
     "online": "Online",
@@ -61,14 +61,14 @@
     "installed": "Installed",
     "notInstalled": "Not Installed",
     "offline": "Offline",
-    "welcome": "Welcome to SeaTunnelX",
+    "welcome": "Welcome to STX",
     "welcomeDesc": "Start by adding hosts and deploying your first SeaTunnel cluster",
     "addHost": "Add Host",
     "createCluster": "Create Cluster"
   },
   "auth": {
     "login": {
-      "title": "Welcome to SeaTunnel Operations Platform",
+      "title": "Welcome to STX",
       "subtitle": "Please login to continue",
       "username": "Username",
       "usernamePlaceholder": "Enter your username",
@@ -98,7 +98,7 @@
       "unauthorized": "Unauthorized access"
     },
     "callback": {
-      "title": "Welcome to SeaTunnel Operations Platform",
+      "title": "Welcome to STX",
       "verifying": "Verifying",
       "success": "Verification successful",
       "failed": "Verification failed",
@@ -106,7 +106,7 @@
       "oauthFailed": "OAuth authentication failed",
       "missingParams": "Missing required authentication parameters",
       "processingFailed": "Login processing failed",
-      "footer": "SeaTunnel Operations Platform - Making data integration easier"
+      "footer": "STX - Making data integration easier"
     }
   },
   "terms": {
@@ -119,7 +119,7 @@
       "description": "Please read the following terms of service carefully. By using this service, you agree to these terms.",
       "general": {
         "title": "1. General Terms",
-        "content1": "These Terms of Service (hereinafter referred to as \"Terms\") set forth the conditions for your use of the SeaTunnel Operations Platform.",
+        "content1": "These Terms of Service (hereinafter referred to as \"Terms\") set forth the conditions for your use of STX.",
         "content2": "By accessing or using our services, you agree to be bound by these terms. If you do not agree to these terms, please do not use our services.",
         "content3": "We reserve the right to modify these terms at any time. Modified terms will take effect immediately upon posting."
       },
@@ -258,11 +258,11 @@
     "languageSettings": "Language Settings",
     "quickLinks": "Quick Links",
     "seatunnelRepo": "SeaTunnel Repo",
-    "seatunnelXRepo": "SeaTunnelX Repo",
-    "about": "About SeaTunnelX",
+    "stxRepo": "STX Repo",
+    "about": "About STX",
     "version": "Version",
     "buildTime": "Build Time",
-    "description": "SeaTunnelX is a one-stop operations platform for data integration, providing fast, secure, and convenient data synchronization services. The platform supports multiple data sources with comprehensive task management and monitoring capabilities.",
+    "description": "STX is a one-stop operations platform for data integration, providing fast, secure, and convenient data synchronization services. The platform supports multiple data sources with comprehensive task management and monitoring capabilities.",
     "trustLevel": {
       "newUser": "New User",
       "basicUser": "Basic User",
@@ -754,8 +754,8 @@
       "inspectWalFailed": "Failed to inspect IMAP WAL",
       "entryCount": "Entry Count"
     },
-    "seatunnelxJavaProxy": {
-      "title": "SeaTunnelX Java Proxy",
+    "stxJavaProxy": {
+      "title": "STX Java Proxy",
       "description": "Managed proxy service used by install-time probes and runtime storage diagnostics.",
       "healthy": "Healthy",
       "unhealthy": "Running but unhealthy",
@@ -764,20 +764,20 @@
       "endpoint": "Endpoint",
       "pid": "PID",
       "logPath": "Log path",
-      "noStatus": "seatunnelx-java-proxy status is unavailable",
+      "noStatus": "stx-java-proxy status is unavailable",
       "start": "Start",
       "stop": "Stop",
       "restart": "Restart",
-      "startSuccess": "seatunnelx-java-proxy started successfully",
-      "stopSuccess": "seatunnelx-java-proxy stopped successfully",
-      "restartSuccess": "seatunnelx-java-proxy restarted successfully",
-      "startError": "Failed to start seatunnelx-java-proxy",
-      "stopError": "Failed to stop seatunnelx-java-proxy",
-      "restartError": "Failed to restart seatunnelx-java-proxy",
+      "startSuccess": "stx-java-proxy started successfully",
+      "stopSuccess": "stx-java-proxy stopped successfully",
+      "restartSuccess": "stx-java-proxy restarted successfully",
+      "startError": "Failed to start stx-java-proxy",
+      "stopError": "Failed to stop stx-java-proxy",
+      "restartError": "Failed to restart stx-java-proxy",
       "viewServiceLog": "View Runtime Log",
-      "viewServiceLogError": "Failed to load seatunnelx-java-proxy runtime log",
+      "viewServiceLogError": "Failed to load stx-java-proxy runtime log",
       "viewRuntimeLog": "View Runtime Log",
-      "viewRuntimeLogError": "Failed to load seatunnelx-java-proxy runtime log"
+      "viewRuntimeLogError": "Failed to load stx-java-proxy runtime log"
     },
     "activeAlertsBanner": {
       "title": "{count} active alerts detected",
@@ -1477,7 +1477,7 @@
       "applyCheckpointToImapSuccess": "Checkpoint configuration applied to IMAP",
       "applyImapToCheckpointSuccess": "IMAP configuration applied to checkpoint",
       "applyImapDisabledWarning": "IMAP is currently disabled and cannot be applied to checkpoint",
-      "ossLibHint": "When OSS is selected, SeaTunnelX automatically prepares the required lib jars: aliyun-sdk-oss, hadoop-aliyun, jdom2, netty-buffer, and netty-common. seatunnel-hadoop3-3.1.4-uber is already bundled and will not be downloaded again.",
+      "ossLibHint": "When OSS is selected, STX automatically prepares the required lib jars: aliyun-sdk-oss, hadoop-aliyun, jdom2, netty-buffer, and netty-common. seatunnel-hadoop3-3.1.4-uber is already bundled and will not be downloaded again.",
       "requiredFieldsMissing": "Please complete required fields first: {fields}"
     },
     "runtimeAdvanced": {
@@ -1491,7 +1491,7 @@
       "staticSlot": "Static Slot",
       "dynamicSlotHint": "Dynamic Slot is still the recommended default and usually requires less tuning. In this mode, slot-allocation-strategy is only partially honored: some allocations may fall back to fallback selection logic, so the strategy has weaker influence and is less strict than in Static Slot mode.",
       "slotNum": "Static slot count",
-      "slotNumHint": "SeaTunnelX writes slot-num explicitly so upgrades do not drift with upstream default changes.",
+      "slotNumHint": "STX writes slot-num explicitly so upgrades do not drift with upstream default changes.",
       "jobScheduleStrategy": "Scheduling strategy when resources are insufficient",
       "jobScheduleReject": "REJECT (fail immediately)",
       "jobScheduleWait": "WAIT (queue until resources are free)",
@@ -1913,7 +1913,7 @@
       "capabilities": {
         "platform_health": {
           "title": "Platform Health Policies",
-          "summary": "Build productized policies from SeaTunnelX-managed cluster health, node liveness, process stability, and operation outcomes."
+          "summary": "Build productized policies from STX-managed cluster health, node liveness, process stability, and operation outcomes."
         },
         "metrics_templates": {
           "title": "Metrics Templates",
@@ -1933,7 +1933,7 @@
         },
         "in_app_notification": {
           "title": "In-App Notification Center",
-          "summary": "Provide a built-in inbox, recovery follow-up, and receiver-facing experience directly inside SeaTunnelX."
+          "summary": "Provide a built-in inbox, recovery follow-up, and receiver-facing experience directly inside STX."
         }
       },
       "builders": {

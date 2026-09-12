@@ -26,7 +26,7 @@ import (
 	"strings"
 	"testing"
 
-	seatunnelmeta "github.com/seatunnel/seatunnelX/internal/seatunnel"
+	seatunnelmeta "github.com/LeonYoah/stx/internal/seatunnel"
 )
 
 type recordingProgressReporter struct {
@@ -58,17 +58,17 @@ func (r *recordingProgressReporter) ReportStepSkipped(step InstallStep, reason s
 	return r.Report(step, 100, reason)
 }
 
-func TestSeatunnelXJavaProxyScriptCandidatesIncludeDefaultSupportDir(t *testing.T) {
-	candidates := seatunnelxJavaProxyScriptCandidates(t.TempDir())
-	expected := filepath.Join(seatunnelxJavaProxyDefaultSupportDir, "scripts", seatunnelmeta.SeatunnelXJavaProxyScriptFileName)
+func TestSTXJavaProxyScriptCandidatesIncludeDefaultSupportDir(t *testing.T) {
+	candidates := stxJavaProxyScriptCandidates(t.TempDir())
+	expected := filepath.Join(stxJavaProxyDefaultSupportDir, "scripts", seatunnelmeta.STXJavaProxyScriptFileName)
 	if !containsString(candidates, expected) {
 		t.Fatalf("expected default support dir script candidate %s, got %#v", expected, candidates)
 	}
 }
 
-func TestSeatunnelXJavaProxyLibDirCandidatesIncludeDefaultSupportDir(t *testing.T) {
-	candidates := seatunnelxJavaProxyLibDirCandidates(t.TempDir())
-	expected := filepath.Join(seatunnelxJavaProxyDefaultSupportDir, "lib")
+func TestSTXJavaProxyLibDirCandidatesIncludeDefaultSupportDir(t *testing.T) {
+	candidates := stxJavaProxyLibDirCandidates(t.TempDir())
+	expected := filepath.Join(stxJavaProxyDefaultSupportDir, "lib")
 	if !containsString(candidates, expected) {
 		t.Fatalf("expected default support dir lib candidate %s, got %#v", expected, candidates)
 	}
@@ -162,8 +162,8 @@ func TestBuildIMAPRuntimeProbeRequestIncludesBusinessAndClusterName(t *testing.T
 
 func TestExecuteRuntimeStorageProbeSuccess(t *testing.T) {
 	manager := NewInstallerManager()
-	scriptPath := filepath.Join(t.TempDir(), "seatunnelx-java-proxy.sh")
-	jarPath := filepath.Join(t.TempDir(), seatunnelmeta.SeatunnelXJavaProxyJarFileName(seatunnelmeta.DefaultSeatunnelXJavaProxyVersion))
+	scriptPath := filepath.Join(t.TempDir(), "stx-java-proxy.sh")
+	jarPath := filepath.Join(t.TempDir(), seatunnelmeta.STXJavaProxyJarFileName(seatunnelmeta.DefaultSTXJavaProxyVersion))
 
 	if err := os.WriteFile(
 		scriptPath,
@@ -176,8 +176,8 @@ func TestExecuteRuntimeStorageProbeSuccess(t *testing.T) {
 		t.Fatalf("failed to write jar: %v", err)
 	}
 
-	t.Setenv(seatunnelxJavaProxyScriptEnvVar, scriptPath)
-	t.Setenv(seatunnelxJavaProxyJarEnvVar, jarPath)
+	t.Setenv(stxJavaProxyScriptEnvVar, scriptPath)
+	t.Setenv(stxJavaProxyJarEnvVar, jarPath)
 
 	response, err := manager.executeRuntimeStorageProbe(context.Background(), t.TempDir(), "2.3.13", "checkpoint", map[string]interface{}{
 		"plugin": "hdfs",
@@ -192,8 +192,8 @@ func TestExecuteRuntimeStorageProbeSuccess(t *testing.T) {
 
 func TestExecuteRuntimeStorageProbeReturnsResponseOnFailureExit(t *testing.T) {
 	manager := NewInstallerManager()
-	scriptPath := filepath.Join(t.TempDir(), "seatunnelx-java-proxy.sh")
-	jarPath := filepath.Join(t.TempDir(), seatunnelmeta.SeatunnelXJavaProxyJarFileName(seatunnelmeta.DefaultSeatunnelXJavaProxyVersion))
+	scriptPath := filepath.Join(t.TempDir(), "stx-java-proxy.sh")
+	jarPath := filepath.Join(t.TempDir(), seatunnelmeta.STXJavaProxyJarFileName(seatunnelmeta.DefaultSTXJavaProxyVersion))
 
 	if err := os.WriteFile(
 		scriptPath,
@@ -206,8 +206,8 @@ func TestExecuteRuntimeStorageProbeReturnsResponseOnFailureExit(t *testing.T) {
 		t.Fatalf("failed to write jar: %v", err)
 	}
 
-	t.Setenv(seatunnelxJavaProxyScriptEnvVar, scriptPath)
-	t.Setenv(seatunnelxJavaProxyJarEnvVar, jarPath)
+	t.Setenv(stxJavaProxyScriptEnvVar, scriptPath)
+	t.Setenv(stxJavaProxyJarEnvVar, jarPath)
 
 	response, err := manager.executeRuntimeStorageProbe(context.Background(), t.TempDir(), "2.3.14", "imap", map[string]interface{}{
 		"plugin": "hdfs",
@@ -223,11 +223,11 @@ func TestExecuteRuntimeStorageProbeReturnsResponseOnFailureExit(t *testing.T) {
 	}
 }
 
-func TestExecuteRuntimeStorageProbeUsesManagedSeatunnelXJavaProxyEndpoint(t *testing.T) {
+func TestExecuteRuntimeStorageProbeUsesManagedSTXJavaProxyEndpoint(t *testing.T) {
 	manager := NewInstallerManager()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case seatunnelxJavaProxyHealthPath:
+		case stxJavaProxyHealthPath:
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte("ok"))
 		case "/api/v1/storage/checkpoint/probe":
@@ -242,9 +242,9 @@ func TestExecuteRuntimeStorageProbeUsesManagedSeatunnelXJavaProxyEndpoint(t *tes
 	}))
 	defer server.Close()
 
-	t.Setenv(seatunnelxJavaProxyEndpointEnvVar, server.URL)
-	t.Setenv(seatunnelxJavaProxyScriptEnvVar, filepath.Join(t.TempDir(), "missing.sh"))
-	t.Setenv(seatunnelxJavaProxyJarEnvVar, filepath.Join(t.TempDir(), "missing.jar"))
+	t.Setenv(stxJavaProxyEndpointEnvVar, server.URL)
+	t.Setenv(stxJavaProxyScriptEnvVar, filepath.Join(t.TempDir(), "missing.sh"))
+	t.Setenv(stxJavaProxyJarEnvVar, filepath.Join(t.TempDir(), "missing.jar"))
 
 	response, err := manager.executeRuntimeStorageProbe(context.Background(), t.TempDir(), "2.3.13", "checkpoint", map[string]interface{}{
 		"plugin": "hdfs",
@@ -259,8 +259,8 @@ func TestExecuteRuntimeStorageProbeUsesManagedSeatunnelXJavaProxyEndpoint(t *tes
 
 func TestExecuteRuntimeStorageProbeFailsWhenAssetsMissing(t *testing.T) {
 	manager := NewInstallerManager()
-	t.Setenv(seatunnelxJavaProxyScriptEnvVar, filepath.Join(t.TempDir(), "missing.sh"))
-	t.Setenv(seatunnelxJavaProxyJarEnvVar, filepath.Join(t.TempDir(), "missing.jar"))
+	t.Setenv(stxJavaProxyScriptEnvVar, filepath.Join(t.TempDir(), "missing.sh"))
+	t.Setenv(stxJavaProxyJarEnvVar, filepath.Join(t.TempDir(), "missing.jar"))
 
 	_, err := manager.executeRuntimeStorageProbe(context.Background(), t.TempDir(), "2.3.13", "checkpoint", map[string]interface{}{
 		"plugin": "hdfs",
@@ -270,15 +270,15 @@ func TestExecuteRuntimeStorageProbeFailsWhenAssetsMissing(t *testing.T) {
 	}
 }
 
-func TestResolveSeatunnelXJavaProxyJarPathPrefersVersionAndFallsBack(t *testing.T) {
+func TestResolveSTXJavaProxyJarPathPrefersVersionAndFallsBack(t *testing.T) {
 	supportDir := t.TempDir()
 	libDir := filepath.Join(supportDir, "lib")
 	if err := os.MkdirAll(libDir, 0o755); err != nil {
 		t.Fatalf("failed to create lib dir: %v", err)
 	}
 
-	exactJar := filepath.Join(libDir, seatunnelmeta.SeatunnelXJavaProxyJarFileName("2.3.14"))
-	defaultJar := filepath.Join(libDir, seatunnelmeta.SeatunnelXJavaProxyJarFileName(seatunnelmeta.DefaultSeatunnelXJavaProxyVersion))
+	exactJar := filepath.Join(libDir, seatunnelmeta.STXJavaProxyJarFileName("2.3.14"))
+	defaultJar := filepath.Join(libDir, seatunnelmeta.STXJavaProxyJarFileName(seatunnelmeta.DefaultSTXJavaProxyVersion))
 	if err := os.WriteFile(exactJar, []byte("exact"), 0o644); err != nil {
 		t.Fatalf("failed to write exact jar: %v", err)
 	}
@@ -286,9 +286,9 @@ func TestResolveSeatunnelXJavaProxyJarPathPrefersVersionAndFallsBack(t *testing.
 		t.Fatalf("failed to write default jar: %v", err)
 	}
 
-	t.Setenv(seatunnelxJavaProxyHomeEnvVar, supportDir)
+	t.Setenv(stxJavaProxyHomeEnvVar, supportDir)
 
-	resolvedExact, err := resolveSeatunnelXJavaProxyJarPath(t.TempDir(), "2.3.14")
+	resolvedExact, err := resolveSTXJavaProxyJarPath(t.TempDir(), "2.3.14")
 	if err != nil {
 		t.Fatalf("expected exact version jar, got error: %v", err)
 	}
@@ -296,7 +296,7 @@ func TestResolveSeatunnelXJavaProxyJarPathPrefersVersionAndFallsBack(t *testing.
 		t.Fatalf("expected exact jar %s, got %s", exactJar, resolvedExact)
 	}
 
-	resolvedFallback, err := resolveSeatunnelXJavaProxyJarPath(t.TempDir(), "2.3.99")
+	resolvedFallback, err := resolveSTXJavaProxyJarPath(t.TempDir(), "2.3.99")
 	if err != nil {
 		t.Fatalf("expected fallback jar, got error: %v", err)
 	}
@@ -320,8 +320,8 @@ func TestExecuteStepConfigureCheckpointKeepsInstallRunningOnProbeWarning(t *test
 		t.Fatalf("failed to write seatunnel.yaml: %v", err)
 	}
 
-	scriptPath := filepath.Join(t.TempDir(), "seatunnelx-java-proxy.sh")
-	jarPath := filepath.Join(t.TempDir(), seatunnelmeta.SeatunnelXJavaProxyJarFileName(seatunnelmeta.DefaultSeatunnelXJavaProxyVersion))
+	scriptPath := filepath.Join(t.TempDir(), "stx-java-proxy.sh")
+	jarPath := filepath.Join(t.TempDir(), seatunnelmeta.STXJavaProxyJarFileName(seatunnelmeta.DefaultSTXJavaProxyVersion))
 	if err := os.WriteFile(
 		scriptPath,
 		[]byte("#!/usr/bin/env bash\nset -euo pipefail\nprintf '{\"ok\":false,\"statusCode\":504,\"message\":\"probe failed\"}' > \"$6\"\nexit 1\n"),
@@ -332,8 +332,8 @@ func TestExecuteStepConfigureCheckpointKeepsInstallRunningOnProbeWarning(t *test
 	if err := os.WriteFile(jarPath, []byte("jar"), 0o644); err != nil {
 		t.Fatalf("failed to write jar: %v", err)
 	}
-	t.Setenv(seatunnelxJavaProxyScriptEnvVar, scriptPath)
-	t.Setenv(seatunnelxJavaProxyJarEnvVar, jarPath)
+	t.Setenv(stxJavaProxyScriptEnvVar, scriptPath)
+	t.Setenv(stxJavaProxyJarEnvVar, jarPath)
 
 	reporter := &recordingProgressReporter{}
 	err := manager.executeStepConfigureCheckpoint(context.Background(), &InstallParams{
@@ -379,8 +379,8 @@ func TestExecuteStepConfigureIMAPKeepsInstallRunningOnProbeWarning(t *testing.T)
 		t.Fatalf("failed to write hazelcast.yaml: %v", err)
 	}
 
-	scriptPath := filepath.Join(t.TempDir(), "seatunnelx-java-proxy.sh")
-	jarPath := filepath.Join(t.TempDir(), seatunnelmeta.SeatunnelXJavaProxyJarFileName(seatunnelmeta.DefaultSeatunnelXJavaProxyVersion))
+	scriptPath := filepath.Join(t.TempDir(), "stx-java-proxy.sh")
+	jarPath := filepath.Join(t.TempDir(), seatunnelmeta.STXJavaProxyJarFileName(seatunnelmeta.DefaultSTXJavaProxyVersion))
 	if err := os.WriteFile(
 		scriptPath,
 		[]byte("#!/usr/bin/env bash\nset -euo pipefail\nprintf '{\"ok\":false,\"statusCode\":504,\"message\":\"probe failed\"}' > \"$6\"\nexit 1\n"),
@@ -391,8 +391,8 @@ func TestExecuteStepConfigureIMAPKeepsInstallRunningOnProbeWarning(t *testing.T)
 	if err := os.WriteFile(jarPath, []byte("jar"), 0o644); err != nil {
 		t.Fatalf("failed to write jar: %v", err)
 	}
-	t.Setenv(seatunnelxJavaProxyScriptEnvVar, scriptPath)
-	t.Setenv(seatunnelxJavaProxyJarEnvVar, jarPath)
+	t.Setenv(stxJavaProxyScriptEnvVar, scriptPath)
+	t.Setenv(stxJavaProxyJarEnvVar, jarPath)
 
 	reporter := &recordingProgressReporter{}
 	err := manager.executeStepConfigureIMAP(context.Background(), &InstallParams{

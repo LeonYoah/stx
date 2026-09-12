@@ -42,7 +42,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/seatunnel/seatunnelX/agent/internal/logger"
+	"github.com/LeonYoah/stx/agent/internal/logger"
 )
 
 // Common errors for process management

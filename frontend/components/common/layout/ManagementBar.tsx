@@ -80,8 +80,6 @@ const StaticIcons = {
   divider: <div />,
 };
 
-
-
 // 个人信息按钮 - 独立组件
 const ProfileButton = memo(() => {
   const themeUtils = useThemeUtils();
@@ -170,7 +168,9 @@ const ProfileButton = memo(() => {
       await checkAuthStatus(true);
       setEmailSaved(true);
     } catch (error) {
-      setEmailError(error instanceof Error ? error.message : t('emailSaveFailed'));
+      setEmailError(
+        error instanceof Error ? error.message : t('emailSaveFailed'),
+      );
       setEmailSaved(false);
     } finally {
       setSavingEmail(false);
@@ -313,7 +313,9 @@ const ProfileButton = memo(() => {
                     <p className='text-xs text-destructive'>{emailError}</p>
                   ) : null}
                   {!emailError && emailSaved ? (
-                    <p className='text-xs text-emerald-600'>{t('emailSaved')}</p>
+                    <p className='text-xs text-emerald-600'>
+                      {t('emailSaved')}
+                    </p>
                   ) : null}
                 </div>
               </div>
@@ -412,7 +414,7 @@ const ProfileButton = memo(() => {
                 </span>
               </Link>
               <Link
-                href='https://github.com/LeonYoah/SeaTunnelX'
+                href='https://github.com/LeonYoah/stx'
                 target='_blank'
                 rel='noopener noreferrer'
                 className='flex items-center gap-3 p-2 rounded-md hover:bg-muted/50 transition-colors group'
@@ -420,9 +422,7 @@ const ProfileButton = memo(() => {
                 <div className='flex items-center justify-center w-8 h-8 rounded-md bg-blue-500/10 group-hover:bg-blue-500/20 transition-colors'>
                   <GithubIcon className='h-4 w-4 text-blue-600' />
                 </div>
-                <span className='text-sm font-medium'>
-                  {t('seatunnelXRepo')}
-                </span>
+                <span className='text-sm font-medium'>{t('stxRepo')}</span>
               </Link>
             </div>
           </div>
@@ -540,7 +540,6 @@ export function ManagementBar() {
       icon: StaticIcons.fileText,
       href: '/audit-logs',
     });
-
 
     // 管理员入口 / Admin entry
     if (user?.is_admin) {

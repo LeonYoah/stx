@@ -23,33 +23,33 @@ import (
 )
 
 const (
-	// DefaultInstallerHistoryJobExpireMinutes is the SeaTunnelX installer default
+	// DefaultInstallerHistoryJobExpireMinutes is the STX installer default
 	// for historical job retention when the target version supports it.
-	// DefaultInstallerHistoryJobExpireMinutes 是 SeaTunnelX 安装器在目标版本支持时使用的历史作业保留默认值。
+	// DefaultInstallerHistoryJobExpireMinutes 是 STX 安装器在目标版本支持时使用的历史作业保留默认值。
 	DefaultInstallerHistoryJobExpireMinutes = 1440
 
-	// DefaultInstallerScheduledDeletionEnable is the SeaTunnelX installer default
+	// DefaultInstallerScheduledDeletionEnable is the STX installer default
 	// for auto deleting logs after historical DAG data expires.
-	// DefaultInstallerScheduledDeletionEnable 是 SeaTunnelX 安装器在历史 DAG 过期后自动删除日志的默认值。
+	// DefaultInstallerScheduledDeletionEnable 是 STX 安装器在历史 DAG 过期后自动删除日志的默认值。
 	DefaultInstallerScheduledDeletionEnable = true
 
-	// DefaultInstallerDynamicSlot is the SeaTunnelX installer default for dynamic slot.
-	// DefaultInstallerDynamicSlot 是 SeaTunnelX 安装器的动态 slot 默认值。
+	// DefaultInstallerDynamicSlot is the STX installer default for dynamic slot.
+	// DefaultInstallerDynamicSlot 是 STX 安装器的动态 slot 默认值。
 	DefaultInstallerDynamicSlot = true
 
 	// DefaultInstallerStaticSlotNum is the explicit static slot default written by
-	// SeaTunnelX so upgrades do not drift with upstream implicit defaults.
-	// DefaultInstallerStaticSlotNum 是 SeaTunnelX 显式写入的静态 slot 默认值，用于避免升级后受上游隐式默认值漂移影响。
+	// STX so upgrades do not drift with upstream implicit defaults.
+	// DefaultInstallerStaticSlotNum 是 STX 显式写入的静态 slot 默认值，用于避免升级后受上游隐式默认值漂移影响。
 	DefaultInstallerStaticSlotNum = 2
 
-	// DefaultInstallerJobScheduleStrategy is the SeaTunnelX installer default
+	// DefaultInstallerJobScheduleStrategy is the STX installer default
 	// for static-slot scheduling.
-	// DefaultInstallerJobScheduleStrategy 是 SeaTunnelX 安装器在静态 slot 模式下的调度策略默认值。
+	// DefaultInstallerJobScheduleStrategy 是 STX 安装器在静态 slot 模式下的调度策略默认值。
 	DefaultInstallerJobScheduleStrategy = "REJECT"
 
-	// DefaultInstallerSlotAllocationStrategy is the SeaTunnelX installer default
+	// DefaultInstallerSlotAllocationStrategy is the STX installer default
 	// for slot allocation strategy when the target version supports it.
-	// DefaultInstallerSlotAllocationStrategy 是 SeaTunnelX 安装器在目标版本支持时使用的 slot 分配策略默认值。
+	// DefaultInstallerSlotAllocationStrategy 是 STX 安装器在目标版本支持时使用的 slot 分配策略默认值。
 	DefaultInstallerSlotAllocationStrategy = "RANDOM"
 )
 

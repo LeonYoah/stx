@@ -99,19 +99,17 @@ export default function NotFound() {
               transition={{duration: 0.3, delay: 1.2}}
               className='inline-block mt-2'
             >
-              {'如有问题，请在 GitHub 上'
-                .split('')
-                .map((char, idx) => (
-                  <motion.span
-                    key={idx}
-                    className='inline-block'
-                    initial={{opacity: 0}}
-                    animate={{opacity: 1}}
-                    transition={{duration: 0.02, delay: 1.3 + idx * 0.01}}
-                  >
-                    {char === ' ' ? '\u00A0' : char}
-                  </motion.span>
-                ))}
+              {'如有问题，请在 GitHub 上'.split('').map((char, idx) => (
+                <motion.span
+                  key={idx}
+                  className='inline-block'
+                  initial={{opacity: 0}}
+                  animate={{opacity: 1}}
+                  transition={{duration: 0.02, delay: 1.3 + idx * 0.01}}
+                >
+                  {char === ' ' ? '\u00A0' : char}
+                </motion.span>
+              ))}
             </motion.span>
             <motion.span
               initial={{opacity: 0}}
@@ -120,7 +118,7 @@ export default function NotFound() {
               className='inline-block'
             >
               <a
-                href='https://github.com/LeonYoah/SeaTunnelX/issues/new/choose'
+                href='https://github.com/LeonYoah/stx/issues/new/choose'
                 target='_blank'
                 rel='noopener noreferrer'
                 className='text-blue-500 hover:text-blue-600 underline mx-1 inline-flex items-center gap-1'
@@ -140,7 +138,10 @@ export default function NotFound() {
           className='flex justify-center pt-6'
         >
           <Link href='/dashboard'>
-            <Button size='lg' className='bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600'>
+            <Button
+              size='lg'
+              className='bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600'
+            >
               <Home className='w-4 h-4 mr-2' />
               返回控制台
             </Button>
@@ -154,7 +155,7 @@ export default function NotFound() {
           transition={{duration: 1, delay: 2.5}}
           className='mt-12 text-xs text-neutral-400'
         >
-          SeaTunnel X - Seatunnel一站式运维管理平台
+          STX - Apache SeaTunnel 一站式运维管理平台
         </motion.div>
       </div>
     </div>

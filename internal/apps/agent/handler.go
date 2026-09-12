@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-// Package agent provides Agent distribution and management for the SeaTunnel Control Plane.
-// agent 包提供 SeaTunnel Control Plane 的 Agent 分发和管理功能。
+// Package agent provides Agent distribution and management for the STX Control Plane.
+// agent 包提供 STX Control Plane 的 Agent 分发和管理功能。
 package agent
 
 import (
@@ -27,13 +27,13 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/LeonYoah/stx/internal/config"
+	"github.com/LeonYoah/stx/internal/logger"
+	seatunnelmeta "github.com/LeonYoah/stx/internal/seatunnel"
 	"github.com/gin-gonic/gin"
-	"github.com/seatunnel/seatunnelX/internal/config"
-	"github.com/seatunnel/seatunnelX/internal/logger"
-	seatunnelmeta "github.com/seatunnel/seatunnelX/internal/seatunnel"
 )
 
-var seatunnelXJavaProxyVersionPattern = regexp.MustCompile(`^[0-9A-Za-z._-]+$`)
+var stxJavaProxyVersionPattern = regexp.MustCompile(`^[0-9A-Za-z._-]+$`)
 
 // Handler provides HTTP handlers for Agent distribution operations.
 // Handler 提供 Agent 分发操作的 HTTP 处理器。
@@ -46,13 +46,13 @@ type Handler struct {
 	// agentBinaryDir 是包含 Agent 二进制文件的目录。
 	agentBinaryDir string
 
-	// seatunnelxJavaProxyJarPath is the path to the packaged seatunnelx-java-proxy thin jar.
-	// seatunnelxJavaProxyJarPath 是 seatunnelx-java-proxy 薄 jar 的打包路径。
-	seatunnelxJavaProxyJarPath string
+	// stxJavaProxyJarPath is the path to the packaged stx-java-proxy thin jar.
+	// stxJavaProxyJarPath 是 stx-java-proxy 薄 jar 的打包路径。
+	stxJavaProxyJarPath string
 
-	// seatunnelxJavaProxyScriptPath is the path to the packaged seatunnelx-java-proxy launcher script.
-	// seatunnelxJavaProxyScriptPath 是 seatunnelx-java-proxy 启动脚本的打包路径。
-	seatunnelxJavaProxyScriptPath string
+	// stxJavaProxyScriptPath is the path to the packaged stx-java-proxy launcher script.
+	// stxJavaProxyScriptPath 是 stx-java-proxy 启动脚本的打包路径。
+	stxJavaProxyScriptPath string
 
 	// grpcPort is the gRPC port for Agent to connect.
 	// grpcPort 是 Agent 连接的 gRPC 端口。
@@ -82,13 +82,13 @@ type HandlerConfig struct {
 	// AgentBinaryDir 是包含 Agent 二进制文件的目录。
 	AgentBinaryDir string
 
-	// SeatunnelXJavaProxyJarPath is the path to the packaged seatunnelx-java-proxy thin jar.
-	// SeatunnelXJavaProxyJarPath 是 seatunnelx-java-proxy 薄 jar 的打包路径。
-	SeatunnelXJavaProxyJarPath string
+	// STXJavaProxyJarPath is the path to the packaged stx-java-proxy thin jar.
+	// STXJavaProxyJarPath 是 stx-java-proxy 薄 jar 的打包路径。
+	STXJavaProxyJarPath string
 
-	// SeatunnelXJavaProxyScriptPath is the path to the packaged seatunnelx-java-proxy launcher script.
-	// SeatunnelXJavaProxyScriptPath 是 seatunnelx-java-proxy 启动脚本的打包路径。
-	SeatunnelXJavaProxyScriptPath string
+	// STXJavaProxyScriptPath is the path to the packaged stx-java-proxy launcher script.
+	// STXJavaProxyScriptPath 是 stx-java-proxy 启动脚本的打包路径。
+	STXJavaProxyScriptPath string
 
 	// GRPCPort is the gRPC port for Agent connections.
 	// GRPCPort 是 Agent 连接的 gRPC 端口。
@@ -122,11 +122,11 @@ func NewHandler(cfg *HandlerConfig) *Handler {
 	if cfg.AgentBinaryDir == "" {
 		cfg.AgentBinaryDir = "./lib/agent"
 	}
-	if cfg.SeatunnelXJavaProxyJarPath == "" {
-		cfg.SeatunnelXJavaProxyJarPath = filepath.Join("./lib", seatunnelmeta.SeatunnelXJavaProxyJarFileName(seatunnelmeta.DefaultSeatunnelXJavaProxyVersion))
+	if cfg.STXJavaProxyJarPath == "" {
+		cfg.STXJavaProxyJarPath = filepath.Join("./lib", seatunnelmeta.STXJavaProxyJarFileName(seatunnelmeta.DefaultSTXJavaProxyVersion))
 	}
-	if cfg.SeatunnelXJavaProxyScriptPath == "" {
-		cfg.SeatunnelXJavaProxyScriptPath = filepath.Join("./scripts", seatunnelmeta.SeatunnelXJavaProxyScriptFileName)
+	if cfg.STXJavaProxyScriptPath == "" {
+		cfg.STXJavaProxyScriptPath = filepath.Join("./scripts", seatunnelmeta.STXJavaProxyScriptFileName)
 	}
 	if cfg.GRPCPort == "" {
 		cfg.GRPCPort = "50051"
@@ -136,14 +136,14 @@ func NewHandler(cfg *HandlerConfig) *Handler {
 	}
 
 	return &Handler{
-		controlPlaneAddr:              cfg.ControlPlaneAddr,
-		agentBinaryDir:                cfg.AgentBinaryDir,
-		seatunnelxJavaProxyJarPath:    cfg.SeatunnelXJavaProxyJarPath,
-		seatunnelxJavaProxyScriptPath: cfg.SeatunnelXJavaProxyScriptPath,
-		grpcPort:                      cfg.GRPCPort,
-		heartbeatInterval:             cfg.HeartbeatInterval,
-		tlsEnabled:                    cfg.TLSEnabled,
-		caFile:                        cfg.CAFile,
+		controlPlaneAddr:       cfg.ControlPlaneAddr,
+		agentBinaryDir:         cfg.AgentBinaryDir,
+		stxJavaProxyJarPath:    cfg.STXJavaProxyJarPath,
+		stxJavaProxyScriptPath: cfg.STXJavaProxyScriptPath,
+		grpcPort:               cfg.GRPCPort,
+		heartbeatInterval:      cfg.HeartbeatInterval,
+		tlsEnabled:             cfg.TLSEnabled,
+		caFile:                 cfg.CAFile,
 	}
 }
 
@@ -204,12 +204,12 @@ func (h *Handler) GetInstallScript(c *gin.Context) {
 // supportedArchitectures 定义支持的操作系统和架构组合。
 var supportedArchitectures = map[string]map[string]string{
 	"linux": {
-		"amd64": "seatunnelx-agent-linux-amd64",
-		"arm64": "seatunnelx-agent-linux-arm64",
+		"amd64": "stx-agent-linux-amd64",
+		"arm64": "stx-agent-linux-arm64",
 	},
 	"darwin": {
-		"amd64": "seatunnelx-agent-darwin-amd64",
-		"arm64": "seatunnelx-agent-darwin-arm64",
+		"amd64": "stx-agent-darwin-amd64",
+		"arm64": "stx-agent-darwin-arm64",
 	},
 }
 
@@ -321,10 +321,10 @@ func (h *Handler) DownloadCA(c *gin.Context) {
 	logger.InfoF(c.Request.Context(), "[Agent] CA certificate downloaded: %s", h.caFile)
 }
 
-// DownloadSeatunnelXJavaProxyJar handles GET /api/v1/agent/assets/seatunnelx-java-proxy.jar - downloads the seatunnelx-java-proxy thin jar.
-// DownloadSeatunnelXJavaProxyJar 处理 GET /api/v1/agent/assets/seatunnelx-java-proxy.jar - 下载 seatunnelx-java-proxy 薄 jar。
-func (h *Handler) DownloadSeatunnelXJavaProxyJar(c *gin.Context) {
-	assetPath, downloadName, err := h.resolveSeatunnelXJavaProxyJarAsset(c.Query("version"))
+// DownloadSTXJavaProxyJar handles GET /api/v1/agent/assets/stx-java-proxy.jar - downloads the stx-java-proxy thin jar.
+// DownloadSTXJavaProxyJar 处理 GET /api/v1/agent/assets/stx-java-proxy.jar - 下载 stx-java-proxy 薄 jar。
+func (h *Handler) DownloadSTXJavaProxyJar(c *gin.Context) {
+	assetPath, downloadName, err := h.resolveSTXJavaProxyJarAsset(c.Query("version"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, ErrorResponse{ErrorMsg: err.Error()})
 		return
@@ -339,33 +339,33 @@ func (h *Handler) DownloadSeatunnelXJavaProxyJar(c *gin.Context) {
 	)
 }
 
-// DownloadSeatunnelXJavaProxyScript handles GET /api/v1/agent/assets/seatunnelx-java-proxy.sh - downloads the seatunnelx-java-proxy launcher script.
-// DownloadSeatunnelXJavaProxyScript 处理 GET /api/v1/agent/assets/seatunnelx-java-proxy.sh - 下载 seatunnelx-java-proxy 启动脚本。
-func (h *Handler) DownloadSeatunnelXJavaProxyScript(c *gin.Context) {
+// DownloadSTXJavaProxyScript handles GET /api/v1/agent/assets/stx-java-proxy.sh - downloads the stx-java-proxy launcher script.
+// DownloadSTXJavaProxyScript 处理 GET /api/v1/agent/assets/stx-java-proxy.sh - 下载 stx-java-proxy 启动脚本。
+func (h *Handler) DownloadSTXJavaProxyScript(c *gin.Context) {
 	h.serveStaticAssetDownload(
 		c,
-		h.seatunnelxJavaProxyScriptPath,
-		seatunnelmeta.SeatunnelXJavaProxyScriptFileName,
+		h.stxJavaProxyScriptPath,
+		seatunnelmeta.STXJavaProxyScriptFileName,
 		"text/x-shellscript; charset=utf-8",
 		"Capability proxy script",
 		"Capability proxy script",
 	)
 }
 
-func (h *Handler) resolveSeatunnelXJavaProxyJarAsset(version string) (string, string, error) {
+func (h *Handler) resolveSTXJavaProxyJarAsset(version string) (string, string, error) {
 	requestedVersion := strings.TrimSpace(version)
-	if requestedVersion == "" || requestedVersion == seatunnelmeta.DefaultSeatunnelXJavaProxyVersion {
-		return h.seatunnelxJavaProxyJarPath, filepath.Base(h.seatunnelxJavaProxyJarPath), nil
+	if requestedVersion == "" || requestedVersion == seatunnelmeta.DefaultSTXJavaProxyVersion {
+		return h.stxJavaProxyJarPath, filepath.Base(h.stxJavaProxyJarPath), nil
 	}
 
-	if !seatunnelXJavaProxyVersionPattern.MatchString(requestedVersion) {
+	if !stxJavaProxyVersionPattern.MatchString(requestedVersion) {
 		return "", "", fmt.Errorf("invalid version parameter: only letters, numbers, dot, underscore, and hyphen are allowed")
 	}
 
-	baseDir := filepath.Dir(h.seatunnelxJavaProxyJarPath)
+	baseDir := filepath.Dir(h.stxJavaProxyJarPath)
 	versionedPath := filepath.Join(
 		baseDir,
-		seatunnelmeta.SeatunnelXJavaProxyJarFileName(requestedVersion),
+		seatunnelmeta.STXJavaProxyJarFileName(requestedVersion),
 	)
 	relativePath, err := filepath.Rel(baseDir, versionedPath)
 	if err != nil || relativePath == ".." || strings.HasPrefix(relativePath, ".."+string(filepath.Separator)) {
@@ -375,7 +375,7 @@ func (h *Handler) resolveSeatunnelXJavaProxyJarAsset(version string) (string, st
 		return versionedPath, filepath.Base(versionedPath), nil
 	}
 
-	return h.seatunnelxJavaProxyJarPath, filepath.Base(h.seatunnelxJavaProxyJarPath), nil
+	return h.stxJavaProxyJarPath, filepath.Base(h.stxJavaProxyJarPath), nil
 }
 
 func (h *Handler) serveStaticAssetDownload(
@@ -445,20 +445,20 @@ func (h *Handler) getGRPCAddr() string {
 // uninstallScriptTemplate is the template for the Agent uninstall script.
 // uninstallScriptTemplate 是 Agent 卸载脚本的模板。
 const uninstallScriptTemplate = `#!/bin/bash
-# SeaTunnelX Agent Uninstall Script
-# SeaTunnelX Agent 卸载脚本
-# Generated by SeaTunnel Control Plane
-# 由 SeaTunnel Control Plane 生成
+# STX Agent Uninstall Script
+# STX Agent 卸载脚本
+# Generated by STX Control Plane
+# 由 STX Control Plane 生成
 
 set -e
 
 # Configuration
 # 配置
 INSTALL_DIR="/usr/local/bin"
-CONFIG_DIR="/etc/seatunnelx-agent"
-LOG_DIR="/var/log/seatunnelx-agent"
-AGENT_BINARY="seatunnelx-agent"
-SERVICE_NAME="seatunnelx-agent"
+CONFIG_DIR="/etc/stx-agent"
+LOG_DIR="/var/log/stx-agent"
+AGENT_BINARY="stx-agent"
+SERVICE_NAME="stx-agent"
 
 # Colors for output
 # 输出颜色
@@ -611,8 +611,8 @@ main() {
     done
     
     log_info "=========================================="
-    log_info "SeaTunnelX Agent Uninstall Script"
-    log_info "SeaTunnelX Agent 卸载脚本"
+    log_info "STX Agent Uninstall Script"
+    log_info "STX Agent 卸载脚本"
     log_info "=========================================="
     
     # Check root

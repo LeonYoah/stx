@@ -6,7 +6,7 @@
 
 ## 概述
 
-前端为 **Next.js 14+** 应用，使用 **App Router**。路由位于 `app/` 下，路由组包括 `(main)`（需登录的控制台）和 `(auth)`（登录、回调）。可复用 UI 与按领域划分的组件在 `components/` 下；API 访问与共享工具在 `lib/` 下；hooks 与全局状态在 `hooks/` 下。
+前端为 **Next.js 15**、**React 19** 应用，使用 **App Router**。路由位于 `app/` 下，路由组包括 `(main)`（需登录的控制台）和 `(auth)`（登录、回调）。可复用 UI 与按功能划分的组件在 `components/` 下；API 访问与共享工具在 `lib/` 下；hooks 位于 `hooks/`。
 
 ---
 
@@ -24,8 +24,12 @@ frontend/
 │   │   ├── plugins/
 │   │   ├── commands/           # 命令日志
 │   │   ├── audit-logs/
+│   │   ├── diagnostics/        # 诊断与巡检
 │   │   ├── monitoring/         # 监控、告警、集成、规则
 │   │   ├── admin/users/
+│   │   ├── sync/               # 数据同步工作台
+│   │   ├── workbench/          # 运行工作台
+│   │   ├── e2e-lab/            # 不进入导航的 E2E 挂载页
 │   │   └── ...
 │   ├── (auth)/                 # 登录、OAuth 回调
 │   │   ├── login/
@@ -37,13 +41,18 @@ frontend/
 │   ├── ui/                     # 基础组件（Button、Card、Select、Table 等）
 │   ├── common/                 # 领域组件
 │   │   ├── auth/               # LoginForm、CallbackHandler
+│   │   ├── assistant/          # 助手界面
 │   │   ├── cluster/            # ClusterMain、ClusterCard、弹窗、配置
+│   │   ├── diagnostics/        # 诊断与巡检界面
 │   │   ├── host/               # HostDetail、DiscoverClusterDialog
 │   │   ├── installer/          # PackageMain、InstallWizard、步骤
+│   │   ├── markdown/           # Markdown 展示
 │   │   ├── plugin/             # PluginMain、PluginCard、弹窗
 │   │   ├── monitoring/         # MonitoringOverview、面板
 │   │   ├── audit/              # CommandMain、AuditLogMain
 │   │   ├── config/             # 配置相关 UI
+│   │   ├── schedule/           # 调度配置
+│   │   ├── sync/               # 数据同步工作台组件
 │   │   ├── layout/             # ThemeProvider、LanguageSwitcher、EmptyState
 │   │   └── ...
 │   ├── animate-ui/             # 动效、radix 变体
@@ -60,10 +69,13 @@ frontend/
 │   │   ├── installer/
 │   │   ├── plugin/
 │   │   ├── config/
+│   │   ├── diagnostics/
 │   │   ├── monitor/
 │   │   ├── monitoring/
 │   │   ├── discovery/
 │   │   ├── project/
+│   │   ├── st-upgrade/
+│   │   ├── sync/
 │   │   └── admin/
 │   ├── i18n/                   # 语言包（zh、en）、provider、配置
 │   └── utils.ts
@@ -76,7 +88,7 @@ frontend/
 ## 模块组织
 
 - **页面**：`app/(main)/...` 下每条路由通常有一个 `page.tsx`，渲染**页面级组件**（如标题 + 一个主组件如 `ClusterMain`、`PackageMain`）。布局与宽度由 `(main)/layout.tsx` 控制；单页不再加与主布局冲突的 `container` 或重复 padding。
-- **领域组件**：在 `components/common/<domain>/` 下（如 `cluster/`、`host/`、`installer/`）。每个领域可有主列表/详情组件、卡片、弹窗、表格。优先组合 `components/ui/` 中的小组件。
+- **功能组件**：在 `components/common/<domain>/` 下（如 `cluster/`、`diagnostics/`、`installer/`、`sync/`）。每个目录可有主列表或详情组件、卡片、弹窗和表格。优先组合 `components/ui/` 中的小组件。
 - **Services**：按后端领域在 `lib/services/` 下分目录（如 `cluster/`、`host/`）。每个目录有继承 `BaseService` 的 `*.service.ts`、可选的 `types.ts` 以及统一导出的 `index.ts`。后端基础路径为 `/api/v1`；services 使用相对路径（如 `/hosts`、`/clusters/:id/nodes`）。
 - **Hooks**：数据拉取或领域相关 hooks（如 `use-host.ts`、`use-audit.ts`），调用 services 并暴露 loading/error 状态，供页面或 common 组件使用。
 
@@ -95,4 +107,4 @@ frontend/
 
 - **页面 + 主组件**：`app/(main)/clusters/page.tsx` 渲染 `ClusterMain`；布局来自 `(main)/layout.tsx`。
 - **Service**：`lib/services/cluster/cluster.service.ts` 继承 `BaseService`，`basePath = '/clusters'`，定义 `list()`、`getById()`、`create()` 等，返回后端 `ApiResponse<T>` 中的类型化 `data`。
-- **UI 约定**：`ClusterMain` 中的筛选栏采用左对齐布局，搜索框使用 `flex-1 min-w-[200px] max-w-sm`（见 `agent.md` 与 UI 约定）。
+- **UI 约定**：`ClusterMain` 中的筛选栏采用左对齐布局，搜索框使用 `flex-1 min-w-[200px] max-w-sm`（见 [UI 约定](./ui-conventions.md)）。

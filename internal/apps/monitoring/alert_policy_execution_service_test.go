@@ -29,7 +29,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/seatunnel/seatunnelX/internal/apps/monitor"
+	"github.com/LeonYoah/stx/internal/apps/monitor"
 )
 
 func TestDispatchAlertPolicyEvent_sendsUnifiedPolicyNotification(t *testing.T) {

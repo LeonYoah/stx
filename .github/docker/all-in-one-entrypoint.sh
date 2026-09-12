@@ -16,11 +16,11 @@
 
 set -euo pipefail
 
-BASE_DIR="/opt/seatunnelx"
+BASE_DIR="/opt/stx"
 LOG_DIR="$BASE_DIR/logs"
 RUN_DIR="$BASE_DIR/run"
 
-BACKEND_BIN="$BASE_DIR/seatunnelx"
+BACKEND_BIN="$BASE_DIR/stx"
 FRONTEND_SERVER="$BASE_DIR/frontend/server.js"
 CONFIG_PATH="${CONFIG_PATH:-$BASE_DIR/config.yaml}"
 

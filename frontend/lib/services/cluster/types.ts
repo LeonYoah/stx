@@ -415,7 +415,7 @@ export interface RuntimeStorageIMAPInspectResult {
   entries?: Record<string, unknown>[];
 }
 
-export interface SeatunnelXJavaProxyStatus {
+export interface StxJavaProxyStatus {
   cluster_id: number;
   cluster_name?: string;
   node_id?: number;
@@ -436,7 +436,7 @@ export interface SeatunnelXJavaProxyStatus {
   message?: string;
 }
 
-export interface SeatunnelXJavaProxyLogPreviewResult {
+export interface StxJavaProxyLogPreviewResult {
   cluster_id: number;
   log_path?: string;
   lines?: number;
@@ -878,11 +878,10 @@ export type InspectCheckpointRuntimeStorageResponse =
 export type InspectIMAPRuntimeStorageResponse =
   BackendResponse<RuntimeStorageIMAPInspectResult>;
 
-/** Capability proxy response type / seatunnelx-java-proxy 响应类型 */
-export type SeatunnelXJavaProxyResponse =
-  BackendResponse<SeatunnelXJavaProxyStatus>;
-export type SeatunnelXJavaProxyLogPreviewResponse =
-  BackendResponse<SeatunnelXJavaProxyLogPreviewResult>;
+/** STX Java Proxy 响应类型 / STX Java Proxy response type. */
+export type StxJavaProxyResponse = BackendResponse<StxJavaProxyStatus>;
+export type StxJavaProxyLogPreviewResponse =
+  BackendResponse<StxJavaProxyLogPreviewResult>;
 
 /**
  * Request to precheck a node before adding

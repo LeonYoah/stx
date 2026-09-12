@@ -77,7 +77,7 @@
 - `internal/apps/diagnostics/task_execute.go`
 - `internal/apps/diagnostics/task_models.go`
 - `internal/apps/diagnostics/normalize.go`（如需补错误分类支撑）
-- `frontend/components/common/diagnostics/DiagnosticReportMockV3.tsx`（作为视觉参考）
+- `frontend/components/common/diagnostics/DiagnosticReportMockV3.tsx`（计划新增，作为视觉参考）
 - 可能补充诊断报告规则/分类辅助结构
 
 ### 实施分期建议

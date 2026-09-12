@@ -13,13 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Seatunnel 一站式运维管理平台配置
+# STX 配置
 # 复制为 config.yaml 使用
 # 默认部署不依赖 Redis / ClickHouse / legacy project。
 
 # 应用配置
 app:
-  app_name: "SeaTunnelX"
+  app_name: "STX"
   env: "development" # development, testing, production
   addr: ":8000"  # 监听地址，":8000" 表示监听所有网卡
   # 外部访问 URL（用于生成 Agent 安装命令等）
@@ -27,7 +27,7 @@ app:
   # 必须配置为目标主机可访问的地址，例如: "http://192.168.1.100:8000"
   # Must be configured as an address accessible from target hosts, e.g.: "http://192.168.1.100:8000"
   external_url: "http://your-server-ip:8000"
-  session_cookie_name: "seatunnel_session_id"
+  session_cookie_name: "stx_session_id"
   session_secret: "123456" # 首次启动后不可更改
   # Cookie domain。私有化部署通常应留空，让浏览器按当前访问 host 绑定 Cookie。
   # 只有在你明确固定使用某个域名访问时才填写，例如 "stx.company.com"。
@@ -96,13 +96,13 @@ sync:
 database:
   enabled: true
   type: "sqlite"  # sqlite, mysql, postgres
-  sqlite_path: "./data/seatunnelx.db"  # SQLite 文件路径
+  sqlite_path: "./data/stx.db"  # SQLite 文件路径
   # MySQL/PostgreSQL 配置（使用 sqlite 时可忽略）
   host: "127.0.0.1"
   port: 3306
   username: "root"
   password: ""
-  database: "seatunnelx"
+  database: "stx"
   max_idle_conn: 10
   max_open_conn: 100
   conn_max_lifetime: 3600
@@ -166,7 +166,7 @@ log:
   level: "info"  # debug, info, warn, error, fatal, panic
   format: "json"  # text, json
   output: "both"  # stdout, file, both
-  file_path: "./logs/seatunnelx.log"
+  file_path: "./logs/stx.log"
   max_size: 100
   max_age: 30
   max_backups: 10
@@ -193,14 +193,14 @@ observability:
     # Prometheus Web/Query 地址（用于健康检查与控制台跳转）
     # Prometheus Web/Query URL (for health checks and console links)
     url: "http://127.0.0.1:9090"
-    # SeaTunnelX 对外暴露的 HTTP SD 路径
-    # HTTP SD path exposed by SeaTunnelX
+    # STX 对外暴露的 HTTP SD 路径
+    # HTTP SD path exposed by STX
     http_sd_path: "/api/v1/monitoring/prometheus/discovery"
 
   alertmanager:
     url: "http://127.0.0.1:9093"
-    # SeaTunnelX 对外暴露的 Alertmanager Webhook 路径
-    # Alertmanager webhook path exposed by SeaTunnelX
+    # STX 对外暴露的 Alertmanager Webhook 路径
+    # Alertmanager webhook path exposed by STX
     webhook_path: "/api/v1/monitoring/alertmanager/webhook"
 
   grafana:

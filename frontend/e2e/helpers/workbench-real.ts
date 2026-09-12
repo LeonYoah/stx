@@ -25,7 +25,7 @@ import {expect, type APIRequestContext, type Page} from '@playwright/test';
 import {
   ensureClusterRunning,
   waitForRuntimeStorageReady,
-  waitForSeatunnelXJavaProxyHealthy,
+  waitForStxJavaProxyHealthy,
 } from './install-wizard-real';
 import {
   downloadPluginApi,
@@ -417,7 +417,7 @@ export async function prepareWorkbenchRealCluster(
   });
   await ensureClusterRunning(page, cluster.clusterId);
   await waitForRuntimeStorageReady(page, cluster.clusterId);
-  await waitForSeatunnelXJavaProxyHealthy(page, cluster.clusterId);
+  await waitForStxJavaProxyHealthy(page, cluster.clusterId);
   await downloadPluginApi(page.context().request, 'jdbc', seatunnelVersion, [
     'mysql',
   ]);
@@ -442,7 +442,11 @@ export async function prepareWorkbenchRealCluster(
     seatunnelVersion,
     (plugin) => (plugin.selected_profile_keys || []).includes('mysql'),
   );
-  await downloadPluginApi(page.context().request, 'http-base', seatunnelVersion);
+  await downloadPluginApi(
+    page.context().request,
+    'http-base',
+    seatunnelVersion,
+  );
   await waitForPluginDownloadCompleted(
     page.context().request,
     'http-base',
@@ -484,20 +488,23 @@ export async function createSyncFolder(
   return Number(payload.data?.id);
 }
 
-
 function buildWorkbenchTaskDefinition(
   definition?: Record<string, unknown>,
 ): SyncTaskDefinition {
   const next: SyncTaskDefinition = {...(definition || {})};
-  next.preview_mode = typeof next.preview_mode === 'string' ? next.preview_mode : 'source';
+  next.preview_mode =
+    typeof next.preview_mode === 'string' ? next.preview_mode : 'source';
   next.preview_output_format =
-    typeof next.preview_output_format === 'string' ? next.preview_output_format : 'hocon';
+    typeof next.preview_output_format === 'string'
+      ? next.preview_output_format
+      : 'hocon';
   next.preview_row_limit =
     typeof next.preview_row_limit === 'number' && next.preview_row_limit > 0
       ? next.preview_row_limit
       : 100;
   next.preview_timeout_minutes =
-    typeof next.preview_timeout_minutes === 'number' && next.preview_timeout_minutes > 0
+    typeof next.preview_timeout_minutes === 'number' &&
+    next.preview_timeout_minutes > 0
       ? next.preview_timeout_minutes
       : 10;
   const existingSink =
@@ -883,9 +890,8 @@ export async function listCheckpointFiles(
     `${backendBaseURL}/api/v1/clusters/${clusterId}/runtime-storage`,
   );
   await assertOK(detailsResponse, 'get runtime storage details');
-  const detailsBody = await readJSON<RuntimeStorageDetailsResponse>(
-    detailsResponse,
-  );
+  const detailsBody =
+    await readJSON<RuntimeStorageDetailsResponse>(detailsResponse);
   expect(detailsBody.error_msg ?? '').toBe('');
   const namespace = detailsBody.data?.checkpoint?.namespace?.trim();
   expect(namespace, 'checkpoint namespace should be available').toBeTruthy();

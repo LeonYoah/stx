@@ -36,7 +36,7 @@
   },
   "dashboard": {
     "title": "控制台",
-    "subtitle": "SeaTunnelX 一站式运维管理概览",
+    "subtitle": "STX 运维管理概览",
     "refresh": "刷新",
     "totalHosts": "主机总数",
     "online": "在线",
@@ -61,14 +61,14 @@
     "installed": "已安装",
     "notInstalled": "未安装",
     "offline": "离线",
-    "welcome": "欢迎使用 SeaTunnelX",
+    "welcome": "欢迎使用 STX",
     "welcomeDesc": "开始添加主机并部署您的第一个 SeaTunnel 集群",
     "addHost": "添加主机",
     "createCluster": "创建集群"
   },
   "auth": {
     "login": {
-      "title": "欢迎使用 SeaTunnel 一站式运维管理平台",
+      "title": "欢迎使用 STX",
       "subtitle": "请登录以继续",
       "username": "用户名",
       "usernamePlaceholder": "请输入用户名",
@@ -98,7 +98,7 @@
       "unauthorized": "未授权访问"
     },
     "callback": {
-      "title": "欢迎使用 SeaTunnel 一站式运维管理平台",
+      "title": "欢迎使用 STX",
       "verifying": "正在验证",
       "success": "验证成功",
       "failed": "验证失败",
@@ -106,7 +106,7 @@
       "oauthFailed": "OAuth认证失败",
       "missingParams": "缺少必要的认证参数",
       "processingFailed": "登录处理失败",
-      "footer": "SeaTunnel 一站式运维管理平台 - 让数据集成更简单"
+      "footer": "STX - 让数据集成更简单"
     }
   },
   "terms": {
@@ -119,7 +119,7 @@
       "description": "请仔细阅读以下服务条款，使用本服务即表示您同意这些条款。",
       "general": {
         "title": "1. 一般条款",
-        "content1": "本服务条款（以下简称「条款」）规定了您使用 SeaTunnel 一站式运维管理平台服务的条件。",
+        "content1": "本服务条款（以下简称「条款」）规定了您使用 STX 服务的条件。",
         "content2": "通过访问或使用我们的服务，您同意受这些条款的约束。如果您不同意这些条款，请不要使用我们的服务。",
         "content3": "我们保留随时修改这些条款的权利。修改后的条款将在发布后立即生效。"
       },
@@ -258,11 +258,11 @@
     "languageSettings": "语言设置",
     "quickLinks": "快速链接",
     "seatunnelRepo": "SeaTunnel 仓库",
-    "seatunnelXRepo": "SeaTunnelX 仓库",
-    "about": "关于 SeaTunnelX",
+    "stxRepo": "STX 仓库",
+    "about": "关于 STX",
     "version": "版本",
     "buildTime": "构建时间",
-    "description": "SeaTunnelX 是一个为数据集成打造的一站式运维管理平台，旨在提供快速、安全、便捷的数据同步服务。平台支持多种Source，具备完善的任务管理和监控机制。",
+    "description": "STX 是一个面向数据集成的一站式运维管理平台，旨在提供快速、安全、便捷的数据同步服务。平台支持多种 Source，具备完善的任务管理和监控机制。",
     "trustLevel": {
       "newUser": "新用户",
       "basicUser": "基本用户",
@@ -754,8 +754,8 @@
       "inspectWalFailed": "IMAP WAL 解析失败",
       "entryCount": "记录数"
     },
-    "seatunnelxJavaProxy": {
-      "title": "SeaTunnelX Java Proxy",
+    "stxJavaProxy": {
+      "title": "STX Java Proxy",
       "description": "用于安装期探测和运行时存储诊断的托管代理服务。",
       "healthy": "健康",
       "unhealthy": "运行中但不健康",
@@ -764,20 +764,20 @@
       "endpoint": "访问地址",
       "pid": "PID",
       "logPath": "日志路径",
-      "noStatus": "当前无法获取 seatunnelx-java-proxy 状态",
+      "noStatus": "当前无法获取 stx-java-proxy 状态",
       "start": "启动",
       "stop": "停止",
       "restart": "重启",
-      "startSuccess": "seatunnelx-java-proxy 启动成功",
-      "stopSuccess": "seatunnelx-java-proxy 停止成功",
-      "restartSuccess": "seatunnelx-java-proxy 重启成功",
-      "startError": "seatunnelx-java-proxy 启动失败",
-      "stopError": "seatunnelx-java-proxy 停止失败",
-      "restartError": "seatunnelx-java-proxy 重启失败",
+      "startSuccess": "stx-java-proxy 启动成功",
+      "stopSuccess": "stx-java-proxy 停止成功",
+      "restartSuccess": "stx-java-proxy 重启成功",
+      "startError": "stx-java-proxy 启动失败",
+      "stopError": "stx-java-proxy 停止失败",
+      "restartError": "stx-java-proxy 重启失败",
       "viewServiceLog": "查看运行日志",
-      "viewServiceLogError": "加载 seatunnelx-java-proxy 运行日志失败",
+      "viewServiceLogError": "加载 stx-java-proxy 运行日志失败",
       "viewRuntimeLog": "查看运行日志",
-      "viewRuntimeLogError": "加载 seatunnelx-java-proxy 运行日志失败"
+      "viewRuntimeLogError": "加载 stx-java-proxy 运行日志失败"
     },
     "activeAlertsBanner": {
       "title": "发现 {count} 个活跃告警",
@@ -1491,7 +1491,7 @@
       "staticSlot": "静态 Slot",
       "dynamicSlotHint": "动态 Slot 仍是默认推荐模式，通常更省心；但在该模式下，slot-allocation-strategy 只有部分支持，资源申请在部分场景会退化到 fallback 逻辑，因此策略影响相对较弱，行为也不如静态 slot 严格。",
       "slotNum": "静态 Slot 数量",
-      "slotNumHint": "SeaTunnelX 会显式写入 slot-num，避免升级后受上游默认值变化影响。",
+      "slotNumHint": "STX 会显式写入 slot-num，避免升级后受上游默认值变化影响。",
       "jobScheduleStrategy": "资源不足时的调度策略",
       "jobScheduleReject": "REJECT（直接失败）",
       "jobScheduleWait": "WAIT（进入等待队列）",
@@ -1913,7 +1913,7 @@
       "capabilities": {
         "platform_health": {
           "title": "平台健康策略",
-          "summary": "基于 SeaTunnelX 自身管理能力构建集群健康、节点在线、进程稳定性与运维动作类策略。"
+          "summary": "基于 STX 自身管理能力构建集群健康、节点在线、进程稳定性与运维动作类策略。"
         },
         "metrics_templates": {
           "title": "指标模板",
@@ -1933,7 +1933,7 @@
         },
         "in_app_notification": {
           "title": "站内通知中心",
-          "summary": "在 SeaTunnelX 内提供消息收件箱、恢复通知跟进和面向接收者的站内体验。"
+          "summary": "在 STX 内提供消息收件箱、恢复通知跟进和面向接收者的站内体验。"
         }
       },
       "builders": {

@@ -2,7 +2,7 @@
 
 ## Goal
 
-分析 SeaTunnelX 当前“告警 + 通知”能力的完成度，明确：
+分析 STX 当前“告警 + 通知”能力的完成度，明确：
 
 1. **已经具备什么**；
 2. **哪些只是 MVP / 半成品**；
@@ -82,7 +82,7 @@
 - 这次任务以**产品能力完整度分析 + 路线设计**为主，不做大规模实现。
 - 评估维度以“是否形成可用闭环”为准，而不是“是否已经有表 / API / 页面”。
 - 告警与通知最终应覆盖两类来源：
-  - SeaTunnelX 自身进程 / 集群事件；
+  - STX 自身进程 / 集群事件；
   - 外部 Prometheus / Alertmanager 回流的远程告警。
 
 ---
@@ -145,7 +145,7 @@
 
 ### Constraints from our repo/project
 
-#### A. 当前 SeaTunnelX 实际上存在“两套告警域”
+#### A. 当前 STX 实际上存在“两套告警域”
 
 **本地告警域**：
 
@@ -245,7 +245,7 @@
 #### How it works
 
 - 继续把 Prometheus / Alertmanager / Grafana 当成主监控引擎；
-- SeaTunnelX 专注做：
+- STX 专注做：
   - 受管集群指标发现；
   - 规则配置托管（或规则模板管理）；
   - 告警回流；
@@ -263,7 +263,7 @@
 
 #### Cons
 
-- 需要处理 SeaTunnelX 自身“本地进程事件告警”如何并入统一模型；
+- 需要处理 STX 自身“本地进程事件告警”如何并入统一模型；
 - 平台内 UI / 配置模型需要重构，不是简单补几个接口就够。
 
 ### Approach B: Hybrid unify（短中期最现实）
@@ -272,7 +272,7 @@
 
 - 保留当前本地 process-event 告警；
 - 保留当前远程 Alertmanager webhook 回流；
-- 在 SeaTunnelX 内部抽象出统一的：
+- 在 STX 内部抽象出统一的：
   - `AlertInstance`
   - `AlertSource`
   - `AlertRoute`
@@ -293,7 +293,7 @@
 
 #### How it works
 
-- SeaTunnelX 自己做规则执行、窗口聚合、告警生成、通知派发、历史记录、静默策略。
+- STX 自己做规则执行、窗口聚合、告警生成、通知派发、历史记录、静默策略。
 
 #### Pros
 
@@ -499,7 +499,7 @@
 3. 统一 Dashboard、Platform Health、Alerts Center 的告警计数口径；
 4. 明确 ack / silence 对不同来源的语义：
    - 本地：直接落库状态；
-   - 远程：至少支持 SeaTunnelX 侧本地状态覆盖，后续可选同步到 Alertmanager silence。
+   - 远程：至少支持 STX 侧本地状态覆盖，后续可选同步到 Alertmanager silence。
 
 ### 产出
 
@@ -551,7 +551,7 @@
    - 节点离线持续 N 分钟
 4. 若走 Alertmanager-first，可增加：
    - 托管 PrometheusRule 模板；
-   - SeaTunnelX 侧做表单化配置，最终渲染为 PromQL / rule group。
+   - STX 侧做表单化配置，最终渲染为 PromQL / rule group。
 
 ### 不建议 Phase 2 就做的事
 
@@ -694,7 +694,7 @@
 虽然用户视图统一，但后端仍然必须保留 **source-aware capability model**，至少区分：
 
 1. **Platform health / managed runtime signals**
-   - 由 SeaTunnelX 自身生成或聚合；
+   - 由 STX 自身生成或聚合；
    - 例如：master 不可用、worker 不足、agent 离线、进程 crash/restart 失败、升级失败、配置下发失败；
    - 这些能力不依赖 Prometheus，也应在无监控组件时继续工作。
 
@@ -745,7 +745,7 @@ Prometheus / Alertmanager 相关能力应采用 capability gating：
 
 本任务不再只是“补本地规则”或“补远程通知”，而是重规划为：
 
-**设计并逐步实现一个统一的 SeaTunnelX 告警策略中心：**
+**设计并逐步实现一个统一的 STX 告警策略中心：**
 
 - 面向用户是一体化的告警产品；
 - 面向系统内部是“平台健康信号 + Prometheus 指标信号”的双引擎；
@@ -817,7 +817,7 @@ Prometheus / Alertmanager 相关能力应采用 capability gating：
 
 目标：
 
-- SeaTunnelX 在没有 Prometheus 时，仍能独立提供有价值的集群健康告警。
+- STX 在没有 Prometheus 时，仍能独立提供有价值的集群健康告警。
 
 交付：
 

@@ -40,10 +40,10 @@ const notoSansSC = Noto_Sans_SC({
 
 export const metadata: Metadata = {
   title: {
-    template: '%s - Seatunnel X',
-    default: 'Seatunnel X',
+    template: '%s - STX',
+    default: 'STX',
   },
-  description: 'Seatunnel X ,Seatunnel的一站式运维管理平台',
+  description: 'STX，Apache SeaTunnel 一站式运维管理平台',
 };
 
 export default function RootLayout({

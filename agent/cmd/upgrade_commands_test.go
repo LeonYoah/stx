@@ -23,8 +23,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	pb "github.com/seatunnel/seatunnelX/agent"
-	"github.com/seatunnel/seatunnelX/agent/internal/installer"
+	pb "github.com/LeonYoah/stx/agent"
+	"github.com/LeonYoah/stx/agent/internal/installer"
 )
 
 func TestAgent_handleManagedUpgradeCommand_requiresSubCommand(t *testing.T) {

@@ -19,7 +19,7 @@
  * @Author: Leon Yoah 1733839298@qq.com
  * @Date: 2025-12-17 17:31:49
  * @LastEditTime: 2026-02-07 17:32:33
- * @FilePath: \SeaTunnelX\internal\apps\host\model.go
+ * @FilePath: \STX\internal\apps\host\model.go
  */
 /*
  * Licensed to the Apache Software Foundation (ASF) under one or more
@@ -38,8 +38,8 @@
  * limitations under the License.
  */
 
-// Package host provides host management functionality for the SeaTunnelX Agent system.
-// host 包提供 SeaTunnelX Agent 系统的主机管理功能。
+// Package host provides host management functionality for the STX Agent system.
+// host 包提供 STX Agent 系统的主机管理功能。
 package host
 
 import (

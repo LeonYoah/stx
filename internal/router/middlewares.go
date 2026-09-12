@@ -29,9 +29,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/LeonYoah/stx/internal/logger"
+	"github.com/LeonYoah/stx/internal/otel_trace"
 	"github.com/gin-gonic/gin"
-	"github.com/seatunnel/seatunnelX/internal/logger"
-	"github.com/seatunnel/seatunnelX/internal/otel_trace"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -115,7 +115,7 @@ func isGrafanaStaticAssetPath(path string) bool {
 }
 
 func isGrafanaPrometheusQueryPath(path string) bool {
-	// Grafana -> Prometheus datasource 查询，通过 SeatunnelX 代理到 /api/ds/query
+	// Grafana -> Prometheus datasource 查询，通过 STX 代理到 /api/ds/query
 	// 这些请求频率较高且内容重复，默认不打印以减少日志噪音。
 	return strings.HasPrefix(path, "/api/v1/monitoring/proxy/grafana/api/ds/query")
 }

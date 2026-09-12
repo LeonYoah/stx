@@ -216,7 +216,7 @@ def insert_header(text: str, header: str, suffix: str) -> str:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Batch-add Apache 2.0 headers to new SeaTunnelX source/config files."
+        description="Batch-add Apache 2.0 headers to new STX source/config files."
     )
     parser.add_argument("paths", nargs="*", help="Explicit file paths to update")
     parser.add_argument(

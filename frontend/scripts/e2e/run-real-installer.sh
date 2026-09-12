@@ -185,20 +185,20 @@ if [[ -n "${PACKAGE_CACHE_DIR}" ]]; then
 fi
 docker rm -f "${MINIO_NAME}" >/dev/null 2>&1 || true
 
-JAVA_PROXY_SCRIPT_PATH="${ROOT_DIR}/scripts/seatunnelx-java-proxy.sh"
-JAVA_PROXY_LIB_PATH="${ROOT_DIR}/lib/seatunnelx-java-proxy-${JAVA_PROXY_VERSION}.jar"
+JAVA_PROXY_SCRIPT_PATH="${ROOT_DIR}/scripts/stx-java-proxy.sh"
+JAVA_PROXY_LIB_PATH="${ROOT_DIR}/lib/stx-java-proxy-${JAVA_PROXY_VERSION}.jar"
 if [[ ! -f "${JAVA_PROXY_LIB_PATH}" ]]; then
-  mvn -q -DskipTests package -f "${ROOT_DIR}/tools/seatunnelx-java-proxy/pom.xml"
-  BUILT_JAVA_PROXY_JAR="$(find "${ROOT_DIR}/tools/seatunnelx-java-proxy/target" -maxdepth 1 -type f -name "seatunnelx-java-proxy-${JAVA_PROXY_VERSION}*.jar" | grep -v '\-bin\.jar$' | sort | head -n 1 || true)"
+  mvn -q -DskipTests package -f "${ROOT_DIR}/tools/stx-java-proxy/pom.xml"
+  BUILT_JAVA_PROXY_JAR="$(find "${ROOT_DIR}/tools/stx-java-proxy/target" -maxdepth 1 -type f -name "stx-java-proxy-${JAVA_PROXY_VERSION}*.jar" | grep -v '\-bin\.jar$' | sort | head -n 1 || true)"
   if [[ -z "${BUILT_JAVA_PROXY_JAR}" ]]; then
-    echo "failed to build seatunnelx-java-proxy jar for version ${JAVA_PROXY_VERSION}" >&2
+    echo "failed to build stx-java-proxy jar for version ${JAVA_PROXY_VERSION}" >&2
     exit 1
   fi
   mkdir -p "${ROOT_DIR}/lib"
   cp "${BUILT_JAVA_PROXY_JAR}" "${JAVA_PROXY_LIB_PATH}"
 fi
 if [[ ! -f "${JAVA_PROXY_SCRIPT_PATH}" ]]; then
-  echo "seatunnelx-java-proxy script is missing: ${JAVA_PROXY_SCRIPT_PATH}" >&2
+  echo "stx-java-proxy script is missing: ${JAVA_PROXY_SCRIPT_PATH}" >&2
   exit 1
 fi
 chmod +x "${JAVA_PROXY_SCRIPT_PATH}"
@@ -249,14 +249,14 @@ sed \
   -e "s/:18000/:${BACKEND_HTTP_PORT}/g" \
   -e "s|http://127.0.0.1:18000|http://127.0.0.1:${BACKEND_HTTP_PORT}|g" \
   -e "s/port: 19090/port: ${BACKEND_GRPC_PORT}/g" \
-  -e "s|\.\./tmp/e2e/installer-real/seatunnelx\\.db|${TMP_DIR_ESCAPED}/seatunnelx.db|g" \
+  -e "s|\.\./tmp/e2e/installer-real/stx\\.db|${TMP_DIR_ESCAPED}/stx.db|g" \
   -e "s|\.\./tmp/e2e/installer-real/storage|${TMP_DIR_ESCAPED}/storage|g" \
-  -e "s|\.\./tmp/e2e/installer-real/logs/seatunnelx\\.log|${TMP_DIR_ESCAPED}/logs/seatunnelx.log|g" \
+  -e "s|\.\./tmp/e2e/installer-real/logs/stx\\.log|${TMP_DIR_ESCAPED}/logs/stx.log|g" \
   "${BACKEND_TEMPLATE}" > "${BACKEND_CONFIG_PATH}"
 
 sed \
   -e "s/127.0.0.1:19090/127.0.0.1:${BACKEND_GRPC_PORT}/g" \
-  -e "s|tmp/e2e/installer-real/logs/seatunnelx-agent\\.log|${TMP_DIR_ESCAPED}/logs/seatunnelx-agent.log|g" \
+  -e "s|tmp/e2e/installer-real/logs/stx-agent\\.log|${TMP_DIR_ESCAPED}/logs/stx-agent.log|g" \
   -e "s|tmp/e2e/installer-real/install/default|${TMP_DIR_ESCAPED}/install/default|g" \
   "${AGENT_TEMPLATE}" > "${AGENT_CONFIG_PATH}"
 
@@ -288,9 +288,9 @@ done
 
 export E2E_INSTALLER_REAL=1
 export E2E_API_MODE=real
-export SEATUNNELX_JAVA_PROXY_HOME="${ROOT_DIR}"
-export SEATUNNELX_JAVA_PROXY_SCRIPT="${JAVA_PROXY_SCRIPT_PATH}"
-export SEATUNNELX_JAVA_PROXY_JAR="${JAVA_PROXY_LIB_PATH}"
+export STX_JAVA_PROXY_HOME="${ROOT_DIR}"
+export STX_JAVA_PROXY_SCRIPT="${JAVA_PROXY_SCRIPT_PATH}"
+export STX_JAVA_PROXY_JAR="${JAVA_PROXY_LIB_PATH}"
 export E2E_BACKEND_BASE_URL="${E2E_BACKEND_BASE_URL:-http://127.0.0.1:${BACKEND_HTTP_PORT}}"
 export E2E_FRONTEND_HOST="${E2E_FRONTEND_HOST:-127.0.0.1}"
 export E2E_FRONTEND_PORT="${E2E_FRONTEND_PORT:-${FRONTEND_PORT}}"

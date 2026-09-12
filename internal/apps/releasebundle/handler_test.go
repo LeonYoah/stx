@@ -33,25 +33,25 @@ import (
 func setupTestRouter(handler *Handler) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.GET("/api/v1/seatunnelx/install.sh", handler.GetInstallScript)
-	r.GET("/api/v1/seatunnelx/download", handler.DownloadBundle)
+	r.GET("/api/v1/stx/install.sh", handler.GetInstallScript)
+	r.GET("/api/v1/stx/download", handler.DownloadBundle)
 	return r
 }
 
 func TestGetInstallScriptUsesRequestHost(t *testing.T) {
 	dir := t.TempDir()
-	bundleName := "seatunnelx-test-linux-amd64-node18-glibc217-without-observability.tar.gz"
+	bundleName := "stx-test-linux-amd64-node18-glibc217-without-observability.tar.gz"
 	if err := os.WriteFile(filepath.Join(dir, bundleName), []byte("bundle"), 0o644); err != nil {
 		t.Fatalf("write bundle: %v", err)
 	}
 
 	handler := NewHandler(&HandlerConfig{
 		ReleaseDir:    dir,
-		BundlePattern: "seatunnelx-*.tar.gz",
+		BundlePattern: "stx-*.tar.gz",
 	})
 	router := setupTestRouter(handler)
 
-	req, _ := http.NewRequest("GET", "/api/v1/seatunnelx/install.sh", nil)
+	req, _ := http.NewRequest("GET", "/api/v1/stx/install.sh", nil)
 	req.Host = "cpa.120500.xyz"
 	req.Header.Set("X-Forwarded-Proto", "https")
 	w := httptest.NewRecorder()
@@ -61,33 +61,33 @@ func TestGetInstallScriptUsesRequestHost(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 	body := w.Body.String()
-	if !strings.Contains(body, "https://cpa.120500.xyz/api/v1/seatunnelx/download") {
+	if !strings.Contains(body, "https://cpa.120500.xyz/api/v1/stx/download") {
 		t.Fatalf("expected install script to contain request host based download url, got: %s", body)
 	}
-	if !strings.Contains(body, "STX_USERNAME") || !strings.Contains(body, "SeaTunnelX username:") {
+	if !strings.Contains(body, "STX_USERNAME") || !strings.Contains(body, "STX username:") {
 		t.Fatalf("expected install script to prompt for credentials, got: %s", body)
 	}
-	if got := w.Header().Get("X-SeaTunnelX-Bundle"); got != bundleName {
+	if got := w.Header().Get("X-STX-Bundle"); got != bundleName {
 		t.Fatalf("expected bundle header %q, got %q", bundleName, got)
 	}
 }
 
 func TestDownloadBundleRequiresAuth(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "seatunnelx-test-linux-amd64-node18-glibc217-without-observability.tar.gz"), []byte("bundle"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "stx-test-linux-amd64-node18-glibc217-without-observability.tar.gz"), []byte("bundle"), 0o644); err != nil {
 		t.Fatalf("write bundle: %v", err)
 	}
 
 	handler := NewHandler(&HandlerConfig{
 		ReleaseDir:    dir,
-		BundlePattern: "seatunnelx-*.tar.gz",
+		BundlePattern: "stx-*.tar.gz",
 		ValidateCredentials: func(ctx context.Context, username, password string) (bool, error) {
 			return username == "admin" && password == "secret", nil
 		},
 	})
 	router := setupTestRouter(handler)
 
-	req, _ := http.NewRequest("GET", "/api/v1/seatunnelx/download", nil)
+	req, _ := http.NewRequest("GET", "/api/v1/stx/download", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -101,8 +101,8 @@ func TestDownloadBundleRequiresAuth(t *testing.T) {
 
 func TestDownloadBundleReturnsLatestMatchingBundle(t *testing.T) {
 	dir := t.TempDir()
-	older := filepath.Join(dir, "seatunnelx-older-linux-amd64-node18-glibc217-without-observability.tar.gz")
-	newer := filepath.Join(dir, "seatunnelx-newer-linux-amd64-node18-glibc217-without-observability.tar.gz")
+	older := filepath.Join(dir, "stx-older-linux-amd64-node18-glibc217-without-observability.tar.gz")
+	newer := filepath.Join(dir, "stx-newer-linux-amd64-node18-glibc217-without-observability.tar.gz")
 	if err := os.WriteFile(older, []byte("older"), 0o644); err != nil {
 		t.Fatalf("write older bundle: %v", err)
 	}
@@ -119,14 +119,14 @@ func TestDownloadBundleReturnsLatestMatchingBundle(t *testing.T) {
 
 	handler := NewHandler(&HandlerConfig{
 		ReleaseDir:    dir,
-		BundlePattern: "seatunnelx-*.tar.gz",
+		BundlePattern: "stx-*.tar.gz",
 		ValidateCredentials: func(ctx context.Context, username, password string) (bool, error) {
 			return username == "admin" && password == "secret", nil
 		},
 	})
 	router := setupTestRouter(handler)
 
-	req, _ := http.NewRequest("GET", "/api/v1/seatunnelx/download", nil)
+	req, _ := http.NewRequest("GET", "/api/v1/stx/download", nil)
 	req.SetBasicAuth("admin", "secret")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -145,14 +145,14 @@ func TestDownloadBundleReturnsLatestMatchingBundle(t *testing.T) {
 func TestDownloadBundleReturnsNotFoundWhenMissing(t *testing.T) {
 	handler := NewHandler(&HandlerConfig{
 		ReleaseDir:    t.TempDir(),
-		BundlePattern: "seatunnelx-*.tar.gz",
+		BundlePattern: "stx-*.tar.gz",
 		ValidateCredentials: func(ctx context.Context, username, password string) (bool, error) {
 			return username == "admin" && password == "secret", nil
 		},
 	})
 	router := setupTestRouter(handler)
 
-	req, _ := http.NewRequest("GET", "/api/v1/seatunnelx/download", nil)
+	req, _ := http.NewRequest("GET", "/api/v1/stx/download", nil)
 	req.SetBasicAuth("admin", "secret")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)

@@ -20,7 +20,7 @@ import (
 	"strings"
 	"testing"
 
-	appconfig "github.com/seatunnel/seatunnelX/internal/apps/config"
+	appconfig "github.com/LeonYoah/stx/internal/apps/config"
 )
 
 func TestBuildConfigMergeInputs_deduplicatesByConfigType(t *testing.T) {

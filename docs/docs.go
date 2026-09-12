@@ -182,6 +182,30 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/agent/ca.crt": {
+            "get": {
+                "produces": [
+                    "application/x-pem-file"
+                ],
+                "tags": [
+                    "agent"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "CA certificate",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "404": {
+                        "description": "TLS disabled or CA not found",
+                        "schema": {
+                            "$ref": "#/definitions/agent.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/agent/download": {
             "get": {
                 "produces": [
@@ -1616,6 +1640,39 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/configs/normalize": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Config"
+                ],
+                "summary": "规范化配置内容",
+                "parameters": [
+                    {
+                        "description": "规范化请求",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/config.NormalizeConfigRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/config.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/configs/{id}": {
             "get": {
                 "produces": [
@@ -2703,7 +2760,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/github_com_seatunnel_seatunnelX_internal_apps_installer.InstallationRequest"
+                            "$ref": "#/definitions/github_com_LeonYoah_stx_internal_apps_installer.InstallationRequest"
                         }
                     }
                 ],
@@ -3377,6 +3434,37 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/plugin.ListLocalPluginsResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/plugins/refresh": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "plugins"
+                ],
+                "parameters": [
+                    {
+                        "description": "刷新参数",
+                        "name": "request",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/plugin.RefreshAvailablePluginsRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/plugin.ListPluginsResponse"
                         }
                     }
                 }
@@ -4909,6 +4997,21 @@ const docTemplate = `{
                 }
             }
         },
+        "config.NormalizeConfigRequest": {
+            "type": "object",
+            "required": [
+                "config_type",
+                "content"
+            ],
+            "properties": {
+                "config_type": {
+                    "$ref": "#/definitions/github_com_LeonYoah_stx_internal_apps_config.ConfigType"
+                },
+                "content": {
+                    "type": "string"
+                }
+            }
+        },
         "config.PromoteConfigRequest": {
             "type": "object",
             "properties": {
@@ -5287,7 +5390,7 @@ const docTemplate = `{
                 "clusters": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/github_com_seatunnel_seatunnelX_internal_apps_discovery.DiscoveredCluster"
+                        "$ref": "#/definitions/github_com_LeonYoah_stx_internal_apps_discovery.DiscoveredCluster"
                     }
                 },
                 "exist_count": {
@@ -5313,7 +5416,7 @@ const docTemplate = `{
                 "processes": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/github_com_seatunnel_seatunnelX_internal_apps_discovery.DiscoveredProcess"
+                        "$ref": "#/definitions/github_com_LeonYoah_stx_internal_apps_discovery.DiscoveredProcess"
                     }
                 },
                 "success": {
@@ -5321,7 +5424,32 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_seatunnel_seatunnelX_internal_apps_discovery.DiscoveredCluster": {
+        "github_com_LeonYoah_stx_internal_apps_config.ConfigType": {
+            "type": "string",
+            "enum": [
+                "seatunnel.yaml",
+                "hazelcast.yaml",
+                "hazelcast-client.yaml",
+                "jvm_options",
+                "log4j2.properties",
+                "hazelcast-master.yaml",
+                "hazelcast-worker.yaml",
+                "jvm_master_options",
+                "jvm_worker_options"
+            ],
+            "x-enum-varnames": [
+                "ConfigTypeSeatunnel",
+                "ConfigTypeHazelcast",
+                "ConfigTypeHazelcastClient",
+                "ConfigTypeJVMOptions",
+                "ConfigTypeLog4j2",
+                "ConfigTypeHazelcastMaster",
+                "ConfigTypeHazelcastWorker",
+                "ConfigTypeJVMMasterOptions",
+                "ConfigTypeJVMWorkerOptions"
+            ]
+        },
+        "github_com_LeonYoah_stx_internal_apps_discovery.DiscoveredCluster": {
             "type": "object",
             "properties": {
                 "config": {
@@ -5351,7 +5479,7 @@ const docTemplate = `{
                 "nodes": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/github_com_seatunnel_seatunnelX_internal_apps_discovery.DiscoveredNode"
+                        "$ref": "#/definitions/github_com_LeonYoah_stx_internal_apps_discovery.DiscoveredNode"
                     }
                 },
                 "version": {
@@ -5359,7 +5487,7 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_seatunnel_seatunnelX_internal_apps_discovery.DiscoveredNode": {
+        "github_com_LeonYoah_stx_internal_apps_discovery.DiscoveredNode": {
             "type": "object",
             "properties": {
                 "api_port": {
@@ -5379,7 +5507,7 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_seatunnel_seatunnelX_internal_apps_discovery.DiscoveredProcess": {
+        "github_com_LeonYoah_stx_internal_apps_discovery.DiscoveredProcess": {
             "type": "object",
             "properties": {
                 "api_port": {
@@ -5407,17 +5535,23 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_seatunnel_seatunnelX_internal_apps_installer.AvailableVersions": {
+        "github_com_LeonYoah_stx_internal_apps_installer.AvailableVersions": {
             "type": "object",
             "properties": {
                 "local_packages": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/github_com_seatunnel_seatunnelX_internal_apps_installer.PackageInfo"
+                        "$ref": "#/definitions/github_com_LeonYoah_stx_internal_apps_installer.PackageInfo"
                     }
                 },
                 "recommended_version": {
                     "type": "string"
+                },
+                "version_capabilities": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/seatunnel.VersionCapabilities"
+                    }
                 },
                 "versions": {
                     "type": "array",
@@ -5427,7 +5561,7 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_seatunnel_seatunnelX_internal_apps_installer.CheckStatus": {
+        "github_com_LeonYoah_stx_internal_apps_installer.CheckStatus": {
             "type": "string",
             "enum": [
                 "passed",
@@ -5440,7 +5574,7 @@ const docTemplate = `{
                 "CheckStatusWarning"
             ]
         },
-        "github_com_seatunnel_seatunnelX_internal_apps_installer.CheckpointConfig": {
+        "github_com_LeonYoah_stx_internal_apps_installer.CheckpointConfig": {
             "type": "object",
             "properties": {
                 "hdfs_failover_proxy_provider": {
@@ -5492,11 +5626,11 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "storage_type": {
-                    "$ref": "#/definitions/github_com_seatunnel_seatunnelX_internal_apps_installer.CheckpointStorageType"
+                    "$ref": "#/definitions/github_com_LeonYoah_stx_internal_apps_installer.CheckpointStorageType"
                 }
             }
         },
-        "github_com_seatunnel_seatunnelX_internal_apps_installer.CheckpointStorageType": {
+        "github_com_LeonYoah_stx_internal_apps_installer.CheckpointStorageType": {
             "type": "string",
             "enum": [
                 "LOCAL_FILE",
@@ -5511,7 +5645,7 @@ const docTemplate = `{
                 "CheckpointStorageS3"
             ]
         },
-        "github_com_seatunnel_seatunnelX_internal_apps_installer.ConnectorConfig": {
+        "github_com_LeonYoah_stx_internal_apps_installer.ConnectorConfig": {
             "type": "object",
             "properties": {
                 "connectors": {
@@ -5524,7 +5658,17 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "plugin_repo": {
-                    "$ref": "#/definitions/github_com_seatunnel_seatunnelX_internal_apps_installer.MirrorSource"
+                    "$ref": "#/definitions/github_com_LeonYoah_stx_internal_apps_installer.MirrorSource"
+                },
+                "selected_plugin_profiles": {
+                    "description": "SelectedPluginProfiles stores selected profile keys for profile-aware plugins\nSelectedPluginProfiles 保存带画像插件选择的画像键",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
                 },
                 "selected_plugins": {
                     "description": "SelectedPlugins is the list of plugin names to install during SeaTunnel setup\nSelectedPlugins 是 SeaTunnel 安装过程中要安装的插件名称列表",
@@ -5535,7 +5679,7 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_seatunnel_seatunnelX_internal_apps_installer.DeploymentMode": {
+        "github_com_LeonYoah_stx_internal_apps_installer.DeploymentMode": {
             "type": "string",
             "enum": [
                 "hybrid",
@@ -5546,7 +5690,81 @@ const docTemplate = `{
                 "DeploymentModeSeparated"
             ]
         },
-        "github_com_seatunnel_seatunnelX_internal_apps_installer.InstallMode": {
+        "github_com_LeonYoah_stx_internal_apps_installer.IMAPConfig": {
+            "type": "object",
+            "properties": {
+                "hdfs_failover_proxy_provider": {
+                    "type": "string"
+                },
+                "hdfs_ha_enabled": {
+                    "description": "HDFS HA mode configuration / HDFS HA 模式配置",
+                    "type": "boolean"
+                },
+                "hdfs_ha_namenodes": {
+                    "type": "string"
+                },
+                "hdfs_name_services": {
+                    "type": "string"
+                },
+                "hdfs_namenode_host": {
+                    "description": "HDFS configuration / HDFS 配置",
+                    "type": "string"
+                },
+                "hdfs_namenode_port": {
+                    "type": "integer"
+                },
+                "hdfs_namenode_rpc_address_1": {
+                    "type": "string"
+                },
+                "hdfs_namenode_rpc_address_2": {
+                    "type": "string"
+                },
+                "kerberos_keytab_file_path": {
+                    "type": "string"
+                },
+                "kerberos_principal": {
+                    "description": "HDFS Kerberos authentication / HDFS Kerberos 认证",
+                    "type": "string"
+                },
+                "namespace": {
+                    "type": "string"
+                },
+                "storage_access_key": {
+                    "type": "string"
+                },
+                "storage_bucket": {
+                    "type": "string"
+                },
+                "storage_endpoint": {
+                    "description": "OSS/S3 configuration / OSS/S3 配置",
+                    "type": "string"
+                },
+                "storage_secret_key": {
+                    "type": "string"
+                },
+                "storage_type": {
+                    "$ref": "#/definitions/github_com_LeonYoah_stx_internal_apps_installer.IMAPStorageType"
+                }
+            }
+        },
+        "github_com_LeonYoah_stx_internal_apps_installer.IMAPStorageType": {
+            "type": "string",
+            "enum": [
+                "DISABLED",
+                "LOCAL_FILE",
+                "HDFS",
+                "OSS",
+                "S3"
+            ],
+            "x-enum-varnames": [
+                "IMAPStorageDisabled",
+                "IMAPStorageLocalFile",
+                "IMAPStorageHDFS",
+                "IMAPStorageOSS",
+                "IMAPStorageS3"
+            ]
+        },
+        "github_com_LeonYoah_stx_internal_apps_installer.InstallMode": {
             "type": "string",
             "enum": [
                 "online",
@@ -5557,7 +5775,7 @@ const docTemplate = `{
                 "InstallModeOffline"
             ]
         },
-        "github_com_seatunnel_seatunnelX_internal_apps_installer.InstallStep": {
+        "github_com_LeonYoah_stx_internal_apps_installer.InstallStep": {
             "type": "string",
             "enum": [
                 "download",
@@ -5565,6 +5783,7 @@ const docTemplate = `{
                 "extract",
                 "configure_cluster",
                 "configure_checkpoint",
+                "configure_imap",
                 "configure_jvm",
                 "install_plugins",
                 "register_cluster",
@@ -5576,20 +5795,21 @@ const docTemplate = `{
                 "InstallStepExtract",
                 "InstallStepConfigureCluster",
                 "InstallStepConfigureCheckpoint",
+                "InstallStepConfigureIMAP",
                 "InstallStepConfigureJVM",
                 "InstallStepInstallPlugins",
                 "InstallStepRegisterCluster",
                 "InstallStepComplete"
             ]
         },
-        "github_com_seatunnel_seatunnelX_internal_apps_installer.InstallationRequest": {
+        "github_com_LeonYoah_stx_internal_apps_installer.InstallationRequest": {
             "type": "object",
             "required": [
                 "version"
             ],
             "properties": {
                 "checkpoint": {
-                    "$ref": "#/definitions/github_com_seatunnel_seatunnelX_internal_apps_installer.CheckpointConfig"
+                    "$ref": "#/definitions/github_com_LeonYoah_stx_internal_apps_installer.CheckpointConfig"
                 },
                 "cluster_id": {
                     "type": "string"
@@ -5599,10 +5819,20 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "connector": {
-                    "$ref": "#/definitions/github_com_seatunnel_seatunnelX_internal_apps_installer.ConnectorConfig"
+                    "$ref": "#/definitions/github_com_LeonYoah_stx_internal_apps_installer.ConnectorConfig"
                 },
                 "deployment_mode": {
-                    "$ref": "#/definitions/github_com_seatunnel_seatunnelX_internal_apps_installer.DeploymentMode"
+                    "$ref": "#/definitions/github_com_LeonYoah_stx_internal_apps_installer.DeploymentMode"
+                },
+                "dynamic_slot": {
+                    "type": "boolean"
+                },
+                "enable_http": {
+                    "description": "是否开启 SeaTunnel HTTP / Web UI",
+                    "type": "boolean"
+                },
+                "history_job_expire_minutes": {
+                    "type": "integer"
                 },
                 "host_id": {
                     "type": "string"
@@ -5611,14 +5841,23 @@ const docTemplate = `{
                     "description": "SeaTunnel HTTP API 端口",
                     "type": "integer"
                 },
+                "imap": {
+                    "$ref": "#/definitions/github_com_LeonYoah_stx_internal_apps_installer.IMAPConfig"
+                },
                 "install_dir": {
                     "type": "string"
                 },
                 "install_mode": {
-                    "$ref": "#/definitions/github_com_seatunnel_seatunnelX_internal_apps_installer.InstallMode"
+                    "$ref": "#/definitions/github_com_LeonYoah_stx_internal_apps_installer.InstallMode"
+                },
+                "job_log_mode": {
+                    "$ref": "#/definitions/github_com_LeonYoah_stx_internal_apps_installer.JobLogMode"
+                },
+                "job_schedule_strategy": {
+                    "$ref": "#/definitions/installer.JobScheduleStrategy"
                 },
                 "jvm": {
-                    "$ref": "#/definitions/github_com_seatunnel_seatunnelX_internal_apps_installer.JVMConfig"
+                    "$ref": "#/definitions/github_com_LeonYoah_stx_internal_apps_installer.JVMConfig"
                 },
                 "master_addresses": {
                     "type": "array",
@@ -5627,13 +5866,22 @@ const docTemplate = `{
                     }
                 },
                 "mirror": {
-                    "$ref": "#/definitions/github_com_seatunnel_seatunnelX_internal_apps_installer.MirrorSource"
+                    "$ref": "#/definitions/github_com_LeonYoah_stx_internal_apps_installer.MirrorSource"
                 },
                 "node_role": {
-                    "$ref": "#/definitions/github_com_seatunnel_seatunnelX_internal_apps_installer.NodeRole"
+                    "$ref": "#/definitions/github_com_LeonYoah_stx_internal_apps_installer.NodeRole"
                 },
                 "package_path": {
                     "type": "string"
+                },
+                "scheduled_deletion_enable": {
+                    "type": "boolean"
+                },
+                "slot_allocation_strategy": {
+                    "$ref": "#/definitions/installer.SlotAllocationStrategy"
+                },
+                "slot_num": {
+                    "type": "integer"
                 },
                 "version": {
                     "type": "string"
@@ -5651,11 +5899,14 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_seatunnel_seatunnelX_internal_apps_installer.InstallationStatus": {
+        "github_com_LeonYoah_stx_internal_apps_installer.InstallationStatus": {
             "type": "object",
             "properties": {
+                "cluster_id": {
+                    "type": "string"
+                },
                 "current_step": {
-                    "$ref": "#/definitions/github_com_seatunnel_seatunnelX_internal_apps_installer.InstallStep"
+                    "$ref": "#/definitions/github_com_LeonYoah_stx_internal_apps_installer.InstallStep"
                 },
                 "end_time": {
                     "type": "string"
@@ -5679,17 +5930,23 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "status": {
-                    "$ref": "#/definitions/github_com_seatunnel_seatunnelX_internal_apps_installer.StepStatus"
+                    "$ref": "#/definitions/github_com_LeonYoah_stx_internal_apps_installer.StepStatus"
                 },
                 "steps": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/github_com_seatunnel_seatunnelX_internal_apps_installer.StepInfo"
+                        "$ref": "#/definitions/github_com_LeonYoah_stx_internal_apps_installer.StepInfo"
+                    }
+                },
+                "warnings": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
                     }
                 }
             }
         },
-        "github_com_seatunnel_seatunnelX_internal_apps_installer.JVMConfig": {
+        "github_com_LeonYoah_stx_internal_apps_installer.JVMConfig": {
             "type": "object",
             "properties": {
                 "hybrid_heap_size": {
@@ -5703,7 +5960,18 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_seatunnel_seatunnelX_internal_apps_installer.MirrorSource": {
+        "github_com_LeonYoah_stx_internal_apps_installer.JobLogMode": {
+            "type": "string",
+            "enum": [
+                "mixed",
+                "per_job"
+            ],
+            "x-enum-varnames": [
+                "JobLogModeMixed",
+                "JobLogModePerJob"
+            ]
+        },
+        "github_com_LeonYoah_stx_internal_apps_installer.MirrorSource": {
             "type": "string",
             "enum": [
                 "aliyun",
@@ -5716,7 +5984,7 @@ const docTemplate = `{
                 "MirrorHuaweiCloud"
             ]
         },
-        "github_com_seatunnel_seatunnelX_internal_apps_installer.NodeRole": {
+        "github_com_LeonYoah_stx_internal_apps_installer.NodeRole": {
             "type": "string",
             "enum": [
                 "master",
@@ -5729,7 +5997,7 @@ const docTemplate = `{
                 "NodeRoleMasterWorker"
             ]
         },
-        "github_com_seatunnel_seatunnelX_internal_apps_installer.PackageInfo": {
+        "github_com_LeonYoah_stx_internal_apps_installer.PackageInfo": {
             "type": "object",
             "properties": {
                 "checksum": {
@@ -5761,7 +6029,7 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_seatunnel_seatunnelX_internal_apps_installer.PrecheckItem": {
+        "github_com_LeonYoah_stx_internal_apps_installer.PrecheckItem": {
             "type": "object",
             "properties": {
                 "details": {
@@ -5775,28 +6043,28 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "status": {
-                    "$ref": "#/definitions/github_com_seatunnel_seatunnelX_internal_apps_installer.CheckStatus"
+                    "$ref": "#/definitions/github_com_LeonYoah_stx_internal_apps_installer.CheckStatus"
                 }
             }
         },
-        "github_com_seatunnel_seatunnelX_internal_apps_installer.PrecheckResult": {
+        "github_com_LeonYoah_stx_internal_apps_installer.PrecheckResult": {
             "type": "object",
             "properties": {
                 "items": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/github_com_seatunnel_seatunnelX_internal_apps_installer.PrecheckItem"
+                        "$ref": "#/definitions/github_com_LeonYoah_stx_internal_apps_installer.PrecheckItem"
                     }
                 },
                 "overall_status": {
-                    "$ref": "#/definitions/github_com_seatunnel_seatunnelX_internal_apps_installer.CheckStatus"
+                    "$ref": "#/definitions/github_com_LeonYoah_stx_internal_apps_installer.CheckStatus"
                 },
                 "summary": {
                     "type": "string"
                 }
             }
         },
-        "github_com_seatunnel_seatunnelX_internal_apps_installer.StepInfo": {
+        "github_com_LeonYoah_stx_internal_apps_installer.StepInfo": {
             "type": "object",
             "properties": {
                 "description": {
@@ -5824,14 +6092,14 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "status": {
-                    "$ref": "#/definitions/github_com_seatunnel_seatunnelX_internal_apps_installer.StepStatus"
+                    "$ref": "#/definitions/github_com_LeonYoah_stx_internal_apps_installer.StepStatus"
                 },
                 "step": {
-                    "$ref": "#/definitions/github_com_seatunnel_seatunnelX_internal_apps_installer.InstallStep"
+                    "$ref": "#/definitions/github_com_LeonYoah_stx_internal_apps_installer.InstallStep"
                 }
             }
         },
-        "github_com_seatunnel_seatunnelX_internal_apps_installer.StepStatus": {
+        "github_com_LeonYoah_stx_internal_apps_installer.StepStatus": {
             "type": "string",
             "enum": [
                 "pending",
@@ -6193,7 +6461,7 @@ const docTemplate = `{
             ],
             "properties": {
                 "mirror": {
-                    "$ref": "#/definitions/github_com_seatunnel_seatunnelX_internal_apps_installer.MirrorSource"
+                    "$ref": "#/definitions/github_com_LeonYoah_stx_internal_apps_installer.MirrorSource"
                 },
                 "version": {
                     "type": "string"
@@ -6250,7 +6518,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "mirror": {
-                    "$ref": "#/definitions/github_com_seatunnel_seatunnelX_internal_apps_installer.MirrorSource"
+                    "$ref": "#/definitions/github_com_LeonYoah_stx_internal_apps_installer.MirrorSource"
                 },
                 "progress": {
                     "description": "0-100",
@@ -6278,7 +6546,7 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "data": {
-                    "$ref": "#/definitions/github_com_seatunnel_seatunnelX_internal_apps_installer.PackageInfo"
+                    "$ref": "#/definitions/github_com_LeonYoah_stx_internal_apps_installer.PackageInfo"
                 },
                 "error_msg": {
                     "type": "string"
@@ -6289,18 +6557,29 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "data": {
-                    "$ref": "#/definitions/github_com_seatunnel_seatunnelX_internal_apps_installer.InstallationStatus"
+                    "$ref": "#/definitions/github_com_LeonYoah_stx_internal_apps_installer.InstallationStatus"
                 },
                 "error_msg": {
                     "type": "string"
                 }
             }
         },
+        "installer.JobScheduleStrategy": {
+            "type": "string",
+            "enum": [
+                "WAIT",
+                "REJECT"
+            ],
+            "x-enum-varnames": [
+                "JobScheduleStrategyWait",
+                "JobScheduleStrategyReject"
+            ]
+        },
         "installer.ListPackagesResponse": {
             "type": "object",
             "properties": {
                 "data": {
-                    "$ref": "#/definitions/github_com_seatunnel_seatunnelX_internal_apps_installer.AvailableVersions"
+                    "$ref": "#/definitions/github_com_LeonYoah_stx_internal_apps_installer.AvailableVersions"
                 },
                 "error_msg": {
                     "type": "string"
@@ -6314,7 +6593,7 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "package": {
-                    "$ref": "#/definitions/github_com_seatunnel_seatunnelX_internal_apps_installer.PackageInfo"
+                    "$ref": "#/definitions/github_com_LeonYoah_stx_internal_apps_installer.PackageInfo"
                 },
                 "received_chunks": {
                     "type": "integer"
@@ -6354,7 +6633,7 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "data": {
-                    "$ref": "#/definitions/github_com_seatunnel_seatunnelX_internal_apps_installer.PrecheckResult"
+                    "$ref": "#/definitions/github_com_LeonYoah_stx_internal_apps_installer.PrecheckResult"
                 },
                 "error_msg": {
                     "type": "string"
@@ -6386,6 +6665,19 @@ const docTemplate = `{
                 }
             }
         },
+        "installer.SlotAllocationStrategy": {
+            "type": "string",
+            "enum": [
+                "RANDOM",
+                "SYSTEM_LOAD",
+                "SLOT_RATIO"
+            ],
+            "x-enum-varnames": [
+                "SlotAllocationStrategyRandom",
+                "SlotAllocationStrategySystemLoad",
+                "SlotAllocationStrategySlotRatio"
+            ]
+        },
         "installer.UploadChunkResponse": {
             "type": "object",
             "properties": {
@@ -6401,7 +6693,7 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "data": {
-                    "$ref": "#/definitions/github_com_seatunnel_seatunnelX_internal_apps_installer.PackageInfo"
+                    "$ref": "#/definitions/github_com_LeonYoah_stx_internal_apps_installer.PackageInfo"
                 },
                 "error_msg": {
                     "type": "string"
@@ -6539,6 +6831,14 @@ const docTemplate = `{
                     "description": "插件名称（从 URL 获取）/ Plugin name (from URL)",
                     "type": "string"
                 },
+                "seatunnel_version": {
+                    "description": "SeaTunnel 版本（用于推导默认 target_dir）/ SeaTunnel version",
+                    "type": "string"
+                },
+                "target_dir": {
+                    "description": "目标目录（可选）/ Target directory",
+                    "type": "string"
+                },
                 "version": {
                     "description": "版本号（必填）/ Version (required)",
                     "type": "string"
@@ -6563,8 +6863,16 @@ const docTemplate = `{
                     "description": "是否命中缓存 / Whether cache was hit",
                     "type": "boolean"
                 },
+                "catalog_refreshed_at": {
+                    "description": "最近刷新时间 / Catalog refreshed at",
+                    "type": "string"
+                },
+                "catalog_source_mirror": {
+                    "description": "目录实际来源镜像 / Catalog source mirror",
+                    "type": "string"
+                },
                 "mirror": {
-                    "description": "当前镜像源 / Current mirror",
+                    "description": "当前请求镜像源 / Requested mirror",
                     "type": "string"
                 },
                 "plugins": {
@@ -6610,6 +6918,21 @@ const docTemplate = `{
                 }
             }
         },
+        "plugin.DependencyResolutionMode": {
+            "type": "string",
+            "enum": [
+                "exact",
+                "fallback",
+                "runtime",
+                "none"
+            ],
+            "x-enum-varnames": [
+                "DependencyResolutionModeExact",
+                "DependencyResolutionModeFallback",
+                "DependencyResolutionModeRuntime",
+                "DependencyResolutionModeNone"
+            ]
+        },
         "plugin.DownloadAllPluginsProgress": {
             "type": "object",
             "properties": {
@@ -6653,6 +6976,16 @@ const docTemplate = `{
                         }
                     ]
                 },
+                "selected_plugin_profiles": {
+                    "description": "按插件传入的画像选择 / Profile selections keyed by plugin",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                },
                 "version": {
                     "description": "版本号 / Version",
                     "type": "string"
@@ -6684,6 +7017,13 @@ const docTemplate = `{
                         }
                     ]
                 },
+                "profile_keys": {
+                    "description": "选中的依赖画像 / Selected dependency profiles",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "version": {
                     "description": "版本号 / Version",
                     "type": "string"
@@ -6704,9 +7044,33 @@ const docTemplate = `{
         "plugin.DownloadProgress": {
             "type": "object",
             "properties": {
+                "connector_completed": {
+                    "description": "已完成连接器 / Completed connectors",
+                    "type": "integer"
+                },
+                "connector_count": {
+                    "description": "连接器总数 / Total connectors",
+                    "type": "integer"
+                },
+                "current_artifact": {
+                    "description": "当前下载条目 / Current downloading artifact",
+                    "type": "string"
+                },
+                "current_artifact_kind": {
+                    "description": "connector / dependency",
+                    "type": "string"
+                },
                 "current_step": {
                     "description": "当前步骤 / Current step",
                     "type": "string"
+                },
+                "dependency_completed": {
+                    "description": "已完成依赖 / Completed dependencies",
+                    "type": "integer"
+                },
+                "dependency_count": {
+                    "description": "依赖总数 / Total dependencies",
+                    "type": "integer"
                 },
                 "downloaded_bytes": {
                     "description": "已下载字节 / Downloaded bytes",
@@ -6731,6 +7095,13 @@ const docTemplate = `{
                 "progress": {
                     "description": "进度 (0-100) / Progress",
                     "type": "integer"
+                },
+                "selected_profile_keys": {
+                    "description": "选中的画像 / Selected profiles",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "speed": {
                     "description": "下载速度 (bytes/s) / Download speed",
@@ -6817,6 +7188,13 @@ const docTemplate = `{
                     "description": "插件名称 / Plugin name",
                     "type": "string"
                 },
+                "profile_keys": {
+                    "description": "选中的依赖画像 / Selected dependency profiles",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "version": {
                     "description": "版本号 / Version",
                     "type": "string"
@@ -6841,6 +7219,13 @@ const docTemplate = `{
                     "description": "Maven artifact ID (e.g., connector-cdc-mysql)",
                     "type": "string"
                 },
+                "attached_connectors": {
+                    "description": "自动附带的连接器 / Attached connectors",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "category": {
                     "description": "分类 / Category",
                     "allOf": [
@@ -6852,6 +7237,13 @@ const docTemplate = `{
                 "cluster_id": {
                     "description": "集群 ID / Cluster ID",
                     "type": "integer"
+                },
+                "dependencies": {
+                    "description": "自动附带的依赖 / Attached dependencies",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/plugin.PluginDependency"
+                    }
                 },
                 "id": {
                     "type": "integer"
@@ -6871,6 +7263,13 @@ const docTemplate = `{
                 "plugin_name": {
                     "description": "插件名称 / Plugin name",
                     "type": "string"
+                },
+                "selected_profile_keys": {
+                    "description": "选中的画像 / Selected profiles",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "status": {
                     "description": "状态 / Status",
@@ -6960,6 +7359,17 @@ const docTemplate = `{
         "plugin.LocalPlugin": {
             "type": "object",
             "properties": {
+                "artifact_id": {
+                    "description": "Maven artifact ID / Maven artifact ID",
+                    "type": "string"
+                },
+                "attached_connectors": {
+                    "description": "自动附带的连接器 / Attached connectors",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "category": {
                     "description": "插件分类 / Plugin category",
                     "allOf": [
@@ -6972,6 +7382,13 @@ const docTemplate = `{
                     "description": "连接器路径 / Connector path",
                     "type": "string"
                 },
+                "dependencies": {
+                    "description": "自动附带的依赖 / Auto attached dependencies",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/plugin.PluginDependency"
+                    }
+                },
                 "downloaded_at": {
                     "description": "下载时间 / Downloaded at",
                     "type": "string"
@@ -6979,6 +7396,13 @@ const docTemplate = `{
                 "name": {
                     "description": "插件名称 / Plugin name",
                     "type": "string"
+                },
+                "selected_profile_keys": {
+                    "description": "选中的画像 / Selected profiles",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "size": {
                     "description": "文件大小 / File size",
@@ -7034,6 +7458,30 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/plugin.PluginDependency"
                     }
+                },
+                "dependency_baseline_version": {
+                    "description": "依赖基线版本 / Dependency baseline version",
+                    "type": "string"
+                },
+                "dependency_count": {
+                    "description": "生效依赖数量 / Effective dependency count",
+                    "type": "integer"
+                },
+                "dependency_resolution_mode": {
+                    "description": "依赖解析模式 / Dependency resolution mode",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/plugin.DependencyResolutionMode"
+                        }
+                    ]
+                },
+                "dependency_status": {
+                    "description": "依赖状态 / Dependency status",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/plugin.PluginDependencyStatus"
+                        }
+                    ]
                 },
                 "description": {
                     "description": "描述 / Description",
@@ -7103,8 +7551,20 @@ const docTemplate = `{
                     "description": "Maven groupId",
                     "type": "string"
                 },
+                "original_file_name": {
+                    "description": "原始上传文件名 / Original uploaded file name",
+                    "type": "string"
+                },
+                "source_type": {
+                    "description": "依赖来源 / Dependency source",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/plugin.PluginDependencySource"
+                        }
+                    ]
+                },
                 "target_dir": {
-                    "description": "目标目录 (connectors/ 或 lib/) / Target directory",
+                    "description": "目标目录 (connectors/、lib/ 或 plugins/\u003cmapping\u003e) / Target directory",
                     "type": "string"
                 },
                 "version": {
@@ -7120,32 +7580,86 @@ const docTemplate = `{
                     "description": "Maven artifactId",
                     "type": "string"
                 },
+                "checksum": {
+                    "description": "文件摘要 / File checksum",
+                    "type": "string"
+                },
                 "created_at": {
                     "type": "string"
                 },
+                "file_size": {
+                    "description": "文件大小 / File size",
+                    "type": "integer"
+                },
                 "group_id": {
-                    "description": "Maven groupId",
+                    "description": "Maven groupId / 分组标识",
                     "type": "string"
                 },
                 "id": {
                     "type": "integer"
                 },
+                "original_file_name": {
+                    "description": "原始文件名 / Original uploaded file name",
+                    "type": "string"
+                },
                 "plugin_name": {
                     "description": "插件名称 / Plugin name",
                     "type": "string"
                 },
+                "seatunnel_version": {
+                    "description": "SeaTunnel 版本 / SeaTunnel version",
+                    "type": "string"
+                },
+                "source_type": {
+                    "description": "来源类型 / Source type",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/plugin.PluginDependencySource"
+                        }
+                    ]
+                },
                 "target_dir": {
-                    "description": "目标目录 (lib) / Target directory",
+                    "description": "目标目录 / Target directory",
                     "type": "string"
                 },
                 "updated_at": {
                     "type": "string"
                 },
                 "version": {
-                    "description": "版本号（可选，留空则使用插件版本）/ Version (optional, use plugin version if empty)",
+                    "description": "版本号 / Version",
                     "type": "string"
                 }
             }
+        },
+        "plugin.PluginDependencySource": {
+            "type": "string",
+            "enum": [
+                "maven",
+                "upload",
+                "official"
+            ],
+            "x-enum-varnames": [
+                "PluginDependencySourceMaven",
+                "PluginDependencySourceUpload",
+                "PluginDependencySourceOfficial"
+            ]
+        },
+        "plugin.PluginDependencyStatus": {
+            "type": "string",
+            "enum": [
+                "ready_exact",
+                "ready_fallback",
+                "runtime_analyzed",
+                "not_required",
+                "unknown"
+            ],
+            "x-enum-varnames": [
+                "PluginDependencyStatusReadyExact",
+                "PluginDependencyStatusReadyFallback",
+                "PluginDependencyStatusRuntimeAnalyzed",
+                "PluginDependencyStatusNotRequired",
+                "PluginDependencyStatusUnknown"
+            ]
         },
         "plugin.PluginInstallStatus": {
             "type": "object",
@@ -7175,12 +7689,14 @@ const docTemplate = `{
         "plugin.PluginListSource": {
             "type": "string",
             "enum": [
-                "cache",
-                "remote"
+                "database",
+                "remote",
+                "seed"
             ],
             "x-enum-varnames": [
-                "PluginListSourceCache",
-                "PluginListSourceRemote"
+                "PluginListSourceDatabase",
+                "PluginListSourceRemote",
+                "PluginListSourceSeed"
             ]
         },
         "plugin.PluginStatus": {
@@ -7210,12 +7726,76 @@ const docTemplate = `{
                 "PluginStatusDisabled"
             ]
         },
+        "plugin.RefreshAvailablePluginsRequest": {
+            "type": "object",
+            "properties": {
+                "mirror": {
+                    "$ref": "#/definitions/plugin.MirrorSource"
+                },
+                "version": {
+                    "type": "string"
+                }
+            }
+        },
         "plugin.UninstallPluginResponse": {
             "type": "object",
             "properties": {
                 "data": {},
                 "error_msg": {
                     "type": "string"
+                }
+            }
+        },
+        "seatunnel.VersionCapabilities": {
+            "type": "object",
+            "properties": {
+                "default_dynamic_slot": {
+                    "type": "boolean"
+                },
+                "default_history_job_expire_minutes": {
+                    "type": "integer"
+                },
+                "default_http_enabled": {
+                    "type": "boolean"
+                },
+                "default_job_log_mode": {
+                    "type": "string"
+                },
+                "default_job_schedule_strategy": {
+                    "type": "string"
+                },
+                "default_scheduled_deletion_enable": {
+                    "type": "boolean"
+                },
+                "default_slot_allocation_strategy": {
+                    "type": "string"
+                },
+                "default_static_slot_num": {
+                    "type": "integer"
+                },
+                "supports_dynamic_slot": {
+                    "type": "boolean"
+                },
+                "supports_history_job_expire_minutes": {
+                    "type": "boolean"
+                },
+                "supports_http_service": {
+                    "type": "boolean"
+                },
+                "supports_job_log_mode": {
+                    "type": "boolean"
+                },
+                "supports_job_schedule_strategy": {
+                    "type": "boolean"
+                },
+                "supports_scheduled_deletion_enable": {
+                    "type": "boolean"
+                },
+                "supports_slot_allocation_strategy": {
+                    "type": "boolean"
+                },
+                "supports_slot_num": {
+                    "type": "boolean"
                 }
             }
         },
@@ -7431,7 +8011,7 @@ var SwaggerInfo = &swag.Spec{
 	Host:             "",
 	BasePath:         "",
 	Schemes:          []string{},
-	Title:            "Seatunnel X",
+	Title:            "STX",
 	Description:      "",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,

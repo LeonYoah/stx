@@ -20,7 +20,7 @@ BASE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 RUN_DIR="$BASE_DIR/run"
 LOG_DIR="$BASE_DIR/logs"
 
-BACKEND_BIN="$BASE_DIR/seatunnelx"
+BACKEND_BIN="$BASE_DIR/stx"
 FRONTEND_NODE_BIN="${FRONTEND_NODE_BIN:-$BASE_DIR/runtime/node/bin/node}"
 FRONTEND_SERVER="$BASE_DIR/frontend/server.js"
 CONFIG_PATH="${CONFIG_PATH:-$BASE_DIR/config.yaml}"

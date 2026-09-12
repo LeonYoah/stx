@@ -346,14 +346,14 @@ func buildRemoteAlertPayload(channel *NotificationChannel, record *RemoteAlertRe
 
 func buildRemoteAlertMessageTitle(record *RemoteAlertRecord, eventType NotificationDeliveryEventType) string {
 	if record == nil {
-		return "[SeaTunnelX][告警] 远程告警"
+		return "[STX][告警] 远程告警"
 	}
 	eventLabel := "告警"
 	if eventType == NotificationDeliveryEventTypeResolved {
 		eventLabel = "恢复"
 	}
 	return fmt.Sprintf(
-		"[SeaTunnelX][%s][%s] %s",
+		"[STX][%s][%s] %s",
 		eventLabel,
 		resolveAlertSeverityLabelZH(strings.TrimSpace(record.Severity)),
 		strings.TrimSpace(firstNonEmpty(record.AlertName, "远程告警")),
@@ -362,7 +362,7 @@ func buildRemoteAlertMessageTitle(record *RemoteAlertRecord, eventType Notificat
 
 func buildRemoteAlertMessageText(record *RemoteAlertRecord, eventType NotificationDeliveryEventType) string {
 	if record == nil {
-		return "SeaTunnelX 远程告警"
+		return "STX 远程告警"
 	}
 	parts := []string{buildRemoteAlertMessageTitle(record, eventType)}
 	for _, field := range buildRemoteAlertMessageFields(record, eventType) {
@@ -392,7 +392,7 @@ func buildRemoteAlertMessageHTML(record *RemoteAlertRecord, eventType Notificati
 	builder.WriteString("<div style=\"padding:20px 24px;background:")
 	builder.WriteString(visual.BannerBackground)
 	builder.WriteString(";color:#ffffff;\">")
-	builder.WriteString("<div style=\"font-size:12px;letter-spacing:0.08em;text-transform:uppercase;opacity:0.78;\">SeaTunnelX 远程告警</div>")
+	builder.WriteString("<div style=\"font-size:12px;letter-spacing:0.08em;text-transform:uppercase;opacity:0.78;\">STX 远程告警</div>")
 	builder.WriteString("<div style=\"margin-top:8px;font-size:22px;font-weight:700;line-height:1.35;\">")
 	builder.WriteString(html.EscapeString(title))
 	builder.WriteString("</div>")

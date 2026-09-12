@@ -192,12 +192,12 @@ func resolveBuiltinVariable(key string, runtime *taskVariableRuntime) (string, b
 		if runtime != nil && strings.TrimSpace(runtime.ProjectName) != "" {
 			return strings.TrimSpace(runtime.ProjectName), true
 		}
-		return "SeaTunnelX", true
+		return "STX", true
 	case "system.project.code":
 		if runtime != nil && strings.TrimSpace(runtime.ProjectCode) != "" {
 			return strings.TrimSpace(runtime.ProjectCode), true
 		}
-		return "seatunnelx", true
+		return "stx", true
 	}
 	if !looksLikeTimeExpression(key) {
 		return "", false

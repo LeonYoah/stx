@@ -300,8 +300,8 @@ function supportsTemplateCondition(
     template.source_kind === 'metrics_template' ||
     Boolean(
       template.default_operator ||
-        template.default_threshold ||
-        template.default_window_minutes,
+      template.default_threshold ||
+      template.default_window_minutes,
     )
   );
 }
@@ -338,18 +338,20 @@ function buildConditionStateFromPolicy(
   PolicyFormState,
   'conditionOperator' | 'conditionThreshold' | 'conditionWindowMinutes'
 > {
-  const condition = Array.isArray(policy.conditions) ? policy.conditions[0] : null;
+  const condition = Array.isArray(policy.conditions)
+    ? policy.conditions[0]
+    : null;
   if (!condition) {
     return buildConditionDefaults(template);
   }
 
   return {
-    conditionOperator:
-      condition.operator || template?.default_operator || '>',
+    conditionOperator: condition.operator || template?.default_operator || '>',
     conditionThreshold:
       condition.threshold || template?.default_threshold || '',
     conditionWindowMinutes:
-      condition.window_minutes !== undefined && condition.window_minutes !== null
+      condition.window_minutes !== undefined &&
+      condition.window_minutes !== null
         ? String(condition.window_minutes)
         : String(template?.default_window_minutes || 1),
   };
@@ -550,7 +552,8 @@ function buildPolicyPayload(
     10,
   );
   const conditions: AlertPolicyCondition[] =
-    form.strategyMode === 'static' && supportsTemplateCondition(selectedTemplate)
+    form.strategyMode === 'static' &&
+    supportsTemplateCondition(selectedTemplate)
       ? [
           {
             metric_key: selectedTemplate?.key || '',
@@ -911,10 +914,14 @@ export function MonitoringPolicyCenter() {
     return items;
   }, [builderMap, templateGroups]);
   const allStaticTemplates = useMemo(
-    () => [...templateGroups.platformTemplates, ...templateGroups.metricsTemplates],
+    () => [
+      ...templateGroups.platformTemplates,
+      ...templateGroups.metricsTemplates,
+    ],
     [templateGroups.metricsTemplates, templateGroups.platformTemplates],
   );
-  const metricsTemplatesAvailable = builderMap.get('metrics_template') === 'available';
+  const metricsTemplatesAvailable =
+    builderMap.get('metrics_template') === 'available';
   const metricsTemplatesReason =
     capabilityReasonMap.get('metrics_templates') || '';
 
@@ -1186,7 +1193,8 @@ export function MonitoringPolicyCenter() {
       return {
         ...nextForm,
         ...buildConditionDefaults(defaultTemplate),
-        clusterId: prev.clusterId || (clusters[0] ? String(clusters[0].id) : ''),
+        clusterId:
+          prev.clusterId || (clusters[0] ? String(clusters[0].id) : ''),
         templateKey: defaultTemplate?.key || nextForm.templateKey,
         receiverUserIds: preferredDefaultReceiverUserIds,
       };
@@ -3296,7 +3304,7 @@ export function MonitoringPolicyCenter() {
                             endpoint: event.target.value,
                           }))
                         }
-                        placeholder='https://hooks.example.com/seatunnelx'
+                        placeholder='https://hooks.example.com/stx'
                       />
                     </div>
 

@@ -1,10 +1,10 @@
-# SeaTunnel 一站式运维管理平台
+# STX
 
 Apache SeaTunnel 数据集成平台的运维管理工具
 
 ## 项目简介
 
-SeatunnelX: SeaTunnel 一站式运维管理平台是为 Apache SeaTunnel 数据集成引擎打造的运维管理工具，提供**主机管理、集群与节点管理、Agent 运维、安装包与插件管理**等功能。
+STX 是为 Apache SeaTunnel 数据集成引擎打造的一站式运维管理工具，提供**主机管理、集群与节点管理、Agent 运维、安装包与插件管理**等功能。
 
 > 本项目基于 [linux-do/cdk](https://github.com/linux-do/cdk) 项目改造，原项目采用 MIT 协议开源。
 
@@ -94,8 +94,8 @@ SeatunnelX: SeaTunnel 一站式运维管理平台是为 Apache SeaTunnel 数据�
 ### 1. 克隆项目
 
 ```bash
-git clone https://github.com/LeonYoah/SeaTunnelX.git
-cd SeaTunnelX
+git clone https://github.com/LeonYoah/stx.git
+cd stx
 ```
 
 ### 2. 配置环境
@@ -126,7 +126,7 @@ pnpm dev
 - **前端界面**: http://localhost:3000
 - **默认账号**: admin / admin123
 
-## 离线部署 SeaTunnelX
+## 离线部署 STX
 
 ### 1. 打包 CentOS 7 兼容离线包
 
@@ -141,8 +141,8 @@ scripts/package-release.sh \
 ### 2. 解压并安装
 
 ```bash
-tar -xzf seatunnelx-<version>-linux-amd64-node18-glibc217-without-observability.tar.gz
-cd seatunnelx-<version>-linux-amd64-node18-glibc217-without-observability
+tar -xzf stx-<version>-linux-amd64-node18-glibc217-without-observability.tar.gz
+cd stx-<version>-linux-amd64-node18-glibc217-without-observability
 sudo ./install.sh
 ```
 
@@ -161,11 +161,11 @@ sudo ./install.sh
 示例：
 
 ```bash
-CONFIG_PATH=/opt/seatunnelx/config.yaml \
+CONFIG_PATH=/opt/stx/config.yaml \
 FRONTEND_PORT=8080 \
 FRONTEND_HOST=0.0.0.0 \
 NEXT_PUBLIC_BACKEND_BASE_URL=http://127.0.0.1:8000 \
-/opt/seatunnelx/bin/start.sh
+/opt/stx/bin/start.sh
 ```
 
 ## ⚙️ 配置说明
@@ -187,7 +187,7 @@ NEXT_PUBLIC_BACKEND_BASE_URL=http://127.0.0.1:8000 \
 1. 登录 GitHub，访问 [Developer Settings](https://github.com/settings/developers)
 2. 点击 **"New OAuth App"**
 3. 填写应用信息：
-   - **Application name**: `SeaTunnel Platform`
+   - **Application name**: `STX`
    - **Homepage URL**: `http://localhost:3000`
    - **Authorization callback URL**: `http://localhost:3000/callback`
 4. 创建后获取 **Client ID** 和 **Client Secret**
@@ -334,10 +334,10 @@ Agent 是部署在目标主机上的守护进程，需要交叉编译为 Linux �
 cd agent
 
 # 打包 Linux amd64
-GOOS=linux GOARCH=amd64 go build -o seatunnelx-agent ./cmd
+GOOS=linux GOARCH=amd64 go build -o stx-agent ./cmd
 
 # 打包 Linux arm64
-GOOS=linux GOARCH=arm64 go build -o seatunnelx-agent-arm64 ./cmd
+GOOS=linux GOARCH=arm64 go build -o stx-agent-arm64 ./cmd
 ```
 
 #### Windows (PowerShell)
@@ -346,10 +346,10 @@ GOOS=linux GOARCH=arm64 go build -o seatunnelx-agent-arm64 ./cmd
 cd agent
 
 # 打包 Linux amd64
-$env:GOOS="linux"; $env:GOARCH="amd64"; go build -o seatunnelx-agent ./cmd
+$env:GOOS="linux"; $env:GOARCH="amd64"; go build -o stx-agent ./cmd
 
 # 打包 Linux arm64
-$env:GOOS="linux"; $env:GOARCH="arm64"; go build -o seatunnelx-agent-arm64 ./cmd
+$env:GOOS="linux"; $env:GOARCH="arm64"; go build -o stx-agent-arm64 ./cmd
 
 # 恢复环境变量（可选）
 Remove-Item Env:GOOS; Remove-Item Env:GOARCH
@@ -357,20 +357,20 @@ Remove-Item Env:GOOS; Remove-Item Env:GOARCH
 
 #### 部署 Agent 二进制
 
-打包完成后，将 `seatunnelx-agent` 复制到 `lib/agent/` 目录：
+打包完成后，将 `stx-agent` 复制到 `lib/agent/` 目录：
 
 ```bash
 # Linux/macOS
-cp agent/seatunnelx-agent lib/agent/seatunnelx-agent-linux-amd64
-cp agent/seatunnelx-agent-arm64 lib/agent/seatunnelx-agent-linux-arm64
+cp agent/stx-agent lib/agent/stx-agent-linux-amd64
+cp agent/stx-agent-arm64 lib/agent/stx-agent-linux-arm64
 
 # Windows PowerShell
-Copy-Item agent/seatunnelx-agent lib/agent/seatunnelx-agent-linux-amd64
-Copy-Item agent/seatunnelx-agent-arm64 lib/agent/seatunnelx-agent-linux-arm64
+Copy-Item agent/stx-agent lib/agent/stx-agent-linux-amd64
+Copy-Item agent/stx-agent-arm64 lib/agent/stx-agent-linux-arm64
 
 # Windows PowerShell 一键操作
 
-cd agent; $env:GOOS="linux"; $env:GOARCH="amd64"; go build -o seatunnelx-agent ./cmd; cd ..; Copy-Item agent/seatunnelx-agent lib/agent/seatunnelx-agent-linux-amd64 -Force
+cd agent; $env:GOOS="linux"; $env:GOARCH="amd64"; go build -o stx-agent ./cmd; cd ..; Copy-Item agent/stx-agent lib/agent/stx-agent-linux-amd64 -Force
 
 ```
 
@@ -414,8 +414,8 @@ cd agent && go build ./... # 编译 Agent
 ### Docker 部署
 
 ```bash
-docker build -t seatunnel-platform .
-docker run -d -p 8000:8000 seatunnel-platform
+docker build -f .github/docker/Dockerfile.backend -t stx-backend .
+docker run -d -p 8000:8000 -p 9000:9000 stx-backend
 ```
 
 ## 📄 许可证
@@ -425,5 +425,5 @@ docker run -d -p 8000:8000 seatunnel-platform
 ## 🔗 相关链接
 
 - [Apache SeaTunnel](https://seatunnel.apache.org/)
-- [SeaTunnelX GitHub](https://github.com/LeonYoah/SeaTunnelX)
+- [STX GitHub](https://github.com/LeonYoah/stx)
 - [原项目 linux-do/cdk](https://github.com/linux-do/cdk)

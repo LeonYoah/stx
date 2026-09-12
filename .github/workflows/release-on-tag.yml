@@ -72,7 +72,7 @@ jobs:
       - name: Upload package artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: seatunnelx-packages-${{ github.ref_name }}-node22-${{ matrix.node_variant }}
+          name: stx-packages-${{ github.ref_name }}-node22-${{ matrix.node_variant }}
           path: dist/releases/*.tar.gz
           if-no-files-found: error
           retention-days: 30
@@ -86,7 +86,7 @@ jobs:
       - name: Download package artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: seatunnelx-packages-${{ github.ref_name }}-*
+          pattern: stx-packages-${{ github.ref_name }}-*
           path: release-assets
           merge-multiple: true
 
@@ -108,11 +108,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - image_name: seatunnelx-backend
+          - image_name: stx-backend
             dockerfile: .github/docker/Dockerfile.backend
-          - image_name: seatunnelx-frontend
+          - image_name: stx-frontend
             dockerfile: .github/docker/Dockerfile.frontend
-          - image_name: seatunnelx-all-in-one
+          - image_name: stx-all-in-one
             dockerfile: .github/docker/Dockerfile.all-in-one
 
     steps:

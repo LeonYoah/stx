@@ -30,8 +30,8 @@ import (
 	"strings"
 	"time"
 
-	clusterapp "github.com/seatunnel/seatunnelX/internal/apps/cluster"
-	hostapp "github.com/seatunnel/seatunnelX/internal/apps/host"
+	clusterapp "github.com/LeonYoah/stx/internal/apps/cluster"
+	hostapp "github.com/LeonYoah/stx/internal/apps/host"
 )
 
 const engineEndpointHeartbeatTimeout = 30 * time.Second

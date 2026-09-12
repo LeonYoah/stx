@@ -74,7 +74,7 @@ The system SHALL register each completed or failed diagnostic bundle with a mani
 
 ### Requirement: Diagnostic bundles SHALL include a human-readable diagnostic report
 
-The system SHALL generate a human-readable diagnostic report together with the machine-readable manifest and JSON evidence so operators can open a completed bundle directly in a browser without relying on the SeaTunnelX UI.
+The system SHALL generate a human-readable diagnostic report together with the machine-readable manifest and JSON evidence so operators can open a completed bundle directly in a browser without relying on the STX UI.
 
 #### Scenario: Open bundle summary offline
 
@@ -85,4 +85,4 @@ The system SHALL generate a human-readable diagnostic report together with the m
 
 - **WHEN** an operator opens the generated diagnostic report directly from a completed bundle
 - **THEN** the page SHALL present the cluster health overview, inspection findings, error context, alert/process evidence, task execution summary, and the registered artifacts
-- **AND** each artifact SHALL expose its metadata and an inline preview or preview note so the operator can review the bundle contents without relying on the SeaTunnelX UI
+- **AND** each artifact SHALL expose its metadata and an inline preview or preview note so the operator can review the bundle contents without relying on the STX UI

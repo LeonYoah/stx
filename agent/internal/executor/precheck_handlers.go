@@ -25,8 +25,8 @@ import (
 	"strings"
 	"time"
 
-	pb "github.com/seatunnel/seatunnelX/agent"
-	"github.com/seatunnel/seatunnelX/agent/internal/installer"
+	pb "github.com/LeonYoah/stx/agent"
+	"github.com/LeonYoah/stx/agent/internal/installer"
 )
 
 // PrecheckSubCommand defines the sub-command types for precheck
@@ -70,28 +70,28 @@ const (
 	// PrecheckSubCommandCleanupPath 清理本地路径下的内容。
 	PrecheckSubCommandCleanupPath PrecheckSubCommand = "cleanup_path"
 
-	// PrecheckSubCommandSeatunnelXJavaProxyProbe performs a real runtime read/write probe.
-	// PrecheckSubCommandSeatunnelXJavaProxyProbe 执行真实运行时读写探测。
-	PrecheckSubCommandSeatunnelXJavaProxyProbe PrecheckSubCommand = "seatunnelx_java_proxy_probe"
+	// PrecheckSubCommandSTXJavaProxyProbe performs a real runtime read/write probe.
+	// PrecheckSubCommandSTXJavaProxyProbe 执行真实运行时读写探测。
+	PrecheckSubCommandSTXJavaProxyProbe PrecheckSubCommand = "stx_java_proxy_probe"
 
-	// PrecheckSubCommandSeatunnelXJavaProxyStat performs runtime storage stat through seatunnelx-java-proxy.
-	// PrecheckSubCommandSeatunnelXJavaProxyStat 通过 seatunnelx-java-proxy 统计运行时存储占用。
-	PrecheckSubCommandSeatunnelXJavaProxyStat PrecheckSubCommand = "seatunnelx_java_proxy_stat"
+	// PrecheckSubCommandSTXJavaProxyStat performs runtime storage stat through stx-java-proxy.
+	// PrecheckSubCommandSTXJavaProxyStat 通过 stx-java-proxy 统计运行时存储占用。
+	PrecheckSubCommandSTXJavaProxyStat PrecheckSubCommand = "stx_java_proxy_stat"
 
-	// PrecheckSubCommandSeatunnelXJavaProxyList lists runtime storage entries through seatunnelx-java-proxy.
-	PrecheckSubCommandSeatunnelXJavaProxyList PrecheckSubCommand = "seatunnelx_java_proxy_list"
+	// PrecheckSubCommandSTXJavaProxyList lists runtime storage entries through stx-java-proxy.
+	PrecheckSubCommandSTXJavaProxyList PrecheckSubCommand = "stx_java_proxy_list"
 
-	// PrecheckSubCommandSeatunnelXJavaProxyPreview previews runtime storage file content through seatunnelx-java-proxy.
-	PrecheckSubCommandSeatunnelXJavaProxyPreview PrecheckSubCommand = "seatunnelx_java_proxy_preview"
+	// PrecheckSubCommandSTXJavaProxyPreview previews runtime storage file content through stx-java-proxy.
+	PrecheckSubCommandSTXJavaProxyPreview PrecheckSubCommand = "stx_java_proxy_preview"
 
-	// PrecheckSubCommandSeatunnelXJavaProxyInspectCheckpoint deserializes checkpoint files through seatunnelx-java-proxy.
-	PrecheckSubCommandSeatunnelXJavaProxyInspectCheckpoint PrecheckSubCommand = "seatunnelx_java_proxy_inspect_checkpoint"
+	// PrecheckSubCommandSTXJavaProxyInspectCheckpoint deserializes checkpoint files through stx-java-proxy.
+	PrecheckSubCommandSTXJavaProxyInspectCheckpoint PrecheckSubCommand = "stx_java_proxy_inspect_checkpoint"
 
-	// PrecheckSubCommandSeatunnelXJavaProxyInspectCheckpointSourceState inspects checkpoint source state through seatunnelx-java-proxy.
-	PrecheckSubCommandSeatunnelXJavaProxyInspectCheckpointSourceState PrecheckSubCommand = "seatunnelx_java_proxy_inspect_checkpoint_source_state"
+	// PrecheckSubCommandSTXJavaProxyInspectCheckpointSourceState inspects checkpoint source state through stx-java-proxy.
+	PrecheckSubCommandSTXJavaProxyInspectCheckpointSourceState PrecheckSubCommand = "stx_java_proxy_inspect_checkpoint_source_state"
 
-	// PrecheckSubCommandSeatunnelXJavaProxyInspectIMAPWAL inspects IMAP WAL files through seatunnelx-java-proxy.
-	PrecheckSubCommandSeatunnelXJavaProxyInspectIMAPWAL PrecheckSubCommand = "seatunnelx_java_proxy_inspect_imap_wal"
+	// PrecheckSubCommandSTXJavaProxyInspectIMAPWAL inspects IMAP WAL files through stx-java-proxy.
+	PrecheckSubCommandSTXJavaProxyInspectIMAPWAL PrecheckSubCommand = "stx_java_proxy_inspect_imap_wal"
 
 	// PrecheckSubCommandSyncLocalRun executes one local sync job through seatunnel.sh.
 	PrecheckSubCommandSyncLocalRun PrecheckSubCommand = "sync_local_run"
@@ -157,20 +157,20 @@ func HandlePrecheckCommand(ctx context.Context, cmd *pb.CommandRequest, reporter
 		result, err = handleStatPath(ctx, cmd.Parameters)
 	case PrecheckSubCommandCleanupPath:
 		result, err = handleCleanupPath(ctx, cmd.Parameters)
-	case PrecheckSubCommandSeatunnelXJavaProxyProbe:
-		result, err = handleSeatunnelXJavaProxyProbe(ctx, cmd.Parameters)
-	case PrecheckSubCommandSeatunnelXJavaProxyStat:
-		result, err = handleSeatunnelXJavaProxyStat(ctx, cmd.Parameters)
-	case PrecheckSubCommandSeatunnelXJavaProxyList:
-		result, err = handleSeatunnelXJavaProxyList(ctx, cmd.Parameters)
-	case PrecheckSubCommandSeatunnelXJavaProxyPreview:
-		result, err = handleSeatunnelXJavaProxyPreview(ctx, cmd.Parameters)
-	case PrecheckSubCommandSeatunnelXJavaProxyInspectCheckpoint:
-		result, err = handleSeatunnelXJavaProxyInspectCheckpoint(ctx, cmd.Parameters)
-	case PrecheckSubCommandSeatunnelXJavaProxyInspectCheckpointSourceState:
-		result, err = handleSeatunnelXJavaProxyInspectCheckpointSourceState(ctx, cmd.Parameters)
-	case PrecheckSubCommandSeatunnelXJavaProxyInspectIMAPWAL:
-		result, err = handleSeatunnelXJavaProxyInspectIMAPWAL(ctx, cmd.Parameters)
+	case PrecheckSubCommandSTXJavaProxyProbe:
+		result, err = handleSTXJavaProxyProbe(ctx, cmd.Parameters)
+	case PrecheckSubCommandSTXJavaProxyStat:
+		result, err = handleSTXJavaProxyStat(ctx, cmd.Parameters)
+	case PrecheckSubCommandSTXJavaProxyList:
+		result, err = handleSTXJavaProxyList(ctx, cmd.Parameters)
+	case PrecheckSubCommandSTXJavaProxyPreview:
+		result, err = handleSTXJavaProxyPreview(ctx, cmd.Parameters)
+	case PrecheckSubCommandSTXJavaProxyInspectCheckpoint:
+		result, err = handleSTXJavaProxyInspectCheckpoint(ctx, cmd.Parameters)
+	case PrecheckSubCommandSTXJavaProxyInspectCheckpointSourceState:
+		result, err = handleSTXJavaProxyInspectCheckpointSourceState(ctx, cmd.Parameters)
+	case PrecheckSubCommandSTXJavaProxyInspectIMAPWAL:
+		result, err = handleSTXJavaProxyInspectIMAPWAL(ctx, cmd.Parameters)
 	case PrecheckSubCommandSyncLocalRun:
 		result, err = handleSyncLocalRun(ctx, cmd.Parameters)
 	case PrecheckSubCommandSyncLocalStatus:
@@ -408,7 +408,7 @@ func handleCleanupPath(ctx context.Context, params map[string]string) (*Precheck
 	}, nil
 }
 
-func handleSeatunnelXJavaProxyProbe(ctx context.Context, params map[string]string) (*PrecheckResult, error) {
+func handleSTXJavaProxyProbe(ctx context.Context, params map[string]string) (*PrecheckResult, error) {
 	kind := params["kind"]
 	installDir := params["install_dir"]
 	version := params["version"]
@@ -462,7 +462,7 @@ func handleSeatunnelXJavaProxyProbe(ctx context.Context, params map[string]strin
 	}
 }
 
-func handleSeatunnelXJavaProxyStat(ctx context.Context, params map[string]string) (*PrecheckResult, error) {
+func handleSTXJavaProxyStat(ctx context.Context, params map[string]string) (*PrecheckResult, error) {
 	kind := params["kind"]
 	installDir := params["install_dir"]
 	version := params["version"]
@@ -496,7 +496,7 @@ func handleSeatunnelXJavaProxyStat(ctx context.Context, params map[string]string
 	}
 }
 
-func handleSeatunnelXJavaProxyList(ctx context.Context, params map[string]string) (*PrecheckResult, error) {
+func handleSTXJavaProxyList(ctx context.Context, params map[string]string) (*PrecheckResult, error) {
 	kind := params["kind"]
 	installDir := params["install_dir"]
 	version := params["version"]
@@ -578,7 +578,7 @@ func runtimeStorageStatPrecheckResult(kind string, result *installer.RuntimeStor
 	}
 }
 
-func handleSeatunnelXJavaProxyPreview(ctx context.Context, params map[string]string) (*PrecheckResult, error) {
+func handleSTXJavaProxyPreview(ctx context.Context, params map[string]string) (*PrecheckResult, error) {
 	kind := params["kind"]
 	installDir := params["install_dir"]
 	version := params["version"]
@@ -613,7 +613,7 @@ func handleSeatunnelXJavaProxyPreview(ctx context.Context, params map[string]str
 	}
 }
 
-func handleSeatunnelXJavaProxyInspectCheckpoint(ctx context.Context, params map[string]string) (*PrecheckResult, error) {
+func handleSTXJavaProxyInspectCheckpoint(ctx context.Context, params map[string]string) (*PrecheckResult, error) {
 	installDir := params["install_dir"]
 	version := params["version"]
 	path := params["path"]
@@ -640,7 +640,7 @@ func handleSeatunnelXJavaProxyInspectCheckpoint(ctx context.Context, params map[
 	return runtimeStorageCheckpointInspectPrecheckResult(result), nil
 }
 
-func handleSeatunnelXJavaProxyInspectCheckpointSourceState(
+func handleSTXJavaProxyInspectCheckpointSourceState(
 	ctx context.Context,
 	params map[string]string,
 ) (*PrecheckResult, error) {
@@ -680,7 +680,7 @@ func handleSeatunnelXJavaProxyInspectCheckpointSourceState(
 	return runtimeStorageCheckpointSourceStateInspectPrecheckResult(result), nil
 }
 
-func handleSeatunnelXJavaProxyInspectIMAPWAL(ctx context.Context, params map[string]string) (*PrecheckResult, error) {
+func handleSTXJavaProxyInspectIMAPWAL(ctx context.Context, params map[string]string) (*PrecheckResult, error) {
 	installDir := params["install_dir"]
 	version := params["version"]
 	path := params["path"]

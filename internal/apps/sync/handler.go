@@ -30,7 +30,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/seatunnel/seatunnelX/internal/config"
+	"github.com/LeonYoah/stx/internal/config"
 )
 
 // Handler provides HTTP handlers for sync studio APIs.

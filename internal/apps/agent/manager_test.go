@@ -23,19 +23,19 @@ import (
 	"testing"
 	"time"
 
-	pb "github.com/seatunnel/seatunnelX/internal/proto/agent"
+	pb "github.com/LeonYoah/stx/internal/proto/agent"
 )
 
 // mockHostUpdater is a mock implementation of HostStatusUpdater for testing.
 // mockHostUpdater 是用于测试的 HostStatusUpdater 模拟实现。
 type mockHostUpdater struct {
-	mu              sync.Mutex
-	agentStatuses   map[string]string
-	heartbeats      map[string]time.Time
-	offlineAgents   []string
-	updateAgentErr  error
-	heartbeatErr    error
-	markOfflineErr  error
+	mu             sync.Mutex
+	agentStatuses  map[string]string
+	heartbeats     map[string]time.Time
+	offlineAgents  []string
+	updateAgentErr error
+	heartbeatErr   error
+	markOfflineErr error
 }
 
 func newMockHostUpdater() *mockHostUpdater {

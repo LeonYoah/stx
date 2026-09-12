@@ -2,7 +2,7 @@
   "id": "checkpoint-source-state-official-inspect",
   "name": "checkpoint-source-state-official-inspect",
   "title": "checkpoint source state 官方深度 inspect",
-  "description": "为 seatunnelx-java-proxy 新增基于官方 serializer / factory / state class 的 checkpoint source state 深度 inspect 能力。",
+  "description": "为 stx-java-proxy 新增基于官方 serializer / factory / state class 的 checkpoint source state 深度 inspect 能力。",
   "status": "in_progress",
   "dev_type": null,
   "scope": null,

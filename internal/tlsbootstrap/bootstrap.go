@@ -29,7 +29,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/seatunnel/seatunnelX/internal/config"
+	"github.com/LeonYoah/stx/internal/config"
 )
 
 const (
@@ -347,7 +347,7 @@ func generateCerts(
 		"-key", caKeyName,
 		"-sha256", "-days", defaultCAValidDays,
 		"-out", caCertName,
-		"-subj", "/CN=SeaTunnelX-Local-CA"); err != nil {
+		"-subj", "/CN=STX-Local-CA"); err != nil {
 		return err
 	}
 
@@ -357,7 +357,7 @@ func generateCerts(
 	if err := run("req", "-new",
 		"-key", serverKeyName,
 		"-out", "server.csr",
-		"-subj", "/CN=seatunnelx-grpc"); err != nil {
+		"-subj", "/CN=stx-grpc"); err != nil {
 		return err
 	}
 

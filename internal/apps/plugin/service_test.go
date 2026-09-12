@@ -30,8 +30,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LeonYoah/stx/internal/config"
 	"github.com/glebarez/sqlite"
-	"github.com/seatunnel/seatunnelX/internal/config"
 	"gorm.io/gorm"
 )
 

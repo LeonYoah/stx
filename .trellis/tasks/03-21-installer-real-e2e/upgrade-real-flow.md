@@ -28,7 +28,7 @@ sequenceDiagram
     participant GH as GitHub Actions / E2E Workflow
     participant Harness as run-real-upgrade.sh
     participant FE as Playwright Browser
-    participant CP as SeaTunnelX Control Plane
+    participant CP as STX Control Plane
     participant AG as Agent
     participant FS as Install Dir / Config Files
     participant PKG as Package Cache

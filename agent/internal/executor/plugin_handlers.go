@@ -27,8 +27,8 @@ import (
 	"strconv"
 	"strings"
 
-	pb "github.com/seatunnel/seatunnelX/agent"
-	"github.com/seatunnel/seatunnelX/agent/internal/plugin"
+	pb "github.com/LeonYoah/stx/agent"
+	"github.com/LeonYoah/stx/agent/internal/plugin"
 )
 
 // PluginResult represents the result of a plugin operation.

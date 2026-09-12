@@ -32,7 +32,7 @@ vi.mock('next/navigation', () => ({
 vi.mock('next-intl', () => ({
   useTranslations: () => (key: string) => {
     const translations: Record<string, string> = {
-      'auth.login.title': '欢迎使用 SeaTunnel 一站式运维管理平台',
+      'auth.login.title': '欢迎使用 STX',
       'auth.login.subtitle': '请登录以继续',
       'auth.login.username': '用户名',
       'auth.login.usernamePlaceholder': '请输入用户名',
@@ -177,11 +177,9 @@ describe('LoginForm', () => {
   });
 
   describe('表单渲染 (Requirements 8.1, 8.2)', () => {
-    it('应该显示平台名称 "SeaTunnel 一站式运维管理平台"', () => {
+    it('应该显示平台名称 "STX"', () => {
       render(<LoginForm />);
-      expect(
-        screen.getByText('欢迎使用 SeaTunnel 一站式运维管理平台'),
-      ).toBeInTheDocument();
+      expect(screen.getByText('欢迎使用 STX')).toBeInTheDocument();
     });
 
     it('应该显示用户名输入框', () => {

@@ -5,7 +5,7 @@ syntax = "proto3";
 
 package seatunnel.agent.v1;
 
-option go_package = "github.com/seatunnel/seatunnelX/internal/proto/agent";
+option go_package = "github.com/LeonYoah/stx/internal/proto/agent";
 
 // AgentService - Control Plane 端 gRPC 服务
 // 提供 Agent 注册、心跳、指令下发、日志上报等功能

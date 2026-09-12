@@ -17,12 +17,12 @@ limitations under the License.
 
 ## Context
 
-我们已经把 `tools/seatunnelx-java-proxy` 引入到 SeaTunnelX 仓库，并新增了 `probe-once` CLI 模式。CLI 支持通过 request/response JSON 文件一次性执行 checkpoint 或 IMAP 探测，无需维护常驻 HTTP 服务。
+我们已经把 `tools/stx-java-proxy` 引入到 STX 仓库，并新增了 `probe-once` CLI 模式。CLI 支持通过 request/response JSON 文件一次性执行 checkpoint 或 IMAP 探测，无需维护常驻 HTTP 服务。
 
 当前安装相关链路有两个明显约束：
 
 - 真实 runtime probe 依赖已解压的 `SEATUNNEL_HOME`，因为 classpath 需要复用 `${SEATUNNEL_HOME}/starter`、`${SEATUNNEL_HOME}/lib`、`${SEATUNNEL_HOME}/connectors` 和 `${SEATUNNEL_HOME}/plugins`；
-- `org.apache.seatunnel:seatunnelx-java-proxy:2.3.13` 当前并不在 Maven Central，不能假设远端 Agent 可随时从中央仓库拉取该 jar。
+- `io.github.leonyoah.stx:stx-java-proxy:2.3.13` 当前并不在 Maven Central，不能假设远端 Agent 可随时从中央仓库拉取该 jar。
 
 因此，这一阶段不去强行改造安装前页面上的 runtime validate，而是优先把真实探测放到安装链路内部：安装包已解压、运行时依赖已就位，此时再执行 one-shot probe，成功率和语义都更准确。
 
@@ -33,7 +33,7 @@ limitations under the License.
 - 在 Agent 安装链路中对远端 checkpoint / IMAP 执行真实运行时探测。
 - 探测失败只生成 warning，不阻塞安装配置写入与后续启动。
 - 将 warning 透传到控制面和前端安装进度中。
-- 复用已有 `seatunnelx-java-proxy` one-shot CLI，不新增常驻服务。
+- 复用已有 `stx-java-proxy` one-shot CLI，不新增常驻服务。
 
 **Non-Goals:**
 
@@ -58,14 +58,14 @@ limitations under the License.
 
 ### Decision 3: 使用非 `-bin` jar，通过脚本拼装 SeaTunnel runtime classpath
 
-- 选择：优先使用普通 `seatunnelx-java-proxy-2.3.13-2.12.15.jar`，配合 `seatunnelx-java-proxy.sh`。
+- 选择：优先使用普通 `stx-java-proxy-2.3.13-2.12.15.jar`，配合 `stx-java-proxy.sh`。
 - 原因：普通 jar 与脚本的职责边界更清晰，真正需要的依赖仍然来自 `SEATUNNEL_HOME`；`-bin.jar` 会引入更多重复依赖，但对存储插件/Hadoop 组合问题并不能彻底兜底。
 - 备选方案：统一改用 `-bin.jar`。
 - 不选原因：更重，也更容易与真实安装目录下的运行时依赖重复或冲突。
 
 ### Decision 4: 通过控制面发布包与 Agent 安装脚本统一分发 proxy 资产，并预留多版本 jar 选择能力
 
-- 选择：控制面发布包统一内置 `lib/seatunnelx-java-proxy-{seatunnelVersion}.jar` 与 `scripts/seatunnelx-java-proxy.sh`；Agent 安装脚本默认下载 `2.3.13` 版本 jar，并在运行时优先按 SeaTunnel 集群版本选择对应 jar，找不到时回退到 `2.3.13`。
+- 选择：控制面发布包统一内置 `lib/stx-java-proxy-{seatunnelVersion}.jar` 与 `scripts/stx-java-proxy.sh`；Agent 安装脚本默认下载 `2.3.13` 版本 jar，并在运行时优先按 SeaTunnel 集群版本选择对应 jar，找不到时回退到 `2.3.13`。
 - 原因：runtime probe 最终是在目标主机上的 Agent 进程内执行，只改控制面本地工作区路径无法真正闭环；同时平台会长期支持多个 SeaTunnel 版本，需要让 proxy jar 的选择规则可扩展，而不是把单一 jar 名写死。
 - 备选方案：仅靠 Agent 本地“搜索工作区 / tools 目录”发现资产。
 - 不选原因：这只适用于开发环境，无法覆盖正式 Agent 安装。

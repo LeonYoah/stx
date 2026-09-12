@@ -14,11 +14,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# SeaTunnelX 构建/重启脚本：
-# - 后端使用 PM2 启动（seatunnelx-api）
-# - 前端默认使用 Next.js standalone 产物 + PM2 启动（seatunnelx-ui）
+# STX 构建/重启脚本：
+# - 后端使用 PM2 启动（stx-api）
+# - 前端默认使用 Next.js standalone 产物 + PM2 启动（stx-ui）
 # - 支持统一的目标（前端/后端）与动作（构建/重启）
-# - 后端构建后默认同步并重启已安装的本机 seatunnelx-agent
+# - 后端构建后默认同步并重启已安装的本机 stx-agent
 # - 启动前会检测并清理同名 PM2 进程，最后执行 pm2 save
 
 set -euo pipefail
@@ -27,9 +27,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_ROOT"
 
+# 打印构建与重启脚本的用法。/ Print build and restart usage.
 print_help() {
   cat <<'EOF'
-SeaTunnelX 构建/重启脚本
+STX 构建/重启脚本
 
 用法:
   ./scripts/restart.sh [选项]
@@ -44,9 +45,9 @@ SeaTunnelX 构建/重启脚本
   --no-backend     跳过后端
   --frontend-dev   前端用 pnpm run dev 启动（仅重启前端时生效）
   --no-local-agent-restart
-                   后端构建后不同步/不重启本机 seatunnelx-agent（默认仅在本机已安装时同步并重启）
+                   后端构建后不同步/不重启本机 stx-agent（默认仅在本机已安装时同步并重启）
   --restart-java-proxy
-                   构建/重启后，重启本机 seatunnelx-java-proxy
+                   构建/重启后，重启本机 stx-java-proxy
   --stop-frontend  仅停止前端 PM2 进程并退出
   -h, --help       显示本帮助
 
@@ -59,18 +60,18 @@ SeaTunnelX 构建/重启脚本
   ./scripts/restart.sh --build-only                   # 仅构建前后端；本机已安装 Agent 时同步/重启
 
 环境变量:
-  PM2_API                        后端 PM2 进程名，默认 seatunnelx-api
-  PM2_UI                         前端 PM2 进程名，默认 seatunnelx-ui
+  PM2_API                        后端 PM2 进程名，默认 stx-api
+  PM2_UI                         前端 PM2 进程名，默认 stx-ui
   CONFIG_PATH                    后端配置文件路径，默认 ./config.yaml
   APP_EXTERNAL_URL               写入 config.yaml 的 app.external_url，默认 http://127.0.0.1:8000
   FRONTEND_PORT                  前端端口，默认 80
   NEXT_PUBLIC_BACKEND_BASE_URL   前端访问后端的基础地址，默认 http://127.0.0.1:8000
   LOCAL_AGENT_INSTALL_DIR        本机 Agent 安装目录，默认 /usr/local/bin
-  LOCAL_AGENT_BINARY             本机 Agent 二进制名，默认 seatunnelx-agent
-  LOCAL_AGENT_SERVICE            本机 Agent systemd 服务名，默认 seatunnelx-agent
+  LOCAL_AGENT_BINARY             本机 Agent 二进制名，默认 stx-agent
+  LOCAL_AGENT_SERVICE            本机 Agent systemd 服务名，默认 stx-agent
   LOCAL_AGENT_RESTART            本机已安装 Agent 时是否默认同步/重启，默认 true
   LOCAL_SEATUNNEL_HOME           本机 SeaTunnel 安装目录，默认 /opt/seatunnel-2.3.13-new
-  LOCAL_JAVA_PROXY_PORT          本机 seatunnelx-java-proxy 端口，默认 18080
+  LOCAL_JAVA_PROXY_PORT          本机 stx-java-proxy 端口，默认 18080
   CONTROL_PLANE_BASE_URL         控制面地址，默认 http://127.0.0.1:8000
   CONTROL_PLANE_USERNAME         登录用户名，默认 admin
   CONTROL_PLANE_PASSWORD         登录密码，默认 admin123
@@ -162,17 +163,17 @@ if ! $RUN_BACKEND && ! $RUN_FRONTEND; then
   exit 1
 fi
 
-PM2_API="${PM2_API:-seatunnelx-api}"
-PM2_UI="${PM2_UI:-seatunnelx-ui}"
+PM2_API="${PM2_API:-stx-api}"
+PM2_UI="${PM2_UI:-stx-ui}"
 CONFIG_PATH="${CONFIG_PATH:-$PROJECT_ROOT/config.yaml}"
 APP_EXTERNAL_URL="${APP_EXTERNAL_URL:-http://127.0.0.1:8000}"
 FRONTEND_PORT="${FRONTEND_PORT:-80}"
 NEXT_PUBLIC_BACKEND_BASE_URL="${NEXT_PUBLIC_BACKEND_BASE_URL:-http://127.0.0.1:8000}"
 CAPABILITY_PROXY_DEFAULT_VERSION="${CAPABILITY_PROXY_DEFAULT_VERSION:-2.3.13}"
 LOCAL_AGENT_INSTALL_DIR="${LOCAL_AGENT_INSTALL_DIR:-/usr/local/bin}"
-LOCAL_AGENT_BINARY="${LOCAL_AGENT_BINARY:-seatunnelx-agent}"
-LOCAL_AGENT_SERVICE="${LOCAL_AGENT_SERVICE:-seatunnelx-agent}"
-AGENT_HOME="${AGENT_HOME:-/usr/local/lib/seatunnelx-agent}"
+LOCAL_AGENT_BINARY="${LOCAL_AGENT_BINARY:-stx-agent}"
+LOCAL_AGENT_SERVICE="${LOCAL_AGENT_SERVICE:-stx-agent}"
+AGENT_HOME="${AGENT_HOME:-/usr/local/lib/stx-agent}"
 AGENT_PROXY_LIB_DIR="${AGENT_PROXY_LIB_DIR:-$AGENT_HOME/lib}"
 LOCAL_SEATUNNEL_HOME="${LOCAL_SEATUNNEL_HOME:-/opt/seatunnel-2.3.13-new}"
 LOCAL_JAVA_PROXY_PORT="${LOCAL_JAVA_PROXY_PORT:-18080}"
@@ -226,6 +227,7 @@ detect_host_goarch() {
   esac
 }
 
+# 返回目标系统和架构对应的 STX Agent 文件名。/ Return the STX Agent file name for the target OS and architecture.
 agent_binary_name_for_target() {
   local goos="$1"
   local goarch="$2"
@@ -246,7 +248,7 @@ agent_binary_name_for_target() {
       ;;
   esac
 
-  echo "seatunnelx-agent-${goos}-${goarch}"
+  echo "stx-agent-${goos}-${goarch}"
 }
 
 sync_and_restart_local_agent() {
@@ -305,6 +307,7 @@ sync_and_restart_local_agent() {
   fi
 }
 
+# 判断进程是否为 STX Java Proxy，避免误杀端口占用者。/ Check whether a process is STX Java Proxy to avoid killing an unrelated listener.
 is_java_proxy_pid() {
   local pid="$1"
   if [[ -z "$pid" ]]; then
@@ -315,27 +318,28 @@ is_java_proxy_pid() {
   if [[ -z "$args" ]]; then
     return 1
   fi
-  if [[ "$args" == *"SeatunnelXJavaProxyApplication"* ]] || [[ "$args" == *"seatunnelx-java-proxy"* ]]; then
+  if [[ "$args" == *"StxJavaProxyApplication"* ]] || [[ "$args" == *"stx-java-proxy"* ]]; then
     return 0
   fi
   return 1
 }
 
+# 使用新名称的脚本与状态目录重启本机 STX Java Proxy。/ Restart the local STX Java Proxy with the renamed script and state directory.
 restart_local_java_proxy() {
   local install_dir="$LOCAL_SEATUNNEL_HOME"
   local port="$LOCAL_JAVA_PROXY_PORT"
   local script_path=""
-  local jar_path="$AGENT_PROXY_LIB_DIR/seatunnelx-java-proxy-${CAPABILITY_PROXY_DEFAULT_VERSION}.jar"
-  local state_dir="$install_dir/.seatunnelx/seatunnelx-java-proxy"
+  local jar_path="$AGENT_PROXY_LIB_DIR/stx-java-proxy-${CAPABILITY_PROXY_DEFAULT_VERSION}.jar"
+  local state_dir="$install_dir/.stx/stx-java-proxy"
   local log_path="$state_dir/service.log"
   local pid_path="$state_dir/service.pid"
   local port_path="$state_dir/service.port"
   local old_pid=""
 
   for candidate in \
-    "$AGENT_HOME/scripts/seatunnelx-java-proxy.sh" \
-    "$PROJECT_ROOT/scripts/seatunnelx-java-proxy.sh" \
-    "$PROJECT_ROOT/tools/seatunnelx-java-proxy/bin/seatunnelx-java-proxy.sh"
+    "$AGENT_HOME/scripts/stx-java-proxy.sh" \
+    "$PROJECT_ROOT/scripts/stx-java-proxy.sh" \
+    "$PROJECT_ROOT/tools/stx-java-proxy/bin/stx-java-proxy.sh"
   do
     if [[ -f "$candidate" ]]; then
       script_path="$candidate"
@@ -344,11 +348,11 @@ restart_local_java_proxy() {
   done
 
   if [[ -z "$script_path" ]]; then
-    echo "      未找到本机 seatunnelx-java-proxy 启动脚本，跳过重启."
+    echo "      未找到本机 stx-java-proxy 启动脚本，跳过重启."
     return 1
   fi
   if [[ ! -f "$jar_path" ]]; then
-    echo "      未找到本机 seatunnelx-java-proxy jar: $jar_path"
+    echo "      未找到本机 stx-java-proxy jar: $jar_path"
     return 1
   fi
   if [[ ! -f "$install_dir/starter/seatunnel-starter.jar" ]]; then
@@ -362,10 +366,10 @@ restart_local_java_proxy() {
   old_pid="$(ss -lntp 2>/dev/null | awk -v port=":$port" '$4 ~ port"$" {print $NF}' | sed -n 's/.*pid=\([0-9]\+\).*/\1/p' | head -n1 || true)"
   if [[ -n "$old_pid" ]]; then
     if ! is_java_proxy_pid "$old_pid"; then
-      echo "      端口 $port 当前被非 seatunnelx-java-proxy 进程占用 (pid=$old_pid)，为避免误杀已跳过重启."
+      echo "      端口 $port 当前被非 stx-java-proxy 进程占用 (pid=$old_pid)，为避免误杀已跳过重启."
       return 1
     fi
-    echo "[*] 停止本机 seatunnelx-java-proxy (pid=$old_pid, port=$port) ..."
+    echo "[*] 停止本机 stx-java-proxy (pid=$old_pid, port=$port) ..."
     kill -TERM "$old_pid" 2>/dev/null || true
     for _ in {1..20}; do
       if kill -0 "$old_pid" 2>/dev/null || ss -lntp 2>/dev/null | rg -q ":$port"; then
@@ -380,13 +384,13 @@ restart_local_java_proxy() {
     fi
   fi
 
-  echo "[*] 启动本机 seatunnelx-java-proxy ..."
+  echo "[*] 启动本机 stx-java-proxy ..."
   local pid
   pid="$(
     SEATUNNEL_HOME="$install_dir" \
-    SEATUNNEL_PROXY_JAR="$jar_path" \
-    SEATUNNELX_JAVA_PROXY_VERSION="$CAPABILITY_PROXY_DEFAULT_VERSION" \
-    nohup bash "$script_path" -Dseatunnelx.java.proxy.port="$port" >>"$log_path" 2>&1 < /dev/null & echo $!
+    STX_JAVA_PROXY_JAR="$jar_path" \
+    STX_JAVA_PROXY_VERSION="$CAPABILITY_PROXY_DEFAULT_VERSION" \
+    nohup bash "$script_path" -Dstx.java.proxy.port="$port" >>"$log_path" 2>&1 < /dev/null & echo $!
   )"
   echo "$pid" >"$pid_path"
   echo "$port" >"$port_path"
@@ -397,13 +401,13 @@ restart_local_java_proxy() {
       break
     fi
     if curl -fsS -o /dev/null "$health_url" 2>/dev/null; then
-      echo "      本机 seatunnelx-java-proxy 已就绪: http://127.0.0.1:${port}"
+      echo "      本机 stx-java-proxy 已就绪: http://127.0.0.1:${port}"
       return 0
     fi
     sleep 1
   done
 
-  echo "      本机 seatunnelx-java-proxy 启动后未通过健康检查，请检查 $log_path"
+  echo "      本机 stx-java-proxy 启动后未通过健康检查，请检查 $log_path"
   return 1
 }
 
@@ -660,52 +664,52 @@ step=0
 FRONTEND_PREPARED=false
 
 if $DO_BUILD && $RUN_BACKEND; then
-  step=$((step + 1)); echo "[$step/$total] 构建 seatunnelx ..."
-  go build -o seatunnelx .
-  echo "      seatunnelx 构建完成."
+  step=$((step + 1)); echo "[$step/$total] 构建 stx ..."
+  go build -o stx .
+  echo "      stx 构建完成."
 
   agent_goos="$(detect_agent_goos)"
   agent_goarch="$(detect_agent_goarch)"
   agent_binary_name="$(agent_binary_name_for_target "$agent_goos" "$agent_goarch")"
 
-  step=$((step + 1)); echo "[$step/$total] 构建 seatunnelx-agent ..."
-  (cd agent && GOOS="$agent_goos" GOARCH="$agent_goarch" go build -o seatunnelx-agent ./cmd)
-  echo "      seatunnelx-agent 构建完成: ${agent_goos}/${agent_goarch}"
+  step=$((step + 1)); echo "[$step/$total] 构建 stx-agent ..."
+  (cd agent && GOOS="$agent_goos" GOARCH="$agent_goarch" go build -o stx-agent ./cmd)
+  echo "      stx-agent 构建完成: ${agent_goos}/${agent_goarch}"
 
-  if [[ -f agent/seatunnelx-agent ]]; then
+  if [[ -f agent/stx-agent ]]; then
     mkdir -p lib/agent
-    cp -f agent/seatunnelx-agent "lib/agent/${agent_binary_name}"
+    cp -f agent/stx-agent "lib/agent/${agent_binary_name}"
     chmod +x "lib/agent/${agent_binary_name}"
     echo "      已同步 agent 到 lib/agent/${agent_binary_name}."
   fi
 
-  step=$((step + 1)); echo "[$step/$total] 构建 seatunnelx-java-proxy 薄 jar ..."
+  step=$((step + 1)); echo "[$step/$total] 构建 stx-java-proxy 薄 jar ..."
   if command -v mvn >/dev/null 2>&1; then
-    mvn -q -f tools/seatunnelx-java-proxy/pom.xml -DskipTests package
-    proxy_jar="$(find tools/seatunnelx-java-proxy/target -maxdepth 1 -type f -name 'seatunnelx-java-proxy-*.jar' ! -name '*-bin.jar' | sort | head -n1)"
+    mvn -q -f tools/stx-java-proxy/pom.xml -DskipTests package
+    proxy_jar="$(find tools/stx-java-proxy/target -maxdepth 1 -type f -name 'stx-java-proxy-*.jar' ! -name '*-bin.jar' | sort | head -n1)"
     if [[ -n "${proxy_jar:-}" && -f "${proxy_jar:-}" ]]; then
       mkdir -p lib
-      cp -f "$proxy_jar" "lib/seatunnelx-java-proxy-${CAPABILITY_PROXY_DEFAULT_VERSION}.jar"
-      echo "      已同步 seatunnelx-java-proxy jar 到 lib/seatunnelx-java-proxy-${CAPABILITY_PROXY_DEFAULT_VERSION}.jar."
+      cp -f "$proxy_jar" "lib/stx-java-proxy-${CAPABILITY_PROXY_DEFAULT_VERSION}.jar"
+      echo "      已同步 stx-java-proxy jar 到 lib/stx-java-proxy-${CAPABILITY_PROXY_DEFAULT_VERSION}.jar."
       if [[ -d "$AGENT_PROXY_LIB_DIR" ]]; then
-        cp -f "$proxy_jar" "$AGENT_PROXY_LIB_DIR/seatunnelx-java-proxy-${CAPABILITY_PROXY_DEFAULT_VERSION}.jar"
-        echo "      已同步 seatunnelx-java-proxy jar 到 $AGENT_PROXY_LIB_DIR/seatunnelx-java-proxy-${CAPABILITY_PROXY_DEFAULT_VERSION}.jar."
+        cp -f "$proxy_jar" "$AGENT_PROXY_LIB_DIR/stx-java-proxy-${CAPABILITY_PROXY_DEFAULT_VERSION}.jar"
+        echo "      已同步 stx-java-proxy jar 到 $AGENT_PROXY_LIB_DIR/stx-java-proxy-${CAPABILITY_PROXY_DEFAULT_VERSION}.jar."
       fi
-      if [[ -d "$AGENT_HOME/scripts" && -f "$PROJECT_ROOT/scripts/seatunnelx-java-proxy.sh" ]]; then
-        cp -f "$PROJECT_ROOT/scripts/seatunnelx-java-proxy.sh" "$AGENT_HOME/scripts/seatunnelx-java-proxy.sh"
-        chmod +x "$AGENT_HOME/scripts/seatunnelx-java-proxy.sh"
-        echo "      已同步 seatunnelx-java-proxy 启动脚本到 $AGENT_HOME/scripts/seatunnelx-java-proxy.sh."
+      if [[ -d "$AGENT_HOME/scripts" && -f "$PROJECT_ROOT/scripts/stx-java-proxy.sh" ]]; then
+        cp -f "$PROJECT_ROOT/scripts/stx-java-proxy.sh" "$AGENT_HOME/scripts/stx-java-proxy.sh"
+        chmod +x "$AGENT_HOME/scripts/stx-java-proxy.sh"
+        echo "      已同步 stx-java-proxy 启动脚本到 $AGENT_HOME/scripts/stx-java-proxy.sh."
       fi
     else
-      echo "      未找到 seatunnelx-java-proxy 薄 jar，跳过同步."
+      echo "      未找到 stx-java-proxy 薄 jar，跳过同步."
     fi
   else
-    echo "      未找到 mvn，跳过 seatunnelx-java-proxy 薄 jar 构建与同步."
+    echo "      未找到 mvn，跳过 stx-java-proxy 薄 jar 构建与同步."
   fi
 
   if $RESTART_LOCAL_AGENT; then
-    step=$((step + 1)); echo "[$step/$total] 同步并重启本机 seatunnelx-agent ..."
-    sync_and_restart_local_agent "agent/seatunnelx-agent" "$agent_goos" "$agent_goarch"
+    step=$((step + 1)); echo "[$step/$total] 同步并重启本机 stx-agent ..."
+    sync_and_restart_local_agent "agent/stx-agent" "$agent_goos" "$agent_goarch"
   fi
 fi
 
@@ -722,14 +726,14 @@ fi
 
 if $DO_RESTART && $RUN_BACKEND; then
   step=$((step + 1)); echo "[$step/$total] 启动后端 (PM2: $PM2_API) ..."
-  if [[ ! -f "$PROJECT_ROOT/seatunnelx" ]]; then
-    echo "未找到 $PROJECT_ROOT/seatunnelx，请先执行一次包含后端构建的命令"
+  if [[ ! -f "$PROJECT_ROOT/stx" ]]; then
+    echo "未找到 $PROJECT_ROOT/stx，请先执行一次包含后端构建的命令"
     exit 1
   fi
   pm2_delete_if_exists "$PM2_API"
   # 兜底：清理非 PM2 拉起的旧后端进程
-  pkill -f "$PROJECT_ROOT/seatunnelx api" >/dev/null 2>&1 || true
-  CONFIG_PATH="$CONFIG_PATH" pm2 start "$PROJECT_ROOT/seatunnelx" --name "$PM2_API" --cwd "$PROJECT_ROOT" --interpreter none -- api
+  pkill -f "$PROJECT_ROOT/stx api" >/dev/null 2>&1 || true
+  CONFIG_PATH="$CONFIG_PATH" pm2 start "$PROJECT_ROOT/stx" --name "$PM2_API" --cwd "$PROJECT_ROOT" --interpreter none -- api
   echo "      后端已启动 (API: http://127.0.0.1:8000)."
 fi
 

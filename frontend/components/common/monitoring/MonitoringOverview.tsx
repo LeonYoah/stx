@@ -58,9 +58,7 @@ function resolveDashboardUID(locale: string): string {
 }
 
 function resolveDashboardSlug(locale: string): string {
-  return locale === 'zh'
-    ? 'seatunnelx-shen-du-jian-kong'
-    : 'seatunnelx-deep-monitoring';
+  return locale === 'zh' ? 'stx-shen-du-jian-kong' : 'stx-deep-monitoring';
 }
 
 function buildGrafanaProxyDashboardURL(
@@ -116,7 +114,9 @@ function resolveHealthBadgeVariant(
   return 'outline';
 }
 
-export function MonitoringOverview({compact = false}: {compact?: boolean} = {}) {
+export function MonitoringOverview({
+  compact = false,
+}: {compact?: boolean} = {}) {
   const t = useTranslations('monitoringCenter');
   const {locale} = useLocale();
   const {resolvedTheme} = useTheme();
@@ -157,7 +157,9 @@ export function MonitoringOverview({compact = false}: {compact?: boolean} = {}) 
 
   const compactActionButtonClass = compact ? 'h-8 px-2.5 text-xs' : 'shrink-0';
   const compactSelectTriggerClass = compact ? 'h-8 text-xs' : undefined;
-  const compactControlWidthClass = compact ? 'w-full md:w-44' : 'w-full md:w-56';
+  const compactControlWidthClass = compact
+    ? 'w-full md:w-44'
+    : 'w-full md:w-56';
 
   const loadHealth = useCallback(async () => {
     setHealthLoading(true);
@@ -416,7 +418,9 @@ export function MonitoringOverview({compact = false}: {compact?: boolean} = {}) 
           </CardHeader>
           <CardContent className='space-y-4'>
             {healthLoading ? (
-              <div className='text-sm text-muted-foreground'>{t('loading')}</div>
+              <div className='text-sm text-muted-foreground'>
+                {t('loading')}
+              </div>
             ) : platformHealth ? (
               <>
                 <div className='overflow-x-auto'>
@@ -512,7 +516,9 @@ export function MonitoringOverview({compact = false}: {compact?: boolean} = {}) 
                 onClick={() => setIframeKey((value) => value + 1)}
                 className={compactActionButtonClass}
               >
-                <RefreshCw className={compact ? 'mr-1.5 h-3.5 w-3.5' : 'mr-2 h-4 w-4'} />
+                <RefreshCw
+                  className={compact ? 'mr-1.5 h-3.5 w-3.5' : 'mr-2 h-4 w-4'}
+                />
                 {t('grafana.reload')}
               </Button>
               <Button

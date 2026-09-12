@@ -23,7 +23,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/seatunnel/seatunnelX/internal/config"
+	"github.com/LeonYoah/stx/internal/config"
 )
 
 func TestService_decorateManagedMetricsTargetsFromPrometheus_marksHealthyTarget(t *testing.T) {

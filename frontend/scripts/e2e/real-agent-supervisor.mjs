@@ -84,18 +84,25 @@ async function resolveAgentConfigWithTLS(baseConfigPath) {
     return baseConfigPath;
   }
   if (!response.ok) {
-    throw new Error(`failed to download CA from ${caURL}: HTTP ${response.status}`);
+    throw new Error(
+      `failed to download CA from ${caURL}: HTTP ${response.status}`,
+    );
   }
 
   const caPEM = await response.text();
   if (!caPEM.includes('BEGIN CERTIFICATE')) {
-    throw new Error(`CA download from ${caURL} did not return a PEM certificate`);
+    throw new Error(
+      `CA download from ${caURL} did not return a PEM certificate`,
+    );
   }
 
   const configDir = path.dirname(baseConfigPath);
   const caDir = path.join(configDir, 'certs');
   const caPath = path.join(caDir, 'ca.crt');
-  const patchedConfigPath = path.join(configDir, 'config.e2e.agent-real.tls.yaml');
+  const patchedConfigPath = path.join(
+    configDir,
+    'config.e2e.agent-real.tls.yaml',
+  );
   const caPathYAML = JSON.stringify(caPath);
 
   await fs.mkdir(caDir, {recursive: true});
@@ -172,7 +179,7 @@ async function main() {
           ...process.env,
           AGENT_LOG_FILE: path.join(
             repoRoot,
-            'tmp/e2e/installer-real/logs/seatunnelx-agent.log',
+            'tmp/e2e/installer-real/logs/stx-agent.log',
           ),
         },
         stdio: 'inherit',

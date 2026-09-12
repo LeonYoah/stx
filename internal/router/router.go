@@ -29,37 +29,37 @@ import (
 	"strings"
 	"time"
 
+	_ "github.com/LeonYoah/stx/docs"
+	"github.com/LeonYoah/stx/internal/apps/admin"
+	"github.com/LeonYoah/stx/internal/apps/agent"
+	"github.com/LeonYoah/stx/internal/apps/audit"
+	"github.com/LeonYoah/stx/internal/apps/auth"
+	"github.com/LeonYoah/stx/internal/apps/cluster"
+	appconfig "github.com/LeonYoah/stx/internal/apps/config"
+	"github.com/LeonYoah/stx/internal/apps/dashboard"
+	"github.com/LeonYoah/stx/internal/apps/deepwiki"
+	"github.com/LeonYoah/stx/internal/apps/diagnostics"
+	"github.com/LeonYoah/stx/internal/apps/discovery"
+	"github.com/LeonYoah/stx/internal/apps/health"
+	"github.com/LeonYoah/stx/internal/apps/host"
+	"github.com/LeonYoah/stx/internal/apps/installer"
+	"github.com/LeonYoah/stx/internal/apps/monitor"
+	monitoringapp "github.com/LeonYoah/stx/internal/apps/monitoring"
+	"github.com/LeonYoah/stx/internal/apps/oauth"
+	"github.com/LeonYoah/stx/internal/apps/plugin"
+	"github.com/LeonYoah/stx/internal/apps/releasebundle"
+	"github.com/LeonYoah/stx/internal/apps/stupgrade"
+	syncapp "github.com/LeonYoah/stx/internal/apps/sync"
+	"github.com/LeonYoah/stx/internal/apps/task"
+	"github.com/LeonYoah/stx/internal/config"
+	"github.com/LeonYoah/stx/internal/db"
+	grpcServer "github.com/LeonYoah/stx/internal/grpc"
+	"github.com/LeonYoah/stx/internal/otel_trace"
+	pb "github.com/LeonYoah/stx/internal/proto/agent"
+	"github.com/LeonYoah/stx/internal/session"
+	"github.com/LeonYoah/stx/internal/tlsbootstrap"
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
-	_ "github.com/seatunnel/seatunnelX/docs"
-	"github.com/seatunnel/seatunnelX/internal/apps/admin"
-	"github.com/seatunnel/seatunnelX/internal/apps/agent"
-	"github.com/seatunnel/seatunnelX/internal/apps/audit"
-	"github.com/seatunnel/seatunnelX/internal/apps/auth"
-	"github.com/seatunnel/seatunnelX/internal/apps/cluster"
-	appconfig "github.com/seatunnel/seatunnelX/internal/apps/config"
-	"github.com/seatunnel/seatunnelX/internal/apps/dashboard"
-	"github.com/seatunnel/seatunnelX/internal/apps/deepwiki"
-	"github.com/seatunnel/seatunnelX/internal/apps/diagnostics"
-	"github.com/seatunnel/seatunnelX/internal/apps/discovery"
-	"github.com/seatunnel/seatunnelX/internal/apps/health"
-	"github.com/seatunnel/seatunnelX/internal/apps/host"
-	"github.com/seatunnel/seatunnelX/internal/apps/installer"
-	"github.com/seatunnel/seatunnelX/internal/apps/monitor"
-	monitoringapp "github.com/seatunnel/seatunnelX/internal/apps/monitoring"
-	"github.com/seatunnel/seatunnelX/internal/apps/oauth"
-	"github.com/seatunnel/seatunnelX/internal/apps/plugin"
-	"github.com/seatunnel/seatunnelX/internal/apps/releasebundle"
-	"github.com/seatunnel/seatunnelX/internal/apps/stupgrade"
-	syncapp "github.com/seatunnel/seatunnelX/internal/apps/sync"
-	"github.com/seatunnel/seatunnelX/internal/apps/task"
-	"github.com/seatunnel/seatunnelX/internal/config"
-	"github.com/seatunnel/seatunnelX/internal/db"
-	grpcServer "github.com/seatunnel/seatunnelX/internal/grpc"
-	"github.com/seatunnel/seatunnelX/internal/otel_trace"
-	pb "github.com/seatunnel/seatunnelX/internal/proto/agent"
-	"github.com/seatunnel/seatunnelX/internal/session"
-	"github.com/seatunnel/seatunnelX/internal/tlsbootstrap"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
@@ -255,11 +255,11 @@ func Serve() {
 				clusterRouter.POST("/:id/stop", clusterHandler.StopCluster)
 				clusterRouter.POST("/:id/restart", clusterHandler.RestartCluster)
 				clusterRouter.GET("/:id/status", clusterHandler.GetClusterStatus)
-				clusterRouter.GET("/:id/seatunnelx-java-proxy/status", clusterHandler.GetSeatunnelXJavaProxyStatus)
-				clusterRouter.GET("/:id/seatunnelx-java-proxy/logs", clusterHandler.PreviewSeatunnelXJavaProxyServiceLog)
-				clusterRouter.POST("/:id/seatunnelx-java-proxy/start", clusterHandler.StartSeatunnelXJavaProxy)
-				clusterRouter.POST("/:id/seatunnelx-java-proxy/stop", clusterHandler.StopSeatunnelXJavaProxy)
-				clusterRouter.POST("/:id/seatunnelx-java-proxy/restart", clusterHandler.RestartSeatunnelXJavaProxy)
+				clusterRouter.GET("/:id/stx-java-proxy/status", clusterHandler.GetSTXJavaProxyStatus)
+				clusterRouter.GET("/:id/stx-java-proxy/logs", clusterHandler.PreviewSTXJavaProxyServiceLog)
+				clusterRouter.POST("/:id/stx-java-proxy/start", clusterHandler.StartSTXJavaProxy)
+				clusterRouter.POST("/:id/stx-java-proxy/stop", clusterHandler.StopSTXJavaProxy)
+				clusterRouter.POST("/:id/stx-java-proxy/restart", clusterHandler.RestartSTXJavaProxy)
 				clusterRouter.GET("/:id/runtime-storage", clusterHandler.GetRuntimeStorage)
 				clusterRouter.POST("/:id/runtime-storage/:kind/validate", clusterHandler.ValidateRuntimeStorage)
 				clusterRouter.POST("/:id/runtime-storage/:kind/list", clusterHandler.ListRuntimeStorage)
@@ -519,29 +519,29 @@ func Serve() {
 				// GET /api/v1/agent/download - Download Agent binary
 				agentRouter.GET("/download", agentHandler.DownloadAgent)
 
-				// GET /api/v1/agent/assets/seatunnelx-java-proxy.jar - 下载 seatunnelx-java-proxy 薄 jar
-				// GET /api/v1/agent/assets/seatunnelx-java-proxy.jar - Download seatunnelx-java-proxy thin jar
-				agentRouter.GET("/assets/seatunnelx-java-proxy.jar", agentHandler.DownloadSeatunnelXJavaProxyJar)
+				// GET /api/v1/agent/assets/stx-java-proxy.jar - 下载 stx-java-proxy 薄 jar
+				// GET /api/v1/agent/assets/stx-java-proxy.jar - Download stx-java-proxy thin jar
+				agentRouter.GET("/assets/stx-java-proxy.jar", agentHandler.DownloadSTXJavaProxyJar)
 
-				// GET /api/v1/agent/assets/seatunnelx-java-proxy.sh - 下载 seatunnelx-java-proxy 启动脚本
-				// GET /api/v1/agent/assets/seatunnelx-java-proxy.sh - Download seatunnelx-java-proxy launcher script
-				agentRouter.GET("/assets/seatunnelx-java-proxy.sh", agentHandler.DownloadSeatunnelXJavaProxyScript)
+				// GET /api/v1/agent/assets/stx-java-proxy.sh - 下载 stx-java-proxy 启动脚本
+				// GET /api/v1/agent/assets/stx-java-proxy.sh - Download stx-java-proxy launcher script
+				agentRouter.GET("/assets/stx-java-proxy.sh", agentHandler.DownloadSTXJavaProxyScript)
 			}
 
-			// SeaTunnelX 离线发布包分发 API（无需认证，供客户机器一键下载安装控制面）。
-			// SeaTunnelX offline release bundle distribution API (no authentication required for one-click control-plane install).
+			// STX 离线发布包分发 API（无需认证，供客户机器一键下载安装控制面）。
+			// STX offline release bundle distribution API (no authentication required for one-click control-plane install).
 			releaseBundleHandler := releasebundle.NewHandler(&releasebundle.HandlerConfig{
 				ReleaseDir:    "./dist/releases",
 				BundlePattern: releasebundle.DefaultBundlePattern,
 			})
-			releaseBundleRouter := apiV1Router.Group("/seatunnelx")
+			releaseBundleRouter := apiV1Router.Group("/stx")
 			{
-				// GET /api/v1/seatunnelx/install.sh - 获取控制面一键安装脚本
-				// GET /api/v1/seatunnelx/install.sh - Get control-plane one-click install script
+				// GET /api/v1/stx/install.sh - 获取控制面一键安装脚本
+				// GET /api/v1/stx/install.sh - Get control-plane one-click install script
 				releaseBundleRouter.GET("/install.sh", releaseBundleHandler.GetInstallScript)
 
-				// GET /api/v1/seatunnelx/download - 下载最新的 CentOS 7 兼容离线包
-				// GET /api/v1/seatunnelx/download - Download the latest CentOS 7 compatible offline bundle
+				// GET /api/v1/stx/download - 下载最新的 CentOS 7 兼容离线包
+				// GET /api/v1/stx/download - Download the latest CentOS 7 compatible offline bundle
 				releaseBundleRouter.GET("/download", releaseBundleHandler.DownloadBundle)
 			}
 
@@ -1188,7 +1188,7 @@ func (a *agentCommandSenderAdapter) SendCommand(ctx context.Context, agentID str
 // stringToCommandType 将命令类型字符串转换为 pb.CommandType。
 func (a *agentCommandSenderAdapter) stringToCommandType(cmdType string) pb.CommandType {
 	switch cmdType {
-	case "check_port", "check_directory", "check_http", "check_process", "check_java", "check_tcp", "check_path_ready", "stat_path", "cleanup_path", "seatunnelx_java_proxy_probe", "seatunnelx_java_proxy_stat", "seatunnelx_java_proxy_list", "seatunnelx_java_proxy_preview", "seatunnelx_java_proxy_inspect_checkpoint", "seatunnelx_java_proxy_inspect_checkpoint_source_state", "seatunnelx_java_proxy_inspect_imap_wal", "sync_local_run", "sync_local_status", "sync_local_stop", "sync_local_logs", "sync_job_logs", "full":
+	case "check_port", "check_directory", "check_http", "check_process", "check_java", "check_tcp", "check_path_ready", "stat_path", "cleanup_path", "stx_java_proxy_probe", "stx_java_proxy_stat", "stx_java_proxy_list", "stx_java_proxy_preview", "stx_java_proxy_inspect_checkpoint", "stx_java_proxy_inspect_checkpoint_source_state", "stx_java_proxy_inspect_imap_wal", "sync_local_run", "sync_local_status", "sync_local_stop", "sync_local_logs", "sync_job_logs", "full":
 		return pb.CommandType_PRECHECK
 	case "install":
 		return pb.CommandType_INSTALL
@@ -1433,7 +1433,7 @@ func (a *installerAgentManagerAdapter) SendCommand(ctx context.Context, agentID 
 // stringToCommandType 将命令类型字符串转换为 pb.CommandType。
 func (a *installerAgentManagerAdapter) stringToCommandType(cmdType string) pb.CommandType {
 	switch cmdType {
-	case "check_port", "check_directory", "check_http", "check_process", "check_java", "check_tcp", "check_path_ready", "stat_path", "cleanup_path", "seatunnelx_java_proxy_probe", "seatunnelx_java_proxy_stat", "seatunnelx_java_proxy_list", "seatunnelx_java_proxy_preview", "seatunnelx_java_proxy_inspect_checkpoint", "seatunnelx_java_proxy_inspect_checkpoint_source_state", "seatunnelx_java_proxy_inspect_imap_wal", "sync_local_run", "sync_local_status", "sync_local_stop", "full":
+	case "check_port", "check_directory", "check_http", "check_process", "check_java", "check_tcp", "check_path_ready", "stat_path", "cleanup_path", "stx_java_proxy_probe", "stx_java_proxy_stat", "stx_java_proxy_list", "stx_java_proxy_preview", "stx_java_proxy_inspect_checkpoint", "stx_java_proxy_inspect_checkpoint_source_state", "stx_java_proxy_inspect_imap_wal", "sync_local_run", "sync_local_status", "sync_local_stop", "full":
 		return pb.CommandType_PRECHECK
 	case "install":
 		return pb.CommandType_INSTALL

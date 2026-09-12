@@ -1,4 +1,4 @@
-# SeaTunnelX 重启脚本：可选构建 + 可选前端，前端 PM2 名为 seatunnelx-ui
+# STX 重启脚本：可选构建 + 可选前端，前端 PM2 名为 stx-ui
 # - 默认前端使用生产模式启动
 # - 可选通过 -FrontendDev 改为 pnpm run dev，避免前端开发时重复构建
 # 用法：
@@ -6,7 +6,7 @@
 #   .\scripts\restart.ps1 -NoBuild           # 仅重启，不构建
 #   .\scripts\restart.ps1 -FrontendDev       # 前端改用 pnpm run dev 启动（跳过前端 build）
 #   .\scripts\restart.ps1 -NoFrontend        # 仅后端（可配合 -NoBuild 仅重启后端）
-#   .\scripts\restart.ps1 -StopFrontend     # 仅停止前端 (pm2 stop seatunnelx-ui)
+#   .\scripts\restart.ps1 -StopFrontend     # 仅停止前端 (pm2 stop stx-ui)
 
 param(
     [switch]$NoBuild,      # 不构建，仅重启已有进程/二进制
@@ -25,7 +25,7 @@ if (-not (Test-Path (Join-Path $ProjectRoot "go.mod"))) {
 Set-Location $ProjectRoot
 $ConfigPath = if ($env:CONFIG_PATH) { $env:CONFIG_PATH } else { Join-Path $ProjectRoot "config.yaml" }
 $AppExternalUrl = if ($env:APP_EXTERNAL_URL) { $env:APP_EXTERNAL_URL } else { "http://127.0.0.1:8000" }
-$PM2_UI = "seatunnelx-ui"
+$PM2_UI = "stx-ui"
 $FrontendPort = if ($env:FRONTEND_PORT) { $env:FRONTEND_PORT } else { "80" }
 $BackendBaseUrl = if ($env:NEXT_PUBLIC_BACKEND_BASE_URL) { $env:NEXT_PUBLIC_BACKEND_BASE_URL } else { "http://127.0.0.1:8000" }
 $FrontendDir = Join-Path $ProjectRoot "frontend"
@@ -202,39 +202,39 @@ if (-not $NoBuild) { $total += 2 }
 if (-not $NoFrontend) { $total += 1 }
 
 if (-not $NoBuild) {
-    $step++; Write-Host "[$step/$total] 构建 seatunnelx ..." -ForegroundColor Cyan
-    go build -o seatunnelx .
+    $step++; Write-Host "[$step/$total] 构建 stx ..." -ForegroundColor Cyan
+    go build -o stx .
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-    Write-Host "      seatunnelx 构建完成." -ForegroundColor Green
+    Write-Host "      stx 构建完成." -ForegroundColor Green
 
-    $step++; Write-Host "[$step/$total] 构建 seatunnelx-agent ..." -ForegroundColor Cyan
+    $step++; Write-Host "[$step/$total] 构建 stx-agent ..." -ForegroundColor Cyan
     Set-Location (Join-Path $ProjectRoot "agent")
-    go build -o seatunnelx-agent ./cmd
+    go build -o stx-agent ./cmd
     if ($LASTEXITCODE -ne 0) { Set-Location $ProjectRoot; exit $LASTEXITCODE }
     Set-Location $ProjectRoot
-    Write-Host "      seatunnelx-agent 构建完成." -ForegroundColor Green
+    Write-Host "      stx-agent 构建完成." -ForegroundColor Green
 
     $LibAgent = Join-Path $ProjectRoot "lib\agent"
     if (Test-Path $LibAgent) {
-        $agentBin = Join-Path $ProjectRoot "agent\seatunnelx-agent"
+        $agentBin = Join-Path $ProjectRoot "agent\stx-agent"
         if ($env:OS -eq "Windows_NT") { $agentBin = $agentBin + ".exe" }
         if (Test-Path $agentBin) {
-            $dest = Join-Path $LibAgent "seatunnelx-agent-windows-amd64.exe"
-            if ($env:OS -ne "Windows_NT") { $dest = Join-Path $LibAgent "seatunnelx-agent-linux-amd64" }
+            $dest = Join-Path $LibAgent "stx-agent-windows-amd64.exe"
+            if ($env:OS -ne "Windows_NT") { $dest = Join-Path $LibAgent "stx-agent-linux-amd64" }
             Copy-Item $agentBin $dest -Force -ErrorAction SilentlyContinue
             Write-Host "      已同步 agent 到 lib/agent." -ForegroundColor Gray
         }
     }
 }
 
-$step++; Write-Host "[$step/$total] 停止已有 seatunnelx 进程 ..." -ForegroundColor Cyan
-Get-Process -Name "seatunnelx" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+$step++; Write-Host "[$step/$total] 停止已有 stx 进程 ..." -ForegroundColor Cyan
+Get-Process -Name "stx" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 1
 Write-Host "      已停止." -ForegroundColor Green
 
-$step++; Write-Host "[$step/$total] 启动 seatunnelx api ..." -ForegroundColor Cyan
-$binName = "seatunnelx"
-if ($env:OS -eq "Windows_NT") { $binName = "seatunnelx.exe" }
+$step++; Write-Host "[$step/$total] 启动 stx api ..." -ForegroundColor Cyan
+$binName = "stx"
+if ($env:OS -eq "Windows_NT") { $binName = "stx.exe" }
 $bin = Join-Path $ProjectRoot $binName
 if (-not (Test-Path $bin)) {
     Write-Error "未找到 $binName，请先执行一次无 -NoBuild 的 restart 或手动构建"

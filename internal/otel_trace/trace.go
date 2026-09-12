@@ -1,4 +1,4 @@
-﻿/*
+/*
  * MIT License
  *
  * Copyright (c) 2025 linux.do
@@ -29,7 +29,7 @@ import (
 	"log"
 	"sync"
 
-	"github.com/seatunnel/seatunnelX/internal/config"
+	"github.com/LeonYoah/stx/internal/config"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/otel/trace/noop"
@@ -80,7 +80,7 @@ func Init() {
 		otel.SetTracerProvider(tracerProvider)
 
 		// 初始化 Tracer
-		Tracer = tracerProvider.Tracer("github.com/seatunnel/seatunnelX")
+		Tracer = tracerProvider.Tracer("github.com/LeonYoah/stx")
 		enabled = true
 		initialized = true
 		log.Println("[Trace] OpenTelemetry tracing initialized / OpenTelemetry 追踪已初始化")

@@ -197,7 +197,7 @@ func (s *Service) TestNotificationChannel(ctx context.Context, id uint, req *Not
 		AlertID:      fmt.Sprintf("test-channel-%d", channel.ID),
 		SourceType:   "system_test",
 		SourceKey:    fmt.Sprintf("test:channel:%d:%d", channel.ID, time.Now().UTC().UnixNano()),
-		AlertName:    "SeaTunnelX notification test",
+		AlertName:    "STX notification test",
 		ChannelID:    channel.ID,
 		ChannelName:  strings.TrimSpace(channel.Name),
 		EventType:    string(NotificationDeliveryEventTypeTest),
@@ -361,11 +361,11 @@ func buildTestPayload(channel *NotificationChannel, recipients []string) (interf
 		return nil, fmt.Errorf("notification channel not found")
 	}
 
-	message := "This is a test notification from SeaTunnelX."
+	message := "This is a test notification from STX."
 	switch channel.Type {
 	case NotificationChannelTypeWebhook:
 		return map[string]interface{}{
-			"title":        "SeaTunnelX notification test",
+			"title":        "STX notification test",
 			"message":      message,
 			"channel_name": channel.Name,
 			"channel_type": channel.Type,
@@ -375,20 +375,20 @@ func buildTestPayload(channel *NotificationChannel, recipients []string) (interf
 		return map[string]interface{}{
 			"msgtype": "text",
 			"text": map[string]string{
-				"content": fmt.Sprintf("[SeaTunnelX] %s", message),
+				"content": fmt.Sprintf("[STX] %s", message),
 			},
 		}, nil
 	case NotificationChannelTypeFeishu:
 		return map[string]interface{}{
 			"msg_type": "text",
 			"content": map[string]string{
-				"text": fmt.Sprintf("[SeaTunnelX] %s", message),
+				"text": fmt.Sprintf("[STX] %s", message),
 			},
 		}, nil
 	case NotificationChannelTypeEmail:
 		return &emailNotificationPayload{
-			Subject: "SeaTunnelX notification test",
-			Text:    fmt.Sprintf("[SeaTunnelX] %s", message),
+			Subject: "STX notification test",
+			Text:    fmt.Sprintf("[STX] %s", message),
 			To:      recipients,
 		}, nil
 	default:

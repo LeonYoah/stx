@@ -31,7 +31,7 @@ heartbeat:
 
 log:
   level: "info"
-  file: "tmp/e2e/installer-real/logs/seatunnelx-agent.log"
+  file: "tmp/e2e/installer-real/logs/stx-agent.log"
   max_size: 20
   max_backups: 2
   max_age: 7

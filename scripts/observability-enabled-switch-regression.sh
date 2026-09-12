@@ -17,14 +17,14 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-BIN_PATH="${SEATUNNELX_BIN:-$ROOT_DIR/seatunnelx}"
-RUN_MODE="${SEATUNNELX_RUN_MODE:-go_run}" # go_run | binary
+BIN_PATH="${STX_BIN:-$ROOT_DIR/stx}"
+RUN_MODE="${STX_RUN_MODE:-go_run}" # go_run | binary
 TMP_ROOT="$(mktemp -d)"
 trap 'rm -rf "$TMP_ROOT"' EXIT
 
 if [[ "$RUN_MODE" == "binary" ]]; then
   if [[ ! -x "$BIN_PATH" ]]; then
-    echo "seatunnelx binary not found or not executable: $BIN_PATH" >&2
+    echo "stx binary not found or not executable: $BIN_PATH" >&2
     exit 1
   fi
 fi
@@ -40,6 +40,7 @@ wait_health() {
   return 1
 }
 
+# 为开关回归用例生成独立的 STX 配置。/ Generate an isolated STX configuration for a switch regression case.
 write_config() {
   local cfg_path="$1"
   local addr="$2"
@@ -48,11 +49,11 @@ write_config() {
   local enabled="$5"
   cat >"$cfg_path" <<YAML
 app:
-  app_name: "SeaTunnelX"
+  app_name: "STX"
   env: "development"
   addr: "$addr"
   external_url: "$external_url"
-  session_cookie_name: "seatunnel_session_id"
+  session_cookie_name: "stx_session_id"
   session_secret: "regression-secret"
   session_domain: ""
   session_age: 86400
@@ -97,6 +98,7 @@ observability:
 YAML
 }
 
+# 启动并验证一个可观测性开关场景。/ Start and verify one observability switch scenario.
 run_case() {
   local mode="$1" # enabled|disabled
   local enabled="$2"
@@ -106,7 +108,7 @@ run_case() {
   mkdir -p "$case_dir"
   local cfg="$case_dir/config.yaml"
   local log_file="$case_dir/app.log"
-  local db_file="$case_dir/seatunnelx.db"
+  local db_file="$case_dir/stx.db"
   local base_url="http://127.0.0.1:$port"
 
   write_config "$cfg" ":$port" "$base_url" "$db_file" "$enabled"
@@ -138,7 +140,7 @@ run_case() {
   echo "prometheus/discovery => HTTP $status_sd"
 
   local webhook_payload
-  webhook_payload='{"receiver":"seatunnelx","status":"firing","alerts":[{"status":"firing","labels":{"alertname":"SmokeAlert","severity":"warning","cluster_id":"1","cluster_name":"demo","env":"test"},"annotations":{"summary":"regression"},"startsAt":"2026-02-27T00:00:00Z","endsAt":"2026-02-27T00:05:00Z","generatorURL":"http://example.com"}]}'
+  webhook_payload='{"receiver":"stx","status":"firing","alerts":[{"status":"firing","labels":{"alertname":"SmokeAlert","severity":"warning","cluster_id":"1","cluster_name":"demo","env":"test"},"annotations":{"summary":"regression"},"startsAt":"2026-02-27T00:00:00Z","endsAt":"2026-02-27T00:05:00Z","generatorURL":"http://example.com"}]}'
   local status_webhook
   status_webhook=$(curl -sS -o "$case_dir/webhook.json" -w '%{http_code}' -X POST "$base_url/api/v1/monitoring/alertmanager/webhook" \
     -H 'Content-Type: application/json' \

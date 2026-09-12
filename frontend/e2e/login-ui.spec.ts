@@ -23,7 +23,7 @@ test('renders the credential login form', async ({page}) => {
 
   await expectLoginForm(page);
   await expect(page.getByRole('heading', {level: 1})).toHaveText(
-    /欢迎使用 SeaTunnel|Welcome to SeaTunnel/i,
+    /欢迎使用 STX|Welcome to STX/i,
   );
 });
 

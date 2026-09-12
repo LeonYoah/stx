@@ -21,9 +21,9 @@ package session
 import (
 	"log"
 
+	"github.com/LeonYoah/stx/internal/config"
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-contrib/sessions/cookie"
-	"github.com/seatunnel/seatunnelX/internal/config"
 )
 
 // Store 全局会话存储实例。
@@ -41,7 +41,7 @@ const (
 )
 
 // InitSessionStore 初始化会话存储。
-// SeaTunnelX 默认使用内存 SessionStore + Cookie Gin 会话。
+// STX 默认使用内存 SessionStore + Cookie Gin 会话。
 func InitSessionStore() error {
 	appConfig := config.Config.App
 	log.Println("[Session] 使用内存会话存储")

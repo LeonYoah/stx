@@ -23,9 +23,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	pb "github.com/seatunnel/seatunnelX/agent"
-	"github.com/seatunnel/seatunnelX/agent/internal/config"
-	"github.com/seatunnel/seatunnelX/agent/internal/installer"
+	pb "github.com/LeonYoah/stx/agent"
+	"github.com/LeonYoah/stx/agent/internal/config"
+	"github.com/LeonYoah/stx/agent/internal/installer"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

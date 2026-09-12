@@ -1,4 +1,4 @@
-﻿/*
+/*
  * MIT License
  *
  * Copyright (c) 2025 linux.do
@@ -25,10 +25,10 @@
 package oauth
 
 import (
+	"github.com/LeonYoah/stx/internal/db"
+	"github.com/LeonYoah/stx/internal/logger"
+	"github.com/LeonYoah/stx/internal/otel_trace"
 	"github.com/gin-gonic/gin"
-	"github.com/seatunnel/seatunnelX/internal/db"
-	"github.com/seatunnel/seatunnelX/internal/logger"
-	"github.com/seatunnel/seatunnelX/internal/otel_trace"
 	"net/http"
 )
 

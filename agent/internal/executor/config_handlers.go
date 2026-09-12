@@ -21,8 +21,8 @@ import (
 	"context"
 	"encoding/json"
 
-	pb "github.com/seatunnel/seatunnelX/agent"
-	"github.com/seatunnel/seatunnelX/agent/internal/config"
+	pb "github.com/LeonYoah/stx/agent"
+	"github.com/LeonYoah/stx/agent/internal/config"
 )
 
 // ConfigHandlers 配置相关命令处理器

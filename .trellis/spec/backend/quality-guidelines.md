@@ -1,12 +1,12 @@
 # 质量规范
 
-> 后端开发的代码质量标准。
+> 适用于根 Go 模块、Agent 和 Java Proxy 的代码质量标准。
 
 ---
 
 ## 概述
 
-项目使用 **Go**，采用 handler、service、repository 分层。代码按功能组织在 `internal/apps/<name>/` 下，命名与错误处理统一。测试使用 Go 自带 `testing` 包，部分模块在测试中使用真实 DB（如 SQLite）。代码风格与格式化遵循常见 Go 实践，与 `golangci-lint` 等工具一致。
+根模块和 Agent 使用 **Go**，根模块采用 handler、service、repository 分层，代码按功能组织在 `internal/apps/<name>/` 下。Java Proxy 使用 **Java / Maven**，服务代码按功能放在 `service/` 的二级包中。Go 测试使用标准 `testing` 包，Java 测试使用 JUnit；格式化和静态检查分别使用项目现有的 Go 工具与 Maven Spotless 配置。
 
 ---
 
@@ -56,7 +56,7 @@
 
 ### 部署会话 Cookie 约定
 
-- **私有化部署默认应将 `app.session_domain` 留空。** 这样浏览器会按当前访问 host 绑定 `seatunnel_session_id`，最适合 IP、内网域名和自定义域名混用场景。
+- **私有化部署默认应将 `app.session_domain` 留空。** 这样浏览器会按当前访问 host 绑定 `stx_session_id`，最适合 IP、内网域名和自定义域名混用场景。
 - **不要在示例配置里把 `app.session_domain` 固定写成 `localhost`。** 若实际通过 `10.x.x.x`、`192.168.x.x` 或企业域名访问，但 Cookie domain 仍是 `localhost`，常见现象是：
   - `POST /api/v1/auth/login` 返回 200
   - 浏览器未正确回传会话 Cookie
@@ -93,7 +93,7 @@
 ## 必须遵循的模式
 
 - **Context 传递**：从 HTTP handler 经 service 到 repository 一路传递 `ctx`；每次 DB 调用使用 `r.db.WithContext(ctx)`（或事务）。
-- **领域失败用哨兵错误**：在 `err.go` 中定义包级哨兵错误；在 handler 中用 `getStatusCodeForError(err)`（或等价函数）返回一致的 HTTP 状态码。
+- **领域失败用哨兵错误**：将包级哨兵错误集中定义在 `err.go`、`errors.go` 或所属领域文件中；handler 使用状态码辅助函数或等价判断返回一致的 HTTP 状态码。
 - **响应结构**：统一使用 `ErrorMsg` 表示错误、`Data` 表示成功载荷，并显式设置 HTTP 状态码（400、404、409、500）。
 - **新功能代码**：新功能放在 `internal/apps/<name>/` 下，按需包含 handler、service、repository、model、err；在 `internal/router/router.go` 中注册路由与依赖。
 - **迁移**：新增持久化实体时，将对应 model 加入 `internal/db/migrator/migrator.go` 的 `AutoMigrate` 列表。
@@ -106,6 +106,7 @@
 - **覆盖重点**：以 repository 和 service 逻辑为主；handler 常通过间接方式覆盖。关键路径（如重名、未找到）应有测试。
 - **命名**：测试函数名为 `TestXxx`；子测试用 `t.Run("描述", ...)`。示例：`TestRepository_Create_clusterNameDuplicate_returnsErrClusterNameDuplicate`。
 - **DB 测试**：使用真实 DB 时，避免依赖共享全局状态；尽量每个测试使用独立 DB 或事务（参见现有 `repository_test.go` 写法）。
+- **Java Proxy**：测试目录必须采用与主代码相同的功能包结构；提交前运行 Maven Spotless 和相关 JUnit 测试。若完整测试依赖本机未安装的 SeaTunnel 连接器，须记录缺失夹具，并单独运行不依赖这些夹具的测试。
 
 ---
 
@@ -113,7 +114,7 @@
 
 - 新接口使用统一的请求/响应与错误模式（`ErrorMsg`、`Data`、`getStatusCodeForError`）。
 - 所有新 DB 访问均使用 `WithContext(ctx)`。
-- 新领域错误已加入 `err.go` 并在 handler 的状态码辅助函数中完成映射。
+- 新领域错误已加入集中定义位置，并在 handler 的状态码映射中处理。
 - 日志中无敏感信息与 PII。
 - 新表/新 model 已加入 migrator 的 `AutoMigrate` 列表。
 - 在可行处为新 repository 与 service 行为补充测试。

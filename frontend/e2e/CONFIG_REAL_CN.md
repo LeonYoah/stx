@@ -40,13 +40,12 @@ pnpm exec bash ./scripts/e2e/run-real-config.sh
 2. 生成临时 backend / agent 配置
 3. 按需启动临时 MinIO
 4. 在需要 MinIO 的场景下创建 checkpoint / IMAP bucket
-5. 确保 `seatunnelx-java-proxy` jar 可用于安装后校验
+5. 确保 `stx-java-proxy` jar 可用于安装后校验
 6. 启动：
    - 临时 backend
    - 临时 agent supervisor
    - frontend dev server
 7. 执行指定的 Playwright spec
-
 
 ## 当前覆盖内容
 
@@ -111,4 +110,3 @@ sequenceDiagram
     Agent-->>BE: 同步成功
     BE-->>FE: 返回同步结果
 ```
-

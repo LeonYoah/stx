@@ -32,16 +32,16 @@ import (
 	"syscall"
 	"time"
 
-	clusterapp "github.com/seatunnel/seatunnelX/internal/apps/cluster"
-	"github.com/seatunnel/seatunnelX/internal/config"
+	clusterapp "github.com/LeonYoah/stx/internal/apps/cluster"
+	"github.com/LeonYoah/stx/internal/config"
 	"gopkg.in/yaml.v3"
 	"gorm.io/gorm"
 )
 
 const (
-	managedPrometheusRuleFileName       = "seatunnel-managed-alert-policies.yml"
-	managedPrometheusRuleGroupName      = "seatunnel-managed-alert-policies"
-	managedAlertmanagerDefaultReceiver  = "seatunnelx-webhook"
+	managedPrometheusRuleFileName       = "stx-managed-alert-policies.yml"
+	managedPrometheusRuleGroupName      = "stx-managed-alert-policies"
+	managedAlertmanagerDefaultReceiver  = "stx-webhook"
 	defaultAlertReminderIntervalMinutes = 10
 )
 
@@ -346,7 +346,7 @@ func (s *Service) buildManagedPrometheusAlertRule(policy *AlertPolicy, clusterNa
 	clusterScopeName := strings.TrimSpace(firstNonEmpty(clusterNames[strings.TrimSpace(policy.ClusterID)], policy.ClusterID, "全部集群"))
 	forDuration := ""
 	labels := map[string]string{
-		"managed_by":  "seatunnelx",
+		"managed_by":  "stx",
 		"policy_id":   strconv.FormatUint(uint64(policy.ID), 10),
 		"policy_name": strings.TrimSpace(firstNonEmpty(policy.Name, "未命名策略")),
 		"policy_type": string(policy.PolicyType),
@@ -406,7 +406,7 @@ func (s *Service) buildManagedPrometheusAlertRule(policy *AlertPolicy, clusterNa
 }
 
 func sanitizeManagedPrometheusAlertName(policyID uint) string {
-	return fmt.Sprintf("SeaTunnelXManagedPolicy_%d", policyID)
+	return fmt.Sprintf("STXManagedPolicy_%d", policyID)
 }
 
 func findAlertPolicyTemplateSummary(templateKey string) (*AlertPolicyTemplateSummaryDTO, bool) {
@@ -637,7 +637,7 @@ func parseManagedRemotePolicyID(record *RemoteAlertRecord) (uint, bool) {
 		return 0, false
 	}
 	labels := parseRemoteAlertLabels(record)
-	if !strings.EqualFold(strings.TrimSpace(labels["managed_by"]), "seatunnelx") {
+	if !strings.EqualFold(strings.TrimSpace(labels["managed_by"]), "stx") {
 		return 0, false
 	}
 	parsedID, err := strconv.ParseUint(strings.TrimSpace(labels["policy_id"]), 10, 32)

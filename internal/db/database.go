@@ -25,8 +25,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/LeonYoah/stx/internal/config"
 	"github.com/glebarez/sqlite"
-	"github.com/seatunnel/seatunnelX/internal/config"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -121,7 +121,7 @@ func InitDatabase() error {
 // initSQLiteDialector 初始化 SQLite 驱动
 func initSQLiteDialector(sqlitePath string) (gorm.Dialector, error) {
 	if sqlitePath == "" {
-		sqlitePath = "./data/seatunnel.db"
+		sqlitePath = "./data/stx.db"
 	}
 
 	// 确保目录存在

@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-// Package agent provides Agent connection management for the SeaTunnel Control Plane.
-// agent 包提供 SeaTunnel Control Plane 的 Agent 连接管理功能。
+// Package agent provides Agent connection management for the STX Control Plane.
+// agent 包提供 STX Control Plane 的 Agent 连接管理功能。
 package agent
 
 // Error messages for Agent Manager operations (defined in manager.go)

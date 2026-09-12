@@ -32,9 +32,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/seatunnel/seatunnelX/internal/config"
-	"github.com/seatunnel/seatunnelX/internal/pkg/schedulex"
-	"github.com/seatunnel/seatunnelX/internal/seatunnel"
+	"github.com/LeonYoah/stx/internal/config"
+	"github.com/LeonYoah/stx/internal/pkg/schedulex"
+	"github.com/LeonYoah/stx/internal/seatunnel"
 )
 
 var safeTaskNamePattern = regexp.MustCompile(`^[\p{L}\p{N}._-]+$`)
@@ -2220,8 +2220,8 @@ func buildTaskVariableRuntime(task *Task, platformJobID string) *taskVariableRun
 		WorkflowInstanceID:     strings.TrimSpace(platformJobID),
 		WorkflowDefinitionName: strings.TrimSpace(task.Name),
 		WorkflowDefinitionCode: strconv.FormatUint(uint64(task.ID), 10),
-		ProjectName:            "SeaTunnelX",
-		ProjectCode:            "seatunnelx",
+		ProjectName:            "STX",
+		ProjectCode:            "stx",
 		TaskExecutePath:        strings.TrimSpace(stringValue(task.Definition, "file_path", "config_file_path")),
 	}
 }

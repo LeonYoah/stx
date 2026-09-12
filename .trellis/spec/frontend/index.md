@@ -1,6 +1,6 @@
 # 前端开发规范
 
-> 本项目的前端开发最佳实践。
+> 适用于 `frontend/` 下的 Next.js 控制台。
 
 ---
 
@@ -12,34 +12,35 @@
 
 ## 规范索引
 
-| 文档                                     | 说明                                | 状态   |
-| ---------------------------------------- | ----------------------------------- | ------ |
-| [目录结构](./directory-structure.md)     | App Router、组件、lib、hooks        | 已填写 |
-| [API 与 Services](./api-and-services.md) | API 客户端、服务层、错误处理        | 已填写 |
-| [UI 约定](./ui-conventions.md)           | 布局、筛选栏、页面标题、i18n        | 已填写 |
-| [E2E 测试](./e2e-testing.md)             | Playwright 目录、夹具策略、功能流样例约定 | 已填写 |
+| 文档 | 说明 | 状态 |
+| --- | --- | --- |
+| [目录结构](./directory-structure.md) | App Router、组件、lib、hooks | 已填写 |
+| [API 与 Services](./api-and-services.md) | API 客户端、服务层、错误处理 | 已填写 |
+| [UI 约定](./ui-conventions.md) | 布局、筛选栏、页面标题、i18n | 已填写 |
+| [E2E 测试](./e2e-testing.md) | Playwright 目录、夹具策略、功能流样例约定 | 已填写 |
 
 ---
 
-## 使用方式
+## 开发前检查
 
-- 遵循代码库中的**实际约定**（参见 `frontend/` 与 `agent.md`）。
+- 遵循 `frontend/` 中的实际结构和本目录记录的项目约定。
 - 新页面放在 `app/(main)/...` 下；新领域 UI 放在 `components/common/<domain>/`。
 - 仅通过 `lib/services` 调用后端；使用统一的响应类型与错误处理。
 - 新增或修改**功能代码**时，只要涉及主用户流、跨层交互、多步骤向导、核心增删改动作，就要同步补一份 **E2E 参考**。
-    - 至少包含：一个可运行的 Playwright 样例、必要的稳定锚点、对应夹具或入口页。
-    - 入口与写法统一参照 [E2E 测试](./e2e-testing.md)；如果形成了新的可复用模式，要把样例入口补回这份索引能找到的位置。
+  - 至少包含：一个可运行的 Playwright 样例、必要的稳定锚点、对应夹具或入口页。
+  - 入口与写法统一参照 [E2E 测试](./e2e-testing.md)。
+
+## 构建与检查
+
 - 需要生成**可部署前端产物**时，统一使用 `cd frontend && pnpm run pack:standalone`。
-    - 原因：项目的 Docker / CI / PM2 发布链路依赖 `dist-standalone/` 产物，而不只是 `.next` 构建结果。
-    - `pnpm build` 仅用于 Next.js 原始构建排查；**不要**把它当作本项目默认的前端交付构建命令。
+  - 项目的 Docker、CI 和 PM2 发布链路依赖 `dist-standalone/`，不只依赖 `.next`。
+  - `pnpm build` 仅用于排查 Next.js 原始构建，不作为默认交付命令。
 - 需要**本地重启 / 发布前后端服务**时，优先使用仓库根目录 `./scripts/restart.sh`。
-    - 原因：该脚本已包含后端构建、前端 `next build`、standalone 组装、PM2 重启与保存。
-    - **不要**在执行 `./scripts/restart.sh` 之前再额外跑一次 `pnpm run pack:standalone`，除非你是在单独排查前端 standalone 构建问题。
+  - 该脚本已包含后端构建、前端构建、standalone 组装、PM2 重启与保存。
+  - 执行前不要再额外运行 `pnpm run pack:standalone`，除非正在单独排查 standalone 构建。
 - TypeScript 类型检查默认可复用增量缓存：`frontend/tsconfig.json` 已启用 `"incremental": true`。
-    - 常规检查可直接运行：`cd frontend && pnpm exec tsc --noEmit`
-    - **不要**在日常开发时主动删除 `frontend/tsconfig.tsbuildinfo`，否则会退回冷启动全量检查。
-    - 2026-03-20 实测：冷启动约 **49.8s**，紧接着的增量复跑约 **9~12s**。
-    - 仅在怀疑类型缓存脏了、结果异常时，才手动删除 `tsconfig.tsbuildinfo` 后重跑一次全量检查。
+  - 常规检查运行 `cd frontend && pnpm exec tsc --noEmit`。
+- 单元测试运行 `cd frontend && pnpm test`；涉及用户操作流程时，再运行对应 Playwright 用例。
 
 ## 注释约定
 

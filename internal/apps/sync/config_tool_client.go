@@ -27,10 +27,10 @@ import (
 	"strings"
 	"time"
 
-	clusterapp "github.com/seatunnel/seatunnelX/internal/apps/cluster"
+	clusterapp "github.com/LeonYoah/stx/internal/apps/cluster"
 )
 
-// ConfigToolClient talks to seatunnelx-java-proxy config APIs.
+// ConfigToolClient talks to stx-java-proxy config APIs.
 type ConfigToolClient interface {
 	InspectDAG(ctx context.Context, endpoint string, req *ConfigToolContentRequest) (*ConfigToolDAGResponse, error)
 	InspectWebUIDAG(ctx context.Context, endpoint string, req *ConfigToolContentRequest) (*ConfigToolWebUIDAGResponse, error)
@@ -544,12 +544,12 @@ func (r *DefaultConfigToolResolver) ResolveConfigToolEndpoint(ctx context.Contex
 	if r == nil || r.clusterService == nil {
 		return "", fmt.Errorf("sync: config tool resolver is not configured")
 	}
-	status, err := r.clusterService.GetSeatunnelXJavaProxyStatus(ctx, clusterID)
+	status, err := r.clusterService.GetSTXJavaProxyStatus(ctx, clusterID)
 	if err != nil {
 		return "", err
 	}
 	if status == nil || strings.TrimSpace(status.Endpoint) == "" {
-		return "", fmt.Errorf("sync: seatunnelx-java-proxy endpoint is empty for cluster %d", clusterID)
+		return "", fmt.Errorf("sync: stx-java-proxy endpoint is empty for cluster %d", clusterID)
 	}
 	return strings.TrimSpace(status.Endpoint), nil
 }

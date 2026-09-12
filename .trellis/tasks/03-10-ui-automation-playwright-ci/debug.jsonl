@@ -1,2 +1,1 @@
-{"file": ".agents/skills/check-backend/SKILL.md", "reason": "Backend check spec"}
-{"file": ".agents/skills/check-frontend/SKILL.md", "reason": "Frontend check spec"}
+{"file": ".agents/skills/trellis-check/SKILL.md", "reason": "Backend and frontend debugging checks"}

@@ -106,7 +106,7 @@ func performLogin(router *gin.Engine, username, password string) *httptest.Respo
 	return w
 }
 
-// **Feature: seatunnel-platform-login, Property 1: Valid credentials create session**
+// **Feature: stx-platform-login, Property 1: Valid credentials create session**
 // **Validates: Requirements 1.1, 1.4**
 // 对于任何有效的用户名和密码组合，提交这些凭证应该创建会话
 
@@ -167,7 +167,7 @@ func TestProperty_ValidCredentialsCreateSession(t *testing.T) {
 	properties.TestingRun(t)
 }
 
-// **Feature: seatunnel-platform-login, Property 2: Invalid credentials return generic error**
+// **Feature: stx-platform-login, Property 2: Invalid credentials return generic error**
 // **Validates: Requirements 1.2**
 // 对于任何无效的用户名或密码组合，认证系统应返回不暴露具体字段的错误消息
 
@@ -278,7 +278,7 @@ func TestProperty_InvalidCredentialsReturnGenericError(t *testing.T) {
 	properties.TestingRun(t)
 }
 
-// **Feature: seatunnel-platform-login, Property 3: Empty credentials are rejected**
+// **Feature: stx-platform-login, Property 3: Empty credentials are rejected**
 // **Validates: Requirements 1.3**
 // 对于任何空用户名或密码的登录请求，认证系统应拒绝请求并返回验证错误
 
@@ -413,7 +413,7 @@ func loginWithDB(c *gin.Context, testDB *gorm.DB) {
 	c.JSON(http.StatusOK, LoginResponse{Data: user.ToUserInfo()})
 }
 
-// **Feature: seatunnel-platform-login, Property 6: Session cleanup on logout**
+// **Feature: stx-platform-login, Property 6: Session cleanup on logout**
 // **Validates: Requirements 6.2**
 // 对于任何用户登出操作，与该用户关联的所有会话数据应从会话存储中移除
 

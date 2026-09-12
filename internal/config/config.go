@@ -88,7 +88,7 @@ func setDefaults(c *configModel) {
 		c.Database.Type = "sqlite"
 	}
 	if c.Database.SQLitePath == "" {
-		c.Database.SQLitePath = "./data/seatunnel.db"
+		c.Database.SQLitePath = "./data/stx.db"
 	}
 
 	if c.Sync.PreviewDataTTLMinutes <= 0 && c.Sync.PreviewDataTTLHours <= 0 {

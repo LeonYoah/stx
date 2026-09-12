@@ -9,7 +9,7 @@ COPY . .
 
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
-RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o /out/seatunnelx .
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o /out/stx .
 
 FROM debian:bookworm-slim
 
@@ -17,11 +17,11 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates tzdata openssl && \
     rm -rf /var/lib/apt/lists/*
 
-WORKDIR /opt/seatunnelx
+WORKDIR /opt/stx
 
-COPY --from=builder /out/seatunnelx /opt/seatunnelx/seatunnelx
-COPY config.example.yaml /opt/seatunnelx/config.yaml
+COPY --from=builder /out/stx /opt/stx/stx
+COPY config.example.yaml /opt/stx/config.yaml
 
 EXPOSE 8000 9000
 
-ENTRYPOINT ["/opt/seatunnelx/seatunnelx", "api"]
+ENTRYPOINT ["/opt/stx/stx", "api"]

@@ -18,7 +18,7 @@
 import http from 'node:http';
 
 const port = Number(process.env.MOCK_API_PORT ?? 8010);
-const sessionCookieName = 'seatunnelx_mock_session';
+const sessionCookieName = 'stx_mock_session';
 const sessionCookieValue = 'mock-admin';
 
 function json(res, statusCode, payload, extraHeaders = {}) {

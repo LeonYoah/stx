@@ -20,7 +20,7 @@ package installer
 import (
 	"testing"
 
-	seatunnelmeta "github.com/seatunnel/seatunnelX/internal/seatunnel"
+	seatunnelmeta "github.com/LeonYoah/stx/internal/seatunnel"
 )
 
 func TestDefaultInstallParams_usesSharedVersionMetadata(t *testing.T) {

@@ -27,7 +27,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/seatunnel/seatunnelX/internal/apps/monitor"
+	"github.com/LeonYoah/stx/internal/apps/monitor"
 )
 
 // AlertPolicyExecutionStateUpdate describes aggregate execution changes for one policy.
@@ -733,10 +733,10 @@ func buildLocalAlertPolicyMessageTitle(event *monitor.ProcessEvent, policy *Aler
 	}
 	resourceName := strings.TrimSpace(firstNonEmpty(policyName, templateKey, string(event.EventType), "告警策略"))
 	if deliveryEventType == NotificationDeliveryEventTypeResolved {
-		return fmt.Sprintf("[SeaTunnelX][恢复][%s] %s", resolveAlertSeverityLabelZH(severity), resourceName)
+		return fmt.Sprintf("[STX][恢复][%s] %s", resolveAlertSeverityLabelZH(severity), resourceName)
 	}
 	return fmt.Sprintf(
-		"[SeaTunnelX][告警][%s] %s",
+		"[STX][告警][%s] %s",
 		resolveAlertSeverityLabelZH(severity),
 		resourceName,
 	)
@@ -804,7 +804,7 @@ func buildLocalAlertPolicyMessageHTML(
 	builder.WriteString("<div style=\"padding:20px 24px;background:")
 	builder.WriteString(html.EscapeString(visual.BannerBackground))
 	builder.WriteString(";color:#ffffff;\">")
-	builder.WriteString("<div style=\"font-size:12px;letter-spacing:0.08em;text-transform:uppercase;opacity:0.78;\">SeaTunnelX 告警通知</div>")
+	builder.WriteString("<div style=\"font-size:12px;letter-spacing:0.08em;text-transform:uppercase;opacity:0.78;\">STX 告警通知</div>")
 	builder.WriteString("<div style=\"margin-top:8px;font-size:22px;font-weight:700;line-height:1.35;\">")
 	builder.WriteString(html.EscapeString(title))
 	builder.WriteString("</div>")
@@ -1012,7 +1012,7 @@ func resolveLocalAlertMessageVisual(deliveryEventType NotificationDeliveryEventT
 	return localAlertMessageVisual{
 		BadgeText:        "告警中",
 		Description:      "这是触发通知，表示当前告警条件仍然成立，可能需要运维立即关注。",
-		PanelDescription: "该告警当前仍在触发。如果此策略启用了恢复通知，SeaTunnelX 会在条件恢复后单独发送一封恢复邮件。",
+		PanelDescription: "该告警当前仍在触发。如果此策略启用了恢复通知，STX 会在条件恢复后单独发送一封恢复邮件。",
 		BannerBackground: "linear-gradient(135deg,#991b1b 0%,#dc2626 100%)",
 		PanelBackground:  "#fef2f2",
 		PanelBorder:      "#fca5a5",

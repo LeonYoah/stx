@@ -14,12 +14,12 @@
 # limitations under the License.
 
 app:
-  app_name: "SeaTunnelX"
+  app_name: "STX"
   env: "testing"
   addr: ":18000"
   external_url: "http://127.0.0.1:18000"
-  session_cookie_name: "seatunnelx_e2e_real_session"
-  session_secret: "seatunnelx-e2e-real-secret"
+  session_cookie_name: "stx_e2e_real_session"
+  session_secret: "stx-e2e-real-secret"
   session_domain: "127.0.0.1"
   session_age: 86400
   session_secure: false
@@ -37,7 +37,7 @@ sync:
 database:
   enabled: true
   type: "sqlite"
-  sqlite_path: "../tmp/e2e/installer-real/seatunnelx.db"
+  sqlite_path: "../tmp/e2e/installer-real/stx.db"
   log_level: "warn"
 
 grpc:
@@ -61,7 +61,7 @@ log:
   level: "info"
   format: "text"
   output: "file"
-  file_path: "../tmp/e2e/installer-real/logs/seatunnelx.log"
+  file_path: "../tmp/e2e/installer-real/logs/stx.log"
   max_size: 20
   max_age: 7
   max_backups: 2

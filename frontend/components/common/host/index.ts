@@ -30,3 +30,5 @@ export {HostDetailPage} from './HostDetailPage';
 export {CreateHostDialog} from './CreateHostDialog';
 export {EditHostDialog} from './EditHostDialog';
 export {DiscoverClusterDialog} from './DiscoverClusterDialog';
+export {HostInstallGuideDialog} from './HostInstallGuideDialog';
+export {HostInstallGuideContent} from './HostInstallGuideContent';

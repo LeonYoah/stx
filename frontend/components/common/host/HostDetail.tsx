@@ -404,6 +404,21 @@ export function HostDetail({open, onOpenChange, host, onEdit}: HostDetailProps) 
                 <span>{t('host.installCommand')} / {t('host.uninstallCommand')}</span>
               </div>
 
+              {/* 待连接主机的醒目指引提示 / Prominent guidance alert for pending host */}
+              {host.status === HostStatus.PENDING && (
+                <div className='p-3 rounded-lg border border-amber-500/30 bg-amber-500/10 text-xs text-amber-700 dark:text-amber-300 flex items-start gap-2.5'>
+                  <span className='h-2 w-2 rounded-full bg-amber-500 animate-pulse mt-1 shrink-0' />
+                  <div className='space-y-0.5'>
+                    <span className='font-semibold block'>
+                      {t('host.installGuide.title')}
+                    </span>
+                    <span className='text-[11px] text-muted-foreground block'>
+                      {t('host.installGuide.pendingAlert')}
+                    </span>
+                  </div>
+                </div>
+              )}
+
               {/* Install Command Terminal / 安装脚本终端框 */}
               <div className='space-y-1.5'>
                 <div className='text-xs font-medium text-muted-foreground flex items-center justify-between'>

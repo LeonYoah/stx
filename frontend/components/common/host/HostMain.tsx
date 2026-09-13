@@ -53,6 +53,7 @@ import {HostTable} from './HostTable';
 import {HostDetail} from './HostDetail';
 import {CreateHostDialog} from './CreateHostDialog';
 import {EditHostDialog} from './EditHostDialog';
+import {HostInstallGuideDialog} from './HostInstallGuideDialog';
 
 const PAGE_SIZE = 10;
 
@@ -80,6 +81,8 @@ export function HostMain() {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [selectedHost, setSelectedHost] = useState<HostInfo | null>(null);
+  const [guideHost, setGuideHost] = useState<HostInfo | null>(null);
+  const [isGuideOpen, setIsGuideOpen] = useState(false);
 
   /**
    * Load hosts list
@@ -181,10 +184,21 @@ export function HostMain() {
    * Handle host created
    * 处理主机创建完成
    */
-  const handleHostCreated = () => {
-    setIsCreateDialogOpen(false);
+  const handleHostCreated = (newHost?: HostInfo) => {
     loadHosts();
-    toast.success(t('host.createSuccess'));
+    if (newHost && newHost.host_type !== HostType.BARE_METAL) {
+      setIsCreateDialogOpen(false);
+      toast.success(t('host.createSuccess'));
+    }
+  };
+
+  /**
+   * Handle open install guide
+   * 处理打开 Agent 安装引导
+   */
+  const handleOpenInstallGuide = (host: HostInfo) => {
+    setGuideHost(host);
+    setIsGuideOpen(true);
   };
 
   /**
@@ -349,6 +363,7 @@ export function HostMain() {
           onViewDetail={handleViewDetail}
           onEdit={handleEdit}
           onDelete={handleDelete}
+          onInstallAgent={handleOpenInstallGuide}
         />
       </motion.div>
 
@@ -357,6 +372,18 @@ export function HostMain() {
         open={isCreateDialogOpen}
         onOpenChange={setIsCreateDialogOpen}
         onSuccess={handleHostCreated}
+        onViewDetail={handleViewDetail}
+      />
+
+      {/* Agent Install Guide Dialog / Agent 部署与接入引导弹窗 */}
+      <HostInstallGuideDialog
+        open={isGuideOpen}
+        onOpenChange={setIsGuideOpen}
+        host={guideHost}
+        onConnected={() => {
+          loadHosts();
+        }}
+        onViewDetail={handleViewDetail}
       />
 
       {/* Edit Host Dialog / 编辑主机对话框 */}

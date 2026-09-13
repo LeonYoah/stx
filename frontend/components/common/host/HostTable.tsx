@@ -54,7 +54,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import {Eye, Pencil, Trash2, Server, Container, Cloud, Search} from 'lucide-react';
+import {Eye, Pencil, Trash2, Server, Container, Cloud, Search, Terminal} from 'lucide-react';
 import {useGSAP} from '@gsap/react';
 import {TableLoadingBar, TableSkeletonRows} from '@/components/common/layout';
 import {animateTableRows} from '@/lib/animations/gsap-motion';
@@ -71,6 +71,7 @@ interface HostTableProps {
   onEdit: (host: HostInfo) => void;
   onDelete: (host: HostInfo) => void;
   onDiscoverCluster?: (host: HostInfo) => void;
+  onInstallAgent?: (host: HostInfo) => void;
 }
 
 /**
@@ -145,6 +146,7 @@ export function HostTable({
   onEdit,
   onDelete,
   onDiscoverCluster,
+  onInstallAgent,
 }: HostTableProps) {
   const t = useTranslations();
   const tableContainerRef = useRef<HTMLDivElement>(null);
@@ -174,7 +176,7 @@ export function HostTable({
               <TableHead>{t('host.status')}</TableHead>
               <TableHead>{t('host.resources')}</TableHead>
               <TableHead>{t('host.createdAt')}</TableHead>
-              <TableHead className='w-[120px]'>{t('host.actions')}</TableHead>
+              <TableHead className='min-w-[140px]'>{t('host.actions')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -237,9 +239,37 @@ export function HostTable({
                     )}
                   </TableCell>
                   <TableCell>
-                    <Badge variant={getStatusBadgeVariant(host.status)}>
-                      {t(`host.statuses.${host.status}`)}
-                    </Badge>
+                    {host.host_type === HostType.BARE_METAL &&
+                    host.status === HostStatus.PENDING &&
+                    onInstallAgent ? (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              type='button'
+                              onClick={() => onInstallAgent(host)}
+                              className='inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium border border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 transition-all cursor-pointer select-none'
+                            >
+                              <span className='relative flex h-1.5 w-1.5'>
+                                <span className='animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75' />
+                                <span className='relative inline-flex rounded-full h-1.5 w-1.5 bg-amber-500' />
+                              </span>
+                              <span>{t(`host.statuses.${host.status}`)}</span>
+                              <span className='text-[10px] underline underline-offset-2 opacity-85'>
+                                {t('host.installGuide.installAgent')}
+                              </span>
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            {t('host.installGuide.installAgentTooltip')}
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    ) : (
+                      <Badge variant={getStatusBadgeVariant(host.status)}>
+                        {t(`host.statuses.${host.status}`)}
+                      </Badge>
+                    )}
                   </TableCell>
                   <TableCell>
                     <div className='text-sm space-y-1'>
@@ -262,7 +292,32 @@ export function HostTable({
                     {new Date(host.created_at).toLocaleDateString()}
                   </TableCell>
                   <TableCell>
-                    <div className='flex gap-1'>
+                    <div className='flex items-center gap-1'>
+                      {/* Install Agent Button - prominent action for pending bare-metal hosts */}
+                      {/* 部署 Agent 按钮 - 物理机待连接时置前展示清晰引导 */}
+                      {host.host_type === HostType.BARE_METAL &&
+                        host.status === HostStatus.PENDING &&
+                        onInstallAgent && (
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant='outline'
+                                  size='sm'
+                                  className='h-7 px-2 text-xs border-amber-500/40 text-amber-600 dark:text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 gap-1 font-medium'
+                                  onClick={() => onInstallAgent(host)}
+                                >
+                                  <Terminal className='h-3.5 w-3.5' />
+                                  <span>{t('host.installGuide.installAgent')}</span>
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                {t('host.installGuide.installAgentTooltip')}
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        )}
+
                       <TooltipProvider>
                         <Tooltip>
                           <TooltipTrigger asChild>

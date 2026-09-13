@@ -37,10 +37,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {Separator} from '@/components/ui/separator';
 import {toast} from 'sonner';
 import {Plus, Search, Server, RefreshCw} from 'lucide-react';
-import {WorkspaceHeader} from '@/components/common/layout';
+import {WorkspaceHeader, StatPillsBar} from '@/components/common/layout';
 import {motion} from 'motion/react';
 import {easeOut} from 'motion';
 import services from '@/lib/services';
@@ -260,11 +259,43 @@ export function HostMain() {
         />
       </motion.div>
 
-      <Separator />
+      {/* Status Pills / 状态胶囊栏 */}
+      <motion.div variants={itemVariants}>
+        <StatPillsBar
+          items={[
+            {key: 'all', label: t('host.allStatuses')},
+            {
+              key: HostStatus.CONNECTED,
+              label: t('host.statuses.connected'),
+              variant: 'success',
+            },
+            {
+              key: HostStatus.PENDING,
+              label: t('host.statuses.pending'),
+              variant: 'warning',
+            },
+            {
+              key: HostStatus.OFFLINE,
+              label: t('host.statuses.offline'),
+              variant: 'default',
+            },
+            {
+              key: HostStatus.ERROR,
+              label: t('host.statuses.error'),
+              variant: 'danger',
+            },
+          ]}
+          activeKey={filterStatus}
+          onChange={(newStatus) => {
+            setFilterStatus(newStatus);
+            setCurrentPage(1);
+          }}
+        />
+      </motion.div>
 
       {/* Filters / 过滤器 */}
       <motion.div
-        className='flex flex-wrap gap-4 items-end'
+        className='flex flex-wrap gap-3 items-center'
         variants={itemVariants}
       >
         <div className='flex-1 min-w-[200px] max-w-sm'>
@@ -277,7 +308,7 @@ export function HostMain() {
         </div>
 
         <Select value={filterHostType} onValueChange={setFilterHostType}>
-          <SelectTrigger className='w-[150px]'>
+          <SelectTrigger className='w-[160px]'>
             <SelectValue placeholder={t('host.hostType')} />
           </SelectTrigger>
           <SelectContent>
@@ -294,35 +325,16 @@ export function HostMain() {
           </SelectContent>
         </Select>
 
-        <Select value={filterStatus} onValueChange={setFilterStatus}>
-          <SelectTrigger className='w-[150px]'>
-            <SelectValue placeholder={t('host.status')} />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value='all'>{t('host.allStatuses')}</SelectItem>
-            <SelectItem value={HostStatus.PENDING}>
-              {t('host.statuses.pending')}
-            </SelectItem>
-            <SelectItem value={HostStatus.CONNECTED}>
-              {t('host.statuses.connected')}
-            </SelectItem>
-            <SelectItem value={HostStatus.OFFLINE}>
-              {t('host.statuses.offline')}
-            </SelectItem>
-            <SelectItem value={HostStatus.ERROR}>
-              {t('host.statuses.error')}
-            </SelectItem>
-          </SelectContent>
-        </Select>
-
-        <Button variant='outline' onClick={handleSearch}>
+        <Button variant='outline' onClick={handleSearch} className='active:scale-[0.98]'>
           <Search className='h-4 w-4 mr-2' />
           {t('common.search')}
         </Button>
 
-        <Button variant='ghost' onClick={handleClearFilters}>
-          {t('common.clearFilters')}
-        </Button>
+        {(searchName || filterHostType !== 'all' || filterStatus !== 'all') && (
+          <Button variant='ghost' onClick={handleClearFilters} className='text-muted-foreground hover:text-foreground'>
+            {t('common.clearFilters')}
+          </Button>
+        )}
       </motion.div>
 
       {/* Host Table / 主机表格 */}

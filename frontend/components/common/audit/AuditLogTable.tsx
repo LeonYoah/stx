@@ -25,6 +25,7 @@
  * 显示审计日志表格，支持过滤和分页。
  */
 
+import {useRef} from 'react';
 import {useTranslations} from 'next-intl';
 import {Button} from '@/components/ui/button';
 import {Badge} from '@/components/ui/badge';
@@ -43,6 +44,9 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import {User, Globe} from 'lucide-react';
+import {useGSAP} from '@gsap/react';
+import {TableLoadingBar, TableSkeletonRows} from '@/components/common/layout';
+import {animateTableRows} from '@/lib/animations/gsap-motion';
 import {AuditLogInfo} from '@/lib/services/audit/types';
 
 interface AuditLogTableProps {
@@ -158,10 +162,23 @@ export function AuditLogTable({
   onPageChange,
 }: AuditLogTableProps) {
   const t = useTranslations();
+  const tableContainerRef = useRef<HTMLDivElement>(null);
+
+  // 审计日志数据更新后执行平滑交错入场动效
+  // Trigger staggered entrance animation when audit logs data updates
+  useGSAP(
+    () => {
+      if (logs.length > 0 && !loading) {
+        animateTableRows('.audit-data-row');
+      }
+    },
+    {dependencies: [logs, loading], scope: tableContainerRef},
+  );
 
   return (
-    <div className='space-y-4'>
-      <div className='border rounded-lg'>
+    <div ref={tableContainerRef} className='space-y-4'>
+      <div className='border rounded-lg relative overflow-hidden bg-card/40 shadow-xs'>
+        <TableLoadingBar loading={loading} />
         <Table>
           <TableHeader>
             <TableRow>
@@ -176,24 +193,25 @@ export function AuditLogTable({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {loading ? (
-              <TableRow>
-                <TableCell colSpan={8} className='text-center py-8'>
-                  {t('common.loading')}
-                </TableCell>
-              </TableRow>
+            {loading && logs.length === 0 ? (
+              <TableSkeletonRows columns={8} rows={15} />
             ) : logs.length === 0 ? (
               <TableRow>
                 <TableCell
                   colSpan={8}
-                  className='text-center py-8 text-muted-foreground'
+                  className='text-center py-12 text-muted-foreground'
                 >
                   {t('audit.noAuditLogs')}
                 </TableCell>
               </TableRow>
             ) : (
               logs.map((log) => (
-                <TableRow key={log.id}>
+                <TableRow
+                  key={log.id}
+                  className={`audit-data-row transition-opacity duration-200 ${
+                    loading ? 'opacity-60 pointer-events-none' : ''
+                  }`}
+                >
                   <TableCell>{log.id}</TableCell>
                   <TableCell>
                     <div className='flex items-center gap-2'>

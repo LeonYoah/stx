@@ -115,3 +115,24 @@ export function animateHairlineProgress(selector = '.table-hairline-progress'): 
     },
   );
 }
+
+// 网格卡片轻量级交错进入动效（用于集群卡片等卡片列表重载）
+// Subtle staggered entrance animation for grid cards (used for cluster card grids)
+export function animateGridCards(selector = '.grid-card-animate'): gsap.core.Tween | null {
+  if (shouldReduceMotion()) {
+    return null;
+  }
+  return gsap.fromTo(
+    selector,
+    {opacity: 0, y: 8, scale: 0.98},
+    {
+      opacity: 1,
+      y: 0,
+      scale: 1,
+      duration: 0.26,
+      stagger: 0.04,
+      ease: 'power2.out',
+      clearProps: 'opacity,transform',
+    },
+  );
+}

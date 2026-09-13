@@ -235,7 +235,7 @@ export function ClusterCard({cluster, onEdit, onDelete, onRefresh}: ClusterCardP
 
   return (
     <>
-      <Card className='hover:shadow-md transition-shadow min-h-[320px] flex flex-col'>
+      <Card className='grid-card-animate hover:shadow-md transition-shadow min-h-[320px] flex flex-col'>
         <CardHeader className='pb-3 pt-5 px-5'>
           <div className='flex items-start justify-between'>
             <div className='flex items-center gap-2'>

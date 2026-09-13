@@ -34,7 +34,7 @@
  * limitations under the License.
  */
 
-import {useState, useEffect, useCallback} from 'react';
+import {useState, useEffect, useCallback, useRef} from 'react';
 import {useTranslations} from 'next-intl';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
@@ -67,8 +67,10 @@ import {
 } from '@/components/ui/alert-dialog';
 import {Badge} from '@/components/ui/badge';
 import {toast} from 'sonner';
-import {Plus, Pencil, Trash2, Search, Users} from 'lucide-react';
-import {WorkspaceHeader} from '@/components/common/layout';
+import {Plus, Pencil, Trash2, Search, Users, RefreshCw} from 'lucide-react';
+import {WorkspaceHeader, TableLoadingBar, TableSkeletonRows} from '@/components/common/layout';
+import {useGSAP} from '@gsap/react';
+import {animateTableRows} from '@/lib/animations/gsap-motion';
 import services from '@/lib/services';
 import type {
   UserInfo,
@@ -275,6 +277,19 @@ export function UserManagement() {
     }
   };
 
+  const tableContainerRef = useRef<HTMLDivElement>(null);
+
+  // 用户列表更新后执行平滑交错入场动效
+  // Trigger staggered entrance animation when users data updates
+  useGSAP(
+    () => {
+      if (users.length > 0 && !loading) {
+        animateTableRows('.user-data-row');
+      }
+    },
+    {dependencies: [users, loading], scope: tableContainerRef},
+  );
+
   /**
    * 搜索
    */
@@ -292,15 +307,21 @@ export function UserManagement() {
         icon={<Users />}
         title={t('admin.userManagement.title')}
         actions={
-          <Button onClick={handleOpenCreate}>
-            <Plus className='h-4 w-4 mr-2' />
-            {t('admin.userManagement.createUser')}
-          </Button>
+          <div className='flex gap-2'>
+            <Button variant='outline' onClick={loadUsers} disabled={loading}>
+              <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+              {t('common.refresh')}
+            </Button>
+            <Button onClick={handleOpenCreate}>
+              <Plus className='h-4 w-4 mr-2' />
+              {t('admin.userManagement.createUser')}
+            </Button>
+          </div>
         }
       />
 
       {/* 搜索栏 */}
-      <div className='flex gap-4'>
+      <div className='flex gap-3'>
         <div className='flex-1 max-w-sm'>
           <Input
             placeholder={t('admin.userManagement.username')}
@@ -309,14 +330,15 @@ export function UserManagement() {
             onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
           />
         </div>
-        <Button variant='outline' onClick={handleSearch}>
+        <Button variant='outline' onClick={handleSearch} className='active:scale-[0.98]'>
           <Search className='h-4 w-4 mr-2' />
           {t('common.search')}
         </Button>
       </div>
 
       {/* 用户表格 */}
-      <div className='border rounded-lg'>
+      <div ref={tableContainerRef} className='border rounded-lg relative overflow-hidden bg-card/40 shadow-xs'>
+        <TableLoadingBar loading={loading} />
         <Table>
           <TableHeader>
             <TableRow>
@@ -331,24 +353,25 @@ export function UserManagement() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {loading ? (
-              <TableRow>
-                <TableCell colSpan={8} className='text-center py-8'>
-                  {t('common.loading')}
-                </TableCell>
-              </TableRow>
+            {loading && users.length === 0 ? (
+              <TableSkeletonRows columns={8} rows={10} />
             ) : users.length === 0 ? (
               <TableRow>
                 <TableCell
                   colSpan={8}
-                  className='text-center py-8 text-muted-foreground'
+                  className='text-center py-12 text-muted-foreground'
                 >
                   {t('admin.userManagement.noUsers')}
                 </TableCell>
               </TableRow>
             ) : (
               users.map((user) => (
-                <TableRow key={user.id}>
+                <TableRow
+                  key={user.id}
+                  className={`user-data-row transition-opacity duration-200 ${
+                    loading ? 'opacity-60 pointer-events-none' : ''
+                  }`}
+                >
                   <TableCell>{user.id}</TableCell>
                   <TableCell className='font-medium'>{user.username}</TableCell>
                   <TableCell>{user.nickname || '-'}</TableCell>

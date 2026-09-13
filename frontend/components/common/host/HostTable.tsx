@@ -25,6 +25,7 @@
  * 显示主机表格，支持查看、编辑和删除操作。
  */
 
+import {useRef} from 'react';
 import {useTranslations} from 'next-intl';
 import {Button} from '@/components/ui/button';
 import {Badge} from '@/components/ui/badge';
@@ -54,6 +55,9 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import {Eye, Pencil, Trash2, Server, Container, Cloud, Search} from 'lucide-react';
+import {useGSAP} from '@gsap/react';
+import {TableLoadingBar, TableSkeletonRows} from '@/components/common/layout';
+import {animateTableRows} from '@/lib/animations/gsap-motion';
 import {HostInfo, HostType, HostStatus} from '@/lib/services/host/types';
 
 interface HostTableProps {
@@ -143,10 +147,23 @@ export function HostTable({
   onDiscoverCluster,
 }: HostTableProps) {
   const t = useTranslations();
+  const tableContainerRef = useRef<HTMLDivElement>(null);
+
+  // 主机数据更新后执行平滑交错入场动效
+  // Trigger staggered entrance animation when hosts data updates
+  useGSAP(
+    () => {
+      if (hosts.length > 0 && !loading) {
+        animateTableRows('.host-data-row');
+      }
+    },
+    {dependencies: [hosts, loading], scope: tableContainerRef},
+  );
 
   return (
-    <div className='space-y-4'>
-      <div className='border rounded-lg'>
+    <div ref={tableContainerRef} className='space-y-4'>
+      <div className='border rounded-lg relative overflow-hidden bg-card/40 shadow-xs'>
+        <TableLoadingBar loading={loading} />
         <Table>
           <TableHeader>
             <TableRow>
@@ -161,24 +178,25 @@ export function HostTable({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {loading ? (
-              <TableRow>
-                <TableCell colSpan={8} className='text-center py-8'>
-                  {t('common.loading')}
-                </TableCell>
-              </TableRow>
+            {loading && hosts.length === 0 ? (
+              <TableSkeletonRows columns={8} rows={10} />
             ) : hosts.length === 0 ? (
               <TableRow>
                 <TableCell
                   colSpan={8}
-                  className='text-center py-8 text-muted-foreground'
+                  className='text-center py-12 text-muted-foreground'
                 >
                   {t('host.noHosts')}
                 </TableCell>
               </TableRow>
             ) : (
               hosts.map((host) => (
-                <TableRow key={host.id}>
+                <TableRow
+                  key={host.id}
+                  className={`host-data-row transition-opacity duration-200 ${
+                    loading ? 'opacity-60 pointer-events-none' : ''
+                  }`}
+                >
                   <TableCell>{host.id}</TableCell>
                   <TableCell>
                     <div className='flex items-center gap-2'>

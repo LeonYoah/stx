@@ -142,6 +142,9 @@ import {
   TaskScheduleSidebarPanel,
   type TaskScheduleValue,
 } from '@/components/common/sync/TaskScheduleSidebarPanel';
+import {GlobalVariableDialog} from './GlobalVariableDialog';
+import {GlobalVariablesSidebarPanel} from './GlobalVariablesSidebarPanel';
+import type {CreateSyncGlobalVariableRequest} from '@/lib/services/sync';
 
 const MonacoEditor = dynamic(() => import('@monaco-editor/react'), {
   ssr: false,
@@ -2929,9 +2932,10 @@ export function DataSyncStudio() {
     name: '',
     targetParentId: null,
   });
-  const [editingGlobalVariableId, setEditingGlobalVariableId] = useState<
-    number | null
-  >(null);
+  const [globalVariableDialogOpen, setGlobalVariableDialogOpen] =
+    useState(false);
+  const [editingGlobalVariable, setEditingGlobalVariable] =
+    useState<SyncGlobalVariable | null>(null);
   const restoredWorkspaceTabsRef = useRef<PersistedWorkspaceTabs | null>(null);
   const customVariableRowsRef = useRef<VariableRow[]>([]);
   const tabStripRef = useRef<HTMLDivElement | null>(null);
@@ -5270,7 +5274,7 @@ export function DataSyncStudio() {
 
   const handleSaveGlobalVariable = async (
     item: SyncGlobalVariable | null,
-    payload: {key: string; value: string; description: string},
+    payload: CreateSyncGlobalVariableRequest,
   ) => {
     try {
       if (isReservedBuiltinVariableKey(payload.key)) {
@@ -5285,21 +5289,47 @@ export function DataSyncStudio() {
         await services.sync.createGlobalVariable(payload);
         toast.success(t('globalVariableCreated'));
       }
-      setEditingGlobalVariableId(null);
+      setGlobalVariableDialogOpen(false);
+      setEditingGlobalVariable(null);
       await loadGlobalVariables();
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : t('saveGlobalVariableFailed'),
       );
+      throw error;
     }
   };
+
+  const handleOpenCreateGlobalVariable = useCallback(() => {
+    setEditingGlobalVariable(null);
+    setGlobalVariableDialogOpen(true);
+  }, []);
+
+  const handleOpenEditGlobalVariable = useCallback(
+    (item: SyncGlobalVariable) => {
+      setEditingGlobalVariable(item);
+      setGlobalVariableDialogOpen(true);
+    },
+    [],
+  );
+
+  const handleCopyVariableReference = useCallback(
+    (key: string) => {
+      void copyToClipboard(
+        `{{${key}}}`,
+        t('referenceCopied', {key: `{{${key}}}`}),
+      );
+    },
+    [t],
+  );
 
   const handleDeleteGlobalVariable = async (id: number) => {
     try {
       await services.sync.deleteGlobalVariable(id);
       toast.success(t('globalVariableDeleted'));
-      if (editingGlobalVariableId === id) {
-        setEditingGlobalVariableId(null);
+      if (editingGlobalVariable?.id === id) {
+        setEditingGlobalVariable(null);
+        setGlobalVariableDialogOpen(false);
       }
       if (globalVariables.length === 1 && globalVariablePage > 1) {
         setGlobalVariablePage((current) => Math.max(1, current - 1));
@@ -5846,17 +5876,28 @@ export function DataSyncStudio() {
               page={globalVariablePage}
               pageSize={8}
               onPageChange={setGlobalVariablePage}
-              editingId={editingGlobalVariableId}
-              onStartEdit={setEditingGlobalVariableId}
-              onCancelEdit={() => setEditingGlobalVariableId(null)}
-              onSave={handleSaveGlobalVariable}
+              onOpenCreate={handleOpenCreateGlobalVariable}
+              onOpenEdit={handleOpenEditGlobalVariable}
               onDelete={(id) => void handleDeleteGlobalVariable(id)}
-              onCopy={(value) =>
+              onCopyValue={(value) =>
                 void copyToClipboard(value, t('variableValueCopied'))
               }
+              onCopyReference={handleCopyVariableReference}
             />
           )}
         </StudioSidebarShell>
+
+        <GlobalVariableDialog
+          open={globalVariableDialogOpen}
+          onOpenChange={(open) => {
+            setGlobalVariableDialogOpen(open);
+            if (!open) {
+              setEditingGlobalVariable(null);
+            }
+          }}
+          variable={editingGlobalVariable}
+          onSave={handleSaveGlobalVariable}
+        />
 
         <Dialog
           open={scheduleDialogOpen}
@@ -7177,227 +7218,7 @@ function SettingsSidebarPanel({
   );
 }
 
-function GlobalVariablesSidebarPanel({
-  variables,
-  total,
-  page,
-  pageSize,
-  onPageChange,
-  editingId,
-  onStartEdit,
-  onCancelEdit,
-  onSave,
-  onDelete,
-  onCopy,
-}: {
-  variables: SyncGlobalVariable[];
-  total: number;
-  page: number;
-  pageSize: number;
-  onPageChange: (page: number) => void;
-  editingId: number | null;
-  onStartEdit: (id: number | null) => void;
-  onCancelEdit: () => void;
-  onSave: (
-    item: SyncGlobalVariable | null,
-    payload: {key: string; value: string; description: string},
-  ) => void;
-  onDelete: (id: number) => void;
-  onCopy: (value: string) => void;
-}) {
-  const t = useTranslations('workbenchStudio');
-  const [draft, setDraft] = useState<{
-    key: string;
-    value: string;
-    description: string;
-  }>({key: '', value: '', description: ''});
 
-  useEffect(() => {
-    if (editingId === null) {
-      setDraft({key: '', value: '', description: ''});
-      return;
-    }
-    const target = variables.find((item) => item.id === editingId);
-    if (!target) {
-      return;
-    }
-    setDraft({
-      key: target.key,
-      value: target.value,
-      description: target.description || '',
-    });
-  }, [editingId, variables]);
-
-  return (
-    <div className='mx-auto min-w-0 max-w-[236px] space-y-3'>
-      <div className='sticky top-0 z-10 min-w-0 rounded-lg border border-border/50 bg-background/95 p-3 backdrop-blur supports-[backdrop-filter]:bg-background/85'>
-        <div className='mb-3 flex min-w-0 flex-col gap-2'>
-          <div className='min-w-0 space-y-1'>
-            <div className='text-[11px] uppercase tracking-wide text-muted-foreground'>
-              {t('globalVariables')}
-            </div>
-            <div className='text-xs text-muted-foreground'>
-              {t('globalVariablesDesc')}
-            </div>
-          </div>
-          <Button
-            size='sm'
-            variant='outline'
-            className='h-8 w-full text-xs'
-            onClick={() => onStartEdit(null)}
-          >
-            <Plus className='mr-1 size-3.5' />
-            {t('newCreate')}
-          </Button>
-        </div>
-        <div className='min-w-0 grid gap-2'>
-          <div className='grid min-w-0 gap-2'>
-            <Input
-              value={draft.key}
-              onChange={(event) =>
-                setDraft((current) => ({...current, key: event.target.value}))
-              }
-              className='h-8 min-w-0 text-xs'
-              placeholder={t('key')}
-            />
-            <Input
-              value={draft.value}
-              onChange={(event) =>
-                setDraft((current) => ({...current, value: event.target.value}))
-              }
-              className='h-8 min-w-0 text-xs'
-              placeholder={t('value')}
-            />
-          </div>
-          <Input
-            value={draft.description}
-            onChange={(event) =>
-              setDraft((current) => ({
-                ...current,
-                description: event.target.value,
-              }))
-            }
-            className='h-8 text-xs'
-            placeholder={t('optionalDescription')}
-          />
-          <div className='grid min-w-0 grid-cols-1 gap-2'>
-            <Button
-              size='sm'
-              variant='outline'
-              className='h-8 min-w-0 text-xs'
-              onClick={onCancelEdit}
-            >
-              {t('cancel')}
-            </Button>
-            <Button
-              size='sm'
-              className='h-8 min-w-0 text-xs'
-              onClick={() =>
-                onSave(
-                  editingId === null
-                    ? null
-                    : variables.find((item) => item.id === editingId) || null,
-                  draft,
-                )
-              }
-            >
-              {t('save')}
-            </Button>
-          </div>
-        </div>
-      </div>
-
-      <div className='space-y-2 pb-2'>
-        {variables.length === 0 ? (
-          <div className='text-sm text-muted-foreground'>
-            {t('noGlobalVariables')}
-          </div>
-        ) : (
-          variables.map((item) => (
-            <div
-              key={item.id}
-              className='rounded-lg border border-border/50 bg-background/70 p-3'
-            >
-              <div className='flex items-start justify-between gap-2'>
-                <div className='min-w-0 space-y-2'>
-                  <div className='flex items-center gap-2'>
-                    <Badge variant='outline'>{item.key}</Badge>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <button
-                          type='button'
-                          className='max-w-[150px] truncate text-left text-xs text-muted-foreground'
-                        >
-                          {item.value}
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent className='max-w-[320px] break-all'>
-                        {item.value || '-'}
-                      </TooltipContent>
-                    </Tooltip>
-                  </div>
-                  <div className='text-xs text-muted-foreground'>
-                    {item.description || t('noDescription')}
-                  </div>
-                </div>
-                <div className='flex items-center gap-1'>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        size='icon'
-                        variant='ghost'
-                        className='size-8'
-                        onClick={() => onCopy(item.value)}
-                      >
-                        <Copy className='size-4' />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>{t('copyValue')}</TooltipContent>
-                  </Tooltip>
-                  <DropdownMenu>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            size='icon'
-                            variant='ghost'
-                            className='size-8'
-                          >
-                            <MoreHorizontal className='size-4' />
-                          </Button>
-                        </DropdownMenuTrigger>
-                      </TooltipTrigger>
-                      <TooltipContent>{t('moreActions')}</TooltipContent>
-                    </Tooltip>
-                    <DropdownMenuContent align='end'>
-                      <DropdownMenuItem onClick={() => onStartEdit(item.id)}>
-                        <Pencil className='mr-2 size-4' />
-                        {t('edit')}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        className='text-destructive focus:text-destructive'
-                        onClick={() => onDelete(item.id)}
-                      >
-                        <Trash2 className='mr-2 size-4' />
-                        {t('delete')}
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-              </div>
-            </div>
-          ))
-        )}
-      </div>
-      <SimplePagination
-        total={total}
-        page={page}
-        pageSize={pageSize}
-        onPageChange={onPageChange}
-      />
-    </div>
-  );
-}
 
 function VersionSidebarPanel({
   taskId,

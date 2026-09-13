@@ -57,16 +57,20 @@ type PublishTaskRequest struct {
 }
 
 // CreateGlobalVariableRequest represents one global variable payload.
+// CreateGlobalVariableRequest 表示创建全局变量请求体。
 type CreateGlobalVariableRequest struct {
 	Key         string `json:"key" binding:"required"`
 	Value       string `json:"value"`
+	ValueType   string `json:"value_type"`
 	Description string `json:"description"`
 }
 
 // UpdateGlobalVariableRequest represents one global variable update payload.
+// UpdateGlobalVariableRequest 表示更新全局变量请求体。
 type UpdateGlobalVariableRequest struct {
 	Key         string `json:"key" binding:"required"`
 	Value       string `json:"value"`
+	ValueType   string `json:"value_type"`
 	Description string `json:"description"`
 }
 

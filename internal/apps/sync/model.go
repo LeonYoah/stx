@@ -231,12 +231,23 @@ func (JobInstance) TableName() string {
 	return "sync_job_instances"
 }
 
+const (
+	// GlobalVariableTypeString represents a plain text variable.
+	// GlobalVariableTypeString 表示普通文本变量。
+	GlobalVariableTypeString = "string"
+
+	// GlobalVariableTypeSecret represents a password/secret variable that is never displayed after creation.
+	// GlobalVariableTypeSecret 表示密码/机密变量，创建或更新后不回显明文。
+	GlobalVariableTypeSecret = "secret"
+)
+
 // GlobalVariable represents one workspace-wide runtime variable.
 // GlobalVariable 表示一个工作台级别的全局运行时变量。
 type GlobalVariable struct {
 	ID          uint      `json:"id" gorm:"primaryKey;autoIncrement"`
 	Key         string    `json:"key" gorm:"size:120;not null;uniqueIndex"`
 	Value       string    `json:"value" gorm:"type:text"`
+	ValueType   string    `json:"value_type" gorm:"size:32;not null;default:'string'"`
 	Description string    `json:"description" gorm:"type:text"`
 	CreatedBy   uint      `json:"created_by"`
 	CreatedAt   time.Time `json:"created_at" gorm:"autoCreateTime"`
@@ -247,6 +258,19 @@ type GlobalVariable struct {
 // TableName 返回同步全局变量表名。
 func (GlobalVariable) TableName() string {
 	return "sync_global_variables"
+}
+
+// MaskSecret returns a safe copy with value masked to "******" if it is a secret variable.
+// MaskSecret 若为敏感机密变量，返回变量值脱敏为 "******" 的安全副本。
+func (v *GlobalVariable) MaskSecret() *GlobalVariable {
+	if v == nil {
+		return nil
+	}
+	clone := *v
+	if clone.ValueType == GlobalVariableTypeSecret {
+		clone.Value = "******"
+	}
+	return &clone
 }
 
 // PreviewSession stores one incremental preview session snapshot.

@@ -217,7 +217,11 @@ func looksLikeTimeExpression(expr string) bool {
 	if functionCallPattern.MatchString(expr) {
 		return true
 	}
-	return javaFormatTokenPattern.MatchString(expr)
+	formatExpr := expr
+	if matches := timeOffsetExpressionPattern.FindStringSubmatch(expr); len(matches) == 4 {
+		formatExpr = strings.TrimSpace(matches[1])
+	}
+	return javaFormatTokenPattern.MatchString(formatExpr) && javaDateFormatToGoLayout(formatExpr) != ""
 }
 
 func formatBuiltinTimeExpression(expr string, base time.Time) (string, error) {

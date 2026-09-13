@@ -22,17 +22,20 @@ interface BrandImageProps {
   priority?: boolean;
 }
 
+/** 资源版本号，用于刷新浏览器与 Next Image 缓存。 / Asset version for cache busting. */
+const BRAND_ASSET_VERSION = 'qingluan-1';
+
 /**
- * STX 横向品牌标志。
- * STX horizontal brand lockup.
+ * STX 浅色横向锁章（青鸾鸟标 + STX 字标），用于白底登录页、文档页眉等。
+ * STX light lockup (Qingluan mark + STX wordmark) for light backgrounds.
  */
 function STXLogo({className, priority = false}: BrandImageProps) {
   return (
     <Image
-      src='/brand/stx-logo.png'
+      src={`/brand/stx-logo.png?v=${BRAND_ASSET_VERSION}`}
       alt='STX'
-      width={560}
-      height={160}
+      width={1018}
+      height={392}
       className={className}
       priority={priority}
       draggable={false}
@@ -41,16 +44,16 @@ function STXLogo({className, priority = false}: BrandImageProps) {
 }
 
 /**
- * STX 熊猫图形，用于紧凑位置和小尺寸场景。
- * STX panda mark for compact and small-size placements.
+ * STX 深色横向锁章（青鸾鸟标 + 白字 STX），用于黑底顶栏、暗色营销页等。
+ * STX dark lockup (Qingluan mark + white STX) for dark backgrounds.
  */
-function STXMark({className, priority = false}: BrandImageProps) {
+function STXLogoDark({className, priority = false}: BrandImageProps) {
   return (
     <Image
-      src='/brand/stx-mark.png'
-      alt=''
-      width={320}
-      height={320}
+      src={`/brand/stx-logo-dark.png?v=${BRAND_ASSET_VERSION}`}
+      alt='STX'
+      width={1042}
+      height={453}
       className={className}
       priority={priority}
       draggable={false}
@@ -58,4 +61,22 @@ function STXMark({className, priority = false}: BrandImageProps) {
   );
 }
 
-export {STXLogo, STXMark};
+/**
+ * STX 青鸾图形标，用于侧栏、favicon 级小尺寸与仅需图标的场景。
+ * STX Qingluan mark for compact placements (sidebar, favicon-scale, icon-only).
+ */
+function STXMark({className, priority = false}: BrandImageProps) {
+  return (
+    <Image
+      src={`/brand/stx-mark.png?v=${BRAND_ASSET_VERSION}`}
+      alt=''
+      width={866}
+      height={655}
+      className={className}
+      priority={priority}
+      draggable={false}
+    />
+  );
+}
+
+export {STXLogo, STXLogoDark, STXMark};

@@ -106,7 +106,7 @@ export default function DashboardPage() {
         className='flex items-center justify-between'
       >
         <div className='flex items-center gap-2.5'>
-          <STXMark className='size-8 rounded-lg ring-1 ring-black/5 dark:ring-white/10' />
+          <STXMark className='size-8 object-contain' />
           <div>
             <h1 className='text-lg font-bold leading-tight'>{t('title')}</h1>
             <p className='text-xs text-muted-foreground'>{t('subtitle')}</p>

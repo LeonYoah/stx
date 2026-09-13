@@ -123,7 +123,7 @@ export function CallbackHandler({className, ...props}: CallbackHandlerProps) {
         <div className='flex flex-col gap-6'>
           <div className='flex flex-col items-center gap-2'>
             <STXMark
-              className='size-12 rounded-xl ring-1 ring-black/5 dark:ring-white/10'
+              className='size-12 object-contain'
               priority
             />
             <h1 className='text-xl font-bold'>{t('title')}</h1>

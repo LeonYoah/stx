@@ -75,7 +75,7 @@ const StaticIcons = {
   puzzle: <Puzzle {...IconOptions} />,
   workbench: <Briefcase {...IconOptions} />,
   dashboard: (
-    <STXMark className='size-5 rounded-md ring-1 ring-black/5 dark:ring-white/10' />
+    <STXMark className='size-5 object-contain' />
   ),
   monitoring: <Activity {...IconOptions} />,
   diagnostics: <Bug {...IconOptions} />,

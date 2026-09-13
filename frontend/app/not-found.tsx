@@ -45,7 +45,7 @@ export default function NotFound() {
           transition={{duration: 0.6, delay: 0.2}}
         >
           <p className='font-bold text-xl md:text-4xl dark:text-white text-black flex items-center justify-center gap-2'>
-            <STXMark className='size-7 rounded-md ring-1 ring-black/5 dark:ring-white/10 md:size-9' />
+            <STXMark className='size-7 object-contain md:size-9' />
             {'页面'.split('').map((word, idx) => (
               <motion.span
                 key={idx}

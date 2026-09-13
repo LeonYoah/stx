@@ -32,15 +32,47 @@ vi.mock('next/navigation', () => ({
 vi.mock('next-intl', () => ({
   useTranslations: () => (key: string) => {
     const translations: Record<string, string> = {
-      'auth.login.title': '欢迎使用 STX',
-      'auth.login.subtitle': '请登录以继续',
+      'auth.brand.badge': '运维平台',
+      'auth.brand.headline': '让 SeaTunnel 运维不再黑箱',
+      'auth.brand.subtitle':
+        '把配置、升级、诊断、恢复、调试放到一个统一入口；并原生提供 AI Agent 智能运维入口（CLI + Skill）。',
+      'auth.brand.chipsLabel': '产品能力',
+      'auth.brand.chipWizard': '配置向导',
+      'auth.brand.chipInstall': '一键安装',
+      'auth.brand.chipAgent': 'AI Agent · CLI + Skill',
+      'auth.brand.chipCliSkill': 'CLI + Skill',
+      'auth.brand.chipMarketplace': '插件市场',
+      'auth.brand.chipUpgrade': '一键升级',
+      'auth.brand.chipCheckpoint': 'Checkpoint 可视化',
+      'auth.brand.chipDebugJob': '作业在线调试',
+      'auth.brand.capabilityLabel': '核心能力',
+      'auth.brand.capabilityPrefix': '能力：',
+      'auth.brand.capabilityAgent': 'AI Agent 智能运维入口',
+      'auth.brand.capabilityCluster': '集群感知',
+      'auth.brand.capabilityObserve': '运行可观测',
+      'auth.brand.capabilityRecover': '任务一键恢复',
+      'auth.brand.capabilityConnector': 'Connector 一键下载',
+      'auth.brand.capabilityCheckpoint': 'Checkpoint 可视化',
+      'auth.brand.capabilityDag': 'HOCON DAG 解析',
+      'auth.brand.footerAgent': 'AI Agent CLI',
+      'auth.brand.footerDeploy': '自动化部署',
+      'auth.brand.footerSubmit': '任务提交',
+      'auth.brand.footerAlert': '巡检告警',
+      'auth.brand.footerMarketplace': '插件市场',
+      'auth.login.title': '欢迎登录 STX',
+      'auth.login.subtitle': '登录后统一管理集群、任务、连接器、诊断与恢复操作。',
       'auth.login.username': '用户名',
       'auth.login.usernamePlaceholder': '请输入用户名',
       'auth.login.password': '密码',
       'auth.login.passwordPlaceholder': '请输入密码',
-      'auth.login.loginButton': '登录',
+      'auth.login.loginButton': '进入控制台',
       'auth.login.loggingIn': '登录中...',
       'auth.login.orLoginWith': '或使用以下方式登录',
+      'auth.login.showPassword': '显示密码',
+      'auth.login.hidePassword': '隐藏密码',
+      'auth.login.showPasswordShort': '显',
+      'auth.login.hidePasswordShort': '隐',
+      'auth.login.toggleTheme': '切换主题',
       'auth.logout.success': '您已成功登出平台',
       'auth.errors.emptyUsername': '请输入用户名',
       'auth.errors.emptyPassword': '请输入密码',
@@ -161,6 +193,14 @@ vi.mock('@/hooks/use-auth', () => ({
   }),
 }));
 
+vi.mock('@/hooks/use-theme-utils', () => ({
+  useThemeUtils: () => ({
+    toggle: vi.fn(),
+    getIcon: () => 'theme-icon',
+    getAction: () => '切换深色模式',
+  }),
+}));
+
 vi.mock('@/lib/services', () => ({
   __esModule: true,
   default: {
@@ -177,9 +217,9 @@ describe('LoginForm', () => {
   });
 
   describe('表单渲染 (Requirements 8.1, 8.2)', () => {
-    it('应该显示平台名称 "STX"', () => {
+    it('应该显示平台欢迎标题', () => {
       render(<LoginForm />);
-      expect(screen.getByText('欢迎使用 STX')).toBeInTheDocument();
+      expect(screen.getByText('欢迎登录 STX')).toBeInTheDocument();
     });
 
     it('应该显示用户名输入框', () => {
@@ -196,7 +236,9 @@ describe('LoginForm', () => {
 
     it('应该显示登录按钮', () => {
       render(<LoginForm />);
-      expect(screen.getByRole('button', {name: '登录'})).toBeInTheDocument();
+      expect(
+        screen.getByRole('button', {name: /进入控制台/}),
+      ).toBeInTheDocument();
     });
 
     it('应该显示已启用的 OAuth 登录按钮（GitHub 和 Google）', async () => {
@@ -242,7 +284,7 @@ describe('LoginForm', () => {
       const passwordInput = screen.getByPlaceholderText('请输入密码');
       fireEvent.change(passwordInput, {target: {value: 'password123'}});
 
-      const submitButton = screen.getByRole('button', {name: '登录'});
+      const submitButton = screen.getByRole('button', {name: /进入控制台/});
       fireEvent.click(submitButton);
 
       await waitFor(() => {
@@ -257,7 +299,7 @@ describe('LoginForm', () => {
       const usernameInput = screen.getByPlaceholderText('请输入用户名');
       fireEvent.change(usernameInput, {target: {value: 'admin'}});
 
-      const submitButton = screen.getByRole('button', {name: '登录'});
+      const submitButton = screen.getByRole('button', {name: /进入控制台/});
       fireEvent.click(submitButton);
 
       await waitFor(() => {
@@ -275,7 +317,7 @@ describe('LoginForm', () => {
       fireEvent.change(usernameInput, {target: {value: '   '}});
       fireEvent.change(passwordInput, {target: {value: 'password123'}});
 
-      const submitButton = screen.getByRole('button', {name: '登录'});
+      const submitButton = screen.getByRole('button', {name: /进入控制台/});
       fireEvent.click(submitButton);
 
       await waitFor(() => {
@@ -297,7 +339,7 @@ describe('LoginForm', () => {
       fireEvent.change(usernameInput, {target: {value: 'admin'}});
       fireEvent.change(passwordInput, {target: {value: 'password123'}});
 
-      const submitButton = screen.getByRole('button', {name: '登录'});
+      const submitButton = screen.getByRole('button', {name: /进入控制台/});
       fireEvent.click(submitButton);
 
       await waitFor(() => {
@@ -321,7 +363,7 @@ describe('LoginForm', () => {
       fireEvent.change(usernameInput, {target: {value: 'admin'}});
       fireEvent.change(passwordInput, {target: {value: 'password123'}});
 
-      const submitButton = screen.getByRole('button', {name: '登录'});
+      const submitButton = screen.getByRole('button', {name: /进入控制台/});
       fireEvent.click(submitButton);
 
       await waitFor(() => {
@@ -340,7 +382,7 @@ describe('LoginForm', () => {
       fireEvent.change(usernameInput, {target: {value: 'admin'}});
       fireEvent.change(passwordInput, {target: {value: 'password123'}});
 
-      const submitButton = screen.getByRole('button', {name: '登录'});
+      const submitButton = screen.getByRole('button', {name: /进入控制台/});
       fireEvent.click(submitButton);
 
       await waitFor(() => {
@@ -379,7 +421,7 @@ describe('LoginForm', () => {
       render(<LoginForm />);
 
       // 先触发验证错误
-      const submitButton = screen.getByRole('button', {name: '登录'});
+      const submitButton = screen.getByRole('button', {name: /进入控制台/});
       fireEvent.click(submitButton);
 
       await waitFor(() => {

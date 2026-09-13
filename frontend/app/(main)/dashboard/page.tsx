@@ -27,6 +27,7 @@ import {MonitoringOverview} from '@/components/common/monitoring';
 import {Button} from '@/components/ui/button';
 import Link from 'next/link';
 import {STXMark} from '@/components/icons/logo';
+import {WorkspaceHeader} from '@/components/common/layout';
 
 export default function DashboardPage() {
   const t = useTranslations('dashboard');
@@ -105,24 +106,25 @@ export default function DashboardPage() {
         transition={{duration: 0.5}}
         className='flex items-center justify-between'
       >
-        <div className='flex items-center gap-2.5'>
-          <STXMark className='size-8 object-contain' />
-          <div>
-            <h1 className='text-lg font-bold leading-tight'>{t('title')}</h1>
-            <p className='text-xs text-muted-foreground'>{t('subtitle')}</p>
-          </div>
-        </div>
-        <Button
-          variant='outline'
-          size='sm'
-          onClick={fetchData}
-          disabled={loading}
-        >
-          <RefreshCw
-            className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`}
-          />
-          {t('refresh')}
-        </Button>
+        <WorkspaceHeader
+          icon={<STXMark className='size-8 object-contain' />}
+          iconTint={false}
+          title={t('title')}
+          subtitle={t('subtitle')}
+          actions={
+            <Button
+              variant='outline'
+              size='sm'
+              onClick={fetchData}
+              disabled={loading}
+            >
+              <RefreshCw
+                className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`}
+              />
+              {t('refresh')}
+            </Button>
+          }
+        />
       </motion.div>
 
       {error && (

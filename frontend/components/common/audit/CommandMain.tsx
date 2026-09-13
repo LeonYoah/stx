@@ -42,6 +42,7 @@ import {toast} from 'sonner';
 import {Search, Terminal, RefreshCw} from 'lucide-react';
 import {motion} from 'motion/react';
 import {easeOut} from 'motion';
+import {WorkspaceHeader} from '@/components/common/layout';
 import services from '@/lib/services';
 import {
   CommandLogInfo,
@@ -196,25 +197,18 @@ export function CommandMain() {
       variants={containerVariants}
     >
       {/* Header / 标题 */}
-      <motion.div
-        className='flex items-center justify-between'
-        variants={itemVariants}
-      >
-        <div className='flex items-center gap-2'>
-          <Terminal className='h-6 w-6' />
-          <div>
-            <h1 className='text-2xl font-bold tracking-tight'>
-              {t('audit.commandsTitle')}
-            </h1>
-            <p className='text-muted-foreground mt-1'>
-              {t('audit.commandsDescription')}
-            </p>
-          </div>
-        </div>
-        <Button variant='outline' onClick={handleRefresh}>
-          <RefreshCw className='h-4 w-4 mr-2' />
-          {t('common.refresh')}
-        </Button>
+      <motion.div variants={itemVariants}>
+        <WorkspaceHeader
+          icon={<Terminal />}
+          title={t('audit.commandsTitle')}
+          subtitle={t('audit.commandsDescription')}
+          actions={
+            <Button variant='outline' onClick={handleRefresh}>
+              <RefreshCw className='h-4 w-4 mr-2' />
+              {t('common.refresh')}
+            </Button>
+          }
+        />
       </motion.div>
 
       <Separator />

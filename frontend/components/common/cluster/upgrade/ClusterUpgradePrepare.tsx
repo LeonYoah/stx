@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import {Button} from '@/components/ui/button';
 import {Badge} from '@/components/ui/badge';
+import {WorkspaceHeader} from '@/components/common/layout';
 import {
   Card,
   CardContent,
@@ -343,45 +344,41 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
 
   return (
     <div className='space-y-6' data-testid='upgrade-prepare-page'>
-      <div className='flex flex-wrap items-center justify-between gap-4'>
-        <div className='space-y-2'>
-          <div className='flex items-center gap-3'>
-            <FileSearch className='h-8 w-8 text-primary' />
-            <div>
-              <h1 className='text-2xl font-bold tracking-tight'>
-                {t('prepareTitle')}
-              </h1>
-              <p className='text-sm text-muted-foreground'>
-                {t('prepareDescription')}
-              </p>
-            </div>
-          </div>
-          {cluster ? (
-            <div className='text-sm text-muted-foreground'>
-              {cluster.name} · {t('currentVersion')}: {cluster.version || '-'}
-            </div>
-          ) : null}
-        </div>
-        <div className='flex flex-wrap gap-2'>
-          <Button
-            variant='outline'
-            onClick={() => router.push(`/clusters/${clusterId}`)}
-          >
-            <ArrowLeft className='mr-2 h-4 w-4' />
-            {t('backToCluster')}
-          </Button>
-          <Button variant='outline' onClick={handleClearDraft}>
-            {t('clearDraft')}
-          </Button>
-          <Button
-            onClick={handleContinue}
-            data-testid='upgrade-prepare-continue'
-            disabled={!canContinueToConfig}
-          >
-            {t('continueToConfig')}
-          </Button>
-        </div>
-      </div>
+      <WorkspaceHeader
+        icon={<FileSearch />}
+        title={t('prepareTitle')}
+        subtitle={
+          <>
+            <span>{t('prepareDescription')}</span>
+            {cluster ? (
+              <span className='mt-0.5 block'>
+                {cluster.name} · {t('currentVersion')}: {cluster.version || '-'}
+              </span>
+            ) : null}
+          </>
+        }
+        actions={
+          <>
+            <Button
+              variant='outline'
+              onClick={() => router.push(`/clusters/${clusterId}`)}
+            >
+              <ArrowLeft className='mr-2 h-4 w-4' />
+              {t('backToCluster')}
+            </Button>
+            <Button variant='outline' onClick={handleClearDraft}>
+              {t('clearDraft')}
+            </Button>
+            <Button
+              onClick={handleContinue}
+              data-testid='upgrade-prepare-continue'
+              disabled={!canContinueToConfig}
+            >
+              {t('continueToConfig')}
+            </Button>
+          </>
+        }
+      />
 
       {isPrecheckStale ? (
         <div className='rounded-lg border border-amber-500/30 bg-amber-500/5 p-4'>

@@ -68,6 +68,7 @@ import {
 import {Badge} from '@/components/ui/badge';
 import {toast} from 'sonner';
 import {Plus, Pencil, Trash2, Search, Users} from 'lucide-react';
+import {WorkspaceHeader} from '@/components/common/layout';
 import services from '@/lib/services';
 import type {
   UserInfo,
@@ -287,18 +288,16 @@ export function UserManagement() {
   return (
     <div className='space-y-6'>
       {/* 页面标题 */}
-      <div className='flex items-center justify-between'>
-        <div className='flex items-center gap-2'>
-          <Users className='h-6 w-6' />
-          <h1 className='text-2xl font-bold'>
-            {t('admin.userManagement.title')}
-          </h1>
-        </div>
-        <Button onClick={handleOpenCreate}>
-          <Plus className='h-4 w-4 mr-2' />
-          {t('admin.userManagement.createUser')}
-        </Button>
-      </div>
+      <WorkspaceHeader
+        icon={<Users />}
+        title={t('admin.userManagement.title')}
+        actions={
+          <Button onClick={handleOpenCreate}>
+            <Plus className='h-4 w-4 mr-2' />
+            {t('admin.userManagement.createUser')}
+          </Button>
+        }
+      />
 
       {/* 搜索栏 */}
       <div className='flex gap-4'>

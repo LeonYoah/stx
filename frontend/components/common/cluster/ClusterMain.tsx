@@ -39,7 +39,8 @@ import {
 } from '@/components/ui/select';
 import {Separator} from '@/components/ui/separator';
 import {toast} from 'sonner';
-import {Plus, Search, Database, RefreshCw} from 'lucide-react';
+import {Plus, Search, Network, RefreshCw} from 'lucide-react';
+import {WorkspaceHeader} from '@/components/common/layout';
 import {motion} from 'motion/react';
 import {easeOut} from 'motion';
 import services from '@/lib/services';
@@ -234,33 +235,28 @@ export function ClusterMain() {
       variants={containerVariants}
     >
       {/* Header / 标题 */}
-      <motion.div
-        className='flex items-center justify-between'
-        variants={itemVariants}
-      >
-        <div className='flex items-center gap-2'>
-          <Database className='h-6 w-6' />
-          <div>
-            <h1 className='text-2xl font-bold tracking-tight'>
-              {t('cluster.title')}
-            </h1>
-            <p className='text-muted-foreground mt-1'>{t('cluster.description')}</p>
-          </div>
-        </div>
-        <div className='flex gap-2'>
-          <Button variant='outline' onClick={handleRefresh}>
-            <RefreshCw className='h-4 w-4 mr-2' />
-            {t('common.refresh')}
-          </Button>
-          <Button variant='outline' onClick={() => setIsCreateDialogOpen(true)}>
-            <Plus className='h-4 w-4 mr-2' />
-            {t('cluster.registerCluster')}
-          </Button>
-          <Button onClick={() => setIsDeployWizardOpen(true)}>
-            <Plus className='h-4 w-4 mr-2' />
-            {t('cluster.createCluster')}
-          </Button>
-        </div>
+      <motion.div variants={itemVariants}>
+        <WorkspaceHeader
+          icon={<Network />}
+          title={t('cluster.title')}
+          subtitle={t('cluster.description')}
+          actions={
+            <>
+              <Button variant='outline' onClick={handleRefresh}>
+                <RefreshCw className='h-4 w-4 mr-2' />
+                {t('common.refresh')}
+              </Button>
+              <Button variant='outline' onClick={() => setIsCreateDialogOpen(true)}>
+                <Plus className='h-4 w-4 mr-2' />
+                {t('cluster.registerCluster')}
+              </Button>
+              <Button onClick={() => setIsDeployWizardOpen(true)}>
+                <Plus className='h-4 w-4 mr-2' />
+                {t('cluster.createCluster')}
+              </Button>
+            </>
+          }
+        />
       </motion.div>
 
       <Separator />

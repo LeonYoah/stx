@@ -24,11 +24,11 @@ import {useTranslations} from 'next-intl';
 import {
   AlertTriangle,
   ArrowUpRight,
-  Bug,
   ClipboardCheck,
   RefreshCw,
   Server,
   Settings,
+  Stethoscope,
   X,
 } from 'lucide-react';
 import {toast} from 'sonner';
@@ -177,7 +177,7 @@ export function DiagnosticsWorkspace() {
     <div className='space-y-4'>
       {/* 头部标题区域（复用全局 WorkspaceHeader） / Workspace Header */}
       <WorkspaceHeader
-        icon={<Bug className='h-4.5 w-4.5' />}
+        icon={<Stethoscope />}
         title={t('title')}
         badge={
           <span className='inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground'>

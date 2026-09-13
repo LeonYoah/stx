@@ -24,6 +24,7 @@ import {toast} from 'sonner';
 import {AlertTriangle, ArrowLeft, FileDiff, Save} from 'lucide-react';
 import {Button} from '@/components/ui/button';
 import {Badge} from '@/components/ui/badge';
+import {WorkspaceHeader} from '@/components/common/layout';
 import {
   Card,
   CardContent,
@@ -334,20 +335,11 @@ export function ClusterUpgradeConfig({clusterId}: ClusterUpgradeConfigProps) {
 
   return (
     <div className='space-y-6' data-testid='upgrade-config-page'>
-      <div className='flex flex-wrap items-center justify-between gap-4'>
-        <div className='space-y-2'>
-          <div className='flex items-center gap-3'>
-            <FileDiff className='h-8 w-8 text-primary' />
-            <div>
-              <h1 className='text-2xl font-bold tracking-tight'>
-                {t('configTitle')}
-              </h1>
-              <p className='text-sm text-muted-foreground'>
-                {t('configDescription')}
-              </p>
-            </div>
-          </div>
-          <div className='flex flex-wrap items-center gap-2 text-sm text-muted-foreground'>
+      <WorkspaceHeader
+        icon={<FileDiff />}
+        title={t('configTitle')}
+        subtitle={
+          <span className='inline-flex flex-wrap items-center gap-2'>
             <span>
               {t('targetVersion')}: {request.target_version}
             </span>
@@ -360,28 +352,31 @@ export function ClusterUpgradeConfig({clusterId}: ClusterUpgradeConfigProps) {
                 ? t('allConflictsResolved')
                 : t('manualResolutionRequired')}
             </Badge>
-          </div>
-        </div>
-        <div className='flex flex-wrap gap-2'>
-          <Button
-            variant='outline'
-            onClick={() =>
-              router.push(`/clusters/${clusterId}/upgrade/prepare`)
-            }
-          >
-            <ArrowLeft className='mr-2 h-4 w-4' />
-            {t('backToPrepare')}
-          </Button>
-          <Button
-            data-testid='upgrade-config-create-plan'
-            onClick={handleCreatePlan}
-            disabled={creatingPlan || unresolvedCount > 0}
-          >
-            <Save className='mr-2 h-4 w-4' />
-            {creatingPlan ? t('creatingPlan') : t('createPlan')}
-          </Button>
-        </div>
-      </div>
+            <span className='basis-full text-xs'>{t('configDescription')}</span>
+          </span>
+        }
+        actions={
+          <>
+            <Button
+              variant='outline'
+              onClick={() =>
+                router.push(`/clusters/${clusterId}/upgrade/prepare`)
+              }
+            >
+              <ArrowLeft className='mr-2 h-4 w-4' />
+              {t('backToPrepare')}
+            </Button>
+            <Button
+              data-testid='upgrade-config-create-plan'
+              onClick={handleCreatePlan}
+              disabled={creatingPlan || unresolvedCount > 0}
+            >
+              <Save className='mr-2 h-4 w-4' />
+              {creatingPlan ? t('creatingPlan') : t('createPlan')}
+            </Button>
+          </>
+        }
+      />
 
       <div
         className={cn(

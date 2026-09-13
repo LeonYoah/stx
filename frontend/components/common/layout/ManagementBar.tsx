@@ -21,9 +21,8 @@ import {useState, useEffect, useMemo, memo} from 'react';
 import {useTranslations} from 'next-intl';
 import {FloatingDock} from '@/components/ui/floating-dock';
 import {
-  Activity,
   BarChartIcon,
-  Bug,
+  BellRing,
   User,
   LogOutIcon,
   Globe,
@@ -31,12 +30,13 @@ import {
   GithubIcon,
   Users,
   Server,
-  Database,
+  Network,
   Terminal,
-  FileText,
+  ScrollText,
   Package,
   Puzzle,
-  Briefcase,
+  Workflow,
+  Stethoscope,
 } from 'lucide-react';
 import {useThemeUtils} from '@/hooks/use-theme-utils';
 import {useAuth} from '@/hooks/use-auth';
@@ -62,23 +62,32 @@ const IconOptions = {
   className: 'h-4 w-4',
 } as const;
 
-// 预创建静态图标，避免每次渲染重新创建
-// Pre-create static icons to avoid re-creating on each render
+/**
+ * Dock 静态图标：按入口语义选型，避免通用图标误导。
+ * Dock static icons: pick by entry semantics to avoid misleading generic glyphs.
+ */
 const StaticIcons = {
   user: <User {...IconOptions} />,
   users: <Users {...IconOptions} />,
+  // 主机：单机节点 / Hosts: machine nodes
   server: <Server {...IconOptions} />,
-  database: <Database {...IconOptions} />,
+  // 集群：节点互联拓扑 / Clusters: interconnected topology
+  network: <Network {...IconOptions} />,
   terminal: <Terminal {...IconOptions} />,
-  fileText: <FileText {...IconOptions} />,
+  // 审计：滚动式操作记录 / Audit: scroll-like operation trail
+  scrollText: <ScrollText {...IconOptions} />,
+  // 安装包 / Packages
   package: <Package {...IconOptions} />,
+  // 插件市场 / Plugin marketplace
   puzzle: <Puzzle {...IconOptions} />,
-  workbench: <Briefcase {...IconOptions} />,
-  dashboard: (
-    <STXMark className='size-5 object-contain' />
-  ),
-  monitoring: <Activity {...IconOptions} />,
-  diagnostics: <Bug {...IconOptions} />,
+  // 工作台：数据同步作业流 / Workbench: data-sync workflow
+  workbench: <Workflow {...IconOptions} />,
+  // 控制台：品牌青鸾标 / Dashboard: brand Qingluan mark
+  dashboard: <STXMark className='size-5 object-contain' />,
+  // 监控：告警脉搏 / Monitoring: alert pulse
+  monitoring: <BellRing {...IconOptions} />,
+  // 诊断：体检巡检 / Diagnostics: health inspection
+  diagnostics: <Stethoscope {...IconOptions} />,
   divider: <div />,
 };
 
@@ -497,7 +506,7 @@ export function ManagementBar() {
     // 集群管理入口 / Cluster management entry
     items.push({
       title: tDock('clusterManagement'),
-      icon: StaticIcons.database,
+      icon: StaticIcons.network,
       href: '/clusters',
     });
 
@@ -539,7 +548,7 @@ export function ManagementBar() {
     // 审计日志入口 / Audit logs entry
     items.push({
       title: tDock('auditLogs'),
-      icon: StaticIcons.fileText,
+      icon: StaticIcons.scrollText,
       href: '/audit-logs',
     });
 

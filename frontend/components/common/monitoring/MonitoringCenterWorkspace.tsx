@@ -124,7 +124,7 @@ export function MonitoringCenterWorkspace() {
       <WorkspaceHeader
         title={t('title')}
         subtitle={t('subtitle')}
-        icon={<BellRing className='h-4.5 w-4.5' />}
+        icon={<BellRing />}
         badge={
           <span className='inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground'>
             <ShieldAlert className='h-3 w-3' />

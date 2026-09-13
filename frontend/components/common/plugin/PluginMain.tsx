@@ -67,6 +67,7 @@ import {
 } from 'lucide-react';
 import {motion} from 'motion/react';
 import {easeOut} from 'motion';
+import {WorkspaceHeader} from '@/components/common/layout';
 import {PluginService} from '@/lib/services/plugin';
 import {usePackages} from '@/hooks/use-installer';
 import {resolveSeatunnelVersion} from '@/lib/seatunnel-version';
@@ -1047,47 +1048,40 @@ export function PluginMain() {
       variants={containerVariants}
     >
       {/* Header / 标题 */}
-      <motion.div
-        className='flex items-center justify-between'
-        variants={itemVariants}
-      >
-        <div className='flex items-center gap-2'>
-          <Puzzle className='h-6 w-6' />
-          <div>
-            <h1 className='text-2xl font-bold tracking-tight'>
-              {t('plugin.marketplace')}
-            </h1>
-            <p className='text-muted-foreground mt-1'>
-              {t('plugin.marketplaceDesc')}
-            </p>
-          </div>
-        </div>
-        <div className='flex gap-2'>
-          <Button
-            variant='default'
-            onClick={handleDownloadAllPlugins}
-            disabled={loading || refreshingConnectors || isDownloadingAll || total === 0}
-          >
-            <DownloadCloud
-              className={`h-4 w-4 mr-2 ${isDownloadingAll ? 'animate-pulse' : ''}`}
-            />
-            {isDownloadingAll
-              ? t('plugin.downloadingAll')
-              : t('plugin.downloadAll')}
-          </Button>
-          <Button
-            variant='outline'
-            onClick={handleRefresh}
-            disabled={loading || refreshingConnectors || localPluginsLoading}
-          >
-            <RefreshCw
-              className={`h-4 w-4 mr-2 ${(activeTab === 'available' ? refreshingConnectors : localPluginsLoading) ? 'animate-spin' : ''}`}
-            />
-            {activeTab === 'available'
-              ? t('plugin.refreshConnectors')
-              : t('common.refresh')}
-          </Button>
-        </div>
+      <motion.div variants={itemVariants}>
+        <WorkspaceHeader
+          icon={<Puzzle />}
+          title={t('plugin.marketplace')}
+          subtitle={t('plugin.marketplaceDesc')}
+          actions={
+            <>
+              <Button
+                variant='default'
+                onClick={handleDownloadAllPlugins}
+                disabled={loading || refreshingConnectors || isDownloadingAll || total === 0}
+              >
+                <DownloadCloud
+                  className={`h-4 w-4 mr-2 ${isDownloadingAll ? 'animate-pulse' : ''}`}
+                />
+                {isDownloadingAll
+                  ? t('plugin.downloadingAll')
+                  : t('plugin.downloadAll')}
+              </Button>
+              <Button
+                variant='outline'
+                onClick={handleRefresh}
+                disabled={loading || refreshingConnectors || localPluginsLoading}
+              >
+                <RefreshCw
+                  className={`h-4 w-4 mr-2 ${(activeTab === 'available' ? refreshingConnectors : localPluginsLoading) ? 'animate-spin' : ''}`}
+                />
+                {activeTab === 'available'
+                  ? t('plugin.refreshConnectors')
+                  : t('common.refresh')}
+              </Button>
+            </>
+          }
+        />
       </motion.div>
 
       <Separator />

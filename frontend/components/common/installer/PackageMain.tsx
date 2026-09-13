@@ -31,6 +31,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Upload, RefreshCw, Package, Cloud, HardDrive } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import {WorkspaceHeader} from '@/components/common/layout';
 
 export function PackageMain() {
   const t = useTranslations();
@@ -65,27 +66,23 @@ export function PackageMain() {
   return (
     <div className="w-full space-y-6">
       {/* Header / 头部 */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Package className="h-6 w-6" />
-            {t('installer.packageManagement')}
-          </h1>
-          <p className="text-muted-foreground mt-1">
-            {t('installer.packageManagementDesc')}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={refresh} disabled={loading}>
-            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-            {t('common.refresh')}
-          </Button>
-          <Button size="sm" onClick={() => setUploadDialogOpen(true)}>
-            <Upload className="h-4 w-4 mr-2" />
-            {t('installer.uploadPackage')}
-          </Button>
-        </div>
-      </div>
+      <WorkspaceHeader
+        icon={<Package />}
+        title={t('installer.packageManagement')}
+        subtitle={t('installer.packageManagementDesc')}
+        actions={
+          <>
+            <Button variant="outline" size="sm" onClick={refresh} disabled={loading}>
+              <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+              {t('common.refresh')}
+            </Button>
+            <Button size="sm" onClick={() => setUploadDialogOpen(true)}>
+              <Upload className="h-4 w-4 mr-2" />
+              {t('installer.uploadPackage')}
+            </Button>
+          </>
+        }
+      />
 
       {/* Error display / 错误显示 */}
       {error && (

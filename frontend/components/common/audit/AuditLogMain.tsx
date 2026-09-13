@@ -40,9 +40,10 @@ import {
 import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card';
 import {Separator} from '@/components/ui/separator';
 import {toast} from 'sonner';
-import {Search, FileText, RefreshCw, Filter} from 'lucide-react';
+import {Search, ScrollText, RefreshCw, Filter} from 'lucide-react';
 import {motion} from 'motion/react';
 import {easeOut} from 'motion';
+import {WorkspaceHeader} from '@/components/common/layout';
 import services from '@/lib/services';
 import {AuditLogInfo, ListAuditLogsRequest} from '@/lib/services/audit/types';
 import {AuditLogTable} from './AuditLogTable';
@@ -215,25 +216,18 @@ export function AuditLogMain() {
       variants={containerVariants}
     >
       {/* Header / 标题 */}
-      <motion.div
-        className='flex items-center justify-between'
-        variants={itemVariants}
-      >
-        <div className='flex items-center gap-2'>
-          <FileText className='h-6 w-6' />
-          <div>
-            <h1 className='text-2xl font-bold tracking-tight'>
-              {t('audit.auditLogsTitle')}
-            </h1>
-            <p className='text-muted-foreground mt-1'>
-              {t('audit.auditLogsDescription')}
-            </p>
-          </div>
-        </div>
-        <Button variant='outline' onClick={handleRefresh}>
-          <RefreshCw className='h-4 w-4 mr-2' />
-          {t('common.refresh')}
-        </Button>
+      <motion.div variants={itemVariants}>
+        <WorkspaceHeader
+          icon={<ScrollText />}
+          title={t('audit.auditLogsTitle')}
+          subtitle={t('audit.auditLogsDescription')}
+          actions={
+            <Button variant='outline' onClick={handleRefresh}>
+              <RefreshCw className='h-4 w-4 mr-2' />
+              {t('common.refresh')}
+            </Button>
+          }
+        />
       </motion.div>
 
       <Separator />

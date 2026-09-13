@@ -32,7 +32,9 @@
     "selectAll": "Select All",
     "deselectAll": "Deselect All",
     "retry": "Retry",
-    "processing": "Processing..."
+    "processing": "Processing...",
+    "copy": "Copy",
+    "copied": "Copied"
   },
   "dashboard": {
     "title": "Dashboard",

@@ -445,12 +445,12 @@ export function HostDetail({open, onOpenChange, host, onEdit}: HostDetailProps) 
                         {copiedInstall ? (
                           <>
                             <Check className='h-3 w-3 text-emerald-400' />
-                            <span className='text-emerald-400'>Copied</span>
+                            <span className='text-emerald-400'>{t('common.copied')}</span>
                           </>
                         ) : (
                           <>
                             <Copy className='h-3 w-3' />
-                            <span>Copy</span>
+                            <span>{t('common.copy')}</span>
                           </>
                         )}
                       </Button>
@@ -500,12 +500,12 @@ export function HostDetail({open, onOpenChange, host, onEdit}: HostDetailProps) 
                         {copiedUninstall ? (
                           <>
                             <Check className='h-3 w-3 text-emerald-400' />
-                            <span className='text-emerald-400'>Copied</span>
+                            <span className='text-emerald-400'>{t('common.copied')}</span>
                           </>
                         ) : (
                           <>
                             <Copy className='h-3 w-3' />
-                            <span>Copy</span>
+                            <span>{t('common.copy')}</span>
                           </>
                         )}
                       </Button>

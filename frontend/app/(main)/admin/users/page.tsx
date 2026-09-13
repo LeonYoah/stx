@@ -22,8 +22,13 @@
  * contributor license agreements.
  */
 
+import {Suspense} from 'react';
 import {UserManagement} from '@/components/common/admin/UserManagement';
 
 export default function UsersPage() {
-  return <UserManagement />;
+  return (
+    <Suspense>
+      <UserManagement />
+    </Suspense>
+  );
 }

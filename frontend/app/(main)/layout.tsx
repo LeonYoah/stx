@@ -18,18 +18,34 @@
 'use client';
 
 import {ManagementBar} from '@/components/common/layout/ManagementBar';
-import {memo} from 'react';
+import {RouteProgressBar} from '@/components/common/layout/RouteProgressBar';
+import {usePathname} from 'next/navigation';
+import {memo, Suspense} from 'react';
 
 const MemoizedManagementBar = memo(ManagementBar);
 
 export default function ProjectLayout({children}: {children: React.ReactNode}) {
+  const pathname = usePathname();
+
   return (
     <div className='min-h-screen flex flex-col'>
+      {/* 顶部轻量路由加载进度条 / Top lightweight route loading progress bar */}
+      <Suspense fallback={null}>
+        <RouteProgressBar />
+      </Suspense>
+
+      {/* 底部常驻 Dock 栏：保持挂载，页面切换时零卸载与零重绘 */}
+      {/* Bottom persistent Dock bar: remains mounted across page switches without remounting */}
       <MemoizedManagementBar />
+
       <div className='flex flex-1 flex-col'>
         <div className='@container/main flex flex-1 flex-col gap-2'>
-          {/* Main content container: keep all pages consistent width/padding */}
-          <div className='flex flex-col gap-4 mb-8 w-full max-w-none px-3 sm:px-4 lg:px-6 xl:px-8 2xl:px-10 py-6 md:gap-6'>
+          {/* 统一页面容器与平滑进场淡入动画 */}
+          {/* Unified page container with smooth entry fade-in animation */}
+          <div
+            key={pathname}
+            className='flex flex-col gap-4 mb-8 w-full max-w-none px-3 sm:px-4 lg:px-6 xl:px-8 2xl:px-10 py-6 md:gap-6 animate-in fade-in-50 duration-200'
+          >
             {children}
           </div>
         </div>

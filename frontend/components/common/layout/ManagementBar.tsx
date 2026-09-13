@@ -19,6 +19,7 @@
 
 import {useState, useEffect, useMemo, memo} from 'react';
 import {useTranslations} from 'next-intl';
+import {usePathname} from 'next/navigation';
 import {FloatingDock} from '@/components/ui/floating-dock';
 import {
   BarChartIcon,
@@ -467,20 +468,35 @@ const ProfileButton = memo(() => {
 });
 ProfileButton.displayName = 'ProfileButton';
 
-// Dock 项目类型
+// Dock 项目类型 / Dock item type
 interface DockItem {
   title: string;
   icon: React.ReactNode;
   href?: string;
   customComponent?: React.ReactNode;
+  isActive?: boolean;
 }
 
 export function ManagementBar() {
   const {user} = useAuth();
   const tDock = useTranslations('dock');
+  const pathname = usePathname();
 
-  // 使用 useMemo 缓存 dockItems，只在关键依赖变化时重新计算
+  // 使用 useMemo 缓存 dockItems，只在关键依赖或路由变化时重新计算
+  // Cache dockItems using useMemo, recalculating only on key dependencies or route changes
   const dockItems = useMemo((): DockItem[] => {
+    // 根据当前路径判断菜单项是否处于激活状态
+    // Determine if menu item is active based on current pathname
+    const isRouteActive = (href?: string) => {
+      if (!href || !pathname) {
+        return false;
+      }
+      if (href === '/dashboard') {
+        return pathname === '/dashboard' || pathname === '/';
+      }
+      return pathname === href || pathname.startsWith(href + '/');
+    };
+
     const items: DockItem[] = [];
 
     // 控制台入口 / Dashboard entry
@@ -488,12 +504,14 @@ export function ManagementBar() {
       title: tDock('dashboard'),
       icon: StaticIcons.dashboard,
       href: '/dashboard',
+      isActive: isRouteActive('/dashboard'),
     });
 
     items.push({
       title: tDock('workbench'),
       icon: StaticIcons.workbench,
       href: '/workbench',
+      isActive: isRouteActive('/workbench'),
     });
 
     // 主机管理入口 / Host management entry
@@ -501,6 +519,7 @@ export function ManagementBar() {
       title: tDock('hostManagement'),
       icon: StaticIcons.server,
       href: '/hosts',
+      isActive: isRouteActive('/hosts'),
     });
 
     // 集群管理入口 / Cluster management entry
@@ -508,6 +527,7 @@ export function ManagementBar() {
       title: tDock('clusterManagement'),
       icon: StaticIcons.layers,
       href: '/clusters',
+      isActive: isRouteActive('/clusters'),
     });
 
     // 监控中心入口 / Monitoring center entry
@@ -515,6 +535,7 @@ export function ManagementBar() {
       title: tDock('monitoringCenter'),
       icon: StaticIcons.monitoring,
       href: '/monitoring',
+      isActive: isRouteActive('/monitoring'),
     });
 
     // 诊断中心入口 / Diagnostics center entry
@@ -522,6 +543,7 @@ export function ManagementBar() {
       title: tDock('diagnosticsCenter'),
       icon: StaticIcons.diagnostics,
       href: '/diagnostics',
+      isActive: isRouteActive('/diagnostics'),
     });
 
     // 安装包管理入口 / Package management entry
@@ -529,6 +551,7 @@ export function ManagementBar() {
       title: tDock('packageManagement'),
       icon: StaticIcons.package,
       href: '/packages',
+      isActive: isRouteActive('/packages'),
     });
 
     // 插件市场入口 / Plugin marketplace entry
@@ -536,6 +559,7 @@ export function ManagementBar() {
       title: tDock('pluginMarketplace'),
       icon: StaticIcons.puzzle,
       href: '/plugins',
+      isActive: isRouteActive('/plugins'),
     });
 
     // 命令记录入口暂时隐藏 / Command logs entry hidden for now
@@ -550,6 +574,7 @@ export function ManagementBar() {
       title: tDock('auditLogs'),
       icon: StaticIcons.scrollText,
       href: '/audit-logs',
+      isActive: isRouteActive('/audit-logs'),
     });
 
     // 管理员入口 / Admin entry
@@ -558,6 +583,7 @@ export function ManagementBar() {
         title: tDock('userManagement'),
         icon: StaticIcons.users,
         href: '/admin/users',
+        isActive: isRouteActive('/admin/users'),
       });
     }
 
@@ -567,7 +593,7 @@ export function ManagementBar() {
       icon: StaticIcons.divider,
     });
 
-    // 个人信息
+    // 个人信息 / Profile
     items.push({
       title: tDock('profile'),
       icon: StaticIcons.user,
@@ -575,7 +601,7 @@ export function ManagementBar() {
     });
 
     return items;
-  }, [user?.is_admin, tDock]);
+  }, [user?.is_admin, tDock, pathname]);
 
   return (
     <div className='fixed z-50 bottom-4 right-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:pb-0 md:bottom-4 md:left-1/2 md:-translate-x-1/2 md:right-auto'>

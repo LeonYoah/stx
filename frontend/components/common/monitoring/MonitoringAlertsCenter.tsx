@@ -26,11 +26,9 @@ import {
   AlertTriangle,
   Archive,
   Bell,
-  Calendar,
   CheckCircle2,
   ExternalLink,
   Eye,
-  Filter,
   Info,
   RefreshCw,
   RotateCcw,
@@ -58,9 +56,18 @@ import type {
   AlertSourceType,
 } from '@/lib/services/monitoring';
 import {cn} from '@/lib/utils';
+import {
+  StatPillsBar,
+  type StatPillItem,
+  CompactTimeFilter,
+} from '@/components/common/layout';
+import {
+  animateSheetSections,
+  animateTableRows,
+} from '@/lib/animations/gsap-motion';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
-import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card';
+import {Card} from '@/components/ui/card';
 import {Input} from '@/components/ui/input';
 import {
   Select,
@@ -547,81 +554,56 @@ export function MonitoringAlertsCenter() {
     );
   };
 
+  // 状态指标胶囊项定义
+  // Status pill items definition
+  const pillItems: StatPillItem[] = useMemo(
+    () => [
+      {
+        key: 'all',
+        label: t('alerts.allStatuses'),
+        count: total,
+        icon: <Bell className='h-3.5 w-3.5' />,
+      },
+      {
+        key: 'firing',
+        label: t('alerts.firingCount'),
+        count: stats.firing,
+        variant: 'danger',
+        pulse: stats.firing > 0,
+      },
+      {
+        key: 'resolved',
+        label: t('alerts.resolvedCount'),
+        count: stats.resolved,
+        variant: 'success',
+        icon: (
+          <CheckCircle2 className='h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400' />
+        ),
+      },
+      {
+        key: 'closed',
+        label: t('alerts.closedCount'),
+        count: stats.closed,
+        variant: 'default',
+        icon: <Archive className='h-3.5 w-3.5 text-muted-foreground' />,
+      },
+    ],
+    [stats, total, t],
+  );
+
   // 容器引用与 GSAP 动效绑定
   // Container refs for GSAP animation scopes
   const containerRef = useRef<HTMLDivElement>(null);
   const sheetContentRef = useRef<HTMLDivElement>(null);
 
-  // GSAP 辅助动效：指标胶囊入场与活跃触发中状态呼吸灯
-  // GSAP auxiliary animation: metric pills reveal & firing alert pulsing radar wave
-  useGSAP(
-    () => {
-      const mm = gsap.matchMedia();
-      mm.add(
-        {
-          reduceMotion: '(prefers-reduced-motion: reduce)',
-        },
-        (context) => {
-          const {reduceMotion} = context.conditions as {reduceMotion: boolean};
-          if (reduceMotion) return;
-
-          // 状态指标胶囊微交错淡入
-          // Stagger reveal for compact status pills
-          gsap.from('.stat-pill-item', {
-            opacity: 0,
-            y: -6,
-            stagger: 0.04,
-            duration: 0.32,
-            ease: 'power2.out',
-            clearProps: 'opacity,transform',
-          });
-
-          // 活跃告警脉冲光环
-          // Active firing alert pulsing glow ring
-          if (stats.firing > 0) {
-            gsap.to('.firing-pulse-ring', {
-              scale: 1.8,
-              opacity: 0,
-              repeat: -1,
-              duration: 1.4,
-              ease: 'power1.out',
-            });
-          }
-        },
-      );
-    },
-    {scope: containerRef, dependencies: [stats.firing]},
-  );
-
   // GSAP 辅助动效：表格数据行交错入场
   // GSAP auxiliary animation: table rows smooth stagger entrance
   useGSAP(
     () => {
-      const mm = gsap.matchMedia();
-      mm.add(
-        {
-          reduceMotion: '(prefers-reduced-motion: reduce)',
-        },
-        (context) => {
-          const {reduceMotion} = context.conditions as {reduceMotion: boolean};
-          if (reduceMotion || loading || filteredAlerts.length === 0) return;
-
-          // 表格行交错淡入，提升视觉流畅度
-          // Subtle stagger reveal for alert table rows
-          gsap.fromTo(
-            '.alert-row-animate',
-            {opacity: 0, y: 5},
-            {
-              opacity: 1,
-              y: 0,
-              duration: 0.22,
-              stagger: 0.015,
-              ease: 'power1.out',
-              clearProps: 'opacity,transform',
-            },
-          );
-        },
-      );
+      if (loading || filteredAlerts.length === 0) {
+        return;
+      }
+      animateTableRows('.alert-row-animate');
     },
     {scope: containerRef, dependencies: [filteredAlerts, loading]},
   );
@@ -630,32 +612,10 @@ export function MonitoringAlertsCenter() {
   // GSAP auxiliary animation: smooth slide-in for sheet sections
   useGSAP(
     () => {
-      if (!selectedAlert) return;
-      const mm = gsap.matchMedia();
-      mm.add(
-        {
-          reduceMotion: '(prefers-reduced-motion: reduce)',
-        },
-        (context) => {
-          const {reduceMotion} = context.conditions as {reduceMotion: boolean};
-          if (reduceMotion) return;
-
-          // 抽屉详情区块交错微滑入
-          // Stagger reveal for sheet content sections
-          gsap.fromTo(
-            '.sheet-section-animate',
-            {opacity: 0, x: 10},
-            {
-              opacity: 1,
-              x: 0,
-              duration: 0.26,
-              stagger: 0.04,
-              ease: 'power2.out',
-              clearProps: 'opacity,transform',
-            },
-          );
-        },
-      );
+      if (!selectedAlert) {
+        return;
+      }
+      animateSheetSections('.sheet-section-animate');
     },
     {scope: sheetContentRef, dependencies: [selectedAlert?.alert_id]},
   );
@@ -668,130 +628,39 @@ export function MonitoringAlertsCenter() {
         <div className='p-3 sm:p-3.5 border-b bg-muted/20 space-y-2.5'>
           {/* 第一行：状态胶囊切换器 + 统计徽章 + 右侧操作 */}
           {/* Row 1: Status pills segmented controller + Quick actions */}
-          <div className='flex flex-wrap items-center justify-between gap-2'>
-            <div className='flex flex-wrap items-center gap-1.5 p-1 bg-background/80 rounded-lg border border-border/60 shadow-2xs'>
-              {/* 全部告警 Pill */}
-              <button
-                type='button'
-                onClick={() => {
-                  setStatusFilter('all');
-                  setPage(1);
-                }}
-                className={cn(
-                  'stat-pill-item flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all',
-                  statusFilter === 'all'
-                    ? 'bg-primary/10 text-primary shadow-2xs ring-1 ring-primary/30 font-semibold'
-                    : 'text-muted-foreground hover:text-foreground hover:bg-muted/50',
-                )}
-              >
-                <Bell className='h-3.5 w-3.5' />
-                <span>{t('alerts.allStatuses')}</span>
-                <span className='font-mono font-semibold px-1.5 py-0.5 rounded-full bg-muted text-[11px] leading-none'>
-                  {total}
-                </span>
-              </button>
-
-              {/* 触发中 Pill */}
-              <button
-                type='button'
-                onClick={() => {
-                  setStatusFilter('firing');
-                  setPage(1);
-                }}
-                className={cn(
-                  'stat-pill-item flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all',
-                  statusFilter === 'firing'
-                    ? 'bg-rose-500/15 text-rose-700 dark:text-rose-300 shadow-2xs ring-1 ring-rose-500/40 font-semibold'
-                    : 'text-muted-foreground hover:text-rose-600 hover:bg-rose-500/10',
-                )}
-              >
-                <span className='relative flex h-2 w-2'>
-                  {stats.firing > 0 && (
-                    <span className='firing-pulse-ring absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75' />
-                  )}
-                  <span className='relative inline-flex rounded-full h-2 w-2 bg-rose-500' />
-                </span>
-                <span>{t('alerts.firingCount')}</span>
-                <span
-                  className={cn(
-                    'font-mono font-semibold px-1.5 py-0.5 rounded-full text-[11px] leading-none',
-                    stats.firing > 0
-                      ? 'bg-rose-500/20 text-rose-700 dark:text-rose-300'
-                      : 'bg-muted text-muted-foreground',
-                  )}
+          <StatPillsBar
+            items={pillItems}
+            activeKey={statusFilter}
+            onChange={(key: string) => {
+              setStatusFilter(key as AlertDisplayStatus | 'all');
+              setPage(1);
+            }}
+            actions={
+              <div className='flex items-center gap-1.5'>
+                <Button
+                  variant='ghost'
+                  size='sm'
+                  onClick={handleResetFilters}
+                  className='h-7 px-2 text-xs text-muted-foreground hover:text-foreground cursor-pointer'
                 >
-                  {stats.firing}
-                </span>
-              </button>
-
-              {/* 已恢复 Pill */}
-              <button
-                type='button'
-                onClick={() => {
-                  setStatusFilter('resolved');
-                  setPage(1);
-                }}
-                className={cn(
-                  'stat-pill-item flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all',
-                  statusFilter === 'resolved'
-                    ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 shadow-2xs ring-1 ring-emerald-500/40 font-semibold'
-                    : 'text-muted-foreground hover:text-emerald-600 hover:bg-emerald-500/10',
-                )}
-              >
-                <CheckCircle2 className='h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400' />
-                <span>{t('alerts.resolvedCount')}</span>
-                <span className='font-mono font-semibold px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 text-[11px] leading-none'>
-                  {stats.resolved}
-                </span>
-              </button>
-
-              {/* 已关闭 Pill */}
-              <button
-                type='button'
-                onClick={() => {
-                  setStatusFilter('closed');
-                  setPage(1);
-                }}
-                className={cn(
-                  'stat-pill-item flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all',
-                  statusFilter === 'closed'
-                    ? 'bg-muted text-foreground shadow-2xs ring-1 ring-border/80 font-semibold'
-                    : 'text-muted-foreground hover:text-foreground hover:bg-muted/50',
-                )}
-              >
-                <Archive className='h-3.5 w-3.5 text-muted-foreground' />
-                <span>{t('alerts.closedCount')}</span>
-                <span className='font-mono font-semibold px-1.5 py-0.5 rounded-full bg-muted text-[11px] leading-none'>
-                  {stats.closed}
-                </span>
-              </button>
-            </div>
-
-            {/* 右侧刷新与重置操作 / Action buttons */}
-            <div className='flex items-center gap-1.5'>
-              <Button
-                variant='ghost'
-                size='sm'
-                onClick={handleResetFilters}
-                className='h-7 px-2 text-xs text-muted-foreground hover:text-foreground'
-              >
-                <RotateCcw className='mr-1 h-3 w-3' />
-                重置
-              </Button>
-              <Button
-                variant='outline'
-                size='sm'
-                onClick={loadAlerts}
-                disabled={loading}
-                className='h-7 px-2.5 text-xs'
-              >
-                <RefreshCw
-                  className={cn('mr-1.5 h-3 w-3', loading && 'animate-spin')}
-                />
-                {t('refresh')}
-              </Button>
-            </div>
-          </div>
+                  <RotateCcw className='mr-1 h-3 w-3' />
+                  重置
+                </Button>
+                <Button
+                  variant='outline'
+                  size='sm'
+                  onClick={loadAlerts}
+                  disabled={loading}
+                  className='h-7 px-2.5 text-xs cursor-pointer'
+                >
+                  <RefreshCw
+                    className={cn('mr-1.5 h-3 w-3', loading && 'animate-spin')}
+                  />
+                  {t('refresh')}
+                </Button>
+              </div>
+            }
+          />
 
           {/* 第二行：高密度搜索与条件组合筛选 */}
           {/* Row 2: High density search and multi-dimensional filters */}
@@ -863,83 +732,28 @@ export function MonitoringAlertsCenter() {
 
           {/* 第三行：时间范围快速预设与自定义起止时间 */}
           {/* Row 3: Quick time presets and labeled datetime-local inputs */}
-          <div className='flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-dashed border-border/50 text-xs'>
-            {/* 快捷时间预设 / Quick Presets */}
-            <div className='flex items-center gap-1.5 flex-wrap'>
-              <span className='inline-flex items-center gap-1 text-muted-foreground font-medium text-[11px] mr-0.5 select-none'>
-                <Calendar className='h-3.5 w-3.5 text-primary/80' />
-                {t('alerts.timeRange')}:
-              </span>
-              {[
-                {label: t('alerts.timePresets.last1h'), minutes: 60},
-                {label: t('alerts.timePresets.last6h'), minutes: 360},
-                {label: t('alerts.timePresets.last24h'), minutes: 1440},
-                {label: t('alerts.timePresets.last7d'), minutes: 10080},
-              ].map((preset) => (
-                <button
-                  key={preset.minutes}
-                  type='button'
-                  onClick={() => handleApplyTimePreset(preset.minutes)}
-                  className={cn(
-                    'px-2 py-0.5 rounded text-[11px] transition-colors border select-none cursor-pointer',
-                    activePreset === preset.minutes
-                      ? 'bg-primary/10 text-primary border-primary/30 font-medium'
-                      : 'bg-background text-muted-foreground border-border/70 hover:bg-muted/60 hover:text-foreground',
-                  )}
-                >
-                  {preset.label}
-                </button>
-              ))}
-            </div>
-
-            {/* 精确起止时间输入框 / Precise Datetime Range Inputs */}
-            <div className='flex items-center gap-1.5 flex-wrap'>
-              <div className='inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md border border-input bg-background shadow-2xs'>
-                <span className='text-[11px] text-muted-foreground font-medium select-none'>
-                  {t('alerts.startTime')}:
-                </span>
-                <input
-                  type='datetime-local'
-                  value={startTimeFilter}
-                  onChange={(e) => {
-                    setActivePreset(null);
-                    setStartTimeFilter(e.target.value);
-                    setPage(1);
-                  }}
-                  className='h-6 w-[170px] bg-transparent text-xs font-mono text-foreground focus:outline-hidden dark:[color-scheme:dark]'
-                />
-              </div>
-              <span className='text-muted-foreground text-xs select-none'>~</span>
-              <div className='inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md border border-input bg-background shadow-2xs'>
-                <span className='text-[11px] text-muted-foreground font-medium select-none'>
-                  {t('alerts.endTime')}:
-                </span>
-                <input
-                  type='datetime-local'
-                  value={endTimeFilter}
-                  onChange={(e) => {
-                    setActivePreset(null);
-                    setEndTimeFilter(e.target.value);
-                    setPage(1);
-                  }}
-                  className='h-6 w-[170px] bg-transparent text-xs font-mono text-foreground focus:outline-hidden dark:[color-scheme:dark]'
-                />
-              </div>
-
-              {(startTimeFilter || endTimeFilter) && (
-                <Button
-                  variant='ghost'
-                  size='sm'
-                  onClick={() => handleApplyTimePreset(null)}
-                  className='h-7 px-2 text-xs text-muted-foreground hover:text-foreground cursor-pointer'
-                  title={t('alerts.clearTimeFilter')}
-                >
-                  <X className='mr-1 h-3 w-3' />
-                  {t('alerts.clearTimeFilter')}
-                </Button>
-              )}
-            </div>
-          </div>
+          <CompactTimeFilter
+            startTime={startTimeFilter}
+            endTime={endTimeFilter}
+            activePreset={activePreset}
+            onStartTimeChange={(val) => {
+              setActivePreset(null);
+              setStartTimeFilter(val);
+              setPage(1);
+            }}
+            onEndTimeChange={(val) => {
+              setActivePreset(null);
+              setEndTimeFilter(val);
+              setPage(1);
+            }}
+            onApplyPreset={handleApplyTimePreset}
+            onClear={() => {
+              setStartTimeFilter('');
+              setEndTimeFilter('');
+              setActivePreset(null);
+              setPage(1);
+            }}
+          />
         </div>
 
         {/* 3. 告警列表表格（高密度排版） / Alert Instances High Density Table */}
@@ -1187,7 +1001,9 @@ export function MonitoringAlertsCenter() {
       <Sheet
         open={Boolean(selectedAlert)}
         onOpenChange={(open) => {
-          if (!open) setSelectedAlert(null);
+          if (!open) {
+            setSelectedAlert(null);
+          }
         }}
       >
         <SheetContent className='w-full sm:max-w-xl p-0 flex flex-col'>

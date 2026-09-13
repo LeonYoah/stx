@@ -39,7 +39,7 @@ import type {
 } from '@/lib/services/diagnostics';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
-import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card';
+import {Card, CardContent} from '@/components/ui/card';
 import {
   Select,
   SelectContent,
@@ -48,6 +48,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {Tabs, TabsContent, TabsList, TabsTrigger} from '@/components/ui/tabs';
+import {cn} from '@/lib/utils';
+import {WorkspaceHeader} from '@/components/common/layout';
 import {DiagnosticsErrorCenter} from './DiagnosticsErrorCenter';
 import {DiagnosticsInspectionCenter} from './DiagnosticsInspectionCenter';
 import {AutoPolicyConfigPanel} from './AutoPolicyConfigPanel';
@@ -173,133 +175,150 @@ export function DiagnosticsWorkspace() {
 
   return (
     <div className='space-y-4'>
-      {/* 头部标题区域 / Workspace Header */}
-      <div className='flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between'>
-        <div className='flex items-center gap-3'>
-          <div className='flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-border/80 bg-primary/10 text-primary shadow-xs'>
-            <Bug className='h-5 w-5' />
+      {/* 头部标题区域（复用全局 WorkspaceHeader） / Workspace Header */}
+      <WorkspaceHeader
+        icon={<Bug className='h-4.5 w-4.5' />}
+        title={t('title')}
+        badge={
+          <span className='inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground'>
+            Diagnostics Center
+          </span>
+        }
+        subtitle={t('subtitle')}
+        actions={
+          <>
+            <Button
+              variant='outline'
+              size='sm'
+              onClick={() => setAutoPolicyOpen(true)}
+              className='h-8 text-xs'
+            >
+              <Settings className='mr-1.5 h-3.5 w-3.5' />
+              {t('autoPolicies.buttonLabel')}
+            </Button>
+            <Button
+              variant='outline'
+              size='sm'
+              onClick={() => void loadBootstrap()}
+              className='h-8 text-xs'
+            >
+              <RefreshCw
+                className={cn('mr-1.5 h-3.5 w-3.5', loading && 'animate-spin')}
+              />
+              {commonT('refresh')}
+            </Button>
+          </>
+        }
+      />
+
+      {/* 集群上下文与过滤工具条（紧凑型设计，提升可用空间） / Cluster Context & Filter Bar */}
+      <div className='flex flex-col gap-2.5 rounded-lg border bg-card/60 p-2.5 shadow-2xs sm:flex-row sm:items-center sm:justify-between'>
+        <div className='flex flex-wrap items-center gap-2.5'>
+          <div className='flex items-center gap-1.5'>
+            <Server className='h-3.5 w-3.5 text-muted-foreground' />
+            <Select
+              value={selectedClusterId}
+              onValueChange={(value) =>
+                updateQuery({
+                  cluster_id: value === 'all' ? null : value,
+                  source: null,
+                  alert_id: null,
+                  group_id: null,
+                  report_id: null,
+                  finding_id: null,
+                  task_id: null,
+                })
+              }
+            >
+              <SelectTrigger className='h-8 text-xs w-[190px] bg-background'>
+                <SelectValue placeholder={t('filters.cluster')} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value='all'>{t('filters.allClusters')}</SelectItem>
+                {(bootstrap?.cluster_options || []).map((cluster) => (
+                  <SelectItem
+                    key={cluster.cluster_id}
+                    value={String(cluster.cluster_id)}
+                  >
+                    {cluster.cluster_name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
-          <div>
-            <div className='flex items-center gap-2'>
-              <h1 className='text-2xl font-bold tracking-tight'>{t('title')}</h1>
-              <Badge variant='outline' className='text-xs font-normal text-muted-foreground'>
-                Diagnostics Center
+
+          {/* 上下文标签组 / Context Badges */}
+          <div className='flex flex-wrap items-center gap-1.5'>
+            <Badge
+              variant={selectedClusterName ? 'secondary' : 'outline'}
+              className='text-xs'
+            >
+              {selectedClusterName
+                ? t('context.clusterScoped', {name: selectedClusterName})
+                : t('context.global')}
+            </Badge>
+            {source ? (
+              <Badge
+                variant='secondary'
+                className='text-xs flex items-center gap-1'
+              >
+                {t('context.source', {source: entrySourceLabel})}
+                <X
+                  className='h-3 w-3 cursor-pointer opacity-70 hover:opacity-100'
+                  onClick={() => updateQuery({source: null})}
+                />
               </Badge>
-            </div>
-            <p className='mt-0.5 text-xs text-muted-foreground sm:text-sm'>{t('subtitle')}</p>
-          </div>
-        </div>
-
-        <div className='flex flex-wrap items-center gap-2'>
-          <Button variant='outline' size='sm' onClick={() => setAutoPolicyOpen(true)}>
-            <Settings className='mr-2 h-4 w-4' />
-            {t('autoPolicies.buttonLabel')}
-          </Button>
-          <Button variant='outline' size='sm' onClick={() => void loadBootstrap()}>
-            <RefreshCw className='mr-2 h-4 w-4' />
-            {commonT('refresh')}
-          </Button>
-        </div>
-      </div>
-
-      {/* 集群上下文与过滤工具栏 / Cluster Context & Filter Bar */}
-      <Card className='border shadow-xs'>
-        <CardContent className='p-4'>
-          <div className='flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between'>
-            <div className='flex flex-wrap items-center gap-3'>
-              <div className='flex items-center gap-2'>
-                <Server className='h-4 w-4 text-muted-foreground' />
-                <Select
-                  value={selectedClusterId}
-                  onValueChange={(value) =>
-                    updateQuery({
-                      cluster_id: value === 'all' ? null : value,
-                      source: null,
-                      alert_id: null,
-                      group_id: null,
-                      report_id: null,
-                      finding_id: null,
-                      task_id: null,
-                    })
-                  }
-                >
-                  <SelectTrigger className='h-9 w-[220px]'>
-                    <SelectValue placeholder={t('filters.cluster')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value='all'>{t('filters.allClusters')}</SelectItem>
-                    {(bootstrap?.cluster_options || []).map((cluster) => (
-                      <SelectItem
-                        key={cluster.cluster_id}
-                        value={String(cluster.cluster_id)}
-                      >
-                        {cluster.cluster_name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* 上下文标签组 / Context Badges */}
-              <div className='flex flex-wrap items-center gap-1.5'>
-                <Badge variant={selectedClusterName ? 'secondary' : 'outline'} className='text-xs'>
-                  {selectedClusterName
-                    ? t('context.clusterScoped', {name: selectedClusterName})
-                    : t('context.global')}
-                </Badge>
-                {source ? (
-                  <Badge variant='secondary' className='text-xs flex items-center gap-1'>
-                    {t('context.source', {source: entrySourceLabel})}
-                    <X
-                      className='h-3 w-3 cursor-pointer opacity-70 hover:opacity-100'
-                      onClick={() => updateQuery({source: null})}
-                    />
-                  </Badge>
-                ) : null}
-                {alertId ? (
-                  <Badge variant='secondary' className='text-xs flex items-center gap-1'>
-                    {t('context.alert', {id: alertId})}
-                    <X
-                      className='h-3 w-3 cursor-pointer opacity-70 hover:opacity-100'
-                      onClick={() => updateQuery({alert_id: null})}
-                    />
-                  </Badge>
-                ) : null}
-                {selectedClusterId !== 'all' ? (
-                  <Button asChild variant='ghost' size='sm' className='h-7 text-xs px-2 gap-1 text-primary'>
-                    <Link href={`/clusters/${selectedClusterId}`}>
-                      {t('context.goToCluster')}
-                      <ArrowUpRight className='h-3 w-3' />
-                    </Link>
-                  </Button>
-                ) : null}
-              </div>
-            </div>
-
-            {hasWorkspaceContext ? (
+            ) : null}
+            {alertId ? (
+              <Badge
+                variant='secondary'
+                className='text-xs flex items-center gap-1'
+              >
+                {t('context.alert', {id: alertId})}
+                <X
+                  className='h-3 w-3 cursor-pointer opacity-70 hover:opacity-100'
+                  onClick={() => updateQuery({alert_id: null})}
+                />
+              </Badge>
+            ) : null}
+            {selectedClusterId !== 'all' ? (
               <Button
+                asChild
                 variant='ghost'
                 size='sm'
-                className='h-8 text-xs text-muted-foreground hover:text-foreground'
-                onClick={() =>
-                  updateQuery({
-                    cluster_id: null,
-                    source: null,
-                    alert_id: null,
-                    group_id: null,
-                    report_id: null,
-                    finding_id: null,
-                    task_id: null,
-                  })
-                }
+                className='h-7 text-xs px-2 gap-1 text-primary'
               >
-                <X className='mr-1.5 h-3.5 w-3.5' />
-                {t('clearContext')}
+                <Link href={`/clusters/${selectedClusterId}`}>
+                  {t('context.goToCluster')}
+                  <ArrowUpRight className='h-3 w-3' />
+                </Link>
               </Button>
             ) : null}
           </div>
-        </CardContent>
-      </Card>
+        </div>
+
+        {hasWorkspaceContext ? (
+          <Button
+            variant='ghost'
+            size='sm'
+            className='h-7 px-2 text-xs text-muted-foreground hover:text-foreground'
+            onClick={() =>
+              updateQuery({
+                cluster_id: null,
+                source: null,
+                alert_id: null,
+                group_id: null,
+                report_id: null,
+                finding_id: null,
+                task_id: null,
+              })
+            }
+          >
+            <X className='mr-1 h-3 w-3' />
+            {t('clearContext')}
+          </Button>
+        ) : null}
+      </div>
 
       <Tabs
         value={activeTab}
@@ -307,13 +326,13 @@ export function DiagnosticsWorkspace() {
           updateQuery({tab: resolveTab(value) as string})
         }
       >
-        <TabsList className='grid w-full grid-cols-2 gap-1 p-1 md:w-[360px]'>
-          <TabsTrigger value='errors' className='flex items-center gap-2'>
-            <AlertTriangle className='h-4 w-4 text-amber-500' />
+        <TabsList className='grid w-full grid-cols-2 gap-1 p-0.5 h-8 md:w-[320px]'>
+          <TabsTrigger value='errors' className='flex items-center gap-1.5 text-xs h-7'>
+            <AlertTriangle className='h-3.5 w-3.5 text-amber-500' />
             <span>{t('tabs.errors')}</span>
           </TabsTrigger>
-          <TabsTrigger value='inspections' className='flex items-center gap-2'>
-            <ClipboardCheck className='h-4 w-4 text-primary' />
+          <TabsTrigger value='inspections' className='flex items-center gap-1.5 text-xs h-7'>
+            <ClipboardCheck className='h-3.5 w-3.5 text-primary' />
             <span>{t('tabs.inspections')}</span>
           </TabsTrigger>
         </TabsList>

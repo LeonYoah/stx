@@ -17,21 +17,29 @@
 
 'use client';
 
-import {type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {
+  type KeyboardEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import Link from 'next/link';
 import {useTranslations} from 'next-intl';
 import {
+  ArrowUpRight,
   Check,
   ClipboardCheck,
   Clock,
   Copy,
   Download,
   ExternalLink,
+  Eye,
   FileText,
   Loader2,
   Package,
   Play,
-  Plus,
   RefreshCw,
   X,
 } from 'lucide-react';
@@ -49,7 +57,7 @@ import type {
 } from '@/lib/services/diagnostics';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
-import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card';
+import {Card} from '@/components/ui/card';
 import {
   Dialog,
   DialogContent,
@@ -68,8 +76,24 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {Skeleton} from '@/components/ui/skeleton';
 import {Switch} from '@/components/ui/switch';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet';
+import {StatPillsBar, type StatPillItem} from '@/components/common/layout';
+import {animateTableRows, animateSheetSections} from '@/lib/animations/gsap-motion';
 import {localizeDiagnosticsText} from './text-utils';
 
 const DEFAULT_BUNDLE_OPTIONS: DiagnosticsTaskOptions = {
@@ -96,6 +120,20 @@ function formatDateTime(value?: string | null): string {
   return parsed.toLocaleString();
 }
 
+function getFindingSeverityBadgeClass(
+  severity: DiagnosticsInspectionFindingSeverity,
+): string {
+  switch (severity) {
+    case 'critical':
+      return 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20 font-semibold';
+    case 'warning':
+      return 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20 font-medium';
+    case 'info':
+    default:
+      return 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20';
+  }
+}
+
 function getStatusVariant(
   status: string,
 ): 'default' | 'secondary' | 'outline' | 'destructive' {
@@ -112,39 +150,12 @@ function getStatusVariant(
   }
 }
 
-function getSeverityVariant(
-  severity: DiagnosticsInspectionFindingSeverity,
-): 'default' | 'secondary' | 'outline' | 'destructive' {
-  switch (severity) {
-    case 'critical':
-      return 'destructive';
-    case 'warning':
-      return 'secondary';
-    case 'info':
-    default:
-      return 'outline';
-  }
-}
-
-// 获取巡检发现严重程度的现代样式类（高对比度、暗黑模式适配）
-// Get modern style class for inspection finding severity (high contrast, dark mode compatible)
-function getFindingSeverityBadgeClass(severity: DiagnosticsInspectionFindingSeverity): string {
-  switch (severity) {
-    case 'critical':
-      return 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20 font-semibold';
-    case 'warning':
-      return 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20 font-medium';
-    case 'info':
-    default:
-      return 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20';
-  }
-}
-
 function formatNodeOrigin(options: {
   nodeId?: number | null;
   hostId?: number | null;
   hostName?: string | null;
   hostIp?: string | null;
+  role?: string | null;
 }): string {
   const parts: string[] = [];
   if (options.hostName?.trim()) {
@@ -153,6 +164,9 @@ function formatNodeOrigin(options: {
     parts.push(options.hostIp.trim());
   } else if (options.hostId) {
     parts.push(`#${options.hostId}`);
+  }
+  if (options.role?.trim()) {
+    parts.push(options.role.trim());
   }
   if (options.nodeId) {
     parts.push(`node #${options.nodeId}`);
@@ -168,6 +182,7 @@ export function DiagnosticsInspectionCenter({
 }: DiagnosticsInspectionCenterProps) {
   const t = useTranslations('diagnosticsCenter');
   const commonT = useTranslations('common');
+
   const getTaskStatusLabel = useCallback(
     (status: string): string => {
       switch (status) {
@@ -207,6 +222,9 @@ export function DiagnosticsInspectionCenter({
   const [errorThreshold, setErrorThreshold] = useState(1);
   const [reports, setReports] = useState<DiagnosticsInspectionReport[]>([]);
   const [reportTotal, setReportTotal] = useState(0);
+
+  // 抽屉详情查看的巡检报告
+  // Inspection report opened in slide-over detail sheet
   const [selectedReportId, setSelectedReportId] = useState<number | null>(
     reportId ?? null,
   );
@@ -227,6 +245,8 @@ export function DiagnosticsInspectionCenter({
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
   const [execLogDialogOpen, setExecLogDialogOpen] = useState(false);
 
+  // 加载巡检报告列表
+  // Fetch inspection reports list
   const loadReports = useCallback(async () => {
     setLoadingReports(true);
     try {
@@ -250,6 +270,8 @@ export function DiagnosticsInspectionCenter({
     }
   }, [clusterId, page, severityFilter, statusFilter, t]);
 
+  // 加载报告详情与发现项
+  // Fetch inspection report detail and findings
   const loadDetail = useCallback(
     async (nextReportId: number) => {
       setLoadingDetail(true);
@@ -279,120 +301,176 @@ export function DiagnosticsInspectionCenter({
     void loadReports();
   }, [loadReports]);
 
+  // 外部 reportId 驱动打开详情
+  // Open report detail when external reportId prop is provided
   useEffect(() => {
-    if (reports.length === 0) {
-      setSelectedReportId(null);
-      setSelectedReport(null);
-      setFindings([]);
-      setBundleTask(null);
-      return;
+    if (reportId) {
+      setSelectedReportId(reportId);
+      void loadDetail(reportId);
     }
-    if (
-      !selectedReportId ||
-      !reports.some((item) => item.id === selectedReportId)
-    ) {
-      setSelectedReportId(reports[0].id);
-      onSelectReport?.(reports[0].id);
-    }
-  }, [onSelectReport, reports, selectedReportId]);
+  }, [loadDetail, reportId]);
 
+  // 表格行进入动效
+  // Stagger animation for table rows on load
   useEffect(() => {
-    if (
-      !selectedReportId ||
-      !reports.some((item) => item.id === selectedReportId)
-    ) {
-      return;
+    if (!loadingReports && reports.length > 0) {
+      animateTableRows('.data-row-animate');
     }
-    void loadDetail(selectedReportId);
-  }, [loadDetail, reports, selectedReportId]);
+  }, [loadingReports, reports]);
 
+  // 抽屉滑入动效
+  // Stagger animation for sections in detail sheet
   useEffect(() => {
-    setSelectedReportId(reportId ?? null);
-  }, [reportId]);
+    if (selectedReport && !loadingDetail) {
+      animateSheetSections('.sheet-section-animate');
+    }
+  }, [loadingDetail, selectedReport]);
 
-  const groupedFindings = useMemo(
-    () =>
-      findings.reduce<
-        Record<
-          DiagnosticsInspectionFindingSeverity,
-          DiagnosticsInspectionFinding[]
-        >
-      >(
-        (accumulator, finding) => {
-          const bucket = accumulator[finding.severity] || [];
-          bucket.push(finding);
-          accumulator[finding.severity] = bucket;
-          return accumulator;
-        },
-        {
-          critical: [],
-          warning: [],
-          info: [],
-        },
-      ),
-    [findings],
+  const handleSelectReport = useCallback(
+    (report: DiagnosticsInspectionReport) => {
+      setSelectedReportId(report.id);
+      setSelectedReport(report);
+      onSelectReport?.(report.id);
+      void loadDetail(report.id);
+    },
+    [loadDetail, onSelectReport],
   );
-  const hasFindings = findings.length > 0;
-  const totalPages = Math.max(1, Math.ceil(reportTotal / 20));
 
-  const pollBundleTask = useCallback(async (taskId: number) => {
-    const result = await services.diagnostics.getTaskSafe(taskId);
-    if (!result.success || !result.data) {
-      return;
-    }
-    setBundleTask(result.data);
-    if (['succeeded', 'failed', 'cancelled'].includes(result.data.status)) {
-      setPollingBundle(false);
-      if (pollTimerRef.current) {
-        clearInterval(pollTimerRef.current);
-        pollTimerRef.current = null;
+  const handleCloseSheet = useCallback(() => {
+    setSelectedReportId(null);
+    setSelectedReport(null);
+    setFindings([]);
+    setBundleTask(null);
+    onSelectReport?.(null);
+  }, [onSelectReport]);
+
+  const hasFindings = findings.length > 0;
+
+  // 统计各状态数量
+  // Compute report counts for status pills
+  const stats = useMemo(() => {
+    let failed = 0;
+    let completed = 0;
+    let running = 0;
+    let pending = 0;
+    reports.forEach((r) => {
+      if (r.status === 'failed') {
+        failed += 1;
+      } else if (r.status === 'completed') {
+        completed += 1;
+      } else if (r.status === 'running') {
+        running += 1;
+      } else if (r.status === 'pending') {
+        pending += 1;
       }
-    }
-  }, []);
+    });
+    return {
+      total: reportTotal,
+      failed,
+      completed,
+      running,
+      pending,
+    };
+  }, [reportTotal, reports]);
+
+  const pillItems: StatPillItem[] = useMemo(
+    () => [
+      {
+        key: 'all',
+        label: '全部报告',
+        count: stats.total,
+      },
+      {
+        key: 'failed',
+        label: '异常失败',
+        count: stats.failed,
+        variant: 'danger',
+        pulse: stats.failed > 0,
+      },
+      {
+        key: 'completed',
+        label: '完成/健康',
+        count: stats.completed,
+        variant: 'success',
+      },
+      {
+        key: 'running',
+        label: '执行中',
+        count: stats.running,
+        variant: 'info',
+      },
+      {
+        key: 'pending',
+        label: '排队中',
+        count: stats.pending,
+        variant: 'default',
+      },
+    ],
+    [stats],
+  );
+
+  // 轮询诊断包任务进度
+  // Poll diagnostic bundle task status until completion
+  const pollBundleTask = useCallback(
+    async (taskId: number) => {
+      try {
+        const result = await services.diagnostics.getTaskSafe(taskId);
+        if (!result.success || !result.data) {
+          return;
+        }
+        setBundleTask(result.data);
+        if (
+          result.data.status === 'succeeded' ||
+          result.data.status === 'failed' ||
+          result.data.status === 'cancelled'
+        ) {
+          if (pollTimerRef.current) {
+            clearInterval(pollTimerRef.current);
+            pollTimerRef.current = null;
+          }
+          setPollingBundle(false);
+          if (result.data.status === 'succeeded') {
+            toast.success(t('inspections.followUp.taskCompleteSuccess'));
+          } else {
+            toast.error(t('inspections.followUp.taskFailed'));
+          }
+        }
+      } catch {
+        // 静默失败，等待下次轮询
+        // Silently catch and retry on next interval tick
+      }
+    },
+    [t],
+  );
 
   useEffect(() => {
-    if (!bundleTask || !selectedReportId || bundleTask.id === 0) {
+    if (!pollingBundle || !bundleTask) {
       return;
     }
-    const status = bundleTask.status;
-    if (['succeeded', 'failed', 'cancelled'].includes(status)) {
-      return;
-    }
-    setPollingBundle(true);
-    const taskId = bundleTask.id;
-    pollTimerRef.current = setInterval(() => void pollBundleTask(taskId), 3000);
+    const currentTaskId = bundleTask.id;
+    pollTimerRef.current = setInterval(() => {
+      void pollBundleTask(currentTaskId);
+    }, 2000);
     return () => {
       if (pollTimerRef.current) {
         clearInterval(pollTimerRef.current);
         pollTimerRef.current = null;
       }
     };
-  }, [bundleTask, pollBundleTask, selectedReportId]);
+  }, [bundleTask, pollBundleTask, pollingBundle]);
 
   const handleConfirmAndCreateBundle = useCallback(() => {
-    const base =
-      selectedReport?.lookback_minutes || lookbackMinutes || 30;
-    setBundleLookbackMinutes(
-      base < 5 || base > 1440 ? 30 : base,
-    );
     setConfirmDialogOpen(true);
-  }, [lookbackMinutes, selectedReport]);
+  }, []);
 
   const handleCreateBundle = useCallback(async () => {
     if (!selectedReport || creatingBundle) {
       return;
     }
-    if (bundleLookbackMinutes < 5 || bundleLookbackMinutes > 1440) {
-      toast.error(t('inspections.lookbackRangeError'));
-      return;
-    }
-    const firstFinding =
-      findings.find((f) => f.severity === 'critical') ??
-      findings.find((f) => f.severity === 'warning') ??
-      findings[0];
-    setCreatingBundle(true);
     setConfirmDialogOpen(false);
+    setCreatingBundle(true);
     try {
+      const firstFinding = findings[0];
       const result = await services.diagnostics.createTaskSafe({
         cluster_id: selectedReport.cluster_id,
         trigger_source: firstFinding ? 'inspection_finding' : 'manual',
@@ -494,517 +572,629 @@ export function DiagnosticsInspectionCenter({
     [handleCreateBundle],
   );
 
+  const totalPages = Math.max(1, Math.ceil(reportTotal / 20));
+
   return (
-    <div className='grid gap-4 xl:grid-cols-[minmax(0,1.08fr)_minmax(360px,0.92fr)] xl:items-start'>
-      <div className='space-y-4'>
-        <Card className='border shadow-xs'>
-          <CardHeader className='space-y-4 p-4 sm:p-5'>
-            <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
-              <div>
-                <CardTitle className='text-base font-semibold'>{t('inspections.title')}</CardTitle>
-                <div className='mt-0.5 text-xs text-muted-foreground'>
-                  {clusterId
-                    ? t('inspections.clusterScopedHint', {
-                        name: clusterName || `#${clusterId}`,
-                      })
-                    : t('inspections.globalHint')}
-                </div>
-              </div>
-              <div className='flex flex-wrap items-center gap-2'>
-                <Badge variant='outline' className='text-xs font-normal'>
-                  {t('inspections.matchedReports', {count: reportTotal})}
-                </Badge>
-                <Button variant='outline' size='sm' onClick={() => void loadReports()}>
-                  <RefreshCw className='mr-1.5 h-3.5 w-3.5' />
-                  {commonT('refresh')}
-                </Button>
+    <div className='space-y-3.5'>
+      {/* 统一全宽卡片（彻底消除左右不对称，释放完整横向排版空间） */}
+      {/* Unified full-width card container (eliminates asymmetry, maximizes layout room) */}
+      <Card className='border shadow-xs overflow-hidden'>
+        {/* 顶部胶囊栏与操作区 / Top Stat Pills & Actions */}
+        <div className='p-3 border-b bg-card/60 space-y-2.5'>
+          {/* 第一行：状态胶囊分段与主要操作 */}
+          {/* Row 1: Stat pills segments and primary action buttons */}
+          <StatPillsBar
+            items={pillItems}
+            activeKey={statusFilter}
+            onChange={(key) => {
+              setPage(1);
+              setStatusFilter(key as typeof statusFilter);
+            }}
+            actions={
+              <>
                 <Button
                   size='sm'
                   onClick={() => setStartInspectionDialogOpen(true)}
                   disabled={!clusterId || startingInspection}
-                  className='gap-1.5'
+                  className='h-7 px-2.5 text-xs gap-1.5'
                 >
                   {startingInspection ? (
-                    <Loader2 className='h-4 w-4 animate-spin' />
+                    <Loader2 className='h-3.5 w-3.5 animate-spin' />
                   ) : (
-                    <Play className='h-3.5 w-3.5 fill-current' />
+                    <Play className='h-3 w-3 fill-current' />
                   )}
                   {t('inspections.startInspection')}
                 </Button>
-              </div>
+                <Button
+                  variant='outline'
+                  size='sm'
+                  onClick={() => void loadReports()}
+                  disabled={loadingReports}
+                  className='h-7 px-2.5 text-xs'
+                >
+                  <RefreshCw
+                    className={cn(
+                      'mr-1.5 h-3 w-3',
+                      loadingReports && 'animate-spin',
+                    )}
+                  />
+                  {commonT('refresh')}
+                </Button>
+              </>
+            }
+          />
+
+          {/* 第二行：严重程度辅助筛选 */}
+          {/* Row 2: Severity multi-dimensional filter strip */}
+          <div className='flex flex-wrap items-center gap-2 pt-0.5'>
+            <div className='flex items-center gap-1.5'>
+              <span className='text-xs text-muted-foreground whitespace-nowrap'>
+                {t('inspections.filters.severity')}:
+              </span>
+              <Select
+                value={severityFilter}
+                onValueChange={(value) => {
+                  setPage(1);
+                  setSeverityFilter(value as typeof severityFilter);
+                }}
+              >
+                <SelectTrigger className='h-8 text-xs w-[135px] bg-background'>
+                  <SelectValue placeholder={t('inspections.filters.severity')} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value='all'>
+                    {t('inspections.filters.allSeverities')}
+                  </SelectItem>
+                  <SelectItem value='critical'>
+                    {t('inspections.severity.critical')}
+                  </SelectItem>
+                  <SelectItem value='warning'>
+                    {t('inspections.severity.warning')}
+                  </SelectItem>
+                  <SelectItem value='info'>
+                    {t('inspections.severity.info')}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
-            {/* 报告筛选过滤工具条 / Inspection Reports Filter Toolbar */}
-            <div className='flex flex-wrap items-center gap-3 pt-2 border-t'>
-              <div className='flex items-center gap-2'>
-                <Label className='text-xs text-muted-foreground whitespace-nowrap'>{t('inspections.filters.status')}</Label>
-                <Select
-                  value={statusFilter}
-                  onValueChange={(value) => {
-                    setPage(1);
-                    setStatusFilter(value as typeof statusFilter);
-                  }}
-                >
-                  <SelectTrigger className='h-8 text-xs w-[130px]'>
-                    <SelectValue placeholder={t('inspections.filters.status')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value='all'>
-                      {t('inspections.filters.allStatuses')}
-                    </SelectItem>
-                    <SelectItem value='completed'>
-                      {t('inspections.status.completed')}
-                    </SelectItem>
-                    <SelectItem value='failed'>
-                      {t('inspections.status.failed')}
-                    </SelectItem>
-                    <SelectItem value='running'>
-                      {t('inspections.status.running')}
-                    </SelectItem>
-                    <SelectItem value='pending'>
-                      {t('inspections.status.pending')}
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+            {(statusFilter !== 'all' || severityFilter !== 'all') && (
+              <Button
+                variant='ghost'
+                size='sm'
+                className='h-8 px-2 text-xs text-muted-foreground hover:text-foreground'
+                onClick={() => {
+                  setStatusFilter('all');
+                  setSeverityFilter('all');
+                  setPage(1);
+                }}
+              >
+                <X className='mr-1 h-3 w-3' />
+                重置筛选
+              </Button>
+            )}
+          </div>
+        </div>
 
-              <div className='flex items-center gap-2'>
-                <Label className='text-xs text-muted-foreground whitespace-nowrap'>{t('inspections.filters.severity')}</Label>
-                <Select
-                  value={severityFilter}
-                  onValueChange={(value) => {
-                    setPage(1);
-                    setSeverityFilter(value as typeof severityFilter);
-                  }}
-                >
-                  <SelectTrigger className='h-8 text-xs w-[130px]'>
-                    <SelectValue placeholder={t('inspections.filters.severity')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value='all'>
-                      {t('inspections.filters.allSeverities')}
-                    </SelectItem>
-                    <SelectItem value='critical'>
-                      {t('inspections.severity.critical')}
-                    </SelectItem>
-                    <SelectItem value='warning'>
-                      {t('inspections.severity.warning')}
-                    </SelectItem>
-                    <SelectItem value='info'>
-                      {t('inspections.severity.info')}
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+        {/* 全宽对称高密度报告表格 / Full-width Symmetric High-Density Reports Table */}
+        <div className='overflow-x-auto'>
+          <Table>
+            <TableHeader>
+              <TableRow className='bg-muted/30 hover:bg-muted/30 h-8'>
+                <TableHead className='w-[80px] py-1.5 px-3 text-xs'>
+                  编号
+                </TableHead>
+                <TableHead className='w-[105px] py-1.5 px-3 text-xs'>
+                  {t('inspections.filters.status')}
+                </TableHead>
+                <TableHead className='w-[130px] py-1.5 px-3 text-xs'>
+                  触发方式
+                </TableHead>
+                <TableHead className='min-w-[280px] py-1.5 px-3 text-xs'>
+                  发现项与摘要概览
+                </TableHead>
+                <TableHead className='w-[110px] py-1.5 px-3 text-xs'>
+                  回溯窗口
+                </TableHead>
+                <TableHead className='w-[155px] py-1.5 px-3 text-xs whitespace-nowrap'>
+                  完成时间
+                </TableHead>
+                <TableHead className='w-[140px] py-1.5 px-3 text-xs text-right'>
+                  {commonT('actions')}
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {loadingReports ? (
+                <TableRow>
+                  <TableCell
+                    colSpan={7}
+                    className='h-36 text-center text-muted-foreground'
+                  >
+                    <div className='flex flex-col items-center justify-center gap-2'>
+                      <RefreshCw className='h-5 w-5 animate-spin text-primary' />
+                      <span className='text-xs'>{commonT('loading')}</span>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ) : reports.length === 0 ? (
+                <TableRow>
+                  <TableCell
+                    colSpan={7}
+                    className='h-36 text-center text-muted-foreground text-xs'
+                  >
+                    {t('inspections.empty')}
+                  </TableCell>
+                </TableRow>
+              ) : (
+                reports.map((report) => (
+                  <TableRow
+                    key={report.id}
+                    className={cn(
+                      'data-row-animate cursor-pointer transition-colors hover:bg-muted/40 h-10',
+                      selectedReportId === report.id &&
+                        'bg-primary/5 font-medium border-l-2 border-l-primary',
+                    )}
+                    onClick={() => handleSelectReport(report)}
+                  >
+                    {/* 报告编号 */}
+                    <TableCell className='py-2 px-3 font-mono text-xs text-muted-foreground'>
+                      #{report.id}
+                    </TableCell>
 
-              {(statusFilter !== 'all' || severityFilter !== 'all') && (
-                <Button
-                  variant='ghost'
-                  size='sm'
-                  className='h-8 text-xs text-muted-foreground hover:text-foreground'
-                  onClick={() => {
-                    setStatusFilter('all');
-                    setSeverityFilter('all');
-                    setPage(1);
-                  }}
-                >
-                  <X className='mr-1 h-3 w-3' />
-                  重置筛选
-                </Button>
+                    {/* 状态 */}
+                    <TableCell className='py-2 px-3 whitespace-nowrap'>
+                      <Badge
+                        variant={getStatusVariant(report.status)}
+                        className='text-xs'
+                      >
+                        {t(`inspections.status.${report.status}`)}
+                      </Badge>
+                    </TableCell>
+
+                    {/* 触发方式 */}
+                    <TableCell className='py-2 px-3 whitespace-nowrap text-xs text-muted-foreground'>
+                      <Badge variant='outline' className='text-[11px] font-normal'>
+                        {t(`inspections.trigger.${report.trigger_source}`)}
+                      </Badge>
+                    </TableCell>
+
+                    {/* 发现项概要与严重程度徽标 */}
+                    <TableCell className='py-2 px-3'>
+                      <div className='space-y-1 max-w-[480px]'>
+                        <div
+                          className='truncate text-xs font-medium text-foreground'
+                          title={
+                            localizeDiagnosticsText(report.summary) ||
+                            t('inspections.summaryFallback')
+                          }
+                        >
+                          {localizeDiagnosticsText(report.summary) ||
+                            t('inspections.summaryFallback')}
+                        </div>
+
+                        <div className='flex flex-wrap items-center gap-1.5'>
+                          {report.critical_count > 0 && (
+                            <span className='inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20'>
+                              <span className='h-1.5 w-1.5 rounded-full bg-rose-500' />
+                              {report.critical_count} 严重
+                            </span>
+                          )}
+                          {report.warning_count > 0 && (
+                            <span className='inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'>
+                              <span className='h-1.5 w-1.5 rounded-full bg-amber-500' />
+                              {report.warning_count} 警告
+                            </span>
+                          )}
+                          {report.info_count > 0 && (
+                            <span className='inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20'>
+                              <span className='h-1.5 w-1.5 rounded-full bg-blue-500' />
+                              {report.info_count} 提示
+                            </span>
+                          )}
+                          {report.finding_total === 0 && (
+                            <span className='inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 font-medium'>
+                              <Check className='h-3 w-3' />
+                              健康无异常
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </TableCell>
+
+                    {/* 回溯时间窗口 */}
+                    <TableCell className='py-2 px-3 whitespace-nowrap text-xs text-muted-foreground'>
+                      <span className='inline-flex items-center gap-1 font-mono text-[11px]'>
+                        <Clock className='h-3 w-3 text-muted-foreground/70' />
+                        {t('inspections.lookbackValue', {
+                          minutes: report.lookback_minutes || 30,
+                        })}
+                      </span>
+                    </TableCell>
+
+                    {/* 完成时间 */}
+                    <TableCell className='py-2 px-3 whitespace-nowrap text-xs text-muted-foreground font-mono'>
+                      {formatDateTime(report.finished_at || report.created_at)}
+                    </TableCell>
+
+                    {/* 操作列 */}
+                    <TableCell className='py-2 px-3 text-right whitespace-nowrap'>
+                      <div className='flex items-center justify-end gap-1'>
+                        <Button
+                          variant='ghost'
+                          size='sm'
+                          className='h-6.5 px-2 text-xs text-primary hover:text-primary'
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleSelectReport(report);
+                          }}
+                        >
+                          <Eye className='mr-1 h-3.5 w-3.5' />
+                          摘要
+                        </Button>
+                        <Button
+                          asChild
+                          variant='ghost'
+                          size='sm'
+                          className='h-6.5 px-2 text-xs text-muted-foreground hover:text-foreground'
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <Link href={`/diagnostics/inspections/${report.id}`}>
+                            完整报告
+                            <ArrowUpRight className='ml-1 h-3 w-3' />
+                          </Link>
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
+
+        {/* 底部分页控制器 / Pagination Footer */}
+        <div className='flex items-center justify-between p-3 border-t bg-muted/10 text-xs text-muted-foreground'>
+          <div>
+            {t('errors.pageSummary', {page, totalPages})}
+          </div>
+          <div className='flex items-center gap-1.5'>
+            <Button
+              variant='outline'
+              size='sm'
+              className='h-6.5 px-2 text-xs'
+              onClick={() => setPage((current) => Math.max(1, current - 1))}
+              disabled={page <= 1}
+            >
+              {t('errors.previous')}
+            </Button>
+            <Button
+              variant='outline'
+              size='sm'
+              className='h-6.5 px-2 text-xs'
+              onClick={() =>
+                setPage((current) =>
+                  current >= totalPages ? current : current + 1,
+                )
+              }
+              disabled={page >= totalPages}
+            >
+              {t('errors.next')}
+            </Button>
+          </div>
+        </div>
+      </Card>
+
+      {/* 侧边滑出式巡检详情抽屉（告警中心同款架构） */}
+      {/* Slide-over Sheet for Inspection Report Overview & Diagnostics Tasks */}
+      <Sheet
+        open={Boolean(selectedReportId && selectedReport)}
+        onOpenChange={(open) => {
+          if (!open) {
+            handleCloseSheet();
+          }
+        }}
+      >
+        <SheetContent
+          side='right'
+          className='w-full sm:max-w-2xl p-0 flex flex-col overflow-hidden bg-background'
+        >
+          {/* 抽屉头部 / Sheet Header */}
+          <SheetHeader className='p-4 pb-3 border-b bg-muted/20'>
+            <div className='flex items-center gap-2 flex-wrap'>
+              <Badge
+                variant={selectedReport ? getStatusVariant(selectedReport.status) : 'outline'}
+                className='text-xs'
+              >
+                {selectedReport
+                  ? t(`inspections.status.${selectedReport.status}`)
+                  : ''}
+              </Badge>
+              <Badge variant='outline' className='text-xs font-mono'>
+                #{selectedReport?.id}
+              </Badge>
+              {selectedReport?.finished_at && (
+                <Badge variant='outline' className='text-xs text-muted-foreground'>
+                  {formatDateTime(selectedReport.finished_at)}
+                </Badge>
               )}
             </div>
-          </CardHeader>
-        </Card>
+            <SheetTitle className='text-base font-bold tracking-tight text-foreground break-all mt-1'>
+              {selectedReport?.summary
+                ? localizeDiagnosticsText(selectedReport.summary)
+                : t('inspections.detailTitle')}
+            </SheetTitle>
+            <SheetDescription className='text-xs text-muted-foreground'>
+              {clusterName || (clusterId ? `集群 #${clusterId}` : '全局巡检报告')} · 回溯 {selectedReport?.lookback_minutes || 30} 分钟
+            </SheetDescription>
+          </SheetHeader>
 
-        <Card className='border shadow-xs flex flex-col overflow-hidden xl:h-[calc(100vh-250px)] xl:min-h-[650px]'>
-          <CardHeader className='p-4 pb-3'>
-            <CardTitle className='text-base font-semibold'>{t('inspections.listTitle')}</CardTitle>
-          </CardHeader>
-          <CardContent className='flex flex-1 min-h-0 flex-col space-y-4 p-4 pt-0'>
-            {loadingReports ? (
-              <div className='space-y-3'>
-                <Skeleton className='h-24 w-full' />
-                <Skeleton className='h-24 w-full' />
-                <Skeleton className='h-24 w-full' />
-              </div>
-            ) : reports.length === 0 ? (
-              <div className='flex flex-1 items-center justify-center rounded-lg border border-dashed p-6 text-sm text-muted-foreground'>
-                {t('inspections.empty')}
-              </div>
-            ) : (
-              <>
-                <ScrollArea className='min-h-0 flex-1 pr-3'>
-                  <div className='space-y-3'>
-                    {reports.map((report) => (
-                      <button
-                        key={report.id}
-                        type='button'
-                        className={cn(
-                          'flex w-full flex-col gap-2.5 rounded-lg border p-4 text-left transition-all',
-                          selectedReportId === report.id
-                            ? 'border-primary bg-primary/5 shadow-xs font-medium'
-                            : 'hover:bg-muted/30',
-                        )}
-                        onClick={() => {
-                          setSelectedReportId(report.id);
-                          onSelectReport?.(report.id);
-                        }}
-                      >
-                        <div className='flex flex-wrap items-center justify-between gap-2'>
-                          <div className='flex items-center gap-2'>
-                            <Badge variant={getStatusVariant(report.status)} className='text-xs'>
-                              {t(`inspections.status.${report.status}`)}
-                            </Badge>
-                            <span className='font-mono text-xs text-muted-foreground'>#{report.id}</span>
-                          </div>
-                          <Badge variant='outline' className='text-[11px] font-normal'>
-                            {t(`inspections.trigger.${report.trigger_source}`)}
-                          </Badge>
-                        </div>
-                        <div className='min-w-0 flex-1'>
-                          <div
-                            className='line-clamp-2 text-sm font-medium leading-snug'
-                            title={
-                              localizeDiagnosticsText(report.summary) ||
-                              t('inspections.summaryFallback')
-                            }
-                          >
-                            {localizeDiagnosticsText(report.summary) ||
-                              t('inspections.summaryFallback')}
-                          </div>
+          {/* 抽屉可滚动内容区 / Sheet Scrollable Body */}
+          <ScrollArea className='flex-1 p-4'>
+            {selectedReport ? (
+              <div className='space-y-4 text-xs'>
+                {/* 诊断包任务联动卡片 / Diagnostic Bundle Follow-up Card */}
+                {selectedReport.status === 'completed' && hasFindings && (
+                  <div className='sheet-section-animate rounded-lg border bg-muted/20 p-3.5 space-y-3'>
+                    <div className='font-semibold text-foreground flex items-center justify-between'>
+                      <span>现场诊断包追踪</span>
+                      {bundleTask ? (
+                        <Badge variant={getStatusVariant(bundleTask.status)}>
+                          {getTaskStatusLabel(bundleTask.status)}
+                        </Badge>
+                      ) : null}
+                    </div>
 
-                          {/* 巡检发现严重程度分布徽章 / Findings Breakdown Badges */}
-                          <div className='flex flex-wrap items-center gap-1.5 mt-2'>
-                            {report.critical_count > 0 && (
-                              <span className='inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20'>
-                                <span className='h-1.5 w-1.5 rounded-full bg-rose-500' />
-                                {report.critical_count} 严重
-                              </span>
-                            )}
-                            {report.warning_count > 0 && (
-                              <span className='inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'>
-                                <span className='h-1.5 w-1.5 rounded-full bg-amber-500' />
-                                {report.warning_count} 警告
-                              </span>
-                            )}
-                            {report.info_count > 0 && (
-                              <span className='inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20'>
-                                <span className='h-1.5 w-1.5 rounded-full bg-blue-500' />
-                                {report.info_count} 提示
-                              </span>
-                            )}
-                            {report.finding_total === 0 && (
-                              <span className='inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 font-medium'>
-                                <Check className='h-3 w-3' />
-                                无异常
-                              </span>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className='mt-1 flex items-center justify-between text-[11px] text-muted-foreground border-t pt-2'>
-                          <span className='flex items-center gap-1'>
-                            <Clock className='h-3 w-3' />
-                            {t('inspections.lookbackValue', {
-                              minutes: report.lookback_minutes || 30,
-                            })}
-                          </span>
-                          <span>
-                            {formatDateTime(report.finished_at || report.created_at)}
-                          </span>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </ScrollArea>
-
-                <div className='flex items-center justify-between text-sm'>
-                  <div className='text-muted-foreground'>
-                    {t('errors.pageSummary', {page, totalPages})}
-                  </div>
-                  <div className='flex items-center gap-2'>
-                    <Button
-                      variant='outline'
-                      size='sm'
-                      onClick={() =>
-                        setPage((current) => Math.max(1, current - 1))
-                      }
-                      disabled={page <= 1}
-                    >
-                      {t('errors.previous')}
-                    </Button>
-                    <Button
-                      variant='outline'
-                      size='sm'
-                      onClick={() =>
-                        setPage((current) =>
-                          current >= totalPages ? current : current + 1,
-                        )
-                      }
-                      disabled={page >= totalPages}
-                    >
-                      {t('errors.next')}
-                    </Button>
-                  </div>
-                </div>
-              </>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card className='border shadow-xs flex flex-col overflow-hidden xl:h-[calc(100vh-250px)] xl:min-h-[650px]'>
-        <CardHeader className='p-4 pb-3'>
-          <CardTitle className='text-base font-semibold'>{t('inspections.detailTitle')}</CardTitle>
-        </CardHeader>
-        <CardContent className='flex flex-1 min-h-0 flex-col space-y-4 p-4 pt-0'>
-          {loadingDetail ? (
-            <div className='space-y-3'>
-              <Skeleton className='h-20 w-full' />
-              <Skeleton className='h-48 w-full' />
-              <Skeleton className='h-56 w-full' />
-            </div>
-          ) : !selectedReport ? (
-            <div className='flex flex-1 items-center justify-center rounded-lg border border-dashed p-6 text-sm text-muted-foreground'>
-              {t('inspections.selectReport')}
-            </div>
-          ) : (
-            <>
-              <div className='flex min-h-0 flex-1 flex-col space-y-3'>
-                {selectedReport.status === 'completed' && hasFindings ? (
-                  <div className='rounded-lg border bg-muted/20 p-4 space-y-3'>
                     {bundleTask ? (
-                      <>
-                        <div className='flex flex-wrap items-center gap-2'>
-                          <Badge variant={getStatusVariant(bundleTask.status)}>
-                            {getTaskStatusLabel(bundleTask.status)}
-                          </Badge>
-                          <Badge variant='outline'>
-                            {t('inspections.taskLabel', {id: bundleTask.id})}
-                          </Badge>
-                          {pollingBundle ? (
-                            <span className='flex items-center gap-1 text-xs text-muted-foreground'>
+                      <div className='space-y-2.5'>
+                        <div className='flex items-center justify-between text-muted-foreground'>
+                          <span>任务编号: #{bundleTask.id}</span>
+                          {pollingBundle && (
+                            <span className='flex items-center gap-1 text-primary text-[11px]'>
                               <Loader2 className='h-3 w-3 animate-spin' />
-                              {t('inspections.refreshingLabel')}
+                              正在抓取现场...
                             </span>
-                          ) : null}
+                          )}
                         </div>
-                        <div className='flex flex-wrap gap-2'>
+
+                        <div className='flex flex-wrap gap-2 pt-1'>
                           <Button
                             variant='outline'
                             size='sm'
+                            className='h-7 text-xs'
                             onClick={() => setExecLogDialogOpen(true)}
                           >
-                            <FileText className='mr-2 h-4 w-4' />
-                            {t('inspections.detailPage.viewExecutionLogs')}
+                            <FileText className='mr-1.5 h-3.5 w-3.5' />
+                            查看执行日志
                           </Button>
-                          {bundleTask.status === 'succeeded' ? (
+                          {bundleTask.status === 'succeeded' && (
                             <>
-                              <Button asChild variant='outline' size='sm'>
+                              <Button
+                                asChild
+                                variant='outline'
+                                size='sm'
+                                className='h-7 text-xs'
+                              >
                                 <a
-                                  href={services.diagnostics.getTaskHTMLUrl(bundleTask.id)}
+                                  href={services.diagnostics.getTaskHTMLUrl(
+                                    bundleTask.id,
+                                  )}
                                   target='_blank'
                                   rel='noopener noreferrer'
                                 >
-                                  <ExternalLink className='mr-2 h-4 w-4' />
-                                  {t('inspections.detailPage.previewReport')}
-                                </a>
-                              </Button>
-                              <Button asChild variant='outline' size='sm'>
-                                <a
-                                  href={services.diagnostics.getTaskBundleUrl(bundleTask.id)}
-                                  download
-                                >
-                                  <Download className='mr-2 h-4 w-4' />
-                                  {t('inspections.detailPage.downloadBundle')}
+                                  <ExternalLink className='mr-1.5 h-3.5 w-3.5' />
+                                  预览 HTML 报告
                                 </a>
                               </Button>
                               <Button
+                                asChild
                                 variant='outline'
                                 size='sm'
-                                onClick={handleConfirmAndCreateBundle}
-                                disabled={creatingBundle}
+                                className='h-7 text-xs'
                               >
-                                {creatingBundle ? (
-                                  <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                                ) : (
-                                  <Package className='mr-2 h-4 w-4' />
-                                )}
-                                {t('inspections.detailPage.regenerate')}
+                                <a
+                                  href={services.diagnostics.getTaskBundleUrl(
+                                    bundleTask.id,
+                                  )}
+                                  download
+                                >
+                                  <Download className='mr-1.5 h-3.5 w-3.5' />
+                                  下载诊断包
+                                </a>
                               </Button>
                             </>
-                          ) : bundleTask.status === 'failed' ? (
+                          )}
+                          {(bundleTask.status === 'succeeded' ||
+                            bundleTask.status === 'failed') && (
                             <Button
                               variant='outline'
                               size='sm'
+                              className='h-7 text-xs'
                               onClick={handleConfirmAndCreateBundle}
                               disabled={creatingBundle}
                             >
-                              {creatingBundle ? (
-                                <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                              ) : (
-                                <Package className='mr-2 h-4 w-4' />
-                              )}
-                              {t('inspections.detailPage.regenerate')}
+                              <Package className='mr-1.5 h-3.5 w-3.5' />
+                              重新抓取
                             </Button>
-                          ) : null}
+                          )}
                         </div>
-                      </>
+                      </div>
                     ) : (
-                      <>
+                      <div className='space-y-2'>
+                        <p className='text-muted-foreground leading-relaxed'>
+                          检测到巡检异常发现项，支持一键下发线程栈与 JVM 内存现场抓取任务。
+                        </p>
                         <Button
+                          size='sm'
+                          className='h-7 text-xs gap-1.5'
                           onClick={handleConfirmAndCreateBundle}
                           disabled={creatingBundle}
                         >
                           {creatingBundle ? (
-                            <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                            <Loader2 className='h-3.5 w-3.5 animate-spin' />
                           ) : (
-                            <Package className='mr-2 h-4 w-4' />
+                            <Package className='h-3.5 w-3.5' />
                           )}
-                          {t('inspections.followUp.generateBundle')}
+                          一键抓取现场诊断包
                         </Button>
-                        <p className='text-xs text-muted-foreground'>
-                          {t('inspections.followUp.generateHint')}
-                        </p>
-                      </>
+                      </div>
                     )}
                   </div>
-                ) : selectedReport.status === 'completed' && !hasFindings ? (
-                  <div className='rounded-lg border bg-muted/20 p-4'>
-                    <p className='text-sm text-muted-foreground'>
-                      {t('inspections.followUp.noFindingsDescription')}
-                    </p>
-                  </div>
-                ) : null}
-
-                <div className='text-sm font-medium'>
-                  {t('inspections.findingsTitle')}
-                </div>
-                {findings.length === 0 ? (
-                  <div className='flex flex-1 items-center justify-center rounded-lg border border-dashed p-6 text-sm text-muted-foreground'>
-                    {t('inspections.noFindings')}
-                  </div>
-                ) : (
-                  <ScrollArea className='min-h-0 flex-1 pr-3'>
-                    <div className='space-y-4'>
-                      {(['critical', 'warning', 'info'] as const).map(
-                        (severity) => {
-                          const severityItems = groupedFindings[severity];
-                          if (!severityItems || severityItems.length === 0) {
-                            return null;
-                          }
-                          return (
-                            <div key={severity} className='space-y-3'>
-                              <div className='flex items-center gap-2'>
-                                <Badge
-                                  variant='outline'
-                                  className={cn('text-xs', getFindingSeverityBadgeClass(severity))}
-                                >
-                                  {t(`inspections.severity.${severity}`)}
-                                </Badge>
-                                <span className='text-xs text-muted-foreground font-mono'>
-                                  {severityItems.length}
-                                </span>
-                              </div>
-                              {severityItems.map((finding) => (
-                                <div
-                                  key={finding.id}
-                                  className='rounded-lg border p-4 space-y-3 bg-card/60'
-                                >
-                                  <div className='flex flex-wrap items-center gap-2'>
-                                    <Badge
-                                      variant='outline'
-                                      className={cn('text-xs', getFindingSeverityBadgeClass(finding.severity))}
-                                    >
-                                      {t(
-                                        `inspections.severity.${finding.severity}`,
-                                      )}
-                                    </Badge>
-                                    <Badge variant='outline' className='text-xs'>
-                                      {finding.category}
-                                    </Badge>
-                                    <Badge variant='outline' className='text-xs font-mono'>
-                                      {finding.check_code}
-                                    </Badge>
-                                  </div>
-                                  <div className='space-y-2 text-sm'>
-                                    <div className='font-medium'>
-                                      {localizeDiagnosticsText(
-                                        finding.check_name || finding.summary,
-                                      )}
-                                    </div>
-                                    <div className='text-muted-foreground text-xs leading-relaxed'>
-                                      {localizeDiagnosticsText(finding.summary)}
-                                    </div>
-                                    {finding.evidence_summary ? (
-                                      <div className='rounded-md bg-muted/40 p-3 text-xs font-mono text-muted-foreground'>
-                                        {localizeDiagnosticsText(
-                                          finding.evidence_summary,
-                                        )}
-                                      </div>
-                                    ) : null}
-                                    {finding.recommendation ? (
-                                      <div className='rounded-md border border-primary/20 bg-primary/5 p-3 text-xs space-y-1.5'>
-                                        <div className='flex items-center justify-between font-medium text-foreground'>
-                                          <span>排查与修复建议</span>
-                                          <Button
-                                            variant='ghost'
-                                            size='sm'
-                                            className='h-6 text-xs px-1.5 gap-1 text-muted-foreground hover:text-foreground'
-                                            onClick={() => {
-                                              navigator.clipboard.writeText(
-                                                localizeDiagnosticsText(finding.recommendation) || '',
-                                              );
-                                              toast.success('排查与修复建议已复制');
-                                            }}
-                                          >
-                                            <Copy className='h-3 w-3' />
-                                            <span>复制建议</span>
-                                          </Button>
-                                        </div>
-                                        <div className='text-muted-foreground leading-relaxed'>
-                                          {localizeDiagnosticsText(
-                                            finding.recommendation,
-                                          )}
-                                        </div>
-                                      </div>
-                                    ) : null}
-                                    <div className='flex flex-wrap items-center gap-2 text-xs text-muted-foreground pt-1 border-t'>
-                                      <span>
-                                        {t('inspections.nodeLabel')}:{' '}
-                                        {formatNodeOrigin({
-                                          nodeId: finding.related_node_id,
-                                          hostId: finding.related_host_id,
-                                          hostName: finding.related_host_name,
-                                          hostIp: finding.related_host_ip,
-                                        })}
-                                      </span>
-                                      {finding.related_error_group_id > 0 ? (
-                                        <Link
-                                          href={`/diagnostics?tab=errors&cluster_id=${selectedReport.cluster_id}&group_id=${finding.related_error_group_id}&source=inspection-finding`}
-                                          className='text-primary hover:underline'
-                                        >
-                                          {t('inspections.actions.viewErrorGroup')} &rarr;
-                                        </Link>
-                                      ) : null}
-                                    </div>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          );
-                        },
-                      )}
-                    </div>
-                  </ScrollArea>
                 )}
-              </div>
-            </>
-          )}
-        </CardContent>
-      </Card>
 
-      {/* 生成确认弹窗 */}
+                {/* 发现项严重程度汇总 / Findings Breakdown Badges */}
+                <div className='sheet-section-animate flex flex-wrap items-center gap-2'>
+                  <div className='rounded-md border p-2 flex-1 min-w-[100px] text-center bg-background'>
+                    <div className='text-muted-foreground text-[11px]'>全部发现项</div>
+                    <div className='font-mono font-bold text-sm text-foreground mt-0.5'>
+                      {findings.length}
+                    </div>
+                  </div>
+                  <div className='rounded-md border p-2 flex-1 min-w-[100px] text-center bg-rose-500/5 border-rose-500/20'>
+                    <div className='text-rose-600 dark:text-rose-400 text-[11px] font-medium'>严重缺陷</div>
+                    <div className='font-mono font-bold text-sm text-rose-700 dark:text-rose-300 mt-0.5'>
+                      {selectedReport?.critical_count ?? 0}
+                    </div>
+                  </div>
+                  <div className='rounded-md border p-2 flex-1 min-w-[100px] text-center bg-amber-500/5 border-amber-500/20'>
+                    <div className='text-amber-600 dark:text-amber-400 text-[11px] font-medium'>警告预警</div>
+                    <div className='font-mono font-bold text-sm text-amber-700 dark:text-amber-300 mt-0.5'>
+                      {selectedReport?.warning_count ?? 0}
+                    </div>
+                  </div>
+                  <div className='rounded-md border p-2 flex-1 min-w-[100px] text-center bg-blue-500/5 border-blue-500/20'>
+                    <div className='text-blue-600 dark:text-blue-400 text-[11px] font-medium'>提示信息</div>
+                    <div className='font-mono font-bold text-sm text-blue-700 dark:text-blue-300 mt-0.5'>
+                      {selectedReport?.info_count ?? 0}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 发现项明细列表 / Findings Items List */}
+                <div className='sheet-section-animate space-y-3 pt-2 border-t'>
+                  <div className='font-semibold text-foreground'>
+                    {t('inspections.findingsTitle')}
+                  </div>
+
+                  {findings.length === 0 ? (
+                    <div className='rounded-lg border border-dashed p-6 text-center text-muted-foreground'>
+                      {t('inspections.noFindings')}
+                    </div>
+                  ) : (
+                    <div className='space-y-3'>
+                      {findings.map((finding) => (
+                        <div
+                          key={finding.id}
+                          className='rounded-lg border p-3.5 space-y-2.5 bg-card/60'
+                        >
+                          <div className='flex flex-wrap items-center gap-1.5'>
+                            <Badge
+                              variant='outline'
+                              className={cn(
+                                'text-xs',
+                                getFindingSeverityBadgeClass(finding.severity),
+                              )}
+                            >
+                              {t(`inspections.severity.${finding.severity}`)}
+                            </Badge>
+                            <Badge variant='outline' className='text-xs'>
+                              {finding.category}
+                            </Badge>
+                            <Badge variant='outline' className='text-xs font-mono'>
+                              {finding.check_code}
+                            </Badge>
+                          </div>
+
+                          <div className='font-medium text-foreground text-xs'>
+                            {localizeDiagnosticsText(
+                              finding.check_name || finding.summary,
+                            )}
+                          </div>
+
+                          <div className='text-muted-foreground text-xs leading-relaxed'>
+                            {localizeDiagnosticsText(finding.summary)}
+                          </div>
+
+                          {finding.evidence_summary && (
+                            <div className='rounded-md bg-muted/40 p-2.5 text-xs font-mono text-muted-foreground'>
+                              {localizeDiagnosticsText(finding.evidence_summary)}
+                            </div>
+                          )}
+
+                          {finding.recommendation && (
+                            <div className='rounded-md border border-primary/20 bg-primary/5 p-2.5 space-y-1'>
+                              <div className='flex items-center justify-between font-medium text-foreground'>
+                                <span>建议处理方案</span>
+                                <Button
+                                  variant='ghost'
+                                  size='sm'
+                                  className='h-5 text-xs px-1 text-muted-foreground hover:text-foreground'
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(
+                                      localizeDiagnosticsText(finding.recommendation) || '',
+                                    );
+                                    toast.success('排查建议已复制');
+                                  }}
+                                >
+                                  <Copy className='h-3 w-3' />
+                                </Button>
+                              </div>
+                              <p className='text-muted-foreground text-[11px] leading-relaxed'>
+                                {localizeDiagnosticsText(finding.recommendation)}
+                              </p>
+                            </div>
+                          )}
+
+                          <div className='flex flex-wrap items-center justify-between gap-2 pt-1 border-t text-[11px] text-muted-foreground'>
+                            <span>
+                              {formatNodeOrigin({
+                                nodeId: finding.related_node_id,
+                                hostId: finding.related_host_id,
+                                hostName: finding.related_host_name,
+                                hostIp: finding.related_host_ip,
+                              })}
+                            </span>
+                            {finding.related_error_group_id > 0 && (
+                              <Link
+                                href={`/diagnostics?tab=errors&cluster_id=${selectedReport.cluster_id}&group_id=${finding.related_error_group_id}&source=inspection-finding`}
+                                className='text-primary hover:underline'
+                              >
+                                {t('inspections.actions.viewErrorGroup')} &rarr;
+                              </Link>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : null}
+          </ScrollArea>
+
+          {/* 抽屉底部操作栏 / Sheet Footer Actions */}
+          {selectedReport && (
+            <div className='p-3 border-t bg-muted/20 flex flex-wrap items-center justify-between gap-2'>
+              <Button asChild variant='default' size='sm' className='h-8 text-xs font-medium'>
+                <Link href={`/diagnostics/inspections/${selectedReport.id}`}>
+                  前往完整报告页面
+                  <ArrowUpRight className='ml-1.5 h-3.5 w-3.5' />
+                </Link>
+              </Button>
+              <Button
+                variant='secondary'
+                size='sm'
+                className='h-8 text-xs'
+                onClick={handleCloseSheet}
+              >
+                关闭
+              </Button>
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
+
+      {/* 生成现场诊断包确认弹窗 */}
       <Dialog open={confirmDialogOpen} onOpenChange={setConfirmDialogOpen}>
         <DialogContent className='sm:max-w-md'>
           <DialogHeader>
@@ -1013,8 +1203,8 @@ export function DiagnosticsInspectionCenter({
               {t('inspections.detailPage.confirmBundleDescription')}
             </DialogDescription>
           </DialogHeader>
-          <div className='space-y-4 py-4'>
-            <div className='space-y-2'>
+          <div className='space-y-4 py-3 text-sm'>
+            <div className='space-y-1.5'>
               <Label htmlFor='bundle-lookback'>
                 {t('inspections.detailPage.lookbackMinutes')}
               </Label>
@@ -1031,18 +1221,19 @@ export function DiagnosticsInspectionCenter({
                   )
                 }
                 onKeyDown={handleBundleInputKeyDown}
+                className='h-8 text-xs'
               />
               <p className='text-xs text-muted-foreground'>
                 {t('inspections.detailPage.bundleLookbackHint')}
               </p>
             </div>
-            <div className='space-y-3'>
-              <div className='flex items-center justify-between rounded-lg border p-3'>
+            <div className='space-y-2.5'>
+              <div className='flex items-center justify-between rounded-lg border p-2.5'>
                 <div>
-                  <div className='font-medium'>
+                  <div className='font-medium text-xs'>
                     {t('inspections.detailPage.includeThreadDump')}
                   </div>
-                  <div className='text-xs text-muted-foreground'>
+                  <div className='text-[11px] text-muted-foreground'>
                     {t('inspections.detailPage.includeThreadDumpHint')}
                   </div>
                 </div>
@@ -1056,12 +1247,12 @@ export function DiagnosticsInspectionCenter({
                   }
                 />
               </div>
-              <div className='flex items-center justify-between rounded-lg border p-3'>
+              <div className='flex items-center justify-between rounded-lg border p-2.5'>
                 <div>
-                  <div className='font-medium'>
+                  <div className='font-medium text-xs'>
                     {t('inspections.detailPage.includeJVMDump')}
                   </div>
-                  <div className='text-xs text-muted-foreground'>
+                  <div className='text-[11px] text-muted-foreground'>
                     {t('inspections.detailPage.includeJVMDumpHint')}
                   </div>
                 </div>
@@ -1075,11 +1266,12 @@ export function DiagnosticsInspectionCenter({
                   }
                 />
               </div>
-              <div className='flex flex-wrap gap-2 text-xs'>
+              <div className='flex flex-wrap gap-1.5 text-xs pt-1'>
                 <Button
                   type='button'
                   variant={nodeScope === 'all' ? 'default' : 'outline'}
                   size='sm'
+                  className='h-7 text-xs'
                   onClick={() => setNodeScope('all')}
                 >
                   {t('inspections.detailPage.allNodes')}
@@ -1088,6 +1280,7 @@ export function DiagnosticsInspectionCenter({
                   type='button'
                   variant={nodeScope === 'related' ? 'default' : 'outline'}
                   size='sm'
+                  className='h-7 text-xs'
                   onClick={() => setNodeScope('related')}
                 >
                   {t('inspections.detailPage.relatedNodes')}
@@ -1098,17 +1291,21 @@ export function DiagnosticsInspectionCenter({
           <DialogFooter>
             <Button
               variant='outline'
+              size='sm'
+              className='h-8 text-xs'
               onClick={() => setConfirmDialogOpen(false)}
             >
               {commonT('cancel')}
             </Button>
             <Button
+              size='sm'
+              className='h-8 text-xs'
               onClick={() => void handleCreateBundle()}
               disabled={creatingBundle}
             >
-              {creatingBundle ? (
-                <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-              ) : null}
+              {creatingBundle && (
+                <Loader2 className='mr-1.5 h-3.5 w-3.5 animate-spin' />
+              )}
               {t('inspections.detailPage.confirmCreate')}
             </Button>
           </DialogFooter>
@@ -1124,13 +1321,10 @@ export function DiagnosticsInspectionCenter({
               {t('inspections.detailPage.executionLogsDescription')}
             </DialogDescription>
           </DialogHeader>
-          <div className='flex-1 overflow-y-auto space-y-3 py-2'>
+          <div className='flex-1 overflow-y-auto space-y-2 py-2 text-xs'>
             {bundleTask?.steps?.length ? (
               bundleTask.steps.map((step) => (
-                <div
-                  key={step.id}
-                  className='rounded-lg border p-3 space-y-1'
-                >
+                <div key={step.id} className='rounded-lg border p-2.5 space-y-1'>
                   <div className='flex items-center gap-2'>
                     <Badge
                       variant={getStatusVariant(step.status)}
@@ -1138,26 +1332,26 @@ export function DiagnosticsInspectionCenter({
                     >
                       {getTaskStatusLabel(step.status)}
                     </Badge>
-                    <span className='font-mono text-xs text-muted-foreground'>
+                    <span className='font-mono text-[11px] text-muted-foreground'>
                       {step.code}
                     </span>
                   </div>
-                  <div className='text-sm'>
+                  <div className='text-xs font-medium'>
                     {localizeDiagnosticsText(step.title) || step.description}
                   </div>
-                  {(step.error || step.message) ? (
-                    <div className='rounded bg-muted/60 px-2 py-1.5 text-xs text-muted-foreground'>
+                  {step.error || step.message ? (
+                    <div className='rounded bg-muted/60 px-2 py-1 text-[11px] text-muted-foreground font-mono'>
                       {step.error || step.message}
                     </div>
                   ) : null}
                 </div>
               ))
             ) : bundleTask?.failure_reason ? (
-              <div className='rounded-md border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive'>
+              <div className='rounded-md border border-destructive/20 bg-destructive/5 p-3 text-xs text-destructive'>
                 {bundleTask.failure_reason}
               </div>
             ) : (
-              <p className='text-sm text-muted-foreground'>
+              <p className='text-xs text-muted-foreground'>
                 {t('inspections.detailPage.noExecutionSteps')}
               </p>
             )}
@@ -1166,7 +1360,10 @@ export function DiagnosticsInspectionCenter({
       </Dialog>
 
       {/* 发起巡检独立弹窗 / Launch Inspection Modal Dialog */}
-      <Dialog open={startInspectionDialogOpen} onOpenChange={setStartInspectionDialogOpen}>
+      <Dialog
+        open={startInspectionDialogOpen}
+        onOpenChange={setStartInspectionDialogOpen}
+      >
         <DialogContent className='sm:max-w-md'>
           <DialogHeader>
             <DialogTitle className='flex items-center gap-2'>
@@ -1182,9 +1379,9 @@ export function DiagnosticsInspectionCenter({
             </DialogDescription>
           </DialogHeader>
 
-          <div className='space-y-4 py-3 text-sm'>
+          <div className='space-y-3.5 py-2 text-sm'>
             <div className='space-y-1.5'>
-              <Label htmlFor='dialog-inspection-lookback'>
+              <Label htmlFor='dialog-inspection-lookback' className='text-xs'>
                 {t('inspections.lookbackLabel')}
               </Label>
               <div className='flex items-center gap-2'>
@@ -1201,12 +1398,13 @@ export function DiagnosticsInspectionCenter({
                     )
                   }
                   onKeyDown={handleInspectionInputKeyDown}
-                  className='h-9'
+                  className='h-8 text-xs'
                 />
-                <span className='text-xs text-muted-foreground whitespace-nowrap'>分钟</span>
+                <span className='text-xs text-muted-foreground whitespace-nowrap'>
+                  分钟
+                </span>
               </div>
-              {/* 快捷时长选择药丸 / Quick Preset Pills */}
-              <div className='flex flex-wrap gap-1.5 pt-1'>
+              <div className='flex flex-wrap gap-1 pt-1'>
                 {[
                   {label: '15分钟', val: 15},
                   {label: '30分钟', val: 30},
@@ -1216,7 +1414,9 @@ export function DiagnosticsInspectionCenter({
                 ].map((preset) => (
                   <Badge
                     key={preset.val}
-                    variant={lookbackMinutes === preset.val ? 'default' : 'outline'}
+                    variant={
+                      lookbackMinutes === preset.val ? 'default' : 'outline'
+                    }
                     className='cursor-pointer text-xs transition-colors'
                     onClick={() => setLookbackMinutes(preset.val)}
                   >
@@ -1224,13 +1424,13 @@ export function DiagnosticsInspectionCenter({
                   </Badge>
                 ))}
               </div>
-              <p className='text-xs text-muted-foreground'>
+              <p className='text-[11px] text-muted-foreground'>
                 {t('inspections.lookbackHint')}
               </p>
             </div>
 
             <div className='space-y-1.5'>
-              <Label htmlFor='dialog-inspection-error-threshold'>
+              <Label htmlFor='dialog-inspection-error-threshold' className='text-xs'>
                 {t('inspections.errorThresholdLabel')}
               </Label>
               <Input
@@ -1246,9 +1446,9 @@ export function DiagnosticsInspectionCenter({
                   )
                 }
                 onKeyDown={handleInspectionInputKeyDown}
-                className='h-9'
+                className='h-8 text-xs'
               />
-              <p className='text-xs text-muted-foreground'>
+              <p className='text-[11px] text-muted-foreground'>
                 {t('inspections.errorThresholdHint')}
               </p>
             </div>
@@ -1257,18 +1457,22 @@ export function DiagnosticsInspectionCenter({
           <DialogFooter>
             <Button
               variant='outline'
+              size='sm'
+              className='h-8 text-xs'
               onClick={() => setStartInspectionDialogOpen(false)}
             >
               {commonT('cancel')}
             </Button>
             <Button
+              size='sm'
+              className='h-8 text-xs'
               onClick={() => void handleStartInspection()}
               disabled={!clusterId || startingInspection}
             >
               {startingInspection ? (
-                <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                <Loader2 className='mr-1.5 h-3.5 w-3.5 animate-spin' />
               ) : (
-                <Play className='mr-2 h-4 w-4 fill-current' />
+                <Play className='mr-1.5 h-3 w-3 fill-current' />
               )}
               {t('inspections.startInspection')}
             </Button>

@@ -23,7 +23,8 @@ import {usePathname, useRouter, useSearchParams} from 'next/navigation';
 import {BellRing, ShieldAlert} from 'lucide-react';
 import gsap from 'gsap';
 import {useGSAP} from '@gsap/react';
-import {Tabs, TabsContent, TabsList, TabsTrigger} from '@/components/ui/tabs';
+import {Tabs, TabsList, TabsTrigger} from '@/components/ui/tabs';
+import {WorkspaceHeader} from '@/components/common/layout';
 import {MonitoringAlertsCenter} from './MonitoringAlertsCenter';
 import {MonitoringPolicyCenter} from './MonitoringPolicyCenter';
 
@@ -78,7 +79,9 @@ export function MonitoringCenterWorkspace() {
         },
         (context) => {
           const {reduceMotion} = context.conditions as {reduceMotion: boolean};
-          if (reduceMotion) return;
+          if (reduceMotion) {
+            return;
+          }
 
           gsap.from('.workspace-header-animate', {
             opacity: 0,
@@ -117,50 +120,40 @@ export function MonitoringCenterWorkspace() {
 
   return (
     <div ref={workspaceRef} className='space-y-3.5'>
-      {/* 页面标题栏（紧凑型设计，释放可用纵向空间） / Page Header */}
-      <div className='workspace-header-animate flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between border-b pb-3'>
-        <div className='flex items-center gap-3'>
-          <div className='flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20 shadow-2xs'>
-            <BellRing className='h-4.5 w-4.5' />
-          </div>
-          <div>
-            <div className='flex items-center gap-2'>
-              <h1 className='text-xl font-bold tracking-tight text-foreground'>
-                {t('title')}
-              </h1>
-              <span className='inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground'>
-                <ShieldAlert className='h-3 w-3' />
-                Alerts & Policies
-              </span>
-            </div>
-            <p className='text-xs text-muted-foreground mt-0.5'>
-              {t('subtitle')}
-            </p>
-          </div>
-        </div>
-
-        {/* 顶部标签切换 / Top Tab Switcher */}
-        <Tabs
-          value={activeTab}
-          onValueChange={handleTabChange}
-          className='w-full sm:w-auto'
-        >
-          <TabsList className='grid w-full grid-cols-2 sm:w-[280px] bg-muted/60 p-1 h-8.5'>
-            <TabsTrigger
-              value='alerts'
-              className='data-[state=active]:bg-background data-[state=active]:shadow-xs text-xs font-medium py-1'
-            >
-              {t('tabs.alerts')}
-            </TabsTrigger>
-            <TabsTrigger
-              value='policies'
-              className='data-[state=active]:bg-background data-[state=active]:shadow-xs text-xs font-medium py-1'
-            >
-              {t('tabs.policies')}
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
-      </div>
+      {/* 页面标题栏（全局统一紧凑型设计） / Unified Compact Workspace Header */}
+      <WorkspaceHeader
+        title={t('title')}
+        subtitle={t('subtitle')}
+        icon={<BellRing className='h-4.5 w-4.5' />}
+        badge={
+          <span className='inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground'>
+            <ShieldAlert className='h-3 w-3' />
+            Alerts & Policies
+          </span>
+        }
+        actions={
+          <Tabs
+            value={activeTab}
+            onValueChange={handleTabChange}
+            className='w-full sm:w-auto'
+          >
+            <TabsList className='grid w-full grid-cols-2 sm:w-[280px] bg-muted/60 p-1 h-8.5'>
+              <TabsTrigger
+                value='alerts'
+                className='data-[state=active]:bg-background data-[state=active]:shadow-xs text-xs font-medium py-1'
+              >
+                {t('tabs.alerts')}
+              </TabsTrigger>
+              <TabsTrigger
+                value='policies'
+                className='data-[state=active]:bg-background data-[state=active]:shadow-xs text-xs font-medium py-1'
+              >
+                {t('tabs.policies')}
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+        }
+      />
 
       {/* 标签页主体内容 / Tab Contents */}
       <div>

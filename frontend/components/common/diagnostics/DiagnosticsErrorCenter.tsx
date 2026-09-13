@@ -19,7 +19,17 @@
 
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useTranslations} from 'next-intl';
-import {Check, Copy, FileCode, RefreshCw, Search, X} from 'lucide-react';
+import {
+  ArrowUpRight,
+  Check,
+  Copy,
+  Eye,
+  FileCode,
+  RefreshCw,
+  Search,
+  Server,
+  X,
+} from 'lucide-react';
 import {toast} from 'sonner';
 import {cn} from '@/lib/utils';
 import services from '@/lib/services';
@@ -29,7 +39,7 @@ import type {
 } from '@/lib/services/diagnostics';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
-import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card';
+import {Card} from '@/components/ui/card';
 import {Input} from '@/components/ui/input';
 import {ScrollArea} from '@/components/ui/scroll-area';
 import {Skeleton} from '@/components/ui/skeleton';
@@ -42,6 +52,15 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet';
+import {StatPillsBar, type StatPillItem} from '@/components/common/layout';
+import {animateTableRows, animateSheetSections} from '@/lib/animations/gsap-motion';
 
 type DiagnosticsErrorCenterProps = {
   clusterId?: number;
@@ -50,6 +69,10 @@ type DiagnosticsErrorCenterProps = {
   onSelectGroup?: (groupId: number | null) => void;
 };
 
+type ErrorHeatCategory = 'all' | 'critical' | 'warning' | 'normal';
+
+// 格式化日期时间
+// Format ISO date string into readable local date time
 function formatDateTime(value?: string | null): string {
   if (!value) {
     return '-';
@@ -59,18 +82,6 @@ function formatDateTime(value?: string | null): string {
     return value;
   }
   return parsed.toLocaleString();
-}
-
-function resolveOccurrenceVariant(
-  count: number,
-): 'default' | 'secondary' | 'outline' | 'destructive' {
-  if (count >= 10) {
-    return 'destructive';
-  }
-  if (count >= 3) {
-    return 'secondary';
-  }
-  return 'outline';
 }
 
 // 获取错误频次热度样式（高频突出警示，中频预警，低频常规）
@@ -85,6 +96,8 @@ function getOccurrenceHeatClass(count: number): string {
   return 'bg-muted text-muted-foreground border-border/80';
 }
 
+// 格式化节点来源信息
+// Format origin node topology information
 function formatNodeOrigin(options: {
   nodeId?: number | null;
   hostId?: number | null;
@@ -120,11 +133,17 @@ export function DiagnosticsErrorCenter({
 
   const [keywordInput, setKeywordInput] = useState('');
   const [keyword, setKeyword] = useState('');
+  const [heatFilter, setHeatFilter] = useState<ErrorHeatCategory>('all');
   const [page, setPage] = useState(1);
   const [loadingGroups, setLoadingGroups] = useState(true);
   const [groups, setGroups] = useState<DiagnosticsErrorGroup[]>([]);
   const [groupTotal, setGroupTotal] = useState(0);
-  const [selectedGroupId, setSelectedGroupId] = useState<number | null>(groupId ?? null);
+
+  // 抽屉中查看详情的错误组
+  // Selected error group open in slide-over sheet
+  const [selectedGroupId, setSelectedGroupId] = useState<number | null>(
+    groupId ?? null,
+  );
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [selectedGroup, setSelectedGroup] = useState<DiagnosticsErrorGroup | null>(
     null,
@@ -155,6 +174,8 @@ export function DiagnosticsErrorCenter({
     setSelectedEventId(null);
   }, []);
 
+  // 加载错误组列表
+  // Fetch error groups list
   const loadGroups = useCallback(async () => {
     const requestId = groupsRequestIdRef.current + 1;
     groupsRequestIdRef.current = requestId;
@@ -184,491 +205,620 @@ export function DiagnosticsErrorCenter({
     }
   }, [clusterId, keyword, page, t]);
 
-  const loadGroupDetail = useCallback(async (groupId: number) => {
-    const requestId = detailRequestIdRef.current + 1;
-    detailRequestIdRef.current = requestId;
-    setLoadingDetail(true);
-    try {
-      const result = await services.diagnostics.getErrorGroupDetailSafe(
-        groupId,
-        20,
-        {
-          cluster_id: clusterId,
-        },
-      );
-      if (detailRequestIdRef.current !== requestId) {
-        return;
+  // 加载错误组详情与事件样本
+  // Fetch error group detail and event evidence samples
+  const loadGroupDetail = useCallback(
+    async (targetGroupId: number) => {
+      const requestId = detailRequestIdRef.current + 1;
+      detailRequestIdRef.current = requestId;
+      setLoadingDetail(true);
+      try {
+        const result = await services.diagnostics.getErrorGroupDetailSafe(
+          targetGroupId,
+          20,
+          {
+            cluster_id: clusterId,
+          },
+        );
+        if (detailRequestIdRef.current !== requestId) {
+          return;
+        }
+        if (!result.success || !result.data) {
+          toast.error(result.error || t('errors.loadDetailError'));
+          setSelectedGroup(null);
+          setGroupEvents([]);
+          setSelectedEventId(null);
+          return;
+        }
+        setSelectedGroup(result.data.group);
+        setGroupEvents(result.data.events || []);
+        setSelectedEventId(result.data.events?.[0]?.id ?? null);
+      } finally {
+        if (detailRequestIdRef.current === requestId) {
+          setLoadingDetail(false);
+        }
       }
-      if (!result.success || !result.data) {
-        toast.error(result.error || t('errors.loadDetailError'));
-        setSelectedGroup(null);
-        setGroupEvents([]);
-        setSelectedEventId(null);
-        return;
-      }
-      setSelectedGroup(result.data.group);
-      setGroupEvents(result.data.events || []);
-      setSelectedEventId(result.data.events?.[0]?.id ?? null);
-    } finally {
-      if (detailRequestIdRef.current === requestId) {
-        setLoadingDetail(false);
-      }
-    }
-  }, [clusterId, t]);
+    },
+    [clusterId, t],
+  );
 
   useEffect(() => {
     void loadGroups();
   }, [loadGroups]);
 
+  // 表格行入场动效
+  // Stagger animation for table rows on load
   useEffect(() => {
-    if (groups.length === 0) {
-      setSelectedGroupId(null);
-      clearSelectedGroupDetail();
-      return;
+    if (!loadingGroups && groups.length > 0) {
+      animateTableRows('.data-row-animate');
     }
-    if (!selectedGroupId || !groups.some((item) => item.id === selectedGroupId)) {
-      clearSelectedGroupDetail();
-      setSelectedGroupId(groups[0].id);
-      onSelectGroup?.(groups[0].id);
-    }
-  }, [clearSelectedGroupDetail, groups, onSelectGroup, selectedGroupId]);
+  }, [groups, loadingGroups]);
 
+  // 抽屉内区块滑入动效
+  // Stagger animation for sections in detail sheet
   useEffect(() => {
-    if (!selectedGroupId || !groups.some((item) => item.id === selectedGroupId)) {
-      return;
+    if (selectedGroup && !loadingDetail) {
+      animateSheetSections('.sheet-section-animate');
     }
-    void loadGroupDetail(selectedGroupId);
-  }, [groups, loadGroupDetail, selectedGroupId]);
+  }, [loadingDetail, selectedGroup]);
 
+  // 当外部传入 groupId 时自动打开对应错误组详情
+  // Open group detail when external groupId prop is updated
   useEffect(() => {
+    if (groupId) {
+      setSelectedGroupId(groupId);
+      void loadGroupDetail(groupId);
+    }
+  }, [groupId, loadGroupDetail]);
+
+  const handleOpenGroupDetail = useCallback(
+    (targetGroup: DiagnosticsErrorGroup) => {
+      setSelectedGroupId(targetGroup.id);
+      setSelectedGroup(targetGroup);
+      onSelectGroup?.(targetGroup.id);
+      void loadGroupDetail(targetGroup.id);
+    },
+    [loadGroupDetail, onSelectGroup],
+  );
+
+  const handleCloseDrawer = useCallback(() => {
+    setSelectedGroupId(null);
     clearSelectedGroupDetail();
-  }, [clearSelectedGroupDetail, clusterId]);
+    onSelectGroup?.(null);
+  }, [clearSelectedGroupDetail, onSelectGroup]);
 
-  useEffect(() => {
-    setSelectedGroupId(groupId ?? null);
-    if (!groupId) {
-      clearSelectedGroupDetail();
+  // 计算当前列表内的严重程度统计
+  // Compute error severity and occurrence statistics
+  const stats = useMemo(() => {
+    let critical = 0;
+    let warning = 0;
+    let normal = 0;
+    groups.forEach((g) => {
+      if (g.occurrence_count >= 10) {
+        critical += 1;
+      } else if (g.occurrence_count >= 3) {
+        warning += 1;
+      } else {
+        normal += 1;
+      }
+    });
+    return {
+      total: groupTotal,
+      critical,
+      warning,
+      normal,
+    };
+  }, [groupTotal, groups]);
+
+  // 前端按频次分类筛选
+  // Filter groups based on selected occurrence heat level
+  const displayedGroups = useMemo(() => {
+    if (heatFilter === 'critical') {
+      return groups.filter((g) => g.occurrence_count >= 10);
     }
-  }, [clearSelectedGroupDetail, groupId]);
+    if (heatFilter === 'warning') {
+      return groups.filter(
+        (g) => g.occurrence_count >= 3 && g.occurrence_count < 10,
+      );
+    }
+    if (heatFilter === 'normal') {
+      return groups.filter((g) => g.occurrence_count < 3);
+    }
+    return groups;
+  }, [groups, heatFilter]);
+
+  const pillItems: StatPillItem[] = useMemo(
+    () => [
+      {
+        key: 'all',
+        label: '全部错误组',
+        count: stats.total,
+      },
+      {
+        key: 'critical',
+        label: '高频严重 (≥10次)',
+        count: stats.critical,
+        variant: 'danger',
+        pulse: stats.critical > 0,
+      },
+      {
+        key: 'warning',
+        label: '中频预警 (3-9次)',
+        count: stats.warning,
+        variant: 'warning',
+      },
+      {
+        key: 'normal',
+        label: '低频偶发 (<3次)',
+        count: stats.normal,
+        variant: 'default',
+      },
+    ],
+    [stats],
+  );
 
   const selectedEvent = useMemo(
-    () => groupEvents.find((item) => item.id === selectedEventId) ?? groupEvents[0],
+    () =>
+      groupEvents.find((item) => item.id === selectedEventId) ??
+      groupEvents[0],
     [groupEvents, selectedEventId],
   );
 
   const totalPages = Math.max(1, Math.ceil(groupTotal / 20));
 
   return (
-    <div className='grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(360px,0.85fr)]'>
-      <div className='space-y-4'>
-        <Card>
-          <CardHeader className='space-y-3'>
-            <div className='flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between'>
-              <div>
-                <CardTitle>{t('errors.title')}</CardTitle>
-                <div className='mt-1 text-sm text-muted-foreground'>
-                  {clusterId
-                    ? t('errors.clusterScopedHint', {
-                        name: clusterName || `#${clusterId}`,
-                      })
-                    : t('errors.globalHint')}
-                </div>
-              </div>
-              <div className='flex flex-wrap items-center gap-2'>
-                <Badge variant='outline'>
-                  {t('errors.matchedGroups', {count: groupTotal})}
-                </Badge>
-                <Button variant='outline' onClick={() => void loadGroups()}>
-                  <RefreshCw className='mr-2 h-4 w-4' />
-                  {commonT('refresh')}
-                </Button>
-              </div>
-            </div>
-            <form
-              className='flex flex-col gap-2 sm:flex-row'
-              onSubmit={(event) => {
-                event.preventDefault();
-                setPage(1);
-                setKeyword(keywordInput.trim());
-              }}
-            >
-              <div className='relative flex-1 min-w-[220px] max-w-xl'>
-                <Search className='absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground' />
-                <Input
-                  value={keywordInput}
-                  onChange={(event) => setKeywordInput(event.target.value)}
-                  placeholder={t('errors.keywordPlaceholder')}
-                  className='pl-9 pr-8 h-9'
+    <div className='space-y-3.5'>
+      {/* 统一全宽卡片（彻底消除左右不对称问题，释放完整可用空间） */}
+      {/* Unified full-width card container (eliminates asymmetry, maximizes horizontal space) */}
+      <Card className='border shadow-xs overflow-hidden'>
+        {/* 顶部胶囊栏与搜索筛选工具区 / Top Stat Pills & Filter Toolbar */}
+        <div className='p-3 border-b bg-card/60 space-y-2.5'>
+          {/* 第一行：状态胶囊分段与刷新操作 */}
+          {/* Row 1: Stat pills segments and refresh button */}
+          <StatPillsBar
+            items={pillItems}
+            activeKey={heatFilter}
+            onChange={(key) => setHeatFilter(key as ErrorHeatCategory)}
+            actions={
+              <Button
+                variant='outline'
+                size='sm'
+                onClick={() => void loadGroups()}
+                disabled={loadingGroups}
+                className='h-7 px-2.5 text-xs'
+              >
+                <RefreshCw
+                  className={cn(
+                    'mr-1.5 h-3 w-3',
+                    loadingGroups && 'animate-spin',
+                  )}
                 />
-                {keywordInput ? (
-                  <button
-                    type='button'
-                    onClick={() => {
-                      setKeywordInput('');
-                      setKeyword('');
-                      setPage(1);
-                    }}
-                    className='absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground'
-                  >
-                    <X className='h-3.5 w-3.5' />
-                  </button>
-                ) : null}
-              </div>
-              <Button type='submit' size='sm' className='h-9'>
-                {t('errors.search')}
+                {commonT('refresh')}
               </Button>
-            </form>
-          </CardHeader>
-        </Card>
+            }
+          />
 
-        <Card className='border shadow-xs'>
-          <CardHeader>
-            <CardTitle>{t('errors.groupListTitle')}</CardTitle>
-          </CardHeader>
-          <CardContent className='space-y-4'>
-            {loadingGroups ? (
-              <div className='space-y-3'>
-                <Skeleton className='h-10 w-full' />
-                <Skeleton className='h-10 w-full' />
-                <Skeleton className='h-10 w-full' />
-              </div>
-            ) : groups.length === 0 ? (
-              <div className='rounded-lg border border-dashed p-6 text-sm text-muted-foreground'>
-                {t('errors.empty')}
-              </div>
-            ) : (
-              <>
-                <Table className='table-fixed'>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className='w-[38%]'>
-                        {t('errors.columns.group')}
-                      </TableHead>
-                      <TableHead className='w-[19%]'>
-                        {t('errors.columns.exception')}
-                      </TableHead>
-                      <TableHead className='w-[20%]'>
-                        {t('errors.columns.node')}
-                      </TableHead>
-                      <TableHead className='w-[96px] whitespace-nowrap'>
-                        {t('errors.columns.occurrences')}
-                      </TableHead>
-                      <TableHead className='w-[180px] whitespace-nowrap'>
-                        {t('errors.columns.lastSeen')}
-                      </TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {groups.map((group) => (
-                      <TableRow
-                        key={group.id}
+          {/* 第二行：高密度关键字搜索 */}
+          {/* Row 2: High density keyword search */}
+          <form
+            className='flex items-center gap-2 pt-0.5'
+            onSubmit={(event) => {
+              event.preventDefault();
+              setPage(1);
+              setKeyword(keywordInput.trim());
+            }}
+          >
+            <div className='relative flex-1 min-w-[220px]'>
+              <Search className='absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground' />
+              <Input
+                value={keywordInput}
+                onChange={(event) => setKeywordInput(event.target.value)}
+                placeholder={t('errors.keywordPlaceholder')}
+                className='pl-8 pr-7 h-8 text-xs bg-background'
+              />
+              {keywordInput ? (
+                <button
+                  type='button'
+                  onClick={() => {
+                    setKeywordInput('');
+                    setKeyword('');
+                    setPage(1);
+                  }}
+                  className='absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground'
+                >
+                  <X className='h-3.5 w-3.5' />
+                </button>
+              ) : null}
+            </div>
+            <Button type='submit' size='sm' className='h-8 px-3 text-xs'>
+              {t('errors.search')}
+            </Button>
+          </form>
+        </div>
+
+        {/* 全宽对称高密度数据表格 / Full-width Symmetric High-Density Data Table */}
+        <div className='overflow-x-auto'>
+          <Table>
+            <TableHeader>
+              <TableRow className='bg-muted/30 hover:bg-muted/30 h-8'>
+                <TableHead className='min-w-[280px] py-1.5 px-3 text-xs'>
+                  {t('errors.columns.group')}
+                </TableHead>
+                <TableHead className='w-[220px] py-1.5 px-3 text-xs'>
+                  {t('errors.columns.exception')}
+                </TableHead>
+                <TableHead className='w-[190px] py-1.5 px-3 text-xs'>
+                  {t('errors.columns.node')}
+                </TableHead>
+                <TableHead className='w-[110px] py-1.5 px-3 text-xs'>
+                  {t('errors.columns.occurrences')}
+                </TableHead>
+                <TableHead className='w-[160px] py-1.5 px-3 text-xs whitespace-nowrap'>
+                  {t('errors.columns.lastSeen')}
+                </TableHead>
+                <TableHead className='w-[90px] py-1.5 px-3 text-xs text-right'>
+                  {commonT('actions')}
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {loadingGroups ? (
+                <TableRow>
+                  <TableCell
+                    colSpan={6}
+                    className='h-36 text-center text-muted-foreground'
+                  >
+                    <div className='flex flex-col items-center justify-center gap-2'>
+                      <RefreshCw className='h-5 w-5 animate-spin text-primary' />
+                      <span className='text-xs'>{commonT('loading')}</span>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ) : displayedGroups.length === 0 ? (
+                <TableRow>
+                  <TableCell
+                    colSpan={6}
+                    className='h-36 text-center text-muted-foreground text-xs'
+                  >
+                    {t('errors.empty')}
+                  </TableCell>
+                </TableRow>
+              ) : (
+                displayedGroups.map((group) => (
+                  <TableRow
+                    key={group.id}
+                    className={cn(
+                      'data-row-animate cursor-pointer transition-colors hover:bg-muted/40 h-10',
+                      selectedGroupId === group.id &&
+                        'bg-primary/5 font-medium border-l-2 border-l-primary',
+                    )}
+                    onClick={() => handleOpenGroupDetail(group)}
+                  >
+                    {/* 错误标题与摘要 */}
+                    <TableCell className='py-2 px-3'>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div className='overflow-hidden max-w-[420px]'>
+                            <div className='truncate font-medium text-xs text-foreground'>
+                              {group.title || '-'}
+                            </div>
+                            <div className='truncate text-[11px] text-muted-foreground font-mono mt-0.5'>
+                              {group.sample_message || group.fingerprint}
+                            </div>
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent
+                          side='top'
+                          align='start'
+                          className='max-w-[720px] break-all text-xs'
+                        >
+                          <div className='space-y-1'>
+                            <div className='font-semibold'>{group.title || '-'}</div>
+                            <div className='text-muted-foreground font-mono text-[11px]'>
+                              {group.sample_message || group.fingerprint}
+                            </div>
+                          </div>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TableCell>
+
+                    {/* 异常类名 */}
+                    <TableCell className='py-2 px-3 text-xs font-mono text-muted-foreground'>
+                      <div
+                        className='truncate max-w-[210px]'
+                        title={group.exception_class || '-'}
+                      >
+                        {group.exception_class || '-'}
+                      </div>
+                    </TableCell>
+
+                    {/* 来源节点 */}
+                    <TableCell className='py-2 px-3 text-xs text-muted-foreground'>
+                      <div
+                        className='truncate max-w-[180px]'
+                        title={formatNodeOrigin({
+                          nodeId: group.last_node_id,
+                          hostId: group.last_host_id,
+                          hostName: group.last_host_name,
+                          hostIp: group.last_host_ip,
+                        })}
+                      >
+                        {formatNodeOrigin({
+                          nodeId: group.last_node_id,
+                          hostId: group.last_host_id,
+                          hostName: group.last_host_name,
+                          hostIp: group.last_host_ip,
+                        })}
+                      </div>
+                    </TableCell>
+
+                    {/* 发生频次 */}
+                    <TableCell className='py-2 px-3 whitespace-nowrap'>
+                      <Badge
+                        variant='outline'
                         className={cn(
-                          'cursor-pointer transition-colors',
-                          selectedGroupId === group.id
-                            ? 'bg-primary/5 font-medium border-l-2 border-l-primary'
-                            : 'hover:bg-muted/30',
+                          'text-xs font-mono px-2 py-0.5',
+                          getOccurrenceHeatClass(group.occurrence_count),
                         )}
-                        onClick={() => {
-                          if (selectedGroupId !== group.id) {
-                            clearSelectedGroupDetail();
-                          }
-                          setSelectedGroupId(group.id);
-                          onSelectGroup?.(group.id);
+                      >
+                        {group.occurrence_count} 次
+                      </Badge>
+                    </TableCell>
+
+                    {/* 最近出现时间 */}
+                    <TableCell className='py-2 px-3 whitespace-nowrap text-xs text-muted-foreground font-mono'>
+                      {formatDateTime(group.last_seen_at)}
+                    </TableCell>
+
+                    {/* 操作按钮 */}
+                    <TableCell className='py-2 px-3 text-right whitespace-nowrap'>
+                      <Button
+                        variant='ghost'
+                        size='sm'
+                        className='h-6.5 px-2 text-xs text-primary hover:text-primary'
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleOpenGroupDetail(group);
                         }}
                       >
-                        <TableCell className='w-[38%] max-w-0'>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <div className='overflow-hidden'>
-                                <div
-                                  className='truncate font-medium'
-                                  title={group.title || '-'}
-                                >
-                                  {group.title || '-'}
-                                </div>
-                                <div
-                                  className='mt-1 truncate text-xs text-muted-foreground'
-                                  title={
-                                    group.sample_message || group.fingerprint
-                                  }
-                                >
-                                  {group.sample_message || group.fingerprint}
-                                </div>
-                              </div>
-                            </TooltipTrigger>
-                            <TooltipContent
-                              side='top'
-                              align='start'
-                              className='max-w-[760px] break-all'
-                            >
-                              <div className='space-y-1 text-xs'>
-                                <div>{group.title || '-'}</div>
-                                <div className='text-muted-foreground'>
-                                  {group.sample_message || group.fingerprint}
-                                </div>
-                              </div>
-                            </TooltipContent>
-                          </Tooltip>
-                        </TableCell>
-                        <TableCell className='w-[19%] max-w-0 text-sm text-muted-foreground'>
-                          <div
-                            className='truncate'
-                            title={group.exception_class || '-'}
-                          >
-                            {group.exception_class || '-'}
-                          </div>
-                        </TableCell>
-                        <TableCell className='max-w-0 text-sm text-muted-foreground'>
-                          <div
-                            className='truncate'
-                            title={formatNodeOrigin({
-                              nodeId: group.last_node_id,
-                              hostId: group.last_host_id,
-                              hostName: group.last_host_name,
-                              hostIp: group.last_host_ip,
-                            })}
-                          >
-                            {formatNodeOrigin({
-                              nodeId: group.last_node_id,
-                              hostId: group.last_host_id,
-                              hostName: group.last_host_name,
-                              hostIp: group.last_host_ip,
-                            })}
-                          </div>
-                        </TableCell>
-                        <TableCell className='whitespace-nowrap'>
-                          <Badge
-                            variant='outline'
-                            className={cn('text-xs font-mono', getOccurrenceHeatClass(group.occurrence_count))}
-                          >
-                            {group.occurrence_count}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className='whitespace-nowrap text-sm text-muted-foreground'>
-                          {formatDateTime(group.last_seen_at)}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-                <div className='flex items-center justify-between text-sm'>
-                  <div className='text-muted-foreground'>
-                    {t('errors.pageSummary', {
-                      page,
-                      totalPages,
-                    })}
-                  </div>
-                  <div className='flex items-center gap-2'>
-                    <Button
-                      variant='outline'
-                      size='sm'
-                      onClick={() => setPage((current) => Math.max(1, current - 1))}
-                      disabled={page <= 1}
-                    >
-                      {t('errors.previous')}
-                    </Button>
-                    <Button
-                      variant='outline'
-                      size='sm'
-                      onClick={() =>
-                        setPage((current) =>
-                          current >= totalPages ? current : current + 1,
-                        )
-                      }
-                      disabled={page >= totalPages}
-                    >
-                      {t('errors.next')}
-                    </Button>
-                  </div>
-                </div>
-              </>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+                        <Eye className='mr-1 h-3.5 w-3.5' />
+                        详情
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
 
-      <Card className='border shadow-xs flex flex-col'>
-        <CardHeader>
-          <CardTitle>{t('errors.detailTitle')}</CardTitle>
-        </CardHeader>
-        <CardContent className='space-y-4 flex-1'>
-          {loadingDetail ? (
-            <div className='space-y-3'>
-              <Skeleton className='h-12 w-full' />
-              <Skeleton className='h-32 w-full' />
-              <Skeleton className='h-56 w-full' />
+        {/* 底部分页控制器 / Pagination Footer */}
+        <div className='flex items-center justify-between p-3 border-t bg-muted/10 text-xs text-muted-foreground'>
+          <div>
+            {t('errors.pageSummary', {
+              page,
+              totalPages,
+            })}
+          </div>
+          <div className='flex items-center gap-1.5'>
+            <Button
+              variant='outline'
+              size='sm'
+              className='h-6.5 px-2 text-xs'
+              onClick={() => setPage((current) => Math.max(1, current - 1))}
+              disabled={page <= 1}
+            >
+              {t('errors.previous')}
+            </Button>
+            <Button
+              variant='outline'
+              size='sm'
+              className='h-6.5 px-2 text-xs'
+              onClick={() =>
+                setPage((current) =>
+                  current >= totalPages ? current : current + 1,
+                )
+              }
+              disabled={page >= totalPages}
+            >
+              {t('errors.next')}
+            </Button>
+          </div>
+        </div>
+      </Card>
+
+      {/* 侧边滑出式深度排查抽屉（告警中心同款架构，消除左右割裂） */}
+      {/* Slide-over Sheet for Deep Error Diagnostics (aligned with Alert Center design) */}
+      <Sheet
+        open={Boolean(selectedGroupId && selectedGroup)}
+        onOpenChange={(open) => {
+          if (!open) {
+            handleCloseDrawer();
+          }
+        }}
+      >
+        <SheetContent
+          side='right'
+          className='w-full sm:max-w-2xl p-0 flex flex-col overflow-hidden bg-background'
+        >
+          {/* 抽屉头部 / Sheet Header */}
+          <SheetHeader className='p-4 pb-3 border-b bg-muted/20'>
+            <div className='flex items-center gap-2 flex-wrap'>
+              <Badge
+                variant='outline'
+                className={cn(
+                  'text-xs font-mono',
+                  selectedGroup
+                    ? getOccurrenceHeatClass(selectedGroup.occurrence_count)
+                    : '',
+                )}
+              >
+                {t('errors.columns.occurrences')}:{' '}
+                {selectedGroup?.occurrence_count ?? 0}
+              </Badge>
+              {selectedGroup?.last_seen_at && (
+                <Badge variant='outline' className='text-xs'>
+                  {t('errors.columns.lastSeen')}:{' '}
+                  {formatDateTime(selectedGroup.last_seen_at)}
+                </Badge>
+              )}
             </div>
-          ) : !selectedGroup ? (
-            <div className='rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground'>
-              {t('errors.selectGroup')}
-            </div>
-          ) : (
-            <>
-              <div className='space-y-3 rounded-lg border p-4 bg-muted/10'>
-                <div className='flex flex-wrap items-center gap-2'>
-                  <Badge
-                    variant='outline'
-                    className={cn('text-xs font-mono', getOccurrenceHeatClass(selectedGroup.occurrence_count))}
-                  >
-                    {t('errors.columns.occurrences')}: {selectedGroup.occurrence_count}
-                  </Badge>
-                  <Badge variant='outline' className='text-xs'>
-                    {t('errors.columns.lastSeen')}: {formatDateTime(selectedGroup.last_seen_at)}
-                  </Badge>
-                  <Badge variant='outline' className='text-xs'>
-                    {t('errors.columns.node')}: {formatNodeOrigin({
-                      nodeId: selectedGroup.last_node_id,
-                      hostId: selectedGroup.last_host_id,
-                      hostName: selectedGroup.last_host_name,
-                      hostIp: selectedGroup.last_host_ip,
-                    })}
-                  </Badge>
-                </div>
-                <div>
-                  <div className='break-all text-sm font-semibold'>
-                    {selectedGroup.title || '-'}
-                  </div>
-                  <div className='mt-1 text-xs font-mono text-muted-foreground break-all'>
-                    {selectedGroup.exception_class || selectedGroup.fingerprint}
-                  </div>
-                </div>
-                <div className='rounded-md bg-muted/40 p-3 text-xs leading-relaxed text-muted-foreground font-mono'>
-                  {selectedGroup.sample_message || t('errors.noSampleMessage')}
-                </div>
-              </div>
+            <SheetTitle className='text-base font-bold tracking-tight text-foreground break-all mt-1'>
+              {selectedGroup?.title || t('errors.detailTitle')}
+            </SheetTitle>
+            <SheetDescription className='text-xs font-mono text-muted-foreground break-all'>
+              {selectedGroup?.exception_class || selectedGroup?.fingerprint}
+            </SheetDescription>
+          </SheetHeader>
 
+          {/* 抽屉滚动内容区 / Sheet Scrollable Body */}
+          <ScrollArea className='flex-1 p-4'>
+            {loadingDetail ? (
               <div className='space-y-3'>
-                <div className='flex items-center justify-between'>
-                  <div className='text-sm font-medium'>
-                    {t('errors.recentEventsTitle')}
-                  </div>
-                  <Badge variant='secondary' className='text-xs'>
-                    {groupEvents.length} 条记录
-                  </Badge>
-                </div>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>{t('errors.columns.time')}</TableHead>
-                      <TableHead>{t('errors.columns.node')}</TableHead>
-                      <TableHead>{t('errors.columns.job')}</TableHead>
-                      <TableHead>{t('errors.columns.source')}</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {groupEvents.length === 0 ? (
-                      <TableRow>
-                        <TableCell
-                          colSpan={4}
-                          className='text-center text-sm text-muted-foreground'
-                        >
-                          {t('errors.noEvents')}
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      groupEvents.map((event) => (
-                        <TableRow
-                          key={event.id}
-                          className={cn(
-                            'cursor-pointer transition-colors',
-                            selectedEventId === event.id
-                              ? 'bg-primary/5 font-medium border-l-2 border-l-primary'
-                              : 'hover:bg-muted/30',
-                          )}
-                          onClick={() => setSelectedEventId(event.id)}
-                        >
-                          <TableCell className='text-xs text-muted-foreground whitespace-nowrap'>
-                            {formatDateTime(event.occurred_at)}
-                          </TableCell>
-                          <TableCell className='max-w-[180px] text-xs text-muted-foreground'>
-                            <div
-                              className='truncate'
-                              title={formatNodeOrigin({
-                                nodeId: event.node_id,
-                                hostId: event.host_id,
-                                hostName: event.host_name,
-                                hostIp: event.host_ip,
-                                role: event.role,
-                              })}
-                            >
-                              {formatNodeOrigin({
-                                nodeId: event.node_id,
-                                hostId: event.host_id,
-                                hostName: event.host_name,
-                                hostIp: event.host_ip,
-                                role: event.role,
-                              })}
-                            </div>
-                          </TableCell>
-                          <TableCell className='text-xs font-mono'>{event.job_id || '-'}</TableCell>
-                          <TableCell className='max-w-[180px] text-xs text-muted-foreground'>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <div className='truncate font-mono'>{event.source_file}</div>
-                              </TooltipTrigger>
-                              <TooltipContent
-                                side='top'
-                                align='start'
-                                className='max-w-[720px] break-all'
-                              >
-                                {event.source_file}
-                              </TooltipContent>
-                            </Tooltip>
-                          </TableCell>
-                        </TableRow>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
+                <Skeleton className='h-16 w-full' />
+                <Skeleton className='h-36 w-full' />
+                <Skeleton className='h-64 w-full' />
               </div>
-
-              <div className='space-y-3'>
-                <div className='rounded-lg border p-3.5 text-xs bg-muted/15 space-y-2'>
-                  <div className='font-medium text-foreground'>{t('errors.selectedEventTitle')}</div>
+            ) : selectedGroup ? (
+              <div className='space-y-4 text-xs'>
+                {/* 拓扑上下文卡片 / Topology Context */}
+                <div className='sheet-section-animate rounded-lg border p-3.5 space-y-2 bg-muted/15'>
+                  <div className='font-semibold text-foreground flex items-center gap-1.5'>
+                    <Server className='h-3.5 w-3.5 text-primary' />
+                    <span>受影响拓扑与来源</span>
+                  </div>
                   <div className='grid gap-1.5 text-muted-foreground sm:grid-cols-2'>
                     <div>
-                      <span className='text-foreground font-medium'>{t('errors.columns.node')}: </span>
+                      <span className='text-foreground font-medium'>
+                        {t('errors.columns.node')}:{' '}
+                      </span>
                       {formatNodeOrigin({
-                        nodeId: selectedEvent?.node_id,
-                        hostId: selectedEvent?.host_id,
-                        hostName: selectedEvent?.host_name,
-                        hostIp: selectedEvent?.host_ip,
-                        role: selectedEvent?.role,
+                        nodeId: selectedGroup.last_node_id,
+                        hostId: selectedGroup.last_host_id,
+                        hostName: selectedGroup.last_host_name,
+                        hostIp: selectedGroup.last_host_ip,
                       })}
                     </div>
                     <div>
-                      <span className='text-foreground font-medium'>Agent: </span>
-                      <span className='font-mono'>{selectedEvent?.agent_id || '-'}</span>
-                    </div>
-                    <div>
-                      <span className='text-foreground font-medium'>Job: </span>
-                      <span className='font-mono'>{selectedEvent?.job_id || '-'}</span>
-                    </div>
-                    <div>
-                      <span className='text-foreground font-medium'>{t('errors.columns.source')}: </span>
-                      <span className='font-mono'>{selectedEvent?.source_file || '-'}</span>
+                      <span className='text-foreground font-medium'>
+                        所属集群:{' '}
+                      </span>
+                      <span>{clusterName || (clusterId ? `#${clusterId}` : '全局')}</span>
                     </div>
                   </div>
-                  {selectedEvent?.message ? (
-                    <div className='mt-2 rounded bg-muted/40 p-2 text-muted-foreground font-mono text-xs'>
-                      {selectedEvent.message}
-                    </div>
-                  ) : null}
                 </div>
 
-                {/* 异常堆栈与证据监控阅读器 / Stack Trace & Evidence Reader */}
-                <div className='space-y-2'>
+                {/* 错误摘要与样本信息 / Sample Message */}
+                <div className='sheet-section-animate space-y-1.5'>
+                  <div className='font-semibold text-foreground flex items-center justify-between'>
+                    <span>错误摘要信息</span>
+                    <Button
+                      variant='ghost'
+                      size='sm'
+                      className='h-6 text-xs px-1.5 text-muted-foreground hover:text-foreground'
+                      onClick={() =>
+                        handleCopyEvidence(
+                          selectedGroup.sample_message || selectedGroup.title,
+                        )
+                      }
+                    >
+                      <Copy className='mr-1 h-3 w-3' />
+                      复制摘要
+                    </Button>
+                  </div>
+                  <div className='rounded-md bg-muted/40 p-3 text-xs leading-relaxed text-foreground font-mono break-all'>
+                    {selectedGroup.sample_message || t('errors.noSampleMessage')}
+                  </div>
+                </div>
+
+                {/* 近期事件样本列表 / Recent Events Samples */}
+                <div className='sheet-section-animate space-y-2 pt-1 border-t'>
                   <div className='flex items-center justify-between'>
-                    <div className='text-sm font-medium flex items-center gap-2'>
-                      <FileCode className='h-4 w-4 text-muted-foreground' />
+                    <div className='font-semibold text-foreground'>
+                      {t('errors.recentEventsTitle')}
+                    </div>
+                    <Badge variant='secondary' className='text-xs'>
+                      {groupEvents.length} 条记录
+                    </Badge>
+                  </div>
+                  <div className='rounded-lg border overflow-hidden'>
+                    <Table>
+                      <TableHeader>
+                        <TableRow className='bg-muted/20 h-7 text-xs'>
+                          <TableHead className='py-1 px-2.5'>
+                            {t('errors.columns.time')}
+                          </TableHead>
+                          <TableHead className='py-1 px-2.5'>
+                            {t('errors.columns.node')}
+                          </TableHead>
+                          <TableHead className='py-1 px-2.5'>Job</TableHead>
+                          <TableHead className='py-1 px-2.5'>
+                            {t('errors.columns.source')}
+                          </TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {groupEvents.length === 0 ? (
+                          <TableRow>
+                            <TableCell
+                              colSpan={4}
+                              className='text-center py-4 text-muted-foreground text-xs'
+                            >
+                              {t('errors.noEvents')}
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          groupEvents.map((event) => (
+                            <TableRow
+                              key={event.id}
+                              className={cn(
+                                'cursor-pointer text-xs transition-colors hover:bg-muted/40 h-8',
+                                selectedEventId === event.id &&
+                                  'bg-primary/5 font-medium border-l-2 border-l-primary',
+                              )}
+                              onClick={() => setSelectedEventId(event.id)}
+                            >
+                              <TableCell className='py-1.5 px-2.5 whitespace-nowrap text-muted-foreground font-mono'>
+                                {formatDateTime(event.occurred_at)}
+                              </TableCell>
+                              <TableCell className='py-1.5 px-2.5 max-w-[140px] truncate text-muted-foreground'>
+                                {formatNodeOrigin({
+                                  nodeId: event.node_id,
+                                  hostId: event.host_id,
+                                  hostName: event.host_name,
+                                  hostIp: event.host_ip,
+                                  role: event.role,
+                                })}
+                              </TableCell>
+                              <TableCell className='py-1.5 px-2.5 font-mono text-foreground'>
+                                {event.job_id || '-'}
+                              </TableCell>
+                              <TableCell className='py-1.5 px-2.5 max-w-[140px] truncate font-mono text-muted-foreground'>
+                                {event.source_file || '-'}
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+
+                {/* 选中事件详情与异常堆栈阅读器 / Exception Evidence Viewer */}
+                <div className='sheet-section-animate space-y-2 pt-1 border-t'>
+                  <div className='flex items-center justify-between'>
+                    <div className='font-semibold text-foreground flex items-center gap-1.5'>
+                      <FileCode className='h-4 w-4 text-primary' />
                       <span>{t('errors.evidenceTitle')}</span>
                     </div>
-                    {selectedEvent?.evidence ? (
+                    {selectedEvent?.evidence && (
                       <Button
                         variant='outline'
                         size='sm'
-                        className='h-7 text-xs gap-1.5'
-                        onClick={() => handleCopyEvidence(selectedEvent.evidence)}
+                        className='h-7 text-xs gap-1'
+                        onClick={() =>
+                          handleCopyEvidence(selectedEvent.evidence)
+                        }
                       >
                         {copiedEvidence ? (
                           <>
@@ -678,29 +828,66 @@ export function DiagnosticsErrorCenter({
                         ) : (
                           <>
                             <Copy className='h-3.5 w-3.5' />
-                            <span>复制堆栈</span>
+                            <span>复制完整堆栈</span>
                           </>
                         )}
                       </Button>
-                    ) : null}
+                    )}
                   </div>
-                  <div className='relative rounded-lg border border-zinc-800 bg-zinc-950 dark:bg-zinc-900/90 text-zinc-200 overflow-hidden shadow-inner'>
-                    <div className='flex items-center justify-between px-3.5 py-2 border-b border-zinc-800/80 bg-zinc-900/60 text-[11px] text-zinc-400 font-mono'>
-                      <span>Stack Trace / Error Evidence</span>
-                      <span className='truncate max-w-[240px]'>{selectedEvent?.source_file || 'Standard Output'}</span>
+
+                  <div className='relative rounded-lg border border-zinc-800 bg-zinc-950 dark:bg-zinc-900/95 text-zinc-200 overflow-hidden shadow-inner'>
+                    <div className='flex items-center justify-between px-3 py-1.5 border-b border-zinc-800/80 bg-zinc-900/70 text-[11px] text-zinc-400 font-mono'>
+                      <span>Stack Trace / Exception Snapshot</span>
+                      <span className='truncate max-w-[260px]'>
+                        {selectedEvent?.source_file || 'Standard Error Stream'}
+                      </span>
                     </div>
-                    <ScrollArea className='h-[360px]'>
-                      <pre className='p-4 font-mono text-xs leading-relaxed text-zinc-300 whitespace-pre-wrap break-words select-text'>
+                    <ScrollArea className='h-[260px]'>
+                      <pre className='p-3.5 font-mono text-[11px] leading-relaxed text-zinc-300 whitespace-pre-wrap break-words select-text'>
                         {selectedEvent?.evidence || t('errors.noEvidence')}
                       </pre>
                     </ScrollArea>
                   </div>
                 </div>
               </div>
-            </>
+            ) : null}
+          </ScrollArea>
+
+          {/* 抽屉底部操作栏 / Sheet Sticky Footer */}
+          {selectedGroup && (
+            <div className='p-3 border-t bg-muted/20 flex flex-wrap items-center justify-between gap-2'>
+              <div className='flex items-center gap-2'>
+                {clusterId ? (
+                  <Button
+                    asChild
+                    variant='outline'
+                    size='sm'
+                    className='h-8 text-xs gap-1'
+                  >
+                    <a
+                      href={`/clusters/${clusterId}`}
+                      target='_blank'
+                      rel='noreferrer'
+                    >
+                      <ArrowUpRight className='h-3.5 w-3.5' />
+                      前往受影响集群
+                    </a>
+                  </Button>
+                ) : null}
+              </div>
+
+              <Button
+                variant='secondary'
+                size='sm'
+                className='h-8 text-xs'
+                onClick={handleCloseDrawer}
+              >
+                关闭
+              </Button>
+            </div>
           )}
-        </CardContent>
-      </Card>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

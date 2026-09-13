@@ -126,7 +126,7 @@ export function StatPillsBar({
               type='button'
               onClick={() => onChange(item.key)}
               className={cn(
-                'stat-pill-item relative inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs border transition-all cursor-pointer select-none',
+                'stat-pill-item relative inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs border transition-all duration-150 active:scale-[0.97] cursor-pointer select-none',
                 getPillStyles(item),
               )}
             >

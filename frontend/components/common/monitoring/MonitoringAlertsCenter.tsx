@@ -60,6 +60,8 @@ import {
   StatPillsBar,
   type StatPillItem,
   CompactTimeFilter,
+  TableLoadingBar,
+  TableSkeletonRows,
 } from '@/components/common/layout';
 import {
   animateSheetSections,
@@ -757,6 +759,7 @@ export function MonitoringAlertsCenter() {
         </div>
 
         {/* 3. 告警列表表格（高密度排版） / Alert Instances High Density Table */}
+        <TableLoadingBar loading={loading && filteredAlerts.length > 0} />
         <div className='overflow-x-auto'>
           <Table>
             <TableHeader>
@@ -772,54 +775,45 @@ export function MonitoringAlertsCenter() {
                 <TableHead className='w-[130px] py-1.5 px-3 text-xs text-right'>{t('actions')}</TableHead>
               </TableRow>
             </TableHeader>
-              <TableBody>
-                {loading ? (
-                  <TableRow>
-                    <TableCell
-                      colSpan={9}
-                      className='h-40 text-center text-muted-foreground'
-                    >
-                      <div className='flex flex-col items-center justify-center gap-2'>
-                        <RefreshCw className='h-5 w-5 animate-spin text-primary' />
-                        <span>{t('loading')}</span>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ) : filteredAlerts.length === 0 ? (
-                  <TableRow>
-                    <TableCell
-                      colSpan={9}
-                      className='h-40 text-center text-muted-foreground'
-                    >
-                      <div className='flex flex-col items-center justify-center gap-2'>
-                        <ShieldAlert className='h-8 w-8 text-muted-foreground/50' />
-                        <span className='font-medium'>{t('alerts.noAlerts')}</span>
-                        <span className='text-xs text-muted-foreground'>
-                          当前筛选条件下没有匹配的告警事件
-                        </span>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  filteredAlerts.map((alert) => {
-                    const busy = actingAlertId === alert.alert_id;
-                    const silenceActive = isSilenceActive(alert.silenced_until);
-                    const canSilence =
-                      alert.status === 'firing' && !silenceActive;
-                    const canClose = alert.status !== 'closed';
+            <TableBody>
+              {loading && filteredAlerts.length === 0 ? (
+                <TableSkeletonRows columns={9} rows={6} />
+              ) : filteredAlerts.length === 0 ? (
+                <TableRow>
+                  <TableCell
+                    colSpan={9}
+                    className='h-40 text-center text-muted-foreground'
+                  >
+                    <div className='flex flex-col items-center justify-center gap-2'>
+                      <ShieldAlert className='h-8 w-8 text-muted-foreground/50' />
+                      <span className='font-medium'>{t('alerts.noAlerts')}</span>
+                      <span className='text-xs text-muted-foreground'>
+                        当前筛选条件下没有匹配的告警事件
+                      </span>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ) : (
+                filteredAlerts.map((alert) => {
+                  const busy = actingAlertId === alert.alert_id;
+                  const silenceActive = isSilenceActive(alert.silenced_until);
+                  const canSilence =
+                    alert.status === 'firing' && !silenceActive;
+                  const canClose = alert.status !== 'closed';
 
-                    return (
-                      <TableRow
-                        key={alert.alert_id}
-                        className={cn(
-                          'alert-row-animate cursor-pointer transition-colors group',
-                          alert.status === 'firing' &&
-                            'hover:bg-rose-500/[0.03] border-l-2 border-l-rose-500',
-                          selectedAlert?.alert_id === alert.alert_id &&
-                            'bg-muted/60 font-medium',
-                        )}
-                        onClick={() => setSelectedAlert(alert)}
-                      >
+                  return (
+                    <TableRow
+                      key={alert.alert_id}
+                      className={cn(
+                        'alert-row-animate cursor-pointer transition-all group',
+                        loading && 'opacity-50 pointer-events-none',
+                        alert.status === 'firing' &&
+                          'hover:bg-rose-500/[0.03] border-l-2 border-l-rose-500',
+                        selectedAlert?.alert_id === alert.alert_id &&
+                          'bg-muted/60 font-medium',
+                      )}
+                      onClick={() => setSelectedAlert(alert)}
+                    >
                         {/* 集群 */}
                         <TableCell className='py-2 px-3 font-medium text-xs'>
                           <span

@@ -92,7 +92,13 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
-import {StatPillsBar, type StatPillItem} from '@/components/common/layout';
+import {
+  StatPillsBar,
+  type StatPillItem,
+  TableLoadingBar,
+  TableSkeletonRows,
+} from '@/components/common/layout';
+import {Skeleton} from '@/components/ui/skeleton';
 import {animateTableRows, animateSheetSections} from '@/lib/animations/gsap-motion';
 import {localizeDiagnosticsText} from './text-utils';
 
@@ -677,6 +683,7 @@ export function DiagnosticsInspectionCenter({
         </div>
 
         {/* 全宽对称高密度报告表格 / Full-width Symmetric High-Density Reports Table */}
+        <TableLoadingBar loading={loadingReports && reports.length > 0} />
         <div className='overflow-x-auto'>
           <Table>
             <TableHeader>
@@ -705,18 +712,8 @@ export function DiagnosticsInspectionCenter({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {loadingReports ? (
-                <TableRow>
-                  <TableCell
-                    colSpan={7}
-                    className='h-36 text-center text-muted-foreground'
-                  >
-                    <div className='flex flex-col items-center justify-center gap-2'>
-                      <RefreshCw className='h-5 w-5 animate-spin text-primary' />
-                      <span className='text-xs'>{commonT('loading')}</span>
-                    </div>
-                  </TableCell>
-                </TableRow>
+              {loadingReports && reports.length === 0 ? (
+                <TableSkeletonRows columns={7} rows={6} />
               ) : reports.length === 0 ? (
                 <TableRow>
                   <TableCell
@@ -731,7 +728,8 @@ export function DiagnosticsInspectionCenter({
                   <TableRow
                     key={report.id}
                     className={cn(
-                      'data-row-animate cursor-pointer transition-colors hover:bg-muted/40 h-10',
+                      'data-row-animate cursor-pointer transition-all hover:bg-muted/40 h-10',
+                      loadingReports && 'opacity-50 pointer-events-none',
                       selectedReportId === report.id &&
                         'bg-primary/5 font-medium border-l-2 border-l-primary',
                     )}
@@ -931,7 +929,13 @@ export function DiagnosticsInspectionCenter({
 
           {/* 抽屉可滚动内容区 / Sheet Scrollable Body */}
           <ScrollArea className='flex-1 p-4'>
-            {selectedReport ? (
+            {loadingDetail ? (
+              <div className='space-y-3.5'>
+                <Skeleton className='h-24 w-full rounded-lg' />
+                <Skeleton className='h-28 w-full rounded-lg' />
+                <Skeleton className='h-48 w-full rounded-lg' />
+              </div>
+            ) : selectedReport ? (
               <div className='space-y-4 text-xs'>
                 {/* 诊断包任务联动卡片 / Diagnostic Bundle Follow-up Card */}
                 {selectedReport.status === 'completed' && hasFindings && (

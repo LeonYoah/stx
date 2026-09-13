@@ -114,7 +114,7 @@ export function CompactTimeFilter({
             type='button'
             onClick={() => onApplyPreset?.(preset.minutes)}
             className={cn(
-              'px-2 py-0.5 rounded text-[11px] transition-colors border select-none cursor-pointer',
+              'px-2 py-0.5 rounded text-[11px] transition-all duration-150 active:scale-[0.97] border select-none cursor-pointer',
               activePreset === preset.minutes
                 ? 'bg-primary/10 text-primary border-primary/30 font-medium'
                 : 'bg-background text-muted-foreground border-border/70 hover:bg-muted/60 hover:text-foreground',

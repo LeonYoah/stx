@@ -58,20 +58,24 @@ export function animatePulsingRadar(selector = '.radar-pulse-ring'): gsap.core.T
   });
 }
 
-// 表格行轻量级交错进入动效
-// Subtle staggered entrance animation for high-density table rows
+// 表格行轻量级交错进入动效（支持数据刷新时无缝平滑重放）
+// Subtle staggered entrance animation for table rows (supports seamless replay on reloads)
 export function animateTableRows(selector = '.data-row-animate'): gsap.core.Tween | null {
   if (shouldReduceMotion()) {
     return null;
   }
-  return gsap.from(selector, {
-    opacity: 0,
-    y: 3,
-    duration: 0.24,
-    stagger: 0.025,
-    ease: 'power2.out',
-    clearProps: 'opacity,transform',
-  });
+  return gsap.fromTo(
+    selector,
+    {opacity: 0, y: 4},
+    {
+      opacity: 1,
+      y: 0,
+      duration: 0.22,
+      stagger: 0.02,
+      ease: 'power2.out',
+      clearProps: 'opacity,transform',
+    },
+  );
 }
 
 // 侧边抽屉内各区块平滑滑动入场
@@ -80,12 +84,34 @@ export function animateSheetSections(selector = '.sheet-section-animate'): gsap.
   if (shouldReduceMotion()) {
     return null;
   }
-  return gsap.from(selector, {
-    opacity: 0,
-    x: 12,
-    duration: 0.32,
-    stagger: 0.06,
-    ease: 'power2.out',
-    clearProps: 'opacity,transform',
-  });
+  return gsap.fromTo(
+    selector,
+    {opacity: 0, x: 10},
+    {
+      opacity: 1,
+      x: 0,
+      duration: 0.28,
+      stagger: 0.05,
+      ease: 'power2.out',
+      clearProps: 'opacity,transform',
+    },
+  );
+}
+
+// 细线加载进度条微光扫描动效（用于非阻塞表格无感刷新）
+// Hairline indeterminate scan animation for non-blocking table data reloads
+export function animateHairlineProgress(selector = '.table-hairline-progress'): gsap.core.Tween | null {
+  if (shouldReduceMotion()) {
+    return null;
+  }
+  return gsap.fromTo(
+    selector,
+    {xPercent: -100},
+    {
+      xPercent: 100,
+      duration: 1.2,
+      repeat: -1,
+      ease: 'power1.inOut',
+    },
+  );
 }

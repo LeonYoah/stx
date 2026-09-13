@@ -59,7 +59,12 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
-import {StatPillsBar, type StatPillItem} from '@/components/common/layout';
+import {
+  StatPillsBar,
+  type StatPillItem,
+  TableLoadingBar,
+  TableSkeletonRows,
+} from '@/components/common/layout';
 import {animateTableRows, animateSheetSections} from '@/lib/animations/gsap-motion';
 
 type DiagnosticsErrorCenterProps = {
@@ -437,6 +442,7 @@ export function DiagnosticsErrorCenter({
         </div>
 
         {/* 全宽对称高密度数据表格 / Full-width Symmetric High-Density Data Table */}
+        <TableLoadingBar loading={loadingGroups && displayedGroups.length > 0} />
         <div className='overflow-x-auto'>
           <Table>
             <TableHeader>
@@ -462,18 +468,8 @@ export function DiagnosticsErrorCenter({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {loadingGroups ? (
-                <TableRow>
-                  <TableCell
-                    colSpan={6}
-                    className='h-36 text-center text-muted-foreground'
-                  >
-                    <div className='flex flex-col items-center justify-center gap-2'>
-                      <RefreshCw className='h-5 w-5 animate-spin text-primary' />
-                      <span className='text-xs'>{commonT('loading')}</span>
-                    </div>
-                  </TableCell>
-                </TableRow>
+              {loadingGroups && displayedGroups.length === 0 ? (
+                <TableSkeletonRows columns={6} rows={6} />
               ) : displayedGroups.length === 0 ? (
                 <TableRow>
                   <TableCell
@@ -488,7 +484,8 @@ export function DiagnosticsErrorCenter({
                   <TableRow
                     key={group.id}
                     className={cn(
-                      'data-row-animate cursor-pointer transition-colors hover:bg-muted/40 h-10',
+                      'data-row-animate cursor-pointer transition-all hover:bg-muted/40 h-10',
+                      loadingGroups && 'opacity-50 pointer-events-none',
                       selectedGroupId === group.id &&
                         'bg-primary/5 font-medium border-l-2 border-l-primary',
                     )}

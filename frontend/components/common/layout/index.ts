@@ -22,3 +22,5 @@ export * from './ThemeProvider';
 export * from './WorkspaceHeader';
 export * from './StatPillsBar';
 export * from './CompactTimeFilter';
+export * from './TableLoadingBar';
+export * from './TableSkeletonRows';

@@ -19,8 +19,9 @@
 
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useTranslations} from 'next-intl';
-import {RefreshCw, Search} from 'lucide-react';
+import {Check, Copy, FileCode, RefreshCw, Search, X} from 'lucide-react';
 import {toast} from 'sonner';
+import {cn} from '@/lib/utils';
 import services from '@/lib/services';
 import type {
   DiagnosticsErrorEvent,
@@ -72,6 +73,18 @@ function resolveOccurrenceVariant(
   return 'outline';
 }
 
+// 获取错误频次热度样式（高频突出警示，中频预警，低频常规）
+// Get error occurrence heat styling (high: prominent red, mid: warning amber, low: subtle gray)
+function getOccurrenceHeatClass(count: number): string {
+  if (count >= 10) {
+    return 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/30 font-semibold';
+  }
+  if (count >= 3) {
+    return 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30 font-medium';
+  }
+  return 'bg-muted text-muted-foreground border-border/80';
+}
+
 function formatNodeOrigin(options: {
   nodeId?: number | null;
   hostId?: number | null;
@@ -118,8 +131,21 @@ export function DiagnosticsErrorCenter({
   );
   const [groupEvents, setGroupEvents] = useState<DiagnosticsErrorEvent[]>([]);
   const [selectedEventId, setSelectedEventId] = useState<number | null>(null);
+  const [copiedEvidence, setCopiedEvidence] = useState(false);
   const groupsRequestIdRef = useRef(0);
   const detailRequestIdRef = useRef(0);
+
+  // 复制异常堆栈到剪贴板
+  // Copy exception evidence stack trace to clipboard
+  const handleCopyEvidence = useCallback((text?: string | null) => {
+    if (!text) {
+      return;
+    }
+    navigator.clipboard.writeText(text);
+    setCopiedEvidence(true);
+    toast.success('堆栈信息已复制到剪贴板');
+    setTimeout(() => setCopiedEvidence(false), 2000);
+  }, []);
 
   const clearSelectedGroupDetail = useCallback(() => {
     detailRequestIdRef.current += 1;
@@ -266,21 +292,36 @@ export function DiagnosticsErrorCenter({
                 setKeyword(keywordInput.trim());
               }}
             >
-              <Input
-                value={keywordInput}
-                onChange={(event) => setKeywordInput(event.target.value)}
-                placeholder={t('errors.keywordPlaceholder')}
-                className='flex-1 min-w-[220px] max-w-xl'
-              />
-              <Button type='submit'>
-                <Search className='mr-2 h-4 w-4' />
+              <div className='relative flex-1 min-w-[220px] max-w-xl'>
+                <Search className='absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground' />
+                <Input
+                  value={keywordInput}
+                  onChange={(event) => setKeywordInput(event.target.value)}
+                  placeholder={t('errors.keywordPlaceholder')}
+                  className='pl-9 pr-8 h-9'
+                />
+                {keywordInput ? (
+                  <button
+                    type='button'
+                    onClick={() => {
+                      setKeywordInput('');
+                      setKeyword('');
+                      setPage(1);
+                    }}
+                    className='absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground'
+                  >
+                    <X className='h-3.5 w-3.5' />
+                  </button>
+                ) : null}
+              </div>
+              <Button type='submit' size='sm' className='h-9'>
                 {t('errors.search')}
               </Button>
             </form>
           </CardHeader>
         </Card>
 
-        <Card>
+        <Card className='border shadow-xs'>
           <CardHeader>
             <CardTitle>{t('errors.groupListTitle')}</CardTitle>
           </CardHeader>
@@ -321,11 +362,12 @@ export function DiagnosticsErrorCenter({
                     {groups.map((group) => (
                       <TableRow
                         key={group.id}
-                        className={
+                        className={cn(
+                          'cursor-pointer transition-colors',
                           selectedGroupId === group.id
-                            ? 'cursor-pointer bg-muted/40'
-                            : 'cursor-pointer'
-                        }
+                            ? 'bg-primary/5 font-medium border-l-2 border-l-primary'
+                            : 'hover:bg-muted/30',
+                        )}
                         onClick={() => {
                           if (selectedGroupId !== group.id) {
                             clearSelectedGroupDetail();
@@ -396,9 +438,8 @@ export function DiagnosticsErrorCenter({
                         </TableCell>
                         <TableCell className='whitespace-nowrap'>
                           <Badge
-                            variant={resolveOccurrenceVariant(
-                              group.occurrence_count,
-                            )}
+                            variant='outline'
+                            className={cn('text-xs font-mono', getOccurrenceHeatClass(group.occurrence_count))}
                           >
                             {group.occurrence_count}
                           </Badge>
@@ -446,11 +487,11 @@ export function DiagnosticsErrorCenter({
         </Card>
       </div>
 
-      <Card className='min-h-[820px]'>
+      <Card className='border shadow-xs flex flex-col'>
         <CardHeader>
           <CardTitle>{t('errors.detailTitle')}</CardTitle>
         </CardHeader>
-        <CardContent className='space-y-4'>
+        <CardContent className='space-y-4 flex-1'>
           {loadingDetail ? (
             <div className='space-y-3'>
               <Skeleton className='h-12 w-full' />
@@ -458,20 +499,23 @@ export function DiagnosticsErrorCenter({
               <Skeleton className='h-56 w-full' />
             </div>
           ) : !selectedGroup ? (
-            <div className='rounded-lg border border-dashed p-6 text-sm text-muted-foreground'>
+            <div className='rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground'>
               {t('errors.selectGroup')}
             </div>
           ) : (
             <>
-              <div className='space-y-3 rounded-lg border p-4'>
+              <div className='space-y-3 rounded-lg border p-4 bg-muted/10'>
                 <div className='flex flex-wrap items-center gap-2'>
-                  <Badge variant={resolveOccurrenceVariant(selectedGroup.occurrence_count)}>
+                  <Badge
+                    variant='outline'
+                    className={cn('text-xs font-mono', getOccurrenceHeatClass(selectedGroup.occurrence_count))}
+                  >
                     {t('errors.columns.occurrences')}: {selectedGroup.occurrence_count}
                   </Badge>
-                  <Badge variant='outline'>
+                  <Badge variant='outline' className='text-xs'>
                     {t('errors.columns.lastSeen')}: {formatDateTime(selectedGroup.last_seen_at)}
                   </Badge>
-                  <Badge variant='outline'>
+                  <Badge variant='outline' className='text-xs'>
                     {t('errors.columns.node')}: {formatNodeOrigin({
                       nodeId: selectedGroup.last_node_id,
                       hostId: selectedGroup.last_host_id,
@@ -480,22 +524,27 @@ export function DiagnosticsErrorCenter({
                     })}
                   </Badge>
                 </div>
-                  <div>
-                    <div className='break-all text-sm font-medium'>
-                      {selectedGroup.title || '-'}
-                    </div>
-                    <div className='mt-1 text-sm text-muted-foreground'>
-                      {selectedGroup.exception_class || selectedGroup.fingerprint}
-                    </div>
+                <div>
+                  <div className='break-all text-sm font-semibold'>
+                    {selectedGroup.title || '-'}
+                  </div>
+                  <div className='mt-1 text-xs font-mono text-muted-foreground break-all'>
+                    {selectedGroup.exception_class || selectedGroup.fingerprint}
+                  </div>
                 </div>
-                <div className='rounded-md bg-muted/40 p-3 text-sm text-muted-foreground'>
+                <div className='rounded-md bg-muted/40 p-3 text-xs leading-relaxed text-muted-foreground font-mono'>
                   {selectedGroup.sample_message || t('errors.noSampleMessage')}
                 </div>
               </div>
 
               <div className='space-y-3'>
-                <div className='text-sm font-medium'>
-                  {t('errors.recentEventsTitle')}
+                <div className='flex items-center justify-between'>
+                  <div className='text-sm font-medium'>
+                    {t('errors.recentEventsTitle')}
+                  </div>
+                  <Badge variant='secondary' className='text-xs'>
+                    {groupEvents.length} 条记录
+                  </Badge>
                 </div>
                 <Table>
                   <TableHeader>
@@ -520,17 +569,18 @@ export function DiagnosticsErrorCenter({
                       groupEvents.map((event) => (
                         <TableRow
                           key={event.id}
-                          className={
+                          className={cn(
+                            'cursor-pointer transition-colors',
                             selectedEventId === event.id
-                              ? 'cursor-pointer bg-muted/40'
-                              : 'cursor-pointer'
-                          }
+                              ? 'bg-primary/5 font-medium border-l-2 border-l-primary'
+                              : 'hover:bg-muted/30',
+                          )}
                           onClick={() => setSelectedEventId(event.id)}
                         >
-                          <TableCell className='text-sm text-muted-foreground'>
+                          <TableCell className='text-xs text-muted-foreground whitespace-nowrap'>
                             {formatDateTime(event.occurred_at)}
                           </TableCell>
-                          <TableCell className='max-w-[220px] text-sm text-muted-foreground'>
+                          <TableCell className='max-w-[180px] text-xs text-muted-foreground'>
                             <div
                               className='truncate'
                               title={formatNodeOrigin({
@@ -550,11 +600,11 @@ export function DiagnosticsErrorCenter({
                               })}
                             </div>
                           </TableCell>
-                          <TableCell>{event.job_id || '-'}</TableCell>
-                          <TableCell className='max-w-[220px] text-sm text-muted-foreground'>
+                          <TableCell className='text-xs font-mono'>{event.job_id || '-'}</TableCell>
+                          <TableCell className='max-w-[180px] text-xs text-muted-foreground'>
                             <Tooltip>
                               <TooltipTrigger asChild>
-                                <div className='truncate'>{event.source_file}</div>
+                                <div className='truncate font-mono'>{event.source_file}</div>
                               </TooltipTrigger>
                               <TooltipContent
                                 side='top'
@@ -573,11 +623,12 @@ export function DiagnosticsErrorCenter({
               </div>
 
               <div className='space-y-3'>
-                <div className='rounded-lg border p-4 text-sm'>
-                  <div className='font-medium'>{t('errors.selectedEventTitle')}</div>
-                  <div className='mt-2 grid gap-2 text-muted-foreground sm:grid-cols-2'>
+                <div className='rounded-lg border p-3.5 text-xs bg-muted/15 space-y-2'>
+                  <div className='font-medium text-foreground'>{t('errors.selectedEventTitle')}</div>
+                  <div className='grid gap-1.5 text-muted-foreground sm:grid-cols-2'>
                     <div>
-                      {t('errors.columns.node')}: {formatNodeOrigin({
+                      <span className='text-foreground font-medium'>{t('errors.columns.node')}: </span>
+                      {formatNodeOrigin({
                         nodeId: selectedEvent?.node_id,
                         hostId: selectedEvent?.host_id,
                         hostName: selectedEvent?.host_name,
@@ -586,27 +637,65 @@ export function DiagnosticsErrorCenter({
                       })}
                     </div>
                     <div>
-                      Agent: {selectedEvent?.agent_id || '-'}
+                      <span className='text-foreground font-medium'>Agent: </span>
+                      <span className='font-mono'>{selectedEvent?.agent_id || '-'}</span>
                     </div>
                     <div>
-                      Job: {selectedEvent?.job_id || '-'}
+                      <span className='text-foreground font-medium'>Job: </span>
+                      <span className='font-mono'>{selectedEvent?.job_id || '-'}</span>
                     </div>
                     <div>
-                      {t('errors.columns.source')}: {selectedEvent?.source_file || '-'}
+                      <span className='text-foreground font-medium'>{t('errors.columns.source')}: </span>
+                      <span className='font-mono'>{selectedEvent?.source_file || '-'}</span>
                     </div>
                   </div>
                   {selectedEvent?.message ? (
-                    <div className='mt-3 rounded-md bg-muted/40 p-3 text-muted-foreground'>
+                    <div className='mt-2 rounded bg-muted/40 p-2 text-muted-foreground font-mono text-xs'>
                       {selectedEvent.message}
                     </div>
                   ) : null}
                 </div>
-                <div className='text-sm font-medium'>{t('errors.evidenceTitle')}</div>
-                <ScrollArea className='h-[400px] rounded-lg border bg-muted/20'>
-                  <pre className='whitespace-pre-wrap break-words p-4 text-xs leading-6 text-muted-foreground'>
-                    {selectedEvent?.evidence || t('errors.noEvidence')}
-                  </pre>
-                </ScrollArea>
+
+                {/* 异常堆栈与证据监控阅读器 / Stack Trace & Evidence Reader */}
+                <div className='space-y-2'>
+                  <div className='flex items-center justify-between'>
+                    <div className='text-sm font-medium flex items-center gap-2'>
+                      <FileCode className='h-4 w-4 text-muted-foreground' />
+                      <span>{t('errors.evidenceTitle')}</span>
+                    </div>
+                    {selectedEvent?.evidence ? (
+                      <Button
+                        variant='outline'
+                        size='sm'
+                        className='h-7 text-xs gap-1.5'
+                        onClick={() => handleCopyEvidence(selectedEvent.evidence)}
+                      >
+                        {copiedEvidence ? (
+                          <>
+                            <Check className='h-3.5 w-3.5 text-emerald-500' />
+                            <span>已复制</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className='h-3.5 w-3.5' />
+                            <span>复制堆栈</span>
+                          </>
+                        )}
+                      </Button>
+                    ) : null}
+                  </div>
+                  <div className='relative rounded-lg border border-zinc-800 bg-zinc-950 dark:bg-zinc-900/90 text-zinc-200 overflow-hidden shadow-inner'>
+                    <div className='flex items-center justify-between px-3.5 py-2 border-b border-zinc-800/80 bg-zinc-900/60 text-[11px] text-zinc-400 font-mono'>
+                      <span>Stack Trace / Error Evidence</span>
+                      <span className='truncate max-w-[240px]'>{selectedEvent?.source_file || 'Standard Output'}</span>
+                    </div>
+                    <ScrollArea className='h-[360px]'>
+                      <pre className='p-4 font-mono text-xs leading-relaxed text-zinc-300 whitespace-pre-wrap break-words select-text'>
+                        {selectedEvent?.evidence || t('errors.noEvidence')}
+                      </pre>
+                    </ScrollArea>
+                  </div>
+                </div>
               </div>
             </>
           )}

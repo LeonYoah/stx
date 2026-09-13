@@ -17,14 +17,24 @@
 
 'use client';
 
-import {useEffect, useMemo, useState} from 'react';
+import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useTranslations} from 'next-intl';
-import {useSearchParams} from 'next/navigation';
-import {Activity} from 'lucide-react';
+import {usePathname, useRouter, useSearchParams} from 'next/navigation';
+import {BellRing, ShieldAlert} from 'lucide-react';
+import gsap from 'gsap';
+import {useGSAP} from '@gsap/react';
 import {Tabs, TabsContent, TabsList, TabsTrigger} from '@/components/ui/tabs';
 import {MonitoringAlertsCenter} from './MonitoringAlertsCenter';
 import {MonitoringPolicyCenter} from './MonitoringPolicyCenter';
 
+// 注册 GSAP 核心与 React 扩展插件
+// Register GSAP core and React extension plugin
+if (typeof window !== 'undefined') {
+  gsap.registerPlugin(useGSAP);
+}
+
+// 告警工作台支持的标签页类型
+// Supported tab keys for the monitoring & alerting center workspace
 type MonitoringTab = 'alerts' | 'policies';
 
 function resolveTab(tab: string | null): MonitoringTab {
@@ -40,13 +50,16 @@ function resolveTab(tab: string | null): MonitoringTab {
   ) {
     return 'policies';
   }
-  // 默认聚焦告警中心，而非总览看板。
+  // 默认聚焦告警中心 / Default to alerts center
   return 'alerts';
 }
 
 export function MonitoringCenterWorkspace() {
   const t = useTranslations('monitoringCenter');
   const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+  const workspaceRef = useRef<HTMLDivElement>(null);
 
   const initialTab = useMemo(
     () => resolveTab(searchParams.get('tab')),
@@ -54,37 +67,109 @@ export function MonitoringCenterWorkspace() {
   );
   const [activeTab, setActiveTab] = useState<MonitoringTab>(initialTab);
 
+  // GSAP 辅助动效：工作区标题与选项卡平滑淡入
+  // GSAP auxiliary animation: workspace header and tabs subtle entrance
+  useGSAP(
+    () => {
+      const mm = gsap.matchMedia();
+      mm.add(
+        {
+          reduceMotion: '(prefers-reduced-motion: reduce)',
+        },
+        (context) => {
+          const {reduceMotion} = context.conditions as {reduceMotion: boolean};
+          if (reduceMotion) return;
+
+          gsap.from('.workspace-header-animate', {
+            opacity: 0,
+            y: -6,
+            duration: 0.3,
+            ease: 'power2.out',
+            clearProps: 'opacity,transform',
+          });
+        },
+      );
+    },
+    {scope: workspaceRef},
+  );
+
   useEffect(() => {
     setActiveTab(resolveTab(searchParams.get('tab')));
   }, [searchParams]);
 
+  // 切换标签页并同步更新 URL 参数
+  // Switch tab and sync with URL query parameters
+  const handleTabChange = useCallback(
+    (value: string) => {
+      const nextTab = value as MonitoringTab;
+      setActiveTab(nextTab);
+      const params = new URLSearchParams(searchParams.toString());
+      if (nextTab === 'alerts') {
+        params.delete('tab');
+      } else {
+        params.set('tab', nextTab);
+      }
+      const query = params.toString();
+      router.replace(query ? `${pathname}?${query}` : pathname);
+    },
+    [pathname, router, searchParams],
+  );
+
   return (
-    <div className='space-y-4'>
-      <div className='flex items-center gap-3'>
-        <Activity className='h-8 w-8 shrink-0 text-primary' />
-        <div>
-          <h1 className='text-2xl font-bold tracking-tight'>{t('title')}</h1>
-          <p className='text-muted-foreground mt-1'>{t('subtitle')}</p>
+    <div ref={workspaceRef} className='space-y-3.5'>
+      {/* 页面标题栏（紧凑型设计，释放可用纵向空间） / Page Header */}
+      <div className='workspace-header-animate flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between border-b pb-3'>
+        <div className='flex items-center gap-3'>
+          <div className='flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20 shadow-2xs'>
+            <BellRing className='h-4.5 w-4.5' />
+          </div>
+          <div>
+            <div className='flex items-center gap-2'>
+              <h1 className='text-xl font-bold tracking-tight text-foreground'>
+                {t('title')}
+              </h1>
+              <span className='inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground'>
+                <ShieldAlert className='h-3 w-3' />
+                Alerts & Policies
+              </span>
+            </div>
+            <p className='text-xs text-muted-foreground mt-0.5'>
+              {t('subtitle')}
+            </p>
+          </div>
         </div>
+
+        {/* 顶部标签切换 / Top Tab Switcher */}
+        <Tabs
+          value={activeTab}
+          onValueChange={handleTabChange}
+          className='w-full sm:w-auto'
+        >
+          <TabsList className='grid w-full grid-cols-2 sm:w-[280px] bg-muted/60 p-1 h-8.5'>
+            <TabsTrigger
+              value='alerts'
+              className='data-[state=active]:bg-background data-[state=active]:shadow-xs text-xs font-medium py-1'
+            >
+              {t('tabs.alerts')}
+            </TabsTrigger>
+            <TabsTrigger
+              value='policies'
+              className='data-[state=active]:bg-background data-[state=active]:shadow-xs text-xs font-medium py-1'
+            >
+              {t('tabs.policies')}
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
       </div>
 
-      <Tabs
-        value={activeTab}
-        onValueChange={(value) => setActiveTab(value as MonitoringTab)}
-      >
-        <TabsList className='grid w-full grid-cols-2 gap-1 md:w-[360px]'>
-          <TabsTrigger value='alerts'>{t('tabs.alerts')}</TabsTrigger>
-          <TabsTrigger value='policies'>{t('tabs.policies')}</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value='alerts' className='mt-4'>
+      {/* 标签页主体内容 / Tab Contents */}
+      <div>
+        {activeTab === 'alerts' ? (
           <MonitoringAlertsCenter />
-        </TabsContent>
-
-        <TabsContent value='policies' className='mt-4'>
+        ) : (
           <MonitoringPolicyCenter />
-        </TabsContent>
-      </Tabs>
+        )}
+      </div>
     </div>
   );
 }

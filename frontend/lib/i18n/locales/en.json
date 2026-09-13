@@ -1728,6 +1728,13 @@
       "startTime": "Start Time",
       "endTime": "End Time",
       "clearTimeFilter": "Clear Time",
+      "timeRange": "Time Range",
+      "timePresets": {
+        "last1h": "Last 1 hour",
+        "last6h": "Last 6 hours",
+        "last24h": "Last 24 hours",
+        "last7d": "Last 7 days"
+      },
       "pageSize": "Page Size",
       "prevPage": "Previous",
       "nextPage": "Next",

@@ -53,10 +53,11 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/animate-ui/radix/dialog';
-import {SquareArrowUpRight, LoaderCircle, Github} from 'lucide-react';
+import {LoaderCircle, Github} from 'lucide-react';
 import {useAuth} from '@/hooks/use-auth';
 import services from '@/lib/services';
 import {cn} from '@/lib/utils';
+import {STXLogo} from '@/components/icons/logo';
 
 /**
  * 登录表单组件属性
@@ -248,9 +249,10 @@ export function LoginForm({className, ...props}: LoginFormProps) {
         <form onSubmit={handleCredentialsLogin}>
           <div className='flex flex-col gap-6 transition-all duration-500 ease-in-out'>
             <div className='flex flex-col items-center gap-2'>
-              <div className='flex size-8 items-center justify-center rounded-md m-4'>
-                <SquareArrowUpRight className='size-6' />
-              </div>
+              <STXLogo
+                className='m-2 h-auto w-48 rounded-lg ring-1 ring-black/5 dark:ring-white/10'
+                priority
+              />
               <h1 className='text-xl font-bold text-center'>
                 {t('auth.login.title')}
               </h1>

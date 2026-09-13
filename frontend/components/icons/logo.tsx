@@ -15,56 +15,47 @@
  * limitations under the License.
  */
 
-import React from 'react';
+import Image from 'next/image';
 
-interface LogoProps {
-  width?: number;
-  height?: number;
+interface BrandImageProps {
   className?: string;
+  priority?: boolean;
 }
 
-function LinuxDo({width = 120, height = 120, className}: LogoProps) {
+/**
+ * STX 横向品牌标志。
+ * STX horizontal brand lockup.
+ */
+function STXLogo({className, priority = false}: BrandImageProps) {
   return (
-    <svg
-      width={width}
-      height={height}
-      viewBox='0 0 120 120'
-      xmlns='http://www.w3.org/2000/svg'
+    <Image
+      src='/brand/stx-logo.png'
+      alt='STX'
+      width={560}
+      height={160}
       className={className}
-      style={{minWidth: width, minHeight: height, flexShrink: 0}}
-      fill='none'
-    >
-      <clipPath id='a'>
-        <circle cx='60' cy='60' r='47' />
-      </clipPath>
-      <circle fill='#f0f0f0' cx='60' cy='60' r='50' />
-      <rect
-        fill='#1c1c1e'
-        clipPath='url(#a)'
-        x='10'
-        y='10'
-        width='100'
-        height='30'
-      />
-      <rect
-        fill='#f0f0f0'
-        clipPath='url(#a)'
-        x='10'
-        y='40'
-        width='100'
-        height='40'
-      />
-      <rect
-        fill='#ffb003'
-        clipPath='url(#a)'
-        x='10'
-        y='80'
-        width='100'
-        height='30'
-      />
-    </svg>
+      priority={priority}
+      draggable={false}
+    />
   );
 }
 
-// 统一导出所有图标
-export {LinuxDo};
+/**
+ * STX 熊猫图形，用于紧凑位置和小尺寸场景。
+ * STX panda mark for compact and small-size placements.
+ */
+function STXMark({className, priority = false}: BrandImageProps) {
+  return (
+    <Image
+      src='/brand/stx-mark.png'
+      alt=''
+      width={320}
+      height={320}
+      className={className}
+      priority={priority}
+      draggable={false}
+    />
+  );
+}
+
+export {STXLogo, STXMark};

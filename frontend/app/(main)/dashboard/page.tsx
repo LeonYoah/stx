@@ -21,18 +21,12 @@ import {useEffect, useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {motion} from 'motion/react';
 import {Card, CardHeader, CardTitle} from '@/components/ui/card';
-import {
-  Server,
-  Database,
-  Activity,
-  Ship,
-  Layers,
-  RefreshCw,
-} from 'lucide-react';
+import {Server, Database, Activity, Layers, RefreshCw} from 'lucide-react';
 import {OverviewService, OverviewData} from '@/lib/services/dashboard';
 import {MonitoringOverview} from '@/components/common/monitoring';
 import {Button} from '@/components/ui/button';
 import Link from 'next/link';
+import {STXMark} from '@/components/icons/logo';
 
 export default function DashboardPage() {
   const t = useTranslations('dashboard');
@@ -92,7 +86,9 @@ export default function DashboardPage() {
       title: t('onlineAgents'),
       value: `${stats?.online_agents ?? 0}/${stats?.total_agents ?? 0}`,
       subValue: stats?.total_agents
-        ? t('onlineRate', {rate: Math.round((stats.online_agents / stats.total_agents) * 100)})
+        ? t('onlineRate', {
+            rate: Math.round((stats.online_agents / stats.total_agents) * 100),
+          })
         : t('noAgent'),
       icon: Activity,
       color: 'text-primary',
@@ -110,14 +106,21 @@ export default function DashboardPage() {
         className='flex items-center justify-between'
       >
         <div className='flex items-center gap-2.5'>
-          <Ship className='h-6 w-6 text-primary' />
+          <STXMark className='size-8 rounded-lg ring-1 ring-black/5 dark:ring-white/10' />
           <div>
             <h1 className='text-lg font-bold leading-tight'>{t('title')}</h1>
             <p className='text-xs text-muted-foreground'>{t('subtitle')}</p>
           </div>
         </div>
-        <Button variant='outline' size='sm' onClick={fetchData} disabled={loading}>
-          <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+        <Button
+          variant='outline'
+          size='sm'
+          onClick={fetchData}
+          disabled={loading}
+        >
+          <RefreshCw
+            className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`}
+          />
           {t('refresh')}
         </Button>
       </motion.div>
@@ -143,7 +146,9 @@ export default function DashboardPage() {
                     <CardTitle className='truncate text-[11px] font-medium uppercase tracking-wide text-muted-foreground/90'>
                       {stat.title}
                     </CardTitle>
-                    <div className='text-lg font-semibold leading-none'>{stat.value}</div>
+                    <div className='text-lg font-semibold leading-none'>
+                      {stat.value}
+                    </div>
                     <p className='truncate text-[11px] text-muted-foreground'>
                       {stat.subValue}
                     </p>

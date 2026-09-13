@@ -36,7 +36,6 @@ import {
   FileText,
   Package,
   Puzzle,
-  LayoutDashboard,
   Briefcase,
 } from 'lucide-react';
 import {useThemeUtils} from '@/hooks/use-theme-utils';
@@ -57,6 +56,7 @@ import {Avatar, AvatarFallback, AvatarImage} from '@/components/ui/avatar';
 import {TrustLevel} from '@/lib/services/core';
 import {useLocale, locales, localeNames, Locale} from '@/lib/i18n';
 import services from '@/lib/services';
+import {STXMark} from '@/components/icons/logo';
 
 const IconOptions = {
   className: 'h-4 w-4',
@@ -74,7 +74,9 @@ const StaticIcons = {
   package: <Package {...IconOptions} />,
   puzzle: <Puzzle {...IconOptions} />,
   workbench: <Briefcase {...IconOptions} />,
-  dashboard: <LayoutDashboard {...IconOptions} />,
+  dashboard: (
+    <STXMark className='size-5 rounded-md ring-1 ring-black/5 dark:ring-white/10' />
+  ),
   monitoring: <Activity {...IconOptions} />,
   diagnostics: <Bug {...IconOptions} />,
   divider: <div />,

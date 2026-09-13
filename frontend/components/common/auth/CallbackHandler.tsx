@@ -37,9 +37,10 @@ import {useEffect, useState} from 'react';
 import {useRouter, useSearchParams} from 'next/navigation';
 import {useTranslations} from 'next-intl';
 import {LiquidButton} from '@/components/animate-ui/buttons/liquid';
-import {GalleryVerticalEnd, CheckCircle2, AlertCircle} from 'lucide-react';
+import {CheckCircle2, AlertCircle} from 'lucide-react';
 import services from '@/lib/services';
 import {cn} from '@/lib/utils';
+import {STXMark} from '@/components/icons/logo';
 
 /**
  * 回调处理组件属性
@@ -121,9 +122,10 @@ export function CallbackHandler({className, ...props}: CallbackHandlerProps) {
       >
         <div className='flex flex-col gap-6'>
           <div className='flex flex-col items-center gap-2'>
-            <div className='flex size-8 items-center justify-center rounded-md'>
-              <GalleryVerticalEnd className='size-6' />
-            </div>
+            <STXMark
+              className='size-12 rounded-xl ring-1 ring-black/5 dark:ring-white/10'
+              priority
+            />
             <h1 className='text-xl font-bold'>{t('title')}</h1>
           </div>
           <div className='flex flex-col items-center gap-4'>

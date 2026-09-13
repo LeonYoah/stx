@@ -18,8 +18,9 @@
 'use client';
 import {motion} from 'motion/react';
 import {Button} from '@/components/ui/button';
-import {MessageCircle, Home, Ship} from 'lucide-react';
+import {MessageCircle, Home} from 'lucide-react';
 import Link from 'next/link';
+import {STXMark} from '@/components/icons/logo';
 
 export default function NotFound() {
   return (
@@ -44,7 +45,7 @@ export default function NotFound() {
           transition={{duration: 0.6, delay: 0.2}}
         >
           <p className='font-bold text-xl md:text-4xl dark:text-white text-black flex items-center justify-center gap-2'>
-            <Ship className='w-6 h-6 md:w-8 md:h-8 text-blue-500' />
+            <STXMark className='size-7 rounded-md ring-1 ring-black/5 dark:ring-white/10 md:size-9' />
             {'页面'.split('').map((word, idx) => (
               <motion.span
                 key={idx}

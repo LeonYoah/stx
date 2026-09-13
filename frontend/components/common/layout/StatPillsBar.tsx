@@ -43,6 +43,9 @@ export interface StatPillItem {
   // 是否启用呼吸雷达环微动效（如告警触发中或存在严重错误时）
   // Whether to enable pulsing radar glow motion (e.g. firing alerts or critical errors)
   pulse?: boolean;
+  // 测试标识
+  // Test identifier
+  dataTestId?: string;
 }
 
 export interface StatPillsBarProps {
@@ -124,6 +127,7 @@ export function StatPillsBar({
             <button
               key={item.key}
               type='button'
+              data-testid={item.dataTestId}
               onClick={() => onChange(item.key)}
               className={cn(
                 'stat-pill-item relative inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs border transition-all duration-150 active:scale-[0.97] cursor-pointer select-none',

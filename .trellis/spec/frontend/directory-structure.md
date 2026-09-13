@@ -41,7 +41,6 @@ frontend/
 │   ├── ui/                     # 基础组件（Button、Card、Select、Table 等）
 │   ├── common/                 # 领域组件
 │   │   ├── auth/               # LoginForm、CallbackHandler
-│   │   ├── assistant/          # 助手界面
 │   │   ├── cluster/            # ClusterMain、ClusterCard、弹窗、配置
 │   │   ├── diagnostics/        # 诊断与巡检界面
 │   │   ├── host/               # HostDetail、DiscoverClusterDialog

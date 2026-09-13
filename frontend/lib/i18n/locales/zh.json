@@ -1567,26 +1567,6 @@
       }
     }
   },
-  "assistant": {
-    "title": "SeaTunnel 问答助手",
-    "description": "遇到问题？将错误日志或问题描述粘贴到下方，助手会基于 SeaTunnel 源码帮您定位问题。",
-    "privacyNotice": "为保护您的隐私，系统会自动过滤 IP 地址、密码、密钥等敏感信息。请在发送前确认预览内容。",
-    "quickLinksTitle": "快捷入口",
-    "quickLinks": {
-      "docs": "查看文档",
-      "faq": "常见问题",
-      "connectors": "连接器"
-    },
-    "inputLabel": "输入您的问题或错误日志",
-    "inputPlaceholder": "粘贴错误日志、异常堆栈或描述您遇到的问题...",
-    "filteredPreview": "过滤后预览",
-    "sensitiveFiltered": "已过滤敏感信息",
-    "copy": "复制",
-    "copied": "已复制",
-    "viewDocs": "查看文档",
-    "openDeepWiki": "复制并打开 DeepWiki",
-    "openDeepWikiTip": "内容已复制，请在 DeepWiki 页面底部的搜索框中粘贴"
-  },
   "monitor": {
     "title": "监控配置",
     "description": "配置进程监控和自动重启设置",

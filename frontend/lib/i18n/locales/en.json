@@ -1567,26 +1567,6 @@
       }
     }
   },
-  "assistant": {
-    "title": "SeaTunnel Assistant",
-    "description": "Having issues? Paste your error logs or describe your problem below. The assistant will help locate issues based on SeaTunnel source code.",
-    "privacyNotice": "To protect your privacy, the system automatically filters sensitive information like IP addresses, passwords, and API keys. Please review the preview before sending.",
-    "quickLinksTitle": "Quick Links",
-    "quickLinks": {
-      "docs": "View Docs",
-      "faq": "FAQ",
-      "connectors": "Connectors"
-    },
-    "inputLabel": "Enter your question or error log",
-    "inputPlaceholder": "Paste error logs, exception stack traces, or describe your issue...",
-    "filteredPreview": "Filtered Preview",
-    "sensitiveFiltered": "Sensitive info filtered",
-    "copy": "Copy",
-    "copied": "Copied",
-    "viewDocs": "View Docs",
-    "openDeepWiki": "Copy & Open DeepWiki",
-    "openDeepWikiTip": "Content copied, paste it in the search box at the bottom of DeepWiki page"
-  },
   "monitor": {
     "title": "Monitor Configuration",
     "description": "Configure process monitoring and auto-restart settings",

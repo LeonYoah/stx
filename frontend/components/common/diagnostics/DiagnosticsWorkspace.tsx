@@ -28,7 +28,7 @@ import {
   RefreshCw,
   Server,
   Settings,
-  Stethoscope,
+  ScanSearch,
   X,
 } from 'lucide-react';
 import {toast} from 'sonner';
@@ -177,7 +177,7 @@ export function DiagnosticsWorkspace() {
     <div className='space-y-4'>
       {/* 头部标题区域（复用全局 WorkspaceHeader） / Workspace Header */}
       <WorkspaceHeader
-        icon={<Stethoscope />}
+        icon={<ScanSearch />}
         title={t('title')}
         badge={
           <span className='inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground'>

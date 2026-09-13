@@ -39,7 +39,7 @@ import {
 } from '@/components/ui/select';
 import {Separator} from '@/components/ui/separator';
 import {toast} from 'sonner';
-import {Plus, Search, Network, RefreshCw} from 'lucide-react';
+import {Plus, Search, Layers, RefreshCw} from 'lucide-react';
 import {WorkspaceHeader} from '@/components/common/layout';
 import {motion} from 'motion/react';
 import {easeOut} from 'motion';
@@ -237,7 +237,7 @@ export function ClusterMain() {
       {/* Header / 标题 */}
       <motion.div variants={itemVariants}>
         <WorkspaceHeader
-          icon={<Network />}
+          icon={<Layers />}
           title={t('cluster.title')}
           subtitle={t('cluster.description')}
           actions={

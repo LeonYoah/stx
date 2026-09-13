@@ -30,13 +30,13 @@ import {
   GithubIcon,
   Users,
   Server,
-  Network,
+  Layers,
   Terminal,
   ScrollText,
   Package,
   Puzzle,
-  Workflow,
-  Stethoscope,
+  BugPlay,
+  ScanSearch,
 } from 'lucide-react';
 import {useThemeUtils} from '@/hooks/use-theme-utils';
 import {useAuth} from '@/hooks/use-auth';
@@ -71,8 +71,8 @@ const StaticIcons = {
   users: <Users {...IconOptions} />,
   // 主机：单机节点 / Hosts: machine nodes
   server: <Server {...IconOptions} />,
-  // 集群：节点互联拓扑 / Clusters: interconnected topology
-  network: <Network {...IconOptions} />,
+  // 集群：分层编排的计算集群 / Clusters: layered compute fleet
+  layers: <Layers {...IconOptions} />,
   terminal: <Terminal {...IconOptions} />,
   // 审计：滚动式操作记录 / Audit: scroll-like operation trail
   scrollText: <ScrollText {...IconOptions} />,
@@ -80,14 +80,14 @@ const StaticIcons = {
   package: <Package {...IconOptions} />,
   // 插件市场 / Plugin marketplace
   puzzle: <Puzzle {...IconOptions} />,
-  // 工作台：数据同步作业流 / Workbench: data-sync workflow
-  workbench: <Workflow {...IconOptions} />,
+  // 工作台：调试作业运行台 / Workbench: debug-and-run studio
+  workbench: <BugPlay {...IconOptions} />,
   // 控制台：品牌青鸾标 / Dashboard: brand Qingluan mark
   dashboard: <STXMark className='size-5 object-contain' />,
   // 监控：告警脉搏 / Monitoring: alert pulse
   monitoring: <BellRing {...IconOptions} />,
-  // 诊断：体检巡检 / Diagnostics: health inspection
-  diagnostics: <Stethoscope {...IconOptions} />,
+  // 诊断：问题扫描排查 / Diagnostics: scan and triage
+  diagnostics: <ScanSearch {...IconOptions} />,
   divider: <div />,
 };
 
@@ -506,7 +506,7 @@ export function ManagementBar() {
     // 集群管理入口 / Cluster management entry
     items.push({
       title: tDock('clusterManagement'),
-      icon: StaticIcons.network,
+      icon: StaticIcons.layers,
       href: '/clusters',
     });
 

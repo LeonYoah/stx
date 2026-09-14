@@ -22,8 +22,13 @@ test('renders the credential login form', async ({page}) => {
   await page.goto('/login');
 
   await expectLoginForm(page);
+  // 登录页 h1 为品牌定位文案，h2 为欢迎登录标题。
+  // Login page h1 is brand headline; h2 is the welcome title.
   await expect(page.getByRole('heading', {level: 1})).toHaveText(
-    /欢迎使用 STX|Welcome to STX/i,
+    /让 SeaTunnel 运维不再黑箱|Make SeaTunnel ops no longer a black box/i,
+  );
+  await expect(page.getByRole('heading', {level: 2})).toHaveText(
+    /欢迎登录 STX|Welcome to STX/i,
   );
 });
 

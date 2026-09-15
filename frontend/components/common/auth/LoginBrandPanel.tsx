@@ -190,8 +190,8 @@ function SlideTunnel() {
 }
 
 /**
- * 登录页左侧品牌视觉区：品牌、一句定位、三项能力、单行打字机。
- * Left brand panel for login: mark, positioning line, three chips, one typewriter.
+ * 登录页左侧品牌视觉区：品牌、一句定位、能力标签、单行打字机。
+ * Left brand panel for login: mark, positioning line, chips, one typewriter.
  */
 export function LoginBrandPanel() {
   const t = useTranslations();
@@ -225,14 +225,6 @@ export function LoginBrandPanel() {
     {icon: BugPlay, label: t('auth.brand.chipDebugJob')},
   ] as const;
 
-  const footerItems = [
-    t('auth.brand.footerDeploy'),
-    t('auth.brand.footerSubmit'),
-    t('auth.brand.footerAlert'),
-    t('auth.brand.footerMarketplace'),
-    t('auth.brand.footerAgent'),
-  ];
-
   return (
     <aside ref={panelRef} className='stx-brand-panel'>
       <div className='stx-bw-spotlight' />
@@ -257,7 +249,6 @@ export function LoginBrandPanel() {
             className='stx-brand-logo stx-brand-logo-dark'
             priority
           />
-          <span className='stx-brand-badge'>{t('auth.brand.badge')}</span>
         </div>
 
         <div className='stx-brand-main'>
@@ -285,12 +276,6 @@ export function LoginBrandPanel() {
             </span>
             <span className='stx-type-caret' aria-hidden='true' />
           </div>
-        </div>
-
-        <div className='stx-brand-footer'>
-          {footerItems.map((item) => (
-            <span key={item}>{item}</span>
-          ))}
         </div>
       </div>
     </aside>

@@ -71,8 +71,8 @@
   "auth": {
     "brand": {
       "badge": "Ops Platform",
-      "headline": "Make SeaTunnel ops no longer a black box",
-      "subtitle": "Configure, upgrade, diagnose, recover, and debug from one place — unified operations and job management for Apache SeaTunnel, with a native AI Agent ops entry via CLI + Skill.",
+      "headline": "Make SeaTunnel ops clearly visible",
+      "subtitle": "An all-in-one ops platform for Apache SeaTunnel, with a native AI Agent ops entry (CLI + Skill).",
       "chipsLabel": "Product capabilities",
       "chipAgent": "AI Agent · CLI + Skill",
       "chipCliSkill": "CLI + Skill",

@@ -33,9 +33,9 @@ vi.mock('next-intl', () => ({
   useTranslations: () => (key: string) => {
     const translations: Record<string, string> = {
       'auth.brand.badge': '运维平台',
-      'auth.brand.headline': '让 SeaTunnel 运维不再黑箱',
+      'auth.brand.headline': '让 SeaTunnel 运维清晰可见',
       'auth.brand.subtitle':
-        '把配置、升级、诊断、恢复、调试放到一个统一入口；并原生提供 AI Agent 智能运维入口（CLI + Skill）。',
+        '面向 Apache SeaTunnel 的一站式运维平台；并原生提供 AI Agent 智能运维入口（CLI + Skill）。',
       'auth.brand.chipsLabel': '产品能力',
       'auth.brand.chipWizard': '配置向导',
       'auth.brand.chipInstall': '一键安装',

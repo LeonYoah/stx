@@ -167,9 +167,9 @@
   position: relative;
   z-index: 1;
   display: grid;
-  width: min(1680px, 100%);
-  gap: 24px;
-  grid-template-columns: minmax(0, 1.18fr) minmax(380px, 460px);
+  width: min(1760px, 100%);
+  gap: 20px;
+  grid-template-columns: minmax(0, 1.45fr) minmax(360px, 420px);
 }
 
 .stx-brand-panel {
@@ -178,7 +178,7 @@
   --mouse-x-norm: 0;
   --mouse-y-norm: 0;
   position: relative;
-  min-height: 720px;
+  min-height: min(86vh, 860px);
   overflow: hidden;
   border-radius: 32px;
   border: 1px solid var(--stx-border-soft);
@@ -434,9 +434,9 @@
   z-index: 1;
   display: flex;
   height: 100%;
-  min-height: 720px;
+  min-height: min(86vh, 860px);
   flex-direction: column;
-  padding: 36px 42px;
+  padding: 56px 64px;
   transform: translate3d(
     calc(var(--mouse-x-norm) * 4px),
     calc(var(--mouse-y-norm) * 3px),
@@ -504,7 +504,7 @@
 
 .stx-brand-logo {
   height: auto;
-  width: min(168px, 42vw);
+  width: min(220px, 38vw);
 }
 
 .stx-brand-logo-light {
@@ -536,24 +536,25 @@
 
 .stx-brand-main {
   position: relative;
-  margin-top: 56px;
-  max-width: 620px;
+  margin-top: 80px;
+  max-width: min(92%, 880px);
   z-index: 1;
 }
 
 .stx-brand-title {
   margin: 0;
-  font-size: clamp(42px, 5.4vw, 64px);
+  font-size: clamp(40px, 3.6vw, 60px);
   line-height: 1.05;
   font-weight: 900;
   letter-spacing: -0.05em;
   color: var(--stx-fg);
+  white-space: nowrap;
 }
 
 .stx-brand-subtitle {
-  margin: 20px 0 0;
-  max-width: 560px;
-  font-size: 17px;
+  margin: 36px 0 0;
+  max-width: 46em;
+  font-size: 18px;
   line-height: 1.75;
   color: var(--stx-fg-soft);
 }
@@ -561,8 +562,8 @@
 .stx-pill-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
-  margin-top: 28px;
+  gap: 14px;
+  margin-top: 48px;
 }
 
 .stx-pill {
@@ -584,9 +585,9 @@
   grid-template-columns: auto minmax(0, 1fr) 14px;
   align-items: center;
   gap: 10px;
-  margin-top: 28px;
+  margin-top: 112px;
   min-height: 40px;
-  max-width: 560px;
+  max-width: min(92%, 760px);
 }
 
 .stx-type-label {
@@ -610,14 +611,7 @@
 }
 
 .stx-brand-footer {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-  margin-top: auto;
-  padding-top: 28px;
-  color: var(--stx-fg-muted);
-  font-size: 13px;
-  font-weight: 600;
+  display: none;
 }
 
 .stx-form-panel {
@@ -628,7 +622,7 @@
 .stx-form-shell {
   display: flex;
   width: 100%;
-  min-height: 720px;
+  min-height: min(86vh, 860px);
   flex-direction: column;
   border-radius: 32px;
   border: 1px solid var(--stx-border-soft);

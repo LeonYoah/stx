@@ -16,7 +16,7 @@
 frontend/
 ├── app/
 │   ├── (main)/                 # 需登录的控制台路由
-│   │   ├── layout.tsx          # 主布局（侧栏、内容宽度）
+│   │   ├── layout.tsx          # 主布局（常驻 Dock 栏、路由进度条、自适应容器）
 │   │   ├── dashboard/
 │   │   ├── hosts/              # 主机列表与详情 [id]
 │   │   ├── clusters/           # 集群列表与详情 [id]
@@ -38,26 +38,27 @@ frontend/
 │   ├── globals.css
 │   └── page.tsx                # 入口重定向
 ├── components/
-│   ├── ui/                     # 基础组件（Button、Card、Select、Table 等）
+│   ├── ui/                     # 基础组件（Button、Card、Select、Table、Pagination 等）
 │   ├── common/                 # 领域组件
-│   │   ├── auth/               # LoginForm、CallbackHandler
+│   │   ├── auth/               # LoginForm、CallbackHandler、LoginBrandPanel
 │   │   ├── cluster/            # ClusterMain、ClusterCard、弹窗、配置
-│   │   ├── diagnostics/        # 诊断与巡检界面
-│   │   ├── host/               # HostDetail、DiscoverClusterDialog
-│   │   ├── installer/          # PackageMain、InstallWizard、步骤
+│   │   ├── diagnostics/        # 诊断与巡检界面（Inspection、ErrorCenter、TaskCenter）
+│   │   ├── host/               # HostTable、HostDetail、HostInstallGuideDialog
+│   │   ├── installer/          # PackageMain、InstallWizard、步骤向导
 │   │   ├── markdown/           # Markdown 展示
 │   │   ├── plugin/             # PluginMain、PluginCard、弹窗
-│   │   ├── monitoring/         # MonitoringOverview、面板
-│   │   ├── audit/              # CommandMain、AuditLogMain
+│   │   ├── monitoring/         # MonitoringOverview、告警中心、规则面板
+│   │   ├── audit/              # CommandMain、CommandTable、AuditLogMain、AuditLogTable
 │   │   ├── config/             # 配置相关 UI
 │   │   ├── schedule/           # 调度配置
 │   │   ├── sync/               # 数据同步工作台组件
-│   │   ├── layout/             # ThemeProvider、LanguageSwitcher、EmptyState
+│   │   ├── layout/             # ManagementBar(常驻Dock)、RouteProgressBar、WorkspaceHeader、StatPillsBar、TableLoadingBar、TableSkeletonRows、EmptyState、ThemeProvider
 │   │   └── ...
 │   ├── animate-ui/             # 动效、radix 变体
 │   ├── loading/                # PageLoading
 │   └── icons/
 ├── lib/
+│   ├── animations/             # GSAP 声明式微动效库（gsap-motion.ts）
 │   ├── services/               # API 服务层
 │   │   ├── core/               # api-client、base.service、types
 │   │   ├── auth/
@@ -86,7 +87,7 @@ frontend/
 
 ## 模块组织
 
-- **页面**：`app/(main)/...` 下每条路由通常有一个 `page.tsx`，渲染**页面级组件**（如标题 + 一个主组件如 `ClusterMain`、`PackageMain`）。布局与宽度由 `(main)/layout.tsx` 控制；单页不再加与主布局冲突的 `container` 或重复 padding。
+- **页面**：`app/(main)/...` 下每条路由通常有一个 `page.tsx`，渲染**页面级组件**（组合统一的 `WorkspaceHeader` 与对应领域的主组件如 `ClusterMain`、`HostMain`、`PackageMain`）。全局布局由 `(main)/layout.tsx` 提供常驻 Dock 栏；单页严禁额外增加冲突的外层 `container` 或重复的大 padding。
 - **功能组件**：在 `components/common/<domain>/` 下（如 `cluster/`、`diagnostics/`、`installer/`、`sync/`）。每个目录可有主列表或详情组件、卡片、弹窗和表格。优先组合 `components/ui/` 中的小组件。
 - **Services**：按后端领域在 `lib/services/` 下分目录（如 `cluster/`、`host/`）。每个目录有继承 `BaseService` 的 `*.service.ts`、可选的 `types.ts` 以及统一导出的 `index.ts`。后端基础路径为 `/api/v1`；services 使用相对路径（如 `/hosts`、`/clusters/:id/nodes`）。
 - **Hooks**：数据拉取或领域相关 hooks（如 `use-host.ts`、`use-audit.ts`），调用 services 并暴露 loading/error 状态，供页面或 common 组件使用。

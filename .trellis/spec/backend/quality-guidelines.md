@@ -54,6 +54,12 @@
 - **“支持中英文”不等于“同屏双语拼接”。** 例如 diagnostics / 巡检中心 / 诊断报告这类模块，要求是支持 `zh` / `en` 自由切换，并按当前语言返回单语言结果；不要回退到 `中文 / English` 并排或斜杠拼接输出。
 - **版本敏感安装配置由后端统一裁决。** 对一键安装 / 创建集群这类会下发 `seatunnel.yaml` / `hazelcast*.yaml` 的流程，Control Plane 应返回显式 capability（如 `version_capabilities`），Agent 在最终写配置时也必须二次 gate，避免把旧版本不支持的 key（如 `history-job-expire-minutes`、`scheduled-deletion-enable`、`job-schedule-strategy`）误写进去。
 
+### 敏感凭证与密码/Secret 字段安全契约
+
+- **禁止在列表与详情接口回显明文敏感信息**：对于密码（password）、凭据（token / secret）、全局变量中的 Secret 类型等，查询或列表接口一律进行脱敏（如输出掩码 `******` 或置空并附加布尔标志 `is_set: true`），严禁以明文形式返回给前端。
+- **更新接口遵循“默认保留原值”（Preserve-by-Default）**：在更新此类资源的接口中，若前端提交空字符串或未变更标识，后端必须保留已有密文，禁止将其误覆盖为空字符串；仅当客户端显式传入非空的新密文时才执行更新与加密持久化。
+- **落库安全与日志隔离**：敏感凭据在数据库中优先使用加密存储，禁止明文落库；审计日志和运行日志中严禁打印任何密文或凭证内容。
+
 ### 部署会话 Cookie 约定
 
 - **私有化部署默认应将 `app.session_domain` 留空。** 这样浏览器会按当前访问 host 绑定 `stx_session_id`，最适合 IP、内网域名和自定义域名混用场景。

@@ -16,10 +16,34 @@
  */
 
 import type {Metadata} from 'next';
+import {Inter, JetBrains_Mono, Noto_Sans_SC} from 'next/font/google';
 import {Toaster} from '@/components/ui/sonner';
 import {ThemeProvider} from '@/components/common/layout/ThemeProvider';
 import {I18nProvider} from '@/lib/i18n';
 import './globals.css';
+
+/**
+ * 全局字体：Inter（拉丁）+ Noto Sans SC（中文）+ JetBrains Mono（等宽）。
+ * Global fonts: Inter (Latin) + Noto Sans SC (CJK) + JetBrains Mono (code).
+ */
+const inter = Inter({
+  subsets: ['latin'],
+  variable: '--font-inter',
+  display: 'swap',
+});
+
+const notoSansSC = Noto_Sans_SC({
+  subsets: ['latin'],
+  weight: ['400', '500', '600', '700', '900'],
+  variable: '--font-noto-sans-sc',
+  display: 'swap',
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ['latin'],
+  variable: '--font-jetbrains-mono',
+  display: 'swap',
+});
 
 export const metadata: Metadata = {
   title: {
@@ -60,7 +84,7 @@ export default function RootLayout({
   return (
     <html
       lang='zh-CN'
-      className='hide-scrollbar font-sans'
+      className={`hide-scrollbar font-sans ${inter.variable} ${notoSansSC.variable} ${jetbrainsMono.variable}`}
       suppressHydrationWarning
     >
       <body className='hide-scrollbar font-sans antialiased'>

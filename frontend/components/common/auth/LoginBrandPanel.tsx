@@ -190,8 +190,8 @@ function SlideTunnel() {
 }
 
 /**
- * 登录页左侧品牌视觉区：品牌、一句定位、能力标签、单行打字机。
- * Left brand panel for login: mark, positioning line, chips, one typewriter.
+ * 登录页左侧品牌视觉区：小尺寸锁章 + 主标题主导、能力标签、单行打字机。
+ * Left brand panel: quiet mark, headline-first, chips, one typewriter.
  */
 export function LoginBrandPanel() {
   const t = useTranslations();

@@ -23,7 +23,7 @@ interface BrandImageProps {
 }
 
 /** 资源版本号，用于刷新浏览器与 Next Image 缓存。 / Asset version for cache busting. */
-const BRAND_ASSET_VERSION = 'qingluan-1';
+const BRAND_ASSET_VERSION = 'qingluan-wordmark-2';
 
 /**
  * STX 浅色横向锁章（青鸾鸟标 + STX 字标），用于白底登录页、文档页眉等。
@@ -34,8 +34,8 @@ function STXLogo({className, priority = false}: BrandImageProps) {
     <Image
       src={`/brand/stx-logo.png?v=${BRAND_ASSET_VERSION}`}
       alt='STX'
-      width={1018}
-      height={392}
+      width={966}
+      height={513}
       className={className}
       priority={priority}
       draggable={false}
@@ -52,8 +52,8 @@ function STXLogoDark({className, priority = false}: BrandImageProps) {
     <Image
       src={`/brand/stx-logo-dark.png?v=${BRAND_ASSET_VERSION}`}
       alt='STX'
-      width={1042}
-      height={453}
+      width={965}
+      height={512}
       className={className}
       priority={priority}
       draggable={false}

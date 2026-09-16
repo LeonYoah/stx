@@ -40,6 +40,7 @@ import {
 import {toast} from 'sonner';
 import {Plus, Search, Layers, RefreshCw} from 'lucide-react';
 import {WorkspaceHeader, StatPillsBar, TableLoadingBar} from '@/components/common/layout';
+import {Pagination} from '@/components/ui/pagination';
 import {motion} from 'motion/react';
 import {easeOut} from 'motion';
 import {useGSAP} from '@gsap/react';
@@ -410,34 +411,15 @@ export function ClusterMain() {
 
       {/* Pagination / 分页 */}
       {totalPages > 1 && (
-        <motion.div
-          className='flex items-center justify-between'
-          variants={itemVariants}
-        >
-          <div className='text-sm text-muted-foreground'>
-            {t('common.totalItems', {total})}
-          </div>
-          <div className='flex gap-2'>
-            <Button
-              variant='outline'
-              size='sm'
-              disabled={currentPage === 1}
-              onClick={() => handlePageChange(currentPage - 1)}
-            >
-              {t('common.previous')}
-            </Button>
-            <span className='flex items-center px-4 text-sm'>
-              {currentPage} / {totalPages}
-            </span>
-            <Button
-              variant='outline'
-              size='sm'
-              disabled={currentPage === totalPages}
-              onClick={() => handlePageChange(currentPage + 1)}
-            >
-              {t('common.next')}
-            </Button>
-          </div>
+        <motion.div variants={itemVariants}>
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            pageSize={PAGE_SIZE}
+            totalItems={total}
+            onPageChange={handlePageChange}
+            showPageSizeSelector={false}
+          />
         </motion.div>
       )}
 

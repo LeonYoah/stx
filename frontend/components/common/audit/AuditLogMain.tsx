@@ -47,7 +47,7 @@ import services from '@/lib/services';
 import {AuditLogInfo, ListAuditLogsRequest} from '@/lib/services/audit/types';
 import {AuditLogTable} from './AuditLogTable';
 
-const PAGE_SIZE = 20;
+const DEFAULT_PAGE_SIZE = 20;
 
 /**
  * Audit Log Main Component
@@ -61,6 +61,7 @@ export function AuditLogMain() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
 
   // Filter state / 过滤状态
   const [searchUsername, setSearchUsername] = useState('');
@@ -89,7 +90,7 @@ export function AuditLogMain() {
       }
       const params: ListAuditLogsRequest = {
         current: currentPage,
-        size: PAGE_SIZE,
+        size: pageSize,
         username: searchUsername || undefined,
         trigger: filterTrigger !== 'all' ? filterTrigger : undefined,
         action: filterAction !== 'all' ? filterAction : undefined,
@@ -105,13 +106,13 @@ export function AuditLogMain() {
         setLogs(result.data.logs || []);
         setTotal(result.data.total || 0);
       } else {
-        toast.error(result.error || t('audit.loadAuditLogsError'));
+        toast.error(result.error || t('audit.loadError'));
         setLogs([]);
         setTotal(0);
       }
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : t('audit.loadAuditLogsError'),
+        error instanceof Error ? error.message : t('audit.loadError'),
       );
       setLogs([]);
       setTotal(0);
@@ -120,6 +121,7 @@ export function AuditLogMain() {
     }
   }, [
     currentPage,
+    pageSize,
     searchUsername,
     filterTrigger,
     filterAction,
@@ -184,7 +186,7 @@ export function AuditLogMain() {
     setCurrentPage(1);
   };
 
-  const totalPages = Math.ceil(total / PAGE_SIZE);
+  const totalPages = Math.ceil(total / pageSize);
 
   const containerVariants = {
     hidden: {opacity: 0},
@@ -337,7 +339,12 @@ export function AuditLogMain() {
           currentPage={currentPage}
           totalPages={totalPages}
           total={total}
+          pageSize={pageSize}
           onPageChange={handlePageChange}
+          onPageSizeChange={(size) => {
+            setPageSize(size);
+            setCurrentPage(1);
+          }}
         />
       </motion.div>
     </motion.div>

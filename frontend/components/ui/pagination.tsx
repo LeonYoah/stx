@@ -23,6 +23,7 @@
 'use client';
 
 import * as React from 'react';
+import { useTranslations } from 'next-intl';
 import { ChevronLeft, ChevronRight, MoreHorizontal } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -49,7 +50,7 @@ interface PaginationProps {
 
 /**
  * Pagination Component
- * 分页组件 - 支持页码切换和每页数量选择
+ * 分页组件 - 支持页码切换、每页数量选择与完整国际化
  */
 export function Pagination({
   currentPage,
@@ -58,19 +59,22 @@ export function Pagination({
   totalItems,
   onPageChange,
   onPageSizeChange,
-  pageSizeOptions = [12, 24, 48, 96],
+  pageSizeOptions = [10, 20, 50, 100],
   showPageSizeSelector = true,
   showTotalItems = true,
   className,
 }: PaginationProps) {
+  const t = useTranslations('common');
+  const safeTotalPages = Math.max(1, totalPages || 1);
+
   // Generate page numbers to display / 生成要显示的页码
   const getPageNumbers = () => {
     const pages: (number | 'ellipsis')[] = [];
     const maxVisiblePages = 5;
 
-    if (totalPages <= maxVisiblePages + 2) {
+    if (safeTotalPages <= maxVisiblePages + 2) {
       // Show all pages if total is small / 如果总页数较少则显示所有页码
-      for (let i = 1; i <= totalPages; i++) {
+      for (let i = 1; i <= safeTotalPages; i++) {
         pages.push(i);
       }
     } else {
@@ -83,18 +87,18 @@ export function Pagination({
 
       // Show pages around current page / 显示当前页附近的页码
       const start = Math.max(2, currentPage - 1);
-      const end = Math.min(totalPages - 1, currentPage + 1);
+      const end = Math.min(safeTotalPages - 1, currentPage + 1);
 
       for (let i = start; i <= end; i++) {
         pages.push(i);
       }
 
-      if (currentPage < totalPages - 2) {
+      if (currentPage < safeTotalPages - 2) {
         pages.push('ellipsis');
       }
 
       // Always show last page / 始终显示最后一页
-      pages.push(totalPages);
+      pages.push(safeTotalPages);
     }
 
     return pages;
@@ -107,7 +111,7 @@ export function Pagination({
       {/* Total items display / 总数显示 */}
       {showTotalItems && (
         <div className="text-sm text-muted-foreground">
-          共 {totalItems} 条
+          {t('totalItems', { total: totalItems })}
         </div>
       )}
 
@@ -115,12 +119,12 @@ export function Pagination({
         {/* Page size selector / 每页数量选择器 */}
         {showPageSizeSelector && onPageSizeChange && (
           <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">每页</span>
+            <span className="text-sm text-muted-foreground">{t('perPage')}</span>
             <Select
               value={String(pageSize)}
               onValueChange={(value) => onPageSizeChange(Number(value))}
             >
-              <SelectTrigger className="h-8 w-[70px]">
+              <SelectTrigger className="h-8 min-w-[70px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -131,7 +135,7 @@ export function Pagination({
                 ))}
               </SelectContent>
             </Select>
-            <span className="text-sm text-muted-foreground">条</span>
+            <span className="text-sm text-muted-foreground">{t('itemsUnit')}</span>
           </div>
         )}
 
@@ -144,6 +148,8 @@ export function Pagination({
             className="h-8 w-8"
             onClick={() => onPageChange(currentPage - 1)}
             disabled={currentPage <= 1}
+            title={t('prevPage')}
+            aria-label={t('prevPage')}
           >
             <ChevronLeft className="h-4 w-4" />
           </Button>
@@ -180,7 +186,9 @@ export function Pagination({
             size="icon"
             className="h-8 w-8"
             onClick={() => onPageChange(currentPage + 1)}
-            disabled={currentPage >= totalPages}
+            disabled={currentPage >= safeTotalPages}
+            title={t('nextPage')}
+            aria-label={t('nextPage')}
           >
             <ChevronRight className="h-4 w-4" />
           </Button>

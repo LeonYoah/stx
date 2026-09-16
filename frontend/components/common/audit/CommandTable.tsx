@@ -29,6 +29,7 @@ import {useTranslations} from 'next-intl';
 import {Button} from '@/components/ui/button';
 import {Badge} from '@/components/ui/badge';
 import {Progress} from '@/components/ui/progress';
+import {Pagination} from '@/components/ui/pagination';
 import {
   Table,
   TableBody,
@@ -52,7 +53,9 @@ interface CommandTableProps {
   currentPage: number;
   totalPages: number;
   total: number;
+  pageSize?: number;
   onPageChange: (page: number) => void;
+  onPageSizeChange?: (pageSize: number) => void;
   onViewDetail: (command: CommandLogInfo) => void;
 }
 
@@ -112,15 +115,18 @@ export function CommandTable({
   currentPage,
   totalPages,
   total,
+  pageSize = 10,
   onPageChange,
+  onPageSizeChange,
   onViewDetail,
 }: CommandTableProps) {
   const t = useTranslations();
 
   return (
     <div className='space-y-4'>
-      <div className='border rounded-lg'>
-        <Table>
+      <div className='border rounded-lg relative overflow-hidden bg-card/40 shadow-xs'>
+        <div className='overflow-x-auto'>
+          <Table>
           <TableHeader>
             <TableRow>
               <TableHead className='w-[50px]'>ID</TableHead>
@@ -207,37 +213,22 @@ export function CommandTable({
             )}
           </TableBody>
         </Table>
-      </div>
-
-      {/* Pagination / 分页 */}
-      {totalPages > 1 && (
-        <div className='flex items-center justify-between'>
-          <div className='text-sm text-muted-foreground'>
-            {t('common.totalItems', {total})}
-          </div>
-          <div className='flex gap-2'>
-            <Button
-              variant='outline'
-              size='sm'
-              disabled={currentPage === 1}
-              onClick={() => onPageChange(currentPage - 1)}
-            >
-              {t('common.previous')}
-            </Button>
-            <span className='flex items-center px-4 text-sm'>
-              {currentPage} / {totalPages}
-            </span>
-            <Button
-              variant='outline'
-              size='sm'
-              disabled={currentPage === totalPages}
-              onClick={() => onPageChange(currentPage + 1)}
-            >
-              {t('common.next')}
-            </Button>
-          </div>
         </div>
-      )}
+
+        {/* 底部分页栏 / Table Footer Pagination */}
+        <div className='border-t bg-muted/10 px-4 py-2.5'>
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            pageSize={pageSize}
+            totalItems={total}
+            onPageChange={onPageChange}
+            onPageSizeChange={onPageSizeChange}
+            showPageSizeSelector={Boolean(onPageSizeChange)}
+            pageSizeOptions={[10, 20, 50, 100]}
+          />
+        </div>
+      </div>
     </div>
   );
 }

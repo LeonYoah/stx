@@ -34,7 +34,11 @@
     "retry": "Retry",
     "processing": "Processing...",
     "copy": "Copy",
-    "copied": "Copied"
+    "copied": "Copied",
+    "prevPage": "Previous",
+    "nextPage": "Next",
+    "perPage": "Per page",
+    "itemsUnit": "items"
   },
   "dashboard": {
     "title": "Dashboard",

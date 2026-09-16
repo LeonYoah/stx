@@ -55,7 +55,7 @@ import {CreateHostDialog} from './CreateHostDialog';
 import {EditHostDialog} from './EditHostDialog';
 import {HostInstallGuideDialog} from './HostInstallGuideDialog';
 
-const PAGE_SIZE = 10;
+const DEFAULT_PAGE_SIZE = 10;
 
 /**
  * Host Management Main Component
@@ -69,7 +69,7 @@ export function HostMain() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
-
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
 
   // Filter state / 过滤状态
   const [searchName, setSearchName] = useState('');
@@ -93,7 +93,7 @@ export function HostMain() {
     try {
       const params: ListHostsRequest = {
         current: currentPage,
-        size: PAGE_SIZE,
+        size: pageSize,
         name: searchName || undefined,
         host_type:
           filterHostType !== 'all' ? (filterHostType as HostType) : undefined,
@@ -117,7 +117,7 @@ export function HostMain() {
     } finally {
       setLoading(false);
     }
-  }, [currentPage, searchName, filterHostType, filterStatus, t]);
+  }, [currentPage, pageSize, searchName, filterHostType, filterStatus, t]);
 
   useEffect(() => {
     loadHosts();
@@ -222,7 +222,7 @@ export function HostMain() {
     setCurrentPage(1);
   };
 
-  const totalPages = Math.ceil(total / PAGE_SIZE);
+  const totalPages = Math.ceil(total / pageSize);
 
   const containerVariants = {
     hidden: {opacity: 0},
@@ -359,7 +359,12 @@ export function HostMain() {
           currentPage={currentPage}
           totalPages={totalPages}
           total={total}
+          pageSize={pageSize}
           onPageChange={handlePageChange}
+          onPageSizeChange={(size) => {
+            setPageSize(size);
+            setCurrentPage(1);
+          }}
           onViewDetail={handleViewDetail}
           onEdit={handleEdit}
           onDelete={handleDelete}

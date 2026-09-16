@@ -52,7 +52,7 @@ import {
 import {CommandTable} from './CommandTable';
 import {CommandDetail} from './CommandDetail';
 
-const PAGE_SIZE = 10;
+const DEFAULT_PAGE_SIZE = 10;
 
 /**
  * Command Log Main Component
@@ -66,6 +66,7 @@ export function CommandMain() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
 
   // Filter state / 过滤状态
   const [searchCommandId, setSearchCommandId] = useState('');
@@ -88,7 +89,7 @@ export function CommandMain() {
     try {
       const params: ListCommandLogsRequest = {
         current: currentPage,
-        size: PAGE_SIZE,
+        size: pageSize,
         command_id: searchCommandId || undefined,
         status:
           filterStatus !== 'all' ? (filterStatus as CommandStatus) : undefined,
@@ -115,7 +116,14 @@ export function CommandMain() {
     } finally {
       setLoading(false);
     }
-  }, [currentPage, searchCommandId, filterStatus, filterCommandType, t]);
+  }, [
+    currentPage,
+    pageSize,
+    searchCommandId,
+    filterStatus,
+    filterCommandType,
+    t,
+  ]);
 
   useEffect(() => {
     loadCommands();
@@ -166,7 +174,7 @@ export function CommandMain() {
     setCurrentPage(1);
   };
 
-  const totalPages = Math.ceil(total / PAGE_SIZE);
+  const totalPages = Math.ceil(total / pageSize);
 
   const containerVariants = {
     hidden: {opacity: 0},
@@ -286,7 +294,12 @@ export function CommandMain() {
           currentPage={currentPage}
           totalPages={totalPages}
           total={total}
+          pageSize={pageSize}
           onPageChange={handlePageChange}
+          onPageSizeChange={(size) => {
+            setPageSize(size);
+            setCurrentPage(1);
+          }}
           onViewDetail={handleViewDetail}
         />
       </motion.div>

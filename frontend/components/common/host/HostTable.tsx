@@ -29,6 +29,7 @@ import {useRef} from 'react';
 import {useTranslations} from 'next-intl';
 import {Button} from '@/components/ui/button';
 import {Badge} from '@/components/ui/badge';
+import {Pagination} from '@/components/ui/pagination';
 import {
   Table,
   TableBody,
@@ -66,7 +67,9 @@ interface HostTableProps {
   currentPage: number;
   totalPages: number;
   total: number;
+  pageSize?: number;
   onPageChange: (page: number) => void;
+  onPageSizeChange?: (pageSize: number) => void;
   onViewDetail: (host: HostInfo) => void;
   onEdit: (host: HostInfo) => void;
   onDelete: (host: HostInfo) => void;
@@ -141,7 +144,9 @@ export function HostTable({
   currentPage,
   totalPages,
   total,
+  pageSize = 10,
   onPageChange,
+  onPageSizeChange,
   onViewDetail,
   onEdit,
   onDelete,
@@ -166,7 +171,8 @@ export function HostTable({
     <div ref={tableContainerRef} className='space-y-4'>
       <div className='border rounded-lg relative overflow-hidden bg-card/40 shadow-xs'>
         <TableLoadingBar loading={loading} />
-        <Table>
+        <div className='overflow-x-auto'>
+          <Table>
           <TableHeader>
             <TableRow>
               <TableHead className='w-[50px]'>ID</TableHead>
@@ -413,37 +419,22 @@ export function HostTable({
             )}
           </TableBody>
         </Table>
-      </div>
-
-      {/* Pagination / 分页 */}
-      {totalPages > 1 && (
-        <div className='flex items-center justify-between'>
-          <div className='text-sm text-muted-foreground'>
-            {t('common.totalItems', {total})}
-          </div>
-          <div className='flex gap-2'>
-            <Button
-              variant='outline'
-              size='sm'
-              disabled={currentPage === 1}
-              onClick={() => onPageChange(currentPage - 1)}
-            >
-              {t('common.previous')}
-            </Button>
-            <span className='flex items-center px-4 text-sm'>
-              {currentPage} / {totalPages}
-            </span>
-            <Button
-              variant='outline'
-              size='sm'
-              disabled={currentPage === totalPages}
-              onClick={() => onPageChange(currentPage + 1)}
-            >
-              {t('common.next')}
-            </Button>
-          </div>
         </div>
-      )}
+
+        {/* 底部分页栏 / Table Footer Pagination */}
+        <div className='border-t bg-muted/10 px-4 py-2.5'>
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            pageSize={pageSize}
+            totalItems={total}
+            onPageChange={onPageChange}
+            onPageSizeChange={onPageSizeChange}
+            showPageSizeSelector={Boolean(onPageSizeChange)}
+            pageSizeOptions={[10, 20, 50, 100]}
+          />
+        </div>
+      </div>
     </div>
   );
 }

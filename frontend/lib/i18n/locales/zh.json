@@ -34,7 +34,11 @@
     "retry": "重试",
     "processing": "处理中...",
     "copy": "复制",
-    "copied": "已复制"
+    "copied": "已复制",
+    "prevPage": "上一页",
+    "nextPage": "下一页",
+    "perPage": "每页",
+    "itemsUnit": "条"
   },
   "dashboard": {
     "title": "控制台",

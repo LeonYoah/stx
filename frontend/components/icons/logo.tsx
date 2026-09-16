@@ -23,19 +23,19 @@ interface BrandImageProps {
 }
 
 /** 资源版本号，用于刷新浏览器与 Next Image 缓存。 / Asset version for cache busting. */
-const BRAND_ASSET_VERSION = 'qingluan-wordmark-2';
+const BRAND_ASSET_VERSION = 'qingluan-chosen-transparent-1';
 
 /**
- * STX 浅色横向锁章（青鸾鸟标 + STX 字标），用于白底登录页、文档页眉等。
- * STX light lockup (Qingluan mark + STX wordmark) for light backgrounds.
+ * STX 浅色横向锁章（青鸾鸟标 + STX 字标），透明底。
+ * STX light lockup (Qingluan mark + STX wordmark), transparent background.
  */
 function STXLogo({className, priority = false}: BrandImageProps) {
   return (
     <Image
       src={`/brand/stx-logo.png?v=${BRAND_ASSET_VERSION}`}
       alt='STX'
-      width={966}
-      height={513}
+      width={752}
+      height={390}
       className={className}
       priority={priority}
       draggable={false}
@@ -44,16 +44,16 @@ function STXLogo({className, priority = false}: BrandImageProps) {
 }
 
 /**
- * STX 深色横向锁章（青鸾鸟标 + 白字 STX），用于黑底顶栏、暗色营销页等。
- * STX dark lockup (Qingluan mark + white STX) for dark backgrounds.
+ * STX 深色横向锁章（青鸾鸟标 + 白字 STX），透明底，可叠任意深色容器。
+ * STX dark lockup (Qingluan mark + white STX), transparent for any dark surface.
  */
 function STXLogoDark({className, priority = false}: BrandImageProps) {
   return (
     <Image
       src={`/brand/stx-logo-dark.png?v=${BRAND_ASSET_VERSION}`}
       alt='STX'
-      width={965}
-      height={512}
+      width={752}
+      height={391}
       className={className}
       priority={priority}
       draggable={false}

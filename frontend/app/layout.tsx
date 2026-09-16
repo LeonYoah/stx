@@ -16,34 +16,17 @@
  */
 
 import type {Metadata} from 'next';
-import {Inter, JetBrains_Mono, Noto_Sans_SC} from 'next/font/google';
 import {Toaster} from '@/components/ui/sonner';
 import {ThemeProvider} from '@/components/common/layout/ThemeProvider';
 import {I18nProvider} from '@/lib/i18n';
-import './globals.css';
-
 /**
- * 全局字体：Inter（拉丁）+ Noto Sans SC（中文）+ JetBrains Mono（等宽）。
- * Global fonts: Inter (Latin) + Noto Sans SC (CJK) + JetBrains Mono (code).
+ * 本地自托管字体（OFL），构建与运行均不依赖 Google 外部网络。
+ * Self-hosted OFL fonts; no Google external network at build or runtime.
  */
-const inter = Inter({
-  subsets: ['latin'],
-  variable: '--font-inter',
-  display: 'swap',
-});
-
-const notoSansSC = Noto_Sans_SC({
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700', '900'],
-  variable: '--font-noto-sans-sc',
-  display: 'swap',
-});
-
-const jetbrainsMono = JetBrains_Mono({
-  subsets: ['latin'],
-  variable: '--font-jetbrains-mono',
-  display: 'swap',
-});
+import '@fontsource-variable/inter/index.css';
+import '@fontsource-variable/noto-sans-sc/index.css';
+import '@fontsource-variable/jetbrains-mono/index.css';
+import './globals.css';
 
 export const metadata: Metadata = {
   title: {
@@ -82,11 +65,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html
-      lang='zh-CN'
-      className={`hide-scrollbar font-sans ${inter.variable} ${notoSansSC.variable} ${jetbrainsMono.variable}`}
-      suppressHydrationWarning
-    >
+    <html lang='zh-CN' className='hide-scrollbar font-sans' suppressHydrationWarning>
       <body className='hide-scrollbar font-sans antialiased'>
         <I18nProvider>
           <ThemeProvider

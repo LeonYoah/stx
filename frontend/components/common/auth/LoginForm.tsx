@@ -585,155 +585,157 @@ export function LoginForm({className, ...props}: LoginFormProps) {
 
           <section className='stx-form-panel'>
             <div className='stx-form-shell'>
-              <div className='stx-panel-inner'>
-                <div className='stx-panel-toolbar'>
-                  <button
-                    type='button'
-                    className='stx-theme-toggle'
-                    onClick={themeUtils.toggle}
-                    aria-label={
-                      themeMounted
-                        ? themeUtils.getAction()
-                        : t('auth.login.toggleTheme')
-                    }
-                    title={
-                      themeMounted
-                        ? themeUtils.getAction()
-                        : t('auth.login.toggleTheme')
-                    }
-                  >
-                    {themeMounted
-                      ? themeUtils.getIcon('h-4 w-4')
-                      : null}
-                  </button>
-                </div>
-
-                <div className='stx-auth-header'>
-                  <h2>{t('auth.login.title')}</h2>
-                </div>
-
-                <div className={alertClass} role='status'>
-                  {alertMessage || '\u00A0'}
-                </div>
-
-                <form
-                  className='stx-form-grid'
-                  onSubmit={handleCredentialsLogin}
+              <div className='stx-panel-toolbar'>
+                <button
+                  type='button'
+                  className='stx-theme-toggle'
+                  onClick={themeUtils.toggle}
+                  aria-label={
+                    themeMounted
+                      ? themeUtils.getAction()
+                      : t('auth.login.toggleTheme')
+                  }
+                  title={
+                    themeMounted
+                      ? themeUtils.getAction()
+                      : t('auth.login.toggleTheme')
+                  }
                 >
-                  <AuthField
-                    label={t('auth.login.username')}
-                    htmlFor='username'
-                    icon={<User className='h-4 w-4' />}
-                  >
-                    <Input
-                      id='username'
-                      className='stx-auth-input'
-                      type='text'
-                      placeholder={t('auth.login.usernamePlaceholder')}
-                      value={username}
-                      onChange={(e) => {
-                        setUsername(e.target.value);
-                        setValidationError('');
-                      }}
-                      disabled={isButtonLoading}
-                      autoComplete='username'
-                    />
-                  </AuthField>
+                  {themeMounted
+                    ? themeUtils.getIcon('h-4 w-4')
+                    : null}
+                </button>
+              </div>
 
-                  <AuthField
-                    label={t('auth.login.password')}
-                    htmlFor='password'
-                    icon={<Lock className='h-4 w-4' />}
-                  >
-                    <Input
-                      id='password'
-                      className='stx-auth-input stx-auth-input-with-toggle'
-                      type={showPassword ? 'text' : 'password'}
-                      placeholder={t('auth.login.passwordPlaceholder')}
-                      value={password}
-                      onChange={(e) => {
-                        setPassword(e.target.value);
-                        setValidationError('');
-                      }}
-                      disabled={isButtonLoading}
-                      autoComplete='current-password'
-                    />
-                    <button
-                      type='button'
-                      className='stx-toggle-pass'
-                      onClick={() => setShowPassword((value) => !value)}
-                      aria-label={
-                        showPassword
-                          ? t('auth.login.hidePassword')
-                          : t('auth.login.showPassword')
-                      }
-                      disabled={isButtonLoading}
-                    >
-                      {showPassword
-                        ? t('auth.login.hidePasswordShort')
-                        : t('auth.login.showPasswordShort')}
-                    </button>
-                  </AuthField>
-
-                  <Button
-                    type='submit'
-                    className='stx-btn-primary'
-                    disabled={isButtonLoading}
-                  >
-                    {isButtonLoading ? (
-                      <>
-                        <LoaderCircle className='h-4 w-4 animate-spin' />
-                        {t('auth.login.loggingIn')}
-                      </>
-                    ) : (
-                      <>
-                        <span>{t('auth.login.loginButton')}</span>
-                        <span aria-hidden='true'>→</span>
-                      </>
-                    )}
-                  </Button>
-                </form>
-
-                {hasEnabledOAuthProviders ? (
-                  <div className='stx-social-login'>
-                    <div className='stx-divider'>
-                      <span>{t('auth.login.orLoginWith')}</span>
-                    </div>
-                    <div
-                      className={cn(
-                        'stx-oauth-grid',
-                        showGitHubLogin && showGoogleLogin && 'is-split',
-                      )}
-                    >
-                      {showGitHubLogin ? (
-                        <Button
-                          type='button'
-                          variant='outline'
-                          className='stx-oauth-btn'
-                          onClick={() => handleOAuthLogin('github')}
-                          disabled={isButtonLoading}
-                        >
-                          <Github className='h-4 w-4' />
-                          GitHub
-                        </Button>
-                      ) : null}
-                      {showGoogleLogin ? (
-                        <Button
-                          type='button'
-                          variant='outline'
-                          className='stx-oauth-btn'
-                          onClick={() => handleOAuthLogin('google')}
-                          disabled={isButtonLoading}
-                        >
-                          <GoogleIcon className='h-4 w-4' />
-                          Google
-                        </Button>
-                      ) : null}
-                    </div>
+              <div className='stx-panel-inner'>
+                <div className='stx-panel-main'>
+                  <div className='stx-auth-header'>
+                    <h2>{t('auth.login.title')}</h2>
                   </div>
-                ) : null}
 
-                <AuthLegalLinks />
+                  <div className={alertClass} role='status'>
+                    {alertMessage || '\u00A0'}
+                  </div>
+
+                  <form
+                    className='stx-form-grid'
+                    onSubmit={handleCredentialsLogin}
+                  >
+                    <AuthField
+                      label={t('auth.login.username')}
+                      htmlFor='username'
+                      icon={<User className='h-4 w-4' />}
+                    >
+                      <Input
+                        id='username'
+                        className='stx-auth-input'
+                        type='text'
+                        placeholder={t('auth.login.usernamePlaceholder')}
+                        value={username}
+                        onChange={(e) => {
+                          setUsername(e.target.value);
+                          setValidationError('');
+                        }}
+                        disabled={isButtonLoading}
+                        autoComplete='username'
+                      />
+                    </AuthField>
+
+                    <AuthField
+                      label={t('auth.login.password')}
+                      htmlFor='password'
+                      icon={<Lock className='h-4 w-4' />}
+                    >
+                      <Input
+                        id='password'
+                        className='stx-auth-input stx-auth-input-with-toggle'
+                        type={showPassword ? 'text' : 'password'}
+                        placeholder={t('auth.login.passwordPlaceholder')}
+                        value={password}
+                        onChange={(e) => {
+                          setPassword(e.target.value);
+                          setValidationError('');
+                        }}
+                        disabled={isButtonLoading}
+                        autoComplete='current-password'
+                      />
+                      <button
+                        type='button'
+                        className='stx-toggle-pass'
+                        onClick={() => setShowPassword((value) => !value)}
+                        aria-label={
+                          showPassword
+                            ? t('auth.login.hidePassword')
+                            : t('auth.login.showPassword')
+                        }
+                        disabled={isButtonLoading}
+                      >
+                        {showPassword
+                          ? t('auth.login.hidePasswordShort')
+                          : t('auth.login.showPasswordShort')}
+                      </button>
+                    </AuthField>
+
+                    <Button
+                      type='submit'
+                      className='stx-btn-primary'
+                      disabled={isButtonLoading}
+                    >
+                      {isButtonLoading ? (
+                        <>
+                          <LoaderCircle className='h-4 w-4 animate-spin' />
+                          {t('auth.login.loggingIn')}
+                        </>
+                      ) : (
+                        <>
+                          <span>{t('auth.login.loginButton')}</span>
+                          <span aria-hidden='true'>→</span>
+                        </>
+                      )}
+                    </Button>
+                  </form>
+
+                  {hasEnabledOAuthProviders ? (
+                    <div className='stx-social-login'>
+                      <div className='stx-divider'>
+                        <span>{t('auth.login.orLoginWith')}</span>
+                      </div>
+                      <div
+                        className={cn(
+                          'stx-oauth-grid',
+                          showGitHubLogin && showGoogleLogin && 'is-split',
+                        )}
+                      >
+                        {showGitHubLogin ? (
+                          <Button
+                            type='button'
+                            variant='outline'
+                            className='stx-oauth-btn'
+                            onClick={() => handleOAuthLogin('github')}
+                            disabled={isButtonLoading}
+                          >
+                            <Github className='h-4 w-4' />
+                            GitHub
+                          </Button>
+                        ) : null}
+                        {showGoogleLogin ? (
+                          <Button
+                            type='button'
+                            variant='outline'
+                            className='stx-oauth-btn'
+                            onClick={() => handleOAuthLogin('google')}
+                            disabled={isButtonLoading}
+                          >
+                            <GoogleIcon className='h-4 w-4' />
+                            Google
+                          </Button>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <AuthLegalLinks />
+                </div>
               </div>
 
               <div className='stx-auth-footer'>

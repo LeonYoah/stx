@@ -159,17 +159,24 @@
   min-height: 100vh;
   align-items: center;
   justify-content: center;
-  padding: 24px;
+  padding: 18px;
   overflow: hidden;
 }
 
 .stx-auth-card {
+  /* 双栏合成一张卡，去掉中间缝带来的空带 */
+  --stx-auth-panel-h: min(72vh, 680px);
   position: relative;
   z-index: 1;
   display: grid;
-  width: min(1760px, 100%);
-  gap: 20px;
-  grid-template-columns: minmax(0, 1.45fr) minmax(360px, 420px);
+  width: min(1440px, 100%);
+  gap: 0;
+  grid-template-columns: minmax(0, 1.12fr) minmax(420px, 480px);
+  overflow: hidden;
+  border-radius: 28px;
+  border: 1px solid var(--stx-border-soft);
+  box-shadow: var(--stx-panel-shadow);
+  background: var(--stx-brand-panel-bg);
 }
 
 .stx-brand-panel {
@@ -178,12 +185,12 @@
   --mouse-x-norm: 0;
   --mouse-y-norm: 0;
   position: relative;
-  min-height: min(86vh, 860px);
+  min-height: var(--stx-auth-panel-h);
   overflow: hidden;
-  border-radius: 32px;
-  border: 1px solid var(--stx-border-soft);
-  background: var(--stx-brand-panel-bg);
-  box-shadow: var(--stx-panel-shadow);
+  border-radius: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
 }
 
 .stx-brand-panel::before {
@@ -279,17 +286,18 @@
 
 .stx-bw-slide-tunnel {
   position: absolute;
-  left: 24%;
-  top: 23%;
-  width: 58%;
-  height: 54%;
+  left: 28%;
+  top: 20%;
+  width: 62%;
+  height: 58%;
   perspective: 1600px;
   transform-style: preserve-3d;
   transform: rotateX(calc(var(--mouse-y-norm) * -1.4deg))
     rotateY(calc(var(--mouse-x-norm) * 1.6deg));
   will-change: transform;
   z-index: 1;
-  filter: brightness(1.02) contrast(1.02);
+  filter: brightness(1.08) contrast(1.06);
+  opacity: 0.9;
 }
 
 .stx-bw-slide-tunnel::before {
@@ -430,19 +438,202 @@
 }
 
 .stx-brand-content {
+  --stx-brand-core-gap: 1.25rem;
   position: relative;
   z-index: 1;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   height: 100%;
-  min-height: min(86vh, 860px);
-  flex-direction: column;
-  padding: 56px 64px;
+  min-height: var(--stx-auth-panel-h);
+  box-sizing: border-box;
+  padding: 2.5rem 3rem;
+  overflow: hidden;
   transform: translate3d(
     calc(var(--mouse-x-norm) * 4px),
     calc(var(--mouse-y-norm) * 3px),
     0
   );
   will-change: transform;
+}
+
+.stx-brand-top {
+  position: absolute;
+  z-index: 3;
+  top: 1.75rem;
+  left: 3rem;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.stx-brand-logo {
+  /* 新锁章更方，略增高以保持与旧版相近的横向体量。 / Taller lockup: raise height to keep similar visual width. */
+  height: 36px;
+  width: auto;
+  max-width: 140px;
+  object-fit: contain;
+}
+
+.stx-brand-logo-light {
+  display: block;
+}
+
+.stx-brand-logo-dark {
+  display: none;
+}
+
+.dark .stx-brand-logo-light {
+  display: none;
+}
+
+.dark .stx-brand-logo-dark {
+  display: block;
+}
+
+.stx-brand-badge {
+  border-radius: 999px;
+  border: 1px solid var(--stx-badge-border);
+  background: var(--stx-badge-bg);
+  padding: 8px 14px;
+  color: var(--stx-badge-fg);
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.stx-brand-core {
+  grid-area: 1 / 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  /* 加宽给单行标签；标题/副文自身限宽 */
+  max-width: min(920px, 100%);
+  width: 100%;
+  margin-inline: 0;
+  overflow: visible;
+  padding-top: 0.5rem;
+  padding-bottom: 3.5rem;
+  /* 文案组距再拉开：标题 / 副文 / 标签 */
+  gap: 2.35rem;
+  z-index: 2;
+  transform: translateY(-2%);
+}
+
+.stx-brand-title {
+  margin: 0;
+  max-width: 12.5em;
+  font-size: clamp(32px, 2.9vw, 44px);
+  line-height: 1.22;
+  font-weight: 900;
+  letter-spacing: -0.03em;
+  color: var(--stx-fg);
+  text-wrap: balance;
+}
+
+.stx-brand-subtitle {
+  margin: 0;
+  max-width: 30em;
+  font-size: clamp(14px, 1.1vw, 16px);
+  line-height: 1.75;
+  font-weight: 450;
+  color: var(--stx-fg-soft);
+  text-wrap: pretty;
+}
+
+/* 单行标签：不换行；略收紧单枚以容纳整行 */
+.stx-pill-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.45rem;
+  align-self: stretch;
+  width: 100%;
+  max-width: none;
+  box-sizing: border-box;
+  margin: 0.35rem 0 0;
+  padding: 2px 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.stx-pill-row::-webkit-scrollbar {
+  display: none;
+}
+
+.stx-pill {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  border-radius: 999px;
+  border: 1px solid var(--stx-border-strong);
+  background: var(--stx-surface);
+  padding: 0.3rem 0.62rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--stx-fg);
+  white-space: nowrap;
+  backdrop-filter: blur(8px);
+}
+
+.stx-pill-icon {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  opacity: 0.88;
+}
+
+/* 右下打字机：无「能力：」前缀 / BR typewriter without label */
+.stx-brand-corner {
+  position: absolute;
+  z-index: 3;
+}
+
+.stx-brand-corner--br {
+  right: 3rem;
+  bottom: 1.75rem;
+  max-width: min(320px, 50%);
+}
+
+.stx-type-row {
+  display: inline-grid;
+  grid-template-columns: minmax(0, max-content) 8px;
+  align-items: baseline;
+  justify-content: end;
+  gap: 6px;
+  margin: 0;
+  min-height: 1.35em;
+  width: auto;
+  max-width: 100%;
+  text-align: right;
+}
+
+.stx-type-text {
+  min-width: 0;
+  font-size: 0.92rem;
+  font-weight: 550;
+  letter-spacing: -0.01em;
+  color: var(--stx-fg-soft);
+}
+
+.stx-type-caret {
+  width: 1px;
+  height: 0.85em;
+  align-self: center;
+  background: currentColor;
+  opacity: 0.4;
+  animation: stx-blink-caret 1s step-end infinite;
+}
+
+.stx-brand-footer {
+  display: none;
 }
 
 .stx-hero-scan-zone {
@@ -496,141 +687,22 @@
   opacity: 0.55;
 }
 
-.stx-brand-top {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.stx-brand-logo {
-  /* 新锁章更方，略增高以保持与旧版相近的横向体量。 / Taller lockup: raise height to keep similar visual width. */
-  height: 36px;
-  width: auto;
-  max-width: 140px;
-  object-fit: contain;
-}
-
-.stx-brand-logo-light {
-  display: block;
-}
-
-.stx-brand-logo-dark {
-  display: none;
-}
-
-.dark .stx-brand-logo-light {
-  display: none;
-}
-
-.dark .stx-brand-logo-dark {
-  display: block;
-}
-
-.stx-brand-badge {
-  border-radius: 999px;
-  border: 1px solid var(--stx-badge-border);
-  background: var(--stx-badge-bg);
-  padding: 8px 14px;
-  color: var(--stx-badge-fg);
-  font-size: 13px;
-  font-weight: 700;
-  white-space: nowrap;
-}
-
-.stx-brand-main {
-  position: relative;
-  margin-top: 36px;
-  max-width: min(92%, 880px);
-  z-index: 1;
-}
-
-.stx-brand-title {
-  margin: 0;
-  font-size: clamp(44px, 4vw, 64px);
-  line-height: 1.05;
-  font-weight: 900;
-  letter-spacing: -0.05em;
-  color: var(--stx-fg);
-  white-space: nowrap;
-}
-
-.stx-brand-subtitle {
-  margin: 36px 0 0;
-  max-width: 46em;
-  font-size: 18px;
-  line-height: 1.75;
-  color: var(--stx-fg-soft);
-}
-
-.stx-pill-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 14px;
-  margin-top: 48px;
-}
-
-.stx-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  border-radius: 999px;
-  border: 1px solid var(--stx-border-strong);
-  background: var(--stx-surface);
-  padding: 12px 16px;
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--stx-fg);
-  backdrop-filter: blur(8px);
-}
-
-.stx-type-row {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) 14px;
-  align-items: center;
-  gap: 10px;
-  margin-top: 112px;
-  min-height: 40px;
-  max-width: min(92%, 760px);
-}
-
-.stx-type-label {
-  font-size: 18px;
-  font-weight: 800;
-  color: var(--stx-fg-muted);
-}
-
-.stx-type-text {
-  min-width: 0;
-  font-size: 20px;
-  font-weight: 800;
-  color: var(--stx-fg);
-}
-
-.stx-type-caret {
-  width: 2px;
-  height: 22px;
-  background: var(--stx-fg);
-  animation: stx-blink-caret 1s step-end infinite;
-}
-
-.stx-brand-footer {
-  display: none;
-}
-
 .stx-form-panel {
   display: flex;
   align-items: stretch;
 }
 
 .stx-form-shell {
+  position: relative;
   display: flex;
   width: 100%;
-  min-height: min(86vh, 860px);
+  min-height: var(--stx-auth-panel-h);
   flex-direction: column;
-  border-radius: 32px;
-  border: 1px solid var(--stx-border-soft);
+  border-radius: 0;
+  border: none;
+  border-left: 1px solid var(--stx-border-soft);
   background: var(--stx-panel-bg-soft);
-  box-shadow: var(--stx-panel-shadow);
+  box-shadow: none;
   backdrop-filter: blur(16px);
   color: var(--stx-fg);
 }
@@ -639,11 +711,27 @@
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 20px;
-  padding: 36px 28px 8px;
+  justify-content: center;
+  min-height: 0;
+  padding: 2.75rem 2.5rem 1.75rem;
+}
+
+/* 表单块真垂直居中（margin auto 比 justify-content 更稳） */
+.stx-panel-main {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: 1.25rem;
+  margin-block: auto;
+  /* 光学对齐左侧品牌标题，略下移 */
+  transform: translateY(10px);
 }
 
 .stx-panel-toolbar {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  z-index: 2;
   display: flex;
   justify-content: flex-end;
 }
@@ -668,10 +756,10 @@
 
 .stx-auth-header h2 {
   margin: 0;
-  font-size: 28px;
-  line-height: 1.15;
+  font-size: 24px;
+  line-height: 1.2;
   font-weight: 800;
-  letter-spacing: -0.03em;
+  letter-spacing: -0.025em;
   color: var(--stx-fg);
 }
 
@@ -683,10 +771,14 @@
 }
 
 .stx-alert {
-  min-height: 20px;
+  min-height: 0;
   text-align: center;
   font-size: 13px;
   line-height: 1.5;
+}
+
+.stx-alert:not(.stx-alert-error):not(.stx-alert-success) {
+  display: none;
 }
 
 .stx-alert-error {
@@ -887,10 +979,10 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-top: 18px;
-  padding: 16px 28px 22px;
+  margin-top: 0;
+  padding: 14px 2.25rem 18px;
   color: var(--stx-fg-faint);
-  font-size: 13px;
+  font-size: 12px;
   border-top: 1px solid var(--stx-border-soft);
 }
 
@@ -975,6 +1067,8 @@
 
   .stx-form-shell {
     min-height: auto;
+    border-left: none;
+    border-top: 1px solid var(--stx-border-soft);
   }
 }
 
@@ -989,8 +1083,7 @@
   }
 
   .stx-brand-title {
-    font-size: 38px;
-    white-space: normal;
+    font-size: 34px;
   }
 
   .stx-brand-logo {
@@ -998,13 +1091,28 @@
     max-width: 120px;
   }
 
-  .stx-brand-main {
-    margin-top: 28px;
+  .stx-brand-core {
+    padding-block: 2.5rem;
   }
 
-  .stx-type-text,
-  .stx-type-label {
-    font-size: 16px;
+  .stx-brand-corner {
+    position: static;
+    max-width: none;
+    margin-top: 1.25rem;
+    align-self: flex-end;
+  }
+
+  .stx-type-row {
+    justify-content: flex-end;
+    text-align: right;
+  }
+
+  .stx-type-text {
+    font-size: 0.85rem;
+  }
+
+  .stx-pill-row {
+    margin-top: 1.35rem;
   }
 
   .stx-oauth-grid.is-split {

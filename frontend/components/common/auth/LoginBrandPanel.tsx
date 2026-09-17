@@ -190,8 +190,8 @@ function SlideTunnel() {
 }
 
 /**
- * 登录页左侧品牌视觉区：小尺寸锁章 + 主标题主导、能力标签、单行打字机。
- * Left brand panel: quiet mark, headline-first, chips, one typewriter.
+ * 登录页左侧品牌视觉区：锁章 + 主标题 + 单行能力标签 + 右下打字机。
+ * Left brand panel: mark, headline, one-line chips, BR typewriter.
  */
 export function LoginBrandPanel() {
   const t = useTranslations();
@@ -251,29 +251,27 @@ export function LoginBrandPanel() {
           />
         </div>
 
-        <div className='stx-brand-main'>
+        <div className='stx-brand-core'>
           <h1 className='stx-brand-title'>{t('auth.brand.headline')}</h1>
           <p className='stx-brand-subtitle'>{t('auth.brand.subtitle')}</p>
 
           <div className='stx-pill-row' aria-label={t('auth.brand.chipsLabel')}>
             {chips.map(({icon: Icon, label}) => (
               <span key={label} className='stx-pill'>
-                <Icon className='h-4 w-4' aria-hidden='true' />
+                <Icon className='stx-pill-icon' aria-hidden='true' />
                 {label}
               </span>
             ))}
           </div>
+        </div>
 
+        <div className='stx-brand-corner stx-brand-corner--br'>
           <div
             className='stx-type-row'
+            aria-live='polite'
             aria-label={t('auth.brand.capabilityLabel')}
           >
-            <span className='stx-type-label'>
-              {t('auth.brand.capabilityPrefix')}
-            </span>
-            <span className='stx-type-text'>
-              {typed || '\u00A0'}
-            </span>
+            <span className='stx-type-text'>{typed || '\u00A0'}</span>
             <span className='stx-type-caret' aria-hidden='true' />
           </div>
         </div>

@@ -157,7 +157,9 @@ type Task struct {
 	Mode                    TaskMode      `json:"mode" gorm:"size:20;default:streaming"`
 	Status                  TaskStatus    `json:"status" gorm:"size:20;default:draft;index"`
 	ContentFormat           ContentFormat `json:"content_format" gorm:"size:20;not null;default:hocon"`
-	Content                 string        `json:"content" gorm:"type:longtext"`
+	// Content 存储任务定义内容（HOCON 或 JSON），兼容多数据库。
+	// Content stores task definition content (HOCON or JSON), compatible with multiple databases.
+	Content                 string        `json:"content" gorm:"type:text"`
 	JobName                 string        `json:"job_name" gorm:"size:255"`
 	Definition              JSONMap       `json:"definition" gorm:"type:json"`
 	SortOrder               int           `json:"sort_order" gorm:"default:0;index"`
@@ -190,7 +192,9 @@ type TaskVersion struct {
 	EngineVersionSnapshot string        `json:"engine_version_snapshot" gorm:"size:50"`
 	ModeSnapshot          TaskMode      `json:"mode_snapshot" gorm:"size:20"`
 	ContentFormatSnapshot ContentFormat `json:"content_format_snapshot" gorm:"size:20"`
-	ContentSnapshot       string        `json:"content_snapshot" gorm:"type:longtext"`
+	// ContentSnapshot 存储版本快照内容（HOCON 或 JSON），兼容多数据库。
+	// ContentSnapshot stores version snapshot content (HOCON or JSON), compatible with multiple databases.
+	ContentSnapshot       string        `json:"content_snapshot" gorm:"type:text"`
 	JobNameSnapshot       string        `json:"job_name_snapshot" gorm:"size:255"`
 	DefinitionSnapshot    JSONMap       `json:"definition_snapshot" gorm:"type:json"`
 	Comment               string        `json:"comment" gorm:"size:255"`

@@ -114,7 +114,9 @@ type CommandLog struct {
 	Parameters  CommandParameters `json:"parameters" gorm:"type:json"`
 	Status      CommandStatus     `json:"status" gorm:"size:20;not null;index"`
 	Progress    int               `json:"progress" gorm:"default:0"`
-	Output      string            `json:"output" gorm:"type:longtext"`
+	// Output 存储命令执行的原始内容输出，兼容 SQLite/MySQL/PostgreSQL。
+	// Output stores the raw command execution output, compatible with SQLite/MySQL/PostgreSQL.
+	Output      string            `json:"output" gorm:"type:text"`
 	Error       string            `json:"error" gorm:"type:text"`
 	StartedAt   *time.Time        `json:"started_at"`
 	FinishedAt  *time.Time        `json:"finished_at"`

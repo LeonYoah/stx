@@ -102,7 +102,9 @@ func (r *Repository) List(ctx context.Context, filter *ClusterFilter) ([]*Cluste
 	// Apply filters
 	if filter != nil {
 		if filter.Name != "" {
-			query = query.Where("name LIKE ?", "%"+filter.Name+"%")
+			// 按集群名称模糊过滤（使用 LOWER 忽略大小写，兼容多数据库）
+			// Filter by cluster name (case-insensitive using LOWER for multi-database compatibility)
+			query = query.Where("LOWER(name) LIKE LOWER(?)", "%"+filter.Name+"%")
 		}
 		if filter.Status != "" {
 			query = query.Where("status = ?", filter.Status)

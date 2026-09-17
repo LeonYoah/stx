@@ -96,7 +96,9 @@ func (r *Repository) List(ctx context.Context, filter *PluginFilter) ([]Installe
 			query = query.Where("status = ?", filter.Status)
 		}
 		if filter.Keyword != "" {
-			query = query.Where("plugin_name LIKE ?", "%"+filter.Keyword+"%")
+			// 按插件名称模糊过滤（使用 LOWER 忽略大小写，兼容多数据库）
+			// Filter by plugin name (case-insensitive using LOWER for multi-database compatibility)
+			query = query.Where("LOWER(plugin_name) LIKE LOWER(?)", "%"+filter.Keyword+"%")
 		}
 	}
 

@@ -68,7 +68,9 @@ func ListUsersHandler(c *gin.Context) {
 	query := db.DB(c.Request.Context()).Model(&auth.User{})
 
 	if req.Username != "" {
-		query = query.Where("username LIKE ?", req.Username+"%")
+		// 使用 LOWER 进行大小写不敏感前缀匹配，兼容 PostgreSQL/MySQL/SQLite。
+		// Use LOWER for case-insensitive prefix matching, compatible with PostgreSQL/MySQL/SQLite.
+		query = query.Where("LOWER(username) LIKE LOWER(?)", req.Username+"%")
 	}
 	if req.IsActive != nil {
 		query = query.Where("is_active = ?", *req.IsActive)

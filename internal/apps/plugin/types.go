@@ -89,12 +89,12 @@ const (
 // PluginDependencyConfig 表示用户为插件配置的依赖项（GORM 模型）。
 type PluginDependencyConfig struct {
 	ID               uint                   `gorm:"primaryKey" json:"id"`
-	PluginName       string                 `gorm:"size:100;not null;index:idx_plugin_dep,unique" json:"plugin_name"`                 // 插件名称 / Plugin name
+	PluginName       string                 `gorm:"size:80;not null;index:idx_plugin_dep,unique" json:"plugin_name"`                 // 插件名称 / Plugin name
 	SeatunnelVersion string                 `gorm:"size:50;not null;default:'';index:idx_plugin_dep,unique" json:"seatunnel_version"` // SeaTunnel 版本 / SeaTunnel version
-	GroupID          string                 `gorm:"size:200;not null;index:idx_plugin_dep,unique" json:"group_id"`                    // Maven groupId / 分组标识
-	ArtifactID       string                 `gorm:"size:200;not null;index:idx_plugin_dep,unique" json:"artifact_id"`                 // Maven artifactId
-	Version          string                 `gorm:"size:80;not null;index:idx_plugin_dep,unique" json:"version"`                      // 版本号 / Version
-	TargetDir        string                 `gorm:"size:120;not null;default:lib;index:idx_plugin_dep,unique" json:"target_dir"`      // 目标目录 / Target directory
+	GroupID          string                 `gorm:"size:128;not null;index:idx_plugin_dep,unique" json:"group_id"`                    // Maven groupId / 分组标识
+	ArtifactID       string                 `gorm:"size:128;not null;index:idx_plugin_dep,unique" json:"artifact_id"`                 // Maven artifactId
+	Version          string                 `gorm:"size:64;not null;index:idx_plugin_dep,unique" json:"version"`                      // 版本号 / Version
+	TargetDir        string                 `gorm:"size:64;not null;default:lib;index:idx_plugin_dep,unique" json:"target_dir"`      // 目标目录 / Target directory
 	SourceType       PluginDependencySource `gorm:"size:20;not null;default:maven;index:idx_plugin_dep,unique" json:"source_type"`    // 来源类型 / Source type
 	OriginalFileName string                 `gorm:"size:255" json:"original_file_name,omitempty"`                                     // 原始文件名 / Original uploaded file name
 	StoredPath       string                 `gorm:"size:1024" json:"-"`                                                               // 控制面存储路径 / Stored path
@@ -114,12 +114,12 @@ func (PluginDependencyConfig) TableName() string {
 // PluginDependencyDisable 表示插件某个版本下被用户禁用的一条官方依赖。
 type PluginDependencyDisable struct {
 	ID               uint      `gorm:"primaryKey" json:"id"`
-	PluginName       string    `gorm:"size:100;not null;index:idx_plugin_dep_disable,unique" json:"plugin_name"`
+	PluginName       string    `gorm:"size:80;not null;index:idx_plugin_dep_disable,unique" json:"plugin_name"`
 	SeatunnelVersion string    `gorm:"size:50;not null;default:'';index:idx_plugin_dep_disable,unique" json:"seatunnel_version"`
-	GroupID          string    `gorm:"size:200;not null;index:idx_plugin_dep_disable,unique" json:"group_id"`
-	ArtifactID       string    `gorm:"size:200;not null;index:idx_plugin_dep_disable,unique" json:"artifact_id"`
-	Version          string    `gorm:"size:80;not null;index:idx_plugin_dep_disable,unique" json:"version"`
-	TargetDir        string    `gorm:"size:120;not null;index:idx_plugin_dep_disable,unique" json:"target_dir"`
+	GroupID          string    `gorm:"size:128;not null;index:idx_plugin_dep_disable,unique" json:"group_id"`
+	ArtifactID       string    `gorm:"size:128;not null;index:idx_plugin_dep_disable,unique" json:"artifact_id"`
+	Version          string    `gorm:"size:64;not null;index:idx_plugin_dep_disable,unique" json:"version"`
+	TargetDir        string    `gorm:"size:64;not null;index:idx_plugin_dep_disable,unique" json:"target_dir"`
 	CreatedAt        time.Time `json:"created_at"`
 	UpdatedAt        time.Time `json:"updated_at"`
 }
@@ -425,10 +425,10 @@ func (PluginDependencyProfile) TableName() string { return "plugin_dependency_pr
 type PluginDependencyProfileItem struct {
 	ID         uint      `gorm:"primaryKey" json:"id"`
 	ProfileID  uint      `gorm:"not null;index:idx_plugin_dep_profile_item_unique,unique" json:"profile_id"`
-	GroupID    string    `gorm:"size:200;not null;index:idx_plugin_dep_profile_item_unique,unique" json:"group_id"`
-	ArtifactID string    `gorm:"size:200;not null;index:idx_plugin_dep_profile_item_unique,unique" json:"artifact_id"`
-	Version    string    `gorm:"size:80;not null;index:idx_plugin_dep_profile_item_unique,unique" json:"version"`
-	TargetDir  string    `gorm:"size:120;not null;index:idx_plugin_dep_profile_item_unique,unique" json:"target_dir"`
+	GroupID    string    `gorm:"size:128;not null;index:idx_plugin_dep_profile_item_unique,unique" json:"group_id"`
+	ArtifactID string    `gorm:"size:128;not null;index:idx_plugin_dep_profile_item_unique,unique" json:"artifact_id"`
+	Version    string    `gorm:"size:64;not null;index:idx_plugin_dep_profile_item_unique,unique" json:"version"`
+	TargetDir  string    `gorm:"size:64;not null;index:idx_plugin_dep_profile_item_unique,unique" json:"target_dir"`
 	Required   bool      `gorm:"not null;default:true" json:"required"`
 	SourceURL  string    `gorm:"size:500" json:"source_url"`
 	Note       string    `gorm:"type:text" json:"note"`

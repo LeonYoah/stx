@@ -34,6 +34,15 @@ on:
           - config-real
           - upgrade-real
           - plugin-real
+      database:
+        description: Target database for E2E (sqlite, postgres, mysql)
+        required: false
+        default: sqlite
+        type: choice
+        options:
+          - sqlite
+          - postgres
+          - mysql
   schedule:
     - cron: '0 18 * * *'
 
@@ -376,6 +385,33 @@ jobs:
     needs: [changes, smoke-select]
     if: needs.changes.outputs.run_smoke == 'true' && needs.smoke-select.outputs.has_specs == 'true'
     timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: stx
+          POSTGRES_PASSWORD: stx_password_2026
+          POSTGRES_DB: stx
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: stx_e2e
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
     strategy:
       fail-fast: false
       matrix:
@@ -427,8 +463,22 @@ jobs:
           echo "spec_args=${{ needs.smoke-select.outputs.spec_args }}"
 
       - name: Run selected E2E specs
+        env:
+          E2E_DB_TARGET: ${{ github.event.inputs.database || 'sqlite' }}
         run: |
           cd frontend
+          case "${E2E_DB_TARGET}" in
+            postgres)
+              export E2E_CONFIG_PATH="../config.e2e.postgres.yaml"
+              ;;
+            mysql)
+              export E2E_CONFIG_PATH="../config.e2e.mysql.yaml"
+              ;;
+            *)
+              export E2E_CONFIG_PATH="../config.e2e.yaml"
+              ;;
+          esac
+          echo "Target database: ${E2E_DB_TARGET}, config path: ${E2E_CONFIG_PATH}"
           pnpm exec playwright test ${{ needs.smoke-select.outputs.spec_args }}
 
       - name: Upload Playwright report

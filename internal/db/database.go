@@ -45,30 +45,43 @@ const (
 )
 
 // InitDatabase 根据配置初始化数据库连接
-// 支持 SQLite、MySQL、PostgreSQL 三种数据库类型
-// 默认使用 SQLite
+// InitDatabase initializes the database connection according to configuration
+// 支持 SQLite、MySQL、PostgreSQL 三种数据库类型，默认使用 SQLite
+// Supports SQLite, MySQL, and PostgreSQL; defaults to SQLite
 // 此函数是幂等的，重复调用会跳过已初始化的数据库
+// This function is idempotent; repeated calls skip already initialized database
 func InitDatabase() error {
-	// 如果已经初始化，直接返回
+	// 如果已经初始化，直接返回 / If already initialized, return directly
 	if globalDB != nil {
 		log.Println("[Database] 数据库已初始化，跳过重复初始化")
 		return nil
 	}
 
 	dbConfig := config.Config.Database
-
 	if !dbConfig.Enabled {
 		log.Println("[Database] 数据库已禁用，跳过初始化")
 		return nil
 	}
 
+	database, err := OpenDB(dbConfig)
+	if err != nil {
+		return err
+	}
+
+	globalDB = database
+	return nil
+}
+
+// OpenDB 根据指定配置创建独立的数据库连接实例（不污染全局变量，便于多数据库测试）
+// OpenDB creates an independent database connection instance based on specified config (without polluting global variable, useful for multi-DB testing)
+func OpenDB(dbConfig config.DatabaseConfig) (*gorm.DB, error) {
 	var err error
 	var dialector gorm.Dialector
 
-	// 根据配置的数据库类型选择驱动
+	// 根据配置的数据库类型选择驱动 / Select driver based on configured database type
 	dbType := dbConfig.Type
 	if dbType == "" {
-		dbType = DatabaseTypeSQLite // 默认使用 SQLite
+		dbType = DatabaseTypeSQLite // 默认使用 SQLite / Default to SQLite
 	}
 
 	switch dbType {
@@ -79,43 +92,43 @@ func InitDatabase() error {
 	case DatabaseTypePostgres:
 		dialector, err = initPostgresDialector(dbConfig)
 	default:
-		return fmt.Errorf("[Database] 不支持的数据库类型: %s，支持的类型: sqlite, mysql, postgres", dbType)
+		return nil, fmt.Errorf("[Database] 不支持的数据库类型: %s，支持的类型: sqlite, mysql, postgres", dbType)
 	}
 
 	if err != nil {
-		return fmt.Errorf("[Database] 初始化 %s 驱动失败: %w", dbType, err)
+		return nil, fmt.Errorf("[Database] 初始化 %s 驱动失败: %w", dbType, err)
 	}
 
-	// 配置 GORM 日志级别
+	// 配置 GORM 日志级别 / Configure GORM logger level
 	gormLogger := getGormLogger(dbConfig.LogLevel)
 
-	// 创建 GORM 实例
-	globalDB, err = gorm.Open(dialector, &gorm.Config{
+	// 创建 GORM 实例 / Create GORM instance
+	database, err := gorm.Open(dialector, &gorm.Config{
 		DisableForeignKeyConstraintWhenMigrating: true,
 		Logger:                                   gormLogger,
 	})
 	if err != nil {
-		return fmt.Errorf("[Database] 连接 %s 数据库失败: %w", dbType, err)
+		return nil, fmt.Errorf("[Database] 连接 %s 数据库失败: %w", dbType, err)
 	}
 
-	// 注入 OpenTelemetry 追踪
-	if err := globalDB.Use(tracing.NewPlugin(tracing.WithoutMetrics())); err != nil {
+	// 注入 OpenTelemetry 追踪 / Inject OpenTelemetry tracing
+	if err := database.Use(tracing.NewPlugin(tracing.WithoutMetrics())); err != nil {
 		log.Printf("[Database] 初始化追踪插件失败: %v\n", err)
 	}
 
 	// 配置连接池 / Configure connection pool
 	if dbType == DatabaseTypeSQLite {
-		if err := configureSQLiteRuntime(); err != nil {
-			return fmt.Errorf("[Database] 配置 SQLite 运行时失败: %w", err)
+		if err := configureSQLiteRuntime(database); err != nil {
+			return nil, fmt.Errorf("[Database] 配置 SQLite 运行时失败: %w", err)
 		}
 	} else {
-		if err := configureConnectionPool(dbConfig); err != nil {
-			return fmt.Errorf("[Database] 配置连接池失败: %w", err)
+		if err := configureConnectionPool(database, dbConfig); err != nil {
+			return nil, fmt.Errorf("[Database] 配置连接池失败: %w", err)
 		}
 	}
 
 	log.Printf("[Database] 成功连接到 %s 数据库\n", dbType)
-	return nil
+	return database, nil
 }
 
 // initSQLiteDialector 初始化 SQLite 驱动
@@ -170,13 +183,17 @@ func initPostgresDialector(dbConfig config.DatabaseConfig) (gorm.Dialector, erro
 }
 
 // configureConnectionPool 配置数据库连接池
-func configureConnectionPool(dbConfig config.DatabaseConfig) error {
-	sqlDB, err := globalDB.DB()
+// configureConnectionPool configures the database connection pool
+func configureConnectionPool(database *gorm.DB, dbConfig config.DatabaseConfig) error {
+	if database == nil {
+		return fmt.Errorf("database 实例为空 / database instance is nil")
+	}
+	sqlDB, err := database.DB()
 	if err != nil {
 		return fmt.Errorf("获取底层数据库连接失败: %w", err)
 	}
 
-	// 设置连接池参数
+	// 设置连接池参数 / Set connection pool parameters
 	if dbConfig.MaxIdleConn > 0 {
 		sqlDB.SetMaxIdleConns(dbConfig.MaxIdleConn)
 	}
@@ -192,8 +209,11 @@ func configureConnectionPool(dbConfig config.DatabaseConfig) error {
 
 // configureSQLiteRuntime configures SQLite-specific runtime behavior.
 // configureSQLiteRuntime 配置 SQLite 运行时行为。
-func configureSQLiteRuntime() error {
-	sqlDB, err := globalDB.DB()
+func configureSQLiteRuntime(database *gorm.DB) error {
+	if database == nil {
+		return fmt.Errorf("database 实例为空 / database instance is nil")
+	}
+	sqlDB, err := database.DB()
 	if err != nil {
 		return fmt.Errorf("获取底层 SQLite 连接失败: %w", err)
 	}
@@ -239,13 +259,21 @@ func GetGlobalDB() *gorm.DB {
 	return globalDB
 }
 
-// CloseDatabase 关闭数据库连接
+// SetGlobalDB 设置全局数据库实例（主要用于测试注入与环境重置）
+// SetGlobalDB sets the global database instance (primarily for test injection and environment resets)
+func SetGlobalDB(database *gorm.DB) {
+	globalDB = database
+}
+
+// CloseDatabase 关闭数据库连接并重置全局状态
+// CloseDatabase closes the database connection and resets global state
 func CloseDatabase() error {
 	if globalDB == nil {
 		return nil
 	}
 
 	sqlDB, err := globalDB.DB()
+	globalDB = nil // 重置全局单例以允许重新初始化 / Reset global singleton to allow re-initialization
 	if err != nil {
 		return fmt.Errorf("获取底层数据库连接失败: %w", err)
 	}

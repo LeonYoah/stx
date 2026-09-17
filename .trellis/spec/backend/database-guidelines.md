@@ -80,3 +80,8 @@ func (r *Repository) Transaction(ctx context.Context, fn func(tx *Repository) er
 - 向 handler 直接返回原始 `gorm.ErrRecordNotFound`；应映射为领域错误（如 `ErrClusterNotFound`）以便 handler 映射为 HTTP 404。
 - 需要一致性时在循环中多次更新却未包在事务中。
 - 依赖外键级联删除而未考虑项目配置（`DisableForeignKeyConstraintWhenMigrating`）；建议在事务中显式删除（如先删节点再删集群），参见 `cluster/repository.Delete`。
+- **多数据库方言不兼容**：
+  - 严禁在 GORM tag 中使用 MySQL 独有类型 `gorm:"type:longtext"` 或 `mediumtext`，大文本一律使用通用的 `gorm:"type:text"`。
+  - 严禁裸写 `Where("col LIKE ?", ...)`（PostgreSQL 默认大小写敏感，会导致查询遗漏），统一使用 `Where("LOWER(col) LIKE LOWER(?)", ...)`。
+  - 严禁在原生 SQL 字符串中夹带 MySQL 反引号 \`（PostgreSQL 会直接报语法错误）。
+  - 本地或提交前必须运行 `./scripts/test_db_compat.sh` 确保三库迁移与一致性测试通过。

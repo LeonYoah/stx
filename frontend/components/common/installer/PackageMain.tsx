@@ -153,7 +153,7 @@ export function PackageMain() {
       )}
 
       {/* 一体化紧凑卡片容器 / Unified Compact Table Container */}
-      <Card className='border-border/70 shadow-xs overflow-hidden'>
+      <Card className='border-border/70 shadow-xs overflow-hidden flex flex-col min-h-[480px] sm:min-h-[calc(100vh-270px)]'>
         {/* 工具栏：状态胶囊切换器 + 快速操作 / Toolbar: Segmented pills + Quick actions */}
         <div className='p-3 sm:p-3.5 border-b bg-muted/20 flex flex-wrap items-center justify-between gap-2.5'>
           <StatPillsBar
@@ -179,7 +179,7 @@ export function PackageMain() {
         </div>
 
         {/* 表格主体内容：直达数据行，杜绝层层嵌套 / Table Body: Direct access to data rows */}
-        <div className='p-3 sm:p-4'>
+        <div className='p-3 sm:p-4 flex-1 flex flex-col'>
           {activeTab === 'online' ? (
             <PackageTable
               type='online'

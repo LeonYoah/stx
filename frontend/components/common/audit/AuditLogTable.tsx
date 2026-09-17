@@ -181,10 +181,10 @@ export function AuditLogTable({
   );
 
   return (
-    <div ref={tableContainerRef} className='space-y-4'>
-      <div className='border rounded-lg relative overflow-hidden bg-card/40 shadow-xs'>
+    <div ref={tableContainerRef} className='space-y-4 flex-1 flex flex-col'>
+      <div className='border rounded-lg relative overflow-hidden bg-card/40 shadow-xs flex flex-col flex-1 min-h-[480px] sm:min-h-[calc(100vh-270px)]'>
         <TableLoadingBar loading={loading} />
-        <div className='overflow-x-auto'>
+        <div className='overflow-x-auto flex-1'>
           <Table>
           <TableHeader>
             <TableRow>
@@ -280,7 +280,7 @@ export function AuditLogTable({
         </div>
 
         {/* 底部分页栏 / Table Footer Pagination */}
-        <div className='border-t bg-muted/10 px-4 py-2.5'>
+        <div className='border-t bg-muted/10 px-4 py-2.5 mt-auto'>
           <Pagination
             currentPage={currentPage}
             totalPages={totalPages}

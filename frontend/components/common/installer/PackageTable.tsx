@@ -135,7 +135,7 @@ export function PackageTable({
   // Online versions table / 在线版本表格
   if (type === 'online') {
     return (
-      <div ref={tableContainerRef} className="border rounded-lg relative overflow-hidden bg-card/40 shadow-xs">
+      <div ref={tableContainerRef} className="border rounded-lg relative overflow-hidden bg-card/40 shadow-xs flex-1 flex flex-col">
         <TableLoadingBar loading={Boolean(loading)} />
         <Table>
           <TableHeader>
@@ -284,7 +284,7 @@ export function PackageTable({
 
   // Local packages table / 本地安装包表格
   return (
-    <div ref={tableContainerRef} className="border rounded-lg relative overflow-hidden bg-card/40 shadow-xs">
+    <div ref={tableContainerRef} className="border rounded-lg relative overflow-hidden bg-card/40 shadow-xs flex-1 flex flex-col">
       <TableLoadingBar loading={Boolean(loading)} />
       <Table>
         <TableHeader>

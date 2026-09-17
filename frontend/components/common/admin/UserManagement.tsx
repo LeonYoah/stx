@@ -338,9 +338,9 @@ export function UserManagement() {
       </div>
 
       {/* 用户表格与底部分页一体化卡片 / User Table and Pagination Integrated Card */}
-      <div ref={tableContainerRef} className='border rounded-lg relative overflow-hidden bg-card/40 shadow-xs'>
+      <div ref={tableContainerRef} className='border rounded-lg relative overflow-hidden bg-card/40 shadow-xs flex flex-col min-h-[480px] sm:min-h-[calc(100vh-270px)]'>
         <TableLoadingBar loading={loading} />
-        <div className='overflow-x-auto'>
+        <div className='overflow-x-auto flex-1'>
           <Table>
             <TableHeader>
               <TableRow>
@@ -422,7 +422,7 @@ export function UserManagement() {
         </div>
 
         {/* 底部分页栏 / Table Footer Pagination */}
-        <div className='border-t bg-muted/10 px-4 py-2.5'>
+        <div className='border-t bg-muted/10 px-4 py-2.5 mt-auto'>
           <Pagination
             currentPage={currentPage}
             totalPages={totalPages}

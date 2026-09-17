@@ -144,6 +144,11 @@ import {
 } from '@/components/common/sync/TaskScheduleSidebarPanel';
 import {GlobalVariableDialog} from './GlobalVariableDialog';
 import {GlobalVariablesSidebarPanel} from './GlobalVariablesSidebarPanel';
+import {
+  CustomVariableDialog,
+  type CustomVariableItem,
+} from './CustomVariableDialog';
+import {CustomVariablesSection} from './CustomVariablesSection';
 import type {CreateSyncGlobalVariableRequest} from '@/lib/services/sync';
 
 const MonacoEditor = dynamic(() => import('@monaco-editor/react'), {
@@ -204,11 +209,7 @@ interface PersistedWorkspaceTabs {
   activeTabId: number | null;
 }
 
-interface VariableRow {
-  id: string;
-  key: string;
-  value: string;
-}
+type VariableRow = CustomVariableItem;
 
 interface VariableDraft {
   key: string;
@@ -490,10 +491,12 @@ function formatSizeBytes(bytes?: number | null): string {
   return `${value >= 10 || index === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[index]}`;
 }
 
-function normalizeVariableRowsForCompare(rows: VariableRow[]): VariableDraft[] {
+function normalizeVariableRowsForCompare(rows: VariableRow[]): Record<string, unknown>[] {
   return rows.map((row) => ({
     key: row.key.trim(),
     value: row.value,
+    type: row.type || 'string',
+    description: row.description || '',
   }));
 }
 
@@ -969,10 +972,13 @@ function isReservedBuiltinVariableKey(key: string): boolean {
   );
 }
 
+// 校验自定义变量列表的合法性（保留字与重名检查）
+// Validate custom variable rows (check reserved keywords and duplicates)
 function validateCustomVariableRows(
   rows: VariableRow[],
   t: ReturnType<typeof useTranslations<'workbenchStudio'>>,
 ): string | null {
+  const seenKeys = new Set<string>();
   for (const row of rows) {
     const key = row.key.trim();
     if (!key) {
@@ -981,6 +987,11 @@ function validateCustomVariableRows(
     if (isReservedBuiltinVariableKey(key)) {
       return t('reservedBuiltinVariableKey', {key: `{{${key}}}`});
     }
+    const lower = key.toLowerCase();
+    if (seenKeys.has(lower)) {
+      return t('duplicateCustomVariableKey');
+    }
+    seenKeys.add(lower);
   }
   return null;
 }
@@ -1261,19 +1272,34 @@ function formatSyncUserFacingError(
   };
 }
 
-function toVariableRows(value: unknown): VariableRow[] {
+// 将 definition 中的 custom_variables 与 custom_variable_types 转换为表格行列表
+// Convert custom_variables and custom_variable_types from task definition into variable rows
+function toVariableRows(
+  value: unknown,
+  typesValue?: unknown,
+): VariableRow[] {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return [];
   }
-  return Object.entries(value as Record<string, unknown>).map(
-    ([key, item], index) => ({
-      id: `${key}-${index}`,
-      key,
-      value: typeof item === 'string' ? item : String(item ?? ''),
-    }),
-  );
+  const typesMap =
+    typesValue && typeof typesValue === 'object' && !Array.isArray(typesValue)
+      ? (typesValue as Record<string, unknown>)
+      : {};
+  return Object.entries(value as Record<string, unknown>)
+    .filter(([key]) => Boolean(key.trim()))
+    .map(([key, item], index) => {
+      const type = typesMap[key] === 'secret' ? 'secret' : 'string';
+      return {
+        id: `${key}-${index}`,
+        key,
+        value: typeof item === 'string' ? item : String(item ?? ''),
+        type,
+      };
+    });
 }
 
+// 将自定义变量列表转换为任务定义中的键值映射
+// Convert custom variable rows to key-value record for task definition
 function fromVariableRows(rows: VariableRow[]): Record<string, string> {
   const result: Record<string, string> = {};
   for (const row of rows) {
@@ -1282,6 +1308,22 @@ function fromVariableRows(rows: VariableRow[]): Record<string, string> {
       continue;
     }
     result[key] = row.value;
+  }
+  return result;
+}
+
+// 将自定义变量列表转换为任务定义中的类型映射
+// Convert custom variable rows to type mapping record for task definition
+function fromVariableTypes(
+  rows: VariableRow[],
+): Record<string, 'string' | 'secret'> {
+  const result: Record<string, 'string' | 'secret'> = {};
+  for (const row of rows) {
+    const key = row.key.trim();
+    if (!key) {
+      continue;
+    }
+    result[key] = row.type === 'secret' ? 'secret' : 'string';
   }
   return result;
 }
@@ -2174,11 +2216,15 @@ function extractEditorStateFromTreeNode(
   };
 }
 
+// 从任务定义中解析自定义变量列表
+// Extract custom variable rows from task definition
 function extractVariableRowsFromDefinition(
   definition: SyncJSON,
 ): VariableRow[] {
-  const rows = toVariableRows(definition?.custom_variables);
-  return rows.length > 0 ? rows : [{id: 'custom-var-0', key: '', value: ''}];
+  return toVariableRows(
+    definition?.custom_variables,
+    definition?.custom_variable_types,
+  );
 }
 
 function resolveFolderParent(
@@ -2890,15 +2936,12 @@ export function DataSyncStudio() {
   const [customVariableRows, setCustomVariableRows] = useState<VariableRow[]>(
     [],
   );
-  const [editingCustomVariableId, setEditingCustomVariableId] = useState<
-    string | null
-  >(null);
-  const [customVariableDraft, setCustomVariableDraft] = useState<VariableDraft>(
-    {
-      key: '',
-      value: '',
-    },
-  );
+  // 自定义变量弹窗开闭与正在编辑项状态
+  // Custom variable dialog open state and current editing item
+  const [customVariableDialogOpen, setCustomVariableDialogOpen] =
+    useState(false);
+  const [editingCustomVariable, setEditingCustomVariable] =
+    useState<VariableRow | null>(null);
   const [jobMetricsDialogOpen, setJobMetricsDialogOpen] = useState(false);
   const [metricsDialogJob, setMetricsDialogJob] =
     useState<SyncJobInstance | null>(null);
@@ -3705,11 +3748,14 @@ export function DataSyncStudio() {
     void loadCheckpointFiles(selectedJob);
   }, [bottomConsoleTab, loadCheckpointFiles, selectedJob]);
 
+  // 同步编辑器定义中的自定义变量与类型到状态
+  // Sync custom variables and types from editor definition into state
   useEffect(() => {
-    const rows = toVariableRows(editor.definition?.custom_variables);
-    setCustomVariableRows(
-      rows.length > 0 ? rows : [{id: 'custom-var-0', key: '', value: ''}],
+    const rows = toVariableRows(
+      editor.definition?.custom_variables,
+      editor.definition?.custom_variable_types,
     );
+    setCustomVariableRows(rows);
   }, [selectedNodeId, editor.currentVersion]);
 
   useEffect(() => {
@@ -4438,6 +4484,7 @@ export function DataSyncStudio() {
       definition: {
         ...editor.definition,
         custom_variables: fromVariableRows(customVariableRows),
+        custom_variable_types: fromVariableTypes(customVariableRows),
         execution_mode: getExecutionMode(editor.definition),
         preview_mode: 'source',
         preview_output_format: 'hocon',
@@ -5195,15 +5242,16 @@ export function DataSyncStudio() {
     });
   };
 
+  // 同步自定义变量到编辑器定义与草稿中
+  // Sync custom variables to editor definition and draft
   const syncCustomVariablesToEditor = useCallback(
     (rows: VariableRow[]) => {
       setCustomVariableRows(rows);
       customVariableRowsRef.current = rows;
-      setEditingCustomVariableId(null);
-      setCustomVariableDraft({key: '', value: ''});
       const nextDefinition = {
         ...editor.definition,
         custom_variables: fromVariableRows(rows),
+        custom_variable_types: fromVariableTypes(rows),
       };
       const nextEditor = {...editor, definition: nextDefinition};
       setEditor(nextEditor);
@@ -5214,63 +5262,75 @@ export function DataSyncStudio() {
     [editor, markEditorDraft],
   );
 
-  const handleStartEditCustomVariableRow = (rowId: string) => {
-    const target = customVariableRows.find((row) => row.id === rowId);
-    if (!target) {
-      return;
-    }
-    setEditingCustomVariableId(rowId);
-    setCustomVariableDraft({key: target.key, value: target.value});
-  };
+  // 打开新建自定义变量弹窗
+  // Open create custom variable dialog
+  const handleOpenCreateCustomVariable = useCallback(() => {
+    setEditingCustomVariable(null);
+    setCustomVariableDialogOpen(true);
+  }, []);
 
-  const handleCustomVariableDraftChange = (
-    field: keyof VariableDraft,
-    value: string,
-  ) => {
-    setCustomVariableDraft((current) => ({...current, [field]: value}));
-  };
+  // 打开编辑自定义变量弹窗
+  // Open edit custom variable dialog
+  const handleOpenEditCustomVariable = useCallback((item: VariableRow) => {
+    setEditingCustomVariable(item);
+    setCustomVariableDialogOpen(true);
+  }, []);
 
-  const handleCancelEditCustomVariableRow = () => {
-    setEditingCustomVariableId(null);
-    setCustomVariableDraft({key: '', value: ''});
-  };
+  // 保存自定义变量（新建或更新）
+  // Save custom variable (create or update)
+  const handleSaveCustomVariable = useCallback(
+    (payload: {
+      key: string;
+      value: string;
+      type: 'string' | 'secret';
+      description?: string;
+    }) => {
+      let nextRows: VariableRow[];
+      if (editingCustomVariable) {
+        nextRows = customVariableRows.map((row) =>
+          row.id === editingCustomVariable.id
+            ? {
+                ...row,
+                key: payload.key.trim(),
+                value: payload.value,
+                type: payload.type,
+                description: payload.description,
+              }
+            : row,
+        );
+        toast.success(t('customVariableUpdated'));
+      } else {
+        const newRow: VariableRow = {
+          id: `custom-var-${Date.now()}`,
+          key: payload.key.trim(),
+          value: payload.value,
+          type: payload.type,
+          description: payload.description,
+        };
+        nextRows = [...customVariableRows, newRow];
+        toast.success(t('customVariableCreated'));
+      }
+      syncCustomVariablesToEditor(nextRows);
+      setCustomVariableDialogOpen(false);
+      setEditingCustomVariable(null);
+    },
+    [customVariableRows, editingCustomVariable, syncCustomVariablesToEditor, t],
+  );
 
-  const handleSaveCustomVariableRow = (rowId: string) => {
-    const nextRows = customVariableRows.map((row) =>
-      row.id === rowId ? {...row, ...customVariableDraft} : row,
-    );
-    const error = validateCustomVariableRows(nextRows, t);
-    if (error) {
-      toast.error(error);
-      return;
-    }
-    syncCustomVariablesToEditor(nextRows);
-    setEditingCustomVariableId(null);
-    setCustomVariableDraft({key: '', value: ''});
-  };
-
-  const handleAddCustomVariableRow = () => {
-    const id = `custom-var-${Date.now()}`;
-    syncCustomVariablesToEditor([
-      ...customVariableRows,
-      {id, key: '', value: ''},
-    ]);
-    setEditingCustomVariableId(id);
-    setCustomVariableDraft({key: '', value: ''});
-  };
-
-  const handleDeleteCustomVariableRow = (rowId: string) => {
-    const nextRows = customVariableRows.filter((row) => row.id !== rowId);
-    syncCustomVariablesToEditor(
-      nextRows.length > 0
-        ? nextRows
-        : [{id: 'custom-var-0', key: '', value: ''}],
-    );
-    if (editingCustomVariableId === rowId) {
-      setEditingCustomVariableId(null);
-      setCustomVariableDraft({key: '', value: ''});
-    }
-  };
+  // 删除自定义变量
+  // Delete custom variable
+  const handleDeleteCustomVariable = useCallback(
+    (rowId: string) => {
+      const nextRows = customVariableRows.filter((row) => row.id !== rowId);
+      syncCustomVariablesToEditor(nextRows);
+      toast.success(t('customVariableDeleted'));
+      if (editingCustomVariable?.id === rowId) {
+        setEditingCustomVariable(null);
+        setCustomVariableDialogOpen(false);
+      }
+    },
+    [customVariableRows, editingCustomVariable, syncCustomVariablesToEditor, t],
+  );
 
   const handleSaveGlobalVariable = async (
     item: SyncGlobalVariable | null,
@@ -5833,8 +5893,6 @@ export function DataSyncStudio() {
               clusters={clusters}
               detectedVariables={detectedVariables}
               customVariableRows={customVariableRows}
-              editingCustomVariableId={editingCustomVariableId}
-              customVariableDraft={customVariableDraft}
               onExecutionModeChange={handleExecutionModeChange}
               onClusterChange={(value) =>
                 updateEditor('clusterId', value === '__empty__' ? '' : value)
@@ -5848,12 +5906,13 @@ export function DataSyncStudio() {
               onInsertPluginTemplate={(pluginType, factoryIdentifier) =>
                 void insertPluginTemplate(pluginType, factoryIdentifier)
               }
-              onStartEditCustomVariableRow={handleStartEditCustomVariableRow}
-              onCustomVariableDraftChange={handleCustomVariableDraftChange}
-              onSaveCustomVariableRow={handleSaveCustomVariableRow}
-              onCancelEditCustomVariableRow={handleCancelEditCustomVariableRow}
-              onAddCustomVariableRow={handleAddCustomVariableRow}
-              onDeleteCustomVariableRow={handleDeleteCustomVariableRow}
+              onOpenCreateCustomVariable={handleOpenCreateCustomVariable}
+              onOpenEditCustomVariable={handleOpenEditCustomVariable}
+              onDeleteCustomVariable={handleDeleteCustomVariable}
+              onCopyCustomVariableReference={handleCopyVariableReference}
+              onCopyCustomVariableValue={(value) =>
+                void copyToClipboard(value, t('variableValueCopied'))
+              }
             />
           ) : rightSidebarTab === 'versions' ? (
             <VersionSidebarPanel
@@ -5897,6 +5956,19 @@ export function DataSyncStudio() {
           }}
           variable={editingGlobalVariable}
           onSave={handleSaveGlobalVariable}
+        />
+
+        <CustomVariableDialog
+          open={customVariableDialogOpen}
+          onOpenChange={(open) => {
+            setCustomVariableDialogOpen(open);
+            if (!open) {
+              setEditingCustomVariable(null);
+            }
+          }}
+          variable={editingCustomVariable}
+          existingKeys={customVariableRows.map((item) => item.key)}
+          onSave={handleSaveCustomVariable}
         />
 
         <Dialog
@@ -6857,17 +6929,14 @@ function SettingsSidebarPanel({
   sinkTemplateItems,
   detectedVariables,
   customVariableRows,
-  editingCustomVariableId,
-  customVariableDraft,
   onExecutionModeChange,
   onClusterChange,
   onInsertPluginTemplate,
-  onStartEditCustomVariableRow,
-  onCustomVariableDraftChange,
-  onSaveCustomVariableRow,
-  onCancelEditCustomVariableRow,
-  onAddCustomVariableRow,
-  onDeleteCustomVariableRow,
+  onOpenCreateCustomVariable,
+  onOpenEditCustomVariable,
+  onDeleteCustomVariable,
+  onCopyCustomVariableReference,
+  onCopyCustomVariableValue,
 }: {
   executionMode: ExecutionMode;
   clusterId: string;
@@ -6880,23 +6949,17 @@ function SettingsSidebarPanel({
   sinkTemplateItems: TemplatePluginItem[];
   detectedVariables: string[];
   customVariableRows: VariableRow[];
-  editingCustomVariableId: string | null;
-  customVariableDraft: VariableDraft;
   onExecutionModeChange: (value: ExecutionMode) => void;
   onClusterChange: (value: string) => void;
   onInsertPluginTemplate: (
     pluginType: SyncPluginType,
     factoryIdentifier: string,
   ) => void;
-  onStartEditCustomVariableRow: (rowId: string) => void;
-  onCustomVariableDraftChange: (
-    field: keyof VariableDraft,
-    value: string,
-  ) => void;
-  onSaveCustomVariableRow: (rowId: string) => void;
-  onCancelEditCustomVariableRow: () => void;
-  onAddCustomVariableRow: () => void;
-  onDeleteCustomVariableRow: (rowId: string) => void;
+  onOpenCreateCustomVariable: () => void;
+  onOpenEditCustomVariable: (item: VariableRow) => void;
+  onDeleteCustomVariable: (id: string) => void;
+  onCopyCustomVariableReference: (key: string) => void;
+  onCopyCustomVariableValue: (value: string) => void;
 }) {
   const t = useTranslations('workbenchStudio');
   const builtinPreviewNow = useMemo(() => new Date(), []);
@@ -7005,135 +7068,16 @@ function SettingsSidebarPanel({
         </div>
       ) : null}
 
-      <div className='rounded-lg border border-border/50 bg-muted/10 p-3'>
-        <div className='mb-2 flex items-center justify-between gap-2'>
-          <Label className='block text-xs'>{t('customVariables')}</Label>
-          <Button
-            type='button'
-            size='sm'
-            variant='outline'
-            className='h-7 px-2 text-xs'
-            onClick={onAddCustomVariableRow}
-          >
-            <Plus className='mr-1 size-3.5' />
-            {t('add')}
-          </Button>
-        </div>
-        <div className='space-y-2'>
-          {customVariableRows.map((row) => {
-            const isEditing = editingCustomVariableId === row.id;
-            return (
-              <div
-                key={row.id}
-                className='rounded-lg border border-border/50 bg-background/70 p-3'
-              >
-                {isEditing ? (
-                  <div className='space-y-3'>
-                    <div className='space-y-1.5'>
-                      <Label className='text-[11px] text-muted-foreground'>
-                        {t('key')}
-                      </Label>
-                      <Input
-                        value={customVariableDraft.key}
-                        onChange={(event) =>
-                          onCustomVariableDraftChange('key', event.target.value)
-                        }
-                        className='h-8 text-xs'
-                        placeholder={t('key')}
-                      />
-                    </div>
-                    <div className='space-y-1.5'>
-                      <Label className='text-[11px] text-muted-foreground'>
-                        {t('value')}
-                      </Label>
-                      <Input
-                        value={customVariableDraft.value}
-                        onChange={(event) =>
-                          onCustomVariableDraftChange(
-                            'value',
-                            event.target.value,
-                          )
-                        }
-                        className='h-8 text-xs'
-                        placeholder={t('value')}
-                      />
-                    </div>
-                    <div className='grid grid-cols-2 gap-2'>
-                      <Button
-                        type='button'
-                        size='sm'
-                        variant='outline'
-                        className='h-8 text-xs'
-                        onClick={onCancelEditCustomVariableRow}
-                      >
-                        {t('cancel')}
-                      </Button>
-                      <Button
-                        type='button'
-                        size='sm'
-                        className='h-8 text-xs'
-                        onClick={() => onSaveCustomVariableRow(row.id)}
-                      >
-                        {t('save')}
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className='flex items-start justify-between gap-2'>
-                    <div className='min-w-0 flex-1 space-y-2'>
-                      <div className='flex min-w-0 items-center gap-2'>
-                        <Badge variant='outline' className='shrink-0'>
-                          {row.key || t('unnamed')}
-                        </Badge>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <span className='min-w-0 flex-1 truncate text-xs text-muted-foreground'>
-                              {row.value || '-'}
-                            </span>
-                          </TooltipTrigger>
-                          <TooltipContent className='max-w-[320px] break-all'>
-                            {row.value || '-'}
-                          </TooltipContent>
-                        </Tooltip>
-                      </div>
-                    </div>
-                    <div className='flex shrink-0 items-center gap-1'>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            type='button'
-                            size='icon'
-                            variant='ghost'
-                            className='size-8'
-                            onClick={() => onStartEditCustomVariableRow(row.id)}
-                          >
-                            <Pencil className='size-4' />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>{t('edit')}</TooltipContent>
-                      </Tooltip>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            type='button'
-                            size='icon'
-                            variant='ghost'
-                            className='size-8 text-destructive hover:text-destructive'
-                            onClick={() => onDeleteCustomVariableRow(row.id)}
-                          >
-                            <Trash2 className='size-4' />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>{t('delete')}</TooltipContent>
-                      </Tooltip>
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
+      {/* 自定义变量管理区域 */}
+      {/* Custom variables management section */}
+      <CustomVariablesSection
+        variables={customVariableRows}
+        onOpenCreate={onOpenCreateCustomVariable}
+        onOpenEdit={onOpenEditCustomVariable}
+        onDelete={onDeleteCustomVariable}
+        onCopyReference={onCopyCustomVariableReference}
+        onCopyValue={onCopyCustomVariableValue}
+      />
 
       <div className='rounded-lg border border-border/50 bg-muted/10 p-3'>
         <Label className='mb-2 block text-xs'>{t('detectedVariables')}</Label>

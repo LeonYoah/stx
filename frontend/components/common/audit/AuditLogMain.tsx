@@ -211,7 +211,7 @@ export function AuditLogMain() {
 
   return (
     <motion.div
-      className='space-y-6'
+      className='space-y-6 flex-1 flex flex-col'
       initial='hidden'
       animate='visible'
       variants={containerVariants}
@@ -332,7 +332,7 @@ export function AuditLogMain() {
       </motion.div>
 
       {/* Audit Log Table / 审计日志表格 */}
-      <motion.div variants={itemVariants}>
+      <motion.div variants={itemVariants} className='flex-1 flex flex-col'>
         <AuditLogTable
           logs={logs}
           loading={loading}

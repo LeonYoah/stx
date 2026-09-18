@@ -45,12 +45,17 @@ export const KAPA_PROJECT_LOGO_DARK_PATH = '/brand/stx-logo-dark.png';
  */
 export const KAPA_PROJECT_MARK_PATH = '/brand/stx-mark.png';
 /**
+ * Padded square mark for Kapa modal header (safe margin so crest is not clipped).
+ * 带安全边距的方形青鸾标，专供 Kapa 弹窗标题（避免顶部被裁切）。
+ */
+export const KAPA_MODAL_MARK_PATH = '/brand/stx-mark-kapa.png';
+/**
  * Sync widget theme with next-themes (`class="dark"` on <html>).
  * 与 next-themes 同步（<html> 上的 class="dark"）。
  */
 export const KAPA_COLOR_SCHEME_SELECTOR = '.dark';
-/** Modal header bird-mark size — keep small so the crest is not clipped. / 弹窗标题青鸾标尺寸，缩小以免顶部被裁切 */
-export const KAPA_MODAL_LOGO_SIZE_PX = '22';
+/** Modal header bird-mark display size (asset already has safe padding). / 弹窗标题青鸾标显示尺寸（资源自带安全边距） */
+export const KAPA_MODAL_LOGO_SIZE_PX = '28';
 
 /**
  * Origins / host patterns that may show Ask AI (console + widget).
@@ -159,30 +164,62 @@ function resolveBrandAssetUrl(path: string): string {
 
 /**
  * Resolve modal / project logo URL.
- * Prefer the square bird mark — wide lockups get cropped in Kapa's square slot
- * (leaving a broken white "S" fragment beside the bird).
- * 弹窗/项目 logo 用方形青鸾图形标；宽锁章会被 Kapa 方形槽裁切，只剩鸟标和残缺「S」。
+ * Use the padded square mark so Kapa's header never clips the bird crest.
+ * 弹窗 logo 使用带安全边距的方形青鸾标，避免标题栏裁切鸟冠。
  */
 export function getKapaProjectLogo(_variant?: 'light' | 'dark'): string {
+  return resolveBrandAssetUrl(KAPA_MODAL_MARK_PATH);
+}
+
+/**
+ * Launcher FAB bird-mark (unpadded).
+ * 悬浮按钮用的青鸾图形标（无额外边距）。
+ */
+export function getKapaLauncherImage(): string {
   return resolveBrandAssetUrl(KAPA_PROJECT_MARK_PATH);
 }
 
 /**
- * @deprecated Prefer getKapaProjectLogo(); kept for callers that still pass a variant.
- * 兼容旧调用；实际始终返回方形图形标。
+ * Inject CSS so Kapa modal logo stays fully visible inside the header slot.
+ * 注入样式，确保 Kapa 弹窗 logo 在标题槽内完整可见。
  */
-export function getKapaLauncherImage(): string {
-  return getKapaProjectLogo();
+function ensureKapaLogoStyles(): void {
+  const id = 'st-kapa-logo-fix';
+  if (document.getElementById(id)) {
+    return;
+  }
+  const style = document.createElement('style');
+  style.id = id;
+  style.textContent = `
+    img[src*="stx-mark-kapa"],
+    img[src*="stx-mark.png"] {
+      object-fit: contain !important;
+      object-position: center !important;
+      max-height: 28px !important;
+      max-width: 28px !important;
+      height: 28px !important;
+      width: 28px !important;
+      padding: 0 !important;
+      box-sizing: content-box !important;
+    }
+    /* Avoid parent overflow clipping the crest / 避免父级 overflow 裁切鸟冠 */
+    img[src*="stx-mark-kapa"] {
+      overflow: visible !important;
+    }
+  `;
+  document.head.appendChild(style);
 }
 
 /**
  * Apply modal logo URL + compact sizing so the bird crest is not clipped.
- * 写入弹窗 logo，并缩小尺寸，避免青鸾顶部被标题栏裁切。
+ * 写入弹窗 logo，并控制尺寸，避免青鸾顶部被标题栏裁切。
  */
 export function applyKapaThemeLogos(): void {
   if (typeof document === 'undefined') {
     return;
   }
+
+  ensureKapaLogoStyles();
 
   const modalLogo = getKapaProjectLogo();
   const script = document.getElementById(KAPA_SCRIPT_ID);
@@ -194,22 +231,29 @@ export function applyKapaThemeLogos(): void {
   const sizePx = `${KAPA_MODAL_LOGO_SIZE_PX}px`;
   document.querySelectorAll('img').forEach((img) => {
     const src = img.getAttribute('src') || '';
-    // Replace any wide lockup still injected into the Kapa modal header
-    // 替换仍注入到 Kapa 弹窗标题区的宽锁章
-    if (
-      (src.includes('/brand/stx-logo') || src.includes('/img/stx-logo')) &&
-      img.src !== modalLogo
-    ) {
-      img.src = modalLogo;
+    const inFab = Boolean(img.closest('[data-testid="stx-ask-ai-fab"]'));
+    if (inFab) {
+      return;
     }
-    // Shrink STX brand marks inside the widget chrome
-    // 缩小 Widget 内的 STX 品牌图形标
+
+    // Force padded Kapa mark into any STX brand img inside the widget
+    // 将 Widget 内 STX 品牌图统一为带边距的 Kapa 图形标
+    if (
+      src.includes('stx-logo') ||
+      (src.includes('stx-mark') && !src.includes('stx-mark-kapa'))
+    ) {
+      if (img.src !== modalLogo) {
+        img.src = modalLogo;
+      }
+    }
+
     if (src.includes('stx-mark') || src.includes('stx-logo')) {
       img.style.height = sizePx;
-      img.style.width = 'auto';
+      img.style.width = sizePx;
       img.style.maxHeight = sizePx;
       img.style.maxWidth = sizePx;
       img.style.objectFit = 'contain';
+      img.style.objectPosition = 'center';
       img.style.display = 'block';
     }
   });
@@ -365,8 +409,8 @@ export function ensureKapaWidget(): Promise<boolean> {
   if (
     existingScript &&
     (existingScript.getAttribute('data-launcher-button-hidden') !== 'true' ||
-      (existingScript.getAttribute('data-project-logo') || '').includes(
-        'stx-logo',
+      !(existingScript.getAttribute('data-project-logo') || '').includes(
+        'stx-mark-kapa',
       ) ||
       existingScript.getAttribute('data-modal-image-height') !==
         KAPA_MODAL_LOGO_SIZE_PX)

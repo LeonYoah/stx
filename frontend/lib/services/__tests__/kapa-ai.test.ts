@@ -202,9 +202,9 @@ describe('kapa-ai service integration', () => {
     expect(script?.getAttribute('data-color-scheme-selector')).toBe(
       KAPA_COLOR_SCHEME_SELECTOR,
     );
-    expect(script?.getAttribute('data-project-logo')).toContain('stx-mark');
-    expect(script?.getAttribute('data-modal-logo-src')).toContain('stx-mark');
+    expect(script?.getAttribute('data-project-logo')).toContain('stx-mark-kapa');
+    expect(script?.getAttribute('data-modal-logo-src')).toContain('stx-mark-kapa');
     expect(script?.getAttribute('data-modal-title')).toBe('Ask AI');
-    expect(script?.getAttribute('data-modal-image-height')).toBe('22');
+    expect(script?.getAttribute('data-modal-image-height')).toBe('28');
   });
 });

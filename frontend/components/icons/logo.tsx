@@ -22,7 +22,7 @@ interface BrandImageProps {
   priority?: boolean;
 }
 
-/** 资源版本号，用于刷新浏览器与 Next Image 缓存。 / Asset version for cache busting. */
+/** 资源版本号：改文件名或部署缓存刷新即可，避免 next/image query 警告。 / Cache-bust via filename/deploy; avoid next/image query-string warnings. */
 const BRAND_ASSET_VERSION = 'qingluan-chosen-transparent-1';
 
 /**
@@ -32,13 +32,15 @@ const BRAND_ASSET_VERSION = 'qingluan-chosen-transparent-1';
 function STXLogo({className, priority = false}: BrandImageProps) {
   return (
     <Image
-      src={`/brand/stx-logo.png?v=${BRAND_ASSET_VERSION}`}
+      src={`/brand/stx-logo.png`}
       alt='STX'
       width={752}
       height={390}
       className={className}
       priority={priority}
       draggable={false}
+      unoptimized
+      data-brand-version={BRAND_ASSET_VERSION}
     />
   );
 }
@@ -50,13 +52,15 @@ function STXLogo({className, priority = false}: BrandImageProps) {
 function STXLogoDark({className, priority = false}: BrandImageProps) {
   return (
     <Image
-      src={`/brand/stx-logo-dark.png?v=${BRAND_ASSET_VERSION}`}
+      src={`/brand/stx-logo-dark.png`}
       alt='STX'
       width={752}
       height={391}
       className={className}
       priority={priority}
       draggable={false}
+      unoptimized
+      data-brand-version={BRAND_ASSET_VERSION}
     />
   );
 }
@@ -68,13 +72,15 @@ function STXLogoDark({className, priority = false}: BrandImageProps) {
 function STXMark({className, priority = false}: BrandImageProps) {
   return (
     <Image
-      src={`/brand/stx-mark.png?v=${BRAND_ASSET_VERSION}`}
+      src={`/brand/stx-mark.png`}
       alt=''
       width={866}
       height={655}
       className={className}
       priority={priority}
       draggable={false}
+      unoptimized
+      data-brand-version={BRAND_ASSET_VERSION}
     />
   );
 }

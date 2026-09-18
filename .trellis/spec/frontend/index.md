@@ -43,6 +43,12 @@
    - 敏感信息（如全局变量中的 Secret/密码类型）严禁明文回显；列表一律掩码显示，编辑弹窗默认留空（不修改保持原密码），防二次展示泄露。
 5. **规范化弹窗层级（Framed & Scalable Dialogs）**
    - 弹窗必须具备明显的层级边框（`border border-border/80 dark:border-border/60 shadow-2xl`）；根据内容选择宽度规格（`sm` / `md` / `lg` / `max-w-4xl~5xl`），复杂内容由内部容器独立滚动。
+6. **渐进式披露与反平铺堆叠（Progressive Disclosure & Anti-Flat-Dumping）**
+   - 严禁在页面或弹窗首屏无脑平铺所有业务维度；概览页只呈现核心指标与主动作，重型从属列表与复杂表单必须通过 Tab、抽屉或折叠面板进行物理隔离。
+   - 概览若需透出次级数据，仅使用轻量速览条（Snapshot Bar）或状态胶囊搭配一键直达入口。
+7. **原子信息完整性与防被迫换行（Atomic Integrity & Anti-Forced-Wrapping）**
+   - 技术标识符、键值对单元、代码、度量指标等原子数据不可分割；严禁因等宽 Grid 窄列挤压而出现字符内部被迫折断断裂。
+   - 统一遵循明确策略：弹性流整体换行（`flex-wrap`）、单行溢出滚动保护（`overflow-x-auto whitespace-nowrap`）或单行截断（`truncate` + Tooltip）。
 
 ---
 

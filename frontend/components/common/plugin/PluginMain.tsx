@@ -84,6 +84,7 @@ import type {
 } from '@/lib/services/plugin';
 import type {ClusterInfo} from '@/lib/services/cluster';
 import {Progress} from '@/components/ui/progress';
+import {matchesConnectorProcessingMode} from './connector-quick-helper';
 import {PluginGrid} from './PluginGrid';
 import {PluginDetailDialog} from './PluginDetailDialog';
 import {InstallPluginDialog} from './InstallPluginDialog';
@@ -242,7 +243,12 @@ export function PluginMain() {
 
     if (filterCategory !== 'all') {
       filtered = filtered.filter(
-        (plugin) => plugin.category === filterCategory,
+        (plugin) =>
+          matchesConnectorProcessingMode(
+            plugin.name,
+            filterCategory,
+            plugin.category,
+          ),
       );
     }
 
@@ -810,7 +816,14 @@ export function PluginMain() {
           return false;
         }
       }
-      if (filterCategory !== 'all' && plugin.category !== filterCategory) {
+      if (
+        filterCategory !== 'all' &&
+        !matchesConnectorProcessingMode(
+          plugin.name,
+          filterCategory,
+          plugin.category,
+        )
+      ) {
         return false;
       }
       if (selectedVersion && plugin.version !== selectedVersion) {
@@ -1204,9 +1217,14 @@ export function PluginMain() {
               <SelectValue placeholder={t('plugin.category.all')} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value='all' className='text-xs'>{t('plugin.category.all')}</SelectItem>
-              <SelectItem value='connector' className='text-xs'>
-                {t('plugin.category.connector')}
+              <SelectItem value='all' className='text-xs'>
+                {t('plugin.category.all')}
+              </SelectItem>
+              <SelectItem value='realtime' className='text-xs'>
+                {t('plugin.category.realtime')}
+              </SelectItem>
+              <SelectItem value='offline' className='text-xs'>
+                {t('plugin.category.offline')}
               </SelectItem>
             </SelectContent>
           </Select>

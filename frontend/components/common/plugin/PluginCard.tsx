@@ -32,11 +32,15 @@ import {
 } from '@/components/ui/card';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
-import {Database, ExternalLink, Download, CheckCircle} from 'lucide-react';
+import {ExternalLink, Download, CheckCircle} from 'lucide-react';
 import {useLocale} from '@/lib/i18n';
 import {buildSeatunnelConnectorDocsUrl} from '@/lib/seatunnel-version';
-import type {Plugin, PluginCategory} from '@/lib/services/plugin';
+import type {Plugin} from '@/lib/services/plugin';
 import {getPluginDependencyStatusMeta} from './dependency-status';
+import {
+  getConnectorSemanticIcon,
+  generateConnectorDocUrls,
+} from './connector-quick-helper';
 
 interface PluginCardProps {
   plugin: Plugin;
@@ -48,32 +52,6 @@ interface PluginCardProps {
   downloadProgress?: number;
   onInstall?: () => void;
   onDownload?: () => void;
-}
-
-/**
- * Get category icon
- * 获取分类图标
- */
-function getCategoryIcon(category: PluginCategory) {
-  switch (category) {
-    case 'connector':
-      return <Database className='h-5 w-5' />;
-    default:
-      return <Database className='h-5 w-5' />;
-  }
-}
-
-/**
- * Get category color
- * 获取分类颜色
- */
-function getCategoryColor(category: PluginCategory): string {
-  switch (category) {
-    case 'connector':
-      return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300';
-    default:
-      return 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-300';
-  }
 }
 
 /**
@@ -93,8 +71,19 @@ export function PluginCard({
 }: PluginCardProps) {
   const t = useTranslations();
   const {locale} = useLocale();
-  const docsUrl = buildSeatunnelConnectorDocsUrl(plugin.version, locale);
+  const docUrls = generateConnectorDocUrls(
+    plugin.name,
+    plugin.version,
+    locale,
+    plugin.category,
+  );
+  const docsUrl =
+    docUrls.sourceDocUrl ||
+    docUrls.sinkDocUrl ||
+    buildSeatunnelConnectorDocsUrl(plugin.version, locale);
   const dependencyMeta = getPluginDependencyStatusMeta(plugin, t);
+  const semanticIcon = getConnectorSemanticIcon(plugin.name, plugin.category);
+  const IconComponent = semanticIcon.icon;
 
   /**
    * Handle install button click
@@ -117,16 +106,31 @@ export function PluginCard({
   return (
     <Card
       data-testid={`plugin-card-${plugin.name}`}
-      className='cursor-pointer hover:shadow-md transition-shadow duration-200 hover:border-primary/50'
+      className='cursor-pointer transition-all duration-200 hover:shadow-md hover:border-primary/50'
       onClick={onClick}
     >
       <CardHeader className='pb-3'>
         <div className='flex items-start justify-between'>
           <div className='flex items-center gap-3'>
             <div
-              className={`p-2 rounded-lg ${getCategoryColor(plugin.category)}`}
+              className={`p-2 rounded-lg ${semanticIcon.bgColor} ${semanticIcon.textColor} flex items-center justify-center w-9 h-9 shrink-0`}
             >
-              {getCategoryIcon(plugin.category)}
+              {semanticIcon.iconUrl ? (
+                <img
+                  src={semanticIcon.iconUrl}
+                  alt={plugin.display_name || plugin.name}
+                  className='h-5 w-5 object-contain'
+                  loading='lazy'
+                  onError={(e) => {
+                    (e.target as HTMLElement).style.display = 'none';
+                    const fallback = (e.target as HTMLElement).nextElementSibling;
+                    if (fallback) (fallback as HTMLElement).style.display = 'block';
+                  }}
+                />
+              ) : null}
+              <IconComponent
+                className={`h-5 w-5 ${semanticIcon.iconUrl ? 'hidden' : ''}`}
+              />
             </div>
             <div>
               <CardTitle className='text-base font-semibold line-clamp-1'>
@@ -153,13 +157,18 @@ export function PluginCard({
           {plugin.description || t('plugin.noDescription')}
         </p>
         <div className='flex items-center justify-between'>
-          <div className='flex items-center gap-2'>
+          <div className='flex items-center gap-1.5 flex-wrap'>
             <Badge
               variant='outline'
-              className={getCategoryColor(plugin.category)}
+              className={`${semanticIcon.bgColor} ${semanticIcon.textColor}`}
             >
               {t(`plugin.category.${plugin.category}`)}
             </Badge>
+            {semanticIcon.tagLabel && (
+              <Badge variant='secondary' className='text-[10px] px-1.5 py-0'>
+                {semanticIcon.tagLabel}
+              </Badge>
+            )}
           </div>
           <span className='text-xs text-muted-foreground'>
             v{plugin.version}

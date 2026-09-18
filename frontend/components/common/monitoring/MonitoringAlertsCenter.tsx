@@ -71,6 +71,7 @@ import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
 import {Card} from '@/components/ui/card';
 import {Input} from '@/components/ui/input';
+import {Pagination} from '@/components/ui/pagination';
 import {
   Select,
   SelectContent,
@@ -623,9 +624,9 @@ export function MonitoringAlertsCenter() {
   );
 
   return (
-    <div ref={containerRef} className='space-y-3'>
+    <div ref={containerRef} className='flex-1 flex flex-col'>
       {/* 紧凑型一体化工作台卡片 / Unified Compact Alert Workspace Container */}
-      <Card className='border-border/70 shadow-xs overflow-hidden'>
+      <Card className='border-border/70 shadow-xs overflow-hidden flex flex-col flex-1 min-h-[480px] sm:min-h-[calc(100vh-270px)]'>
         {/* 顶部工具与状态分段栏 / Top Toolbar & Segmented Status Filter Bar */}
         <div className='p-3 sm:p-3.5 border-b bg-muted/20 space-y-2.5'>
           {/* 第一行：状态胶囊切换器 + 统计徽章 + 右侧操作 */}
@@ -646,7 +647,7 @@ export function MonitoringAlertsCenter() {
                   className='h-7 px-2 text-xs text-muted-foreground hover:text-foreground cursor-pointer'
                 >
                   <RotateCcw className='mr-1 h-3 w-3' />
-                  重置
+                  {t('alerts.reset')}
                 </Button>
                 <Button
                   variant='outline'
@@ -667,13 +668,13 @@ export function MonitoringAlertsCenter() {
           {/* 第二行：高密度搜索与条件组合筛选 */}
           {/* Row 2: High density search and multi-dimensional filters */}
           <div className='flex flex-wrap items-center gap-2 pt-0.5'>
-            {/* 关键字搜索 */}
+            {/* 关键字搜索 / Keyword Search */}
             <div className='relative flex-1 min-w-[220px]'>
               <Search className='absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground' />
               <Input
                 value={searchKeyword}
                 onChange={(e) => setSearchKeyword(e.target.value)}
-                placeholder='搜索告警名称、规则标识、摘要描述...'
+                placeholder={t('alerts.searchPlaceholder')}
                 className='pl-8 pr-7 h-8 text-xs bg-background'
               />
               {searchKeyword && (
@@ -687,7 +688,7 @@ export function MonitoringAlertsCenter() {
               )}
             </div>
 
-            {/* 集群筛选 */}
+            {/* 集群筛选 / Cluster Filter */}
             <Select
               value={clusterFilter}
               onValueChange={(val) => {
@@ -708,7 +709,7 @@ export function MonitoringAlertsCenter() {
               </SelectContent>
             </Select>
 
-            {/* 来源筛选 */}
+            {/* 来源筛选 / Source Filter */}
             <Select
               value={sourceFilter}
               onValueChange={(val) => {
@@ -760,7 +761,7 @@ export function MonitoringAlertsCenter() {
 
         {/* 3. 告警列表表格（高密度排版） / Alert Instances High Density Table */}
         <TableLoadingBar loading={loading && filteredAlerts.length > 0} />
-        <div className='overflow-x-auto'>
+        <div className='overflow-x-auto flex-1'>
           <Table>
             <TableHeader>
               <TableRow className='bg-muted/30 hover:bg-muted/30 h-8'>
@@ -788,7 +789,7 @@ export function MonitoringAlertsCenter() {
                       <ShieldAlert className='h-8 w-8 text-muted-foreground/50' />
                       <span className='font-medium'>{t('alerts.noAlerts')}</span>
                       <span className='text-xs text-muted-foreground'>
-                        当前筛选条件下没有匹配的告警事件
+                        {t('alerts.noMatchingAlerts')}
                       </span>
                     </div>
                   </TableCell>
@@ -814,7 +815,7 @@ export function MonitoringAlertsCenter() {
                       )}
                       onClick={() => setSelectedAlert(alert)}
                     >
-                        {/* 集群 */}
+                        {/* 集群 / Cluster */}
                         <TableCell className='py-2 px-3 font-medium text-xs'>
                           <span
                             className='truncate max-w-[110px] inline-block'
@@ -824,14 +825,14 @@ export function MonitoringAlertsCenter() {
                           </span>
                         </TableCell>
 
-                        {/* 来源 */}
+                        {/* 来源 / Source */}
                         <TableCell className='py-2 px-3'>
                           <Badge variant='outline' className='text-[10px] py-0 px-1 font-normal'>
                             {resolveSourceLabel(alert.source_type)}
                           </Badge>
                         </TableCell>
 
-                        {/* 告警名称与规则 */}
+                        {/* 告警名称与规则 / Alert Name & Rule */}
                         <TableCell className='py-2 px-3'>
                           <div className='space-y-0.5'>
                             <div className='font-semibold text-xs text-foreground line-clamp-1 group-hover:text-primary transition-colors'>
@@ -843,13 +844,13 @@ export function MonitoringAlertsCenter() {
                           </div>
                         </TableCell>
 
-                        {/* 严重级别 */}
+                        {/* 严重级别 / Severity */}
                         <TableCell className='py-2 px-3'>{renderSeverityBadge(alert.severity)}</TableCell>
 
-                        {/* 状态 */}
+                        {/* 状态 / Status */}
                         <TableCell className='py-2 px-3'>{renderStatusBadge(alert.status)}</TableCell>
 
-                        {/* 摘要与标记 */}
+                        {/* 摘要与标记 / Summary & Markers */}
                         <TableCell className='max-w-[280px] py-2 px-3'>
                           <div
                             className='line-clamp-1 text-xs text-foreground/90'
@@ -860,23 +861,23 @@ export function MonitoringAlertsCenter() {
                           {renderMarkers(alert)}
                         </TableCell>
 
-                        {/* 首次触发 */}
+                        {/* 首次触发 / First Fired At */}
                         <TableCell className='py-2 px-3 text-xs font-mono text-muted-foreground whitespace-nowrap'>
                           {formatDateTime(alert.firing_at)}
                         </TableCell>
 
-                        {/* 最近变更 */}
+                        {/* 最近变更 / Last Changed At */}
                         <TableCell className='py-2 px-3 text-xs font-mono text-muted-foreground whitespace-nowrap'>
                           {formatDateTime(resolveLastChangedAt(alert))}
                         </TableCell>
 
-                        {/* 操作栏 */}
+                        {/* 操作栏 / Action Bar */}
                         <TableCell className='py-2 px-3 text-right whitespace-nowrap'>
                           <div
                             className='flex items-center justify-end gap-1'
                             onClick={(e) => e.stopPropagation()}
                           >
-                            {/* 查看详情 */}
+                            {/* 查看详情 / View Details */}
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <Button
@@ -891,7 +892,7 @@ export function MonitoringAlertsCenter() {
                               <TooltipContent>{t('viewDetails')}</TooltipContent>
                             </Tooltip>
 
-                            {/* 静音 30m */}
+                            {/* 静音 30m / Silence 30m */}
                             {canSilence && (
                               <Tooltip>
                                 <TooltipTrigger asChild>
@@ -912,7 +913,7 @@ export function MonitoringAlertsCenter() {
                               </Tooltip>
                             )}
 
-                            {/* 关闭告警 */}
+                            {/* 关闭告警 / Close Alert */}
                             {canClose && (
                               <Tooltip>
                                 <TooltipTrigger asChild>
@@ -942,52 +943,21 @@ export function MonitoringAlertsCenter() {
             </Table>
           </div>
 
-          {/* 分页控制栏 / Pagination bar */}
-          <div className='flex flex-col sm:flex-row items-center justify-between gap-2.5 px-4 sm:px-6 py-2 border-t bg-muted/15'>
-            <div className='flex items-center gap-2 text-xs text-muted-foreground'>
-              <span>{t('alerts.pageSize')}:</span>
-              <Select
-                value={pageSize}
-                onValueChange={(val) => {
-                  setPageSize(val);
-                  setPage(1);
-                }}
-              >
-                <SelectTrigger className='h-6.5 w-18 text-xs'>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value='20'>20</SelectItem>
-                  <SelectItem value='50'>50</SelectItem>
-                  <SelectItem value='100'>100</SelectItem>
-                  <SelectItem value='200'>200</SelectItem>
-                </SelectContent>
-              </Select>
-              <span>
-                共 {total} 条数据，当前第 {page} / {totalPages} 页
-              </span>
-            </div>
-
-            <div className='flex items-center gap-1.5'>
-              <Button
-                variant='outline'
-                size='sm'
-                className='h-6.5 px-2.5 text-xs'
-                onClick={() => setPage((prev) => Math.max(1, prev - 1))}
-                disabled={loading || page <= 1}
-              >
-                {t('alerts.prevPage')}
-              </Button>
-              <Button
-                variant='outline'
-                size='sm'
-                className='h-6.5 px-2.5 text-xs'
-                onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
-                disabled={loading || page >= totalPages}
-              >
-                {t('alerts.nextPage')}
-              </Button>
-            </div>
+          {/* 底部分页栏 / Table Footer Pagination */}
+          <div className='border-t bg-muted/10 px-4 py-2.5 mt-auto'>
+            <Pagination
+              currentPage={page}
+              totalPages={totalPages}
+              pageSize={pageSizeNumber}
+              totalItems={total}
+              onPageChange={setPage}
+              onPageSizeChange={(newSize) => {
+                setPageSize(String(newSize));
+                setPage(1);
+              }}
+              showPageSizeSelector={true}
+              pageSizeOptions={[20, 50, 100, 200]}
+            />
           </div>
       </Card>
 
@@ -1012,10 +982,10 @@ export function MonitoringAlertsCenter() {
               </Badge>
             </div>
             <SheetTitle className='text-lg font-bold text-foreground text-left leading-snug'>
-              {selectedAlert?.alert_name || '告警事件详情'}
+              {selectedAlert?.alert_name || t('alerts.detailsTitle')}
             </SheetTitle>
             <SheetDescription className='text-xs text-muted-foreground text-left'>
-              规则标识: <span className='font-mono font-medium'>{selectedAlert?.rule_key}</span>
+              {t('alerts.ruleKey')}: <span className='font-mono font-medium'>{selectedAlert?.rule_key}</span>
             </SheetDescription>
           </SheetHeader>
 
@@ -1038,7 +1008,7 @@ export function MonitoringAlertsCenter() {
                   selectedAlert.description !== selectedAlert.summary && (
                     <div className='sheet-section-animate space-y-2'>
                       <h4 className='text-xs font-semibold text-muted-foreground uppercase tracking-wider'>
-                        详细描述
+                        {t('alerts.detailedDescription')}
                       </h4>
                       <div className='rounded-lg bg-muted/20 p-3.5 text-xs text-muted-foreground leading-relaxed border whitespace-pre-wrap font-mono'>
                         {selectedAlert.description}
@@ -1049,7 +1019,7 @@ export function MonitoringAlertsCenter() {
                 {/* 告警时间线 / Timeline */}
                 <div className='sheet-section-animate space-y-3'>
                   <h4 className='text-xs font-semibold text-muted-foreground uppercase tracking-wider'>
-                    事件时间线
+                    {t('alerts.eventTimeline')}
                   </h4>
                   <div className='grid grid-cols-2 gap-3 text-xs'>
                     <div className='rounded-md border p-2.5 space-y-1 bg-background'>
@@ -1062,7 +1032,7 @@ export function MonitoringAlertsCenter() {
                     </div>
                     {selectedAlert.resolved_at && (
                       <div className='rounded-md border p-2.5 space-y-1 bg-emerald-500/5 border-emerald-500/20'>
-                        <span className='text-emerald-600 dark:text-emerald-400'>恢复时间</span>
+                        <span className='text-emerald-600 dark:text-emerald-400'>{t('alerts.resolvedTime')}</span>
                         <div className='font-mono font-medium text-emerald-700 dark:text-emerald-300'>
                           {formatDateTime(selectedAlert.resolved_at)}
                         </div>
@@ -1070,7 +1040,7 @@ export function MonitoringAlertsCenter() {
                     )}
                     {selectedAlert.closed_at && (
                       <div className='rounded-md border p-2.5 space-y-1 bg-muted/30'>
-                        <span className='text-muted-foreground'>关闭时间</span>
+                        <span className='text-muted-foreground'>{t('alerts.closedTime')}</span>
                         <div className='font-mono font-medium'>{formatDateTime(selectedAlert.closed_at)}</div>
                       </div>
                     )}
@@ -1080,34 +1050,34 @@ export function MonitoringAlertsCenter() {
                 {/* 所属环境元数据 / Context & Metadata */}
                 <div className='sheet-section-animate space-y-3'>
                   <h4 className='text-xs font-semibold text-muted-foreground uppercase tracking-wider'>
-                    上下文与拓扑
+                    {t('alerts.contextAndTopology')}
                   </h4>
                   <div className='rounded-lg border divide-y text-xs'>
                     <div className='flex items-center justify-between p-3'>
-                      <span className='text-muted-foreground'>所属集群</span>
+                      <span className='text-muted-foreground'>{t('alerts.belongCluster')}</span>
                       <span className='font-medium'>{selectedAlert.cluster_name || selectedAlert.cluster_id || '-'}</span>
                     </div>
                     <div className='flex items-center justify-between p-3'>
-                      <span className='text-muted-foreground'>告警来源</span>
+                      <span className='text-muted-foreground'>{t('alerts.alertSource')}</span>
                       <span>{resolveSourceLabel(selectedAlert.source_type)}</span>
                     </div>
                     {selectedAlert.source_ref && (
                       <>
                         {selectedAlert.source_ref.hostname ? (
                           <div className='flex items-center justify-between p-3'>
-                            <span className='text-muted-foreground'>受影响主机</span>
+                            <span className='text-muted-foreground'>{t('alerts.affectedHost')}</span>
                             <span className='font-mono font-medium'>{selectedAlert.source_ref.hostname}</span>
                           </div>
                         ) : null}
                         {selectedAlert.source_ref.process_name ? (
                           <div className='flex items-center justify-between p-3'>
-                            <span className='text-muted-foreground'>关联进程</span>
+                            <span className='text-muted-foreground'>{t('alerts.associatedProcess')}</span>
                             <span className='font-mono font-medium'>{selectedAlert.source_ref.process_name}</span>
                           </div>
                         ) : null}
                         {selectedAlert.source_ref.event_id ? (
                           <div className='flex items-center justify-between p-3'>
-                            <span className='text-muted-foreground'>关联事件 ID</span>
+                            <span className='text-muted-foreground'>{t('alerts.associatedEventId')}</span>
                             <span className='font-mono font-medium'>#{selectedAlert.source_ref.event_id}</span>
                           </div>
                         ) : null}
@@ -1120,24 +1090,24 @@ export function MonitoringAlertsCenter() {
                 {(selectedAlert.latest_note || selectedAlert.silenced_until || selectedAlert.acknowledged_at) && (
                   <div className='sheet-section-animate space-y-3'>
                     <h4 className='text-xs font-semibold text-muted-foreground uppercase tracking-wider'>
-                      处理记录与备注
+                      {t('alerts.handlingNotes')}
                     </h4>
                     <div className='rounded-lg border p-3.5 space-y-2 text-xs bg-muted/20'>
                       {selectedAlert.silenced_until && (
                         <div className='flex items-center gap-2'>
-                          <span className='text-muted-foreground'>静音截止:</span>
+                          <span className='text-muted-foreground'>{t('alerts.silencedUntilLabel')}:</span>
                           <span className='font-mono font-medium'>{formatDateTime(selectedAlert.silenced_until)}</span>
                         </div>
                       )}
                       {selectedAlert.acknowledged_at && (
                         <div className='flex items-center gap-2'>
-                          <span className='text-muted-foreground'>接手时间:</span>
+                          <span className='text-muted-foreground'>{t('alerts.acknowledgedTimeLabel')}:</span>
                           <span className='font-mono font-medium'>{formatDateTime(selectedAlert.acknowledged_at)}</span>
                         </div>
                       )}
                       {selectedAlert.latest_note && (
                         <div className='space-y-1 pt-1 border-t'>
-                          <span className='text-muted-foreground'>最新备注:</span>
+                          <span className='text-muted-foreground'>{t('alerts.latestNoteLabel')}:</span>
                           <p className='text-foreground'>{selectedAlert.latest_note}</p>
                         </div>
                       )}
@@ -1159,7 +1129,7 @@ export function MonitoringAlertsCenter() {
                 className='h-9 font-medium shadow-xs'
               >
                 <Activity className='mr-1.5 h-4 w-4' />
-                前往诊断中心深度排查
+                {t('alerts.navigateToDiagnostics')}
                 <ExternalLink className='ml-1.5 h-3.5 w-3.5 opacity-70' />
               </Button>
 
@@ -1174,7 +1144,7 @@ export function MonitoringAlertsCenter() {
                       onClick={() => handleSilence(selectedAlert)}
                     >
                       <VolumeX className='mr-1.5 h-3.5 w-3.5' />
-                      静音 30m
+                      {t('alerts.silence30m')}
                     </Button>
                   )}
 
@@ -1187,7 +1157,7 @@ export function MonitoringAlertsCenter() {
                     onClick={() => handleClose(selectedAlert)}
                   >
                     <XCircle className='mr-1.5 h-3.5 w-3.5' />
-                    人工关闭
+                    {t('alerts.manualClose')}
                   </Button>
                 )}
               </div>

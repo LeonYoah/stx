@@ -888,16 +888,6 @@ export function MonitoringPolicyCenter() {
     }
     return map;
   }, [bootstrap.builders]);
-  const capabilityReasonMap = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const capability of bootstrap.capabilities || []) {
-      if (!capability?.key) {
-        continue;
-      }
-      map.set(capability.key, capability.reason || '');
-    }
-    return map;
-  }, [bootstrap.capabilities]);
 
   const templateGroups = useMemo(() => {
     const platformTemplates = (bootstrap.templates || []).filter(
@@ -928,8 +918,6 @@ export function MonitoringPolicyCenter() {
   );
   const metricsTemplatesAvailable =
     builderMap.get('metrics_template') === 'available';
-  const metricsTemplatesReason =
-    capabilityReasonMap.get('metrics_templates') || '';
 
   const selectedTemplate = useMemo(
     () =>
@@ -1289,7 +1277,9 @@ export function MonitoringPolicyCenter() {
           toast.error(result.error || t('updateError'));
           return;
         }
-        toast.success(nextEnabled ? '策略已启用' : '策略已停用');
+        toast.success(
+          nextEnabled ? t('toggleEnabledSuccess') : t('toggleDisabledSuccess'),
+        );
         await loadResources();
       } catch {
         toast.error(t('updateError'));
@@ -1809,11 +1799,11 @@ export function MonitoringPolicyCenter() {
                 {t('title')}
               </CardTitle>
               <Badge variant='outline' className='font-mono font-normal'>
-                {policyRows.length} 条策略
+                {t('policyCount', {count: policyRows.length})}
               </Badge>
             </div>
             <p className='text-xs text-muted-foreground'>
-              配置告警触发规则、阈值条件以及邮件与 Webhook 通知接收方式
+              {t('policySubtitle')}
             </p>
           </div>
 
@@ -1878,7 +1868,7 @@ export function MonitoringPolicyCenter() {
                 <Input
                   value={policySearchKeyword}
                   onChange={(e) => setPolicySearchKeyword(e.target.value)}
-                  placeholder='搜索策略名称、模板...'
+                  placeholder={t('searchPlaceholder')}
                   className='pl-8 h-8 text-xs'
                 />
               </div>
@@ -1905,10 +1895,10 @@ export function MonitoringPolicyCenter() {
                 onValueChange={setPolicyStatusFilter}
               >
                 <SelectTrigger className='h-8 w-32 text-xs'>
-                  <SelectValue placeholder='状态筛选' />
+                  <SelectValue placeholder={t('statusFilter')} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value='all'>全部状态</SelectItem>
+                  <SelectItem value='all'>{t('allStatuses')}</SelectItem>
                   <SelectItem value='enabled'>{t('enabled')}</SelectItem>
                   <SelectItem value='disabled'>{t('disabled')}</SelectItem>
                 </SelectContent>
@@ -1928,7 +1918,7 @@ export function MonitoringPolicyCenter() {
                   <TableHead className='w-[100px]'>{t('columns.severity')}</TableHead>
                   <TableHead className='min-w-[160px]'>{t('columns.methods')}</TableHead>
                   <TableHead className='w-[110px]'>{t('columns.status')}</TableHead>
-                  <TableHead className='w-[90px] text-center'>启用</TableHead>
+                  <TableHead className='w-[90px] text-center'>{t('columns.enabled')}</TableHead>
                   <TableHead className='w-[150px] whitespace-nowrap'>{t('columns.updatedAt')}</TableHead>
                   <TableHead className='w-[120px] text-right'>{rootT('actions')}</TableHead>
                 </TableRow>
@@ -1965,7 +1955,7 @@ export function MonitoringPolicyCenter() {
                           }}
                         >
                           <Plus className='mr-1.5 h-3.5 w-3.5' />
-                          创建第一条告警策略
+                          {t('createFirst')}
                         </Button>
                       </div>
                     </TableCell>
@@ -1980,7 +1970,7 @@ export function MonitoringPolicyCenter() {
                     );
                     return (
                       <TableRow key={policy.id} className='transition-colors'>
-                        {/* 策略名称与描述 */}
+                        {/* 策略名称与描述 / Policy Name & Description */}
                         <TableCell className='font-medium'>
                           <div className='space-y-0.5'>
                             <div className='text-sm text-foreground'>
@@ -1994,7 +1984,7 @@ export function MonitoringPolicyCenter() {
                           </div>
                         </TableCell>
 
-                        {/* 规则/模板 */}
+                        {/* 规则/模板 / Rule & Template */}
                         <TableCell>
                           <div className='space-y-1'>
                             <span className='inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-xs font-medium'>
@@ -2013,14 +2003,14 @@ export function MonitoringPolicyCenter() {
                           </div>
                         </TableCell>
 
-                        {/* 适用集群 */}
+                        {/* 适用集群 / Target Cluster */}
                         <TableCell>
                           <span className='text-xs font-medium'>
                             {cluster?.name || policy.cluster_id || '-'}
                           </span>
                         </TableCell>
 
-                        {/* 严重级别 */}
+                        {/* 严重级别 / Severity */}
                         <TableCell>
                           <Badge
                             variant={resolveSeverityVariant(policy.severity)}
@@ -2032,14 +2022,14 @@ export function MonitoringPolicyCenter() {
                           </Badge>
                         </TableCell>
 
-                        {/* 通知方式 */}
+                        {/* 通知方式 / Notification Methods */}
                         <TableCell className='max-w-[220px]'>
                           <span className='text-xs text-muted-foreground'>
                             {notificationMethodSummary(policy, channelMap)}
                           </span>
                         </TableCell>
 
-                        {/* 执行状态 */}
+                        {/* 执行状态 / Execution Status */}
                         <TableCell>
                           <Badge
                             variant={resolveDeliveryStatusVariant(
@@ -2054,7 +2044,7 @@ export function MonitoringPolicyCenter() {
                           </Badge>
                         </TableCell>
 
-                        {/* 快捷启用 Switch */}
+                        {/* 快捷启用 Switch / Quick Enable Switch */}
                         <TableCell className='text-center'>
                           <Switch
                             checked={policy.enabled}
@@ -2064,12 +2054,12 @@ export function MonitoringPolicyCenter() {
                           />
                         </TableCell>
 
-                        {/* 最近更新时间 */}
+                        {/* 最近更新时间 / Last Updated At */}
                         <TableCell className='text-xs font-mono text-muted-foreground whitespace-nowrap'>
                           {formatDateTime(policy.updated_at)}
                         </TableCell>
 
-                        {/* 操作栏 */}
+                        {/* 操作栏 / Actions */}
                         <TableCell className='text-right whitespace-nowrap'>
                           <div className='flex items-center justify-end gap-1'>
                             <Button
@@ -2078,7 +2068,7 @@ export function MonitoringPolicyCenter() {
                               className='h-7 w-7'
                               onClick={() => void loadHistory(policy)}
                               disabled={historyLoading}
-                              title='查看投递历史'
+                              title={t('actions.viewHistory')}
                             >
                               <History className='h-3.5 w-3.5' />
                             </Button>
@@ -2087,7 +2077,7 @@ export function MonitoringPolicyCenter() {
                               size='icon'
                               className='h-7 w-7'
                               onClick={() => handleEditPolicy(policy)}
-                              title='编辑策略'
+                              title={t('actions.editPolicy')}
                             >
                               <Pencil className='h-3.5 w-3.5' />
                             </Button>
@@ -2097,7 +2087,7 @@ export function MonitoringPolicyCenter() {
                               className='h-7 w-7 text-destructive hover:text-destructive'
                               onClick={() => void handleDeletePolicy(policy.id)}
                               disabled={deletingPolicyId === policy.id}
-                              title='删除策略'
+                              title={t('actions.deletePolicy')}
                             >
                               <Trash2 className='h-3.5 w-3.5' />
                             </Button>
@@ -2132,8 +2122,8 @@ export function MonitoringPolicyCenter() {
             </DialogTitle>
             <DialogDescription className='text-xs text-muted-foreground'>
               {editingPolicyId === null
-                ? '配置告警策略的基本信息、触发指标与通知接收人'
-                : '修改现有告警策略参数'}
+                ? t('dialogSubtitleCreate')
+                : t('dialogSubtitleEdit')}
             </DialogDescription>
           </DialogHeader>
 
@@ -2142,7 +2132,7 @@ export function MonitoringPolicyCenter() {
             {/* 第一部分：基本信息 */}
             <div className='space-y-4'>
               <h3 className='text-xs font-semibold text-muted-foreground uppercase tracking-wider'>
-                1. 基本信息 (Basic Settings)
+                {t('sectionBasic')}
               </h3>
               <div className='grid gap-4 md:grid-cols-2'>
                 <div className='space-y-2 md:col-span-2'>
@@ -2228,7 +2218,7 @@ export function MonitoringPolicyCenter() {
             {/* 第二部分：规则与策略配置 */}
             <div className='space-y-4'>
               <h3 className='text-xs font-semibold text-muted-foreground uppercase tracking-wider'>
-                2. 规则与阈值 (Rules & Conditions)
+                {t('sectionRules')}
               </h3>
 
               <div className='space-y-2'>

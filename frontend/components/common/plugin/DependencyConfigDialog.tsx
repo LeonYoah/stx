@@ -303,17 +303,18 @@ export function PluginDependencyConfigSection({
       className={containerClassName}
       data-testid='plugin-custom-dependencies'
     >
-      <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
-        <div>
+      <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
+        <div className='min-w-0 flex-1 mr-2'>
           <h4 className='font-medium'>{t('plugin.configDependency')}</h4>
           <p className='mt-1 text-xs text-muted-foreground'>
             {t('plugin.configuredDependenciesDesc')}
           </p>
         </div>
-        <div className='flex flex-wrap gap-2'>
+        <div className='flex items-center gap-2 shrink-0 flex-wrap sm:flex-nowrap'>
           <Button
             variant='outline'
             size='sm'
+            className='whitespace-nowrap shrink-0'
             onClick={() => {
               setShowXmlParse((prev) => !prev);
               setShowAddForm(false);
@@ -326,6 +327,7 @@ export function PluginDependencyConfigSection({
           <Button
             variant='outline'
             size='sm'
+            className='whitespace-nowrap shrink-0'
             onClick={() => {
               setShowAddForm((prev) => !prev);
               setShowXmlParse(false);
@@ -338,6 +340,7 @@ export function PluginDependencyConfigSection({
           <Button
             size='sm'
             data-testid='plugin-upload-dependency-trigger'
+            className='whitespace-nowrap shrink-0'
             onClick={() => {
               setShowUploadForm((prev) => !prev);
               setShowAddForm(false);
@@ -367,6 +370,7 @@ export function PluginDependencyConfigSection({
           <div className='flex justify-end gap-2'>
             <Button
               variant='outline'
+              className='whitespace-nowrap shrink-0'
               onClick={() => {
                 setShowXmlParse(false);
                 setMavenXml('');
@@ -374,7 +378,7 @@ export function PluginDependencyConfigSection({
             >
               {t('common.cancel')}
             </Button>
-            <Button onClick={handleParseMavenXml}>
+            <Button onClick={handleParseMavenXml} className='whitespace-nowrap shrink-0'>
               {t('plugin.parseAndFill')}
             </Button>
           </div>
@@ -421,10 +425,19 @@ export function PluginDependencyConfigSection({
             </div>
           </div>
           <div className='flex justify-end gap-2'>
-            <Button variant='outline' onClick={resetForms} disabled={adding}>
+            <Button
+              variant='outline'
+              className='whitespace-nowrap shrink-0'
+              onClick={resetForms}
+              disabled={adding}
+            >
               {t('common.cancel')}
             </Button>
-            <Button onClick={handleAddDependency} disabled={adding}>
+            <Button
+              onClick={handleAddDependency}
+              disabled={adding}
+              className='whitespace-nowrap shrink-0'
+            >
               {adding ? (
                 <RefreshCw className='mr-2 h-4 w-4 animate-spin' />
               ) : (
@@ -492,10 +505,19 @@ export function PluginDependencyConfigSection({
             </div>
           )}
           <div className='flex justify-end gap-2'>
-            <Button variant='outline' onClick={resetForms} disabled={uploading}>
+            <Button
+              variant='outline'
+              className='whitespace-nowrap shrink-0'
+              onClick={resetForms}
+              disabled={uploading}
+            >
               {t('common.cancel')}
             </Button>
-            <Button onClick={handleUploadDependency} disabled={uploading}>
+            <Button
+              onClick={handleUploadDependency}
+              disabled={uploading}
+              className='whitespace-nowrap shrink-0'
+            >
               {uploading ? (
                 <RefreshCw className='mr-2 h-4 w-4 animate-spin' />
               ) : (

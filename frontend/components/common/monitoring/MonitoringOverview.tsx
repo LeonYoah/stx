@@ -558,7 +558,7 @@ export function MonitoringOverview({
                   }}
                 >
                   <SelectTrigger className={compactSelectTriggerClass}>
-                    <SelectValue placeholder='选择集群' />
+                    <SelectValue placeholder={t('selectCluster')} />
                   </SelectTrigger>
                   <SelectContent>
                     {clusterHealth.map((cluster) => (
@@ -583,10 +583,10 @@ export function MonitoringOverview({
                   }}
                 >
                   <SelectTrigger className={compactSelectTriggerClass}>
-                    <SelectValue placeholder='选择节点' />
+                    <SelectValue placeholder={t('selectNode')} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value='$__all'>全部节点</SelectItem>
+                    <SelectItem value='$__all'>{t('allNodes')}</SelectItem>
                     {currentInstances.map((addr) => (
                       <SelectItem key={addr} value={addr}>
                         {addr}

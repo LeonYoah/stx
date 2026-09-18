@@ -119,7 +119,7 @@ export function MonitoringCenterWorkspace() {
   );
 
   return (
-    <div ref={workspaceRef} className='space-y-3.5'>
+    <div ref={workspaceRef} className='space-y-3.5 flex-1 flex flex-col'>
       {/* 页面标题栏（全局统一紧凑型设计） / Unified Compact Workspace Header */}
       <WorkspaceHeader
         title={t('title')}
@@ -156,7 +156,7 @@ export function MonitoringCenterWorkspace() {
       />
 
       {/* 标签页主体内容 / Tab Contents */}
-      <div>
+      <div className='flex-1 flex flex-col'>
         {activeTab === 'alerts' ? (
           <MonitoringAlertsCenter />
         ) : (

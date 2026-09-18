@@ -270,5 +270,14 @@ describe('i18n Configuration', () => {
       expect(zhMessages.terms.privacyPolicy).toBe('隐私政策');
       expect(enMessages.terms.privacyPolicy).toBe('Privacy Policy');
     });
+
+    it('should have plugin Ask AI translations and templates in both languages', () => {
+      expect(zhMessages.plugin.askAi).toBe('Ask AI 问答');
+      expect(enMessages.plugin.askAi).toBe('Ask AI');
+      expect(zhMessages.plugin.askAiQuestionTemplate).toContain('{connector}');
+      expect(enMessages.plugin.askAiQuestionTemplate).toContain('{connector}');
+      expect(zhMessages.plugin.askAiUnavailable).toBeDefined();
+      expect(enMessages.plugin.askAiUnavailable).toBeDefined();
+    });
   });
 });

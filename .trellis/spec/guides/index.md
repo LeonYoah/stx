@@ -9,6 +9,7 @@
 | 文档 | 何时使用 |
 | --- | --- |
 | [跨层思考指南](./cross-layer-thinking-guide.md) | 改动涉及 API、存储、运行时或前端中的多个部分时 |
+| [打包与安装契约](../infra/packaging-and-install.md) | 改动发布资产、在线/离线安装、deps 复用或控制面 systemd 时（可执行契约，见 infra） |
 
 ---
 

@@ -33,9 +33,9 @@ Options:
 
 Environment overrides when starting later:
   CONFIG_PATH                    Backend config path (default: <install-dir>/config.yaml)
-  FRONTEND_PORT                  Frontend listen port (default: 80)
+  FRONTEND_PORT                  Frontend listen port (default: 17880)
   FRONTEND_HOST                  Frontend listen host (default: 0.0.0.0)
-  NEXT_PUBLIC_BACKEND_BASE_URL   Frontend API base URL (default: http://127.0.0.1:8000)
+  NEXT_PUBLIC_BACKEND_BASE_URL   Frontend API base URL (default: http://127.0.0.1:17800)
 USAGE
 }
 
@@ -165,7 +165,7 @@ echo
 echo "[INFO] port hints:"
 echo "       backend http/grpc ports come from $INSTALL_DIR/config.yaml"
 echo "       frontend port/host can be overridden with FRONTEND_PORT / FRONTEND_HOST"
-echo "       example: CONFIG_PATH=$INSTALL_DIR/config.yaml FRONTEND_PORT=8080 NEXT_PUBLIC_BACKEND_BASE_URL=http://127.0.0.1:8000 $INSTALL_DIR/bin/start.sh"
+echo "       example: CONFIG_PATH=$INSTALL_DIR/config.yaml FRONTEND_PORT=17880 NEXT_PUBLIC_BACKEND_BASE_URL=http://127.0.0.1:17800 $INSTALL_DIR/bin/start.sh"
 
 if [[ "$AUTO_START" == "true" ]]; then
   echo "[INFO] auto starting ..."

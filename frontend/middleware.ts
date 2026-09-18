@@ -21,7 +21,7 @@ const HCAPTCHA_VERIFY_URL = 'https://hcaptcha.com/siteverify';
 const HCAPTCHA_SECRET_KEY =
   process.env.HCAPTCHA_SECRET_KEY || 'your-hcaptcha-secret-key';
 const BACKEND_BASE_URL =
-  process.env.NEXT_PUBLIC_BACKEND_BASE_URL || 'http://localhost:8000';
+  process.env.NEXT_PUBLIC_BACKEND_BASE_URL || 'http://localhost:17800';
 const IS_DEVELOPMENT = process.env.NODE_ENV === 'development';
 
 interface HCaptchaResponse {

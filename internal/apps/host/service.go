@@ -54,7 +54,7 @@ type ServiceConfig struct {
 // NewService 创建一个新的 Service 实例。
 func NewService(repo *Repository, clusterRepo *cluster.Repository, cfg *ServiceConfig) *Service {
 	timeout := DefaultHeartbeatTimeout
-	controlPlaneAddr := "localhost:8000"
+	controlPlaneAddr := "localhost:17800"
 
 	if cfg != nil {
 		if cfg.HeartbeatTimeout > 0 {
@@ -554,11 +554,11 @@ func (s *Service) GetInstallCommand(ctx context.Context, hostID uint) (string, e
 
 	// Generate installation command with explicit default --install-dir (user-customizable).
 	// 生成带显式默认 --install-dir 的安装命令（用户可自行改目录）。
-	// controlPlaneAddr should be a full URL like "http://192.168.1.100:8000"
-	// controlPlaneAddr 应该是完整的 URL，如 "http://192.168.1.100:8000"
+	// controlPlaneAddr should be a full URL like "http://192.168.1.100:17800"
+	// controlPlaneAddr 应该是完整的 URL，如 "http://192.168.1.100:17800"
 	addr := strings.TrimRight(strings.TrimSpace(s.controlPlaneAddr), "/")
 	if addr == "" {
-		addr = "http://localhost:8000"
+		addr = "http://localhost:17800"
 	}
 	if !strings.HasPrefix(addr, "http://") && !strings.HasPrefix(addr, "https://") {
 		addr = "http://" + addr

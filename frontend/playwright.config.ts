@@ -32,7 +32,7 @@ const backendBaseURL =
   (installerRealMode
     ? 'http://127.0.0.1:18000'
     : apiMode === 'real'
-      ? 'http://localhost:8000'
+      ? 'http://localhost:17800'
       : 'http://127.0.0.1:8010');
 const authFile = path.join(__dirname, '.playwright', 'auth', 'admin.json');
 const backendConfigPath =

@@ -26,5 +26,5 @@ scrape_configs:
     # SeaTunnel Engine metrics are exposed under Hazelcast REST path
     metrics_path: /hazelcast/rest/instance/metrics
     http_sd_configs:
-    - url: http://127.0.0.1:8000/api/v1/monitoring/prometheus/discovery
+    - url: http://127.0.0.1:17800/api/v1/monitoring/prometheus/discovery
       refresh_interval: 30s

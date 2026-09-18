@@ -319,7 +319,7 @@ pnpm start
 
 ```env
 FRONTEND_BASE_URL=http://localhost:3000
-BACKEND_BASE_URL=http://localhost:8000
+BACKEND_BASE_URL=http://localhost:17800
 ```
 
 ### Docker 部署

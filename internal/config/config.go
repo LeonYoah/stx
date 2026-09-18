@@ -169,7 +169,7 @@ func setDefaults(c *configModel, observabilityEnabledSet bool) {
 
 	// gRPC 默认配置
 	if c.GRPC.Port == 0 {
-		c.GRPC.Port = 9000
+		c.GRPC.Port = 17890
 	}
 	if c.GRPC.MaxRecvMsgSize == 0 {
 		c.GRPC.MaxRecvMsgSize = 16 // 16MB
@@ -385,5 +385,5 @@ func GetGRPCPort() int {
 	if Config.GRPC.Port > 0 {
 		return Config.GRPC.Port
 	}
-	return 9000
+	return 17890
 }

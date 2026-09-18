@@ -18,7 +18,7 @@ set -euo pipefail
 
 BASE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 RUN_DIR="$BASE_DIR/run"
-FRONTEND_PORT="${FRONTEND_PORT:-80}"
+FRONTEND_PORT="${FRONTEND_PORT:-17880}"
 
 status_one() {
   local name="$1"
@@ -41,7 +41,7 @@ status_one "frontend" "$RUN_DIR/frontend.pid"
 
 echo
 echo "ports:"
-ss -lntp | grep -E ":8000|:${FRONTEND_PORT}\\b|:9090|:9093|:3000" || true
+ss -lntp | grep -E ":17800|:17890|:${FRONTEND_PORT}\\b|:9090|:9093|:3000" || true
 
 if [[ -x "$BASE_DIR/deps/status-observability.sh" ]]; then
   echo

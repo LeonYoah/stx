@@ -1,0 +1,33 @@
+{
+  "id": "online-offline-install-packaging",
+  "name": "online-offline-install-packaging",
+  "title": "在线离线安装与发布依赖拆分",
+  "description": "stx/agent 裸二进制发布；Node 与三件套独立 deps；在线一键+离线 bundle；国内 gh-proxy 测速；systemd 对齐 agent；all-in-one 不含监控。",
+  "status": "in_progress",
+  "dev_type": "infra",
+  "scope": "packaging-install",
+  "package": "infra",
+  "priority": "P1",
+  "creator": "codex-agent",
+  "assignee": "codex-agent",
+  "createdAt": "2026-09-18",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "features/stx-cli-agent-entry",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    ".trellis/spec/infra/index.md",
+    ".trellis/spec/infra/packaging-and-install.md",
+    "scripts/package-release.sh",
+    "support-files/release/install.sh",
+    "support-files/release/start.sh",
+    "deps/start-observability.sh"
+  ],
+  "notes": "设计已落 PRD/design + infra code-spec；实现未开始。",
+  "meta": {}
+}

@@ -42,6 +42,6 @@ RUN mkdir -p /opt/stx/runtime/node/bin /opt/stx/logs /opt/stx/run && \
     ln -sf /usr/local/bin/node /opt/stx/runtime/node/bin/node && \
     chmod +x /opt/stx/stx /opt/stx/bin/*.sh
 
-EXPOSE 80 8000 9000
+EXPOSE 17880 17800 17890
 
 ENTRYPOINT ["/opt/stx/bin/all-in-one-entrypoint.sh"]

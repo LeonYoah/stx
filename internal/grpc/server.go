@@ -47,7 +47,7 @@ import (
 const (
 	// DefaultGRPCPort is the default port for gRPC server.
 	// DefaultGRPCPort 是 gRPC 服务器的默认端口。
-	DefaultGRPCPort = 9000
+	DefaultGRPCPort = 17890
 
 	// DefaultMaxRecvMsgSize is the default maximum receive message size (16MB).
 	// DefaultMaxRecvMsgSize 是默认的最大接收消息大小（16MB）。

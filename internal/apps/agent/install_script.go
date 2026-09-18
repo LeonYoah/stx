@@ -180,7 +180,7 @@ const DefaultAgentCAFile = DefaultConfigDir + "/certs/ca.crt"
 func FormatInstallCommand(controlPlaneAddr string) string {
 	addr := strings.TrimRight(strings.TrimSpace(controlPlaneAddr), "/")
 	if addr == "" {
-		addr = "http://localhost:8000"
+		addr = "http://localhost:17800"
 	}
 	if !strings.HasPrefix(addr, "http://") && !strings.HasPrefix(addr, "https://") {
 		addr = "http://" + addr

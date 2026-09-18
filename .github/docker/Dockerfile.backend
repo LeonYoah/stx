@@ -22,6 +22,6 @@ WORKDIR /opt/stx
 COPY --from=builder /out/stx /opt/stx/stx
 COPY config.example.yaml /opt/stx/config.yaml
 
-EXPOSE 8000 9000
+EXPOSE 17800 17890
 
 ENTRYPOINT ["/opt/stx/stx", "api"]

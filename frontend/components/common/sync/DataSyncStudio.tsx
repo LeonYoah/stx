@@ -2245,7 +2245,7 @@ function resolveDefaultPreviewHTTPSinkURL(): string {
   if (typeof window !== 'undefined' && window.location?.origin) {
     return `${window.location.origin}/api/v1/sync/preview/collect`;
   }
-  return 'http://127.0.0.1:8000/api/v1/sync/preview/collect';
+  return 'http://127.0.0.1:17800/api/v1/sync/preview/collect';
 }
 
 function buildDefaultContent(format: SyncFormat): string {

@@ -1355,7 +1355,7 @@
     "sourceDoc": "Source Docs",
     "sinkDoc": "Sink Docs",
     "askAi": "Ask AI",
-    "askAiTooltip": "AI assistant trained on Apache SeaTunnel documentation and community knowledge",
+    "askAiTooltip": "AI assistant trained on STX and SeaTunnel source/docs",
     "askAiQuestionTemplate": "How to configure and use {connector} connector in Apache SeaTunnel?",
     "askAiUnavailable": "Unable to connect to Ask AI service",
     "askAiUnavailableDesc": "Please check if your network connection can access widget.kapa.ai.",

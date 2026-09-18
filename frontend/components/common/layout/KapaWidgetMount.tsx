@@ -1,3 +1,5 @@
+'use client';
+
 /*
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -15,14 +17,17 @@
  * limitations under the License.
  */
 
-export * from './EmptyState';
-export * from './LanguageSwitcher';
-export * from './KapaWidgetMount';
-export * from './ManagementBar';
-export * from './ThemeProvider';
-export * from './WorkspaceHeader';
-export * from './StatPillsBar';
-export * from './CompactTimeFilter';
-export * from './TableLoadingBar';
-export * from './TableSkeletonRows';
-export * from './RouteProgressBar';
+import {useEffect} from 'react';
+import {ensureKapaWidget} from '@/lib/services/kapa-ai';
+
+/**
+ * Permanently mount the Kapa Ask AI floating widget on the main app shell.
+ * 在主应用壳层永久挂载 Kapa Ask AI 右下角悬浮按钮（进入控制台即可见，无需先点入口）。
+ */
+export function KapaWidgetMount() {
+  useEffect(() => {
+    void ensureKapaWidget();
+  }, []);
+
+  return null;
+}

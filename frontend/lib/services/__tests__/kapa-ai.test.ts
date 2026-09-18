@@ -21,7 +21,10 @@ import {
   getKapaWebsiteId,
   initKapaPreinitialization,
   openSeaTunnelAskAi,
+  KAPA_BUTTON_POSITION_BOTTOM,
+  KAPA_BUTTON_POSITION_RIGHT,
   KAPA_DEFAULT_WEBSITE_ID,
+  KAPA_PROJECT_NAME,
 } from '../kapa-ai';
 
 describe('kapa-ai service integration', () => {
@@ -143,8 +146,8 @@ describe('kapa-ai service integration', () => {
   });
 
   it('resolves Kapa website ID with environment variable override', () => {
-    // Verify fallback to default SeaTunnel official website ID
-    // 验证默认使用 SeaTunnel 官方 Website ID
+    // Verify fallback to default STX website ID
+    // 验证默认使用 STX 自有 Website ID
     delete process.env.NEXT_PUBLIC_KAPA_WEBSITE_ID;
     expect(getKapaWebsiteId()).toBe(KAPA_DEFAULT_WEBSITE_ID);
 
@@ -152,5 +155,37 @@ describe('kapa-ai service integration', () => {
     // 验证提供自定义 ID 时的环境变量覆盖
     process.env.NEXT_PUBLIC_KAPA_WEBSITE_ID = 'custom-user-kapa-id-123';
     expect(getKapaWebsiteId()).toBe('custom-user-kapa-id-123');
+  });
+
+  it('injects STX widget script with visible floating-button position attrs', async () => {
+    // Ensure script tag keeps the default floating button and dock-safe offsets
+    // 确保注入脚本保留默认悬浮按钮，并带上避开 Dock 的定位属性
+    delete process.env.NEXT_PUBLIC_KAPA_WEBSITE_ID;
+    const origAppendChild = document.body.appendChild.bind(document.body);
+    vi.spyOn(document.body, 'appendChild').mockImplementation((node) => {
+      const result = origAppendChild(node);
+      if (node instanceof HTMLScriptElement && node.id === 'st-kapa-ai-widget-script') {
+        setTimeout(() => {
+          node.onload?.(new Event('load'));
+        }, 10);
+      }
+      return result;
+    });
+
+    await ensureKapaWidget();
+
+    const script = document.getElementById(
+      'st-kapa-ai-widget-script',
+    ) as HTMLScriptElement | null;
+    expect(script).not.toBeNull();
+    expect(script?.getAttribute('data-website-id')).toBe(KAPA_DEFAULT_WEBSITE_ID);
+    expect(script?.getAttribute('data-project-name')).toBe(KAPA_PROJECT_NAME);
+    expect(script?.getAttribute('data-button-hide')).toBeNull();
+    expect(script?.getAttribute('data-button-position-bottom')).toBe(
+      KAPA_BUTTON_POSITION_BOTTOM,
+    );
+    expect(script?.getAttribute('data-button-position-right')).toBe(
+      KAPA_BUTTON_POSITION_RIGHT,
+    );
   });
 });

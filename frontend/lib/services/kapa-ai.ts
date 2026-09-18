@@ -16,21 +16,27 @@
  */
 
 /**
- * Official Apache SeaTunnel Kapa.ai Ask AI Integration
- * 官方 Apache SeaTunnel Kapa.ai 智能问答服务集成
+ * STX Kapa.ai Ask AI Integration
+ * STX 自有 Kapa.ai 智能问答服务集成
  *
- * Connects directly to the production kapa.ai widget configured on seatunnel.apache.org.
- * 直接连接 seatunnel.apache.org 官网配置的生产级 kapa.ai 智能问答组件。
+ * Uses the STX project widget (knowledge covers STX + SeaTunnel source/docs).
+ * 使用 STX 项目自有 Widget（知识库覆盖 STX 与 SeaTunnel 源码/文档）。
  */
 
-// Kapa configuration constants matching apache/seatunnel-website
-// 与 apache/seatunnel-website 官网生产保持一致的配置常量
+// STX Kapa widget configuration / STX Kapa 小部件配置常量
 export const KAPA_SCRIPT_ID = 'st-kapa-ai-widget-script';
 export const KAPA_TRIGGER_ID = 'st-kapa-ask-ai-trigger';
-export const KAPA_DEFAULT_WEBSITE_ID = '3a335e8d-d400-4c7d-baad-d820ee0600a7';
-export const KAPA_PROJECT_NAME = 'Apache SeaTunnel';
-export const KAPA_PROJECT_COLOR = '#0284c7';
-export const KAPA_PROJECT_LOGO = 'https://seatunnel.apache.org/image/logo.png';
+export const KAPA_DEFAULT_WEBSITE_ID = 'd9390efd-fdc5-4449-8aa1-bb2fd5fe13f3';
+export const KAPA_PROJECT_NAME = 'STX';
+export const KAPA_PROJECT_COLOR = '#2563eb';
+/** Logo path under frontend/public; resolved to absolute URL at runtime. / public 下的 logo 路径，运行时解析为绝对 URL */
+export const KAPA_PROJECT_LOGO_PATH = '/brand/stx-logo.png';
+/**
+ * Lift the floating button above the bottom Dock (esp. mobile right-aligned dock).
+ * 上移悬浮按钮，避免与底部 Dock（尤其移动端右下角）重叠。
+ */
+export const KAPA_BUTTON_POSITION_BOTTOM = '5.5rem';
+export const KAPA_BUTTON_POSITION_RIGHT = '1.25rem';
 
 export interface KapaOpenOptions {
   query?: string;
@@ -71,6 +77,17 @@ let kapaLoadingPromise: Promise<boolean> | null = null;
  */
 export function getKapaWebsiteId(): string {
   return process.env.NEXT_PUBLIC_KAPA_WEBSITE_ID || KAPA_DEFAULT_WEBSITE_ID;
+}
+
+/**
+ * Resolve project logo to an absolute URL for the Kapa widget
+ * 将项目 logo 解析为 Kapa 小部件所需的绝对 URL（随部署域名变化）
+ */
+export function getKapaProjectLogo(): string {
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    return `${window.location.origin}${KAPA_PROJECT_LOGO_PATH}`;
+  }
+  return KAPA_PROJECT_LOGO_PATH;
 }
 
 /**
@@ -162,8 +179,11 @@ function dispatchKapaOpen(query?: string): boolean {
 }
 
 /**
- * Ensure Kapa widget script and hidden trigger element are mounted
- * 确保 Kapa widget 脚本与隐藏触发节点已挂载到 DOM
+ * Ensure Kapa widget script is mounted (floating button stays visible).
+ * 确保 Kapa widget 脚本已挂载；默认展示右下角悬浮按钮（不设置 data-button-hide）。
+ *
+ * Note: Kapa enables http://localhost by default for local testing even when other domains are restricted.
+ * 说明：即使在控制台限制了域名，Kapa 默认仍放行 http://localhost 供本地调试。
  *
  * @returns Promise<boolean> - Whether Kapa widget is loaded / 是否成功加载 Kapa 小部件
  */
@@ -174,8 +194,8 @@ export function ensureKapaWidget(): Promise<boolean> {
 
   initKapaPreinitialization();
 
-  // Ensure trigger element exists in DOM
-  // 确保触发器元素存在于 DOM 中
+  // Hidden trigger kept as a programmatic fallback for plugin "Ask AI" entry
+  // 保留隐藏触发节点，供插件详情页「Ask AI」入口在 API 不可用时降级点击
   let triggerBtn = document.getElementById(KAPA_TRIGGER_ID);
   if (!triggerBtn) {
     triggerBtn = document.createElement('button');
@@ -204,8 +224,12 @@ export function ensureKapaWidget(): Promise<boolean> {
     script.setAttribute('data-website-id', getKapaWebsiteId());
     script.setAttribute('data-project-name', KAPA_PROJECT_NAME);
     script.setAttribute('data-project-color', KAPA_PROJECT_COLOR);
-    script.setAttribute('data-project-logo', KAPA_PROJECT_LOGO);
+    script.setAttribute('data-project-logo', getKapaProjectLogo());
+    // Keep default floating button visible; override-open-id only adds extra open targets
+    // 保持默认悬浮按钮可见；override-open-id 仅额外绑定打开目标，不会隐藏按钮
     script.setAttribute('data-modal-override-open-id', KAPA_TRIGGER_ID);
+    script.setAttribute('data-button-position-bottom', KAPA_BUTTON_POSITION_BOTTOM);
+    script.setAttribute('data-button-position-right', KAPA_BUTTON_POSITION_RIGHT);
     script.async = true;
 
     const timeoutId = setTimeout(() => {
@@ -233,8 +257,8 @@ export function ensureKapaWidget(): Promise<boolean> {
 }
 
 /**
- * Trigger opening the SeaTunnel Ask AI modal dialog with optional query
- * 触发唤起 SeaTunnel 官网 Ask AI 对话框，可携带预填提问内容
+ * Trigger opening the STX Ask AI modal with optional pre-filled query
+ * 触发唤起 STX Ask AI 对话框，可携带预填提问内容
  *
  * @param initialQuery - Optional pre-filled question / 可选的预填提问文本
  * @returns Promise<boolean> - True if successfully opened / 是否成功唤起对话框

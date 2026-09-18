@@ -276,6 +276,8 @@ describe('i18n Configuration', () => {
       expect(enMessages.plugin.askAi).toBe('Ask AI');
       expect(zhMessages.plugin.askAiQuestionTemplate).toContain('{connector}');
       expect(enMessages.plugin.askAiQuestionTemplate).toContain('{connector}');
+      expect(zhMessages.plugin.askAiQuestionTemplate).toContain('{version}');
+      expect(enMessages.plugin.askAiQuestionTemplate).toContain('{version}');
       expect(zhMessages.plugin.askAiUnavailable).toBeDefined();
       expect(enMessages.plugin.askAiUnavailable).toBeDefined();
     });

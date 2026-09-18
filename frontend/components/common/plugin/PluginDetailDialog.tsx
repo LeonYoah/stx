@@ -65,7 +65,7 @@ import type {
 } from '@/lib/services/plugin';
 import {useLocale} from '@/lib/i18n';
 import {PluginService} from '@/lib/services/plugin';
-import {openSeaTunnelAskAi} from '@/lib/services/kapa-ai';
+import {openSeaTunnelAskAi, isKapaAskAiAllowed} from '@/lib/services/kapa-ai';
 import {PluginDependencyConfigSection} from './DependencyConfigDialog';
 import {getPluginDependencyStatusMeta} from './dependency-status';
 import {
@@ -342,13 +342,14 @@ export function PluginDetailDialog({
   };
 
   /**
-   * Handle opening official Apache SeaTunnel Ask AI modal with connector-targeted query
-   * 处理唤起 Apache SeaTunnel 官网 Ask AI 智能问答对话框，并携带针对当前连接器的提问（支持中英双语国际化模板）
+   * Open Ask AI with connector name + SeaTunnel version context
+   * 打开 Ask AI，并携带连接器名称与 SeaTunnel 版本上下文
    */
   const handleOpenAskAi = async () => {
     const connectorName = plugin.display_name || plugin.name;
     const initialQuery = t('plugin.askAiQuestionTemplate', {
       connector: connectorName,
+      version: effectiveVersion || plugin.version || '',
     });
     const success = await openSeaTunnelAskAi(initialQuery);
     if (!success) {
@@ -357,6 +358,8 @@ export function PluginDetailDialog({
       });
     }
   };
+
+  const askAiAllowed = isKapaAskAiAllowed();
 
   const docUrls = useMemo(
     () =>
@@ -620,16 +623,18 @@ export function PluginDetailDialog({
                         </a>
                       </Button>
                     )}
-                    <Button
-                      variant='outline'
-                      size='sm'
-                      className='h-8 text-xs font-medium border-sky-300 text-sky-700 hover:bg-sky-50 dark:border-sky-800 dark:text-sky-300 dark:hover:bg-sky-950/50'
-                      onClick={handleOpenAskAi}
-                      data-testid='plugin-ask-ai-btn'
-                    >
-                      <Sparkles className='h-3.5 w-3.5 mr-1.5 text-sky-500 animate-pulse' />
-                      {t('plugin.askAi')}
-                    </Button>
+                    {askAiAllowed && (
+                      <Button
+                        variant='outline'
+                        size='sm'
+                        className='h-8 text-xs font-medium'
+                        onClick={handleOpenAskAi}
+                        data-testid='plugin-ask-ai-btn'
+                      >
+                        <Sparkles className='h-3.5 w-3.5 mr-1.5 text-primary' />
+                        {t('plugin.askAi')}
+                      </Button>
+                    )}
                   </div>
                 </div>
 

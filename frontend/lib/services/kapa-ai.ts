@@ -40,8 +40,8 @@ export const KAPA_PROJECT_LOGO_PATH = '/brand/stx-logo.png';
  */
 export const KAPA_PROJECT_LOGO_DARK_PATH = '/brand/stx-logo-dark.png';
 /**
- * Bird mark for the floating launcher (brand-blue button; no wordmark contrast issue).
- * 悬浮按钮使用青鸾图形标（按钮底色为品牌蓝，避免字标对比度问题）。
+ * Bird mark used by our custom themed launcher button.
+ * 自定义主题悬浮按钮使用的青鸾图形标。
  */
 export const KAPA_PROJECT_MARK_PATH = '/brand/stx-mark.png';
 /**
@@ -49,12 +49,16 @@ export const KAPA_PROJECT_MARK_PATH = '/brand/stx-mark.png';
  * 与 next-themes 同步（<html> 上的 class="dark"）。
  */
 export const KAPA_COLOR_SCHEME_SELECTOR = '.dark';
+
 /**
- * Lift the floating button above the bottom Dock (esp. mobile right-aligned dock).
- * 上移悬浮按钮，避免与底部 Dock（尤其移动端右下角）重叠。
+ * Origins / host patterns that may show Ask AI (console + widget).
+ * 允许展示 Ask AI 的域名规则（控制台与 Widget）。
  */
-export const KAPA_BUTTON_POSITION_BOTTOM = '5.5rem';
-export const KAPA_BUTTON_POSITION_RIGHT = '1.25rem';
+export const KAPA_ALLOWED_ORIGIN_EXACT = ['https://leonyoah.github.io'] as const;
+export const KAPA_ALLOWED_ORIGIN_PATTERNS = [
+  /^https:\/\/\w+\.stx\.com$/,
+  /^https:\/\/\w+\.120501\.xyz$/,
+] as const;
 
 export interface KapaOpenOptions {
   query?: string;
@@ -96,6 +100,37 @@ let kapaThemeObserver: MutationObserver | null = null;
  */
 export function getKapaWebsiteId(): string {
   return process.env.NEXT_PUBLIC_KAPA_WEBSITE_ID || KAPA_DEFAULT_WEBSITE_ID;
+}
+
+/**
+ * Whether Ask AI is allowed on the given URL (or current location).
+ * 当前（或指定）地址是否允许展示 / 调用 Ask AI。
+ *
+ * Allowed: leonyoah.github.io, *.stx.com, *.120501.xyz, localhost, 127.x.x.x
+ * 允许：leonyoah.github.io、*.stx.com、*.120501.xyz、localhost、127.x.x.x
+ */
+export function isKapaAskAiAllowed(href?: string): boolean {
+  if (typeof window === 'undefined' && !href) {
+    return false;
+  }
+
+  let url: URL;
+  try {
+    url = new URL(href || window.location.href);
+  } catch {
+    return false;
+  }
+
+  const host = url.hostname.toLowerCase();
+  if (host === 'localhost' || host === '127.0.0.1' || /^127\.\d+\.\d+\.\d+$/.test(host)) {
+    return true;
+  }
+
+  if ((KAPA_ALLOWED_ORIGIN_EXACT as readonly string[]).includes(url.origin)) {
+    return true;
+  }
+
+  return KAPA_ALLOWED_ORIGIN_PATTERNS.some((pattern) => pattern.test(url.origin));
 }
 
 /**
@@ -154,12 +189,10 @@ export function applyKapaThemeLogos(): void {
   }
 
   const modalLogo = getKapaProjectLogo();
-  const launcherImage = getKapaLauncherImage();
   const script = document.getElementById(KAPA_SCRIPT_ID);
   if (script) {
     script.setAttribute('data-project-logo', modalLogo);
     script.setAttribute('data-modal-logo-src', modalLogo);
-    script.setAttribute('data-launcher-button-image', launcherImage);
   }
 
   const brandHint = '/brand/stx-';
@@ -168,18 +201,9 @@ export function applyKapaThemeLogos(): void {
     if (!src.includes(brandHint) && !src.includes('/brand/stx')) {
       return;
     }
-    // Launcher uses mark; modal header uses light/dark lockup
-    // 悬浮按钮用图形标；弹窗标题用浅/深色锁章
-    if (src.includes('stx-mark')) {
-      if (img.src !== launcherImage) {
-        img.src = launcherImage;
-      }
-      return;
-    }
-    if (
-      src.includes('stx-logo') &&
-      img.src !== modalLogo
-    ) {
+    // Only swap modal lockups; custom launcher owns the bird mark
+    // 仅切换弹窗锁章；悬浮按钮由自定义启动器持有图形标
+    if (src.includes('stx-logo') && img.src !== modalLogo) {
       img.src = modalLogo;
     }
   });
@@ -306,6 +330,12 @@ export function ensureKapaWidget(): Promise<boolean> {
     return Promise.resolve(false);
   }
 
+  // Hard gate: do not load Ask AI outside allowlisted domains
+  // 硬门禁：非白名单域名不加载 Ask AI
+  if (!isKapaAskAiAllowed()) {
+    return Promise.resolve(false);
+  }
+
   initKapaPreinitialization();
 
   // Hidden trigger kept as a programmatic fallback for plugin "Ask AI" entry
@@ -319,16 +349,12 @@ export function ensureKapaWidget(): Promise<boolean> {
     document.body.appendChild(triggerBtn);
   }
 
-  // Upgrade path: old script without theme selector / mark launcher → remount
-  // 升级路径：旧脚本缺少主题选择器或图形标启动器时重建（须在 isKapaReady 短路之前）
+  // Upgrade path: remount when old script still shows Kapa's default launcher
+  // 升级路径：旧脚本仍展示 Kapa 默认悬浮球时重建（改用隐藏 + 自定义按钮）
   const existingScript = document.getElementById(KAPA_SCRIPT_ID);
   if (
     existingScript &&
-    (existingScript.getAttribute('data-color-scheme-selector') !==
-      KAPA_COLOR_SCHEME_SELECTOR ||
-      !existingScript.getAttribute('data-launcher-button-image')?.includes(
-        'stx-mark',
-      ))
+    existingScript.getAttribute('data-launcher-button-hidden') !== 'true'
   ) {
     existingScript.remove();
     kapaLoadingPromise = null;
@@ -357,19 +383,14 @@ export function ensureKapaWidget(): Promise<boolean> {
     script.setAttribute('data-website-id', getKapaWebsiteId());
     script.setAttribute('data-project-name', KAPA_PROJECT_NAME);
     script.setAttribute('data-project-color', KAPA_PROJECT_COLOR);
-    // Modal lockup follows theme; launcher uses bird mark on brand-blue button
-    // 弹窗锁章跟随主题；悬浮按钮在品牌蓝底上使用青鸾图形标
+    // Hide Kapa default launcher; STX renders a theme-aware custom button
+    // 隐藏 Kapa 默认悬浮球；由 STX 渲染跟随主题的自定义按钮
     const modalLogo = getKapaProjectLogo();
-    const launcherImage = getKapaLauncherImage();
     script.setAttribute('data-project-logo', modalLogo);
     script.setAttribute('data-modal-logo-src', modalLogo);
-    script.setAttribute('data-launcher-button-image', launcherImage);
+    script.setAttribute('data-launcher-button-hidden', 'true');
     script.setAttribute('data-color-scheme-selector', KAPA_COLOR_SCHEME_SELECTOR);
-    // Keep default floating button visible; override-open-id only adds extra open targets
-    // 保持默认悬浮按钮可见；override-open-id 仅额外绑定打开目标，不会隐藏按钮
     script.setAttribute('data-modal-override-open-id', KAPA_TRIGGER_ID);
-    script.setAttribute('data-button-position-bottom', KAPA_BUTTON_POSITION_BOTTOM);
-    script.setAttribute('data-button-position-right', KAPA_BUTTON_POSITION_RIGHT);
     script.async = true;
 
     const timeoutId = setTimeout(() => {
@@ -408,6 +429,10 @@ export function ensureKapaWidget(): Promise<boolean> {
  * @returns Promise<boolean> - True if successfully opened / 是否成功唤起对话框
  */
 export async function openSeaTunnelAskAi(initialQuery?: string): Promise<boolean> {
+  if (!isKapaAskAiAllowed()) {
+    return false;
+  }
+
   const loaded = await ensureKapaWidget();
 
   const kapa = window.Kapa as any;

@@ -20,14 +20,11 @@ import {
   ensureKapaWidget,
   getKapaWebsiteId,
   initKapaPreinitialization,
+  isKapaAskAiAllowed,
   openSeaTunnelAskAi,
-  KAPA_BUTTON_POSITION_BOTTOM,
-  KAPA_BUTTON_POSITION_RIGHT,
   KAPA_COLOR_SCHEME_SELECTOR,
   KAPA_DEFAULT_WEBSITE_ID,
-  KAPA_PROJECT_LOGO_DARK_PATH,
   KAPA_PROJECT_LOGO_PATH,
-  KAPA_PROJECT_MARK_PATH,
   KAPA_PROJECT_NAME,
 } from '../kapa-ai';
 
@@ -48,6 +45,24 @@ describe('kapa-ai service integration', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it('allows Ask AI on localhost, 127.x, github pages and stx/120501 subdomains', () => {
+    expect(isKapaAskAiAllowed('http://localhost:3000/plugins')).toBe(true);
+    expect(isKapaAskAiAllowed('http://127.0.0.1:8080/')).toBe(true);
+    expect(isKapaAskAiAllowed('http://127.1.2.3/')).toBe(true);
+    expect(isKapaAskAiAllowed('https://leonyoah.github.io/stx-website/')).toBe(
+      true,
+    );
+    expect(isKapaAskAiAllowed('https://ops.stx.com/')).toBe(true);
+    expect(isKapaAskAiAllowed('https://demo.120501.xyz/')).toBe(true);
+  });
+
+  it('denies Ask AI on unrelated domains', () => {
+    expect(isKapaAskAiAllowed('https://example.com/')).toBe(false);
+    expect(isKapaAskAiAllowed('https://stx.com/')).toBe(false);
+    expect(isKapaAskAiAllowed('http://192.168.1.1/')).toBe(false);
+    expect(isKapaAskAiAllowed('https://evil.github.io/')).toBe(false);
   });
 
   it('creates trigger element in DOM when ensuring widget', async () => {
@@ -161,9 +176,9 @@ describe('kapa-ai service integration', () => {
     expect(getKapaWebsiteId()).toBe('custom-user-kapa-id-123');
   });
 
-  it('injects STX widget script with visible floating-button position attrs', async () => {
-    // Ensure script tag keeps the default floating button and dock-safe offsets
-    // 确保注入脚本保留默认悬浮按钮，并带上避开 Dock 的定位属性
+  it('injects STX widget script with default launcher hidden for custom FAB', async () => {
+    // Ensure script hides Kapa default button so STX themed FAB can own the UI
+    // 确保脚本隐藏 Kapa 默认悬浮球，改由 STX 主题 FAB 接管
     delete process.env.NEXT_PUBLIC_KAPA_WEBSITE_ID;
     const origAppendChild = document.body.appendChild.bind(document.body);
     vi.spyOn(document.body, 'appendChild').mockImplementation((node) => {
@@ -184,31 +199,10 @@ describe('kapa-ai service integration', () => {
     expect(script).not.toBeNull();
     expect(script?.getAttribute('data-website-id')).toBe(KAPA_DEFAULT_WEBSITE_ID);
     expect(script?.getAttribute('data-project-name')).toBe(KAPA_PROJECT_NAME);
-    expect(script?.getAttribute('data-button-hide')).toBeNull();
-    expect(script?.getAttribute('data-button-position-bottom')).toBe(
-      KAPA_BUTTON_POSITION_BOTTOM,
-    );
-    expect(script?.getAttribute('data-button-position-right')).toBe(
-      KAPA_BUTTON_POSITION_RIGHT,
-    );
+    expect(script?.getAttribute('data-launcher-button-hidden')).toBe('true');
     expect(script?.getAttribute('data-color-scheme-selector')).toBe(
       KAPA_COLOR_SCHEME_SELECTOR,
     );
-    expect(script?.getAttribute('data-launcher-button-image')).toContain(
-      KAPA_PROJECT_MARK_PATH,
-    );
-    // Modal logo follows current document theme (jsdom defaults to light)
-    // 弹窗锁章跟随文档主题（jsdom 默认为浅色）
-    expect(script?.getAttribute('data-project-logo')).toContain(
-      KAPA_PROJECT_LOGO_PATH,
-    );
-    expect(script?.getAttribute('data-modal-logo-src')).toContain(
-      KAPA_PROJECT_LOGO_PATH,
-    );
-    expect(script?.getAttribute('data-project-logo-dark')).toBeNull();
-    expect(script?.getAttribute('data-launcher-button-image-dark')).toBeNull();
-    // Ensure dark path constant remains available for theme swaps
-    // 确保深色锁章常量仍可用于主题切换
-    expect(KAPA_PROJECT_LOGO_DARK_PATH).toContain('stx-logo-dark');
+    expect(script?.getAttribute('data-project-logo')).toContain(KAPA_PROJECT_LOGO_PATH);
   });
 });

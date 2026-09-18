@@ -115,6 +115,9 @@ export function getKapaProjectLogo(): string {
  * 去掉 Mantine 弹窗 logo 的固定 width（会裁切青鸾顶部）。
  */
 function fixKapaModalLogoWidth(): void {
+  if (typeof document === 'undefined') {
+    return;
+  }
   const id = 'st-kapa-logo-fix';
   if (!document.getElementById(id)) {
     const style = document.createElement('style');

@@ -29,8 +29,17 @@ export const KAPA_TRIGGER_ID = 'st-kapa-ask-ai-trigger';
 export const KAPA_DEFAULT_WEBSITE_ID = 'd9390efd-fdc5-4449-8aa1-bb2fd5fe13f3';
 export const KAPA_PROJECT_NAME = 'STX';
 export const KAPA_PROJECT_COLOR = '#2563eb';
-/** Logo path under frontend/public; resolved to absolute URL at runtime. / public 下的 logo 路径，运行时解析为绝对 URL */
+/**
+ * Light lockup for light surfaces; dark lockup (white wordmark) for dark surfaces.
+ * 浅色锁章用于亮色表面；深色锁章（白字）用于暗色表面。
+ */
 export const KAPA_PROJECT_LOGO_PATH = '/brand/stx-logo.png';
+export const KAPA_PROJECT_LOGO_DARK_PATH = '/brand/stx-logo-dark.png';
+/**
+ * Sync widget theme with next-themes (`class="dark"` on <html>).
+ * 与 next-themes 同步（<html> 上的 class="dark"）。
+ */
+export const KAPA_COLOR_SCHEME_SELECTOR = '.dark';
 /**
  * Lift the floating button above the bottom Dock (esp. mobile right-aligned dock).
  * 上移悬浮按钮，避免与底部 Dock（尤其移动端右下角）重叠。
@@ -82,12 +91,16 @@ export function getKapaWebsiteId(): string {
 /**
  * Resolve project logo to an absolute URL for the Kapa widget
  * 将项目 logo 解析为 Kapa 小部件所需的绝对 URL（随部署域名变化）
+ *
+ * @param variant - light | dark lockup / 浅色或深色锁章
  */
-export function getKapaProjectLogo(): string {
+export function getKapaProjectLogo(variant: 'light' | 'dark' = 'light'): string {
+  const path =
+    variant === 'dark' ? KAPA_PROJECT_LOGO_DARK_PATH : KAPA_PROJECT_LOGO_PATH;
   if (typeof window !== 'undefined' && window.location?.origin) {
-    return `${window.location.origin}${KAPA_PROJECT_LOGO_PATH}`;
+    return `${window.location.origin}${path}`;
   }
-  return KAPA_PROJECT_LOGO_PATH;
+  return path;
 }
 
 /**
@@ -224,7 +237,17 @@ export function ensureKapaWidget(): Promise<boolean> {
     script.setAttribute('data-website-id', getKapaWebsiteId());
     script.setAttribute('data-project-name', KAPA_PROJECT_NAME);
     script.setAttribute('data-project-color', KAPA_PROJECT_COLOR);
-    script.setAttribute('data-project-logo', getKapaProjectLogo());
+    // Light/dark logos + sync with console theme via .dark on <html>
+    // 浅/深色 logo，并通过 <html class="dark"> 与控制台主题同步
+    const lightLogo = getKapaProjectLogo('light');
+    const darkLogo = getKapaProjectLogo('dark');
+    script.setAttribute('data-project-logo', lightLogo);
+    script.setAttribute('data-project-logo-dark', darkLogo);
+    script.setAttribute('data-modal-logo-src', lightLogo);
+    script.setAttribute('data-modal-logo-src-dark', darkLogo);
+    script.setAttribute('data-launcher-button-image', lightLogo);
+    script.setAttribute('data-launcher-button-image-dark', darkLogo);
+    script.setAttribute('data-color-scheme-selector', KAPA_COLOR_SCHEME_SELECTOR);
     // Keep default floating button visible; override-open-id only adds extra open targets
     // 保持默认悬浮按钮可见；override-open-id 仅额外绑定打开目标，不会隐藏按钮
     script.setAttribute('data-modal-override-open-id', KAPA_TRIGGER_ID);

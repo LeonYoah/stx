@@ -23,7 +23,10 @@ import {
   openSeaTunnelAskAi,
   KAPA_BUTTON_POSITION_BOTTOM,
   KAPA_BUTTON_POSITION_RIGHT,
+  KAPA_COLOR_SCHEME_SELECTOR,
   KAPA_DEFAULT_WEBSITE_ID,
+  KAPA_PROJECT_LOGO_DARK_PATH,
+  KAPA_PROJECT_LOGO_PATH,
   KAPA_PROJECT_NAME,
 } from '../kapa-ai';
 
@@ -186,6 +189,19 @@ describe('kapa-ai service integration', () => {
     );
     expect(script?.getAttribute('data-button-position-right')).toBe(
       KAPA_BUTTON_POSITION_RIGHT,
+    );
+    expect(script?.getAttribute('data-color-scheme-selector')).toBe(
+      KAPA_COLOR_SCHEME_SELECTOR,
+    );
+    expect(script?.getAttribute('data-project-logo')).toContain(KAPA_PROJECT_LOGO_PATH);
+    expect(script?.getAttribute('data-project-logo-dark')).toContain(
+      KAPA_PROJECT_LOGO_DARK_PATH,
+    );
+    expect(script?.getAttribute('data-modal-logo-src-dark')).toContain(
+      KAPA_PROJECT_LOGO_DARK_PATH,
+    );
+    expect(script?.getAttribute('data-launcher-button-image-dark')).toContain(
+      KAPA_PROJECT_LOGO_DARK_PATH,
     );
   });
 });

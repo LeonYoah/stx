@@ -156,27 +156,45 @@
   position: relative;
   z-index: 1;
   display: flex;
-  min-height: 100vh;
+  min-height: 100dvh;
   align-items: center;
   justify-content: center;
-  padding: 18px;
+  /* 高分屏少留黑边，让内容区吃满视口 */
+  padding: clamp(12px, 1.6vh, 28px) clamp(12px, 1.8vw, 32px);
   overflow: hidden;
 }
 
 .stx-auth-card {
-  /* 双栏合成一张卡，去掉中间缝带来的空带 */
-  --stx-auth-panel-h: min(72vh, 680px);
+  /*
+   * 高分屏跟视口走：去掉 1440×680 硬顶，避免正中一小块。
+   * Track viewport on large displays; drop the old fixed caps.
+   */
+  --stx-auth-panel-h: min(90dvh, calc(100dvh - 32px));
   position: relative;
   z-index: 1;
   display: grid;
-  width: min(1440px, 100%);
+  width: min(96vw, calc(100vw - 32px));
+  max-width: 2400px;
   gap: 0;
-  grid-template-columns: minmax(0, 1.12fr) minmax(420px, 480px);
+  grid-template-columns: minmax(0, 1.2fr) minmax(420px, 560px);
   overflow: hidden;
   border-radius: 28px;
   border: 1px solid var(--stx-border-soft);
   box-shadow: var(--stx-panel-shadow);
   background: var(--stx-brand-panel-bg);
+}
+
+@media (min-width: 1600px) {
+  .stx-auth-card {
+    grid-template-columns: minmax(0, 1.25fr) minmax(480px, 600px);
+  }
+}
+
+@media (min-width: 2200px) {
+  .stx-auth-card {
+    max-width: 2600px;
+    grid-template-columns: minmax(0, 1.3fr) minmax(520px, 640px);
+  }
 }
 
 .stx-brand-panel {
@@ -524,7 +542,7 @@
 .stx-brand-title {
   margin: 0;
   max-width: 12.5em;
-  font-size: clamp(32px, 2.9vw, 44px);
+  font-size: clamp(32px, 2.8vw, 52px);
   line-height: 1.22;
   font-weight: 900;
   letter-spacing: -0.03em;
@@ -756,7 +774,7 @@
 
 .stx-auth-header h2 {
   margin: 0;
-  font-size: 24px;
+  font-size: clamp(24px, 1.4vw, 30px);
   line-height: 1.2;
   font-weight: 800;
   letter-spacing: -0.025em;

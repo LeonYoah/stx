@@ -552,15 +552,23 @@ func (s *Service) GetInstallCommand(ctx context.Context, hostID uint) (string, e
 		return "", err
 	}
 
-	// Generate installation command
-	// 生成安装命令
-	// The command uses curl to download and execute the install script from Control Plane
-	// 该命令使用 curl 从 Control Plane 下载并执行安装脚本
+	// Generate installation command with explicit default --install-dir (user-customizable).
+	// 生成带显式默认 --install-dir 的安装命令（用户可自行改目录）。
 	// controlPlaneAddr should be a full URL like "http://192.168.1.100:8000"
 	// controlPlaneAddr 应该是完整的 URL，如 "http://192.168.1.100:8000"
-	installCmd := fmt.Sprintf("curl -sSL %s/api/v1/agent/install.sh | bash", s.controlPlaneAddr)
-
-	return installCmd, nil
+	addr := strings.TrimRight(strings.TrimSpace(s.controlPlaneAddr), "/")
+	if addr == "" {
+		addr = "http://localhost:8000"
+	}
+	if !strings.HasPrefix(addr, "http://") && !strings.HasPrefix(addr, "https://") {
+		addr = "http://" + addr
+	}
+	// Keep in sync with agent.DefaultAgentHomePath / 与 agent.DefaultAgentHomePath 保持一致
+	return fmt.Sprintf(
+		"curl -sSL %s/api/v1/agent/install.sh | bash -s -- --install-dir=%s/",
+		addr,
+		"$HOME/.stx/agent",
+	), nil
 }
 
 // SystemInfo represents system information reported by an Agent.

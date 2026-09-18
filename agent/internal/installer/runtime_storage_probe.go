@@ -47,6 +47,9 @@ const (
 	stxJavaProxyPortEnvVar        = "STX_JAVA_PROXY_PORT"
 	stxJavaProxyVersionEnvVar     = "STX_JAVA_PROXY_VERSION"
 	stxJavaProxyDefaultSupportDir = "/usr/local/lib/stx-agent"
+	// stxJavaProxyUserSupportDirName is the relative Agent home under $HOME for non-root installs.
+	// stxJavaProxyUserSupportDirName 是非 root 安装时位于 $HOME 下的 Agent 主目录相对路径。
+	stxJavaProxyUserSupportDirName = ".stx/agent"
 	runtimeProbeTimeout           = 20 * time.Second
 	runtimeProbeBusinessName      = "imap-probe"
 	runtimeProbeClusterName       = "seatunnel-cluster"
@@ -1110,6 +1113,9 @@ func stxJavaProxyScriptCandidates(installDir string) []string {
 		filepath.Join("scripts", "stx-java-proxy.sh"),
 		filepath.Join("tools", "stx-java-proxy", "bin", "stx-java-proxy.sh"),
 	)
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		candidates = append(candidates, filepath.Join(home, stxJavaProxyUserSupportDirName, "scripts", seatunnelmeta.STXJavaProxyScriptFileName))
+	}
 	if executable, err := os.Executable(); err == nil {
 		execDir := filepath.Dir(executable)
 		candidates = append(
@@ -1149,6 +1155,9 @@ func stxJavaProxyLibDirCandidates(installDir string) []string {
 		candidates = append(candidates, filepath.Join(homeDir, "lib"))
 	}
 	candidates = append(candidates, filepath.Join(stxJavaProxyDefaultSupportDir, "lib"), filepath.Join(installDir, "lib"), "lib")
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		candidates = append(candidates, filepath.Join(home, stxJavaProxyUserSupportDirName, "lib"))
+	}
 	if executable, err := os.Executable(); err == nil {
 		execDir := filepath.Dir(executable)
 		candidates = append(

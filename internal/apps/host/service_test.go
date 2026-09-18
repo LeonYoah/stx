@@ -814,10 +814,16 @@ func TestGetInstallCommand(t *testing.T) {
 		t.Errorf("Install command should contain '%s', got: %s", expectedAddr, cmd)
 	}
 
-	// Verify command is a curl command
-	// 验证命令是 curl 命令
+	// Verify command is a curl command with bash -s and default install-dir
+	// 验证命令是 curl，并通过 bash -s 传入默认 install-dir
 	if !containsString(cmd, "curl") {
 		t.Errorf("Install command should contain 'curl', got: %s", cmd)
+	}
+	if !containsString(cmd, "bash -s --") {
+		t.Errorf("Install command should pipe to 'bash -s --', got: %s", cmd)
+	}
+	if !containsString(cmd, "--install-dir=$HOME/.stx/agent/") {
+		t.Errorf("Install command should include default --install-dir=$HOME/.stx/agent/, got: %s", cmd)
 	}
 }
 

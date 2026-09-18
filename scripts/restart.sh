@@ -66,7 +66,7 @@ STX 构建/重启脚本
   APP_EXTERNAL_URL               写入 config.yaml 的 app.external_url，默认 http://127.0.0.1:8000
   FRONTEND_PORT                  前端端口，默认 80
   NEXT_PUBLIC_BACKEND_BASE_URL   前端访问后端的基础地址，默认 http://127.0.0.1:8000
-  LOCAL_AGENT_INSTALL_DIR        本机 Agent 安装目录，默认 /usr/local/bin
+  LOCAL_AGENT_INSTALL_DIR        本机 Agent 二进制目录，默认 $HOME/.stx/agent/bin
   LOCAL_AGENT_BINARY             本机 Agent 二进制名，默认 stx-agent
   LOCAL_AGENT_SERVICE            本机 Agent systemd 服务名，默认 stx-agent
   LOCAL_AGENT_RESTART            本机已安装 Agent 时是否默认同步/重启，默认 true
@@ -170,10 +170,10 @@ APP_EXTERNAL_URL="${APP_EXTERNAL_URL:-http://127.0.0.1:8000}"
 FRONTEND_PORT="${FRONTEND_PORT:-80}"
 NEXT_PUBLIC_BACKEND_BASE_URL="${NEXT_PUBLIC_BACKEND_BASE_URL:-http://127.0.0.1:8000}"
 CAPABILITY_PROXY_DEFAULT_VERSION="${CAPABILITY_PROXY_DEFAULT_VERSION:-2.3.13}"
-LOCAL_AGENT_INSTALL_DIR="${LOCAL_AGENT_INSTALL_DIR:-/usr/local/bin}"
+LOCAL_AGENT_INSTALL_DIR="${LOCAL_AGENT_INSTALL_DIR:-$HOME/.stx/agent/bin}"
 LOCAL_AGENT_BINARY="${LOCAL_AGENT_BINARY:-stx-agent}"
 LOCAL_AGENT_SERVICE="${LOCAL_AGENT_SERVICE:-stx-agent}"
-AGENT_HOME="${AGENT_HOME:-/usr/local/lib/stx-agent}"
+AGENT_HOME="${AGENT_HOME:-$HOME/.stx/agent}"
 AGENT_PROXY_LIB_DIR="${AGENT_PROXY_LIB_DIR:-$AGENT_HOME/lib}"
 LOCAL_SEATUNNEL_HOME="${LOCAL_SEATUNNEL_HOME:-/opt/seatunnel-2.3.13-new}"
 LOCAL_JAVA_PROXY_PORT="${LOCAL_JAVA_PROXY_PORT:-18080}"

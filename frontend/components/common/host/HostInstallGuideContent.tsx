@@ -261,7 +261,7 @@ export function HostInstallGuideContent({
             {t('host.installGuide.terminalHint')}
           </span>
           <span className='text-[10px] font-mono text-muted-foreground/70'>
-            bash (root / sudo)
+            bash -s -- --install-dir
           </span>
         </div>
 

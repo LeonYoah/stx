@@ -2,7 +2,7 @@
 
 ## Goal
 
-将 SeaTunnelX 的默认产品形态从当前遗留的 project/redis/clickhouse/async 兼容模式，收敛为更符合现有主链路的部署形态：默认不再暴露 legacy project 业务，不再依赖 Redis 作为默认会话后端，而是使用内存会话；同时清理默认配置、默认路由与隐式依赖，避免“配置上不用，代码里仍默认依赖”的不一致。
+将 STX 的默认产品形态从当前遗留的 project/redis/clickhouse/async 兼容模式，收敛为更符合现有主链路的部署形态：默认不再暴露 legacy project 业务，不再依赖 Redis 作为默认会话后端，而是使用内存会话；同时清理默认配置、默认路由与隐式依赖，避免“配置上不用，代码里仍默认依赖”的不一致。
 
 ## What I already know
 
@@ -27,7 +27,7 @@
 
 ## Requirements (evolving)
 
-* 默认配置示例应体现 SeaTunnelX 当前主链路能力。
+* 默认配置示例应体现 STX 当前主链路能力。
 * 默认会话应使用内存实现，不要求 Redis。
 * 不应保留会误导部署者的无效/无用默认配置块。
 * 若 legacy project 不再属于默认产品能力，则默认 API 不应继续注册其路由。

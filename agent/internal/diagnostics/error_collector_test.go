@@ -23,7 +23,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	pb "github.com/seatunnel/seatunnelX/agent"
+	pb "github.com/LeonYoah/stx/agent"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

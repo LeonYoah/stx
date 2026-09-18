@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-// Package cluster provides cluster management functionality for the SeaTunnelX Agent system.
+// Package cluster provides cluster management functionality for the STX Agent system.
 package cluster
 
 import (

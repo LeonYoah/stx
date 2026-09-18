@@ -24,7 +24,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/seatunnel/seatunnelX/internal/pkg/schedulex"
+	"github.com/LeonYoah/stx/internal/pkg/schedulex"
 )
 
 const (

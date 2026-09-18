@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-// Package host provides host management functionality for the SeaTunnelX Agent system.
-// host 包提供 SeaTunnelX Agent 系统的主机管理功能。
+// Package host provides host management functionality for the STX Agent system.
+// host 包提供 STX Agent 系统的主机管理功能。
 package host
 
 import (
@@ -24,10 +24,10 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/LeonYoah/stx/internal/apps/audit"
+	"github.com/LeonYoah/stx/internal/apps/auth"
+	"github.com/LeonYoah/stx/internal/logger"
 	"github.com/gin-gonic/gin"
-	"github.com/seatunnel/seatunnelX/internal/apps/audit"
-	"github.com/seatunnel/seatunnelX/internal/apps/auth"
-	"github.com/seatunnel/seatunnelX/internal/logger"
 )
 
 // Handler provides HTTP handlers for host management operations.

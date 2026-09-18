@@ -31,11 +31,11 @@ import (
 	"io"
 	"time"
 
+	"github.com/LeonYoah/stx/internal/config"
+	"github.com/LeonYoah/stx/internal/db"
+	"github.com/LeonYoah/stx/internal/otel_trace"
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
-	"github.com/seatunnel/seatunnelX/internal/config"
-	"github.com/seatunnel/seatunnelX/internal/db"
-	"github.com/seatunnel/seatunnelX/internal/otel_trace"
 	"go.opentelemetry.io/otel/codes"
 	"gorm.io/gorm"
 )

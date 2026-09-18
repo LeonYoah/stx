@@ -103,13 +103,13 @@ func genInvalidIP() gopter.Gen {
 	)
 }
 
-// **Feature: seatunnel-agent, Property 1: Host Name Uniqueness Validation**
+// **Feature: stx-agent, Property 1: Host Name Uniqueness Validation**
 // **Validates: Requirements 3.1**
 // For any host creation request, if a host with the same name already exists,
 // the system SHALL reject the creation and return an error indicating the name conflict.
 
 func TestProperty_HostNameUniqueness(t *testing.T) {
-	// **Feature: seatunnel-agent, Property 1: Host Name Uniqueness Validation**
+	// **Feature: stx-agent, Property 1: Host Name Uniqueness Validation**
 	// **Validates: Requirements 3.1**
 
 	parameters := gopter.DefaultTestParameters()
@@ -217,13 +217,13 @@ func TestUpdateRejectsDuplicateIP(t *testing.T) {
 	}
 }
 
-// **Feature: seatunnel-agent, Property 2: IP Address Format Validation**
+// **Feature: stx-agent, Property 2: IP Address Format Validation**
 // **Validates: Requirements 3.1**
 // For any host creation request with an IP address, the system SHALL validate
 // the IP address format (IPv4 or IPv6) and reject invalid formats with a descriptive error.
 
 func TestProperty_IPAddressFormatValidation(t *testing.T) {
-	// **Feature: seatunnel-agent, Property 2: IP Address Format Validation**
+	// **Feature: stx-agent, Property 2: IP Address Format Validation**
 	// **Validates: Requirements 3.1**
 
 	parameters := gopter.DefaultTestParameters()
@@ -281,7 +281,7 @@ func TestProperty_IPAddressFormatValidation(t *testing.T) {
 
 // TestProperty_ValidIPv6Addresses tests that valid IPv6 addresses are accepted
 func TestProperty_ValidIPv6Addresses(t *testing.T) {
-	// **Feature: seatunnel-agent, Property 2: IP Address Format Validation**
+	// **Feature: stx-agent, Property 2: IP Address Format Validation**
 	// **Validates: Requirements 3.1**
 
 	parameters := gopter.DefaultTestParameters()

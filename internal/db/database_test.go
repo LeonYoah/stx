@@ -24,10 +24,10 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/LeonYoah/stx/internal/config"
 	"github.com/leanovate/gopter"
 	"github.com/leanovate/gopter/gen"
 	"github.com/leanovate/gopter/prop"
-	"github.com/seatunnel/seatunnelX/internal/config"
 )
 
 // 获取项目根目录
@@ -57,7 +57,7 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// **Feature: seatunnel-platform-login, Property 5: Session store consistency** (部分)
+// **Feature: stx-platform-login, Property 5: Session store consistency** (部分)
 // **Validates: Requirements 4.3**
 //
 // 此属性测试验证数据库初始化的一致性行为：

@@ -37,12 +37,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/seatunnel/seatunnelX/internal/apps/cluster"
-	appconfig "github.com/seatunnel/seatunnelX/internal/apps/config"
-	"github.com/seatunnel/seatunnelX/internal/apps/monitor"
-	monitoringapp "github.com/seatunnel/seatunnelX/internal/apps/monitoring"
-	"github.com/seatunnel/seatunnelX/internal/config"
-	"github.com/seatunnel/seatunnelX/internal/logger"
+	"github.com/LeonYoah/stx/internal/apps/cluster"
+	appconfig "github.com/LeonYoah/stx/internal/apps/config"
+	"github.com/LeonYoah/stx/internal/apps/monitor"
+	monitoringapp "github.com/LeonYoah/stx/internal/apps/monitoring"
+	"github.com/LeonYoah/stx/internal/config"
+	"github.com/LeonYoah/stx/internal/logger"
 	"gopkg.in/yaml.v3"
 )
 
@@ -4723,7 +4723,7 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>{{pair "SeaTunnelX 诊断报告" "SeaTunnelX Diagnostic Report"}}</title>
+  <title>{{pair "STX 诊断报告" "STX Diagnostic Report"}}</title>
   <style>
     :root {
       color-scheme: light;
@@ -5765,7 +5765,7 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
   <div class="page report-shell">
     <aside class="report-sidebar">
       <div class="sidebar-brand">
-        <div class="eyebrow">SeaTunnelX</div>
+        <div class="eyebrow">STX</div>
         <div class="title">{{pair "诊断报告" "Diagnostic Report"}}</div>
       </div>
       <div class="sidebar-meta">
@@ -5832,7 +5832,7 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
             <span class="badge">{{.Health.ClusterLabel}}</span>
             <span class="badge">{{.Health.WindowLabel}}</span>
           </div>
-          <div class="hero-kicker">SeaTunnelX</div>
+          <div class="hero-kicker">STX</div>
           <h1 class="hero-title">{{pair "诊断报告" "Diagnostic Report"}}</h1>
           <div class="muted small" style="margin-top: 10px;">{{pair "生成时间" "Generated"}} {{formatTime .GeneratedAt}}</div>
           <h2 style="margin: 16px 0 0; font-size: 28px; line-height: 1.3; color: #0f172a;">{{loc .Health.Title}}</h2>
@@ -6758,7 +6758,7 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
     <div class="full-log-dialog" role="dialog" aria-modal="true" aria-labelledby="full-log-modal-title">
       <div class="full-log-header">
         <div>
-          <div class="eyebrow">SeaTunnelX</div>
+          <div class="eyebrow">STX</div>
           <div class="entry-title" id="full-log-modal-title">{{pair "完整原始日志" "Full Raw Log"}}</div>
         </div>
         <div class="full-log-header-actions">

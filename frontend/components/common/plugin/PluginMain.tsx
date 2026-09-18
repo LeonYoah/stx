@@ -37,9 +37,6 @@ import {
 import {
   Card,
   CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
 } from '@/components/ui/card';
 import {Tabs, TabsContent, TabsList, TabsTrigger} from '@/components/ui/tabs';
 import {
@@ -49,7 +46,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {Separator} from '@/components/ui/separator';
 import {Badge} from '@/components/ui/badge';
 import {Checkbox} from '@/components/ui/checkbox';
 import {toast} from 'sonner';
@@ -67,6 +63,11 @@ import {
 } from 'lucide-react';
 import {motion} from 'motion/react';
 import {easeOut} from 'motion';
+import {
+  WorkspaceHeader,
+  StatPillsBar,
+  type StatPillItem,
+} from '@/components/common/layout';
 import {PluginService} from '@/lib/services/plugin';
 import {usePackages} from '@/hooks/use-installer';
 import {resolveSeatunnelVersion} from '@/lib/seatunnel-version';
@@ -1038,273 +1039,230 @@ export function PluginMain() {
     return date.toLocaleString();
   }, []);
 
+  // 胶囊状态栏数据项 / Stat pills items data model
+  const statItems: StatPillItem[] = useMemo(() => {
+    const downloadingCount = activeDownloads.filter(
+      (d) => d.status === 'downloading',
+    ).length;
+    const localCount = getFilteredLocalPlugins().length;
+    const localCountDisplay =
+      downloadingCount > 0 ? `${localCount}+${downloadingCount}` : localCount;
+
+    return [
+      {
+        key: 'available',
+        label: t('plugin.available'),
+        count: total,
+        icon: <Package className='h-3.5 w-3.5' />,
+        variant: 'default',
+        dataTestId: 'plugin-tab-available',
+      },
+      {
+        key: 'local',
+        label: t('plugin.localPlugins'),
+        count: localCountDisplay,
+        icon: <HardDrive className='h-3.5 w-3.5' />,
+        variant: downloadingCount > 0 ? 'info' : 'default',
+        pulse: downloadingCount > 0,
+        dataTestId: 'plugin-tab-local',
+      },
+      {
+        key: 'custom',
+        label: t('plugin.custom'),
+        icon: <Upload className='h-3.5 w-3.5' />,
+        variant: 'default',
+        dataTestId: 'plugin-tab-custom',
+      },
+    ];
+  }, [activeDownloads, getFilteredLocalPlugins, t, total]);
+
   return (
     <motion.div
       data-testid='plugin-marketplace-root'
-      className='space-y-6'
+      className='space-y-4'
       initial='hidden'
       animate='visible'
       variants={containerVariants}
     >
-      {/* Header / 标题 */}
-      <motion.div
-        className='flex items-center justify-between'
-        variants={itemVariants}
-      >
-        <div className='flex items-center gap-2'>
-          <Puzzle className='h-6 w-6' />
-          <div>
-            <h1 className='text-2xl font-bold tracking-tight'>
-              {t('plugin.marketplace')}
-            </h1>
-            <p className='text-muted-foreground mt-1'>
-              {t('plugin.marketplaceDesc')}
-            </p>
-          </div>
-        </div>
-        <div className='flex gap-2'>
-          <Button
-            variant='default'
-            onClick={handleDownloadAllPlugins}
-            disabled={loading || refreshingConnectors || isDownloadingAll || total === 0}
-          >
-            <DownloadCloud
-              className={`h-4 w-4 mr-2 ${isDownloadingAll ? 'animate-pulse' : ''}`}
-            />
-            {isDownloadingAll
-              ? t('plugin.downloadingAll')
-              : t('plugin.downloadAll')}
-          </Button>
-          <Button
-            variant='outline'
-            onClick={handleRefresh}
-            disabled={loading || refreshingConnectors || localPluginsLoading}
-          >
-            <RefreshCw
-              className={`h-4 w-4 mr-2 ${(activeTab === 'available' ? refreshingConnectors : localPluginsLoading) ? 'animate-spin' : ''}`}
-            />
-            {activeTab === 'available'
-              ? t('plugin.refreshConnectors')
-              : t('common.refresh')}
-          </Button>
-        </div>
-      </motion.div>
-
-      <Separator />
-
-      {/* Stats card / 统计卡片 */}
+      {/* Header / 页面头部 */}
       <motion.div variants={itemVariants}>
-        <Card>
-          <CardHeader className='pb-2'>
-            <CardTitle className='text-sm font-medium text-muted-foreground flex items-center gap-2'>
-              <Puzzle className='h-4 w-4' />
-              {t('plugin.totalPlugins')}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className='text-2xl font-bold text-blue-600'>{total}</div>
-            {activeTab === 'available' && (
-              <div className='mt-3 space-y-1 text-xs text-muted-foreground'>
-                <div>
-                  {t('plugin.catalogRefreshedAt')}: {formatCatalogRefreshedAt(catalogRefreshedAt)}
-                </div>
-                <div>{t('plugin.catalogSourceHint')}</div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        <WorkspaceHeader
+          icon={<Puzzle className='h-5 w-5 text-primary' />}
+          title={t('plugin.marketplace')}
+          subtitle={t('plugin.marketplaceDesc')}
+          actions={
+            <div className='flex items-center gap-2'>
+              <Button
+                variant='default'
+                size='sm'
+                onClick={handleDownloadAllPlugins}
+                disabled={loading || refreshingConnectors || isDownloadingAll || total === 0}
+              >
+                <DownloadCloud
+                  className={`h-4 w-4 mr-1.5 ${isDownloadingAll ? 'animate-pulse' : ''}`}
+                />
+                {isDownloadingAll
+                  ? t('plugin.downloadingAll')
+                  : t('plugin.downloadAll')}
+              </Button>
+              <Button
+                variant='outline'
+                size='sm'
+                onClick={handleRefresh}
+                disabled={loading || refreshingConnectors || localPluginsLoading}
+              >
+                <RefreshCw
+                  className={`h-4 w-4 mr-1.5 ${(activeTab === 'available' ? refreshingConnectors : localPluginsLoading) ? 'animate-spin' : ''}`}
+                />
+                {activeTab === 'available'
+                  ? t('plugin.refreshConnectors')
+                  : t('common.refresh')}
+              </Button>
+            </div>
+          }
+        />
       </motion.div>
 
       {/* Error display / 错误显示 */}
       {error && (
-        <Card className='border-destructive'>
-          <CardContent className='pt-6'>
-            <p className='text-destructive'>{error}</p>
+        <Card className='border-destructive bg-destructive/5'>
+          <CardContent className='p-3 text-sm text-destructive'>
+            {error}
           </CardContent>
         </Card>
       )}
 
-      {/* Filters / 过滤器 */}
-      <motion.div
-        className='flex flex-wrap gap-4 items-end'
-        variants={itemVariants}
-      >
-        <div className='flex-1 min-w-[200px] max-w-sm'>
-          <Input
-            data-testid='plugin-search-input'
-            placeholder={t('plugin.searchPlaceholder')}
-            value={searchKeyword}
-            onChange={(e) => setSearchKeyword(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+      {/* 一体化紧凑卡片容器 / Unified Compact Table & Grid Container */}
+      <Card className='border-border/70 shadow-xs overflow-hidden'>
+        {/* 工具栏第一行：胶囊导航与快捷操作 / Toolbar Row 1: Stat pills bar & Quick actions */}
+        <div className='p-3 sm:p-3.5 border-b bg-muted/20 flex flex-wrap items-center justify-between gap-2.5'>
+          <StatPillsBar
+            items={statItems}
+            activeKey={activeTab}
+            onChange={(key) =>
+              setActiveTab(key as 'available' | 'local' | 'custom')
+            }
           />
+
+          <div className='flex items-center gap-2 flex-wrap'>
+            {activeTab === 'available' && catalogRefreshedAt && (
+              <span className='text-xs text-muted-foreground hidden sm:inline-block'>
+                {t('plugin.catalogRefreshedAt')}: {formatCatalogRefreshedAt(catalogRefreshedAt)}
+              </span>
+            )}
+            {activeTab === 'local' && selectedLocalPlugins.size > 0 && (
+              <div className='flex items-center gap-2'>
+                <Badge variant='secondary' className='text-xs'>
+                  {t('plugin.selectedCount', {
+                    count: selectedLocalPlugins.size,
+                  })}
+                </Badge>
+                <Button size='sm' className='h-8 text-xs' onClick={() => setIsBatchInstallOpen(true)}>
+                  <CheckSquare className='h-3.5 w-3.5 mr-1.5' />
+                  {t('plugin.batchInstall')}
+                </Button>
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Version selector / 版本选择器 */}
-        <Select value={selectedVersion} onValueChange={setSelectedVersion}>
-          <SelectTrigger className='w-[130px]' data-testid='plugin-version-select'>
-            <SelectValue placeholder={t('plugin.version')} />
-          </SelectTrigger>
-          <SelectContent>
-            {(availableVersions.length > 0
-              ? availableVersions
-              : recommendedVersion
-                ? [recommendedVersion]
-                : []
-            ).map((version) => (
-              <SelectItem key={version} value={version}>
-                v{version}
+        {/* 工具栏第二行：高密度过滤栏 / Toolbar Row 2: Compact Filter Bar */}
+        <div className='p-3 sm:p-3.5 border-b bg-muted/5 flex flex-wrap items-center gap-2.5'>
+          <div className='flex-1 min-w-[180px] max-w-sm'>
+            <Input
+              data-testid='plugin-search-input'
+              placeholder={t('plugin.searchPlaceholder')}
+              value={searchKeyword}
+              onChange={(e) => setSearchKeyword(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+              className='h-8 text-xs'
+            />
+          </div>
+
+          {/* Version selector / 版本选择器 */}
+          <Select value={selectedVersion} onValueChange={setSelectedVersion}>
+            <SelectTrigger className='w-[130px] h-8 text-xs' data-testid='plugin-version-select'>
+              <SelectValue placeholder={t('plugin.version')} />
+            </SelectTrigger>
+            <SelectContent>
+              {(availableVersions.length > 0
+                ? availableVersions
+                : recommendedVersion
+                  ? [recommendedVersion]
+                  : []
+              ).map((version) => (
+                <SelectItem key={version} value={version} className='text-xs'>
+                  v{version}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {/* Category selector / 分类选择器 */}
+          <Select value={filterCategory} onValueChange={setFilterCategory}>
+            <SelectTrigger className='w-[140px] h-8 text-xs' data-testid='plugin-category-select'>
+              <SelectValue placeholder={t('plugin.category.all')} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value='all' className='text-xs'>{t('plugin.category.all')}</SelectItem>
+              <SelectItem value='connector' className='text-xs'>
+                {t('plugin.category.connector')}
               </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+            </SelectContent>
+          </Select>
 
-        <Select value={filterCategory} onValueChange={setFilterCategory}>
-          <SelectTrigger className='w-[150px]' data-testid='plugin-category-select'>
-            <SelectValue placeholder={t('plugin.category.all')} />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value='all'>{t('plugin.category.all')}</SelectItem>
-            <SelectItem value='connector'>
-              {t('plugin.category.connector')}
-            </SelectItem>
-          </SelectContent>
-        </Select>
+          {/* Mirror selector (only in available tab) / 镜像源选择器（仅在线可用标签页展示） */}
+          {activeTab === 'available' && (
+            <Select
+              value={selectedMirror}
+              onValueChange={(v) => setSelectedMirror(v as MirrorSource)}
+            >
+              <SelectTrigger className='w-[140px] h-8 text-xs' data-testid='plugin-mirror-select'>
+                <SelectValue placeholder={t('plugin.mirror')} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value='aliyun' className='text-xs'>
+                  {t('installer.mirrors.aliyun')}
+                </SelectItem>
+                <SelectItem value='huaweicloud' className='text-xs'>
+                  {t('installer.mirrors.huaweicloud')}
+                </SelectItem>
+                <SelectItem value='apache' className='text-xs'>
+                  {t('installer.mirrors.apache')}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          )}
 
-        <Select
-          value={selectedMirror}
-          onValueChange={(v) => setSelectedMirror(v as MirrorSource)}
-        >
-          <SelectTrigger className='w-[150px]' data-testid='plugin-mirror-select'>
-            <SelectValue placeholder={t('plugin.mirror')} />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value='aliyun'>
-              {t('installer.mirrors.aliyun')}
-            </SelectItem>
-            <SelectItem value='huaweicloud'>
-              {t('installer.mirrors.huaweicloud')}
-            </SelectItem>
-            <SelectItem value='apache'>
-              {t('installer.mirrors.apache')}
-            </SelectItem>
-          </SelectContent>
-        </Select>
+          <Button variant='outline' size='sm' className='h-8 text-xs' onClick={handleSearch}>
+            <Search className='h-3.5 w-3.5 mr-1.5' />
+            {t('common.search')}
+          </Button>
 
-        <Button variant='outline' onClick={handleSearch}>
-          <Search className='h-4 w-4 mr-2' />
-          {t('common.search')}
-        </Button>
+          {(searchKeyword || filterCategory !== 'all') && (
+            <Button variant='ghost' size='sm' className='h-8 text-xs' onClick={handleClearFilters}>
+              {t('common.clearFilters')}
+            </Button>
+          )}
+        </div>
 
-        <Button variant='ghost' onClick={handleClearFilters}>
-          {t('common.clearFilters')}
-        </Button>
-      </motion.div>
+        {/* 内容展示区 / Content display area */}
+        <CardContent className='p-4'>
+          {activeTab === 'available' && (
+            <PluginGrid
+              plugins={filteredAvailablePlugins}
+              loading={loading}
+              onViewDetail={handleViewDetail}
+              showInstallButton={true}
+              onInstall={handleInstallPlugin}
+              onDownload={handleDownloadPlugin}
+              downloadingPlugins={downloadingPlugins}
+              downloadedPlugins={downloadedPlugins}
+            />
+          )}
 
-      {/* Plugin tabs / 插件标签页 */}
-      <Tabs
-        value={activeTab}
-        onValueChange={(v) =>
-          setActiveTab(v as 'available' | 'local' | 'custom')
-        }
-      >
-        <TabsList>
-          <TabsTrigger
-            value='available'
-            className='flex items-center gap-2'
-            data-testid='plugin-tab-available'
-          >
-            <Package className='h-4 w-4' />
-            {t('plugin.available')}
-          </TabsTrigger>
-          <TabsTrigger
-            value='local'
-            className='flex items-center gap-2'
-            data-testid='plugin-tab-local'
-          >
-            <HardDrive className='h-4 w-4' />
-            {t('plugin.localPlugins')}
-            {(getFilteredLocalPlugins().length > 0 ||
-              activeDownloads.filter((d) => d.status === 'downloading').length >
-                0) && (
-              <Badge variant='secondary' className='ml-1'>
-                {getFilteredLocalPlugins().length}
-                {activeDownloads.filter((d) => d.status === 'downloading')
-                  .length > 0 && (
-                  <span className='ml-1 text-blue-500'>
-                    +
-                    {
-                      activeDownloads.filter((d) => d.status === 'downloading')
-                        .length
-                    }
-                  </span>
-                )}
-              </Badge>
-            )}
-          </TabsTrigger>
-          <TabsTrigger
-            value='custom'
-            className='flex items-center gap-2'
-            data-testid='plugin-tab-custom'
-          >
-            <Upload className='h-4 w-4' />
-            {t('plugin.custom')}
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value='available' className='mt-4'>
-          <Card>
-            <CardHeader>
-              <CardTitle className='flex items-center gap-2'>
-                {t('plugin.available')}
-                <Badge variant='secondary'>v{selectedVersion}</Badge>
-              </CardTitle>
-              <CardDescription>{t('plugin.availableDesc')}</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <PluginGrid
-                plugins={filteredAvailablePlugins}
-                loading={loading}
-                onViewDetail={handleViewDetail}
-                showInstallButton={true}
-                onInstall={handleInstallPlugin}
-                onDownload={handleDownloadPlugin}
-                downloadingPlugins={downloadingPlugins}
-                downloadedPlugins={downloadedPlugins}
-              />
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value='local' className='mt-4'>
-          <Card>
-            <CardHeader className='flex flex-row items-center justify-between'>
-              <div>
-                <CardTitle className='flex items-center gap-2'>
-                  {t('plugin.localPlugins')}
-                  <Badge variant='secondary'>
-                    {getFilteredLocalPlugins().length}
-                  </Badge>
-                </CardTitle>
-                <CardDescription>
-                  {t('plugin.localPluginsDesc')}
-                </CardDescription>
-              </div>
-              {/* Batch actions / 批量操作 */}
-              {selectedLocalPlugins.size > 0 && (
-                <div className='flex items-center gap-2'>
-                  <Badge variant='secondary'>
-                    {t('plugin.selectedCount', {
-                      count: selectedLocalPlugins.size,
-                    })}
-                  </Badge>
-                  <Button size='sm' onClick={() => setIsBatchInstallOpen(true)}>
-                    <CheckSquare className='h-4 w-4 mr-2' />
-                    {t('plugin.batchInstall')}
-                  </Button>
-                </div>
-              )}
-            </CardHeader>
-            <CardContent>
+          {activeTab === 'local' && (
+            <>
               {localPluginsLoading &&
               localPlugins.length === 0 &&
               activeDownloads.length === 0 ? (
@@ -1424,8 +1382,8 @@ export function PluginMain() {
                                       {download.selected_profile_keys.map((profileKey) => (
                                         <Badge
                                           key={profileKey}
-                                          variant='outline'
-                                          className='text-[11px]'
+                                          variant='secondary'
+                                          className='text-xs'
                                         >
                                           {profileKey}
                                         </Badge>
@@ -1500,7 +1458,7 @@ export function PluginMain() {
                                   {installedClusters.map((cluster) => (
                                     <Badge
                                       key={cluster.id}
-                                      variant='default'
+                                      variant='outline'
                                       className='text-xs'
                                     >
                                       {cluster.name}
@@ -1573,23 +1531,19 @@ export function PluginMain() {
                   )}
                 </>
               )}
-            </CardContent>
-          </Card>
-        </TabsContent>
+            </>
+          )}
 
-        <TabsContent value='custom' className='mt-4'>
-          <Card>
-            <CardContent>
-              <div className='text-center py-10'>
-                <Upload className='h-12 w-12 mx-auto text-muted-foreground mb-4' />
-                <p className='text-muted-foreground text-sm'>
-                  {t('plugin.customComingSoon')}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+          {activeTab === 'custom' && (
+            <div className='text-center py-12'>
+              <Upload className='h-12 w-12 mx-auto text-muted-foreground mb-4 opacity-60' />
+              <p className='text-muted-foreground text-sm'>
+                {t('plugin.customComingSoon')}
+              </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Plugin Detail Dialog / 插件详情对话框 */}
       {selectedPlugin && (

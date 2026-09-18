@@ -18,7 +18,7 @@ package plugin
 
 import "net/http"
 
-const mavenRequestUserAgent = "SeaTunnelX (+https://github.com/LeonYoah/SeaTunnelX)"
+const mavenRequestUserAgent = "STX (+https://github.com/LeonYoah/stx)"
 
 func applyMavenRequestHeaders(req *http.Request) {
 	if req == nil {

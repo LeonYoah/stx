@@ -24,7 +24,7 @@ import (
 	"pgregory.net/rapid"
 )
 
-// **Feature: seatunnel-agent, Property 18: Exponential Backoff Calculation**
+// **Feature: stx-agent, Property 18: Exponential Backoff Calculation**
 // **Validates: Requirements 1.4**
 //
 // Property: For any reconnection attempt sequence, the delay between attempts
@@ -213,7 +213,7 @@ func TestProperty_ExponentialBackoffMaxCap(t *testing.T) {
 	})
 }
 
-// **Feature: seatunnel-agent, Property 19: Heartbeat Interval Compliance**
+// **Feature: stx-agent, Property 19: Heartbeat Interval Compliance**
 // **Validates: Requirements 1.3**
 //
 // Property: For any running Agent, heartbeat messages SHALL be sent at the

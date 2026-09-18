@@ -27,10 +27,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/seatunnel/seatunnelX/agent/internal/installer"
+	"github.com/LeonYoah/stx/agent/internal/installer"
 )
 
-func TestHandleSeatunnelXJavaProxyInspectCheckpointAcceptsConfigBackedRequest(t *testing.T) {
+func TestHandleSTXJavaProxyInspectCheckpointAcceptsConfigBackedRequest(t *testing.T) {
 	var received map[string]interface{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -56,9 +56,9 @@ func TestHandleSeatunnelXJavaProxyInspectCheckpointAcceptsConfigBackedRequest(t 
 	}))
 	defer server.Close()
 
-	t.Setenv("SEATUNNELX_JAVA_PROXY_ENDPOINT", server.URL)
+	t.Setenv("STX_JAVA_PROXY_ENDPOINT", server.URL)
 
-	result, err := handleSeatunnelXJavaProxyInspectCheckpoint(context.Background(), map[string]string{
+	result, err := handleSTXJavaProxyInspectCheckpoint(context.Background(), map[string]string{
 		"install_dir":  t.TempDir(),
 		"version":      "2.3.13",
 		"path":         "/tmp/checkpoint",
@@ -86,7 +86,7 @@ func TestHandleSeatunnelXJavaProxyInspectCheckpointAcceptsConfigBackedRequest(t 
 	}
 }
 
-func TestHandleSeatunnelXJavaProxyInspectCheckpointAcceptsBase64Request(t *testing.T) {
+func TestHandleSTXJavaProxyInspectCheckpointAcceptsBase64Request(t *testing.T) {
 	var received map[string]interface{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -110,9 +110,9 @@ func TestHandleSeatunnelXJavaProxyInspectCheckpointAcceptsBase64Request(t *testi
 	}))
 	defer server.Close()
 
-	t.Setenv("SEATUNNELX_JAVA_PROXY_ENDPOINT", server.URL)
+	t.Setenv("STX_JAVA_PROXY_ENDPOINT", server.URL)
 
-	result, err := handleSeatunnelXJavaProxyInspectCheckpoint(context.Background(), map[string]string{
+	result, err := handleSTXJavaProxyInspectCheckpoint(context.Background(), map[string]string{
 		"install_dir":    t.TempDir(),
 		"path":           "/tmp/checkpoint",
 		"content_base64": "Y2hlY2twb2ludA==",

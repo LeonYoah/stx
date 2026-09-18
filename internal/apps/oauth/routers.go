@@ -32,12 +32,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/LeonYoah/stx/internal/apps/auth"
+	"github.com/LeonYoah/stx/internal/db"
+	"github.com/LeonYoah/stx/internal/logger"
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/seatunnel/seatunnelX/internal/apps/auth"
-	"github.com/seatunnel/seatunnelX/internal/db"
-	"github.com/seatunnel/seatunnelX/internal/logger"
 )
 
 type GetLoginURLResponse struct {

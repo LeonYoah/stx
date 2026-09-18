@@ -26,11 +26,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/seatunnel/seatunnelX/internal/apps/cluster"
-	appconfig "github.com/seatunnel/seatunnelX/internal/apps/config"
-	"github.com/seatunnel/seatunnelX/internal/apps/monitor"
-	monitoringapp "github.com/seatunnel/seatunnelX/internal/apps/monitoring"
-	"github.com/seatunnel/seatunnelX/internal/db"
+	"github.com/LeonYoah/stx/internal/apps/cluster"
+	appconfig "github.com/LeonYoah/stx/internal/apps/config"
+	"github.com/LeonYoah/stx/internal/apps/monitor"
+	monitoringapp "github.com/LeonYoah/stx/internal/apps/monitoring"
+	"github.com/LeonYoah/stx/internal/db"
 )
 
 const (

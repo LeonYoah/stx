@@ -67,10 +67,10 @@ import {
   RuntimeStorageCheckpointInspectResult,
   RuntimeStorageCheckpointInspectJobConfig,
   RuntimeStorageIMAPInspectResult,
-  SeatunnelXJavaProxyLogPreviewResponse,
-  SeatunnelXJavaProxyLogPreviewResult,
-  SeatunnelXJavaProxyResponse,
-  SeatunnelXJavaProxyStatus,
+  StxJavaProxyLogPreviewResponse,
+  StxJavaProxyLogPreviewResult,
+  StxJavaProxyResponse,
+  StxJavaProxyStatus,
 } from './types';
 
 /**
@@ -579,11 +579,11 @@ export class ClusterService extends BaseService {
     };
   }
 
-  static async getSeatunnelXJavaProxyStatus(
+  static async getStxJavaProxyStatus(
     clusterId: number,
-  ): Promise<SeatunnelXJavaProxyStatus> {
-    const response = await apiClient.get<SeatunnelXJavaProxyResponse>(
-      `${this.basePath}/${clusterId}/seatunnelx-java-proxy/status`,
+  ): Promise<StxJavaProxyStatus> {
+    const response = await apiClient.get<StxJavaProxyResponse>(
+      `${this.basePath}/${clusterId}/stx-java-proxy/status`,
     );
     if (response.data.error_msg) {
       throw new Error(localizeBackendText(response.data.error_msg));
@@ -594,11 +594,11 @@ export class ClusterService extends BaseService {
     };
   }
 
-  static async startSeatunnelXJavaProxy(
+  static async startStxJavaProxy(
     clusterId: number,
-  ): Promise<SeatunnelXJavaProxyStatus> {
-    const response = await apiClient.post<SeatunnelXJavaProxyResponse>(
-      `${this.basePath}/${clusterId}/seatunnelx-java-proxy/start`,
+  ): Promise<StxJavaProxyStatus> {
+    const response = await apiClient.post<StxJavaProxyResponse>(
+      `${this.basePath}/${clusterId}/stx-java-proxy/start`,
       {},
     );
     if (response.data.error_msg) {
@@ -610,11 +610,11 @@ export class ClusterService extends BaseService {
     };
   }
 
-  static async stopSeatunnelXJavaProxy(
+  static async stopStxJavaProxy(
     clusterId: number,
-  ): Promise<SeatunnelXJavaProxyStatus> {
-    const response = await apiClient.post<SeatunnelXJavaProxyResponse>(
-      `${this.basePath}/${clusterId}/seatunnelx-java-proxy/stop`,
+  ): Promise<StxJavaProxyStatus> {
+    const response = await apiClient.post<StxJavaProxyResponse>(
+      `${this.basePath}/${clusterId}/stx-java-proxy/stop`,
       {},
     );
     if (response.data.error_msg) {
@@ -626,11 +626,11 @@ export class ClusterService extends BaseService {
     };
   }
 
-  static async restartSeatunnelXJavaProxy(
+  static async restartStxJavaProxy(
     clusterId: number,
-  ): Promise<SeatunnelXJavaProxyStatus> {
-    const response = await apiClient.post<SeatunnelXJavaProxyResponse>(
-      `${this.basePath}/${clusterId}/seatunnelx-java-proxy/restart`,
+  ): Promise<StxJavaProxyStatus> {
+    const response = await apiClient.post<StxJavaProxyResponse>(
+      `${this.basePath}/${clusterId}/stx-java-proxy/restart`,
       {},
     );
     if (response.data.error_msg) {
@@ -642,12 +642,12 @@ export class ClusterService extends BaseService {
     };
   }
 
-  static async previewSeatunnelXJavaProxyServiceLog(
+  static async previewStxJavaProxyServiceLog(
     clusterId: number,
     params?: {lines?: number},
-  ): Promise<SeatunnelXJavaProxyLogPreviewResult> {
-    const response = await apiClient.get<SeatunnelXJavaProxyLogPreviewResponse>(
-      `${this.basePath}/${clusterId}/seatunnelx-java-proxy/logs`,
+  ): Promise<StxJavaProxyLogPreviewResult> {
+    const response = await apiClient.get<StxJavaProxyLogPreviewResponse>(
+      `${this.basePath}/${clusterId}/stx-java-proxy/logs`,
       {params},
     );
     if (response.data.error_msg) {
@@ -1107,93 +1107,80 @@ export class ClusterService extends BaseService {
     }
   }
 
-  static async getSeatunnelXJavaProxyStatusSafe(clusterId: number): Promise<{
+  static async getStxJavaProxyStatusSafe(clusterId: number): Promise<{
     success: boolean;
-    data?: SeatunnelXJavaProxyStatus;
+    data?: StxJavaProxyStatus;
     error?: string;
   }> {
     try {
-      const data = await this.getSeatunnelXJavaProxyStatus(clusterId);
+      const data = await this.getStxJavaProxyStatus(clusterId);
       return {success: true, data};
     } catch (error) {
       const errorMessage =
-        error instanceof Error
-          ? error.message
-          : '获取 seatunnelx-java-proxy 状态失败';
+        error instanceof Error ? error.message : '获取 stx-java-proxy 状态失败';
       return {success: false, error: errorMessage};
     }
   }
 
-  static async startSeatunnelXJavaProxySafe(clusterId: number): Promise<{
+  static async startStxJavaProxySafe(clusterId: number): Promise<{
     success: boolean;
-    data?: SeatunnelXJavaProxyStatus;
+    data?: StxJavaProxyStatus;
     error?: string;
   }> {
     try {
-      const data = await this.startSeatunnelXJavaProxy(clusterId);
+      const data = await this.startStxJavaProxy(clusterId);
       return {success: true, data};
     } catch (error) {
       const errorMessage =
-        error instanceof Error
-          ? error.message
-          : '启动 seatunnelx-java-proxy 失败';
+        error instanceof Error ? error.message : '启动 stx-java-proxy 失败';
       return {success: false, error: errorMessage};
     }
   }
 
-  static async stopSeatunnelXJavaProxySafe(clusterId: number): Promise<{
+  static async stopStxJavaProxySafe(clusterId: number): Promise<{
     success: boolean;
-    data?: SeatunnelXJavaProxyStatus;
+    data?: StxJavaProxyStatus;
     error?: string;
   }> {
     try {
-      const data = await this.stopSeatunnelXJavaProxy(clusterId);
+      const data = await this.stopStxJavaProxy(clusterId);
       return {success: true, data};
     } catch (error) {
       const errorMessage =
-        error instanceof Error
-          ? error.message
-          : '停止 seatunnelx-java-proxy 失败';
+        error instanceof Error ? error.message : '停止 stx-java-proxy 失败';
       return {success: false, error: errorMessage};
     }
   }
 
-  static async restartSeatunnelXJavaProxySafe(clusterId: number): Promise<{
+  static async restartStxJavaProxySafe(clusterId: number): Promise<{
     success: boolean;
-    data?: SeatunnelXJavaProxyStatus;
+    data?: StxJavaProxyStatus;
     error?: string;
   }> {
     try {
-      const data = await this.restartSeatunnelXJavaProxy(clusterId);
+      const data = await this.restartStxJavaProxy(clusterId);
       return {success: true, data};
     } catch (error) {
       const errorMessage =
-        error instanceof Error
-          ? error.message
-          : '重启 seatunnelx-java-proxy 失败';
+        error instanceof Error ? error.message : '重启 stx-java-proxy 失败';
       return {success: false, error: errorMessage};
     }
   }
 
-  static async previewSeatunnelXJavaProxyServiceLogSafe(
+  static async previewStxJavaProxyServiceLogSafe(
     clusterId: number,
     params?: {lines?: number},
   ): Promise<{
     success: boolean;
-    data?: SeatunnelXJavaProxyLogPreviewResult;
+    data?: StxJavaProxyLogPreviewResult;
     error?: string;
   }> {
     try {
-      const data = await this.previewSeatunnelXJavaProxyServiceLog(
-        clusterId,
-        params,
-      );
+      const data = await this.previewStxJavaProxyServiceLog(clusterId, params);
       return {success: true, data};
     } catch (error) {
       const errorMessage =
-        error instanceof Error
-          ? error.message
-          : '查看 seatunnelx-java-proxy 日志失败';
+        error instanceof Error ? error.message : '查看 stx-java-proxy 日志失败';
       return {success: false, error: errorMessage};
     }
   }

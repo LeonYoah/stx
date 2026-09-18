@@ -21,8 +21,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/seatunnel/seatunnelX/agent/internal/config"
-	"github.com/seatunnel/seatunnelX/agent/internal/monitor"
+	"github.com/LeonYoah/stx/agent/internal/config"
+	"github.com/LeonYoah/stx/agent/internal/monitor"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -151,7 +151,7 @@ func TestVersionCommand(t *testing.T) {
 // TestRootCommand 测试根命令
 func TestRootCommand(t *testing.T) {
 	assert.NotNil(t, rootCmd)
-	assert.Equal(t, "seatunnelx-agent", rootCmd.Use)
+	assert.Equal(t, "stx-agent", rootCmd.Use)
 }
 
 func TestExtractProcessEventReportFieldsPreservesDetails(t *testing.T) {

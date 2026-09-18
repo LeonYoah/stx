@@ -30,7 +30,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/seatunnel/seatunnelX/internal/seatunnel"
+	"github.com/LeonYoah/stx/internal/seatunnel"
 )
 
 const officialDocsRawBaseURL = "https://raw.githubusercontent.com/apache/seatunnel-website/main/versioned_docs/version-%s/connector-v2/%s.md"

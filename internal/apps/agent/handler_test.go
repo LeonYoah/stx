@@ -28,8 +28,8 @@ import (
 	"strings"
 	"testing"
 
+	seatunnelmeta "github.com/LeonYoah/stx/internal/seatunnel"
 	"github.com/gin-gonic/gin"
-	seatunnelmeta "github.com/seatunnel/seatunnelX/internal/seatunnel"
 )
 
 // setupTestRouter creates a test Gin router with the Agent handler.
@@ -40,8 +40,8 @@ func setupTestRouter(handler *Handler) *gin.Engine {
 	r.GET("/api/v1/agent/install.sh", handler.GetInstallScript)
 	r.GET("/api/v1/agent/ca.crt", handler.DownloadCA)
 	r.GET("/api/v1/agent/download", handler.DownloadAgent)
-	r.GET("/api/v1/agent/assets/seatunnelx-java-proxy.jar", handler.DownloadSeatunnelXJavaProxyJar)
-	r.GET("/api/v1/agent/assets/seatunnelx-java-proxy.sh", handler.DownloadSeatunnelXJavaProxyScript)
+	r.GET("/api/v1/agent/assets/stx-java-proxy.jar", handler.DownloadSTXJavaProxyJar)
+	r.GET("/api/v1/agent/assets/stx-java-proxy.sh", handler.DownloadSTXJavaProxyScript)
 	return r
 }
 
@@ -57,13 +57,13 @@ func TestNewHandler(t *testing.T) {
 	if h.agentBinaryDir != "./lib/agent" {
 		t.Errorf("Expected default binary dir './lib/agent', got '%s'", h.agentBinaryDir)
 	}
-	expectedDefaultJarPath := filepath.Join("./lib", seatunnelmeta.SeatunnelXJavaProxyJarFileName(seatunnelmeta.DefaultSeatunnelXJavaProxyVersion))
-	if h.seatunnelxJavaProxyJarPath != expectedDefaultJarPath {
-		t.Errorf("Expected default seatunnelx-java-proxy jar path %q, got %q", expectedDefaultJarPath, h.seatunnelxJavaProxyJarPath)
+	expectedDefaultJarPath := filepath.Join("./lib", seatunnelmeta.STXJavaProxyJarFileName(seatunnelmeta.DefaultSTXJavaProxyVersion))
+	if h.stxJavaProxyJarPath != expectedDefaultJarPath {
+		t.Errorf("Expected default stx-java-proxy jar path %q, got %q", expectedDefaultJarPath, h.stxJavaProxyJarPath)
 	}
-	expectedDefaultScriptPath := filepath.Join("./scripts", seatunnelmeta.SeatunnelXJavaProxyScriptFileName)
-	if h.seatunnelxJavaProxyScriptPath != expectedDefaultScriptPath {
-		t.Errorf("Expected default seatunnelx-java-proxy script path %q, got %q", expectedDefaultScriptPath, h.seatunnelxJavaProxyScriptPath)
+	expectedDefaultScriptPath := filepath.Join("./scripts", seatunnelmeta.STXJavaProxyScriptFileName)
+	if h.stxJavaProxyScriptPath != expectedDefaultScriptPath {
+		t.Errorf("Expected default stx-java-proxy script path %q, got %q", expectedDefaultScriptPath, h.stxJavaProxyScriptPath)
 	}
 	if h.grpcPort != "50051" {
 		t.Errorf("Expected default gRPC port '50051', got '%s'", h.grpcPort)
@@ -72,11 +72,11 @@ func TestNewHandler(t *testing.T) {
 	// Test with custom config
 	// 使用自定义配置测试
 	customConfig := &HandlerConfig{
-		ControlPlaneAddr:              "http://custom-host:8080",
-		AgentBinaryDir:                "/custom/path",
-		SeatunnelXJavaProxyJarPath:    "/custom/lib/seatunnelx-java-proxy-2.3.13.jar",
-		SeatunnelXJavaProxyScriptPath: "/custom/scripts/seatunnelx-java-proxy.sh",
-		GRPCPort:                      "50052",
+		ControlPlaneAddr:       "http://custom-host:8080",
+		AgentBinaryDir:         "/custom/path",
+		STXJavaProxyJarPath:    "/custom/lib/stx-java-proxy-2.3.13.jar",
+		STXJavaProxyScriptPath: "/custom/scripts/stx-java-proxy.sh",
+		GRPCPort:               "50052",
 	}
 	h2 := NewHandler(customConfig)
 	if h2.controlPlaneAddr != "http://custom-host:8080" {
@@ -85,11 +85,11 @@ func TestNewHandler(t *testing.T) {
 	if h2.agentBinaryDir != "/custom/path" {
 		t.Errorf("Expected custom binary dir '/custom/path', got '%s'", h2.agentBinaryDir)
 	}
-	if h2.seatunnelxJavaProxyJarPath != "/custom/lib/seatunnelx-java-proxy-2.3.13.jar" {
-		t.Errorf("Expected custom seatunnelx-java-proxy jar path, got '%s'", h2.seatunnelxJavaProxyJarPath)
+	if h2.stxJavaProxyJarPath != "/custom/lib/stx-java-proxy-2.3.13.jar" {
+		t.Errorf("Expected custom stx-java-proxy jar path, got '%s'", h2.stxJavaProxyJarPath)
 	}
-	if h2.seatunnelxJavaProxyScriptPath != "/custom/scripts/seatunnelx-java-proxy.sh" {
-		t.Errorf("Expected custom seatunnelx-java-proxy script path, got '%s'", h2.seatunnelxJavaProxyScriptPath)
+	if h2.stxJavaProxyScriptPath != "/custom/scripts/stx-java-proxy.sh" {
+		t.Errorf("Expected custom stx-java-proxy script path, got '%s'", h2.stxJavaProxyScriptPath)
 	}
 	if h2.grpcPort != "50052" {
 		t.Errorf("Expected custom gRPC port '50052', got '%s'", h2.grpcPort)
@@ -152,7 +152,7 @@ func TestGetInstallScript_TLSEnabled(t *testing.T) {
 		ControlPlaneAddr: "http://test-server:8080",
 		GRPCPort:         "50051",
 		TLSEnabled:       true,
-		CAFile:           "/etc/seatunnelx/certs/ca.crt",
+		CAFile:           "/etc/stx/certs/ca.crt",
 	})
 	router := setupTestRouter(handler)
 
@@ -251,16 +251,16 @@ func TestGetInstallScript(t *testing.T) {
 		t.Error("Expected script to contain cleanup function")
 	}
 
-	if !strings.Contains(body, "CAPABILITY_PROXY_VERSION=\""+seatunnelmeta.DefaultSeatunnelXJavaProxyVersion+"\"") {
-		t.Error("Expected script to contain seatunnelx-java-proxy version variable")
+	if !strings.Contains(body, "CAPABILITY_PROXY_VERSION=\""+seatunnelmeta.DefaultSTXJavaProxyVersion+"\"") {
+		t.Error("Expected script to contain stx-java-proxy version variable")
 	}
 
-	if !strings.Contains(body, "/api/v1/agent/assets/seatunnelx-java-proxy.jar?version=${CAPABILITY_PROXY_VERSION}") {
-		t.Error("Expected script to contain seatunnelx-java-proxy jar download URL")
+	if !strings.Contains(body, "/api/v1/agent/assets/stx-java-proxy.jar?version=${CAPABILITY_PROXY_VERSION}") {
+		t.Error("Expected script to contain stx-java-proxy jar download URL")
 	}
 
-	if !strings.Contains(body, "/api/v1/agent/assets/seatunnelx-java-proxy.sh") {
-		t.Error("Expected script to contain seatunnelx-java-proxy script download URL")
+	if !strings.Contains(body, "/api/v1/agent/assets/stx-java-proxy.sh") {
+		t.Error("Expected script to contain stx-java-proxy script download URL")
 	}
 }
 
@@ -409,7 +409,7 @@ func TestDownloadAgentSuccess(t *testing.T) {
 	// Create test binary file
 	// 创建测试二进制文件
 	testBinaryContent := []byte("test binary content")
-	testBinaryPath := filepath.Join(tempDir, "seatunnelx-agent-linux-amd64")
+	testBinaryPath := filepath.Join(tempDir, "stx-agent-linux-amd64")
 	if err := os.WriteFile(testBinaryPath, testBinaryContent, 0755); err != nil {
 		t.Fatalf("Failed to create test binary: %v", err)
 	}
@@ -437,8 +437,8 @@ func TestDownloadAgentSuccess(t *testing.T) {
 	// Verify content disposition
 	// 验证内容处置
 	contentDisposition := w.Header().Get("Content-Disposition")
-	if !strings.Contains(contentDisposition, "seatunnelx-agent-linux-amd64") {
-		t.Errorf("Expected content disposition with 'seatunnelx-agent-linux-amd64', got '%s'", contentDisposition)
+	if !strings.Contains(contentDisposition, "stx-agent-linux-amd64") {
+		t.Errorf("Expected content disposition with 'stx-agent-linux-amd64', got '%s'", contentDisposition)
 	}
 
 	// Verify content
@@ -448,27 +448,27 @@ func TestDownloadAgentSuccess(t *testing.T) {
 	}
 }
 
-func TestDownloadSeatunnelXJavaProxyJarSuccess(t *testing.T) {
+func TestDownloadSTXJavaProxyJarSuccess(t *testing.T) {
 	tempDir := t.TempDir()
-	jarPath := filepath.Join(tempDir, seatunnelmeta.SeatunnelXJavaProxyJarFileName(seatunnelmeta.DefaultSeatunnelXJavaProxyVersion))
+	jarPath := filepath.Join(tempDir, seatunnelmeta.STXJavaProxyJarFileName(seatunnelmeta.DefaultSTXJavaProxyVersion))
 	expectedContent := []byte("proxy-jar")
 	if err := os.WriteFile(jarPath, expectedContent, 0o644); err != nil {
 		t.Fatalf("Failed to create proxy jar: %v", err)
 	}
 
 	handler := NewHandler(&HandlerConfig{
-		SeatunnelXJavaProxyJarPath: jarPath,
+		STXJavaProxyJarPath: jarPath,
 	})
 	router := setupTestRouter(handler)
 
-	req, _ := http.NewRequest("GET", "/api/v1/agent/assets/seatunnelx-java-proxy.jar", nil)
+	req, _ := http.NewRequest("GET", "/api/v1/agent/assets/stx-java-proxy.jar", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("Expected status 200, got %d", w.Code)
 	}
-	if !strings.Contains(w.Header().Get("Content-Disposition"), seatunnelmeta.SeatunnelXJavaProxyJarFileName(seatunnelmeta.DefaultSeatunnelXJavaProxyVersion)) {
+	if !strings.Contains(w.Header().Get("Content-Disposition"), seatunnelmeta.STXJavaProxyJarFileName(seatunnelmeta.DefaultSTXJavaProxyVersion)) {
 		t.Fatalf("Expected jar attachment header, got %q", w.Header().Get("Content-Disposition"))
 	}
 	if w.Body.String() != string(expectedContent) {
@@ -476,27 +476,27 @@ func TestDownloadSeatunnelXJavaProxyJarSuccess(t *testing.T) {
 	}
 }
 
-func TestDownloadSeatunnelXJavaProxyJarFallsBackToDefaultVersion(t *testing.T) {
+func TestDownloadSTXJavaProxyJarFallsBackToDefaultVersion(t *testing.T) {
 	tempDir := t.TempDir()
-	defaultJarPath := filepath.Join(tempDir, seatunnelmeta.SeatunnelXJavaProxyJarFileName(seatunnelmeta.DefaultSeatunnelXJavaProxyVersion))
+	defaultJarPath := filepath.Join(tempDir, seatunnelmeta.STXJavaProxyJarFileName(seatunnelmeta.DefaultSTXJavaProxyVersion))
 	expectedContent := []byte("fallback-jar")
 	if err := os.WriteFile(defaultJarPath, expectedContent, 0o644); err != nil {
 		t.Fatalf("Failed to create default proxy jar: %v", err)
 	}
 
 	handler := NewHandler(&HandlerConfig{
-		SeatunnelXJavaProxyJarPath: defaultJarPath,
+		STXJavaProxyJarPath: defaultJarPath,
 	})
 	router := setupTestRouter(handler)
 
-	req, _ := http.NewRequest("GET", "/api/v1/agent/assets/seatunnelx-java-proxy.jar?version=2.3.99", nil)
+	req, _ := http.NewRequest("GET", "/api/v1/agent/assets/stx-java-proxy.jar?version=2.3.99", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("Expected status 200, got %d", w.Code)
 	}
-	if !strings.Contains(w.Header().Get("Content-Disposition"), seatunnelmeta.SeatunnelXJavaProxyJarFileName(seatunnelmeta.DefaultSeatunnelXJavaProxyVersion)) {
+	if !strings.Contains(w.Header().Get("Content-Disposition"), seatunnelmeta.STXJavaProxyJarFileName(seatunnelmeta.DefaultSTXJavaProxyVersion)) {
 		t.Fatalf("Expected fallback jar attachment header, got %q", w.Header().Get("Content-Disposition"))
 	}
 	if w.Body.String() != string(expectedContent) {
@@ -504,19 +504,19 @@ func TestDownloadSeatunnelXJavaProxyJarFallsBackToDefaultVersion(t *testing.T) {
 	}
 }
 
-func TestDownloadSeatunnelXJavaProxyJarRejectsInvalidVersion(t *testing.T) {
+func TestDownloadSTXJavaProxyJarRejectsInvalidVersion(t *testing.T) {
 	tempDir := t.TempDir()
-	defaultJarPath := filepath.Join(tempDir, seatunnelmeta.SeatunnelXJavaProxyJarFileName(seatunnelmeta.DefaultSeatunnelXJavaProxyVersion))
+	defaultJarPath := filepath.Join(tempDir, seatunnelmeta.STXJavaProxyJarFileName(seatunnelmeta.DefaultSTXJavaProxyVersion))
 	if err := os.WriteFile(defaultJarPath, []byte("default-jar"), 0o644); err != nil {
 		t.Fatalf("Failed to create default proxy jar: %v", err)
 	}
 
 	handler := NewHandler(&HandlerConfig{
-		SeatunnelXJavaProxyJarPath: defaultJarPath,
+		STXJavaProxyJarPath: defaultJarPath,
 	})
 	router := setupTestRouter(handler)
 
-	req, _ := http.NewRequest("GET", "/api/v1/agent/assets/seatunnelx-java-proxy.jar?version=../../../tmp/evil", nil)
+	req, _ := http.NewRequest("GET", "/api/v1/agent/assets/stx-java-proxy.jar?version=../../../tmp/evil", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -533,13 +533,13 @@ func TestDownloadSeatunnelXJavaProxyJarRejectsInvalidVersion(t *testing.T) {
 	}
 }
 
-func TestDownloadSeatunnelXJavaProxyScriptNotFound(t *testing.T) {
+func TestDownloadSTXJavaProxyScriptNotFound(t *testing.T) {
 	handler := NewHandler(&HandlerConfig{
-		SeatunnelXJavaProxyScriptPath: filepath.Join(t.TempDir(), "missing-seatunnelx-java-proxy.sh"),
+		STXJavaProxyScriptPath: filepath.Join(t.TempDir(), "missing-stx-java-proxy.sh"),
 	})
 	router := setupTestRouter(handler)
 
-	req, _ := http.NewRequest("GET", "/api/v1/agent/assets/seatunnelx-java-proxy.sh", nil)
+	req, _ := http.NewRequest("GET", "/api/v1/agent/assets/stx-java-proxy.sh", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -574,10 +574,10 @@ func TestDownloadAgentAllArchitectures(t *testing.T) {
 		arch     string
 		filename string
 	}{
-		{"linux", "amd64", "seatunnelx-agent-linux-amd64"},
-		{"linux", "arm64", "seatunnelx-agent-linux-arm64"},
-		{"darwin", "amd64", "seatunnelx-agent-darwin-amd64"},
-		{"darwin", "arm64", "seatunnelx-agent-darwin-arm64"},
+		{"linux", "amd64", "stx-agent-linux-amd64"},
+		{"linux", "arm64", "stx-agent-linux-arm64"},
+		{"darwin", "amd64", "stx-agent-darwin-amd64"},
+		{"darwin", "arm64", "stx-agent-darwin-arm64"},
 	}
 
 	for _, tc := range testCases {
@@ -715,7 +715,7 @@ func TestDownloadAgentCaseInsensitive(t *testing.T) {
 
 	// Create test binary
 	// 创建测试二进制文件
-	testBinaryPath := filepath.Join(tempDir, "seatunnelx-agent-linux-amd64")
+	testBinaryPath := filepath.Join(tempDir, "stx-agent-linux-amd64")
 	if err := os.WriteFile(testBinaryPath, []byte("test"), 0755); err != nil {
 		t.Fatalf("Failed to create test binary: %v", err)
 	}

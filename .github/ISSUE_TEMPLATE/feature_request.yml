@@ -24,7 +24,7 @@ body:
       value: |
         感谢您花时间填写此功能请求！
 
-        - **提交功能请求前**：请检查 [已有 Issues](https://github.com/LeonYoah/SeaTunnelX/issues) 列表和讨论区，了解是否有类似功能已被讨论或请求。这有助于我们避免重复工作，并高效地专注于改进项目。
+        - **提交功能请求前**：请检查 [已有 Issues](https://github.com/LeonYoah/stx/issues) 列表和讨论区，了解是否有类似功能已被讨论或请求。这有助于我们避免重复工作，并高效地专注于改进项目。
   - type: checkboxes
     id: check-existing
     attributes:
@@ -87,4 +87,4 @@ body:
       value: |
         ## 注意
         如果功能请求不完整或不遵循说明，则可能不会得到处理。请确保您已提供所有必要信息以便我们理解您的建议。
-        感谢您为 SeaTunnelX 做出贡献！
+        感谢您为 STX 做出贡献！

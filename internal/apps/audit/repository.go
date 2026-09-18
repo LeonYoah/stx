@@ -259,9 +259,10 @@ func (r *Repository) ListAuditLogs(ctx context.Context, filter *AuditLogFilter) 
 		if filter.UserID != nil {
 			query = query.Where("user_id = ?", *filter.UserID)
 		}
-		// Filter by username - 按用户名过滤
+		// Filter by username - 按用户名过滤（使用 LOWER 忽略大小写，兼容多数据库）
+		// Filter by username - case-insensitive using LOWER for multi-database compatibility
 		if filter.Username != "" {
-			query = query.Where("username LIKE ?", "%"+filter.Username+"%")
+			query = query.Where("LOWER(username) LIKE LOWER(?)", "%"+filter.Username+"%")
 		}
 		// Filter by action type - 按操作类型过滤
 		if filter.Action != "" {

@@ -2,12 +2,12 @@
 
 ## Goal
 
-在 `seatunnelx-java-proxy` 中新增一个专用的 checkpoint source state 深度 inspect 能力，能够在现有 `PipelineState / CompletedCheckpoint / ActionState / TaskStatistics` 基础上，继续使用 SeaTunnel 官方 serializer / factory / state class 解码 source state，输出结构化的 offset / split / pending state 摘要，供平台展示 MySQL CDC binlog 位点、Kafka topic-partition offset、CDC enumerator pending split 等信息。
+在 `stx-java-proxy` 中新增一个专用的 checkpoint source state 深度 inspect 能力，能够在现有 `PipelineState / CompletedCheckpoint / ActionState / TaskStatistics` 基础上，继续使用 SeaTunnel 官方 serializer / factory / state class 解码 source state，输出结构化的 offset / split / pending state 摘要，供平台展示 MySQL CDC binlog 位点、Kafka topic-partition offset、CDC enumerator pending split 等信息。
 
 ## What I already know
 
 - 当前 proxy 已有基础 checkpoint inspect，位置：
-  - `tools/seatunnelx-java-proxy/src/main/java/org/apache/seatunnel/tools/proxy/service/CheckpointDeserializeService.java`
+  - `tools/stx-java-proxy/src/main/java/io/github/leonyoah/stx/proxy/service/storage/CheckpointDeserializeService.java`
 - 现有能力只解析到：
   - `PipelineState`
   - `CompletedCheckpoint`
@@ -78,7 +78,7 @@
 - `POST /api/v1/storage/checkpoint/inspect-source-state`
 
 建议注册到：
-- `SeatunnelXJavaProxyServer.java`
+- `StxJavaProxyServer.java`
 
 ### 2. 请求结构
 

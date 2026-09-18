@@ -29,8 +29,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LeonYoah/stx/internal/apps/auth"
 	"github.com/glebarez/sqlite"
-	"github.com/seatunnel/seatunnelX/internal/apps/auth"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
@@ -404,11 +404,11 @@ func TestService_HandleAlertmanagerWebhook_dispatchesManagedMetricPolicyFiringAn
 
 	startsAt := time.Date(2026, 3, 10, 1, 0, 0, 0, time.UTC)
 	firingPayload := &AlertmanagerWebhookPayload{
-		Receiver: "seatunnelx-webhook",
+		Receiver: "stx-webhook",
 		Status:   "firing",
 		CommonLabels: map[string]string{
 			"alertname":    sanitizeManagedPrometheusAlertName(policy.ID),
-			"managed_by":   "seatunnelx",
+			"managed_by":   "stx",
 			"policy_id":    policyIDLabel(policy),
 			"policy_name":  "内存 0.5",
 			"severity":     "critical",

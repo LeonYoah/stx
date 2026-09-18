@@ -101,6 +101,7 @@ export interface SyncGlobalVariable {
   id: number;
   key: string;
   value: string;
+  value_type?: 'string' | 'secret';
   description: string;
   created_by: number;
   created_at: string;
@@ -351,6 +352,7 @@ export interface PublishSyncTaskRequest {
 export interface CreateSyncGlobalVariableRequest {
   key: string;
   value?: string;
+  value_type?: 'string' | 'secret';
   description?: string;
 }
 

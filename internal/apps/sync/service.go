@@ -32,9 +32,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/seatunnel/seatunnelX/internal/config"
-	"github.com/seatunnel/seatunnelX/internal/pkg/schedulex"
-	"github.com/seatunnel/seatunnelX/internal/seatunnel"
+	"github.com/LeonYoah/stx/internal/config"
+	"github.com/LeonYoah/stx/internal/pkg/schedulex"
+	"github.com/LeonYoah/stx/internal/seatunnel"
 )
 
 var safeTaskNamePattern = regexp.MustCompile(`^[\p{L}\p{N}._-]+$`)
@@ -123,12 +123,22 @@ func (s *Service) ListGlobalVariables(ctx context.Context) ([]*GlobalVariable, e
 	return s.repo.ListGlobalVariables(ctx)
 }
 
-// ListGlobalVariablesPaginated returns paginated workspace-wide variables.
+// ListGlobalVariablesPaginated returns paginated workspace-wide variables with sensitive values masked.
+// ListGlobalVariablesPaginated 返回分页全局变量，敏感凭据值将被脱敏为 ******。
 func (s *Service) ListGlobalVariablesPaginated(ctx context.Context, page, size int) ([]*GlobalVariable, int64, error) {
-	return s.repo.ListGlobalVariablesPaginated(ctx, page, size)
+	items, total, err := s.repo.ListGlobalVariablesPaginated(ctx, page, size)
+	if err != nil {
+		return nil, 0, err
+	}
+	masked := make([]*GlobalVariable, len(items))
+	for i, item := range items {
+		masked[i] = item.MaskSecret()
+	}
+	return masked, total, nil
 }
 
-// CreateGlobalVariable creates one workspace-wide variable.
+// CreateGlobalVariable creates one workspace-wide variable and returns a masked safe copy.
+// CreateGlobalVariable 创建一个工作台全局变量并返回脱敏后的安全副本。
 func (s *Service) CreateGlobalVariable(ctx context.Context, req *CreateGlobalVariableRequest, createdBy uint) (*GlobalVariable, error) {
 	key, err := normalizeGlobalVariableKey(req.Key)
 	if err != nil {
@@ -142,9 +152,11 @@ func (s *Service) CreateGlobalVariable(ctx context.Context, req *CreateGlobalVar
 	} else if err != nil && !errors.Is(err, ErrGlobalVariableNotFound) {
 		return nil, err
 	}
+	valueType := normalizeGlobalVariableType(req.ValueType)
 	item := &GlobalVariable{
 		Key:         key,
 		Value:       req.Value,
+		ValueType:   valueType,
 		Description: strings.TrimSpace(req.Description),
 		CreatedBy:   createdBy,
 	}
@@ -154,10 +166,11 @@ func (s *Service) CreateGlobalVariable(ctx context.Context, req *CreateGlobalVar
 		}
 		return nil, err
 	}
-	return item, nil
+	return item.MaskSecret(), nil
 }
 
-// UpdateGlobalVariable updates one workspace-wide variable.
+// UpdateGlobalVariable updates one workspace-wide variable and returns a masked safe copy.
+// UpdateGlobalVariable 更新工作台全局变量并返回脱敏后的安全副本。
 func (s *Service) UpdateGlobalVariable(ctx context.Context, id uint, req *UpdateGlobalVariableRequest) (*GlobalVariable, error) {
 	item, err := s.repo.GetGlobalVariableByID(ctx, id)
 	if err != nil {
@@ -175,8 +188,22 @@ func (s *Service) UpdateGlobalVariable(ctx context.Context, id uint, req *Update
 	} else if err != nil && !errors.Is(err, ErrGlobalVariableNotFound) {
 		return nil, err
 	}
+
+	if req.ValueType != "" {
+		item.ValueType = normalizeGlobalVariableType(req.ValueType)
+	}
+	if item.ValueType == GlobalVariableTypeSecret {
+		trimmed := strings.TrimSpace(req.Value)
+		// 敏感变量仅在输入了非空且非脱敏掩码值时才更新；留空或原掩码保持现有密文不变
+		// Only update password when a non-empty, non-mask string is provided; empty or mask retains existing secret
+		if trimmed != "" && trimmed != "******" {
+			item.Value = req.Value
+		}
+	} else {
+		item.Value = req.Value
+	}
+
 	item.Key = key
-	item.Value = req.Value
 	item.Description = strings.TrimSpace(req.Description)
 	if err := s.repo.UpdateGlobalVariable(ctx, item); err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "duplicate") || strings.Contains(strings.ToLower(err.Error()), "unique") {
@@ -184,7 +211,7 @@ func (s *Service) UpdateGlobalVariable(ctx context.Context, id uint, req *Update
 		}
 		return nil, err
 	}
-	return item, nil
+	return item.MaskSecret(), nil
 }
 
 // DeleteGlobalVariable deletes one workspace-wide variable.
@@ -2220,8 +2247,8 @@ func buildTaskVariableRuntime(task *Task, platformJobID string) *taskVariableRun
 		WorkflowInstanceID:     strings.TrimSpace(platformJobID),
 		WorkflowDefinitionName: strings.TrimSpace(task.Name),
 		WorkflowDefinitionCode: strconv.FormatUint(uint64(task.ID), 10),
-		ProjectName:            "SeaTunnelX",
-		ProjectCode:            "seatunnelx",
+		ProjectName:            "STX",
+		ProjectCode:            "stx",
 		TaskExecutePath:        strings.TrimSpace(stringValue(task.Definition, "file_path", "config_file_path")),
 	}
 }
@@ -2318,6 +2345,16 @@ func normalizeGlobalVariableKey(raw string) (string, error) {
 		return "", ErrGlobalVariableKeyInvalid
 	}
 	return key, nil
+}
+
+// normalizeGlobalVariableType normalizes and validates global variable value type.
+// normalizeGlobalVariableType 归一化并校验全局变量类型。
+func normalizeGlobalVariableType(raw string) string {
+	t := strings.ToLower(strings.TrimSpace(raw))
+	if t == GlobalVariableTypeSecret || t == "password" {
+		return GlobalVariableTypeSecret
+	}
+	return GlobalVariableTypeString
 }
 
 func defaultString(current string, fallback string) string {

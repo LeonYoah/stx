@@ -35,13 +35,17 @@ const backendBaseURL =
       ? 'http://localhost:8000'
       : 'http://127.0.0.1:8010');
 const authFile = path.join(__dirname, '.playwright', 'auth', 'admin.json');
+const backendConfigPath =
+  process.env.E2E_CONFIG_PATH ??
+  process.env.CONFIG_PATH ??
+  '../config.e2e.yaml';
 const backendServer =
   apiMode === 'real'
     ? {
         command:
           installerRealMode
             ? `bash -lc 'CONFIG_PATH=${process.env.E2E_INSTALLER_REAL_CONFIG_PATH ?? '../config.e2e.installer-real.yaml'} \"\${GO_BIN:-go}\" run .. api'`
-            : 'bash -lc \'CONFIG_PATH=../config.e2e.yaml "${GO_BIN:-go}" run .. api\'',
+            : `bash -lc 'CONFIG_PATH=${backendConfigPath} "\${GO_BIN:-go}" run .. api'`,
         url: `${backendBaseURL}/api/v1/health`,
         reuseExistingServer: installerRealMode ? false : !process.env.CI,
         timeout: installerRealMode ? 600_000 : 300_000,

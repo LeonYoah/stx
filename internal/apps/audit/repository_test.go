@@ -157,13 +157,13 @@ func genAuditLogTestData() gopter.Gen {
 	})
 }
 
-// **Feature: seatunnel-agent, Property 20: Audit Log Filtering**
+// **Feature: stx-agent, Property 20: Audit Log Filtering**
 // **Validates: Requirements 10.4**
 // For any audit log query with filters (time range, action type, user, host),
 // the returned results SHALL only contain entries matching all specified filter criteria.
 
 func TestProperty_AuditLogFiltering(t *testing.T) {
-	// **Feature: seatunnel-agent, Property 20: Audit Log Filtering**
+	// **Feature: stx-agent, Property 20: Audit Log Filtering**
 	// **Validates: Requirements 10.4**
 
 	parameters := gopter.DefaultTestParameters()
@@ -390,7 +390,7 @@ func TestProperty_AuditLogFiltering(t *testing.T) {
 // TestProperty_AuditLogTimeRangeFiltering tests time range filtering
 // TestProperty_AuditLogTimeRangeFiltering 测试时间范围过滤
 func TestProperty_AuditLogTimeRangeFiltering(t *testing.T) {
-	// **Feature: seatunnel-agent, Property 20: Audit Log Filtering**
+	// **Feature: stx-agent, Property 20: Audit Log Filtering**
 	// **Validates: Requirements 10.4**
 
 	parameters := gopter.DefaultTestParameters()
@@ -494,7 +494,7 @@ func TestProperty_AuditLogTimeRangeFiltering(t *testing.T) {
 // TestProperty_AuditLogCombinedFiltering tests combined filter criteria
 // TestProperty_AuditLogCombinedFiltering 测试组合过滤条件
 func TestProperty_AuditLogCombinedFiltering(t *testing.T) {
-	// **Feature: seatunnel-agent, Property 20: Audit Log Filtering**
+	// **Feature: stx-agent, Property 20: Audit Log Filtering**
 	// **Validates: Requirements 10.4**
 
 	parameters := gopter.DefaultTestParameters()
@@ -666,13 +666,13 @@ func genCommandLogTestData() gopter.Gen {
 	})
 }
 
-// **Feature: seatunnel-agent, Property 17: Audit Log Completeness**
+// **Feature: stx-agent, Property 17: Audit Log Completeness**
 // **Validates: Requirements 10.1**
 // For any command execution, the audit log entry SHALL contain command_id, command_type,
 // start_time, end_time, and execution result.
 
 func TestProperty_AuditLogCompleteness(t *testing.T) {
-	// **Feature: seatunnel-agent, Property 17: Audit Log Completeness**
+	// **Feature: stx-agent, Property 17: Audit Log Completeness**
 	// **Validates: Requirements 10.1**
 
 	parameters := gopter.DefaultTestParameters()
@@ -953,7 +953,7 @@ func TestProperty_AuditLogCompleteness(t *testing.T) {
 // TestProperty_CommandLogRequiredFields tests that required fields cannot be empty
 // TestProperty_CommandLogRequiredFields 测试必需字段不能为空
 func TestProperty_CommandLogRequiredFields(t *testing.T) {
-	// **Feature: seatunnel-agent, Property 17: Audit Log Completeness**
+	// **Feature: stx-agent, Property 17: Audit Log Completeness**
 	// **Validates: Requirements 10.1**
 
 	parameters := gopter.DefaultTestParameters()

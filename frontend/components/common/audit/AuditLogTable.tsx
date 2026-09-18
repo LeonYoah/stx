@@ -25,9 +25,11 @@
  * 显示审计日志表格，支持过滤和分页。
  */
 
+import {useRef} from 'react';
 import {useTranslations} from 'next-intl';
 import {Button} from '@/components/ui/button';
 import {Badge} from '@/components/ui/badge';
+import {Pagination} from '@/components/ui/pagination';
 import {
   Table,
   TableBody,
@@ -43,6 +45,9 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import {User, Globe} from 'lucide-react';
+import {useGSAP} from '@gsap/react';
+import {TableLoadingBar, TableSkeletonRows} from '@/components/common/layout';
+import {animateTableRows} from '@/lib/animations/gsap-motion';
 import {AuditLogInfo} from '@/lib/services/audit/types';
 
 interface AuditLogTableProps {
@@ -51,7 +56,9 @@ interface AuditLogTableProps {
   currentPage: number;
   totalPages: number;
   total: number;
+  pageSize?: number;
   onPageChange: (page: number) => void;
+  onPageSizeChange?: (pageSize: number) => void;
 }
 
 /**
@@ -155,14 +162,30 @@ export function AuditLogTable({
   currentPage,
   totalPages,
   total,
+  pageSize = 20,
   onPageChange,
+  onPageSizeChange,
 }: AuditLogTableProps) {
   const t = useTranslations();
+  const tableContainerRef = useRef<HTMLDivElement>(null);
+
+  // 审计日志数据更新后执行平滑交错入场动效
+  // Trigger staggered entrance animation when audit logs data updates
+  useGSAP(
+    () => {
+      if (logs.length > 0 && !loading) {
+        animateTableRows('.audit-data-row');
+      }
+    },
+    {dependencies: [logs, loading], scope: tableContainerRef},
+  );
 
   return (
-    <div className='space-y-4'>
-      <div className='border rounded-lg'>
-        <Table>
+    <div ref={tableContainerRef} className='space-y-4 flex-1 flex flex-col'>
+      <div className='border rounded-lg relative overflow-hidden bg-card/40 shadow-xs flex flex-col flex-1 min-h-[480px] sm:min-h-[calc(100vh-270px)]'>
+        <TableLoadingBar loading={loading} />
+        <div className='overflow-x-auto flex-1'>
+          <Table>
           <TableHeader>
             <TableRow>
               <TableHead className='w-[50px]'>ID</TableHead>
@@ -176,24 +199,25 @@ export function AuditLogTable({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {loading ? (
-              <TableRow>
-                <TableCell colSpan={8} className='text-center py-8'>
-                  {t('common.loading')}
-                </TableCell>
-              </TableRow>
+            {loading && logs.length === 0 ? (
+              <TableSkeletonRows columns={8} rows={15} />
             ) : logs.length === 0 ? (
               <TableRow>
                 <TableCell
                   colSpan={8}
-                  className='text-center py-8 text-muted-foreground'
+                  className='text-center py-12 text-muted-foreground'
                 >
                   {t('audit.noAuditLogs')}
                 </TableCell>
               </TableRow>
             ) : (
               logs.map((log) => (
-                <TableRow key={log.id}>
+                <TableRow
+                  key={log.id}
+                  className={`audit-data-row transition-opacity duration-200 ${
+                    loading ? 'opacity-60 pointer-events-none' : ''
+                  }`}
+                >
                   <TableCell>{log.id}</TableCell>
                   <TableCell>
                     <div className='flex items-center gap-2'>
@@ -253,37 +277,22 @@ export function AuditLogTable({
             )}
           </TableBody>
         </Table>
-      </div>
-
-      {/* Pagination / 分页 */}
-      {totalPages > 1 && (
-        <div className='flex items-center justify-between'>
-          <div className='text-sm text-muted-foreground'>
-            {t('common.totalItems', {total})}
-          </div>
-          <div className='flex gap-2'>
-            <Button
-              variant='outline'
-              size='sm'
-              disabled={currentPage === 1}
-              onClick={() => onPageChange(currentPage - 1)}
-            >
-              {t('common.previous')}
-            </Button>
-            <span className='flex items-center px-4 text-sm'>
-              {currentPage} / {totalPages}
-            </span>
-            <Button
-              variant='outline'
-              size='sm'
-              disabled={currentPage === totalPages}
-              onClick={() => onPageChange(currentPage + 1)}
-            >
-              {t('common.next')}
-            </Button>
-          </div>
         </div>
-      )}
+
+        {/* 底部分页栏 / Table Footer Pagination */}
+        <div className='border-t bg-muted/10 px-4 py-2.5 mt-auto'>
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            pageSize={pageSize}
+            totalItems={total}
+            onPageChange={onPageChange}
+            onPageSizeChange={onPageSizeChange}
+            showPageSizeSelector={Boolean(onPageSizeChange)}
+            pageSizeOptions={[10, 20, 50, 100]}
+          />
+        </div>
+      </div>
     </div>
   );
 }

@@ -28,7 +28,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/seatunnel/seatunnelX/internal/apps/cluster"
+	"github.com/LeonYoah/stx/internal/apps/cluster"
 )
 
 // BuildPrometheusSDTargets builds Prometheus HTTP SD target groups from managed clusters.

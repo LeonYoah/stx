@@ -15,56 +15,68 @@
  * limitations under the License.
  */
 
-import React from 'react';
+import Image from 'next/image';
 
-interface LogoProps {
-  width?: number;
-  height?: number;
+interface BrandImageProps {
   className?: string;
+  priority?: boolean;
 }
 
-function LinuxDo({width = 120, height = 120, className}: LogoProps) {
+/** 资源版本号，用于刷新浏览器与 Next Image 缓存。 / Asset version for cache busting. */
+const BRAND_ASSET_VERSION = 'qingluan-chosen-transparent-1';
+
+/**
+ * STX 浅色横向锁章（青鸾鸟标 + STX 字标），透明底。
+ * STX light lockup (Qingluan mark + STX wordmark), transparent background.
+ */
+function STXLogo({className, priority = false}: BrandImageProps) {
   return (
-    <svg
-      width={width}
-      height={height}
-      viewBox='0 0 120 120'
-      xmlns='http://www.w3.org/2000/svg'
+    <Image
+      src={`/brand/stx-logo.png?v=${BRAND_ASSET_VERSION}`}
+      alt='STX'
+      width={752}
+      height={390}
       className={className}
-      style={{minWidth: width, minHeight: height, flexShrink: 0}}
-      fill='none'
-    >
-      <clipPath id='a'>
-        <circle cx='60' cy='60' r='47' />
-      </clipPath>
-      <circle fill='#f0f0f0' cx='60' cy='60' r='50' />
-      <rect
-        fill='#1c1c1e'
-        clipPath='url(#a)'
-        x='10'
-        y='10'
-        width='100'
-        height='30'
-      />
-      <rect
-        fill='#f0f0f0'
-        clipPath='url(#a)'
-        x='10'
-        y='40'
-        width='100'
-        height='40'
-      />
-      <rect
-        fill='#ffb003'
-        clipPath='url(#a)'
-        x='10'
-        y='80'
-        width='100'
-        height='30'
-      />
-    </svg>
+      priority={priority}
+      draggable={false}
+    />
   );
 }
 
-// 统一导出所有图标
-export {LinuxDo};
+/**
+ * STX 深色横向锁章（青鸾鸟标 + 白字 STX），透明底，可叠任意深色容器。
+ * STX dark lockup (Qingluan mark + white STX), transparent for any dark surface.
+ */
+function STXLogoDark({className, priority = false}: BrandImageProps) {
+  return (
+    <Image
+      src={`/brand/stx-logo-dark.png?v=${BRAND_ASSET_VERSION}`}
+      alt='STX'
+      width={752}
+      height={391}
+      className={className}
+      priority={priority}
+      draggable={false}
+    />
+  );
+}
+
+/**
+ * STX 青鸾图形标，用于侧栏、favicon 级小尺寸与仅需图标的场景。
+ * STX Qingluan mark for compact placements (sidebar, favicon-scale, icon-only).
+ */
+function STXMark({className, priority = false}: BrandImageProps) {
+  return (
+    <Image
+      src={`/brand/stx-mark.png?v=${BRAND_ASSET_VERSION}`}
+      alt=''
+      width={866}
+      height={655}
+      className={className}
+      priority={priority}
+      draggable={false}
+    />
+  );
+}
+
+export {STXLogo, STXLogoDark, STXMark};

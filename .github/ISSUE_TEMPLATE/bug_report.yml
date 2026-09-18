@@ -24,7 +24,7 @@ body:
       value: |
         感谢您花时间填写此 Bug 报告！
 
-        - **提交错误报告前**：请检查 [已有 Issues](https://github.com/LeonYoah/SeaTunnelX/issues)列表，了解是否有类似问题被报告。如果不确定，请进行搜索，这有助于我们高效地专注于改进项目。
+        - **提交错误报告前**：请检查 [已有 Issues](https://github.com/LeonYoah/stx/issues)列表，了解是否有类似问题被报告。如果不确定，请进行搜索，这有助于我们高效地专注于改进项目。
   - type: checkboxes
     id: issue-check
     attributes:
@@ -98,4 +98,4 @@ body:
       value: |
         ## 注意
         如果 Bug 报告不完整或不遵循说明，则可能不会得到处理。请确保您已遵循所有 **README.md** 指南，并提供所有必要信息以便我们重现该问题。
-        感谢您为 SeaTunnelX 做出贡献！
+        感谢您为 STX 做出贡献！

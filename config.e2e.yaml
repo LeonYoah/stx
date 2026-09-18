@@ -14,12 +14,12 @@
 # limitations under the License.
 
 app:
-  app_name: "SeaTunnelX"
+  app_name: "STX"
   env: "testing"
   addr: ":8000"
   external_url: "http://localhost:8000"
-  session_cookie_name: "seatunnelx_e2e_session"
-  session_secret: "seatunnelx-e2e-secret"
+  session_cookie_name: "stx_e2e_session"
+  session_secret: "stx-e2e-secret"
   session_domain: "localhost"
   session_age: 86400
   session_secure: false
@@ -34,7 +34,7 @@ auth:
 database:
   enabled: true
   type: "sqlite"
-  sqlite_path: "../tmp/e2e/seatunnelx.db"
+  sqlite_path: "../tmp/e2e/stx.db"
   log_level: "warn"
 
 grpc:
@@ -58,7 +58,7 @@ log:
   level: "info"
   format: "text"
   output: "file"
-  file_path: "../tmp/e2e/logs/seatunnelx.log"
+  file_path: "../tmp/e2e/logs/stx.log"
   max_size: 20
   max_age: 7
   max_backups: 2

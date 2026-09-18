@@ -61,6 +61,9 @@ jobs:
         if: github.event_name == 'push'
         run: python3 scripts/check_license.py --base-ref "${{ github.event.before }}" --head-ref "${{ github.sha }}"
 
+      - name: Check database dialect compatibility
+        run: python3 scripts/check_db_compatibility.py
+
   changes:
     name: Detect Changed Areas
     runs-on: ubuntu-latest
@@ -88,14 +91,43 @@ jobs:
               - 'agent/**'
               - 'go.mod'
               - 'go.sum'
+              - 'scripts/check_db_compatibility.py'
               - '.github/workflows/ci-main.yml'
               - 'scripts/restart.sh'
 
   backend-core-test:
-    name: Backend Core Tests
+    name: Backend Core & Multi-DB Tests
     runs-on: ubuntu-latest
     needs: changes
     if: needs.changes.outputs.backend == 'true'
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: stx
+          POSTGRES_PASSWORD: stx_password_2026
+          POSTGRES_DB: stx
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: stx_test
+          MYSQL_ROOT_HOST: "%"
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -uroot -proot"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
       - name: Checkout
@@ -108,6 +140,15 @@ jobs:
           cache: true
 
       - name: Run backend tests
+        env:
+          TEST_POSTGRES_HOST: 127.0.0.1
+          TEST_POSTGRES_USER: stx
+          TEST_POSTGRES_PASSWORD: stx_password_2026
+          TEST_POSTGRES_DB: stx
+          TEST_MYSQL_HOST: 127.0.0.1
+          TEST_MYSQL_USER: root
+          TEST_MYSQL_PASSWORD: root
+          TEST_MYSQL_DB: stx_test
         run: go test ./... -count=1
 
   agent-test:

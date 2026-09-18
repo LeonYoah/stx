@@ -31,7 +31,9 @@ export async function fillAndSubmitLoginForm(page: Page): Promise<void> {
 export async function expectLoginForm(page: Page): Promise<void> {
   await expect(page.locator('#username')).toBeVisible();
   await expect(page.locator('#password')).toBeVisible();
-  await expect(page.getByRole('button', {name: /登录|Login/i})).toBeVisible();
+  await expect(
+    page.getByRole('button', {name: /进入控制台|Enter console|登录|Login/i}),
+  ).toBeVisible();
 }
 
 export async function loginThroughUI(page: Page): Promise<void> {

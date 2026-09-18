@@ -42,6 +42,7 @@ import {toast} from 'sonner';
 import {Search, Terminal, RefreshCw} from 'lucide-react';
 import {motion} from 'motion/react';
 import {easeOut} from 'motion';
+import {WorkspaceHeader} from '@/components/common/layout';
 import services from '@/lib/services';
 import {
   CommandLogInfo,
@@ -51,7 +52,7 @@ import {
 import {CommandTable} from './CommandTable';
 import {CommandDetail} from './CommandDetail';
 
-const PAGE_SIZE = 10;
+const DEFAULT_PAGE_SIZE = 10;
 
 /**
  * Command Log Main Component
@@ -65,6 +66,7 @@ export function CommandMain() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
 
   // Filter state / 过滤状态
   const [searchCommandId, setSearchCommandId] = useState('');
@@ -87,7 +89,7 @@ export function CommandMain() {
     try {
       const params: ListCommandLogsRequest = {
         current: currentPage,
-        size: PAGE_SIZE,
+        size: pageSize,
         command_id: searchCommandId || undefined,
         status:
           filterStatus !== 'all' ? (filterStatus as CommandStatus) : undefined,
@@ -114,7 +116,14 @@ export function CommandMain() {
     } finally {
       setLoading(false);
     }
-  }, [currentPage, searchCommandId, filterStatus, filterCommandType, t]);
+  }, [
+    currentPage,
+    pageSize,
+    searchCommandId,
+    filterStatus,
+    filterCommandType,
+    t,
+  ]);
 
   useEffect(() => {
     loadCommands();
@@ -165,7 +174,7 @@ export function CommandMain() {
     setCurrentPage(1);
   };
 
-  const totalPages = Math.ceil(total / PAGE_SIZE);
+  const totalPages = Math.ceil(total / pageSize);
 
   const containerVariants = {
     hidden: {opacity: 0},
@@ -196,25 +205,18 @@ export function CommandMain() {
       variants={containerVariants}
     >
       {/* Header / 标题 */}
-      <motion.div
-        className='flex items-center justify-between'
-        variants={itemVariants}
-      >
-        <div className='flex items-center gap-2'>
-          <Terminal className='h-6 w-6' />
-          <div>
-            <h1 className='text-2xl font-bold tracking-tight'>
-              {t('audit.commandsTitle')}
-            </h1>
-            <p className='text-muted-foreground mt-1'>
-              {t('audit.commandsDescription')}
-            </p>
-          </div>
-        </div>
-        <Button variant='outline' onClick={handleRefresh}>
-          <RefreshCw className='h-4 w-4 mr-2' />
-          {t('common.refresh')}
-        </Button>
+      <motion.div variants={itemVariants}>
+        <WorkspaceHeader
+          icon={<Terminal />}
+          title={t('audit.commandsTitle')}
+          subtitle={t('audit.commandsDescription')}
+          actions={
+            <Button variant='outline' onClick={handleRefresh}>
+              <RefreshCw className='h-4 w-4 mr-2' />
+              {t('common.refresh')}
+            </Button>
+          }
+        />
       </motion.div>
 
       <Separator />
@@ -292,7 +294,12 @@ export function CommandMain() {
           currentPage={currentPage}
           totalPages={totalPages}
           total={total}
+          pageSize={pageSize}
           onPageChange={handlePageChange}
+          onPageSizeChange={(size) => {
+            setPageSize(size);
+            setCurrentPage(1);
+          }}
           onViewDetail={handleViewDetail}
         />
       </motion.div>

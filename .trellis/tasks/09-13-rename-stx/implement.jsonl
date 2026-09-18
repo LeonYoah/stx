@@ -1,0 +1,10 @@
+{"file": ".trellis/workflow.md", "reason": "项目开发流程与任务阶段要求"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "本次改名同时影响前后端、Agent、发布和 CI"}
+{"file": ".trellis/spec/backend/index.md", "reason": "后端与 Agent 修改入口"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Go 代码、测试与注释要求"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "后端目录及生成文件约定"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "日志文件和日志文案会改名"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "前端修改入口"}
+{"file": ".trellis/spec/frontend/ui-conventions.md", "reason": "界面展示名和交互文案要求"}
+{"file": ".trellis/spec/frontend/e2e-testing.md", "reason": "E2E 固定值和测试命令会修改"}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "前端文件范围和组件结构约定"}

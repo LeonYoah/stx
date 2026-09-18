@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-// Package audit provides command logging and audit trail functionality for the SeaTunnelX Agent system.
-// 审计包提供 SeaTunnelX Agent 系统的命令日志和审计追踪功能。
+// Package audit provides command logging and audit trail functionality for the STX Agent system.
+// 审计包提供 STX Agent 系统的命令日志和审计追踪功能。
 package audit
 
 import (
@@ -114,7 +114,9 @@ type CommandLog struct {
 	Parameters  CommandParameters `json:"parameters" gorm:"type:json"`
 	Status      CommandStatus     `json:"status" gorm:"size:20;not null;index"`
 	Progress    int               `json:"progress" gorm:"default:0"`
-	Output      string            `json:"output" gorm:"type:longtext"`
+	// Output 存储命令执行的原始内容输出，兼容 SQLite/MySQL/PostgreSQL。
+	// Output stores the raw command execution output, compatible with SQLite/MySQL/PostgreSQL.
+	Output      string            `json:"output" gorm:"type:text"`
 	Error       string            `json:"error" gorm:"type:text"`
 	StartedAt   *time.Time        `json:"started_at"`
 	FinishedAt  *time.Time        `json:"finished_at"`
@@ -132,20 +134,20 @@ func (CommandLog) TableName() string {
 // AuditLog 表示系统操作的审计追踪条目。
 // Requirements: 10.3, 10.4
 type AuditLog struct {
-	ID           uint         `json:"id" gorm:"primaryKey;autoIncrement"`
-	UserID       *uint        `json:"user_id" gorm:"index"`
-	Username     string       `json:"username" gorm:"size:100"`
-	Action       string       `json:"action" gorm:"size:50;not null;index"`
-	ResourceType string       `json:"resource_type" gorm:"size:50;not null;index:idx_resource"`
-	ResourceID   string       `json:"resource_id" gorm:"size:100;index:idx_resource"`
-	ResourceName string       `json:"resource_name" gorm:"size:200"`
+	ID           uint   `json:"id" gorm:"primaryKey;autoIncrement"`
+	UserID       *uint  `json:"user_id" gorm:"index"`
+	Username     string `json:"username" gorm:"size:100"`
+	Action       string `json:"action" gorm:"size:50;not null;index"`
+	ResourceType string `json:"resource_type" gorm:"size:50;not null;index:idx_resource"`
+	ResourceID   string `json:"resource_id" gorm:"size:100;index:idx_resource"`
+	ResourceName string `json:"resource_name" gorm:"size:200"`
 	// Trigger: "auto" (Agent) or "manual" (user), empty for legacy records.
 	// Trigger：自动（Agent）或手动（用户），空表示旧数据。
-	Trigger  string       `json:"trigger" gorm:"size:20;index"`
-	Details  AuditDetails `json:"details" gorm:"type:json"`
-	IPAddress string      `json:"ip_address" gorm:"size:45"`
-	UserAgent string      `json:"user_agent" gorm:"size:500"`
-	CreatedAt time.Time   `json:"created_at" gorm:"autoCreateTime;index"`
+	Trigger   string       `json:"trigger" gorm:"size:20;index"`
+	Details   AuditDetails `json:"details" gorm:"type:json"`
+	IPAddress string       `json:"ip_address" gorm:"size:45"`
+	UserAgent string       `json:"user_agent" gorm:"size:500"`
+	CreatedAt time.Time    `json:"created_at" gorm:"autoCreateTime;index"`
 }
 
 // TableName specifies the table name for the AuditLog model.
@@ -173,11 +175,11 @@ type CommandLogFilter struct {
 // AuditLogFilter 表示查询审计日志的过滤条件。
 // Requirements: 10.4
 type AuditLogFilter struct {
-	UserID       *uint      `json:"user_id"`
-	Username     string     `json:"username"`
-	Action       string     `json:"action"`
-	ResourceType string     `json:"resource_type"`
-	ResourceID   string     `json:"resource_id"`
+	UserID       *uint  `json:"user_id"`
+	Username     string `json:"username"`
+	Action       string `json:"action"`
+	ResourceType string `json:"resource_type"`
+	ResourceID   string `json:"resource_id"`
 	// Trigger filters by trigger column: "auto" (agent) or "manual" (user).
 	// Trigger 按 trigger 字段过滤：auto（Agent 自动）或 manual（手动）。
 	Trigger   string     `json:"trigger"`

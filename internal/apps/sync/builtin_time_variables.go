@@ -192,12 +192,12 @@ func resolveBuiltinVariable(key string, runtime *taskVariableRuntime) (string, b
 		if runtime != nil && strings.TrimSpace(runtime.ProjectName) != "" {
 			return strings.TrimSpace(runtime.ProjectName), true
 		}
-		return "SeaTunnelX", true
+		return "STX", true
 	case "system.project.code":
 		if runtime != nil && strings.TrimSpace(runtime.ProjectCode) != "" {
 			return strings.TrimSpace(runtime.ProjectCode), true
 		}
-		return "seatunnelx", true
+		return "stx", true
 	}
 	if !looksLikeTimeExpression(key) {
 		return "", false
@@ -217,7 +217,11 @@ func looksLikeTimeExpression(expr string) bool {
 	if functionCallPattern.MatchString(expr) {
 		return true
 	}
-	return javaFormatTokenPattern.MatchString(expr)
+	formatExpr := expr
+	if matches := timeOffsetExpressionPattern.FindStringSubmatch(expr); len(matches) == 4 {
+		formatExpr = strings.TrimSpace(matches[1])
+	}
+	return javaFormatTokenPattern.MatchString(formatExpr) && javaDateFormatToGoLayout(formatExpr) != ""
 }
 
 func formatBuiltinTimeExpression(expr string, base time.Time) (string, error) {

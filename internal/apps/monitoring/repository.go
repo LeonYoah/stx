@@ -23,7 +23,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/seatunnel/seatunnelX/internal/apps/monitor"
+	"github.com/LeonYoah/stx/internal/apps/monitor"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )

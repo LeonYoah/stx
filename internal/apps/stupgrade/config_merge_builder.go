@@ -22,7 +22,7 @@ import (
 	"sort"
 	"strings"
 
-	appconfig "github.com/seatunnel/seatunnelX/internal/apps/config"
+	appconfig "github.com/LeonYoah/stx/internal/apps/config"
 )
 
 type configMergeInput struct {

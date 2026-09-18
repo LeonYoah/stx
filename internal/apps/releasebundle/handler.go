@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-// Package releasebundle provides temporary download and install endpoints for SeaTunnelX bundles.
-// releasebundle 包提供 SeaTunnelX 离线发布包的临时下载与安装端点。
+// Package releasebundle provides temporary download and install endpoints for STX bundles.
+// releasebundle 包提供 STX 离线发布包的临时下载与安装端点。
 package releasebundle
 
 import (
@@ -30,17 +30,17 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/LeonYoah/stx/internal/apps/auth"
+	"github.com/LeonYoah/stx/internal/config"
+	"github.com/LeonYoah/stx/internal/db"
+	"github.com/LeonYoah/stx/internal/logger"
 	"github.com/gin-gonic/gin"
-	"github.com/seatunnel/seatunnelX/internal/apps/auth"
-	"github.com/seatunnel/seatunnelX/internal/config"
-	"github.com/seatunnel/seatunnelX/internal/db"
-	"github.com/seatunnel/seatunnelX/internal/logger"
 )
 
 const (
-	// DefaultBundlePattern selects the CentOS 7 compatible SeaTunnelX release bundle.
-	// DefaultBundlePattern 选择适用于 CentOS 7 的 SeaTunnelX 发布包。
-	DefaultBundlePattern = "seatunnelx-*-linux-amd64-node18-glibc217-without-observability.tar.gz"
+	// DefaultBundlePattern selects the CentOS 7 compatible STX release bundle.
+	// DefaultBundlePattern 选择适用于 CentOS 7 的 STX 发布包。
+	DefaultBundlePattern = "stx-*-linux-amd64-node18-glibc217-without-observability.tar.gz"
 	// DefaultReleaseDir is the default directory containing built release tarballs.
 	// DefaultReleaseDir 是默认的发布包输出目录。
 	DefaultReleaseDir = "./dist/releases"
@@ -66,8 +66,8 @@ type HandlerConfig struct {
 	ValidateCredentials func(ctx context.Context, username, password string) (bool, error)
 }
 
-// Handler exposes temporary download/install endpoints for SeaTunnelX bundles.
-// Handler 暴露 SeaTunnelX 离线包的临时下载安装端点。
+// Handler exposes temporary download/install endpoints for STX bundles.
+// Handler 暴露 STX 离线包的临时下载安装端点。
 type Handler struct {
 	releaseDir    string
 	bundlePattern string
@@ -93,8 +93,8 @@ func NewHandler(cfg *HandlerConfig) *Handler {
 	}
 }
 
-// GetInstallScript handles GET /api/v1/seatunnelx/install.sh and returns a one-click install script.
-// GetInstallScript 处理 GET /api/v1/seatunnelx/install.sh 并返回一键安装脚本。
+// GetInstallScript handles GET /api/v1/stx/install.sh and returns a one-click install script.
+// GetInstallScript 处理 GET /api/v1/stx/install.sh 并返回一键安装脚本。
 func (h *Handler) GetInstallScript(c *gin.Context) {
 	_, bundleName, err := h.resolveLatestBundle()
 	if err != nil {
@@ -104,8 +104,8 @@ func (h *Handler) GetInstallScript(c *gin.Context) {
 	}
 
 	baseURL := buildRequestBaseURL(c)
-	scriptURL := baseURL + "/api/v1/seatunnelx/install.sh"
-	downloadURL := baseURL + "/api/v1/seatunnelx/download"
+	scriptURL := baseURL + "/api/v1/stx/install.sh"
+	downloadURL := baseURL + "/api/v1/stx/download"
 	script, err := GenerateInstallScript(InstallScriptData{
 		DownloadURL:    downloadURL,
 		ExampleCommand: fmt.Sprintf("curl -fsSL %s | sudo bash", scriptURL),
@@ -118,12 +118,12 @@ func (h *Handler) GetInstallScript(c *gin.Context) {
 
 	c.Header("Content-Type", "text/x-shellscript; charset=utf-8")
 	c.Header("Content-Disposition", "attachment; filename=install.sh")
-	c.Header("X-SeaTunnelX-Bundle", bundleName)
+	c.Header("X-STX-Bundle", bundleName)
 	c.String(http.StatusOK, script)
 }
 
-// DownloadBundle handles GET /api/v1/seatunnelx/download and serves the latest matching bundle.
-// DownloadBundle 处理 GET /api/v1/seatunnelx/download 并返回最新匹配的发布包。
+// DownloadBundle handles GET /api/v1/stx/download and serves the latest matching bundle.
+// DownloadBundle 处理 GET /api/v1/stx/download 并返回最新匹配的发布包。
 func (h *Handler) DownloadBundle(c *gin.Context) {
 	if !h.requireDownloadAuth(c) {
 		return
@@ -162,7 +162,7 @@ func (h *Handler) requireDownloadAuth(c *gin.Context) bool {
 }
 
 func (h *Handler) respondUnauthorized(c *gin.Context) {
-	c.Header("WWW-Authenticate", `Basic realm="SeaTunnelX Bundle Download"`)
+	c.Header("WWW-Authenticate", `Basic realm="STX Bundle Download"`)
 	c.JSON(http.StatusUnauthorized, ErrorResponse{ErrorMsg: "authentication required"})
 }
 

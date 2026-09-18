@@ -802,6 +802,105 @@ func TestCreateGlobalVariableRejectsReservedBuiltinVariableKey(t *testing.T) {
 	}
 }
 
+func TestGlobalVariableSecretMaskingAndResolution(t *testing.T) {
+	service := newTestSyncService(t)
+	ctx := context.Background()
+
+	// 1. 创建保密凭据类型变量，验证返回脱敏为 ******
+	// 1. Create secret variable, verify response is masked as ******
+	created, err := service.CreateGlobalVariable(ctx, &CreateGlobalVariableRequest{
+		Key:       "db_password",
+		Value:     "SuperSecret123!",
+		ValueType: GlobalVariableTypeSecret,
+	}, 1)
+	if err != nil {
+		t.Fatalf("create secret global variable failed: %v", err)
+	}
+	if created.Value != "******" {
+		t.Fatalf("expected created value to be masked as ******, got %q", created.Value)
+	}
+	if created.ValueType != GlobalVariableTypeSecret {
+		t.Fatalf("expected created value_type to be secret, got %q", created.ValueType)
+	}
+
+	// 2. 分页查询，验证返回脱敏
+	// 2. List paginated, verify returned value is masked
+	items, total, err := service.ListGlobalVariablesPaginated(ctx, 1, 10)
+	if err != nil {
+		t.Fatalf("list global variables paginated failed: %v", err)
+	}
+	if total != 1 || len(items) != 1 {
+		t.Fatalf("expected 1 item, got total=%d, len=%d", total, len(items))
+	}
+	if items[0].Value != "******" {
+		t.Fatalf("expected listed value to be masked as ******, got %q", items[0].Value)
+	}
+
+	// 3. 验证任务解析运行时获取到真实密码（而非 ******）
+	// 3. Verify task runtime variable resolution gets the real password (not ******)
+	task := &Task{
+		Name:          "secret-task",
+		ContentFormat: ContentFormatHOCON,
+		Content:       "password = \"{{db_password}}\"",
+	}
+	resolved, err := service.resolveTaskContent(ctx, task, &taskVariableRuntime{
+		ReferenceTime: time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("resolve task content failed: %v", err)
+	}
+	if !strings.Contains(resolved, `password = "SuperSecret123!"`) {
+		t.Fatalf("expected task content to contain real password, got:\n%s", resolved)
+	}
+
+	// 4. 更新变量时传空或掩码，验证数据库中原密码不被覆盖
+	// 4. Update variable with empty or mask, verify original password in DB is retained
+	updated, err := service.UpdateGlobalVariable(ctx, created.ID, &UpdateGlobalVariableRequest{
+		Key:         "db_password",
+		Value:       "", // 空值保留原密码 / Empty keeps existing secret
+		ValueType:   GlobalVariableTypeSecret,
+		Description: "updated description",
+	})
+	if err != nil {
+		t.Fatalf("update global variable failed: %v", err)
+	}
+	if updated.Value != "******" {
+		t.Fatalf("expected updated value to be masked as ******, got %q", updated.Value)
+	}
+
+	// 再次验证任务解析，依然是原真实密码
+	// Verify task resolution again, should still be the original real password
+	resolvedAfterEmptyUpdate, err := service.resolveTaskContent(ctx, task, &taskVariableRuntime{
+		ReferenceTime: time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("resolve task content failed: %v", err)
+	}
+	if !strings.Contains(resolvedAfterEmptyUpdate, `password = "SuperSecret123!"`) {
+		t.Fatalf("expected retained original password, got:\n%s", resolvedAfterEmptyUpdate)
+	}
+
+	// 5. 传新密码，验证密码成功更新
+	// 5. Provide new password, verify password is successfully updated
+	_, err = service.UpdateGlobalVariable(ctx, created.ID, &UpdateGlobalVariableRequest{
+		Key:       "db_password",
+		Value:     "BrandNewPassword456#",
+		ValueType: GlobalVariableTypeSecret,
+	})
+	if err != nil {
+		t.Fatalf("update new password failed: %v", err)
+	}
+	resolvedAfterNewPass, err := service.resolveTaskContent(ctx, task, &taskVariableRuntime{
+		ReferenceTime: time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("resolve task content failed: %v", err)
+	}
+	if !strings.Contains(resolvedAfterNewPass, `password = "BrandNewPassword456#"`) {
+		t.Fatalf("expected new password in task content, got:\n%s", resolvedAfterNewPass)
+	}
+}
+
 func TestCreateTaskRejectsReservedCustomVariableKey(t *testing.T) {
 	service := newTestSyncService(t)
 	ctx := context.Background()

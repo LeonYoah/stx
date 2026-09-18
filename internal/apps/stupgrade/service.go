@@ -21,7 +21,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/seatunnel/seatunnelX/internal/seatunnel"
+	"github.com/LeonYoah/stx/internal/seatunnel"
 )
 
 // Service 封装升级计划和任务的持久化编排基础能力。

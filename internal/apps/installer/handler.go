@@ -27,9 +27,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/LeonYoah/stx/internal/config"
+	"github.com/LeonYoah/stx/internal/logger"
 	"github.com/gin-gonic/gin"
-	"github.com/seatunnel/seatunnelX/internal/config"
-	"github.com/seatunnel/seatunnelX/internal/logger"
 )
 
 // Handler provides HTTP handlers for installation management.
@@ -466,7 +466,7 @@ type PrecheckResponse struct {
 // RuntimeStorageValidationResponse represents runtime storage validation response.
 // RuntimeStorageValidationResponse 表示运行时存储校验响应。
 type RuntimeStorageValidationResponse struct {
-	ErrorMsg string                        `json:"error_msg"`
+	ErrorMsg string                          `json:"error_msg"`
 	Data     *RuntimeStorageValidationResult `json:"data"`
 }
 

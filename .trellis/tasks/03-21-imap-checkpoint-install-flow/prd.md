@@ -2,13 +2,13 @@
 
 ## Goal
 
-让 SeaTunnelX 的一键安装 / 创建集群流程完整支持 SeaTunnel Engine 的 IMAP 与 checkpoint 配置、校验与安装后可观测性；同时在已安装或注册进来的集群详情页中支持查看 IMAP / checkpoint 目录、大小、清理状态与相关操作，降低错误配置带来的恢复失败或启动过慢风险。
+让 STX 的一键安装 / 创建集群流程完整支持 SeaTunnel Engine 的 IMAP 与 checkpoint 配置、校验与安装后可观测性；同时在已安装或注册进来的集群详情页中支持查看 IMAP / checkpoint 目录、大小、清理状态与相关操作，降低错误配置带来的恢复失败或启动过慢风险。
 
 ## What I already know
 
-* 用户希望 SeaTunnelX 一键安装支持 IMAP 配置和 checkpoint 配置。
+* 用户希望 STX 一键安装支持 IMAP 配置和 checkpoint 配置。
 * checkpoint 在当前产品里已经有部分实现，但未充分测试，交互也存在问题。
-* IMAP 当前在 SeaTunnelX 安装流程里基本未实现，至少未发现前端/后端安装表单与参数透传。
+* IMAP 当前在 STX 安装流程里基本未实现，至少未发现前端/后端安装表单与参数透传。
 * 用户要求对远程地址做联通性校验。
 * 用户明确给出了产品侧认知：
   * IMAP 类似 Flink 的 RocksDB，用于保存集群恢复所需的 Hazelcast/IMap 元数据，而不是表数据。
@@ -49,7 +49,7 @@
 
 ## Assumptions (temporary)
 
-* SeaTunnelX 当前安装向导对 IMAP 是缺失能力，不是已有隐藏实现。
+* STX 当前安装向导对 IMAP 是缺失能力，不是已有隐藏实现。
 * IMAP / checkpoint 联通性校验应当由控制面或 agent 主动发起，而不是依赖用户手工验证。
 * 集群详情页的 checkpoint / IMAP 目录查看与清理，需要通过 agent 执行远程文件系统检查或命令。
 * 注册进来的集群可能存在配置偏差，需要兼容“只读识别”与“后续治理”。
@@ -107,7 +107,7 @@
   * `internal/apps/installer/types.go`
   * `agent/cmd/main.go`
   * `agent/internal/installer/manager.go`
-* 官方参考：
+* Apache SeaTunnel 上游仓库参考路径（实施时按目标版本核对）：
   * `docs/en/engines/zeta/separated-cluster-deployment.md`
   * `docs/en/engines/zeta/hybrid-cluster-deployment.md`
   * `docs/en/engines/zeta/checkpoint-storage.md`

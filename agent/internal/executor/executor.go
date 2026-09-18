@@ -33,7 +33,7 @@ import (
 	"sync"
 	"time"
 
-	pb "github.com/seatunnel/seatunnelX/agent"
+	pb "github.com/LeonYoah/stx/agent"
 )
 
 // Common errors for command execution

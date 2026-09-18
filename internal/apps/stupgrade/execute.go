@@ -24,8 +24,8 @@ import (
 	"strings"
 	"time"
 
-	clusterapp "github.com/seatunnel/seatunnelX/internal/apps/cluster"
-	installerapp "github.com/seatunnel/seatunnelX/internal/apps/installer"
+	clusterapp "github.com/LeonYoah/stx/internal/apps/cluster"
+	installerapp "github.com/LeonYoah/stx/internal/apps/installer"
 )
 
 // ClusterOperator 定义升级执行期所需的集群生命周期能力。

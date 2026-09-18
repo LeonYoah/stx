@@ -16,7 +16,7 @@
 
 set -euo pipefail
 
-BASE_URL="${SEATUNNELX_BASE_URL:-${1:-http://127.0.0.1:8801}}"
+BASE_URL="${STX_BASE_URL:-${1:-http://127.0.0.1:8801}}"
 PROM_SD_PATH="${OBS_PROM_SD_PATH:-/api/v1/monitoring/prometheus/discovery}"
 ALERT_WEBHOOK_PATH="${OBS_ALERT_WEBHOOK_PATH:-/api/v1/monitoring/alertmanager/webhook}"
 
@@ -67,7 +67,7 @@ request_json() {
   echo
 }
 
-echo "SeaTunnelX base URL: $BASE_URL"
+echo "STX base URL: $BASE_URL"
 
 # 1) Prometheus HTTP SD
 request_json "prometheus_discovery" "GET" "$(join_url "$PROM_SD_PATH")"
@@ -77,7 +77,7 @@ STARTS_AT="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 ENDS_AT="$(date -u -d '+5 minutes' +'%Y-%m-%dT%H:%M:%SZ')"
 read -r -d '' WEBHOOK_PAYLOAD <<JSON || true
 {
-  "receiver": "seatunnelx",
+  "receiver": "stx",
   "status": "firing",
   "commonLabels": {
     "cluster_id": "1",
@@ -111,12 +111,12 @@ JSON
 request_json "alertmanager_webhook" "POST" "$(join_url "$ALERT_WEBHOOK_PATH")" "$WEBHOOK_PAYLOAD"
 
 # 3) Authenticated APIs (optional)
-if [[ -n "${SEATUNNELX_USERNAME:-}" && -n "${SEATUNNELX_PASSWORD:-}" ]]; then
-  echo "Login with SEATUNNELX_USERNAME for authenticated API smoke checks..."
+if [[ -n "${STX_USERNAME:-}" && -n "${STX_PASSWORD:-}" ]]; then
+  echo "Login with STX_USERNAME for authenticated API smoke checks..."
   read -r -d '' LOGIN_PAYLOAD <<JSON || true
 {
-  "username": "${SEATUNNELX_USERNAME}",
-  "password": "${SEATUNNELX_PASSWORD}"
+  "username": "${STX_USERNAME}",
+  "password": "${STX_PASSWORD}"
 }
 JSON
   request_json "auth_login" "POST" "$(join_url '/api/v1/auth/login')" "$LOGIN_PAYLOAD"
@@ -125,7 +125,7 @@ JSON
   request_json "clusters_health" "GET" "$(join_url '/api/v1/clusters/health')"
   request_json "platform_health" "GET" "$(join_url '/api/v1/monitoring/platform-health')"
 else
-  echo "Skip authenticated API checks (set SEATUNNELX_USERNAME/SEATUNNELX_PASSWORD to enable)."
+  echo "Skip authenticated API checks (set STX_USERNAME/STX_PASSWORD to enable)."
 fi
 
 echo "Remote observability smoke checks passed."

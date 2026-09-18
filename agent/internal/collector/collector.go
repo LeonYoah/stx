@@ -37,8 +37,8 @@ import (
 	"sync"
 	"time"
 
-	pb "github.com/seatunnel/seatunnelX/agent"
-	"github.com/seatunnel/seatunnelX/agent/internal/process"
+	pb "github.com/LeonYoah/stx/agent"
+	"github.com/LeonYoah/stx/agent/internal/process"
 )
 
 // MetricsCollector collects system and process metrics

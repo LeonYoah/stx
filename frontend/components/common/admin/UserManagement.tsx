@@ -34,12 +34,13 @@
  * limitations under the License.
  */
 
-import {useState, useEffect, useCallback} from 'react';
+import {useState, useEffect, useCallback, useRef} from 'react';
 import {useTranslations} from 'next-intl';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';
 import {Switch} from '@/components/ui/switch';
+import {Pagination} from '@/components/ui/pagination';
 import {
   Table,
   TableBody,
@@ -67,7 +68,10 @@ import {
 } from '@/components/ui/alert-dialog';
 import {Badge} from '@/components/ui/badge';
 import {toast} from 'sonner';
-import {Plus, Pencil, Trash2, Search, Users} from 'lucide-react';
+import {Plus, Pencil, Trash2, Search, Users, RefreshCw} from 'lucide-react';
+import {WorkspaceHeader, TableLoadingBar, TableSkeletonRows} from '@/components/common/layout';
+import {useGSAP} from '@gsap/react';
+import {animateTableRows} from '@/lib/animations/gsap-motion';
 import services from '@/lib/services';
 import type {
   UserInfo,
@@ -89,7 +93,7 @@ export function UserManagement() {
   const [loading, setLoading] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [searchUsername, setSearchUsername] = useState('');
-  const pageSize = 10;
+  const [pageSize, setPageSize] = useState(10);
 
   // 对话框状态
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
@@ -107,7 +111,7 @@ export function UserManagement() {
   });
 
   /**
-   * 加载用户列表
+   * 加载用户列表 / Load user list
    */
   const loadUsers = useCallback(async () => {
     setLoading(true);
@@ -124,7 +128,7 @@ export function UserManagement() {
     } finally {
       setLoading(false);
     }
-  }, [currentPage, searchUsername]);
+  }, [currentPage, pageSize, searchUsername]);
 
   useEffect(() => {
     loadUsers();
@@ -274,6 +278,19 @@ export function UserManagement() {
     }
   };
 
+  const tableContainerRef = useRef<HTMLDivElement>(null);
+
+  // 用户列表更新后执行平滑交错入场动效
+  // Trigger staggered entrance animation when users data updates
+  useGSAP(
+    () => {
+      if (users.length > 0 && !loading) {
+        animateTableRows('.user-data-row');
+      }
+    },
+    {dependencies: [users, loading], scope: tableContainerRef},
+  );
+
   /**
    * 搜索
    */
@@ -287,21 +304,25 @@ export function UserManagement() {
   return (
     <div className='space-y-6'>
       {/* 页面标题 */}
-      <div className='flex items-center justify-between'>
-        <div className='flex items-center gap-2'>
-          <Users className='h-6 w-6' />
-          <h1 className='text-2xl font-bold'>
-            {t('admin.userManagement.title')}
-          </h1>
-        </div>
-        <Button onClick={handleOpenCreate}>
-          <Plus className='h-4 w-4 mr-2' />
-          {t('admin.userManagement.createUser')}
-        </Button>
-      </div>
+      <WorkspaceHeader
+        icon={<Users />}
+        title={t('admin.userManagement.title')}
+        actions={
+          <div className='flex gap-2'>
+            <Button variant='outline' onClick={loadUsers} disabled={loading}>
+              <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+              {t('common.refresh')}
+            </Button>
+            <Button onClick={handleOpenCreate}>
+              <Plus className='h-4 w-4 mr-2' />
+              {t('admin.userManagement.createUser')}
+            </Button>
+          </div>
+        }
+      />
 
       {/* 搜索栏 */}
-      <div className='flex gap-4'>
+      <div className='flex gap-3'>
         <div className='flex-1 max-w-sm'>
           <Input
             placeholder={t('admin.userManagement.username')}
@@ -310,117 +331,112 @@ export function UserManagement() {
             onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
           />
         </div>
-        <Button variant='outline' onClick={handleSearch}>
+        <Button variant='outline' onClick={handleSearch} className='active:scale-[0.98]'>
           <Search className='h-4 w-4 mr-2' />
           {t('common.search')}
         </Button>
       </div>
 
-      {/* 用户表格 */}
-      <div className='border rounded-lg'>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>ID</TableHead>
-              <TableHead>{t('admin.userManagement.username')}</TableHead>
-              <TableHead>{t('admin.userManagement.nickname')}</TableHead>
-              <TableHead>{t('admin.userManagement.email')}</TableHead>
-              <TableHead>{t('admin.userManagement.isAdmin')}</TableHead>
-              <TableHead>{t('admin.userManagement.isActive')}</TableHead>
-              <TableHead>{t('admin.userManagement.createdAt')}</TableHead>
-              <TableHead>{t('admin.userManagement.actions')}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {loading ? (
+      {/* 用户表格与底部分页一体化卡片 / User Table and Pagination Integrated Card */}
+      <div ref={tableContainerRef} className='border rounded-lg relative overflow-hidden bg-card/40 shadow-xs flex flex-col min-h-[480px] sm:min-h-[calc(100vh-270px)]'>
+        <TableLoadingBar loading={loading} />
+        <div className='overflow-x-auto flex-1'>
+          <Table>
+            <TableHeader>
               <TableRow>
-                <TableCell colSpan={8} className='text-center py-8'>
-                  {t('common.loading')}
-                </TableCell>
+                <TableHead>ID</TableHead>
+                <TableHead>{t('admin.userManagement.username')}</TableHead>
+                <TableHead>{t('admin.userManagement.nickname')}</TableHead>
+                <TableHead>{t('admin.userManagement.email')}</TableHead>
+                <TableHead>{t('admin.userManagement.isAdmin')}</TableHead>
+                <TableHead>{t('admin.userManagement.isActive')}</TableHead>
+                <TableHead>{t('admin.userManagement.createdAt')}</TableHead>
+                <TableHead>{t('admin.userManagement.actions')}</TableHead>
               </TableRow>
-            ) : users.length === 0 ? (
-              <TableRow>
-                <TableCell
-                  colSpan={8}
-                  className='text-center py-8 text-muted-foreground'
-                >
-                  {t('admin.userManagement.noUsers')}
-                </TableCell>
-              </TableRow>
-            ) : (
-              users.map((user) => (
-                <TableRow key={user.id}>
-                  <TableCell>{user.id}</TableCell>
-                  <TableCell className='font-medium'>{user.username}</TableCell>
-                  <TableCell>{user.nickname || '-'}</TableCell>
-                  <TableCell>{user.email || '-'}</TableCell>
-                  <TableCell>
-                    {user.is_admin ? (
-                      <Badge variant='default'>
-                        {t('admin.userManagement.isAdmin')}
-                      </Badge>
-                    ) : (
-                      <Badge variant='secondary'>User</Badge>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <Switch
-                      checked={user.is_active}
-                      onCheckedChange={() => handleToggleActive(user)}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    {new Date(user.created_at).toLocaleDateString()}
-                  </TableCell>
-                  <TableCell>
-                    <div className='flex gap-2'>
-                      <Button
-                        variant='ghost'
-                        size='icon'
-                        onClick={() => handleOpenEdit(user)}
-                      >
-                        <Pencil className='h-4 w-4' />
-                      </Button>
-                      <Button
-                        variant='ghost'
-                        size='icon'
-                        onClick={() => handleOpenDelete(user)}
-                      >
-                        <Trash2 className='h-4 w-4 text-destructive' />
-                      </Button>
-                    </div>
+            </TableHeader>
+            <TableBody>
+              {loading && users.length === 0 ? (
+                <TableSkeletonRows columns={8} rows={10} />
+              ) : users.length === 0 ? (
+                <TableRow>
+                  <TableCell
+                    colSpan={8}
+                    className='text-center py-12 text-muted-foreground'
+                  >
+                    {t('admin.userManagement.noUsers')}
                   </TableCell>
                 </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </div>
-
-      {/* 分页 */}
-      {totalPages > 1 && (
-        <div className='flex justify-center gap-2'>
-          <Button
-            variant='outline'
-            size='sm'
-            disabled={currentPage === 1}
-            onClick={() => setCurrentPage((p) => p - 1)}
-          >
-            {t('common.previous')}
-          </Button>
-          <span className='flex items-center px-4'>
-            {currentPage} / {totalPages}
-          </span>
-          <Button
-            variant='outline'
-            size='sm'
-            disabled={currentPage === totalPages}
-            onClick={() => setCurrentPage((p) => p + 1)}
-          >
-            {t('common.next')}
-          </Button>
+              ) : (
+                users.map((user) => (
+                  <TableRow
+                    key={user.id}
+                    className={`user-data-row transition-opacity duration-200 ${
+                      loading ? 'opacity-60 pointer-events-none' : ''
+                    }`}
+                  >
+                    <TableCell>{user.id}</TableCell>
+                    <TableCell className='font-medium'>{user.username}</TableCell>
+                    <TableCell>{user.nickname || '-'}</TableCell>
+                    <TableCell>{user.email || '-'}</TableCell>
+                    <TableCell>
+                      {user.is_admin ? (
+                        <Badge variant='default'>
+                          {t('admin.userManagement.isAdmin')}
+                        </Badge>
+                      ) : (
+                        <Badge variant='secondary'>User</Badge>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <Switch
+                        checked={user.is_active}
+                        onCheckedChange={() => handleToggleActive(user)}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      {new Date(user.created_at).toLocaleDateString()}
+                    </TableCell>
+                    <TableCell>
+                      <div className='flex gap-2'>
+                        <Button
+                          variant='ghost'
+                          size='icon'
+                          onClick={() => handleOpenEdit(user)}
+                        >
+                          <Pencil className='h-4 w-4' />
+                        </Button>
+                        <Button
+                          variant='ghost'
+                          size='icon'
+                          onClick={() => handleOpenDelete(user)}
+                        >
+                          <Trash2 className='h-4 w-4 text-destructive' />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
         </div>
-      )}
+
+        {/* 底部分页栏 / Table Footer Pagination */}
+        <div className='border-t bg-muted/10 px-4 py-2.5 mt-auto'>
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            pageSize={pageSize}
+            totalItems={total}
+            onPageChange={setCurrentPage}
+            onPageSizeChange={(size) => {
+              setPageSize(size);
+              setCurrentPage(1);
+            }}
+            pageSizeOptions={[10, 20, 50, 100]}
+          />
+        </div>
+      </div>
 
       {/* 创建用户对话框 */}
       <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>

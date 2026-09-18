@@ -28,9 +28,9 @@ import (
 	"strings"
 	"time"
 
+	installerapp "github.com/LeonYoah/stx/internal/apps/installer"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
-	installerapp "github.com/seatunnel/seatunnelX/internal/apps/installer"
 )
 
 type RuntimeStorageListItem struct {
@@ -113,7 +113,7 @@ func (s *Service) ListRuntimeStorage(
 	if err != nil {
 		return nil, err
 	}
-	node, hostInfo, err := s.pickSeatunnelXJavaProxyNode(ctx, clusterID)
+	node, hostInfo, err := s.pickSTXJavaProxyNode(ctx, clusterID)
 	if err != nil {
 		return nil, err
 	}
@@ -129,7 +129,7 @@ func (s *Service) ListRuntimeStorage(
 	if limit > 0 {
 		params["limit"] = strconv.Itoa(limit)
 	}
-	success, output, err := s.agentSender.SendCommand(ctx, hostInfo.AgentID, "seatunnelx_java_proxy_list", params)
+	success, output, err := s.agentSender.SendCommand(ctx, hostInfo.AgentID, "stx_java_proxy_list", params)
 	result := runtimeStorageHostResultFromCommandOutput(success, output)
 	if err == nil && result.Success {
 		listResult := &RuntimeStorageListResult{ClusterID: clusterID, Kind: string(kind), Path: strings.TrimSpace(path)}

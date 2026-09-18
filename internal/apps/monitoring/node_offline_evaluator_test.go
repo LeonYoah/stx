@@ -29,10 +29,10 @@ import (
 	"testing"
 	"time"
 
+	clusterapp "github.com/LeonYoah/stx/internal/apps/cluster"
+	hostapp "github.com/LeonYoah/stx/internal/apps/host"
+	"github.com/LeonYoah/stx/internal/apps/monitor"
 	"github.com/glebarez/sqlite"
-	clusterapp "github.com/seatunnel/seatunnelX/internal/apps/cluster"
-	hostapp "github.com/seatunnel/seatunnelX/internal/apps/host"
-	"github.com/seatunnel/seatunnelX/internal/apps/monitor"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )

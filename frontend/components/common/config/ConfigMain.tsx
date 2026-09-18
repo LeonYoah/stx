@@ -38,6 +38,7 @@ import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { RefreshCw, Settings, FileText, Server, Check, AlertTriangle } from 'lucide-react';
+import {WorkspaceHeader} from '@/components/common/layout';
 import { motion } from 'motion/react';
 import services from '@/lib/services';
 import type { ConfigInfo, ConfigVersionInfo } from '@/lib/services/config';
@@ -252,25 +253,20 @@ export function ConfigMain({ clusterId, clusterName }: ConfigMainProps) {
       variants={containerVariants}
     >
       {/* Header / 标题 */}
-      <motion.div
-        className="flex items-center justify-between"
-        variants={itemVariants}
-      >
-        <div className="flex items-center gap-2">
-          <Settings className="h-6 w-6" />
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">
-              {t('config.title')}
-            </h1>
-            <p className="text-muted-foreground mt-1">
-              {clusterName ? t('config.clusterConfigDesc', { name: clusterName }) : t('config.desc')}
-            </p>
-          </div>
-        </div>
-        <Button variant="outline" onClick={loadConfigs} disabled={loading}>
-          <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-          {t('common.refresh')}
-        </Button>
+      <motion.div variants={itemVariants}>
+        <WorkspaceHeader
+          icon={<Settings />}
+          title={t('config.title')}
+          subtitle={
+            clusterName ? t('config.clusterConfigDesc', { name: clusterName }) : t('config.desc')
+          }
+          actions={
+            <Button variant="outline" onClick={loadConfigs} disabled={loading}>
+              <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+              {t('common.refresh')}
+            </Button>
+          }
+        />
       </motion.div>
 
       <Separator />

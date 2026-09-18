@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-// Package dashboard provides dashboard statistics for the SeaTunnelX system.
-// dashboard 包提供 SeaTunnelX 系统的仪表盘统计功能。
+// Package dashboard provides dashboard statistics for the STX system.
+// dashboard 包提供 STX 系统的仪表盘统计功能。
 package dashboard
 
 // DashboardDataResponse is the common API envelope used by dashboard handlers.

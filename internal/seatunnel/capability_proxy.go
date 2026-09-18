@@ -23,34 +23,34 @@ import (
 )
 
 const (
-	// DefaultSeatunnelXJavaProxyVersion is the fallback seatunnelx-java-proxy implementation
-	// shipped with SeaTunnelX until newer SeaTunnel-specific probe jars are added.
-	// DefaultSeatunnelXJavaProxyVersion 是 SeaTunnelX 当前内置的 seatunnelx-java-proxy 回退版本。
-	DefaultSeatunnelXJavaProxyVersion = "2.3.13"
+	// DefaultSTXJavaProxyVersion is the fallback stx-java-proxy implementation
+	// shipped with STX until newer SeaTunnel-specific probe jars are added.
+	// DefaultSTXJavaProxyVersion 是 STX 当前内置的 stx-java-proxy 回退版本。
+	DefaultSTXJavaProxyVersion = "2.3.13"
 
-	// SeatunnelXJavaProxyJarFileNamePattern defines the packaged jar naming convention.
-	// SeatunnelXJavaProxyJarFileNamePattern 定义 seatunnelx-java-proxy jar 的统一命名规则。
-	SeatunnelXJavaProxyJarFileNamePattern = "seatunnelx-java-proxy-%s.jar"
+	// STXJavaProxyJarFileNamePattern defines the packaged jar naming convention.
+	// STXJavaProxyJarFileNamePattern 定义 stx-java-proxy jar 的统一命名规则。
+	STXJavaProxyJarFileNamePattern = "stx-java-proxy-%s.jar"
 
-	// SeatunnelXJavaProxyScriptFileName is the shared launcher script name.
-	// SeatunnelXJavaProxyScriptFileName 是统一的 seatunnelx-java-proxy 启动脚本名。
-	SeatunnelXJavaProxyScriptFileName = "seatunnelx-java-proxy.sh"
+	// STXJavaProxyScriptFileName is the shared launcher script name.
+	// STXJavaProxyScriptFileName 是统一的 stx-java-proxy 启动脚本名。
+	STXJavaProxyScriptFileName = "stx-java-proxy.sh"
 )
 
-// ResolveSeatunnelXJavaProxyVersion falls back to the packaged default when no
-// SeaTunnel-specific seatunnelx-java-proxy jar version is provided.
-// ResolveSeatunnelXJavaProxyVersion 在未指定版本时回退到内置默认 seatunnelx-java-proxy 版本。
-func ResolveSeatunnelXJavaProxyVersion(version string) string {
+// ResolveSTXJavaProxyVersion falls back to the packaged default when no
+// SeaTunnel-specific stx-java-proxy jar version is provided.
+// ResolveSTXJavaProxyVersion 在未指定版本时回退到内置默认 stx-java-proxy 版本。
+func ResolveSTXJavaProxyVersion(version string) string {
 	trimmed := strings.TrimSpace(version)
 	if trimmed != "" {
 		return trimmed
 	}
-	return DefaultSeatunnelXJavaProxyVersion
+	return DefaultSTXJavaProxyVersion
 }
 
-// SeatunnelXJavaProxyJarFileName returns the packaged seatunnelx-java-proxy jar file name
+// STXJavaProxyJarFileName returns the packaged stx-java-proxy jar file name
 // for a SeaTunnel version.
-// SeatunnelXJavaProxyJarFileName 返回指定 SeaTunnel 版本对应的 seatunnelx-java-proxy jar 文件名。
-func SeatunnelXJavaProxyJarFileName(version string) string {
-	return fmt.Sprintf(SeatunnelXJavaProxyJarFileNamePattern, ResolveSeatunnelXJavaProxyVersion(version))
+// STXJavaProxyJarFileName 返回指定 SeaTunnel 版本对应的 stx-java-proxy jar 文件名。
+func STXJavaProxyJarFileName(version string) string {
+	return fmt.Sprintf(STXJavaProxyJarFileNamePattern, ResolveSTXJavaProxyVersion(version))
 }

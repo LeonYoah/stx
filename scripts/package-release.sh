@@ -34,12 +34,13 @@ ALERTMANAGER_VERSION="${ALERTMANAGER_VERSION:-0.31.1}"
 GRAFANA_VERSION="${GRAFANA_VERSION:-12.3.3}"
 CAPABILITY_PROXY_DEFAULT_VERSION="${CAPABILITY_PROXY_DEFAULT_VERSION:-2.3.13}"
 
+# 打印发布打包脚本的用法。/ Print release packaging usage.
 usage() {
   cat <<'EOF'
 Usage: scripts/package-release.sh [options]
 
 Options:
-  --arch <amd64|arm64|all>          Target CPU arch for seatunnelx binary (default: amd64)
+  --arch <amd64|arm64|all>          Target CPU arch for stx binary (default: amd64)
   --bundle-observability <with|without|both>
                                      Build package variant with/without bundled stack (default: both)
   --node-major <18|22>               Bundle Node runtime major version for Next standalone (18 is recommended for CentOS 7)
@@ -300,47 +301,50 @@ if [[ ! -f "$FRONTEND_DIST/server.js" ]]; then
   exit 1
 fi
 
-build_seatunnelx_binary() {
+# 构建指定架构的 STX 后端二进制。/ Build the STX backend binary for the requested architecture.
+build_stx_binary() {
   local arch="$1"
-  local out="$BUILD_DIR/seatunnelx-linux-${arch}"
-  echo "building seatunnelx for linux/$arch ..."
+  local out="$BUILD_DIR/stx-linux-${arch}"
+  echo "building stx for linux/$arch ..."
   (
     cd "$ROOT_DIR"
     GOOS=linux GOARCH="$arch" CGO_ENABLED=0 go build -o "$out" .
   )
 }
 
+# 构建发布包所需的双架构 STX Agent。/ Build both STX Agent architectures required by release packages.
 build_agent_binaries() {
-  local out_amd64="$BUILD_DIR/seatunnelx-agent-linux-amd64"
-  local out_arm64="$BUILD_DIR/seatunnelx-agent-linux-arm64"
+  local out_amd64="$BUILD_DIR/stx-agent-linux-amd64"
+  local out_arm64="$BUILD_DIR/stx-agent-linux-arm64"
 
-  echo "building seatunnelx-agent for linux/amd64 ..."
+  echo "building stx-agent for linux/amd64 ..."
   (
     cd "$ROOT_DIR/agent"
     GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o "$out_amd64" ./cmd
   )
-  echo "building seatunnelx-agent for linux/arm64 ..."
+  echo "building stx-agent for linux/arm64 ..."
   (
     cd "$ROOT_DIR/agent"
     GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o "$out_arm64" ./cmd
   )
 }
 
-build_seatunnelx_java_proxy_jar() {
-  local proxy_project_dir="$ROOT_DIR/tools/seatunnelx-java-proxy"
+# 构建并暂存 STX Java Proxy 薄 JAR。/ Build and stage the STX Java Proxy thin JAR.
+build_stx_java_proxy_jar() {
+  local proxy_project_dir="$ROOT_DIR/tools/stx-java-proxy"
   local proxy_target_dir="$proxy_project_dir/target"
-  local proxy_out="$BUILD_DIR/seatunnelx-java-proxy-${CAPABILITY_PROXY_DEFAULT_VERSION}.jar"
+  local proxy_out="$BUILD_DIR/stx-java-proxy-${CAPABILITY_PROXY_DEFAULT_VERSION}.jar"
 
-  echo "building seatunnelx-java-proxy thin jar ..."
+  echo "building stx-java-proxy thin jar ..."
   (
     cd "$ROOT_DIR"
     mvn -q -f "$proxy_project_dir/pom.xml" -DskipTests package
   )
 
   local built_proxy_jar
-  built_proxy_jar="$(find "$proxy_target_dir" -maxdepth 1 -type f -name 'seatunnelx-java-proxy-*.jar' ! -name '*-bin.jar' | sort | head -n1)"
+  built_proxy_jar="$(find "$proxy_target_dir" -maxdepth 1 -type f -name 'stx-java-proxy-*.jar' ! -name '*-bin.jar' | sort | head -n1)"
   if [[ -z "$built_proxy_jar" || ! -f "$built_proxy_jar" ]]; then
-    echo "failed to locate built seatunnelx-java-proxy thin jar under $proxy_target_dir"
+    echo "failed to locate built stx-java-proxy thin jar under $proxy_target_dir"
     exit 1
   fi
 
@@ -348,12 +352,13 @@ build_seatunnelx_java_proxy_jar() {
   CAPABILITY_PROXY_JAR="$proxy_out"
 }
 
-stage_seatunnelx_java_proxy_jars() {
+# 将可用的 STX Java Proxy JAR 放入发布目录。/ Stage available STX Java Proxy JARs in the release directory.
+stage_stx_java_proxy_jars() {
   local destination_dir="$1"
   mkdir -p "$destination_dir"
 
   if [[ -d "$ROOT_DIR/lib" ]]; then
-    find "$ROOT_DIR/lib" -maxdepth 1 -type f -name 'seatunnelx-java-proxy-*.jar' -print0 | while IFS= read -r -d '' jar_path; do
+    find "$ROOT_DIR/lib" -maxdepth 1 -type f -name 'stx-java-proxy-*.jar' -print0 | while IFS= read -r -d '' jar_path; do
       cp "$jar_path" "$destination_dir/"
     done
   fi
@@ -362,9 +367,9 @@ stage_seatunnelx_java_proxy_jars() {
 }
 
 build_agent_binaries
-build_seatunnelx_java_proxy_jar
+build_stx_java_proxy_jar
 for arch in "${ARCHES[@]}"; do
-  build_seatunnelx_binary "$arch"
+  build_stx_binary "$arch"
 done
 
 prepare_observability_stack() {
@@ -428,15 +433,15 @@ prepare_observability_stack() {
 
 for arch in "${ARCHES[@]}"; do
   for obs in "${OBS_VARIANTS[@]}"; do
-    pkg_name="seatunnelx-${APP_VERSION_SAFE}-linux-${arch}-node${NODE_MAJOR}-${NODE_VARIANT}-${obs}-observability"
+    pkg_name="stx-${APP_VERSION_SAFE}-linux-${arch}-node${NODE_MAJOR}-${NODE_VARIANT}-${obs}-observability"
     pkg_dir="$STAGE_DIR/$pkg_name"
     rm -rf "$pkg_dir"
     mkdir -p "$pkg_dir"
 
     echo "staging package: $pkg_name"
 
-    cp "$BUILD_DIR/seatunnelx-linux-${arch}" "$pkg_dir/seatunnelx"
-    chmod +x "$pkg_dir/seatunnelx"
+    cp "$BUILD_DIR/stx-linux-${arch}" "$pkg_dir/stx"
+    chmod +x "$pkg_dir/stx"
 
     cp "$ROOT_DIR/README.md" "$pkg_dir/"
     cp "$ROOT_DIR/LICENSE" "$pkg_dir/"
@@ -445,12 +450,12 @@ for arch in "${ARCHES[@]}"; do
     cp "$ROOT_DIR/support-files/release/install.sh" "$pkg_dir/install.sh"
 
     mkdir -p "$pkg_dir/lib/agent" "$pkg_dir/scripts"
-    cp "$BUILD_DIR/seatunnelx-agent-linux-amd64" "$pkg_dir/lib/agent/seatunnelx-agent-linux-amd64"
-    cp "$BUILD_DIR/seatunnelx-agent-linux-arm64" "$pkg_dir/lib/agent/seatunnelx-agent-linux-arm64"
-    stage_seatunnelx_java_proxy_jars "$pkg_dir/lib"
-    cp "$ROOT_DIR/scripts/seatunnelx-java-proxy.sh" "$pkg_dir/scripts/seatunnelx-java-proxy.sh"
-    chmod +x "$pkg_dir/lib/agent/seatunnelx-agent-linux-amd64" "$pkg_dir/lib/agent/seatunnelx-agent-linux-arm64"
-    chmod +x "$pkg_dir/scripts/seatunnelx-java-proxy.sh"
+    cp "$BUILD_DIR/stx-agent-linux-amd64" "$pkg_dir/lib/agent/stx-agent-linux-amd64"
+    cp "$BUILD_DIR/stx-agent-linux-arm64" "$pkg_dir/lib/agent/stx-agent-linux-arm64"
+    stage_stx_java_proxy_jars "$pkg_dir/lib"
+    cp "$ROOT_DIR/scripts/stx-java-proxy.sh" "$pkg_dir/scripts/stx-java-proxy.sh"
+    chmod +x "$pkg_dir/lib/agent/stx-agent-linux-amd64" "$pkg_dir/lib/agent/stx-agent-linux-arm64"
+    chmod +x "$pkg_dir/scripts/stx-java-proxy.sh"
 
     mkdir -p "$pkg_dir/frontend"
     cp -a "$FRONTEND_DIST"/. "$pkg_dir/frontend/"

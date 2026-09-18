@@ -1,8 +1,8 @@
 # 贡献者许可协议 / Contributor License Agreement
 
-> 本文件用于说明 SeaTunnelX 当前采用的混合许可证贡献政策：仓库整体以 Apache License 2.0 为主，少量历史遗留文件保留 MIT 文件级许可证。
+> 本文件用于说明 STX 当前采用的混合许可证贡献政策：仓库整体以 Apache License 2.0 为主，少量历史遗留文件保留 MIT 文件级许可证。
 >
-> This document describes SeaTunnelX's current mixed-license contribution policy: the repository is primarily distributed under Apache License 2.0, while a small set of legacy files retain their original file-level MIT license notices.
+> This document describes STX's current mixed-license contribution policy: the repository is primarily distributed under Apache License 2.0, while a small set of legacy files retain their original file-level MIT license notices.
 
 ## 中文版
 
@@ -11,8 +11,8 @@
 贡献者许可协议（CLA）用于确认：
 
 1. **您有权提交该贡献**：您提交的代码、文档或其他内容是您的原创，或您有合法权利将其贡献给本项目。
-2. **您同意遵循 SeaTunnelX 的许可证政策**：SeaTunnelX 仓库整体以 [Apache License 2.0](LICENSE) 分发，但 `licenses/legacy_mit_files.txt` 中列出的历史文件继续保留其原始 MIT 文件头。
-3. **您授予项目维护者必要权利**：您授予项目维护者与 SeaTunnelX 社区永久、全球、免版税、不可撤销的权利来使用、修改、分发并再许可您的贡献，前提是遵循仓库中声明的适用许可证政策。
+2. **您同意遵循 STX 的许可证政策**：STX 仓库整体以 [Apache License 2.0](LICENSE) 分发，但 `licenses/legacy_mit_files.txt` 中列出的历史文件继续保留其原始 MIT 文件头。
+3. **您授予项目维护者必要权利**：您授予项目维护者与 STX 社区永久、全球、免版税、不可撤销的权利来使用、修改、分发并再许可您的贡献，前提是遵循仓库中声明的适用许可证政策。
 
 ### 贡献将如何被许可？
 
@@ -39,8 +39,8 @@
 This CLA confirms that:
 
 1. **You have the right to submit the contribution**: the code, documentation, or other material you submit is your original work, or you otherwise have the right to contribute it.
-2. **You agree to follow SeaTunnelX's license policy**: SeaTunnelX is primarily distributed under the [Apache License 2.0](LICENSE), while the legacy files listed in `licenses/legacy_mit_files.txt` continue to retain their original file-level MIT notices.
-3. **You grant the maintainers the necessary rights**: you grant the project maintainers and the SeaTunnelX community a perpetual, worldwide, royalty-free, irrevocable right to use, modify, distribute, and relicense your contributions as required by the repository's stated license policy.
+2. **You agree to follow STX's license policy**: STX is primarily distributed under the [Apache License 2.0](LICENSE), while the legacy files listed in `licenses/legacy_mit_files.txt` continue to retain their original file-level MIT notices.
+3. **You grant the maintainers the necessary rights**: you grant the project maintainers and the STX community a perpetual, worldwide, royalty-free, irrevocable right to use, modify, distribute, and relicense your contributions as required by the repository's stated license policy.
 
 ### How will contributions be licensed?
 

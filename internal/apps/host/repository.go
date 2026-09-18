@@ -142,14 +142,18 @@ func (r *Repository) List(ctx context.Context, filter *HostFilter, heartbeatTime
 	// Apply filters / 应用过滤条件
 	if filter != nil {
 		if filter.Name != "" {
-			query = query.Where("name LIKE ?", "%"+filter.Name+"%")
+			// 按主机名称模糊过滤（使用 LOWER 忽略大小写，兼容多数据库）
+			// Filter by host name (case-insensitive using LOWER for multi-database compatibility)
+			query = query.Where("LOWER(name) LIKE LOWER(?)", "%"+filter.Name+"%")
 		}
 		// Filter by host type / 按主机类型过滤
 		if filter.HostType != "" {
 			query = query.Where("host_type = ?", filter.HostType)
 		}
 		if filter.IPAddress != "" {
-			query = query.Where("ip_address LIKE ?", "%"+filter.IPAddress+"%")
+			// 按 IP 地址模糊过滤（使用 LOWER 忽略大小写，兼容多数据库）
+			// Filter by IP address (case-insensitive using LOWER for multi-database compatibility)
+			query = query.Where("LOWER(ip_address) LIKE LOWER(?)", "%"+filter.IPAddress+"%")
 		}
 		// Filter by host status / 按主机状态过滤
 		if filter.Status != "" {

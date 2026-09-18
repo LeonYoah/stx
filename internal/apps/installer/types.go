@@ -20,7 +20,7 @@ package installer
 import (
 	"time"
 
-	"github.com/seatunnel/seatunnelX/internal/seatunnel"
+	"github.com/LeonYoah/stx/internal/seatunnel"
 )
 
 // MirrorSource represents the download mirror source

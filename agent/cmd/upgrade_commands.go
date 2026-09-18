@@ -22,9 +22,9 @@ import (
 	"fmt"
 	"strings"
 
-	pb "github.com/seatunnel/seatunnelX/agent"
-	agentconfig "github.com/seatunnel/seatunnelX/agent/internal/config"
-	"github.com/seatunnel/seatunnelX/agent/internal/executor"
+	pb "github.com/LeonYoah/stx/agent"
+	agentconfig "github.com/LeonYoah/stx/agent/internal/config"
+	"github.com/LeonYoah/stx/agent/internal/executor"
 )
 
 func (a *Agent) handleManagedUpgradeCommand(ctx context.Context, cmd *pb.CommandRequest, reporter executor.ProgressReporter) (*pb.CommandResponse, error) {

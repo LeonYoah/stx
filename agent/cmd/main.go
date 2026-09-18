@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-// Package main is the entry point for the SeaTunnelX Agent service.
-// main 包是 SeaTunnelX Agent 服务的入口点。
+// Package main is the entry point for the STX Agent service.
+// main 包是 STX Agent 服务的入口点。
 //
 // Agent is a daemon process deployed on physical/VM nodes that:
 // Agent 是部署在物理机/VM 节点上的守护进程，负责：
@@ -43,19 +43,19 @@ import (
 	"syscall"
 	"time"
 
-	pb "github.com/seatunnel/seatunnelX/agent"
-	"github.com/seatunnel/seatunnelX/agent/internal/collector"
-	"github.com/seatunnel/seatunnelX/agent/internal/config"
-	agentdiagnostics "github.com/seatunnel/seatunnelX/agent/internal/diagnostics"
-	"github.com/seatunnel/seatunnelX/agent/internal/discovery"
-	"github.com/seatunnel/seatunnelX/agent/internal/executor"
-	agentgrpc "github.com/seatunnel/seatunnelX/agent/internal/grpc"
-	"github.com/seatunnel/seatunnelX/agent/internal/installer"
-	"github.com/seatunnel/seatunnelX/agent/internal/logger"
-	"github.com/seatunnel/seatunnelX/agent/internal/monitor"
-	"github.com/seatunnel/seatunnelX/agent/internal/process"
-	"github.com/seatunnel/seatunnelX/agent/internal/restart"
-	"github.com/seatunnel/seatunnelX/internal/seatunnel"
+	pb "github.com/LeonYoah/stx/agent"
+	"github.com/LeonYoah/stx/agent/internal/collector"
+	"github.com/LeonYoah/stx/agent/internal/config"
+	agentdiagnostics "github.com/LeonYoah/stx/agent/internal/diagnostics"
+	"github.com/LeonYoah/stx/agent/internal/discovery"
+	"github.com/LeonYoah/stx/agent/internal/executor"
+	agentgrpc "github.com/LeonYoah/stx/agent/internal/grpc"
+	"github.com/LeonYoah/stx/agent/internal/installer"
+	"github.com/LeonYoah/stx/agent/internal/logger"
+	"github.com/LeonYoah/stx/agent/internal/monitor"
+	"github.com/LeonYoah/stx/agent/internal/process"
+	"github.com/LeonYoah/stx/agent/internal/restart"
+	"github.com/LeonYoah/stx/internal/seatunnel"
 	"github.com/spf13/cobra"
 )
 
@@ -202,8 +202,8 @@ func (a *Agent) Run() error {
 
 	ctx := a.ctx
 	logger.InfoF(ctx, "========================================")
-	logger.InfoF(ctx, "  SeaTunnelX Agent Starting...")
-	logger.InfoF(ctx, "  SeaTunnelX Agent 正在启动...")
+	logger.InfoF(ctx, "  STX Agent Starting...")
+	logger.InfoF(ctx, "  STX Agent 正在启动...")
 	logger.InfoF(ctx, "========================================")
 	logger.InfoF(ctx, "Version: %s, Commit: %s, Build: %s", Version, GitCommit, BuildTime)
 	logger.InfoF(ctx, "Control Plane: %v", a.config.ControlPlane.Addresses)
@@ -1182,9 +1182,9 @@ func (a *Agent) handleUpgradeCommand(ctx context.Context, cmd *pb.CommandRequest
 }
 
 func (a *Agent) handleStartCommand(ctx context.Context, cmd *pb.CommandRequest, reporter executor.ProgressReporter) (*pb.CommandResponse, error) {
-	if isSeatunnelXJavaProxyServiceCommand(cmd.Parameters) {
-		reporter.Report(10, "Starting managed seatunnelx-java-proxy service... / 启动托管 seatunnelx-java-proxy 服务...")
-		status, err := installer.StartManagedSeatunnelXJavaProxyService(
+	if isSTXJavaProxyServiceCommand(cmd.Parameters) {
+		reporter.Report(10, "Starting managed stx-java-proxy service... / 启动托管 stx-java-proxy 服务...")
+		status, err := installer.StartManagedSTXJavaProxyService(
 			ctx,
 			getParamString(cmd.Parameters, "install_dir", a.config.SeaTunnel.InstallDir),
 			getParamString(cmd.Parameters, "version", seatunnel.DefaultVersion()),
@@ -1192,8 +1192,8 @@ func (a *Agent) handleStartCommand(ctx context.Context, cmd *pb.CommandRequest, 
 		if err != nil {
 			return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err
 		}
-		reporter.Report(100, "Managed seatunnelx-java-proxy service started / 托管 seatunnelx-java-proxy 服务已启动")
-		return createSeatunnelXJavaProxyCommandResponse(cmd.CommandId, status), nil
+		reporter.Report(100, "Managed stx-java-proxy service started / 托管 stx-java-proxy 服务已启动")
+		return createSTXJavaProxyCommandResponse(cmd.CommandId, status), nil
 	}
 
 	reporter.Report(10, "Starting SeaTunnel process... / 启动 SeaTunnel 进程...")
@@ -1249,17 +1249,17 @@ func (a *Agent) handleStartCommand(ctx context.Context, cmd *pb.CommandRequest, 
 }
 
 func (a *Agent) handleStopCommand(ctx context.Context, cmd *pb.CommandRequest, reporter executor.ProgressReporter) (*pb.CommandResponse, error) {
-	if isSeatunnelXJavaProxyServiceCommand(cmd.Parameters) {
-		reporter.Report(10, "Stopping managed seatunnelx-java-proxy service... / 停止托管 seatunnelx-java-proxy 服务...")
-		status, err := installer.StopManagedSeatunnelXJavaProxyService(
+	if isSTXJavaProxyServiceCommand(cmd.Parameters) {
+		reporter.Report(10, "Stopping managed stx-java-proxy service... / 停止托管 stx-java-proxy 服务...")
+		status, err := installer.StopManagedSTXJavaProxyService(
 			ctx,
 			getParamString(cmd.Parameters, "install_dir", a.config.SeaTunnel.InstallDir),
 		)
 		if err != nil {
 			return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err
 		}
-		reporter.Report(100, "Managed seatunnelx-java-proxy service stopped / 托管 seatunnelx-java-proxy 服务已停止")
-		return createSeatunnelXJavaProxyCommandResponse(cmd.CommandId, status), nil
+		reporter.Report(100, "Managed stx-java-proxy service stopped / 托管 stx-java-proxy 服务已停止")
+		return createSTXJavaProxyCommandResponse(cmd.CommandId, status), nil
 	}
 
 	reporter.Report(10, "Stopping SeaTunnel process... / 停止 SeaTunnel 进程...")
@@ -1309,13 +1309,13 @@ func (a *Agent) handleStopCommand(ctx context.Context, cmd *pb.CommandRequest, r
 }
 
 func (a *Agent) handleRestartCommand(ctx context.Context, cmd *pb.CommandRequest, reporter executor.ProgressReporter) (*pb.CommandResponse, error) {
-	if isSeatunnelXJavaProxyServiceCommand(cmd.Parameters) {
-		reporter.Report(10, "Restarting managed seatunnelx-java-proxy service... / 重启托管 seatunnelx-java-proxy 服务...")
+	if isSTXJavaProxyServiceCommand(cmd.Parameters) {
+		reporter.Report(10, "Restarting managed stx-java-proxy service... / 重启托管 stx-java-proxy 服务...")
 		installDir := getParamString(cmd.Parameters, "install_dir", a.config.SeaTunnel.InstallDir)
-		if _, err := installer.StopManagedSeatunnelXJavaProxyService(ctx, installDir); err != nil && !strings.Contains(strings.ToLower(err.Error()), "already stopped") {
+		if _, err := installer.StopManagedSTXJavaProxyService(ctx, installDir); err != nil && !strings.Contains(strings.ToLower(err.Error()), "already stopped") {
 			return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err
 		}
-		status, err := installer.StartManagedSeatunnelXJavaProxyService(
+		status, err := installer.StartManagedSTXJavaProxyService(
 			ctx,
 			installDir,
 			getParamString(cmd.Parameters, "version", seatunnel.DefaultVersion()),
@@ -1323,8 +1323,8 @@ func (a *Agent) handleRestartCommand(ctx context.Context, cmd *pb.CommandRequest
 		if err != nil {
 			return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err
 		}
-		reporter.Report(100, "Managed seatunnelx-java-proxy service restarted / 托管 seatunnelx-java-proxy 服务已重启")
-		return createSeatunnelXJavaProxyCommandResponse(cmd.CommandId, status), nil
+		reporter.Report(100, "Managed stx-java-proxy service restarted / 托管 stx-java-proxy 服务已重启")
+		return createSTXJavaProxyCommandResponse(cmd.CommandId, status), nil
 	}
 
 	reporter.Report(10, "Restarting SeaTunnel process... / 重启 SeaTunnel 进程...")
@@ -1390,15 +1390,15 @@ func (a *Agent) handleRestartCommand(ctx context.Context, cmd *pb.CommandRequest
 }
 
 func (a *Agent) handleStatusCommand(ctx context.Context, cmd *pb.CommandRequest, reporter executor.ProgressReporter) (*pb.CommandResponse, error) {
-	if isSeatunnelXJavaProxyServiceCommand(cmd.Parameters) {
-		status, err := installer.GetManagedSeatunnelXJavaProxyServiceStatus(
+	if isSTXJavaProxyServiceCommand(cmd.Parameters) {
+		status, err := installer.GetManagedSTXJavaProxyServiceStatus(
 			ctx,
 			getParamString(cmd.Parameters, "install_dir", a.config.SeaTunnel.InstallDir),
 		)
 		if err != nil {
 			return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err
 		}
-		return createSeatunnelXJavaProxyCommandResponse(cmd.CommandId, status), nil
+		return createSTXJavaProxyCommandResponse(cmd.CommandId, status), nil
 	}
 
 	processName := getParamString(cmd.Parameters, "process_name", "seatunnel")
@@ -1416,13 +1416,13 @@ func (a *Agent) handleStatusCommand(ctx context.Context, cmd *pb.CommandRequest,
 	return executor.CreateSuccessResponse(cmd.CommandId, output), nil
 }
 
-func isSeatunnelXJavaProxyServiceCommand(params map[string]string) bool {
+func isSTXJavaProxyServiceCommand(params map[string]string) bool {
 	service := strings.TrimSpace(getParamString(params, "service", ""))
 	target := strings.TrimSpace(getParamString(params, "target", ""))
-	return service == "seatunnelx_java_proxy" || target == "seatunnelx_java_proxy"
+	return service == "stx_java_proxy" || target == "stx_java_proxy"
 }
 
-func createSeatunnelXJavaProxyCommandResponse(commandID string, status *installer.SeatunnelXJavaProxyServiceStatus) *pb.CommandResponse {
+func createSTXJavaProxyCommandResponse(commandID string, status *installer.STXJavaProxyServiceStatus) *pb.CommandResponse {
 	payload, err := json.Marshal(status)
 	if err != nil {
 		return executor.CreateErrorResponse(commandID, err.Error())
@@ -1952,10 +1952,10 @@ func (a *installerProgressAdapter) ReportStepSkipped(step installer.InstallStep,
 // rootCmd is the root command for the Agent CLI
 // rootCmd 是 Agent CLI 的根命令
 var rootCmd = &cobra.Command{
-	Use:   "seatunnelx-agent",
-	Short: "SeaTunnelX Agent - Node daemon for SeaTunnel cluster management",
-	Long: `SeaTunnelX Agent is a daemon process deployed on physical/VM nodes.
-SeaTunnelX Agent 是部署在物理机/VM 节点上的守护进程。
+	Use:   "stx-agent",
+	Short: "STX Agent - Node daemon for SeaTunnel cluster management",
+	Long: `STX Agent is a daemon process deployed on physical/VM nodes.
+STX Agent 是部署在物理机/VM 节点上的守护进程。
 
 It communicates with the Control Plane via gRPC to:
 它通过 gRPC 与 Control Plane 通信，用于：
@@ -1974,7 +1974,7 @@ var versionCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		ctx := context.Background()
 		msg := fmt.Sprintf(
-			"SeaTunnelX Agent\n  Version:    %s\n  Git Commit: %s\n  Build Time: %s\n  Go Version: %s\n  OS/Arch:    %s/%s\n",
+			"STX Agent\n  Version:    %s\n  Git Commit: %s\n  Build Time: %s\n  Go Version: %s\n  OS/Arch:    %s/%s\n",
 			Version, GitCommit, BuildTime, runtime.Version(), runtime.GOOS, runtime.GOARCH,
 		)
 		// 同时打印到控制台和写入日志，保持 CLI 体验又统一日志出口
@@ -1990,7 +1990,7 @@ var configFile string
 func init() {
 	// Add flags to root command
 	// 向根命令添加标志
-	rootCmd.PersistentFlags().StringVarP(&configFile, "config", "c", "", "config file path (default: /etc/seatunnelx-agent/config.yaml)")
+	rootCmd.PersistentFlags().StringVarP(&configFile, "config", "c", "", "config file path (default: /etc/stx-agent/config.yaml)")
 
 	// Add subcommands
 	// 添加子命令

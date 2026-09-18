@@ -24,12 +24,12 @@ import (
 	"strings"
 	"time"
 
-	clusterapp "github.com/seatunnel/seatunnelX/internal/apps/cluster"
-	appconfig "github.com/seatunnel/seatunnelX/internal/apps/config"
-	hostapp "github.com/seatunnel/seatunnelX/internal/apps/host"
-	installerapp "github.com/seatunnel/seatunnelX/internal/apps/installer"
-	pluginapp "github.com/seatunnel/seatunnelX/internal/apps/plugin"
-	"github.com/seatunnel/seatunnelX/internal/seatunnel"
+	clusterapp "github.com/LeonYoah/stx/internal/apps/cluster"
+	appconfig "github.com/LeonYoah/stx/internal/apps/config"
+	hostapp "github.com/LeonYoah/stx/internal/apps/host"
+	installerapp "github.com/LeonYoah/stx/internal/apps/installer"
+	pluginapp "github.com/LeonYoah/stx/internal/apps/plugin"
+	"github.com/LeonYoah/stx/internal/seatunnel"
 )
 
 const packageArchNoarch = "noarch"

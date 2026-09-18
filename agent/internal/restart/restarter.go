@@ -33,9 +33,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/seatunnel/seatunnelX/agent/internal/logger"
-	"github.com/seatunnel/seatunnelX/agent/internal/monitor"
-	"github.com/seatunnel/seatunnelX/agent/internal/process"
+	"github.com/LeonYoah/stx/agent/internal/logger"
+	"github.com/LeonYoah/stx/agent/internal/monitor"
+	"github.com/LeonYoah/stx/agent/internal/process"
 )
 
 // Default configuration values

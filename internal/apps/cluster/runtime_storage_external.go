@@ -26,9 +26,9 @@ import (
 	"strconv"
 	"strings"
 
+	installerapp "github.com/LeonYoah/stx/internal/apps/installer"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
-	installerapp "github.com/seatunnel/seatunnelX/internal/apps/installer"
 	"gopkg.in/yaml.v3"
 )
 
@@ -145,7 +145,7 @@ func (s *Service) fillRemoteRuntimeStorageStats(ctx context.Context, clusterObj 
 		return
 	}
 	params := runtimeStorageProxyParams(node.InstallDir, clusterObj.Version, kind, cfg.Checkpoint, cfg.IMAP)
-	success, output, sendErr := s.agentSender.SendCommand(ctx, hostInfo.AgentID, "seatunnelx_java_proxy_stat", params)
+	success, output, sendErr := s.agentSender.SendCommand(ctx, hostInfo.AgentID, "stx_java_proxy_stat", params)
 	if sendErr != nil {
 		spec.Warning = firstNonEmpty(spec.Warning, fmt.Sprintf("remote storage statistics unavailable: %v", sendErr))
 		return
@@ -441,7 +441,7 @@ func (s *Service) runRuntimeStorageProbeOnHost(
 		return &installerapp.RuntimeStorageValidationHostResult{Success: false, Message: "host agent is offline"}
 	}
 	params := runtimeStorageProxyParams(node.InstallDir, clusterObj.Version, kind, checkpoint, imap)
-	success, output, err := s.agentSender.SendCommand(ctx, host.AgentID, "seatunnelx_java_proxy_probe", params)
+	success, output, err := s.agentSender.SendCommand(ctx, host.AgentID, "stx_java_proxy_probe", params)
 	if err != nil {
 		return &installerapp.RuntimeStorageValidationHostResult{Success: false, Message: err.Error()}
 	}

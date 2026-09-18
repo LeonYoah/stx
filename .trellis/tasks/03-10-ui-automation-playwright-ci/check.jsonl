@@ -1,4 +1,2 @@
-{"file": ".agents/skills/finish-work/SKILL.md", "reason": "Finish work checklist"}
-{"file": ".agents/skills/check-backend/SKILL.md", "reason": "Backend check spec"}
-{"file": ".agents/skills/check-frontend/SKILL.md", "reason": "Frontend check spec"}
-{"file": ".agents/skills/check-cross-layer/SKILL.md", "reason": "Cross-layer review for frontend/backend/CI test contract"}
+{"file": ".agents/skills/trellis-finish-work/SKILL.md", "reason": "Finish work checklist"}
+{"file": ".agents/skills/trellis-check/SKILL.md", "reason": "Backend, frontend and cross-layer checks"}

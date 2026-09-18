@@ -22,19 +22,35 @@
 
 'use client';
 
-import { useState } from 'react';
-import { usePackages } from '@/hooks/use-installer';
-import { PackageTable } from './PackageTable';
-import { UploadPackageDialog } from './UploadPackageDialog';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Upload, RefreshCw, Package, Cloud, HardDrive } from 'lucide-react';
-import { useTranslations } from 'next-intl';
+import {useState, useMemo} from 'react';
+import {usePackages} from '@/hooks/use-installer';
+import {PackageTable} from './PackageTable';
+import {UploadPackageDialog} from './UploadPackageDialog';
+import {Button} from '@/components/ui/button';
+import {Card} from '@/components/ui/card';
+import {Badge} from '@/components/ui/badge';
+import {Upload, RefreshCw, Package, Cloud, HardDrive} from 'lucide-react';
+import {useTranslations} from 'next-intl';
+import {
+  WorkspaceHeader,
+  StatPillsBar,
+  type StatPillItem,
+} from '@/components/common/layout';
 
 export function PackageMain() {
   const t = useTranslations();
-  const { packages, loading, error, refresh, uploadPackage, deletePackage, startDownload, downloads, refreshVersions, refreshingVersions } = usePackages();
+  const {
+    packages,
+    loading,
+    error,
+    refresh,
+    uploadPackage,
+    deletePackage,
+    startDownload,
+    downloads,
+    refreshVersions,
+    refreshingVersions,
+  } = usePackages();
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'online' | 'local'>('online');
 
@@ -48,166 +64,151 @@ export function PackageMain() {
   };
 
   const handleDelete = async (version: string) => {
-    if (confirm(t('installer.confirmDeletePackage', { version }))) {
+    if (confirm(t('installer.confirmDeletePackage', {version}))) {
       await deletePackage(version);
     }
   };
 
-  const handleDownload = async (version: string, mirror: 'aliyun' | 'apache' | 'huaweicloud') => {
+  const handleDownload = async (
+    version: string,
+    mirror: 'aliyun' | 'apache' | 'huaweicloud',
+  ) => {
     try {
       await startDownload(version, mirror);
     } catch (err) {
-      // Error is handled by the hook / 错误由 hook 处理
+      // 错误由 hook 统一捕获与通知 / Error handled by hook
       console.error('Download failed:', err);
     }
   };
 
-  return (
-    <div className="w-full space-y-6">
-      {/* Header / 头部 */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Package className="h-6 w-6" />
-            {t('installer.packageManagement')}
-          </h1>
-          <p className="text-muted-foreground mt-1">
-            {t('installer.packageManagementDesc')}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={refresh} disabled={loading}>
-            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-            {t('common.refresh')}
-          </Button>
-          <Button size="sm" onClick={() => setUploadDialogOpen(true)}>
-            <Upload className="h-4 w-4 mr-2" />
-            {t('installer.uploadPackage')}
-          </Button>
-        </div>
-      </div>
+  // 状态胶囊配置：消除冗余说明卡片，垂直空间利用率最大化
+  // Status pills configuration: eliminate redundant description cards to maximize vertical space
+  const pillItems: StatPillItem[] = useMemo(
+    () => [
+      {
+        key: 'online',
+        label: t('installer.onlineVersions'),
+        count: packages?.versions.length || 0,
+        icon: <Cloud className='h-3.5 w-3.5' />,
+      },
+      {
+        key: 'local',
+        label: t('installer.localPackages'),
+        count: packages?.local_packages.length || 0,
+        icon: <HardDrive className='h-3.5 w-3.5' />,
+        variant:
+          (packages?.local_packages.length || 0) > 0 ? 'success' : 'default',
+      },
+    ],
+    [packages?.versions.length, packages?.local_packages.length, t],
+  );
 
-      {/* Error display / 错误显示 */}
+  return (
+    <div className='w-full space-y-3.5'>
+      {/* 头部标题区域（全局紧凑型规范） / Unified Compact Workspace Header */}
+      <WorkspaceHeader
+        icon={<Package />}
+        title={t('installer.packageManagement')}
+        subtitle={t('installer.packageManagementDesc')}
+        actions={
+          <div className='flex items-center gap-2'>
+            {packages?.recommended_version && (
+              <Badge
+                variant='outline'
+                className='h-7.5 px-2 text-xs bg-primary/10 text-primary border-primary/30 font-medium'
+              >
+                {t('installer.recommendedVersion')}: v
+                {packages.recommended_version}
+              </Badge>
+            )}
+            <Button
+              variant='outline'
+              size='sm'
+              onClick={refresh}
+              disabled={loading}
+              className='h-8 text-xs'
+            >
+              <RefreshCw
+                className={`h-3.5 w-3.5 mr-1.5 ${loading ? 'animate-spin' : ''}`}
+              />
+              {t('common.refresh')}
+            </Button>
+            <Button
+              size='sm'
+              onClick={() => setUploadDialogOpen(true)}
+              className='h-8 text-xs'
+            >
+              <Upload className='h-3.5 w-3.5 mr-1.5' />
+              {t('installer.uploadPackage')}
+            </Button>
+          </div>
+        }
+      />
+
+      {/* 错误显示 / Error banner */}
       {error && (
-        <Card className="border-destructive">
-          <CardContent className="pt-6">
-            <p className="text-destructive">{error}</p>
-          </CardContent>
-        </Card>
+        <div className='rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive'>
+          {error}
+        </div>
       )}
 
-      {/* Stats cards / 统计卡片 */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              {t('installer.availableVersions')}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {packages?.versions.length || 0}
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              {t('installer.localPackages')}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {packages?.local_packages.length || 0}
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              {t('installer.recommendedVersion')}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-primary">
-              {packages?.recommended_version || '-'}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      {/* 一体化紧凑卡片容器 / Unified Compact Table Container */}
+      <Card className='border-border/70 shadow-xs overflow-hidden flex flex-col min-h-[480px] sm:min-h-[calc(100vh-270px)]'>
+        {/* 工具栏：状态胶囊切换器 + 快速操作 / Toolbar: Segmented pills + Quick actions */}
+        <div className='p-3 sm:p-3.5 border-b bg-muted/20 flex flex-wrap items-center justify-between gap-2.5'>
+          <StatPillsBar
+            items={pillItems}
+            activeKey={activeTab}
+            onChange={(key) => setActiveTab(key as 'online' | 'local')}
+          />
 
-      {/* Package tabs / 安装包标签页 */}
-      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'online' | 'local')}>
-        <TabsList>
-          <TabsTrigger value="online" className="flex items-center gap-2">
-            <Cloud className="h-4 w-4" />
-            {t('installer.onlineVersions')}
-          </TabsTrigger>
-          <TabsTrigger value="local" className="flex items-center gap-2">
-            <HardDrive className="h-4 w-4" />
-            {t('installer.localPackages')}
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="online" className="mt-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <div>
-                <CardTitle>{t('installer.onlineVersions')}</CardTitle>
-                <CardDescription>
-                  {t('installer.onlineVersionsDesc')}
-                </CardDescription>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={refreshVersions}
-                disabled={refreshingVersions}
-              >
-                <RefreshCw className={`h-4 w-4 mr-2 ${refreshingVersions ? 'animate-spin' : ''}`} />
-                {t('installer.refreshVersions')}
-              </Button>
-            </CardHeader>
-            <CardContent>
-              <PackageTable
-                type="online"
-                versions={packages?.versions || []}
-                localPackages={packages?.local_packages || []}
-                recommendedVersion={packages?.recommended_version}
-                loading={loading}
-                onDownload={handleDownload}
-                downloads={downloads}
+          {activeTab === 'online' && (
+            <Button
+              variant='ghost'
+              size='sm'
+              onClick={refreshVersions}
+              disabled={refreshingVersions}
+              className='h-7 px-2 text-xs text-muted-foreground hover:text-foreground'
+            >
+              <RefreshCw
+                className={`h-3 w-3 mr-1 ${refreshingVersions ? 'animate-spin' : ''}`}
               />
-            </CardContent>
-          </Card>
-        </TabsContent>
+              {t('installer.refreshVersions')}
+            </Button>
+          )}
+        </div>
 
-        <TabsContent value="local" className="mt-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>{t('installer.localPackages')}</CardTitle>
-              <CardDescription>
-                {t('installer.localPackagesDesc')}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <PackageTable
-                type="local"
-                localPackages={packages?.local_packages || []}
-                loading={loading}
-                onDelete={handleDelete}
-              />
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+        {/* 表格主体内容：直达数据行，杜绝层层嵌套 / Table Body: Direct access to data rows */}
+        <div className='p-3 sm:p-4 flex-1 flex flex-col'>
+          {activeTab === 'online' ? (
+            <PackageTable
+              type='online'
+              versions={packages?.versions || []}
+              localPackages={packages?.local_packages || []}
+              recommendedVersion={packages?.recommended_version}
+              loading={loading}
+              onDownload={handleDownload}
+              downloads={downloads}
+            />
+          ) : (
+            <PackageTable
+              type='local'
+              localPackages={packages?.local_packages || []}
+              loading={loading}
+              onDelete={handleDelete}
+            />
+          )}
+        </div>
+      </Card>
 
-      {/* Upload dialog / 上传对话框 */}
+      {/* 上传对话框 / Upload Dialog */}
       <UploadPackageDialog
         open={uploadDialogOpen}
         onOpenChange={setUploadDialogOpen}
         onUpload={handleUpload}
-        existingLocalVersions={(packages?.local_packages || []).map((pkg) => pkg.version)}
+        existingLocalVersions={(packages?.local_packages || []).map(
+          (pkg) => pkg.version,
+        )}
       />
     </div>
   );

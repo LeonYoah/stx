@@ -19,7 +19,7 @@ import {CallbackHandler} from '@/components/common/auth/CallbackHandler';
 import {Metadata} from 'next';
 
 export const metadata: Metadata = {
-  title: 'OAuth 登录处理 | SeaTunnel',
+  title: 'OAuth 登录处理 | STX',
 };
 
 /**

@@ -1,7 +1,7 @@
 # data-sync-studio
 
 ## Goal
-在 SeaTunnelX 平台内实现一个数据同步工作台（Data Sync Studio）MVP，支持任务编辑、校验、DAG 展示、预览运行、正式提交与运行状态查看。
+在 STX 平台内实现一个数据同步工作台（Data Sync Studio）MVP，支持任务编辑、校验、DAG 展示、预览运行、正式提交与运行状态查看。
 
 ## Requirements
 - 支持创建与编辑数据同步任务定义。
@@ -22,7 +22,7 @@
 - 目标是在工作台里展示“当前配置解析后会形成怎样的 source / transform / sink DAG”，并尽量保持与 SeaTunnel Web 现有 DAG 风格一致。
 
 ### Backend Contract
-- `seatunnelx-java-proxy` 新增：
+- `stx-java-proxy` 新增：
   - `POST /api/v1/config/webui-dag`
 - 输入：
   - `content`
@@ -69,7 +69,7 @@
 - [ ] 可以发起正式 submit，并记录 engine job id 与运行状态。
 - [ ] 任务版本快照模型建立完成。
 - [ ] 架构与接口设计明确区分 validate / preview / submit / runtime tracking。
-- [ ] `seatunnelx-java-proxy` 提供 `POST /api/v1/config/webui-dag`，并能将 config DAG 转成 WebUI compatible pseudo job detail。
+- [ ] `stx-java-proxy` 提供 `POST /api/v1/config/webui-dag`，并能将 config DAG 转成 WebUI compatible pseudo job detail。
 - [ ] `/api/v1/sync/tasks/:id/dag` 返回包含 WebUI compatible `jobDag` 的 DAG preview 结果。
 - [ ] `/sync` 页面中的 DAG 弹窗优先展示 WebUI-compatible DAG 视图，而不是纯 JSON 列表。
 - [ ] 至少完成一轮后端单测、前端类型检查，以及工作台手工/自动化自测。

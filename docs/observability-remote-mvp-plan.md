@@ -1,4 +1,4 @@
-# SeaTunnelX 可观测性（远程集成）MVP 规划
+# STX 可观测性（远程集成）MVP 规划
 
 基于 `docs/observability-remote-design.md`。
 
@@ -6,10 +6,10 @@
 
 在不托管三件套进程（Prometheus/Alertmanager/Grafana）的前提下，完成最小可用远程集成闭环：
 
-1. Prometheus 通过 SeaTunnelX HTTP SD 动态发现所有集群 metrics 目标；
-2. Alertmanager 通过固定 webhook 推送告警到 SeaTunnelX；
-3. SeaTunnelX 完成告警入库并可查询；
-4. SeaTunnelX 提供集群级与平台级健康摘要 API；
+1. Prometheus 通过 STX HTTP SD 动态发现所有集群 metrics 目标；
+2. Alertmanager 通过固定 webhook 推送告警到 STX；
+3. STX 完成告警入库并可查询；
+4. STX 提供集群级与平台级健康摘要 API；
 5. Grafana 看板 JSON 以固定目录交付，支持导入使用。
 
 ---
@@ -49,7 +49,7 @@
 
 ## Out of Scope（MVP 外）
 
-- SeaTunnelX 拉起与管理三件套进程；
+- STX 拉起与管理三件套进程；
 - Alertmanager/Silence 高级策略编排 UI；
 - 告警通知渠道高级路由器；
 - 多租户隔离与复杂 RBAC。
@@ -95,7 +95,7 @@
 
 ## 4. 验收标准（M1）
 
-- [x] `observability.enabled=true` 且 `app.external_url` 非法时，SeaTunnelX 启动失败并提示具体错误；
+- [x] `observability.enabled=true` 且 `app.external_url` 非法时，STX 启动失败并提示具体错误；
 - [x] Prometheus 请求 HTTP SD 接口可拿到标准 TargetGroup JSON；
 - [x] Alertmanager webhook 推送后，告警记录可在数据库中查询到，重复告警可正确 upsert；
 - [x] `observability.enabled=false` 时，不注册以上公开接口。
@@ -170,7 +170,7 @@
 
 - 2026-02-27 / Step-9（外部三件套端到端联调完成）  
   在 `deps` 已部署 Prometheus/Alertmanager/Grafana 的前提下，完成真实联调闭环：  
-  1) SeaTunnelX 控制面升级为当前分支最新二进制并重启（端口 `8000`）；  
+  1) STX 控制面升级为当前分支最新二进制并重启（端口 `8000`）；<br>
   2) Prometheus 配置切换为 `http_sd_configs` 指向  
      `http://127.0.0.1:8000/api/v1/monitoring/prometheus/discovery` 并 reload；  
   3) Alertmanager receiver 增加 webhook  

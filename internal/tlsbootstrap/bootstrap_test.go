@@ -24,7 +24,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/seatunnel/seatunnelX/internal/config"
+	"github.com/LeonYoah/stx/internal/config"
 )
 
 func TestEnsureGRPCTLS_DefaultDisabledNoGenerate(t *testing.T) {

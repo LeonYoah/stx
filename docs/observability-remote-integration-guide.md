@@ -1,26 +1,26 @@
-# SeaTunnelX 可观测性远程接入指南（MVP）
+# STX 可观测性远程接入指南（MVP）
 
 ## 1. 目标
 
-本指南用于把已有的 Prometheus / Alertmanager / Grafana 与 SeaTunnelX 远程对接，形成最小闭环：
+本指南用于把已有的 Prometheus / Alertmanager / Grafana 与 STX 远程对接，形成最小闭环：
 
-- Prometheus 从 SeaTunnelX 拉取 HTTP SD 目标；
-- Alertmanager 将告警推送回 SeaTunnelX；
-- SeaTunnelX 提供告警查询和健康聚合 API；
-- Grafana 导入 SeaTunnelX 提供的默认 Dashboard JSON。
+- Prometheus 从 STX 拉取 HTTP SD 目标；
+- Alertmanager 将告警推送回 STX；
+- STX 提供告警查询和健康聚合 API；
+- Grafana 导入 STX 提供的默认 Dashboard JSON。
 
 补充：
 - 如果你要走“本地 deps 一键启动（含预置配置文件）”模式，见：`docs/可观测性三件套一键接入说明.md`
 
 ---
 
-## 2. SeaTunnelX 配置
+## 2. STX 配置
 
 在 `config.yaml` 中启用：
 
 ```yaml
 app:
-  external_url: "https://your-seatunnelx.example.com"
+  external_url: "https://your-stx.example.com"
 
 observability:
   enabled: true
@@ -36,7 +36,7 @@ observability:
 
 说明：
 
-- `observability.enabled=true` 时，SeaTunnelX 启用远程集成 API；
+- `observability.enabled=true` 时，STX 启用远程集成 API；
 - `http_sd_path` / `webhook_path` 可按需修改，但建议保持默认；
 - `app.external_url` 必须是可外部访问的 HTTP(S) 地址。
 
@@ -52,7 +52,7 @@ scrape_configs:
     metrics_path: /metrics
     scheme: http
     http_sd_configs:
-      - url: https://your-seatunnelx.example.com/api/v1/monitoring/prometheus/discovery
+      - url: https://your-stx.example.com/api/v1/monitoring/prometheus/discovery
         refresh_interval: 30s
 ```
 
@@ -64,12 +64,12 @@ scrape_configs:
 
 ```yaml
 route:
-  receiver: 'seatunnelx'
+  receiver: 'stx'
 
 receivers:
-  - name: 'seatunnelx'
+  - name: 'stx'
     webhook_configs:
-      - url: 'https://your-seatunnelx.example.com/api/v1/monitoring/alertmanager/webhook'
+      - url: 'https://your-stx.example.com/api/v1/monitoring/alertmanager/webhook'
         send_resolved: true
 ```
 
@@ -99,7 +99,7 @@ receivers:
 ### 6.1 仅验证公开接口
 
 ```bash
-./scripts/observability-remote-smoke.sh https://your-seatunnelx.example.com
+./scripts/observability-remote-smoke.sh https://your-stx.example.com
 ```
 
 会检查：
@@ -110,9 +110,9 @@ receivers:
 ### 6.2 额外验证登录后接口
 
 ```bash
-SEATUNNELX_USERNAME=admin \
-SEATUNNELX_PASSWORD=admin \
-./scripts/observability-remote-smoke.sh https://your-seatunnelx.example.com
+STX_USERNAME=admin \
+STX_PASSWORD=admin \
+./scripts/observability-remote-smoke.sh https://your-stx.example.com
 ```
 
 会额外检查：
@@ -154,7 +154,7 @@ SEATUNNELX_PASSWORD=admin \
 
 1. `observability.enabled` 是否为 `true`；
 2. 是否修改了 `observability.alertmanager.webhook_path`；
-3. Alertmanager 回调 URL 是否与 SeaTunnelX 暴露路径一致。
+3. Alertmanager 回调 URL 是否与 STX 暴露路径一致。
 
 ---
 
@@ -194,14 +194,14 @@ OBSERVABILITY_AUTO_INIT=false ./deps/start-observability.sh
    - 若切远程 HTTP SD，由运维手工配置 `http_sd_configs`（不是本地启停脚本职责）
 
 2. **Alertmanager**
-   - 若需要告警回流 SeatunnelX，由运维手工增加 webhook receiver
+   - 若需要告警回流 STX，由运维手工增加 webhook receiver
    - 然后热重载（SIGHUP）或重启 Alertmanager
 
 3. **验证**
    - 执行：
      ```bash
-     SEATUNNELX_USERNAME=admin \
-     SEATUNNELX_PASSWORD=<password> \
+     STX_USERNAME=admin \
+     STX_PASSWORD=<password> \
      ./scripts/observability-remote-smoke.sh https://cpa.120501.xyz
      ```
    - 结果应覆盖并通过：

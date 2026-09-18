@@ -2,12 +2,12 @@
 
 ## Goal
 
-在 `/sync` 数据同步工作台中，基于当前选中集群的已安装插件，为用户提供 source / transform / sink 模板选择器；选中插件后，由 `seatunnelx-java-proxy` 返回带注释的 HOCON 模板片段并追加到编辑器底部；编辑器再结合插件 schema 与新枚举值接口，为命中的配置 key 提供候选值联动，降低手写配置门槛并提升配置正确率。
+在 `/sync` 数据同步工作台中，基于当前选中集群的已安装插件，为用户提供 source / transform / sink 模板选择器；选中插件后，由 `stx-java-proxy` 返回带注释的 HOCON 模板片段并追加到编辑器底部；编辑器再结合插件 schema 与新枚举值接口，为命中的配置 key 提供候选值联动，降低手写配置门槛并提升配置正确率。
 
 ## What I already know
 
 - 当前 `/sync` 已支持任务编辑、validate、DAG、preview 等能力。
-- `seatunnelx-java-proxy` 已支持 config DAG、preview、catalog、checkpoint、imap 等接口。
+- `stx-java-proxy` 已支持 config DAG、preview、catalog、checkpoint、imap 等接口。
 - Source / Sink 插件与集群安装状态强相关，应优先基于当前集群已安装插件联动。
 - Transform 插件不依赖集群额外安装，主要来自 `seatunnel-transforms-v2.jar`，更适合由 proxy 运行时直接发现。
 - proxy 已具备请求级 `pluginJars` 动态加载能力，但 config 相关能力更多依赖 `SEATUNNEL_HOME` 扫描。
@@ -303,7 +303,7 @@
 - 相关后端文件大概率涉及：
   - `internal/apps/sync/*`
 - 相关 proxy 文件建议新增或修改：
-  - `tools/seatunnelx-java-proxy/src/main/java/.../service/PluginOptionSchemaService.java`
+  - `tools/stx-java-proxy/src/main/java/.../service/plugin/PluginOptionSchemaService.java`
   - `.../FactoryOptionRuleExtractor.java`
   - `.../OptionFieldScanService.java`
   - `.../TemplateRenderService.java`

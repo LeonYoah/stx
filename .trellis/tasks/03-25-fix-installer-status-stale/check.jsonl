@@ -1,5 +1,4 @@
-{"file": ".claude/commands/trellis/finish-work.md", "reason": "Finish work checklist"}
-{"file": ".claude/commands/trellis/check-backend.md", "reason": "Backend check spec"}
-{"file": ".claude/commands/trellis/check-frontend.md", "reason": "Frontend check spec"}
+{"file": ".agents/skills/trellis-finish-work/SKILL.md", "reason": "Finish work checklist"}
+{"file": ".agents/skills/trellis-check/SKILL.md", "reason": "Backend and frontend checks"}
 {"file": ".trellis/spec/frontend/api-and-services.md", "reason": "检查前端消费状态字段是否符合约定"}
 {"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "检查后端状态刷新日志/行为是否符合规范"}

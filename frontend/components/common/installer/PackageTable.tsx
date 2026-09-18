@@ -22,6 +22,7 @@
 
 'use client';
 
+import { useRef } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -38,10 +39,12 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Skeleton } from '@/components/ui/skeleton';
 import { Progress } from '@/components/ui/progress';
 import { Download, Trash2, MoreHorizontal, Star, Loader2, CheckCircle, XCircle } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import { useGSAP } from '@gsap/react';
+import { TableLoadingBar, TableSkeletonRows } from '@/components/common/layout';
+import { animateTableRows } from '@/lib/animations/gsap-motion';
 import type { PackageInfo, MirrorSource, DownloadTask } from '@/lib/services/installer/types';
 
 interface PackageTableProps {
@@ -115,104 +118,144 @@ export function PackageTable({
     return `${(bytesPerSecond / 1024 / 1024).toFixed(1)} MB/s`;
   };
 
-  if (loading) {
-    return (
-      <div className="space-y-3">
-        {[1, 2, 3].map((i) => (
-          <Skeleton key={i} className="h-12 w-full" />
-        ))}
-      </div>
-    );
-  }
+  const tableContainerRef = useRef<HTMLDivElement>(null);
+
+  // 安装包列表数据更新后执行平滑交错入场动效
+  // Trigger staggered entrance animation when package data updates
+  useGSAP(
+    () => {
+      const hasData = type === 'online' ? versions.length > 0 : localPackages.length > 0;
+      if (hasData && !loading) {
+        animateTableRows('.package-data-row');
+      }
+    },
+    {dependencies: [type, versions, localPackages, loading], scope: tableContainerRef},
+  );
 
   // Online versions table / 在线版本表格
   if (type === 'online') {
-    if (versions.length === 0) {
-      return (
-        <div className="text-center py-8 text-muted-foreground">
-          {t('installer.noVersionsAvailable')}
-        </div>
-      );
-    }
-
     return (
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>{t('installer.version')}</TableHead>
-            <TableHead>{t('installer.status')}</TableHead>
-            <TableHead>{t('installer.downloadLinks')}</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {versions.map((version) => (
-            <TableRow key={version}>
-              <TableCell className="font-medium">
-                <div className="flex items-center gap-2">
-                  {version}
-                  {version === recommendedVersion && (
-                    <Badge variant="default" className="flex items-center gap-1">
-                      <Star className="h-3 w-3" />
-                      {t('installer.recommended')}
-                    </Badge>
-                  )}
-                </div>
-              </TableCell>
-              <TableCell>
-                <Badge variant="outline">{t('installer.available')}</Badge>
-              </TableCell>
-              <TableCell>
-                {(() => {
-                  const task = getDownloadTask(version);
-                  const isDownloaded = isVersionDownloaded(version);
+      <div ref={tableContainerRef} className="border rounded-lg relative overflow-hidden bg-card/40 shadow-xs flex-1 flex flex-col">
+        <TableLoadingBar loading={Boolean(loading)} />
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>{t('installer.version')}</TableHead>
+              <TableHead>{t('installer.status')}</TableHead>
+              <TableHead>{t('installer.downloadLinks')}</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {loading && versions.length === 0 ? (
+              <TableSkeletonRows columns={3} rows={5} />
+            ) : versions.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={3} className="text-center py-12 text-muted-foreground">
+                  {t('installer.noVersionsAvailable')}
+                </TableCell>
+              </TableRow>
+            ) : (
+              versions.map((version) => (
+                <TableRow
+                  key={version}
+                  className={`package-data-row transition-opacity duration-200 ${
+                    loading ? 'opacity-60 pointer-events-none' : ''
+                  }`}
+                >
+                  <TableCell className="font-medium">
+                    <div className="flex items-center gap-2">
+                      {version}
+                      {version === recommendedVersion && (
+                        <Badge variant="default" className="flex items-center gap-1">
+                          <Star className="h-3 w-3" />
+                          {t('installer.recommended')}
+                        </Badge>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant="outline">{t('installer.available')}</Badge>
+                  </TableCell>
+                  <TableCell>
+                    {(() => {
+                      const task = getDownloadTask(version);
+                      const isDownloaded = isVersionDownloaded(version);
 
-                  // Show downloaded status (check local files first)
-                  // 显示已下载状态（优先检查本地文件）
-                  if (isDownloaded) {
-                    return (
-                      <div className="flex items-center gap-2 text-green-600">
-                        <CheckCircle className="h-4 w-4" />
-                        <span className="text-sm">{t('installer.downloaded')}</span>
-                      </div>
-                    );
-                  }
-
-                  // Show download progress / 显示下载进度
-                  if (task && (task.status === 'downloading' || task.status === 'pending')) {
-                    return (
-                      <div className="flex items-center gap-2 min-w-[200px]">
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        <div className="flex-1">
-                          <Progress value={task.progress} className="h-2" />
-                          <div className="text-xs text-muted-foreground mt-1">
-                            {task.progress}% - {formatSpeed(task.speed)}
+                      // Show downloaded status (check local files first)
+                      // 显示已下载状态（优先检查本地文件）
+                      if (isDownloaded) {
+                        return (
+                          <div className="flex items-center gap-2 text-green-600">
+                            <CheckCircle className="h-4 w-4" />
+                            <span className="text-sm">{t('installer.downloaded')}</span>
                           </div>
-                        </div>
-                      </div>
-                    );
-                  }
+                        );
+                      }
 
-                  // Show completed status (just finished downloading)
-                  // 显示完成状态（刚刚下载完成）
-                  if (task?.status === 'completed') {
-                    return (
-                      <div className="flex items-center gap-2 text-green-600">
-                        <CheckCircle className="h-4 w-4" />
-                        <span className="text-sm">{t('installer.downloadCompleted')}</span>
-                      </div>
-                    );
-                  }
+                      // Show download progress / 显示下载进度
+                      if (task && (task.status === 'downloading' || task.status === 'pending')) {
+                        return (
+                          <div className="flex items-center gap-2 min-w-[200px]">
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            <div className="flex-1">
+                              <Progress value={task.progress} className="h-2" />
+                              <div className="text-xs text-muted-foreground mt-1">
+                                {task.progress}% - {formatSpeed(task.speed)}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      }
 
-                  // Show failed status / 显示失败状态
-                  if (task?.status === 'failed') {
-                    return (
-                      <div className="flex items-center gap-2">
-                        <XCircle className="h-4 w-4 text-destructive" />
-                        <span className="text-sm text-destructive">{t('installer.downloadFailed')}</span>
+                      // Show completed status (just finished downloading)
+                      // 显示完成状态（刚刚下载完成）
+                      if (task?.status === 'completed') {
+                        return (
+                          <div className="flex items-center gap-2 text-green-600">
+                            <CheckCircle className="h-4 w-4" />
+                            <span className="text-sm">{t('installer.downloadSuccess')}</span>
+                          </div>
+                        );
+                      }
+
+                      // Show failed status / 显示失败状态
+                      if (task?.status === 'failed') {
+                        return (
+                          <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-1 text-destructive">
+                              <XCircle className="h-4 w-4" />
+                              <span className="text-sm">{t('installer.downloadFailed')}</span>
+                            </div>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="outline" size="sm">
+                                  <Download className="h-4 w-4 mr-2" />
+                                  {t('installer.retry')}
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                {Object.entries(mirrorLabels).map(([mirror, label]) => (
+                                  <DropdownMenuItem
+                                    key={mirror}
+                                    onClick={() => onDownload?.(version, mirror as MirrorSource)}
+                                  >
+                                    <Download className="h-4 w-4 mr-2" />
+                                    {label}
+                                  </DropdownMenuItem>
+                                ))}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
+                        );
+                      }
+
+                      // Show download button / 显示下载按钮
+                      return (
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button variant="outline" size="sm">
-                              {t('installer.retry')}
+                              <Download className="h-4 w-4 mr-2" />
+                              {t('installer.downloadToServer')}
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
@@ -227,89 +270,76 @@ export function PackageTable({
                             ))}
                           </DropdownMenuContent>
                         </DropdownMenu>
-                      </div>
-                    );
-                  }
-
-                  // Show download button / 显示下载按钮
-                  return (
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="outline" size="sm">
-                          <Download className="h-4 w-4 mr-2" />
-                          {t('installer.downloadToServer')}
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        {Object.entries(mirrorLabels).map(([mirror, label]) => (
-                          <DropdownMenuItem
-                            key={mirror}
-                            onClick={() => onDownload?.(version, mirror as MirrorSource)}
-                          >
-                            <Download className="h-4 w-4 mr-2" />
-                            {label}
-                          </DropdownMenuItem>
-                        ))}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  );
-                })()}
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    );
-  }
-
-  // Local packages table / 本地安装包表格
-  if (localPackages.length === 0) {
-    return (
-      <div className="text-center py-8 text-muted-foreground">
-        {t('installer.noLocalPackages')}
+                      );
+                    })()}
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
       </div>
     );
   }
 
+  // Local packages table / 本地安装包表格
   return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>{t('installer.version')}</TableHead>
-          <TableHead>{t('installer.fileName')}</TableHead>
-          <TableHead>{t('installer.fileSize')}</TableHead>
-          <TableHead>{t('installer.uploadedAt')}</TableHead>
-          <TableHead className="w-[100px]">{t('common.actions')}</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {localPackages.map((pkg) => (
-          <TableRow key={pkg.version}>
-            <TableCell className="font-medium">{pkg.version}</TableCell>
-            <TableCell className="font-mono text-sm">{pkg.file_name}</TableCell>
-            <TableCell>{formatFileSize(pkg.file_size)}</TableCell>
-            <TableCell>{formatDate(pkg.uploaded_at)}</TableCell>
-            <TableCell>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon">
-                    <MoreHorizontal className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem
-                    className="text-destructive"
-                    onClick={() => onDelete?.(pkg.version)}
-                  >
-                    <Trash2 className="h-4 w-4 mr-2" />
-                    {t('common.delete')}
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </TableCell>
+    <div ref={tableContainerRef} className="border rounded-lg relative overflow-hidden bg-card/40 shadow-xs flex-1 flex flex-col">
+      <TableLoadingBar loading={Boolean(loading)} />
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>{t('installer.version')}</TableHead>
+            <TableHead>{t('installer.fileName')}</TableHead>
+            <TableHead>{t('installer.fileSize')}</TableHead>
+            <TableHead>{t('installer.uploadedAt')}</TableHead>
+            <TableHead className="w-[100px]">{t('common.actions')}</TableHead>
           </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+        </TableHeader>
+        <TableBody>
+          {loading && localPackages.length === 0 ? (
+            <TableSkeletonRows columns={5} rows={5} />
+          ) : localPackages.length === 0 ? (
+            <TableRow>
+              <TableCell colSpan={5} className="text-center py-12 text-muted-foreground">
+                {t('installer.noLocalPackages')}
+              </TableCell>
+            </TableRow>
+          ) : (
+            localPackages.map((pkg) => (
+              <TableRow
+                key={pkg.version}
+                className={`package-data-row transition-opacity duration-200 ${
+                  loading ? 'opacity-60 pointer-events-none' : ''
+                }`}
+              >
+                <TableCell className="font-medium">{pkg.version}</TableCell>
+                <TableCell className="font-mono text-sm">{pkg.file_name}</TableCell>
+                <TableCell>{formatFileSize(pkg.file_size)}</TableCell>
+                <TableCell>{formatDate(pkg.uploaded_at)}</TableCell>
+                <TableCell>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon">
+                        <MoreHorizontal className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem
+                        className="text-destructive"
+                        onClick={() => onDelete?.(pkg.version)}
+                      >
+                        <Trash2 className="h-4 w-4 mr-2" />
+                        {t('common.delete')}
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </TableCell>
+              </TableRow>
+            ))
+          )}
+        </TableBody>
+      </Table>
+    </div>
   );
 }

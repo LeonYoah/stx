@@ -1,11 +1,11 @@
-## SeaTunnelX 可观测性（远程集成版）设计文档
+## STX 可观测性（远程集成版）设计文档
 
 ### 1. 设计目标
 
 - **一次性配置**：Prometheus / Alertmanager / Grafana 侧仅需在首次接入时改一次配置文件，后续新增 / 删除 SeaTunnel 集群无需再次改配置。
-- **全程远程交互**：SeaTunnelX 不再内嵌或管理 Prometheus / Alertmanager / Grafana 进程，而是通过 HTTP SD、Webhook、Dashboard JSON 等方式与外部监控栈集成。
+- **全程远程交互**：STX 不再内嵌或管理 Prometheus / Alertmanager / Grafana 进程，而是通过 HTTP SD、Webhook、Dashboard JSON 等方式与外部监控栈集成。
 - **多集群可见性**：所有监控与告警以 `cluster_id` / `cluster_name` / `env` 等 label 区分，既能查看单集群健康，也能聚合成平台级视图。
-- **可插拔**：不开启 `observability` 时，SeaTunnelX 正常工作；开启后，按需接入外部 Prometheus / Alertmanager / Grafana。
+- **可插拔**：不开启 `observability` 时，STX 正常工作；开启后，按需接入外部 Prometheus / Alertmanager / Grafana。
 
 ---
 
@@ -21,14 +21,14 @@ observability:
   prometheus:
     # Prometheus Web / 查询地址，仅用于健康检查和控制台跳转
     url: "http://127.0.0.1:9090"
-    # SeaTunnelX 对外约定的 HTTP SD 路径（固定约定，不再需要是否启用的额外开关）
+    # STX 对外约定的 HTTP SD 路径（固定约定，不再需要是否启用的额外开关）
     # 实际访问地址 = app.external_url + http_sd_path
     http_sd_path: "/api/v1/monitoring/prometheus/discovery"
 
   alertmanager:
     # Alertmanager Web UI 地址，用于健康检查和跳转
     url: "http://127.0.0.1:9093"
-    # SeaTunnelX 对外约定的告警 Webhook 路径（固定约定）
+    # STX 对外约定的告警 Webhook 路径（固定约定）
     webhook_path: "/api/v1/monitoring/alertmanager/webhook"
 
   grafana:
@@ -49,7 +49,7 @@ observability:
 - `prometheus.config_file`
 - `prometheus.rules_glob`
 
-这些字段与“由 SeaTunnelX 直接拉起和管理 Prometheus/Grafana/Alertmanager 进程及配置文件”强耦合，已从当前最小远程集成配置模型中移除。
+这些字段与“由 STX 直接拉起和管理 Prometheus/Grafana/Alertmanager 进程及配置文件”强耦合，已从当前最小远程集成配置模型中移除。
 
 **启用条件校验建议：**
 
@@ -64,7 +64,7 @@ observability:
 
 #### 3.1 Prometheus 侧一次性配置
 
-运维在 Prometheus 的 `prometheus.yml` 中，仅需配置一次 SeatunnelX 相关 job，以 HTTP SD 方式动态发现所有 Seatunnel 集群节点：
+运维在 Prometheus 的 `prometheus.yml` 中，仅需配置一次 STX 相关 job，以 HTTP SD 方式动态发现所有 Seatunnel 集群节点：
 
 ```yaml
 scrape_configs:
@@ -72,14 +72,14 @@ scrape_configs:
     metrics_path: /metrics
     scheme: http
     http_sd_configs:
-      - url: http://<seatunnelx-external-url>/api/v1/monitoring/prometheus/discovery
+      - url: http://<stx-external-url>/api/v1/monitoring/prometheus/discovery
         refresh_interval: 30s
 ```
 
-- `<seatunnelx-external-url>` 由 `app.external_url` 决定。
-- 之后新增 / 删除 Seatunnel 集群，仅需 SeaTunnelX 更改 HTTP SD 接口返回内容；Prometheus **无需再修改配置文件或 reload**。
+- `<stx-external-url>` 由 `app.external_url` 决定。
+- 之后新增 / 删除 Seatunnel 集群，仅需 STX 更改 HTTP SD 接口返回内容；Prometheus **无需再修改配置文件或 reload**。
 
-#### 3.2 SeaTunnelX HTTP SD 接口设计
+#### 3.2 STX HTTP SD 接口设计
 
 - **路径（固定约定）**：`GET /api/v1/monitoring/prometheus/discovery`
 - **启用条件**：
@@ -114,18 +114,18 @@ scrape_configs:
   - `targets`: Seatunnel metrics endpoint 列表，通常为 `host:port`；
   - `labels`: 该组 target 共享的 label，用于 PromQL 聚合与 Grafana 变量选择。
     - 约定至少包含：
-      - `cluster_id`: SeaTunnelX 内部集群唯一 ID；
+      - `cluster_id`: STX 内部集群唯一 ID；
       - `cluster_name`: 集群展示名称；
       - `env`: 环境标识（如 `dev` / `staging` / `prod`）。
     - `job` 可以显式指定为 `seatunnel_engine_http`，也可以依赖 Prometheus 自身的 job 名。
 
 #### 3.3 数据来源与更新策略
 
-- HTTP SD 接口基于 SeaTunnelX 的集群元数据：
+- HTTP SD 接口基于 STX 的集群元数据：
   - 每个集群记录：`id`、`name`、`env`、`metrics_port`、节点 IP 列表等。
   - 仅返回已启用监控且 metrics 连通性正常的集群，必要时可在元数据中增加“监控启用/禁用”标志。
 - 集群的创建 / 扩缩容 / 删除：
-  - 只需更新 SeaTunnelX 内部元数据；
+  - 只需更新 STX 内部元数据；
   - HTTP SD 接口随之返回最新的 target 集合。
 
 ---
@@ -134,23 +134,23 @@ scrape_configs:
 
 #### 4.1 Alertmanager 侧一次性配置
 
-运维在 Alertmanager 的 `alertmanager.yml` 中，仅需增加一个指向 SeaTunnelX 的 Webhook receiver：
+运维在 Alertmanager 的 `alertmanager.yml` 中，仅需增加一个指向 STX 的 Webhook receiver：
 
 ```yaml
 route:
-  receiver: 'seatunnelx'
+  receiver: 'stx'
 
 receivers:
-  - name: 'seatunnelx'
+  - name: 'stx'
     webhook_configs:
-      - url: 'http://<seatunnelx-external-url>/api/v1/monitoring/alertmanager/webhook'
+      - url: 'http://<stx-external-url>/api/v1/monitoring/alertmanager/webhook'
         send_resolved: true
 ```
 
-- `<seatunnelx-external-url>` 同样由 `app.external_url` 决定。
-- 之后如需新增企业微信 / 钉钉 / 邮箱等通知渠道，不再建议通过修改 Alertmanager 配置文件来完成，而是交给 SeaTunnelX 内部的通知分发模块处理。
+- `<stx-external-url>` 同样由 `app.external_url` 决定。
+- 之后如需新增企业微信 / 钉钉 / 邮箱等通知渠道，不再建议通过修改 Alertmanager 配置文件来完成，而是交给 STX 内部的通知分发模块处理。
 
-#### 4.2 SeaTunnelX Alertmanager Webhook 接口设计
+#### 4.2 STX Alertmanager Webhook 接口设计
 
 - **路径（固定约定）**：`POST /api/v1/monitoring/alertmanager/webhook`
 - **启用条件**：
@@ -160,11 +160,11 @@ receivers:
   - `status`、`receiver`、`groupLabels`、`commonLabels`、`alerts` 等字段。
 - **内部处理流程（高层）**：
   1. 解析每条 `alert`，读取关键 label（如 `cluster_id`、`cluster_name`、`severity`、`alertname` 等）。
-  2. 写入 SeaTunnelX 内部的告警存储（例如数据库表 `alerts`），支持按集群 / 时间线查看历史告警。
-  3. 根据 SeaTunnelX 内部“通知配置”模块（独立设计，不在本文展开）决定：发送到哪些外部渠道（邮件、IM、自定义 Webhook 等）。
-  4. 可选：支持在 SeaTunnelX 中配置静默规则（silences），对部分告警直接丢弃或降级。
+  2. 写入 STX 内部的告警存储（例如数据库表 `alerts`），支持按集群 / 时间线查看历史告警。
+  3. 根据 STX 内部“通知配置”模块（独立设计，不在本文展开）决定：发送到哪些外部渠道（邮件、IM、自定义 Webhook 等）。
+  4. 可选：支持在 STX 中配置静默规则（silences），对部分告警直接丢弃或降级。
 
-通过这种设计，Alertmanager 的配置只在首次接入时改一次，后续所有通知策略变更都在 SeaTunnelX 内部完成。
+通过这种设计，Alertmanager 的配置只在首次接入时改一次，后续所有通知策略变更都在 STX 内部完成。
 
 ---
 
@@ -178,7 +178,7 @@ Grafana 只需要在首次接入时配置一个 Prometheus 数据源，例如：
 - URL：`http://<prometheus-url>`;
 - 其它认证参数按运维规范配置。
 
-SeaTunnelX 的 Dashboard JSON 将默认引用 UID 为 `prometheus` 的数据源。
+STX 的 Dashboard JSON 将默认引用 UID 为 `prometheus` 的数据源。
 
 #### 5.2 Dashboard JSON 固定路径与打包方式
 
@@ -201,13 +201,13 @@ deps/grafana_config/dashboards/
 1. 首次创建 Prometheus 数据源；
 2. 从 `deps/grafana_config/dashboards` 导入所需面板 JSON。
 
-之后 SeaTunnelX 对 Dashboard 的改动只需要在新版本中更新 JSON 文件，无需用户侧再次修改配置。
+之后 STX 对 Dashboard 的改动只需要在新版本中更新 JSON 文件，无需用户侧再次修改配置。
 
 ---
 
 ### 6. 多集群健康与平台视图
 
-在上述集成基础上，SeaTunnelX 可以围绕 `cluster_id` / `cluster_name` 这两个核心 label 构建两层健康视图：
+在上述集成基础上，STX 可以围绕 `cluster_id` / `cluster_name` 这两个核心 label 构建两层健康视图：
 
 - **集群级健康（Cluster Health）**：
   - 基于 Prometheus 指标与 Alertmanager 告警，计算每个 Seatunnel 集群的健康状态，例如：
@@ -249,24 +249,24 @@ deps/grafana_config/dashboards/
 
 ### 8. 对外接入指南（摘要）
 
-#### 8.1 SeaTunnelX 侧
+#### 8.1 STX 侧
 
 1. 在 `config.yaml` 中设置：
    - `app.external_url` 为外部可访问的控制面地址；
    - `observability.enabled = true`；
    - 配置 `observability.prometheus.url` / `observability.alertmanager.url` / `observability.grafana.url`。
-2. 重启 SeaTunnelX 控制面。
+2. 重启 STX 控制面。
 
 #### 8.2 Prometheus 侧
 
 1. 在 `prometheus.yml` 中增加 `seatunnel_engine_http` job，并配置 HTTP SD：
-   - URL 指向 `http://<seatunnelx-external-url>/api/v1/monitoring/prometheus/discovery`。
+   - URL 指向 `http://<stx-external-url>/api/v1/monitoring/prometheus/discovery`。
 2. Reload Prometheus（或重启进程）。
 
 #### 8.3 Alertmanager 侧
 
-1. 在 `alertmanager.yml` 中增加指向 SeaTunnelX 的 Webhook receiver：
-   - URL 指向 `http://<seatunnelx-external-url>/api/v1/monitoring/alertmanager/webhook`。
+1. 在 `alertmanager.yml` 中增加指向 STX 的 Webhook receiver：
+   - URL 指向 `http://<stx-external-url>/api/v1/monitoring/alertmanager/webhook`。
 2. Reload Alertmanager（或重启进程）。
 
 #### 8.4 Grafana 侧
@@ -276,5 +276,5 @@ deps/grafana_config/dashboards/
 
 完成以上步骤后，即可在：
 
-- SeaTunnelX 内部看到按集群维度的健康状态与告警收敛信息；
+- STX 内部看到按集群维度的健康状态与告警收敛信息；
 - Grafana 中通过 Dashboard 面板查看每个 Seatunnel 集群的深度监控数据。

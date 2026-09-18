@@ -23,9 +23,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LeonYoah/stx/internal/apps/cluster"
+	monitoringapp "github.com/LeonYoah/stx/internal/apps/monitoring"
 	"github.com/glebarez/sqlite"
-	"github.com/seatunnel/seatunnelX/internal/apps/cluster"
-	monitoringapp "github.com/seatunnel/seatunnelX/internal/apps/monitoring"
 	"gorm.io/gorm"
 )
 

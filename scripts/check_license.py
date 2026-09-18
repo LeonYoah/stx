@@ -256,7 +256,7 @@ def detect_license(path: Path) -> str:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Check SeaTunnelX mixed license policy: legacy allowlisted files keep MIT, "
+            "Check STX mixed license policy: legacy allowlisted files keep MIT, "
             "new source files must use Apache 2.0."
         )
     )

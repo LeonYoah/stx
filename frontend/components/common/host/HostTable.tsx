@@ -25,9 +25,11 @@
  * 显示主机表格，支持查看、编辑和删除操作。
  */
 
+import {useRef} from 'react';
 import {useTranslations} from 'next-intl';
 import {Button} from '@/components/ui/button';
 import {Badge} from '@/components/ui/badge';
+import {Pagination} from '@/components/ui/pagination';
 import {
   Table,
   TableBody,
@@ -53,7 +55,10 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import {Eye, Pencil, Trash2, Server, Container, Cloud, Search} from 'lucide-react';
+import {Eye, Pencil, Trash2, Server, Container, Cloud, Search, Terminal} from 'lucide-react';
+import {useGSAP} from '@gsap/react';
+import {TableLoadingBar, TableSkeletonRows} from '@/components/common/layout';
+import {animateTableRows} from '@/lib/animations/gsap-motion';
 import {HostInfo, HostType, HostStatus} from '@/lib/services/host/types';
 
 interface HostTableProps {
@@ -62,11 +67,14 @@ interface HostTableProps {
   currentPage: number;
   totalPages: number;
   total: number;
+  pageSize?: number;
   onPageChange: (page: number) => void;
+  onPageSizeChange?: (pageSize: number) => void;
   onViewDetail: (host: HostInfo) => void;
   onEdit: (host: HostInfo) => void;
   onDelete: (host: HostInfo) => void;
   onDiscoverCluster?: (host: HostInfo) => void;
+  onInstallAgent?: (host: HostInfo) => void;
 }
 
 /**
@@ -136,18 +144,35 @@ export function HostTable({
   currentPage,
   totalPages,
   total,
+  pageSize = 10,
   onPageChange,
+  onPageSizeChange,
   onViewDetail,
   onEdit,
   onDelete,
   onDiscoverCluster,
+  onInstallAgent,
 }: HostTableProps) {
   const t = useTranslations();
+  const tableContainerRef = useRef<HTMLDivElement>(null);
+
+  // 主机数据更新后执行平滑交错入场动效
+  // Trigger staggered entrance animation when hosts data updates
+  useGSAP(
+    () => {
+      if (hosts.length > 0 && !loading) {
+        animateTableRows('.host-data-row');
+      }
+    },
+    {dependencies: [hosts, loading], scope: tableContainerRef},
+  );
 
   return (
-    <div className='space-y-4'>
-      <div className='border rounded-lg'>
-        <Table>
+    <div ref={tableContainerRef} className='space-y-4'>
+      <div className='border rounded-lg relative overflow-hidden bg-card/40 shadow-xs flex flex-col min-h-[480px] sm:min-h-[calc(100vh-270px)]'>
+        <TableLoadingBar loading={loading} />
+        <div className='overflow-x-auto flex-1'>
+          <Table>
           <TableHeader>
             <TableRow>
               <TableHead className='w-[50px]'>ID</TableHead>
@@ -157,28 +182,29 @@ export function HostTable({
               <TableHead>{t('host.status')}</TableHead>
               <TableHead>{t('host.resources')}</TableHead>
               <TableHead>{t('host.createdAt')}</TableHead>
-              <TableHead className='w-[120px]'>{t('host.actions')}</TableHead>
+              <TableHead className='min-w-[140px]'>{t('host.actions')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {loading ? (
-              <TableRow>
-                <TableCell colSpan={8} className='text-center py-8'>
-                  {t('common.loading')}
-                </TableCell>
-              </TableRow>
+            {loading && hosts.length === 0 ? (
+              <TableSkeletonRows columns={8} rows={10} />
             ) : hosts.length === 0 ? (
               <TableRow>
                 <TableCell
                   colSpan={8}
-                  className='text-center py-8 text-muted-foreground'
+                  className='text-center py-12 text-muted-foreground'
                 >
                   {t('host.noHosts')}
                 </TableCell>
               </TableRow>
             ) : (
               hosts.map((host) => (
-                <TableRow key={host.id}>
+                <TableRow
+                  key={host.id}
+                  className={`host-data-row transition-opacity duration-200 ${
+                    loading ? 'opacity-60 pointer-events-none' : ''
+                  }`}
+                >
                   <TableCell>{host.id}</TableCell>
                   <TableCell>
                     <div className='flex items-center gap-2'>
@@ -219,9 +245,37 @@ export function HostTable({
                     )}
                   </TableCell>
                   <TableCell>
-                    <Badge variant={getStatusBadgeVariant(host.status)}>
-                      {t(`host.statuses.${host.status}`)}
-                    </Badge>
+                    {host.host_type === HostType.BARE_METAL &&
+                    host.status === HostStatus.PENDING &&
+                    onInstallAgent ? (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              type='button'
+                              onClick={() => onInstallAgent(host)}
+                              className='inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium border border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 transition-all cursor-pointer select-none'
+                            >
+                              <span className='relative flex h-1.5 w-1.5'>
+                                <span className='animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75' />
+                                <span className='relative inline-flex rounded-full h-1.5 w-1.5 bg-amber-500' />
+                              </span>
+                              <span>{t(`host.statuses.${host.status}`)}</span>
+                              <span className='text-[10px] underline underline-offset-2 opacity-85'>
+                                {t('host.installGuide.installAgent')}
+                              </span>
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            {t('host.installGuide.installAgentTooltip')}
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    ) : (
+                      <Badge variant={getStatusBadgeVariant(host.status)}>
+                        {t(`host.statuses.${host.status}`)}
+                      </Badge>
+                    )}
                   </TableCell>
                   <TableCell>
                     <div className='text-sm space-y-1'>
@@ -244,7 +298,32 @@ export function HostTable({
                     {new Date(host.created_at).toLocaleDateString()}
                   </TableCell>
                   <TableCell>
-                    <div className='flex gap-1'>
+                    <div className='flex items-center gap-1'>
+                      {/* Install Agent Button - prominent action for pending bare-metal hosts */}
+                      {/* 部署 Agent 按钮 - 物理机待连接时置前展示清晰引导 */}
+                      {host.host_type === HostType.BARE_METAL &&
+                        host.status === HostStatus.PENDING &&
+                        onInstallAgent && (
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant='outline'
+                                  size='sm'
+                                  className='h-7 px-2 text-xs border-amber-500/40 text-amber-600 dark:text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 gap-1 font-medium'
+                                  onClick={() => onInstallAgent(host)}
+                                >
+                                  <Terminal className='h-3.5 w-3.5' />
+                                  <span>{t('host.installGuide.installAgent')}</span>
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                {t('host.installGuide.installAgentTooltip')}
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        )}
+
                       <TooltipProvider>
                         <Tooltip>
                           <TooltipTrigger asChild>
@@ -340,37 +419,22 @@ export function HostTable({
             )}
           </TableBody>
         </Table>
-      </div>
-
-      {/* Pagination / 分页 */}
-      {totalPages > 1 && (
-        <div className='flex items-center justify-between'>
-          <div className='text-sm text-muted-foreground'>
-            {t('common.totalItems', {total})}
-          </div>
-          <div className='flex gap-2'>
-            <Button
-              variant='outline'
-              size='sm'
-              disabled={currentPage === 1}
-              onClick={() => onPageChange(currentPage - 1)}
-            >
-              {t('common.previous')}
-            </Button>
-            <span className='flex items-center px-4 text-sm'>
-              {currentPage} / {totalPages}
-            </span>
-            <Button
-              variant='outline'
-              size='sm'
-              disabled={currentPage === totalPages}
-              onClick={() => onPageChange(currentPage + 1)}
-            >
-              {t('common.next')}
-            </Button>
-          </div>
         </div>
-      )}
+
+        {/* 底部分页栏 / Table Footer Pagination */}
+        <div className='border-t bg-muted/10 px-4 py-2.5 mt-auto'>
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            pageSize={pageSize}
+            totalItems={total}
+            onPageChange={onPageChange}
+            onPageSizeChange={onPageSizeChange}
+            showPageSizeSelector={Boolean(onPageSizeChange)}
+            pageSizeOptions={[10, 20, 50, 100]}
+          />
+        </div>
+      </div>
     </div>
   );
 }

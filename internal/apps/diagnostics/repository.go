@@ -490,10 +490,14 @@ func (r *Repository) applyGroupFilters(query *gorm.DB, filter *SeatunnelErrorGro
 	}
 	if keyword := strings.TrimSpace(filter.Keyword); keyword != "" {
 		like := "%" + keyword + "%"
-		query = query.Where("title LIKE ? OR sample_message LIKE ? OR exception_class LIKE ?", like, like, like)
+		// 使用 LOWER 进行大小写不敏感模糊匹配，兼容多数据库。
+		// Use LOWER for case-insensitive fuzzy matching, compatible with multiple databases.
+		query = query.Where("LOWER(title) LIKE LOWER(?) OR LOWER(sample_message) LIKE LOWER(?) OR LOWER(exception_class) LIKE LOWER(?)", like, like, like)
 	}
 	if exceptionClass := strings.TrimSpace(filter.ExceptionClass); exceptionClass != "" {
-		query = query.Where("exception_class LIKE ?", "%"+exceptionClass+"%")
+		// 使用 LOWER 进行大小写不敏感异常类匹配，兼容多数据库。
+		// Use LOWER for case-insensitive exception class matching, compatible with multiple databases.
+		query = query.Where("LOWER(exception_class) LIKE LOWER(?)", "%"+exceptionClass+"%")
 	}
 	return query
 }
@@ -527,11 +531,15 @@ func applyEventFilters(query *gorm.DB, filter *SeatunnelErrorEventFilter) *gorm.
 		query = applyOccurredAtUpperBound(query, "occurred_at", *filter.EndTime)
 	}
 	if exceptionClass := strings.TrimSpace(filter.ExceptionClass); exceptionClass != "" {
-		query = query.Where("exception_class LIKE ?", "%"+exceptionClass+"%")
+		// 使用 LOWER 进行大小写不敏感异常类匹配，兼容多数据库。
+		// Use LOWER for case-insensitive exception class matching, compatible with multiple databases.
+		query = query.Where("LOWER(exception_class) LIKE LOWER(?)", "%"+exceptionClass+"%")
 	}
 	if keyword := strings.TrimSpace(filter.Keyword); keyword != "" {
 		like := "%" + keyword + "%"
-		query = query.Where("message LIKE ? OR evidence LIKE ? OR source_file LIKE ? OR exception_class LIKE ?", like, like, like, like)
+		// 使用 LOWER 进行多字段大小写不敏感模糊匹配，兼容多数据库。
+		// Use LOWER for multi-field case-insensitive fuzzy matching, compatible with multiple databases.
+		query = query.Where("LOWER(message) LIKE LOWER(?) OR LOWER(evidence) LIKE LOWER(?) OR LOWER(source_file) LIKE LOWER(?) OR LOWER(exception_class) LIKE LOWER(?)", like, like, like, like)
 	}
 	return query
 }

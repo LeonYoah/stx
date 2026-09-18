@@ -26,12 +26,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LeonYoah/stx/internal/apps/auth"
+	"github.com/LeonYoah/stx/internal/config"
+	"github.com/LeonYoah/stx/internal/db"
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-contrib/sessions/cookie"
 	"github.com/gin-gonic/gin"
-	"github.com/seatunnel/seatunnelX/internal/apps/auth"
-	"github.com/seatunnel/seatunnelX/internal/config"
-	"github.com/seatunnel/seatunnelX/internal/db"
 	"github.com/stretchr/testify/require"
 )
 

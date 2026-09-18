@@ -1,4 +1,4 @@
-﻿/*
+/*
  * MIT License
  *
  * Copyright (c) 2025 linux.do
@@ -25,7 +25,7 @@
 package cmd
 
 import (
-	"github.com/seatunnel/seatunnelX/internal/router"
+	"github.com/LeonYoah/stx/internal/router"
 	"github.com/spf13/cobra"
 )
 

@@ -10,12 +10,11 @@
 package agent
 
 import (
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
-
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )
 
 const (
@@ -3199,7 +3198,7 @@ const file_agent_agent_proto_rawDesc = "" +
 	"\tHeartbeat\x12$.seatunnel.agent.v1.HeartbeatRequest\x1a%.seatunnel.agent.v1.HeartbeatResponse\x12\\\n" +
 	"\rCommandStream\x12#.seatunnel.agent.v1.CommandResponse\x1a\".seatunnel.agent.v1.CommandRequest(\x010\x01\x12R\n" +
 	"\tLogStream\x12\x1c.seatunnel.agent.v1.LogEntry\x1a%.seatunnel.agent.v1.LogStreamResponse(\x01\x12w\n" +
-	"\x18GetDiagnosticsLogCursors\x12,.seatunnel.agent.v1.DiagnosticsCursorRequest\x1a-.seatunnel.agent.v1.DiagnosticsCursorResponseB6Z4github.com/seatunnel/seatunnelX/internal/proto/agentb\x06proto3"
+	"\x18GetDiagnosticsLogCursors\x12,.seatunnel.agent.v1.DiagnosticsCursorRequest\x1a-.seatunnel.agent.v1.DiagnosticsCursorResponseB.Z,github.com/LeonYoah/stx/internal/proto/agentb\x06proto3"
 
 var (
 	file_agent_agent_proto_rawDescOnce sync.Once

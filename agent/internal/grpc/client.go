@@ -31,9 +31,9 @@ import (
 	"sync"
 	"time"
 
-	pb "github.com/seatunnel/seatunnelX/agent"
-	"github.com/seatunnel/seatunnelX/agent/internal/config"
-	"github.com/seatunnel/seatunnelX/agent/internal/logger"
+	pb "github.com/LeonYoah/stx/agent"
+	"github.com/LeonYoah/stx/agent/internal/config"
+	"github.com/LeonYoah/stx/agent/internal/logger"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"

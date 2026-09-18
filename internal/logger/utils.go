@@ -32,7 +32,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/seatunnel/seatunnelX/internal/config"
+	"github.com/LeonYoah/stx/internal/config"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -69,7 +69,7 @@ func initWriter() (zapcore.WriteSyncer, error) {
 	if output == "file" || output == "both" {
 		logPath := logConfig.FilePath
 		if logPath == "" {
-			logPath = "./logs/seatunnelx.log"
+			logPath = "./logs/stx.log"
 		}
 
 		logDir := filepath.Dir(logPath)

@@ -23,7 +23,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/seatunnel/seatunnelX/internal/apps/auth"
+	"github.com/LeonYoah/stx/internal/apps/auth"
 )
 
 // ListNotifiableUsers returns active users with configured email addresses.

@@ -1,4 +1,4 @@
-﻿/*
+/*
  * MIT License
  *
  * Copyright (c) 2025 linux.do
@@ -24,9 +24,9 @@
 
 package main
 
-import "github.com/seatunnel/seatunnelX/internal/cmd"
+import "github.com/LeonYoah/stx/internal/cmd"
 
-// @title Seatunnel X
+// @title STX
 // @version 0.1.0
 func main() {
 	cmd.Execute()

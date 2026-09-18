@@ -15,11 +15,7 @@
  * limitations under the License.
  */
 
-/**
- * Note: Use position fixed according to your needs
- * Desktop navbar is better positioned at the bottom
- * Mobile navbar is better positioned at bottom right.
- **/
+'use client';
 
 import {cn} from '@/lib/utils';
 import {IconLayoutNavbarCollapse} from '@tabler/icons-react';
@@ -31,8 +27,20 @@ import {
   useSpring,
   useTransform,
 } from 'motion/react';
+import Link from 'next/link';
+import {usePathname} from 'next/navigation';
+import {useRef, useState, memo, useCallback, useEffect} from 'react';
 
-import {useRef, useState, memo, useCallback} from 'react';
+export interface FloatingDockItem {
+  title: string;
+  icon: React.ReactNode;
+  href?: string;
+  onClick?: () => void;
+  tooltip?: string;
+  customComponent?: React.ReactNode;
+  external?: boolean;
+  isActive?: boolean;
+}
 
 export const FloatingDock = memo(
   ({
@@ -41,15 +49,7 @@ export const FloatingDock = memo(
     mobileClassName,
     mobileButtonClassName,
   }: {
-    items: {
-      title: string;
-      icon: React.ReactNode;
-      href?: string;
-      onClick?: () => void;
-      tooltip?: string;
-      customComponent?: React.ReactNode;
-      external?: boolean;
-    }[];
+    items: FloatingDockItem[];
     desktopClassName?: string;
     mobileClassName?: string;
     mobileButtonClassName?: string;
@@ -75,23 +75,32 @@ const FloatingDockMobile = memo(
     className,
     buttonClassName,
   }: {
-    items: {
-      title: string;
-      icon: React.ReactNode;
-      href?: string;
-      onClick?: () => void;
-      tooltip?: string;
-      customComponent?: React.ReactNode;
-      external?: boolean;
-    }[];
+    items: FloatingDockItem[];
     className?: string;
     buttonClassName?: string;
   }) => {
     const [open, setOpen] = useState(false);
+    const pathname = usePathname();
 
     const toggleOpen = useCallback(() => {
       setOpen((prev) => !prev);
     }, []);
+
+    const isItemActive = useCallback(
+      (item: FloatingDockItem) => {
+        if (item.isActive !== undefined) {
+          return item.isActive;
+        }
+        if (!item.href || !pathname) {
+          return false;
+        }
+        if (item.href === '/dashboard') {
+          return pathname === '/dashboard' || pathname === '/';
+        }
+        return pathname === item.href || pathname.startsWith(item.href + '/');
+      },
+      [pathname],
+    );
 
     return (
       <div className={cn('relative block md:hidden', className)}>
@@ -103,8 +112,15 @@ const FloatingDockMobile = memo(
             >
               {items.map((item, idx) => {
                 if (item.title === 'divider') {
-                  return null; // Mobile版本不显示分隔符
+                  return null; // Mobile版本不显示分隔符 / Hide divider in mobile
                 }
+                const active = isItemActive(item);
+                const isExternal = Boolean(
+                  item.external ||
+                    item.href?.startsWith('https://') ||
+                    item.href?.startsWith('http://'),
+                );
+
                 return (
                   <motion.div
                     key={item.title}
@@ -117,43 +133,68 @@ const FloatingDockMobile = memo(
                       opacity: 0,
                       y: 10,
                       transition: {
-                        delay: idx * 0.05,
+                        delay: idx * 0.04,
                       },
                     }}
-                    transition={{delay: (items.length - 1 - idx) * 0.05}}
+                    transition={{delay: (items.length - 1 - idx) * 0.04}}
                   >
                     {item.customComponent ? (
                       <div
-                        key={item.title}
                         className={cn(
-                          'flex h-8 w-8 items-center justify-center rounded-full bg-gray-50 dark:bg-neutral-900',
+                          'flex h-9 w-9 items-center justify-center rounded-full bg-gray-50 dark:bg-neutral-900',
                           buttonClassName,
                         )}
                       >
                         {item.customComponent}
                       </div>
                     ) : item.href ? (
-                      <a
-                        href={item.href}
-                        key={item.title}
-                        className={cn(
-                          'flex h-8 w-8 items-center justify-center rounded-full bg-gray-50 dark:bg-neutral-900',
-                          buttonClassName,
-                        )}
-                        {...(item.external || item.href.startsWith('https://')
-                          ? {target: '_blank', rel: 'noopener noreferrer'}
-                          : {})}
-                      >
-                        <div className='flex items-center justify-center'>
-                          {item.icon}
-                        </div>
-                      </a>
+                      isExternal ? (
+                        <a
+                          href={item.href}
+                          target='_blank'
+                          rel='noopener noreferrer'
+                          className={cn(
+                            'flex h-9 w-9 items-center justify-center rounded-full transition-colors',
+                            active
+                              ? 'bg-primary/20 text-primary border border-primary/40'
+                              : 'bg-gray-50 dark:bg-neutral-900 text-muted-foreground hover:text-foreground',
+                            buttonClassName,
+                          )}
+                        >
+                          <div className='flex items-center justify-center'>
+                            {item.icon}
+                          </div>
+                        </a>
+                      ) : (
+                        <Link
+                          href={item.href}
+                          prefetch={true}
+                          onClick={() => {
+                            item.onClick?.();
+                            setOpen(false);
+                          }}
+                          className={cn(
+                            'flex h-9 w-9 items-center justify-center rounded-full transition-colors',
+                            active
+                              ? 'bg-primary/20 text-primary border border-primary/40'
+                              : 'bg-gray-50 dark:bg-neutral-900 text-muted-foreground hover:text-foreground',
+                            buttonClassName,
+                          )}
+                        >
+                          <div className='flex items-center justify-center'>
+                            {item.icon}
+                          </div>
+                        </Link>
+                      )
                     ) : (
                       <button
-                        onClick={item.onClick}
-                        key={item.title}
+                        type='button'
+                        onClick={() => {
+                          item.onClick?.();
+                          setOpen(false);
+                        }}
                         className={cn(
-                          'flex h-8 w-8 items-center justify-center rounded-full bg-gray-50 dark:bg-neutral-900',
+                          'flex h-9 w-9 items-center justify-center rounded-full transition-colors',
                           buttonClassName,
                         )}
                       >
@@ -169,15 +210,16 @@ const FloatingDockMobile = memo(
           )}
         </AnimatePresence>
         <button
+          type='button'
           onClick={toggleOpen}
           className={cn(
-            'flex h-8 w-8 items-center justify-center rounded-full bg-gray-50 dark:bg-neutral-800',
+            'flex h-9 w-9 items-center justify-center rounded-full bg-gray-50 dark:bg-neutral-800',
             buttonClassName,
           )}
         >
           <motion.div
             animate={{rotate: open ? 180 : 0}}
-            transition={{duration: 0.3, ease: 'easeInOut'}}
+            transition={{duration: 0.25, ease: 'easeInOut'}}
           >
             <IconLayoutNavbarCollapse className='h-4 w-4 text-neutral-500 dark:text-neutral-400' />
           </motion.div>
@@ -194,15 +236,7 @@ const FloatingDockDesktop = memo(
     items,
     className,
   }: {
-    items: {
-      title: string;
-      icon: React.ReactNode;
-      href?: string;
-      onClick?: () => void;
-      tooltip?: string;
-      customComponent?: React.ReactNode;
-      external?: boolean;
-    }[];
+    items: FloatingDockItem[];
     className?: string;
   }) => {
     const mouseX = useMotionValue(Infinity);
@@ -232,6 +266,7 @@ const FloatingDockDesktop = memo(
             (item) => item.title === 'divider',
           );
           // 取 divider 之前的所有项目，如果没有 divider 则取全部
+          // Take all items before divider, or all items if no divider exists
           const firstRow =
             dividerIndex !== -1 ? items.slice(0, dividerIndex) : items;
           const secondRow =
@@ -276,115 +311,177 @@ const IconContainer = memo(
     tooltip,
     customComponent,
     external,
-  }: {
+    isActive,
+  }: FloatingDockItem & {
     mouseX: MotionValue;
-    title: string;
-    icon: React.ReactNode;
-    href?: string;
-    onClick?: () => void;
-    tooltip?: string;
-    customComponent?: React.ReactNode;
-    external?: boolean;
   }) => {
     const ref = useRef<HTMLDivElement>(null);
+    const centerRef = useRef<number>(0);
+    const pathname = usePathname();
 
+    // 缓存图标中心 X 轴坐标，杜绝 mousemove 过程中的强制布局回流 (Layout Thrashing)
+    // Cache icon center X coordinate to prevent layout thrashing on every mousemove event
+    const updateCenter = useCallback(() => {
+      if (ref.current) {
+        const bounds = ref.current.getBoundingClientRect();
+        centerRef.current = bounds.x + bounds.width / 2;
+      }
+    }, []);
+
+    useEffect(() => {
+      updateCenter();
+      window.addEventListener('resize', updateCenter);
+      window.addEventListener('scroll', updateCenter, {passive: true});
+      return () => {
+        window.removeEventListener('resize', updateCenter);
+        window.removeEventListener('scroll', updateCenter);
+      };
+    }, [updateCenter]);
+
+    // 计算鼠标距离：非悬停时返回 Infinity，悬停时直接内存计算，0 次 DOM 测量
+    // Calculate distance: returns Infinity when idle, memory-only calculation when hovered with 0 DOM reflows
     const distance = useTransform(mouseX, (val) => {
-      const bounds = ref.current?.getBoundingClientRect() ?? {x: 0, width: 0};
-
-      return val - bounds.x - bounds.width / 2;
+      if (val === Infinity) {
+        return Infinity;
+      }
+      if (centerRef.current === 0 && ref.current) {
+        const bounds = ref.current.getBoundingClientRect();
+        centerRef.current = bounds.x + bounds.width / 2;
+      }
+      return val - centerRef.current;
     });
 
-    const widthTransform = useTransform(distance, [-150, 0, 150], [40, 70, 40]);
-    const heightTransform = useTransform(
+    // 统一尺寸与图标尺寸弹簧：由 4 个弹簧减半为 2 个弹簧，物理开销减半
+    // Consolidated size and iconSize springs: cut spring instances from 4 to 2, halving physics compute overhead
+    const sizeTransform = useTransform(distance, [-150, 0, 150], [40, 68, 40]);
+    const iconSizeTransform = useTransform(
       distance,
       [-150, 0, 150],
-      [40, 70, 40],
+      [20, 34, 20],
     );
 
-    const widthTransformIcon = useTransform(
-      distance,
-      [-150, 0, 150],
-      [20, 35, 20],
-    );
-    const heightTransformIcon = useTransform(
-      distance,
-      [-150, 0, 150],
-      [20, 35, 20],
-    );
-
-    const width = useSpring(widthTransform, {
+    const size = useSpring(sizeTransform, {
       mass: 0.1,
-      stiffness: 150,
-      damping: 12,
-    });
-    const height = useSpring(heightTransform, {
-      mass: 0.1,
-      stiffness: 150,
-      damping: 12,
+      stiffness: 160,
+      damping: 14,
     });
 
-    const widthIcon = useSpring(widthTransformIcon, {
+    const iconSize = useSpring(iconSizeTransform, {
       mass: 0.1,
-      stiffness: 150,
-      damping: 12,
-    });
-    const heightIcon = useSpring(heightTransformIcon, {
-      mass: 0.1,
-      stiffness: 150,
-      damping: 12,
+      stiffness: 160,
+      damping: 14,
     });
 
     const [hovered, setHovered] = useState(false);
 
     const handleMouseEnter = useCallback(() => {
+      updateCenter();
       setHovered(true);
-    }, []);
+    }, [updateCenter]);
 
     const handleMouseLeave = useCallback(() => {
       setHovered(false);
     }, []);
 
-    const Element = customComponent ? 'div' : href ? 'a' : 'button';
-    const elementProps = customComponent
-      ? {}
-      : href
-        ? {
-            href,
-            ...(external || href.startsWith('https://')
-              ? {target: '_blank', rel: 'noopener noreferrer'}
-              : {}),
-          }
-        : {onClick};
+    // 自动根据当前路由计算激活状态
+    // Automatically determine active state from current pathname
+    const isAutoActive = Boolean(
+      href &&
+        pathname &&
+        (href === '/dashboard'
+          ? pathname === '/dashboard' || pathname === '/'
+          : pathname === href || pathname.startsWith(href + '/')),
+    );
+    const active = isActive !== undefined ? isActive : isAutoActive;
+
+    const isExternal = Boolean(
+      external || href?.startsWith('https://') || href?.startsWith('http://'),
+    );
+
+    const content = (
+      <motion.div
+        ref={ref}
+        style={{width: size, height: size}}
+        whileTap={{scale: 0.92}}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+        className={cn(
+          'relative flex aspect-square items-center justify-center rounded-full cursor-pointer transition-colors duration-200 select-none',
+          active
+            ? 'bg-primary/20 text-primary border border-primary/40 shadow-[0_0_12px_rgba(59,130,246,0.28)]'
+            : 'bg-muted/70 text-muted-foreground hover:text-foreground hover:bg-muted/90 border border-border/40 dark:bg-neutral-800/80 dark:hover:bg-neutral-700/80 dark:border-neutral-700/40',
+        )}
+      >
+        <AnimatePresence>
+          {hovered && (
+            <motion.div
+              initial={{opacity: 0, y: 10, x: '-50%'}}
+              animate={{opacity: 1, y: 0, x: '-50%'}}
+              exit={{opacity: 0, y: 2, x: '-50%'}}
+              transition={{duration: 0.15}}
+              className='pointer-events-none absolute -top-8 left-1/2 w-fit rounded-md border border-border bg-popover/95 px-2 py-0.5 text-xs whitespace-pre text-popover-foreground shadow-md backdrop-blur-sm'
+            >
+              {tooltip || title}
+            </motion.div>
+          )}
+        </AnimatePresence>
+        <motion.div
+          style={{width: iconSize, height: iconSize}}
+          className='flex items-center justify-center'
+        >
+          {customComponent || icon}
+        </motion.div>
+
+        {/* 激活指示光点：在不同菜单间切换时通过 layoutId 实现丝滑平移过渡 */}
+        {/* Active indicator dot: glides seamlessly between menu items via layoutId transition */}
+        {active && (
+          <motion.span
+            layoutId='floating-dock-active-dot'
+            className='absolute -bottom-1 h-1 w-1 rounded-full bg-primary shadow-[0_0_6px_var(--primary)]'
+            transition={{type: 'spring', stiffness: 380, damping: 26}}
+          />
+        )}
+      </motion.div>
+    );
+
+    if (customComponent) {
+      return <div className='outline-none'>{content}</div>;
+    }
+
+    if (href) {
+      if (isExternal) {
+        return (
+          <a
+            href={href}
+            target='_blank'
+            rel='noopener noreferrer'
+            className='outline-none focus-visible:ring-2 focus-visible:ring-primary rounded-full'
+          >
+            {content}
+          </a>
+        );
+      }
+
+      return (
+        <Link
+          href={href}
+          prefetch={true}
+          onClick={onClick}
+          className='outline-none focus-visible:ring-2 focus-visible:ring-primary rounded-full'
+        >
+          {content}
+        </Link>
+      );
+    }
 
     return (
-      <Element {...elementProps}>
-        <motion.div
-          ref={ref}
-          style={{width, height}}
-          onMouseEnter={handleMouseEnter}
-          onMouseLeave={handleMouseLeave}
-          className='relative flex aspect-square items-center justify-center rounded-full bg-gray-200 cursor-pointer dark:bg-neutral-800'
-        >
-          <AnimatePresence>
-            {hovered && (
-              <motion.div
-                initial={{opacity: 0, y: 10, x: '-50%'}}
-                animate={{opacity: 1, y: 0, x: '-50%'}}
-                exit={{opacity: 0, y: 2, x: '-50%'}}
-                className='absolute -top-8 left-1/2 w-fit rounded-md border border-gray-200 bg-gray-100 px-2 py-0.5 text-xs whitespace-pre text-neutral-700 dark:border-neutral-900 dark:bg-neutral-800 dark:text-white'
-              >
-                {tooltip || title}
-              </motion.div>
-            )}
-          </AnimatePresence>
-          <motion.div
-            style={{width: widthIcon, height: heightIcon}}
-            className='flex items-center justify-center'
-          >
-            {customComponent || icon}
-          </motion.div>
-        </motion.div>
-      </Element>
+      <button
+        type='button'
+        onClick={onClick}
+        className='outline-none focus-visible:ring-2 focus-visible:ring-primary rounded-full'
+      >
+        {content}
+      </button>
     );
   },
 );

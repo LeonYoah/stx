@@ -118,7 +118,9 @@ func (r *Repository) ListTasks(ctx context.Context, filter *TaskFilter) ([]*Task
 	query := r.db.WithContext(ctx).Model(&Task{})
 	if filter != nil {
 		if filter.Name != "" {
-			query = query.Where("name LIKE ?", "%"+filter.Name+"%")
+			// 按任务名称模糊过滤（使用 LOWER 忽略大小写，兼容多数据库）
+			// Filter by task name (case-insensitive using LOWER for multi-database compatibility)
+			query = query.Where("LOWER(name) LIKE LOWER(?)", "%"+filter.Name+"%")
 		}
 		if filter.Status != "" {
 			query = query.Where("status = ?", filter.Status)

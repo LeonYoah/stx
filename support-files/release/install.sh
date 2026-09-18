@@ -16,15 +16,16 @@
 
 set -euo pipefail
 
+# 打印 STX 安装器的用法。/ Print STX installer usage.
 usage() {
   cat <<'USAGE'
-SeaTunnelX one-click installer
+STX one-click installer
 
 Usage:
   ./install.sh [options]
 
 Options:
-  --install-dir <path>    Install directory (default: /opt/seatunnelx)
+  --install-dir <path>    Install directory (default: /opt/stx)
   --force                 Backup existing install dir before reinstall
   --no-preserve-config    Do not keep existing config.yaml
   --no-start              Install only, do not auto start
@@ -39,7 +40,7 @@ USAGE
 }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-INSTALL_DIR="${INSTALL_DIR:-/opt/seatunnelx}"
+INSTALL_DIR="${INSTALL_DIR:-/opt/stx}"
 CAPABILITY_PROXY_DEFAULT_VERSION="${CAPABILITY_PROXY_DEFAULT_VERSION:-2.3.13}"
 FORCE=false
 PRESERVE_CONFIG=true
@@ -80,16 +81,16 @@ if [[ -z "$INSTALL_DIR" ]]; then
   exit 1
 fi
 
-if [[ -x "$SCRIPT_DIR/seatunnelx" ]]; then
+if [[ -x "$SCRIPT_DIR/stx" ]]; then
   SOURCE_DIR="$SCRIPT_DIR"
-elif [[ -x "$SCRIPT_DIR/../seatunnelx" ]]; then
+elif [[ -x "$SCRIPT_DIR/../stx" ]]; then
   SOURCE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 else
   echo "[ERROR] install.sh must run from package root (or bin/)."
   exit 1
 fi
 
-for f in seatunnelx bin/start.sh bin/stop.sh bin/status.sh config.example.yaml "lib/seatunnelx-java-proxy-${CAPABILITY_PROXY_DEFAULT_VERSION}.jar" scripts/seatunnelx-java-proxy.sh; do
+for f in stx bin/start.sh bin/stop.sh bin/status.sh config.example.yaml "lib/stx-java-proxy-${CAPABILITY_PROXY_DEFAULT_VERSION}.jar" scripts/stx-java-proxy.sh; do
   if [[ ! -e "$SOURCE_DIR/$f" ]]; then
     echo "[ERROR] package payload missing: $f"
     exit 1
@@ -119,7 +120,7 @@ if [[ "$FORCE" == "true" && -d "$INSTALL_DIR" && "$(ls -A "$INSTALL_DIR" 2>/dev/
   mkdir -p "$INSTALL_DIR"
 fi
 
-echo "[INFO] installing SeaTunnelX to: $INSTALL_DIR"
+echo "[INFO] installing STX to: $INSTALL_DIR"
 tar -C "$SOURCE_DIR" \
   --exclude='run/*' \
   --exclude='logs/*' \
@@ -136,12 +137,12 @@ elif [[ ! -f "$INSTALL_DIR/config.yaml" ]]; then
 fi
 
 chmod +x \
-  "$INSTALL_DIR/seatunnelx" \
+  "$INSTALL_DIR/stx" \
   "$INSTALL_DIR/install.sh" \
   "$INSTALL_DIR/bin/start.sh" \
   "$INSTALL_DIR/bin/stop.sh" \
   "$INSTALL_DIR/bin/status.sh" \
-  "$INSTALL_DIR/scripts/seatunnelx-java-proxy.sh"
+  "$INSTALL_DIR/scripts/stx-java-proxy.sh"
 
 for f in \
   "$INSTALL_DIR/deps/start-observability.sh" \

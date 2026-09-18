@@ -27,13 +27,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/seatunnel/seatunnelX/internal/apps/agent"
-	"github.com/seatunnel/seatunnelX/internal/apps/audit"
-	"github.com/seatunnel/seatunnelX/internal/apps/diagnostics"
-	"github.com/seatunnel/seatunnelX/internal/apps/host"
-	"github.com/seatunnel/seatunnelX/internal/apps/monitor"
-	"github.com/seatunnel/seatunnelX/internal/db"
-	pb "github.com/seatunnel/seatunnelX/internal/proto/agent"
+	"github.com/LeonYoah/stx/internal/apps/agent"
+	"github.com/LeonYoah/stx/internal/apps/audit"
+	"github.com/LeonYoah/stx/internal/apps/diagnostics"
+	"github.com/LeonYoah/stx/internal/apps/host"
+	"github.com/LeonYoah/stx/internal/apps/monitor"
+	"github.com/LeonYoah/stx/internal/db"
+	pb "github.com/LeonYoah/stx/internal/proto/agent"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -1023,7 +1023,7 @@ func (s *Server) HandleProcessEventReport(ctx context.Context, agentID string, r
 				Trigger:      "auto",
 				Details:      details,
 				IPAddress:    "",
-				UserAgent:    "seatunnelx-agent",
+				UserAgent:    "stx-agent",
 			}
 			if err := s.auditRepo.CreateAuditLog(ctx, auditLog); err != nil {
 				s.logger.Warn("Failed to create audit log for process event / 进程事件写审计失败", zap.Error(err))

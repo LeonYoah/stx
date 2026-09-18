@@ -36,8 +36,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/seatunnel/seatunnelX/agent/internal/logger"
-	"github.com/seatunnel/seatunnelX/agent/internal/process"
+	"github.com/LeonYoah/stx/agent/internal/logger"
+	"github.com/LeonYoah/stx/agent/internal/process"
 )
 
 // DefaultMonitorInterval is the default interval for process monitoring

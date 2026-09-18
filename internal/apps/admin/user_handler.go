@@ -23,12 +23,12 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/LeonYoah/stx/internal/apps/audit"
+	"github.com/LeonYoah/stx/internal/apps/auth"
+	"github.com/LeonYoah/stx/internal/config"
+	"github.com/LeonYoah/stx/internal/db"
+	"github.com/LeonYoah/stx/internal/logger"
 	"github.com/gin-gonic/gin"
-	"github.com/seatunnel/seatunnelX/internal/apps/audit"
-	"github.com/seatunnel/seatunnelX/internal/apps/auth"
-	"github.com/seatunnel/seatunnelX/internal/config"
-	"github.com/seatunnel/seatunnelX/internal/db"
-	"github.com/seatunnel/seatunnelX/internal/logger"
 )
 
 // ==================== 用户列表 ====================
@@ -68,7 +68,9 @@ func ListUsersHandler(c *gin.Context) {
 	query := db.DB(c.Request.Context()).Model(&auth.User{})
 
 	if req.Username != "" {
-		query = query.Where("username LIKE ?", req.Username+"%")
+		// 使用 LOWER 进行大小写不敏感前缀匹配，兼容 PostgreSQL/MySQL/SQLite。
+		// Use LOWER for case-insensitive prefix matching, compatible with PostgreSQL/MySQL/SQLite.
+		query = query.Where("LOWER(username) LIKE LOWER(?)", req.Username+"%")
 	}
 	if req.IsActive != nil {
 		query = query.Where("is_active = ?", *req.IsActive)

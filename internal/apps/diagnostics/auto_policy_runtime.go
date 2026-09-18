@@ -22,7 +22,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/seatunnel/seatunnelX/internal/apps/cluster"
+	"github.com/LeonYoah/stx/internal/apps/cluster"
 )
 
 const autoPolicyEvaluationInterval = time.Minute

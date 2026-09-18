@@ -24,7 +24,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/seatunnel/seatunnelX/agent/internal/config"
+	"github.com/LeonYoah/stx/agent/internal/config"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"gopkg.in/natefinch/lumberjack.v2"
@@ -38,7 +38,7 @@ var (
 
 // Init 初始化 Agent 日志：
 // - 同时输出到控制台和日志文件
-// - 日志文件路径使用 cfg.Log.File（默认 /var/log/seatunnelx-agent/agent.log）
+// - 日志文件路径使用 cfg.Log.File（默认 /var/log/stx-agent/agent.log）
 // API 与 internal/logger 一致：DebugF/InfoF/WarnF/ErrorF(ctx, format, args...)
 func Init(cfg *config.Config) error {
 	initOnce.Do(func() {

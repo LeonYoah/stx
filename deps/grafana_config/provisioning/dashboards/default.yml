@@ -1,12 +1,11 @@
 apiVersion: 1
 
 providers:
-  - name: 'SeatunnelX Monitoring'
+  - name: 'STX Monitoring'
     orgId: 1
-    folder: 'SeatunnelX'
+    folder: 'STX'
     type: file
     disableDeletion: false
     editable: true
     options:
       path: __GRAFANA_DASHBOARDS_PATH__
-

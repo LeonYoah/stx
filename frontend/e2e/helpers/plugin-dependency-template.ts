@@ -249,7 +249,7 @@ function buildLocalPluginResponse(state: PluginDependencyFixtureState) {
       artifact_id: 'connector-jdbc',
       version: seatunnelVersion,
       category: 'connector',
-      connector_path: '/tmp/seatunnelx/plugins/connector-jdbc-2.3.13.jar',
+      connector_path: '/tmp/stx/plugins/connector-jdbc-2.3.13.jar',
       size: 1024,
       downloaded_at: now,
       selected_profile_keys: ['mysql'],

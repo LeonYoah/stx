@@ -15,7 +15,7 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates tzdata && \
     rm -rf /var/lib/apt/lists/*
 
-WORKDIR /opt/seatunnelx/frontend
+WORKDIR /opt/stx/frontend
 
 COPY --from=builder /src/frontend/dist-standalone ./
 

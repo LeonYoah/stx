@@ -42,13 +42,12 @@ All real suites reuse the same real-install harness.
 2. generates temporary backend and agent config files
 3. starts a temporary MinIO container when needed
 4. creates checkpoint and IMAP buckets for MinIO-backed flows when needed
-5. ensures `seatunnelx-java-proxy` jar is available for post-install checks
+5. ensures `stx-java-proxy` jar is available for post-install checks
 6. starts:
    - temporary backend
    - temporary agent supervisor
    - frontend dev server
 7. runs the selected Playwright spec
-
 
 ## Covered sub-scenarios
 
@@ -63,8 +62,8 @@ All real suites reuse the same real-install harness.
    - validate IMAP configuration in the wizard
    - complete one-click installation
    - verify generated SeaTunnel and Hazelcast configs
-   - run post-install `seatunnelx-java-proxy` checkpoint probe
-   - run post-install `seatunnelx-java-proxy` IMAP probe
+   - run post-install `stx-java-proxy` checkpoint probe
+   - run post-install `stx-java-proxy` IMAP probe
 
 ## Execution flow
 
@@ -80,8 +79,8 @@ flowchart TD
     E --> H[Wait for installation success]
     H --> I[Assert generated config files]
     I --> J{MinIO scenario?}
-    J -->|Yes| K[Run seatunnelx-java-proxy checkpoint probe]
-    K --> L[Run seatunnelx-java-proxy IMAP probe]
+    J -->|Yes| K[Run stx-java-proxy checkpoint probe]
+    K --> L[Run stx-java-proxy IMAP probe]
     J -->|No| M[Done]
     L --> M
 ```
@@ -95,7 +94,7 @@ sequenceDiagram
     participant BE as Backend
     participant Agent as Agent
     participant ST as Installed SeaTunnel Home
-    participant Proxy as seatunnelx-java-proxy
+    participant Proxy as stx-java-proxy
     participant MinIO as MinIO
 
     PW->>FE: open installer lab

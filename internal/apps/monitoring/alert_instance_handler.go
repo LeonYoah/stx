@@ -25,8 +25,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/LeonYoah/stx/internal/apps/auth"
 	"github.com/gin-gonic/gin"
-	"github.com/seatunnel/seatunnelX/internal/apps/auth"
 )
 
 // ListAlertInstances handles GET /api/v1/monitoring/alert-instances.

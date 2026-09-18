@@ -39,10 +39,10 @@ import (
 // Default configuration values
 // 默认配置值
 const (
-	DefaultConfigPath          = "/etc/seatunnelx-agent/config.yaml"
+	DefaultConfigPath          = "/etc/stx-agent/config.yaml"
 	DefaultHeartbeatInterval   = 10 * time.Second
 	DefaultLogLevel            = "info"
-	DefaultLogFile             = "/var/log/seatunnelx-agent/agent.log"
+	DefaultLogFile             = "/var/log/stx-agent/agent.log"
 	DefaultLogMaxSize          = 100 // MB
 	DefaultLogMaxBackups       = 3
 	DefaultLogMaxAge           = 7 // days

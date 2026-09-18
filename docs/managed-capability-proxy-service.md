@@ -15,7 +15,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 
-# Managed SeaTunnelX Java Proxy Service
+# Managed STX Java Proxy Service
 
 ## Why
 
@@ -25,11 +25,11 @@ limitations under the License.
 - file browsing and repeated probes become expensive
 - later storage-tab interactions need a stable API surface
 
-We therefore move toward a **managed seatunnelx-java-proxy service**.
+We therefore move toward a **managed stx-java-proxy service**.
 
 ## Target direction
 
-The seatunnelx-java-proxy becomes a platform-managed component that:
+The stx-java-proxy becomes a platform-managed component that:
 
 - starts on the master node after install
 - serves HTTP APIs for checkpoint / IMAP diagnostics
@@ -43,10 +43,10 @@ This change implements the install-time foundation:
 1. Runtime storage probes now **try a managed HTTP proxy service first**.
 2. If the service is not available, installer code **falls back to existing `probe-once` CLI behavior**.
 3. When SeaTunnel runtime has already been extracted, installer code can **lazy-start** a local proxy service by running:
-   - `scripts/seatunnelx-java-proxy.sh`
-   - with `-Dseatunnel.capability.proxy.port=<port>`
+   - `scripts/stx-java-proxy.sh`
+   - with `-Dstx.java.proxy.port=<port>`
 4. Service state is persisted under:
-   - `<SEATUNNEL_HOME>/.seatunnelx/seatunnelx-java-proxy/`
+   - `<SEATUNNEL_HOME>/.stx/stx-java-proxy/`
    - including `service.port`, `service.pid`, and `service.log`
 
 ## Behavior
@@ -55,7 +55,7 @@ This change implements the install-time foundation:
 
 For checkpoint / IMAP runtime probe:
 
-1. use `SEATUNNELX_JAVA_PROXY_ENDPOINT` if explicitly configured
+1. use `STX_JAVA_PROXY_ENDPOINT` if explicitly configured
 2. else reuse an already healthy local managed proxy service if found
 3. else start a local managed proxy service lazily
 4. if any of the above fails, fall back to `probe-once`
@@ -64,8 +64,8 @@ This keeps current installs backward compatible while enabling service-based pro
 
 ## New environment knobs
 
-- `SEATUNNELX_JAVA_PROXY_ENDPOINT`: force installer probes to use an existing proxy service
-- `SEATUNNELX_JAVA_PROXY_PORT`: preferred port for the lazily started managed service
+- `STX_JAVA_PROXY_ENDPOINT`: force installer probes to use an existing proxy service
+- `STX_JAVA_PROXY_PORT`: preferred port for the lazily started managed service
 
 ## What is not yet included
 

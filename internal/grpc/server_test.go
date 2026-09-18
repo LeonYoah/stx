@@ -24,8 +24,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/seatunnel/seatunnelX/internal/apps/agent"
-	pb "github.com/seatunnel/seatunnelX/internal/proto/agent"
+	"github.com/LeonYoah/stx/internal/apps/agent"
+	pb "github.com/LeonYoah/stx/internal/proto/agent"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"

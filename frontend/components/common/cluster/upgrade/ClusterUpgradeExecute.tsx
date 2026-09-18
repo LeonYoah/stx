@@ -34,6 +34,7 @@ import {
 } from 'lucide-react';
 import {Button} from '@/components/ui/button';
 import {Badge} from '@/components/ui/badge';
+import {WorkspaceHeader} from '@/components/common/layout';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -417,58 +418,55 @@ export function ClusterUpgradeExecute({clusterId}: ClusterUpgradeExecuteProps) {
           </BreadcrumbList>
         </Breadcrumb>
 
-        <div className='flex flex-wrap items-center justify-between gap-4'>
-          <div className='flex items-center gap-3'>
-            <Activity className='h-8 w-8 text-primary' />
-            <div>
-              <h1 className='text-2xl font-bold tracking-tight'>
-                {t('executeTitle')}
-              </h1>
-              <p className='text-sm text-muted-foreground'>
-                {t('executeDescription')}
-              </p>
-            </div>
-          </div>
-          {currentPlan ? (
-            <div className='text-sm text-muted-foreground'>
-              {currentPlan.source_version} → {currentPlan.target_version}
-            </div>
-          ) : null}
-
-          <div className='flex flex-wrap gap-2'>
-            <Button
-              variant='outline'
-              onClick={() =>
-                router.push(`/clusters/${clusterId}/upgrade/config`)
-              }
-            >
-              <ArrowLeft className='mr-2 h-4 w-4' />
-              {t('backToConfig')}
-            </Button>
-            <Button
-              variant='outline'
-              onClick={() => task?.id && void loadTaskState(task.id, logsQuery)}
-              disabled={!task?.id}
-            >
-              <RefreshCw className='mr-2 h-4 w-4' />
-              {commonT('refresh')}
-            </Button>
-            {showPrimaryExecutionButton ? (
+        <WorkspaceHeader
+          icon={<PlayCircle />}
+          title={t('executeTitle')}
+          subtitle={
+            <>
+              <span>{t('executeDescription')}</span>
+              {currentPlan ? (
+                <span className='mt-0.5 block'>
+                  {currentPlan.source_version} → {currentPlan.target_version}
+                </span>
+              ) : null}
+            </>
+          }
+          actions={
+            <>
               <Button
-                data-testid='upgrade-execute-start'
-                onClick={handleStartExecution}
-                disabled={starting || !plan || hasActiveTask}
+                variant='outline'
+                onClick={() =>
+                  router.push(`/clusters/${clusterId}/upgrade/config`)
+                }
               >
-                {starting ? (
-                  <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                ) : (
-                  <PlayCircle className='mr-2 h-4 w-4' />
-                )}
-                {startExecutionLabel}
+                <ArrowLeft className='mr-2 h-4 w-4' />
+                {t('backToConfig')}
               </Button>
-            ) : null}
-          </div>
-        </div>
+              <Button
+                variant='outline'
+                onClick={() => task?.id && void loadTaskState(task.id, logsQuery)}
+                disabled={!task?.id}
+              >
+                <RefreshCw className='mr-2 h-4 w-4' />
+                {commonT('refresh')}
+              </Button>
+              {showPrimaryExecutionButton ? (
+                <Button
+                  data-testid='upgrade-execute-start'
+                  onClick={handleStartExecution}
+                  disabled={starting || !plan || hasActiveTask}
+                >
+                  {starting ? (
+                    <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                  ) : (
+                    <PlayCircle className='mr-2 h-4 w-4' />
+                  )}
+                  {startExecutionLabel}
+                </Button>
+              ) : null}
+            </>
+          }
+        />
       </div>
 
       <div className='grid gap-4 md:grid-cols-2 xl:grid-cols-4'>

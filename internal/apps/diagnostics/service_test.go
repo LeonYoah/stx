@@ -22,8 +22,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LeonYoah/stx/internal/apps/cluster"
 	"github.com/glebarez/sqlite"
-	"github.com/seatunnel/seatunnelX/internal/apps/cluster"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"

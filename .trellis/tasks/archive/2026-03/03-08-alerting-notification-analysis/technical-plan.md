@@ -2,7 +2,7 @@
 
 ## 1. Objective
 
-在不推翻现有 `monitor` / `monitoring` 基础的前提下，把 SeaTunnelX 的告警与通知能力从：
+在不推翻现有 `monitor` / `monitoring` 基础的前提下，把 STX 的告警与通知能力从：
 
 - 远程可观测性接入 MVP
 - 告警/通知配置骨架
@@ -22,7 +22,7 @@
 采用：**Alertmanager-first + Unified Alert Domain**
 
 - 监控/规则执行底座优先复用 Prometheus / Alertmanager / Grafana；
-- SeaTunnelX 负责：
+- STX 负责：
   - 受管集群目标发现；
   - 本地关键事件告警归一化；
   - 告警聚合与统一展示；
@@ -913,4 +913,4 @@ MVP 建议：
 从 SelectDB 公开资料可确认：
 - Doris Manager 已支持邮件、IM 工具、Webhook 等告警通知方式；
 - 其后续版本继续增加了 webhook 自定义请求参数、自定义 PromQL 告警、恢复通知、告警策略导入导出等产品化能力；
-- 这验证了 SeaTunnelX 的演进方向应先完成“统一告警 + 实际通知闭环”，再逐步走向策略、模板和高级治理。
+- 这验证了 STX 的演进方向应先完成“统一告警 + 实际通知闭环”，再逐步走向策略、模板和高级治理。

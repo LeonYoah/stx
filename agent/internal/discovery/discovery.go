@@ -31,7 +31,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/seatunnel/seatunnelX/agent/internal/logger"
+	"github.com/LeonYoah/stx/agent/internal/logger"
 )
 
 // ProcessDiscovery provides on-demand SeaTunnel process discovery

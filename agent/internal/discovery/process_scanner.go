@@ -35,7 +35,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/seatunnel/seatunnelX/agent/internal/logger"
+	"github.com/LeonYoah/stx/agent/internal/logger"
 )
 
 // SeaTunnelMainClass is the main class name for SeaTunnel Server

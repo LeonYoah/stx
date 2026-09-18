@@ -30,11 +30,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LeonYoah/stx/internal/apps/cluster"
+	appconfig "github.com/LeonYoah/stx/internal/apps/config"
+	"github.com/LeonYoah/stx/internal/apps/monitor"
+	monitoringapp "github.com/LeonYoah/stx/internal/apps/monitoring"
 	"github.com/glebarez/sqlite"
-	"github.com/seatunnel/seatunnelX/internal/apps/cluster"
-	appconfig "github.com/seatunnel/seatunnelX/internal/apps/config"
-	"github.com/seatunnel/seatunnelX/internal/apps/monitor"
-	monitoringapp "github.com/seatunnel/seatunnelX/internal/apps/monitoring"
 	"gorm.io/gorm"
 )
 

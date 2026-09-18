@@ -22,6 +22,7 @@ import (
 	"log"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/viper"
@@ -47,6 +48,7 @@ func init() {
 			log.Printf("[Config] 测试环境，使用默认配置: %v\n", err)
 			Config = &configModel{}
 			setDefaults(Config)
+			applyEnvironmentOverrides(Config)
 			return
 		}
 		log.Fatalf("[Config] read config failed: %v\n", err)
@@ -60,6 +62,8 @@ func init() {
 
 	// 设置默认值
 	setDefaults(&c)
+	applyEnvironmentOverrides(&c)
+
 	if os.Getenv("GO_TEST") != "1" && !isTestEnvironment() {
 		if err := validateConfig(&c); err != nil {
 			log.Fatalf("[Config] validate config failed: %v\n", err)
@@ -68,6 +72,39 @@ func init() {
 
 	// 设置全局配置
 	Config = &c
+}
+
+// applyEnvironmentOverrides 从环境变量覆盖关键配置（便于容器化与 E2E 测试环境动态切换）
+// applyEnvironmentOverrides overrides key configurations from environment variables (useful for containerization and dynamic E2E switching)
+func applyEnvironmentOverrides(c *configModel) {
+	if c == nil {
+		return
+	}
+
+	// 数据库环境变量覆盖 / Database environment variable overrides
+	if dbType := os.Getenv("STX_DATABASE_TYPE"); dbType != "" {
+		c.Database.Type = dbType
+	}
+	if dbHost := os.Getenv("STX_DATABASE_HOST"); dbHost != "" {
+		c.Database.Host = dbHost
+	}
+	if dbPortStr := os.Getenv("STX_DATABASE_PORT"); dbPortStr != "" {
+		if p, err := strconv.Atoi(dbPortStr); err == nil {
+			c.Database.Port = p
+		}
+	}
+	if dbUser := os.Getenv("STX_DATABASE_USERNAME"); dbUser != "" {
+		c.Database.Username = dbUser
+	}
+	if dbPass := os.Getenv("STX_DATABASE_PASSWORD"); dbPass != "" {
+		c.Database.Password = dbPass
+	}
+	if dbName := os.Getenv("STX_DATABASE_DATABASE"); dbName != "" {
+		c.Database.Database = dbName
+	}
+	if sqlitePath := os.Getenv("STX_DATABASE_SQLITE_PATH"); sqlitePath != "" {
+		c.Database.SQLitePath = sqlitePath
+	}
 }
 
 // isTestEnvironment 检测是否在测试环境中运行
@@ -88,7 +125,7 @@ func setDefaults(c *configModel) {
 		c.Database.Type = "sqlite"
 	}
 	if c.Database.SQLitePath == "" {
-		c.Database.SQLitePath = "./data/seatunnel.db"
+		c.Database.SQLitePath = "./data/stx.db"
 	}
 
 	if c.Sync.PreviewDataTTLMinutes <= 0 && c.Sync.PreviewDataTTLHours <= 0 {

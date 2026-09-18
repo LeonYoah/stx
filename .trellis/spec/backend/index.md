@@ -1,6 +1,6 @@
 # 后端开发规范
 
-> 本项目的后端开发最佳实践。
+> 适用于根 Go 模块、`agent/` Go 模块和 `tools/stx-java-proxy/`。
 
 ---
 
@@ -19,20 +19,20 @@
 | [错误处理](./error-handling.md) | 错误类型与处理策略 | 已填写 |
 | [质量规范](./quality-guidelines.md) | 代码标准、注释规范、License 头、语言输出约定、禁止模式 | 已填写 |
 | [日志规范](./logging-guidelines.md) | 结构化日志与日志级别 | 已填写 |
-| [gRPC TLS 自动引导](./grpc-tls-bootstrap.md) | openssl 检测、证书落盘、CA 下发与 Agent 单向 TLS 契约 | 已填写 |
 
 ---
 
-## 如何填写这些规范
+## 开发前检查
 
-针对每个规范文件：
+- 先确认改动属于根 Go 模块、Agent 还是 Java Proxy，并阅读对应的[目录结构](./directory-structure.md)。
+- 涉及数据库、HTTP 错误或日志时，分别阅读数据库、错误处理和日志规范。
+- 新增源文件、方法或用户可见文案时，按[质量规范](./quality-guidelines.md)检查注释、License 头和语言输出。
 
-1. 记录项目**实际约定**（而非理想状态）
-2. 从代码库中摘录**代码示例**
-3. 列出**禁止使用的模式**及原因
-4. 补充团队曾犯的**常见错误**
+## 质量检查
 
-目标是让 AI 助手与新成员理解**本项目**的工作方式。
+- 根 Go 模块运行 `go test ./...`，Agent 模块运行 `(cd agent && go test ./...)`。
+- Java Proxy 运行 `mvn -f tools/stx-java-proxy/pom.xml test`；若测试依赖外部夹具，需同时记录已通过的独立测试与缺失夹具。
+- 提交前运行与改动对应的格式化、静态检查和 License 检查。
 
 ---
 

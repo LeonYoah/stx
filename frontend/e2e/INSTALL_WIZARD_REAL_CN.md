@@ -42,13 +42,12 @@ pnpm exec bash ./scripts/e2e/run-real-installer.sh
 2. 生成临时 backend / agent 配置
 3. 按需启动临时 MinIO
 4. 在需要 MinIO 的场景下创建 checkpoint / IMAP bucket
-5. 确保 `seatunnelx-java-proxy` jar 可用于安装后校验
+5. 确保 `stx-java-proxy` jar 可用于安装后校验
 6. 启动：
    - 临时 backend
    - 临时 agent supervisor
    - frontend dev server
 7. 执行指定的 Playwright spec
-
 
 ## 当前覆盖的子场景
 
@@ -63,8 +62,8 @@ pnpm exec bash ./scripts/e2e/run-real-installer.sh
    - 在向导中校验 IMAP 配置
    - 完成一键安装
    - 校验生成的 SeaTunnel / Hazelcast 配置
-   - 安装后执行 `seatunnelx-java-proxy` checkpoint probe
-   - 安装后执行 `seatunnelx-java-proxy` IMAP probe
+   - 安装后执行 `stx-java-proxy` checkpoint probe
+   - 安装后执行 `stx-java-proxy` IMAP probe
 
 ## 执行流程图
 
@@ -80,8 +79,8 @@ flowchart TD
     E --> H[等待安装成功]
     H --> I[校验生成的配置文件]
     I --> J{是否 MinIO 场景}
-    J -->|是| K[执行 seatunnelx-java-proxy checkpoint probe]
-    K --> L[执行 seatunnelx-java-proxy IMAP probe]
+    J -->|是| K[执行 stx-java-proxy checkpoint probe]
+    K --> L[执行 stx-java-proxy IMAP probe]
     J -->|否| M[结束]
     L --> M
 ```
@@ -95,7 +94,7 @@ sequenceDiagram
     participant BE as Backend
     participant Agent as Agent
     participant ST as 安装后的 SeaTunnel Home
-    participant Proxy as seatunnelx-java-proxy
+    participant Proxy as stx-java-proxy
     participant MinIO as MinIO
 
     PW->>FE: 打开安装向导

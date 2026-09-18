@@ -40,13 +40,12 @@ pnpm exec bash ./scripts/e2e/run-real-upgrade.sh
 2. 生成临时 backend / agent 配置
 3. 按需启动临时 MinIO
 4. 在需要 MinIO 的场景下创建 checkpoint / IMAP bucket
-5. 确保 `seatunnelx-java-proxy` jar 可用于安装后校验
+5. 确保 `stx-java-proxy` jar 可用于安装后校验
 6. 启动：
    - 临时 backend
    - 临时 agent supervisor
    - frontend dev server
 7. 执行指定的 Playwright spec
-
 
 ## 当前覆盖内容
 
@@ -108,4 +107,3 @@ sequenceDiagram
     Agent-->>BE: 返回升级阶段与成功结果
     BE-->>FE: 返回升级状态
 ```
-

@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-// Package host provides host management functionality for the SeaTunnelX Agent system.
-// host 包提供 SeaTunnelX Agent 系统的主机管理功能。
+// Package host provides host management functionality for the STX Agent system.
+// host 包提供 STX Agent 系统的主机管理功能。
 package host
 
 import (
@@ -26,7 +26,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/seatunnel/seatunnelX/internal/apps/cluster"
+	"github.com/LeonYoah/stx/internal/apps/cluster"
 )
 
 // DefaultHeartbeatTimeout is the default timeout for considering a host offline.

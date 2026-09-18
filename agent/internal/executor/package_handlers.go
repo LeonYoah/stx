@@ -29,7 +29,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	pb "github.com/seatunnel/seatunnelX/agent"
+	pb "github.com/LeonYoah/stx/agent"
 )
 
 // PackageTransferManager manages package file transfers from Control Plane

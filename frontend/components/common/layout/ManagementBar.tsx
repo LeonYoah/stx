@@ -19,11 +19,11 @@
 
 import {useState, useEffect, useMemo, memo} from 'react';
 import {useTranslations} from 'next-intl';
+import {usePathname} from 'next/navigation';
 import {FloatingDock} from '@/components/ui/floating-dock';
 import {
-  Activity,
   BarChartIcon,
-  Bug,
+  BellRing,
   User,
   LogOutIcon,
   Globe,
@@ -31,13 +31,13 @@ import {
   GithubIcon,
   Users,
   Server,
-  Database,
+  Layers,
   Terminal,
-  FileText,
+  ScrollText,
   Package,
   Puzzle,
-  LayoutDashboard,
-  Briefcase,
+  BugPlay,
+  ScanSearch,
 } from 'lucide-react';
 import {useThemeUtils} from '@/hooks/use-theme-utils';
 import {useAuth} from '@/hooks/use-auth';
@@ -57,30 +57,40 @@ import {Avatar, AvatarFallback, AvatarImage} from '@/components/ui/avatar';
 import {TrustLevel} from '@/lib/services/core';
 import {useLocale, locales, localeNames, Locale} from '@/lib/i18n';
 import services from '@/lib/services';
+import {STXMark} from '@/components/icons/logo';
 
 const IconOptions = {
   className: 'h-4 w-4',
 } as const;
 
-// 预创建静态图标，避免每次渲染重新创建
-// Pre-create static icons to avoid re-creating on each render
+/**
+ * Dock 静态图标：按入口语义选型，避免通用图标误导。
+ * Dock static icons: pick by entry semantics to avoid misleading generic glyphs.
+ */
 const StaticIcons = {
   user: <User {...IconOptions} />,
   users: <Users {...IconOptions} />,
+  // 主机：单机节点 / Hosts: machine nodes
   server: <Server {...IconOptions} />,
-  database: <Database {...IconOptions} />,
+  // 集群：分层编排的计算集群 / Clusters: layered compute fleet
+  layers: <Layers {...IconOptions} />,
   terminal: <Terminal {...IconOptions} />,
-  fileText: <FileText {...IconOptions} />,
+  // 审计：滚动式操作记录 / Audit: scroll-like operation trail
+  scrollText: <ScrollText {...IconOptions} />,
+  // 安装包 / Packages
   package: <Package {...IconOptions} />,
+  // 插件市场 / Plugin marketplace
   puzzle: <Puzzle {...IconOptions} />,
-  workbench: <Briefcase {...IconOptions} />,
-  dashboard: <LayoutDashboard {...IconOptions} />,
-  monitoring: <Activity {...IconOptions} />,
-  diagnostics: <Bug {...IconOptions} />,
+  // 工作台：调试作业运行台 / Workbench: debug-and-run studio
+  workbench: <BugPlay {...IconOptions} />,
+  // 控制台：品牌青鸾标 / Dashboard: brand Qingluan mark
+  dashboard: <STXMark className='size-5 object-contain' />,
+  // 监控：告警脉搏 / Monitoring: alert pulse
+  monitoring: <BellRing {...IconOptions} />,
+  // 诊断：问题扫描排查 / Diagnostics: scan and triage
+  diagnostics: <ScanSearch {...IconOptions} />,
   divider: <div />,
 };
-
-
 
 // 个人信息按钮 - 独立组件
 const ProfileButton = memo(() => {
@@ -170,7 +180,9 @@ const ProfileButton = memo(() => {
       await checkAuthStatus(true);
       setEmailSaved(true);
     } catch (error) {
-      setEmailError(error instanceof Error ? error.message : t('emailSaveFailed'));
+      setEmailError(
+        error instanceof Error ? error.message : t('emailSaveFailed'),
+      );
       setEmailSaved(false);
     } finally {
       setSavingEmail(false);
@@ -313,7 +325,9 @@ const ProfileButton = memo(() => {
                     <p className='text-xs text-destructive'>{emailError}</p>
                   ) : null}
                   {!emailError && emailSaved ? (
-                    <p className='text-xs text-emerald-600'>{t('emailSaved')}</p>
+                    <p className='text-xs text-emerald-600'>
+                      {t('emailSaved')}
+                    </p>
                   ) : null}
                 </div>
               </div>
@@ -412,7 +426,7 @@ const ProfileButton = memo(() => {
                 </span>
               </Link>
               <Link
-                href='https://github.com/LeonYoah/SeaTunnelX'
+                href='https://github.com/LeonYoah/stx'
                 target='_blank'
                 rel='noopener noreferrer'
                 className='flex items-center gap-3 p-2 rounded-md hover:bg-muted/50 transition-colors group'
@@ -420,9 +434,7 @@ const ProfileButton = memo(() => {
                 <div className='flex items-center justify-center w-8 h-8 rounded-md bg-blue-500/10 group-hover:bg-blue-500/20 transition-colors'>
                   <GithubIcon className='h-4 w-4 text-blue-600' />
                 </div>
-                <span className='text-sm font-medium'>
-                  {t('seatunnelXRepo')}
-                </span>
+                <span className='text-sm font-medium'>{t('stxRepo')}</span>
               </Link>
             </div>
           </div>
@@ -456,20 +468,35 @@ const ProfileButton = memo(() => {
 });
 ProfileButton.displayName = 'ProfileButton';
 
-// Dock 项目类型
+// Dock 项目类型 / Dock item type
 interface DockItem {
   title: string;
   icon: React.ReactNode;
   href?: string;
   customComponent?: React.ReactNode;
+  isActive?: boolean;
 }
 
 export function ManagementBar() {
   const {user} = useAuth();
   const tDock = useTranslations('dock');
+  const pathname = usePathname();
 
-  // 使用 useMemo 缓存 dockItems，只在关键依赖变化时重新计算
+  // 使用 useMemo 缓存 dockItems，只在关键依赖或路由变化时重新计算
+  // Cache dockItems using useMemo, recalculating only on key dependencies or route changes
   const dockItems = useMemo((): DockItem[] => {
+    // 根据当前路径判断菜单项是否处于激活状态
+    // Determine if menu item is active based on current pathname
+    const isRouteActive = (href?: string) => {
+      if (!href || !pathname) {
+        return false;
+      }
+      if (href === '/dashboard') {
+        return pathname === '/dashboard' || pathname === '/';
+      }
+      return pathname === href || pathname.startsWith(href + '/');
+    };
+
     const items: DockItem[] = [];
 
     // 控制台入口 / Dashboard entry
@@ -477,12 +504,14 @@ export function ManagementBar() {
       title: tDock('dashboard'),
       icon: StaticIcons.dashboard,
       href: '/dashboard',
+      isActive: isRouteActive('/dashboard'),
     });
 
     items.push({
       title: tDock('workbench'),
       icon: StaticIcons.workbench,
       href: '/workbench',
+      isActive: isRouteActive('/workbench'),
     });
 
     // 主机管理入口 / Host management entry
@@ -490,13 +519,15 @@ export function ManagementBar() {
       title: tDock('hostManagement'),
       icon: StaticIcons.server,
       href: '/hosts',
+      isActive: isRouteActive('/hosts'),
     });
 
     // 集群管理入口 / Cluster management entry
     items.push({
       title: tDock('clusterManagement'),
-      icon: StaticIcons.database,
+      icon: StaticIcons.layers,
       href: '/clusters',
+      isActive: isRouteActive('/clusters'),
     });
 
     // 监控中心入口 / Monitoring center entry
@@ -504,6 +535,7 @@ export function ManagementBar() {
       title: tDock('monitoringCenter'),
       icon: StaticIcons.monitoring,
       href: '/monitoring',
+      isActive: isRouteActive('/monitoring'),
     });
 
     // 诊断中心入口 / Diagnostics center entry
@@ -511,6 +543,7 @@ export function ManagementBar() {
       title: tDock('diagnosticsCenter'),
       icon: StaticIcons.diagnostics,
       href: '/diagnostics',
+      isActive: isRouteActive('/diagnostics'),
     });
 
     // 安装包管理入口 / Package management entry
@@ -518,6 +551,7 @@ export function ManagementBar() {
       title: tDock('packageManagement'),
       icon: StaticIcons.package,
       href: '/packages',
+      isActive: isRouteActive('/packages'),
     });
 
     // 插件市场入口 / Plugin marketplace entry
@@ -525,6 +559,7 @@ export function ManagementBar() {
       title: tDock('pluginMarketplace'),
       icon: StaticIcons.puzzle,
       href: '/plugins',
+      isActive: isRouteActive('/plugins'),
     });
 
     // 命令记录入口暂时隐藏 / Command logs entry hidden for now
@@ -537,10 +572,10 @@ export function ManagementBar() {
     // 审计日志入口 / Audit logs entry
     items.push({
       title: tDock('auditLogs'),
-      icon: StaticIcons.fileText,
+      icon: StaticIcons.scrollText,
       href: '/audit-logs',
+      isActive: isRouteActive('/audit-logs'),
     });
-
 
     // 管理员入口 / Admin entry
     if (user?.is_admin) {
@@ -548,6 +583,7 @@ export function ManagementBar() {
         title: tDock('userManagement'),
         icon: StaticIcons.users,
         href: '/admin/users',
+        isActive: isRouteActive('/admin/users'),
       });
     }
 
@@ -557,7 +593,7 @@ export function ManagementBar() {
       icon: StaticIcons.divider,
     });
 
-    // 个人信息
+    // 个人信息 / Profile
     items.push({
       title: tDock('profile'),
       icon: StaticIcons.user,
@@ -565,7 +601,7 @@ export function ManagementBar() {
     });
 
     return items;
-  }, [user?.is_admin, tDock]);
+  }, [user?.is_admin, tDock, pathname]);
 
   return (
     <div className='fixed z-50 bottom-4 right-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:pb-0 md:bottom-4 md:left-1/2 md:-translate-x-1/2 md:right-auto'>

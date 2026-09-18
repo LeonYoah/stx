@@ -37,9 +37,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {Separator} from '@/components/ui/separator';
 import {toast} from 'sonner';
 import {Plus, Search, Server, RefreshCw} from 'lucide-react';
+import {WorkspaceHeader, StatPillsBar} from '@/components/common/layout';
 import {motion} from 'motion/react';
 import {easeOut} from 'motion';
 import services from '@/lib/services';
@@ -53,8 +53,9 @@ import {HostTable} from './HostTable';
 import {HostDetail} from './HostDetail';
 import {CreateHostDialog} from './CreateHostDialog';
 import {EditHostDialog} from './EditHostDialog';
+import {HostInstallGuideDialog} from './HostInstallGuideDialog';
 
-const PAGE_SIZE = 10;
+const DEFAULT_PAGE_SIZE = 10;
 
 /**
  * Host Management Main Component
@@ -68,7 +69,7 @@ export function HostMain() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
-
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
 
   // Filter state / 过滤状态
   const [searchName, setSearchName] = useState('');
@@ -80,6 +81,8 @@ export function HostMain() {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [selectedHost, setSelectedHost] = useState<HostInfo | null>(null);
+  const [guideHost, setGuideHost] = useState<HostInfo | null>(null);
+  const [isGuideOpen, setIsGuideOpen] = useState(false);
 
   /**
    * Load hosts list
@@ -90,7 +93,7 @@ export function HostMain() {
     try {
       const params: ListHostsRequest = {
         current: currentPage,
-        size: PAGE_SIZE,
+        size: pageSize,
         name: searchName || undefined,
         host_type:
           filterHostType !== 'all' ? (filterHostType as HostType) : undefined,
@@ -114,7 +117,7 @@ export function HostMain() {
     } finally {
       setLoading(false);
     }
-  }, [currentPage, searchName, filterHostType, filterStatus, t]);
+  }, [currentPage, pageSize, searchName, filterHostType, filterStatus, t]);
 
   useEffect(() => {
     loadHosts();
@@ -181,10 +184,21 @@ export function HostMain() {
    * Handle host created
    * 处理主机创建完成
    */
-  const handleHostCreated = () => {
-    setIsCreateDialogOpen(false);
+  const handleHostCreated = (newHost?: HostInfo) => {
     loadHosts();
-    toast.success(t('host.createSuccess'));
+    if (newHost && newHost.host_type !== HostType.BARE_METAL) {
+      setIsCreateDialogOpen(false);
+      toast.success(t('host.createSuccess'));
+    }
+  };
+
+  /**
+   * Handle open install guide
+   * 处理打开 Agent 安装引导
+   */
+  const handleOpenInstallGuide = (host: HostInfo) => {
+    setGuideHost(host);
+    setIsGuideOpen(true);
   };
 
   /**
@@ -208,7 +222,7 @@ export function HostMain() {
     setCurrentPage(1);
   };
 
-  const totalPages = Math.ceil(total / PAGE_SIZE);
+  const totalPages = Math.ceil(total / pageSize);
 
   const containerVariants = {
     hidden: {opacity: 0},
@@ -239,36 +253,63 @@ export function HostMain() {
       variants={containerVariants}
     >
       {/* Header / 标题 */}
-      <motion.div
-        className='flex items-center justify-between'
-        variants={itemVariants}
-      >
-        <div className='flex items-center gap-2'>
-          <Server className='h-6 w-6' />
-          <div>
-            <h1 className='text-2xl font-bold tracking-tight'>
-              {t('host.title')}
-            </h1>
-            <p className='text-muted-foreground mt-1'>{t('host.description')}</p>
-          </div>
-        </div>
-        <div className='flex gap-2'>
-          <Button variant='outline' onClick={handleRefresh}>
-            <RefreshCw className='h-4 w-4 mr-2' />
-            {t('common.refresh')}
-          </Button>
-          <Button onClick={() => setIsCreateDialogOpen(true)}>
-            <Plus className='h-4 w-4 mr-2' />
-            {t('host.createHost')}
-          </Button>
-        </div>
+      <motion.div variants={itemVariants}>
+        <WorkspaceHeader
+          icon={<Server />}
+          title={t('host.title')}
+          subtitle={t('host.description')}
+          actions={
+            <>
+              <Button variant='outline' onClick={handleRefresh}>
+                <RefreshCw className='h-4 w-4 mr-2' />
+                {t('common.refresh')}
+              </Button>
+              <Button onClick={() => setIsCreateDialogOpen(true)}>
+                <Plus className='h-4 w-4 mr-2' />
+                {t('host.createHost')}
+              </Button>
+            </>
+          }
+        />
       </motion.div>
 
-      <Separator />
+      {/* Status Pills / 状态胶囊栏 */}
+      <motion.div variants={itemVariants}>
+        <StatPillsBar
+          items={[
+            {key: 'all', label: t('host.allStatuses')},
+            {
+              key: HostStatus.CONNECTED,
+              label: t('host.statuses.connected'),
+              variant: 'success',
+            },
+            {
+              key: HostStatus.PENDING,
+              label: t('host.statuses.pending'),
+              variant: 'warning',
+            },
+            {
+              key: HostStatus.OFFLINE,
+              label: t('host.statuses.offline'),
+              variant: 'default',
+            },
+            {
+              key: HostStatus.ERROR,
+              label: t('host.statuses.error'),
+              variant: 'danger',
+            },
+          ]}
+          activeKey={filterStatus}
+          onChange={(newStatus) => {
+            setFilterStatus(newStatus);
+            setCurrentPage(1);
+          }}
+        />
+      </motion.div>
 
       {/* Filters / 过滤器 */}
       <motion.div
-        className='flex flex-wrap gap-4 items-end'
+        className='flex flex-wrap gap-3 items-center'
         variants={itemVariants}
       >
         <div className='flex-1 min-w-[200px] max-w-sm'>
@@ -281,7 +322,7 @@ export function HostMain() {
         </div>
 
         <Select value={filterHostType} onValueChange={setFilterHostType}>
-          <SelectTrigger className='w-[150px]'>
+          <SelectTrigger className='w-[160px]'>
             <SelectValue placeholder={t('host.hostType')} />
           </SelectTrigger>
           <SelectContent>
@@ -298,35 +339,16 @@ export function HostMain() {
           </SelectContent>
         </Select>
 
-        <Select value={filterStatus} onValueChange={setFilterStatus}>
-          <SelectTrigger className='w-[150px]'>
-            <SelectValue placeholder={t('host.status')} />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value='all'>{t('host.allStatuses')}</SelectItem>
-            <SelectItem value={HostStatus.PENDING}>
-              {t('host.statuses.pending')}
-            </SelectItem>
-            <SelectItem value={HostStatus.CONNECTED}>
-              {t('host.statuses.connected')}
-            </SelectItem>
-            <SelectItem value={HostStatus.OFFLINE}>
-              {t('host.statuses.offline')}
-            </SelectItem>
-            <SelectItem value={HostStatus.ERROR}>
-              {t('host.statuses.error')}
-            </SelectItem>
-          </SelectContent>
-        </Select>
-
-        <Button variant='outline' onClick={handleSearch}>
+        <Button variant='outline' onClick={handleSearch} className='active:scale-[0.98]'>
           <Search className='h-4 w-4 mr-2' />
           {t('common.search')}
         </Button>
 
-        <Button variant='ghost' onClick={handleClearFilters}>
-          {t('common.clearFilters')}
-        </Button>
+        {(searchName || filterHostType !== 'all' || filterStatus !== 'all') && (
+          <Button variant='ghost' onClick={handleClearFilters} className='text-muted-foreground hover:text-foreground'>
+            {t('common.clearFilters')}
+          </Button>
+        )}
       </motion.div>
 
       {/* Host Table / 主机表格 */}
@@ -337,10 +359,16 @@ export function HostMain() {
           currentPage={currentPage}
           totalPages={totalPages}
           total={total}
+          pageSize={pageSize}
           onPageChange={handlePageChange}
+          onPageSizeChange={(size) => {
+            setPageSize(size);
+            setCurrentPage(1);
+          }}
           onViewDetail={handleViewDetail}
           onEdit={handleEdit}
           onDelete={handleDelete}
+          onInstallAgent={handleOpenInstallGuide}
         />
       </motion.div>
 
@@ -349,6 +377,18 @@ export function HostMain() {
         open={isCreateDialogOpen}
         onOpenChange={setIsCreateDialogOpen}
         onSuccess={handleHostCreated}
+        onViewDetail={handleViewDetail}
+      />
+
+      {/* Agent Install Guide Dialog / Agent 部署与接入引导弹窗 */}
+      <HostInstallGuideDialog
+        open={isGuideOpen}
+        onOpenChange={setIsGuideOpen}
+        host={guideHost}
+        onConnected={() => {
+          loadHosts();
+        }}
+        onViewDetail={handleViewDetail}
       />
 
       {/* Edit Host Dialog / 编辑主机对话框 */}

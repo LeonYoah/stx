@@ -24,9 +24,9 @@ import (
 	"testing"
 	"time"
 
-	clusterapp "github.com/seatunnel/seatunnelX/internal/apps/cluster"
-	installerapp "github.com/seatunnel/seatunnelX/internal/apps/installer"
-	pluginapp "github.com/seatunnel/seatunnelX/internal/apps/plugin"
+	clusterapp "github.com/LeonYoah/stx/internal/apps/cluster"
+	installerapp "github.com/LeonYoah/stx/internal/apps/installer"
+	pluginapp "github.com/LeonYoah/stx/internal/apps/plugin"
 )
 
 type stubClusterOperator struct {

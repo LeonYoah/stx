@@ -25,7 +25,7 @@
 package cmd
 
 import (
-	"github.com/seatunnel/seatunnelX/internal/task/schedule"
+	"github.com/LeonYoah/stx/internal/task/schedule"
 	"log"
 
 	"github.com/spf13/cobra"

@@ -16,34 +16,47 @@
  */
 
 import type {Metadata} from 'next';
-// eslint-disable-next-line camelcase
-import {Inter, Noto_Sans_SC} from 'next/font/google';
 import {Toaster} from '@/components/ui/sonner';
 import {ThemeProvider} from '@/components/common/layout/ThemeProvider';
 import {I18nProvider} from '@/lib/i18n';
+/**
+ * 本地自托管字体（OFL），构建与运行均不依赖 Google 外部网络。
+ * Self-hosted OFL fonts; no Google external network at build or runtime.
+ */
+import '@fontsource-variable/inter/index.css';
+import '@fontsource-variable/noto-sans-sc/index.css';
+import '@fontsource-variable/jetbrains-mono/index.css';
 import './globals.css';
-
-// eslint-disable-next-line new-cap
-const inter = Inter({
-  variable: '--font-inter',
-  subsets: ['latin'],
-  display: 'swap',
-});
-
-// eslint-disable-next-line new-cap
-const notoSansSC = Noto_Sans_SC({
-  variable: '--font-noto-sans-sc',
-  subsets: ['latin'],
-  display: 'swap',
-  weight: ['300', '400', '500', '600', '700'],
-});
 
 export const metadata: Metadata = {
   title: {
-    template: '%s - Seatunnel X',
-    default: 'Seatunnel X',
+    template: '%s - STX',
+    default: 'STX',
   },
-  description: 'Seatunnel X ,Seatunnel的一站式运维管理平台',
+  description: 'STX，Apache SeaTunnel 一站式运维管理平台',
+  manifest: '/favicon/site.webmanifest',
+  icons: {
+    icon: [
+      {
+        url: '/favicon/favicon-16x16.png?v=qingluan-1',
+        sizes: '16x16',
+        type: 'image/png',
+      },
+      {
+        url: '/favicon/favicon-32x32.png?v=qingluan-1',
+        sizes: '32x32',
+        type: 'image/png',
+      },
+    ],
+    shortcut: '/favicon/favicon.ico?v=qingluan-1',
+    apple: [
+      {
+        url: '/favicon/apple-touch-icon.png?v=qingluan-1',
+        sizes: '180x180',
+        type: 'image/png',
+      },
+    ],
+  },
 };
 
 export default function RootLayout({
@@ -52,19 +65,13 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html
-      lang='zh-CN'
-      className={`${inter.variable} ${notoSansSC.variable} hide-scrollbar font-sans`}
-      suppressHydrationWarning
-    >
-      <body
-        className={`${inter.variable} ${notoSansSC.variable} hide-scrollbar font-sans antialiased`}
-      >
+    <html lang='zh-CN' className='hide-scrollbar font-sans' suppressHydrationWarning>
+      <body className='hide-scrollbar font-sans antialiased'>
         <I18nProvider>
           <ThemeProvider
             attribute='class'
-            defaultTheme='system'
-            enableSystem
+            defaultTheme='dark'
+            enableSystem={false}
             disableTransitionOnChange
           >
             {children}

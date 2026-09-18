@@ -24,10 +24,10 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/LeonYoah/stx/internal/apps/auth"
+	clusterapp "github.com/LeonYoah/stx/internal/apps/cluster"
+	"github.com/LeonYoah/stx/internal/apps/monitor"
 	"github.com/glebarez/sqlite"
-	"github.com/seatunnel/seatunnelX/internal/apps/auth"
-	clusterapp "github.com/seatunnel/seatunnelX/internal/apps/cluster"
-	"github.com/seatunnel/seatunnelX/internal/apps/monitor"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )

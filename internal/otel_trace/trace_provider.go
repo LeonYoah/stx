@@ -1,4 +1,4 @@
-﻿/*
+/*
  * MIT License
  *
  * Copyright (c) 2025 linux.do
@@ -26,7 +26,7 @@ package otel_trace
 
 import (
 	"context"
-	"github.com/seatunnel/seatunnelX/internal/config"
+	"github.com/LeonYoah/stx/internal/config"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"

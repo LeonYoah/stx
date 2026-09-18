@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-// Package agent provides Agent distribution and management for the SeaTunnel Control Plane.
-// agent 包提供 SeaTunnel Control Plane 的 Agent 分发和管理功能。
+// Package agent provides Agent distribution and management for the STX Control Plane.
+// agent 包提供 STX Control Plane 的 Agent 分发和管理功能。
 package agent
 
 import (
@@ -25,7 +25,7 @@ import (
 	"strings"
 	"text/template"
 
-	seatunnelmeta "github.com/seatunnel/seatunnelX/internal/seatunnel"
+	seatunnelmeta "github.com/LeonYoah/stx/internal/seatunnel"
 )
 
 // InstallScriptGenerator generates Agent installation scripts.
@@ -104,17 +104,17 @@ type InstallScriptData struct {
 	// SupportDir 是 Agent 管理的辅助资产目录，例如 proxy jar 和脚本。
 	SupportDir string
 
-	// SeatunnelXJavaProxyVersion is the default packaged seatunnelx-java-proxy version.
-	// SeatunnelXJavaProxyVersion 是默认打包的 seatunnelx-java-proxy 版本。
-	SeatunnelXJavaProxyVersion string
+	// STXJavaProxyVersion is the default packaged stx-java-proxy version.
+	// STXJavaProxyVersion 是默认打包的 stx-java-proxy 版本。
+	STXJavaProxyVersion string
 
-	// SeatunnelXJavaProxyJarFileName is the packaged default seatunnelx-java-proxy jar file name.
-	// SeatunnelXJavaProxyJarFileName 是默认打包的 seatunnelx-java-proxy jar 文件名。
-	SeatunnelXJavaProxyJarFileName string
+	// STXJavaProxyJarFileName is the packaged default stx-java-proxy jar file name.
+	// STXJavaProxyJarFileName 是默认打包的 stx-java-proxy jar 文件名。
+	STXJavaProxyJarFileName string
 
-	// SeatunnelXJavaProxyScriptFileName is the packaged seatunnelx-java-proxy script file name.
-	// SeatunnelXJavaProxyScriptFileName 是打包的 seatunnelx-java-proxy 脚本文件名。
-	SeatunnelXJavaProxyScriptFileName string
+	// STXJavaProxyScriptFileName is the packaged stx-java-proxy script file name.
+	// STXJavaProxyScriptFileName 是打包的 stx-java-proxy 脚本文件名。
+	STXJavaProxyScriptFileName string
 
 	// HeartbeatInterval is the heartbeat interval string (e.g., "60s").
 	// HeartbeatInterval 是心跳间隔字符串（如 "60s"）。
@@ -151,19 +151,19 @@ const DefaultInstallDir = "/usr/local/bin"
 
 // DefaultConfigDir is the default configuration directory for Agent.
 // DefaultConfigDir 是 Agent 的默认配置目录。
-const DefaultConfigDir = "/etc/seatunnelx-agent"
+const DefaultConfigDir = "/etc/stx-agent"
 
 // DefaultAgentBinary is the default name of the Agent binary.
 // DefaultAgentBinary 是 Agent 二进制文件的默认名称。
-const DefaultAgentBinary = "seatunnelx-agent"
+const DefaultAgentBinary = "stx-agent"
 
 // DefaultServiceName is the default systemd service name.
 // DefaultServiceName 是默认的 systemd 服务名称。
-const DefaultServiceName = "seatunnelx-agent"
+const DefaultServiceName = "stx-agent"
 
 // DefaultSupportDir is the default directory for Agent-managed support assets.
 // DefaultSupportDir 是 Agent 管理辅助资产的默认目录。
-const DefaultSupportDir = "/usr/local/lib/seatunnelx-agent"
+const DefaultSupportDir = "/usr/local/lib/stx-agent"
 
 // DefaultAgentCAFile is the default on-host path for the Control Plane CA certificate.
 // DefaultAgentCAFile 是 Control Plane CA 证书在本机的默认路径。
@@ -173,10 +173,10 @@ const DefaultAgentCAFile = DefaultConfigDir + "/certs/ca.crt"
 // SupportedPlatforms 定义所有支持的操作系统和架构组合。
 // Requirements: 2.1, 2.2 - Supports linux-amd64 and linux-arm64.
 var SupportedPlatforms = []SupportedPlatform{
-	{OS: "linux", Arch: "amd64", BinaryName: "seatunnelx-agent-linux-amd64"},
-	{OS: "linux", Arch: "arm64", BinaryName: "seatunnelx-agent-linux-arm64"},
-	{OS: "darwin", Arch: "amd64", BinaryName: "seatunnelx-agent-darwin-amd64"},
-	{OS: "darwin", Arch: "arm64", BinaryName: "seatunnelx-agent-darwin-arm64"},
+	{OS: "linux", Arch: "amd64", BinaryName: "stx-agent-linux-amd64"},
+	{OS: "linux", Arch: "arm64", BinaryName: "stx-agent-linux-arm64"},
+	{OS: "darwin", Arch: "amd64", BinaryName: "stx-agent-darwin-amd64"},
+	{OS: "darwin", Arch: "arm64", BinaryName: "stx-agent-darwin-arm64"},
 }
 
 // NewInstallScriptGenerator creates a new InstallScriptGenerator instance.
@@ -224,19 +224,19 @@ func NewInstallScriptGenerator(cfg *InstallScriptConfig) (*InstallScriptGenerato
 // Requirements: 2.1 - Returns shell script with auto-detection logic for OS and architecture.
 func (g *InstallScriptGenerator) Generate() (string, error) {
 	data := &InstallScriptData{
-		ControlPlaneAddr:                  g.formatControlPlaneURL(),
-		GRPCAddr:                          g.grpcAddr,
-		InstallDir:                        DefaultInstallDir,
-		ConfigDir:                         DefaultConfigDir,
-		AgentBinary:                       DefaultAgentBinary,
-		ServiceName:                       DefaultServiceName,
-		SupportDir:                        DefaultSupportDir,
-		SeatunnelXJavaProxyVersion:        seatunnelmeta.DefaultSeatunnelXJavaProxyVersion,
-		SeatunnelXJavaProxyJarFileName:    seatunnelmeta.SeatunnelXJavaProxyJarFileName(seatunnelmeta.DefaultSeatunnelXJavaProxyVersion),
-		SeatunnelXJavaProxyScriptFileName: seatunnelmeta.SeatunnelXJavaProxyScriptFileName,
-		HeartbeatInterval:                 fmt.Sprintf("%ds", g.heartbeatInterval),
-		TLSEnabled:                        g.tlsEnabled,
-		AgentCAFile:                       DefaultAgentCAFile,
+		ControlPlaneAddr:           g.formatControlPlaneURL(),
+		GRPCAddr:                   g.grpcAddr,
+		InstallDir:                 DefaultInstallDir,
+		ConfigDir:                  DefaultConfigDir,
+		AgentBinary:                DefaultAgentBinary,
+		ServiceName:                DefaultServiceName,
+		SupportDir:                 DefaultSupportDir,
+		STXJavaProxyVersion:        seatunnelmeta.DefaultSTXJavaProxyVersion,
+		STXJavaProxyJarFileName:    seatunnelmeta.STXJavaProxyJarFileName(seatunnelmeta.DefaultSTXJavaProxyVersion),
+		STXJavaProxyScriptFileName: seatunnelmeta.STXJavaProxyScriptFileName,
+		HeartbeatInterval:          fmt.Sprintf("%ds", g.heartbeatInterval),
+		TLSEnabled:                 g.tlsEnabled,
+		AgentCAFile:                DefaultAgentCAFile,
 	}
 
 	return g.GenerateWithData(data)
@@ -272,14 +272,14 @@ func (g *InstallScriptGenerator) GenerateWithData(data *InstallScriptData) (stri
 	if data.SupportDir == "" {
 		data.SupportDir = DefaultSupportDir
 	}
-	if data.SeatunnelXJavaProxyVersion == "" {
-		data.SeatunnelXJavaProxyVersion = seatunnelmeta.DefaultSeatunnelXJavaProxyVersion
+	if data.STXJavaProxyVersion == "" {
+		data.STXJavaProxyVersion = seatunnelmeta.DefaultSTXJavaProxyVersion
 	}
-	if data.SeatunnelXJavaProxyJarFileName == "" {
-		data.SeatunnelXJavaProxyJarFileName = seatunnelmeta.SeatunnelXJavaProxyJarFileName(data.SeatunnelXJavaProxyVersion)
+	if data.STXJavaProxyJarFileName == "" {
+		data.STXJavaProxyJarFileName = seatunnelmeta.STXJavaProxyJarFileName(data.STXJavaProxyVersion)
 	}
-	if data.SeatunnelXJavaProxyScriptFileName == "" {
-		data.SeatunnelXJavaProxyScriptFileName = seatunnelmeta.SeatunnelXJavaProxyScriptFileName
+	if data.STXJavaProxyScriptFileName == "" {
+		data.STXJavaProxyScriptFileName = seatunnelmeta.STXJavaProxyScriptFileName
 	}
 	if data.AgentCAFile == "" {
 		data.AgentCAFile = DefaultAgentCAFile
@@ -370,10 +370,10 @@ func NormalizeOS(os string) string {
 // Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6 - Implements one-click Agent installation.
 const installScriptTemplateContent = `#!/bin/bash
 # ============================================================================
-# SeaTunnelX Agent Install Script
-# SeaTunnelX Agent 安装脚本
-# Generated by SeaTunnel Control Plane
-# 由 SeaTunnel Control Plane 生成
+# STX Agent Install Script
+# STX Agent 安装脚本
+# Generated by STX Control Plane
+# 由 STX Control Plane 生成
 # ============================================================================
 # Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6
 # - Auto-detects OS type and CPU architecture (2.1)
@@ -397,9 +397,9 @@ LOG_DIR="/var/log/${SERVICE_NAME}"
 SUPPORT_DIR="{{.SupportDir}}"
 SUPPORT_LIB_DIR="${SUPPORT_DIR}/lib"
 SUPPORT_SCRIPT_DIR="${SUPPORT_DIR}/scripts"
-CAPABILITY_PROXY_VERSION="{{.SeatunnelXJavaProxyVersion}}"
-CAPABILITY_PROXY_JAR="${SUPPORT_LIB_DIR}/{{.SeatunnelXJavaProxyJarFileName}}"
-CAPABILITY_PROXY_SCRIPT="${SUPPORT_SCRIPT_DIR}/{{.SeatunnelXJavaProxyScriptFileName}}"
+CAPABILITY_PROXY_VERSION="{{.STXJavaProxyVersion}}"
+CAPABILITY_PROXY_JAR="${SUPPORT_LIB_DIR}/{{.STXJavaProxyJarFileName}}"
+CAPABILITY_PROXY_SCRIPT="${SUPPORT_SCRIPT_DIR}/{{.STXJavaProxyScriptFileName}}"
 GRPC_TLS_ENABLED="{{if .TLSEnabled}}true{{else}}false{{end}}"
 AGENT_CA_FILE="{{.AgentCAFile}}"
 AGENT_CA_DIR="$(dirname "${AGENT_CA_FILE}")"
@@ -454,8 +454,8 @@ cleanup() {
         rm -f "/etc/systemd/system/${SERVICE_NAME}.service" 2>/dev/null || true
         rm -f "/tmp/${AGENT_BINARY}" 2>/dev/null || true
         rm -f "/tmp/${SERVICE_NAME}-ca.crt" 2>/dev/null || true
-        rm -f "/tmp/${SERVICE_NAME}-{{.SeatunnelXJavaProxyJarFileName}}" 2>/dev/null || true
-        rm -f "/tmp/${SERVICE_NAME}-{{.SeatunnelXJavaProxyScriptFileName}}" 2>/dev/null || true
+        rm -f "/tmp/${SERVICE_NAME}-{{.STXJavaProxyJarFileName}}" 2>/dev/null || true
+        rm -f "/tmp/${SERVICE_NAME}-{{.STXJavaProxyScriptFileName}}" 2>/dev/null || true
         
         # Reload systemd
         # 重新加载 systemd
@@ -604,46 +604,46 @@ download_agent() {
 
 # ==================== Download Support Assets 下载辅助资产 ====================
 download_support_assets() {
-    local jar_url="${CONTROL_PLANE_ADDR}/api/v1/agent/assets/seatunnelx-java-proxy.jar?version=${CAPABILITY_PROXY_VERSION}"
-    local script_url="${CONTROL_PLANE_ADDR}/api/v1/agent/assets/seatunnelx-java-proxy.sh"
-    local temp_jar="/tmp/${SERVICE_NAME}-{{.SeatunnelXJavaProxyJarFileName}}"
-    local temp_script="/tmp/${SERVICE_NAME}-{{.SeatunnelXJavaProxyScriptFileName}}"
+    local jar_url="${CONTROL_PLANE_ADDR}/api/v1/agent/assets/stx-java-proxy.jar?version=${CAPABILITY_PROXY_VERSION}"
+    local script_url="${CONTROL_PLANE_ADDR}/api/v1/agent/assets/stx-java-proxy.sh"
+    local temp_jar="/tmp/${SERVICE_NAME}-{{.STXJavaProxyJarFileName}}"
+    local temp_script="/tmp/${SERVICE_NAME}-{{.STXJavaProxyScriptFileName}}"
 
     log_step "Downloading Agent support assets..."
     log_step "正在下载 Agent 辅助资产..."
 
     if command -v curl &> /dev/null; then
         if ! curl -fsSL -o "${temp_jar}" "${jar_url}"; then
-            log_error "Failed to download seatunnelx-java-proxy jar using curl"
-            log_error "使用 curl 下载 seatunnelx-java-proxy jar 失败"
+            log_error "Failed to download stx-java-proxy jar using curl"
+            log_error "使用 curl 下载 stx-java-proxy jar 失败"
             exit 1
         fi
         if ! curl -fsSL -o "${temp_script}" "${script_url}"; then
-            log_error "Failed to download seatunnelx-java-proxy script using curl"
-            log_error "使用 curl 下载 seatunnelx-java-proxy 脚本失败"
+            log_error "Failed to download stx-java-proxy script using curl"
+            log_error "使用 curl 下载 stx-java-proxy 脚本失败"
             exit 1
         fi
     elif command -v wget &> /dev/null; then
         if ! wget -q -O "${temp_jar}" "${jar_url}"; then
-            log_error "Failed to download seatunnelx-java-proxy jar using wget"
-            log_error "使用 wget 下载 seatunnelx-java-proxy jar 失败"
+            log_error "Failed to download stx-java-proxy jar using wget"
+            log_error "使用 wget 下载 stx-java-proxy jar 失败"
             exit 1
         fi
         if ! wget -q -O "${temp_script}" "${script_url}"; then
-            log_error "Failed to download seatunnelx-java-proxy script using wget"
-            log_error "使用 wget 下载 seatunnelx-java-proxy 脚本失败"
+            log_error "Failed to download stx-java-proxy script using wget"
+            log_error "使用 wget 下载 stx-java-proxy 脚本失败"
             exit 1
         fi
     fi
 
     if [ ! -s "${temp_jar}" ]; then
-        log_error "Downloaded seatunnelx-java-proxy jar is missing or empty"
-        log_error "下载的 seatunnelx-java-proxy jar 不存在或为空"
+        log_error "Downloaded stx-java-proxy jar is missing or empty"
+        log_error "下载的 stx-java-proxy jar 不存在或为空"
         exit 1
     fi
     if [ ! -s "${temp_script}" ]; then
-        log_error "Downloaded seatunnelx-java-proxy script is missing or empty"
-        log_error "下载的 seatunnelx-java-proxy 脚本不存在或为空"
+        log_error "Downloaded stx-java-proxy script is missing or empty"
+        log_error "下载的 stx-java-proxy 脚本不存在或为空"
         exit 1
     fi
 
@@ -740,8 +740,8 @@ install_agent() {
     # 生成配置文件
     cat > "${CONFIG_DIR}/config.yaml" << EOF
 # ============================================================================
-# SeaTunnelX Agent Configuration
-# SeaTunnelX Agent 配置文件
+# STX Agent Configuration
+# STX Agent 配置文件
 # Generated by install script
 # 由安装脚本生成
 # ============================================================================
@@ -808,8 +808,8 @@ EOF
 }
 
 install_support_assets() {
-    local temp_jar="/tmp/${SERVICE_NAME}-{{.SeatunnelXJavaProxyJarFileName}}"
-    local temp_script="/tmp/${SERVICE_NAME}-{{.SeatunnelXJavaProxyScriptFileName}}"
+    local temp_jar="/tmp/${SERVICE_NAME}-{{.STXJavaProxyJarFileName}}"
+    local temp_script="/tmp/${SERVICE_NAME}-{{.STXJavaProxyScriptFileName}}"
 
     log_step "Installing Agent support assets..."
     log_step "正在安装 Agent 辅助资产..."
@@ -846,8 +846,8 @@ create_systemd_service() {
     cat > "${INSTALL_DIR}/${AGENT_BINARY}-start.sh" << 'WRAPPER_EOF'
 #!/bin/bash
 # ============================================================================
-# SeaTunnelX Agent Startup Wrapper Script
-# SeaTunnelX Agent 启动包装脚本
+# STX Agent Startup Wrapper Script
+# STX Agent 启动包装脚本
 # This script loads environment variables before starting the Agent
 # 此脚本在启动 Agent 前加载环境变量
 # ============================================================================
@@ -890,12 +890,12 @@ fi
 
 # Export support asset locations for runtime storage probe execution
 # 导出运行时存储探测所需的辅助资产路径
-export SEATUNNELX_JAVA_PROXY_HOME="CAPABILITY_PROXY_HOME_PLACEHOLDER"
-export SEATUNNELX_JAVA_PROXY_SCRIPT="CAPABILITY_PROXY_SCRIPT_PLACEHOLDER"
+export STX_JAVA_PROXY_HOME="CAPABILITY_PROXY_HOME_PLACEHOLDER"
+export STX_JAVA_PROXY_SCRIPT="CAPABILITY_PROXY_SCRIPT_PLACEHOLDER"
 
 # Log environment info for debugging
 # 记录环境信息用于调试
-echo "[$(date)] Starting SeaTunnelX Agent..."
+echo "[$(date)] Starting STX Agent..."
 echo "[$(date)] JAVA_HOME=$JAVA_HOME"
 echo "[$(date)] PATH=$PATH"
 if command -v java &> /dev/null; then
@@ -922,7 +922,7 @@ WRAPPER_EOF
     # 创建 systemd 服务文件
     cat > "/etc/systemd/system/${SERVICE_NAME}.service" << EOF
 [Unit]
-Description=SeaTunnelX Agent Service
+Description=STX Agent Service
 Documentation=https://seatunnel.apache.org/
 After=network-online.target
 Wants=network-online.target
@@ -1079,8 +1079,8 @@ print_summary() {
 main() {
     echo ""
     echo -e "${BLUE}============================================${NC}"
-    echo -e "${BLUE}  SeaTunnelX Agent Installation Script${NC}"
-    echo -e "${BLUE}  SeaTunnelX Agent 安装脚本${NC}"
+    echo -e "${BLUE}  STX Agent Installation Script${NC}"
+    echo -e "${BLUE}  STX Agent 安装脚本${NC}"
     echo -e "${BLUE}============================================${NC}"
     echo ""
     

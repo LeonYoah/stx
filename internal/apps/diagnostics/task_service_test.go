@@ -22,8 +22,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LeonYoah/stx/internal/apps/cluster"
 	"github.com/glebarez/sqlite"
-	"github.com/seatunnel/seatunnelX/internal/apps/cluster"
 	"gorm.io/gorm"
 )
 
@@ -274,7 +274,7 @@ func TestBuildDiagnosticLogCandidatesPrefersNodeScopedEvents(t *testing.T) {
 			Role:       "worker",
 			InstallDir: "/opt/seatunnel-a",
 			SourceFile: "/opt/seatunnel-a/logs/node-101.log",
-			OccurredAt:  time.Now().UTC(),
+			OccurredAt: time.Now().UTC(),
 		},
 		{
 			NodeID:     102,
@@ -282,7 +282,7 @@ func TestBuildDiagnosticLogCandidatesPrefersNodeScopedEvents(t *testing.T) {
 			Role:       "worker",
 			InstallDir: "/opt/seatunnel-a",
 			SourceFile: "/opt/seatunnel-a/logs/node-102.log",
-			OccurredAt:  time.Now().UTC(),
+			OccurredAt: time.Now().UTC(),
 		},
 		{
 			NodeID:     0,
@@ -290,7 +290,7 @@ func TestBuildDiagnosticLogCandidatesPrefersNodeScopedEvents(t *testing.T) {
 			Role:       "master",
 			InstallDir: "/opt/seatunnel-a",
 			SourceFile: "/opt/seatunnel-a/logs/master.log",
-			OccurredAt:  time.Now().UTC(),
+			OccurredAt: time.Now().UTC(),
 		},
 	}
 

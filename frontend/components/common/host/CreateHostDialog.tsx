@@ -46,14 +46,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {Terminal} from 'lucide-react';
 import {toast} from 'sonner';
 import services from '@/lib/services';
-import {HostType, CreateHostRequest} from '@/lib/services/host/types';
+import {HostType, CreateHostRequest, HostInfo} from '@/lib/services/host/types';
+import {HostInstallGuideContent} from './HostInstallGuideContent';
 
 interface CreateHostDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSuccess: () => void;
+  onSuccess: (createdHost?: HostInfo) => void;
+  onViewDetail?: (host: HostInfo) => void;
 }
 
 /**
@@ -64,9 +67,12 @@ export function CreateHostDialog({
   open,
   onOpenChange,
   onSuccess,
+  onViewDetail,
 }: CreateHostDialogProps) {
   const t = useTranslations();
   const [loading, setLoading] = useState(false);
+  const [step, setStep] = useState<1 | 2>(1);
+  const [createdHost, setCreatedHost] = useState<HostInfo | null>(null);
   const [formData, setFormData] = useState<CreateHostRequest>({
     name: '',
     host_type: HostType.BARE_METAL,
@@ -102,6 +108,8 @@ export function CreateHostDialog({
       k8s_kubeconfig: '',
       k8s_token: '',
     });
+    setStep(1);
+    setCreatedHost(null);
   };
 
   /**
@@ -184,9 +192,19 @@ export function CreateHostDialog({
     setLoading(true);
     try {
       const result = await services.host.createHostSafe(formData);
-      if (result.success) {
-        resetForm();
-        onSuccess();
+      if (result.success && result.data) {
+        const created = result.data;
+        // 触发父级回调刷新表格数据 / Notify parent to refresh host list
+        onSuccess(created);
+
+        // 若为物理机主机，无缝进入 Step 2 Agent 部署引导 / If bare metal, transition to Step 2 guide
+        if (formData.host_type === HostType.BARE_METAL) {
+          setCreatedHost(created);
+          setStep(2);
+        } else {
+          toast.success(t('host.createSuccess'));
+          handleClose();
+        }
       } else {
         toast.error(result.error || t('host.createError'));
       }
@@ -199,10 +217,33 @@ export function CreateHostDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className='max-w-[500px] max-h-[90vh] overflow-y-auto'>
-        <DialogHeader>
-          <DialogTitle>{t('host.createHost')}</DialogTitle>
-        </DialogHeader>
+      <DialogContent
+        className={`${
+          step === 2 ? 'max-w-[700px]' : 'max-w-[540px]'
+        } max-h-[90vh] overflow-y-auto p-5 sm:p-6 transition-all duration-200`}
+      >
+        {step === 1 ? (
+          <>
+            <DialogHeader className='pb-3 border-b'>
+              <DialogTitle>{t('host.createHost')}</DialogTitle>
+              {formData.host_type === HostType.BARE_METAL && (
+                <div className='flex items-center gap-2 pt-2 text-xs'>
+                  <span className='inline-flex items-center gap-1.5 font-medium text-primary'>
+                    <span className='flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground text-[11px] font-bold'>
+                      1
+                    </span>
+                    {t('host.installGuide.step1')}
+                  </span>
+                  <span className='h-px w-6 bg-border' />
+                  <span className='inline-flex items-center gap-1.5 text-muted-foreground'>
+                    <span className='flex h-5 w-5 items-center justify-center rounded-full border border-muted-foreground/30 text-[11px]'>
+                      2
+                    </span>
+                    {t('host.installGuide.step2')}
+                  </span>
+                </div>
+              )}
+            </DialogHeader>
 
         <div className='space-y-4 py-4'>
           {/* Host Name / 主机名称 */}
@@ -372,14 +413,61 @@ export function CreateHostDialog({
           )}
         </div>
 
-        <DialogFooter>
-          <Button variant='outline' onClick={handleClose} disabled={loading}>
-            {t('common.cancel')}
-          </Button>
-          <Button onClick={handleSubmit} disabled={loading}>
-            {loading ? t('common.creating') : t('common.create')}
-          </Button>
-        </DialogFooter>
+            <DialogFooter>
+              <Button variant='outline' onClick={handleClose} disabled={loading}>
+                {t('common.cancel')}
+              </Button>
+              <Button onClick={handleSubmit} disabled={loading}>
+                {loading
+                  ? t('common.creating')
+                  : formData.host_type === HostType.BARE_METAL
+                    ? t('host.installGuide.nextStepAgent')
+                    : t('common.create')}
+              </Button>
+            </DialogFooter>
+          </>
+        ) : createdHost ? (
+          <>
+            <DialogHeader className='pb-3 border-b'>
+              <div className='flex items-center gap-2 text-primary'>
+                <Terminal className='h-5 w-5' />
+                <DialogTitle className='text-base font-semibold'>
+                  {t('host.installGuide.title')}
+                </DialogTitle>
+              </div>
+              <div className='flex items-center gap-2 pt-1.5 text-xs'>
+                <span className='inline-flex items-center gap-1.5 text-muted-foreground'>
+                  <span className='flex h-5 w-5 items-center justify-center rounded-full bg-muted text-muted-foreground text-[11px]'>
+                    ✓
+                  </span>
+                  {t('host.installGuide.step1')}
+                </span>
+                <span className='h-px w-6 bg-border' />
+                <span className='inline-flex items-center gap-1.5 font-medium text-primary'>
+                  <span className='flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground text-[11px] font-bold'>
+                    2
+                  </span>
+                  {t('host.installGuide.step2')}
+                </span>
+              </div>
+            </DialogHeader>
+
+            <div className='pt-2'>
+              <HostInstallGuideContent
+                host={createdHost}
+                onConnected={(updated) => {
+                  setCreatedHost(updated);
+                  onSuccess(updated);
+                }}
+                onViewDetail={(targetHost) => {
+                  handleClose();
+                  onViewDetail?.(targetHost);
+                }}
+                onClose={handleClose}
+              />
+            </div>
+          </>
+        ) : null}
       </DialogContent>
     </Dialog>
   );

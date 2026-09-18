@@ -2,7 +2,7 @@
 
 ## Goal
 
-围绕刚落地的 **chunk upload 主链路**，为 SeaTunnelX 控制台建立一套可持续演进的 **UI 自动化 + CI 执行框架**。
+围绕刚落地的 **chunk upload 主链路**，为 STX 控制台建立一套可持续演进的 **UI 自动化 + CI 执行框架**。
 
 本任务的重点不是一次性把所有 E2E 用例都写完，而是先把后续能稳定扩展的“测试底座”设计清楚，并明确 MVP 的首批落地点。
 
@@ -221,7 +221,7 @@ MVP 建议至少支持两种模式：
 - `frontend/e2e/fixtures/*`
 - `frontend/e2e/helpers/*`
 - `.github/workflows/ci-main.yml`
-- `scripts/test-e2e.sh` 或等价脚本
+- `frontend/scripts/e2e/*.sh` 与 `frontend/scripts/e2e/select-e2e-specs.mjs`
 - 必要时的测试专用 mock / fake server 文件
 
 ### Suggested implementation order
@@ -254,4 +254,3 @@ MVP 建议至少支持两种模式：
 - 同时支持 Playwright 与 Cypress 双框架；
 - 首阶段就做完整跨浏览器矩阵；
 - 引入过重的容器化全量测试平台。
-

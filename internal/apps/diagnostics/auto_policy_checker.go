@@ -25,8 +25,8 @@ import (
 	"strings"
 	"time"
 
-	monitoringapp "github.com/seatunnel/seatunnelX/internal/apps/monitoring"
-	"github.com/seatunnel/seatunnelX/internal/pkg/schedulex"
+	monitoringapp "github.com/LeonYoah/stx/internal/apps/monitoring"
+	"github.com/LeonYoah/stx/internal/pkg/schedulex"
 )
 
 const autoPolicyRequestedByPrefix = "auto-policy:"

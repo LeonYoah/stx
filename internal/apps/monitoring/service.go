@@ -33,9 +33,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/seatunnel/seatunnelX/internal/apps/cluster"
-	"github.com/seatunnel/seatunnelX/internal/apps/monitor"
-	"github.com/seatunnel/seatunnelX/internal/config"
+	"github.com/LeonYoah/stx/internal/apps/cluster"
+	"github.com/LeonYoah/stx/internal/apps/monitor"
+	"github.com/LeonYoah/stx/internal/config"
 	"gorm.io/gorm"
 )
 

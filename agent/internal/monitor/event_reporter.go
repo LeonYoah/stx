@@ -22,7 +22,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/seatunnel/seatunnelX/agent/internal/logger"
+	"github.com/LeonYoah/stx/agent/internal/logger"
 )
 
 // DefaultEventCacheSize is the default size of the event cache

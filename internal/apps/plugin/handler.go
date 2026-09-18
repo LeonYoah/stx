@@ -23,10 +23,10 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/LeonYoah/stx/internal/apps/audit"
+	"github.com/LeonYoah/stx/internal/apps/auth"
+	"github.com/LeonYoah/stx/internal/logger"
 	"github.com/gin-gonic/gin"
-	"github.com/seatunnel/seatunnelX/internal/apps/audit"
-	"github.com/seatunnel/seatunnelX/internal/apps/auth"
-	"github.com/seatunnel/seatunnelX/internal/logger"
 )
 
 // Handler provides HTTP handlers for plugin management.
@@ -393,9 +393,9 @@ func (h *Handler) DownloadPlugin(c *gin.Context) {
 // DownloadAllPluginsRequest represents a request to download all plugins.
 // DownloadAllPluginsRequest 表示下载所有插件的请求。
 type DownloadAllPluginsRequest struct {
-	Version                string              `json:"version" binding:"required"`                   // 版本号 / Version
-	Mirror                 MirrorSource        `json:"mirror,omitempty"`                             // 镜像源 / Mirror source
-	SelectedPluginProfiles map[string][]string `json:"selected_plugin_profiles,omitempty"`           // 按插件传入的画像选择 / Profile selections keyed by plugin
+	Version                string              `json:"version" binding:"required"`         // 版本号 / Version
+	Mirror                 MirrorSource        `json:"mirror,omitempty"`                   // 镜像源 / Mirror source
+	SelectedPluginProfiles map[string][]string `json:"selected_plugin_profiles,omitempty"` // 按插件传入的画像选择 / Profile selections keyed by plugin
 }
 
 // DownloadAllPluginsResponse represents the response for downloading all plugins.

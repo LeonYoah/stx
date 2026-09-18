@@ -27,7 +27,7 @@ package schedule
 import "errors"
 
 // ErrSchedulerRemoved 表示 legacy scheduler 链路已移除。
-var ErrSchedulerRemoved = errors.New("legacy scheduler mode has been removed from SeaTunnelX")
+var ErrSchedulerRemoved = errors.New("legacy scheduler mode has been removed from STX")
 
 // StartScheduler 保留命令入口，但默认产品已不再提供该 legacy 调度能力。
 func StartScheduler() error {

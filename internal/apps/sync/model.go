@@ -157,7 +157,9 @@ type Task struct {
 	Mode                    TaskMode      `json:"mode" gorm:"size:20;default:streaming"`
 	Status                  TaskStatus    `json:"status" gorm:"size:20;default:draft;index"`
 	ContentFormat           ContentFormat `json:"content_format" gorm:"size:20;not null;default:hocon"`
-	Content                 string        `json:"content" gorm:"type:longtext"`
+	// Content 存储任务定义内容（HOCON 或 JSON），兼容多数据库。
+	// Content stores task definition content (HOCON or JSON), compatible with multiple databases.
+	Content                 string        `json:"content" gorm:"type:text"`
 	JobName                 string        `json:"job_name" gorm:"size:255"`
 	Definition              JSONMap       `json:"definition" gorm:"type:json"`
 	SortOrder               int           `json:"sort_order" gorm:"default:0;index"`
@@ -190,7 +192,9 @@ type TaskVersion struct {
 	EngineVersionSnapshot string        `json:"engine_version_snapshot" gorm:"size:50"`
 	ModeSnapshot          TaskMode      `json:"mode_snapshot" gorm:"size:20"`
 	ContentFormatSnapshot ContentFormat `json:"content_format_snapshot" gorm:"size:20"`
-	ContentSnapshot       string        `json:"content_snapshot" gorm:"type:longtext"`
+	// ContentSnapshot 存储版本快照内容（HOCON 或 JSON），兼容多数据库。
+	// ContentSnapshot stores version snapshot content (HOCON or JSON), compatible with multiple databases.
+	ContentSnapshot       string        `json:"content_snapshot" gorm:"type:text"`
 	JobNameSnapshot       string        `json:"job_name_snapshot" gorm:"size:255"`
 	DefinitionSnapshot    JSONMap       `json:"definition_snapshot" gorm:"type:json"`
 	Comment               string        `json:"comment" gorm:"size:255"`
@@ -231,12 +235,23 @@ func (JobInstance) TableName() string {
 	return "sync_job_instances"
 }
 
+const (
+	// GlobalVariableTypeString represents a plain text variable.
+	// GlobalVariableTypeString 表示普通文本变量。
+	GlobalVariableTypeString = "string"
+
+	// GlobalVariableTypeSecret represents a password/secret variable that is never displayed after creation.
+	// GlobalVariableTypeSecret 表示密码/机密变量，创建或更新后不回显明文。
+	GlobalVariableTypeSecret = "secret"
+)
+
 // GlobalVariable represents one workspace-wide runtime variable.
 // GlobalVariable 表示一个工作台级别的全局运行时变量。
 type GlobalVariable struct {
 	ID          uint      `json:"id" gorm:"primaryKey;autoIncrement"`
 	Key         string    `json:"key" gorm:"size:120;not null;uniqueIndex"`
 	Value       string    `json:"value" gorm:"type:text"`
+	ValueType   string    `json:"value_type" gorm:"size:32;not null;default:'string'"`
 	Description string    `json:"description" gorm:"type:text"`
 	CreatedBy   uint      `json:"created_by"`
 	CreatedAt   time.Time `json:"created_at" gorm:"autoCreateTime"`
@@ -247,6 +262,19 @@ type GlobalVariable struct {
 // TableName 返回同步全局变量表名。
 func (GlobalVariable) TableName() string {
 	return "sync_global_variables"
+}
+
+// MaskSecret returns a safe copy with value masked to "******" if it is a secret variable.
+// MaskSecret 若为敏感机密变量，返回变量值脱敏为 "******" 的安全副本。
+func (v *GlobalVariable) MaskSecret() *GlobalVariable {
+	if v == nil {
+		return nil
+	}
+	clone := *v
+	if clone.ValueType == GlobalVariableTypeSecret {
+		clone.Value = "******"
+	}
+	return &clone
 }
 
 // PreviewSession stores one incremental preview session snapshot.

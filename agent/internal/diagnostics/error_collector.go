@@ -33,8 +33,8 @@ import (
 	"sync"
 	"time"
 
-	pb "github.com/seatunnel/seatunnelX/agent"
-	"github.com/seatunnel/seatunnelX/agent/internal/logger"
+	pb "github.com/LeonYoah/stx/agent"
+	"github.com/LeonYoah/stx/agent/internal/logger"
 )
 
 const (

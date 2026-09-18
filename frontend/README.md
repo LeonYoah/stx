@@ -1,6 +1,6 @@
-# Seatunnel X Frontend
+# STX Frontend
 
-🎨 Seatunnel X - 前端应用
+🎨 STX - 前端应用
 
 [![Next.js](https://img.shields.io/badge/Next.js-15-black.svg)](https://nextjs.org/)
 [![React](https://img.shields.io/badge/React-19-blue.svg)](https://reactjs.org/)
@@ -284,10 +284,11 @@ export default function UserCard({ user, onClick }: UserCardProps) {
 // 使用 Lucide 图标
 import {Search, User, Settings} from 'lucide-react';
 
-// 自定义图标
-import {LinuxDoLogo} from '@/components/icons';
+// 自定义品牌图标 / Custom brand icon
+import {STXMark} from '@/components/icons/logo';
 
 <Search className='h-5 w-5 text-gray-400' />;
+<STXMark className='size-5 rounded-md' />;
 ```
 
 ### 命名规范

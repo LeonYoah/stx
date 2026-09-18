@@ -68,6 +68,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -300,8 +301,8 @@ function supportsTemplateCondition(
     template.source_kind === 'metrics_template' ||
     Boolean(
       template.default_operator ||
-        template.default_threshold ||
-        template.default_window_minutes,
+      template.default_threshold ||
+      template.default_window_minutes,
     )
   );
 }
@@ -338,18 +339,20 @@ function buildConditionStateFromPolicy(
   PolicyFormState,
   'conditionOperator' | 'conditionThreshold' | 'conditionWindowMinutes'
 > {
-  const condition = Array.isArray(policy.conditions) ? policy.conditions[0] : null;
+  const condition = Array.isArray(policy.conditions)
+    ? policy.conditions[0]
+    : null;
   if (!condition) {
     return buildConditionDefaults(template);
   }
 
   return {
-    conditionOperator:
-      condition.operator || template?.default_operator || '>',
+    conditionOperator: condition.operator || template?.default_operator || '>',
     conditionThreshold:
       condition.threshold || template?.default_threshold || '',
     conditionWindowMinutes:
-      condition.window_minutes !== undefined && condition.window_minutes !== null
+      condition.window_minutes !== undefined &&
+      condition.window_minutes !== null
         ? String(condition.window_minutes)
         : String(template?.default_window_minutes || 1),
   };
@@ -550,7 +553,8 @@ function buildPolicyPayload(
     10,
   );
   const conditions: AlertPolicyCondition[] =
-    form.strategyMode === 'static' && supportsTemplateCondition(selectedTemplate)
+    form.strategyMode === 'static' &&
+    supportsTemplateCondition(selectedTemplate)
       ? [
           {
             metric_key: selectedTemplate?.key || '',
@@ -675,6 +679,11 @@ export function MonitoringPolicyCenter() {
   const [loading, setLoading] = useState<boolean>(true);
   const [savingPolicy, setSavingPolicy] = useState<boolean>(false);
   const [editingPolicyId, setEditingPolicyId] = useState<number | null>(null);
+  const [policyDialogOpen, setPolicyDialogOpen] = useState<boolean>(false);
+  const [policySearchKeyword, setPolicySearchKeyword] = useState<string>('');
+  const [policyClusterFilter, setPolicyClusterFilter] =
+    useState<string>('all');
+  const [policyStatusFilter, setPolicyStatusFilter] = useState<string>('all');
   const [deletingPolicyId, setDeletingPolicyId] = useState<number | null>(null);
   const [historyPolicy, setHistoryPolicy] = useState<AlertPolicy | null>(null);
   const [historyOpen, setHistoryOpen] = useState<boolean>(false);
@@ -911,10 +920,14 @@ export function MonitoringPolicyCenter() {
     return items;
   }, [builderMap, templateGroups]);
   const allStaticTemplates = useMemo(
-    () => [...templateGroups.platformTemplates, ...templateGroups.metricsTemplates],
+    () => [
+      ...templateGroups.platformTemplates,
+      ...templateGroups.metricsTemplates,
+    ],
     [templateGroups.metricsTemplates, templateGroups.platformTemplates],
   );
-  const metricsTemplatesAvailable = builderMap.get('metrics_template') === 'available';
+  const metricsTemplatesAvailable =
+    builderMap.get('metrics_template') === 'available';
   const metricsTemplatesReason =
     capabilityReasonMap.get('metrics_templates') || '';
 
@@ -1186,7 +1199,8 @@ export function MonitoringPolicyCenter() {
       return {
         ...nextForm,
         ...buildConditionDefaults(defaultTemplate),
-        clusterId: prev.clusterId || (clusters[0] ? String(clusters[0].id) : ''),
+        clusterId:
+          prev.clusterId || (clusters[0] ? String(clusters[0].id) : ''),
         templateKey: defaultTemplate?.key || nextForm.templateKey,
         receiverUserIds: preferredDefaultReceiverUserIds,
       };
@@ -1235,12 +1249,53 @@ export function MonitoringPolicyCenter() {
     await loadResources();
   }, [loadResources]);
 
+  // 打开策略编辑弹窗
+  // Open the policy editing dialog
   const handleEditPolicy = useCallback(
     (policy: AlertPolicy) => {
       setEditingPolicyId(policy.id);
       setForm(createPolicyFormFromPolicy(policy, channels, allStaticTemplates));
+      setPolicyDialogOpen(true);
     },
     [allStaticTemplates, channels],
+  );
+
+  // 快捷切换策略的启用/停用状态
+  // Quick toggle enabling/disabling status of an alert policy
+  const handleTogglePolicyEnabled = useCallback(
+    async (policy: AlertPolicy, nextEnabled: boolean) => {
+      try {
+        const payload: UpsertAlertPolicyRequest = {
+          name: policy.name,
+          description: policy.description,
+          cluster_id: policy.cluster_id,
+          policy_type: (policy.policy_type as AlertPolicyBuilderKind) || 'platform_health',
+          template_key: policy.template_key || undefined,
+          legacy_rule_key: policy.legacy_rule_key || undefined,
+          promql: policy.promql || undefined,
+          severity: policy.severity,
+          enabled: nextEnabled,
+          cooldown_minutes: policy.cooldown_minutes,
+          send_recovery: policy.send_recovery,
+          conditions: policy.conditions || undefined,
+          receiver_user_ids: policy.receiver_user_ids,
+          notification_channel_ids: policy.notification_channel_ids,
+        };
+        const result = await services.monitoring.updateAlertPolicySafe(
+          policy.id,
+          payload,
+        );
+        if (!result.success) {
+          toast.error(result.error || t('updateError'));
+          return;
+        }
+        toast.success(nextEnabled ? '策略已启用' : '策略已停用');
+        await loadResources();
+      } catch {
+        toast.error(t('updateError'));
+      }
+    },
+    [loadResources, t],
   );
 
   const handleDeletePolicy = async (policyId: number) => {
@@ -1254,6 +1309,7 @@ export function MonitoringPolicyCenter() {
       toast.success(t('deleteSuccess'));
       if (editingPolicyId === policyId) {
         resetPolicyForm();
+        setPolicyDialogOpen(false);
       }
       await loadResources();
     } finally {
@@ -1359,6 +1415,7 @@ export function MonitoringPolicyCenter() {
       );
       await loadResources();
       resetPolicyForm();
+      setPolicyDialogOpen(false);
     } finally {
       setSavingPolicy(false);
     }
@@ -1713,81 +1770,204 @@ export function MonitoringPolicyCenter() {
     [emailChannelForm.recipients],
   );
 
-  const policyRows = useMemo(() => policies, [policies]);
+  // 多条件过滤后的策略列表
+  // Filtered policy rows based on keyword, cluster, and status
+  const policyRows = useMemo(() => {
+    return policies.filter((policy) => {
+      if (
+        policyClusterFilter !== 'all' &&
+        policy.cluster_id !== policyClusterFilter
+      ) {
+        return false;
+      }
+      if (policyStatusFilter === 'enabled' && !policy.enabled) {
+        return false;
+      }
+      if (policyStatusFilter === 'disabled' && policy.enabled) {
+        return false;
+      }
+      const kw = policySearchKeyword.trim().toLowerCase();
+      if (kw) {
+        const name = (policy.name || '').toLowerCase();
+        const desc = (policy.description || '').toLowerCase();
+        const tmpl = (policy.template_key || '').toLowerCase();
+        return name.includes(kw) || desc.includes(kw) || tmpl.includes(kw);
+      }
+      return true;
+    });
+  }, [policies, policyClusterFilter, policySearchKeyword, policyStatusFilter]);
 
   return (
     <div className='space-y-4'>
-      <Card>
-        <CardHeader className='flex flex-col gap-4 md:flex-row md:items-center md:justify-between'>
+      {/* 顶部操作与通道管理卡片 / Top Actions & Channels Management Card */}
+      <Card className='border-border/70 shadow-xs'>
+        <CardHeader className='flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between py-4 px-4 sm:px-6'>
           <div className='space-y-1'>
-            <CardTitle className='flex items-center gap-2'>
+            <div className='flex items-center gap-2'>
               <BellRing className='h-5 w-5 text-primary' />
-              {t('title')}
-            </CardTitle>
+              <CardTitle className='text-base font-semibold'>
+                {t('title')}
+              </CardTitle>
+              <Badge variant='outline' className='font-mono font-normal'>
+                {policyRows.length} 条策略
+              </Badge>
+            </div>
+            <p className='text-xs text-muted-foreground'>
+              配置告警触发规则、阈值条件以及邮件与 Webhook 通知接收方式
+            </p>
           </div>
+
           <div className='flex flex-wrap items-center gap-2'>
             <Button
               variant='outline'
+              size='sm'
               onClick={handleRefresh}
               disabled={loading}
+              className='h-8.5 text-xs'
             >
-              <RefreshCw className='mr-2 h-4 w-4' />
+              <RefreshCw
+                className={cn('mr-1.5 h-3.5 w-3.5', loading && 'animate-spin')}
+              />
               {rootT('refresh')}
             </Button>
-            <Button variant='outline' onClick={openNewEmailChannelDialog}>
-              <Mail className='mr-2 h-4 w-4' />
+            <Button
+              variant='outline'
+              size='sm'
+              onClick={openNewEmailChannelDialog}
+              className='h-8.5 text-xs'
+            >
+              <Mail className='mr-1.5 h-3.5 w-3.5' />
               {t('channel.manageEmail')}
             </Button>
-            <Button variant='outline' onClick={openNewWebhookChannelDialog}>
-              <Webhook className='mr-2 h-4 w-4' />
+            <Button
+              variant='outline'
+              size='sm'
+              onClick={openNewWebhookChannelDialog}
+              className='h-8.5 text-xs'
+            >
+              <Webhook className='mr-1.5 h-3.5 w-3.5' />
               {t('webhook.manage')}
             </Button>
-            <Button onClick={resetPolicyForm}>
-              <Plus className='mr-2 h-4 w-4' />
+            <Button
+              size='sm'
+              onClick={() => {
+                resetPolicyForm();
+                setPolicyDialogOpen(true);
+              }}
+              className='h-8.5 text-xs font-medium shadow-xs'
+            >
+              <Plus className='mr-1.5 h-3.5 w-3.5' />
               {t('createNew')}
             </Button>
           </div>
         </CardHeader>
       </Card>
 
-      <div className='grid gap-4 xl:grid-cols-[1.15fr_0.95fr]'>
-        <Card>
-          <CardHeader>
-            <CardTitle>{t('policyListTitle')}</CardTitle>
-          </CardHeader>
-          <CardContent>
+      {/* 全宽策略管理列表卡片 / Full-width Policy Management Table Card */}
+      <Card className='border-border/70 shadow-xs overflow-hidden'>
+        <CardHeader className='py-3.5 px-4 sm:px-6 border-b bg-muted/15 space-y-3'>
+          <div className='flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3'>
+            <CardTitle className='text-sm font-semibold'>
+              {t('policyListTitle')}
+            </CardTitle>
+
+            {/* 列表过滤控制：搜索关键字、适用集群、启用状态 */}
+            <div className='flex flex-wrap items-center gap-2'>
+              <div className='relative w-full sm:w-56'>
+                <Search className='absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground' />
+                <Input
+                  value={policySearchKeyword}
+                  onChange={(e) => setPolicySearchKeyword(e.target.value)}
+                  placeholder='搜索策略名称、模板...'
+                  className='pl-8 h-8 text-xs'
+                />
+              </div>
+
+              <Select
+                value={policyClusterFilter}
+                onValueChange={setPolicyClusterFilter}
+              >
+                <SelectTrigger className='h-8 w-36 text-xs'>
+                  <SelectValue placeholder={t('fields.cluster')} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value='all'>{t('allClusters')}</SelectItem>
+                  {clusters.map((c) => (
+                    <SelectItem key={c.id} value={String(c.id)}>
+                      {c.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <Select
+                value={policyStatusFilter}
+                onValueChange={setPolicyStatusFilter}
+              >
+                <SelectTrigger className='h-8 w-32 text-xs'>
+                  <SelectValue placeholder='状态筛选' />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value='all'>全部状态</SelectItem>
+                  <SelectItem value='enabled'>{t('enabled')}</SelectItem>
+                  <SelectItem value='disabled'>{t('disabled')}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </CardHeader>
+
+        <CardContent className='p-0'>
+          <div className='overflow-x-auto'>
             <Table>
               <TableHeader>
-                <TableRow>
-                  <TableHead>{t('columns.name')}</TableHead>
-                  <TableHead>{t('columns.template')}</TableHead>
-                  <TableHead>{t('columns.cluster')}</TableHead>
-                  <TableHead>{t('columns.severity')}</TableHead>
-                  <TableHead>{t('columns.methods')}</TableHead>
-                  <TableHead>{t('columns.status')}</TableHead>
-                  <TableHead>{t('columns.updatedAt')}</TableHead>
-                  <TableHead className='text-right'>
-                    {rootT('actions')}
-                  </TableHead>
+                <TableRow className='bg-muted/30 hover:bg-muted/30'>
+                  <TableHead className='min-w-[180px]'>{t('columns.name')}</TableHead>
+                  <TableHead className='min-w-[170px]'>{t('columns.template')}</TableHead>
+                  <TableHead className='w-[130px]'>{t('columns.cluster')}</TableHead>
+                  <TableHead className='w-[100px]'>{t('columns.severity')}</TableHead>
+                  <TableHead className='min-w-[160px]'>{t('columns.methods')}</TableHead>
+                  <TableHead className='w-[110px]'>{t('columns.status')}</TableHead>
+                  <TableHead className='w-[90px] text-center'>启用</TableHead>
+                  <TableHead className='w-[150px] whitespace-nowrap'>{t('columns.updatedAt')}</TableHead>
+                  <TableHead className='w-[120px] text-right'>{rootT('actions')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {loading ? (
                   <TableRow>
                     <TableCell
-                      colSpan={8}
-                      className='text-center text-muted-foreground'
+                      colSpan={9}
+                      className='h-36 text-center text-muted-foreground'
                     >
-                      {rootT('loading')}
+                      <div className='flex flex-col items-center justify-center gap-2'>
+                        <RefreshCw className='h-5 w-5 animate-spin text-primary' />
+                        <span>{rootT('loading')}</span>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ) : policyRows.length === 0 ? (
                   <TableRow>
                     <TableCell
-                      colSpan={8}
-                      className='text-center text-muted-foreground'
+                      colSpan={9}
+                      className='h-40 text-center text-muted-foreground'
                     >
-                      {t('emptyPolicies')}
+                      <div className='flex flex-col items-center justify-center gap-2'>
+                        <BellRing className='h-7 w-7 text-muted-foreground/40' />
+                        <span className='font-medium'>{t('emptyPolicies')}</span>
+                        <Button
+                          variant='outline'
+                          size='sm'
+                          className='mt-1 text-xs'
+                          onClick={() => {
+                            resetPolicyForm();
+                            setPolicyDialogOpen(true);
+                          }}
+                        >
+                          <Plus className='mr-1.5 h-3.5 w-3.5' />
+                          创建第一条告警策略
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -1799,48 +1979,73 @@ export function MonitoringPolicyCenter() {
                       (item) => String(item.id) === policy.cluster_id,
                     );
                     return (
-                      <TableRow key={policy.id}>
+                      <TableRow key={policy.id} className='transition-colors'>
+                        {/* 策略名称与描述 */}
                         <TableCell className='font-medium'>
-                          <div className='space-y-1'>
-                            <div>{policy.name}</div>
-                            <div className='text-xs text-muted-foreground'>
-                              {policy.enabled ? t('enabled') : t('disabled')}
+                          <div className='space-y-0.5'>
+                            <div className='text-sm text-foreground'>
+                              {policy.name}
                             </div>
+                            {policy.description && (
+                              <div className='text-xs text-muted-foreground line-clamp-1 max-w-[240px]'>
+                                {policy.description}
+                              </div>
+                            )}
                           </div>
                         </TableCell>
+
+                        {/* 规则/模板 */}
                         <TableCell>
-                          {policy.policy_type === 'custom_promql'
-                            ? t('customPromql')
-                            : template
-                              ? getTemplateDisplayName(template, legacyT)
-                              : getTemplateTranslation(
-                                  legacyT,
-                                  policy.template_key || '',
-                                  'name',
-                                ) ||
-                                policy.template_key ||
-                                '-'}
+                          <div className='space-y-1'>
+                            <span className='inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-xs font-medium'>
+                              {policy.policy_type === 'custom_promql'
+                                ? t('customPromql')
+                                : template
+                                  ? getTemplateDisplayName(template, legacyT)
+                                  : getTemplateTranslation(
+                                      legacyT,
+                                      policy.template_key || '',
+                                      'name',
+                                    ) ||
+                                    policy.template_key ||
+                                    '-'}
+                            </span>
+                          </div>
                         </TableCell>
+
+                        {/* 适用集群 */}
                         <TableCell>
-                          {cluster?.name || policy.cluster_id || '-'}
+                          <span className='text-xs font-medium'>
+                            {cluster?.name || policy.cluster_id || '-'}
+                          </span>
                         </TableCell>
+
+                        {/* 严重级别 */}
                         <TableCell>
                           <Badge
                             variant={resolveSeverityVariant(policy.severity)}
+                            className='text-[11px]'
                           >
                             {policy.severity === 'critical'
                               ? rootT('alertSeverity.critical')
                               : rootT('alertSeverity.warning')}
                           </Badge>
                         </TableCell>
-                        <TableCell className='max-w-[220px] truncate'>
-                          {notificationMethodSummary(policy, channelMap)}
+
+                        {/* 通知方式 */}
+                        <TableCell className='max-w-[220px]'>
+                          <span className='text-xs text-muted-foreground'>
+                            {notificationMethodSummary(policy, channelMap)}
+                          </span>
                         </TableCell>
+
+                        {/* 执行状态 */}
                         <TableCell>
                           <Badge
                             variant={resolveDeliveryStatusVariant(
                               policy.last_execution_status,
                             )}
+                            className='text-[11px]'
                           >
                             {getPolicyExecutionStatusLabel(
                               legacyT,
@@ -1848,33 +2053,53 @@ export function MonitoringPolicyCenter() {
                             )}
                           </Badge>
                         </TableCell>
-                        <TableCell>
+
+                        {/* 快捷启用 Switch */}
+                        <TableCell className='text-center'>
+                          <Switch
+                            checked={policy.enabled}
+                            onCheckedChange={(checked) =>
+                              void handleTogglePolicyEnabled(policy, checked)
+                            }
+                          />
+                        </TableCell>
+
+                        {/* 最近更新时间 */}
+                        <TableCell className='text-xs font-mono text-muted-foreground whitespace-nowrap'>
                           {formatDateTime(policy.updated_at)}
                         </TableCell>
-                        <TableCell>
-                          <div className='flex items-center justify-end gap-2'>
+
+                        {/* 操作栏 */}
+                        <TableCell className='text-right whitespace-nowrap'>
+                          <div className='flex items-center justify-end gap-1'>
                             <Button
                               variant='ghost'
                               size='icon'
+                              className='h-7 w-7'
                               onClick={() => void loadHistory(policy)}
                               disabled={historyLoading}
+                              title='查看投递历史'
                             >
-                              <History className='h-4 w-4' />
+                              <History className='h-3.5 w-3.5' />
                             </Button>
                             <Button
                               variant='ghost'
                               size='icon'
+                              className='h-7 w-7'
                               onClick={() => handleEditPolicy(policy)}
+                              title='编辑策略'
                             >
-                              <Pencil className='h-4 w-4' />
+                              <Pencil className='h-3.5 w-3.5' />
                             </Button>
                             <Button
                               variant='ghost'
                               size='icon'
+                              className='h-7 w-7 text-destructive hover:text-destructive'
                               onClick={() => void handleDeletePolicy(policy.id)}
                               disabled={deletingPolicyId === policy.id}
+                              title='删除策略'
                             >
-                              <Trash2 className='h-4 w-4 text-destructive' />
+                              <Trash2 className='h-3.5 w-3.5' />
                             </Button>
                           </div>
                         </TableCell>
@@ -1884,52 +2109,131 @@ export function MonitoringPolicyCenter() {
                 )}
               </TableBody>
             </Table>
-          </CardContent>
-        </Card>
+          </div>
+        </CardContent>
+      </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>
+      {/* 策略创建/编辑独立弹窗 (分层模块化设计) / Policy Editor Modal Dialog */}
+      <Dialog
+        open={policyDialogOpen}
+        onOpenChange={(open) => {
+          setPolicyDialogOpen(open);
+          if (!open) {
+            resetPolicyForm();
+          }
+        }}
+      >
+        <DialogContent className='flex h-[88vh] w-[95vw] max-w-[900px] flex-col overflow-hidden p-0 sm:max-w-[900px]'>
+          <DialogHeader className='px-6 py-4 border-b bg-muted/15'>
+            <DialogTitle className='text-lg font-semibold'>
               {editingPolicyId === null
                 ? t('editorCreateTitle')
                 : t('editorEditTitle')}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className='space-y-6'>
-            <div className='space-y-4'>
-              <div className='space-y-2'>
-                <Label>{t('fields.name')}</Label>
-                <Input
-                  value={form.name}
-                  onChange={(event) =>
-                    setForm((prev) => ({...prev, name: event.target.value}))
-                  }
-                  placeholder={t('placeholders.name')}
-                />
-              </div>
+            </DialogTitle>
+            <DialogDescription className='text-xs text-muted-foreground'>
+              {editingPolicyId === null
+                ? '配置告警策略的基本信息、触发指标与通知接收人'
+                : '修改现有告警策略参数'}
+            </DialogDescription>
+          </DialogHeader>
 
-              <div className='space-y-2'>
-                <Label>{t('fields.description')}</Label>
-                <Textarea
-                  value={form.description}
-                  onChange={(event) =>
-                    setForm((prev) => ({
-                      ...prev,
-                      description: event.target.value,
-                    }))
-                  }
-                  placeholder={t('placeholders.description')}
-                  rows={3}
-                />
+          {/* 表单内容滚动区 / Form Scroll Area */}
+          <div className='flex-1 overflow-y-auto px-6 py-5 space-y-6'>
+            {/* 第一部分：基本信息 */}
+            <div className='space-y-4'>
+              <h3 className='text-xs font-semibold text-muted-foreground uppercase tracking-wider'>
+                1. 基本信息 (Basic Settings)
+              </h3>
+              <div className='grid gap-4 md:grid-cols-2'>
+                <div className='space-y-2 md:col-span-2'>
+                  <Label>{t('fields.name')}</Label>
+                  <Input
+                    value={form.name}
+                    onChange={(event) =>
+                      setForm((prev) => ({...prev, name: event.target.value}))
+                    }
+                    placeholder={t('placeholders.name')}
+                  />
+                </div>
+
+                <div className='space-y-2 md:col-span-2'>
+                  <Label>{t('fields.description')}</Label>
+                  <Textarea
+                    value={form.description}
+                    onChange={(event) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        description: event.target.value,
+                      }))
+                    }
+                    placeholder={t('placeholders.description')}
+                    rows={2}
+                  />
+                </div>
+
+                <div className='space-y-2'>
+                  <Label>{t('fields.cluster')}</Label>
+                  <Select
+                    value={form.clusterId}
+                    onValueChange={(value) =>
+                      setForm((prev) => ({...prev, clusterId: value}))
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder={t('clusterRequired')} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value='all'>{t('allClusters')}</SelectItem>
+                      {clusters.map((cluster) => (
+                        <SelectItem
+                          key={cluster.id}
+                          value={String(cluster.id)}
+                        >
+                          {cluster.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className='space-y-2'>
+                  <Label>{t('fields.severity')}</Label>
+                  <Select
+                    value={form.severity}
+                    onValueChange={(value) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        severity: value as AlertSeverity,
+                      }))
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value='warning'>
+                        {rootT('alertSeverity.warning')}
+                      </SelectItem>
+                      <SelectItem value='critical'>
+                        {rootT('alertSeverity.critical')}
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
             </div>
 
             <Separator />
 
+            {/* 第二部分：规则与策略配置 */}
             <div className='space-y-4'>
+              <h3 className='text-xs font-semibold text-muted-foreground uppercase tracking-wider'>
+                2. 规则与阈值 (Rules & Conditions)
+              </h3>
+
               <div className='space-y-2'>
                 <Label>{t('fields.strategyType')}</Label>
-                <div className='rounded-lg border px-4 py-3 text-sm'>
+                <div className='rounded-lg border px-4 py-3 text-sm bg-muted/20'>
                   <div className='font-medium'>
                     {form.strategyMode === 'custom_promql'
                       ? t('customPromqlLegacy')
@@ -1944,7 +2248,7 @@ export function MonitoringPolicyCenter() {
               </div>
 
               {form.strategyMode === 'static' ? (
-                <div className='grid gap-4 md:grid-cols-2'>
+                <div className='space-y-4'>
                   <div className='space-y-2'>
                     <Label>{t('fields.template')}</Label>
                     <Select
@@ -2003,13 +2307,13 @@ export function MonitoringPolicyCenter() {
                       </SelectContent>
                     </Select>
                     {selectedTemplate ? (
-                      <div className='space-y-2'>
+                      <div className='space-y-1.5 pt-1'>
                         <p className='text-xs text-muted-foreground'>
                           {getTemplateDescription(selectedTemplate, legacyT)}
                         </p>
                         {selectedTemplate.required_signals &&
                         selectedTemplate.required_signals.length > 0 ? (
-                          <div className='flex flex-wrap gap-2'>
+                          <div className='flex flex-wrap gap-1.5'>
                             {selectedTemplate.required_signals.map((signal) => (
                               <Badge
                                 key={signal}
@@ -2021,52 +2325,94 @@ export function MonitoringPolicyCenter() {
                             ))}
                           </div>
                         ) : null}
-                        {selectedTemplate.source_kind === 'metrics_template' &&
-                        !metricsTemplatesAvailable &&
-                        metricsTemplatesReason ? (
-                          <p className='text-xs text-amber-600 dark:text-amber-400'>
-                            {metricsTemplatesReason}
-                          </p>
-                        ) : null}
                       </div>
                     ) : null}
-                    {!metricsTemplatesAvailable && metricsTemplatesReason ? (
-                      <p className='text-xs text-muted-foreground'>
-                        {t('metricsUnavailableHint', {
-                          reason: metricsTemplatesReason,
-                        })}
-                      </p>
-                    ) : null}
                   </div>
-                  <div className='space-y-2'>
-                    <Label>{t('fields.cluster')}</Label>
-                    <Select
-                      value={form.clusterId}
-                      onValueChange={(value) =>
-                        setForm((prev) => ({...prev, clusterId: value}))
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder={t('clusterRequired')} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value='all'>{t('allClusters')}</SelectItem>
-                        {clusters.map((cluster) => (
-                          <SelectItem
-                            key={cluster.id}
-                            value={String(cluster.id)}
+
+                  {selectedTemplateSupportsCondition ? (
+                    <div className='space-y-3 rounded-lg border bg-muted/20 p-4'>
+                      <div className='space-y-0.5'>
+                        <Label>{t('fields.triggerCondition')}</Label>
+                        <p className='text-xs text-muted-foreground'>
+                          {t('conditionHint')}
+                        </p>
+                      </div>
+                      <div className='grid gap-3 sm:grid-cols-3'>
+                        <div className='space-y-1.5'>
+                          <Label className='text-xs'>{t('fields.operator')}</Label>
+                          <Select
+                            value={form.conditionOperator}
+                            onValueChange={(value) =>
+                              setForm((prev) => ({
+                                ...prev,
+                                conditionOperator: value,
+                              }))
+                            }
                           >
-                            {cluster.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {selectedTemplate?.legacy_rule_key ? (
-                      <p className='text-xs text-muted-foreground'>
-                        {t('concreteClusterHint')}
-                      </p>
-                    ) : null}
-                  </div>
+                            <SelectTrigger className='h-9'>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {CONDITION_OPERATORS.map((operator) => (
+                                <SelectItem key={operator} value={operator}>
+                                  {operator}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className='space-y-1.5'>
+                          <Label className='text-xs'>{t('fields.threshold')}</Label>
+                          <Input
+                            value={form.conditionThreshold}
+                            onChange={(event) =>
+                              setForm((prev) => ({
+                                ...prev,
+                                conditionThreshold: event.target.value,
+                              }))
+                            }
+                            placeholder={t('placeholders.threshold')}
+                            className='h-9'
+                          />
+                        </div>
+                        <div className='space-y-1.5'>
+                          <Label className='text-xs'>{t('fields.window')}</Label>
+                          <div className='flex items-center gap-1.5'>
+                            <Input
+                              type='number'
+                              min={0}
+                              max={10080}
+                              value={form.conditionWindowMinutes}
+                              onChange={(event) =>
+                                setForm((prev) => ({
+                                  ...prev,
+                                  conditionWindowMinutes: event.target.value,
+                                }))
+                              }
+                              className='h-9'
+                            />
+                            <span className='text-xs text-muted-foreground whitespace-nowrap'>
+                              {t('minutes')}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {selectedTemplatePromQLPreview ? (
+                        <div className='space-y-1.5 pt-2'>
+                          <Label className='text-xs text-muted-foreground'>
+                            {t('fields.promqlPreview')}
+                          </Label>
+                          <Textarea
+                            value={selectedTemplatePromQLPreview}
+                            readOnly
+                            rows={3}
+                            className='font-mono text-xs bg-muted/40'
+                          />
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </div>
               ) : (
                 <div className='space-y-2'>
@@ -2077,91 +2423,10 @@ export function MonitoringPolicyCenter() {
                       setForm((prev) => ({...prev, promql: event.target.value}))
                     }
                     placeholder={t('placeholders.promql')}
-                    rows={5}
+                    rows={4}
                   />
                 </div>
               )}
-
-              {form.strategyMode === 'static' &&
-              selectedTemplateSupportsCondition ? (
-                <div className='space-y-4 rounded-lg border bg-muted/20 p-4'>
-                  <div className='space-y-1'>
-                    <Label>{t('fields.triggerCondition')}</Label>
-                    <p className='text-xs text-muted-foreground'>
-                      {t('conditionHint')}
-                    </p>
-                  </div>
-                  <div className='grid gap-4 lg:grid-cols-[140px_1fr_160px]'>
-                    <div className='space-y-2'>
-                      <Label>{t('fields.operator')}</Label>
-                      <Select
-                        value={form.conditionOperator}
-                        onValueChange={(value) =>
-                          setForm((prev) => ({
-                            ...prev,
-                            conditionOperator: value,
-                          }))
-                        }
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {CONDITION_OPERATORS.map((operator) => (
-                            <SelectItem key={operator} value={operator}>
-                              {operator}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className='space-y-2'>
-                      <Label>{t('fields.threshold')}</Label>
-                      <Input
-                        value={form.conditionThreshold}
-                        onChange={(event) =>
-                          setForm((prev) => ({
-                            ...prev,
-                            conditionThreshold: event.target.value,
-                          }))
-                        }
-                        placeholder={t('placeholders.threshold')}
-                      />
-                    </div>
-                    <div className='space-y-2'>
-                      <Label>{t('fields.window')}</Label>
-                      <div className='flex items-center gap-2'>
-                        <Input
-                          type='number'
-                          min={0}
-                          max={10080}
-                          value={form.conditionWindowMinutes}
-                          onChange={(event) =>
-                            setForm((prev) => ({
-                              ...prev,
-                              conditionWindowMinutes: event.target.value,
-                            }))
-                          }
-                        />
-                        <span className='text-sm text-muted-foreground'>
-                          {t('minutes')}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                  {selectedTemplatePromQLPreview ? (
-                    <div className='space-y-2'>
-                      <Label>{t('fields.promqlPreview')}</Label>
-                      <Textarea
-                        value={selectedTemplatePromQLPreview}
-                        readOnly
-                        rows={4}
-                        className='font-mono text-xs'
-                      />
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
             </div>
 
             <Separator />
@@ -2494,28 +2759,34 @@ export function MonitoringPolicyCenter() {
               </div>
             </div>
 
-            <div className='flex items-center justify-end gap-2'>
-              {editingPolicyId !== null ? (
-                <Button variant='outline' onClick={resetPolicyForm}>
-                  <X className='mr-2 h-4 w-4' />
-                  {t('cancelEdit')}
-                </Button>
-              ) : null}
-              <Button
-                onClick={() => void handleSubmitPolicy()}
-                disabled={savingPolicy}
-              >
-                {editingPolicyId === null ? (
-                  <Plus className='mr-2 h-4 w-4' />
-                ) : (
-                  <Save className='mr-2 h-4 w-4' />
-                )}
-                {editingPolicyId === null ? t('createSubmit') : t('saveSubmit')}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+          </div>
+
+          {/* 底部操作按钮栏 / Dialog Action Footer */}
+          <DialogFooter className='px-6 py-4 border-t bg-muted/15 flex items-center justify-end gap-2'>
+            <Button
+              variant='outline'
+              onClick={() => {
+                resetPolicyForm();
+                setPolicyDialogOpen(false);
+              }}
+            >
+              <X className='mr-2 h-4 w-4' />
+              {t('cancelEdit')}
+            </Button>
+            <Button
+              onClick={() => void handleSubmitPolicy()}
+              disabled={savingPolicy}
+            >
+              {editingPolicyId === null ? (
+                <Plus className='mr-2 h-4 w-4' />
+              ) : (
+                <Save className='mr-2 h-4 w-4' />
+              )}
+              {editingPolicyId === null ? t('createSubmit') : t('saveSubmit')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={emailDialogOpen}
@@ -3296,7 +3567,7 @@ export function MonitoringPolicyCenter() {
                             endpoint: event.target.value,
                           }))
                         }
-                        placeholder='https://hooks.example.com/seatunnelx'
+                        placeholder='https://hooks.example.com/stx'
                       />
                     </div>
 

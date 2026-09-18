@@ -26,7 +26,7 @@ import (
 	"github.com/leanovate/gopter/prop"
 )
 
-// **Feature: seatunnel-platform-login, Property 4: Password storage uses bcrypt**
+// **Feature: stx-platform-login, Property 4: Password storage uses bcrypt**
 // **Validates: Requirements 2.3**
 // 对于任何存储在数据库中的用户密码，存储的值应该是一个有效的 bcrypt 哈希，
 // 可以验证原始密码

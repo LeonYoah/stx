@@ -40,13 +40,12 @@ All real suites reuse the same real-install harness.
 2. generates temporary backend and agent config files
 3. starts a temporary MinIO container when needed
 4. creates checkpoint and IMAP buckets for MinIO-backed flows when needed
-5. ensures `seatunnelx-java-proxy` jar is available for post-install checks
+5. ensures `stx-java-proxy` jar is available for post-install checks
 6. starts:
    - temporary backend
    - temporary agent supervisor
    - frontend dev server
 7. runs the selected Playwright spec
-
 
 ## Covered behaviors
 
@@ -111,4 +110,3 @@ sequenceDiagram
     Agent-->>BE: sync success
     BE-->>FE: sync result
 ```
-

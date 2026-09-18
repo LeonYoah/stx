@@ -21,9 +21,9 @@ import (
 	"context"
 	"time"
 
-	"github.com/seatunnel/seatunnelX/internal/apps/audit"
-	"github.com/seatunnel/seatunnelX/internal/apps/cluster"
-	"github.com/seatunnel/seatunnelX/internal/apps/host"
+	"github.com/LeonYoah/stx/internal/apps/audit"
+	"github.com/LeonYoah/stx/internal/apps/cluster"
+	"github.com/LeonYoah/stx/internal/apps/host"
 )
 
 // OverviewService provides dashboard overview statistics.

@@ -1,4 +1,4 @@
-module github.com/seatunnel/seatunnelX
+module github.com/LeonYoah/stx
 
 go 1.24.0
 

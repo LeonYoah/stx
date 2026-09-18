@@ -27,43 +27,59 @@ package migrator
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"os"
 	"strings"
 
-	"github.com/seatunnel/seatunnelX/internal/apps/audit"
-	"github.com/seatunnel/seatunnelX/internal/apps/auth"
-	"github.com/seatunnel/seatunnelX/internal/apps/cluster"
-	appconfig "github.com/seatunnel/seatunnelX/internal/apps/config"
-	"github.com/seatunnel/seatunnelX/internal/apps/diagnostics"
-	"github.com/seatunnel/seatunnelX/internal/apps/host"
-	"github.com/seatunnel/seatunnelX/internal/apps/monitor"
-	monitoringapp "github.com/seatunnel/seatunnelX/internal/apps/monitoring"
-	"github.com/seatunnel/seatunnelX/internal/apps/plugin"
-	"github.com/seatunnel/seatunnelX/internal/apps/stupgrade"
-	syncapp "github.com/seatunnel/seatunnelX/internal/apps/sync"
-	"github.com/seatunnel/seatunnelX/internal/config"
-	"github.com/seatunnel/seatunnelX/internal/db"
+	"github.com/LeonYoah/stx/internal/apps/audit"
+	"github.com/LeonYoah/stx/internal/apps/auth"
+	"github.com/LeonYoah/stx/internal/apps/cluster"
+	appconfig "github.com/LeonYoah/stx/internal/apps/config"
+	"github.com/LeonYoah/stx/internal/apps/diagnostics"
+	"github.com/LeonYoah/stx/internal/apps/host"
+	"github.com/LeonYoah/stx/internal/apps/monitor"
+	monitoringapp "github.com/LeonYoah/stx/internal/apps/monitoring"
+	"github.com/LeonYoah/stx/internal/apps/plugin"
+	"github.com/LeonYoah/stx/internal/apps/stupgrade"
+	syncapp "github.com/LeonYoah/stx/internal/apps/sync"
+	"github.com/LeonYoah/stx/internal/config"
+	"github.com/LeonYoah/stx/internal/db"
 	"gorm.io/gorm"
 )
 
+// Migrate 执行当前全局数据库的自动迁移与初始化
+// Migrate executes auto-migration and initialization for the current global database
 func Migrate() {
-	// 先初始化数据库连接
+	// 先初始化数据库连接 / Initialize database connection first
 	if err := db.InitDatabase(); err != nil {
 		log.Fatalf("[Database] 初始化数据库失败: %v\n", err)
 	}
 
-	// 检查数据库是否已初始化
+	// 检查数据库是否已初始化 / Check if database is initialized
 	if !db.IsDatabaseInitialized() {
 		log.Println("[Database] 数据库未启用，跳过迁移")
 		return
+	}
+
+	if err := MigrateWithDB(db.GetDB(context.Background()), db.GetDatabaseType()); err != nil {
+		log.Fatalf("[Database] auto migrate failed: %v\n", err)
+	}
+	log.Printf("[Database] auto migrate success\n")
+}
+
+// MigrateWithDB 使用指定的 GORM 数据库实例和数据库类型执行全量迁移
+// MigrateWithDB executes full migration using the specified GORM database instance and database type
+func MigrateWithDB(database *gorm.DB, dbType string) error {
+	if database == nil {
+		return errors.New("数据库连接未初始化 / database connection is nil")
 	}
 
 	// 执行数据库表迁移，包含用户表
 	// 注意：auth.User 是统一的用户表，同时支持密码登录和 OAuth 登录
 	// Execute database table migration, including user table
 	// Note: auth.User is the unified user table, supporting both password and OAuth login
-	if err := db.GetDB(context.Background()).AutoMigrate(
+	if err := database.AutoMigrate(
 		&auth.User{},                            // 统一用户表（支持密码认证和 OAuth 认证）/ Unified user table
 		&host.Host{},                            // 主机管理表 / Host management table
 		&cluster.Cluster{},                      // 集群表 / Cluster table
@@ -111,11 +127,11 @@ func Migrate() {
 		&syncapp.PreviewTable{},                 // 数据同步预览表分组表 / Sync preview table table
 		&syncapp.PreviewRow{},                   // 数据同步预览数据行表 / Sync preview row table
 	); err != nil {
-		log.Fatalf("[Database] auto migrate failed: %v\n", err)
+		return fmt.Errorf("auto migrate failed: %w", err)
 	}
 	log.Printf("[Database] auto migrate success\n")
 
-	upgradeMigrator := db.GetDB(context.Background()).Migrator()
+	upgradeMigrator := database.Migrator()
 	if upgradeMigrator.HasIndex(&stupgrade.UpgradeTaskStep{}, "idx_st_upgrade_task_step_code") {
 		if err := upgradeMigrator.DropIndex(&stupgrade.UpgradeTaskStep{}, "idx_st_upgrade_task_step_code"); err != nil {
 			log.Printf("[Database] failed to recreate st upgrade task step index: %v\n", err)
@@ -141,47 +157,49 @@ func Migrate() {
 		log.Printf("[Database] failed to create plugin dependency disable index: %v\n", err)
 	}
 
-	// 初始化默认管理员用户
-	if err := initDefaultAdminUser(); err != nil {
+	// 初始化默认管理员用户 / Initialize default admin user
+	if err := InitDefaultAdminUserWithDB(database); err != nil {
 		log.Printf("[Database] 初始化默认管理员用户失败: %v\n", err)
 	}
 
-	// 创建存储过程（仅 MySQL 支持）
-	dbType := db.GetDatabaseType()
+	// 创建存储过程（仅 MySQL 支持）/ Create stored procedures (MySQL only)
 	if dbType == "mysql" {
-		if err := createStoredProcedures(); err != nil {
+		if err := createStoredProceduresWithDB(database); err != nil {
 			log.Printf("[Database] create stored procedures failed (may not be supported): %v\n", err)
 		}
 	} else {
 		log.Printf("[Database] 跳过存储过程创建（当前数据库类型: %s）\n", dbType)
 	}
+
+	return nil
 }
 
-// initDefaultAdminUser 初始化默认管理员用户
+// InitDefaultAdminUserWithDB 使用指定的数据库实例初始化默认管理员用户
+// InitDefaultAdminUserWithDB initializes the default admin user with the specified database instance
 // 仅在首次启动时（用户表为空）创建默认 admin 用户
+// Only creates default admin user when user table is empty on first boot
 // Requirements: 2.1, 2.2
-func initDefaultAdminUser() error {
-	database := db.GetDB(context.Background())
+func InitDefaultAdminUserWithDB(database *gorm.DB) error {
 	if database == nil {
-		return errors.New("数据库连接未初始化")
+		return errors.New("数据库连接未初始化 / database connection is nil")
 	}
 
-	// 获取认证配置
+	// 获取认证配置 / Get authentication configuration
 	authConfig := config.GetAuthConfig()
 
-	// 检查是否已存在用户
+	// 检查是否已存在用户 / Check if any user exists
 	var count int64
 	if err := database.Model(&auth.User{}).Count(&count).Error; err != nil {
 		return err
 	}
 
-	// 如果已有用户，跳过初始化
+	// 如果已有用户，跳过初始化 / If users already exist, skip initialization
 	if count > 0 {
 		log.Println("[Database] 用户表已有数据，跳过默认管理员初始化")
 		return nil
 	}
 
-	// 检查是否已存在 admin 用户（双重检查）
+	// 检查是否已存在 admin 用户（双重检查）/ Check if admin user already exists (double check)
 	var existingUser auth.User
 	err := database.Where("username = ?", authConfig.DefaultAdminUsername).First(&existingUser).Error
 	if err == nil {
@@ -192,7 +210,7 @@ func initDefaultAdminUser() error {
 		return err
 	}
 
-	// 创建默认管理员用户
+	// 创建默认管理员用户 / Create default admin user
 	adminUser := &auth.User{
 		Username: authConfig.DefaultAdminUsername,
 		Nickname: "系统管理员",
@@ -200,12 +218,12 @@ func initDefaultAdminUser() error {
 		IsAdmin:  true,
 	}
 
-	// 设置密码（使用 bcrypt 哈希）
+	// 设置密码（使用 bcrypt 哈希）/ Set password (hashed using bcrypt)
 	if err := adminUser.SetPassword(authConfig.DefaultAdminPassword, authConfig.BcryptCost); err != nil {
 		return err
 	}
 
-	// 保存到数据库
+	// 保存到数据库 / Save to database
 	if err := adminUser.Create(database); err != nil {
 		return err
 	}
@@ -214,26 +232,46 @@ func initDefaultAdminUser() error {
 	return nil
 }
 
-// 创建存储过程
-func createStoredProcedures() error {
-	// 读取SQL文件
+// initDefaultAdminUser 初始化默认管理员用户（使用全局数据库）
+// initDefaultAdminUser initializes the default admin user using the global database
+func initDefaultAdminUser() error {
+	return InitDefaultAdminUserWithDB(db.GetDB(context.Background()))
+}
+
+// createStoredProceduresWithDB 创建存储过程（使用指定数据库）
+// createStoredProceduresWithDB creates stored procedures using the specified database
+func createStoredProceduresWithDB(database *gorm.DB) error {
+	if database == nil {
+		return errors.New("database instance is nil")
+	}
+
+	// 读取SQL文件（支持相对路径与项目根路径定位）
+	// Read SQL file (supports relative path and project root location)
 	sqlFile := "support-files/sql/create_dashboard_proc.sql"
+	if _, err := os.Stat(sqlFile); os.IsNotExist(err) {
+		// 如果相对路径不存在则尝试寻找，若不存在直接跳过
+		// If relative path does not exist, skip safely
+		return nil
+	}
 	content, err := os.ReadFile(sqlFile)
 	if err != nil {
 		return err
 	}
 
 	// 处理SQL脚本，替换DELIMITER并分割成单独的语句
+	// Process SQL script, replace DELIMITER and split into individual statements
 	sqlContent := string(content)
-	// 移除DELIMITER声明行
+	// 移除DELIMITER声明行 / Remove DELIMITER declarations
 	sqlContent = strings.Replace(sqlContent, "DELIMITER $$", "", -1)
 	sqlContent = strings.Replace(sqlContent, "DELIMITER ;", "", -1)
 	sqlContent = strings.Replace(sqlContent, "$$", ";", -1)
 
-	// 执行SQL语句
-	if err := db.GetDB(context.Background()).Exec(sqlContent).Error; err != nil {
-		return err
-	}
+	// 执行SQL语句 / Execute SQL statement
+	return database.Exec(sqlContent).Error
+}
 
-	return nil
+// createStoredProcedures 创建存储过程（使用全局数据库）
+// createStoredProcedures creates stored procedures using the global database
+func createStoredProcedures() error {
+	return createStoredProceduresWithDB(db.GetDB(context.Background()))
 }

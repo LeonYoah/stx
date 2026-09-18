@@ -28,7 +28,7 @@ import (
 	"pgregory.net/rapid"
 )
 
-// **Feature: seatunnel-agent, Property 8: Checksum Validation**
+// **Feature: stx-agent, Property 8: Checksum Validation**
 // **Validates: Requirements 5.2**
 //
 // Property: For any offline installation request with a specified package path
@@ -154,4 +154,3 @@ func TestProperty_ChecksumValidation_NonExistentFile(t *testing.T) {
 		}
 	})
 }
-

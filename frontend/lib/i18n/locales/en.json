@@ -32,11 +32,17 @@
     "selectAll": "Select All",
     "deselectAll": "Deselect All",
     "retry": "Retry",
-    "processing": "Processing..."
+    "processing": "Processing...",
+    "copy": "Copy",
+    "copied": "Copied",
+    "prevPage": "Previous",
+    "nextPage": "Next",
+    "perPage": "Per page",
+    "itemsUnit": "items"
   },
   "dashboard": {
     "title": "Dashboard",
-    "subtitle": "SeaTunnelX One-stop Operation and Maintenance Management Overview",
+    "subtitle": "STX Operations Overview",
     "refresh": "Refresh",
     "totalHosts": "Total Hosts",
     "online": "Online",
@@ -61,20 +67,48 @@
     "installed": "Installed",
     "notInstalled": "Not Installed",
     "offline": "Offline",
-    "welcome": "Welcome to SeaTunnelX",
+    "welcome": "Welcome to STX",
     "welcomeDesc": "Start by adding hosts and deploying your first SeaTunnel cluster",
     "addHost": "Add Host",
     "createCluster": "Create Cluster"
   },
   "auth": {
+    "brand": {
+      "badge": "Ops Platform",
+      "headline": "Make SeaTunnel ops clearly visible",
+      "subtitle": "An all-in-one ops platform for Apache SeaTunnel, with a native AI Agent ops entry (CLI + Skill).",
+      "chipsLabel": "Product capabilities",
+      "chipAgent": "AI Agent · CLI + Skill",
+      "chipCliSkill": "CLI + Skill",
+      "chipInstall": "One-click install",
+      "chipWizard": "Config wizard",
+      "chipMarketplace": "Plugin marketplace",
+      "chipUpgrade": "One-click upgrade",
+      "chipCheckpoint": "Checkpoint visualization",
+      "chipDebugJob": "Online job debugging",
+      "capabilityLabel": "Core capabilities",
+      "capabilityPrefix": "Capability:",
+      "capabilityAgent": "AI Agent ops entry",
+      "capabilityCluster": "Cluster awareness",
+      "capabilityObserve": "Runtime observability",
+      "capabilityRecover": "One-click job recovery",
+      "capabilityConnector": "One-click connector download",
+      "capabilityCheckpoint": "Checkpoint visualization",
+      "capabilityDag": "HOCON DAG parsing",
+      "footerAgent": "AI Agent CLI",
+      "footerDeploy": "Automated deploy",
+      "footerSubmit": "Job submit",
+      "footerAlert": "Inspection alerts",
+      "footerMarketplace": "Plugin marketplace"
+    },
     "login": {
-      "title": "Welcome to SeaTunnel Operations Platform",
-      "subtitle": "Please login to continue",
+      "title": "Welcome to STX",
+      "subtitle": "Sign in to manage clusters, jobs, connectors, diagnostics, and recovery in one place.",
       "username": "Username",
       "usernamePlaceholder": "Enter your username",
       "password": "Password",
       "passwordPlaceholder": "Enter your password",
-      "loginButton": "Login",
+      "loginButton": "Enter console",
       "loggingIn": "Logging in...",
       "redirecting": "Redirecting...",
       "loginWithOAuth": "Login with OAuth",
@@ -83,7 +117,12 @@
       "loginWithGoogle": "Login with Google",
       "orLoginWith": "Or login with",
       "rememberMe": "Remember me",
-      "forgotPassword": "Forgot password?"
+      "forgotPassword": "Forgot password?",
+      "showPassword": "Show password",
+      "hidePassword": "Hide password",
+      "showPasswordShort": "Show",
+      "hidePasswordShort": "Hide",
+      "toggleTheme": "Toggle theme"
     },
     "logout": {
       "success": "You have been logged out successfully",
@@ -98,7 +137,7 @@
       "unauthorized": "Unauthorized access"
     },
     "callback": {
-      "title": "Welcome to SeaTunnel Operations Platform",
+      "title": "Welcome to STX",
       "verifying": "Verifying",
       "success": "Verification successful",
       "failed": "Verification failed",
@@ -106,7 +145,7 @@
       "oauthFailed": "OAuth authentication failed",
       "missingParams": "Missing required authentication parameters",
       "processingFailed": "Login processing failed",
-      "footer": "SeaTunnel Operations Platform - Making data integration easier"
+      "footer": "STX - Making data integration easier"
     }
   },
   "terms": {
@@ -119,7 +158,7 @@
       "description": "Please read the following terms of service carefully. By using this service, you agree to these terms.",
       "general": {
         "title": "1. General Terms",
-        "content1": "These Terms of Service (hereinafter referred to as \"Terms\") set forth the conditions for your use of the SeaTunnel Operations Platform.",
+        "content1": "These Terms of Service (hereinafter referred to as \"Terms\") set forth the conditions for your use of STX.",
         "content2": "By accessing or using our services, you agree to be bound by these terms. If you do not agree to these terms, please do not use our services.",
         "content3": "We reserve the right to modify these terms at any time. Modified terms will take effect immediately upon posting."
       },
@@ -258,11 +297,11 @@
     "languageSettings": "Language Settings",
     "quickLinks": "Quick Links",
     "seatunnelRepo": "SeaTunnel Repo",
-    "seatunnelXRepo": "SeaTunnelX Repo",
-    "about": "About SeaTunnelX",
+    "stxRepo": "STX Repo",
+    "about": "About STX",
     "version": "Version",
     "buildTime": "Build Time",
-    "description": "SeaTunnelX is a one-stop operations platform for data integration, providing fast, secure, and convenient data synchronization services. The platform supports multiple data sources with comprehensive task management and monitoring capabilities.",
+    "description": "STX is a one-stop operations platform for data integration, providing fast, secure, and convenient data synchronization services. The platform supports multiple data sources with comprehensive task management and monitoring capabilities.",
     "trustLevel": {
       "newUser": "New User",
       "basicUser": "Basic User",
@@ -352,9 +391,33 @@
     "updateSuccess": "Host updated successfully",
     "deleteSuccess": "Host deleted successfully",
     "loadError": "Failed to load hosts",
-    "createError": "Failed to create host",
-    "updateError": "Failed to update host",
-    "deleteError": "Failed to delete host",
+    "installGuide": {
+      "title": "Agent Deployment & Connection Guide",
+      "subtitle": "Host registered successfully. Run the command on target machine to connect.",
+      "step1": "Host Details",
+      "step2": "Deploy Agent Probe",
+      "step1Desc": "Host metadata and network parameters saved",
+      "step2Desc": "Run the script below on the target host to initiate handshake",
+      "installAgent": "Deploy Agent",
+      "installAgentTooltip": "View Agent one-click install command and live heartbeat listener",
+      "clickToInstall": "Install Agent",
+      "nextStepAgent": "Next: Deploy Agent",
+      "deployDescription": "SeaTunnelX relies on a lightweight Agent probe on the host for system monitoring, configuration distribution, and process management. Please run the following command on the target host:",
+      "stepsTitle": "3 Steps to Connect",
+      "step1Text": "Log in to the target host: ssh root@{ip}",
+      "step2Text": "Copy and run the single-line script below (auto-detects arch & configures daemon)",
+      "step3Text": "No need to refresh; this window will automatically detect the heartbeat",
+      "terminalHint": "Log in to the target host and execute the following in your shell (root/sudo required):",
+      "waitingHeartbeat": "Listening for Agent first heartbeat...",
+      "pollingHint": "Auto-polling every 3s",
+      "detectNow": "Check Heartbeat Now",
+      "connectedSuccess": "Agent connected successfully! Host is now online.",
+      "connectedDetails": "OS: {os} ({arch}) | Specs: {cores} Cores CPU / {memory}",
+      "done": "Done & Close",
+      "viewHostDetail": "View Host Details",
+      "installLater": "Run on Host Later",
+      "pendingAlert": "This host does not have an Agent installed yet, preventing resource monitoring or task dispatch. Please copy and run the command below on the target machine."
+    },
     "types": {
       "bareMetal": "Physical/VM",
       "docker": "Docker",
@@ -754,8 +817,8 @@
       "inspectWalFailed": "Failed to inspect IMAP WAL",
       "entryCount": "Entry Count"
     },
-    "seatunnelxJavaProxy": {
-      "title": "SeaTunnelX Java Proxy",
+    "stxJavaProxy": {
+      "title": "STX Java Proxy",
       "description": "Managed proxy service used by install-time probes and runtime storage diagnostics.",
       "healthy": "Healthy",
       "unhealthy": "Running but unhealthy",
@@ -764,20 +827,20 @@
       "endpoint": "Endpoint",
       "pid": "PID",
       "logPath": "Log path",
-      "noStatus": "seatunnelx-java-proxy status is unavailable",
+      "noStatus": "stx-java-proxy status is unavailable",
       "start": "Start",
       "stop": "Stop",
       "restart": "Restart",
-      "startSuccess": "seatunnelx-java-proxy started successfully",
-      "stopSuccess": "seatunnelx-java-proxy stopped successfully",
-      "restartSuccess": "seatunnelx-java-proxy restarted successfully",
-      "startError": "Failed to start seatunnelx-java-proxy",
-      "stopError": "Failed to stop seatunnelx-java-proxy",
-      "restartError": "Failed to restart seatunnelx-java-proxy",
+      "startSuccess": "stx-java-proxy started successfully",
+      "stopSuccess": "stx-java-proxy stopped successfully",
+      "restartSuccess": "stx-java-proxy restarted successfully",
+      "startError": "Failed to start stx-java-proxy",
+      "stopError": "Failed to stop stx-java-proxy",
+      "restartError": "Failed to restart stx-java-proxy",
       "viewServiceLog": "View Runtime Log",
-      "viewServiceLogError": "Failed to load seatunnelx-java-proxy runtime log",
+      "viewServiceLogError": "Failed to load stx-java-proxy runtime log",
       "viewRuntimeLog": "View Runtime Log",
-      "viewRuntimeLogError": "Failed to load seatunnelx-java-proxy runtime log"
+      "viewRuntimeLogError": "Failed to load stx-java-proxy runtime log"
     },
     "activeAlertsBanner": {
       "title": "{count} active alerts detected",
@@ -1477,7 +1540,7 @@
       "applyCheckpointToImapSuccess": "Checkpoint configuration applied to IMAP",
       "applyImapToCheckpointSuccess": "IMAP configuration applied to checkpoint",
       "applyImapDisabledWarning": "IMAP is currently disabled and cannot be applied to checkpoint",
-      "ossLibHint": "When OSS is selected, SeaTunnelX automatically prepares the required lib jars: aliyun-sdk-oss, hadoop-aliyun, jdom2, netty-buffer, and netty-common. seatunnel-hadoop3-3.1.4-uber is already bundled and will not be downloaded again.",
+      "ossLibHint": "When OSS is selected, STX automatically prepares the required lib jars: aliyun-sdk-oss, hadoop-aliyun, jdom2, netty-buffer, and netty-common. seatunnel-hadoop3-3.1.4-uber is already bundled and will not be downloaded again.",
       "requiredFieldsMissing": "Please complete required fields first: {fields}"
     },
     "runtimeAdvanced": {
@@ -1491,7 +1554,7 @@
       "staticSlot": "Static Slot",
       "dynamicSlotHint": "Dynamic Slot is still the recommended default and usually requires less tuning. In this mode, slot-allocation-strategy is only partially honored: some allocations may fall back to fallback selection logic, so the strategy has weaker influence and is less strict than in Static Slot mode.",
       "slotNum": "Static slot count",
-      "slotNumHint": "SeaTunnelX writes slot-num explicitly so upgrades do not drift with upstream default changes.",
+      "slotNumHint": "STX writes slot-num explicitly so upgrades do not drift with upstream default changes.",
       "jobScheduleStrategy": "Scheduling strategy when resources are insufficient",
       "jobScheduleReject": "REJECT (fail immediately)",
       "jobScheduleWait": "WAIT (queue until resources are free)",
@@ -1566,26 +1629,6 @@
         "cannotDeleteSelf": "Cannot delete current logged in user"
       }
     }
-  },
-  "assistant": {
-    "title": "SeaTunnel Assistant",
-    "description": "Having issues? Paste your error logs or describe your problem below. The assistant will help locate issues based on SeaTunnel source code.",
-    "privacyNotice": "To protect your privacy, the system automatically filters sensitive information like IP addresses, passwords, and API keys. Please review the preview before sending.",
-    "quickLinksTitle": "Quick Links",
-    "quickLinks": {
-      "docs": "View Docs",
-      "faq": "FAQ",
-      "connectors": "Connectors"
-    },
-    "inputLabel": "Enter your question or error log",
-    "inputPlaceholder": "Paste error logs, exception stack traces, or describe your issue...",
-    "filteredPreview": "Filtered Preview",
-    "sensitiveFiltered": "Sensitive info filtered",
-    "copy": "Copy",
-    "copied": "Copied",
-    "viewDocs": "View Docs",
-    "openDeepWiki": "Copy & Open DeepWiki",
-    "openDeepWikiTip": "Content copied, paste it in the search box at the bottom of DeepWiki page"
   },
   "monitor": {
     "title": "Monitor Configuration",
@@ -1748,6 +1791,13 @@
       "startTime": "Start Time",
       "endTime": "End Time",
       "clearTimeFilter": "Clear Time",
+      "timeRange": "Time Range",
+      "timePresets": {
+        "last1h": "Last 1 hour",
+        "last6h": "Last 6 hours",
+        "last24h": "Last 24 hours",
+        "last7d": "Last 7 days"
+      },
       "pageSize": "Page Size",
       "prevPage": "Previous",
       "nextPage": "Next",
@@ -1913,7 +1963,7 @@
       "capabilities": {
         "platform_health": {
           "title": "Platform Health Policies",
-          "summary": "Build productized policies from SeaTunnelX-managed cluster health, node liveness, process stability, and operation outcomes."
+          "summary": "Build productized policies from STX-managed cluster health, node liveness, process stability, and operation outcomes."
         },
         "metrics_templates": {
           "title": "Metrics Templates",
@@ -1933,7 +1983,7 @@
         },
         "in_app_notification": {
           "title": "In-App Notification Center",
-          "summary": "Provide a built-in inbox, recovery follow-up, and receiver-facing experience directly inside SeaTunnelX."
+          "summary": "Provide a built-in inbox, recovery follow-up, and receiver-facing experience directly inside STX."
         }
       },
       "builders": {
@@ -3156,12 +3206,52 @@
     "loadPluginTemplatesFailed": "Failed to load plugin templates",
     "insertPluginTemplateFailed": "Failed to insert plugin template",
     "customVariables": "Custom Variables",
+    "customVariablesDesc": "Task-scoped variables, effective only during current task execution and preview.",
+    "newCustomVariable": "New Custom Variable",
+    "editCustomVariable": "Edit Custom Variable",
+    "customVariableDialogDesc": "Configure task-scoped constants or secrets injected into execution via {{key}} syntax.",
+    "noCustomVariables": "No custom variables configured for this task",
+    "addCustomVariable": "Add Custom Variable",
+    "customVariableCreated": "Custom variable added",
+    "customVariableUpdated": "Custom variable updated",
+    "customVariableDeleted": "Custom variable deleted",
+    "duplicateCustomVariableKey": "Custom variable with this key already exists",
+    "variableKeyRequired": "Variable key is required",
+    "variableKeyInvalid": "Variable key only supports letters, numbers, underscores, hyphens, and dots",
     "add": "Add",
     "unnamed": "Unnamed",
     "edit": "Edit",
     "detectedVariables": "Detected Variables",
     "noDetectedVariables": "No variable placeholders detected in the current script.",
-    "globalVariablesDesc": "Declared {{var}} entries are replaced before execution.",
+    "globalVariablesDesc": "Platform-wide runtime variables injected into jobs via {{key}} syntax.",
+    "newGlobalVariable": "New Global Variable",
+    "editGlobalVariable": "Edit Global Variable",
+    "globalVariableDialogDesc": "Configure runtime environment constants or secret credentials, safely injected via {{key}} syntax.",
+    "variableKey": "Variable Key",
+    "variableKeyPlaceholder": "e.g. DB_PASSWORD or OSS_ENDPOINT",
+    "variableKeyHint": "Supports letters, numbers, _, -, and . Cannot conflict with built-in time variables.",
+    "variableType": "Variable Type",
+    "typeString": "Plain Text",
+    "typeStringDesc": "Plain text configuration, suitable for environment tags, URLs, general parameters.",
+    "typeSecret": "Secret / Password",
+    "typeSecretDesc": "Secure credentials. Plaintext is never displayed after saving, preventing leaks.",
+    "variableValue": "Variable Value",
+    "variableValuePlaceholder": "Enter variable value...",
+    "secretValueCreatePlaceholder": "Enter secret password or token...",
+    "secretValueEditPlaceholder": "•••••••• (Leave blank to keep unchanged)",
+    "secretProtectionNotice": "Security Notice: Secret values are write-only. Once saved, neither the UI nor the API will expose the plaintext. SeaTunnel will securely inject the real value at runtime.",
+    "secretEditNotice": "This variable is a protected secret and its value is hidden. To keep the current password, leave the field blank. To update it, enter a new password.",
+    "secretMaskedBadge": "Secret",
+    "stringTypeBadge": "Text",
+    "secretMaskedLabel": "Protected secret (write-only)",
+    "copyReference": "Copy Reference",
+    "referenceCopied": "Variable reference {{key}} copied to clipboard",
+    "cannotCopySecretValue": "Secret values cannot be copied as plain text. Copied reference {{key}} instead",
+    "syntaxPreview": "Syntax Preview",
+    "filterAll": "All",
+    "filterText": "Text",
+    "filterSecret": "Secret",
+    "searchVariables": "Search by key or description...",
     "newCreate": "New",
     "optionalDescription": "Description (optional)",
     "noGlobalVariables": "No global variables yet.",

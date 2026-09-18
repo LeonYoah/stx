@@ -15,8 +15,13 @@
  * limitations under the License.
  */
 
+import {Suspense} from 'react';
 import {DataSyncStudio} from '@/components/common/sync';
 
 export default function WorkbenchPage() {
-  return <DataSyncStudio />;
+  return (
+    <Suspense>
+      <DataSyncStudio />
+    </Suspense>
+  );
 }

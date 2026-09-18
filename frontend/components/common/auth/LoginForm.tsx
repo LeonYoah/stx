@@ -33,7 +33,7 @@
  * limitations under the License.
  */
 
-import {useState, useEffect, FormEvent} from 'react';
+import {useState, useEffect, FormEvent, type ReactNode} from 'react';
 import {useSearchParams, useRouter} from 'next/navigation';
 import {useTranslations} from 'next-intl';
 import {Button} from '@/components/ui/button';
@@ -53,18 +53,22 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/animate-ui/radix/dialog';
-import {SquareArrowUpRight, LoaderCircle, Github} from 'lucide-react';
+import {LoaderCircle, Github, Lock, User} from 'lucide-react';
 import {useAuth} from '@/hooks/use-auth';
+import {useThemeUtils} from '@/hooks/use-theme-utils';
 import services from '@/lib/services';
 import {cn} from '@/lib/utils';
+import {LoginBrandPanel} from '@/components/common/auth/LoginBrandPanel';
 
 /**
  * 登录表单组件属性
+ * Login form component props
  */
 export type LoginFormProps = React.ComponentProps<'div'>;
 
 /**
  * Google 图标组件
+ * Google mark icon
  */
 function GoogleIcon({className}: {className?: string}) {
   return (
@@ -96,12 +100,329 @@ function GoogleIcon({className}: {className?: string}) {
 }
 
 /**
- * 登录表单组件
- * 支持用户名密码登录（默认）和 OAuth 登录（备选）
+ * 带左侧图标的表单字段壳层。
+ * Form field shell with a leading icon.
+ */
+function AuthField({
+  label,
+  htmlFor,
+  icon,
+  children,
+}: {
+  label: string;
+  htmlFor: string;
+  icon: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <div className='stx-field'>
+      <Label htmlFor={htmlFor} className='stx-field-label'>
+        {label}
+      </Label>
+      <div className='stx-control'>
+        <span className='stx-control-icon' aria-hidden='true'>
+          {icon}
+        </span>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 登录页服务条款 / 隐私政策链接与弹窗。
+ * Terms of service and privacy policy links with dialogs.
+ */
+function AuthLegalLinks() {
+  const t = useTranslations();
+
+  return (
+    <div className='stx-terms'>
+      <span>
+        {t('terms.agreement')}{' '}
+        <Dialog>
+          <DialogTrigger asChild>
+            <button type='button'>{t('terms.termsOfService')}</button>
+          </DialogTrigger>
+          <DialogContent className='max-w-3xl max-h-[80vh] overflow-y-auto'>
+            <DialogHeader>
+              <DialogTitle>{t('terms.termsDialog.title')}</DialogTitle>
+              <DialogDescription>
+                {t('terms.termsDialog.description')}
+              </DialogDescription>
+            </DialogHeader>
+            <div className='mt-4'>
+              <Accordion type='single' collapsible className='w-full'>
+                <AccordionItem value='general'>
+                  <AccordionTrigger>
+                    {t('terms.termsDialog.general.title')}
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <div className='space-y-3 text-sm'>
+                      <p>{t('terms.termsDialog.general.content1')}</p>
+                      <p>{t('terms.termsDialog.general.content2')}</p>
+                      <p>{t('terms.termsDialog.general.content3')}</p>
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+
+                <AccordionItem value='usage'>
+                  <AccordionTrigger>
+                    {t('terms.termsDialog.usage.title')}
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <div className='space-y-3 text-sm'>
+                      <p>{t('terms.termsDialog.usage.content1')}</p>
+                      <p>{t('terms.termsDialog.usage.content2')}</p>
+                      <ul className='list-disc pl-6 space-y-1'>
+                        <li>{t('terms.termsDialog.usage.prohibited1')}</li>
+                        <li>{t('terms.termsDialog.usage.prohibited2')}</li>
+                        <li>{t('terms.termsDialog.usage.prohibited3')}</li>
+                        <li>{t('terms.termsDialog.usage.prohibited4')}</li>
+                      </ul>
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+
+                <AccordionItem value='content'>
+                  <AccordionTrigger>
+                    {t('terms.termsDialog.content.title')}
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <div className='space-y-3 text-sm'>
+                      <p>{t('terms.termsDialog.content.intro')}</p>
+                      <ul className='list-disc pl-6 space-y-1'>
+                        <li>
+                          <strong>
+                            {t('terms.termsDialog.content.pornography')}
+                          </strong>
+                        </li>
+                        <li>
+                          <strong>
+                            {t('terms.termsDialog.content.promotion')}
+                          </strong>
+                        </li>
+                        <li>
+                          <strong>
+                            {t('terms.termsDialog.content.illegal')}
+                          </strong>
+                        </li>
+                        <li>
+                          <strong>
+                            {t('terms.termsDialog.content.harmful')}
+                          </strong>
+                        </li>
+                        <li>
+                          <strong>
+                            {t('terms.termsDialog.content.false')}
+                          </strong>
+                        </li>
+                        <li>
+                          <strong>
+                            {t('terms.termsDialog.content.infringement')}
+                          </strong>
+                        </li>
+                      </ul>
+                      <p>{t('terms.termsDialog.content.warning')}</p>
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+
+                <AccordionItem value='legal'>
+                  <AccordionTrigger>
+                    {t('terms.termsDialog.legal.title')}
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <div className='space-y-3 text-sm'>
+                      <p>{t('terms.termsDialog.legal.intro')}</p>
+                      <ul className='list-disc pl-6 space-y-1'>
+                        <li>{t('terms.termsDialog.legal.law1')}</li>
+                        <li>{t('terms.termsDialog.legal.law2')}</li>
+                        <li>{t('terms.termsDialog.legal.law3')}</li>
+                        <li>{t('terms.termsDialog.legal.law4')}</li>
+                        <li>{t('terms.termsDialog.legal.law5')}</li>
+                      </ul>
+                      <p>{t('terms.termsDialog.legal.compliance')}</p>
+                      <p>{t('terms.termsDialog.legal.cooperation')}</p>
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+
+                <AccordionItem value='account'>
+                  <AccordionTrigger>
+                    {t('terms.termsDialog.account.title')}
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <div className='space-y-3 text-sm'>
+                      <p>{t('terms.termsDialog.account.content1')}</p>
+                      <p>{t('terms.termsDialog.account.content2')}</p>
+                      <p>{t('terms.termsDialog.account.content3')}</p>
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+
+                <AccordionItem value='intellectual'>
+                  <AccordionTrigger>
+                    {t('terms.termsDialog.intellectual.title')}
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <div className='space-y-3 text-sm'>
+                      <p>{t('terms.termsDialog.intellectual.content1')}</p>
+                      <p>{t('terms.termsDialog.intellectual.content2')}</p>
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+
+                <AccordionItem value='limitation'>
+                  <AccordionTrigger>
+                    {t('terms.termsDialog.limitation.title')}
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <div className='space-y-3 text-sm'>
+                      <p>{t('terms.termsDialog.limitation.content1')}</p>
+                      <p>{t('terms.termsDialog.limitation.content2')}</p>
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
+            </div>
+          </DialogContent>
+        </Dialog>{' '}
+        {t('terms.and')}{' '}
+        <Dialog>
+          <DialogTrigger asChild>
+            <button type='button'>{t('terms.privacyPolicy')}</button>
+          </DialogTrigger>
+          <DialogContent className='max-w-3xl max-h-[80vh] overflow-y-auto'>
+            <DialogHeader>
+              <DialogTitle>{t('terms.privacyDialog.title')}</DialogTitle>
+              <DialogDescription>
+                {t('terms.privacyDialog.description')}
+              </DialogDescription>
+            </DialogHeader>
+            <div className='mt-4'>
+              <Accordion type='single' collapsible className='w-full'>
+                <AccordionItem value='collection'>
+                  <AccordionTrigger>
+                    {t('terms.privacyDialog.collection.title')}
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <div className='space-y-3 text-sm'>
+                      <p>{t('terms.privacyDialog.collection.intro')}</p>
+                      <ul className='list-disc pl-6 space-y-1'>
+                        <li>{t('terms.privacyDialog.collection.item1')}</li>
+                        <li>{t('terms.privacyDialog.collection.item2')}</li>
+                        <li>{t('terms.privacyDialog.collection.item3')}</li>
+                        <li>{t('terms.privacyDialog.collection.item4')}</li>
+                      </ul>
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+
+                <AccordionItem value='usage-info'>
+                  <AccordionTrigger>
+                    {t('terms.privacyDialog.usage.title')}
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <div className='space-y-3 text-sm'>
+                      <p>{t('terms.privacyDialog.usage.intro')}</p>
+                      <ul className='list-disc pl-6 space-y-1'>
+                        <li>{t('terms.privacyDialog.usage.item1')}</li>
+                        <li>{t('terms.privacyDialog.usage.item2')}</li>
+                        <li>{t('terms.privacyDialog.usage.item3')}</li>
+                        <li>{t('terms.privacyDialog.usage.item4')}</li>
+                        <li>{t('terms.privacyDialog.usage.item5')}</li>
+                      </ul>
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+
+                <AccordionItem value='sharing'>
+                  <AccordionTrigger>
+                    {t('terms.privacyDialog.sharing.title')}
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <div className='space-y-3 text-sm'>
+                      <p>{t('terms.privacyDialog.sharing.content1')}</p>
+                      <p>{t('terms.privacyDialog.sharing.content2')}</p>
+                      <ul className='list-disc pl-6 space-y-1'>
+                        <li>{t('terms.privacyDialog.sharing.item1')}</li>
+                        <li>{t('terms.privacyDialog.sharing.item2')}</li>
+                        <li>{t('terms.privacyDialog.sharing.item3')}</li>
+                        <li>{t('terms.privacyDialog.sharing.item4')}</li>
+                      </ul>
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+
+                <AccordionItem value='security'>
+                  <AccordionTrigger>
+                    {t('terms.privacyDialog.security.title')}
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <div className='space-y-3 text-sm'>
+                      <p>{t('terms.privacyDialog.security.intro')}</p>
+                      <ul className='list-disc pl-6 space-y-1'>
+                        <li>{t('terms.privacyDialog.security.item1')}</li>
+                        <li>{t('terms.privacyDialog.security.item2')}</li>
+                        <li>{t('terms.privacyDialog.security.item3')}</li>
+                        <li>{t('terms.privacyDialog.security.item4')}</li>
+                      </ul>
+                      <p>{t('terms.privacyDialog.security.warning')}</p>
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+
+                <AccordionItem value='retention'>
+                  <AccordionTrigger>
+                    {t('terms.privacyDialog.retention.title')}
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <div className='space-y-3 text-sm'>
+                      <p>{t('terms.privacyDialog.retention.intro')}</p>
+                      <ul className='list-disc pl-6 space-y-1'>
+                        <li>{t('terms.privacyDialog.retention.item1')}</li>
+                        <li>{t('terms.privacyDialog.retention.item2')}</li>
+                        <li>{t('terms.privacyDialog.retention.item3')}</li>
+                      </ul>
+                      <p>{t('terms.privacyDialog.retention.deletion')}</p>
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+
+                <AccordionItem value='rights'>
+                  <AccordionTrigger>
+                    {t('terms.privacyDialog.rights.title')}
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <div className='space-y-3 text-sm'>
+                      <p>{t('terms.privacyDialog.rights.intro')}</p>
+                      <ul className='list-disc pl-6 space-y-1'>
+                        <li>{t('terms.privacyDialog.rights.item1')}</li>
+                        <li>{t('terms.privacyDialog.rights.item2')}</li>
+                        <li>{t('terms.privacyDialog.rights.item3')}</li>
+                        <li>{t('terms.privacyDialog.rights.item4')}</li>
+                      </ul>
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
+            </div>
+          </DialogContent>
+        </Dialog>
+      </span>
+    </div>
+  );
+}
+
+/**
+ * 登录表单组件：左右分栏品牌壳 + 凭证 / OAuth 登录。
+ * Login form: split brand shell with credentials and OAuth login.
  */
 export function LoginForm({className, ...props}: LoginFormProps) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [isButtonLoading, setIsButtonLoading] = useState(false);
   const [enabledOAuthProviders, setEnabledOAuthProviders] = useState<string[]>(
     [],
@@ -119,12 +440,17 @@ export function LoginForm({className, ...props}: LoginFormProps) {
   const searchParams = useSearchParams();
   const router = useRouter();
   const t = useTranslations();
+  const themeUtils = useThemeUtils();
+  const [themeMounted, setThemeMounted] = useState(false);
+
+  useEffect(() => {
+    setThemeMounted(true);
+  }, []);
 
   useEffect(() => {
     const isLoggedOut = searchParams.get('logout') === 'true';
     if (isLoggedOut) {
       setLogoutMessage(t('auth.logout.success'));
-      // 使用 pushState 去除 logout 参数
       const url = new URL(window.location.href);
       url.searchParams.delete('logout');
       window.history.pushState({}, '', url.toString());
@@ -172,6 +498,7 @@ export function LoginForm({className, ...props}: LoginFormProps) {
 
   /**
    * 验证表单输入
+   * Validate credential fields
    */
   const validateForm = (): boolean => {
     if (!username.trim()) {
@@ -188,6 +515,7 @@ export function LoginForm({className, ...props}: LoginFormProps) {
 
   /**
    * 处理用户名密码登录
+   * Handle username/password login
    */
   const handleCredentialsLogin = async (e: FormEvent) => {
     e.preventDefault();
@@ -209,7 +537,7 @@ export function LoginForm({className, ...props}: LoginFormProps) {
 
       await loginWithCredentials(username, password, validRedirectPath);
     } catch {
-      // 错误已在 hook 中处理
+      // 错误已在 hook 中处理 / Error already handled in the auth hook
     } finally {
       setIsButtonLoading(false);
     }
@@ -217,6 +545,7 @@ export function LoginForm({className, ...props}: LoginFormProps) {
 
   /**
    * 处理 OAuth 登录
+   * Handle OAuth login
    */
   const handleOAuthLogin = async (provider: string) => {
     clearError();
@@ -232,431 +561,191 @@ export function LoginForm({className, ...props}: LoginFormProps) {
 
       await loginWithOAuth(provider, validRedirectPath);
     } catch {
-      // 错误已在 hook 中处理
+      // 错误已在 hook 中处理 / Error already handled in the auth hook
     }
   };
 
+  const alertMessage = validationError || error || logoutMessage;
+  const alertClass = logoutMessage
+    ? 'stx-alert stx-alert-success'
+    : alertMessage
+      ? 'stx-alert stx-alert-error'
+      : 'stx-alert';
+
   return (
-    <div className='fixed inset-0 flex items-center justify-center w-full h-screen overflow-hidden'>
-      <div
-        className={cn(
-          'flex flex-col gap-6 w-full max-w-md px-6 py-8 rounded-2xl max-h-screen overflow-y-auto',
-          className,
-        )}
-        {...props}
-      >
-        <form onSubmit={handleCredentialsLogin}>
-          <div className='flex flex-col gap-6 transition-all duration-500 ease-in-out'>
-            <div className='flex flex-col items-center gap-2'>
-              <div className='flex size-8 items-center justify-center rounded-md m-4'>
-                <SquareArrowUpRight className='size-6' />
-              </div>
-              <h1 className='text-xl font-bold text-center'>
-                {t('auth.login.title')}
-              </h1>
-              <p className='text-muted-foreground text-sm'>
-                {t('auth.login.subtitle')}
-              </p>
-            </div>
-
-            {/* 登出成功提示 */}
-            {logoutMessage && (
-              <div className='text-success text-sm mt-2 rounded-md text-center'>
-                {logoutMessage}
-              </div>
-            )}
-
-            {/* 验证错误信息显示 */}
-            {validationError && (
-              <div className='text-destructive text-sm mt-2 rounded-md text-center'>
-                {validationError}
-              </div>
-            )}
-
-            {/* API 错误信息显示 */}
-            {error && !validationError && (
-              <div className='text-destructive text-sm mt-2 rounded-md text-center'>
-                {error}
-              </div>
-            )}
-
-            {/* 用户名输入框 */}
-            <div className='space-y-2'>
-              <Label htmlFor='username'>{t('auth.login.username')}</Label>
-              <Input
-                id='username'
-                type='text'
-                placeholder={t('auth.login.usernamePlaceholder')}
-                value={username}
-                onChange={(e) => {
-                  setUsername(e.target.value);
-                  setValidationError('');
-                }}
-                disabled={isButtonLoading}
-                autoComplete='username'
-              />
-            </div>
-
-            {/* 密码输入框 */}
-            <div className='space-y-2'>
-              <Label htmlFor='password'>{t('auth.login.password')}</Label>
-              <Input
-                id='password'
-                type='password'
-                placeholder={t('auth.login.passwordPlaceholder')}
-                value={password}
-                onChange={(e) => {
-                  setPassword(e.target.value);
-                  setValidationError('');
-                }}
-                disabled={isButtonLoading}
-                autoComplete='current-password'
-              />
-            </div>
-
-            {/* 登录按钮 */}
-            <Button type='submit' className='w-full' disabled={isButtonLoading}>
-              {isButtonLoading ? (
-                <>
-                  <LoaderCircle className='h-4 w-4 animate-spin' />
-                  {t('auth.login.loggingIn')}
-                </>
-              ) : (
-                t('auth.login.loginButton')
-              )}
-            </Button>
-
-            {hasEnabledOAuthProviders ? (
-              <>
-                {/* OAuth 登录分隔线 */}
-                <div className='relative'>
-                  <div className='absolute inset-0 flex items-center'>
-                    <span className='w-full border-t' />
-                  </div>
-                  <div className='relative flex justify-center text-xs uppercase'>
-                    <span className='bg-background px-2 text-muted-foreground'>
-                      {t('auth.login.orLoginWith')}
-                    </span>
-                  </div>
-                </div>
-
-                {/* OAuth 登录按钮 */}
-                <div
-                  className={cn(
-                    'grid gap-4',
-                    showGitHubLogin && showGoogleLogin
-                      ? 'grid-cols-2'
-                      : 'grid-cols-1',
-                  )}
-                >
-                  {showGitHubLogin ? (
-                    <Button
-                      type='button'
-                      variant='outline'
-                      onClick={() => handleOAuthLogin('github')}
-                      disabled={isButtonLoading}
-                    >
-                      <Github className='h-4 w-4' />
-                      GitHub
-                    </Button>
-                  ) : null}
-                  {showGoogleLogin ? (
-                    <Button
-                      type='button'
-                      variant='outline'
-                      onClick={() => handleOAuthLogin('google')}
-                      disabled={isButtonLoading}
-                    >
-                      <GoogleIcon className='h-4 w-4' />
-                      Google
-                    </Button>
-                  ) : null}
-                </div>
-              </>
-            ) : null}
-          </div>
-        </form>
-
-        <div className='text-muted-foreground text-center text-xs text-balance mt-2'>
-          <span className='[&_button]:underline [&_button]:underline-offset-4 [&_button:hover]:text-primary'>
-            {t('terms.agreement')}{' '}
-            <Dialog>
-              <DialogTrigger asChild>
-                <button className='text-inherit bg-transparent border-none p-0 cursor-pointer'>
-                  {t('terms.termsOfService')}
-                </button>
-              </DialogTrigger>
-              <DialogContent className='max-w-3xl max-h-[80vh] overflow-y-auto'>
-                <DialogHeader>
-                  <DialogTitle>{t('terms.termsDialog.title')}</DialogTitle>
-                  <DialogDescription>
-                    {t('terms.termsDialog.description')}
-                  </DialogDescription>
-                </DialogHeader>
-                <div className='mt-4'>
-                  <Accordion type='single' collapsible className='w-full'>
-                    <AccordionItem value='general'>
-                      <AccordionTrigger>
-                        {t('terms.termsDialog.general.title')}
-                      </AccordionTrigger>
-                      <AccordionContent>
-                        <div className='space-y-3 text-sm'>
-                          <p>{t('terms.termsDialog.general.content1')}</p>
-                          <p>{t('terms.termsDialog.general.content2')}</p>
-                          <p>{t('terms.termsDialog.general.content3')}</p>
-                        </div>
-                      </AccordionContent>
-                    </AccordionItem>
-
-                    <AccordionItem value='usage'>
-                      <AccordionTrigger>
-                        {t('terms.termsDialog.usage.title')}
-                      </AccordionTrigger>
-                      <AccordionContent>
-                        <div className='space-y-3 text-sm'>
-                          <p>{t('terms.termsDialog.usage.content1')}</p>
-                          <p>{t('terms.termsDialog.usage.content2')}</p>
-                          <ul className='list-disc pl-6 space-y-1'>
-                            <li>{t('terms.termsDialog.usage.prohibited1')}</li>
-                            <li>{t('terms.termsDialog.usage.prohibited2')}</li>
-                            <li>{t('terms.termsDialog.usage.prohibited3')}</li>
-                            <li>{t('terms.termsDialog.usage.prohibited4')}</li>
-                          </ul>
-                        </div>
-                      </AccordionContent>
-                    </AccordionItem>
-
-                    <AccordionItem value='content'>
-                      <AccordionTrigger>
-                        {t('terms.termsDialog.content.title')}
-                      </AccordionTrigger>
-                      <AccordionContent>
-                        <div className='space-y-3 text-sm'>
-                          <p>{t('terms.termsDialog.content.intro')}</p>
-                          <ul className='list-disc pl-6 space-y-1'>
-                            <li>
-                              <strong>
-                                {t('terms.termsDialog.content.pornography')}
-                              </strong>
-                            </li>
-                            <li>
-                              <strong>
-                                {t('terms.termsDialog.content.promotion')}
-                              </strong>
-                            </li>
-                            <li>
-                              <strong>
-                                {t('terms.termsDialog.content.illegal')}
-                              </strong>
-                            </li>
-                            <li>
-                              <strong>
-                                {t('terms.termsDialog.content.harmful')}
-                              </strong>
-                            </li>
-                            <li>
-                              <strong>
-                                {t('terms.termsDialog.content.false')}
-                              </strong>
-                            </li>
-                            <li>
-                              <strong>
-                                {t('terms.termsDialog.content.infringement')}
-                              </strong>
-                            </li>
-                          </ul>
-                          <p>{t('terms.termsDialog.content.warning')}</p>
-                        </div>
-                      </AccordionContent>
-                    </AccordionItem>
-
-                    <AccordionItem value='legal'>
-                      <AccordionTrigger>
-                        {t('terms.termsDialog.legal.title')}
-                      </AccordionTrigger>
-                      <AccordionContent>
-                        <div className='space-y-3 text-sm'>
-                          <p>{t('terms.termsDialog.legal.intro')}</p>
-                          <ul className='list-disc pl-6 space-y-1'>
-                            <li>{t('terms.termsDialog.legal.law1')}</li>
-                            <li>{t('terms.termsDialog.legal.law2')}</li>
-                            <li>{t('terms.termsDialog.legal.law3')}</li>
-                            <li>{t('terms.termsDialog.legal.law4')}</li>
-                            <li>{t('terms.termsDialog.legal.law5')}</li>
-                          </ul>
-                          <p>{t('terms.termsDialog.legal.compliance')}</p>
-                          <p>{t('terms.termsDialog.legal.cooperation')}</p>
-                        </div>
-                      </AccordionContent>
-                    </AccordionItem>
-
-                    <AccordionItem value='account'>
-                      <AccordionTrigger>
-                        {t('terms.termsDialog.account.title')}
-                      </AccordionTrigger>
-                      <AccordionContent>
-                        <div className='space-y-3 text-sm'>
-                          <p>{t('terms.termsDialog.account.content1')}</p>
-                          <p>{t('terms.termsDialog.account.content2')}</p>
-                          <p>{t('terms.termsDialog.account.content3')}</p>
-                        </div>
-                      </AccordionContent>
-                    </AccordionItem>
-
-                    <AccordionItem value='intellectual'>
-                      <AccordionTrigger>
-                        {t('terms.termsDialog.intellectual.title')}
-                      </AccordionTrigger>
-                      <AccordionContent>
-                        <div className='space-y-3 text-sm'>
-                          <p>{t('terms.termsDialog.intellectual.content1')}</p>
-                          <p>{t('terms.termsDialog.intellectual.content2')}</p>
-                        </div>
-                      </AccordionContent>
-                    </AccordionItem>
-
-                    <AccordionItem value='limitation'>
-                      <AccordionTrigger>
-                        {t('terms.termsDialog.limitation.title')}
-                      </AccordionTrigger>
-                      <AccordionContent>
-                        <div className='space-y-3 text-sm'>
-                          <p>{t('terms.termsDialog.limitation.content1')}</p>
-                          <p>{t('terms.termsDialog.limitation.content2')}</p>
-                        </div>
-                      </AccordionContent>
-                    </AccordionItem>
-                  </Accordion>
-                </div>
-              </DialogContent>
-            </Dialog>{' '}
-            {t('terms.and')}{' '}
-            <Dialog>
-              <DialogTrigger asChild>
-                <button className='text-inherit bg-transparent border-none p-0 cursor-pointer'>
-                  {t('terms.privacyPolicy')}
-                </button>
-              </DialogTrigger>
-              <DialogContent className='max-w-3xl max-h-[80vh] overflow-y-auto'>
-                <DialogHeader>
-                  <DialogTitle>{t('terms.privacyDialog.title')}</DialogTitle>
-                  <DialogDescription>
-                    {t('terms.privacyDialog.description')}
-                  </DialogDescription>
-                </DialogHeader>
-                <div className='mt-4'>
-                  <Accordion type='single' collapsible className='w-full'>
-                    <AccordionItem value='collection'>
-                      <AccordionTrigger>
-                        {t('terms.privacyDialog.collection.title')}
-                      </AccordionTrigger>
-                      <AccordionContent>
-                        <div className='space-y-3 text-sm'>
-                          <p>{t('terms.privacyDialog.collection.intro')}</p>
-                          <ul className='list-disc pl-6 space-y-1'>
-                            <li>{t('terms.privacyDialog.collection.item1')}</li>
-                            <li>{t('terms.privacyDialog.collection.item2')}</li>
-                            <li>{t('terms.privacyDialog.collection.item3')}</li>
-                            <li>{t('terms.privacyDialog.collection.item4')}</li>
-                          </ul>
-                        </div>
-                      </AccordionContent>
-                    </AccordionItem>
-
-                    <AccordionItem value='usage-info'>
-                      <AccordionTrigger>
-                        {t('terms.privacyDialog.usage.title')}
-                      </AccordionTrigger>
-                      <AccordionContent>
-                        <div className='space-y-3 text-sm'>
-                          <p>{t('terms.privacyDialog.usage.intro')}</p>
-                          <ul className='list-disc pl-6 space-y-1'>
-                            <li>{t('terms.privacyDialog.usage.item1')}</li>
-                            <li>{t('terms.privacyDialog.usage.item2')}</li>
-                            <li>{t('terms.privacyDialog.usage.item3')}</li>
-                            <li>{t('terms.privacyDialog.usage.item4')}</li>
-                            <li>{t('terms.privacyDialog.usage.item5')}</li>
-                          </ul>
-                        </div>
-                      </AccordionContent>
-                    </AccordionItem>
-
-                    <AccordionItem value='sharing'>
-                      <AccordionTrigger>
-                        {t('terms.privacyDialog.sharing.title')}
-                      </AccordionTrigger>
-                      <AccordionContent>
-                        <div className='space-y-3 text-sm'>
-                          <p>{t('terms.privacyDialog.sharing.content1')}</p>
-                          <p>{t('terms.privacyDialog.sharing.content2')}</p>
-                          <ul className='list-disc pl-6 space-y-1'>
-                            <li>{t('terms.privacyDialog.sharing.item1')}</li>
-                            <li>{t('terms.privacyDialog.sharing.item2')}</li>
-                            <li>{t('terms.privacyDialog.sharing.item3')}</li>
-                            <li>{t('terms.privacyDialog.sharing.item4')}</li>
-                          </ul>
-                        </div>
-                      </AccordionContent>
-                    </AccordionItem>
-
-                    <AccordionItem value='security'>
-                      <AccordionTrigger>
-                        {t('terms.privacyDialog.security.title')}
-                      </AccordionTrigger>
-                      <AccordionContent>
-                        <div className='space-y-3 text-sm'>
-                          <p>{t('terms.privacyDialog.security.intro')}</p>
-                          <ul className='list-disc pl-6 space-y-1'>
-                            <li>{t('terms.privacyDialog.security.item1')}</li>
-                            <li>{t('terms.privacyDialog.security.item2')}</li>
-                            <li>{t('terms.privacyDialog.security.item3')}</li>
-                            <li>{t('terms.privacyDialog.security.item4')}</li>
-                          </ul>
-                          <p>{t('terms.privacyDialog.security.warning')}</p>
-                        </div>
-                      </AccordionContent>
-                    </AccordionItem>
-
-                    <AccordionItem value='retention'>
-                      <AccordionTrigger>
-                        {t('terms.privacyDialog.retention.title')}
-                      </AccordionTrigger>
-                      <AccordionContent>
-                        <div className='space-y-3 text-sm'>
-                          <p>{t('terms.privacyDialog.retention.intro')}</p>
-                          <ul className='list-disc pl-6 space-y-1'>
-                            <li>{t('terms.privacyDialog.retention.item1')}</li>
-                            <li>{t('terms.privacyDialog.retention.item2')}</li>
-                            <li>{t('terms.privacyDialog.retention.item3')}</li>
-                          </ul>
-                          <p>{t('terms.privacyDialog.retention.deletion')}</p>
-                        </div>
-                      </AccordionContent>
-                    </AccordionItem>
-
-                    <AccordionItem value='rights'>
-                      <AccordionTrigger>
-                        {t('terms.privacyDialog.rights.title')}
-                      </AccordionTrigger>
-                      <AccordionContent>
-                        <div className='space-y-3 text-sm'>
-                          <p>{t('terms.privacyDialog.rights.intro')}</p>
-                          <ul className='list-disc pl-6 space-y-1'>
-                            <li>{t('terms.privacyDialog.rights.item1')}</li>
-                            <li>{t('terms.privacyDialog.rights.item2')}</li>
-                            <li>{t('terms.privacyDialog.rights.item3')}</li>
-                            <li>{t('terms.privacyDialog.rights.item4')}</li>
-                          </ul>
-                        </div>
-                      </AccordionContent>
-                    </AccordionItem>
-                  </Accordion>
-                </div>
-              </DialogContent>
-            </Dialog>
-          </span>
-        </div>
+    <div className={cn('stx-auth-body', className)} {...props}>
+      <div className='stx-auth-bg' aria-hidden='true'>
+        <div className='stx-auth-bg__grid' />
+        <div className='stx-auth-bg__noise' />
       </div>
+
+      <main className='stx-auth-shell'>
+        <div className='stx-auth-card'>
+          <LoginBrandPanel />
+
+          <section className='stx-form-panel'>
+            <div className='stx-form-shell'>
+              <div className='stx-panel-toolbar'>
+                <button
+                  type='button'
+                  className='stx-theme-toggle'
+                  onClick={themeUtils.toggle}
+                  aria-label={
+                    themeMounted
+                      ? themeUtils.getAction()
+                      : t('auth.login.toggleTheme')
+                  }
+                  title={
+                    themeMounted
+                      ? themeUtils.getAction()
+                      : t('auth.login.toggleTheme')
+                  }
+                >
+                  {themeMounted
+                    ? themeUtils.getIcon('h-4 w-4')
+                    : null}
+                </button>
+              </div>
+
+              <div className='stx-panel-inner'>
+                <div className='stx-panel-main'>
+                  <div className='stx-auth-header'>
+                    <h2>{t('auth.login.title')}</h2>
+                  </div>
+
+                  <div className={alertClass} role='status'>
+                    {alertMessage || '\u00A0'}
+                  </div>
+
+                  <form
+                    className='stx-form-grid'
+                    onSubmit={handleCredentialsLogin}
+                  >
+                    <AuthField
+                      label={t('auth.login.username')}
+                      htmlFor='username'
+                      icon={<User className='h-4 w-4' />}
+                    >
+                      <Input
+                        id='username'
+                        className='stx-auth-input'
+                        type='text'
+                        placeholder={t('auth.login.usernamePlaceholder')}
+                        value={username}
+                        onChange={(e) => {
+                          setUsername(e.target.value);
+                          setValidationError('');
+                        }}
+                        disabled={isButtonLoading}
+                        autoComplete='username'
+                      />
+                    </AuthField>
+
+                    <AuthField
+                      label={t('auth.login.password')}
+                      htmlFor='password'
+                      icon={<Lock className='h-4 w-4' />}
+                    >
+                      <Input
+                        id='password'
+                        className='stx-auth-input stx-auth-input-with-toggle'
+                        type={showPassword ? 'text' : 'password'}
+                        placeholder={t('auth.login.passwordPlaceholder')}
+                        value={password}
+                        onChange={(e) => {
+                          setPassword(e.target.value);
+                          setValidationError('');
+                        }}
+                        disabled={isButtonLoading}
+                        autoComplete='current-password'
+                      />
+                      <button
+                        type='button'
+                        className='stx-toggle-pass'
+                        onClick={() => setShowPassword((value) => !value)}
+                        aria-label={
+                          showPassword
+                            ? t('auth.login.hidePassword')
+                            : t('auth.login.showPassword')
+                        }
+                        disabled={isButtonLoading}
+                      >
+                        {showPassword
+                          ? t('auth.login.hidePasswordShort')
+                          : t('auth.login.showPasswordShort')}
+                      </button>
+                    </AuthField>
+
+                    <Button
+                      type='submit'
+                      className='stx-btn-primary'
+                      disabled={isButtonLoading}
+                    >
+                      {isButtonLoading ? (
+                        <>
+                          <LoaderCircle className='h-4 w-4 animate-spin' />
+                          {t('auth.login.loggingIn')}
+                        </>
+                      ) : (
+                        <>
+                          <span>{t('auth.login.loginButton')}</span>
+                          <span aria-hidden='true'>→</span>
+                        </>
+                      )}
+                    </Button>
+                  </form>
+
+                  {hasEnabledOAuthProviders ? (
+                    <div className='stx-social-login'>
+                      <div className='stx-divider'>
+                        <span>{t('auth.login.orLoginWith')}</span>
+                      </div>
+                      <div
+                        className={cn(
+                          'stx-oauth-grid',
+                          showGitHubLogin && showGoogleLogin && 'is-split',
+                        )}
+                      >
+                        {showGitHubLogin ? (
+                          <Button
+                            type='button'
+                            variant='outline'
+                            className='stx-oauth-btn'
+                            onClick={() => handleOAuthLogin('github')}
+                            disabled={isButtonLoading}
+                          >
+                            <Github className='h-4 w-4' />
+                            GitHub
+                          </Button>
+                        ) : null}
+                        {showGoogleLogin ? (
+                          <Button
+                            type='button'
+                            variant='outline'
+                            className='stx-oauth-btn'
+                            onClick={() => handleOAuthLogin('google')}
+                            disabled={isButtonLoading}
+                          >
+                            <GoogleIcon className='h-4 w-4' />
+                            Google
+                          </Button>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <AuthLegalLinks />
+                </div>
+              </div>
+
+              <div className='stx-auth-footer'>
+                <span>STX</span>
+                <span>© {new Date().getFullYear()}</span>
+              </div>
+            </div>
+          </section>
+        </div>
+      </main>
     </div>
   );
 }

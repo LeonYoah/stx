@@ -21,12 +21,12 @@ import {
   assertFileContains,
   buildInstallWizardLabURL,
   chooseSelectOption,
-  expectSeatunnelXJavaProxyProbeSuccess,
+  expectStxJavaProxyProbeSuccess,
   expectInstallationSuccess,
   prepareClusterForInstallWizard,
   resolveInstalledConfigPaths,
   waitForOnlineHost,
-  waitForSeatunnelXJavaProxyHealthy,
+  waitForStxJavaProxyHealthy,
 } from './helpers/install-wizard-real';
 
 const seatunnelVersion = process.env.E2E_INSTALLER_REAL_VERSION ?? '2.3.13';
@@ -249,9 +249,9 @@ test.describe.serial('install wizard real installer', () => {
       `fs.s3a.secret.key: ${minioSecretKey}`,
     ]);
 
-    await waitForSeatunnelXJavaProxyHealthy(page, cluster.clusterId);
+    await waitForStxJavaProxyHealthy(page, cluster.clusterId);
 
-    const checkpointProbe = await expectSeatunnelXJavaProxyProbeSuccess({
+    const checkpointProbe = await expectStxJavaProxyProbeSuccess({
       installDir,
       version: seatunnelVersion,
       kind: 'checkpoint',
@@ -275,7 +275,7 @@ test.describe.serial('install wizard real installer', () => {
     });
     expect(checkpointProbe.message || '').not.toContain('failed');
 
-    const imapProbe = await expectSeatunnelXJavaProxyProbeSuccess({
+    const imapProbe = await expectStxJavaProxyProbeSuccess({
       installDir,
       version: seatunnelVersion,
       kind: 'imap',
@@ -289,7 +289,7 @@ test.describe.serial('install wizard real installer', () => {
           'storage.type': 's3',
           namespace: '/seatunnel/imap/',
           clusterName: 'installer-real-e2e',
-          businessName: 'seatunnelx-java-proxy-e2e',
+          businessName: 'stx-java-proxy-e2e',
           's3.bucket': imapBucket,
           'fs.defaultFS': imapBucket,
           'fs.s3a.endpoint': minioEndpoint,

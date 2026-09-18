@@ -20,7 +20,16 @@
 import {type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import Link from 'next/link';
 import {useTranslations} from 'next-intl';
-import {ArrowLeft, Download, ExternalLink, FileText, Loader2, Package} from 'lucide-react';
+import {
+  ArrowLeft,
+  Check,
+  Copy,
+  Download,
+  ExternalLink,
+  FileText,
+  Loader2,
+  Package,
+} from 'lucide-react';
 import {toast} from 'sonner';
 import services from '@/lib/services';
 import type {
@@ -63,16 +72,17 @@ function formatDateTime(value?: string | null): string {
   return parsed.toLocaleString();
 }
 
+// 获取巡检发现严重程度的现代样式类（高对比度、暗黑模式适配）
+// Get modern style class for inspection finding severity (high contrast, dark mode compatible)
 function getSeverityBadgeClass(severity: DiagnosticsInspectionFindingSeverity): string {
   switch (severity) {
     case 'critical':
-      return 'bg-red-100 text-red-800 border-red-200';
+      return 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20 font-semibold';
     case 'warning':
-      return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+      return 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20 font-medium';
     case 'info':
-      return 'bg-blue-100 text-blue-800 border-blue-200';
     default:
-      return '';
+      return 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20';
   }
 }
 
@@ -433,8 +443,8 @@ export default function InspectionDetailPage({
             )}
           </div>
           {report.trigger_source === 'auto' && report.auto_trigger_reason ? (
-            <div className='rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-sm text-yellow-800'>
-              {t('inspections.detailPage.autoTriggerReason')}
+            <div className='rounded-md border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400'>
+              <span className='font-medium'>{t('inspections.detailPage.autoTriggerReason')} </span>
               {report.auto_trigger_reason}
             </div>
           ) : null}
@@ -484,14 +494,35 @@ export default function InspectionDetailPage({
               {report.error_message}
             </div>
           ) : null}
-          <div className='text-sm text-muted-foreground'>
-            {t('inspections.countSummary')}：
-            {t('inspections.counts', {
-              total: report.finding_total,
-              critical: report.critical_count,
-              warning: report.warning_count,
-              info: report.info_count,
-            })}
+          {/* 巡检发现统计指标胶囊 */}
+          {/* Inspection findings count badges */}
+          <div className='flex flex-wrap items-center gap-2 pt-1 border-t'>
+            <span className='text-xs text-muted-foreground mr-1'>
+              {t('inspections.countSummary')}：
+            </span>
+            <Badge variant='outline' className='text-xs font-mono font-medium'>
+              共 {report.finding_total} 项
+            </Badge>
+            {report.critical_count > 0 && (
+              <Badge variant='outline' className='border-rose-500/30 bg-rose-500/10 text-rose-600 dark:text-rose-400 text-xs font-mono font-medium'>
+                {t('inspections.severity.critical')} {report.critical_count}
+              </Badge>
+            )}
+            {report.warning_count > 0 && (
+              <Badge variant='outline' className='border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-xs font-mono font-medium'>
+                {t('inspections.severity.warning')} {report.warning_count}
+              </Badge>
+            )}
+            {report.info_count > 0 && (
+              <Badge variant='outline' className='border-blue-500/30 bg-blue-500/10 text-blue-600 dark:text-blue-400 text-xs font-mono font-medium'>
+                {t('inspections.severity.info')} {report.info_count}
+              </Badge>
+            )}
+            {report.finding_total === 0 && (
+              <Badge variant='outline' className='border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-xs font-medium'>
+                健康正常
+              </Badge>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -536,10 +567,30 @@ export default function InspectionDetailPage({
                       {localizeDiagnosticsText(finding.evidence_summary)}
                     </div>
                   ) : null}
+                  {/* 排查与修复建议（支持一键复制） */}
+                  {/* Investigation and remediation recommendation (supports one-click copy) */}
                   {finding.recommendation ? (
-                    <div className='text-sm text-muted-foreground'>
-                      {t('inspections.detailPage.recommendation')}
-                      {localizeDiagnosticsText(finding.recommendation)}
+                    <div className='rounded-md border border-primary/20 bg-primary/5 p-3 text-xs space-y-1.5'>
+                      <div className='flex items-center justify-between font-medium text-foreground'>
+                        <span>{t('inspections.detailPage.recommendation')}</span>
+                        <Button
+                          variant='ghost'
+                          size='sm'
+                          className='h-6 text-xs px-1.5 gap-1 text-muted-foreground hover:text-foreground'
+                          onClick={() => {
+                            navigator.clipboard.writeText(
+                              localizeDiagnosticsText(finding.recommendation) || '',
+                            );
+                            toast.success('排查与修复建议已复制');
+                          }}
+                        >
+                          <Copy className='h-3 w-3' />
+                          <span>复制建议</span>
+                        </Button>
+                      </div>
+                      <div className='text-muted-foreground leading-relaxed'>
+                        {localizeDiagnosticsText(finding.recommendation)}
+                      </div>
                     </div>
                   ) : null}
                   <div className='text-xs text-muted-foreground'>

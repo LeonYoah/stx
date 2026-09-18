@@ -26,11 +26,11 @@ import (
 	"testing"
 	"time"
 
+	appconfig "github.com/LeonYoah/stx/internal/apps/config"
 	"github.com/glebarez/sqlite"
 	"github.com/leanovate/gopter"
 	"github.com/leanovate/gopter/gen"
 	"github.com/leanovate/gopter/prop"
-	appconfig "github.com/seatunnel/seatunnelX/internal/apps/config"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
@@ -306,13 +306,13 @@ func genNodeRole() gopter.Gen {
 	return gen.OneConstOf(NodeRoleMaster, NodeRoleWorker)
 }
 
-// **Feature: seatunnel-agent, Property 11: Node Association Validation**
+// **Feature: stx-agent, Property 11: Node Association Validation**
 // **Validates: Requirements 7.2**
 // For any request to add a node to a cluster, if the host's Agent status is not "installed",
 // the system SHALL reject the association and return an error.
 
 func TestProperty_NodeAssociationValidation(t *testing.T) {
-	// **Feature: seatunnel-agent, Property 11: Node Association Validation**
+	// **Feature: stx-agent, Property 11: Node Association Validation**
 	// **Validates: Requirements 7.2**
 
 	parameters := gopter.DefaultTestParameters()
@@ -503,13 +503,13 @@ func TestProperty_NodeAssociationValidation(t *testing.T) {
 	properties.TestingRun(t)
 }
 
-// **Feature: seatunnel-agent, Property 12: Cluster Health Status Propagation**
+// **Feature: stx-agent, Property 12: Cluster Health Status Propagation**
 // **Validates: Requirements 7.6**
 // For any cluster with at least one node whose host status is "offline",
 // the cluster's health status SHALL be marked as "unhealthy".
 
 func TestProperty_ClusterHealthStatusPropagation(t *testing.T) {
-	// **Feature: seatunnel-agent, Property 12: Cluster Health Status Propagation**
+	// **Feature: stx-agent, Property 12: Cluster Health Status Propagation**
 	// **Validates: Requirements 7.6**
 
 	parameters := gopter.DefaultTestParameters()

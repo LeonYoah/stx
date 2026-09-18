@@ -27,7 +27,7 @@ import (
 	"pgregory.net/rapid"
 )
 
-// **Feature: seatunnel-agent, Property 14: Config YAML Round-Trip**
+// **Feature: stx-agent, Property 14: Config YAML Round-Trip**
 // **Validates: Requirements 9.2**
 //
 // Property: For any valid Agent configuration object, serializing to YAML
@@ -130,7 +130,7 @@ func generateValidConfig(t *rapid.T) *Config {
 	}
 }
 
-// **Feature: seatunnel-agent, Property 15: Config Loading Priority**
+// **Feature: stx-agent, Property 15: Config Loading Priority**
 // **Validates: Requirements 9.1**
 //
 // Property: For any configuration key that is set in multiple sources
@@ -222,7 +222,7 @@ control_plane:
 	})
 }
 
-// **Feature: seatunnel-agent, Property 16: Invalid Config Rejection**
+// **Feature: stx-agent, Property 16: Invalid Config Rejection**
 // **Validates: Requirements 9.6**
 //
 // Property: For any configuration file with invalid YAML syntax or missing

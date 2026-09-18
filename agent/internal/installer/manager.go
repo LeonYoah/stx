@@ -43,8 +43,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/seatunnel/seatunnelX/agent/internal/logger"
-	seatunnelmeta "github.com/seatunnel/seatunnelX/internal/seatunnel"
+	"github.com/LeonYoah/stx/agent/internal/logger"
+	seatunnelmeta "github.com/LeonYoah/stx/internal/seatunnel"
 	"gopkg.in/yaml.v3"
 )
 

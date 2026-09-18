@@ -30,9 +30,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/LeonYoah/stx/internal/apps/auth"
+	clusterapp "github.com/LeonYoah/stx/internal/apps/cluster"
 	"github.com/gin-gonic/gin"
-	"github.com/seatunnel/seatunnelX/internal/apps/auth"
-	clusterapp "github.com/seatunnel/seatunnelX/internal/apps/cluster"
 )
 
 // Handler handles diagnostics workspace HTTP requests.

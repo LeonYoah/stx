@@ -30,8 +30,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/seatunnel/seatunnelX/internal/config"
-	"github.com/seatunnel/seatunnelX/internal/seatunnel"
+	"github.com/LeonYoah/stx/internal/config"
+	"github.com/LeonYoah/stx/internal/seatunnel"
 )
 
 var uploadedJarNamePattern = regexp.MustCompile(`^(?P<artifact>.+)-(?P<version>\d[\w.\-+]*)\.jar$`)

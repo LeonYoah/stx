@@ -156,32 +156,26 @@ function resolveBrandAssetUrl(path: string): string {
 }
 
 /**
- * Resolve modal lockup logo for the current (or explicit) color scheme
- * 按当前（或显式指定）主题解析弹窗锁章
- *
- * @param variant - light | dark lockup; omit to follow document theme / 省略则跟随文档主题
+ * Resolve modal / project logo URL.
+ * Prefer the square bird mark — wide lockups get cropped in Kapa's square slot
+ * (leaving a broken white "S" fragment beside the bird).
+ * 弹窗/项目 logo 用方形青鸾图形标；宽锁章会被 Kapa 方形槽裁切，只剩鸟标和残缺「S」。
  */
-export function getKapaProjectLogo(variant?: 'light' | 'dark'): string {
-  const resolved =
-    variant ?? (isDocumentDarkMode() ? 'dark' : 'light');
-  const path =
-    resolved === 'dark' ? KAPA_PROJECT_LOGO_DARK_PATH : KAPA_PROJECT_LOGO_PATH;
-  return resolveBrandAssetUrl(path);
-}
-
-/**
- * Resolve launcher bird-mark URL (theme-agnostic on brand-blue button)
- * 解析悬浮按钮青鸾图形标 URL（品牌蓝底上不受主题影响）
- */
-export function getKapaLauncherImage(): string {
+export function getKapaProjectLogo(_variant?: 'light' | 'dark'): string {
   return resolveBrandAssetUrl(KAPA_PROJECT_MARK_PATH);
 }
 
 /**
- * Apply theme-matched logos to the Kapa script tag and any already-rendered <img>s.
- * Kapa does not reliably honor *-logo-*-dark attrs for images, so we swap at runtime.
- * 将匹配主题的 logo 写回脚本属性，并替换已渲染的 <img>。
- * Kapa 对图片类 *-dark 属性支持不可靠，因此在运行时主动切换。
+ * @deprecated Prefer getKapaProjectLogo(); kept for callers that still pass a variant.
+ * 兼容旧调用；实际始终返回方形图形标。
+ */
+export function getKapaLauncherImage(): string {
+  return getKapaProjectLogo();
+}
+
+/**
+ * Apply modal logo to the Kapa script tag and any already-rendered brand <img>s.
+ * 将弹窗 logo 写回脚本属性，并校正已渲染的品牌 <img>。
  */
 export function applyKapaThemeLogos(): void {
   if (typeof document === 'undefined') {
@@ -195,15 +189,14 @@ export function applyKapaThemeLogos(): void {
     script.setAttribute('data-modal-logo-src', modalLogo);
   }
 
-  const brandHint = '/brand/stx-';
   document.querySelectorAll('img').forEach((img) => {
     const src = img.getAttribute('src') || '';
-    if (!src.includes(brandHint) && !src.includes('/brand/stx')) {
-      return;
-    }
-    // Only swap modal lockups; custom launcher owns the bird mark
-    // 仅切换弹窗锁章；悬浮按钮由自定义启动器持有图形标
-    if (src.includes('stx-logo') && img.src !== modalLogo) {
+    // Replace any wide lockup still injected into the Kapa modal header
+    // 替换仍注入到 Kapa 弹窗标题区的宽锁章
+    if (
+      (src.includes('/brand/stx-logo') || src.includes('/img/stx-logo')) &&
+      img.src !== modalLogo
+    ) {
       img.src = modalLogo;
     }
   });
@@ -349,12 +342,15 @@ export function ensureKapaWidget(): Promise<boolean> {
     document.body.appendChild(triggerBtn);
   }
 
-  // Upgrade path: remount when old script still shows Kapa's default launcher
-  // 升级路径：旧脚本仍展示 Kapa 默认悬浮球时重建（改用隐藏 + 自定义按钮）
+  // Upgrade path: remount when old script still shows default launcher or wide lockup
+  // 升级路径：旧脚本仍展示默认悬浮球或宽锁章时重建
   const existingScript = document.getElementById(KAPA_SCRIPT_ID);
   if (
     existingScript &&
-    existingScript.getAttribute('data-launcher-button-hidden') !== 'true'
+    (existingScript.getAttribute('data-launcher-button-hidden') !== 'true' ||
+      (existingScript.getAttribute('data-project-logo') || '').includes(
+        'stx-logo',
+      ))
   ) {
     existingScript.remove();
     kapaLoadingPromise = null;
@@ -385,9 +381,12 @@ export function ensureKapaWidget(): Promise<boolean> {
     script.setAttribute('data-project-color', KAPA_PROJECT_COLOR);
     // Hide Kapa default launcher; STX renders a theme-aware custom button
     // 隐藏 Kapa 默认悬浮球；由 STX 渲染跟随主题的自定义按钮
+    // Square mark only — wide lockups crop badly in the modal header slot
+    // 仅用方形图形标——宽锁章会在弹窗标题槽里被裁坏
     const modalLogo = getKapaProjectLogo();
     script.setAttribute('data-project-logo', modalLogo);
     script.setAttribute('data-modal-logo-src', modalLogo);
+    script.setAttribute('data-modal-title', 'Ask AI');
     script.setAttribute('data-launcher-button-hidden', 'true');
     script.setAttribute('data-color-scheme-selector', KAPA_COLOR_SCHEME_SELECTOR);
     script.setAttribute('data-modal-override-open-id', KAPA_TRIGGER_ID);

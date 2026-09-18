@@ -24,7 +24,6 @@ import {
   openSeaTunnelAskAi,
   KAPA_COLOR_SCHEME_SELECTOR,
   KAPA_DEFAULT_WEBSITE_ID,
-  KAPA_PROJECT_LOGO_PATH,
   KAPA_PROJECT_NAME,
 } from '../kapa-ai';
 
@@ -203,6 +202,8 @@ describe('kapa-ai service integration', () => {
     expect(script?.getAttribute('data-color-scheme-selector')).toBe(
       KAPA_COLOR_SCHEME_SELECTOR,
     );
-    expect(script?.getAttribute('data-project-logo')).toContain(KAPA_PROJECT_LOGO_PATH);
+    expect(script?.getAttribute('data-project-logo')).toContain('stx-mark');
+    expect(script?.getAttribute('data-modal-logo-src')).toContain('stx-mark');
+    expect(script?.getAttribute('data-modal-title')).toBe('Ask AI');
   });
 });

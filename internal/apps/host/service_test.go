@@ -814,8 +814,8 @@ func TestGetInstallCommand(t *testing.T) {
 		t.Errorf("Install command should contain '%s', got: %s", expectedAddr, cmd)
 	}
 
-	// Verify command is a curl command with bash -s and default install-dir
-	// 验证命令是 curl，并通过 bash -s 传入默认 install-dir
+	// Verify command is a curl command with bash -s, default install-dir, and CLI host-id
+	// 验证命令是 curl，并通过 bash -s 传入默认 install-dir 和 CLI host-id
 	if !containsString(cmd, "curl") {
 		t.Errorf("Install command should contain 'curl', got: %s", cmd)
 	}
@@ -824,6 +824,13 @@ func TestGetInstallCommand(t *testing.T) {
 	}
 	if !containsString(cmd, "--install-dir=$HOME/.stx/agent/") {
 		t.Errorf("Install command should include default --install-dir=$HOME/.stx/agent/, got: %s", cmd)
+	}
+	expectedHostIDFlag := fmt.Sprintf("--host-id %d", host.ID)
+	if !containsString(cmd, expectedHostIDFlag) {
+		t.Errorf("Install command should include '%s', got: %s", expectedHostIDFlag, cmd)
+	}
+	if containsString(cmd, "?host_id=") {
+		t.Errorf("Install command URL should not contain '?host_id=', got: %s", cmd)
 	}
 }
 

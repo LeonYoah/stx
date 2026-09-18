@@ -596,9 +596,8 @@ func (s *Service) GetInstallCommand(ctx context.Context, hostID uint) (string, e
 	}
 	// Keep in sync with agent.DefaultAgentHomePath / 与 agent.DefaultAgentHomePath 保持一致
 	return fmt.Sprintf(
-		"curl -sSL \"%s/api/v1/agent/install.sh?host_id=%d\" | bash -s -- --install-dir=%s/ --host-id %d",
+		"curl -sSL %s/api/v1/agent/install.sh | bash -s -- --install-dir=%s/ --host-id %d",
 		addr,
-		hostID,
 		"$HOME/.stx/agent",
 		hostID,
 	), nil

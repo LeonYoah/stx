@@ -101,3 +101,36 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 3: 完成 STX CLI 首版提交与任务归档
+
+**Date**: 2026-09-18
+**Task**: 完成 STX CLI 首版提交与任务归档
+**Branch**: `features/stx-cli-agent-entry`
+
+### Summary
+
+完成 STX CLI AI Agent 入口首版，实现 server 与远端 CLI 基础命令、认证令牌、命名空间、能力查询、健康检查、结构化输出和真实二进制测试；提交代码后归档 09-13-stx-cli-agent-entry。安装包源码下载已规划为 P2-C，前置 G2 已完成，待 G3 后进入扩展功能阶段。保留其他前端改动未提交。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9cc7a4db4` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

@@ -81,6 +81,7 @@ func MigrateWithDB(database *gorm.DB, dbType string) error {
 	// Note: auth.User is the unified user table, supporting both password and OAuth login
 	if err := database.AutoMigrate(
 		&auth.User{},                            // 统一用户表（支持密码认证和 OAuth 认证）/ Unified user table
+		&auth.CLIToken{},                        // CLI 令牌表 / CLI token table
 		&host.Host{},                            // 主机管理表 / Host management table
 		&cluster.Cluster{},                      // 集群表 / Cluster table
 		&cluster.ClusterNode{},                  // 集群节点表 / Cluster node table

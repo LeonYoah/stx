@@ -1,0 +1,12 @@
+{"file":".trellis/spec/backend/index.md","reason":"读取后端开发前检查和验证要求"}
+{"file":".trellis/spec/backend/directory-structure.md","reason":"遵循根 Go 模块、功能模块和 Agent 的目录约定"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"新增 CLI 令牌、执行、幂等和确认记录时遵循数据库约定"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"实现稳定 API 错误、CLI 错误和 HTTP 状态映射"}
+{"file":".trellis/spec/backend/logging-guidelines.md","reason":"避免令牌和秘密进入日志，并保留请求关联信息"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"遵循双语注释、License、语言输出和敏感信息要求"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"检查 CLI、HTTP、业务模块、数据库和 Agent 之间的数据传递"}
+{"file":".trellis/tasks/09-13-stx-cli-agent-entry/research-cli-contract.md","reason":"实现已确认的命令、输出、确认、幂等和执行协议"}
+{"file":".trellis/tasks/09-13-stx-cli-agent-entry/research-multica.md","reason":"参考服务端操作登记、能力接口和客户端调用方式"}
+{"file":".trellis/tasks/09-13-stx-cli-agent-entry/research-jvm-diagnostics.md","reason":"实现 JVM 诊断影响、互斥、取消和产物规则"}
+{"file":".trellis/tasks/09-13-stx-cli-agent-entry/research-seatunnel-secret-masking.md","reason":"复用 SeaTunnel 敏感信息识别和脱敏规则"}
+{"file":".trellis/tasks/09-13-stx-cli-agent-entry/research-flame-graph.md","reason":"确认火焰图和相关工具不进入首版"}

@@ -17,6 +17,7 @@
 | [目录结构](./directory-structure.md) | 模块划分与文件布局 | 已填写 |
 | [数据库规范](./database-guidelines.md) | ORM、查询、迁移 | 已填写 |
 | [错误处理](./error-handling.md) | 错误类型与处理策略 | 已填写 |
+| [CLI 约定](./cli-guidelines.md) | STX CLI 启动边界、请求标识和输出协议 | 已填写 |
 | [质量规范](./quality-guidelines.md) | 代码标准、注释规范、License 头、语言输出约定、禁止模式 | 已填写 |
 | [日志规范](./logging-guidelines.md) | 结构化日志与日志级别 | 已填写 |
 

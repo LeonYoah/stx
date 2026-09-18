@@ -34,6 +34,7 @@ import (
 	"github.com/LeonYoah/stx/internal/apps/agent"
 	"github.com/LeonYoah/stx/internal/apps/audit"
 	"github.com/LeonYoah/stx/internal/apps/auth"
+	"github.com/LeonYoah/stx/internal/apps/capability"
 	"github.com/LeonYoah/stx/internal/apps/cluster"
 	appconfig "github.com/LeonYoah/stx/internal/apps/config"
 	"github.com/LeonYoah/stx/internal/apps/dashboard"
@@ -146,6 +147,10 @@ func Serve() {
 			apiV1Router.POST("/auth/logout", auth.LoginRequired(), auth.Logout)
 			apiV1Router.GET("/auth/user-info", auth.LoginRequired(), auth.GetUserInfo)
 			apiV1Router.PUT("/auth/profile", auth.LoginRequired(), auth.UpdateProfile)
+			apiV1Router.POST("/auth/cli/login", auth.CLIClientRequired(), auth.CLILogin)
+			apiV1Router.POST("/auth/cli/logout", auth.CLIAuthRequired(), auth.CLILogout)
+			apiV1Router.GET("/auth/cli/whoami", auth.CLIAuthRequired(), auth.CLIWhoAmI)
+			apiV1Router.GET("/capabilities", auth.CLIAuthRequired(), capability.List)
 
 			// OAuth（备选登录方式：GitHub、Google）
 			apiV1Router.GET("/oauth/providers", oauth.GetEnabledProvidersHandler)

@@ -1,0 +1,11 @@
+{"file":".trellis/spec/backend/index.md","reason":"执行后端质量检查和测试要求"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"检查事务、查询、迁移和索引是否符合项目约定"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"检查服务端错误、HTTP 状态和 CLI 退出码是否稳定"}
+{"file":".trellis/spec/backend/logging-guidelines.md","reason":"检查日志是否包含秘密或重复错误信息"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"检查注释、License、语言输出和敏感信息处理"}
+{"file":".trellis/spec/frontend/api-and-services.md","reason":"检查安装包源码、工作台权限等前端接口改动"}
+{"file":".trellis/spec/frontend/e2e-testing.md","reason":"检查登录、工作台和安装包页面的端到端测试"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"检查 CLI 到 Agent 的完整数据流和边界情况"}
+{"file":".trellis/tasks/09-13-stx-cli-agent-entry/research-cli-contract.md","reason":"核对命令输出、错误、确认和异步执行协议"}
+{"file":".trellis/tasks/09-13-stx-cli-agent-entry/research-jvm-diagnostics.md","reason":"核对 JVM 诊断安全规则和产物处理"}
+{"file":".trellis/tasks/09-13-stx-cli-agent-entry/research-seatunnel-secret-masking.md","reason":"核对 API、CLI、日志、审计和诊断结果脱敏"}

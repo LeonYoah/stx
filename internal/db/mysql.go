@@ -1,4 +1,4 @@
-﻿/*
+/*
  * MIT License
  *
  * Copyright (c) 2025 linux.do
@@ -26,7 +26,6 @@ package db
 
 import (
 	"context"
-	"log"
 
 	"gorm.io/gorm"
 )
@@ -35,18 +34,9 @@ var (
 	db *gorm.DB
 )
 
-// init 函数已废弃，数据库初始化统一由 database.go 中的 InitDatabase() 处理
-// 保留此文件仅用于向后兼容，不再自动初始化 MySQL 连接
-func init() {
-	// 不再在 init 中自动初始化数据库
-	// 数据库初始化现在由 InitDatabase() 函数统一处理
-	// 该函数会根据配置文件中的 database.type 选择正确的数据库驱动
-	log.Println("[MySQL] init() 已废弃，数据库初始化由 InitDatabase() 统一处理")
-}
-
-// DB 函数已废弃，请使用 GetDB(ctx) 代替
-// 保留此函数仅用于向后兼容
+// DB 已废弃，请使用 GetDB(ctx)；保留该函数只为兼容现有调用。
+// DB is deprecated in favor of GetDB(ctx) and remains only for existing callers.
 func DB(ctx context.Context) *gorm.DB {
-	// 使用 database.go 中的统一数据库实例
+	// 使用统一数据库实例。/ Use the shared database instance.
 	return GetDB(ctx)
 }

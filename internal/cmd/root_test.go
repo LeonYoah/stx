@@ -1,0 +1,149 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package cmd
+
+import (
+	"bytes"
+	"encoding/json"
+	"strings"
+	"testing"
+
+	clioutput "github.com/LeonYoah/stx/internal/cli/output"
+)
+
+func TestRootCommandWithoutArgumentsShowsHelp(t *testing.T) {
+	var serverCalls int
+	command := newRootCommand(func() error {
+		serverCalls++
+		return nil
+	})
+	var stdout bytes.Buffer
+	command.SetOut(&stdout)
+	command.SetErr(&stdout)
+	command.SetArgs([]string{})
+
+	if err := command.Execute(); err != nil {
+		t.Fatalf("执行根命令失败 / executing root command failed: %v", err)
+	}
+	if serverCalls != 0 {
+		t.Fatalf("显示帮助时不应启动服务 / help must not start the server: calls=%d", serverCalls)
+	}
+	if !strings.Contains(stdout.String(), "Usage:") || !strings.Contains(stdout.String(), "Start the STX API server") {
+		t.Fatalf("根命令帮助内容不完整 / root help is incomplete: %s", stdout.String())
+	}
+}
+
+func TestRootCommandRegistersOnlyPublicServerEntry(t *testing.T) {
+	command := newRootCommand(func() error { return nil })
+	children := make(map[string]bool)
+	for _, child := range command.Commands() {
+		children[child.Name()] = child.Hidden
+	}
+
+	if hidden, ok := children["server"]; !ok || hidden {
+		t.Fatalf("server 命令应公开 / server command must be public: %#v", children)
+	}
+	if hidden, ok := children["api"]; !ok || !hidden {
+		t.Fatalf("api 兼容命令应隐藏 / api compatibility command must be hidden: %#v", children)
+	}
+	if _, ok := children["scheduler"]; ok {
+		t.Fatalf("scheduler 不应注册 / scheduler must not be registered")
+	}
+	if _, ok := children["worker"]; ok {
+		t.Fatalf("worker 不应注册 / worker must not be registered")
+	}
+}
+
+func TestServerAndAPICommandsUseSameRunner(t *testing.T) {
+	var serverCalls int
+	runner := func() error {
+		serverCalls++
+		return nil
+	}
+
+	serverCommand := newRootCommand(runner)
+	serverCommand.SetArgs([]string{"server"})
+	if err := serverCommand.Execute(); err != nil {
+		t.Fatalf("执行 server 命令失败 / executing server command failed: %v", err)
+	}
+
+	apiCommand := newRootCommand(runner)
+	apiCommand.SetOut(&bytes.Buffer{})
+	apiCommand.SetErr(&bytes.Buffer{})
+	apiCommand.SetArgs([]string{"api"})
+	if err := apiCommand.Execute(); err != nil {
+		t.Fatalf("执行 api 兼容命令失败 / executing api compatibility command failed: %v", err)
+	}
+
+	if serverCalls != 2 {
+		t.Fatalf("server 和 api 应复用启动流程 / server and api must share the runner: calls=%d", serverCalls)
+	}
+}
+
+func TestExecuteCommandWritesStructuredErrorAndStableExitCode(t *testing.T) {
+	rootCommand := newRootCommand(func() error {
+		return clioutput.NewError(clioutput.CodePermission, "admin required", clioutput.ExitPermission, false)
+	})
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := executeCommand(rootCommand, []string{"server"}, &stdout, &stderr)
+	if exitCode != int(clioutput.ExitPermission) {
+		t.Fatalf("权限错误退出码错误 / permission error exit code is incorrect: %d", exitCode)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("失败命令的 stdout 必须为空 / stdout must be empty on failure: %s", stdout.String())
+	}
+	var event map[string]any
+	if err := json.Unmarshal(stderr.Bytes(), &event); err != nil {
+		t.Fatalf("stderr 不是单个合法 JSON 事件 / stderr is not one valid JSON event: %v", err)
+	}
+	if event["event"] != "error" || event["code"] != clioutput.CodePermission || event["retryable"] != false {
+		t.Fatalf("错误事件字段错误 / error event fields are incorrect: %#v", event)
+	}
+}
+
+func TestExecuteCommandUnknownCommandReturnsUsageExitCode(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := executeCommand(newRootCommand(func() error { return nil }), []string{"missing-command"}, &stdout, &stderr)
+	if exitCode != int(clioutput.ExitUsage) {
+		t.Fatalf("未知命令应返回用法退出码 / unknown command must return usage exit code: %d", exitCode)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("未知命令不应写 stdout / unknown command must not write stdout: %s", stdout.String())
+	}
+	var event map[string]any
+	if err := json.Unmarshal(stderr.Bytes(), &event); err != nil {
+		t.Fatalf("未知命令 stderr 不是合法 JSON / unknown command stderr is not valid JSON: %v", err)
+	}
+	if event["code"] != clioutput.CodeUsage {
+		t.Fatalf("未知命令错误分类错误 / unknown command classification is incorrect: %#v", event)
+	}
+}
+
+func TestExecuteCommandNamespaceSupportsGlobalOutputFlags(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := executeCommand(newRootCommand(func() error { return nil }), []string{"namespace", "list", "--output", "yaml"}, &stdout, &stderr)
+	if exitCode != int(clioutput.ExitSuccess) {
+		t.Fatalf("namespace yaml 执行失败 / namespace yaml execution failed: code=%d stderr=%s", exitCode, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "operation_id: namespace.list") || !strings.Contains(stdout.String(), "complete: true") {
+		t.Fatalf("namespace yaml 输出错误 / namespace yaml output is incorrect: %s", stdout.String())
+	}
+}

@@ -42,6 +42,8 @@ const (
 	ErrMsgUserInactive       = "用户账户已禁用"
 	ErrMsgSessionError       = "会话错误"
 	ErrMsgInternalError      = "内部服务器错误"
+	ErrMsgCLIHeaderRequired  = "缺少 CLI 请求标识"
+	ErrMsgCLITokenInvalid    = "CLI 令牌无效或已过期"
 )
 
 // LoginRequest 登录请求
@@ -270,6 +272,9 @@ func UpdateProfile(c *gin.Context) {
 
 // GetUserIDFromContext 从 Gin 上下文获取用户 ID
 func GetUserIDFromContext(c *gin.Context) uint64 {
+	if user := GetUserFromContext(c); user != nil {
+		return user.ID
+	}
 	session := sessions.Default(c)
 	userID := session.Get(SessionKeyUserID)
 	if userID == nil {
@@ -293,6 +298,9 @@ func GetUserIDFromContext(c *gin.Context) uint64 {
 
 // GetUsernameFromContext 从 Gin 上下文获取用户名
 func GetUsernameFromContext(c *gin.Context) string {
+	if user := GetUserFromContext(c); user != nil {
+		return user.Username
+	}
 	session := sessions.Default(c)
 	username := session.Get(SessionKeyUsername)
 	if username == nil {

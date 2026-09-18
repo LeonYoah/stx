@@ -28,6 +28,7 @@ import (
 
 	"github.com/LeonYoah/stx/internal/apps/cluster"
 	appconfig "github.com/LeonYoah/stx/internal/apps/config"
+	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
 	"github.com/LeonYoah/stx/internal/apps/monitor"
 	monitoringapp "github.com/LeonYoah/stx/internal/apps/monitoring"
 	"github.com/LeonYoah/stx/internal/db"
@@ -71,10 +72,20 @@ type Service struct {
 	monitorService    processEventReader
 	monitoringService alertInstanceReader
 	agentSender       diagnosticAgentCommandSender
+	executionService  *executionapp.Service
 	taskEvents        *diagnosticTaskEventHub
 	taskEventsOnce    sync.Once
 	autoPolicyRuntime sync.Once
 	policyChecker     *AutoPolicyChecker
+}
+
+// SetExecutionService 设置诊断任务使用的公共执行服务。
+// SetExecutionService sets the shared execution service used by diagnostic tasks.
+func (s *Service) SetExecutionService(service *executionapp.Service) {
+	if s == nil {
+		return
+	}
+	s.executionService = service
 }
 
 // ListLogCursorsByAgent returns all log cursors for the given agent.

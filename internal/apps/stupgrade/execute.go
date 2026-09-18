@@ -24,7 +24,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/LeonYoah/stx/internal/apps/audit"
 	clusterapp "github.com/LeonYoah/stx/internal/apps/cluster"
+	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
 	installerapp "github.com/LeonYoah/stx/internal/apps/installer"
 )
 
@@ -96,12 +98,38 @@ func (s *Service) executeTask(ctx context.Context, taskID uint) (*UpgradeTask, e
 	if err != nil {
 		return nil, err
 	}
+	ctx = audit.WithCommandMetadata(ctx, audit.CommandMetadata{
+		ExecutionID: task.ExecutionID,
+		OwnerUserID: task.CreatedBy,
+	})
 	plan := normalizePlanSnapshot(task.Plan.Snapshot)
 	startedAt := time.Now()
+	updated, err := s.repo.UpdateTaskFields(ctx, task.ID, []ExecutionStatus{ExecutionStatusPending, ExecutionStatusReady}, map[string]any{
+		"status":       ExecutionStatusRunning,
+		"current_step": plan.Steps[0].Code,
+		"started_at":   startedAt,
+		"updated_at":   startedAt,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if !updated {
+		latest, loadErr := s.GetTaskDetail(ctx, task.ID)
+		if loadErr != nil {
+			return nil, loadErr
+		}
+		if latest.Status == ExecutionStatusCancelled {
+			_ = s.syncExecutionFromTask(ctx, latest)
+			return latest, nil
+		}
+		return latest, executionapp.ErrConcurrentUpdate
+	}
 	task.Status = ExecutionStatusRunning
 	task.CurrentStep = plan.Steps[0].Code
 	task.StartedAt = &startedAt
-	if err := s.UpdateTask(ctx, task); err != nil {
+	task.UpdatedAt = startedAt
+	s.publishTaskEvent(newTaskUpdatedEvent(task))
+	if err := s.syncExecutionFromTask(ctx, task); err != nil {
 		return nil, err
 	}
 
@@ -134,6 +162,7 @@ func (s *Service) executeTask(ctx context.Context, taskID uint) (*UpgradeTask, e
 		completedAt := time.Now()
 		task.CompletedAt = &completedAt
 		_ = s.UpdateTask(ctx, task)
+		_ = s.syncExecutionFromTask(ctx, task)
 		return s.GetTaskDetail(ctx, task.ID)
 	}
 
@@ -146,6 +175,9 @@ func (s *Service) executeTask(ctx context.Context, taskID uint) (*UpgradeTask, e
 	task.CurrentStep = StepCodeComplete
 	task.CompletedAt = &completedAt
 	if err := s.UpdateTask(ctx, task); err != nil {
+		return nil, err
+	}
+	if err := s.syncExecutionFromTask(ctx, task); err != nil {
 		return nil, err
 	}
 	return s.GetTaskDetail(ctx, task.ID)

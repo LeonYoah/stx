@@ -56,6 +56,9 @@ var (
 	// ErrInvalidDiagnosticTaskRequest indicates the diagnostics task request is invalid.
 	// ErrInvalidDiagnosticTaskRequest 表示诊断任务请求非法。
 	ErrInvalidDiagnosticTaskRequest = errors.New("diagnostics: invalid diagnostic task request")
+	// ErrDiagnosticTaskAlreadyFinished 表示终态诊断任务不能再次启动或改写。
+	// ErrDiagnosticTaskAlreadyFinished indicates that a terminal diagnostic task cannot be started or rewritten again.
+	ErrDiagnosticTaskAlreadyFinished = errors.New("diagnostics: diagnostic task already finished")
 	// ErrAutoPolicyNotFound indicates the auto-inspection policy does not exist.
 	// ErrAutoPolicyNotFound 表示自动巡检策略不存在。
 	ErrAutoPolicyNotFound = errors.New("diagnostics: auto-policy not found")

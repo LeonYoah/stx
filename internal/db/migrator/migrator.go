@@ -37,6 +37,7 @@ import (
 	"github.com/LeonYoah/stx/internal/apps/cluster"
 	appconfig "github.com/LeonYoah/stx/internal/apps/config"
 	"github.com/LeonYoah/stx/internal/apps/diagnostics"
+	"github.com/LeonYoah/stx/internal/apps/execution"
 	"github.com/LeonYoah/stx/internal/apps/host"
 	"github.com/LeonYoah/stx/internal/apps/monitor"
 	monitoringapp "github.com/LeonYoah/stx/internal/apps/monitoring"
@@ -87,6 +88,8 @@ func MigrateWithDB(database *gorm.DB, dbType string) error {
 		&cluster.ClusterNode{},                  // 集群节点表 / Cluster node table
 		&audit.CommandLog{},                     // 命令日志表 / Command log table
 		&audit.AuditLog{},                       // 审计日志表 / Audit log table
+		&execution.Execution{},                  // 公共执行记录表 / Shared execution record table
+		&execution.Confirmation{},               // 一次性操作确认表 / One-time operation confirmation table
 		&plugin.InstalledPlugin{},               // 已安装插件表 / Installed plugin table
 		&plugin.PluginDependencyConfig{},        // 插件依赖配置表 / Plugin dependency config table
 		&plugin.PluginDependencyDisable{},       // 插件官方依赖禁用表 / Plugin official dependency disable table

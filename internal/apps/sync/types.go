@@ -133,6 +133,8 @@ type JobFilter struct {
 	RunType       RunType
 	PlatformJobID string
 	EngineJobID   string
+	OwnerUserID   uint
+	IncludeAll    bool
 	Page          int
 	Size          int
 }

@@ -18,6 +18,7 @@
 | [数据库规范](./database-guidelines.md) | ORM、查询、迁移 | 已填写 |
 | [错误处理](./error-handling.md) | 错误类型与处理策略 | 已填写 |
 | [CLI 约定](./cli-guidelines.md) | STX CLI 启动边界、请求标识和输出协议 | 已填写 |
+| [公共执行与安全输出](./execution-security-guidelines.md) | 异步状态、真实取消、用户归属、确认、幂等、审计与敏感内容处理 | 已填写 |
 | [质量规范](./quality-guidelines.md) | 代码标准、注释规范、License 头、语言输出约定、禁止模式 | 已填写 |
 | [日志规范](./logging-guidelines.md) | 结构化日志与日志级别 | 已填写 |
 
@@ -27,6 +28,7 @@
 
 - 先确认改动属于根 Go 模块、Agent 还是 Java Proxy，并阅读对应的[目录结构](./directory-structure.md)。
 - 涉及数据库、HTTP 错误或日志时，分别阅读数据库、错误处理和日志规范。
+- 涉及异步任务、CLI 写操作、任务正文、Agent 输出或诊断资源时，阅读[公共执行与安全输出](./execution-security-guidelines.md)。
 - 新增源文件、方法或用户可见文案时，按[质量规范](./quality-guidelines.md)检查注释、License 头和语言输出。
 
 ## 质量检查

@@ -32,6 +32,7 @@ import (
 	"strings"
 	"time"
 
+	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
 	"github.com/LeonYoah/stx/internal/config"
 	"github.com/LeonYoah/stx/internal/pkg/schedulex"
 	"github.com/LeonYoah/stx/internal/seatunnel"
@@ -51,6 +52,7 @@ type Service struct {
 	executionTargetResolver ExecutionTargetResolver
 	clusterLogProvider      ClusterLogProvider
 	clusterVersionProvider  ClusterVersionProvider
+	executionService        *executionapp.Service
 }
 
 // ClusterVersionProvider provides SeaTunnel cluster version lookup.
@@ -72,6 +74,10 @@ func NewService(repo *Repository) *Service {
 
 // SetEngineClient sets the SeaTunnel engine client used by submit/get/cancel flows.
 func (s *Service) SetEngineClient(client EngineClient) { s.engineClient = client }
+
+// SetExecutionService 设置公共执行协议服务。
+// SetExecutionService configures the shared execution-contract service.
+func (s *Service) SetExecutionService(service *executionapp.Service) { s.executionService = service }
 
 // SetRuntimeResolver sets the runtime endpoint resolver for cluster-backed submissions.
 func (s *Service) SetRuntimeResolver(resolver ClusterRuntimeResolver) { s.runtimeResolver = resolver }
@@ -247,11 +253,18 @@ func (s *Service) CreateTask(ctx context.Context, req *CreateTaskRequest, create
 	if err := s.ensureSiblingTaskNameAvailable(ctx, parentID, name, nil); err != nil {
 		return nil, err
 	}
-	definition := cloneJSONMap(req.Definition)
+	definition, err := restoreMaskedJSONMap(nil, cloneJSONMap(req.Definition))
+	if err != nil {
+		return nil, err
+	}
 	if err := validateTaskDefinition(definition); err != nil {
 		return nil, err
 	}
 	content := strings.TrimSpace(req.Content)
+	content, err = restoreMaskedTaskContent(format, "", content)
+	if err != nil {
+		return nil, err
+	}
 	jobName := strings.TrimSpace(req.JobName)
 	if nodeType == TaskNodeTypeFolder {
 		content = ""
@@ -364,6 +377,14 @@ func (s *Service) UpdateTask(ctx context.Context, id uint, req *UpdateTaskReques
 		return nil, err
 	}
 	content := strings.TrimSpace(req.Content)
+	content, err = restoreMaskedTaskContent(format, task.Content, content)
+	if err != nil {
+		return nil, err
+	}
+	definition, err := restoreMaskedJSONMap(task.Definition, cloneJSONMap(req.Definition))
+	if err != nil {
+		return nil, err
+	}
 	jobName := strings.TrimSpace(req.JobName)
 	if nodeType == TaskNodeTypeFolder {
 		content = ""
@@ -382,11 +403,7 @@ func (s *Service) UpdateTask(ctx context.Context, id uint, req *UpdateTaskReques
 	task.Content = content
 	task.JobName = jobName
 	task.SortOrder = req.SortOrder
-	if req.Definition == nil {
-		task.Definition = JSONMap{}
-	} else {
-		task.Definition = cloneJSONMap(req.Definition)
-	}
+	task.Definition = definition
 	if err := validateTaskDefinition(task.Definition); err != nil {
 		return nil, err
 	}
@@ -454,8 +471,15 @@ func (s *Service) getTaskForExecution(ctx context.Context, id uint, draft *TaskD
 	if err != nil {
 		return nil, err
 	}
-	definition := cloneJSONMap(draft.Definition)
+	definition, err := restoreMaskedJSONMap(task.Definition, cloneJSONMap(draft.Definition))
+	if err != nil {
+		return nil, err
+	}
 	if err := validateTaskDefinition(definition); err != nil {
+		return nil, err
+	}
+	content, err := restoreMaskedTaskContent(format, task.Content, draft.Content)
+	if err != nil {
 		return nil, err
 	}
 	task.Name = name
@@ -464,7 +488,7 @@ func (s *Service) getTaskForExecution(ctx context.Context, id uint, draft *TaskD
 	task.EngineVersion = strings.TrimSpace(draft.EngineVersion)
 	task.Mode = mode
 	task.ContentFormat = format
-	task.Content = draft.Content
+	task.Content = content
 	task.JobName = strings.TrimSpace(draft.JobName)
 	task.Definition = definition
 	return task, nil
@@ -1285,7 +1309,8 @@ func (s *Service) GetJob(ctx context.Context, id uint) (*JobInstance, error) {
 	return s.refreshJobInstance(ctx, instance)
 }
 
-// CancelJob marks one running/pending job instance as canceled.
+// CancelJob 请求真实停止作业，并在确认停止前保留取消中间状态。
+// CancelJob requests a real stop and keeps intermediate cancellation states until the stop is confirmed.
 func (s *Service) CancelJob(ctx context.Context, id uint, stopWithSavepoint bool) (*JobInstance, error) {
 	instance, err := s.repo.GetJobInstanceByID(ctx, id)
 	if err != nil {
@@ -1294,28 +1319,54 @@ func (s *Service) CancelJob(ctx context.Context, id uint, stopWithSavepoint bool
 	if instance.Status == JobStatusSuccess || instance.Status == JobStatusFailed || instance.Status == JobStatusCanceled {
 		return nil, ErrJobAlreadyFinished
 	}
+	if instance.Status == JobStatusCancelRequested || instance.Status == JobStatusCancelling {
+		return instance, nil
+	}
+	previousStatus := instance.Status
+	if err := s.repo.UpdateJobStatus(ctx, instance.ID, []JobStatus{JobStatusPending, JobStatusRunning}, map[string]any{
+		"status":        JobStatusCancelRequested,
+		"error_message": "",
+	}); err != nil {
+		if errors.Is(err, ErrJobStatusChanged) {
+			return s.repo.GetJobInstanceByID(ctx, id)
+		}
+		return nil, err
+	}
+	instance.Status = JobStatusCancelRequested
+
+	targetStatus := JobStatusCancelling
 	if submitSpecExecutionMode(instance.SubmitSpec) == "local" {
 		if err := s.stopLocalJob(ctx, instance); err != nil {
+			s.restoreJobAfterCancelFailure(ctx, instance, previousStatus)
 			return nil, err
 		}
-	} else if s.engineClient != nil && strings.TrimSpace(instance.EngineJobID) != "" {
-		if endpoint := endpointFromSubmitSpec(instance.SubmitSpec); endpoint != nil {
-			if err := s.engineClient.StopJob(ctx, endpoint, instance.EngineJobID, stopWithSavepoint); err != nil {
-				return nil, err
-			}
+		targetStatus = JobStatusCanceled
+	} else {
+		if s.engineClient == nil || strings.TrimSpace(instance.EngineJobID) == "" {
+			s.restoreJobAfterCancelFailure(ctx, instance, previousStatus)
+			return nil, ErrExecutionTargetUnavailable
+		}
+		endpoint := endpointFromSubmitSpec(instance.SubmitSpec)
+		if endpoint == nil {
+			s.restoreJobAfterCancelFailure(ctx, instance, previousStatus)
+			return nil, ErrExecutionTargetUnavailable
+		}
+		if err := s.engineClient.StopJob(ctx, endpoint, instance.EngineJobID, stopWithSavepoint); err != nil {
+			s.restoreJobAfterCancelFailure(ctx, instance, previousStatus)
+			return nil, err
 		}
 	}
+
 	now := time.Now()
-	if stopWithSavepoint {
-		instance.Status = JobStatusRunning
+	instance.Status = targetStatus
+	if targetStatus == JobStatusCancelling {
 		instance.FinishedAt = nil
 		instance.ResultPreview = mergeJobRuntimeInfo(instance.ResultPreview, &EngineJobInfo{
 			JobID:     instance.EngineJobID,
 			JobName:   strings.TrimSpace(stringValue(instance.SubmitSpec, "job_name")),
-			JobStatus: "DOING_SAVEPOINT",
+			JobStatus: cancelRequestedRuntimeStatus(stopWithSavepoint),
 		})
 	} else {
-		instance.Status = JobStatusCanceled
 		instance.FinishedAt = &now
 		instance.ResultPreview = mergeJobRuntimeInfo(instance.ResultPreview, &EngineJobInfo{
 			JobID:        instance.EngineJobID,
@@ -1324,10 +1375,40 @@ func (s *Service) CancelJob(ctx context.Context, id uint, stopWithSavepoint bool
 			FinishedTime: now.Format(time.DateTime),
 		})
 	}
-	if err := s.repo.UpdateJobInstance(ctx, instance); err != nil {
+	if err := s.repo.UpdateJobStatus(ctx, instance.ID, []JobStatus{JobStatusCancelRequested}, map[string]any{
+		"status":         instance.Status,
+		"finished_at":    instance.FinishedAt,
+		"result_preview": instance.ResultPreview,
+		"error_message":  "",
+	}); err != nil {
+		return nil, err
+	}
+	if err := s.syncExecutionFromJob(ctx, instance); err != nil {
 		return nil, err
 	}
 	return instance, nil
+}
+
+func (s *Service) restoreJobAfterCancelFailure(ctx context.Context, instance *JobInstance, previousStatus JobStatus) {
+	if instance == nil {
+		return
+	}
+	_ = s.repo.UpdateJobStatus(ctx, instance.ID, []JobStatus{JobStatusCancelRequested}, map[string]any{
+		"status":        previousStatus,
+		"error_message": "cancel request failed",
+		"finished_at":   nil,
+	})
+	instance.Status = previousStatus
+	instance.ErrorMessage = "cancel request failed"
+	instance.FinishedAt = nil
+	_ = s.syncExecutionFromJob(ctx, instance)
+}
+
+func cancelRequestedRuntimeStatus(stopWithSavepoint bool) string {
+	if stopWithSavepoint {
+		return "DOING_SAVEPOINT"
+	}
+	return "CANCEL_REQUESTED"
 }
 
 func (s *Service) validateParent(ctx context.Context, parentID *uint) (*uint, error) {
@@ -2082,7 +2163,15 @@ func (s *Service) refreshJobInstance(ctx context.Context, instance *JobInstance)
 	if err != nil {
 		return instance, nil
 	}
-	instance.Status = normalizeJobStatus(info.JobStatus)
+	if info == nil {
+		return instance, nil
+	}
+	previousStatus := instance.Status
+	observedStatus := normalizeJobStatus(info.JobStatus)
+	if (previousStatus == JobStatusCancelRequested || previousStatus == JobStatusCancelling) && observedStatus == JobStatusRunning {
+		observedStatus = previousStatus
+	}
+	instance.Status = observedStatus
 	instance.ResultPreview = mergeJobRuntimeInfo(instance.ResultPreview, info)
 	if isFinalNormalizedJobStatus(instance.Status) {
 		if parsedFinishedAt := parseEngineJobTime(info.FinishedTime); parsedFinishedAt != nil {
@@ -2097,10 +2186,21 @@ func (s *Service) refreshJobInstance(ctx context.Context, instance *JobInstance)
 	} else {
 		instance.FinishedAt = nil
 	}
-	if err := s.repo.UpdateJobInstance(ctx, instance); err != nil {
+	if err := s.repo.UpdateJobStatus(ctx, instance.ID, []JobStatus{previousStatus}, map[string]any{
+		"status":         instance.Status,
+		"result_preview": instance.ResultPreview,
+		"error_message":  instance.ErrorMessage,
+		"finished_at":    instance.FinishedAt,
+	}); err != nil {
+		if errors.Is(err, ErrJobStatusChanged) {
+			return s.repo.GetJobInstanceByID(ctx, instance.ID)
+		}
 		return nil, err
 	}
 	if err := s.syncPreviewSessionTerminalState(ctx, instance); err != nil {
+		return nil, err
+	}
+	if err := s.syncExecutionFromJob(ctx, instance); err != nil {
 		return nil, err
 	}
 	return instance, nil

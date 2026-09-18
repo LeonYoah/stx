@@ -343,20 +343,26 @@ func (s *Service) refreshLocalJob(ctx context.Context, instance *JobInstance) (*
 	if err := json.Unmarshal([]byte(decodedOutput), &status); err != nil {
 		return instance, nil
 	}
+	previousStatus := instance.Status
+	observedStatus := instance.Status
 	switch strings.ToLower(strings.TrimSpace(status.Status)) {
 	case "success":
-		instance.Status = JobStatusSuccess
+		observedStatus = JobStatusSuccess
 	case "failed":
-		instance.Status = JobStatusFailed
+		observedStatus = JobStatusFailed
 	case "canceled", "cancelled":
-		instance.Status = JobStatusCanceled
+		observedStatus = JobStatusCanceled
 	case "running":
-		instance.Status = JobStatusRunning
+		observedStatus = JobStatusRunning
 	default:
 		if status.Running {
-			instance.Status = JobStatusRunning
+			observedStatus = JobStatusRunning
 		}
 	}
+	if (previousStatus == JobStatusCancelRequested || previousStatus == JobStatusCancelling) && observedStatus == JobStatusRunning {
+		observedStatus = previousStatus
+	}
+	instance.Status = observedStatus
 	if instance.ResultPreview == nil {
 		instance.ResultPreview = JSONMap{}
 	}
@@ -372,7 +378,18 @@ func (s *Service) refreshLocalJob(ctx context.Context, instance *JobInstance) (*
 			instance.ErrorMessage = strings.TrimSpace(status.Message)
 		}
 	}
-	if err := s.repo.UpdateJobInstance(ctx, instance); err != nil {
+	if err := s.repo.UpdateJobStatus(ctx, instance.ID, []JobStatus{previousStatus}, map[string]any{
+		"status":         instance.Status,
+		"result_preview": instance.ResultPreview,
+		"error_message":  instance.ErrorMessage,
+		"finished_at":    instance.FinishedAt,
+	}); err != nil {
+		if errors.Is(err, ErrJobStatusChanged) {
+			return s.repo.GetJobInstanceByID(ctx, instance.ID)
+		}
+		return nil, err
+	}
+	if err := s.syncExecutionFromJob(ctx, instance); err != nil {
 		return nil, err
 	}
 	return instance, nil

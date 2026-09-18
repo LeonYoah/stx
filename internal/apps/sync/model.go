@@ -137,41 +137,43 @@ const (
 type JobStatus string
 
 const (
-	JobStatusPending  JobStatus = "pending"
-	JobStatusRunning  JobStatus = "running"
-	JobStatusSuccess  JobStatus = "success"
-	JobStatusFailed   JobStatus = "failed"
-	JobStatusCanceled JobStatus = "canceled"
+	JobStatusPending         JobStatus = "pending"
+	JobStatusRunning         JobStatus = "running"
+	JobStatusCancelRequested JobStatus = "cancel_requested"
+	JobStatusCancelling      JobStatus = "cancelling"
+	JobStatusSuccess         JobStatus = "success"
+	JobStatusFailed          JobStatus = "failed"
+	JobStatusCanceled        JobStatus = "canceled"
 )
 
 // Task represents one sync studio workspace node.
 // Task 表示一个数据同步工作台节点。
 type Task struct {
-	ID                      uint          `json:"id" gorm:"primaryKey;autoIncrement"`
-	ParentID                *uint         `json:"parent_id,omitempty" gorm:"index"`
-	NodeType                TaskNodeType  `json:"node_type" gorm:"size:20;not null;default:file;index"`
-	Name                    string        `json:"name" gorm:"size:120;not null;index"`
-	Description             string        `json:"description" gorm:"type:text"`
-	ClusterID               uint          `json:"cluster_id" gorm:"index"`
-	EngineVersion           string        `json:"engine_version" gorm:"size:50"`
-	Mode                    TaskMode      `json:"mode" gorm:"size:20;default:streaming"`
-	Status                  TaskStatus    `json:"status" gorm:"size:20;default:draft;index"`
-	ContentFormat           ContentFormat `json:"content_format" gorm:"size:20;not null;default:hocon"`
+	ID            uint          `json:"id" gorm:"primaryKey;autoIncrement"`
+	ParentID      *uint         `json:"parent_id,omitempty" gorm:"index"`
+	NodeType      TaskNodeType  `json:"node_type" gorm:"size:20;not null;default:file;index"`
+	Name          string        `json:"name" gorm:"size:120;not null;index"`
+	Description   string        `json:"description" gorm:"type:text"`
+	ClusterID     uint          `json:"cluster_id" gorm:"index"`
+	EngineVersion string        `json:"engine_version" gorm:"size:50"`
+	Mode          TaskMode      `json:"mode" gorm:"size:20;default:streaming"`
+	Status        TaskStatus    `json:"status" gorm:"size:20;default:draft;index"`
+	ContentFormat ContentFormat `json:"content_format" gorm:"size:20;not null;default:hocon"`
 	// Content 存储任务定义内容（HOCON 或 JSON），兼容多数据库。
 	// Content stores task definition content (HOCON or JSON), compatible with multiple databases.
-	Content                 string        `json:"content" gorm:"type:text"`
-	JobName                 string        `json:"job_name" gorm:"size:255"`
-	Definition              JSONMap       `json:"definition" gorm:"type:json"`
-	SortOrder               int           `json:"sort_order" gorm:"default:0;index"`
-	CurrentVersion          int           `json:"current_version" gorm:"default:0"`
-	ScheduleEnabled         bool          `json:"schedule_enabled" gorm:"-"`
-	ScheduleCronExpr        string        `json:"schedule_cron_expr,omitempty" gorm:"-"`
-	ScheduleTimezone        string        `json:"schedule_timezone,omitempty" gorm:"-"`
-	ScheduleLastTriggeredAt *time.Time    `json:"schedule_last_triggered_at,omitempty" gorm:"-"`
-	ScheduleNextTriggeredAt *time.Time    `json:"schedule_next_triggered_at,omitempty" gorm:"-"`
-	CreatedBy               uint          `json:"created_by"`
-	CreatedAt               time.Time     `json:"created_at" gorm:"autoCreateTime"`
-	UpdatedAt               time.Time     `json:"updated_at" gorm:"autoUpdateTime"`
+	Content                 string     `json:"content" gorm:"type:text"`
+	JobName                 string     `json:"job_name" gorm:"size:255"`
+	Definition              JSONMap    `json:"definition" gorm:"type:json"`
+	SortOrder               int        `json:"sort_order" gorm:"default:0;index"`
+	CurrentVersion          int        `json:"current_version" gorm:"default:0"`
+	ScheduleEnabled         bool       `json:"schedule_enabled" gorm:"-"`
+	ScheduleCronExpr        string     `json:"schedule_cron_expr,omitempty" gorm:"-"`
+	ScheduleTimezone        string     `json:"schedule_timezone,omitempty" gorm:"-"`
+	ScheduleLastTriggeredAt *time.Time `json:"schedule_last_triggered_at,omitempty" gorm:"-"`
+	ScheduleNextTriggeredAt *time.Time `json:"schedule_next_triggered_at,omitempty" gorm:"-"`
+	CreatedBy               uint       `json:"created_by"`
+	CreatedAt               time.Time  `json:"created_at" gorm:"autoCreateTime"`
+	UpdatedAt               time.Time  `json:"updated_at" gorm:"autoUpdateTime"`
 }
 
 // TableName returns the sync task table name.
@@ -194,12 +196,12 @@ type TaskVersion struct {
 	ContentFormatSnapshot ContentFormat `json:"content_format_snapshot" gorm:"size:20"`
 	// ContentSnapshot 存储版本快照内容（HOCON 或 JSON），兼容多数据库。
 	// ContentSnapshot stores version snapshot content (HOCON or JSON), compatible with multiple databases.
-	ContentSnapshot       string        `json:"content_snapshot" gorm:"type:text"`
-	JobNameSnapshot       string        `json:"job_name_snapshot" gorm:"size:255"`
-	DefinitionSnapshot    JSONMap       `json:"definition_snapshot" gorm:"type:json"`
-	Comment               string        `json:"comment" gorm:"size:255"`
-	CreatedBy             uint          `json:"created_by"`
-	CreatedAt             time.Time     `json:"created_at" gorm:"autoCreateTime"`
+	ContentSnapshot    string    `json:"content_snapshot" gorm:"type:text"`
+	JobNameSnapshot    string    `json:"job_name_snapshot" gorm:"size:255"`
+	DefinitionSnapshot JSONMap   `json:"definition_snapshot" gorm:"type:json"`
+	Comment            string    `json:"comment" gorm:"size:255"`
+	CreatedBy          uint      `json:"created_by"`
+	CreatedAt          time.Time `json:"created_at" gorm:"autoCreateTime"`
 }
 
 // TableName returns the sync task version table name.
@@ -212,6 +214,7 @@ func (TaskVersion) TableName() string {
 // JobInstance 存储一次预览/运行/恢复执行实例。
 type JobInstance struct {
 	ID                      uint       `json:"id" gorm:"primaryKey;autoIncrement"`
+	ExecutionID             string     `json:"execution_id" gorm:"size:36;index"`
 	TaskID                  uint       `json:"task_id" gorm:"index;not null"`
 	TaskVersion             int        `json:"task_version" gorm:"not null"`
 	RunType                 RunType    `json:"run_type" gorm:"size:20;not null;index"`

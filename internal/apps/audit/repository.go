@@ -67,6 +67,9 @@ func (r *Repository) CreateCommandLog(ctx context.Context, log *CommandLog) erro
 	if count > 0 {
 		return ErrCommandIDDuplicate
 	}
+	log.Parameters = RedactParameters(log.Parameters)
+	log.Output = RedactText(log.Output)
+	log.Error = RedactText(log.Error)
 
 	return r.db.WithContext(ctx).Create(log).Error
 }
@@ -78,6 +81,23 @@ func (r *Repository) CreateCommandLog(ctx context.Context, log *CommandLog) erro
 func (r *Repository) GetCommandLogByID(ctx context.Context, id uint) (*CommandLog, error) {
 	var log CommandLog
 	if err := r.db.WithContext(ctx).First(&log, id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrCommandLogNotFound
+		}
+		return nil, err
+	}
+	return &log, nil
+}
+
+// GetCommandLogByIDForOwner 按用户归属读取命令日志，管理员可查看全部。
+// GetCommandLogByIDForOwner loads a command log under owner scope, while administrators may view all entries.
+func (r *Repository) GetCommandLogByIDForOwner(ctx context.Context, id, ownerUserID uint, includeAll bool) (*CommandLog, error) {
+	var log CommandLog
+	query := r.db.WithContext(ctx).Where("id = ?", id)
+	if !includeAll {
+		query = query.Where("created_by = ?", ownerUserID)
+	}
+	if err := query.First(&log).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrCommandLogNotFound
 		}
@@ -176,6 +196,9 @@ func (r *Repository) UpdateCommandLog(ctx context.Context, log *CommandLog) erro
 		return err
 	}
 
+	log.Parameters = RedactParameters(log.Parameters)
+	log.Output = RedactText(log.Output)
+	log.Error = RedactText(log.Error)
 	return r.db.WithContext(ctx).Save(log).Error
 }
 
@@ -184,6 +207,14 @@ func (r *Repository) UpdateCommandLog(ctx context.Context, log *CommandLog) erro
 // Returns ErrCommandLogNotFound if the command log does not exist.
 // 如果命令日志不存在，则返回 ErrCommandLogNotFound。
 func (r *Repository) UpdateCommandLogStatus(ctx context.Context, id uint, updates map[string]interface{}) error {
+	if parameters, ok := updates["parameters"].(CommandParameters); ok {
+		updates["parameters"] = RedactParameters(parameters)
+	}
+	for _, key := range []string{"output", "error"} {
+		if value, ok := updates[key].(string); ok {
+			updates[key] = RedactText(value)
+		}
+	}
 	result := r.db.WithContext(ctx).Model(&CommandLog{}).Where("id = ?", id).Updates(updates)
 	if result.Error != nil {
 		return result.Error
@@ -225,6 +256,7 @@ func (r *Repository) CreateAuditLog(ctx context.Context, log *AuditLog) error {
 	if log.ResourceType == "" {
 		return ErrResourceTypeEmpty
 	}
+	log.Details = RedactDetails(log.Details)
 
 	return r.db.WithContext(ctx).Create(log).Error
 }
@@ -244,6 +276,23 @@ func (r *Repository) GetAuditLogByID(ctx context.Context, id uint) (*AuditLog, e
 	return &log, nil
 }
 
+// GetAuditLogByIDForOwner 按用户归属读取审计记录，管理员可查看全部。
+// GetAuditLogByIDForOwner loads an audit entry under owner scope, while administrators may view all entries.
+func (r *Repository) GetAuditLogByIDForOwner(ctx context.Context, id, ownerUserID uint, includeAll bool) (*AuditLog, error) {
+	var log AuditLog
+	query := r.db.WithContext(ctx).Where("id = ?", id)
+	if !includeAll {
+		query = query.Where("user_id = ?", ownerUserID)
+	}
+	if err := query.First(&log).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrAuditLogNotFound
+		}
+		return nil, err
+	}
+	return &log, nil
+}
+
 // ListAuditLogs retrieves audit logs based on filter criteria with pagination.
 // ListAuditLogs 根据过滤条件和分页获取审计日志列表。
 // Returns the list of audit logs and total count.
@@ -255,8 +304,11 @@ func (r *Repository) ListAuditLogs(ctx context.Context, filter *AuditLogFilter) 
 
 	// Apply filters - 应用过滤条件
 	if filter != nil {
+		if !filter.IncludeAll && filter.UserID != nil {
+			query = query.Where("user_id = ?", *filter.UserID)
+		}
 		// Filter by user ID - 按用户 ID 过滤
-		if filter.UserID != nil {
+		if filter.IncludeAll && filter.UserID != nil {
 			query = query.Where("user_id = ?", *filter.UserID)
 		}
 		// Filter by username - 按用户名过滤（使用 LOWER 忽略大小写，兼容多数据库）
@@ -275,6 +327,21 @@ func (r *Repository) ListAuditLogs(ctx context.Context, filter *AuditLogFilter) 
 		// Filter by resource ID - 按资源 ID 过滤
 		if filter.ResourceID != "" {
 			query = query.Where("resource_id = ?", filter.ResourceID)
+		}
+		if filter.RequestID != "" {
+			query = query.Where("request_id = ?", filter.RequestID)
+		}
+		if filter.ExecutionID != "" {
+			query = query.Where("execution_id = ?", filter.ExecutionID)
+		}
+		if filter.CommandID != "" {
+			query = query.Where("command_id = ?", filter.CommandID)
+		}
+		if filter.ClientType != "" {
+			query = query.Where("client_type = ?", filter.ClientType)
+		}
+		if filter.ResultStatus != "" {
+			query = query.Where("result_status = ?", filter.ResultStatus)
 		}
 		// Filter by trigger column - 按 trigger 字段过滤
 		if filter.Trigger == "auto" || filter.Trigger == "manual" {

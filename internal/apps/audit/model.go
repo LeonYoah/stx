@@ -108,6 +108,8 @@ func (d *AuditDetails) Scan(value interface{}) error {
 type CommandLog struct {
 	ID          uint              `json:"id" gorm:"primaryKey;autoIncrement"`
 	CommandID   string            `json:"command_id" gorm:"size:50;uniqueIndex;not null"`
+	RequestID   string            `json:"request_id,omitempty" gorm:"size:64;index"`
+	ExecutionID string            `json:"execution_id,omitempty" gorm:"size:36;index"`
 	AgentID     string            `json:"agent_id" gorm:"size:100;not null;index"`
 	HostID      *uint             `json:"host_id" gorm:"index"`
 	CommandType string            `json:"command_type" gorm:"size:30;not null"`
@@ -116,12 +118,12 @@ type CommandLog struct {
 	Progress    int               `json:"progress" gorm:"default:0"`
 	// Output 存储命令执行的原始内容输出，兼容 SQLite/MySQL/PostgreSQL。
 	// Output stores the raw command execution output, compatible with SQLite/MySQL/PostgreSQL.
-	Output      string            `json:"output" gorm:"type:text"`
-	Error       string            `json:"error" gorm:"type:text"`
-	StartedAt   *time.Time        `json:"started_at"`
-	FinishedAt  *time.Time        `json:"finished_at"`
-	CreatedAt   time.Time         `json:"created_at" gorm:"autoCreateTime;index"`
-	CreatedBy   *uint             `json:"created_by"`
+	Output     string     `json:"output" gorm:"type:text"`
+	Error      string     `json:"error" gorm:"type:text"`
+	StartedAt  *time.Time `json:"started_at"`
+	FinishedAt *time.Time `json:"finished_at"`
+	CreatedAt  time.Time  `json:"created_at" gorm:"autoCreateTime;index"`
+	CreatedBy  *uint      `json:"created_by"`
 }
 
 // TableName specifies the table name for the CommandLog model.
@@ -141,6 +143,12 @@ type AuditLog struct {
 	ResourceType string `json:"resource_type" gorm:"size:50;not null;index:idx_resource"`
 	ResourceID   string `json:"resource_id" gorm:"size:100;index:idx_resource"`
 	ResourceName string `json:"resource_name" gorm:"size:200"`
+	RequestID    string `json:"request_id,omitempty" gorm:"size:64;index"`
+	ExecutionID  string `json:"execution_id,omitempty" gorm:"size:36;index"`
+	CommandID    string `json:"command_id,omitempty" gorm:"size:50;index"`
+	ClientType   string `json:"client_type,omitempty" gorm:"size:20;index"`
+	RiskLevel    string `json:"risk_level,omitempty" gorm:"size:4;index"`
+	ResultStatus string `json:"result_status,omitempty" gorm:"size:32;index"`
 	// Trigger: "auto" (Agent) or "manual" (user), empty for legacy records.
 	// Trigger：自动（Agent）或手动（用户），空表示旧数据。
 	Trigger   string       `json:"trigger" gorm:"size:20;index"`
@@ -180,6 +188,12 @@ type AuditLogFilter struct {
 	Action       string `json:"action"`
 	ResourceType string `json:"resource_type"`
 	ResourceID   string `json:"resource_id"`
+	RequestID    string `json:"request_id"`
+	ExecutionID  string `json:"execution_id"`
+	CommandID    string `json:"command_id"`
+	ClientType   string `json:"client_type"`
+	ResultStatus string `json:"result_status"`
+	IncludeAll   bool   `json:"-"`
 	// Trigger filters by trigger column: "auto" (agent) or "manual" (user).
 	// Trigger 按 trigger 字段过滤：auto（Agent 自动）或 manual（手动）。
 	Trigger   string     `json:"trigger"`
@@ -194,6 +208,8 @@ type AuditLogFilter struct {
 type CommandLogInfo struct {
 	ID          uint              `json:"id"`
 	CommandID   string            `json:"command_id"`
+	RequestID   string            `json:"request_id,omitempty"`
+	ExecutionID string            `json:"execution_id,omitempty"`
 	AgentID     string            `json:"agent_id"`
 	HostID      *uint             `json:"host_id"`
 	CommandType string            `json:"command_type"`
@@ -214,6 +230,8 @@ func (c *CommandLog) ToCommandLogInfo() *CommandLogInfo {
 	return &CommandLogInfo{
 		ID:          c.ID,
 		CommandID:   c.CommandID,
+		RequestID:   c.RequestID,
+		ExecutionID: c.ExecutionID,
 		AgentID:     c.AgentID,
 		HostID:      c.HostID,
 		CommandType: c.CommandType,
@@ -239,6 +257,12 @@ type AuditLogInfo struct {
 	ResourceType string       `json:"resource_type"`
 	ResourceID   string       `json:"resource_id"`
 	ResourceName string       `json:"resource_name"`
+	RequestID    string       `json:"request_id,omitempty"`
+	ExecutionID  string       `json:"execution_id,omitempty"`
+	CommandID    string       `json:"command_id,omitempty"`
+	ClientType   string       `json:"client_type,omitempty"`
+	RiskLevel    string       `json:"risk_level,omitempty"`
+	ResultStatus string       `json:"result_status,omitempty"`
 	Trigger      string       `json:"trigger"` // "auto" | "manual" | ""
 	Details      AuditDetails `json:"details"`
 	IPAddress    string       `json:"ip_address"`
@@ -257,6 +281,12 @@ func (a *AuditLog) ToAuditLogInfo() *AuditLogInfo {
 		ResourceType: a.ResourceType,
 		ResourceID:   a.ResourceID,
 		ResourceName: a.ResourceName,
+		RequestID:    a.RequestID,
+		ExecutionID:  a.ExecutionID,
+		CommandID:    a.CommandID,
+		ClientType:   a.ClientType,
+		RiskLevel:    a.RiskLevel,
+		ResultStatus: a.ResultStatus,
 		Trigger:      a.Trigger,
 		Details:      a.Details,
 		IPAddress:    a.IPAddress,

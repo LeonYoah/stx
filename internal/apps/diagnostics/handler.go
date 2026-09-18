@@ -30,21 +30,30 @@ import (
 	"strings"
 	"time"
 
+	"github.com/LeonYoah/stx/internal/apps/audit"
 	"github.com/LeonYoah/stx/internal/apps/auth"
 	clusterapp "github.com/LeonYoah/stx/internal/apps/cluster"
+	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
 	"github.com/gin-gonic/gin"
 )
 
 // Handler handles diagnostics workspace HTTP requests.
 // Handler 处理诊断中心工作台 HTTP 请求。
 type Handler struct {
-	service *Service
+	service   *Service
+	auditRepo *audit.Repository
 }
 
 // NewHandler creates a diagnostics handler.
 // NewHandler 创建诊断中心处理器。
 func NewHandler(service *Service) *Handler {
 	return &Handler{service: service}
+}
+
+// SetAuditRepository 设置诊断资源访问使用的审计仓库。
+// SetAuditRepository sets the audit repository used for diagnostic resource access.
+func (h *Handler) SetAuditRepository(repo *audit.Repository) {
+	h.auditRepo = repo
 }
 
 // GetWorkspaceBootstrap handles GET /api/v1/diagnostics/bootstrap
@@ -211,14 +220,49 @@ func (h *Handler) CreateDiagnosticTask(c *gin.Context) {
 		return
 	}
 
-	data, err := h.service.CreateDiagnosticTask(
+	actor := currentDiagnosticActor(c)
+	metadata := executionapp.MetadataFromGin(c)
+	requestHash, err := executionapp.HashRequest(struct {
+		ClusterID       uint                     `json:"cluster_id"`
+		TriggerSource   DiagnosticTaskSourceType `json:"trigger_source"`
+		SourceRef       DiagnosticTaskSourceRef  `json:"source_ref"`
+		NodeScope       DiagnosticTaskNodeScope  `json:"node_scope"`
+		SelectedNodeIDs []uint                   `json:"selected_node_ids"`
+		Options         DiagnosticTaskOptions    `json:"options"`
+		LookbackMinutes int                      `json:"lookback_minutes"`
+		AutoStart       bool                     `json:"auto_start"`
+	}{
+		ClusterID:       req.ClusterID,
+		TriggerSource:   req.TriggerSource,
+		SourceRef:       req.SourceRef,
+		NodeScope:       req.NodeScope,
+		SelectedNodeIDs: req.SelectedNodeIDs,
+		Options:         req.Options,
+		LookbackMinutes: req.LookbackMinutes,
+		AutoStart:       req.AutoStart,
+	})
+	if err != nil {
+		h.writeDiagnosticsError(c, err)
+		return
+	}
+
+	data, err := h.service.CreateDiagnosticTaskWithExecution(
 		c.Request.Context(),
 		&req,
-		uint(auth.GetUserIDFromContext(c)),
+		uint(actor.UserID),
 		auth.GetUsernameFromContext(c),
+		DiagnosticExecutionRequest{
+			RequestID:      metadata.RequestID,
+			IdempotencyKey: metadata.IdempotencyKey,
+			RequestHash:    requestHash,
+			Confirmed:      metadata.Confirmed,
+			ConfirmationID: metadata.ConfirmationID,
+			IsAdmin:        actor.IsAdmin,
+			ClientType:     metadata.ClientType,
+		},
 	)
 	if err != nil {
-		c.JSON(getDiagnosticsStatusCode(err), Response{ErrorMsg: err.Error()})
+		h.writeDiagnosticsError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, Response{Data: localizeDiagnosticTask(data, lang)})
@@ -234,7 +278,7 @@ func (h *Handler) ListDiagnosticTasks(c *gin.Context) {
 		return
 	}
 
-	items, total, err := h.service.ListDiagnosticTasks(c.Request.Context(), filter)
+	items, total, err := h.service.ListDiagnosticTasksForActor(c.Request.Context(), currentDiagnosticActor(c), filter)
 	if err != nil {
 		c.JSON(getDiagnosticsStatusCode(err), Response{ErrorMsg: err.Error()})
 		return
@@ -257,7 +301,7 @@ func (h *Handler) GetDiagnosticTask(c *gin.Context) {
 		return
 	}
 
-	data, err := h.service.GetDiagnosticTaskDetail(c.Request.Context(), taskID)
+	data, err := h.service.GetDiagnosticTaskForActor(c.Request.Context(), currentDiagnosticActor(c), taskID)
 	if err != nil {
 		c.JSON(getDiagnosticsStatusCode(err), Response{ErrorMsg: err.Error()})
 		return
@@ -275,7 +319,7 @@ func (h *Handler) ListDiagnosticTaskSteps(c *gin.Context) {
 		return
 	}
 
-	data, err := h.service.ListDiagnosticTaskSteps(c.Request.Context(), taskID)
+	data, err := h.service.ListDiagnosticTaskStepsForActor(c.Request.Context(), currentDiagnosticActor(c), taskID)
 	if err != nil {
 		c.JSON(getDiagnosticsStatusCode(err), Response{ErrorMsg: err.Error()})
 		return
@@ -300,7 +344,7 @@ func (h *Handler) ListDiagnosticTaskLogs(c *gin.Context) {
 	}
 	filter.TaskID = taskID
 
-	items, total, err := h.service.ListDiagnosticStepLogs(c.Request.Context(), filter)
+	items, total, err := h.service.ListDiagnosticStepLogsForActor(c.Request.Context(), currentDiagnosticActor(c), filter)
 	if err != nil {
 		c.JSON(getDiagnosticsStatusCode(err), Response{ErrorMsg: err.Error()})
 		return
@@ -322,11 +366,12 @@ func (h *Handler) StartDiagnosticTask(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, Response{ErrorMsg: err.Error()})
 		return
 	}
-	if err := h.service.StartDiagnosticTask(c.Request.Context(), taskID); err != nil {
+	actor := currentDiagnosticActor(c)
+	if err := h.service.StartDiagnosticTaskForActor(c.Request.Context(), actor, taskID); err != nil {
 		c.JSON(getDiagnosticsStatusCode(err), Response{ErrorMsg: err.Error()})
 		return
 	}
-	data, err := h.service.GetDiagnosticTaskDetail(c.Request.Context(), taskID)
+	data, err := h.service.GetDiagnosticTaskForActor(c.Request.Context(), actor, taskID)
 	if err != nil {
 		c.JSON(getDiagnosticsStatusCode(err), Response{ErrorMsg: err.Error()})
 		return
@@ -350,14 +395,14 @@ func (h *Handler) StreamDiagnosticTaskEvents(c *gin.Context) {
 		return
 	}
 
-	events, unsubscribe := h.service.SubscribeDiagnosticTaskEvents(taskID)
-	defer unsubscribe()
-
-	task, err := h.service.GetDiagnosticTaskDetail(c.Request.Context(), taskID)
+	task, err := h.service.GetDiagnosticTaskForActor(c.Request.Context(), currentDiagnosticActor(c), taskID)
 	if err != nil {
 		c.JSON(getDiagnosticsStatusCode(err), Response{ErrorMsg: err.Error()})
 		return
 	}
+
+	events, unsubscribe := h.service.SubscribeDiagnosticTaskEvents(taskID)
+	defer unsubscribe()
 
 	c.Writer.Header().Set("Content-Type", "text/event-stream")
 	c.Writer.Header().Set("Cache-Control", "no-cache")
@@ -414,6 +459,10 @@ func (h *Handler) PreviewDiagnosticTaskHTML(c *gin.Context) {
 		h.writeDiagnosticTaskFileError(c, err)
 		return
 	}
+	if err := h.recordDiagnosticResourceAccess(c, task, "diagnostics.file.preview", "html", filepath.Base(path)); err != nil {
+		c.JSON(http.StatusInternalServerError, Response{ErrorMsg: "failed to record diagnostic resource access"})
+		return
+	}
 
 	if c.Query("download") == "1" {
 		c.FileAttachment(path, fmt.Sprintf("diagnostic-task-%d-summary.html", task.ID))
@@ -433,7 +482,7 @@ func (h *Handler) PreviewDiagnosticTaskFile(c *gin.Context) {
 		return
 	}
 
-	_, path, err := h.resolveDiagnosticTaskFile(c, func(task *DiagnosticTask) string {
+	task, path, err := h.resolveDiagnosticTaskFile(c, func(task *DiagnosticTask) string {
 		bundleDir := strings.TrimSpace(task.BundleDir)
 		if bundleDir == "" {
 			bundleDir = diagnosticTaskBundleDir(task.ID)
@@ -442,6 +491,10 @@ func (h *Handler) PreviewDiagnosticTaskFile(c *gin.Context) {
 	})
 	if err != nil {
 		h.writeDiagnosticTaskFileError(c, err)
+		return
+	}
+	if err := h.recordDiagnosticResourceAccess(c, task, "diagnostics.file.read", strings.TrimPrefix(strings.ToLower(filepath.Ext(path)), "."), relativePath); err != nil {
+		c.JSON(http.StatusInternalServerError, Response{ErrorMsg: "failed to record diagnostic resource access"})
 		return
 	}
 
@@ -462,6 +515,10 @@ func (h *Handler) DownloadDiagnosticTaskBundle(c *gin.Context) {
 	})
 	if err != nil {
 		h.writeDiagnosticTaskFileError(c, err)
+		return
+	}
+	if err := h.recordDiagnosticResourceAccess(c, task, "diagnostics.bundle.download", "zip", ""); err != nil {
+		c.JSON(http.StatusInternalServerError, Response{ErrorMsg: "failed to record diagnostic resource access"})
 		return
 	}
 
@@ -514,13 +571,38 @@ func (h *Handler) DownloadDiagnosticTaskBundle(c *gin.Context) {
 	}
 }
 
+func (h *Handler) recordDiagnosticResourceAccess(c *gin.Context, task *DiagnosticTask, action, fileType, relativePath string) error {
+	if task == nil {
+		return nil
+	}
+	details := audit.AuditDetails{
+		"task_id":       task.ID,
+		"execution_id":  task.ExecutionID,
+		"file_type":     fileType,
+		"relative_path": relativePath,
+		"result_status": "succeeded",
+		"trigger":       "manual",
+	}
+	return audit.RecordFromGin(
+		c,
+		h.auditRepo,
+		auth.GetUserIDFromContext(c),
+		auth.GetUsernameFromContext(c),
+		action,
+		"diagnostic_resource",
+		audit.UintID(task.ID),
+		fileType,
+		details,
+	)
+}
+
 func (h *Handler) resolveDiagnosticTaskFile(c *gin.Context, selector func(task *DiagnosticTask) string) (*DiagnosticTask, string, error) {
 	taskID, err := parseUintQueryValue(c.Param("id"), "id")
 	if err != nil {
 		return nil, "", err
 	}
 
-	task, err := h.service.GetDiagnosticTaskDetail(c.Request.Context(), taskID)
+	task, err := h.service.GetDiagnosticTaskForActor(c.Request.Context(), currentDiagnosticActor(c), taskID)
 	if err != nil {
 		return nil, "", err
 	}
@@ -803,11 +885,47 @@ func getDiagnosticsStatusCode(err error) int {
 	switch {
 	case errors.Is(err, ErrInvalidSeatunnelErrorRequest), errors.Is(err, ErrInvalidInspectionRequest), errors.Is(err, ErrInvalidDiagnosticTaskRequest), errors.Is(err, ErrInvalidAutoPolicyRequest):
 		return http.StatusBadRequest
+	case errors.Is(err, executionapp.ErrIdempotencyKeyMissing):
+		return http.StatusBadRequest
 	case errors.Is(err, ErrSeatunnelErrorGroupNotFound), errors.Is(err, ErrInspectionReportNotFound), errors.Is(err, ErrInspectionFindingNotFound), errors.Is(err, ErrDiagnosticTaskNotFound), errors.Is(err, clusterapp.ErrClusterNotFound), errors.Is(err, ErrAutoPolicyNotFound):
 		return http.StatusNotFound
+	case errors.Is(err, executionapp.ErrPermissionDenied), errors.Is(err, executionapp.ErrAdminRequired):
+		return http.StatusForbidden
+	case errors.Is(err, ErrDiagnosticTaskAlreadyFinished), errors.Is(err, executionapp.ErrIdempotencyConflict), errors.Is(err, executionapp.ErrConcurrentUpdate), errors.Is(err, executionapp.ErrInvalidTransition), errors.Is(err, executionapp.ErrConfirmationInvalid):
+		return http.StatusConflict
+	case errors.Is(err, executionapp.ErrExplicitConfirmNeeded), errors.Is(err, executionapp.ErrConfirmationRequired):
+		return http.StatusPreconditionRequired
 	default:
 		return http.StatusInternalServerError
 	}
+}
+
+// writeDiagnosticsError 输出诊断接口错误，并保留公共执行确认信息。
+// writeDiagnosticsError writes a diagnostic API error while preserving shared-execution confirmation details.
+func (h *Handler) writeDiagnosticsError(c *gin.Context, err error) {
+	var confirmationErr *executionapp.ConfirmationRequiredError
+	if errors.As(err, &confirmationErr) {
+		c.JSON(http.StatusPreconditionRequired, Response{
+			ErrorMsg: confirmationErr.Error(),
+			Data: map[string]any{
+				"confirmation_required": true,
+				"confirmation_id":       confirmationErr.ConfirmationID,
+				"risk_level":            confirmationErr.RiskLevel,
+				"impact":                confirmationErr.Impact,
+				"expires_at":            confirmationErr.ExpiresAt,
+			},
+		})
+		return
+	}
+	c.JSON(getDiagnosticsStatusCode(err), Response{ErrorMsg: err.Error()})
+}
+
+func currentDiagnosticActor(c *gin.Context) executionapp.Actor {
+	user := auth.GetUserFromContext(c)
+	if user == nil {
+		return executionapp.Actor{}
+	}
+	return executionapp.Actor{UserID: uint64(user.ID), IsAdmin: user.IsAdmin}
 }
 
 // ListBuiltinConditionTemplates handles GET /api/v1/diagnostics/auto-policies/templates.

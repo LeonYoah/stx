@@ -21,6 +21,7 @@ import (
 	"context"
 	"time"
 
+	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
 	"github.com/LeonYoah/stx/internal/seatunnel"
 )
 
@@ -37,6 +38,16 @@ type Service struct {
 	clusterOperator    ClusterOperator
 	packageTransferer  PackageTransferer
 	agentCommandSender AgentCommandSender
+	executionService   *executionapp.Service
+}
+
+// SetExecutionService 设置升级任务使用的公共执行服务。
+// SetExecutionService sets the shared execution service used by upgrade tasks.
+func (s *Service) SetExecutionService(service *executionapp.Service) {
+	if s == nil {
+		return
+	}
+	s.executionService = service
 }
 
 // NewService 创建升级服务实例。

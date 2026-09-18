@@ -53,8 +53,9 @@ type Client struct {
 // Response 是 STX API 的通用响应封装。
 // Response is the generic STX API response envelope.
 type Response struct {
-	ErrorMsg string          `json:"error_msg"`
-	Data     json.RawMessage `json:"data"`
+	ErrorCode string          `json:"error_code"`
+	ErrorMsg  string          `json:"error_msg"`
+	Data      json.RawMessage `json:"data"`
 }
 
 // APIError 保存服务端错误的 HTTP 状态和请求编号。
@@ -102,6 +103,16 @@ func (c *Client) Server() string {
 // Request 向远端 STX API 发起 JSON 请求。
 // Request sends a JSON request to the remote STX API.
 func (c *Client) Request(ctx context.Context, method, path string, requestBody any, result any) (string, error) {
+	return c.request(ctx, method, path, requestBody, nil, result)
+}
+
+// RequestWithHeaders 向远端 STX API 发起带安全执行请求头的 JSON 请求。
+// RequestWithHeaders sends a JSON request with safe-execution headers to the remote STX API.
+func (c *Client) RequestWithHeaders(ctx context.Context, method, path string, requestBody any, headers map[string]string, result any) (string, error) {
+	return c.request(ctx, method, path, requestBody, headers, result)
+}
+
+func (c *Client) request(ctx context.Context, method, path string, requestBody any, headers map[string]string, result any) (string, error) {
 	if c == nil || c.httpClient == nil {
 		return "", errors.New("STX client is not initialized")
 	}
@@ -132,6 +143,12 @@ func (c *Client) Request(ctx context.Context, method, path string, requestBody a
 	}
 	if c.token != "" {
 		request.Header.Set("Authorization", "Bearer "+c.token)
+	}
+	for name, value := range headers {
+		switch http.CanonicalHeaderKey(name) {
+		case "Idempotency-Key", "X-Stx-Confirm", "X-Stx-Confirmation-Id":
+			request.Header.Set(name, value)
+		}
 	}
 
 	response, err := c.httpClient.Do(request)
@@ -261,6 +278,66 @@ func (c *Client) Health(ctx context.Context) (string, map[string]any, error) {
 	return requestID, data, err
 }
 
+// ExecutionData 是 CLI 使用的公共执行记录。
+// ExecutionData is the shared execution record consumed by the CLI.
+type ExecutionData struct {
+	ExecutionID       string     `json:"execution_id"`
+	OperationID       string     `json:"operation_id"`
+	OwnerUserID       uint64     `json:"owner_user_id"`
+	ActorType         string     `json:"actor_type"`
+	Module            string     `json:"module"`
+	ModuleRef         string     `json:"module_ref"`
+	RequestID         string     `json:"request_id"`
+	RiskLevel         string     `json:"risk_level"`
+	Status            string     `json:"status"`
+	Cancellable       bool       `json:"cancellable"`
+	CancellableReason string     `json:"cancellable_reason,omitempty"`
+	Progress          int        `json:"progress"`
+	ResultRef         string     `json:"result_ref,omitempty"`
+	ErrorCode         string     `json:"error_code,omitempty"`
+	ErrorMessage      string     `json:"error_message,omitempty"`
+	StartedAt         *time.Time `json:"started_at,omitempty"`
+	FinishedAt        *time.Time `json:"finished_at,omitempty"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
+}
+
+// ExecutionWaitData 是公共等待接口的返回结果。
+// ExecutionWaitData is returned by the shared execution wait endpoint.
+type ExecutionWaitData struct {
+	Execution ExecutionData `json:"execution"`
+	TimedOut  bool          `json:"wait_timed_out"`
+}
+
+// GetExecution 查询公共执行记录。
+// GetExecution retrieves a shared execution record.
+func (c *Client) GetExecution(ctx context.Context, executionID string) (string, ExecutionData, error) {
+	var data ExecutionData
+	requestID, err := c.Request(ctx, http.MethodGet, "/api/v1/executions/"+url.PathEscape(executionID), nil, &data)
+	return requestID, data, err
+}
+
+// WaitExecution 在服务端等待一段时间并返回最新公共执行状态。
+// WaitExecution waits on the server for a bounded period and returns the latest shared execution state.
+func (c *Client) WaitExecution(ctx context.Context, executionID string, timeoutSeconds int) (string, ExecutionWaitData, error) {
+	var data ExecutionWaitData
+	path := fmt.Sprintf("/api/v1/executions/%s/wait?timeout_seconds=%d", url.PathEscape(executionID), timeoutSeconds)
+	requestID, err := c.Request(ctx, http.MethodGet, path, nil, &data)
+	return requestID, data, err
+}
+
+// CancelExecution 请求取消公共执行记录。
+// CancelExecution requests cancellation of a shared execution record.
+func (c *Client) CancelExecution(ctx context.Context, executionID, idempotencyKey string, confirmed bool) (string, ExecutionData, error) {
+	var data ExecutionData
+	headers := map[string]string{"Idempotency-Key": idempotencyKey}
+	if confirmed {
+		headers["X-STX-Confirm"] = "true"
+	}
+	requestID, err := c.RequestWithHeaders(ctx, http.MethodPost, "/api/v1/executions/"+url.PathEscape(executionID)+"/cancel", nil, headers, &data)
+	return requestID, data, err
+}
+
 func (c *Client) endpoint(path string) string {
 	server := strings.TrimRight(c.server, "/")
 	if strings.HasSuffix(server, "/api") {
@@ -277,7 +354,7 @@ func classifyHTTPError(status int, message, requestID string) *clioutput.CLIErro
 		return &clioutput.CLIError{Code: clioutput.CodePermission, Message: message, ExitCode: clioutput.ExitPermission, RequestID: requestID, Cause: &APIError{StatusCode: status, Message: message, RequestID: requestID}}
 	case http.StatusNotFound:
 		return &clioutput.CLIError{Code: clioutput.CodeNotFound, Message: message, ExitCode: clioutput.ExitNotFound, RequestID: requestID, Cause: &APIError{StatusCode: status, Message: message, RequestID: requestID}}
-	case http.StatusConflict:
+	case http.StatusConflict, http.StatusPreconditionRequired:
 		return &clioutput.CLIError{Code: clioutput.CodeConflict, Message: message, ExitCode: clioutput.ExitConflict, RequestID: requestID, Cause: &APIError{StatusCode: status, Message: message, RequestID: requestID}}
 	case http.StatusRequestTimeout, http.StatusGatewayTimeout:
 		return &clioutput.CLIError{Code: clioutput.CodeTimeout, Message: message, ExitCode: clioutput.ExitTimeout, Retryable: true, RequestID: requestID, Cause: &APIError{StatusCode: status, Message: message, RequestID: requestID}}

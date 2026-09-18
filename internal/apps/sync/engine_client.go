@@ -770,8 +770,10 @@ func normalizeJobStatus(status string) JobStatus {
 		return JobStatusSuccess
 	case "FAILING", "FAILED":
 		return JobStatusFailed
-	case "CANCELED", "CANCELLED", "CANCELING":
+	case "CANCELED", "CANCELLED":
 		return JobStatusCanceled
+	case "CANCELING", "CANCELLING", "CANCEL_REQUESTED":
+		return JobStatusCancelling
 	case "CREATED", "STARTING", "SCHEDULED", "SUBMITTED", "PENDING":
 		return JobStatusPending
 	default:

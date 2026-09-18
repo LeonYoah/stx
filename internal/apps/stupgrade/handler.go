@@ -27,6 +27,7 @@ import (
 
 	"github.com/LeonYoah/stx/internal/apps/auth"
 	clusterapp "github.com/LeonYoah/stx/internal/apps/cluster"
+	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
 	hostapp "github.com/LeonYoah/stx/internal/apps/host"
 	"github.com/gin-gonic/gin"
 )
@@ -107,7 +108,7 @@ func (h *Handler) GetPlan(c *gin.Context) {
 		return
 	}
 
-	plan, err := h.service.GetPlan(c.Request.Context(), uint(planID))
+	plan, err := h.service.GetPlanForActor(c.Request.Context(), currentUpgradeActor(c), uint(planID))
 	if err != nil {
 		c.JSON(getStatusCodeForError(err), Response{ErrorMsg: err.Error()})
 		return
@@ -124,9 +125,26 @@ func (h *Handler) ExecutePlan(c *gin.Context) {
 		return
 	}
 
-	task, err := h.service.StartPlanExecution(c.Request.Context(), req.PlanID, uint(auth.GetUserIDFromContext(c)))
+	actor := currentUpgradeActor(c)
+	metadata := executionapp.MetadataFromGin(c)
+	requestHash, err := executionapp.HashRequest(struct {
+		PlanID uint `json:"plan_id"`
+	}{PlanID: req.PlanID})
 	if err != nil {
-		c.JSON(getStatusCodeForError(err), Response{ErrorMsg: err.Error()})
+		h.writeError(c, err)
+		return
+	}
+	task, err := h.service.StartPlanExecutionWithExecution(c.Request.Context(), req.PlanID, uint(actor.UserID), ExecutionRequest{
+		RequestID:      metadata.RequestID,
+		IdempotencyKey: metadata.IdempotencyKey,
+		RequestHash:    requestHash,
+		Confirmed:      metadata.Confirmed,
+		ConfirmationID: metadata.ConfirmationID,
+		IsAdmin:        actor.IsAdmin,
+		ClientType:     metadata.ClientType,
+	})
+	if err != nil {
+		h.writeError(c, err)
 		return
 	}
 	c.JSON(http.StatusAccepted, Response{Data: task})
@@ -141,7 +159,7 @@ func (h *Handler) GetTask(c *gin.Context) {
 		return
 	}
 
-	task, err := h.service.GetTaskDetail(c.Request.Context(), uint(taskID))
+	task, err := h.service.GetTaskForActor(c.Request.Context(), currentUpgradeActor(c), uint(taskID))
 	if err != nil {
 		c.JSON(getStatusCodeForError(err), Response{ErrorMsg: err.Error()})
 		return
@@ -158,7 +176,7 @@ func (h *Handler) ListTasks(c *gin.Context) {
 		return
 	}
 
-	items, total, err := h.service.ListTasks(c.Request.Context(), filter)
+	items, total, err := h.service.ListTasksForActor(c.Request.Context(), currentUpgradeActor(c), filter)
 	if err != nil {
 		c.JSON(getStatusCodeForError(err), Response{ErrorMsg: err.Error()})
 		return
@@ -181,12 +199,13 @@ func (h *Handler) ListTaskSteps(c *gin.Context) {
 		return
 	}
 
-	steps, err := h.service.ListTaskSteps(c.Request.Context(), uint(taskID))
+	actor := currentUpgradeActor(c)
+	steps, err := h.service.ListTaskStepsForActor(c.Request.Context(), actor, uint(taskID))
 	if err != nil {
 		c.JSON(getStatusCodeForError(err), Response{ErrorMsg: err.Error()})
 		return
 	}
-	nodes, err := h.service.ListNodeExecutions(c.Request.Context(), uint(taskID))
+	nodes, err := h.service.ListNodeExecutionsForActor(c.Request.Context(), actor, uint(taskID))
 	if err != nil {
 		c.JSON(getStatusCodeForError(err), Response{ErrorMsg: err.Error()})
 		return
@@ -213,7 +232,7 @@ func (h *Handler) ListTaskLogs(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, Response{ErrorMsg: err.Error()})
 		return
 	}
-	logs, total, err := h.service.ListStepLogs(c.Request.Context(), filter)
+	logs, total, err := h.service.ListStepLogsForActor(c.Request.Context(), currentUpgradeActor(c), filter)
 	if err != nil {
 		c.JSON(getStatusCodeForError(err), Response{ErrorMsg: err.Error()})
 		return
@@ -237,7 +256,7 @@ func (h *Handler) StreamTaskEvents(c *gin.Context) {
 		return
 	}
 
-	task, err := h.service.GetTaskDetail(c.Request.Context(), uint(taskID))
+	task, err := h.service.GetTaskForActor(c.Request.Context(), currentUpgradeActor(c), uint(taskID))
 	if err != nil {
 		c.JSON(getStatusCodeForError(err), Response{ErrorMsg: err.Error()})
 		return
@@ -297,13 +316,47 @@ func (h *Handler) StreamTaskEvents(c *gin.Context) {
 
 func getStatusCodeForError(err error) int {
 	switch {
-	case errors.Is(err, ErrUpgradePlanNotReady):
+	case errors.Is(err, ErrUpgradePlanNotReady), errors.Is(err, executionapp.ErrIdempotencyConflict), errors.Is(err, executionapp.ErrConcurrentUpdate), errors.Is(err, executionapp.ErrInvalidTransition), errors.Is(err, executionapp.ErrConfirmationInvalid), errors.Is(err, executionapp.ErrNotCancellable):
 		return http.StatusConflict
 	case errors.Is(err, ErrUpgradePlanNotFound), errors.Is(err, ErrUpgradeTaskNotFound), errors.Is(err, clusterapp.ErrClusterNotFound), errors.Is(err, hostapp.ErrHostNotFound):
 		return http.StatusNotFound
+	case errors.Is(err, executionapp.ErrPermissionDenied), errors.Is(err, executionapp.ErrAdminRequired):
+		return http.StatusForbidden
+	case errors.Is(err, executionapp.ErrIdempotencyKeyMissing):
+		return http.StatusBadRequest
+	case errors.Is(err, executionapp.ErrExplicitConfirmNeeded), errors.Is(err, executionapp.ErrConfirmationRequired):
+		return http.StatusPreconditionRequired
 	default:
 		return http.StatusInternalServerError
 	}
+}
+
+// writeError 输出升级接口错误，并保留公共执行确认信息。
+// writeError writes an upgrade API error while preserving shared-execution confirmation details.
+func (h *Handler) writeError(c *gin.Context, err error) {
+	var confirmationErr *executionapp.ConfirmationRequiredError
+	if errors.As(err, &confirmationErr) {
+		c.JSON(http.StatusPreconditionRequired, Response{
+			ErrorMsg: confirmationErr.Error(),
+			Data: gin.H{
+				"confirmation_required": true,
+				"confirmation_id":       confirmationErr.ConfirmationID,
+				"risk_level":            confirmationErr.RiskLevel,
+				"impact":                confirmationErr.Impact,
+				"expires_at":            confirmationErr.ExpiresAt,
+			},
+		})
+		return
+	}
+	c.JSON(getStatusCodeForError(err), Response{ErrorMsg: err.Error()})
+}
+
+func currentUpgradeActor(c *gin.Context) executionapp.Actor {
+	user := auth.GetUserFromContext(c)
+	if user == nil {
+		return executionapp.Actor{}
+	}
+	return executionapp.Actor{UserID: uint64(user.ID), IsAdmin: user.IsAdmin}
 }
 
 func buildTaskListFilter(c *gin.Context) (*TaskListFilter, error) {

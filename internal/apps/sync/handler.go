@@ -30,6 +30,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/LeonYoah/stx/internal/apps/auth"
+	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
 	"github.com/LeonYoah/stx/internal/config"
 )
 
@@ -112,7 +114,7 @@ func (h *Handler) CreateTask(c *gin.Context) {
 		c.JSON(h.getStatusCodeForError(err), TaskResponse{ErrorMsg: err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, TaskResponse{Data: task})
+	c.JSON(http.StatusOK, TaskResponse{Data: sanitizeTaskForResponse(task)})
 }
 
 // ListTasks handles GET /api/v1/sync/tasks.
@@ -126,7 +128,7 @@ func (h *Handler) ListTasks(c *gin.Context) {
 		c.JSON(h.getStatusCodeForError(err), TaskListResponse{ErrorMsg: err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, TaskListResponse{Data: &TaskListData{Total: total, Items: tasks}})
+	c.JSON(http.StatusOK, TaskListResponse{Data: &TaskListData{Total: total, Items: sanitizeTasksForResponse(tasks)}})
 }
 
 // GetTaskTree handles GET /api/v1/sync/tree.
@@ -136,7 +138,7 @@ func (h *Handler) GetTaskTree(c *gin.Context) {
 		c.JSON(h.getStatusCodeForError(err), TaskTreeResponse{ErrorMsg: err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, TaskTreeResponse{Data: &TaskTreeData{Items: items}})
+	c.JSON(http.StatusOK, TaskTreeResponse{Data: &TaskTreeData{Items: sanitizeTaskTreeForResponse(items)}})
 }
 
 // GetTask handles GET /api/v1/sync/tasks/:id.
@@ -151,7 +153,7 @@ func (h *Handler) GetTask(c *gin.Context) {
 		c.JSON(h.getStatusCodeForError(err), TaskResponse{ErrorMsg: err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, TaskResponse{Data: task})
+	c.JSON(http.StatusOK, TaskResponse{Data: sanitizeTaskForResponse(task)})
 }
 
 // ListGlobalVariables handles GET /api/v1/sync/global-variables.
@@ -232,7 +234,7 @@ func (h *Handler) UpdateTask(c *gin.Context) {
 		c.JSON(h.getStatusCodeForError(err), TaskResponse{ErrorMsg: err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, TaskResponse{Data: task})
+	c.JSON(http.StatusOK, TaskResponse{Data: sanitizeTaskForResponse(task)})
 }
 
 // DeleteTask handles DELETE /api/v1/sync/tasks/:id.
@@ -266,7 +268,7 @@ func (h *Handler) PublishTask(c *gin.Context) {
 		c.JSON(h.getStatusCodeForError(err), TaskVersionResponse{ErrorMsg: err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, TaskVersionResponse{Data: version})
+	c.JSON(http.StatusOK, TaskVersionResponse{Data: sanitizeTaskVersionForResponse(version)})
 }
 
 // ListTaskVersions handles GET /api/v1/sync/tasks/:id/versions.
@@ -283,7 +285,7 @@ func (h *Handler) ListTaskVersions(c *gin.Context) {
 		c.JSON(h.getStatusCodeForError(err), TaskVersionListResponse{ErrorMsg: err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, TaskVersionListResponse{Data: &TaskVersionListData{Total: total, Items: versions}})
+	c.JSON(http.StatusOK, TaskVersionListResponse{Data: &TaskVersionListData{Total: total, Items: sanitizeTaskVersionsForResponse(versions)}})
 }
 
 // RollbackTaskVersion handles POST /api/v1/sync/tasks/:id/versions/:versionId/rollback.
@@ -303,7 +305,7 @@ func (h *Handler) RollbackTaskVersion(c *gin.Context) {
 		c.JSON(h.getStatusCodeForError(err), TaskResponse{ErrorMsg: err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, TaskResponse{Data: task})
+	c.JSON(http.StatusOK, TaskResponse{Data: sanitizeTaskForResponse(task)})
 }
 
 // DeleteTaskVersion handles DELETE /api/v1/sync/tasks/:id/versions/:versionId.
@@ -344,7 +346,7 @@ func (h *Handler) ValidateTask(c *gin.Context) {
 		c.JSON(h.getStatusCodeForError(err), ValidateResponse{ErrorMsg: err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, ValidateResponse{Data: result})
+	c.JSON(http.StatusOK, ValidateResponse{Data: sanitizeValidateResultForResponse(result)})
 }
 
 // TestTaskConnections handles POST /api/v1/sync/tasks/:id/test-connections.
@@ -366,7 +368,7 @@ func (h *Handler) TestTaskConnections(c *gin.Context) {
 		c.JSON(h.getStatusCodeForError(err), ValidateResponse{ErrorMsg: err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, ValidateResponse{Data: result})
+	c.JSON(http.StatusOK, ValidateResponse{Data: sanitizeValidateResultForResponse(result)})
 }
 
 // GetTaskDAG handles POST /api/v1/sync/tasks/:id/dag.
@@ -388,7 +390,7 @@ func (h *Handler) GetTaskDAG(c *gin.Context) {
 		c.JSON(h.getStatusCodeForError(err), DAGResponse{ErrorMsg: err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, DAGResponse{Data: result})
+	c.JSON(http.StatusOK, DAGResponse{Data: sanitizeDAGResultForResponse(result)})
 }
 
 // PreviewTask handles POST /api/v1/sync/tasks/:id/preview.
@@ -405,12 +407,12 @@ func (h *Handler) PreviewTask(c *gin.Context) {
 			return
 		}
 	}
-	job, err := h.service.PreviewTask(c.Request.Context(), id, getCurrentUserID(c), &req)
+	job, err := h.service.PreviewTaskWithExecution(c.Request.Context(), id, getCurrentUserID(c), &req, syncExecutionRequest(c, map[string]any{"task_id": id, "request": req}))
 	if err != nil {
 		c.JSON(h.getStatusCodeForError(err), JobResponse{ErrorMsg: err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, JobResponse{Data: job})
+	c.JSON(http.StatusOK, JobResponse{Data: sanitizeJobForResponse(job)})
 }
 
 // SubmitTask handles POST /api/v1/sync/tasks/:id/submit.
@@ -427,12 +429,12 @@ func (h *Handler) SubmitTask(c *gin.Context) {
 			return
 		}
 	}
-	job, err := h.service.SubmitTask(c.Request.Context(), id, getCurrentUserID(c), req.Draft)
+	job, err := h.service.SubmitTaskWithExecution(c.Request.Context(), id, getCurrentUserID(c), req.Draft, syncExecutionRequest(c, map[string]any{"task_id": id, "draft": req.Draft}))
 	if err != nil {
 		c.JSON(h.getStatusCodeForError(err), JobResponse{ErrorMsg: err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, JobResponse{Data: job})
+	c.JSON(http.StatusOK, JobResponse{Data: sanitizeJobForResponse(job)})
 }
 
 // ListJobs handles GET /api/v1/sync/jobs.
@@ -454,12 +456,12 @@ func (h *Handler) ListJobs(c *gin.Context) {
 	if runType := c.Query("run_type"); runType != "" {
 		filter.RunType = RunType(runType)
 	}
-	jobs, total, err := h.service.ListJobs(c.Request.Context(), filter)
+	jobs, total, err := h.service.ListJobsForActor(c.Request.Context(), currentExecutionActor(c), filter)
 	if err != nil {
 		c.JSON(h.getStatusCodeForError(err), JobListResponse{ErrorMsg: err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, JobListResponse{Data: &JobListData{Total: total, Items: jobs}})
+	c.JSON(http.StatusOK, JobListResponse{Data: &JobListData{Total: total, Items: sanitizeJobsForResponse(jobs)}})
 }
 
 // GetJob handles GET /api/v1/sync/jobs/:id.
@@ -469,12 +471,12 @@ func (h *Handler) GetJob(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, JobResponse{ErrorMsg: "invalid job id"})
 		return
 	}
-	job, err := h.service.GetJob(c.Request.Context(), id)
+	job, err := h.service.GetJobForActor(c.Request.Context(), currentExecutionActor(c), id)
 	if err != nil {
 		c.JSON(h.getStatusCodeForError(err), JobResponse{ErrorMsg: err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, JobResponse{Data: job})
+	c.JSON(http.StatusOK, JobResponse{Data: sanitizeJobForResponse(job)})
 }
 
 // GetJobLogs handles GET /api/v1/sync/jobs/:id/logs.
@@ -492,8 +494,9 @@ func (h *Handler) GetJobLogs(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, JobLogsResponse{ErrorMsg: "all is no longer supported; use offset and limit_bytes"})
 		return
 	}
-	result, err := h.service.GetJobLogs(
+	result, err := h.service.GetJobLogsForActor(
 		c.Request.Context(),
+		currentExecutionActor(c),
 		id,
 		c.Query("offset"),
 		parseNonNegativeInt(c.Query("limit_bytes"), 0),
@@ -504,7 +507,7 @@ func (h *Handler) GetJobLogs(c *gin.Context) {
 		c.JSON(h.getStatusCodeForError(err), JobLogsResponse{ErrorMsg: err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, JobLogsResponse{Data: result})
+	c.JSON(http.StatusOK, JobLogsResponse{Data: sanitizeJobLogsForResponse(result)})
 }
 
 // GetPreviewSnapshot handles GET /api/v1/sync/jobs/:id/preview.
@@ -514,12 +517,12 @@ func (h *Handler) GetPreviewSnapshot(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, PreviewSnapshotResponse{ErrorMsg: "invalid job id"})
 		return
 	}
-	result, err := h.service.GetPreviewSnapshot(c.Request.Context(), id, c.Query("table_path"))
+	result, err := h.service.GetPreviewSnapshotForActor(c.Request.Context(), currentExecutionActor(c), id, c.Query("table_path"))
 	if err != nil {
 		c.JSON(h.getStatusCodeForError(err), PreviewSnapshotResponse{ErrorMsg: err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, PreviewSnapshotResponse{Data: result})
+	c.JSON(http.StatusOK, PreviewSnapshotResponse{Data: sanitizePreviewSnapshotForResponse(result)})
 }
 
 // GetJobCheckpointSnapshot handles GET /api/v1/sync/jobs/:id/checkpoint.
@@ -538,8 +541,9 @@ func (h *Handler) GetJobCheckpointSnapshot(c *gin.Context) {
 		}
 		pipelineID = &parsed
 	}
-	result, err := h.service.GetJobCheckpointSnapshot(
+	result, err := h.service.GetJobCheckpointSnapshotForActor(
 		c.Request.Context(),
+		currentExecutionActor(c),
 		id,
 		pipelineID,
 		parsePositiveInt(c.Query("limit"), 20),
@@ -610,12 +614,17 @@ func (h *Handler) RecoverJob(c *gin.Context) {
 			return
 		}
 	}
-	job, err := h.service.RecoverJob(c.Request.Context(), id, getCurrentUserID(c), req.Draft)
+	actor := currentExecutionActor(c)
+	if _, err := h.service.GetJobForActor(c.Request.Context(), actor, id); err != nil {
+		c.JSON(h.getStatusCodeForError(err), JobResponse{ErrorMsg: err.Error()})
+		return
+	}
+	job, err := h.service.RecoverJobWithExecution(c.Request.Context(), id, getCurrentUserID(c), req.Draft, syncExecutionRequest(c, map[string]any{"source_job_id": id, "draft": req.Draft}))
 	if err != nil {
 		c.JSON(h.getStatusCodeForError(err), JobResponse{ErrorMsg: err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, JobResponse{Data: job})
+	c.JSON(http.StatusOK, JobResponse{Data: sanitizeJobForResponse(job)})
 }
 
 // CancelJob handles POST /api/v1/sync/jobs/:id/cancel.
@@ -630,21 +639,21 @@ func (h *Handler) CancelJob(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, JobResponse{ErrorMsg: err.Error()})
 		return
 	}
-	job, err := h.service.CancelJob(c.Request.Context(), id, req.StopWithSavepoint)
+	job, err := h.service.CancelJobForActor(c.Request.Context(), currentExecutionActor(c), id, req.StopWithSavepoint)
 	if err != nil {
 		c.JSON(h.getStatusCodeForError(err), JobResponse{ErrorMsg: err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, JobResponse{Data: job})
+	c.JSON(http.StatusOK, JobResponse{Data: sanitizeJobForResponse(job)})
 }
 
 func (h *Handler) getStatusCodeForError(err error) int {
 	switch {
 	case errors.Is(err, ErrTaskNotFound), errors.Is(err, ErrTaskVersionNotFound), errors.Is(err, ErrJobInstanceNotFound), errors.Is(err, ErrGlobalVariableNotFound):
 		return http.StatusNotFound
-	case errors.Is(err, ErrTaskNameRequired), errors.Is(err, ErrTaskNameInvalid), errors.Is(err, ErrTaskParentCycle), errors.Is(err, ErrRootFileNotAllowed), errors.Is(err, ErrInvalidTaskMode), errors.Is(err, ErrInvalidTaskStatus), errors.Is(err, ErrInvalidRunType), errors.Is(err, ErrInvalidPreviewMode), errors.Is(err, ErrTaskDefinitionEmpty), errors.Is(err, ErrPreviewHTTPSinkEmpty), errors.Is(err, ErrTaskNotPublished), errors.Is(err, ErrInvalidNodeType), errors.Is(err, ErrParentTaskNotFolder), errors.Is(err, ErrFolderContentUnsupported), errors.Is(err, ErrTaskNotFile), errors.Is(err, ErrInvalidContentFormat), errors.Is(err, ErrRecoverSourceRequired), errors.Is(err, ErrLocalClusterRequired), errors.Is(err, ErrLocalSavepointUnsupported), errors.Is(err, ErrPreviewPayloadInvalid), errors.Is(err, ErrGlobalVariableKeyRequired), errors.Is(err, ErrGlobalVariableKeyInvalid), errors.Is(err, ErrReservedBuiltinVariableKey), errors.Is(err, ErrExecutionTargetClusterMismatch):
+	case errors.Is(err, ErrTaskNameRequired), errors.Is(err, ErrTaskNameInvalid), errors.Is(err, ErrTaskParentCycle), errors.Is(err, ErrRootFileNotAllowed), errors.Is(err, ErrInvalidTaskMode), errors.Is(err, ErrInvalidTaskStatus), errors.Is(err, ErrInvalidRunType), errors.Is(err, ErrInvalidPreviewMode), errors.Is(err, ErrTaskDefinitionEmpty), errors.Is(err, ErrPreviewHTTPSinkEmpty), errors.Is(err, ErrTaskNotPublished), errors.Is(err, ErrInvalidNodeType), errors.Is(err, ErrParentTaskNotFolder), errors.Is(err, ErrFolderContentUnsupported), errors.Is(err, ErrTaskNotFile), errors.Is(err, ErrInvalidContentFormat), errors.Is(err, ErrRecoverSourceRequired), errors.Is(err, ErrLocalClusterRequired), errors.Is(err, ErrLocalSavepointUnsupported), errors.Is(err, ErrPreviewPayloadInvalid), errors.Is(err, ErrGlobalVariableKeyRequired), errors.Is(err, ErrGlobalVariableKeyInvalid), errors.Is(err, ErrReservedBuiltinVariableKey), errors.Is(err, ErrExecutionTargetClusterMismatch), errors.Is(err, ErrMaskedSecretCannotBeRestored):
 		return http.StatusBadRequest
-	case errors.Is(err, ErrTaskArchived), errors.Is(err, ErrJobAlreadyFinished), errors.Is(err, ErrGlobalVariableKeyDuplicate), errors.Is(err, ErrTaskNameDuplicate):
+	case errors.Is(err, ErrTaskArchived), errors.Is(err, ErrJobAlreadyFinished), errors.Is(err, ErrJobStatusChanged), errors.Is(err, ErrGlobalVariableKeyDuplicate), errors.Is(err, ErrTaskNameDuplicate), errors.Is(err, executionapp.ErrIdempotencyConflict):
 		return http.StatusConflict
 	default:
 		return http.StatusInternalServerError
@@ -694,6 +703,9 @@ func getCurrentUserID(c *gin.Context) uint {
 	if c == nil {
 		return 0
 	}
+	if user := auth.GetUserFromContext(c); user != nil {
+		return uint(user.ID)
+	}
 	value, exists := c.Get("user_id")
 	if !exists {
 		return 0
@@ -707,4 +719,26 @@ func getCurrentUserID(c *gin.Context) uint {
 		}
 	}
 	return 0
+}
+
+func currentExecutionActor(c *gin.Context) executionapp.Actor {
+	user := auth.GetUserFromContext(c)
+	if user == nil {
+		return executionapp.Actor{UserID: uint64(getCurrentUserID(c))}
+	}
+	return executionapp.Actor{UserID: uint64(user.ID), IsAdmin: user.IsAdmin}
+}
+
+func syncExecutionRequest(c *gin.Context, value any) ExecutionRequest {
+	metadata := executionapp.MetadataFromGin(c)
+	requestHash, err := executionapp.HashRequest(value)
+	if err != nil {
+		requestHash = executionapp.HashString("sync-request")
+	}
+	return ExecutionRequest{
+		RequestID:      metadata.RequestID,
+		IdempotencyKey: metadata.IdempotencyKey,
+		RequestHash:    requestHash,
+		ClientType:     metadata.ClientType,
+	}
 }

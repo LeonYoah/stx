@@ -60,6 +60,7 @@ func newRootCommand(serverRunner func() error) *cobra.Command {
 		newNamespaceCommand(),
 		newCapabilityCommand(),
 		newHealthCommand(),
+		newExecutionCommand(),
 	)
 	rootCmd.AddCommand(newAuthCommands()...)
 	return rootCmd

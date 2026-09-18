@@ -23,6 +23,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"strconv"
@@ -41,6 +42,7 @@ import (
 	"github.com/LeonYoah/stx/internal/apps/deepwiki"
 	"github.com/LeonYoah/stx/internal/apps/diagnostics"
 	"github.com/LeonYoah/stx/internal/apps/discovery"
+	"github.com/LeonYoah/stx/internal/apps/execution"
 	"github.com/LeonYoah/stx/internal/apps/health"
 	"github.com/LeonYoah/stx/internal/apps/host"
 	"github.com/LeonYoah/stx/internal/apps/installer"
@@ -178,6 +180,22 @@ func Serve() {
 			hostRepo := host.NewRepository(db.DB(context.Background()))
 			clusterRepo := cluster.NewRepository(db.DB(context.Background()))
 			auditRepo := audit.NewRepository(db.DB(context.Background()))
+
+			// 公共执行协议只保存统一状态和安全信息，具体执行仍由业务模块负责。
+			// The shared execution contract stores common state and safety data while business modules remain responsible for actual work.
+			executionRepo := execution.NewRepository(db.DB(context.Background()))
+			executionProviders := execution.NewProviderRegistry()
+			executionService := execution.NewService(executionRepo, executionProviders)
+			executionService.SetAuditRepository(auditRepo)
+			executionHandler := execution.NewHandler(executionService)
+			executionRouter := apiV1Router.Group("/executions")
+			executionRouter.Use(auth.LoginRequired())
+			{
+				executionRouter.GET("/:id", executionHandler.Get)
+				executionRouter.GET("/:id/wait", executionHandler.Wait)
+				executionRouter.POST("/:id/cancel", executionHandler.Cancel)
+			}
+
 			hostService := host.NewService(hostRepo, clusterRepo, &host.ServiceConfig{
 				HeartbeatTimeout: time.Duration(config.Config.GRPC.HeartbeatTimeout) * time.Second,
 				ControlPlaneAddr: config.GetExternalURL(),
@@ -221,7 +239,7 @@ func Serve() {
 			// Inject agent command sender if agent manager is available
 			// 如果 Agent Manager 可用，注入 Agent 命令发送器
 			if agentManager != nil {
-				clusterService.SetAgentCommandSender(&agentCommandSenderAdapter{manager: agentManager})
+				clusterService.SetAgentCommandSender(&agentCommandSenderAdapter{manager: agentManager, auditRepo: auditRepo})
 				clusterService.SetConfigAgentClient(&configAgentClientAdapter{
 					manager:     agentManager,
 					hostService: hostService,
@@ -385,9 +403,12 @@ func Serve() {
 			monitoringHandler := monitoringapp.NewHandler(monitoringService)
 			diagnosticsService := diagnostics.NewService(clusterService, monitorService, monitoringService)
 			diagnosticsService.SetHostReader(hostService)
-			diagnosticsService.SetAgentCommandSender(&agentCommandSenderAdapter{manager: agentManager})
+			diagnosticsService.SetAgentCommandSender(&agentCommandSenderAdapter{manager: agentManager, auditRepo: auditRepo})
+			diagnosticsService.SetExecutionService(executionService)
+			executionProviders.Register("diagnostics", diagnosticsService)
 			diagnosticsService.StartAutoPolicyRuntime(ctx)
 			diagnosticsHandler := diagnostics.NewHandler(diagnosticsService)
+			diagnosticsHandler.SetAuditRepository(auditRepo)
 
 			// Public remote-observability integration endpoints (no login required).
 			// 远程可观测集成公开接口（无需登录）。
@@ -687,6 +708,8 @@ func Serve() {
 			// Sync studio 数据同步工作台
 			syncRepo := syncapp.NewRepository(db.DB(context.Background()))
 			syncService := syncapp.NewService(syncRepo)
+			syncService.SetExecutionService(executionService)
+			executionProviders.Register("sync", syncService)
 			syncService.SetEngineClient(syncapp.NewSeaTunnelEngineClient())
 			syncService.SetRuntimeResolver(syncapp.NewDefaultClusterRuntimeResolver(clusterRepo, hostRepo))
 			syncService.SetExecutionTargetResolver(syncapp.NewDefaultExecutionTargetResolver(clusterRepo, hostRepo))
@@ -695,7 +718,7 @@ func Serve() {
 			syncService.SetConfigToolClient(syncapp.NewDefaultConfigToolClient())
 			syncService.SetConfigToolResolver(syncapp.NewDefaultConfigToolResolver(clusterService))
 			if agentManager != nil {
-				syncService.SetAgentCommandSender(&agentCommandSenderAdapter{manager: agentManager})
+				syncService.SetAgentCommandSender(&agentCommandSenderAdapter{manager: agentManager, auditRepo: auditRepo})
 			}
 			syncService.StartPreviewRuntime(ctx)
 			syncService.StartTaskScheduleRuntime(ctx)
@@ -915,6 +938,8 @@ func Serve() {
 			// SeaTunnel upgrade routes / SeaTunnel 升级路由
 			stUpgradeRepo := stupgrade.NewRepository(db.DB(context.Background()))
 			stUpgradeService := stupgrade.NewService(stUpgradeRepo)
+			stUpgradeService.SetExecutionService(executionService)
+			executionProviders.Register("stupgrade", stUpgradeService)
 			stUpgradeService.SetClusterProvider(clusterService)
 			stUpgradeService.SetHostProvider(hostService)
 			stUpgradeService.SetPackageProvider(installerService)
@@ -1079,7 +1104,7 @@ func initGRPCServer(ctx context.Context) (*grpcServer.Server, *agent.Manager) {
 	grpcServer.SetMonitorService(monitorService)
 	diagnosticsService := diagnostics.NewService(clusterService, monitorService, monitoringService)
 	diagnosticsService.SetHostReader(hostService)
-	diagnosticsService.SetAgentCommandSender(&agentCommandSenderAdapter{manager: agentManager})
+	diagnosticsService.SetAgentCommandSender(&agentCommandSenderAdapter{manager: agentManager, auditRepo: auditRepo})
 	grpcServer.SetDiagnosticsService(diagnosticsService)
 	log.Println("[gRPC] Cluster node provider, monitor service and diagnostics service set for gRPC handlers / 已为 gRPC 处理器设置集群节点提供者、监控服务和诊断服务")
 
@@ -1145,7 +1170,8 @@ func (a *hostStatusUpdaterAdapter) MarkHostOffline(ctx context.Context, agentID 
 // agentCommandSenderAdapter adapts agent.Manager to cluster.AgentCommandSender interface.
 // agentCommandSenderAdapter 将 agent.Manager 适配到 cluster.AgentCommandSender 接口。
 type agentCommandSenderAdapter struct {
-	manager *agent.Manager
+	manager   *agent.Manager
+	auditRepo *audit.Repository
 }
 
 // SendCommand sends a command to an agent and returns the result.
@@ -1173,10 +1199,12 @@ func (a *agentCommandSenderAdapter) SendCommand(ctx context.Context, agentID str
 
 	// Send command with command-specific timeout
 	// 使用命令级超时发送命令
+	startedAt := time.Now()
 	resp, err := a.manager.SendCommand(ctx, agentID, cmdType, params, timeout)
 	if err != nil {
 		return false, "", err
 	}
+	a.recordCommandLog(ctx, agentID, commandType, params, startedAt, resp)
 
 	// Convert response to (bool, string, error)
 	// 将响应转换为 (bool, string, error)
@@ -1187,6 +1215,79 @@ func (a *agentCommandSenderAdapter) SendCommand(ctx context.Context, agentID str
 	}
 
 	return success, message, nil
+}
+
+func (a *agentCommandSenderAdapter) recordCommandLog(ctx context.Context, agentID, commandType string, params map[string]string, startedAt time.Time, resp *pb.CommandResponse) {
+	if a.auditRepo == nil || resp == nil || strings.TrimSpace(resp.CommandId) == "" {
+		return
+	}
+	metadata := audit.CommandMetadataFromContext(ctx)
+	parameters := make(audit.CommandParameters, len(params))
+	for key, value := range params {
+		parameters[key] = value
+	}
+	var createdBy *uint
+	if metadata.OwnerUserID > 0 {
+		ownerUserID := metadata.OwnerUserID
+		createdBy = &ownerUserID
+	}
+	finishedAt := time.Now()
+	commandLog := &audit.CommandLog{
+		CommandID:   resp.CommandId,
+		RequestID:   strings.TrimSpace(metadata.RequestID),
+		ExecutionID: strings.TrimSpace(metadata.ExecutionID),
+		AgentID:     agentID,
+		CommandType: commandType,
+		Parameters:  parameters,
+		Status:      commandStatusFromAgentResponse(resp.Status),
+		Progress:    int(resp.Progress),
+		Output:      resp.Output,
+		Error:       resp.Error,
+		StartedAt:   &startedAt,
+		FinishedAt:  &finishedAt,
+		CreatedBy:   createdBy,
+	}
+	commandLogErr := a.auditRepo.CreateCommandLog(ctx, commandLog)
+	if commandLogErr != nil && !errors.Is(commandLogErr, audit.ErrCommandIDDuplicate) {
+		log.Printf("[Audit] 保存 Agent 命令日志失败: command_id=%s err=%v", resp.CommandId, commandLogErr)
+		return
+	}
+	auditLog := &audit.AuditLog{
+		UserID:       createdBy,
+		Action:       "agent.command",
+		ResourceType: "agent_command",
+		ResourceID:   resp.CommandId,
+		ResourceName: commandType,
+		RequestID:    strings.TrimSpace(metadata.RequestID),
+		ExecutionID:  strings.TrimSpace(metadata.ExecutionID),
+		CommandID:    resp.CommandId,
+		ResultStatus: string(commandLog.Status),
+		Details: audit.AuditDetails{
+			"agent_id":      agentID,
+			"command_type":  commandType,
+			"duration_ms":   finishedAt.Sub(startedAt).Milliseconds(),
+			"progress":      resp.Progress,
+			"result_status": string(commandLog.Status),
+		},
+	}
+	if err := a.auditRepo.CreateAuditLog(ctx, auditLog); err != nil {
+		log.Printf("[Audit] 保存 Agent 命令审计失败: command_id=%s err=%v", resp.CommandId, err)
+	}
+}
+
+func commandStatusFromAgentResponse(status pb.CommandStatus) audit.CommandStatus {
+	switch status {
+	case pb.CommandStatus_RUNNING:
+		return audit.CommandStatusRunning
+	case pb.CommandStatus_SUCCESS:
+		return audit.CommandStatusSuccess
+	case pb.CommandStatus_FAILED:
+		return audit.CommandStatusFailed
+	case pb.CommandStatus_CANCELLED:
+		return audit.CommandStatusCancelled
+	default:
+		return audit.CommandStatusPending
+	}
 }
 
 // stringToCommandType converts a command type string to pb.CommandType.

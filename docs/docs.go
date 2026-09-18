@@ -303,6 +303,16 @@ const docTemplate = `{
                         "in": "query"
                     },
                     {
+                        "type": "string",
+                        "name": "client_type",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "name": "command_id",
+                        "in": "query"
+                    },
+                    {
                         "minimum": 1,
                         "type": "integer",
                         "name": "current",
@@ -315,12 +325,27 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
+                        "name": "execution_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "name": "request_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
                         "name": "resource_id",
                         "in": "query"
                     },
                     {
                         "type": "string",
                         "name": "resource_type",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "name": "result_status",
                         "in": "query"
                     },
                     {
@@ -384,6 +409,74 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/audit.GetAuditLogResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/auth/cli/login": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "parameters": [
+                    {
+                        "description": "CLI 登录请求",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/auth.CLILoginRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/auth.CLILoginResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/auth/cli/logout": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/auth.LogoutResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/auth/cli/whoami": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/auth.UserInfoResponse"
                         }
                     }
                 }
@@ -484,6 +577,24 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/auth.UserInfoResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/capabilities": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "capability"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/capability.Response"
                         }
                     }
                 }
@@ -909,8 +1020,7 @@ const docTemplate = `{
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
-                                "type": "integer",
-                                "format": "int64"
+                                "type": "integer"
                             }
                         }
                     },
@@ -2320,6 +2430,107 @@ const docTemplate = `{
                         "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/deepwiki.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/executions/{id}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "execution"
+                ],
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "公共执行编号",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/execution.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/executions/{id}/cancel": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "execution"
+                ],
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "公共执行编号",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "幂等键",
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "确认取消影响",
+                        "name": "X-STX-Confirm",
+                        "in": "header",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/execution.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/executions/{id}/wait": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "execution"
+                ],
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "公共执行编号",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "服务端单次等待秒数，范围为 1 到 30",
+                        "name": "timeout_seconds",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/execution.Response"
                         }
                     }
                 }
@@ -4022,16 +4233,28 @@ const docTemplate = `{
                 "action": {
                     "type": "string"
                 },
+                "client_type": {
+                    "type": "string"
+                },
+                "command_id": {
+                    "type": "string"
+                },
                 "created_at": {
                     "type": "string"
                 },
                 "details": {
                     "$ref": "#/definitions/audit.AuditDetails"
                 },
+                "execution_id": {
+                    "type": "string"
+                },
                 "id": {
                     "type": "integer"
                 },
                 "ip_address": {
+                    "type": "string"
+                },
+                "request_id": {
                     "type": "string"
                 },
                 "resource_id": {
@@ -4041,6 +4264,12 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "resource_type": {
+                    "type": "string"
+                },
+                "result_status": {
+                    "type": "string"
+                },
+                "risk_level": {
                     "type": "string"
                 },
                 "trigger": {
@@ -4079,6 +4308,9 @@ const docTemplate = `{
                 "error": {
                     "type": "string"
                 },
+                "execution_id": {
+                    "type": "string"
+                },
                 "finished_at": {
                     "type": "string"
                 },
@@ -4096,6 +4328,9 @@ const docTemplate = `{
                 },
                 "progress": {
                     "type": "integer"
+                },
+                "request_id": {
+                    "type": "string"
                 },
                 "started_at": {
                     "type": "string"
@@ -4186,6 +4421,52 @@ const docTemplate = `{
                             "type": "integer"
                         }
                     }
+                },
+                "error_msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "auth.CLILoginData": {
+            "type": "object",
+            "properties": {
+                "expires_at": {
+                    "type": "string"
+                },
+                "token": {
+                    "type": "string"
+                },
+                "token_type": {
+                    "type": "string"
+                },
+                "user": {
+                    "$ref": "#/definitions/auth.UserInfo"
+                }
+            }
+        },
+        "auth.CLILoginRequest": {
+            "type": "object",
+            "required": [
+                "password",
+                "username"
+            ],
+            "properties": {
+                "expires_in": {
+                    "type": "string"
+                },
+                "password": {
+                    "type": "string"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
+        "auth.CLILoginResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/auth.CLILoginData"
                 },
                 "error_msg": {
                     "type": "string"
@@ -4292,6 +4573,66 @@ const docTemplate = `{
             "properties": {
                 "data": {
                     "$ref": "#/definitions/auth.UserInfo"
+                },
+                "error_msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "capability.Data": {
+            "type": "object",
+            "properties": {
+                "api_version": {
+                    "type": "string"
+                },
+                "min_cli_version": {
+                    "type": "string"
+                },
+                "operations": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/capability.Operation"
+                    }
+                },
+                "registry_revision": {
+                    "type": "string"
+                },
+                "server_version": {
+                    "type": "string"
+                }
+            }
+        },
+        "capability.Operation": {
+            "type": "object",
+            "properties": {
+                "allowed": {
+                    "type": "boolean"
+                },
+                "denial_code": {
+                    "type": "string"
+                },
+                "impact": {
+                    "$ref": "#/definitions/operation.ImpactSpec"
+                },
+                "mode": {
+                    "$ref": "#/definitions/operation.OperationMode"
+                },
+                "operation_id": {
+                    "type": "string"
+                },
+                "revision": {
+                    "type": "integer"
+                },
+                "risk": {
+                    "$ref": "#/definitions/operation.RiskLevel"
+                }
+            }
+        },
+        "capability.Response": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/capability.Data"
                 },
                 "error_msg": {
                     "type": "string"
@@ -5421,6 +5762,18 @@ const docTemplate = `{
                 },
                 "success": {
                     "type": "boolean"
+                }
+            }
+        },
+        "execution.Response": {
+            "type": "object",
+            "properties": {
+                "data": {},
+                "error_code": {
+                    "type": "string"
+                },
+                "error_msg": {
+                    "type": "string"
                 }
             }
         },
@@ -6811,6 +7164,52 @@ const docTemplate = `{
                 }
             }
         },
+        "operation.ImpactSpec": {
+            "type": "object",
+            "properties": {
+                "level": {
+                    "$ref": "#/definitions/operation.RiskLevel"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "performance": {
+                    "type": "string"
+                }
+            }
+        },
+        "operation.OperationMode": {
+            "type": "string",
+            "enum": [
+                "normal",
+                "watch",
+                "download",
+                "server_only",
+                "proxy"
+            ],
+            "x-enum-varnames": [
+                "ModeNormal",
+                "ModeWatch",
+                "ModeDownload",
+                "ModeServerOnly",
+                "ModeProxy"
+            ]
+        },
+        "operation.RiskLevel": {
+            "type": "string",
+            "enum": [
+                "R0",
+                "R1",
+                "R2",
+                "R3"
+            ],
+            "x-enum-varnames": [
+                "RiskR0",
+                "RiskR1",
+                "RiskR2",
+                "RiskR3"
+            ]
+        },
         "plugin.AddDependencyRequest": {
             "type": "object",
             "required": [
@@ -7426,11 +7825,6 @@ const docTemplate = `{
                 "MirrorSourceApache": "Apache 官方仓库",
                 "MirrorSourceHuaweiCloud": "华为云镜像"
             },
-            "x-enum-descriptions": [
-                "Apache 官方仓库",
-                "阿里云镜像",
-                "华为云镜像"
-            ],
             "x-enum-varnames": [
                 "MirrorSourceApache",
                 "MirrorSourceAliyun",
@@ -7527,12 +7921,6 @@ const docTemplate = `{
                 "PluginCategorySource": "Source / Data source (legacy, for compatibility / 遗留，用于兼容)",
                 "PluginCategoryTransform": "Transform / 数据转换 (deprecated, not fetched from Maven / 已弃用，不从 Maven 获取)"
             },
-            "x-enum-descriptions": [
-                "Source / Data source (legacy, for compatibility / 遗留，用于兼容)",
-                "Sink / Data sink (legacy, for compatibility / 遗留，用于兼容)",
-                "Connector / 连接器 (primary category, can be used as source or sink / 主要分类，可作为 source 或 sink)",
-                "Transform / 数据转换 (deprecated, not fetched from Maven / 已弃用，不从 Maven 获取)"
-            ],
             "x-enum-varnames": [
                 "PluginCategorySource",
                 "PluginCategorySink",
@@ -7713,12 +8101,6 @@ const docTemplate = `{
                 "PluginStatusEnabled": "已启用 / Enabled",
                 "PluginStatusInstalled": "已安装 / Installed"
             },
-            "x-enum-descriptions": [
-                "可用 / Available",
-                "已安装 / Installed",
-                "已启用 / Enabled",
-                "已禁用 / Disabled"
-            ],
             "x-enum-varnames": [
                 "PluginStatusAvailable",
                 "PluginStatusInstalled",

@@ -21,10 +21,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
@@ -1165,6 +1167,7 @@ func TestCollectPreviewAppendsRowsIntoPreviewSession(t *testing.T) {
 
 func TestCollectPreviewStopsAtRowLimit(t *testing.T) {
 	service := newTestSyncService(t)
+	service.engineClient = &stubEngineClient{info: &EngineJobInfo{JobID: "preview-2", JobStatus: "CANCELED"}}
 	ctx := context.Background()
 	now := time.Now()
 	instance := &JobInstance{
@@ -1174,7 +1177,7 @@ func TestCollectPreviewStopsAtRowLimit(t *testing.T) {
 		Status:        JobStatusRunning,
 		PlatformJobID: "preview-2",
 		EngineJobID:   "preview-2",
-		SubmitSpec:    JSONMap{},
+		SubmitSpec:    JSONMap{"engine_base_url": "http://127.0.0.1:8080"},
 		ResultPreview: JSONMap{},
 		StartedAt:     &now,
 		CreatedBy:     1,
@@ -1481,7 +1484,9 @@ func TestSubmitScheduledTaskUsesPublishedVersionSnapshot(t *testing.T) {
 }
 
 type stubEngineClient struct {
-	info *EngineJobInfo
+	info      *EngineJobInfo
+	stopErr   error
+	stopCalls int
 }
 
 func (s *stubEngineClient) Submit(ctx context.Context, req *EngineSubmitRequest) (*EngineSubmitResponse, error) {
@@ -1497,7 +1502,8 @@ func (s *stubEngineClient) GetJobCheckpointHistory(ctx context.Context, endpoint
 	return nil, nil
 }
 func (s *stubEngineClient) StopJob(ctx context.Context, endpoint *EngineEndpoint, jobID string, stopWithSavepoint bool) error {
-	return nil
+	s.stopCalls++
+	return s.stopErr
 }
 func (s *stubEngineClient) GetJobLogs(ctx context.Context, endpoint *EngineEndpoint, jobID string) (string, error) {
 	return "", nil
@@ -1539,6 +1545,179 @@ func TestRefreshJobInstanceUsesEngineFinishedTime(t *testing.T) {
 	}
 	if got := refreshed.FinishedAt.Format(time.DateTime); got != "2026-03-29 15:50:44" {
 		t.Fatalf("expected engine finished time, got %s", got)
+	}
+}
+
+func TestCancelJobWaitsForEngineConfirmation(t *testing.T) {
+	service := newTestSyncService(t)
+	engine := &stubEngineClient{info: &EngineJobInfo{JobID: "engine-cancel-1", JobStatus: "RUNNING"}}
+	service.engineClient = engine
+	ctx := context.Background()
+	job := &JobInstance{
+		TaskID:        1,
+		TaskVersion:   1,
+		RunType:       RunTypeRun,
+		Status:        JobStatusRunning,
+		PlatformJobID: "platform-cancel-1",
+		EngineJobID:   "engine-cancel-1",
+		SubmitSpec:    JSONMap{"engine_base_url": "http://127.0.0.1:8080"},
+		ResultPreview: JSONMap{},
+		CreatedBy:     1,
+	}
+	if err := service.repo.CreateJobInstance(ctx, job); err != nil {
+		t.Fatalf("创建作业失败: %v", err)
+	}
+
+	cancelled, err := service.CancelJob(ctx, job.ID, false)
+	if err != nil {
+		t.Fatalf("请求取消失败: %v", err)
+	}
+	if cancelled.Status != JobStatusCancelling {
+		t.Fatalf("停止请求成功后应处于 cancelling，实际为 %s", cancelled.Status)
+	}
+	if engine.stopCalls != 1 {
+		t.Fatalf("停止接口调用次数错误: %d", engine.stopCalls)
+	}
+	if _, err := service.CancelJob(ctx, job.ID, false); err != nil {
+		t.Fatalf("重复取消应幂等: %v", err)
+	}
+	if engine.stopCalls != 1 {
+		t.Fatalf("重复取消不应再次调用停止接口: %d", engine.stopCalls)
+	}
+
+	refreshed, err := service.GetJob(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("刷新取消中作业失败: %v", err)
+	}
+	if refreshed.Status != JobStatusCancelling {
+		t.Fatalf("引擎仍运行时不能宣称已取消: %s", refreshed.Status)
+	}
+
+	engine.info = &EngineJobInfo{JobID: "engine-cancel-1", JobStatus: "CANCELED"}
+	refreshed, err = service.GetJob(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("读取引擎取消结果失败: %v", err)
+	}
+	if refreshed.Status != JobStatusCanceled {
+		t.Fatalf("引擎确认后应进入 canceled，实际为 %s", refreshed.Status)
+	}
+}
+
+func TestCancelJobFailureRestoresRunningStatus(t *testing.T) {
+	service := newTestSyncService(t)
+	service.engineClient = &stubEngineClient{stopErr: errors.New("stop unavailable")}
+	ctx := context.Background()
+	job := &JobInstance{
+		TaskID:        1,
+		TaskVersion:   1,
+		RunType:       RunTypeRun,
+		Status:        JobStatusRunning,
+		PlatformJobID: "platform-cancel-2",
+		EngineJobID:   "engine-cancel-2",
+		SubmitSpec:    JSONMap{"engine_base_url": "http://127.0.0.1:8080"},
+		ResultPreview: JSONMap{},
+		CreatedBy:     1,
+	}
+	if err := service.repo.CreateJobInstance(ctx, job); err != nil {
+		t.Fatalf("创建作业失败: %v", err)
+	}
+	if _, err := service.CancelJob(ctx, job.ID, false); err == nil {
+		t.Fatal("停止接口失败时应返回错误")
+	}
+	stored, err := service.repo.GetJobInstanceByID(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("读取作业失败: %v", err)
+	}
+	if stored.Status != JobStatusRunning {
+		t.Fatalf("停止失败后应恢复 running，实际为 %s", stored.Status)
+	}
+	if stored.ErrorMessage != "cancel request failed" {
+		t.Fatalf("停止失败摘要错误: %q", stored.ErrorMessage)
+	}
+}
+
+func TestJobOwnershipFiltersListAndDetail(t *testing.T) {
+	service := newTestSyncService(t)
+	ctx := context.Background()
+	for _, owner := range []uint{1, 2} {
+		job := &JobInstance{
+			TaskID:        owner,
+			TaskVersion:   1,
+			RunType:       RunTypeRun,
+			Status:        JobStatusRunning,
+			PlatformJobID: "platform-owner-" + strconv.FormatUint(uint64(owner), 10),
+			CreatedBy:     owner,
+		}
+		if err := service.repo.CreateJobInstance(ctx, job); err != nil {
+			t.Fatalf("创建用户 %d 的作业失败: %v", owner, err)
+		}
+	}
+
+	items, total, err := service.ListJobsForActor(ctx, executionapp.Actor{UserID: 1}, &JobFilter{Page: 1, Size: 10})
+	if err != nil {
+		t.Fatalf("按用户列出作业失败: %v", err)
+	}
+	if total != 1 || len(items) != 1 || items[0].CreatedBy != 1 {
+		t.Fatalf("普通用户看到了其他用户作业: total=%d items=%+v", total, items)
+	}
+	if _, err := service.GetJobForActor(ctx, executionapp.Actor{UserID: 1}, items[0].ID+1); !errors.Is(err, ErrJobInstanceNotFound) {
+		t.Fatalf("普通用户读取他人作业应返回未找到: %v", err)
+	}
+	adminItems, adminTotal, err := service.ListJobsForActor(ctx, executionapp.Actor{UserID: 9, IsAdmin: true}, &JobFilter{Page: 1, Size: 10})
+	if err != nil {
+		t.Fatalf("管理员列出全部作业失败: %v", err)
+	}
+	if adminTotal != 2 || len(adminItems) != 2 {
+		t.Fatalf("管理员应看到全部作业: total=%d len=%d", adminTotal, len(adminItems))
+	}
+}
+
+func TestRunWithExecutionReusesIdempotentJob(t *testing.T) {
+	service := newTestSyncService(t)
+	if err := service.repo.db.AutoMigrate(&executionapp.Execution{}, &executionapp.Confirmation{}); err != nil {
+		t.Fatalf("迁移公共执行表失败: %v", err)
+	}
+	executionRepo := executionapp.NewRepository(service.repo.db)
+	executionService := executionapp.NewService(executionRepo, executionapp.NewProviderRegistry())
+	service.SetExecutionService(executionService)
+	ctx := context.Background()
+	runCalls := 0
+	run := func(runCtx context.Context) (*JobInstance, error) {
+		runCalls++
+		job := &JobInstance{
+			TaskID:        1,
+			TaskVersion:   1,
+			RunType:       RunTypeRun,
+			Status:        JobStatusRunning,
+			PlatformJobID: "platform-idempotent",
+			CreatedBy:     1,
+		}
+		if err := service.repo.CreateJobInstance(runCtx, job); err != nil {
+			return nil, err
+		}
+		return job, nil
+	}
+	request := ExecutionRequest{RequestID: "request-1", IdempotencyKey: "same-key", RequestHash: "same-request"}
+	first, err := service.runWithExecution(ctx, 1, "sync.task.submit", executionapp.RiskLevelR1, request, run)
+	if err != nil {
+		t.Fatalf("首次执行失败: %v", err)
+	}
+	second, err := service.runWithExecution(ctx, 1, "sync.task.submit", executionapp.RiskLevelR1, request, run)
+	if err != nil {
+		t.Fatalf("幂等重试失败: %v", err)
+	}
+	if runCalls != 1 {
+		t.Fatalf("同一幂等键启动了多次实际任务: %d", runCalls)
+	}
+	if first.ID != second.ID || first.ExecutionID == "" || first.ExecutionID != second.ExecutionID {
+		t.Fatalf("幂等重试没有返回同一作业: first=%+v second=%+v", first, second)
+	}
+	item, err := executionService.Get(ctx, executionapp.Actor{UserID: 1}, first.ExecutionID)
+	if err != nil {
+		t.Fatalf("读取公共执行记录失败: %v", err)
+	}
+	if item.Status != executionapp.StatusRunning || item.ModuleRef != strconv.FormatUint(uint64(first.ID), 10) {
+		t.Fatalf("公共执行记录错误: %+v", item)
 	}
 }
 

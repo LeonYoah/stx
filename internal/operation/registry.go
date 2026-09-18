@@ -25,7 +25,7 @@ import (
 
 // RegistryRevision 是操作登记表的兼容修订号。
 // RegistryRevision is the compatibility revision of the operation registry.
-const RegistryRevision = 1
+const RegistryRevision = 2
 
 var registry = []OperationSpec{
 	{
@@ -121,6 +121,82 @@ var registry = []OperationSpec{
   "result_meta": {
     "complete": true
   }
+}`,
+	},
+	{
+		ID:           "execution.get",
+		CommandPath:  []string{"execution", "get"},
+		Method:       "GET",
+		Route:        "/api/v1/executions/:id",
+		Mode:         ModeNormal,
+		AuthRequired: true,
+		Risk:         RiskR0,
+		Revision:     1,
+		SupportsPick: true,
+		Input: []InputSpec{
+			{Name: "id", Location: InputPath, Required: true, Description: "Shared execution ID"},
+		},
+		Example: "stx execution get 11111111-1111-1111-1111-111111111111",
+		OutputExample: `{
+  "api_version": "v1",
+  "operation_id": "execution.get",
+  "request_id": "req_example",
+  "data": {"execution_id":"11111111-1111-1111-1111-111111111111","status":"running","cancellable":true},
+  "result_meta": {"complete": true}
+}`,
+	},
+	{
+		ID:           "execution.wait",
+		CommandPath:  []string{"execution", "wait"},
+		Method:       "GET",
+		Route:        "/api/v1/executions/:id/wait",
+		Mode:         ModeWatch,
+		AuthRequired: true,
+		Risk:         RiskR0,
+		Revision:     1,
+		Async:        true,
+		SupportsPick: true,
+		Input: []InputSpec{
+			{Name: "id", Location: InputPath, Required: true, Description: "Shared execution ID"},
+			{Name: "timeout_seconds", Location: InputQuery, Required: false, Description: "One server wait interval from 1 to 30 seconds"},
+		},
+		Example: "stx execution wait 11111111-1111-1111-1111-111111111111 --timeout 10m",
+		OutputExample: `{
+  "api_version": "v1",
+  "operation_id": "execution.wait",
+  "request_id": "req_example",
+  "data": {"execution_id":"11111111-1111-1111-1111-111111111111","status":"succeeded","cancellable":false},
+  "result_meta": {"complete": true}
+}`,
+	},
+	{
+		ID:           "execution.cancel",
+		CommandPath:  []string{"execution", "cancel"},
+		Method:       "POST",
+		Route:        "/api/v1/executions/:id/cancel",
+		Mode:         ModeNormal,
+		AuthRequired: true,
+		Risk:         RiskR1,
+		Revision:     1,
+		Async:        true,
+		SupportsPick: true,
+		Impact: &ImpactSpec{
+			Level:       RiskR1,
+			Message:     "Cancellation stops later work, but the current safe step may need to finish first.",
+			Performance: "The running task can remain active while cancellation is being confirmed.",
+		},
+		Input: []InputSpec{
+			{Name: "id", Location: InputPath, Required: true, Description: "Shared execution ID"},
+			{Name: "Idempotency-Key", Location: InputHeader, Required: true, Description: "Stable retry key for this cancellation request"},
+			{Name: "X-STX-Confirm", Location: InputHeader, Required: true, Description: "Explicit confirmation of the cancellation impact"},
+		},
+		Example: "stx execution cancel 11111111-1111-1111-1111-111111111111 --confirm",
+		OutputExample: `{
+  "api_version": "v1",
+  "operation_id": "execution.cancel",
+  "request_id": "req_example",
+  "data": {"execution_id":"11111111-1111-1111-1111-111111111111","status":"cancelling","cancellable":false},
+  "result_meta": {"complete": true}
 }`,
 	},
 }

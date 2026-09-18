@@ -1,0 +1,149 @@
+# 公共执行、安全输出与审计约定
+
+> 适用于需要由 CLI 或 AI Agent 调用的异步任务，以及返回配置、任务正文、命令结果和诊断资源的接口。
+
+## 1. 适用范围
+
+当接口会启动、等待、取消异步任务，或者会返回可能包含密码、令牌、密钥的内容时，必须遵守本文。业务模块可以保留自己的任务表和详细状态，但要用 `internal/apps/execution` 提供统一的执行编号、用户归属、状态、确认、幂等和审计信息。
+
+首批公共状态为：
+
+```text
+pending
+running
+cancel_requested
+cancelling
+cancelled
+succeeded
+failed
+timed_out
+```
+
+`cancelled`、`succeeded`、`failed`、`timed_out` 是终态，不能重新进入运行状态。收到取消请求时不能直接写成 `cancelled`，只有业务模块确认实际执行已经停止后才能进入该状态。
+
+## 2. 接口、命令与数据库签名
+
+公共 API：
+
+```text
+GET  /api/v1/executions/:id
+GET  /api/v1/executions/:id/wait?timeout_seconds=<1..30>
+POST /api/v1/executions/:id/cancel
+```
+
+CLI：
+
+```text
+stx execution get <execution-id>
+stx execution wait <execution-id> --timeout <duration>
+stx execution cancel <execution-id> [--confirm] [--idempotency-key <key>]
+```
+
+公共执行表至少保存：
+
+```text
+execution_id, operation_id, owner_user_id, actor_type,
+module, module_ref, request_id, idempotency_key_hash,
+request_hash, risk_level, status, cancellable,
+cancellable_reason, progress, result_ref,
+error_code, error_message, started_at, finished_at
+```
+
+审计记录至少可以关联：
+
+```text
+request_id, execution_id, command_id, client_type,
+risk_level, result_status, user_id
+```
+
+业务任务和审计以用户为归属单位。令牌只负责识别当前用户，不能作为任务所有者；机器编号也不能代替用户归属。
+
+## 3. 请求、响应和环境约定
+
+风险写请求使用以下 Header：
+
+```text
+Idempotency-Key
+X-STX-Confirm
+X-STX-Confirmation-ID
+X-Request-ID
+```
+
+- R0：不要求确认。
+- R1：要求 `X-STX-Confirm: true` 和幂等键。
+- R2：先返回一次性确认编号，再使用相同幂等键和 `X-STX-Confirmation-ID` 重试。
+- R3：在 R2 的基础上要求管理员权限。
+
+CLI 成功结果只向 stdout 写一个 JSON 值。`execution wait` 的进度事件只向 stderr 写 NDJSON，最终结果仍写 stdout。非终态结果应给出：
+
+```json
+{"result_meta":{"next_command":"stx execution wait <execution-id>"}}
+```
+
+服务端在返回任务正文、提交参数、Agent 输出、错误、日志、DAG、预览结果和诊断资源前必须先屏蔽敏感内容。`--output raw` 只能改变 CLI 展示方式，不能绕过服务端处理。
+
+客户端提交 `******` 更新 JSON 或 HOCON 时，服务端必须从已有记录恢复原值。无法确认旧值时返回错误，不能把掩码写入数据库。
+
+新增公开 CLI/API 路由时，还必须同时完成：
+
+1. 在 `internal/operation/registry.go` 登记操作。
+2. 更新 `internal/operation/testdata/route_baseline.json`。
+3. 更新 `docs/docs.go`、`docs/swagger.json`、`docs/swagger.yaml`。
+4. 运行路由契约测试，确认路由、操作登记和 Swagger 一致。
+
+## 4. 校验与错误对应表
+
+| 情况 | 服务端行为 | CLI 行为 |
+| --- | --- | --- |
+| 普通用户读取他人任务 | `403` | 权限错误退出码 |
+| 任务不存在 | `404` | 未找到退出码 |
+| 相同幂等键、相同请求 | 返回原执行记录 | 输出原执行编号 |
+| 相同幂等键、不同请求 | `409 idempotency_conflict` | 冲突退出码 |
+| 风险操作缺少确认 | `428`，返回影响说明或确认编号 | 冲突类退出码，并保留请求编号 |
+| 任务已经结束 | 返回 `too_late_to_cancel` | 不宣称取消成功 |
+| 当前阶段无法安全停止 | 返回 `not_cancellable` 和原因 | 输出真实状态与原因 |
+| 已请求停止但尚未确认 | 返回 `cancel_requested` 或 `cancelling` | `next_command` 指向 wait |
+| 等待到失败终态 | 返回最终执行记录 | stdout 写最终结果，stderr 写错误事件，退出码 10 |
+| 带掩码更新且无法恢复旧秘密 | `400` | 用法或服务端校验错误，不写入数据库 |
+
+## 5. Good / Base / Bad
+
+- Good：取消同步任务时先写 `cancel_requested`，调用真实停止接口，确认停止后再写 `cancelled`，并记录创建、开始、取消和结果审计。
+- Base：升级已经进入不可中断步骤时返回 `not_cancellable`，保留运行状态并说明原因。
+- Bad：只修改数据库状态为 `cancelled`，后台命令仍继续运行。
+- Bad：先查询全部任务，再由 Handler 丢弃不属于当前用户的数据；归属条件必须在 Repository 查询时加入。
+- Bad：把任务正文或 Agent 命令正文写入审计，或者允许 `raw` 输出原始秘密。
+
+## 6. 必须有的测试
+
+- 公共执行 Service：状态迁移、终态保护、重复取消、幂等冲突、R0 至 R3 确认、用户归属。
+- 业务模块：创建时绑定执行编号；取消后不会被迟到的成功回调覆盖；不可取消阶段返回稳定原因。
+- 审计：普通用户只能查看自己的记录；管理员可以查看全部；系统记录只允许管理员查看。
+- 敏感内容：大小写字段、嵌套 map、slice、JSON 字符串、HOCON、YAML 风格和 `key=value` 都不会返回秘密原文。
+- 带掩码更新：可以恢复旧值；缺少旧值时拒绝更新；数据库中不会保存 `******`。
+- CLI：真实二进制连接独立 HTTP 服务，断言 stdout 是单个 JSON、stderr 是 NDJSON、退出码稳定、`next_command` 正确，取消请求包含确认和幂等 Header。
+- 路由契约：新增路由已登记，操作基线和 Swagger 操作数同步更新。
+
+## 7. 错误做法与正确做法
+
+错误：
+
+```go
+task.Status = "cancelled"
+repo.Save(ctx, task)
+```
+
+这段代码只改变展示状态，不能证明实际执行已经停止。
+
+正确：
+
+```go
+executionService.Transition(ctx, executionID, "cancel_requested")
+result, err := provider.RequestCancel(ctx, execution)
+// 只有业务模块确认停止后，才允许进入 cancelled。
+// Move to cancelled only after the business module confirms that execution stopped.
+```
+
+错误：直接返回保存的任务正文，或把客户端提交的 `******` 当作新秘密保存。
+
+正确：返回前由服务端统一处理敏感内容；更新时恢复已有秘密，无法恢复就拒绝请求。

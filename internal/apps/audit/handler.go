@@ -25,6 +25,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/LeonYoah/stx/internal/apps/auth"
 	"github.com/gin-gonic/gin"
 )
 
@@ -83,6 +84,11 @@ type ListAuditLogsRequest struct {
 	Action       string `json:"action" form:"action"`
 	ResourceType string `json:"resource_type" form:"resource_type"`
 	ResourceID   string `json:"resource_id" form:"resource_id"`
+	RequestID    string `json:"request_id" form:"request_id"`
+	ExecutionID  string `json:"execution_id" form:"execution_id"`
+	CommandID    string `json:"command_id" form:"command_id"`
+	ClientType   string `json:"client_type" form:"client_type"`
+	ResultStatus string `json:"result_status" form:"result_status"`
 	Trigger      string `json:"trigger" form:"trigger"` // "auto" | "manual"
 	StartTime    string `json:"start_time" form:"start_time"`
 	EndTime      string `json:"end_time" form:"end_time"`
@@ -160,6 +166,15 @@ func (h *Handler) ListCommandLogs(c *gin.Context) {
 		Page:        req.Current,
 		PageSize:    req.Size,
 	}
+	user := auth.GetUserFromContext(c)
+	if user == nil {
+		c.JSON(http.StatusForbidden, ListCommandLogsResponse{ErrorMsg: "permission denied"})
+		return
+	}
+	if !user.IsAdmin {
+		ownerUserID := uint(user.ID)
+		filter.CreatedBy = &ownerUserID
+	}
 
 	logs, total, err := h.repo.ListCommandLogs(c.Request.Context(), filter)
 	if err != nil {
@@ -201,7 +216,12 @@ func (h *Handler) GetCommandLog(c *gin.Context) {
 		return
 	}
 
-	log, err := h.repo.GetCommandLogByID(c.Request.Context(), uint(logID))
+	user := auth.GetUserFromContext(c)
+	if user == nil {
+		c.JSON(http.StatusForbidden, GetCommandLogResponse{ErrorMsg: "permission denied"})
+		return
+	}
+	log, err := h.repo.GetCommandLogByIDForOwner(c.Request.Context(), uint(logID), uint(user.ID), user.IsAdmin)
 	if err != nil {
 		statusCode := h.getStatusCodeForError(err)
 		c.JSON(statusCode, GetCommandLogResponse{ErrorMsg: err.Error()})
@@ -262,11 +282,28 @@ func (h *Handler) ListAuditLogs(c *gin.Context) {
 		Action:       req.Action,
 		ResourceType: req.ResourceType,
 		ResourceID:   req.ResourceID,
+		RequestID:    req.RequestID,
+		ExecutionID:  req.ExecutionID,
+		CommandID:    req.CommandID,
+		ClientType:   req.ClientType,
+		ResultStatus: req.ResultStatus,
 		Trigger:      req.Trigger,
 		StartTime:    startTime,
 		EndTime:      endTime,
 		Page:         req.Current,
 		PageSize:     req.Size,
+	}
+	user := auth.GetUserFromContext(c)
+	if user == nil {
+		c.JSON(http.StatusForbidden, ListAuditLogsResponse{ErrorMsg: "permission denied"})
+		return
+	}
+	if user.IsAdmin {
+		filter.IncludeAll = true
+	} else {
+		ownerUserID := uint(user.ID)
+		filter.UserID = &ownerUserID
+		filter.Username = ""
 	}
 
 	logs, total, err := h.repo.ListAuditLogs(c.Request.Context(), filter)
@@ -309,7 +346,12 @@ func (h *Handler) GetAuditLog(c *gin.Context) {
 		return
 	}
 
-	log, err := h.repo.GetAuditLogByID(c.Request.Context(), uint(logID))
+	user := auth.GetUserFromContext(c)
+	if user == nil {
+		c.JSON(http.StatusForbidden, GetAuditLogResponse{ErrorMsg: "permission denied"})
+		return
+	}
+	log, err := h.repo.GetAuditLogByIDForOwner(c.Request.Context(), uint(logID), uint(user.ID), user.IsAdmin)
 	if err != nil {
 		statusCode := h.getStatusCodeForError(err)
 		c.JSON(statusCode, GetAuditLogResponse{ErrorMsg: err.Error()})

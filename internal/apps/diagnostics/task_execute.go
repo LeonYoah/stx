@@ -37,6 +37,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/LeonYoah/stx/internal/apps/audit"
 	"github.com/LeonYoah/stx/internal/apps/cluster"
 	appconfig "github.com/LeonYoah/stx/internal/apps/config"
 	"github.com/LeonYoah/stx/internal/apps/monitor"
@@ -613,22 +614,46 @@ func (s *Service) StartDiagnosticTask(ctx context.Context, taskID uint) error {
 	if err != nil {
 		return err
 	}
-	if task.Status == DiagnosticTaskStatusRunning {
-		return nil
-	}
-	if task.Status == DiagnosticTaskStatusSucceeded {
-		return nil
+	switch task.Status {
+	case DiagnosticTaskStatusRunning:
+		return s.syncExecutionFromDiagnosticTask(ctx, task)
+	case DiagnosticTaskStatusSucceeded:
+		return s.syncExecutionFromDiagnosticTask(ctx, task)
+	case DiagnosticTaskStatusCancelRequested, DiagnosticTaskStatusCancelling, DiagnosticTaskStatusCancelled, DiagnosticTaskStatusFailed:
+		return ErrDiagnosticTaskAlreadyFinished
 	}
 	now := time.Now().UTC()
-	if task.StartedAt == nil {
-		task.StartedAt = &now
+	startedAt := task.StartedAt
+	if startedAt == nil {
+		startedAt = &now
 	}
-	task.Status = DiagnosticTaskStatusRunning
-	task.UpdatedAt = now
 	if task.CurrentStep == "" {
 		task.CurrentStep = resolveInitialDiagnosticTaskStep(DefaultDiagnosticTaskSteps(), task.Options.Normalize())
 	}
-	if err := s.UpdateDiagnosticTask(ctx, task); err != nil {
+	updated, err := s.repo.UpdateDiagnosticTaskFields(ctx, task.ID, []DiagnosticTaskStatus{DiagnosticTaskStatusPending, DiagnosticTaskStatusReady}, map[string]any{
+		"status":       DiagnosticTaskStatusRunning,
+		"current_step": task.CurrentStep,
+		"started_at":   startedAt,
+		"updated_at":   now,
+	})
+	if err != nil {
+		return err
+	}
+	if !updated {
+		latest, loadErr := s.repo.GetDiagnosticTaskByID(ctx, task.ID)
+		if loadErr != nil {
+			return loadErr
+		}
+		if latest.Status == DiagnosticTaskStatusRunning {
+			return s.syncExecutionFromDiagnosticTask(ctx, latest)
+		}
+		return ErrDiagnosticTaskAlreadyFinished
+	}
+	task.Status = DiagnosticTaskStatusRunning
+	task.StartedAt = startedAt
+	task.UpdatedAt = now
+	s.publishDiagnosticTaskEvent(newDiagnosticTaskUpdatedEvent(task))
+	if err := s.syncExecutionFromDiagnosticTask(ctx, task); err != nil {
 		return err
 	}
 	go s.executeDiagnosticTask(context.Background(), task.ID)
@@ -641,6 +666,10 @@ func (s *Service) executeDiagnosticTask(ctx context.Context, taskID uint) {
 		logger.ErrorF(ctx, "[DiagnosticsTask] load task failed: task_id=%d err=%v", taskID, err)
 		return
 	}
+	ctx = audit.WithCommandMetadata(ctx, audit.CommandMetadata{
+		ExecutionID: task.ExecutionID,
+		OwnerUserID: task.CreatedBy,
+	})
 	if err := s.runDiagnosticTask(ctx, task); err != nil {
 		logger.ErrorF(ctx, "[DiagnosticsTask] run task failed: task_id=%d err=%v", taskID, err)
 	}
@@ -649,6 +678,9 @@ func (s *Service) executeDiagnosticTask(ctx context.Context, taskID uint) {
 func (s *Service) runDiagnosticTask(ctx context.Context, task *DiagnosticTask) error {
 	if task == nil {
 		return ErrDiagnosticTaskNotFound
+	}
+	if cancelled, err := s.cancelDiagnosticTaskAtBoundary(ctx, task.ID); err != nil || cancelled {
+		return err
 	}
 	stepsByCode := make(map[DiagnosticStepCode]*DiagnosticTaskStep, len(task.Steps))
 	for _, step := range task.Steps {
@@ -680,11 +712,24 @@ func (s *Service) runDiagnosticTask(ctx context.Context, task *DiagnosticTask) e
 		return s.failDiagnosticTask(ctx, task, DiagnosticStepCodeCollectConfigSnapshot, fmt.Errorf("create bundle dir: %w", err))
 	}
 	task.BundleDir = bundleDir
-	if err := s.UpdateDiagnosticTask(ctx, task); err != nil {
+	updated, err := s.repo.UpdateDiagnosticTaskFields(ctx, task.ID, []DiagnosticTaskStatus{DiagnosticTaskStatusRunning}, map[string]any{
+		"bundle_dir": bundleDir,
+		"updated_at": time.Now().UTC(),
+	})
+	if err != nil {
 		return err
+	}
+	if !updated {
+		if cancelled, cancelErr := s.cancelDiagnosticTaskAtBoundary(ctx, task.ID); cancelErr != nil || cancelled {
+			return cancelErr
+		}
+		return ErrDiagnosticTaskAlreadyFinished
 	}
 
 	for _, planStep := range DefaultDiagnosticTaskSteps() {
+		if cancelled, err := s.cancelDiagnosticTaskAtBoundary(ctx, task.ID); err != nil || cancelled {
+			return err
+		}
 		step := stepsByCode[planStep.Code]
 		if step == nil {
 			continue
@@ -700,6 +745,9 @@ func (s *Service) runDiagnosticTask(ctx context.Context, task *DiagnosticTask) e
 		stepErr := s.executeDiagnosticPlanStep(ctx, task, step, planStep, nodesByClusterNodeID, state, bundleDir)
 		if stepErr != nil {
 			if err := s.failDiagnosticTaskStep(ctx, task, step, stepErr); err != nil {
+				return err
+			}
+			if cancelled, err := s.cancelDiagnosticTaskAtBoundary(ctx, task.ID); err != nil || cancelled {
 				return err
 			}
 			if planStep.Required {
@@ -721,18 +769,38 @@ func (s *Service) runDiagnosticTask(ctx context.Context, task *DiagnosticTask) e
 		if err := s.finishDiagnosticTaskStep(ctx, task, step, bilingualText("步骤执行完成。", "Step completed.")); err != nil {
 			return err
 		}
+		if cancelled, err := s.cancelDiagnosticTaskAtBoundary(ctx, task.ID); err != nil || cancelled {
+			return err
+		}
 	}
 
 	now := time.Now().UTC()
-	task.Status = DiagnosticTaskStatusSucceeded
-	task.CurrentStep = DiagnosticStepCodeComplete
-	task.CompletedAt = &now
-	task.UpdatedAt = now
 	task.Summary = strings.TrimSpace(task.Summary)
 	if task.Summary == "" {
 		task.Summary = bilingualText("诊断任务执行完成。", "Diagnostic bundle task completed.")
 	}
-	if err := s.UpdateDiagnosticTask(ctx, task); err != nil {
+	updated, err = s.repo.UpdateDiagnosticTaskFields(ctx, task.ID, []DiagnosticTaskStatus{DiagnosticTaskStatusRunning}, map[string]any{
+		"status":       DiagnosticTaskStatusSucceeded,
+		"current_step": DiagnosticStepCodeComplete,
+		"completed_at": now,
+		"updated_at":   now,
+		"summary":      task.Summary,
+	})
+	if err != nil {
+		return err
+	}
+	if !updated {
+		if cancelled, cancelErr := s.cancelDiagnosticTaskAtBoundary(ctx, task.ID); cancelErr != nil || cancelled {
+			return cancelErr
+		}
+		return ErrDiagnosticTaskAlreadyFinished
+	}
+	task.Status = DiagnosticTaskStatusSucceeded
+	task.CurrentStep = DiagnosticStepCodeComplete
+	task.CompletedAt = &now
+	task.UpdatedAt = now
+	s.publishDiagnosticTaskEvent(newDiagnosticTaskUpdatedEvent(task))
+	if err := s.syncExecutionFromDiagnosticTask(ctx, task); err != nil {
 		return err
 	}
 	if task.ManifestPath != "" {
@@ -1163,10 +1231,11 @@ func (s *Service) collectDiagnosticConfigArtifact(ctx context.Context, task *Dia
 	}
 	fileName := filepath.Base(normalizedRemotePath)
 	localPath := filepath.Join(hostDir, fileName)
-	if err := os.WriteFile(localPath, []byte(content), 0o644); err != nil {
+	safeContent := audit.RedactText(content)
+	if err := os.WriteFile(localPath, []byte(safeContent), 0o644); err != nil {
 		return err
 	}
-	hash := buildDiagnosticContentHash(content)
+	hash := buildDiagnosticContentHash(safeContent)
 	artifact := &diagnosticBundleArtifact{
 		StepCode:   step.Code,
 		Category:   "config_snapshot",
@@ -1177,7 +1246,7 @@ func (s *Service) collectDiagnosticConfigArtifact(ctx context.Context, task *Dia
 		NodeID:     target.NodeID,
 		HostID:     target.HostID,
 		HostName:   target.HostName,
-		SizeBytes:  int64(len(content)),
+		SizeBytes:  int64(len(safeContent)),
 		Message:    configType,
 	}
 	state.Artifacts = append(state.Artifacts, artifact)
@@ -1191,10 +1260,10 @@ func (s *Service) collectDiagnosticConfigArtifact(ctx context.Context, task *Dia
 		ConfigType:  configType,
 		RemotePath:  normalizedRemotePath,
 		LocalPath:   localPath,
-		SizeBytes:   int64(len(content)),
+		SizeBytes:   int64(len(safeContent)),
 		ContentHash: hash,
 	})
-	if preview := buildDiagnosticConfigPreview(content); strings.TrimSpace(preview) != "" {
+	if preview := buildDiagnosticConfigPreview(safeContent); strings.TrimSpace(preview) != "" {
 		summary.FilePreviews = append(summary.FilePreviews, diagnosticConfigFilePreview{
 			HostID:     target.HostID,
 			HostName:   target.HostName,
@@ -1206,7 +1275,7 @@ func (s *Service) collectDiagnosticConfigArtifact(ctx context.Context, task *Dia
 			Preview:    preview,
 		})
 	}
-	if items := extractDiagnosticConfigHighlights(configType, normalizedRemotePath, content); len(items) > 0 {
+	if items := extractDiagnosticConfigHighlights(configType, normalizedRemotePath, safeContent); len(items) > 0 {
 		summary.KeyHighlights = append(summary.KeyHighlights, diagnosticConfigKeyHighlight{
 			HostID:     target.HostID,
 			HostName:   target.HostName,
@@ -1791,7 +1860,8 @@ func (s *Service) executeCollectLogSampleStep(ctx context.Context, task *Diagnos
 			}
 			fileName := buildDiagnosticLogSampleFileName(selected.HostID, selected.HostName, candidate)
 			localPath := filepath.Join(logDir, fileName)
-			if err := os.WriteFile(localPath, []byte(snippet), 0o644); err != nil {
+			safeSnippet := audit.RedactText(snippet)
+			if err := os.WriteFile(localPath, []byte(safeSnippet), 0o644); err != nil {
 				return err
 			}
 			state.Artifacts = append(state.Artifacts, &diagnosticBundleArtifact{
@@ -1803,7 +1873,7 @@ func (s *Service) executeCollectLogSampleStep(ctx context.Context, task *Diagnos
 				NodeID:    selected.NodeID,
 				HostID:    selected.HostID,
 				HostName:  selected.HostName,
-				SizeBytes: int64(len(snippet)),
+				SizeBytes: int64(len(safeSnippet)),
 				Message:   candidate,
 			})
 			state.LogSamples = append(state.LogSamples, diagnosticCollectedLogSample{
@@ -1816,7 +1886,7 @@ func (s *Service) executeCollectLogSampleStep(ctx context.Context, task *Diagnos
 				LocalPath:   localPath,
 				WindowStart: window.Start,
 				WindowEnd:   window.End,
-				Content:     snippet,
+				Content:     safeSnippet,
 			})
 			_ = s.AppendDiagnosticStepLog(ctx, &DiagnosticStepLog{
 				TaskID:          task.ID,
@@ -2600,15 +2670,20 @@ func joinDiagnosticPrometheusURL(baseURL, suffix string) string {
 
 func (s *Service) beginDiagnosticTaskStep(ctx context.Context, task *DiagnosticTask, step *DiagnosticTaskStep) error {
 	now := time.Now().UTC()
+	updated, err := s.repo.UpdateDiagnosticTaskFields(ctx, task.ID, []DiagnosticTaskStatus{DiagnosticTaskStatusRunning}, map[string]any{
+		"current_step": step.Code,
+		"updated_at":   now,
+	})
+	if err != nil {
+		return err
+	}
+	if !updated {
+		return ErrDiagnosticTaskAlreadyFinished
+	}
 	task.Status = DiagnosticTaskStatusRunning
 	task.CurrentStep = step.Code
 	task.UpdatedAt = now
-	if task.StartedAt == nil {
-		task.StartedAt = &now
-	}
-	if err := s.UpdateDiagnosticTask(ctx, task); err != nil {
-		return err
-	}
+	s.publishDiagnosticTaskEvent(newDiagnosticTaskUpdatedEvent(task))
 	step.Status = DiagnosticTaskStatusRunning
 	step.StartedAt = &now
 	step.CompletedAt = nil
@@ -2636,12 +2711,29 @@ func (s *Service) failDiagnosticTaskStep(ctx context.Context, task *DiagnosticTa
 
 func (s *Service) failDiagnosticTask(ctx context.Context, task *DiagnosticTask, failureStep DiagnosticStepCode, taskErr error) error {
 	now := time.Now().UTC()
+	updated, err := s.repo.UpdateDiagnosticTaskFields(ctx, task.ID, []DiagnosticTaskStatus{DiagnosticTaskStatusRunning}, map[string]any{
+		"status":         DiagnosticTaskStatusFailed,
+		"failure_step":   failureStep,
+		"failure_reason": taskErr.Error(),
+		"completed_at":   now,
+		"updated_at":     now,
+	})
+	if err != nil {
+		return err
+	}
+	if !updated {
+		if cancelled, cancelErr := s.cancelDiagnosticTaskAtBoundary(ctx, task.ID); cancelErr != nil || cancelled {
+			return cancelErr
+		}
+		return ErrDiagnosticTaskAlreadyFinished
+	}
 	task.Status = DiagnosticTaskStatusFailed
 	task.FailureStep = failureStep
 	task.FailureReason = taskErr.Error()
 	task.CompletedAt = &now
 	task.UpdatedAt = now
-	return s.UpdateDiagnosticTask(ctx, task)
+	s.publishDiagnosticTaskEvent(newDiagnosticTaskUpdatedEvent(task))
+	return s.syncExecutionFromDiagnosticTask(ctx, task)
 }
 
 func (s *Service) beginDiagnosticNodeStep(ctx context.Context, step *DiagnosticTaskStep, node *DiagnosticNodeExecution, message string) error {
@@ -2673,6 +2765,7 @@ func (s *Service) writeDiagnosticJSONArtifact(ctx context.Context, task *Diagnos
 	if err != nil {
 		return err
 	}
+	bytes = []byte(audit.RedactText(string(bytes)))
 	path := filepath.Join(bundleDir, fileName)
 	if err := os.WriteFile(path, bytes, 0o644); err != nil {
 		return err

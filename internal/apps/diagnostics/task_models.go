@@ -30,13 +30,15 @@ import (
 type DiagnosticTaskStatus string
 
 const (
-	DiagnosticTaskStatusPending   DiagnosticTaskStatus = "pending"
-	DiagnosticTaskStatusReady     DiagnosticTaskStatus = "ready"
-	DiagnosticTaskStatusRunning   DiagnosticTaskStatus = "running"
-	DiagnosticTaskStatusSucceeded DiagnosticTaskStatus = "succeeded"
-	DiagnosticTaskStatusFailed    DiagnosticTaskStatus = "failed"
-	DiagnosticTaskStatusSkipped   DiagnosticTaskStatus = "skipped"
-	DiagnosticTaskStatusCancelled DiagnosticTaskStatus = "cancelled"
+	DiagnosticTaskStatusPending         DiagnosticTaskStatus = "pending"
+	DiagnosticTaskStatusReady           DiagnosticTaskStatus = "ready"
+	DiagnosticTaskStatusRunning         DiagnosticTaskStatus = "running"
+	DiagnosticTaskStatusCancelRequested DiagnosticTaskStatus = "cancel_requested"
+	DiagnosticTaskStatusCancelling      DiagnosticTaskStatus = "cancelling"
+	DiagnosticTaskStatusSucceeded       DiagnosticTaskStatus = "succeeded"
+	DiagnosticTaskStatusFailed          DiagnosticTaskStatus = "failed"
+	DiagnosticTaskStatusSkipped         DiagnosticTaskStatus = "skipped"
+	DiagnosticTaskStatusCancelled       DiagnosticTaskStatus = "cancelled"
 )
 
 // DiagnosticTaskSourceType represents where a diagnostic bundle task was created from.
@@ -275,6 +277,7 @@ func DefaultDiagnosticTaskSteps() []DiagnosticPlanStep {
 // DiagnosticTask 存储一条诊断包任务。
 type DiagnosticTask struct {
 	ID            uint                     `json:"id" gorm:"primaryKey;autoIncrement"`
+	ExecutionID   string                   `json:"execution_id,omitempty" gorm:"size:36;index"`
 	ClusterID     uint                     `json:"cluster_id" gorm:"index;not null"`
 	TriggerSource DiagnosticTaskSourceType `json:"trigger_source" gorm:"size:40;index;not null"`
 	SourceRef     DiagnosticTaskSourceRef  `json:"source_ref" gorm:"type:json;not null"`
@@ -391,12 +394,15 @@ type DiagnosticTaskListFilter struct {
 	Status        DiagnosticTaskStatus     `json:"status"`
 	Page          int                      `json:"page"`
 	PageSize      int                      `json:"page_size"`
+	OwnerUserID   uint                     `json:"-"`
+	IncludeAll    bool                     `json:"-"`
 }
 
 // DiagnosticTaskSummary defines task list summary fields.
 // DiagnosticTaskSummary 定义任务列表摘要字段。
 type DiagnosticTaskSummary struct {
 	ID            uint                     `json:"id"`
+	ExecutionID   string                   `json:"execution_id,omitempty"`
 	ClusterID     uint                     `json:"cluster_id"`
 	TriggerSource DiagnosticTaskSourceType `json:"trigger_source"`
 	Status        DiagnosticTaskStatus     `json:"status"`
@@ -421,6 +427,8 @@ type DiagnosticTaskLogFilter struct {
 	Level           DiagnosticLogLevel
 	Page            int
 	PageSize        int
+	OwnerUserID     uint
+	IncludeAll      bool
 }
 
 // CreateDiagnosticTaskRequest describes one task creation request.

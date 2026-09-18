@@ -249,10 +249,10 @@ func (c *CommandContext) IsDone() bool {
 // This interface decouples the Agent Manager from the Host Service.
 // 此接口将 Agent Manager 与 Host Service 解耦。
 type HostStatusUpdater interface {
-	// UpdateAgentStatus updates the agent status for a host by IP address.
-	// UpdateAgentStatus 根据 IP 地址更新主机的 Agent 状态。
+	// UpdateAgentStatus updates the agent status for a host by pre-bound host ID or IP address.
+	// UpdateAgentStatus 根据预绑定主机 ID 或 IP 地址更新主机的 Agent 状态。
 	// hostname is used when auto-creating a host (e.g. no host matches by IP).
-	UpdateAgentStatus(ctx context.Context, ipAddress string, agentID string, version string, systemInfo *SystemInfo, hostname string) (hostID uint, err error)
+	UpdateAgentStatus(ctx context.Context, hostID uint, ipAddress string, agentID string, version string, systemInfo *SystemInfo, hostname string) (hostIDOut uint, err error)
 
 	// UpdateHeartbeat updates the heartbeat data for a host.
 	// UpdateHeartbeat 更新主机的心跳数据。
@@ -421,7 +421,7 @@ func (m *Manager) RegisterAgent(ctx context.Context, req *pb.RegisterRequest) (*
 			}
 		}
 
-		hostID, err := m.hostUpdater.UpdateAgentStatus(ctx, req.IpAddress, req.AgentId, req.AgentVersion, sysInfo, req.Hostname)
+		hostID, err := m.hostUpdater.UpdateAgentStatus(ctx, uint(req.HostId), req.IpAddress, req.AgentId, req.AgentVersion, sysInfo, req.Hostname)
 		if err != nil {
 			// Log error but don't fail registration
 			// 记录错误但不使注册失败

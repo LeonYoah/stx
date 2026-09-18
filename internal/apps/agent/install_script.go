@@ -48,6 +48,10 @@ type InstallScriptGenerator struct {
 	// tlsEnabled 表示 Control Plane gRPC TLS 是否已启用。
 	tlsEnabled bool
 
+	// hostID is the optional pre-bound host ID.
+	// hostID 是可选的预绑定主机 ID。
+	hostID uint64
+
 	// template is the parsed install script template.
 	// template 是解析后的安装脚本模板。
 	template *template.Template
@@ -71,6 +75,10 @@ type InstallScriptConfig struct {
 	// TLSEnabled indicates whether Control Plane gRPC TLS is enabled (Agent should fetch CA).
 	// TLSEnabled 表示 Control Plane gRPC TLS 是否已启用（Agent 应拉取 CA）。
 	TLSEnabled bool
+
+	// HostID is the optional pre-bound host ID.
+	// HostID 是可选的预绑定主机 ID。
+	HostID uint64
 }
 
 // InstallScriptData holds data for rendering the install script template.
@@ -127,6 +135,10 @@ type InstallScriptData struct {
 	// AgentCAFile is the on-host path where the downloaded CA certificate is stored.
 	// AgentCAFile 是本机保存已下载 CA 证书的路径。
 	AgentCAFile string
+
+	// HostID is the optional pre-bound host ID.
+	// HostID 是可选的预绑定主机 ID。
+	HostID uint64
 }
 
 // SupportedPlatform represents a supported OS and architecture combination.
@@ -238,6 +250,7 @@ func NewInstallScriptGenerator(cfg *InstallScriptConfig) (*InstallScriptGenerato
 		grpcAddr:          grpcAddr,
 		heartbeatInterval: heartbeatInterval,
 		tlsEnabled:        cfg.TLSEnabled,
+		hostID:            cfg.HostID,
 		template:          tmpl,
 	}, nil
 }
@@ -260,6 +273,7 @@ func (g *InstallScriptGenerator) Generate() (string, error) {
 		HeartbeatInterval:          fmt.Sprintf("%ds", g.heartbeatInterval),
 		TLSEnabled:                 g.tlsEnabled,
 		AgentCAFile:                DefaultAgentCAFile,
+		HostID:                     g.hostID,
 	}
 
 	return g.GenerateWithData(data)
@@ -416,6 +430,8 @@ SERVICE_NAME="{{.ServiceName}}"
 CAPABILITY_PROXY_VERSION="{{.STXJavaProxyVersion}}"
 GRPC_TLS_ENABLED="{{if .TLSEnabled}}true{{else}}false{{end}}"
 LAUNCHD_LABEL="org.apache.stx.${SERVICE_NAME}"
+HOST_ID="{{if gt .HostID 0}}{{.HostID}}{{end}}"
+AGENT_IP=""
 
 INSTALL_DIR=""
 IS_ROOT=0
@@ -462,11 +478,15 @@ Options / 选项:
                         DIR/etc/config.yaml
                         DIR/logs/agent.log
                         DIR/lib/  DIR/scripts/
+  --host-id=ID        Pre-bound host ID on Control Plane
+                      Control Plane 预绑定的主机 ID
+  --ip=IP             Reported host IP address override
+                      覆盖上报的主机 IP 地址
   -h, --help          Show this help / 显示帮助
 
 Examples / 示例:
   curl -sSL <cp>/api/v1/agent/install.sh | bash -s -- --install-dir=~/.stx/agent/
-  bash install.sh --install-dir=/data/stx-agent
+  bash install.sh --install-dir=/data/stx-agent --host-id 1
 EOF
 }
 
@@ -519,6 +539,30 @@ parse_args() {
                     exit 1
                 fi
                 INSTALL_DIR="$1"
+                ;;
+            --host-id=*)
+                HOST_ID="${1#*=}"
+                ;;
+            --host-id)
+                shift
+                if [ $# -eq 0 ]; then
+                    log_error "--host-id requires a value"
+                    log_error "--host-id 需要参数值"
+                    exit 1
+                fi
+                HOST_ID="$1"
+                ;;
+            --ip=*)
+                AGENT_IP="${1#*=}"
+                ;;
+            --ip)
+                shift
+                if [ $# -eq 0 ]; then
+                    log_error "--ip requires a value"
+                    log_error "--ip 需要参数值"
+                    exit 1
+                fi
+                AGENT_IP="$1"
                 ;;
             -h|--help)
                 print_usage
@@ -862,6 +906,8 @@ install_agent() {
 
 agent:
   id: "${AGENT_ID}"
+  host_id: ${HOST_ID:-0}
+  ip: "${AGENT_IP:-}"
 
 control_plane:
   addresses:

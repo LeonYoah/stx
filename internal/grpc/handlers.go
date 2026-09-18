@@ -100,7 +100,7 @@ func (s *Server) Register(ctx context.Context, req *pb.RegisterRequest) (*pb.Reg
 			}
 		}
 
-		updatedHost, err := s.hostService.UpdateAgentStatus(ctx, req.IpAddress, req.AgentId, req.AgentVersion, sysInfo, req.Hostname)
+		updatedHost, err := s.hostService.UpdateAgentStatus(ctx, uint(req.HostId), req.IpAddress, req.AgentId, req.AgentVersion, sysInfo, req.Hostname)
 		if err != nil {
 			// Log warning but don't fail registration
 			// 记录警告但不使注册失败

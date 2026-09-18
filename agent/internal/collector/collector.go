@@ -29,6 +29,7 @@ package collector
 import (
 	"bufio"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"runtime"
@@ -771,6 +772,47 @@ func (c *MetricsCollector) GetIPAddress() string {
 	default:
 		return ""
 	}
+}
+
+// GetOutboundIP 获取用于访问目标地址的本地出口 IP 地址。
+// 它通过查询操作系统内核路由表获取，不会发送实际的网络数据包。
+// GetOutboundIP determines the local outbound IP address used to reach the target address.
+// It queries the OS routing table without sending any actual network packets.
+func (c *MetricsCollector) GetOutboundIP(targetAddr string) string {
+	targetAddr = strings.TrimSpace(targetAddr)
+	if targetAddr == "" {
+		return ""
+	}
+
+	// 确保目标地址包含端口以便进行 UDP 拨号
+	// Ensure target has a port for UDP dial
+	host, port, err := net.SplitHostPort(targetAddr)
+	if err != nil {
+		host = targetAddr
+		port = "80"
+	}
+	if host == "" {
+		return ""
+	}
+
+	conn, err := net.DialTimeout("udp", net.JoinHostPort(host, port), 2*time.Second)
+	if err != nil {
+		return ""
+	}
+	defer conn.Close()
+
+	localAddr, ok := conn.LocalAddr().(*net.UDPAddr)
+	if !ok || localAddr == nil || localAddr.IP == nil {
+		return ""
+	}
+
+	// 忽略未指定地址 (0.0.0.0, ::)
+	// Ignore unspecified addresses (0.0.0.0, ::)
+	if localAddr.IP.IsUnspecified() {
+		return ""
+	}
+
+	return localAddr.IP.String()
 }
 
 // getIPAddressUnix gets IP address on Unix-like systems

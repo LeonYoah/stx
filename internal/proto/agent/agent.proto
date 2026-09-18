@@ -57,7 +57,8 @@ message RegisterRequest {
   string os_type = 4;         // 操作系统类型: linux, darwin, windows
   string arch = 5;            // CPU 架构: amd64, arm64
   string agent_version = 6;   // Agent 版本号
-  SystemInfo system_info = 7; // 系统信息
+  SystemInfo system_info = 7; // 系统信息 / System information
+  uint64 host_id = 8;         // 关联的主机 ID (可选，用于显式绑定) / Associated host ID (optional, for explicit binding)
 }
 
 // SystemInfo - 系统硬件信息

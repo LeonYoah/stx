@@ -25,6 +25,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/LeonYoah/stx/internal/config"
@@ -165,6 +166,15 @@ type ErrorResponse struct {
 // @Success 200 {string} string "Install script"
 // @Router /api/v1/agent/install.sh [get]
 func (h *Handler) GetInstallScript(c *gin.Context) {
+	// Parse optional host_id from query parameters
+	// 从查询参数中解析可选的 host_id
+	var hostID uint64
+	if hostIDStr := strings.TrimSpace(c.Query("host_id")); hostIDStr != "" {
+		if parsed, err := strconv.ParseUint(hostIDStr, 10, 64); err == nil {
+			hostID = parsed
+		}
+	}
+
 	// Use InstallScriptGenerator to generate the install script
 	// 使用 InstallScriptGenerator 生成安装脚本
 	generator, err := NewInstallScriptGenerator(&InstallScriptConfig{
@@ -172,6 +182,7 @@ func (h *Handler) GetInstallScript(c *gin.Context) {
 		GRPCAddr:          h.getGRPCAddr(),
 		HeartbeatInterval: h.heartbeatInterval,
 		TLSEnabled:        h.tlsEnabled,
+		HostID:            hostID,
 	})
 	if err != nil {
 		logger.ErrorF(c.Request.Context(), "[Agent] Failed to create install script generator: %v", err)

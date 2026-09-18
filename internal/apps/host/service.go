@@ -387,26 +387,57 @@ func (s *Service) GetAssociatedClusters(ctx context.Context, hostID uint) ([]*cl
 
 // UpdateAgentStatus updates the agent status when an Agent registers.
 // UpdateAgentStatus 在 Agent 注册时更新 Agent 状态。
-// Requirements: 3.2 - Matches Agent IP with registered host and updates status to "installed".
-// If no host is found by IP, auto-creates a bare_metal host so that agent registration succeeds
-// and heartbeat updates can find the host (fixes "host not found" after Control Plane restart).
-// hostname is optional; when auto-creating, used for host name or fallback to "agent-{agentID}".
-func (s *Service) UpdateAgentStatus(ctx context.Context, ipAddress string, agentID string, version string, systemInfo *SystemInfo, hostname string) (*Host, error) {
-	// Find host by IP address
-	// 根据 IP 地址查找主机
-	host, err := s.repo.GetByIP(ctx, ipAddress)
-	if err != nil {
-		if errors.Is(err, ErrHostNotFound) {
-			// Auto-create host when no matching IP exists (e.g. after Control Plane restart,
-			// agent re-registers with new ID but hosts table has no record)
-			// 当 IP 无匹配主机时自动创建（例如主服务重启后，Agent 用新 ID 重注册但 hosts 表无对应记录）
-			host, err = s.autoCreateHostForAgent(ctx, ipAddress, agentID, hostname)
-			if err != nil {
-				return nil, err
-			}
-		} else {
+// Requirements: 3.2 - Matches Agent hostID or IP with registered host and updates status to "installed".
+// If hostID > 0, attempts to find and bind to the specified host first.
+// 若 hostID > 0，则优先查找并绑定指定的主机 ID。
+// If no host matches, falls back to matching by IP, then by uninstalled host name, or auto-creates a bare_metal host.
+// 若未匹配到主机，则依次回退到按 IP 查找、按未安装主机名匹配或自动创建物理机。
+func (s *Service) UpdateAgentStatus(ctx context.Context, hostID uint, ipAddress string, agentID string, version string, systemInfo *SystemInfo, hostname string) (*Host, error) {
+	var host *Host
+	var err error
+
+	// 1. Try matching by explicit hostID if provided
+	// 1. 若提供了显式 hostID，优先按 hostID 匹配
+	if hostID > 0 {
+		host, err = s.repo.GetByID(ctx, hostID)
+		if err != nil && !errors.Is(err, ErrHostNotFound) {
 			return nil, err
 		}
+	}
+
+	// 2. Fall back to finding host by IP address
+	// 2. 若未指定 hostID 或未找到，按 IP 地址查找主机
+	if host == nil && ipAddress != "" {
+		host, err = s.repo.GetByIP(ctx, ipAddress)
+		if err != nil && !errors.Is(err, ErrHostNotFound) {
+			return nil, err
+		}
+	}
+
+	// 3. Fall back to matching an uninstalled host by hostname
+	// 3. 若按 IP 未找到，尝试匹配同名且未安装的主机
+	if host == nil && hostname != "" {
+		namedHost, err := s.repo.GetByName(ctx, hostname)
+		if err == nil && namedHost != nil && (namedHost.AgentStatus == AgentStatusNotInstalled || namedHost.AgentStatus == "") {
+			host = namedHost
+		}
+	}
+
+	// 4. Auto-create host when still no matching host exists
+	// 4. 当仍无匹配主机时自动创建（如主服务重启后首次上报）
+	if host == nil {
+		host, err = s.autoCreateHostForAgent(ctx, ipAddress, agentID, hostname)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Auto-correct loopback or empty IP if bound to hostID and real network IP is detected
+	// 若通过 hostID 显式绑定，且主机原 IP 为回环地址/空，而探测到了真实有效网卡 IP，则自动修正
+	if hostID > 0 && ipAddress != "" && ipAddress != "127.0.0.1" && ipAddress != "localhost" &&
+		(host.IPAddress == "127.0.0.1" || host.IPAddress == "localhost" || host.IPAddress == "") {
+		host.IPAddress = ipAddress
+		_ = s.repo.Update(ctx, host)
 	}
 
 	// Update agent status to installed
@@ -552,8 +583,8 @@ func (s *Service) GetInstallCommand(ctx context.Context, hostID uint) (string, e
 		return "", err
 	}
 
-	// Generate installation command with explicit default --install-dir (user-customizable).
-	// 生成带显式默认 --install-dir 的安装命令（用户可自行改目录）。
+	// Generate installation command with explicit default --install-dir (user-customizable) and bound host_id.
+	// 生成带显式默认 --install-dir 的安装命令（用户可自行改目录）并携带预绑定 host_id。
 	// controlPlaneAddr should be a full URL like "http://192.168.1.100:17800"
 	// controlPlaneAddr 应该是完整的 URL，如 "http://192.168.1.100:17800"
 	addr := strings.TrimRight(strings.TrimSpace(s.controlPlaneAddr), "/")
@@ -565,9 +596,11 @@ func (s *Service) GetInstallCommand(ctx context.Context, hostID uint) (string, e
 	}
 	// Keep in sync with agent.DefaultAgentHomePath / 与 agent.DefaultAgentHomePath 保持一致
 	return fmt.Sprintf(
-		"curl -sSL %s/api/v1/agent/install.sh | bash -s -- --install-dir=%s/",
+		"curl -sSL \"%s/api/v1/agent/install.sh?host_id=%d\" | bash -s -- --install-dir=%s/ --host-id %d",
 		addr,
+		hostID,
 		"$HOME/.stx/agent",
+		hostID,
 	), nil
 }
 

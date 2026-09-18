@@ -271,6 +271,35 @@ func TestNormalizeArch(t *testing.T) {
 	}
 }
 
+// TestInstallScriptGenerate_WithHostID tests that HostID is included in the script.
+// TestInstallScriptGenerate_WithHostID 测试生成的脚本中包含预绑定的 HostID。
+func TestInstallScriptGenerate_WithHostID(t *testing.T) {
+	generator, err := NewInstallScriptGenerator(&InstallScriptConfig{
+		ControlPlaneAddr:  "localhost:8080",
+		GRPCAddr:          "localhost:50051",
+		HeartbeatInterval: 10,
+		HostID:            42,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create generator: %v", err)
+	}
+
+	script, err := generator.Generate()
+	if err != nil {
+		t.Fatalf("Failed to generate script: %v", err)
+	}
+
+	if !strings.Contains(script, `HOST_ID="42"`) {
+		t.Errorf("Generated script should contain HOST_ID=\"42\"")
+	}
+	if !strings.Contains(script, "host_id: ${HOST_ID:-0}") {
+		t.Errorf("Generated script should contain config mapping 'host_id: ${HOST_ID:-0}'")
+	}
+	if !strings.Contains(script, "--host-id") {
+		t.Errorf("Generated script should support --host-id flag")
+	}
+}
+
 // TestNormalizeOS tests OS normalization.
 // TestNormalizeOS 测试操作系统标准化。
 func TestNormalizeOS(t *testing.T) {

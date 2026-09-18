@@ -461,7 +461,7 @@ func (a *Agent) registerWithControlPlane() error {
 	// Collect system info for registration / 收集系统信息用于注册
 	sysInfo := a.metricsCollector.GetSystemInfo()
 	hostname := a.metricsCollector.GetHostname()
-	ipAddress := a.metricsCollector.GetIPAddress()
+	ipAddress := a.resolveAgentIP()
 
 	req := &pb.RegisterRequest{
 		AgentId:      a.config.Agent.ID,
@@ -471,6 +471,7 @@ func (a *Agent) registerWithControlPlane() error {
 		Arch:         runtime.GOARCH,
 		AgentVersion: Version,
 		SystemInfo:   sysInfo,
+		HostId:       a.config.Agent.HostID,
 	}
 
 	resp, err := a.grpcClient.Register(a.ctx, req)
@@ -521,6 +522,43 @@ func (a *Agent) registerWithControlPlane() error {
 	}
 
 	return nil
+}
+
+// resolveAgentIP 确定 Agent 用于注册的最佳 IP 地址。
+// 优先级：1. 手动配置的 IP；2. 通向 Control Plane 的内核出口路由 IP；3. 网卡 IP 兜底。
+// resolveAgentIP determines the best IP address for the Agent to register with.
+// Priority: 1. Manually configured IP; 2. Kernel outbound route to Control Plane; 3. Network interface IP fallback.
+func (a *Agent) resolveAgentIP() string {
+	// 1. 配置文件中手动指定的 IP
+	// 1. Manually specified IP in config
+	if configuredIP := strings.TrimSpace(a.config.Agent.IP); configuredIP != "" {
+		logger.InfoF(a.ctx, "Using manually configured Agent IP: %s / 使用手动配置的 Agent IP：%s", configuredIP, configuredIP)
+		return configuredIP
+	}
+
+	// 2. 查询通往 Control Plane 的内核路由表出口 IP
+	// 2. Kernel routing table lookup towards Control Plane
+	for _, addr := range a.config.ControlPlane.Addresses {
+		if outbound := a.metricsCollector.GetOutboundIP(addr); outbound != "" {
+			// 如果出口 IP 不是回环地址，说明是真正的物理/局域网接口
+			// If outbound IP is not loopback, it is the real network interface
+			if outbound != "127.0.0.1" && outbound != "::1" {
+				logger.InfoF(a.ctx, "Detected outbound IP towards Control Plane (%s): %s / 探测到通往 Control Plane (%s) 的出口 IP：%s", addr, outbound, addr, outbound)
+				return outbound
+			}
+		}
+	}
+
+	// 3. 兜底回退到枚举物理网卡 IP (hostname -I)
+	// 3. Fallback to network interfaces enumeration (hostname -I)
+	fallbackIP := a.metricsCollector.GetIPAddress()
+	if fallbackIP != "" {
+		return fallbackIP
+	}
+
+	// 4. 若未找到其他有效 IP 则退回回环地址
+	// 4. Default to loopback if nothing else found
+	return "127.0.0.1"
 }
 
 // setupEventReporter sets up the event reporter with gRPC report function.
@@ -1985,12 +2023,18 @@ var versionCmd = &cobra.Command{
 
 // configFile is the path to the configuration file
 // configFile 是配置文件的路径
-var configFile string
+var (
+	configFile string
+	hostIDFlag uint64
+	ipFlag     string
+)
 
 func init() {
 	// Add flags to root command
 	// 向根命令添加标志
 	rootCmd.PersistentFlags().StringVarP(&configFile, "config", "c", "", "config file path (default: /etc/stx-agent/config.yaml)")
+	rootCmd.PersistentFlags().Uint64Var(&hostIDFlag, "host-id", 0, "pre-assigned host ID from Control Plane / 来自 Control Plane 的预分配主机 ID")
+	rootCmd.PersistentFlags().StringVar(&ipFlag, "ip", "", "manually override outbound IP / 手动覆盖出口 IP")
 
 	// Add subcommands
 	// 添加子命令
@@ -2005,6 +2049,15 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	cfg, err := config.Load(configFile)
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w / 加载配置失败：%w", err, err)
+	}
+
+	// Apply CLI overrides if provided
+	// 如果提供了命令行覆盖参数，则应用
+	if hostIDFlag > 0 {
+		cfg.Agent.HostID = hostIDFlag
+	}
+	if ipFlag != "" {
+		cfg.Agent.IP = ipFlag
 	}
 
 	// Validate configuration

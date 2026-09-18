@@ -27,6 +27,7 @@ import {
   KAPA_DEFAULT_WEBSITE_ID,
   KAPA_PROJECT_LOGO_DARK_PATH,
   KAPA_PROJECT_LOGO_PATH,
+  KAPA_PROJECT_MARK_PATH,
   KAPA_PROJECT_NAME,
 } from '../kapa-ai';
 
@@ -193,15 +194,21 @@ describe('kapa-ai service integration', () => {
     expect(script?.getAttribute('data-color-scheme-selector')).toBe(
       KAPA_COLOR_SCHEME_SELECTOR,
     );
-    expect(script?.getAttribute('data-project-logo')).toContain(KAPA_PROJECT_LOGO_PATH);
-    expect(script?.getAttribute('data-project-logo-dark')).toContain(
-      KAPA_PROJECT_LOGO_DARK_PATH,
+    expect(script?.getAttribute('data-launcher-button-image')).toContain(
+      KAPA_PROJECT_MARK_PATH,
     );
-    expect(script?.getAttribute('data-modal-logo-src-dark')).toContain(
-      KAPA_PROJECT_LOGO_DARK_PATH,
+    // Modal logo follows current document theme (jsdom defaults to light)
+    // 弹窗锁章跟随文档主题（jsdom 默认为浅色）
+    expect(script?.getAttribute('data-project-logo')).toContain(
+      KAPA_PROJECT_LOGO_PATH,
     );
-    expect(script?.getAttribute('data-launcher-button-image-dark')).toContain(
-      KAPA_PROJECT_LOGO_DARK_PATH,
+    expect(script?.getAttribute('data-modal-logo-src')).toContain(
+      KAPA_PROJECT_LOGO_PATH,
     );
+    expect(script?.getAttribute('data-project-logo-dark')).toBeNull();
+    expect(script?.getAttribute('data-launcher-button-image-dark')).toBeNull();
+    // Ensure dark path constant remains available for theme swaps
+    // 确保深色锁章常量仍可用于主题切换
+    expect(KAPA_PROJECT_LOGO_DARK_PATH).toContain('stx-logo-dark');
   });
 });

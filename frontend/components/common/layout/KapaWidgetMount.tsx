@@ -18,7 +18,7 @@
  */
 
 import {useEffect} from 'react';
-import {ensureKapaWidget} from '@/lib/services/kapa-ai';
+import {ensureKapaWidget, startKapaThemeSync} from '@/lib/services/kapa-ai';
 
 /**
  * Permanently mount the Kapa Ask AI floating widget on the main app shell.
@@ -26,7 +26,9 @@ import {ensureKapaWidget} from '@/lib/services/kapa-ai';
  */
 export function KapaWidgetMount() {
   useEffect(() => {
-    void ensureKapaWidget();
+    void ensureKapaWidget().then(() => {
+      startKapaThemeSync();
+    });
   }, []);
 
   return null;

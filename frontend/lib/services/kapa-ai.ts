@@ -30,11 +30,20 @@ export const KAPA_DEFAULT_WEBSITE_ID = 'd9390efd-fdc5-4449-8aa1-bb2fd5fe13f3';
 export const KAPA_PROJECT_NAME = 'STX';
 export const KAPA_PROJECT_COLOR = '#2563eb';
 /**
- * Light lockup for light surfaces; dark lockup (white wordmark) for dark surfaces.
- * 浅色锁章用于亮色表面；深色锁章（白字）用于暗色表面。
+ * Light lockup (dark wordmark) for light modal surfaces.
+ * 浅色锁章（深色字标），用于亮色弹窗表面。
  */
 export const KAPA_PROJECT_LOGO_PATH = '/brand/stx-logo.png';
+/**
+ * Dark lockup (white wordmark) for dark modal surfaces.
+ * 深色锁章（白字标），用于暗色弹窗表面。
+ */
 export const KAPA_PROJECT_LOGO_DARK_PATH = '/brand/stx-logo-dark.png';
+/**
+ * Bird mark for the floating launcher (brand-blue button; no wordmark contrast issue).
+ * 悬浮按钮使用青鸾图形标（按钮底色为品牌蓝，避免字标对比度问题）。
+ */
+export const KAPA_PROJECT_MARK_PATH = '/brand/stx-mark.png';
 /**
  * Sync widget theme with next-themes (`class="dark"` on <html>).
  * 与 next-themes 同步（<html> 上的 class="dark"）。
@@ -79,6 +88,7 @@ declare global {
 }
 
 let kapaLoadingPromise: Promise<boolean> | null = null;
+let kapaThemeObserver: MutationObserver | null = null;
 
 /**
  * Get effective Kapa Website ID, allowing environment variable override
@@ -89,18 +99,109 @@ export function getKapaWebsiteId(): string {
 }
 
 /**
- * Resolve project logo to an absolute URL for the Kapa widget
- * 将项目 logo 解析为 Kapa 小部件所需的绝对 URL（随部署域名变化）
- *
- * @param variant - light | dark lockup / 浅色或深色锁章
+ * Whether the console is currently in dark mode (next-themes class strategy).
+ * 控制台当前是否为深色模式（next-themes class 策略）
  */
-export function getKapaProjectLogo(variant: 'light' | 'dark' = 'light'): string {
-  const path =
-    variant === 'dark' ? KAPA_PROJECT_LOGO_DARK_PATH : KAPA_PROJECT_LOGO_PATH;
+export function isDocumentDarkMode(): boolean {
+  if (typeof document === 'undefined') {
+    return false;
+  }
+  return document.documentElement.classList.contains('dark');
+}
+
+/**
+ * Resolve a public brand asset to an absolute URL
+ * 将 public 品牌资源解析为绝对 URL
+ */
+function resolveBrandAssetUrl(path: string): string {
   if (typeof window !== 'undefined' && window.location?.origin) {
     return `${window.location.origin}${path}`;
   }
   return path;
+}
+
+/**
+ * Resolve modal lockup logo for the current (or explicit) color scheme
+ * 按当前（或显式指定）主题解析弹窗锁章
+ *
+ * @param variant - light | dark lockup; omit to follow document theme / 省略则跟随文档主题
+ */
+export function getKapaProjectLogo(variant?: 'light' | 'dark'): string {
+  const resolved =
+    variant ?? (isDocumentDarkMode() ? 'dark' : 'light');
+  const path =
+    resolved === 'dark' ? KAPA_PROJECT_LOGO_DARK_PATH : KAPA_PROJECT_LOGO_PATH;
+  return resolveBrandAssetUrl(path);
+}
+
+/**
+ * Resolve launcher bird-mark URL (theme-agnostic on brand-blue button)
+ * 解析悬浮按钮青鸾图形标 URL（品牌蓝底上不受主题影响）
+ */
+export function getKapaLauncherImage(): string {
+  return resolveBrandAssetUrl(KAPA_PROJECT_MARK_PATH);
+}
+
+/**
+ * Apply theme-matched logos to the Kapa script tag and any already-rendered <img>s.
+ * Kapa does not reliably honor *-logo-*-dark attrs for images, so we swap at runtime.
+ * 将匹配主题的 logo 写回脚本属性，并替换已渲染的 <img>。
+ * Kapa 对图片类 *-dark 属性支持不可靠，因此在运行时主动切换。
+ */
+export function applyKapaThemeLogos(): void {
+  if (typeof document === 'undefined') {
+    return;
+  }
+
+  const modalLogo = getKapaProjectLogo();
+  const launcherImage = getKapaLauncherImage();
+  const script = document.getElementById(KAPA_SCRIPT_ID);
+  if (script) {
+    script.setAttribute('data-project-logo', modalLogo);
+    script.setAttribute('data-modal-logo-src', modalLogo);
+    script.setAttribute('data-launcher-button-image', launcherImage);
+  }
+
+  const brandHint = '/brand/stx-';
+  document.querySelectorAll('img').forEach((img) => {
+    const src = img.getAttribute('src') || '';
+    if (!src.includes(brandHint) && !src.includes('/brand/stx')) {
+      return;
+    }
+    // Launcher uses mark; modal header uses light/dark lockup
+    // 悬浮按钮用图形标；弹窗标题用浅/深色锁章
+    if (src.includes('stx-mark')) {
+      if (img.src !== launcherImage) {
+        img.src = launcherImage;
+      }
+      return;
+    }
+    if (
+      src.includes('stx-logo') &&
+      img.src !== modalLogo
+    ) {
+      img.src = modalLogo;
+    }
+  });
+}
+
+/**
+ * Watch <html class> changes and keep Kapa logos / scheme in sync with the console theme.
+ * 监听 <html class> 变化，使 Kapa logo 与配色跟随控制台主题。
+ */
+export function startKapaThemeSync(): void {
+  if (typeof window === 'undefined' || kapaThemeObserver) {
+    return;
+  }
+
+  applyKapaThemeLogos();
+  kapaThemeObserver = new MutationObserver(() => {
+    applyKapaThemeLogos();
+  });
+  kapaThemeObserver.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ['class'],
+  });
 }
 
 /**
@@ -218,9 +319,28 @@ export function ensureKapaWidget(): Promise<boolean> {
     document.body.appendChild(triggerBtn);
   }
 
+  // Upgrade path: old script without theme selector / mark launcher → remount
+  // 升级路径：旧脚本缺少主题选择器或图形标启动器时重建（须在 isKapaReady 短路之前）
+  const existingScript = document.getElementById(KAPA_SCRIPT_ID);
+  if (
+    existingScript &&
+    (existingScript.getAttribute('data-color-scheme-selector') !==
+      KAPA_COLOR_SCHEME_SELECTOR ||
+      !existingScript.getAttribute('data-launcher-button-image')?.includes(
+        'stx-mark',
+      ))
+  ) {
+    existingScript.remove();
+    kapaLoadingPromise = null;
+    delete (window as {Kapa?: unknown}).Kapa;
+    initKapaPreinitialization();
+  }
+
   // If already loaded and functional (not an unconsumed queue placeholder), return immediately
   // 若已完全就绪（且非未消费的队列占位符），直接返回成功
   if (isKapaReady(window.Kapa)) {
+    applyKapaThemeLogos();
+    startKapaThemeSync();
     return Promise.resolve(true);
   }
 
@@ -237,16 +357,13 @@ export function ensureKapaWidget(): Promise<boolean> {
     script.setAttribute('data-website-id', getKapaWebsiteId());
     script.setAttribute('data-project-name', KAPA_PROJECT_NAME);
     script.setAttribute('data-project-color', KAPA_PROJECT_COLOR);
-    // Light/dark logos + sync with console theme via .dark on <html>
-    // 浅/深色 logo，并通过 <html class="dark"> 与控制台主题同步
-    const lightLogo = getKapaProjectLogo('light');
-    const darkLogo = getKapaProjectLogo('dark');
-    script.setAttribute('data-project-logo', lightLogo);
-    script.setAttribute('data-project-logo-dark', darkLogo);
-    script.setAttribute('data-modal-logo-src', lightLogo);
-    script.setAttribute('data-modal-logo-src-dark', darkLogo);
-    script.setAttribute('data-launcher-button-image', lightLogo);
-    script.setAttribute('data-launcher-button-image-dark', darkLogo);
+    // Modal lockup follows theme; launcher uses bird mark on brand-blue button
+    // 弹窗锁章跟随主题；悬浮按钮在品牌蓝底上使用青鸾图形标
+    const modalLogo = getKapaProjectLogo();
+    const launcherImage = getKapaLauncherImage();
+    script.setAttribute('data-project-logo', modalLogo);
+    script.setAttribute('data-modal-logo-src', modalLogo);
+    script.setAttribute('data-launcher-button-image', launcherImage);
     script.setAttribute('data-color-scheme-selector', KAPA_COLOR_SCHEME_SELECTOR);
     // Keep default floating button visible; override-open-id only adds extra open targets
     // 保持默认悬浮按钮可见；override-open-id 仅额外绑定打开目标，不会隐藏按钮
@@ -263,9 +380,13 @@ export function ensureKapaWidget(): Promise<boolean> {
 
     script.onload = () => {
       clearTimeout(timeoutId);
-      // Wait for Kapa global object initialization
-      // 等待 Kapa 全局对象初始化就绪
-      setTimeout(() => resolve(true), 250);
+      // Wait for Kapa global object initialization, then sync logos
+      // 等待 Kapa 全局对象初始化后同步 logo
+      setTimeout(() => {
+        applyKapaThemeLogos();
+        startKapaThemeSync();
+        resolve(true);
+      }, 250);
     };
 
     script.onerror = () => {

@@ -49,6 +49,8 @@ export const KAPA_PROJECT_MARK_PATH = '/brand/stx-mark.png';
  * 与 next-themes 同步（<html> 上的 class="dark"）。
  */
 export const KAPA_COLOR_SCHEME_SELECTOR = '.dark';
+/** Modal header bird-mark size — keep small so the crest is not clipped. / 弹窗标题青鸾标尺寸，缩小以免顶部被裁切 */
+export const KAPA_MODAL_LOGO_SIZE_PX = '22';
 
 /**
  * Origins / host patterns that may show Ask AI (console + widget).
@@ -174,8 +176,8 @@ export function getKapaLauncherImage(): string {
 }
 
 /**
- * Apply modal logo to the Kapa script tag and any already-rendered brand <img>s.
- * 将弹窗 logo 写回脚本属性，并校正已渲染的品牌 <img>。
+ * Apply modal logo URL + compact sizing so the bird crest is not clipped.
+ * 写入弹窗 logo，并缩小尺寸，避免青鸾顶部被标题栏裁切。
  */
 export function applyKapaThemeLogos(): void {
   if (typeof document === 'undefined') {
@@ -189,6 +191,7 @@ export function applyKapaThemeLogos(): void {
     script.setAttribute('data-modal-logo-src', modalLogo);
   }
 
+  const sizePx = `${KAPA_MODAL_LOGO_SIZE_PX}px`;
   document.querySelectorAll('img').forEach((img) => {
     const src = img.getAttribute('src') || '';
     // Replace any wide lockup still injected into the Kapa modal header
@@ -199,12 +202,22 @@ export function applyKapaThemeLogos(): void {
     ) {
       img.src = modalLogo;
     }
+    // Shrink STX brand marks inside the widget chrome
+    // 缩小 Widget 内的 STX 品牌图形标
+    if (src.includes('stx-mark') || src.includes('stx-logo')) {
+      img.style.height = sizePx;
+      img.style.width = 'auto';
+      img.style.maxHeight = sizePx;
+      img.style.maxWidth = sizePx;
+      img.style.objectFit = 'contain';
+      img.style.display = 'block';
+    }
   });
 }
 
 /**
- * Watch <html class> changes and keep Kapa logos / scheme in sync with the console theme.
- * 监听 <html class> 变化，使 Kapa logo 与配色跟随控制台主题。
+ * Watch theme + DOM mutations so logos stay correct when the modal mounts.
+ * 监听主题与 DOM 变化，确保弹窗挂载后 logo 尺寸与资源仍正确。
  */
 export function startKapaThemeSync(): void {
   if (typeof window === 'undefined' || kapaThemeObserver) {
@@ -218,6 +231,10 @@ export function startKapaThemeSync(): void {
   kapaThemeObserver.observe(document.documentElement, {
     attributes: true,
     attributeFilter: ['class'],
+  });
+  kapaThemeObserver.observe(document.body, {
+    childList: true,
+    subtree: true,
   });
 }
 
@@ -342,15 +359,17 @@ export function ensureKapaWidget(): Promise<boolean> {
     document.body.appendChild(triggerBtn);
   }
 
-  // Upgrade path: remount when old script still shows default launcher or wide lockup
-  // 升级路径：旧脚本仍展示默认悬浮球或宽锁章时重建
+  // Upgrade path: remount when old script still shows default launcher, wide lockup, or oversized logo
+  // 升级路径：旧脚本仍展示默认悬浮球、宽锁章或未缩小 logo 时重建
   const existingScript = document.getElementById(KAPA_SCRIPT_ID);
   if (
     existingScript &&
     (existingScript.getAttribute('data-launcher-button-hidden') !== 'true' ||
       (existingScript.getAttribute('data-project-logo') || '').includes(
         'stx-logo',
-      ))
+      ) ||
+      existingScript.getAttribute('data-modal-image-height') !==
+        KAPA_MODAL_LOGO_SIZE_PX)
   ) {
     existingScript.remove();
     kapaLoadingPromise = null;
@@ -387,6 +406,15 @@ export function ensureKapaWidget(): Promise<boolean> {
     script.setAttribute('data-project-logo', modalLogo);
     script.setAttribute('data-modal-logo-src', modalLogo);
     script.setAttribute('data-modal-title', 'Ask AI');
+    // Shrink logo + give header a bit more vertical room so the crest is not clipped
+    // 缩小 logo，并略增标题区高度，避免青鸾顶部被裁切
+    script.setAttribute('data-modal-image-height', KAPA_MODAL_LOGO_SIZE_PX);
+    script.setAttribute('data-modal-image-width', KAPA_MODAL_LOGO_SIZE_PX);
+    script.setAttribute('data-modal-logo-height', `${KAPA_MODAL_LOGO_SIZE_PX}px`);
+    script.setAttribute('data-modal-logo-width', `${KAPA_MODAL_LOGO_SIZE_PX}px`);
+    script.setAttribute('data-modal-logo-max-height', `${KAPA_MODAL_LOGO_SIZE_PX}px`);
+    script.setAttribute('data-modal-header-min-height', '56px');
+    script.setAttribute('data-modal-header-padding-y', '14px');
     script.setAttribute('data-launcher-button-hidden', 'true');
     script.setAttribute('data-color-scheme-selector', KAPA_COLOR_SCHEME_SELECTOR);
     script.setAttribute('data-modal-override-open-id', KAPA_TRIGGER_ID);

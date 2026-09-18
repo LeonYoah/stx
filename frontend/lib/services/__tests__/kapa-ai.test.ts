@@ -205,5 +205,6 @@ describe('kapa-ai service integration', () => {
     expect(script?.getAttribute('data-project-logo')).toContain('stx-mark');
     expect(script?.getAttribute('data-modal-logo-src')).toContain('stx-mark');
     expect(script?.getAttribute('data-modal-title')).toBe('Ask AI');
+    expect(script?.getAttribute('data-modal-image-height')).toBe('22');
   });
 });

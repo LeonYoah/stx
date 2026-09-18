@@ -55,6 +55,7 @@ import {
   RotateCcw,
   Search,
   Sparkles,
+  ArrowRight,
 } from 'lucide-react';
 import type {
   OfficialDependenciesResponse,
@@ -147,8 +148,8 @@ export function PluginDetailDialog({
     string | null
   >(null);
   const [activeTab, setActiveTab] = useState<
-    'all' | 'overview' | 'dependencies' | 'custom'
-  >('all');
+    'overview' | 'dependencies' | 'custom'
+  >('overview');
   const [profileFilter, setProfileFilter] = useState('');
   const [copiedCoord, setCopiedCoord] = useState(false);
   const [copiedXml, setCopiedXml] = useState(false);
@@ -374,10 +375,9 @@ export function PluginDetailDialog({
   const downloadDisabled = hasMultiProfiles && selectedProfileKeys.length === 0;
 
   // Render helpers / 局部渲染逻辑
-  const shouldRenderOverview = activeTab === 'all' || activeTab === 'overview';
-  const shouldRenderDependencies =
-    activeTab === 'all' || activeTab === 'dependencies';
-  const shouldRenderCustom = activeTab === 'all' || activeTab === 'custom';
+  const shouldRenderOverview = activeTab === 'overview';
+  const shouldRenderDependencies = activeTab === 'dependencies';
+  const shouldRenderCustom = activeTab === 'custom';
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -470,19 +470,10 @@ export function PluginDetailDialog({
           <Tabs
             value={activeTab}
             onValueChange={(val) =>
-              setActiveTab(
-                val as 'all' | 'overview' | 'dependencies' | 'custom',
-              )
+              setActiveTab(val as 'overview' | 'dependencies' | 'custom')
             }
           >
             <TabsList className='h-8'>
-              <TabsTrigger
-                value='all'
-                data-testid='plugin-detail-tab-all'
-                className='text-xs px-3'
-              >
-                {t('plugin.tabAll')}
-              </TabsTrigger>
               <TabsTrigger
                 value='overview'
                 data-testid='plugin-detail-tab-overview'
@@ -532,8 +523,8 @@ export function PluginDetailDialog({
                 </div>
 
                 {/* Maven coordinates with 1-click copy / Maven 坐标与一键复制 */}
-                <div className='rounded-md border bg-muted/30 p-3.5 space-y-2'>
-                  <div className='flex items-center justify-between gap-2'>
+                <div className='rounded-md border bg-muted/30 p-3.5 space-y-2.5'>
+                  <div className='flex items-center justify-between gap-2 flex-wrap'>
                     <span className='text-xs font-medium flex items-center gap-1.5 text-muted-foreground'>
                       <Package className='h-3.5 w-3.5' />
                       {t('plugin.mavenCoordinates')}
@@ -567,23 +558,22 @@ export function PluginDetailDialog({
                       </Button>
                     </div>
                   </div>
-                  <div className='grid grid-cols-1 sm:grid-cols-3 gap-2 font-mono text-xs'>
-                    <div className='bg-background/80 rounded px-2.5 py-1.5 border'>
-                      <span className='text-muted-foreground'>groupId: </span>
-                      <span className='font-medium'>{plugin.group_id}</span>
-                    </div>
-                    <div className='bg-background/80 rounded px-2.5 py-1.5 border'>
-                      <span className='text-muted-foreground'>artifactId: </span>
-                      <span className='font-medium'>{plugin.artifact_id}</span>
-                    </div>
-                    <div className='bg-background/80 rounded px-2.5 py-1.5 border'>
-                      <span className='text-muted-foreground'>version: </span>
-                      <span className='font-medium'>{plugin.version}</span>
-                    </div>
+                  {/* 单行横向 GAV 坐标条，彻底避免折行 / Single-row GAV bar preventing line breaks */}
+                  <div className='flex items-center gap-2 overflow-x-auto rounded bg-background/90 px-3 py-2 border font-mono text-xs whitespace-nowrap scrollbar-none'>
+                    <span className='text-muted-foreground select-none shrink-0'>Maven</span>
+                    <span className='text-muted-foreground/40 select-none shrink-0'>|</span>
+                    <span className='text-muted-foreground select-none shrink-0'>groupId:</span>
+                    <span className='text-primary font-medium select-all'>{plugin.group_id}</span>
+                    <span className='text-muted-foreground/40 select-none shrink-0'>|</span>
+                    <span className='text-muted-foreground select-none shrink-0'>artifactId:</span>
+                    <span className='font-medium text-foreground select-all'>{plugin.artifact_id}</span>
+                    <span className='text-muted-foreground/40 select-none shrink-0'>|</span>
+                    <span className='text-muted-foreground select-none shrink-0'>version:</span>
+                    <span className='text-muted-foreground font-medium select-all'>{plugin.version}</span>
                   </div>
                 </div>
 
-                {/* Official documentation & configuration samples / 官方配置文档与样例直达 */}
+                {/* 官方配置文档与样例直达 / Official documentation & configuration samples */}
                 <div className='rounded-lg border bg-muted/20 p-4 space-y-3'>
                   <div className='space-y-1'>
                     <h4 className='text-sm font-semibold flex items-center gap-2'>
@@ -642,6 +632,29 @@ export function PluginDetailDialog({
                     </Button>
                   </div>
                 </div>
+
+                {/* 官方附属依赖速览卡片（提供直接跳转） / Official dependencies snapshot summary */}
+                {effectiveDependencies.length > 0 && (
+                  <div className='flex items-center justify-between gap-3 rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-xs'>
+                    <div className='flex items-center gap-2 text-foreground min-w-0'>
+                      <Layers3 className='h-4 w-4 text-primary shrink-0' />
+                      <span className='truncate'>
+                        {t('plugin.overviewDependencySnapshotCount', {
+                          count: effectiveDependencies.length,
+                        })}
+                      </span>
+                    </div>
+                    <Button
+                      variant='ghost'
+                      size='sm'
+                      className='h-7 text-xs font-medium text-primary hover:text-primary hover:bg-primary/10 shrink-0 gap-1 px-2'
+                      onClick={() => setActiveTab('dependencies')}
+                    >
+                      {t('plugin.viewDependencyDetails')}
+                      <ArrowRight className='h-3.5 w-3.5' />
+                    </Button>
+                  </div>
+                )}
 
                 {/* Installation paths explanation / 安装路径与依赖隔离说明 */}
                 <div className='pt-2 border-t space-y-2'>

@@ -1369,7 +1369,9 @@
     "directInstallToCluster": "安装到集群",
     "downloadedReady": "已缓存至控制面",
     "cleanAllProfiles": "清空场景",
-    "allProfilesSelected": "全选场景"
+    "allProfilesSelected": "全选场景",
+    "overviewDependencySnapshotCount": "该连接器包含 {count} 项官方附属依赖或驱动（针对对应的数据源运行场景）。",
+    "viewDependencyDetails": "查看与配置附属依赖"
   },
   "installer": {
     "packageManagement": "安装包管理",

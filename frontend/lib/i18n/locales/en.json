@@ -1369,7 +1369,9 @@
     "directInstallToCluster": "Install to Cluster",
     "downloadedReady": "Cached in Control Plane",
     "cleanAllProfiles": "Clear All",
-    "allProfilesSelected": "Select All"
+    "allProfilesSelected": "Select All",
+    "overviewDependencySnapshotCount": "Includes {count} official companion dependencies or drivers for target data source scenarios.",
+    "viewDependencyDetails": "Configure Dependencies"
   },
   "installer": {
     "packageManagement": "Package Management",

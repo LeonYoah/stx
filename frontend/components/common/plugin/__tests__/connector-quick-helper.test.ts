@@ -23,7 +23,6 @@
 import {describe, expect, it} from 'vitest';
 import {
   generateConnectorDocUrls,
-  generateHoconSnippet,
   getConnectorCapability,
   getConnectorHoconIdentifier,
   getConnectorProcessingModes,
@@ -89,66 +88,7 @@ describe('connector-quick-helper', () => {
     });
   });
 
-  describe('generateHoconSnippet', () => {
-    it('generates MySQL JDBC template when mysql profile is selected', () => {
-      const snippet = generateHoconSnippet({
-        pluginName: 'jdbc',
-        mode: 'source',
-        selectedProfileKeys: ['mysql'],
-      });
-      expect(snippet).toContain('source {');
-      expect(snippet).toContain('Jdbc {');
-      expect(snippet).toContain('com.mysql.cj.jdbc.Driver');
-      expect(snippet).toContain('jdbc:mysql://');
-    });
 
-    it('generates PostgreSQL JDBC template when postgresql profile is selected', () => {
-      const snippet = generateHoconSnippet({
-        pluginName: 'jdbc',
-        mode: 'source',
-        selectedProfileKeys: ['postgresql'],
-      });
-      expect(snippet).toContain('org.postgresql.Driver');
-      expect(snippet).toContain('jdbc:postgresql://');
-    });
-
-    it('generates JDBC sink template', () => {
-      const snippet = generateHoconSnippet({
-        pluginName: 'jdbc',
-        mode: 'sink',
-        selectedProfileKeys: ['mysql'],
-      });
-      expect(snippet).toContain('sink {');
-      expect(snippet).toContain('source_table_name');
-      expect(snippet).toContain('insert into target_table');
-    });
-
-    it('generates Kafka source and sink templates', () => {
-      const sourceSnippet = generateHoconSnippet({
-        pluginName: 'kafka',
-        mode: 'source',
-      });
-      expect(sourceSnippet).toContain('Kafka {');
-      expect(sourceSnippet).toContain('bootstrap.servers');
-      expect(sourceSnippet).toContain('topic = "your_topic"');
-
-      const sinkSnippet = generateHoconSnippet({
-        pluginName: 'kafka',
-        mode: 'sink',
-      });
-      expect(sinkSnippet).toContain('sink {');
-      expect(sinkSnippet).toContain('Kafka {');
-    });
-
-    it('generates CDC MySQL template', () => {
-      const snippet = generateHoconSnippet({
-        pluginName: 'cdc-mysql',
-        mode: 'source',
-      });
-      expect(snippet).toContain('MySQL-CDC {');
-      expect(snippet).toContain('database-name');
-    });
-  });
 
   describe('generateConnectorDocUrls', () => {
     it('builds source doc url for CDC connector with Chinese locale', () => {

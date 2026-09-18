@@ -93,60 +93,6 @@ const SPECIAL_IDENTIFIERS: Record<string, string> = {
   'seatunnel-transforms-v2': 'Transform',
 };
 
-/**
- * Common JDBC database driver profiles
- * 常用 JDBC 场景驱动与连接配置
- */
-const JDBC_PROFILE_TEMPLATES: Record<
-  string,
-  {driver: string; url: string; note: string}
-> = {
-  mysql: {
-    driver: 'com.mysql.cj.jdbc.Driver',
-    url: 'jdbc:mysql://localhost:3306/your_database',
-    note: 'MySQL 8.x/5.7',
-  },
-  postgresql: {
-    driver: 'org.postgresql.Driver',
-    url: 'jdbc:postgresql://localhost:5432/your_database',
-    note: 'PostgreSQL',
-  },
-  oracle: {
-    driver: 'oracle.jdbc.OracleDriver',
-    url: 'jdbc:oracle:thin:@localhost:1521:xe',
-    note: 'Oracle Database',
-  },
-  sqlserver: {
-    driver: 'com.microsoft.sqlserver.jdbc.SQLServerDriver',
-    url: 'jdbc:sqlserver://localhost:1433;databaseName=your_database',
-    note: 'Microsoft SQL Server',
-  },
-  dameng: {
-    driver: 'dm.jdbc.driver.DmDriver',
-    url: 'jdbc:dm://localhost:5236',
-    note: 'Dameng (DM)',
-  },
-  clickhouse: {
-    driver: 'com.clickhouse.jdbc.ClickHouseDriver',
-    url: 'jdbc:clickhouse://localhost:8123/default',
-    note: 'ClickHouse JDBC',
-  },
-  doris: {
-    driver: 'com.mysql.cj.jdbc.Driver',
-    url: 'jdbc:mysql://localhost:9030/your_database',
-    note: 'Apache Doris FE',
-  },
-  starrocks: {
-    driver: 'com.mysql.cj.jdbc.Driver',
-    url: 'jdbc:mysql://localhost:9030/your_database',
-    note: 'StarRocks FE',
-  },
-  sqlite: {
-    driver: 'org.sqlite.JDBC',
-    url: 'jdbc:sqlite:/path/to/database.db',
-    note: 'SQLite',
-  },
-};
 
 /**
  * Convert raw plugin name into standard PascalCase
@@ -345,175 +291,7 @@ export function matchesConnectorProcessingMode(
   return modes.includes(filterMode as ConnectorProcessingMode);
 }
 
-/**
- * Generate HOCON task configuration snippet
- * 生成 SeaTunnel HOCON 任务配置样例
- *
- * @param params - Generation options / 生成参数
- * @returns Formatted HOCON string / 格式化后的 HOCON 字符串
- */
-export function generateHoconSnippet(params: {
-  pluginName: string;
-  mode: 'source' | 'sink';
-  selectedProfileKeys?: string[];
-}): string {
-  const {pluginName, mode, selectedProfileKeys = []} = params;
-  const hoconName = getConnectorHoconIdentifier(pluginName);
-  const normalizedName = pluginName.toLowerCase().trim();
 
-  // 1. Specific template for JDBC connectors with dynamic profile linkage
-  // 1. JDBC 连接器专属模板：与当前所选 Profile 场景动态联动
-  if (normalizedName === 'jdbc') {
-    const matchedProfile = selectedProfileKeys.find(
-      (key) => JDBC_PROFILE_TEMPLATES[key.toLowerCase()],
-    );
-    const profileConfig = matchedProfile
-      ? JDBC_PROFILE_TEMPLATES[matchedProfile.toLowerCase()]
-      : JDBC_PROFILE_TEMPLATES.mysql;
-
-    if (mode === 'source') {
-      return `source {
-  Jdbc {
-    result_table_name = "jdbc_source_table"
-    url = "${profileConfig.url}"
-    driver = "${profileConfig.driver}"
-    user = "your_username"
-    password = "your_password"
-    query = "select * from your_table limit 100"
-    # fetch_size = 1024
-    # partition_column = "id"
-    # partition_num = 4
-  }
-}`;
-    }
-
-    return `sink {
-  Jdbc {
-    source_table_name = "input_table"
-    url = "${profileConfig.url}"
-    driver = "${profileConfig.driver}"
-    user = "your_username"
-    password = "your_password"
-    query = "insert into target_table (id, name) values (?, ?)"
-    # batch_size = 1000
-    # primary_keys = ["id"]
-  }
-}`;
-  }
-
-  // 2. MySQL-CDC and other CDC connectors
-  // 2. MySQL-CDC 与其他 CDC 变更捕获连接器
-  if (normalizedName.startsWith('cdc-')) {
-    return `source {
-  ${hoconName} {
-    result_table_name = "${normalizedName}_cdc"
-    hostname = "127.0.0.1"
-    port = 3306
-    username = "root"
-    password = "your_password"
-    database-name = "your_database"
-    table-name = "your_database.*"
-    # startup.mode = "INITIAL"
-    # exactly_once = "true"
-  }
-}`;
-  }
-
-  // 3. Kafka connector
-  // 3. Kafka 消息队列连接器
-  if (normalizedName === 'kafka') {
-    if (mode === 'source') {
-      return `source {
-  Kafka {
-    result_table_name = "kafka_source"
-    topic = "your_topic"
-    bootstrap.servers = "localhost:9092"
-    consumer.group = "seatunnel_group"
-    format = "json"
-    schema = {
-      fields {
-        id = "bigint"
-        name = "string"
-      }
-    }
-  }
-}`;
-    }
-    return `sink {
-  Kafka {
-    source_table_name = "input_table"
-    topic = "target_topic"
-    bootstrap.servers = "localhost:9092"
-    format = "json"
-    semantics = "NON_EXACTLY_ONCE"
-  }
-}`;
-  }
-
-  // 4. ClickHouse connector
-  // 4. ClickHouse 分析数仓连接器
-  if (normalizedName === 'clickhouse') {
-    if (mode === 'source') {
-      return `source {
-  Clickhouse {
-    result_table_name = "clickhouse_source"
-    host = "localhost:8123"
-    database = "default"
-    sql = "select * from your_table"
-    username = "default"
-    password = ""
-  }
-}`;
-    }
-    return `sink {
-  Clickhouse {
-    source_table_name = "input_table"
-    host = "localhost:8123"
-    database = "default"
-    table = "target_table"
-    username = "default"
-    password = ""
-  }
-}`;
-  }
-
-  // 5. Doris / StarRocks connectors
-  // 5. Doris / StarRocks 现代分析型数据仓库
-  if (normalizedName === 'doris' || normalizedName === 'starrocks') {
-    const isDoris = normalizedName === 'doris';
-    const identifier = isDoris ? 'Doris' : 'StarRocks';
-    return `sink {
-  ${identifier} {
-    source_table_name = "input_table"
-    node_urls = ["localhost:8030"]
-    username = "root"
-    password = ""
-    database = "your_database"
-    table = "target_table"
-    # batch_max_rows = 100000
-    # batch_max_bytes = 104857600
-  }
-}`;
-  }
-
-  // 6. Generic source/sink fallback skeleton
-  // 6. 通用输入与输出骨架兜底
-  if (mode === 'source') {
-    return `source {
-  ${hoconName} {
-    result_table_name = "${normalizedName}_source"
-    # 请参考官方文档补充连接器详细参数 / Add connector parameters here
-  }
-}`;
-  }
-
-  return `sink {
-  ${hoconName} {
-    source_table_name = "input_table"
-    # 请参考官方文档补充连接器详细参数 / Add connector parameters here
-  }
-}`;
-}
 
 /**
  * Official connector icon asset mapping (verified against seatunnel/docs/images/icons)
@@ -628,19 +406,17 @@ export function getConnectorDocSlug(
     return 'sql';
   }
 
-  // 2. CDC connectors / CDC 插件 (主要作为 source)
-  const cdcMap: Record<string, string> = {
-    'cdc-mysql': 'MySQL-CDC',
-    'cdc-oracle': 'Oracle-CDC',
-    'cdc-postgres': 'PostgreSQL-CDC',
-    'cdc-sqlserver': 'SqlServer-CDC',
-    'cdc-opengauss': 'Opengauss-CDC',
-    'cdc-tidb': 'TiDB-CDC',
-    'cdc-oceanbase': 'OceanBase',
-    'cdc-mongodb': 'MongoDB-CDC',
-  };
-  if (cdcMap[clean]) {
-    return cdcMap[clean];
+  // 2. CDC connectors / CDC 插件 (主要作为 source，动态规则推导与特例保护)
+  if (clean.startsWith('cdc-')) {
+    const suffix = clean.slice(4);
+    if (suffix === 'mysql') return 'MySQL-CDC';
+    if (suffix === 'postgres' || suffix === 'postgresql') return 'PostgreSQL-CDC';
+    if (suffix === 'sqlserver') return 'SqlServer-CDC';
+    if (suffix === 'opengauss') return 'Opengauss-CDC';
+    if (suffix === 'mongodb') return 'MongoDB-CDC';
+    if (suffix === 'tidb') return 'TiDB-CDC';
+    if (suffix === 'oceanbase') return 'OceanBase';
+    return `${toPascalCase(suffix)}-CDC`;
   }
 
   // 3. Test & Virtual connectors / 模拟与测试连接器
@@ -654,27 +430,12 @@ export function getConnectorDocSlug(
     return 'Console';
   }
 
-  // 4. File-based connectors / 文件类连接器
-  const fileMap: Record<string, string> = {
-    'file-local': 'LocalFile',
-    localfile: 'LocalFile',
-    'file-s3': 'S3File',
-    s3file: 'S3File',
-    'file-hdfs': 'HdfsFile',
-    hdfsfile: 'HdfsFile',
-    'file-ftp': 'FtpFile',
-    ftpfile: 'FtpFile',
-    'file-sftp': 'SftpFile',
-    sftpfile: 'SftpFile',
-    'file-oss': 'OssFile',
-    ossfile: 'OssFile',
-    'file-obs': 'ObsFile',
-    obsfile: 'ObsFile',
-    'file-cos': 'CosFile',
-    cosfile: 'CosFile',
-  };
-  if (fileMap[clean]) {
-    return fileMap[clean];
+  // 4. File-based connectors / 文件类连接器 (规则推导：file-xxx 或 xxxfile -> XxxFile)
+  if (clean.startsWith('file-')) {
+    return `${toPascalCase(clean.slice(5))}File`;
+  }
+  if (clean.endsWith('file')) {
+    return toPascalCase(clean);
   }
 
   // 5. Special database casing in SeaTunnel docs / SeaTunnel 官方文档特定大小写
@@ -699,8 +460,8 @@ export function getConnectorDocSlug(
     return SPECIAL_IDENTIFIERS[clean];
   }
 
-  // 7. Capitalize first letter as fallback / 默认首字母大写兜底
-  return clean.charAt(0).toUpperCase() + clean.slice(1);
+  // 7. Dynamic PascalCase fallback / 规则推导首字母大写兜底
+  return toPascalCase(clean);
 }
 
 /**

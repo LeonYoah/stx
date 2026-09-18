@@ -50,3 +50,19 @@ func TestGetOutboundIP(t *testing.T) {
 		}
 	}
 }
+
+// TestListLocalIPAddresses 验证本机地址枚举不含回环/未指定地址。
+// TestListLocalIPAddresses verifies local address listing excludes loopback/unspecified.
+func TestListLocalIPAddresses(t *testing.T) {
+	c := NewMetricsCollector(nil)
+	ips := c.ListLocalIPAddresses()
+	for _, ip := range ips {
+		parsed := net.ParseIP(ip)
+		if parsed == nil {
+			t.Fatalf("invalid IP returned: %s", ip)
+		}
+		if parsed.IsLoopback() || parsed.IsUnspecified() || parsed.IsLinkLocalUnicast() {
+			t.Fatalf("unexpected non-routable IP in list: %s", ip)
+		}
+	}
+}

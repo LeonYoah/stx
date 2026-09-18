@@ -1132,7 +1132,7 @@ type hostStatusUpdaterAdapter struct {
 
 // UpdateAgentStatus updates the agent status for a host by pre-bound host ID or IP address.
 // UpdateAgentStatus 根据预绑定主机 ID 或 IP 地址更新主机的 Agent 状态。
-func (a *hostStatusUpdaterAdapter) UpdateAgentStatus(ctx context.Context, hostID uint, ipAddress string, agentID string, version string, systemInfo *agent.SystemInfo, hostname string) (uint, error) {
+func (a *hostStatusUpdaterAdapter) UpdateAgentStatus(ctx context.Context, hostID uint, ipAddress string, agentID string, version string, systemInfo *agent.SystemInfo, hostname string, localIPs []string) (uint, error) {
 	var sysInfo *host.SystemInfo
 	if systemInfo != nil {
 		sysInfo = &host.SystemInfo{
@@ -1144,7 +1144,7 @@ func (a *hostStatusUpdaterAdapter) UpdateAgentStatus(ctx context.Context, hostID
 		}
 	}
 
-	h, err := a.hostService.UpdateAgentStatus(ctx, hostID, ipAddress, agentID, version, sysInfo, hostname)
+	h, err := a.hostService.UpdateAgentStatus(ctx, hostID, ipAddress, agentID, version, sysInfo, hostname, localIPs)
 	if err != nil {
 		return 0, err
 	}

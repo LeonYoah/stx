@@ -52,13 +52,24 @@ type STXJavaProxyServiceStatus struct {
 }
 
 // StartManagedSTXJavaProxyService ensures the managed stx-java-proxy service is available.
-func StartManagedSTXJavaProxyService(ctx context.Context, installDir string, seatunnelVersion string) (*STXJavaProxyServiceStatus, error) {
+// preferredPort>0 时优先使用该端口；否则回退到环境变量 / 落盘端口 / 默认 18080。
+// When preferredPort > 0 it is tried first; otherwise env / persisted / default 18080 apply.
+func StartManagedSTXJavaProxyService(ctx context.Context, installDir string, seatunnelVersion string, preferredPort int) (*STXJavaProxyServiceStatus, error) {
 	status, _ := GetManagedSTXJavaProxyServiceStatus(ctx, installDir)
+	// 已健康且端口匹配（或未指定端口）时直接返回，避免无谓重启。
+	// Skip restart when already healthy and the port matches (or no preferred port was given).
 	if status != nil && status.Healthy {
-		return status, nil
+		if preferredPort <= 0 || status.Port <= 0 || status.Port == preferredPort {
+			return status, nil
+		}
+		// 端口不一致时先停旧实例，再按指定端口启动。
+		// Stop the old instance before starting on the preferred port.
+		if _, stopErr := StopManagedSTXJavaProxyService(ctx, installDir); stopErr != nil {
+			logger.WarnF(ctx, "[stx-java-proxy] stop before port switch failed: preferred=%d, current=%d, error=%v", preferredPort, status.Port, stopErr)
+		}
 	}
 
-	baseURL, err := ensureSTXJavaProxyService(ctx, installDir, seatunnelVersion)
+	baseURL, err := ensureSTXJavaProxyService(ctx, installDir, seatunnelVersion, preferredPort)
 	if err != nil {
 		return nil, err
 	}
@@ -120,7 +131,7 @@ func GetManagedSTXJavaProxyServiceStatus(ctx context.Context, installDir string)
 	}
 
 	if status.Endpoint == "" {
-		for _, port := range stxJavaProxyPortCandidates(status.StateDir) {
+		for _, port := range stxJavaProxyPortCandidates(status.StateDir, 0) {
 			if port <= 0 {
 				continue
 			}
@@ -171,6 +182,22 @@ func GetManagedSTXJavaProxyServiceStatus(ctx context.Context, installDir string)
 	}
 
 	return status, nil
+}
+
+// stopTrackedSTXJavaProxy 仅在已有 pid/port 状态文件时停止托管进程。
+// 没有状态文件时直接返回，避免卸载探测默认端口误停无关监听。
+// stopTrackedSTXJavaProxy stops the managed process only when pid/port state files exist.
+// Skip when no state file is present so uninstall does not probe the default port and kill an unrelated listener.
+func stopTrackedSTXJavaProxy(ctx context.Context, installDir string) {
+	stateDir := stxJavaProxyServiceStateDir(installDir)
+	pidFile := filepath.Join(stateDir, "service.pid")
+	portFile := filepath.Join(stateDir, "service.port")
+	if !fileExists(pidFile) && !fileExists(portFile) {
+		return
+	}
+	if _, err := StopManagedSTXJavaProxyService(ctx, installDir); err != nil {
+		logger.WarnF(ctx, "[Uninstall] stop stx-java-proxy failed, continue uninstall: install_dir=%s, error=%v", installDir, err)
+	}
 }
 
 // StopManagedSTXJavaProxyService stops the locally managed stx-java-proxy service.

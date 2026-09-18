@@ -923,6 +923,10 @@ type InstallParams struct {
 	// HTTPPort 是 HTTP API 端口
 	HTTPPort int `json:"http_port"`
 
+	// JavaProxyPort is the managed stx-java-proxy listen port. 0 means the default.
+	// JavaProxyPort 是托管 stx-java-proxy 监听端口。0 表示使用默认端口。
+	JavaProxyPort int `json:"java_proxy_port,omitempty"`
+
 	// EnableHTTP controls whether the built-in HTTP API / Web UI is enabled.
 	// EnableHTTP 控制是否启用内置 HTTP API / Web UI。
 	EnableHTTP *bool `json:"enable_http,omitempty"`
@@ -3324,9 +3328,11 @@ func buildStringMapNodeContent(values map[string]string) []*yaml.Node {
 	return content
 }
 
-// Uninstall removes the SeaTunnel installation
-// Uninstall 移除 SeaTunnel 安装
+// Uninstall removes the SeaTunnel installation.
+// Uninstall 移除 SeaTunnel 安装。先停掉托管的 stx-java-proxy，避免卸载后端口仍被占用。
+// Stop the managed stx-java-proxy first so the listen port is released after uninstall.
 func (m *InstallerManager) Uninstall(ctx context.Context, installDir string) error {
+	stopTrackedSTXJavaProxy(ctx, installDir)
 	_, err := RemoveManagedInstallDir(installDir)
 	return err
 }

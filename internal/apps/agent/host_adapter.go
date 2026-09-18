@@ -44,7 +44,7 @@ func NewHostServiceAdapter(hostService *host.Service) *HostServiceAdapter {
 // UpdateAgentStatus updates the agent status for a host by pre-bound host ID or IP address.
 // UpdateAgentStatus 根据预绑定主机 ID 或 IP 地址更新主机的 Agent 状态。
 // Requirements: 3.2 - Matches Agent hostID or IP with registered host and updates status to "installed".
-func (a *HostServiceAdapter) UpdateAgentStatus(ctx context.Context, hostID uint, ipAddress string, agentID string, version string, sysInfo *SystemInfo, hostname string) (uint, error) {
+func (a *HostServiceAdapter) UpdateAgentStatus(ctx context.Context, hostID uint, ipAddress string, agentID string, version string, sysInfo *SystemInfo, hostname string, localIPs []string) (uint, error) {
 	var hostSysInfo *host.SystemInfo
 	if sysInfo != nil {
 		hostSysInfo = &host.SystemInfo{
@@ -56,7 +56,7 @@ func (a *HostServiceAdapter) UpdateAgentStatus(ctx context.Context, hostID uint,
 		}
 	}
 
-	updatedHost, err := a.hostService.UpdateAgentStatus(ctx, hostID, ipAddress, agentID, version, hostSysInfo, hostname)
+	updatedHost, err := a.hostService.UpdateAgentStatus(ctx, hostID, ipAddress, agentID, version, hostSysInfo, hostname, localIPs)
 	if err != nil {
 		return 0, err
 	}

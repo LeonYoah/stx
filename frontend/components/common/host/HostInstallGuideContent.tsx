@@ -44,7 +44,7 @@ import {
   MemoryStick,
 } from 'lucide-react';
 import services from '@/lib/services';
-import {HostInfo, HostStatus} from '@/lib/services/host/types';
+import {AgentStatus, HostInfo, HostStatus} from '@/lib/services/host/types';
 
 interface HostInstallGuideContentProps {
   // 目标主机信息
@@ -59,6 +59,24 @@ interface HostInstallGuideContentProps {
   // 关闭引导对话框回调
   // Callback to close guide dialog
   onClose?: () => void;
+}
+
+/**
+ * 判断主机是否已完成 Agent 首次接入（在线或已收到心跳）。
+ * Decide whether the host has completed first Agent contact (online or heartbeat received).
+ */
+function isHostAgentConnected(h: HostInfo): boolean {
+  if (h.is_online) {
+    return true;
+  }
+  if (h.status === HostStatus.CONNECTED) {
+    return true;
+  }
+  // 注册成功后可能短暂尚未刷新 is_online，但 agent 已标记为已安装且有心跳时间
+  // After registration, is_online may lag briefly while agent_status/last_heartbeat already indicate contact
+  return (
+    h.agent_status === AgentStatus.INSTALLED && Boolean(h.last_heartbeat)
+  );
 }
 
 /**
@@ -91,6 +109,9 @@ export function HostInstallGuideContent({
   const [checkingHeartbeat, setCheckingHeartbeat] = useState<boolean>(false);
   const isMountedRef = useRef<boolean>(true);
   const pollingTimerRef = useRef<NodeJS.Timeout | null>(null);
+  // 用 ref 记录是否已提示成功，避免轮询闭包读到过期状态
+  // Track success toast with a ref to avoid stale closure during polling
+  const wasConnectedRef = useRef<boolean>(isHostAgentConnected(host));
 
   // 1. 加载主机的 Agent 一键安装命令
   // 1. Fetch Agent install command for the host
@@ -114,16 +135,17 @@ export function HostInstallGuideContent({
   // 2. Check host heartbeat connection status
   const checkHeartbeat = useCallback(
     async (silent = false) => {
-      if (!silent) {setCheckingHeartbeat(true);}
+      if (!silent) {
+        setCheckingHeartbeat(true);
+      }
       try {
         const result = await services.host.getHostSafe(host.id);
         if (result.success && result.data && isMountedRef.current) {
           const updated = result.data;
           setCurrentHost(updated);
-          if (
-            updated.status === HostStatus.CONNECTED &&
-            currentHost.status !== HostStatus.CONNECTED
-          ) {
+          const connected = isHostAgentConnected(updated);
+          if (connected && !wasConnectedRef.current) {
+            wasConnectedRef.current = true;
             toast.success(t('host.installGuide.connectedSuccess'));
             onConnected?.(updated);
           }
@@ -136,7 +158,7 @@ export function HostInstallGuideContent({
         }
       }
     },
-    [currentHost.status, host.id, onConnected, t],
+    [host.id, onConnected, t],
   );
 
   // 挂载时加载安装命令
@@ -149,33 +171,12 @@ export function HostInstallGuideContent({
     };
   }, [loadInstallCommand]);
 
-  // 3. 实时轮询：当状态仍为未安装/待连接时，每 3 秒检测一次
-  // 3. Polling: Auto-check every 3 seconds while pending
-  useEffect(() => {
-    if (currentHost.status === HostStatus.CONNECTED) {
-      if (pollingTimerRef.current) {
-        clearInterval(pollingTimerRef.current);
-        pollingTimerRef.current = null;
-      }
-      return;
-    }
-
-    pollingTimerRef.current = setInterval(() => {
-      void checkHeartbeat(true);
-    }, 3000);
-
-    return () => {
-      if (pollingTimerRef.current) {
-        clearInterval(pollingTimerRef.current);
-        pollingTimerRef.current = null;
-      }
-    };
-  }, [checkHeartbeat, currentHost.status]);
-
   // 复制命令到剪贴板
   // Copy command to clipboard
   const handleCopy = async () => {
-    if (!installCommand) {return;}
+    if (!installCommand) {
+      return;
+    }
     try {
       await navigator.clipboard.writeText(installCommand);
       setCopied(true);
@@ -190,7 +191,31 @@ export function HostInstallGuideContent({
     }
   };
 
-  const isConnected = currentHost.status === HostStatus.CONNECTED;
+  const isConnected = isHostAgentConnected(currentHost);
+
+  // 3. 实时轮询：未接入时立即检测一次，之后每 3 秒检测
+  // 3. Polling: check immediately, then every 3s while not connected
+  useEffect(() => {
+    if (isConnected) {
+      if (pollingTimerRef.current) {
+        clearInterval(pollingTimerRef.current);
+        pollingTimerRef.current = null;
+      }
+      return;
+    }
+
+    void checkHeartbeat(true);
+    pollingTimerRef.current = setInterval(() => {
+      void checkHeartbeat(true);
+    }, 3000);
+
+    return () => {
+      if (pollingTimerRef.current) {
+        clearInterval(pollingTimerRef.current);
+        pollingTimerRef.current = null;
+      }
+    };
+  }, [checkHeartbeat, isConnected]);
 
   return (
     <div className='space-y-4'>

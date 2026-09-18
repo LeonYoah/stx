@@ -424,6 +424,8 @@ interface InstallWizardConfig {
   clusterId: string;
   clusterPort: number;
   httpPort: number;
+  /** Managed stx-java-proxy listen port / 托管 stx-java-proxy 监听端口 */
+  javaProxyPort: number;
   runtime: RuntimeEngineConfig;
   jvm: JVMConfig;
   checkpoint: CheckpointConfig;
@@ -452,6 +454,7 @@ const defaultConfig: InstallWizardConfig = {
   clusterId: '',
   clusterPort: 5801,
   httpPort: 8080,
+  javaProxyPort: 18080,
   runtime: {
     dynamic_slot: true,
     slot_num: 2,
@@ -552,6 +555,7 @@ export function useInstallWizard(): UseInstallWizardReturn {
       node_role: config.nodeRole,
       cluster_port: config.clusterPort,
       http_port: config.httpPort,
+      java_proxy_port: config.javaProxyPort,
       enable_http: config.runtime.enable_http,
       dynamic_slot: config.runtime.dynamic_slot,
       slot_num: config.runtime.slot_num,

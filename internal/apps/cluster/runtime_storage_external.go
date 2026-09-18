@@ -144,7 +144,7 @@ func (s *Service) fillRemoteRuntimeStorageStats(ctx context.Context, clusterObj 
 		spec.Warning = firstNonEmpty(spec.Warning, fmt.Sprintf("remote storage statistics unavailable: %v", err))
 		return
 	}
-	params := runtimeStorageProxyParams(node.InstallDir, clusterObj.Version, kind, cfg.Checkpoint, cfg.IMAP)
+	params := runtimeStorageProxyParams(node.InstallDir, clusterObj.Version, kind, cfg.Checkpoint, cfg.IMAP, clusterObj)
 	success, output, sendErr := s.agentSender.SendCommand(ctx, hostInfo.AgentID, "stx_java_proxy_stat", params)
 	if sendErr != nil {
 		spec.Warning = firstNonEmpty(spec.Warning, fmt.Sprintf("remote storage statistics unavailable: %v", sendErr))
@@ -440,7 +440,7 @@ func (s *Service) runRuntimeStorageProbeOnHost(
 	if node == nil || host == nil || strings.TrimSpace(host.AgentID) == "" {
 		return &installerapp.RuntimeStorageValidationHostResult{Success: false, Message: "host agent is offline"}
 	}
-	params := runtimeStorageProxyParams(node.InstallDir, clusterObj.Version, kind, checkpoint, imap)
+	params := runtimeStorageProxyParams(node.InstallDir, clusterObj.Version, kind, checkpoint, imap, clusterObj)
 	success, output, err := s.agentSender.SendCommand(ctx, host.AgentID, "stx_java_proxy_probe", params)
 	if err != nil {
 		return &installerapp.RuntimeStorageValidationHostResult{Success: false, Message: err.Error()}
@@ -557,6 +557,7 @@ func runtimeStorageProxyParams(
 	kind installerapp.RuntimeStorageValidationKind,
 	checkpoint *installerapp.CheckpointConfig,
 	imap *installerapp.IMAPConfig,
+	cluster *Cluster,
 ) map[string]string {
 	params := map[string]string{
 		"kind":        string(kind),
@@ -573,7 +574,19 @@ func runtimeStorageProxyParams(
 			fillRuntimeStorageProxyParams(params, string(imap.StorageType), imap.Namespace, imap.HDFSNameNodeHost, imap.HDFSNameNodePort, imap.KerberosPrincipal, imap.KerberosKeytabFilePath, imap.HDFSHAEnabled, imap.HDFSNameServices, imap.HDFSHANamenodes, imap.HDFSNamenodeRPCAddress1, imap.HDFSNamenodeRPCAddress2, imap.HDFSFailoverProxyProvider, imap.StorageEndpoint, imap.StorageAccessKey, imap.StorageSecretKey, imap.StorageBucket)
 		}
 	}
+	attachClusterJavaProxyPort(params, cluster)
 	return params
+}
+
+// attachClusterJavaProxyPort 把集群配置的 java-proxy 端口写进 Agent 命令参数。
+// attachClusterJavaProxyPort copies the cluster java-proxy port into the agent command params.
+func attachClusterJavaProxyPort(params map[string]string, cluster *Cluster) {
+	if params == nil || cluster == nil {
+		return
+	}
+	if ports := cluster.Config.GetPortConfig(); ports != nil && ports.JavaProxyPort > 0 {
+		params["java_proxy_port"] = strconv.Itoa(ports.JavaProxyPort)
+	}
 }
 
 func fillRuntimeStorageProxyParams(

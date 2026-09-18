@@ -774,6 +774,51 @@ func (c *MetricsCollector) GetIPAddress() string {
 	}
 }
 
+// ListLocalIPAddresses 返回本机全部非回环、非链路本地网卡 IP（去重）。
+// 用于控制面校验用户填写的主机 IP 是否属于当前机器。
+// ListLocalIPAddresses returns all non-loopback, non-link-local interface IPs (deduplicated).
+// Used by Control Plane to verify whether the user-entered host IP belongs to this machine.
+func (c *MetricsCollector) ListLocalIPAddresses() []string {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return nil
+	}
+
+	seen := make(map[string]struct{})
+	var ips []string
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			var ip net.IP
+			switch v := addr.(type) {
+			case *net.IPNet:
+				ip = v.IP
+			case *net.IPAddr:
+				ip = v.IP
+			}
+			if ip == nil || ip.IsLoopback() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+				continue
+			}
+			s := ip.String()
+			if s == "" {
+				continue
+			}
+			if _, ok := seen[s]; ok {
+				continue
+			}
+			seen[s] = struct{}{}
+			ips = append(ips, s)
+		}
+	}
+	return ips
+}
+
 // GetOutboundIP 获取用于访问目标地址的本地出口 IP 地址。
 // 它通过查询操作系统内核路由表获取，不会发送实际的网络数据包。
 // GetOutboundIP determines the local outbound IP address used to reach the target address.

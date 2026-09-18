@@ -56,7 +56,6 @@ const (
 	stxJavaProxyDefaultHost       = "127.0.0.1"
 	stxJavaProxyDefaultPort       = 18080
 	stxJavaProxyHealthPath        = "/healthz"
-	stxJavaProxyStateDirName      = ".stx"
 	stxJavaProxyServiceDirName    = "stx-java-proxy"
 	stxJavaProxyStartupWait       = 12 * time.Second
 )
@@ -279,7 +278,7 @@ func (m *InstallerManager) maybeProbeCheckpointRuntimeStorage(ctx context.Contex
 	if err != nil {
 		return fmt.Sprintf("failed to build checkpoint probe request: %v", err)
 	}
-	response, err := m.executeRuntimeStorageProbe(ctx, params.InstallDir, params.Version, "checkpoint", request)
+	response, err := m.executeRuntimeStorageProbe(ctx, params.InstallDir, params.Version, "checkpoint", params.JavaProxyPort, request)
 	if err != nil {
 		logger.WarnF(ctx, "[Install] checkpoint runtime probe execution failed: install_dir=%s, error=%v", params.InstallDir, err)
 		return err.Error()
@@ -306,7 +305,7 @@ func (m *InstallerManager) maybeProbeIMAPRuntimeStorage(ctx context.Context, par
 	if err != nil {
 		return fmt.Sprintf("failed to build IMAP probe request: %v", err)
 	}
-	response, err := m.executeRuntimeStorageProbe(ctx, params.InstallDir, params.Version, "imap", request)
+	response, err := m.executeRuntimeStorageProbe(ctx, params.InstallDir, params.Version, "imap", params.JavaProxyPort, request)
 	if err != nil {
 		logger.WarnF(ctx, "[Install] IMAP runtime probe execution failed: install_dir=%s, error=%v", params.InstallDir, err)
 		return err.Error()
@@ -400,9 +399,10 @@ func (m *InstallerManager) executeRuntimeStorageProbe(
 	installDir string,
 	seatunnelVersion string,
 	kind string,
+	javaProxyPort int,
 	request map[string]interface{},
 ) (*runtimeStorageProbeResponse, error) {
-	response, err := m.executeRuntimeStorageProbeViaManagedService(ctx, installDir, seatunnelVersion, kind, request)
+	response, err := m.executeRuntimeStorageProbeViaManagedService(ctx, installDir, seatunnelVersion, kind, javaProxyPort, request)
 	if err == nil && response != nil {
 		return response, nil
 	}
@@ -416,7 +416,7 @@ func (m *InstallerManager) executeRuntimeStorageProbe(
 		)
 	}
 
-	return m.executeRuntimeStorageProbeWithCLI(ctx, installDir, seatunnelVersion, kind, request)
+	return m.executeRuntimeStorageProbeWithCLI(ctx, installDir, seatunnelVersion, kind, javaProxyPort, request)
 }
 
 func (m *InstallerManager) executeRuntimeStorageProbeViaManagedService(
@@ -424,9 +424,12 @@ func (m *InstallerManager) executeRuntimeStorageProbeViaManagedService(
 	installDir string,
 	seatunnelVersion string,
 	kind string,
+	javaProxyPort int,
 	request map[string]interface{},
 ) (*runtimeStorageProbeResponse, error) {
-	baseURL, err := ensureSTXJavaProxyService(ctx, installDir, seatunnelVersion)
+	// 安装参数里的 java_proxy_port 必须传进来，否则会落到默认 18080。
+	// Pass the install-configured java_proxy_port; otherwise startup falls back to default 18080.
+	baseURL, err := ensureSTXJavaProxyService(ctx, installDir, seatunnelVersion, javaProxyPort)
 	if err != nil {
 		return nil, err
 	}
@@ -475,6 +478,7 @@ func (m *InstallerManager) executeRuntimeStorageProbeWithCLI(
 	installDir string,
 	seatunnelVersion string,
 	kind string,
+	javaProxyPort int,
 	request map[string]interface{},
 ) (*runtimeStorageProbeResponse, error) {
 	scriptPath, err := resolveSTXJavaProxyScriptPath(installDir)
@@ -516,12 +520,15 @@ func (m *InstallerManager) executeRuntimeStorageProbeWithCLI(
 		"--response-file",
 		responsePath,
 	)
-	cmd.Env = append(
-		os.Environ(),
+	env := []string{
 		fmt.Sprintf("SEATUNNEL_HOME=%s", installDir),
 		fmt.Sprintf("%s=%s", stxJavaProxyJarEnvVar, jarPath),
 		fmt.Sprintf("%s=%s", stxJavaProxyVersionEnvVar, defaultSTXJavaProxyVersion(seatunnelVersion)),
-	)
+	}
+	if javaProxyPort > 0 {
+		env = append(env, fmt.Sprintf("%s=%d", stxJavaProxyPortEnvVar, javaProxyPort))
+	}
+	cmd.Env = append(os.Environ(), env...)
 	output, execErr := cmd.CombinedOutput()
 
 	response, responseErr := readRuntimeStorageProbeResponse(responsePath)
@@ -543,7 +550,34 @@ func (m *InstallerManager) executeRuntimeStorageProbeWithCLI(
 	return nil, fmt.Errorf("runtime probe returned no response")
 }
 
-func ensureSTXJavaProxyService(ctx context.Context, installDir string, seatunnelVersion string) (string, error) {
+func stxJavaProxyPortFromContext(ctx context.Context) int {
+	if ctx == nil {
+		return 0
+	}
+	port, _ := ctx.Value(stxJavaProxyPortContextKey{}).(int)
+	return port
+}
+
+type stxJavaProxyPortContextKey struct{}
+
+// ContextWithSTXJavaProxyPort 把集群配置的 java-proxy 端口放进上下文，供后续托管启动读取。
+// ContextWithSTXJavaProxyPort stores the configured java-proxy port for later managed startup.
+func ContextWithSTXJavaProxyPort(ctx context.Context, port int) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if port <= 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, stxJavaProxyPortContextKey{}, port)
+}
+
+func ensureSTXJavaProxyService(ctx context.Context, installDir string, seatunnelVersion string, preferredPort int) (string, error) {
+	// 命令上下文里的端口优先于默认值，安装参数显式传入时仍然最高。
+	// A port carried on the command context overrides the default. An explicit argument still wins.
+	if preferredPort <= 0 {
+		preferredPort = stxJavaProxyPortFromContext(ctx)
+	}
 	if endpoint := strings.TrimSpace(os.Getenv(stxJavaProxyEndpointEnvVar)); endpoint != "" {
 		normalized := strings.TrimRight(endpoint, "/")
 		if err := waitForSTXJavaProxyHealthy(ctx, normalized, 2*time.Second); err != nil {
@@ -570,7 +604,19 @@ func ensureSTXJavaProxyService(ctx context.Context, installDir string, seatunnel
 		return "", fmt.Errorf("create stx-java-proxy state dir: %w", err)
 	}
 
-	for _, port := range stxJavaProxyPortCandidates(stateDir) {
+	// 用户/集群指定端口优先写入，后续候选与启动都会认这个端口。
+	// Persist the preferred port first so later candidates / startup honor it.
+	if preferredPort > 0 {
+		_ = os.WriteFile(filepath.Join(stateDir, "service.port"), []byte(strconv.Itoa(preferredPort)+"\n"), 0o644)
+	}
+
+	// 指定端口时只认该端口是否已健康，避免误复用旧端口上的实例。
+	// When a preferred port is set, only accept that port as already healthy.
+	checkPorts := stxJavaProxyPortCandidates(stateDir, preferredPort)
+	if preferredPort > 0 {
+		checkPorts = []int{preferredPort}
+	}
+	for _, port := range checkPorts {
 		if port <= 0 {
 			continue
 		}
@@ -581,12 +627,12 @@ func ensureSTXJavaProxyService(ctx context.Context, installDir string, seatunnel
 		}
 	}
 
-	port := stxJavaProxyPreferredPort(stateDir)
+	port := stxJavaProxyPreferredPort(stateDir, preferredPort)
 	baseURL, err := startSTXJavaProxyService(ctx, installDir, seatunnelVersion, scriptPath, jarPath, stateDir, port)
 	if err == nil {
 		return baseURL, nil
 	}
-	if os.Getenv(stxJavaProxyPortEnvVar) != "" {
+	if preferredPort > 0 || os.Getenv(stxJavaProxyPortEnvVar) != "" {
 		return "", err
 	}
 
@@ -626,7 +672,9 @@ func startSTXJavaProxyService(
 	cmd.Env = append(
 		os.Environ(),
 		fmt.Sprintf("SEATUNNEL_HOME=%s", installDir),
+		fmt.Sprintf("%s=%s", stxJavaProxyHomeEnvVar, resolveSTXJavaProxyHome(installDir)),
 		fmt.Sprintf("%s=%s", stxJavaProxyJarEnvVar, jarPath),
+		fmt.Sprintf("%s=%d", stxJavaProxyPortEnvVar, port),
 		fmt.Sprintf("%s=%s", stxJavaProxyVersionEnvVar, defaultSTXJavaProxyVersion(seatunnelVersion)),
 	)
 	output, err := cmd.CombinedOutput()
@@ -692,15 +740,56 @@ func waitForSTXJavaProxyHealthy(ctx context.Context, baseURL string, timeout tim
 }
 
 func stxJavaProxyServiceStateDir(installDir string) string {
-	return filepath.Join(installDir, stxJavaProxyStateDirName, stxJavaProxyServiceDirName)
+	// 状态与日志统一落在 Agent 主目录下，不再挂到 SeaTunnel installDir/.stx。
+	// Persist state/logs under Agent home instead of SeaTunnel installDir/.stx.
+	return filepath.Join(resolveSTXJavaProxyHome(installDir), "logs", stxJavaProxyServiceDirName)
+}
+
+// resolveSTXJavaProxyHome 解析 Agent 主目录（jar/scripts/logs 的统一根）。
+// 优先 STX_JAVA_PROXY_HOME，其次脚本所在 Agent 布局，再回退 ~/.stx/agent 与系统默认目录。
+// resolveSTXJavaProxyHome resolves the Agent home used for jar/scripts/logs.
+// Prefer STX_JAVA_PROXY_HOME, then the Agent layout that owns the script, then ~/.stx/agent / system default.
+func resolveSTXJavaProxyHome(seatunnelInstallDir string) string {
+	if home := strings.TrimSpace(os.Getenv(stxJavaProxyHomeEnvVar)); home != "" {
+		return filepath.Clean(home)
+	}
+	if script, err := resolveSTXJavaProxyScriptPath(seatunnelInstallDir); err == nil {
+		scriptsDir := filepath.Dir(script)
+		if filepath.Base(scriptsDir) == "scripts" {
+			return filepath.Clean(filepath.Dir(scriptsDir))
+		}
+	}
+	if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
+		candidate := filepath.Join(home, stxJavaProxyUserSupportDirName)
+		if dirExists(candidate) {
+			return candidate
+		}
+	}
+	if dirExists(stxJavaProxyDefaultSupportDir) {
+		return stxJavaProxyDefaultSupportDir
+	}
+	if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
+		return filepath.Join(home, stxJavaProxyUserSupportDirName)
+	}
+	return stxJavaProxyDefaultSupportDir
+}
+
+func dirExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
 }
 
 func stxJavaProxyServiceBaseURL(port int) string {
 	return fmt.Sprintf("http://%s:%d", stxJavaProxyDefaultHost, port)
 }
 
-func stxJavaProxyPortCandidates(stateDir string) []int {
-	candidates := make([]int, 0, 3)
+func stxJavaProxyPortCandidates(stateDir string, preferredPort int) []int {
+	candidates := make([]int, 0, 4)
+	// 用户/集群显式端口优先于环境变量与落盘记录。
+	// Explicit user/cluster port takes precedence over env and persisted state.
+	if preferredPort > 0 {
+		candidates = append(candidates, preferredPort)
+	}
 	if port, ok := parseSTXJavaProxyPort(strings.TrimSpace(os.Getenv(stxJavaProxyPortEnvVar))); ok {
 		candidates = append(candidates, port)
 	}
@@ -726,8 +815,8 @@ func stxJavaProxyPortCandidates(stateDir string) []int {
 	return result
 }
 
-func stxJavaProxyPreferredPort(stateDir string) int {
-	candidates := stxJavaProxyPortCandidates(stateDir)
+func stxJavaProxyPreferredPort(stateDir string, preferredPort int) int {
+	candidates := stxJavaProxyPortCandidates(stateDir, preferredPort)
 	if len(candidates) > 0 {
 		return candidates[0]
 	}
@@ -781,7 +870,7 @@ func executeRuntimeStorageStatViaManagedService(
 	kind string,
 	request map[string]interface{},
 ) (*RuntimeStorageStatResult, error) {
-	baseURL, err := ensureSTXJavaProxyService(ctx, installDir, seatunnelVersion)
+	baseURL, err := ensureSTXJavaProxyService(ctx, installDir, seatunnelVersion, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -858,7 +947,7 @@ func executeRuntimeStorageListViaManagedService(
 	kind string,
 	request map[string]interface{},
 ) (*RuntimeStorageListResult, error) {
-	baseURL, err := ensureSTXJavaProxyService(ctx, installDir, seatunnelVersion)
+	baseURL, err := ensureSTXJavaProxyService(ctx, installDir, seatunnelVersion, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -939,7 +1028,7 @@ func ExecuteCheckpointRuntimeStorageProbe(
 		return nil, err
 	}
 	manager := &InstallerManager{}
-	resp, err := manager.executeRuntimeStorageProbe(ctx, installDir, seatunnelVersion, "checkpoint", request)
+	resp, err := manager.executeRuntimeStorageProbe(ctx, installDir, seatunnelVersion, "checkpoint", 0, request)
 	if err != nil {
 		return nil, err
 	}
@@ -967,7 +1056,7 @@ func ExecuteIMAPRuntimeStorageProbe(
 		return nil, err
 	}
 	manager := &InstallerManager{}
-	resp, err := manager.executeRuntimeStorageProbe(ctx, installDir, seatunnelVersion, "imap", request)
+	resp, err := manager.executeRuntimeStorageProbe(ctx, installDir, seatunnelVersion, "imap", 0, request)
 	if err != nil {
 		return nil, err
 	}
@@ -1261,7 +1350,7 @@ func executeRuntimeStoragePreviewViaManagedService(
 	kind string,
 	request map[string]interface{},
 ) (*RuntimeStoragePreviewResult, error) {
-	baseURL, err := ensureSTXJavaProxyService(ctx, installDir, seatunnelVersion)
+	baseURL, err := ensureSTXJavaProxyService(ctx, installDir, seatunnelVersion, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -1305,7 +1394,7 @@ func executeCheckpointRuntimeStorageInspectViaManagedService(
 	seatunnelVersion string,
 	request map[string]interface{},
 ) (*RuntimeStorageCheckpointInspectResult, error) {
-	baseURL, err := ensureSTXJavaProxyService(ctx, installDir, seatunnelVersion)
+	baseURL, err := ensureSTXJavaProxyService(ctx, installDir, seatunnelVersion, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -1349,7 +1438,7 @@ func executeCheckpointRuntimeStorageInspectSourceStateViaManagedService(
 	seatunnelVersion string,
 	request map[string]interface{},
 ) (*RuntimeStorageCheckpointSourceStateInspectResult, error) {
-	baseURL, err := ensureSTXJavaProxyService(ctx, installDir, seatunnelVersion)
+	baseURL, err := ensureSTXJavaProxyService(ctx, installDir, seatunnelVersion, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -1393,7 +1482,7 @@ func executeIMAPRuntimeStorageInspectViaManagedService(
 	seatunnelVersion string,
 	request map[string]interface{},
 ) (*RuntimeStorageIMAPInspectResult, error) {
-	baseURL, err := ensureSTXJavaProxyService(ctx, installDir, seatunnelVersion)
+	baseURL, err := ensureSTXJavaProxyService(ctx, installDir, seatunnelVersion, 0)
 	if err != nil {
 		return nil, err
 	}

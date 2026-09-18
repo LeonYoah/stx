@@ -279,6 +279,7 @@ export interface InstallationRequest {
   cluster_port?: number; // Cluster communication port / 集群通信端口
   worker_port?: number; // Worker hazelcast port / Worker Hazelcast 端口
   http_port?: number; // HTTP API port / HTTP API 端口
+  java_proxy_port?: number; // Managed stx-java-proxy listen port / 托管 stx-java-proxy 监听端口
   enable_http?: boolean; // Enable SeaTunnel HTTP/Web UI / 是否开启 SeaTunnel HTTP/Web UI
   dynamic_slot?: boolean;
   slot_num?: number;

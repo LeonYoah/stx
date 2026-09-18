@@ -22,6 +22,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/LeonYoah/stx/internal/seatunnel"
 )
 
 // STXJavaProxyStatus represents the managed stx-java-proxy state for a cluster.
@@ -93,12 +95,14 @@ func (s *Service) GetSTXJavaProxyServiceLog(
 	}
 	logPath := strings.TrimSpace(status.LogPath)
 	if logPath == "" {
+		// 新 Agent 会回报 Agent home 下的 log_path；此处仅兜底旧路径约定。
+		// Newer agents report log_path under Agent home; this is a legacy path fallback only.
 		installDir := strings.TrimSpace(node.InstallDir)
 		if installDir == "" {
 			installDir = strings.TrimSpace(clusterInfo.InstallDir)
 		}
 		if installDir == "" {
-			installDir = "/opt/seatunnel"
+			installDir = seatunnel.DefaultInstallDir("")
 		}
 		logPath = fmt.Sprintf("%s/.stx/stx-java-proxy/service.log", installDir)
 	}
@@ -145,6 +149,13 @@ func (s *Service) executeSTXJavaProxyCommand(ctx context.Context, clusterID uint
 		"node_id":     fmt.Sprintf("%d", node.ID),
 		"install_dir": node.InstallDir,
 		"version":     clusterInfo.Version,
+	}
+	// 启动/重启时把集群配置的 java-proxy 端口下发给 Agent。
+	// Pass the cluster-configured java-proxy port to Agent on start/restart.
+	if commandType == "start" || commandType == "restart" {
+		if ports := clusterInfo.Config.GetPortConfig(); ports != nil && ports.JavaProxyPort > 0 {
+			params["port"] = fmt.Sprintf("%d", ports.JavaProxyPort)
+		}
 	}
 	success, message, sendErr := s.agentSender.SendCommand(ctx, hostInfo.AgentID, commandType, params)
 	status := decodeSTXJavaProxyStatus(clusterInfo, node, hostInfo, firstNonEmpty(message, errorString(sendErr)))

@@ -20,226 +20,55 @@
  * 集群部署向导组件
  *
  * Multi-step wizard for deploying a new SeaTunnel cluster.
- * Includes host selection, role assignment, installation config, and deployment.
+ * Refactored to follow STX console aesthetic guidelines, dialog hierarchy, and anti-noise design.
  * 多步骤向导，用于部署新的 SeaTunnel 集群。
- * 包括主机选择、角色分配、安装配置和部署。
+ * 遵循 STX 控制台设计美学规范、弹窗分级标准与反冗余说明哲学。
  */
 
 'use client';
 
-import {useState, useCallback, useEffect, useMemo} from 'react';
+import React, {useState, useCallback, useEffect, useMemo} from 'react';
 import {useTranslations} from 'next-intl';
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
 } from '@/components/ui/dialog';
 import {Button} from '@/components/ui/button';
-import {Progress} from '@/components/ui/progress';
-import {Input} from '@/components/ui/input';
-import {Label} from '@/components/ui/label';
-import {Textarea} from '@/components/ui/textarea';
 import {Badge} from '@/components/ui/badge';
-import {Checkbox} from '@/components/ui/checkbox';
-import {ScrollArea} from '@/components/ui/scroll-area';
-import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {cn} from '@/lib/utils';
-import {
-  CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
-  X,
-  Loader2,
-  Server,
-  Settings,
-  Package,
-  PlayCircle,
-  PartyPopper,
-  AlertTriangle,
-  Crown,
-  Wrench,
-  Download,
-  Database,
-  Info,
-} from 'lucide-react';
+import {ChevronLeft, ChevronRight, X, PlayCircle, Layers} from 'lucide-react';
 import {toast} from 'sonner';
 import services from '@/lib/services';
 import {usePackages} from '@/hooks/use-installer';
-import {PluginSelectStep} from '@/components/common/installer/PluginSelectStep';
-import {RuntimeAdvancedConfigCard} from '@/components/common/installer/RuntimeAdvancedConfigCard';
 import {
   buildSeatunnelInstallDir,
   resolveSeatunnelVersion,
   resolveSeatunnelVersionCapabilities,
 } from '@/lib/seatunnel-version';
-import {HostInfo, HostType, HostStatus} from '@/lib/services/host/types';
+import {mapCheckpointNamespaceToImap} from '@/lib/runtime-storage-namespace';
+import {HostType, HostStatus} from '@/lib/services/host/types';
 import {DeploymentMode, NodeRole} from '@/lib/services/cluster/types';
-import type {
-  MirrorSource,
-  JVMConfig,
-  CheckpointConfig,
-  IMAPConfig,
-  RuntimeEngineConfig,
-  CheckpointStorageType,
-  IMAPStorageType,
-  PrecheckResult,
-  CheckStatus,
-  RuntimeStorageValidationKind,
-  RuntimeStorageValidationResult,
-} from '@/lib/services/installer/types';
 
-// Wizard step types / 向导步骤类型
-export type DeployWizardStep =
-  | 'basic'
-  | 'hosts'
-  | 'config'
-  | 'plugins'
-  | 'precheck'
-  | 'deploy'
-  | 'complete';
+import {
+  WIZARD_STEPS,
+  HostWithRole,
+  HostPrecheckResult,
+  DeployStepItem,
+  ClusterDeployConfig,
+  defaultClusterDeployConfig,
+} from './wizard/types';
+import {ClusterWizardStepper} from './wizard/ClusterWizardStepper';
+import {ClusterBasicStep} from './wizard/ClusterBasicStep';
+import {ClusterHostsStep} from './wizard/ClusterHostsStep';
+import {ClusterConfigStep} from './wizard/ClusterConfigStep';
+import {ClusterPrecheckStep} from './wizard/ClusterPrecheckStep';
+import {ClusterPluginsStep} from './wizard/ClusterPluginsStep';
+import {ClusterDeployStep} from './wizard/ClusterDeployStep';
+import {ClusterCompleteStep} from './wizard/ClusterCompleteStep';
 
-// Step configuration / 步骤配置
-interface StepConfig {
-  id: DeployWizardStep;
-  titleKey: string;
-  descKey: string;
-  icon: React.ComponentType<{className?: string}>;
-}
-
-const WIZARD_STEPS: StepConfig[] = [
-  {
-    id: 'basic',
-    titleKey: 'cluster.wizard.basic',
-    descKey: 'cluster.wizard.basicDesc',
-    icon: Settings,
-  },
-  {
-    id: 'hosts',
-    titleKey: 'cluster.wizard.hosts',
-    descKey: 'cluster.wizard.hostsDesc',
-    icon: Server,
-  },
-  {
-    id: 'config',
-    titleKey: 'cluster.wizard.config',
-    descKey: 'cluster.wizard.configDesc',
-    icon: Settings,
-  },
-  {
-    id: 'precheck',
-    titleKey: 'cluster.wizard.precheck',
-    descKey: 'cluster.wizard.precheckDesc',
-    icon: CheckCircle2,
-  },
-  {
-    id: 'plugins',
-    titleKey: 'cluster.wizard.plugins',
-    descKey: 'cluster.wizard.pluginsDesc',
-    icon: Package,
-  },
-  {
-    id: 'deploy',
-    titleKey: 'cluster.wizard.deploy',
-    descKey: 'cluster.wizard.deployDesc',
-    icon: PlayCircle,
-  },
-  {
-    id: 'complete',
-    titleKey: 'cluster.wizard.complete',
-    descKey: 'cluster.wizard.completeDesc',
-    icon: PartyPopper,
-  },
-];
-
-// Host with role assignment / 带角色分配的主机
-// For separated mode, roles can be [MASTER], [WORKER], or [MASTER, WORKER] (one node can be both; deploy runs one process per role).
-// 分离模式下 roles 可为 [MASTER]、[WORKER] 或 [MASTER, WORKER]（同一节点可兼两角；部署时每个角色一个进程）
-interface HostWithRole {
-  host: HostInfo;
-  selected: boolean;
-  /** Single role for hybrid; one or both of MASTER/WORKER for separated / 混合模式为单角色；分离模式为 MASTER/WORKER 之一或两者 */
-  roles: NodeRole[];
-}
-
-// Host precheck result / 主机预检查结果
-interface HostPrecheckResult {
-  hostId: number;
-  hostName: string;
-  loading: boolean;
-  result: PrecheckResult | null;
-  error: string | null;
-}
-
-// Cluster deploy config / 集群部署配置
-interface ClusterDeployConfig {
-  // Basic info / 基本信息
-  name: string;
-  description: string;
-  deploymentMode: DeploymentMode;
-  // Install config / 安装配置
-  version: string;
-  installDir: string; // Installation directory / 安装目录
-  mirror: MirrorSource;
-  // Port config / 端口配置
-  clusterPort: number; // Hazelcast cluster port (default 5801) / Hazelcast 集群端口（默认 5801）
-  httpPort: number; // HTTP API port (default 8080) / HTTP API 端口（默认 8080）
-  workerPort: number; // Worker port for separated mode (default 5802) / 分离模式 Worker 端口（默认 5802）
-  runtime: RuntimeEngineConfig;
-  jvm: JVMConfig;
-  checkpoint: CheckpointConfig;
-  imap: IMAPConfig;
-  // Plugins / 插件
-  selectedPlugins: string[];
-  selectedPluginProfiles: Record<string, string[]>;
-}
-
-const defaultConfig: ClusterDeployConfig = {
-  name: '',
-  description: '',
-  deploymentMode: DeploymentMode.SEPARATED,
-  version: '',
-  installDir: buildSeatunnelInstallDir(), // Default install dir template / 默认安装目录模板
-  mirror: 'aliyun',
-  clusterPort: 5801, // Default Hazelcast cluster port / 默认 Hazelcast 集群端口
-  httpPort: 8080, // Default HTTP API port / 默认 HTTP API 端口
-  workerPort: 5802, // Default worker port for separated mode / 分离模式默认 Worker 端口
-  runtime: {
-    dynamic_slot: true,
-    slot_num: 2,
-    slot_allocation_strategy: 'RANDOM',
-    job_schedule_strategy: 'REJECT',
-    history_job_expire_minutes: 1440,
-    scheduled_deletion_enable: true,
-    enable_http: true,
-    job_log_mode: 'mixed',
-  },
-  jvm: {
-    hybrid_heap_size: 2, // GB
-    master_heap_size: 2, // GB
-    worker_heap_size: 2, // GB
-  },
-  checkpoint: {
-    storage_type: 'LOCAL_FILE',
-    namespace: '/tmp/seatunnel/checkpoint/',
-  },
-  imap: {
-    storage_type: 'DISABLED',
-    namespace: '/tmp/seatunnel/imap/',
-  },
-  selectedPlugins: [],
-  selectedPluginProfiles: {},
-};
-
-interface ClusterDeployWizardProps {
+export interface ClusterDeployWizardProps {
   /** Whether the dialog is open / 对话框是否打开 */
   open: boolean;
   /** Callback when dialog open state changes / 对话框打开状态变化时的回调 */
@@ -255,7 +84,9 @@ export function ClusterDeployWizard({
 }: ClusterDeployWizardProps) {
   const t = useTranslations();
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
-  const [config, setConfig] = useState<ClusterDeployConfig>(defaultConfig);
+  const [config, setConfig] = useState<ClusterDeployConfig>(
+    defaultClusterDeployConfig,
+  );
   const [hostsWithRole, setHostsWithRole] = useState<HostWithRole[]>([]);
   const [loadingHosts, setLoadingHosts] = useState(false);
   const [deploying, setDeploying] = useState(false);
@@ -266,16 +97,9 @@ export function ClusterDeployWizard({
   const [deployError, setDeployError] = useState<string | null>(null);
   const [deployWarnings, setDeployWarnings] = useState<string[]>([]);
   const [createdClusterId, setCreatedClusterId] = useState<number | null>(null);
+
   // Detailed deploy steps state / 详细部署步骤状态
-  const [deploySteps, setDeploySteps] = useState<
-    {
-      step: string;
-      status: 'pending' | 'running' | 'success' | 'failed';
-      message: string;
-      hostName?: string;
-      progress?: number;
-    }[]
-  >([]);
+  const [deploySteps, setDeploySteps] = useState<DeployStepItem[]>([]);
 
   // Packages hook / 安装包 hook
   const {packages, loading: packagesLoading} = usePackages();
@@ -285,13 +109,6 @@ export function ClusterDeployWizard({
     [],
   );
   const [precheckRunning, setPrecheckRunning] = useState(false);
-  const [storageValidation, setStorageValidation] = useState<
-    Partial<
-      Record<RuntimeStorageValidationKind, RuntimeStorageValidationResult>
-    >
-  >({});
-  const [validatingKind, setValidatingKind] =
-    useState<RuntimeStorageValidationKind | null>(null);
 
   // Load available hosts / 加载可用主机
   const loadHosts = useCallback(async () => {
@@ -309,7 +126,7 @@ export function ClusterDeployWizard({
           availableHosts.map((host) => ({
             host,
             selected: false,
-            // Hybrid: single MASTER_WORKER; separated: default Worker, user can add Master / 混合：单一 MASTER_WORKER；分离：默认 Worker，用户可勾选 Master
+            // Hybrid: single MASTER_WORKER; separated: default Worker / 混合：单一 MASTER_WORKER；分离：默认 Worker
             roles:
               config.deploymentMode === DeploymentMode.HYBRID
                 ? [NodeRole.MASTER_WORKER]
@@ -334,17 +151,13 @@ export function ClusterDeployWizard({
   // Current step / 当前步骤
   const currentStep = WIZARD_STEPS[currentStepIndex];
 
-  // Calculate progress / 计算进度
-  const progress = ((currentStepIndex + 1) / WIZARD_STEPS.length) * 100;
-
   // Selected hosts / 已选择的主机
   const selectedHosts = useMemo(
     () => hostsWithRole.filter((h) => h.selected),
     [hostsWithRole],
   );
 
-  // Deploy nodes: one entry per (host, role). For separated, one host with both roles => two nodes; for hybrid, one node per host.
-  // 部署节点列表：每个 (host, role) 一条。分离模式下同一主机兼两角 => 两个节点；混合模式每主机一个节点。
+  // Deploy nodes: one entry per (host, role) / 部署节点列表：每个 (host, role) 一条
   const deployNodes = useMemo(() => {
     if (config.deploymentMode === DeploymentMode.HYBRID) {
       return selectedHosts.map((h) => ({
@@ -356,10 +169,6 @@ export function ClusterDeployWizard({
       (h.roles as NodeRole[]).map((role) => ({host: h.host, role})),
     );
   }, [config.deploymentMode, selectedHosts]);
-  const selectedHostIds = useMemo(
-    () => selectedHosts.map((item) => item.host.id),
-    [selectedHosts],
-  );
 
   // Local packages for offline mode / 离线模式的本地安装包
   const localPackages = useMemo(
@@ -384,11 +193,23 @@ export function ClusterDeployWizard({
       return;
     }
 
-    setConfig((prev) => ({
-      ...prev,
-      version: resolvedRecommendedVersion,
-      installDir: buildSeatunnelInstallDir(resolvedRecommendedVersion),
-    }));
+    // 仅在仍是默认安装路径时随推荐版本写入；用户已改成 /tmp/... 等自定义路径时不得覆盖。
+    // Only seed installDir when it still looks like the default; never overwrite a user-edited path such as /tmp/...
+    setConfig((prev) => {
+      const defaultTemplate = buildSeatunnelInstallDir();
+      const shouldResetInstallDir =
+        !prev.installDir ||
+        prev.installDir === defaultTemplate ||
+        prev.installDir === buildSeatunnelInstallDir(prev.version);
+
+      return {
+        ...prev,
+        version: resolvedRecommendedVersion,
+        installDir: shouldResetInstallDir
+          ? buildSeatunnelInstallDir(resolvedRecommendedVersion)
+          : prev.installDir,
+      };
+    });
   }, [open, resolvedRecommendedVersion, config.version]);
 
   useEffect(() => {
@@ -410,7 +231,7 @@ export function ClusterDeployWizard({
     }));
   }, [versionCapabilities]);
 
-  // Run precheck when entering precheck step / 进入预检查步骤时运行预检查
+  // Run precheck for selected hosts / 运行选定主机的环境预检查
   const runPrecheck = useCallback(async () => {
     if (selectedHosts.length === 0) {
       return;
@@ -418,7 +239,6 @@ export function ClusterDeployWizard({
 
     setPrecheckRunning(true);
 
-    // Initialize results for all selected hosts / 初始化所有选中主机的结果
     const initialResults: HostPrecheckResult[] = selectedHosts.map((h) => ({
       hostId: h.host.id,
       hostName: h.host.name,
@@ -428,27 +248,24 @@ export function ClusterDeployWizard({
     }));
     setPrecheckResults(initialResults);
 
-    // Build ports list for precheck based on deployment mode
-    // 根据部署模式构建预检查的端口列表
     const portsToCheck =
       config.deploymentMode === DeploymentMode.SEPARATED
         ? [
             config.clusterPort,
             config.workerPort,
+            config.javaProxyPort,
             ...(httpServiceSupported && config.runtime.enable_http
               ? [config.httpPort]
               : []),
           ]
         : [
             config.clusterPort,
+            config.javaProxyPort,
             ...(httpServiceSupported && config.runtime.enable_http
               ? [config.httpPort]
               : []),
           ];
 
-    // Run precheck for each host in parallel / 并行运行每个主机的预检查
-    // Pass install_dir and ports so precheck can verify the installation path and port availability
-    // 传递 install_dir 和 ports 以便预检查可以验证安装路径和端口可用性
     const promises = selectedHosts.map(async (hostWithRole) => {
       try {
         const result = await services.installer.runPrecheck(
@@ -485,6 +302,7 @@ export function ClusterDeployWizard({
     config.clusterPort,
     config.httpPort,
     config.workerPort,
+    config.javaProxyPort,
     config.deploymentMode,
     config.runtime.enable_http,
     httpServiceSupported,
@@ -492,10 +310,7 @@ export function ClusterDeployWizard({
 
   // Check if all prechecks passed / 检查是否所有预检查都通过
   const allPrechecksPassed = useMemo(() => {
-    if (precheckResults.length === 0) {
-      return false;
-    }
-    if (precheckRunning) {
+    if (precheckResults.length === 0 || precheckRunning) {
       return false;
     }
     return precheckResults.every(
@@ -506,7 +321,6 @@ export function ClusterDeployWizard({
     );
   }, [precheckResults, precheckRunning]);
 
-  // Check if precheck has been run / 检查是否已运行过预检查
   const precheckHasRun = useMemo(() => {
     return precheckResults.length > 0 && !precheckRunning;
   }, [precheckResults, precheckRunning]);
@@ -514,7 +328,6 @@ export function ClusterDeployWizard({
   // Update config / 更新配置
   const updateConfig = useCallback((updates: Partial<ClusterDeployConfig>) => {
     setConfig((prev) => {
-      // If deployment mode changes, reset precheck results / 如果部署模式变化，重置预检查结果
       if (
         updates.deploymentMode !== undefined &&
         updates.deploymentMode !== prev.deploymentMode
@@ -523,32 +336,39 @@ export function ClusterDeployWizard({
         setPrecheckRunning(false);
       }
 
-      // If version changes, update install dir with new version / 如果版本变化，更新安装目录中的版本号
-      const newUpdates = {...updates};
-      if (updates.version !== undefined && updates.version !== prev.version) {
-        // Replace version in install dir / 替换安装目录中的版本号
-        const newInstallDir = prev.installDir.replace(
-          prev.version,
-          updates.version,
-        );
-        // Only update if the path contains the old version / 只有当路径包含旧版本时才更新
-        if (newInstallDir !== prev.installDir) {
-          newUpdates.installDir = newInstallDir;
-        } else {
-          // If path doesn't contain version, use default pattern / 如果路径不包含版本，使用默认模式
-          newUpdates.installDir = buildSeatunnelInstallDir(updates.version);
+      const next: ClusterDeployConfig = {...prev, ...updates};
+
+      // 版本变更时：仅当安装目录仍是「上一版本默认路径」才自动跟着改；用户自定义路径保留。
+      // On version change: only rewrite installDir when it still matches the previous default path.
+      if (
+        updates.version !== undefined &&
+        updates.version !== prev.version &&
+        updates.installDir === undefined
+      ) {
+        const previousDefaultDir = buildSeatunnelInstallDir(prev.version);
+        const isDefaultInstallDir =
+          !prev.installDir ||
+          prev.installDir === previousDefaultDir ||
+          prev.installDir === buildSeatunnelInstallDir();
+        if (isDefaultInstallDir) {
+          next.installDir = buildSeatunnelInstallDir(updates.version);
+        } else if (prev.version && prev.installDir.includes(prev.version)) {
+          // 路径里带了旧版本号时，只替换版本段，例如 /tmp/seatunnel-2.3.12 → /tmp/seatunnel-2.3.13
+          // When the custom path embeds the old version, swap only that segment.
+          next.installDir = prev.installDir.replace(prev.version, updates.version);
         }
       }
 
-      return {...prev, ...newUpdates};
+      return next;
     });
   }, []);
 
+  // Synchronize checkpoint settings to IMAP / 将 Checkpoint 存储参数同步到 IMAP（末级目录 checkpoint→imap）
   const applyCheckpointToImap = useCallback(() => {
     updateConfig({
       imap: {
         storage_type: config.checkpoint.storage_type,
-        namespace: config.checkpoint.namespace,
+        namespace: mapCheckpointNamespaceToImap(config.checkpoint.namespace),
         hdfs_namenode_host: config.checkpoint.hdfs_namenode_host,
         hdfs_namenode_port: config.checkpoint.hdfs_namenode_port,
         kerberos_principal: config.checkpoint.kerberos_principal,
@@ -568,150 +388,19 @@ export function ClusterDeployWizard({
         storage_bucket: config.checkpoint.storage_bucket,
       },
     });
-    setStorageValidation((prev) => ({...prev, imap: undefined}));
     toast.success(t('installer.runtimeStorage.applyCheckpointToImapSuccess'));
   }, [config.checkpoint, t, updateConfig]);
 
-  const getRuntimeStorageMissingFields = useCallback(
-    (kind: 'checkpoint' | 'imap') => {
-      const target = kind === 'checkpoint' ? config.checkpoint : config.imap;
-      const fields: string[] = [];
-      if (!target.namespace?.trim()) {
-        fields.push(t('installer.path'));
-      }
-      switch (target.storage_type) {
-        case 'S3':
-        case 'OSS':
-          if (!target.storage_endpoint?.trim()) {
-            fields.push(t('installer.endpoint'));
-          }
-          if (!target.storage_access_key?.trim()) {
-            fields.push(t('installer.accessKey'));
-          }
-          if (!target.storage_secret_key?.trim()) {
-            fields.push(t('installer.secretKey'));
-          }
-          if (!target.storage_bucket?.trim()) {
-            fields.push(t('installer.bucket'));
-          }
-          break;
-        case 'HDFS':
-          if (target.hdfs_ha_enabled) {
-            if (!target.hdfs_name_services?.trim()) {
-              fields.push('NameService');
-            }
-            if (!target.hdfs_ha_namenodes?.trim()) {
-              fields.push('HA Namenodes');
-            }
-            if (!target.hdfs_namenode_rpc_address_1?.trim()) {
-              fields.push('RPC Address 1');
-            }
-            if (!target.hdfs_namenode_rpc_address_2?.trim()) {
-              fields.push('RPC Address 2');
-            }
-          } else {
-            if (!target.hdfs_namenode_host?.trim()) {
-              fields.push('NameNode Host');
-            }
-            if (!target.hdfs_namenode_port || Number(target.hdfs_namenode_port) <= 0) {
-              fields.push('NameNode Port');
-            }
-          }
-          break;
-        case 'DISABLED':
-          return [];
-        default:
-          break;
-      }
-      return fields;
-    },
-    [config.checkpoint, config.imap, t],
-  );
-
-  const applyImapToCheckpoint = useCallback(() => {
-    if (config.imap.storage_type === 'DISABLED') {
-      toast.warning(t('installer.runtimeStorage.applyImapDisabledWarning'));
-      return;
-    }
-    updateConfig({
-      checkpoint: {
-        storage_type: config.imap.storage_type,
-        namespace: config.imap.namespace,
-        hdfs_namenode_host: config.imap.hdfs_namenode_host,
-        hdfs_namenode_port: config.imap.hdfs_namenode_port,
-        kerberos_principal: config.imap.kerberos_principal,
-        kerberos_keytab_file_path: config.imap.kerberos_keytab_file_path,
-        hdfs_ha_enabled: config.imap.hdfs_ha_enabled,
-        hdfs_name_services: config.imap.hdfs_name_services,
-        hdfs_ha_namenodes: config.imap.hdfs_ha_namenodes,
-        hdfs_namenode_rpc_address_1: config.imap.hdfs_namenode_rpc_address_1,
-        hdfs_namenode_rpc_address_2: config.imap.hdfs_namenode_rpc_address_2,
-        hdfs_failover_proxy_provider: config.imap.hdfs_failover_proxy_provider,
-        storage_endpoint: config.imap.storage_endpoint,
-        storage_access_key: config.imap.storage_access_key,
-        storage_secret_key: config.imap.storage_secret_key,
-        storage_bucket: config.imap.storage_bucket,
-      },
-    });
-    setStorageValidation((prev) => ({...prev, checkpoint: undefined}));
-    toast.success(t('installer.runtimeStorage.applyImapToCheckpointSuccess'));
-  }, [config.imap, t, updateConfig]);
-
-  const validateRuntimeStorage = useCallback(
-    async (kind: RuntimeStorageValidationKind) => {
-      if (selectedHostIds.length === 0) {
-        toast.warning(t('installer.runtimeStorage.noHostsSelected'));
-        return;
-      }
-      const missingFields = getRuntimeStorageMissingFields(kind);
-      if (missingFields.length > 0) {
-        toast.warning(
-          t('installer.runtimeStorage.requiredFieldsMissing', {
-            fields: missingFields.join(', '),
-          }),
-        );
-        return;
-      }
-      try {
-        setValidatingKind(kind);
-        const result = await services.installer.validateRuntimeStorage({
-          host_ids: selectedHostIds,
-          kind,
-          checkpoint: kind === 'checkpoint' ? config.checkpoint : undefined,
-          imap: kind === 'imap' ? config.imap : undefined,
-        });
-        setStorageValidation((prev) => ({...prev, [kind]: result}));
-        if (result.success) {
-          toast.success(t('installer.runtimeStorage.validationPassed'));
-        } else {
-          toast.warning(t('installer.runtimeStorage.validationWarning'));
-        }
-      } catch (error) {
-        toast.error(
-          error instanceof Error
-            ? error.message
-            : t('installer.runtimeStorage.validationFailed'),
-        );
-      } finally {
-        setValidatingKind(null);
-      }
-    },
-    [config.checkpoint, config.imap, getRuntimeStorageMissingFields, selectedHostIds, t],
-  );
-
-  // Toggle host selection / 切换主机选择
+  // Toggle host selection / 切换主机选中状态
   const toggleHostSelection = useCallback((hostId: number) => {
     setHostsWithRole((prev) =>
-      prev.map((h) =>
-        h.host.id === hostId ? {...h, selected: !h.selected} : h,
-      ),
+      prev.map((h) => (h.host.id === hostId ? {...h, selected: !h.selected} : h)),
     );
-    // Reset precheck results when host selection changes / 主机选择变化时重置预检查结果
     setPrecheckResults([]);
     setPrecheckRunning(false);
   }, []);
 
-  // Toggle one role for a host (separated mode). Keeps at least one role. / 切换主机的某一角色（分离模式），至少保留一个角色
+  // Toggle host role in separated mode / 分离模式下切换主机角色
   const toggleHostRole = useCallback((hostId: number, role: NodeRole) => {
     setHostsWithRole((prev) =>
       prev.map((h) => {
@@ -720,7 +409,7 @@ export function ClusterDeployWizard({
         }
         const hasRole = h.roles.includes(role);
         if (hasRole && h.roles.length <= 1) {
-          return h; // keep at least one / 至少保留一个
+          return h; // Keep at least one role / 至少保留一个角色
         }
         if (hasRole) {
           return {...h, roles: h.roles.filter((r) => r !== role)};
@@ -730,7 +419,7 @@ export function ClusterDeployWizard({
     );
   }, []);
 
-  // Check if can proceed to next step / 检查是否可以进入下一步
+  // Validation check before proceeding / 步骤推进前置条件校验
   const canProceed = useCallback(() => {
     const hasPluginProfileSelectionIssue = config.selectedPlugins.some(
       (pluginName) =>
@@ -740,12 +429,11 @@ export function ClusterDeployWizard({
 
     switch (currentStep.id) {
       case 'basic':
-        return config.name.trim().length > 0;
+        return config.name.trim().length > 0 && config.version.length > 0;
       case 'hosts':
         if (selectedHosts.length === 0) {
           return false;
         }
-        // For separated mode, need at least one master and one worker (can be on same host) / 分离模式需至少一个 Master 与一个 Worker（可在同一主机）
         if (config.deploymentMode === DeploymentMode.SEPARATED) {
           const hasMaster = selectedHosts.some((h) =>
             h.roles.includes(NodeRole.MASTER),
@@ -756,18 +444,16 @@ export function ClusterDeployWizard({
           return hasMaster && hasWorker;
         }
         return true;
-      case 'precheck':
-        return allPrechecksPassed; // Must pass precheck / 必须通过预检查
       case 'config':
-        if (config.version.length === 0) {
-          return false;
-        }
         return (
-          getRuntimeStorageMissingFields('checkpoint').length === 0 &&
-          getRuntimeStorageMissingFields('imap').length === 0
+          config.version.length > 0 &&
+          config.installDir.trim().length > 0 &&
+          Boolean(config.checkpoint.namespace?.trim())
         );
+      case 'precheck':
+        return allPrechecksPassed;
       case 'plugins':
-        return !hasPluginProfileSelectionIssue; // Optional, but selected JDBC profiles must be explicit / 可选，但已选择的 JDBC 必须显式选择场景
+        return !hasPluginProfileSelectionIssue;
       case 'deploy':
         return deployStatus === 'success';
       case 'complete':
@@ -775,9 +461,15 @@ export function ClusterDeployWizard({
       default:
         return false;
     }
-  }, [currentStep.id, config, selectedHosts, deployStatus, allPrechecksPassed, getRuntimeStorageMissingFields]);
+  }, [
+    currentStep.id,
+    config,
+    selectedHosts,
+    deployStatus,
+    allPrechecksPassed,
+  ]);
 
-  // Handle deploy / 处理部署
+  // Handle deploy execution / 处理部署执行
   const handleDeploy = useCallback(async () => {
     setDeploying(true);
     setDeployStatus('running');
@@ -786,7 +478,6 @@ export function ClusterDeployWizard({
     setDeployWarnings([]);
     setDeploySteps([]);
 
-    // Helper to update step status / 更新步骤状态的辅助函数
     const updateStep = (
       step: string,
       status: 'pending' | 'running' | 'success' | 'failed',
@@ -828,7 +519,7 @@ export function ClusterDeployWizard({
     try {
       let clusterId = createdClusterId;
 
-      // Step 1: Create cluster (skip if already created) / 步骤1：创建集群（如果已创建则跳过）
+      // Step 1: Create cluster (skip if already created) / 步骤1：创建集群
       if (!clusterId) {
         updateStep(
           'create_cluster',
@@ -851,6 +542,7 @@ export function ClusterDeployWizard({
               master_hazelcast_port: config.clusterPort,
               master_api_port: config.httpPort,
               worker_port: config.workerPort,
+              java_proxy_port: config.javaProxyPort,
             },
           },
         });
@@ -874,7 +566,7 @@ export function ClusterDeployWizard({
       }
       setDeployProgress(20);
 
-      // Step 2: Add nodes to cluster (one node per host+role; same host can have master and worker) / 步骤2：添加节点（每 host+role 一个节点；同一主机可有 master 与 worker）
+      // Step 2: Add nodes to cluster / 步骤2：添加节点
       updateStep('add_nodes', 'running', t('cluster.wizard.steps.addingNodes'));
       for (let i = 0; i < deployNodes.length; i++) {
         const {host, role} = deployNodes[i];
@@ -912,7 +604,7 @@ export function ClusterDeployWizard({
       }
       updateStep('add_nodes', 'success', t('cluster.wizard.steps.nodesAdded'));
 
-      // Collect master/worker addresses from deploy nodes / 从部署节点列表收集 master/worker 地址
+      // Collect master/worker addresses / 收集 master/worker 地址
       const masterAddresses =
         config.deploymentMode === DeploymentMode.HYBRID
           ? deployNodes
@@ -938,7 +630,7 @@ export function ClusterDeployWizard({
             ]
           : [];
 
-      // Step 3: Install SeaTunnel (one install per deploy node; same host may be installed twice for master + worker) / 步骤3：按部署节点安装（同一主机可能先装 master 再装 worker）
+      // Step 3: Install SeaTunnel / 步骤3：在各节点上安装 SeaTunnel
       for (let i = 0; i < deployNodes.length; i++) {
         const {host, role} = deployNodes[i];
         const label =
@@ -968,6 +660,7 @@ export function ClusterDeployWizard({
             cluster_port: config.clusterPort,
             worker_port: config.workerPort,
             http_port: config.httpPort,
+            java_proxy_port: config.javaProxyPort,
             enable_http: config.runtime.enable_http,
             dynamic_slot: config.runtime.dynamic_slot,
             slot_num: config.runtime.slot_num,
@@ -992,10 +685,8 @@ export function ClusterDeployWizard({
           },
         );
 
-        // Poll for completion / 轮询等待完成
         let status = installResult;
 
-        // Helper to update steps from backend response / 从后端响应更新步骤的辅助函数
         const updateStepsFromStatus = () => {
           mergeWarnings(label, status.warnings);
           if (status.steps && status.steps.length > 0) {
@@ -1024,8 +715,6 @@ export function ClusterDeployWizard({
         while (status.status === 'running') {
           await new Promise((resolve) => setTimeout(resolve, 1000));
           status = await services.installer.getInstallationStatus(host.id);
-
-          // Update detailed steps from backend / 从后端更新详细步骤
           updateStepsFromStatus();
 
           if (!status.steps || status.steps.length === 0) {
@@ -1070,12 +759,8 @@ export function ClusterDeployWizard({
       setDeployStatus('success');
       toast.success(t('cluster.wizard.deploySuccess'));
 
-      // Wait 1 second before auto advancing to let user see the final status
-      // 等待 1 秒后再自动跳转，让用户看到最终状态
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-
-      // Auto advance to complete step / 自动跳转到完成步骤
-      setCurrentStepIndex(6); // complete step index
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      setCurrentStepIndex(6); // complete step
     } catch (err) {
       setDeployStatus('failed');
       setDeployError(err instanceof Error ? err.message : 'Deployment failed');
@@ -1085,11 +770,9 @@ export function ClusterDeployWizard({
     }
   }, [config, selectedHosts, deployNodes, t, createdClusterId]);
 
-  // Handle next step / 处理下一步
+  // Handle next step / 处理进入下一步
   const handleNext = useCallback(() => {
     if (currentStep.id === 'plugins') {
-      // Start deployment when moving from plugins to deploy
-      // 从插件步骤进入部署步骤时开始部署
       setCurrentStepIndex(currentStepIndex + 1);
       handleDeploy();
     } else if (currentStepIndex < WIZARD_STEPS.length - 1) {
@@ -1097,7 +780,7 @@ export function ClusterDeployWizard({
     }
   }, [currentStep.id, currentStepIndex, handleDeploy]);
 
-  // Handle previous step / 处理上一步
+  // Handle previous step / 处理返回上一步
   const handlePrevious = useCallback(() => {
     if (
       currentStepIndex > 0 &&
@@ -1108,16 +791,15 @@ export function ClusterDeployWizard({
     }
   }, [currentStepIndex, currentStep.id]);
 
-  // Handle close / 处理关闭
+  // Handle close dialog / 处理关闭弹窗
   const handleClose = useCallback(() => {
     if (deploying) {
       if (!confirm(t('cluster.wizard.confirmCancel'))) {
         return;
       }
     }
-    // Reset state / 重置状态
     setCurrentStepIndex(0);
-    setConfig(defaultConfig);
+    setConfig(defaultClusterDeployConfig);
     setHostsWithRole([]);
     setDeployStatus('idle');
     setDeployProgress(0);
@@ -1129,7 +811,7 @@ export function ClusterDeployWizard({
     onOpenChange(false);
   }, [deploying, t, onOpenChange]);
 
-  // Handle complete / 处理完成
+  // Handle complete callback / 处理完成并查看集群
   const handleComplete = useCallback(() => {
     if (createdClusterId) {
       onComplete?.(createdClusterId);
@@ -1137,1977 +819,88 @@ export function ClusterDeployWizard({
     handleClose();
   }, [createdClusterId, onComplete, handleClose]);
 
-  // Render basic info step / 渲染基本信息步骤
-  const renderBasicStep = () => (
-    <div className='h-full flex flex-col overflow-hidden'>
-      <ScrollArea className='flex-1 min-h-0 pr-4'>
-        <div className='space-y-4'>
-          <div className='space-y-2'>
-            <Label htmlFor='name'>
-              {t('cluster.name')} <span className='text-destructive'>*</span>
-            </Label>
-            <Input
-              id='name'
-              value={config.name}
-              onChange={(e) => updateConfig({name: e.target.value})}
-              placeholder={t('cluster.namePlaceholder')}
-            />
-          </div>
-
-          <div className='space-y-2'>
-            <Label htmlFor='description'>{t('cluster.descriptionLabel')}</Label>
-            <Textarea
-              id='description'
-              value={config.description}
-              onChange={(e) => updateConfig({description: e.target.value})}
-              placeholder={t('cluster.descriptionPlaceholder')}
-              rows={2}
-            />
-          </div>
-
-          <div className='space-y-2'>
-            <Label>{t('cluster.deploymentMode')}</Label>
-            <div className='grid grid-cols-2 gap-4'>
-              <Card
-                className={cn(
-                  'cursor-pointer transition-colors',
-                  config.deploymentMode === DeploymentMode.HYBRID
-                    ? 'border-primary bg-primary/5'
-                    : 'hover:border-muted-foreground/50',
-                )}
-                onClick={() =>
-                  updateConfig({deploymentMode: DeploymentMode.HYBRID})
-                }
-              >
-                <CardHeader className='pb-2'>
-                  <CardTitle className='text-sm'>
-                    {t('cluster.modes.hybrid')}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className='text-xs text-muted-foreground'>
-                    {t('cluster.hybridDescription')}
-                  </p>
-                </CardContent>
-              </Card>
-              <Card
-                className={cn(
-                  'cursor-pointer transition-colors',
-                  config.deploymentMode === DeploymentMode.SEPARATED
-                    ? 'border-primary bg-primary/5'
-                    : 'hover:border-muted-foreground/50',
-                )}
-                onClick={() =>
-                  updateConfig({deploymentMode: DeploymentMode.SEPARATED})
-                }
-              >
-                <CardHeader className='pb-2'>
-                  <CardTitle className='text-sm'>
-                    {t('cluster.modes.separated')}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className='text-xs text-muted-foreground'>
-                    {t('cluster.separatedDescription')}
-                  </p>
-                </CardContent>
-              </Card>
-            </div>
-          </div>
-
-          {/* Version and Install Directory / 版本和安装目录 */}
-          <div className='grid grid-cols-2 gap-4'>
-            <div className='space-y-2'>
-              <Label>{t('installer.version')}</Label>
-              <Select
-                value={config.version}
-                onValueChange={(value) => updateConfig({version: value})}
-                disabled={packagesLoading}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {(
-                    packages?.versions ||
-                    (resolvedRecommendedVersion
-                      ? [resolvedRecommendedVersion]
-                      : [])
-                  ).map((version) => {
-                    const isLocal = localPackages.some(
-                      (pkg) => pkg.version === version,
-                    );
-                    return (
-                      <SelectItem key={version} value={version}>
-                        <div className='flex items-center gap-2'>
-                          {version}
-                          {isLocal && (
-                            <Download className='h-3 w-3 text-green-500' />
-                          )}
-                          {version === packages?.recommended_version && (
-                            <Badge variant='secondary' className='text-xs'>
-                              {t('installer.recommended')}
-                            </Badge>
-                          )}
-                        </div>
-                      </SelectItem>
-                    );
-                  })}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className='space-y-2'>
-              <Label htmlFor='installDir'>
-                {t('installer.installDirLabel')}
-              </Label>
-              <Input
-                id='installDir'
-                value={config.installDir}
-                onChange={(e) => updateConfig({installDir: e.target.value})}
-                placeholder={buildSeatunnelInstallDir(
-                  config.version || resolvedRecommendedVersion,
-                )}
-              />
-              <p className='text-xs text-muted-foreground'>
-                {t('installer.installDirDesc')}
-              </p>
-            </div>
-          </div>
-        </div>
-      </ScrollArea>
-    </div>
-  );
-
-  // Render hosts selection step / 渲染主机选择步骤
-  const renderHostsStep = () => (
-    <div className='h-full flex flex-col overflow-hidden'>
-      <div className='flex items-center justify-between'>
-        <p className='text-sm text-muted-foreground'>
-          {t('cluster.wizard.selectHostsDesc')}
-        </p>
-        <Badge variant='outline'>
-          {selectedHosts.length} {t('cluster.wizard.hostsSelected')}
-        </Badge>
-      </div>
-
-      {config.deploymentMode === DeploymentMode.SEPARATED && (
-        <>
-          <p className='text-xs text-muted-foreground mt-1'>
-            {t('cluster.wizard.separatedRoleHint')}
-          </p>
-          <div className='flex gap-4 text-sm'>
-            <div className='flex items-center gap-2'>
-              <Crown className='h-4 w-4 text-yellow-500' />
-              <span>
-                Master:{' '}
-                {
-                  selectedHosts.filter((h) => h.roles.includes(NodeRole.MASTER))
-                    .length
-                }
-              </span>
-            </div>
-            <div className='flex items-center gap-2'>
-              <Wrench className='h-4 w-4 text-blue-500' />
-              <span>
-                Worker:{' '}
-                {
-                  selectedHosts.filter((h) => h.roles.includes(NodeRole.WORKER))
-                    .length
-                }
-              </span>
-            </div>
-          </div>
-        </>
-      )}
-
-      <ScrollArea className='flex-1 min-h-0 pr-4 mt-4'>
-        {loadingHosts ? (
-          <div className='flex items-center justify-center py-12'>
-            <Loader2 className='h-8 w-8 animate-spin text-muted-foreground' />
-          </div>
-        ) : hostsWithRole.length === 0 ? (
-          <div className='text-center py-12 text-muted-foreground'>
-            <Server className='h-12 w-12 mx-auto mb-4 opacity-50' />
-            <p>{t('cluster.wizard.noAvailableHosts')}</p>
-            <p className='text-xs mt-2'>
-              {t('cluster.wizard.noAvailableHostsDesc')}
-            </p>
-          </div>
-        ) : (
-          <div className='space-y-2'>
-            {hostsWithRole.map((hostWithRole) => (
-              <Card
-                key={hostWithRole.host.id}
-                className={cn(
-                  'cursor-pointer transition-colors',
-                  hostWithRole.selected && 'border-primary bg-primary/5',
-                )}
-              >
-                <CardContent className='p-4'>
-                  <div className='flex items-center gap-4'>
-                    <Checkbox
-                      checked={hostWithRole.selected}
-                      onCheckedChange={() =>
-                        toggleHostSelection(hostWithRole.host.id)
-                      }
-                    />
-                    <div className='flex-1 min-w-0'>
-                      <div className='flex items-center gap-2'>
-                        <span className='font-medium'>
-                          {hostWithRole.host.name}
-                        </span>
-                        <Badge variant='outline' className='text-xs'>
-                          {hostWithRole.host.ip_address}
-                        </Badge>
-                      </div>
-                      <p className='text-xs text-muted-foreground mt-1'>
-                        CPU: {hostWithRole.host.cpu_cores} cores | Memory:{' '}
-                        {(
-                          (hostWithRole.host.total_memory || 0) /
-                          1024 /
-                          1024 /
-                          1024
-                        ).toFixed(1)}{' '}
-                        GB
-                      </p>
-                    </div>
-                    {hostWithRole.selected &&
-                      config.deploymentMode === DeploymentMode.SEPARATED && (
-                        <div className='flex items-center gap-4 shrink-0'>
-                          <label className='flex items-center gap-2 cursor-pointer text-sm'>
-                            <Checkbox
-                              checked={hostWithRole.roles.includes(
-                                NodeRole.MASTER,
-                              )}
-                              onCheckedChange={() =>
-                                toggleHostRole(
-                                  hostWithRole.host.id,
-                                  NodeRole.MASTER,
-                                )
-                              }
-                            />
-                            <Crown className='h-3 w-3 text-yellow-500' />
-                            {t('cluster.roles.master')}
-                          </label>
-                          <label className='flex items-center gap-2 cursor-pointer text-sm'>
-                            <Checkbox
-                              checked={hostWithRole.roles.includes(
-                                NodeRole.WORKER,
-                              )}
-                              onCheckedChange={() =>
-                                toggleHostRole(
-                                  hostWithRole.host.id,
-                                  NodeRole.WORKER,
-                                )
-                              }
-                            />
-                            <Wrench className='h-3 w-3 text-blue-500' />
-                            {t('cluster.roles.worker')}
-                          </label>
-                        </div>
-                      )}
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        )}
-      </ScrollArea>
-    </div>
-  );
-
-  // Render config step / 渲染配置步骤
-  const renderConfigStep = () => {
-    // Check if current version package is available locally
-    // 检查当前版本的安装包是否在本地可用
-    const currentPackage = localPackages.find(
-      (pkg) => pkg.version === config.version,
-    );
-    const isPackageLocal = !!currentPackage;
-    const checkpointNeedsSharedWarning =
-      selectedHosts.length > 1 &&
-      config.checkpoint.storage_type === 'LOCAL_FILE';
-    const checkpointLocalRecommended =
-      selectedHosts.length <= 1 &&
-      config.checkpoint.storage_type !== 'LOCAL_FILE';
-    const imapExternalEnabled = config.imap.storage_type !== 'DISABLED';
-
-    return (
-      <div className='h-full flex flex-col overflow-hidden'>
-        <ScrollArea className='flex-1 min-h-0 pr-4'>
-          <div className='space-y-4'>
-            {/* Package Status / 安装包状态 */}
-            <Card>
-              <CardHeader className='pb-3'>
-                <CardTitle className='text-base'>
-                  {t('installer.packageStatus')}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className='space-y-4'>
-                {/* Package status display / 安装包状态显示 */}
-                {packagesLoading ? (
-                  <div className='flex items-center justify-center py-4'>
-                    <Loader2 className='h-6 w-6 animate-spin text-muted-foreground' />
-                  </div>
-                ) : isPackageLocal ? (
-                  /* Package is available locally / 安装包已在本地 */
-                  <div className='p-4 bg-green-50 dark:bg-green-900/20 rounded-lg'>
-                    <div className='flex items-center gap-3'>
-                      <CheckCircle2 className='h-5 w-5 text-green-600' />
-                      <div className='flex-1'>
-                        <p className='text-sm font-medium text-green-700 dark:text-green-300'>
-                          {t('cluster.wizard.packageReady')}
-                        </p>
-                        <p className='text-xs text-green-600 dark:text-green-400 mt-1'>
-                          {currentPackage.file_name} (
-                          {(currentPackage.file_size / 1024 / 1024).toFixed(1)}{' '}
-                          MB)
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  /* Package not available locally / 安装包不在本地 */
-                  <div className='space-y-4'>
-                    <div className='p-4 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg'>
-                      <div className='flex items-start gap-3'>
-                        <AlertTriangle className='h-5 w-5 text-yellow-600 mt-0.5' />
-                        <div className='flex-1'>
-                          <p className='text-sm font-medium text-yellow-700 dark:text-yellow-300'>
-                            {t('cluster.wizard.packageNotFound')}
-                          </p>
-                          <p className='text-xs text-yellow-600 dark:text-yellow-400 mt-1'>
-                            {t('cluster.wizard.packageNotFoundDesc', {
-                              version: config.version,
-                            })}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Mirror source selection for download / 下载镜像源选择 */}
-                    <div className='space-y-2'>
-                      <Label>{t('installer.mirrorSource')}</Label>
-                      <div className='flex items-center gap-2'>
-                        <Select
-                          value={config.mirror}
-                          onValueChange={(value: MirrorSource) =>
-                            updateConfig({mirror: value})
-                          }
-                        >
-                          <SelectTrigger className='flex-1'>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value='aliyun'>
-                              {t('installer.mirrors.aliyun')}
-                            </SelectItem>
-                            <SelectItem value='huaweicloud'>
-                              {t('installer.mirrors.huaweicloud')}
-                            </SelectItem>
-                            <SelectItem value='apache'>
-                              {t('installer.mirrors.apache')}
-                            </SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <p className='text-xs text-muted-foreground'>
-                        {t('cluster.wizard.mirrorHint')}
-                      </p>
-                    </div>
-
-                    {/* Manual upload option / 手动上传选项 */}
-                    <div className='flex items-center justify-between p-3 bg-muted/50 rounded-lg'>
-                      <div>
-                        <p className='text-sm'>
-                          {t('cluster.wizard.manualUpload')}
-                        </p>
-                        <p className='text-xs text-muted-foreground'>
-                          {t('cluster.wizard.manualUploadDesc')}
-                        </p>
-                      </div>
-                      <Button
-                        variant='outline'
-                        size='sm'
-                        onClick={() => window.open('/packages', '_blank')}
-                      >
-                        <Package className='h-4 w-4 mr-2' />
-                        {t('cluster.wizard.goToPackageManagement')}
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* JVM Config & Checkpoint Config / JVM 配置和检查点配置 */}
-            <div className='grid grid-cols-2 gap-4'>
-              {/* Port Config / 端口配置 */}
-              <Card>
-                <CardHeader className='pb-2'>
-                  <CardTitle className='text-base'>
-                    {t('cluster.wizard.portConfig')}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className='space-y-3'>
-                  <div className='space-y-2'>
-                    <Label>{t('cluster.wizard.clusterPort')}</Label>
-                    <Input
-                      type='number'
-                      value={config.clusterPort}
-                      onChange={(e) =>
-                        updateConfig({
-                          clusterPort: parseInt(e.target.value) || 5801,
-                        })
-                      }
-                      min={1024}
-                      max={65535}
-                      placeholder='5801'
-                    />
-                    <p className='text-xs text-muted-foreground'>
-                      {t('cluster.wizard.clusterPortDesc')}
-                    </p>
-                  </div>
-                  <div className='space-y-2'>
-                    <div className='flex items-center justify-between gap-2'>
-                      <Label>{t('cluster.wizard.httpPort')}</Label>
-                      <label className='flex items-center gap-2 text-xs text-muted-foreground'>
-                        <Checkbox
-                          checked={config.runtime.enable_http}
-                          onCheckedChange={(checked) =>
-                            updateConfig({
-                              runtime: {
-                                ...config.runtime,
-                                enable_http: checked === true,
-                              },
-                            })
-                          }
-                        />
-                        <span>{t('installer.httpService.enableLabel')}</span>
-                      </label>
-                    </div>
-                    {httpServiceSupported ? (
-                      <>
-                        <Input
-                          type='number'
-                          value={config.httpPort}
-                          onChange={(e) =>
-                            updateConfig({
-                              httpPort: parseInt(e.target.value) || 8080,
-                            })
-                          }
-                          min={1024}
-                          max={65535}
-                          placeholder='8080'
-                          disabled={!config.runtime.enable_http}
-                        />
-                        <p className='text-xs text-muted-foreground'>
-                          {config.runtime.enable_http
-                            ? t('cluster.wizard.httpPortDesc')
-                            : t('installer.httpService.disabledHint')}
-                        </p>
-                      </>
-                    ) : (
-                      <p className='text-xs text-muted-foreground'>
-                        {t('installer.httpService.unsupportedHint')}
-                      </p>
-                    )}
-                  </div>
-                  {config.deploymentMode === DeploymentMode.SEPARATED && (
-                    <div className='space-y-2'>
-                      <Label>{t('cluster.wizard.workerPort')}</Label>
-                      <Input
-                        type='number'
-                        value={config.workerPort}
-                        onChange={(e) =>
-                          updateConfig({
-                            workerPort: parseInt(e.target.value) || 5802,
-                          })
-                        }
-                        min={1024}
-                        max={65535}
-                        placeholder='5802'
-                      />
-                      <p className='text-xs text-muted-foreground'>
-                        {t('cluster.wizard.workerPortDesc')}
-                      </p>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* JVM Config / JVM 配置 */}
-              <Card>
-                <CardHeader className='pb-2'>
-                  <CardTitle className='text-base'>
-                    {t('installer.jvmConfig')}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {config.deploymentMode === DeploymentMode.HYBRID ? (
-                    <div className='space-y-2'>
-                      <Label>{t('installer.hybridHeapSize')} (GB)</Label>
-                      <Input
-                        type='number'
-                        value={config.jvm.hybrid_heap_size}
-                        onChange={(e) =>
-                          updateConfig({
-                            jvm: {
-                              ...config.jvm,
-                              hybrid_heap_size: parseInt(e.target.value) || 0,
-                            },
-                          })
-                        }
-                        min={1}
-                        max={64}
-                        step={1}
-                      />
-                    </div>
-                  ) : (
-                    <div className='space-y-3'>
-                      <div className='space-y-2'>
-                        <Label>{t('installer.masterHeapSize')} (GB)</Label>
-                        <Input
-                          type='number'
-                          value={config.jvm.master_heap_size}
-                          onChange={(e) =>
-                            updateConfig({
-                              jvm: {
-                                ...config.jvm,
-                                master_heap_size: parseInt(e.target.value) || 0,
-                              },
-                            })
-                          }
-                          min={1}
-                          max={64}
-                          step={1}
-                        />
-                      </div>
-                      <div className='space-y-2'>
-                        <Label>{t('installer.workerHeapSize')} (GB)</Label>
-                        <Input
-                          type='number'
-                          value={config.jvm.worker_heap_size}
-                          onChange={(e) =>
-                            updateConfig({
-                              jvm: {
-                                ...config.jvm,
-                                worker_heap_size: parseInt(e.target.value) || 0,
-                              },
-                            })
-                          }
-                          min={1}
-                          max={64}
-                          step={1}
-                        />
-                      </div>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
-
-            <RuntimeAdvancedConfigCard
-              version={config.version}
-              capabilities={versionCapabilities}
-              runtime={config.runtime}
-              onChange={(updates) =>
-                updateConfig({
-                  runtime: {...config.runtime, ...updates},
-                })
-              }
-            />
-
-            {/* Checkpoint Config / 检查点配置 */}
-            <Card>
-              <CardHeader className='pb-2'>
-                <div className='flex items-start justify-between gap-3'>
-                  <div>
-                    <CardTitle className='text-base'>
-                      {t('installer.checkpointConfig')}
-                    </CardTitle>
-                    <p className='text-sm text-muted-foreground'>
-                      {t('installer.runtimeStorage.checkpointDescription')}
-                    </p>
-                  </div>
-                  <Button
-                    variant='outline'
-                    size='sm'
-                    onClick={applyCheckpointToImap}
-                  >
-                    {t('installer.runtimeStorage.applyToImap')}
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent className='space-y-3'>
-                {checkpointNeedsSharedWarning && (
-                  <div className='rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-100'>
-                    <div className='flex items-start gap-2'>
-                      <AlertTriangle className='mt-0.5 h-4 w-4 shrink-0' />
-                      <div>
-                        {t('installer.runtimeStorage.checkpointLocalWarning')}
-                      </div>
-                    </div>
-                  </div>
-                )}
-                {checkpointLocalRecommended && (
-                  <div className='rounded-md border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900 dark:border-sky-900/40 dark:bg-sky-950/30 dark:text-sky-100'>
-                    <div className='flex items-start gap-2'>
-                      <Info className='mt-0.5 h-4 w-4 shrink-0' />
-                      <div>
-                        {t(
-                          'installer.runtimeStorage.checkpointLocalRecommended',
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )}
-                <div className='grid grid-cols-2 gap-4'>
-                  <div className='space-y-2'>
-                    <Label>{t('installer.storageType')}</Label>
-                    <Select
-                      value={config.checkpoint.storage_type}
-                      onValueChange={(value: CheckpointStorageType) =>
-                        updateConfig({
-                          checkpoint: {
-                            ...config.checkpoint,
-                            storage_type: value,
-                          },
-                        })
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value='LOCAL_FILE'>Local File</SelectItem>
-                        <SelectItem value='HDFS'>HDFS</SelectItem>
-                        <SelectItem value='OSS'>Aliyun OSS</SelectItem>
-                        <SelectItem value='S3'>AWS S3</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className='space-y-2'>
-                    <Label>{t('installer.storagePath')}</Label>
-                    <Input
-                      value={config.checkpoint.namespace}
-                      onChange={(e) =>
-                        updateConfig({
-                          checkpoint: {
-                            ...config.checkpoint,
-                            namespace: e.target.value,
-                          },
-                        })
-                      }
-                      placeholder={
-                        config.checkpoint.storage_type === 'LOCAL_FILE'
-                          ? '/tmp/seatunnel/checkpoint/'
-                          : '/seatunnel/checkpoint/'
-                      }
-                    />
-                    <p className='text-xs text-muted-foreground'>
-                      {t('installer.storagePathHint')}
-                    </p>
-                  </div>
-                </div>
-
-                {/* HDFS Config / HDFS 配置 */}
-                {config.checkpoint.storage_type === 'HDFS' && (
-                  <div className='space-y-4'>
-                    {/* HA Mode Toggle / HA 模式开关 */}
-                    <div className='flex items-center space-x-2'>
-                      <Checkbox
-                        id='hdfs-ha-enabled'
-                        checked={config.checkpoint.hdfs_ha_enabled || false}
-                        onCheckedChange={(checked) =>
-                          updateConfig({
-                            checkpoint: {
-                              ...config.checkpoint,
-                              hdfs_ha_enabled: checked === true,
-                            },
-                          })
-                        }
-                      />
-                      <Label htmlFor='hdfs-ha-enabled'>
-                        {t('installer.hdfsHAMode')}
-                      </Label>
-                    </div>
-
-                    {/* Standard HDFS Config / 标准 HDFS 配置 */}
-                    {!config.checkpoint.hdfs_ha_enabled && (
-                      <div className='grid grid-cols-2 gap-4'>
-                        <div className='space-y-2'>
-                          <Label>{t('installer.hdfsNameNodeHost')}</Label>
-                          <Input
-                            value={config.checkpoint.hdfs_namenode_host || ''}
-                            onChange={(e) =>
-                              updateConfig({
-                                checkpoint: {
-                                  ...config.checkpoint,
-                                  hdfs_namenode_host: e.target.value,
-                                },
-                              })
-                            }
-                            placeholder='namenode.example.com'
-                          />
-                        </div>
-                        <div className='space-y-2'>
-                          <Label>{t('installer.hdfsNameNodePort')}</Label>
-                          <Input
-                            type='number'
-                            value={config.checkpoint.hdfs_namenode_port || ''}
-                            onChange={(e) =>
-                              updateConfig({
-                                checkpoint: {
-                                  ...config.checkpoint,
-                                  hdfs_namenode_port:
-                                    parseInt(e.target.value) || 0,
-                                },
-                              })
-                            }
-                            placeholder='8020'
-                          />
-                        </div>
-                      </div>
-                    )}
-
-                    {/* HDFS HA Config / HDFS HA 配置 */}
-                    {config.checkpoint.hdfs_ha_enabled && (
-                      <div className='space-y-3 p-3 border rounded-md bg-muted/30'>
-                        <div className='grid grid-cols-2 gap-4'>
-                          <div className='space-y-2'>
-                            <Label>{t('installer.hdfsNameServices')}</Label>
-                            <Input
-                              value={config.checkpoint.hdfs_name_services || ''}
-                              onChange={(e) =>
-                                updateConfig({
-                                  checkpoint: {
-                                    ...config.checkpoint,
-                                    hdfs_name_services: e.target.value,
-                                  },
-                                })
-                              }
-                              placeholder='mycluster'
-                            />
-                          </div>
-                          <div className='space-y-2'>
-                            <Label>{t('installer.hdfsHANamenodes')}</Label>
-                            <Input
-                              value={config.checkpoint.hdfs_ha_namenodes || ''}
-                              onChange={(e) =>
-                                updateConfig({
-                                  checkpoint: {
-                                    ...config.checkpoint,
-                                    hdfs_ha_namenodes: e.target.value,
-                                  },
-                                })
-                              }
-                              placeholder='nn1,nn2'
-                            />
-                          </div>
-                        </div>
-                        <div className='grid grid-cols-2 gap-4'>
-                          <div className='space-y-2'>
-                            <Label>
-                              {t('installer.hdfsNamenodeRPCAddress1')}
-                            </Label>
-                            <Input
-                              value={
-                                config.checkpoint.hdfs_namenode_rpc_address_1 ||
-                                ''
-                              }
-                              onChange={(e) =>
-                                updateConfig({
-                                  checkpoint: {
-                                    ...config.checkpoint,
-                                    hdfs_namenode_rpc_address_1: e.target.value,
-                                  },
-                                })
-                              }
-                              placeholder='nn1-host:8020'
-                            />
-                          </div>
-                          <div className='space-y-2'>
-                            <Label>
-                              {t('installer.hdfsNamenodeRPCAddress2')}
-                            </Label>
-                            <Input
-                              value={
-                                config.checkpoint.hdfs_namenode_rpc_address_2 ||
-                                ''
-                              }
-                              onChange={(e) =>
-                                updateConfig({
-                                  checkpoint: {
-                                    ...config.checkpoint,
-                                    hdfs_namenode_rpc_address_2: e.target.value,
-                                  },
-                                })
-                              }
-                              placeholder='nn2-host:8020'
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Kerberos Config / Kerberos 配置 */}
-                    <div className='flex items-center space-x-2'>
-                      <Checkbox
-                        id='hdfs-kerberos'
-                        checked={
-                          config.checkpoint.kerberos_principal !== undefined
-                        }
-                        onCheckedChange={(checked) => {
-                          if (checked) {
-                            // Enable Kerberos - set empty strings to show the form
-                            updateConfig({
-                              checkpoint: {
-                                ...config.checkpoint,
-                                kerberos_principal: '',
-                                kerberos_keytab_file_path: '',
-                              },
-                            });
-                          } else {
-                            // Disable Kerberos - remove the fields
-                            updateConfig({
-                              checkpoint: {
-                                ...config.checkpoint,
-                                kerberos_principal: undefined,
-                                kerberos_keytab_file_path: undefined,
-                              },
-                            });
-                          }
-                        }}
-                      />
-                      <Label htmlFor='hdfs-kerberos'>
-                        {t('installer.hdfsKerberos')}
-                      </Label>
-                    </div>
-
-                    {config.checkpoint.kerberos_principal !== undefined && (
-                      <div className='grid grid-cols-2 gap-4 p-3 border rounded-md bg-muted/30'>
-                        <div className='space-y-2'>
-                          <Label>{t('installer.kerberosPrincipal')}</Label>
-                          <Input
-                            value={config.checkpoint.kerberos_principal || ''}
-                            onChange={(e) =>
-                              updateConfig({
-                                checkpoint: {
-                                  ...config.checkpoint,
-                                  kerberos_principal: e.target.value,
-                                },
-                              })
-                            }
-                            placeholder='hdfs/namenode@EXAMPLE.COM'
-                          />
-                        </div>
-                        <div className='space-y-2'>
-                          <Label>{t('installer.kerberosKeytabPath')}</Label>
-                          <Input
-                            value={
-                              config.checkpoint.kerberos_keytab_file_path || ''
-                            }
-                            onChange={(e) =>
-                              updateConfig({
-                                checkpoint: {
-                                  ...config.checkpoint,
-                                  kerberos_keytab_file_path: e.target.value,
-                                },
-                              })
-                            }
-                            placeholder='/etc/security/keytabs/hdfs.keytab'
-                          />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* OSS/S3 Config / OSS/S3 配置 */}
-                {(config.checkpoint.storage_type === 'OSS' ||
-                  config.checkpoint.storage_type === 'S3') && (
-                  <div className='space-y-3'>
-                    <div className='grid grid-cols-2 gap-4'>
-                      <div className='space-y-2'>
-                        <Label>{t('installer.endpoint')}</Label>
-                        <Input
-                          value={config.checkpoint.storage_endpoint || ''}
-                          onChange={(e) =>
-                            updateConfig({
-                              checkpoint: {
-                                ...config.checkpoint,
-                                storage_endpoint: e.target.value,
-                              },
-                            })
-                          }
-                          placeholder={
-                            config.checkpoint.storage_type === 'OSS'
-                              ? 'oss-cn-hangzhou.aliyuncs.com'
-                              : 's3.amazonaws.com'
-                          }
-                        />
-                      </div>
-                      <div className='space-y-2'>
-                        <Label>{t('installer.bucket')}</Label>
-                        <Input
-                          value={config.checkpoint.storage_bucket || ''}
-                          onChange={(e) =>
-                            updateConfig({
-                              checkpoint: {
-                                ...config.checkpoint,
-                                storage_bucket: e.target.value,
-                              },
-                            })
-                          }
-                          placeholder='my-checkpoint-bucket'
-                        />
-                      </div>
-                    </div>
-                    <div className='grid grid-cols-2 gap-4'>
-                      <div className='space-y-2'>
-                        <Label>{t('installer.accessKey')}</Label>
-                        <Input
-                          type='password'
-                          value={config.checkpoint.storage_access_key || ''}
-                          onChange={(e) =>
-                            updateConfig({
-                              checkpoint: {
-                                ...config.checkpoint,
-                                storage_access_key: e.target.value,
-                              },
-                            })
-                          }
-                          placeholder='Access Key ID'
-                        />
-                      </div>
-                      <div className='space-y-2'>
-                        <Label>{t('installer.secretKey')}</Label>
-                        <Input
-                          type='password'
-                          value={config.checkpoint.storage_secret_key || ''}
-                          onChange={(e) =>
-                            updateConfig({
-                              checkpoint: {
-                                ...config.checkpoint,
-                                storage_secret_key: e.target.value,
-                              },
-                            })
-                          }
-                          placeholder='Secret Access Key'
-                        />
-                      </div>
-                    </div>
-                  </div>
-                )}
-                <div className='flex items-center justify-between rounded-md border p-3'>
-                  <div className='space-y-1'>
-                    <div className='text-sm font-medium'>
-                      {t('installer.runtimeStorage.validateConnectivity')}
-                    </div>
-                    <div className='text-xs text-muted-foreground'>
-                      {t('installer.runtimeStorage.validationHint')}
-                    </div>
-                  </div>
-                  <Button
-                    variant='outline'
-                    size='sm'
-                    onClick={() => validateRuntimeStorage('checkpoint')}
-                    disabled={validatingKind === 'checkpoint'}
-                  >
-                    {validatingKind === 'checkpoint' && (
-                      <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                    )}
-                    {t('installer.runtimeStorage.validateNow')}
-                  </Button>
-                </div>
-                {storageValidation.checkpoint && (
-                  <div className='rounded-md border p-3 text-sm space-y-2'>
-                    <div className='flex items-center gap-2 font-medium'>
-                      {storageValidation.checkpoint.success ? (
-                        <CheckCircle2 className='h-4 w-4 text-green-600' />
-                      ) : (
-                        <AlertTriangle className='h-4 w-4 text-amber-600' />
-                      )}
-                      <span>
-                        {storageValidation.checkpoint.success
-                          ? t('installer.runtimeStorage.validationPassed')
-                          : t('installer.runtimeStorage.validationWarning')}
-                      </span>
-                    </div>
-                    {storageValidation.checkpoint.warning && (
-                      <div className='text-muted-foreground'>
-                        {storageValidation.checkpoint.warning}
-                      </div>
-                    )}
-                    <div className='space-y-1'>
-                      {storageValidation.checkpoint.hosts.map((host) => (
-                        <div key={host.host_id}>
-                          <span className='font-medium'>
-                            {host.host_name || host.host_id}
-                          </span>
-                          {' · '}
-                          <span>{host.message}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className='pb-2'>
-                <div className='flex items-start justify-between gap-3'>
-                  <div>
-                    <CardTitle className='text-base flex items-center gap-2'>
-                      <Database className='h-4 w-4' />
-                      {t('installer.runtimeStorage.imapTitle')}
-                    </CardTitle>
-                    <p className='text-sm text-muted-foreground'>
-                      {t('installer.runtimeStorage.imapDescription')}
-                    </p>
-                  </div>
-                  <Button
-                    variant='outline'
-                    size='sm'
-                    onClick={applyImapToCheckpoint}
-                    disabled={config.imap.storage_type === 'DISABLED'}
-                  >
-                    {t('installer.runtimeStorage.applyToCheckpoint')}
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent className='space-y-3'>
-                <div className='rounded-md border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900 dark:border-sky-900/40 dark:bg-sky-950/30 dark:text-sky-100'>
-                  <div className='flex items-start gap-2'>
-                    <Info className='mt-0.5 h-4 w-4 shrink-0' />
-                    <div className='space-y-1'>
-                      <p>{t('installer.runtimeStorage.imapGuidanceMeta')}</p>
-                      <p>{t('installer.runtimeStorage.imapGuidanceBatch')}</p>
-                      <p>
-                        {t('installer.runtimeStorage.imapGuidanceStreaming')}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className='grid grid-cols-2 gap-4'>
-                  <div className='space-y-2'>
-                    <Label>{t('installer.storageType')}</Label>
-                    <Select
-                      value={config.imap.storage_type}
-                      onValueChange={(value: IMAPStorageType) =>
-                        updateConfig({
-                          imap: {
-                            ...config.imap,
-                            storage_type: value,
-                          },
-                        })
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value='DISABLED'>
-                          {t('installer.runtimeStorage.imapDisabled')}
-                        </SelectItem>
-                        <SelectItem value='LOCAL_FILE'>
-                          {t('installer.runtimeStorage.localFile')}
-                        </SelectItem>
-                        <SelectItem value='HDFS'>HDFS</SelectItem>
-                        <SelectItem value='OSS'>Aliyun OSS</SelectItem>
-                        <SelectItem value='S3'>AWS S3</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className='space-y-2'>
-                    <Label>{t('installer.storagePath')}</Label>
-                    <Input
-                      value={config.imap.namespace}
-                      onChange={(e) =>
-                        updateConfig({
-                          imap: {
-                            ...config.imap,
-                            namespace: e.target.value,
-                          },
-                        })
-                      }
-                      placeholder='/tmp/seatunnel/imap/'
-                    />
-                    <p className='text-xs text-muted-foreground'>
-                      {t('installer.runtimeStorage.imapPathHint')}
-                    </p>
-                  </div>
-                </div>
-
-                {config.imap.storage_type === 'HDFS' && (
-                  <div className='space-y-4'>
-                    <div className='flex items-center space-x-2'>
-                      <Checkbox
-                        id='deploy-imap-ha'
-                        checked={config.imap.hdfs_ha_enabled || false}
-                        onCheckedChange={(checked) =>
-                          updateConfig({
-                            imap: {
-                              ...config.imap,
-                              hdfs_ha_enabled: checked === true,
-                            },
-                          })
-                        }
-                      />
-                      <Label htmlFor='deploy-imap-ha'>
-                        {t('installer.hdfsHAMode')}
-                      </Label>
-                    </div>
-                    {!config.imap.hdfs_ha_enabled && (
-                      <div className='grid grid-cols-2 gap-4'>
-                        <div className='space-y-2'>
-                          <Label>{t('installer.hdfsNameNodeHost')}</Label>
-                          <Input
-                            value={config.imap.hdfs_namenode_host || ''}
-                            onChange={(e) =>
-                              updateConfig({
-                                imap: {
-                                  ...config.imap,
-                                  hdfs_namenode_host: e.target.value,
-                                },
-                              })
-                            }
-                            placeholder='namenode.example.com'
-                          />
-                        </div>
-                        <div className='space-y-2'>
-                          <Label>{t('installer.hdfsNameNodePort')}</Label>
-                          <Input
-                            type='number'
-                            value={config.imap.hdfs_namenode_port || ''}
-                            onChange={(e) =>
-                              updateConfig({
-                                imap: {
-                                  ...config.imap,
-                                  hdfs_namenode_port:
-                                    parseInt(e.target.value) || 0,
-                                },
-                              })
-                            }
-                            placeholder='8020'
-                          />
-                        </div>
-                      </div>
-                    )}
-                    {config.imap.hdfs_ha_enabled && (
-                      <div className='space-y-3 p-3 border rounded-md bg-muted/30'>
-                        <div className='grid grid-cols-2 gap-4'>
-                          <div className='space-y-2'>
-                            <Label>{t('installer.hdfsNameServices')}</Label>
-                            <Input
-                              value={config.imap.hdfs_name_services || ''}
-                              onChange={(e) =>
-                                updateConfig({
-                                  imap: {
-                                    ...config.imap,
-                                    hdfs_name_services: e.target.value,
-                                  },
-                                })
-                              }
-                              placeholder='mycluster'
-                            />
-                          </div>
-                          <div className='space-y-2'>
-                            <Label>{t('installer.hdfsHANamenodes')}</Label>
-                            <Input
-                              value={config.imap.hdfs_ha_namenodes || ''}
-                              onChange={(e) =>
-                                updateConfig({
-                                  imap: {
-                                    ...config.imap,
-                                    hdfs_ha_namenodes: e.target.value,
-                                  },
-                                })
-                              }
-                              placeholder='nn1,nn2'
-                            />
-                          </div>
-                        </div>
-                        <div className='grid grid-cols-2 gap-4'>
-                          <div className='space-y-2'>
-                            <Label>
-                              {t('installer.hdfsNamenodeRPCAddress1')}
-                            </Label>
-                            <Input
-                              value={
-                                config.imap.hdfs_namenode_rpc_address_1 || ''
-                              }
-                              onChange={(e) =>
-                                updateConfig({
-                                  imap: {
-                                    ...config.imap,
-                                    hdfs_namenode_rpc_address_1: e.target.value,
-                                  },
-                                })
-                              }
-                              placeholder='nn1-host:8020'
-                            />
-                          </div>
-                          <div className='space-y-2'>
-                            <Label>
-                              {t('installer.hdfsNamenodeRPCAddress2')}
-                            </Label>
-                            <Input
-                              value={
-                                config.imap.hdfs_namenode_rpc_address_2 || ''
-                              }
-                              onChange={(e) =>
-                                updateConfig({
-                                  imap: {
-                                    ...config.imap,
-                                    hdfs_namenode_rpc_address_2: e.target.value,
-                                  },
-                                })
-                              }
-                              placeholder='nn2-host:8020'
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                    <div className='flex items-center space-x-2'>
-                      <Checkbox
-                        id='deploy-imap-kerberos'
-                        checked={
-                          Boolean(config.imap.kerberos_principal) ||
-                          Boolean(config.imap.kerberos_keytab_file_path)
-                        }
-                        onCheckedChange={(checked) =>
-                          updateConfig({
-                            imap: {
-                              ...config.imap,
-                              kerberos_principal:
-                                checked === true
-                                  ? config.imap.kerberos_principal || ''
-                                  : undefined,
-                              kerberos_keytab_file_path:
-                                checked === true
-                                  ? config.imap.kerberos_keytab_file_path || ''
-                                  : undefined,
-                            },
-                          })
-                        }
-                      />
-                      <Label htmlFor='deploy-imap-kerberos'>
-                        {t('installer.hdfsKerberos')}
-                      </Label>
-                    </div>
-                    {(Boolean(config.imap.kerberos_principal) ||
-                      Boolean(config.imap.kerberos_keytab_file_path)) && (
-                      <div className='grid grid-cols-2 gap-4 p-3 border rounded-md bg-muted/30'>
-                        <div className='space-y-2'>
-                          <Label>{t('installer.kerberosPrincipal')}</Label>
-                          <Input
-                            value={config.imap.kerberos_principal || ''}
-                            onChange={(e) =>
-                              updateConfig({
-                                imap: {
-                                  ...config.imap,
-                                  kerberos_principal: e.target.value,
-                                },
-                              })
-                            }
-                            placeholder='hdfs/namenode@EXAMPLE.COM'
-                          />
-                        </div>
-                        <div className='space-y-2'>
-                          <Label>{t('installer.kerberosKeytabPath')}</Label>
-                          <Input
-                            value={config.imap.kerberos_keytab_file_path || ''}
-                            onChange={(e) =>
-                              updateConfig({
-                                imap: {
-                                  ...config.imap,
-                                  kerberos_keytab_file_path: e.target.value,
-                                },
-                              })
-                            }
-                            placeholder='/etc/security/keytabs/hdfs.keytab'
-                          />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {(config.imap.storage_type === 'OSS' ||
-                  config.imap.storage_type === 'S3') && (
-                  <div className='space-y-3'>
-                    <div className='grid grid-cols-2 gap-4'>
-                      <div className='space-y-2'>
-                        <Label>{t('installer.endpoint')}</Label>
-                        <Input
-                          value={config.imap.storage_endpoint || ''}
-                          onChange={(e) =>
-                            updateConfig({
-                              imap: {
-                                ...config.imap,
-                                storage_endpoint: e.target.value,
-                              },
-                            })
-                          }
-                          placeholder={
-                            config.imap.storage_type === 'OSS'
-                              ? 'oss-cn-hangzhou.aliyuncs.com'
-                              : 'http://minio.example.com:9000'
-                          }
-                        />
-                      </div>
-                      <div className='space-y-2'>
-                        <Label>{t('installer.bucket')}</Label>
-                        <Input
-                          value={config.imap.storage_bucket || ''}
-                          onChange={(e) =>
-                            updateConfig({
-                              imap: {
-                                ...config.imap,
-                                storage_bucket: e.target.value,
-                              },
-                            })
-                          }
-                          placeholder='my-imap-bucket'
-                        />
-                      </div>
-                    </div>
-                    <div className='grid grid-cols-2 gap-4'>
-                      <div className='space-y-2'>
-                        <Label>{t('installer.accessKey')}</Label>
-                        <Input
-                          type='password'
-                          value={config.imap.storage_access_key || ''}
-                          onChange={(e) =>
-                            updateConfig({
-                              imap: {
-                                ...config.imap,
-                                storage_access_key: e.target.value,
-                              },
-                            })
-                          }
-                        />
-                      </div>
-                      <div className='space-y-2'>
-                        <Label>{t('installer.secretKey')}</Label>
-                        <Input
-                          type='password'
-                          value={config.imap.storage_secret_key || ''}
-                          onChange={(e) =>
-                            updateConfig({
-                              imap: {
-                                ...config.imap,
-                                storage_secret_key: e.target.value,
-                              },
-                            })
-                          }
-                        />
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {imapExternalEnabled && (
-                  <>
-                    <div className='flex items-center justify-between rounded-md border p-3'>
-                      <div className='space-y-1'>
-                        <div className='text-sm font-medium'>
-                          {t('installer.runtimeStorage.validateConnectivity')}
-                        </div>
-                        <div className='text-xs text-muted-foreground'>
-                          {t('installer.runtimeStorage.validationHint')}
-                        </div>
-                      </div>
-                      <Button
-                        variant='outline'
-                        size='sm'
-                        onClick={() => validateRuntimeStorage('imap')}
-                        disabled={validatingKind === 'imap'}
-                      >
-                        {validatingKind === 'imap' && (
-                          <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                        )}
-                        {t('installer.runtimeStorage.validateNow')}
-                      </Button>
-                    </div>
-                    {storageValidation.imap && (
-                      <div className='rounded-md border p-3 text-sm space-y-2'>
-                        <div className='flex items-center gap-2 font-medium'>
-                          {storageValidation.imap.success ? (
-                            <CheckCircle2 className='h-4 w-4 text-green-600' />
-                          ) : (
-                            <AlertTriangle className='h-4 w-4 text-amber-600' />
-                          )}
-                          <span>
-                            {storageValidation.imap.success
-                              ? t('installer.runtimeStorage.validationPassed')
-                              : t('installer.runtimeStorage.validationWarning')}
-                          </span>
-                        </div>
-                        {storageValidation.imap.warning && (
-                          <div className='text-muted-foreground'>
-                            {storageValidation.imap.warning}
-                          </div>
-                        )}
-                        <div className='space-y-1'>
-                          {storageValidation.imap.hosts.map((host) => (
-                            <div key={host.host_id}>
-                              <span className='font-medium'>
-                                {host.host_name || host.host_id}
-                              </span>
-                              {' · '}
-                              <span>{host.message}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-        </ScrollArea>
-      </div>
-    );
-  };
-
-  // Render plugins step / 渲染插件步骤
-  const renderPluginsStep = () => {
-    return (
-      <div className='h-full flex flex-col overflow-hidden'>
-        <div className='mb-4 flex items-center justify-between gap-4'>
-          <div>
-            <p className='text-sm text-muted-foreground'>
-              {t('cluster.wizard.selectPluginsDesc')}
-            </p>
-            <p className='mt-1 text-xs text-muted-foreground'>
-              {t('cluster.wizard.pluginsPreparedAutomatically')}
-            </p>
-          </div>
-          <Badge variant='outline'>
-            {config.selectedPlugins.length}{' '}
-            {t('cluster.wizard.selectedPlugins')}
-          </Badge>
-        </div>
-
-        <PluginSelectStep
-          version={config.version}
-          mirror={config.mirror}
-          onMirrorChange={(mirror) => updateConfig({mirror})}
-          selectedPlugins={config.selectedPlugins}
-          selectedPluginProfiles={config.selectedPluginProfiles}
-          onPluginsChange={(plugins) => {
-            const selectedPluginSet = new Set(plugins);
-            const nextProfiles = Object.fromEntries(
-              Object.entries(config.selectedPluginProfiles).filter(
-                ([pluginName]) => selectedPluginSet.has(pluginName),
-              ),
-            );
-            updateConfig({
-              selectedPlugins: plugins,
-              selectedPluginProfiles: nextProfiles,
-            });
-          }}
-          onPluginProfilesChange={(pluginName, profileKeys) =>
-            updateConfig({
-              selectedPluginProfiles: {
-                ...config.selectedPluginProfiles,
-                [pluginName]: profileKeys,
-              },
-            })
-          }
-        />
-
-        <div className='mt-4 border-t pt-3 text-xs text-muted-foreground'>
-          <p>{t('cluster.wizard.pluginsOptional')}</p>
-        </div>
-      </div>
-    );
-  };
-
-  // Get status icon for precheck item / 获取预检查项的状态图标
-  const getPrecheckStatusIcon = (status: CheckStatus) => {
-    switch (status) {
-      case 'passed':
-        return <CheckCircle2 className='h-4 w-4 text-green-500' />;
-      case 'failed':
-        return <X className='h-4 w-4 text-red-500' />;
-      case 'warning':
-        return <AlertTriangle className='h-4 w-4 text-yellow-500' />;
-      default:
-        return (
-          <Loader2 className='h-4 w-4 animate-spin text-muted-foreground' />
-        );
-    }
-  };
-
-  // Render precheck step / 渲染预检查步骤
-  const renderPrecheckStep = () => (
-    <div className='space-y-4 h-full flex flex-col overflow-hidden'>
-      {/* Summary header / 摘要头部 */}
-      <div className='flex items-center justify-between'>
-        <div>
-          <h3 className='text-sm font-medium'>
-            {t('cluster.wizard.precheckTitle')}
-          </h3>
-          <p className='text-xs text-muted-foreground'>
-            {t('cluster.wizard.precheckDesc')}
-          </p>
-        </div>
-        <div className='flex items-center gap-2'>
-          {precheckRunning ? (
-            <Badge variant='outline' className='gap-1'>
-              <Loader2 className='h-3 w-3 animate-spin' />
-              {t('cluster.wizard.precheckRunning')}
-            </Badge>
-          ) : precheckHasRun ? (
-            allPrechecksPassed ? (
-              <Badge variant='default' className='gap-1 bg-green-500'>
-                <CheckCircle2 className='h-3 w-3' />
-                {t('cluster.wizard.precheckPassed')}
-              </Badge>
-            ) : (
-              <Badge variant='destructive' className='gap-1'>
-                <X className='h-3 w-3' />
-                {t('cluster.wizard.precheckFailed')}
-              </Badge>
-            )
-          ) : null}
-        </div>
-      </div>
-
-      {/* Initial state - show start button / 初始状态 - 显示开始按钮 */}
-      {!precheckHasRun && !precheckRunning ? (
-        <div className='flex-1 flex items-center justify-center'>
-          <div className='text-center p-8 max-w-md'>
-            <CheckCircle2 className='h-16 w-16 mx-auto mb-4 text-muted-foreground/50' />
-            <h3 className='text-lg font-medium mb-2'>
-              {t('cluster.wizard.readyToPrecheck')}
-            </h3>
-            <p className='text-sm text-muted-foreground mb-6'>
-              {t('cluster.wizard.readyToPrecheckDesc', {
-                count: selectedHosts.length,
-              })}
-            </p>
-            <Button onClick={runPrecheck} size='lg'>
-              <PlayCircle className='h-5 w-5 mr-2' />
-              {t('cluster.wizard.startPrecheck')}
-            </Button>
-          </div>
-        </div>
-      ) : (
-        <>
-          {/* Precheck results / 预检查结果 */}
-          <ScrollArea className='flex-1 min-h-0 pr-4'>
-            <div className='space-y-4'>
-              {precheckResults.map((hostResult) => (
-                <Card key={hostResult.hostId}>
-                  <CardHeader className='pb-2'>
-                    <div className='flex items-center justify-between'>
-                      <div className='flex items-center gap-2'>
-                        <Server className='h-4 w-4' />
-                        <CardTitle className='text-sm'>
-                          {hostResult.hostName}
-                        </CardTitle>
-                      </div>
-                      {hostResult.loading ? (
-                        <Badge variant='outline' className='gap-1'>
-                          <Loader2 className='h-3 w-3 animate-spin' />
-                          {t('cluster.wizard.checking')}
-                        </Badge>
-                      ) : hostResult.error ? (
-                        <Badge variant='destructive'>
-                          {t('cluster.wizard.checkError')}
-                        </Badge>
-                      ) : hostResult.result?.overall_status === 'passed' ? (
-                        <Badge variant='default' className='bg-green-500'>
-                          {t('cluster.wizard.passed')}
-                        </Badge>
-                      ) : hostResult.result?.overall_status === 'warning' ? (
-                        <Badge
-                          variant='secondary'
-                          className='bg-yellow-500 text-white'
-                        >
-                          {t('cluster.wizard.warning')}
-                        </Badge>
-                      ) : (
-                        <Badge variant='destructive'>
-                          {t('cluster.wizard.failed')}
-                        </Badge>
-                      )}
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    {hostResult.loading ? (
-                      <div className='flex items-center justify-center py-4'>
-                        <Loader2 className='h-6 w-6 animate-spin text-muted-foreground' />
-                      </div>
-                    ) : hostResult.error ? (
-                      <div className='p-3 bg-red-50 dark:bg-red-900/20 rounded-lg'>
-                        <p className='text-sm text-red-600 dark:text-red-400'>
-                          {hostResult.error}
-                        </p>
-                      </div>
-                    ) : hostResult.result ? (
-                      <div className='space-y-2'>
-                        {hostResult.result.items.map((item, index) => (
-                          <div
-                            key={index}
-                            className={cn(
-                              'flex items-start gap-3 p-2 rounded-md',
-                              item.status === 'passed' &&
-                                'bg-green-50 dark:bg-green-900/20',
-                              item.status === 'failed' &&
-                                'bg-red-50 dark:bg-red-900/20',
-                              item.status === 'warning' &&
-                                'bg-yellow-50 dark:bg-yellow-900/20',
-                            )}
-                          >
-                            {getPrecheckStatusIcon(item.status)}
-                            <div className='flex-1 min-w-0'>
-                              <div className='flex items-center gap-2'>
-                                <span className='text-sm font-medium capitalize'>
-                                  {item.name}
-                                </span>
-                              </div>
-                              <p className='text-xs text-muted-foreground mt-0.5'>
-                                {item.message}
-                              </p>
-                              {/* Show details if available / 如果有详情则显示 */}
-                              {item.details &&
-                                Object.keys(item.details).length > 0 && (
-                                  <div className='mt-1 text-xs text-muted-foreground/80'>
-                                    {Object.entries(item.details).map(
-                                      ([key, value]) => {
-                                        // Skip output field as it contains raw JSON / 跳过 output 字段因为它包含原始 JSON
-                                        if (key === 'output') {
-                                          return null;
-                                        }
-                                        // Format the value nicely / 格式化值
-                                        let displayValue: string;
-                                        if (typeof value === 'string') {
-                                          displayValue = value;
-                                        } else if (Array.isArray(value)) {
-                                          displayValue = value.join(', ');
-                                        } else if (
-                                          typeof value === 'object' &&
-                                          value !== null
-                                        ) {
-                                          displayValue = JSON.stringify(value);
-                                        } else {
-                                          displayValue = String(value);
-                                        }
-                                        return (
-                                          <div key={key} className='flex gap-1'>
-                                            <span className='font-medium'>
-                                              {key.replace(/_/g, ' ')}:
-                                            </span>
-                                            <span>{displayValue}</span>
-                                          </div>
-                                        );
-                                      },
-                                    )}
-                                  </div>
-                                )}
-                            </div>
-                          </div>
-                        ))}
-                        {hostResult.result.summary && (
-                          <p className='text-xs text-muted-foreground pt-2 border-t'>
-                            {hostResult.result.summary}
-                          </p>
-                        )}
-                      </div>
-                    ) : null}
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </ScrollArea>
-
-          {/* Rerun button / 重新运行按钮 */}
-          {precheckHasRun && (
-            <div className='flex justify-center pt-2'>
-              <Button
-                variant='outline'
-                onClick={runPrecheck}
-                disabled={precheckRunning}
-              >
-                {precheckRunning ? (
-                  <Loader2 className='h-4 w-4 animate-spin mr-2' />
-                ) : (
-                  <PlayCircle className='h-4 w-4 mr-2' />
-                )}
-                {t('cluster.wizard.rerunPrecheck')}
-              </Button>
-            </div>
-          )}
-
-          {/* Warning/Success message / 警告/成功消息 */}
-          {precheckHasRun && !allPrechecksPassed && (
-            <div className='flex items-center gap-2 p-4 bg-red-50 dark:bg-red-900/20 rounded-lg'>
-              <AlertTriangle className='h-5 w-5 text-red-600' />
-              <p className='text-sm text-red-700 dark:text-red-300'>
-                {t('cluster.wizard.precheckFailedWarning')}
-              </p>
-            </div>
-          )}
-
-          {precheckHasRun && allPrechecksPassed && (
-            <div className='flex items-center gap-2 p-4 bg-green-50 dark:bg-green-900/20 rounded-lg'>
-              <CheckCircle2 className='h-5 w-5 text-green-600' />
-              <p className='text-sm text-green-700 dark:text-green-300'>
-                {t('cluster.wizard.precheckPassedInfo')}
-              </p>
-            </div>
-          )}
-        </>
-      )}
-    </div>
-  );
-
-  // Render deploy step / 渲染部署步骤
-  const renderDeployStep = () => (
-    <div className='h-full flex flex-col overflow-hidden'>
-      <ScrollArea className='flex-1 min-h-0 pr-4'>
-        <div className='space-y-6'>
-          <Card>
-            <CardContent className='pt-6'>
-              <div className='text-center mb-6'>
-                {deployStatus === 'running' && (
-                  <>
-                    <Loader2 className='h-12 w-12 animate-spin mx-auto text-primary mb-4' />
-                    <h3 className='text-lg font-medium'>
-                      {t('cluster.wizard.deploying')}
-                    </h3>
-                    <p className='text-sm text-muted-foreground mt-1'>
-                      {t('cluster.wizard.deployingDesc')}
-                    </p>
-                  </>
-                )}
-                {deployStatus === 'success' && (
-                  <>
-                    <CheckCircle2 className='h-12 w-12 mx-auto text-green-500 mb-4' />
-                    <h3 className='text-lg font-medium text-green-600'>
-                      {t('cluster.wizard.deploySuccess')}
-                    </h3>
-                  </>
-                )}
-                {deployStatus === 'failed' && (
-                  <>
-                    <AlertTriangle className='h-12 w-12 mx-auto text-red-500 mb-4' />
-                    <h3 className='text-lg font-medium text-red-600'>
-                      {t('cluster.wizard.deployFailed')}
-                    </h3>
-                    {deployError && (
-                      <p className='text-sm text-red-500 mt-2'>{deployError}</p>
-                    )}
-                    <div className='flex gap-2 mt-4 justify-center'>
-                      <Button
-                        variant='outline'
-                        onClick={() => {
-                          // Go back to plugins step to adjust config
-                          // 返回插件步骤调整配置
-                          setDeployStatus('idle');
-                          setDeployProgress(0);
-                          setDeployError(null);
-                          setDeployWarnings([]);
-                          setDeploySteps([]);
-                          setCurrentStepIndex(4); // plugins step index
-                        }}
-                        disabled={deploying}
-                      >
-                        <ChevronLeft className='h-4 w-4 mr-2' />
-                        {t('common.previous')}
-                      </Button>
-                      <Button
-                        variant='default'
-                        onClick={handleDeploy}
-                        disabled={deploying}
-                      >
-                        <PlayCircle className='h-4 w-4 mr-2' />
-                        {t('common.retry')}
-                      </Button>
-                    </div>
-                  </>
-                )}
-              </div>
-
-              <div className='space-y-2'>
-                <div className='flex items-center justify-between text-sm'>
-                  <span>{t('cluster.wizard.progress')}</span>
-                  <span>{deployProgress}%</span>
-                </div>
-                <Progress value={deployProgress} className='h-3' />
-              </div>
-
-              {deployWarnings.length > 0 && (
-                <div className='mt-6 rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/60 dark:bg-amber-950/30'>
-                  <div className='flex items-start gap-3'>
-                    <AlertTriangle className='mt-0.5 h-5 w-5 flex-shrink-0 text-amber-600' />
-                    <div className='space-y-2'>
-                      <p className='text-sm font-medium text-amber-900 dark:text-amber-200'>
-                        {t('cluster.wizard.warning')}
-                      </p>
-                      <div className='space-y-1'>
-                        {deployWarnings.map((warning) => (
-                          <p
-                            key={warning}
-                            className='break-words text-sm text-amber-800 dark:text-amber-300'
-                          >
-                            {warning}
-                          </p>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Detailed steps / 详细步骤 */}
-              {deploySteps.length > 0 && (
-                <div className='mt-6 space-y-2'>
-                  <h4 className='text-sm font-medium mb-3'>
-                    {t('cluster.wizard.deploySteps')}
-                  </h4>
-                  <div className='max-h-[300px] overflow-y-auto pr-2'>
-                    <div className='space-y-2'>
-                      {deploySteps.map((step, index) => (
-                        <div
-                          key={`${step.step}-${step.hostName || index}`}
-                          className={cn(
-                            'flex items-center gap-3 p-2 rounded-lg text-sm',
-                            step.status === 'running' &&
-                              'bg-blue-50 dark:bg-blue-950',
-                            step.status === 'success' &&
-                              'bg-green-50 dark:bg-green-950',
-                            step.status === 'failed' &&
-                              'bg-red-50 dark:bg-red-950',
-                            step.status === 'pending' && 'bg-muted',
-                          )}
-                        >
-                          {step.status === 'running' && (
-                            <Loader2 className='h-4 w-4 animate-spin text-blue-500 flex-shrink-0' />
-                          )}
-                          {step.status === 'success' && (
-                            <CheckCircle2 className='h-4 w-4 text-green-500 flex-shrink-0' />
-                          )}
-                          {step.status === 'failed' && (
-                            <X className='h-4 w-4 text-red-500 flex-shrink-0' />
-                          )}
-                          {step.status === 'pending' && (
-                            <div className='h-4 w-4 rounded-full border-2 border-muted-foreground flex-shrink-0' />
-                          )}
-                          <div className='flex-1 min-w-0'>
-                            <div className='flex items-center gap-2'>
-                              {step.hostName && (
-                                <Badge variant='outline' className='text-xs'>
-                                  {step.hostName}
-                                </Badge>
-                              )}
-                              <span className='truncate'>{step.message}</span>
-                            </div>
-                            {step.status === 'running' &&
-                              step.progress !== undefined && (
-                                <Progress
-                                  value={step.progress}
-                                  className='h-1 mt-1'
-                                />
-                              )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      </ScrollArea>
-    </div>
-  );
-
-  // Render complete step / 渲染完成步骤
-  const renderCompleteStep = () => (
-    <div className='h-full flex flex-col overflow-hidden'>
-      <ScrollArea className='flex-1 min-h-0 pr-4'>
-        <div className='space-y-6'>
-          <Card className='border-green-500/50'>
-            <CardContent className='pt-8 pb-6'>
-              <div className='text-center'>
-                <PartyPopper className='h-16 w-16 mx-auto text-green-500 mb-4' />
-                <h2 className='text-2xl font-bold text-green-600 mb-2'>
-                  {t('cluster.wizard.deployComplete')}
-                </h2>
-                <p className='text-muted-foreground'>
-                  {t('cluster.wizard.deployCompleteDesc')}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-
-          {deployWarnings.length > 0 && (
-            <Card className='border-amber-200 bg-amber-50 dark:border-amber-900/60 dark:bg-amber-950/30'>
-              <CardContent className='pt-6'>
-                <div className='flex items-start gap-3'>
-                  <AlertTriangle className='mt-0.5 h-5 w-5 flex-shrink-0 text-amber-600' />
-                  <div className='space-y-2'>
-                    <p className='text-sm font-medium text-amber-900 dark:text-amber-200'>
-                      {t('cluster.wizard.warning')}
-                    </p>
-                    <div className='space-y-1'>
-                      {deployWarnings.map((warning) => (
-                        <p
-                          key={warning}
-                          className='break-words text-sm text-amber-800 dark:text-amber-300'
-                        >
-                          {warning}
-                        </p>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          <div className='flex justify-center gap-4'>
-            <Button variant='outline' onClick={handleClose}>
-              {t('common.close')}
-            </Button>
-            <Button onClick={handleComplete}>
-              {t('cluster.wizard.viewCluster')}
-            </Button>
-          </div>
-        </div>
-      </ScrollArea>
-    </div>
-  );
-
-  // Render step content / 渲染步骤内容
+  // Render current step component / 渲染当前步骤组件
   const renderStepContent = () => {
     switch (currentStep.id) {
       case 'basic':
-        return renderBasicStep();
+        return (
+          <ClusterBasicStep
+            config={config}
+            updateConfig={updateConfig}
+            packages={packages}
+            localPackages={localPackages}
+            packagesLoading={packagesLoading}
+            resolvedRecommendedVersion={resolvedRecommendedVersion}
+          />
+        );
       case 'hosts':
-        return renderHostsStep();
+        return (
+          <ClusterHostsStep
+            hostsWithRole={hostsWithRole}
+            loadingHosts={loadingHosts}
+            deploymentMode={config.deploymentMode}
+            toggleHostSelection={toggleHostSelection}
+            toggleHostRole={toggleHostRole}
+            selectedHosts={selectedHosts}
+          />
+        );
       case 'config':
-        return renderConfigStep();
-      case 'plugins':
-        return renderPluginsStep();
+        return (
+          <ClusterConfigStep
+            config={config}
+            updateConfig={updateConfig}
+            selectedHosts={selectedHosts}
+            localPackages={localPackages}
+            versionCapabilities={versionCapabilities}
+            httpServiceSupported={httpServiceSupported}
+            applyCheckpointToImap={applyCheckpointToImap}
+          />
+        );
       case 'precheck':
-        return renderPrecheckStep();
+        return (
+          <ClusterPrecheckStep
+            precheckResults={precheckResults}
+            precheckRunning={precheckRunning}
+            precheckHasRun={precheckHasRun}
+            allPrechecksPassed={allPrechecksPassed}
+            runPrecheck={runPrecheck}
+            selectedHosts={selectedHosts}
+          />
+        );
+      case 'plugins':
+        return (
+          <ClusterPluginsStep config={config} updateConfig={updateConfig} />
+        );
       case 'deploy':
-        return renderDeployStep();
+        return (
+          <ClusterDeployStep
+            deployStatus={deployStatus}
+            deployProgress={deployProgress}
+            deployError={deployError}
+            deployWarnings={deployWarnings}
+            deploySteps={deploySteps}
+            deploying={deploying}
+            onRetry={handleDeploy}
+            onBackToPlugins={() => {
+              setDeployStatus('idle');
+              setDeployProgress(0);
+              setDeployError(null);
+              setDeployWarnings([]);
+              setDeploySteps([]);
+              setCurrentStepIndex(4);
+            }}
+          />
+        );
       case 'complete':
-        return renderCompleteStep();
+        return (
+          <ClusterCompleteStep
+            config={config}
+            selectedHosts={selectedHosts}
+            deployWarnings={deployWarnings}
+            onClose={handleClose}
+            onComplete={handleComplete}
+          />
+        );
       default:
         return null;
     }
@@ -3115,100 +908,84 @@ export function ClusterDeployWizard({
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className='!max-w-[95vw] w-[95vw] max-h-[95vh] h-[90vh] overflow-hidden flex flex-col'>
-        <DialogHeader>
-          <DialogTitle>{t('cluster.wizard.title')}</DialogTitle>
-          <DialogDescription>{t(currentStep.descKey)}</DialogDescription>
+      <DialogContent className='w-full sm:max-w-4xl lg:max-w-5xl h-[86vh] max-h-[850px] p-0 gap-0 overflow-hidden flex flex-col border shadow-2xl rounded-xl bg-background'>
+        {/* Header / 弹窗头部 */}
+        <DialogHeader className='px-6 py-3.5 border-b bg-muted/20 flex flex-row items-center justify-between space-y-0'>
+          <div className='flex items-center gap-2.5'>
+            <div className='p-1.5 rounded-md bg-primary/10 text-primary'>
+              <Layers className='h-4 w-4' />
+            </div>
+            <div>
+              <DialogTitle className='text-sm font-semibold'>
+                {t('cluster.wizard.title')}
+              </DialogTitle>
+              <DialogDescription className='sr-only'>
+                {t(currentStep.descKey)}
+              </DialogDescription>
+            </div>
+          </div>
+          <div className='flex items-center gap-2'>
+            <Badge variant='outline' className='text-[11px] font-mono h-5 px-2'>
+              步骤 {currentStepIndex + 1} / {WIZARD_STEPS.length}
+            </Badge>
+          </div>
         </DialogHeader>
 
-        {/* Step indicator / 步骤指示器 */}
-        <div className='py-4'>
-          <div className='flex items-center justify-between mb-2'>
-            {WIZARD_STEPS.map((step, index) => {
-              const StepIcon = step.icon;
-              return (
-                <div
-                  key={step.id}
-                  className={cn(
-                    'flex items-center',
-                    index < WIZARD_STEPS.length - 1 && 'flex-1',
-                  )}
-                >
-                  <div
-                    className={cn(
-                      'flex items-center justify-center w-8 h-8 rounded-full border-2 transition-colors',
-                      index < currentStepIndex &&
-                        'bg-primary border-primary text-primary-foreground',
-                      index === currentStepIndex &&
-                        'border-primary text-primary',
-                      index > currentStepIndex &&
-                        'border-muted-foreground/30 text-muted-foreground/50',
-                    )}
-                  >
-                    {index < currentStepIndex ? (
-                      <CheckCircle2 className='h-5 w-5' />
-                    ) : (
-                      <StepIcon className='h-4 w-4' />
-                    )}
-                  </div>
-                  {index < WIZARD_STEPS.length - 1 && (
-                    <div
-                      className={cn(
-                        'flex-1 h-0.5 mx-2',
-                        index < currentStepIndex
-                          ? 'bg-primary'
-                          : 'bg-muted-foreground/30',
-                      )}
-                    />
-                  )}
-                </div>
-              );
-            })}
-          </div>
-          <Progress value={progress} className='h-1' />
-        </div>
+        {/* Stepper bar / 现代化步骤条 */}
+        <ClusterWizardStepper
+          steps={WIZARD_STEPS}
+          currentStepIndex={currentStepIndex}
+          onStepClick={(index) => setCurrentStepIndex(index)}
+          deploying={deploying}
+        />
 
-        {/* Step content / 步骤内容 */}
-        <div className='flex-1 overflow-hidden min-h-0 py-4'>
+        {/* Step Content / 步骤主体内容区 */}
+        <div className='flex-1 overflow-hidden min-h-0 px-6 py-4'>
           {renderStepContent()}
         </div>
 
-        {/* Footer buttons / 底部按钮 */}
+        {/* Footer / 底部操作栏 */}
         {currentStep.id !== 'complete' && (
-          <div className='flex items-center justify-between pt-4 border-t'>
+          <div className='border-t px-6 py-3 bg-muted/10 flex items-center justify-between shrink-0'>
             <Button
               variant='outline'
+              size='sm'
               onClick={handlePrevious}
               disabled={currentStepIndex === 0 || currentStep.id === 'deploy'}
+              className='h-8 text-xs'
             >
-              <ChevronLeft className='h-4 w-4 mr-1' />
+              <ChevronLeft className='h-3.5 w-3.5 mr-1' />
               {t('common.previous')}
             </Button>
 
             <div className='flex items-center gap-2'>
               <Button
                 variant='ghost'
+                size='sm'
                 onClick={handleClose}
                 disabled={deploying}
+                className='h-8 text-xs'
               >
-                <X className='h-4 w-4 mr-1' />
+                <X className='h-3.5 w-3.5 mr-1' />
                 {t('common.cancel')}
               </Button>
 
               {currentStep.id !== 'deploy' && (
                 <Button
+                  size='sm'
                   onClick={handleNext}
                   disabled={!canProceed() || deploying}
+                  className='h-8 text-xs'
                 >
                   {currentStep.id === 'plugins' ? (
                     <>
                       {t('cluster.wizard.startDeploy')}
-                      <PlayCircle className='h-4 w-4 ml-1' />
+                      <PlayCircle className='h-3.5 w-3.5 ml-1.5' />
                     </>
                   ) : (
                     <>
                       {t('common.next')}
-                      <ChevronRight className='h-4 w-4 ml-1' />
+                      <ChevronRight className='h-3.5 w-3.5 ml-1.5' />
                     </>
                   )}
                 </Button>

@@ -46,7 +46,7 @@ func newMockHostUpdater() *mockHostUpdater {
 	}
 }
 
-func (m *mockHostUpdater) UpdateAgentStatus(ctx context.Context, hostID uint, ipAddress string, agentID string, version string, sysInfo *SystemInfo, hostname string) (uint, error) {
+func (m *mockHostUpdater) UpdateAgentStatus(ctx context.Context, hostID uint, ipAddress string, agentID string, version string, sysInfo *SystemInfo, hostname string, localIPs []string) (uint, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.updateAgentErr != nil {

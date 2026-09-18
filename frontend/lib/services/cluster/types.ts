@@ -135,6 +135,7 @@ export interface ClusterPortConfig {
   master_hazelcast_port?: number;
   master_api_port?: number;
   worker_port?: number;
+  java_proxy_port?: number;
 }
 
 /**
@@ -687,12 +688,14 @@ export function getClusterPortConfig(
     ),
     master_api_port: toPositivePortOrUndefined(ports.master_api_port),
     worker_port: toPositivePortOrUndefined(ports.worker_port),
+    java_proxy_port: toPositivePortOrUndefined(ports.java_proxy_port),
   };
 
   if (
     result.master_hazelcast_port === undefined &&
     result.master_api_port === undefined &&
-    result.worker_port === undefined
+    result.worker_port === undefined &&
+    result.java_proxy_port === undefined
   ) {
     return undefined;
   }

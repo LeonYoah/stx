@@ -30,6 +30,7 @@ import (
 	appconfig "github.com/LeonYoah/stx/internal/apps/config"
 	installerapp "github.com/LeonYoah/stx/internal/apps/installer"
 	"github.com/LeonYoah/stx/internal/logger"
+	"github.com/LeonYoah/stx/internal/seatunnel"
 	"gopkg.in/yaml.v3"
 )
 
@@ -794,12 +795,15 @@ type ClusterPortConfig struct {
 	MasterHazelcastPort int `json:"master_hazelcast_port,omitempty"`
 	MasterAPIPort       int `json:"master_api_port,omitempty"`
 	WorkerPort          int `json:"worker_port,omitempty"`
+	// JavaProxyPort is the managed stx-java-proxy listen port (default 18080).
+	// JavaProxyPort 是托管 stx-java-proxy 监听端口（默认 18080）。
+	JavaProxyPort int `json:"java_proxy_port,omitempty"`
 }
 
 // HasValues 返回端口配置是否包含任意显式值。
 // HasValues returns whether the port config contains any explicit value.
 func (c *ClusterPortConfig) HasValues() bool {
-	return c != nil && (c.MasterHazelcastPort > 0 || c.MasterAPIPort > 0 || c.WorkerPort > 0)
+	return c != nil && (c.MasterHazelcastPort > 0 || c.MasterAPIPort > 0 || c.WorkerPort > 0 || c.JavaProxyPort > 0)
 }
 
 // GetPortConfig 返回 cluster config 中的端口默认值。
@@ -824,6 +828,9 @@ func (c ClusterConfig) GetPortConfig() *ClusterPortConfig {
 		}
 		if value, ok := parseIntValue(values["worker_port"]); ok {
 			cfg.WorkerPort = value
+		}
+		if value, ok := parseIntValue(values["java_proxy_port"]); ok {
+			cfg.JavaProxyPort = value
 		}
 		if !cfg.HasValues() {
 			return nil
@@ -2346,9 +2353,12 @@ func (s *Service) GetNodeLogs(ctx context.Context, clusterID uint, nodeID uint, 
 
 	// Determine log file based on deployment mode and role
 	// 根据部署模式和角色确定日志文件
-	installDir := node.InstallDir
+	installDir := strings.TrimSpace(node.InstallDir)
 	if installDir == "" {
-		installDir = "/opt/seatunnel"
+		installDir = strings.TrimSpace(cluster.InstallDir)
+	}
+	if installDir == "" {
+		installDir = seatunnel.DefaultInstallDir(cluster.Version)
 	}
 
 	var logFile string

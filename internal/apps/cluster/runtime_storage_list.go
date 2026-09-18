@@ -121,7 +121,7 @@ func (s *Service) ListRuntimeStorage(
 	if err != nil {
 		return nil, err
 	}
-	params := runtimeStorageProxyParams(node.InstallDir, clusterObj.Version, kind, cfg.Checkpoint, cfg.IMAP)
+	params := runtimeStorageProxyParams(node.InstallDir, clusterObj.Version, kind, cfg.Checkpoint, cfg.IMAP, clusterObj)
 	if strings.TrimSpace(path) != "" {
 		params["path"] = strings.TrimSpace(path)
 	}

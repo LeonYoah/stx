@@ -302,6 +302,7 @@ type InstallationRequest struct {
 	ClusterPort             int                    `json:"cluster_port,omitempty"`     // Master hazelcast port / Master Hazelcast 端口
 	WorkerPort              int                    `json:"worker_port,omitempty"`      // Worker hazelcast port / Worker Hazelcast 端口
 	HTTPPort                int                    `json:"http_port,omitempty"`        // SeaTunnel HTTP API 端口
+	JavaProxyPort           int                    `json:"java_proxy_port,omitempty"`  // Managed stx-java-proxy listen port / 托管 stx-java-proxy 监听端口
 	EnableHTTP              *bool                  `json:"enable_http,omitempty"`      // 是否开启 SeaTunnel HTTP / Web UI
 	DynamicSlot             *bool                  `json:"dynamic_slot,omitempty"`
 	SlotNum                 *int                   `json:"slot_num,omitempty"`

@@ -552,6 +552,51 @@ systemctl_do() {
     fi
 }
 
+stop_java_proxy() {
+    log_info "Stopping stx-java-proxy..."
+    log_info "正在停止 stx-java-proxy..."
+
+    local state_dir="${LOG_DIR}/stx-java-proxy"
+    local pid_file="${state_dir}/service.pid"
+    local port_file="${state_dir}/service.port"
+    local pid=""
+    local port="18080"
+
+    if [ -f "${pid_file}" ]; then
+        pid=$(tr -d '[:space:]' < "${pid_file}" 2>/dev/null || true)
+    fi
+    if [ -f "${port_file}" ]; then
+        port=$(tr -d '[:space:]' < "${port_file}" 2>/dev/null || true)
+    fi
+
+    if [ -n "${pid}" ]; then
+        kill "${pid}" 2>/dev/null || true
+        sleep 1
+        if kill -0 "${pid}" 2>/dev/null; then
+            kill -9 "${pid}" 2>/dev/null || true
+        fi
+        log_info "stx-java-proxy pid ${pid} stopped / 已停止 stx-java-proxy 进程 ${pid}"
+    fi
+
+    if command -v lsof >/dev/null 2>&1 && [ -n "${port}" ]; then
+        local listener
+        for listener in $(lsof -ti TCP:"${port}" -sTCP:LISTEN 2>/dev/null || true); do
+            local cmdline=""
+            if [ -r "/proc/${listener}/cmdline" ]; then
+                cmdline=$(tr '\0' ' ' < "/proc/${listener}/cmdline" 2>/dev/null || true)
+            elif command -v ps >/dev/null 2>&1; then
+                cmdline=$(ps -ww -p "${listener}" -o command= 2>/dev/null || true)
+            fi
+            if printf '%s' "${cmdline}" | grep -q -e 'StxJavaProxyApplication' -e 'stx-java-proxy'; then
+                kill "${listener}" 2>/dev/null || true
+                log_info "Stopped leftover stx-java-proxy listener pid=${listener} port=${port}"
+                log_info "已停止残留 stx-java-proxy 监听 pid=${listener} port=${port}"
+            fi
+        done
+    fi
+    rm -f "${pid_file}" 2>/dev/null || true
+}
+
 stop_agent() {
     log_info "Stopping Agent service..."
     log_info "正在停止 Agent 服务..."
@@ -689,6 +734,7 @@ main() {
     log_info "Agent home: ${INSTALL_DIR}"
     log_info "=========================================="
 
+    stop_java_proxy
     stop_agent
     remove_service
     remove_files "${remove_logs_flag}"

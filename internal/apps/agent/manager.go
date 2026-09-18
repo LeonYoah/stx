@@ -252,7 +252,9 @@ type HostStatusUpdater interface {
 	// UpdateAgentStatus updates the agent status for a host by pre-bound host ID or IP address.
 	// UpdateAgentStatus 根据预绑定主机 ID 或 IP 地址更新主机的 Agent 状态。
 	// hostname is used when auto-creating a host (e.g. no host matches by IP).
-	UpdateAgentStatus(ctx context.Context, hostID uint, ipAddress string, agentID string, version string, systemInfo *SystemInfo, hostname string) (hostIDOut uint, err error)
+	// localIPs is the Agent local address set used to detect wrong user-entered host IPs.
+	// localIPs 为本机地址集合，用于识别用户填错的主机 IP。
+	UpdateAgentStatus(ctx context.Context, hostID uint, ipAddress string, agentID string, version string, systemInfo *SystemInfo, hostname string, localIPs []string) (hostIDOut uint, err error)
 
 	// UpdateHeartbeat updates the heartbeat data for a host.
 	// UpdateHeartbeat 更新主机的心跳数据。
@@ -421,7 +423,7 @@ func (m *Manager) RegisterAgent(ctx context.Context, req *pb.RegisterRequest) (*
 			}
 		}
 
-		hostID, err := m.hostUpdater.UpdateAgentStatus(ctx, uint(req.HostId), req.IpAddress, req.AgentId, req.AgentVersion, sysInfo, req.Hostname)
+		hostID, err := m.hostUpdater.UpdateAgentStatus(ctx, uint(req.HostId), req.IpAddress, req.AgentId, req.AgentVersion, sysInfo, req.Hostname, req.GetIpAddresses())
 		if err != nil {
 			// Log error but don't fail registration
 			// 记录错误但不使注册失败

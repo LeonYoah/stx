@@ -462,6 +462,7 @@ func (a *Agent) registerWithControlPlane() error {
 	sysInfo := a.metricsCollector.GetSystemInfo()
 	hostname := a.metricsCollector.GetHostname()
 	ipAddress := a.resolveAgentIP()
+	localIPs := a.collectLocalIPAddresses(ipAddress)
 
 	req := &pb.RegisterRequest{
 		AgentId:      a.config.Agent.ID,
@@ -472,6 +473,7 @@ func (a *Agent) registerWithControlPlane() error {
 		AgentVersion: Version,
 		SystemInfo:   sysInfo,
 		HostId:       a.config.Agent.HostID,
+		IpAddresses:  localIPs,
 	}
 
 	resp, err := a.grpcClient.Register(a.ctx, req)
@@ -559,6 +561,22 @@ func (a *Agent) resolveAgentIP() string {
 	// 4. 若未找到其他有效 IP 则退回回环地址
 	// 4. Default to loopback if nothing else found
 	return "127.0.0.1"
+}
+
+// collectLocalIPAddresses 汇总本机全部网卡 IP，并确保主注册 IP 也在列表中。
+// collectLocalIPAddresses aggregates all local interface IPs and ensures the primary register IP is included.
+func (a *Agent) collectLocalIPAddresses(primaryIP string) []string {
+	ips := a.metricsCollector.ListLocalIPAddresses()
+	primaryIP = strings.TrimSpace(primaryIP)
+	if primaryIP == "" || primaryIP == "127.0.0.1" || primaryIP == "::1" || primaryIP == "localhost" {
+		return ips
+	}
+	for _, ip := range ips {
+		if ip == primaryIP {
+			return ips
+		}
+	}
+	return append(ips, primaryIP)
 }
 
 // setupEventReporter sets up the event reporter with gRPC report function.
@@ -1015,6 +1033,7 @@ func (a *Agent) handleInstallCommand(ctx context.Context, cmd *pb.CommandRequest
 		ClusterPort:    getParamInt(cmd.Parameters, "cluster_port", 5801),
 		WorkerPort:     getParamInt(cmd.Parameters, "worker_port", 5802),
 		HTTPPort:       getParamInt(cmd.Parameters, "http_port", 8080),
+		JavaProxyPort:  getParamInt(cmd.Parameters, "java_proxy_port", 0),
 		ClusterID:      getParamString(cmd.Parameters, "cluster_id", ""),
 	}
 	if enableHTTPValue := strings.TrimSpace(getParamString(cmd.Parameters, "enable_http", "")); enableHTTPValue != "" {
@@ -1226,6 +1245,7 @@ func (a *Agent) handleStartCommand(ctx context.Context, cmd *pb.CommandRequest, 
 			ctx,
 			getParamString(cmd.Parameters, "install_dir", a.config.SeaTunnel.InstallDir),
 			getParamString(cmd.Parameters, "version", seatunnel.DefaultVersion()),
+			getParamInt(cmd.Parameters, "port", 0),
 		)
 		if err != nil {
 			return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err
@@ -1357,6 +1377,7 @@ func (a *Agent) handleRestartCommand(ctx context.Context, cmd *pb.CommandRequest
 			ctx,
 			installDir,
 			getParamString(cmd.Parameters, "version", seatunnel.DefaultVersion()),
+			getParamInt(cmd.Parameters, "port", 0),
 		)
 		if err != nil {
 			return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err

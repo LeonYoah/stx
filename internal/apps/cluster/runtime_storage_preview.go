@@ -116,7 +116,7 @@ func (s *Service) PreviewRuntimeStorage(
 	if err != nil {
 		return nil, err
 	}
-	params := runtimeStorageProxyParams(node.InstallDir, clusterObj.Version, kind, cfg.Checkpoint, cfg.IMAP)
+	params := runtimeStorageProxyParams(node.InstallDir, clusterObj.Version, kind, cfg.Checkpoint, cfg.IMAP, clusterObj)
 	params["path"] = strings.TrimSpace(path)
 	if maxBytes <= 0 {
 		maxBytes = 64 * 1024
@@ -173,7 +173,7 @@ func (s *Service) InspectCheckpointRuntimeStorage(
 		if cfgErr != nil {
 			return nil, cfgErr
 		}
-		params := runtimeStorageProxyParams(node.InstallDir, clusterObj.Version, installerapp.RuntimeStorageValidationCheckpoint, cfg.Checkpoint, cfg.IMAP)
+		params := runtimeStorageProxyParams(node.InstallDir, clusterObj.Version, installerapp.RuntimeStorageValidationCheckpoint, cfg.Checkpoint, cfg.IMAP, clusterObj)
 		params["path"] = strings.TrimSpace(path)
 		success, output, sendErr := s.agentSender.SendCommand(ctx, hostInfo.AgentID, "stx_java_proxy_inspect_checkpoint", params)
 		result := runtimeStorageHostResultFromCommandOutput(success, output)
@@ -261,7 +261,7 @@ func (s *Service) InspectIMAPRuntimeStorage(
 		if cfgErr != nil {
 			return nil, cfgErr
 		}
-		params = runtimeStorageProxyParams(node.InstallDir, clusterObj.Version, installerapp.RuntimeStorageValidationIMAP, cfg.Checkpoint, cfg.IMAP)
+		params = runtimeStorageProxyParams(node.InstallDir, clusterObj.Version, installerapp.RuntimeStorageValidationIMAP, cfg.Checkpoint, cfg.IMAP, clusterObj)
 		params["path"] = strings.TrimSpace(path)
 	}
 	success, output, sendErr := s.agentSender.SendCommand(ctx, hostInfo.AgentID, "stx_java_proxy_inspect_imap_wal", params)
@@ -326,6 +326,7 @@ func (s *Service) inspectCheckpointSourceStateRuntimeStorage(
 			"path":           strings.TrimSpace(path),
 			"content_base64": strings.TrimSpace(contentBase64),
 		}
+		attachClusterJavaProxyPort(params, clusterObj)
 	} else {
 		cfg, err := s.resolveRuntimeStorageValidationConfig(
 			ctx, clusterObj, node, installerapp.RuntimeStorageValidationCheckpoint)
@@ -338,6 +339,7 @@ func (s *Service) inspectCheckpointSourceStateRuntimeStorage(
 			installerapp.RuntimeStorageValidationCheckpoint,
 			cfg.Checkpoint,
 			cfg.IMAP,
+			clusterObj,
 		)
 		params["path"] = strings.TrimSpace(path)
 	}

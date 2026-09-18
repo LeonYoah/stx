@@ -1174,7 +1174,7 @@ func (s *Service) runDownload(ctx context.Context, task *DownloadTask) {
 
 // DefaultPrecheckPorts is the default list of ports to check for SeaTunnel installation
 // DefaultPrecheckPorts 是 SeaTunnel 安装时默认检查的端口列表
-var DefaultPrecheckPorts = []int{5801, 5802, 8080}
+var DefaultPrecheckPorts = []int{5801, 5802, 8080, 18080}
 
 // RunPrecheck runs precheck on a host via Agent.
 // RunPrecheck 通过 Agent 在主机上运行预检查。
@@ -1415,11 +1415,29 @@ func (s *Service) RunPrecheck(ctx context.Context, hostID uint, req *PrecheckReq
 		}
 	}
 
-	if result.OverallStatus == CheckStatusPassed {
-		result.Summary = fmt.Sprintf("All checks passed (%d passed) / 所有检查通过（%d 通过）", passedCount, passedCount)
+	// 有失败优先 failed；无失败但有警告则整体为 warning，避免“全部就绪”掩盖 Java 版本告警。
+	// Prefer failed when any item failed; otherwise elevate overall to warning so UI does not show "all ready".
+	if failedCount > 0 {
+		result.OverallStatus = CheckStatusFailed
+	} else if warningCount > 0 {
+		result.OverallStatus = CheckStatusWarning
 	} else {
-		result.Summary = fmt.Sprintf("Precheck failed: %d passed, %d failed, %d warnings / 预检查失败：%d 通过，%d 失败，%d 警告",
-			passedCount, failedCount, warningCount, passedCount, failedCount, warningCount)
+		result.OverallStatus = CheckStatusPassed
+	}
+
+	switch result.OverallStatus {
+	case CheckStatusPassed:
+		result.Summary = fmt.Sprintf("All checks passed (%d passed) / 所有检查通过（%d 通过）", passedCount, passedCount)
+	case CheckStatusWarning:
+		result.Summary = fmt.Sprintf(
+			"Checks ready with warnings: %d passed, %d warnings / 预检查可继续但有警告：%d 通过，%d 警告",
+			passedCount, warningCount, passedCount, warningCount,
+		)
+	default:
+		result.Summary = fmt.Sprintf(
+			"Precheck failed: %d passed, %d failed, %d warnings / 预检查失败：%d 通过，%d 失败，%d 警告",
+			passedCount, failedCount, warningCount, passedCount, failedCount, warningCount,
+		)
 	}
 
 	logger.InfoF(ctx, "[Installer] 预检查完成 / Precheck completed: host=%d, status=%s", hostID, result.OverallStatus)
@@ -2557,6 +2575,9 @@ func buildInstallParams(req *InstallationRequest) map[string]string {
 	}
 	if req.HTTPPort > 0 {
 		params["http_port"] = fmt.Sprintf("%d", req.HTTPPort)
+	}
+	if req.JavaProxyPort > 0 {
+		params["java_proxy_port"] = fmt.Sprintf("%d", req.JavaProxyPort)
 	}
 	if req.EnableHTTP != nil {
 		params["enable_http"] = strconv.FormatBool(*req.EnableHTTP)

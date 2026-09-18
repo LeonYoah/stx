@@ -134,6 +134,11 @@ func HandlePrecheckCommand(ctx context.Context, cmd *pb.CommandRequest, reporter
 	if subCommand == "" {
 		subCommand = PrecheckSubCommandFull
 	}
+	// 探测/托管命令带上集群配置的 java-proxy 端口，避免回落到默认 18080。
+	// Carry the cluster-configured java-proxy port so probes do not fall back to default 18080.
+	if port, err := strconv.Atoi(strings.TrimSpace(cmd.Parameters["java_proxy_port"])); err == nil && port > 0 {
+		ctx = installer.ContextWithSTXJavaProxyPort(ctx, port)
+	}
 
 	var result *PrecheckResult
 	var err error

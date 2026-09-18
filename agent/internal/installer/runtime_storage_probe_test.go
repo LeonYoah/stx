@@ -179,7 +179,7 @@ func TestExecuteRuntimeStorageProbeSuccess(t *testing.T) {
 	t.Setenv(stxJavaProxyScriptEnvVar, scriptPath)
 	t.Setenv(stxJavaProxyJarEnvVar, jarPath)
 
-	response, err := manager.executeRuntimeStorageProbe(context.Background(), t.TempDir(), "2.3.13", "checkpoint", map[string]interface{}{
+	response, err := manager.executeRuntimeStorageProbe(context.Background(), t.TempDir(), "2.3.13", "checkpoint", 0, map[string]interface{}{
 		"plugin": "hdfs",
 	})
 	if err != nil {
@@ -209,7 +209,7 @@ func TestExecuteRuntimeStorageProbeReturnsResponseOnFailureExit(t *testing.T) {
 	t.Setenv(stxJavaProxyScriptEnvVar, scriptPath)
 	t.Setenv(stxJavaProxyJarEnvVar, jarPath)
 
-	response, err := manager.executeRuntimeStorageProbe(context.Background(), t.TempDir(), "2.3.14", "imap", map[string]interface{}{
+	response, err := manager.executeRuntimeStorageProbe(context.Background(), t.TempDir(), "2.3.14", "imap", 0, map[string]interface{}{
 		"plugin": "hdfs",
 	})
 	if err != nil {
@@ -246,7 +246,7 @@ func TestExecuteRuntimeStorageProbeUsesManagedSTXJavaProxyEndpoint(t *testing.T)
 	t.Setenv(stxJavaProxyScriptEnvVar, filepath.Join(t.TempDir(), "missing.sh"))
 	t.Setenv(stxJavaProxyJarEnvVar, filepath.Join(t.TempDir(), "missing.jar"))
 
-	response, err := manager.executeRuntimeStorageProbe(context.Background(), t.TempDir(), "2.3.13", "checkpoint", map[string]interface{}{
+	response, err := manager.executeRuntimeStorageProbe(context.Background(), t.TempDir(), "2.3.13", "checkpoint", 0, map[string]interface{}{
 		"plugin": "hdfs",
 	})
 	if err != nil {
@@ -262,7 +262,7 @@ func TestExecuteRuntimeStorageProbeFailsWhenAssetsMissing(t *testing.T) {
 	t.Setenv(stxJavaProxyScriptEnvVar, filepath.Join(t.TempDir(), "missing.sh"))
 	t.Setenv(stxJavaProxyJarEnvVar, filepath.Join(t.TempDir(), "missing.jar"))
 
-	_, err := manager.executeRuntimeStorageProbe(context.Background(), t.TempDir(), "2.3.13", "checkpoint", map[string]interface{}{
+	_, err := manager.executeRuntimeStorageProbe(context.Background(), t.TempDir(), "2.3.13", "checkpoint", 0, map[string]interface{}{
 		"plugin": "hdfs",
 	})
 	if err == nil {
@@ -421,5 +421,24 @@ func TestExecuteStepConfigureIMAPKeepsInstallRunningOnProbeWarning(t *testing.T)
 	}
 	if !strings.Contains(string(content), "storage.type: s3") {
 		t.Fatalf("expected IMAP config to be applied, got %s", string(content))
+	}
+}
+
+func TestSTXJavaProxyServiceStateDirUsesAgentHome(t *testing.T) {
+	agentHome := t.TempDir()
+	t.Setenv(stxJavaProxyHomeEnvVar, agentHome)
+
+	stateDir := stxJavaProxyServiceStateDir("/opt/seatunnel")
+	want := filepath.Join(agentHome, "logs", stxJavaProxyServiceDirName)
+	if stateDir != want {
+		t.Fatalf("expected state dir %s, got %s", want, stateDir)
+	}
+}
+
+func TestSTXJavaProxyPortCandidatesPreferExplicitPort(t *testing.T) {
+	stateDir := t.TempDir()
+	candidates := stxJavaProxyPortCandidates(stateDir, 19090)
+	if len(candidates) == 0 || candidates[0] != 19090 {
+		t.Fatalf("expected preferred port first, got %#v", candidates)
 	}
 }

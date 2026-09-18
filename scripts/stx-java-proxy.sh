@@ -148,6 +148,40 @@ resolve_proxy_port() {
   printf '%s\n' "${port}"
 }
 
+# 读取进程命令行。Linux 用 /proc，macOS 没有 /proc，改走 ps。
+# Read a process command line. Linux uses /proc; macOS has no /proc, so fall back to ps.
+read_process_command() {
+  local pid="$1"
+  if [ -r "/proc/${pid}/cmdline" ]; then
+    tr '\0' ' ' < "/proc/${pid}/cmdline" 2>/dev/null || true
+    return 0
+  fi
+  if command -v ps >/dev/null 2>&1; then
+    ps -ww -p "${pid}" -o command= 2>/dev/null || true
+  fi
+}
+
+is_proxy_process() {
+  local cmdline="$1"
+  printf '%s' "${cmdline}" | grep -q -e "${APP_MAIN}" -e 'stx-java-proxy'
+}
+
+kill_proxy_pid() {
+  local pid="$1"
+  local port="$2"
+  echo "stx-java-proxy detected existing listener on port ${port}, killing pid=${pid}" >&2
+  kill "${pid}" 2>/dev/null || true
+  local retries=30
+  while kill -0 "${pid}" 2>/dev/null && [ "${retries}" -gt 0 ]; do
+    sleep 1
+    retries=$((retries - 1))
+  done
+  if kill -0 "${pid}" 2>/dev/null; then
+    echo "stx-java-proxy pid=${pid} did not exit gracefully, killing -9" >&2
+    kill -9 "${pid}" 2>/dev/null || true
+  fi
+}
+
 kill_existing_proxy_listener() {
   local port="$1"
   local pids=""
@@ -162,19 +196,11 @@ kill_existing_proxy_listener() {
   local pid cmdline
   for pid in ${pids}; do
     [ -z "${pid}" ] && continue
-    cmdline=$(tr '\0' ' ' < "/proc/${pid}/cmdline" 2>/dev/null || true)
-    if printf '%s' "${cmdline}" | grep -q "${APP_MAIN}"; then
-      echo "stx-java-proxy detected existing listener on port ${port}, killing pid=${pid}" >&2
-      kill "${pid}" 2>/dev/null || true
-      local retries=30
-      while kill -0 "${pid}" 2>/dev/null && [ "${retries}" -gt 0 ]; do
-        sleep 1
-        retries=$((retries - 1))
-      done
-      if kill -0 "${pid}" 2>/dev/null; then
-        echo "stx-java-proxy pid=${pid} did not exit gracefully, killing -9" >&2
-        kill -9 "${pid}" 2>/dev/null || true
-      fi
+    cmdline="$(read_process_command "${pid}")"
+    if is_proxy_process "${cmdline}"; then
+      kill_proxy_pid "${pid}" "${port}"
+    else
+      echo "stx-java-proxy port ${port} is held by pid=${pid}, not a proxy process; refusing to kill" >&2
     fi
   done
 }

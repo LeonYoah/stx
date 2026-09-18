@@ -48,6 +48,7 @@ import {ScrollArea} from '@/components/ui/scroll-area';
 import {Badge} from '@/components/ui/badge';
 import {Checkbox} from '@/components/ui/checkbox';
 import {cn} from '@/lib/utils';
+import {mapCheckpointNamespaceToImap} from '@/lib/runtime-storage-namespace';
 import {
   Cloud,
   HardDrive,
@@ -95,6 +96,8 @@ interface InstallWizardConfig {
   clusterId: string;
   clusterPort: number;
   httpPort: number;
+  /** Managed stx-java-proxy listen port / 托管 stx-java-proxy 监听端口 */
+  javaProxyPort: number;
   runtime: RuntimeEngineConfig;
   jvm: JVMConfig;
   checkpoint: CheckpointConfig;
@@ -164,7 +167,7 @@ export function ConfigStep({
   const applyCheckpointToImap = () => {
     const nextImap: IMAPConfig = {
       storage_type: config.checkpoint.storage_type,
-      namespace: config.checkpoint.namespace,
+      namespace: mapCheckpointNamespaceToImap(config.checkpoint.namespace),
       hdfs_namenode_host: config.checkpoint.hdfs_namenode_host,
       hdfs_namenode_port: config.checkpoint.hdfs_namenode_port,
       kerberos_principal: config.checkpoint.kerberos_principal,
@@ -739,6 +742,40 @@ export function ConfigStep({
             </CardContent>
           </Card>
         )}
+
+        <Card>
+          <CardHeader className='pb-3'>
+            <CardTitle className='text-base flex items-center gap-2'>
+              <Server className='h-4 w-4' />
+              {t('installer.javaProxy.title')}
+            </CardTitle>
+            <CardDescription>
+              {t('installer.javaProxy.description')}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className='space-y-2'>
+            <Label>{t('installer.javaProxy.port')}</Label>
+            <Input
+              data-testid='install-java-proxy-port'
+              type='number'
+              value={config.javaProxyPort}
+              onChange={(event) =>
+                onConfigChange({
+                  javaProxyPort: Math.max(
+                    1,
+                    Number.parseInt(event.target.value, 10) || 18080,
+                  ),
+                })
+              }
+              min={1}
+              max={65535}
+              step={1}
+            />
+            <p className='text-xs text-muted-foreground'>
+              {t('installer.javaProxy.portHint')}
+            </p>
+          </CardContent>
+        </Card>
 
 
         {/* Checkpoint Configuration / 检查点配置 */}

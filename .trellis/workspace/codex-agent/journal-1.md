@@ -266,3 +266,36 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 8: 修正 CLI 交互式登录
+
+**Date**: 2026-09-19
+**Task**: 修正 CLI 交互式登录
+**Branch**: `features/stx-cli-agent-entry`
+
+### Summary
+
+让 stx login 在真实终端缺少用户名时依次询问 Username 和 Password；密码提示前关闭终端回显，保留非交互参数模式，并用最新二进制完成真实伪终端登录、whoami 和 logout 验证。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `cd7be7a35` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

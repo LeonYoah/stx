@@ -37,12 +37,16 @@ import {Tabs, TabsContent, TabsList, TabsTrigger} from '@/components/ui/tabs';
 import {ScrollArea} from '@/components/ui/scroll-area';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import {toast} from 'sonner';
-import {Settings, RefreshCw, FileText, Server, Check, AlertTriangle, Edit, History, Upload, Download, Loader2, FolderSync, Eye, GitCompareArrows, WandSparkles, CircleHelp} from 'lucide-react';
+import {Settings, RefreshCw, FileText, Server, Check, AlertTriangle, Edit, History, Upload, Download, Loader2, FolderSync, Eye, GitCompareArrows, WandSparkles, CircleHelp, Search, MoreHorizontal} from 'lucide-react';
 import {ConfigService} from '@/lib/services/config';
 import type {ConfigInfo, ConfigVersionInfo} from '@/lib/services/config';
 import {ConfigType, ConfigTypeNames, getConfigTypesForMode} from '@/lib/services/config';
 import services from '@/lib/services';
 import type {NodeInfo} from '@/lib/services/cluster/types';
+import {EmptyState, StatPillsBar, TableLoadingBar, TableSkeletonRows} from '@/components/common/layout';
+import {Table, TableBody, TableCell, TableHead, TableHeader, TableRow} from '@/components/ui/table';
+import {DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger} from '@/components/ui/dropdown-menu';
+import {Skeleton} from '@/components/ui/skeleton';
 
 interface ClusterConfigsProps {
   clusterId: number;
@@ -185,6 +189,12 @@ export function ClusterConfigs({clusterId, deploymentMode}: ClusterConfigsProps)
   const [selectedNodeId, setSelectedNodeId] = useState<string>('');
   const [initLoading, setInitLoading] = useState(false);
   const [syncAllLoading, setSyncAllLoading] = useState(false);
+  // 是否已完成首次加载，避免刷新时整块替换
+  // Whether the first load finished, so refresh does not replace the whole panel
+  const [hasLoaded, setHasLoaded] = useState(false);
+  // 节点配置筛选与搜索 / Node config filter and search
+  const [nodeFilter, setNodeFilter] = useState<'all' | 'matched' | 'mismatched'>('all');
+  const [nodeSearch, setNodeSearch] = useState('');
   const editTextareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const selectedVersion = useMemo(
@@ -210,6 +220,7 @@ export function ClusterConfigs({clusterId, deploymentMode}: ClusterConfigsProps)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t('config.loadError'));
     } finally {
+      setHasLoaded(true);
       setLoading(false);
     }
   }, [clusterId, t]);
@@ -219,6 +230,23 @@ export function ClusterConfigs({clusterId, deploymentMode}: ClusterConfigsProps)
   const templateConfig = configs.find(c => c.config_type === selectedConfigType && c.is_template);
   const nodeConfigs = configs.filter(c => c.config_type === selectedConfigType && !c.is_template);
   const mismatchedNodeCount = nodeConfigs.filter((config) => !config.match_template).length;
+  const matchedNodeCount = nodeConfigs.length - mismatchedNodeCount;
+  const keyword = nodeSearch.trim().toLowerCase();
+  // 按对齐状态与主机关键字过滤节点配置 / Filter node configs by alignment and host keyword
+  const filteredNodeConfigs = nodeConfigs.filter((config) => {
+    const matchesFilter =
+      nodeFilter === 'all' ||
+      (nodeFilter === 'matched' && config.match_template) ||
+      (nodeFilter === 'mismatched' && !config.match_template);
+    if (!matchesFilter) {
+      return false;
+    }
+    if (!keyword) {
+      return true;
+    }
+    const haystack = `${config.host_name || ''} ${config.host_ip || ''}`.toLowerCase();
+    return haystack.includes(keyword);
+  });
 
   const handleEdit = (config: ConfigInfo) => {
     setEditingConfig(config);
@@ -410,14 +438,19 @@ export function ClusterConfigs({clusterId, deploymentMode}: ClusterConfigsProps)
   };
 
   return (
-    <Card data-testid="cluster-configs-root">
-      <CardHeader className="flex flex-row items-center justify-between">
+    <Card data-testid="cluster-configs-root" className="border rounded-xl relative overflow-hidden bg-card/40 shadow-xs flex flex-col flex-1 min-h-[480px]">
+      <TableLoadingBar loading={loading && hasLoaded} />
+      <CardHeader className="flex flex-row items-center justify-between gap-3">
         <CardTitle className="flex items-center gap-2">
           <Settings className="h-5 w-5" />
           {t('config.title')}
         </CardTitle>
         <div className="flex items-center gap-2">
-          <Select value={selectedConfigType} onValueChange={(v) => setSelectedConfigType(v as ConfigType)}>
+          <Select value={selectedConfigType} onValueChange={(v) => {
+            setSelectedConfigType(v as ConfigType);
+            setNodeFilter('all');
+            setNodeSearch('');
+          }}>
             <SelectTrigger className="w-[200px]" data-testid="cluster-configs-type-select"><SelectValue /></SelectTrigger>
             <SelectContent>
               {availableConfigTypes.map((type) => (
@@ -425,7 +458,7 @@ export function ClusterConfigs({clusterId, deploymentMode}: ClusterConfigsProps)
               ))}
             </SelectContent>
           </Select>
-          <Button variant="outline" size="sm" onClick={handleOpenInitDialog} disabled={loading || nodes.length === 0} data-testid="cluster-configs-init-button">
+          <Button variant="outline" size="sm" onClick={handleOpenInitDialog} disabled={loading || nodes.length === 0} data-testid="cluster-configs-init-button" title={t('config.tipInit')}>
             <FolderSync className="h-4 w-4 mr-1" />
             {t('config.initFromNode')}
           </Button>
@@ -435,23 +468,26 @@ export function ClusterConfigs({clusterId, deploymentMode}: ClusterConfigsProps)
         </div>
       </CardHeader>
       <CardContent>
-        {loading ? (
-          <div className="flex items-center justify-center py-8">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        {loading && !hasLoaded ? (
+          <div className="space-y-3 py-2">
+            <Skeleton className="h-8 w-64" />
+            <Table>
+              <TableBody>
+                <TableSkeletonRows columns={5} rows={4} />
+              </TableBody>
+            </Table>
           </div>
         ) : configs.length === 0 ? (
-          <div className="text-center py-8 text-muted-foreground">
-            <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
-            <p>{t('config.noConfigs')}</p>
-            <p className="text-sm mt-2">{t('config.initHint')}</p>
+          <EmptyState icon={FileText} title={t('config.noConfigs')} description={t('config.initHint')}>
             {nodes.length > 0 && (
-              <Button variant="outline" className="mt-4" onClick={handleOpenInitDialog}>
+              <Button variant="outline" onClick={handleOpenInitDialog}>
                 <FolderSync className="h-4 w-4 mr-2" />
                 {t('config.initFromNode')}
               </Button>
             )}
-          </div>
+          </EmptyState>
         ) : (
+          <div className={loading ? 'opacity-60 pointer-events-none transition-opacity duration-200' : ''}>
           <Tabs defaultValue="template" className="w-full">
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="template" className="flex items-center gap-2" data-testid="cluster-configs-tab-template">
@@ -463,136 +499,155 @@ export function ClusterConfigs({clusterId, deploymentMode}: ClusterConfigsProps)
               </TabsTrigger>
             </TabsList>
             <TabsContent value="template" className="mt-4">
-              <div className="mb-4 rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
-                <p className="font-medium text-foreground">{t('config.templateSectionTitle')}</p>
-                <p className="mt-1">{t('config.templateSectionDesc')}</p>
-              </div>
               {templateConfig && mismatchedNodeCount > 0 && (
-                <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200" data-testid="cluster-configs-pending-sync">
-                  <p className="font-medium">{t('config.pendingSyncTitle', {count: mismatchedNodeCount})}</p>
-                  <p className="mt-1">{t('config.pendingSyncDesc')}</p>
-                  <div className="mt-3">
-                    <Button variant="outline" size="sm" onClick={handleSyncToAllNodes} disabled={syncAllLoading} data-testid="cluster-configs-template-sync-all-banner">
-                      {syncAllLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
-                      {t('config.syncToAllNodes')}
-                    </Button>
-                  </div>
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200" data-testid="cluster-configs-pending-sync">
+                  <span className="font-medium">{t('config.pendingSyncTitle', {count: mismatchedNodeCount})}</span>
+                  <Button variant="outline" size="sm" onClick={handleSyncToAllNodes} disabled={syncAllLoading} data-testid="cluster-configs-template-sync-all-banner">
+                    {syncAllLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+                    {t('config.syncToAllNodes')}
+                  </Button>
                 </div>
               )}
               {templateConfig ? (
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between">
+                  <p className="text-xs text-muted-foreground">{t('config.tabTemplateHint')}</p>
+                  <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
                       <Badge variant="outline">{ConfigTypeNames[selectedConfigType]}</Badge>
                       <Badge variant="secondary">v{templateConfig.version}</Badge>
                       <span className="text-sm text-muted-foreground">{new Date(templateConfig.updated_at).toLocaleString()}</span>
                     </div>
                     <div className="flex gap-1">
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button variant="outline" size="sm" onClick={() => handleEdit(templateConfig)} data-testid="cluster-configs-template-edit">
-                            <Edit className="h-4 w-4 mr-1" />{t('common.edit')}
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>{t('config.editTemplateHint')}</TooltipContent>
-                      </Tooltip>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button variant="outline" size="sm" onClick={() => handleViewVersions(templateConfig)} data-testid="cluster-configs-template-versions">
-                            <History className="h-4 w-4 mr-1" />{t('config.versions')}
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>{t('config.historyHint')}</TooltipContent>
-                      </Tooltip>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button variant="outline" size="sm" onClick={handleSyncToAllNodes} disabled={syncAllLoading || nodeConfigs.length === 0} data-testid="cluster-configs-template-sync-all">
-                            {syncAllLoading ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Download className="h-4 w-4 mr-1" />}
-                            {t('config.syncToAllNodes')}
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>{t('config.syncAllHint')}</TooltipContent>
-                      </Tooltip>
+                      <Button variant="outline" size="sm" title={t('config.tipEdit')} onClick={() => handleEdit(templateConfig)} data-testid="cluster-configs-template-edit">
+                        <Edit className="h-4 w-4 mr-1" />{t('common.edit')}
+                      </Button>
+                      <Button variant="outline" size="sm" title={t('config.tipVersions')} onClick={() => handleViewVersions(templateConfig)} data-testid="cluster-configs-template-versions">
+                        <History className="h-4 w-4 mr-1" />{t('config.versions')}
+                      </Button>
+                      <Button variant="outline" size="sm" title={t('config.tipSyncAll')} onClick={handleSyncToAllNodes} disabled={syncAllLoading || nodeConfigs.length === 0} data-testid="cluster-configs-template-sync-all">
+                        {syncAllLoading ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Download className="h-4 w-4 mr-1" />}
+                        {t('config.syncToAllNodes')}
+                      </Button>
                     </div>
                   </div>
-                  <pre className="p-3 bg-muted rounded-md text-xs font-mono max-h-[300px] overflow-auto" data-testid="cluster-configs-template-content">{templateConfig.content}</pre>
+                  <pre className="min-h-[420px] max-h-[70vh] overflow-auto rounded-md border bg-muted/40 p-4 text-xs font-mono whitespace-pre-wrap break-all" data-testid="cluster-configs-template-content">{templateConfig.content}</pre>
                 </div>
               ) : (
                 <p className="text-sm text-muted-foreground py-4 text-center">{t('config.noTemplate')}</p>
               )}
             </TabsContent>
-            <TabsContent value="nodes" className="mt-4">
-              <div className="mb-4 rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
-                <p className="font-medium text-foreground">{t('config.nodeSectionTitle')}</p>
-                <p className="mt-1">{t('config.nodeSectionDesc')}</p>
+            <TabsContent value="nodes" className="mt-4 space-y-3">
+              <p className="text-xs text-muted-foreground">{t('config.tabNodeHint')}</p>
+              <StatPillsBar
+                activeKey={nodeFilter}
+                onChange={(key) => setNodeFilter(key as 'all' | 'matched' | 'mismatched')}
+                items={[
+                  {key: 'all', label: t('config.filterAll'), count: nodeConfigs.length},
+                  {key: 'matched', label: t('config.filterMatched'), count: matchedNodeCount, variant: 'success'},
+                  {key: 'mismatched', label: t('config.filterMismatched'), count: mismatchedNodeCount, variant: mismatchedNodeCount > 0 ? 'warning' : 'default'},
+                ]}
+              />
+              <div className="relative max-w-sm">
+                <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={nodeSearch}
+                  onChange={(event) => setNodeSearch(event.target.value)}
+                  className="pl-9"
+                  placeholder={t('config.searchNodes')}
+                  data-testid="cluster-configs-node-search"
+                />
               </div>
               {nodeConfigs.length === 0 ? (
                 <p className="text-sm text-muted-foreground py-4 text-center">{t('config.noNodeConfigs')}</p>
               ) : (
-                <div className="space-y-3">
-                  {nodeConfigs.map((config) => (
-                    <div key={config.id} className="border rounded-lg p-3">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <Server className="h-4 w-4 text-muted-foreground" />
-                          <span className="font-medium">{config.host_name || `Node ${config.host_id}`}</span>
-                          {config.host_ip && <span className="text-sm text-muted-foreground">({config.host_ip})</span>}
-                          {config.match_template ? (
-                            <Badge variant="outline" className="text-green-600"><Check className="h-3 w-3 mr-1" />{t('config.matchTemplate')}</Badge>
-                          ) : (
-                            <Badge variant="outline" className="text-yellow-600"><AlertTriangle className="h-3 w-3 mr-1" />{t('config.customized')}</Badge>
-                          )}
-                          <Badge variant="secondary">v{config.version}</Badge>
-                        </div>
-                        <div className="flex flex-wrap justify-end gap-2">
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                                  <Button variant="outline" size="sm" onClick={() => handleEdit(config)} data-testid={`cluster-configs-node-edit-${config.id}`}>
-                                    <Edit className="h-4 w-4 mr-1" />
-                                    {t('common.edit')}
-                                  </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>{t('config.editNodeHint')}</TooltipContent>
-                          </Tooltip>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button variant="outline" size="sm" onClick={() => handleViewVersions(config)} data-testid={`cluster-configs-node-versions-${config.id}`}>
-                                <History className="h-4 w-4 mr-1" />
-                                {t('config.versions')}
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>{t('config.historyHint')}</TooltipContent>
-                          </Tooltip>
-                          {!config.match_template && (
-                            <>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button variant="outline" size="sm" onClick={() => handlePromote(config)} data-testid={`cluster-configs-node-promote-${config.id}`}>
-                                    <Upload className="h-4 w-4 mr-1" />
-                                    {t('config.promoteToCluster')}
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>{t('config.promoteHint')}</TooltipContent>
-                              </Tooltip>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button variant="outline" size="sm" onClick={() => handleSyncFromTemplate(config)} data-testid={`cluster-configs-node-sync-${config.id}`}>
-                                    <Download className="h-4 w-4 mr-1" />
+                <div className="overflow-hidden rounded-lg border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>{t('config.selectNode')}</TableHead>
+                        <TableHead>{t('config.version')}</TableHead>
+                        <TableHead>{t('config.updatedAt')}</TableHead>
+                        <TableHead className="text-right">{t('common.actions')}</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredNodeConfigs.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={4} className="py-8 text-center text-xs text-muted-foreground">
+                            {t('config.noMatchingNodes')}
+                          </TableCell>
+                        </TableRow>
+                      ) : filteredNodeConfigs.map((config) => (
+                        <TableRow key={config.id}>
+                          <TableCell>
+                            <div className="flex min-w-0 items-center gap-2">
+                              <span className="truncate font-medium">{config.host_name || `Node ${config.host_id}`}</span>
+                              {config.host_ip && <span className="truncate font-mono text-xs text-muted-foreground">{config.host_ip}</span>}
+                              {config.match_template ? (
+                                <Badge variant="outline" className="text-green-600"><Check className="h-3 w-3 mr-1" />{t('config.matchTemplate')}</Badge>
+                              ) : (
+                                <Badge variant="outline" className="text-yellow-600"><AlertTriangle className="h-3 w-3 mr-1" />{t('config.customized')}</Badge>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell className="font-mono text-xs">v{config.version}</TableCell>
+                          <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{new Date(config.updated_at).toLocaleString()}</TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex items-center justify-end gap-1">
+                              {!config.match_template && (
+                                <>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-8"
+                                    title={t('config.tipSyncNode')}
+                                    onClick={() => handleSyncFromTemplate(config)}
+                                    data-testid={`cluster-configs-node-sync-${config.id}`}
+                                  >
+                                    <Download className="mr-1 size-3.5" />
                                     {t('config.syncFromTemplate')}
                                   </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>{t('config.syncFromTemplateHint')}</TooltipContent>
-                              </Tooltip>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-8"
+                                    title={t('config.tipPromote')}
+                                    onClick={() => handlePromote(config)}
+                                    data-testid={`cluster-configs-node-promote-${config.id}`}
+                                  >
+                                    <Upload className="mr-1 size-3.5" />
+                                    {t('config.promoteToCluster')}
+                                  </Button>
+                                </>
+                              )}
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button variant="ghost" size="icon" className="size-8" aria-label={t('common.actions')}>
+                                    <MoreHorizontal className="size-4" />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  <DropdownMenuItem title={t('config.tipEdit')} onClick={() => handleEdit(config)} data-testid={`cluster-configs-node-edit-${config.id}`}>
+                                    <Edit className="mr-2 size-4" />
+                                    {t('common.edit')}
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem title={t('config.tipVersions')} onClick={() => handleViewVersions(config)} data-testid={`cluster-configs-node-versions-${config.id}`}>
+                                    <History className="mr-2 size-4" />
+                                    {t('config.versions')}
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
                 </div>
               )}
             </TabsContent>
           </Tabs>
+          </div>
         )}
       </CardContent>
 

@@ -93,6 +93,7 @@ import {
   Layers,
   Copy,
   Check,
+  MoreHorizontal,
 } from 'lucide-react';
 import {Checkbox} from '@/components/ui/checkbox';
 import {motion} from 'motion/react';
@@ -100,7 +101,15 @@ import {
   WorkspaceHeader,
   StatPillsBar,
   TableLoadingBar,
+  TableSkeletonRows,
 } from '@/components/common/layout';
+import {Skeleton} from '@/components/ui/skeleton';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import services from '@/lib/services';
 import {
   ClusterInfo,
@@ -146,6 +155,7 @@ type ClusterDetailTab =
   | 'nodes'
   | 'overview'
   | 'storage'
+  | 'proxy'
   | 'monitoring'
   | 'webui'
   | 'plugins'
@@ -413,6 +423,10 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
   const [refreshing, setRefreshing] = useState(false);
   const [nodeSearchTerm, setNodeSearchTerm] = useState('');
   const [nodeStatusFilter, setNodeStatusFilter] = useState<string>('all');
+  // 存储 Tab 内 Checkpoint / IMAP 焦点切换 / Checkpoint vs IMAP focus inside storage tab
+  const [storageFocus, setStorageFocus] = useState<'checkpoint' | 'imap'>(
+    'checkpoint',
+  );
   const [copiedInstallDir, setCopiedInstallDir] = useState(false);
 
   /**
@@ -752,11 +766,13 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
   }, [loadUpgradeTasks, upgradeTasksPage, upgradeTasksPageSize]);
 
   useEffect(() => {
-    if (activeTab !== 'storage') {
+    if (activeTab === 'storage') {
+      void loadRuntimeStorage();
       return;
     }
-    void loadRuntimeStorage();
-    void loadStxJavaProxyStatus();
+    if (activeTab === 'proxy') {
+      void loadStxJavaProxyStatus();
+    }
   }, [activeTab, loadRuntimeStorage, loadStxJavaProxyStatus]);
 
   const openUpgradeTaskDetail = useCallback(
@@ -1370,9 +1386,12 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
               ))}
             </div>
           )}
-          <div className='space-y-2 rounded-md border p-3'>
-            <div className='flex items-center justify-between gap-2'>
-              <div className='font-medium'>
+          <div className='relative overflow-hidden rounded-lg border'>
+            <TableLoadingBar
+              loading={runtimeStorageListingLoading === kind && Boolean(listing)}
+            />
+            <div className='flex flex-wrap items-center justify-between gap-2 px-3 py-2'>
+              <div className='text-xs font-medium'>
                 {t('cluster.runtimeStorage.fileList')}
               </div>
               <div className='flex items-center gap-2'>
@@ -1419,7 +1438,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                 </Button>
               </div>
             </div>
-            <div className='flex flex-col gap-2 md:flex-row md:items-center md:justify-between'>
+            <div className='flex flex-col gap-2 px-3 pb-2 md:flex-row md:items-center'>
               <div className='relative max-w-md flex-1'>
                 <Search className='pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground' />
                 <Input
@@ -1436,172 +1455,151 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                   placeholder={t('cluster.runtimeStorage.searchEntries')}
                 />
               </div>
-              <div className='text-xs text-muted-foreground'>
-                {t('cluster.runtimeStorage.filteredEntryCount', {
-                  filtered: filteredItems.length,
-                  total: listing?.items?.length || 0,
-                })}
+              <div className='truncate text-xs text-muted-foreground'>
+                {runtimeStorageBrowsePath[kind] || spec.namespace || '-'}
               </div>
             </div>
-            <div className='text-xs text-muted-foreground break-all'>
-              {runtimeStorageBrowsePath[kind] || spec.namespace || '-'}
-            </div>
-            {listing?.path && (
-              <div className='text-xs text-muted-foreground break-all'>
-                {listing?.path}
-              </div>
-            )}
-            {filteredItems.length ? (
-              <div className='space-y-2'>
-                {pagedItems.map((item) => {
-                  const itemPath = item.path || item.name || '';
-                  const previewKey = `${kind}:${itemPath}`;
-                  const isPreviewing =
-                    runtimeStoragePreviewLoading === previewKey;
-                  const isInspecting = checkpointInspectLoading === itemPath;
-                  const isInspectingWal = imapInspectLoading === itemPath;
-                  return (
-                    <div
-                      key={`${spec.kind}-item-${item.path}`}
-                      className='space-y-2 rounded-md border px-3 py-2'
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t('cluster.runtimeStorage.fileName')}</TableHead>
+                  <TableHead>{t('cluster.runtimeStorage.size')}</TableHead>
+                  <TableHead>{t('cluster.runtimeStorage.modifiedAt')}</TableHead>
+                  <TableHead className='text-right'>
+                    {t('common.actions')}
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody
+                className={
+                  runtimeStorageListingLoading === kind && listing
+                    ? 'pointer-events-none opacity-60 transition-opacity duration-200'
+                    : undefined
+                }
+              >
+                {runtimeStorageListingLoading === kind && !listing ? (
+                  <TableSkeletonRows columns={4} rows={4} />
+                ) : filteredItems.length === 0 ? (
+                  <TableRow>
+                    <TableCell
+                      colSpan={4}
+                      className='py-8 text-center text-xs text-muted-foreground'
                     >
-                      <div className='flex items-start justify-between gap-3'>
-                        <div className='min-w-0'>
-                          <div className='font-medium break-all'>
+                      {searchKeyword
+                        ? t('cluster.runtimeStorage.noFilteredEntries')
+                        : t('cluster.runtimeStorage.noEntries')}
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  pagedItems.map((item) => {
+                    const itemPath = item.path || item.name || '';
+                    const previewKey = `${kind}:${itemPath}`;
+                    const isPreviewing =
+                      runtimeStoragePreviewLoading === previewKey;
+                    const isInspecting = checkpointInspectLoading === itemPath;
+                    const isInspectingWal = imapInspectLoading === itemPath;
+                    return (
+                      <TableRow key={`${spec.kind}-item-${item.path}`}>
+                        <TableCell className='max-w-[280px]'>
+                          <div className='truncate font-medium'>
                             {item.name || item.path || '-'}
                           </div>
-                          <div className='text-xs text-muted-foreground break-all'>
-                            {item.path || '-'}
-                          </div>
-                        </div>
-                        <div className='text-right text-xs text-muted-foreground'>
-                          <div>
-                            {item.directory
-                              ? item.size_bytes && item.size_bytes > 0
-                                ? `${t('cluster.runtimeStorage.directory')} · ${formatBytes(item.size_bytes)}`
-                                : t('cluster.runtimeStorage.directory')
-                              : formatBytes(item.size_bytes || 0)}
-                          </div>
-                          <div>{item.modified_at || '-'}</div>
-                        </div>
-                      </div>
-                      <div className='flex flex-wrap gap-2'>
-                        {item.directory ? (
-                          <Button
-                            variant='outline'
-                            size='sm'
-                            onClick={() =>
-                              void loadRuntimeStorageList(kind, itemPath)
-                            }
-                          >
-                            <FolderOpen className='mr-2 h-4 w-4' />
-                            {t('cluster.runtimeStorage.openDirectory')}
-                          </Button>
-                        ) : (
-                          <>
-                            <Button
-                              variant='outline'
-                              size='sm'
-                              onClick={() =>
-                                void handlePreviewRuntimeStorage(kind, itemPath)
-                              }
-                              disabled={isPreviewing}
-                            >
-                              {isPreviewing ? (
-                                <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                        </TableCell>
+                        <TableCell className='whitespace-nowrap text-xs text-muted-foreground'>
+                          {item.directory
+                            ? item.size_bytes && item.size_bytes > 0
+                              ? `${t('cluster.runtimeStorage.directory')} · ${formatBytes(item.size_bytes)}`
+                              : t('cluster.runtimeStorage.directory')
+                            : formatBytes(item.size_bytes || 0)}
+                        </TableCell>
+                        <TableCell className='whitespace-nowrap text-xs text-muted-foreground'>
+                          {item.modified_at || '-'}
+                        </TableCell>
+                        <TableCell className='text-right'>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                variant='ghost'
+                                size='icon'
+                                className='size-8'
+                                aria-label={t('common.actions')}
+                              >
+                                <MoreHorizontal className='size-4' />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align='end'>
+                              {item.directory ? (
+                                <DropdownMenuItem
+                                  onClick={() =>
+                                    void loadRuntimeStorageList(kind, itemPath)
+                                  }
+                                >
+                                  <FolderOpen className='mr-2 size-4' />
+                                  {t('cluster.runtimeStorage.openDirectory')}
+                                </DropdownMenuItem>
                               ) : (
-                                <Eye className='mr-2 h-4 w-4' />
+                                <>
+                                  <DropdownMenuItem
+                                    disabled={isPreviewing}
+                                    onClick={() =>
+                                      void handlePreviewRuntimeStorage(
+                                        kind,
+                                        itemPath,
+                                      )
+                                    }
+                                  >
+                                    <Eye className='mr-2 size-4' />
+                                    {t('cluster.runtimeStorage.preview')}
+                                  </DropdownMenuItem>
+                                  {kind === 'checkpoint' &&
+                                    itemPath.endsWith('.ser') && (
+                                      <DropdownMenuItem
+                                        disabled={isInspecting}
+                                        onClick={() =>
+                                          void handleInspectCheckpoint(itemPath)
+                                        }
+                                      >
+                                        <Database className='mr-2 size-4' />
+                                        {t(
+                                          'cluster.runtimeStorage.deserializeCheckpoint',
+                                        )}
+                                      </DropdownMenuItem>
+                                    )}
+                                  {kind === 'imap' &&
+                                    itemPath.endsWith('_wal.txt') && (
+                                      <DropdownMenuItem
+                                        disabled={isInspectingWal}
+                                        onClick={() =>
+                                          void handleInspectIMAPWAL(itemPath)
+                                        }
+                                      >
+                                        <Database className='mr-2 size-4' />
+                                        {t('cluster.runtimeStorage.inspectWal')}
+                                      </DropdownMenuItem>
+                                    )}
+                                </>
                               )}
-                              {t('cluster.runtimeStorage.preview')}
-                            </Button>
-                            {kind === 'checkpoint' &&
-                              itemPath.endsWith('.ser') && (
-                                <Button
-                                  variant='outline'
-                                  size='sm'
-                                  onClick={() =>
-                                    void handleInspectCheckpoint(itemPath)
-                                  }
-                                  disabled={isInspecting}
-                                >
-                                  {isInspecting ? (
-                                    <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                                  ) : (
-                                    <Database className='mr-2 h-4 w-4' />
-                                  )}
-                                  {t(
-                                    'cluster.runtimeStorage.deserializeCheckpoint',
-                                  )}
-                                </Button>
-                              )}
-                            {kind === 'imap' &&
-                              itemPath.endsWith('_wal.txt') && (
-                                <Button
-                                  variant='outline'
-                                  size='sm'
-                                  onClick={() =>
-                                    void handleInspectIMAPWAL(itemPath)
-                                  }
-                                  disabled={isInspectingWal}
-                                >
-                                  {isInspectingWal ? (
-                                    <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                                  ) : (
-                                    <Database className='mr-2 h-4 w-4' />
-                                  )}
-                                  {t('cluster.runtimeStorage.inspectWal')}
-                                </Button>
-                              )}
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-                {totalPages > 1 ? (
-                  <div className='flex items-center justify-between border-t pt-2'>
-                    <div className='text-xs text-muted-foreground'>
-                      {t('cluster.runtimeStorage.pageInfo', {
-                        current: normalizedPage,
-                        total: totalPages,
-                      })}
-                    </div>
-                    <div className='flex items-center gap-2'>
-                      <Button
-                        variant='outline'
-                        size='sm'
-                        disabled={normalizedPage <= 1}
-                        onClick={() =>
-                          setRuntimeStoragePage((prev) => ({
-                            ...prev,
-                            [kind]: Math.max(1, normalizedPage - 1),
-                          }))
-                        }
-                      >
-                        {t('cluster.runtimeStorage.previousPage')}
-                      </Button>
-                      <Button
-                        variant='outline'
-                        size='sm'
-                        disabled={normalizedPage >= totalPages}
-                        onClick={() =>
-                          setRuntimeStoragePage((prev) => ({
-                            ...prev,
-                            [kind]: Math.min(totalPages, normalizedPage + 1),
-                          }))
-                        }
-                      >
-                        {t('cluster.runtimeStorage.nextPage')}
-                      </Button>
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-            ) : (
-              <div className='text-xs text-muted-foreground'>
-                {searchKeyword
-                  ? t('cluster.runtimeStorage.noFilteredEntries')
-                  : t('cluster.runtimeStorage.noEntries')}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
+                )}
+              </TableBody>
+            </Table>
+            {filteredItems.length > 0 && (
+              <div className='border-t px-2'>
+                <Pagination
+                  currentPage={normalizedPage}
+                  totalPages={totalPages}
+                  pageSize={pageSize}
+                  totalItems={filteredItems.length}
+                  showPageSizeSelector={false}
+                  onPageChange={(page) =>
+                    setRuntimeStoragePage((prev) => ({...prev, [kind]: page}))
+                  }
+                />
               </div>
             )}
           </div>
@@ -1955,6 +1953,13 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
               {t('cluster.detailTabs.storage')}
             </TabsTrigger>
             <TabsTrigger
+              value='proxy'
+              className='flex-none px-3'
+              data-testid='cluster-detail-tab-proxy'
+            >
+              {t('cluster.detailTabs.proxy')}
+            </TabsTrigger>
+            <TabsTrigger
               value='monitoring'
               className='flex-none px-3'
               data-testid='cluster-detail-tab-monitoring'
@@ -2272,7 +2277,12 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                   </div>
 
                   {/* STX Java Proxy 摘要 / STX Java Proxy summary */}
-                  <div className='p-3.5 rounded-lg border bg-muted/10 space-y-1.5'>
+                  <button
+                    type='button'
+                    onClick={() => setActiveTab('proxy')}
+                    className='p-3.5 rounded-lg border bg-muted/10 space-y-1.5 text-left hover:bg-muted/20 transition-colors cursor-pointer'
+                    data-testid='cluster-overview-proxy-summary'
+                  >
                     <div className='flex items-center justify-between'>
                       <span className='text-xs font-semibold'>
                         {t('cluster.stxJavaProxy.title')}
@@ -2297,7 +2307,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                     <p className='text-xs text-muted-foreground font-mono break-all truncate' title={stxJavaProxy?.endpoint || '-'}>
                       {stxJavaProxy?.endpoint || '-'}
                     </p>
-                  </div>
+                  </button>
                 </div>
               </CardContent>
             </Card>
@@ -2352,15 +2362,25 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
             </TabsContent>
           )}
 
-          <TabsContent value='storage' className='space-y-6'>
-            {/* Runtime Storage / 运行时存储 */}
-            <Card>
-              <CardHeader className='flex flex-row items-center justify-between space-y-0'>
-                <div>
-                  <CardTitle>{t('cluster.runtimeStorage.title')}</CardTitle>
-                  <CardDescription>
-                    {t('cluster.runtimeStorage.description')}
-                  </CardDescription>
+          <TabsContent value='storage' className='space-y-4'>
+            {/* 存储 Tab：Checkpoint / IMAP 焦点切换 / Storage tab focuses one store at a time */}
+            <Card className='border rounded-xl relative overflow-hidden bg-card/40 shadow-xs flex flex-col flex-1 min-h-[480px]'>
+              <TableLoadingBar
+                loading={
+                  runtimeStorageLoading ||
+                  runtimeStorageListingLoading !== null
+                }
+              />
+              <CardHeader className='flex flex-row items-center justify-between space-y-0 gap-3'>
+                <div className='min-w-0'>
+                  <CardTitle className='text-base'>
+                    {t('cluster.runtimeStorage.title')}
+                  </CardTitle>
+                  <div className='mt-1 truncate text-xs text-muted-foreground'>
+                    {t('cluster.runtimeStorage.configSource', {
+                      source: runtimeStorage?.config_source || '-',
+                    })}
+                  </div>
                 </div>
                 <Button
                   variant='outline'
@@ -2378,182 +2398,224 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
               </CardHeader>
               <CardContent className='space-y-4'>
                 {runtimeStorageLoading && !runtimeStorage ? (
-                  <div className='flex items-center justify-center py-8'>
-                    <Loader2 className='h-6 w-6 animate-spin text-muted-foreground' />
+                  <div className='space-y-3 py-2'>
+                    <Skeleton className='h-8 w-full' />
+                    <Skeleton className='h-40 w-full' />
                   </div>
                 ) : (
-                  <>
-                    <div className='text-xs text-muted-foreground'>
-                      {t('cluster.runtimeStorage.configSource', {
-                        source: runtimeStorage?.config_source || '-',
-                      })}
-                    </div>
-                    <Card data-testid='stx-java-proxy-card'>
-                      <CardHeader className='pb-3'>
-                        <div className='flex items-start justify-between gap-4'>
-                          <div>
-                            <CardTitle className='text-base'>
-                              {t('cluster.stxJavaProxy.title')}
-                            </CardTitle>
-                            <CardDescription>
-                              {t('cluster.stxJavaProxy.description')}
-                            </CardDescription>
-                          </div>
-                          <div className='flex items-center gap-2'>
-                            <Badge
-                              variant={
-                                stxJavaProxy?.healthy
-                                  ? 'default'
-                                  : stxJavaProxy?.running
-                                    ? 'outline'
-                                    : 'secondary'
-                              }
-                            >
-                              {stxJavaProxy?.healthy
-                                ? t('cluster.stxJavaProxy.healthy')
-                                : stxJavaProxy?.running
-                                  ? t('cluster.stxJavaProxy.unhealthy')
-                                  : t('cluster.stxJavaProxy.stopped')}
-                            </Badge>
-                            <Button
-                              variant='outline'
-                              size='sm'
-                              onClick={() => void loadStxJavaProxyStatus()}
-                              disabled={stxJavaProxyLoading}
-                              data-testid='stx-java-proxy-refresh'
-                            >
-                              {stxJavaProxyLoading ? (
-                                <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                              ) : (
-                                <RefreshCw className='mr-2 h-4 w-4' />
-                              )}
-                              {t('common.refresh')}
-                            </Button>
-                          </div>
-                        </div>
-                      </CardHeader>
-                      <CardContent className='space-y-4 text-sm'>
-                        <div className='grid gap-3 md:grid-cols-2 xl:grid-cols-4'>
-                          <div>
-                            <div className='text-muted-foreground'>
-                              {t('cluster.stxJavaProxy.deploymentNode')}
-                            </div>
-                            <div className='font-medium break-all'>
-                              {stxJavaProxy?.host_name || '-'}
-                              {stxJavaProxy?.role
-                                ? ` (${t(`cluster.roles.${getRoleTranslationKey(stxJavaProxy.role)}`)})`
-                                : ''}
-                            </div>
-                          </div>
-                          <div>
-                            <div className='text-muted-foreground'>
-                              {t('cluster.stxJavaProxy.endpoint')}
-                            </div>
-                            <div className='font-medium break-all'>
-                              {stxJavaProxy?.endpoint || '-'}
-                            </div>
-                          </div>
-                          <div>
-                            <div className='text-muted-foreground'>
-                              {t('cluster.stxJavaProxy.pid')}
-                            </div>
-                            <div className='font-medium'>
-                              {stxJavaProxy?.pid ?? '-'}
-                            </div>
-                          </div>
-                          <div>
-                            <div className='text-muted-foreground'>
-                              {t('cluster.stxJavaProxy.logPath')}
-                            </div>
-                            <div className='font-medium break-all'>
-                              {stxJavaProxy?.log_path &&
-                              stxJavaProxy.log_path.trim() !== ''
-                                ? stxJavaProxy.log_path
-                                : '-'}
-                            </div>
-                          </div>
-                        </div>
-                        <div className='rounded-md border bg-muted/20 p-3 text-sm'>
-                          {stxJavaProxy?.message ||
-                            t('cluster.stxJavaProxy.noStatus')}
-                        </div>
-                        <div className='flex flex-wrap gap-2'>
-                          <Button
-                            variant='outline'
-                            size='sm'
-                            onClick={() => void handlePreviewStxJavaProxyLog()}
-                            disabled={
-                              stxJavaProxyLoading || stxJavaProxyLogLoading
-                            }
-                            data-testid='stx-java-proxy-view-log'
-                          >
-                            {stxJavaProxyLogLoading ? (
-                              <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                            ) : (
-                              <FileText className='mr-2 h-4 w-4' />
-                            )}
-                            {t('cluster.stxJavaProxy.viewRuntimeLog')}
-                          </Button>
-                          <Button
-                            variant='outline'
-                            size='sm'
-                            onClick={() =>
-                              void handleStxJavaProxyOperation('start')
-                            }
-                            disabled={stxJavaProxyOperating !== null}
-                            data-testid='stx-java-proxy-start'
-                          >
-                            {stxJavaProxyOperating === 'start' ? (
-                              <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                            ) : (
-                              <Play className='mr-2 h-4 w-4' />
-                            )}
-                            {t('cluster.stxJavaProxy.start')}
-                          </Button>
-                          <Button
-                            variant='outline'
-                            size='sm'
-                            onClick={() =>
-                              void handleStxJavaProxyOperation('restart')
-                            }
-                            disabled={stxJavaProxyOperating !== null}
-                            data-testid='stx-java-proxy-restart'
-                          >
-                            {stxJavaProxyOperating === 'restart' ? (
-                              <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                            ) : (
-                              <RotateCcw className='mr-2 h-4 w-4' />
-                            )}
-                            {t('cluster.stxJavaProxy.restart')}
-                          </Button>
-                          <Button
-                            variant='outline'
-                            size='sm'
-                            onClick={() =>
-                              void handleStxJavaProxyOperation('stop')
-                            }
-                            disabled={stxJavaProxyOperating !== null}
-                            data-testid='stx-java-proxy-stop'
-                          >
-                            {stxJavaProxyOperating === 'stop' ? (
-                              <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                            ) : (
-                              <Square className='mr-2 h-4 w-4' />
-                            )}
-                            {t('cluster.stxJavaProxy.stop')}
-                          </Button>
-                        </div>
-                      </CardContent>
-                    </Card>
-                    <div className='grid gap-4 xl:grid-cols-2'>
-                      {renderRuntimeStorageSpec(
+                  <div
+                    className={
+                      runtimeStorageLoading
+                        ? 'pointer-events-none space-y-4 opacity-60 transition-opacity duration-200'
+                        : 'space-y-4'
+                    }
+                  >
+                    <StatPillsBar
+                      activeKey={storageFocus}
+                      onChange={(key) =>
+                        setStorageFocus(key as 'checkpoint' | 'imap')
+                      }
+                      items={[
+                        {
+                          key: 'checkpoint',
+                          label: t('installer.checkpointConfig'),
+                          count:
+                            runtimeStorage?.checkpoint?.storage_type || '-',
+                        },
+                        {
+                          key: 'imap',
+                          label: t('installer.runtimeStorage.imapTitle'),
+                          count: runtimeStorage?.imap?.storage_type || '-',
+                        },
+                      ]}
+                    />
+                    {storageFocus === 'checkpoint' &&
+                      renderRuntimeStorageSpec(
                         runtimeStorage?.checkpoint,
                         t('installer.checkpointConfig'),
                       )}
-                      {renderRuntimeStorageSpec(
+                    {storageFocus === 'imap' &&
+                      renderRuntimeStorageSpec(
                         runtimeStorage?.imap,
                         t('installer.runtimeStorage.imapTitle'),
                       )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value='proxy' className='space-y-4'>
+            {/* STX Java Proxy 独立管理页 / Dedicated STX Java Proxy management tab */}
+            <Card
+              className='border rounded-xl relative overflow-hidden bg-card/40 shadow-xs flex flex-col flex-1 min-h-[360px]'
+              data-testid='stx-java-proxy-card'
+            >
+              <TableLoadingBar loading={stxJavaProxyLoading} />
+              <CardHeader className='flex flex-row items-start justify-between gap-4 space-y-0'>
+                <div className='min-w-0'>
+                  <CardTitle className='text-base'>
+                    {t('cluster.stxJavaProxy.title')}
+                  </CardTitle>
+                  <p className='mt-1 text-xs text-muted-foreground'>
+                    {t('cluster.stxJavaProxy.description')}
+                  </p>
+                </div>
+                <div className='flex items-center gap-2 shrink-0'>
+                  <Badge
+                    variant={
+                      stxJavaProxy?.healthy
+                        ? 'default'
+                        : stxJavaProxy?.running
+                          ? 'outline'
+                          : 'secondary'
+                    }
+                  >
+                    {stxJavaProxy?.healthy
+                      ? t('cluster.stxJavaProxy.healthy')
+                      : stxJavaProxy?.running
+                        ? t('cluster.stxJavaProxy.unhealthy')
+                        : t('cluster.stxJavaProxy.stopped')}
+                  </Badge>
+                  <Button
+                    variant='outline'
+                    size='sm'
+                    onClick={() => void loadStxJavaProxyStatus()}
+                    disabled={stxJavaProxyLoading}
+                    data-testid='stx-java-proxy-refresh'
+                  >
+                    {stxJavaProxyLoading ? (
+                      <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                    ) : (
+                      <RefreshCw className='mr-2 h-4 w-4' />
+                    )}
+                    {t('common.refresh')}
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent
+                className={
+                  stxJavaProxyLoading && stxJavaProxy
+                    ? 'pointer-events-none space-y-4 text-sm opacity-60 transition-opacity duration-200'
+                    : 'space-y-4 text-sm'
+                }
+              >
+                {stxJavaProxyLoading && !stxJavaProxy ? (
+                  <div className='space-y-3 py-2'>
+                    <Skeleton className='h-20 w-full' />
+                    <Skeleton className='h-10 w-64' />
+                  </div>
+                ) : (
+                  <>
+                    <div className='grid gap-3 md:grid-cols-2 xl:grid-cols-4'>
+                      <div>
+                        <div className='text-muted-foreground'>
+                          {t('cluster.stxJavaProxy.deploymentNode')}
+                        </div>
+                        <div className='font-medium truncate'>
+                          {stxJavaProxy?.host_name || '-'}
+                          {stxJavaProxy?.role
+                            ? ` (${t(`cluster.roles.${getRoleTranslationKey(stxJavaProxy.role)}`)})`
+                            : ''}
+                        </div>
+                      </div>
+                      <div>
+                        <div className='text-muted-foreground'>
+                          {t('cluster.stxJavaProxy.endpoint')}
+                        </div>
+                        <div className='font-medium truncate'>
+                          {stxJavaProxy?.endpoint || '-'}
+                        </div>
+                      </div>
+                      <div>
+                        <div className='text-muted-foreground'>
+                          {t('cluster.stxJavaProxy.pid')}
+                        </div>
+                        <div className='font-medium'>
+                          {stxJavaProxy?.pid ?? '-'}
+                        </div>
+                      </div>
+                      <div>
+                        <div className='text-muted-foreground'>
+                          {t('cluster.stxJavaProxy.logPath')}
+                        </div>
+                        <div className='font-medium truncate'>
+                          {stxJavaProxy?.log_path &&
+                          stxJavaProxy.log_path.trim() !== ''
+                            ? stxJavaProxy.log_path
+                            : '-'}
+                        </div>
+                      </div>
+                    </div>
+                    <div className='rounded-md border bg-muted/20 p-3 text-sm'>
+                      {stxJavaProxy?.message ||
+                        t('cluster.stxJavaProxy.noStatus')}
+                    </div>
+                    <div className='flex flex-wrap gap-2'>
+                      <Button
+                        variant='outline'
+                        size='sm'
+                        onClick={() => void handlePreviewStxJavaProxyLog()}
+                        disabled={
+                          stxJavaProxyLoading || stxJavaProxyLogLoading
+                        }
+                        data-testid='stx-java-proxy-view-log'
+                      >
+                        {stxJavaProxyLogLoading ? (
+                          <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                        ) : (
+                          <FileText className='mr-2 h-4 w-4' />
+                        )}
+                        {t('cluster.stxJavaProxy.viewRuntimeLog')}
+                      </Button>
+                      <Button
+                        variant='outline'
+                        size='sm'
+                        onClick={() =>
+                          void handleStxJavaProxyOperation('start')
+                        }
+                        disabled={stxJavaProxyOperating !== null}
+                        data-testid='stx-java-proxy-start'
+                      >
+                        {stxJavaProxyOperating === 'start' ? (
+                          <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                        ) : (
+                          <Play className='mr-2 h-4 w-4' />
+                        )}
+                        {t('cluster.stxJavaProxy.start')}
+                      </Button>
+                      <Button
+                        variant='outline'
+                        size='sm'
+                        onClick={() =>
+                          void handleStxJavaProxyOperation('restart')
+                        }
+                        disabled={stxJavaProxyOperating !== null}
+                        data-testid='stx-java-proxy-restart'
+                      >
+                        {stxJavaProxyOperating === 'restart' ? (
+                          <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                        ) : (
+                          <RotateCcw className='mr-2 h-4 w-4' />
+                        )}
+                        {t('cluster.stxJavaProxy.restart')}
+                      </Button>
+                      <Button
+                        variant='outline'
+                        size='sm'
+                        onClick={() =>
+                          void handleStxJavaProxyOperation('stop')
+                        }
+                        disabled={stxJavaProxyOperating !== null}
+                        data-testid='stx-java-proxy-stop'
+                      >
+                        {stxJavaProxyOperating === 'stop' ? (
+                          <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                        ) : (
+                          <Square className='mr-2 h-4 w-4' />
+                        )}
+                        {t('cluster.stxJavaProxy.stop')}
+                      </Button>
                     </div>
                   </>
                 )}

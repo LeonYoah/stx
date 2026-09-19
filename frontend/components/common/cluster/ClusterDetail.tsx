@@ -25,7 +25,7 @@
  * 显示集群的详细信息，包括节点和状态。
  */
 
-import {useState, useEffect, useCallback, type KeyboardEvent} from 'react';
+import {useState, useEffect, useCallback} from 'react';
 import {useRouter} from 'next/navigation';
 import {useTranslations} from 'next-intl';
 import {Button} from '@/components/ui/button';
@@ -39,7 +39,6 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import {Pagination} from '@/components/ui/pagination';
-import {Separator} from '@/components/ui/separator';
 import {
   Table,
   TableBody,
@@ -91,9 +90,17 @@ import {
   ChevronUp,
   Database,
   Search,
+  Layers,
+  Copy,
+  Check,
 } from 'lucide-react';
 import {Checkbox} from '@/components/ui/checkbox';
 import {motion} from 'motion/react';
+import {
+  WorkspaceHeader,
+  StatPillsBar,
+  TableLoadingBar,
+} from '@/components/common/layout';
 import services from '@/lib/services';
 import {
   ClusterInfo,
@@ -101,7 +108,7 @@ import {
   ClusterStatusInfo,
   NodeInfo,
   NodeStatus,
-  HealthStatus,
+  NodeRole,
   RuntimeStorageDetails,
   RuntimeStorageSpec,
   RuntimeStorageValidationResult,
@@ -126,6 +133,9 @@ import {ClusterPlugins} from './ClusterPlugins';
 import {ClusterConfigs} from './ClusterConfigs';
 import {MonitorConfigPanel} from './MonitorConfigPanel';
 import {ProcessEventList} from './ProcessEventList';
+import {ClusterActions} from './ClusterActions';
+import {ClusterDetailSkeleton} from './ClusterDetailSkeleton';
+import {ClusterNodeLogDialog} from './ClusterNodeLogDialog';
 import {isSeatunnelVersionAtLeast} from '@/lib/seatunnel-version';
 
 interface ClusterDetailProps {
@@ -172,23 +182,6 @@ function getStatusBadgeVariant(
   }
 }
 
-/**
- * Get health status badge variant
- * 获取健康状态徽章变体
- */
-function getHealthBadgeVariant(
-  status: HealthStatus,
-): 'default' | 'secondary' | 'destructive' | 'outline' {
-  switch (status) {
-    case HealthStatus.HEALTHY:
-      return 'default';
-    case HealthStatus.UNHEALTHY:
-      return 'destructive';
-    case HealthStatus.UNKNOWN:
-    default:
-      return 'secondary';
-  }
-}
 
 /**
  * Get role translation key
@@ -412,50 +405,57 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
     op: 'start' | 'stop' | 'restart';
     node: NodeInfo;
   } | null>(null);
+  // 日志查看弹窗状态 / Node log dialog state
   const [isLogDialogOpen, setIsLogDialogOpen] = useState(false);
-  const [logContent, setLogContent] = useState<string>('');
-  const [logLoading, setLogLoading] = useState(false);
   const [logNodeInfo, setLogNodeInfo] = useState<NodeInfo | null>(null);
-  // Log query parameters / 日志查询参数
-  const [logLines, setLogLines] = useState<number>(100);
-  const [logMode, setLogMode] = useState<string>('tail');
-  const [logFilter, setLogFilter] = useState<string>('');
-  const [logDate, setLogDate] = useState<string>('');
+
+  // 平滑刷新与节点筛选状态 / Smooth refresh and node filter state
+  const [refreshing, setRefreshing] = useState(false);
+  const [nodeSearchTerm, setNodeSearchTerm] = useState('');
+  const [nodeStatusFilter, setNodeStatusFilter] = useState<string>('all');
+  const [copiedInstallDir, setCopiedInstallDir] = useState(false);
 
   /**
    * Load cluster data
    * 加载集群数据
    */
-  const loadClusterData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [clusterResult, nodesResult, statusResult] = await Promise.all([
-        services.cluster.getClusterSafe(clusterId),
-        services.cluster.getNodesSafe(clusterId),
-        services.cluster.getClusterStatusSafe(clusterId),
-      ]);
-
-      if (clusterResult.success && clusterResult.data) {
-        setCluster(clusterResult.data);
-      } else {
-        toast.error(clusterResult.error || t('cluster.loadError'));
+  const loadClusterData = useCallback(
+    async (isSilent = false) => {
+      if (!isSilent) {
+        setLoading(true);
       }
+      try {
+        const [clusterResult, nodesResult, statusResult] = await Promise.all([
+          services.cluster.getClusterSafe(clusterId),
+          services.cluster.getNodesSafe(clusterId),
+          services.cluster.getClusterStatusSafe(clusterId),
+        ]);
 
-      if (nodesResult.success && nodesResult.data) {
-        setNodes(nodesResult.data);
-      }
+        if (clusterResult.success && clusterResult.data) {
+          setCluster(clusterResult.data);
+        } else {
+          toast.error(clusterResult.error || t('cluster.loadError'));
+        }
 
-      if (statusResult.success && statusResult.data) {
-        setClusterStatus(statusResult.data);
+        if (nodesResult.success && nodesResult.data) {
+          setNodes(nodesResult.data);
+        }
+
+        if (statusResult.success && statusResult.data) {
+          setClusterStatus(statusResult.data);
+        }
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : t('cluster.loadError'),
+        );
+      } finally {
+        if (!isSilent) {
+          setLoading(false);
+        }
       }
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : t('cluster.loadError'),
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, [clusterId, t]);
+    },
+    [clusterId, t],
+  );
 
   const loadDiagnosticsSummary = useCallback(async () => {
     setDiagnosticsLoading(true);
@@ -768,13 +768,20 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
     [clusterId, router],
   );
 
-  const handleRefresh = useCallback(() => {
-    void loadClusterData();
-    void loadDiagnosticsSummary();
-    void loadMonitoringOverview();
-    void loadRuntimeStorage();
-    void loadStxJavaProxyStatus();
-    void loadUpgradeTasks(upgradeTasksPage, upgradeTasksPageSize);
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([
+        loadClusterData(true),
+        loadDiagnosticsSummary(),
+        loadMonitoringOverview(),
+        loadRuntimeStorage(),
+        loadStxJavaProxyStatus(),
+        loadUpgradeTasks(upgradeTasksPage, upgradeTasksPageSize),
+      ]);
+    } finally {
+      setRefreshing(false);
+    }
   }, [
     loadClusterData,
     loadDiagnosticsSummary,
@@ -934,10 +941,17 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
    * 切换全选
    */
   const toggleAllNodes = () => {
-    if (selectedNodeIds.size === nodes.length) {
-      setSelectedNodeIds(new Set());
+    if (
+      filteredNodes.length > 0 &&
+      filteredNodes.every((n) => selectedNodeIds.has(n.id))
+    ) {
+      const next = new Set(selectedNodeIds);
+      filteredNodes.forEach((n) => next.delete(n.id));
+      setSelectedNodeIds(next);
     } else {
-      setSelectedNodeIds(new Set(nodes.map((n) => n.id)));
+      const next = new Set(selectedNodeIds);
+      filteredNodes.forEach((n) => next.add(n.id));
+      setSelectedNodeIds(next);
     }
   };
 
@@ -1030,69 +1044,9 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
    * Handle view node logs
    * 处理查看节点日志
    */
-  const handleViewLogs = async (node: NodeInfo) => {
+  const handleViewLogs = (node: NodeInfo) => {
     setLogNodeInfo(node);
     setIsLogDialogOpen(true);
-    // Reset parameters / 重置参数
-    setLogLines(100);
-    setLogMode('tail');
-    setLogFilter('');
-    setLogDate('');
-    await fetchLogs(node.id, {lines: 100, mode: 'tail'});
-  };
-
-  /**
-   * Fetch logs with parameters
-   * 使用参数获取日志
-   */
-  const fetchLogs = async (
-    nodeId: number,
-    params: {lines?: number; mode?: string; filter?: string; date?: string},
-  ) => {
-    setLogLoading(true);
-    setLogContent('');
-    try {
-      const result = await services.cluster.getNodeLogsSafe(
-        clusterId,
-        nodeId,
-        params,
-      );
-      if (result.success && result.data) {
-        setLogContent(result.data.logs || t('cluster.noLogs'));
-      } else {
-        setLogContent(result.error || t('cluster.getLogsError'));
-      }
-    } finally {
-      setLogLoading(false);
-    }
-  };
-
-  /**
-   * Handle refresh logs with current parameters
-   * 使用当前参数刷新日志
-   */
-  const handleRefreshLogs = () => {
-    if (!logNodeInfo) {
-      return;
-    }
-    fetchLogs(logNodeInfo.id, {
-      lines: logLines,
-      mode: logMode,
-      filter: logFilter || undefined,
-      date: logDate || undefined,
-    });
-  };
-
-  /**
-   * Submit log filters via Enter key
-   * 通过 Enter 键提交日志过滤条件
-   */
-  const handleLogFilterKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key !== 'Enter') {
-      return;
-    }
-    e.preventDefault();
-    handleRefreshLogs();
   };
 
   /**
@@ -1195,12 +1149,8 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
     }
   };
 
-  if (loading) {
-    return (
-      <div className='flex items-center justify-center py-12'>
-        <Loader2 className='h-8 w-8 animate-spin text-muted-foreground' />
-      </div>
-    );
+  if (loading && !cluster) {
+    return <ClusterDetailSkeleton />;
   }
 
   if (!cluster) {
@@ -1677,6 +1627,26 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
     );
   };
 
+  // 节点过滤计算 / Filtered nodes calculation
+  const filteredNodes = nodes.filter((node) => {
+    const matchesSearch =
+      !nodeSearchTerm ||
+      (node.host_name &&
+        node.host_name.toLowerCase().includes(nodeSearchTerm.toLowerCase())) ||
+      (node.host_ip && node.host_ip.includes(nodeSearchTerm)) ||
+      (node.role &&
+        node.role.toLowerCase().includes(nodeSearchTerm.toLowerCase())) ||
+      String(node.id).includes(nodeSearchTerm);
+
+    const matchesStatus =
+      nodeStatusFilter === 'all' ||
+      (nodeStatusFilter === 'running' && node.status === NodeStatus.RUNNING) ||
+      (nodeStatusFilter === 'offline' && node.status === NodeStatus.OFFLINE) ||
+      (nodeStatusFilter === 'stopped' && node.status === NodeStatus.STOPPED);
+
+    return matchesSearch && matchesStatus;
+  });
+
   return (
     <motion.div
       className='space-y-6'
@@ -1684,71 +1654,245 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
       animate='visible'
       variants={containerVariants}
     >
-      {/* Header / 标题 */}
-      <motion.div
-        className='flex items-center justify-between'
-        variants={itemVariants}
-      >
-        <div className='flex items-center gap-4'>
-          <Button
-            variant='ghost'
-            size='icon'
-            onClick={() => router.push('/clusters')}
-          >
-            <ArrowLeft className='h-5 w-5' />
-          </Button>
-          <div>
-            <h1 className='text-2xl font-bold tracking-tight'>
-              {cluster.name}
-            </h1>
-            {cluster.description && (
-              <p className='text-muted-foreground mt-1'>
-                {cluster.description}
-              </p>
-            )}
-          </div>
-        </div>
-        <div className='flex gap-2'>
-          <Button variant='outline' onClick={handleRefresh}>
-            <RefreshCw className='h-4 w-4 mr-2' />
-            {t('common.refresh')}
-          </Button>
-          <Button
-            variant='outline'
-            onClick={() =>
-              router.push(
-                `/diagnostics?tab=errors&cluster_id=${clusterId}&source=cluster-detail`,
-              )
-            }
-          >
-            <Bug className='h-4 w-4 mr-2' />
-            {t('cluster.openDiagnostics')}
-          </Button>
-          <Button
-            variant='outline'
-            onClick={() =>
-              router.push(`/clusters/${clusterId}/upgrade/prepare`)
-            }
-          >
-            <Activity className='h-4 w-4 mr-2' />
-            {t('stUpgrade.entry')}
-          </Button>
-          <Button variant='outline' onClick={() => setIsEditDialogOpen(true)}>
-            <Pencil className='h-4 w-4 mr-2' />
-            {t('common.edit')}
-          </Button>
-          <Button
-            variant='destructive'
-            onClick={() => setIsDeleteDialogOpen(true)}
-            disabled={!canDelete}
-          >
-            <Trash2 className='h-4 w-4 mr-2' />
-            {t('common.delete')}
-          </Button>
-        </div>
+      {/* 顶部平滑加载进度条 / Top smooth loading bar */}
+      <TableLoadingBar loading={refreshing} />
+
+      {/* 标准化页面头部 / Standardized Workspace Header */}
+      <motion.div variants={itemVariants}>
+        <WorkspaceHeader
+          icon={<Layers />}
+          title={cluster.name}
+          badge={
+            <div className='flex items-center gap-1.5 flex-wrap'>
+              <Badge variant={getStatusBadgeVariant(cluster.status)}>
+                {t(`cluster.statuses.${cluster.status}`)}
+              </Badge>
+              {clusterStatus?.health_status && (
+                <Badge
+                  variant={
+                    clusterStatus.health_status === 'healthy'
+                      ? 'default'
+                      : 'destructive'
+                  }
+                  className={`flex items-center gap-1 text-[11px] font-normal ${
+                    clusterStatus.health_status === 'healthy'
+                      ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+                      : 'bg-destructive/15 text-destructive border-destructive/30'
+                  }`}
+                >
+                  <span
+                    className={`size-1.5 rounded-full ${
+                      clusterStatus.health_status === 'healthy'
+                        ? 'bg-emerald-500'
+                        : 'bg-destructive animate-pulse'
+                    }`}
+                  />
+                  {t(`cluster.healthStatuses.${clusterStatus.health_status}`) ||
+                    clusterStatus.health_status}
+                </Badge>
+              )}
+              {cluster.version && (
+                <Badge
+                  variant='outline'
+                  className='font-mono text-xs text-muted-foreground'
+                >
+                  v{cluster.version}
+                </Badge>
+              )}
+            </div>
+          }
+          subtitle={
+            <div className='flex items-center gap-1.5 text-xs text-muted-foreground flex-wrap'>
+              <button
+                type='button'
+                onClick={() => router.push('/clusters')}
+                className='hover:text-foreground transition-colors inline-flex items-center gap-1 hover:underline cursor-pointer'
+              >
+                <ArrowLeft className='size-3' />
+                <span>{t('cluster.title')}</span>
+              </button>
+              <span>/</span>
+              <span className='text-foreground font-medium'>{cluster.name}</span>
+              {cluster.description && (
+                <>
+                  <span>·</span>
+                  <span className='truncate max-w-sm'>{cluster.description}</span>
+                </>
+              )}
+            </div>
+          }
+          actions={
+            <div className='flex items-center gap-2 flex-wrap'>
+              {/* 整集群生命周期操作 / Cluster lifecycle actions */}
+              <ClusterActions
+                cluster={cluster}
+                onOperationComplete={() => void loadClusterData(true)}
+              />
+              <Button
+                variant='outline'
+                size='sm'
+                onClick={handleRefresh}
+                disabled={refreshing}
+                className='h-8'
+              >
+                <RefreshCw
+                  className={`h-3.5 w-3.5 mr-1.5 ${refreshing ? 'animate-spin' : ''}`}
+                />
+                {t('common.refresh')}
+              </Button>
+              <Button
+                variant='outline'
+                size='sm'
+                onClick={() =>
+                  router.push(
+                    `/diagnostics?tab=errors&cluster_id=${clusterId}&source=cluster-detail`,
+                  )
+                }
+                className='h-8'
+              >
+                <Bug className='h-3.5 w-3.5 mr-1.5' />
+                {t('cluster.openDiagnostics')}
+              </Button>
+              <Button
+                variant='outline'
+                size='sm'
+                onClick={() =>
+                  router.push(`/clusters/${clusterId}/upgrade/prepare`)
+                }
+                className='h-8'
+              >
+                <Activity className='h-3.5 w-3.5 mr-1.5' />
+                {t('stUpgrade.entry')}
+              </Button>
+              <Button
+                variant='outline'
+                size='sm'
+                onClick={() => setIsEditDialogOpen(true)}
+                className='h-8'
+              >
+                <Pencil className='h-3.5 w-3.5 mr-1.5' />
+                {t('common.edit')}
+              </Button>
+              <Button
+                variant='destructive'
+                size='sm'
+                onClick={() => setIsDeleteDialogOpen(true)}
+                disabled={!canDelete}
+                className='h-8'
+              >
+                <Trash2 className='h-3.5 w-3.5 mr-1.5' />
+                {t('common.delete')}
+              </Button>
+            </div>
+          }
+        />
       </motion.div>
 
-      <Separator />
+      {/* 状态胶囊汇总与快捷切换栏 / Status Pills Summary Bar */}
+      <motion.div variants={itemVariants}>
+        <StatPillsBar
+          items={[
+            {
+              key: 'all',
+              label: t('cluster.statTotalNodes'),
+              count: clusterStatus?.total_nodes ?? nodes.length,
+              icon: <Server className='size-3.5' />,
+            },
+            {
+              key: 'online',
+              label: t('cluster.statOnlineNodes'),
+              count:
+                clusterStatus?.online_nodes ??
+                nodes.filter((n) => n.status === NodeStatus.RUNNING).length,
+              variant: 'success',
+            },
+            {
+              key: 'offline',
+              label: t('cluster.statOfflineNodes'),
+              count:
+                clusterStatus?.offline_nodes ??
+                nodes.filter((n) => n.status === NodeStatus.OFFLINE).length,
+              variant:
+                (clusterStatus?.offline_nodes ?? 0) > 0 ||
+                nodes.some((n) => n.status === NodeStatus.OFFLINE)
+                  ? 'danger'
+                  : 'default',
+              pulse:
+                (clusterStatus?.offline_nodes ?? 0) > 0 ||
+                nodes.some((n) => n.status === NodeStatus.OFFLINE),
+            },
+            {
+              key: 'master',
+              label: t('cluster.statMasterNodes'),
+              count: nodes.filter(
+                (n) =>
+                  n.role === NodeRole.MASTER ||
+                  n.role === NodeRole.MASTER_WORKER,
+              ).length,
+              variant: 'info',
+            },
+            {
+              key: 'worker',
+              label: t('cluster.statWorkerNodes'),
+              count: nodes.filter(
+                (n) =>
+                  n.role === NodeRole.WORKER ||
+                  n.role === NodeRole.MASTER_WORKER,
+              ).length,
+              variant: 'info',
+            },
+            ...(diagnosticsGroupTotal > 0
+              ? [
+                  {
+                    key: 'diagnostics' as const,
+                    label: t('cluster.statDiagnostics'),
+                    count: diagnosticsGroupTotal,
+                    variant: 'warning' as const,
+                  },
+                ]
+              : []),
+            ...((monitoringOverview?.stats.active_alerts_1h ?? 0) > 0
+              ? [
+                  {
+                    key: 'alerts' as const,
+                    label: t('cluster.statAlerts'),
+                    count: monitoringOverview!.stats.active_alerts_1h,
+                    variant: 'danger' as const,
+                    pulse: true,
+                  },
+                ]
+              : []),
+          ]}
+          activeKey={activeTab === 'nodes' ? nodeStatusFilter : activeTab}
+          onChange={(key) => {
+            if (key === 'all') {
+              setActiveTab('nodes');
+              setNodeStatusFilter('all');
+              setNodeSearchTerm('');
+            } else if (key === 'online') {
+              setActiveTab('nodes');
+              setNodeStatusFilter('running');
+              setNodeSearchTerm('');
+            } else if (key === 'offline') {
+              setActiveTab('nodes');
+              setNodeStatusFilter('offline');
+              setNodeSearchTerm('');
+            } else if (key === 'master') {
+              setActiveTab('nodes');
+              setNodeStatusFilter('all');
+              setNodeSearchTerm('master');
+            } else if (key === 'worker') {
+              setActiveTab('nodes');
+              setNodeStatusFilter('all');
+              setNodeSearchTerm('worker');
+            } else if (key === 'diagnostics') {
+              setActiveTab('diagnostics');
+            } else if (key === 'alerts') {
+              router.push(`/monitoring?tab=alerts&cluster_id=${clusterId}`);
+            }
+          }}
+        />
+      </motion.div>
 
       {monitoringOverview && monitoringOverview.stats.active_alerts_1h > 0 && (
         <motion.div variants={itemVariants}>
@@ -1857,61 +2001,108 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
           </TabsList>
 
           <TabsContent value='overview' className='space-y-6'>
-            {/* Cluster Info / 集群信息 */}
-            <Card>
-              <CardHeader>
-                <CardTitle>{t('cluster.clusterInfo')}</CardTitle>
+            {/* Cluster Profile & Service Ports / 集群基本规格与网络端口 */}
+            <Card className='border rounded-xl bg-card/40 shadow-xs'>
+              <CardHeader className='pb-3'>
+                <CardTitle className='text-base font-semibold'>
+                  {t('cluster.clusterInfo')}
+                </CardTitle>
+                <CardDescription className='text-xs'>
+                  {t('cluster.descriptionLabel')}: {cluster.description || '-'}
+                </CardDescription>
               </CardHeader>
               <CardContent>
                 <div className='grid gap-4 md:grid-cols-2 xl:grid-cols-4'>
-                  <div>
-                    <span className='text-sm text-muted-foreground'>
-                      {t('cluster.installDir')}
-                    </span>
-                    <p className='font-medium break-all'>
+                  {/* 安装目录 / Install directory */}
+                  <div className='p-3 rounded-lg border bg-muted/10 space-y-1'>
+                    <div className='flex items-center justify-between'>
+                      <span className='text-xs text-muted-foreground'>
+                        {t('cluster.installDir')}
+                      </span>
+                      {cluster.install_dir && (
+                        <button
+                          type='button'
+                          onClick={async () => {
+                            await navigator.clipboard.writeText(
+                              cluster.install_dir,
+                            );
+                            setCopiedInstallDir(true);
+                            toast.success(t('cluster.logCopied'));
+                            setTimeout(() => setCopiedInstallDir(false), 2000);
+                          }}
+                          className='text-muted-foreground hover:text-foreground transition-colors p-0.5'
+                          title={t('common.copy')}
+                        >
+                          {copiedInstallDir ? (
+                            <Check className='size-3 text-emerald-500' />
+                          ) : (
+                            <Copy className='size-3' />
+                          )}
+                        </button>
+                      )}
+                    </div>
+                    <p className='font-mono text-xs font-medium break-all'>
                       {cluster.install_dir || '-'}
                     </p>
                   </div>
-                  <div>
-                    <span className='text-sm text-muted-foreground'>
+
+                  {/* 版本 / Version */}
+                  <div className='p-3 rounded-lg border bg-muted/10 space-y-1'>
+                    <span className='text-xs text-muted-foreground'>
                       {t('cluster.version')}
                     </span>
-                    <p className='font-medium'>{cluster.version || '-'}</p>
+                    <p className='font-medium text-sm flex items-center gap-1.5'>
+                      <span className='font-mono font-semibold'>
+                        {cluster.version || '-'}
+                      </span>
+                      <Badge variant='outline' className='text-[10px] uppercase'>
+                        {t(`cluster.modes.${cluster.deployment_mode}`) ||
+                          cluster.deployment_mode}
+                      </Badge>
+                    </p>
                   </div>
-                  <div>
-                    <span className='text-sm text-muted-foreground'>
+
+                  {/* Hazelcast 端口 / Hazelcast port */}
+                  <div className='p-3 rounded-lg border bg-muted/10 space-y-1'>
+                    <span className='text-xs text-muted-foreground'>
                       {t('cluster.hazelcastPort')}
                     </span>
-                    <p className='font-medium'>
+                    <p className='font-mono text-sm font-medium'>
                       {nodes.find((node) => node.hazelcast_port > 0)
                         ?.hazelcast_port || '-'}
                     </p>
                   </div>
-                  <div>
-                    <span className='text-sm text-muted-foreground'>
+
+                  {/* HTTP API 端口 / HTTP API port */}
+                  <div className='p-3 rounded-lg border bg-muted/10 space-y-1'>
+                    <span className='text-xs text-muted-foreground'>
                       {t('cluster.httpPort')}
                     </span>
-                    <p className='font-medium'>
+                    <p className='font-mono text-sm font-medium'>
                       {runtimeConfig.enableHTTP === false
                         ? t('cluster.httpDisabled')
                         : webUINode?.api_port || '-'}
                     </p>
                   </div>
-                  <div>
-                    <span className='text-sm text-muted-foreground'>
+
+                  {/* 日志输出模式 / Log output mode */}
+                  <div className='p-3 rounded-lg border bg-muted/10 space-y-1'>
+                    <span className='text-xs text-muted-foreground'>
                       {t('cluster.logOutputMode')}
                     </span>
-                    <p className='font-medium'>
+                    <p className='font-medium text-sm'>
                       {runtimeConfig.jobLogMode === 'per_job'
                         ? t('cluster.logOutputModePerJob')
                         : t('cluster.logOutputModeMixed')}
                     </p>
                   </div>
-                  <div>
-                    <span className='text-sm text-muted-foreground'>
+
+                  {/* Web UI 状态 / Web UI status */}
+                  <div className='p-3 rounded-lg border bg-muted/10 space-y-1'>
+                    <span className='text-xs text-muted-foreground'>
                       {t('cluster.webUiStatus')}
                     </span>
-                    <p className='font-medium'>
+                    <p className='font-medium text-sm'>
                       {webUINode
                         ? t('common.enabled')
                         : isSeatunnelVersionAtLeast(cluster.version, '2.3.9')
@@ -1919,20 +2110,192 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                           : t('cluster.versionUnsupported')}
                     </p>
                   </div>
-                  <div>
-                    <span className='text-sm text-muted-foreground'>
+
+                  {/* 创建时间 / Created at */}
+                  <div className='p-3 rounded-lg border bg-muted/10 space-y-1'>
+                    <span className='text-xs text-muted-foreground'>
                       {t('cluster.createdAt')}
                     </span>
-                    <p className='font-medium'>
+                    <p className='font-mono text-xs text-muted-foreground'>
                       {new Date(cluster.created_at).toLocaleString()}
                     </p>
                   </div>
-                  <div>
-                    <span className='text-sm text-muted-foreground'>
+
+                  {/* 更新时间 / Updated at */}
+                  <div className='p-3 rounded-lg border bg-muted/10 space-y-1'>
+                    <span className='text-xs text-muted-foreground'>
                       {t('cluster.updatedAt')}
                     </span>
-                    <p className='font-medium'>
+                    <p className='font-mono text-xs text-muted-foreground'>
                       {new Date(cluster.updated_at).toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Node Topology Snapshot / 节点拓扑速览 */}
+            <Card className='border rounded-xl bg-card/40 shadow-xs'>
+              <CardHeader className='flex flex-row items-center justify-between pb-3'>
+                <div className='space-y-0.5'>
+                  <CardTitle className='flex items-center gap-2 text-base font-semibold'>
+                    <Server className='size-4 text-primary' />
+                    <span>{t('cluster.topologyPreview')}</span>
+                    <Badge variant='secondary' className='text-xs font-mono'>
+                      {nodes.length}
+                    </Badge>
+                  </CardTitle>
+                  <CardDescription className='text-xs'>
+                    {t('cluster.roles.master')}:{' '}
+                    {
+                      nodes.filter(
+                        (n) =>
+                          n.role === NodeRole.MASTER ||
+                          n.role === NodeRole.MASTER_WORKER,
+                      ).length
+                    }{' '}
+                    · {t('cluster.roles.worker')}:{' '}
+                    {
+                      nodes.filter(
+                        (n) =>
+                          n.role === NodeRole.WORKER ||
+                          n.role === NodeRole.MASTER_WORKER,
+                      ).length
+                    }
+                  </CardDescription>
+                </div>
+                <Button
+                  variant='ghost'
+                  size='sm'
+                  onClick={() => setActiveTab('nodes')}
+                  className='text-xs h-8 text-primary hover:text-primary/80'
+                >
+                  {t('cluster.viewAllNodes')} &rarr;
+                </Button>
+              </CardHeader>
+              <CardContent>
+                {nodes.length === 0 ? (
+                  <div className='text-center py-6 text-sm text-muted-foreground'>
+                    {t('cluster.noNodes')}
+                  </div>
+                ) : (
+                  <div className='grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'>
+                    {nodes.map((node) => (
+                      <div
+                        key={node.id}
+                        className='p-3 rounded-lg border bg-background/50 hover:bg-muted/30 transition-colors flex flex-col justify-between gap-2 shadow-2xs'
+                      >
+                        <div className='flex items-start justify-between gap-2'>
+                          <div className='min-w-0 flex-1'>
+                            <div className='font-medium text-sm truncate' title={node.host_name || node.host_ip}>
+                              {node.host_name || `#${node.id}`}
+                            </div>
+                            <div className='font-mono text-xs text-muted-foreground truncate'>
+                              {node.host_ip || '-'}
+                            </div>
+                          </div>
+                          <Badge
+                            variant={getStatusBadgeVariant(node.status)}
+                            className='text-[10px] shrink-0'
+                          >
+                            {t(`cluster.nodeStatuses.${node.status}`)}
+                          </Badge>
+                        </div>
+                        <div className='pt-2 border-t border-border/40 flex items-center justify-between text-xs text-muted-foreground'>
+                          <Badge variant='outline' className='text-[10px]'>
+                            {t(
+                              `cluster.roles.${getRoleTranslationKey(node.role)}`,
+                            )}
+                          </Badge>
+                          <span className='font-mono text-[11px]'>
+                            PID: {node.process_pid || '-'}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Runtime Storage & Java Proxy Snapshot / 运行时存储与代理速览 */}
+            <Card className='border rounded-xl bg-card/40 shadow-xs'>
+              <CardHeader className='flex flex-row items-center justify-between pb-3'>
+                <div>
+                  <CardTitle className='flex items-center gap-2 text-base font-semibold'>
+                    <Database className='size-4 text-primary' />
+                    <span>{t('cluster.storageSummary')}</span>
+                  </CardTitle>
+                  <CardDescription className='text-xs'>
+                    {t('cluster.runtimeStorage.description')}
+                  </CardDescription>
+                </div>
+                <Button
+                  variant='ghost'
+                  size='sm'
+                  onClick={() => setActiveTab('storage')}
+                  className='text-xs h-8 text-primary hover:text-primary/80'
+                >
+                  {t('cluster.manageStorage')} &rarr;
+                </Button>
+              </CardHeader>
+              <CardContent>
+                <div className='grid gap-3 md:grid-cols-3'>
+                  {/* Checkpoint Storage 摘要 / Checkpoint storage summary */}
+                  <div className='p-3.5 rounded-lg border bg-muted/10 space-y-1.5'>
+                    <div className='flex items-center justify-between'>
+                      <span className='text-xs font-semibold'>
+                        {t('installer.checkpointConfig')}
+                      </span>
+                      <Badge variant='outline' className='text-[10px] uppercase font-mono'>
+                        {runtimeStorage?.checkpoint?.storage_type || 'Local'}
+                      </Badge>
+                    </div>
+                    <p className='text-xs text-muted-foreground font-mono break-all truncate' title={runtimeStorage?.checkpoint?.namespace || '-'}>
+                      {runtimeStorage?.checkpoint?.namespace || '-'}
+                    </p>
+                  </div>
+
+                  {/* IMAP Storage 摘要 / IMAP storage summary */}
+                  <div className='p-3.5 rounded-lg border bg-muted/10 space-y-1.5'>
+                    <div className='flex items-center justify-between'>
+                      <span className='text-xs font-semibold'>
+                        {t('installer.runtimeStorage.imapTitle')}
+                      </span>
+                      <Badge variant='outline' className='text-[10px] uppercase font-mono'>
+                        {runtimeStorage?.imap?.storage_type || 'Local'}
+                      </Badge>
+                    </div>
+                    <p className='text-xs text-muted-foreground font-mono break-all truncate' title={runtimeStorage?.imap?.namespace || '-'}>
+                      {runtimeStorage?.imap?.namespace || '-'}
+                    </p>
+                  </div>
+
+                  {/* STX Java Proxy 摘要 / STX Java Proxy summary */}
+                  <div className='p-3.5 rounded-lg border bg-muted/10 space-y-1.5'>
+                    <div className='flex items-center justify-between'>
+                      <span className='text-xs font-semibold'>
+                        {t('cluster.stxJavaProxy.title')}
+                      </span>
+                      <Badge
+                        variant={
+                          stxJavaProxy?.healthy
+                            ? 'default'
+                            : stxJavaProxy?.running
+                              ? 'outline'
+                              : 'secondary'
+                        }
+                        className='text-[10px]'
+                      >
+                        {stxJavaProxy?.healthy
+                          ? t('cluster.stxJavaProxy.healthy')
+                          : stxJavaProxy?.running
+                            ? t('cluster.stxJavaProxy.unhealthy')
+                            : t('cluster.stxJavaProxy.stopped')}
+                      </Badge>
+                    </div>
+                    <p className='text-xs text-muted-foreground font-mono break-all truncate' title={stxJavaProxy?.endpoint || '-'}>
+                      {stxJavaProxy?.endpoint || '-'}
                     </p>
                   </div>
                 </div>
@@ -2207,117 +2570,147 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
           </TabsContent>
 
           <TabsContent value='nodes' className='space-y-6'>
-            {/* Cluster Actions / 集群操作 */}
-            <Card>
-              <CardHeader>
-                <CardTitle className='flex items-center gap-2'>
-                  <Activity className='h-5 w-5' />
-                  {t('cluster.operations')}
+            {/* Integrated Node Management Card / 一体化节点管理表格卡片 */}
+            <Card className='border rounded-xl relative overflow-hidden bg-card/40 shadow-xs flex flex-col flex-1 min-h-[480px]'>
+              <CardHeader className='flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-3 border-b bg-muted/10'>
+                <div className='flex items-center gap-2 flex-wrap'>
+                  <CardTitle className='flex items-center gap-2 text-base font-semibold'>
+                    <Server className='h-4 w-4 text-primary' />
+                    <span>{t('cluster.nodeList')}</span>
+                  </CardTitle>
+                  <Badge variant='secondary' className='text-xs font-mono'>
+                    {filteredNodes.length} / {nodes.length}
+                  </Badge>
                   {selectedNodeIds.size > 0 && (
-                    <Badge variant='secondary' className='ml-2'>
+                    <Badge variant='outline' className='text-xs font-medium'>
                       {t('cluster.selectedNodes', {
                         count: selectedNodeIds.size,
                       })}
                     </Badge>
                   )}
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className='flex gap-2'>
+                </div>
+
+                <div className='flex items-center gap-2 flex-wrap'>
+                  {/* 批量操作工具栏（按需显隐） / Batch operations toolbar (progressive disclosure) */}
+                  {selectedNodeIds.size > 0 && (
+                    <div className='flex items-center gap-1.5 p-1 bg-background/90 rounded-lg border shadow-2xs'>
+                      <Button
+                        variant='outline'
+                        size='sm'
+                        onClick={() => setConfirmBatchOp('start')}
+                        disabled={isOperating}
+                        className='h-7 text-xs text-emerald-600 dark:text-emerald-400'
+                      >
+                        {isOperating ? (
+                          <Loader2 className='h-3.5 w-3.5 mr-1 animate-spin' />
+                        ) : (
+                          <Play className='h-3.5 w-3.5 mr-1' />
+                        )}
+                        {t('cluster.start')}
+                      </Button>
+                      <Button
+                        variant='outline'
+                        size='sm'
+                        onClick={() => setConfirmBatchOp('stop')}
+                        disabled={isOperating}
+                        className='h-7 text-xs text-amber-600 dark:text-amber-400'
+                      >
+                        {isOperating ? (
+                          <Loader2 className='h-3.5 w-3.5 mr-1 animate-spin' />
+                        ) : (
+                          <Square className='h-3.5 w-3.5 mr-1' />
+                        )}
+                        {t('cluster.stop')}
+                      </Button>
+                      <Button
+                        variant='outline'
+                        size='sm'
+                        onClick={() => setConfirmBatchOp('restart')}
+                        disabled={isOperating}
+                        className='h-7 text-xs text-blue-600 dark:text-blue-400'
+                      >
+                        {isOperating ? (
+                          <Loader2 className='h-3.5 w-3.5 mr-1 animate-spin' />
+                        ) : (
+                          <RotateCcw className='h-3.5 w-3.5 mr-1' />
+                        )}
+                        {t('cluster.restart')}
+                      </Button>
+                      <Button
+                        variant='ghost'
+                        size='sm'
+                        onClick={() => setSelectedNodeIds(new Set())}
+                        className='h-7 text-xs text-muted-foreground hover:text-foreground'
+                      >
+                        {t('cluster.clearSelection')}
+                      </Button>
+                    </div>
+                  )}
+
+                  {/* 节点搜索过滤框 / Node search input */}
+                  <div className='relative w-48 sm:w-56'>
+                    <Search className='absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground' />
+                    <Input
+                      placeholder={t('cluster.searchNodes')}
+                      value={nodeSearchTerm}
+                      onChange={(e) => setNodeSearchTerm(e.target.value)}
+                      className='pl-8 h-8 text-xs'
+                    />
+                  </div>
+
                   <Button
-                    variant='outline'
-                    onClick={() => setConfirmBatchOp('start')}
-                    disabled={selectedNodeIds.size === 0 || isOperating}
+                    size='sm'
+                    onClick={() => setIsAddNodeDialogOpen(true)}
+                    className='h-8'
                   >
-                    {isOperating ? (
-                      <Loader2 className='h-4 w-4 mr-2 animate-spin' />
-                    ) : (
-                      <Play className='h-4 w-4 mr-2' />
-                    )}
-                    {t('cluster.start')}
-                  </Button>
-                  <Button
-                    variant='outline'
-                    onClick={() => setConfirmBatchOp('stop')}
-                    disabled={selectedNodeIds.size === 0 || isOperating}
-                  >
-                    {isOperating ? (
-                      <Loader2 className='h-4 w-4 mr-2 animate-spin' />
-                    ) : (
-                      <Square className='h-4 w-4 mr-2' />
-                    )}
-                    {t('cluster.stop')}
-                  </Button>
-                  <Button
-                    variant='outline'
-                    onClick={() => setConfirmBatchOp('restart')}
-                    disabled={selectedNodeIds.size === 0 || isOperating}
-                  >
-                    {isOperating ? (
-                      <Loader2 className='h-4 w-4 mr-2 animate-spin' />
-                    ) : (
-                      <RotateCcw className='h-4 w-4 mr-2' />
-                    )}
-                    {t('cluster.restart')}
+                    <Plus className='h-3.5 w-3.5 mr-1.5' />
+                    {t('cluster.addNode')}
                   </Button>
                 </div>
-                {selectedNodeIds.size === 0 && (
-                  <p className='text-sm text-muted-foreground mt-2'>
-                    {t('cluster.selectNodesToOperate')}
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Nodes Table / 节点表格 */}
-            <Card>
-              <CardHeader className='flex flex-row items-center justify-between'>
-                <CardTitle className='flex items-center gap-2'>
-                  <Server className='h-5 w-5' />
-                  {t('cluster.nodeList')}
-                </CardTitle>
-                <Button onClick={() => setIsAddNodeDialogOpen(true)}>
-                  <Plus className='h-4 w-4 mr-2' />
-                  {t('cluster.addNode')}
-                </Button>
               </CardHeader>
-              <CardContent>
+              <CardContent className='p-0 flex-1'>
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className='w-12'>
+                      <TableHead className='w-12 pl-4'>
                         <Checkbox
                           checked={
-                            nodes.length > 0 &&
-                            selectedNodeIds.size === nodes.length
+                            filteredNodes.length > 0 &&
+                            filteredNodes.every((n) =>
+                              selectedNodeIds.has(n.id),
+                            )
                           }
                           onCheckedChange={toggleAllNodes}
                         />
                       </TableHead>
-                      <TableHead>ID</TableHead>
+                      <TableHead className='w-16'>ID</TableHead>
                       <TableHead>{t('cluster.hostName')}</TableHead>
                       <TableHead>{t('cluster.hostIP')}</TableHead>
                       <TableHead>{t('cluster.nodeRole')}</TableHead>
                       <TableHead>{t('cluster.installDir')}</TableHead>
                       <TableHead>{t('cluster.nodeStatus')}</TableHead>
                       <TableHead>{t('cluster.processPID')}</TableHead>
-                      <TableHead>{t('cluster.actions')}</TableHead>
+                      <TableHead className='text-right pr-4'>
+                        {t('cluster.actions')}
+                      </TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {nodes.length === 0 ? (
+                    {filteredNodes.length === 0 ? (
                       <TableRow>
                         <TableCell
                           colSpan={9}
-                          className='text-center py-8 text-muted-foreground'
+                          className='text-center py-12 text-muted-foreground text-sm'
                         >
-                          {t('cluster.noNodes')}
+                          {nodeSearchTerm || nodeStatusFilter !== 'all'
+                            ? t('common.noMatchingData')
+                            : t('cluster.noNodes')}
                         </TableCell>
                       </TableRow>
                     ) : (
-                      nodes.map((node) => (
-                        <TableRow key={node.id}>
-                          <TableCell>
+                      filteredNodes.map((node) => (
+                        <TableRow key={node.id} className='hover:bg-muted/20'>
+                          <TableCell className='pl-4'>
                             <Checkbox
                               checked={selectedNodeIds.has(node.id)}
                               onCheckedChange={() =>
@@ -2325,30 +2718,44 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                               }
                             />
                           </TableCell>
-                          <TableCell>{node.id}</TableCell>
-                          <TableCell>{node.host_name || '-'}</TableCell>
-                          <TableCell>{node.host_ip || '-'}</TableCell>
+                          <TableCell className='font-mono text-xs whitespace-nowrap text-muted-foreground'>
+                            #{node.id}
+                          </TableCell>
+                          <TableCell className='font-medium whitespace-nowrap'>
+                            {node.host_name || '-'}
+                          </TableCell>
+                          <TableCell className='font-mono text-xs whitespace-nowrap'>
+                            {node.host_ip || '-'}
+                          </TableCell>
                           <TableCell>
-                            <Badge variant='outline'>
+                            <Badge variant='outline' className='text-xs'>
                               {t(
                                 `cluster.roles.${getRoleTranslationKey(node.role)}`,
                               )}
                             </Badge>
                           </TableCell>
-                          <TableCell className='font-mono text-sm'>
-                            {node.install_dir || '-'}
+                          <TableCell className='font-mono text-xs max-w-[180px]'>
+                            <div
+                              className='truncate'
+                              title={node.install_dir || '-'}
+                            >
+                              {node.install_dir || '-'}
+                            </div>
                           </TableCell>
                           <TableCell>
-                            <Badge variant={getStatusBadgeVariant(node.status)}>
+                            <Badge variant={getStatusBadgeVariant(node.status)} className='text-xs'>
                               {t(`cluster.nodeStatuses.${node.status}`)}
                             </Badge>
                           </TableCell>
-                          <TableCell>{node.process_pid || '-'}</TableCell>
-                          <TableCell>
-                            <div className='flex items-center gap-1'>
+                          <TableCell className='font-mono text-xs whitespace-nowrap'>
+                            {node.process_pid || '-'}
+                          </TableCell>
+                          <TableCell className='text-right pr-4'>
+                            <div className='flex items-center gap-0.5 justify-end'>
                               <Button
                                 variant='ghost'
                                 size='icon'
+                                className='h-8 w-8 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/30'
                                 onClick={() =>
                                   setConfirmNodeOp({op: 'start', node})
                                 }
@@ -2362,12 +2769,13 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                                 {nodeOperating === node.id ? (
                                   <Loader2 className='h-4 w-4 animate-spin' />
                                 ) : (
-                                  <Play className='h-4 w-4 text-green-600' />
+                                  <Play className='h-4 w-4' />
                                 )}
                               </Button>
                               <Button
                                 variant='ghost'
                                 size='icon'
+                                className='h-8 w-8 text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-950/30'
                                 onClick={() =>
                                   setConfirmNodeOp({op: 'stop', node})
                                 }
@@ -2377,11 +2785,12 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                                 }
                                 title={t('cluster.stop')}
                               >
-                                <Square className='h-4 w-4 text-orange-600' />
+                                <Square className='h-4 w-4' />
                               </Button>
                               <Button
                                 variant='ghost'
                                 size='icon'
+                                className='h-8 w-8 text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/30'
                                 onClick={() =>
                                   setConfirmNodeOp({op: 'restart', node})
                                 }
@@ -2391,11 +2800,12 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                                 }
                                 title={t('cluster.restart')}
                               >
-                                <RotateCcw className='h-4 w-4 text-blue-600' />
+                                <RotateCcw className='h-4 w-4' />
                               </Button>
                               <Button
                                 variant='ghost'
                                 size='icon'
+                                className='h-8 w-8 text-muted-foreground hover:text-foreground'
                                 onClick={() => handleViewLogs(node)}
                                 title={t('cluster.viewLogs')}
                               >
@@ -2404,6 +2814,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                               <Button
                                 variant='ghost'
                                 size='icon'
+                                className='h-8 w-8 text-muted-foreground hover:text-foreground'
                                 onClick={() => openEditNodeDialog(node)}
                                 title={t('cluster.editNode')}
                               >
@@ -2412,10 +2823,11 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                               <Button
                                 variant='ghost'
                                 size='icon'
+                                className='h-8 w-8 text-destructive/80 hover:text-destructive hover:bg-destructive/10'
                                 onClick={() => setNodeToRemove(node)}
                                 title={t('cluster.removeNode')}
                               >
-                                <Trash2 className='h-4 w-4 text-destructive' />
+                                <Trash2 className='h-4 w-4' />
                               </Button>
                             </div>
                           </TableCell>
@@ -3094,106 +3506,12 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
       </Dialog>
 
       {/* View Logs Dialog / 查看日志对话框 */}
-      <AlertDialog open={isLogDialogOpen} onOpenChange={setIsLogDialogOpen}>
-        <AlertDialogContent
-          className='max-h-[90vh]'
-          style={{maxWidth: '90vw', width: '1200px'}}
-        >
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {t('cluster.viewLogs')} - {logNodeInfo?.host_name} (
-              {t(
-                `cluster.roles.${getRoleTranslationKey(logNodeInfo?.role || '')}`,
-              )}
-              )
-            </AlertDialogTitle>
-          </AlertDialogHeader>
-          {/* Log query parameters / 日志查询参数 */}
-          <div className='flex flex-wrap gap-3 items-end'>
-            <div className='flex flex-col gap-1'>
-              <label className='text-xs text-muted-foreground'>
-                {t('cluster.logLines')}
-              </label>
-              <input
-                type='number'
-                value={logLines}
-                onChange={(e) => setLogLines(Number(e.target.value) || 100)}
-                onKeyDown={handleLogFilterKeyDown}
-                className='w-20 h-8 px-2 text-sm border rounded-md bg-background text-foreground'
-                min={1}
-                max={10000}
-              />
-            </div>
-            <div className='flex flex-col gap-1'>
-              <label className='text-xs text-muted-foreground'>
-                {t('cluster.logMode')}
-              </label>
-              <select
-                value={logMode}
-                onChange={(e) => setLogMode(e.target.value)}
-                className='h-8 px-2 text-sm border rounded-md bg-background text-foreground'
-              >
-                <option value='tail'>{t('cluster.logModeTail')}</option>
-                <option value='head'>{t('cluster.logModeHead')}</option>
-                <option value='all'>{t('cluster.logModeAll')}</option>
-              </select>
-            </div>
-            <div className='flex flex-col gap-1'>
-              <label className='text-xs text-muted-foreground'>
-                {t('cluster.logFilter')}
-              </label>
-              <input
-                type='text'
-                value={logFilter}
-                onChange={(e) => setLogFilter(e.target.value)}
-                onKeyDown={handleLogFilterKeyDown}
-                placeholder='grep pattern'
-                className='w-32 h-8 px-2 text-sm border rounded-md bg-background text-foreground placeholder:text-muted-foreground'
-              />
-            </div>
-            <div className='flex flex-col gap-1'>
-              <label className='text-xs text-muted-foreground'>
-                {t('cluster.logDate')}
-              </label>
-              <input
-                type='text'
-                value={logDate}
-                onChange={(e) => setLogDate(e.target.value)}
-                onKeyDown={handleLogFilterKeyDown}
-                placeholder='2025-11-12-1'
-                className='w-36 h-8 px-2 text-sm border rounded-md bg-background text-foreground placeholder:text-muted-foreground'
-              />
-            </div>
-            <Button
-              variant='outline'
-              size='sm'
-              onClick={handleRefreshLogs}
-              disabled={logLoading}
-            >
-              {logLoading ? (
-                <Loader2 className='h-4 w-4 animate-spin' />
-              ) : (
-                <RefreshCw className='h-4 w-4' />
-              )}
-              <span className='ml-1'>{t('common.refresh')}</span>
-            </Button>
-          </div>
-          <div className='overflow-auto h-[60vh] bg-muted rounded-md p-4'>
-            {logLoading ? (
-              <div className='flex items-center justify-center py-8'>
-                <Loader2 className='h-6 w-6 animate-spin' />
-              </div>
-            ) : (
-              <pre className='text-xs font-mono whitespace-pre-wrap'>
-                {logContent}
-              </pre>
-            )}
-          </div>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t('common.close')}</AlertDialogCancel>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ClusterNodeLogDialog
+        open={isLogDialogOpen}
+        onOpenChange={setIsLogDialogOpen}
+        node={logNodeInfo}
+        clusterId={clusterId}
+      />
     </motion.div>
   );
 }

@@ -35,3 +35,5 @@ export {ClusterActions} from './ClusterActions';
 export {ClusterDeployWizard} from './ClusterDeployWizard';
 export {MonitorConfigPanel} from './MonitorConfigPanel';
 export {ProcessEventList} from './ProcessEventList';
+export {ClusterDetailSkeleton} from './ClusterDetailSkeleton';
+export {ClusterNodeLogDialog} from './ClusterNodeLogDialog';

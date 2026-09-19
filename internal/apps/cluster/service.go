@@ -2060,6 +2060,45 @@ func (s *Service) StartNode(ctx context.Context, clusterID uint, nodeID uint) (*
 	return s.executeNodeOperation(ctx, clusterID, nodeID, OperationStart)
 }
 
+// EnsureNodeForInstallation 确保一键安装完成后的节点已登记，并刷新安装目录与端口。
+// EnsureNodeForInstallation ensures a one-click installation node is registered and refreshes its install directory and ports.
+func (s *Service) EnsureNodeForInstallation(ctx context.Context, clusterID uint, hostID uint, role string, installDir string, hazelcastPort int, apiPort int, workerPort int) error {
+	cluster, err := s.repo.GetByID(ctx, clusterID, false)
+	if err != nil {
+		return err
+	}
+	if err := s.ensureHostReady(ctx, hostID); err != nil {
+		return err
+	}
+
+	desired, err := buildNodeForCreate(clusterID, hostID, cluster, NodeRole(role), installDir, hazelcastPort, apiPort, workerPort, nil)
+	if err != nil {
+		return err
+	}
+	existing, err := s.repo.GetNodeByClusterAndHostAndRole(ctx, clusterID, hostID, string(desired.Role))
+	if err != nil {
+		return err
+	}
+	if existing == nil {
+		if err := s.repo.AddNode(ctx, desired); err != nil {
+			return err
+		}
+		s.updateClusterStatusFromNodes(ctx, clusterID)
+		s.notifyClusterTopologyChanged(ctx, clusterID)
+		return nil
+	}
+
+	existing.InstallDir = desired.InstallDir
+	existing.HazelcastPort = desired.HazelcastPort
+	existing.APIPort = desired.APIPort
+	existing.WorkerPort = desired.WorkerPort
+	if err := s.repo.UpdateNode(ctx, existing); err != nil {
+		return err
+	}
+	s.notifyClusterTopologyChanged(ctx, clusterID)
+	return nil
+}
+
 // StartNodeByClusterAndHost starts a node by cluster ID and host ID.
 // StartNodeByClusterAndHost 根据集群 ID 和主机 ID 启动节点。
 // When a host has multiple nodes (master + worker), use StartNodeByClusterAndHostAndRole to start the specific role.

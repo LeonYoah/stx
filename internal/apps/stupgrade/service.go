@@ -39,6 +39,8 @@ type Service struct {
 	packageTransferer  PackageTransferer
 	agentCommandSender AgentCommandSender
 	executionService   *executionapp.Service
+	smokeRetryDelays   []time.Duration
+	waitForRetry       func(context.Context, time.Duration) error
 }
 
 // SetExecutionService 设置升级任务使用的公共执行服务。
@@ -54,8 +56,26 @@ func (s *Service) SetExecutionService(service *executionapp.Service) {
 // NewService creates a new upgrade service instance.
 func NewService(repo *Repository) *Service {
 	return &Service{
-		repo:   repo,
-		events: newTaskEventHub(),
+		repo:             repo,
+		events:           newTaskEventHub(),
+		smokeRetryDelays: []time.Duration{3 * time.Second, 5 * time.Second},
+		waitForRetry:     waitForRetryDelay,
+	}
+}
+
+// waitForRetryDelay 等待下一次重试，并在上下文取消时立即返回。
+// waitForRetryDelay waits before the next retry and returns immediately when the context is cancelled.
+func waitForRetryDelay(ctx context.Context, delay time.Duration) error {
+	if delay <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
 	}
 }
 

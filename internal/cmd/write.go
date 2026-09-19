@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"strings"
 
 	cliClient "github.com/LeonYoah/stx/internal/cli/client"
@@ -43,7 +44,10 @@ type secureWriteOptions struct {
 // handleSecureWriteError emits one-time confirmation details before the final error event.
 func handleSecureWriteError(command *cobra.Command, operationID string, err error) error {
 	var apiErr *cliClient.APIError
-	if !errors.As(err, &apiErr) || apiErr.ErrorCode != "confirmation_required" || len(apiErr.Data) == 0 {
+	if !errors.As(err, &apiErr) || len(apiErr.Data) == 0 {
+		return err
+	}
+	if apiErr.ErrorCode != "confirmation_required" && apiErr.StatusCode != http.StatusPreconditionRequired {
 		return err
 	}
 	var data struct {

@@ -6,9 +6,9 @@
     "swagger_path_count": 97,
     "swagger_operation_count": 114,
     "swagger_documented_routes": 114,
-    "registered_operations": 75,
+    "registered_operations": 83,
     "route_exceptions": 21,
-    "historical_gaps": 150
+    "historical_gaps": 142
   },
   "routes": [
     {
@@ -1554,42 +1554,54 @@
       "method": "POST",
       "path": "/api/v1/st-upgrade/execute",
       "source": "internal/router/router.go:971",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "stupgrade.plan.execute",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "POST",
       "path": "/api/v1/st-upgrade/plan",
       "source": "internal/router/router.go:969",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "stupgrade.plan.create",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "GET",
       "path": "/api/v1/st-upgrade/plans/:id",
       "source": "internal/router/router.go:970",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "stupgrade.plan.get",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "POST",
       "path": "/api/v1/st-upgrade/precheck",
       "source": "internal/router/router.go:968",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "stupgrade.precheck",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "GET",
       "path": "/api/v1/st-upgrade/tasks",
       "source": "internal/router/router.go:972",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "stupgrade.task.list",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "GET",
       "path": "/api/v1/st-upgrade/tasks/:id",
       "source": "internal/router/router.go:973",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "stupgrade.task.get",
+      "mode": "normal",
       "swagger": false
     },
     {
@@ -1604,14 +1616,18 @@
       "method": "GET",
       "path": "/api/v1/st-upgrade/tasks/:id/logs",
       "source": "internal/router/router.go:975",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "stupgrade.task.logs",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "GET",
       "path": "/api/v1/st-upgrade/tasks/:id/steps",
       "source": "internal/router/router.go:974",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "stupgrade.task.steps",
+      "mode": "normal",
       "swagger": false
     },
     {

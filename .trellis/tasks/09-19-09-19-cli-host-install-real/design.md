@@ -8,6 +8,12 @@
 | `stx host install start <host-id>` | `POST /api/v1/hosts/:id/install` |
 | `stx host install retry <host-id>` | `POST /api/v1/hosts/:id/install/retry` |
 | `stx host install cancel <host-id>` | `POST /api/v1/hosts/:id/install/cancel` |
+| `stx upgrade precheck <cluster-id>` | `POST /api/v1/st-upgrade/precheck` |
+| `stx upgrade plan create <cluster-id>` | `POST /api/v1/st-upgrade/plan` |
+| `stx upgrade plan execute <plan-id>` | `POST /api/v1/st-upgrade/execute` |
+| `stx upgrade plan get <plan-id>` | `GET /api/v1/st-upgrade/plans/:id` |
+| `stx upgrade task list/get/steps/logs` | 对应升级任务查询接口 |
+| `stx upgrade task wait <task-id>` | 轮询 `GET /api/v1/st-upgrade/tasks/:id` |
 
 安装请求字段较多，不扩展普通命令生成器。新增 `internal/cmd/host_install.go` 负责 JSON 正文构造，并复用现有安全写请求、确认提示和结果渲染函数。简单查询 `host.install.status.get` 继续由登记表生成。
 
@@ -23,6 +29,12 @@ CLI 参数或 request-file
 ```
 
 `--request-file` 提供完整正文；显式命令参数只覆盖用户确实传入的字段，避免零值意外改变安装配置。路径中的 host ID 同时写入安装请求的 `host_id`，服务端仍以路径参数为准覆盖该字段。
+
+安装命令带 `cluster_id` 时，Agent 完成文件安装后，Control Plane 先根据“集群、主机、角色”创建或刷新节点元数据，再复用集群服务启动节点。节点登记或启动失败时，安装状态进入 `failed`，不能继续保留 `success`。安装和启动全部完成后，`current_step` 固定为 `complete`。
+
+升级预检查和计划创建同样支持完整 JSON 文件与显式参数。计划执行使用 R2 一次性确认；CLI 兼容当前升级接口缺少 `error_code` 的 `428 + confirmation_id` 响应。任务等待每两秒读取任务状态，状态变化写入 stderr，终态结果写入 stdout。
+
+升级后的模板任务由 STX 编排侧执行有限重试，不改变 Agent 的单次命令语义。只匹配 `Unable to connect to any cluster`、`connection refused`、`cluster is not ready` 三类暂时错误。第一次失败等待 3 秒，第二次失败等待 5 秒，第三次仍失败则按原有规则记录告警但不阻塞升级。每次重试更新 `UpgradeTaskStep.RetryCount`，日志记录尝试次数、最大次数和等待秒数。
 
 ## 安全与兼容
 

@@ -26,6 +26,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -217,6 +218,88 @@ func TestStartClusterAfterInstallSkipsStandaloneInstallation(t *testing.T) {
 	}
 	if status.Message != "Installation completed; cluster startup skipped because no cluster ID was provided / 安装完成；未提供集群 ID，已跳过集群启动" {
 		t.Fatalf("独立安装完成文案错误: %q", status.Message)
+	}
+	if status.CurrentStep != InstallStepComplete {
+		t.Fatalf("独立安装完成步骤错误: %q", status.CurrentStep)
+	}
+}
+
+type stubInstallationNodeStarter struct {
+	ensureCalls int
+	startCalls  int
+	ensureErr   error
+	startOK     bool
+	startMsg    string
+	startErr    error
+}
+
+func (s *stubInstallationNodeStarter) EnsureNodeForInstallation(ctx context.Context, clusterID uint, hostID uint, role string, installDir string, hazelcastPort int, apiPort int, workerPort int) error {
+	s.ensureCalls++
+	return s.ensureErr
+}
+
+func (s *stubInstallationNodeStarter) StartNodeByClusterAndHost(ctx context.Context, clusterID uint, hostID uint) (bool, string, error) {
+	return s.startOK, s.startMsg, s.startErr
+}
+
+func (s *stubInstallationNodeStarter) StartNodeByClusterAndHostAndRole(ctx context.Context, clusterID uint, hostID uint, role string) (bool, string, error) {
+	s.startCalls++
+	return s.startOK, s.startMsg, s.startErr
+}
+
+func TestStartClusterAfterInstallRegistersNodeBeforeStarting(t *testing.T) {
+	service := NewService(t.TempDir(), nil)
+	starter := &stubInstallationNodeStarter{startOK: true, startMsg: "started"}
+	service.SetNodeStarter(starter)
+	status := &InstallationStatus{Status: StepStatusSuccess}
+
+	service.startClusterAfterInstall(context.Background(), "agent-test", &InstallationRequest{
+		HostID:      "10",
+		ClusterID:   "9",
+		NodeRole:    NodeRoleMasterWorker,
+		InstallDir:  "/tmp/seatunnel-2.3.12-retry",
+		ClusterPort: 15822,
+		WorkerPort:  15823,
+		HTTPPort:    18099,
+	}, status)
+
+	if starter.ensureCalls != 1 {
+		t.Fatalf("expected one node registration call, got %d", starter.ensureCalls)
+	}
+	if starter.startCalls != 1 {
+		t.Fatalf("expected one node start call, got %d", starter.startCalls)
+	}
+	if status.Status != StepStatusSuccess {
+		t.Fatalf("expected successful installation status, got %s", status.Status)
+	}
+	if status.Error != "" {
+		t.Fatalf("expected empty installation error, got %q", status.Error)
+	}
+	if status.CurrentStep != InstallStepComplete {
+		t.Fatalf("expected current step %q, got %q", InstallStepComplete, status.CurrentStep)
+	}
+}
+
+func TestStartClusterAfterInstallRegistrationFailureMarksInstallationFailed(t *testing.T) {
+	service := NewService(t.TempDir(), nil)
+	starter := &stubInstallationNodeStarter{ensureErr: errors.New("register failed")}
+	service.SetNodeStarter(starter)
+	status := &InstallationStatus{Status: StepStatusSuccess}
+
+	service.startClusterAfterInstall(context.Background(), "agent-test", &InstallationRequest{
+		HostID:    "10",
+		ClusterID: "9",
+		NodeRole:  NodeRoleMasterWorker,
+	}, status)
+
+	if status.Status != StepStatusFailed {
+		t.Fatalf("expected failed installation status, got %s", status.Status)
+	}
+	if !strings.Contains(status.Error, "register failed") {
+		t.Fatalf("expected registration error, got %q", status.Error)
+	}
+	if starter.startCalls != 0 {
+		t.Fatalf("expected startup to be skipped after registration failure, got %d calls", starter.startCalls)
 	}
 }
 

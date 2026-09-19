@@ -116,6 +116,7 @@ type stubAgentCommandSender struct {
 	failTargetHealthOnce bool
 	failedInstallDir     string
 	failSmokeTestOnce    bool
+	smokeTestFailures    []string
 	smokeFailureHostID   uint
 }
 
@@ -156,6 +157,11 @@ func (s *stubAgentCommandSender) SendCommand(ctx context.Context, agentID string
 		}
 		return true, "health_ok", nil
 	case "run_smoke_test_template":
+		if len(s.smokeTestFailures) > 0 {
+			failure := s.smokeTestFailures[0]
+			s.smokeTestFailures = s.smokeTestFailures[1:]
+			return false, failure, nil
+		}
 		if s.failSmokeTestOnce && (s.smokeFailureHostID == 0 || s.smokeFailureHostID == copiedHostID(agentID, s.agents)) {
 			s.failSmokeTestOnce = false
 			return false, "template smoke test failed", nil
@@ -569,6 +575,12 @@ func TestService_ExecutePlan_smokeTestWarningDoesNotBlock(t *testing.T) {
 	if !strings.Contains(smokeStep.Message, "告警") {
 		t.Fatalf("expected smoke step message to mention warning, got %q", smokeStep.Message)
 	}
+	if smokeStep.RetryCount != 0 {
+		t.Fatalf("expected permanent failure not to retry, got retry count %d", smokeStep.RetryCount)
+	}
+	if got := countSubCommand(agentSender.commands, "run_smoke_test_template"); got != 1 {
+		t.Fatalf("expected one smoke test attempt for permanent failure, got %d", got)
+	}
 
 	logs, total, err := service.ListStepLogs(context.Background(), &StepLogFilter{TaskID: task.ID, StepCode: StepCodeSmokeTest, Page: 1, PageSize: 200})
 	if err != nil {
@@ -586,6 +598,114 @@ func TestService_ExecutePlan_smokeTestWarningDoesNotBlock(t *testing.T) {
 	}
 	if !foundWarn {
 		t.Fatalf("expected smoke test warning log, got %+v", logs)
+	}
+}
+
+func TestService_ExecutePlan_smokeTestRetriesWhenClusterIsNotReady(t *testing.T) {
+	database := openTestDB(t)
+	repo := NewRepository(database)
+	clusterOperator := &stubClusterOperator{}
+	agentSender := &stubAgentCommandSender{
+		agents:            map[uint]string{101: "agent-node-a"},
+		smokeTestFailures: []string{"Unable to connect to any cluster"},
+	}
+	service := newExecutionService(t, repo, clusterOperator, agentSender)
+	service.smokeRetryDelays = []time.Duration{0, 0}
+	waitCalls := 0
+	service.waitForRetry = func(ctx context.Context, delay time.Duration) error {
+		waitCalls++
+		return nil
+	}
+
+	planID := mustCreateReadyPlan(t, service)
+	task, err := service.ExecutePlan(context.Background(), planID, 7)
+	if err != nil {
+		t.Fatalf("ExecutePlan returned error: %v", err)
+	}
+	if task.Status != ExecutionStatusSucceeded {
+		t.Fatalf("expected task status succeeded, got %s", task.Status)
+	}
+
+	smokeStep := findTaskStep(task.Steps, StepCodeSmokeTest)
+	if smokeStep == nil {
+		t.Fatal("expected smoke test step to exist")
+	}
+	if smokeStep.RetryCount != 1 {
+		t.Fatalf("expected one retry, got %d", smokeStep.RetryCount)
+	}
+	if !strings.Contains(smokeStep.Message, "第 2 次尝试通过") {
+		t.Fatalf("expected second-attempt success message, got %q", smokeStep.Message)
+	}
+	if got := countSubCommand(agentSender.commands, "run_smoke_test_template"); got != 2 {
+		t.Fatalf("expected two smoke test attempts, got %d", got)
+	}
+	if waitCalls != 1 {
+		t.Fatalf("expected one retry wait, got %d", waitCalls)
+	}
+
+	logs, _, err := service.ListStepLogs(context.Background(), &StepLogFilter{TaskID: task.ID, StepCode: StepCodeSmokeTest, Page: 1, PageSize: 200})
+	if err != nil {
+		t.Fatalf("ListStepLogs returned error: %v", err)
+	}
+	foundRetry := false
+	for _, logEntry := range logs {
+		if logEntry.EventType == LogEventTypeProgress && strings.Contains(logEntry.Message, "集群尚未就绪") {
+			foundRetry = true
+			if logEntry.Metadata["retryable"] != true {
+				t.Fatalf("expected retryable metadata, got %+v", logEntry.Metadata)
+			}
+			break
+		}
+	}
+	if !foundRetry {
+		t.Fatalf("expected retry progress log, got %+v", logs)
+	}
+}
+
+func TestService_ExecutePlan_smokeTestStopsAfterMaximumRetries(t *testing.T) {
+	database := openTestDB(t)
+	repo := NewRepository(database)
+	clusterOperator := &stubClusterOperator{}
+	agentSender := &stubAgentCommandSender{
+		agents: map[uint]string{101: "agent-node-a"},
+		smokeTestFailures: []string{
+			"Unable to connect to any cluster",
+			"connection refused",
+			"cluster is not ready",
+		},
+	}
+	service := newExecutionService(t, repo, clusterOperator, agentSender)
+	service.smokeRetryDelays = []time.Duration{0, 0}
+	waitCalls := 0
+	service.waitForRetry = func(ctx context.Context, delay time.Duration) error {
+		waitCalls++
+		return nil
+	}
+
+	planID := mustCreateReadyPlan(t, service)
+	task, err := service.ExecutePlan(context.Background(), planID, 7)
+	if err != nil {
+		t.Fatalf("ExecutePlan returned error: %v", err)
+	}
+	if task.Status != ExecutionStatusSucceeded {
+		t.Fatalf("expected task status succeeded despite smoke warning, got %s", task.Status)
+	}
+
+	smokeStep := findTaskStep(task.Steps, StepCodeSmokeTest)
+	if smokeStep == nil {
+		t.Fatal("expected smoke test step to exist")
+	}
+	if smokeStep.RetryCount != 2 {
+		t.Fatalf("expected two retries, got %d", smokeStep.RetryCount)
+	}
+	if !strings.Contains(smokeStep.Message, "告警") {
+		t.Fatalf("expected warning message after retries, got %q", smokeStep.Message)
+	}
+	if got := countSubCommand(agentSender.commands, "run_smoke_test_template"); got != 3 {
+		t.Fatalf("expected three smoke test attempts, got %d", got)
+	}
+	if waitCalls != 2 {
+		t.Fatalf("expected two retry waits, got %d", waitCalls)
 	}
 }
 
@@ -697,6 +817,25 @@ func hasSubCommand(commands []agentCommandRecord, subCommand string) bool {
 		}
 	}
 	return false
+}
+
+func countSubCommand(commands []agentCommandRecord, subCommand string) int {
+	count := 0
+	for _, command := range commands {
+		if command.params["sub_command"] == subCommand {
+			count++
+		}
+	}
+	return count
+}
+
+func findTaskStep(steps []UpgradeTaskStep, code StepCode) *UpgradeTaskStep {
+	for i := range steps {
+		if steps[i].Code == code {
+			return &steps[i]
+		}
+	}
+	return nil
 }
 
 func copiedHostID(agentID string, agents map[uint]string) uint {

@@ -308,3 +308,126 @@ if !reused {
     // On success, store only a safe reference and mark the execution succeeded.
 }
 ```
+
+## 10. 场景：安装后的节点登记与升级就绪重试
+
+### 10.1 范围 / 触发条件
+
+- 安装请求携带 `cluster_id`，并要求安装完成后自动加入集群和启动节点。
+- 安装或升级的 Agent 命令已经成功，但后续控制面登记、节点启动或模板任务可能因短暂未就绪而失败。
+- 目标是让任务状态反映完整业务结果，同时只对明确的暂时错误有限重试。
+
+### 10.2 签名
+
+安装请求至少把以下字段传到安装 Service：
+
+```text
+cluster_id, host_id, node_role, install_dir,
+cluster_port, worker_port, http_port
+```
+
+集群 Service 提供幂等节点登记入口：
+
+```go
+EnsureNodeForInstallation(
+    ctx context.Context,
+    clusterID uint,
+    hostID uint,
+    role string,
+    installDir string,
+    hazelcastPort int,
+    apiPort int,
+    workerPort int,
+) error
+```
+
+升级模板任务步骤使用已有字段记录重试次数：
+
+```text
+UpgradeTaskStep.retry_count
+```
+
+### 10.3 契约
+
+- Agent 完成文件安装后，Control Plane 必须先按“集群、主机、角色”创建或刷新节点，再调用集群 Service 的启动方法。
+- 节点已经存在时只刷新安装目录和端口，不能重复创建相同角色节点。
+- 节点登记或启动失败时，安装任务必须进入 `failed`，并在 `error`、`message` 中返回真实原因；不能保留 `success`。
+- 安装和启动全部完成后，`current_step` 必须为 `complete`。
+- 升级模板任务默认最多执行 3 次：立即执行、等待 3 秒后执行、再等待 5 秒后执行。
+- 只有错误包含 `Unable to connect to any cluster`、`connection refused` 或 `cluster is not ready` 时允许重试。
+- 每次重试前更新 `retry_count`，并记录 `attempt`、`max_attempts`、`retryable`、`retry_delay_seconds`。
+- 脚本不存在、模板不存在、配置解析失败、插件缺失和权限错误不能重试。
+- 模板任务达到最大次数仍失败时，遵守升级模块已有的非阻塞告警规则，但必须保留最后一次错误和总尝试次数。
+
+### 10.4 校验与错误对应表
+
+| 情况 | 行为 |
+| --- | --- |
+| 携带 `cluster_id`，节点不存在 | 创建节点元数据后启动 |
+| 携带 `cluster_id`，节点已存在 | 刷新安装目录和端口后启动，不新增重复节点 |
+| 节点登记失败 | 安装任务进入 `failed`，不调用启动 |
+| 节点启动失败 | 安装任务进入 `failed`，保留启动错误 |
+| 安装和启动成功 | 状态为 `success`，`current_step=complete` |
+| 模板任务出现暂时连接错误 | 按 3 秒、5 秒间隔有限重试 |
+| 模板任务出现永久错误 | 只执行一次，直接记录告警 |
+| 三次均为暂时连接错误 | `retry_count=2`，记录最终告警，不进行第 4 次 |
+
+### 10.5 Good / Base / Bad
+
+- Good：新集群不预建节点，安装完成后自动创建节点并启动；升级模板任务第 3 次成功，日志可看到前两次重试原因。
+- Base：用户已经手工创建节点，安装完成后刷新节点目录和端口，再启动同一节点。
+- Bad：Agent 返回安装成功后直接调用启动，找不到节点时仍让安装任务显示 `success`。
+- Bad：对所有模板任务错误无条件重试，掩盖配置或插件永久错误。
+
+### 10.6 必须有的测试
+
+- 集群 Service：节点不存在时创建；节点存在时保持原 ID 并刷新目录和端口。
+- 安装 Service：断言登记发生在启动之前；登记失败时不调用启动且状态为 `failed`；成功时 `current_step=complete`。
+- 升级 Service：暂时错误一次后成功时执行两次、`retry_count=1`；永久错误只执行一次；连续暂时错误只执行三次、`retry_count=2`。
+- 日志测试：断言重试日志包含尝试次数、最大次数、等待秒数和 `retryable=true`。
+- 真实验证：使用独立安装目录和端口完成安装与升级，并确认其他集群 PID、端口和状态不变。
+
+### 10.7 错误与正确示例
+
+错误：
+
+```go
+status.Status = StepStatusSuccess
+nodeStarter.StartNodeByClusterAndHostAndRole(ctx, clusterID, hostID, role)
+```
+
+这会在节点尚未写入数据库时启动，并可能用成功状态掩盖后置失败。
+
+正确：
+
+```go
+if err := nodeStarter.EnsureNodeForInstallation(ctx, clusterID, hostID, role, installDir, clusterPort, apiPort, workerPort); err != nil {
+    markInstallationFailed(status, err)
+    return
+}
+if _, _, err := nodeStarter.StartNodeByClusterAndHostAndRole(ctx, clusterID, hostID, role); err != nil {
+    markInstallationFailed(status, err)
+    return
+}
+status.CurrentStep = InstallStepComplete
+```
+
+错误：
+
+```go
+for err != nil {
+    runSmokeTest()
+}
+```
+
+正确：
+
+```go
+for attempt := 1; attempt <= 3; attempt++ {
+    err := runSmokeTest()
+    if err == nil || !isRetryableClusterReadinessError(err) {
+        break
+    }
+    recordRetry(attempt)
+}
+```

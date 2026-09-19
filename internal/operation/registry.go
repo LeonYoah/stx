@@ -26,7 +26,7 @@ import (
 
 // RegistryRevision 是操作登记表的兼容修订号。
 // RegistryRevision is the compatibility revision of the operation registry.
-const RegistryRevision = 7
+const RegistryRevision = 8
 
 var registry = append([]OperationSpec{
 	{
@@ -1355,7 +1355,14 @@ var registry = append([]OperationSpec{
   "result_meta": {"complete": true}
 }`,
 	},
-}, clusterAdditionalOperationSpecs()...)
+}, additionalOperationSpecs()...)
+
+// additionalOperationSpecs 返回分模块维护的补充操作登记。
+// additionalOperationSpecs returns supplemental operation registrations maintained by module.
+func additionalOperationSpecs() []OperationSpec {
+	specs := clusterAdditionalOperationSpecs()
+	return append(specs, stUpgradeOperationSpecs()...)
+}
 
 // clusterAdditionalOperationSpecs 返回集群模块新增的读写操作登记。
 // clusterAdditionalOperationSpecs returns the additional cluster read and write registrations.
@@ -1426,6 +1433,106 @@ func clusterAdditionalOperationSpecs() []OperationSpec {
 			"停止 Java Proxy 会让依赖该代理的配置检查和运行时查询暂时不可用。", "stx cluster java-proxy stop 6 --confirm", clusterIDInputs()),
 		clusterGeneratedOperation("cluster.java-proxy.restart", []string{"cluster", "java-proxy", "restart"}, "Restart STX Java Proxy", "POST", "/api/v1/clusters/:id/stx-java-proxy/restart", RiskR2,
 			"重启 Java Proxy 会造成短暂不可用，并重新创建 JVM 进程。", "stx cluster java-proxy restart 6 --confirm", clusterIDInputs()),
+	}
+}
+
+// stUpgradeOperationSpecs 返回 SeaTunnel 升级模块的 CLI 与能力登记。
+// stUpgradeOperationSpecs returns CLI and capability registrations for SeaTunnel upgrades.
+func stUpgradeOperationSpecs() []OperationSpec {
+	return []OperationSpec{
+		{
+			ID: "stupgrade.precheck", CommandPath: []string{"upgrade", "precheck"}, Summary: "Precheck a SeaTunnel upgrade",
+			GeneratedCLI: false, Method: "POST", Route: "/api/v1/st-upgrade/precheck", Mode: ModeNormal,
+			AuthRequired: true, Risk: RiskR0, Revision: 1, SupportsPick: true,
+			Input: []InputSpec{
+				{Name: "cluster_id", Location: InputBody, Required: true, Description: "Cluster ID"},
+				{Name: "target_version", Location: InputBody, Required: true, Description: "Target SeaTunnel version"},
+				{Name: "target_install_dir", Location: InputBody, Required: false, Description: "Target installation directory"},
+			},
+			Example:       "stx upgrade precheck 8 --target-version 2.3.13 --target-install-dir /tmp/seatunnel-2.3.13-new",
+			OutputExample: `{"api_version":"v1","operation_id":"stupgrade.precheck","request_id":"req_example","data":{"ready":true},"result_meta":{"complete":true}}`,
+		},
+		{
+			ID: "stupgrade.plan.create", CommandPath: []string{"upgrade", "plan", "create"}, Summary: "Create a SeaTunnel upgrade plan",
+			GeneratedCLI: false, Method: "POST", Route: "/api/v1/st-upgrade/plan", Mode: ModeNormal,
+			AuthRequired: true, Risk: RiskR0, Revision: 1, SupportsPick: true,
+			Input: []InputSpec{
+				{Name: "cluster_id", Location: InputBody, Required: true, Description: "Cluster ID"},
+				{Name: "target_version", Location: InputBody, Required: true, Description: "Target SeaTunnel version"},
+				{Name: "config_merge_plan", Location: InputBody, Required: true, Description: "Resolved configuration merge plan"},
+			},
+			Example:       "stx upgrade plan create 8 --target-version 2.3.13 --target-install-dir /tmp/seatunnel-2.3.13-new --config-merge-plan-file merge-plan.json",
+			OutputExample: `{"api_version":"v1","operation_id":"stupgrade.plan.create","request_id":"req_example","data":{"plan":{"id":1,"status":"ready"}},"result_meta":{"complete":true,"next_command":"stx upgrade plan execute 1 --confirm"}}`,
+		},
+		{
+			ID: "stupgrade.plan.get", CommandPath: []string{"upgrade", "plan", "get"}, Summary: "Get a SeaTunnel upgrade plan",
+			GeneratedCLI: true, Method: "GET", Route: "/api/v1/st-upgrade/plans/:id", Mode: ModeNormal,
+			AuthRequired: true, Risk: RiskR0, Revision: 1, SupportsPick: true,
+			Input:         []InputSpec{{Name: "id", Location: InputPath, Required: true, Description: "Upgrade plan ID"}},
+			Example:       "stx upgrade plan get 1",
+			OutputExample: `{"api_version":"v1","operation_id":"stupgrade.plan.get","request_id":"req_example","data":{"id":1,"status":"ready"},"result_meta":{"complete":true}}`,
+		},
+		{
+			ID: "stupgrade.plan.execute", CommandPath: []string{"upgrade", "plan", "execute"}, Summary: "Execute a SeaTunnel upgrade plan",
+			GeneratedCLI: false, Method: "POST", Route: "/api/v1/st-upgrade/execute", Mode: ModeNormal,
+			AuthRequired: true, Risk: RiskR2, Revision: 1, UsesAgent: true, Async: true, SupportsPick: true,
+			Impact: &ImpactSpec{
+				Level:       RiskR2,
+				Message:     "升级会停止 SeaTunnel 集群、切换运行目录，并可能在失败时执行回滚。",
+				Performance: "升级期间集群会暂时不可用，并占用磁盘、网络和 Agent 执行资源。",
+			},
+			Input: []InputSpec{
+				{Name: "plan_id", Location: InputBody, Required: true, Description: "Upgrade plan ID"},
+				{Name: "Idempotency-Key", Location: InputHeader, Required: true, Description: "Stable retry key"},
+				{Name: "X-STX-Confirm", Location: InputHeader, Required: true, Description: "Explicit confirmation"},
+			},
+			Example:       "stx upgrade plan execute 1 --confirm",
+			OutputExample: `{"api_version":"v1","operation_id":"stupgrade.plan.execute","request_id":"req_example","data":{"id":1,"status":"pending"},"result_meta":{"complete":true,"next_command":"stx upgrade task wait 1"}}`,
+		},
+		{
+			ID: "stupgrade.task.list", CommandPath: []string{"upgrade", "task", "list"}, Summary: "List SeaTunnel upgrade tasks",
+			GeneratedCLI: true, Method: "GET", Route: "/api/v1/st-upgrade/tasks", Mode: ModeNormal,
+			AuthRequired: true, Risk: RiskR0, Revision: 1, SupportsPick: true,
+			Input: []InputSpec{
+				{Name: "cluster_id", Location: InputQuery, Required: false, Description: "Cluster ID"},
+				{Name: "page", Location: InputQuery, Required: false, Description: "Page number"},
+				{Name: "page_size", Location: InputQuery, Required: false, Description: "Page size"},
+			},
+			Example:       "stx upgrade task list --cluster_id 8",
+			OutputExample: `{"api_version":"v1","operation_id":"stupgrade.task.list","request_id":"req_example","data":{"items":[],"total":0},"result_meta":{"complete":true}}`,
+		},
+		{
+			ID: "stupgrade.task.get", CommandPath: []string{"upgrade", "task", "get"}, Summary: "Get a SeaTunnel upgrade task",
+			GeneratedCLI: true, Method: "GET", Route: "/api/v1/st-upgrade/tasks/:id", Mode: ModeNormal,
+			AuthRequired: true, Risk: RiskR0, Revision: 1, SupportsPick: true,
+			Input:         []InputSpec{{Name: "id", Location: InputPath, Required: true, Description: "Upgrade task ID"}},
+			Example:       "stx upgrade task get 1",
+			OutputExample: `{"api_version":"v1","operation_id":"stupgrade.task.get","request_id":"req_example","data":{"id":1,"status":"running"},"result_meta":{"complete":true,"next_command":"stx upgrade task wait 1"}}`,
+		},
+		{
+			ID: "stupgrade.task.steps", CommandPath: []string{"upgrade", "task", "steps"}, Summary: "Get SeaTunnel upgrade task steps",
+			GeneratedCLI: true, Method: "GET", Route: "/api/v1/st-upgrade/tasks/:id/steps", Mode: ModeNormal,
+			AuthRequired: true, Risk: RiskR0, Revision: 1, SupportsPick: true,
+			Input:         []InputSpec{{Name: "id", Location: InputPath, Required: true, Description: "Upgrade task ID"}},
+			Example:       "stx upgrade task steps 1",
+			OutputExample: `{"api_version":"v1","operation_id":"stupgrade.task.steps","request_id":"req_example","data":{"task_id":1,"steps":[],"node_executions":[]},"result_meta":{"complete":true}}`,
+		},
+		{
+			ID: "stupgrade.task.logs", CommandPath: []string{"upgrade", "task", "logs"}, Summary: "List SeaTunnel upgrade task logs",
+			GeneratedCLI: true, Method: "GET", Route: "/api/v1/st-upgrade/tasks/:id/logs", Mode: ModeNormal,
+			AuthRequired: true, Risk: RiskR0, Revision: 1, SupportsPick: true,
+			Impact: &ImpactSpec{Level: RiskR0, Message: "读取大量升级日志会增加 STX 服务和数据库查询开销。"},
+			Input: []InputSpec{
+				{Name: "id", Location: InputPath, Required: true, Description: "Upgrade task ID"},
+				{Name: "step_code", Location: InputQuery, Required: false, Description: "Upgrade step code"},
+				{Name: "level", Location: InputQuery, Required: false, Description: "Log level"},
+				{Name: "node_execution_id", Location: InputQuery, Required: false, Description: "Node execution ID"},
+				{Name: "page", Location: InputQuery, Required: false, Description: "Page number"},
+				{Name: "page_size", Location: InputQuery, Required: false, Description: "Page size"},
+			},
+			Example:       "stx upgrade task logs 1 --page_size 100",
+			OutputExample: `{"api_version":"v1","operation_id":"stupgrade.task.logs","request_id":"req_example","data":{"task_id":1,"items":[],"total":0},"result_meta":{"complete":true}}`,
+		},
 	}
 }
 

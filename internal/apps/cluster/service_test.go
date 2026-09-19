@@ -1059,6 +1059,62 @@ func TestService_AddNode_hybridNormalizesRoleToMasterWorker(t *testing.T) {
 	}
 }
 
+func TestService_EnsureNodeForInstallationCreatesAndRefreshesNode(t *testing.T) {
+	db, cleanup := setupServiceTestDB(t)
+	defer cleanup()
+
+	repo := NewRepository(db)
+	mockHostProvider := NewMockHostProvider()
+	now := time.Now()
+	mockHostProvider.AddHost(&HostInfo{
+		ID:            10,
+		Name:          "installer-host",
+		HostType:      "bare_metal",
+		IPAddress:     "127.0.0.1",
+		AgentStatus:   "installed",
+		LastHeartbeat: &now,
+	})
+	service := NewService(repo, mockHostProvider, nil)
+	ctx := context.Background()
+	clusterInfo, err := service.Create(ctx, &CreateClusterRequest{
+		Name:           "installer-register",
+		DeploymentMode: DeploymentModeHybrid,
+		Version:        "2.3.12",
+		InstallDir:     "/tmp/seatunnel-default",
+	})
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+
+	if err := service.EnsureNodeForInstallation(ctx, clusterInfo.ID, 10, "master/worker", "/tmp/seatunnel-2.3.12-retry", 15822, 18099, 15823); err != nil {
+		t.Fatalf("EnsureNodeForInstallation create returned error: %v", err)
+	}
+	node, err := repo.GetNodeByClusterAndHostAndRole(ctx, clusterInfo.ID, 10, "master/worker")
+	if err != nil {
+		t.Fatalf("GetNodeByClusterAndHostAndRole returned error: %v", err)
+	}
+	if node == nil {
+		t.Fatal("expected node to be created")
+	}
+	if node.InstallDir != "/tmp/seatunnel-2.3.12-retry" || node.HazelcastPort != 15822 || node.APIPort != 18099 || node.WorkerPort != 15823 {
+		t.Fatalf("unexpected created node: %+v", node)
+	}
+
+	if err := service.EnsureNodeForInstallation(ctx, clusterInfo.ID, 10, "master/worker", "/tmp/seatunnel-2.3.12-refreshed", 15832, 18109, 15833); err != nil {
+		t.Fatalf("EnsureNodeForInstallation refresh returned error: %v", err)
+	}
+	refreshed, err := repo.GetNodeByClusterAndHostAndRole(ctx, clusterInfo.ID, 10, "master/worker")
+	if err != nil {
+		t.Fatalf("GetNodeByClusterAndHostAndRole returned error: %v", err)
+	}
+	if refreshed.ID != node.ID {
+		t.Fatalf("expected existing node to be refreshed, got old id %d and new id %d", node.ID, refreshed.ID)
+	}
+	if refreshed.InstallDir != "/tmp/seatunnel-2.3.12-refreshed" || refreshed.HazelcastPort != 15832 || refreshed.APIPort != 18109 || refreshed.WorkerPort != 15833 {
+		t.Fatalf("unexpected refreshed node: %+v", refreshed)
+	}
+}
+
 func TestService_GetStatus_refreshesStoppedProcessToStoppedCluster(t *testing.T) {
 	db, cleanup := setupServiceTestDB(t)
 	defer cleanup()

@@ -136,6 +136,9 @@ type NodeStatusUpdater interface {
 // NodeStarter is the interface for starting cluster nodes
 // NodeStarter 是启动集群节点的接口
 type NodeStarter interface {
+	// EnsureNodeForInstallation ensures the installed node exists in cluster metadata before startup.
+	// EnsureNodeForInstallation 在启动前确保已安装节点存在于集群元数据中。
+	EnsureNodeForInstallation(ctx context.Context, clusterID uint, hostID uint, role string, installDir string, hazelcastPort int, apiPort int, workerPort int) error
 	// StartNodeByClusterAndHost starts a node by cluster ID and host ID
 	// StartNodeByClusterAndHost 根据集群 ID 和主机 ID 启动节点
 	StartNodeByClusterAndHost(ctx context.Context, clusterID uint, hostID uint) (bool, string, error)
@@ -2507,6 +2510,7 @@ func (s *Service) startClusterAfterInstall(ctx context.Context, agentID string, 
 	// When no cluster is specified, finish the standalone installation without reporting a startup failure.
 	if strings.TrimSpace(req.ClusterID) == "" {
 		s.installMu.Lock()
+		status.CurrentStep = InstallStepComplete
 		if len(status.Warnings) > 0 {
 			status.Message = "Installation completed with warnings; cluster startup skipped because no cluster ID was provided / 安装完成但存在警告；未提供集群 ID，已跳过集群启动"
 		} else {
@@ -2539,9 +2543,7 @@ func (s *Service) startClusterAfterInstall(ctx context.Context, agentID string, 
 	if clusterErr != nil || hostErr != nil {
 		logger.ErrorF(ctx, "[Installer] 解析 ID 失败 / Failed to parse IDs: cluster=%s, host=%s, role=%s, clusterErr=%v, hostErr=%v",
 			req.ClusterID, req.HostID, nodeRole, clusterErr, hostErr)
-		s.installMu.Lock()
-		status.Message = fmt.Sprintf("Installation completed but failed to start node (%s): invalid cluster or host ID / 安装完成但启动节点 (%s) 失败: 无效的集群或主机 ID", nodeRole, nodeRole)
-		s.installMu.Unlock()
+		s.markPostInstallFailure(status, fmt.Sprintf("Installation completed but failed to start node (%s): invalid cluster or host ID / 安装完成但启动节点 (%s) 失败: 无效的集群或主机 ID", nodeRole, nodeRole))
 		return
 	}
 
@@ -2550,9 +2552,16 @@ func (s *Service) startClusterAfterInstall(ctx context.Context, agentID string, 
 	if s.nodeStarter == nil {
 		logger.ErrorF(ctx, "[Installer] nodeStarter 未配置 / nodeStarter not configured: cluster=%d, host=%d, role=%s",
 			clusterID, hostID, nodeRole)
-		s.installMu.Lock()
-		status.Message = fmt.Sprintf("Installation completed but failed to start node (%s): nodeStarter not configured / 安装完成但启动节点 (%s) 失败: nodeStarter 未配置", nodeRole, nodeRole)
-		s.installMu.Unlock()
+		s.markPostInstallFailure(status, fmt.Sprintf("Installation completed but failed to start node (%s): nodeStarter not configured / 安装完成但启动节点 (%s) 失败: nodeStarter 未配置", nodeRole, nodeRole))
+		return
+	}
+
+	// Agent 安装完成后，先登记或刷新控制面的节点元数据，再使用统一的集群启动逻辑。
+	// After the Agent installation completes, register or refresh control-plane node metadata before using the shared startup logic.
+	if err := s.nodeStarter.EnsureNodeForInstallation(ctx, clusterID, hostID, nodeRole, req.InstallDir, req.ClusterPort, req.HTTPPort, req.WorkerPort); err != nil {
+		logger.ErrorF(ctx, "[Installer] 登记安装节点失败 / Failed to register installed node: cluster=%d, host=%d, role=%s, error=%v",
+			clusterID, hostID, nodeRole, err)
+		s.markPostInstallFailure(status, fmt.Sprintf("Installation completed but failed to register node (%s): %v / 安装完成但登记节点 (%s) 失败: %v", nodeRole, err, nodeRole, err))
 		return
 	}
 
@@ -2562,18 +2571,14 @@ func (s *Service) startClusterAfterInstall(ctx context.Context, agentID string, 
 	if err != nil {
 		logger.ErrorF(ctx, "[Installer] 启动节点失败 / Failed to start node: cluster=%d, host=%d, role=%s, error=%v",
 			clusterID, hostID, nodeRole, err)
-		s.installMu.Lock()
-		status.Message = fmt.Sprintf("Installation completed but failed to start node (%s): %v / 安装完成但启动节点 (%s) 失败: %v", nodeRole, err, nodeRole, err)
-		s.installMu.Unlock()
+		s.markPostInstallFailure(status, fmt.Sprintf("Installation completed but failed to start node (%s): %v / 安装完成但启动节点 (%s) 失败: %v", nodeRole, err, nodeRole, err))
 		return
 	}
 
 	if !success {
 		logger.WarnF(ctx, "[Installer] 启动节点返回失败 / Start node returned failure: cluster=%d, host=%d, role=%s, message=%s",
 			clusterID, hostID, nodeRole, message)
-		s.installMu.Lock()
-		status.Message = fmt.Sprintf("Installation completed but node (%s) start failed: %s / 安装完成但节点 (%s) 启动失败: %s", nodeRole, message, nodeRole, message)
-		s.installMu.Unlock()
+		s.markPostInstallFailure(status, fmt.Sprintf("Installation completed but node (%s) start failed: %s / 安装完成但节点 (%s) 启动失败: %s", nodeRole, message, nodeRole, message))
 		return
 	}
 
@@ -2618,6 +2623,7 @@ func (s *Service) startClusterAfterInstall(ctx context.Context, agentID string, 
 	// Final status update
 	// 最终状态更新
 	s.installMu.Lock()
+	status.CurrentStep = InstallStepComplete
 	if len(status.Warnings) > 0 {
 		status.Message = fmt.Sprintf(
 			"Installation and node (%s) startup completed with warnings / 安装和节点 (%s) 启动完成，但存在警告",
@@ -2627,6 +2633,21 @@ func (s *Service) startClusterAfterInstall(ctx context.Context, agentID string, 
 	} else {
 		status.Message = fmt.Sprintf("Installation and node (%s) startup completed / 安装和节点 (%s) 启动完成", nodeRole, nodeRole)
 	}
+	s.installMu.Unlock()
+}
+
+// markPostInstallFailure 将登记或启动失败反映到安装任务终态，避免成功状态掩盖真实失败。
+// markPostInstallFailure reflects registration or startup failures in the installation terminal state.
+func (s *Service) markPostInstallFailure(status *InstallationStatus, message string) {
+	if status == nil {
+		return
+	}
+	now := time.Now()
+	s.installMu.Lock()
+	status.Status = StepStatusFailed
+	status.Message = message
+	status.Error = message
+	status.EndTime = &now
 	s.installMu.Unlock()
 }
 

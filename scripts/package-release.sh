@@ -30,6 +30,8 @@ BUILD_FRONTEND=false
 APP_VERSION="${APP_VERSION:-}"
 LAYOUT="split" # split | legacy
 EMIT_DEPS=false
+DEPS_ONLY=false
+EMIT_OBSERVABILITY=true
 
 PROMETHEUS_VERSION="${PROMETHEUS_VERSION:-3.9.1}"
 ALERTMANAGER_VERSION="${ALERTMANAGER_VERSION:-0.31.1}"
@@ -46,6 +48,8 @@ Options:
   --layout <split|legacy>           split=bare binaries+frontend tarball (default);
                                     legacy=old mega tar with optional bundled observability
   --emit-deps                       Also emit reusable node/observability deps tarballs (split layout)
+  --deps-only                       Emit only node/observability deps; skip stx, agent, and frontend
+  --no-observability                With --emit-deps/--deps-only, skip the observability tarball
   --bundle-observability <with|without|both>
                                      Legacy layout only (default: without)
   --node-major <18|22>               Node major for bundled/emitted runtime (default: 18)
@@ -57,7 +61,8 @@ Options:
   --help                             Show this help
 
 Examples:
-  scripts/package-release.sh --arch all --layout split --build-frontend --emit-deps
+  scripts/package-release.sh --arch all --layout split --build-frontend
+  scripts/package-release.sh --deps-only --arch all --node-major 22 --node-variant official
   scripts/package-release.sh --arch amd64 --layout legacy --bundle-observability both --build-frontend
 EOF
 }
@@ -78,6 +83,16 @@ while [[ $# -gt 0 ]]; do
       ;;
     --emit-deps)
       EMIT_DEPS=true
+      shift
+      ;;
+    --deps-only)
+      # 只打可复用 deps，不编控制面。/ Emit reusable deps only; do not build the control plane.
+      DEPS_ONLY=true
+      EMIT_DEPS=true
+      shift
+      ;;
+    --no-observability)
+      EMIT_OBSERVABILITY=false
       shift
       ;;
     --node-major)
@@ -124,7 +139,11 @@ require_cmd() {
   fi
 }
 
-for cmd in go tar curl python3 mvn; do
+required_cmds=(tar curl python3)
+if [[ "$DEPS_ONLY" != "true" ]]; then
+  required_cmds+=(go mvn)
+fi
+for cmd in "${required_cmds[@]}"; do
   require_cmd "$cmd"
 done
 
@@ -144,15 +163,6 @@ case "$NODE_VARIANT" in
     ;;
 esac
 
-if [[ "$NODE_VARIANT" == "glibc217" ]]; then
-  for arch in "${ARCHES[@]}"; do
-    if [[ "$arch" != "amd64" ]]; then
-      echo "glibc217 node builds are x64-only; drop --arch arm64/all or use official node"
-      exit 1
-    fi
-  done
-fi
-
 case "$ARCH_OPTION" in
   amd64) ARCHES=("amd64") ;;
   arm64) ARCHES=("arm64") ;;
@@ -162,6 +172,20 @@ case "$ARCH_OPTION" in
     exit 1
     ;;
 esac
+
+if [[ "$NODE_VARIANT" == "glibc217" ]]; then
+  for arch in "${ARCHES[@]}"; do
+    if [[ "$arch" != "amd64" ]]; then
+      echo "glibc217 node builds are x64-only; drop --arch arm64/all or use official node"
+      exit 1
+    fi
+  done
+fi
+
+if [[ "$DEPS_ONLY" == "true" && "$LAYOUT" != "split" ]]; then
+  echo "--deps-only requires --layout split"
+  exit 1
+fi
 
 case "$LAYOUT" in
   split|legacy) ;;
@@ -323,13 +347,15 @@ build_frontend_standalone() {
 }
 
 FRONTEND_DIST="$ROOT_DIR/frontend/dist-standalone"
-if [[ "$BUILD_FRONTEND" == "true" ]]; then
-  build_frontend_standalone
-fi
-if [[ ! -f "$FRONTEND_DIST/server.js" ]]; then
-  echo "frontend standalone not found: $FRONTEND_DIST/server.js"
-  echo "run with --build-frontend or build frontend manually."
-  exit 1
+if [[ "$DEPS_ONLY" != "true" ]]; then
+  if [[ "$BUILD_FRONTEND" == "true" ]]; then
+    build_frontend_standalone
+  fi
+  if [[ ! -f "$FRONTEND_DIST/server.js" ]]; then
+    echo "frontend standalone not found: $FRONTEND_DIST/server.js"
+    echo "run with --build-frontend or build frontend manually."
+    exit 1
+  fi
 fi
 
 # 构建指定架构的 STX 后端二进制。/ Build the STX backend binary for the requested architecture.
@@ -397,11 +423,13 @@ stage_stx_java_proxy_jars() {
   cp "$CAPABILITY_PROXY_JAR" "$destination_dir/$(basename "$CAPABILITY_PROXY_JAR")"
 }
 
-build_agent_binaries
-build_stx_java_proxy_jar
-for arch in "${ARCHES[@]}"; do
-  build_stx_binary "$arch"
-done
+if [[ "$DEPS_ONLY" != "true" ]]; then
+  build_agent_binaries
+  build_stx_java_proxy_jar
+  for arch in "${ARCHES[@]}"; do
+    build_stx_binary "$arch"
+  done
+fi
 
 prepare_observability_stack() {
   local arch="$1"
@@ -485,14 +513,16 @@ emit_deps_packages() {
   # 安装器期望 runtime/node；这里保持解压后可再命名。
   write_sha256 "$node_out"
 
-  local obs_name="observability-prom${PROMETHEUS_VERSION}-am${ALERTMANAGER_VERSION}-gf${GRAFANA_VERSION}-linux-${arch}.tar.gz"
-  local obs_out="$OUTPUT_DIR/$obs_name"
-  local obs_stage="$STAGE_DIR/deps-${arch}"
-  rm -rf "$obs_stage"
-  prepare_observability_stack "$arch" "$obs_stage"
-  echo "creating deps observability package: $obs_out"
-  tar -C "$obs_stage" -czf "$obs_out" .
-  write_sha256 "$obs_out"
+  if [[ "$EMIT_OBSERVABILITY" == "true" ]]; then
+    local obs_name="observability-prom${PROMETHEUS_VERSION}-am${ALERTMANAGER_VERSION}-gf${GRAFANA_VERSION}-linux-${arch}.tar.gz"
+    local obs_out="$OUTPUT_DIR/$obs_name"
+    local obs_stage="$STAGE_DIR/deps-${arch}"
+    rm -rf "$obs_stage"
+    prepare_observability_stack "$arch" "$obs_stage"
+    echo "creating deps observability package: $obs_out"
+    tar -C "$obs_stage" -czf "$obs_out" .
+    write_sha256 "$obs_out"
+  fi
 
   cat >"$OUTPUT_DIR/MANIFEST.json" <<EOF
 {
@@ -510,6 +540,17 @@ emit_deps_packages() {
 }
 EOF
 }
+
+if [[ "$LAYOUT" == "split" && "$DEPS_ONLY" == "true" ]]; then
+  for arch in "${ARCHES[@]}"; do
+    echo "emitting deps for linux/$arch"
+    emit_deps_packages "$arch"
+  done
+  echo
+  echo "all done (deps-only)."
+  echo "output dir: $OUTPUT_DIR"
+  exit 0
+fi
 
 if [[ "$LAYOUT" == "split" ]]; then
   for arch in "${ARCHES[@]}"; do

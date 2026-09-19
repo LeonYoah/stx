@@ -38,6 +38,8 @@
 | 三件套 | `observability-prom<ver>-am<ver>-gf<ver>-linux-<arch>.tar.gz` |
 | 清单 | `MANIFEST.json`（组件版本、最低 node、适用 glibc） |
 
+存放位置是 GitHub Release tag **`deps`**，不是每个 `v*`。版本工作流 `release-on-tag.yml` 不得传 `--emit-deps`。只有 Node 或三件套版本变化时，手动跑 `release-deps.yml`。该 Release 必须 `--latest=false`。
+
 ### 2.3 用户入口脚本
 
 ```bash
@@ -165,6 +167,7 @@ $INSTALL_DIR/deps/start-observability.sh  # 可选 bundled
 | Wrong | Correct |
 |-------|---------|
 | 每次发版上传完整 `…-with-observability.tar.gz` 作为唯一产物 | 发版上传裸 `stx`/`stx-agent` + frontend tarball；deps 独立复用 |
+| 每个 `v*` 重打并上传 node / 三件套 | 这两类只在 tag `deps`；版本工作流不传 `--emit-deps` |
 | 假定纯静态 `webserver/static` | Next standalone + Node；deps/node 或系统 node |
 | 国内写死单一代理域名 | 五节点测速 + 可覆盖 `STX_DOWNLOAD_MIRROR_PREFIX` |
 | all-in-one 塞入三件套「图省事」 | all-in-one 仅管控面；监控走外部或二进制 bundled |

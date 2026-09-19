@@ -57,22 +57,12 @@ jobs:
           APP_VERSION: ${{ github.ref_name }}
         run: |
           chmod +x scripts/package-release.sh scripts/install-online.sh scripts/download-bundle.sh
+          # 版本发版只打 stx / agent / frontend。Node 与三件套走 release-deps.yml 的 deps tag。
+          # Version tags ship stx / agent / frontend only. Node and observability live on the deps tag.
           scripts/package-release.sh \
             --arch all \
             --layout split \
             --build-frontend \
-            --emit-deps \
-            --node-major 22 \
-            --node-variant official \
-            --version "${APP_VERSION}"
-          # glibc217 unofficial builds are x64-only.
-          # glibc217 非官方构建目前只有 x64。
-          scripts/package-release.sh \
-            --arch amd64 \
-            --layout split \
-            --emit-deps \
-            --node-major 18 \
-            --node-variant glibc217 \
             --version "${APP_VERSION}"
 
       - name: Upload package artifacts
@@ -108,12 +98,7 @@ jobs:
             release-assets/stx-agent-linux-*
             release-assets/frontend-standalone-*.tar.gz
             release-assets/frontend-standalone-*.tar.gz.sha256
-            release-assets/node-*.tar.gz
-            release-assets/node-*.tar.gz.sha256
-            release-assets/observability-*.tar.gz
-            release-assets/observability-*.tar.gz.sha256
             release-assets/SHA256SUMS
-            release-assets/MANIFEST.json
             release-assets/install-online.sh
             release-assets/download-bundle.sh
           generate_release_notes: true

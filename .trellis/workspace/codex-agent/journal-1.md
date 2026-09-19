@@ -167,3 +167,36 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 5: 本地异步验证与首批 API CLI 接入
+
+**Date**: 2026-09-19
+**Task**: 本地异步验证与首批 API CLI 接入
+**Branch**: `features/stx-cli-agent-entry`
+
+### Summary
+
+完成真实异步任务取消与成功路径验证；新增操作登记驱动的普通 GET 命令构建器；接入主机、集群、配置共 9 个只读命令；真实二进制连接本地 STX 验证通过。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `cf8dd0608` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

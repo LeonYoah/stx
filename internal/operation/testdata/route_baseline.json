@@ -6,9 +6,9 @@
     "swagger_path_count": 97,
     "swagger_operation_count": 114,
     "swagger_documented_routes": 114,
-    "registered_operations": 51,
+    "registered_operations": 71,
     "route_exceptions": 21,
-    "historical_gaps": 174
+    "historical_gaps": 154
   },
   "routes": [
     {
@@ -197,14 +197,18 @@
       "method": "POST",
       "path": "/api/v1/clusters",
       "source": "internal/router/router.go:261",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "cluster.create",
+      "mode": "normal",
       "swagger": true
     },
     {
       "method": "DELETE",
       "path": "/api/v1/clusters/:id",
       "source": "internal/router/router.go:265",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "cluster.delete",
+      "mode": "normal",
       "swagger": true
     },
     {
@@ -220,7 +224,9 @@
       "method": "PUT",
       "path": "/api/v1/clusters/:id",
       "source": "internal/router/router.go:264",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "cluster.update",
+      "mode": "normal",
       "swagger": true
     },
     {
@@ -287,63 +293,81 @@
       "method": "POST",
       "path": "/api/v1/clusters/:id/nodes",
       "source": "internal/router/router.go:268",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "cluster.node.add",
+      "mode": "normal",
       "swagger": true
     },
     {
       "method": "DELETE",
       "path": "/api/v1/clusters/:id/nodes/:nodeId",
       "source": "internal/router/router.go:272",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "cluster.node.remove",
+      "mode": "normal",
       "swagger": true
     },
     {
       "method": "PUT",
       "path": "/api/v1/clusters/:id/nodes/:nodeId",
       "source": "internal/router/router.go:271",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "cluster.node.update",
+      "mode": "normal",
       "swagger": true
     },
     {
       "method": "GET",
       "path": "/api/v1/clusters/:id/nodes/:nodeId/logs",
       "source": "internal/router/router.go:279",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "cluster.node.logs",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "POST",
       "path": "/api/v1/clusters/:id/nodes/:nodeId/restart",
       "source": "internal/router/router.go:278",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "cluster.node.restart",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "POST",
       "path": "/api/v1/clusters/:id/nodes/:nodeId/start",
       "source": "internal/router/router.go:276",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "cluster.node.start",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "POST",
       "path": "/api/v1/clusters/:id/nodes/:nodeId/stop",
       "source": "internal/router/router.go:277",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "cluster.node.stop",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "POST",
       "path": "/api/v1/clusters/:id/nodes/batch",
       "source": "internal/router/router.go:269",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "cluster.node.add-batch",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "POST",
       "path": "/api/v1/clusters/:id/nodes/precheck",
       "source": "internal/router/router.go:273",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "cluster.node.precheck",
+      "mode": "normal",
       "swagger": true
     },
     {
@@ -396,7 +420,9 @@
       "method": "POST",
       "path": "/api/v1/clusters/:id/restart",
       "source": "internal/router/router.go:284",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "cluster.restart",
+      "mode": "normal",
       "swagger": true
     },
     {
@@ -452,7 +478,9 @@
       "method": "POST",
       "path": "/api/v1/clusters/:id/start",
       "source": "internal/router/router.go:282",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "cluster.start",
+      "mode": "normal",
       "swagger": true
     },
     {
@@ -468,42 +496,54 @@
       "method": "POST",
       "path": "/api/v1/clusters/:id/stop",
       "source": "internal/router/router.go:283",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "cluster.stop",
+      "mode": "normal",
       "swagger": true
     },
     {
       "method": "GET",
       "path": "/api/v1/clusters/:id/stx-java-proxy/logs",
       "source": "internal/router/router.go:287",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "cluster.java-proxy.logs",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "POST",
       "path": "/api/v1/clusters/:id/stx-java-proxy/restart",
       "source": "internal/router/router.go:290",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "cluster.java-proxy.restart",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "POST",
       "path": "/api/v1/clusters/:id/stx-java-proxy/start",
       "source": "internal/router/router.go:288",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "cluster.java-proxy.start",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "GET",
       "path": "/api/v1/clusters/:id/stx-java-proxy/status",
       "source": "internal/router/router.go:286",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "cluster.java-proxy.status",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "POST",
       "path": "/api/v1/clusters/:id/stx-java-proxy/stop",
       "source": "internal/router/router.go:289",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "cluster.java-proxy.stop",
+      "mode": "normal",
       "swagger": false
     },
     {

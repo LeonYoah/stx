@@ -33,6 +33,7 @@ import (
 )
 
 type fakeClient struct {
+	capabilityCalls     int
 	capabilityRequestID string
 	capabilities        cliClient.CapabilityData
 	capabilityErr       error
@@ -43,17 +44,28 @@ type fakeClient struct {
 	method              string
 	path                string
 	body                any
+	headers             map[string]string
 }
 
 func (f *fakeClient) Capabilities(context.Context) (string, cliClient.CapabilityData, error) {
+	f.capabilityCalls++
 	return f.capabilityRequestID, f.capabilities, f.capabilityErr
 }
 
 func (f *fakeClient) Request(_ context.Context, method, path string, body any, result any) (string, error) {
+	return f.request(method, path, body, nil, result)
+}
+
+func (f *fakeClient) RequestWithHeaders(_ context.Context, method, path string, body any, headers map[string]string, result any) (string, error) {
+	return f.request(method, path, body, headers, result)
+}
+
+func (f *fakeClient) request(method, path string, body any, headers map[string]string, result any) (string, error) {
 	f.requestCalls++
 	f.method = method
 	f.path = path
 	f.body = body
+	f.headers = headers
 	if f.requestErr != nil {
 		return "", f.requestErr
 	}
@@ -63,6 +75,66 @@ func (f *fakeClient) Request(_ context.Context, method, path string, body any, r
 	}
 	*target = f.response
 	return f.requestID, nil
+}
+
+func TestBuildExecutesConfirmedBodylessDelete(t *testing.T) {
+	spec := testSpec()
+	spec.ID = "sample.delete"
+	spec.CommandPath = []string{"sample", "delete"}
+	spec.Summary = "Delete a sample"
+	spec.Method = http.MethodDelete
+	spec.Risk = operation.RiskR2
+	spec.Impact = &operation.ImpactSpec{Level: operation.RiskR2, Message: "Deleting the sample cannot be undone."}
+	spec.Input = append(spec.Input,
+		operation.InputSpec{Name: "Idempotency-Key", Location: operation.InputHeader, Required: true, Description: "Stable retry key"},
+		operation.InputSpec{Name: "X-STX-Confirm", Location: operation.InputHeader, Required: true, Description: "Explicit confirmation"},
+	)
+	spec.Example = "stx sample delete one --confirm"
+	client := &fakeClient{
+		capabilities: cliClient.CapabilityData{Operations: []cliClient.CapabilityOperation{{
+			OperationID: spec.ID, Revision: spec.Revision, Allowed: true, Mode: string(spec.Mode),
+		}}},
+		requestID: "req_delete", response: map[string]any{"deleted": true},
+	}
+	commands, err := Build([]operation.OperationSpec{spec}, func(string) (Client, error) { return client, nil })
+	if err != nil {
+		t.Fatalf("构建 DELETE 命令失败 / building DELETE command failed: %v", err)
+	}
+	root, _, stderr := testRoot(commands)
+	root.SetArgs([]string{"sample", "delete", "one", "--confirm", "--idempotency-key", "delete-one"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("执行 DELETE 命令失败 / executing DELETE command failed: %v", err)
+	}
+	if client.method != http.MethodDelete || client.headers["Idempotency-Key"] != "delete-one" || client.headers["X-STX-Confirm"] != "true" {
+		t.Fatalf("DELETE 安全请求错误 / DELETE safety request is incorrect: method=%s headers=%#v", client.method, client.headers)
+	}
+	if !strings.Contains(stderr.String(), "Deleting the sample cannot be undone") {
+		t.Fatalf("缺少影响提示 / impact warning is missing: %s", stderr.String())
+	}
+}
+
+func TestBuildRejectsRiskWriteWithoutConfirm(t *testing.T) {
+	spec := testSpec()
+	spec.ID = "sample.stop"
+	spec.CommandPath = []string{"sample", "stop"}
+	spec.Summary = "Stop a sample"
+	spec.Method = http.MethodPost
+	spec.Risk = operation.RiskR1
+	spec.Impact = &operation.ImpactSpec{Level: operation.RiskR1, Message: "Stops the sample."}
+	spec.Example = "stx sample stop one --confirm"
+	client := &fakeClient{capabilities: cliClient.CapabilityData{Operations: []cliClient.CapabilityOperation{{
+		OperationID: spec.ID, Revision: spec.Revision, Allowed: true, Mode: string(spec.Mode),
+	}}}}
+	commands, err := Build([]operation.OperationSpec{spec}, func(string) (Client, error) { return client, nil })
+	if err != nil {
+		t.Fatalf("构建 POST 命令失败 / building POST command failed: %v", err)
+	}
+	root, _, _ := testRoot(commands)
+	root.SetArgs([]string{"sample", "stop", "one"})
+	classified := clioutput.ClassifyError(root.Execute())
+	if classified.Code != clioutput.CodeConflict || client.capabilityCalls != 0 || client.requestCalls != 0 {
+		t.Fatalf("缺少确认时仍执行请求 / request executed without confirmation: error=%#v capability_calls=%d calls=%d", classified, client.capabilityCalls, client.requestCalls)
+	}
 }
 
 func TestBuildExecutesBodylessR0POST(t *testing.T) {
@@ -276,12 +348,6 @@ func TestBuildRejectsUnsupportedOrMismatchedSpecs(t *testing.T) {
 		name string
 		spec operation.OperationSpec
 	}{
-		{name: "risk one post", spec: func() operation.OperationSpec {
-			item := testSpec()
-			item.Method = "POST"
-			item.Risk = operation.RiskR1
-			return item
-		}()},
 		{name: "post body", spec: func() operation.OperationSpec {
 			item := testSpec()
 			item.Method = "POST"

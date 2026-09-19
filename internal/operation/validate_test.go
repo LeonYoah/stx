@@ -83,7 +83,7 @@ func TestValidateRejectsRepeatedNonQueryInput(t *testing.T) {
 }
 
 func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
-	require.Len(t, Registry(), 51)
+	require.Len(t, Registry(), 71)
 
 	expected := map[string]struct{}{
 		"auth.user-info.get": {}, "admin.user.list": {}, "admin.user.get": {},
@@ -92,6 +92,11 @@ func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
 		"host.list": {}, "host.get": {}, "host.agent.install-command.get": {}, "cluster.list": {}, "cluster.get": {},
 		"host.discovery.process.list": {},
 		"cluster.node.list":           {}, "cluster.status.get": {}, "config.cluster.list": {},
+		"cluster.delete": {}, "cluster.node.remove": {}, "cluster.node.logs": {},
+		"cluster.start": {}, "cluster.stop": {}, "cluster.restart": {},
+		"cluster.node.start": {}, "cluster.node.stop": {}, "cluster.node.restart": {},
+		"cluster.java-proxy.status": {}, "cluster.java-proxy.logs": {},
+		"cluster.java-proxy.start": {}, "cluster.java-proxy.stop": {}, "cluster.java-proxy.restart": {},
 		"config.get": {}, "config.version.list": {},
 		"host.install.status.get": {}, "cluster.plugin.list": {}, "cluster.plugin.progress.get": {},
 		"package.list": {}, "package.get": {}, "package.version.refresh": {}, "package.download.list": {}, "package.download.get": {},
@@ -105,6 +110,30 @@ func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
 		}
 	}
 	require.Equal(t, expected, actual)
+}
+
+func TestRegistryContainsClusterWriteOperations(t *testing.T) {
+	byID := make(map[string]OperationSpec)
+	for _, spec := range Registry() {
+		byID[spec.ID] = spec
+	}
+
+	for _, operationID := range []string{
+		"cluster.create", "cluster.update", "cluster.delete", "cluster.node.add", "cluster.node.add-batch",
+		"cluster.node.update", "cluster.node.remove", "cluster.node.precheck", "cluster.start", "cluster.stop",
+		"cluster.restart", "cluster.node.start", "cluster.node.stop", "cluster.node.restart",
+		"cluster.java-proxy.start", "cluster.java-proxy.stop", "cluster.java-proxy.restart",
+	} {
+		spec, exists := byID[operationID]
+		require.True(t, exists, operationID)
+		require.NotEqual(t, RiskR0, spec.Risk, operationID)
+		require.NotNil(t, spec.Impact, operationID)
+	}
+
+	require.False(t, byID["cluster.create"].GeneratedCLI)
+	require.False(t, byID["cluster.node.precheck"].GeneratedCLI)
+	require.True(t, byID["cluster.delete"].GeneratedCLI)
+	require.True(t, byID["cluster.restart"].GeneratedCLI)
 }
 
 func TestRegistryPluginDownloadStatusSupportsRepeatedProfiles(t *testing.T) {

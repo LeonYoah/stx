@@ -67,6 +67,7 @@ func newRootCommand(serverRunner func() error) *cobra.Command {
 	rootCmd.AddCommand(defaultGeneratedCommands()...)
 	addPackageWriteCommands(rootCmd, cliConfig.NewDefaultStore)
 	addUserWriteCommands(rootCmd, defaultUserWriteCommandOptions())
+	addClusterWriteCommands(rootCmd, cliConfig.NewDefaultStore)
 	return rootCmd
 }
 

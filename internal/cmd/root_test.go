@@ -127,6 +127,25 @@ func TestRootCommandRegistersAuthAdminAndDashboardReadCommands(t *testing.T) {
 	}
 }
 
+func TestRootCommandRegistersClusterReadWriteAndProcessCommands(t *testing.T) {
+	command := newRootCommand(func() error { return nil })
+	paths := [][]string{
+		{"cluster", "create"}, {"cluster", "update"}, {"cluster", "delete"},
+		{"cluster", "node", "add"}, {"cluster", "node", "add-batch"}, {"cluster", "node", "update"},
+		{"cluster", "node", "remove"}, {"cluster", "node", "precheck"}, {"cluster", "node", "logs"},
+		{"cluster", "start"}, {"cluster", "stop"}, {"cluster", "restart"},
+		{"cluster", "node", "start"}, {"cluster", "node", "stop"}, {"cluster", "node", "restart"},
+		{"cluster", "java-proxy", "status"}, {"cluster", "java-proxy", "logs"},
+		{"cluster", "java-proxy", "start"}, {"cluster", "java-proxy", "stop"}, {"cluster", "java-proxy", "restart"},
+	}
+	for _, path := range paths {
+		found, remaining, err := command.Find(path)
+		if err != nil || len(remaining) != 0 || found.Name() != path[len(path)-1] {
+			t.Fatalf("集群命令未完整注册: path=%v found=%s remaining=%v err=%v", path, found.CommandPath(), remaining, err)
+		}
+	}
+}
+
 func TestRootCommandRegistersHostDiscoveryProcessCommand(t *testing.T) {
 	command := newRootCommand(func() error { return nil })
 	path := []string{"host", "discovery", "process", "list"}

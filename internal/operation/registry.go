@@ -21,13 +21,14 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // RegistryRevision 是操作登记表的兼容修订号。
 // RegistryRevision is the compatibility revision of the operation registry.
-const RegistryRevision = 5
+const RegistryRevision = 6
 
-var registry = []OperationSpec{
+var registry = append([]OperationSpec{
 	{
 		ID:           "auth.cli.login",
 		CommandPath:  []string{"login"},
@@ -1252,6 +1253,116 @@ var registry = []OperationSpec{
   "result_meta": {"complete": true}
 }`,
 	},
+}, clusterAdditionalOperationSpecs()...)
+
+// clusterAdditionalOperationSpecs 返回集群模块新增的读写操作登记。
+// clusterAdditionalOperationSpecs returns the additional cluster read and write registrations.
+func clusterAdditionalOperationSpecs() []OperationSpec {
+	return []OperationSpec{
+		clusterBodyOperation("cluster.create", []string{"cluster", "create"}, "Create a cluster", "POST", "/api/v1/clusters", RiskR1,
+			"创建集群会在 STX 中新增部署定义，但不会自动启动 SeaTunnel 进程。",
+			[]InputSpec{
+				{Name: "name", Location: InputBody, Required: true, Description: "Cluster name"},
+				{Name: "deployment_mode", Location: InputBody, Required: true, Description: "Deployment mode"},
+				{Name: "version", Location: InputBody, Required: true, Description: "SeaTunnel version"},
+			}, "stx cluster create --name demo --deployment-mode hybrid --version 2.3.13 --confirm"),
+		clusterBodyOperation("cluster.update", []string{"cluster", "update"}, "Update a cluster", "PUT", "/api/v1/clusters/:id", RiskR1,
+			"修改集群定义会影响后续部署和进程操作，已经运行的进程不会自动重启。",
+			[]InputSpec{{Name: "id", Location: InputPath, Required: true, Description: "Cluster ID"}, {Name: "request", Location: InputBody, Required: true, Description: "Fields to update"}},
+			"stx cluster update 6 --description test --confirm"),
+		clusterGeneratedOperation("cluster.delete", []string{"cluster", "delete"}, "Delete a cluster", "DELETE", "/api/v1/clusters/:id", RiskR2,
+			"删除集群会移除集群定义和节点记录；集群必须先停止，force_delete 还会请求 Agent 删除节点安装目录。", "stx cluster delete 6 --confirm", []InputSpec{
+				{Name: "id", Location: InputPath, Required: true, Description: "Cluster ID"},
+				{Name: "force_delete", Location: InputQuery, Required: false, Description: "Remove node installation directories after deletion; the cluster must already be stopped"},
+			}),
+		clusterBodyOperation("cluster.node.add", []string{"cluster", "node", "add"}, "Add a cluster node", "POST", "/api/v1/clusters/:id/nodes", RiskR1,
+			"新增节点会修改集群部署定义，并可能在目标主机执行预检查。",
+			[]InputSpec{{Name: "id", Location: InputPath, Required: true, Description: "Cluster ID"}, {Name: "request", Location: InputBody, Required: true, Description: "Node definition"}},
+			"stx cluster node add 6 --host-id 10 --role master/worker --confirm"),
+		clusterBodyOperation("cluster.node.add-batch", []string{"cluster", "node", "add-batch"}, "Add multiple cluster nodes", "POST", "/api/v1/clusters/:id/nodes/batch", RiskR1,
+			"批量新增节点会一次修改多个节点定义，并可能在目标主机执行预检查。",
+			[]InputSpec{{Name: "id", Location: InputPath, Required: true, Description: "Cluster ID"}, {Name: "request", Location: InputBody, Required: true, Description: "Batch node definition"}},
+			"stx cluster node add-batch 6 --request-file nodes.json --confirm"),
+		clusterBodyOperation("cluster.node.update", []string{"cluster", "node", "update"}, "Update a cluster node", "PUT", "/api/v1/clusters/:id/nodes/:nodeId", RiskR1,
+			"修改节点端口、目录或 JVM 覆盖值会影响该节点后续启动。",
+			[]InputSpec{{Name: "id", Location: InputPath, Required: true, Description: "Cluster ID"}, {Name: "nodeId", Location: InputPath, Required: true, Description: "Node ID"}, {Name: "request", Location: InputBody, Required: true, Description: "Node fields to update"}},
+			"stx cluster node update 6 1 --hazelcast-port 5801 --confirm"),
+		clusterGeneratedOperation("cluster.node.remove", []string{"cluster", "node", "remove"}, "Remove a cluster node", "DELETE", "/api/v1/clusters/:id/nodes/:nodeId", RiskR2,
+			"移除节点会删除节点定义；如果节点仍在运行，应先停止节点。", "stx cluster node remove 6 1 --confirm", []InputSpec{
+				{Name: "id", Location: InputPath, Required: true, Description: "Cluster ID"},
+				{Name: "nodeId", Location: InputPath, Required: true, Description: "Node ID"},
+			}),
+		clusterBodyOperation("cluster.node.precheck", []string{"cluster", "node", "precheck"}, "Precheck a cluster node", "POST", "/api/v1/clusters/:id/nodes/precheck", RiskR1,
+			"节点预检查会连接目标 Agent，并执行目录、端口和运行环境检查。",
+			[]InputSpec{{Name: "id", Location: InputPath, Required: true, Description: "Cluster ID"}, {Name: "request", Location: InputBody, Required: true, Description: "Node precheck request"}},
+			"stx cluster node precheck 6 --host-id 10 --role master/worker --confirm"),
+		clusterGeneratedOperation("cluster.node.logs", []string{"cluster", "node", "logs"}, "Get cluster node logs", "GET", "/api/v1/clusters/:id/nodes/:nodeId/logs", RiskR0,
+			"读取较多日志会消耗 Agent、网络和 STX 服务资源。", "stx cluster node logs 6 1 --lines 100 --mode tail", []InputSpec{
+				{Name: "id", Location: InputPath, Required: true, Description: "Cluster ID"}, {Name: "nodeId", Location: InputPath, Required: true, Description: "Node ID"},
+				{Name: "lines", Location: InputQuery, Required: false, Description: "Number of log lines"}, {Name: "mode", Location: InputQuery, Required: false, Description: "Read mode: tail, head, or all"},
+				{Name: "filter", Location: InputQuery, Required: false, Description: "Log filter pattern"}, {Name: "date", Location: InputQuery, Required: false, Description: "Rolling log date suffix"},
+			}),
+		clusterGeneratedOperation("cluster.start", []string{"cluster", "start"}, "Start a cluster", "POST", "/api/v1/clusters/:id/start", RiskR1,
+			"启动集群会在所有节点创建 SeaTunnel 进程并占用 CPU、内存和端口。", "stx cluster start 6 --confirm", clusterIDInputs()),
+		clusterGeneratedOperation("cluster.stop", []string{"cluster", "stop"}, "Stop a cluster", "POST", "/api/v1/clusters/:id/stop", RiskR1,
+			"停止集群会终止 SeaTunnel 进程，并中断该集群正在运行的任务。", "stx cluster stop 6 --confirm", clusterIDInputs()),
+		clusterGeneratedOperation("cluster.restart", []string{"cluster", "restart"}, "Restart a cluster", "POST", "/api/v1/clusters/:id/restart", RiskR2,
+			"重启集群会短暂中断服务，并重新创建所有节点的 SeaTunnel 进程。", "stx cluster restart 6 --confirm", clusterIDInputs()),
+		clusterGeneratedOperation("cluster.node.start", []string{"cluster", "node", "start"}, "Start a cluster node", "POST", "/api/v1/clusters/:id/nodes/:nodeId/start", RiskR1,
+			"启动节点会创建 SeaTunnel 进程并占用目标主机资源和端口。", "stx cluster node start 6 1 --confirm", clusterNodeIDInputs()),
+		clusterGeneratedOperation("cluster.node.stop", []string{"cluster", "node", "stop"}, "Stop a cluster node", "POST", "/api/v1/clusters/:id/nodes/:nodeId/stop", RiskR1,
+			"停止节点会终止目标 SeaTunnel 进程，可能影响集群任务。", "stx cluster node stop 6 1 --confirm", clusterNodeIDInputs()),
+		clusterGeneratedOperation("cluster.node.restart", []string{"cluster", "node", "restart"}, "Restart a cluster node", "POST", "/api/v1/clusters/:id/nodes/:nodeId/restart", RiskR2,
+			"重启节点会短暂终止并重新创建目标 SeaTunnel 进程。", "stx cluster node restart 6 1 --confirm", clusterNodeIDInputs()),
+		clusterGeneratedOperation("cluster.java-proxy.status", []string{"cluster", "java-proxy", "status"}, "Get STX Java Proxy status", "GET", "/api/v1/clusters/:id/stx-java-proxy/status", RiskR0,
+			"状态查询会向集群主节点 Agent 发起一次轻量检查。", "stx cluster java-proxy status 6", clusterIDInputs()),
+		clusterGeneratedOperation("cluster.java-proxy.logs", []string{"cluster", "java-proxy", "logs"}, "Get STX Java Proxy logs", "GET", "/api/v1/clusters/:id/stx-java-proxy/logs", RiskR0,
+			"读取较多日志会消耗 Agent、网络和 STX 服务资源。", "stx cluster java-proxy logs 6 --lines 200", append(clusterIDInputs(), InputSpec{Name: "lines", Location: InputQuery, Required: false, Description: "Number of log lines"})),
+		clusterGeneratedOperation("cluster.java-proxy.start", []string{"cluster", "java-proxy", "start"}, "Start STX Java Proxy", "POST", "/api/v1/clusters/:id/stx-java-proxy/start", RiskR1,
+			"启动 Java Proxy 会在集群主节点创建 JVM 进程并占用内存和端口。", "stx cluster java-proxy start 6 --confirm", clusterIDInputs()),
+		clusterGeneratedOperation("cluster.java-proxy.stop", []string{"cluster", "java-proxy", "stop"}, "Stop STX Java Proxy", "POST", "/api/v1/clusters/:id/stx-java-proxy/stop", RiskR1,
+			"停止 Java Proxy 会让依赖该代理的配置检查和运行时查询暂时不可用。", "stx cluster java-proxy stop 6 --confirm", clusterIDInputs()),
+		clusterGeneratedOperation("cluster.java-proxy.restart", []string{"cluster", "java-proxy", "restart"}, "Restart STX Java Proxy", "POST", "/api/v1/clusters/:id/stx-java-proxy/restart", RiskR2,
+			"重启 Java Proxy 会造成短暂不可用，并重新创建 JVM 进程。", "stx cluster java-proxy restart 6 --confirm", clusterIDInputs()),
+	}
+}
+
+func clusterBodyOperation(id string, commandPath []string, summary, method, route string, risk RiskLevel, impact string, inputs []InputSpec, example string) OperationSpec {
+	return clusterOperation(id, commandPath, summary, method, route, risk, impact, inputs, example, false)
+}
+
+func clusterGeneratedOperation(id string, commandPath []string, summary, method, route string, risk RiskLevel, impact string, example string, inputs []InputSpec) OperationSpec {
+	if risk != RiskR0 {
+		inputs = append(inputs,
+			InputSpec{Name: "Idempotency-Key", Location: InputHeader, Required: true, Description: "Stable retry key"},
+			InputSpec{Name: "X-STX-Confirm", Location: InputHeader, Required: true, Description: "Explicit confirmation"},
+		)
+	}
+	return clusterOperation(id, commandPath, summary, method, route, risk, impact, inputs, example, true)
+}
+
+func clusterOperation(id string, commandPath []string, summary, method, route string, risk RiskLevel, impact string, inputs []InputSpec, example string, generated bool) OperationSpec {
+	var impactSpec *ImpactSpec
+	if strings.TrimSpace(impact) != "" {
+		impactSpec = &ImpactSpec{Level: risk, Message: impact}
+	}
+	return OperationSpec{
+		ID: id, CommandPath: commandPath, Summary: summary, GeneratedCLI: generated, Method: method, Route: route,
+		Mode: ModeNormal, AuthRequired: true, Risk: risk, Revision: 1, UsesAgent: strings.Contains(route, "/start") || strings.Contains(route, "/stop") || strings.Contains(route, "/restart") || strings.Contains(route, "/logs") || strings.Contains(route, "/precheck") || strings.Contains(route, "/stx-java-proxy/"),
+		SupportsPick: true, Impact: impactSpec, Input: inputs, Example: example,
+		OutputExample: fmt.Sprintf(`{"api_version":"v1","operation_id":%q,"request_id":"req_example","data":{},"result_meta":{"complete":true}}`, id),
+	}
+}
+
+func clusterIDInputs() []InputSpec {
+	return []InputSpec{{Name: "id", Location: InputPath, Required: true, Description: "Cluster ID"}}
+}
+
+func clusterNodeIDInputs() []InputSpec {
+	return []InputSpec{
+		{Name: "id", Location: InputPath, Required: true, Description: "Cluster ID"},
+		{Name: "nodeId", Location: InputPath, Required: true, Description: "Node ID"},
+	}
 }
 
 var routeExceptions = []RouteException{

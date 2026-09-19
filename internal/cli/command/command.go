@@ -21,6 +21,8 @@ package command
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -31,6 +33,7 @@ import (
 	cliClient "github.com/LeonYoah/stx/internal/cli/client"
 	clioutput "github.com/LeonYoah/stx/internal/cli/output"
 	"github.com/LeonYoah/stx/internal/operation"
+	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 )
 
@@ -41,6 +44,7 @@ var routeParameterPattern = regexp.MustCompile(`:([A-Za-z][A-Za-z0-9_-]*)`)
 type Client interface {
 	Capabilities(ctx context.Context) (string, cliClient.CapabilityData, error)
 	Request(ctx context.Context, method, path string, requestBody any, result any) (string, error)
+	RequestWithHeaders(ctx context.Context, method, path string, requestBody any, headers map[string]string, result any) (string, error)
 }
 
 // ClientFactory 根据本地命名空间创建远端客户端。
@@ -52,6 +56,14 @@ type ClientFactory func(namespace string) (Client, error)
 type queryFlagValue struct {
 	single   *string
 	repeated *[]string
+}
+
+// writeOptions 保存无正文写操作使用的确认和幂等参数。
+// writeOptions stores confirmation and idempotency flags for bodyless writes.
+type writeOptions struct {
+	confirmed      bool
+	idempotencyKey string
+	confirmationID string
 }
 
 // Build 构建登记项对应的 Cobra 顶级命令。
@@ -120,6 +132,7 @@ func configureLeaf(command *cobra.Command, spec operation.OperationSpec, clientF
 	queryInputs := inputsAt(spec, operation.InputQuery)
 	queryValues := make(map[string]queryFlagValue, len(queryInputs))
 	var namespace string
+	var write writeOptions
 
 	useParts := []string{command.Name()}
 	for _, input := range pathInputs {
@@ -131,6 +144,11 @@ func configureLeaf(command *cobra.Command, spec operation.OperationSpec, clientF
 	command.Example = spec.Example
 	command.Args = exactArgs(len(pathInputs))
 	command.Flags().StringVar(&namespace, "namespace", "", "Local namespace to use")
+	if spec.Risk != operation.RiskR0 {
+		command.Flags().BoolVar(&write.confirmed, "confirm", false, "Confirm the operation impact")
+		command.Flags().StringVar(&write.idempotencyKey, "idempotency-key", "", "Stable key for retrying the same request")
+		command.Flags().StringVar(&write.confirmationID, "confirmation-id", "", "One-time confirmation ID returned by STX")
+	}
 	for _, input := range queryInputs {
 		if input.Repeated {
 			value := new([]string)
@@ -147,6 +165,9 @@ func configureLeaf(command *cobra.Command, spec operation.OperationSpec, clientF
 		if err != nil {
 			return err
 		}
+		if spec.Risk != operation.RiskR0 && !write.confirmed {
+			return clioutput.NewError(clioutput.CodeConflict, "write operation requires --confirm", clioutput.ExitConflict, false)
+		}
 		client, err := clientFactory(namespace)
 		if err != nil {
 			return err
@@ -155,10 +176,20 @@ func configureLeaf(command *cobra.Command, spec operation.OperationSpec, clientF
 			return err
 		}
 
-		var data any
-		requestID, err := client.Request(command.Context(), strings.ToUpper(spec.Method), requestPath, nil, &data)
+		headers, err := prepareWriteHeaders(command, spec, &write)
 		if err != nil {
 			return err
+		}
+
+		var data any
+		var requestID string
+		if len(headers) == 0 {
+			requestID, err = client.Request(command.Context(), strings.ToUpper(spec.Method), requestPath, nil, &data)
+		} else {
+			requestID, err = client.RequestWithHeaders(command.Context(), strings.ToUpper(spec.Method), requestPath, nil, headers, &data)
+		}
+		if err != nil {
+			return handleConfirmationError(command, spec.ID, err)
 		}
 		options, err := clioutput.OptionsFromCommand(command)
 		if err != nil {
@@ -181,13 +212,9 @@ func validateSpec(spec operation.OperationSpec) error {
 		return fmt.Errorf("generated command only supports normal operations")
 	}
 	switch strings.ToUpper(strings.TrimSpace(spec.Method)) {
-	case http.MethodGet:
-	case http.MethodPost:
-		if spec.Risk != operation.RiskR0 {
-			return fmt.Errorf("generated POST command must use risk level R0")
-		}
+	case http.MethodGet, http.MethodPost, http.MethodDelete:
 	default:
-		return fmt.Errorf("generated command only supports GET or bodyless R0 POST operations")
+		return fmt.Errorf("generated command only supports GET or bodyless POST/DELETE operations")
 	}
 	placeholders := routeParameterPattern.FindAllStringSubmatch(spec.Route, -1)
 	pathInputs := inputsAt(spec, operation.InputPath)
@@ -200,6 +227,9 @@ func validateSpec(spec operation.OperationSpec) error {
 		}
 	}
 	for _, input := range spec.Input {
+		if input.Location == operation.InputHeader && isGeneratedSafetyHeader(input.Name) {
+			continue
+		}
 		if input.Location != operation.InputPath && input.Location != operation.InputQuery {
 			return fmt.Errorf("input %q uses unsupported location %q", input.Name, input.Location)
 		}
@@ -208,6 +238,62 @@ func validateSpec(spec operation.OperationSpec) error {
 		}
 	}
 	return nil
+}
+
+// prepareWriteHeaders 校验无正文写操作，并构造统一安全请求头。
+// prepareWriteHeaders validates a bodyless write and builds its common safety headers.
+func prepareWriteHeaders(command *cobra.Command, spec operation.OperationSpec, options *writeOptions) (map[string]string, error) {
+	if spec.Risk == operation.RiskR0 {
+		return nil, nil
+	}
+	if strings.TrimSpace(options.idempotencyKey) == "" {
+		options.idempotencyKey = uuid.NewString()
+		_ = clioutput.NewEventWriter(command.ErrOrStderr()).Emit(clioutput.Event{
+			Event: "idempotency_key", OperationID: spec.ID, Level: "info", Message: options.idempotencyKey,
+		})
+	}
+	if spec.Impact != nil {
+		_ = clioutput.NewEventWriter(command.ErrOrStderr()).Emit(clioutput.Event{
+			Event: "warning", OperationID: spec.ID, Level: "warning", Message: spec.Impact.Message,
+		})
+	}
+	headers := map[string]string{"Idempotency-Key": options.idempotencyKey, "X-STX-Confirm": "true"}
+	if strings.TrimSpace(options.confirmationID) != "" {
+		headers["X-STX-Confirmation-ID"] = strings.TrimSpace(options.confirmationID)
+	}
+	return headers, nil
+}
+
+// handleConfirmationError 在服务端要求二次确认时输出可重试信息。
+// handleConfirmationError emits retry details when the server requires one-time confirmation.
+func handleConfirmationError(command *cobra.Command, operationID string, err error) error {
+	var apiErr *cliClient.APIError
+	if !errors.As(err, &apiErr) || apiErr.ErrorCode != "confirmation_required" || len(apiErr.Data) == 0 {
+		return err
+	}
+	var data struct {
+		ConfirmationID string `json:"confirmation_id"`
+		RiskLevel      string `json:"risk_level"`
+		Impact         string `json:"impact"`
+		ExpiresAt      string `json:"expires_at"`
+	}
+	if decodeErr := json.Unmarshal(apiErr.Data, &data); decodeErr != nil || strings.TrimSpace(data.ConfirmationID) == "" {
+		return err
+	}
+	_ = clioutput.NewEventWriter(command.ErrOrStderr()).Emit(clioutput.Event{
+		Event: "confirmation_required", OperationID: operationID, RequestID: apiErr.RequestID, Level: "warning",
+		Message: data.Impact, ConfirmationID: data.ConfirmationID, RiskLevel: data.RiskLevel, ExpiresAt: data.ExpiresAt,
+	})
+	return err
+}
+
+func isGeneratedSafetyHeader(name string) bool {
+	switch http.CanonicalHeaderKey(strings.TrimSpace(name)) {
+	case "Idempotency-Key", "X-Stx-Confirm", "X-Stx-Confirmation-Id":
+		return true
+	default:
+		return false
+	}
 }
 
 // longDescription 组合登记操作、影响说明和输出样例，帮助阶段不访问服务端。

@@ -381,3 +381,27 @@ stx admin user create --username demo --password plain-text
 printf '%s\n' "$STX_TEST_PASSWORD" | stx admin user create \
   --username demo --password-stdin --confirm --idempotency-key create-demo
 ```
+
+## 11. 场景：由登记表生成无正文写命令
+
+### 11.1 范围
+
+无正文的 `POST` 和 `DELETE` 可以和普通 GET 一样由操作登记表生成，适用于启停、重启和删除等只需要 path/query 参数的接口。包含 JSON 正文、文件或特殊输入的命令仍使用专用实现。
+
+### 11.2 登记和命令约定
+
+- `GeneratedCLI=true`，方法只能是 `GET`、无正文 `POST` 或无正文 `DELETE`。
+- R1 至 R3 必须提供 `ImpactSpec`，并在登记输入中声明 `Idempotency-Key` 和 `X-STX-Confirm`。
+- 生成命令自动增加 `--confirm`、`--idempotency-key` 和 `--confirmation-id`。
+- 缺少 `--confirm` 时不能创建客户端、查询能力或调用业务接口。
+- 执行前先查询 capability；服务端允许后才生成或使用幂等键并调用业务接口。
+- warning、自动生成的幂等键和二次确认编号写 stderr，业务结果写 stdout。
+- 客户端确认只负责避免误操作，不能代替服务端的确认、幂等和公共执行记录。
+
+### 11.3 必须有的测试
+
+- 无正文 R0 POST 能正常生成和调用。
+- R1/R2 POST 或 DELETE 缺少确认时网络调用次数为 0。
+- 带确认的命令发送统一安全请求头，并输出影响提示。
+- 服务端返回 `confirmation_required` 时，stderr 包含一次性确认编号。
+- body/header/file 中除统一安全 Header 外的输入仍被生成器拒绝。

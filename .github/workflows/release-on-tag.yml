@@ -65,9 +65,10 @@ jobs:
             --node-major 22 \
             --node-variant official \
             --version "${APP_VERSION}"
-          # Extra CentOS7-friendly node deps
+          # glibc217 unofficial builds are x64-only.
+          # glibc217 非官方构建目前只有 x64。
           scripts/package-release.sh \
-            --arch all \
+            --arch amd64 \
             --layout split \
             --emit-deps \
             --node-major 18 \

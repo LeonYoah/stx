@@ -144,9 +144,13 @@ case "$NODE_VARIANT" in
     ;;
 esac
 
-if [[ "$NODE_MAJOR" == "22" && "$NODE_VARIANT" == "official" ]]; then
-  echo "WARN: Node 22 official binaries may not work on CentOS 7 (glibc too old)."
-  echo "      For CentOS 7, prefer --node-major 18 --node-variant glibc217."
+if [[ "$NODE_VARIANT" == "glibc217" ]]; then
+  for arch in "${ARCHES[@]}"; do
+    if [[ "$arch" != "amd64" ]]; then
+      echo "glibc217 node builds are x64-only; drop --arch arm64/all or use official node"
+      exit 1
+    fi
+  done
 fi
 
 case "$ARCH_OPTION" in

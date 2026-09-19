@@ -101,6 +101,8 @@ jobs:
       - name: Publish release assets
         uses: softprops/action-gh-release@v2
         with:
+          # stx-linux-* / stx-agent-linux-* 已含配对 .sha256，不要再加 *.sha256，否则同一资产上传两次会 404。
+          # stx-linux-* / stx-agent-linux-* already include paired .sha256; do not add *.sha256 or the duplicate upload 404s.
           files: |
             release-assets/stx-linux-*
             release-assets/stx-agent-linux-*
@@ -114,7 +116,6 @@ jobs:
             release-assets/MANIFEST.json
             release-assets/install-online.sh
             release-assets/download-bundle.sh
-            release-assets/*.sha256
           generate_release_notes: true
           fail_on_unmatched_files: false
 

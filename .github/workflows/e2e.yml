@@ -43,8 +43,6 @@ on:
           - sqlite
           - postgres
           - mysql
-  schedule:
-    - cron: '0 18 * * *'
 
 permissions:
   contents: read

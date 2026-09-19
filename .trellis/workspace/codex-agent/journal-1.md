@@ -200,3 +200,36 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 6: 完成认证管理与仪表盘 CLI 真实验证
+
+**Date**: 2026-09-19
+**Task**: 完成认证管理与仪表盘 CLI 真实验证
+**Branch**: `features/stx-cli-agent-entry`
+
+### Summary
+
+新增 8 个 auth、admin、dashboard 只读 CLI 命令；完成全量测试、路由契约和本机真实权限场景验证。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `5461c45a1` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

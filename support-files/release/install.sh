@@ -25,26 +25,37 @@ Usage:
   ./install.sh [options]
 
 Options:
-  --install-dir <path>    Install directory (default: /opt/stx)
-  --force                 Backup existing install dir before reinstall
-  --no-preserve-config    Do not keep existing config.yaml
-  --no-start              Install only, do not auto start
-  -h, --help              Show this help
+  --install-dir <path>     Install directory (default: /opt/stx)
+  --offline                Offline mode: use ./packages only, forbid network
+  --with-observability     Enable bundled observability defaults when deps/ present
+  --without-observability  Force observability.enabled=false
+  --force                  Backup existing install dir before reinstall
+  --no-preserve-config     Do not keep existing config.yaml
+  --no-start               Install only, do not auto start
+  --no-systemd             Skip systemd unit installation
+  -h, --help               Show this help
 
-Environment overrides when starting later:
-  CONFIG_PATH                    Backend config path (default: <install-dir>/config.yaml)
-  FRONTEND_PORT                  Frontend listen port (default: 17880)
-  FRONTEND_HOST                  Frontend listen host (default: 0.0.0.0)
-  NEXT_PUBLIC_BACKEND_BASE_URL   Frontend API base URL (default: http://127.0.0.1:17800)
+Environment:
+  STX_SKIP_SYSTEMD=true            Same as --no-systemd
+  FRONTEND_PORT / FRONTEND_HOST    Frontend bind overrides for start.sh
+  NEXT_PUBLIC_BACKEND_BASE_URL     Frontend -> API base URL
 USAGE
 }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-INSTALL_DIR="${INSTALL_DIR:-/opt/stx}"
+# shellcheck source=download-lib.sh
+source "$SCRIPT_DIR/download-lib.sh"
+# shellcheck source=install-core.sh
+source "$SCRIPT_DIR/install-core.sh"
+
+INSTALL_DIR="${STX_INSTALL_DIR:-${INSTALL_DIR:-/opt/stx}}"
 CAPABILITY_PROXY_DEFAULT_VERSION="${CAPABILITY_PROXY_DEFAULT_VERSION:-2.3.13}"
 FORCE=false
 PRESERVE_CONFIG=true
 AUTO_START=true
+OFFLINE=false
+WITH_OBS="auto"
+SKIP_SYSTEMD=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -64,6 +75,24 @@ while [[ $# -gt 0 ]]; do
       AUTO_START=false
       shift
       ;;
+    --offline)
+      OFFLINE=true
+      STX_OFFLINE=true
+      shift
+      ;;
+    --with-observability)
+      WITH_OBS=true
+      shift
+      ;;
+    --without-observability)
+      WITH_OBS=false
+      shift
+      ;;
+    --no-systemd)
+      SKIP_SYSTEMD=true
+      STX_SKIP_SYSTEMD=true
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -81,21 +110,160 @@ if [[ -z "$INSTALL_DIR" ]]; then
   exit 1
 fi
 
+# Resolve package root: classic layout, offline bundle, or bin/.
+# 解析安装包根：经典布局、离线 bundle、或 bin/。
+SOURCE_DIR=""
+PACKAGES_DIR=""
 if [[ -x "$SCRIPT_DIR/stx" ]]; then
   SOURCE_DIR="$SCRIPT_DIR"
 elif [[ -x "$SCRIPT_DIR/../stx" ]]; then
   SOURCE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+elif [[ -d "$SCRIPT_DIR/packages" ]]; then
+  SOURCE_DIR="$SCRIPT_DIR"
+  PACKAGES_DIR="$SCRIPT_DIR/packages"
+elif [[ -d "$SCRIPT_DIR/../packages" ]]; then
+  SOURCE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+  PACKAGES_DIR="$SOURCE_DIR/packages"
 else
-  echo "[ERROR] install.sh must run from package root (or bin/)."
+  echo "[ERROR] install.sh must run from package root, offline bundle, or bin/."
   exit 1
 fi
 
-for f in stx bin/start.sh bin/stop.sh bin/status.sh config.example.yaml "lib/stx-java-proxy-${CAPABILITY_PROXY_DEFAULT_VERSION}.jar" scripts/stx-java-proxy.sh; do
-  if [[ ! -e "$SOURCE_DIR/$f" ]]; then
-    echo "[ERROR] package payload missing: $f"
+if [[ "$OFFLINE" == "true" ]]; then
+  stx_assert_online_allowed || exit 1
+  if [[ -z "$PACKAGES_DIR" && -d "$SOURCE_DIR/packages" ]]; then
+    PACKAGES_DIR="$SOURCE_DIR/packages"
+  fi
+  if [[ -z "$PACKAGES_DIR" ]]; then
+    echo "[ERROR] --offline requires packages/ directory"
     exit 1
   fi
-done
+fi
+
+# Offline: assemble a staging tree from packages/*. / 离线：从 packages 组装暂存树。
+STAGE_DIR=""
+cleanup_stage() {
+  if [[ -n "$STAGE_DIR" && -d "$STAGE_DIR" ]]; then
+    rm -rf "$STAGE_DIR"
+  fi
+}
+trap cleanup_stage EXIT
+
+if [[ -n "$PACKAGES_DIR" ]]; then
+  echo "[INFO] assembling install tree from $PACKAGES_DIR"
+  STAGE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/stx-install.XXXXXX")"
+  arch="$(stx_detect_arch)"
+
+  stx_bin="$PACKAGES_DIR/stx-linux-${arch}"
+  [[ -f "$stx_bin" ]] || { echo "[ERROR] missing $stx_bin"; exit 1; }
+  if [[ -f "${stx_bin}.sha256" ]]; then
+    stx_verify_sha256 "$stx_bin" "${stx_bin}.sha256"
+  fi
+  cp "$stx_bin" "$STAGE_DIR/stx"
+  chmod +x "$STAGE_DIR/stx"
+
+  frontend_tar="$(ls "$PACKAGES_DIR"/frontend-standalone-*-linux-${arch}.tar.gz 2>/dev/null | head -n1 || true)"
+  if [[ -z "$frontend_tar" ]]; then
+    echo "[ERROR] missing frontend-standalone-*-linux-${arch}.tar.gz in packages/"
+    exit 1
+  fi
+  if [[ -f "${frontend_tar}.sha256" ]]; then
+    stx_verify_sha256 "$frontend_tar" "${frontend_tar}.sha256"
+  fi
+  mkdir -p "$STAGE_DIR/frontend"
+  tar -xzf "$frontend_tar" -C "$STAGE_DIR/frontend"
+  # Support tarball with a single top-level directory. / 支持单层顶栏目录的 tar。
+  if [[ ! -f "$STAGE_DIR/frontend/server.js" ]]; then
+    nested="$(find "$STAGE_DIR/frontend" -mindepth 1 -maxdepth 1 -type d | head -n1 || true)"
+    if [[ -n "$nested" && -f "$nested/server.js" ]]; then
+      shopt -s dotglob
+      mv "$nested"/* "$STAGE_DIR/frontend/"
+      shopt -u dotglob
+      rmdir "$nested" 2>/dev/null || true
+    fi
+  fi
+
+  mkdir -p "$STAGE_DIR/bin" "$STAGE_DIR/lib" "$STAGE_DIR/scripts" "$STAGE_DIR/lib/agent"
+  for f in start.sh stop.sh status.sh; do
+    if [[ -f "$SOURCE_DIR/bin/$f" ]]; then
+      cp "$SOURCE_DIR/bin/$f" "$STAGE_DIR/bin/$f"
+    elif [[ -f "$SCRIPT_DIR/bin/$f" ]]; then
+      cp "$SCRIPT_DIR/bin/$f" "$STAGE_DIR/bin/$f"
+    elif [[ -f "$SCRIPT_DIR/$f" ]]; then
+      # when install.sh lives in support-files/release during offline bundle
+      cp "$SCRIPT_DIR/$f" "$STAGE_DIR/bin/$f" 2>/dev/null || true
+    fi
+  done
+  # Prefer scripts shipped beside this installer. / 优先使用安装器旁自带脚本。
+  if [[ ! -f "$STAGE_DIR/bin/start.sh" && -f "$SCRIPT_DIR/../release/start.sh" ]]; then
+    :
+  fi
+  for f in start.sh stop.sh status.sh; do
+    if [[ ! -f "$STAGE_DIR/bin/$f" && -f "$SCRIPT_DIR/$f" ]]; then
+      cp "$SCRIPT_DIR/$f" "$STAGE_DIR/bin/$f"
+    fi
+  done
+
+  cp "$SCRIPT_DIR/install.sh" "$STAGE_DIR/install.sh"
+  mkdir -p "$STAGE_DIR/lib"
+  cp -a "$SCRIPT_DIR/lib" "$STAGE_DIR/"
+
+  if [[ -f "$SOURCE_DIR/config.example.yaml" ]]; then
+    cp "$SOURCE_DIR/config.example.yaml" "$STAGE_DIR/config.example.yaml"
+  elif [[ -f "$SCRIPT_DIR/../../config.example.yaml" ]]; then
+    cp "$SCRIPT_DIR/../../config.example.yaml" "$STAGE_DIR/config.example.yaml"
+  fi
+
+  # Optional node / observability / agent / java-proxy from packages.
+  node_tar="$(ls "$PACKAGES_DIR"/node-*-linux-${arch}.tar.gz 2>/dev/null | head -n1 || true)"
+  if [[ -n "$node_tar" ]]; then
+    mkdir -p "$STAGE_DIR/runtime"
+    tar -xzf "$node_tar" -C "$STAGE_DIR/runtime"
+    if [[ ! -x "$STAGE_DIR/runtime/node/bin/node" ]]; then
+      nested="$(find "$STAGE_DIR/runtime" -mindepth 1 -maxdepth 1 -type d | head -n1 || true)"
+      if [[ -n "$nested" ]]; then
+        rm -rf "$STAGE_DIR/runtime/node"
+        mv "$nested" "$STAGE_DIR/runtime/node"
+      fi
+    fi
+  fi
+
+  obs_tar="$(ls "$PACKAGES_DIR"/observability-*-linux-${arch}.tar.gz 2>/dev/null | head -n1 || true)"
+  if [[ -n "$obs_tar" ]]; then
+    mkdir -p "$STAGE_DIR/deps"
+    tar -xzf "$obs_tar" -C "$STAGE_DIR/deps"
+  fi
+
+  agent_bin="$PACKAGES_DIR/stx-agent-linux-${arch}"
+  if [[ -f "$agent_bin" ]]; then
+    cp "$agent_bin" "$STAGE_DIR/lib/agent/stx-agent-linux-${arch}"
+    chmod +x "$STAGE_DIR/lib/agent/stx-agent-linux-${arch}"
+  fi
+
+  # Soft requirement: java-proxy may arrive later via control plane. / java-proxy 可后续由控制面下发。
+  if [[ -f "$PACKAGES_DIR/stx-java-proxy-${CAPABILITY_PROXY_DEFAULT_VERSION}.jar" ]]; then
+    cp "$PACKAGES_DIR/stx-java-proxy-${CAPABILITY_PROXY_DEFAULT_VERSION}.jar" "$STAGE_DIR/lib/"
+  fi
+  if [[ -f "$SOURCE_DIR/scripts/stx-java-proxy.sh" ]]; then
+    cp "$SOURCE_DIR/scripts/stx-java-proxy.sh" "$STAGE_DIR/scripts/"
+  fi
+
+  SOURCE_DIR="$STAGE_DIR"
+fi
+
+# Classic package validation when not building from packages-only tree.
+# 非 packages 组装时校验经典包内容。
+if [[ -z "$PACKAGES_DIR" ]]; then
+  for f in stx bin/start.sh bin/stop.sh bin/status.sh config.example.yaml; do
+    if [[ ! -e "$SOURCE_DIR/$f" ]]; then
+      echo "[ERROR] package payload missing: $f"
+      exit 1
+    fi
+  done
+  if [[ ! -e "$SOURCE_DIR/lib/stx-java-proxy-${CAPABILITY_PROXY_DEFAULT_VERSION}.jar" ]]; then
+    echo "[WARN] missing lib/stx-java-proxy-${CAPABILITY_PROXY_DEFAULT_VERSION}.jar (Agent capability proxy)"
+  fi
+fi
 
 if [[ ! -d "$INSTALL_DIR" ]]; then
   mkdir -p "$INSTALL_DIR" 2>/dev/null || {
@@ -124,6 +292,7 @@ echo "[INFO] installing STX to: $INSTALL_DIR"
 tar -C "$SOURCE_DIR" \
   --exclude='run/*' \
   --exclude='logs/*' \
+  --exclude='packages' \
   --exclude='.DS_Store' \
   -cf - . | tar -C "$INSTALL_DIR" -xf -
 
@@ -141,8 +310,10 @@ chmod +x \
   "$INSTALL_DIR/install.sh" \
   "$INSTALL_DIR/bin/start.sh" \
   "$INSTALL_DIR/bin/stop.sh" \
-  "$INSTALL_DIR/bin/status.sh" \
-  "$INSTALL_DIR/scripts/stx-java-proxy.sh"
+  "$INSTALL_DIR/bin/status.sh" 2>/dev/null || true
+if [[ -f "$INSTALL_DIR/scripts/stx-java-proxy.sh" ]]; then
+  chmod +x "$INSTALL_DIR/scripts/stx-java-proxy.sh"
+fi
 
 for f in \
   "$INSTALL_DIR/deps/start-observability.sh" \
@@ -154,22 +325,38 @@ for f in \
   fi
 done
 
-mkdir -p "$INSTALL_DIR/run" "$INSTALL_DIR/logs"
+mkdir -p "$INSTALL_DIR/run" "$INSTALL_DIR/logs" "$INSTALL_DIR/data"
 
-echo "[OK] install done."
-echo "     start : $INSTALL_DIR/bin/start.sh"
-echo "     stop  : $INSTALL_DIR/bin/stop.sh"
-echo "     status: $INSTALL_DIR/bin/status.sh"
-echo "     config: $INSTALL_DIR/config.yaml"
-echo
-echo "[INFO] port hints:"
-echo "       backend http/grpc ports come from $INSTALL_DIR/config.yaml"
-echo "       frontend port/host can be overridden with FRONTEND_PORT / FRONTEND_HOST"
-echo "       example: CONFIG_PATH=$INSTALL_DIR/config.yaml FRONTEND_PORT=17880 NEXT_PUBLIC_BACKEND_BASE_URL=http://127.0.0.1:17800 $INSTALL_DIR/bin/start.sh"
+stx_probe_default_ports
+
+obs_flag=false
+if [[ "$WITH_OBS" == "true" ]]; then
+  obs_flag=true
+elif [[ "$WITH_OBS" == "auto" && -x "$INSTALL_DIR/deps/start-observability.sh" ]]; then
+  obs_flag=true
+fi
+if [[ "$WITH_OBS" == "false" ]]; then
+  obs_flag=false
+  stx_yaml_set "$INSTALL_DIR/config.yaml" "observability.enabled" "false" || true
+fi
+
+stx_configure_defaults "$INSTALL_DIR" "$STX_HTTP_PORT" "$STX_GRPC_PORT" "$STX_FRONTEND_PORT" "$obs_flag"
+
+if [[ "$SKIP_SYSTEMD" != "true" ]]; then
+  stx_install_systemd "$INSTALL_DIR"
+fi
+
+stx_print_finish_tips "$INSTALL_DIR"
 
 if [[ "$AUTO_START" == "true" ]]; then
   echo "[INFO] auto starting ..."
-  (cd "$INSTALL_DIR" && ./bin/start.sh)
+  (
+    cd "$INSTALL_DIR"
+    FRONTEND_PORT="$STX_FRONTEND_PORT" \
+    NEXT_PUBLIC_BACKEND_BASE_URL="http://127.0.0.1:${STX_HTTP_PORT}" \
+    CONFIG_PATH="$INSTALL_DIR/config.yaml" \
+    ./bin/start.sh
+  )
 else
   echo "[INFO] skip auto start (--no-start)"
 fi

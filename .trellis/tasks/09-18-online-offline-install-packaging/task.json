@@ -28,6 +28,6 @@
     "support-files/release/start.sh",
     "deps/start-observability.sh"
   ],
-  "notes": "设计已落 PRD/design + infra code-spec；实现未开始。",
+  "notes": "P0+systemd 已实现：split 发布、download/install-core、online/offline 脚本、CI 与文档已更新。",
   "meta": {}
 }

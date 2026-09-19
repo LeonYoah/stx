@@ -30,12 +30,8 @@ concurrency:
 
 jobs:
   package-release:
-    name: Package node22-${{ matrix.node_variant }}
+    name: Package split release assets
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        node_variant: [official, glibc217]
 
     steps:
       - name: Checkout
@@ -56,24 +52,33 @@ jobs:
           java-version: '11'
           cache: maven
 
-      - name: Build release packages
+      - name: Build split release assets
         env:
           APP_VERSION: ${{ github.ref_name }}
         run: |
-          chmod +x scripts/package-release.sh
+          chmod +x scripts/package-release.sh scripts/install-online.sh scripts/download-bundle.sh
           scripts/package-release.sh \
             --arch all \
-            --bundle-observability both \
-            --node-major 22 \
-            --node-variant "${{ matrix.node_variant }}" \
+            --layout split \
             --build-frontend \
+            --emit-deps \
+            --node-major 22 \
+            --node-variant official \
+            --version "${APP_VERSION}"
+          # Extra CentOS7-friendly node deps
+          scripts/package-release.sh \
+            --arch all \
+            --layout split \
+            --emit-deps \
+            --node-major 18 \
+            --node-variant glibc217 \
             --version "${APP_VERSION}"
 
       - name: Upload package artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: stx-packages-${{ github.ref_name }}-node22-${{ matrix.node_variant }}
-          path: dist/releases/*.tar.gz
+          name: stx-packages-${{ github.ref_name }}
+          path: dist/releases/**
           if-no-files-found: error
           retention-days: 30
 
@@ -86,9 +91,8 @@ jobs:
       - name: Download package artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: stx-packages-${{ github.ref_name }}-*
+          name: stx-packages-${{ github.ref_name }}
           path: release-assets
-          merge-multiple: true
 
       - name: Show release assets
         run: ls -alh release-assets
@@ -96,9 +100,22 @@ jobs:
       - name: Publish release assets
         uses: softprops/action-gh-release@v2
         with:
-          files: release-assets/*.tar.gz
+          files: |
+            release-assets/stx-linux-*
+            release-assets/stx-agent-linux-*
+            release-assets/frontend-standalone-*.tar.gz
+            release-assets/frontend-standalone-*.tar.gz.sha256
+            release-assets/node-*.tar.gz
+            release-assets/node-*.tar.gz.sha256
+            release-assets/observability-*.tar.gz
+            release-assets/observability-*.tar.gz.sha256
+            release-assets/SHA256SUMS
+            release-assets/MANIFEST.json
+            release-assets/install-online.sh
+            release-assets/download-bundle.sh
+            release-assets/*.sha256
           generate_release_notes: true
-          fail_on_unmatched_files: true
+          fail_on_unmatched_files: false
 
   publish-ghcr-images:
     name: Publish GHCR ${{ matrix.image_name }}

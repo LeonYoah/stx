@@ -23,11 +23,13 @@ OUTPUT_DIR="${OUTPUT_DIR:-$ROOT_DIR/dist/releases}"
 CACHE_DIR="${CACHE_DIR:-$ROOT_DIR/.cache/release}"
 
 ARCH_OPTION="amd64"
-BUNDLE_OBSERVABILITY="both" # with | without | both
+BUNDLE_OBSERVABILITY="without" # with | without | both — legacy layout only
 NODE_MAJOR="${NODE_MAJOR:-18}" # 18 | 22
 NODE_VARIANT="${NODE_VARIANT:-official}" # official | glibc217
 BUILD_FRONTEND=false
 APP_VERSION="${APP_VERSION:-}"
+LAYOUT="split" # split | legacy
+EMIT_DEPS=false
 
 PROMETHEUS_VERSION="${PROMETHEUS_VERSION:-3.9.1}"
 ALERTMANAGER_VERSION="${ALERTMANAGER_VERSION:-0.31.1}"
@@ -41,19 +43,22 @@ Usage: scripts/package-release.sh [options]
 
 Options:
   --arch <amd64|arm64|all>          Target CPU arch for stx binary (default: amd64)
+  --layout <split|legacy>           split=bare binaries+frontend tarball (default);
+                                    legacy=old mega tar with optional bundled observability
+  --emit-deps                       Also emit reusable node/observability deps tarballs (split layout)
   --bundle-observability <with|without|both>
-                                     Build package variant with/without bundled stack (default: both)
-  --node-major <18|22>               Bundle Node runtime major version for Next standalone (18 is recommended for CentOS 7)
+                                     Legacy layout only (default: without)
+  --node-major <18|22>               Node major for bundled/emitted runtime (default: 18)
   --node-variant <official|glibc217> Node binary source variant (default: official)
   --build-frontend                   Build frontend standalone before packaging
   --version <string>                 Package version label (default: git describe --tags --always --dirty)
-  --output-dir <path>                Output directory for tar.gz files (default: dist/releases)
+  --output-dir <path>                Output directory (default: dist/releases)
   --cache-dir <path>                 Download/build cache dir (default: .cache/release)
   --help                             Show this help
 
 Examples:
-  scripts/package-release.sh --arch all --bundle-observability both --node-major 22 --node-variant official
-  scripts/package-release.sh --arch all --bundle-observability both --node-major 22 --node-variant glibc217
+  scripts/package-release.sh --arch all --layout split --build-frontend --emit-deps
+  scripts/package-release.sh --arch amd64 --layout legacy --bundle-observability both --build-frontend
 EOF
 }
 
@@ -66,6 +71,14 @@ while [[ $# -gt 0 ]]; do
     --bundle-observability)
       BUNDLE_OBSERVABILITY="${2:-}"
       shift 2
+      ;;
+    --layout)
+      LAYOUT="${2:-}"
+      shift 2
+      ;;
+    --emit-deps)
+      EMIT_DEPS=true
+      shift
       ;;
     --node-major)
       NODE_MAJOR="${2:-}"
@@ -146,6 +159,14 @@ case "$ARCH_OPTION" in
     ;;
 esac
 
+case "$LAYOUT" in
+  split|legacy) ;;
+  *)
+    echo "invalid --layout: $LAYOUT (supported: split, legacy)"
+    exit 1
+    ;;
+esac
+
 case "$BUNDLE_OBSERVABILITY" in
   with) OBS_VARIANTS=("with") ;;
   without) OBS_VARIANTS=("without") ;;
@@ -155,6 +176,12 @@ case "$BUNDLE_OBSERVABILITY" in
     exit 1
     ;;
 esac
+
+if [[ "$LAYOUT" == "split" ]]; then
+  # Split layout does not embed observability into the main package.
+  # split 布局不再把可观测性打进主包。
+  OBS_VARIANTS=("without")
+fi
 
 if [[ -z "$APP_VERSION" ]]; then
   APP_VERSION="$(git -C "$ROOT_DIR" describe --tags --always --dirty 2>/dev/null || date +%Y%m%d%H%M%S)"
@@ -431,6 +458,97 @@ prepare_observability_stack() {
     "$deps_dir/status-observability.sh"
 }
 
+# 写入文件 sha256 sidecar。/ Write sha256 sidecar for a file.
+write_sha256() {
+  local file="$1"
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$file" | awk '{print $1}' >"${file}.sha256"
+  else
+    shasum -a 256 "$file" | awk '{print $1}' >"${file}.sha256"
+  fi
+}
+
+# Emit reusable deps tarballs (node + optional observability). / 产出可复用 deps 包。
+emit_deps_packages() {
+  local arch="$1"
+  local runtime_dir
+  runtime_dir="$(prepare_node_runtime "$arch")"
+  local node_name="node-${NODE_MAJOR}-${NODE_VARIANT}-linux-${arch}.tar.gz"
+  local node_out="$OUTPUT_DIR/$node_name"
+  echo "creating deps node package: $node_out"
+  tar -C "$(dirname "$runtime_dir")" -czf "$node_out" "$(basename "$runtime_dir")"
+  # Normalize inner folder name to node/ when extracted by installers that expect runtime/node.
+  # 安装器期望 runtime/node；这里保持解压后可再命名。
+  write_sha256 "$node_out"
+
+  local obs_name="observability-prom${PROMETHEUS_VERSION}-am${ALERTMANAGER_VERSION}-gf${GRAFANA_VERSION}-linux-${arch}.tar.gz"
+  local obs_out="$OUTPUT_DIR/$obs_name"
+  local obs_stage="$STAGE_DIR/deps-${arch}"
+  rm -rf "$obs_stage"
+  prepare_observability_stack "$arch" "$obs_stage"
+  echo "creating deps observability package: $obs_out"
+  tar -C "$obs_stage" -czf "$obs_out" .
+  write_sha256 "$obs_out"
+
+  cat >"$OUTPUT_DIR/MANIFEST.json" <<EOF
+{
+  "node_major": "$NODE_MAJOR",
+  "node_variant": "$NODE_VARIANT",
+  "node_version": "$NODE_VERSION",
+  "prometheus": "$PROMETHEUS_VERSION",
+  "alertmanager": "$ALERTMANAGER_VERSION",
+  "grafana": "$GRAFANA_VERSION",
+  "observability": {
+    "amd64": "observability-prom${PROMETHEUS_VERSION}-am${ALERTMANAGER_VERSION}-gf${GRAFANA_VERSION}-linux-amd64.tar.gz",
+    "arm64": "observability-prom${PROMETHEUS_VERSION}-am${ALERTMANAGER_VERSION}-gf${GRAFANA_VERSION}-linux-arm64.tar.gz"
+  },
+  "build_time": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+EOF
+}
+
+if [[ "$LAYOUT" == "split" ]]; then
+  for arch in "${ARCHES[@]}"; do
+    echo "staging split assets for linux/$arch"
+
+    cp "$BUILD_DIR/stx-linux-${arch}" "$OUTPUT_DIR/stx-linux-${arch}"
+    chmod +x "$OUTPUT_DIR/stx-linux-${arch}"
+    write_sha256 "$OUTPUT_DIR/stx-linux-${arch}"
+
+    cp "$BUILD_DIR/stx-agent-linux-${arch}" "$OUTPUT_DIR/stx-agent-linux-${arch}"
+    chmod +x "$OUTPUT_DIR/stx-agent-linux-${arch}"
+    write_sha256 "$OUTPUT_DIR/stx-agent-linux-${arch}"
+
+    frontend_name="frontend-standalone-${APP_VERSION_SAFE}-linux-${arch}.tar.gz"
+    echo "creating $frontend_name"
+    tar -C "$FRONTEND_DIST" -czf "$OUTPUT_DIR/$frontend_name" .
+    write_sha256 "$OUTPUT_DIR/$frontend_name"
+
+    if [[ "$EMIT_DEPS" == "true" ]]; then
+      emit_deps_packages "$arch"
+    fi
+  done
+
+  # Also publish installer helpers for curl|bash consumers. / 同步发布安装辅助脚本供 curl|bash 使用。
+  cp "$ROOT_DIR/scripts/install-online.sh" "$OUTPUT_DIR/install-online.sh"
+  cp "$ROOT_DIR/scripts/download-bundle.sh" "$OUTPUT_DIR/download-bundle.sh"
+  chmod +x "$OUTPUT_DIR/install-online.sh" "$OUTPUT_DIR/download-bundle.sh"
+
+  (
+    cd "$OUTPUT_DIR"
+    if command -v sha256sum >/dev/null 2>&1; then
+      sha256sum stx-linux-* stx-agent-linux-* frontend-standalone-*.tar.gz 2>/dev/null >SHA256SUMS || true
+    else
+      shasum -a 256 stx-linux-* stx-agent-linux-* frontend-standalone-*.tar.gz 2>/dev/null >SHA256SUMS || true
+    fi
+  )
+
+  echo
+  echo "all done (layout=split)."
+  echo "output dir: $OUTPUT_DIR"
+  exit 0
+fi
+
 for arch in "${ARCHES[@]}"; do
   for obs in "${OBS_VARIANTS[@]}"; do
     pkg_name="stx-${APP_VERSION_SAFE}-linux-${arch}-node${NODE_MAJOR}-${NODE_VARIANT}-${obs}-observability"
@@ -438,7 +556,7 @@ for arch in "${ARCHES[@]}"; do
     rm -rf "$pkg_dir"
     mkdir -p "$pkg_dir"
 
-    echo "staging package: $pkg_name"
+    echo "staging legacy package: $pkg_name"
 
     cp "$BUILD_DIR/stx-linux-${arch}" "$pkg_dir/stx"
     chmod +x "$pkg_dir/stx"
@@ -448,6 +566,9 @@ for arch in "${ARCHES[@]}"; do
     cp "$ROOT_DIR/NOTICE" "$pkg_dir/"
     cp "$ROOT_DIR/config.example.yaml" "$pkg_dir/config.example.yaml"
     cp "$ROOT_DIR/support-files/release/install.sh" "$pkg_dir/install.sh"
+    cp "$ROOT_DIR/support-files/release/download-lib.sh" "$pkg_dir/download-lib.sh"
+    cp "$ROOT_DIR/support-files/release/install-core.sh" "$pkg_dir/install-core.sh"
+    mkdir -p "$pkg_dir/lib"
 
     mkdir -p "$pkg_dir/lib/agent" "$pkg_dir/scripts"
     cp "$BUILD_DIR/stx-agent-linux-amd64" "$pkg_dir/lib/agent/stx-agent-linux-amd64"
@@ -481,6 +602,7 @@ node_major=$NODE_MAJOR
 node_version=$NODE_VERSION
 node_variant=$NODE_VARIANT
 observability=$obs
+layout=legacy
 build_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 EOF
 
@@ -491,5 +613,5 @@ EOF
 done
 
 echo
-echo "all done."
+echo "all done (layout=legacy)."
 echo "output dir: $OUTPUT_DIR"

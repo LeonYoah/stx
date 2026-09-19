@@ -30,6 +30,8 @@
 
 `<arch>` ∈ `amd64` \| `arm64`。
 
+控制面一键安装目标 OS：Ubuntu / Debian / Rocky / Alma / CentOS Stream / RHEL 8+（amd64、arm64），以及 CentOS 7 **仅 amd64**（glibc217 Node）。**CentOS 7 arm64 不支持**（无对应 Node 构建）。macOS / Windows 不是一键安装目标。
+
 ### 2.2 deps Release 资产（独立、可复用）
 
 | 资产模式 | 示例 |
@@ -170,7 +172,8 @@ $INSTALL_DIR/deps/start-observability.sh  # 可选 bundled
 | 每个 `v*` 重打并上传 node / 三件套 | 这两类只在 tag `deps`；版本工作流不传 `--emit-deps` |
 | 假定纯静态 `webserver/static` | Next standalone + Node；deps/node 或系统 node |
 | 国内写死单一代理域名 | 五节点测速 + 可覆盖 `STX_DOWNLOAD_MIRROR_PREFIX` |
-| all-in-one 塞入三件套「图省事」 | all-in-one 仅管控面；监控走外部或二进制 bundled |
+| all-in-one 塞入三件套「图省事」 | all-in-one 仅管控面；全量监控用 `deploy/docker/docker-compose.yml` |
+| 假定用户必须跑脚本才能装 | README 提供手动下载资产表 + `packages/` + `install.sh --offline` |
 
 ---
 

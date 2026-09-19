@@ -38,6 +38,7 @@ import (
 	"sync"
 	"time"
 
+	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
 	"github.com/LeonYoah/stx/internal/config"
 	"github.com/LeonYoah/stx/internal/logger"
 	"github.com/LeonYoah/stx/internal/seatunnel"
@@ -270,6 +271,10 @@ type Service struct {
 	// preparedPlugins stores plugin bundles already transferred and installed on an Agent.
 	// preparedPlugins 保存已传输并安装到 Agent 的插件包标记。
 	preparedPlugins map[string]time.Time
+
+	// executionService stores shared execution state for package operations.
+	// executionService 保存安装包操作的公共执行状态。
+	executionService *executionapp.Service
 }
 
 type preparedPackageCacheEntry struct {
@@ -388,6 +393,44 @@ func (s *Service) SetNodeJVMResolver(resolver NodeJVMResolver) {
 // SetConfigInitializer 设置用于初始化集群配置的配置初始化器。
 func (s *Service) SetConfigInitializer(initializer ConfigInitializer) {
 	s.configInitializer = initializer
+}
+
+// SetExecutionService sets the shared execution service used by package operations.
+// SetExecutionService 设置安装包操作使用的公共执行服务。
+func (s *Service) SetExecutionService(service *executionapp.Service) {
+	if s == nil {
+		return
+	}
+	s.executionService = service
+}
+
+// RequestCancel stops a package download through the real downloader signal.
+// RequestCancel 通过真实下载停止信号取消安装包下载。
+func (s *Service) RequestCancel(ctx context.Context, item *executionapp.Execution, actor executionapp.Actor) (executionapp.CancelResult, error) {
+	if item == nil || strings.TrimSpace(item.ModuleRef) == "" {
+		return executionapp.CancelResult{}, ErrDownloadNotFound
+	}
+	task, err := s.GetDownloadStatus(ctx, item.ModuleRef)
+	if err != nil {
+		return executionapp.CancelResult{}, err
+	}
+	if task.OwnerUserID != 0 && task.OwnerUserID != actor.UserID && !actor.IsAdmin {
+		return executionapp.CancelResult{}, executionapp.ErrPermissionDenied
+	}
+	updated, err := s.CancelDownload(ctx, task.Version)
+	if err != nil {
+		return executionapp.CancelResult{}, err
+	}
+	switch updated.Status {
+	case DownloadStatusCancelled:
+		return executionapp.CancelResult{Status: executionapp.StatusCancelled, Cancellable: false, CancellableReason: "package download stopped"}, nil
+	case DownloadStatusCancelling:
+		return executionapp.CancelResult{Status: executionapp.StatusCancelling, Cancellable: true, CancellableReason: "package download is still stopping"}, nil
+	case DownloadStatusCompleted:
+		return executionapp.CancelResult{Status: executionapp.StatusSucceeded, Cancellable: false, CancellableReason: "package download already completed"}, nil
+	default:
+		return executionapp.CancelResult{Status: executionapp.StatusFailed, Cancellable: false, CancellableReason: "package download is no longer cancellable"}, nil
+	}
 }
 
 // ==================== Version Management 版本管理 ====================
@@ -894,6 +937,12 @@ var ErrDownloadNotFound = errors.New("download task not found / 下载任务未�
 // StartDownload starts downloading a package from mirror to local storage.
 // StartDownload 开始从镜像源下载安装包到本地存储。
 func (s *Service) StartDownload(ctx context.Context, req *DownloadRequest) (*DownloadTask, error) {
+	return s.startDownload(ctx, req, "", 0)
+}
+
+// startDownload creates a download task with optional shared execution ownership before the worker starts.
+// startDownload 在工作协程启动前创建带有可选公共执行归属的下载任务。
+func (s *Service) startDownload(ctx context.Context, req *DownloadRequest, executionID string, ownerUserID uint64) (*DownloadTask, error) {
 	version := strings.TrimSpace(req.Version)
 	if !packageVersionRegexp.MatchString(version) {
 		return nil, ErrInvalidPackageVersion
@@ -901,12 +950,13 @@ func (s *Service) StartDownload(ctx context.Context, req *DownloadRequest) (*Dow
 	req.Version = version
 
 	s.downloadsMu.Lock()
-	defer s.downloadsMu.Unlock()
 
 	// Check if download is already in progress / 检查是否已有下载正在进行
 	if existing, ok := s.downloads[req.Version]; ok {
 		if existing.Status == DownloadStatusDownloading || existing.Status == DownloadStatusPending {
-			return existing, ErrDownloadInProgress
+			result := cloneDownloadTask(existing)
+			s.downloadsMu.Unlock()
+			return result, ErrDownloadInProgress
 		}
 	}
 
@@ -930,14 +980,23 @@ func (s *Service) StartDownload(ctx context.Context, req *DownloadRequest) (*Dow
 		Progress:    0,
 		Message:     "准备下载 / Preparing download",
 		StartTime:   time.Now(),
+		ExecutionID: strings.TrimSpace(executionID),
+		OwnerUserID: ownerUserID,
 	}
+	// Keep cancellation tied to the HTTP request so cancelling a task closes the network body.
+	// 将取消信号绑定到 HTTP 请求，确保取消任务时同时关闭网络请求。
+	downloadCtx, cancel := context.WithCancel(context.Background())
+	task.cancel = cancel
+	task.done = make(chan struct{})
 
 	s.downloads[req.Version] = task
+	result := cloneDownloadTask(task)
+	s.downloadsMu.Unlock()
 
 	// Start download in background / 在后台开始下载
-	go s.runDownload(context.Background(), task)
+	go s.runDownload(downloadCtx, task)
 
-	return task, nil
+	return result, nil
 }
 
 // GetDownloadStatus returns the current download status for a version.
@@ -951,7 +1010,7 @@ func (s *Service) GetDownloadStatus(ctx context.Context, version string) (*Downl
 		return nil, ErrDownloadNotFound
 	}
 
-	return task, nil
+	return cloneDownloadTask(task), nil
 }
 
 // CancelDownload cancels an ongoing download.
@@ -963,27 +1022,39 @@ func (s *Service) CancelDownload(ctx context.Context, version string) (*Download
 	}
 
 	s.downloadsMu.Lock()
-	defer s.downloadsMu.Unlock()
 
 	task, ok := s.downloads[version]
 	if !ok {
+		s.downloadsMu.Unlock()
 		return nil, ErrDownloadNotFound
 	}
 
-	if task.Status != DownloadStatusDownloading && task.Status != DownloadStatusPending {
-		return task, nil // Already completed or failed / 已完成或失败
+	if task.Status != DownloadStatusDownloading && task.Status != DownloadStatusPending && task.Status != DownloadStatusCancelling {
+		result := cloneDownloadTask(task)
+		s.downloadsMu.Unlock()
+		return result, nil // Already completed or failed / 已完成或失败
 	}
 
-	now := time.Now()
-	task.Status = DownloadStatusCancelled
-	task.Message = "下载已取消 / Download cancelled"
-	task.EndTime = &now
-
-	// Clean up temp file / 清理临时文件
-	tempPath := filepath.Join(s.tempDir, fmt.Sprintf("apache-seatunnel-%s-bin.tar.gz.tmp", version))
-	os.Remove(tempPath)
-
-	return task, nil
+	// Mark cancellation as in progress; only the downloader may publish cancelled after it stops.
+	// 先标记为取消中，只有后台下载确认停止后才能对外报告 cancelled。
+	task.Status = DownloadStatusCancelling
+	task.Message = "正在停止下载 / Stopping download"
+	if task.cancel != nil {
+		task.cancel()
+	}
+	done := task.done
+	s.downloadsMu.Unlock()
+	if done != nil {
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			// Return cancelling instead of claiming the download has stopped.
+			// 超时后仍返回 cancelling，不能假报已经停止。
+		}
+	}
+	s.downloadsMu.RLock()
+	defer s.downloadsMu.RUnlock()
+	return cloneDownloadTask(task), nil
 }
 
 // ListDownloads returns all download tasks.
@@ -994,17 +1065,41 @@ func (s *Service) ListDownloads(ctx context.Context) []*DownloadTask {
 
 	tasks := make([]*DownloadTask, 0, len(s.downloads))
 	for _, task := range s.downloads {
-		tasks = append(tasks, task)
+		tasks = append(tasks, cloneDownloadTask(task))
 	}
 	return tasks
+}
+
+// cloneDownloadTask returns a response-safe copy without internal cancellation handles.
+// cloneDownloadTask 返回不包含内部取消句柄的响应副本。
+func cloneDownloadTask(task *DownloadTask) *DownloadTask {
+	if task == nil {
+		return nil
+	}
+	result := *task
+	result.cancel = nil
+	result.done = nil
+	return &result
 }
 
 // runDownload executes the download process.
 // runDownload 执行下载过程。
 func (s *Service) runDownload(ctx context.Context, task *DownloadTask) {
+	defer func() {
+		close(task.done)
+		s.finishDownloadExecution(task)
+	}()
 	logger.InfoF(ctx, "[Installer] 开始下载安装包 / Start downloading package: version=%s, mirror=%s", task.Version, task.Mirror)
 
 	s.downloadsMu.Lock()
+	if task.Status == DownloadStatusCancelling {
+		now := time.Now()
+		task.Status = DownloadStatusCancelled
+		task.Message = "下载已取消 / Download cancelled"
+		task.EndTime = &now
+		s.downloadsMu.Unlock()
+		return
+	}
 	task.Status = DownloadStatusDownloading
 	task.Message = "正在下载 / Downloading"
 	s.downloadsMu.Unlock()
@@ -1033,16 +1128,21 @@ func (s *Service) runDownload(ctx context.Context, task *DownloadTask) {
 		return
 	}
 
-	// Create HTTP request / 创建 HTTP 请求
-	resp, err := http.Get(task.DownloadURL)
+	// Create a cancellable HTTP request so cancellation closes the active network operation.
+	// 创建可取消的 HTTP 请求，确保取消时能停止当前网络操作。
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, task.DownloadURL, nil)
 	if err != nil {
+		s.markDownloadFailed(task, fmt.Sprintf("创建请求失败 / Failed to create request: %v", err), tempPath)
+		return
+	}
+	resp, err := http.DefaultClient.Do(request)
+	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			s.markDownloadCancelled(task, tempPath)
+			return
+		}
 		logger.ErrorF(ctx, "[Installer] 下载请求失败 / Download request failed: version=%s, error=%v", task.Version, err)
-		s.downloadsMu.Lock()
-		now := time.Now()
-		task.Status = DownloadStatusFailed
-		task.Error = fmt.Sprintf("请求失败 / Request failed: %v", err)
-		task.EndTime = &now
-		s.downloadsMu.Unlock()
+		s.markDownloadFailed(task, fmt.Sprintf("请求失败 / Request failed: %v", err), tempPath)
 		return
 	}
 	defer resp.Body.Close()
@@ -1083,9 +1183,15 @@ func (s *Service) runDownload(ctx context.Context, task *DownloadTask) {
 	var lastDownloaded int64
 
 	for {
+		select {
+		case <-ctx.Done():
+			s.markDownloadCancelled(task, tempPath)
+			return
+		default:
+		}
 		// Check if cancelled / 检查是否已取消
 		s.downloadsMu.RLock()
-		if task.Status == DownloadStatusCancelled {
+		if task.Status == DownloadStatusCancelling || task.Status == DownloadStatusCancelled {
 			s.downloadsMu.RUnlock()
 			out.Close()
 			os.Remove(tempPath)
@@ -1131,13 +1237,11 @@ func (s *Service) runDownload(ctx context.Context, task *DownloadTask) {
 			break
 		}
 		if err != nil {
-			s.downloadsMu.Lock()
-			now := time.Now()
-			task.Status = DownloadStatusFailed
-			task.Error = fmt.Sprintf("下载失败 / Download failed: %v", err)
-			task.EndTime = &now
-			s.downloadsMu.Unlock()
-			os.Remove(tempPath)
+			if errors.Is(err, context.Canceled) {
+				s.markDownloadCancelled(task, tempPath)
+				return
+			}
+			s.markDownloadFailed(task, fmt.Sprintf("下载失败 / Download failed: %v", err), tempPath)
 			return
 		}
 	}
@@ -1146,19 +1250,26 @@ func (s *Service) runDownload(ctx context.Context, task *DownloadTask) {
 	out.Close()
 
 	// Move temp file to final location / 将临时文件移动到最终位置
+	s.downloadsMu.RLock()
+	cancelling := task.Status == DownloadStatusCancelling || ctx.Err() != nil
+	s.downloadsMu.RUnlock()
+	if cancelling {
+		s.markDownloadCancelled(task, tempPath)
+		return
+	}
 	if err := os.Rename(tempPath, finalPath); err != nil {
-		s.downloadsMu.Lock()
-		now := time.Now()
-		task.Status = DownloadStatusFailed
-		task.Error = fmt.Sprintf("移动文件失败 / Failed to move file: %v", err)
-		task.EndTime = &now
-		s.downloadsMu.Unlock()
-		os.Remove(tempPath)
+		s.markDownloadFailed(task, fmt.Sprintf("移动文件失败 / Failed to move file: %v", err), tempPath)
 		return
 	}
 
 	// Mark as completed / 标记为完成
 	s.downloadsMu.Lock()
+	if task.Status == DownloadStatusCancelling || ctx.Err() != nil {
+		s.downloadsMu.Unlock()
+		_ = os.Remove(finalPath)
+		s.markDownloadCancelled(task, tempPath)
+		return
+	}
 	now := time.Now()
 	task.Status = DownloadStatusCompleted
 	task.Progress = 100
@@ -1168,6 +1279,65 @@ func (s *Service) runDownload(ctx context.Context, task *DownloadTask) {
 	s.downloadsMu.Unlock()
 
 	logger.InfoF(ctx, "[Installer] 下载完成 / Download completed: version=%s, size=%d bytes", task.Version, downloaded)
+}
+
+// finishDownloadExecution mirrors the actual downloader result to the shared execution record.
+// finishDownloadExecution 将真实下载结果同步到公共执行记录。
+func (s *Service) finishDownloadExecution(task *DownloadTask) {
+	if s.executionService == nil || task == nil || strings.TrimSpace(task.ExecutionID) == "" {
+		return
+	}
+	s.downloadsMu.RLock()
+	status := task.Status
+	s.downloadsMu.RUnlock()
+	var target executionapp.Status
+	switch status {
+	case DownloadStatusCompleted:
+		target = executionapp.StatusSucceeded
+	case DownloadStatusCancelled:
+		target = executionapp.StatusCancelled
+	case DownloadStatusFailed:
+		target = executionapp.StatusFailed
+	default:
+		return
+	}
+	item, err := s.executionService.Get(context.Background(), executionapp.Actor{UserID: task.OwnerUserID}, task.ExecutionID)
+	if err != nil || item == nil || executionapp.IsTerminal(item.Status) {
+		return
+	}
+	_ = s.executionService.Transition(context.Background(), task.ExecutionID, item.Status, target, map[string]any{
+		"progress":      task.Progress,
+		"result_ref":    task.Version,
+		"error_message": task.Error,
+		"cancellable":   false,
+	})
+}
+
+// markDownloadCancelled publishes cancelled only after the worker has stopped and removes partial output.
+// markDownloadCancelled 仅在工作协程停止后发布 cancelled，并清理未完成文件。
+func (s *Service) markDownloadCancelled(task *DownloadTask, tempPath string) {
+	_ = os.Remove(tempPath)
+	s.downloadsMu.Lock()
+	defer s.downloadsMu.Unlock()
+	now := time.Now()
+	task.Status = DownloadStatusCancelled
+	task.Message = "下载已取消 / Download cancelled"
+	task.EndTime = &now
+}
+
+// markDownloadFailed records a failure and removes any partial output.
+// markDownloadFailed 记录失败并清理未完成文件。
+func (s *Service) markDownloadFailed(task *DownloadTask, message, tempPath string) {
+	_ = os.Remove(tempPath)
+	s.downloadsMu.Lock()
+	defer s.downloadsMu.Unlock()
+	if task.Status == DownloadStatusCancelled {
+		return
+	}
+	now := time.Now()
+	task.Status = DownloadStatusFailed
+	task.Error = message
+	task.EndTime = &now
 }
 
 // ==================== Precheck 预检查 ====================

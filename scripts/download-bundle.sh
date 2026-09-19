@@ -19,8 +19,50 @@ set -euo pipefail
 # Build an offline install bundle on a networked machine.
 # 在有网机器上组装离线安装包。
 
+STX_GITHUB_OWNER="${STX_GITHUB_OWNER:-LeonYoah}"
+STX_GITHUB_REPO="${STX_GITHUB_REPO:-stx}"
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# curl|bash 时仓库不在本地：从 GitHub raw 拉辅助脚本。/ When piped via curl|bash, fetch helpers from GitHub raw.
+stx_bootstrap_root_if_needed() {
+  if [[ -f "$ROOT_DIR/support-files/release/download-lib.sh" ]]; then
+    return 0
+  fi
+  local boot ref prefix base path url
+  boot="${TMPDIR:-/tmp}/stx-bootstrap-bundle-$$"
+  mkdir -p "$boot/support-files/release" "$boot/bin"
+  ref="${STX_BOOTSTRAP_REF:-main}"
+  prefix=""
+  if [[ -n "${STX_DOWNLOAD_MIRROR_PREFIX:-}" ]]; then
+    prefix="${STX_DOWNLOAD_MIRROR_PREFIX%/}"
+  elif [[ "${STX_DOWNLOAD_REGION:-}" == "cn" ]]; then
+    prefix="https://v4.gh-proxy.org"
+  fi
+  base="https://raw.githubusercontent.com/${STX_GITHUB_OWNER}/${STX_GITHUB_REPO}/${ref}"
+  echo "[INFO] standalone mode: bootstrap helpers from ${ref}" >&2
+  for path in \
+    support-files/release/download-lib.sh \
+    support-files/release/install-core.sh \
+    support-files/release/install.sh \
+    support-files/release/start.sh \
+    support-files/release/stop.sh \
+    support-files/release/status.sh \
+    config.example.yaml
+  do
+    url="${base}/${path}"
+    if [[ -n "$prefix" ]]; then
+      url="${prefix}/${base}/${path}"
+    fi
+    mkdir -p "$(dirname "$boot/$path")"
+    curl -fsSL --retry 3 --retry-delay 1 -o "$boot/$path" "$url"
+  done
+  ROOT_DIR="$boot"
+  export STX_BOOTSTRAP_ROOT="$boot"
+}
+
+stx_bootstrap_root_if_needed
 # shellcheck source=../support-files/release/download-lib.sh
 source "$ROOT_DIR/support-files/release/download-lib.sh"
 
@@ -29,29 +71,36 @@ usage() {
 Build STX offline bundle
 
 Usage:
-  scripts/download-bundle.sh --version <tag> [options]
+  curl -fsSL <release-or-proxy-url>/download-bundle.sh | bash -s -- [options]
+  scripts/download-bundle.sh [options]
 
 Options:
-  --version <tag>                 Required release tag (e.g. v1.2.0)
+  --version <tag>                 Release tag (default: latest)
   --arch <amd64|arm64>            Default: auto-detect
   --node-variant <official|glibc217>  Default: auto by glibc
-  --with-observability            Include observability deps package
+  --without-node                  Skip Node package (local Node ≥ 18.18, or target has it)
+  --without-observability         Skip observability deps package
   --with-agent                    Include stx-agent binary (default: true)
   --without-agent                 Skip stx-agent
   --deps-tag <tag>                Deps release tag (default: deps)
-  --output-dir <path>             Output parent dir (default: dist/offline)
+  --output-dir <path>             Output parent dir (default: ./dist/offline)
   --region <cn|global>            Force download region
   -h, --help
 USAGE
 }
 
-VERSION=""
+VERSION="${STX_VERSION:-latest}"
 ARCH=""
 NODE_VARIANT=""
-WITH_OBS=false
+WITH_OBS=true
 WITH_AGENT=true
+WITHOUT_NODE=false
 DEPS_TAG="${STX_DEPS_TAG:-deps}"
-OUTPUT_PARENT="${OUTPUT_DIR:-$ROOT_DIR/dist/offline}"
+if [[ -n "${STX_BOOTSTRAP_ROOT:-}" ]]; then
+  OUTPUT_PARENT="${OUTPUT_DIR:-$(pwd)/dist/offline}"
+else
+  OUTPUT_PARENT="${OUTPUT_DIR:-$ROOT_DIR/dist/offline}"
+fi
 REGION=""
 
 while [[ $# -gt 0 ]]; do
@@ -60,6 +109,8 @@ while [[ $# -gt 0 ]]; do
     --arch) ARCH="${2:-}"; shift 2 ;;
     --node-variant) NODE_VARIANT="${2:-}"; shift 2 ;;
     --with-observability) WITH_OBS=true; shift ;;
+    --without-observability) WITH_OBS=false; shift ;;
+    --without-node) WITHOUT_NODE=true; shift ;;
     --with-agent) WITH_AGENT=true; shift ;;
     --without-agent) WITH_AGENT=false; shift ;;
     --deps-tag) DEPS_TAG="${2:-}"; shift 2 ;;
@@ -81,6 +132,21 @@ fi
 
 region="$(stx_detect_download_region)"
 stx_select_mirror_prefix "$region"
+
+# Resolve latest like install-online. / 与在线安装一样解析 latest。
+if [[ "$VERSION" == "latest" ]]; then
+  api="https://api.github.com/repos/${STX_GITHUB_OWNER}/${STX_GITHUB_REPO}/releases/latest"
+  url="$api"
+  if [[ -n "${STX_SELECTED_MIRROR_PREFIX:-}" ]]; then
+    url="${STX_SELECTED_MIRROR_PREFIX%/}/https://api.github.com/repos/${STX_GITHUB_OWNER}/${STX_GITHUB_REPO}/releases/latest"
+  fi
+  VERSION="$(curl -fsSL "$url" 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("tag_name",""))' || true)"
+  if [[ -z "$VERSION" ]]; then
+    echo "[ERROR] cannot resolve latest release tag; pass --version explicitly" >&2
+    exit 1
+  fi
+  echo "[INFO] resolved latest -> $VERSION"
+fi
 
 BUNDLE_NAME="stx-offline-bundle-${VERSION}-linux-${ARCH}"
 BUNDLE_DIR="$OUTPUT_PARENT/$BUNDLE_NAME"
@@ -117,15 +183,35 @@ if [[ "$WITH_AGENT" == "true" ]]; then
 fi
 
 node_ok=false
-for major in 22 18; do
-  asset="node-${major}-${NODE_VARIANT}-linux-${ARCH}.tar.gz"
-  if stx_download_release_asset "$DEPS_TAG" "$asset" "$BUNDLE_DIR/packages/$asset" 2>/dev/null; then
-    stx_download_release_asset "$DEPS_TAG" "${asset}.sha256" "$BUNDLE_DIR/packages/${asset}.sha256" 2>/dev/null || true
-    node_ok=true
-    break
+need_node=true
+if [[ "$WITHOUT_NODE" == "true" ]]; then
+  echo "[INFO] --without-node: skip node package"
+  need_node=false
+elif command -v node >/dev/null 2>&1; then
+  if python3 - <<'PY'
+import re, subprocess, sys
+out = subprocess.check_output(["node", "-v"], text=True).strip().lstrip("v")
+parts = [int(x) for x in re.split(r"[^\d]+", out) if x.isdigit()]
+major, minor, patch = (parts + [0, 0, 0])[:3]
+sys.exit(0 if (major > 18 or (major == 18 and minor >= 18)) else 1)
+PY
+  then
+    echo "[INFO] local node $(node -v) is usable; skip node package in bundle"
+    need_node=false
   fi
-done
-[[ "$node_ok" == "true" ]] || echo "[WARN] node package not found on deps tag=$DEPS_TAG"
+fi
+
+if [[ "$need_node" == "true" ]]; then
+  for major in 22 18; do
+    asset="node-${major}-${NODE_VARIANT}-linux-${ARCH}.tar.gz"
+    if stx_download_release_asset "$DEPS_TAG" "$asset" "$BUNDLE_DIR/packages/$asset" 2>/dev/null; then
+      stx_download_release_asset "$DEPS_TAG" "${asset}.sha256" "$BUNDLE_DIR/packages/${asset}.sha256" 2>/dev/null || true
+      node_ok=true
+      break
+    fi
+  done
+  [[ "$node_ok" == "true" ]] || echo "[WARN] node package not found on deps tag=$DEPS_TAG"
+fi
 
 if [[ "$WITH_OBS" == "true" ]]; then
   obs_asset="observability-prom3.9.1-am0.31.1-gf12.3.3-linux-${ARCH}.tar.gz"
@@ -166,17 +252,24 @@ EOF
 cat >"$BUNDLE_DIR/README-OFFLINE.md" <<EOF
 # STX Offline Bundle ($VERSION / $ARCH)
 
-1. Copy this directory to the offline host.
+1. Copy this directory (or the \`.tar.gz\` beside it) to the offline host.
 2. Run:
 
 \`\`\`bash
 ./install.sh --install-dir /opt/stx --offline
 \`\`\`
 
-Optional flags: \`--with-observability\` \`--no-start\` \`--no-systemd\`
+Optional: \`--without-observability\` \`--no-start\` \`--no-systemd\`
 
 This bundle must not require network access during install.
 EOF
 
-echo "[OK] offline bundle ready: $BUNDLE_DIR"
-echo "     transfer the directory (or tar czf it) to the offline host, then ./install.sh --offline"
+tar -C "$OUTPUT_PARENT" -czf "${BUNDLE_DIR}.tar.gz" "$BUNDLE_NAME"
+if [[ -n "${STX_BOOTSTRAP_ROOT:-}" ]]; then
+  rm -rf "$STX_BOOTSTRAP_ROOT"
+fi
+
+echo "[OK] offline bundle ready:"
+echo "     dir:  $BUNDLE_DIR"
+echo "     tar:  ${BUNDLE_DIR}.tar.gz"
+echo "     transfer to the offline host, then: tar -xzf ... && ./install.sh --offline"

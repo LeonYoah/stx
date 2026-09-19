@@ -1,0 +1,8 @@
+# SQLite：不启外部数据库容器
+# SQLite: no external DB container
+#
+#   cp config.example.yaml config.yaml   # database.type=sqlite
+#   docker compose -f docker-compose.sqlite.yml up -d
+
+include:
+  - path: compose.base.yml

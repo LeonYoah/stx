@@ -565,9 +565,13 @@ if [[ "$LAYOUT" == "split" ]]; then
     write_sha256 "$OUTPUT_DIR/stx-agent-linux-${arch}"
 
     frontend_name="frontend-standalone-${APP_VERSION_SAFE}-linux-${arch}.tar.gz"
+    frontend_alias="frontend-standalone-linux-${arch}.tar.gz"
     echo "creating $frontend_name"
     tar -C "$FRONTEND_DIST" -czf "$OUTPUT_DIR/$frontend_name" .
     write_sha256 "$OUTPUT_DIR/$frontend_name"
+    # latest/download 稳定文件名，方便 README 直链。/ Stable name for releases/latest/download links.
+    cp "$OUTPUT_DIR/$frontend_name" "$OUTPUT_DIR/$frontend_alias"
+    cp "$OUTPUT_DIR/${frontend_name}.sha256" "$OUTPUT_DIR/${frontend_alias}.sha256"
 
     if [[ "$EMIT_DEPS" == "true" ]]; then
       emit_deps_packages "$arch"
@@ -578,6 +582,27 @@ if [[ "$LAYOUT" == "split" ]]; then
   cp "$ROOT_DIR/scripts/install-online.sh" "$OUTPUT_DIR/install-online.sh"
   cp "$ROOT_DIR/scripts/download-bundle.sh" "$OUTPUT_DIR/download-bundle.sh"
   chmod +x "$OUTPUT_DIR/install-online.sh" "$OUTPUT_DIR/download-bundle.sh"
+
+  # 手动安装辅助包（无仓库时用）。/ Helpers tarball for manual install without a git clone.
+  helpers_stage="$STAGE_DIR/install-helpers"
+  rm -rf "$helpers_stage"
+  mkdir -p "$helpers_stage/bin" "$helpers_stage/packages"
+  cp "$ROOT_DIR/support-files/release/install.sh" "$helpers_stage/install.sh"
+  cp "$ROOT_DIR/support-files/release/download-lib.sh" "$helpers_stage/download-lib.sh"
+  cp "$ROOT_DIR/support-files/release/install-core.sh" "$helpers_stage/install-core.sh"
+  cp "$ROOT_DIR/support-files/release/start.sh" "$helpers_stage/bin/start.sh"
+  cp "$ROOT_DIR/support-files/release/stop.sh" "$helpers_stage/bin/stop.sh"
+  cp "$ROOT_DIR/support-files/release/status.sh" "$helpers_stage/bin/status.sh"
+  cp "$ROOT_DIR/config.example.yaml" "$helpers_stage/config.example.yaml"
+  chmod +x "$helpers_stage/install.sh" "$helpers_stage/bin/"*.sh
+  tar -C "$helpers_stage" -czf "$OUTPUT_DIR/stx-install-helpers.tar.gz" .
+  write_sha256 "$OUTPUT_DIR/stx-install-helpers.tar.gz"
+
+  # Docker Compose 全量包（无仓库时下载解压即可）。/ Full Docker Compose pack for users without a clone.
+  if [[ -d "$ROOT_DIR/deploy/docker" ]]; then
+    tar -C "$ROOT_DIR/deploy" -czf "$OUTPUT_DIR/stx-docker-compose.tar.gz" docker
+    write_sha256 "$OUTPUT_DIR/stx-docker-compose.tar.gz"
+  fi
 
   (
     cd "$OUTPUT_DIR"

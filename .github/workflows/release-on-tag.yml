@@ -101,6 +101,10 @@ jobs:
             release-assets/SHA256SUMS
             release-assets/install-online.sh
             release-assets/download-bundle.sh
+            release-assets/stx-install-helpers.tar.gz
+            release-assets/stx-docker-compose.tar.gz
+            release-assets/stx-install-helpers.tar.gz.sha256
+            release-assets/stx-docker-compose.tar.gz.sha256
           generate_release_notes: true
           fail_on_unmatched_files: false
 
@@ -149,6 +153,7 @@ jobs:
             type=ref,event=tag
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
 
       - name: Build and push
         uses: docker/build-push-action@v6

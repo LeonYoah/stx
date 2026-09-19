@@ -1,0 +1,37 @@
+# PostgreSQL 全量
+# PostgreSQL full stack
+#
+#   cp config.example.yaml config.yaml   # database.type=postgres / host=postgres
+#   docker compose -f docker-compose.postgres.yml up -d
+
+include:
+  - path: compose.base.yml
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: stx-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-stx}
+      POSTGRES_USER: ${POSTGRES_USER:-stx}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-stx}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-stx} -d ${POSTGRES_DB:-stx}"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    networks: [stx]
+
+  stx-backend:
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres-data:

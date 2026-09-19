@@ -1,0 +1,38 @@
+# 默认：MySQL 全量
+# Default: MySQL full stack
+#
+#   cp config.example.yaml config.yaml   # 确认 database 为 mysql / host=mysql
+#   docker compose up -d
+
+include:
+  - path: compose.base.yml
+
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: stx-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-stxroot}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-stx}
+      MYSQL_USER: ${MYSQL_USER:-stx}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-stx}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-stxroot}"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    networks: [stx]
+
+  stx-backend:
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+volumes:
+  mysql-data:

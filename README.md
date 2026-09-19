@@ -52,9 +52,22 @@ STX is the control plane for that work: one place to manage hosts, clusters, pac
                         └─────────────────┘
 ```
 
+## Supported platforms
+
+One-click control-plane install targets **Linux** on **amd64 / arm64**.
+
+| Distro | amd64 | arm64 | Notes |
+| --- | --- | --- | --- |
+| Ubuntu / Debian | Yes | Yes | Preferred; skip Node download if local Node ≥ 18.18 |
+| Rocky / Alma / CentOS Stream / RHEL 8+ | Yes | Yes | Official Node 22 |
+| CentOS 7 (glibc 2.17) | Yes | **No** | amd64 only via `node-18-glibc217`. No arm64 glibc217 Node build |
+| Other systemd Linux | Usually | Usually | Needs glibc ≥ 2.17; glibc &lt; 2.27 follows CentOS 7 Node rules |
+
+macOS / Windows are for local development, not the one-click installer. Default ports: API **17800**, frontend **17880**, gRPC **17890**.
+
 ## Quick start
 
-### Requirements
+### Requirements (local development)
 
 - Go >= 1.24
 - Node.js >= 18
@@ -81,21 +94,99 @@ pnpm dev
 
 Open `http://localhost:3000` and sign in with `admin` / `admin123` (or the values in `config.yaml`).
 
-### Offline install (release bundle)
+### Online install (recommended)
+
+Installs the latest Release by default.
 
 ```bash
-scripts/package-release.sh \
-  --arch amd64 \
-  --bundle-observability without \
-  --node-major 18 \
-  --node-variant glibc217
+# Global
+curl -fsSL https://github.com/LeonYoah/stx/releases/latest/download/install-online.sh | bash
 
-tar -xzf stx-<version>-linux-amd64-node18-glibc217-without-observability.tar.gz
-cd stx-<version>-linux-amd64-node18-glibc217-without-observability
-sudo ./install.sh
+# China (URL already wrapped with gh-proxy)
+curl -fsSL https://v4.gh-proxy.org/https://github.com/LeonYoah/stx/releases/latest/download/install-online.sh | bash
 ```
 
-See [docs/00-快速开始.md](./docs/00-快速开始.md) and [docs/打包发布说明.md](./docs/打包发布说明.md) for deployment details.
+Useful flags: `--install-dir /opt/stx`, `--arch amd64|arm64`, `--without-node`, `--without-observability`, `--no-systemd`, `--no-start`.  
+Scripts pick Node variant from glibc (&lt;2.27 → glibc217); skip Node when local ≥ 18.18, or pass `--without-node`.
+
+### Offline install (script-built bundle)
+
+```bash
+curl -fsSL https://github.com/LeonYoah/stx/releases/latest/download/download-bundle.sh | bash
+# China: https://v4.gh-proxy.org/https://github.com/LeonYoah/stx/releases/latest/download/download-bundle.sh
+```
+
+| Environment | Bundle includes Node? |
+| --- | --- |
+| glibc ≤ 2.17 (CentOS 7) | Yes — `node-18-glibc217` (**amd64 only**) |
+| glibc > 2.17 and local Node ≥ 18.18 | **No** (or `--without-node`) |
+| glibc > 2.17 without usable Node | Yes — `node-22-official` |
+
+CentOS 7: `bash -s -- --node-variant glibc217 --arch amd64`. Output: `dist/offline/stx-offline-bundle-*.tar.gz`.
+
+```bash
+tar -xzf dist/offline/stx-offline-bundle-*-linux-*.tar.gz
+cd stx-offline-bundle-*-linux-*
+sudo ./install.sh --install-dir /opt/stx --offline
+```
+
+### Manual download (cannot run scripts)
+
+1. Download helpers: [stx-install-helpers.tar.gz](https://github.com/LeonYoah/stx/releases/latest/download/stx-install-helpers.tar.gz)  
+2. Put assets below into `packages/`  
+3. `./install.sh --offline`  
+
+China: paste links into [https://gh-proxy.com/](https://gh-proxy.com/).
+
+| Asset | amd64 | arm64 |
+| --- | --- | --- |
+| stx | [download](https://github.com/LeonYoah/stx/releases/latest/download/stx-linux-amd64) | [download](https://github.com/LeonYoah/stx/releases/latest/download/stx-linux-arm64) |
+| frontend | [download](https://github.com/LeonYoah/stx/releases/latest/download/frontend-standalone-linux-amd64.tar.gz) | [download](https://github.com/LeonYoah/stx/releases/latest/download/frontend-standalone-linux-arm64.tar.gz) |
+| stx-agent | [download](https://github.com/LeonYoah/stx/releases/latest/download/stx-agent-linux-amd64) | [download](https://github.com/LeonYoah/stx/releases/latest/download/stx-agent-linux-arm64) |
+| observability | [download](https://github.com/LeonYoah/stx/releases/download/deps/observability-prom3.9.1-am0.31.1-gf12.3.3-linux-amd64.tar.gz) | [download](https://github.com/LeonYoah/stx/releases/download/deps/observability-prom3.9.1-am0.31.1-gf12.3.3-linux-arm64.tar.gz) |
+
+```bash
+ldd --version | head -1
+node -v
+```
+
+| Environment | amd64 | arm64 |
+| --- | --- | --- |
+| glibc ≤ 2.17 (CentOS 7) | [node-18-glibc217](https://github.com/LeonYoah/stx/releases/download/deps/node-18-glibc217-linux-amd64.tar.gz) | unsupported |
+| glibc > 2.17, no Node ≥ 18.18 | [node-22-official](https://github.com/LeonYoah/stx/releases/download/deps/node-22-official-linux-amd64.tar.gz) | [node-22-official](https://github.com/LeonYoah/stx/releases/download/deps/node-22-official-linux-arm64.tar.gz) |
+| Node ≥ 18.18 already | skip | skip |
+
+### Docker full stack
+
+Release asset: `stx-docker-compose.tar.gz` (wired in packaging; available on **new tags**, not yet on older `latest` if 404).
+
+```bash
+mkdir -p stx-docker && cd stx-docker
+curl -fsSL https://github.com/LeonYoah/stx/releases/latest/download/stx-docker-compose.tar.gz | tar -xz
+cd docker
+cp config.example.yaml config.yaml   # edit database for the compose file you use
+docker compose up -d                 # MySQL default
+```
+
+China: paste into [gh-proxy.com](https://gh-proxy.com/), or use the `v4.gh-proxy.org/https://github.com/...` URL.
+
+| DB | Start |
+| --- | --- |
+| MySQL (default) | `docker compose up -d` |
+| SQLite | `docker compose -f docker-compose.sqlite.yml up -d` |
+| PostgreSQL | `docker compose -f docker-compose.postgres.yml up -d` |
+
+| Service | URL |
+| --- | --- |
+| UI | http://127.0.0.1:17880 |
+| API | http://127.0.0.1:17800 |
+| Grafana | http://127.0.0.1:3000 |
+| Prometheus | http://127.0.0.1:9090 |
+| Alertmanager | http://127.0.0.1:9093 |
+
+Single container (no monitoring): `docker run -d -p 17800:17800 -p 17880:17880 -p 17890:17890 ghcr.io/leonyoah/stx-all-in-one:latest`.
+
+More: [docs/00-快速开始.md](./docs/00-快速开始.md), [docs/打包发布说明.md](./docs/打包发布说明.md).
 
 ## Configuration essentials
 

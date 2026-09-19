@@ -26,6 +26,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"strings"
@@ -112,7 +113,54 @@ func (c *Client) RequestWithHeaders(ctx context.Context, method, path string, re
 	return c.request(ctx, method, path, requestBody, headers, result)
 }
 
+// RequestMultipart streams a multipart request without buffering the uploaded file in memory.
+// RequestMultipart 以流式方式发送 multipart 请求，不把上传文件完整读入内存。
+func (c *Client) RequestMultipart(ctx context.Context, method, path string, fields map[string]string, fileField, fileName string, file io.Reader, headers map[string]string, result any) (string, error) {
+	if file == nil {
+		return "", clioutput.NewError(clioutput.CodeUsage, "upload file is required", clioutput.ExitUsage, false)
+	}
+	pipeReader, pipeWriter := io.Pipe()
+	writer := multipart.NewWriter(pipeWriter)
+	go func() {
+		for name, value := range fields {
+			if err := writer.WriteField(name, value); err != nil {
+				_ = pipeWriter.CloseWithError(err)
+				return
+			}
+		}
+		part, err := writer.CreateFormFile(fileField, fileName)
+		if err != nil {
+			_ = pipeWriter.CloseWithError(err)
+			return
+		}
+		if _, err := io.Copy(part, file); err != nil {
+			_ = pipeWriter.CloseWithError(err)
+			return
+		}
+		if err := writer.Close(); err != nil {
+			_ = pipeWriter.CloseWithError(err)
+			return
+		}
+		_ = pipeWriter.Close()
+	}()
+	return c.requestReader(ctx, method, path, pipeReader, writer.FormDataContentType(), headers, result)
+}
+
 func (c *Client) request(ctx context.Context, method, path string, requestBody any, headers map[string]string, result any) (string, error) {
+	var body io.Reader
+	contentType := ""
+	if requestBody != nil {
+		content, err := json.Marshal(requestBody)
+		if err != nil {
+			return "", clioutput.WrapError(err, clioutput.CodeUsage, "encode request body", clioutput.ExitUsage, false)
+		}
+		body = bytes.NewReader(content)
+		contentType = "application/json"
+	}
+	return c.requestReader(ctx, method, path, body, contentType, headers, result)
+}
+
+func (c *Client) requestReader(ctx context.Context, method, path string, body io.Reader, contentType string, headers map[string]string, result any) (string, error) {
 	if c == nil || c.httpClient == nil {
 		return "", errors.New("STX client is not initialized")
 	}
@@ -120,15 +168,6 @@ func (c *Client) request(ctx context.Context, method, path string, requestBody a
 		path = "/" + path
 	}
 	endpoint := c.endpoint(path)
-
-	var body io.Reader
-	if requestBody != nil {
-		content, err := json.Marshal(requestBody)
-		if err != nil {
-			return "", clioutput.WrapError(err, clioutput.CodeUsage, "encode request body", clioutput.ExitUsage, false)
-		}
-		body = bytes.NewReader(content)
-	}
 	request, err := http.NewRequestWithContext(ctx, method, endpoint, body)
 	if err != nil {
 		return "", clioutput.WrapError(err, clioutput.CodeUsage, "build HTTP request", clioutput.ExitUsage, false)
@@ -138,8 +177,8 @@ func (c *Client) request(ctx context.Context, method, path string, requestBody a
 	request.Header.Set("X-STX-Client", clientHeader)
 	request.Header.Set("User-Agent", "stx-cli/"+stxversion.Version)
 	request.Header.Set("X-Request-ID", requestID)
-	if requestBody != nil {
-		request.Header.Set("Content-Type", "application/json")
+	if contentType != "" {
+		request.Header.Set("Content-Type", contentType)
 	}
 	if c.token != "" {
 		request.Header.Set("Authorization", "Bearer "+c.token)

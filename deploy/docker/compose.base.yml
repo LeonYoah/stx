@@ -1,0 +1,96 @@
+# 公共服务：控制面 + 监控（不含数据库）
+# Shared: control plane + monitoring (no database)
+
+name: stx
+
+services:
+  stx-backend:
+    image: ghcr.io/leonyoah/stx-backend:${STX_IMAGE_TAG:-latest}
+    container_name: stx-backend
+    restart: unless-stopped
+    volumes:
+      - ./config.yaml:/opt/stx/config.yaml:ro
+      - stx-data:/opt/stx/data
+      - stx-lib:/opt/stx/lib
+    ports:
+      - "17800:17800"
+      - "17890:17890"
+    networks: [stx]
+
+  stx-frontend:
+    image: ghcr.io/leonyoah/stx-frontend:${STX_IMAGE_TAG:-latest}
+    container_name: stx-frontend
+    restart: unless-stopped
+    environment:
+      PORT: "17880"
+      HOSTNAME: "0.0.0.0"
+      NEXT_PUBLIC_BACKEND_BASE_URL: ${STX_BACKEND_PUBLIC_URL:-http://127.0.0.1:17800}
+    ports:
+      - "17880:17880"
+    depends_on:
+      stx-backend:
+        condition: service_started
+    networks: [stx]
+
+  prometheus:
+    image: prom/prometheus:v3.9.1
+    container_name: stx-prometheus
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-lifecycle
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    depends_on:
+      - stx-backend
+    networks: [stx]
+
+  alertmanager:
+    image: prom/alertmanager:v0.31.1
+    container_name: stx-alertmanager
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    ports:
+      - "9093:9093"
+    depends_on:
+      - stx-backend
+    networks: [stx]
+
+  grafana:
+    image: grafana/grafana:12.3.3
+    container_name: stx-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_HTTP_PORT: "3000"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    networks: [stx]
+
+volumes:
+  stx-data:
+  stx-lib:
+  prometheus-data:
+  alertmanager-data:
+  grafana-data:
+
+networks:
+  stx:
+    driver: bridge

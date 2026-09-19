@@ -1,0 +1,155 @@
+groups:
+  - name: seatunnel-default-recording
+    interval: 30s
+    rules:
+      - record: seatunnel:job_thread_pool_queue_depth:max
+        expr: max by (cluster, instance) (job_thread_pool_queueTaskCount{job="seatunnel_engine_http"})
+
+      - record: seatunnel:job_thread_pool_submit_rate5m
+        expr: sum by (cluster, instance) (rate(job_thread_pool_task_total{job="seatunnel_engine_http"}[5m]))
+
+      - record: seatunnel:job_thread_pool_complete_rate5m
+        expr: sum by (cluster, instance) (rate(job_thread_pool_completedTask_total{job="seatunnel_engine_http"}[5m]))
+
+      - record: seatunnel:job_thread_pool_reject_rate5m
+        expr: sum by (cluster, instance) (rate(job_thread_pool_rejection_total{job="seatunnel_engine_http"}[5m]))
+
+      - record: seatunnel:job_thread_pool_backlog_gap_rate5m
+        expr: seatunnel:job_thread_pool_submit_rate5m - seatunnel:job_thread_pool_complete_rate5m
+
+      - record: seatunnel:jvm_heap_usage_percent
+        expr: |
+          100 * jvm_memory_bytes_used{job="seatunnel_engine_http",area="heap"}
+          /
+          clamp_min(jvm_memory_bytes_max{job="seatunnel_engine_http",area="heap"}, 1)
+
+      - record: seatunnel:jvm_nonheap_usage_percent
+        expr: |
+          100 * jvm_memory_bytes_used{job="seatunnel_engine_http",area="nonheap"}
+          /
+          clamp_min(jvm_memory_bytes_max{job="seatunnel_engine_http",area="nonheap"}, 1)
+
+      - record: seatunnel:gc_time_ratio_percent5m
+        expr: 100 * rate(jvm_gc_collection_seconds_sum{job="seatunnel_engine_http"}[5m])
+
+      - record: seatunnel:fd_usage_percent
+        expr: 100 * process_open_fds{job="seatunnel_engine_http"} / clamp_min(process_max_fds{job="seatunnel_engine_http"}, 1)
+
+      - record: seatunnel:hazelcast_executor_queue_util_percent
+        expr: |
+          100 * hazelcast_executor_queueSize{job="seatunnel_engine_http"}
+          /
+          clamp_min(
+            hazelcast_executor_queueSize{job="seatunnel_engine_http"}
+            + hazelcast_executor_queueRemainingCapacity{job="seatunnel_engine_http"},
+            1
+          )
+
+  - name: seatunnel-default-alerts
+    interval: 15s
+    rules:
+      - alert: SeaTunnelMetricsEndpointDown
+        expr: up{job="seatunnel_engine_http"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "SeaTunnel metrics endpoint is down"
+          description: "Metrics endpoint {{ $labels.instance }} (cluster {{ $labels.cluster }}) has been unreachable for more than 2 minutes."
+
+      - alert: SeaTunnelNodeStateDown
+        expr: node_state{job="seatunnel_engine_http"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "SeaTunnel node is down"
+          description: "SeaTunnel node {{ $labels.address }} in cluster {{ $labels.cluster }} reports node_state=0."
+
+      - alert: SeaTunnelPartitionUnsafe
+        expr: |
+          hazelcast_partition_isClusterSafe{job="seatunnel_engine_http"} == 0
+          or
+          hazelcast_partition_isLocalMemberSafe{job="seatunnel_engine_http"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "SeaTunnel partition safety lost"
+          description: "Cluster {{ $labels.cluster }} has unsafe partition state on {{ $labels.instance }}."
+
+      - alert: SeaTunnelJobThreadPoolQueueHigh
+        expr: job_thread_pool_queueTaskCount{job="seatunnel_engine_http"} > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "SeaTunnel job thread pool queue is high"
+          description: "Queue tasks on {{ $labels.instance }} exceeded 100 for 5 minutes."
+
+      - alert: SeaTunnelCoordinatorBacklogGrowing
+        expr: |
+          seatunnel:job_thread_pool_queue_depth:max > 50
+          and
+          seatunnel:job_thread_pool_backlog_gap_rate5m > 0.5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "SeaTunnel coordinator backlog keeps growing"
+          description: "Queue depth remains high and submit rate is higher than complete rate on {{ $labels.instance }}."
+
+      - alert: SeaTunnelCoordinatorRejectingTasks
+        expr: seatunnel:job_thread_pool_reject_rate5m > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "SeaTunnel coordinator is rejecting tasks"
+          description: "Task rejections detected on {{ $labels.instance }} in cluster {{ $labels.cluster }}."
+
+      - alert: SeaTunnelJVMHeapUsageHigh
+        expr: seatunnel:jvm_heap_usage_percent > 85
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "SeaTunnel JVM heap usage high"
+          description: "Heap usage on {{ $labels.instance }} is above 85% for over 10 minutes."
+
+      - alert: SeaTunnelProcessCpuHigh
+        expr: rate(process_cpu_seconds_total{job="seatunnel_engine_http"}[5m]) > 0.8
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "SeaTunnel process CPU usage high"
+          description: "CPU usage on {{ $labels.instance }} is above 80% for over 10 minutes."
+
+      - alert: SeaTunnelGCTimeHigh
+        expr: seatunnel:gc_time_ratio_percent5m > 20
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "SeaTunnel JVM GC time high"
+          description: "GC time ratio on {{ $labels.instance }} is high (>20%) for over 10 minutes."
+
+      - alert: SeaTunnelFDUsageHigh
+        expr: seatunnel:fd_usage_percent > 80
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "SeaTunnel file descriptor usage high"
+          description: "FD usage on {{ $labels.instance }} exceeds 80% for over 10 minutes."
+
+      - alert: SeaTunnelThreadDeadlock
+        expr: jvm_threads_deadlocked{job="seatunnel_engine_http"} > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "SeaTunnel JVM thread deadlock detected"
+          description: "Deadlocked JVM threads detected on {{ $labels.instance }}."
+

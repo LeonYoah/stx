@@ -18,6 +18,7 @@
 package installer
 
 import (
+	"context"
 	"time"
 
 	"github.com/LeonYoah/stx/internal/seatunnel"
@@ -373,6 +374,7 @@ type DownloadStatus string
 const (
 	DownloadStatusPending     DownloadStatus = "pending"
 	DownloadStatusDownloading DownloadStatus = "downloading"
+	DownloadStatusCancelling  DownloadStatus = "cancelling"
 	DownloadStatusCompleted   DownloadStatus = "completed"
 	DownloadStatusFailed      DownloadStatus = "failed"
 	DownloadStatusCancelled   DownloadStatus = "cancelled"
@@ -394,6 +396,14 @@ type DownloadTask struct {
 	Error           string         `json:"error,omitempty"`
 	StartTime       time.Time      `json:"start_time"`
 	EndTime         *time.Time     `json:"end_time,omitempty"`
+	ExecutionID     string         `json:"execution_id,omitempty"`
+	OwnerUserID     uint64         `json:"-"`
+	// cancel stops the active HTTP request and is not exposed in API responses.
+	// cancel 用于停止正在执行的 HTTP 请求，不对外暴露。
+	cancel context.CancelFunc `json:"-"`
+	// done closes only after the background downloader has stopped.
+	// done 仅在后台下载协程真正停止后关闭。
+	done chan struct{} `json:"-"`
 }
 
 // DownloadRequest represents a request to download a package

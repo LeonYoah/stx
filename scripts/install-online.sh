@@ -19,8 +19,50 @@ set -euo pipefail
 # Online one-click installer: detect region, download assets, invoke install.sh.
 # 在线一键安装：判定地区、下载资产、调用 install.sh。
 
+STX_GITHUB_OWNER="${STX_GITHUB_OWNER:-LeonYoah}"
+STX_GITHUB_REPO="${STX_GITHUB_REPO:-stx}"
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# curl|bash 时仓库不在本地：从 GitHub raw 拉安装辅助脚本。/ When piped via curl|bash, fetch install helpers from GitHub raw.
+stx_bootstrap_root_if_needed() {
+  if [[ -f "$ROOT_DIR/support-files/release/download-lib.sh" ]]; then
+    return 0
+  fi
+  local boot ref prefix base path url
+  boot="${TMPDIR:-/tmp}/stx-bootstrap-$$"
+  mkdir -p "$boot/support-files/release" "$boot/bin"
+  ref="${STX_BOOTSTRAP_REF:-main}"
+  prefix=""
+  if [[ -n "${STX_DOWNLOAD_MIRROR_PREFIX:-}" ]]; then
+    prefix="${STX_DOWNLOAD_MIRROR_PREFIX%/}"
+  elif [[ "${STX_DOWNLOAD_REGION:-}" == "cn" ]]; then
+    prefix="https://v4.gh-proxy.org"
+  fi
+  base="https://raw.githubusercontent.com/${STX_GITHUB_OWNER}/${STX_GITHUB_REPO}/${ref}"
+  echo "[INFO] standalone mode: bootstrap helpers from ${ref}" >&2
+  for path in \
+    support-files/release/download-lib.sh \
+    support-files/release/install-core.sh \
+    support-files/release/install.sh \
+    support-files/release/start.sh \
+    support-files/release/stop.sh \
+    support-files/release/status.sh \
+    config.example.yaml
+  do
+    url="${base}/${path}"
+    if [[ -n "$prefix" ]]; then
+      url="${prefix}/${base}/${path}"
+    fi
+    mkdir -p "$(dirname "$boot/$path")"
+    curl -fsSL --retry 3 --retry-delay 1 -o "$boot/$path" "$url"
+  done
+  ROOT_DIR="$boot"
+  export STX_BOOTSTRAP_ROOT="$boot"
+}
+
+stx_bootstrap_root_if_needed
 # shellcheck source=../support-files/release/download-lib.sh
 source "$ROOT_DIR/support-files/release/download-lib.sh"
 # shellcheck source=../support-files/release/install-core.sh
@@ -31,24 +73,21 @@ usage() {
 STX online installer
 
 Usage:
+  curl -fsSL <release-or-proxy-url>/install-online.sh | bash
   scripts/install-online.sh [options]
 
 Options:
-  --version <tag>              Release tag (default: latest semver-like from env STX_VERSION or "latest")
+  --version <tag>              Release tag (default: latest)
   --install-dir <path>         Install dir (default: /opt/stx)
   --arch <amd64|arm64>         Target arch (default: auto)
   --node-variant <official|glibc217>  Node runtime variant (default: auto by glibc)
-  --with-observability         Also download observability deps package when available
-  --without-observability      Do not download/enable observability
+  --without-node               Do not download Node package (use system Node ≥ 18.18)
+  --without-observability      Skip bundled Prometheus/Alertmanager/Grafana
   --region <cn|global>         Force download region
   --no-start                   Pass through to install.sh
   --no-systemd                 Pass through to install.sh
   --deps-tag <tag>             Deps release tag (default: deps)
   -h, --help
-
-Examples:
-  curl -fsSL <mirrored-raw>/scripts/install-online.sh | bash
-  scripts/install-online.sh --version v1.2.0 --with-observability
 USAGE
 }
 
@@ -56,8 +95,9 @@ VERSION="${STX_VERSION:-latest}"
 INSTALL_DIR="${STX_INSTALL_DIR:-/opt/stx}"
 ARCH=""
 NODE_VARIANT=""
-WITH_OBS=false
+WITH_OBS=true
 WITHOUT_OBS=false
+WITHOUT_NODE=false
 REGION=""
 DEPS_TAG="${STX_DEPS_TAG:-deps}"
 NO_START=false
@@ -71,7 +111,8 @@ while [[ $# -gt 0 ]]; do
     --arch) ARCH="${2:-}"; shift 2 ;;
     --node-variant) NODE_VARIANT="${2:-}"; shift 2 ;;
     --with-observability) WITH_OBS=true; shift ;;
-    --without-observability) WITHOUT_OBS=true; shift ;;
+    --without-observability) WITHOUT_OBS=true; WITH_OBS=false; shift ;;
+    --without-node) WITHOUT_NODE=true; shift ;;
     --region) REGION="${2:-}"; shift 2 ;;
     --deps-tag) DEPS_TAG="${2:-}"; shift 2 ;;
     --no-start) NO_START=true; shift ;;
@@ -96,7 +137,12 @@ echo "[INFO] region=$region arch=$ARCH node_variant=$NODE_VARIANT version=$VERSI
 stx_select_mirror_prefix "$region"
 
 mkdir -p "$WORK_DIR/packages"
-cleanup() { rm -rf "$WORK_DIR"; }
+cleanup() {
+  rm -rf "$WORK_DIR"
+  if [[ -n "${STX_BOOTSTRAP_ROOT:-}" ]]; then
+    rm -rf "$STX_BOOTSTRAP_ROOT"
+  fi
+}
 trap cleanup EXIT
 
 # Resolve "latest" via GitHub API when needed. / 需要时通过 GitHub API 解析 latest。
@@ -160,9 +206,12 @@ if stx_download_release_asset "$VERSION" "stx-agent-linux-${ARCH}" "$WORK_DIR/pa
   fi
 fi
 
-# Node: skip when local node is good enough. / 本机 node 足够则跳过。
+# Node: skip when asked, or when local node is good enough. / 显式跳过，或本机 node 足够则跳过。
 need_node=true
-if command -v node >/dev/null 2>&1; then
+if [[ "$WITHOUT_NODE" == "true" ]]; then
+  echo "[INFO] --without-node: skip node package"
+  need_node=false
+elif command -v node >/dev/null 2>&1; then
   if python3 - <<'PY'
 import re, subprocess, sys
 out = subprocess.check_output(["node", "-v"], text=True).strip().lstrip("v")

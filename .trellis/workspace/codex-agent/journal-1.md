@@ -299,3 +299,36 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 9: 完成安装包与插件 CLI 只读覆盖
+
+**Date**: 2026-09-19
+**Task**: 完成安装包与插件 CLI 只读覆盖
+**Branch**: `features/stx-cli-agent-entry`
+
+### Summary
+
+新增 package、installer、plugin 共 14 个 GET 命令，支持重复 query 参数；完成全仓检查、路由合约和本地 STX 真实调用验证。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d0af79dc8` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

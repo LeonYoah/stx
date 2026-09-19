@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 8
+- **Total Sessions**: 9
 - **Last Active**: 2026-09-19
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~301 | Active |
+| `journal-1.md` | ~334 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 9 | 2026-09-19 | 完成安装包与插件 CLI 只读覆盖 | `d0af79dc8` | `features/stx-cli-agent-entry` |
 | 8 | 2026-09-19 | 修正 CLI 交互式登录 | `cd7be7a35` | `features/stx-cli-agent-entry` |
 | 7 | 2026-09-19 | 完成 Discovery CLI 与真实 Agent 验证 | `753273d8a` | `features/stx-cli-agent-entry` |
 | 6 | 2026-09-19 | 完成认证管理与仪表盘 CLI 真实验证 | `5461c45a1` | `features/stx-cli-agent-entry` |

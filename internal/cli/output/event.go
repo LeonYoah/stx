@@ -25,16 +25,19 @@ import (
 // Event 表示写入 stderr 的单行 JSON 事件。
 // Event represents one JSON event written to stderr.
 type Event struct {
-	Event         string   `json:"event"`
-	Code          string   `json:"code,omitempty"`
-	Message       string   `json:"message,omitempty"`
-	Retryable     *bool    `json:"retryable,omitempty"`
-	RequestID     string   `json:"request_id,omitempty"`
-	OperationID   string   `json:"operation_id,omitempty"`
-	ExecutionID   string   `json:"execution_id,omitempty"`
-	Level         string   `json:"level,omitempty"`
-	Progress      *int     `json:"progress,omitempty"`
-	MissingFields []string `json:"missing_fields,omitempty"`
+	Event          string   `json:"event"`
+	Code           string   `json:"code,omitempty"`
+	Message        string   `json:"message,omitempty"`
+	Retryable      *bool    `json:"retryable,omitempty"`
+	RequestID      string   `json:"request_id,omitempty"`
+	OperationID    string   `json:"operation_id,omitempty"`
+	ExecutionID    string   `json:"execution_id,omitempty"`
+	ConfirmationID string   `json:"confirmation_id,omitempty"`
+	RiskLevel      string   `json:"risk_level,omitempty"`
+	ExpiresAt      string   `json:"expires_at,omitempty"`
+	Level          string   `json:"level,omitempty"`
+	Progress       *int     `json:"progress,omitempty"`
+	MissingFields  []string `json:"missing_fields,omitempty"`
 }
 
 // EventWriter 以并发安全方式写入 NDJSON 事件。

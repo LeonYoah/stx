@@ -25,7 +25,7 @@ import (
 
 // RegistryRevision 是操作登记表的兼容修订号。
 // RegistryRevision is the compatibility revision of the operation registry.
-const RegistryRevision = 4
+const RegistryRevision = 5
 
 var registry = []OperationSpec{
 	{
@@ -145,6 +145,35 @@ var registry = []OperationSpec{
 }`,
 	},
 	{
+		ID:           "auth.profile.update",
+		CommandPath:  []string{"auth", "profile", "update"},
+		Summary:      "Update the current user profile",
+		GeneratedCLI: false,
+		Method:       "PUT",
+		Route:        "/api/v1/auth/profile",
+		Mode:         ModeNormal,
+		AuthRequired: true,
+		Risk:         RiskR1,
+		Revision:     1,
+		SupportsPick: true,
+		Impact: &ImpactSpec{
+			Level:   RiskR1,
+			Message: "修改当前用户的邮箱或语言偏好，可再次修改恢复。",
+		},
+		Input: []InputSpec{
+			{Name: "email", Location: InputBody, Required: false, Description: "Email address"},
+			{Name: "language", Location: InputBody, Required: false, Description: "Language preference: zh or en"},
+		},
+		Example: "stx auth profile update --language en --confirm",
+		OutputExample: `{
+  "api_version": "v1",
+  "operation_id": "auth.profile.update",
+  "request_id": "req_example",
+  "data": {"id":1,"username":"admin","language":"en"},
+  "result_meta": {"complete": true}
+}`,
+	},
+	{
 		ID:           "admin.user.list",
 		CommandPath:  []string{"admin", "user", "list"},
 		Summary:      "List users",
@@ -195,6 +224,101 @@ var registry = []OperationSpec{
   "operation_id": "admin.user.get",
   "request_id": "req_example",
   "data": {"id":1,"username":"admin","is_active":true,"is_admin":true},
+  "result_meta": {"complete": true}
+}`,
+	},
+	{
+		ID:           "admin.user.create",
+		CommandPath:  []string{"admin", "user", "create"},
+		Summary:      "Create a user",
+		GeneratedCLI: false,
+		Method:       "POST",
+		Route:        "/api/v1/admin/users",
+		Mode:         ModeNormal,
+		AuthRequired: true,
+		Risk:         RiskR1,
+		AdminOnly:    true,
+		Revision:     1,
+		SupportsPick: true,
+		Impact: &ImpactSpec{
+			Level:   RiskR1,
+			Message: "创建用户会新增一个可登录 STX 的账号。",
+		},
+		Input: []InputSpec{
+			{Name: "username", Location: InputBody, Required: true, Description: "Username"},
+			{Name: "password", Location: InputBody, Required: true, Description: "Password read from hidden terminal input or stdin"},
+			{Name: "nickname", Location: InputBody, Required: false, Description: "Display name"},
+			{Name: "email", Location: InputBody, Required: false, Description: "Email address"},
+			{Name: "is_admin", Location: InputBody, Required: false, Description: "Administrator flag"},
+		},
+		Example: "stx admin user create --username test-user --password-stdin --confirm",
+		OutputExample: `{
+  "api_version": "v1",
+  "operation_id": "admin.user.create",
+  "request_id": "req_example",
+  "data": {"id":2,"username":"test-user","is_active":true,"is_admin":false},
+  "result_meta": {"complete": true}
+}`,
+	},
+	{
+		ID:           "admin.user.update",
+		CommandPath:  []string{"admin", "user", "update"},
+		Summary:      "Update a user",
+		GeneratedCLI: false,
+		Method:       "PUT",
+		Route:        "/api/v1/admin/users/:id",
+		Mode:         ModeNormal,
+		AuthRequired: true,
+		Risk:         RiskR1,
+		AdminOnly:    true,
+		Revision:     1,
+		SupportsPick: true,
+		Impact: &ImpactSpec{
+			Level:   RiskR1,
+			Message: "更新用户可能改变账号状态、管理员权限或登录密码。",
+		},
+		Input: []InputSpec{
+			{Name: "id", Location: InputPath, Required: true, Description: "User ID"},
+			{Name: "nickname", Location: InputBody, Required: false, Description: "Display name"},
+			{Name: "email", Location: InputBody, Required: false, Description: "Email address"},
+			{Name: "is_active", Location: InputBody, Required: false, Description: "Active flag"},
+			{Name: "is_admin", Location: InputBody, Required: false, Description: "Administrator flag"},
+			{Name: "password", Location: InputBody, Required: false, Description: "New password read from stdin"},
+		},
+		Example: "stx admin user update 2 --active=false --admin=false --confirm",
+		OutputExample: `{
+  "api_version": "v1",
+  "operation_id": "admin.user.update",
+  "request_id": "req_example",
+  "data": {"id":2,"username":"test-user","is_active":false,"is_admin":false},
+  "result_meta": {"complete": true}
+}`,
+	},
+	{
+		ID:           "admin.user.delete",
+		CommandPath:  []string{"admin", "user", "delete"},
+		Summary:      "Delete a user",
+		GeneratedCLI: false,
+		Method:       "DELETE",
+		Route:        "/api/v1/admin/users/:id",
+		Mode:         ModeNormal,
+		AuthRequired: true,
+		Risk:         RiskR2,
+		AdminOnly:    true,
+		Revision:     1,
+		Impact: &ImpactSpec{
+			Level:   RiskR2,
+			Message: "删除用户后无法通过 STX 恢复。",
+		},
+		Input: []InputSpec{
+			{Name: "id", Location: InputPath, Required: true, Description: "User ID"},
+		},
+		Example: "stx admin user delete 2 --confirm --idempotency-key delete-user-2",
+		OutputExample: `{
+  "api_version": "v1",
+  "operation_id": "admin.user.delete",
+  "request_id": "req_example",
+  "data": {},
   "result_meta": {"complete": true}
 }`,
 	},

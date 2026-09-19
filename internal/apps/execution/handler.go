@@ -141,6 +141,12 @@ func (h *Handler) Cancel(c *gin.Context) {
 }
 
 func (h *Handler) writeError(c *gin.Context, err error) {
+	WriteError(c, err)
+}
+
+// WriteError 将公共执行错误写成统一的 HTTP 响应，供业务写接口复用。
+// WriteError writes a shared-execution error as a common HTTP response for business write endpoints.
+func WriteError(c *gin.Context, err error) {
 	status := http.StatusInternalServerError
 	code := "internal_error"
 	switch {

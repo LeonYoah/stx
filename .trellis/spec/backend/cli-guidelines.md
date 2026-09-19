@@ -313,3 +313,71 @@ for _, value := range values {
 ```
 
 同名 query 是 HTTP 协议中的多个值，不应在 CLI 内自行发明分隔符。
+
+## 10. 场景：CLI 写命令的确认、幂等与敏感输入
+
+### 10.1 范围 / 触发条件
+
+- 触发条件：命令通过远端 API 修改个人资料、用户、安装包或其他服务端资源。
+- 目标：让脚本和 AI Agent 能稳定重试，同时避免密码进入参数、日志和输出。
+
+### 10.2 签名
+
+写命令统一支持：
+
+```text
+--namespace <name>
+--confirm
+--idempotency-key <key>
+--confirmation-id <id>
+```
+
+密码字段只能通过隐藏终端输入或 `--password-stdin` 提供，禁止增加 `--password <value>`。
+
+### 10.3 契约
+
+- CLI 请求携带 `X-STX-Client: cli`、`Idempotency-Key` 和 `X-STX-Confirm: true`。
+- R2 第一次请求把一次性 `confirmation_id` 写入 stderr；第二次请求必须继续使用同一个幂等键并附带该编号。
+- 成功业务结果只写 stdout，warning、幂等键、确认编号和错误事件写 stderr，每行一个 JSON 值。
+- CLI 不保存请求正文；服务端执行结果只保留安全引用，例如用户 ID。
+- 布尔更新字段使用 Cobra 的 `Changed` 判断，未传入时不能把默认值写进请求正文。
+
+### 10.4 校验与错误对应表
+
+| 情况 | CLI 行为 |
+| --- | --- |
+| 缺少 `--confirm` | 不发起业务请求，返回冲突退出码 |
+| 缺少幂等键 | 自动生成并把幂等键事件写入 stderr |
+| R2 首次请求 | 返回确认编号事件和最终错误事件，退出码为冲突类 |
+| 相同幂等键、请求内容相同 | 输出原业务结果 |
+| 相同幂等键、请求内容不同 | 输出幂等冲突，不能复用旧结果 |
+| 非交互环境未使用 `--password-stdin` | 不等待输入，返回用法错误 |
+
+### 10.5 Good / Base / Bad
+
+- Good：密码从 stdin 读取，stdout 和 stderr 均不出现密码，重试使用稳定幂等键。
+- Base：无密码的 R1 写命令也要求显式确认和幂等键。
+- Bad：把密码放入命令参数、帮助样例、审计详情或错误消息。
+
+### 10.6 必须有的测试
+
+- 断言缺少确认时没有业务请求。
+- 断言 R1 的相同幂等键可以复用结果，变更正文会返回冲突。
+- 断言 R2 需要一次性确认编号，重复成功请求仍保持幂等。
+- 断言显式 `false` 的布尔字段会进入请求正文，未传入字段不会进入正文。
+- 真实二进制测试需检查 stdout 为单个 JSON、stderr 为 NDJSON，并确认密码和密码摘要均未出现。
+
+### 10.7 错误与正确示例
+
+错误：
+
+```text
+stx admin user create --username demo --password plain-text
+```
+
+正确：
+
+```text
+printf '%s\n' "$STX_TEST_PASSWORD" | stx admin user create \
+  --username demo --password-stdin --confirm --idempotency-key create-demo
+```

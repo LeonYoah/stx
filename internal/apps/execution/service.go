@@ -64,6 +64,22 @@ type AuthorizationInput struct {
 	ConfirmationID string
 }
 
+// SynchronousInput 保存同步写操作开始执行所需的安全字段。
+// SynchronousInput stores the safe fields required to begin a synchronous write operation.
+type SynchronousInput struct {
+	OperationID    string
+	Module         string
+	ModuleRef      string
+	RequestID      string
+	IdempotencyKey string
+	RequestHash    string
+	RiskLevel      RiskLevel
+	Impact         string
+	Confirmed      bool
+	ConfirmationID string
+	ClientType     string
+}
+
 // ConfirmationRequiredError 返回一次性确认编号和影响说明。
 // ConfirmationRequiredError returns a one-time confirmation ID and impact description.
 type ConfirmationRequiredError struct {
@@ -193,6 +209,70 @@ func (s *Service) FindIdempotent(ctx context.Context, actor Actor, operationID, 
 		return nil, false, ErrIdempotencyConflict
 	}
 	return item, true, nil
+}
+
+// BeginSynchronous 校验确认与幂等约定，并创建同步写操作的运行记录。
+// BeginSynchronous validates confirmation and idempotency contracts and creates a running record for a synchronous write.
+func (s *Service) BeginSynchronous(ctx context.Context, actor Actor, input SynchronousInput) (*Execution, bool, error) {
+	if existing, found, err := s.FindIdempotent(ctx, actor, input.OperationID, input.IdempotencyKey, input.RequestHash); err != nil || found {
+		if err != nil {
+			return nil, false, err
+		}
+		return existing, true, nil
+	}
+	if err := s.Authorize(ctx, actor, AuthorizationInput{
+		OperationID:    input.OperationID,
+		RiskLevel:      input.RiskLevel,
+		Impact:         input.Impact,
+		IdempotencyKey: input.IdempotencyKey,
+		RequestHash:    input.RequestHash,
+		Confirmed:      input.Confirmed,
+		ConfirmationID: input.ConfirmationID,
+	}); err != nil {
+		return nil, false, err
+	}
+	item, created, err := s.Create(ctx, CreateInput{
+		OperationID:       input.OperationID,
+		OwnerUserID:       actor.UserID,
+		ActorType:         ActorTypeUser,
+		Module:            input.Module,
+		ModuleRef:         input.ModuleRef,
+		RequestID:         input.RequestID,
+		IdempotencyKey:    input.IdempotencyKey,
+		RequestHash:       input.RequestHash,
+		RiskLevel:         input.RiskLevel,
+		Status:            StatusPending,
+		Cancellable:       false,
+		CancellableReason: "synchronous_operation",
+		ClientType:        input.ClientType,
+	})
+	if err != nil || !created {
+		return item, !created, err
+	}
+	if err := s.Transition(ctx, item.ExecutionID, StatusPending, StatusRunning, nil); err != nil {
+		return nil, false, err
+	}
+	item.Status = StatusRunning
+	return item, false, nil
+}
+
+// FinishSynchronous 将同步写操作记录为成功或失败，只保存安全结果引用。
+// FinishSynchronous marks a synchronous write as succeeded or failed and stores only a safe result reference.
+func (s *Service) FinishSynchronous(ctx context.Context, item *Execution, resultRef string, runErr error) error {
+	if item == nil {
+		return ErrInvalidExecution
+	}
+	target := StatusSucceeded
+	updates := map[string]any{
+		"result_ref":         strings.TrimSpace(resultRef),
+		"cancellable":        false,
+		"cancellable_reason": "completed",
+	}
+	if runErr != nil {
+		target = StatusFailed
+		updates["error_message"] = runErr.Error()
+	}
+	return s.Transition(ctx, item.ExecutionID, item.Status, target, updates)
 }
 
 // BindModuleRef 将公共执行记录绑定到业务模块任务编号。

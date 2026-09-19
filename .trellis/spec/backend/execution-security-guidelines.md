@@ -229,3 +229,82 @@ requestHash, err := execution.HashRequest(struct {
     FileSHA256 string
 }{file.Filename, file.Size, fileSHA256})
 ```
+
+## 9. 场景：同步写操作的公共执行记录
+
+### 9.1 范围 / 触发条件
+
+- 触发条件：CLI 或直接 API 调用会同步修改资源，但仍需要确认、幂等和审计。
+- 目标：同步接口也必须留下可查询的执行记录，不能因为响应较快而绕过公共安全约定。
+
+### 9.2 签名
+
+服务端使用 `BeginSynchronous`、`FinishSynchronous` 一类公共方法，输入至少包含：
+
+```text
+operation_id, module, module_ref, request_id,
+idempotency_key, request_hash, risk_level,
+confirmed, confirmation_id, client_type
+```
+
+执行记录至少写入：
+
+```text
+owner_user_id, execution_id, status, result_ref,
+request_id, risk_level, client_type
+```
+
+### 9.3 契约
+
+- 先按当前用户、操作编号和幂等键查找旧记录；请求摘要不同必须返回幂等冲突。
+- 通过确认和权限校验后才创建运行记录，失败的前置确认请求不能伪造成功执行记录。
+- 业务成功写 `succeeded` 和安全的 `result_ref`；失败写 `failed` 和可公开错误信息。
+- `result_ref` 只保存重新读取结果所需的安全引用，不保存密码、令牌或原始请求正文。
+- `owner_user_id` 来自当前令牌对应的用户，不能来自机器、令牌字符串或客户端传入字段。
+
+### 9.4 校验与错误对应表
+
+| 情况 | 服务端行为 |
+| --- | --- |
+| 相同用户、相同操作和相同请求摘要 | 返回原执行结果 |
+| 相同幂等键但请求摘要不同 | 返回 `409 idempotency_conflict` |
+| R1 缺少确认 | 返回 `428`，不创建成功执行记录 |
+| R2 缺少确认编号 | 返回一次性确认编号，不执行删除 |
+| 业务执行成功 | 执行记录为 `succeeded`，审计结果为成功 |
+| 业务执行失败 | 执行记录为 `failed`，审计不包含敏感正文 |
+
+### 9.5 Good / Base / Bad
+
+- Good：用户创建、更新和删除都通过公共执行服务记录执行编号，并让审计关联请求编号和执行编号。
+- Base：网页暂时保留旧调用方式时，CLI 和直接 API 仍必须显式传入来源标记。
+- Bad：Handler 直接修改数据库后返回成功，不写执行记录或按令牌而不是用户归属记录任务。
+
+### 9.6 必须有的测试
+
+- 单元测试覆盖相同请求复用、幂等冲突、R1、R2、失败状态和用户归属。
+- 真实 CLI 测试覆盖创建、更新、删除、普通用户权限拒绝和删除后的资源查询。
+- 数据库检查确认执行结果、审计详情、资源名称和错误信息不含密码原文或密码摘要。
+- 审计检查确认 `client_type`、`request_id`、`execution_id`、`risk_level` 和结果状态存在。
+
+### 9.7 错误与正确示例
+
+错误：
+
+```go
+userRepo.Update(ctx, user)
+return c.JSON(http.StatusOK, user)
+```
+
+正确：
+
+```go
+execution, reused, err := executionService.BeginSynchronous(ctx, actor, input)
+if err != nil {
+    execution.WriteError(c, err)
+    return
+}
+if !reused {
+    // 业务成功后只保存安全引用，并把状态改为 succeeded。
+    // On success, store only a safe reference and mark the execution succeeded.
+}
+```

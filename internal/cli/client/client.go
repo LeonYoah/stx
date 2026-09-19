@@ -63,8 +63,10 @@ type Response struct {
 // APIError stores the HTTP status and request ID returned by the server.
 type APIError struct {
 	StatusCode int
+	ErrorCode  string
 	Message    string
 	RequestID  string
+	Data       json.RawMessage
 }
 
 func (e *APIError) Error() string {
@@ -225,7 +227,7 @@ func (c *Client) requestReader(ctx context.Context, method, path string, body io
 		if message == "" {
 			message = http.StatusText(response.StatusCode)
 		}
-		return requestID, classifyHTTPError(response.StatusCode, message, requestID)
+		return requestID, classifyHTTPError(response.StatusCode, envelope.ErrorCode, message, requestID, envelope.Data)
 	}
 	if result != nil {
 		payload := trimmedContent
@@ -423,20 +425,21 @@ func (c *Client) endpoint(path string) string {
 	return server + path
 }
 
-func classifyHTTPError(status int, message, requestID string) *clioutput.CLIError {
+func classifyHTTPError(status int, errorCode, message, requestID string, data json.RawMessage) *clioutput.CLIError {
+	cause := &APIError{StatusCode: status, ErrorCode: errorCode, Message: message, RequestID: requestID, Data: data}
 	switch status {
 	case http.StatusUnauthorized:
-		return &clioutput.CLIError{Code: clioutput.CodeAuthentication, Message: message, ExitCode: clioutput.ExitAuthentication, RequestID: requestID, Cause: &APIError{StatusCode: status, Message: message, RequestID: requestID}}
+		return &clioutput.CLIError{Code: clioutput.CodeAuthentication, Message: message, ExitCode: clioutput.ExitAuthentication, RequestID: requestID, Cause: cause}
 	case http.StatusForbidden:
-		return &clioutput.CLIError{Code: clioutput.CodePermission, Message: message, ExitCode: clioutput.ExitPermission, RequestID: requestID, Cause: &APIError{StatusCode: status, Message: message, RequestID: requestID}}
+		return &clioutput.CLIError{Code: clioutput.CodePermission, Message: message, ExitCode: clioutput.ExitPermission, RequestID: requestID, Cause: cause}
 	case http.StatusNotFound:
-		return &clioutput.CLIError{Code: clioutput.CodeNotFound, Message: message, ExitCode: clioutput.ExitNotFound, RequestID: requestID, Cause: &APIError{StatusCode: status, Message: message, RequestID: requestID}}
+		return &clioutput.CLIError{Code: clioutput.CodeNotFound, Message: message, ExitCode: clioutput.ExitNotFound, RequestID: requestID, Cause: cause}
 	case http.StatusConflict, http.StatusPreconditionRequired:
-		return &clioutput.CLIError{Code: clioutput.CodeConflict, Message: message, ExitCode: clioutput.ExitConflict, RequestID: requestID, Cause: &APIError{StatusCode: status, Message: message, RequestID: requestID}}
+		return &clioutput.CLIError{Code: clioutput.CodeConflict, Message: message, ExitCode: clioutput.ExitConflict, RequestID: requestID, Cause: cause}
 	case http.StatusRequestTimeout, http.StatusGatewayTimeout:
-		return &clioutput.CLIError{Code: clioutput.CodeTimeout, Message: message, ExitCode: clioutput.ExitTimeout, Retryable: true, RequestID: requestID, Cause: &APIError{StatusCode: status, Message: message, RequestID: requestID}}
+		return &clioutput.CLIError{Code: clioutput.CodeTimeout, Message: message, ExitCode: clioutput.ExitTimeout, Retryable: true, RequestID: requestID, Cause: cause}
 	default:
 		retryable := status >= http.StatusInternalServerError
-		return &clioutput.CLIError{Code: clioutput.CodeServer, Message: message, ExitCode: clioutput.ExitServer, Retryable: retryable, RequestID: requestID, Cause: &APIError{StatusCode: status, Message: message, RequestID: requestID}}
+		return &clioutput.CLIError{Code: clioutput.CodeServer, Message: message, ExitCode: clioutput.ExitServer, Retryable: retryable, RequestID: requestID, Cause: cause}
 	}
 }

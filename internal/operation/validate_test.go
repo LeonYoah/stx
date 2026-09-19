@@ -83,7 +83,7 @@ func TestValidateRejectsRepeatedNonQueryInput(t *testing.T) {
 }
 
 func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
-	require.Len(t, Registry(), 47)
+	require.Len(t, Registry(), 51)
 
 	expected := map[string]struct{}{
 		"auth.user-info.get": {}, "admin.user.list": {}, "admin.user.get": {},
@@ -161,6 +161,16 @@ func TestRegistryAdminUserOperations(t *testing.T) {
 	get := byID["admin.user.get"]
 	require.True(t, get.AdminOnly)
 	require.Equal(t, "/api/v1/admin/users/:id", get.Route)
+
+	for _, operationID := range []string{"admin.user.create", "admin.user.update", "admin.user.delete"} {
+		spec := byID[operationID]
+		require.True(t, spec.AdminOnly)
+		require.False(t, spec.GeneratedCLI)
+		require.NotNil(t, spec.Impact)
+	}
+	require.Equal(t, RiskR1, byID["admin.user.create"].Risk)
+	require.Equal(t, RiskR1, byID["admin.user.update"].Risk)
+	require.Equal(t, RiskR2, byID["admin.user.delete"].Risk)
 }
 
 func TestValidateRejectsInvalidHelpExample(t *testing.T) {

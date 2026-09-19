@@ -18,7 +18,6 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -28,17 +27,10 @@ import (
 
 	cliClient "github.com/LeonYoah/stx/internal/cli/client"
 	clioutput "github.com/LeonYoah/stx/internal/cli/output"
-	"github.com/LeonYoah/stx/internal/operation"
-	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 )
 
-type packageWriteOptions struct {
-	namespace      string
-	confirmed      bool
-	idempotencyKey string
-	confirmationID string
-}
+type packageWriteOptions = secureWriteOptions
 
 // addPackageWriteCommands 将文件和 JSON 写命令挂到生成的 package 命令树。
 // addPackageWriteCommands attaches file and JSON write commands to the generated package tree.
@@ -247,40 +239,11 @@ func newPackageDownloadCancelCommand(storeProvider authStoreProvider) *cobra.Com
 }
 
 func addPackageWriteFlags(command *cobra.Command, options *packageWriteOptions) {
-	command.Flags().StringVar(&options.namespace, "namespace", "", "Local namespace to use")
-	command.Flags().BoolVar(&options.confirmed, "confirm", false, "Confirm the operation impact")
-	command.Flags().StringVar(&options.idempotencyKey, "idempotency-key", "", "Stable key for retrying the same request")
-	command.Flags().StringVar(&options.confirmationID, "confirmation-id", "", "One-time confirmation ID returned by STX")
+	addSecureWriteFlags(command, options)
 }
 
 func preparePackageWrite(command *cobra.Command, storeProvider authStoreProvider, operationID string, options *packageWriteOptions, impact string) (*cliClient.Client, map[string]string, error) {
-	if !options.confirmed {
-		return nil, nil, clioutput.NewError(clioutput.CodeConflict, "write operation requires --confirm", clioutput.ExitConflict, false)
-	}
-	client, err := clientForNamespace(storeProvider, options.namespace)
-	if err != nil {
-		return nil, nil, err
-	}
-	if err := checkSpecialOperation(command.Context(), client, operationID); err != nil {
-		return nil, nil, err
-	}
-	if strings.TrimSpace(options.idempotencyKey) == "" {
-		options.idempotencyKey = uuid.NewString()
-		_ = clioutput.NewEventWriter(command.ErrOrStderr()).Emit(clioutput.Event{
-			Event: "idempotency_key", OperationID: operationID, Level: "info", Message: options.idempotencyKey,
-		})
-	}
-	_ = clioutput.NewEventWriter(command.ErrOrStderr()).Emit(clioutput.Event{
-		Event: "warning", OperationID: operationID, Level: "warning", Message: impact,
-	})
-	headers := map[string]string{"Idempotency-Key": options.idempotencyKey}
-	if options.confirmed {
-		headers["X-STX-Confirm"] = "true"
-	}
-	if strings.TrimSpace(options.confirmationID) != "" {
-		headers["X-STX-Confirmation-ID"] = options.confirmationID
-	}
-	return client, headers, nil
+	return prepareSecureWrite(command, storeProvider, operationID, options, impact)
 }
 
 func openPackageFile(path string) (*os.File, os.FileInfo, error) {
@@ -300,44 +263,6 @@ func openPackageFile(path string) (*os.File, os.FileInfo, error) {
 	return file, info, nil
 }
 
-func checkSpecialOperation(ctx context.Context, client *cliClient.Client, operationID string) error {
-	var local *operation.OperationSpec
-	for _, item := range operation.Registry() {
-		if item.ID == operationID {
-			copy := item
-			local = &copy
-			break
-		}
-	}
-	if local == nil {
-		return clioutput.NewError(clioutput.CodeServer, "local operation is not registered: "+operationID, clioutput.ExitServer, false)
-	}
-	requestID, capabilities, err := client.Capabilities(ctx)
-	if err != nil {
-		return err
-	}
-	for _, remote := range capabilities.Operations {
-		if remote.OperationID != operationID {
-			continue
-		}
-		if !remote.Allowed {
-			return &clioutput.CLIError{Code: clioutput.CodePermission, Message: "operation is not allowed: " + remote.DenialCode, ExitCode: clioutput.ExitPermission, RequestID: requestID}
-		}
-		if remote.Revision < local.Revision || remote.Mode != string(local.Mode) {
-			return &clioutput.CLIError{Code: clioutput.CodeConflict, Message: "operation revision or mode is incompatible", ExitCode: clioutput.ExitConflict, RequestID: requestID}
-		}
-		return nil
-	}
-	return &clioutput.CLIError{Code: clioutput.CodeNotFound, Message: "operation is not supported by the remote STX server: " + operationID, ExitCode: clioutput.ExitNotFound, RequestID: requestID}
-}
-
 func renderPackageResult(command *cobra.Command, operationID, requestID string, data any, nextCommand string) error {
-	options, err := clioutput.OptionsFromCommand(command)
-	if err != nil {
-		return err
-	}
-	result := clioutput.NewResult(operationID, requestID, data)
-	result.ResultMeta.NextCommand = nextCommand
-	renderer := clioutput.NewRenderer(command.OutOrStdout(), clioutput.NewEventWriter(command.ErrOrStderr()))
-	return renderer.Render(result, options)
+	return renderWriteResult(command, operationID, requestID, data, nextCommand)
 }

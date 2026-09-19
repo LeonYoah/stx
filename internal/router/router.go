@@ -54,6 +54,7 @@ import (
 	"github.com/LeonYoah/stx/internal/apps/stupgrade"
 	syncapp "github.com/LeonYoah/stx/internal/apps/sync"
 	"github.com/LeonYoah/stx/internal/apps/task"
+	"github.com/LeonYoah/stx/internal/apps/userwrite"
 	"github.com/LeonYoah/stx/internal/config"
 	"github.com/LeonYoah/stx/internal/db"
 	grpcServer "github.com/LeonYoah/stx/internal/grpc"
@@ -141,6 +142,15 @@ func Serve() {
 		// API V1
 		apiV1Router := apiGroup.Group("/v1")
 		{
+			// 公共执行服务在写接口注册前创建，避免业务处理器依赖全局可变实例。
+			// The shared execution service is created before write routes so business handlers do not depend on mutable globals.
+			auditRepo := audit.NewRepository(db.DB(context.Background()))
+			executionRepo := execution.NewRepository(db.DB(context.Background()))
+			executionProviders := execution.NewProviderRegistry()
+			executionService := execution.NewService(executionRepo, executionProviders)
+			executionService.SetAuditRepository(auditRepo)
+			userWriteHandler := userwrite.NewHandler(executionService, auditRepo)
+
 			// Health
 			apiV1Router.GET("/health", health.Health)
 
@@ -148,7 +158,7 @@ func Serve() {
 			apiV1Router.POST("/auth/login", auth.Login)
 			apiV1Router.POST("/auth/logout", auth.LoginRequired(), auth.Logout)
 			apiV1Router.GET("/auth/user-info", auth.LoginRequired(), auth.GetUserInfo)
-			apiV1Router.PUT("/auth/profile", auth.LoginRequired(), auth.UpdateProfile)
+			apiV1Router.PUT("/auth/profile", auth.LoginRequired(), userWriteHandler.UpdateProfile)
 			apiV1Router.POST("/auth/cli/login", auth.CLIClientRequired(), auth.CLILogin)
 			apiV1Router.POST("/auth/cli/logout", auth.CLIAuthRequired(), auth.CLILogout)
 			apiV1Router.GET("/auth/cli/whoami", auth.CLIAuthRequired(), auth.CLIWhoAmI)
@@ -167,10 +177,10 @@ func Serve() {
 				userAdminRouter := adminRouter.Group("/users")
 				{
 					userAdminRouter.GET("", admin.ListUsersHandler)
-					userAdminRouter.POST("", admin.CreateUserHandler)
+					userAdminRouter.POST("", userWriteHandler.CreateUser)
 					userAdminRouter.GET("/:id", admin.GetUserHandler)
-					userAdminRouter.PUT("/:id", admin.UpdateUserHandler)
-					userAdminRouter.DELETE("/:id", admin.DeleteUserHandler)
+					userAdminRouter.PUT("/:id", userWriteHandler.UpdateUser)
+					userAdminRouter.DELETE("/:id", userWriteHandler.DeleteUser)
 				}
 			}
 
@@ -179,14 +189,9 @@ func Serve() {
 			// 初始化主机服务和处理器
 			hostRepo := host.NewRepository(db.DB(context.Background()))
 			clusterRepo := cluster.NewRepository(db.DB(context.Background()))
-			auditRepo := audit.NewRepository(db.DB(context.Background()))
 
 			// 公共执行协议只保存统一状态和安全信息，具体执行仍由业务模块负责。
 			// The shared execution contract stores common state and safety data while business modules remain responsible for actual work.
-			executionRepo := execution.NewRepository(db.DB(context.Background()))
-			executionProviders := execution.NewProviderRegistry()
-			executionService := execution.NewService(executionRepo, executionProviders)
-			executionService.SetAuditRepository(auditRepo)
 			executionHandler := execution.NewHandler(executionService)
 			executionRouter := apiV1Router.Group("/executions")
 			executionRouter.Use(auth.LoginRequired())

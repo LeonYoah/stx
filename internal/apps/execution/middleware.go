@@ -58,8 +58,12 @@ func MetadataFromGin(c *gin.Context) RequestMetadata {
 }
 
 func requestClientType(c *gin.Context) string {
-	if strings.EqualFold(strings.TrimSpace(c.GetHeader("X-STX-Client")), "cli") {
+	marker := strings.ToLower(strings.TrimSpace(c.GetHeader("X-STX-Client")))
+	if marker == "cli" {
 		return "cli"
+	}
+	if marker == "api" {
+		return "api"
 	}
 	if strings.TrimSpace(c.GetHeader("User-Agent")) == "" {
 		return "api"

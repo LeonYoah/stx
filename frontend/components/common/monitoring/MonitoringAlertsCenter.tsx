@@ -191,6 +191,10 @@ export function MonitoringAlertsCenter() {
   // 当前在侧边抽屉中查看详情的告警实例
   // Currently selected alert instance in the detail slide-over sheet
   const [selectedAlert, setSelectedAlert] = useState<AlertInstance | null>(null);
+  // 抽屉里的告警不进入 loadAlerts 依赖，避免打开后请求死循环
+  // Keep the open alert out of loadAlerts deps so opening the sheet cannot refetch forever
+  const selectedAlertRef = useRef<AlertInstance | null>(null);
+  selectedAlertRef.current = selectedAlert;
 
   const pageSizeNumber = useMemo(
     () => Number.parseInt(pageSize, 10) || 50,
@@ -261,14 +265,17 @@ export function MonitoringAlertsCenter() {
       setStats(result.data.stats || EMPTY_STATS);
       setTotal(result.data.total || 0);
 
-      // 如果当前抽屉中打开了告警，顺便刷新其数据
-      // If an alert is open in the sheet, update its state as well
-      if (selectedAlert) {
+      // 只刷新仍打开的那条，且用户已关闭时不要再写回去
+      // Refresh only the alert still open; do not reopen after the user closed it
+      const current = selectedAlertRef.current;
+      if (current) {
         const updated = (result.data.alerts || []).find(
-          (item) => item.alert_id === selectedAlert.alert_id,
+          (item) => item.alert_id === current.alert_id,
         );
         if (updated) {
-          setSelectedAlert(updated);
+          setSelectedAlert((prev) =>
+            prev && prev.alert_id === updated.alert_id ? updated : prev,
+          );
         }
       }
     } finally {
@@ -279,7 +286,6 @@ export function MonitoringAlertsCenter() {
     endTimeFilter,
     page,
     pageSizeNumber,
-    selectedAlert,
     sourceFilter,
     startTimeFilter,
     statusFilter,
@@ -800,7 +806,9 @@ export function MonitoringAlertsCenter() {
                   const silenceActive = isSilenceActive(alert.silenced_until);
                   const canSilence =
                     alert.status === 'firing' && !silenceActive;
-                  const canClose = alert.status !== 'closed';
+                  // 已恢复的事件条件已结束，不再要求人工关闭
+                  // Recovered incidents are done; do not ask for a manual close
+                  const canClose = alert.status === 'firing';
 
                   return (
                     <TableRow
@@ -1148,7 +1156,7 @@ export function MonitoringAlertsCenter() {
                     </Button>
                   )}
 
-                {selectedAlert.status !== 'closed' && (
+                {selectedAlert.status === 'firing' && (
                   <Button
                     variant='secondary'
                     size='sm'

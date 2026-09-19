@@ -290,6 +290,7 @@ func Serve() {
 				clusterRouter.POST("/:id/stx-java-proxy/restart", clusterHandler.RestartSTXJavaProxy)
 				clusterRouter.GET("/:id/runtime-storage", clusterHandler.GetRuntimeStorage)
 				clusterRouter.POST("/:id/runtime-storage/:kind/validate", clusterHandler.ValidateRuntimeStorage)
+				clusterRouter.POST("/:id/runtime-storage/:kind/apply", clusterHandler.ApplyRuntimeStorage)
 				clusterRouter.POST("/:id/runtime-storage/:kind/list", clusterHandler.ListRuntimeStorage)
 				clusterRouter.POST("/:id/runtime-storage/:kind/preview", clusterHandler.PreviewRuntimeStorage)
 				clusterRouter.POST("/:id/runtime-storage/checkpoint/inspect", clusterHandler.InspectCheckpointRuntimeStorage)
@@ -932,6 +933,7 @@ func Serve() {
 			configNodeInfoProvider := &configNodeInfoProviderAdapter{clusterService: clusterService}
 			configService := appconfig.NewService(configRepo, &configHostProviderAdapter{hostService: hostService}, configNodeInfoProvider, configAgentClient)
 			configService.SetPortMetadataUpdater(&configPortMetadataUpdaterAdapter{clusterRepo: clusterRepo})
+			clusterService.SetRuntimeConfigStore(configService)
 			configHandler := appconfig.NewHandler(configService)
 
 			// Inject config initializer into installer service for initializing configs after installation

@@ -50,14 +50,14 @@ const (
 	// stxJavaProxyUserSupportDirName is the relative Agent home under $HOME for non-root installs.
 	// stxJavaProxyUserSupportDirName 是非 root 安装时位于 $HOME 下的 Agent 主目录相对路径。
 	stxJavaProxyUserSupportDirName = ".stx/agent"
-	runtimeProbeTimeout           = 20 * time.Second
-	runtimeProbeBusinessName      = "imap-probe"
-	runtimeProbeClusterName       = "seatunnel-cluster"
-	stxJavaProxyDefaultHost       = "127.0.0.1"
-	stxJavaProxyDefaultPort       = 18080
-	stxJavaProxyHealthPath        = "/healthz"
-	stxJavaProxyServiceDirName    = "stx-java-proxy"
-	stxJavaProxyStartupWait       = 12 * time.Second
+	runtimeProbeTimeout            = 20 * time.Second
+	runtimeProbeBusinessName       = "imap-probe"
+	runtimeProbeClusterName        = "seatunnel-cluster"
+	stxJavaProxyDefaultHost        = "127.0.0.1"
+	stxJavaProxyDefaultPort        = 18080
+	stxJavaProxyHealthPath         = "/healthz"
+	stxJavaProxyServiceDirName     = "stx-java-proxy"
+	stxJavaProxyStartupWait        = 12 * time.Second
 )
 
 type runtimeStorageProbeResponse struct {
@@ -219,6 +219,12 @@ func buildCheckpointPluginConfig(cfg *CheckpointConfig) (map[string]string, erro
 		if cfg.KerberosKeytabFilePath != "" {
 			pluginConfig["kerberosKeytabFilePath"] = cfg.KerberosKeytabFilePath
 		}
+		if strings.TrimSpace(cfg.HdfsSitePath) != "" {
+			pluginConfig["hdfs_site_path"] = strings.TrimSpace(cfg.HdfsSitePath)
+		}
+		if cfg.DisableCache != nil {
+			pluginConfig["disable.cache"] = strconv.FormatBool(*cfg.DisableCache)
+		}
 
 	case CheckpointStorageOSS:
 		pluginConfig["storage.type"] = "oss"
@@ -251,7 +257,11 @@ func buildCheckpointPluginConfig(cfg *CheckpointConfig) (map[string]string, erro
 		if cfg.StorageSecretKey != "" {
 			pluginConfig["fs.s3a.secret.key"] = cfg.StorageSecretKey
 		}
-		pluginConfig["fs.s3a.aws.credentials.provider"] = "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider"
+		provider := strings.TrimSpace(cfg.S3CredentialsProvider)
+		if provider == "" {
+			provider = "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider"
+		}
+		pluginConfig["fs.s3a.aws.credentials.provider"] = provider
 
 	default:
 		pluginConfig["storage.type"] = "hdfs"

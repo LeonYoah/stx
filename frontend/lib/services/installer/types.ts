@@ -200,11 +200,17 @@ export interface CheckpointConfig {
   hdfs_namenode_rpc_address_1?: string; // e.g., "usdp-bing-nn1:8020"
   hdfs_namenode_rpc_address_2?: string; // e.g., "usdp-bing-nn2:8020"
   hdfs_failover_proxy_provider?: string; // default: org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider
+  /** hdfs-site.xml 路径，对应 SeaTunnel hdfs_site_path / hdfs-site.xml path, mapped to SeaTunnel hdfs_site_path */
+  hdfs_site_path?: string;
+  /** 对应 disable.cache；不传表示不写入 / maps to disable.cache; omit to leave unset */
+  disable_cache?: boolean;
   // OSS/S3 configuration / OSS/S3 配置
   storage_endpoint?: string;
   storage_access_key?: string;
   storage_secret_key?: string;
   storage_bucket?: string;
+  /** S3 凭证提供方，对应 fs.s3a.aws.credentials.provider / S3 credentials provider */
+  s3_credentials_provider?: string;
 }
 
 /**
@@ -224,10 +230,13 @@ export interface IMAPConfig {
   hdfs_namenode_rpc_address_1?: string;
   hdfs_namenode_rpc_address_2?: string;
   hdfs_failover_proxy_provider?: string;
+  hdfs_site_path?: string;
+  disable_cache?: boolean;
   storage_endpoint?: string;
   storage_access_key?: string;
   storage_secret_key?: string;
   storage_bucket?: string;
+  s3_credentials_provider?: string;
 }
 
 /**

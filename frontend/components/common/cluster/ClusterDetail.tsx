@@ -140,6 +140,7 @@ import {AddNodeDialog} from './AddNodeDialog';
 import {EditNodeDialog} from './EditNodeDialog';
 import {ClusterPlugins} from './ClusterPlugins';
 import {ClusterConfigs} from './ClusterConfigs';
+import {RuntimeStorageEditor} from './RuntimeStorageEditor';
 import {MonitorConfigPanel} from './MonitorConfigPanel';
 import {ProcessEventList} from './ProcessEventList';
 import {ClusterActions} from './ClusterActions';
@@ -808,6 +809,12 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
     upgradeTasksPage,
     upgradeTasksPageSize,
   ]);
+
+  // 配置保存/同步后反向刷新存储可视化；稳定引用避免配置 Tab 死循环
+  // After config save/sync, refresh storage views; stable ref avoids configs-tab fetch loops
+  const handleConfigChanged = useCallback(() => {
+    void loadRuntimeStorage();
+  }, [loadRuntimeStorage]);
 
   const handleCleanupIMAP = useCallback(async () => {
     setImapCleanupRunning(true);
@@ -2429,6 +2436,16 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                         },
                       ]}
                     />
+                    <RuntimeStorageEditor
+                      clusterId={clusterId}
+                      kind={storageFocus}
+                      spec={
+                        storageFocus === 'checkpoint'
+                          ? runtimeStorage?.configured_checkpoint || runtimeStorage?.checkpoint
+                          : runtimeStorage?.configured_imap || runtimeStorage?.imap
+                      }
+                      onApplied={() => void loadRuntimeStorage()}
+                    />
                     {storageFocus === 'checkpoint' &&
                       renderRuntimeStorageSpec(
                         runtimeStorage?.checkpoint,
@@ -2915,6 +2932,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
             <ClusterConfigs
               clusterId={clusterId}
               deploymentMode={cluster.deployment_mode}
+              onConfigChanged={handleConfigChanged}
             />
           </TabsContent>
 

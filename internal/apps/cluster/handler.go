@@ -211,7 +211,13 @@ type GetClusterStatusResponse struct {
 	Data     *ClusterStatusInfo `json:"data"`
 }
 
-// GetRuntimeStorageResponse represents runtime storage details response.
+// ApplyRuntimeStorageResponse 表示保存运行时存储配置的响应。
+// ApplyRuntimeStorageResponse is the response for applying runtime storage settings.
+type ApplyRuntimeStorageResponse struct {
+	ErrorMsg string                     `json:"error_msg"`
+	Data     *ApplyRuntimeStorageResult `json:"data"`
+}
+
 // GetRuntimeStorageResponse 表示运行时存储详情响应。
 type GetRuntimeStorageResponse struct {
 	ErrorMsg string                 `json:"error_msg"`
@@ -843,6 +849,28 @@ func (h *Handler) ValidateRuntimeStorage(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, ValidateRuntimeStorageResponse{Data: result})
+}
+
+// ApplyRuntimeStorage 保存可视化存储设置：先真实读写测试，通过后生成配置版本。
+// ApplyRuntimeStorage saves visual storage settings: probe first, then create a config version.
+func (h *Handler) ApplyRuntimeStorage(c *gin.Context) {
+	clusterID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, ApplyRuntimeStorageResponse{ErrorMsg: "无效的集群 ID / Invalid cluster ID"})
+		return
+	}
+	kind := installerapp.RuntimeStorageValidationKind(strings.ToLower(strings.TrimSpace(c.Param("kind"))))
+	var req ApplyRuntimeStorageRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, ApplyRuntimeStorageResponse{ErrorMsg: err.Error()})
+		return
+	}
+	result, err := h.service.ApplyRuntimeStorage(c.Request.Context(), uint(clusterID), kind, &req, uint(auth.GetUserIDFromContext(c)))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, ApplyRuntimeStorageResponse{ErrorMsg: err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, ApplyRuntimeStorageResponse{Data: result})
 }
 
 // ListRuntimeStorage handles POST /api/v1/clusters/:id/runtime-storage/:kind/list.

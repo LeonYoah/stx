@@ -1120,12 +1120,15 @@ func (a *Agent) handleInstallCommand(ctx context.Context, cmd *pb.CommandRequest
 		}
 		// OSS/S3 config
 		storageEndpoint := getParamString(cmd.Parameters, "checkpoint_storage_endpoint", "")
-		if storageEndpoint != "" {
+		storageBucket := getParamString(cmd.Parameters, "checkpoint_storage_bucket", "")
+		if storageEndpoint != "" || storageBucket != "" {
 			params.Checkpoint.StorageEndpoint = storageEndpoint
-			params.Checkpoint.StorageBucket = getParamString(cmd.Parameters, "checkpoint_storage_bucket", "")
+			params.Checkpoint.StorageBucket = storageBucket
 			params.Checkpoint.StorageAccessKey = getParamString(cmd.Parameters, "checkpoint_storage_access_key", "")
 			params.Checkpoint.StorageSecretKey = getParamString(cmd.Parameters, "checkpoint_storage_secret_key", "")
 		}
+		params.Checkpoint.HdfsSitePath = getParamString(cmd.Parameters, "checkpoint_hdfs_site_path", "")
+		params.Checkpoint.S3CredentialsProvider = getParamString(cmd.Parameters, "checkpoint_s3_credentials_provider", "")
 		logger.InfoF(ctx, "[Install] Checkpoint config created: type=%s, namespace=%s", checkpointStorageType, checkpointNamespace)
 	}
 
@@ -1159,12 +1162,15 @@ func (a *Agent) handleInstallCommand(ctx context.Context, cmd *pb.CommandRequest
 			params.IMAP.HDFSFailoverProxyProvider = getParamString(cmd.Parameters, "imap_hdfs_failover_proxy_provider", "")
 		}
 		imapStorageEndpoint := getParamString(cmd.Parameters, "imap_storage_endpoint", "")
-		if imapStorageEndpoint != "" {
+		imapStorageBucket := getParamString(cmd.Parameters, "imap_storage_bucket", "")
+		if imapStorageEndpoint != "" || imapStorageBucket != "" {
 			params.IMAP.StorageEndpoint = imapStorageEndpoint
-			params.IMAP.StorageBucket = getParamString(cmd.Parameters, "imap_storage_bucket", "")
+			params.IMAP.StorageBucket = imapStorageBucket
 			params.IMAP.StorageAccessKey = getParamString(cmd.Parameters, "imap_storage_access_key", "")
 			params.IMAP.StorageSecretKey = getParamString(cmd.Parameters, "imap_storage_secret_key", "")
 		}
+		params.IMAP.HdfsSitePath = getParamString(cmd.Parameters, "imap_hdfs_site_path", "")
+		params.IMAP.S3CredentialsProvider = getParamString(cmd.Parameters, "imap_s3_credentials_provider", "")
 		logger.InfoF(ctx, "[Install] IMAP config created: type=%s, namespace=%s", imapStorageType, imapNamespace)
 	}
 

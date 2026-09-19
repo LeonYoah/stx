@@ -261,6 +261,16 @@ export function ClusterConfigStep({
             </div>
           )}
 
+          <div className='space-y-1'>
+            <Label className='text-[11px]'>{t('installer.hdfsSitePath')}</Label>
+            <Input
+              value={store.hdfs_site_path || ''}
+              onChange={(e) => patch({hdfs_site_path: e.target.value})}
+              placeholder='/etc/hadoop/conf/hdfs-site.xml'
+              className='h-7 text-xs font-mono'
+            />
+          </div>
+
           <label className='flex items-center gap-2 text-xs'>
             <Checkbox
               checked={kerberosEnabled}
@@ -315,7 +325,7 @@ export function ClusterConfigStep({
       );
     }
 
-    if (storageType === 'OSS' || storageType === 'S3') {
+    if (storageType === 'OSS') {
       return (
         <div className='grid grid-cols-2 gap-2.5'>
           <div className='space-y-1'>
@@ -323,11 +333,7 @@ export function ClusterConfigStep({
             <Input
               value={store.storage_endpoint || ''}
               onChange={(e) => patch({storage_endpoint: e.target.value})}
-              placeholder={
-                storageType === 'OSS'
-                  ? 'oss-cn-hangzhou.aliyuncs.com'
-                  : 's3.amazonaws.com'
-              }
+              placeholder='oss-cn-hangzhou.aliyuncs.com'
               className='h-7 text-xs font-mono'
             />
           </div>
@@ -336,34 +342,101 @@ export function ClusterConfigStep({
             <Input
               value={store.storage_bucket || ''}
               onChange={(e) => patch({storage_bucket: e.target.value})}
-              placeholder={
-                kind === 'checkpoint'
-                  ? 'seatunnel-checkpoint'
-                  : 'seatunnel-imap'
-              }
+              placeholder='your-bucket'
               className='h-7 text-xs font-mono'
             />
           </div>
           <div className='space-y-1'>
-            <Label className='text-[11px]'>{t('installer.accessKey')}</Label>
+            <Label className='text-[11px]'>fs.oss.accessKeyId</Label>
             <Input
               type='password'
               value={store.storage_access_key || ''}
               onChange={(e) => patch({storage_access_key: e.target.value})}
-              placeholder='••••••••'
               className='h-7 text-xs font-mono'
             />
           </div>
           <div className='space-y-1'>
-            <Label className='text-[11px]'>{t('installer.secretKey')}</Label>
+            <Label className='text-[11px]'>fs.oss.accessKeySecret</Label>
             <Input
               type='password'
               value={store.storage_secret_key || ''}
               onChange={(e) => patch({storage_secret_key: e.target.value})}
-              placeholder='••••••••'
               className='h-7 text-xs font-mono'
             />
           </div>
+        </div>
+      );
+    }
+
+    if (storageType === 'S3') {
+      const provider =
+        store.s3_credentials_provider ||
+        'org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider';
+      const instanceProfile =
+        provider === 'org.apache.hadoop.fs.s3a.InstanceProfileCredentialsProvider';
+      return (
+        <div className='space-y-2.5'>
+          <div className='grid grid-cols-2 gap-2.5'>
+            <div className='space-y-1'>
+              <Label className='text-[11px]'>{t('installer.s3CredentialsProvider')}</Label>
+              <Select
+                value={provider}
+                onValueChange={(value) => patch({s3_credentials_provider: value})}
+              >
+                <SelectTrigger className='h-7 text-xs'>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value='org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider'>
+                    {t('installer.s3ProviderSimple')}
+                  </SelectItem>
+                  <SelectItem value='org.apache.hadoop.fs.s3a.InstanceProfileCredentialsProvider'>
+                    {t('installer.s3ProviderInstance')}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className='space-y-1'>
+              <Label className='text-[11px]'>{t('installer.bucket')}</Label>
+              <Input
+                value={store.storage_bucket || ''}
+                onChange={(e) => patch({storage_bucket: e.target.value})}
+                placeholder='s3a://bucket'
+                className='h-7 text-xs font-mono'
+              />
+            </div>
+          </div>
+          <div className='space-y-1'>
+            <Label className='text-[11px]'>{t('installer.endpoint')}</Label>
+            <Input
+              value={store.storage_endpoint || ''}
+              onChange={(e) => patch({storage_endpoint: e.target.value})}
+              placeholder='http://127.0.0.1:9000'
+              className='h-7 text-xs font-mono'
+            />
+          </div>
+          {!instanceProfile && (
+            <div className='grid grid-cols-2 gap-2.5'>
+              <div className='space-y-1'>
+                <Label className='text-[11px]'>fs.s3a.access.key</Label>
+                <Input
+                  type='password'
+                  value={store.storage_access_key || ''}
+                  onChange={(e) => patch({storage_access_key: e.target.value})}
+                  className='h-7 text-xs font-mono'
+                />
+              </div>
+              <div className='space-y-1'>
+                <Label className='text-[11px]'>fs.s3a.secret.key</Label>
+                <Input
+                  type='password'
+                  value={store.storage_secret_key || ''}
+                  onChange={(e) => patch({storage_secret_key: e.target.value})}
+                  className='h-7 text-xs font-mono'
+                />
+              </div>
+            </div>
+          )}
         </div>
       );
     }

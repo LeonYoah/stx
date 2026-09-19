@@ -40,6 +40,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -333,12 +334,21 @@ type CheckpointConfig struct {
 	HDFSNamenodeRPCAddress1   string `json:"hdfs_namenode_rpc_address_1,omitempty"`  // e.g., "usdp-bing-nn1:8020"
 	HDFSNamenodeRPCAddress2   string `json:"hdfs_namenode_rpc_address_2,omitempty"`  // e.g., "usdp-bing-nn2:8020"
 	HDFSFailoverProxyProvider string `json:"hdfs_failover_proxy_provider,omitempty"` // default: org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider
+	// HdfsSitePath 对应 SeaTunnel hdfs_site_path。
+	// HdfsSitePath maps to SeaTunnel hdfs_site_path.
+	HdfsSitePath string `json:"hdfs_site_path,omitempty"`
+	// DisableCache 对应 disable.cache；nil 表示不写入该键。
+	// DisableCache maps to disable.cache; nil omits the key.
+	DisableCache *bool `json:"disable_cache,omitempty"`
 
 	// OSS/S3 configuration / OSS/S3 配置
 	StorageEndpoint  string `json:"storage_endpoint,omitempty"`
 	StorageAccessKey string `json:"storage_access_key,omitempty"`
 	StorageSecretKey string `json:"storage_secret_key,omitempty"`
 	StorageBucket    string `json:"storage_bucket,omitempty"`
+	// S3CredentialsProvider 对应 fs.s3a.aws.credentials.provider。
+	// S3CredentialsProvider maps to fs.s3a.aws.credentials.provider.
+	S3CredentialsProvider string `json:"s3_credentials_provider,omitempty"`
 }
 
 // IMAPConfig contains IMAP persistence storage configuration.
@@ -359,11 +369,14 @@ type IMAPConfig struct {
 	HDFSNamenodeRPCAddress1   string `json:"hdfs_namenode_rpc_address_1,omitempty"`
 	HDFSNamenodeRPCAddress2   string `json:"hdfs_namenode_rpc_address_2,omitempty"`
 	HDFSFailoverProxyProvider string `json:"hdfs_failover_proxy_provider,omitempty"`
+	HdfsSitePath              string `json:"hdfs_site_path,omitempty"`
+	DisableCache              *bool  `json:"disable_cache,omitempty"`
 
-	StorageEndpoint  string `json:"storage_endpoint,omitempty"`
-	StorageAccessKey string `json:"storage_access_key,omitempty"`
-	StorageSecretKey string `json:"storage_secret_key,omitempty"`
-	StorageBucket    string `json:"storage_bucket,omitempty"`
+	StorageEndpoint       string `json:"storage_endpoint,omitempty"`
+	StorageAccessKey      string `json:"storage_access_key,omitempty"`
+	StorageSecretKey      string `json:"storage_secret_key,omitempty"`
+	StorageBucket         string `json:"storage_bucket,omitempty"`
+	S3CredentialsProvider string `json:"s3_credentials_provider,omitempty"`
 }
 
 // JVMConfig contains JVM memory configuration
@@ -2092,6 +2105,12 @@ func buildIMAPProperties(cfg *IMAPConfig, namespace string, clusterName string) 
 		if cfg.KerberosKeytabFilePath != "" {
 			properties["kerberosKeytabFilePath"] = cfg.KerberosKeytabFilePath
 		}
+		if strings.TrimSpace(cfg.HdfsSitePath) != "" {
+			properties["hdfs_site_path"] = strings.TrimSpace(cfg.HdfsSitePath)
+		}
+		if cfg.DisableCache != nil {
+			properties["disable.cache"] = strconv.FormatBool(*cfg.DisableCache)
+		}
 	case IMAPStorageOSS:
 		properties["storage.type"] = "oss"
 		if cfg.StorageBucket != "" {
@@ -2121,7 +2140,11 @@ func buildIMAPProperties(cfg *IMAPConfig, namespace string, clusterName string) 
 		if cfg.StorageSecretKey != "" {
 			properties["fs.s3a.secret.key"] = cfg.StorageSecretKey
 		}
-		properties["fs.s3a.aws.credentials.provider"] = "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider"
+		provider := strings.TrimSpace(cfg.S3CredentialsProvider)
+		if provider == "" {
+			provider = "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider"
+		}
+		properties["fs.s3a.aws.credentials.provider"] = provider
 	}
 
 	return properties, nil

@@ -174,6 +174,7 @@ type Service struct {
 	heartbeatTimeout         time.Duration
 	agentSender              AgentCommandSender
 	configAgentClient        ConfigAgentClient
+	runtimeConfigStore       runtimeConfigStore
 	onBeforeClusterDelete    func(context.Context, uint) // optional hook for monitor cleanup etc.
 	onClusterTopologyChanged func(context.Context, uint) // optional hook for observability sync etc.
 }

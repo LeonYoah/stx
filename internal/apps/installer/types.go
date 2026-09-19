@@ -199,11 +199,20 @@ type CheckpointConfig struct {
 	HDFSNamenodeRPCAddress1   string `json:"hdfs_namenode_rpc_address_1,omitempty"`
 	HDFSNamenodeRPCAddress2   string `json:"hdfs_namenode_rpc_address_2,omitempty"`
 	HDFSFailoverProxyProvider string `json:"hdfs_failover_proxy_provider,omitempty"`
+	// HdfsSitePath 是可选的 hdfs-site.xml 路径，对应 SeaTunnel hdfs_site_path。
+	// HdfsSitePath is the optional hdfs-site.xml path, mapped to SeaTunnel hdfs_site_path.
+	HdfsSitePath string `json:"hdfs_site_path,omitempty"`
+	// DisableCache 对应 plugin-config.disable.cache；nil 表示沿用默认（hdfs 类型默认关闭缓存）。
+	// DisableCache maps to plugin-config.disable.cache; nil keeps the default (cache off for hdfs type).
+	DisableCache *bool `json:"disable_cache,omitempty"`
 	// OSS/S3 configuration / OSS/S3 配置
 	StorageEndpoint  string `json:"storage_endpoint,omitempty"`
 	StorageAccessKey string `json:"storage_access_key,omitempty"`
 	StorageSecretKey string `json:"storage_secret_key,omitempty"`
 	StorageBucket    string `json:"storage_bucket,omitempty"`
+	// S3CredentialsProvider 对应 fs.s3a.aws.credentials.provider；空则使用 SimpleAWSCredentialsProvider。
+	// S3CredentialsProvider maps to fs.s3a.aws.credentials.provider; empty uses SimpleAWSCredentialsProvider.
+	S3CredentialsProvider string `json:"s3_credentials_provider,omitempty"`
 }
 
 // IMAPConfig contains IMAP persistence configuration.
@@ -224,11 +233,20 @@ type IMAPConfig struct {
 	HDFSNamenodeRPCAddress1   string `json:"hdfs_namenode_rpc_address_1,omitempty"`
 	HDFSNamenodeRPCAddress2   string `json:"hdfs_namenode_rpc_address_2,omitempty"`
 	HDFSFailoverProxyProvider string `json:"hdfs_failover_proxy_provider,omitempty"`
+	// HdfsSitePath 是可选的 hdfs-site.xml 路径，对应 SeaTunnel hdfs_site_path。
+	// HdfsSitePath is the optional hdfs-site.xml path, mapped to SeaTunnel hdfs_site_path.
+	HdfsSitePath string `json:"hdfs_site_path,omitempty"`
+	// DisableCache 对应 plugin-config.disable.cache；nil 表示沿用默认。
+	// DisableCache maps to plugin-config.disable.cache; nil keeps the default.
+	DisableCache *bool `json:"disable_cache,omitempty"`
 	// OSS/S3 configuration / OSS/S3 配置
 	StorageEndpoint  string `json:"storage_endpoint,omitempty"`
 	StorageAccessKey string `json:"storage_access_key,omitempty"`
 	StorageSecretKey string `json:"storage_secret_key,omitempty"`
 	StorageBucket    string `json:"storage_bucket,omitempty"`
+	// S3CredentialsProvider 对应 fs.s3a.aws.credentials.provider；空则使用 SimpleAWSCredentialsProvider。
+	// S3CredentialsProvider maps to fs.s3a.aws.credentials.provider; empty uses SimpleAWSCredentialsProvider.
+	S3CredentialsProvider string `json:"s3_credentials_provider,omitempty"`
 }
 
 // ConnectorConfig contains connector installation configuration

@@ -68,13 +68,19 @@ STX 构建/重启脚本
   NEXT_PUBLIC_BACKEND_BASE_URL   前端访问后端的基础地址，默认 http://127.0.0.1:17800
   LOCAL_AGENT_INSTALL_DIR        本机 Agent 二进制目录，默认 $HOME/.stx/agent/bin
   LOCAL_AGENT_BINARY             本机 Agent 二进制名，默认 stx-agent
-  LOCAL_AGENT_SERVICE            本机 Agent systemd 服务名，默认 stx-agent
+  LOCAL_AGENT_SERVICE            本机 Agent systemd 服务名（Linux），默认 stx-agent
+  LOCAL_AGENT_LAUNCHD_LABEL      本机 Agent launchd Label（macOS），默认 org.apache.stx.stx-agent
   LOCAL_AGENT_RESTART            本机已安装 Agent 时是否默认同步/重启，默认 true
   LOCAL_SEATUNNEL_HOME           本机 SeaTunnel 安装目录，默认 /opt/seatunnel-2.3.13-new
   LOCAL_JAVA_PROXY_PORT          本机 stx-java-proxy 端口，默认 18080
   CONTROL_PLANE_BASE_URL         控制面地址，默认 http://127.0.0.1:17800
   CONTROL_PLANE_USERNAME         登录用户名，默认 admin
   CONTROL_PLANE_PASSWORD         登录密码，默认 admin123
+
+macOS 说明:
+  - 前后端仍用 PM2（缺省时请先: npm i -g pm2）
+  - 本机 Agent 通过 launchd 管理；默认同步 ~/.stx/agent/bin/stx-agent 并用 launchctl kickstart 重启
+  - 也可直接用: ./scripts/restart-mac.sh（为本机常用参数封装）
 EOF
 }
 
@@ -173,8 +179,11 @@ CAPABILITY_PROXY_DEFAULT_VERSION="${CAPABILITY_PROXY_DEFAULT_VERSION:-2.3.13}"
 LOCAL_AGENT_INSTALL_DIR="${LOCAL_AGENT_INSTALL_DIR:-$HOME/.stx/agent/bin}"
 LOCAL_AGENT_BINARY="${LOCAL_AGENT_BINARY:-stx-agent}"
 LOCAL_AGENT_SERVICE="${LOCAL_AGENT_SERVICE:-stx-agent}"
+LOCAL_AGENT_LAUNCHD_LABEL="${LOCAL_AGENT_LAUNCHD_LABEL:-org.apache.stx.stx-agent}"
 AGENT_HOME="${AGENT_HOME:-$HOME/.stx/agent}"
 AGENT_PROXY_LIB_DIR="${AGENT_PROXY_LIB_DIR:-$AGENT_HOME/lib}"
+LOCAL_AGENT_START_WRAPPER="${LOCAL_AGENT_START_WRAPPER:-$LOCAL_AGENT_INSTALL_DIR/stx-agent-start.sh}"
+LOCAL_AGENT_LAUNCHD_PLIST="${LOCAL_AGENT_LAUNCHD_PLIST:-$HOME/Library/LaunchAgents/${LOCAL_AGENT_LAUNCHD_LABEL}.plist}"
 LOCAL_SEATUNNEL_HOME="${LOCAL_SEATUNNEL_HOME:-/opt/seatunnel-2.3.13-new}"
 LOCAL_JAVA_PROXY_PORT="${LOCAL_JAVA_PROXY_PORT:-18080}"
 CONTROL_PLANE_BASE_URL="${CONTROL_PLANE_BASE_URL:-http://127.0.0.1:17800}"
@@ -188,7 +197,13 @@ FRONTEND_RUNTIME_DIR="$FRONTEND_STANDALONE_DIR"
 require_cmd() {
   local cmd="$1"
   if ! command -v "$cmd" >/dev/null 2>&1; then
-    echo "缺少命令: $cmd"
+    if [[ "$cmd" == "pm2" ]]; then
+      echo "缺少命令: pm2"
+      echo "macOS / 本机开发请先安装: npm i -g pm2"
+      echo "安装后可用: ./scripts/restart-mac.sh  或  ./scripts/restart.sh"
+    else
+      echo "缺少命令: $cmd"
+    fi
     exit 1
   fi
 }
@@ -251,14 +266,105 @@ agent_binary_name_for_target() {
   echo "stx-agent-${goos}-${goarch}"
 }
 
+sync_local_agent_binary() {
+  local built_binary="$1"
+  local target_path="${LOCAL_AGENT_INSTALL_DIR}/${LOCAL_AGENT_BINARY}"
+  local temp_path="${target_path}.new"
+
+  if [[ ! -e "$target_path" ]]; then
+    echo "      未检测到本机 Agent 二进制 ${target_path}，跳过同步."
+    return 1
+  fi
+  if [[ ! -f "$built_binary" ]]; then
+    echo "      未找到已构建的 Agent 二进制: $built_binary"
+    return 1
+  fi
+
+  mkdir -p "$LOCAL_AGENT_INSTALL_DIR"
+  cp -f "$built_binary" "$temp_path"
+  chmod +x "$temp_path"
+  mv -f "$temp_path" "$target_path"
+  echo "      已同步本机 Agent 到 ${target_path}."
+  return 0
+}
+
+restart_local_agent_linux() {
+  if ! command -v systemctl >/dev/null 2>&1; then
+    echo "      未找到 systemctl，跳过本机 Agent 重启."
+    return 0
+  fi
+  if ! systemctl cat "$LOCAL_AGENT_SERVICE" >/dev/null 2>&1; then
+    echo "      未找到本机 Agent systemd 服务 ${LOCAL_AGENT_SERVICE}，跳过重启."
+    return 0
+  fi
+  systemctl restart "$LOCAL_AGENT_SERVICE"
+  if systemctl is-active --quiet "$LOCAL_AGENT_SERVICE"; then
+    echo "      本机 Agent 服务已重启: ${LOCAL_AGENT_SERVICE}."
+  else
+    echo "      本机 Agent 服务重启后未处于 active 状态: ${LOCAL_AGENT_SERVICE}"
+    return 1
+  fi
+}
+
+# macOS：用 launchd 重启本机 stx-agent（与安装脚本生成的 plist 对齐）
+# macOS: restart local stx-agent via launchd (matches install-script plist)
+restart_local_agent_darwin() {
+  local uid=""
+  local domain=""
+  local service_id=""
+
+  if ! command -v launchctl >/dev/null 2>&1; then
+    echo "      未找到 launchctl，跳过本机 Agent 重启."
+    return 0
+  fi
+  if [[ ! -f "$LOCAL_AGENT_LAUNCHD_PLIST" ]]; then
+    echo "      未找到 launchd plist: ${LOCAL_AGENT_LAUNCHD_PLIST}"
+    if [[ -x "$LOCAL_AGENT_START_WRAPPER" ]]; then
+      echo "      可手动启动: ${LOCAL_AGENT_START_WRAPPER} --config ${AGENT_HOME}/etc/config.yaml"
+    fi
+    return 0
+  fi
+
+  uid="$(id -u)"
+  domain="gui/${uid}"
+  service_id="${domain}/${LOCAL_AGENT_LAUNCHD_LABEL}"
+
+  # 优先 kickstart -k；失败则 bootout + bootstrap 重新加载
+  # Prefer kickstart -k; fall back to bootout + bootstrap
+  if launchctl print "$service_id" >/dev/null 2>&1; then
+    if launchctl kickstart -k "$service_id" >/dev/null 2>&1; then
+      echo "      本机 Agent 已通过 launchctl kickstart 重启: ${LOCAL_AGENT_LAUNCHD_LABEL}."
+      return 0
+    fi
+  fi
+
+  launchctl bootout "$domain" "$LOCAL_AGENT_LAUNCHD_PLIST" >/dev/null 2>&1 || true
+  if launchctl bootstrap "$domain" "$LOCAL_AGENT_LAUNCHD_PLIST" >/dev/null 2>&1; then
+    launchctl enable "$service_id" >/dev/null 2>&1 || true
+    launchctl kickstart -k "$service_id" >/dev/null 2>&1 || true
+    echo "      本机 Agent 已重新加载 launchd 服务: ${LOCAL_AGENT_LAUNCHD_LABEL}."
+    return 0
+  fi
+
+  # 兼容旧版 launchctl load/unload
+  # Compatibility with older launchctl load/unload
+  launchctl unload "$LOCAL_AGENT_LAUNCHD_PLIST" >/dev/null 2>&1 || true
+  if launchctl load -w "$LOCAL_AGENT_LAUNCHD_PLIST" >/dev/null 2>&1; then
+    echo "      本机 Agent 已通过 launchctl load 重启: ${LOCAL_AGENT_LAUNCHD_LABEL}."
+    return 0
+  fi
+
+  echo "      launchd 重启失败，可手动执行:"
+  echo "        launchctl kickstart -k gui/\$(id -u)/${LOCAL_AGENT_LAUNCHD_LABEL}"
+  return 1
+}
+
 sync_and_restart_local_agent() {
   local built_binary="$1"
   local target_goos="$2"
   local target_goarch="$3"
   local host_goos=""
   local host_goarch=""
-  local target_path="${LOCAL_AGENT_INSTALL_DIR}/${LOCAL_AGENT_BINARY}"
-  local temp_path="${target_path}.new"
 
   host_goos="$(detect_host_goos)"
   host_goarch="$(detect_host_goarch)"
@@ -268,43 +374,21 @@ sync_and_restart_local_agent() {
     return 0
   fi
 
-  if [[ "$target_goos" != "linux" ]]; then
-    echo "      跳过本机 Agent 重启：当前脚本仅自动管理 Linux systemd 服务."
+  if ! sync_local_agent_binary "$built_binary"; then
     return 0
   fi
 
-  if ! command -v systemctl >/dev/null 2>&1; then
-    echo "      未找到 systemctl，跳过本机 Agent 同步/重启."
-    return 0
-  fi
-
-  if ! systemctl cat "$LOCAL_AGENT_SERVICE" >/dev/null 2>&1; then
-    echo "      未找到本机 Agent systemd 服务 ${LOCAL_AGENT_SERVICE}，跳过同步/重启."
-    return 0
-  fi
-
-  if [[ ! -e "$target_path" ]]; then
-    echo "      未检测到本机 Agent 二进制 ${target_path}，跳过同步/重启."
-    return 0
-  fi
-
-  if [[ ! -f "$built_binary" ]]; then
-    echo "      未找到已构建的 Agent 二进制: $built_binary"
-    return 1
-  fi
-
-  cp -f "$built_binary" "$temp_path"
-  chmod +x "$temp_path"
-  mv -f "$temp_path" "$target_path"
-  echo "      已同步本机 Agent 到 ${target_path}."
-
-  systemctl restart "$LOCAL_AGENT_SERVICE"
-  if systemctl is-active --quiet "$LOCAL_AGENT_SERVICE"; then
-    echo "      本机 Agent 服务已重启: ${LOCAL_AGENT_SERVICE}."
-  else
-    echo "      本机 Agent 服务重启后未处于 active 状态: ${LOCAL_AGENT_SERVICE}"
-    return 1
-  fi
+  case "$host_goos" in
+    linux)
+      restart_local_agent_linux
+      ;;
+    darwin)
+      restart_local_agent_darwin
+      ;;
+    *)
+      echo "      已同步二进制，但当前系统 ${host_goos} 无自动重启逻辑."
+      ;;
+  esac
 }
 
 # 判断进程是否为 STX Java Proxy，避免误杀端口占用者。/ Check whether a process is STX Java Proxy to avoid killing an unrelated listener.

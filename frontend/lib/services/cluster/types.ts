@@ -296,6 +296,19 @@ export interface RuntimeStorageSpec {
   endpoint?: string;
   bucket?: string;
   external: boolean;
+  hdfs_ha_enabled?: boolean;
+  hdfs_name_services?: string;
+  hdfs_ha_namenodes?: string;
+  hdfs_namenode_rpc_address_1?: string;
+  hdfs_namenode_rpc_address_2?: string;
+  hdfs_failover_proxy_provider?: string;
+  hdfs_namenode_host?: string;
+  hdfs_namenode_port?: number;
+  kerberos_principal?: string;
+  kerberos_keytab_file_path?: string;
+  hdfs_site_path?: string;
+  disable_cache?: boolean;
+  s3_credentials_provider?: string;
   size_available: boolean;
   total_size_bytes: number;
   cleanup_supported: boolean;
@@ -308,6 +321,22 @@ export interface RuntimeStorageDetails {
   config_source?: string;
   checkpoint?: RuntimeStorageSpec;
   imap?: RuntimeStorageSpec;
+  configured_checkpoint?: RuntimeStorageSpec;
+  configured_imap?: RuntimeStorageSpec;
+}
+
+export interface ApplyRuntimeStorageVersion {
+  config_type: string;
+  config_id: number;
+  version: number;
+}
+
+export interface ApplyRuntimeStorageResult {
+  saved: boolean;
+  restart_required: boolean;
+  message: string;
+  versions?: ApplyRuntimeStorageVersion[];
+  validation?: RuntimeStorageValidationResult;
 }
 
 export interface RuntimeStorageCleanupNodeResult {

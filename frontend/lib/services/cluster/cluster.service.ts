@@ -62,6 +62,7 @@ import {
   RuntimeStorageDetails,
   RuntimeStorageCleanupResult,
   RuntimeStorageValidationResult,
+  ApplyRuntimeStorageResult,
   RuntimeStorageListResult,
   RuntimeStoragePreviewResult,
   RuntimeStorageCheckpointInspectResult,
@@ -1103,6 +1104,47 @@ export class ClusterService extends BaseService {
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : '运行时存储连通性校验失败';
+      return {success: false, error: errorMessage};
+    }
+  }
+
+  // 保存可视化存储：后端先做真实读写测试，通过后生成配置版本
+  // Save visual storage: backend probes read/write first, then creates a config version
+  static async applyRuntimeStorageSafe(
+    clusterId: number,
+    kind: 'checkpoint' | 'imap',
+    request: {
+      enabled: boolean;
+      storage_type: string;
+      namespace?: string;
+      endpoint?: string;
+      bucket?: string;
+      access_key?: string;
+      secret_key?: string;
+      hdfs_namenode_host?: string;
+      hdfs_namenode_port?: number;
+      hdfs_ha_enabled?: boolean;
+      hdfs_name_services?: string;
+      hdfs_ha_namenodes?: string;
+      hdfs_namenode_rpc_address_1?: string;
+      hdfs_namenode_rpc_address_2?: string;
+      kerberos_principal?: string;
+      kerberos_keytab_file_path?: string;
+      hdfs_site_path?: string;
+      s3_credentials_provider?: string;
+    },
+  ): Promise<{success: boolean; data?: ApplyRuntimeStorageResult; error?: string}> {
+    try {
+      const response = await apiClient.post<{
+        error_msg: string;
+        data: ApplyRuntimeStorageResult;
+      }>(`${this.basePath}/${clusterId}/runtime-storage/${kind}/apply`, request);
+      if (response.data.error_msg) {
+        throw new Error(localizeBackendText(response.data.error_msg));
+      }
+      return {success: true, data: response.data.data};
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : '保存运行时存储失败';
       return {success: false, error: errorMessage};
     }
   }

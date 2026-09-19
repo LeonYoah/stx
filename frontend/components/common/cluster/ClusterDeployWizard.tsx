@@ -386,6 +386,9 @@ export function ClusterDeployWizard({
         storage_access_key: config.checkpoint.storage_access_key,
         storage_secret_key: config.checkpoint.storage_secret_key,
         storage_bucket: config.checkpoint.storage_bucket,
+        hdfs_site_path: config.checkpoint.hdfs_site_path,
+        disable_cache: config.checkpoint.disable_cache,
+        s3_credentials_provider: config.checkpoint.s3_credentials_provider,
       },
     });
     toast.success(t('installer.runtimeStorage.applyCheckpointToImapSuccess'));

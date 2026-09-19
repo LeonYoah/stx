@@ -2503,6 +2503,20 @@ func (s *Service) pollInstallationStatus(ctx context.Context, commandID string, 
 // startClusterAfterInstall starts the SeaTunnel cluster after installation completes.
 // startClusterAfterInstall 在安装完成后启动 SeaTunnel 集群。
 func (s *Service) startClusterAfterInstall(ctx context.Context, agentID string, req *InstallationRequest, status *InstallationStatus) {
+	// 未指定集群时只完成安装，不应把独立安装误判为启动失败。
+	// When no cluster is specified, finish the standalone installation without reporting a startup failure.
+	if strings.TrimSpace(req.ClusterID) == "" {
+		s.installMu.Lock()
+		if len(status.Warnings) > 0 {
+			status.Message = "Installation completed with warnings; cluster startup skipped because no cluster ID was provided / 安装完成但存在警告；未提供集群 ID，已跳过集群启动"
+		} else {
+			status.Message = "Installation completed; cluster startup skipped because no cluster ID was provided / 安装完成；未提供集群 ID，已跳过集群启动"
+		}
+		s.installMu.Unlock()
+		logger.InfoF(ctx, "[Installer] 未提供集群 ID，跳过安装后启动 / Cluster ID not provided; skipping post-install startup: host=%s", req.HostID)
+		return
+	}
+
 	// Build node info for logging / 构建节点信息用于日志
 	nodeRole := string(req.NodeRole)
 	if nodeRole == "" {
@@ -2795,7 +2809,7 @@ func buildInstallParams(req *InstallationRequest) map[string]string {
 			params["checkpoint_hdfs_host"] = req.Checkpoint.HDFSNameNodeHost
 			params["checkpoint_hdfs_port"] = fmt.Sprintf("%d", req.Checkpoint.HDFSNameNodePort)
 		}
-		if req.Checkpoint.StorageEndpoint != "" {
+		if req.Checkpoint.StorageBucket != "" || req.Checkpoint.StorageEndpoint != "" || req.Checkpoint.StorageAccessKey != "" {
 			params["checkpoint_storage_endpoint"] = req.Checkpoint.StorageEndpoint
 			params["checkpoint_storage_bucket"] = req.Checkpoint.StorageBucket
 			params["checkpoint_storage_access_key"] = req.Checkpoint.StorageAccessKey
@@ -2827,6 +2841,12 @@ func buildInstallParams(req *InstallationRequest) map[string]string {
 				params["checkpoint_hdfs_failover_proxy_provider"] = req.Checkpoint.HDFSFailoverProxyProvider
 			}
 		}
+		if req.Checkpoint.HdfsSitePath != "" {
+			params["checkpoint_hdfs_site_path"] = req.Checkpoint.HdfsSitePath
+		}
+		if req.Checkpoint.S3CredentialsProvider != "" {
+			params["checkpoint_s3_credentials_provider"] = req.Checkpoint.S3CredentialsProvider
+		}
 	}
 
 	// Add IMAP config / 添加 IMAP 配置
@@ -2837,7 +2857,7 @@ func buildInstallParams(req *InstallationRequest) map[string]string {
 			params["imap_hdfs_host"] = req.IMAP.HDFSNameNodeHost
 			params["imap_hdfs_port"] = fmt.Sprintf("%d", req.IMAP.HDFSNameNodePort)
 		}
-		if req.IMAP.StorageEndpoint != "" {
+		if req.IMAP.StorageBucket != "" || req.IMAP.StorageEndpoint != "" || req.IMAP.StorageAccessKey != "" {
 			params["imap_storage_endpoint"] = req.IMAP.StorageEndpoint
 			params["imap_storage_bucket"] = req.IMAP.StorageBucket
 			params["imap_storage_access_key"] = req.IMAP.StorageAccessKey
@@ -2866,6 +2886,12 @@ func buildInstallParams(req *InstallationRequest) map[string]string {
 			if req.IMAP.HDFSFailoverProxyProvider != "" {
 				params["imap_hdfs_failover_proxy_provider"] = req.IMAP.HDFSFailoverProxyProvider
 			}
+		}
+		if req.IMAP.HdfsSitePath != "" {
+			params["imap_hdfs_site_path"] = req.IMAP.HdfsSitePath
+		}
+		if req.IMAP.S3CredentialsProvider != "" {
+			params["imap_s3_credentials_provider"] = req.IMAP.S3CredentialsProvider
 		}
 	}
 

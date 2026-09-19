@@ -51,6 +51,7 @@ import {Skeleton} from '@/components/ui/skeleton';
 interface ClusterConfigsProps {
   clusterId: number;
   deploymentMode: string;
+  onConfigChanged?: () => void;
 }
 
 interface DiffRow {
@@ -159,7 +160,7 @@ function shouldWarnSeatunnelPortSync(config: ConfigInfo | null, nextContent: str
   return nextPort !== null && currentPort !== nextPort;
 }
 
-export function ClusterConfigs({clusterId, deploymentMode}: ClusterConfigsProps) {
+export function ClusterConfigs({clusterId, deploymentMode, onConfigChanged}: ClusterConfigsProps) {
   const t = useTranslations();
   const [configs, setConfigs] = useState<ConfigInfo[]>([]);
   const [nodes, setNodes] = useState<NodeInfo[]>([]);
@@ -206,6 +207,16 @@ export function ClusterConfigs({clusterId, deploymentMode}: ClusterConfigsProps)
     [versionConfig?.content, selectedVersion?.content]
   );
 
+  // 用 ref 持有回调，避免父组件内联函数导致 loadData 身份抖动、配置 Tab 死循环请求
+  // Hold callback in a ref so parent inline lambdas cannot churn loadData and loop-fetch the configs tab
+  const onConfigChangedRef = useRef(onConfigChanged);
+  onConfigChangedRef.current = onConfigChanged;
+
+  /** 配置真正变更后，通知存储可视化反向刷新 / After real config mutations, refresh storage views */
+  const notifyConfigChanged = useCallback(() => {
+    onConfigChangedRef.current?.();
+  }, []);
+
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
@@ -225,7 +236,9 @@ export function ClusterConfigs({clusterId, deploymentMode}: ClusterConfigsProps)
     }
   }, [clusterId, t]);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => {
+    void loadData();
+  }, [loadData]);
 
   const templateConfig = configs.find(c => c.config_type === selectedConfigType && c.is_template);
   const nodeConfigs = configs.filter(c => c.config_type === selectedConfigType && !c.is_template);
@@ -279,7 +292,8 @@ export function ClusterConfigs({clusterId, deploymentMode}: ClusterConfigsProps)
         toast.success(t('config.saveSuccess'));
       }
       setEditDialogOpen(false);
-      loadData();
+      await loadData();
+      notifyConfigChanged();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t('config.saveFailed'));
     } finally {
@@ -344,7 +358,8 @@ export function ClusterConfigs({clusterId, deploymentMode}: ClusterConfigsProps)
         toast.success(t('config.rollbackSuccess'));
       }
       setVersionDialogOpen(false);
-      loadData();
+      await loadData();
+      notifyConfigChanged();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t('config.rollbackFailed'));
     }
@@ -364,7 +379,8 @@ export function ClusterConfigs({clusterId, deploymentMode}: ClusterConfigsProps)
     try {
       await ConfigService.promoteConfig(config.id, {comment: t('config.promoteComment')});
       toast.success(t('config.promoteSuccess'));
-      loadData();
+      await loadData();
+      notifyConfigChanged();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t('config.promoteFailed'));
     }
@@ -378,7 +394,8 @@ export function ClusterConfigs({clusterId, deploymentMode}: ClusterConfigsProps)
       } else {
         toast.success(t('config.syncSuccess'));
       }
-      loadData();
+      await loadData();
+      notifyConfigChanged();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t('config.syncFailed'));
     }
@@ -406,7 +423,8 @@ export function ClusterConfigs({clusterId, deploymentMode}: ClusterConfigsProps)
       await ConfigService.initClusterConfigs(clusterId, node.host_id, node.install_dir);
       toast.success(t('config.initSuccess'));
       setInitDialogOpen(false);
-      loadData();
+      await loadData();
+      notifyConfigChanged();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t('config.initFailed'));
     } finally {
@@ -429,7 +447,8 @@ export function ClusterConfigs({clusterId, deploymentMode}: ClusterConfigsProps)
       } else {
         toast.info(t('config.syncAllNoChanges'));
       }
-      loadData();
+      await loadData();
+      notifyConfigChanged();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t('config.syncAllFailed'));
     } finally {

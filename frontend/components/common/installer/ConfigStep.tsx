@@ -181,10 +181,13 @@ export function ConfigStep({
         config.checkpoint.hdfs_namenode_rpc_address_2,
       hdfs_failover_proxy_provider:
         config.checkpoint.hdfs_failover_proxy_provider,
+      hdfs_site_path: config.checkpoint.hdfs_site_path,
+      disable_cache: config.checkpoint.disable_cache,
       storage_endpoint: config.checkpoint.storage_endpoint,
       storage_access_key: config.checkpoint.storage_access_key,
       storage_secret_key: config.checkpoint.storage_secret_key,
       storage_bucket: config.checkpoint.storage_bucket,
+      s3_credentials_provider: config.checkpoint.s3_credentials_provider,
     };
     onConfigChange({imap: nextImap});
     setStorageValidation((prev) => ({...prev, imap: undefined}));
@@ -1030,17 +1033,25 @@ export function ConfigStep({
                     </div>
                   </div>
                 )}
+
+                <div className='space-y-2'>
+                  <Label>{t('installer.hdfsSitePath')}</Label>
+                  <Input
+                    value={config.checkpoint.hdfs_site_path || ''}
+                    onChange={(e) =>
+                      handleCheckpointChange('hdfs_site_path', e.target.value)
+                    }
+                    placeholder='/etc/hadoop/conf/hdfs-site.xml'
+                  />
+                </div>
               </div>
             )}
 
-            {(config.checkpoint.storage_type === 'OSS' ||
-              config.checkpoint.storage_type === 'S3') && (
+            {config.checkpoint.storage_type === 'OSS' && (
               <div className='space-y-4'>
-                {config.checkpoint.storage_type === 'OSS' && (
-                  <div className='rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200'>
-                    {t('installer.runtimeStorage.ossLibHint')}
-                  </div>
-                )}
+                <div className='rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200'>
+                  {t('installer.runtimeStorage.ossLibHint')}
+                </div>
                 <div className='space-y-2'>
                   <Label>{t('installer.endpoint')}</Label>
                   <Input
@@ -1049,39 +1060,29 @@ export function ConfigStep({
                     onChange={(e) =>
                       handleCheckpointChange('storage_endpoint', e.target.value)
                     }
-                    placeholder={
-                      config.checkpoint.storage_type === 'OSS'
-                        ? 'oss-cn-hangzhou.aliyuncs.com'
-                        : 'http://minio.example.com:9000'
-                    }
+                    placeholder='oss-cn-hangzhou.aliyuncs.com'
                   />
                 </div>
                 <div className='grid grid-cols-2 gap-4'>
                   <div className='space-y-2'>
-                    <Label>{t('installer.accessKey')}</Label>
+                    <Label>fs.oss.accessKeyId</Label>
                     <Input
                       data-testid='install-checkpoint-access-key'
                       type='password'
                       value={config.checkpoint.storage_access_key || ''}
                       onChange={(e) =>
-                        handleCheckpointChange(
-                          'storage_access_key',
-                          e.target.value,
-                        )
+                        handleCheckpointChange('storage_access_key', e.target.value)
                       }
                     />
                   </div>
                   <div className='space-y-2'>
-                    <Label>{t('installer.secretKey')}</Label>
+                    <Label>fs.oss.accessKeySecret</Label>
                     <Input
                       data-testid='install-checkpoint-secret-key'
                       type='password'
                       value={config.checkpoint.storage_secret_key || ''}
                       onChange={(e) =>
-                        handleCheckpointChange(
-                          'storage_secret_key',
-                          e.target.value,
-                        )
+                        handleCheckpointChange('storage_secret_key', e.target.value)
                       }
                     />
                   </div>
@@ -1094,7 +1095,86 @@ export function ConfigStep({
                     onChange={(e) =>
                       handleCheckpointChange('storage_bucket', e.target.value)
                     }
-                    placeholder='my-checkpoint-bucket'
+                    placeholder='your-bucket'
+                  />
+                </div>
+              </div>
+            )}
+
+            {config.checkpoint.storage_type === 'S3' && (
+              <div className='space-y-4'>
+                <div className='space-y-2'>
+                  <Label>{t('installer.s3CredentialsProvider')}</Label>
+                  <Select
+                    value={
+                      config.checkpoint.s3_credentials_provider ||
+                      'org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider'
+                    }
+                    onValueChange={(value) =>
+                      handleCheckpointChange('s3_credentials_provider', value)
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value='org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider'>
+                        {t('installer.s3ProviderSimple')}
+                      </SelectItem>
+                      <SelectItem value='org.apache.hadoop.fs.s3a.InstanceProfileCredentialsProvider'>
+                        {t('installer.s3ProviderInstance')}
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className='space-y-2'>
+                  <Label>{t('installer.endpoint')}</Label>
+                  <Input
+                    data-testid='install-checkpoint-endpoint'
+                    value={config.checkpoint.storage_endpoint || ''}
+                    onChange={(e) =>
+                      handleCheckpointChange('storage_endpoint', e.target.value)
+                    }
+                    placeholder='http://127.0.0.1:9000'
+                  />
+                </div>
+                {(config.checkpoint.s3_credentials_provider ||
+                  'org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider') !==
+                  'org.apache.hadoop.fs.s3a.InstanceProfileCredentialsProvider' && (
+                  <div className='grid grid-cols-2 gap-4'>
+                    <div className='space-y-2'>
+                      <Label>fs.s3a.access.key</Label>
+                      <Input
+                        data-testid='install-checkpoint-access-key'
+                        type='password'
+                        value={config.checkpoint.storage_access_key || ''}
+                        onChange={(e) =>
+                          handleCheckpointChange('storage_access_key', e.target.value)
+                        }
+                      />
+                    </div>
+                    <div className='space-y-2'>
+                      <Label>fs.s3a.secret.key</Label>
+                      <Input
+                        data-testid='install-checkpoint-secret-key'
+                        type='password'
+                        value={config.checkpoint.storage_secret_key || ''}
+                        onChange={(e) =>
+                          handleCheckpointChange('storage_secret_key', e.target.value)
+                        }
+                      />
+                    </div>
+                  </div>
+                )}
+                <div className='space-y-2'>
+                  <Label>{t('installer.bucket')}</Label>
+                  <Input
+                    data-testid='install-checkpoint-bucket'
+                    value={config.checkpoint.storage_bucket || ''}
+                    onChange={(e) =>
+                      handleCheckpointChange('storage_bucket', e.target.value)
+                    }
+                    placeholder='s3a://bucket'
                   />
                 </div>
               </div>
@@ -1417,17 +1497,25 @@ export function ConfigStep({
                         </div>
                       </div>
                     )}
+
+                    <div className='space-y-2'>
+                      <Label>{t('installer.hdfsSitePath')}</Label>
+                      <Input
+                        value={config.imap.hdfs_site_path || ''}
+                        onChange={(e) =>
+                          handleImapChange('hdfs_site_path', e.target.value)
+                        }
+                        placeholder='/etc/hadoop/conf/hdfs-site.xml'
+                      />
+                    </div>
                   </div>
                 )}
 
-                {(config.imap.storage_type === 'OSS' ||
-                  config.imap.storage_type === 'S3') && (
+                {config.imap.storage_type === 'OSS' && (
                   <div className='space-y-4'>
-                    {config.imap.storage_type === 'OSS' && (
-                      <div className='rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200'>
-                        {t('installer.runtimeStorage.ossLibHint')}
-                      </div>
-                    )}
+                    <div className='rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200'>
+                      {t('installer.runtimeStorage.ossLibHint')}
+                    </div>
                     <div className='space-y-2'>
                       <Label>{t('installer.endpoint')}</Label>
                       <Input
@@ -1436,39 +1524,29 @@ export function ConfigStep({
                         onChange={(e) =>
                           handleImapChange('storage_endpoint', e.target.value)
                         }
-                        placeholder={
-                          config.imap.storage_type === 'OSS'
-                            ? 'oss-cn-hangzhou.aliyuncs.com'
-                            : 'http://minio.example.com:9000'
-                        }
+                        placeholder='oss-cn-hangzhou.aliyuncs.com'
                       />
                     </div>
                     <div className='grid grid-cols-2 gap-4'>
                       <div className='space-y-2'>
-                        <Label>{t('installer.accessKey')}</Label>
+                        <Label>fs.oss.accessKeyId</Label>
                         <Input
                           data-testid='install-imap-access-key'
                           type='password'
                           value={config.imap.storage_access_key || ''}
                           onChange={(e) =>
-                            handleImapChange(
-                              'storage_access_key',
-                              e.target.value,
-                            )
+                            handleImapChange('storage_access_key', e.target.value)
                           }
                         />
                       </div>
                       <div className='space-y-2'>
-                        <Label>{t('installer.secretKey')}</Label>
+                        <Label>fs.oss.accessKeySecret</Label>
                         <Input
                           data-testid='install-imap-secret-key'
                           type='password'
                           value={config.imap.storage_secret_key || ''}
                           onChange={(e) =>
-                            handleImapChange(
-                              'storage_secret_key',
-                              e.target.value,
-                            )
+                            handleImapChange('storage_secret_key', e.target.value)
                           }
                         />
                       </div>
@@ -1481,7 +1559,86 @@ export function ConfigStep({
                         onChange={(e) =>
                           handleImapChange('storage_bucket', e.target.value)
                         }
-                        placeholder='my-imap-bucket'
+                        placeholder='your-bucket'
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {config.imap.storage_type === 'S3' && (
+                  <div className='space-y-4'>
+                    <div className='space-y-2'>
+                      <Label>{t('installer.s3CredentialsProvider')}</Label>
+                      <Select
+                        value={
+                          config.imap.s3_credentials_provider ||
+                          'org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider'
+                        }
+                        onValueChange={(value) =>
+                          handleImapChange('s3_credentials_provider', value)
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value='org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider'>
+                            {t('installer.s3ProviderSimple')}
+                          </SelectItem>
+                          <SelectItem value='org.apache.hadoop.fs.s3a.InstanceProfileCredentialsProvider'>
+                            {t('installer.s3ProviderInstance')}
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className='space-y-2'>
+                      <Label>{t('installer.endpoint')}</Label>
+                      <Input
+                        data-testid='install-imap-endpoint'
+                        value={config.imap.storage_endpoint || ''}
+                        onChange={(e) =>
+                          handleImapChange('storage_endpoint', e.target.value)
+                        }
+                        placeholder='http://127.0.0.1:9000'
+                      />
+                    </div>
+                    {(config.imap.s3_credentials_provider ||
+                      'org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider') !==
+                      'org.apache.hadoop.fs.s3a.InstanceProfileCredentialsProvider' && (
+                      <div className='grid grid-cols-2 gap-4'>
+                        <div className='space-y-2'>
+                          <Label>fs.s3a.access.key</Label>
+                          <Input
+                            data-testid='install-imap-access-key'
+                            type='password'
+                            value={config.imap.storage_access_key || ''}
+                            onChange={(e) =>
+                              handleImapChange('storage_access_key', e.target.value)
+                            }
+                          />
+                        </div>
+                        <div className='space-y-2'>
+                          <Label>fs.s3a.secret.key</Label>
+                          <Input
+                            data-testid='install-imap-secret-key'
+                            type='password'
+                            value={config.imap.storage_secret_key || ''}
+                            onChange={(e) =>
+                              handleImapChange('storage_secret_key', e.target.value)
+                            }
+                          />
+                        </div>
+                      </div>
+                    )}
+                    <div className='space-y-2'>
+                      <Label>{t('installer.bucket')}</Label>
+                      <Input
+                        data-testid='install-imap-bucket'
+                        value={config.imap.storage_bucket || ''}
+                        onChange={(e) =>
+                          handleImapChange('storage_bucket', e.target.value)
+                        }
+                        placeholder='s3a://bucket'
                       />
                     </div>
                   </div>

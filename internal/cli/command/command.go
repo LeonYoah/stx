@@ -47,6 +47,13 @@ type Client interface {
 // ClientFactory creates a remote client for one local namespace.
 type ClientFactory func(namespace string) (Client, error)
 
+// queryFlagValue 保存单值或重复查询参数对应的 Cobra flag 值。
+// queryFlagValue stores the Cobra flag value for a scalar or repeated query parameter.
+type queryFlagValue struct {
+	single   *string
+	repeated *[]string
+}
+
 // Build 构建登记项对应的 Cobra 顶级命令。
 // Build creates top-level Cobra commands for the supplied registry entries.
 func Build(specs []operation.OperationSpec, clientFactory ClientFactory) ([]*cobra.Command, error) {
@@ -111,7 +118,7 @@ func newGroupCommand(name, path string) *cobra.Command {
 func configureLeaf(command *cobra.Command, spec operation.OperationSpec, clientFactory ClientFactory) {
 	pathInputs := inputsAt(spec, operation.InputPath)
 	queryInputs := inputsAt(spec, operation.InputQuery)
-	queryValues := make(map[string]*string, len(queryInputs))
+	queryValues := make(map[string]queryFlagValue, len(queryInputs))
 	var namespace string
 
 	useParts := []string{command.Name()}
@@ -125,8 +132,14 @@ func configureLeaf(command *cobra.Command, spec operation.OperationSpec, clientF
 	command.Args = exactArgs(len(pathInputs))
 	command.Flags().StringVar(&namespace, "namespace", "", "Local namespace to use")
 	for _, input := range queryInputs {
+		if input.Repeated {
+			value := new([]string)
+			queryValues[input.Name] = queryFlagValue{repeated: value}
+			command.Flags().StringArrayVar(value, input.Name, nil, input.Description)
+			continue
+		}
 		value := new(string)
-		queryValues[input.Name] = value
+		queryValues[input.Name] = queryFlagValue{single: value}
 		command.Flags().StringVar(value, input.Name, "", input.Description)
 	}
 	command.RunE = func(command *cobra.Command, args []string) error {
@@ -190,6 +203,9 @@ func validateSpec(spec operation.OperationSpec) error {
 		if input.Location != operation.InputPath && input.Location != operation.InputQuery {
 			return fmt.Errorf("input %q uses unsupported location %q", input.Name, input.Location)
 		}
+		if input.Repeated && input.Location != operation.InputQuery {
+			return fmt.Errorf("input %q can only be repeated at query location", input.Name)
+		}
 	}
 	return nil
 }
@@ -209,7 +225,7 @@ func longDescription(spec operation.OperationSpec) string {
 	return strings.Join(sections, "\n\n")
 }
 
-func buildRequestPath(command *cobra.Command, spec operation.OperationSpec, pathInputs, queryInputs []operation.InputSpec, queryValues map[string]*string, args []string) (string, error) {
+func buildRequestPath(command *cobra.Command, spec operation.OperationSpec, pathInputs, queryInputs []operation.InputSpec, queryValues map[string]queryFlagValue, args []string) (string, error) {
 	requestPath := spec.Route
 	for index, input := range pathInputs {
 		requestPath = strings.Replace(requestPath, ":"+input.Name, url.PathEscape(args[index]), 1)
@@ -217,8 +233,22 @@ func buildRequestPath(command *cobra.Command, spec operation.OperationSpec, path
 
 	query := make(url.Values)
 	for _, input := range queryInputs {
-		value := strings.TrimSpace(*queryValues[input.Name])
 		changed := command.Flags().Changed(input.Name)
+		flagValue := queryValues[input.Name]
+		if input.Repeated {
+			values := nonEmptyValues(flagValue.repeated)
+			if input.Required && (!changed || len(values) == 0) {
+				return "", clioutput.NewError(clioutput.CodeUsage, "required flag --"+input.Name+" is missing", clioutput.ExitUsage, false)
+			}
+			if changed {
+				for _, value := range values {
+					query.Add(input.Name, value)
+				}
+			}
+			continue
+		}
+
+		value := strings.TrimSpace(*flagValue.single)
 		if input.Required && (!changed || value == "") {
 			return "", clioutput.NewError(clioutput.CodeUsage, "required flag --"+input.Name+" is missing", clioutput.ExitUsage, false)
 		}
@@ -230,6 +260,21 @@ func buildRequestPath(command *cobra.Command, spec operation.OperationSpec, path
 		requestPath += "?" + encoded
 	}
 	return requestPath, nil
+}
+
+// nonEmptyValues 清理重复查询参数，并保留用户传入的先后顺序。
+// nonEmptyValues cleans repeated query values while preserving their input order.
+func nonEmptyValues(values *[]string) []string {
+	if values == nil {
+		return nil
+	}
+	result := make([]string, 0, len(*values))
+	for _, value := range *values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	return result
 }
 
 func checkCapability(ctx context.Context, client Client, spec operation.OperationSpec) error {

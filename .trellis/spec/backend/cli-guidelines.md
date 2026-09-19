@@ -226,3 +226,90 @@ commands, err := command.Build([]operation.OperationSpec{spec}, clientFactory)
 ```
 
 登记表是命令定义来源。构建器先拒绝不安全的签名，再按 `OperationSpec.Method` 发起无请求体请求，并执行能力检查和统一输出。
+
+## 9. 同名查询参数
+
+### 9.1 适用范围
+
+当 Handler 使用 `QueryArray` 或同类方式读取一个 query 名称的多个值时，生成式 CLI 必须明确登记为重复参数，不能把多个值拼成一个普通字符串。
+
+### 9.2 签名
+
+登记方式：
+
+```go
+operation.InputSpec{
+    Name:        "profile_keys",
+    Location:    operation.InputQuery,
+    Required:    false,
+    Repeated:    true,
+    Description: "Dependency profile key; may be specified more than once",
+}
+```
+
+CLI 调用：
+
+```text
+stx plugin download status get jdbc \
+  --version 2.3.13 \
+  --profile_keys mysql \
+  --profile_keys postgresql
+```
+
+HTTP 请求：
+
+```text
+GET /api/v1/plugins/jdbc/download/status?profile_keys=mysql&profile_keys=postgresql&version=2.3.13
+```
+
+### 9.3 契约
+
+- `Repeated=true` 只允许用于 `InputQuery`。
+- 普通 query 使用 Cobra string flag 和 `url.Values.Set`。
+- 重复 query 使用 Cobra string-array flag，并对每个有效值调用 `url.Values.Add`。
+- 构建 URL 前清除值两端的空白，忽略空值，保留有效值的输入顺序。
+- 必填重复参数至少要有一个非空值，否则返回 `usage_error`，且不能创建客户端或发送请求。
+- `Repeated` 会进入操作登记摘要；capability 当前不返回输入定义。
+
+### 9.4 校验与错误对应表
+
+| 情况 | 行为 |
+| --- | --- |
+| query 未设置 `Repeated` | 继续按单值参数处理 |
+| query 设置 `Repeated=true` | 生成可多次传入的 string-array flag |
+| path/header/body/file 设置 `Repeated=true` | 登记校验和命令构建都失败 |
+| 可选重复参数全部为空 | 不写入 URL |
+| 必填重复参数未传或全部为空 | `usage_error` / 退出码 2，不发请求 |
+| 多次传入有效值 | URL 中保留多个同名参数 |
+
+### 9.5 Good / Base / Bad
+
+- Good：`--profile_keys mysql --profile_keys postgresql` 生成两个 `profile_keys`，服务端 `QueryArray` 读取两个值。
+- Base：只有一个值时仍使用同一个重复参数入口，生成一个 query 值。
+- Bad：把值拼成 `mysql,postgresql` 后使用 `Set`；服务端会收到一个值，且逗号可能是业务值的一部分。
+
+### 9.6 必须有的测试
+
+- 命令构建测试断言重复 flag 生成两个同名 URL 参数，顺序与输入一致。
+- 空值测试断言空字符串被忽略。
+- 必填测试断言没有有效值时返回退出码 2，业务请求次数为 0。
+- 登记校验和命令构建测试都要拒绝非 query 的 `Repeated=true`。
+- 真实二进制测试使用两个重复值调用本地服务，并断言响应或服务端结果保留两个值。
+
+### 9.7 错误与正确示例
+
+错误：
+
+```go
+query.Set("profile_keys", strings.Join(values, ","))
+```
+
+正确：
+
+```go
+for _, value := range values {
+    query.Add("profile_keys", value)
+}
+```
+
+同名 query 是 HTTP 协议中的多个值，不应在 CLI 内自行发明分隔符。

@@ -166,6 +166,9 @@ func validateInputs(inputs []InputSpec) error {
 		if input.Location != InputPath && input.Location != InputQuery && input.Location != InputHeader && input.Location != InputBody && input.Location != InputFile {
 			return fmt.Errorf("input %q has invalid location %q", name, input.Location)
 		}
+		if input.Repeated && input.Location != InputQuery {
+			return fmt.Errorf("input %q can only be repeated at query location", name)
+		}
 		if strings.TrimSpace(input.Description) == "" {
 			return fmt.Errorf("input %q has no description", name)
 		}

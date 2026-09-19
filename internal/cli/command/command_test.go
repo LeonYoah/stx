@@ -143,6 +143,66 @@ func TestBuildExecutesGETWithPathQueryNamespaceAndPick(t *testing.T) {
 	}
 }
 
+func TestBuildExecutesGETWithRepeatedQueryValues(t *testing.T) {
+	spec := testSpec()
+	spec.Input = append(spec.Input, operation.InputSpec{
+		Name:        "profile_keys",
+		Location:    operation.InputQuery,
+		Repeated:    true,
+		Description: "Dependency profile keys",
+	})
+	client := &fakeClient{
+		capabilities: cliClient.CapabilityData{Operations: []cliClient.CapabilityOperation{{
+			OperationID: spec.ID,
+			Revision:    spec.Revision,
+			Allowed:     true,
+			Mode:        string(spec.Mode),
+		}}},
+		response: map[string]any{"status": "ready"},
+	}
+	commands, err := Build([]operation.OperationSpec{spec}, func(string) (Client, error) { return client, nil })
+	if err != nil {
+		t.Fatalf("构建重复查询参数命令失败 / building command with repeated query values failed: %v", err)
+	}
+
+	root, _, _ := testRoot(commands)
+	root.SetArgs([]string{
+		"sample", "get", "one",
+		"--profile_keys", " jdbc ",
+		"--profile_keys", "cdc",
+		"--profile_keys", " ",
+	})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("执行重复查询参数命令失败 / executing command with repeated query values failed: %v", err)
+	}
+	if client.path != "/api/v1/samples/one?profile_keys=jdbc&profile_keys=cdc" {
+		t.Fatalf("重复查询参数错误 / repeated query values are incorrect: %s", client.path)
+	}
+}
+
+func TestBuildRequiresOneNonEmptyRepeatedQueryValue(t *testing.T) {
+	spec := testSpec()
+	spec.Input = append(spec.Input, operation.InputSpec{
+		Name:        "profile_keys",
+		Location:    operation.InputQuery,
+		Required:    true,
+		Repeated:    true,
+		Description: "Dependency profile keys",
+	})
+	commands, err := Build([]operation.OperationSpec{spec}, func(string) (Client, error) { return &fakeClient{}, nil })
+	if err != nil {
+		t.Fatalf("构建必填重复查询参数命令失败 / building command with required repeated query values failed: %v", err)
+	}
+
+	root, _, _ := testRoot(commands)
+	root.SetArgs([]string{"sample", "get", "one", "--profile_keys", " "})
+	err = root.Execute()
+	classified := clioutput.ClassifyError(err)
+	if classified.Code != clioutput.CodeUsage || classified.ExitCode != clioutput.ExitUsage {
+		t.Fatalf("必填重复查询参数错误分类不正确 / required repeated query error is incorrect: %#v", classified)
+	}
+}
+
 func TestBuildHelpDoesNotCreateClient(t *testing.T) {
 	var factoryCalls int
 	spec := testSpec()
@@ -244,6 +304,11 @@ func TestBuildRejectsUnsupportedOrMismatchedSpecs(t *testing.T) {
 		{name: "watch", spec: func() operation.OperationSpec { item := testSpec(); item.Mode = operation.ModeWatch; return item }()},
 		{name: "missing summary", spec: func() operation.OperationSpec { item := testSpec(); item.Summary = ""; return item }()},
 		{name: "missing path input", spec: func() operation.OperationSpec { item := testSpec(); item.Input = item.Input[1:]; return item }()},
+		{name: "repeated path input", spec: func() operation.OperationSpec {
+			item := testSpec()
+			item.Input[0].Repeated = true
+			return item
+		}()},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

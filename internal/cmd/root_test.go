@@ -66,9 +66,39 @@ func TestRootCommandRegistersOnlyPublicServerEntry(t *testing.T) {
 	if _, ok := children["worker"]; ok {
 		t.Fatalf("worker 不应注册 / worker must not be registered")
 	}
-	for _, name := range []string{"auth", "admin", "dashboard", "host", "cluster", "config"} {
+	for _, name := range []string{"auth", "admin", "dashboard", "host", "cluster", "config", "package", "plugin"} {
 		if hidden, ok := children[name]; !ok || hidden {
 			t.Fatalf("%s API 命令组应公开 / %s API command group must be public: %#v", name, name, children)
+		}
+	}
+}
+
+func TestRootCommandRegistersPackageInstallerAndPluginReadCommands(t *testing.T) {
+	command := newRootCommand(func() error { return nil })
+	paths := [][]string{
+		{"package", "list"},
+		{"package", "get"},
+		{"package", "download", "list"},
+		{"package", "download", "get"},
+		{"host", "install", "status", "get"},
+		{"plugin", "list"},
+		{"plugin", "get"},
+		{"plugin", "local", "list"},
+		{"plugin", "download", "list"},
+		{"plugin", "download", "status", "get"},
+		{"plugin", "dependency", "list"},
+		{"plugin", "official-dependency", "list"},
+		{"cluster", "plugin", "list"},
+		{"cluster", "plugin", "progress", "get"},
+	}
+
+	for _, path := range paths {
+		found, remaining, err := command.Find(path)
+		if err != nil {
+			t.Fatalf("查找命令失败 / finding command failed: path=%v err=%v", path, err)
+		}
+		if len(remaining) != 0 || found.Name() != path[len(path)-1] {
+			t.Fatalf("命令路径未完整注册 / command path is not fully registered: path=%v found=%s remaining=%v", path, found.CommandPath(), remaining)
 		}
 	}
 }

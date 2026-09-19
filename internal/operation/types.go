@@ -65,10 +65,13 @@ type ImpactSpec struct {
 // InputSpec 描述一个可由 CLI 传入的操作参数。
 // InputSpec describes an operation input accepted by the CLI.
 type InputSpec struct {
-	Name        string        `json:"name" yaml:"name"`
-	Location    InputLocation `json:"location" yaml:"location"`
-	Required    bool          `json:"required" yaml:"required"`
-	Description string        `json:"description" yaml:"description"`
+	Name     string        `json:"name" yaml:"name"`
+	Location InputLocation `json:"location" yaml:"location"`
+	Required bool          `json:"required" yaml:"required"`
+	// Repeated 表示查询参数可以在同一请求中出现多次。
+	// Repeated indicates that a query parameter may appear more than once in one request.
+	Repeated    bool   `json:"repeated,omitempty" yaml:"repeated,omitempty"`
+	Description string `json:"description" yaml:"description"`
 }
 
 // OperationSpec 是普通 API 路由、CLI 命令和能力查询共用的稳定登记项。

@@ -6,9 +6,9 @@
     "swagger_path_count": 97,
     "swagger_operation_count": 114,
     "swagger_documented_routes": 114,
-    "registered_operations": 26,
+    "registered_operations": 40,
     "route_exceptions": 21,
-    "historical_gaps": 199
+    "historical_gaps": 185
   },
   "routes": [
     {
@@ -342,7 +342,9 @@
       "method": "GET",
       "path": "/api/v1/clusters/:id/plugins",
       "source": "internal/router/router.go:898",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "cluster.plugin.list",
+      "mode": "normal",
       "swagger": true
     },
     {
@@ -377,7 +379,9 @@
       "method": "GET",
       "path": "/api/v1/clusters/:id/plugins/:name/progress",
       "source": "internal/router/router.go:918",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "cluster.plugin.progress.get",
+      "mode": "normal",
       "swagger": true
     },
     {
@@ -954,7 +958,9 @@
       "method": "GET",
       "path": "/api/v1/hosts/:id/install/status",
       "source": "internal/router/router.go:984",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "host.install.status.get",
+      "mode": "normal",
       "swagger": true
     },
     {
@@ -1267,7 +1273,9 @@
       "method": "GET",
       "path": "/api/v1/packages",
       "source": "internal/router/router.go:634",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "package.list",
+      "mode": "normal",
       "swagger": true
     },
     {
@@ -1281,7 +1289,9 @@
       "method": "GET",
       "path": "/api/v1/packages/:version",
       "source": "internal/router/router.go:642",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "package.get",
+      "mode": "normal",
       "swagger": true
     },
     {
@@ -1295,7 +1305,9 @@
       "method": "GET",
       "path": "/api/v1/packages/download/:version",
       "source": "internal/router/router.go:666",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "package.download.get",
+      "mode": "normal",
       "swagger": true
     },
     {
@@ -1309,7 +1321,9 @@
       "method": "GET",
       "path": "/api/v1/packages/downloads",
       "source": "internal/router/router.go:662",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "package.download.list",
+      "mode": "normal",
       "swagger": true
     },
     {
@@ -1337,21 +1351,27 @@
       "method": "GET",
       "path": "/api/v1/plugins",
       "source": "internal/router/router.go:828",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "plugin.list",
+      "mode": "normal",
       "swagger": true
     },
     {
       "method": "GET",
       "path": "/api/v1/plugins/:name",
       "source": "internal/router/router.go:848",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "plugin.get",
+      "mode": "normal",
       "swagger": true
     },
     {
       "method": "GET",
       "path": "/api/v1/plugins/:name/dependencies",
       "source": "internal/router/router.go:864",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "plugin.dependency.list",
+      "mode": "normal",
       "swagger": true
     },
     {
@@ -1400,7 +1420,9 @@
       "method": "GET",
       "path": "/api/v1/plugins/:name/download/status",
       "source": "internal/router/router.go:856",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "plugin.download.status.get",
+      "mode": "normal",
       "swagger": true
     },
     {
@@ -1414,7 +1436,9 @@
       "method": "GET",
       "path": "/api/v1/plugins/:name/official-dependencies",
       "source": "internal/router/router.go:880",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "plugin.official-dependency.list",
+      "mode": "normal",
       "swagger": false
     },
     {
@@ -1435,14 +1459,18 @@
       "method": "GET",
       "path": "/api/v1/plugins/downloads",
       "source": "internal/router/router.go:840",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "plugin.download.list",
+      "mode": "normal",
       "swagger": true
     },
     {
       "method": "GET",
       "path": "/api/v1/plugins/local",
       "source": "internal/router/router.go:836",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "plugin.local.list",
+      "mode": "normal",
       "swagger": true
     },
     {

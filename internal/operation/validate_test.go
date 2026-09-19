@@ -68,8 +68,22 @@ func TestValidateRejectsGeneratedCLIWithoutSummary(t *testing.T) {
 	t.Fatal("登记表缺少生成式 CLI 操作 / registry has no generated CLI operation")
 }
 
+func TestValidateRejectsRepeatedNonQueryInput(t *testing.T) {
+	specs := Registry()
+	specs[0].Input = []InputSpec{{
+		Name:        "id",
+		Location:    InputPath,
+		Required:    true,
+		Repeated:    true,
+		Description: "Resource ID",
+	}}
+
+	err := Validate(specs, RouteExceptions())
+	require.ErrorContains(t, err, "can only be repeated at query location")
+}
+
 func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
-	require.Len(t, Registry(), 26)
+	require.Len(t, Registry(), 40)
 
 	expected := map[string]struct{}{
 		"auth.user-info.get": {}, "admin.user.list": {}, "admin.user.get": {},
@@ -79,6 +93,10 @@ func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
 		"host.discovery.process.list": {},
 		"cluster.node.list":           {}, "cluster.status.get": {}, "config.cluster.list": {},
 		"config.get": {}, "config.version.list": {},
+		"host.install.status.get": {}, "cluster.plugin.list": {}, "cluster.plugin.progress.get": {},
+		"package.list": {}, "package.get": {}, "package.download.list": {}, "package.download.get": {},
+		"plugin.list": {}, "plugin.get": {}, "plugin.local.list": {}, "plugin.download.list": {},
+		"plugin.download.status.get": {}, "plugin.dependency.list": {}, "plugin.official-dependency.list": {},
 	}
 	actual := make(map[string]struct{})
 	for _, spec := range Registry() {
@@ -87,6 +105,21 @@ func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
 		}
 	}
 	require.Equal(t, expected, actual)
+}
+
+func TestRegistryPluginDownloadStatusSupportsRepeatedProfiles(t *testing.T) {
+	byID := make(map[string]OperationSpec)
+	for _, spec := range Registry() {
+		byID[spec.ID] = spec
+	}
+
+	spec := byID["plugin.download.status.get"]
+	require.Equal(t, "/api/v1/plugins/:name/download/status", spec.Route)
+	require.Equal(t, []InputSpec{
+		{Name: "name", Location: InputPath, Required: true, Description: "Plugin name"},
+		{Name: "version", Location: InputQuery, Required: true, Description: "SeaTunnel version"},
+		{Name: "profile_keys", Location: InputQuery, Repeated: true, Description: "Dependency profile key; may be specified more than once"},
+	}, spec.Input)
 }
 
 func TestRegistryContainsDiscoveryOperationAndLegacyExceptions(t *testing.T) {

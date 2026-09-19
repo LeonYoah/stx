@@ -55,6 +55,34 @@ func TestValidateRejectsInvalidRevision(t *testing.T) {
 	require.ErrorContains(t, err, "invalid revision")
 }
 
+func TestValidateRejectsGeneratedCLIWithoutSummary(t *testing.T) {
+	specs := Registry()
+	for index := range specs {
+		if specs[index].GeneratedCLI {
+			specs[index].Summary = ""
+			err := Validate(specs, RouteExceptions())
+			require.ErrorContains(t, err, "generated CLI command has no summary")
+			return
+		}
+	}
+	t.Fatal("登记表缺少生成式 CLI 操作 / registry has no generated CLI operation")
+}
+
+func TestRegistryContainsFirstGeneratedCLIReadBatch(t *testing.T) {
+	expected := map[string]struct{}{
+		"host.list": {}, "host.get": {}, "cluster.list": {}, "cluster.get": {},
+		"cluster.node.list": {}, "cluster.status.get": {}, "config.cluster.list": {},
+		"config.get": {}, "config.version.list": {},
+	}
+	actual := make(map[string]struct{})
+	for _, spec := range Registry() {
+		if spec.GeneratedCLI {
+			actual[spec.ID] = struct{}{}
+		}
+	}
+	require.Equal(t, expected, actual)
+}
+
 func TestValidateRejectsInvalidHelpExample(t *testing.T) {
 	specs := Registry()
 	specs[0].Example = "stx cluster list"

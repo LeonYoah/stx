@@ -76,6 +76,8 @@ type InputSpec struct {
 type OperationSpec struct {
 	ID               string        `json:"operation_id" yaml:"operation_id"`
 	CommandPath      []string      `json:"command_path" yaml:"command_path"`
+	Summary          string        `json:"summary,omitempty" yaml:"summary,omitempty"`
+	GeneratedCLI     bool          `json:"generated_cli" yaml:"generated_cli"`
 	Method           string        `json:"method" yaml:"method"`
 	Route            string        `json:"route" yaml:"route"`
 	Mode             OperationMode `json:"mode" yaml:"mode"`

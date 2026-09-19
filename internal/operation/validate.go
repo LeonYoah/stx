@@ -79,6 +79,9 @@ func Validate(specs []OperationSpec, exceptions []RouteException) error {
 		if spec.Revision < 1 {
 			validationErrors = append(validationErrors, fmt.Errorf("%s has invalid revision %d", prefix, spec.Revision))
 		}
+		if spec.GeneratedCLI && strings.TrimSpace(spec.Summary) == "" {
+			validationErrors = append(validationErrors, fmt.Errorf("%s generated CLI command has no summary", prefix))
+		}
 		if spec.Risk != RiskR0 && spec.Impact == nil {
 			validationErrors = append(validationErrors, fmt.Errorf("%s must describe impact for risk %s", prefix, spec.Risk))
 		}

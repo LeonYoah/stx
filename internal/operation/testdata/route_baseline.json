@@ -1,14 +1,14 @@
 {
   "version": 1,
-  "baseline_date": "2026-09-18",
+  "baseline_date": "2026-09-19",
   "summary": {
     "route_count": 246,
     "swagger_path_count": 97,
     "swagger_operation_count": 114,
     "swagger_documented_routes": 114,
-    "registered_operations": 8,
+    "registered_operations": 17,
     "route_exceptions": 19,
-    "historical_gaps": 219
+    "historical_gaps": 210
   },
   "routes": [
     {
@@ -174,7 +174,9 @@
       "method": "GET",
       "path": "/api/v1/clusters",
       "source": "internal/router/router.go:257",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "cluster.list",
+      "mode": "normal",
       "swagger": true
     },
     {
@@ -195,7 +197,9 @@
       "method": "GET",
       "path": "/api/v1/clusters/:id",
       "source": "internal/router/router.go:258",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "cluster.get",
+      "mode": "normal",
       "swagger": true
     },
     {
@@ -209,7 +213,9 @@
       "method": "GET",
       "path": "/api/v1/clusters/:id/configs",
       "source": "internal/apps/config/routers.go:29",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "config.cluster.list",
+      "mode": "normal",
       "swagger": true
     },
     {
@@ -258,7 +264,9 @@
       "method": "GET",
       "path": "/api/v1/clusters/:id/nodes",
       "source": "internal/router/router.go:265",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "cluster.node.list",
+      "mode": "normal",
       "swagger": true
     },
     {
@@ -433,7 +441,9 @@
       "method": "GET",
       "path": "/api/v1/clusters/:id/status",
       "source": "internal/router/router.go:280",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "cluster.status.get",
+      "mode": "normal",
       "swagger": true
     },
     {
@@ -519,7 +529,9 @@
       "method": "GET",
       "path": "/api/v1/configs/:id",
       "source": "internal/apps/config/routers.go:38",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "config.get",
+      "mode": "normal",
       "swagger": true
     },
     {
@@ -561,7 +573,9 @@
       "method": "GET",
       "path": "/api/v1/configs/:id/versions",
       "source": "internal/apps/config/routers.go:40",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "config.version.list",
+      "mode": "normal",
       "swagger": true
     },
     {
@@ -832,7 +846,9 @@
       "method": "GET",
       "path": "/api/v1/hosts",
       "source": "internal/router/router.go:209",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "host.list",
+      "mode": "normal",
       "swagger": true
     },
     {
@@ -853,7 +869,9 @@
       "method": "GET",
       "path": "/api/v1/hosts/:id",
       "source": "internal/router/router.go:210",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "host.get",
+      "mode": "normal",
       "swagger": true
     },
     {

@@ -90,3 +90,85 @@ Accept: application/json
 错误：用 `X-STX-Client: cli` 作为授权依据。
 
 正确：使用 Bearer 令牌确定用户身份，再读取用户当前权限；客户端 Header 只作为来源标识和兼容检查。
+
+## 8. 场景：从操作登记生成普通 GET 命令
+
+### 8.1 范围 / 触发条件
+
+当现有只读 API 需要提供给 CLI 和 AI Agent 时，优先在 `internal/operation/registry.go` 登记，并由 `internal/cli/command` 构建普通命令。登录、能力查询、公共执行、下载和流式命令仍保留专用实现。
+
+### 8.2 签名
+
+登记项至少包含：
+
+```go
+operation.OperationSpec{
+    ID:           "host.get",
+    CommandPath:  []string{"host", "get"},
+    Summary:      "Get one host",
+    GeneratedCLI: true,
+    Method:       "GET",
+    Route:        "/api/v1/hosts/:id",
+    Mode:         operation.ModeNormal,
+    Revision:     1,
+}
+```
+
+构建入口：
+
+```go
+command.Build(specs []operation.OperationSpec, factory command.ClientFactory) ([]*cobra.Command, error)
+```
+
+### 8.3 契约
+
+- 本地登记项负责命令路径、帮助摘要、输入、示例和输出样例；执行 `--help` 不访问网络。
+- `InputPath` 按登记顺序变成位置参数并使用 `url.PathEscape`。
+- `InputQuery` 变成同名长参数，只有用户显式传入时才加入 URL。
+- 每个生成命令支持 `--namespace`，结果继续走公共 `--output`、`--format`、`-f` 和 `--pick`。
+- 业务请求前必须调用 `/api/v1/capabilities`，检查 operation ID、权限、mode 和 revision。
+- 普通结果仍只向 stdout 写一个值；错误和 `pick_fallback` 事件写 stderr NDJSON。
+
+### 8.4 校验与错误对应表
+
+| 情况 | 行为 |
+| --- | --- |
+| operation ID 不存在 | 不调用业务 API，返回 `not_found` / 退出码 5 |
+| `allowed=false` | 不调用业务 API，返回 `permission_denied` / 退出码 4 |
+| 服务端 revision 小于本地 revision | 不调用业务 API，返回 `conflict` / 退出码 6 |
+| 服务端 mode 与本地登记不同 | 不调用业务 API，返回 `conflict` / 退出码 6 |
+| path 输入与路由占位符不一致 | 构建命令失败，测试阶段发现 |
+| 必填 query 未传 | 不发请求，返回 `usage_error` / 退出码 2 |
+
+### 8.5 Good / Base / Bad
+
+- Good：登记 `host.get` 后，由同一登记项提供 capability、help、请求路由和覆盖报告信息。
+- Base：特殊 watch 或 download 命令继续独立实现，不强行交给普通 GET 构建器。
+- Bad：只在 Cobra 中手写命令却不登记操作，导致能力查询和路由覆盖报告仍显示缺口。
+
+### 8.6 必须有的测试
+
+- path 转义、可选 query、命名空间和字段选择。
+- 离线 help 不创建客户端，不调用 capability。
+- capability 缺失、拒绝、旧 revision 和 mode 不匹配时，业务 API 调用次数为 0。
+- 根命令显示新增命令组，路由基线中的对应项从 `historical_gap` 变为 `operation`。
+- 构建真实 `stx` 二进制，连接本地服务完成登录、能力检查和业务查询。
+
+### 8.7 错误与正确示例
+
+错误：
+
+```go
+root.AddCommand(&cobra.Command{Use: "host-get", RunE: callHostAPI})
+```
+
+这会复制路由和帮助信息，也无法自动进入能力查询与覆盖检查。
+
+正确：
+
+```go
+spec.GeneratedCLI = true
+commands, err := command.Build([]operation.OperationSpec{spec}, clientFactory)
+```
+
+登记表是命令定义来源，构建器只负责输入映射、能力检查、请求和统一输出。

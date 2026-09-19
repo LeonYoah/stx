@@ -233,3 +233,36 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 7: 完成 Discovery CLI 与真实 Agent 验证
+
+**Date**: 2026-09-19
+**Task**: 完成 Discovery CLI 与真实 Agent 验证
+**Branch**: `features/stx-cli-agent-entry`
+
+### Summary
+
+新增主机进程发现 CLI，限制通用 POST 仅支持无请求体 R0 读取操作，兼容遗留裸 JSON 响应；使用最新二进制连接本机 STX 和在线 Agent 验证 JSON、table、raw、字段选择与稳定错误行为。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `753273d8a` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

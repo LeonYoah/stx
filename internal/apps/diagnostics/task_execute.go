@@ -667,8 +667,9 @@ func (s *Service) executeDiagnosticTask(ctx context.Context, taskID uint) {
 		return
 	}
 	ctx = audit.WithCommandMetadata(ctx, audit.CommandMetadata{
-		ExecutionID: task.ExecutionID,
-		OwnerUserID: task.CreatedBy,
+		ExecutionID:   task.ExecutionID,
+		OwnerUserID:   task.CreatedBy,
+		OwnerUsername: strings.TrimSpace(task.CreatedByName),
 	})
 	if err := s.runDiagnosticTask(ctx, task); err != nil {
 		logger.ErrorF(ctx, "[DiagnosticsTask] run task failed: task_id=%d err=%v", taskID, err)

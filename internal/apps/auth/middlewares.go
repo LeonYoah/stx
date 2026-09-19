@@ -256,9 +256,17 @@ func AdminRequired() gin.HandlerFunc {
 	}
 }
 
-// SetUserToContext 将用户信息存入 Gin 上下文
+// SetUserToContext 将用户信息存入 Gin 上下文。
+// SetUserToContext stores the user on the Gin context.
+// OnUserBound 在用户写入后调用，用来把同一次请求的操作人挂到后续 Agent 命令上。
+// OnUserBound runs after the user is stored so later Agent commands share this request.
+var OnUserBound func(c *gin.Context)
+
 func SetUserToContext(c *gin.Context, user *User) {
 	c.Set(ContextKeyUser, user)
+	if OnUserBound != nil && c != nil {
+		OnUserBound(c)
+	}
 }
 
 // GetUserFromContext 从 Gin 上下文获取用户信息

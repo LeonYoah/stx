@@ -150,6 +150,7 @@ func (s *Service) runWithExecution(ctx context.Context, ownerUserID uint, operat
 		RequestID:   request.RequestID,
 		ExecutionID: item.ExecutionID,
 		OwnerUserID: ownerUserID,
+		ClientType:  strings.TrimSpace(request.ClientType),
 	})
 	job, runErr := run(runCtx)
 	if runErr != nil {

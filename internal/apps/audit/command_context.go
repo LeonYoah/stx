@@ -17,22 +17,46 @@
 
 package audit
 
-import "context"
+import (
+	"context"
+	"strings"
+)
 
 type commandMetadataContextKey struct{}
 
 // CommandMetadata 保存 Agent 命令与用户请求、公共执行之间的关联。
 // CommandMetadata stores links between an Agent command, the user request, and the shared execution.
 type CommandMetadata struct {
-	RequestID   string
-	ExecutionID string
-	OwnerUserID uint
+	RequestID     string
+	ExecutionID   string
+	OwnerUserID   uint
+	OwnerUsername string
+	ClientType    string
 }
 
-// WithCommandMetadata 把 Agent 命令关联信息写入上下文。
-// WithCommandMetadata attaches Agent command linkage metadata to a context.
+// WithCommandMetadata 把 Agent 命令关联信息写入上下文，已有字段不会被空值清掉。
+// WithCommandMetadata attaches Agent command linkage metadata and keeps existing fields when the new value is empty.
 func WithCommandMetadata(ctx context.Context, metadata CommandMetadata) context.Context {
-	return context.WithValue(ctx, commandMetadataContextKey{}, metadata)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	current := CommandMetadataFromContext(ctx)
+	if metadata.RequestID != "" {
+		current.RequestID = metadata.RequestID
+	}
+	if metadata.ExecutionID != "" {
+		current.ExecutionID = metadata.ExecutionID
+	}
+	if metadata.OwnerUserID != 0 {
+		current.OwnerUserID = metadata.OwnerUserID
+	}
+	if strings.TrimSpace(metadata.OwnerUsername) != "" {
+		current.OwnerUsername = strings.TrimSpace(metadata.OwnerUsername)
+	}
+	if strings.TrimSpace(metadata.ClientType) != "" {
+		current.ClientType = strings.TrimSpace(metadata.ClientType)
+	}
+	return context.WithValue(ctx, commandMetadataContextKey{}, current)
 }
 
 // CommandMetadataFromContext 从上下文读取 Agent 命令关联信息。

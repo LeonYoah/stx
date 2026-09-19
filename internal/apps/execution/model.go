@@ -67,6 +67,9 @@ type Execution struct {
 	Module             string     `json:"module" gorm:"size:64;not null;index"`
 	ModuleRef          string     `json:"module_ref" gorm:"size:160;index"`
 	RequestID          string     `json:"request_id" gorm:"size:64;index"`
+	// ClientType 记录发起端（cli/web/api/system），后续 start/result 审计沿用，避免被改写成 system。
+	// ClientType records the originating client so later start/result audits keep it instead of rewriting system.
+	ClientType         string     `json:"client_type,omitempty" gorm:"size:20"`
 	IdempotencyKeyHash *string    `json:"-" gorm:"size:64;uniqueIndex:idx_execution_idempotency"`
 	RequestHash        string     `json:"-" gorm:"size:64"`
 	RiskLevel          RiskLevel  `json:"risk_level" gorm:"size:4;not null"`

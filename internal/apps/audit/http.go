@@ -46,6 +46,10 @@ func RecordFromGin(c *gin.Context, repo *Repository, userID uint64, username, ac
 		u := uint(userID)
 		uid = &u
 	}
+	requestID := strings.TrimSpace(c.GetHeader("X-Request-ID"))
+	if requestID == "" && c.Request != nil {
+		requestID = CommandMetadataFromContext(c.Request.Context()).RequestID
+	}
 	log := &AuditLog{
 		UserID:       uid,
 		Username:     username,
@@ -53,7 +57,7 @@ func RecordFromGin(c *gin.Context, repo *Repository, userID uint64, username, ac
 		ResourceType: resourceType,
 		ResourceID:   resourceID,
 		ResourceName: resourceName,
-		RequestID:    strings.TrimSpace(c.GetHeader("X-Request-ID")),
+		RequestID:    requestID,
 		ClientType:   auditClientType(c.GetHeader("X-STX-Client"), ua),
 		Details:      RedactDetails(details),
 		IPAddress:    ip,

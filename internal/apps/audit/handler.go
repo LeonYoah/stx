@@ -52,6 +52,7 @@ type ListCommandLogsRequest struct {
 	AgentID     string        `json:"agent_id" form:"agent_id"`
 	HostID      *uint         `json:"host_id" form:"host_id"`
 	CommandType string        `json:"command_type" form:"command_type"`
+	RequestID   string        `json:"request_id" form:"request_id"`
 	Status      CommandStatus `json:"status" form:"status"`
 	StartTime   string        `json:"start_time" form:"start_time"`
 	EndTime     string        `json:"end_time" form:"end_time"`
@@ -82,6 +83,7 @@ type ListAuditLogsRequest struct {
 	UserID       *uint  `json:"user_id" form:"user_id"`
 	Username     string `json:"username" form:"username"`
 	Action       string `json:"action" form:"action"`
+	ActionGroup  string `json:"action_group" form:"action_group"`
 	ResourceType string `json:"resource_type" form:"resource_type"`
 	ResourceID   string `json:"resource_id" form:"resource_id"`
 	RequestID    string `json:"request_id" form:"request_id"`
@@ -160,6 +162,7 @@ func (h *Handler) ListCommandLogs(c *gin.Context) {
 		AgentID:     req.AgentID,
 		HostID:      req.HostID,
 		CommandType: req.CommandType,
+		RequestID:   req.RequestID,
 		Status:      req.Status,
 		StartTime:   startTime,
 		EndTime:     endTime,
@@ -280,6 +283,7 @@ func (h *Handler) ListAuditLogs(c *gin.Context) {
 		UserID:       req.UserID,
 		Username:     req.Username,
 		Action:       req.Action,
+		ActionGroup:  req.ActionGroup,
 		ResourceType: req.ResourceType,
 		ResourceID:   req.ResourceID,
 		RequestID:    req.RequestID,
@@ -314,8 +318,19 @@ func (h *Handler) ListAuditLogs(c *gin.Context) {
 
 	// Convert to response format - 转换为响应格式
 	auditLogs := make([]*AuditLogInfo, len(logs))
+	requestIDs := make([]string, 0, len(logs))
 	for i, log := range logs {
 		auditLogs[i] = log.ToAuditLogInfo()
+		if log.RequestID != "" {
+			requestIDs = append(requestIDs, log.RequestID)
+		}
+	}
+	if counts, countErr := h.repo.CountCommandsByRequestIDs(c.Request.Context(), requestIDs); countErr == nil {
+		for _, item := range auditLogs {
+			if item != nil && item.RequestID != "" {
+				item.CommandCount = int(counts[item.RequestID])
+			}
+		}
 	}
 
 	c.JSON(http.StatusOK, ListAuditLogsResponse{

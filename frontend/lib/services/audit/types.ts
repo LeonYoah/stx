@@ -63,6 +63,10 @@ export interface CommandLogInfo {
   id: number;
   /** Unique command ID / 唯一命令 ID */
   command_id: string;
+  /** Control-plane request ID shared with the audit row / 与审计行共用的控制层请求编号 */
+  request_id?: string;
+  /** Shared execution ID when present / 关联的公共执行编号 */
+  execution_id?: string;
   /** Agent ID that executed the command / 执行命令的 Agent ID */
   agent_id: string;
   /** Host ID / 主机 ID */
@@ -110,6 +114,8 @@ export interface AuditLogInfo {
   resource_name: string;
   /** Trigger: "auto" (Agent) or "manual" (user), empty for legacy / 触发方式 */
   trigger?: string;
+  /** Client that issued the action: cli, web, api, or system / 发起端 */
+  client_type?: string;
   /** Additional details / 附加详情 */
   details: AuditDetails | null;
   /** Client IP address / 客户端 IP 地址 */
@@ -118,6 +124,10 @@ export interface AuditLogInfo {
   user_agent: string;
   /** Creation time / 创建时间 */
   created_at: string;
+  /** Agent commands issued by the same request / 同一次请求下发的 Agent 命令数 */
+  command_count?: number;
+  /** Request ID shared with command logs / 与命令记录共用的请求编号 */
+  request_id?: string;
 }
 
 
@@ -138,6 +148,8 @@ export interface ListCommandLogsRequest {
   host_id?: number;
   /** Filter by command type / 按命令类型过滤 */
   command_type?: string;
+  /** Filter by the control-plane request ID / 按控制层请求编号过滤 */
+  request_id?: string;
   /** Filter by status / 按状态过滤 */
   status?: CommandStatus;
   /** Filter by start time (RFC3339 format) / 按开始时间过滤（RFC3339 格式） */
@@ -159,6 +171,10 @@ export interface ListAuditLogsRequest {
   user_id?: number;
   /** Filter by username / 按用户名过滤 */
   username?: string;
+  /** Filter by client: web, cli, or system / 按来源过滤 */
+  client_type?: string;
+  /** Filter by action category / 按操作类别过滤 */
+  action_group?: string;
   /** Filter by action / 按操作过滤 */
   action?: string;
   /** Filter by resource type / 按资源类型过滤 */

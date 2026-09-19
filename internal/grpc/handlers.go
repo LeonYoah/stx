@@ -581,8 +581,10 @@ func (s *Server) storeLogEntry(entry *pb.LogEntry) {
 	// Create audit log entry
 	// 创建审计日志条目
 	auditLog := &audit.AuditLog{
+		Username:     "agent",
 		Action:       action,
 		ResourceType: "agent",
+		Trigger:      "auto",
 		ResourceID:   entry.AgentId,
 		Details:      details,
 	}

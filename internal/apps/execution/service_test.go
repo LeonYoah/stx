@@ -203,7 +203,7 @@ func TestExecutionLifecycleWritesCreateStartAndResultAudit(t *testing.T) {
 	if actions["execution.create"] == nil || actions["execution.start"] == nil || actions["execution.result"] == nil {
 		t.Fatalf("执行审计动作不完整: %#v", actions)
 	}
-	if actions["execution.create"].ClientType != "cli" || actions["execution.result"].ResultStatus != string(StatusSucceeded) {
+	if actions["execution.create"].ClientType != "cli" || actions["execution.start"].ClientType != "cli" || actions["execution.result"].ClientType != "cli" || actions["execution.result"].ResultStatus != string(StatusSucceeded) {
 		t.Fatalf("执行审计来源或结果错误: create=%+v result=%+v", actions["execution.create"], actions["execution.result"])
 	}
 }

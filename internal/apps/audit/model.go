@@ -175,6 +175,7 @@ type CommandLogFilter struct {
 	StartTime   *time.Time    `json:"start_time"`
 	EndTime     *time.Time    `json:"end_time"`
 	CreatedBy   *uint         `json:"created_by"`
+	RequestID   string        `json:"request_id"`
 	Page        int           `json:"page"`
 	PageSize    int           `json:"page_size"`
 }
@@ -183,9 +184,12 @@ type CommandLogFilter struct {
 // AuditLogFilter 表示查询审计日志的过滤条件。
 // Requirements: 10.4
 type AuditLogFilter struct {
-	UserID       *uint  `json:"user_id"`
-	Username     string `json:"username"`
-	Action       string `json:"action"`
+	UserID   *uint  `json:"user_id"`
+	Username string `json:"username"`
+	Action   string `json:"action"`
+	// ActionGroup 是界面上的操作类别，展开后过滤多个 action。
+	// ActionGroup is a UI action category that filters several stored actions.
+	ActionGroup  string `json:"-"`
 	ResourceType string `json:"resource_type"`
 	ResourceID   string `json:"resource_id"`
 	RequestID    string `json:"request_id"`
@@ -268,6 +272,9 @@ type AuditLogInfo struct {
 	IPAddress    string       `json:"ip_address"`
 	UserAgent    string       `json:"user_agent"`
 	CreatedAt    time.Time    `json:"created_at"`
+	// CommandCount 是同一次请求下发到 Agent 的命令数，只在列表接口填充。
+	// CommandCount is the number of Agent commands from the same request. Only list responses fill it.
+	CommandCount int `json:"command_count,omitempty"`
 }
 
 // ToAuditLogInfo converts an AuditLog to AuditLogInfo.

@@ -20,6 +20,7 @@ package audit
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"gorm.io/gorm"
 )
@@ -34,6 +35,20 @@ type Repository struct {
 // NewRepository 创建一个新的 Repository 实例。
 func NewRepository(db *gorm.DB) *Repository {
 	return &Repository{db: db}
+}
+
+// LookupUsername 按用户 ID 读取登录名，供审计补齐操作人。表不存在或查不到时返回空。
+// LookupUsername loads the login name for an audit actor. It returns empty when the user table or row is missing.
+func (r *Repository) LookupUsername(ctx context.Context, userID uint) string {
+	if r == nil || r.db == nil || userID == 0 {
+		return ""
+	}
+	var username string
+	err := r.db.WithContext(ctx).Table("auth_users").Select("username").Where("id = ?", userID).Limit(1).Scan(&username).Error
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(username)
 }
 
 // ============================================================================
@@ -155,6 +170,9 @@ func (r *Repository) ListCommandLogs(ctx context.Context, filter *CommandLogFilt
 		if filter.CreatedBy != nil {
 			query = query.Where("created_by = ?", *filter.CreatedBy)
 		}
+		if filter.RequestID != "" {
+			query = query.Where("request_id = ?", filter.RequestID)
+		}
 	}
 
 	// Get total count - 获取总数
@@ -179,6 +197,31 @@ func (r *Repository) ListCommandLogs(ctx context.Context, filter *CommandLogFilt
 	}
 
 	return logs, total, nil
+}
+
+// CountCommandsByRequestIDs 统计每个请求编号下的 Agent 命令数。
+// CountCommandsByRequestIDs counts Agent commands grouped by request ID.
+func (r *Repository) CountCommandsByRequestIDs(ctx context.Context, requestIDs []string) (map[string]int64, error) {
+	counts := make(map[string]int64)
+	if r == nil || r.db == nil || len(requestIDs) == 0 {
+		return counts, nil
+	}
+	var rows []struct {
+		RequestID string
+		Total     int64
+	}
+	err := r.db.WithContext(ctx).Model(&CommandLog{}).
+		Select("request_id, COUNT(*) as total").
+		Where("request_id IN ?", requestIDs).
+		Group("request_id").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		counts[row.RequestID] = row.Total
+	}
+	return counts, nil
 }
 
 // UpdateCommandLog updates an existing command log record.
@@ -301,6 +344,12 @@ func (r *Repository) GetAuditLogByIDForOwner(ctx context.Context, id, ownerUserI
 // 需求: 10.4 - 支持按时间范围、操作类型、用户和主机过滤。
 func (r *Repository) ListAuditLogs(ctx context.Context, filter *AuditLogFilter) ([]*AuditLog, int64, error) {
 	query := r.db.WithContext(ctx).Model(&AuditLog{})
+	// 审计列表只保留控制层操作。Agent 命令和日志流在命令记录里追查，不占审计行。
+	// The audit list keeps control-plane actions. Agent commands and log streams stay in command logs.
+	query = query.Where("action NOT IN ? AND resource_type NOT IN ?",
+		[]string{"agent.command", "agent_log", "agent_error", "agent_warning"},
+		[]string{"agent", "agent_command"},
+	)
 
 	// Apply filters - 应用过滤条件
 	if filter != nil {
@@ -314,11 +363,23 @@ func (r *Repository) ListAuditLogs(ctx context.Context, filter *AuditLogFilter) 
 		// Filter by username - 按用户名过滤（使用 LOWER 忽略大小写，兼容多数据库）
 		// Filter by username - case-insensitive using LOWER for multi-database compatibility
 		if filter.Username != "" {
-			query = query.Where("LOWER(username) LIKE LOWER(?)", "%"+filter.Username+"%")
+			// 用户名搜索同时覆盖 Agent 记录：这类日志用户名常为空，但 action/resource_type 以 agent 开头。
+			// Username search also matches Agent rows whose username is empty but action/resource type starts with agent.
+			like := "%" + filter.Username + "%"
+			clause := "LOWER(username) LIKE LOWER(?)"
+			args := []interface{}{like}
+			if strings.Contains(strings.ToLower(filter.Username), "agent") {
+				clause += " OR LOWER(resource_type) LIKE LOWER(?) OR LOWER(action) LIKE LOWER(?)"
+				args = append(args, "%agent%", "agent%")
+			}
+			query = query.Where(clause, args...)
 		}
 		// Filter by action type - 按操作类型过滤
 		if filter.Action != "" {
 			query = query.Where("action = ?", filter.Action)
+		}
+		if actions := ActionsForGroup(filter.ActionGroup); len(actions) > 0 {
+			query = query.Where("action IN ?", actions)
 		}
 		// Filter by resource type - 按资源类型过滤
 		if filter.ResourceType != "" {
@@ -338,7 +399,16 @@ func (r *Repository) ListAuditLogs(ctx context.Context, filter *AuditLogFilter) 
 			query = query.Where("command_id = ?", filter.CommandID)
 		}
 		if filter.ClientType != "" {
-			query = query.Where("client_type = ?", filter.ClientType)
+			switch filter.ClientType {
+			case "web":
+				// 旧的控制台记录往往没写 client_type，但有登录用户。
+				// Older console rows often have no client_type, but they do have a logged-in user.
+				query = query.Where("(client_type = ? OR (COALESCE(client_type, '') = '' AND user_id IS NOT NULL))", "web")
+			case "system":
+				query = query.Where("(client_type IN ? OR (COALESCE(client_type, '') = '' AND user_id IS NULL))", []string{"system", "api"})
+			default:
+				query = query.Where("client_type = ?", filter.ClientType)
+			}
 		}
 		if filter.ResultStatus != "" {
 			query = query.Where("result_status = ?", filter.ResultStatus)

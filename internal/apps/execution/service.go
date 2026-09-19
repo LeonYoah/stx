@@ -160,6 +160,7 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*Execution, bo
 		Module:             input.Module,
 		ModuleRef:          strings.TrimSpace(input.ModuleRef),
 		RequestID:          strings.TrimSpace(input.RequestID),
+		ClientType:         strings.TrimSpace(input.ClientType),
 		IdempotencyKeyHash: keyHash,
 		RequestHash:        strings.TrimSpace(input.RequestHash),
 		RiskLevel:          input.RiskLevel,
@@ -341,12 +342,12 @@ func (s *Service) Transition(ctx context.Context, executionID string, from, to S
 	}
 	if to == StatusRunning {
 		if item, err := s.repo.GetByExecutionID(ctx, executionID); err == nil {
-			s.recordAudit(ctx, item, item.OwnerUserID, "execution.start", "system", string(to), "")
+			s.recordAudit(ctx, item, item.OwnerUserID, "execution.start", auditClientType(item), string(to), "")
 		}
 	}
 	if IsTerminal(to) {
 		if item, err := s.repo.GetByExecutionID(ctx, executionID); err == nil {
-			s.recordAudit(ctx, item, item.OwnerUserID, "execution.result", "system", string(to), "")
+			s.recordAudit(ctx, item, item.OwnerUserID, "execution.result", auditClientType(item), string(to), "")
 		}
 	}
 	return nil
@@ -469,6 +470,18 @@ func HashString(value string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// auditClientType 优先使用创建时记下的客户端，没有时才记为 system。
+// auditClientType prefers the client stored at create time and falls back to system.
+func auditClientType(item *Execution) string {
+	if item == nil {
+		return "system"
+	}
+	if clientType := strings.TrimSpace(item.ClientType); clientType != "" {
+		return clientType
+	}
+	return "system"
+}
+
 func (s *Service) recordAudit(ctx context.Context, item *Execution, actorUserID uint64, action, clientType, resultStatus, reason string) {
 	if s == nil || s.auditRepo == nil || item == nil {
 		return
@@ -482,8 +495,13 @@ func (s *Service) recordAudit(ctx context.Context, item *Execution, actorUserID 
 	if item.ActorType == ActorTypeSystem {
 		trigger = "auto"
 	}
+	username := ""
+	if userID != nil {
+		username = s.auditRepo.LookupUsername(ctx, *userID)
+	}
 	if err := s.auditRepo.CreateAuditLog(ctx, &audit.AuditLog{
 		UserID:       userID,
+		Username:     username,
 		Action:       action,
 		ResourceType: item.Module,
 		ResourceID:   item.ModuleRef,

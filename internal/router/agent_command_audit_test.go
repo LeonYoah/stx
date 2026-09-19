@@ -40,9 +40,11 @@ func TestAgentCommandSenderAdapterRecordsOwnerExecutionAndRedactsSecrets(t *test
 	repo := audit.NewRepository(database)
 	adapter := &agentCommandSenderAdapter{auditRepo: repo}
 	ctx := audit.WithCommandMetadata(context.Background(), audit.CommandMetadata{
-		RequestID:   "request-1",
-		ExecutionID: "11111111-1111-1111-1111-111111111111",
-		OwnerUserID: 7,
+		RequestID:     "request-1",
+		ExecutionID:   "11111111-1111-1111-1111-111111111111",
+		OwnerUserID:   7,
+		OwnerUsername: "admin",
+		ClientType:    "cli",
 	})
 	startedAt := time.Now().Add(-time.Second)
 	adapter.recordCommandLog(ctx, "agent-1", "jvm_dump", map[string]string{
@@ -70,10 +72,78 @@ func TestAgentCommandSenderAdapterRecordsOwnerExecutionAndRedactsSecrets(t *test
 	if err != nil {
 		t.Fatalf("list command audit logs: %v", err)
 	}
-	if total != 1 || len(logs) != 1 {
-		t.Fatalf("expected one command audit log, total=%d len=%d", total, len(logs))
+	if total != 0 || len(logs) != 0 {
+		t.Fatalf("agent command should stay in command logs, not audit rows, total=%d len=%d", total, len(logs))
 	}
-	if logs[0].UserID == nil || *logs[0].UserID != 7 || logs[0].ExecutionID != commandLog.ExecutionID || logs[0].ResultStatus != string(audit.CommandStatusSuccess) {
-		t.Fatalf("unexpected command audit linkage: %+v", logs[0])
+
+	linked, linkedTotal, err := repo.ListCommandLogs(ctx, &audit.CommandLogFilter{RequestID: "request-1", Page: 1, PageSize: 20})
+	if err != nil {
+		t.Fatalf("list by request id: %v", err)
+	}
+	if linkedTotal != 1 || len(linked) != 1 || linked[0].CommandID != "command-1" {
+		t.Fatalf("command should be queryable by request id: total=%d logs=%+v", linkedTotal, linked)
+	}
+}
+
+func TestAgentCommandSenderAdapterOmitsCheckProcessFromAuditLogs(t *testing.T) {
+	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	if err := database.AutoMigrate(&audit.CommandLog{}, &audit.AuditLog{}); err != nil {
+		t.Fatalf("migrate audit models: %v", err)
+	}
+	repo := audit.NewRepository(database)
+	adapter := &agentCommandSenderAdapter{auditRepo: repo}
+	startedAt := time.Now().Add(-time.Second)
+	adapter.recordCommandLog(context.Background(), "agent-1", "check_process", map[string]string{
+		"role":        "hybrid",
+		"sub_command": "check_process",
+	}, startedAt, &pb.CommandResponse{
+		CommandId: "check-process-command-1",
+		Status:    pb.CommandStatus_SUCCESS,
+		Progress:  100,
+		Output:    `{"success":true,"details":{"pid":"92322"}}`,
+	})
+
+	if _, err := repo.GetCommandLogByCommandID(context.Background(), "check-process-command-1"); err != nil {
+		t.Fatalf("check_process should remain in technical command logs: %v", err)
+	}
+	logs, total, err := repo.ListAuditLogs(context.Background(), &audit.AuditLogFilter{
+		CommandID:  "check-process-command-1",
+		IncludeAll: true,
+	})
+	if err != nil {
+		t.Fatalf("list check_process audit logs: %v", err)
+	}
+	if total != 0 || len(logs) != 0 {
+		t.Fatalf("check_process should not create audit logs, total=%d len=%d", total, len(logs))
+	}
+}
+
+func TestAgentCommandWithoutOwnerIsRecordedAsAgent(t *testing.T) {
+	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	if err := database.AutoMigrate(&audit.CommandLog{}, &audit.AuditLog{}); err != nil {
+		t.Fatalf("migrate audit models: %v", err)
+	}
+	repo := audit.NewRepository(database)
+	adapter := &agentCommandSenderAdapter{auditRepo: repo}
+	adapter.recordCommandLog(context.Background(), "agent-1", "jvm_dump", nil, time.Now(), &pb.CommandResponse{
+		CommandId: "command-agent",
+		Status:    pb.CommandStatus_SUCCESS,
+	})
+
+	logs, _, err := repo.ListAuditLogs(context.Background(), &audit.AuditLogFilter{Username: "agent", IncludeAll: true})
+	if err != nil {
+		t.Fatalf("list agent audit logs: %v", err)
+	}
+	if len(logs) != 0 {
+		t.Fatalf("unowned agent command should not become an audit row: %+v", logs)
+	}
+	if _, err := repo.GetCommandLogByCommandID(context.Background(), "command-agent"); err != nil {
+		t.Fatalf("command log should still exist: %v", err)
 	}
 }

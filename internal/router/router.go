@@ -71,6 +71,7 @@ import (
 )
 
 func Serve() {
+	auth.OnUserBound = audit.BindOperator
 	ctx := context.Background()
 
 	// Initialize OpenTelemetry tracing (based on config)
@@ -1259,29 +1260,9 @@ func (a *agentCommandSenderAdapter) recordCommandLog(ctx context.Context, agentI
 	commandLogErr := a.auditRepo.CreateCommandLog(ctx, commandLog)
 	if commandLogErr != nil && !errors.Is(commandLogErr, audit.ErrCommandIDDuplicate) {
 		log.Printf("[Audit] 保存 Agent 命令日志失败: command_id=%s err=%v", resp.CommandId, commandLogErr)
-		return
 	}
-	auditLog := &audit.AuditLog{
-		UserID:       createdBy,
-		Action:       "agent.command",
-		ResourceType: "agent_command",
-		ResourceID:   resp.CommandId,
-		ResourceName: commandType,
-		RequestID:    strings.TrimSpace(metadata.RequestID),
-		ExecutionID:  strings.TrimSpace(metadata.ExecutionID),
-		CommandID:    resp.CommandId,
-		ResultStatus: string(commandLog.Status),
-		Details: audit.AuditDetails{
-			"agent_id":      agentID,
-			"command_type":  commandType,
-			"duration_ms":   finishedAt.Sub(startedAt).Milliseconds(),
-			"progress":      resp.Progress,
-			"result_status": string(commandLog.Status),
-		},
-	}
-	if err := a.auditRepo.CreateAuditLog(ctx, auditLog); err != nil {
-		log.Printf("[Audit] 保存 Agent 命令审计失败: command_id=%s err=%v", resp.CommandId, err)
-	}
+	// Agent 命令是控制层操作的执行细节，写入命令日志即可，不单独占审计行。
+	// Agent commands are execution details of a control-plane action. Keep them in command logs, not as audit rows.
 }
 
 func commandStatusFromAgentResponse(status pb.CommandStatus) audit.CommandStatus {

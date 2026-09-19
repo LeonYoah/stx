@@ -35,8 +35,10 @@ import (
 type authStoreProvider func() (*cliConfig.Store, error)
 
 type authCommandOptions struct {
-	storeProvider authStoreProvider
-	stdin         io.Reader
+	storeProvider        authStoreProvider
+	stdin                io.Reader
+	isTerminal           func(io.Reader) bool
+	readTerminalPassword func(io.Reader, io.Writer) (string, error)
 }
 
 type loginResult struct {
@@ -55,8 +57,10 @@ type logoutResult struct {
 
 func newAuthCommands() []*cobra.Command {
 	return newAuthCommandsWithOptions(authCommandOptions{
-		storeProvider: cliConfig.NewDefaultStore,
-		stdin:         os.Stdin,
+		storeProvider:        cliConfig.NewDefaultStore,
+		stdin:                os.Stdin,
+		isTerminal:           isTerminalReader,
+		readTerminalPassword: readTerminalPassword,
 	})
 }
 
@@ -69,6 +73,12 @@ func newAuthCommandsWithOptions(options authCommandOptions) []*cobra.Command {
 }
 
 func newLoginCommand(options authCommandOptions) *cobra.Command {
+	if options.isTerminal == nil {
+		options.isTerminal = isTerminalReader
+	}
+	if options.readTerminalPassword == nil {
+		options.readTerminalPassword = readTerminalPassword
+	}
 	var server, namespace, username, expiresIn string
 	var passwordStdin bool
 	command := &cobra.Command{
@@ -91,13 +101,11 @@ func newLoginCommand(options authCommandOptions) *cobra.Command {
 			if resolved.Server == "" {
 				return clioutput.NewError(clioutput.CodeUsage, "--server or an existing namespace is required", clioutput.ExitUsage, false)
 			}
-			if username == "" {
-				username = strings.TrimSpace(os.Getenv("STX_USERNAME"))
+			username, err = readLoginUsername(command, options.stdin, username, options.isTerminal)
+			if err != nil {
+				return err
 			}
-			if username == "" {
-				return clioutput.NewError(clioutput.CodeUsage, "--username or STX_USERNAME is required", clioutput.ExitUsage, false)
-			}
-			password, err := readLoginPassword(command, options.stdin, passwordStdin)
+			password, err := readLoginPassword(command, options.stdin, passwordStdin, options.isTerminal, options.readTerminalPassword)
 			if err != nil {
 				return err
 			}
@@ -229,7 +237,36 @@ func newWhoAmICommand(options authCommandOptions) *cobra.Command {
 	return command
 }
 
-func readLoginPassword(command *cobra.Command, stdin io.Reader, fromStdin bool) (string, error) {
+// readLoginUsername 按参数、环境变量、终端交互的顺序读取用户名。
+// readLoginUsername reads the username from the flag, environment, or interactive terminal in that order.
+func readLoginUsername(command *cobra.Command, stdin io.Reader, provided string, isTerminal func(io.Reader) bool) (string, error) {
+	username := strings.TrimSpace(provided)
+	if username == "" {
+		username = strings.TrimSpace(os.Getenv("STX_USERNAME"))
+	}
+	if username != "" {
+		return username, nil
+	}
+	if !isTerminal(stdin) {
+		return "", clioutput.NewError(clioutput.CodeUsage, "--username or STX_USERNAME is required in non-interactive mode", clioutput.ExitUsage, false)
+	}
+	if _, err := fmt.Fprint(command.ErrOrStderr(), "Username: "); err != nil {
+		return "", clioutput.WrapError(err, clioutput.CodeUsage, "write username prompt", clioutput.ExitUsage, false)
+	}
+	username, err := readTerminalLine(stdin)
+	if err != nil {
+		return "", clioutput.WrapError(err, clioutput.CodeUsage, "read username", clioutput.ExitUsage, false)
+	}
+	username = strings.TrimSpace(username)
+	if username == "" {
+		return "", clioutput.NewError(clioutput.CodeUsage, "username is empty", clioutput.ExitUsage, false)
+	}
+	return username, nil
+}
+
+// readLoginPassword 从标准输入或隐藏的终端输入中读取密码。
+// readLoginPassword reads the password from stdin or hidden terminal input.
+func readLoginPassword(command *cobra.Command, stdin io.Reader, fromStdin bool, isTerminal func(io.Reader) bool, terminalPassword func(io.Reader, io.Writer) (string, error)) (string, error) {
 	if fromStdin {
 		content, err := io.ReadAll(stdin)
 		if err != nil {
@@ -242,20 +279,105 @@ func readLoginPassword(command *cobra.Command, stdin io.Reader, fromStdin bool) 
 		return password, nil
 	}
 
-	file, ok := stdin.(*os.File)
-	if !ok || !term.IsTerminal(int(file.Fd())) {
+	if !isTerminal(stdin) {
 		return "", clioutput.NewError(clioutput.CodeUsage, "non-interactive login requires --password-stdin", clioutput.ExitUsage, false)
 	}
-	_, _ = fmt.Fprint(command.ErrOrStderr(), "Password: ")
-	content, err := term.ReadPassword(int(file.Fd()))
-	_, _ = fmt.Fprintln(command.ErrOrStderr())
+	password, err := terminalPassword(stdin, command.ErrOrStderr())
 	if err != nil {
 		return "", clioutput.WrapError(err, clioutput.CodeUsage, "read password", clioutput.ExitUsage, false)
 	}
-	if len(content) == 0 {
+	if password == "" {
 		return "", clioutput.NewError(clioutput.CodeUsage, "password is empty", clioutput.ExitUsage, false)
 	}
-	return string(content), nil
+	return password, nil
+}
+
+func isTerminalReader(reader io.Reader) bool {
+	file, ok := reader.(*os.File)
+	return ok && term.IsTerminal(int(file.Fd()))
+}
+
+// readTerminalPassword 先关闭终端回显，再显示提示并读取密码。
+// readTerminalPassword disables terminal echo before showing the prompt and reading the password.
+func readTerminalPassword(reader io.Reader, promptWriter io.Writer) (password string, returnErr error) {
+	file, ok := reader.(*os.File)
+	if !ok {
+		return "", errors.New("terminal password input requires a file")
+	}
+	fd := int(file.Fd())
+	state, err := term.MakeRaw(fd)
+	if err != nil {
+		return "", err
+	}
+	restored := false
+	defer func() {
+		if !restored {
+			if err := term.Restore(fd, state); returnErr == nil && err != nil {
+				returnErr = err
+			}
+		}
+	}()
+	if _, err := fmt.Fprint(promptWriter, "Password: "); err != nil {
+		return "", err
+	}
+	password, err = readRawPassword(file)
+	if restoreErr := term.Restore(fd, state); restoreErr == nil {
+		restored = true
+	} else if err == nil {
+		err = restoreErr
+	}
+	if _, newlineErr := fmt.Fprintln(promptWriter); err == nil && newlineErr != nil {
+		err = newlineErr
+	}
+	return password, err
+}
+
+func readRawPassword(reader io.Reader) (string, error) {
+	var value []byte
+	buffer := make([]byte, 1)
+	for {
+		count, err := reader.Read(buffer)
+		if count > 0 {
+			switch buffer[0] {
+			case '\r', '\n':
+				return string(value), nil
+			case 3, 4:
+				return "", errors.New("password input cancelled")
+			case 8, 127:
+				if len(value) > 0 {
+					value = value[:len(value)-1]
+				}
+			default:
+				value = append(value, buffer[0])
+			}
+		}
+		if err != nil {
+			return "", err
+		}
+	}
+}
+
+func readTerminalLine(reader io.Reader) (string, error) {
+	var value strings.Builder
+	buffer := make([]byte, 1)
+	for {
+		count, err := reader.Read(buffer)
+		if count > 0 {
+			switch buffer[0] {
+			case '\n':
+				return value.String(), nil
+			case '\r':
+			default:
+				value.WriteByte(buffer[0])
+			}
+		}
+		if err != nil {
+			if errors.Is(err, io.EOF) && value.Len() > 0 {
+				return value.String(), nil
+			}
+			return "", err
+		}
+	}
 }
 
 func clearStoredToken(store *cliConfig.Store, name string) error {

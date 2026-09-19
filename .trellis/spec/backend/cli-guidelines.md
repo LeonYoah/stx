@@ -35,6 +35,8 @@ Accept: application/json
 
 普通命令成功时，完整结果只写 stdout，且为单个 JSON 值。stderr 只写结构化事件，每行必须是一个 JSON 值。登录结果只能返回 `token_set: true`、令牌类型、过期时间和用户信息，不能返回令牌正文。
 
+登录用户名按 `--username`、`STX_USERNAME`、TTY 交互输入的顺序读取。真实终端缺少用户名时，在 stderr 显示 `Username: ` 并读取一行；非交互环境不能等待输入。密码交互必须先关闭终端回显，再在 stderr 显示 `Password: `；脚本仍使用 `--password-stdin`。交互提示是 stderr NDJSON 约定的特例，最终成功结果仍只能写 stdout。
+
 ## 4. 校验与错误矩阵
 
 | 情况 | HTTP/API 行为 | CLI 行为 |
@@ -45,7 +47,11 @@ Accept: application/json
 | 服务端不可达 | 无 HTTP 响应 | stderr 输出 `network_error`，标记可重试 |
 | 请求超时 | 无 HTTP 响应 | stderr 输出 `timeout`，标记可重试 |
 | 命名空间未配置 | 不发起请求 | stderr 输出本地配置错误 |
+| 非交互登录缺少用户名 | 不发起请求 | stderr 输出 `usage_error`，要求 `--username` 或 `STX_USERNAME` |
+| TTY 登录缺少用户名 | 不发起请求 | 显示 `Username: ` 并读取输入 |
 | `--password-stdin` 为空 | 不发起请求 | stderr 输出用法错误，不能回退到明文参数 |
+| 非交互登录未使用 `--password-stdin` | 不发起请求 | stderr 输出 `usage_error`，不能等待输入 |
+| TTY 密码输入取消 | 不发起请求 | 恢复终端状态并返回稳定用法错误 |
 
 退出码必须通过统一错误类型映射，不能让 Cobra 或底层 HTTP 错误直接决定进程退出码。错误消息、请求编号和重试标记不能包含令牌或密码。
 
@@ -63,6 +69,17 @@ Accept: application/json
 {"event":"error","code":"authentication_required","message":"CLI token is not configured","retryable":false}
 ```
 
+正常的交互登录：
+
+```text
+$ stx login --server http://127.0.0.1:17800
+Username: admin
+Password:
+{"api_version":"v1","operation_id":"auth.cli.login","data":{"token_set":true}}
+```
+
+密码输入不能回显。脚本模式使用 `--username` 和 `--password-stdin`，不能尝试读取 TTY。
+
 错误示例包括：把令牌正文打印到登录结果、在本地命令启动时迁移数据库、把错误文本混入 stdout、只修改任务状态却宣称实际操作已经取消。
 
 ## 6. 必须有的测试
@@ -71,6 +88,9 @@ Accept: application/json
 - 服务端只在 `server` 命令路径读取配置并启动迁移。
 - 客户端请求检查四个请求 Header，且每次请求都有请求编号。
 - 登录读取 stdin，非交互环境拒绝直接读取密码，stdout 和 stderr 都没有令牌正文。
+- TTY 登录在缺少用户名时依次显示 `Username:`、`Password:`，用户名可见、密码不回显，最终 stdout 只有一个 JSON 值。
+- 用户名来源优先级为 `--username`、`STX_USERNAME`、TTY 输入；非 TTY 缺少用户名时立即返回退出码 2。
+- 密码输入覆盖退格、回车、取消和终端状态恢复；真实伪终端测试必须确认提示出现后立即写入密码也不会回显。
 - 令牌有效期默认为 7 天，接受 7 至 30 天，超过范围被拒绝，用户禁用后立即失效。
 - 成功 stdout 是合法 JSON，错误 stderr 是合法 NDJSON，退出码稳定。
 - 退出登录后本地令牌被清除，重复退出和已失效令牌行为可预测。
@@ -90,6 +110,10 @@ Accept: application/json
 错误：用 `X-STX-Client: cli` 作为授权依据。
 
 正确：使用 Bearer 令牌确定用户身份，再读取用户当前权限；客户端 Header 只作为来源标识和兼容检查。
+
+错误：`stx login --server <url>` 在真实终端中因为缺少 `--username` 直接退出，或者先显示密码提示再关闭终端回显。
+
+正确：真实终端依次询问用户名和密码，并在显示密码提示前关闭回显；非交互调用继续明确要求用户名来源和 `--password-stdin`。
 
 ## 8. 场景：从操作登记生成普通读取命令
 

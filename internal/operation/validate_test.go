@@ -68,8 +68,13 @@ func TestValidateRejectsGeneratedCLIWithoutSummary(t *testing.T) {
 	t.Fatal("登记表缺少生成式 CLI 操作 / registry has no generated CLI operation")
 }
 
-func TestRegistryContainsFirstGeneratedCLIReadBatch(t *testing.T) {
+func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
+	require.Len(t, Registry(), 25)
+
 	expected := map[string]struct{}{
+		"auth.user-info.get": {}, "admin.user.list": {}, "admin.user.get": {},
+		"dashboard.overview.get": {}, "dashboard.stats.get": {},
+		"dashboard.cluster.list": {}, "dashboard.host.list": {}, "dashboard.activity.list": {},
 		"host.list": {}, "host.get": {}, "cluster.list": {}, "cluster.get": {},
 		"cluster.node.list": {}, "cluster.status.get": {}, "config.cluster.list": {},
 		"config.get": {}, "config.version.list": {},
@@ -81,6 +86,27 @@ func TestRegistryContainsFirstGeneratedCLIReadBatch(t *testing.T) {
 		}
 	}
 	require.Equal(t, expected, actual)
+}
+
+func TestRegistryAdminUserOperations(t *testing.T) {
+	byID := make(map[string]OperationSpec)
+	for _, spec := range Registry() {
+		byID[spec.ID] = spec
+	}
+
+	list := byID["admin.user.list"]
+	require.True(t, list.AdminOnly)
+	require.Equal(t, []InputSpec{
+		{Name: "current", Location: InputQuery, Required: true, Description: "Page number starting from 1"},
+		{Name: "size", Location: InputQuery, Required: true, Description: "Page size from 1 to 100"},
+		{Name: "username", Location: InputQuery, Required: false, Description: "Username prefix filter"},
+		{Name: "is_active", Location: InputQuery, Required: false, Description: "Active state filter"},
+		{Name: "is_admin", Location: InputQuery, Required: false, Description: "Administrator state filter"},
+	}, list.Input)
+
+	get := byID["admin.user.get"]
+	require.True(t, get.AdminOnly)
+	require.Equal(t, "/api/v1/admin/users/:id", get.Route)
 }
 
 func TestValidateRejectsInvalidHelpExample(t *testing.T) {

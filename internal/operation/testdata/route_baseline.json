@@ -6,16 +6,18 @@
     "swagger_path_count": 97,
     "swagger_operation_count": 114,
     "swagger_documented_routes": 114,
-    "registered_operations": 17,
+    "registered_operations": 25,
     "route_exceptions": 19,
-    "historical_gaps": 210
+    "historical_gaps": 202
   },
   "routes": [
     {
       "method": "GET",
       "path": "/api/v1/admin/users",
       "source": "internal/router/router.go:169",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "admin.user.list",
+      "mode": "normal",
       "swagger": true
     },
     {
@@ -36,7 +38,9 @@
       "method": "GET",
       "path": "/api/v1/admin/users/:id",
       "source": "internal/router/router.go:171",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "admin.user.get",
+      "mode": "normal",
       "swagger": true
     },
     {
@@ -158,7 +162,9 @@
       "method": "GET",
       "path": "/api/v1/auth/user-info",
       "source": "internal/router/router.go:150",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "auth.user-info.get",
+      "mode": "normal",
       "swagger": true
     },
     {
@@ -589,35 +595,45 @@
       "method": "GET",
       "path": "/api/v1/dashboard/overview",
       "source": "internal/router/router.go:225",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "dashboard.overview.get",
+      "mode": "normal",
       "swagger": true
     },
     {
       "method": "GET",
       "path": "/api/v1/dashboard/overview/activities",
       "source": "internal/router/router.go:229",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "dashboard.activity.list",
+      "mode": "normal",
       "swagger": true
     },
     {
       "method": "GET",
       "path": "/api/v1/dashboard/overview/clusters",
       "source": "internal/router/router.go:227",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "dashboard.cluster.list",
+      "mode": "normal",
       "swagger": true
     },
     {
       "method": "GET",
       "path": "/api/v1/dashboard/overview/hosts",
       "source": "internal/router/router.go:228",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "dashboard.host.list",
+      "mode": "normal",
       "swagger": true
     },
     {
       "method": "GET",
       "path": "/api/v1/dashboard/overview/stats",
       "source": "internal/router/router.go:226",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "dashboard.stats.get",
+      "mode": "normal",
       "swagger": true
     },
     {

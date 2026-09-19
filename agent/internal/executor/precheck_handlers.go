@@ -288,15 +288,17 @@ func handleCheckProcess(ctx context.Context, params map[string]string) (*Prechec
 	if role == "" {
 		role = "hybrid"
 	}
+	installDir := strings.TrimSpace(params["install_dir"])
 
-	checkResult := installer.CheckSeaTunnelRunning(ctx, role)
+	checkResult := installer.CheckSeaTunnelRunning(ctx, installDir, role)
 
 	details := map[string]string{
-		"role": role,
+		"role":        role,
+		"install_dir": installDir,
 	}
 
 	if checkResult.Success {
-		processInfo, err := installer.CheckSeaTunnelProcess(ctx, role)
+		processInfo, err := installer.CheckSeaTunnelProcess(ctx, installDir, role)
 		if err == nil && processInfo != nil {
 			details["pid"] = strconv.Itoa(processInfo.PID)
 			details["actual_role"] = processInfo.Role
@@ -964,7 +966,7 @@ func handleFullPrecheck(ctx context.Context, params map[string]string, reporter 
 	if role == "" {
 		role = "hybrid"
 	}
-	processResult := installer.CheckSeaTunnelRunning(ctx, role)
+	processResult := installer.CheckSeaTunnelRunning(ctx, params["install_dir"], role)
 	if processResult.Success {
 		results["process_check"] = fmt.Sprintf("SeaTunnel process is already running: %s", processResult.Message)
 	} else {

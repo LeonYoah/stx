@@ -22,6 +22,8 @@ import (
 	"encoding/json"
 	"log"
 	"time"
+
+	"github.com/LeonYoah/stx/internal/processidentity"
 )
 
 // AgentConfigSender defines the interface for sending config to agents.
@@ -37,6 +39,7 @@ type AgentConfigSender interface {
 type TrackedProcessInfo struct {
 	PID        int    `json:"pid"`         // 进程 PID / Process PID
 	Name       string `json:"name"`        // 进程名称 / Process name (e.g., "seatunnel-master")
+	ClusterID  uint   `json:"cluster_id"`  // 集群 ID / Cluster ID
 	InstallDir string `json:"install_dir"` // 安装目录 / Install directory
 	Role       string `json:"role"`        // 节点角色 / Node role
 }
@@ -254,13 +257,10 @@ func (s *Service) pushConfigToAgents(ctx context.Context, clusterID uint, config
 		// 当启用自动重启时，跟踪所有进程（包括 PID=0），以便 Agent 可以重启它们
 		// 当禁用自动重启时，只跟踪运行中的进程（PID > 0）
 		if config.AutoRestart || node.ProcessPID > 0 {
-			processName := "seatunnel"
-			if node.Role != "" && node.Role != "hybrid" && node.Role != "master/worker" {
-				processName = "seatunnel-" + node.Role
-			}
 			agentProcesses[node.AgentID] = append(agentProcesses[node.AgentID], &TrackedProcessInfo{
 				PID:        node.ProcessPID,
-				Name:       processName,
+				Name:       processidentity.ManagedName(node.InstallDir, node.Role),
+				ClusterID:  clusterID,
 				InstallDir: node.InstallDir,
 				Role:       node.Role,
 			})

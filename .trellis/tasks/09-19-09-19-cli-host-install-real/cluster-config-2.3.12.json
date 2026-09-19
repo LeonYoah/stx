@@ -1,0 +1,22 @@
+{
+  "ports": {
+    "master_hazelcast_port": 15812,
+    "master_api_port": 18092,
+    "worker_port": 15813,
+    "java_proxy_port": 18093
+  },
+  "runtime": {
+    "enable_http": true,
+    "dynamic_slot": true,
+    "slot_allocation_strategy": "RANDOM",
+    "job_schedule_strategy": "REJECT"
+  },
+  "checkpoint": {
+    "storage_type": "LOCAL_FILE",
+    "namespace": "/tmp/seatunnel-2.3.12/checkpoint/"
+  },
+  "imap": {
+    "storage_type": "DISABLED",
+    "namespace": "/tmp/seatunnel-2.3.12/imap/"
+  }
+}

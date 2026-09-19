@@ -30,6 +30,7 @@ import (
 	appconfig "github.com/LeonYoah/stx/internal/apps/config"
 	installerapp "github.com/LeonYoah/stx/internal/apps/installer"
 	"github.com/LeonYoah/stx/internal/logger"
+	"github.com/LeonYoah/stx/internal/processidentity"
 	"github.com/LeonYoah/stx/internal/seatunnel"
 	"gopkg.in/yaml.v3"
 )
@@ -514,10 +515,11 @@ func (s *Service) stopProcessesForDeletion(ctx context.Context, cluster *Cluster
 			installDir = cluster.InstallDir
 		}
 		params := map[string]string{
-			"cluster_id":  fmt.Sprintf("%d", cluster.ID),
-			"node_id":     fmt.Sprintf("%d", node.ID),
-			"role":        string(node.Role),
-			"install_dir": installDir,
+			"cluster_id":   fmt.Sprintf("%d", cluster.ID),
+			"node_id":      fmt.Sprintf("%d", node.ID),
+			"role":         string(node.Role),
+			"install_dir":  installDir,
+			"process_name": processidentity.ManagedName(installDir, string(node.Role)),
 		}
 		logger.InfoF(ctx, "[Cluster] Delete: sending stop to agent / 删除集群：向 Agent 发送停止命令: agent_id=%s, node_id=%d", hostInfo.AgentID, node.ID)
 		_, _, err = s.agentSender.SendCommand(ctx, hostInfo.AgentID, string(OperationStop), params)
@@ -1670,10 +1672,11 @@ func (s *Service) executeOperation(ctx context.Context, clusterID uint, operatio
 						installDir = cluster.InstallDir
 					}
 					params := map[string]string{
-						"cluster_id":  fmt.Sprintf("%d", clusterID),
-						"node_id":     fmt.Sprintf("%d", node.ID),
-						"role":        string(node.Role),
-						"install_dir": installDir,
+						"cluster_id":   fmt.Sprintf("%d", clusterID),
+						"node_id":      fmt.Sprintf("%d", node.ID),
+						"role":         string(node.Role),
+						"install_dir":  installDir,
+						"process_name": processidentity.ManagedName(installDir, string(node.Role)),
 					}
 
 					success, message, err := s.agentSender.SendCommand(ctx, hostInfo.AgentID, string(operation), params)
@@ -1987,7 +1990,8 @@ func (s *Service) detectAndUpdateNodeProcess(ctx context.Context, node *ClusterN
 	}
 
 	params := map[string]string{
-		"role": role,
+		"role":        role,
+		"install_dir": node.InstallDir,
 	}
 
 	success, message, err := s.agentSender.SendCommand(ctx, hostInfo.AgentID, "check_process", params)
@@ -2197,10 +2201,11 @@ func (s *Service) executeNodeOperationWithResolvedNode(ctx context.Context, clus
 		}
 
 		params := map[string]string{
-			"cluster_id":  fmt.Sprintf("%d", cluster.ID),
-			"node_id":     fmt.Sprintf("%d", node.ID),
-			"role":        string(node.Role),
-			"install_dir": installDir,
+			"cluster_id":   fmt.Sprintf("%d", cluster.ID),
+			"node_id":      fmt.Sprintf("%d", node.ID),
+			"role":         string(node.Role),
+			"install_dir":  installDir,
+			"process_name": processidentity.ManagedName(installDir, string(node.Role)),
 		}
 
 		success, message, err := s.agentSender.SendCommand(ctx, hostInfo.AgentID, string(operation), params)

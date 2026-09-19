@@ -27,6 +27,7 @@ import (
 	"time"
 
 	appconfig "github.com/LeonYoah/stx/internal/apps/config"
+	"github.com/LeonYoah/stx/internal/processidentity"
 	"github.com/glebarez/sqlite"
 	"github.com/leanovate/gopter"
 	"github.com/leanovate/gopter/gen"
@@ -970,17 +971,30 @@ func TestClusterServiceStartUsesNodeInstallDirAndRefreshesProcess(t *testing.T) 
 	}
 
 	foundStartCommand := false
+	foundProcessCheck := false
 	for _, command := range agentSender.commands {
-		if command.commandType != string(OperationStart) {
-			continue
-		}
-		foundStartCommand = true
-		if got := command.params["install_dir"]; got != "/opt/seatunnel-2.3.12" {
-			t.Fatalf("expected cluster start to use node install dir, got %q", got)
+		switch command.commandType {
+		case string(OperationStart):
+			foundStartCommand = true
+			if got := command.params["install_dir"]; got != "/opt/seatunnel-2.3.12" {
+				t.Fatalf("expected cluster start to use node install dir, got %q", got)
+			}
+			wantName := processidentity.ManagedName("/opt/seatunnel-2.3.12", string(NodeRoleMasterWorker))
+			if got := command.params["process_name"]; got != wantName {
+				t.Fatalf("expected cluster start process name %q, got %q", wantName, got)
+			}
+		case "check_process":
+			foundProcessCheck = true
+			if got := command.params["install_dir"]; got != "/opt/seatunnel-2.3.12" {
+				t.Fatalf("expected process check to use node install dir, got %q", got)
+			}
 		}
 	}
 	if !foundStartCommand {
 		t.Fatalf("expected start command to be sent, got %+v", agentSender.commands)
+	}
+	if !foundProcessCheck {
+		t.Fatalf("expected process check command to be sent, got %+v", agentSender.commands)
 	}
 
 	updatedNode, err := repo.GetNodeByID(ctx, node.ID)

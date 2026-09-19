@@ -21,6 +21,7 @@ package installer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -28,9 +29,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
+
+	processmanager "github.com/LeonYoah/stx/agent/internal/process"
 )
 
 // NodePrecheckResult represents the result of a node precheck
@@ -341,69 +345,46 @@ type SeaTunnelProcessInfo struct {
 	StartTime string `json:"start_time"`
 }
 
-// CheckSeaTunnelProcess checks for running SeaTunnel processes
-// CheckSeaTunnelProcess 检查正在运行的 SeaTunnel 进程
-func CheckSeaTunnelProcess(ctx context.Context, role string) (*SeaTunnelProcessInfo, error) {
-	var grepPattern string
-
-	switch role {
-	case "hybrid":
-		grepPattern = `org.apache.seatunnel.core.starter.seatunnel.SeaTunnelServer`
-	case "master":
-		grepPattern = `org.apache.seatunnel.core.starter.seatunnel.SeaTunnelServer.*-r master`
-	case "worker":
-		grepPattern = `org.apache.seatunnel.core.starter.seatunnel.SeaTunnelServer.*-r worker`
-	default:
-		grepPattern = `org.apache.seatunnel.core.starter.seatunnel.SeaTunnelServer`
+// CheckSeaTunnelProcess 按安装目录和角色检查正在运行的 SeaTunnel 进程。
+// CheckSeaTunnelProcess checks a running SeaTunnel process by install directory and role.
+func CheckSeaTunnelProcess(ctx context.Context, installDir, role string) (*SeaTunnelProcessInfo, error) {
+	pid, cmdLine, err := processmanager.FindSeaTunnelProcess(ctx, installDir, role)
+	if errors.Is(err, processmanager.ErrProcessNotFound) {
+		return nil, nil
 	}
-
-	cmd := exec.CommandContext(ctx, "bash", "-c",
-		fmt.Sprintf(`ps -ef | grep "%s" | grep -v grep`, grepPattern))
-	output, err := cmd.Output()
 	if err != nil {
-		return nil, nil
+		return nil, err
 	}
 
-	outputStr := strings.TrimSpace(string(output))
-	if outputStr == "" {
-		return nil, nil
-	}
-
-	lines := strings.Split(outputStr, "\n")
-	if len(lines) == 0 {
-		return nil, nil
-	}
-
-	fields := strings.Fields(lines[0])
-	if len(fields) < 8 {
-		return nil, fmt.Errorf("unexpected ps output format")
-	}
-
-	pid, err := strconv.Atoi(fields[1])
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse PID: %w", err)
-	}
-
-	actualRole := "hybrid"
-	cmdLine := strings.Join(fields[7:], " ")
-	if strings.Contains(cmdLine, "-r master") {
-		actualRole = "master"
-	} else if strings.Contains(cmdLine, "-r worker") {
-		actualRole = "worker"
+	startTime := ""
+	if runtime.GOOS != "windows" {
+		if output, startErr := exec.CommandContext(ctx, "ps", "-p", strconv.Itoa(pid), "-o", "lstart=").Output(); startErr == nil {
+			startTime = strings.TrimSpace(string(output))
+		}
 	}
 
 	return &SeaTunnelProcessInfo{
 		PID:       pid,
-		Role:      actualRole,
+		Role:      processRoleFromCommandLine(cmdLine),
 		CmdLine:   cmdLine,
-		StartTime: fields[4],
+		StartTime: startTime,
 	}, nil
+}
+
+func processRoleFromCommandLine(cmdLine string) string {
+	if strings.Contains(cmdLine, "-r master") {
+		return "master"
+	}
+	if strings.Contains(cmdLine, "-r worker") {
+		return "worker"
+	}
+	return "hybrid"
 }
 
 // GetSeaTunnelProcessPID returns the PID of a running SeaTunnel process
 // GetSeaTunnelProcessPID 返回正在运行的 SeaTunnel 进程的 PID
-func GetSeaTunnelProcessPID(ctx context.Context, role string) (int, error) {
-	info, err := CheckSeaTunnelProcess(ctx, role)
+func GetSeaTunnelProcessPID(ctx context.Context, installDir, role string) (int, error) {
+	info, err := CheckSeaTunnelProcess(ctx, installDir, role)
 	if err != nil {
 		return 0, err
 	}
@@ -415,8 +396,8 @@ func GetSeaTunnelProcessPID(ctx context.Context, role string) (int, error) {
 
 // CheckSeaTunnelRunning checks if SeaTunnel is running
 // CheckSeaTunnelRunning 检查 SeaTunnel 是否正在运行
-func CheckSeaTunnelRunning(ctx context.Context, role string) *NodePrecheckResult {
-	info, err := CheckSeaTunnelProcess(ctx, role)
+func CheckSeaTunnelRunning(ctx context.Context, installDir, role string) *NodePrecheckResult {
+	info, err := CheckSeaTunnelProcess(ctx, installDir, role)
 	if err != nil {
 		return &NodePrecheckResult{
 			Success: false,

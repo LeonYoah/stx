@@ -83,7 +83,7 @@ func TestValidateRejectsRepeatedNonQueryInput(t *testing.T) {
 }
 
 func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
-	require.Len(t, Registry(), 71)
+	require.Len(t, Registry(), 75)
 
 	expected := map[string]struct{}{
 		"auth.user-info.get": {}, "admin.user.list": {}, "admin.user.get": {},
@@ -134,6 +134,27 @@ func TestRegistryContainsClusterWriteOperations(t *testing.T) {
 	require.False(t, byID["cluster.node.precheck"].GeneratedCLI)
 	require.True(t, byID["cluster.delete"].GeneratedCLI)
 	require.True(t, byID["cluster.restart"].GeneratedCLI)
+}
+
+func TestRegistryContainsHostInstallOperations(t *testing.T) {
+	byID := make(map[string]OperationSpec)
+	for _, spec := range Registry() {
+		byID[spec.ID] = spec
+	}
+
+	precheck := byID["host.precheck"]
+	require.Equal(t, RiskR0, precheck.Risk)
+	require.True(t, precheck.UsesAgent)
+	require.False(t, precheck.GeneratedCLI)
+
+	for _, operationID := range []string{"host.install.start", "host.install.retry", "host.install.cancel"} {
+		spec, exists := byID[operationID]
+		require.True(t, exists, operationID)
+		require.Equal(t, RiskR1, spec.Risk, operationID)
+		require.True(t, spec.UsesAgent, operationID)
+		require.NotNil(t, spec.Impact, operationID)
+		require.False(t, spec.GeneratedCLI, operationID)
+	}
 }
 
 func TestRegistryPluginDownloadStatusSupportsRepeatedProfiles(t *testing.T) {

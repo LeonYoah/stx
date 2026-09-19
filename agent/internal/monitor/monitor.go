@@ -28,10 +28,8 @@ package monitor
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"runtime"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -65,6 +63,7 @@ const (
 type TrackedProcess struct {
 	PID              int                  `json:"pid"`
 	Name             string               `json:"name"`
+	ClusterID        string               `json:"cluster_id,omitempty"`
 	InstallDir       string               `json:"install_dir"`
 	Role             string               `json:"role"`
 	Status           ProcessStatus        `json:"status"`
@@ -73,6 +72,17 @@ type TrackedProcess struct {
 	ConsecutiveFails int                  `json:"consecutive_fails"` // 连续检查失败次数 / Consecutive check failures
 	LastCheck        time.Time            `json:"last_check"`
 	StartParams      *process.StartParams `json:"start_params"`
+}
+
+// SetProcessClusterID 记录受监控进程所属的集群，用于按集群更新监控配置。
+// SetProcessClusterID records the owning cluster so monitor configuration can be updated per cluster.
+func (m *ProcessMonitor) SetProcessClusterID(name, clusterID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if proc, exists := m.trackedProcesses[name]; exists {
+		proc.ClusterID = clusterID
+	}
 }
 
 // ProcessEventType represents the type of process event
@@ -494,10 +504,8 @@ func (m *ProcessMonitor) GetAllTrackedProcesses() []*TrackedProcess {
 	return processes
 }
 
-// isProcessAlive checks if a tracked process is alive and still matches the expected command line.
-// isProcessAlive 检查被跟踪进程是否存活且仍然对应期望的命令行。
-// 这里除了检查 PID 是否存在外，会在 Unix 上比对 /proc/<pid>/cmdline 是否仍然包含原先的 InstallDir，
-// 以避免 PID 复用导致的“幽灵进程”（例如原进程退出后，mysqld 复用了相同 PID）。
+// isProcessAlive 检查被跟踪进程是否存活，并核对安装目录和角色。
+// isProcessAlive checks whether a tracked process is alive and matches its install directory and role.
 func isProcessAlive(proc *TrackedProcess) bool {
 	if proc == nil {
 		return false
@@ -507,37 +515,17 @@ func isProcessAlive(proc *TrackedProcess) bool {
 		return false
 	}
 
-	// On Windows we don't attempt to resolve /proc paths; basic PID check is enough.
-	// 在 Windows 上不做额外校验，仅依赖基础的 PID 探活。
-	if runtime.GOOS == "windows" {
+	if proc.InstallDir == "" {
 		return true
 	}
 
-	installDir := strings.TrimSpace(proc.InstallDir)
-	if installDir == "" {
-		// If we don't know the install dir, fall back to PID-only check.
-		// 如果未知安装目录，则退回到仅依赖 PID 的判断。
-		return true
-	}
-
-	// Best-effort check: ensure /proc/<pid>/cmdline 仍然包含原来的 InstallDir。
-	// 失败时不认为进程死亡，只在明确发现命令行已完全不包含该目录时才视为“不是我们的进程”。
-	cmdlineBytes, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
+	matched, err := process.MatchesSeaTunnelProcess(context.Background(), pid, proc.InstallDir, proc.Role)
 	if err != nil {
+		// 进程列表临时读取失败时保留基础探活结果，避免误触发自动拉起。
+		// Keep the basic liveness result when process inspection fails to avoid a false auto-restart.
 		return true
 	}
-	cmdline := strings.TrimSpace(strings.ReplaceAll(string(cmdlineBytes), "\x00", " "))
-	if cmdline == "" {
-		return true
-	}
-
-	if !strings.Contains(cmdline, installDir) {
-		// PID 仍然存在，但命令行不再包含原先的 InstallDir（例如被 mysqld 等进程复用），视为目标进程已退出。
-		// 这样可以触发 AutoRestarter，而不会误杀新进程。
-		return false
-	}
-
-	return true
+	return matched
 }
 
 // isPidAlive performs a basic liveness check for a PID using signal 0.

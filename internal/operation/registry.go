@@ -26,7 +26,7 @@ import (
 
 // RegistryRevision 是操作登记表的兼容修订号。
 // RegistryRevision is the compatibility revision of the operation registry.
-const RegistryRevision = 6
+const RegistryRevision = 7
 
 var registry = append([]OperationSpec{
 	{
@@ -538,6 +538,59 @@ var registry = append([]OperationSpec{
 }`,
 	},
 	{
+		ID:           "host.precheck",
+		CommandPath:  []string{"host", "precheck"},
+		Summary:      "Run installation precheck on a host",
+		GeneratedCLI: false,
+		Method:       "POST",
+		Route:        "/api/v1/hosts/:id/precheck",
+		Mode:         ModeNormal,
+		AuthRequired: true,
+		Risk:         RiskR0,
+		Revision:     1,
+		UsesAgent:    true,
+		Input: []InputSpec{
+			{Name: "id", Location: InputPath, Required: true, Description: "Host ID"},
+			{Name: "install_dir", Location: InputBody, Description: "SeaTunnel installation directory"},
+		},
+		Impact:  &ImpactSpec{Level: RiskR0, Message: "Runs read-only installation checks on the target host.", Performance: "Reads system resources, disk space, Java information, and port availability."},
+		Example: "stx host precheck 10 --install-dir /tmp/seatunnel-2.3.12 --port 15812",
+		OutputExample: `{
+  "api_version": "v1",
+  "operation_id": "host.precheck",
+  "request_id": "req_example",
+  "data": {"passed":true,"checks":[]},
+  "result_meta": {"complete": true}
+}`,
+	},
+	{
+		ID:           "host.install.start",
+		CommandPath:  []string{"host", "install", "start"},
+		Summary:      "Install SeaTunnel on a host",
+		GeneratedCLI: false,
+		Method:       "POST",
+		Route:        "/api/v1/hosts/:id/install",
+		Mode:         ModeNormal,
+		AuthRequired: true,
+		Risk:         RiskR1,
+		Revision:     1,
+		UsesAgent:    true,
+		Async:        true,
+		Impact:       &ImpactSpec{Level: RiskR1, Message: "Writes a SeaTunnel installation and configuration files on the target host.", Performance: "Uses server and Agent network bandwidth, CPU, and disk I/O while transferring and extracting the package."},
+		Input: []InputSpec{
+			{Name: "id", Location: InputPath, Required: true, Description: "Host ID"},
+			{Name: "version", Location: InputBody, Required: true, Description: "SeaTunnel version"},
+		},
+		Example: "stx host install start 10 --version 2.3.12 --install-dir /tmp/seatunnel-2.3.12 --deployment-mode hybrid --node-role master/worker --confirm",
+		OutputExample: `{
+  "api_version": "v1",
+  "operation_id": "host.install.start",
+  "request_id": "req_example",
+  "data": {"id":"install_example","host_id":"10","status":"running","progress":0},
+  "result_meta": {"complete": true,"next_command":"stx host install status get 10"}
+}`,
+	},
+	{
 		ID:           "host.install.status.get",
 		CommandPath:  []string{"host", "install", "status", "get"},
 		Summary:      "Get host installation status",
@@ -559,6 +612,55 @@ var registry = append([]OperationSpec{
   "request_id": "req_example",
   "data": {"id":"install_example","host_id":"10","status":"running","current_step":"install","progress":60},
   "result_meta": {"complete": true}
+}`,
+	},
+	{
+		ID:           "host.install.retry",
+		CommandPath:  []string{"host", "install", "retry"},
+		Summary:      "Retry a failed installation step",
+		GeneratedCLI: false,
+		Method:       "POST",
+		Route:        "/api/v1/hosts/:id/install/retry",
+		Mode:         ModeNormal,
+		AuthRequired: true,
+		Risk:         RiskR1,
+		Revision:     1,
+		UsesAgent:    true,
+		Impact:       &ImpactSpec{Level: RiskR1, Message: "Retries a failed installation step and may rewrite files on the target host."},
+		Input: []InputSpec{
+			{Name: "id", Location: InputPath, Required: true, Description: "Host ID"},
+			{Name: "step", Location: InputBody, Required: true, Description: "Failed installation step"},
+		},
+		Example: "stx host install retry 10 --step extract --confirm",
+		OutputExample: `{
+  "api_version": "v1",
+  "operation_id": "host.install.retry",
+  "request_id": "req_example",
+  "data": {"host_id":"10","status":"running"},
+  "result_meta": {"complete": true,"next_command":"stx host install status get 10"}
+}`,
+	},
+	{
+		ID:           "host.install.cancel",
+		CommandPath:  []string{"host", "install", "cancel"},
+		Summary:      "Request installation cancellation",
+		GeneratedCLI: false,
+		Method:       "POST",
+		Route:        "/api/v1/hosts/:id/install/cancel",
+		Mode:         ModeNormal,
+		AuthRequired: true,
+		Risk:         RiskR1,
+		Revision:     1,
+		UsesAgent:    true,
+		Impact:       &ImpactSpec{Level: RiskR1, Message: "Requests cancellation of the active installation; the current server implementation may not stop an Agent command that has already started."},
+		Input:        []InputSpec{{Name: "id", Location: InputPath, Required: true, Description: "Host ID"}},
+		Example:      "stx host install cancel 10 --confirm",
+		OutputExample: `{
+  "api_version": "v1",
+  "operation_id": "host.install.cancel",
+  "request_id": "req_example",
+  "data": {"host_id":"10","status":"failed","message":"Installation cancelled / 安装已取消"},
+  "result_meta": {"complete": true,"next_command":"stx host install status get 10"}
 }`,
 	},
 	{

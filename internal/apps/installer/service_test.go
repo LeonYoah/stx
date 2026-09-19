@@ -203,6 +203,23 @@ func TestBuildInstallParamsIncludesRuntimeConfig(t *testing.T) {
 	}
 }
 
+func TestStartClusterAfterInstallSkipsStandaloneInstallation(t *testing.T) {
+	service := NewService(t.TempDir(), nil)
+	status := &InstallationStatus{Status: StepStatusSuccess}
+
+	service.startClusterAfterInstall(context.Background(), "agent-test", &InstallationRequest{
+		HostID:   "10",
+		NodeRole: NodeRoleMasterWorker,
+	}, status)
+
+	if status.Status != StepStatusSuccess {
+		t.Fatalf("独立安装状态被意外修改: %s", status.Status)
+	}
+	if status.Message != "Installation completed; cluster startup skipped because no cluster ID was provided / 安装完成；未提供集群 ID，已跳过集群启动" {
+		t.Fatalf("独立安装完成文案错误: %q", status.Message)
+	}
+}
+
 // TestFallbackVersions tests that fallback versions are used when fetch fails
 // TestFallbackVersions 测试当获取失败时使用备用版本
 func TestFallbackVersions(t *testing.T) {

@@ -33,6 +33,7 @@ import (
 	"github.com/LeonYoah/stx/internal/apps/host"
 	"github.com/LeonYoah/stx/internal/apps/monitor"
 	"github.com/LeonYoah/stx/internal/db"
+	"github.com/LeonYoah/stx/internal/processidentity"
 	pb "github.com/LeonYoah/stx/internal/proto/agent"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
@@ -1178,13 +1179,10 @@ func (s *Server) pushMonitorConfigToAgent(ctx context.Context, agentID string, h
 		// Include all nodes with install_dir, not just running ones
 		// 包含所有有安装目录的节点，不仅仅是运行中的
 		if node.InstallDir != "" {
-			processName := "seatunnel"
-			if node.Role != "" && node.Role != "hybrid" && node.Role != "master/worker" {
-				processName = "seatunnel-" + node.Role
-			}
 			trackedProcesses = append(trackedProcesses, map[string]interface{}{
 				"pid":         node.ProcessPID, // Can be 0 for stopped processes / 已停止的进程可以为 0
-				"name":        processName,
+				"name":        processidentity.ManagedName(node.InstallDir, node.Role),
+				"cluster_id":  node.ClusterID,
 				"install_dir": node.InstallDir,
 				"role":        node.Role,
 			})
@@ -1273,11 +1271,7 @@ func (s *Server) updateProcessStatusFromHeartbeat(ctx context.Context, hostID ui
 	// Update each node's process status / 更新每个节点的进程状态
 	clusterIDsSeen := make(map[uint]struct{})
 	for _, node := range nodes {
-		// Determine process name based on role / 根据角色确定进程名
-		processName := "seatunnel"
-		if node.Role != "" && node.Role != "hybrid" && node.Role != "master/worker" {
-			processName = "seatunnel-" + node.Role
-		}
+		processName := processidentity.ManagedName(node.InstallDir, node.Role)
 
 		// Find matching process / 查找匹配的进程
 		proc, found := processMap[processName]

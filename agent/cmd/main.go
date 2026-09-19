@@ -55,6 +55,7 @@ import (
 	"github.com/LeonYoah/stx/agent/internal/monitor"
 	"github.com/LeonYoah/stx/agent/internal/process"
 	"github.com/LeonYoah/stx/agent/internal/restart"
+	"github.com/LeonYoah/stx/internal/processidentity"
 	"github.com/LeonYoah/stx/internal/seatunnel"
 	"github.com/spf13/cobra"
 )
@@ -109,6 +110,14 @@ type Agent struct {
 	// processMonitor monitors SeaTunnel process status
 	// processMonitor 监控 SeaTunnel 进程状态
 	processMonitor *monitor.ProcessMonitor
+
+	// matchSeaTunnelProcess 校验 PID 是否属于指定安装目录和角色，测试可替换该依赖。
+	// matchSeaTunnelProcess verifies PID ownership by install directory and role and can be replaced in tests.
+	matchSeaTunnelProcess func(context.Context, int, string, string) (bool, error)
+
+	// findSeaTunnelProcess 按安装目录和角色查找进程，测试可替换该依赖。
+	// findSeaTunnelProcess finds a process by install directory and role and can be replaced in tests.
+	findSeaTunnelProcess func(context.Context, string, string) (int, string, error)
 
 	// autoRestarter handles automatic process restart
 	// autoRestarter 处理自动进程重启
@@ -168,18 +177,20 @@ func NewAgent(cfg *config.Config) *Agent {
 	ec := agentdiagnostics.NewCollector(grpcClient)
 
 	return &Agent{
-		config:           cfg,
-		ctx:              ctx,
-		cancel:           cancel,
-		grpcClient:       grpcClient,
-		executor:         exec,
-		processManager:   pm,
-		metricsCollector: mc,
-		installerManager: im,
-		processMonitor:   pmon,
-		autoRestarter:    ar,
-		eventReporter:    er,
-		errorCollector:   ec,
+		config:                cfg,
+		ctx:                   ctx,
+		cancel:                cancel,
+		grpcClient:            grpcClient,
+		executor:              exec,
+		processManager:        pm,
+		metricsCollector:      mc,
+		installerManager:      im,
+		processMonitor:        pmon,
+		matchSeaTunnelProcess: process.MatchesSeaTunnelProcess,
+		findSeaTunnelProcess:  process.FindSeaTunnelProcess,
+		autoRestarter:         ar,
+		eventReporter:         er,
+		errorCollector:        ec,
 	}
 }
 
@@ -781,16 +792,27 @@ func (a *Agent) sendHeartbeat() {
 	trackedProcesses := a.processMonitor.GetAllTrackedProcesses()
 	processes := make([]*pb.ProcessStatus, 0, len(trackedProcesses))
 	for _, proc := range trackedProcesses {
-		// Check if process is alive and get metrics / 检查进程是否存活并获取指标
+		// 心跳必须核对安装目录和角色，不能只看 PID 是否存在。
+		// Heartbeats must verify install directory and role instead of checking PID existence alone.
 		status := "stopped"
-		if isProcessAlive(proc.PID) {
-			status = "running"
+		reportedPID := 0
+		alive := isProcessAlive(proc.PID)
+		if alive && proc.InstallDir != "" {
+			if matched, matchErr := process.MatchesSeaTunnelProcess(a.ctx, proc.PID, proc.InstallDir, proc.Role); matchErr == nil {
+				alive = matched
+			}
 		}
-		cpuUsage, memUsage := getProcessMetrics(proc.PID)
+		cpuUsage := float64(0)
+		memUsage := int64(0)
+		if alive {
+			status = "running"
+			reportedPID = proc.PID
+			cpuUsage, memUsage = getProcessMetrics(proc.PID)
+		}
 
 		processes = append(processes, &pb.ProcessStatus{
 			Name:        proc.Name,
-			Pid:         int32(proc.PID),
+			Pid:         int32(reportedPID),
 			Status:      status,
 			CpuUsage:    cpuUsage,
 			MemoryUsage: memUsage,
@@ -1264,14 +1286,9 @@ func (a *Agent) handleStartCommand(ctx context.Context, cmd *pb.CommandRequest, 
 
 	role := getParamString(cmd.Parameters, "role", "")
 	installDir := getParamString(cmd.Parameters, "install_dir", a.config.SeaTunnel.InstallDir)
+	clusterID := strings.TrimSpace(getParamString(cmd.Parameters, "cluster_id", ""))
 
-	// Use role as process name for tracking / 使用角色作为进程名进行跟踪
-	// For hybrid mode (empty, "hybrid", or "master/worker"), use "seatunnel"
-	// 对于混合模式（空、"hybrid" 或 "master/worker"），使用 "seatunnel"
-	processName := "seatunnel"
-	if role != "" && role != "hybrid" && role != "master/worker" {
-		processName = "seatunnel-" + role
-	}
+	processName := getParamString(cmd.Parameters, "process_name", processidentity.ManagedName(installDir, role))
 
 	params := &process.StartParams{
 		InstallDir: installDir,
@@ -1286,6 +1303,7 @@ func (a *Agent) handleStartCommand(ctx context.Context, cmd *pb.CommandRequest, 
 		// Auto-restart enabled: register process with PID=0, let auto-restarter handle the actual start
 		// 自动重启已启用：用 PID=0 注册进程，让自动重启器处理实际的启动
 		a.processMonitor.TrackProcessSilent(processName, 0, installDir, role, params)
+		a.processMonitor.SetProcessClusterID(processName, clusterID)
 		a.autoRestarter.ResetRestartCount(processName)
 		logger.InfoF(ctx, "[Agent] Process registered for auto-start: %s (auto-restart will handle startup) / 进程已注册等待自动启动：%s（自动重启将处理启动）",
 			processName, processName)
@@ -1304,6 +1322,7 @@ func (a *Agent) handleStartCommand(ctx context.Context, cmd *pb.CommandRequest, 
 	// Get the PID from process manager / 从进程管理器获取 PID
 	if info, err := a.processManager.GetStatus(ctx, processName); err == nil && info.PID > 0 {
 		a.processMonitor.TrackProcess(processName, info.PID, installDir, role, params)
+		a.processMonitor.SetProcessClusterID(processName, clusterID)
 		logger.InfoF(ctx, "[Agent] Process started and tracked: %s (PID: %d) / 进程已启动并跟踪：%s（PID：%d）",
 			processName, info.PID, processName, info.PID)
 	}
@@ -1332,13 +1351,7 @@ func (a *Agent) handleStopCommand(ctx context.Context, cmd *pb.CommandRequest, r
 	installDir := getParamString(cmd.Parameters, "install_dir", a.config.SeaTunnel.InstallDir)
 	graceful := getParamBool(cmd.Parameters, "graceful", true)
 
-	// Use role as process name for tracking / 使用角色作为进程名进行跟踪
-	// For hybrid mode (empty, "hybrid", or "master/worker"), use "seatunnel"
-	// 对于混合模式（空、"hybrid" 或 "master/worker"），使用 "seatunnel"
-	processName := "seatunnel"
-	if role != "" && role != "hybrid" && role != "master/worker" {
-		processName = "seatunnel-" + role
-	}
+	processName := getParamString(cmd.Parameters, "process_name", processidentity.ManagedName(installDir, role))
 
 	params := &process.StopParams{
 		Graceful:   graceful,
@@ -1347,18 +1360,22 @@ func (a *Agent) handleStopCommand(ctx context.Context, cmd *pb.CommandRequest, r
 		Role:       role,
 	}
 
+	if a.autoRestarter.IsEnabled() {
+		a.processMonitor.MarkManuallyStopped(processName)
+	}
 	err := a.processManager.StopProcess(ctx, processName, params)
 	if err != nil {
+		a.processMonitor.ClearManuallyStopped(processName)
 		return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err
 	}
 
 	// Check if auto-restart is enabled to decide whether to untrack or set PID=0
 	// 检查是否启用了自动重启，以决定是取消跟踪还是设置 PID=0
 	if a.autoRestarter.IsEnabled() {
-		// Auto-restart enabled: set PID=0, auto-restart will start it again
-		// 自动重启已启用：设置 PID=0，自动重启会重新启动它
+		// 人工停止时保留跟踪记录和 PID=0，但禁止自动拉起。
+		// Keep the tracked entry at PID=0 after a manual stop, while preventing auto-restart.
 		a.processMonitor.UpdateProcessPID(processName, 0)
-		logger.InfoF(ctx, "[Agent] Process stopped, PID set to 0 (auto-restart enabled): %s / 进程已停止，PID 设为 0（自动重启已启用）：%s",
+		logger.InfoF(ctx, "[Agent] Process manually stopped, PID set to 0: %s / 进程已人工停止，PID 设为 0：%s",
 			processName, processName)
 	} else {
 		// Auto-restart disabled: untrack the process completely
@@ -1396,14 +1413,9 @@ func (a *Agent) handleRestartCommand(ctx context.Context, cmd *pb.CommandRequest
 
 	role := getParamString(cmd.Parameters, "role", "")
 	installDir := getParamString(cmd.Parameters, "install_dir", a.config.SeaTunnel.InstallDir)
+	clusterID := strings.TrimSpace(getParamString(cmd.Parameters, "cluster_id", ""))
 
-	// Use role as process name for tracking / 使用角色作为进程名进行跟踪
-	// For hybrid mode (empty, "hybrid", or "master/worker"), use "seatunnel"
-	// 对于混合模式（空、"hybrid" 或 "master/worker"），使用 "seatunnel"
-	processName := "seatunnel"
-	if role != "" && role != "hybrid" && role != "master/worker" {
-		processName = "seatunnel-" + role
-	}
+	processName := getParamString(cmd.Parameters, "process_name", processidentity.ManagedName(installDir, role))
 
 	startParams := &process.StartParams{
 		InstallDir: installDir,
@@ -1421,14 +1433,17 @@ func (a *Agent) handleRestartCommand(ctx context.Context, cmd *pb.CommandRequest
 	if a.autoRestarter.IsEnabled() {
 		// Auto-restart enabled: stop process, then set PID=0 to let auto-restarter handle the start
 		// 自动重启已启用：停止进程，然后设置 PID=0 让自动重启器处理启动
+		a.processMonitor.MarkManuallyStopped(processName)
 		err := a.processManager.StopProcess(ctx, processName, stopParams)
 		if err != nil {
+			a.processMonitor.ClearManuallyStopped(processName)
 			return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err
 		}
 
 		// Register process with PID=0, auto-restarter will start it
 		// 用 PID=0 注册进程，自动重启器会启动它
 		a.processMonitor.TrackProcessSilent(processName, 0, installDir, role, startParams)
+		a.processMonitor.SetProcessClusterID(processName, clusterID)
 		a.autoRestarter.ResetRestartCount(processName)
 		logger.InfoF(ctx, "[Agent] Process stopped, registered for auto-restart: %s / 进程已停止，已注册等待自动重启：%s",
 			processName, processName)
@@ -1446,6 +1461,7 @@ func (a *Agent) handleRestartCommand(ctx context.Context, cmd *pb.CommandRequest
 	// Update tracking with new PID / 使用新 PID 更新跟踪
 	if info, err := a.processManager.GetStatus(ctx, processName); err == nil && info.PID > 0 {
 		a.processMonitor.TrackProcess(processName, info.PID, installDir, role, startParams)
+		a.processMonitor.SetProcessClusterID(processName, clusterID)
 		logger.InfoF(ctx, "[Agent] Process restarted and tracked: %s (PID: %d) / 进程已重启并跟踪：%s（PID：%d）",
 			processName, info.PID, processName, info.PID)
 	}
@@ -1466,7 +1482,9 @@ func (a *Agent) handleStatusCommand(ctx context.Context, cmd *pb.CommandRequest,
 		return createSTXJavaProxyCommandResponse(cmd.CommandId, status), nil
 	}
 
-	processName := getParamString(cmd.Parameters, "process_name", "seatunnel")
+	installDir := getParamString(cmd.Parameters, "install_dir", a.config.SeaTunnel.InstallDir)
+	role := getParamString(cmd.Parameters, "role", "")
+	processName := getParamString(cmd.Parameters, "process_name", processidentity.ManagedName(installDir, role))
 
 	info, err := a.processManager.GetStatus(ctx, processName)
 	if err != nil {
@@ -2210,30 +2228,19 @@ func (a *Agent) handleDiscoverClustersCommand(ctx context.Context, cmd *pb.Comma
 	return executor.CreateSuccessResponse(cmd.CommandId, string(jsonOutput)), nil
 }
 
-func (a *Agent) updateDiagnosticsTargets(ctx context.Context, trackedProcessesJSON string) {
+func (a *Agent) updateDiagnosticsTargets(ctx context.Context) {
 	if a.errorCollector == nil {
 		return
 	}
 
-	targets := make([]*agentdiagnostics.ScanTarget, 0)
-	if strings.TrimSpace(trackedProcessesJSON) != "" {
-		var trackedProcesses []struct {
-			PID        int    `json:"pid"`
-			Name       string `json:"name"`
-			InstallDir string `json:"install_dir"`
-			Role       string `json:"role"`
-		}
-		if err := json.Unmarshal([]byte(trackedProcessesJSON), &trackedProcesses); err != nil {
-			logger.ErrorF(ctx, "[Agent] Failed to parse diagnostics tracked_processes: %v / 解析 diagnostics tracked_processes 失败：%v", err, err)
-			return
-		}
-		for _, proc := range trackedProcesses {
-			targets = append(targets, &agentdiagnostics.ScanTarget{
-				Name:       proc.Name,
-				InstallDir: proc.InstallDir,
-				Role:       proc.Role,
-			})
-		}
+	trackedProcesses := a.processMonitor.GetAllTrackedProcesses()
+	targets := make([]*agentdiagnostics.ScanTarget, 0, len(trackedProcesses))
+	for _, proc := range trackedProcesses {
+		targets = append(targets, &agentdiagnostics.ScanTarget{
+			Name:       proc.Name,
+			InstallDir: proc.InstallDir,
+			Role:       proc.Role,
+		})
 	}
 
 	a.errorCollector.ReplaceTargets(targets)
@@ -2250,6 +2257,7 @@ func (a *Agent) handleUpdateMonitorConfigCommand(ctx context.Context, cmd *pb.Co
 	// Parse config from parameters / 从参数解析配置
 	autoMonitorEnabled := getParamBool(cmd.Parameters, "auto_monitor", true)
 	autoRestartEnabled := getParamBool(cmd.Parameters, "auto_restart", true)
+	clusterID := strings.TrimSpace(getParamString(cmd.Parameters, "cluster_id", ""))
 	trackedProcessesJSON := getParamString(cmd.Parameters, "tracked_processes", "")
 	config := &restart.RestartConfig{
 		Enabled:        autoRestartEnabled,
@@ -2267,24 +2275,19 @@ func (a *Agent) handleUpdateMonitorConfigCommand(ctx context.Context, cmd *pb.Co
 		a.processMonitor.SetMonitorInterval(time.Duration(monitorInterval) * time.Second)
 	}
 
-	// Update diagnostics scan targets from Control Plane.
-	// Diagnostics binds to managed monitoring targets instead of auto-restart.
-	// 根据 Control Plane 下发的受管进程刷新诊断扫描目标。
-	if autoMonitorEnabled {
-		a.updateDiagnosticsTargets(ctx, trackedProcessesJSON)
-	} else {
-		a.updateDiagnosticsTargets(ctx, "")
-	}
-
 	// If auto-monitor is disabled, untrack all processes immediately.
 	// 如果禁用了自动监控，静默取消跟踪所有进程（不发送事件，因为进程仍在运行）
 	if !autoMonitorEnabled {
 		trackedProcesses := a.processMonitor.GetAllTrackedProcesses()
 		for _, proc := range trackedProcesses {
+			if clusterID != "" && clusterID != "0" && proc.ClusterID != clusterID {
+				continue
+			}
 			a.processMonitor.UntrackProcessSilent(proc.Name)
 			logger.InfoF(ctx, "[Agent] Auto-monitor disabled, stopped monitoring process: %s / 自动监控已禁用，停止监控进程：%s",
 				proc.Name, proc.Name)
 		}
+		a.updateDiagnosticsTargets(ctx)
 		reporter.Report(100, "Monitor config updated (auto-monitor disabled, stopped monitoring) / 监控配置已更新（自动监控已禁用，停止监控）")
 		return executor.CreateSuccessResponse(cmd.CommandId, "Monitor config updated, auto-monitor disabled / 监控配置已更新，自动监控已禁用"), nil
 	}
@@ -2295,6 +2298,7 @@ func (a *Agent) handleUpdateMonitorConfigCommand(ctx context.Context, cmd *pb.Co
 		var trackedProcesses []struct {
 			PID        int    `json:"pid"`
 			Name       string `json:"name"`
+			ClusterID  uint   `json:"cluster_id"`
 			InstallDir string `json:"install_dir"`
 			Role       string `json:"role"`
 		}
@@ -2306,9 +2310,12 @@ func (a *Agent) handleUpdateMonitorConfigCommand(ctx context.Context, cmd *pb.Co
 
 			expected := make(map[string]struct{}, len(trackedProcesses))
 			for _, proc := range trackedProcesses {
-				expected[proc.Name] = struct{}{}
+				expected[processidentity.ManagedName(proc.InstallDir, proc.Role)] = struct{}{}
 			}
 			for _, existing := range a.processMonitor.GetAllTrackedProcesses() {
+				if clusterID != "" && clusterID != "0" && existing.ClusterID != clusterID {
+					continue
+				}
 				if _, ok := expected[existing.Name]; ok {
 					continue
 				}
@@ -2317,30 +2324,80 @@ func (a *Agent) handleUpdateMonitorConfigCommand(ctx context.Context, cmd *pb.Co
 			}
 
 			for _, proc := range trackedProcesses {
+				processName := processidentity.ManagedName(proc.InstallDir, proc.Role)
+				processClusterID := ""
+				if proc.ClusterID > 0 {
+					processClusterID = strconv.FormatUint(uint64(proc.ClusterID), 10)
+				}
+				if processClusterID == "" {
+					processClusterID = clusterID
+				}
+				resolvedPID := a.resolveMonitorProcessPID(ctx, processName, proc.PID, proc.InstallDir, proc.Role)
 				// Create start params for potential restart / 创建启动参数用于可能的重启
 				startParams := &process.StartParams{
 					InstallDir: proc.InstallDir,
 					Role:       proc.Role,
 				}
 
-				if proc.PID > 0 {
-					a.processMonitor.TrackProcessSilent(proc.Name, proc.PID, proc.InstallDir, proc.Role, startParams)
+				if resolvedPID > 0 {
+					a.processMonitor.TrackProcessSilent(processName, resolvedPID, proc.InstallDir, proc.Role, startParams)
+					a.processMonitor.SetProcessClusterID(processName, processClusterID)
 					logger.InfoF(ctx, "[Agent] Tracking running process (silent): %s (PID: %d, Role: %s, Dir: %s) / 静默跟踪运行中的进程：%s（PID：%d，角色：%s，目录：%s）",
-						proc.Name, proc.PID, proc.Role, proc.InstallDir, proc.Name, proc.PID, proc.Role, proc.InstallDir)
+						processName, resolvedPID, proc.Role, proc.InstallDir, processName, resolvedPID, proc.Role, proc.InstallDir)
 				} else if autoRestartEnabled {
-					a.processMonitor.TrackProcessSilent(proc.Name, 0, proc.InstallDir, proc.Role, startParams)
+					a.processMonitor.TrackProcessSilent(processName, 0, proc.InstallDir, proc.Role, startParams)
+					a.processMonitor.SetProcessClusterID(processName, processClusterID)
 					logger.InfoF(ctx, "[Agent] Registered stopped process (will auto-restart): %s (Role: %s, Dir: %s) / 注册已停止的进程（将自动重启）：%s（角色：%s，目录：%s）",
-						proc.Name, proc.Role, proc.InstallDir, proc.Name, proc.Role, proc.InstallDir)
+						processName, proc.Role, proc.InstallDir, processName, proc.Role, proc.InstallDir)
 				} else {
 					logger.InfoF(ctx, "[Agent] Skip stopped process without auto-restart: %s (Role: %s, Dir: %s) / 自动拉起已禁用，跳过已停止进程：%s（角色：%s，目录：%s）",
-						proc.Name, proc.Role, proc.InstallDir, proc.Name, proc.Role, proc.InstallDir)
+						processName, proc.Role, proc.InstallDir, processName, proc.Role, proc.InstallDir)
 				}
 			}
 		}
 	}
+	a.updateDiagnosticsTargets(ctx)
 
 	reporter.Report(100, "Monitor config updated / 监控配置已更新")
 	return executor.CreateSuccessResponse(cmd.CommandId, "Monitor config updated successfully / 监控配置更新成功"), nil
+}
+
+// resolveMonitorProcessPID 核对控制面下发的 PID，并优先保留 Agent 已确认的本地 PID。
+// resolveMonitorProcessPID verifies the Control Plane PID and prefers a locally verified PID already tracked by the Agent.
+func (a *Agent) resolveMonitorProcessPID(ctx context.Context, processName string, configuredPID int, installDir, role string) int {
+	candidates := make([]int, 0, 2)
+	if existing := a.processMonitor.GetTrackedProcess(processName); existing != nil && existing.PID > 0 {
+		candidates = append(candidates, existing.PID)
+	}
+	if configuredPID > 0 && (len(candidates) == 0 || candidates[0] != configuredPID) {
+		candidates = append(candidates, configuredPID)
+	}
+
+	for _, pid := range candidates {
+		matched, err := a.matchSeaTunnelProcess(ctx, pid, installDir, role)
+		if err != nil {
+			// 无法读取系统进程时保留候选 PID，避免监控抖动触发重复启动。
+			// Keep the candidate PID when process inspection fails to avoid a duplicate start caused by monitoring jitter.
+			logger.WarnF(ctx, "[Agent] Failed to verify monitored PID %d for %s: %v / 校验受监控 PID %d（%s）失败：%v", pid, processName, err, pid, processName, err)
+			return pid
+		}
+		if matched {
+			return pid
+		}
+		logger.WarnF(ctx, "[Agent] Ignoring stale monitored PID %d for %s (Role: %s, Dir: %s) / 忽略过期的受监控 PID %d（进程：%s，角色：%s，目录：%s）",
+			pid, processName, role, installDir, pid, processName, role, installDir)
+	}
+
+	discoveredPID, _, err := a.findSeaTunnelProcess(ctx, installDir, role)
+	if err == nil {
+		logger.InfoF(ctx, "[Agent] Discovered monitored process %s with PID %d (Role: %s, Dir: %s) / 已发现受监控进程 %s，PID 为 %d（角色：%s，目录：%s）",
+			processName, discoveredPID, role, installDir, processName, discoveredPID, role, installDir)
+		return discoveredPID
+	}
+	if err != process.ErrProcessNotFound {
+		logger.WarnF(ctx, "[Agent] Failed to discover monitored process %s: %v / 查找受监控进程 %s 失败：%v", processName, err, processName, err)
+	}
+	return 0
 }
 
 // handleRemoveInstallDirCommand handles the REMOVE_INSTALL_DIR command (force delete: remove install directory on host).

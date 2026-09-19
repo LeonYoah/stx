@@ -611,6 +611,8 @@ func Serve() {
 			// 使用配置中的 packages_dir，而不是硬编码仓库路径，
 			// 这样 E2E / 测试才能在各自隔离目录中预热安装包。
 			installerService := installer.NewService("", nil)
+			installerService.SetExecutionService(executionService)
+			executionProviders.Register("installer", installerService)
 			// Set host provider for precheck operations
 			// 设置用于预检查操作的主机提供者
 			installerService.SetHostProvider(&hostProviderAdapter{hostService: hostService})

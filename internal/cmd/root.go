@@ -28,6 +28,7 @@ import (
 	"io"
 	"os"
 
+	cliConfig "github.com/LeonYoah/stx/internal/cli/config"
 	clioutput "github.com/LeonYoah/stx/internal/cli/output"
 	"github.com/spf13/cobra"
 )
@@ -64,6 +65,7 @@ func newRootCommand(serverRunner func() error) *cobra.Command {
 	)
 	rootCmd.AddCommand(newAuthCommands()...)
 	rootCmd.AddCommand(defaultGeneratedCommands()...)
+	addPackageWriteCommands(rootCmd, cliConfig.NewDefaultStore)
 	return rootCmd
 }
 

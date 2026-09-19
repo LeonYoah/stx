@@ -25,7 +25,7 @@ import (
 
 // RegistryRevision 是操作登记表的兼容修订号。
 // RegistryRevision is the compatibility revision of the operation registry.
-const RegistryRevision = 3
+const RegistryRevision = 4
 
 var registry = []OperationSpec{
 	{
@@ -359,6 +359,30 @@ var registry = []OperationSpec{
 }`,
 	},
 	{
+		ID:           "host.agent.install-command.get",
+		CommandPath:  []string{"host", "agent", "install-command", "get"},
+		Summary:      "Get the STX Agent installation command for a host",
+		GeneratedCLI: true,
+		Method:       "GET",
+		Route:        "/api/v1/hosts/:id/install-command",
+		Mode:         ModeNormal,
+		AuthRequired: true,
+		Risk:         RiskR0,
+		Revision:     1,
+		SupportsPick: true,
+		Input: []InputSpec{
+			{Name: "id", Location: InputPath, Required: true, Description: "Host ID"},
+		},
+		Example: "stx host agent install-command get 10",
+		OutputExample: `{
+  "api_version": "v1",
+  "operation_id": "host.agent.install-command.get",
+  "request_id": "req_example",
+  "data": {"command":"curl -fsSL http://stx.example/api/v1/agent/install.sh | sudo bash"},
+  "result_meta": {"complete": true}
+}`,
+	},
+	{
 		ID:           "host.discovery.process.list",
 		CommandPath:  []string{"host", "discovery", "process", "list"},
 		Summary:      "List SeaTunnel processes discovered on a host",
@@ -675,6 +699,142 @@ var registry = []OperationSpec{
   "operation_id": "package.get",
   "request_id": "req_example",
   "data": {"version":"2.3.13","file_name":"apache-seatunnel-2.3.13-bin.tar.gz","file_size":450628193,"is_local":true},
+  "result_meta": {"complete": true}
+}`,
+	},
+	{
+		ID:           "package.version.refresh",
+		CommandPath:  []string{"package", "version", "refresh"},
+		Summary:      "Refresh available SeaTunnel versions",
+		GeneratedCLI: true,
+		Method:       "POST",
+		Route:        "/api/v1/packages/versions/refresh",
+		Mode:         ModeNormal,
+		AuthRequired: true,
+		Risk:         RiskR0,
+		Revision:     1,
+		SupportsPick: true,
+		Example:      "stx package version refresh",
+		OutputExample: `{
+  "api_version": "v1",
+  "operation_id": "package.version.refresh",
+  "request_id": "req_example",
+  "data": ["2.3.13"],
+  "result_meta": {"complete": true}
+}`,
+	},
+	{
+		ID:           "package.upload",
+		CommandPath:  []string{"package", "upload"},
+		Summary:      "Upload a SeaTunnel package",
+		GeneratedCLI: false,
+		Method:       "POST",
+		Route:        "/api/v1/packages/upload",
+		Mode:         ModeNormal,
+		AuthRequired: true,
+		Risk:         RiskR1,
+		Revision:     1,
+		Impact: &ImpactSpec{Level: RiskR1, Message: "Writes a package into STX local storage and does not overwrite an existing version.",
+			Performance: "Uses network bandwidth and disk I/O while uploading."},
+		Input: []InputSpec{
+			{Name: "version", Location: InputBody, Required: true, Description: "SeaTunnel version"},
+			{Name: "file", Location: InputFile, Required: true, Description: "Package archive path"},
+		},
+		Example: "stx package upload ./apache-seatunnel-2.3.13-bin.tar.gz --version 2.3.13 --confirm",
+		OutputExample: `{
+  "api_version": "v1",
+  "operation_id": "package.upload",
+  "request_id": "req_example",
+  "data": {"version":"2.3.13","is_local":true},
+  "result_meta": {"complete": true}
+}`,
+	},
+	{
+		ID:           "package.upload.chunk",
+		CommandPath:  []string{"package", "upload", "chunk"},
+		Summary:      "Upload one SeaTunnel package chunk",
+		GeneratedCLI: false,
+		Method:       "POST",
+		Route:        "/api/v1/packages/upload/chunk",
+		Mode:         ModeNormal,
+		AuthRequired: true,
+		Risk:         RiskR1,
+		Revision:     1,
+		Impact: &ImpactSpec{Level: RiskR1, Message: "Writes a package chunk into the STX temporary directory.",
+			Performance: "Uses network bandwidth and disk I/O while uploading."},
+		Example: "stx package upload chunk ./part-000 --version 2.3.13 --upload-id upload_12345678 --chunk-index 0 --total-chunks 2 --total-size 1024 --confirm",
+		OutputExample: `{
+  "api_version": "v1",
+  "operation_id": "package.upload.chunk",
+  "request_id": "req_example",
+  "data": {"upload_id":"upload_12345678","completed":false,"received_chunks":1,"total_chunks":2},
+  "result_meta": {"complete": true}
+}`,
+	},
+	{
+		ID:           "package.delete",
+		CommandPath:  []string{"package", "delete"},
+		Summary:      "Delete a local SeaTunnel package",
+		GeneratedCLI: false,
+		Method:       "DELETE",
+		Route:        "/api/v1/packages/:version",
+		Mode:         ModeNormal,
+		AuthRequired: true,
+		Risk:         RiskR1,
+		Revision:     1,
+		Impact:       &ImpactSpec{Level: RiskR1, Message: "Permanently deletes the local package file."},
+		Input:        []InputSpec{{Name: "version", Location: InputPath, Required: true, Description: "SeaTunnel version"}},
+		Example:      "stx package delete 9.9.91 --confirm",
+		OutputExample: `{
+  "api_version": "v1",
+  "operation_id": "package.delete",
+  "request_id": "req_example",
+  "data": null,
+  "result_meta": {"complete": true}
+}`,
+	},
+	{
+		ID:           "package.download.start",
+		CommandPath:  []string{"package", "download", "start"},
+		Summary:      "Start a SeaTunnel package download",
+		GeneratedCLI: false,
+		Method:       "POST",
+		Route:        "/api/v1/packages/download",
+		Mode:         ModeNormal,
+		AuthRequired: true,
+		Risk:         RiskR1,
+		Revision:     1,
+		Async:        true,
+		Impact: &ImpactSpec{Level: RiskR1, Message: "Downloads a package into STX local storage.",
+			Performance: "Uses server network bandwidth and disk I/O until the download finishes."},
+		Example: "stx package download start 2.3.13 --mirror apache --confirm",
+		OutputExample: `{
+  "api_version": "v1",
+  "operation_id": "package.download.start",
+  "request_id": "req_example",
+  "data": {"version":"2.3.13","status":"downloading","execution_id":"11111111-1111-1111-1111-111111111111"},
+  "result_meta": {"complete": true,"next_command":"stx package download get 2.3.13"}
+}`,
+	},
+	{
+		ID:           "package.download.cancel",
+		CommandPath:  []string{"package", "download", "cancel"},
+		Summary:      "Cancel a SeaTunnel package download",
+		GeneratedCLI: false,
+		Method:       "POST",
+		Route:        "/api/v1/packages/download/:version/cancel",
+		Mode:         ModeNormal,
+		AuthRequired: true,
+		Risk:         RiskR1,
+		Revision:     1,
+		Impact:       &ImpactSpec{Level: RiskR1, Message: "Stops the active download and removes its partial file."},
+		Input:        []InputSpec{{Name: "version", Location: InputPath, Required: true, Description: "SeaTunnel version"}},
+		Example:      "stx package download cancel 2.3.13 --confirm",
+		OutputExample: `{
+  "api_version": "v1",
+  "operation_id": "package.download.cancel",
+  "request_id": "req_example",
+  "data": {"version":"2.3.13","status":"cancelled"},
   "result_meta": {"complete": true}
 }`,
 	},

@@ -147,3 +147,85 @@ result, err := provider.RequestCancel(ctx, execution)
 错误：直接返回保存的任务正文，或把客户端提交的 `******` 当作新秘密保存。
 
 正确：返回前由服务端统一处理敏感内容；更新时恢复已有秘密，无法恢复就拒绝请求。
+
+## 8. 场景：multipart 写请求的幂等摘要
+
+### 8.1 适用范围
+
+当上传安装包、插件包或其他文件的接口使用 `Idempotency-Key` 时，请求摘要必须能够区分文件内容。文件名和文件大小相同不代表请求相同。
+
+### 8.2 签名
+
+请求继续使用：
+
+```text
+Idempotency-Key: <stable-key>
+X-STX-Confirm: true
+```
+
+服务端计算请求摘要时，至少包含业务字段和文件内容摘要：
+
+```json
+{
+  "version": "2.3.13",
+  "file_name": "apache-seatunnel-2.3.13-bin.tar.gz",
+  "file_size": 450628193,
+  "file_sha256": "<sha256>"
+}
+```
+
+分片上传还要包含 `upload_id`、`chunk_index`、`total_chunks`、`total_size` 和当前分片的 `chunk_sha256`。
+
+### 8.3 处理规则
+
+- 文件摘要使用流式读取计算，不能为了幂等校验把整个文件读入内存。
+- 计算摘要后，后续保存步骤必须能够重新打开并读取上传文件。
+- 请求摘要只保存 SHA-256 等不可逆摘要，不保存文件正文。
+- 相同幂等键只有在业务字段和文件内容摘要都相同时才允许复用原执行结果。
+
+### 8.4 校验与错误对应表
+
+| 情况 | 服务端行为 | CLI 行为 |
+| --- | --- | --- |
+| 同一幂等键、文件名和大小相同、内容相同 | 返回原执行结果 | 正常输出原结果 |
+| 同一幂等键、文件名和大小相同、内容不同 | `409 idempotency_conflict` | 冲突退出码 6 |
+| 文件无法打开或摘要计算失败 | `400 invalid_package_request` 或等价文件错误 | 文件传输或服务端校验错误 |
+| 大文件上传 | 流式计算摘要，不整体载入内存 | 行为与小文件一致 |
+
+### 8.5 Good / Base / Bad
+
+- Good：请求摘要包含版本、文件名、大小和内容 SHA-256，同名同大小但内容不同的文件会被拒绝复用幂等键。
+- Base：没有文件正文的普通 JSON 请求继续使用规范 JSON 的 SHA-256。
+- Bad：只使用文件名和大小计算摘要；攻击者或误操作可能替换成同大小的不同文件，却得到旧请求结果。
+
+### 8.6 必须有的测试
+
+- 两个同名同大小但内容不同的文件，摘要必须不同。
+- 计算摘要后再次打开文件，内容必须仍可完整读取。
+- 真实 HTTP 上传中，同一幂等键首次成功，第二次换成同名同大小的不同内容时返回 `409`，CLI 退出码为 6。
+- 大文件路径继续使用流式 multipart 和流式摘要，不出现 `io.ReadAll` 整体读取。
+
+### 8.7 错误与正确示例
+
+错误：
+
+```go
+requestHash, _ := execution.HashRequest(struct {
+    FileName string
+    FileSize int64
+}{file.Filename, file.Size})
+```
+
+正确：
+
+```go
+fileSHA256, err := hashMultipartFile(file)
+if err != nil {
+    return err
+}
+requestHash, err := execution.HashRequest(struct {
+    FileName   string
+    FileSize   int64
+    FileSHA256 string
+}{file.Filename, file.Size, fileSHA256})
+```

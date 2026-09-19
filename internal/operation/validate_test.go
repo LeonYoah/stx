@@ -83,18 +83,18 @@ func TestValidateRejectsRepeatedNonQueryInput(t *testing.T) {
 }
 
 func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
-	require.Len(t, Registry(), 40)
+	require.Len(t, Registry(), 47)
 
 	expected := map[string]struct{}{
 		"auth.user-info.get": {}, "admin.user.list": {}, "admin.user.get": {},
 		"dashboard.overview.get": {}, "dashboard.stats.get": {},
 		"dashboard.cluster.list": {}, "dashboard.host.list": {}, "dashboard.activity.list": {},
-		"host.list": {}, "host.get": {}, "cluster.list": {}, "cluster.get": {},
+		"host.list": {}, "host.get": {}, "host.agent.install-command.get": {}, "cluster.list": {}, "cluster.get": {},
 		"host.discovery.process.list": {},
 		"cluster.node.list":           {}, "cluster.status.get": {}, "config.cluster.list": {},
 		"config.get": {}, "config.version.list": {},
 		"host.install.status.get": {}, "cluster.plugin.list": {}, "cluster.plugin.progress.get": {},
-		"package.list": {}, "package.get": {}, "package.download.list": {}, "package.download.get": {},
+		"package.list": {}, "package.get": {}, "package.version.refresh": {}, "package.download.list": {}, "package.download.get": {},
 		"plugin.list": {}, "plugin.get": {}, "plugin.local.list": {}, "plugin.download.list": {},
 		"plugin.download.status.get": {}, "plugin.dependency.list": {}, "plugin.official-dependency.list": {},
 	}

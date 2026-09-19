@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -532,5 +533,58 @@ func TestService_CancelDownload_RejectsInvalidVersion(t *testing.T) {
 	_, err := service.CancelDownload(ctx, "../evil")
 	if err == nil || !errors.Is(err, ErrInvalidPackageVersion) {
 		t.Fatalf("expected ErrInvalidPackageVersion, got: %v", err)
+	}
+}
+
+func TestService_CancelDownloadStopsRequestAndRemovesPartialFile(t *testing.T) {
+	started := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		w.Header().Set("Content-Length", "104857600")
+		w.WriteHeader(http.StatusOK)
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		close(started)
+		<-request.Context().Done()
+	}))
+	defer server.Close()
+
+	originalURL := MirrorURLs[MirrorAliyun]
+	MirrorURLs[MirrorAliyun] = server.URL
+	defer func() { MirrorURLs[MirrorAliyun] = originalURL }()
+
+	packageDir := t.TempDir()
+	tempDir := t.TempDir()
+	service := NewService(packageDir, nil)
+	service.tempDir = tempDir
+
+	const version = "9.9.97"
+	if _, err := service.StartDownload(context.Background(), &DownloadRequest{Version: version, Mirror: MirrorAliyun}); err != nil {
+		t.Fatalf("启动下载失败 / start download failed: %v", err)
+	}
+	select {
+	case <-started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("下载请求没有启动 / download request did not start")
+	}
+
+	task, err := service.CancelDownload(context.Background(), version)
+	if err != nil {
+		t.Fatalf("取消下载失败 / cancel download failed: %v", err)
+	}
+	if task.Status != DownloadStatusCancelled {
+		t.Fatalf("取消后状态错误 / unexpected status after cancel: %s", task.Status)
+	}
+	fileName := packageFileName(version)
+	if _, err := os.Stat(filepath.Join(tempDir, fileName+".tmp")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("临时文件仍然存在 / partial file still exists: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(packageDir, fileName)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("最终文件不应存在 / final file must not exist: %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	latest, err := service.GetDownloadStatus(context.Background(), version)
+	if err != nil || latest.Status != DownloadStatusCancelled {
+		t.Fatalf("取消状态发生倒退 / cancelled status regressed: task=%#v err=%v", latest, err)
 	}
 }

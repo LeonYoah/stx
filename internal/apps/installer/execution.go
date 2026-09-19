@@ -40,6 +40,16 @@ type ExecutionRequest struct {
 	ClientType     string
 }
 
+// chunkExecutionResult 保存可安全放入公共执行记录的分片结果摘要。
+// chunkExecutionResult stores a compact chunk result safe for a shared execution record.
+type chunkExecutionResult struct {
+	UploadID       string `json:"upload_id"`
+	Completed      bool   `json:"completed"`
+	ReceivedChunks int    `json:"received_chunks"`
+	TotalChunks    int    `json:"total_chunks"`
+	PackageVersion string `json:"package_version,omitempty"`
+}
+
 // UploadPackageWithExecution 在公共确认和幂等规则下上传安装包。
 // UploadPackageWithExecution uploads a package under shared confirmation and idempotency rules.
 func (s *Service) UploadPackageWithExecution(ctx context.Context, actor executionapp.Actor, version string, file *multipart.FileHeader, request ExecutionRequest) (*PackageInfo, error) {
@@ -66,16 +76,30 @@ func (s *Service) UploadPackageChunkWithExecution(ctx context.Context, actor exe
 		return nil, err
 	}
 	if existing {
-		var result PackageChunkUploadResult
-		if decodeErr := json.Unmarshal([]byte(item.ResultRef), &result); decodeErr != nil {
+		var stored chunkExecutionResult
+		if decodeErr := json.Unmarshal([]byte(item.ResultRef), &stored); decodeErr != nil {
 			return nil, executionapp.ErrConcurrentUpdate
 		}
-		return &result, nil
+		result := &PackageChunkUploadResult{
+			UploadID: stored.UploadID, Completed: stored.Completed,
+			ReceivedChunks: stored.ReceivedChunks, TotalChunks: stored.TotalChunks,
+		}
+		if stored.Completed && stored.PackageVersion != "" {
+			result.Package, _ = s.GetPackageInfo(ctx, stored.PackageVersion)
+		}
+		return result, nil
 	}
 	result, runErr := s.UploadPackageChunk(ctx, upload, file)
 	resultRef := ""
 	if result != nil {
-		if content, marshalErr := json.Marshal(result); marshalErr == nil {
+		stored := chunkExecutionResult{
+			UploadID: result.UploadID, Completed: result.Completed,
+			ReceivedChunks: result.ReceivedChunks, TotalChunks: result.TotalChunks,
+		}
+		if result.Package != nil {
+			stored.PackageVersion = result.Package.Version
+		}
+		if content, marshalErr := json.Marshal(stored); marshalErr == nil {
 			resultRef = string(content)
 		}
 	}
@@ -197,8 +221,8 @@ func (s *Service) finishPackageOperation(ctx context.Context, item *executionapp
 	_ = s.executionService.Transition(ctx, item.ExecutionID, item.Status, target, updates)
 }
 
-// GetDownloadStatusForActor returns a download only to its owner or an administrator.
 // GetDownloadStatusForActor 仅向任务所有者或管理员返回下载任务。
+// GetDownloadStatusForActor returns a download only to its owner or an administrator.
 func (s *Service) GetDownloadStatusForActor(ctx context.Context, actor executionapp.Actor, version string) (*DownloadTask, error) {
 	task, err := s.GetDownloadStatus(ctx, version)
 	if err != nil {
@@ -210,8 +234,8 @@ func (s *Service) GetDownloadStatusForActor(ctx context.Context, actor execution
 	return task, nil
 }
 
-// ListDownloadsForActor returns owned downloads, while administrators can inspect all downloads.
 // ListDownloadsForActor 返回当前用户的下载任务，管理员可以查看全部任务。
+// ListDownloadsForActor returns owned downloads, while administrators can inspect all downloads.
 func (s *Service) ListDownloadsForActor(ctx context.Context, actor executionapp.Actor) []*DownloadTask {
 	tasks := s.ListDownloads(ctx)
 	if actor.IsAdmin {

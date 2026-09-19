@@ -1193,8 +1193,8 @@ func (s *Service) runDownload(ctx context.Context, task *DownloadTask) {
 		s.downloadsMu.RLock()
 		if task.Status == DownloadStatusCancelling || task.Status == DownloadStatusCancelled {
 			s.downloadsMu.RUnlock()
-			out.Close()
-			os.Remove(tempPath)
+			_ = out.Close()
+			s.markDownloadCancelled(task, tempPath)
 			return
 		}
 		s.downloadsMu.RUnlock()
@@ -1289,6 +1289,8 @@ func (s *Service) finishDownloadExecution(task *DownloadTask) {
 	}
 	s.downloadsMu.RLock()
 	status := task.Status
+	progress := task.Progress
+	errorMessage := task.Error
 	s.downloadsMu.RUnlock()
 	var target executionapp.Status
 	switch status {
@@ -1306,9 +1308,9 @@ func (s *Service) finishDownloadExecution(task *DownloadTask) {
 		return
 	}
 	_ = s.executionService.Transition(context.Background(), task.ExecutionID, item.Status, target, map[string]any{
-		"progress":      task.Progress,
+		"progress":      progress,
 		"result_ref":    task.Version,
-		"error_message": task.Error,
+		"error_message": errorMessage,
 		"cancellable":   false,
 	})
 }

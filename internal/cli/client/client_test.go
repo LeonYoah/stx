@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -87,6 +88,81 @@ func TestRequestMapsHTTPStatusToStableExitCode(t *testing.T) {
 	}
 	if classified.RequestID == "" {
 		t.Fatal("服务端错误应保留请求编号")
+	}
+}
+
+func TestRequestDecodesLegacyBareJSONResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(writer).Encode(map[string]any{
+			"success":   true,
+			"processes": []map[string]any{{"pid": 1234, "role": "master"}},
+		})
+	}))
+	defer server.Close()
+
+	client, err := New(cliConfig.Resolved{Server: server.URL, Timeout: time.Second}, server.Client())
+	if err != nil {
+		t.Fatalf("创建客户端失败 / creating client failed: %v", err)
+	}
+	var result struct {
+		Success   bool `json:"success"`
+		Processes []struct {
+			PID  int    `json:"pid"`
+			Role string `json:"role"`
+		} `json:"processes"`
+	}
+	if _, err := client.Request(context.Background(), http.MethodPost, "/api/v1/test", nil, &result); err != nil {
+		t.Fatalf("读取裸 JSON 响应失败 / decoding bare JSON response failed: %v", err)
+	}
+	if !result.Success || len(result.Processes) != 1 || result.Processes[0].PID != 1234 {
+		t.Fatalf("裸 JSON 响应错误 / bare JSON response is incorrect: %#v", result)
+	}
+}
+
+func TestRequestUsesLegacyBareErrorMessage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(writer).Encode(map[string]string{"error": "host not found / 主机不存在"})
+	}))
+	defer server.Close()
+
+	client, err := New(cliConfig.Resolved{Server: server.URL, Timeout: time.Second}, server.Client())
+	if err != nil {
+		t.Fatalf("创建客户端失败 / creating client failed: %v", err)
+	}
+	_, err = client.Request(context.Background(), http.MethodPost, "/api/v1/test", nil, nil)
+	classified := clioutput.ClassifyError(err)
+	if classified.Code != clioutput.CodeNotFound || classified.ExitCode != clioutput.ExitNotFound || !strings.Contains(classified.Message, "host not found") {
+		t.Fatalf("遗留错误响应映射错误 / legacy error response mapping is incorrect: %#v", classified)
+	}
+}
+
+func TestRequestRejectsInvalidSuccessResponse(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "invalid json", body: `{"success":`},
+		{name: "invalid envelope field", body: `{"data":{},"error_msg":[]}`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				_, _ = writer.Write([]byte(test.body))
+			}))
+			defer server.Close()
+
+			client, err := New(cliConfig.Resolved{Server: server.URL, Timeout: time.Second}, server.Client())
+			if err != nil {
+				t.Fatalf("创建客户端失败 / creating client failed: %v", err)
+			}
+			var result any
+			_, err = client.Request(context.Background(), http.MethodGet, "/api/v1/test", nil, &result)
+			classified := clioutput.ClassifyError(err)
+			if classified.Code != clioutput.CodeServer || classified.ExitCode != clioutput.ExitServer || !strings.Contains(classified.Message, "invalid STX response") {
+				t.Fatalf("非法成功响应分类错误 / invalid success response classification is incorrect: %#v", classified)
+			}
+		})
 	}
 }
 

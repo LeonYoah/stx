@@ -97,6 +97,18 @@ func TestRootCommandRegistersAuthAdminAndDashboardReadCommands(t *testing.T) {
 	}
 }
 
+func TestRootCommandRegistersHostDiscoveryProcessCommand(t *testing.T) {
+	command := newRootCommand(func() error { return nil })
+	path := []string{"host", "discovery", "process", "list"}
+	found, remaining, err := command.Find(path)
+	if err != nil {
+		t.Fatalf("查找发现命令失败 / finding discovery command failed: %v", err)
+	}
+	if len(remaining) != 0 || found.Name() != "list" {
+		t.Fatalf("发现命令路径未完整注册 / discovery command path is not fully registered: found=%s remaining=%v", found.CommandPath(), remaining)
+	}
+}
+
 func TestServerAndAPICommandsUseSameRunner(t *testing.T) {
 	var serverCalls int
 	runner := func() error {

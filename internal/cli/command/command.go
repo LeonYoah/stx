@@ -120,7 +120,7 @@ func configureLeaf(command *cobra.Command, spec operation.OperationSpec, clientF
 	}
 	command.Use = strings.Join(useParts, " ")
 	command.Short = spec.Summary
-	command.Long = fmt.Sprintf("Run registered operation %s.\n\nOutput example:\n%s", spec.ID, spec.OutputExample)
+	command.Long = longDescription(spec)
 	command.Example = spec.Example
 	command.Args = exactArgs(len(pathInputs))
 	command.Flags().StringVar(&namespace, "namespace", "", "Local namespace to use")
@@ -143,7 +143,7 @@ func configureLeaf(command *cobra.Command, spec operation.OperationSpec, clientF
 		}
 
 		var data any
-		requestID, err := client.Request(command.Context(), http.MethodGet, requestPath, nil, &data)
+		requestID, err := client.Request(command.Context(), strings.ToUpper(spec.Method), requestPath, nil, &data)
 		if err != nil {
 			return err
 		}
@@ -164,8 +164,17 @@ func validateSpec(spec operation.OperationSpec) error {
 	if strings.TrimSpace(spec.Summary) == "" {
 		return fmt.Errorf("command summary is empty")
 	}
-	if spec.Mode != operation.ModeNormal || !strings.EqualFold(spec.Method, http.MethodGet) {
-		return fmt.Errorf("generated command only supports normal GET operations")
+	if spec.Mode != operation.ModeNormal {
+		return fmt.Errorf("generated command only supports normal operations")
+	}
+	switch strings.ToUpper(strings.TrimSpace(spec.Method)) {
+	case http.MethodGet:
+	case http.MethodPost:
+		if spec.Risk != operation.RiskR0 {
+			return fmt.Errorf("generated POST command must use risk level R0")
+		}
+	default:
+		return fmt.Errorf("generated command only supports GET or bodyless R0 POST operations")
 	}
 	placeholders := routeParameterPattern.FindAllStringSubmatch(spec.Route, -1)
 	pathInputs := inputsAt(spec, operation.InputPath)
@@ -183,6 +192,21 @@ func validateSpec(spec operation.OperationSpec) error {
 		}
 	}
 	return nil
+}
+
+// longDescription 组合登记操作、影响说明和输出样例，帮助阶段不访问服务端。
+// longDescription combines the registered operation, impact notice, and output example without contacting the server.
+func longDescription(spec operation.OperationSpec) string {
+	sections := []string{fmt.Sprintf("Run registered operation %s.", spec.ID)}
+	if spec.Impact != nil {
+		impact := fmt.Sprintf("Impact:\nRisk level: %s\n%s", spec.Impact.Level, spec.Impact.Message)
+		if strings.TrimSpace(spec.Impact.Performance) != "" {
+			impact += "\nPerformance: " + spec.Impact.Performance
+		}
+		sections = append(sections, impact)
+	}
+	sections = append(sections, "Output example:\n"+spec.OutputExample)
+	return strings.Join(sections, "\n\n")
 }
 
 func buildRequestPath(command *cobra.Command, spec operation.OperationSpec, pathInputs, queryInputs []operation.InputSpec, queryValues map[string]*string, args []string) (string, error) {

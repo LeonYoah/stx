@@ -6,9 +6,9 @@
     "swagger_path_count": 97,
     "swagger_operation_count": 114,
     "swagger_documented_routes": 114,
-    "registered_operations": 25,
-    "route_exceptions": 19,
-    "historical_gaps": 202
+    "registered_operations": 26,
+    "route_exceptions": 21,
+    "historical_gaps": 199
   },
   "routes": [
     {
@@ -901,21 +901,25 @@
       "method": "POST",
       "path": "/api/v1/hosts/:id/discover",
       "source": "internal/router/router.go:515",
-      "status": "historical_gap",
+      "status": "exception",
+      "mode": "server_only",
       "swagger": true
     },
     {
       "method": "POST",
       "path": "/api/v1/hosts/:id/discover-processes",
       "source": "internal/router/router.go:517",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "host.discovery.process.list",
+      "mode": "normal",
       "swagger": true
     },
     {
       "method": "POST",
       "path": "/api/v1/hosts/:id/discover/confirm",
       "source": "internal/router/router.go:516",
-      "status": "historical_gap",
+      "status": "exception",
+      "mode": "server_only",
       "swagger": true
     },
     {

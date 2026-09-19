@@ -170,27 +170,65 @@ func (c *Client) request(ctx context.Context, method, path string, requestBody a
 	if readErr != nil {
 		return requestID, clioutput.WrapError(readErr, clioutput.CodeNetwork, "read STX response", clioutput.ExitNetwork, true)
 	}
-	var envelope Response
-	if len(bytes.TrimSpace(content)) > 0 {
-		if err := json.Unmarshal(content, &envelope); err != nil {
-			if response.StatusCode >= http.StatusOK && response.StatusCode < http.StatusMultipleChoices {
-				return requestID, clioutput.WrapError(err, clioutput.CodeServer, "invalid STX response", clioutput.ExitServer, false)
-			}
-		}
+	trimmedContent := bytes.TrimSpace(content)
+	if len(trimmedContent) > 0 && !json.Valid(trimmedContent) && response.StatusCode >= http.StatusOK && response.StatusCode < http.StatusMultipleChoices {
+		return requestID, clioutput.NewError(clioutput.CodeServer, "invalid STX response", clioutput.ExitServer, false)
+	}
+	envelope, envelopeResponse, legacyError, decodeErr := decodeResponseEnvelope(trimmedContent)
+	if decodeErr != nil && response.StatusCode >= http.StatusOK && response.StatusCode < http.StatusMultipleChoices {
+		return requestID, clioutput.WrapError(decodeErr, clioutput.CodeServer, "invalid STX response", clioutput.ExitServer, false)
 	}
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		message := strings.TrimSpace(envelope.ErrorMsg)
+		if message == "" {
+			message = strings.TrimSpace(legacyError)
+		}
 		if message == "" {
 			message = http.StatusText(response.StatusCode)
 		}
 		return requestID, classifyHTTPError(response.StatusCode, message, requestID)
 	}
-	if result != nil && len(envelope.Data) > 0 && string(envelope.Data) != "null" {
-		if err := json.Unmarshal(envelope.Data, result); err != nil {
-			return requestID, clioutput.WrapError(err, clioutput.CodeServer, "decode STX response", clioutput.ExitServer, false)
+	if result != nil {
+		payload := trimmedContent
+		if envelopeResponse {
+			payload = envelope.Data
+		}
+		if len(payload) > 0 && string(payload) != "null" {
+			if err := json.Unmarshal(payload, result); err != nil {
+				return requestID, clioutput.WrapError(err, clioutput.CodeServer, "decode STX response", clioutput.ExitServer, false)
+			}
 		}
 	}
 	return requestID, nil
+}
+
+// decodeResponseEnvelope 识别通用响应外层，同时兼容仍返回裸 JSON 的遗留接口。
+// decodeResponseEnvelope detects the common response envelope while supporting legacy APIs that still return bare JSON.
+func decodeResponseEnvelope(content []byte) (Response, bool, string, error) {
+	if len(content) == 0 {
+		return Response{}, false, "", nil
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(content, &fields); err != nil {
+		return Response{}, false, "", nil
+	}
+	_, hasData := fields["data"]
+	_, hasErrorCode := fields["error_code"]
+	_, hasErrorMsg := fields["error_msg"]
+	envelopeResponse := hasData || hasErrorCode || hasErrorMsg
+	var envelope Response
+	if envelopeResponse {
+		if err := json.Unmarshal(content, &envelope); err != nil {
+			return Response{}, true, "", err
+		}
+	}
+	var legacyError string
+	if raw, exists := fields["error"]; exists {
+		if err := json.Unmarshal(raw, &legacyError); err != nil {
+			legacyError = ""
+		}
+	}
+	return envelope, envelopeResponse, legacyError, nil
 }
 
 // Login 调用 CLI 登录接口。

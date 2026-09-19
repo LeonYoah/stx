@@ -359,6 +359,36 @@ var registry = []OperationSpec{
 }`,
 	},
 	{
+		ID:           "host.discovery.process.list",
+		CommandPath:  []string{"host", "discovery", "process", "list"},
+		Summary:      "List SeaTunnel processes discovered on a host",
+		GeneratedCLI: true,
+		Method:       "POST",
+		Route:        "/api/v1/hosts/:id/discover-processes",
+		Mode:         ModeNormal,
+		AuthRequired: true,
+		Risk:         RiskR0,
+		Revision:     1,
+		UsesAgent:    true,
+		SupportsPick: true,
+		Impact: &ImpactSpec{
+			Level:       RiskR0,
+			Message:     "Runs a read-only SeaTunnel process scan on the target host through STX Agent.",
+			Performance: "Reads local process metadata; it does not stop or modify SeaTunnel processes.",
+		},
+		Input: []InputSpec{
+			{Name: "id", Location: InputPath, Required: true, Description: "Host ID"},
+		},
+		Example: "stx host discovery process list 10",
+		OutputExample: `{
+  "api_version": "v1",
+  "operation_id": "host.discovery.process.list",
+  "request_id": "req_example",
+  "data": {"success":true,"message":"process discovery completed / 进程发现完成","processes":[{"pid":12345,"role":"master","install_dir":"/opt/seatunnel","version":"2.3.13","hazelcast_port":5801,"api_port":8080}]},
+  "result_meta": {"complete": true}
+}`,
+	},
+	{
 		ID:           "cluster.list",
 		CommandPath:  []string{"cluster", "list"},
 		Summary:      "List clusters",
@@ -610,6 +640,8 @@ var registry = []OperationSpec{
 
 var routeExceptions = []RouteException{
 	{Method: "POST", Route: "/api/v1/oauth/callback", Mode: ModeServerOnly, Reason: "OAuth provider callback consumed by the STX server"},
+	{Method: "POST", Route: "/api/v1/hosts/:id/discover", Mode: ModeServerOnly, Reason: "Legacy cluster discovery discards the Agent result and always returns an empty cluster list"},
+	{Method: "POST", Route: "/api/v1/hosts/:id/discover/confirm", Mode: ModeServerOnly, Reason: "Legacy cluster import is not wired with a ClusterMatcher and cannot complete successfully"},
 	{Method: "GET", Route: "/api/v1/monitoring/prometheus/discovery", Mode: ModeServerOnly, Reason: "Prometheus HTTP service discovery endpoint"},
 	{Method: "POST", Route: "/api/v1/monitoring/alertmanager/webhook", Mode: ModeServerOnly, Reason: "Alertmanager webhook receiver"},
 	{Method: "POST", Route: "/api/v1/sync/preview/collect", Mode: ModeServerOnly, Reason: "SeaTunnel preview result callback"},

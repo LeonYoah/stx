@@ -69,14 +69,15 @@ func TestValidateRejectsGeneratedCLIWithoutSummary(t *testing.T) {
 }
 
 func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
-	require.Len(t, Registry(), 25)
+	require.Len(t, Registry(), 26)
 
 	expected := map[string]struct{}{
 		"auth.user-info.get": {}, "admin.user.list": {}, "admin.user.get": {},
 		"dashboard.overview.get": {}, "dashboard.stats.get": {},
 		"dashboard.cluster.list": {}, "dashboard.host.list": {}, "dashboard.activity.list": {},
 		"host.list": {}, "host.get": {}, "cluster.list": {}, "cluster.get": {},
-		"cluster.node.list": {}, "cluster.status.get": {}, "config.cluster.list": {},
+		"host.discovery.process.list": {},
+		"cluster.node.list":           {}, "cluster.status.get": {}, "config.cluster.list": {},
 		"config.get": {}, "config.version.list": {},
 	}
 	actual := make(map[string]struct{})
@@ -86,6 +87,26 @@ func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
 		}
 	}
 	require.Equal(t, expected, actual)
+}
+
+func TestRegistryContainsDiscoveryOperationAndLegacyExceptions(t *testing.T) {
+	byID := make(map[string]OperationSpec)
+	for _, spec := range Registry() {
+		byID[spec.ID] = spec
+	}
+	discovery := byID["host.discovery.process.list"]
+	require.Equal(t, "POST", discovery.Method)
+	require.Equal(t, RiskR0, discovery.Risk)
+	require.True(t, discovery.UsesAgent)
+	require.NotNil(t, discovery.Impact)
+
+	exceptions := make(map[string]RouteException)
+	for _, exception := range RouteExceptions() {
+		exceptions[exception.Method+" "+exception.Route] = exception
+	}
+	require.Len(t, RouteExceptions(), 21)
+	require.Contains(t, exceptions, "POST /api/v1/hosts/:id/discover")
+	require.Contains(t, exceptions, "POST /api/v1/hosts/:id/discover/confirm")
 }
 
 func TestRegistryAdminUserOperations(t *testing.T) {

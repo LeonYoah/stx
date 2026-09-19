@@ -22,6 +22,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -41,16 +42,18 @@ type fakeClient struct {
 	requestCalls        int
 	method              string
 	path                string
+	body                any
 }
 
 func (f *fakeClient) Capabilities(context.Context) (string, cliClient.CapabilityData, error) {
 	return f.capabilityRequestID, f.capabilities, f.capabilityErr
 }
 
-func (f *fakeClient) Request(_ context.Context, method, path string, _ any, result any) (string, error) {
+func (f *fakeClient) Request(_ context.Context, method, path string, body any, result any) (string, error) {
 	f.requestCalls++
 	f.method = method
 	f.path = path
+	f.body = body
 	if f.requestErr != nil {
 		return "", f.requestErr
 	}
@@ -60,6 +63,38 @@ func (f *fakeClient) Request(_ context.Context, method, path string, _ any, resu
 	}
 	*target = f.response
 	return f.requestID, nil
+}
+
+func TestBuildExecutesBodylessR0POST(t *testing.T) {
+	spec := testSpec()
+	spec.ID = "sample.scan"
+	spec.CommandPath = []string{"sample", "scan"}
+	spec.Summary = "Scan samples"
+	spec.Method = http.MethodPost
+	spec.Example = "stx sample scan example"
+	spec.OutputExample = `{"api_version":"v1","operation_id":"sample.scan","request_id":"req_example","data":{},"result_meta":{"complete":true}}`
+	client := &fakeClient{
+		capabilities: cliClient.CapabilityData{Operations: []cliClient.CapabilityOperation{{
+			OperationID: spec.ID,
+			Revision:    spec.Revision,
+			Allowed:     true,
+			Mode:        string(spec.Mode),
+		}}},
+		requestID: "req_business",
+		response:  map[string]any{"success": true},
+	}
+	commands, err := Build([]operation.OperationSpec{spec}, func(string) (Client, error) { return client, nil })
+	if err != nil {
+		t.Fatalf("构建 POST 命令失败 / building POST command failed: %v", err)
+	}
+	root, _, _ := testRoot(commands)
+	root.SetArgs([]string{"sample", "scan", "one"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("执行 POST 命令失败 / executing POST command failed: %v", err)
+	}
+	if client.method != http.MethodPost || client.path != "/api/v1/samples/one" || client.body != nil {
+		t.Fatalf("POST 请求错误 / POST request is incorrect: method=%s path=%s body=%#v", client.method, client.path, client.body)
+	}
 }
 
 func TestBuildExecutesGETWithPathQueryNamespaceAndPick(t *testing.T) {
@@ -110,7 +145,13 @@ func TestBuildExecutesGETWithPathQueryNamespaceAndPick(t *testing.T) {
 
 func TestBuildHelpDoesNotCreateClient(t *testing.T) {
 	var factoryCalls int
-	commands, err := Build([]operation.OperationSpec{testSpec()}, func(string) (Client, error) {
+	spec := testSpec()
+	spec.Impact = &operation.ImpactSpec{
+		Level:       operation.RiskR0,
+		Message:     "Reads process metadata without changing the target process.",
+		Performance: "Runs one short process scan.",
+	}
+	commands, err := Build([]operation.OperationSpec{spec}, func(string) (Client, error) {
 		factoryCalls++
 		return &fakeClient{}, nil
 	})
@@ -125,7 +166,8 @@ func TestBuildHelpDoesNotCreateClient(t *testing.T) {
 	if factoryCalls != 0 {
 		t.Fatalf("显示帮助不应创建客户端 / help must not create a client: calls=%d", factoryCalls)
 	}
-	if !strings.Contains(stdout.String(), "stx sample get example") || !strings.Contains(stdout.String(), "Output example") {
+	if !strings.Contains(stdout.String(), "stx sample get example") || !strings.Contains(stdout.String(), "Output example") ||
+		!strings.Contains(stdout.String(), "Risk level: R0") || !strings.Contains(stdout.String(), "Runs one short process scan.") {
 		t.Fatalf("帮助缺少登记样例 / help is missing registry examples: %s", stdout.String())
 	}
 }
@@ -174,7 +216,31 @@ func TestBuildRejectsUnsupportedOrMismatchedSpecs(t *testing.T) {
 		name string
 		spec operation.OperationSpec
 	}{
-		{name: "post", spec: func() operation.OperationSpec { item := testSpec(); item.Method = "POST"; return item }()},
+		{name: "risk one post", spec: func() operation.OperationSpec {
+			item := testSpec()
+			item.Method = "POST"
+			item.Risk = operation.RiskR1
+			return item
+		}()},
+		{name: "post body", spec: func() operation.OperationSpec {
+			item := testSpec()
+			item.Method = "POST"
+			item.Input = append(item.Input, operation.InputSpec{Name: "request", Location: operation.InputBody, Required: true, Description: "Request body"})
+			return item
+		}()},
+		{name: "post header", spec: func() operation.OperationSpec {
+			item := testSpec()
+			item.Method = "POST"
+			item.Input = append(item.Input, operation.InputSpec{Name: "X-Test", Location: operation.InputHeader, Required: true, Description: "Request header"})
+			return item
+		}()},
+		{name: "post file", spec: func() operation.OperationSpec {
+			item := testSpec()
+			item.Method = "POST"
+			item.Input = append(item.Input, operation.InputSpec{Name: "file", Location: operation.InputFile, Required: true, Description: "Request file"})
+			return item
+		}()},
+		{name: "put", spec: func() operation.OperationSpec { item := testSpec(); item.Method = "PUT"; return item }()},
 		{name: "watch", spec: func() operation.OperationSpec { item := testSpec(); item.Mode = operation.ModeWatch; return item }()},
 		{name: "missing summary", spec: func() operation.OperationSpec { item := testSpec(); item.Summary = ""; return item }()},
 		{name: "missing path input", spec: func() operation.OperationSpec { item := testSpec(); item.Input = item.Input[1:]; return item }()},

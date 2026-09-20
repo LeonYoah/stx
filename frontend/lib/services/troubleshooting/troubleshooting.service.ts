@@ -221,8 +221,8 @@ export class TroubleshootingService extends BaseService {
       let score = 0;
       const entryFp = entry.fingerprint.toLowerCase();
       const entryTitle = entry.title.toLowerCase();
-      const entrySummary = entry.error_summary.toLowerCase();
-      const entryTags = entry.tags.map((t) => t.toLowerCase());
+      const entrySummary = (entry.error_summary || '').toLowerCase();
+      const entryTags = (entry.tags || []).map((t) => t.toLowerCase());
 
       // 类型匹配过滤
       // Target type filtering

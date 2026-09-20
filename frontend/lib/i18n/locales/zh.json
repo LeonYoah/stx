@@ -40,7 +40,8 @@
     "perPage": "每页",
     "itemsUnit": "条",
     "status": "状态",
-    "timezone": "时区"
+    "timezone": "时区",
+    "noMatchingData": "没有符合条件的数据"
   },
   "dashboard": {
     "title": "控制台",
@@ -147,6 +148,7 @@
       "oauthFailed": "OAuth认证失败",
       "missingParams": "缺少必要的认证参数",
       "processingFailed": "登录处理失败",
+      "sessionExpired": "登录会话已过期，请重新登录",
       "footer": "STX - 让数据集成更简单"
     }
   },
@@ -396,6 +398,9 @@
     "createSuccess": "主机创建成功",
     "updateSuccess": "主机更新成功",
     "deleteSuccess": "主机删除成功",
+    "createError": "创建主机失败",
+    "updateError": "更新主机失败",
+    "deleteError": "删除主机失败",
     "loadError": "加载主机列表失败",
     "installGuide": {
       "title": "Agent 部署与接入引导",
@@ -948,6 +953,7 @@
     "commandsDescription": "查看命令执行历史和状态",
     "auditLogsTitle": "审计日志",
     "auditLogsDescription": "查看 Web 和 CLI 的操作记录",
+    "loadError": "加载审计日志失败",
     "source": "来源",
     "allSources": "全部来源",
     "serverCommands": "{count} 条命令",
@@ -1227,6 +1233,7 @@
     "noPluginsFound": "未找到插件",
     "noDescription": "暂无描述",
     "loadError": "加载插件失败",
+    "installError": "安装插件失败",
     "loadingFromMaven": "正在从 Maven 仓库获取插件列表...",
     "loadingFromMavenDesc": "首次加载可能需要 30-60 秒，后续将使用缓存",
     "loadedFromMaven": "已从 Maven 仓库重新加载插件列表",
@@ -1536,6 +1543,7 @@
     "packageStatus": "安装包状态",
     "installDir": "安装目录",
     "installDirLabel": "安装路径",
+    "path": "路径",
     "installDirDesc": "SeaTunnel 将安装到此目录，默认包含版本号以支持多版本共存",
     "mirrors": {
       "aliyun": "阿里云镜像",
@@ -1747,6 +1755,7 @@
       "noHostsSelected": "请先选择至少一台主机后再执行校验",
       "localFile": "本地路径",
       "imapTitle": "IMAP 配置",
+      "imapSubtitle": "作业恢复元数据",
       "imapDescription": "IMAP 保存作业/任务恢复元数据，与 Checkpoint 分开配置。",
       "imapDisabled": "仅内存（禁用外部 IMAP）",
       "imapEnableLabel": "启用外部 IMAP 存储",
@@ -2584,10 +2593,20 @@
     "policyCenterV2": {
       "title": "告警策略",
       "subtitle": "参考 DorisManager 收敛策略编辑体验，只保留用户真正需要配置的内容。",
+      "policyCount": "{count} 条策略",
+      "policySubtitle": "查看和管理告警策略。",
+      "searchPlaceholder": "搜索策略名称、说明或模板",
+      "statusFilter": "启用状态",
+      "allStatuses": "全部状态",
       "createNew": "新建策略",
+      "createFirst": "新建第一条告警策略",
       "policyListTitle": "策略列表",
       "editorCreateTitle": "新建告警策略",
       "editorEditTitle": "编辑告警策略",
+      "dialogSubtitleCreate": "配置触发条件和通知方式。",
+      "dialogSubtitleEdit": "修改触发条件和通知方式。",
+      "sectionBasic": "基本信息",
+      "sectionRules": "规则配置",
       "columns": {
         "name": "策略名称",
         "template": "策略模板",
@@ -2595,7 +2614,24 @@
         "severity": "告警等级",
         "methods": "通知方式",
         "status": "最近执行",
+        "enabled": "启用状态",
         "updatedAt": "更新时间"
+      },
+      "actions": {
+        "viewHistory": "查看执行历史",
+        "editPolicy": "编辑策略",
+        "deletePolicy": "删除策略"
+      },
+      "history": {
+        "statuses": {
+          "sent": "已发送",
+          "failed": "发送失败"
+        }
+      },
+      "executionStatuses": {
+        "partial": "部分发送",
+        "matched": "已匹配",
+        "idle": "暂无执行"
       },
       "enabled": "已启用",
       "disabled": "已停用",
@@ -2610,6 +2646,8 @@
       "createSuccess": "告警策略创建成功",
       "updateSuccess": "告警策略更新成功",
       "deleteSuccess": "告警策略删除成功",
+      "toggleEnabledSuccess": "告警策略已启用",
+      "toggleDisabledSuccess": "告警策略已停用",
       "createError": "创建告警策略失败",
       "updateError": "更新告警策略失败",
       "deleteError": "删除告警策略失败",
@@ -3420,6 +3458,8 @@
   },
   "workbenchStudio": {
     "loading": "加载中...",
+    "saving": "保存中...",
+    "invalidCronExpression": "Cron 表达式无效",
     "newFolder": "新建目录",
     "newFile": "新建文件",
     "selectFolderBeforeCreateFile": "请先选中一个目录后再创建文件",
@@ -3674,6 +3714,8 @@
     "runSubmitted": "运行任务已提交",
     "runFailed": "运行失败",
     "actualExecutedScript": "实际执行脚本",
+    "viewExecutedScript": "查看实际执行脚本",
+    "viewMetrics": "查看运行指标",
     "noActualExecutedScript": "当前任务实例暂无可展示的实际执行脚本。",
     "savepointStopTriggered": "任务已触发 Savepoint 停止",
     "taskStopped": "任务已停止",

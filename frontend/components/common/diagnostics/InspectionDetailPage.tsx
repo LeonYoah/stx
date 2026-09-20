@@ -17,7 +17,14 @@
 
 'use client';
 
-import {type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {
+  type KeyboardEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import Link from 'next/link';
 import {useTranslations} from 'next-intl';
 import {
@@ -74,7 +81,9 @@ function formatDateTime(value?: string | null): string {
 
 // 获取巡检发现严重程度的现代样式类（高对比度、暗黑模式适配）
 // Get modern style class for inspection finding severity (high contrast, dark mode compatible)
-function getSeverityBadgeClass(severity: DiagnosticsInspectionFindingSeverity): string {
+function getSeverityBadgeClass(
+  severity: DiagnosticsInspectionFindingSeverity,
+): string {
   switch (severity) {
     case 'critical':
       return 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20 font-semibold';
@@ -146,6 +155,7 @@ export default function InspectionDetailPage({
   inspectionId,
 }: InspectionDetailPageProps) {
   const t = useTranslations('diagnosticsCenter');
+  const commonT = useTranslations('common');
   const getSeverityLabel = useCallback(
     (severity: DiagnosticsInspectionFindingSeverity): string => {
       switch (severity) {
@@ -198,43 +208,42 @@ export default function InspectionDetailPage({
     [t],
   );
   const [loading, setLoading] = useState(true);
-  const [report, setReport] = useState<DiagnosticsInspectionReport | null>(null);
+  const [report, setReport] = useState<DiagnosticsInspectionReport | null>(
+    null,
+  );
   const [findings, setFindings] = useState<DiagnosticsInspectionFinding[]>([]);
   const [creatingBundle, setCreatingBundle] = useState(false);
   const [bundleTask, setBundleTask] = useState<DiagnosticsTask | null>(null);
   const [pollingBundle, setPollingBundle] = useState(false);
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const [bundleOptions, setBundleOptions] =
-    useState<DiagnosticsTaskOptions>(DEFAULT_BUNDLE_OPTIONS);
-  const [nodeScope, setNodeScope] =
-    useState<DiagnosticsTaskNodeScope>('all');
+  const [bundleOptions, setBundleOptions] = useState<DiagnosticsTaskOptions>(
+    DEFAULT_BUNDLE_OPTIONS,
+  );
+  const [nodeScope, setNodeScope] = useState<DiagnosticsTaskNodeScope>('all');
   const [bundleLookbackMinutes, setBundleLookbackMinutes] =
     useState<number>(30);
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
   const [execLogDialogOpen, setExecLogDialogOpen] = useState(false);
 
-  const pollBundleTask = useCallback(
-    async (taskId: number) => {
-      const result = await services.diagnostics.getTaskSafe(taskId);
-      if (!result.success || !result.data) {
-        return;
+  const pollBundleTask = useCallback(async (taskId: number) => {
+    const result = await services.diagnostics.getTaskSafe(taskId);
+    if (!result.success || !result.data) {
+      return;
+    }
+    setBundleTask(result.data);
+    const status = result.data.status;
+    if (
+      status === 'succeeded' ||
+      status === 'failed' ||
+      status === 'cancelled'
+    ) {
+      setPollingBundle(false);
+      if (pollTimerRef.current) {
+        clearInterval(pollTimerRef.current);
+        pollTimerRef.current = null;
       }
-      setBundleTask(result.data);
-      const status = result.data.status;
-      if (
-        status === 'succeeded' ||
-        status === 'failed' ||
-        status === 'cancelled'
-      ) {
-        setPollingBundle(false);
-        if (pollTimerRef.current) {
-          clearInterval(pollTimerRef.current);
-          pollTimerRef.current = null;
-        }
-      }
-    },
-    [],
-  );
+    }
+  }, []);
 
   const loadDetail = useCallback(async () => {
     setLoading(true);
@@ -302,9 +311,7 @@ export default function InspectionDetailPage({
 
   const handleConfirmAndCreateBundle = useCallback(() => {
     const base = report?.lookback_minutes || 30;
-    setBundleLookbackMinutes(
-      base < 5 || base > 1440 ? 30 : base,
-    );
+    setBundleLookbackMinutes(base < 5 || base > 1440 ? 30 : base);
     setConfirmDialogOpen(true);
   }, [report]);
 
@@ -444,7 +451,9 @@ export default function InspectionDetailPage({
           </div>
           {report.trigger_source === 'auto' && report.auto_trigger_reason ? (
             <div className='rounded-md border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400'>
-              <span className='font-medium'>{t('inspections.detailPage.autoTriggerReason')} </span>
+              <span className='font-medium'>
+                {t('inspections.detailPage.autoTriggerReason')}{' '}
+              </span>
               {report.auto_trigger_reason}
             </div>
           ) : null}
@@ -504,22 +513,34 @@ export default function InspectionDetailPage({
               共 {report.finding_total} 项
             </Badge>
             {report.critical_count > 0 && (
-              <Badge variant='outline' className='border-rose-500/30 bg-rose-500/10 text-rose-600 dark:text-rose-400 text-xs font-mono font-medium'>
+              <Badge
+                variant='outline'
+                className='border-rose-500/30 bg-rose-500/10 text-rose-600 dark:text-rose-400 text-xs font-mono font-medium'
+              >
                 {t('inspections.severity.critical')} {report.critical_count}
               </Badge>
             )}
             {report.warning_count > 0 && (
-              <Badge variant='outline' className='border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-xs font-mono font-medium'>
+              <Badge
+                variant='outline'
+                className='border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-xs font-mono font-medium'
+              >
                 {t('inspections.severity.warning')} {report.warning_count}
               </Badge>
             )}
             {report.info_count > 0 && (
-              <Badge variant='outline' className='border-blue-500/30 bg-blue-500/10 text-blue-600 dark:text-blue-400 text-xs font-mono font-medium'>
+              <Badge
+                variant='outline'
+                className='border-blue-500/30 bg-blue-500/10 text-blue-600 dark:text-blue-400 text-xs font-mono font-medium'
+              >
                 {t('inspections.severity.info')} {report.info_count}
               </Badge>
             )}
             {report.finding_total === 0 && (
-              <Badge variant='outline' className='border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-xs font-medium'>
+              <Badge
+                variant='outline'
+                className='border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-xs font-medium'
+              >
                 健康正常
               </Badge>
             )}
@@ -572,14 +593,17 @@ export default function InspectionDetailPage({
                   {finding.recommendation ? (
                     <div className='rounded-md border border-primary/20 bg-primary/5 p-3 text-xs space-y-1.5'>
                       <div className='flex items-center justify-between font-medium text-foreground'>
-                        <span>{t('inspections.detailPage.recommendation')}</span>
+                        <span>
+                          {t('inspections.detailPage.recommendation')}
+                        </span>
                         <Button
                           variant='ghost'
                           size='sm'
                           className='h-6 text-xs px-1.5 gap-1 text-muted-foreground hover:text-foreground'
                           onClick={() => {
                             navigator.clipboard.writeText(
-                              localizeDiagnosticsText(finding.recommendation) || '',
+                              localizeDiagnosticsText(finding.recommendation) ||
+                                '',
                             );
                             toast.success('排查与修复建议已复制');
                           }}
@@ -648,7 +672,7 @@ export default function InspectionDetailPage({
                     size='sm'
                     onClick={() => setExecLogDialogOpen(true)}
                   >
-                      <FileText className='mr-2 h-4 w-4' />
+                    <FileText className='mr-2 h-4 w-4' />
                     {t('inspections.detailPage.viewExecutionLogs')}
                   </Button>
                   {bundleTask.status === 'succeeded' ? (
@@ -740,7 +764,9 @@ export default function InspectionDetailPage({
       <Dialog open={confirmDialogOpen} onOpenChange={setConfirmDialogOpen}>
         <DialogContent className='sm:max-w-md'>
           <DialogHeader>
-            <DialogTitle>{t('inspections.detailPage.confirmBundleTitle')}</DialogTitle>
+            <DialogTitle>
+              {t('inspections.detailPage.confirmBundleTitle')}
+            </DialogTitle>
             <DialogDescription>
               {t('inspections.detailPage.confirmBundleDescription')}
             </DialogDescription>
@@ -832,7 +858,7 @@ export default function InspectionDetailPage({
               variant='outline'
               onClick={() => setConfirmDialogOpen(false)}
             >
-              {t('common.cancel')}
+              {commonT('cancel')}
             </Button>
             <Button
               onClick={() => void handleCreateBundle()}
@@ -851,7 +877,9 @@ export default function InspectionDetailPage({
       <Dialog open={execLogDialogOpen} onOpenChange={setExecLogDialogOpen}>
         <DialogContent className='max-h-[85vh] overflow-hidden flex flex-col sm:max-w-2xl'>
           <DialogHeader>
-            <DialogTitle>{t('inspections.detailPage.executionLogsTitle')}</DialogTitle>
+            <DialogTitle>
+              {t('inspections.detailPage.executionLogsTitle')}
+            </DialogTitle>
             <DialogDescription>
               {t('inspections.detailPage.executionLogsDescription')}
             </DialogDescription>
@@ -859,10 +887,7 @@ export default function InspectionDetailPage({
           <div className='flex-1 overflow-y-auto space-y-3 py-2'>
             {bundleTask?.steps?.length ? (
               bundleTask.steps.map((step) => (
-                <div
-                  key={step.id}
-                  className='rounded-lg border p-3 space-y-1'
-                >
+                <div key={step.id} className='rounded-lg border p-3 space-y-1'>
                   <div className='flex items-center gap-2'>
                     <Badge
                       variant={getStatusVariant(step.status)}
@@ -877,7 +902,7 @@ export default function InspectionDetailPage({
                   <div className='text-sm'>
                     {localizeDiagnosticsText(step.title) || step.description}
                   </div>
-                  {(step.error || step.message) ? (
+                  {step.error || step.message ? (
                     <div className='rounded bg-muted/60 px-2 py-1.5 text-xs text-muted-foreground'>
                       {step.error || step.message}
                     </div>

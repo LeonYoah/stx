@@ -70,6 +70,8 @@ func (s *TroubleshootingService) ToItem(m *TroubleshootingMemory) *Troubleshooti
 		ID:             strconv.FormatUint(uint64(m.ID), 10),
 		TargetType:     m.TargetType,
 		Fingerprint:    m.Fingerprint,
+		PresetKey:      m.PresetKey,
+		Language:       m.Language,
 		Title:          m.Title,
 		ErrorSummary:   m.ErrorSummary,
 		RootCause:      m.RootCause,
@@ -143,6 +145,11 @@ func (s *TroubleshootingService) CreateMemory(ctx context.Context, req *CreateTr
 		targetType = "error"
 	}
 
+	lang := strings.TrimSpace(req.Language)
+	if lang == "" {
+		lang = "zh"
+	}
+
 	actionsJSON := ""
 	if len(req.ActionsTaken) > 0 {
 		b, _ := json.Marshal(req.ActionsTaken)
@@ -168,6 +175,7 @@ func (s *TroubleshootingService) CreateMemory(ctx context.Context, req *CreateTr
 	record := &TroubleshootingMemory{
 		TargetType:     targetType,
 		Fingerprint:    fingerprint,
+		Language:       lang,
 		Title:          title,
 		ErrorSummary:   strings.TrimSpace(req.ErrorSummary),
 		RootCause:      strings.TrimSpace(req.RootCause),

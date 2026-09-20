@@ -161,4 +161,71 @@ describe('TroubleshootingService', () => {
     expect(memory?.id).toBe(saved.id);
     expect(memory?.title).toContain('MySQL 连接断开');
   });
+
+  it('官方经典方案支持按全局语言切分自适应，用户自定义经验保持原样', async () => {
+    // Official presets adapt according to global language; user custom entries remain as-is
+    const {getLocalizedMemory, matchesMemoryKeyword} = await import('../localize');
+
+    const presetEntry = {
+      id: 'preset-1',
+      target_type: 'error' as const,
+      fingerprint: 'Communications link failure',
+      preset_key: 'mysql_connection_failure',
+      title: 'MySQL 连接断开恢复方案',
+      error_summary: 'Connection lost',
+      solution: '增加 autoReconnect 参数',
+      tags: ['mysql'],
+      author: 'stx 官方预置经验库',
+      is_preset: true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    // 中文环境下展示中文版
+    // In Chinese locale, display Chinese version
+    const localizedZh = getLocalizedMemory(presetEntry, 'zh');
+    expect(localizedZh?.title).toContain('MySQL 连接中断');
+    expect(localizedZh?.author).toBe('stx 官方预置经验库');
+
+    // 英文环境下跟随全局语言切换为英文版
+    // In English locale, switch to English version along with global language
+    const localizedEn = getLocalizedMemory(presetEntry, 'en');
+    expect(localizedEn?.title).toContain('MySQL Connection Closed');
+    expect(localizedEn?.author).toBe('stx Official Knowledge Base');
+    expect(localizedEn?.solution).toContain('autoReconnect=true');
+
+    // 用户自定义经验：中英文环境均保持用户填写的原样
+    // User custom entries: remain as-is in both Chinese and English
+    const customEntry = {
+      id: 'custom-1',
+      target_type: 'error' as const,
+      fingerprint: 'MyCustomError',
+      title: '团队自定义同步问题解决手册',
+      error_summary: 'My error',
+      solution: '步骤一：重启；步骤二：回滚配置。',
+      tags: ['custom'],
+      author: '张三',
+      is_preset: false,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    const customZh = getLocalizedMemory(customEntry, 'zh');
+    expect(customZh?.title).toBe('团队自定义同步问题解决手册');
+
+    const customEn = getLocalizedMemory(customEntry, 'en');
+    expect(customEn?.title).toBe('团队自定义同步问题解决手册');
+    expect(customEn?.solution).toBe('步骤一：重启；步骤二：回滚配置。');
+
+    // 关键字搜索：官方方案支持中英双向命中
+    // Keyword search: presets match in both Chinese and English
+    expect(matchesMemoryKeyword(presetEntry, '连接中断')).toBe(true);
+    expect(matchesMemoryKeyword(presetEntry, 'reconnect')).toBe(true);
+    expect(matchesMemoryKeyword(presetEntry, 'timeout')).toBe(true);
+
+    // 关键字搜索：自定义方案精准匹配
+    // Keyword search: custom matches user content
+    expect(matchesMemoryKeyword(customEntry, '回滚')).toBe(true);
+    expect(matchesMemoryKeyword(customEntry, 'non_existing')).toBe(false);
+  });
 });

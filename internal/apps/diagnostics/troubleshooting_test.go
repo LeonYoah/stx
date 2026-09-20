@@ -44,18 +44,58 @@ func TestTroubleshootingServicePresetAndCRUD(t *testing.T) {
 	ctx := context.Background()
 	svc := newTroubleshootingTestService(t)
 
-	// 1. 初始列表查询会自动播种预置案例
-	// 1. Initial list query should auto-seed preset troubleshooting cases
-	presets, total, err := svc.ListMemories(ctx, nil)
+	// 1. 初始列表查询会自动播种中英文 8 条预置案例
+	// 1. Initial list query should auto-seed 8 preset troubleshooting cases (4 zh, 4 en)
+	allPresets, total, err := svc.ListMemories(ctx, nil)
 	if err != nil {
 		t.Fatalf("list memories failed: %v", err)
 	}
-	if total < 4 || len(presets) < 4 {
-		t.Fatalf("expected at least 4 preset memories, got %d", total)
+	if total != 8 || len(allPresets) != 8 {
+		t.Fatalf("expected 8 preset memories (4 zh, 4 en), got total %d, len %d", total, len(allPresets))
+	}
+	for _, p := range allPresets {
+		if p.IsPreset {
+			if p.PresetKey == "" {
+				t.Fatalf("expected preset memory %s to have PresetKey, got empty", p.Fingerprint)
+			}
+			if p.Language != "zh" && p.Language != "en" {
+				t.Fatalf("expected preset memory %s to have valid language (zh/en), got %s", p.Fingerprint, p.Language)
+			}
+		}
 	}
 
-	// 2. 校验创建排障经验时解决方案非空约束
-	// 2. Enforce non-empty solution validation on create
+	// 2. 按语言筛选中文官方预置案例（跟随全局语言切分）
+	// 2. Filter Chinese preset cases (partitioned by global language)
+	zhList, zhTotal, err := svc.ListMemories(ctx, &TroubleshootingMemoryQuery{Language: "zh"})
+	if err != nil {
+		t.Fatalf("list zh memories failed: %v", err)
+	}
+	if zhTotal != 4 || len(zhList) != 4 {
+		t.Fatalf("expected 4 zh preset memories, got total %d, len %d", zhTotal, len(zhList))
+	}
+	for _, item := range zhList {
+		if item.Language != "zh" {
+			t.Fatalf("expected item language to be zh, got %s", item.Language)
+		}
+	}
+
+	// 3. 按语言筛选英文官方预置案例
+	// 3. Filter English preset cases
+	enList, enTotal, err := svc.ListMemories(ctx, &TroubleshootingMemoryQuery{Language: "en"})
+	if err != nil {
+		t.Fatalf("list en memories failed: %v", err)
+	}
+	if enTotal != 4 || len(enList) != 4 {
+		t.Fatalf("expected 4 en preset memories, got total %d, len %d", enTotal, len(enList))
+	}
+	for _, item := range enList {
+		if item.Language != "en" {
+			t.Fatalf("expected item language to be en, got %s", item.Language)
+		}
+	}
+
+	// 4. 校验创建排障经验时解决方案非空约束
+	// 4. Enforce non-empty solution validation on create
 	_, err = svc.CreateMemory(ctx, &CreateTroubleshootingMemoryRequest{
 		TargetType:   "error",
 		Fingerprint:  "CustomErr",
@@ -67,8 +107,8 @@ func TestTroubleshootingServicePresetAndCRUD(t *testing.T) {
 		t.Fatalf("expected error on empty solution, got nil")
 	}
 
-	// 3. 正常创建用户排障经验
-	// 3. Successfully create user-contributed memory entry
+	// 5. 正常创建用户排障经验（用户自定义经验不区分语言，全语言环境可见）
+	// 5. Successfully create user-contributed memory entry (custom entries are visible across all languages)
 	item, err := svc.CreateMemory(ctx, &CreateTroubleshootingMemoryRequest{
 		TargetType:     "error",
 		Fingerprint:    "CustomKafkaOffsetOutOfRange",
@@ -88,8 +128,46 @@ func TestTroubleshootingServicePresetAndCRUD(t *testing.T) {
 		t.Fatalf("expected valid non-preset memory item, got %+v", item)
 	}
 
-	// 4. 按指纹筛选应精确返回刚创建的数据
-	// 4. Filter by fingerprint should return the newly created entry
+	// 6. 验证用户自定义经验在 zh 和 en 语言查询下均能返回（用户自定义不考虑多语言切分）
+	// 6. Verify user memory is returned under both zh and en queries (unconstrained by language filter)
+	zhWithCustom, zhCountWithCustom, err := svc.ListMemories(ctx, &TroubleshootingMemoryQuery{Language: "zh"})
+	if err != nil {
+		t.Fatalf("list zh with custom failed: %v", err)
+	}
+	if zhCountWithCustom != 5 || len(zhWithCustom) != 5 { // 4 zh presets + 1 custom
+		t.Fatalf("expected 5 items in zh list, got total %d, len %d", zhCountWithCustom, len(zhWithCustom))
+	}
+	hasCustomInZh := false
+	for _, m := range zhWithCustom {
+		if m.ID == item.ID {
+			hasCustomInZh = true
+			break
+		}
+	}
+	if !hasCustomInZh {
+		t.Fatalf("expected custom item %s to be present in zh list", item.ID)
+	}
+
+	enWithCustom, enCountWithCustom, err := svc.ListMemories(ctx, &TroubleshootingMemoryQuery{Language: "en"})
+	if err != nil {
+		t.Fatalf("list en with custom failed: %v", err)
+	}
+	if enCountWithCustom != 5 || len(enWithCustom) != 5 { // 4 en presets + 1 custom
+		t.Fatalf("expected 5 items in en list, got total %d, len %d", enCountWithCustom, len(enWithCustom))
+	}
+	hasCustomInEn := false
+	for _, m := range enWithCustom {
+		if m.ID == item.ID {
+			hasCustomInEn = true
+			break
+		}
+	}
+	if !hasCustomInEn {
+		t.Fatalf("expected custom item %s to be present in en list", item.ID)
+	}
+
+	// 7. 按指纹筛选应精确返回刚创建的数据
+	// 7. Filter by fingerprint should return the newly created entry
 	matched, count, err := svc.ListMemories(ctx, &TroubleshootingMemoryQuery{
 		Fingerprint: "KafkaOffsetOutOfRange",
 	})
@@ -100,8 +178,8 @@ func TestTroubleshootingServicePresetAndCRUD(t *testing.T) {
 		t.Fatalf("expected exactly 1 matched entry with ID %s, got %d", item.ID, count)
 	}
 
-	// 5. 更新排障经验
-	// 5. Update troubleshooting memory
+	// 8. 更新排障经验
+	// 8. Update troubleshooting memory
 	updated, err := svc.UpdateMemory(ctx, uint(1), &UpdateTroubleshootingMemoryRequest{
 		Title:    "MySQL 超时更新后方案",
 		Solution: "更新后的详细解决措施",
@@ -113,8 +191,8 @@ func TestTroubleshootingServicePresetAndCRUD(t *testing.T) {
 		t.Fatalf("update memory did not apply changes: %+v", updated)
 	}
 
-	// 6. 删除排障经验
-	// 6. Delete troubleshooting memory
+	// 9. 删除排障经验
+	// 9. Delete troubleshooting memory
 	if err := svc.DeleteMemory(ctx, uint(1)); err != nil {
 		t.Fatalf("delete memory failed: %v", err)
 	}

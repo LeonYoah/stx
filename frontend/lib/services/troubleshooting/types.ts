@@ -54,7 +54,7 @@ export interface TroubleshootingMemoryEntry {
    * 异常/故障现象摘要
    * Exception or symptom summary
    */
-  error_summary: string;
+  error_summary?: string;
 
   /**
    * 根因分析说明（选填）
@@ -96,13 +96,25 @@ export interface TroubleshootingMemoryEntry {
    * 检索分类标签（如 mysql, timeout, slot, oom 等）
    * Categorical tags for search and filtering
    */
-  tags: string[];
+  tags?: string[];
+
+  /**
+   * 预置类型标识（官方经典方案通过单一类型字段区分，文案按全局语言切分）
+   * Preset key identifying the solution type; text resolves by global language
+   */
+  preset_key?: string;
+
+  /**
+   * 记录语言标识（zh 或 en，官方经典方案以整行 SQL 中英文记录持久化，用户自定义经验保持原样不设限）
+   * Language identifier (zh or en; preset classic cases are stored as full rows for zh/en, user memories remain unconstrained)
+   */
+  language?: string;
 
   /**
    * 沉淀人 / 记录者
    * Author / troubleshooter who recorded the solution
    */
-  author: string;
+  author?: string;
 
   /**
    * 创建时间（ISO 格式）
@@ -157,4 +169,10 @@ export interface TroubleshootingMemoryQuery {
    * Cluster filter
    */
   cluster_id?: number | string;
+
+  /**
+   * 语言过滤（zh 或 en，官方预置经验跟随全局语言切分，用户自定义经验不设限全量展示）
+   * Language filter (zh or en; presets follow global language, custom entries display across all languages)
+   */
+  language?: string;
 }

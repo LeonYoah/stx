@@ -28,10 +28,22 @@ import (
 // ListTroubleshootingMemories handles GET /api/v1/diagnostics/troubleshooting-memories
 // ListTroubleshootingMemories 处理 GET /api/v1/diagnostics/troubleshooting-memories
 func (h *Handler) ListTroubleshootingMemories(c *gin.Context) {
+	lang := strings.TrimSpace(c.Query("language"))
+	if lang == "" {
+		lang = strings.TrimSpace(c.Query("locale"))
+	}
+	if lang == "" {
+		acceptLang := c.GetHeader("Accept-Language")
+		if strings.HasPrefix(strings.ToLower(acceptLang), "en") {
+			lang = "en"
+		}
+	}
+
 	query := &TroubleshootingMemoryQuery{
 		TargetType:  strings.TrimSpace(c.Query("target_type")),
 		Fingerprint: strings.TrimSpace(c.Query("fingerprint")),
 		Keyword:     strings.TrimSpace(c.Query("keyword")),
+		Language:    lang,
 	}
 
 	if clusterIDStr := strings.TrimSpace(c.Query("cluster_id")); clusterIDStr != "" {

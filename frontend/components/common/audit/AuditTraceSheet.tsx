@@ -16,7 +16,12 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import services from '@/lib/services';
-import {AuditLogInfo, CommandLogInfo, CommandParameters} from '@/lib/services/audit/types';
+import {
+  AuditLogInfo,
+  CommandLogInfo,
+  CommandParameters,
+} from '@/lib/services/audit/types';
+import {lookupAuditLabel} from './audit-i18n';
 
 interface AuditTraceSheetProps {
   log: AuditLogInfo | null;
@@ -33,7 +38,10 @@ function commandHint(parameters: CommandParameters | null): string {
   const keys = ['install_dir', 'role', 'process_name', 'node_id', 'path'];
   return keys
     .map((key) => parameters[key])
-    .filter((value): value is string => typeof value === 'string' && value.trim() !== '')
+    .filter(
+      (value): value is string =>
+        typeof value === 'string' && value.trim() !== '',
+    )
     .join(' · ');
 }
 
@@ -94,26 +102,51 @@ export function AuditTraceSheet({log, onOpenChange}: AuditTraceSheetProps) {
           </SheetDescription>
         </SheetHeader>
         <div className='mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto pr-1'>
-          {loading ? <p className='text-sm text-muted-foreground'>{t('common.loading')}</p> : null}
-          {!loading && error ? <p className='text-sm text-destructive'>{error}</p> : null}
+          {loading ? (
+            <p className='text-sm text-muted-foreground'>
+              {t('common.loading')}
+            </p>
+          ) : null}
+          {!loading && error ? (
+            <p className='text-sm text-destructive'>{error}</p>
+          ) : null}
           {!loading && !error && commands.length === 0 ? (
-            <p className='text-sm text-muted-foreground'>{t('audit.traceEmpty')}</p>
+            <p className='text-sm text-muted-foreground'>
+              {t('audit.traceEmpty')}
+            </p>
           ) : null}
           {commands.map((command, index) => {
             const hint = commandHint(command.parameters);
             return (
-              <div key={command.command_id || command.id} className='rounded-md border px-3 py-2'>
+              <div
+                key={command.command_id || command.id}
+                className='rounded-md border px-3 py-2'
+              >
                 <div className='flex items-center justify-between gap-2'>
-                  <span className='font-mono text-sm'>{index + 1}. {command.command_type}</span>
-                  <Badge variant={command.status === 'failed' ? 'destructive' : 'outline'}>
+                  <span className='font-mono text-sm'>
+                    {index + 1}. {command.command_type}
+                  </span>
+                  <Badge
+                    variant={
+                      command.status === 'failed' ? 'destructive' : 'outline'
+                    }
+                  >
                     {t(`audit.statuses.${command.status}`)}
                   </Badge>
                 </div>
-                <p className='mt-1 truncate text-xs text-muted-foreground'>{command.agent_id}</p>
-                {hint ? <p className='mt-1 break-all text-xs text-muted-foreground'>{hint}</p> : null}
+                <p className='mt-1 truncate text-xs text-muted-foreground'>
+                  {command.agent_id}
+                </p>
+                {hint ? (
+                  <p className='mt-1 break-all text-xs text-muted-foreground'>
+                    {hint}
+                  </p>
+                ) : null}
                 {command.display_command ? (
                   <div className='mt-2 rounded-md border bg-muted/30 px-2.5 py-2'>
-                    <p className='text-[11px] text-muted-foreground'>{t('audit.actualCommand')}</p>
+                    <p className='text-[11px] text-muted-foreground'>
+                      {t('audit.actualCommand')}
+                    </p>
                     <code
                       className='mt-1 block overflow-x-auto whitespace-nowrap font-mono text-xs'
                       title={command.display_command}
@@ -122,7 +155,11 @@ export function AuditTraceSheet({log, onOpenChange}: AuditTraceSheetProps) {
                     </code>
                   </div>
                 ) : null}
-                {command.error ? <p className='mt-1 text-xs text-destructive'>{command.error}</p> : null}
+                {command.error ? (
+                  <p className='mt-1 text-xs text-destructive'>
+                    {command.error}
+                  </p>
+                ) : null}
               </div>
             );
           })}
@@ -132,16 +169,11 @@ export function AuditTraceSheet({log, onOpenChange}: AuditTraceSheetProps) {
   );
 }
 
-function getTraceHeadline(log: AuditLogInfo, t: (key: string) => string): string {
-  const actionKey = `audit.actions.${(log.action || '').replace(/\./g, '_')}`;
-  let action = log.action || '';
-  try {
-    const label = t(actionKey);
-    if (label && label !== actionKey) {
-      action = label;
-    }
-  } catch {
-    // 缺文案时保留原始 action / Keep the raw action when the message is missing.
-  }
+function getTraceHeadline(
+  log: AuditLogInfo,
+  t: ReturnType<typeof useTranslations>,
+): string {
+  const rawAction = log.action || '';
+  const action = lookupAuditLabel('actions', rawAction, rawAction, t);
   return [action, log.resource_name].filter(Boolean).join(' · ');
 }

@@ -15,7 +15,32 @@
  * limitations under the License.
  */
 
-export * from './types';
-export * from './localize';
-export * from './troubleshooting.service';
-export {troubleshootingService as default} from './troubleshooting.service';
+export type AuditLabelGroup = 'actions' | 'resourceTypes' | 'clientTypes';
+
+export interface AuditTranslator {
+  (key: string): string;
+  has: (key: string) => boolean;
+}
+
+/**
+ * 动态审计值只有在文案存在时才调用翻译函数，避免 next-intl 报缺键错误。
+ * Translate dynamic audit values only when the message exists to avoid next-intl missing-key errors.
+ */
+export function lookupAuditLabel(
+  group: AuditLabelGroup,
+  value: string,
+  fallback: string,
+  t: AuditTranslator,
+): string {
+  const key = `audit.${group}.${value.replace(/\./g, '_')}`;
+  if (!t.has(key)) {
+    return fallback;
+  }
+
+  try {
+    const translated = t(key);
+    return translated && translated !== key ? translated : fallback;
+  } catch {
+    return fallback;
+  }
+}

@@ -46,10 +46,13 @@ import {
 } from 'lucide-react';
 import {toast} from 'sonner';
 import {cn} from '@/lib/utils';
+import {useLocale} from '@/lib/i18n';
 import services from '@/lib/services';
-import type {
-  TroubleshootingMemoryEntry,
-  TroubleshootingTargetType,
+import {
+  getLocalizedMemory,
+  matchesMemoryKeyword,
+  type TroubleshootingMemoryEntry,
+  type TroubleshootingTargetType,
 } from '@/lib/services/troubleshooting';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
@@ -122,6 +125,8 @@ export function TroubleshootingMemoryCenter({
 }: TroubleshootingMemoryCenterProps) {
   const t = useTranslations('troubleshooting');
   const commonT = useTranslations('common');
+  const {locale} = useLocale();
+  const isEn = String(locale).toLowerCase().startsWith('en');
 
   // 数据列表与加载状态
   // Memory entries list and loading state
@@ -156,13 +161,14 @@ export function TroubleshootingMemoryCenter({
   // Copied feedback status cache
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  // 加载经验数据
-  // Load memory entries from backend and cache
+  // 加载经验数据（预置方案跟随全局语言切分，自定义方案全量加载）
+  // Load memory entries from backend and cache (presets follow global language, custom entries display across all languages)
   const loadMemories = useCallback(async () => {
     setLoading(true);
     try {
       const data = await services.troubleshooting.fetchRemoteMemories({
         cluster_id: clusterId,
+        language: isEn ? 'en' : 'zh',
       });
       setMemories(data);
     } catch {
@@ -170,7 +176,7 @@ export function TroubleshootingMemoryCenter({
     } finally {
       setLoading(false);
     }
-  }, [clusterId]);
+  }, [clusterId, isEn]);
 
   // 初始化加载
   // Initial loading
@@ -247,28 +253,14 @@ export function TroubleshootingMemoryCenter({
         return false;
       }
 
-      // 2. 关键字搜索过滤
-      // 2. Keyword search filter
-      const keyword = searchKeyword.trim().toLowerCase();
+      // 2. 关键字搜索过滤（官方经典方案支持跨语言双向匹配）
+      // 2. Keyword search filter (supports cross-lingual matching for preset solutions)
+      const keyword = searchKeyword.trim();
       if (!keyword) {
         return true;
       }
 
-      const matchTitle = item.title?.toLowerCase().includes(keyword);
-      const matchFp = item.fingerprint?.toLowerCase().includes(keyword);
-      const matchSummary = item.error_summary?.toLowerCase().includes(keyword);
-      const matchSolution = item.solution?.toLowerCase().includes(keyword);
-      const matchAuthor = item.author?.toLowerCase().includes(keyword);
-      const matchTags = item.tags?.some((t) => t.toLowerCase().includes(keyword));
-
-      return (
-        matchTitle ||
-        matchFp ||
-        matchSummary ||
-        matchSolution ||
-        matchAuthor ||
-        matchTags
-      );
+      return matchesMemoryKeyword(item, keyword);
     });
   }, [activeFilter, memories, searchKeyword]);
 
@@ -437,7 +429,10 @@ export function TroubleshootingMemoryCenter({
         </Card>
       ) : (
         <div className='grid grid-cols-1 xl:grid-cols-2 gap-3.5'>
-          {filteredMemories.map((entry) => {
+          {filteredMemories.map((rawEntry) => {
+            // 官方经典方案根据全局语言切分自适应，自定义方案保持原样
+            // Presets adapt according to global language; custom entries remain as-is
+            const entry = getLocalizedMemory(rawEntry, locale) || rawEntry;
             const isCopied = copiedId === entry.id;
 
             return (
@@ -509,18 +504,18 @@ export function TroubleshootingMemoryCenter({
                       <Button
                         variant='ghost'
                         size='icon'
-                        onClick={() => handleOpenEdit(entry)}
+                        onClick={() => handleOpenEdit(rawEntry)}
                         className='size-7 text-muted-foreground hover:text-foreground'
                         title={t('edit')}
                       >
                         <Edit3 className='size-3.5' />
                       </Button>
 
-                      {!entry.is_preset && (
+                      {!rawEntry.is_preset && (
                         <Button
                           variant='ghost'
                           size='icon'
-                          onClick={() => handleRequestDelete(entry)}
+                          onClick={() => handleRequestDelete(rawEntry)}
                           className='size-7 text-muted-foreground hover:text-destructive'
                           title={t('delete')}
                         >
@@ -533,7 +528,7 @@ export function TroubleshootingMemoryCenter({
                   {/* 方案标题 */}
                   {/* Solution Title */}
                   <h4
-                    onClick={() => handleOpenDetail(entry)}
+                    onClick={() => handleOpenDetail(rawEntry)}
                     className='text-sm font-semibold text-foreground tracking-tight line-clamp-1 hover:text-primary transition-colors cursor-pointer'
                   >
                     {entry.title}
@@ -557,7 +552,7 @@ export function TroubleshootingMemoryCenter({
                       </span>
                       <button
                         type='button'
-                        onClick={() => handleOpenDetail(entry)}
+                        onClick={() => handleOpenDetail(rawEntry)}
                         className='text-[10px] font-normal hover:underline cursor-pointer flex items-center gap-0.5'
                       >
                         {t('viewFullDetail')}
@@ -687,184 +682,204 @@ export function TroubleshootingMemoryCenter({
       </AlertDialog>
 
       {/* 完整排障方案阅读弹窗 */}
+      {/* 完整排障方案阅读弹窗 */}
       {/* Full Troubleshooting Solution Detail Dialog */}
       <Dialog open={detailModalOpen} onOpenChange={setDetailModalOpen}>
         <DialogContent className='max-w-2xl max-h-[85vh] flex flex-col p-0 gap-0'>
-          <DialogHeader className='px-5 py-4 border-b shrink-0'>
-            <div className='flex items-center gap-2'>
-              <DialogTitle className='text-sm font-semibold tracking-tight'>
-                {selectedDetail?.title}
-              </DialogTitle>
-              {selectedDetail?.is_preset ? (
-                <Badge
-                  variant='secondary'
-                  className='h-5 px-1.5 text-[10px] font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                >
-                  {t('presetSolution')}
-                </Badge>
-              ) : (
-                <Badge
-                  variant='secondary'
-                  className='h-5 px-1.5 text-[10px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                >
-                  {t('teamSolution')}
-                </Badge>
-              )}
-            </div>
-            <DialogDescription className='text-xs font-mono text-muted-foreground flex items-center gap-1.5 mt-1'>
-              <Fingerprint className='size-3 text-primary' />
-              <span>指纹: {selectedDetail?.fingerprint || '-'}</span>
-            </DialogDescription>
-          </DialogHeader>
+          {(() => {
+            const detail =
+              getLocalizedMemory(selectedDetail, locale) || selectedDetail;
+            if (!detail) {
+              return null;
+            }
 
-          {selectedDetail && (
-            <ScrollArea className='flex-1 p-5'>
-              <div className='space-y-4 text-xs'>
-                {/* 故障现象摘录 */}
-                {/* Fault Symptom */}
-                {selectedDetail.error_summary && (
-                  <div className='space-y-1.5'>
-                    <div className='font-medium text-foreground flex items-center gap-1'>
-                      <FileCode className='size-3.5 text-muted-foreground' />
-                      <span>异常现象与错误日志</span>
-                    </div>
-                    <pre className='p-2.5 rounded bg-muted/50 font-mono text-[11px] text-muted-foreground whitespace-pre-wrap leading-relaxed border border-border/50'>
-                      {selectedDetail.error_summary}
-                    </pre>
+            return (
+              <>
+                <DialogHeader className='px-5 py-4 border-b shrink-0'>
+                  <div className='flex items-center gap-2'>
+                    <DialogTitle className='text-sm font-semibold tracking-tight'>
+                      {detail.title}
+                    </DialogTitle>
+                    {detail.is_preset ? (
+                      <Badge
+                        variant='secondary'
+                        className='h-5 px-1.5 text-[10px] font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                      >
+                        {t('presetSolution')}
+                      </Badge>
+                    ) : (
+                      <Badge
+                        variant='secondary'
+                        className='h-5 px-1.5 text-[10px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                      >
+                        {t('teamSolution')}
+                      </Badge>
+                    )}
                   </div>
-                )}
-
-                {/* 完整解决方案 */}
-                {/* Complete Solution */}
-                <div className='space-y-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/[0.03] dark:bg-emerald-950/20 p-3'>
-                  <div className='flex items-center justify-between font-semibold text-emerald-700 dark:text-emerald-400'>
-                    <span className='flex items-center gap-1.5'>
-                      <ShieldCheck className='size-4' />
-                      <span>已验证排障方案与操作步骤</span>
+                  <DialogDescription className='text-xs font-mono text-muted-foreground flex items-center gap-1.5 mt-1'>
+                    <Fingerprint className='size-3 text-primary' />
+                    <span>
+                      {isEn ? 'Fingerprint: ' : '指纹: '}
+                      {detail.fingerprint || '-'}
                     </span>
+                  </DialogDescription>
+                </DialogHeader>
+
+                <ScrollArea className='flex-1 p-5'>
+                  <div className='space-y-4 text-xs'>
+                    {/* 故障现象摘录 */}
+                    {/* Fault Symptom */}
+                    {detail.error_summary && (
+                      <div className='space-y-1.5'>
+                        <div className='font-medium text-foreground flex items-center gap-1'>
+                          <FileCode className='size-3.5 text-muted-foreground' />
+                          <span>
+                            {isEn
+                              ? 'Symptom & Error Stack'
+                              : '异常现象与错误日志'}
+                          </span>
+                        </div>
+                        <pre className='p-2.5 rounded bg-muted/50 font-mono text-[11px] text-muted-foreground whitespace-pre-wrap leading-relaxed border border-border/50'>
+                          {detail.error_summary}
+                        </pre>
+                      </div>
+                    )}
+
+                    {/* 完整解决方案 */}
+                    {/* Complete Solution */}
+                    <div className='space-y-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/[0.03] dark:bg-emerald-950/20 p-3'>
+                      <div className='flex items-center justify-between font-semibold text-emerald-700 dark:text-emerald-400'>
+                        <span className='flex items-center gap-1.5'>
+                          <ShieldCheck className='size-4' />
+                          <span>
+                            {isEn
+                              ? 'Verified Remediation Solution & Steps'
+                              : '已验证排障方案与操作步骤'}
+                          </span>
+                        </span>
+                        <Button
+                          variant='outline'
+                          size='sm'
+                          onClick={() =>
+                            handleCopySolution(detail.id, detail.solution)
+                          }
+                          className='h-6 text-[11px] px-2 gap-1 border-emerald-500/30 hover:bg-emerald-500/10'
+                        >
+                          {copiedId === detail.id ? (
+                            <>
+                              <Check className='size-3 text-emerald-600' />
+                              <span>{isEn ? 'Copied' : '已复制'}</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy className='size-3' />
+                              <span>{t('copySolution')}</span>
+                            </>
+                          )}
+                        </Button>
+                      </div>
+
+                      <pre className='text-xs font-mono whitespace-pre-wrap text-foreground leading-relaxed pt-1.5'>
+                        {detail.solution}
+                      </pre>
+                    </div>
+
+                    {/* 根因剖析 */}
+                    {/* Root Cause Analysis */}
+                    {detail.root_cause && (
+                      <div className='space-y-1.5'>
+                        <div className='font-medium text-foreground flex items-center gap-1'>
+                          <AlertCircle className='size-3.5 text-amber-500' />
+                          <span>{t('rootCause')}</span>
+                        </div>
+                        <p className='text-muted-foreground leading-relaxed p-2.5 rounded bg-muted/30 border border-border/40'>
+                          {detail.root_cause}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* 防范建议 */}
+                    {/* Prevention Tips */}
+                    {detail.preventive_tips && (
+                      <div className='space-y-1.5'>
+                        <div className='font-medium text-foreground flex items-center gap-1'>
+                          <Lightbulb className='size-3.5 text-emerald-500' />
+                          <span>{t('preventiveTips')}</span>
+                        </div>
+                        <p className='text-muted-foreground leading-relaxed p-2.5 rounded bg-muted/30 border border-border/40'>
+                          {detail.preventive_tips}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* 标签与元数据 */}
+                    {/* Tags and Metadata */}
+                    <div className='flex flex-wrap items-center justify-between gap-2 pt-2 border-t text-[11px] text-muted-foreground'>
+                      <div className='flex flex-wrap items-center gap-1'>
+                        <Tag className='size-3 text-muted-foreground/70' />
+                        {(detail.tags || []).map((t) => (
+                          <Badge
+                            key={t}
+                            variant='outline'
+                            className='text-[10px] font-normal h-4 px-1'
+                          >
+                            #{t}
+                          </Badge>
+                        ))}
+                      </div>
+                      <div className='flex items-center gap-3'>
+                        <span>
+                          {isEn ? 'Author: ' : '记录人: '}
+                          {detail.author}
+                        </span>
+                        <span>
+                          {isEn ? 'Updated: ' : '更新时间: '}
+                          {formatDateTime(detail.updated_at)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </ScrollArea>
+
+                <DialogFooter className='px-5 py-3 border-t shrink-0 flex items-center justify-between sm:justify-between'>
+                  <Button
+                    variant='outline'
+                    size='sm'
+                    onClick={() => setDetailModalOpen(false)}
+                    className='h-8 text-xs'
+                  >
+                    {isEn ? 'Close' : '关闭'}
+                  </Button>
+                  <div className='flex items-center gap-2'>
                     <Button
                       variant='outline'
                       size='sm'
-                      onClick={() =>
-                        handleCopySolution(
-                          selectedDetail.id,
-                          selectedDetail.solution,
-                        )
-                      }
-                      className='h-6 text-[11px] px-2 gap-1 border-emerald-500/30 hover:bg-emerald-500/10'
+                      onClick={() => {
+                        setDetailModalOpen(false);
+                        if (selectedDetail) {
+                          handleOpenEdit(selectedDetail);
+                        }
+                      }}
+                      className='h-8 text-xs'
                     >
-                      {copiedId === selectedDetail.id ? (
-                        <>
-                          <Check className='size-3 text-emerald-600' />
-                          <span>已复制</span>
-                        </>
-                      ) : (
-                        <>
-                          <Copy className='size-3' />
-                          <span>复制方案</span>
-                        </>
-                      )}
+                      <Edit3 className='mr-1 size-3.5' />
+                      {t('edit')}
+                    </Button>
+                    <Button
+                      size='sm'
+                      onClick={() => {
+                        handleCopySolution(detail.id, detail.solution);
+                      }}
+                      className='h-8 text-xs'
+                    >
+                      <Copy className='mr-1.5 size-3.5' />
+                      {t('copySolution')}
                     </Button>
                   </div>
-
-                  <pre className='text-xs font-mono whitespace-pre-wrap text-foreground leading-relaxed pt-1.5'>
-                    {selectedDetail.solution}
-                  </pre>
-                </div>
-
-                {/* 根因剖析 */}
-                {/* Root Cause Analysis */}
-                {selectedDetail.root_cause && (
-                  <div className='space-y-1.5'>
-                    <div className='font-medium text-foreground flex items-center gap-1'>
-                      <AlertCircle className='size-3.5 text-amber-500' />
-                      <span>{t('rootCause')}</span>
-                    </div>
-                    <p className='text-muted-foreground leading-relaxed p-2.5 rounded bg-muted/30 border border-border/40'>
-                      {selectedDetail.root_cause}
-                    </p>
-                  </div>
-                )}
-
-                {/* 防范建议 */}
-                {/* Prevention Tips */}
-                {selectedDetail.preventive_tips && (
-                  <div className='space-y-1.5'>
-                    <div className='font-medium text-foreground flex items-center gap-1'>
-                      <Lightbulb className='size-3.5 text-emerald-500' />
-                      <span>{t('preventiveTips')}</span>
-                    </div>
-                    <p className='text-muted-foreground leading-relaxed p-2.5 rounded bg-muted/30 border border-border/40'>
-                      {selectedDetail.preventive_tips}
-                    </p>
-                  </div>
-                )}
-
-                {/* 标签与元数据 */}
-                {/* Tags and Metadata */}
-                <div className='flex flex-wrap items-center justify-between gap-2 pt-2 border-t text-[11px] text-muted-foreground'>
-                  <div className='flex flex-wrap items-center gap-1'>
-                    <Tag className='size-3 text-muted-foreground/70' />
-                    {(selectedDetail.tags || []).map((t) => (
-                      <Badge
-                        key={t}
-                        variant='outline'
-                        className='text-[10px] font-normal h-4 px-1'
-                      >
-                        #{t}
-                      </Badge>
-                    ))}
-                  </div>
-                  <div className='flex items-center gap-3'>
-                    <span>记录人: {selectedDetail.author}</span>
-                    <span>更新时间: {formatDateTime(selectedDetail.updated_at)}</span>
-                  </div>
-                </div>
-              </div>
-            </ScrollArea>
-          )}
-
-          <DialogFooter className='px-5 py-3 border-t shrink-0 flex items-center justify-between sm:justify-between'>
-            <Button
-              variant='outline'
-              size='sm'
-              onClick={() => setDetailModalOpen(false)}
-              className='h-8 text-xs'
-            >
-              关闭
-            </Button>
-            <div className='flex items-center gap-2'>
-              <Button
-                variant='outline'
-                size='sm'
-                onClick={() => {
-                  setDetailModalOpen(false);
-                  if (selectedDetail) {
-                    handleOpenEdit(selectedDetail);
-                  }
-                }}
-                className='h-8 text-xs'
-              >
-                <Edit3 className='mr-1 size-3.5' />
-                {t('edit')}
-              </Button>
-              <Button
-                size='sm'
-                onClick={() => {
-                  if (selectedDetail) {
-                    handleCopySolution(
-                      selectedDetail.id,
-                      selectedDetail.solution,
-                    );
-                  }
-                }}
-                className='h-8 text-xs'
-              >
-                <Copy className='mr-1.5 size-3.5' />
-                {t('copySolution')}
-              </Button>
-            </div>
-          </DialogFooter>
+                </DialogFooter>
+              </>
+            );
+          })()}
         </DialogContent>
       </Dialog>
     </div>

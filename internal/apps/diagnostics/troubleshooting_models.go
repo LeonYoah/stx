@@ -39,6 +39,12 @@ type TroubleshootingMemory struct {
 	ID             uint      `json:"id" gorm:"primaryKey;autoIncrement"`
 	TargetType     string    `json:"target_type" gorm:"size:32;index;not null;default:'error'"`
 	Fingerprint    string    `json:"fingerprint" gorm:"size:255;index;not null"`
+	// PresetKey 标识预置类型（单一字段区分类型，文案跟随全局语言切分）
+	// PresetKey identifies preset solution type, text resolves according to global language
+	PresetKey      string    `json:"preset_key,omitempty" gorm:"size:64;index"`
+	// Language 语言标识（zh 或 en，官方经典方案以整行 SQL 中英文记录持久化，用户自定义经验保持原样不设限）
+	// Language identifies record language (zh or en; preset classic cases are stored as full rows for zh/en, user memories remain unconstrained)
+	Language       string    `json:"language" gorm:"size:16;index;default:'zh'"`
 	Title          string    `json:"title" gorm:"size:255;not null"`
 	ErrorSummary   string    `json:"error_summary" gorm:"type:text"`
 	RootCause      string    `json:"root_cause" gorm:"type:text"`
@@ -66,6 +72,10 @@ type TroubleshootingMemoryItem struct {
 	ID             string    `json:"id"`
 	TargetType     string    `json:"target_type"`
 	Fingerprint    string    `json:"fingerprint"`
+	PresetKey      string    `json:"preset_key,omitempty"`
+	// Language 语言标识（zh 或 en）
+	// Language identifier (zh or en)
+	Language       string    `json:"language,omitempty"`
 	Title          string    `json:"title"`
 	ErrorSummary   string    `json:"error_summary"`
 	RootCause      string    `json:"root_cause,omitempty"`
@@ -87,6 +97,7 @@ type CreateTroubleshootingMemoryRequest struct {
 	TargetType     string   `json:"target_type" binding:"required"`
 	Fingerprint    string   `json:"fingerprint" binding:"required"`
 	Title          string   `json:"title" binding:"required"`
+	Language       string   `json:"language,omitempty"`
 	ErrorSummary   string   `json:"error_summary"`
 	RootCause      string   `json:"root_cause"`
 	Solution       string   `json:"solution" binding:"required"`
@@ -118,6 +129,9 @@ type TroubleshootingMemoryQuery struct {
 	Fingerprint string
 	ClusterID   *uint
 	Keyword     string
+	// Language 过滤语言（zh 或 en；官方预置方案严格切分，用户自定义经验全量展示）
+	// Language filters memories (zh or en; presets strictly partition, user memories display across languages)
+	Language    string
 	Page        int
 	PageSize    int
 }

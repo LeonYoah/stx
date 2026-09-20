@@ -263,6 +263,30 @@ STX 控制台采用现代化控制台体验架构：
 - **语言包**：在 `lib/i18n/locales/` 下（如 `zh.json`、`en.json`）。所有用户可见文案统一走 i18n key。
 - **单语言可切换展示**：界面在切换语言后仅展示当前目标语言；**严禁**同屏采用“中文 / English”斜杠拼接或并排展示。
 - **跨层语言传递**：对于诊断报告、日志分析、模板说明等由后端生成的文本，前端请求时必须显式传参 `lang`，保证双语切换一致性。
+- **静态文案键**：代码中通过 `useTranslations` 直接引用的字符串键，必须同时存在于 `zh.json` 与 `en.json`。`frontend/lib/i18n/__tests__/translation-coverage.test.ts` 会扫描生产代码并检查缺键。
+- **语言包结构**：测试必须递归比较全部叶子键，不能只比较语言包第一层；ICU 参数（如 `{count}`）也必须在中英文中保持一致。
+- **动态后端值**：审计 action、资源类型、状态等由后端返回的动态值，不得直接调用可能缺键的 `t(dynamicKey)`。必须先调用 `t.has(dynamicKey)`；不存在时显示服务端原值或明确的兜底文案，避免 `next-intl` 在页面运行时报告缺键错误。
+
+```tsx
+// 错误：try/catch 无法阻止 next-intl 先报告缺键错误。
+// Wrong: try/catch cannot stop next-intl from reporting a missing key first.
+try {
+  return t(dynamicKey);
+} catch {
+  return fallback;
+}
+
+// 正确：先检查文案是否存在，再调用翻译函数。
+// Correct: check message existence before calling the translator.
+return t.has(dynamicKey) ? t(dynamicKey) : fallback;
+```
+
+国际化改动至少运行：
+
+```bash
+cd frontend
+pnpm exec vitest run lib/i18n/__tests__/translation-coverage.test.ts
+```
 
 ---
 
@@ -284,4 +308,6 @@ STX 控制台采用现代化控制台体验架构：
 - [ ] 新建物理/异步资源是否有引导式交互（一键命令、实时状态侦听）？
 - [ ] 密码/Token 字段是否满足“保存后脱敏、编辑时不回显”的安全规范？
 - [ ] 语言包是否已在 `zh.json` 与 `en.json` 补充对应的独立单语言文案？
+- [ ] 动态后端值是否在调用翻译函数前使用 `t.has()` 检查，并准备原值或兜底文案？
+- [ ] 国际化覆盖测试是否通过，确认深层键、静态代码引用和 ICU 参数均无缺失？
 - [ ] 自增/修改的代码注释是否严格遵循“中文在前，英文在后”的双语规范？

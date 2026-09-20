@@ -40,7 +40,8 @@
     "perPage": "Per page",
     "itemsUnit": "items",
     "status": "Status",
-    "timezone": "Timezone"
+    "timezone": "Timezone",
+    "noMatchingData": "No matching data"
   },
   "dashboard": {
     "title": "Dashboard",
@@ -147,6 +148,7 @@
       "oauthFailed": "OAuth authentication failed",
       "missingParams": "Missing required authentication parameters",
       "processingFailed": "Login processing failed",
+      "sessionExpired": "Your login session has expired. Please sign in again.",
       "footer": "STX - Making data integration easier"
     }
   },
@@ -396,6 +398,9 @@
     "createSuccess": "Host created successfully",
     "updateSuccess": "Host updated successfully",
     "deleteSuccess": "Host deleted successfully",
+    "createError": "Failed to create host",
+    "updateError": "Failed to update host",
+    "deleteError": "Failed to delete host",
     "loadError": "Failed to load hosts",
     "installGuide": {
       "title": "Agent Deployment & Connection Guide",
@@ -948,6 +953,7 @@
     "commandsDescription": "View command execution history and status",
     "auditLogsTitle": "Audit Logs",
     "auditLogsDescription": "Web and CLI operations",
+    "loadError": "Failed to load audit logs",
     "source": "Source",
     "allSources": "All sources",
     "serverCommands": "{count} commands",
@@ -1227,6 +1233,7 @@
     "noPluginsFound": "No plugins found",
     "noDescription": "No description available",
     "loadError": "Failed to load plugins",
+    "installError": "Failed to install plugins",
     "loadingFromMaven": "Loading plugins from Maven repository...",
     "loadingFromMavenDesc": "First load may take 30-60 seconds, subsequent loads will use cache",
     "loadedFromMaven": "Plugin list reloaded from Maven repository",
@@ -1535,6 +1542,7 @@
     "packageStatus": "Package Status",
     "installDir": "Installation Directory",
     "installDirLabel": "Install Path",
+    "path": "Path",
     "installDirDesc": "SeaTunnel will be installed to this directory, default includes version number for multi-version coexistence",
     "mirrors": {
       "aliyun": "Aliyun Mirror",
@@ -1747,6 +1755,7 @@
       "noHostsSelected": "Select at least one host before running validation",
       "localFile": "Local path",
       "imapTitle": "IMAP Configuration",
+      "imapSubtitle": "Job recovery metadata",
       "imapDescription": "IMAP stores job/task recovery metadata, configured separately from Checkpoint.",
       "imapDisabled": "In-memory only (disable external IMAP)",
       "imapEnableLabel": "Enable external IMAP storage",
@@ -2584,10 +2593,20 @@
     "policyCenterV2": {
       "title": "Alert Policies",
       "subtitle": "A DorisManager-inspired policy editor that keeps only the controls users actually need.",
+      "policyCount": "{count} policies",
+      "policySubtitle": "View and manage alert policies.",
+      "searchPlaceholder": "Search policy name, description, or template",
+      "statusFilter": "Enabled Status",
+      "allStatuses": "All Statuses",
       "createNew": "New Policy",
+      "createFirst": "Create the first alert policy",
       "policyListTitle": "Policy List",
       "editorCreateTitle": "Create Alert Policy",
       "editorEditTitle": "Edit Alert Policy",
+      "dialogSubtitleCreate": "Configure trigger conditions and notification methods.",
+      "dialogSubtitleEdit": "Update trigger conditions and notification methods.",
+      "sectionBasic": "Basic Information",
+      "sectionRules": "Rule Configuration",
       "columns": {
         "name": "Name",
         "template": "Template",
@@ -2595,7 +2614,24 @@
         "severity": "Severity",
         "methods": "Methods",
         "status": "Last Execution",
+        "enabled": "Enabled Status",
         "updatedAt": "Updated At"
+      },
+      "actions": {
+        "viewHistory": "View execution history",
+        "editPolicy": "Edit policy",
+        "deletePolicy": "Delete policy"
+      },
+      "history": {
+        "statuses": {
+          "sent": "Sent",
+          "failed": "Failed"
+        }
+      },
+      "executionStatuses": {
+        "partial": "Partially Sent",
+        "matched": "Matched",
+        "idle": "No Execution"
       },
       "enabled": "Enabled",
       "disabled": "Disabled",
@@ -2610,6 +2646,8 @@
       "createSuccess": "Alert policy created successfully",
       "updateSuccess": "Alert policy updated successfully",
       "deleteSuccess": "Alert policy deleted successfully",
+      "toggleEnabledSuccess": "Alert policy enabled",
+      "toggleDisabledSuccess": "Alert policy disabled",
       "createError": "Failed to create alert policy",
       "updateError": "Failed to update alert policy",
       "deleteError": "Failed to delete alert policy",
@@ -3420,6 +3458,8 @@
   },
   "workbenchStudio": {
     "loading": "Loading...",
+    "saving": "Saving...",
+    "invalidCronExpression": "Invalid cron expression",
     "newFolder": "New Folder",
     "newFile": "New File",
     "selectFolderBeforeCreateFile": "Select a folder before creating a file",
@@ -3674,6 +3714,8 @@
     "runSubmitted": "Run job submitted",
     "runFailed": "Run failed",
     "actualExecutedScript": "Executed Script",
+    "viewExecutedScript": "View executed script",
+    "viewMetrics": "View runtime metrics",
     "noActualExecutedScript": "No executed script is available for this job instance.",
     "savepointStopTriggered": "Savepoint stop has been triggered",
     "taskStopped": "Task stopped",

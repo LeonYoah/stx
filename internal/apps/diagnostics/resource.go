@@ -161,6 +161,9 @@ func (s *Service) ListDiagnosticTaskArtifacts(ctx context.Context, actor executi
 		if info.IsDir() {
 			return nil
 		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return nil
+		}
 		relativePath, relErr := filepath.Rel(root, path)
 		if relErr != nil || relativePath == "." || strings.HasPrefix(relativePath, "..") {
 			return relErr

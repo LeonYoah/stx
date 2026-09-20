@@ -206,11 +206,15 @@ func (m *DiagnosticLogMetadata) Scan(value interface{}) error {
 // DiagnosticTaskOptions stores bundle collection options.
 // DiagnosticTaskOptions 存储诊断包采集选项。
 type DiagnosticTaskOptions struct {
-	IncludeThreadDump bool                     `json:"include_thread_dump"`
-	IncludeJVMDump    bool                     `json:"include_jvm_dump"`
-	JVMDumpMinFreeMB  int                      `json:"jvm_dump_min_free_mb,omitempty"`
+	IncludeThreadDump bool `json:"include_thread_dump"`
+	IncludeJVMDump    bool `json:"include_jvm_dump"`
+	JVMDumpMinFreeMB  int  `json:"jvm_dump_min_free_mb,omitempty"`
+	// SelectedResources 显式限制组合任务需要采集的公开资源；空值保持原有默认行为。
+	// SelectedResources explicitly limits public resources collected by a bundle task; empty keeps the legacy defaults.
 	SelectedResources []DiagnosticResourceCode `json:"selected_resources,omitempty"`
-	ResourceOnly      bool                     `json:"resource_only,omitempty"`
+	// ResourceOnly 表示任务只运行一个资源，不生成 Manifest 和 HTML 报告。
+	// ResourceOnly marks a single-resource task that skips Manifest and HTML report generation.
+	ResourceOnly bool `json:"resource_only,omitempty"`
 }
 
 // Normalize fills default option values.

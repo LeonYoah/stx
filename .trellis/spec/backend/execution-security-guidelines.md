@@ -530,3 +530,106 @@ if sourceErr := saveOptionalSource(...); sourceErr != nil {
 }
 return info, nil
 ```
+
+## 12. 场景：诊断资源单项执行、组合选择与 Agent 命令审计
+
+### 12.1 范围 / 触发条件
+
+- 诊断资源需要被 CLI 或 AI Agent 单独查看、执行或下载。
+- 组合诊断任务需要只采集用户明确选择的资源。
+- Control Plane 向 Agent 发送命令时，需要记录发送前、成功、失败和超时状态。
+
+### 12.2 签名
+
+```text
+GET  /api/v1/diagnostics/resources
+GET  /api/v1/diagnostics/resources/:code
+POST /api/v1/diagnostics/resources/:code/run
+GET  /api/v1/diagnostics/tasks/:id/artifacts
+
+stx diagnostics resource list
+stx diagnostics resource get <code>
+stx diagnostics resource run <code> --cluster-id <id> [--node-id <id>] --confirm
+stx diagnostics task create --cluster-id <id> --resource <code> [--resource <code>] --confirm
+stx diagnostics task artifacts <task-id>
+```
+
+任务选项增加：
+
+```text
+selected_resources: []string
+resource_only: bool
+```
+
+命令日志至少保存：
+
+```text
+request_id, execution_id, client_type, command_id, command_type,
+display_command, parameters, status, error, started_at, finished_at, created_by
+```
+
+### 12.3 契约
+
+- 公开资源编码与内部流程步骤分开。`ASSEMBLE_MANIFEST`、`RENDER_HTML_SUMMARY`、`COMPLETE` 不出现在资源列表。
+- `selected_resources` 为空时保持原有诊断包行为；非空时只运行所选公开资源及组合任务需要的内部步骤。
+- `resource_only=true` 时必须且只能选择一个公开资源，并跳过 Manifest 和 HTML 报告，`COMPLETE` 仍执行。
+- 单项资源运行立即创建并启动诊断任务，返回稳定的 `execution_id`；CLI 后续使用 `stx execution wait`。
+- JVM Dump 仍为 R3 且只允许管理员；线程快照为 R1；其他当前公开资源为 R0。
+- 任务产物接口只返回任务目录内的普通文件和安全相对路径，不跟随符号链接。大于 64 MiB 的文件列表响应不现场计算 SHA-256，避免一次列表查询读取完整大文件。
+- Agent 命令在发送前先写 `pending` 命令日志，得到响应后更新为终态；Agent 不存在、未连接、发送失败、超时或上下文取消都必须更新为 `failed`。
+- 后台诊断任务从公共执行记录恢复 `request_id` 和 `client_type`，再写入命令上下文。
+- `display_command` 必须经过服务端脱敏。线程快照和 JVM Dump 成功时记录 Agent 实际采用的 `jcmd`、`jstack` 或 `jmap` 命令；不经过系统命令的 Agent 操作记录为 `agent:<command_type>` 加安全参数说明。
+
+### 12.4 校验与错误对应表
+
+| 情况 | 行为 |
+| --- | --- |
+| 未知资源编码 | `404 diagnostic_resource_not_found`，不创建任务 |
+| `resource_only=true` 但选择数量不是 1 | `400 invalid_diagnostic_task_request` |
+| 普通用户运行 JVM Dump | `403 admin_required`，不发送 Agent 命令 |
+| 写命令缺少确认或幂等键 | 按公共执行规则返回 `400`、`428` 或冲突错误 |
+| 任务尚未产生文件 | `artifacts` 返回 `items: []`，不能返回 `null` |
+| 产物目录中存在符号链接 | 列表忽略该条目，不能读取链接指向的外部文件 |
+| Agent 发送前失败 | `command_logs` 保留一条 `failed` 记录和错误原因 |
+| Agent 返回线程快照工具信息 | `display_command` 保存实际 Java 工具命令 |
+
+### 12.5 Good / Base / Bad
+
+- Good：单项线程快照只运行线程快照和完成步骤，命令日志保存请求来源、执行编号和实际 `jcmd` 命令。
+- Base：组合任务选择配置和日志资源，仍生成 Manifest 与 HTML，但其他采集步骤全部标记为跳过。
+- Bad：把全部内部步骤作为资源公开，资源单项运行仍强制生成完整报告，或 Agent 连接失败时不留下命令记录。
+
+### 12.6 必须有的测试
+
+- 资源登记测试：公开资源不含 Manifest、HTML 和完成步骤。
+- 选择测试：单项任务只运行所选资源，组合任务只运行所选资源和内部报告步骤。
+- Handler/Service 测试：未知资源、JVM Dump 管理员限制、用户归属和空产物列表。
+- CLI 测试：路径、正文、确认、幂等请求头和 `next_command`。
+- 审计测试：发送前失败仍有终态记录，`request_id`、`execution_id`、`client_type` 和 `created_by` 正确。
+- Java 诊断测试：`jcmd`、`jstack` 和 `jmap` 的实际展示命令正确。
+- 真实测试：连接本地 STX 与 Agent，执行一个单项资源和一个多资源组合任务，再检查步骤、产物、命令日志和下载校验和。
+
+### 12.7 错误与正确示例
+
+错误：
+
+```go
+resp, err := manager.SendCommand(ctx, agentID, commandType, params, timeout)
+if err != nil {
+    return err // 发送失败没有命令记录
+}
+createCommandLog(resp)
+```
+
+正确：
+
+```go
+commandID := uuid.NewString()
+createPendingCommandLog(commandID, metadata)
+resp, err := manager.SendCommandWithID(ctx, commandID, agentID, commandType, params, timeout)
+if err != nil {
+    updateCommandLogFailed(commandID, err)
+    return err
+}
+updateCommandLogFromResponse(commandID, resp)
+```

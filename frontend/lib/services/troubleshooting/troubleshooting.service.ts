@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+import {BaseService} from '../core/base.service';
 import type {
   TroubleshootingMemoryEntry,
   TroubleshootingMemoryQuery,
@@ -148,7 +149,76 @@ const PRESET_MEMORIES: TroubleshootingMemoryEntry[] = [
  * 排障经验记忆库服务类
  * Troubleshooting memory bank service
  */
-export class TroubleshootingService {
+export class TroubleshootingService extends BaseService {
+  protected static readonly basePath = '/diagnostics/troubleshooting-memories';
+
+  /**
+   * 异步从后端 API 读取排障经验列表（失败时优雅回退本地与预置库）
+   * Asynchronously fetch troubleshooting memories from backend API (gracefully falls back to local and presets)
+   */
+  public async fetchRemoteMemories(
+    query?: TroubleshootingMemoryQuery,
+  ): Promise<TroubleshootingMemoryEntry[]> {
+    try {
+      const response = await TroubleshootingService.get<{total: number; items: TroubleshootingMemoryEntry[]}>(
+        '',
+        query as Record<string, unknown>,
+      );
+      if (response && Array.isArray(response.items) && response.items.length > 0) {
+        // 同步更新本地缓存以供离线兜底
+        // Sync to local cache for offline fallback
+        if (typeof window !== 'undefined') {
+          try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(response.items));
+          } catch {
+            // Ignore storage write errors
+          }
+        }
+        return response.items;
+      }
+      return this.getMemories();
+    } catch {
+      return this.getMemories();
+    }
+  }
+
+  /**
+   * 异步保存排障经验至后端数据库与本地缓存
+   * Asynchronously persist troubleshooting memory to backend database and local cache
+   */
+  public async saveRemoteMemory(
+    entry: Omit<TroubleshootingMemoryEntry, 'id' | 'created_at' | 'updated_at'> & {
+      id?: string;
+    },
+  ): Promise<TroubleshootingMemoryEntry> {
+    const localSaved = this.saveMemory(entry);
+    try {
+      if (entry.id && !entry.id.startsWith('mem-') && !entry.id.startsWith('preset-')) {
+        await TroubleshootingService.put(`/${entry.id}`, entry);
+      } else {
+        await TroubleshootingService.post('', entry);
+      }
+    } catch (err) {
+      console.warn('Failed to sync troubleshooting memory to backend, kept in local cache:', err);
+    }
+    return localSaved;
+  }
+
+  /**
+   * 异步删除排障经验
+   * Asynchronously delete troubleshooting memory from backend and local cache
+   */
+  public async deleteRemoteMemory(id: string): Promise<boolean> {
+    this.deleteMemory(id);
+    try {
+      await TroubleshootingService.delete(`/${id}`);
+      return true;
+    } catch (err) {
+      console.warn('Failed to delete troubleshooting memory from backend:', err);
+      return true;
+    }
+  }
+
   /**
    * 读取全部存储的排障经验（合并预置库与本地用户沉淀）
    * Read all stored troubleshooting memories (merges presets and local memories)

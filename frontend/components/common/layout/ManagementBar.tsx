@@ -514,7 +514,8 @@ export function ManagementBar() {
       isActive: isRouteActive('/workbench'),
     });
 
-    // 主机与集群入口（合并主机与集群管理）/ Hosts & Clusters entry (consolidated)
+    // 主机与集群入口（合并菜单入口，进入页面后通过顶层 Tab 自由切换）
+    // Hosts & Clusters entry (merged dock entry, navigated via top tabs inside pages)
     items.push({
       title: tDock('hostsAndClusters'),
       icon: StaticIcons.layers,
@@ -522,20 +523,22 @@ export function ManagementBar() {
       isActive: isRouteActive('/clusters') || isRouteActive('/hosts'),
     });
 
-    // 错误与告警入口（合并错误排查与告警监控）/ Errors & Alerts entry (consolidated)
-    items.push({
-      title: tDock('errorsAndAlerts'),
-      icon: StaticIcons.diagnostics,
-      href: '/diagnostics',
-      isActive: isRouteActive('/diagnostics') || isRouteActive('/monitoring'),
-    });
-
-    // 安装包与插件入口（合并安装包与连接器市场）/ Packages & Plugins entry (consolidated)
+    // 安装包与插件入口（合并菜单入口，进入页面后通过顶层 Tab 自由切换）
+    // Packages & Plugins entry (merged dock entry, navigated via top tabs inside pages)
     items.push({
       title: tDock('packagesAndPlugins'),
       icon: StaticIcons.package,
       href: '/packages',
       isActive: isRouteActive('/packages') || isRouteActive('/plugins'),
+    });
+
+    // 错误与告警入口（合并菜单入口，进入页面后通过顶层 Tab 自由切换）
+    // Errors & Alerts entry (merged dock entry, navigated via top tabs inside pages)
+    items.push({
+      title: tDock('errorsAndAlerts'),
+      icon: StaticIcons.monitoring,
+      href: '/monitoring',
+      isActive: isRouteActive('/monitoring') || isRouteActive('/diagnostics'),
     });
 
     // 审计日志入口 / Audit logs entry

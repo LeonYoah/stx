@@ -20,11 +20,11 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {usePathname, useRouter, useSearchParams} from 'next/navigation';
-import {BellRing, ShieldAlert} from 'lucide-react';
+import {BellRing, ShieldAlert, ScanSearch} from 'lucide-react';
 import gsap from 'gsap';
 import {useGSAP} from '@gsap/react';
 import {Tabs, TabsList, TabsTrigger} from '@/components/ui/tabs';
-import {WorkspaceHeader} from '@/components/common/layout';
+import {WorkspaceHeader, ModuleNavTabs} from '@/components/common/layout';
 import {MonitoringAlertsCenter} from './MonitoringAlertsCenter';
 import {MonitoringPolicyCenter} from './MonitoringPolicyCenter';
 
@@ -57,6 +57,7 @@ function resolveTab(tab: string | null): MonitoringTab {
 
 export function MonitoringCenterWorkspace() {
   const t = useTranslations('monitoringCenter');
+  const tDock = useTranslations('dock');
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
@@ -125,6 +126,25 @@ export function MonitoringCenterWorkspace() {
         title={t('title')}
         subtitle={t('subtitle')}
         icon={<BellRing />}
+        tabs={
+          <ModuleNavTabs
+            items={[
+              {
+                key: 'monitoring',
+                label: t('title'),
+                href: '/monitoring',
+                icon: <BellRing className='size-3.5' />,
+              },
+              {
+                key: 'diagnostics',
+                label: tDock('diagnosticsCenter'),
+                href: '/diagnostics',
+                icon: <ScanSearch className='size-3.5' />,
+              },
+            ]}
+            activeKey='monitoring'
+          />
+        }
         badge={
           <span className='inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground'>
             <ShieldAlert className='h-3 w-3' />

@@ -30,11 +30,12 @@ import {DownloadPackageDialog} from './DownloadPackageDialog';
 import {Button} from '@/components/ui/button';
 import {Card} from '@/components/ui/card';
 import {Badge} from '@/components/ui/badge';
-import {Upload, RefreshCw, Package, Cloud, HardDrive} from 'lucide-react';
+import {Upload, RefreshCw, Package, Puzzle, Cloud, HardDrive} from 'lucide-react';
 import {useTranslations} from 'next-intl';
 import {
   WorkspaceHeader,
   StatPillsBar,
+  ModuleNavTabs,
   type StatPillItem,
 } from '@/components/common/layout';
 import type {MirrorSource} from '@/lib/services/installer/types';
@@ -118,6 +119,25 @@ export function PackageMain() {
         icon={<Package />}
         title={t('installer.packageManagement')}
         subtitle={t('installer.packageManagementDesc')}
+        tabs={
+          <ModuleNavTabs
+            items={[
+              {
+                key: 'packages',
+                label: t('installer.packageManagement'),
+                href: '/packages',
+                icon: <Package className='size-3.5' />,
+              },
+              {
+                key: 'plugins',
+                label: t('dock.pluginMarketplace'),
+                href: '/plugins',
+                icon: <Puzzle className='size-3.5' />,
+              },
+            ]}
+            activeKey='packages'
+          />
+        }
         actions={
           <div className='flex items-center gap-2'>
             {packages?.recommended_version && (

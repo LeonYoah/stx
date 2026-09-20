@@ -81,6 +81,7 @@ func TestRootCommandRegistersDiagnosticsReadCommands(t *testing.T) {
 		{"diagnostics", "inspection", "list"},
 		{"diagnostics", "inspection", "get"},
 		{"diagnostics", "task", "list"},
+		{"diagnostics", "task", "create"},
 		{"diagnostics", "task", "get"},
 		{"diagnostics", "task", "steps"},
 		{"diagnostics", "task", "logs"},

@@ -77,6 +77,7 @@ type Service struct {
 	taskEventsOnce    sync.Once
 	autoPolicyRuntime sync.Once
 	policyChecker     *AutoPolicyChecker
+	troubleshooting   *TroubleshootingService
 }
 
 // SetExecutionService 设置诊断任务使用的公共执行服务。
@@ -135,6 +136,9 @@ func newDiagnosticsService(repo *Repository, configRepo *appconfig.Repository, c
 	}
 	if repo != nil {
 		svc.policyChecker = NewAutoPolicyChecker(repo, svc)
+		if repo.db != nil {
+			svc.troubleshooting = NewTroubleshootingService(NewTroubleshootingRepository(repo.db))
+		}
 	}
 	return svc
 }
@@ -510,4 +514,58 @@ func (s *Service) resolveDiagnosticHostDisplayContext(ctx context.Context, hostI
 		HostName: strings.TrimSpace(hostInfo.Name),
 		HostIP:   strings.TrimSpace(hostInfo.IPAddress),
 	}
+}
+
+// Troubleshooting 返回排障经验记忆库服务实例
+// Troubleshooting returns the troubleshooting memory service instance
+func (s *Service) Troubleshooting() *TroubleshootingService {
+	if s == nil {
+		return nil
+	}
+	return s.troubleshooting
+}
+
+// ListTroubleshootingMemories 检索排障经验列表
+// ListTroubleshootingMemories queries troubleshooting memories
+func (s *Service) ListTroubleshootingMemories(ctx context.Context, query *TroubleshootingMemoryQuery) ([]*TroubleshootingMemoryItem, int64, error) {
+	if s == nil || s.troubleshooting == nil {
+		return nil, 0, ErrDiagnosticsRepositoryUnavailable
+	}
+	return s.troubleshooting.ListMemories(ctx, query)
+}
+
+// GetTroubleshootingMemory 根据 ID 获取单条排障经验
+// GetTroubleshootingMemory retrieves single troubleshooting memory by ID
+func (s *Service) GetTroubleshootingMemory(ctx context.Context, id uint) (*TroubleshootingMemoryItem, error) {
+	if s == nil || s.troubleshooting == nil {
+		return nil, ErrDiagnosticsRepositoryUnavailable
+	}
+	return s.troubleshooting.GetMemory(ctx, id)
+}
+
+// CreateTroubleshootingMemory 创建排障经验
+// CreateTroubleshootingMemory creates a new troubleshooting memory
+func (s *Service) CreateTroubleshootingMemory(ctx context.Context, req *CreateTroubleshootingMemoryRequest) (*TroubleshootingMemoryItem, error) {
+	if s == nil || s.troubleshooting == nil {
+		return nil, ErrDiagnosticsRepositoryUnavailable
+	}
+	return s.troubleshooting.CreateMemory(ctx, req)
+}
+
+// UpdateTroubleshootingMemory 更新排障经验
+// UpdateTroubleshootingMemory updates an existing troubleshooting memory
+func (s *Service) UpdateTroubleshootingMemory(ctx context.Context, id uint, req *UpdateTroubleshootingMemoryRequest) (*TroubleshootingMemoryItem, error) {
+	if s == nil || s.troubleshooting == nil {
+		return nil, ErrDiagnosticsRepositoryUnavailable
+	}
+	return s.troubleshooting.UpdateMemory(ctx, id, req)
+}
+
+// DeleteTroubleshootingMemory 删除排障经验
+// DeleteTroubleshootingMemory deletes a troubleshooting memory by ID
+func (s *Service) DeleteTroubleshootingMemory(ctx context.Context, id uint) error {
+	if s == nil || s.troubleshooting == nil {
+		return ErrDiagnosticsRepositoryUnavailable
+	}
+	return s.troubleshooting.DeleteMemory(ctx, id)
 }

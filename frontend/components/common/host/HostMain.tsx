@@ -38,8 +38,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {toast} from 'sonner';
-import {Plus, Search, Server, RefreshCw} from 'lucide-react';
-import {WorkspaceHeader, StatPillsBar} from '@/components/common/layout';
+import {Plus, Search, Server, Layers, RefreshCw} from 'lucide-react';
+import {WorkspaceHeader, StatPillsBar, ModuleNavTabs} from '@/components/common/layout';
 import {motion} from 'motion/react';
 import {easeOut} from 'motion';
 import services from '@/lib/services';
@@ -258,6 +258,25 @@ export function HostMain() {
           icon={<Server />}
           title={t('host.title')}
           subtitle={t('host.description')}
+          tabs={
+            <ModuleNavTabs
+              items={[
+                {
+                  key: 'clusters',
+                  label: t('cluster.title'),
+                  href: '/clusters',
+                  icon: <Layers className='size-3.5' />,
+                },
+                {
+                  key: 'hosts',
+                  label: t('host.title'),
+                  href: '/hosts',
+                  icon: <Server className='size-3.5' />,
+                },
+              ]}
+              activeKey='hosts'
+            />
+          }
           actions={
             <>
               <Button variant='outline' onClick={handleRefresh}>

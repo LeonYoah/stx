@@ -38,8 +38,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {toast} from 'sonner';
-import {Plus, Search, Layers, RefreshCw} from 'lucide-react';
-import {WorkspaceHeader, StatPillsBar, TableLoadingBar} from '@/components/common/layout';
+import {Plus, Search, Layers, Server, RefreshCw} from 'lucide-react';
+import {WorkspaceHeader, StatPillsBar, TableLoadingBar, ModuleNavTabs} from '@/components/common/layout';
 import {Pagination} from '@/components/ui/pagination';
 import {motion} from 'motion/react';
 import {easeOut} from 'motion';
@@ -283,6 +283,25 @@ export function ClusterMain() {
           icon={<Layers />}
           title={t('cluster.title')}
           subtitle={t('cluster.description')}
+          tabs={
+            <ModuleNavTabs
+              items={[
+                {
+                  key: 'clusters',
+                  label: t('cluster.title'),
+                  href: '/clusters',
+                  icon: <Layers className='size-3.5' />,
+                },
+                {
+                  key: 'hosts',
+                  label: t('host.title'),
+                  href: '/hosts',
+                  icon: <Server className='size-3.5' />,
+                },
+              ]}
+              activeKey='clusters'
+            />
+          }
           actions={
             <>
               <Button variant='outline' onClick={handleRefresh}>

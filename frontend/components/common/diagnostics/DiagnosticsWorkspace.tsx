@@ -29,6 +29,7 @@ import {
   Server,
   Settings,
   ScanSearch,
+  BellRing,
   X,
 } from 'lucide-react';
 import {toast} from 'sonner';
@@ -49,7 +50,7 @@ import {
 } from '@/components/ui/select';
 import {Tabs, TabsContent, TabsList, TabsTrigger} from '@/components/ui/tabs';
 import {cn} from '@/lib/utils';
-import {WorkspaceHeader} from '@/components/common/layout';
+import {WorkspaceHeader, ModuleNavTabs} from '@/components/common/layout';
 import {DiagnosticsErrorCenter} from './DiagnosticsErrorCenter';
 import {DiagnosticsInspectionCenter} from './DiagnosticsInspectionCenter';
 import {AutoPolicyConfigPanel} from './AutoPolicyConfigPanel';
@@ -66,6 +67,7 @@ function resolveTab(
 
 export function DiagnosticsWorkspace() {
   const t = useTranslations('diagnosticsCenter');
+  const tDock = useTranslations('dock');
   const commonT = useTranslations('common');
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -179,6 +181,25 @@ export function DiagnosticsWorkspace() {
       <WorkspaceHeader
         icon={<ScanSearch />}
         title={t('title')}
+        tabs={
+          <ModuleNavTabs
+            items={[
+              {
+                key: 'monitoring',
+                label: tDock('monitoringCenter'),
+                href: '/monitoring',
+                icon: <BellRing className='size-3.5' />,
+              },
+              {
+                key: 'diagnostics',
+                label: t('title'),
+                href: '/diagnostics',
+                icon: <ScanSearch className='size-3.5' />,
+              },
+            ]}
+            activeKey='diagnostics'
+          />
+        }
         badge={
           <span className='inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground'>
             Diagnostics Center

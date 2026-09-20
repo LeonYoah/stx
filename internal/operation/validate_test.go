@@ -98,7 +98,7 @@ func TestValidateRejectsRepeatedNonQueryInput(t *testing.T) {
 }
 
 func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
-	require.Len(t, Registry(), 119)
+	require.Len(t, Registry(), 125)
 
 	expected := map[string]struct{}{
 		"auth.user-info.get": {}, "admin.user.list": {}, "admin.user.get": {},
@@ -131,6 +131,7 @@ func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
 		"diagnostics.task.list": {}, "diagnostics.task.get": {}, "diagnostics.task.steps": {}, "diagnostics.task.logs": {},
 		"diagnostics.error.group.list": {}, "diagnostics.error.event.list": {}, "diagnostics.error.group.get": {},
 		"diagnostics.auto-policy.template.list": {}, "diagnostics.auto-policy.list": {}, "diagnostics.auto-policy.get": {},
+		"diagnostics.troubleshooting-memory.list": {}, "diagnostics.troubleshooting-memory.get": {},
 	}
 	actual := make(map[string]struct{})
 	for _, spec := range Registry() {

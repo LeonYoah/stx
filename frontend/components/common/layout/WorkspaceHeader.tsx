@@ -32,6 +32,8 @@ export interface WorkspaceHeaderProps {
   subtitle?: React.ReactNode;
   /** 标题旁徽标 / Optional badge next to title */
   badge?: React.ReactNode;
+  /** 顶层模块切换 Tab / Top-level module navigation tabs */
+  tabs?: React.ReactNode;
   /** 右侧操作区 / Optional action buttons on the right */
   actions?: React.ReactNode;
   /**
@@ -52,6 +54,7 @@ export function WorkspaceHeader({
   title,
   subtitle,
   badge,
+  tabs,
   actions,
   iconTint = true,
   className,
@@ -93,11 +96,12 @@ export function WorkspaceHeader({
           </div>
         )}
         <div>
-          <div className='flex flex-wrap items-center gap-2'>
+          <div className='flex flex-wrap items-center gap-2.5'>
             <h1 className='text-lg font-bold leading-tight tracking-tight text-foreground'>
               {title}
             </h1>
             {badge}
+            {tabs}
           </div>
           {subtitle && (
             // 副标题可为含 div 的 ReactNode，用 div 避免 <p> 嵌套块级元素导致 hydration 报错

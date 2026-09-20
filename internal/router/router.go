@@ -490,6 +490,11 @@ func Serve() {
 				diagnosticsRouter.GET("/auto-policies/:id", diagnosticsHandler.GetAutoPolicy)
 				diagnosticsRouter.PUT("/auto-policies/:id", diagnosticsHandler.UpdateAutoPolicy)
 				diagnosticsRouter.DELETE("/auto-policies/:id", diagnosticsHandler.DeleteAutoPolicy)
+				diagnosticsRouter.GET("/troubleshooting-memories", diagnosticsHandler.ListTroubleshootingMemories)
+				diagnosticsRouter.POST("/troubleshooting-memories", diagnosticsHandler.CreateTroubleshootingMemory)
+				diagnosticsRouter.GET("/troubleshooting-memories/:id", diagnosticsHandler.GetTroubleshootingMemory)
+				diagnosticsRouter.PUT("/troubleshooting-memories/:id", diagnosticsHandler.UpdateTroubleshootingMemory)
+				diagnosticsRouter.DELETE("/troubleshooting-memories/:id", diagnosticsHandler.DeleteTroubleshootingMemory)
 			}
 
 			// Platform cluster health summary (powered by monitoring remote integration).

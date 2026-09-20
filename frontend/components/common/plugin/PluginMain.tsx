@@ -66,6 +66,7 @@ import {easeOut} from 'motion';
 import {
   WorkspaceHeader,
   StatPillsBar,
+  ModuleNavTabs,
   type StatPillItem,
 } from '@/components/common/layout';
 import {PluginService} from '@/lib/services/plugin';
@@ -1103,6 +1104,25 @@ export function PluginMain() {
           icon={<Puzzle className='h-5 w-5 text-primary' />}
           title={t('plugin.marketplace')}
           subtitle={t('plugin.marketplaceDesc')}
+          tabs={
+            <ModuleNavTabs
+              items={[
+                {
+                  key: 'packages',
+                  label: t('installer.packageManagement'),
+                  href: '/packages',
+                  icon: <Package className='size-3.5' />,
+                },
+                {
+                  key: 'plugins',
+                  label: t('dock.pluginMarketplace'),
+                  href: '/plugins',
+                  icon: <Puzzle className='size-3.5' />,
+                },
+              ]}
+              activeKey='plugins'
+            />
+          }
           actions={
             <div className='flex items-center gap-2'>
               <Button

@@ -6,9 +6,9 @@
     "swagger_path_count": 100,
     "swagger_operation_count": 117,
     "swagger_documented_routes": 117,
-    "registered_operations": 102,
+    "registered_operations": 106,
     "route_exceptions": 21,
-    "historical_gaps": 127
+    "historical_gaps": 123
   },
   "routes": [
     {
@@ -256,28 +256,36 @@
       "method": "GET",
       "path": "/api/v1/clusters/:id/events",
       "source": "internal/router/router.go:336",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "monitor.event.list",
+      "mode": "normal",
       "swagger": true
     },
     {
       "method": "GET",
       "path": "/api/v1/clusters/:id/events/stats",
       "source": "internal/router/router.go:337",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "monitor.event.stats",
+      "mode": "normal",
       "swagger": true
     },
     {
       "method": "GET",
       "path": "/api/v1/clusters/:id/monitor-config",
       "source": "internal/router/router.go:334",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "monitor.config.get",
+      "mode": "normal",
       "swagger": true
     },
     {
       "method": "PUT",
       "path": "/api/v1/clusters/:id/monitor-config",
       "source": "internal/router/router.go:335",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "monitor.config.update",
+      "mode": "normal",
       "swagger": true
     },
     {

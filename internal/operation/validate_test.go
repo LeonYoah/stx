@@ -98,7 +98,7 @@ func TestValidateRejectsRepeatedNonQueryInput(t *testing.T) {
 }
 
 func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
-	require.Len(t, Registry(), 102)
+	require.Len(t, Registry(), 106)
 
 	expected := map[string]struct{}{
 		"auth.user-info.get": {}, "admin.user.list": {}, "admin.user.get": {},
@@ -126,6 +126,7 @@ func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
 		"monitoring.alert-policy.bootstrap.get": {}, "monitoring.notifiable-user.list": {},
 		"monitoring.platform-health.get": {}, "monitoring.notification-channel.list": {},
 		"monitoring.notification-delivery.list": {}, "monitoring.notification-route.list": {},
+		"monitor.config.get": {}, "monitor.event.list": {}, "monitor.event.stats": {},
 	}
 	actual := make(map[string]struct{})
 	for _, spec := range Registry() {
@@ -134,6 +135,19 @@ func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
 		}
 	}
 	require.Equal(t, expected, actual)
+}
+
+func TestRegistryContainsMonitorConfigWriteOperation(t *testing.T) {
+	byID := make(map[string]OperationSpec)
+	for _, spec := range Registry() {
+		byID[spec.ID] = spec
+	}
+	spec, exists := byID["monitor.config.update"]
+	require.True(t, exists)
+	require.False(t, spec.GeneratedCLI)
+	require.Equal(t, "PUT", spec.Method)
+	require.Equal(t, RiskR1, spec.Risk)
+	require.NotNil(t, spec.Impact)
 }
 
 func TestMonitoringReadOperationsExposeSupportedFilters(t *testing.T) {

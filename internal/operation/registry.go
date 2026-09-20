@@ -26,7 +26,7 @@ import (
 
 // RegistryRevision 是操作登记表的兼容修订号。
 // RegistryRevision is the compatibility revision of the operation registry.
-const RegistryRevision = 9
+const RegistryRevision = 10
 
 var registry = append([]OperationSpec{
 	{
@@ -1404,7 +1404,35 @@ var registry = append([]OperationSpec{
 func additionalOperationSpecs() []OperationSpec {
 	specs := clusterAdditionalOperationSpecs()
 	specs = append(specs, stUpgradeOperationSpecs()...)
+	specs = append(specs, monitorOperationSpecs()...)
 	return append(specs, monitoringReadOperationSpecs()...)
+}
+
+// monitorOperationSpecs 登记集群进程监控配置和事件命令。
+// monitorOperationSpecs registers cluster process-monitor configuration and event commands.
+func monitorOperationSpecs() []OperationSpec {
+	clusterID := []InputSpec{{Name: "id", Location: InputPath, Required: true, Description: "Cluster ID"}}
+	eventInputs := append(append([]InputSpec{}, clusterID...),
+		InputSpec{Name: "event_type", Location: InputQuery, Description: "Process event type"},
+		InputSpec{Name: "node_id", Location: InputQuery, Description: "Cluster node ID"},
+		InputSpec{Name: "start_time", Location: InputQuery, Description: "Start time in RFC3339 format"},
+		InputSpec{Name: "end_time", Location: InputQuery, Description: "End time in RFC3339 format"},
+		InputSpec{Name: "page", Location: InputQuery, Description: "Page number starting from 1"},
+		InputSpec{Name: "page_size", Location: InputQuery, Description: "Page size"},
+	)
+	statsInputs := append(append([]InputSpec{}, clusterID...), InputSpec{Name: "since", Location: InputQuery, Description: "Start time in RFC3339 format"})
+	return []OperationSpec{
+		clusterGeneratedOperation("monitor.config.get", []string{"monitor", "config", "get"}, "Get cluster monitor configuration", "GET", "/api/v1/clusters/:id/monitor-config", RiskR0,
+			"读取监控配置不会修改集群。", "stx monitor config get 6", clusterID),
+		clusterBodyOperation("monitor.config.update", []string{"monitor", "config", "update"}, "Update cluster monitor configuration", "PUT", "/api/v1/clusters/:id/monitor-config", RiskR1,
+			"修改监控和自动重启参数会改变 Agent 对集群进程的检查与恢复行为。",
+			[]InputSpec{{Name: "id", Location: InputPath, Required: true, Description: "Cluster ID"}, {Name: "request", Location: InputBody, Required: true, Description: "Monitor configuration fields to update"}},
+			"stx monitor config update 6 --monitor-interval 5 --confirm"),
+		clusterGeneratedOperation("monitor.event.list", []string{"monitor", "event", "list"}, "List cluster process events", "GET", "/api/v1/clusters/:id/events", RiskR0,
+			"读取大量进程事件会增加 STX 数据库查询和输出开销。", "stx monitor event list 6 --page_size 20", eventInputs),
+		clusterGeneratedOperation("monitor.event.stats", []string{"monitor", "event", "stats"}, "Get cluster process event statistics", "GET", "/api/v1/clusters/:id/events/stats", RiskR0,
+			"统计较长时间范围的进程事件会增加 STX 数据库查询开销。", "stx monitor event stats 6 --since 2026-09-20T00:00:00Z", statsInputs),
+	}
 }
 
 // monitoringReadOperationSpecs 登记监控中心首批只读 CLI 操作。

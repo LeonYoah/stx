@@ -67,9 +67,25 @@ func TestRootCommandRegistersOnlyPublicServerEntry(t *testing.T) {
 	if _, ok := children["worker"]; ok {
 		t.Fatalf("worker 不应注册 / worker must not be registered")
 	}
-	for _, name := range []string{"auth", "admin", "dashboard", "host", "cluster", "config", "package", "plugin", "monitoring"} {
+	for _, name := range []string{"auth", "admin", "dashboard", "host", "cluster", "config", "package", "plugin", "monitor", "monitoring"} {
 		if hidden, ok := children[name]; !ok || hidden {
 			t.Fatalf("%s API 命令组应公开 / %s API command group must be public: %#v", name, name, children)
+		}
+	}
+}
+
+func TestRootCommandRegistersMonitorCommands(t *testing.T) {
+	command := newRootCommand(func() error { return nil })
+	paths := [][]string{
+		{"monitor", "config", "get"},
+		{"monitor", "config", "update"},
+		{"monitor", "event", "list"},
+		{"monitor", "event", "stats"},
+	}
+	for _, path := range paths {
+		found, remaining, err := command.Find(path)
+		if err != nil || len(remaining) != 0 || found.Name() != path[len(path)-1] {
+			t.Fatalf("进程监控命令未完整注册: path=%v found=%s remaining=%v err=%v", path, found.CommandPath(), remaining, err)
 		}
 	}
 }

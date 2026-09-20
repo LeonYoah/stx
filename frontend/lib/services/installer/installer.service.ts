@@ -323,11 +323,22 @@ export async function cancelInstallation(hostId: number | string): Promise<Insta
  * Start downloading a package to server
  * 开始下载安装包到服务器
  */
-export async function startDownload(version: string, mirror?: MirrorSource, withSource = true): Promise<DownloadTask> {
+export async function startDownload(
+  version: string,
+  mirror?: MirrorSource,
+  withSource = true,
+  idempotencyKey = `web-download-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+): Promise<DownloadTask> {
   const request: DownloadRequest = { version, mirror, with_source: withSource };
   const response = await apiClient.post<DownloadResponse>(
     `${API_PREFIX}/packages/download`,
-    request
+    request,
+    {
+      headers: {
+        'Idempotency-Key': idempotencyKey,
+        'X-STX-Confirm': 'true',
+      },
+    },
   );
   if (response.data.error_msg && !response.data.data) {
     throw new Error(response.data.error_msg);

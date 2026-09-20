@@ -61,6 +61,8 @@ interface UsePackagesReturn {
   startDownload: (
     version: string,
     mirror?: MirrorSource,
+    withSource?: boolean,
+    idempotencyKey?: string,
   ) => Promise<DownloadTask>;
   uploadSource: (version: string, sourceFile: File) => Promise<PackageInfo>;
   fetchSource: (version: string, mirror?: MirrorSource) => Promise<PackageInfo>;
@@ -189,8 +191,18 @@ export function usePackages(): UsePackagesReturn {
   );
 
   const startDownload = useCallback(
-    async (version: string, mirror?: MirrorSource) => {
-      const task = await installerService.startDownload(version, mirror);
+    async (
+      version: string,
+      mirror?: MirrorSource,
+      withSource = true,
+      idempotencyKey?: string,
+    ) => {
+      const task = await installerService.startDownload(
+        version,
+        mirror,
+        withSource,
+        idempotencyKey,
+      );
       await fetchDownloads(); // Start polling
       return task;
     },

@@ -23,6 +23,7 @@ import (
 	"compress/gzip"
 	"context"
 	"errors"
+	"fmt"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -665,6 +666,22 @@ func TestService_StartDownloadIncludesSourceByDefault(t *testing.T) {
 	info, err := service.GetPackageInfo(context.Background(), version)
 	if err != nil || !info.IsLocal || !info.HasSource {
 		t.Fatalf("安装包列表未显示源码 / package info missing source: info=%#v err=%v", info, err)
+	}
+}
+
+func TestGetSourceDownloadURLsIncludesAllMirrors(t *testing.T) {
+	const version = "2.3.13"
+	urls := getSourceDownloadURLs(version)
+	expectedFileName := sourcePackageFileName(version)
+
+	if len(urls) != len(MirrorURLs) {
+		t.Fatalf("源码镜像数量不一致 / source mirror count mismatch: got=%d want=%d", len(urls), len(MirrorURLs))
+	}
+	for mirror, baseURL := range MirrorURLs {
+		expectedURL := fmt.Sprintf("%s/%s/%s", baseURL, version, expectedFileName)
+		if urls[mirror] != expectedURL {
+			t.Fatalf("源码镜像地址错误 / invalid source mirror URL: mirror=%s got=%s want=%s", mirror, urls[mirror], expectedURL)
+		}
 	}
 }
 

@@ -58,6 +58,7 @@ import type {
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
 import {Card} from '@/components/ui/card';
+import {Pagination} from '@/components/ui/pagination';
 import {
   Dialog,
   DialogContent,
@@ -584,7 +585,7 @@ export function DiagnosticsInspectionCenter({
     <div className='space-y-3.5'>
       {/* 统一全宽卡片（彻底消除左右不对称，释放完整横向排版空间） */}
       {/* Unified full-width card container (eliminates asymmetry, maximizes layout room) */}
-      <Card className='border shadow-xs overflow-hidden'>
+      <Card className='border border-border/70 shadow-xs overflow-hidden flex flex-col flex-1 min-h-[480px] sm:min-h-[calc(100vh-270px)]'>
         {/* 顶部胶囊栏与操作区 / Top Stat Pills & Actions */}
         <div className='p-3 border-b bg-card/60 space-y-2.5'>
           {/* 第一行：状态胶囊分段与主要操作 */}
@@ -684,7 +685,7 @@ export function DiagnosticsInspectionCenter({
 
         {/* 全宽对称高密度报告表格 / Full-width Symmetric High-Density Reports Table */}
         <TableLoadingBar loading={loadingReports && reports.length > 0} />
-        <div className='overflow-x-auto'>
+        <div className='overflow-x-auto flex-1'>
           <Table>
             <TableHeader>
               <TableRow className='bg-muted/30 hover:bg-muted/30 h-8'>
@@ -851,35 +852,16 @@ export function DiagnosticsInspectionCenter({
           </Table>
         </div>
 
-        {/* 底部分页控制器 / Pagination Footer */}
-        <div className='flex items-center justify-between p-3 border-t bg-muted/10 text-xs text-muted-foreground'>
-          <div>
-            {t('errors.pageSummary', {page, totalPages})}
-          </div>
-          <div className='flex items-center gap-1.5'>
-            <Button
-              variant='outline'
-              size='sm'
-              className='h-6.5 px-2 text-xs'
-              onClick={() => setPage((current) => Math.max(1, current - 1))}
-              disabled={page <= 1}
-            >
-              {t('errors.previous')}
-            </Button>
-            <Button
-              variant='outline'
-              size='sm'
-              className='h-6.5 px-2 text-xs'
-              onClick={() =>
-                setPage((current) =>
-                  current >= totalPages ? current : current + 1,
-                )
-              }
-              disabled={page >= totalPages}
-            >
-              {t('errors.next')}
-            </Button>
-          </div>
+        {/* 底部分页栏 / Table Footer Pagination */}
+        <div className='border-t bg-muted/10 px-4 py-2.5 mt-auto'>
+          <Pagination
+            currentPage={page}
+            totalPages={totalPages}
+            pageSize={20}
+            totalItems={reportTotal}
+            onPageChange={setPage}
+            showPageSizeSelector={false}
+          />
         </div>
       </Card>
 

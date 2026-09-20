@@ -41,6 +41,8 @@ import {
   ChevronDown,
   ChevronRight,
   CircleHelp,
+  Cpu,
+  Clock,
 } from 'lucide-react';
 import {cn} from '@/lib/utils';
 import type {
@@ -167,207 +169,211 @@ export function RuntimeAdvancedConfigCard({
 
       {expanded && (
         <CardContent
-          className={cn('space-y-3', compact ? 'p-3.5' : 'space-y-4')}
+          className={cn(compact ? 'p-3.5 space-y-3' : 'p-5 space-y-4')}
         >
           {!version ? (
             <p className='text-xs text-muted-foreground'>
               {t('installer.runtimeAdvanced.selectVersionHint')}
             </p>
           ) : (
-            <>
-              {showSlotSettings && (
-                <div
-                  className={cn(
-                    'space-y-3 rounded-lg border',
-                    compact ? 'p-2.5' : 'p-4 space-y-4',
-                  )}
-                >
-                  <h4 className='text-xs font-semibold'>
-                    {t('installer.runtimeAdvanced.slotSectionTitle')}
-                  </h4>
+            <div className='grid grid-cols-1 md:grid-cols-2 gap-4 divide-y md:divide-y-0 md:divide-x divide-border/40'>
+              {/* 左列：Slot 调度体系 / Left Column: Slot Scheduling System */}
+              <div className='space-y-3 md:pr-4'>
+                <div className='flex items-center gap-1.5 pb-1.5 border-b border-border/40 text-xs font-semibold text-foreground/90'>
+                  <Cpu className='h-3.5 w-3.5 text-primary' />
+                  <span>{t('installer.runtimeAdvanced.slotSectionTitle')}</span>
+                </div>
 
-                  <div className='space-y-1.5'>
-                    <div className='flex items-center gap-1.5'>
-                      <Label className='text-xs'>
-                        {t('installer.runtimeAdvanced.slotMode')}
-                      </Label>
-                      <FieldHint
-                        text={t('installer.runtimeAdvanced.dynamicSlotHint')}
-                      />
-                    </div>
-                    <Select
-                      value={runtime.dynamic_slot ? 'dynamic' : 'static'}
-                      onValueChange={(value) =>
-                        onChange({dynamic_slot: value === 'dynamic'})
-                      }
-                    >
-                      <SelectTrigger className={cn(compact && 'h-8 text-xs')}>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value='dynamic'>
-                          {t('installer.runtimeAdvanced.dynamicSlot')}
-                        </SelectItem>
-                        <SelectItem value='static'>
-                          {t('installer.runtimeAdvanced.staticSlot')}
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {capabilities?.supports_slot_allocation_strategy ? (
-                    <div className='space-y-1.5'>
+                {showSlotSettings ? (
+                  <div className='space-y-3'>
+                    {/* Slot 模式选择 / Slot mode select */}
+                    <div className='space-y-1'>
                       <div className='flex items-center gap-1.5'>
-                        <Label className='text-xs'>
-                          {t(
-                            'installer.runtimeAdvanced.slotAllocationStrategy',
-                          )}
+                        <Label className='text-xs font-medium'>
+                          {t('installer.runtimeAdvanced.slotMode')}
                         </Label>
                         <FieldHint
-                          text={
-                            runtime.slot_allocation_strategy === 'SYSTEM_LOAD'
-                              ? t(
-                                  'installer.runtimeAdvanced.slotAllocationSystemLoadDesc',
-                                )
-                              : runtime.slot_allocation_strategy ===
-                                  'SLOT_RATIO'
-                                ? t(
-                                    'installer.runtimeAdvanced.slotAllocationSlotRatioDesc',
-                                  )
-                                : t(
-                                    'installer.runtimeAdvanced.slotAllocationRandomDesc',
-                                  )
-                          }
+                          text={t('installer.runtimeAdvanced.dynamicSlotHint')}
                         />
                       </div>
                       <Select
-                        value={runtime.slot_allocation_strategy}
-                        onValueChange={(value: SlotAllocationStrategy) =>
-                          onChange({slot_allocation_strategy: value})
+                        value={runtime.dynamic_slot ? 'dynamic' : 'static'}
+                        onValueChange={(value) =>
+                          onChange({dynamic_slot: value === 'dynamic'})
                         }
                       >
                         <SelectTrigger className={cn(compact && 'h-8 text-xs')}>
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value='RANDOM'>
-                            {t(
-                              'installer.runtimeAdvanced.slotAllocationRandom',
-                            )}
+                          <SelectItem value='dynamic'>
+                            {t('installer.runtimeAdvanced.dynamicSlot')}
                           </SelectItem>
-                          <SelectItem value='SYSTEM_LOAD'>
-                            {t(
-                              'installer.runtimeAdvanced.slotAllocationSystemLoad',
-                            )}
-                          </SelectItem>
-                          <SelectItem value='SLOT_RATIO'>
-                            {t(
-                              'installer.runtimeAdvanced.slotAllocationSlotRatio',
-                            )}
+                          <SelectItem value='static'>
+                            {t('installer.runtimeAdvanced.staticSlot')}
                           </SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
-                  ) : null}
 
-                  {!runtime.dynamic_slot && (
-                    <div className='grid gap-3 md:grid-cols-2'>
-                      {capabilities?.supports_slot_num && (
-                        <div className='space-y-1.5'>
-                          <div className='flex items-center gap-1.5'>
-                            <Label className='text-xs'>
-                              {t('installer.runtimeAdvanced.slotNum')}
-                            </Label>
-                            <FieldHint
-                              text={t('installer.runtimeAdvanced.slotNumHint')}
-                            />
-                          </div>
-                          <Input
-                            type='number'
-                            value={runtime.slot_num}
-                            onChange={(event) =>
-                              onChange({
-                                slot_num: Math.max(
-                                  1,
-                                  Number.parseInt(event.target.value, 10) || 1,
-                                ),
-                              })
+                    {/* Slot 分配策略 / Slot allocation strategy */}
+                    {capabilities?.supports_slot_allocation_strategy ? (
+                      <div className='space-y-1'>
+                        <div className='flex items-center gap-1.5'>
+                          <Label className='text-xs font-medium'>
+                            {t(
+                              'installer.runtimeAdvanced.slotAllocationStrategy',
+                            )}
+                          </Label>
+                          <FieldHint
+                            text={
+                              runtime.slot_allocation_strategy === 'SYSTEM_LOAD'
+                                ? t(
+                                    'installer.runtimeAdvanced.slotAllocationSystemLoadDesc',
+                                  )
+                                : runtime.slot_allocation_strategy ===
+                                    'SLOT_RATIO'
+                                  ? t(
+                                      'installer.runtimeAdvanced.slotAllocationSlotRatioDesc',
+                                    )
+                                  : t(
+                                      'installer.runtimeAdvanced.slotAllocationRandomDesc',
+                                    )
                             }
-                            min={1}
-                            step={1}
-                            className={cn(compact && 'h-8 text-xs font-mono')}
                           />
                         </div>
-                      )}
-
-                      {capabilities?.supports_job_schedule_strategy ? (
-                        <div className='space-y-1.5'>
-                          <div className='flex items-center gap-1.5'>
-                            <Label className='text-xs'>
+                        <Select
+                          value={runtime.slot_allocation_strategy}
+                          onValueChange={(value: SlotAllocationStrategy) =>
+                            onChange({slot_allocation_strategy: value})
+                          }
+                        >
+                          <SelectTrigger className={cn(compact && 'h-8 text-xs')}>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value='RANDOM'>
                               {t(
-                                'installer.runtimeAdvanced.jobScheduleStrategy',
+                                'installer.runtimeAdvanced.slotAllocationRandom',
                               )}
-                            </Label>
-                            <FieldHint
-                              text={t(
-                                'installer.runtimeAdvanced.jobScheduleHint',
+                            </SelectItem>
+                            <SelectItem value='SYSTEM_LOAD'>
+                              {t(
+                                'installer.runtimeAdvanced.slotAllocationSystemLoad',
                               )}
+                            </SelectItem>
+                            <SelectItem value='SLOT_RATIO'>
+                              {t(
+                                'installer.runtimeAdvanced.slotAllocationSlotRatio',
+                              )}
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    ) : null}
+
+                    {/* 静态 Slot 额外参数 / Static slot parameters */}
+                    {!runtime.dynamic_slot && (
+                      <div className='grid grid-cols-2 gap-2.5 pt-0.5'>
+                        {capabilities?.supports_slot_num && (
+                          <div className='space-y-1'>
+                            <div className='flex items-center gap-1.5'>
+                              <Label className='text-xs font-medium'>
+                                {t('installer.runtimeAdvanced.slotNum')}
+                              </Label>
+                              <FieldHint
+                                text={t('installer.runtimeAdvanced.slotNumHint')}
+                              />
+                            </div>
+                            <Input
+                              type='number'
+                              value={runtime.slot_num}
+                              onChange={(event) =>
+                                onChange({
+                                  slot_num: Math.max(
+                                    1,
+                                    Number.parseInt(event.target.value, 10) || 1,
+                                  ),
+                                })
+                              }
+                              min={1}
+                              step={1}
+                              className={cn(compact && 'h-8 text-xs font-mono')}
                             />
                           </div>
-                          <Select
-                            value={runtime.job_schedule_strategy}
-                            onValueChange={(value: JobScheduleStrategy) =>
-                              onChange({job_schedule_strategy: value})
-                            }
-                          >
-                            <SelectTrigger
-                              className={cn(compact && 'h-8 text-xs')}
-                            >
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value='REJECT'>
+                        )}
+
+                        {capabilities?.supports_job_schedule_strategy ? (
+                          <div className='space-y-1'>
+                            <div className='flex items-center gap-1.5'>
+                              <Label className='text-xs font-medium'>
                                 {t(
-                                  'installer.runtimeAdvanced.jobScheduleReject',
+                                  'installer.runtimeAdvanced.jobScheduleStrategy',
                                 )}
-                              </SelectItem>
-                              <SelectItem value='WAIT'>
-                                {t('installer.runtimeAdvanced.jobScheduleWait')}
-                              </SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      ) : null}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {showHistorySettings && (
-                <div
-                  className={cn(
-                    'space-y-3 rounded-lg border',
-                    compact ? 'p-2.5' : 'p-4 space-y-4',
-                  )}
-                >
-                  <h4 className='text-xs font-semibold'>
-                    {t('installer.runtimeAdvanced.historySectionTitle')}
-                  </h4>
-
-                  {capabilities?.supports_history_job_expire_minutes ? (
-                    <div className='space-y-1.5'>
-                      <div className='flex items-center gap-1.5'>
-                        <Label className='text-xs'>
-                          {t(
-                            'installer.runtimeAdvanced.historyJobExpireMinutes',
-                          )}
-                        </Label>
-                        <FieldHint
-                          text={t(
-                            'installer.runtimeAdvanced.historyJobExpireHint',
-                          )}
-                        />
+                              </Label>
+                              <FieldHint
+                                text={t(
+                                  'installer.runtimeAdvanced.jobScheduleHint',
+                                )}
+                              />
+                            </div>
+                            <Select
+                              value={runtime.job_schedule_strategy}
+                              onValueChange={(value: JobScheduleStrategy) =>
+                                onChange({job_schedule_strategy: value})
+                              }
+                            >
+                              <SelectTrigger
+                                className={cn(compact && 'h-8 text-xs')}
+                              >
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value='REJECT'>
+                                  {t(
+                                    'installer.runtimeAdvanced.jobScheduleReject',
+                                  )}
+                                </SelectItem>
+                                <SelectItem value='WAIT'>
+                                  {t(
+                                    'installer.runtimeAdvanced.jobScheduleWait',
+                                  )}
+                                </SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        ) : null}
                       </div>
+                    )}
+                  </div>
+                ) : null}
+              </div>
+
+              {/* 右列：作业生命周期与日志 / Right Column: Job Lifecycle & Log Mode */}
+              <div className='space-y-3 pt-3 md:pt-0 md:pl-4'>
+                <div className='flex items-center gap-1.5 pb-1.5 border-b border-border/40 text-xs font-semibold text-foreground/90'>
+                  <Clock className='h-3.5 w-3.5 text-primary' />
+                  <span>
+                    {t('installer.runtimeAdvanced.historySectionTitle')}
+                  </span>
+                </div>
+
+                {/* 历史作业保留时间 / History job expire minutes */}
+                {showHistorySettings && capabilities?.supports_history_job_expire_minutes ? (
+                  <div className='space-y-1'>
+                    <div className='flex items-center gap-1.5'>
+                      <Label className='text-xs font-medium'>
+                        {t(
+                          'installer.runtimeAdvanced.historyJobExpireMinutes',
+                        )}
+                      </Label>
+                      <FieldHint
+                        text={t(
+                          'installer.runtimeAdvanced.historyJobExpireHint',
+                        )}
+                      />
+                    </div>
+                    <div className='relative'>
                       <Input
                         type='number'
                         value={runtime.history_job_expire_minutes}
@@ -381,63 +387,30 @@ export function RuntimeAdvancedConfigCard({
                         }
                         min={1}
                         step={1}
-                        className={cn(compact && 'h-8 text-xs font-mono')}
+                        className={cn(compact && 'h-8 text-xs font-mono pr-12')}
                       />
+                      <span className='absolute right-2.5 top-2 text-[10px] text-muted-foreground pointer-events-none'>
+                        min
+                      </span>
                     </div>
-                  ) : (
-                    <p className='text-xs text-muted-foreground'>
-                      {t('installer.runtimeAdvanced.historyUnsupported')}
-                    </p>
-                  )}
+                  </div>
+                ) : null}
 
-                  {capabilities?.supports_scheduled_deletion_enable ? (
-                    <label className='flex items-center gap-2.5 rounded-md border px-2.5 py-2'>
-                      <Checkbox
-                        checked={runtime.scheduled_deletion_enable}
-                        onCheckedChange={(checked) =>
-                          onChange({
-                            scheduled_deletion_enable: checked === true,
-                          })
+                {/* 日志输出模式 / Log output mode */}
+                {showJobLogSettings ? (
+                  <div className='space-y-1'>
+                    <div className='flex items-center gap-1.5'>
+                      <Label className='text-xs font-medium'>
+                        {t('installer.jobLogMode.mode')}
+                      </Label>
+                      <FieldHint
+                        text={
+                          runtime.job_log_mode === 'per_job'
+                            ? t('installer.jobLogMode.perJobHint')
+                            : t('installer.jobLogMode.mixedHint')
                         }
                       />
-                      <span className='text-xs font-medium flex items-center gap-1.5'>
-                        {t(
-                          'installer.runtimeAdvanced.scheduledDeletionEnable',
-                        )}
-                        <FieldHint
-                          text={t(
-                            'installer.runtimeAdvanced.scheduledDeletionHint',
-                          )}
-                        />
-                      </span>
-                    </label>
-                  ) : null}
-                </div>
-              )}
-
-              {showJobLogSettings ? (
-                <div
-                  className={cn(
-                    'space-y-3 rounded-lg border',
-                    compact ? 'p-2.5' : 'p-4 space-y-4',
-                  )}
-                >
-                  <div className='flex items-center gap-1.5'>
-                    <h4 className='text-xs font-semibold'>
-                      {t('installer.jobLogMode.title')}
-                    </h4>
-                    <FieldHint
-                      text={
-                        runtime.job_log_mode === 'per_job'
-                          ? t('installer.jobLogMode.perJobHint')
-                          : t('installer.jobLogMode.mixedHint')
-                      }
-                    />
-                  </div>
-                  <div className='space-y-1.5'>
-                    <Label className='text-xs'>
-                      {t('installer.jobLogMode.mode')}
-                    </Label>
+                    </div>
                     <Select
                       value={runtime.job_log_mode}
                       onValueChange={(value: JobLogMode) =>
@@ -460,9 +433,36 @@ export function RuntimeAdvancedConfigCard({
                       </SelectContent>
                     </Select>
                   </div>
-                </div>
-              ) : null}
-            </>
+                ) : null}
+
+                {/* 自动删除过期作业日志 / Scheduled log deletion */}
+                {capabilities?.supports_scheduled_deletion_enable ? (
+                  <div className='pt-1'>
+                    <label className='flex items-center gap-2 text-xs cursor-pointer select-none'>
+                      <Checkbox
+                        checked={runtime.scheduled_deletion_enable}
+                        onCheckedChange={(checked) =>
+                          onChange({
+                            scheduled_deletion_enable: checked === true,
+                          })
+                        }
+                        className='h-3.5 w-3.5'
+                      />
+                      <span className='text-muted-foreground hover:text-foreground transition-colors'>
+                        {t(
+                          'installer.runtimeAdvanced.scheduledDeletionEnable',
+                        )}
+                      </span>
+                      <FieldHint
+                        text={t(
+                          'installer.runtimeAdvanced.scheduledDeletionHint',
+                        )}
+                      />
+                    </label>
+                  </div>
+                ) : null}
+              </div>
+            </div>
           )}
         </CardContent>
       )}

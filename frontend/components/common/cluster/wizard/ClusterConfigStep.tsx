@@ -43,11 +43,6 @@ import {
 } from '@/components/ui/select';
 import {ScrollArea} from '@/components/ui/scroll-area';
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
-import {
   CheckCircle2,
   AlertTriangle,
   Download,
@@ -56,7 +51,7 @@ import {
   HardDrive,
   Database,
   Sliders,
-  CircleHelp,
+  Info,
 } from 'lucide-react';
 import {DeploymentMode} from '@/lib/services/cluster/types';
 import {RuntimeAdvancedConfigCard} from '@/components/common/installer/RuntimeAdvancedConfigCard';
@@ -837,63 +832,91 @@ export function ClusterConfigStep({
             </CardContent>
           </Card>
 
-          {/* 5. IMAP 配置 / IMAP configuration */}
+          {/* 5. IMAP 状态存储配置 / IMAP State Storage Configuration */}
           <Card className='shadow-none border-border/70'>
             <CardHeader className='py-2.5 px-3.5 border-b bg-muted/15 flex flex-row items-center justify-between gap-3'>
-              <CardTitle className='text-xs font-semibold flex items-center gap-1.5'>
-                <Database className='h-3.5 w-3.5 text-primary' />
-                {t('installer.runtimeStorage.imapTitle')}
-              </CardTitle>
               <div className='flex items-center gap-2'>
+                <CardTitle className='text-xs font-semibold flex items-center gap-1.5'>
+                  <Database className='h-3.5 w-3.5 text-primary' />
+                  {t('installer.runtimeStorage.imapTitle')}
+                </CardTitle>
+                <span className='text-[11px] text-muted-foreground hidden sm:inline'>
+                  ({t('installer.runtimeStorage.imapSubtitle', {defaultMessage: '作业恢复元数据'})})
+                </span>
+              </div>
+              <div className='flex items-center gap-2.5'>
                 <Badge
                   variant='outline'
-                  className='text-[10px] py-0 h-4 font-normal'
+                  className={`text-[10px] py-0 h-4 font-normal ${
+                    imapExternalEnabled
+                      ? 'text-emerald-600 bg-emerald-500/10 border-emerald-500/20'
+                      : 'text-muted-foreground bg-muted/40 border-border/50'
+                  }`}
                 >
                   {imapExternalEnabled
                     ? t('installer.runtimeStorage.imapExternalOn')
                     : t('installer.runtimeStorage.imapInMemory')}
                 </Badge>
-                <Switch
-                  id='imap-external-toggle'
-                  checked={imapExternalEnabled}
-                  onCheckedChange={handleImapExternalToggle}
-                />
+                <div className='flex items-center gap-1.5'>
+                  <Label
+                    htmlFor='imap-external-toggle'
+                    className='text-xs font-normal text-muted-foreground cursor-pointer select-none'
+                  >
+                    {t('installer.runtimeStorage.imapEnableLabel')}
+                  </Label>
+                  <Switch
+                    id='imap-external-toggle'
+                    checked={imapExternalEnabled}
+                    onCheckedChange={handleImapExternalToggle}
+                  />
+                </div>
               </div>
             </CardHeader>
-            <CardContent className='p-3.5 space-y-3'>
-              <div className='flex items-start gap-1.5 text-[11px] text-muted-foreground'>
-                <span>{t('installer.runtimeStorage.imapDescription')}</span>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type='button'
-                      className='text-muted-foreground/70 hover:text-foreground shrink-0 mt-0.5'
-                      aria-label={t('installer.runtimeStorage.imapEnableHint')}
-                    >
-                      <CircleHelp className='h-3.5 w-3.5' />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent className='max-w-xs text-xs leading-relaxed'>
-                    {t('installer.runtimeStorage.imapEnableHint')}
-                  </TooltipContent>
-                </Tooltip>
-              </div>
 
-              {imapExternalEnabled && (
+            <CardContent className='p-3.5 space-y-3'>
+              {/* 未开启外部存储：高信噪比纯内存说明卡 / When disabled: high-signal in-memory notice */}
+              {!imapExternalEnabled ? (
+                <div className='rounded-lg border border-border/60 bg-muted/15 p-3 space-y-1.5'>
+                  <div className='flex items-center gap-2 text-xs font-medium text-foreground/90'>
+                    <Info className='h-4 w-4 text-sky-500 shrink-0' />
+                    <span>{t('installer.runtimeStorage.imapInMemoryTitle')}</span>
+                  </div>
+                  <p className='text-xs text-muted-foreground leading-relaxed pl-6'>
+                    {t('installer.runtimeStorage.imapInMemoryNotice')}
+                  </p>
+                </div>
+              ) : (
+                /* 已开启外部存储：展开存储类型与配置 / When enabled: reveal storage options */
                 <>
-                  <div className='flex items-center justify-end'>
+                  <div className='rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-2.5 flex items-center justify-between gap-3'>
+                    <div className='flex items-center gap-2 text-xs text-emerald-700 dark:text-emerald-400'>
+                      <CheckCircle2 className='h-3.5 w-3.5 shrink-0' />
+                      <span className='leading-tight'>
+                        {t('installer.runtimeStorage.imapExternalNotice')}
+                      </span>
+                    </div>
                     <Button
                       variant='outline'
                       size='sm'
                       onClick={applyCheckpointToImap}
-                      className='h-6 text-[11px] px-2'
+                      className='h-6 text-[11px] px-2 shrink-0 border-emerald-500/30 hover:bg-emerald-500/10'
                     >
                       <Copy className='h-3 w-3 mr-1' />
                       {t('installer.runtimeStorage.applyToImap')}
                     </Button>
                   </div>
 
-                  <div className='grid grid-cols-1 sm:grid-cols-2 gap-3'>
+                  {selectedHosts.length > 1 &&
+                    config.imap.storage_type === 'LOCAL_FILE' && (
+                      <div className='rounded-md border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs text-amber-700 dark:text-amber-300 flex items-center gap-2'>
+                        <AlertTriangle className='h-4 w-4 shrink-0 text-amber-500' />
+                        <span>
+                          {t('installer.runtimeStorage.checkpointLocalWarning')}
+                        </span>
+                      </div>
+                    )}
+
+                  <div className='grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1'>
                     <div className='space-y-1'>
                       <Label className='text-xs font-medium'>
                         {t('installer.storageType')}
@@ -926,6 +949,7 @@ export function ClusterConfigStep({
                         </SelectContent>
                       </Select>
                     </div>
+
                     <div className='space-y-1'>
                       <Label className='text-xs font-medium'>
                         {t('installer.namespace')}
@@ -940,7 +964,11 @@ export function ClusterConfigStep({
                             },
                           })
                         }
-                        placeholder='/tmp/seatunnel/imap/'
+                        placeholder={
+                          config.imap.storage_type === 'LOCAL_FILE'
+                            ? '/tmp/seatunnel/imap/'
+                            : '/seatunnel/imap/'
+                        }
                         className='h-8 text-xs font-mono'
                       />
                     </div>
@@ -948,7 +976,7 @@ export function ClusterConfigStep({
 
                   {config.imap.storage_type !== 'LOCAL_FILE' &&
                     config.imap.storage_type !== 'DISABLED' && (
-                      <div className='space-y-2 pt-1 border-t border-border/40'>
+                      <div className='space-y-2 pt-2 border-t border-border/40'>
                         <p className='text-[11px] text-muted-foreground leading-relaxed'>
                           {t(
                             'installer.runtimeStorage.remoteStorageInstallHint',

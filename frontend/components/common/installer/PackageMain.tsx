@@ -26,6 +26,7 @@ import {useState, useMemo} from 'react';
 import {usePackages} from '@/hooks/use-installer';
 import {PackageTable} from './PackageTable';
 import {UploadPackageDialog} from './UploadPackageDialog';
+import {DownloadPackageDialog} from './DownloadPackageDialog';
 import {Button} from '@/components/ui/button';
 import {Card} from '@/components/ui/card';
 import {Badge} from '@/components/ui/badge';
@@ -36,6 +37,7 @@ import {
   StatPillsBar,
   type StatPillItem,
 } from '@/components/common/layout';
+import type {MirrorSource} from '@/lib/services/installer/types';
 
 export function PackageMain() {
   const t = useTranslations();
@@ -55,6 +57,7 @@ export function PackageMain() {
     refreshingVersions,
   } = usePackages();
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
+  const [downloadVersion, setDownloadVersion] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'online' | 'local'>('online');
 
   const handleUpload = async (
@@ -79,14 +82,11 @@ export function PackageMain() {
 
   const handleDownload = async (
     version: string,
-    mirror: 'aliyun' | 'apache' | 'huaweicloud',
+    mirror: MirrorSource,
+    withSource: boolean,
+    idempotencyKey: string,
   ) => {
-    try {
-      await startDownload(version, mirror);
-    } catch (err) {
-      // 错误由 hook 统一捕获与通知 / Error handled by hook
-      console.error('Download failed:', err);
-    }
+    await startDownload(version, mirror, withSource, idempotencyKey);
   };
 
   // 状态胶囊配置：消除冗余说明卡片，垂直空间利用率最大化
@@ -195,7 +195,7 @@ export function PackageMain() {
               localPackages={packages?.local_packages || []}
               recommendedVersion={packages?.recommended_version}
               loading={loading}
-              onDownload={handleDownload}
+              onDownloadRequest={setDownloadVersion}
               downloads={downloads}
             />
           ) : (
@@ -220,6 +220,14 @@ export function PackageMain() {
         existingLocalVersions={(packages?.local_packages || []).map(
           (pkg) => pkg.version,
         )}
+      />
+
+      {/* 在线下载对话框 / Online download dialog */}
+      <DownloadPackageDialog
+        open={downloadVersion !== null}
+        version={downloadVersion}
+        onOpenChange={(open) => !open && setDownloadVersion(null)}
+        onDownload={handleDownload}
       />
     </div>
   );

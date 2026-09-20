@@ -98,7 +98,7 @@ func TestValidateRejectsRepeatedNonQueryInput(t *testing.T) {
 }
 
 func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
-	require.Len(t, Registry(), 87)
+	require.Len(t, Registry(), 102)
 
 	expected := map[string]struct{}{
 		"auth.user-info.get": {}, "admin.user.list": {}, "admin.user.get": {},
@@ -119,6 +119,13 @@ func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
 		"plugin.download.status.get": {}, "plugin.dependency.list": {}, "plugin.official-dependency.list": {},
 		"stupgrade.plan.get": {}, "stupgrade.task.list": {}, "stupgrade.task.get": {},
 		"stupgrade.task.steps": {}, "stupgrade.task.logs": {},
+		"monitoring.overview.get": {}, "monitoring.cluster.overview.get": {},
+		"monitoring.alert-policy.list": {}, "monitoring.alert-policy.execution.list": {},
+		"monitoring.alert-instance.list": {}, "monitoring.alert.list": {}, "monitoring.remote-alert.list": {},
+		"monitoring.cluster.rule.list": {}, "monitoring.integration.status": {},
+		"monitoring.alert-policy.bootstrap.get": {}, "monitoring.notifiable-user.list": {},
+		"monitoring.platform-health.get": {}, "monitoring.notification-channel.list": {},
+		"monitoring.notification-delivery.list": {}, "monitoring.notification-route.list": {},
 	}
 	actual := make(map[string]struct{})
 	for _, spec := range Registry() {
@@ -127,6 +134,40 @@ func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
 		}
 	}
 	require.Equal(t, expected, actual)
+}
+
+func TestMonitoringReadOperationsExposeSupportedFilters(t *testing.T) {
+	byID := make(map[string]OperationSpec)
+	for _, spec := range Registry() {
+		byID[spec.ID] = spec
+	}
+
+	expectedQueries := map[string][]string{
+		"monitoring.alert-policy.execution.list": {"status", "event_type", "start_time", "end_time", "page", "page_size"},
+		"monitoring.alert-instance.list":         {"source_type", "cluster_id", "severity", "status", "lifecycle_status", "handling_status", "start_time", "end_time", "page", "page_size"},
+		"monitoring.alert.list":                  {"cluster_id", "status", "start_time", "end_time", "page", "page_size"},
+		"monitoring.remote-alert.list":           {"cluster_id", "status", "start_time", "end_time", "page", "page_size"},
+		"monitoring.notification-delivery.list":  {"policy_id", "channel_id", "status", "event_type", "cluster_id", "start_time", "end_time", "page", "page_size"},
+	}
+
+	for operationID, names := range expectedQueries {
+		spec, exists := byID[operationID]
+		require.True(t, exists, operationID)
+		queryNames := make([]string, 0, len(spec.Input))
+		hasPathInput := false
+		for _, input := range spec.Input {
+			if input.Location == InputQuery {
+				queryNames = append(queryNames, input.Name)
+			}
+			if input.Location == InputPath {
+				hasPathInput = true
+			}
+		}
+		require.Equal(t, names, queryNames, operationID)
+		if !hasPathInput {
+			require.NotContains(t, spec.Example, " list 1", operationID)
+		}
+	}
 }
 
 func TestRegistryContainsClusterWriteOperations(t *testing.T) {

@@ -26,7 +26,7 @@ import (
 
 // RegistryRevision 是操作登记表的兼容修订号。
 // RegistryRevision is the compatibility revision of the operation registry.
-const RegistryRevision = 8
+const RegistryRevision = 9
 
 var registry = append([]OperationSpec{
 	{
@@ -1403,7 +1403,123 @@ var registry = append([]OperationSpec{
 // additionalOperationSpecs returns supplemental operation registrations maintained by module.
 func additionalOperationSpecs() []OperationSpec {
 	specs := clusterAdditionalOperationSpecs()
-	return append(specs, stUpgradeOperationSpecs()...)
+	specs = append(specs, stUpgradeOperationSpecs()...)
+	return append(specs, monitoringReadOperationSpecs()...)
+}
+
+// monitoringReadOperationSpecs 登记监控中心首批只读 CLI 操作。
+// monitoringReadOperationSpecs registers the first read-only monitoring CLI operations.
+func monitoringReadOperationSpecs() []OperationSpec {
+	clusterID := []InputSpec{{Name: "id", Location: InputPath, Required: true, Description: "Cluster ID"}}
+	policyID := []InputSpec{{Name: "id", Location: InputPath, Required: true, Description: "Alert policy ID"}}
+	policyExecutionInputs := append(append([]InputSpec{}, policyID...), monitoringDeliveryFilterInputs(false)...)
+	alertInstanceInputs := append([]InputSpec{
+		{Name: "source_type", Location: InputQuery, Description: "Alert source: local_process_event or remote_alertmanager"},
+		{Name: "cluster_id", Location: InputQuery, Description: "Cluster ID or all"},
+		{Name: "severity", Location: InputQuery, Description: "Alert severity: warning or critical"},
+		{Name: "status", Location: InputQuery, Description: "Display status: firing, resolved, or closed"},
+		{Name: "lifecycle_status", Location: InputQuery, Description: "Lifecycle status: firing or resolved"},
+		{Name: "handling_status", Location: InputQuery, Description: "Handling status: pending, acknowledged, silenced, or closed"},
+	}, monitoringTimeAndPaginationInputs()...)
+	alertInputs := append([]InputSpec{
+		{Name: "cluster_id", Location: InputQuery, Description: "Cluster ID"},
+		{Name: "status", Location: InputQuery, Description: "Alert status: firing, acknowledged, or silenced"},
+	}, monitoringTimeAndPaginationInputs()...)
+	remoteAlertInputs := append([]InputSpec{
+		{Name: "cluster_id", Location: InputQuery, Description: "Cluster ID or all"},
+		{Name: "status", Location: InputQuery, Description: "Remote alert status filter"},
+	}, monitoringTimeAndPaginationInputs()...)
+	return []OperationSpec{
+		monitoringReadOperation("monitoring.overview.get", []string{"monitoring", "overview", "get"}, "Get monitoring overview", "/api/v1/monitoring/overview", nil),
+		monitoringReadOperation("monitoring.cluster.overview.get", []string{"monitoring", "cluster", "overview", "get"}, "Get cluster monitoring overview", "/api/v1/monitoring/clusters/:id/overview", clusterID),
+		monitoringReadOperation("monitoring.alert-policy.list", []string{"monitoring", "alert-policy", "list"}, "List alert policies", "/api/v1/monitoring/alert-policies", nil),
+		monitoringReadOperation("monitoring.alert-policy.execution.list", []string{"monitoring", "alert-policy", "execution", "list"}, "List alert policy executions", "/api/v1/monitoring/alert-policies/:id/executions", policyExecutionInputs),
+		monitoringReadOperation("monitoring.alert-instance.list", []string{"monitoring", "alert-instance", "list"}, "List alert instances", "/api/v1/monitoring/alert-instances", alertInstanceInputs),
+		monitoringReadOperation("monitoring.alert.list", []string{"monitoring", "alert", "list"}, "List local alerts", "/api/v1/monitoring/alerts", alertInputs),
+		monitoringReadOperation("monitoring.remote-alert.list", []string{"monitoring", "remote-alert", "list"}, "List remote alerts", "/api/v1/monitoring/remote-alerts", remoteAlertInputs),
+		monitoringReadOperation("monitoring.cluster.rule.list", []string{"monitoring", "cluster", "rule", "list"}, "List cluster alert rules", "/api/v1/monitoring/clusters/:id/rules", clusterID),
+		monitoringReadOperation("monitoring.integration.status", []string{"monitoring", "integration", "status"}, "Get monitoring integration status", "/api/v1/monitoring/integration/status", nil),
+		monitoringReadOperation("monitoring.alert-policy.bootstrap.get", []string{"monitoring", "alert-policy", "bootstrap", "get"}, "Get alert policy center bootstrap", "/api/v1/monitoring/alert-policies/bootstrap", nil),
+		monitoringReadOperation("monitoring.notifiable-user.list", []string{"monitoring", "notifiable-user", "list"}, "List notifiable users", "/api/v1/monitoring/notifiable-users", nil),
+		monitoringReadOperation("monitoring.platform-health.get", []string{"monitoring", "platform-health", "get"}, "Get platform health", "/api/v1/monitoring/platform-health", nil),
+		monitoringReadOperation("monitoring.notification-channel.list", []string{"monitoring", "notification-channel", "list"}, "List notification channels", "/api/v1/monitoring/notification-channels", nil),
+		monitoringReadOperation("monitoring.notification-delivery.list", []string{"monitoring", "notification-delivery", "list"}, "List notification deliveries", "/api/v1/monitoring/notification-deliveries", monitoringDeliveryFilterInputs(true)),
+		monitoringReadOperation("monitoring.notification-route.list", []string{"monitoring", "notification-route", "list"}, "List notification routes", "/api/v1/monitoring/notification-routes", nil),
+	}
+}
+
+// monitoringTimeAndPaginationInputs 返回监控列表共用的时间范围和分页参数。
+// monitoringTimeAndPaginationInputs returns the shared time range and pagination inputs for monitoring lists.
+func monitoringTimeAndPaginationInputs() []InputSpec {
+	return []InputSpec{
+		{Name: "start_time", Location: InputQuery, Description: "Start time in RFC3339 format"},
+		{Name: "end_time", Location: InputQuery, Description: "End time in RFC3339 format"},
+		{Name: "page", Location: InputQuery, Description: "Page number starting from 1"},
+		{Name: "page_size", Location: InputQuery, Description: "Page size"},
+	}
+}
+
+// monitoringDeliveryFilterInputs 返回通知投递和策略执行记录共用的筛选参数。
+// monitoringDeliveryFilterInputs returns filters shared by notification deliveries and policy executions.
+func monitoringDeliveryFilterInputs(includeResourceIDs bool) []InputSpec {
+	inputs := make([]InputSpec, 0, 9)
+	if includeResourceIDs {
+		inputs = append(inputs,
+			InputSpec{Name: "policy_id", Location: InputQuery, Description: "Alert policy ID"},
+			InputSpec{Name: "channel_id", Location: InputQuery, Description: "Notification channel ID"},
+		)
+	}
+	inputs = append(inputs,
+		InputSpec{Name: "status", Location: InputQuery, Description: "Delivery status: pending, sending, sent, failed, retrying, or canceled"},
+		InputSpec{Name: "event_type", Location: InputQuery, Description: "Delivery event: firing, resolved, or test"},
+	)
+	if includeResourceIDs {
+		inputs = append(inputs, InputSpec{Name: "cluster_id", Location: InputQuery, Description: "Cluster ID or all"})
+	}
+	return append(inputs, monitoringTimeAndPaginationInputs()...)
+}
+
+// monitoringReadOperation 创建可由普通 GET 构建器生成的监控查询。
+// monitoringReadOperation creates a monitoring query generated by the normal GET builder.
+func monitoringReadOperation(id string, commandPath []string, summary, route string, inputs []InputSpec) OperationSpec {
+	return OperationSpec{
+		ID: id, CommandPath: commandPath, Summary: summary, GeneratedCLI: true, Method: "GET", Route: route,
+		Mode: ModeNormal, AuthRequired: true, Risk: RiskR0, Revision: 1, SupportsPick: true, Input: inputs,
+		Example:       "stx " + strings.Join(commandPath, " ") + monitoringExampleArgs(inputs),
+		OutputExample: fmt.Sprintf(`{"api_version":"v1","operation_id":%q,"request_id":"req_example","data":{},"result_meta":{"complete":true}}`, id),
+	}
+}
+
+// monitoringExampleArgs 根据路径参数和首个查询参数生成可执行示例。
+// monitoringExampleArgs builds an executable example from path inputs and the first query input.
+func monitoringExampleArgs(inputs []InputSpec) string {
+	args := ""
+	for _, input := range inputs {
+		if input.Location == InputPath {
+			args += " 1"
+		}
+	}
+	for _, input := range inputs {
+		if input.Location == InputQuery {
+			return args + " --" + input.Name + " " + monitoringExampleValue(input.Name)
+		}
+	}
+	return args
+}
+
+// monitoringExampleValue 返回监控查询参数的可执行样例值。
+// monitoringExampleValue returns an executable sample value for a monitoring query input.
+func monitoringExampleValue(name string) string {
+	switch name {
+	case "source_type":
+		return "local_process_event"
+	case "status":
+		return "sent"
+	case "start_time":
+		return "2026-09-20T00:00:00Z"
+	default:
+		return "1"
+	}
 }
 
 // clusterAdditionalOperationSpecs 返回集群模块新增的读写操作登记。

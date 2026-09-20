@@ -6,9 +6,9 @@
     "swagger_path_count": 100,
     "swagger_operation_count": 117,
     "swagger_documented_routes": 117,
-    "registered_operations": 87,
+    "registered_operations": 102,
     "route_exceptions": 21,
-    "historical_gaps": 142
+    "historical_gaps": 127
   },
   "routes": [
     {
@@ -1055,7 +1055,9 @@
       "method": "GET",
       "path": "/api/v1/monitoring/alert-instances",
       "source": "internal/router/router.go:439",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "monitoring.alert-instance.list",
+      "mode": "normal",
       "swagger": false
     },
     {
@@ -1083,7 +1085,9 @@
       "method": "GET",
       "path": "/api/v1/monitoring/alert-policies",
       "source": "internal/router/router.go:434",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "monitoring.alert-policy.list",
+      "mode": "normal",
       "swagger": false
     },
     {
@@ -1111,14 +1115,18 @@
       "method": "GET",
       "path": "/api/v1/monitoring/alert-policies/:id/executions",
       "source": "internal/router/router.go:435",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "monitoring.alert-policy.execution.list",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "GET",
       "path": "/api/v1/monitoring/alert-policies/bootstrap",
       "source": "internal/router/router.go:450",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "monitoring.alert-policy.bootstrap.get",
+      "mode": "normal",
       "swagger": false
     },
     {
@@ -1133,7 +1141,9 @@
       "method": "GET",
       "path": "/api/v1/monitoring/alerts",
       "source": "internal/router/router.go:440",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "monitoring.alert.list",
+      "mode": "normal",
       "swagger": false
     },
     {
@@ -1154,14 +1164,18 @@
       "method": "GET",
       "path": "/api/v1/monitoring/clusters/:id/overview",
       "source": "internal/router/router.go:433",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "monitoring.cluster.overview.get",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "GET",
       "path": "/api/v1/monitoring/clusters/:id/rules",
       "source": "internal/router/router.go:447",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "monitoring.cluster.rule.list",
+      "mode": "normal",
       "swagger": false
     },
     {
@@ -1175,21 +1189,27 @@
       "method": "GET",
       "path": "/api/v1/monitoring/integration/status",
       "source": "internal/router/router.go:449",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "monitoring.integration.status",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "GET",
       "path": "/api/v1/monitoring/notifiable-users",
       "source": "internal/router/router.go:451",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "monitoring.notifiable-user.list",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "GET",
       "path": "/api/v1/monitoring/notification-channels",
       "source": "internal/router/router.go:453",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "monitoring.notification-channel.list",
+      "mode": "normal",
       "swagger": false
     },
     {
@@ -1238,14 +1258,18 @@
       "method": "GET",
       "path": "/api/v1/monitoring/notification-deliveries",
       "source": "internal/router/router.go:460",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "monitoring.notification-delivery.list",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "GET",
       "path": "/api/v1/monitoring/notification-routes",
       "source": "internal/router/router.go:461",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "monitoring.notification-route.list",
+      "mode": "normal",
       "swagger": false
     },
     {
@@ -1273,14 +1297,18 @@
       "method": "GET",
       "path": "/api/v1/monitoring/overview",
       "source": "internal/router/router.go:432",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "monitoring.overview.get",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "GET",
       "path": "/api/v1/monitoring/platform-health",
       "source": "internal/router/router.go:452",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "monitoring.platform-health.get",
+      "mode": "normal",
       "swagger": false
     },
     {
@@ -1311,7 +1339,9 @@
       "method": "GET",
       "path": "/api/v1/monitoring/remote-alerts",
       "source": "internal/router/router.go:441",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "monitoring.remote-alert.list",
+      "mode": "normal",
       "swagger": false
     },
     {

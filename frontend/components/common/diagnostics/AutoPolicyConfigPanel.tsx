@@ -123,7 +123,7 @@ export function normalizeAutoPolicyTaskOptions(
 ): DiagnosticsTaskOptions {
   if (!options) {
     return {
-      include_thread_dump: true,
+      include_thread_dump: false,
       include_jvm_dump: false,
       jvm_dump_min_free_mb: 2048,
       selected_resources: [],
@@ -174,7 +174,7 @@ export function AutoPolicyConfigPanel({
     InspectionConditionItem[]
   >([]);
   const [formAutoCreateTask, setFormAutoCreateTask] = useState(false);
-  const [formAutoStartTask, setFormAutoStartTask] = useState(true);
+  const [formAutoStartTask, setFormAutoStartTask] = useState(false);
 
   const cronPresets = useState<CronPresetOption[]>([
     {key: 'cronPresetEveryDayMidnight', expr: '0 0 * * *'},
@@ -185,7 +185,7 @@ export function AutoPolicyConfigPanel({
   ])[0];
   const [formTaskOptions, setFormTaskOptions] =
     useState<DiagnosticsTaskOptions>({
-      include_thread_dump: true,
+      include_thread_dump: false,
       include_jvm_dump: false,
       jvm_dump_min_free_mb: 2048,
       selected_resources: [],
@@ -261,9 +261,9 @@ export function AutoPolicyConfigPanel({
     setFormCooldown(30);
     setFormConditions([]);
     setFormAutoCreateTask(false);
-    setFormAutoStartTask(true);
+    setFormAutoStartTask(false);
     setFormTaskOptions({
-      include_thread_dump: true,
+      include_thread_dump: false,
       include_jvm_dump: false,
       jvm_dump_min_free_mb: 2048,
       selected_resources: [],

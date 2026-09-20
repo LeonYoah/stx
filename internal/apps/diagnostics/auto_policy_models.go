@@ -267,7 +267,7 @@ type InspectionAutoPolicy struct {
 	AutoCreateTask bool `json:"auto_create_task" gorm:"not null;default:false"`
 	// AutoStartTask controls whether the auto-created diagnostics task should start immediately.
 	// AutoStartTask 控制自动创建的诊断任务是否立即开始执行。
-	AutoStartTask bool `json:"auto_start_task" gorm:"not null;default:true"`
+	AutoStartTask bool `json:"auto_start_task" gorm:"not null;default:false"`
 	// TaskOptions configures the diagnostics task bundle options (thread dump / JVM dump / log sample, etc.).
 	// TaskOptions 配置诊断任务的采集选项（线程栈 / JVM Dump / 日志采样等）。
 	TaskOptions DiagnosticTaskOptions `json:"task_options" gorm:"type:json;not null"`

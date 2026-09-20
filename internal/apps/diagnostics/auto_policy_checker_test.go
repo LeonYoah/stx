@@ -125,8 +125,8 @@ func TestServiceCreateAutoPolicy_rejectsUnsupportedConditionTemplate(t *testing.
 	}
 }
 
-func TestServiceCreateAutoPolicyUsesDefaultDiagnosticResources(t *testing.T) {
-	service, _ := newAutoPolicyTestService(t, nil)
+func TestServiceCreateAutoPolicyUsesDefaultDiagnosticResourcesWithoutStarting(t *testing.T) {
+	service, repo := newAutoPolicyTestService(t, nil)
 
 	policy, err := service.CreateAutoPolicy(context.Background(), 1, &CreateInspectionAutoPolicyRequest{
 		Name:      "scheduled-default-resources",
@@ -136,16 +136,25 @@ func TestServiceCreateAutoPolicyUsesDefaultDiagnosticResources(t *testing.T) {
 			{TemplateCode: ConditionCodeScheduled, Enabled: true},
 		},
 		AutoCreateTask: true,
-		AutoStartTask:  true,
 	})
 	if err != nil {
 		t.Fatalf("CreateAutoPolicy returned error: %v", err)
 	}
-	if len(policy.TaskOptions.SelectedResources) != 6 || policy.TaskOptions.IncludeJVMDump {
+	if len(policy.TaskOptions.SelectedResources) != 5 || policy.TaskOptions.IncludeThreadDump || policy.TaskOptions.IncludeJVMDump {
 		t.Fatalf("unexpected default auto-policy resources: %+v", policy.TaskOptions)
 	}
-	if !containsDiagnosticResource(policy.TaskOptions.SelectedResources, DiagnosticResourceThreadDump) {
-		t.Fatalf("thread dump should keep the previous default behavior: %+v", policy.TaskOptions)
+	if containsDiagnosticResource(policy.TaskOptions.SelectedResources, DiagnosticResourceThreadDump) {
+		t.Fatalf("thread dump should require explicit selection: %+v", policy.TaskOptions)
+	}
+	if policy.AutoStartTask {
+		t.Fatal("new auto-policy should create the diagnostics task without starting it by default")
+	}
+	persisted, err := repo.GetAutoPolicyByID(context.Background(), policy.ID)
+	if err != nil {
+		t.Fatalf("GetAutoPolicyByID returned error: %v", err)
+	}
+	if persisted.AutoStartTask {
+		t.Fatal("auto_start_task should remain false after persistence")
 	}
 }
 

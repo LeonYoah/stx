@@ -109,7 +109,7 @@ import {localizeDiagnosticsText} from './text-utils';
 import {DiagnosticResourceSelector} from './DiagnosticResourceSelector';
 
 const DEFAULT_BUNDLE_OPTIONS: DiagnosticsTaskOptions = {
-  include_thread_dump: true,
+  include_thread_dump: false,
   include_jvm_dump: false,
   jvm_dump_min_free_mb: 2048,
 };

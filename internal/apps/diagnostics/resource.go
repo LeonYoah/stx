@@ -89,12 +89,12 @@ var diagnosticResourceDefinitions = []DiagnosticResourceDefinition{
 	{Code: DiagnosticResourceAlertSnapshot, Title: bilingualText("告警快照", "Alert Snapshot"), Description: bilingualText("读取相关告警和监控快照。", "Read related alerts and monitoring snapshots."), StepCode: DiagnosticStepCodeCollectAlertSnapshot, Risk: "R0", Impact: bilingualText("会读取监控接口，不修改集群。", "Reads monitoring endpoints without changing the cluster."), TimeoutSeconds: 60, ExecutionLocation: "control_plane", ResultType: "json", BundleAllowed: true, DefaultSelected: true},
 	{Code: DiagnosticResourceConfig, Title: bilingualText("配置快照", "Configuration Snapshot"), Description: bilingualText("从选中节点读取 SeaTunnel 配置和目录清单。", "Read SeaTunnel configuration and directory inventories from selected nodes."), StepCode: DiagnosticStepCodeCollectConfigSnapshot, Risk: "R0", Impact: bilingualText("会通过 Agent 读取配置文件和目录清单。", "Uses the Agent to read configuration files and directory inventories."), TimeoutSeconds: 120, ExecutionLocation: "agent", ResultType: "files", BundleAllowed: true, DefaultSelected: true},
 	{Code: DiagnosticResourceLogSample, Title: bilingualText("日志样本", "Log Sample"), Description: bilingualText("从选中节点读取指定时间窗口内的日志片段。", "Read log excerpts from selected nodes within the requested time window."), StepCode: DiagnosticStepCodeCollectLogSample, Risk: "R0", Impact: bilingualText("读取较大日志时会增加磁盘读取和网络传输。", "Reading large logs adds disk reads and network transfer."), TimeoutSeconds: 120, ExecutionLocation: "agent", ResultType: "files", BundleAllowed: true, DefaultSelected: true},
-	{Code: DiagnosticResourceThreadDump, Title: bilingualText("线程快照", "Thread Dump"), Description: bilingualText("对选中节点的 SeaTunnel JVM 采集线程快照。", "Collect thread dumps from SeaTunnel JVMs on selected nodes."), StepCode: DiagnosticStepCodeCollectThreadDump, Risk: "R1", Impact: bilingualText("执行 jcmd 或 jstack，可能短暂增加目标 JVM 和主机负载。", "Runs jcmd or jstack and may briefly increase target JVM and host load."), TimeoutSeconds: 120, ExecutionLocation: "agent", ResultType: "files", BundleAllowed: true, DefaultSelected: true},
+	{Code: DiagnosticResourceThreadDump, Title: bilingualText("线程快照", "Thread Dump"), Description: bilingualText("对选中节点的 SeaTunnel JVM 采集线程快照。", "Collect thread dumps from SeaTunnel JVMs on selected nodes."), StepCode: DiagnosticStepCodeCollectThreadDump, Risk: "R1", Impact: bilingualText("执行 jcmd 或 jstack，可能短暂增加目标 JVM 和主机负载。", "Runs jcmd or jstack and may briefly increase target JVM and host load."), TimeoutSeconds: 120, ExecutionLocation: "agent", ResultType: "files", BundleAllowed: true, DefaultSelected: false},
 	{Code: DiagnosticResourceJVMDump, Title: "JVM Dump", Description: bilingualText("对选中节点的 SeaTunnel JVM 生成 Heap Dump。", "Create heap dumps from SeaTunnel JVMs on selected nodes."), StepCode: DiagnosticStepCodeCollectJVMDump, Risk: "R3", Impact: bilingualText("可能触发 Full GC、暂停目标 JVM，并产生较大的磁盘和网络开销。", "May trigger Full GC, pause the target JVM, and cause significant disk and network load."), TimeoutSeconds: 600, ExecutionLocation: "agent", ResultType: "files", BundleAllowed: true, AdminOnly: true},
 }
 
-// DefaultDiagnosticTaskOptions 返回与旧版完整诊断包一致的默认资源选择。
-// DefaultDiagnosticTaskOptions returns the default resource selection matching the legacy full bundle.
+// DefaultDiagnosticTaskOptions 返回默认诊断资源选择，高影响资源需由用户主动选择。
+// DefaultDiagnosticTaskOptions returns the default diagnostic resources; higher-impact resources require explicit selection.
 func DefaultDiagnosticTaskOptions() DiagnosticTaskOptions {
 	selected := make([]DiagnosticResourceCode, 0, len(diagnosticResourceDefinitions))
 	for _, resource := range diagnosticResourceDefinitions {
@@ -103,7 +103,7 @@ func DefaultDiagnosticTaskOptions() DiagnosticTaskOptions {
 		}
 	}
 	return DiagnosticTaskOptions{
-		IncludeThreadDump: true,
+		IncludeThreadDump: false,
 		IncludeJVMDump:    false,
 		JVMDumpMinFreeMB:  2048,
 		SelectedResources: selected,

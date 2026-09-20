@@ -250,13 +250,16 @@ func (s *Service) finishPackageOperation(ctx context.Context, item *executionapp
 	if s.executionService == nil || item == nil {
 		return
 	}
+	// 请求断开后仍必须写入最终执行状态，避免审计和执行记录永久停在 running。
+	// The final execution state must be written even after the request disconnects, instead of leaving audit and execution records stuck in running.
+	finishCtx := context.WithoutCancel(ctx)
 	target := executionapp.StatusSucceeded
 	updates := map[string]any{"result_ref": strings.TrimSpace(resultRef), "cancellable": false}
 	if runErr != nil {
 		target = executionapp.StatusFailed
 		updates["error_message"] = runErr.Error()
 	}
-	_ = s.executionService.Transition(ctx, item.ExecutionID, item.Status, target, updates)
+	_ = s.executionService.Transition(finishCtx, item.ExecutionID, item.Status, target, updates)
 }
 
 // GetDownloadStatusForActor 仅向任务所有者或管理员返回下载任务。

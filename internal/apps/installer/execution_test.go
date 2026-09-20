@@ -80,6 +80,39 @@ func TestHashMultipartFileDistinguishesEqualSizedContentAndKeepsFileReadable(t *
 	}
 }
 
+func TestFinishPackageOperationCompletesAfterRequestCancellation(t *testing.T) {
+	service := newInstallerExecutionTestService(t)
+	item, created, err := service.executionService.Create(context.Background(), executionapp.CreateInput{
+		OperationID:    "package.source.fetch",
+		OwnerUserID:    7,
+		ActorType:      executionapp.ActorTypeUser,
+		Module:         installerExecutionModule,
+		ModuleRef:      "2.3.13",
+		RequestID:      "request-cancelled",
+		IdempotencyKey: "request-cancelled-key",
+		RequestHash:    "request-cancelled-hash",
+		RiskLevel:      executionapp.RiskLevelR1,
+		Status:         executionapp.StatusRunning,
+		Cancellable:    false,
+		ClientType:     "web",
+	})
+	if err != nil || !created || item == nil {
+		t.Fatalf("创建测试执行记录失败 / failed to create execution record: item=%#v created=%t err=%v", item, created, err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	service.finishPackageOperation(ctx, item, errors.New("source download cancelled"), "2.3.13")
+
+	finished, err := service.executionService.Get(context.Background(), executionapp.Actor{UserID: 7}, item.ExecutionID)
+	if err != nil {
+		t.Fatalf("读取收尾后的执行记录失败 / failed to read finished execution: %v", err)
+	}
+	if finished.Status != executionapp.StatusFailed || finished.ErrorMessage != "source download cancelled" {
+		t.Fatalf("请求断开后没有写入失败终态 / final failed state was not persisted after request cancellation: status=%s error=%q", finished.Status, finished.ErrorMessage)
+	}
+}
+
 func newInstallerExecutionTestService(t *testing.T) *Service {
 	t.Helper()
 	database, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{})

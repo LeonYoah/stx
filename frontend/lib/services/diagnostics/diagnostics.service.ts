@@ -16,6 +16,7 @@
  */
 
 import {BaseService} from '../core/base.service';
+import {createWebExecutionHeaders} from '../core/execution-headers';
 import {getCurrentLocale} from '@/lib/i18n/config';
 import type {
   CreateDiagnosticsTaskRequest,
@@ -364,18 +365,14 @@ export class DiagnosticsService extends BaseService {
     payload: CreateDiagnosticsTaskRequest,
     options?: DiagnosticsTaskCreateRequestOptions,
   ): Promise<DiagnosticsTask> {
-    const idempotencyKey =
-      options?.idempotency_key ||
-      `web-diagnostics-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-    const headers: Record<string, string> = {
-      'Idempotency-Key': idempotencyKey,
-    };
-    if (options?.confirmed !== false) {
-      headers['X-STX-Confirm'] = 'true';
-    }
-    if (options?.confirmation_id) {
-      headers['X-STX-Confirmation-ID'] = options.confirmation_id;
-    }
+    const executionHeaders = createWebExecutionHeaders(
+      'diagnostics-task-create',
+      {
+        idempotencyKey: options?.idempotency_key,
+        confirmationId: options?.confirmation_id,
+        confirmed: options?.confirmed,
+      },
+    );
 
     try {
       const data = await this.postWithConfig<DiagnosticsTask>(
@@ -383,7 +380,7 @@ export class DiagnosticsService extends BaseService {
         payload,
         {
           params: withDiagnosticsLanguage(),
-          headers,
+          headers: executionHeaders.headers,
         },
       );
       return normalizeDiagnosticsTask(data);
@@ -401,7 +398,7 @@ export class DiagnosticsService extends BaseService {
         return this.createTask(payload, {
           ...options,
           confirmed: true,
-          idempotency_key: idempotencyKey,
+          idempotency_key: executionHeaders.idempotencyKey,
           confirmation_id: confirmationData.confirmation_id,
         });
       }

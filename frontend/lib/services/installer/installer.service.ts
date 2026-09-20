@@ -21,6 +21,7 @@
  */
 
 import apiClient from '../core/api-client';
+import {createWebExecutionHeaders} from '../core/execution-headers';
 import {localizeBackendText} from '@/lib/i18n/localize-text';
 import type {
   AvailableVersions,
@@ -47,6 +48,7 @@ import type {
 
 const API_PREFIX = '';
 const DEFAULT_UPLOAD_CHUNK_SIZE = 8 * 1024 * 1024; // 8MB
+const SOURCE_FETCH_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes / 10分钟
 
 // ==================== Package Management 安装包管理 ====================
 
@@ -55,7 +57,9 @@ const DEFAULT_UPLOAD_CHUNK_SIZE = 8 * 1024 * 1024; // 8MB
  * 获取可用安装包和版本列表
  */
 export async function listPackages(): Promise<AvailableVersions> {
-  const response = await apiClient.get<ListPackagesResponse>(`${API_PREFIX}/packages`);
+  const response = await apiClient.get<ListPackagesResponse>(
+    `${API_PREFIX}/packages`,
+  );
   if (response.data.error_msg) {
     throw new Error(response.data.error_msg);
   }
@@ -68,7 +72,7 @@ export async function listPackages(): Promise<AvailableVersions> {
  */
 export async function getPackageInfo(version: string): Promise<PackageInfo> {
   const response = await apiClient.get<GetPackageInfoResponse>(
-    `${API_PREFIX}/packages/${version}`
+    `${API_PREFIX}/packages/${version}`,
   );
   if (response.data.error_msg) {
     throw new Error(response.data.error_msg);
@@ -117,6 +121,9 @@ export async function uploadPackage(
       {
         headers: {
           'Content-Type': 'multipart/form-data',
+          ...createWebExecutionHeaders('package-upload-chunk', {
+            idempotencyKey: `web-package-upload-${uploadID}-${chunkIndex}`,
+          }).headers,
         },
       },
     );
@@ -159,42 +166,73 @@ function createChunkUploadID(version: string): string {
 
 /** Delete a local runtime package through the web console. / 通过网页控制台删除本地运行包。 */
 export async function deletePackage(version: string): Promise<void> {
-  const response = await apiClient.delete<DeletePackageResponse>(`${API_PREFIX}/packages/${version}`);
+  // R1 删除要求幂等键和显式确认，与下载安装包同一套请求头
+  // R1 delete requires an idempotency key and explicit confirmation, same headers as package download
+  const {headers} = createWebExecutionHeaders('package-delete');
+  const response = await apiClient.delete<DeletePackageResponse>(
+    `${API_PREFIX}/packages/${version}`,
+    {
+      headers,
+    },
+  );
   if (response.data.error_msg) {
     throw new Error(response.data.error_msg);
   }
 }
 
 /** Upload or replace the source archive associated with a runtime package. / 上传或替换运行包关联的源码包。 */
-export async function uploadSourcePackage(version: string, sourceFile: File): Promise<PackageInfo> {
+export async function uploadSourcePackage(
+  version: string,
+  sourceFile: File,
+): Promise<PackageInfo> {
   const formData = new FormData();
   formData.append('source_file', sourceFile, sourceFile.name);
+  const {headers} = createWebExecutionHeaders('package-source-upload');
   const response = await apiClient.post<GetPackageInfoResponse>(
     `${API_PREFIX}/packages/${version}/source/upload`,
     formData,
-    {headers: {'Content-Type': 'multipart/form-data'}},
+    {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+        ...headers,
+      },
+    },
   );
   if (response.data.error_msg || !response.data.data) {
-    throw new Error(response.data.error_msg || '源码包上传返回为空 / Empty source upload response');
+    throw new Error(
+      response.data.error_msg ||
+        '源码包上传返回为空 / Empty source upload response',
+    );
   }
   return response.data.data;
 }
 
 /** Fetch source from a remote mirror. / 从远端镜像补充源码包。 */
-export async function fetchSourcePackage(version: string, mirror: MirrorSource = 'apache'): Promise<PackageInfo> {
+export async function fetchSourcePackage(
+  version: string,
+  mirror: MirrorSource = 'apache',
+): Promise<PackageInfo> {
+  const {headers} = createWebExecutionHeaders('package-source-fetch');
   const response = await apiClient.post<GetPackageInfoResponse>(
     `${API_PREFIX}/packages/${version}/source/fetch`,
     {mirror},
+    {headers, timeout: SOURCE_FETCH_TIMEOUT_MS},
   );
   if (response.data.error_msg || !response.data.data) {
-    throw new Error(response.data.error_msg || '源码包下载返回为空 / Empty source fetch response');
+    throw new Error(
+      response.data.error_msg ||
+        '源码包下载返回为空 / Empty source fetch response',
+    );
   }
   return response.data.data;
 }
 
 /** Download source through the authenticated STX API. / 通过已认证的 STX API 下载源码包。 */
 export async function downloadSourcePackage(version: string): Promise<void> {
-  const response = await apiClient.get<Blob>(`${API_PREFIX}/packages/${version}/source/download`, {responseType: 'blob'});
+  const response = await apiClient.get<Blob>(
+    `${API_PREFIX}/packages/${version}/source/download`,
+    {responseType: 'blob'},
+  );
   const url = URL.createObjectURL(response.data);
   const anchor = document.createElement('a');
   anchor.href = url;
@@ -211,11 +249,11 @@ export async function downloadSourcePackage(version: string): Promise<void> {
  */
 export async function runPrecheck(
   hostId: number | string,
-  options?: PrecheckRequest
+  options?: PrecheckRequest,
 ): Promise<PrecheckResult> {
   const response = await apiClient.post<PrecheckResponse>(
     `${API_PREFIX}/hosts/${hostId}/precheck`,
-    options || {}
+    options || {},
   );
   if (response.data.error_msg) {
     throw new Error(response.data.error_msg);
@@ -258,11 +296,11 @@ export async function validateRuntimeStorage(
  */
 export async function startInstallation(
   hostId: number | string,
-  request: Omit<InstallationRequest, 'host_id'>
+  request: Omit<InstallationRequest, 'host_id'>,
 ): Promise<InstallationStatus> {
   const response = await apiClient.post<InstallResponse>(
     `${API_PREFIX}/hosts/${hostId}/install`,
-    request
+    request,
   );
   if (response.data.error_msg) {
     throw new Error(response.data.error_msg);
@@ -274,9 +312,11 @@ export async function startInstallation(
  * Get installation status
  * 获取安装状态
  */
-export async function getInstallationStatus(hostId: number | string): Promise<InstallationStatus> {
+export async function getInstallationStatus(
+  hostId: number | string,
+): Promise<InstallationStatus> {
   const response = await apiClient.get<InstallResponse>(
-    `${API_PREFIX}/hosts/${hostId}/install/status`
+    `${API_PREFIX}/hosts/${hostId}/install/status`,
   );
   if (response.data.error_msg) {
     throw new Error(response.data.error_msg);
@@ -290,11 +330,11 @@ export async function getInstallationStatus(hostId: number | string): Promise<In
  */
 export async function retryStep(
   hostId: number | string,
-  step: string
+  step: string,
 ): Promise<InstallationStatus> {
   const response = await apiClient.post<InstallResponse>(
     `${API_PREFIX}/hosts/${hostId}/install/retry`,
-    { step }
+    {step},
   );
   if (response.data.error_msg) {
     throw new Error(response.data.error_msg);
@@ -306,10 +346,12 @@ export async function retryStep(
  * Cancel ongoing installation
  * 取消正在进行的安装
  */
-export async function cancelInstallation(hostId: number | string): Promise<InstallationStatus> {
+export async function cancelInstallation(
+  hostId: number | string,
+): Promise<InstallationStatus> {
   const response = await apiClient.post<InstallResponse>(
     `${API_PREFIX}/hosts/${hostId}/install/cancel`,
-    {}
+    {},
   );
   if (response.data.error_msg) {
     throw new Error(response.data.error_msg);
@@ -329,16 +371,14 @@ export async function startDownload(
   withSource = true,
   idempotencyKey = `web-download-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
 ): Promise<DownloadTask> {
-  const request: DownloadRequest = { version, mirror, with_source: withSource };
+  const request: DownloadRequest = {version, mirror, with_source: withSource};
+  const {headers} = createWebExecutionHeaders('package-download-start', {
+    idempotencyKey,
+  });
   const response = await apiClient.post<DownloadResponse>(
     `${API_PREFIX}/packages/download`,
     request,
-    {
-      headers: {
-        'Idempotency-Key': idempotencyKey,
-        'X-STX-Confirm': 'true',
-      },
-    },
+    {headers},
   );
   if (response.data.error_msg && !response.data.data) {
     throw new Error(response.data.error_msg);
@@ -350,9 +390,11 @@ export async function startDownload(
  * Get download status for a version
  * 获取某版本的下载状态
  */
-export async function getDownloadStatus(version: string): Promise<DownloadTask> {
+export async function getDownloadStatus(
+  version: string,
+): Promise<DownloadTask> {
   const response = await apiClient.get<DownloadResponse>(
-    `${API_PREFIX}/packages/download/${version}`
+    `${API_PREFIX}/packages/download/${version}`,
   );
   if (response.data.error_msg) {
     throw new Error(response.data.error_msg);
@@ -365,9 +407,11 @@ export async function getDownloadStatus(version: string): Promise<DownloadTask> 
  * 取消下载
  */
 export async function cancelDownload(version: string): Promise<DownloadTask> {
+  const {headers} = createWebExecutionHeaders('package-download-cancel');
   const response = await apiClient.post<DownloadResponse>(
     `${API_PREFIX}/packages/download/${version}/cancel`,
-    {}
+    {},
+    {headers},
   );
   if (response.data.error_msg) {
     throw new Error(response.data.error_msg);
@@ -381,7 +425,7 @@ export async function cancelDownload(version: string): Promise<DownloadTask> {
  */
 export async function listDownloads(): Promise<DownloadTask[]> {
   const response = await apiClient.get<DownloadListResponse>(
-    `${API_PREFIX}/packages/downloads`
+    `${API_PREFIX}/packages/downloads`,
   );
   if (response.data.error_msg) {
     throw new Error(response.data.error_msg);
@@ -400,10 +444,13 @@ interface RefreshVersionsResponse {
  * Refresh version list from Apache Archive
  * 从 Apache Archive 刷新版本列表
  */
-export async function refreshVersions(): Promise<{ versions: string[]; warning?: string }> {
+export async function refreshVersions(): Promise<{
+  versions: string[];
+  warning?: string;
+}> {
   const response = await apiClient.post<RefreshVersionsResponse>(
     `${API_PREFIX}/packages/versions/refresh`,
-    {}
+    {},
   );
   return {
     versions: response.data.data || [],

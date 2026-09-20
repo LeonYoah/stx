@@ -1106,6 +1106,7 @@ export function PluginMain() {
           subtitle={t('plugin.marketplaceDesc')}
           tabs={
             <ModuleNavTabs
+              reorderGroupId='packages-plugins'
               items={[
                 {
                   key: 'packages',

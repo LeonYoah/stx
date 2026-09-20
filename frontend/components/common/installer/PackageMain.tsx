@@ -155,7 +155,8 @@ export function PackageMain() {
         subtitle={t('installer.packageManagementDesc')}
         tabs={
           <ModuleNavTabs
-            items={[
+              reorderGroupId='packages-plugins'
+              items={[
               {
                 key: 'packages',
                 label: t('installer.packageManagement'),

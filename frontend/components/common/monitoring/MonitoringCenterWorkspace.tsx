@@ -128,6 +128,7 @@ export function MonitoringCenterWorkspace() {
         icon={<BellRing />}
         tabs={
           <ModuleNavTabs
+            reorderGroupId='monitoring-diagnostics'
             items={[
               {
                 key: 'monitoring',

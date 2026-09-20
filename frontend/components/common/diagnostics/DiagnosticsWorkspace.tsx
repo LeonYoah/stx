@@ -219,6 +219,7 @@ export function DiagnosticsWorkspace() {
         title={t('title')}
         tabs={
           <ModuleNavTabs
+            reorderGroupId='monitoring-diagnostics'
             items={[
               {
                 key: 'monitoring',

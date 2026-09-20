@@ -285,6 +285,7 @@ export function ClusterMain() {
           subtitle={t('cluster.description')}
           tabs={
             <ModuleNavTabs
+              reorderGroupId='clusters-hosts'
               items={[
                 {
                   key: 'clusters',

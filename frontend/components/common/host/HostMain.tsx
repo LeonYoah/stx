@@ -260,6 +260,7 @@ export function HostMain() {
           subtitle={t('host.description')}
           tabs={
             <ModuleNavTabs
+              reorderGroupId='clusters-hosts'
               items={[
                 {
                   key: 'clusters',

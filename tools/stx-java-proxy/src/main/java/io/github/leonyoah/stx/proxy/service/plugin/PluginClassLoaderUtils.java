@@ -86,6 +86,7 @@ public final class PluginClassLoaderUtils {
         }
         collectJarPaths(seatunnelHome.resolve("connectors"), pluginJars);
         collectJarPaths(seatunnelHome.resolve("plugins"), pluginJars);
+        collectJarPaths(seatunnelHome.resolve("lib"), pluginJars);
         return pluginJars;
     }
 
@@ -197,9 +198,18 @@ public final class PluginClassLoaderUtils {
      * current proxy.
      */
     private static String resolveSeatunnelHome() {
-        String seatunnelHome = System.getProperty("SEATUNNEL_HOME");
+        String seatunnelHome = System.getProperty("stx.java.proxy.seatunnel.home");
+        if (StringUtils.isBlank(seatunnelHome)) {
+            seatunnelHome = System.getProperty("SEATUNNEL_HOME");
+        }
+        if (StringUtils.isBlank(seatunnelHome)) {
+            seatunnelHome = System.getProperty("seatunnel.home");
+        }
         if (StringUtils.isBlank(seatunnelHome)) {
             seatunnelHome = System.getenv("SEATUNNEL_HOME");
+        }
+        if (StringUtils.isBlank(seatunnelHome)) {
+            seatunnelHome = System.getenv("STX_JAVA_PROXY_SEATUNNEL_HOME");
         }
         return seatunnelHome;
     }

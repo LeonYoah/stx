@@ -312,11 +312,20 @@ func (s *Service) ListTasks(ctx context.Context, filter *TaskFilter) ([]*Task, i
 
 // GetTask returns one workspace node.
 func (s *Service) GetTask(ctx context.Context, id uint) (*Task, error) {
+	return s.GetTaskForActor(ctx, executionapp.Actor{IsAdmin: true}, id)
+}
+
+// GetTaskForActor returns one workspace node decorated with actor permissions.
+func (s *Service) GetTaskForActor(ctx context.Context, actor executionapp.Actor, id uint) (*Task, error) {
 	task, err := s.repo.GetTaskByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 	s.applyTaskDefaults(task)
+	task.DecoratePermissions(uint(actor.UserID), actor.IsAdmin)
+	if !task.CanUserView(uint(actor.UserID), actor.IsAdmin) {
+		return nil, ErrTaskPermissionDenied
+	}
 	if err := s.decorateTaskScheduleMetadata(ctx, []*Task{task}); err != nil {
 		return nil, err
 	}
@@ -325,6 +334,11 @@ func (s *Service) GetTask(ctx context.Context, id uint) (*Task, error) {
 
 // GetTaskTree returns nested workspace nodes for the left tree.
 func (s *Service) GetTaskTree(ctx context.Context) ([]*TaskTreeNode, error) {
+	return s.GetTaskTreeForActor(ctx, executionapp.Actor{IsAdmin: true})
+}
+
+// GetTaskTreeForActor returns nested workspace nodes filtered and decorated with actor permissions.
+func (s *Service) GetTaskTreeForActor(ctx context.Context, actor executionapp.Actor) ([]*TaskTreeNode, error) {
 	if err := s.ensureRootFilesNested(ctx); err != nil {
 		return nil, err
 	}
@@ -334,21 +348,72 @@ func (s *Service) GetTaskTree(ctx context.Context) ([]*TaskTreeNode, error) {
 	}
 	for _, task := range tasks {
 		s.applyTaskDefaults(task)
+		task.DecoratePermissions(uint(actor.UserID), actor.IsAdmin)
 	}
 	if err := s.decorateTaskScheduleMetadata(ctx, tasks); err != nil {
 		return nil, err
 	}
-	return buildTaskTree(tasks), nil
+
+	visibleTasks := tasks
+	if !actor.IsAdmin {
+		visibleMap := make(map[uint]bool)
+		for _, task := range tasks {
+			if task.NodeType == TaskNodeTypeFile {
+				if task.CanUserView(uint(actor.UserID), actor.IsAdmin) {
+					visibleMap[task.ID] = true
+				}
+			} else if task.CreatedBy != 0 && task.CreatedBy == uint(actor.UserID) {
+				visibleMap[task.ID] = true
+			}
+		}
+		parentMap := make(map[uint]uint)
+		for _, task := range tasks {
+			if task.ParentID != nil {
+				parentMap[task.ID] = *task.ParentID
+			}
+		}
+		for id := range visibleMap {
+			curr := id
+			for {
+				pID, exists := parentMap[curr]
+				if !exists || pID == 0 {
+					break
+				}
+				visibleMap[pID] = true
+				curr = pID
+			}
+		}
+		visibleTasks = make([]*Task, 0, len(tasks))
+		for _, task := range tasks {
+			if task.NodeType == TaskNodeTypeFolder {
+				if visibleMap[task.ID] || task.IsPublic() {
+					visibleTasks = append(visibleTasks, task)
+				}
+			} else if visibleMap[task.ID] {
+				visibleTasks = append(visibleTasks, task)
+			}
+		}
+	}
+
+	return buildTaskTree(visibleTasks), nil
 }
 
 // UpdateTask updates one workspace node.
 func (s *Service) UpdateTask(ctx context.Context, id uint, req *UpdateTaskRequest) (*Task, error) {
+	return s.UpdateTaskForActor(ctx, executionapp.Actor{IsAdmin: true}, id, req)
+}
+
+// UpdateTaskForActor updates one workspace node after enforcing actor permissions.
+func (s *Service) UpdateTaskForActor(ctx context.Context, actor executionapp.Actor, id uint, req *UpdateTaskRequest) (*Task, error) {
 	task, err := s.repo.GetTaskByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 	if task.Status == TaskStatusArchived {
 		return nil, ErrTaskArchived
+	}
+	if !task.CanUserEdit(uint(actor.UserID), actor.IsAdmin) {
+		return nil, ErrTaskReadOnly
 	}
 	mode, err := normalizeTaskMode(req.Mode)
 	if err != nil {
@@ -385,6 +450,23 @@ func (s *Service) UpdateTask(ctx context.Context, id uint, req *UpdateTaskReques
 	if err != nil {
 		return nil, err
 	}
+	// Non-owner and non-admin cannot alter visibility (is_public) or collaborator list
+	if !actor.IsAdmin && (task.CreatedBy != 0 && task.CreatedBy != uint(actor.UserID)) {
+		if definition == nil {
+			definition = cloneJSONMap(task.Definition)
+		} else {
+			if origPub, exists := task.Definition["is_public"]; exists {
+				definition["is_public"] = origPub
+			} else {
+				delete(definition, "is_public")
+			}
+			if origCollabs, exists := task.Definition["collaborators"]; exists {
+				definition["collaborators"] = origCollabs
+			} else {
+				delete(definition, "collaborators")
+			}
+		}
+	}
 	jobName := strings.TrimSpace(req.JobName)
 	if nodeType == TaskNodeTypeFolder {
 		content = ""
@@ -410,14 +492,23 @@ func (s *Service) UpdateTask(ctx context.Context, id uint, req *UpdateTaskReques
 	if err := s.repo.UpdateTask(ctx, task); err != nil {
 		return nil, err
 	}
+	task.DecoratePermissions(uint(actor.UserID), actor.IsAdmin)
 	return task, nil
 }
 
 // DeleteTask removes one workspace node and all nested descendants.
 func (s *Service) DeleteTask(ctx context.Context, id uint) error {
+	return s.DeleteTaskForActor(ctx, executionapp.Actor{IsAdmin: true}, id)
+}
+
+// DeleteTaskForActor removes one workspace node after verifying owner/admin rights.
+func (s *Service) DeleteTaskForActor(ctx context.Context, actor executionapp.Actor, id uint) error {
 	task, err := s.repo.GetTaskByID(ctx, id)
 	if err != nil {
 		return err
+	}
+	if !actor.IsAdmin && (task.CreatedBy != 0 && task.CreatedBy != uint(actor.UserID)) {
+		return ErrTaskPermissionDenied
 	}
 	s.applyTaskDefaults(task)
 
@@ -496,6 +587,11 @@ func (s *Service) getTaskForExecution(ctx context.Context, id uint, draft *TaskD
 
 // PublishTask snapshots current file definition and marks task as published.
 func (s *Service) PublishTask(ctx context.Context, id uint, comment string, createdBy uint) (*Task, *TaskVersion, error) {
+	return s.PublishTaskForActor(ctx, executionapp.Actor{UserID: uint64(createdBy), IsAdmin: true}, id, comment, createdBy)
+}
+
+// PublishTaskForActor snapshots current file definition after checking edit permission.
+func (s *Service) PublishTaskForActor(ctx context.Context, actor executionapp.Actor, id uint, comment string, createdBy uint) (*Task, *TaskVersion, error) {
 	var publishedTask *Task
 	var version *TaskVersion
 	err := s.repo.Transaction(ctx, func(tx *Repository) error {
@@ -509,6 +605,9 @@ func (s *Service) PublishTask(ctx context.Context, id uint, comment string, crea
 		}
 		if task.NodeType != TaskNodeTypeFile {
 			return ErrTaskNotFile
+		}
+		if !task.CanUserEdit(uint(actor.UserID), actor.IsAdmin) {
+			return ErrTaskReadOnly
 		}
 		version = &TaskVersion{
 			TaskID:                task.ID,
@@ -539,6 +638,7 @@ func (s *Service) PublishTask(ctx context.Context, id uint, comment string, crea
 	if err != nil {
 		return nil, nil, err
 	}
+	publishedTask.DecoratePermissions(uint(actor.UserID), actor.IsAdmin)
 	return publishedTask, version, nil
 }
 
@@ -557,6 +657,11 @@ func (s *Service) ListTaskVersions(ctx context.Context, id uint) ([]*TaskVersion
 
 // ListTaskVersionsPaginated returns paginated immutable snapshots for one file task.
 func (s *Service) ListTaskVersionsPaginated(ctx context.Context, id uint, page, size int) ([]*TaskVersion, int64, error) {
+	return s.ListTaskVersionsPaginatedForActor(ctx, executionapp.Actor{IsAdmin: true}, id, page, size)
+}
+
+// ListTaskVersionsPaginatedForActor returns paginated snapshots after verifying view permission.
+func (s *Service) ListTaskVersionsPaginatedForActor(ctx context.Context, actor executionapp.Actor, id uint, page, size int) ([]*TaskVersion, int64, error) {
 	task, err := s.repo.GetTaskByID(ctx, id)
 	if err != nil {
 		return nil, 0, err
@@ -565,11 +670,19 @@ func (s *Service) ListTaskVersionsPaginated(ctx context.Context, id uint, page, 
 	if task.NodeType != TaskNodeTypeFile {
 		return nil, 0, ErrTaskNotFile
 	}
+	if !task.CanUserView(uint(actor.UserID), actor.IsAdmin) {
+		return nil, 0, ErrTaskPermissionDenied
+	}
 	return s.repo.ListTaskVersionsByTaskIDPaginated(ctx, id, page, size)
 }
 
 // RollbackTaskVersion restores one immutable snapshot back to the editable task.
 func (s *Service) RollbackTaskVersion(ctx context.Context, id uint, versionID uint) (*Task, error) {
+	return s.RollbackTaskVersionForActor(ctx, executionapp.Actor{IsAdmin: true}, id, versionID)
+}
+
+// RollbackTaskVersionForActor restores snapshot after checking edit permission.
+func (s *Service) RollbackTaskVersionForActor(ctx context.Context, actor executionapp.Actor, id uint, versionID uint) (*Task, error) {
 	task, err := s.repo.GetTaskByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -577,6 +690,9 @@ func (s *Service) RollbackTaskVersion(ctx context.Context, id uint, versionID ui
 	s.applyTaskDefaults(task)
 	if task.NodeType != TaskNodeTypeFile {
 		return nil, ErrTaskNotFile
+	}
+	if !task.CanUserEdit(uint(actor.UserID), actor.IsAdmin) {
+		return nil, ErrTaskReadOnly
 	}
 	version, err := s.repo.GetTaskVersionByID(ctx, id, versionID)
 	if err != nil {
@@ -595,11 +711,17 @@ func (s *Service) RollbackTaskVersion(ctx context.Context, id uint, versionID ui
 	if err := s.repo.UpdateTask(ctx, task); err != nil {
 		return nil, err
 	}
+	task.DecoratePermissions(uint(actor.UserID), actor.IsAdmin)
 	return task, nil
 }
 
 // DeleteTaskVersion removes one immutable snapshot.
 func (s *Service) DeleteTaskVersion(ctx context.Context, id uint, versionID uint) error {
+	return s.DeleteTaskVersionForActor(ctx, executionapp.Actor{IsAdmin: true}, id, versionID)
+}
+
+// DeleteTaskVersionForActor removes one immutable snapshot after checking edit permission.
+func (s *Service) DeleteTaskVersionForActor(ctx context.Context, actor executionapp.Actor, id uint, versionID uint) error {
 	task, err := s.repo.GetTaskByID(ctx, id)
 	if err != nil {
 		return err
@@ -608,7 +730,46 @@ func (s *Service) DeleteTaskVersion(ctx context.Context, id uint, versionID uint
 	if task.NodeType != TaskNodeTypeFile {
 		return ErrTaskNotFile
 	}
+	if !task.CanUserEdit(uint(actor.UserID), actor.IsAdmin) {
+		return ErrTaskReadOnly
+	}
 	return s.repo.DeleteTaskVersion(ctx, id, versionID)
+}
+
+// ValidateTaskForActor validates task after checking view permission.
+func (s *Service) ValidateTaskForActor(ctx context.Context, actor executionapp.Actor, id uint, draft *TaskDraftPayload) (*ValidateResult, error) {
+	task, err := s.repo.GetTaskByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if !task.CanUserView(uint(actor.UserID), actor.IsAdmin) {
+		return nil, ErrTaskPermissionDenied
+	}
+	return s.ValidateTask(ctx, id, draft)
+}
+
+// TestTaskConnectionsForActor tests connections after checking run permission.
+func (s *Service) TestTaskConnectionsForActor(ctx context.Context, actor executionapp.Actor, id uint, draft *TaskDraftPayload) (*ValidateResult, error) {
+	task, err := s.repo.GetTaskByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if !task.CanUserRun(uint(actor.UserID), actor.IsAdmin) {
+		return nil, ErrTaskReadOnly
+	}
+	return s.TestTaskConnections(ctx, id, draft)
+}
+
+// BuildTaskDAGForActor builds DAG after checking view permission.
+func (s *Service) BuildTaskDAGForActor(ctx context.Context, actor executionapp.Actor, id uint, draft *TaskDraftPayload) (*DAGResult, error) {
+	task, err := s.repo.GetTaskByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if !task.CanUserView(uint(actor.UserID), actor.IsAdmin) {
+		return nil, ErrTaskPermissionDenied
+	}
+	return s.BuildTaskDAG(ctx, id, draft)
 }
 
 // ValidateTask validates current file content.
@@ -1595,7 +1756,35 @@ func buildTaskTree(tasks []*Task) []*TaskTreeNode {
 	nodes := make(map[uint]*TaskTreeNode, len(tasks))
 	roots := make([]*TaskTreeNode, 0)
 	for _, task := range tasks {
-		nodes[task.ID] = &TaskTreeNode{ID: task.ID, ParentID: task.ParentID, NodeType: task.NodeType, Name: task.Name, Description: task.Description, ClusterID: task.ClusterID, EngineVersion: task.EngineVersion, Mode: task.Mode, Status: task.Status, ContentFormat: task.ContentFormat, Content: task.Content, JobName: task.JobName, Definition: cloneJSONMap(task.Definition), SortOrder: task.SortOrder, CurrentVersion: task.CurrentVersion, ScheduleEnabled: task.ScheduleEnabled, ScheduleCronExpr: task.ScheduleCronExpr, ScheduleTimezone: task.ScheduleTimezone, ScheduleLastTriggeredAt: task.ScheduleLastTriggeredAt, ScheduleNextTriggeredAt: task.ScheduleNextTriggeredAt, Children: []*TaskTreeNode{}}
+		nodes[task.ID] = &TaskTreeNode{
+			ID:                      task.ID,
+			ParentID:                task.ParentID,
+			NodeType:                task.NodeType,
+			Name:                    task.Name,
+			Description:             task.Description,
+			ClusterID:               task.ClusterID,
+			EngineVersion:           task.EngineVersion,
+			Mode:                    task.Mode,
+			Status:                  task.Status,
+			ContentFormat:           task.ContentFormat,
+			Content:                 task.Content,
+			JobName:                 task.JobName,
+			Definition:              cloneJSONMap(task.Definition),
+			SortOrder:               task.SortOrder,
+			CurrentVersion:          task.CurrentVersion,
+			ScheduleEnabled:         task.ScheduleEnabled,
+			ScheduleCronExpr:        task.ScheduleCronExpr,
+			ScheduleTimezone:        task.ScheduleTimezone,
+			ScheduleLastTriggeredAt: task.ScheduleLastTriggeredAt,
+			ScheduleNextTriggeredAt: task.ScheduleNextTriggeredAt,
+			CreatedBy:               task.CreatedBy,
+			CanEdit:                 task.CanEdit,
+			CanRun:                  task.CanRun,
+			IsOwner:                 task.IsOwner,
+			IsCollaborator:          task.IsCollaborator,
+			IsPublicTask:            task.IsPublicTask,
+			Children:                []*TaskTreeNode{},
+		}
 	}
 	for _, task := range tasks {
 		node := nodes[task.ID]
@@ -2168,8 +2357,12 @@ func (s *Service) refreshJobInstance(ctx context.Context, instance *JobInstance)
 	}
 	previousStatus := instance.Status
 	observedStatus := normalizeJobStatus(info.JobStatus)
-	if (previousStatus == JobStatusCancelRequested || previousStatus == JobStatusCancelling) && observedStatus == JobStatusRunning {
-		observedStatus = previousStatus
+	if previousStatus == JobStatusCancelRequested || previousStatus == JobStatusCancelling {
+		if observedStatus == JobStatusRunning {
+			observedStatus = previousStatus
+		} else if observedStatus == JobStatusSuccess {
+			observedStatus = JobStatusCanceled
+		}
 	}
 	instance.Status = observedStatus
 	instance.ResultPreview = mergeJobRuntimeInfo(instance.ResultPreview, info)

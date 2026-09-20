@@ -765,7 +765,7 @@ func normalizeJobStatus(status string) JobStatus {
 	case "DOING_SAVEPOINT":
 		return JobStatusRunning
 	case "SAVEPOINT_DONE":
-		return JobStatusSuccess
+		return JobStatusCanceled
 	case "FINISHED", "SUCCESS":
 		return JobStatusSuccess
 	case "FAILING", "FAILED":

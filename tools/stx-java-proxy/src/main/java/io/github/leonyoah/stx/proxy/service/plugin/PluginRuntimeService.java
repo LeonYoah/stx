@@ -202,11 +202,6 @@ public class PluginRuntimeService {
             try {
                 Class<?> rawClass = Class.forName(providerClass, true, context.getClassLoader());
                 if (!factoryClass.isAssignableFrom(rawClass)) {
-                    context.addWarning(
-                            "Skip plugin provider "
-                                    + providerClass
-                                    + " because it does not implement "
-                                    + factoryClass.getName());
                     continue;
                 }
                 factories.add(factoryClass.cast(rawClass.getDeclaredConstructor().newInstance()));
@@ -228,21 +223,28 @@ public class PluginRuntimeService {
     private <T extends Factory> Set<String> collectProviderClasses(
             PluginExecutionContext context, Class<T> factoryClass) {
         Set<String> providerClasses = new LinkedHashSet<>();
-        String serviceEntryName = "META-INF/services/" + factoryClass.getName();
+        List<String> serviceEntryNames = new ArrayList<>();
+        serviceEntryNames.add("META-INF/services/" + factoryClass.getName());
+        if (!Factory.class.equals(factoryClass)) {
+            serviceEntryNames.add("META-INF/services/" + Factory.class.getName());
+        }
+
         for (String pluginJar : context.getPluginJars()) {
             try (JarFile jarFile = new JarFile(pluginJar)) {
-                JarEntry serviceEntry = jarFile.getJarEntry(serviceEntryName);
-                if (serviceEntry == null) {
-                    continue;
-                }
-                String content =
-                        new String(
-                                readAllBytes(jarFile.getInputStream(serviceEntry)),
-                                StandardCharsets.UTF_8);
-                for (String line : content.split("\\R")) {
-                    String providerClass = stripServiceComment(line);
-                    if (StringUtils.isNotBlank(providerClass)) {
-                        providerClasses.add(providerClass);
+                for (String serviceEntryName : serviceEntryNames) {
+                    JarEntry serviceEntry = jarFile.getJarEntry(serviceEntryName);
+                    if (serviceEntry == null) {
+                        continue;
+                    }
+                    String content =
+                            new String(
+                                    readAllBytes(jarFile.getInputStream(serviceEntry)),
+                                    StandardCharsets.UTF_8);
+                    for (String line : content.split("\\R")) {
+                        String providerClass = stripServiceComment(line);
+                        if (StringUtils.isNotBlank(providerClass)) {
+                            providerClasses.add(providerClass);
+                        }
                     }
                 }
             } catch (Throwable e) {
@@ -251,6 +253,27 @@ public class PluginRuntimeService {
                                 + pluginJar
                                 + " because it failed to read: "
                                 + summarizeThrowable(e));
+            }
+        }
+
+        for (String serviceEntryName : serviceEntryNames) {
+            try {
+                java.util.Enumeration<URL> resources =
+                        context.getClassLoader().getResources(serviceEntryName);
+                while (resources.hasMoreElements()) {
+                    URL resourceUrl = resources.nextElement();
+                    try (InputStream in = resourceUrl.openStream()) {
+                        String content = new String(readAllBytes(in), StandardCharsets.UTF_8);
+                        for (String line : content.split("\\R")) {
+                            String providerClass = stripServiceComment(line);
+                            if (StringUtils.isNotBlank(providerClass)) {
+                                providerClasses.add(providerClass);
+                            }
+                        }
+                    } catch (Throwable ignored) {
+                    }
+                }
+            } catch (Throwable ignored) {
             }
         }
         return providerClasses;

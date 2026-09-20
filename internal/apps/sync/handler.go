@@ -133,7 +133,7 @@ func (h *Handler) ListTasks(c *gin.Context) {
 
 // GetTaskTree handles GET /api/v1/sync/tree.
 func (h *Handler) GetTaskTree(c *gin.Context) {
-	items, err := h.service.GetTaskTree(c.Request.Context())
+	items, err := h.service.GetTaskTreeForActor(c.Request.Context(), currentExecutionActor(c))
 	if err != nil {
 		c.JSON(h.getStatusCodeForError(err), TaskTreeResponse{ErrorMsg: err.Error()})
 		return
@@ -148,7 +148,7 @@ func (h *Handler) GetTask(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, TaskResponse{ErrorMsg: "invalid task id"})
 		return
 	}
-	task, err := h.service.GetTask(c.Request.Context(), id)
+	task, err := h.service.GetTaskForActor(c.Request.Context(), currentExecutionActor(c), id)
 	if err != nil {
 		c.JSON(h.getStatusCodeForError(err), TaskResponse{ErrorMsg: err.Error()})
 		return
@@ -170,6 +170,11 @@ func (h *Handler) ListGlobalVariables(c *gin.Context) {
 
 // CreateGlobalVariable handles POST /api/v1/sync/global-variables.
 func (h *Handler) CreateGlobalVariable(c *gin.Context) {
+	actor := currentExecutionActor(c)
+	if !actor.IsAdmin {
+		c.JSON(http.StatusForbidden, GlobalVariableResponse{ErrorMsg: ErrGlobalVariablePermissionDenied.Error()})
+		return
+	}
 	var req CreateGlobalVariableRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, GlobalVariableResponse{ErrorMsg: err.Error()})
@@ -185,6 +190,11 @@ func (h *Handler) CreateGlobalVariable(c *gin.Context) {
 
 // UpdateGlobalVariable handles PUT /api/v1/sync/global-variables/:id.
 func (h *Handler) UpdateGlobalVariable(c *gin.Context) {
+	actor := currentExecutionActor(c)
+	if !actor.IsAdmin {
+		c.JSON(http.StatusForbidden, GlobalVariableResponse{ErrorMsg: ErrGlobalVariablePermissionDenied.Error()})
+		return
+	}
 	id, ok := parseUintParam(c, "id")
 	if !ok {
 		c.JSON(http.StatusBadRequest, GlobalVariableResponse{ErrorMsg: "invalid global variable id"})
@@ -205,6 +215,11 @@ func (h *Handler) UpdateGlobalVariable(c *gin.Context) {
 
 // DeleteGlobalVariable handles DELETE /api/v1/sync/global-variables/:id.
 func (h *Handler) DeleteGlobalVariable(c *gin.Context) {
+	actor := currentExecutionActor(c)
+	if !actor.IsAdmin {
+		c.JSON(http.StatusForbidden, BasicResponse{ErrorMsg: ErrGlobalVariablePermissionDenied.Error()})
+		return
+	}
 	id, ok := parseUintParam(c, "id")
 	if !ok {
 		c.JSON(http.StatusBadRequest, BasicResponse{ErrorMsg: "invalid global variable id"})
@@ -229,7 +244,7 @@ func (h *Handler) UpdateTask(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, TaskResponse{ErrorMsg: err.Error()})
 		return
 	}
-	task, err := h.service.UpdateTask(c.Request.Context(), id, &req)
+	task, err := h.service.UpdateTaskForActor(c.Request.Context(), currentExecutionActor(c), id, &req)
 	if err != nil {
 		c.JSON(h.getStatusCodeForError(err), TaskResponse{ErrorMsg: err.Error()})
 		return
@@ -244,7 +259,7 @@ func (h *Handler) DeleteTask(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, BasicResponse{ErrorMsg: "invalid task id"})
 		return
 	}
-	if err := h.service.DeleteTask(c.Request.Context(), id); err != nil {
+	if err := h.service.DeleteTaskForActor(c.Request.Context(), currentExecutionActor(c), id); err != nil {
 		c.JSON(h.getStatusCodeForError(err), BasicResponse{ErrorMsg: err.Error()})
 		return
 	}
@@ -263,7 +278,7 @@ func (h *Handler) PublishTask(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, TaskVersionResponse{ErrorMsg: err.Error()})
 		return
 	}
-	_, version, err := h.service.PublishTask(c.Request.Context(), id, req.Comment, getCurrentUserID(c))
+	_, version, err := h.service.PublishTaskForActor(c.Request.Context(), currentExecutionActor(c), id, req.Comment, getCurrentUserID(c))
 	if err != nil {
 		c.JSON(h.getStatusCodeForError(err), TaskVersionResponse{ErrorMsg: err.Error()})
 		return
@@ -280,7 +295,7 @@ func (h *Handler) ListTaskVersions(c *gin.Context) {
 	}
 	page := parsePositiveInt(c.Query("current"), 1)
 	size := parsePositiveInt(c.Query("size"), 10)
-	versions, total, err := h.service.ListTaskVersionsPaginated(c.Request.Context(), id, page, size)
+	versions, total, err := h.service.ListTaskVersionsPaginatedForActor(c.Request.Context(), currentExecutionActor(c), id, page, size)
 	if err != nil {
 		c.JSON(h.getStatusCodeForError(err), TaskVersionListResponse{ErrorMsg: err.Error()})
 		return
@@ -300,7 +315,7 @@ func (h *Handler) RollbackTaskVersion(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, TaskResponse{ErrorMsg: "invalid version id"})
 		return
 	}
-	task, err := h.service.RollbackTaskVersion(c.Request.Context(), id, versionID)
+	task, err := h.service.RollbackTaskVersionForActor(c.Request.Context(), currentExecutionActor(c), id, versionID)
 	if err != nil {
 		c.JSON(h.getStatusCodeForError(err), TaskResponse{ErrorMsg: err.Error()})
 		return
@@ -320,7 +335,7 @@ func (h *Handler) DeleteTaskVersion(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, BasicResponse{ErrorMsg: "invalid version id"})
 		return
 	}
-	if err := h.service.DeleteTaskVersion(c.Request.Context(), id, versionID); err != nil {
+	if err := h.service.DeleteTaskVersionForActor(c.Request.Context(), currentExecutionActor(c), id, versionID); err != nil {
 		c.JSON(h.getStatusCodeForError(err), BasicResponse{ErrorMsg: err.Error()})
 		return
 	}
@@ -341,7 +356,7 @@ func (h *Handler) ValidateTask(c *gin.Context) {
 			return
 		}
 	}
-	result, err := h.service.ValidateTask(c.Request.Context(), id, req.Draft)
+	result, err := h.service.ValidateTaskForActor(c.Request.Context(), currentExecutionActor(c), id, req.Draft)
 	if err != nil {
 		c.JSON(h.getStatusCodeForError(err), ValidateResponse{ErrorMsg: err.Error()})
 		return
@@ -363,7 +378,7 @@ func (h *Handler) TestTaskConnections(c *gin.Context) {
 			return
 		}
 	}
-	result, err := h.service.TestTaskConnections(c.Request.Context(), id, req.Draft)
+	result, err := h.service.TestTaskConnectionsForActor(c.Request.Context(), currentExecutionActor(c), id, req.Draft)
 	if err != nil {
 		c.JSON(h.getStatusCodeForError(err), ValidateResponse{ErrorMsg: err.Error()})
 		return
@@ -385,7 +400,7 @@ func (h *Handler) GetTaskDAG(c *gin.Context) {
 			return
 		}
 	}
-	result, err := h.service.BuildTaskDAG(c.Request.Context(), id, req.Draft)
+	result, err := h.service.BuildTaskDAGForActor(c.Request.Context(), currentExecutionActor(c), id, req.Draft)
 	if err != nil {
 		c.JSON(h.getStatusCodeForError(err), DAGResponse{ErrorMsg: err.Error()})
 		return
@@ -407,7 +422,7 @@ func (h *Handler) PreviewTask(c *gin.Context) {
 			return
 		}
 	}
-	job, err := h.service.PreviewTaskWithExecution(c.Request.Context(), id, getCurrentUserID(c), &req, syncExecutionRequest(c, map[string]any{"task_id": id, "request": req}))
+	job, err := h.service.PreviewTaskForActor(c.Request.Context(), currentExecutionActor(c), id, &req, syncExecutionRequest(c, map[string]any{"task_id": id, "request": req}))
 	if err != nil {
 		c.JSON(h.getStatusCodeForError(err), JobResponse{ErrorMsg: err.Error()})
 		return
@@ -429,7 +444,7 @@ func (h *Handler) SubmitTask(c *gin.Context) {
 			return
 		}
 	}
-	job, err := h.service.SubmitTaskWithExecution(c.Request.Context(), id, getCurrentUserID(c), req.Draft, syncExecutionRequest(c, map[string]any{"task_id": id, "draft": req.Draft}))
+	job, err := h.service.SubmitTaskForActor(c.Request.Context(), currentExecutionActor(c), id, req.Draft, syncExecutionRequest(c, map[string]any{"task_id": id, "draft": req.Draft}))
 	if err != nil {
 		c.JSON(h.getStatusCodeForError(err), JobResponse{ErrorMsg: err.Error()})
 		return
@@ -615,9 +630,21 @@ func (h *Handler) RecoverJob(c *gin.Context) {
 		}
 	}
 	actor := currentExecutionActor(c)
-	if _, err := h.service.GetJobForActor(c.Request.Context(), actor, id); err != nil {
+	sourceJob, err := h.service.GetJobForActor(c.Request.Context(), actor, id)
+	if err != nil {
 		c.JSON(h.getStatusCodeForError(err), JobResponse{ErrorMsg: err.Error()})
 		return
+	}
+	if sourceJob.TaskID > 0 {
+		task, err := h.service.GetTaskForActor(c.Request.Context(), actor, sourceJob.TaskID)
+		if err != nil {
+			c.JSON(h.getStatusCodeForError(err), JobResponse{ErrorMsg: err.Error()})
+			return
+		}
+		if !task.CanUserRun(uint(actor.UserID), actor.IsAdmin) {
+			c.JSON(http.StatusForbidden, JobResponse{ErrorMsg: ErrTaskReadOnly.Error()})
+			return
+		}
 	}
 	job, err := h.service.RecoverJobWithExecution(c.Request.Context(), id, getCurrentUserID(c), req.Draft, syncExecutionRequest(c, map[string]any{"source_job_id": id, "draft": req.Draft}))
 	if err != nil {
@@ -651,6 +678,8 @@ func (h *Handler) getStatusCodeForError(err error) int {
 	switch {
 	case errors.Is(err, ErrTaskNotFound), errors.Is(err, ErrTaskVersionNotFound), errors.Is(err, ErrJobInstanceNotFound), errors.Is(err, ErrGlobalVariableNotFound):
 		return http.StatusNotFound
+	case errors.Is(err, ErrTaskReadOnly), errors.Is(err, ErrTaskPermissionDenied), errors.Is(err, ErrGlobalVariablePermissionDenied):
+		return http.StatusForbidden
 	case errors.Is(err, ErrTaskNameRequired), errors.Is(err, ErrTaskNameInvalid), errors.Is(err, ErrTaskParentCycle), errors.Is(err, ErrRootFileNotAllowed), errors.Is(err, ErrInvalidTaskMode), errors.Is(err, ErrInvalidTaskStatus), errors.Is(err, ErrInvalidRunType), errors.Is(err, ErrInvalidPreviewMode), errors.Is(err, ErrTaskDefinitionEmpty), errors.Is(err, ErrPreviewHTTPSinkEmpty), errors.Is(err, ErrTaskNotPublished), errors.Is(err, ErrInvalidNodeType), errors.Is(err, ErrParentTaskNotFolder), errors.Is(err, ErrFolderContentUnsupported), errors.Is(err, ErrTaskNotFile), errors.Is(err, ErrInvalidContentFormat), errors.Is(err, ErrRecoverSourceRequired), errors.Is(err, ErrLocalClusterRequired), errors.Is(err, ErrLocalSavepointUnsupported), errors.Is(err, ErrPreviewPayloadInvalid), errors.Is(err, ErrGlobalVariableKeyRequired), errors.Is(err, ErrGlobalVariableKeyInvalid), errors.Is(err, ErrReservedBuiltinVariableKey), errors.Is(err, ErrExecutionTargetClusterMismatch), errors.Is(err, ErrMaskedSecretCannotBeRestored):
 		return http.StatusBadRequest
 	case errors.Is(err, ErrTaskArchived), errors.Is(err, ErrJobAlreadyFinished), errors.Is(err, ErrJobStatusChanged), errors.Is(err, ErrGlobalVariableKeyDuplicate), errors.Is(err, ErrTaskNameDuplicate), errors.Is(err, executionapp.ErrIdempotencyConflict):

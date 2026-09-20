@@ -294,6 +294,7 @@ func Serve() {
 				clusterRouter.GET("/:id/runtime-storage", clusterHandler.GetRuntimeStorage)
 				clusterRouter.POST("/:id/runtime-storage/:kind/validate", clusterHandler.ValidateRuntimeStorage)
 				clusterRouter.POST("/:id/runtime-storage/:kind/apply", clusterHandler.ApplyRuntimeStorage)
+				clusterRouter.POST("/:id/log-mode", clusterHandler.SwitchJobLogMode)
 				clusterRouter.POST("/:id/runtime-storage/:kind/list", clusterHandler.ListRuntimeStorage)
 				clusterRouter.POST("/:id/runtime-storage/:kind/preview", clusterHandler.PreviewRuntimeStorage)
 				clusterRouter.POST("/:id/runtime-storage/checkpoint/inspect", clusterHandler.InspectCheckpointRuntimeStorage)

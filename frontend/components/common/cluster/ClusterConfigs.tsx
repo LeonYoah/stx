@@ -47,6 +47,7 @@ import {EmptyState, StatPillsBar, TableLoadingBar, TableSkeletonRows} from '@/co
 import {Table, TableBody, TableCell, TableHead, TableHeader, TableRow} from '@/components/ui/table';
 import {DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger} from '@/components/ui/dropdown-menu';
 import {Skeleton} from '@/components/ui/skeleton';
+import {cn} from '@/lib/utils';
 
 interface ClusterConfigsProps {
   clusterId: number;
@@ -190,6 +191,7 @@ export function ClusterConfigs({clusterId, deploymentMode, onConfigChanged}: Clu
   const [selectedNodeId, setSelectedNodeId] = useState<string>('');
   const [initLoading, setInitLoading] = useState(false);
   const [syncAllLoading, setSyncAllLoading] = useState(false);
+  const [logModeSwitching, setLogModeSwitching] = useState(false);
   // 是否已完成首次加载，避免刷新时整块替换
   // Whether the first load finished, so refresh does not replace the whole panel
   const [hasLoaded, setHasLoaded] = useState(false);
@@ -242,6 +244,34 @@ export function ClusterConfigs({clusterId, deploymentMode, onConfigChanged}: Clu
 
   const templateConfig = configs.find(c => c.config_type === selectedConfigType && c.is_template);
   const nodeConfigs = configs.filter(c => c.config_type === selectedConfigType && !c.is_template);
+  const isLog4j2 = selectedConfigType === ConfigType.LOG4J2;
+  const isPerJobLogMode = Boolean(
+    templateConfig?.content &&
+      /rootLogger\.appenderRef\.file\.ref\s*=\s*routingAppender/.test(templateConfig.content)
+  );
+
+  const handleSwitchLogMode = async (targetMode: 'per_job' | 'mixed') => {
+    setLogModeSwitching(true);
+    try {
+      const res = await services.cluster.switchJobLogModeSafe(clusterId, targetMode);
+      if (!res.success) {
+        toast.error(res.error || t('config.switchLogModeError'));
+        return;
+      }
+      toast.success(
+        targetMode === 'per_job'
+          ? t('config.switchToPerJobSuccess')
+          : t('config.switchToMixedSuccess')
+      );
+      await loadData();
+      onConfigChanged?.();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t('config.switchLogModeError'));
+    } finally {
+      setLogModeSwitching(false);
+    }
+  };
+
   const mismatchedNodeCount = nodeConfigs.filter((config) => !config.match_template).length;
   const matchedNodeCount = nodeConfigs.length - mismatchedNodeCount;
   const keyword = nodeSearch.trim().toLowerCase();
@@ -529,6 +559,51 @@ export function ClusterConfigs({clusterId, deploymentMode, onConfigChanged}: Clu
               )}
               {templateConfig ? (
                 <div className="space-y-3">
+                  {isLog4j2 && (
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 rounded-lg border border-primary/20 bg-primary/5 p-3.5 text-xs">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-foreground">{t('config.jobLogModeTitle')}:</span>
+                          <Badge
+                            variant="outline"
+                            className={cn(
+                              'px-2 py-0.5 font-medium',
+                              isPerJobLogMode
+                                ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+                                : 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400'
+                            )}
+                          >
+                            {isPerJobLogMode
+                              ? t('config.jobLogModePerJobBadge')
+                              : t('config.jobLogModeMixedBadge')}
+                          </Badge>
+                        </div>
+                        <p className="text-muted-foreground">
+                          {isPerJobLogMode
+                            ? t('config.jobLogModePerJobDesc')
+                            : t('config.jobLogModeMixedDesc')}
+                        </p>
+                      </div>
+                      <Button
+                        variant={isPerJobLogMode ? 'outline' : 'default'}
+                        size="sm"
+                        className="shrink-0"
+                        disabled={logModeSwitching}
+                        onClick={() => handleSwitchLogMode(isPerJobLogMode ? 'mixed' : 'per_job')}
+                      >
+                        {logModeSwitching ? (
+                          <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                        ) : isPerJobLogMode ? (
+                          <Settings className="mr-1.5 h-3.5 w-3.5" />
+                        ) : (
+                          <WandSparkles className="mr-1.5 h-3.5 w-3.5" />
+                        )}
+                        {isPerJobLogMode
+                          ? t('config.switchToMixedModeBtn')
+                          : t('config.switchToPerJobModeBtn')}
+                      </Button>
+                    </div>
+                  )}
                   <p className="text-xs text-muted-foreground">{t('config.tabTemplateHint')}</p>
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2">

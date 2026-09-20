@@ -1149,6 +1149,63 @@ export class ClusterService extends BaseService {
     }
   }
 
+  /**
+   * 一键切换作业日志输出模式 (单 Job 独立日志模式 vs 共享混合日志模式)
+   * Switch cluster job log output mode (per_job vs mixed)
+   */
+  static async switchJobLogMode(
+    clusterId: number,
+    mode: 'per_job' | 'mixed'
+  ): Promise<{
+    saved: boolean;
+    restart_required: boolean;
+    mode: 'per_job' | 'mixed';
+    message: string;
+    config_version?: number;
+  }> {
+    const response = await apiClient.post<{
+      error_msg?: string;
+      data: {
+        saved: boolean;
+        restart_required: boolean;
+        mode: 'per_job' | 'mixed';
+        message: string;
+        config_version?: number;
+      };
+    }>(`${this.basePath}/${clusterId}/log-mode`, { mode });
+
+    if (response.data.error_msg) {
+      throw new Error(localizeBackendText(response.data.error_msg));
+    }
+
+    return response.data.data;
+  }
+
+  static async switchJobLogModeSafe(
+    clusterId: number,
+    mode: 'per_job' | 'mixed'
+  ): Promise<{
+    success: boolean;
+    data?: {
+      saved: boolean;
+      restart_required: boolean;
+      mode: 'per_job' | 'mixed';
+      message: string;
+      config_version?: number;
+    };
+    error?: string;
+  }> {
+    try {
+      const data = await this.switchJobLogMode(clusterId, mode);
+      return { success: true, data };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : '切换日志模式失败',
+      };
+    }
+  }
+
   static async getStxJavaProxyStatusSafe(clusterId: number): Promise<{
     success: boolean;
     data?: StxJavaProxyStatus;

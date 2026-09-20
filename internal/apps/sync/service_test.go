@@ -1731,3 +1731,172 @@ func TestEngineJobInfoUsesFinishTimeField(t *testing.T) {
 		t.Fatalf("expected finishTime to populate FinishedTime, got %q", info.FinishedTime)
 	}
 }
+
+func TestTaskPermissionsAndRoles(t *testing.T) {
+	ctx := context.Background()
+	service := newTestSyncService(t)
+
+	// 1. Create a parent folder and a public task created by admin (userID 1)
+	folder, err := service.CreateTask(ctx, &CreateTaskRequest{
+		NodeType: string(TaskNodeTypeFolder),
+		Name:     "data_pipelines",
+	}, 1)
+	if err != nil {
+		t.Fatalf("创建目录失败: %v", err)
+	}
+
+	publicTask, err := service.CreateTask(ctx, &CreateTaskRequest{
+		ParentID:      &folder.ID,
+		NodeType:      string(TaskNodeTypeFile),
+		Name:          "public_sync.env",
+		Mode:          string(TaskModeBatch),
+		ContentFormat: string(ContentFormatHOCON),
+		Content:       "env { parallelism = 1 }",
+		Definition:    JSONMap{"is_public": true},
+	}, 1)
+	if err != nil {
+		t.Fatalf("创建公开任务失败: %v", err)
+	}
+
+	// 2. Test permission decoration for admin vs ordinary user
+	adminActor := executionapp.Actor{UserID: 1, IsAdmin: true}
+	regularActor := executionapp.Actor{UserID: 4, IsAdmin: false}
+
+	adminTask, err := service.GetTaskForActor(ctx, adminActor, publicTask.ID)
+	if err != nil {
+		t.Fatalf("admin 读取公开任务失败: %v", err)
+	}
+	if !adminTask.CanEdit || !adminTask.CanRun || !adminTask.IsOwner {
+		t.Fatalf("admin 应该拥有完整权限: %+v", adminTask)
+	}
+
+	regularTask, err := service.GetTaskForActor(ctx, regularActor, publicTask.ID)
+	if err != nil {
+		t.Fatalf("普通用户读取公开任务失败: %v", err)
+	}
+	if regularTask.CanEdit || regularTask.CanRun || regularTask.IsOwner {
+		t.Fatalf("普通用户对他人公开任务应为只读锁定状态: %+v", regularTask)
+	}
+
+	// 3. Regular user attempting to edit or delete should be rejected
+	_, err = service.UpdateTaskForActor(ctx, regularActor, publicTask.ID, &UpdateTaskRequest{
+		Name:    "public_sync.env",
+		Content: "env { parallelism = 2 }",
+	})
+	if !errors.Is(err, ErrTaskReadOnly) {
+		t.Fatalf("普通用户更新他人公开任务应返回 ErrTaskReadOnly, got: %v", err)
+	}
+
+	err = service.DeleteTaskForActor(ctx, regularActor, publicTask.ID)
+	if !errors.Is(err, ErrTaskPermissionDenied) {
+		t.Fatalf("普通用户删除他人任务应返回 ErrTaskPermissionDenied, got: %v", err)
+	}
+
+	// 4. Create an admin job for this task, regular user should see it when querying by task_id
+	adminJob := &JobInstance{
+		TaskID:        publicTask.ID,
+		TaskVersion:   1,
+		RunType:       RunTypeRun,
+		Status:        JobStatusRunning,
+		PlatformJobID: "platform-public-1",
+		CreatedBy:     1,
+	}
+	if err := service.repo.CreateJobInstance(ctx, adminJob); err != nil {
+		t.Fatalf("创建 admin 作业失败: %v", err)
+	}
+
+	// Regular user queries jobs with task_id -> should see admin's job
+	jobs, total, err := service.ListJobsForActor(ctx, regularActor, &JobFilter{TaskID: publicTask.ID, Page: 1, Size: 10})
+	if err != nil {
+		t.Fatalf("普通用户查询任务运行历史失败: %v", err)
+	}
+	if total != 1 || len(jobs) != 1 || jobs[0].ID != adminJob.ID {
+		t.Fatalf("普通用户应能查看该任务下的历史作业: total=%d, jobs=%+v", total, jobs)
+	}
+
+	// Regular user trying to cancel admin's job should be denied
+	_, err = service.CancelJobForActor(ctx, regularActor, adminJob.ID, false)
+	if !errors.Is(err, ErrTaskPermissionDenied) {
+		t.Fatalf("普通用户取消他人作业应返回 ErrTaskPermissionDenied, got: %v", err)
+	}
+
+	// 5. Test Collaborator functionality
+	// Add user 4 as collaborator
+	_, err = service.UpdateTaskForActor(ctx, adminActor, publicTask.ID, &UpdateTaskRequest{
+		ParentID:   &folder.ID,
+		Name:       "public_sync.env",
+		Content:    "env { parallelism = 1 }",
+		Definition: JSONMap{"is_public": true, "collaborators": []interface{}{4}},
+	})
+	if err != nil {
+		t.Fatalf("添加共建者失败: %v", err)
+	}
+
+	collabTask, err := service.GetTaskForActor(ctx, regularActor, publicTask.ID)
+	if err != nil {
+		t.Fatalf("共建者读取任务失败: %v", err)
+	}
+	if !collabTask.CanEdit || !collabTask.CanRun || !collabTask.IsCollaborator || collabTask.IsOwner {
+		t.Fatalf("共建者应具有编辑与运行权限，但不是所有者: %+v", collabTask)
+	}
+
+	// Collaborator can update content
+	updatedTask, err := service.UpdateTaskForActor(ctx, regularActor, publicTask.ID, &UpdateTaskRequest{
+		ParentID:   &folder.ID,
+		Name:       "public_sync.env",
+		Content:    "env { parallelism = 4 }",
+		Definition: JSONMap{"is_public": false, "collaborators": []interface{}{}}, // Try to tamper permissions
+	})
+	if err != nil {
+		t.Fatalf("共建者更新任务内容失败: %v", err)
+	}
+	if updatedTask.Content != "env { parallelism = 4 }" {
+		t.Fatalf("共建者更新内容未生效")
+	}
+	// Verify collaborator cannot tamper with is_public or collaborators
+	if updatedTask.Definition["is_public"] != true || len(updatedTask.CollaboratorIDs()) != 1 {
+		t.Fatalf("共建者篡改权限配置应该被忽略: %+v", updatedTask.Definition)
+	}
+
+	// 6. Test Private Task visibility
+	privateTask, err := service.CreateTask(ctx, &CreateTaskRequest{
+		ParentID:      &folder.ID,
+		NodeType:      string(TaskNodeTypeFile),
+		Name:          "secret_sync.env",
+		Mode:          string(TaskModeBatch),
+		ContentFormat: string(ContentFormatHOCON),
+		Content:       "env { parallelism = 1 }",
+		Definition:    JSONMap{"is_public": false},
+	}, 1)
+	if err != nil {
+		t.Fatalf("创建私有任务失败: %v", err)
+	}
+
+	// User 4 has no permission on privateTask
+	otherUserActor := executionapp.Actor{UserID: 8, IsAdmin: false}
+	_, err = service.GetTaskForActor(ctx, otherUserActor, privateTask.ID)
+	if !errors.Is(err, ErrTaskPermissionDenied) {
+		t.Fatalf("非所有者/非共建者访问私有任务应被拒绝: %v", err)
+	}
+
+	// Check tree filtering for otherUserActor
+	tree, err := service.GetTaskTreeForActor(ctx, otherUserActor)
+	if err != nil {
+		t.Fatalf("获取任务树失败: %v", err)
+	}
+	var findTaskInTree func(nodes []*TaskTreeNode, targetID uint) bool
+	findTaskInTree = func(nodes []*TaskTreeNode, targetID uint) bool {
+		for _, n := range nodes {
+			if n.ID == targetID {
+				return true
+			}
+			if findTaskInTree(n.Children, targetID) {
+				return true
+			}
+		}
+		return false
+	}
+	if findTaskInTree(tree, privateTask.ID) {
+		t.Fatalf("私有任务不应该出现在非授权用户的任务树中")
+	}
+}

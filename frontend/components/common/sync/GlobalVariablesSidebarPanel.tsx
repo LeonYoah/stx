@@ -59,6 +59,7 @@ export interface GlobalVariablesSidebarPanelProps {
   total: number;
   page: number;
   pageSize: number;
+  isAdmin?: boolean;
   onPageChange: (page: number) => void;
   onOpenCreate: () => void;
   onOpenEdit: (item: SyncGlobalVariable) => void;
@@ -127,6 +128,7 @@ export function GlobalVariablesSidebarPanel({
   total,
   page,
   pageSize,
+  isAdmin = true,
   onPageChange,
   onOpenCreate,
   onOpenEdit,
@@ -184,14 +186,34 @@ export function GlobalVariablesSidebarPanel({
               {total}
             </Badge>
           </div>
-          <Button
-            size='sm'
-            className='h-7 px-2.5 text-xs gap-1 shadow-xs'
-            onClick={onOpenCreate}
-          >
-            <Plus className='size-3.5' />
-            <span>{t('newCreate')}</span>
-          </Button>
+          {isAdmin ? (
+            <Button
+              size='sm'
+              className='h-7 px-2.5 text-xs gap-1 shadow-xs'
+              onClick={onOpenCreate}
+            >
+              <Plus className='size-3.5' />
+              <span>{t('newCreate')}</span>
+            </Button>
+          ) : (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className='cursor-not-allowed'>
+                  <Button
+                    size='sm'
+                    className='h-7 px-2.5 text-xs gap-1 shadow-xs opacity-50'
+                    disabled
+                  >
+                    <Plus className='size-3.5' />
+                    <span>{t('newCreate')}</span>
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side='bottom' className='text-xs'>
+                {t('adminOnlyGlobalVars')}
+              </TooltipContent>
+            </Tooltip>
+          )}
         </div>
 
         <p className='text-[11px] leading-relaxed text-muted-foreground'>
@@ -274,7 +296,7 @@ export function GlobalVariablesSidebarPanel({
                 ? t('noDetectedVariables')
                 : t('noGlobalVariables')}
             </p>
-            {!searchQuery && typeFilter === 'all' && (
+            {!searchQuery && typeFilter === 'all' && isAdmin && (
               <Button
                 variant='outline'
                 size='sm'
@@ -380,19 +402,23 @@ export function GlobalVariablesSidebarPanel({
                             {t('copyValue')}
                           </DropdownMenuItem>
                         )}
-                        <DropdownMenuItem
-                          onClick={() => onOpenEdit(item)}
-                        >
-                          <Pencil className='mr-2 size-3.5' />
-                          {t('edit')}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          className='text-destructive focus:text-destructive'
-                          onClick={() => onDelete(item.id)}
-                        >
-                          <Trash2 className='mr-2 size-3.5' />
-                          {t('delete')}
-                        </DropdownMenuItem>
+                        {isAdmin ? (
+                          <>
+                            <DropdownMenuItem
+                              onClick={() => onOpenEdit(item)}
+                            >
+                              <Pencil className='mr-2 size-3.5' />
+                              {t('edit')}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              className='text-destructive focus:text-destructive'
+                              onClick={() => onDelete(item.id)}
+                            >
+                              <Trash2 className='mr-2 size-3.5' />
+                              {t('delete')}
+                            </DropdownMenuItem>
+                          </>
+                        ) : null}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>

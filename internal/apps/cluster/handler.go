@@ -218,6 +218,12 @@ type ApplyRuntimeStorageResponse struct {
 	Data     *ApplyRuntimeStorageResult `json:"data"`
 }
 
+// SwitchJobLogModeResponse represents job log mode switch response.
+type SwitchJobLogModeResponse struct {
+	ErrorMsg string                  `json:"error_msg"`
+	Data     *SwitchJobLogModeResult `json:"data"`
+}
+
 // GetRuntimeStorageResponse 表示运行时存储详情响应。
 type GetRuntimeStorageResponse struct {
 	ErrorMsg string                 `json:"error_msg"`
@@ -871,6 +877,26 @@ func (h *Handler) ApplyRuntimeStorage(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, ApplyRuntimeStorageResponse{Data: result})
+}
+
+// SwitchJobLogMode 一键切换集群作业日志输出模式 (单 Job 独立日志模式 vs 共享混合日志模式)
+func (h *Handler) SwitchJobLogMode(c *gin.Context) {
+	clusterID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, SwitchJobLogModeResponse{ErrorMsg: "无效的集群 ID / Invalid cluster ID"})
+		return
+	}
+	var req SwitchJobLogModeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, SwitchJobLogModeResponse{ErrorMsg: err.Error()})
+		return
+	}
+	result, err := h.service.SwitchJobLogMode(c.Request.Context(), uint(clusterID), &req, uint(auth.GetUserIDFromContext(c)))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, SwitchJobLogModeResponse{ErrorMsg: err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, SwitchJobLogModeResponse{Data: result})
 }
 
 // ListRuntimeStorage handles POST /api/v1/clusters/:id/runtime-storage/:kind/list.

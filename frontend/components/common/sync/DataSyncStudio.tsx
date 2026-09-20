@@ -32,12 +32,14 @@ import {
 import {useTheme} from 'next-themes';
 import {toast} from 'sonner';
 import {
+  AlertTriangle,
   Bug,
   Check,
   Copy,
   ChevronDown,
   ChevronRight,
   Columns2,
+  ExternalLink,
   Folder,
   FolderPlus,
   FileCode2,
@@ -66,10 +68,20 @@ import {
   Loader2,
   Eye,
   Clock3,
+  Lock,
+  Shield,
+  Users,
+  UserCheck,
+  Share2,
+  Workflow,
+  WandSparkles,
+  X,
 } from 'lucide-react';
+import {useAuth} from '@/hooks/use-auth';
 import services from '@/lib/services';
 import {cn} from '@/lib/utils';
 import type {ClusterInfo} from '@/lib/services/cluster';
+import type {NotificationRecipientUser} from '@/lib/services/monitoring';
 import type {
   RuntimeStorageCheckpointInspectJobConfig,
   RuntimeStorageCheckpointInspectResult,
@@ -173,6 +185,12 @@ interface EditorState {
   definition: SyncJSON;
   currentVersion: number;
   status: string;
+  createdBy?: number;
+  canEdit?: boolean;
+  canRun?: boolean;
+  isOwner?: boolean;
+  isCollaborator?: boolean;
+  isPublic?: boolean;
 }
 
 interface TreeContextMenuState {
@@ -793,6 +811,11 @@ const EMPTY_EDITOR: EditorState = {
   definition: {},
   currentVersion: 0,
   status: 'draft',
+  canEdit: true,
+  canRun: true,
+  isOwner: true,
+  isCollaborator: false,
+  isPublic: true,
 };
 
 const WORKSPACE_NAME_PATTERN = /^[\p{L}\p{N}._-]+$/u;
@@ -2193,6 +2216,12 @@ function extractEditorState(task?: SyncTask | null): EditorState {
     definition: task.definition || {},
     currentVersion: task.current_version || 0,
     status: task.status || 'draft',
+    createdBy: task.created_by,
+    canEdit: task.can_edit ?? true,
+    canRun: task.can_run ?? true,
+    isOwner: task.is_owner ?? true,
+    isCollaborator: task.is_collaborator ?? false,
+    isPublic: task.is_public ?? true,
   };
 }
 
@@ -2213,6 +2242,12 @@ function extractEditorStateFromTreeNode(
     definition: task.definition || {},
     currentVersion: task.current_version || 0,
     status: task.status || 'draft',
+    createdBy: task.created_by,
+    canEdit: task.can_edit ?? true,
+    canRun: task.can_run ?? true,
+    isOwner: task.is_owner ?? true,
+    isCollaborator: task.is_collaborator ?? false,
+    isPublic: task.is_public ?? true,
   };
 }
 
@@ -2789,6 +2824,22 @@ function buildInsertedTemplateContent(
 export function DataSyncStudio() {
   const t = useTranslations('workbenchStudio');
   const {resolvedTheme} = useTheme();
+  const {user: currentUser} = useAuth();
+  const [workspaceUsers, setWorkspaceUsers] = useState<
+    NotificationRecipientUser[]
+  >([]);
+
+  useEffect(() => {
+    void services.monitoring
+      .listNotifiableUsers()
+      .then((data) => {
+        if (Array.isArray(data.users)) {
+          setWorkspaceUsers(data.users);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   const monacoFromHook = useMonaco();
   const editorInstanceRef = useRef<any>(null);
   const monacoInstanceRef = useRef<any>(null);
@@ -4483,6 +4534,20 @@ export function DataSyncStudio() {
       job_name: editor.name.trim(),
       definition: {
         ...editor.definition,
+        is_public:
+          editor.definition?.is_public !== undefined
+            ? editor.definition.is_public
+            : (editor.isPublic ?? true),
+        collaborators: Array.isArray(editor.definition?.collaborators)
+          ? editor.definition.collaborators
+          : Array.isArray(editor.definition?.collaborator_ids)
+            ? editor.definition.collaborator_ids
+            : [],
+        collaborator_ids: Array.isArray(editor.definition?.collaborator_ids)
+          ? editor.definition.collaborator_ids
+          : Array.isArray(editor.definition?.collaborators)
+            ? editor.definition.collaborators
+            : [],
         custom_variables: fromVariableRows(customVariableRows),
         custom_variable_types: fromVariableTypes(customVariableRows),
         execution_mode: getExecutionMode(editor.definition),
@@ -4888,6 +4953,10 @@ export function DataSyncStudio() {
   };
 
   const handleSave = async () => {
+    if (editor.id && !editor.canEdit) {
+      toast.error(t('readOnlySaveTooltip'));
+      return;
+    }
     const task = await persistCurrentFile(true);
     if (task) {
       await loadVersions(task.id);
@@ -5001,6 +5070,10 @@ export function DataSyncStudio() {
   };
 
   const handleTestConnections = async () => {
+    if (editor.id && !editor.canEdit) {
+      toast.error(t('readOnlyTestConnTooltip'));
+      return;
+    }
     const actionContext = ensureDraftActionContext(t('testConnections'));
     if (!actionContext) {
       return;
@@ -5039,6 +5112,10 @@ export function DataSyncStudio() {
   };
 
   const handlePreview = async () => {
+    if (editor.id && !editor.canRun) {
+      toast.error(t('readOnlyPreviewTooltip'));
+      return;
+    }
     if (hasActiveRun || hasActivePreview) {
       toast.error(t('waitForActiveRun'));
       return;
@@ -5111,6 +5188,10 @@ export function DataSyncStudio() {
     mode: 'run' | 'recover',
     sourceJobId?: number | null,
   ) => {
+    if (editor.id && !editor.canRun) {
+      toast.error(t('readOnlyRunTooltip'));
+      return;
+    }
     if (hasActiveRun || hasActivePreview) {
       toast.error(t('waitForActiveRun'));
       return;
@@ -5501,21 +5582,88 @@ export function DataSyncStudio() {
   return (
     <div className='-mx-2 flex h-[calc(100vh-96px)] min-h-[780px] flex-col gap-2 bg-background/10 lg:-mx-3'>
       <Card className='gap-0 border-border/60 bg-background/85 py-0 shadow-sm'>
-        <CardContent className='flex h-14 items-center justify-between gap-3 px-4 py-2'>
-          <div className='flex min-w-0 items-center gap-3'>
-            <FolderTree className='size-4 shrink-0 text-primary' />
-            <div className='relative w-[240px]'>
-              <Search className='absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground' />
-              <Input
-                value={keyword}
-                onChange={(event) => setKeyword(event.target.value)}
-                className='h-9 border-border/60 bg-background pl-9 text-sm'
-                placeholder={t('searchWorkspace')}
-              />
-            </div>
-            <div className='flex items-center gap-2'>
-              <div className='relative w-[180px]'>
-                <Search className='absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground' />
+        <CardContent className='flex h-12 items-center justify-between gap-3 px-3 py-1.5'>
+          {/* 左侧：任务文件名、版本标签、状态胶囊、权限/角色胶囊、公开性胶囊 */}
+          {/* Left: Task name, version badge, status badge, role/lock badge, visibility badge */}
+          <div className='flex min-w-0 items-center gap-2'>
+            <FileCode2 className='size-4 text-primary shrink-0' />
+            <span
+              className='max-w-[180px] sm:max-w-[240px] truncate text-sm font-semibold tracking-tight text-foreground'
+              title={editor.name}
+            >
+              {editor.name || t('noFileSelected')}
+            </span>
+
+            {editor.id ? (
+              <div className='flex items-center gap-1.5 shrink-0'>
+                <Badge
+                  variant='outline'
+                  className='h-5 rounded px-1.5 text-[10px] font-mono font-normal'
+                >
+                  v{editor.currentVersion || 1}
+                </Badge>
+                <Badge
+                  variant='outline'
+                  className={cn(
+                    'h-5 rounded px-1.5 text-[10px] font-normal',
+                    editor.status === 'published'
+                      ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                      : 'border-muted-foreground/30 bg-muted/40 text-muted-foreground',
+                  )}
+                >
+                  {editor.status === 'published' ? t('published') : t('draft')}
+                </Badge>
+
+                {/* 权限锁定 / 所有者 / 共建者 标识 */}
+                {!editor.canEdit ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Badge
+                        variant='outline'
+                        className='h-5 gap-1 rounded border-amber-500/40 bg-amber-500/10 px-1.5 text-[10px] font-normal text-amber-600 dark:text-amber-400'
+                      >
+                        <Lock className='size-2.5' />
+                        {t('readOnlyLocked')}
+                      </Badge>
+                    </TooltipTrigger>
+                    <TooltipContent>{t('readOnlyBannerText')}</TooltipContent>
+                  </Tooltip>
+                ) : editor.isOwner ? (
+                  <Badge
+                    variant='outline'
+                    className='h-5 gap-1 rounded border-primary/30 bg-primary/10 px-1.5 text-[10px] font-normal text-primary'
+                  >
+                    <Shield className='size-2.5' />
+                    {t('owner')}
+                  </Badge>
+                ) : editor.isCollaborator ? (
+                  <Badge
+                    variant='outline'
+                    className='h-5 gap-1 rounded border-sky-500/30 bg-sky-500/10 px-1.5 text-[10px] font-normal text-sky-600 dark:text-sky-400'
+                  >
+                    <UserCheck className='size-2.5' />
+                    {t('collaborator')}
+                  </Badge>
+                ) : null}
+
+                {/* 可见性胶囊 */}
+                <Badge
+                  variant='secondary'
+                  className='h-5 rounded px-1.5 text-[10px] font-normal text-muted-foreground'
+                >
+                  {editor.isPublic !== false ? t('public') : t('private')}
+                </Badge>
+              </div>
+            ) : null}
+          </div>
+
+          {/* 右侧：Job快速定位 + 格式胶囊 + 操作按钮集 */}
+          {/* Right: Quick job locate + format badge + action buttons */}
+          <div className='flex flex-wrap items-center justify-end gap-1.5'>
+            {/* 紧凑型 Job ID 快速定位 */}
+            <div className='hidden sm:flex items-center gap-1 mr-1'>
+              <div className='relative w-[100px]'>
+                <Search className='absolute left-2 top-1/2 size-3 -translate-y-1/2 text-muted-foreground' />
                 <Input
                   value={jobIdLookupInput}
                   onChange={(event) =>
@@ -5526,130 +5674,181 @@ export function DataSyncStudio() {
                       void handleLocateJobId();
                     }
                   }}
-                  className='h-9 border-border/60 bg-background pl-9 text-sm'
-                  placeholder={t('jobId')}
+                  className='h-7 border-border/50 bg-background/50 pl-6 text-[11px]'
+                  placeholder='Job ID...'
                   inputMode='numeric'
                 />
               </div>
               <Button
                 type='button'
                 size='sm'
-                variant='outline'
-                className='h-9 px-3'
+                variant='ghost'
+                className='h-7 px-1.5 text-xs text-muted-foreground hover:text-foreground'
                 onClick={() => void handleLocateJobId()}
+                disabled={!jobIdLookupInput}
               >
-                <Search className='mr-1.5 size-4' />
-                {t('search')}
+                {t('locate')}
               </Button>
             </div>
-          </div>
 
-          <div className='flex flex-wrap items-center justify-end gap-2'>
-            <Badge variant='outline' className='h-9 rounded-md px-3 text-sm'>
+            <Badge variant='outline' className='h-7 rounded px-2 text-xs'>
               HOCON
             </Badge>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span>
+                  <Button
+                    size='sm'
+                    className='h-7 px-2.5 text-xs'
+                    variant='outline'
+                    onClick={handleSave}
+                    disabled={saving || !editor.name.trim() || !editor.canEdit}
+                  >
+                    <Save className='mr-1 size-3.5' />
+                    {t('save')}
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              {!editor.canEdit ? (
+                <TooltipContent>{t('readOnlySaveTooltip')}</TooltipContent>
+              ) : null}
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span>
+                  <Button
+                    size='sm'
+                    className='h-7 px-2.5 text-xs'
+                    variant='outline'
+                    onClick={handleTestConnections}
+                    disabled={
+                      saving ||
+                      !editor.name.trim() ||
+                      actionPending !== null ||
+                      !editor.canEdit
+                    }
+                  >
+                    {actionPending === 'test_connections' ? (
+                      <Loader2 className='mr-1 size-3.5 animate-spin' />
+                    ) : (
+                      <Database className='mr-1 size-3.5' />
+                    )}
+                    {actionPending === 'test_connections'
+                      ? t('testingConnections')
+                      : t('testConnections')}
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              {!editor.canEdit ? (
+                <TooltipContent>{t('readOnlyTestConnTooltip')}</TooltipContent>
+              ) : null}
+            </Tooltip>
+
             <Button
               size='sm'
-              className='h-9 px-3'
-              variant='outline'
-              onClick={handleSave}
-              disabled={saving || !editor.name.trim()}
-            >
-              <Save className='mr-1.5 size-4' />
-              {t('save')}
-            </Button>
-            <Button
-              size='sm'
-              className='h-9 px-3'
-              variant='outline'
-              onClick={handleTestConnections}
-              disabled={saving || !editor.name.trim() || actionPending !== null}
-            >
-              {actionPending === 'test_connections' ? (
-                <Loader2 className='mr-1.5 size-4 animate-spin' />
-              ) : (
-                <Database className='mr-1.5 size-4' />
-              )}
-              {actionPending === 'test_connections'
-                ? t('testingConnections')
-                : t('testConnections')}
-            </Button>
-            <Button
-              size='sm'
-              className='h-9 px-3'
+              className='h-7 px-2.5 text-xs'
               variant='outline'
               onClick={handleBuildDag}
               disabled={saving || !editor.name.trim() || actionPending !== null}
             >
               {actionPending === 'dag' ? (
-                <Loader2 className='mr-1.5 size-4 animate-spin' />
+                <Loader2 className='mr-1 size-3.5 animate-spin' />
               ) : (
-                <GitBranch className='mr-1.5 size-4' />
+                <GitBranch className='mr-1 size-3.5' />
               )}
               {actionPending === 'dag' ? t('buildingDag') : 'DAG'}
             </Button>
-            <Button
-              size='sm'
-              className='h-9 px-3'
-              variant='outline'
-              onClick={handlePreview}
-              disabled={
-                saving ||
-                hasActiveRun ||
-                hasActivePreview ||
-                actionPending !== null
-              }
-            >
-              {actionPending === 'preview' ? (
-                <Loader2 className='mr-1.5 size-4 animate-spin' />
-              ) : (
-                <Bug className='mr-1.5 size-4' />
-              )}
-              {actionPending === 'preview'
-                ? t('preparingPreview')
-                : t('preview')}
-            </Button>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span>
+                  <Button
+                    size='sm'
+                    className='h-7 px-2.5 text-xs'
+                    variant='outline'
+                    onClick={handlePreview}
+                    disabled={
+                      saving ||
+                      hasActiveRun ||
+                      hasActivePreview ||
+                      actionPending !== null ||
+                      !editor.canRun
+                    }
+                  >
+                    {actionPending === 'preview' ? (
+                      <Loader2 className='mr-1 size-3.5 animate-spin' />
+                    ) : (
+                      <Bug className='mr-1 size-3.5' />
+                    )}
+                    {actionPending === 'preview'
+                      ? t('preparingPreview')
+                      : t('preview')}
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              {!editor.canRun ? (
+                <TooltipContent>{t('readOnlyPreviewTooltip')}</TooltipContent>
+              ) : null}
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        size='sm'
+                        className='h-7 px-2.5 text-xs'
+                        disabled={
+                          saving ||
+                          hasActiveRun ||
+                          hasActivePreview ||
+                          !editor.canRun
+                        }
+                      >
+                        <Play className='mr-1 size-3.5' />
+                        {t('run')}
+                        <ChevronDown className='ml-1 size-3' />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align='end'>
+                      <DropdownMenuItem onClick={() => void handleRun('run')}>
+                        {t('run')}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        disabled={
+                          executionMode === 'local' ||
+                          hasActiveRun ||
+                          hasActivePreview ||
+                          actionPending !== null ||
+                          preferredRecoverSourceId === null
+                        }
+                        onClick={() => void handleRun('recover')}
+                      >
+                        {t('savepointRecover')}
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </span>
+              </TooltipTrigger>
+              {!editor.canRun ? (
+                <TooltipContent>{t('readOnlyRunTooltip')}</TooltipContent>
+              ) : null}
+            </Tooltip>
+
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
                   size='sm'
-                  className='h-9 px-3'
-                  disabled={saving || hasActiveRun || hasActivePreview}
-                >
-                  <Play className='mr-1.5 size-4' />
-                  {t('run')}
-                  <ChevronDown className='ml-1.5 size-4' />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align='end'>
-                <DropdownMenuItem onClick={() => void handleRun('run')}>
-                  {t('run')}
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  disabled={
-                    executionMode === 'local' ||
-                    hasActiveRun ||
-                    hasActivePreview ||
-                    actionPending !== null ||
-                    preferredRecoverSourceId === null
-                  }
-                  onClick={() => void handleRun('recover')}
-                >
-                  {t('savepointRecover')}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  size='sm'
-                  className='h-9 px-3'
+                  className='h-7 px-2.5 text-xs'
                   variant='outline'
                   disabled={activeJobs.length === 0}
                 >
-                  <Square className='mr-1.5 size-4' />
+                  <Square className='mr-1 size-3.5' />
                   {t('stop')}
-                  <ChevronDown className='ml-1.5 size-4' />
+                  <ChevronDown className='ml-1 size-3' />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align='end'>
@@ -5738,6 +5937,19 @@ export function DataSyncStudio() {
                 </Tooltip>
               </div>
             </div>
+            {/* 工作区树内搜索框 */}
+            {/* Workspace tree in-pane search box */}
+            <div className='border-b border-border/50 p-2'>
+              <div className='relative'>
+                <Search className='absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground' />
+                <Input
+                  value={keyword}
+                  onChange={(event) => setKeyword(event.target.value)}
+                  className='h-7 border-border/50 bg-background/50 pl-7 text-xs placeholder:text-muted-foreground'
+                  placeholder={t('searchWorkspace')}
+                />
+              </div>
+            </div>
             <ScrollArea
               className='min-h-0 flex-1'
               onContextMenu={(event) =>
@@ -5815,42 +6027,59 @@ export function DataSyncStudio() {
                 </div>
               )}
             </div>
-            <div className='min-h-0 flex-1'>
-              <MonacoEditor
-                height='100%'
-                language={
-                  editor.contentFormat === 'json' ? 'json' : 'sync-hocon'
-                }
-                theme={
-                  editor.contentFormat === 'json'
-                    ? monacoTheme
-                    : resolvedTheme === 'light'
-                      ? 'sync-hocon-light'
-                      : 'sync-hocon-dark'
-                }
-                value={editor.content}
-                beforeMount={handleEditorBeforeMount}
-                onMount={handleEditorMount}
-                onChange={(value) => updateEditor('content', value || '')}
-                options={{
-                  minimap: {enabled: true},
-                  fontSize: 13,
-                  wordWrap: 'on',
-                  quickSuggestions: {
-                    other: false,
-                    comments: false,
-                    strings: true,
-                  },
-                  suggestOnTriggerCharacters: true,
-                  wordBasedSuggestions: 'off',
-                  automaticLayout: true,
-                  scrollBeyondLastLine: false,
-                  smoothScrolling: true,
-                  tabSize: 2,
-                  renderLineHighlight: 'all',
-                  padding: {top: 14, bottom: 14},
-                }}
-              />
+            <div className='min-h-0 flex-1 flex flex-col'>
+              {editor.id && !editor.canEdit ? (
+                <div className='flex items-center justify-between border-b border-amber-500/20 bg-amber-500/10 px-3 py-1.5 text-xs text-amber-600 dark:text-amber-400'>
+                  <div className='flex items-center gap-2'>
+                    <Lock className='size-3.5 shrink-0' />
+                    <span>{t('readOnlyBannerText')}</span>
+                  </div>
+                  <Badge
+                    variant='outline'
+                    className='border-amber-500/30 bg-amber-500/15 text-[10px] text-amber-600 dark:text-amber-400'
+                  >
+                    {t('readOnly')}
+                  </Badge>
+                </div>
+              ) : null}
+              <div className='min-h-0 flex-1'>
+                <MonacoEditor
+                  height='100%'
+                  language={
+                    editor.contentFormat === 'json' ? 'json' : 'sync-hocon'
+                  }
+                  theme={
+                    editor.contentFormat === 'json'
+                      ? monacoTheme
+                      : resolvedTheme === 'light'
+                        ? 'sync-hocon-light'
+                        : 'sync-hocon-dark'
+                  }
+                  value={editor.content}
+                  beforeMount={handleEditorBeforeMount}
+                  onMount={handleEditorMount}
+                  onChange={(value) => updateEditor('content', value || '')}
+                  options={{
+                    minimap: {enabled: true},
+                    fontSize: 13,
+                    wordWrap: 'on',
+                    quickSuggestions: {
+                      other: false,
+                      comments: false,
+                      strings: true,
+                    },
+                    suggestOnTriggerCharacters: true,
+                    wordBasedSuggestions: 'off',
+                    automaticLayout: true,
+                    scrollBeyondLastLine: false,
+                    smoothScrolling: true,
+                    tabSize: 2,
+                    renderLineHighlight: 'all',
+                    padding: {top: 14, bottom: 14},
+                    readOnly: Boolean(editor.id && !editor.canEdit),
+                  }}
+                />
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -5888,6 +6117,46 @@ export function DataSyncStudio() {
         >
           {rightSidebarTab === 'settings' ? (
             <SettingsSidebarPanel
+              taskId={editor.id}
+              isOwner={editor.isOwner ?? true}
+              isAdmin={currentUser?.is_admin ?? false}
+              canEdit={editor.canEdit ?? true}
+              createdBy={editor.createdBy}
+              isPublic={editor.isPublic ?? true}
+              collaboratorIds={
+                Array.isArray(editor.definition?.collaborator_ids)
+                  ? (editor.definition.collaborator_ids as number[])
+                  : Array.isArray(editor.definition?.collaborators)
+                    ? (editor.definition.collaborators as number[])
+                    : []
+              }
+              workspaceUsers={workspaceUsers}
+              onUpdateSharing={(isPublic, collaboratorIds) => {
+                const nextDef = {
+                  ...editor.definition,
+                  is_public: isPublic,
+                  collaborator_ids: collaboratorIds,
+                  collaborators: collaboratorIds,
+                };
+                setEditor((prev) => {
+                  const next = {
+                    ...prev,
+                    isPublic,
+                    definition: nextDef,
+                  };
+                  if (next.id) {
+                    markEditorDraft(
+                      next.id,
+                      next,
+                      customVariableRowsRef.current,
+                      true,
+                    );
+                  }
+                  return next;
+                });
+              }}
+              onSavePermissions={() => void handleSave()}
+              saving={saving}
               executionMode={executionMode}
               clusterId={editor.clusterId}
               clusters={clusters}
@@ -5917,6 +6186,7 @@ export function DataSyncStudio() {
           ) : rightSidebarTab === 'versions' ? (
             <VersionSidebarPanel
               taskId={editor.id}
+              canEdit={editor.canEdit ?? true}
               currentVersion={editor.currentVersion}
               versions={versions}
               total={versionTotal}
@@ -5934,6 +6204,7 @@ export function DataSyncStudio() {
               total={globalVariableTotal}
               page={globalVariablePage}
               pageSize={8}
+              isAdmin={currentUser?.is_admin ?? false}
               onPageChange={setGlobalVariablePage}
               onOpenCreate={handleOpenCreateGlobalVariable}
               onOpenEdit={handleOpenEditGlobalVariable}
@@ -6052,6 +6323,11 @@ export function DataSyncStudio() {
                 <JobRunsPanel
                   jobs={jobs}
                   selectedJobId={selectedJobId}
+                  currentUserId={currentUser?.id}
+                  isAdmin={currentUser?.is_admin ?? false}
+                  isOwner={editor.isOwner ?? true}
+                  canRun={editor.canRun ?? true}
+                  workspaceUsers={workspaceUsers}
                   onSelectJob={setSelectedJobId}
                   onRecover={handleRecoverFromHistory}
                   onCancel={handleCancelJob}
@@ -6436,6 +6712,20 @@ export function DataSyncStudio() {
             lines={splitLogLines(expandedJobLogs?.logs || jobLogs?.logs || '')}
             height={620}
             emptyText={t('noLogs')}
+            emptyNode={
+              expandedJobLogs?.empty_reason === 'mixed_log_mode' ||
+              jobLogs?.empty_reason === 'mixed_log_mode' ||
+              expandedJobLogs?.cluster_job_log_mode === 'mixed' ||
+              jobLogs?.cluster_job_log_mode === 'mixed' ? (
+                <MixedLogModeBanner
+                  clusterId={
+                    expandedJobLogs?.cluster_id ||
+                    jobLogs?.cluster_id ||
+                    getSyncJobClusterId(selectedJob)
+                  }
+                />
+              ) : undefined
+            }
           />
         </DialogContent>
       </Dialog>
@@ -6635,7 +6925,7 @@ export function DataSyncStudio() {
               ) : null}
             </>
           ) : null}
-          {treeMenu.kind !== 'root' ? (
+          {treeMenu.kind !== 'root' && treeMenu.node?.can_edit !== false ? (
             <button
               type='button'
               className='flex w-full items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent'
@@ -6650,7 +6940,7 @@ export function DataSyncStudio() {
               {t('rename')}
             </button>
           ) : null}
-          {treeMenu.kind !== 'root' ? (
+          {treeMenu.kind !== 'root' && treeMenu.node?.can_edit !== false ? (
             <button
               type='button'
               className='flex w-full items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent'
@@ -6669,7 +6959,7 @@ export function DataSyncStudio() {
               {t('copyFile')}
             </button>
           ) : null}
-          {treeMenu.kind !== 'root' ? (
+          {treeMenu.kind !== 'root' && treeMenu.node?.can_edit !== false ? (
             <button
               type='button'
               className='flex w-full items-center rounded-sm px-2 py-1.5 text-sm text-destructive hover:bg-accent'
@@ -6717,6 +7007,7 @@ function TreeView({
   ) => void;
   depth?: number;
 }) {
+  const t = useTranslations('workbenchStudio');
   return (
     <div className='space-y-0 py-0.5'>
       {nodes.map((node) => {
@@ -6758,14 +7049,24 @@ function TreeView({
                 <span className='truncate'>{node.name}</span>
               </span>
               {node.node_type === 'file' ? (
-                <Badge
-                  variant='outline'
-                  className='h-5 rounded-sm px-1.5 text-[10px]'
-                >
-                  {node.current_version > 0
-                    ? `v${node.current_version}`
-                    : 'draft'}
-                </Badge>
+                <div className='flex items-center gap-1 shrink-0'>
+                  {node.can_edit === false ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Lock className='size-3 text-amber-500 shrink-0' />
+                      </TooltipTrigger>
+                      <TooltipContent side='right'>{t('readOnlyLocked')}</TooltipContent>
+                    </Tooltip>
+                  ) : null}
+                  <Badge
+                    variant='outline'
+                    className='h-5 rounded-sm px-1.5 text-[10px]'
+                  >
+                    {node.current_version > 0
+                      ? `v${node.current_version}`
+                      : t('draft')}
+                  </Badge>
+                </div>
               ) : null}
             </button>
             {hasChildren && isExpanded ? (
@@ -6918,6 +7219,17 @@ function TemplatePluginSelect({
 }
 
 function SettingsSidebarPanel({
+  taskId,
+  isOwner = true,
+  isAdmin = false,
+  canEdit = true,
+  createdBy,
+  isPublic = true,
+  collaboratorIds = [],
+  workspaceUsers = [],
+  onUpdateSharing,
+  onSavePermissions,
+  saving = false,
   executionMode,
   clusterId,
   clusters,
@@ -6938,6 +7250,17 @@ function SettingsSidebarPanel({
   onCopyCustomVariableReference,
   onCopyCustomVariableValue,
 }: {
+  taskId?: number;
+  isOwner?: boolean;
+  isAdmin?: boolean;
+  canEdit?: boolean;
+  createdBy?: number;
+  isPublic?: boolean;
+  collaboratorIds?: number[];
+  workspaceUsers?: NotificationRecipientUser[];
+  onUpdateSharing?: (isPublic: boolean, collaboratorIds: number[]) => void;
+  onSavePermissions?: () => void;
+  saving?: boolean;
   executionMode: ExecutionMode;
   clusterId: string;
   clusters: ClusterInfo[];
@@ -6965,6 +7288,190 @@ function SettingsSidebarPanel({
   const builtinPreviewNow = useMemo(() => new Date(), []);
   return (
     <div className='mx-auto min-w-0 max-w-[236px] space-y-4'>
+      {/* 任务共享与权限协作 */}
+      {/* Task Sharing & Permissions Section */}
+      {taskId ? (
+        <div className='rounded-lg border border-border/50 bg-muted/10 p-3 space-y-3'>
+          <div className='flex items-center justify-between'>
+            <div className='flex items-center gap-1.5 text-xs font-medium text-foreground'>
+              <Users className='size-3.5 text-primary' />
+              <span>{t('taskSharingAndPerms')}</span>
+            </div>
+            {isOwner ? (
+              <Badge
+                variant='outline'
+                className='border-primary/30 bg-primary/10 text-[10px] text-primary'
+              >
+                {t('owner')}
+              </Badge>
+            ) : canEdit ? (
+              <Badge
+                variant='outline'
+                className='border-sky-500/30 bg-sky-500/10 text-[10px] text-sky-600 dark:text-sky-400'
+              >
+                {t('collaborator')}
+              </Badge>
+            ) : (
+              <Badge
+                variant='outline'
+                className='border-amber-500/30 bg-amber-500/10 text-[10px] text-amber-600 dark:text-amber-400'
+              >
+                {t('readOnlyLocked')}
+              </Badge>
+            )}
+          </div>
+
+          {/* 所有者展示 */}
+          <div className='flex items-center justify-between text-[11px] text-muted-foreground'>
+            <span>{t('owner')}</span>
+            <span className='font-medium text-foreground'>
+              {createdBy
+                ? workspaceUsers?.find((u) => u.id === createdBy)?.username ||
+                  `User #${createdBy}`
+                : '-'}
+            </span>
+          </div>
+
+          {/* 任务可见性 */}
+          <div className='space-y-1.5'>
+            <Label className='text-xs'>{t('taskVisibility')}</Label>
+            <Select
+              value={isPublic !== false ? 'public' : 'private'}
+              onValueChange={(val) => {
+                if (onUpdateSharing) {
+                  onUpdateSharing(val === 'public', collaboratorIds || []);
+                }
+              }}
+              disabled={!isOwner && !isAdmin}
+            >
+              <SelectTrigger className='h-8 w-full text-xs'>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className='w-[var(--radix-select-trigger-width)] min-w-0 text-xs'>
+                <SelectItem value='public' className='text-xs'>
+                  {t('taskVisibilityPublic')}
+                </SelectItem>
+                <SelectItem value='private' className='text-xs'>
+                  {t('taskVisibilityPrivate')}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* 共建开发者管理 */}
+          <div className='space-y-1.5'>
+            <Label className='flex items-center justify-between text-xs'>
+              <span>{t('manageCollaborators')}</span>
+              <span className='font-mono text-[10px] text-muted-foreground'>
+                ({collaboratorIds?.length || 0})
+              </span>
+            </Label>
+
+            {isOwner || isAdmin ? (
+              <Select
+                value='__none__'
+                onValueChange={(val) => {
+                  if (val === '__none__') return;
+                  const uid = Number(val);
+                  if (!uid || isNaN(uid)) return;
+                  const currentIds = collaboratorIds || [];
+                  if (!currentIds.includes(uid)) {
+                    onUpdateSharing?.(isPublic !== false, [...currentIds, uid]);
+                  }
+                }}
+              >
+                <SelectTrigger className='h-8 w-full text-xs'>
+                  <SelectValue placeholder={t('selectCollaborator')} />
+                </SelectTrigger>
+                <SelectContent className='max-h-48 w-[var(--radix-select-trigger-width)] min-w-0 text-xs'>
+                  <SelectItem
+                    value='__none__'
+                    disabled
+                    className='text-xs text-muted-foreground'
+                  >
+                    {t('selectCollaborator')}
+                  </SelectItem>
+                  {(workspaceUsers || [])
+                    .filter(
+                      (u) =>
+                        u.id !== createdBy &&
+                        !(collaboratorIds || []).includes(u.id),
+                    )
+                    .map((u) => (
+                      <SelectItem
+                        key={u.id}
+                        value={String(u.id)}
+                        className='text-xs'
+                      >
+                        {u.username} {u.nickname ? `(${u.nickname})` : ''}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            ) : null}
+
+            {/* 已有共建者胶囊 */}
+            <div className='flex flex-wrap gap-1 pt-1'>
+              {(collaboratorIds || []).length > 0 ? (
+                collaboratorIds?.map((uid) => {
+                  const u = workspaceUsers?.find((user) => user.id === uid);
+                  const name = u ? u.username || u.nickname : `User #${uid}`;
+                  return (
+                    <Badge
+                      key={uid}
+                      variant='secondary'
+                      className='h-6 gap-1 px-1.5 text-[11px] font-normal'
+                    >
+                      <UserCheck className='size-3 text-sky-500' />
+                      <span>{name}</span>
+                      {isOwner || isAdmin ? (
+                        <button
+                          type='button'
+                          className='ml-0.5 rounded-full p-0.5 hover:bg-muted-foreground/20'
+                          onClick={() => {
+                            const next = (collaboratorIds || []).filter(
+                              (id) => id !== uid,
+                            );
+                            onUpdateSharing?.(isPublic !== false, next);
+                          }}
+                        >
+                          <X className='size-2.5' />
+                        </button>
+                      ) : null}
+                    </Badge>
+                  );
+                })
+              ) : (
+                <span className='text-[11px] text-muted-foreground'>
+                  {t('noCollaborators')}
+                </span>
+              )}
+            </div>
+
+            {/* 权限提示说明 */}
+            <p className='pt-1 text-[10px] leading-4 text-muted-foreground'>
+              {isOwner || isAdmin
+                ? t('collaboratorHint')
+                : t('nonOwnerPermHint')}
+            </p>
+
+            {/* 保存设置按钮 */}
+            {isOwner || isAdmin ? (
+              <Button
+                size='sm'
+                variant='outline'
+                className='mt-1 h-7 w-full text-xs'
+                onClick={onSavePermissions}
+                disabled={saving}
+              >
+                <Save className='mr-1 size-3' />
+                {t('saveSharingSettings')}
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
       <div className='rounded-lg border border-border/50 bg-muted/10 p-3'>
         <div className='mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground'>
           {t('settings')}
@@ -7166,6 +7673,7 @@ function SettingsSidebarPanel({
 
 function VersionSidebarPanel({
   taskId,
+  canEdit = true,
   currentVersion,
   versions,
   total,
@@ -7178,6 +7686,7 @@ function VersionSidebarPanel({
   onDelete,
 }: {
   taskId?: number;
+  canEdit?: boolean;
   currentVersion: number;
   versions: SyncTaskVersion[];
   total: number;
@@ -7254,22 +7763,46 @@ function VersionSidebarPanel({
                 >
                   {t('compare')}
                 </Button>
-                <Button
-                  size='sm'
-                  variant='outline'
-                  className='h-8 text-xs'
-                  onClick={() => onRollback(version.id)}
-                >
-                  {t('rollback')}
-                </Button>
-                <Button
-                  size='sm'
-                  variant='outline'
-                  className='h-8 text-xs'
-                  onClick={() => onDelete(version.id)}
-                >
-                  {t('delete')}
-                </Button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span>
+                      <Button
+                        size='sm'
+                        variant='outline'
+                        className='h-8 text-xs'
+                        disabled={!canEdit}
+                        onClick={() => onRollback(version.id)}
+                      >
+                        {t('rollback')}
+                      </Button>
+                    </span>
+                  </TooltipTrigger>
+                  {!canEdit ? (
+                    <TooltipContent>
+                      {t('readOnlyVersionTooltip')}
+                    </TooltipContent>
+                  ) : null}
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span>
+                      <Button
+                        size='sm'
+                        variant='outline'
+                        className='h-8 text-xs'
+                        disabled={!canEdit}
+                        onClick={() => onDelete(version.id)}
+                      >
+                        {t('delete')}
+                      </Button>
+                    </span>
+                  </TooltipTrigger>
+                  {!canEdit ? (
+                    <TooltipContent>
+                      {t('readOnlyVersionTooltip')}
+                    </TooltipContent>
+                  ) : null}
+                </Tooltip>
               </div>
             </div>
           ))
@@ -7332,6 +7865,87 @@ function SimplePagination({
   );
 }
 
+function MixedLogModeBanner({
+  clusterId,
+  onSwitched,
+}: {
+  clusterId?: number | null;
+  onSwitched?: () => void;
+}) {
+  const t = useTranslations('workbenchStudio');
+  const [switching, setSwitching] = useState(false);
+
+  const handleSwitch = async () => {
+    if (!clusterId) return;
+    setSwitching(true);
+    try {
+      const res = await services.cluster.switchJobLogModeSafe(clusterId, 'per_job');
+      if (!res.success) {
+        toast.error(res.error || t('switchLogModeFailed'));
+        return;
+      }
+      toast.success(t('switchToPerJobSuccessToast'));
+      onSwitched?.();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t('switchLogModeFailed'));
+    } finally {
+      setSwitching(false);
+    }
+  };
+
+  return (
+    <div className='flex h-full min-h-[180px] flex-col items-center justify-center p-6 text-center'>
+      <div className='max-w-lg space-y-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-5 text-left shadow-sm'>
+        <div className='flex items-center justify-between gap-2'>
+          <div className='flex items-center gap-2 font-medium text-amber-600 dark:text-amber-400 text-sm'>
+            <AlertTriangle className='size-4 shrink-0' />
+            <span>{t('mixedLogModeTitle')}</span>
+          </div>
+          <Badge
+            variant='outline'
+            className='border-amber-500/30 bg-amber-500/10 text-[11px] text-amber-600 dark:text-amber-400'
+          >
+            {t('mixedLogModeBadge')}
+          </Badge>
+        </div>
+        <p className='text-xs text-muted-foreground leading-relaxed'>
+          {t('mixedLogModeDescription')}
+        </p>
+        <div className='flex flex-wrap items-center gap-2 pt-2'>
+          {clusterId ? (
+            <Button
+              size='sm'
+              variant='default'
+              className='h-8 text-xs bg-amber-600 hover:bg-amber-700 text-white dark:bg-amber-600 dark:hover:bg-amber-700'
+              disabled={switching}
+              onClick={handleSwitch}
+            >
+              {switching ? (
+                <Loader2 className='mr-1.5 size-3.5 animate-spin' />
+              ) : (
+                <WandSparkles className='mr-1.5 size-3.5' />
+              )}
+              {t('switchToPerJobModeBtn')}
+            </Button>
+          ) : null}
+          {clusterId ? (
+            <Button size='sm' variant='outline' className='h-8 text-xs' asChild>
+              <a
+                href={`/clusters/${clusterId}`}
+                target='_blank'
+                rel='noreferrer'
+              >
+                <ExternalLink className='mr-1.5 size-3.5' />
+                {t('viewClusterDetail')}
+              </a>
+            </Button>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ConsolePanel({
   job,
   logsResult,
@@ -7353,6 +7967,11 @@ function ConsolePanel({
   }
   const displayStatus = getDisplayJobLifecycleStatus(job);
   const renderedLines = buildDisplayLogLines(logsResult?.logs || '', 800);
+  const isMixedLogMode =
+    logsResult?.empty_reason === 'mixed_log_mode' ||
+    logsResult?.cluster_job_log_mode === 'mixed';
+  const clusterId = logsResult?.cluster_id || getSyncJobClusterId(job);
+
   return (
     <div className='flex h-full min-h-0 min-w-0 flex-col gap-2'>
       <div className='flex flex-wrap items-center gap-2 rounded-lg border border-border/50 bg-background/70 px-3 py-2 text-xs'>
@@ -7459,6 +8078,8 @@ function ConsolePanel({
                 {line}
               </div>
             ))
+          ) : isMixedLogMode ? (
+            <MixedLogModeBanner clusterId={clusterId} />
           ) : (
             <div className='text-muted-foreground'>{t('noLogs')}</div>
           )}
@@ -7471,6 +8092,11 @@ function ConsolePanel({
 function JobRunsPanel({
   jobs,
   selectedJobId,
+  currentUserId,
+  isAdmin = false,
+  isOwner = true,
+  canRun = true,
+  workspaceUsers = [],
   onSelectJob,
   onRecover,
   onCancel,
@@ -7481,6 +8107,11 @@ function JobRunsPanel({
 }: {
   jobs: SyncJobInstance[];
   selectedJobId: number | null;
+  currentUserId?: number;
+  isAdmin?: boolean;
+  isOwner?: boolean;
+  canRun?: boolean;
+  workspaceUsers?: NotificationRecipientUser[];
   onSelectJob: (jobId: number) => void;
   onRecover: (jobId: number) => void;
   onCancel: (jobId: number) => void;
@@ -7504,6 +8135,7 @@ function JobRunsPanel({
             <TableHead>{t('runMode')}</TableHead>
             <TableHead>{t('status')}</TableHead>
             <TableHead>{t('channel')}</TableHead>
+            <TableHead>{t('initiator')}</TableHead>
             <TableHead>{t('startedAt')}</TableHead>
             <TableHead>{t('finishedAt')}</TableHead>
             <TableHead>{t('duration')}</TableHead>
@@ -7551,6 +8183,24 @@ function JobRunsPanel({
                         ? 'Legacy REST V1'
                         : 'REST V2'}
                   </Badge>
+                </TableCell>
+                <TableCell className='text-xs'>
+                  <div className='flex items-center gap-1'>
+                    <span className='font-medium text-foreground'>
+                      {job.created_by
+                        ? workspaceUsers.find((u) => u.id === job.created_by)
+                            ?.username || `User #${job.created_by}`
+                        : '-'}
+                    </span>
+                    {currentUserId && job.created_by === currentUserId ? (
+                      <Badge
+                        variant='secondary'
+                        className='h-4 px-1 text-[10px] font-normal text-muted-foreground'
+                      >
+                        {t('you')}
+                      </Badge>
+                    ) : null}
+                  </div>
                 </TableCell>
                 <TableCell className='text-xs text-muted-foreground'>
                   {formatJobDateTime(job.started_at)}
@@ -7602,44 +8252,94 @@ function JobRunsPanel({
                       <BarChart3 className='size-4' />
                     </Button>
                     {job.run_type !== 'preview' ? (
-                      <Button
-                        size='sm'
-                        variant='outline'
-                        className='h-8 text-xs'
-                        disabled={disableRecover || !canRecoverFromJob(job)}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          onRecover(job.id);
-                        }}
-                      >
-                        {t('recover')}
-                      </Button>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span>
+                            <Button
+                              size='sm'
+                              variant='outline'
+                              className='h-8 text-xs'
+                              disabled={
+                                disableRecover ||
+                                !canRecoverFromJob(job) ||
+                                !canRun
+                              }
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                onRecover(job.id);
+                              }}
+                            >
+                              {t('recover')}
+                            </Button>
+                          </span>
+                        </TooltipTrigger>
+                        {!canRun ? (
+                          <TooltipContent>
+                            {t('readOnlyRecoverTooltip')}
+                          </TooltipContent>
+                        ) : null}
+                      </Tooltip>
                     ) : null}
-                    {isJobLifecycleActive(getDisplayJobLifecycleStatus(job)) ? (
-                      <>
-                        <Button
-                          size='sm'
-                          variant='outline'
-                          className='h-8 text-xs'
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            onSavepointStop(job.id);
-                          }}
-                        >
-                          {t('savepointStop')}
-                        </Button>
-                        <Button
-                          size='sm'
-                          variant='outline'
-                          className='h-8 text-xs'
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            onCancel(job.id);
-                          }}
-                        >
-                          {t('stop')}
-                        </Button>
-                      </>
+                    {isJobLifecycleActive(
+                      getDisplayJobLifecycleStatus(job),
+                    ) ? (
+                      (() => {
+                        const canCancel =
+                          isAdmin ||
+                          isOwner ||
+                          (currentUserId !== undefined &&
+                            job.created_by === currentUserId);
+                        return (
+                          <>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span>
+                                  <Button
+                                    size='sm'
+                                    variant='outline'
+                                    className='h-8 text-xs'
+                                    disabled={!canCancel}
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      onSavepointStop(job.id);
+                                    }}
+                                  >
+                                    {t('savepointStop')}
+                                  </Button>
+                                </span>
+                              </TooltipTrigger>
+                              {!canCancel ? (
+                                <TooltipContent>
+                                  {t('readOnlyCancelTooltip')}
+                                </TooltipContent>
+                              ) : null}
+                            </Tooltip>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span>
+                                  <Button
+                                    size='sm'
+                                    variant='outline'
+                                    className='h-8 text-xs'
+                                    disabled={!canCancel}
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      onCancel(job.id);
+                                    }}
+                                  >
+                                    {t('stop')}
+                                  </Button>
+                                </span>
+                              </TooltipTrigger>
+                              {!canCancel ? (
+                                <TooltipContent>
+                                  {t('readOnlyCancelTooltip')}
+                                </TooltipContent>
+                              ) : null}
+                            </Tooltip>
+                          </>
+                        );
+                      })()
                     ) : null}
                   </div>
                 </TableCell>
@@ -9244,10 +9944,12 @@ function VirtualizedLogViewer({
   lines,
   height,
   emptyText,
+  emptyNode,
 }: {
   lines: string[];
   height: number;
   emptyText: string;
+  emptyNode?: ReactNode;
 }) {
   const rowHeight = 20;
   const overscan = 24;
@@ -9257,6 +9959,9 @@ function VirtualizedLogViewer({
   const endIndex = Math.min(startIndex + visibleCount, lines.length);
   const visibleLines = lines.slice(startIndex, endIndex);
   if (lines.length === 0) {
+    if (emptyNode) {
+      return <>{emptyNode}</>;
+    }
     return (
       <div className='rounded-lg border border-border/60 bg-background/80 p-4 text-sm text-muted-foreground'>
         {emptyText}

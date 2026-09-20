@@ -21,6 +21,8 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"errors"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -171,6 +173,11 @@ type Task struct {
 	ScheduleTimezone        string     `json:"schedule_timezone,omitempty" gorm:"-"`
 	ScheduleLastTriggeredAt *time.Time `json:"schedule_last_triggered_at,omitempty" gorm:"-"`
 	ScheduleNextTriggeredAt *time.Time `json:"schedule_next_triggered_at,omitempty" gorm:"-"`
+	CanEdit                 bool       `json:"can_edit" gorm:"-"`
+	CanRun                  bool       `json:"can_run" gorm:"-"`
+	IsOwner                 bool       `json:"is_owner" gorm:"-"`
+	IsCollaborator          bool       `json:"is_collaborator" gorm:"-"`
+	IsPublicTask            bool       `json:"is_public" gorm:"-"`
 	CreatedBy               uint       `json:"created_by"`
 	CreatedAt               time.Time  `json:"created_at" gorm:"autoCreateTime"`
 	UpdatedAt               time.Time  `json:"updated_at" gorm:"autoUpdateTime"`
@@ -180,6 +187,139 @@ type Task struct {
 // TableName 返回同步任务表名。
 func (Task) TableName() string {
 	return "sync_tasks"
+}
+
+// IsPublic reports whether this task is publicly visible in the workspace.
+func (t *Task) IsPublic() bool {
+	if t == nil || t.Definition == nil {
+		return true
+	}
+	val, exists := t.Definition["is_public"]
+	if !exists {
+		return true
+	}
+	switch v := val.(type) {
+	case bool:
+		return v
+	case string:
+		return !strings.EqualFold(v, "false")
+	default:
+		return true
+	}
+}
+
+// CollaboratorIDs returns the list of user IDs specified as co-developers.
+func (t *Task) CollaboratorIDs() []uint {
+	if t == nil || t.Definition == nil {
+		return nil
+	}
+	val, exists := t.Definition["collaborators"]
+	if !exists {
+		val = t.Definition["collaborator_ids"]
+	}
+	if val == nil {
+		return nil
+	}
+	var ids []uint
+	switch items := val.(type) {
+	case []interface{}:
+		for _, item := range items {
+			switch idVal := item.(type) {
+			case float64:
+				ids = append(ids, uint(idVal))
+			case int:
+				ids = append(ids, uint(idVal))
+			case uint:
+				ids = append(ids, idVal)
+			case string:
+				if parsed, err := strconv.ParseUint(strings.TrimSpace(idVal), 10, 64); err == nil && parsed > 0 {
+					ids = append(ids, uint(parsed))
+				}
+			case map[string]interface{}:
+				if rawID, exists := idVal["id"]; exists {
+					switch rid := rawID.(type) {
+					case float64:
+						ids = append(ids, uint(rid))
+					case int:
+						ids = append(ids, uint(rid))
+					case uint:
+						ids = append(ids, rid)
+					case string:
+						if parsed, err := strconv.ParseUint(strings.TrimSpace(rid), 10, 64); err == nil && parsed > 0 {
+							ids = append(ids, uint(parsed))
+						}
+					}
+				}
+			}
+		}
+	case []uint:
+		return items
+	case []int:
+		for _, v := range items {
+			if v > 0 {
+				ids = append(ids, uint(v))
+			}
+		}
+	}
+	return ids
+}
+
+// HasCollaborator checks if the given user ID is in collaborators list.
+func (t *Task) HasCollaborator(userID uint) bool {
+	if userID == 0 {
+		return false
+	}
+	for _, id := range t.CollaboratorIDs() {
+		if id == userID {
+			return true
+		}
+	}
+	return false
+}
+
+// CanUserEdit reports whether the given user can edit, save, or delete this task.
+func (t *Task) CanUserEdit(userID uint, isAdmin bool) bool {
+	if isAdmin {
+		return true
+	}
+	if t == nil {
+		return false
+	}
+	if t.CreatedBy == 0 || t.CreatedBy == userID {
+		return true
+	}
+	return t.HasCollaborator(userID)
+}
+
+// CanUserRun reports whether the given user can run/submit/preview this task.
+func (t *Task) CanUserRun(userID uint, isAdmin bool) bool {
+	return t.CanUserEdit(userID, isAdmin)
+}
+
+// CanUserView reports whether the given user can view this task.
+func (t *Task) CanUserView(userID uint, isAdmin bool) bool {
+	if isAdmin {
+		return true
+	}
+	if t == nil {
+		return false
+	}
+	if t.CreatedBy == 0 || t.CreatedBy == userID || t.HasCollaborator(userID) {
+		return true
+	}
+	return t.IsPublic()
+}
+
+// DecoratePermissions populates permission flags based on the caller's identity.
+func (t *Task) DecoratePermissions(userID uint, isAdmin bool) {
+	if t == nil {
+		return
+	}
+	t.CanEdit = t.CanUserEdit(userID, isAdmin)
+	t.CanRun = t.CanUserRun(userID, isAdmin)
+	t.IsOwner = isAdmin || (t.CreatedBy != 0 && t.CreatedBy == userID)
+	t.IsCollaborator = t.HasCollaborator(userID)
+	t.IsPublicTask = t.IsPublic()
 }
 
 // TaskVersion stores one immutable snapshot of a sync file task.

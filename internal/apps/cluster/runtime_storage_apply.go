@@ -35,6 +35,7 @@ import (
 type runtimeConfigStore interface {
 	GetByCluster(ctx context.Context, clusterID uint) ([]*appconfig.ConfigInfo, error)
 	Update(ctx context.Context, id uint, req *appconfig.UpdateConfigRequest, userID uint) (*appconfig.ConfigInfo, error)
+	SyncTemplateToAllNodes(ctx context.Context, clusterID uint, configType appconfig.ConfigType, userID uint) (*appconfig.SyncAllResult, error)
 }
 
 // ApplyRuntimeStorageRequest 是可视化存储表单提交的草稿。

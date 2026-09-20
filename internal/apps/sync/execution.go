@@ -38,8 +38,8 @@ type ExecutionRequest struct {
 	ClientType     string
 }
 
-// ListJobsForActor 按当前用户归属列出作业，管理员可查看全部。
-// ListJobsForActor lists jobs owned by the current user, while administrators may view all jobs.
+// ListJobsForActor 按当前用户归属列出作业，管理员或具备任务查看权限的用户可查看任务历史。
+// ListJobsForActor lists jobs owned by the current user, while administrators or users with task view access may view task job history.
 func (s *Service) ListJobsForActor(ctx context.Context, actor executionapp.Actor, filter *JobFilter) ([]*JobInstance, int64, error) {
 	if filter == nil {
 		filter = &JobFilter{}
@@ -47,55 +47,119 @@ func (s *Service) ListJobsForActor(ctx context.Context, actor executionapp.Actor
 		clone := *filter
 		filter = &clone
 	}
+	if filter.TaskID > 0 {
+		task, err := s.repo.GetTaskByID(ctx, filter.TaskID)
+		if err == nil && task.CanUserView(uint(actor.UserID), actor.IsAdmin) {
+			filter.IncludeAll = true
+			return s.ListJobs(ctx, filter)
+		}
+	}
 	filter.OwnerUserID = uint(actor.UserID)
 	filter.IncludeAll = actor.IsAdmin
 	return s.ListJobs(ctx, filter)
 }
 
-// GetJobForActor 按当前用户归属读取一个作业。
-// GetJobForActor loads one job under the current user's ownership scope.
+func (s *Service) getJobInstanceForActor(ctx context.Context, actor executionapp.Actor, id uint) (*JobInstance, error) {
+	if actor.IsAdmin {
+		return s.repo.GetJobInstanceByID(ctx, id)
+	}
+	instance, err := s.repo.GetJobInstanceByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if instance.CreatedBy == uint(actor.UserID) {
+		return instance, nil
+	}
+	if instance.TaskID > 0 {
+		task, err := s.repo.GetTaskByID(ctx, instance.TaskID)
+		if err == nil && task.CanUserView(uint(actor.UserID), actor.IsAdmin) {
+			return instance, nil
+		}
+	}
+	return nil, ErrJobInstanceNotFound
+}
+
+// GetJobForActor 按当前用户归属或任务可见性读取一个作业。
+// GetJobForActor loads one job under the current user's ownership or task view scope.
 func (s *Service) GetJobForActor(ctx context.Context, actor executionapp.Actor, id uint) (*JobInstance, error) {
-	instance, err := s.repo.GetJobInstanceByIDForOwner(ctx, id, uint(actor.UserID), actor.IsAdmin)
+	instance, err := s.getJobInstanceForActor(ctx, actor, id)
 	if err != nil {
 		return nil, err
 	}
 	return s.refreshJobInstance(ctx, instance)
 }
 
-// GetJobLogsForActor 在归属检查后读取作业日志。
-// GetJobLogsForActor reads job logs after enforcing ownership.
+// GetJobLogsForActor 在权限检查后读取作业日志。
+// GetJobLogsForActor reads job logs after enforcing permission.
 func (s *Service) GetJobLogsForActor(ctx context.Context, actor executionapp.Actor, id uint, offset string, limitBytes int, keyword, level string) (*JobLogsResult, error) {
-	if _, err := s.repo.GetJobInstanceByIDForOwner(ctx, id, uint(actor.UserID), actor.IsAdmin); err != nil {
+	if _, err := s.getJobInstanceForActor(ctx, actor, id); err != nil {
 		return nil, err
 	}
 	return s.GetJobLogs(ctx, id, offset, limitBytes, keyword, level)
 }
 
-// GetPreviewSnapshotForActor 在归属检查后读取预览结果。
-// GetPreviewSnapshotForActor reads a preview snapshot after enforcing ownership.
+// GetPreviewSnapshotForActor 在权限检查后读取预览结果。
+// GetPreviewSnapshotForActor reads a preview snapshot after enforcing permission.
 func (s *Service) GetPreviewSnapshotForActor(ctx context.Context, actor executionapp.Actor, id uint, tablePath string) (*PreviewSnapshot, error) {
-	if _, err := s.repo.GetJobInstanceByIDForOwner(ctx, id, uint(actor.UserID), actor.IsAdmin); err != nil {
+	if _, err := s.getJobInstanceForActor(ctx, actor, id); err != nil {
 		return nil, err
 	}
 	return s.GetPreviewSnapshot(ctx, id, tablePath)
 }
 
-// GetJobCheckpointSnapshotForActor 在归属检查后读取 Checkpoint 信息。
-// GetJobCheckpointSnapshotForActor reads checkpoint data after enforcing ownership.
+// GetJobCheckpointSnapshotForActor 在权限检查后读取 Checkpoint 信息。
+// GetJobCheckpointSnapshotForActor reads checkpoint data after enforcing permission.
 func (s *Service) GetJobCheckpointSnapshotForActor(ctx context.Context, actor executionapp.Actor, id uint, pipelineID *int, limit int, status string) (*CheckpointSnapshot, error) {
-	if _, err := s.repo.GetJobInstanceByIDForOwner(ctx, id, uint(actor.UserID), actor.IsAdmin); err != nil {
+	if _, err := s.getJobInstanceForActor(ctx, actor, id); err != nil {
 		return nil, err
 	}
 	return s.GetJobCheckpointSnapshot(ctx, id, pipelineID, limit, status)
 }
 
-// CancelJobForActor 在归属检查后请求取消作业。
-// CancelJobForActor requests cancellation after enforcing ownership.
+// CancelJobForActor 在权限检查后请求取消作业。仅管理员、发起人或任务所有者可取消。
+// CancelJobForActor requests cancellation after enforcing ownership. Only administrators, the job submitter, or task owner may cancel.
 func (s *Service) CancelJobForActor(ctx context.Context, actor executionapp.Actor, id uint, stopWithSavepoint bool) (*JobInstance, error) {
-	if _, err := s.repo.GetJobInstanceByIDForOwner(ctx, id, uint(actor.UserID), actor.IsAdmin); err != nil {
+	instance, err := s.getJobInstanceForActor(ctx, actor, id)
+	if err != nil {
 		return nil, err
 	}
+	if !actor.IsAdmin && instance.CreatedBy != uint(actor.UserID) {
+		isOwner := false
+		if instance.TaskID > 0 {
+			task, err := s.repo.GetTaskByID(ctx, instance.TaskID)
+			if err == nil && (task.CreatedBy != 0 && task.CreatedBy == uint(actor.UserID)) {
+				isOwner = true
+			}
+		}
+		if !isOwner {
+			return nil, ErrTaskPermissionDenied
+		}
+	}
 	return s.CancelJob(ctx, id, stopWithSavepoint)
+}
+
+// PreviewTaskForActor 检查运行权限后启动预览任务。
+func (s *Service) PreviewTaskForActor(ctx context.Context, actor executionapp.Actor, id uint, opts *PreviewTaskRequest, request ExecutionRequest) (*JobInstance, error) {
+	task, err := s.repo.GetTaskByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if !task.CanUserRun(uint(actor.UserID), actor.IsAdmin) {
+		return nil, ErrTaskReadOnly
+	}
+	return s.PreviewTaskWithExecution(ctx, id, uint(actor.UserID), opts, request)
+}
+
+// SubmitTaskForActor 检查运行权限后提交运行任务。
+func (s *Service) SubmitTaskForActor(ctx context.Context, actor executionapp.Actor, id uint, draft *TaskDraftPayload, request ExecutionRequest) (*JobInstance, error) {
+	task, err := s.repo.GetTaskByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if !task.CanUserRun(uint(actor.UserID), actor.IsAdmin) {
+		return nil, ErrTaskReadOnly
+	}
+	return s.SubmitTaskWithExecution(ctx, id, uint(actor.UserID), draft, request)
 }
 
 // PreviewTaskWithExecution 创建公共执行记录后启动预览任务。
@@ -205,6 +269,9 @@ func (s *Service) syncExecutionFromJob(ctx context.Context, job *JobInstance) er
 		return err
 	}
 	target := executionStatusFromJob(job.Status)
+	if (item.Status == executionapp.StatusCancelling || item.Status == executionapp.StatusCancelRequested) && target == executionapp.StatusSucceeded {
+		target = executionapp.StatusCancelled
+	}
 	if item.Status == target {
 		return nil
 	}
@@ -250,6 +317,10 @@ func nextExecutionStatus(current, target executionapp.Status) (executionapp.Stat
 	case executionapp.StatusCancelRequested:
 		if target == executionapp.StatusCancelled {
 			return executionapp.StatusCancelling, true
+		}
+	case executionapp.StatusCancelling:
+		if target == executionapp.StatusSucceeded || target == executionapp.StatusCancelled {
+			return executionapp.StatusCancelled, true
 		}
 	}
 	return "", false

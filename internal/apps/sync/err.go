@@ -60,4 +60,7 @@ var (
 	ErrPreviewSessionNotFound         = errors.New("sync: preview session not found")
 	ErrInvalidTaskSchedule            = errors.New("sync: invalid task schedule")
 	ErrMaskedSecretCannotBeRestored   = errors.New("sync: masked secret cannot be restored from the saved task")
+	ErrTaskReadOnly                   = errors.New("sync: task is read-only for current user")
+	ErrTaskPermissionDenied           = errors.New("sync: task permission denied")
+	ErrGlobalVariablePermissionDenied = errors.New("sync: global variable permission denied")
 )

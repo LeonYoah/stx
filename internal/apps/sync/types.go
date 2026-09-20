@@ -260,6 +260,12 @@ type TaskTreeNode struct {
 	ScheduleTimezone        string          `json:"schedule_timezone,omitempty"`
 	ScheduleLastTriggeredAt *time.Time      `json:"schedule_last_triggered_at,omitempty"`
 	ScheduleNextTriggeredAt *time.Time      `json:"schedule_next_triggered_at,omitempty"`
+	CreatedBy               uint            `json:"created_by"`
+	CanEdit                 bool            `json:"can_edit"`
+	CanRun                  bool            `json:"can_run"`
+	IsOwner                 bool            `json:"is_owner"`
+	IsCollaborator          bool            `json:"is_collaborator"`
+	IsPublicTask            bool            `json:"is_public"`
 	Children                []*TaskTreeNode `json:"children,omitempty"`
 }
 

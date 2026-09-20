@@ -63,9 +63,9 @@ STX 构建/重启脚本
   PM2_API                        后端 PM2 进程名，默认 stx-api
   PM2_UI                         前端 PM2 进程名，默认 stx-ui
   CONFIG_PATH                    后端配置文件路径，默认 ./config.yaml
-  APP_EXTERNAL_URL               写入 config.yaml 的 app.external_url，默认 http://127.0.0.1:17800
-  FRONTEND_PORT                  前端端口，默认 17880
-  NEXT_PUBLIC_BACKEND_BASE_URL   前端访问后端的基础地址，默认 http://127.0.0.1:17800
+  APP_EXTERNAL_URL               写入 config.yaml 的 app.external_url，默认 http://10.0.0.211:8000
+  FRONTEND_PORT                  前端端口，默认 80
+  NEXT_PUBLIC_BACKEND_BASE_URL   前端访问后端的基础地址，默认 http://127.0.0.1:8000
   LOCAL_AGENT_INSTALL_DIR        本机 Agent 二进制目录，默认 $HOME/.stx/agent/bin
   LOCAL_AGENT_BINARY             本机 Agent 二进制名，默认 stx-agent
   LOCAL_AGENT_SERVICE            本机 Agent systemd 服务名（Linux），默认 stx-agent
@@ -73,7 +73,7 @@ STX 构建/重启脚本
   LOCAL_AGENT_RESTART            本机已安装 Agent 时是否默认同步/重启，默认 true
   LOCAL_SEATUNNEL_HOME           本机 SeaTunnel 安装目录，默认 /opt/seatunnel-2.3.13-new
   LOCAL_JAVA_PROXY_PORT          本机 stx-java-proxy 端口，默认 18080
-  CONTROL_PLANE_BASE_URL         控制面地址，默认 http://127.0.0.1:17800
+  CONTROL_PLANE_BASE_URL         控制面地址，默认 http://10.0.0.211:8000
   CONTROL_PLANE_USERNAME         登录用户名，默认 admin
   CONTROL_PLANE_PASSWORD         登录密码，默认 admin123
 
@@ -172,9 +172,9 @@ fi
 PM2_API="${PM2_API:-stx-api}"
 PM2_UI="${PM2_UI:-stx-ui}"
 CONFIG_PATH="${CONFIG_PATH:-$PROJECT_ROOT/config.yaml}"
-APP_EXTERNAL_URL="${APP_EXTERNAL_URL:-http://127.0.0.1:17800}"
-FRONTEND_PORT="${FRONTEND_PORT:-17880}"
-NEXT_PUBLIC_BACKEND_BASE_URL="${NEXT_PUBLIC_BACKEND_BASE_URL:-http://127.0.0.1:17800}"
+APP_EXTERNAL_URL="${APP_EXTERNAL_URL:-http://10.0.0.211:8000}"
+FRONTEND_PORT="${FRONTEND_PORT:-80}"
+NEXT_PUBLIC_BACKEND_BASE_URL="${NEXT_PUBLIC_BACKEND_BASE_URL:-http://127.0.0.1:8000}"
 CAPABILITY_PROXY_DEFAULT_VERSION="${CAPABILITY_PROXY_DEFAULT_VERSION:-2.3.13}"
 LOCAL_AGENT_INSTALL_DIR="${LOCAL_AGENT_INSTALL_DIR:-$HOME/.stx/agent/bin}"
 LOCAL_AGENT_BINARY="${LOCAL_AGENT_BINARY:-stx-agent}"
@@ -186,7 +186,7 @@ LOCAL_AGENT_START_WRAPPER="${LOCAL_AGENT_START_WRAPPER:-$LOCAL_AGENT_INSTALL_DIR
 LOCAL_AGENT_LAUNCHD_PLIST="${LOCAL_AGENT_LAUNCHD_PLIST:-$HOME/Library/LaunchAgents/${LOCAL_AGENT_LAUNCHD_LABEL}.plist}"
 LOCAL_SEATUNNEL_HOME="${LOCAL_SEATUNNEL_HOME:-/opt/seatunnel-2.3.13-new}"
 LOCAL_JAVA_PROXY_PORT="${LOCAL_JAVA_PROXY_PORT:-18080}"
-CONTROL_PLANE_BASE_URL="${CONTROL_PLANE_BASE_URL:-http://127.0.0.1:17800}"
+CONTROL_PLANE_BASE_URL="${CONTROL_PLANE_BASE_URL:-http://10.0.0.211:8000}"
 CONTROL_PLANE_USERNAME="${CONTROL_PLANE_USERNAME:-admin}"
 CONTROL_PLANE_PASSWORD="${CONTROL_PLANE_PASSWORD:-admin123}"
 FRONTEND_DIR="$PROJECT_ROOT/frontend"
@@ -636,7 +636,7 @@ prepare_frontend_standalone() {
 
   if [[ "$should_build" == "true" ]]; then
     echo "      构建前端（next build）..."
-    pnpm run build
+    NEXT_PUBLIC_BACKEND_BASE_URL="$NEXT_PUBLIC_BACKEND_BASE_URL" pnpm run build
   fi
 
   if [[ -f "$next_standalone_dir/server.js" ]]; then
@@ -818,7 +818,7 @@ if $DO_RESTART && $RUN_BACKEND; then
   # 兜底：清理非 PM2 拉起的旧后端进程
   pkill -f "$PROJECT_ROOT/stx api" >/dev/null 2>&1 || true
   CONFIG_PATH="$CONFIG_PATH" pm2 start "$PROJECT_ROOT/stx" --name "$PM2_API" --cwd "$PROJECT_ROOT" --interpreter none -- api
-  echo "      后端已启动 (API: http://127.0.0.1:17800)."
+  echo "      后端已启动 (API: http://127.0.0.1:8000)."
 fi
 
 if $DO_RESTART && $RUN_FRONTEND; then

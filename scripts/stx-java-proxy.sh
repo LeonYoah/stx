@@ -37,6 +37,14 @@ fi
 if [ -z "${SEATUNNEL_HOME:-}" ] && [ -f "${PROXY_HOME}/starter/seatunnel-starter.jar" ]; then
   SEATUNNEL_HOME="${PROXY_HOME}"
 fi
+if [ -z "${SEATUNNEL_HOME:-}" ]; then
+  for candidate in /opt/seatunnel-2.3.13 /opt/seatunnel /usr/local/seatunnel; do
+    if [ -f "${candidate}/starter/seatunnel-starter.jar" ]; then
+      SEATUNNEL_HOME="${candidate}"
+      break
+    fi
+  done
+fi
 
 APP_JAR=${SEATUNNEL_HOME:-}/starter/seatunnel-starter.jar
 DEFAULT_PROXY_VERSION="${STX_JAVA_PROXY_DEFAULT_VERSION:-2.3.13}"
@@ -128,7 +136,7 @@ for arg in "$@"; do
     APP_ARGS+=("${arg}")
   fi
 done
-JAVA_OPTS="${JAVA_OPTS} -Dstx.java.proxy.seatunnel.home=${SEATUNNEL_HOME}"
+JAVA_OPTS="${JAVA_OPTS} -DSEATUNNEL_HOME=${SEATUNNEL_HOME} -Dstx.java.proxy.seatunnel.home=${SEATUNNEL_HOME}"
 
 CLASS_PATH=${SEATUNNEL_HOME}/lib/*:${APP_JAR}:${PROXY_JAR}
 

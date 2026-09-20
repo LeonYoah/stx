@@ -38,6 +38,7 @@ type AgentCommandSender interface {
 
 type ClusterLogProvider interface {
 	GetNodeLogs(ctx context.Context, clusterID uint, nodeID uint, req *clusterapp.GetNodeLogsRequest) (string, error)
+	GetJobLogMode(ctx context.Context, clusterID uint) (string, error)
 }
 
 type ExecutionTargetResolver interface {
@@ -191,13 +192,15 @@ type precheckJSONEnvelope struct {
 }
 
 type JobLogsResult struct {
-	Mode        string `json:"mode"`
-	Source      string `json:"source"`
-	Logs        string `json:"logs"`
-	EmptyReason string `json:"empty_reason,omitempty"`
-	NextOffset  string `json:"next_offset,omitempty"`
-	FileSize    int64  `json:"file_size,omitempty"`
-	UpdatedAt   string `json:"updated_at"`
+	Mode              string `json:"mode"`
+	Source            string `json:"source"`
+	Logs              string `json:"logs"`
+	EmptyReason       string `json:"empty_reason,omitempty"`
+	ClusterJobLogMode string `json:"cluster_job_log_mode,omitempty"`
+	ClusterID         uint   `json:"cluster_id,omitempty"`
+	NextOffset        string `json:"next_offset,omitempty"`
+	FileSize          int64  `json:"file_size,omitempty"`
+	UpdatedAt         string `json:"updated_at"`
 }
 
 type clusterJobLogPayload struct {
@@ -447,10 +450,24 @@ func (s *Service) GetJobLogs(ctx context.Context, id uint, offset string, limitB
 		return result, err
 	}
 	result, err := s.getClusterJobLogs(ctx, instance, offset, limitBytes, keyword, level)
+	clusterID := uintValue(instance.SubmitSpec, "cluster_id")
 	if errors.Is(err, ErrJobLogsUnavailable) {
 		emptyResult.Mode = "cluster"
 		emptyResult.Source = "agent-file"
+		emptyResult.ClusterID = clusterID
+		if clusterID > 0 && s.clusterLogProvider != nil {
+			if mode, logModeErr := s.clusterLogProvider.GetJobLogMode(ctx, clusterID); logModeErr == nil && strings.TrimSpace(mode) != "" {
+				emptyResult.ClusterJobLogMode = mode
+				if mode == "mixed" {
+					emptyResult.EmptyReason = "mixed_log_mode"
+				}
+			}
+		}
 		return emptyResult, nil
+	}
+	if result != nil {
+		result.ClusterID = clusterID
+		result.ClusterJobLogMode = "per_job"
 	}
 	return result, err
 }

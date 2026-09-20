@@ -6,9 +6,9 @@
     "swagger_path_count": 104,
     "swagger_operation_count": 121,
     "swagger_documented_routes": 121,
-    "registered_operations": 132,
+    "registered_operations": 164,
     "route_exceptions": 18,
-    "historical_gaps": 109
+    "historical_gaps": 77
   },
   "routes": [
     {
@@ -1836,112 +1836,144 @@
       "method": "GET",
       "path": "/api/v1/sync/global-variables",
       "source": "internal/router/router.go:787",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "sync.variable.list",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "POST",
       "path": "/api/v1/sync/global-variables",
       "source": "internal/router/router.go:788",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "sync.variable.create",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "DELETE",
       "path": "/api/v1/sync/global-variables/:id",
       "source": "internal/router/router.go:790",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "sync.variable.delete",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "PUT",
       "path": "/api/v1/sync/global-variables/:id",
       "source": "internal/router/router.go:789",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "sync.variable.update",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "GET",
       "path": "/api/v1/sync/jobs",
       "source": "internal/router/router.go:804",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "sync.job.list",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "GET",
       "path": "/api/v1/sync/jobs/:id",
       "source": "internal/router/router.go:805",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "sync.job.get",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "POST",
       "path": "/api/v1/sync/jobs/:id/cancel",
       "source": "internal/router/router.go:810",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "sync.job.cancel",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "GET",
       "path": "/api/v1/sync/jobs/:id/checkpoint",
       "source": "internal/router/router.go:807",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "sync.job.checkpoint",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "GET",
       "path": "/api/v1/sync/jobs/:id/logs",
       "source": "internal/router/router.go:808",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "sync.job.logs",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "GET",
       "path": "/api/v1/sync/jobs/:id/preview",
       "source": "internal/router/router.go:806",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "sync.job.preview",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "POST",
       "path": "/api/v1/sync/jobs/:id/recover",
       "source": "internal/router/router.go:809",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "sync.job.recover",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "POST",
       "path": "/api/v1/sync/plugins/enum-catalog",
       "source": "internal/router/router.go:799",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "sync.plugin.enum-catalog",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "POST",
       "path": "/api/v1/sync/plugins/enum-values",
       "source": "internal/router/router.go:798",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "sync.plugin.enum-values",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "POST",
       "path": "/api/v1/sync/plugins/list",
       "source": "internal/router/router.go:795",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "sync.plugin.list",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "POST",
       "path": "/api/v1/sync/plugins/options",
       "source": "internal/router/router.go:796",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "sync.plugin.options",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "POST",
       "path": "/api/v1/sync/plugins/template",
       "source": "internal/router/router.go:797",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "sync.plugin.template",
+      "mode": "normal",
       "swagger": false
     },
     {
@@ -1956,112 +1988,144 @@
       "method": "GET",
       "path": "/api/v1/sync/tasks",
       "source": "internal/router/router.go:769",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "sync.task.list",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "POST",
       "path": "/api/v1/sync/tasks",
       "source": "internal/router/router.go:768",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "sync.task.create",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "DELETE",
       "path": "/api/v1/sync/tasks/:id",
       "source": "internal/router/router.go:772",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "sync.task.delete",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "GET",
       "path": "/api/v1/sync/tasks/:id",
       "source": "internal/router/router.go:770",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "sync.task.get",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "PUT",
       "path": "/api/v1/sync/tasks/:id",
       "source": "internal/router/router.go:771",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "sync.task.update",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "POST",
       "path": "/api/v1/sync/tasks/:id/dag",
       "source": "internal/router/router.go:779",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "sync.task.dag",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "POST",
       "path": "/api/v1/sync/tasks/:id/preview",
       "source": "internal/router/router.go:780",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "sync.task.preview",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "POST",
       "path": "/api/v1/sync/tasks/:id/preview/sink-savemode",
       "source": "internal/router/router.go:781",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "sync.task.preview-savemode",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "POST",
       "path": "/api/v1/sync/tasks/:id/publish",
       "source": "internal/router/router.go:773",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "sync.task.publish",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "POST",
       "path": "/api/v1/sync/tasks/:id/submit",
       "source": "internal/router/router.go:782",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "sync.task.submit",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "POST",
       "path": "/api/v1/sync/tasks/:id/test-connections",
       "source": "internal/router/router.go:778",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "sync.task.test-connections",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "POST",
       "path": "/api/v1/sync/tasks/:id/validate",
       "source": "internal/router/router.go:777",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "sync.task.validate",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "GET",
       "path": "/api/v1/sync/tasks/:id/versions",
       "source": "internal/router/router.go:774",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "sync.task.version.list",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "DELETE",
       "path": "/api/v1/sync/tasks/:id/versions/:versionId",
       "source": "internal/router/router.go:776",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "sync.task.version.delete",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "POST",
       "path": "/api/v1/sync/tasks/:id/versions/:versionId/rollback",
       "source": "internal/router/router.go:775",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "sync.task.version.rollback",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "GET",
       "path": "/api/v1/sync/tree",
       "source": "internal/router/router.go:764",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "sync.tree",
+      "mode": "normal",
       "swagger": false
     },
     {

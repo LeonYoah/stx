@@ -67,9 +67,34 @@ func TestRootCommandRegistersOnlyPublicServerEntry(t *testing.T) {
 	if _, ok := children["worker"]; ok {
 		t.Fatalf("worker 不应注册 / worker must not be registered")
 	}
-	for _, name := range []string{"auth", "admin", "dashboard", "host", "cluster", "config", "package", "plugin", "monitor", "monitoring"} {
+	for _, name := range []string{"auth", "admin", "dashboard", "host", "cluster", "config", "package", "plugin", "monitor", "monitoring", "diagnostics"} {
 		if hidden, ok := children[name]; !ok || hidden {
 			t.Fatalf("%s API 命令组应公开 / %s API command group must be public: %#v", name, name, children)
+		}
+	}
+}
+
+func TestRootCommandRegistersDiagnosticsReadCommands(t *testing.T) {
+	command := newRootCommand(func() error { return nil })
+	paths := [][]string{
+		{"diagnostics", "bootstrap", "get"},
+		{"diagnostics", "inspection", "list"},
+		{"diagnostics", "inspection", "get"},
+		{"diagnostics", "task", "list"},
+		{"diagnostics", "task", "get"},
+		{"diagnostics", "task", "steps"},
+		{"diagnostics", "task", "logs"},
+		{"diagnostics", "error", "group", "list"},
+		{"diagnostics", "error", "event", "list"},
+		{"diagnostics", "error", "group", "get"},
+		{"diagnostics", "auto-policy", "template", "list"},
+		{"diagnostics", "auto-policy", "list"},
+		{"diagnostics", "auto-policy", "get"},
+	}
+	for _, path := range paths {
+		found, remaining, err := command.Find(path)
+		if err != nil || len(remaining) != 0 || found.Name() != path[len(path)-1] {
+			t.Fatalf("诊断查询命令未完整注册: path=%v found=%s remaining=%v err=%v", path, found.CommandPath(), remaining, err)
 		}
 	}
 }

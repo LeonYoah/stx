@@ -26,7 +26,7 @@ import (
 
 // RegistryRevision 是操作登记表的兼容修订号。
 // RegistryRevision is the compatibility revision of the operation registry.
-const RegistryRevision = 10
+const RegistryRevision = 11
 
 var registry = append([]OperationSpec{
 	{
@@ -1405,7 +1405,62 @@ func additionalOperationSpecs() []OperationSpec {
 	specs := clusterAdditionalOperationSpecs()
 	specs = append(specs, stUpgradeOperationSpecs()...)
 	specs = append(specs, monitorOperationSpecs()...)
-	return append(specs, monitoringReadOperationSpecs()...)
+	specs = append(specs, monitoringReadOperationSpecs()...)
+	return append(specs, diagnosticsReadOperationSpecs()...)
+}
+
+// diagnosticsReadOperationSpecs 登记诊断中心普通 JSON 查询命令。
+// diagnosticsReadOperationSpecs registers diagnostics queries that return regular JSON responses.
+func diagnosticsReadOperationSpecs() []OperationSpec {
+	id := []InputSpec{{Name: "id", Location: InputPath, Required: true, Description: "Resource ID"}}
+	lang := InputSpec{Name: "lang", Location: InputQuery, Description: "Response language: zh or en"}
+	page := []InputSpec{{Name: "page", Location: InputQuery, Description: "Page number starting from 1"}, {Name: "page_size", Location: InputQuery, Description: "Page size"}}
+	timeRange := []InputSpec{{Name: "start_time", Location: InputQuery, Description: "Start time in RFC3339 format"}, {Name: "end_time", Location: InputQuery, Description: "End time in RFC3339 format"}}
+	errorCommon := []InputSpec{
+		{Name: "cluster_id", Location: InputQuery, Description: "Cluster ID"},
+		{Name: "node_id", Location: InputQuery, Description: "Cluster node ID"},
+		{Name: "host_id", Location: InputQuery, Description: "Host ID"},
+		{Name: "role", Location: InputQuery, Description: "Node role"},
+		{Name: "job_id", Location: InputQuery, Description: "SeaTunnel job ID"},
+		{Name: "keyword", Location: InputQuery, Description: "Message keyword"},
+		{Name: "exception_class", Location: InputQuery, Description: "Java exception class"},
+	}
+	errorCommon = append(errorCommon, timeRange...)
+	errorCommon = append(errorCommon, page...)
+	return []OperationSpec{
+		diagnosticsReadOperation("diagnostics.bootstrap.get", []string{"diagnostics", "bootstrap", "get"}, "Get diagnostics workspace bootstrap", "/api/v1/diagnostics/bootstrap",
+			[]InputSpec{{Name: "source", Location: InputQuery, Description: "Workspace entry source"}, {Name: "alert_id", Location: InputQuery, Description: "Related alert ID"}, {Name: "cluster_id", Location: InputQuery, Description: "Cluster ID"}, lang},
+			"stx diagnostics bootstrap get --cluster_id 6"),
+		diagnosticsReadOperation("diagnostics.inspection.list", []string{"diagnostics", "inspection", "list"}, "List inspection reports", "/api/v1/diagnostics/inspections",
+			append([]InputSpec{{Name: "cluster_id", Location: InputQuery, Description: "Cluster ID"}, {Name: "status", Location: InputQuery, Description: "Inspection status"}, {Name: "trigger_source", Location: InputQuery, Description: "Inspection trigger source"}, {Name: "severity", Location: InputQuery, Description: "Finding severity"}}, append(timeRange, append(page, lang)...)...),
+			"stx diagnostics inspection list --cluster_id 6 --page_size 20"),
+		diagnosticsReadOperation("diagnostics.inspection.get", []string{"diagnostics", "inspection", "get"}, "Get inspection report detail", "/api/v1/diagnostics/inspections/:id", append(append([]InputSpec{}, id...), lang), "stx diagnostics inspection get 1"),
+		diagnosticsReadOperation("diagnostics.task.list", []string{"diagnostics", "task", "list"}, "List diagnostic tasks", "/api/v1/diagnostics/tasks",
+			append([]InputSpec{{Name: "cluster_id", Location: InputQuery, Description: "Cluster ID"}, {Name: "trigger_source", Location: InputQuery, Description: "Diagnostic trigger source"}, {Name: "status", Location: InputQuery, Description: "Diagnostic task status"}}, append(page, lang)...),
+			"stx diagnostics task list --cluster_id 6 --page_size 20"),
+		diagnosticsReadOperation("diagnostics.task.get", []string{"diagnostics", "task", "get"}, "Get diagnostic task", "/api/v1/diagnostics/tasks/:id", append(append([]InputSpec{}, id...), lang), "stx diagnostics task get 1"),
+		diagnosticsReadOperation("diagnostics.task.steps", []string{"diagnostics", "task", "steps"}, "List diagnostic task steps", "/api/v1/diagnostics/tasks/:id/steps", append(append([]InputSpec{}, id...), lang), "stx diagnostics task steps 1"),
+		diagnosticsReadOperation("diagnostics.task.logs", []string{"diagnostics", "task", "logs"}, "List diagnostic task logs", "/api/v1/diagnostics/tasks/:id/logs",
+			append(append([]InputSpec{}, id...), []InputSpec{{Name: "step_code", Location: InputQuery, Description: "Diagnostic step code"}, {Name: "node_execution_id", Location: InputQuery, Description: "Node execution ID"}, {Name: "level", Location: InputQuery, Description: "Log level"}, {Name: "page", Location: InputQuery, Description: "Page number starting from 1"}, {Name: "page_size", Location: InputQuery, Description: "Page size"}, lang}...),
+			"stx diagnostics task logs 1 --page_size 50"),
+		diagnosticsReadOperation("diagnostics.error.group.list", []string{"diagnostics", "error", "group", "list"}, "List SeaTunnel error groups", "/api/v1/diagnostics/errors/groups", errorCommon, "stx diagnostics error group list --cluster_id 6 --page_size 20"),
+		diagnosticsReadOperation("diagnostics.error.event.list", []string{"diagnostics", "error", "event", "list"}, "List SeaTunnel error events", "/api/v1/diagnostics/errors/events", append([]InputSpec{{Name: "group_id", Location: InputQuery, Description: "Error group ID"}}, errorCommon...), "stx diagnostics error event list --cluster_id 6 --page_size 20"),
+		diagnosticsReadOperation("diagnostics.error.group.get", []string{"diagnostics", "error", "group", "get"}, "Get SeaTunnel error group detail", "/api/v1/diagnostics/errors/groups/:id",
+			append(append([]InputSpec{}, id...), append([]InputSpec{{Name: "event_limit", Location: InputQuery, Description: "Maximum recent events to include"}}, errorCommon...)...), "stx diagnostics error group get 1 --event_limit 20"),
+		diagnosticsReadOperation("diagnostics.auto-policy.template.list", []string{"diagnostics", "auto-policy", "template", "list"}, "List built-in diagnostic policy templates", "/api/v1/diagnostics/auto-policies/templates", []InputSpec{lang}, "stx diagnostics auto-policy template list"),
+		diagnosticsReadOperation("diagnostics.auto-policy.list", []string{"diagnostics", "auto-policy", "list"}, "List diagnostic auto policies", "/api/v1/diagnostics/auto-policies", append([]InputSpec{{Name: "cluster_id", Location: InputQuery, Description: "Cluster ID"}}, page...), "stx diagnostics auto-policy list --cluster_id 6"),
+		diagnosticsReadOperation("diagnostics.auto-policy.get", []string{"diagnostics", "auto-policy", "get"}, "Get diagnostic auto policy", "/api/v1/diagnostics/auto-policies/:id", id, "stx diagnostics auto-policy get 1"),
+	}
+}
+
+// diagnosticsReadOperation 创建可由普通 GET 构建器执行的诊断查询。
+// diagnosticsReadOperation creates a diagnostics query handled by the regular GET builder.
+func diagnosticsReadOperation(operationID string, commandPath []string, summary, route string, inputs []InputSpec, example string) OperationSpec {
+	return OperationSpec{
+		ID: operationID, CommandPath: commandPath, Summary: summary, GeneratedCLI: true, Method: "GET", Route: route,
+		Mode: ModeNormal, AuthRequired: true, Risk: RiskR0, Revision: 1, SupportsPick: true, Input: inputs, Example: example,
+		OutputExample: fmt.Sprintf(`{"api_version":"v1","operation_id":%q,"request_id":"req_example","data":{},"result_meta":{"complete":true}}`, operationID),
+	}
 }
 
 // monitorOperationSpecs 登记集群进程监控配置和事件命令。

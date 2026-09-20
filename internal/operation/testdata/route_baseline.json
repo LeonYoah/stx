@@ -6,9 +6,9 @@
     "swagger_path_count": 100,
     "swagger_operation_count": 117,
     "swagger_documented_routes": 117,
-    "registered_operations": 106,
+    "registered_operations": 119,
     "route_exceptions": 21,
-    "historical_gaps": 123
+    "historical_gaps": 110
   },
   "routes": [
     {
@@ -730,7 +730,9 @@
       "method": "GET",
       "path": "/api/v1/diagnostics/auto-policies",
       "source": "internal/router/router.go:488",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "diagnostics.auto-policy.list",
+      "mode": "normal",
       "swagger": false
     },
     {
@@ -751,7 +753,9 @@
       "method": "GET",
       "path": "/api/v1/diagnostics/auto-policies/:id",
       "source": "internal/router/router.go:490",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "diagnostics.auto-policy.get",
+      "mode": "normal",
       "swagger": false
     },
     {
@@ -765,42 +769,54 @@
       "method": "GET",
       "path": "/api/v1/diagnostics/auto-policies/templates",
       "source": "internal/router/router.go:487",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "diagnostics.auto-policy.template.list",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "GET",
       "path": "/api/v1/diagnostics/bootstrap",
       "source": "internal/router/router.go:470",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "diagnostics.bootstrap.get",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "GET",
       "path": "/api/v1/diagnostics/errors/events",
       "source": "internal/router/router.go:485",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "diagnostics.error.event.list",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "GET",
       "path": "/api/v1/diagnostics/errors/groups",
       "source": "internal/router/router.go:484",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "diagnostics.error.group.list",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "GET",
       "path": "/api/v1/diagnostics/errors/groups/:id",
       "source": "internal/router/router.go:486",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "diagnostics.error.group.get",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "GET",
       "path": "/api/v1/diagnostics/inspections",
       "source": "internal/router/router.go:472",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "diagnostics.inspection.list",
+      "mode": "normal",
       "swagger": false
     },
     {
@@ -814,14 +830,18 @@
       "method": "GET",
       "path": "/api/v1/diagnostics/inspections/:id",
       "source": "internal/router/router.go:473",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "diagnostics.inspection.get",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "GET",
       "path": "/api/v1/diagnostics/tasks",
       "source": "internal/router/router.go:475",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "diagnostics.task.list",
+      "mode": "normal",
       "swagger": false
     },
     {
@@ -835,7 +855,9 @@
       "method": "GET",
       "path": "/api/v1/diagnostics/tasks/:id",
       "source": "internal/router/router.go:476",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "diagnostics.task.get",
+      "mode": "normal",
       "swagger": false
     },
     {
@@ -874,7 +896,9 @@
       "method": "GET",
       "path": "/api/v1/diagnostics/tasks/:id/logs",
       "source": "internal/router/router.go:479",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "diagnostics.task.logs",
+      "mode": "normal",
       "swagger": false
     },
     {
@@ -888,7 +912,9 @@
       "method": "GET",
       "path": "/api/v1/diagnostics/tasks/:id/steps",
       "source": "internal/router/router.go:478",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "diagnostics.task.steps",
+      "mode": "normal",
       "swagger": false
     },
     {

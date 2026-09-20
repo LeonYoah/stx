@@ -51,7 +51,7 @@ export const PRESET_LOCALIZATIONS: Record<
       ],
       preventive_tips:
         '对于大批量流式同步作业，请务必开启 JDBC 连接池的心跳保活（testWhileIdle）以防长空闲被切断。',
-      author: 'stx 官方预置经验库',
+      author: 'STX预置经验库',
     },
     slot_not_enough: {
       title: 'Worker 节点 Slot 耗尽 (SlotNotEnoughException) 恢复方案',
@@ -65,7 +65,7 @@ export const PRESET_LOCALIZATIONS: Record<
       ],
       preventive_tips:
         '日常运维建议保留集群 20%~30% 的 Slot 资源余量，避免多个调度任务并发堆叠导致资源挤兑。',
-      author: 'stx 官方预置经验库',
+      author: 'STX预置经验库',
     },
     checkpoint_timeout: {
       title: '流作业 Checkpoint 超时失败排障方案',
@@ -80,7 +80,7 @@ export const PRESET_LOCALIZATIONS: Record<
       ],
       preventive_tips:
         '运行长时间流作业（Streaming）时建议保持稳定吞吐并监控下游写入延时；批处理作业（Batch）建议关闭外部存储以避免外部 I/O 损耗。',
-      author: 'stx 官方预置经验库',
+      author: 'STX预置经验库',
     },
     high_cpu_usage: {
       title: '节点 CPU 持续过高告警排查与处理',
@@ -94,7 +94,7 @@ export const PRESET_LOCALIZATIONS: Record<
       ],
       preventive_tips:
         '大吞吐转换作业建议在 Source 侧前置过滤无关字段，减少无效数据在内存流转与序列化计算。',
-      author: 'stx 官方预置经验库',
+      author: 'STX预置经验库',
     },
   },
   en: {
@@ -110,7 +110,7 @@ export const PRESET_LOCALIZATIONS: Record<
       ],
       preventive_tips:
         'For high-throughput streaming sync jobs, enable JDBC connection pool heartbeat keepalive (testWhileIdle) to avoid idle drops.',
-      author: 'stx Official Knowledge Base',
+      author: 'STX Preset Knowledge Base',
     },
     slot_not_enough: {
       title: 'Worker Slot Exhaustion (SlotNotEnoughException) Recovery',
@@ -124,7 +124,7 @@ export const PRESET_LOCALIZATIONS: Record<
       ],
       preventive_tips:
         'Reserve 20%-30% slot headroom in daily operations to prevent concurrent scheduling peaks from exhausting slot capacity.',
-      author: 'stx Official Knowledge Base',
+      author: 'STX Preset Knowledge Base',
     },
     checkpoint_timeout: {
       title: 'Streaming Checkpoint Timeout Exception Recovery',
@@ -139,7 +139,7 @@ export const PRESET_LOCALIZATIONS: Record<
       ],
       preventive_tips:
         'Maintain steady throughput and monitor downstream sink write latency for streaming jobs; disable external storage for batch jobs to eliminate I/O overhead.',
-      author: 'stx Official Knowledge Base',
+      author: 'STX Preset Knowledge Base',
     },
     high_cpu_usage: {
       title: 'Node High CPU Usage Sustained Alert Remediation',
@@ -153,7 +153,7 @@ export const PRESET_LOCALIZATIONS: Record<
       ],
       preventive_tips:
         'Filter out unused fields at source connectors to avoid redundant deserialization and memory overhead.',
-      author: 'stx Official Knowledge Base',
+      author: 'STX Preset Knowledge Base',
     },
   },
 };

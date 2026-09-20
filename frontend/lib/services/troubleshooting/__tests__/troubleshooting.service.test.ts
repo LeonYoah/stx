@@ -37,7 +37,7 @@ describe('TroubleshootingService', () => {
       error_summary: 'The last packet successfully received from the server was 30,000 milliseconds ago.',
       solution: '在 SeaTunnel JDBC 连接串中增加参数：autoReconnect=true',
       tags: ['mysql', 'jdbc'],
-      author: 'stx 官方预置经验库',
+      author: 'STX预置经验库',
     });
 
     const refreshed = troubleshootingService.getMemories();
@@ -175,7 +175,7 @@ describe('TroubleshootingService', () => {
       error_summary: 'Connection lost',
       solution: '增加 autoReconnect 参数',
       tags: ['mysql'],
-      author: 'stx 官方预置经验库',
+      author: 'STX预置经验库',
       is_preset: true,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -185,7 +185,7 @@ describe('TroubleshootingService', () => {
     // In Chinese locale, display Chinese version
     const localizedZh = getLocalizedMemory(presetEntry, 'zh');
     expect(localizedZh?.title).toContain('MySQL 连接中断');
-    expect(localizedZh?.author).toBe('stx 官方预置经验库');
+    expect(localizedZh?.author).toBe('STX预置经验库');
 
     // 英文环境下跟随全局语言切换为英文版
     // In English locale, switch to English version along with global language

@@ -404,7 +404,11 @@ export function PackageTable({
                       </DropdownMenuItem>
                       <DropdownMenuItem
                         className="text-destructive"
-                        onClick={() => onDelete?.(pkg.version)}
+                        onSelect={() => {
+                          // 等下拉菜单关闭后再弹出确认框，避免与 AlertDialog 双重焦点陷阱
+                          // Close the dropdown first, then open the confirm dialog to avoid nested focus traps
+                          window.setTimeout(() => onDelete?.(pkg.version), 0);
+                        }}
                       >
                         <Trash2 className="h-4 w-4 mr-2" />
                         {t('common.delete')}

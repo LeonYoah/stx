@@ -179,14 +179,14 @@ export function TroubleshootingMemoryCard({
               variant='outline'
               className='text-[10px] py-0 px-1.5 border-emerald-500/30 text-emerald-600 dark:text-emerald-400 bg-emerald-500/10'
             >
-              {isEn ? 'Official Preset' : '官方经典方案'}
+              {isEn ? 'Built-in' : '系统内置'}
             </Badge>
           ) : (
             <Badge
               variant='outline'
               className='text-[10px] py-0 px-1.5 border-primary/30 text-primary bg-primary/10'
             >
-              {isEn ? 'Team Knowledge' : '团队沉淀'}
+              {isEn ? 'Internal' : '内部经验'}
             </Badge>
           )}
           {totalMatches > 1 && (

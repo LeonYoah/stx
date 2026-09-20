@@ -17,10 +17,9 @@
 
 'use client';
 
-import {useState, useEffect, useCallback} from 'react';
+import {useState, useEffect, useCallback, type ReactNode} from 'react';
 import {
   AlertCircle,
-  CheckCircle2,
   FileCode,
   Fingerprint,
   Lightbulb,
@@ -52,7 +51,92 @@ import {
 import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';
 import {Textarea} from '@/components/ui/textarea';
-import {ScrollArea} from '@/components/ui/scroll-area';
+
+/** 可单独放大编辑的大文本字段 / Expandable long-text fields */
+type ExpandableFieldKey =
+  | 'solution'
+  | 'root_cause'
+  | 'preventive_tips'
+  | 'error_summary';
+
+const FIELD_EXPAND_TITLES: Record<ExpandableFieldKey, string> = {
+  solution: '解决方案与排障具体步骤',
+  root_cause: '根本原因剖析',
+  preventive_tips: '防范与优化建议',
+  error_summary: '故障现象 / 关键错误日志摘要',
+};
+
+/**
+ * 大文本区：默认固定高度内部滚动，标题旁可单独放大编辑，不跟弹窗全局放大绑定。
+ * Long text field: fixed height with internal scroll by default; expand one field at a time without global dialog maximize.
+ */
+function MemoryTextField({
+  id,
+  label,
+  value,
+  onChange,
+  placeholder,
+  fieldKey,
+  expandedField,
+  onExpand,
+  invalid,
+  mono,
+  compactHeightClass,
+  actions,
+}: {
+  id: string;
+  label: ReactNode;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  fieldKey: ExpandableFieldKey;
+  expandedField: ExpandableFieldKey | null;
+  onExpand: (key: ExpandableFieldKey | null) => void;
+  invalid?: boolean;
+  mono?: boolean;
+  compactHeightClass: string;
+  actions?: ReactNode;
+}) {
+  const isExpanded = expandedField === fieldKey;
+
+  return (
+    <div className='space-y-1.5'>
+      <div className='flex items-center justify-between gap-2'>
+        <Label htmlFor={id} className='text-xs font-medium flex items-center gap-1.5 min-w-0'>
+          {label}
+        </Label>
+        <div className='flex items-center gap-1.5 shrink-0'>
+          {actions}
+          <Button
+            type='button'
+            variant='ghost'
+            size='icon'
+            className='size-6 text-muted-foreground hover:text-foreground'
+            onClick={() => onExpand(isExpanded ? null : fieldKey)}
+            title={isExpanded ? '收起' : '放大编辑'}
+          >
+            {isExpanded ? <Minimize2 className='size-3.5' /> : <Maximize2 className='size-3.5' />}
+          </Button>
+        </div>
+      </div>
+      {/* field-sizing-fixed 覆盖全局 Textarea 的 content 自适应，避免内容撑高布局 */}
+      {/* field-sizing-fixed overrides the shared Textarea content sizing so long text scrolls instead of growing */}
+      <Textarea
+        id={id}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        style={{fieldSizing: 'fixed'}}
+        className={cn(
+          'field-sizing-fixed text-xs leading-relaxed overflow-y-auto resize-none',
+          mono && 'font-mono',
+          compactHeightClass,
+          invalid && 'border-destructive focus-visible:ring-destructive',
+        )}
+      />
+    </div>
+  );
+}
 
 export interface SaveMemoryDialogProps {
   /**
@@ -131,6 +215,9 @@ export function SaveMemoryDialog({
   const [customTagInput, setCustomTagInput] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
+  // 当前单独放大编辑的大文本字段；与弹窗全局放大互不绑定。
+  // Which long-text field is expanded for focused editing; independent from dialog maximize.
+  const [expandedField, setExpandedField] = useState<ExpandableFieldKey | null>(null);
   const [errors, setErrors] = useState<{title?: string; solution?: string}>({});
 
   // 初始化或当 initialData 变动时预填充表单
@@ -150,6 +237,7 @@ export function SaveMemoryDialog({
       setAuthor(initialData.author || '运维工程师');
       setTags(initialData.tags || []);
       setErrors({});
+      setExpandedField(null);
     } else if (open) {
       setTitle('');
       setTargetType('error');
@@ -161,8 +249,47 @@ export function SaveMemoryDialog({
       setAuthor('运维工程师');
       setTags([]);
       setErrors({});
+      setExpandedField(null);
+    } else {
+      setExpandedField(null);
+      setIsMaximized(false);
     }
   }, [initialData, open]);
+
+  const expandedValue =
+    expandedField === 'solution'
+      ? solution
+      : expandedField === 'root_cause'
+        ? rootCause
+        : expandedField === 'preventive_tips'
+          ? preventiveTips
+          : expandedField === 'error_summary'
+            ? errorSummary
+            : '';
+
+  const setExpandedValue = useCallback(
+    (next: string) => {
+      if (expandedField === 'solution') {
+        setSolution(next);
+        if (errors.solution) {
+          setErrors((prev) => ({...prev, solution: undefined}));
+        }
+        return;
+      }
+      if (expandedField === 'root_cause') {
+        setRootCause(next);
+        return;
+      }
+      if (expandedField === 'preventive_tips') {
+        setPreventiveTips(next);
+        return;
+      }
+      if (expandedField === 'error_summary') {
+        setErrorSummary(next);
+      }
+    },
+    [errors.solution, expandedField],
+  );
 
   // 添加自定义标签
   // Add custom tag
@@ -258,7 +385,9 @@ export function SaveMemoryDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className={cn(
-          'border border-border/80 dark:border-border/60 shadow-2xl p-0 flex flex-col overflow-hidden bg-background rounded-xl transition-all duration-200',
+          // 必须保留 fixed 居中；勿加 relative，否则会覆盖 DialogContent 默认 fixed，弹窗落到视口外
+          // Keep fixed centering; do not add relative or it overrides DialogContent fixed and drops the dialog off-screen
+          'border border-border/80 dark:border-border/60 shadow-2xl p-0 flex flex-col overflow-hidden bg-background rounded-xl transition-[width,height,max-width,max-height] duration-200',
           isMaximized
             ? 'w-[96vw] max-w-[96vw] h-[92vh] max-h-[92vh]'
             : 'w-[95vw] sm:max-w-3xl h-[85vh] max-h-[85vh]',
@@ -266,7 +395,7 @@ export function SaveMemoryDialog({
       >
         {/* 弹窗头部：明确预留 pr-20 物理安全避让区，杜绝与右上角 X 按钮及放大按钮重叠 */}
         {/* Dialog Header: explicit pr-20 safe area avoiding collision with top-right Close and Maximize buttons */}
-        <DialogHeader className='px-5 py-3.5 border-b bg-muted/20 pr-20 text-left sm:text-left relative'>
+        <DialogHeader className='px-5 py-3.5 border-b bg-muted/20 pr-20 text-left sm:text-left relative z-30'>
           <div className='flex items-center gap-2'>
             <div className='flex size-7 shrink-0 items-center justify-center rounded-lg bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'>
               <Lightbulb className='size-3.5' />
@@ -298,44 +427,46 @@ export function SaveMemoryDialog({
           </Button>
         </DialogHeader>
 
-        {/* 表单内容滚动区 / Form Scroll Area */}
-        <ScrollArea className='flex-1 px-5 py-4'>
-          <div className='space-y-4 text-xs pr-1'>
-            {/* 区域 1：关联故障指纹与类型 */}
-            {/* Section 1: Fault fingerprint context and target category */}
-            <div className='flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-muted/40 border border-border/60'>
-              <div className='flex items-center gap-1.5 min-w-0 flex-1'>
-                <Fingerprint className='size-3.5 text-primary shrink-0' />
-                <span className='text-[11px] text-muted-foreground shrink-0'>关联指纹:</span>
-                {initialData?.fingerprint ? (
-                  <span className='font-mono text-xs font-medium text-foreground truncate'>
-                    {fingerprint}
-                  </span>
-                ) : (
-                  <Input
-                    value={fingerprint}
-                    onChange={(e) => setFingerprint(e.target.value)}
-                    placeholder='输入异常类名或指纹（如 SlotNotEnoughException）'
-                    className='h-6 text-xs font-mono bg-background/80 py-0 px-2 max-w-[280px]'
-                  />
-                )}
+        {/* 表单主体：默认滚动；单个字段放大时用同层覆盖编辑 */}
+        {/* Form body: scroll by default; one field can cover this pane for focused editing */}
+        <div className='relative min-h-0 flex-1 overflow-hidden'>
+          <div className='h-full overflow-y-auto px-5 py-4'>
+            <div className='space-y-4 text-xs pr-1'>
+              {/* 区域 1：关联故障指纹与类型 */}
+              {/* Section 1: Fault fingerprint context and target category */}
+              <div className='flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-muted/40 border border-border/60'>
+                <div className='flex items-center gap-1.5 min-w-0 flex-1'>
+                  <Fingerprint className='size-3.5 text-primary shrink-0' />
+                  <span className='text-[11px] text-muted-foreground shrink-0'>关联指纹:</span>
+                  {initialData?.fingerprint ? (
+                    <span className='font-mono text-xs font-medium text-foreground truncate'>
+                      {fingerprint}
+                    </span>
+                  ) : (
+                    <Input
+                      value={fingerprint}
+                      onChange={(e) => setFingerprint(e.target.value)}
+                      placeholder='输入异常类名或指纹（如 SlotNotEnoughException）'
+                      className='h-6 text-xs font-mono bg-background/80 py-0 px-2 max-w-[280px]'
+                    />
+                  )}
+                </div>
+                <Badge
+                  variant={targetType === 'error' ? 'secondary' : 'outline'}
+                  className={cn(
+                    'text-[10px] font-medium shrink-0 h-5 px-1.5',
+                    !initialData?.target_type && 'cursor-pointer hover:bg-muted/80',
+                  )}
+                  onClick={() => {
+                    if (!initialData?.target_type) {
+                      setTargetType((prev) => (prev === 'error' ? 'alert' : 'error'));
+                    }
+                  }}
+                  title={!initialData?.target_type ? '点击切换错误/告警类型' : undefined}
+                >
+                  {targetType === 'error' ? '错误日志' : '集群告警'}
+                </Badge>
               </div>
-              <Badge
-                variant={targetType === 'error' ? 'secondary' : 'outline'}
-                className={cn(
-                  'text-[10px] font-medium shrink-0 h-5 px-1.5',
-                  !initialData?.target_type && 'cursor-pointer hover:bg-muted/80',
-                )}
-                onClick={() => {
-                  if (!initialData?.target_type) {
-                    setTargetType((prev) => (prev === 'error' ? 'alert' : 'error'));
-                  }
-                }}
-                title={!initialData?.target_type ? '点击切换错误/告警类型' : undefined}
-              >
-                {targetType === 'error' ? '错误日志' : '集群告警'}
-              </Badge>
-            </div>
 
             {/* 区域 2：方案标题 */}
             {/* Section 2: Solution Title */}
@@ -366,41 +497,43 @@ export function SaveMemoryDialog({
 
             {/* 区域 3：核心必填解决方案（高信噪比主视区） */}
             {/* Section 3: Core mandatory solution and execution steps */}
-            <div className='space-y-1.5 rounded-xl border border-emerald-500/35 bg-emerald-500/[0.02] dark:bg-emerald-950/20 p-3'>
-              <div className='flex items-center justify-between'>
-                <Label htmlFor='solution' className='text-xs font-semibold text-foreground flex items-center gap-1.5'>
-                  <ShieldCheck className='size-3.5 text-emerald-600 dark:text-emerald-400' />
-                  <span>解决方案与排障具体步骤</span>
-                  <span className='text-destructive'>* (必填)</span>
-                </Label>
-                <button
-                  type='button'
-                  onClick={handleInsertTemplate}
-                  className='text-[11px] text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer flex items-center gap-0.5'
-                >
-                  <Plus className='size-3' />
-                  插入步骤模板
-                </button>
-              </div>
-              <Textarea
+            <div className='rounded-xl border border-emerald-500/35 bg-emerald-500/[0.02] dark:bg-emerald-950/20 p-3'>
+              <MemoryTextField
                 id='solution'
+                fieldKey='solution'
+                expandedField={expandedField}
+                onExpand={setExpandedField}
                 value={solution}
-                onChange={(e) => {
-                  setSolution(e.target.value);
+                onChange={(next) => {
+                  setSolution(next);
                   if (errors.solution) {
                     setErrors((prev) => ({...prev, solution: undefined}));
                   }
                 }}
+                invalid={Boolean(errors.solution)}
+                mono
+                compactHeightClass='h-36 max-h-36 bg-background/90'
                 placeholder={`请写下具体的处置操作与命令参数，例如：\n1. 在 seatunnel.yaml 或 seatunnel-env.sh 中调大 checkpoint 超时时长：checkpoint.timeout: 120000；\n2. 检查下游目标数据库写入负载，优化 Sink 端 batch.size 与写入并发，消除反压以加速 Barrier 对齐；\n3. 重启任务验证恢复状态。`}
-                rows={isMaximized ? 8 : 4}
-                className={cn(
-                  'text-xs font-mono leading-relaxed bg-background/90 overflow-y-auto resize-none',
-                  isMaximized ? 'h-64 max-h-80' : 'h-36 max-h-48',
-                  errors.solution && 'border-destructive focus-visible:ring-destructive',
-                )}
+                label={
+                  <>
+                    <ShieldCheck className='size-3.5 text-emerald-600 dark:text-emerald-400' />
+                    <span className='font-semibold text-foreground'>解决方案与排障具体步骤</span>
+                    <span className='text-destructive'>* (必填)</span>
+                  </>
+                }
+                actions={
+                  <button
+                    type='button'
+                    onClick={handleInsertTemplate}
+                    className='text-[11px] text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer flex items-center gap-0.5'
+                  >
+                    <Plus className='size-3' />
+                    插入步骤模板
+                  </button>
+                }
               />
               {errors.solution && (
-                <p className='text-[11px] text-destructive flex items-center gap-1 font-medium'>
+                <p className='mt-1.5 text-[11px] text-destructive flex items-center gap-1 font-medium'>
                   <AlertCircle className='size-3 shrink-0' />
                   {errors.solution}
                 </p>
@@ -410,51 +543,50 @@ export function SaveMemoryDialog({
             {/* 区域 4：根因剖析与防范建议（两列紧凑并排） */}
             {/* Section 4: Root cause and preventive tips in compact two-column grid */}
             <div className='grid grid-cols-1 sm:grid-cols-2 gap-3'>
-              <div className='space-y-1.5'>
-                <Label htmlFor='root_cause' className='text-xs font-medium text-muted-foreground'>
-                  根本原因剖析（选填）
-                </Label>
-                <Textarea
-                  id='root_cause'
-                  value={rootCause}
-                  onChange={(e) => setRootCause(e.target.value)}
-                  placeholder='例如：连接空闲时长超过了服务端上限导致被主动切断...'
-                  rows={2}
-                  className='text-xs resize-none'
-                />
-              </div>
+              <MemoryTextField
+                id='root_cause'
+                fieldKey='root_cause'
+                expandedField={expandedField}
+                onExpand={setExpandedField}
+                value={rootCause}
+                onChange={setRootCause}
+                compactHeightClass='h-24 max-h-24'
+                placeholder='例如：连接空闲时长超过了服务端上限导致被主动切断...'
+                label={<span className='text-muted-foreground'>根本原因剖析（选填）</span>}
+              />
 
-              <div className='space-y-1.5'>
-                <Label htmlFor='preventive_tips' className='text-xs font-medium text-muted-foreground'>
-                  防范与优化建议（选填）
-                </Label>
-                <Textarea
-                  id='preventive_tips'
-                  value={preventiveTips}
-                  onChange={(e) => setPreventiveTips(e.target.value)}
-                  placeholder='例如：批处理任务建议关闭外部持久化存储，流任务开启心跳...'
-                  rows={2}
-                  className='text-xs resize-none'
-                />
-              </div>
-            </div>
-
-            {/* 区域 5：故障现象摘要（选填折叠卡片） */}
-            {/* Section 5: Error summary text snippet */}
-            <div className='space-y-1.5'>
-              <Label htmlFor='summary' className='text-xs font-medium text-muted-foreground flex items-center gap-1'>
-                <FileCode className='size-3' />
-                <span>故障现象 / 关键错误日志摘要（选填）</span>
-              </Label>
-              <Textarea
-                id='summary'
-                value={errorSummary}
-                onChange={(e) => setErrorSummary(e.target.value)}
-                placeholder='可粘贴简要报错日志或异常栈片段...'
-                rows={2}
-                className='text-xs font-mono resize-none leading-relaxed'
+              <MemoryTextField
+                id='preventive_tips'
+                fieldKey='preventive_tips'
+                expandedField={expandedField}
+                onExpand={setExpandedField}
+                value={preventiveTips}
+                onChange={setPreventiveTips}
+                compactHeightClass='h-24 max-h-24'
+                placeholder='例如：批处理任务建议关闭外部持久化存储，流任务开启心跳...'
+                label={<span className='text-muted-foreground'>防范与优化建议（选填）</span>}
               />
             </div>
+
+            {/* 区域 5：故障现象摘要（选填） */}
+            {/* Section 5: Error summary text snippet */}
+            <MemoryTextField
+              id='summary'
+              fieldKey='error_summary'
+              expandedField={expandedField}
+              onExpand={setExpandedField}
+              value={errorSummary}
+              onChange={setErrorSummary}
+              mono
+              compactHeightClass='h-24 max-h-24'
+              placeholder='可粘贴简要报错日志或异常栈片段...'
+              label={
+                <>
+                  <FileCode className='size-3 text-muted-foreground' />
+                  <span className='text-muted-foreground'>故障现象 / 关键错误日志摘要（选填）</span>
+                </>
+              }
+            />
 
             {/* 区域 6：分类标签与记录人（底栏紧凑两列） */}
             {/* Section 6: Categorical tags and author */}
@@ -533,10 +665,67 @@ export function SaveMemoryDialog({
               </div>
             </div>
           </div>
-        </ScrollArea>
+        </div>
+
+          {/* 单个大文本字段的放大编辑层：盖住表单主体，不新开全局弹窗 */}
+          {/* Focused editor overlay for one long-text field; covers the form body without a nested dialog */}
+          {expandedField ? (
+            <div className='absolute inset-0 z-20 flex flex-col bg-background px-5 py-3'>
+              <div className='mb-2 flex items-center justify-between gap-2'>
+                <div className='min-w-0'>
+                  <p className='text-xs font-semibold text-foreground truncate'>
+                    {FIELD_EXPAND_TITLES[expandedField]}
+                  </p>
+                  <p className='text-[11px] text-muted-foreground'>单独放大编辑，关闭后回到表单</p>
+                </div>
+                <div className='flex items-center gap-1.5 shrink-0'>
+                  {expandedField === 'solution' ? (
+                    <button
+                      type='button'
+                      onClick={handleInsertTemplate}
+                      className='text-[11px] text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer flex items-center gap-0.5'
+                    >
+                      <Plus className='size-3' />
+                      插入步骤模板
+                    </button>
+                  ) : null}
+                  <Button
+                    type='button'
+                    variant='outline'
+                    size='sm'
+                    className='h-7 px-2 text-xs'
+                    onClick={() => setExpandedField(null)}
+                  >
+                    <Minimize2 className='size-3.5 mr-1' />
+                    收起
+                  </Button>
+                </div>
+              </div>
+              <Textarea
+                value={expandedValue}
+                onChange={(e) => setExpandedValue(e.target.value)}
+                autoFocus
+                style={{fieldSizing: 'fixed'}}
+                className={cn(
+                  'field-sizing-fixed min-h-0 flex-1 overflow-y-auto resize-none text-xs leading-relaxed',
+                  (expandedField === 'solution' || expandedField === 'error_summary') && 'font-mono',
+                  expandedField === 'solution' &&
+                    errors.solution &&
+                    'border-destructive focus-visible:ring-destructive',
+                )}
+              />
+              {expandedField === 'solution' && errors.solution ? (
+                <p className='mt-1.5 text-[11px] text-destructive flex items-center gap-1 font-medium'>
+                  <AlertCircle className='size-3 shrink-0' />
+                  {errors.solution}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
 
         {/* 弹窗底部操作 / Dialog Footer */}
-        <DialogFooter className='px-5 py-3 border-t bg-muted/20 flex items-center justify-between sm:justify-between'>
+        <DialogFooter className='px-5 py-3 border-t bg-muted/20 flex items-center justify-between sm:justify-between shrink-0'>
           <Button
             type='button'
             variant='ghost'

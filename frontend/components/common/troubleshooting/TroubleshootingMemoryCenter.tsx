@@ -855,10 +855,14 @@ export function TroubleshootingMemoryCenter({
                       variant='outline'
                       size='sm'
                       onClick={() => {
+                        const entry = selectedDetail;
                         setDetailModalOpen(false);
-                        if (selectedDetail) {
-                          handleOpenEdit(selectedDetail);
+                        if (!entry) {
+                          return;
                         }
+                        // 等详情弹窗卸下焦点后再打开编辑，避免两个 Dialog 抢焦点导致表单不出现
+                        // Open the editor after the detail dialog releases focus so the two dialogs do not fight
+                        window.setTimeout(() => handleOpenEdit(entry), 0);
                       }}
                       className='h-8 text-xs'
                     >

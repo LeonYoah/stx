@@ -111,6 +111,17 @@ export function AuditTraceSheet({log, onOpenChange}: AuditTraceSheetProps) {
                 </div>
                 <p className='mt-1 truncate text-xs text-muted-foreground'>{command.agent_id}</p>
                 {hint ? <p className='mt-1 break-all text-xs text-muted-foreground'>{hint}</p> : null}
+                {command.display_command ? (
+                  <div className='mt-2 rounded-md border bg-muted/30 px-2.5 py-2'>
+                    <p className='text-[11px] text-muted-foreground'>{t('audit.actualCommand')}</p>
+                    <code
+                      className='mt-1 block overflow-x-auto whitespace-nowrap font-mono text-xs'
+                      title={command.display_command}
+                    >
+                      {command.display_command}
+                    </code>
+                  </div>
+                ) : null}
                 {command.error ? <p className='mt-1 text-xs text-destructive'>{command.error}</p> : null}
               </div>
             );

@@ -73,6 +73,8 @@ export interface CommandLogInfo {
   host_id: number | null;
   /** Command type / 命令类型 */
   command_type: string;
+  /** Redacted command actually executed by the Agent / Agent 实际执行且已脱敏的命令 */
+  display_command?: string;
   /** Command parameters / 命令参数 */
   parameters: CommandParameters | null;
   /** Execution status / 执行状态 */

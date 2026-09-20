@@ -959,6 +959,7 @@
     "commandDetailDescription": "View command execution details, output, and errors",
     "commandId": "Command ID",
     "commandType": "Command Type",
+    "actualCommand": "Executed Command",
     "agentId": "Agent ID",
     "hostId": "Host ID",
     "status": "Status",

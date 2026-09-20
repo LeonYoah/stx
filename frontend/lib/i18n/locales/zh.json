@@ -959,6 +959,7 @@
     "commandDetailDescription": "查看命令执行详情、输出和错误信息",
     "commandId": "命令 ID",
     "commandType": "命令类型",
+    "actualCommand": "实际执行命令",
     "agentId": "Agent ID",
     "hostId": "主机 ID",
     "status": "状态",

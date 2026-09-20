@@ -2446,6 +2446,141 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/diagnostics/resources": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "diagnostics"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/diagnostics.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/diagnostics/resources/{code}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "diagnostics"
+                ],
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "诊断资源编码",
+                        "name": "code",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/diagnostics.Response"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/diagnostics.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/diagnostics/resources/{code}/run": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "diagnostics"
+                ],
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "诊断资源编码",
+                        "name": "code",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "单项诊断资源请求",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/diagnostics.RunDiagnosticResourceRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/diagnostics.Response"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/diagnostics.Response"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/diagnostics.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/diagnostics/tasks/{id}/artifacts": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "diagnostics"
+                ],
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "诊断任务 ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/diagnostics.Response"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/diagnostics.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/executions/{id}": {
             "get": {
                 "produces": [
@@ -4417,6 +4552,9 @@ const docTemplate = `{
                 "agent_id": {
                     "type": "string"
                 },
+                "client_type": {
+                    "type": "string"
+                },
                 "command_id": {
                     "type": "string"
                 },
@@ -4428,6 +4566,9 @@ const docTemplate = `{
                 },
                 "created_by": {
                     "type": "integer"
+                },
+                "display_command": {
+                    "type": "string"
                 },
                 "error": {
                     "type": "string"
@@ -5820,6 +5961,54 @@ const docTemplate = `{
                 },
                 "source": {
                     "description": "Source indicates the data source\nSource 表示数据来源",
+                    "type": "string"
+                }
+            }
+        },
+        "diagnostics.DiagnosticTaskNodeScope": {
+            "type": "string",
+            "enum": [
+                "all",
+                "related",
+                "custom"
+            ],
+            "x-enum-varnames": [
+                "DiagnosticTaskNodeScopeAll",
+                "DiagnosticTaskNodeScopeRelated",
+                "DiagnosticTaskNodeScopeCustom"
+            ]
+        },
+        "diagnostics.Response": {
+            "type": "object",
+            "properties": {
+                "data": {},
+                "error_msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "diagnostics.RunDiagnosticResourceRequest": {
+            "type": "object",
+            "properties": {
+                "cluster_id": {
+                    "type": "integer"
+                },
+                "jvm_dump_min_free_mb": {
+                    "type": "integer"
+                },
+                "lookback_minutes": {
+                    "type": "integer"
+                },
+                "node_scope": {
+                    "$ref": "#/definitions/diagnostics.DiagnosticTaskNodeScope"
+                },
+                "selected_node_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "summary": {
                     "type": "string"
                 }
             }

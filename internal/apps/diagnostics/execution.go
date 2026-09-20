@@ -32,6 +32,7 @@ const diagnosticExecutionModule = "diagnostics"
 // DiagnosticExecutionRequest 保存诊断写操作的非敏感请求元数据。
 // DiagnosticExecutionRequest stores non-sensitive request metadata for a diagnostic write operation.
 type DiagnosticExecutionRequest struct {
+	OperationID    string
 	RequestID      string
 	IdempotencyKey string
 	RequestHash    string
@@ -125,21 +126,25 @@ func (s *Service) CreateDiagnosticTaskWithExecution(ctx context.Context, req *Cr
 	if req == nil {
 		return nil, fmt.Errorf("%w: request is required", ErrInvalidDiagnosticTaskRequest)
 	}
+	operationID := strings.TrimSpace(request.OperationID)
+	if operationID == "" {
+		operationID = "diagnostics.task.create"
+	}
 	riskLevel := diagnosticTaskRiskLevel(req)
 	actor := executionapp.Actor{UserID: uint64(createdBy), IsAdmin: request.IsAdmin || createdBy == 0}
 	if riskLevel == executionapp.RiskLevelR3 && !actor.IsAdmin {
 		return nil, executionapp.ErrAdminRequired
 	}
-	if existing, found, err := s.executionService.FindIdempotent(ctx, actor, "diagnostics.task.create", request.IdempotencyKey, request.RequestHash); err != nil {
+	if existing, found, err := s.executionService.FindIdempotent(ctx, actor, operationID, request.IdempotencyKey, request.RequestHash); err != nil {
 		return nil, err
 	} else if found {
 		return s.diagnosticTaskForExistingExecution(ctx, existing)
 	}
 	if createdBy != 0 {
 		if err := s.executionService.Authorize(ctx, actor, executionapp.AuthorizationInput{
-			OperationID:    "diagnostics.task.create",
+			OperationID:    operationID,
 			RiskLevel:      riskLevel,
-			Impact:         "JVM Dump 可能暂停目标 Java 进程并产生较大的文件，只允许管理员确认后执行。",
+			Impact:         diagnosticTaskImpact(req),
 			IdempotencyKey: strings.TrimSpace(request.IdempotencyKey),
 			RequestHash:    strings.TrimSpace(request.RequestHash),
 			Confirmed:      request.Confirmed,
@@ -149,7 +154,7 @@ func (s *Service) CreateDiagnosticTaskWithExecution(ctx context.Context, req *Cr
 		}
 	}
 	item, created, err := s.executionService.Create(ctx, executionapp.CreateInput{
-		OperationID:    "diagnostics.task.create",
+		OperationID:    operationID,
 		OwnerUserID:    uint64(createdBy),
 		ActorType:      diagnosticExecutionActorType(createdBy),
 		Module:         diagnosticExecutionModule,
@@ -222,10 +227,33 @@ func validateDiagnosticActor(actor executionapp.Actor) error {
 }
 
 func diagnosticTaskRiskLevel(req *CreateDiagnosticTaskRequest) executionapp.RiskLevel {
-	if req != nil && req.Options.IncludeJVMDump {
+	if req == nil {
+		return executionapp.RiskLevelR0
+	}
+	options := req.Options.Normalize()
+	if options.IncludeJVMDump {
 		return executionapp.RiskLevelR3
 	}
+	if options.IncludeThreadDump {
+		return executionapp.RiskLevelR1
+	}
 	return executionapp.RiskLevelR0
+}
+
+// diagnosticTaskImpact 返回与实际所选资源一致的确认提示。
+// diagnosticTaskImpact returns a confirmation message that matches the selected resources.
+func diagnosticTaskImpact(req *CreateDiagnosticTaskRequest) string {
+	if req == nil {
+		return "诊断任务会读取集群和节点信息。"
+	}
+	options := req.Options.Normalize()
+	if options.IncludeJVMDump {
+		return "JVM Dump 可能触发 Full GC、暂停目标 Java 进程并产生较大的文件，只允许管理员确认后执行。"
+	}
+	if options.IncludeThreadDump {
+		return "线程快照会执行 jcmd 或 jstack，可能短暂增加目标 JVM 和主机负载。"
+	}
+	return "诊断任务会读取集群、配置、日志或监控信息，不修改 SeaTunnel 运行状态。"
 }
 
 // RequestCancel 在当前步骤结束后停止诊断任务，不中断已经发给 Agent 的命令。

@@ -65,6 +65,11 @@ func addDiagnosticsWriteCommands(root *cobra.Command, storeProvider authStorePro
 			defaultFile: func(_ string, args []string) string { return filepath.Base(strings.TrimSpace(args[1])) },
 		}),
 	)
+	resourceCommand := childCommand(diagnosticsCommand, "resource")
+	if resourceCommand == nil {
+		panic("generated diagnostics resource command is missing")
+	}
+	resourceCommand.AddCommand(newDiagnosticsResourceRunCommand(storeProvider))
 }
 
 type diagnosticsTaskDownloadOptions struct {
@@ -186,6 +191,7 @@ func newDiagnosticsTaskCreateCommand(storeProvider authStoreProvider) *cobra.Com
 	var clusterID uint
 	var triggerSource, nodeScope string
 	var selectedNodeIDs []uint
+	var selectedResources []string
 	var errorGroupID, inspectionReportID, inspectionFindingID uint
 	var alertID string
 	var includeThreadDump, includeJVMDump, autoStart bool
@@ -230,7 +236,7 @@ func newDiagnosticsTaskCreateCommand(storeProvider authStoreProvider) *cobra.Com
 			if err := setDiagnosticsSourceRefFlags(command, body, errorGroupID, inspectionReportID, inspectionFindingID, alertID); err != nil {
 				return err
 			}
-			if err := setDiagnosticsOptionsFlags(command, body, includeThreadDump, includeJVMDump, jvmDumpMinFreeMB); err != nil {
+			if err := setDiagnosticsOptionsFlags(command, body, includeThreadDump, includeJVMDump, jvmDumpMinFreeMB, selectedResources); err != nil {
 				return err
 			}
 			if len(body) == 0 {
@@ -255,6 +261,7 @@ func newDiagnosticsTaskCreateCommand(storeProvider authStoreProvider) *cobra.Com
 	command.Flags().BoolVar(&includeThreadDump, "include-thread-dump", false, "Include thread dump collection")
 	command.Flags().BoolVar(&includeJVMDump, "include-jvm-dump", false, "Include JVM dump collection; the server restricts this to administrators")
 	command.Flags().IntVar(&jvmDumpMinFreeMB, "jvm-dump-min-free-mb", 0, "Minimum free memory required for JVM dump collection")
+	command.Flags().StringSliceVar(&selectedResources, "resource", nil, "Diagnostic resource code to include; may be repeated")
 	command.Flags().IntVar(&lookbackMinutes, "lookback-minutes", 0, "Recent time window to inspect, in minutes")
 	command.Flags().StringVar(&summary, "summary", "", "Task summary")
 	command.Flags().BoolVar(&autoStart, "auto-start", false, "Start collection immediately after task creation")
@@ -292,8 +299,8 @@ func setDiagnosticsSourceRefFlags(command *cobra.Command, body map[string]any, e
 
 // setDiagnosticsOptionsFlags 将采集选项快捷参数合并到 request body 的 options。
 // setDiagnosticsOptionsFlags merges collection shortcut flags into the request body's options.
-func setDiagnosticsOptionsFlags(command *cobra.Command, body map[string]any, includeThreadDump, includeJVMDump bool, jvmDumpMinFreeMB int) error {
-	if !command.Flags().Changed("include-thread-dump") && !command.Flags().Changed("include-jvm-dump") && !command.Flags().Changed("jvm-dump-min-free-mb") {
+func setDiagnosticsOptionsFlags(command *cobra.Command, body map[string]any, includeThreadDump, includeJVMDump bool, jvmDumpMinFreeMB int, selectedResources []string) error {
+	if !command.Flags().Changed("include-thread-dump") && !command.Flags().Changed("include-jvm-dump") && !command.Flags().Changed("jvm-dump-min-free-mb") && !command.Flags().Changed("resource") {
 		return nil
 	}
 	options := make(map[string]any)
@@ -311,8 +318,94 @@ func setDiagnosticsOptionsFlags(command *cobra.Command, body map[string]any, inc
 	if command.Flags().Changed("jvm-dump-min-free-mb") {
 		options["jvm_dump_min_free_mb"] = jvmDumpMinFreeMB
 	}
+	if command.Flags().Changed("resource") {
+		options["selected_resources"] = selectedResources
+	}
 	body["options"] = options
 	return nil
+}
+
+// newDiagnosticsResourceRunCommand 创建单项诊断资源执行命令。
+// newDiagnosticsResourceRunCommand creates the command that runs exactly one diagnostics resource.
+func newDiagnosticsResourceRunCommand(storeProvider authStoreProvider) *cobra.Command {
+	var options secureWriteOptions
+	var requestFile string
+	var clusterID uint
+	var nodeScope string
+	var nodeIDs []uint
+	var lookbackMinutes, jvmDumpMinFreeMB int
+	var summary string
+	command := &cobra.Command{
+		Use:     "run <code>",
+		Short:   "Run one diagnostic resource",
+		Long:    "Run exactly one registered diagnostic resource. The task starts immediately and does not generate a full bundle report.",
+		Example: "stx diagnostics resource run thread_dump --cluster-id 6 --node-id 6 --confirm",
+		Args:    usageArgs(cobra.ExactArgs(1)),
+		RunE: func(command *cobra.Command, args []string) error {
+			body, err := requestBodyFromFile(requestFile)
+			if err != nil {
+				return err
+			}
+			if body == nil {
+				body = make(map[string]any)
+			}
+			if command.Flags().Changed("cluster-id") {
+				body["cluster_id"] = clusterID
+			}
+			if command.Flags().Changed("node-scope") {
+				body["node_scope"] = strings.TrimSpace(nodeScope)
+			}
+			if command.Flags().Changed("node-id") {
+				body["selected_node_ids"] = nodeIDs
+			}
+			if command.Flags().Changed("lookback-minutes") {
+				body["lookback_minutes"] = lookbackMinutes
+			}
+			if command.Flags().Changed("jvm-dump-min-free-mb") {
+				body["jvm_dump_min_free_mb"] = jvmDumpMinFreeMB
+			}
+			if command.Flags().Changed("summary") {
+				body["summary"] = summary
+			}
+			if requestFile == "" && !command.Flags().Changed("cluster-id") {
+				return clioutput.NewError(clioutput.CodeUsage, "--cluster-id or --request-file is required", clioutput.ExitUsage, false)
+			}
+			return executeDiagnosticsResourceRun(command, storeProvider, &options, strings.TrimSpace(args[0]), body)
+		},
+	}
+	addSecureWriteFlags(command, &options)
+	command.Flags().StringVar(&requestFile, "request-file", "", "Read the complete JSON request body from a file")
+	command.Flags().UintVar(&clusterID, "cluster-id", 0, "SeaTunnel cluster ID")
+	command.Flags().StringVar(&nodeScope, "node-scope", "", "Node scope: all, related, or custom")
+	command.Flags().UintSliceVar(&nodeIDs, "node-id", nil, "Selected node ID; may be repeated")
+	command.Flags().IntVar(&lookbackMinutes, "lookback-minutes", 0, "Recent time window to inspect, in minutes")
+	command.Flags().IntVar(&jvmDumpMinFreeMB, "jvm-dump-min-free-mb", 0, "Minimum free memory required for JVM dump collection")
+	command.Flags().StringVar(&summary, "summary", "", "Task summary")
+	return command
+}
+
+// executeDiagnosticsResourceRun 提交单项资源任务，并返回公共执行编号用于后续等待。
+// executeDiagnosticsResourceRun submits a single-resource task and returns its shared execution ID for waiting.
+func executeDiagnosticsResourceRun(command *cobra.Command, storeProvider authStoreProvider, options *secureWriteOptions, code string, body map[string]any) error {
+	const operationID = "diagnostics.resource.run"
+	client, headers, err := prepareSecureWrite(command, storeProvider, operationID, options,
+		"只执行指定诊断资源；线程快照可能短暂增加负载，JVM Dump 可能暂停目标 JVM。")
+	if err != nil {
+		return err
+	}
+	var data any
+	requestID, err := client.RequestWithHeaders(command.Context(), http.MethodPost,
+		"/api/v1/diagnostics/resources/"+url.PathEscape(code)+"/run", body, headers, &data)
+	if err != nil {
+		return handleSecureWriteError(command, operationID, err)
+	}
+	nextCommand := diagnosticsTaskNextCommand(data)
+	if item, ok := data.(map[string]any); ok {
+		if executionID, ok := item["execution_id"].(string); ok && strings.TrimSpace(executionID) != "" {
+			nextCommand = "stx execution wait " + strings.TrimSpace(executionID)
+		}
+	}
+	return renderWriteResult(command, operationID, requestID, data, nextCommand)
 }
 
 // executeDiagnosticsTaskCreate 使用统一确认、幂等和结果格式提交诊断任务。

@@ -56,6 +56,9 @@ var (
 	// ErrInvalidDiagnosticTaskRequest indicates the diagnostics task request is invalid.
 	// ErrInvalidDiagnosticTaskRequest 表示诊断任务请求非法。
 	ErrInvalidDiagnosticTaskRequest = errors.New("diagnostics: invalid diagnostic task request")
+	// ErrDiagnosticResourceNotFound indicates the public diagnostics resource code is unknown.
+	// ErrDiagnosticResourceNotFound 表示公开诊断资源编码不存在。
+	ErrDiagnosticResourceNotFound = errors.New("diagnostics: diagnostic resource not found")
 	// ErrDiagnosticTaskAlreadyFinished 表示终态诊断任务不能再次启动或改写。
 	// ErrDiagnosticTaskAlreadyFinished indicates that a terminal diagnostic task cannot be started or rewritten again.
 	ErrDiagnosticTaskAlreadyFinished = errors.New("diagnostics: diagnostic task already finished")

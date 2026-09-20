@@ -83,6 +83,7 @@ func (r *Repository) CreateCommandLog(ctx context.Context, log *CommandLog) erro
 		return ErrCommandIDDuplicate
 	}
 	log.Parameters = RedactParameters(log.Parameters)
+	log.DisplayCommand = RedactText(log.DisplayCommand)
 	log.Output = RedactText(log.Output)
 	log.Error = RedactText(log.Error)
 
@@ -240,6 +241,7 @@ func (r *Repository) UpdateCommandLog(ctx context.Context, log *CommandLog) erro
 	}
 
 	log.Parameters = RedactParameters(log.Parameters)
+	log.DisplayCommand = RedactText(log.DisplayCommand)
 	log.Output = RedactText(log.Output)
 	log.Error = RedactText(log.Error)
 	return r.db.WithContext(ctx).Save(log).Error
@@ -253,7 +255,7 @@ func (r *Repository) UpdateCommandLogStatus(ctx context.Context, id uint, update
 	if parameters, ok := updates["parameters"].(CommandParameters); ok {
 		updates["parameters"] = RedactParameters(parameters)
 	}
-	for _, key := range []string{"output", "error"} {
+	for _, key := range []string{"display_command", "output", "error"} {
 		if value, ok := updates[key].(string); ok {
 			updates[key] = RedactText(value)
 		}

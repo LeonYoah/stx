@@ -180,7 +180,7 @@ export function SaveMemoryDialog({
 
   // 提交保存排障经验
   // Submit and persist troubleshooting memory
-  const handleSubmit = useCallback(() => {
+  const handleSubmit = useCallback(async () => {
     const newErrors: {title?: string; solution?: string} = {};
     if (!title.trim()) {
       newErrors.title = '方案标题不能为空';
@@ -198,7 +198,7 @@ export function SaveMemoryDialog({
 
     setSubmitting(true);
     try {
-      const saved = services.troubleshooting.saveMemory({
+      const saved = await services.troubleshooting.saveRemoteMemory({
         id: initialData?.id,
         target_type: targetType,
         fingerprint: fingerprint.trim() || title.trim(),
@@ -243,50 +243,80 @@ export function SaveMemoryDialog({
     title,
   ]);
 
+  // 插入排障步骤模板
+  // Insert step-by-step troubleshooting template
+  const handleInsertTemplate = useCallback(() => {
+    const template = `1. 排查定位：\n2. 处置操作（改动参数/执行命令）：\n3. 验证结果：服务恢复正常运行。`;
+    setSolution((prev) => (prev.trim() ? `${prev}\n\n${template}` : template));
+    setErrors((prev) => ({...prev, solution: undefined}));
+  }, []);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className='sm:max-w-2xl border border-border/80 dark:border-border/60 shadow-2xl p-0 flex flex-col max-h-[90vh] overflow-hidden bg-background'>
-        {/* 弹窗头部 / Dialog Header */}
-        <DialogHeader className='p-4 pb-3 border-b bg-muted/20'>
+      <DialogContent className='sm:max-w-2xl border border-border/80 dark:border-border/60 shadow-2xl p-0 flex flex-col max-h-[90vh] overflow-hidden bg-background rounded-xl'>
+        {/* 弹窗头部：明确预留 pr-10 物理安全避让区，杜绝与右上角 X 按钮重叠 */}
+        {/* Dialog Header: explicit pr-10 safe area avoiding collision with top-right Close button */}
+        <DialogHeader className='px-5 py-3.5 border-b bg-muted/20 pr-12 text-left sm:text-left'>
           <div className='flex items-center gap-2'>
-            <div className='p-1 rounded-md bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 shrink-0'>
-              <Lightbulb className='h-4 w-4' />
+            <div className='flex size-7 shrink-0 items-center justify-center rounded-lg bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'>
+              <Lightbulb className='size-3.5' />
             </div>
-            <DialogTitle className='text-base font-bold text-foreground'>
-              {initialData?.id ? '编辑排障经验' : '记录排障解决方案与经验'}
+            <DialogTitle className='text-sm font-bold tracking-tight text-foreground'>
+              {initialData?.id ? '编辑排障方案' : '记录排障解决方案与经验'}
             </DialogTitle>
             <Badge
               variant='outline'
-              className='text-xs font-mono ml-auto border-emerald-500/30 text-emerald-600 dark:text-emerald-400 bg-emerald-500/10'
+              className='h-5 px-1.5 text-[10px] font-mono border-emerald-500/30 text-emerald-600 dark:text-emerald-400 bg-emerald-500/10'
             >
-              经验记忆库
+              经验库
             </Badge>
           </div>
           <DialogDescription className='text-xs text-muted-foreground mt-1'>
-            针对已成功排查解决的故障现象沉淀方案。沉淀后，下次遇到相同指纹的错误或告警将自动置顶回显，赋能后续快速处置与 AI 知识复用。
+            沉淀已验证的故障处置步骤，后续同类错误将自动置顶回显与辅助排障。
           </DialogDescription>
         </DialogHeader>
 
         {/* 表单内容滚动区 / Form Scroll Area */}
-        <ScrollArea className='flex-1 p-4'>
+        <ScrollArea className='flex-1 px-5 py-4'>
           <div className='space-y-4 text-xs pr-1'>
-            {/* 关联故障指纹与分类 / Target Fingerprint Info */}
-            <div className='rounded-md border p-2.5 bg-muted/30 space-y-1.5'>
-              <div className='flex items-center justify-between text-[11px] text-muted-foreground'>
-                <span className='flex items-center gap-1 font-medium text-foreground'>
-                  <Fingerprint className='h-3.5 w-3.5 text-primary' />
-                  匹配关联指纹（自动回显依据）
-                </span>
-                <Badge variant='secondary' className='text-[10px]'>
-                  {targetType === 'error' ? '错误日志指纹' : '集群告警指标'}
-                </Badge>
+            {/* 区域 1：关联故障指纹与类型 */}
+            {/* Section 1: Fault fingerprint context and target category */}
+            <div className='flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-muted/40 border border-border/60'>
+              <div className='flex items-center gap-1.5 min-w-0 flex-1'>
+                <Fingerprint className='size-3.5 text-primary shrink-0' />
+                <span className='text-[11px] text-muted-foreground shrink-0'>关联指纹:</span>
+                {initialData?.fingerprint ? (
+                  <span className='font-mono text-xs font-medium text-foreground truncate'>
+                    {fingerprint}
+                  </span>
+                ) : (
+                  <Input
+                    value={fingerprint}
+                    onChange={(e) => setFingerprint(e.target.value)}
+                    placeholder='输入异常类名或指纹（如 SlotNotEnoughException）'
+                    className='h-6 text-xs font-mono bg-background/80 py-0 px-2 max-w-[280px]'
+                  />
+                )}
               </div>
-              <div className='font-mono text-xs text-foreground break-all bg-background/80 p-1.5 rounded border'>
-                {fingerprint || '未提取到指纹，将使用方案标题作为模糊匹配键'}
-              </div>
+              <Badge
+                variant={targetType === 'error' ? 'secondary' : 'outline'}
+                className={cn(
+                  'text-[10px] font-medium shrink-0 h-5 px-1.5',
+                  !initialData?.target_type && 'cursor-pointer hover:bg-muted/80',
+                )}
+                onClick={() => {
+                  if (!initialData?.target_type) {
+                    setTargetType((prev) => (prev === 'error' ? 'alert' : 'error'));
+                  }
+                }}
+                title={!initialData?.target_type ? '点击切换错误/告警类型' : undefined}
+              >
+                {targetType === 'error' ? '错误日志' : '集群告警'}
+              </Badge>
             </div>
 
-            {/* 方案标题 / Solution Title */}
+            {/* 区域 2：方案标题 */}
+            {/* Section 2: Solution Title */}
             <div className='space-y-1.5'>
               <Label htmlFor='title' className='text-xs font-medium flex items-center gap-1'>
                 <span>方案标题</span>
@@ -306,39 +336,29 @@ export function SaveMemoryDialog({
               />
               {errors.title && (
                 <p className='text-[11px] text-destructive flex items-center gap-1'>
-                  <AlertCircle className='h-3 w-3' />
+                  <AlertCircle className='size-3' />
                   {errors.title}
                 </p>
               )}
             </div>
 
-            {/* 故障现象摘要 / Error Summary */}
-            <div className='space-y-1.5'>
-              <Label htmlFor='summary' className='text-xs font-medium text-muted-foreground flex items-center gap-1'>
-                <FileCode className='h-3.5 w-3.5' />
-                <span>故障现象 / 关键错误日志摘要</span>
-              </Label>
-              <Textarea
-                id='summary'
-                value={errorSummary}
-                onChange={(e) => setErrorSummary(e.target.value)}
-                placeholder='可粘贴简要报错日志或异常栈信息...'
-                rows={2}
-                className='text-xs font-mono resize-none leading-relaxed'
-              />
-            </div>
-
-            {/* 核心必填：解决方案与排障动作 / Core Solution & Action Steps */}
-            <div className='space-y-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/5 dark:bg-emerald-950/20 p-3'>
+            {/* 区域 3：核心必填解决方案（高信噪比主视区） */}
+            {/* Section 3: Core mandatory solution and execution steps */}
+            <div className='space-y-1.5 rounded-xl border border-emerald-500/35 bg-emerald-500/[0.02] dark:bg-emerald-950/20 p-3'>
               <div className='flex items-center justify-between'>
-                <Label htmlFor='solution' className='text-xs font-semibold text-foreground flex items-center gap-1'>
-                  <ShieldCheck className='h-4 w-4 text-emerald-600 dark:text-emerald-400' />
+                <Label htmlFor='solution' className='text-xs font-semibold text-foreground flex items-center gap-1.5'>
+                  <ShieldCheck className='size-3.5 text-emerald-600 dark:text-emerald-400' />
                   <span>解决方案与排障具体步骤</span>
                   <span className='text-destructive'>* (必填)</span>
                 </Label>
-                <span className='text-[11px] text-muted-foreground'>
-                  务必具体说明修改了哪些配置参数、执行了什么命令
-                </span>
+                <button
+                  type='button'
+                  onClick={handleInsertTemplate}
+                  className='text-[11px] text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer flex items-center gap-0.5'
+                >
+                  <Plus className='size-3' />
+                  插入步骤模板
+                </button>
               </div>
               <Textarea
                 id='solution'
@@ -349,130 +369,151 @@ export function SaveMemoryDialog({
                     setErrors((prev) => ({...prev, solution: undefined}));
                   }
                 }}
-                placeholder={`请写下你迈过这道坎的具体操作，例如：\n1. 调大 MySQL wait_timeout 与 interactive_timeout 至 28800 秒；\n2. 在作业 JDBC URL 中追加参数 autoReconnect=true&connectTimeout=30000；\n3. 重启 Worker 进程恢复作业运行。`}
+                placeholder={`请写下具体的处置操作与命令参数，例如：\n1. 调大 MySQL wait_timeout 与 interactive_timeout 至 28800 秒；\n2. 在作业 JDBC URL 中追加参数 autoReconnect=true&connectTimeout=30000；\n3. 重启 Worker 进程恢复作业运行。`}
                 rows={4}
                 className={cn(
-                  'text-xs leading-relaxed bg-background/90',
+                  'text-xs font-mono leading-relaxed bg-background/90',
                   errors.solution && 'border-destructive focus-visible:ring-destructive',
                 )}
               />
               {errors.solution && (
                 <p className='text-[11px] text-destructive flex items-center gap-1 font-medium'>
-                  <AlertCircle className='h-3.5 w-3.5 shrink-0' />
+                  <AlertCircle className='size-3 shrink-0' />
                   {errors.solution}
                 </p>
               )}
             </div>
 
-            {/* 根本原因分析（选填） / Root Cause Analysis (Optional) */}
+            {/* 区域 4：根因剖析与防范建议（两列紧凑并排） */}
+            {/* Section 4: Root cause and preventive tips in compact two-column grid */}
+            <div className='grid grid-cols-1 sm:grid-cols-2 gap-3'>
+              <div className='space-y-1.5'>
+                <Label htmlFor='root_cause' className='text-xs font-medium text-muted-foreground'>
+                  根本原因剖析（选填）
+                </Label>
+                <Textarea
+                  id='root_cause'
+                  value={rootCause}
+                  onChange={(e) => setRootCause(e.target.value)}
+                  placeholder='例如：连接空闲时长超过了服务端上限导致被主动切断...'
+                  rows={2}
+                  className='text-xs resize-none'
+                />
+              </div>
+
+              <div className='space-y-1.5'>
+                <Label htmlFor='preventive_tips' className='text-xs font-medium text-muted-foreground'>
+                  防范与优化建议（选填）
+                </Label>
+                <Textarea
+                  id='preventive_tips'
+                  value={preventiveTips}
+                  onChange={(e) => setPreventiveTips(e.target.value)}
+                  placeholder='例如：批处理任务建议关闭外部持久化存储，流任务开启心跳...'
+                  rows={2}
+                  className='text-xs resize-none'
+                />
+              </div>
+            </div>
+
+            {/* 区域 5：故障现象摘要（选填折叠卡片） */}
+            {/* Section 5: Error summary text snippet */}
             <div className='space-y-1.5'>
-              <Label htmlFor='root_cause' className='text-xs font-medium text-muted-foreground'>
-                根本原因剖析（选填）
+              <Label htmlFor='summary' className='text-xs font-medium text-muted-foreground flex items-center gap-1'>
+                <FileCode className='size-3' />
+                <span>故障现象 / 关键错误日志摘要（选填）</span>
               </Label>
               <Textarea
-                id='root_cause'
-                value={rootCause}
-                onChange={(e) => setRootCause(e.target.value)}
-                placeholder='例如：数据库连接池空闲时间超过了 MySQL 服务端主动保活上限导致连接句柄失效...'
+                id='summary'
+                value={errorSummary}
+                onChange={(e) => setErrorSummary(e.target.value)}
+                placeholder='可粘贴简要报错日志或异常栈片段...'
                 rows={2}
-                className='text-xs resize-none'
+                className='text-xs font-mono resize-none leading-relaxed'
               />
             </div>
 
-            {/* 防范建议（选填） / Preventive Tips (Optional) */}
-            <div className='space-y-1.5'>
-              <Label htmlFor='preventive_tips' className='text-xs font-medium text-muted-foreground'>
-                防范与优化建议（选填）
-              </Label>
-              <Input
-                id='preventive_tips'
-                value={preventiveTips}
-                onChange={(e) => setPreventiveTips(e.target.value)}
-                placeholder='例如：针对批量离线任务建议关闭外部持久化 IMAP 存储，避免额外 I/O 损耗...'
-                className='h-8 text-xs'
-              />
-            </div>
-
-            {/* 分类标签 / Tags */}
-            <div className='space-y-1.5'>
-              <Label className='text-xs font-medium text-muted-foreground flex items-center gap-1'>
-                <Tag className='h-3 w-3' />
-                <span>分类检索标签</span>
-              </Label>
-              <div className='flex items-center gap-1.5 flex-wrap'>
-                {tags.map((tag) => (
-                  <span
-                    key={tag}
-                    className='inline-flex items-center gap-1 px-2 py-0.5 rounded bg-muted border text-[11px] font-mono'
-                  >
-                    #{tag}
-                    <button
-                      type='button'
-                      onClick={() => handleRemoveTag(tag)}
-                      className='text-muted-foreground hover:text-foreground'
+            {/* 区域 6：分类标签与记录人（底栏紧凑两列） */}
+            {/* Section 6: Categorical tags and author */}
+            <div className='grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1 border-t border-border/40'>
+              <div className='space-y-1.5'>
+                <Label className='text-xs font-medium text-muted-foreground flex items-center gap-1'>
+                  <Tag className='size-3' />
+                  <span>分类检索标签</span>
+                </Label>
+                <div className='flex items-center gap-1 flex-wrap min-h-6'>
+                  {tags.map((tag) => (
+                    <span
+                      key={tag}
+                      className='inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted/80 border text-[10px] font-mono'
                     >
-                      <X className='h-2.5 w-2.5' />
-                    </button>
-                  </span>
-                ))}
-              </div>
-              <div className='flex items-center gap-1.5 pt-1'>
-                <Input
-                  value={customTagInput}
-                  onChange={(e) => setCustomTagInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      handleAddTag(customTagInput);
-                    }
-                  }}
-                  placeholder='输入新标签按回车...'
-                  className='h-7 text-xs w-36'
-                />
-                <Button
-                  type='button'
-                  variant='outline'
-                  size='sm'
-                  onClick={() => handleAddTag(customTagInput)}
-                  className='h-7 px-2 text-xs'
-                >
-                  <Plus className='h-3 w-3 mr-1' />
-                  添加
-                </Button>
-                <div className='text-[10px] text-muted-foreground ml-1 flex items-center gap-1 flex-wrap'>
-                  <span>快捷建议:</span>
-                  {QUICK_TAGS.slice(0, 5).map((qTag) => (
-                    <button
-                      key={qTag}
-                      type='button'
-                      onClick={() => handleAddTag(qTag)}
-                      className='hover:text-primary underline cursor-pointer'
-                    >
-                      {qTag}
-                    </button>
+                      #{tag}
+                      <button
+                        type='button'
+                        onClick={() => handleRemoveTag(tag)}
+                        className='text-muted-foreground hover:text-foreground'
+                      >
+                        <X className='size-2.5' />
+                      </button>
+                    </span>
                   ))}
                 </div>
+                <div className='flex items-center gap-1.5 pt-0.5'>
+                  <Input
+                    value={customTagInput}
+                    onChange={(e) => setCustomTagInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddTag(customTagInput);
+                      }
+                    }}
+                    placeholder='输入标签回车...'
+                    className='h-7 text-xs w-28'
+                  />
+                  <Button
+                    type='button'
+                    variant='outline'
+                    size='sm'
+                    onClick={() => handleAddTag(customTagInput)}
+                    className='h-7 px-2 text-xs'
+                  >
+                    <Plus className='size-3 mr-0.5' />
+                    添加
+                  </Button>
+                  <div className='text-[10px] text-muted-foreground flex items-center gap-1 flex-wrap'>
+                    {QUICK_TAGS.slice(0, 4).map((qTag) => (
+                      <button
+                        key={qTag}
+                        type='button'
+                        onClick={() => handleAddTag(qTag)}
+                        className='hover:text-primary underline cursor-pointer'
+                      >
+                        {qTag}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
-            </div>
 
-            {/* 记录人 / Author */}
-            <div className='space-y-1.5'>
-              <Label htmlFor='author' className='text-xs font-medium text-muted-foreground'>
-                记录人 / 署名
-              </Label>
-              <Input
-                id='author'
-                value={author}
-                onChange={(e) => setAuthor(e.target.value)}
-                placeholder='例如：SRE 运维组 / 张三'
-                className='h-8 text-xs max-w-xs'
-              />
+              <div className='space-y-1.5'>
+                <Label htmlFor='author' className='text-xs font-medium text-muted-foreground'>
+                  记录人 / 署名
+                </Label>
+                <Input
+                  id='author'
+                  value={author}
+                  onChange={(e) => setAuthor(e.target.value)}
+                  placeholder='例如：SRE 运维组 / 工程师'
+                  className='h-7 text-xs'
+                />
+              </div>
             </div>
           </div>
         </ScrollArea>
 
         {/* 弹窗底部操作 / Dialog Footer */}
-        <DialogFooter className='p-3 border-t bg-muted/20 flex items-center justify-between sm:justify-between'>
+        <DialogFooter className='px-5 py-3 border-t bg-muted/20 flex items-center justify-between sm:justify-between'>
           <Button
             type='button'
             variant='ghost'
@@ -487,10 +528,10 @@ export function SaveMemoryDialog({
             size='sm'
             onClick={handleSubmit}
             disabled={submitting}
-            className='h-8 text-xs bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5 shadow-xs'
+            className='h-8 text-xs bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white gap-1.5 shadow-xs font-medium'
           >
-            <Save className='h-3.5 w-3.5' />
-            保存到经验记忆库
+            <Save className='size-3.5' />
+            保存到排障经验库
           </Button>
         </DialogFooter>
       </DialogContent>

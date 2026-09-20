@@ -40,6 +40,7 @@ import (
 	"github.com/LeonYoah/stx/internal/apps/audit"
 	"github.com/LeonYoah/stx/internal/apps/cluster"
 	appconfig "github.com/LeonYoah/stx/internal/apps/config"
+	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
 	"github.com/LeonYoah/stx/internal/apps/monitor"
 	monitoringapp "github.com/LeonYoah/stx/internal/apps/monitoring"
 	"github.com/LeonYoah/stx/internal/config"
@@ -666,11 +667,19 @@ func (s *Service) executeDiagnosticTask(ctx context.Context, taskID uint) {
 		logger.ErrorF(ctx, "[DiagnosticsTask] load task failed: task_id=%d err=%v", taskID, err)
 		return
 	}
-	ctx = audit.WithCommandMetadata(ctx, audit.CommandMetadata{
+	metadata := audit.CommandMetadata{
 		ExecutionID:   task.ExecutionID,
 		OwnerUserID:   task.CreatedBy,
 		OwnerUsername: strings.TrimSpace(task.CreatedByName),
-	})
+	}
+	if s.executionService != nil && strings.TrimSpace(task.ExecutionID) != "" {
+		item, loadErr := s.executionService.Get(ctx, executionapp.Actor{UserID: uint64(task.CreatedBy), IsAdmin: task.CreatedBy == 0}, task.ExecutionID)
+		if loadErr == nil {
+			metadata.RequestID = item.RequestID
+			metadata.ClientType = item.ClientType
+		}
+	}
+	ctx = audit.WithCommandMetadata(ctx, metadata)
 	if err := s.runDiagnosticTask(ctx, task); err != nil {
 		logger.ErrorF(ctx, "[DiagnosticsTask] run task failed: task_id=%d err=%v", taskID, err)
 	}

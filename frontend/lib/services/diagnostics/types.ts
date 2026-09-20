@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-export type DiagnosticsTabKey = 'errors' | 'inspections';
+export type DiagnosticsTabKey = 'errors' | 'inspections' | 'memories';
 export type DiagnosticsInspectionReportStatus =
   | 'pending'
   | 'running'

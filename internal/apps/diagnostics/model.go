@@ -40,6 +40,9 @@ const (
 	// WorkspaceTabInspections is the inspection tab.
 	// WorkspaceTabInspections 表示巡检标签页。
 	WorkspaceTabInspections WorkspaceTabKey = "inspections"
+	// WorkspaceTabMemories 表示排障经验库标签页。
+	// WorkspaceTabMemories is the troubleshooting memory bank tab.
+	WorkspaceTabMemories WorkspaceTabKey = "memories"
 	// WorkspaceTabTasks is the diagnostic task / bundle tab.
 	// WorkspaceTabTasks 表示诊断任务 / 诊断包标签页。
 	WorkspaceTabTasks WorkspaceTabKey = "tasks"

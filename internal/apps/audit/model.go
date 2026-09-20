@@ -106,16 +106,20 @@ func (d *AuditDetails) Scan(value interface{}) error {
 // CommandLog 表示 Agent 执行命令的记录。
 // Requirements: 10.1, 10.3
 type CommandLog struct {
-	ID          uint              `json:"id" gorm:"primaryKey;autoIncrement"`
-	CommandID   string            `json:"command_id" gorm:"size:50;uniqueIndex;not null"`
-	RequestID   string            `json:"request_id,omitempty" gorm:"size:64;index"`
-	ExecutionID string            `json:"execution_id,omitempty" gorm:"size:36;index"`
-	AgentID     string            `json:"agent_id" gorm:"size:100;not null;index"`
-	HostID      *uint             `json:"host_id" gorm:"index"`
-	CommandType string            `json:"command_type" gorm:"size:30;not null"`
-	Parameters  CommandParameters `json:"parameters" gorm:"type:json"`
-	Status      CommandStatus     `json:"status" gorm:"size:20;not null;index"`
-	Progress    int               `json:"progress" gorm:"default:0"`
+	ID          uint   `json:"id" gorm:"primaryKey;autoIncrement"`
+	CommandID   string `json:"command_id" gorm:"size:50;uniqueIndex;not null"`
+	RequestID   string `json:"request_id,omitempty" gorm:"size:64;index"`
+	ExecutionID string `json:"execution_id,omitempty" gorm:"size:36;index"`
+	AgentID     string `json:"agent_id" gorm:"size:100;not null;index"`
+	HostID      *uint  `json:"host_id" gorm:"index"`
+	CommandType string `json:"command_type" gorm:"size:30;not null"`
+	ClientType  string `json:"client_type,omitempty" gorm:"size:20;index"`
+	// DisplayCommand 保存经过脱敏、适合审计展示的实际命令或 Agent 操作说明。
+	// DisplayCommand stores a redacted command or Agent action description suitable for audit display.
+	DisplayCommand string            `json:"display_command,omitempty" gorm:"type:text"`
+	Parameters     CommandParameters `json:"parameters" gorm:"type:json"`
+	Status         CommandStatus     `json:"status" gorm:"size:20;not null;index"`
+	Progress       int               `json:"progress" gorm:"default:0"`
 	// Output 存储命令执行的原始内容输出，兼容 SQLite/MySQL/PostgreSQL。
 	// Output stores the raw command execution output, compatible with SQLite/MySQL/PostgreSQL.
 	Output     string     `json:"output" gorm:"type:text"`
@@ -210,44 +214,48 @@ type AuditLogFilter struct {
 // CommandLogInfo represents command log information for API responses.
 // CommandLogInfo 表示 API 响应的命令日志信息。
 type CommandLogInfo struct {
-	ID          uint              `json:"id"`
-	CommandID   string            `json:"command_id"`
-	RequestID   string            `json:"request_id,omitempty"`
-	ExecutionID string            `json:"execution_id,omitempty"`
-	AgentID     string            `json:"agent_id"`
-	HostID      *uint             `json:"host_id"`
-	CommandType string            `json:"command_type"`
-	Parameters  CommandParameters `json:"parameters"`
-	Status      CommandStatus     `json:"status"`
-	Progress    int               `json:"progress"`
-	Output      string            `json:"output"`
-	Error       string            `json:"error"`
-	StartedAt   *time.Time        `json:"started_at"`
-	FinishedAt  *time.Time        `json:"finished_at"`
-	CreatedAt   time.Time         `json:"created_at"`
-	CreatedBy   *uint             `json:"created_by"`
+	ID             uint              `json:"id"`
+	CommandID      string            `json:"command_id"`
+	RequestID      string            `json:"request_id,omitempty"`
+	ExecutionID    string            `json:"execution_id,omitempty"`
+	AgentID        string            `json:"agent_id"`
+	HostID         *uint             `json:"host_id"`
+	CommandType    string            `json:"command_type"`
+	ClientType     string            `json:"client_type,omitempty"`
+	DisplayCommand string            `json:"display_command,omitempty"`
+	Parameters     CommandParameters `json:"parameters"`
+	Status         CommandStatus     `json:"status"`
+	Progress       int               `json:"progress"`
+	Output         string            `json:"output"`
+	Error          string            `json:"error"`
+	StartedAt      *time.Time        `json:"started_at"`
+	FinishedAt     *time.Time        `json:"finished_at"`
+	CreatedAt      time.Time         `json:"created_at"`
+	CreatedBy      *uint             `json:"created_by"`
 }
 
 // ToCommandLogInfo converts a CommandLog to CommandLogInfo.
 // ToCommandLogInfo 将 CommandLog 转换为 CommandLogInfo。
 func (c *CommandLog) ToCommandLogInfo() *CommandLogInfo {
 	return &CommandLogInfo{
-		ID:          c.ID,
-		CommandID:   c.CommandID,
-		RequestID:   c.RequestID,
-		ExecutionID: c.ExecutionID,
-		AgentID:     c.AgentID,
-		HostID:      c.HostID,
-		CommandType: c.CommandType,
-		Parameters:  c.Parameters,
-		Status:      c.Status,
-		Progress:    c.Progress,
-		Output:      c.Output,
-		Error:       c.Error,
-		StartedAt:   c.StartedAt,
-		FinishedAt:  c.FinishedAt,
-		CreatedAt:   c.CreatedAt,
-		CreatedBy:   c.CreatedBy,
+		ID:             c.ID,
+		CommandID:      c.CommandID,
+		RequestID:      c.RequestID,
+		ExecutionID:    c.ExecutionID,
+		AgentID:        c.AgentID,
+		HostID:         c.HostID,
+		CommandType:    c.CommandType,
+		ClientType:     c.ClientType,
+		DisplayCommand: c.DisplayCommand,
+		Parameters:     c.Parameters,
+		Status:         c.Status,
+		Progress:       c.Progress,
+		Output:         c.Output,
+		Error:          c.Error,
+		StartedAt:      c.StartedAt,
+		FinishedAt:     c.FinishedAt,
+		CreatedAt:      c.CreatedAt,
+		CreatedBy:      c.CreatedBy,
 	}
 }
 

@@ -532,10 +532,10 @@ export function ManagementBar() {
       isActive: isRouteActive('/packages') || isRouteActive('/plugins'),
     });
 
-    // 错误与告警入口（合并菜单入口，进入页面后通过顶层 Tab 自由切换）
-    // Errors & Alerts entry (merged dock entry, navigated via top tabs inside pages)
+    // 告警与诊断入口（合并菜单入口，进入页面后通过顶层 Tab 自由切换）
+    // Alerts & Diagnostics entry (merged dock entry, navigated via top tabs inside pages)
     items.push({
-      title: tDock('errorsAndAlerts'),
+      title: tDock('alertsAndDiagnostics'),
       icon: StaticIcons.monitoring,
       href: '/monitoring',
       isActive: isRouteActive('/monitoring') || isRouteActive('/diagnostics'),

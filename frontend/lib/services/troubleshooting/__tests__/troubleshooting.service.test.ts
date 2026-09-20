@@ -130,4 +130,12 @@ describe('TroubleshootingService', () => {
     });
     expect(postDeleteMatches.length).toBe(0);
   });
+
+  it('应该支持根据 ID 精确获取经验详情', () => {
+    // Should support fetching memory detail by ID
+    const memory = troubleshootingService.getMemoryById('preset-mysql-link-failure');
+    expect(memory).toBeDefined();
+    expect(memory?.id).toBe('preset-mysql-link-failure');
+    expect(memory?.title).toContain('MySQL 连接断开');
+  });
 });

@@ -23,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	agentapp "github.com/LeonYoah/stx/internal/apps/agent"
 	"github.com/LeonYoah/stx/internal/apps/audit"
 	pb "github.com/LeonYoah/stx/internal/proto/agent"
 	"github.com/glebarez/sqlite"
@@ -145,5 +146,52 @@ func TestAgentCommandWithoutOwnerIsRecordedAsAgent(t *testing.T) {
 	}
 	if _, err := repo.GetCommandLogByCommandID(context.Background(), "command-agent"); err != nil {
 		t.Fatalf("command log should still exist: %v", err)
+	}
+}
+
+func TestAgentCommandSendFailureUpdatesPendingAuditRecord(t *testing.T) {
+	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	if err := database.AutoMigrate(&audit.CommandLog{}); err != nil {
+		t.Fatalf("migrate command logs: %v", err)
+	}
+	repo := audit.NewRepository(database)
+	adapter := &agentCommandSenderAdapter{manager: agentapp.NewManager(nil), auditRepo: repo}
+	ctx := audit.WithCommandMetadata(context.Background(), audit.CommandMetadata{
+		RequestID:   "request-send-failed",
+		ExecutionID: "33333333-3333-3333-3333-333333333333",
+		OwnerUserID: 9,
+		ClientType:  "cli",
+	})
+
+	if _, _, err := adapter.SendCommand(ctx, "missing-agent", "thread_dump", map[string]string{"install_dir": "/tmp/st", "role": "master"}); err == nil {
+		t.Fatal("missing agent should fail")
+	}
+	logs, total, err := repo.ListCommandLogs(ctx, &audit.CommandLogFilter{RequestID: "request-send-failed", Page: 1, PageSize: 20})
+	if err != nil {
+		t.Fatalf("list failed command logs: %v", err)
+	}
+	if total != 1 || len(logs) != 1 {
+		t.Fatalf("send failure should keep one command log: total=%d logs=%+v", total, logs)
+	}
+	item := logs[0]
+	if item.Status != audit.CommandStatusFailed || item.FinishedAt == nil || item.ClientType != "cli" || item.ExecutionID == "" || item.Error == "" {
+		t.Fatalf("failed command audit record is incomplete: %+v", item)
+	}
+	if !strings.Contains(item.DisplayCommand, "agent:thread_dump") {
+		t.Fatalf("failed command should retain a safe display command: %q", item.DisplayCommand)
+	}
+}
+
+func TestBuildAgentDisplayCommandUsesActualJavaTool(t *testing.T) {
+	threadCommand := buildAgentDisplayCommand("thread_dump", nil, `{"tool":"jstack","pid":321}`)
+	if threadCommand != "jstack -l 321" {
+		t.Fatalf("unexpected thread dump command: %q", threadCommand)
+	}
+	heapCommand := buildAgentDisplayCommand("jvm_dump", nil, `{"tool":"jcmd","pid":654,"output_path":"/tmp/heap dump.hprof"}`)
+	if heapCommand != `jcmd 654 GC.heap_dump "/tmp/heap dump.hprof"` {
+		t.Fatalf("unexpected JVM dump command: %q", heapCommand)
 	}
 }

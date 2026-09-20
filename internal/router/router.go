@@ -26,6 +26,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -64,6 +65,7 @@ import (
 	"github.com/LeonYoah/stx/internal/tlsbootstrap"
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
@@ -468,6 +470,9 @@ func Serve() {
 			diagnosticsRouter.Use(auth.LoginRequired())
 			{
 				diagnosticsRouter.GET("/bootstrap", diagnosticsHandler.GetWorkspaceBootstrap)
+				diagnosticsRouter.GET("/resources", diagnosticsHandler.ListDiagnosticResources)
+				diagnosticsRouter.GET("/resources/:code", diagnosticsHandler.GetDiagnosticResource)
+				diagnosticsRouter.POST("/resources/:code/run", diagnosticsHandler.RunDiagnosticResource)
 				diagnosticsRouter.POST("/inspections", diagnosticsHandler.StartInspection)
 				diagnosticsRouter.GET("/inspections", diagnosticsHandler.ListInspectionReports)
 				diagnosticsRouter.GET("/inspections/:id", diagnosticsHandler.GetInspectionReportDetail)
@@ -476,6 +481,7 @@ func Serve() {
 				diagnosticsRouter.GET("/tasks/:id", diagnosticsHandler.GetDiagnosticTask)
 				diagnosticsRouter.POST("/tasks/:id/start", diagnosticsHandler.StartDiagnosticTask)
 				diagnosticsRouter.GET("/tasks/:id/steps", diagnosticsHandler.ListDiagnosticTaskSteps)
+				diagnosticsRouter.GET("/tasks/:id/artifacts", diagnosticsHandler.ListDiagnosticTaskArtifacts)
 				diagnosticsRouter.GET("/tasks/:id/logs", diagnosticsHandler.ListDiagnosticTaskLogs)
 				diagnosticsRouter.GET("/tasks/:id/events/stream", diagnosticsHandler.StreamDiagnosticTaskEvents)
 				diagnosticsRouter.GET("/tasks/:id/html", diagnosticsHandler.PreviewDiagnosticTaskHTML)
@@ -1227,8 +1233,11 @@ func (a *agentCommandSenderAdapter) SendCommand(ctx context.Context, agentID str
 	// Send command with command-specific timeout
 	// 使用命令级超时发送命令
 	startedAt := time.Now()
-	resp, err := a.manager.SendCommand(ctx, agentID, cmdType, params, timeout)
+	commandID := uuid.NewString()
+	a.recordPendingCommandLog(ctx, commandID, agentID, commandType, params, startedAt)
+	resp, err := a.manager.SendCommandWithID(ctx, commandID, agentID, cmdType, params, timeout)
 	if err != nil {
+		a.recordFailedCommandLog(ctx, commandID, err)
 		return false, "", err
 	}
 	a.recordCommandLog(ctx, agentID, commandType, params, startedAt, resp)
@@ -1260,26 +1269,132 @@ func (a *agentCommandSenderAdapter) recordCommandLog(ctx context.Context, agentI
 	}
 	finishedAt := time.Now()
 	commandLog := &audit.CommandLog{
-		CommandID:   resp.CommandId,
-		RequestID:   strings.TrimSpace(metadata.RequestID),
-		ExecutionID: strings.TrimSpace(metadata.ExecutionID),
-		AgentID:     agentID,
-		CommandType: commandType,
-		Parameters:  parameters,
-		Status:      commandStatusFromAgentResponse(resp.Status),
-		Progress:    int(resp.Progress),
-		Output:      resp.Output,
-		Error:       resp.Error,
-		StartedAt:   &startedAt,
-		FinishedAt:  &finishedAt,
-		CreatedBy:   createdBy,
+		CommandID:      resp.CommandId,
+		RequestID:      strings.TrimSpace(metadata.RequestID),
+		ExecutionID:    strings.TrimSpace(metadata.ExecutionID),
+		AgentID:        agentID,
+		CommandType:    commandType,
+		ClientType:     strings.TrimSpace(metadata.ClientType),
+		DisplayCommand: buildAgentDisplayCommand(commandType, params, resp.Output),
+		Parameters:     parameters,
+		Status:         commandStatusFromAgentResponse(resp.Status),
+		Progress:       int(resp.Progress),
+		Output:         resp.Output,
+		Error:          resp.Error,
+		StartedAt:      &startedAt,
+		FinishedAt:     &finishedAt,
+		CreatedBy:      createdBy,
 	}
-	commandLogErr := a.auditRepo.CreateCommandLog(ctx, commandLog)
+	existing, lookupErr := a.auditRepo.GetCommandLogByCommandID(ctx, resp.CommandId)
+	var commandLogErr error
+	if lookupErr == nil {
+		commandLog.ID = existing.ID
+		commandLog.CreatedAt = existing.CreatedAt
+		commandLogErr = a.auditRepo.UpdateCommandLog(ctx, commandLog)
+	} else if errors.Is(lookupErr, audit.ErrCommandLogNotFound) {
+		commandLogErr = a.auditRepo.CreateCommandLog(ctx, commandLog)
+	} else {
+		commandLogErr = lookupErr
+	}
 	if commandLogErr != nil && !errors.Is(commandLogErr, audit.ErrCommandIDDuplicate) {
 		log.Printf("[Audit] 保存 Agent 命令日志失败: command_id=%s err=%v", resp.CommandId, commandLogErr)
 	}
 	// Agent 命令是控制层操作的执行细节，写入命令日志即可，不单独占审计行。
 	// Agent commands are execution details of a control-plane action. Keep them in command logs, not as audit rows.
+}
+
+// recordPendingCommandLog 在发送前记录命令，确保连接失败和超时也能审计。
+// recordPendingCommandLog records a command before dispatch so connection failures and timeouts remain auditable.
+func (a *agentCommandSenderAdapter) recordPendingCommandLog(ctx context.Context, commandID, agentID, commandType string, params map[string]string, startedAt time.Time) {
+	if a.auditRepo == nil {
+		return
+	}
+	metadata := audit.CommandMetadataFromContext(ctx)
+	parameters := make(audit.CommandParameters, len(params))
+	for key, value := range params {
+		parameters[key] = value
+	}
+	var createdBy *uint
+	if metadata.OwnerUserID > 0 {
+		ownerUserID := metadata.OwnerUserID
+		createdBy = &ownerUserID
+	}
+	commandLog := &audit.CommandLog{
+		CommandID:      commandID,
+		RequestID:      strings.TrimSpace(metadata.RequestID),
+		ExecutionID:    strings.TrimSpace(metadata.ExecutionID),
+		AgentID:        agentID,
+		CommandType:    commandType,
+		ClientType:     strings.TrimSpace(metadata.ClientType),
+		DisplayCommand: buildAgentDisplayCommand(commandType, params, ""),
+		Parameters:     parameters,
+		Status:         audit.CommandStatusPending,
+		Progress:       0,
+		StartedAt:      &startedAt,
+		CreatedBy:      createdBy,
+	}
+	if err := a.auditRepo.CreateCommandLog(ctx, commandLog); err != nil && !errors.Is(err, audit.ErrCommandIDDuplicate) {
+		log.Printf("[Audit] 保存待发送 Agent 命令失败: command_id=%s err=%v", commandID, err)
+	}
+}
+
+// recordFailedCommandLog 将未得到 Agent 响应的命令更新为失败终态。
+// recordFailedCommandLog marks a command that received no Agent response as failed.
+func (a *agentCommandSenderAdapter) recordFailedCommandLog(ctx context.Context, commandID string, commandErr error) {
+	if a.auditRepo == nil || strings.TrimSpace(commandID) == "" {
+		return
+	}
+	item, err := a.auditRepo.GetCommandLogByCommandID(ctx, commandID)
+	if err != nil {
+		return
+	}
+	finishedAt := time.Now()
+	item.Status = audit.CommandStatusFailed
+	item.Error = commandErr.Error()
+	item.FinishedAt = &finishedAt
+	if err := a.auditRepo.UpdateCommandLog(ctx, item); err != nil {
+		log.Printf("[Audit] 更新失败 Agent 命令日志失败: command_id=%s err=%v", commandID, err)
+	}
+}
+
+// buildAgentDisplayCommand 生成经过仓库脱敏后可展示的 Agent 操作说明。
+// buildAgentDisplayCommand builds an Agent action description that is redacted by the repository before storage.
+func buildAgentDisplayCommand(commandType string, params map[string]string, output string) string {
+	var result struct {
+		Tool       string `json:"tool"`
+		PID        int    `json:"pid"`
+		OutputPath string `json:"output_path"`
+	}
+	_ = json.Unmarshal([]byte(output), &result)
+	if result.PID > 0 {
+		switch commandType {
+		case "thread_dump":
+			if result.Tool == "jcmd" {
+				return fmt.Sprintf("jcmd %d Thread.print -l", result.PID)
+			}
+			if result.Tool == "jstack" {
+				return fmt.Sprintf("jstack -l %d", result.PID)
+			}
+		case "jvm_dump":
+			if result.Tool == "jcmd" {
+				return fmt.Sprintf("jcmd %d GC.heap_dump %q", result.PID, result.OutputPath)
+			}
+			if result.Tool == "jmap" {
+				return fmt.Sprintf("jmap -dump:live,format=b,file=%q %d", result.OutputPath, result.PID)
+			}
+		}
+	}
+	keys := make([]string, 0, len(params))
+	for key := range params {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys)+1)
+	parts = append(parts, "agent:"+commandType)
+	for _, key := range keys {
+		parts = append(parts, key+"="+strconv.Quote(params[key]))
+	}
+	return strings.Join(parts, " ")
 }
 
 func commandStatusFromAgentResponse(status pb.CommandStatus) audit.CommandStatus {

@@ -25,6 +25,7 @@ import {
   AlertTriangle,
   ArrowUpRight,
   ClipboardCheck,
+  Lightbulb,
   RefreshCw,
   Server,
   Settings,
@@ -51,15 +52,18 @@ import {
 import {Tabs, TabsContent, TabsList, TabsTrigger} from '@/components/ui/tabs';
 import {cn} from '@/lib/utils';
 import {WorkspaceHeader, ModuleNavTabs} from '@/components/common/layout';
+import {TroubleshootingMemoryCenter} from '@/components/common/troubleshooting';
 import {DiagnosticsErrorCenter} from './DiagnosticsErrorCenter';
 import {DiagnosticsInspectionCenter} from './DiagnosticsInspectionCenter';
 import {AutoPolicyConfigPanel} from './AutoPolicyConfigPanel';
 
+// 解析当前激活的诊断标签页（支持错误中心、巡检中心、排障经验库）
+// Resolve currently active diagnostics tab (supports error center, inspections, and troubleshooting memories)
 function resolveTab(
   tab: string | null,
   fallback: DiagnosticsTabKey = 'errors',
 ): DiagnosticsTabKey {
-  if (tab === 'errors' || tab === 'inspections') {
+  if (tab === 'errors' || tab === 'inspections' || tab === 'memories') {
     return tab;
   }
   return fallback;
@@ -173,7 +177,39 @@ export function DiagnosticsWorkspace() {
     }
   }, [source, t]);
 
-  const tabs = bootstrap?.tabs || [];
+  // 工作台二级标签列表（保证至少包含错误中心、巡检中心、排障经验库三大核心模块）
+  // Workspace secondary tab list (guarantees error center, inspections, and troubleshooting memories)
+  const tabs = useMemo(() => {
+    const defaultList = [
+      {
+        key: 'errors' as DiagnosticsTabKey,
+        label: t('tabs.errors'),
+        description: t('tabDescriptions.errors'),
+      },
+      {
+        key: 'inspections' as DiagnosticsTabKey,
+        label: t('tabs.inspections'),
+        description: t('tabDescriptions.inspections'),
+      },
+      {
+        key: 'memories' as DiagnosticsTabKey,
+        label: t('tabs.memories'),
+        description: t('tabDescriptions.memories'),
+      },
+    ];
+    if (!bootstrap?.tabs || bootstrap.tabs.length === 0) {
+      return defaultList;
+    }
+    const list = [...bootstrap.tabs];
+    if (!list.some((item) => item.key === 'memories')) {
+      list.push({
+        key: 'memories' as DiagnosticsTabKey,
+        label: t('tabs.memories'),
+        description: t('tabDescriptions.memories'),
+      });
+    }
+    return list;
+  }, [bootstrap?.tabs, t]);
 
   return (
     <div className='space-y-4'>
@@ -347,7 +383,7 @@ export function DiagnosticsWorkspace() {
           updateQuery({tab: resolveTab(value) as string})
         }
       >
-        <TabsList className='grid w-full grid-cols-2 gap-1 p-0.5 h-8 md:w-[320px]'>
+        <TabsList className='grid w-full grid-cols-3 gap-1 p-0.5 h-8 md:w-[480px]'>
           <TabsTrigger value='errors' className='flex items-center gap-1.5 text-xs h-7'>
             <AlertTriangle className='h-3.5 w-3.5 text-amber-500' />
             <span>{t('tabs.errors')}</span>
@@ -355,6 +391,10 @@ export function DiagnosticsWorkspace() {
           <TabsTrigger value='inspections' className='flex items-center gap-1.5 text-xs h-7'>
             <ClipboardCheck className='h-3.5 w-3.5 text-primary' />
             <span>{t('tabs.inspections')}</span>
+          </TabsTrigger>
+          <TabsTrigger value='memories' className='flex items-center gap-1.5 text-xs h-7'>
+            <Lightbulb className='h-3.5 w-3.5 text-emerald-500' />
+            <span>{t('tabs.memories')}</span>
           </TabsTrigger>
         </TabsList>
 
@@ -393,6 +433,15 @@ export function DiagnosticsWorkspace() {
                 onSelectReport={(value) =>
                   updateQuery({report_id: value ? String(value) : null})
                 }
+              />
+            ) : tab.key === 'memories' ? (
+              <TroubleshootingMemoryCenter
+                clusterId={
+                  selectedClusterId !== 'all'
+                    ? Number.parseInt(selectedClusterId, 10)
+                    : undefined
+                }
+                clusterName={selectedClusterName || undefined}
               />
             ) : null}
           </TabsContent>

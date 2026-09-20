@@ -179,6 +179,11 @@ func (s *Service) GetWorkspaceBootstrap(ctx context.Context, req *WorkspaceBoots
 				Label:       bilingualText("巡检中心", "Inspections"),
 				Description: bilingualText("基于受管运行时信号发起并查看集群巡检。", "Run and review cluster inspections based on managed runtime signals."),
 			},
+			{
+				Key:         WorkspaceTabMemories,
+				Label:       bilingualText("排障经验库", "Troubleshooting Memories"),
+				Description: bilingualText("沉淀并复用集群与任务排障经验、解决方案与根因记录。", "Accumulate and reuse troubleshooting solutions, root causes, and prevention notes."),
+			},
 		},
 		ClusterOptions: make([]*ClusterOption, 0),
 		Boundaries: []*WorkspaceBoundary{

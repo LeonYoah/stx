@@ -136,6 +136,8 @@ definitions:
     properties:
       agent_id:
         type: string
+      client_type:
+        type: string
       command_id:
         type: string
       command_type:
@@ -144,6 +146,8 @@ definitions:
         type: string
       created_by:
         type: integer
+      display_command:
+        type: string
       error:
         type: string
       execution_id:
@@ -1123,6 +1127,39 @@ definitions:
         description: |-
           Source indicates the data source
           Source 表示数据来源
+        type: string
+    type: object
+  diagnostics.DiagnosticTaskNodeScope:
+    enum:
+    - all
+    - related
+    - custom
+    type: string
+    x-enum-varnames:
+    - DiagnosticTaskNodeScopeAll
+    - DiagnosticTaskNodeScopeRelated
+    - DiagnosticTaskNodeScopeCustom
+  diagnostics.Response:
+    properties:
+      data: {}
+      error_msg:
+        type: string
+    type: object
+  diagnostics.RunDiagnosticResourceRequest:
+    properties:
+      cluster_id:
+        type: integer
+      jvm_dump_min_free_mb:
+        type: integer
+      lookback_minutes:
+        type: integer
+      node_scope:
+        $ref: '#/definitions/diagnostics.DiagnosticTaskNodeScope'
+      selected_node_ids:
+        items:
+          type: integer
+        type: array
+      summary:
         type: string
     type: object
   discovery.ConfirmDiscoveryRequest:
@@ -4689,6 +4726,92 @@ paths:
       summary: Search SeaTunnel documentation
       tags:
       - DeepWiki
+  /api/v1/diagnostics/resources:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/diagnostics.Response'
+      tags:
+      - diagnostics
+  /api/v1/diagnostics/resources/{code}:
+    get:
+      parameters:
+      - description: 诊断资源编码
+        in: path
+        name: code
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/diagnostics.Response'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/diagnostics.Response'
+      tags:
+      - diagnostics
+  /api/v1/diagnostics/resources/{code}/run:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: 诊断资源编码
+        in: path
+        name: code
+        required: true
+        type: string
+      - description: 单项诊断资源请求
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/diagnostics.RunDiagnosticResourceRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/diagnostics.Response'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/diagnostics.Response'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/diagnostics.Response'
+      tags:
+      - diagnostics
+  /api/v1/diagnostics/tasks/{id}/artifacts:
+    get:
+      parameters:
+      - description: 诊断任务 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/diagnostics.Response'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/diagnostics.Response'
+      tags:
+      - diagnostics
   /api/v1/executions/{id}:
     get:
       parameters:

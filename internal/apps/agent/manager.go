@@ -556,6 +556,15 @@ func (m *Manager) SetAgentStream(agentID string, stream grpc.BidiStreamingServer
 // SendCommand 向 Agent 发送命令并等待结果。
 // Requirements: 1.5 - Implements command dispatching and result receiving.
 func (m *Manager) SendCommand(ctx context.Context, agentID string, cmdType pb.CommandType, params map[string]string, timeout time.Duration) (*pb.CommandResponse, error) {
+	return m.SendCommandWithID(ctx, uuid.New().String(), agentID, cmdType, params, timeout)
+}
+
+// SendCommandWithID sends a command with a caller-provided ID so audit records can exist before dispatch.
+// SendCommandWithID 使用调用方提供的命令编号下发命令，使审计记录可以在发送前创建。
+func (m *Manager) SendCommandWithID(ctx context.Context, commandID, agentID string, cmdType pb.CommandType, params map[string]string, timeout time.Duration) (*pb.CommandResponse, error) {
+	if commandID == "" {
+		commandID = uuid.New().String()
+	}
 	conn, ok := m.GetAgent(agentID)
 	if !ok {
 		return nil, ErrAgentNotFound
@@ -569,10 +578,6 @@ func (m *Manager) SendCommand(ctx context.Context, agentID string, cmdType pb.Co
 	if stream == nil {
 		return nil, ErrStreamNotAvailable
 	}
-
-	// Generate command ID
-	// 生成命令 ID
-	commandID := uuid.New().String()
 
 	// Create command context
 	// 创建命令上下文

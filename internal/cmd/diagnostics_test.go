@@ -116,6 +116,54 @@ func TestDiagnosticsTaskCreateAcceptsRequestFileAndJVMOptions(t *testing.T) {
 	}
 }
 
+func TestDiagnosticsResourceRunSendsSingleResourceRequest(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/api/v1/capabilities" {
+			writeDiagnosticsCapability(t, writer, "diagnostics.resource.run", "normal")
+			return
+		}
+		if request.Method != http.MethodPost || request.URL.Path != "/api/v1/diagnostics/resources/thread_dump/run" {
+			t.Fatalf("单项诊断资源请求错误 / single-resource request is incorrect: %s %s", request.Method, request.URL.Path)
+		}
+		if request.Header.Get("Idempotency-Key") != "resource-run-key" || request.Header.Get("X-STX-Confirm") != "true" {
+			t.Fatalf("单项诊断资源安全请求头错误 / single-resource safety headers are incorrect: %#v", request.Header)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Fatalf("读取单项诊断资源正文失败 / decoding single-resource request failed: %v", err)
+		}
+		if body["cluster_id"] != float64(6) || body["lookback_minutes"] != float64(30) {
+			t.Fatalf("单项诊断资源正文错误 / single-resource request body is incorrect: %#v", body)
+		}
+		nodes, ok := body["selected_node_ids"].([]any)
+		if !ok || len(nodes) != 1 || nodes[0] != float64(9) {
+			t.Fatalf("单项诊断资源节点错误 / single-resource node selection is incorrect: %#v", body["selected_node_ids"])
+		}
+		writeDiagnosticsTaskResponse(t, writer, map[string]any{
+			"id":           43,
+			"status":       "running",
+			"execution_id": "exec-resource-43",
+		})
+	}))
+	defer server.Close()
+
+	store := newExecutionTestStore(t, server.URL, "test-token")
+	stdout, stderr, exitCode := runDiagnosticsCommand(t, store,
+		"diagnostics", "resource", "run", "thread_dump", "--cluster-id", "6", "--node-id", "9",
+		"--lookback-minutes", "30", "--confirm", "--idempotency-key", "resource-run-key")
+	if exitCode != int(clioutput.ExitSuccess) {
+		t.Fatalf("执行单项诊断资源失败 / running single diagnostics resource failed: code=%d stdout=%s stderr=%s", exitCode, stdout, stderr)
+	}
+	var result map[string]any
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("单项诊断资源 stdout 不是合法 JSON / single-resource stdout is not valid JSON: %v", err)
+	}
+	meta, ok := result["result_meta"].(map[string]any)
+	if !ok || meta["next_command"] != "stx execution wait exec-resource-43" {
+		t.Fatalf("单项诊断资源后续命令错误 / single-resource next command is incorrect: %#v", result["result_meta"])
+	}
+}
+
 func TestDiagnosticsTaskCreateRequiresConfirmationBeforeNetwork(t *testing.T) {
 	var calls int
 	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { calls++ }))

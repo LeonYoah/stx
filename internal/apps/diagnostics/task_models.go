@@ -206,9 +206,11 @@ func (m *DiagnosticLogMetadata) Scan(value interface{}) error {
 // DiagnosticTaskOptions stores bundle collection options.
 // DiagnosticTaskOptions 存储诊断包采集选项。
 type DiagnosticTaskOptions struct {
-	IncludeThreadDump bool `json:"include_thread_dump"`
-	IncludeJVMDump    bool `json:"include_jvm_dump"`
-	JVMDumpMinFreeMB  int  `json:"jvm_dump_min_free_mb,omitempty"`
+	IncludeThreadDump bool                     `json:"include_thread_dump"`
+	IncludeJVMDump    bool                     `json:"include_jvm_dump"`
+	JVMDumpMinFreeMB  int                      `json:"jvm_dump_min_free_mb,omitempty"`
+	SelectedResources []DiagnosticResourceCode `json:"selected_resources,omitempty"`
+	ResourceOnly      bool                     `json:"resource_only,omitempty"`
 }
 
 // Normalize fills default option values.
@@ -216,6 +218,13 @@ type DiagnosticTaskOptions struct {
 func (o DiagnosticTaskOptions) Normalize() DiagnosticTaskOptions {
 	if o.JVMDumpMinFreeMB <= 0 {
 		o.JVMDumpMinFreeMB = 2048
+	}
+	o.SelectedResources = normalizeDiagnosticResourceCodes(o.SelectedResources)
+	if containsDiagnosticResource(o.SelectedResources, DiagnosticResourceThreadDump) {
+		o.IncludeThreadDump = true
+	}
+	if containsDiagnosticResource(o.SelectedResources, DiagnosticResourceJVMDump) {
+		o.IncludeJVMDump = true
 	}
 	return o
 }

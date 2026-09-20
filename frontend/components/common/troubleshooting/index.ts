@@ -17,3 +17,4 @@
 
 export * from './TroubleshootingMemoryCard';
 export * from './SaveMemoryDialog';
+export * from './TroubleshootingMemoryCenter';

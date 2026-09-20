@@ -84,6 +84,84 @@ func (h *Handler) GetWorkspaceBootstrap(c *gin.Context) {
 	c.JSON(http.StatusOK, Response{Data: localizeWorkspaceBootstrapData(data, lang)})
 }
 
+// ListDiagnosticResources handles GET /api/v1/diagnostics/resources.
+// ListDiagnosticResources 处理 GET /api/v1/diagnostics/resources。
+// @Tags diagnostics
+// @Produce json
+// @Success 200 {object} Response
+// @Router /api/v1/diagnostics/resources [get]
+func (h *Handler) ListDiagnosticResources(c *gin.Context) {
+	c.JSON(http.StatusOK, Response{Data: ListDiagnosticResources()})
+}
+
+// GetDiagnosticResource handles GET /api/v1/diagnostics/resources/:code.
+// GetDiagnosticResource 处理 GET /api/v1/diagnostics/resources/:code。
+// @Tags diagnostics
+// @Produce json
+// @Param code path string true "诊断资源编码"
+// @Success 200 {object} Response
+// @Failure 404 {object} Response
+// @Router /api/v1/diagnostics/resources/{code} [get]
+func (h *Handler) GetDiagnosticResource(c *gin.Context) {
+	resource, err := GetDiagnosticResource(DiagnosticResourceCode(c.Param("code")))
+	if err != nil {
+		c.JSON(getDiagnosticsStatusCode(err), Response{ErrorMsg: err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, Response{Data: resource})
+}
+
+// RunDiagnosticResource handles POST /api/v1/diagnostics/resources/:code/run.
+// RunDiagnosticResource 处理 POST /api/v1/diagnostics/resources/:code/run。
+// @Tags diagnostics
+// @Accept json
+// @Produce json
+// @Param code path string true "诊断资源编码"
+// @Param request body RunDiagnosticResourceRequest true "单项诊断资源请求"
+// @Success 201 {object} Response
+// @Failure 400 {object} Response
+// @Failure 403 {object} Response
+// @Router /api/v1/diagnostics/resources/{code}/run [post]
+func (h *Handler) RunDiagnosticResource(c *gin.Context) {
+	code := DiagnosticResourceCode(strings.TrimSpace(c.Param("code")))
+	var req RunDiagnosticResourceRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, Response{ErrorMsg: err.Error()})
+		return
+	}
+	requestHash, err := executionapp.HashRequest(struct {
+		Code    DiagnosticResourceCode       `json:"code"`
+		Request RunDiagnosticResourceRequest `json:"request"`
+	}{Code: code, Request: req})
+	if err != nil {
+		h.writeDiagnosticsError(c, err)
+		return
+	}
+	actor := currentDiagnosticActor(c)
+	metadata := executionapp.MetadataFromGin(c)
+	task, err := h.service.CreateDiagnosticResourceTask(
+		c.Request.Context(),
+		code,
+		&req,
+		uint(actor.UserID),
+		auth.GetUsernameFromContext(c),
+		DiagnosticExecutionRequest{
+			RequestID:      metadata.RequestID,
+			IdempotencyKey: metadata.IdempotencyKey,
+			RequestHash:    requestHash,
+			Confirmed:      metadata.Confirmed,
+			ConfirmationID: metadata.ConfirmationID,
+			IsAdmin:        actor.IsAdmin,
+			ClientType:     metadata.ClientType,
+		},
+	)
+	if err != nil {
+		h.writeDiagnosticsError(c, err)
+		return
+	}
+	c.JSON(http.StatusCreated, Response{Data: localizeDiagnosticTask(task, diagnosticsLanguageFromRequest(c))})
+}
+
 // ListSeatunnelErrorGroups handles GET /api/v1/diagnostics/errors/groups.
 // ListSeatunnelErrorGroups 处理 GET /api/v1/diagnostics/errors/groups。
 func (h *Handler) ListSeatunnelErrorGroups(c *gin.Context) {
@@ -325,6 +403,28 @@ func (h *Handler) ListDiagnosticTaskSteps(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, Response{Data: localizeDiagnosticTaskSteps(data, lang)})
+}
+
+// ListDiagnosticTaskArtifacts handles GET /api/v1/diagnostics/tasks/:id/artifacts.
+// ListDiagnosticTaskArtifacts 处理 GET /api/v1/diagnostics/tasks/:id/artifacts。
+// @Tags diagnostics
+// @Produce json
+// @Param id path int true "诊断任务 ID"
+// @Success 200 {object} Response
+// @Failure 404 {object} Response
+// @Router /api/v1/diagnostics/tasks/{id}/artifacts [get]
+func (h *Handler) ListDiagnosticTaskArtifacts(c *gin.Context) {
+	taskID, err := parseUintQueryValue(c.Param("id"), "id")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, Response{ErrorMsg: err.Error()})
+		return
+	}
+	items, err := h.service.ListDiagnosticTaskArtifacts(c.Request.Context(), currentDiagnosticActor(c), taskID)
+	if err != nil {
+		c.JSON(getDiagnosticsStatusCode(err), Response{ErrorMsg: err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, Response{Data: map[string]any{"items": items, "total": len(items)}})
 }
 
 // ListDiagnosticTaskLogs handles GET /api/v1/diagnostics/tasks/:id/logs.
@@ -887,7 +987,7 @@ func getDiagnosticsStatusCode(err error) int {
 		return http.StatusBadRequest
 	case errors.Is(err, executionapp.ErrIdempotencyKeyMissing):
 		return http.StatusBadRequest
-	case errors.Is(err, ErrSeatunnelErrorGroupNotFound), errors.Is(err, ErrInspectionReportNotFound), errors.Is(err, ErrInspectionFindingNotFound), errors.Is(err, ErrDiagnosticTaskNotFound), errors.Is(err, clusterapp.ErrClusterNotFound), errors.Is(err, ErrAutoPolicyNotFound):
+	case errors.Is(err, ErrSeatunnelErrorGroupNotFound), errors.Is(err, ErrInspectionReportNotFound), errors.Is(err, ErrInspectionFindingNotFound), errors.Is(err, ErrDiagnosticTaskNotFound), errors.Is(err, ErrDiagnosticResourceNotFound), errors.Is(err, clusterapp.ErrClusterNotFound), errors.Is(err, ErrAutoPolicyNotFound):
 		return http.StatusNotFound
 	case errors.Is(err, executionapp.ErrPermissionDenied), errors.Is(err, executionapp.ErrAdminRequired):
 		return http.StatusForbidden

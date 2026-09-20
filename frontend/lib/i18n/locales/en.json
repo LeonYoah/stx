@@ -323,7 +323,8 @@
     "hostsAndClusters": "Hosts & Clusters",
     "monitoringCenter": "Alert Center",
     "diagnosticsCenter": "Diagnostics",
-    "errorsAndAlerts": "Errors & Alerts",
+    "errorsAndAlerts": "Alerts & Diagnostics",
+    "alertsAndDiagnostics": "Alerts & Diagnostics",
     "commandLogs": "Command Logs",
     "auditLogs": "Audit Logs",
     "packageManagement": "Package Management",
@@ -2874,12 +2875,14 @@
     "tabs": {
       "errors": "Problem Clues",
       "inspections": "Diagnosis Check",
-      "tasks": "Diagnosis Execution"
+      "tasks": "Diagnosis Execution",
+      "memories": "Troubleshooting Memories"
     },
     "tabDescriptions": {
       "errors": "Aggregate historical anomalies as problem clues and continue investigating from there.",
       "inspections": "Run a lightweight check first and decide whether live evidence collection is needed.",
-      "tasks": "Review diagnosis execution, bundles, and diagnostic reports."
+      "tasks": "Review diagnosis execution, bundles, and diagnostic reports.",
+      "memories": "Accumulate and reuse troubleshooting solutions, root causes, and prevention notes."
     },
     "status": {
       "planned": "Planned"
@@ -3826,6 +3829,34 @@
     "noMemoryFound": "No historical troubleshooting memory found for this fingerprint yet. Once resolved, you can record verified solutions to automatically recall them next time.",
     "solutionRequired": "Solution cannot be empty; troubleshooting memory must include concrete remediation steps and actions",
     "saveSuccess": "Troubleshooting solution saved! It will automatically recall on similar faults.",
-    "updateSuccess": "Troubleshooting solution updated successfully!"
+    "updateSuccess": "Troubleshooting solution updated successfully!",
+    "centerTitle": "Troubleshooting Memory Bank",
+    "centerSubtitle": "Aggregate and accumulate historical solutions for cluster exceptions and alerts, enabling sticky recall and search.",
+    "allMemories": "All Memories",
+    "presetMemories": "Presets",
+    "customMemories": "Team Contributed",
+    "errorType": "Error Logs",
+    "alertType": "Alert Metrics",
+    "searchPlaceholder": "Search solution title, fingerprint, keywords, tags, or author...",
+    "recordNewMemory": "Record Solution",
+    "confirmDeleteTitle": "Confirm Deleting Solution",
+    "confirmDeleteDesc": "Are you sure you want to delete solution \"{title}\"? Similar errors will no longer recall this solution.",
+    "deleteSuccess": "Troubleshooting solution deleted successfully",
+    "deleteFailed": "Failed to delete troubleshooting solution",
+    "noMemoriesFound": "No matching troubleshooting memories found",
+    "noMemoriesFoundHint": "Try different search terms or record a new troubleshooting solution.",
+    "viewFullDetail": "View Solution Details",
+    "edit": "Edit",
+    "delete": "Delete",
+    "cannotDeletePreset": "System preset solutions cannot be deleted",
+    "rootCause": "Root Cause",
+    "preventiveTips": "Prevention Tips",
+    "actionsTaken": "Actions Taken",
+    "tags": "Tags",
+    "author": "Author",
+    "updatedAt": "Updated At",
+    "verifiedSolution": "Verified Solution",
+    "cancel": "Cancel",
+    "confirmDelete": "Confirm Delete"
   }
 }

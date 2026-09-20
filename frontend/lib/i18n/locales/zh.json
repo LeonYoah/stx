@@ -323,7 +323,8 @@
     "hostsAndClusters": "主机与集群",
     "monitoringCenter": "告警中心",
     "diagnosticsCenter": "诊断中心",
-    "errorsAndAlerts": "错误与告警",
+    "errorsAndAlerts": "告警与诊断",
+    "alertsAndDiagnostics": "告警与诊断",
     "commandLogs": "命令记录",
     "auditLogs": "审计日志",
     "packageManagement": "安装包管理",
@@ -2874,12 +2875,14 @@
     "tabs": {
       "errors": "错误中心",
       "inspections": "巡检中心",
-      "tasks": "诊断执行"
+      "tasks": "诊断执行",
+      "memories": "排障经验库"
     },
     "tabDescriptions": {
       "errors": "按错误线索聚合历史异常，并进入后续排查。",
       "inspections": "先做轻量检查，确认是否需要继续抓现场。",
-      "tasks": "查看诊断执行过程、诊断包和诊断报告。"
+      "tasks": "查看诊断执行过程、诊断包和诊断报告。",
+      "memories": "沉淀并复用排障经验方案、故障根因剖析与防范记录。"
     },
     "status": {
       "planned": "规划中"
@@ -3826,6 +3829,34 @@
     "noMemoryFound": "暂无针对此异常指纹的历史排障经验。若您已成功解决，欢迎沉淀具体的解决方案，下次发生同类故障时将自动在此置顶回显。",
     "solutionRequired": "解决方案内容不能为空，排障经验必须包含具体的处理措施与步骤",
     "saveSuccess": "排障方案已入库！后续发生同类故障时将自动置顶回显。",
-    "updateSuccess": "排障经验已成功更新！"
+    "updateSuccess": "排障经验已成功更新！",
+    "centerTitle": "排障经验库",
+    "centerSubtitle": "汇总与沉淀集群异常日志、指标告警的历史解决方案，支持同类故障置顶回显与经验检索复用。",
+    "allMemories": "全部经验",
+    "presetMemories": "官方经典",
+    "customMemories": "团队沉淀",
+    "errorType": "错误日志",
+    "alertType": "监控告警",
+    "searchPlaceholder": "搜索方案标题、异常指纹、关键词、标签或记录人...",
+    "recordNewMemory": "记录排障经验",
+    "confirmDeleteTitle": "确认删除排障方案",
+    "confirmDeleteDesc": "确定要删除排障方案「{title}」吗？删除后同类故障将无法再自动匹配置顶该方案。",
+    "deleteSuccess": "排障方案已成功删除",
+    "deleteFailed": "删除排障方案失败",
+    "noMemoriesFound": "未找到匹配的排障经验",
+    "noMemoriesFoundHint": "尝试更换搜索关键字，或点击右上角记录新的排障方案。",
+    "viewFullDetail": "查看方案详情",
+    "edit": "编辑",
+    "delete": "删除",
+    "cannotDeletePreset": "系统预置经典方案不支持删除",
+    "rootCause": "根因剖析",
+    "preventiveTips": "防范建议",
+    "actionsTaken": "执行动作",
+    "tags": "分类标签",
+    "author": "记录人",
+    "updatedAt": "更新于",
+    "verifiedSolution": "已验证排障方案",
+    "cancel": "取消",
+    "confirmDelete": "确定删除"
   }
 }

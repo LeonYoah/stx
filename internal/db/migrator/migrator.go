@@ -167,6 +167,12 @@ func MigrateWithDB(database *gorm.DB, dbType string) error {
 		log.Printf("[Database] 初始化默认管理员用户失败: %v\n", err)
 	}
 
+	// 播种预置排障经验库（若排障经验表为空）/ Seed preset troubleshooting memories (if table is empty)
+	troubleshootingRepo := diagnostics.NewTroubleshootingRepository(database)
+	if err := troubleshootingRepo.SeedPresetMemories(context.Background()); err != nil {
+		log.Printf("[Database] 播种预置排障经验库失败 / Failed to seed preset troubleshooting memories: %v\n", err)
+	}
+
 	// 创建存储过程（仅 MySQL 支持）/ Create stored procedures (MySQL only)
 	if dbType == "mysql" {
 		if err := createStoredProceduresWithDB(database); err != nil {

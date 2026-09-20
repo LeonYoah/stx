@@ -16,6 +16,7 @@
  */
 
 import apiClient from './api-client';
+import type {AxiosRequestConfig} from 'axios';
 import {ApiResponse} from './types';
 
 /**
@@ -86,6 +87,23 @@ export abstract class BaseService {
       this.getFullPath(path),
       data,
       {params},
+    );
+    return response.data.data;
+  }
+
+  /**
+   * 使用完整 Axios 配置发送 POST 请求。
+   * Send a POST request with a complete Axios configuration.
+   */
+  protected static async postWithConfig<T>(
+    path: string,
+    data?: unknown,
+    config?: AxiosRequestConfig,
+  ): Promise<T> {
+    const response = await apiClient.post<ApiResponse<T>>(
+      this.getFullPath(path),
+      data,
+      config,
     );
     return response.data.data;
   }

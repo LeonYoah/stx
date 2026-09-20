@@ -51,6 +51,7 @@ import type {
   DiagnosticsInspectionFindingSeverity,
   DiagnosticsInspectionReport,
   DiagnosticsInspectionReportStatus,
+  DiagnosticsResourceCode,
   DiagnosticsTask,
   DiagnosticsTaskNodeScope,
   DiagnosticsTaskOptions,
@@ -100,8 +101,12 @@ import {
   TableSkeletonRows,
 } from '@/components/common/layout';
 import {Skeleton} from '@/components/ui/skeleton';
-import {animateTableRows, animateSheetSections} from '@/lib/animations/gsap-motion';
+import {
+  animateTableRows,
+  animateSheetSections,
+} from '@/lib/animations/gsap-motion';
 import {localizeDiagnosticsText} from './text-utils';
+import {DiagnosticResourceSelector} from './DiagnosticResourceSelector';
 
 const DEFAULT_BUNDLE_OPTIONS: DiagnosticsTaskOptions = {
   include_thread_dump: true,
@@ -227,6 +232,9 @@ export function DiagnosticsInspectionCenter({
     useState(false);
   const [lookbackMinutes, setLookbackMinutes] = useState(30);
   const [errorThreshold, setErrorThreshold] = useState(1);
+  const [inspectionResources, setInspectionResources] = useState<
+    DiagnosticsResourceCode[]
+  >([]);
   const [reports, setReports] = useState<DiagnosticsInspectionReport[]>([]);
   const [reportTotal, setReportTotal] = useState(0);
 
@@ -243,10 +251,10 @@ export function DiagnosticsInspectionCenter({
   const [creatingBundle, setCreatingBundle] = useState(false);
   const [pollingBundle, setPollingBundle] = useState(false);
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const [bundleOptions, setBundleOptions] =
-    useState<DiagnosticsTaskOptions>(DEFAULT_BUNDLE_OPTIONS);
-  const [nodeScope, setNodeScope] =
-    useState<DiagnosticsTaskNodeScope>('all');
+  const [bundleOptions, setBundleOptions] = useState<DiagnosticsTaskOptions>(
+    DEFAULT_BUNDLE_OPTIONS,
+  );
+  const [nodeScope, setNodeScope] = useState<DiagnosticsTaskNodeScope>('all');
   const [bundleLookbackMinutes, setBundleLookbackMinutes] =
     useState<number>(30);
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
@@ -524,6 +532,10 @@ export function DiagnosticsInspectionCenter({
       toast.error(t('inspections.errorThresholdRangeError'));
       return;
     }
+    if (inspectionResources.length === 0) {
+      toast.error(t('inspections.resourceRequired'));
+      return;
+    }
     setStartingInspection(true);
     try {
       const result = await services.diagnostics.startInspectionSafe({
@@ -536,20 +548,48 @@ export function DiagnosticsInspectionCenter({
         toast.error(result.error || t('inspections.startError'));
         return;
       }
-      toast.success(t('inspections.startSuccess'));
+      const report = result.data.report;
+      const taskResult = await services.diagnostics.createTaskSafe({
+        cluster_id: clusterId,
+        trigger_source: 'inspection_finding',
+        source_ref: {inspection_report_id: report.id},
+        node_scope: 'all',
+        options: {
+          include_thread_dump: inspectionResources.includes('thread_dump'),
+          include_jvm_dump: inspectionResources.includes('jvm_dump'),
+          jvm_dump_min_free_mb: 2048,
+          selected_resources: inspectionResources,
+        },
+        lookback_minutes: lookbackMinutes,
+        auto_start: true,
+      });
+      if (!taskResult.success) {
+        toast.warning(
+          t('inspections.resourceTaskError', {
+            error: taskResult.error || t('inspections.startError'),
+          }),
+        );
+      } else {
+        toast.success(t('inspections.startSuccess'));
+      }
       setStartInspectionDialogOpen(false);
       setPage(1);
       await loadReports();
-      setSelectedReportId(result.data.report.id);
-      onSelectReport?.(result.data.report.id);
-      setSelectedReport(result.data.report);
+      setSelectedReportId(report.id);
+      onSelectReport?.(report.id);
+      setSelectedReport(report);
       setFindings(result.data.findings || []);
+      if (taskResult.data) {
+        setBundleTask(taskResult.data);
+        setPollingBundle(true);
+      }
     } finally {
       setStartingInspection(false);
     }
   }, [
     clusterId,
     errorThreshold,
+    inspectionResources,
     loadReports,
     lookbackMinutes,
     onSelectReport,
@@ -567,6 +607,16 @@ export function DiagnosticsInspectionCenter({
     },
     [handleStartInspection],
   );
+
+  // 未选择集群时保留按钮反馈，避免用户面对无法解释的禁用状态。
+  // Keep the action responsive without a selected cluster so the disabled state is never unexplained.
+  const handleOpenStartInspection = useCallback(() => {
+    if (!clusterId) {
+      toast.info(t('inspections.selectClusterFirst'));
+      return;
+    }
+    setStartInspectionDialogOpen(true);
+  }, [clusterId, t]);
 
   const handleBundleInputKeyDown = useCallback(
     (event: KeyboardEvent<HTMLInputElement>) => {
@@ -601,8 +651,8 @@ export function DiagnosticsInspectionCenter({
               <>
                 <Button
                   size='sm'
-                  onClick={() => setStartInspectionDialogOpen(true)}
-                  disabled={!clusterId || startingInspection}
+                  onClick={handleOpenStartInspection}
+                  disabled={startingInspection}
                   className='h-7 px-2.5 text-xs gap-1.5'
                 >
                   {startingInspection ? (
@@ -646,7 +696,9 @@ export function DiagnosticsInspectionCenter({
                 }}
               >
                 <SelectTrigger className='h-8 text-xs w-[135px] bg-background'>
-                  <SelectValue placeholder={t('inspections.filters.severity')} />
+                  <SelectValue
+                    placeholder={t('inspections.filters.severity')}
+                  />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value='all'>
@@ -753,7 +805,10 @@ export function DiagnosticsInspectionCenter({
 
                     {/* 触发方式 */}
                     <TableCell className='py-2 px-3 whitespace-nowrap text-xs text-muted-foreground'>
-                      <Badge variant='outline' className='text-[11px] font-normal'>
+                      <Badge
+                        variant='outline'
+                        className='text-[11px] font-normal'
+                      >
                         {t(`inspections.trigger.${report.trigger_source}`)}
                       </Badge>
                     </TableCell>
@@ -883,7 +938,11 @@ export function DiagnosticsInspectionCenter({
           <SheetHeader className='p-4 pb-3 border-b bg-muted/20'>
             <div className='flex items-center gap-2 flex-wrap'>
               <Badge
-                variant={selectedReport ? getStatusVariant(selectedReport.status) : 'outline'}
+                variant={
+                  selectedReport
+                    ? getStatusVariant(selectedReport.status)
+                    : 'outline'
+                }
                 className='text-xs'
               >
                 {selectedReport
@@ -894,7 +953,10 @@ export function DiagnosticsInspectionCenter({
                 #{selectedReport?.id}
               </Badge>
               {selectedReport?.finished_at && (
-                <Badge variant='outline' className='text-xs text-muted-foreground'>
+                <Badge
+                  variant='outline'
+                  className='text-xs text-muted-foreground'
+                >
                   {formatDateTime(selectedReport.finished_at)}
                 </Badge>
               )}
@@ -905,7 +967,9 @@ export function DiagnosticsInspectionCenter({
                 : t('inspections.detailTitle')}
             </SheetTitle>
             <SheetDescription className='text-xs text-muted-foreground'>
-              {clusterName || (clusterId ? `集群 #${clusterId}` : '全局巡检报告')} · 回溯 {selectedReport?.lookback_minutes || 30} 分钟
+              {clusterName ||
+                (clusterId ? `集群 #${clusterId}` : '全局巡检报告')}{' '}
+              · 回溯 {selectedReport?.lookback_minutes || 30} 分钟
             </SheetDescription>
           </SheetHeader>
 
@@ -1008,7 +1072,8 @@ export function DiagnosticsInspectionCenter({
                     ) : (
                       <div className='space-y-2'>
                         <p className='text-muted-foreground leading-relaxed'>
-                          检测到巡检异常发现项，支持一键下发线程栈与 JVM 内存现场抓取任务。
+                          检测到巡检异常发现项，支持一键下发线程栈与 JVM
+                          内存现场抓取任务。
                         </p>
                         <Button
                           size='sm'
@@ -1031,25 +1096,33 @@ export function DiagnosticsInspectionCenter({
                 {/* 发现项严重程度汇总 / Findings Breakdown Badges */}
                 <div className='sheet-section-animate flex flex-wrap items-center gap-2'>
                   <div className='rounded-md border p-2 flex-1 min-w-[100px] text-center bg-background'>
-                    <div className='text-muted-foreground text-[11px]'>全部发现项</div>
+                    <div className='text-muted-foreground text-[11px]'>
+                      全部发现项
+                    </div>
                     <div className='font-mono font-bold text-sm text-foreground mt-0.5'>
                       {findings.length}
                     </div>
                   </div>
                   <div className='rounded-md border p-2 flex-1 min-w-[100px] text-center bg-rose-500/5 border-rose-500/20'>
-                    <div className='text-rose-600 dark:text-rose-400 text-[11px] font-medium'>严重缺陷</div>
+                    <div className='text-rose-600 dark:text-rose-400 text-[11px] font-medium'>
+                      严重缺陷
+                    </div>
                     <div className='font-mono font-bold text-sm text-rose-700 dark:text-rose-300 mt-0.5'>
                       {selectedReport?.critical_count ?? 0}
                     </div>
                   </div>
                   <div className='rounded-md border p-2 flex-1 min-w-[100px] text-center bg-amber-500/5 border-amber-500/20'>
-                    <div className='text-amber-600 dark:text-amber-400 text-[11px] font-medium'>警告预警</div>
+                    <div className='text-amber-600 dark:text-amber-400 text-[11px] font-medium'>
+                      警告预警
+                    </div>
                     <div className='font-mono font-bold text-sm text-amber-700 dark:text-amber-300 mt-0.5'>
                       {selectedReport?.warning_count ?? 0}
                     </div>
                   </div>
                   <div className='rounded-md border p-2 flex-1 min-w-[100px] text-center bg-blue-500/5 border-blue-500/20'>
-                    <div className='text-blue-600 dark:text-blue-400 text-[11px] font-medium'>提示信息</div>
+                    <div className='text-blue-600 dark:text-blue-400 text-[11px] font-medium'>
+                      提示信息
+                    </div>
                     <div className='font-mono font-bold text-sm text-blue-700 dark:text-blue-300 mt-0.5'>
                       {selectedReport?.info_count ?? 0}
                     </div>
@@ -1086,7 +1159,10 @@ export function DiagnosticsInspectionCenter({
                             <Badge variant='outline' className='text-xs'>
                               {finding.category}
                             </Badge>
-                            <Badge variant='outline' className='text-xs font-mono'>
+                            <Badge
+                              variant='outline'
+                              className='text-xs font-mono'
+                            >
                               {finding.check_code}
                             </Badge>
                           </div>
@@ -1103,7 +1179,9 @@ export function DiagnosticsInspectionCenter({
 
                           {finding.evidence_summary && (
                             <div className='rounded-md bg-muted/40 p-2.5 text-xs font-mono text-muted-foreground'>
-                              {localizeDiagnosticsText(finding.evidence_summary)}
+                              {localizeDiagnosticsText(
+                                finding.evidence_summary,
+                              )}
                             </div>
                           )}
 
@@ -1117,7 +1195,9 @@ export function DiagnosticsInspectionCenter({
                                   className='h-5 text-xs px-1 text-muted-foreground hover:text-foreground'
                                   onClick={() => {
                                     navigator.clipboard.writeText(
-                                      localizeDiagnosticsText(finding.recommendation) || '',
+                                      localizeDiagnosticsText(
+                                        finding.recommendation,
+                                      ) || '',
                                     );
                                     toast.success('排查建议已复制');
                                   }}
@@ -1126,7 +1206,9 @@ export function DiagnosticsInspectionCenter({
                                 </Button>
                               </div>
                               <p className='text-muted-foreground text-[11px] leading-relaxed'>
-                                {localizeDiagnosticsText(finding.recommendation)}
+                                {localizeDiagnosticsText(
+                                  finding.recommendation,
+                                )}
                               </p>
                             </div>
                           )}
@@ -1161,7 +1243,12 @@ export function DiagnosticsInspectionCenter({
           {/* 抽屉底部操作栏 / Sheet Footer Actions */}
           {selectedReport && (
             <div className='p-3 border-t bg-muted/20 flex flex-wrap items-center justify-between gap-2'>
-              <Button asChild variant='default' size='sm' className='h-8 text-xs font-medium'>
+              <Button
+                asChild
+                variant='default'
+                size='sm'
+                className='h-8 text-xs font-medium'
+              >
                 <Link href={`/diagnostics/inspections/${selectedReport.id}`}>
                   前往完整报告页面
                   <ArrowUpRight className='ml-1.5 h-3.5 w-3.5' />
@@ -1184,7 +1271,9 @@ export function DiagnosticsInspectionCenter({
       <Dialog open={confirmDialogOpen} onOpenChange={setConfirmDialogOpen}>
         <DialogContent className='sm:max-w-md'>
           <DialogHeader>
-            <DialogTitle>{t('inspections.detailPage.confirmBundleTitle')}</DialogTitle>
+            <DialogTitle>
+              {t('inspections.detailPage.confirmBundleTitle')}
+            </DialogTitle>
             <DialogDescription>
               {t('inspections.detailPage.confirmBundleDescription')}
             </DialogDescription>
@@ -1302,7 +1391,9 @@ export function DiagnosticsInspectionCenter({
       <Dialog open={execLogDialogOpen} onOpenChange={setExecLogDialogOpen}>
         <DialogContent className='max-h-[85vh] overflow-hidden flex flex-col sm:max-w-2xl'>
           <DialogHeader>
-            <DialogTitle>{t('inspections.detailPage.executionLogsTitle')}</DialogTitle>
+            <DialogTitle>
+              {t('inspections.detailPage.executionLogsTitle')}
+            </DialogTitle>
             <DialogDescription>
               {t('inspections.detailPage.executionLogsDescription')}
             </DialogDescription>
@@ -1310,7 +1401,10 @@ export function DiagnosticsInspectionCenter({
           <div className='flex-1 overflow-y-auto space-y-2 py-2 text-xs'>
             {bundleTask?.steps?.length ? (
               bundleTask.steps.map((step) => (
-                <div key={step.id} className='rounded-lg border p-2.5 space-y-1'>
+                <div
+                  key={step.id}
+                  className='rounded-lg border p-2.5 space-y-1'
+                >
                   <div className='flex items-center gap-2'>
                     <Badge
                       variant={getStatusVariant(step.status)}
@@ -1350,7 +1444,7 @@ export function DiagnosticsInspectionCenter({
         open={startInspectionDialogOpen}
         onOpenChange={setStartInspectionDialogOpen}
       >
-        <DialogContent className='sm:max-w-md'>
+        <DialogContent className='max-h-[85vh] overflow-hidden border border-border/80 shadow-2xl sm:max-w-3xl'>
           <DialogHeader>
             <DialogTitle className='flex items-center gap-2'>
               <ClipboardCheck className='h-5 w-5 text-primary' />
@@ -1365,80 +1459,96 @@ export function DiagnosticsInspectionCenter({
             </DialogDescription>
           </DialogHeader>
 
-          <div className='space-y-3.5 py-2 text-sm'>
-            <div className='space-y-1.5'>
-              <Label htmlFor='dialog-inspection-lookback' className='text-xs'>
-                {t('inspections.lookbackLabel')}
-              </Label>
-              <div className='flex items-center gap-2'>
+          <ScrollArea className='max-h-[calc(85vh-160px)] pr-4'>
+            <div className='space-y-4 py-2 text-sm'>
+              <div className='space-y-1.5'>
+                <Label htmlFor='dialog-inspection-lookback' className='text-xs'>
+                  {t('inspections.lookbackLabel')}
+                </Label>
+                <div className='flex items-center gap-2'>
+                  <Input
+                    id='dialog-inspection-lookback'
+                    type='number'
+                    min={5}
+                    max={1440}
+                    step={5}
+                    value={lookbackMinutes}
+                    onChange={(event) =>
+                      setLookbackMinutes(
+                        Number.parseInt(event.target.value, 10) || 30,
+                      )
+                    }
+                    onKeyDown={handleInspectionInputKeyDown}
+                    className='h-8 text-xs'
+                  />
+                  <span className='text-xs text-muted-foreground whitespace-nowrap'>
+                    分钟
+                  </span>
+                </div>
+                <div className='flex flex-wrap gap-1 pt-1'>
+                  {[
+                    {label: '15分钟', val: 15},
+                    {label: '30分钟', val: 30},
+                    {label: '1小时', val: 60},
+                    {label: '6小时', val: 360},
+                    {label: '24小时', val: 1440},
+                  ].map((preset) => (
+                    <Badge
+                      key={preset.val}
+                      variant={
+                        lookbackMinutes === preset.val ? 'default' : 'outline'
+                      }
+                      className='cursor-pointer text-xs transition-colors'
+                      onClick={() => setLookbackMinutes(preset.val)}
+                    >
+                      {preset.label}
+                    </Badge>
+                  ))}
+                </div>
+                <p className='text-[11px] text-muted-foreground'>
+                  {t('inspections.lookbackHint')}
+                </p>
+              </div>
+
+              <div className='space-y-1.5'>
+                <Label
+                  htmlFor='dialog-inspection-error-threshold'
+                  className='text-xs'
+                >
+                  {t('inspections.errorThresholdLabel')}
+                </Label>
                 <Input
-                  id='dialog-inspection-lookback'
+                  id='dialog-inspection-error-threshold'
                   type='number'
-                  min={5}
-                  max={1440}
-                  step={5}
-                  value={lookbackMinutes}
+                  min={1}
+                  max={1000}
+                  step={1}
+                  value={errorThreshold}
                   onChange={(event) =>
-                    setLookbackMinutes(
-                      Number.parseInt(event.target.value, 10) || 30,
+                    setErrorThreshold(
+                      Number.parseInt(event.target.value, 10) || 1,
                     )
                   }
                   onKeyDown={handleInspectionInputKeyDown}
                   className='h-8 text-xs'
                 />
-                <span className='text-xs text-muted-foreground whitespace-nowrap'>
-                  分钟
-                </span>
+                <p className='text-[11px] text-muted-foreground'>
+                  {t('inspections.errorThresholdHint')}
+                </p>
               </div>
-              <div className='flex flex-wrap gap-1 pt-1'>
-                {[
-                  {label: '15分钟', val: 15},
-                  {label: '30分钟', val: 30},
-                  {label: '1小时', val: 60},
-                  {label: '6小时', val: 360},
-                  {label: '24小时', val: 1440},
-                ].map((preset) => (
-                  <Badge
-                    key={preset.val}
-                    variant={
-                      lookbackMinutes === preset.val ? 'default' : 'outline'
-                    }
-                    className='cursor-pointer text-xs transition-colors'
-                    onClick={() => setLookbackMinutes(preset.val)}
-                  >
-                    {preset.label}
-                  </Badge>
-                ))}
-              </div>
-              <p className='text-[11px] text-muted-foreground'>
-                {t('inspections.lookbackHint')}
-              </p>
-            </div>
 
-            <div className='space-y-1.5'>
-              <Label htmlFor='dialog-inspection-error-threshold' className='text-xs'>
-                {t('inspections.errorThresholdLabel')}
-              </Label>
-              <Input
-                id='dialog-inspection-error-threshold'
-                type='number'
-                min={1}
-                max={1000}
-                step={1}
-                value={errorThreshold}
-                onChange={(event) =>
-                  setErrorThreshold(
-                    Number.parseInt(event.target.value, 10) || 1,
-                  )
-                }
-                onKeyDown={handleInspectionInputKeyDown}
-                className='h-8 text-xs'
-              />
-              <p className='text-[11px] text-muted-foreground'>
-                {t('inspections.errorThresholdHint')}
-              </p>
+              <div className='space-y-2 border-t pt-4'>
+                <Label className='text-xs'>
+                  {t('inspections.resourcesLabel')}
+                </Label>
+                <DiagnosticResourceSelector
+                  selectedResources={inspectionResources}
+                  onChange={setInspectionResources}
+                  disabled={startingInspection}
+                />
+              </div>
             </div>
-          </div>
+          </ScrollArea>
 
           <DialogFooter>
             <Button
@@ -1453,7 +1563,11 @@ export function DiagnosticsInspectionCenter({
               size='sm'
               className='h-8 text-xs'
               onClick={() => void handleStartInspection()}
-              disabled={!clusterId || startingInspection}
+              disabled={
+                !clusterId ||
+                startingInspection ||
+                inspectionResources.length === 0
+              }
             >
               {startingInspection ? (
                 <Loader2 className='mr-1.5 h-3.5 w-3.5 animate-spin' />

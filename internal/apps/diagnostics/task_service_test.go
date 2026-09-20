@@ -218,6 +218,57 @@ func TestServiceCreateDiagnosticTaskFromInspectionFindingInfersClusterAndNode(t 
 	}
 }
 
+func TestServiceCreateDiagnosticTaskFromInspectionReportWithoutFinding(t *testing.T) {
+	repo := newDiagnosticTaskServiceRepository(t)
+	ctx := t.Context()
+	report := &ClusterInspectionReport{
+		ClusterID:     12,
+		Status:        InspectionReportStatusCompleted,
+		TriggerSource: InspectionTriggerSourceAuto,
+		Summary:       "healthy inspection",
+	}
+	if err := repo.CreateInspectionReport(ctx, report); err != nil {
+		t.Fatalf("seed inspection report: %v", err)
+	}
+
+	service := NewServiceWithRepository(
+		repo,
+		&fakeDiagnosticTaskClusterReader{cluster: &cluster.Cluster{
+			ID:         12,
+			Name:       "cluster-twelve",
+			InstallDir: "/opt/seatunnel-twelve",
+			Nodes: []cluster.ClusterNode{
+				{ID: 1, HostID: 301, Role: cluster.NodeRoleWorker, InstallDir: "/opt/seatunnel-twelve/worker"},
+			},
+		}},
+		nil,
+		nil,
+	)
+	service.SetHostReader(&fakeDiagnosticTaskHostReader{hosts: map[uint]*cluster.HostInfo{
+		301: {ID: 301, Name: "worker-301", IPAddress: "10.0.0.301", AgentID: "agent-301"},
+	}})
+
+	task, err := service.CreateDiagnosticTask(ctx, &CreateDiagnosticTaskRequest{
+		TriggerSource: DiagnosticTaskSourceInspectionFinding,
+		SourceRef: DiagnosticTaskSourceRef{
+			InspectionReportID: report.ID,
+		},
+		Options: DefaultDiagnosticTaskOptions(),
+	}, 3, "operator")
+	if err != nil {
+		t.Fatalf("CreateDiagnosticTask inspection report returned error: %v", err)
+	}
+	if task.ClusterID != report.ClusterID || task.SourceRef.InspectionReportID != report.ID {
+		t.Fatalf("unexpected inspection report task linkage: %+v", task)
+	}
+	if len(task.SelectedNodes) != 1 || task.SelectedNodes[0].NodeID != 1 {
+		t.Fatalf("expected all cluster nodes for report-only task, got %+v", task.SelectedNodes)
+	}
+	if task.Summary == "" || task.SourceRef.InspectionFindingID != 0 {
+		t.Fatalf("unexpected report-only task summary or source: %+v", task)
+	}
+}
+
 func TestServiceCreateDiagnosticTaskMarksOptionalDumpStepsSkippedByDefault(t *testing.T) {
 	repo := newDiagnosticTaskServiceRepository(t)
 	service := NewServiceWithRepository(

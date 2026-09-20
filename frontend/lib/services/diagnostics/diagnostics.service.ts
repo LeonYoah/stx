@@ -28,7 +28,9 @@ import type {
   DiagnosticsInspectionReportDetailData,
   DiagnosticsInspectionReportListData,
   DiagnosticsInspectionReportListParams,
+  DiagnosticsResourceDefinition,
   DiagnosticsTask,
+  DiagnosticsTaskCreateRequestOptions,
   DiagnosticsTaskListData,
   DiagnosticsTaskListParams,
   DiagnosticsTaskLogListData,
@@ -45,7 +47,9 @@ import type {
 function normalizeDiagnosticsTask(task: DiagnosticsTask): DiagnosticsTask {
   return {
     ...task,
-    selected_nodes: Array.isArray(task.selected_nodes) ? task.selected_nodes : [],
+    selected_nodes: Array.isArray(task.selected_nodes)
+      ? task.selected_nodes
+      : [],
     steps: Array.isArray(task.steps) ? task.steps : [],
     node_executions: Array.isArray(task.node_executions)
       ? task.node_executions
@@ -64,6 +68,37 @@ function withDiagnosticsLanguage(
 
 export class DiagnosticsService extends BaseService {
   protected static readonly basePath = '/diagnostics';
+
+  /**
+   * 获取已登记的诊断资源。
+   * List registered diagnostics resources.
+   */
+  static async listResources(): Promise<DiagnosticsResourceDefinition[]> {
+    const data = await this.get<DiagnosticsResourceDefinition[]>(
+      '/resources',
+      withDiagnosticsLanguage(),
+    );
+    return Array.isArray(data) ? data : [];
+  }
+
+  /**
+   * 安全获取已登记的诊断资源。
+   * Safely list registered diagnostics resources.
+   */
+  static async listResourcesSafe(): Promise<{
+    success: boolean;
+    data?: DiagnosticsResourceDefinition[];
+    error?: string;
+  }> {
+    try {
+      return {success: true, data: await this.listResources()};
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : '加载诊断资源失败',
+      };
+    }
+  }
 
   /**
    * Get diagnostics workspace bootstrap payload.
@@ -305,9 +340,7 @@ export class DiagnosticsService extends BaseService {
    * Safely get diagnostics inspection report detail.
    * 安全获取诊断巡检报告详情。
    */
-  static async getInspectionReportDetailSafe(
-    reportId: number,
-  ): Promise<{
+  static async getInspectionReportDetailSafe(reportId: number): Promise<{
     success: boolean;
     data?: DiagnosticsInspectionReportDetailData;
     error?: string;
@@ -329,13 +362,51 @@ export class DiagnosticsService extends BaseService {
    */
   static async createTask(
     payload: CreateDiagnosticsTaskRequest,
+    options?: DiagnosticsTaskCreateRequestOptions,
   ): Promise<DiagnosticsTask> {
-    const data = await this.postWithParams<DiagnosticsTask>(
-      '/tasks',
-      payload,
-      withDiagnosticsLanguage(),
-    );
-    return normalizeDiagnosticsTask(data);
+    const idempotencyKey =
+      options?.idempotency_key ||
+      `web-diagnostics-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const headers: Record<string, string> = {
+      'Idempotency-Key': idempotencyKey,
+    };
+    if (options?.confirmed !== false) {
+      headers['X-STX-Confirm'] = 'true';
+    }
+    if (options?.confirmation_id) {
+      headers['X-STX-Confirmation-ID'] = options.confirmation_id;
+    }
+
+    try {
+      const data = await this.postWithConfig<DiagnosticsTask>(
+        '/tasks',
+        payload,
+        {
+          params: withDiagnosticsLanguage(),
+          headers,
+        },
+      );
+      return normalizeDiagnosticsTask(data);
+    } catch (error) {
+      const confirmationData = (
+        error as Error & {
+          data?: {confirmation_required?: boolean; confirmation_id?: string};
+        }
+      ).data;
+      if (
+        !options?.confirmation_id &&
+        confirmationData?.confirmation_required &&
+        confirmationData.confirmation_id
+      ) {
+        return this.createTask(payload, {
+          ...options,
+          confirmed: true,
+          idempotency_key: idempotencyKey,
+          confirmation_id: confirmationData.confirmation_id,
+        });
+      }
+      throw error;
+    }
   }
 
   /**
@@ -344,13 +415,14 @@ export class DiagnosticsService extends BaseService {
    */
   static async createTaskSafe(
     payload: CreateDiagnosticsTaskRequest,
+    options?: DiagnosticsTaskCreateRequestOptions,
   ): Promise<{
     success: boolean;
     data?: DiagnosticsTask;
     error?: string;
   }> {
     try {
-      return {success: true, data: await this.createTask(payload)};
+      return {success: true, data: await this.createTask(payload, options)};
     } catch (error) {
       return {
         success: false,
@@ -380,9 +452,7 @@ export class DiagnosticsService extends BaseService {
    * Safely list diagnostics tasks.
    * 安全获取诊断任务列表。
    */
-  static async listTasksSafe(
-    params?: DiagnosticsTaskListParams,
-  ): Promise<{
+  static async listTasksSafe(params?: DiagnosticsTaskListParams): Promise<{
     success: boolean;
     data?: DiagnosticsTaskListData;
     error?: string;
@@ -413,9 +483,7 @@ export class DiagnosticsService extends BaseService {
    * Safely get diagnostics task detail.
    * 安全获取诊断任务详情。
    */
-  static async getTaskSafe(
-    taskId: number,
-  ): Promise<{
+  static async getTaskSafe(taskId: number): Promise<{
     success: boolean;
     data?: DiagnosticsTask;
     error?: string;
@@ -447,9 +515,7 @@ export class DiagnosticsService extends BaseService {
    * Safely start one diagnostics task.
    * 安全启动一条诊断任务。
    */
-  static async startTaskSafe(
-    taskId: number,
-  ): Promise<{
+  static async startTaskSafe(taskId: number): Promise<{
     success: boolean;
     data?: DiagnosticsTask;
     error?: string;
@@ -540,7 +606,9 @@ export class DiagnosticsService extends BaseService {
    * List builtin condition templates.
    * 获取内置条件模板列表。
    */
-  static async listBuiltinConditionTemplates(): Promise<InspectionConditionTemplate[]> {
+  static async listBuiltinConditionTemplates(): Promise<
+    InspectionConditionTemplate[]
+  > {
     return this.get<InspectionConditionTemplate[]>(
       '/auto-policies/templates',
       withDiagnosticsLanguage(),
@@ -571,9 +639,11 @@ export class DiagnosticsService extends BaseService {
    * List auto-inspection policies.
    * 获取自动巡检策略列表。
    */
-  static async listAutoPolicies(
-    params?: {cluster_id?: number; page?: number; page_size?: number},
-  ): Promise<InspectionAutoPolicyListData> {
+  static async listAutoPolicies(params?: {
+    cluster_id?: number;
+    page?: number;
+    page_size?: number;
+  }): Promise<InspectionAutoPolicyListData> {
     return this.get<InspectionAutoPolicyListData>(
       '/auto-policies',
       withDiagnosticsLanguage(params as Record<string, unknown> | undefined),
@@ -584,9 +654,11 @@ export class DiagnosticsService extends BaseService {
    * Safely list auto-inspection policies.
    * 安全获取自动巡检策略列表。
    */
-  static async listAutoPoliciesSafe(
-    params?: {cluster_id?: number; page?: number; page_size?: number},
-  ): Promise<{
+  static async listAutoPoliciesSafe(params?: {
+    cluster_id?: number;
+    page?: number;
+    page_size?: number;
+  }): Promise<{
     success: boolean;
     data?: InspectionAutoPolicyListData;
     error?: string;
@@ -653,9 +725,7 @@ export class DiagnosticsService extends BaseService {
    * Safely get an auto-inspection policy by ID.
    * 安全获取自动巡检策略详情。
    */
-  static async getAutoPolicySafe(
-    id: number,
-  ): Promise<{
+  static async getAutoPolicySafe(id: number): Promise<{
     success: boolean;
     data?: InspectionAutoPolicy;
     error?: string;
@@ -666,7 +736,8 @@ export class DiagnosticsService extends BaseService {
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : '加载自动巡检策略详情失败',
+        error:
+          error instanceof Error ? error.message : '加载自动巡检策略详情失败',
       };
     }
   }
@@ -721,9 +792,7 @@ export class DiagnosticsService extends BaseService {
    * Safely delete an auto-inspection policy.
    * 安全删除自动巡检策略。
    */
-  static async deleteAutoPolicySafe(
-    id: number,
-  ): Promise<{
+  static async deleteAutoPolicySafe(id: number): Promise<{
     success: boolean;
     error?: string;
   }> {

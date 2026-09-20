@@ -347,7 +347,7 @@ seatunnel:
 
 func TestBuildDiagnosticExtraConfigFilesForTarget(t *testing.T) {
 	got := buildDiagnosticExtraConfigFilesForTarget(cluster.DeploymentModeSeparated, string(cluster.NodeRoleMaster))
-	expected := []string{"log4j2.properties", "log4j2_client.properties", "plugin_config", "jvm_client_options", "jvm_master_options"}
+	expected := []string{"seatunnel-env.sh", "log4j2.properties", "log4j2_client.properties", "plugin_config", "jvm_client_options", "jvm_master_options"}
 	if len(got) != len(expected) {
 		t.Fatalf("expected %d extra files, got %d: %v", len(expected), len(got), got)
 	}

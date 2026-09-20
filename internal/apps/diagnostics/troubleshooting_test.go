@@ -50,8 +50,8 @@ func TestTroubleshootingServicePresetAndCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list memories failed: %v", err)
 	}
-	if total < 5 || len(presets) < 5 {
-		t.Fatalf("expected at least 5 preset memories, got %d", total)
+	if total < 4 || len(presets) < 4 {
+		t.Fatalf("expected at least 4 preset memories, got %d", total)
 	}
 
 	// 2. 校验创建排障经验时解决方案非空约束

@@ -38,6 +38,10 @@ const (
 	ConfigTypeJVMOptions      ConfigType = "jvm_options"
 	ConfigTypeLog4j2          ConfigType = "log4j2.properties"
 
+	// 环境变量配置
+	// Environment variable configuration
+	ConfigTypeSeatunnelEnv ConfigType = "seatunnel-env.sh"
+
 	// 分离模式配置（Separated 模式）
 	ConfigTypeHazelcastMaster  ConfigType = "hazelcast-master.yaml"
 	ConfigTypeHazelcastWorker  ConfigType = "hazelcast-worker.yaml"
@@ -58,6 +62,8 @@ func GetConfigFilePath(configType ConfigType) string {
 		return "config/jvm_options"
 	case ConfigTypeLog4j2:
 		return "config/log4j2.properties"
+	case ConfigTypeSeatunnelEnv:
+		return "config/seatunnel-env.sh"
 	case ConfigTypeHazelcastMaster:
 		return "config/hazelcast-master.yaml"
 	case ConfigTypeHazelcastWorker:
@@ -232,6 +238,7 @@ func (m *Manager) PullAllConfigs(installDir string) (map[string]*PullConfigResul
 		ConfigTypeHazelcastClient,
 		ConfigTypeJVMOptions,
 		ConfigTypeLog4j2,
+		ConfigTypeSeatunnelEnv,
 		// 分离模式配置
 		ConfigTypeHazelcastMaster,
 		ConfigTypeHazelcastWorker,

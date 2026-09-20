@@ -25,27 +25,44 @@ describe('TroubleshootingService', () => {
     localStorage.clear();
   });
 
-  it('应该包含系统预置的典型 SeaTunnel 排障经验', () => {
-    // Should contain preset classic SeaTunnel troubleshooting solutions
+  it('初始状态下本地经验为空，支持通过 saveMemory 写入并检索', () => {
+    // Local cache initially empty, supports saving and retrieving via saveMemory
     const memories = troubleshootingService.getMemories();
-    expect(memories.length).toBeGreaterThanOrEqual(4);
+    expect(memories.length).toBe(0);
 
-    const mysqlCase = memories.find((m) =>
-      m.fingerprint.includes('Communications link failure'),
-    );
-    expect(mysqlCase).toBeDefined();
-    expect(mysqlCase?.is_preset).toBe(true);
-    expect(mysqlCase?.solution).toContain('autoReconnect=true');
+    const saved = troubleshootingService.saveMemory({
+      target_type: 'error',
+      fingerprint: 'Communications link failure',
+      title: 'MySQL 连接断开 Communications link failure 恢复方案',
+      error_summary: 'The last packet successfully received from the server was 30,000 milliseconds ago.',
+      solution: '在 SeaTunnel JDBC 连接串中增加参数：autoReconnect=true',
+      tags: ['mysql', 'jdbc'],
+      author: 'stx 官方预置经验库',
+    });
 
-    const slotCase = memories.find((m) =>
-      m.fingerprint.includes('SlotNotEnoughException'),
-    );
-    expect(slotCase).toBeDefined();
-    expect(slotCase?.solution).toContain('Slot');
+    const refreshed = troubleshootingService.getMemories();
+    expect(refreshed.length).toBe(1);
+    expect(refreshed[0].id).toBe(saved.id);
+    expect(refreshed[0].solution).toContain('autoReconnect=true');
   });
 
   it('应该能按指纹和异常类名正确检索匹配的排障方案', () => {
     // Should correctly match troubleshooting solutions by fingerprint and exception class
+    troubleshootingService.saveMemory({
+      target_type: 'error',
+      fingerprint: 'Communications link failure',
+      title: 'MySQL 连接断开恢复方案',
+      solution: '1. 检查 MySQL 连接池心跳与超时',
+      tags: ['mysql'],
+    });
+    troubleshootingService.saveMemory({
+      target_type: 'error',
+      fingerprint: 'SlotNotEnoughException',
+      title: 'Worker 节点 Slot 耗尽恢复方案',
+      solution: '1. 扩容集群或调小作业并行度',
+      tags: ['slot'],
+    });
+
     const matches = troubleshootingService.findMatchingMemories({
       fingerprint: 'Communications link failure',
       target_type: 'error',
@@ -133,9 +150,15 @@ describe('TroubleshootingService', () => {
 
   it('应该支持根据 ID 精确获取经验详情', () => {
     // Should support fetching memory detail by ID
-    const memory = troubleshootingService.getMemoryById('preset-mysql-link-failure');
+    const saved = troubleshootingService.saveMemory({
+      target_type: 'error',
+      fingerprint: 'Communications link failure',
+      title: 'MySQL 连接断开恢复方案',
+      solution: '增加 autoReconnect 参数',
+    });
+    const memory = troubleshootingService.getMemoryById(saved.id);
     expect(memory).toBeDefined();
-    expect(memory?.id).toBe('preset-mysql-link-failure');
+    expect(memory?.id).toBe(saved.id);
     expect(memory?.title).toContain('MySQL 连接断开');
   });
 });

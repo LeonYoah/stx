@@ -1028,6 +1028,18 @@ func currentDiagnosticActor(c *gin.Context) executionapp.Actor {
 	return executionapp.Actor{UserID: uint64(user.ID), IsAdmin: user.IsAdmin}
 }
 
+// validateAutoPolicyTaskOptionsForActor 阻止普通用户通过自动策略绕过 JVM Dump 管理员限制。
+// validateAutoPolicyTaskOptionsForActor prevents non-admin users from bypassing JVM dump restrictions through auto policies.
+func validateAutoPolicyTaskOptionsForActor(actor executionapp.Actor, options *DiagnosticTaskOptions) error {
+	if options == nil {
+		return nil
+	}
+	if options.Normalize().IncludeJVMDump && !actor.IsAdmin {
+		return executionapp.ErrAdminRequired
+	}
+	return nil
+}
+
 // ListBuiltinConditionTemplates handles GET /api/v1/diagnostics/auto-policies/templates.
 // ListBuiltinConditionTemplates 处理 GET /api/v1/diagnostics/auto-policies/templates。
 func (h *Handler) ListBuiltinConditionTemplates(c *gin.Context) {
@@ -1075,6 +1087,10 @@ func (h *Handler) CreateAutoPolicy(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, Response{ErrorMsg: err.Error()})
 		return
 	}
+	if err := validateAutoPolicyTaskOptionsForActor(currentDiagnosticActor(c), req.TaskOptions); err != nil {
+		c.JSON(getDiagnosticsStatusCode(err), Response{ErrorMsg: err.Error()})
+		return
+	}
 
 	data, err := h.service.CreateAutoPolicy(
 		c.Request.Context(),
@@ -1117,6 +1133,10 @@ func (h *Handler) UpdateAutoPolicy(c *gin.Context) {
 	var req UpdateInspectionAutoPolicyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, Response{ErrorMsg: err.Error()})
+		return
+	}
+	if err := validateAutoPolicyTaskOptionsForActor(currentDiagnosticActor(c), req.TaskOptions); err != nil {
+		c.JSON(getDiagnosticsStatusCode(err), Response{ErrorMsg: err.Error()})
 		return
 	}
 

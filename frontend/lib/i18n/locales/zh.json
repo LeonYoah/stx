@@ -2940,7 +2940,11 @@
       "clusterScopedHint": "当前已按集群 {name} 过滤检查记录。",
       "matchedReports": "匹配巡检报告 {count} 条",
       "startInspection": "立即巡检",
-      "startSuccess": "巡检已完成，已打开最新报告。",
+      "selectClusterFirst": "请先在上方选择一个集群，再发起巡检。",
+      "resourcesLabel": "本次采集资源",
+      "resourceRequired": "请至少选择一项诊断资源",
+      "resourceTaskError": "巡检报告已生成，但诊断资源采集启动失败：{error}",
+      "startSuccess": "巡检已完成，诊断资源采集已启动。",
       "startError": "发起巡检失败",
       "lookbackLabel": "巡检时间范围（分钟）",
       "lookbackHint": "仅对本次新发起的巡检生效：只统计最近 N 分钟内的错误事件与进程异常，避免把已修复的历史问题重新算入巡检结果。",
@@ -3031,8 +3035,17 @@
         "generateHint": "生成后可在本页下载诊断包与 HTML 报告。",
         "noFindingsDescription": "本次检查未发现需要采集现场证据的异常项。",
         "createTaskSuccess": "诊断包生成已启动",
-        "createTaskError": "诊断包生成失败"
+        "createTaskError": "诊断包生成失败",
+        "taskCompleteSuccess": "诊断资源采集已完成",
+        "taskFailed": "诊断资源采集失败"
       }
+    },
+    "resourceSelector": {
+      "loading": "正在加载诊断资源…",
+      "loadError": "加载诊断资源失败",
+      "hint": "勾选本次需要采集的资源；风险说明来自服务端登记信息。",
+      "selectedCount": "已选 {count} 项",
+      "adminOnly": "仅管理员"
     },
     "autoPolicies": {
       "buttonLabel": "自动巡检设置",
@@ -3068,7 +3081,8 @@
       "cooldownHint": "同一策略触发后在冷却时间内不会重复触发",
       "enabledLabel": "启用策略",
       "autoBundleTitle": "自动生成诊断包和报告",
-      "autoBundleHint": "命中该策略并触发巡检后，自动创建一次诊断任务，用于收集线程栈、JVM Dump 和日志样本。",
+      "autoBundleHint": "命中该策略并触发巡检后，按所选资源自动创建诊断任务。",
+      "resourceRequired": "请至少选择一项自动采集资源",
       "includeThreadDump": "采集线程 Dump",
       "includeThreadDumpHint": "建议保持开启，用于分析线程状态和潜在死锁。",
       "includeJVMDump": "采集 JVM Dump",

@@ -31,6 +31,24 @@ func TestDiagnosticResourceRegistryExcludesInternalSteps(t *testing.T) {
 	}
 }
 
+func TestDefaultDiagnosticTaskOptionsMatchesLegacyBundle(t *testing.T) {
+	options := DefaultDiagnosticTaskOptions()
+	if len(options.SelectedResources) != 6 {
+		t.Fatalf("默认资源数量错误 / unexpected default resource count: %d", len(options.SelectedResources))
+	}
+	if !options.IncludeThreadDump {
+		t.Fatal("默认应采集线程快照 / thread dump should be selected by default")
+	}
+	if options.IncludeJVMDump || containsDiagnosticResource(options.SelectedResources, DiagnosticResourceJVMDump) {
+		t.Fatal("JVM Dump 不应默认执行 / JVM dump must not be selected by default")
+	}
+	for _, resource := range ListDiagnosticResources() {
+		if resource.DefaultSelected != containsDiagnosticResource(options.SelectedResources, resource.Code) {
+			t.Fatalf("资源默认标记与任务选项不一致 / resource default does not match task options: %s", resource.Code)
+		}
+	}
+}
+
 func TestResourceOnlySelectionSkipsUnselectedAndBundleSteps(t *testing.T) {
 	options := DiagnosticTaskOptions{
 		SelectedResources: []DiagnosticResourceCode{DiagnosticResourceThreadDump},

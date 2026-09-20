@@ -66,22 +66,33 @@ func (s *Service) CreateDiagnosticTask(ctx context.Context, req *CreateDiagnosti
 			requestedNodeIDs = []uint{group.LastNodeID}
 		}
 	case DiagnosticTaskSourceInspectionFinding:
-		if sourceRef.InspectionFindingID == 0 {
-			return nil, fmt.Errorf("%w: source_ref.inspection_finding_id is required", ErrInvalidDiagnosticTaskRequest)
+		if sourceRef.InspectionFindingID == 0 && sourceRef.InspectionReportID == 0 {
+			return nil, fmt.Errorf("%w: source_ref.inspection_report_id or source_ref.inspection_finding_id is required", ErrInvalidDiagnosticTaskRequest)
 		}
-		finding, err := s.repo.GetInspectionFindingByID(ctx, sourceRef.InspectionFindingID)
-		if err != nil {
-			return nil, err
-		}
-		clusterID, err = resolveDiagnosticTaskClusterID(clusterID, finding.ClusterID)
-		if err != nil {
-			return nil, err
-		}
-		if sourceRef.InspectionReportID == 0 {
-			sourceRef.InspectionReportID = finding.ReportID
-		}
-		if nodeScope != DiagnosticTaskNodeScopeAll && len(requestedNodeIDs) == 0 && finding.RelatedNodeID > 0 {
-			requestedNodeIDs = []uint{finding.RelatedNodeID}
+		if sourceRef.InspectionFindingID > 0 {
+			finding, err := s.repo.GetInspectionFindingByID(ctx, sourceRef.InspectionFindingID)
+			if err != nil {
+				return nil, err
+			}
+			clusterID, err = resolveDiagnosticTaskClusterID(clusterID, finding.ClusterID)
+			if err != nil {
+				return nil, err
+			}
+			if sourceRef.InspectionReportID == 0 {
+				sourceRef.InspectionReportID = finding.ReportID
+			}
+			if nodeScope != DiagnosticTaskNodeScopeAll && len(requestedNodeIDs) == 0 && finding.RelatedNodeID > 0 {
+				requestedNodeIDs = []uint{finding.RelatedNodeID}
+			}
+		} else {
+			report, err := s.repo.GetInspectionReportByID(ctx, sourceRef.InspectionReportID)
+			if err != nil {
+				return nil, err
+			}
+			clusterID, err = resolveDiagnosticTaskClusterID(clusterID, report.ClusterID)
+			if err != nil {
+				return nil, err
+			}
 		}
 	case DiagnosticTaskSourceAlert:
 		if strings.TrimSpace(sourceRef.AlertID) == "" {
@@ -396,6 +407,12 @@ func buildDiagnosticTaskSummary(triggerSource DiagnosticTaskSourceType, sourceRe
 			fmt.Sprintf("Diagnostic bundle created from error group #%d", sourceRef.ErrorGroupID),
 		)
 	case DiagnosticTaskSourceInspectionFinding:
+		if sourceRef.InspectionFindingID == 0 {
+			return bilingualText(
+				fmt.Sprintf("巡检报告 #%d 触发的诊断包", sourceRef.InspectionReportID),
+				fmt.Sprintf("Diagnostic bundle created from inspection report #%d", sourceRef.InspectionReportID),
+			)
+		}
 		return bilingualText(
 			fmt.Sprintf("巡检发现 #%d 触发的诊断包", sourceRef.InspectionFindingID),
 			fmt.Sprintf("Diagnostic bundle created from inspection finding #%d", sourceRef.InspectionFindingID),

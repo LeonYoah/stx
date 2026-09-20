@@ -35,6 +35,8 @@ export enum ConfigType {
   HAZELCAST_CLIENT = 'hazelcast-client.yaml',
   JVM_OPTIONS = 'jvm_options',
   LOG4J2 = 'log4j2.properties',
+  // 环境变量配置 / Environment variables configuration
+  SEATUNNEL_ENV = 'seatunnel-env.sh',
   // 分离模式配置（Separated 模式）
   HAZELCAST_MASTER = 'hazelcast-master.yaml',
   HAZELCAST_WORKER = 'hazelcast-worker.yaml',
@@ -53,6 +55,7 @@ export const ConfigTypeNames: Record<ConfigType, string> = {
   [ConfigType.HAZELCAST_CLIENT]: 'Hazelcast Client 配置',
   [ConfigType.JVM_OPTIONS]: 'JVM 参数',
   [ConfigType.LOG4J2]: 'Log4j2 日志配置',
+  [ConfigType.SEATUNNEL_ENV]: 'SeaTunnel 环境变量 (seatunnel-env.sh)',
   [ConfigType.HAZELCAST_MASTER]: 'Hazelcast Master 配置',
   [ConfigType.HAZELCAST_WORKER]: 'Hazelcast Worker 配置',
   [ConfigType.JVM_MASTER_OPTIONS]: 'JVM Master 参数',
@@ -69,6 +72,7 @@ export const HybridConfigTypes: ConfigType[] = [
   ConfigType.HAZELCAST_CLIENT,
   ConfigType.JVM_OPTIONS,
   ConfigType.LOG4J2,
+  ConfigType.SEATUNNEL_ENV,
 ];
 
 /**
@@ -83,6 +87,7 @@ export const SeparatedConfigTypes: ConfigType[] = [
   ConfigType.JVM_MASTER_OPTIONS,
   ConfigType.JVM_WORKER_OPTIONS,
   ConfigType.LOG4J2,
+  ConfigType.SEATUNNEL_ENV,
 ];
 
 /**

@@ -2940,7 +2940,11 @@
       "clusterScopedHint": "Diagnosis checks are filtered for cluster {name}.",
       "matchedReports": "{count} matched reports",
       "startInspection": "Run Inspection",
-      "startSuccess": "Inspection completed and the latest report is now open.",
+      "selectClusterFirst": "Select a cluster above before starting an inspection.",
+      "resourcesLabel": "Resources to Collect",
+      "resourceRequired": "Select at least one diagnostics resource",
+      "resourceTaskError": "The inspection report was created, but resource collection could not start: {error}",
+      "startSuccess": "Inspection completed and diagnostics resource collection started.",
       "startError": "Failed to start inspection",
       "lookbackLabel": "Inspection Window (Minutes)",
       "lookbackHint": "This applies only to the newly started inspection: only evaluate error events and process anomalies within the latest N minutes so already-fixed historical issues are not reintroduced.",
@@ -3031,8 +3035,17 @@
         "generateHint": "Download the bundle and HTML report from this page after generation.",
         "noFindingsDescription": "No abnormal findings require live evidence collection.",
         "createTaskSuccess": "Diagnostic bundle generation started",
-        "createTaskError": "Failed to generate diagnostic bundle"
+        "createTaskError": "Failed to generate diagnostic bundle",
+        "taskCompleteSuccess": "Diagnostics resource collection completed",
+        "taskFailed": "Diagnostics resource collection failed"
       }
+    },
+    "resourceSelector": {
+      "loading": "Loading diagnostics resources…",
+      "loadError": "Failed to load diagnostics resources",
+      "hint": "Select the resources to collect. Impact notes come from the server registry.",
+      "selectedCount": "{count} selected",
+      "adminOnly": "Admin only"
     },
     "autoPolicies": {
       "buttonLabel": "Auto Inspection Settings",
@@ -3068,7 +3081,8 @@
       "cooldownHint": "The same policy will not trigger again during the cooldown window after it fires.",
       "enabledLabel": "Enable Policy",
       "autoBundleTitle": "Auto Generate Diagnostic Bundle and Report",
-      "autoBundleHint": "When this policy matches and triggers an inspection, automatically create a diagnostic task to collect thread dumps, JVM dumps, and log samples.",
+      "autoBundleHint": "When this policy triggers an inspection, automatically create a diagnostic task with the selected resources.",
+      "resourceRequired": "Select at least one resource for automatic collection",
       "includeThreadDump": "Collect Thread Dump",
       "includeThreadDumpHint": "Recommended to stay enabled for analyzing thread states and potential deadlocks.",
       "includeJVMDump": "Collect JVM Dump",

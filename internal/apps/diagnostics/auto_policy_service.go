@@ -67,11 +67,10 @@ func (s *Service) CreateAutoPolicy(ctx context.Context, userID uint, req *Create
 	if req.TaskOptions != nil {
 		taskOptions = req.TaskOptions.Normalize()
 	} else {
-		taskOptions = DiagnosticTaskOptions{
-			IncludeThreadDump: true,
-			IncludeJVMDump:    false,
-			JVMDumpMinFreeMB:  2048,
-		}.Normalize()
+		taskOptions = DefaultDiagnosticTaskOptions()
+	}
+	if err := validateDiagnosticResourceSelection(taskOptions); err != nil {
+		return nil, err
 	}
 
 	policy := &InspectionAutoPolicy{
@@ -138,7 +137,11 @@ func (s *Service) UpdateAutoPolicy(ctx context.Context, id uint, req *UpdateInsp
 		policy.AutoStartTask = *req.AutoStartTask
 	}
 	if req.TaskOptions != nil {
-		policy.TaskOptions = req.TaskOptions.Normalize()
+		options := req.TaskOptions.Normalize()
+		if err := validateDiagnosticResourceSelection(options); err != nil {
+			return nil, err
+		}
+		policy.TaskOptions = options
 	}
 
 	if err := s.repo.UpdateAutoPolicy(ctx, policy); err != nil {

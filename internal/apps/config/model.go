@@ -34,6 +34,10 @@ const (
 	ConfigTypeJVMOptions      ConfigType = "jvm_options"
 	ConfigTypeLog4j2          ConfigType = "log4j2.properties"
 
+	// 环境变量配置
+	// Environment variable configuration
+	ConfigTypeSeatunnelEnv ConfigType = "seatunnel-env.sh"
+
 	// 分离模式配置（Separated 模式）
 	ConfigTypeHazelcastMaster  ConfigType = "hazelcast-master.yaml"
 	ConfigTypeHazelcastWorker  ConfigType = "hazelcast-worker.yaml"
@@ -48,6 +52,7 @@ var HybridConfigTypes = []ConfigType{
 	ConfigTypeHazelcastClient,
 	ConfigTypeJVMOptions,
 	ConfigTypeLog4j2,
+	ConfigTypeSeatunnelEnv,
 }
 
 // SeparatedConfigTypes Separated 模式支持的配置文件类型
@@ -59,6 +64,7 @@ var SeparatedConfigTypes = []ConfigType{
 	ConfigTypeJVMMasterOptions,
 	ConfigTypeJVMWorkerOptions,
 	ConfigTypeLog4j2,
+	ConfigTypeSeatunnelEnv,
 }
 
 // SupportedConfigTypes 支持的配置文件类型列表（所有类型）
@@ -68,6 +74,7 @@ var SupportedConfigTypes = []ConfigType{
 	ConfigTypeHazelcastClient,
 	ConfigTypeJVMOptions,
 	ConfigTypeLog4j2,
+	ConfigTypeSeatunnelEnv,
 	ConfigTypeHazelcastMaster,
 	ConfigTypeHazelcastWorker,
 	ConfigTypeJVMMasterOptions,
@@ -87,6 +94,8 @@ func GetConfigFilePath(configType ConfigType) string {
 		return "config/jvm_options"
 	case ConfigTypeLog4j2:
 		return "config/log4j2.properties"
+	case ConfigTypeSeatunnelEnv:
+		return "config/seatunnel-env.sh"
 	case ConfigTypeHazelcastMaster:
 		return "config/hazelcast-master.yaml"
 	case ConfigTypeHazelcastWorker:

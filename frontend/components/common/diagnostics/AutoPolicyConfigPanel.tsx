@@ -28,6 +28,7 @@ import type {
   InspectionConditionItem,
   InspectionConditionTemplate,
   DiagnosticsClusterOption,
+  DiagnosticsResourceCode,
   DiagnosticsTaskOptions,
 } from '@/lib/services/diagnostics';
 import {Badge} from '@/components/ui/badge';
@@ -42,7 +43,10 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import {Input} from '@/components/ui/input';
-import {CronExpressionEditor, type CronPresetOption} from '@/components/common/schedule/CronExpressionEditor';
+import {
+  CronExpressionEditor,
+  type CronPresetOption,
+} from '@/components/common/schedule/CronExpressionEditor';
 import {Label} from '@/components/ui/label';
 import {Switch} from '@/components/ui/switch';
 import {
@@ -52,6 +56,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {DiagnosticResourceSelector} from './DiagnosticResourceSelector';
 
 interface AutoPolicyConfigPanelProps {
   open: boolean;
@@ -109,6 +114,40 @@ export function normalizeConditionItemsForSave(
   });
 }
 
+/**
+ * 将旧策略的两个 Dump 开关转换为完整资源列表，避免编辑后改变原有行为。
+ * Convert legacy dump switches into a complete resource list without changing saved behavior.
+ */
+export function normalizeAutoPolicyTaskOptions(
+  options?: DiagnosticsTaskOptions | null,
+): DiagnosticsTaskOptions {
+  if (!options) {
+    return {
+      include_thread_dump: true,
+      include_jvm_dump: false,
+      jvm_dump_min_free_mb: 2048,
+      selected_resources: [],
+    };
+  }
+  if (options.selected_resources?.length) {
+    return {...options, selected_resources: [...options.selected_resources]};
+  }
+  const legacyResources: DiagnosticsResourceCode[] = [
+    'error_context',
+    'process_events',
+    'alert_snapshot',
+    'config_snapshot',
+    'log_sample',
+  ];
+  if (options.include_thread_dump) {
+    legacyResources.push('thread_dump');
+  }
+  if (options.include_jvm_dump) {
+    legacyResources.push('jvm_dump');
+  }
+  return {...options, selected_resources: legacyResources};
+}
+
 export function AutoPolicyConfigPanel({
   open,
   onOpenChange,
@@ -149,6 +188,7 @@ export function AutoPolicyConfigPanel({
       include_thread_dump: true,
       include_jvm_dump: false,
       jvm_dump_min_free_mb: 2048,
+      selected_resources: [],
     });
 
   const getCategoryLabel = useCallback(
@@ -226,6 +266,7 @@ export function AutoPolicyConfigPanel({
       include_thread_dump: true,
       include_jvm_dump: false,
       jvm_dump_min_free_mb: 2048,
+      selected_resources: [],
     });
     setFormOpen(true);
   }, []);
@@ -239,13 +280,7 @@ export function AutoPolicyConfigPanel({
     setFormConditions(policy.conditions || []);
     setFormAutoCreateTask(policy.auto_create_task);
     setFormAutoStartTask(policy.auto_start_task);
-    setFormTaskOptions(
-      policy.task_options || {
-        include_thread_dump: true,
-        include_jvm_dump: false,
-        jvm_dump_min_free_mb: 2048,
-      },
-    );
+    setFormTaskOptions(normalizeAutoPolicyTaskOptions(policy.task_options));
     setFormOpen(true);
   }, []);
 
@@ -313,6 +348,13 @@ export function AutoPolicyConfigPanel({
   const handleSave = useCallback(async () => {
     if (!formName.trim()) {
       toast.error(t('nameRequired'));
+      return;
+    }
+    if (
+      formAutoCreateTask &&
+      (formTaskOptions.selected_resources || []).length === 0
+    ) {
+      toast.error(t('resourceRequired'));
       return;
     }
     setSaving(true);
@@ -421,7 +463,8 @@ export function AutoPolicyConfigPanel({
       {/* 自动巡检策略列表弹窗：加宽至 1120px 匹配全局规范 / Auto inspection policy list dialog: widened to 1120px matching global standards */}
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className='flex h-[85vh] w-[95vw] max-w-[1120px] flex-col overflow-hidden p-0 sm:max-w-[1120px]'>
-          <DialogHeader className='flex flex-row items-center justify-between border-b px-6 py-4 bg-muted/10'>
+          {/* 弹窗头部：右侧预留 pr-14 物理安全避让区，避免与右上角关闭 X 按钮发生重叠 / Dialog header: reserve pr-14 safe area on right to prevent collision with top-right close X button */}
+          <DialogHeader className='flex flex-row items-center justify-between border-b pl-6 pr-14 py-4 bg-muted/10'>
             <div>
               <div className='flex items-center gap-2'>
                 <DialogTitle className='text-lg font-semibold flex items-center gap-2'>
@@ -437,7 +480,11 @@ export function AutoPolicyConfigPanel({
               </DialogDescription>
             </div>
             <div className='flex items-center gap-2'>
-              <Button size='sm' onClick={openCreateForm} className='h-8 text-xs'>
+              <Button
+                size='sm'
+                onClick={openCreateForm}
+                className='h-8 text-xs'
+              >
                 <Plus className='mr-1.5 h-3.5 w-3.5' />
                 {t('create')}
               </Button>
@@ -474,7 +521,9 @@ export function AutoPolicyConfigPanel({
                         </div>
                         <Switch
                           checked={policy.enabled}
-                          onCheckedChange={() => void handleToggleEnabled(policy)}
+                          onCheckedChange={() =>
+                            void handleToggleEnabled(policy)
+                          }
                         />
                       </div>
 
@@ -488,7 +537,9 @@ export function AutoPolicyConfigPanel({
                         {policy.auto_create_task && (
                           <span className='inline-flex items-center rounded-md bg-primary/10 text-primary px-2 py-0.5 text-[11px] font-medium'>
                             {t('autoBundleSummary', {
-                              mode: getAutoBundleModeLabel(policy.auto_start_task),
+                              mode: getAutoBundleModeLabel(
+                                policy.auto_start_task,
+                              ),
                             })}
                           </span>
                         )}
@@ -568,7 +619,9 @@ export function AutoPolicyConfigPanel({
                         <SelectValue placeholder={t('clusterPlaceholder')} />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value='0'>{t('globalPolicyOption')}</SelectItem>
+                        <SelectItem value='0'>
+                          {t('globalPolicyOption')}
+                        </SelectItem>
                         {clusterOptions.map((cluster) => (
                           <SelectItem
                             key={cluster.cluster_id}
@@ -608,7 +661,10 @@ export function AutoPolicyConfigPanel({
               </div>
 
               <div className='flex items-center gap-2 pt-2 border-t'>
-                <Switch checked={formEnabled} onCheckedChange={setFormEnabled} />
+                <Switch
+                  checked={formEnabled}
+                  onCheckedChange={setFormEnabled}
+                />
                 <Label className='text-xs'>{t('enabledLabel')}</Label>
               </div>
             </div>
@@ -617,7 +673,9 @@ export function AutoPolicyConfigPanel({
             <div className='rounded-lg border bg-card/60 p-4 space-y-3 shadow-2xs'>
               <div className='flex items-center justify-between'>
                 <div>
-                  <div className='text-sm font-semibold'>{t('autoBundleTitle')}</div>
+                  <div className='text-sm font-semibold'>
+                    {t('autoBundleTitle')}
+                  </div>
                   <div className='text-xs text-muted-foreground'>
                     {t('autoBundleHint')}
                   </div>
@@ -629,66 +687,51 @@ export function AutoPolicyConfigPanel({
               </div>
 
               {formAutoCreateTask ? (
-                <div className='mt-3 grid gap-4 md:grid-cols-3 pt-3 border-t'>
-                  <div className='flex items-center justify-between rounded-lg border bg-background p-3'>
-                    <div className='pr-2'>
-                      <div className='text-xs font-medium'>{t('includeThreadDump')}</div>
-                      <div className='text-[11px] text-muted-foreground'>
-                        {t('includeThreadDumpHint')}
-                      </div>
+                <div className='mt-3 space-y-4 border-t pt-3'>
+                  <DiagnosticResourceSelector
+                    selectedResources={formTaskOptions.selected_resources || []}
+                    onChange={(resources: DiagnosticsResourceCode[]) =>
+                      setFormTaskOptions((current: DiagnosticsTaskOptions) => ({
+                        ...current,
+                        selected_resources: resources,
+                        include_thread_dump: resources.includes('thread_dump'),
+                        include_jvm_dump: resources.includes('jvm_dump'),
+                      }))
+                    }
+                    disabled={saving}
+                  />
+
+                  {(formTaskOptions.selected_resources || []).includes(
+                    'jvm_dump',
+                  ) ? (
+                    <div className='rounded-lg border bg-background p-3 space-y-1.5'>
+                      <Label
+                        htmlFor='auto-policy-jvm-space'
+                        className='text-xs'
+                      >
+                        {t('jvmMinFreeMBLabel')}
+                      </Label>
+                      <Input
+                        id='auto-policy-jvm-space'
+                        type='number'
+                        min={256}
+                        step={256}
+                        value={formTaskOptions.jvm_dump_min_free_mb ?? 2048}
+                        onChange={(event) =>
+                          setFormTaskOptions(
+                            (current: DiagnosticsTaskOptions) => ({
+                              ...current,
+                              jvm_dump_min_free_mb:
+                                Number.parseInt(event.target.value, 10) || 2048,
+                            }),
+                          )
+                        }
+                        className='h-8 text-xs'
+                      />
                     </div>
-                    <Switch
-                      checked={formTaskOptions.include_thread_dump}
-                      onCheckedChange={(checked) =>
-                        setFormTaskOptions((current: DiagnosticsTaskOptions) => ({
-                          ...current,
-                          include_thread_dump: checked,
-                        }))
-                      }
-                    />
-                  </div>
+                  ) : null}
 
-                  <div className='flex items-center justify-between rounded-lg border bg-background p-3'>
-                    <div className='pr-2'>
-                      <div className='text-xs font-medium'>{t('includeJVMDump')}</div>
-                      <div className='text-[11px] text-muted-foreground'>
-                        {t('includeJVMDumpHint')}
-                      </div>
-                    </div>
-                    <Switch
-                      checked={formTaskOptions.include_jvm_dump}
-                      onCheckedChange={(checked) =>
-                        setFormTaskOptions((current: DiagnosticsTaskOptions) => ({
-                          ...current,
-                          include_jvm_dump: checked,
-                        }))
-                      }
-                    />
-                  </div>
-
-                  <div className='rounded-lg border bg-background p-3 space-y-1.5'>
-                    <Label htmlFor='auto-policy-jvm-space' className='text-xs'>
-                      {t('jvmMinFreeMBLabel')}
-                    </Label>
-                    <Input
-                      id='auto-policy-jvm-space'
-                      type='number'
-                      min={256}
-                      step={256}
-                      value={formTaskOptions.jvm_dump_min_free_mb ?? 2048}
-                      onChange={(event) =>
-                        setFormTaskOptions((current: DiagnosticsTaskOptions) => ({
-                          ...current,
-                          jvm_dump_min_free_mb:
-                            Number.parseInt(event.target.value, 10) || 2048,
-                        }))
-                      }
-                      disabled={!formTaskOptions.include_jvm_dump}
-                      className='h-8 text-xs'
-                    />
-                  </div>
-
-                  <div className='flex items-center gap-2 md:col-span-3 pt-1'>
+                  <div className='flex items-center gap-2 pt-1'>
                     <Switch
                       checked={formAutoStartTask}
                       onCheckedChange={setFormAutoStartTask}
@@ -704,7 +747,9 @@ export function AutoPolicyConfigPanel({
             {/* 3. 巡检触发条件（两列宽屏自适应布局） / Inspection Conditions (Wide 2-column layout) */}
             <div className='space-y-4'>
               <div className='flex items-center justify-between'>
-                <Label className='text-sm font-semibold'>{t('conditionsLabel')}</Label>
+                <Label className='text-sm font-semibold'>
+                  {t('conditionsLabel')}
+                </Label>
                 <span className='text-xs text-muted-foreground'>
                   已选条件：{formConditions.filter((c) => c.enabled).length}
                 </span>
@@ -795,28 +840,47 @@ export function AutoPolicyConfigPanel({
                                         labels={{
                                           cronExpression: t('cronExprLabel'),
                                           timezone: commonT('timezone'),
-                                          cronFiveField: scheduleT('cronFiveField'),
-                                          cronTimezonePlaceholder: scheduleT('cronTimezonePlaceholder'),
-                                          cronExpressionPlaceholder: tpl.default_cron_expr ?? '',
+                                          cronFiveField:
+                                            scheduleT('cronFiveField'),
+                                          cronTimezonePlaceholder: scheduleT(
+                                            'cronTimezonePlaceholder',
+                                          ),
+                                          cronExpressionPlaceholder:
+                                            tpl.default_cron_expr ?? '',
                                           cronMinute: scheduleT('cronMinute'),
                                           cronHour: scheduleT('cronHour'),
-                                          cronDayOfMonth: scheduleT('cronDayOfMonth'),
+                                          cronDayOfMonth:
+                                            scheduleT('cronDayOfMonth'),
                                           cronMonth: scheduleT('cronMonth'),
-                                          cronDayOfWeek: scheduleT('cronDayOfWeek'),
-                                          schedulePreview: scheduleT('schedulePreview'),
+                                          cronDayOfWeek:
+                                            scheduleT('cronDayOfWeek'),
+                                          schedulePreview:
+                                            scheduleT('schedulePreview'),
                                           nextRuns: scheduleT('nextRuns'),
-                                          invalidCronExpression: scheduleT('invalidCronExpression'),
+                                          invalidCronExpression: scheduleT(
+                                            'invalidCronExpression',
+                                          ),
                                         }}
                                         presets={cronPresets}
-                                        renderPresetLabel={(key) => scheduleT(key as never)}
-                                        helper={t('cronExprHint', { defaultExpr: tpl.default_cron_expr })}
+                                        renderPresetLabel={(key) =>
+                                          scheduleT(key as never)
+                                        }
+                                        helper={t('cronExprHint', {
+                                          defaultExpr: tpl.default_cron_expr,
+                                        })}
                                         footer={
                                           <Button
                                             type='button'
                                             variant='outline'
                                             size='sm'
                                             className='h-7 px-2 text-[10px]'
-                                            onClick={() => handleConditionTextOverride(tpl.code, 'cron_expr_override', '')}
+                                            onClick={() =>
+                                              handleConditionTextOverride(
+                                                tpl.code,
+                                                'cron_expr_override',
+                                                '',
+                                              )
+                                            }
                                           >
                                             {t('cronUseDefault')}
                                           </Button>
@@ -836,8 +900,12 @@ export function AutoPolicyConfigPanel({
                                         <Input
                                           type='number'
                                           className='h-7 text-xs'
-                                          placeholder={String(tpl.default_threshold)}
-                                          value={condition?.threshold_override ?? ''}
+                                          placeholder={String(
+                                            tpl.default_threshold,
+                                          )}
+                                          value={
+                                            condition?.threshold_override ?? ''
+                                          }
                                           onChange={(e) =>
                                             handleConditionOverride(
                                               tpl.code,
@@ -861,8 +929,13 @@ export function AutoPolicyConfigPanel({
                                         <Input
                                           type='number'
                                           className='h-7 text-xs'
-                                          placeholder={String(tpl.default_window_minutes)}
-                                          value={condition?.window_minutes_override ?? ''}
+                                          placeholder={String(
+                                            tpl.default_window_minutes,
+                                          )}
+                                          value={
+                                            condition?.window_minutes_override ??
+                                            ''
+                                          }
                                           onChange={(e) =>
                                             handleConditionOverride(
                                               tpl.code,
@@ -877,9 +950,11 @@ export function AutoPolicyConfigPanel({
                                     ) : null}
                                   </div>
 
-                                  {['error_rate', 'node_unhealthy', 'alert_firing'].includes(
-                                    tpl.category,
-                                  ) ? (
+                                  {[
+                                    'error_rate',
+                                    'node_unhealthy',
+                                    'alert_firing',
+                                  ].includes(tpl.category) ? (
                                     <div className='space-y-1'>
                                       <Label className='text-[11px]'>
                                         {t('keywordsLabel')}
@@ -887,7 +962,9 @@ export function AutoPolicyConfigPanel({
                                       <Input
                                         className='h-7 text-xs'
                                         placeholder={t('keywordsPlaceholder')}
-                                        value={(condition?.extra_keywords || []).join(', ')}
+                                        value={(
+                                          condition?.extra_keywords || []
+                                        ).join(', ')}
                                         onChange={(e) =>
                                           handleConditionKeywordsOverride(
                                             tpl.code,
@@ -914,11 +991,23 @@ export function AutoPolicyConfigPanel({
           </div>
 
           <DialogFooter className='border-t px-6 py-3.5 bg-muted/15 flex items-center justify-end gap-2'>
-            <Button variant='outline' size='sm' onClick={() => setFormOpen(false)} className='h-8 text-xs'>
+            <Button
+              variant='outline'
+              size='sm'
+              onClick={() => setFormOpen(false)}
+              className='h-8 text-xs'
+            >
               {commonT('cancel')}
             </Button>
-            <Button size='sm' onClick={() => void handleSave()} disabled={saving} className='h-8 text-xs'>
-              {saving ? <Loader2 className='mr-1.5 h-3.5 w-3.5 animate-spin' /> : null}
+            <Button
+              size='sm'
+              onClick={() => void handleSave()}
+              disabled={saving}
+              className='h-8 text-xs'
+            >
+              {saving ? (
+                <Loader2 className='mr-1.5 h-3.5 w-3.5 animate-spin' />
+              ) : null}
               {editingPolicy ? t('saveEdit') : t('createConfirm')}
             </Button>
           </DialogFooter>

@@ -59,6 +59,7 @@ type DiagnosticResourceDefinition struct {
 	ResultType        string                 `json:"result_type"`
 	BundleAllowed     bool                   `json:"bundle_allowed"`
 	AdminOnly         bool                   `json:"admin_only"`
+	DefaultSelected   bool                   `json:"default_selected"`
 }
 
 // DiagnosticArtifact describes one downloadable file produced by a task.
@@ -83,13 +84,30 @@ type RunDiagnosticResourceRequest struct {
 }
 
 var diagnosticResourceDefinitions = []DiagnosticResourceDefinition{
-	{Code: DiagnosticResourceErrorContext, Title: bilingualText("错误上下文", "Error Context"), Description: bilingualText("读取任务来源、错误组和巡检上下文。", "Read task source, error group, and inspection context."), StepCode: DiagnosticStepCodeCollectErrorContext, Risk: "R0", Impact: bilingualText("只读取 STX 已保存的数据。", "Reads data already stored by STX."), TimeoutSeconds: 30, ExecutionLocation: "control_plane", ResultType: "json", BundleAllowed: true},
-	{Code: DiagnosticResourceProcessEvents, Title: bilingualText("进程事件", "Process Events"), Description: bilingualText("读取近期进程退出和自动拉起记录。", "Read recent process exits and automatic restart records."), StepCode: DiagnosticStepCodeCollectProcessEvents, Risk: "R0", Impact: bilingualText("只读取 STX 已保存的数据。", "Reads data already stored by STX."), TimeoutSeconds: 30, ExecutionLocation: "control_plane", ResultType: "json", BundleAllowed: true},
-	{Code: DiagnosticResourceAlertSnapshot, Title: bilingualText("告警快照", "Alert Snapshot"), Description: bilingualText("读取相关告警和监控快照。", "Read related alerts and monitoring snapshots."), StepCode: DiagnosticStepCodeCollectAlertSnapshot, Risk: "R0", Impact: bilingualText("会读取监控接口，不修改集群。", "Reads monitoring endpoints without changing the cluster."), TimeoutSeconds: 60, ExecutionLocation: "control_plane", ResultType: "json", BundleAllowed: true},
-	{Code: DiagnosticResourceConfig, Title: bilingualText("配置快照", "Configuration Snapshot"), Description: bilingualText("从选中节点读取 SeaTunnel 配置和目录清单。", "Read SeaTunnel configuration and directory inventories from selected nodes."), StepCode: DiagnosticStepCodeCollectConfigSnapshot, Risk: "R0", Impact: bilingualText("会通过 Agent 读取配置文件和目录清单。", "Uses the Agent to read configuration files and directory inventories."), TimeoutSeconds: 120, ExecutionLocation: "agent", ResultType: "files", BundleAllowed: true},
-	{Code: DiagnosticResourceLogSample, Title: bilingualText("日志样本", "Log Sample"), Description: bilingualText("从选中节点读取指定时间窗口内的日志片段。", "Read log excerpts from selected nodes within the requested time window."), StepCode: DiagnosticStepCodeCollectLogSample, Risk: "R0", Impact: bilingualText("读取较大日志时会增加磁盘读取和网络传输。", "Reading large logs adds disk reads and network transfer."), TimeoutSeconds: 120, ExecutionLocation: "agent", ResultType: "files", BundleAllowed: true},
-	{Code: DiagnosticResourceThreadDump, Title: bilingualText("线程快照", "Thread Dump"), Description: bilingualText("对选中节点的 SeaTunnel JVM 采集线程快照。", "Collect thread dumps from SeaTunnel JVMs on selected nodes."), StepCode: DiagnosticStepCodeCollectThreadDump, Risk: "R1", Impact: bilingualText("执行 jcmd 或 jstack，可能短暂增加目标 JVM 和主机负载。", "Runs jcmd or jstack and may briefly increase target JVM and host load."), TimeoutSeconds: 120, ExecutionLocation: "agent", ResultType: "files", BundleAllowed: true},
+	{Code: DiagnosticResourceErrorContext, Title: bilingualText("错误上下文", "Error Context"), Description: bilingualText("读取任务来源、错误组和巡检上下文。", "Read task source, error group, and inspection context."), StepCode: DiagnosticStepCodeCollectErrorContext, Risk: "R0", Impact: bilingualText("只读取 STX 已保存的数据。", "Reads data already stored by STX."), TimeoutSeconds: 30, ExecutionLocation: "control_plane", ResultType: "json", BundleAllowed: true, DefaultSelected: true},
+	{Code: DiagnosticResourceProcessEvents, Title: bilingualText("进程事件", "Process Events"), Description: bilingualText("读取近期进程退出和自动拉起记录。", "Read recent process exits and automatic restart records."), StepCode: DiagnosticStepCodeCollectProcessEvents, Risk: "R0", Impact: bilingualText("只读取 STX 已保存的数据。", "Reads data already stored by STX."), TimeoutSeconds: 30, ExecutionLocation: "control_plane", ResultType: "json", BundleAllowed: true, DefaultSelected: true},
+	{Code: DiagnosticResourceAlertSnapshot, Title: bilingualText("告警快照", "Alert Snapshot"), Description: bilingualText("读取相关告警和监控快照。", "Read related alerts and monitoring snapshots."), StepCode: DiagnosticStepCodeCollectAlertSnapshot, Risk: "R0", Impact: bilingualText("会读取监控接口，不修改集群。", "Reads monitoring endpoints without changing the cluster."), TimeoutSeconds: 60, ExecutionLocation: "control_plane", ResultType: "json", BundleAllowed: true, DefaultSelected: true},
+	{Code: DiagnosticResourceConfig, Title: bilingualText("配置快照", "Configuration Snapshot"), Description: bilingualText("从选中节点读取 SeaTunnel 配置和目录清单。", "Read SeaTunnel configuration and directory inventories from selected nodes."), StepCode: DiagnosticStepCodeCollectConfigSnapshot, Risk: "R0", Impact: bilingualText("会通过 Agent 读取配置文件和目录清单。", "Uses the Agent to read configuration files and directory inventories."), TimeoutSeconds: 120, ExecutionLocation: "agent", ResultType: "files", BundleAllowed: true, DefaultSelected: true},
+	{Code: DiagnosticResourceLogSample, Title: bilingualText("日志样本", "Log Sample"), Description: bilingualText("从选中节点读取指定时间窗口内的日志片段。", "Read log excerpts from selected nodes within the requested time window."), StepCode: DiagnosticStepCodeCollectLogSample, Risk: "R0", Impact: bilingualText("读取较大日志时会增加磁盘读取和网络传输。", "Reading large logs adds disk reads and network transfer."), TimeoutSeconds: 120, ExecutionLocation: "agent", ResultType: "files", BundleAllowed: true, DefaultSelected: true},
+	{Code: DiagnosticResourceThreadDump, Title: bilingualText("线程快照", "Thread Dump"), Description: bilingualText("对选中节点的 SeaTunnel JVM 采集线程快照。", "Collect thread dumps from SeaTunnel JVMs on selected nodes."), StepCode: DiagnosticStepCodeCollectThreadDump, Risk: "R1", Impact: bilingualText("执行 jcmd 或 jstack，可能短暂增加目标 JVM 和主机负载。", "Runs jcmd or jstack and may briefly increase target JVM and host load."), TimeoutSeconds: 120, ExecutionLocation: "agent", ResultType: "files", BundleAllowed: true, DefaultSelected: true},
 	{Code: DiagnosticResourceJVMDump, Title: "JVM Dump", Description: bilingualText("对选中节点的 SeaTunnel JVM 生成 Heap Dump。", "Create heap dumps from SeaTunnel JVMs on selected nodes."), StepCode: DiagnosticStepCodeCollectJVMDump, Risk: "R3", Impact: bilingualText("可能触发 Full GC、暂停目标 JVM，并产生较大的磁盘和网络开销。", "May trigger Full GC, pause the target JVM, and cause significant disk and network load."), TimeoutSeconds: 600, ExecutionLocation: "agent", ResultType: "files", BundleAllowed: true, AdminOnly: true},
+}
+
+// DefaultDiagnosticTaskOptions 返回与旧版完整诊断包一致的默认资源选择。
+// DefaultDiagnosticTaskOptions returns the default resource selection matching the legacy full bundle.
+func DefaultDiagnosticTaskOptions() DiagnosticTaskOptions {
+	selected := make([]DiagnosticResourceCode, 0, len(diagnosticResourceDefinitions))
+	for _, resource := range diagnosticResourceDefinitions {
+		if resource.BundleAllowed && resource.DefaultSelected {
+			selected = append(selected, resource.Code)
+		}
+	}
+	return DiagnosticTaskOptions{
+		IncludeThreadDump: true,
+		IncludeJVMDump:    false,
+		JVMDumpMinFreeMB:  2048,
+		SelectedResources: selected,
+	}.Normalize()
 }
 
 // ListDiagnosticResources returns stable copies of all public resource definitions.

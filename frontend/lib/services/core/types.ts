@@ -43,6 +43,8 @@ export interface PaginatedResponse<T = unknown> {
 export interface ApiError {
   /** 错误信息 */
   error_msg: string;
+  /** 可选的结构化错误数据 / Optional structured error data */
+  data?: unknown;
 }
 
 /**

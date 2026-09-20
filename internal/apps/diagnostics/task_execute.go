@@ -1688,6 +1688,7 @@ func buildDiagnosticConfigPreview(content string) string {
 
 func buildDiagnosticExtraConfigFilesForTarget(mode cluster.DeploymentMode, role string) []string {
 	items := []string{
+		"seatunnel-env.sh",
 		"log4j2.properties",
 		"log4j2_client.properties",
 		"plugin_config",

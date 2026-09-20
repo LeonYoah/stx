@@ -24,6 +24,8 @@ import {
   FileCode,
   Fingerprint,
   Lightbulb,
+  Maximize2,
+  Minimize2,
   Plus,
   Save,
   ShieldCheck,
@@ -128,6 +130,7 @@ export function SaveMemoryDialog({
   const [tags, setTags] = useState<string[]>([]);
   const [customTagInput, setCustomTagInput] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [isMaximized, setIsMaximized] = useState(false);
   const [errors, setErrors] = useState<{title?: string; solution?: string}>({});
 
   // 初始化或当 initialData 变动时预填充表单
@@ -253,10 +256,17 @@ export function SaveMemoryDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className='sm:max-w-2xl border border-border/80 dark:border-border/60 shadow-2xl p-0 flex flex-col max-h-[90vh] overflow-hidden bg-background rounded-xl'>
-        {/* 弹窗头部：明确预留 pr-10 物理安全避让区，杜绝与右上角 X 按钮重叠 */}
-        {/* Dialog Header: explicit pr-10 safe area avoiding collision with top-right Close button */}
-        <DialogHeader className='px-5 py-3.5 border-b bg-muted/20 pr-12 text-left sm:text-left'>
+      <DialogContent
+        className={cn(
+          'border border-border/80 dark:border-border/60 shadow-2xl p-0 flex flex-col overflow-hidden bg-background rounded-xl transition-all duration-200',
+          isMaximized
+            ? 'w-[96vw] max-w-[96vw] h-[92vh] max-h-[92vh]'
+            : 'w-[95vw] sm:max-w-3xl h-[85vh] max-h-[85vh]',
+        )}
+      >
+        {/* 弹窗头部：明确预留 pr-20 物理安全避让区，杜绝与右上角 X 按钮及放大按钮重叠 */}
+        {/* Dialog Header: explicit pr-20 safe area avoiding collision with top-right Close and Maximize buttons */}
+        <DialogHeader className='px-5 py-3.5 border-b bg-muted/20 pr-20 text-left sm:text-left relative'>
           <div className='flex items-center gap-2'>
             <div className='flex size-7 shrink-0 items-center justify-center rounded-lg bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'>
               <Lightbulb className='size-3.5' />
@@ -274,6 +284,18 @@ export function SaveMemoryDialog({
           <DialogDescription className='text-xs text-muted-foreground mt-1'>
             沉淀已验证的故障处置步骤，后续同类错误将自动置顶回显与辅助排障。
           </DialogDescription>
+
+          {/* 放大/还原切换按钮 / Maximize and restore toggle button */}
+          <Button
+            type='button'
+            variant='ghost'
+            size='icon'
+            className='size-7 text-muted-foreground hover:text-foreground absolute right-11 top-3'
+            onClick={() => setIsMaximized((prev) => !prev)}
+            title={isMaximized ? '还原窗口' : '放大看'}
+          >
+            {isMaximized ? <Minimize2 className='size-3.5' /> : <Maximize2 className='size-3.5' />}
+          </Button>
         </DialogHeader>
 
         {/* 表单内容滚动区 / Form Scroll Area */}
@@ -369,10 +391,11 @@ export function SaveMemoryDialog({
                     setErrors((prev) => ({...prev, solution: undefined}));
                   }
                 }}
-                placeholder={`请写下具体的处置操作与命令参数，例如：\n1. 调大 MySQL wait_timeout 与 interactive_timeout 至 28800 秒；\n2. 在作业 JDBC URL 中追加参数 autoReconnect=true&connectTimeout=30000；\n3. 重启 Worker 进程恢复作业运行。`}
-                rows={4}
+                placeholder={`请写下具体的处置操作与命令参数，例如：\n1. 在 seatunnel.yaml 或 seatunnel-env.sh 中调大 checkpoint 超时时长：checkpoint.timeout: 120000；\n2. 检查下游目标数据库写入负载，优化 Sink 端 batch.size 与写入并发，消除反压以加速 Barrier 对齐；\n3. 重启任务验证恢复状态。`}
+                rows={isMaximized ? 8 : 4}
                 className={cn(
-                  'text-xs font-mono leading-relaxed bg-background/90',
+                  'text-xs font-mono leading-relaxed bg-background/90 overflow-y-auto resize-none',
+                  isMaximized ? 'h-64 max-h-80' : 'h-36 max-h-48',
                   errors.solution && 'border-destructive focus-visible:ring-destructive',
                 )}
               />

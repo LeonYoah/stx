@@ -18,6 +18,7 @@
 import {describe, expect, it} from 'vitest';
 import {
   applyConditionTextOverride,
+  normalizeAutoPolicyTaskOptions,
   normalizeConditionItemsForSave,
   shouldRenderCronExprInput,
 } from '../AutoPolicyConfigPanel';
@@ -92,4 +93,20 @@ describe('AutoPolicyConfigPanel helpers', () => {
     ]);
   });
 
+  it('preserves legacy dump switches when deriving selected resources', () => {
+    expect(
+      normalizeAutoPolicyTaskOptions({
+        include_thread_dump: false,
+        include_jvm_dump: true,
+        jvm_dump_min_free_mb: 4096,
+      }).selected_resources,
+    ).toEqual([
+      'error_context',
+      'process_events',
+      'alert_snapshot',
+      'config_snapshot',
+      'log_sample',
+      'jvm_dump',
+    ]);
+  });
 });

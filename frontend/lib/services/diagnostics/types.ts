@@ -233,6 +233,30 @@ export interface StartDiagnosticsInspectionRequest {
   error_threshold?: number;
 }
 
+export type DiagnosticsResourceCode =
+  | 'error_context'
+  | 'process_events'
+  | 'alert_snapshot'
+  | 'config_snapshot'
+  | 'log_sample'
+  | 'thread_dump'
+  | 'jvm_dump';
+
+export interface DiagnosticsResourceDefinition {
+  code: DiagnosticsResourceCode;
+  title: string;
+  description: string;
+  step_code: DiagnosticsTaskStepCode;
+  risk: 'R0' | 'R1' | 'R2' | 'R3';
+  impact: string;
+  timeout_seconds: number;
+  execution_location: 'control_plane' | 'agent';
+  result_type: string;
+  bundle_allowed: boolean;
+  admin_only: boolean;
+  default_selected: boolean;
+}
+
 export type DiagnosticsTaskStatus =
   | 'pending'
   | 'ready'
@@ -287,6 +311,14 @@ export interface DiagnosticsTaskOptions {
   include_thread_dump: boolean;
   include_jvm_dump: boolean;
   jvm_dump_min_free_mb?: number;
+  selected_resources?: DiagnosticsResourceCode[];
+  resource_only?: boolean;
+}
+
+export interface DiagnosticsTaskCreateRequestOptions {
+  confirmed?: boolean;
+  confirmation_id?: string;
+  idempotency_key?: string;
 }
 
 export interface DiagnosticsTaskNodeTarget {

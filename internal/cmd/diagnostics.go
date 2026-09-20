@@ -20,6 +20,9 @@ package cmd
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -38,7 +41,141 @@ func addDiagnosticsWriteCommands(root *cobra.Command, storeProvider authStorePro
 	if taskCommand == nil {
 		panic("generated diagnostics task command is missing")
 	}
-	taskCommand.AddCommand(newDiagnosticsTaskCreateCommand(storeProvider))
+	taskCommand.AddCommand(
+		newDiagnosticsTaskCreateCommand(storeProvider),
+		newDiagnosticsTaskDownloadCommand(storeProvider, diagnosticsTaskDownloadOptions{
+			use: "bundle <task-id>", short: "Download a diagnostic task bundle", operationID: "diagnostics.task.bundle.download",
+			path: func(taskID string, _ []string) string {
+				return "/api/v1/diagnostics/tasks/" + url.PathEscape(taskID) + "/bundle"
+			},
+			defaultFile: func(taskID string, _ []string) string { return "diagnostics-" + taskID + ".zip" },
+		}),
+		newDiagnosticsTaskDownloadCommand(storeProvider, diagnosticsTaskDownloadOptions{
+			use: "html <task-id>", short: "Download a diagnostic task HTML report", operationID: "diagnostics.task.html.download",
+			path: func(taskID string, _ []string) string {
+				return "/api/v1/diagnostics/tasks/" + url.PathEscape(taskID) + "/html"
+			},
+			defaultFile: func(taskID string, _ []string) string { return "diagnostics-" + taskID + ".html" },
+		}),
+		newDiagnosticsTaskDownloadCommand(storeProvider, diagnosticsTaskDownloadOptions{
+			use: "file <task-id> <artifact-path>", short: "Download one diagnostic task file", operationID: "diagnostics.task.file.download", exactArgs: 2,
+			path: func(taskID string, args []string) string {
+				return "/api/v1/diagnostics/tasks/" + url.PathEscape(taskID) + "/files/" + escapeArtifactPath(args[1])
+			},
+			defaultFile: func(_ string, args []string) string { return filepath.Base(strings.TrimSpace(args[1])) },
+		}),
+	)
+}
+
+type diagnosticsTaskDownloadOptions struct {
+	use         string
+	short       string
+	operationID string
+	exactArgs   int
+	path        func(taskID string, args []string) string
+	defaultFile func(taskID string, args []string) string
+}
+
+// newDiagnosticsTaskDownloadCommand 创建诊断资源下载命令，并用临时文件避免留下半成品。
+// newDiagnosticsTaskDownloadCommand creates a diagnostics download command that uses a temporary file to avoid partial outputs.
+func newDiagnosticsTaskDownloadCommand(storeProvider authStoreProvider, commandOptions diagnosticsTaskDownloadOptions) *cobra.Command {
+	var namespace, outputPath string
+	exactArgs := commandOptions.exactArgs
+	if exactArgs == 0 {
+		exactArgs = 1
+	}
+	command := &cobra.Command{
+		Use:   commandOptions.use,
+		Short: commandOptions.short,
+		Args:  usageArgs(cobra.ExactArgs(exactArgs)),
+		RunE: func(command *cobra.Command, args []string) error {
+			if exactArgs == 2 {
+				if err := validateArtifactPath(args[1]); err != nil {
+					return err
+				}
+			}
+			client, err := clientForNamespace(storeProvider, namespace)
+			if err != nil {
+				return err
+			}
+			if err := checkSpecialOperation(command.Context(), client, commandOptions.operationID); err != nil {
+				return err
+			}
+			if strings.TrimSpace(outputPath) == "" {
+				outputPath = commandOptions.defaultFile(args[0], args)
+			}
+			if strings.TrimSpace(outputPath) == "" || outputPath == "." {
+				return clioutput.NewError(clioutput.CodeUsage, "download destination file is required", clioutput.ExitUsage, false)
+			}
+			finalPath, err := filepath.Abs(outputPath)
+			if err != nil {
+				return clioutput.WrapError(err, clioutput.CodeUsage, "resolve output path", clioutput.ExitUsage, false)
+			}
+			if _, err := os.Stat(finalPath); err == nil {
+				return clioutput.NewError(clioutput.CodeConflict, "download target already exists", clioutput.ExitConflict, false)
+			} else if !os.IsNotExist(err) {
+				return clioutput.WrapError(err, clioutput.CodeFileTransfer, "inspect download target", clioutput.ExitFileTransfer, false)
+			}
+			if err := os.MkdirAll(filepath.Dir(finalPath), 0o755); err != nil {
+				return clioutput.WrapError(err, clioutput.CodeFileTransfer, "create download directory", clioutput.ExitFileTransfer, false)
+			}
+			tempFile, err := os.CreateTemp(filepath.Dir(finalPath), ".stx-diagnostics-*.part")
+			if err != nil {
+				return clioutput.WrapError(err, clioutput.CodeFileTransfer, "create temporary download file", clioutput.ExitFileTransfer, false)
+			}
+			tempPath := tempFile.Name()
+			defer func() { _ = os.Remove(tempPath) }()
+			requestID, err := client.Download(command.Context(), commandOptions.path(args[0], args), tempFile)
+			if closeErr := tempFile.Close(); err == nil && closeErr != nil {
+				err = closeErr
+			}
+			if err != nil {
+				return err
+			}
+			if err := os.Rename(tempPath, finalPath); err != nil {
+				return clioutput.WrapError(err, clioutput.CodeFileTransfer, "store downloaded diagnostics file", clioutput.ExitFileTransfer, false)
+			}
+			checksum, size, err := checksumFile(finalPath)
+			if err != nil {
+				return err
+			}
+			return renderCommandResultWithRequestID(command, commandOptions.operationID, requestID, map[string]any{
+				"task_id": args[0], "file": finalPath, "size": size, "sha256": checksum,
+			})
+		},
+	}
+	command.Flags().StringVar(&namespace, "namespace", "", "Local namespace to use")
+	command.Flags().StringVar(&outputPath, "file", "", "Destination file path")
+	return command
+}
+
+// escapeArtifactPath 保留诊断资源的路径层级，同时逐段转义特殊字符。
+// escapeArtifactPath preserves the diagnostics artifact hierarchy while escaping every path segment.
+func escapeArtifactPath(path string) string {
+	parts := strings.Split(strings.Trim(strings.TrimSpace(path), "/"), "/")
+	escaped := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part == "" {
+			continue
+		}
+		escaped = append(escaped, url.PathEscape(part))
+	}
+	return strings.Join(escaped, "/")
+}
+
+// validateArtifactPath 拒绝空路径和目录回退片段，避免请求含义不明确。
+// validateArtifactPath rejects empty paths and parent-directory segments to keep the request unambiguous.
+func validateArtifactPath(path string) error {
+	trimmed := strings.Trim(strings.TrimSpace(path), "/")
+	if trimmed == "" {
+		return clioutput.NewError(clioutput.CodeUsage, "artifact path is required", clioutput.ExitUsage, false)
+	}
+	for _, part := range strings.Split(trimmed, "/") {
+		if part == "" || part == "." || part == ".." {
+			return clioutput.NewError(clioutput.CodeUsage, "artifact path must not contain empty, '.' or '..' segments", clioutput.ExitUsage, false)
+		}
+	}
+	return nil
 }
 
 // newDiagnosticsTaskCreateCommand 创建诊断任务，默认只保存任务而不启动采集。

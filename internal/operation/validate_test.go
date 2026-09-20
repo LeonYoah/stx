@@ -98,7 +98,7 @@ func TestValidateRejectsRepeatedNonQueryInput(t *testing.T) {
 }
 
 func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
-	require.Len(t, Registry(), 125)
+	require.Len(t, Registry(), 128)
 
 	expected := map[string]struct{}{
 		"auth.user-info.get": {}, "admin.user.list": {}, "admin.user.get": {},
@@ -276,7 +276,7 @@ func TestRegistryContainsDiscoveryOperationAndLegacyExceptions(t *testing.T) {
 	for _, exception := range RouteExceptions() {
 		exceptions[exception.Method+" "+exception.Route] = exception
 	}
-	require.Len(t, RouteExceptions(), 21)
+	require.Len(t, RouteExceptions(), 18)
 	require.Contains(t, exceptions, "POST /api/v1/hosts/:id/discover")
 	require.Contains(t, exceptions, "POST /api/v1/hosts/:id/discover/confirm")
 }

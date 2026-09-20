@@ -6,8 +6,8 @@
     "swagger_path_count": 100,
     "swagger_operation_count": 117,
     "swagger_documented_routes": 117,
-    "registered_operations": 125,
-    "route_exceptions": 21,
+    "registered_operations": 128,
+    "route_exceptions": 18,
     "historical_gaps": 109
   },
   "routes": [
@@ -866,7 +866,8 @@
       "method": "GET",
       "path": "/api/v1/diagnostics/tasks/:id/bundle",
       "source": "internal/router/router.go:483",
-      "status": "exception",
+      "status": "operation",
+      "operation_id": "diagnostics.task.bundle.download",
       "mode": "download",
       "swagger": false
     },
@@ -882,7 +883,8 @@
       "method": "GET",
       "path": "/api/v1/diagnostics/tasks/:id/files/*path",
       "source": "internal/router/router.go:482",
-      "status": "exception",
+      "status": "operation",
+      "operation_id": "diagnostics.task.file.download",
       "mode": "download",
       "swagger": false
     },
@@ -890,7 +892,8 @@
       "method": "GET",
       "path": "/api/v1/diagnostics/tasks/:id/html",
       "source": "internal/router/router.go:481",
-      "status": "exception",
+      "status": "operation",
+      "operation_id": "diagnostics.task.html.download",
       "mode": "download",
       "swagger": false
     },

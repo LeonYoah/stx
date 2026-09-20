@@ -127,6 +127,94 @@ func TestDiagnosticsTaskCreateRequiresConfirmationBeforeNetwork(t *testing.T) {
 	}
 }
 
+func TestDiagnosticsTaskDownloadsBundleAndReturnsChecksum(t *testing.T) {
+	const content = "diagnostic zip content"
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/api/v1/capabilities" {
+			writeDiagnosticsCapability(t, writer, "diagnostics.task.bundle.download", "download")
+			return
+		}
+		if request.URL.Path != "/api/v1/diagnostics/tasks/4/bundle" {
+			t.Fatalf("诊断包下载路径错误 / diagnostics bundle download path is incorrect: %s", request.URL.Path)
+		}
+		_, _ = writer.Write([]byte(content))
+	}))
+	defer server.Close()
+
+	outputFile := filepath.Join(t.TempDir(), "diagnostics-4.zip")
+	store := newExecutionTestStore(t, server.URL, "test-token")
+	stdout, stderr, exitCode := runDiagnosticsCommand(t, store, "diagnostics", "task", "bundle", "4", "--file", outputFile)
+	if exitCode != int(clioutput.ExitSuccess) || strings.TrimSpace(stderr) != "" {
+		t.Fatalf("下载诊断包失败 / downloading diagnostics bundle failed: code=%d stdout=%s stderr=%s", exitCode, stdout, stderr)
+	}
+	if contentBytes, err := os.ReadFile(outputFile); err != nil || string(contentBytes) != content {
+		t.Fatalf("诊断包内容错误 / diagnostics bundle content is incorrect: content=%q err=%v", contentBytes, err)
+	}
+	var result map[string]any
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("诊断下载结果不是合法 JSON / diagnostics download result is not valid JSON: %v", err)
+	}
+	data, ok := result["data"].(map[string]any)
+	if !ok || data["file"] != outputFile || data["size"] != float64(len(content)) || strings.TrimSpace(data["sha256"].(string)) == "" {
+		t.Fatalf("诊断下载结果错误 / diagnostics download result is incorrect: %#v", result["data"])
+	}
+}
+
+func TestDiagnosticsTaskFilePreservesArtifactPath(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/api/v1/capabilities" {
+			writeDiagnosticsCapability(t, writer, "diagnostics.task.file.download", "download")
+			return
+		}
+		if request.URL.EscapedPath() != "/api/v1/diagnostics/tasks/4/files/logs/node%201.log" {
+			t.Fatalf("诊断文件路径错误 / diagnostics file path is incorrect: path=%s escaped=%s", request.URL.Path, request.URL.EscapedPath())
+		}
+		_, _ = writer.Write([]byte("node log"))
+	}))
+	defer server.Close()
+
+	outputFile := filepath.Join(t.TempDir(), "node.log")
+	store := newExecutionTestStore(t, server.URL, "test-token")
+	_, stderr, exitCode := runDiagnosticsCommand(t, store, "diagnostics", "task", "file", "4", "logs/node 1.log", "--file", outputFile)
+	if exitCode != int(clioutput.ExitSuccess) {
+		t.Fatalf("下载诊断文件失败 / downloading diagnostics file failed: code=%d stderr=%s", exitCode, stderr)
+	}
+}
+
+func TestDiagnosticsTaskDownloadRejectsExistingTargetBeforeDownload(t *testing.T) {
+	var downloadCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/api/v1/capabilities" {
+			writeDiagnosticsCapability(t, writer, "diagnostics.task.html.download", "download")
+			return
+		}
+		downloadCalls++
+	}))
+	defer server.Close()
+
+	outputFile := filepath.Join(t.TempDir(), "diagnostics.html")
+	if err := os.WriteFile(outputFile, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := newExecutionTestStore(t, server.URL, "test-token")
+	_, stderr, exitCode := runDiagnosticsCommand(t, store, "diagnostics", "task", "html", "4", "--file", outputFile)
+	if exitCode != int(clioutput.ExitConflict) || downloadCalls != 0 {
+		t.Fatalf("已存在文件不应被覆盖 / existing file must not be overwritten: code=%d calls=%d stderr=%s", exitCode, downloadCalls, stderr)
+	}
+}
+
+func TestDiagnosticsTaskFileRejectsParentDirectoryPathBeforeNetwork(t *testing.T) {
+	var calls int
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { calls++ }))
+	defer server.Close()
+
+	store := newExecutionTestStore(t, server.URL, "test-token")
+	_, stderr, exitCode := runDiagnosticsCommand(t, store, "diagnostics", "task", "file", "4", "../secret.txt")
+	if exitCode != int(clioutput.ExitUsage) || calls != 0 {
+		t.Fatalf("目录回退路径不应访问服务 / parent-directory path must not call the service: code=%d calls=%d stderr=%s", exitCode, calls, stderr)
+	}
+}
+
 func runDiagnosticsCommand(t *testing.T, store *cliConfig.Store, args ...string) (string, string, int) {
 	t.Helper()
 	storeProvider := func() (*cliConfig.Store, error) { return store, nil }
@@ -140,10 +228,14 @@ func runDiagnosticsCommand(t *testing.T, store *cliConfig.Store, args ...string)
 }
 
 func writeDiagnosticsCapabilities(t *testing.T, writer http.ResponseWriter) {
+	writeDiagnosticsCapability(t, writer, "diagnostics.task.create", "normal")
+}
+
+func writeDiagnosticsCapability(t *testing.T, writer http.ResponseWriter, operationID, mode string) {
 	t.Helper()
 	writer.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(writer).Encode(map[string]any{"data": map[string]any{
-		"operations": []map[string]any{{"operation_id": "diagnostics.task.create", "revision": 1, "allowed": true, "mode": "normal", "risk": "R0"}},
+		"operations": []map[string]any{{"operation_id": operationID, "revision": 1, "allowed": true, "mode": mode, "risk": "R0"}},
 	}}); err != nil {
 		t.Fatalf("写入诊断能力响应失败 / writing diagnostics capabilities failed: %v", err)
 	}

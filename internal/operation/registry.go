@@ -1475,6 +1475,9 @@ func diagnosticsReadOperationSpecs() []OperationSpec {
 		diagnosticsReadOperation("diagnostics.task.logs", []string{"diagnostics", "task", "logs"}, "List diagnostic task logs", "/api/v1/diagnostics/tasks/:id/logs",
 			append(append([]InputSpec{}, id...), []InputSpec{{Name: "step_code", Location: InputQuery, Description: "Diagnostic step code"}, {Name: "node_execution_id", Location: InputQuery, Description: "Node execution ID"}, {Name: "level", Location: InputQuery, Description: "Log level"}, {Name: "page", Location: InputQuery, Description: "Page number starting from 1"}, {Name: "page_size", Location: InputQuery, Description: "Page size"}, lang}...),
 			"stx diagnostics task logs 1 --page_size 50"),
+		diagnosticsDownloadOperation("diagnostics.task.bundle.download", []string{"diagnostics", "task", "bundle"}, "Download a diagnostic task bundle", "/api/v1/diagnostics/tasks/:id/bundle", append([]InputSpec{}, id...), "stx diagnostics task bundle 1 --file /tmp/diagnostics-1.zip"),
+		diagnosticsDownloadOperation("diagnostics.task.html.download", []string{"diagnostics", "task", "html"}, "Download a diagnostic task HTML report", "/api/v1/diagnostics/tasks/:id/html", append([]InputSpec{}, id...), "stx diagnostics task html 1 --file /tmp/diagnostics-1.html"),
+		diagnosticsDownloadOperation("diagnostics.task.file.download", []string{"diagnostics", "task", "file"}, "Download one diagnostic task file", "/api/v1/diagnostics/tasks/:id/files/*path", []InputSpec{{Name: "id", Location: InputPath, Required: true, Description: "Diagnostic task ID"}, {Name: "path", Location: InputPath, Required: true, Description: "Relative artifact path"}}, "stx diagnostics task file 1 manifest.json --file /tmp/manifest.json"),
 		diagnosticsReadOperation("diagnostics.error.group.list", []string{"diagnostics", "error", "group", "list"}, "List SeaTunnel error groups", "/api/v1/diagnostics/errors/groups", errorCommon, "stx diagnostics error group list --cluster_id 6 --page_size 20"),
 		diagnosticsReadOperation("diagnostics.error.event.list", []string{"diagnostics", "error", "event", "list"}, "List SeaTunnel error events", "/api/v1/diagnostics/errors/events", append([]InputSpec{{Name: "group_id", Location: InputQuery, Description: "Error group ID"}}, errorCommon...), "stx diagnostics error event list --cluster_id 6 --page_size 20"),
 		diagnosticsReadOperation("diagnostics.error.group.get", []string{"diagnostics", "error", "group", "get"}, "Get SeaTunnel error group detail", "/api/v1/diagnostics/errors/groups/:id",
@@ -1500,15 +1503,15 @@ func diagnosticsReadOperationSpecs() []OperationSpec {
 			OutputExample: `{"api_version":"v1","operation_id":"diagnostics.troubleshooting-memory.create","request_id":"req_example","data":{"id":1},"result_meta":{"complete":true}}`,
 		},
 		{
-			ID:           "diagnostics.troubleshooting-memory.update",
-			Summary:      "Update a troubleshooting memory entry",
-			GeneratedCLI: false,
-			Method:       "PUT",
-			Route:        "/api/v1/diagnostics/troubleshooting-memories/:id",
-			Mode:         ModeNormal,
-			AuthRequired: true,
-			Risk:         RiskR0,
-			Revision:     1,
+			ID:            "diagnostics.troubleshooting-memory.update",
+			Summary:       "Update a troubleshooting memory entry",
+			GeneratedCLI:  false,
+			Method:        "PUT",
+			Route:         "/api/v1/diagnostics/troubleshooting-memories/:id",
+			Mode:          ModeNormal,
+			AuthRequired:  true,
+			Risk:          RiskR0,
+			Revision:      1,
 			Input:         append(append([]InputSpec{}, id...), InputSpec{Name: "request", Location: InputBody, Required: true, Description: "Troubleshooting memory JSON payload"}),
 			OutputExample: `{"api_version":"v1","operation_id":"diagnostics.troubleshooting-memory.update","request_id":"req_example","data":{"id":1},"result_meta":{"complete":true}}`,
 		},
@@ -1539,6 +1542,16 @@ func diagnosticsReadOperation(operationID string, commandPath []string, summary,
 		ID: operationID, CommandPath: commandPath, Summary: summary, GeneratedCLI: true, Method: "GET", Route: route,
 		Mode: ModeNormal, AuthRequired: true, Risk: RiskR0, Revision: 1, SupportsPick: true, Input: inputs, Example: example,
 		OutputExample: fmt.Sprintf(`{"api_version":"v1","operation_id":%q,"request_id":"req_example","data":{},"result_meta":{"complete":true}}`, operationID),
+	}
+}
+
+// diagnosticsDownloadOperation 登记诊断资源下载操作，由专用 CLI 处理文件落盘。
+// diagnosticsDownloadOperation registers diagnostics downloads handled by the dedicated file-writing CLI.
+func diagnosticsDownloadOperation(operationID string, commandPath []string, summary, route string, inputs []InputSpec, example string) OperationSpec {
+	return OperationSpec{
+		ID: operationID, CommandPath: commandPath, Summary: summary, GeneratedCLI: false, Method: "GET", Route: route,
+		Mode: ModeDownload, AuthRequired: true, Risk: RiskR0, Revision: 1, Input: inputs, Example: example,
+		OutputExample: fmt.Sprintf(`{"api_version":"v1","operation_id":%q,"request_id":"req_example","data":{"file":"/tmp/diagnostics-output","size":12,"sha256":"..."},"result_meta":{"complete":true}}`, operationID),
 	}
 }
 
@@ -1924,9 +1937,6 @@ var routeExceptions = []RouteException{
 	{Method: "GET", Route: "/api/v1/agent/uninstall.sh", Mode: ModeDownload, Reason: "Agent uninstallation script download"},
 	{Method: "GET", Route: "/api/v1/agent/ca.crt", Mode: ModeDownload, Reason: "Agent CA certificate download"},
 	{Method: "GET", Route: "/api/v1/agent/download", Mode: ModeDownload, Reason: "Agent binary download"},
-	{Method: "GET", Route: "/api/v1/diagnostics/tasks/:id/html", Mode: ModeDownload, Reason: "Diagnostic HTML report response"},
-	{Method: "GET", Route: "/api/v1/diagnostics/tasks/:id/files/*path", Mode: ModeDownload, Reason: "Diagnostic artifact file response"},
-	{Method: "GET", Route: "/api/v1/diagnostics/tasks/:id/bundle", Mode: ModeDownload, Reason: "Diagnostic bundle download"},
 	{Method: "GET", Route: "/api/v1/stx/install.sh", Mode: ModeDownload, Reason: "STX installation script download"},
 	{Method: "GET", Route: "/api/v1/stx/download", Mode: ModeDownload, Reason: "STX release bundle download"},
 }

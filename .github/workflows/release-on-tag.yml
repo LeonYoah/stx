@@ -108,8 +108,10 @@ jobs:
           generate_release_notes: true
           fail_on_unmatched_files: false
 
-  publish-ghcr-images:
-    name: Publish GHCR ${{ matrix.image_name }}
+  # 发版镜像同时推 GHCR 与华为云 SWR（需仓库 Secrets：SWR_REGISTRY / SWR_USERNAME / SWR_PASSWORD / SWR_NAMESPACE）。
+  # Release images push to both GHCR and Huawei SWR (requires repo Secrets: SWR_REGISTRY / SWR_USERNAME / SWR_PASSWORD / SWR_NAMESPACE).
+  publish-container-images:
+    name: Publish ${{ matrix.image_name }}
     runs-on: ubuntu-latest
     needs: package-release
     strategy:
@@ -144,11 +146,22 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # 用户名格式：区域@AK，例如 cn-east-3@HPUAKxxxx；密码为 SWR 控制台登录密钥。
+      # Username format: region@AK (e.g. cn-east-3@HPUAKxxxx); password is the SWR console login key.
+      - name: Login to Huawei SWR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ secrets.SWR_REGISTRY }}
+          username: ${{ secrets.SWR_USERNAME }}
+          password: ${{ secrets.SWR_PASSWORD }}
+
       - name: Docker metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ steps.owner.outputs.value }}/${{ matrix.image_name }}
+          images: |
+            ghcr.io/${{ steps.owner.outputs.value }}/${{ matrix.image_name }}
+            ${{ secrets.SWR_REGISTRY }}/${{ secrets.SWR_NAMESPACE }}/${{ matrix.image_name }}
           tags: |
             type=ref,event=tag
             type=semver,pattern={{version}}

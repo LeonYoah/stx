@@ -658,6 +658,18 @@ func Serve() {
 				// POST /api/v1/packages/upload/chunk - Upload package chunk
 				packageRouter.POST("/upload/chunk", installerHandler.UploadPackageChunk)
 
+				// POST /api/v1/packages/:version/source/upload - 单独上传或替换源码包
+				// POST /api/v1/packages/:version/source/upload - Upload or replace source archive
+				packageRouter.POST("/:version/source/upload", installerHandler.UploadSourcePackage)
+
+				// POST /api/v1/packages/:version/source/fetch - 从镜像补充源码包
+				// POST /api/v1/packages/:version/source/fetch - Fetch source archive from mirror
+				packageRouter.POST("/:version/source/fetch", installerHandler.FetchSourcePackage)
+
+				// GET /api/v1/packages/:version/source/download - 下载本地源码包
+				// GET /api/v1/packages/:version/source/download - Download local source archive
+				packageRouter.GET("/:version/source/download", installerHandler.DownloadSourcePackage)
+
 				// DELETE /api/v1/packages/:version - 删除本地安装包
 				// DELETE /api/v1/packages/:version - Delete local package
 				packageRouter.DELETE("/:version", installerHandler.DeletePackage)

@@ -83,6 +83,7 @@ export async function getPackageInfo(version: string): Promise<PackageInfo> {
 export async function uploadPackage(
   file: File,
   version: string,
+  sourceFile?: File,
   onProgress?: (percent: number) => void,
 ): Promise<PackageInfo> {
   if (!file || file.size <= 0) {
@@ -143,6 +144,10 @@ export async function uploadPackage(
     throw new Error('分片上传未完成，请重试 / Chunk upload did not complete');
   }
 
+  if (sourceFile) {
+    finalPackage = await uploadSourcePackage(version, sourceFile);
+  }
+
   return finalPackage;
 }
 
@@ -152,17 +157,50 @@ function createChunkUploadID(version: string): string {
   return `upload_${Date.now()}_${sanitizedVersion}_${randomPart}`.slice(0, 120);
 }
 
-/**
- * Delete local package
- * 删除本地安装包
- */
+/** Delete a local runtime package through the web console. / 通过网页控制台删除本地运行包。 */
 export async function deletePackage(version: string): Promise<void> {
-  const response = await apiClient.delete<DeletePackageResponse>(
-    `${API_PREFIX}/packages/${version}`
-  );
+  const response = await apiClient.delete<DeletePackageResponse>(`${API_PREFIX}/packages/${version}`);
   if (response.data.error_msg) {
     throw new Error(response.data.error_msg);
   }
+}
+
+/** Upload or replace the source archive associated with a runtime package. / 上传或替换运行包关联的源码包。 */
+export async function uploadSourcePackage(version: string, sourceFile: File): Promise<PackageInfo> {
+  const formData = new FormData();
+  formData.append('source_file', sourceFile, sourceFile.name);
+  const response = await apiClient.post<GetPackageInfoResponse>(
+    `${API_PREFIX}/packages/${version}/source/upload`,
+    formData,
+    {headers: {'Content-Type': 'multipart/form-data'}},
+  );
+  if (response.data.error_msg || !response.data.data) {
+    throw new Error(response.data.error_msg || '源码包上传返回为空 / Empty source upload response');
+  }
+  return response.data.data;
+}
+
+/** Fetch source from a remote mirror. / 从远端镜像补充源码包。 */
+export async function fetchSourcePackage(version: string, mirror: MirrorSource = 'apache'): Promise<PackageInfo> {
+  const response = await apiClient.post<GetPackageInfoResponse>(
+    `${API_PREFIX}/packages/${version}/source/fetch`,
+    {mirror},
+  );
+  if (response.data.error_msg || !response.data.data) {
+    throw new Error(response.data.error_msg || '源码包下载返回为空 / Empty source fetch response');
+  }
+  return response.data.data;
+}
+
+/** Download source through the authenticated STX API. / 通过已认证的 STX API 下载源码包。 */
+export async function downloadSourcePackage(version: string): Promise<void> {
+  const response = await apiClient.get<Blob>(`${API_PREFIX}/packages/${version}/source/download`, {responseType: 'blob'});
+  const url = URL.createObjectURL(response.data);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = `apache-seatunnel-${version}-src.tar.gz`;
+  anchor.click();
+  URL.revokeObjectURL(url);
 }
 
 // ==================== Precheck 预检查 ====================
@@ -285,8 +323,8 @@ export async function cancelInstallation(hostId: number | string): Promise<Insta
  * Start downloading a package to server
  * 开始下载安装包到服务器
  */
-export async function startDownload(version: string, mirror?: MirrorSource): Promise<DownloadTask> {
-  const request: DownloadRequest = { version, mirror };
+export async function startDownload(version: string, mirror?: MirrorSource, withSource = true): Promise<DownloadTask> {
+  const request: DownloadRequest = { version, mirror, with_source: withSource };
   const response = await apiClient.post<DownloadResponse>(
     `${API_PREFIX}/packages/download`,
     request
@@ -370,6 +408,9 @@ export const installerService = {
   getPackageInfo,
   uploadPackage,
   deletePackage,
+  uploadSourcePackage,
+  fetchSourcePackage,
+  downloadSourcePackage,
   // Package download / 安装包下载
   startDownload,
   getDownloadStatus,

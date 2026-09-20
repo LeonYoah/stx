@@ -23,6 +23,7 @@ import (
 	"testing"
 
 	clioutput "github.com/LeonYoah/stx/internal/cli/output"
+	"github.com/spf13/cobra"
 )
 
 func TestRootCommandWithoutArgumentsShowsHelp(t *testing.T) {
@@ -130,9 +131,9 @@ func TestRootCommandRegistersAuthAdminAndDashboardReadCommands(t *testing.T) {
 func TestRootCommandRegistersClusterReadWriteAndProcessCommands(t *testing.T) {
 	command := newRootCommand(func() error { return nil })
 	paths := [][]string{
-		{"cluster", "create"}, {"cluster", "update"}, {"cluster", "delete"},
+		{"cluster", "create"}, {"cluster", "update"},
 		{"cluster", "node", "add"}, {"cluster", "node", "add-batch"}, {"cluster", "node", "update"},
-		{"cluster", "node", "remove"}, {"cluster", "node", "precheck"}, {"cluster", "node", "logs"},
+		{"cluster", "node", "precheck"}, {"cluster", "node", "logs"},
 		{"cluster", "start"}, {"cluster", "stop"}, {"cluster", "restart"},
 		{"cluster", "node", "start"}, {"cluster", "node", "stop"}, {"cluster", "node", "restart"},
 		{"cluster", "java-proxy", "status"}, {"cluster", "java-proxy", "logs"},
@@ -144,6 +145,20 @@ func TestRootCommandRegistersClusterReadWriteAndProcessCommands(t *testing.T) {
 			t.Fatalf("集群命令未完整注册: path=%v found=%s remaining=%v err=%v", path, found.CommandPath(), remaining, err)
 		}
 	}
+}
+
+func TestRootCommandDoesNotExposeDeleteOrRemoveCommands(t *testing.T) {
+	root := newRootCommand(func() error { return nil })
+	var visit func(command *cobra.Command)
+	visit = func(command *cobra.Command) {
+		for _, child := range command.Commands() {
+			if child.Name() == "delete" || child.Name() == "remove" {
+				t.Fatalf("CLI 不应暴露删除命令: %s / delete commands must not be exposed", child.CommandPath())
+			}
+			visit(child)
+		}
+	}
+	visit(root)
 }
 
 func TestRootCommandRegistersHostDiscoveryProcessCommand(t *testing.T) {

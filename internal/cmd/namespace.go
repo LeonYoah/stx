@@ -68,7 +68,6 @@ func newNamespaceCommandWithStore(storeProvider namespaceStoreProvider) *cobra.C
 		newNamespaceListCommand(storeProvider),
 		newNamespaceShowCommand(storeProvider),
 		newNamespaceUseCommand(storeProvider),
-		newNamespaceDeleteCommand(storeProvider),
 	)
 	return command
 }
@@ -154,32 +153,6 @@ func newNamespaceUseCommand(storeProvider namespaceStoreProvider) *cobra.Command
 			return renderCommandResult(command, "namespace.use", namespaceMutationResult{
 				Name:             args[0],
 				CurrentNamespace: args[0],
-			})
-		},
-	}
-}
-
-func newNamespaceDeleteCommand(storeProvider namespaceStoreProvider) *cobra.Command {
-	return &cobra.Command{
-		Use:   "delete <name>",
-		Short: "Delete a local namespace",
-		Args:  usageArgs(cobra.ExactArgs(1)),
-		RunE: func(command *cobra.Command, args []string) error {
-			store, err := storeProvider()
-			if err != nil {
-				return classifyNamespaceError(err)
-			}
-			if err := store.Delete(args[0]); err != nil {
-				return classifyNamespaceError(err)
-			}
-			file, err := store.Load()
-			if err != nil {
-				return classifyNamespaceError(err)
-			}
-			return renderCommandResult(command, "namespace.delete", namespaceMutationResult{
-				Name:             args[0],
-				CurrentNamespace: file.CurrentNamespace,
-				Deleted:          true,
 			})
 		},
 	}

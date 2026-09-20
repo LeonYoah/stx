@@ -18,6 +18,7 @@
 package operation
 
 import (
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -68,6 +69,20 @@ func TestValidateRejectsGeneratedCLIWithoutSummary(t *testing.T) {
 	t.Fatal("登记表缺少生成式 CLI 操作 / registry has no generated CLI operation")
 }
 
+func TestValidateRejectsGeneratedDeleteCLI(t *testing.T) {
+	specs := Registry()
+	for index := range specs {
+		if specs[index].GeneratedCLI {
+			specs[index].Method = http.MethodDelete
+			err := Validate(specs, RouteExceptions())
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "DELETE operations cannot be exposed through CLI")
+			return
+		}
+	}
+	t.Fatal("测试登记中缺少可生成 CLI 的操作 / generated CLI operation missing from test registry")
+}
+
 func TestValidateRejectsRepeatedNonQueryInput(t *testing.T) {
 	specs := Registry()
 	specs[0].Input = []InputSpec{{
@@ -83,7 +98,7 @@ func TestValidateRejectsRepeatedNonQueryInput(t *testing.T) {
 }
 
 func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
-	require.Len(t, Registry(), 83)
+	require.Len(t, Registry(), 87)
 
 	expected := map[string]struct{}{
 		"auth.user-info.get": {}, "admin.user.list": {}, "admin.user.get": {},
@@ -92,8 +107,8 @@ func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
 		"host.list": {}, "host.get": {}, "host.agent.install-command.get": {}, "cluster.list": {}, "cluster.get": {},
 		"host.discovery.process.list": {},
 		"cluster.node.list":           {}, "cluster.status.get": {}, "config.cluster.list": {},
-		"cluster.delete": {}, "cluster.node.remove": {}, "cluster.node.logs": {},
-		"cluster.start": {}, "cluster.stop": {}, "cluster.restart": {},
+		"cluster.node.logs": {},
+		"cluster.start":     {}, "cluster.stop": {}, "cluster.restart": {},
 		"cluster.node.start": {}, "cluster.node.stop": {}, "cluster.node.restart": {},
 		"cluster.java-proxy.status": {}, "cluster.java-proxy.logs": {},
 		"cluster.java-proxy.start": {}, "cluster.java-proxy.stop": {}, "cluster.java-proxy.restart": {},
@@ -134,8 +149,20 @@ func TestRegistryContainsClusterWriteOperations(t *testing.T) {
 
 	require.False(t, byID["cluster.create"].GeneratedCLI)
 	require.False(t, byID["cluster.node.precheck"].GeneratedCLI)
-	require.True(t, byID["cluster.delete"].GeneratedCLI)
+	require.False(t, byID["cluster.delete"].GeneratedCLI)
+	require.Empty(t, byID["cluster.delete"].CommandPath)
+	require.False(t, byID["cluster.node.remove"].GeneratedCLI)
+	require.Empty(t, byID["cluster.node.remove"].CommandPath)
 	require.True(t, byID["cluster.restart"].GeneratedCLI)
+}
+
+func TestRegistryNeverGeneratesDeleteOperations(t *testing.T) {
+	for _, spec := range Registry() {
+		if spec.Method == "DELETE" {
+			require.False(t, spec.GeneratedCLI, spec.ID)
+			require.Empty(t, spec.CommandPath, spec.ID)
+		}
+	}
 }
 
 func TestRegistryContainsHostInstallOperations(t *testing.T) {

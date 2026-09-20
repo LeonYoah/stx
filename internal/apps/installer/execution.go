@@ -53,6 +53,12 @@ type chunkExecutionResult struct {
 // UploadPackageWithExecution 在公共确认和幂等规则下上传安装包。
 // UploadPackageWithExecution uploads a package under shared confirmation and idempotency rules.
 func (s *Service) UploadPackageWithExecution(ctx context.Context, actor executionapp.Actor, version string, file *multipart.FileHeader, request ExecutionRequest) (*PackageInfo, error) {
+	return s.UploadPackageBundleWithExecution(ctx, actor, version, file, nil, request)
+}
+
+// UploadPackageBundleWithExecution 上传运行包，并可在同一次请求中附带源码包。
+// UploadPackageBundleWithExecution uploads the runtime package with an optional source archive in the same request.
+func (s *Service) UploadPackageBundleWithExecution(ctx context.Context, actor executionapp.Actor, version string, file, sourceFile *multipart.FileHeader, request ExecutionRequest) (*PackageInfo, error) {
 	item, existing, err := s.beginPackageExecution(ctx, actor, "package.upload", version, executionapp.RiskLevelR1,
 		"上传会把安装包写入 STX 本地存储；同版本文件不会被覆盖。", request, false)
 	if err != nil {
@@ -61,7 +67,39 @@ func (s *Service) UploadPackageWithExecution(ctx context.Context, actor executio
 	if existing {
 		return s.packageResultForExecution(ctx, item)
 	}
-	result, runErr := s.UploadPackage(ctx, version, file)
+	result, runErr := s.UploadPackageBundle(ctx, version, file, sourceFile)
+	s.finishPackageOperation(ctx, item, runErr, version)
+	return result, runErr
+}
+
+// UploadSourcePackageWithExecution 为已有运行包补充或替换源码包。
+// UploadSourcePackageWithExecution supplements or replaces source for an existing runtime package.
+func (s *Service) UploadSourcePackageWithExecution(ctx context.Context, actor executionapp.Actor, version string, file *multipart.FileHeader, request ExecutionRequest) (*PackageInfo, error) {
+	item, existing, err := s.beginPackageExecution(ctx, actor, "package.source.upload", version, executionapp.RiskLevelR1,
+		"上传会写入或替换该版本的源码包，不会修改运行包。", request, false)
+	if err != nil {
+		return nil, err
+	}
+	if existing {
+		return s.packageResultForExecution(ctx, item)
+	}
+	result, runErr := s.UploadSourcePackage(ctx, version, file)
+	s.finishPackageOperation(ctx, item, runErr, version)
+	return result, runErr
+}
+
+// FetchSourcePackageWithExecution 从镜像为已有运行包补充源码包。
+// FetchSourcePackageWithExecution fetches source from a mirror for an existing runtime package.
+func (s *Service) FetchSourcePackageWithExecution(ctx context.Context, actor executionapp.Actor, version string, mirror MirrorSource, request ExecutionRequest) (*PackageInfo, error) {
+	item, existing, err := s.beginPackageExecution(ctx, actor, "package.source.fetch", version, executionapp.RiskLevelR1,
+		"下载源码会占用 STX 服务器网络带宽和磁盘空间，但不会修改运行包。", request, false)
+	if err != nil {
+		return nil, err
+	}
+	if existing {
+		return s.packageResultForExecution(ctx, item)
+	}
+	result, runErr := s.FetchSourcePackage(ctx, version, mirror)
 	s.finishPackageOperation(ctx, item, runErr, version)
 	return result, runErr
 }

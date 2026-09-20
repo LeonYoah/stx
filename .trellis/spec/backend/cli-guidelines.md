@@ -382,15 +382,17 @@ printf '%s\n' "$STX_TEST_PASSWORD" | stx admin user create \
   --username demo --password-stdin --confirm --idempotency-key create-demo
 ```
 
-## 11. 场景：由登记表生成无正文写命令
+## 11. 场景：由登记表生成无正文写命令，并禁止 CLI 删除资源
 
 ### 11.1 范围
 
-无正文的 `POST` 和 `DELETE` 可以和普通 GET 一样由操作登记表生成，适用于启停、重启和删除等只需要 path/query 参数的接口。包含 JSON 正文、文件或特殊输入的命令仍使用专用实现。
+无正文的 `POST` 可以和普通 GET 一样由操作登记表生成，适用于启停、重启等只需要 path/query 参数的接口。CLI 不提供任何资源删除入口；服务端和网页可以继续保留原有 `DELETE` API。包含 JSON 正文、文件或特殊输入的命令仍使用专用实现。
 
 ### 11.2 登记和命令约定
 
-- `GeneratedCLI=true`，方法只能是 `GET`、无正文 `POST` 或无正文 `DELETE`。
+- `GeneratedCLI=true` 时，方法只能是 `GET` 或无正文 `POST`；`DELETE` 必须保持 `GeneratedCLI=false`。
+- 删除类操作不设置 `CommandPath` 和 CLI `Example`，避免能力信息和帮助文案推荐不可执行命令。
+- 手写 Cobra 命令也不能使用 `delete` 或表示资源删除的 `remove` 命令名。
 - R1 至 R3 必须提供 `ImpactSpec`，并在登记输入中声明 `Idempotency-Key` 和 `X-STX-Confirm`。
 - 生成命令自动增加 `--confirm`、`--idempotency-key` 和 `--confirmation-id`。
 - 缺少 `--confirm` 时不能创建客户端、查询能力或调用业务接口。
@@ -401,7 +403,43 @@ printf '%s\n' "$STX_TEST_PASSWORD" | stx admin user create \
 ### 11.3 必须有的测试
 
 - 无正文 R0 POST 能正常生成和调用。
-- R1/R2 POST 或 DELETE 缺少确认时网络调用次数为 0。
+- R1/R2 POST 缺少确认时网络调用次数为 0。
+- 遍历根命令树，断言不存在 `delete` 或资源删除语义的 `remove` 命令。
+- 遍历操作登记，断言所有 `DELETE` 操作均为 `GeneratedCLI=false` 且没有命令路径。
 - 带确认的命令发送统一安全请求头，并输出影响提示。
 - 服务端返回 `confirmation_required` 时，stderr 包含一次性确认编号。
 - body/header/file 中除统一安全 Header 外的输入仍被生成器拒绝。
+
+### 11.4 错误与正确示例
+
+错误：
+
+```go
+OperationSpec{Method: http.MethodDelete, GeneratedCLI: true, CommandPath: []string{"package", "delete"}}
+```
+
+正确：
+
+```go
+OperationSpec{ID: "package.delete", Method: http.MethodDelete, GeneratedCLI: false}
+```
+
+服务端操作编号继续用于路由登记、网页调用和审计，但 CLI 命令树中没有对应入口。
+
+### 11.5 校验与错误对应表
+
+| 情况 | 行为 |
+| --- | --- |
+| `DELETE` 设置 `GeneratedCLI=true` | 登记校验失败，构建和测试不能通过 |
+| 非 CLI 删除操作设置命令路径或样例 | 规范测试失败，要求清除命令提示 |
+| 用户执行旧的 `stx ... delete` | Cobra 返回未知命令或多余参数，不发起网络请求 |
+
+### 11.6 Good / Base / Bad
+
+- Good：服务端保留删除 API，网页按现有权限调用，CLI 只提供查询、新增、修改和受控执行命令。
+- Base：取消异步任务继续使用 `cancel`，因为它停止一次执行，不是删除业务资源。
+- Bad：把删除操作改名为 `remove` 后继续暴露给 CLI。
+
+### 11.7 范围边界
+
+本约定只限制 `stx` CLI。服务端 Handler、Repository 和网页删除按钮是否保留，由对应业务需求决定；不能为了移除 CLI 命令而删除已有 API。

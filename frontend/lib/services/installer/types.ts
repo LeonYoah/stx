@@ -114,6 +114,14 @@ export interface PackageInfo {
   is_local: boolean;
   local_path?: string;
   uploaded_at?: string;
+  has_source: boolean;
+  source_status?: DownloadStatus;
+  source_file_name?: string;
+  source_file_size?: number;
+  source_checksum?: string;
+  source_uploaded_at?: string;
+  source_download_urls: Record<MirrorSource, string>;
+  source_error?: string;
 }
 
 /**
@@ -482,6 +490,13 @@ export interface DownloadTask {
   error?: string;
   start_time: string;
   end_time?: string;
+  source_requested: boolean;
+  source_status?: DownloadStatus;
+  source_progress?: number;
+  source_downloaded_bytes?: number;
+  source_total_bytes?: number;
+  source_checksum?: string;
+  source_error?: string;
 }
 
 /**
@@ -491,6 +506,7 @@ export interface DownloadTask {
 export interface DownloadRequest {
   version: string;
   mirror?: MirrorSource;
+  with_source?: boolean;
 }
 
 /**

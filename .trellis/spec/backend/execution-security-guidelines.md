@@ -431,3 +431,102 @@ for attempt := 1; attempt <= 3; attempt++ {
     recordRetry(attempt)
 }
 ```
+
+## 11. 场景：安装包关联源码的保存、补充和下载
+
+### 11.1 范围 / 触发条件
+
+- 自动下载安装包时，默认同时获取同版本 SeaTunnel 源码。
+- 手工导入运行包时，可以附带源码；已有运行包也可以单独补充或替换源码。
+- AI Agent 只能下载完整源码压缩包，STX 不解压、不搜索源码内容。
+
+### 11.2 签名
+
+```text
+POST /api/v1/packages/download
+body: {version, mirror?, with_source?}  # with_source 缺省为 true
+
+POST /api/v1/packages/upload
+multipart: version, file, source_file?
+
+POST /api/v1/packages/:version/source/upload
+multipart: source_file
+
+POST /api/v1/packages/:version/source/fetch
+body: {mirror?}
+
+GET /api/v1/packages/:version/source/download
+```
+
+`PackageInfo` 至少返回：
+
+```text
+has_source, source_status, source_file_name, source_file_size,
+source_checksum, source_uploaded_at, source_download_urls, source_error
+```
+
+### 11.3 契约
+
+- 运行包文件名为 `apache-seatunnel-<version>-bin.tar.gz`，源码文件名为 `apache-seatunnel-<version>-src.tar.gz`。
+- 本地安装包列表仍以运行包为主记录；只有源码而没有运行包时，不产生独立列表项。
+- 自动下载中，运行包成功而源码失败时，运行包仍可安装和升级；任务返回 `completed`，同时把源码标记为 `failed` 并返回原因。
+- 源码上传或在线补充使用临时文件，完成大小、gzip、完整 tar 流和版本根目录校验后再原子替换。
+- 上传时不依赖用户本地文件名判断版本；文件即使被重命名，只要压缩包内容属于路径参数指定版本也允许导入。落盘名称统一为 `apache-seatunnel-<version>-src.tar.gz`。
+- 源码整包下载需要登录，只能按版本读取固定路径，客户端不能提交服务器路径。
+- `stx package source fetch` 默认使用 Apache 镜像，并使用独立的长耗时请求超时；默认值为 10 分钟，可通过 `--timeout` 调整，不能复用普通查询的 30 秒超时。
+- CLI 不提供安装包或源码删除命令；服务端网页删除运行包时可以同时清理关联源码。
+
+### 11.4 校验与错误对应表
+
+| 情况 | 行为 |
+| --- | --- |
+| 源码文件被用户重命名 | 继续校验压缩包内容，成功后按固定文件名保存 |
+| gzip 或 tar 不可读 | `400 invalid_source_package`，临时文件被清理 |
+| tar 前半段有效、后半段损坏 | `400 invalid_source_package`，不能在发现版本目录后提前返回成功 |
+| 压缩包根目录版本不一致 | `400 invalid_source_package` |
+| 运行包不存在时补源码 | `404 package_not_found` |
+| 自动下载源码返回 404 | 运行包任务成功，`source_status=failed` |
+| 下载未保存的源码 | `404 package_not_found` |
+| 源码在线补充超过普通 CLI 超时 | 命令使用自己的 `--timeout`，默认 10 分钟 |
+
+### 11.5 Good / Base / Bad
+
+- Good：自动下载先保存运行包，再下载和校验源码；源码失败只记录独立状态。
+- Base：手工导入只上传运行包，列表显示 `has_source=false`，之后再补传源码。
+- Bad：源码失败后删除已经可用的运行包，把未经校验的压缩包直接覆盖旧源码，或把本地文件名当成版本真实性依据。
+
+### 11.6 必须有的测试
+
+- 服务测试：有效源码保存成功，字段和 SHA-256 正确。
+- 服务测试：官方 `apache-seatunnel-<version>-src/` 根目录和重命名的本地文件均可导入。
+- 服务测试：匹配版本目录后的 tar 数据损坏仍会被拒绝。
+- 服务测试：无效源码不会删除运行包，也不会覆盖旧源码。
+- 下载测试：省略 `with_source` 时会请求运行包和源码；源码 404 时运行包仍为成功。
+- Handler 测试：上传请求摘要包含源码文件内容摘要。
+- CLI 测试：`--source-file` 发送两个 multipart 文件，源码整包下载使用临时文件和原子改名，在线补充使用独立长超时。
+- 前端检查：自动下载默认带源码，本地列表显示源码状态，并能补传、联网补充和下载。
+
+### 11.7 错误与正确示例
+
+错误：
+
+```go
+if sourceErr != nil {
+    _ = os.Remove(runtimePath)
+    return sourceErr
+}
+```
+
+正确：
+
+```go
+info, err := saveRuntimePackage(...)
+if err != nil {
+    return nil, err
+}
+if sourceErr := saveOptionalSource(...); sourceErr != nil {
+    info.SourceStatus = DownloadStatusFailed
+    info.SourceError = sourceErr.Error()
+}
+return info, nil
+```

@@ -152,6 +152,7 @@ type UploadChunkResponse struct {
 // @Accept multipart/form-data
 // @Produce json
 // @Param file formData file true "安装包文件"
+// @Param source_file formData file false "同版本源码包文件"
 // @Param version formData string true "版本号"
 // @Success 200 {object} UploadPackageResponse
 // @Router /api/v1/packages/upload [post]
@@ -177,6 +178,11 @@ func (h *Handler) UploadPackage(c *gin.Context) {
 		c.JSON(statusCode, UploadPackageResponse{ErrorMsg: message})
 		return
 	}
+	sourceFile, sourceFileErr := c.FormFile("source_file")
+	if sourceFileErr != nil && !errors.Is(sourceFileErr, http.ErrMissingFile) {
+		c.JSON(http.StatusBadRequest, UploadPackageResponse{ErrorMsg: "源码包上传失败 / Source upload failed: " + sourceFileErr.Error()})
+		return
+	}
 
 	maxPackageSize := config.GetMaxPackageSize()
 	if maxPackageSize > 0 && file.Size > maxPackageSize {
@@ -189,8 +195,84 @@ func (h *Handler) UploadPackage(c *gin.Context) {
 		})
 		return
 	}
+	if sourceFile != nil && maxPackageSize > 0 && sourceFile.Size > maxPackageSize {
+		c.JSON(http.StatusRequestEntityTooLarge, UploadPackageResponse{
+			ErrorMsg: fmt.Sprintf(
+				"源码包超过配置上限（%.2f MB > %.2f MB） / Source package exceeds configured max size",
+				float64(sourceFile.Size)/1024.0/1024.0,
+				float64(maxPackageSize)/1024.0/1024.0,
+			),
+		})
+		return
+	}
 
 	metadata := executionapp.MetadataFromGin(c)
+	fileSHA256, err := hashMultipartFile(file)
+	if err != nil {
+		h.writePackageError(c, err)
+		return
+	}
+	sourceSHA256 := ""
+	if sourceFile != nil {
+		sourceSHA256, err = hashMultipartFile(sourceFile)
+		if err != nil {
+			h.writePackageError(c, err)
+			return
+		}
+	}
+	requestHash, err := executionapp.HashRequest(struct {
+		Version          string `json:"version"`
+		FileName         string `json:"file_name"`
+		FileSize         int64  `json:"file_size"`
+		FileSHA256       string `json:"file_sha256"`
+		SourceFileName   string `json:"source_file_name,omitempty"`
+		SourceFileSize   int64  `json:"source_file_size,omitempty"`
+		SourceFileSHA256 string `json:"source_file_sha256,omitempty"`
+	}{
+		Version: strings.TrimSpace(version), FileName: file.Filename, FileSize: file.Size, FileSHA256: fileSHA256,
+		SourceFileName: multipartFileName(sourceFile), SourceFileSize: multipartFileSize(sourceFile), SourceFileSHA256: sourceSHA256,
+	})
+	if err != nil {
+		h.writePackageError(c, err)
+		return
+	}
+	info, err := h.service.UploadPackageBundleWithExecution(c.Request.Context(), currentInstallerActor(c), version, file, sourceFile, installerExecutionRequest(metadata, requestHash))
+	if err != nil {
+		h.writePackageError(c, err)
+		return
+	}
+
+	logger.InfoF(c.Request.Context(), "[Installer] 上传安装包成功: %s", version)
+	c.JSON(http.StatusOK, UploadPackageResponse{Data: info})
+}
+
+// UploadSourcePackage handles POST /api/v1/packages/:version/source/upload.
+// UploadSourcePackage 处理 POST /api/v1/packages/:version/source/upload。
+// @Tags packages
+// @Accept multipart/form-data
+// @Produce json
+// @Param version path string true "版本号"
+// @Param source_file formData file true "源码包文件"
+// @Success 200 {object} UploadPackageResponse
+// @Router /api/v1/packages/{version}/source/upload [post]
+func (h *Handler) UploadSourcePackage(c *gin.Context) {
+	version := strings.TrimSpace(c.Param("version"))
+	file, err := c.FormFile("source_file")
+	if version == "" || err != nil {
+		c.JSON(http.StatusBadRequest, UploadPackageResponse{ErrorMsg: "版本号和源码包不能为空 / Version and source file are required"})
+		return
+	}
+	maxPackageSize := config.GetMaxPackageSize()
+	if maxPackageSize > 0 && file.Size > maxPackageSize {
+		c.JSON(http.StatusRequestEntityTooLarge, UploadPackageResponse{
+			ErrorMsg: fmt.Sprintf(
+				"源码包超过配置上限（%.2f MB > %.2f MB） / Source package exceeds configured max size",
+				float64(file.Size)/1024.0/1024.0,
+				float64(maxPackageSize)/1024.0/1024.0,
+			),
+		})
+		return
+	}
 	fileSHA256, err := hashMultipartFile(file)
 	if err != nil {
 		h.writePackageError(c, err)
@@ -201,19 +283,68 @@ func (h *Handler) UploadPackage(c *gin.Context) {
 		FileName   string `json:"file_name"`
 		FileSize   int64  `json:"file_size"`
 		FileSHA256 string `json:"file_sha256"`
-	}{Version: strings.TrimSpace(version), FileName: file.Filename, FileSize: file.Size, FileSHA256: fileSHA256})
+	}{version, file.Filename, file.Size, fileSHA256})
 	if err != nil {
 		h.writePackageError(c, err)
 		return
 	}
-	info, err := h.service.UploadPackageWithExecution(c.Request.Context(), currentInstallerActor(c), version, file, installerExecutionRequest(metadata, requestHash))
+	metadata := executionapp.MetadataFromGin(c)
+	info, err := h.service.UploadSourcePackageWithExecution(c.Request.Context(), currentInstallerActor(c), version, file, installerExecutionRequest(metadata, requestHash))
 	if err != nil {
 		h.writePackageError(c, err)
 		return
 	}
-
-	logger.InfoF(c.Request.Context(), "[Installer] 上传安装包成功: %s", version)
 	c.JSON(http.StatusOK, UploadPackageResponse{Data: info})
+}
+
+// FetchSourcePackage handles POST /api/v1/packages/:version/source/fetch.
+// FetchSourcePackage 处理 POST /api/v1/packages/:version/source/fetch。
+// @Tags packages
+// @Accept json
+// @Produce json
+// @Param version path string true "版本号"
+// @Param request body SourceFetchRequest true "源码下载请求"
+// @Success 200 {object} UploadPackageResponse
+// @Router /api/v1/packages/{version}/source/fetch [post]
+func (h *Handler) FetchSourcePackage(c *gin.Context) {
+	version := strings.TrimSpace(c.Param("version"))
+	var request SourceFetchRequest
+	if err := c.ShouldBindJSON(&request); err != nil && !errors.Is(err, io.EOF) {
+		c.JSON(http.StatusBadRequest, UploadPackageResponse{ErrorMsg: err.Error()})
+		return
+	}
+	metadata := executionapp.MetadataFromGin(c)
+	requestHash, err := executionapp.HashRequest(struct {
+		Version string       `json:"version"`
+		Mirror  MirrorSource `json:"mirror"`
+	}{version, request.Mirror})
+	if err != nil {
+		h.writePackageError(c, err)
+		return
+	}
+	info, err := h.service.FetchSourcePackageWithExecution(c.Request.Context(), currentInstallerActor(c), version, request.Mirror, installerExecutionRequest(metadata, requestHash))
+	if err != nil {
+		h.writePackageError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, UploadPackageResponse{Data: info})
+}
+
+// DownloadSourcePackage handles GET /api/v1/packages/:version/source/download.
+// DownloadSourcePackage 处理 GET /api/v1/packages/:version/source/download。
+// @Tags packages
+// @Produce application/gzip
+// @Param version path string true "版本号"
+// @Success 200 {file} binary
+// @Router /api/v1/packages/{version}/source/download [get]
+func (h *Handler) DownloadSourcePackage(c *gin.Context) {
+	version := strings.TrimSpace(c.Param("version"))
+	path, err := h.service.SourcePackagePath(version)
+	if err != nil {
+		h.writePackageError(c, err)
+		return
+	}
+	c.FileAttachment(path, sourcePackageFileName(version))
 }
 
 // UploadPackageChunk handles POST /api/v1/packages/upload/chunk - uploads one package chunk.
@@ -513,8 +644,10 @@ func (h *Handler) writePackageError(c *gin.Context, err error) {
 		status, code = http.StatusBadRequest, "invalid_package_request"
 	case errors.Is(err, ErrPackageTooLarge):
 		status, code = http.StatusRequestEntityTooLarge, "package_too_large"
-	case errors.Is(err, ErrPackageNotFound), errors.Is(err, ErrDownloadNotFound):
+	case errors.Is(err, ErrPackageNotFound), errors.Is(err, ErrSourcePackageNotFound), errors.Is(err, ErrDownloadNotFound):
 		status, code = http.StatusNotFound, "package_not_found"
+	case errors.Is(err, ErrInvalidSourcePackage):
+		status, code = http.StatusBadRequest, "invalid_source_package"
 	case errors.Is(err, ErrChunkOutOfOrder), errors.Is(err, ErrPackageAlreadyExists), errors.Is(err, ErrDownloadInProgress),
 		errors.Is(err, executionapp.ErrIdempotencyConflict), errors.Is(err, executionapp.ErrConcurrentUpdate):
 		status, code = http.StatusConflict, executionapp.ErrorCodeIdempotencyConflict
@@ -545,6 +678,20 @@ func (h *Handler) writePackageError(c *gin.Context, err error) {
 		return
 	}
 	c.JSON(status, gin.H{"error_code": code, "error_msg": err.Error(), "data": nil})
+}
+
+func multipartFileName(file *multipart.FileHeader) string {
+	if file == nil {
+		return ""
+	}
+	return file.Filename
+}
+
+func multipartFileSize(file *multipart.FileHeader) int64 {
+	if file == nil {
+		return 0
+	}
+	return file.Size
 }
 
 // ==================== Precheck APIs 预检查 API ====================

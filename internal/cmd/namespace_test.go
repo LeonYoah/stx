@@ -51,7 +51,7 @@ func TestNamespaceCommandsDoNotExposeToken(t *testing.T) {
 	}
 }
 
-func TestNamespaceUseAndDeleteCommands(t *testing.T) {
+func TestNamespaceUseCommandAndDeleteIsNotExposed(t *testing.T) {
 	store := cliconfig.NewStore(filepath.Join(t.TempDir(), "config.yaml"))
 	if err := store.Upsert("one", cliconfig.Namespace{Server: "https://one.example.com"}, true); err != nil {
 		t.Fatalf("准备 one 失败 / preparing one failed: %v", err)
@@ -69,19 +69,14 @@ func TestNamespaceUseAndDeleteCommands(t *testing.T) {
 		t.Fatalf("切换命名空间失败 / selecting namespace failed: %v", err)
 	}
 
-	deleteCommand := newNamespaceCommandWithStore(provider)
-	deleteCommand.SetOut(&bytes.Buffer{})
-	deleteCommand.SetErr(&bytes.Buffer{})
-	deleteCommand.SetArgs([]string{"delete", "two"})
-	if err := deleteCommand.Execute(); err != nil {
-		t.Fatalf("删除命名空间失败 / deleting namespace failed: %v", err)
-	}
-
 	file, err := store.Load()
 	if err != nil {
 		t.Fatalf("读取最终配置失败 / loading final config failed: %v", err)
 	}
-	if file.CurrentNamespace != "one" {
-		t.Fatalf("删除当前项后应选择 one / one must become current after deletion: %s", file.CurrentNamespace)
+	if file.CurrentNamespace != "two" {
+		t.Fatalf("命名空间切换失败 / namespace was not selected: %s", file.CurrentNamespace)
+	}
+	if command, _, err := newNamespaceCommandWithStore(provider).Find([]string{"delete"}); err == nil && command.Name() == "delete" {
+		t.Fatal("CLI 不应暴露命名空间删除命令 / namespace delete must not be exposed")
 	}
 }

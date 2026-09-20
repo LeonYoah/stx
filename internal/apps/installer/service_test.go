@@ -18,7 +18,9 @@
 package installer
 
 import (
+	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"errors"
 	"mime/multipart"
@@ -475,6 +477,64 @@ func createUploadFileHeader(t *testing.T, fieldName, fileName string, content []
 	return fileHeader
 }
 
+func createSourceArchive(t *testing.T, version string) []byte {
+	t.Helper()
+	buffer := &bytes.Buffer{}
+	gzipWriter := gzip.NewWriter(buffer)
+	tarWriter := tar.NewWriter(gzipWriter)
+	content := []byte("package org.apache.seatunnel;\n")
+	name := "apache-seatunnel-" + version + "-src/seatunnel-core/src/main/java/Example.java"
+	if err := tarWriter.WriteHeader(&tar.Header{Name: name, Mode: 0o644, Size: int64(len(content))}); err != nil {
+		t.Fatalf("写入源码包头失败 / write source header failed: %v", err)
+	}
+	if _, err := tarWriter.Write(content); err != nil {
+		t.Fatalf("写入源码包内容失败 / write source content failed: %v", err)
+	}
+	if err := tarWriter.Close(); err != nil {
+		t.Fatalf("关闭 tar 失败 / close tar failed: %v", err)
+	}
+	if err := gzipWriter.Close(); err != nil {
+		t.Fatalf("关闭 gzip 失败 / close gzip failed: %v", err)
+	}
+	return buffer.Bytes()
+}
+
+func TestValidateSourceArchiveReadsEntireStream(t *testing.T) {
+	const version = "9.9.90"
+	tarBuffer := &bytes.Buffer{}
+	tarWriter := tar.NewWriter(tarBuffer)
+	content := []byte("package org.apache.seatunnel;\n")
+	name := "apache-seatunnel-" + version + "-src/seatunnel-core/src/main/java/Example.java"
+	if err := tarWriter.WriteHeader(&tar.Header{Name: name, Mode: 0o644, Size: int64(len(content))}); err != nil {
+		t.Fatalf("写入源码包头失败 / write source header failed: %v", err)
+	}
+	if _, err := tarWriter.Write(content); err != nil {
+		t.Fatalf("写入源码包内容失败 / write source content failed: %v", err)
+	}
+	if err := tarWriter.Flush(); err != nil {
+		t.Fatalf("刷新 tar 失败 / flush tar failed: %v", err)
+	}
+	tarBuffer.Write(bytes.Repeat([]byte{0x7f}, 100))
+
+	archive := &bytes.Buffer{}
+	gzipWriter := gzip.NewWriter(archive)
+	if _, err := gzipWriter.Write(tarBuffer.Bytes()); err != nil {
+		t.Fatalf("写入 gzip 失败 / write gzip failed: %v", err)
+	}
+	if err := gzipWriter.Close(); err != nil {
+		t.Fatalf("关闭 gzip 失败 / close gzip failed: %v", err)
+	}
+	path := filepath.Join(t.TempDir(), sourcePackageFileName(version))
+	if err := os.WriteFile(path, archive.Bytes(), 0o600); err != nil {
+		t.Fatalf("写入损坏源码包失败 / write corrupt source archive failed: %v", err)
+	}
+
+	err := validateSourceArchive(path, version)
+	if err == nil || !errors.Is(err, ErrInvalidSourcePackage) {
+		t.Fatalf("源码包后半段损坏应被拒绝 / trailing archive corruption must be rejected: %v", err)
+	}
+}
+
 func TestService_UploadPackageValidation(t *testing.T) {
 	service := NewService(t.TempDir(), nil)
 	ctx := context.Background()
@@ -509,6 +569,130 @@ func TestService_UploadPackageValidation(t *testing.T) {
 			t.Fatalf("expected ErrPackageAlreadyExists, got: %v", err)
 		}
 	})
+}
+
+func TestService_UploadPackageBundleStoresOptionalSource(t *testing.T) {
+	service := NewService(t.TempDir(), nil)
+	service.tempDir = t.TempDir()
+	const version = "9.9.93"
+	runtimeFile := createUploadFileHeader(t, "file", packageFileName(version), []byte("runtime-package"))
+	sourceFile := createUploadFileHeader(t, "source_file", sourcePackageFileName(version), createSourceArchive(t, version))
+
+	info, err := service.UploadPackageBundle(context.Background(), version, runtimeFile, sourceFile)
+	if err != nil {
+		t.Fatalf("上传运行包和源码失败 / upload runtime and source failed: %v", err)
+	}
+	if !info.HasSource || info.SourceStatus != DownloadStatusCompleted || info.SourceChecksum == "" {
+		t.Fatalf("源码元数据错误 / invalid source metadata: %#v", info)
+	}
+	if _, err := os.Stat(filepath.Join(service.packageDir, sourcePackageFileName(version))); err != nil {
+		t.Fatalf("源码包未落盘 / source archive missing: %v", err)
+	}
+}
+
+func TestService_UploadSourceAcceptsRenamedArchive(t *testing.T) {
+	service := NewService(t.TempDir(), nil)
+	service.tempDir = t.TempDir()
+	const version = "9.9.92"
+	if err := os.WriteFile(filepath.Join(service.packageDir, packageFileName(version)), []byte("runtime-package"), 0o600); err != nil {
+		t.Fatalf("写入运行包失败 / write runtime package failed: %v", err)
+	}
+	sourceFile := createUploadFileHeader(t, "source_file", "renamed-source-backup.tar.gz", createSourceArchive(t, version))
+
+	info, err := service.UploadSourcePackage(context.Background(), version, sourceFile)
+	if err != nil {
+		t.Fatalf("重命名源码包应允许导入 / renamed source archive should be accepted: %v", err)
+	}
+	if !info.HasSource || info.SourceFileName != sourcePackageFileName(version) {
+		t.Fatalf("源码应按固定文件名保存 / source archive must use canonical stored name: %#v", info)
+	}
+}
+
+func TestService_InvalidOptionalSourceKeepsRuntimePackage(t *testing.T) {
+	service := NewService(t.TempDir(), nil)
+	service.tempDir = t.TempDir()
+	const version = "9.9.94"
+	runtimeFile := createUploadFileHeader(t, "file", packageFileName(version), []byte("runtime-package"))
+	sourceFile := createUploadFileHeader(t, "source_file", sourcePackageFileName(version), []byte("not-a-tar-gz"))
+
+	info, err := service.UploadPackageBundle(context.Background(), version, runtimeFile, sourceFile)
+	if err != nil {
+		t.Fatalf("可选源码失败不应撤销运行包 / optional source failure must not fail runtime: %v", err)
+	}
+	if !info.IsLocal || info.HasSource || info.SourceStatus != DownloadStatusFailed || info.SourceError == "" {
+		t.Fatalf("源码失败状态错误 / invalid source failure state: %#v", info)
+	}
+	if _, err := os.Stat(filepath.Join(service.packageDir, packageFileName(version))); err != nil {
+		t.Fatalf("运行包不应被删除 / runtime package must remain: %v", err)
+	}
+}
+
+func TestService_StartDownloadIncludesSourceByDefault(t *testing.T) {
+	const version = "9.9.95"
+	sourceArchive := createSourceArchive(t, version)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/" + version + "/" + packageFileName(version):
+			_, _ = writer.Write([]byte("runtime-package"))
+		case "/" + version + "/" + sourcePackageFileName(version):
+			_, _ = writer.Write(sourceArchive)
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+	originalURL := MirrorURLs[MirrorAliyun]
+	MirrorURLs[MirrorAliyun] = server.URL
+	defer func() { MirrorURLs[MirrorAliyun] = originalURL }()
+
+	service := NewService(t.TempDir(), nil)
+	service.tempDir = t.TempDir()
+	if _, err := service.StartDownload(context.Background(), &DownloadRequest{Version: version, Mirror: MirrorAliyun}); err != nil {
+		t.Fatalf("启动下载失败 / start download failed: %v", err)
+	}
+	var task *DownloadTask
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		task, _ = service.GetDownloadStatus(context.Background(), version)
+		if task != nil && (task.Status == DownloadStatusCompleted || task.Status == DownloadStatusFailed) {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if task == nil || task.Status != DownloadStatusCompleted || task.SourceStatus != DownloadStatusCompleted {
+		t.Fatalf("运行包和源码未完成 / runtime and source did not complete: %#v", task)
+	}
+	info, err := service.GetPackageInfo(context.Background(), version)
+	if err != nil || !info.IsLocal || !info.HasSource {
+		t.Fatalf("安装包列表未显示源码 / package info missing source: info=%#v err=%v", info, err)
+	}
+}
+
+func TestService_FetchSourceDefaultsToApache(t *testing.T) {
+	const version = "9.9.96"
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/"+version+"/"+sourcePackageFileName(version) {
+			t.Fatalf("源码下载路径错误 / invalid source download path: %s", request.URL.Path)
+		}
+		_, _ = writer.Write(createSourceArchive(t, version))
+	}))
+	defer server.Close()
+	originalURL := MirrorURLs[MirrorApache]
+	MirrorURLs[MirrorApache] = server.URL
+	defer func() { MirrorURLs[MirrorApache] = originalURL }()
+
+	service := NewService(t.TempDir(), nil)
+	service.tempDir = t.TempDir()
+	if err := os.WriteFile(filepath.Join(service.packageDir, packageFileName(version)), []byte("runtime-package"), 0o600); err != nil {
+		t.Fatalf("写入运行包失败 / write runtime package failed: %v", err)
+	}
+	info, err := service.FetchSourcePackage(context.Background(), version, "")
+	if err != nil {
+		t.Fatalf("默认 Apache 补源码失败 / default Apache source fetch failed: %v", err)
+	}
+	if !info.HasSource || info.SourceStatus != DownloadStatusCompleted {
+		t.Fatalf("源码状态错误 / invalid source status: %#v", info)
+	}
 }
 
 func TestService_resolveOfflinePackagePath_RejectsPathTraversal(t *testing.T) {

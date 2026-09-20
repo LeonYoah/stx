@@ -175,3 +175,22 @@ func TestEndpointSupportsServerURLWithAPIPrefix(t *testing.T) {
 		t.Fatalf("带 API 前缀的地址错误: %s", got)
 	}
 }
+
+func TestWithTimeoutReturnsIsolatedClient(t *testing.T) {
+	originalHTTPClient := &http.Client{Timeout: time.Second}
+	client, err := New(cliConfig.Resolved{Server: "https://example.test", Timeout: time.Second}, originalHTTPClient)
+	if err != nil {
+		t.Fatalf("创建客户端失败 / creating client failed: %v", err)
+	}
+
+	longRunning := client.WithTimeout(10 * time.Minute)
+	if longRunning == client || longRunning.httpClient == client.httpClient {
+		t.Fatal("长耗时客户端必须是独立副本 / long-running client must be an isolated copy")
+	}
+	if longRunning.timeout != 10*time.Minute || longRunning.httpClient.Timeout != 10*time.Minute {
+		t.Fatalf("长耗时超时设置错误 / invalid long-running timeout: client=%s http=%s", longRunning.timeout, longRunning.httpClient.Timeout)
+	}
+	if client.timeout != time.Second || client.httpClient.Timeout != time.Second {
+		t.Fatalf("原客户端不应被修改 / original client must remain unchanged: client=%s http=%s", client.timeout, client.httpClient.Timeout)
+	}
+}

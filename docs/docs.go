@@ -304,6 +304,11 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
+                        "name": "action_group",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
                         "name": "client_type",
                         "in": "query"
                     },
@@ -1020,7 +1025,8 @@ const docTemplate = `{
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
-                                "type": "integer"
+                                "type": "integer",
+                                "format": "int64"
                             }
                         }
                     },
@@ -1679,6 +1685,11 @@ const docTemplate = `{
                     {
                         "type": "integer",
                         "name": "host_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "name": "request_id",
                         "in": "query"
                     },
                     {
@@ -3392,6 +3403,12 @@ const docTemplate = `{
                         "required": true
                     },
                     {
+                        "type": "file",
+                        "description": "同版本源码包文件",
+                        "name": "source_file",
+                        "in": "formData"
+                    },
+                    {
                         "type": "string",
                         "description": "版本号",
                         "name": "version",
@@ -3545,6 +3562,109 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/installer.DeletePackageResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/packages/{version}/source/download": {
+            "get": {
+                "produces": [
+                    "application/gzip"
+                ],
+                "tags": [
+                    "packages"
+                ],
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "版本号",
+                        "name": "version",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/packages/{version}/source/fetch": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "packages"
+                ],
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "版本号",
+                        "name": "version",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "源码下载请求",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/installer.SourceFetchRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/installer.UploadPackageResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/packages/{version}/source/upload": {
+            "post": {
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "packages"
+                ],
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "版本号",
+                        "name": "version",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "file",
+                        "description": "源码包文件",
+                        "name": "source_file",
+                        "in": "formData",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/installer.UploadPackageResponse"
                         }
                     }
                 }
@@ -4235,6 +4355,10 @@ const docTemplate = `{
                 },
                 "client_type": {
                     "type": "string"
+                },
+                "command_count": {
+                    "description": "CommandCount 是同一次请求下发到 Agent 的命令数，只在列表接口填充。\nCommandCount is the number of Agent commands from the same request. Only list responses fill it.",
+                    "type": "integer"
                 },
                 "command_id": {
                     "type": "string"
@@ -5930,6 +6054,10 @@ const docTemplate = `{
         "github_com_LeonYoah_stx_internal_apps_installer.CheckpointConfig": {
             "type": "object",
             "properties": {
+                "disable_cache": {
+                    "description": "DisableCache 对应 plugin-config.disable.cache；nil 表示沿用默认（hdfs 类型默认关闭缓存）。\nDisableCache maps to plugin-config.disable.cache; nil keeps the default (cache off for hdfs type).",
+                    "type": "boolean"
+                },
                 "hdfs_failover_proxy_provider": {
                     "type": "string"
                 },
@@ -5955,6 +6083,10 @@ const docTemplate = `{
                 "hdfs_namenode_rpc_address_2": {
                     "type": "string"
                 },
+                "hdfs_site_path": {
+                    "description": "HdfsSitePath 是可选的 hdfs-site.xml 路径，对应 SeaTunnel hdfs_site_path。\nHdfsSitePath is the optional hdfs-site.xml path, mapped to SeaTunnel hdfs_site_path.",
+                    "type": "string"
+                },
                 "kerberos_keytab_file_path": {
                     "type": "string"
                 },
@@ -5963,6 +6095,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "namespace": {
+                    "type": "string"
+                },
+                "s3_credentials_provider": {
+                    "description": "S3CredentialsProvider 对应 fs.s3a.aws.credentials.provider；空则使用 SimpleAWSCredentialsProvider。\nS3CredentialsProvider maps to fs.s3a.aws.credentials.provider; empty uses SimpleAWSCredentialsProvider.",
                     "type": "string"
                 },
                 "storage_access_key": {
@@ -6046,6 +6182,10 @@ const docTemplate = `{
         "github_com_LeonYoah_stx_internal_apps_installer.IMAPConfig": {
             "type": "object",
             "properties": {
+                "disable_cache": {
+                    "description": "DisableCache 对应 plugin-config.disable.cache；nil 表示沿用默认。\nDisableCache maps to plugin-config.disable.cache; nil keeps the default.",
+                    "type": "boolean"
+                },
                 "hdfs_failover_proxy_provider": {
                     "type": "string"
                 },
@@ -6072,6 +6212,10 @@ const docTemplate = `{
                 "hdfs_namenode_rpc_address_2": {
                     "type": "string"
                 },
+                "hdfs_site_path": {
+                    "description": "HdfsSitePath 是可选的 hdfs-site.xml 路径，对应 SeaTunnel hdfs_site_path。\nHdfsSitePath is the optional hdfs-site.xml path, mapped to SeaTunnel hdfs_site_path.",
+                    "type": "string"
+                },
                 "kerberos_keytab_file_path": {
                     "type": "string"
                 },
@@ -6080,6 +6224,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "namespace": {
+                    "type": "string"
+                },
+                "s3_credentials_provider": {
+                    "description": "S3CredentialsProvider 对应 fs.s3a.aws.credentials.provider；空则使用 SimpleAWSCredentialsProvider。\nS3CredentialsProvider maps to fs.s3a.aws.credentials.provider; empty uses SimpleAWSCredentialsProvider.",
                     "type": "string"
                 },
                 "storage_access_key": {
@@ -6202,6 +6350,10 @@ const docTemplate = `{
                 },
                 "install_mode": {
                     "$ref": "#/definitions/github_com_LeonYoah_stx_internal_apps_installer.InstallMode"
+                },
+                "java_proxy_port": {
+                    "description": "Managed stx-java-proxy listen port / 托管 stx-java-proxy 监听端口",
+                    "type": "integer"
                 },
                 "job_log_mode": {
                     "$ref": "#/definitions/github_com_LeonYoah_stx_internal_apps_installer.JobLogMode"
@@ -6368,10 +6520,37 @@ const docTemplate = `{
                 "file_size": {
                     "type": "integer"
                 },
+                "has_source": {
+                    "type": "boolean"
+                },
                 "is_local": {
                     "type": "boolean"
                 },
                 "local_path": {
+                    "type": "string"
+                },
+                "source_checksum": {
+                    "type": "string"
+                },
+                "source_download_urls": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "source_error": {
+                    "type": "string"
+                },
+                "source_file_name": {
+                    "type": "string"
+                },
+                "source_file_size": {
+                    "type": "integer"
+                },
+                "source_status": {
+                    "$ref": "#/definitions/installer.DownloadStatus"
+                },
+                "source_uploaded_at": {
                     "type": "string"
                 },
                 "uploaded_at": {
@@ -6818,6 +6997,9 @@ const docTemplate = `{
                 },
                 "version": {
                     "type": "string"
+                },
+                "with_source": {
+                    "type": "boolean"
                 }
             }
         },
@@ -6837,6 +7019,7 @@ const docTemplate = `{
             "enum": [
                 "pending",
                 "downloading",
+                "cancelling",
                 "completed",
                 "failed",
                 "cancelled"
@@ -6844,6 +7027,7 @@ const docTemplate = `{
             "x-enum-varnames": [
                 "DownloadStatusPending",
                 "DownloadStatusDownloading",
+                "DownloadStatusCancelling",
                 "DownloadStatusCompleted",
                 "DownloadStatusFailed",
                 "DownloadStatusCancelled"
@@ -6864,6 +7048,9 @@ const docTemplate = `{
                 "error": {
                     "type": "string"
                 },
+                "execution_id": {
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -6876,6 +7063,30 @@ const docTemplate = `{
                 "progress": {
                     "description": "0-100",
                     "type": "integer"
+                },
+                "source_checksum": {
+                    "type": "string"
+                },
+                "source_downloaded_bytes": {
+                    "type": "integer"
+                },
+                "source_error": {
+                    "type": "string"
+                },
+                "source_progress": {
+                    "type": "integer"
+                },
+                "source_requested": {
+                    "type": "boolean"
+                },
+                "source_status": {
+                    "$ref": "#/definitions/installer.DownloadStatus"
+                },
+                "source_total_bytes": {
+                    "type": "integer"
+                },
+                "source_url": {
+                    "type": "string"
                 },
                 "speed": {
                     "description": "bytes per second",
@@ -7030,6 +7241,14 @@ const docTemplate = `{
                 "SlotAllocationStrategySystemLoad",
                 "SlotAllocationStrategySlotRatio"
             ]
+        },
+        "installer.SourceFetchRequest": {
+            "type": "object",
+            "properties": {
+                "mirror": {
+                    "$ref": "#/definitions/github_com_LeonYoah_stx_internal_apps_installer.MirrorSource"
+                }
+            }
         },
         "installer.UploadChunkResponse": {
             "type": "object",
@@ -7825,6 +8044,11 @@ const docTemplate = `{
                 "MirrorSourceApache": "Apache 官方仓库",
                 "MirrorSourceHuaweiCloud": "华为云镜像"
             },
+            "x-enum-descriptions": [
+                "Apache 官方仓库",
+                "阿里云镜像",
+                "华为云镜像"
+            ],
             "x-enum-varnames": [
                 "MirrorSourceApache",
                 "MirrorSourceAliyun",
@@ -7921,6 +8145,12 @@ const docTemplate = `{
                 "PluginCategorySource": "Source / Data source (legacy, for compatibility / 遗留，用于兼容)",
                 "PluginCategoryTransform": "Transform / 数据转换 (deprecated, not fetched from Maven / 已弃用，不从 Maven 获取)"
             },
+            "x-enum-descriptions": [
+                "Source / Data source (legacy, for compatibility / 遗留，用于兼容)",
+                "Sink / Data sink (legacy, for compatibility / 遗留，用于兼容)",
+                "Connector / 连接器 (primary category, can be used as source or sink / 主要分类，可作为 source 或 sink)",
+                "Transform / 数据转换 (deprecated, not fetched from Maven / 已弃用，不从 Maven 获取)"
+            ],
             "x-enum-varnames": [
                 "PluginCategorySource",
                 "PluginCategorySink",
@@ -8101,6 +8331,12 @@ const docTemplate = `{
                 "PluginStatusEnabled": "已启用 / Enabled",
                 "PluginStatusInstalled": "已安装 / Installed"
             },
+            "x-enum-descriptions": [
+                "可用 / Available",
+                "已安装 / Installed",
+                "已启用 / Enabled",
+                "已禁用 / Disabled"
+            ],
             "x-enum-varnames": [
                 "PluginStatusAvailable",
                 "PluginStatusInstalled",

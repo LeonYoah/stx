@@ -69,6 +69,14 @@ type APIError struct {
 	Data       json.RawMessage
 }
 
+// MultipartFile describes one streamed file part in a multipart request.
+// MultipartFile 描述 multipart 请求中的一个流式文件字段。
+type MultipartFile struct {
+	FieldName string
+	FileName  string
+	Reader    io.Reader
+}
+
 func (e *APIError) Error() string {
 	if e.RequestID == "" {
 		return e.Message
@@ -103,6 +111,22 @@ func (c *Client) Server() string {
 	return c.server
 }
 
+// WithTimeout returns an isolated client copy for one long-running command.
+// WithTimeout 返回仅供单个长耗时命令使用的独立客户端副本。
+func (c *Client) WithTimeout(timeout time.Duration) *Client {
+	if c == nil || timeout <= 0 {
+		return c
+	}
+	copyClient := *c
+	copyClient.timeout = timeout
+	if c.httpClient != nil {
+		copyHTTPClient := *c.httpClient
+		copyHTTPClient.Timeout = timeout
+		copyClient.httpClient = &copyHTTPClient
+	}
+	return &copyClient
+}
+
 // Request 向远端 STX API 发起 JSON 请求。
 // Request sends a JSON request to the remote STX API.
 func (c *Client) Request(ctx context.Context, method, path string, requestBody any, result any) (string, error) {
@@ -118,7 +142,13 @@ func (c *Client) RequestWithHeaders(ctx context.Context, method, path string, re
 // RequestMultipart streams a multipart request without buffering the uploaded file in memory.
 // RequestMultipart 以流式方式发送 multipart 请求，不把上传文件完整读入内存。
 func (c *Client) RequestMultipart(ctx context.Context, method, path string, fields map[string]string, fileField, fileName string, file io.Reader, headers map[string]string, result any) (string, error) {
-	if file == nil {
+	return c.RequestMultipartFiles(ctx, method, path, fields, []MultipartFile{{FieldName: fileField, FileName: fileName, Reader: file}}, headers, result)
+}
+
+// RequestMultipartFiles streams multiple file fields without buffering complete files in memory.
+// RequestMultipartFiles 流式发送多个文件字段，不把完整文件读入内存。
+func (c *Client) RequestMultipartFiles(ctx context.Context, method, path string, fields map[string]string, files []MultipartFile, headers map[string]string, result any) (string, error) {
+	if len(files) == 0 {
 		return "", clioutput.NewError(clioutput.CodeUsage, "upload file is required", clioutput.ExitUsage, false)
 	}
 	pipeReader, pipeWriter := io.Pipe()
@@ -130,14 +160,20 @@ func (c *Client) RequestMultipart(ctx context.Context, method, path string, fiel
 				return
 			}
 		}
-		part, err := writer.CreateFormFile(fileField, fileName)
-		if err != nil {
-			_ = pipeWriter.CloseWithError(err)
-			return
-		}
-		if _, err := io.Copy(part, file); err != nil {
-			_ = pipeWriter.CloseWithError(err)
-			return
+		for _, file := range files {
+			if file.Reader == nil || strings.TrimSpace(file.FieldName) == "" {
+				_ = pipeWriter.CloseWithError(errors.New("multipart file reader and field name are required"))
+				return
+			}
+			part, err := writer.CreateFormFile(file.FieldName, file.FileName)
+			if err != nil {
+				_ = pipeWriter.CloseWithError(err)
+				return
+			}
+			if _, err := io.Copy(part, file.Reader); err != nil {
+				_ = pipeWriter.CloseWithError(err)
+				return
+			}
 		}
 		if err := writer.Close(); err != nil {
 			_ = pipeWriter.CloseWithError(err)
@@ -146,6 +182,47 @@ func (c *Client) RequestMultipart(ctx context.Context, method, path string, fiel
 		_ = pipeWriter.Close()
 	}()
 	return c.requestReader(ctx, method, path, pipeReader, writer.FormDataContentType(), headers, result)
+}
+
+// Download streams a successful response body to the supplied writer.
+// Download 将成功响应正文流式写入调用方提供的 writer。
+func (c *Client) Download(ctx context.Context, path string, destination io.Writer) (string, error) {
+	if destination == nil {
+		return "", clioutput.NewError(clioutput.CodeUsage, "download destination is required", clioutput.ExitUsage, false)
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, c.endpoint(path), nil)
+	if err != nil {
+		return "", clioutput.WrapError(err, clioutput.CodeUsage, "build HTTP request", clioutput.ExitUsage, false)
+	}
+	requestID := uuid.NewString()
+	request.Header.Set("Accept", "application/octet-stream")
+	request.Header.Set("X-STX-Client", clientHeader)
+	request.Header.Set("User-Agent", "stx-cli/"+stxversion.Version)
+	request.Header.Set("X-Request-ID", requestID)
+	if c.token != "" {
+		request.Header.Set("Authorization", "Bearer "+c.token)
+	}
+	response, err := c.httpClient.Do(request)
+	if err != nil {
+		return requestID, clioutput.WrapError(err, clioutput.CodeNetwork, "cannot reach STX server", clioutput.ExitNetwork, true)
+	}
+	defer response.Body.Close()
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		content, _ := io.ReadAll(io.LimitReader(response.Body, 1<<20))
+		envelope, _, legacyError, _ := decodeResponseEnvelope(bytes.TrimSpace(content))
+		message := strings.TrimSpace(envelope.ErrorMsg)
+		if message == "" {
+			message = strings.TrimSpace(legacyError)
+		}
+		if message == "" {
+			message = http.StatusText(response.StatusCode)
+		}
+		return requestID, classifyHTTPError(response.StatusCode, envelope.ErrorCode, message, requestID, envelope.Data)
+	}
+	if _, err := io.Copy(destination, response.Body); err != nil {
+		return requestID, clioutput.WrapError(err, clioutput.CodeFileTransfer, "download source package", clioutput.ExitFileTransfer, true)
+	}
+	return requestID, nil
 }
 
 func (c *Client) request(ctx context.Context, method, path string, requestBody any, headers map[string]string, result any) (string, error) {

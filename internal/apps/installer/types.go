@@ -104,14 +104,22 @@ const (
 // PackageInfo contains information about a SeaTunnel package
 // PackageInfo 包含 SeaTunnel 安装包信息
 type PackageInfo struct {
-	Version      string                  `json:"version"`
-	FileName     string                  `json:"file_name"`
-	FileSize     int64                   `json:"file_size"`
-	Checksum     string                  `json:"checksum,omitempty"`
-	DownloadURLs map[MirrorSource]string `json:"download_urls"`
-	IsLocal      bool                    `json:"is_local"`
-	LocalPath    string                  `json:"local_path,omitempty"`
-	UploadedAt   *time.Time              `json:"uploaded_at,omitempty"`
+	Version            string                  `json:"version"`
+	FileName           string                  `json:"file_name"`
+	FileSize           int64                   `json:"file_size"`
+	Checksum           string                  `json:"checksum,omitempty"`
+	DownloadURLs       map[MirrorSource]string `json:"download_urls"`
+	IsLocal            bool                    `json:"is_local"`
+	LocalPath          string                  `json:"local_path,omitempty"`
+	UploadedAt         *time.Time              `json:"uploaded_at,omitempty"`
+	HasSource          bool                    `json:"has_source"`
+	SourceStatus       DownloadStatus          `json:"source_status,omitempty"`
+	SourceFileName     string                  `json:"source_file_name,omitempty"`
+	SourceFileSize     int64                   `json:"source_file_size,omitempty"`
+	SourceChecksum     string                  `json:"source_checksum,omitempty"`
+	SourceUploadedAt   *time.Time              `json:"source_uploaded_at,omitempty"`
+	SourceDownloadURLs map[MirrorSource]string `json:"source_download_urls"`
+	SourceError        string                  `json:"source_error,omitempty"`
 }
 
 // AvailableVersions contains available SeaTunnel versions
@@ -415,6 +423,14 @@ type DownloadTask struct {
 	StartTime       time.Time      `json:"start_time"`
 	EndTime         *time.Time     `json:"end_time,omitempty"`
 	ExecutionID     string         `json:"execution_id,omitempty"`
+	SourceRequested bool           `json:"source_requested"`
+	SourceStatus    DownloadStatus `json:"source_status,omitempty"`
+	SourceURL       string         `json:"source_url,omitempty"`
+	SourceProgress  int            `json:"source_progress,omitempty"`
+	SourceBytes     int64          `json:"source_downloaded_bytes,omitempty"`
+	SourceTotal     int64          `json:"source_total_bytes,omitempty"`
+	SourceChecksum  string         `json:"source_checksum,omitempty"`
+	SourceError     string         `json:"source_error,omitempty"`
 	OwnerUserID     uint64         `json:"-"`
 	// cancel stops the active HTTP request and is not exposed in API responses.
 	// cancel 用于停止正在执行的 HTTP 请求，不对外暴露。
@@ -427,8 +443,21 @@ type DownloadTask struct {
 // DownloadRequest represents a request to download a package
 // DownloadRequest 表示下载安装包的请求
 type DownloadRequest struct {
-	Version string       `json:"version" binding:"required"`
-	Mirror  MirrorSource `json:"mirror"`
+	Version    string       `json:"version" binding:"required"`
+	Mirror     MirrorSource `json:"mirror"`
+	WithSource *bool        `json:"with_source,omitempty"`
+}
+
+// IncludeSource returns true when the caller omitted with_source or explicitly enabled it.
+// IncludeSource 在调用方未传 with_source 或显式启用时返回 true。
+func (r DownloadRequest) IncludeSource() bool {
+	return r.WithSource == nil || *r.WithSource
+}
+
+// SourceFetchRequest requests a source-only online supplement for an existing runtime package.
+// SourceFetchRequest 请求为已有运行包在线补充源码包。
+type SourceFetchRequest struct {
+	Mirror MirrorSource `json:"mirror"`
 }
 
 // RuntimeStorageValidationKind indicates which runtime storage config to validate.

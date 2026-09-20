@@ -18,6 +18,8 @@
 package installer
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -53,6 +55,8 @@ var (
 	ErrInvalidPackageFile     = errors.New("invalid package file / 安装包文件不合法")
 	ErrInvalidPackagePath     = errors.New("invalid package path / 安装包路径不合法")
 	ErrPackageTooLarge        = errors.New("package too large / 安装包过大")
+	ErrSourcePackageNotFound  = errors.New("source package not found / 源码包未找到")
+	ErrInvalidSourcePackage   = errors.New("invalid source package / 源码包不合法")
 	ErrInvalidUploadID        = errors.New("invalid upload id / 上传会话 ID 不合法")
 	ErrInvalidChunkIndex      = errors.New("invalid chunk index / 分片索引不合法")
 	ErrChunkOutOfOrder        = errors.New("chunk out of order / 分片顺序错误")
@@ -603,15 +607,18 @@ func (s *Service) ListAvailableVersions(ctx context.Context) (*AvailableVersions
 		version := extractVersionFromFileName(name)
 		uploadedAt := info.ModTime()
 
-		result.LocalPackages = append(result.LocalPackages, PackageInfo{
-			Version:      version,
-			FileName:     name,
-			FileSize:     info.Size(),
-			IsLocal:      true,
-			LocalPath:    filepath.Join(s.packageDir, name),
-			UploadedAt:   &uploadedAt,
-			DownloadURLs: getDownloadURLs(version),
-		})
+		packageInfo := PackageInfo{
+			Version:            version,
+			FileName:           name,
+			FileSize:           info.Size(),
+			IsLocal:            true,
+			LocalPath:          filepath.Join(s.packageDir, name),
+			UploadedAt:         &uploadedAt,
+			DownloadURLs:       getDownloadURLs(version),
+			SourceDownloadURLs: getSourceDownloadURLs(version),
+		}
+		s.populateSourceInfo(&packageInfo)
+		result.LocalPackages = append(result.LocalPackages, packageInfo)
 		if version != "" {
 			result.VersionCapabilities[version] = seatunnel.CapabilitiesForVersion(version)
 		}
@@ -628,9 +635,10 @@ func (s *Service) GetPackageInfo(ctx context.Context, version string) (*PackageI
 	localPath := filepath.Join(s.packageDir, fileName)
 
 	info := &PackageInfo{
-		Version:      version,
-		FileName:     fileName,
-		DownloadURLs: getDownloadURLs(version),
+		Version:            version,
+		FileName:           fileName,
+		DownloadURLs:       getDownloadURLs(version),
+		SourceDownloadURLs: getSourceDownloadURLs(version),
 	}
 
 	if fileInfo, err := os.Stat(localPath); err == nil {
@@ -646,8 +654,36 @@ func (s *Service) GetPackageInfo(ctx context.Context, version string) (*PackageI
 			info.Checksum = checksum
 		}
 	}
+	s.populateSourceInfo(info)
 
 	return info, nil
+}
+
+// populateSourceInfo adds source archive metadata without making the runtime package unavailable.
+// populateSourceInfo 补充源码包元数据，源码缺失或失败不会影响运行包可用性。
+func (s *Service) populateSourceInfo(info *PackageInfo) {
+	if info == nil || strings.TrimSpace(info.Version) == "" {
+		return
+	}
+	path := filepath.Join(s.packageDir, sourcePackageFileName(info.Version))
+	fileInfo, err := os.Stat(path)
+	if err == nil && fileInfo.Mode().IsRegular() {
+		uploadedAt := fileInfo.ModTime()
+		info.HasSource = true
+		info.SourceStatus = DownloadStatusCompleted
+		info.SourceFileName = fileInfo.Name()
+		info.SourceFileSize = fileInfo.Size()
+		info.SourceUploadedAt = &uploadedAt
+		info.SourceChecksum, _ = calculateChecksum(path)
+		return
+	}
+	info.SourceStatus = DownloadStatusPending
+	s.downloadsMu.RLock()
+	if task := s.downloads[info.Version]; task != nil {
+		info.SourceStatus = task.SourceStatus
+		info.SourceError = task.SourceError
+	}
+	s.downloadsMu.RUnlock()
 }
 
 // UploadPackage handles package file upload.
@@ -664,6 +700,45 @@ func (s *Service) UploadPackage(ctx context.Context, version string, file *multi
 	defer src.Close()
 
 	return s.savePackageFromReader(ctx, version, file.Filename, file.Size, src)
+}
+
+// UploadPackageBundle stores the required runtime package and an optional matching source archive.
+// UploadPackageBundle 保存必需的运行包以及可选的同版本源码包。
+func (s *Service) UploadPackageBundle(ctx context.Context, version string, file, sourceFile *multipart.FileHeader) (*PackageInfo, error) {
+	info, err := s.UploadPackage(ctx, version, file)
+	if err != nil || sourceFile == nil {
+		return info, err
+	}
+	if _, sourceErr := s.UploadSourcePackage(ctx, version, sourceFile); sourceErr != nil {
+		info.SourceStatus = DownloadStatusFailed
+		info.SourceError = sourceErr.Error()
+		return info, nil
+	}
+	return s.GetPackageInfo(ctx, version)
+}
+
+// UploadSourcePackage validates and atomically stores a source archive for an existing runtime package.
+// UploadSourcePackage 校验源码包，并为已有运行包原子保存源码包。
+func (s *Service) UploadSourcePackage(ctx context.Context, version string, file *multipart.FileHeader) (*PackageInfo, error) {
+	version = strings.TrimSpace(version)
+	if file == nil || !packageVersionRegexp.MatchString(version) {
+		return nil, ErrInvalidSourcePackage
+	}
+	if _, err := os.Stat(filepath.Join(s.packageDir, packageFileName(version))); err != nil {
+		return nil, ErrPackageNotFound
+	}
+	if file.Size <= 0 {
+		return nil, ErrInvalidSourcePackage
+	}
+	src, err := file.Open()
+	if err != nil {
+		return nil, fmt.Errorf("%w: cannot open upload", ErrInvalidSourcePackage)
+	}
+	defer src.Close()
+	if err := s.saveSourceFromReader(ctx, version, file.Size, src); err != nil {
+		return nil, err
+	}
+	return s.GetPackageInfo(ctx, version)
 }
 
 // UploadPackageChunk handles package chunk upload.
@@ -869,15 +944,97 @@ func (s *Service) savePackageFromReader(ctx context.Context, version, fileName s
 	uploadedAt := fileInfo.ModTime()
 	logger.InfoF(ctx, "[Installer] package saved: version=%s size=%d path=%s", version, fileInfo.Size(), destPath)
 	return &PackageInfo{
-		Version:      version,
-		FileName:     finalFileName,
-		FileSize:     fileInfo.Size(),
-		Checksum:     checksum,
-		IsLocal:      true,
-		LocalPath:    destPath,
-		UploadedAt:   &uploadedAt,
-		DownloadURLs: getDownloadURLs(version),
+		Version:            version,
+		FileName:           finalFileName,
+		FileSize:           fileInfo.Size(),
+		Checksum:           checksum,
+		IsLocal:            true,
+		LocalPath:          destPath,
+		UploadedAt:         &uploadedAt,
+		DownloadURLs:       getDownloadURLs(version),
+		SourceDownloadURLs: getSourceDownloadURLs(version),
 	}, nil
+}
+
+// saveSourceFromReader validates a gzip/tar source archive before replacing the stored source atomically.
+// saveSourceFromReader 在原子替换源码包前校验 gzip/tar 内容。
+func (s *Service) saveSourceFromReader(ctx context.Context, version string, fileSize int64, src io.Reader) error {
+	if !packageVersionRegexp.MatchString(version) || fileSize <= 0 {
+		return ErrInvalidSourcePackage
+	}
+	maxPackageSize := config.GetMaxPackageSize()
+	if maxPackageSize > 0 && fileSize > maxPackageSize {
+		return ErrPackageTooLarge
+	}
+	tempFile, err := os.CreateTemp(s.tempDir, "source-upload-*.tar.gz")
+	if err != nil {
+		return fmt.Errorf("create source temp file: %w", err)
+	}
+	tempPath := tempFile.Name()
+	defer func() {
+		_ = tempFile.Close()
+		_ = os.Remove(tempPath)
+	}()
+	written, err := io.Copy(tempFile, src)
+	if err != nil || written != fileSize {
+		return fmt.Errorf("%w: source size mismatch", ErrInvalidSourcePackage)
+	}
+	if err := tempFile.Close(); err != nil {
+		return fmt.Errorf("close source temp file: %w", err)
+	}
+	if err := validateSourceArchive(tempPath, version); err != nil {
+		return err
+	}
+	destPath, err := normalizePathInDir(s.packageDir, filepath.Join(s.packageDir, sourcePackageFileName(version)))
+	if err != nil {
+		return ErrInvalidPackagePath
+	}
+	if err := os.Rename(tempPath, destPath); err != nil {
+		return fmt.Errorf("store source package: %w", err)
+	}
+	logger.InfoF(ctx, "[Installer] source package saved: version=%s path=%s", version, destPath)
+	return nil
+}
+
+// validateSourceArchive checks that the archive is readable and contains the matching release root.
+// validateSourceArchive 检查源码压缩包可读，且包含对应版本的发布根目录。
+func validateSourceArchive(path, version string) error {
+	file, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("%w: cannot open archive", ErrInvalidSourcePackage)
+	}
+	defer file.Close()
+	gzipReader, err := gzip.NewReader(file)
+	if err != nil {
+		return fmt.Errorf("%w: invalid gzip stream", ErrInvalidSourcePackage)
+	}
+	defer gzipReader.Close()
+	tarReader := tar.NewReader(gzipReader)
+	prefixes := []string{
+		"apache-seatunnel-" + version + "-src/",
+		"apache-seatunnel-" + version + "/",
+	}
+	foundMatchingRoot := false
+	for {
+		header, readErr := tarReader.Next()
+		if errors.Is(readErr, io.EOF) {
+			break
+		}
+		if readErr != nil {
+			return fmt.Errorf("%w: invalid tar stream", ErrInvalidSourcePackage)
+		}
+		name := strings.TrimPrefix(filepath.ToSlash(header.Name), "./")
+		for _, prefix := range prefixes {
+			if strings.HasPrefix(name, prefix) {
+				foundMatchingRoot = true
+				break
+			}
+		}
+	}
+	if foundMatchingRoot {
+		return nil
+	}
+	return fmt.Errorf("%w: archive version does not match %s", ErrInvalidSourcePackage, version)
 }
 
 func (s *Service) getChunkUploadDir(uploadID string) (string, error) {
@@ -924,7 +1081,54 @@ func (s *Service) DeletePackage(ctx context.Context, version string) error {
 		return ErrPackageNotFound
 	}
 
-	return os.Remove(localPath)
+	if err := os.Remove(localPath); err != nil {
+		return err
+	}
+	// 服务端和网页删除运行包时一并清理关联源码；CLI 不暴露删除入口。
+	// Server and web deletion removes the associated source; the CLI exposes no delete entry.
+	_ = os.Remove(filepath.Join(s.packageDir, sourcePackageFileName(version)))
+	return nil
+}
+
+// FetchSourcePackage downloads and validates source for an existing runtime package.
+// FetchSourcePackage 为已有运行包下载并校验同版本源码。
+func (s *Service) FetchSourcePackage(ctx context.Context, version string, mirror MirrorSource) (*PackageInfo, error) {
+	version = strings.TrimSpace(version)
+	if !packageVersionRegexp.MatchString(version) {
+		return nil, ErrInvalidPackageVersion
+	}
+	if _, err := os.Stat(filepath.Join(s.packageDir, packageFileName(version))); err != nil {
+		return nil, ErrPackageNotFound
+	}
+	if mirror == "" {
+		mirror = MirrorApache
+	}
+	baseURL, exists := MirrorURLs[mirror]
+	if !exists {
+		return nil, ErrInvalidPackageFile
+	}
+	_, err := s.downloadSourceArchive(ctx, version, fmt.Sprintf("%s/%s/%s", baseURL, version, sourcePackageFileName(version)), nil)
+	if err != nil {
+		return nil, err
+	}
+	return s.GetPackageInfo(ctx, version)
+}
+
+// SourcePackagePath returns a validated source archive path for authenticated download handlers.
+// SourcePackagePath 返回已校验的源码包路径，供鉴权后的下载接口使用。
+func (s *Service) SourcePackagePath(version string) (string, error) {
+	version = strings.TrimSpace(version)
+	if !packageVersionRegexp.MatchString(version) {
+		return "", ErrInvalidPackageVersion
+	}
+	path, err := normalizePathInDir(s.packageDir, filepath.Join(s.packageDir, sourcePackageFileName(version)))
+	if err != nil {
+		return "", ErrInvalidPackagePath
+	}
+	if info, statErr := os.Stat(path); statErr != nil || !info.Mode().IsRegular() {
+		return "", ErrSourcePackageNotFound
+	}
+	return path, nil
 }
 
 // ==================== Package Download 安装包下载 ====================
@@ -969,22 +1173,32 @@ func (s *Service) startDownload(ctx context.Context, req *DownloadRequest, execu
 		mirror = MirrorAliyun
 	}
 
-	// Get download URL / 获取下载 URL
-	downloadURL := fmt.Sprintf("%s/%s/apache-seatunnel-%s-bin.tar.gz",
-		MirrorURLs[mirror], req.Version, req.Version)
+	baseURL, exists := MirrorURLs[mirror]
+	if !exists {
+		s.downloadsMu.Unlock()
+		return nil, ErrInvalidPackageFile
+	}
+	// Get download URLs / 获取运行包和源码包下载地址
+	downloadURL := fmt.Sprintf("%s/%s/%s", baseURL, req.Version, packageFileName(req.Version))
+	sourceURL := fmt.Sprintf("%s/%s/%s", baseURL, req.Version, sourcePackageFileName(req.Version))
 
 	// Create download task / 创建下载任务
 	task := &DownloadTask{
-		ID:          uuid.New().String(),
-		Version:     req.Version,
-		Mirror:      mirror,
-		DownloadURL: downloadURL,
-		Status:      DownloadStatusPending,
-		Progress:    0,
-		Message:     "准备下载 / Preparing download",
-		StartTime:   time.Now(),
-		ExecutionID: strings.TrimSpace(executionID),
-		OwnerUserID: ownerUserID,
+		ID:              uuid.New().String(),
+		Version:         req.Version,
+		Mirror:          mirror,
+		DownloadURL:     downloadURL,
+		Status:          DownloadStatusPending,
+		Progress:        0,
+		Message:         "准备下载 / Preparing download",
+		StartTime:       time.Now(),
+		ExecutionID:     strings.TrimSpace(executionID),
+		OwnerUserID:     ownerUserID,
+		SourceRequested: req.IncludeSource(),
+		SourceURL:       sourceURL,
+	}
+	if task.SourceRequested {
+		task.SourceStatus = DownloadStatusPending
 	}
 	// Keep cancellation tied to the HTTP request so cancelling a task closes the network body.
 	// 将取消信号绑定到 HTTP 请求，确保取消任务时同时关闭网络请求。
@@ -1265,7 +1479,28 @@ func (s *Service) runDownload(ctx context.Context, task *DownloadTask) {
 		return
 	}
 
-	// Mark as completed / 标记为完成
+	if task.SourceRequested {
+		s.downloadsMu.Lock()
+		task.SourceStatus = DownloadStatusDownloading
+		task.Message = "运行包下载完成，正在下载源码 / Runtime package downloaded; downloading source"
+		s.downloadsMu.Unlock()
+		checksum, sourceErr := s.downloadSourceArchive(ctx, task.Version, task.SourceURL, task)
+		s.downloadsMu.Lock()
+		if sourceErr != nil {
+			task.SourceStatus = DownloadStatusFailed
+			task.SourceError = sourceErr.Error()
+			task.Message = "运行包下载完成，源码下载失败 / Runtime package downloaded; source download failed"
+		} else {
+			task.SourceStatus = DownloadStatusCompleted
+			task.SourceProgress = 100
+			task.SourceChecksum = checksum
+			task.Message = "运行包和源码下载完成 / Runtime and source packages downloaded"
+		}
+		s.downloadsMu.Unlock()
+	}
+
+	// Mark the runtime package operation completed even when the optional source download failed.
+	// 即使可选源码下载失败，运行包下载任务仍按成功完成。
 	s.downloadsMu.Lock()
 	if task.Status == DownloadStatusCancelling || ctx.Err() != nil {
 		s.downloadsMu.Unlock()
@@ -1277,11 +1512,94 @@ func (s *Service) runDownload(ctx context.Context, task *DownloadTask) {
 	task.Status = DownloadStatusCompleted
 	task.Progress = 100
 	task.DownloadedBytes = downloaded
-	task.Message = "下载完成 / Download completed"
+	if !task.SourceRequested {
+		task.Message = "下载完成 / Download completed"
+	}
 	task.EndTime = &now
 	s.downloadsMu.Unlock()
 
 	logger.InfoF(ctx, "[Installer] 下载完成 / Download completed: version=%s, size=%d bytes", task.Version, downloaded)
+}
+
+// downloadSourceArchive streams, validates, and atomically stores one source archive.
+// downloadSourceArchive 流式下载、校验并原子保存一个源码包。
+func (s *Service) downloadSourceArchive(ctx context.Context, version, sourceURL string, task *DownloadTask) (string, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, sourceURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("create source request: %w", err)
+	}
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		return "", fmt.Errorf("download source package: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("download source package: HTTP %d", response.StatusCode)
+	}
+	maxPackageSize := config.GetMaxPackageSize()
+	if maxPackageSize > 0 && response.ContentLength > maxPackageSize {
+		return "", ErrPackageTooLarge
+	}
+	tempFile, err := os.CreateTemp(s.tempDir, "source-download-*.tar.gz")
+	if err != nil {
+		return "", fmt.Errorf("create source temp file: %w", err)
+	}
+	tempPath := tempFile.Name()
+	defer func() {
+		_ = tempFile.Close()
+		_ = os.Remove(tempPath)
+	}()
+	if task != nil {
+		s.downloadsMu.Lock()
+		task.SourceTotal = response.ContentLength
+		s.downloadsMu.Unlock()
+	}
+	buffer := make([]byte, 32*1024)
+	var downloaded int64
+	for {
+		n, readErr := response.Body.Read(buffer)
+		if n > 0 {
+			if _, writeErr := tempFile.Write(buffer[:n]); writeErr != nil {
+				return "", fmt.Errorf("write source package: %w", writeErr)
+			}
+			downloaded += int64(n)
+			if maxPackageSize > 0 && downloaded > maxPackageSize {
+				return "", ErrPackageTooLarge
+			}
+			if task != nil {
+				s.downloadsMu.Lock()
+				task.SourceBytes = downloaded
+				if task.SourceTotal > 0 {
+					task.SourceProgress = int(downloaded * 100 / task.SourceTotal)
+				}
+				s.downloadsMu.Unlock()
+			}
+		}
+		if errors.Is(readErr, io.EOF) {
+			break
+		}
+		if readErr != nil {
+			return "", fmt.Errorf("read source package: %w", readErr)
+		}
+	}
+	if err := tempFile.Close(); err != nil {
+		return "", fmt.Errorf("close source package: %w", err)
+	}
+	if err := validateSourceArchive(tempPath, version); err != nil {
+		return "", err
+	}
+	checksum, err := calculateChecksum(tempPath)
+	if err != nil {
+		return "", err
+	}
+	destPath, err := normalizePathInDir(s.packageDir, filepath.Join(s.packageDir, sourcePackageFileName(version)))
+	if err != nil {
+		return "", ErrInvalidPackagePath
+	}
+	if err := os.Rename(tempPath, destPath); err != nil {
+		return "", fmt.Errorf("store source package: %w", err)
+	}
+	return checksum, nil
 }
 
 // finishDownloadExecution mirrors the actual downloader result to the shared execution record.
@@ -2984,8 +3302,22 @@ func getDownloadURLs(version string) map[MirrorSource]string {
 	return urls
 }
 
+// getSourceDownloadURLs returns source archive URLs for one version.
+// getSourceDownloadURLs 返回某版本源码包的下载地址。
+func getSourceDownloadURLs(version string) map[MirrorSource]string {
+	urls := make(map[MirrorSource]string)
+	for mirror, baseURL := range MirrorURLs {
+		urls[mirror] = fmt.Sprintf("%s/%s/%s", baseURL, version, sourcePackageFileName(version))
+	}
+	return urls
+}
+
 func packageFileName(version string) string {
 	return fmt.Sprintf("apache-seatunnel-%s-bin.tar.gz", version)
+}
+
+func sourcePackageFileName(version string) string {
+	return fmt.Sprintf("apache-seatunnel-%s-src.tar.gz", version)
 }
 
 func preparedPackageCacheKey(agentID, version, localPath string) string {

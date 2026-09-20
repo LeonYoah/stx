@@ -40,7 +40,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Progress } from '@/components/ui/progress';
-import { Download, Trash2, MoreHorizontal, Star, Loader2, CheckCircle, XCircle } from 'lucide-react';
+import { Download, Trash2, MoreHorizontal, Star, Loader2, CheckCircle, XCircle, FileCode2, Upload } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useGSAP } from '@gsap/react';
 import { TableLoadingBar, TableSkeletonRows } from '@/components/common/layout';
@@ -56,6 +56,9 @@ interface PackageTableProps {
   onDelete?: (version: string) => void;
   onDownload?: (version: string, mirror: MirrorSource) => void;
   downloads?: DownloadTask[];
+  onSourceUpload?: (version: string, file: File) => void;
+  onSourceFetch?: (version: string) => void;
+  onSourceDownload?: (version: string) => void;
 }
 
 // Mirror source labels / 镜像源标签
@@ -93,6 +96,9 @@ export function PackageTable({
   onDelete,
   onDownload,
   downloads = [],
+  onSourceUpload,
+  onSourceFetch,
+  onSourceDownload,
 }: PackageTableProps) {
   const t = useTranslations();
 
@@ -292,16 +298,17 @@ export function PackageTable({
             <TableHead>{t('installer.version')}</TableHead>
             <TableHead>{t('installer.fileName')}</TableHead>
             <TableHead>{t('installer.fileSize')}</TableHead>
+            <TableHead>{t('installer.sourcePackage')}</TableHead>
             <TableHead>{t('installer.uploadedAt')}</TableHead>
             <TableHead className="w-[100px]">{t('common.actions')}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {loading && localPackages.length === 0 ? (
-            <TableSkeletonRows columns={5} rows={5} />
+            <TableSkeletonRows columns={6} rows={5} />
           ) : localPackages.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={5} className="text-center py-12 text-muted-foreground">
+              <TableCell colSpan={6} className="text-center py-12 text-muted-foreground">
                 {t('installer.noLocalPackages')}
               </TableCell>
             </TableRow>
@@ -316,6 +323,24 @@ export function PackageTable({
                 <TableCell className="font-medium">{pkg.version}</TableCell>
                 <TableCell className="font-mono text-sm">{pkg.file_name}</TableCell>
                 <TableCell>{formatFileSize(pkg.file_size)}</TableCell>
+                <TableCell>
+                  {pkg.has_source ? (
+                    <div className="flex items-center gap-2 min-w-max">
+                      <Badge variant="outline" className="border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300">
+                        <CheckCircle className="h-3 w-3 mr-1" />
+                        {t('installer.sourceImported')}
+                      </Badge>
+                      <span className="text-xs text-muted-foreground">{formatFileSize(pkg.source_file_size || 0)}</span>
+                    </div>
+                  ) : pkg.source_status === 'failed' ? (
+                    <Badge variant="outline" className="border-destructive/30 bg-destructive/10 text-destructive" title={pkg.source_error}>
+                      <XCircle className="h-3 w-3 mr-1" />
+                      {t('installer.sourceFailed')}
+                    </Badge>
+                  ) : (
+                    <Badge variant="secondary">{t('installer.sourceMissing')}</Badge>
+                  )}
+                </TableCell>
                 <TableCell>{formatDate(pkg.uploaded_at)}</TableCell>
                 <TableCell>
                   <DropdownMenu>
@@ -325,6 +350,35 @@ export function PackageTable({
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
+                      {pkg.has_source ? (
+                        <DropdownMenuItem onClick={() => onSourceDownload?.(pkg.version)}>
+                          <Download className="h-4 w-4 mr-2" />
+                          {t('installer.downloadSource')}
+                        </DropdownMenuItem>
+                      ) : (
+                        <DropdownMenuItem onClick={() => onSourceFetch?.(pkg.version)}>
+                          <FileCode2 className="h-4 w-4 mr-2" />
+                          {t('installer.fetchSource')}
+                        </DropdownMenuItem>
+                      )}
+                      <DropdownMenuItem asChild>
+                        <label className="cursor-pointer">
+                          <Upload className="h-4 w-4 mr-2" />
+                          {pkg.has_source ? t('installer.replaceSource') : t('installer.uploadSource')}
+                          <input
+                            type="file"
+                            accept=".tar.gz"
+                            className="hidden"
+                            onChange={(event) => {
+                              const selected = event.target.files?.[0];
+                              if (selected) {
+                                onSourceUpload?.(pkg.version, selected);
+                              }
+                              event.target.value = '';
+                            }}
+                          />
+                        </label>
+                      </DropdownMenuItem>
                       <DropdownMenuItem
                         className="text-destructive"
                         onClick={() => onDelete?.(pkg.version)}

@@ -47,6 +47,9 @@ export function PackageMain() {
     uploadPackage,
     deletePackage,
     startDownload,
+    uploadSource,
+    fetchSource,
+    downloadSource,
     downloads,
     refreshVersions,
     refreshingVersions,
@@ -57,10 +60,15 @@ export function PackageMain() {
   const handleUpload = async (
     file: File,
     version: string,
+    sourceFile?: File,
     onProgress?: (percent: number) => void,
   ) => {
-    await uploadPackage(file, version, onProgress);
+    await uploadPackage(file, version, sourceFile, onProgress);
     setUploadDialogOpen(false);
+  };
+
+  const handleSourceUpload = async (version: string, sourceFile: File) => {
+    await uploadSource(version, sourceFile);
   };
 
   const handleDelete = async (version: string) => {
@@ -196,6 +204,9 @@ export function PackageMain() {
               localPackages={packages?.local_packages || []}
               loading={loading}
               onDelete={handleDelete}
+              onSourceUpload={handleSourceUpload}
+              onSourceFetch={(version) => fetchSource(version, 'apache')}
+              onSourceDownload={downloadSource}
             />
           )}
         </div>

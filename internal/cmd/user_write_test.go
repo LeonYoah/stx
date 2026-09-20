@@ -91,33 +91,15 @@ func TestAdminUserUpdatePreservesExplicitFalseFlags(t *testing.T) {
 	}
 }
 
-func TestAdminUserDeleteEmitsOneTimeConfirmationDetails(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.URL.Path == "/api/v1/capabilities" {
-			writeUserWriteCapabilities(t, writer, "admin.user.delete", true)
-			return
-		}
-		writer.WriteHeader(http.StatusPreconditionRequired)
-		_ = json.NewEncoder(writer).Encode(map[string]any{
-			"error_code": "confirmation_required",
-			"error_msg":  "operation confirmation is required",
-			"data": map[string]any{
-				"confirmation_id": "confirm-123", "risk_level": "R2",
-				"impact": "delete impact", "expires_at": "2026-09-19T10:05:00Z",
-			},
-		})
-	}))
-	defer server.Close()
-
-	store := newExecutionTestStore(t, server.URL, "test-token")
-	_, stderr, exitCode := runUserWriteCommand(t, store, strings.NewReader(""),
-		"admin", "user", "delete", "2", "--confirm", "--idempotency-key", "delete-key")
-	if exitCode != int(clioutput.ExitConflict) {
-		t.Fatalf("首次删除应返回确认错误: code=%d stderr=%s", exitCode, stderr)
-	}
-	events := decodeNDJSON(t, stderr)
-	if len(events) < 2 || events[len(events)-2]["event"] != "confirmation_required" || events[len(events)-2]["confirmation_id"] != "confirm-123" {
-		t.Fatalf("缺少一次性确认事件: %#v", events)
+func TestAdminUserDeleteIsNotExposed(t *testing.T) {
+	store := newExecutionTestStore(t, "http://127.0.0.1:1", "test-token")
+	root := &cobra.Command{Use: "stx"}
+	clioutput.AddGlobalFlags(root)
+	root.AddCommand(newGeneratedCommands(func() (*cliConfig.Store, error) { return store, nil })...)
+	addUserWriteCommands(root, userWriteCommandOptions{storeProvider: func() (*cliConfig.Store, error) { return store, nil }})
+	command, remaining, err := root.Find([]string{"admin", "user", "delete"})
+	if err == nil && len(remaining) == 0 && command.Name() == "delete" {
+		t.Fatal("CLI 不应暴露用户删除命令 / user delete must not be exposed")
 	}
 }
 

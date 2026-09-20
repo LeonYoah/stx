@@ -297,7 +297,6 @@ var registry = append([]OperationSpec{
 	},
 	{
 		ID:           "admin.user.delete",
-		CommandPath:  []string{"admin", "user", "delete"},
 		Summary:      "Delete a user",
 		GeneratedCLI: false,
 		Method:       "DELETE",
@@ -314,7 +313,7 @@ var registry = append([]OperationSpec{
 		Input: []InputSpec{
 			{Name: "id", Location: InputPath, Required: true, Description: "User ID"},
 		},
-		Example: "stx admin user delete 2 --confirm --idempotency-key delete-user-2",
+		Example: "",
 		OutputExample: `{
   "api_version": "v1",
   "operation_id": "admin.user.delete",
@@ -1000,7 +999,6 @@ var registry = append([]OperationSpec{
 	},
 	{
 		ID:           "package.delete",
-		CommandPath:  []string{"package", "delete"},
 		Summary:      "Delete a local SeaTunnel package",
 		GeneratedCLI: false,
 		Method:       "DELETE",
@@ -1011,7 +1009,7 @@ var registry = append([]OperationSpec{
 		Revision:     1,
 		Impact:       &ImpactSpec{Level: RiskR1, Message: "Permanently deletes the local package file."},
 		Input:        []InputSpec{{Name: "version", Location: InputPath, Required: true, Description: "SeaTunnel version"}},
-		Example:      "stx package delete 9.9.91 --confirm",
+		Example:      "",
 		OutputExample: `{
   "api_version": "v1",
   "operation_id": "package.delete",
@@ -1019,6 +1017,50 @@ var registry = append([]OperationSpec{
   "data": null,
   "result_meta": {"complete": true}
 }`,
+	},
+	{
+		ID:            "package.source.upload",
+		CommandPath:   []string{"package", "source", "upload"},
+		Summary:       "Upload or replace a SeaTunnel source archive",
+		GeneratedCLI:  false,
+		Method:        "POST",
+		Route:         "/api/v1/packages/:version/source/upload",
+		Mode:          ModeNormal,
+		AuthRequired:  true,
+		Risk:          RiskR1,
+		Revision:      1,
+		Impact:        &ImpactSpec{Level: RiskR1, Message: "Writes or replaces the source archive associated with an existing runtime package."},
+		Example:       "stx package source upload 2.3.13 ./apache-seatunnel-2.3.13-src.tar.gz --confirm",
+		OutputExample: `{"api_version":"v1","operation_id":"package.source.upload","request_id":"req_example","data":{"version":"2.3.13","has_source":true},"result_meta":{"complete":true}}`,
+	},
+	{
+		ID:            "package.source.fetch",
+		CommandPath:   []string{"package", "source", "fetch"},
+		Summary:       "Fetch a SeaTunnel source archive through STX",
+		GeneratedCLI:  false,
+		Method:        "POST",
+		Route:         "/api/v1/packages/:version/source/fetch",
+		Mode:          ModeNormal,
+		AuthRequired:  true,
+		Risk:          RiskR1,
+		Revision:      1,
+		Impact:        &ImpactSpec{Level: RiskR1, Message: "Downloads source into STX local storage.", Performance: "Uses STX server network bandwidth and disk I/O."},
+		Example:       "stx package source fetch 2.3.13 --mirror apache --confirm",
+		OutputExample: `{"api_version":"v1","operation_id":"package.source.fetch","request_id":"req_example","data":{"version":"2.3.13","has_source":true},"result_meta":{"complete":true}}`,
+	},
+	{
+		ID:            "package.source.download",
+		CommandPath:   []string{"package", "source", "download"},
+		Summary:       "Download a SeaTunnel source archive through STX",
+		GeneratedCLI:  false,
+		Method:        "GET",
+		Route:         "/api/v1/packages/:version/source/download",
+		Mode:          ModeDownload,
+		AuthRequired:  true,
+		Risk:          RiskR0,
+		Revision:      1,
+		Example:       "stx package source download 2.3.13 --file /tmp/apache-seatunnel-2.3.13-src.tar.gz",
+		OutputExample: `{"api_version":"v1","operation_id":"package.source.download","request_id":"req_example","data":{"version":"2.3.13","file":"/tmp/apache-seatunnel-2.3.13-src.tar.gz"},"result_meta":{"complete":true}}`,
 	},
 	{
 		ID:           "package.download.start",
@@ -1379,8 +1421,8 @@ func clusterAdditionalOperationSpecs() []OperationSpec {
 			"修改集群定义会影响后续部署和进程操作，已经运行的进程不会自动重启。",
 			[]InputSpec{{Name: "id", Location: InputPath, Required: true, Description: "Cluster ID"}, {Name: "request", Location: InputBody, Required: true, Description: "Fields to update"}},
 			"stx cluster update 6 --description test --confirm"),
-		clusterGeneratedOperation("cluster.delete", []string{"cluster", "delete"}, "Delete a cluster", "DELETE", "/api/v1/clusters/:id", RiskR2,
-			"删除集群会移除集群定义和节点记录；集群必须先停止，force_delete 还会请求 Agent 删除节点安装目录。", "stx cluster delete 6 --confirm", []InputSpec{
+		clusterNonCLIWriteOperation("cluster.delete", "Delete a cluster", "DELETE", "/api/v1/clusters/:id", RiskR2,
+			"删除集群会移除集群定义和节点记录；集群必须先停止，force_delete 还会请求 Agent 删除节点安装目录。", []InputSpec{
 				{Name: "id", Location: InputPath, Required: true, Description: "Cluster ID"},
 				{Name: "force_delete", Location: InputQuery, Required: false, Description: "Remove node installation directories after deletion; the cluster must already be stopped"},
 			}),
@@ -1396,8 +1438,8 @@ func clusterAdditionalOperationSpecs() []OperationSpec {
 			"修改节点端口、目录或 JVM 覆盖值会影响该节点后续启动。",
 			[]InputSpec{{Name: "id", Location: InputPath, Required: true, Description: "Cluster ID"}, {Name: "nodeId", Location: InputPath, Required: true, Description: "Node ID"}, {Name: "request", Location: InputBody, Required: true, Description: "Node fields to update"}},
 			"stx cluster node update 6 1 --hazelcast-port 5801 --confirm"),
-		clusterGeneratedOperation("cluster.node.remove", []string{"cluster", "node", "remove"}, "Remove a cluster node", "DELETE", "/api/v1/clusters/:id/nodes/:nodeId", RiskR2,
-			"移除节点会删除节点定义；如果节点仍在运行，应先停止节点。", "stx cluster node remove 6 1 --confirm", []InputSpec{
+		clusterNonCLIWriteOperation("cluster.node.remove", "Remove a cluster node", "DELETE", "/api/v1/clusters/:id/nodes/:nodeId", RiskR2,
+			"移除节点会删除节点定义；如果节点仍在运行，应先停止节点。", []InputSpec{
 				{Name: "id", Location: InputPath, Required: true, Description: "Cluster ID"},
 				{Name: "nodeId", Location: InputPath, Required: true, Description: "Node ID"},
 			}),
@@ -1405,6 +1447,13 @@ func clusterAdditionalOperationSpecs() []OperationSpec {
 			"节点预检查会连接目标 Agent，并执行目录、端口和运行环境检查。",
 			[]InputSpec{{Name: "id", Location: InputPath, Required: true, Description: "Cluster ID"}, {Name: "request", Location: InputBody, Required: true, Description: "Node precheck request"}},
 			"stx cluster node precheck 6 --host-id 10 --role master/worker --confirm"),
+		clusterNonCLIWriteOperation("cluster.runtime-storage.apply", "Apply cluster runtime storage settings", "POST", "/api/v1/clusters/:id/runtime-storage/:kind/apply", RiskR1,
+			"保存运行时存储设置会先执行真实读写检查，再生成新的集群配置版本；部分修改需要重启节点后生效。",
+			[]InputSpec{
+				{Name: "id", Location: InputPath, Required: true, Description: "Cluster ID"},
+				{Name: "kind", Location: InputPath, Required: true, Description: "Runtime storage kind: checkpoint or imap"},
+				{Name: "request", Location: InputBody, Required: true, Description: "Runtime storage settings; secrets must be read from protected input"},
+			}),
 		clusterGeneratedOperation("cluster.node.logs", []string{"cluster", "node", "logs"}, "Get cluster node logs", "GET", "/api/v1/clusters/:id/nodes/:nodeId/logs", RiskR0,
 			"读取较多日志会消耗 Agent、网络和 STX 服务资源。", "stx cluster node logs 6 1 --lines 100 --mode tail", []InputSpec{
 				{Name: "id", Location: InputPath, Required: true, Description: "Cluster ID"}, {Name: "nodeId", Location: InputPath, Required: true, Description: "Node ID"},
@@ -1548,6 +1597,12 @@ func clusterGeneratedOperation(id string, commandPath []string, summary, method,
 		)
 	}
 	return clusterOperation(id, commandPath, summary, method, route, risk, impact, inputs, example, true)
+}
+
+// clusterNonCLIWriteOperation 登记服务端保留、但禁止通过 CLI 执行的集群写操作。
+// clusterNonCLIWriteOperation registers a server-side cluster write operation that the CLI must not expose.
+func clusterNonCLIWriteOperation(id, summary, method, route string, risk RiskLevel, impact string, inputs []InputSpec) OperationSpec {
+	return clusterOperation(id, nil, summary, method, route, risk, impact, inputs, "", false)
 }
 
 func clusterOperation(id string, commandPath []string, summary, method, route string, risk RiskLevel, impact string, inputs []InputSpec, example string, generated bool) OperationSpec {

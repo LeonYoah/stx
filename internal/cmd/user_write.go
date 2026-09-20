@@ -55,7 +55,7 @@ func addUserWriteCommands(root *cobra.Command, options userWriteCommandOptions) 
 	if userCommand == nil {
 		panic("generated admin user command is missing")
 	}
-	userCommand.AddCommand(newAdminUserCreateCommand(options), newAdminUserUpdateCommand(options), newAdminUserDeleteCommand(options.storeProvider))
+	userCommand.AddCommand(newAdminUserCreateCommand(options), newAdminUserUpdateCommand(options))
 }
 
 func defaultUserWriteCommandOptions() userWriteCommandOptions {
@@ -203,31 +203,5 @@ func newAdminUserUpdateCommand(options userWriteCommandOptions) *cobra.Command {
 	command.Flags().BoolVar(&active, "active", true, "Whether the user is active")
 	command.Flags().BoolVar(&isAdmin, "admin", false, "Whether the user is an administrator")
 	command.Flags().BoolVar(&passwordStdin, "password-stdin", false, "Read a new password from stdin")
-	return command
-}
-
-func newAdminUserDeleteCommand(storeProvider authStoreProvider) *cobra.Command {
-	var options secureWriteOptions
-	command := &cobra.Command{
-		Use:     "delete <id>",
-		Short:   "Delete a user",
-		Long:    "Delete a user permanently. CLI and direct API calls require a one-time confirmation ID.",
-		Example: "stx admin user delete 2 --confirm --idempotency-key delete-user-2",
-		Args:    usageArgs(cobra.ExactArgs(1)),
-		RunE: func(command *cobra.Command, args []string) error {
-			client, headers, err := prepareSecureWrite(command, storeProvider, "admin.user.delete", &options,
-				"deleting a user cannot be restored through STX")
-			if err != nil {
-				return err
-			}
-			var data any
-			requestID, err := client.RequestWithHeaders(command.Context(), http.MethodDelete, "/api/v1/admin/users/"+url.PathEscape(args[0]), nil, headers, &data)
-			if err != nil {
-				return handleSecureWriteError(command, "admin.user.delete", err)
-			}
-			return renderWriteResult(command, "admin.user.delete", requestID, data, "")
-		},
-	}
-	addSecureWriteFlags(command, &options)
 	return command
 }

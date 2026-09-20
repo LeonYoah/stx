@@ -18,12 +18,17 @@
 package cmd
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	cliClient "github.com/LeonYoah/stx/internal/cli/client"
 	clioutput "github.com/LeonYoah/stx/internal/cli/output"
@@ -41,7 +46,7 @@ func addPackageWriteCommands(root *cobra.Command, storeProvider authStoreProvide
 	}
 	uploadCommand := newPackageUploadCommand(storeProvider)
 	uploadCommand.AddCommand(newPackageChunkUploadCommand(storeProvider))
-	packageCommand.AddCommand(uploadCommand, newPackageDeleteCommand(storeProvider))
+	packageCommand.AddCommand(uploadCommand, newPackageSourceCommand(storeProvider))
 	downloadCommand := childCommand(packageCommand, "download")
 	if downloadCommand == nil {
 		panic("generated package download command is missing")
@@ -60,12 +65,12 @@ func childCommand(parent *cobra.Command, name string) *cobra.Command {
 
 func newPackageUploadCommand(storeProvider authStoreProvider) *cobra.Command {
 	var options packageWriteOptions
-	var version string
+	var version, sourcePath string
 	command := &cobra.Command{
 		Use:     "upload <file>",
 		Short:   "Upload a SeaTunnel package",
 		Long:    "Upload a SeaTunnel package archive to STX local storage. The operation uses network bandwidth and disk I/O.",
-		Example: "stx package upload ./apache-seatunnel-9.9.91-bin.tar.gz --version 9.9.91 --confirm",
+		Example: "stx package upload ./apache-seatunnel-9.9.91-bin.tar.gz --version 9.9.91 --source-file ./apache-seatunnel-9.9.91-src.tar.gz --confirm",
 		Args:    usageArgs(cobra.ExactArgs(1)),
 		RunE: func(command *cobra.Command, args []string) error {
 			file, info, err := openPackageFile(args[0])
@@ -81,9 +86,19 @@ func newPackageUploadCommand(storeProvider authStoreProvider) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			files := []cliClient.MultipartFile{{FieldName: "file", FileName: info.Name(), Reader: file}}
+			var sourceFile *os.File
+			if strings.TrimSpace(sourcePath) != "" {
+				sourceFile, info, err = openPackageFile(sourcePath)
+				if err != nil {
+					return err
+				}
+				defer sourceFile.Close()
+				files = append(files, cliClient.MultipartFile{FieldName: "source_file", FileName: info.Name(), Reader: sourceFile})
+			}
 			var data any
-			requestID, err := client.RequestMultipart(command.Context(), http.MethodPost, "/api/v1/packages/upload",
-				map[string]string{"version": version}, "file", info.Name(), file, headers, &data)
+			requestID, err := client.RequestMultipartFiles(command.Context(), http.MethodPost, "/api/v1/packages/upload",
+				map[string]string{"version": version}, files, headers, &data)
 			if err != nil {
 				return err
 			}
@@ -92,6 +107,7 @@ func newPackageUploadCommand(storeProvider authStoreProvider) *cobra.Command {
 	}
 	addPackageWriteFlags(command, &options)
 	command.Flags().StringVar(&version, "version", "", "SeaTunnel version stored by STX")
+	command.Flags().StringVar(&sourcePath, "source-file", "", "Optional matching SeaTunnel source archive")
 	return command
 }
 
@@ -148,41 +164,15 @@ func newPackageChunkUploadCommand(storeProvider authStoreProvider) *cobra.Comman
 	return command
 }
 
-func newPackageDeleteCommand(storeProvider authStoreProvider) *cobra.Command {
-	var options packageWriteOptions
-	command := &cobra.Command{
-		Use:     "delete <version>",
-		Short:   "Delete a local SeaTunnel package",
-		Long:    "Permanently delete a local package. The file cannot be recovered by STX.",
-		Example: "stx package delete 9.9.91 --confirm",
-		Args:    usageArgs(cobra.ExactArgs(1)),
-		RunE: func(command *cobra.Command, args []string) error {
-			client, headers, err := preparePackageWrite(command, storeProvider, "package.delete", &options,
-				"delete permanently removes the local package file")
-			if err != nil {
-				return err
-			}
-			var data any
-			requestID, err := client.RequestWithHeaders(command.Context(), http.MethodDelete,
-				"/api/v1/packages/"+url.PathEscape(args[0]), nil, headers, &data)
-			if err != nil {
-				return err
-			}
-			return renderPackageResult(command, "package.delete", requestID, data, "")
-		},
-	}
-	addPackageWriteFlags(command, &options)
-	return command
-}
-
 func newPackageDownloadStartCommand(storeProvider authStoreProvider) *cobra.Command {
 	var options packageWriteOptions
 	var mirror string
+	var withSource bool
 	command := &cobra.Command{
 		Use:     "start <version>",
 		Short:   "Start a SeaTunnel package download",
 		Long:    "Start a server-side package download. It uses STX server network bandwidth and disk I/O.",
-		Example: "stx package download start 2.3.13 --mirror apache --confirm",
+		Example: "stx package download start 2.3.13 --mirror apache --with-source=true --confirm",
 		Args:    usageArgs(cobra.ExactArgs(1)),
 		RunE: func(command *cobra.Command, args []string) error {
 			if mirror != "" && mirror != "apache" && mirror != "aliyun" && mirror != "huaweicloud" {
@@ -195,7 +185,7 @@ func newPackageDownloadStartCommand(storeProvider authStoreProvider) *cobra.Comm
 			}
 			var data map[string]any
 			requestID, err := client.RequestWithHeaders(command.Context(), http.MethodPost, "/api/v1/packages/download",
-				map[string]string{"version": args[0], "mirror": mirror}, headers, &data)
+				map[string]any{"version": args[0], "mirror": mirror, "with_source": withSource}, headers, &data)
 			if err != nil {
 				return err
 			}
@@ -208,6 +198,135 @@ func newPackageDownloadStartCommand(storeProvider authStoreProvider) *cobra.Comm
 	}
 	addPackageWriteFlags(command, &options)
 	command.Flags().StringVar(&mirror, "mirror", "aliyun", "Download mirror: apache, aliyun, or huaweicloud")
+	command.Flags().BoolVar(&withSource, "with-source", true, "Download the matching source archive for AI analysis")
+	return command
+}
+
+func newPackageSourceCommand(storeProvider authStoreProvider) *cobra.Command {
+	command := &cobra.Command{Use: "source", Short: "Manage source archives associated with runtime packages", Args: usageArgs(cobra.NoArgs)}
+	command.AddCommand(
+		newPackageSourceUploadCommand(storeProvider),
+		newPackageSourceFetchCommand(storeProvider),
+		newPackageSourceDownloadCommand(storeProvider),
+	)
+	return command
+}
+
+func newPackageSourceUploadCommand(storeProvider authStoreProvider) *cobra.Command {
+	var options packageWriteOptions
+	command := &cobra.Command{
+		Use: "upload <version> <file>", Short: "Upload or replace a source archive", Args: usageArgs(cobra.ExactArgs(2)),
+		Example: "stx package source upload 2.3.13 ./apache-seatunnel-2.3.13-src.tar.gz --confirm",
+		RunE: func(command *cobra.Command, args []string) error {
+			file, info, err := openPackageFile(args[1])
+			if err != nil {
+				return err
+			}
+			defer file.Close()
+			client, headers, err := preparePackageWrite(command, storeProvider, "package.source.upload", &options,
+				"source upload writes or replaces the source archive without modifying the runtime package")
+			if err != nil {
+				return err
+			}
+			var data any
+			requestID, err := client.RequestMultipart(command.Context(), http.MethodPost,
+				"/api/v1/packages/"+url.PathEscape(args[0])+"/source/upload", nil,
+				"source_file", info.Name(), file, headers, &data)
+			if err != nil {
+				return err
+			}
+			return renderPackageResult(command, "package.source.upload", requestID, data, "")
+		},
+	}
+	addPackageWriteFlags(command, &options)
+	return command
+}
+
+func newPackageSourceFetchCommand(storeProvider authStoreProvider) *cobra.Command {
+	var options packageWriteOptions
+	var mirror string
+	var timeout time.Duration
+	command := &cobra.Command{
+		Use: "fetch <version>", Short: "Fetch source for an existing runtime package", Args: usageArgs(cobra.ExactArgs(1)),
+		Example: "stx package source fetch 2.3.13 --mirror apache --confirm",
+		RunE: func(command *cobra.Command, args []string) error {
+			if mirror != "apache" && mirror != "aliyun" && mirror != "huaweicloud" {
+				return clioutput.NewError(clioutput.CodeUsage, "--mirror must be apache, aliyun, or huaweicloud", clioutput.ExitUsage, false)
+			}
+			if timeout <= 0 {
+				return clioutput.NewError(clioutput.CodeUsage, "--timeout must be greater than zero", clioutput.ExitUsage, false)
+			}
+			client, headers, err := preparePackageWrite(command, storeProvider, "package.source.fetch", &options,
+				"source fetch uses STX server network bandwidth and disk space")
+			if err != nil {
+				return err
+			}
+			client = client.WithTimeout(timeout)
+			var data any
+			requestID, err := client.RequestWithHeaders(command.Context(), http.MethodPost,
+				"/api/v1/packages/"+url.PathEscape(args[0])+"/source/fetch", map[string]string{"mirror": mirror}, headers, &data)
+			if err != nil {
+				return err
+			}
+			return renderPackageResult(command, "package.source.fetch", requestID, data, "")
+		},
+	}
+	addPackageWriteFlags(command, &options)
+	command.Flags().StringVar(&mirror, "mirror", "apache", "Download mirror: apache, aliyun, or huaweicloud")
+	command.Flags().DurationVar(&timeout, "timeout", 10*time.Minute, "Maximum time to download and validate source on the STX server")
+	return command
+}
+
+func newPackageSourceDownloadCommand(storeProvider authStoreProvider) *cobra.Command {
+	var namespace, outputPath string
+	command := &cobra.Command{
+		Use: "download <version>", Short: "Download a source archive through STX", Args: usageArgs(cobra.ExactArgs(1)),
+		Example: "stx package source download 2.3.13 --file /tmp/apache-seatunnel-2.3.13-src.tar.gz",
+		RunE: func(command *cobra.Command, args []string) error {
+			client, err := clientForNamespace(storeProvider, namespace)
+			if err != nil {
+				return err
+			}
+			if err := checkSpecialOperation(command.Context(), client, "package.source.download"); err != nil {
+				return err
+			}
+			if strings.TrimSpace(outputPath) == "" {
+				outputPath = sourceFileName(args[0])
+			}
+			finalPath, err := filepath.Abs(outputPath)
+			if err != nil {
+				return clioutput.WrapError(err, clioutput.CodeUsage, "resolve output path", clioutput.ExitUsage, false)
+			}
+			if _, err := os.Stat(finalPath); err == nil {
+				return clioutput.NewError(clioutput.CodeConflict, "download target already exists", clioutput.ExitConflict, false)
+			}
+			tempFile, err := os.CreateTemp(filepath.Dir(finalPath), ".stx-source-*.part")
+			if err != nil {
+				return clioutput.WrapError(err, clioutput.CodeFileTransfer, "create temporary download file", clioutput.ExitFileTransfer, false)
+			}
+			tempPath := tempFile.Name()
+			defer func() { _ = os.Remove(tempPath) }()
+			requestID, err := client.Download(command.Context(), "/api/v1/packages/"+url.PathEscape(args[0])+"/source/download", tempFile)
+			if closeErr := tempFile.Close(); err == nil && closeErr != nil {
+				err = closeErr
+			}
+			if err != nil {
+				return err
+			}
+			if err := os.Rename(tempPath, finalPath); err != nil {
+				return clioutput.WrapError(err, clioutput.CodeFileTransfer, "store downloaded source package", clioutput.ExitFileTransfer, false)
+			}
+			checksum, size, err := checksumFile(finalPath)
+			if err != nil {
+				return err
+			}
+			return renderCommandResultWithRequestID(command, "package.source.download", requestID, map[string]any{
+				"version": args[0], "file": finalPath, "size": size, "sha256": checksum,
+			})
+		},
+	}
+	command.Flags().StringVar(&namespace, "namespace", "", "Local namespace to use")
+	command.Flags().StringVar(&outputPath, "file", "", "Destination file path")
 	return command
 }
 
@@ -265,4 +384,25 @@ func openPackageFile(path string) (*os.File, os.FileInfo, error) {
 
 func renderPackageResult(command *cobra.Command, operationID, requestID string, data any, nextCommand string) error {
 	return renderWriteResult(command, operationID, requestID, data, nextCommand)
+}
+
+func sourceFileName(version string) string {
+	return fmt.Sprintf("apache-seatunnel-%s-src.tar.gz", version)
+}
+
+func checksumFile(path string) (string, int64, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", 0, clioutput.WrapError(err, clioutput.CodeFileTransfer, "open downloaded source package", clioutput.ExitFileTransfer, false)
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return "", 0, clioutput.WrapError(err, clioutput.CodeFileTransfer, "inspect downloaded source package", clioutput.ExitFileTransfer, false)
+	}
+	hasher := sha256.New()
+	if _, err := io.Copy(hasher, file); err != nil {
+		return "", 0, clioutput.WrapError(err, clioutput.CodeFileTransfer, "checksum downloaded source package", clioutput.ExitFileTransfer, false)
+	}
+	return hex.EncodeToString(hasher.Sum(nil)), info.Size(), nil
 }

@@ -49,13 +49,19 @@ func Validate(specs []OperationSpec, exceptions []RouteException) error {
 		}
 		ids[spec.ID] = struct{}{}
 
-		commandKey, err := validateCommandPath(spec.CommandPath)
-		if err != nil {
-			validationErrors = append(validationErrors, fmt.Errorf("%s: %w", prefix, err))
-		} else if existingID, exists := commands[commandKey]; exists {
-			validationErrors = append(validationErrors, fmt.Errorf("command path %q is shared by %q and %q", commandKey, existingID, spec.ID))
+		if len(spec.CommandPath) == 0 {
+			if spec.GeneratedCLI {
+				validationErrors = append(validationErrors, fmt.Errorf("%s generated CLI command has no command path", prefix))
+			}
 		} else {
-			commands[commandKey] = spec.ID
+			commandKey, err := validateCommandPath(spec.CommandPath)
+			if err != nil {
+				validationErrors = append(validationErrors, fmt.Errorf("%s: %w", prefix, err))
+			} else if existingID, exists := commands[commandKey]; exists {
+				validationErrors = append(validationErrors, fmt.Errorf("command path %q is shared by %q and %q", commandKey, existingID, spec.ID))
+			} else {
+				commands[commandKey] = spec.ID
+			}
 		}
 
 		routeKey, err := validateRoute(spec.Method, spec.Route)
@@ -81,6 +87,9 @@ func Validate(specs []OperationSpec, exceptions []RouteException) error {
 		}
 		if spec.GeneratedCLI && strings.TrimSpace(spec.Summary) == "" {
 			validationErrors = append(validationErrors, fmt.Errorf("%s generated CLI command has no summary", prefix))
+		}
+		if spec.GeneratedCLI && strings.EqualFold(spec.Method, http.MethodDelete) {
+			validationErrors = append(validationErrors, fmt.Errorf("%s DELETE operations cannot be exposed through CLI", prefix))
 		}
 		if spec.Risk != RiskR0 && spec.Impact == nil {
 			validationErrors = append(validationErrors, fmt.Errorf("%s must describe impact for risk %s", prefix, spec.Risk))
@@ -177,6 +186,9 @@ func validateInputs(inputs []InputSpec) error {
 }
 
 func validateExample(spec OperationSpec) error {
+	if len(spec.CommandPath) == 0 && strings.TrimSpace(spec.Example) == "" {
+		return validateOutputExample(spec)
+	}
 	exampleFields := strings.Fields(spec.Example)
 	expectedPrefix := append([]string{"stx"}, spec.CommandPath...)
 	if len(exampleFields) < len(expectedPrefix) {
@@ -188,6 +200,10 @@ func validateExample(spec OperationSpec) error {
 		}
 	}
 
+	return validateOutputExample(spec)
+}
+
+func validateOutputExample(spec OperationSpec) error {
 	var output struct {
 		APIVersion  string          `json:"api_version"`
 		OperationID string          `json:"operation_id"`

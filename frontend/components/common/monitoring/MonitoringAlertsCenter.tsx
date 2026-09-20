@@ -30,6 +30,7 @@ import {
   ExternalLink,
   Eye,
   Info,
+  Lightbulb,
   RefreshCw,
   RotateCcw,
   Search,
@@ -67,6 +68,10 @@ import {
   animateSheetSections,
   animateTableRows,
 } from '@/lib/animations/gsap-motion';
+import {
+  TroubleshootingMemoryCard,
+  SaveMemoryDialog,
+} from '@/components/common/troubleshooting';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
 import {Card} from '@/components/ui/card';
@@ -195,6 +200,11 @@ export function MonitoringAlertsCenter() {
   // Keep the open alert out of loadAlerts deps so opening the sheet cannot refetch forever
   const selectedAlertRef = useRef<AlertInstance | null>(null);
   selectedAlertRef.current = selectedAlert;
+
+  // 排障经验记忆库弹窗状态与刷新版本号
+  // Troubleshooting memory dialog open state and refresh version trigger
+  const [memoryDialogOpen, setMemoryDialogOpen] = useState(false);
+  const [memoriesVersion, setMemoriesVersion] = useState(0);
 
   const pageSizeNumber = useMemo(
     () => Number.parseInt(pageSize, 10) || 50,
@@ -408,6 +418,38 @@ export function MonitoringAlertsCenter() {
     }
     return Math.max(1, Math.ceil(total / pageSizeNumber));
   }, [pageSizeNumber, total]);
+
+  // 检索选中告警命中的历史排障经验
+  // Match historical troubleshooting solutions for selected alert
+  const matchedMemories = useMemo(() => {
+    if (!selectedAlert) {
+      return [];
+    }
+    return services.troubleshooting.findMatchingMemories({
+      fingerprint: selectedAlert.rule_key || selectedAlert.alert_name,
+      title: selectedAlert.alert_name || selectedAlert.rule_key,
+      target_type: 'alert',
+    });
+  }, [selectedAlert, memoriesVersion]);
+
+  const primaryMemory = matchedMemories[0] || null;
+
+  // 映射当前页告警是否有命中方案
+  // Map whether alert instances in current list have matched solutions
+  const alertMemoryMap = useMemo(() => {
+    const map = new Map<string, boolean>();
+    alerts.forEach((alert) => {
+      const matches = services.troubleshooting.findMatchingMemories({
+        fingerprint: alert.rule_key || alert.alert_name,
+        title: alert.alert_name || alert.rule_key,
+        target_type: 'alert',
+      });
+      if (matches.length > 0) {
+        map.set(alert.alert_id, true);
+      }
+    });
+    return map;
+  }, [alerts, memoriesVersion]);
 
   // 静默单条告警 30 分钟
   // Silence single alert instance for 30 minutes
@@ -843,8 +885,19 @@ export function MonitoringAlertsCenter() {
                         {/* 告警名称与规则 / Alert Name & Rule */}
                         <TableCell className='py-2 px-3'>
                           <div className='space-y-0.5'>
-                            <div className='font-semibold text-xs text-foreground line-clamp-1 group-hover:text-primary transition-colors'>
-                              {alert.alert_name || '-'}
+                            <div className='flex items-center gap-1.5'>
+                              <span className='font-semibold text-xs text-foreground line-clamp-1 group-hover:text-primary transition-colors'>
+                                {alert.alert_name || '-'}
+                              </span>
+                              {alertMemoryMap.get(alert.alert_id) && (
+                                <Badge
+                                  variant='outline'
+                                  className='text-[10px] py-0 px-1 border-emerald-500/30 text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 gap-0.5 shrink-0 font-normal'
+                                >
+                                  <Lightbulb className='h-2.5 w-2.5 text-emerald-500' />
+                                  已有方案
+                                </Badge>
+                              )}
                             </div>
                             <div className='text-[10px] font-mono text-muted-foreground truncate max-w-[160px]'>
                               {alert.rule_key}
@@ -1001,6 +1054,15 @@ export function MonitoringAlertsCenter() {
           <div ref={sheetContentRef} className='flex-1 overflow-y-auto p-6 space-y-6'>
             {selectedAlert && (
               <>
+                {/* 历史排障经验置顶回显卡片 / Historical Troubleshooting Solution Card */}
+                <div className='sheet-section-animate'>
+                  <TroubleshootingMemoryCard
+                    matchedMemory={primaryMemory}
+                    totalMatches={matchedMemories.length}
+                    onAddOrEdit={() => setMemoryDialogOpen(true)}
+                  />
+                </div>
+
                 {/* 核心概要 / Summary */}
                 <div className='sheet-section-animate space-y-2'>
                   <h4 className='text-xs font-semibold text-muted-foreground uppercase tracking-wider'>
@@ -1142,6 +1204,17 @@ export function MonitoringAlertsCenter() {
               </Button>
 
               <div className='flex items-center gap-2'>
+                {/* 沉淀/更新排障经验按钮 / Record or update troubleshooting memory */}
+                <Button
+                  variant='outline'
+                  size='sm'
+                  className='h-9 text-xs gap-1 border-emerald-500/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/10'
+                  onClick={() => setMemoryDialogOpen(true)}
+                >
+                  <Lightbulb className='h-3.5 w-3.5 text-emerald-500' />
+                  {primaryMemory ? '更新排障经验' : '沉淀排障方案'}
+                </Button>
+
                 {selectedAlert.status === 'firing' &&
                   !isSilenceActive(selectedAlert.silenced_until) && (
                     <Button
@@ -1173,6 +1246,39 @@ export function MonitoringAlertsCenter() {
           )}
         </SheetContent>
       </Sheet>
+
+      {/* 沉淀排障解决方案弹窗 / Save troubleshooting memory dialog */}
+      <SaveMemoryDialog
+        open={memoryDialogOpen}
+        onOpenChange={setMemoryDialogOpen}
+        initialData={
+          selectedAlert
+            ? {
+                id: primaryMemory?.id,
+                target_type: 'alert',
+                fingerprint:
+                  selectedAlert.rule_key ||
+                  selectedAlert.alert_name,
+                title:
+                  primaryMemory?.title ||
+                  `${selectedAlert.alert_name || selectedAlert.rule_key} 排查与恢复方案`,
+                error_summary:
+                  selectedAlert.summary ||
+                  selectedAlert.description,
+                root_cause: primaryMemory?.root_cause,
+                solution: primaryMemory?.solution || '',
+                preventive_tips: primaryMemory?.preventive_tips,
+                tags: primaryMemory?.tags || ['alert', selectedAlert.source_type || 'metric'].filter(Boolean),
+                cluster_id: selectedAlert.cluster_id,
+                cluster_name: selectedAlert.cluster_name,
+                author: primaryMemory?.author,
+              }
+            : null
+        }
+        onSaved={() => {
+          setMemoriesVersion((v) => v + 1);
+        }}
+      />
     </div>
   );
 }

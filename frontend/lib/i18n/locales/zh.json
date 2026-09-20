@@ -320,12 +320,15 @@
     "myReceived": "我的领取",
     "hostManagement": "主机管理",
     "clusterManagement": "集群管理",
+    "hostsAndClusters": "主机与集群",
     "monitoringCenter": "告警中心",
     "diagnosticsCenter": "诊断中心",
+    "errorsAndAlerts": "错误与告警",
     "commandLogs": "命令记录",
     "auditLogs": "审计日志",
     "packageManagement": "安装包管理",
     "pluginMarketplace": "插件市场",
+    "packagesAndPlugins": "安装包与插件",
     "quickCreate": "快速创建",
     "profile": "个人信息",
     "userManagement": "用户管理"
@@ -3808,5 +3811,21 @@
     "scheduleNoTriggerYet": "暂无触发记录",
     "scheduleDisabled": "未启用",
     "search": "搜索"
+  },
+  "troubleshooting": {
+    "title": "排障经验记忆库",
+    "hasSolution": "已有方案",
+    "matchedSolution": "历史排障方案",
+    "presetSolution": "官方经典方案",
+    "teamSolution": "团队沉淀",
+    "recordSolution": "沉淀排障方案",
+    "editSolution": "编辑经验",
+    "updateSolution": "更新排障经验",
+    "copySolution": "复制方案",
+    "solutionCopied": "排障解决方案已复制到剪切板",
+    "noMemoryFound": "暂无针对此异常指纹的历史排障经验。若您已成功解决，欢迎沉淀具体的解决方案，下次发生同类故障时将自动在此置顶回显。",
+    "solutionRequired": "解决方案内容不能为空，排障经验必须包含具体的处理措施与步骤",
+    "saveSuccess": "排障方案已入库！后续发生同类故障时将自动置顶回显。",
+    "updateSuccess": "排障经验已成功更新！"
   }
 }

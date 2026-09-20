@@ -514,60 +514,29 @@ export function ManagementBar() {
       isActive: isRouteActive('/workbench'),
     });
 
-    // 主机管理入口 / Host management entry
+    // 主机与集群入口（合并主机与集群管理）/ Hosts & Clusters entry (consolidated)
     items.push({
-      title: tDock('hostManagement'),
-      icon: StaticIcons.server,
-      href: '/hosts',
-      isActive: isRouteActive('/hosts'),
-    });
-
-    // 集群管理入口 / Cluster management entry
-    items.push({
-      title: tDock('clusterManagement'),
+      title: tDock('hostsAndClusters'),
       icon: StaticIcons.layers,
       href: '/clusters',
-      isActive: isRouteActive('/clusters'),
+      isActive: isRouteActive('/clusters') || isRouteActive('/hosts'),
     });
 
-    // 监控中心入口 / Monitoring center entry
+    // 错误与告警入口（合并错误排查与告警监控）/ Errors & Alerts entry (consolidated)
     items.push({
-      title: tDock('monitoringCenter'),
-      icon: StaticIcons.monitoring,
-      href: '/monitoring',
-      isActive: isRouteActive('/monitoring'),
-    });
-
-    // 诊断中心入口 / Diagnostics center entry
-    items.push({
-      title: tDock('diagnosticsCenter'),
+      title: tDock('errorsAndAlerts'),
       icon: StaticIcons.diagnostics,
       href: '/diagnostics',
-      isActive: isRouteActive('/diagnostics'),
+      isActive: isRouteActive('/diagnostics') || isRouteActive('/monitoring'),
     });
 
-    // 安装包管理入口 / Package management entry
+    // 安装包与插件入口（合并安装包与连接器市场）/ Packages & Plugins entry (consolidated)
     items.push({
-      title: tDock('packageManagement'),
+      title: tDock('packagesAndPlugins'),
       icon: StaticIcons.package,
       href: '/packages',
-      isActive: isRouteActive('/packages'),
+      isActive: isRouteActive('/packages') || isRouteActive('/plugins'),
     });
-
-    // 插件市场入口 / Plugin marketplace entry
-    items.push({
-      title: tDock('pluginMarketplace'),
-      icon: StaticIcons.puzzle,
-      href: '/plugins',
-      isActive: isRouteActive('/plugins'),
-    });
-
-    // 命令记录入口暂时隐藏 / Command logs entry hidden for now
-    // items.push({
-    //   title: tDock('commandLogs'),
-    //   icon: StaticIcons.terminal,
-    //   href: '/commands',
-    // });
 
     // 审计日志入口 / Audit logs entry
     items.push({

@@ -25,6 +25,7 @@ import {
   Copy,
   Eye,
   FileCode,
+  Lightbulb,
   RefreshCw,
   Search,
   Server,
@@ -67,6 +68,10 @@ import {
   TableSkeletonRows,
 } from '@/components/common/layout';
 import {animateTableRows, animateSheetSections} from '@/lib/animations/gsap-motion';
+import {
+  TroubleshootingMemoryCard,
+  SaveMemoryDialog,
+} from '@/components/common/troubleshooting';
 
 type DiagnosticsErrorCenterProps = {
   clusterId?: number;
@@ -159,6 +164,11 @@ export function DiagnosticsErrorCenter({
   const [copiedEvidence, setCopiedEvidence] = useState(false);
   const groupsRequestIdRef = useRef(0);
   const detailRequestIdRef = useRef(0);
+
+  // 排障经验记忆库弹窗状态与刷新版本号
+  // Troubleshooting memory dialog open state and refresh version trigger
+  const [memoryDialogOpen, setMemoryDialogOpen] = useState(false);
+  const [memoriesVersion, setMemoriesVersion] = useState(0);
 
   // 复制异常堆栈到剪贴板
   // Copy exception evidence stack trace to clipboard
@@ -370,6 +380,40 @@ export function DiagnosticsErrorCenter({
     [groupEvents, selectedEventId],
   );
 
+  // 检索选中错误组命中的历史排障经验
+  // Match historical troubleshooting solutions for selected error group
+  const matchedMemories = useMemo(() => {
+    if (!selectedGroup) {
+      return [];
+    }
+    return services.troubleshooting.findMatchingMemories({
+      fingerprint: selectedGroup.fingerprint,
+      exception_class: selectedGroup.exception_class,
+      title: selectedGroup.title,
+      target_type: 'error',
+    });
+  }, [selectedGroup, memoriesVersion]);
+
+  const primaryMemory = matchedMemories[0] || null;
+
+  // 映射当前页错误组是否有命中方案
+  // Map whether error groups in current list have matched solutions
+  const groupMemoryMap = useMemo(() => {
+    const map = new Map<number, boolean>();
+    displayedGroups.forEach((group) => {
+      const matches = services.troubleshooting.findMatchingMemories({
+        fingerprint: group.fingerprint,
+        exception_class: group.exception_class,
+        title: group.title,
+        target_type: 'error',
+      });
+      if (matches.length > 0) {
+        map.set(group.id, true);
+      }
+    });
+    return map;
+  }, [displayedGroups, memoriesVersion]);
+
   const totalPages = Math.max(1, Math.ceil(groupTotal / 20));
 
   return (
@@ -497,8 +541,19 @@ export function DiagnosticsErrorCenter({
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <div className='overflow-hidden max-w-[420px]'>
-                            <div className='truncate font-medium text-xs text-foreground'>
-                              {group.title || '-'}
+                            <div className='flex items-center gap-1.5'>
+                              <span className='truncate font-medium text-xs text-foreground'>
+                                {group.title || '-'}
+                              </span>
+                              {groupMemoryMap.get(group.id) && (
+                                <Badge
+                                  variant='outline'
+                                  className='text-[10px] py-0 px-1 border-emerald-500/30 text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 gap-0.5 shrink-0 font-normal'
+                                >
+                                  <Lightbulb className='h-2.5 w-2.5 text-emerald-500' />
+                                  已有方案
+                                </Badge>
+                              )}
                             </div>
                             <div className='truncate text-[11px] text-muted-foreground font-mono mt-0.5'>
                               {group.sample_message || group.fingerprint}
@@ -657,6 +712,15 @@ export function DiagnosticsErrorCenter({
               </div>
             ) : selectedGroup ? (
               <div className='space-y-4 text-xs'>
+                {/* 历史排障经验置顶回显卡片 / Historical Troubleshooting Solution Card */}
+                <div className='sheet-section-animate'>
+                  <TroubleshootingMemoryCard
+                    matchedMemory={primaryMemory}
+                    totalMatches={matchedMemories.length}
+                    onAddOrEdit={() => setMemoryDialogOpen(true)}
+                  />
+                </div>
+
                 {/* 拓扑上下文卡片 / Topology Context */}
                 <div className='sheet-section-animate rounded-lg border p-3.5 space-y-2 bg-muted/15'>
                   <div className='font-semibold text-foreground flex items-center gap-1.5'>
@@ -850,6 +914,17 @@ export function DiagnosticsErrorCenter({
                     </a>
                   </Button>
                 ) : null}
+
+                {/* 沉淀/更新排障经验按钮 / Record or update troubleshooting memory */}
+                <Button
+                  variant='outline'
+                  size='sm'
+                  className='h-8 text-xs gap-1 border-emerald-500/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/10'
+                  onClick={() => setMemoryDialogOpen(true)}
+                >
+                  <Lightbulb className='h-3.5 w-3.5 text-emerald-500' />
+                  {primaryMemory ? '更新排障经验' : '沉淀排障方案'}
+                </Button>
               </div>
 
               <Button
@@ -864,6 +939,48 @@ export function DiagnosticsErrorCenter({
           )}
         </SheetContent>
       </Sheet>
+
+      {/* 沉淀排障解决方案弹窗 / Save troubleshooting memory dialog */}
+      <SaveMemoryDialog
+        open={memoryDialogOpen}
+        onOpenChange={setMemoryDialogOpen}
+        initialData={
+          selectedGroup
+            ? {
+                id: primaryMemory?.id,
+                target_type: 'error',
+                fingerprint:
+                  selectedGroup.fingerprint ||
+                  selectedGroup.exception_class ||
+                  selectedGroup.title,
+                title:
+                  primaryMemory?.title ||
+                  `${selectedGroup.title || selectedGroup.exception_class || '异常'} 排障恢复方案`,
+                error_summary:
+                  selectedGroup.sample_message || selectedGroup.title,
+                root_cause: primaryMemory?.root_cause,
+                solution: primaryMemory?.solution || '',
+                preventive_tips: primaryMemory?.preventive_tips,
+                tags:
+                  primaryMemory?.tags ||
+                  [
+                    selectedGroup.exception_class
+                      ? selectedGroup.exception_class
+                          .split('.')
+                          .pop()
+                          ?.toLowerCase() || ''
+                      : '',
+                  ].filter(Boolean),
+                cluster_id: clusterId,
+                cluster_name: clusterName,
+                author: primaryMemory?.author,
+              }
+            : null
+        }
+        onSaved={() => {
+          setMemoriesVersion((v) => v + 1);
+        }}
+      />
     </div>
   );
 }

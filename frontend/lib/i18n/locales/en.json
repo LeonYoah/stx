@@ -320,12 +320,15 @@
     "myReceived": "My Received",
     "hostManagement": "Host Management",
     "clusterManagement": "Cluster Management",
+    "hostsAndClusters": "Hosts & Clusters",
     "monitoringCenter": "Alert Center",
     "diagnosticsCenter": "Diagnostics",
+    "errorsAndAlerts": "Errors & Alerts",
     "commandLogs": "Command Logs",
     "auditLogs": "Audit Logs",
     "packageManagement": "Package Management",
     "pluginMarketplace": "Plugin Marketplace",
+    "packagesAndPlugins": "Packages & Plugins",
     "quickCreate": "Quick Create",
     "profile": "Profile",
     "userManagement": "User Management"
@@ -3808,5 +3811,21 @@
     "scheduleNoTriggerYet": "No trigger history yet",
     "scheduleDisabled": "Disabled",
     "search": "Search"
+  },
+  "troubleshooting": {
+    "title": "Troubleshooting Memory Bank",
+    "hasSolution": "Solution Available",
+    "matchedSolution": "Historical Solution",
+    "presetSolution": "Preset Solution",
+    "teamSolution": "Team Contributed",
+    "recordSolution": "Record Solution",
+    "editSolution": "Edit Solution",
+    "updateSolution": "Update Solution",
+    "copySolution": "Copy Solution",
+    "solutionCopied": "Solution copied to clipboard",
+    "noMemoryFound": "No historical troubleshooting memory found for this fingerprint yet. Once resolved, you can record verified solutions to automatically recall them next time.",
+    "solutionRequired": "Solution cannot be empty; troubleshooting memory must include concrete remediation steps and actions",
+    "saveSuccess": "Troubleshooting solution saved! It will automatically recall on similar faults.",
+    "updateSuccess": "Troubleshooting solution updated successfully!"
   }
 }

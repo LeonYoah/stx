@@ -24,6 +24,7 @@ frontend/package-lock.json
 frontend/.env
 .env.*
 !.env.example
+!.env.cn.example
 *.tsbuildinfo
 
 # os

@@ -4,8 +4,10 @@
 name: stx
 
 services:
+  # 镜像前缀：海外 ghcr.io/leonyoah；中国华为云 SWR 用 swr.cn-east-3.myhuaweicloud.com/stx（见 .env）。
+  # Image prefix: GHCR overseas; China Huawei SWR uses swr.cn-east-3.myhuaweicloud.com/stx (see .env).
   stx-backend:
-    image: ghcr.io/leonyoah/stx-backend:${STX_IMAGE_TAG:-latest}
+    image: ${STX_IMAGE_REGISTRY:-ghcr.io/leonyoah}/stx-backend:${STX_IMAGE_TAG:-latest}
     container_name: stx-backend
     restart: unless-stopped
     volumes:
@@ -18,7 +20,7 @@ services:
     networks: [stx]
 
   stx-frontend:
-    image: ghcr.io/leonyoah/stx-frontend:${STX_IMAGE_TAG:-latest}
+    image: ${STX_IMAGE_REGISTRY:-ghcr.io/leonyoah}/stx-frontend:${STX_IMAGE_TAG:-latest}
     container_name: stx-frontend
     restart: unless-stopped
     environment:

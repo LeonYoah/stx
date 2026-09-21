@@ -11,11 +11,24 @@ cp config.example.yaml config.yaml
 docker compose up -d
 ```
 
-国内：把下载链接贴到 https://gh-proxy.com/ ，或：
+中国：把下载链接贴到 https://gh-proxy.com/ ，或：
 
 ```bash
 curl -fsSL https://v4.gh-proxy.org/https://github.com/LeonYoah/stx/releases/latest/download/stx-docker-compose.tar.gz | tar -xz
 ```
+
+中国拉应用镜像（华为云 SWR，组织 `stx`）：
+
+```bash
+cp .env.cn.example .env
+# 或编辑 .env：STX_IMAGE_REGISTRY=swr.cn-east-3.myhuaweicloud.com/stx
+docker compose up -d
+```
+
+| 变量 | 默认 | 说明 |
+| --- | --- | --- |
+| `STX_IMAGE_REGISTRY` | `ghcr.io/leonyoah` | 镜像前缀；中国用 `swr.cn-east-3.myhuaweicloud.com/stx` |
+| `STX_IMAGE_TAG` | `latest` | 镜像 tag |
 
 | 数据库 | 启动 |
 | --- | --- |

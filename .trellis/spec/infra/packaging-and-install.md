@@ -68,8 +68,10 @@ curl -fsSL <raw-or-mirrored-url>/install-online.sh | bash -s -- [options]
 | `STX_GH_PROXY_NODES` | 见下表 | 逗号分隔 |
 | `STX_INSTALL_DIR` | `/opt/stx` | 安装根目录 |
 | `START_OBSERVABILITY` | `auto` | `auto` \| `true` \| `false`（start.sh） |
+| `STX_IMAGE_REGISTRY` | `ghcr.io/leonyoah` | Docker Compose 镜像前缀；中国华为云用 `swr.cn-east-3.myhuaweicloud.com/stx` |
+| `STX_IMAGE_TAG` | `latest` | Docker Compose / 单镜像 tag |
 
-### 3.2 gh-proxy 节点（国内默认）
+### 3.2 gh-proxy 节点（中国默认）
 
 ```text
 https://gh-proxy.org
@@ -125,7 +127,7 @@ $INSTALL_DIR/deps/start-observability.sh  # 可选 bundled
 | 本机 node &lt; 18.18 | 不得当作合格运行时；继续解析 deps/包管理 |
 | 官方 Node 22 跑在 glibc 2.17 | 安装前按 glibc 选择 `glibc217` 资产；错包 fail-fast |
 | 端口连续 +20 仍占用 | 中止并提示手动指定端口 |
-| 国内测速五节点全失败 | 回退直连；再失败则中止并给出手动下载说明 |
+| 中国测速五节点全失败 | 回退直连；再失败则中止并给出手动下载说明 |
 | all-in-one 文档 | 必须写明「不含监控三件套」 |
 
 ---
@@ -135,7 +137,7 @@ $INSTALL_DIR/deps/start-observability.sh  # 可选 bundled
 ### Good
 
 - 海外机器：`REGION=global`，直连下载 `stx-linux-amd64` + frontend tarball，systemd enable  
-- 国内机器：测速选中 `v4.gh-proxy.org`，前缀下载成功  
+- 中国机器：测速选中 `v4.gh-proxy.org`，前缀下载成功  
 - 离线：bundle 含 stx + frontend + node-glibc217，内网机 `--offline` 安装成功  
 
 ### Base
@@ -171,8 +173,9 @@ $INSTALL_DIR/deps/start-observability.sh  # 可选 bundled
 | 每次发版上传完整 `…-with-observability.tar.gz` 作为唯一产物 | 发版上传裸 `stx`/`stx-agent` + frontend tarball；deps 独立复用 |
 | 每个 `v*` 重打并上传 node / 三件套 | 这两类只在 tag `deps`；版本工作流不传 `--emit-deps` |
 | 假定纯静态 `webserver/static` | Next standalone + Node；deps/node 或系统 node |
-| 国内写死单一代理域名 | 五节点测速 + 可覆盖 `STX_DOWNLOAD_MIRROR_PREFIX` |
+| 中国写死单一代理域名 | 五节点测速 + 可覆盖 `STX_DOWNLOAD_MIRROR_PREFIX` |
 | all-in-one 塞入三件套「图省事」 | all-in-one 仅管控面；全量监控用 `deploy/docker/docker-compose.yml` |
+| Compose 写死仅 GHCR、中国无法拉 | `STX_IMAGE_REGISTRY` 可切到 `swr.cn-east-3.myhuaweicloud.com/stx` |
 | 假定用户必须跑脚本才能装 | README 提供手动下载资产表 + `packages/` + `install.sh --offline` |
 
 ---
@@ -182,6 +185,6 @@ $INSTALL_DIR/deps/start-observability.sh  # 可选 bundled
 - [ ] 确认改的是「版本资产」还是「deps 资产」
 - [ ] stx/agent 是否仍为裸二进制
 - [ ] 在线/离线是否共用 install-core
-- [ ] 国内下载是否走可测速/可覆盖镜像
+- [ ] 中国下载是否走可测速/可覆盖镜像
 - [ ] systemd 路径是否与 agent 一致
 - [ ] 文档是否声明 all-in-one 无监控

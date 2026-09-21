@@ -110,7 +110,7 @@ pnpm dev
 # 海外
 curl -fsSL https://github.com/LeonYoah/stx/releases/latest/download/install-online.sh | bash
 
-# 国内（链接已带 gh-proxy）
+# 中国（链接已带 gh-proxy）
 curl -fsSL https://v4.gh-proxy.org/https://github.com/LeonYoah/stx/releases/latest/download/install-online.sh | bash
 ```
 
@@ -122,7 +122,7 @@ curl -fsSL https://v4.gh-proxy.org/https://github.com/LeonYoah/stx/releases/late
 ```bash
 # 海外
 curl -fsSL https://github.com/LeonYoah/stx/releases/latest/download/download-bundle.sh | bash
-# 国内
+# 中国
 curl -fsSL https://v4.gh-proxy.org/https://github.com/LeonYoah/stx/releases/latest/download/download-bundle.sh | bash
 ```
 
@@ -146,7 +146,7 @@ sudo ./install.sh --install-dir /opt/stx --offline
 2. 再下下面的包，放进 `packages/`  
 3. `./install.sh --offline`  
 
-国内：复制链接到 [https://gh-proxy.com/](https://gh-proxy.com/) 打开。
+中国：复制链接到 [https://gh-proxy.com/](https://gh-proxy.com/) 打开。
 
 | 包 | amd64 | arm64 |
 | --- | --- | --- |
@@ -178,8 +178,15 @@ cp config.example.yaml config.yaml   # 改 external_url / 密码，并按库类�
 docker compose up -d                 # 默认 MySQL
 ```
 
-国内：链接贴 [gh-proxy.com](https://gh-proxy.com/)，或  
+中国：链接贴 [gh-proxy.com](https://gh-proxy.com/)，或  
 `https://v4.gh-proxy.org/https://github.com/LeonYoah/stx/releases/latest/download/stx-docker-compose.tar.gz`
+
+中国拉镜像（华为云 SWR）：把 `.env` 的 `STX_IMAGE_REGISTRY` 改为 `swr.cn-east-3.myhuaweicloud.com/stx`，或：
+
+```bash
+cp .env.cn.example .env
+docker compose up -d
+```
 
 | 数据库 | 启动（先改好 config.yaml 的 database） |
 | --- | --- |
@@ -195,7 +202,14 @@ docker compose up -d                 # 默认 MySQL
 | Prometheus | http://127.0.0.1:9090 |
 | Alertmanager | http://127.0.0.1:9093 |
 
-单容器体验（无监控）：`docker run -d -p 17800:17800 -p 17880:17880 -p 17890:17890 ghcr.io/leonyoah/stx-all-in-one:latest`。
+单容器体验（无监控）：
+
+```bash
+# 海外 GHCR
+docker run -d -p 17800:17800 -p 17880:17880 -p 17890:17890 ghcr.io/leonyoah/stx-all-in-one:latest
+# 中国华为云 SWR
+docker run -d -p 17800:17800 -p 17880:17880 -p 17890:17890 swr.cn-east-3.myhuaweicloud.com/stx/stx-all-in-one:latest
+```
 
 二进制安装后：`/opt/stx/bin/start.sh` 或 `systemctl restart stx`。
 

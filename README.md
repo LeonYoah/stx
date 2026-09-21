@@ -170,6 +170,13 @@ docker compose up -d                 # MySQL default
 
 China: paste into [gh-proxy.com](https://gh-proxy.com/), or use the `v4.gh-proxy.org/https://github.com/...` URL.
 
+China images (Huawei SWR): set `STX_IMAGE_REGISTRY=swr.cn-east-3.myhuaweicloud.com/stx` in `.env`, or:
+
+```bash
+cp .env.cn.example .env
+docker compose up -d
+```
+
 | DB | Start |
 | --- | --- |
 | MySQL (default) | `docker compose up -d` |
@@ -184,7 +191,14 @@ China: paste into [gh-proxy.com](https://gh-proxy.com/), or use the `v4.gh-proxy
 | Prometheus | http://127.0.0.1:9090 |
 | Alertmanager | http://127.0.0.1:9093 |
 
-Single container (no monitoring): `docker run -d -p 17800:17800 -p 17880:17880 -p 17890:17890 ghcr.io/leonyoah/stx-all-in-one:latest`.
+Single container (no monitoring):
+
+```bash
+# Global GHCR
+docker run -d -p 17800:17800 -p 17880:17880 -p 17890:17890 ghcr.io/leonyoah/stx-all-in-one:latest
+# China Huawei SWR
+docker run -d -p 17800:17800 -p 17880:17880 -p 17890:17890 swr.cn-east-3.myhuaweicloud.com/stx/stx-all-in-one:latest
+```
 
 More: [docs/00-快速开始.md](./docs/00-快速开始.md), [docs/打包发布说明.md](./docs/打包发布说明.md).
 

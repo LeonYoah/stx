@@ -27,13 +27,13 @@ STX is the control plane for that work: one place to manage hosts, clusters, pac
 | Login | ![Login](docs/screenshots/00-login.png) |
 | Dashboard | ![Dashboard](docs/screenshots/01-dashboard.png) |
 | Workbench | ![Workbench](docs/screenshots/02-workbench.png) |
+| DAG | ![DAG](docs/screenshots/09-dag.png) |
 | Hosts | ![Hosts](docs/screenshots/03-hosts.png) |
 | Clusters | ![Clusters](docs/screenshots/04-clusters.png) |
 | Monitoring | ![Monitoring](docs/screenshots/05-monitoring.png) |
 | Diagnostics | ![Diagnostics](docs/screenshots/06-diagnostics.png) |
 | Packages | ![Packages](docs/screenshots/07-packages.png) |
 | Plugins | ![Plugins](docs/screenshots/08-plugins.png) |
-| Data Sync | ![Data Sync](docs/screenshots/10-sync.png) |
 | User Center | ![User Center](docs/screenshots/11-user-center.png) |
 
 ## Architecture

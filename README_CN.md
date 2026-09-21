@@ -30,13 +30,13 @@ STX 就是围绕这些事的控制面：把主机、集群、安装包、插件�
 | 登录   | ![登录](docs/screenshots/00-login.png)         |
 | 控制台  | ![控制台](docs/screenshots/01-dashboard.png)    |
 | 工作台  | ![工作台](docs/screenshots/02-workbench.png)    |
+| DAG  | ![DAG](docs/screenshots/09-dag.png)           |
 | 主机管理 | ![主机管理](docs/screenshots/03-hosts.png)       |
 | 集群管理 | ![集群管理](docs/screenshots/04-clusters.png)    |
 | 监控中心 | ![监控中心](docs/screenshots/05-monitoring.png)  |
 | 诊断中心 | ![诊断中心](docs/screenshots/06-diagnostics.png) |
 | 安装包  | ![安装包](docs/screenshots/07-packages.png)     |
 | 插件市场 | ![插件市场](docs/screenshots/08-plugins.png)     |
-| 数据同步 | ![数据同步](docs/screenshots/10-sync.png)        |
 | 用户中心 | ![用户中心](docs/screenshots/11-user-center.png) |
 
 

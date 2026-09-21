@@ -506,6 +506,24 @@ func inferConfigToolErrorType(message string) string {
 	}
 }
 
+// humanizeResolutionDetail 全局转译常见数据库与连接器底层报错为人类可读说明
+// humanizeResolutionDetail globally translates common database and connector errors into human-readable explanations
+func humanizeResolutionDetail(detail string) string {
+	lower := strings.ToLower(detail)
+	switch {
+	case strings.Contains(lower, "can not find catalog table with factoryid"):
+		return fmt.Sprintf("目标数据库中未找到匹配的物理表元数据（物理表不存在或已被删除，请检查 table-names / table-pattern 配置或在数据库中建表） | %s", detail)
+	case strings.Contains(lower, "doesn't exist") || strings.Contains(lower, "does not exist"):
+		return fmt.Sprintf("指定数据表在数据库中不存在（请核对表名拼写或在数据库中建表） | %s", detail)
+	case strings.Contains(lower, "access denied for user") || strings.Contains(lower, "password authentication failed"):
+		return fmt.Sprintf("数据库账号或密码认证失败（请检查连接配置中的用户名密码） | %s", detail)
+	case strings.Contains(lower, "communications link failure") || strings.Contains(lower, "connection refused") || strings.Contains(lower, "connection timed out"):
+		return fmt.Sprintf("无法连接到目标数据库（请检查网络连通性、端口及数据库服务状态） | %s", detail)
+	default:
+		return detail
+	}
+}
+
 func humanizeConfigToolMessage(path string, message string) string {
 	trimmed := strings.TrimSpace(message)
 	if inferConfigToolErrorType(trimmed) == "config_parse_error" {
@@ -518,11 +536,11 @@ func humanizeConfigToolMessage(path string, message string) string {
 	}
 	switch path {
 	case "/api/v1/config/webui-dag":
-		return fmt.Sprintf("sync: DAG 解析失败：%s", trimmed)
+		return fmt.Sprintf("sync: DAG 解析失败：%s", humanizeResolutionDetail(trimmed))
 	case "/api/v1/config/validate":
-		return fmt.Sprintf("sync: 配置校验失败：%s", trimmed)
+		return fmt.Sprintf("sync: 配置校验失败：%s", humanizeResolutionDetail(trimmed))
 	default:
-		return fmt.Sprintf("sync: config tool request failed: status? message=%s", trimmed)
+		return fmt.Sprintf("sync: config tool request failed: status? message=%s", humanizeResolutionDetail(trimmed))
 	}
 }
 

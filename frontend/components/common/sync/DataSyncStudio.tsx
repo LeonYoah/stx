@@ -347,6 +347,9 @@ import {
   resolveFolderParent,
   resolveOptionAssignmentContext,
   resolveOptionKeyFromLine,
+  resolveValueRegionVariableSuggestions,
+  resolveVariableCompletionContext,
+  resolveVariableSuggestions,
   splitLogLines,
   submitSpecExecutionMode,
   summarizeCheckpointSourceState,
@@ -443,6 +446,7 @@ export function DataSyncStudio() {
   const [globalVariables, setGlobalVariables] = useState<SyncGlobalVariable[]>(
     [],
   );
+  const allGlobalVariablesRef = useRef<SyncGlobalVariable[]>([]);
   const [versionTotal, setVersionTotal] = useState(0);
   const [globalVariableTotal, setGlobalVariableTotal] = useState(0);
   const [versionPage, setVersionPage] = useState(1);
@@ -1307,18 +1311,25 @@ export function DataSyncStudio() {
 
   const loadGlobalVariables = useCallback(async () => {
     try {
-      const data = await services.sync.listGlobalVariables({
-        current: globalVariablePage,
-        size: 8,
-      });
+      const [data, allData] = await Promise.all([
+        services.sync.listGlobalVariables({
+          current: globalVariablePage,
+          size: 8,
+        }),
+        services.sync.listGlobalVariables({
+          current: 1,
+          size: 1000,
+        }),
+      ]);
       setGlobalVariables(data.items || []);
       setGlobalVariableTotal(data.total || 0);
+      allGlobalVariablesRef.current = allData.items || [];
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : t('loadGlobalVariablesFailed'),
       );
     }
-  }, [globalVariablePage]);
+  }, [globalVariablePage, t]);
 
   useEffect(() => {
     void loadWorkspace();
@@ -1866,106 +1877,145 @@ export function DataSyncStudio() {
       );
       enumCompletionCommandRegisteredRef.current = true;
     }
-    completionDisposableRef.current =
-      monaco.languages.registerCompletionItemProvider('sync-hocon', {
-        triggerCharacters: ['=', ' ', '"'],
-        provideCompletionItems: async (
-          model: any,
-          position: {lineNumber: number; column: number},
-        ) => {
-          const lineContent = model.getLineContent(position.lineNumber);
-          const assignmentCtx = resolveOptionAssignmentContext(
-            lineContent,
-            position.column,
-          );
-          if (!assignmentCtx.inValueRegion || !assignmentCtx.optionKey) {
-            return {suggestions: []};
-          }
-          const optionKey = assignmentCtx.optionKey;
-          const context = resolveEditorPluginContext(
-            model.getValue(),
-            position.lineNumber,
-          );
-          let metadata: any = null;
-          const enumCatalog =
-            enumCatalogCacheRef.current[currentClusterIdRef.current] || {};
-          if (context.pluginType && context.factoryIdentifier) {
-            metadata =
-              enumCatalog[context.pluginType]?.[context.factoryIdentifier]?.[
-                optionKey
-              ] || null;
-          } else if (
-            enumCatalog.env?.__env__?.[optionKey]?.enum_values?.length
-          ) {
-            metadata = enumCatalog.env.__env__[optionKey];
-          }
-          if (
-            !(metadata?.enum_values || []).length &&
-            context.pluginType &&
-            context.factoryIdentifier &&
-            currentClusterIdRef.current
-          ) {
-            try {
-              const schema = await ensurePluginSchemaRef.current(
-                context.pluginType,
-                context.factoryIdentifier,
-              );
-              metadata = schema[optionKey] || null;
-            } catch {
-              metadata = null;
-            }
-          }
-          if (
-            !(metadata?.enum_values || []).length &&
-            ENV_OPTION_METADATA[optionKey]?.enumValues
-          ) {
-            metadata = {
-              enum_values: ENV_OPTION_METADATA[optionKey].enumValues || [],
-              enum_display_values:
-                ENV_OPTION_METADATA[optionKey].enumValues || [],
-            };
-          }
-          const enumItems = resolveEnumSuggestionItems(metadata);
-          const enumValues = enumItems.map((item) => item.value);
-          if (!enumValues?.length) {
-            return {suggestions: []};
-          }
-          const currentWord = model.getWordUntilPosition(position)?.word || '';
-          const currentValue = assignmentCtx.bounds?.value || '';
-          const isSittingOnEnumValue = enumValues.some(
-            (val) => val.toLowerCase() === currentValue.toLowerCase(),
-          );
+    const completionProvider = {
+      triggerCharacters: ['=', ' ', '"', '{'],
+      provideCompletionItems: async (
+        model: any,
+        position: {lineNumber: number; column: number},
+      ) => {
+        const lineContent = model.getLineContent(position.lineNumber);
 
-          return {
-            suggestions: enumItems.map((item, index) => {
-              const filterText = isSittingOnEnumValue || !currentWord
-                ? [currentWord, item.label, item.value].filter(Boolean).join(' ')
-                : [item.label, item.value].filter(Boolean).join(' ');
+        // 1. 优先检测是否位于 {{ 变量占位符内部（支持输入 {{ 后以及键入字母时的模糊匹配与一键插入）
+        const varCtx = resolveVariableCompletionContext(
+          lineContent,
+          position.column,
+        );
+        if (varCtx.inVariable) {
+          const suggestions = resolveVariableSuggestions(
+            monaco,
+            varCtx,
+            customVariableRowsRef.current,
+            allGlobalVariablesRef.current,
+            position,
+          );
+          return {suggestions};
+        }
 
-              return {
-                label: item.label,
-                detail:
-                  item.label !== item.value ? `插入值: ${item.value}` : undefined,
-                kind: monaco.languages.CompletionItemKind.EnumMember,
-                insertText: '',
-                filterText,
-                sortText: String(index).padStart(4, '0'),
-                range: resolveEnumSuggestRange(position),
-                command: {
-                  id: enumCompletionCommandIdRef.current,
-                  title: 'Apply enum completion',
-                  arguments: [
-                    {
-                      lineNumber: position.lineNumber,
-                      value: item.value,
-                    },
-                  ],
-                },
-              };
-            }),
+        // 2. 检测属性赋值上下文（枚举提示或无枚举属性的变量备选）
+        const assignmentCtx = resolveOptionAssignmentContext(
+          lineContent,
+          position.column,
+        );
+        if (!assignmentCtx.inValueRegion || !assignmentCtx.optionKey) {
+          return {suggestions: []};
+        }
+        const optionKey = assignmentCtx.optionKey;
+        const context = resolveEditorPluginContext(
+          model.getValue(),
+          position.lineNumber,
+        );
+        let metadata: any = null;
+        const enumCatalog =
+          enumCatalogCacheRef.current[currentClusterIdRef.current] || {};
+        if (context.pluginType && context.factoryIdentifier) {
+          metadata =
+            enumCatalog[context.pluginType]?.[context.factoryIdentifier]?.[
+              optionKey
+            ] || null;
+        } else if (
+          enumCatalog.env?.__env__?.[optionKey]?.enum_values?.length
+        ) {
+          metadata = enumCatalog.env.__env__[optionKey];
+        }
+        if (
+          !(metadata?.enum_values || []).length &&
+          context.pluginType &&
+          context.factoryIdentifier &&
+          currentClusterIdRef.current
+        ) {
+          try {
+            const schema = await ensurePluginSchemaRef.current(
+              context.pluginType,
+              context.factoryIdentifier,
+            );
+            metadata = schema[optionKey] || null;
+          } catch {
+            metadata = null;
+          }
+        }
+        if (
+          !(metadata?.enum_values || []).length &&
+          ENV_OPTION_METADATA[optionKey]?.enumValues
+        ) {
+          metadata = {
+            enum_values: ENV_OPTION_METADATA[optionKey].enumValues || [],
+            enum_display_values:
+              ENV_OPTION_METADATA[optionKey].enumValues || [],
           };
-        },
-      });
+        }
+        const enumItems = resolveEnumSuggestionItems(metadata);
+        const enumValues = enumItems.map((item) => item.value);
+        if (!enumValues?.length) {
+          // 针对普通值属性（如 password、url 等无枚举选项时），主动提供所有变量的快捷选择建议
+          const varSuggestions = resolveValueRegionVariableSuggestions(
+            monaco,
+            customVariableRowsRef.current,
+            allGlobalVariablesRef.current,
+            position,
+          );
+          return {suggestions: varSuggestions};
+        }
+        const currentWord = model.getWordUntilPosition(position)?.word || '';
+        const currentValue = assignmentCtx.bounds?.value || '';
+        const isSittingOnEnumValue = enumValues.some(
+          (val) => val.toLowerCase() === currentValue.toLowerCase(),
+        );
+
+        return {
+          suggestions: enumItems.map((item, index) => {
+            const filterText = isSittingOnEnumValue || !currentWord
+              ? [currentWord, item.label, item.value].filter(Boolean).join(' ')
+              : [item.label, item.value].filter(Boolean).join(' ');
+
+            return {
+              label: item.label,
+              detail:
+                item.label !== item.value ? `插入值: ${item.value}` : undefined,
+              kind: monaco.languages.CompletionItemKind.EnumMember,
+              insertText: '',
+              filterText,
+              sortText: String(index).padStart(4, '0'),
+              range: resolveEnumSuggestRange(position),
+              command: {
+                id: enumCompletionCommandIdRef.current,
+                title: 'Apply enum completion',
+                arguments: [
+                  {
+                    lineNumber: position.lineNumber,
+                    value: item.value,
+                  },
+                ],
+              },
+            };
+          }),
+        };
+      },
+    };
+
+    const d1 = monaco.languages.registerCompletionItemProvider(
+      'sync-hocon',
+      completionProvider,
+    );
+    const d2 = monaco.languages.registerCompletionItemProvider(
+      'json',
+      completionProvider,
+    );
+    completionDisposableRef.current = {
+      dispose: () => {
+        d1?.dispose?.();
+        d2?.dispose?.();
+      },
+    };
     hoverDisposableRef.current = monaco.languages.registerHoverProvider(
       'sync-hocon',
       {
@@ -4289,7 +4339,7 @@ export function DataSyncStudio() {
                     fontSize: 13,
                     wordWrap: 'on',
                     quickSuggestions: {
-                      other: false,
+                      other: true,
                       comments: false,
                       strings: true,
                     },

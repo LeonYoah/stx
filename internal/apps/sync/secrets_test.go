@@ -149,3 +149,45 @@ func TestSanitizeValidationDAGAndPreviewResults(t *testing.T) {
 		t.Fatalf("unexpected sanitized preview rows: %#v", preview.Tables[0].Rows)
 	}
 }
+
+func TestSanitizeTaskPreservesVariableExpressions(t *testing.T) {
+	task := &Task{
+		Content: `source {
+  Jdbc {
+    url = "jdbc:mysql://127.0.0.1:3306/stx_e2e"
+    username = "root"
+    password = {{mysqlpas}}
+  }
+}
+sink {
+  Jdbc {
+    password = "{{mysqlpas}}"
+  }
+}`,
+	}
+	safe := sanitizeTaskForResponse(task)
+	if !strings.Contains(safe.Content, "password = {{mysqlpas}}") {
+		t.Fatalf("expected unquoted {{mysqlpas}} to be preserved, got %q", safe.Content)
+	}
+	if !strings.Contains(safe.Content, `password = "{{mysqlpas}}"`) {
+		t.Fatalf("expected quoted \"{{mysqlpas}}\" to be preserved, got %q", safe.Content)
+	}
+	if strings.Contains(safe.Content, "******") {
+		t.Fatalf("expected no ****** in task with variable placeholder, got %q", safe.Content)
+	}
+}
+
+func TestRestoreMaskedHOCONCleansLegacyCorruptedBraces(t *testing.T) {
+	saved := `source { Jdbc { password = {{mysqlpas}} } }`
+	incoming := `source { Jdbc { password = ******}} } }`
+	restored, err := restoreMaskedTaskContent(ContentFormatHOCON, saved, incoming)
+	if err != nil {
+		t.Fatalf("failed to restore legacy corrupted mask: %v", err)
+	}
+	if !strings.Contains(restored, "password = {{mysqlpas}}") {
+		t.Fatalf("expected password to be restored to {{mysqlpas}}, got %q", restored)
+	}
+	if strings.Contains(restored, "******") {
+		t.Fatalf("expected mask to be completely replaced, got %q", restored)
+	}
+}

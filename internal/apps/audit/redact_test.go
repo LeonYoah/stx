@@ -77,6 +77,59 @@ func TestRedactTextHandlesJSONAndHOCONWithoutChangingOrdinaryFields(t *testing.T
 	}
 }
 
+func TestRedactTextPreservesVariablePlaceholders(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "hocon double braces unquoted",
+			input:    "password = {{mysqlpas}}\nusername = \"root\"",
+			expected: "password = {{mysqlpas}}\nusername = \"root\"",
+		},
+		{
+			name:     "hocon double braces spaced",
+			input:    "password = {{ mysqlpas }}\nusername = \"root\"",
+			expected: "password = {{ mysqlpas }}\nusername = \"root\"",
+		},
+		{
+			name:     "hocon double braces quoted",
+			input:    "password = \"{{mysqlpas}}\"\nusername = \"root\"",
+			expected: "password = \"{{mysqlpas}}\"\nusername = \"root\"",
+		},
+		{
+			name:     "hocon dollar braces quoted",
+			input:    "password = \"${mysqlpas}\"\nusername = \"root\"",
+			expected: "password = \"${mysqlpas}\"\nusername = \"root\"",
+		},
+		{
+			name:     "hocon dollar braces unquoted",
+			input:    "password = ${mysqlpas}\nusername = \"root\"",
+			expected: "password = ${mysqlpas}\nusername = \"root\"",
+		},
+		{
+			name:     "json variable placeholder",
+			input:    `{"password":"{{mysqlpas}}","username":"root"}`,
+			expected: `{"password":"{{mysqlpas}}","username":"root"}`,
+		},
+		{
+			name:     "hocon real password redacted",
+			input:    "password = \"mySecret123\"\nusername = \"root\"",
+			expected: "password = ******\nusername = \"root\"",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := RedactText(test.input)
+			if got != test.expected {
+				t.Fatalf("expected %q, got %q", test.expected, got)
+			}
+		})
+	}
+}
+
 func TestRepositoryRedactsSecretsBeforePersistence(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()

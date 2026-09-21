@@ -27,7 +27,7 @@ import (
 
 const maskedSecretValue = "******"
 
-var syncAssignmentPattern = regexp.MustCompile(`(?m)(["']?)([A-Za-z_][A-Za-z0-9_.-]*)(["']?)(\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,;}\]]+)`)
+var syncAssignmentPattern = regexp.MustCompile(`(?m)(["']?)([A-Za-z_][A-Za-z0-9_.-]*)(["']?)(\s*[:=]\s*)("[^"\\]*(?:\\.[^"\\]*)*"|'[^'\\]*(?:\\.[^'\\]*)*'|\{\{[^{}]*\}\}|\$\{[^{}]*\}|\*{6}\}{0,2}|[^\s,;}\]]+)`)
 
 // sanitizeTaskForResponse 返回可安全展示的任务副本，不修改数据库实体。
 // sanitizeTaskForResponse returns a display-safe task copy without mutating the database entity.
@@ -330,7 +330,8 @@ func normalizeSecretAssignmentKey(key string) string {
 func unquoteSecretValue(value string) string {
 	trimmed := strings.TrimSpace(value)
 	if len(trimmed) >= 2 && ((trimmed[0] == '"' && trimmed[len(trimmed)-1] == '"') || (trimmed[0] == '\'' && trimmed[len(trimmed)-1] == '\'')) {
-		return trimmed[1 : len(trimmed)-1]
+		trimmed = strings.TrimSpace(trimmed[1 : len(trimmed)-1])
 	}
-	return trimmed
+	trimmed = strings.TrimSuffix(trimmed, "}}")
+	return strings.TrimSpace(trimmed)
 }

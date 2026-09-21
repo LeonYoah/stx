@@ -18,7 +18,15 @@
 'use client';
 
 import {useMemo, useState} from 'react';
-import {GitBranch} from 'lucide-react';
+import {
+  GitBranch,
+  Database,
+  Cpu,
+  ArrowDownToLine,
+  ZoomIn,
+  ZoomOut,
+  Sparkles,
+} from 'lucide-react';
 import type {
   SyncSinkSaveModePreviewTable,
   SyncWebUIDagEdge,
@@ -27,6 +35,7 @@ import type {
   SyncWebUIDagVertexInfo,
 } from '@/lib/services/sync';
 import {Badge} from '@/components/ui/badge';
+import {Button} from '@/components/ui/button';
 import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card';
 import {
   Dialog,
@@ -35,6 +44,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import {ScrollArea} from '@/components/ui/scroll-area';
+import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import {cn} from '@/lib/utils';
 
 interface PositionedNode extends SyncWebUIDagVertexInfo {
@@ -228,25 +238,50 @@ function computeNodeLevels(
   });
 }
 
-function nodeTone(type: string): string {
-  switch (type) {
+function nodeTone(type: string, isSelected: boolean = false): string {
+  if (isSelected) {
+    return 'border-primary ring-2 ring-primary/40 shadow-lg shadow-primary/10 bg-background/95 dark:bg-card/95';
+  }
+  switch (type.toLowerCase()) {
     case 'source':
-      return 'border-emerald-500/40 bg-emerald-500/5';
+      return 'border-emerald-500/50 hover:border-emerald-500 shadow-sm shadow-emerald-500/5 bg-gradient-to-b from-emerald-500/[0.08] to-background/90 dark:to-card/90';
     case 'sink':
-      return 'border-amber-500/40 bg-amber-500/5';
+      return 'border-indigo-500/50 hover:border-indigo-500 shadow-sm shadow-indigo-500/5 bg-gradient-to-b from-indigo-500/[0.08] to-background/90 dark:to-card/90';
     default:
-      return 'border-blue-500/40 bg-blue-500/5';
+      return 'border-amber-500/50 hover:border-amber-500 shadow-sm shadow-amber-500/5 bg-gradient-to-b from-amber-500/[0.08] to-background/90 dark:to-card/90';
+  }
+}
+
+function nodeAccentBar(type: string): string {
+  switch (type.toLowerCase()) {
+    case 'source':
+      return 'bg-gradient-to-r from-emerald-500 to-teal-400';
+    case 'sink':
+      return 'bg-gradient-to-r from-indigo-500 to-purple-500';
+    default:
+      return 'bg-gradient-to-r from-amber-500 to-orange-400';
   }
 }
 
 function nodeBadgeTone(type: string): string {
-  switch (type) {
+  switch (type.toLowerCase()) {
     case 'source':
-      return 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300';
+      return 'border-emerald-500/30 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300';
     case 'sink':
-      return 'bg-amber-500/15 text-amber-700 dark:text-amber-300';
+      return 'border-indigo-500/30 bg-indigo-500/15 text-indigo-700 dark:text-indigo-300';
     default:
-      return 'bg-blue-500/15 text-blue-700 dark:text-blue-300';
+      return 'border-amber-500/30 bg-amber-500/15 text-amber-700 dark:text-amber-300';
+  }
+}
+
+function renderNodeIcon(type: string) {
+  switch (type.toLowerCase()) {
+    case 'source':
+      return <Database className='size-3.5 text-emerald-600 dark:text-emerald-400' />;
+    case 'sink':
+      return <ArrowDownToLine className='size-3.5 text-indigo-600 dark:text-indigo-400' />;
+    default:
+      return <Cpu className='size-3.5 text-amber-600 dark:text-amber-400' />;
   }
 }
 
@@ -386,6 +421,10 @@ export function WebUiDagPreview({job}: {job: SyncWebUIDagPreviewJob}) {
     useState<SelectedTableDetailState | null>(null);
   const [selectedSaveModeDetail, setSelectedSaveModeDetail] =
     useState<SelectedSaveModeDetailState | null>(null);
+  const [selectedVertexId, setSelectedVertexId] = useState<number | null>(null);
+  const [zoom, setZoom] = useState<number>(1.0);
+  const [isFlowActive, setIsFlowActive] = useState<boolean>(true);
+
   const selectedSchemaColumns = useMemo(
     () => extractSchemaColumnDetails(selectedTableDetail?.schema),
     [selectedTableDetail],
@@ -401,6 +440,33 @@ export function WebUiDagPreview({job}: {job: SyncWebUIDagPreviewJob}) {
       new Map(positionedNodes.map((node) => [node.vertexId, node] as const)),
     [positionedNodes],
   );
+
+  // 拓扑统计
+  // Topology statistics
+  const stats = useMemo(() => {
+    let sources = 0;
+    let sinks = 0;
+    let transforms = 0;
+    let totalTables = 0;
+    for (const v of vertices) {
+      const type = (v.type || '').toLowerCase();
+      if (type === 'source') {
+        sources += 1;
+      } else if (type === 'sink') {
+        sinks += 1;
+      } else {
+        transforms += 1;
+      }
+      totalTables += (v.tablePaths || []).length;
+    }
+    return {sources, sinks, transforms, totalTables};
+  }, [vertices]);
+
+  const selectedNode = useMemo(
+    () => (selectedVertexId !== null ? nodeByID.get(selectedVertexId) : null),
+    [selectedVertexId, nodeByID],
+  );
+
   const width =
     positionedNodes.length === 0
       ? 0
@@ -413,30 +479,65 @@ export function WebUiDagPreview({job}: {job: SyncWebUIDagPreviewJob}) {
       ? 0
       : Math.max(...positionedNodes.map((node) => node.y + node.height)) +
         PADDING;
+
   return (
-    <div className='grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]'>
-      <Card className='overflow-hidden'>
-        <CardHeader className='border-b pb-3'>
-          <CardTitle className='flex items-center gap-2 text-sm'>
-            <GitBranch className='h-4 w-4' />
-            DAG
+    <div className='grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]'>
+      <style>{`
+        @keyframes stx-dag-flow {
+          from {
+            stroke-dashoffset: 48;
+          }
+          to {
+            stroke-dashoffset: 0;
+          }
+        }
+        .stx-dag-flowing-path {
+          stroke-dasharray: 6, 6;
+          animation: stx-dag-flow 1.8s linear infinite;
+        }
+      `}</style>
+
+      {/* 左侧拓扑画布 */}
+      <Card className='relative flex flex-col overflow-hidden border-border/60 bg-background/60 shadow-xs'>
+        <CardHeader className='border-b border-border/50 px-4 py-2.5 bg-muted/15 flex flex-row items-center justify-between'>
+          <CardTitle className='flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-foreground/80'>
+            <GitBranch className='size-3.5 text-primary/80' />
+            <span>执行拓扑图 (Execution DAG)</span>
           </CardTitle>
+          <div className='flex items-center gap-1.5 text-xs text-muted-foreground'>
+            <Badge variant='outline' className='h-5 rounded px-1.5 text-[10px] font-mono'>
+              {vertices.length} 算子
+            </Badge>
+            <span className='text-muted-foreground/50'>·</span>
+            <Badge variant='outline' className='h-5 rounded px-1.5 text-[10px] font-mono'>
+              {edges.length} 数据流
+            </Badge>
+          </div>
         </CardHeader>
-        <CardContent className='p-0'>
-          <div className='h-[560px] w-full overflow-x-auto overflow-y-auto'>
+
+        <CardContent className='relative p-0 overflow-hidden flex-1 min-h-[580px]'>
+          <div className='h-[580px] w-full overflow-x-auto overflow-y-auto'>
             <div
-              className='relative min-h-[560px] min-w-max bg-muted/15'
+              className='relative min-h-[580px] min-w-max transition-transform origin-top-left duration-150'
               style={{
-                width: Math.max(width, 820),
-                height: Math.max(height, 560),
+                width: Math.max(width, 860),
+                height: Math.max(height, 580),
+                transform: `scale(${zoom})`,
+                backgroundImage:
+                  'radial-gradient(circle at 1px 1px, currentColor 1px, transparent 0)',
+                backgroundSize: '24px 24px',
               }}
             >
+              {/* 点阵微弱色彩 */}
+              <div className='absolute inset-0 bg-muted/15 opacity-60 pointer-events-none' />
+
               <svg
-                className='absolute inset-0'
-                width={Math.max(width, 820)}
-                height={Math.max(height, 560)}
+                className='absolute inset-0 pointer-events-none'
+                width={Math.max(width, 860)}
+                height={Math.max(height, 580)}
               >
                 <defs>
+                  {/* 标准箭头 */}
                   <marker
                     id='sync-dag-arrow'
                     markerWidth='8'
@@ -446,210 +547,381 @@ export function WebUiDagPreview({job}: {job: SyncWebUIDagPreviewJob}) {
                     orient='auto'
                   >
                     <path
-                      d='M0,0 L8,4 L0,8 z'
-                      className='fill-muted-foreground/60'
+                      d='M0,1 L7,4 L0,7 z'
+                      className='fill-muted-foreground/70'
+                    />
+                  </marker>
+                  {/* 高亮激活箭头 */}
+                  <marker
+                    id='sync-dag-arrow-active'
+                    markerWidth='9'
+                    markerHeight='9'
+                    refX='8'
+                    refY='4'
+                    orient='auto'
+                  >
+                    <path
+                      d='M0,1 L8,4 L0,7 z'
+                      className='fill-primary'
                     />
                   </marker>
                 </defs>
+
                 {edges.map((edge, index) => {
                   const source = nodeByID.get(edge.inputVertexId);
                   const target = nodeByID.get(edge.targetVertexId);
                   if (!source || !target) {
                     return null;
                   }
+                  const isEdgeConnectedToSelected =
+                    selectedVertexId !== null &&
+                    (edge.inputVertexId === selectedVertexId ||
+                      edge.targetVertexId === selectedVertexId);
+
                   const x1 = source.x + NODE_WIDTH;
                   const y1 = source.y + source.height / 2;
                   const x2 = target.x;
                   const y2 = target.y + target.height / 2;
                   const midX = x1 + (x2 - x1) / 2;
                   const path = `M ${x1} ${y1} C ${midX} ${y1}, ${midX} ${y2}, ${x2} ${y2}`;
+
                   return (
-                    <path
-                      key={`${edge.inputVertexId}-${edge.targetVertexId}-${index}`}
-                      d={path}
-                      fill='none'
-                      stroke='currentColor'
-                      strokeWidth='2'
-                      className='text-muted-foreground/60'
-                      markerEnd='url(#sync-dag-arrow)'
-                    />
+                    <g key={`${edge.inputVertexId}-${edge.targetVertexId}-${index}`}>
+                      {/* 底层光晕微光线 */}
+                      <path
+                        d={path}
+                        fill='none'
+                        stroke={isEdgeConnectedToSelected ? 'var(--primary)' : 'currentColor'}
+                        strokeWidth={isEdgeConnectedToSelected ? '5' : '3'}
+                        className={cn(
+                          'transition-all duration-200',
+                          isEdgeConnectedToSelected
+                            ? 'opacity-30'
+                            : 'opacity-10 text-foreground',
+                        )}
+                      />
+                      {/* 顶层主干或流光虚线 */}
+                      <path
+                        d={path}
+                        fill='none'
+                        stroke={isEdgeConnectedToSelected ? 'var(--primary)' : 'currentColor'}
+                        strokeWidth={isEdgeConnectedToSelected ? '2' : '1.75'}
+                        className={cn(
+                          'transition-all duration-200',
+                          isEdgeConnectedToSelected
+                            ? 'text-primary opacity-90'
+                            : 'text-muted-foreground/60',
+                          isFlowActive && 'stx-dag-flowing-path',
+                        )}
+                        markerEnd={
+                          isEdgeConnectedToSelected
+                            ? 'url(#sync-dag-arrow-active)'
+                            : 'url(#sync-dag-arrow)'
+                        }
+                      />
+                    </g>
                   );
                 })}
               </svg>
 
-              {positionedNodes.map((node) => (
-                <div
-                  key={node.vertexId}
-                  className={cn(
-                    'absolute rounded-xl border shadow-sm backdrop-blur-sm',
-                    nodeTone(node.type),
-                  )}
-                  style={{
-                    left: node.x,
-                    top: node.y,
-                    width: NODE_WIDTH,
-                    minHeight: node.height,
-                  }}
-                >
-                  <div className='flex h-full flex-col gap-3 p-4'>
-                    <div className='flex items-center justify-between gap-2'>
-                      <Badge
-                        variant='secondary'
-                        className={cn(
-                          'border-transparent text-[11px] uppercase tracking-wide',
-                          nodeBadgeTone(node.type),
-                        )}
-                      >
-                        {node.type}
-                      </Badge>
-                      <span className='text-[11px] text-muted-foreground'>
-                        #{node.vertexId}
-                      </span>
-                    </div>
-                    <div className='space-y-1'>
-                      <div className='line-clamp-2 text-sm font-medium'>
-                        {node.connectorType}
-                      </div>
-                      <div className='space-y-2'>
-                        <div className='text-[11px] font-medium uppercase tracking-wide text-muted-foreground'>
-                          TablePaths
+              {positionedNodes.map((node) => {
+                const isSelected = selectedVertexId === node.vertexId;
+                return (
+                  <div
+                    key={node.vertexId}
+                    className={cn(
+                      'absolute rounded-xl border backdrop-blur-md cursor-pointer transition-all duration-200 select-none overflow-hidden group hover:scale-[1.01]',
+                      nodeTone(node.type, isSelected),
+                    )}
+                    style={{
+                      left: node.x,
+                      top: node.y,
+                      width: NODE_WIDTH,
+                      minHeight: node.height,
+                    }}
+                    onClick={() =>
+                      setSelectedVertexId((prev) =>
+                        prev === node.vertexId ? null : node.vertexId,
+                      )
+                    }
+                  >
+                    {/* 顶部彩色发光装饰条 */}
+                    <div className={cn('h-1 w-full', nodeAccentBar(node.type))} />
+
+                    <div className='flex h-full flex-col gap-2.5 p-3.5'>
+                      {/* 头部：类型徽标与 ID */}
+                      <div className='flex items-center justify-between gap-2'>
+                        <div className='flex items-center gap-1.5'>
+                          {renderNodeIcon(node.type)}
+                          <Badge
+                            variant='outline'
+                            className={cn(
+                              'rounded-sm text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0',
+                              nodeBadgeTone(node.type),
+                            )}
+                          >
+                            {node.type}
+                          </Badge>
                         </div>
-                        <div className='space-y-1.5'>
-                          {normalizeTablePaths(node.tablePaths).length > 0 ? (
-                            normalizeTablePaths(node.tablePaths).map((path) => (
-                              <TablePathPreviewItem
-                                key={`${node.vertexId}-${path}`}
-                                nodeLabel={`#${node.vertexId} ${node.connectorType}`}
-                                path={path}
-                                preview={resolveSaveModePreview(node, path)}
-                                onSelectDetail={() =>
-                                  setSelectedTableDetail({
-                                    nodeLabel: `#${node.vertexId} ${node.connectorType}`,
-                                    tablePath: path,
-                                    columns: node.tableColumns?.[path] || [],
-                                    schema: node.tableSchemas?.[path],
-                                  })
-                                }
-                                onPreviewDetail={() => {
-                                  const preview = resolveSaveModePreview(node, path);
-                                  if (!preview) {
-                                    return;
+                        <span className='font-mono text-[10px] text-muted-foreground font-medium'>
+                          #{node.vertexId}
+                        </span>
+                      </div>
+
+                      {/* 算子连接器名称 */}
+                      <div className='space-y-1.5'>
+                        <div
+                          className='line-clamp-2 text-xs font-semibold text-foreground group-hover:text-primary transition-colors'
+                          title={node.connectorType}
+                        >
+                          {node.connectorType}
+                        </div>
+
+                        {/* 表路径容器 */}
+                        <div className='space-y-1'>
+                          <div className='flex items-center justify-between text-[10px] font-medium uppercase tracking-wider text-muted-foreground'>
+                            <span>TablePaths</span>
+                            <span className='font-mono text-[9px] opacity-70'>
+                              {normalizeTablePaths(node.tablePaths).length} 表
+                            </span>
+                          </div>
+                          <div className='space-y-1.5'>
+                            {normalizeTablePaths(node.tablePaths).length > 0 ? (
+                              normalizeTablePaths(node.tablePaths).map((path) => (
+                                <TablePathPreviewItem
+                                  key={`${node.vertexId}-${path}`}
+                                  nodeLabel={`#${node.vertexId} ${node.connectorType}`}
+                                  path={path}
+                                  preview={resolveSaveModePreview(node, path)}
+                                  onSelectDetail={() =>
+                                    setSelectedTableDetail({
+                                      nodeLabel: `#${node.vertexId} ${node.connectorType}`,
+                                      tablePath: path,
+                                      columns: node.tableColumns?.[path] || [],
+                                      schema: node.tableSchemas?.[path],
+                                    })
                                   }
-                                  setSelectedSaveModeDetail({
-                                    nodeLabel: `#${node.vertexId} ${node.connectorType}`,
-                                    tablePath: path,
-                                    preview,
-                                  });
-                                }}
-                              />
-                            ))
-                          ) : (
-                            <Badge
-                              variant='secondary'
-                              className='rounded-md border border-border/50 bg-background/80 text-[11px]'
-                            >
-                              default
-                            </Badge>
-                          )}
+                                  onPreviewDetail={() => {
+                                    const preview = resolveSaveModePreview(node, path);
+                                    if (!preview) {
+                                      return;
+                                    }
+                                    setSelectedSaveModeDetail({
+                                      nodeLabel: `#${node.vertexId} ${node.connectorType}`,
+                                      tablePath: path,
+                                      preview,
+                                    });
+                                  }}
+                                />
+                              ))
+                            ) : (
+                              <Badge
+                                variant='secondary'
+                                className='rounded border border-border/40 bg-background/60 text-[10px] text-muted-foreground'
+                              >
+                                default
+                              </Badge>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
+          </div>
+
+          {/* 悬浮视口操控工具栏 (Floating Toolbar) */}
+          <div className='absolute bottom-3 left-3 flex items-center gap-1 rounded-lg border border-border/60 bg-background/90 p-1 shadow-md backdrop-blur-md'>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  size='icon'
+                  variant='ghost'
+                  className='size-7 text-muted-foreground hover:text-foreground'
+                  onClick={() => setZoom((prev) => Math.min(1.4, Number((prev + 0.15).toFixed(2))))}
+                >
+                  <ZoomIn className='size-3.5' />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side='top'>放大画布 (+15%)</TooltipContent>
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  size='icon'
+                  variant='ghost'
+                  className='size-7 text-muted-foreground hover:text-foreground'
+                  onClick={() => setZoom((prev) => Math.max(0.6, Number((prev - 0.15).toFixed(2))))}
+                >
+                  <ZoomOut className='size-3.5' />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side='top'>缩小画布 (-15%)</TooltipContent>
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  size='icon'
+                  variant='ghost'
+                  className='size-7 text-muted-foreground hover:text-foreground font-mono text-[10px]'
+                  onClick={() => setZoom(1.0)}
+                >
+                  {Math.round(zoom * 100)}%
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side='top'>重置为 100%</TooltipContent>
+            </Tooltip>
+
+            <div className='h-3.5 w-px bg-border/60 mx-0.5' />
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  size='icon'
+                  variant='ghost'
+                  className={cn(
+                    'size-7 text-muted-foreground hover:text-foreground',
+                    isFlowActive && 'text-primary bg-primary/10',
+                  )}
+                  onClick={() => setIsFlowActive((prev) => !prev)}
+                >
+                  <Sparkles className='size-3.5' />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side='top'>
+                {isFlowActive ? '关闭流光动态' : '开启流光动态'}
+              </TooltipContent>
+            </Tooltip>
           </div>
         </CardContent>
       </Card>
 
-      <div className='space-y-4'>
-        <Card>
-          <CardHeader className='pb-3'>
-            <CardTitle className='text-sm'>预览摘要</CardTitle>
-          </CardHeader>
-          <CardContent className='space-y-2 text-sm'>
-            <div className='flex items-center justify-between gap-3'>
-              <span className='text-muted-foreground'>Job</span>
-              <span>{job.jobName}</span>
-            </div>
-            <div className='flex items-center justify-between gap-3'>
-              <span className='text-muted-foreground'>Status</span>
-              <Badge variant='outline'>{job.jobStatus}</Badge>
-            </div>
-            <div className='flex items-center justify-between gap-3'>
-              <span className='text-muted-foreground'>Nodes</span>
-              <span>{vertices.length}</span>
-            </div>
-            <div className='flex items-center justify-between gap-3'>
-              <span className='text-muted-foreground'>Edges</span>
-              <span>{edges.length}</span>
-            </div>
-          </CardContent>
-        </Card>
+      {/* 右侧拓扑属性与联动面板 */}
+      <div className='space-y-3.5'>
+        {/* 拓扑全貌极简指标卡 */}
+        <div className='grid grid-cols-3 gap-2'>
+          <div className='rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-2 text-center'>
+            <div className='text-[10px] text-emerald-600 dark:text-emerald-400 font-medium uppercase'>输入源</div>
+            <div className='text-base font-bold text-foreground font-mono mt-0.5'>{stats.sources}</div>
+          </div>
+          <div className='rounded-lg border border-amber-500/30 bg-amber-500/5 p-2 text-center'>
+            <div className='text-[10px] text-amber-600 dark:text-amber-400 font-medium uppercase'>算子</div>
+            <div className='text-base font-bold text-foreground font-mono mt-0.5'>{stats.transforms}</div>
+          </div>
+          <div className='rounded-lg border border-indigo-500/30 bg-indigo-500/5 p-2 text-center'>
+            <div className='text-[10px] text-indigo-600 dark:text-indigo-400 font-medium uppercase'>目标源</div>
+            <div className='text-base font-bold text-foreground font-mono mt-0.5'>{stats.sinks}</div>
+          </div>
+        </div>
 
-        <Card>
-          <CardHeader className='pb-3'>
-            <CardTitle className='text-sm'>节点列表</CardTitle>
-          </CardHeader>
-          <CardContent className='space-y-2'>
-            {vertices.map((vertex) => (
-              <div
-                key={vertex.vertexId}
-                className='rounded-lg border border-border/60 p-3'
+        {/* 选中的节点属性 或 作业全景摘要 */}
+        {selectedNode ? (
+          <Card className='border-primary/40 shadow-xs'>
+            <CardHeader className='pb-2.5 pt-3.5 px-4 flex flex-row items-center justify-between border-b border-border/40'>
+              <div className='flex items-center gap-1.5'>
+                {renderNodeIcon(selectedNode.type)}
+                <CardTitle className='text-xs font-semibold'>
+                  节点 #{selectedNode.vertexId}
+                </CardTitle>
+              </div>
+              <Button
+                size='sm'
+                variant='ghost'
+                className='h-6 px-1.5 text-[11px] text-muted-foreground hover:text-foreground'
+                onClick={() => setSelectedVertexId(null)}
               >
-                <div className='flex items-center justify-between gap-2'>
-                  <div className='text-sm font-medium'>
-                    {vertex.connectorType}
+                取消聚焦
+              </Button>
+            </CardHeader>
+            <CardContent className='p-3.5 space-y-3 text-xs'>
+              <div className='space-y-1.5'>
+                <div className='text-[10px] uppercase font-semibold text-muted-foreground'>算子名称</div>
+                <div className='rounded border border-border/50 bg-muted/20 px-2.5 py-1.5 font-mono text-foreground break-all'>
+                  {selectedNode.connectorType}
+                </div>
+              </div>
+              <div className='flex items-center justify-between text-xs'>
+                <span className='text-muted-foreground'>节点类别:</span>
+                <Badge variant='outline' className={nodeBadgeTone(selectedNode.type)}>
+                  {selectedNode.type.toUpperCase()}
+                </Badge>
+              </div>
+              <div className='flex items-center justify-between text-xs'>
+                <span className='text-muted-foreground'>层级深度 (Level):</span>
+                <span className='font-mono font-medium'>{selectedNode.level}</span>
+              </div>
+              <div className='flex items-center justify-between text-xs'>
+                <span className='text-muted-foreground'>涉及表数量:</span>
+                <span className='font-mono font-medium'>{normalizeTablePaths(selectedNode.tablePaths).length}</span>
+              </div>
+            </CardContent>
+          </Card>
+        ) : (
+          <Card className='border-border/60 shadow-xs'>
+            <CardHeader className='pb-2.5 pt-3.5 px-4 border-b border-border/40'>
+              <CardTitle className='text-xs font-semibold text-foreground/80 uppercase tracking-wider flex items-center justify-between'>
+                <span>预览摘要</span>
+                <Badge variant='outline' className='text-[10px] font-normal'>
+                  {job.jobStatus}
+                </Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className='p-3.5 space-y-2 text-xs'>
+              <div className='flex items-center justify-between gap-3'>
+                <span className='text-muted-foreground'>作业名称</span>
+                <span className='font-mono truncate max-w-[170px]' title={job.jobName}>{job.jobName}</span>
+              </div>
+              <div className='flex items-center justify-between gap-3'>
+                <span className='text-muted-foreground'>覆盖表总数</span>
+                <span className='font-mono font-semibold'>{stats.totalTables} 张</span>
+              </div>
+              <div className='mt-2 rounded-md bg-muted/30 p-2.5 text-[11px] leading-relaxed text-muted-foreground'>
+                提示：点击画布中的任意算子节点，可高亮上下游连线并聚焦查看算子详情。
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* 算子节点快速导航列表 */}
+        <Card className='border-border/60 shadow-xs'>
+          <CardHeader className='pb-2.5 pt-3.5 px-4 border-b border-border/40'>
+            <CardTitle className='text-xs font-semibold text-foreground/80 uppercase tracking-wider flex items-center justify-between'>
+              <span>算子列表</span>
+              <span className='font-mono text-[10px] text-muted-foreground'>{vertices.length}</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className='p-2 space-y-1.5 max-h-[300px] overflow-auto'>
+            {vertices.map((vertex) => {
+              const isSelected = selectedVertexId === vertex.vertexId;
+              return (
+                <div
+                  key={vertex.vertexId}
+                  className={cn(
+                    'flex items-center justify-between rounded-md border p-2 text-xs transition-colors cursor-pointer',
+                    isSelected
+                      ? 'border-primary/50 bg-primary/5 font-medium'
+                      : 'border-border/40 hover:bg-muted/30',
+                  )}
+                  onClick={() => setSelectedVertexId(vertex.vertexId)}
+                >
+                  <div className='flex items-center gap-1.5 truncate pr-2'>
+                    {renderNodeIcon(vertex.type)}
+                    <span className='font-mono text-[11px] text-muted-foreground'>#{vertex.vertexId}</span>
+                    <span className='truncate text-[11px]' title={vertex.connectorType}>{vertex.connectorType}</span>
                   </div>
-                  <Badge variant='outline' className='capitalize'>
+                  <Badge
+                    variant='outline'
+                    className={cn('text-[9px] uppercase px-1 py-0', nodeBadgeTone(vertex.type))}
+                  >
                     {vertex.type}
                   </Badge>
                 </div>
-                <div className='mt-3 space-y-2'>
-                  <div className='text-[11px] font-medium uppercase tracking-wide text-muted-foreground'>
-                    TablePaths
-                  </div>
-                  <div className='space-y-1.5'>
-                    {normalizeTablePaths(vertex.tablePaths).length > 0 ? (
-                      normalizeTablePaths(vertex.tablePaths).map((path) => (
-                        <TablePathPreviewItem
-                          key={`${vertex.vertexId}-${path}`}
-                          nodeLabel={`#${vertex.vertexId} ${vertex.connectorType}`}
-                          path={path}
-                          preview={resolveSaveModePreview(vertex, path)}
-                          onSelectDetail={() =>
-                            setSelectedTableDetail({
-                              nodeLabel: `#${vertex.vertexId} ${vertex.connectorType}`,
-                              tablePath: path,
-                              columns: vertex.tableColumns?.[path] || [],
-                              schema: vertex.tableSchemas?.[path],
-                            })
-                          }
-                          onPreviewDetail={() => {
-                            const preview = resolveSaveModePreview(vertex, path);
-                            if (!preview) {
-                              return;
-                            }
-                            setSelectedSaveModeDetail({
-                              nodeLabel: `#${vertex.vertexId} ${vertex.connectorType}`,
-                              tablePath: path,
-                              preview,
-                            });
-                          }}
-                        />
-                      ))
-                    ) : (
-                      <Badge
-                        variant='secondary'
-                        className='rounded-md border border-border/50 bg-background/80 text-[11px]'
-                      >
-                        default
-                      </Badge>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </CardContent>
         </Card>
       </div>

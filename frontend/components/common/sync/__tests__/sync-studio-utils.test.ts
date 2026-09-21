@@ -4,6 +4,8 @@ import {
   resolveEnumSuggestionItems,
   resolveEnumValueBounds,
   resolveOptionAssignmentContext,
+  resolveVariableCompletionContext,
+  resolveVariableSuggestions,
 } from '../sync-studio-utils';
 
 describe('sync-studio-utils Monaco completion & assignment tests', () => {
@@ -69,5 +71,156 @@ describe('sync-studio-utils Monaco completion & assignment tests', () => {
       {label: 'true', value: 'true'},
       {label: 'false', value: 'false'},
     ]);
+  });
+
+  describe('resolveVariableCompletionContext', () => {
+    it('detects when cursor is right after {{', () => {
+      const line = '    password = {{';
+      // 1-based column 18 is right after '{{'
+      const ctx = resolveVariableCompletionContext(line, 18);
+      expect(ctx.inVariable).toBe(true);
+      expect(ctx.query).toBe('');
+      expect(ctx.startColumn).toBe(18);
+      expect(ctx.endColumn).toBe(18);
+      expect(ctx.hasClosingBraces).toBe(false);
+    });
+
+    it('detects when cursor is inside {{}} auto-closed by editor', () => {
+      const line = '    password = {{}}';
+      // 1-based column 18 is between '{{' and '}}'
+      const ctx = resolveVariableCompletionContext(line, 18);
+      expect(ctx.inVariable).toBe(true);
+      expect(ctx.query).toBe('');
+      expect(ctx.startColumn).toBe(18);
+      expect(ctx.endColumn).toBe(20); // covers '}}'
+      expect(ctx.hasClosingBraces).toBe(true);
+    });
+
+    it('detects when user types m after {{ without closing braces', () => {
+      const line = '    password = {{m';
+      // 1-based column 19 is right after 'm'
+      const ctx = resolveVariableCompletionContext(line, 19);
+      expect(ctx.inVariable).toBe(true);
+      expect(ctx.query).toBe('m');
+      expect(ctx.startColumn).toBe(18);
+      expect(ctx.endColumn).toBe(19);
+      expect(ctx.hasClosingBraces).toBe(false);
+    });
+
+    it('detects when user types m inside existing {{}}', () => {
+      const line = '    password = {{m}}';
+      // 1-based column 19 is right after 'm', before '}}'
+      const ctx = resolveVariableCompletionContext(line, 19);
+      expect(ctx.inVariable).toBe(true);
+      expect(ctx.query).toBe('m');
+      expect(ctx.startColumn).toBe(18);
+      expect(ctx.endColumn).toBe(21); // covers 'm}}'
+      expect(ctx.hasClosingBraces).toBe(true);
+    });
+
+    it('handles spaced {{ mysql }} style', () => {
+      const line = '    password = {{ mysql }}';
+      // column 24 is 1-based index right after 'mysql'
+      const ctx = resolveVariableCompletionContext(line, 24);
+      expect(ctx.inVariable).toBe(true);
+      expect(ctx.query).toBe('mysql');
+      expect(ctx.startColumn).toBe(19); // after space
+      expect(ctx.hasLeadingSpace).toBe(true);
+      expect(ctx.hasClosingBraces).toBe(true);
+    });
+
+    it('returns inVariable=false when outside {{}}', () => {
+      const line = '    password = "root"';
+      const ctx = resolveVariableCompletionContext(line, 17);
+      expect(ctx.inVariable).toBe(false);
+    });
+
+    it('handles second {{ when multiple placeholders exist on line', () => {
+      const line = 'url = "jdbc:mysql://{{host}}:{{port}}"';
+      // Cursor is at 36 (after 'port')
+      const ctx = resolveVariableCompletionContext(line, 36);
+      expect(ctx.inVariable).toBe(true);
+      expect(ctx.query).toBe('port');
+      expect(ctx.startColumn).toBe(32);
+      expect(ctx.hasClosingBraces).toBe(true);
+    });
+  });
+
+  describe('resolveVariableSuggestions', () => {
+    const mockMonaco = {
+      languages: {
+        CompletionItemKind: {
+          Variable: 4,
+          Constant: 14,
+          Keyword: 17,
+        },
+      },
+    };
+
+    it('generates suggestions sorted with custom first, global second, system third', () => {
+      const ctx = resolveVariableCompletionContext('password = {{m', 15);
+      const customVars = [
+        {id: '1', key: 'mysqlpas', value: 'secret123', type: 'secret'},
+        {id: '2', key: 'max_connections', value: '10', type: 'string'},
+      ];
+      const globalVars = [
+        {
+          id: 1,
+          key: 'mysql_host',
+          value: '10.0.0.1',
+          value_type: 'string',
+          created_at: '',
+          updated_at: '',
+        },
+      ];
+
+      const items = resolveVariableSuggestions(
+        mockMonaco,
+        ctx,
+        customVars as any,
+        globalVars as any,
+        {lineNumber: 5, column: 15},
+      );
+
+      expect(items.length).toBeGreaterThanOrEqual(3);
+
+      // Custom variable 'mysqlpas' is first priority
+      const mysqlpas = items.find((it) => it.label === 'mysqlpas');
+      expect(mysqlpas).toBeDefined();
+      expect(mysqlpas.sortText).toBe('0_mysqlpas');
+      expect(mysqlpas.detail).toContain('[自定义变量]');
+      expect(mysqlpas.detail).toContain('******'); // Secret masked
+      expect(mysqlpas.insertText).toBe('mysqlpas}}');
+
+      // Global variable 'mysql_host' is second priority
+      const mysqlHost = items.find((it) => it.label === 'mysql_host');
+      expect(mysqlHost).toBeDefined();
+      expect(mysqlHost.sortText).toBe('1_mysql_host');
+      expect(mysqlHost.detail).toContain('[全局变量]');
+      expect(mysqlHost.insertText).toBe('mysql_host}}');
+
+      // System variable 'system.biz.date' is third priority
+      const bizDate = items.find((it) => it.label === 'system.biz.date');
+      expect(bizDate).toBeDefined();
+      expect(bizDate.sortText).toBe('2_system.biz.date');
+      expect(bizDate.detail).toContain('[系统内置]');
+      expect(bizDate.insertText).toBe('system.biz.date}}');
+    });
+
+    it('inserts space before closing braces if leading space is present', () => {
+      const ctx = resolveVariableCompletionContext('password = {{ m', 16);
+      const customVars = [
+        {id: '1', key: 'mysqlpas', value: 'secret123', type: 'secret'},
+      ];
+      const items = resolveVariableSuggestions(
+        mockMonaco,
+        ctx,
+        customVars as any,
+        [],
+        {lineNumber: 5, column: 16},
+      );
+      const mysqlpas = items.find((it) => it.label === 'mysqlpas');
+      expect(mysqlpas.insertText).toBe('mysqlpas }}');
+    });
   });
 });

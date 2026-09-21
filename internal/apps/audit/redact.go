@@ -33,9 +33,21 @@ var (
 		"authorization", "cookie", "private_key", "api_key", "access_key", "secret_key",
 		"password_value", "secret_value", "token_value", "credential_value",
 	}
-	assignmentPattern = regexp.MustCompile(`(?m)(["']?)([A-Za-z_][A-Za-z0-9_.-]*)(["']?)(\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,;}\]]+)`)
+	assignmentPattern = regexp.MustCompile(`(?m)(["']?)([A-Za-z_][A-Za-z0-9_.-]*)(["']?)(\s*[:=]\s*)("[^"\\]*(?:\\.[^"\\]*)*"|'[^'\\]*(?:\\.[^'\\]*)*'|\{\{[^{}]*\}\}|\$\{[^{}]*\}|[^\s,;}\]]+)`)
 	camelBoundary     = regexp.MustCompile(`([a-z0-9])([A-Z])`)
 )
+
+// IsVariablePlaceholder 判断给定值是否为模板变量或占位符表达式（如 {{var}}、${var}）。
+//这类变量引用不应被脱敏替换，因为它们是变量名而非明文凭据。
+// IsVariablePlaceholder reports whether a value represents a template variable or placeholder.
+func IsVariablePlaceholder(value string) bool {
+	trimmed := strings.TrimSpace(value)
+	if len(trimmed) >= 2 && ((trimmed[0] == '"' && trimmed[len(trimmed)-1] == '"') || (trimmed[0] == '\'' && trimmed[len(trimmed)-1] == '\'')) {
+		trimmed = strings.TrimSpace(trimmed[1 : len(trimmed)-1])
+	}
+	return (strings.HasPrefix(trimmed, "{{") && strings.HasSuffix(trimmed, "}}")) ||
+		(strings.HasPrefix(trimmed, "${") && strings.HasSuffix(trimmed, "}"))
+}
 
 // RedactDetails 递归屏蔽审计详情中的密码、令牌、密钥和凭证。
 // RedactDetails recursively masks passwords, tokens, keys, and credentials in audit details.
@@ -81,6 +93,9 @@ func RedactText(value string) string {
 		if len(parts) < 6 || !isSensitiveKey(parts[2]) {
 			return match
 		}
+		if IsVariablePlaceholder(parts[5]) {
+			return match
+		}
 		return parts[1] + parts[2] + parts[3] + parts[4] + redactedValue
 	})
 }
@@ -93,6 +108,10 @@ func redactValue(value any) any {
 		result := make(map[string]any, len(current))
 		for key, item := range current {
 			if isSensitiveKey(key) {
+				if str, ok := item.(string); ok && IsVariablePlaceholder(str) {
+					result[key] = item
+					continue
+				}
 				result[key] = redactedValue
 				continue
 			}

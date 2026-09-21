@@ -23,6 +23,7 @@ import type {
 } from '@/lib/services/cluster/types';
 import type {
   SyncFormat,
+  SyncGlobalVariable,
   SyncJobInstance,
   SyncJSON,
   SyncPluginFactoryInfo,
@@ -233,9 +234,394 @@ export const ENV_OPTION_METADATA: Record<
 };
 
 // ==========================================
-// Monaco / HOCON 语言辅助函数
-// Monaco / HOCON Language Helper Functions
+// Monaco / HOCON 语言辅助函数与变量智能补全
+// Monaco / HOCON Language Helpers & Variable Autocompletion
 // ==========================================
+
+export interface BuiltinVariableSuggestion {
+  key: string;
+  name: string;
+  description: string;
+  category: 'system' | 'business' | 'datetime' | 'format' | 'offset' | 'calendar';
+}
+
+export const BUILTIN_VARIABLE_SUGGESTIONS: readonly BuiltinVariableSuggestion[] = [
+  {
+    key: 'system.biz.date',
+    name: '业务日期',
+    description: '格式 yyyyMMdd，默认取系统前一天（昨天），离线批处理常用',
+    category: 'business',
+  },
+  {
+    key: 'system.biz.curdate',
+    name: '业务当前日期',
+    description: '格式 yyyyMMdd，取系统当前自然日',
+    category: 'business',
+  },
+  {
+    key: 'system.datetime',
+    name: '系统当前时间戳',
+    description: '格式 yyyyMMddHHmmss，精确到秒的当前系统时间',
+    category: 'datetime',
+  },
+  {
+    key: 'system.task.definition.name',
+    name: '任务定义名称',
+    description: '当前运行任务的定义名称',
+    category: 'system',
+  },
+  {
+    key: 'system.task.definition.code',
+    name: '任务定义标识',
+    description: '当前任务的定义 ID / 编号',
+    category: 'system',
+  },
+  {
+    key: 'system.task.instance.id',
+    name: '任务实例编号',
+    description: '当前任务执行生成的作业实例 ID',
+    category: 'system',
+  },
+  {
+    key: 'system.task.execute.path',
+    name: '任务执行路径',
+    description: '任务在节点上的运行路径或配置文件路径',
+    category: 'system',
+  },
+  {
+    key: 'system.project.name',
+    name: '项目名称',
+    description: '任务归属的项目名称',
+    category: 'system',
+  },
+  {
+    key: 'system.project.code',
+    name: '项目编码',
+    description: '任务归属的项目编码',
+    category: 'system',
+  },
+  {
+    key: 'system.workflow.definition.name',
+    name: '工作流名称',
+    description: '关联的工作流定义名称',
+    category: 'system',
+  },
+  {
+    key: 'yyyyMMdd',
+    name: '年-月-日 (紧凑无分隔符)',
+    description: '例如 20260921',
+    category: 'format',
+  },
+  {
+    key: 'yyyy-MM-dd',
+    name: '年-月-日 (标准连字符)',
+    description: '例如 2026-09-21',
+    category: 'format',
+  },
+  {
+    key: 'yyyyMMdd+1',
+    name: '次日日期',
+    description: '例如 20260922 (当天+1天)',
+    category: 'offset',
+  },
+  {
+    key: 'yyyyMMdd-1',
+    name: '前日日期',
+    description: '例如 20260920 (当天-1天)',
+    category: 'offset',
+  },
+  {
+    key: 'yyyy-MM-dd+1',
+    name: '次日日期 (标准格式)',
+    description: '例如 2026-09-22',
+    category: 'offset',
+  },
+  {
+    key: 'yyyy-MM-dd-1',
+    name: '前日日期 (标准格式)',
+    description: '例如 2026-09-20',
+    category: 'offset',
+  },
+  {
+    key: 'add_months(yyyyMMdd,-1)',
+    name: '上月对应日',
+    description: '增减月份计算函数',
+    category: 'offset',
+  },
+  {
+    key: 'month_first_day(yyyy-MM-dd,0)',
+    name: '当月首日',
+    description: '获取当月第 1 天',
+    category: 'calendar',
+  },
+  {
+    key: 'month_last_day(yyyy-MM-dd,0)',
+    name: '当月末日',
+    description: '获取当月最后一天',
+    category: 'calendar',
+  },
+  {
+    key: 'week_first_day(yyyy-MM-dd,0)',
+    name: '本周周一',
+    description: '获取本周星期一日期',
+    category: 'calendar',
+  },
+  {
+    key: 'week_last_day(yyyy-MM-dd,0)',
+    name: '本周周日',
+    description: '获取本周星期日日期',
+    category: 'calendar',
+  },
+];
+
+export interface VariableCompletionContext {
+  inVariable: boolean;
+  query: string;
+  startColumn: number;
+  endColumn: number;
+  hasLeadingSpace: boolean;
+  hasClosingBraces: boolean;
+}
+
+export function resolveVariableCompletionContext(
+  lineContent: string,
+  column: number,
+): VariableCompletionContext {
+  const textBefore = lineContent.slice(0, Math.max(0, column - 1));
+  const textAfter = lineContent.slice(Math.max(0, column - 1));
+
+  const lastOpenIndex = textBefore.lastIndexOf('{{');
+  if (lastOpenIndex < 0) {
+    return {
+      inVariable: false,
+      query: '',
+      startColumn: column,
+      endColumn: column,
+      hasLeadingSpace: false,
+      hasClosingBraces: false,
+    };
+  }
+
+  // 若在光标前已存在闭合的 '}}'，说明当前不在变量占位符内部
+  const closeIndex = textBefore.indexOf('}}', lastOpenIndex + 2);
+  if (closeIndex >= 0) {
+    return {
+      inVariable: false,
+      query: '',
+      startColumn: column,
+      endColumn: column,
+      hasLeadingSpace: false,
+      hasClosingBraces: false,
+    };
+  }
+
+  const rawInside = textBefore.slice(lastOpenIndex + 2);
+  if (rawInside.includes('\n') || rawInside.includes('{')) {
+    return {
+      inVariable: false,
+      query: '',
+      startColumn: column,
+      endColumn: column,
+      hasLeadingSpace: false,
+      hasClosingBraces: false,
+    };
+  }
+
+  const leadingSpaces = rawInside.match(/^\s*/)?.[0] || '';
+  const query = rawInside.slice(leadingSpaces.length);
+  const startColumn = lastOpenIndex + 2 + leadingSpaces.length + 1; // 1-based index
+
+  // 检查光标后是否有闭合的 '}}' 或未完成的变量标识符
+  const closingMatch = textAfter.match(/^([a-zA-Z0-9_.-]*\s*\}\})/);
+  let endColumn = column;
+  let hasClosingBraces = false;
+
+  if (closingMatch) {
+    hasClosingBraces = true;
+    endColumn = column + closingMatch[0].length;
+  } else {
+    const trailingIdentifierMatch = textAfter.match(/^[a-zA-Z0-9_.-]*/);
+    if (trailingIdentifierMatch) {
+      endColumn = column + trailingIdentifierMatch[0].length;
+    }
+  }
+
+  return {
+    inVariable: true,
+    query,
+    startColumn,
+    endColumn,
+    hasLeadingSpace: leadingSpaces.length > 0,
+    hasClosingBraces,
+  };
+}
+
+export function resolveVariableSuggestions(
+  monaco: any,
+  context: VariableCompletionContext,
+  customVariables: VariableRow[],
+  globalVariables: SyncGlobalVariable[],
+  position: {lineNumber: number; column: number},
+): any[] {
+  const range = {
+    startLineNumber: position.lineNumber,
+    endLineNumber: position.lineNumber,
+    startColumn: context.startColumn,
+    endColumn: context.endColumn,
+  };
+
+  const insertSuffix = context.hasLeadingSpace ? ' }}' : '}}';
+  const seenKeys = new Set<string>();
+  const suggestions: any[] = [];
+
+  // 1. 任务自定义变量（最高优先级：前缀 0_，确保模糊搜索与一键回显首选）
+  for (const row of customVariables || []) {
+    const key = row.key?.trim();
+    if (!key || seenKeys.has(key)) continue;
+    seenKeys.add(key);
+
+    const valType = row.type || 'string';
+    const isSecret = valType === 'secret';
+    const displayVal = isSecret ? '******' : row.value || '(空)';
+    suggestions.push({
+      label: key,
+      kind: monaco?.languages?.CompletionItemKind?.Variable ?? 4,
+      detail: `[自定义变量] ${valType} = ${displayVal}`,
+      documentation: {
+        value: `**自定义变量**: \`${key}\`\n\n- **类型**: \`${valType}\`\n- **当前值**: \`${displayVal}\``,
+      },
+      insertText: `${key}${insertSuffix}`,
+      range,
+      sortText: `0_${key}`,
+      filterText: key,
+    });
+  }
+
+  // 2. 全局变量（次高优先级：前缀 1_）
+  for (const gv of globalVariables || []) {
+    const key = gv.key?.trim();
+    if (!key || seenKeys.has(key)) continue;
+    seenKeys.add(key);
+
+    const isSecret = gv.value_type === 'secret' || gv.value === '******';
+    const displayVal = isSecret ? '******' : gv.value || '(空)';
+    suggestions.push({
+      label: key,
+      kind: monaco?.languages?.CompletionItemKind?.Constant ?? 14,
+      detail: `[全局变量] ${gv.value_type || 'string'} = ${displayVal}`,
+      documentation: {
+        value: `**全局变量**: \`${key}\`\n\n- **类型**: \`${gv.value_type || 'string'}\`\n- **当前值**: \`${displayVal}\`${gv.description ? `\n- **说明**: ${gv.description}` : ''}`,
+      },
+      insertText: `${key}${insertSuffix}`,
+      range,
+      sortText: `1_${key}`,
+      filterText: key,
+    });
+  }
+
+  // 3. 平台内置系统变量（优先级：前缀 2_）
+  for (const sys of BUILTIN_VARIABLE_SUGGESTIONS) {
+    const key = sys.key;
+    if (seenKeys.has(key)) continue;
+    seenKeys.add(key);
+
+    suggestions.push({
+      label: key,
+      kind: monaco?.languages?.CompletionItemKind?.Keyword ?? 17,
+      detail: `[系统内置] ${sys.name}`,
+      documentation: {
+        value: `**系统内置变量**: \`${key}\` (${sys.name})\n\n${sys.description}`,
+      },
+      insertText: `${key}${insertSuffix}`,
+      range,
+      sortText: `2_${key}`,
+      filterText: key,
+    });
+  }
+
+  return suggestions;
+}
+
+export function resolveValueRegionVariableSuggestions(
+  monaco: any,
+  customVariables: VariableRow[],
+  globalVariables: SyncGlobalVariable[],
+  position: {lineNumber: number; column: number},
+): any[] {
+  const range = {
+    startLineNumber: position.lineNumber,
+    endLineNumber: position.lineNumber,
+    startColumn: position.column,
+    endColumn: position.column,
+  };
+
+  const seenKeys = new Set<string>();
+  const suggestions: any[] = [];
+
+  for (const row of customVariables || []) {
+    const key = row.key?.trim();
+    if (!key || seenKeys.has(key)) continue;
+    seenKeys.add(key);
+
+    const valType = row.type || 'string';
+    const isSecret = valType === 'secret';
+    const displayVal = isSecret ? '******' : row.value || '(空)';
+    suggestions.push({
+      label: `{{${key}}}`,
+      kind: monaco?.languages?.CompletionItemKind?.Variable ?? 4,
+      detail: `[自定义变量] ${valType} = ${displayVal}`,
+      documentation: {
+        value: `**自定义变量**: \`${key}\`\n\n- **类型**: \`${valType}\`\n- **当前值**: \`${displayVal}\``,
+      },
+      insertText: `{{${key}}}`,
+      range,
+      sortText: `0_${key}`,
+      filterText: key,
+    });
+  }
+
+  for (const gv of globalVariables || []) {
+    const key = gv.key?.trim();
+    if (!key || seenKeys.has(key)) continue;
+    seenKeys.add(key);
+
+    const isSecret = gv.value_type === 'secret' || gv.value === '******';
+    const displayVal = isSecret ? '******' : gv.value || '(空)';
+    suggestions.push({
+      label: `{{${key}}}`,
+      kind: monaco?.languages?.CompletionItemKind?.Constant ?? 14,
+      detail: `[全局变量] ${gv.value_type || 'string'} = ${displayVal}`,
+      documentation: {
+        value: `**全局变量**: \`${key}\`\n\n- **类型**: \`${gv.value_type || 'string'}\`\n- **当前值**: \`${displayVal}\`${gv.description ? `\n- **说明**: ${gv.description}` : ''}`,
+      },
+      insertText: `{{${key}}}`,
+      range,
+      sortText: `1_${key}`,
+      filterText: key,
+    });
+  }
+
+  for (const sys of BUILTIN_VARIABLE_SUGGESTIONS) {
+    const key = sys.key;
+    if (seenKeys.has(key)) continue;
+    seenKeys.add(key);
+
+    suggestions.push({
+      label: `{{${key}}}`,
+      kind: monaco?.languages?.CompletionItemKind?.Keyword ?? 17,
+      detail: `[系统内置] ${sys.name}`,
+      documentation: {
+        value: `**系统内置变量**: \`${key}\` (${sys.name})\n\n${sys.description}`,
+      },
+      insertText: `{{${key}}}`,
+      range,
+      sortText: `2_${key}`,
+      filterText: key,
+    });
+  }
+
+  return suggestions;
+}
 
 export function isCursorInsideValueRegion(
   lineContent: string,

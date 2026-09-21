@@ -21,6 +21,10 @@ import {useMonaco} from '@monaco-editor/react';
 import dynamic from 'next/dynamic';
 import {useTranslations} from 'next-intl';
 import {
+  fillPreferredClusterId,
+  rememberPreferredClusterId,
+} from '@/lib/cluster-preference';
+import {
   useCallback,
   useEffect,
   useMemo,
@@ -38,15 +42,20 @@ import {
   Copy,
   ChevronDown,
   ChevronRight,
+  ChevronsUpDown,
   Columns2,
   ExternalLink,
+  Cpu,
   Folder,
+  FolderOpen,
   FolderPlus,
   FileCode2,
   FilePlus2,
   GitBranch,
   BarChart3,
+  Layers,
   Maximize2,
+  Minimize2,
   Play,
   RefreshCw,
   Save,
@@ -75,6 +84,8 @@ import {
   Share2,
   Workflow,
   WandSparkles,
+  Code2,
+  HelpCircle,
   X,
 } from 'lucide-react';
 import {useAuth} from '@/hooks/use-auth';
@@ -157,6 +168,10 @@ import {
 import {GlobalVariableDialog} from './GlobalVariableDialog';
 import {GlobalVariablesSidebarPanel} from './GlobalVariablesSidebarPanel';
 import {
+  BUILTIN_TIME_VARIABLE_ITEMS,
+  resolveBuiltinPreviewExpression,
+} from './builtin-time-variables';
+import {
   CustomVariableDialog,
   type CustomVariableItem,
 } from './CustomVariableDialog';
@@ -174,2768 +189,173 @@ const MonacoDiffEditor = dynamic(
   },
 );
 
-interface EditorState {
-  id?: number;
-  parentId?: number;
-  name: string;
-  description: string;
-  clusterId: string;
-  contentFormat: SyncFormat;
-  content: string;
-  definition: SyncJSON;
-  currentVersion: number;
-  status: string;
-  createdBy?: number;
-  canEdit?: boolean;
-  canRun?: boolean;
-  isOwner?: boolean;
-  isCollaborator?: boolean;
-  isPublic?: boolean;
-}
 
-interface TreeContextMenuState {
-  open: boolean;
-  x: number;
-  y: number;
-  kind: 'root' | 'folder' | 'file';
-  node: SyncTaskTreeNode | null;
-}
-
-interface TreeDialogState {
-  open: boolean;
-  action: 'create-folder' | 'create-file' | 'rename' | 'move' | 'delete' | null;
-  targetNode: SyncTaskTreeNode | null;
-  name: string;
-  targetParentId: number | null;
-}
-
-interface OpenFileTab {
-  id: number;
-  name: string;
-}
-
-interface EditorDraftState {
-  editor: EditorState;
-  customVariableRows: VariableRow[];
-  dirty: boolean;
-  baselineEditor: EditorState;
-  baselineCustomVariableRows: VariableRow[];
-}
-
-interface PersistedWorkspaceTabs {
-  openTabIds: number[];
-  activeTabId: number | null;
-}
-
-type VariableRow = CustomVariableItem;
-
-interface VariableDraft {
-  key: string;
-  value: string;
-}
-
-interface PreviewRunDialogState {
-  open: boolean;
-  rowLimit: string;
-  timeoutMinutes: string;
-}
-
-interface UserFacingErrorState {
-  title: string;
-  description: string;
-  raw?: string;
-}
-
-type RightSidebarTab = 'settings' | 'versions' | 'globals';
-type BottomConsoleTab = 'jobs' | 'logs' | 'preview' | 'checkpoint';
-type ExecutionMode = 'cluster' | 'local';
-type LogFilterMode = 'all' | 'warn' | 'error';
-type PendingActionKind = 'dag' | 'preview' | 'test_connections' | 'recover';
-
-interface TemplatePluginItem {
-  value: string;
-  label: string;
-  origin?: string;
-}
-
-type OptionMetadataMap = Record<string, any>;
-
-type PluginEnumCatalogMap = Partial<
-  Record<SyncPluginType | 'env', Record<string, OptionMetadataMap>>
->;
-
-function isCursorInsideValueRegion(
-  lineContent: string,
-  column: number,
-): boolean {
-  const equalsIndex = lineContent.indexOf('=');
-  if (equalsIndex < 0) {
-    return false;
-  }
-  const prefix = lineContent.slice(0, equalsIndex);
-  if (!/^\s*#*\s*[A-Za-z0-9_.-]+\s*$/.test(prefix)) {
-    return false;
-  }
-  return column >= equalsIndex + 2;
-}
-
-function formatMetadataValue(value: unknown): string {
-  if (value === undefined) {
-    return '';
-  }
-  if (typeof value === 'string') {
-    return JSON.stringify(value);
-  }
-  if (
-    value === null ||
-    typeof value === 'number' ||
-    typeof value === 'boolean'
-  ) {
-    return String(value);
-  }
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return String(value);
-  }
-}
-
-function resolveEnumSuggestionItems(metadata: any): Array<{
-  label: string;
-  value: string;
-}> {
-  let values = Array.isArray(metadata?.enum_values)
-    ? metadata.enum_values
-    : Array.isArray(metadata?.enumValues)
-      ? metadata.enumValues
-      : [];
-  let displays = Array.isArray(metadata?.enum_display_values)
-    ? metadata.enum_display_values
-    : Array.isArray(metadata?.enumDisplayValues)
-      ? metadata.enumDisplayValues
-      : [];
-  if (
-    (!values || values.length === 0) &&
-    (metadata?.type === 'boolean' || metadata?.type === 'Boolean')
-  ) {
-    values = ['true', 'false'];
-    displays = ['true', 'false'];
-  }
-  return values.map((value: any, index: number) => ({
-    label: displays[index] != null ? String(displays[index]) : String(value),
-    value: String(value),
-  }));
-}
-
-function resolveEnumValueBounds(lineContent: string, lineNumber: number) {
-  const assignmentMatch = lineContent.match(
-    /^(\s*[A-Za-z0-9_.-]+\s*=\s*)(.*)$/,
-  );
-  if (!assignmentMatch) {
-    return null;
-  }
-  const valueOffset = assignmentMatch[1].length + 1;
-  const rawValue = assignmentMatch[2] || '';
-  const quotedMatch = rawValue.match(/^"([^"]*)"?/);
-  if (quotedMatch) {
-    const content = quotedMatch[1] || '';
-    return {
-      quoted: true,
-      startColumn: valueOffset + 1,
-      endColumn: valueOffset + 1 + content.length,
-    };
-  }
-  const unquotedEnd = rawValue.search(/\s|#/);
-  const contentLength = unquotedEnd >= 0 ? unquotedEnd : rawValue.length;
-  return {
-    quoted: false,
-    startColumn: valueOffset,
-    endColumn: valueOffset + contentLength,
-  };
-}
-
-function resolveEnumSuggestRange(position: {
-  lineNumber: number;
-  column: number;
-}) {
-  return {
-    startLineNumber: position.lineNumber,
-    endLineNumber: position.lineNumber,
-    startColumn: position.column,
-    endColumn: position.column,
-  };
-}
-
-function isFileOrLakeSink(content: string): {
-  matches: boolean;
-  sinkName?: string;
-} {
-  const sinkMatch = content.match(
-    /sink\s*\{([\s\S]*?)(?:$|\n\s*(?:source|transform|env)\s*\{)/i,
-  );
-  const sinkBlock = sinkMatch
-    ? sinkMatch[1]
-    : content.includes('sink {')
-      ? content.slice(content.indexOf('sink {'))
-      : '';
-  if (sinkBlock) {
-    const m = sinkBlock.match(
-      /\b(hive|hdfsfile|hdfs|localfile|ftpfile|sftpfile|ossfile|s3file|cosfile|obsfile|file|iceberg|paimon|clickhousefile)\b\s*\{/i,
-    );
-    if (m) {
-      return {matches: true, sinkName: m[1]};
-    }
-  }
-  try {
-    const parsed = JSON.parse(content);
-    const sinks = Array.isArray(parsed?.sink)
-      ? parsed.sink
-      : parsed?.sink
-        ? [parsed.sink]
-        : [];
-    for (const s of sinks) {
-      const name =
-        s?.plugin_name || s?.connector || Object.keys(s || {})[0] || '';
-      if (
-        /^(hive|hdfsfile|hdfs|localfile|ftpfile|sftpfile|ossfile|s3file|cosfile|obsfile|file|iceberg|paimon|clickhousefile)$/i.test(
-          name,
-        )
-      ) {
-        return {matches: true, sinkName: name};
-      }
-    }
-  } catch {}
-  return {matches: false};
-}
-
-function hasValidCheckpointInterval(content: string): boolean {
-  const lines = content.split('\n');
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
-    if (line.startsWith('#') || line.startsWith('//')) {
-      continue;
-    }
-    const match = line.match(/^checkpoint\.interval\s*=\s*([0-9]+)/);
-    if (match) {
-      const val = parseInt(match[1], 10);
-      if (val > 0) {
-        return true;
-      }
-    }
-  }
-  try {
-    const parsed = JSON.parse(content);
-    const interval = parsed?.env?.['checkpoint.interval'];
-    if (typeof interval === 'number' && interval > 0) {
-      return true;
-    }
-  } catch {}
-  return false;
-}
-
-function detectFileSinkMissingCheckpoint(content: string): {
-  missing: boolean;
-  sinkName: string;
-} {
-  const fileSink = isFileOrLakeSink(content);
-  if (!fileSink.matches) {
-    return {missing: false, sinkName: ''};
-  }
-  const hasInterval = hasValidCheckpointInterval(content);
-  if (hasInterval) {
-    return {missing: false, sinkName: ''};
-  }
-  return {missing: true, sinkName: fileSink.sinkName || 'File/Lake'};
-}
-
-function injectCheckpointInterval(
-  content: string,
-  intervalMs: number = 60000,
-): string {
-  const envRegex = /^(\s*env\s*\{)([\s\S]*?)(\})/m;
-  const match = content.match(envRegex);
-  if (match) {
-    if (/^\s*#?\s*checkpoint\.interval\s*=/m.test(match[2])) {
-      const updatedEnv = match[2].replace(
-        /^\s*#?\s*checkpoint\.interval\s*=.*$/m,
-        `  checkpoint.interval = ${intervalMs}`,
-      );
-      return content.replace(envRegex, `${match[1]}${updatedEnv}${match[3]}`);
-    }
-    return content.replace(
-      envRegex,
-      `${match[1]}\n  checkpoint.interval = ${intervalMs}${match[2]}${match[3]}`,
-    );
-  }
-  return `env {\n  checkpoint.interval = ${intervalMs}\n}\n\n${content}`;
-}
-
-function ensureSyncHoconLanguage(monaco: any) {
-  const languageId = 'sync-hocon';
-  const languages = monaco.languages.getLanguages?.() || [];
-  if (!languages.some((item: any) => item.id === languageId)) {
-    monaco.languages.register({id: languageId});
-    monaco.languages.setMonarchTokensProvider(languageId, {
-      tokenizer: {
-        root: [
-          [/^\s*#.*$/, 'comment'],
-          [/^\s*(env)(?=\s*\{)/, 'keyword.env'],
-          [/^\s*(source)(?=\s*\{)/, 'keyword.source'],
-          [/^\s*(transform)(?=\s*\{)/, 'keyword.transform'],
-          [/^\s*(sink)(?=\s*\{)/, 'keyword.sink'],
-          [/[{}[\]]/, '@brackets'],
-          [/[,:=]/, 'delimiter'],
-          [/"(?:[^"\\]|\\.)*"/, 'string'],
-          [/[A-Za-z_][\w.-]*/, 'identifier'],
-          [/-?\d+(?:\.\d+)?/, 'number'],
-        ],
-      },
-    });
-    monaco.languages.setLanguageConfiguration(languageId, {
-      comments: {lineComment: '#'},
-      autoClosingPairs: [
-        {open: '{', close: '}'},
-        {open: '[', close: ']'},
-        {open: '"', close: '"'},
-      ],
-      surroundingPairs: [
-        {open: '{', close: '}'},
-        {open: '[', close: ']'},
-        {open: '"', close: '"'},
-      ],
-      brackets: [
-        ['{', '}'],
-        ['[', ']'],
-      ],
-    });
-  }
-  monaco.editor.defineTheme('sync-hocon-light', {
-    base: 'vs',
-    inherit: true,
-    rules: [
-      {token: 'keyword.env', foreground: '7c3aed', fontStyle: 'bold'},
-      {token: 'keyword.source', foreground: '0f766e', fontStyle: 'bold'},
-      {token: 'keyword.transform', foreground: 'b45309', fontStyle: 'bold'},
-      {token: 'keyword.sink', foreground: '1d4ed8', fontStyle: 'bold'},
-      {token: 'string', foreground: 'b91c1c'},
-      {token: 'comment', foreground: '6b7280'},
-    ],
-    colors: {},
-  });
-  monaco.editor.defineTheme('sync-hocon-dark', {
-    base: 'vs-dark',
-    inherit: true,
-    rules: [
-      {token: 'keyword.env', foreground: 'c084fc', fontStyle: 'bold'},
-      {token: 'keyword.source', foreground: '2dd4bf', fontStyle: 'bold'},
-      {token: 'keyword.transform', foreground: 'fbbf24', fontStyle: 'bold'},
-      {token: 'keyword.sink', foreground: '60a5fa', fontStyle: 'bold'},
-      {token: 'string', foreground: 'fca5a5'},
-      {token: 'comment', foreground: '9ca3af'},
-    ],
-    colors: {},
-  });
-}
-
-const ENV_OPTION_METADATA: Record<
-  string,
-  {
-    description: string;
-    enumValues?: string[];
-    defaultValue?: string | number;
-    requiredMode?: string;
-  }
-> = {
-  'job.mode': {
-    description: 'SeaTunnel 作业模式',
-    enumValues: ['BATCH', 'STREAMING'],
-    defaultValue: 'BATCH',
-    requiredMode: 'OPTIONAL',
-  },
-  'savemode.execute.location': {
-    description: 'SaveMode 执行位置',
-    enumValues: ['CLUSTER', 'ENGINE'],
-    defaultValue: 'CLUSTER',
-    requiredMode: 'OPTIONAL',
-  },
-  parallelism: {
-    description: '作业并行度',
-    defaultValue: 1,
-    requiredMode: 'OPTIONAL',
-  },
-  'job.retry.times': {
-    description: '失败重试次数',
-    defaultValue: 0,
-    requiredMode: 'OPTIONAL',
-  },
-  'job.retry.interval.seconds': {
-    description: '重试间隔秒数',
-    defaultValue: 3,
-    requiredMode: 'OPTIONAL',
-  },
-  'min-pause': {
-    description: 'Checkpoint 最小间隔',
-    defaultValue: -1,
-    requiredMode: 'OPTIONAL',
-  },
-  'checkpoint.interval': {
-    description: 'Checkpoint 间隔毫秒',
-    defaultValue: 10000,
-    requiredMode: 'OPTIONAL',
-  },
-  'checkpoint.timeout': {
-    description: 'Checkpoint 超时毫秒',
-    defaultValue: 30000,
-    requiredMode: 'OPTIONAL',
-  },
-};
-
-const LOG_CHUNK_BASE_BYTES = 64 * 1024;
-const LOG_CHUNK_MAX_BYTES = 1024 * 1024;
-const EXPANDED_LOG_CHUNK_BASE_BYTES = 256 * 1024;
-const EXPANDED_LOG_CHUNK_MAX_BYTES = 2 * 1024 * 1024;
-const WORKSPACE_TABS_STORAGE_KEY = 'data-sync-studio:workspace-tabs';
-
-function getSyncJobClusterId(job: SyncJobInstance | null): number | null {
-  const raw = job?.submit_spec?.cluster_id;
-  if (typeof raw === 'number' && Number.isFinite(raw) && raw > 0) {
-    return raw;
-  }
-  if (typeof raw === 'string' && raw.trim() !== '') {
-    const parsed = Number(raw);
-    if (Number.isFinite(parsed) && parsed > 0) {
-      return parsed;
-    }
-  }
-  return null;
-}
-
-function formatSizeBytes(bytes?: number | null): string {
-  if (!bytes || bytes <= 0) {
-    return '-';
-  }
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  let value = bytes;
-  let index = 0;
-  while (value >= 1024 && index < units.length - 1) {
-    value /= 1024;
-    index += 1;
-  }
-  return `${value >= 10 || index === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[index]}`;
-}
-
-function normalizeVariableRowsForCompare(rows: VariableRow[]): Record<string, unknown>[] {
-  return rows.map((row) => ({
-    key: row.key.trim(),
-    value: row.value,
-    type: row.type || 'string',
-    description: row.description || '',
-  }));
-}
-
-function normalizeEditorForCompare(
-  editor: EditorState,
-): Record<string, unknown> {
-  return {
-    parentId: editor.parentId ?? null,
-    name: editor.name.trim(),
-    description: editor.description.trim(),
-    clusterId: editor.clusterId,
-    contentFormat: editor.contentFormat,
-    content: editor.content,
-    definition: editor.definition ?? {},
-  };
-}
-
-function isEditorDraftDirty(
-  editor: EditorState,
-  rows: VariableRow[],
-  baselineEditor: EditorState,
-  baselineRows: VariableRow[],
-): boolean {
-  return (
-    JSON.stringify(normalizeEditorForCompare(editor)) !==
-      JSON.stringify(normalizeEditorForCompare(baselineEditor)) ||
-    JSON.stringify(normalizeVariableRowsForCompare(rows)) !==
-      JSON.stringify(normalizeVariableRowsForCompare(baselineRows))
-  );
-}
-
-function getCheckpointStatusBadgeClass(status?: string): string {
-  switch ((status || '').toUpperCase()) {
-    case 'COMPLETED':
-      return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400';
-    case 'FAILED':
-      return 'border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400';
-    case 'CANCELED':
-      return 'border-zinc-500/30 bg-zinc-500/10 text-zinc-600 dark:text-zinc-400';
-    default:
-      return 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400';
-  }
-}
-
-function getCheckpointEnumBadgeClass(
-  value?: string | boolean | null,
-  kind: 'status' | 'checkpointType' | 'boolean' = 'status',
-): string {
-  if (kind === 'boolean') {
-    return value
-      ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-      : 'border-zinc-500/30 bg-zinc-500/10 text-zinc-600 dark:text-zinc-400';
-  }
-  const normalized = String(value || '')
-    .trim()
-    .toUpperCase();
-  if (kind === 'checkpointType') {
-    switch (normalized) {
-      case 'CHECKPOINT_TYPE':
-        return 'border-sky-500/30 bg-sky-500/10 text-sky-600 dark:text-sky-400';
-      case 'SAVEPOINT_TYPE':
-        return 'border-violet-500/30 bg-violet-500/10 text-violet-600 dark:text-violet-400';
-      case 'COMPLETED_POINT_TYPE':
-        return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400';
-      default:
-        return 'border-border/60 bg-muted/50 text-muted-foreground';
-    }
-  }
-  switch (normalized) {
-    case 'COMPLETED':
-    case 'FINISHED':
-    case 'SAVEPOINT_DONE':
-      return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400';
-    case 'RUNNING':
-    case 'DOING_SAVEPOINT':
-      return 'border-sky-500/30 bg-sky-500/10 text-sky-600 dark:text-sky-400';
-    case 'FAILED':
-      return 'border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400';
-    case 'CANCELED':
-      return 'border-zinc-500/30 bg-zinc-500/10 text-zinc-600 dark:text-zinc-400';
-    case 'CREATED':
-    case 'SCHEDULED':
-    case 'DEPLOYING':
-    case 'INITIALIZING':
-    case 'PENDING':
-      return 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400';
-    default:
-      return 'border-border/60 bg-muted/50 text-muted-foreground';
-  }
-}
-
-function formatCheckpointFieldValue(
-  key: string,
-  value: unknown,
-): string | null {
-  if (value === null || value === undefined || value === '') {
-    return '-';
-  }
-  if (typeof value === 'number') {
-    if (/timestamp/i.test(key)) {
-      return value > 0 ? new Date(value).toLocaleString() : '-';
-    }
-    if (/state(size|bytes)/i.test(key)) {
-      return formatSizeBytes(value);
-    }
-    return String(value);
-  }
-  if (typeof value === 'boolean') {
-    return value ? 'true' : 'false';
-  }
-  if (typeof value === 'object') {
-    return JSON.stringify(value);
-  }
-  return String(value);
-}
-
-function renderCheckpointFieldValue(key: string, value: unknown): ReactNode {
-  if (typeof value === 'string') {
-    if (/status/i.test(key)) {
-      return (
-        <Badge
-          variant='outline'
-          className={cn(
-            'rounded-sm border px-2 py-0.5 text-[11px]',
-            getCheckpointEnumBadgeClass(value, 'status'),
-          )}
-        >
-          {value}
-        </Badge>
-      );
-    }
-    if (/checkpointType/i.test(key)) {
-      return (
-        <Badge
-          variant='outline'
-          className={cn(
-            'rounded-sm border px-2 py-0.5 text-[11px]',
-            getCheckpointEnumBadgeClass(value, 'checkpointType'),
-          )}
-        >
-          {value}
-        </Badge>
-      );
-    }
-  }
-  if (typeof value === 'boolean') {
-    return (
-      <Badge
-        variant='outline'
-        className={cn(
-          'rounded-sm border px-2 py-0.5 text-[11px]',
-          getCheckpointEnumBadgeClass(value, 'boolean'),
-        )}
-      >
-        {value ? 'true' : 'false'}
-      </Badge>
-    );
-  }
-  return (
-    <span className='break-all'>{formatCheckpointFieldValue(key, value)}</span>
-  );
-}
-
-function buildCheckpointInspectSummary(
-  result: RuntimeStorageCheckpointInspectResult | null,
-): Array<{label: string; key: string; value: unknown}> {
-  const completed = result?.completed_checkpoint || {};
-  const pipeline = result?.pipeline_state || {};
-  return [
-    {
-      label: 'Checkpoint ID',
-      key: 'checkpointId',
-      value: completed.checkpointId,
-    },
-    {
-      label: 'Checkpoint Type',
-      key: 'checkpointType',
-      value: completed.checkpointType,
-    },
-    {
-      label: 'Pipeline',
-      key: 'pipelineId',
-      value: completed.pipelineId ?? pipeline.pipelineId,
-    },
-    {label: 'Job ID', key: 'jobId', value: completed.jobId ?? pipeline.jobId},
-    {
-      label: 'Triggered',
-      key: 'triggerTimestamp',
-      value: completed.triggerTimestamp,
-    },
-    {
-      label: 'Completed',
-      key: 'completedTimestamp',
-      value: completed.completedTimestamp,
-    },
-    {label: 'State Size', key: 'stateBytes', value: pipeline.stateBytes},
-    {
-      label: 'Task States',
-      key: 'taskStateCount',
-      value: completed.taskStateCount,
-    },
-  ];
-}
-
-function extractCheckpointFileIdentity(
-  name?: string,
-): {pipelineId: number; checkpointId: number} | null {
-  if (!name) {
-    return null;
-  }
-  const fileName = name.split('/').pop() || name;
-  const baseName = fileName.replace(/\.[^.]+$/, '');
-  const segments = baseName.split('-');
-  if (segments.length < 4) {
-    return null;
-  }
-  const pipelineId = Number(segments[segments.length - 2]);
-  const checkpointId = Number(segments[segments.length - 1]);
-  if (!Number.isInteger(pipelineId) || !Number.isInteger(checkpointId)) {
-    return null;
-  }
-  return {pipelineId, checkpointId};
-}
-
-function nextLogChunkSize(
-  current: number,
-  logs: string,
-  min: number,
-  max: number,
-): number {
-  const actualBytes = new TextEncoder().encode(logs || '').length;
-  if (actualBytes >= Math.floor(current * 0.8) && current < max) {
-    return Math.min(max, current * 2);
-  }
-  if (
-    actualBytes > 0 &&
-    actualBytes <= Math.floor(current * 0.25) &&
-    current > min
-  ) {
-    return Math.max(min, Math.floor(current / 2));
-  }
-  return current;
-}
-
-function buildCopiedWorkspaceName(
-  tree: SyncTaskTreeNode[],
-  parentId: number | null,
-  originalName: string,
-) {
-  const dotIndex = originalName.lastIndexOf('.');
-  const hasExtension = dotIndex > 0 && dotIndex < originalName.length - 1;
-  const base = hasExtension ? originalName.slice(0, dotIndex) : originalName;
-  const ext = hasExtension ? originalName.slice(dotIndex) : '';
-  let candidate = `${base}_copy${ext}`;
-  let counter = 2;
-  while (hasDuplicateWorkspaceName(tree, parentId, candidate)) {
-    candidate = `${base}_copy_${counter}${ext}`;
-    counter += 1;
-  }
-  return candidate;
-}
-
-function getPendingActionLabel(
-  t: ReturnType<typeof useTranslations<'workbenchStudio'>>,
-  actionPending: PendingActionKind | null,
-) {
-  switch (actionPending) {
-    case 'dag':
-      return t('buildingDag');
-    case 'preview':
-      return t('preparingPreview');
-    case 'recover':
-      return t('recoveringJob');
-    case 'test_connections':
-      return t('testingConnections');
-    default:
-      return '';
-  }
-}
-type MetricGroupKey =
-  | 'read'
-  | 'write'
-  | 'throughput'
-  | 'latency'
-  | 'status'
-  | 'other';
-
-const EMPTY_EDITOR: EditorState = {
-  name: '',
-  description: '',
-  clusterId: '',
-  contentFormat: 'hocon',
-  content: '',
-  definition: {},
-  currentVersion: 0,
-  status: 'draft',
-  canEdit: true,
-  canRun: true,
-  isOwner: true,
-  isCollaborator: false,
-  isPublic: true,
-};
-
-const WORKSPACE_NAME_PATTERN = /^[\p{L}\p{N}._-]+$/u;
-
-function toObject(value: unknown): Record<string, unknown> {
-  if (value && typeof value === 'object' && !Array.isArray(value)) {
-    return value as Record<string, unknown>;
-  }
-  return {};
-}
-
-function flattenTree(nodes: SyncTaskTreeNode[]): SyncTaskTreeNode[] {
-  return nodes.flatMap((node) => [node, ...flattenTree(node.children || [])]);
-}
-
-function collectFolderIds(nodes: SyncTaskTreeNode[]): number[] {
-  return flattenTree(nodes)
-    .filter((node) => node.node_type === 'folder')
-    .map((node) => node.id);
-}
-
-function findTreeNode(
-  nodes: SyncTaskTreeNode[],
-  nodeId: number,
-): SyncTaskTreeNode | null {
-  for (const node of nodes) {
-    if (node.id === nodeId) {
-      return node;
-    }
-    const child = findTreeNode(node.children || [], nodeId);
-    if (child) {
-      return child;
-    }
-  }
-  return null;
-}
-
-function isTreeDescendant(
-  nodes: SyncTaskTreeNode[],
-  ancestorId: number,
-  candidateId: number,
-): boolean {
-  const ancestor = findTreeNode(nodes, ancestorId);
-  if (!ancestor) {
-    return false;
-  }
-  return flattenTree(ancestor.children || []).some(
-    (node) => node.id === candidateId,
-  );
-}
-
-function listMoveTargets(
-  nodes: SyncTaskTreeNode[],
-  source: SyncTaskTreeNode | null,
-  rootLabel: string,
-): Array<{label: string; value: number | null; depth: number}> {
-  const buildPathLabel = (target: SyncTaskTreeNode): string => {
-    const segments: string[] = [target.name];
-    let cursor = target.parent_id
-      ? findTreeNode(nodes, target.parent_id)
-      : null;
-    while (cursor) {
-      segments.unshift(cursor.name);
-      cursor = cursor.parent_id ? findTreeNode(nodes, cursor.parent_id) : null;
-    }
-    return `/${segments.join('/')}`;
-  };
-  const folders = flattenTree(nodes).filter(
-    (node) => node.node_type === 'folder',
-  );
-  const options: Array<{label: string; value: number | null; depth: number}> =
-    source?.node_type === 'file'
-      ? []
-      : [{label: rootLabel, value: null, depth: 0}];
-  for (const folder of folders) {
-    if (source) {
-      if (folder.id === source.id) {
-        continue;
-      }
-      if (
-        source.node_type === 'folder' &&
-        isTreeDescendant(nodes, source.id, folder.id)
-      ) {
-        continue;
-      }
-    }
-    options.push({
-      label: buildPathLabel(folder),
-      value: folder.id,
-      depth: buildPathLabel(folder).split('/').filter(Boolean).length,
-    });
-  }
-  return options;
-}
-
-function patchTreeNode(
-  nodes: SyncTaskTreeNode[],
-  task: SyncTask,
-): SyncTaskTreeNode[] {
-  return nodes.map((node) => {
-    if (node.id === task.id) {
-      return {
-        ...node,
-        parent_id: task.parent_id,
-        node_type: task.node_type,
-        name: task.name,
-        description: task.description,
-        cluster_id: task.cluster_id,
-        content_format: task.content_format,
-        content: task.content,
-        definition: task.definition,
-        current_version: task.current_version,
-        status: task.status,
-        job_name: task.job_name,
-      };
-    }
-    if (node.children && node.children.length > 0) {
-      return {...node, children: patchTreeNode(node.children, task)};
-    }
-    return node;
-  });
-}
-
-function filterTree(
-  nodes: SyncTaskTreeNode[],
-  keyword: string,
-): SyncTaskTreeNode[] {
-  const trimmed = keyword.trim().toLowerCase();
-  if (!trimmed) {
-    return nodes;
-  }
-  return nodes
-    .map((node) => {
-      const children = filterTree(node.children || [], keyword);
-      const matched = node.name.toLowerCase().includes(trimmed);
-      if (matched || children.length > 0) {
-        return {...node, children};
-      }
-      return null;
-    })
-    .filter(Boolean) as SyncTaskTreeNode[];
-}
-
-function detectVariables(content: string): string[] {
-  const matches = [...content.matchAll(/\{\{\s*([^{}]+?)\s*\}\}/g)];
-  return Array.from(
-    new Set(
-      matches.map((match) => match[1]?.trim()).filter(Boolean) as string[],
-    ),
-  ).sort();
-}
-
-function isReservedBuiltinVariableKey(key: string): boolean {
-  const trimmed = key.trim();
-  if (!trimmed) {
-    return false;
-  }
-  const fixed = new Set([
-    'system.biz.date',
-    'system.biz.curdate',
-    'system.datetime',
-    'system.task.execute.path',
-    'system.task.instance.id',
-    'system.task.definition.name',
-    'system.task.definition.code',
-    'system.workflow.instance.id',
-    'system.workflow.definition.name',
-    'system.workflow.definition.code',
-    'system.project.name',
-    'system.project.code',
-  ]);
-  if (fixed.has(trimmed)) {
-    return true;
-  }
-  return /(yyyy|MM|dd|HH|mm|ss|add_months|this_day|last_day|year_week|month_first_day|month_last_day|week_first_day|week_last_day)/.test(
-    trimmed,
-  );
-}
-
-// 校验自定义变量列表的合法性（保留字与重名检查）
-// Validate custom variable rows (check reserved keywords and duplicates)
-function validateCustomVariableRows(
-  rows: VariableRow[],
-  t: ReturnType<typeof useTranslations<'workbenchStudio'>>,
-): string | null {
-  const seenKeys = new Set<string>();
-  for (const row of rows) {
-    const key = row.key.trim();
-    if (!key) {
-      continue;
-    }
-    if (isReservedBuiltinVariableKey(key)) {
-      return t('reservedBuiltinVariableKey', {key: `{{${key}}}`});
-    }
-    const lower = key.toLowerCase();
-    if (seenKeys.has(lower)) {
-      return t('duplicateCustomVariableKey');
-    }
-    seenKeys.add(lower);
-  }
-  return null;
-}
-
-function padTimeUnit(value: number): string {
-  return String(value).padStart(2, '0');
-}
-
-function formatBuiltinPreviewDate(date: Date, pattern: string): string {
-  return pattern
-    .replaceAll('yyyy', String(date.getFullYear()))
-    .replaceAll('MM', padTimeUnit(date.getMonth() + 1))
-    .replaceAll('dd', padTimeUnit(date.getDate()))
-    .replaceAll('HH', padTimeUnit(date.getHours()))
-    .replaceAll('mm', padTimeUnit(date.getMinutes()))
-    .replaceAll('ss', padTimeUnit(date.getSeconds()));
-}
-
-function addMonths(date: Date, months: number): Date {
-  const next = new Date(date.getTime());
-  next.setMonth(next.getMonth() + months);
-  return next;
-}
-
-function startOfWeek(date: Date): Date {
-  const next = new Date(date.getTime());
-  const day = next.getDay() === 0 ? 7 : next.getDay();
-  next.setDate(next.getDate() - day + 1);
-  return next;
-}
-
-function yearWeek(date: Date, weekStart = 1): {year: number; week: number} {
-  const next = new Date(date.getTime());
-  const jsWeekStart = weekStart === 7 ? 0 : weekStart;
-  const day = next.getDay();
-  const diff = (7 + day - jsWeekStart) % 7;
-  next.setDate(next.getDate() - diff);
-  const first = new Date(
-    next.getFullYear(),
-    0,
-    1,
-    next.getHours(),
-    next.getMinutes(),
-    next.getSeconds(),
-    next.getMilliseconds(),
-  );
-  const firstDay = first.getDay();
-  const firstDiff = (7 + firstDay - jsWeekStart) % 7;
-  first.setDate(first.getDate() - firstDiff);
-  const week =
-    Math.floor((next.getTime() - first.getTime()) / (7 * 24 * 60 * 60 * 1000)) +
-    1;
-  return {year: next.getFullYear(), week};
-}
-
-function resolveBuiltinPreviewExpression(
-  expr: string,
-  now = new Date(),
-): string | null {
-  const trimmed = expr.trim();
-  if (!trimmed) {
-    return null;
-  }
-  if (trimmed === 'system.biz.date') {
-    const prev = new Date(now.getTime());
-    prev.setDate(prev.getDate() - 1);
-    return formatBuiltinPreviewDate(prev, 'yyyyMMdd');
-  }
-  if (trimmed === 'system.biz.curdate') {
-    return formatBuiltinPreviewDate(now, 'yyyyMMdd');
-  }
-  if (trimmed === 'system.datetime') {
-    return formatBuiltinPreviewDate(now, 'yyyyMMddHHmmss');
-  }
-  if (trimmed === 'system.project.name') {
-    return 'STX';
-  }
-  if (trimmed === 'system.project.code') {
-    return 'stx';
-  }
-  if (/^add_months\((.+),(.+)\)$/.test(trimmed)) {
-    const match = trimmed.match(/^add_months\((.+),(.+)\)$/);
-    if (!match) return null;
-    const format = match[1].trim();
-    const offset = Number(match[2].trim());
-    if (!Number.isFinite(offset)) return null;
-    return formatBuiltinPreviewDate(addMonths(now, offset), format);
-  }
-  if (/^this_day\((.+)\)$/.test(trimmed)) {
-    const match = trimmed.match(/^this_day\((.+)\)$/);
-    return match ? formatBuiltinPreviewDate(now, match[1].trim()) : null;
-  }
-  if (/^last_day\((.+)\)$/.test(trimmed)) {
-    const match = trimmed.match(/^last_day\((.+)\)$/);
-    if (!match) return null;
-    const prev = new Date(now.getTime());
-    prev.setDate(prev.getDate() - 1);
-    return formatBuiltinPreviewDate(prev, match[1].trim());
-  }
-  if (/^month_first_day\((.+),(.+)\)$/.test(trimmed)) {
-    const match = trimmed.match(/^month_first_day\((.+),(.+)\)$/);
-    if (!match) return null;
-    const target = addMonths(now, Number(match[2].trim()));
-    const first = new Date(
-      target.getFullYear(),
-      target.getMonth(),
-      1,
-      target.getHours(),
-      target.getMinutes(),
-      target.getSeconds(),
-    );
-    return formatBuiltinPreviewDate(first, match[1].trim());
-  }
-  if (/^month_last_day\((.+),(.+)\)$/.test(trimmed)) {
-    const match = trimmed.match(/^month_last_day\((.+),(.+)\)$/);
-    if (!match) return null;
-    const target = addMonths(now, Number(match[2].trim()) + 1);
-    const last = new Date(
-      target.getFullYear(),
-      target.getMonth(),
-      0,
-      target.getHours(),
-      target.getMinutes(),
-      target.getSeconds(),
-    );
-    return formatBuiltinPreviewDate(last, match[1].trim());
-  }
-  if (/^week_first_day\((.+),(.+)\)$/.test(trimmed)) {
-    const match = trimmed.match(/^week_first_day\((.+),(.+)\)$/);
-    if (!match) return null;
-    const target = new Date(now.getTime());
-    target.setDate(target.getDate() + Number(match[2].trim()) * 7);
-    return formatBuiltinPreviewDate(startOfWeek(target), match[1].trim());
-  }
-  if (/^week_last_day\((.+),(.+)\)$/.test(trimmed)) {
-    const match = trimmed.match(/^week_last_day\((.+),(.+)\)$/);
-    if (!match) return null;
-    const target = new Date(now.getTime());
-    target.setDate(target.getDate() + Number(match[2].trim()) * 7);
-    const end = startOfWeek(target);
-    end.setDate(end.getDate() + 6);
-    return formatBuiltinPreviewDate(end, match[1].trim());
-  }
-  if (
-    /^year_week\((.+)\)$/.test(trimmed) ||
-    /^year_week\((.+),(.+)\)$/.test(trimmed)
-  ) {
-    const match = trimmed.match(/^year_week\((.+?)(?:,(.+))?\)$/);
-    if (!match) return null;
-    const format = match[1].trim();
-    const weekStart = match[2] ? Number(match[2].trim()) : 1;
-    const result = yearWeek(now, Number.isFinite(weekStart) ? weekStart : 1);
-    return format
-      .replaceAll('yyyy', String(result.year))
-      .replaceAll('MM', padTimeUnit(result.week));
-  }
-  const offsetMatch = trimmed.match(/^(.+?)([+-])(\d+(?:\/\d+)*)$/);
-  if (offsetMatch) {
-    const [, format, sign, rawOffset] = offsetMatch;
-    const [first, ...rest] = rawOffset.split('/');
-    const offset = rest.reduce(
-      (acc, value) => acc / Number(value),
-      Number(first),
-    );
-    const hours = (sign === '-' ? -1 : 1) * offset * 24;
-    const target = new Date(now.getTime() + hours * 60 * 60 * 1000);
-    return formatBuiltinPreviewDate(target, format.trim());
-  }
-  if (/(yyyy|MM|dd|HH|mm|ss)/.test(trimmed)) {
-    return formatBuiltinPreviewDate(now, trimmed);
-  }
-  return null;
-}
-
-function extractTaskScheduleValue(definition: SyncJSON): TaskScheduleValue {
-  const schedule = toObject(toObject(definition).schedule);
-  return {
-    enabled: Boolean(schedule.enabled),
-    cron_expr:
-      typeof schedule.cron_expr === 'string'
-        ? String(schedule.cron_expr)
-        : '0 0 * * *',
-    timezone:
-      typeof schedule.timezone === 'string' &&
-      schedule.timezone.trim().length > 0
-        ? String(schedule.timezone)
-        : 'Asia/Shanghai',
-  };
-}
-
-const BUILTIN_TIME_VARIABLE_ITEMS = [
-  {expr: 'system.biz.curdate', descKey: 'builtinSystemBizCurdateDesc'},
-  {expr: 'system.biz.date', descKey: 'builtinSystemBizDateDesc'},
-  {expr: 'system.datetime', descKey: 'builtinSystemDateTimeDesc'},
-  {expr: 'yyyyMMdd', descKey: 'builtinFormatDesc'},
-  {expr: 'yyyy-MM-dd', descKey: 'builtinFormatDesc'},
-  {expr: 'yyyyMMdd+1', descKey: 'builtinOffsetDesc'},
-  {expr: 'add_months(yyyyMMdd,-1)', descKey: 'builtinAddMonthsDesc'},
-  {expr: 'this_day(yyyy-MM-dd)', descKey: 'builtinThisDayDesc'},
-  {expr: 'last_day(yyyy-MM-dd)', descKey: 'builtinLastDayDesc'},
-  {expr: 'year_week(yyyy-MM-dd)', descKey: 'builtinYearWeekDesc'},
-  {expr: 'month_first_day(yyyy-MM-dd,0)', descKey: 'builtinMonthFirstDayDesc'},
-  {expr: 'month_last_day(yyyy-MM-dd,0)', descKey: 'builtinMonthLastDayDesc'},
-  {expr: 'week_first_day(yyyy-MM-dd,0)', descKey: 'builtinWeekFirstDayDesc'},
-  {expr: 'week_last_day(yyyy-MM-dd,0)', descKey: 'builtinWeekLastDayDesc'},
-] as const;
-
-function validateWorkspaceName(
-  name: string,
-  t: ReturnType<typeof useTranslations<'workbenchStudio'>>,
-): string | null {
-  const trimmed = name.trim();
-  if (!trimmed) {
-    return t('nameRequired');
-  }
-  if (!WORKSPACE_NAME_PATTERN.test(trimmed)) {
-    return t('workspaceNameInvalid');
-  }
-  return null;
-}
-
-function listSiblingNames(
-  tree: SyncTaskTreeNode[],
-  parentId: number | null,
-  excludeId?: number | null,
-): string[] {
-  const nodes =
-    parentId == null ? tree : findTreeNode(tree, parentId)?.children || [];
-  return nodes
-    .filter((node) => node.id !== excludeId)
-    .map((node) => node.name.trim().toLowerCase());
-}
-
-function hasDuplicateWorkspaceName(
-  tree: SyncTaskTreeNode[],
-  parentId: number | null,
-  name: string,
-  excludeId?: number | null,
-): boolean {
-  const normalized = name.trim().toLowerCase();
-  if (!normalized) {
-    return false;
-  }
-  return listSiblingNames(tree, parentId, excludeId).includes(normalized);
-}
-
-function formatSyncUserFacingError(
-  error: unknown,
-  fallbackTitle: string,
-  t: ReturnType<typeof useTranslations<'workbenchStudio'>>,
-): UserFacingErrorState {
-  const message = error instanceof Error ? error.message : t('unknownError');
-  if (message.includes('sync: task has not been published')) {
-    return {
-      title: t('saveRequiredTitle'),
-      description: t('saveRequiredDescription'),
-      raw: error instanceof Error ? error.message : message,
-    };
-  }
-  if (message.includes('sync: 配置解析失败')) {
-    return {
-      title: t('configParseFailedTitle'),
-      description: message.replace(/^sync:\s*/, ''),
-      raw: error instanceof Error ? error.message : message,
-    };
-  }
-  if (message.includes('sync: DAG 解析失败')) {
-    return {
-      title: fallbackTitle,
-      description: message.replace(/^sync:\s*/, ''),
-      raw: error instanceof Error ? error.message : message,
-    };
-  }
-  return {
-    title: fallbackTitle,
-    description: message,
-    raw: error instanceof Error ? error.message : undefined,
-  };
-}
-
-// 将 definition 中的 custom_variables 与 custom_variable_types 转换为表格行列表
-// Convert custom_variables and custom_variable_types from task definition into variable rows
-function toVariableRows(
-  value: unknown,
-  typesValue?: unknown,
-): VariableRow[] {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return [];
-  }
-  const typesMap =
-    typesValue && typeof typesValue === 'object' && !Array.isArray(typesValue)
-      ? (typesValue as Record<string, unknown>)
-      : {};
-  return Object.entries(value as Record<string, unknown>)
-    .filter(([key]) => Boolean(key.trim()))
-    .map(([key, item], index) => {
-      const type = typesMap[key] === 'secret' ? 'secret' : 'string';
-      return {
-        id: `${key}-${index}`,
-        key,
-        value: typeof item === 'string' ? item : String(item ?? ''),
-        type,
-      };
-    });
-}
-
-// 将自定义变量列表转换为任务定义中的键值映射
-// Convert custom variable rows to key-value record for task definition
-function fromVariableRows(rows: VariableRow[]): Record<string, string> {
-  const result: Record<string, string> = {};
-  for (const row of rows) {
-    const key = row.key.trim();
-    if (!key) {
-      continue;
-    }
-    result[key] = row.value;
-  }
-  return result;
-}
-
-// 将自定义变量列表转换为任务定义中的类型映射
-// Convert custom variable rows to type mapping record for task definition
-function fromVariableTypes(
-  rows: VariableRow[],
-): Record<string, 'string' | 'secret'> {
-  const result: Record<string, 'string' | 'secret'> = {};
-  for (const row of rows) {
-    const key = row.key.trim();
-    if (!key) {
-      continue;
-    }
-    result[key] = row.type === 'secret' ? 'secret' : 'string';
-  }
-  return result;
-}
-
-function getExecutionMode(definition: SyncJSON | undefined): ExecutionMode {
-  const value = definition?.execution_mode;
-  if (value === 'local') {
-    return 'local';
-  }
-  return 'cluster';
-}
-
-function extractPreviewRows(
-  resultPreview: SyncJSON | undefined,
-): Array<Record<string, unknown>> {
-  const rows = resultPreview?.rows;
-  if (!Array.isArray(rows)) {
-    return [];
-  }
-  return rows.filter(
-    (item) => item && typeof item === 'object' && !Array.isArray(item),
-  ) as Array<Record<string, unknown>>;
-}
-
-function extractPreviewDatasets(
-  resultPreview: SyncJSON | undefined,
-): SyncPreviewDataset[] {
-  const datasets = resultPreview?.datasets;
-  if (Array.isArray(datasets)) {
-    return datasets
-      .filter(
-        (item) => item && typeof item === 'object' && !Array.isArray(item),
-      )
-      .map((item, index) => {
-        const mapped = item as SyncJSON;
-        const rows = Array.isArray(mapped.rows)
-          ? (mapped.rows.filter(
-              (row) => row && typeof row === 'object' && !Array.isArray(row),
-            ) as SyncJSON[])
-          : [];
-        const explicitColumns = Array.isArray(mapped.columns)
-          ? mapped.columns.map((column) => String(column))
-          : rows.length > 0
-            ? Object.keys(rows[0])
-            : [];
-        return {
-          name:
-            typeof mapped.name === 'string'
-              ? mapped.name
-              : `dataset-${index + 1}`,
-          catalog: toObject(mapped.catalog),
-          columns: explicitColumns,
-          rows,
-          page: typeof mapped.page === 'number' ? mapped.page : 1,
-          page_size:
-            typeof mapped.page_size === 'number'
-              ? mapped.page_size
-              : rows.length || 20,
-          total: typeof mapped.total === 'number' ? mapped.total : rows.length,
-          updated_at:
-            typeof mapped.updated_at === 'string'
-              ? mapped.updated_at
-              : undefined,
-        } satisfies SyncPreviewDataset;
-      });
-  }
-  const rows = extractPreviewRows(resultPreview);
-  const columns = extractPreviewColumns(rows, resultPreview);
-  if (rows.length === 0 && columns.length === 0) {
-    return [];
-  }
-  return [
-    {
-      name: 'preview_dataset',
-      catalog: {},
-      columns,
-      rows,
-      page: 1,
-      page_size: rows.length || 20,
-      total: rows.length,
-    },
-  ];
-}
-
-function extractPreviewColumns(
-  rows: Array<Record<string, unknown>>,
-  resultPreview: SyncJSON | undefined,
-): string[] {
-  const explicit = resultPreview?.columns;
-  if (Array.isArray(explicit)) {
-    return explicit.map((item) => String(item));
-  }
-  if (rows.length > 0) {
-    return Object.keys(rows[0]);
-  }
-  return [];
-}
-
-function formatCellValue(value: unknown): string {
-  if (value === null || value === undefined) {
-    return '-';
-  }
-  if (typeof value === 'object') {
-    return JSON.stringify(value);
-  }
-  return String(value);
-}
-
-function getEngineAPIMode(job: SyncJobInstance | null): string {
-  const mode = job?.submit_spec?.engine_api_mode;
-  if (typeof mode === 'string' && mode.trim()) {
-    return mode.trim().toLowerCase();
-  }
-  return 'v2';
-}
-
-function submitSpecExecutionMode(spec: SyncJSON | undefined): ExecutionMode {
-  if (spec?.execution_mode === 'local') {
-    return 'local';
-  }
-  return 'cluster';
-}
-
-function getEngineEndpointLabel(job: SyncJobInstance | null): string {
-  if (job && submitSpecExecutionMode(job.submit_spec) === 'local') {
-    const installDir = job.submit_spec?.install_dir;
-    return typeof installDir === 'string' && installDir.trim()
-      ? installDir.trim()
-      : 'local-agent';
-  }
-  const baseURL = job?.submit_spec?.engine_base_url;
-  if (typeof baseURL === 'string' && baseURL.trim()) {
-    return baseURL.trim();
-  }
-  return '-';
-}
-
-function getJobStatusBadgeClass(status: string): string {
-  switch (
-    String(status || '')
-      .trim()
-      .toUpperCase()
-  ) {
-    case 'SUCCESS':
-    case 'FINISHED':
-    case 'SAVEPOINT_DONE':
-      return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400';
-    case 'RUNNING':
-      return 'border-sky-500/30 bg-sky-500/10 text-sky-600 dark:text-sky-400';
-    case 'DOING_SAVEPOINT':
-      return 'border-violet-500/30 bg-violet-500/10 text-violet-600 dark:text-violet-400';
-    case 'FAILED':
-      return 'border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400';
-    case 'FAILING':
-      return 'border-orange-500/30 bg-orange-500/10 text-orange-600 dark:text-orange-400';
-    case 'CANCELING':
-      return 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400';
-    case 'CANCELED':
-    case 'CANCELLED':
-      return 'border-zinc-500/30 bg-zinc-500/10 text-zinc-600 dark:text-zinc-400';
-    case 'PENDING':
-    case 'CREATED':
-    case 'SCHEDULED':
-    case 'STARTING':
-    case 'SUBMITTED':
-    case 'RECONCILING':
-      return 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400';
-    default:
-      return 'border-border/60 bg-muted/50 text-muted-foreground';
-  }
-}
-
-function getJobStatusLabel(status: string): string {
-  switch (
-    String(status || '')
-      .trim()
-      .toUpperCase()
-  ) {
-    case 'SUCCESS':
-    case 'FINISHED':
-      return 'Success';
-    case 'SAVEPOINT_DONE':
-      return 'Savepoint Done';
-    case 'RUNNING':
-      return 'Running';
-    case 'DOING_SAVEPOINT':
-      return 'Doing Savepoint';
-    case 'FAILED':
-      return 'Failed';
-    case 'FAILING':
-      return 'Failing';
-    case 'CANCELING':
-      return 'Canceling';
-    case 'CANCELED':
-    case 'CANCELLED':
-      return 'Canceled';
-    case 'PENDING':
-      return 'Pending';
-    case 'CREATED':
-      return 'Created';
-    case 'SCHEDULED':
-      return 'Scheduled';
-    case 'STARTING':
-      return 'Starting';
-    case 'SUBMITTED':
-      return 'Submitted';
-    case 'RECONCILING':
-      return 'Reconciling';
-    default:
-      return status || '-';
-  }
-}
-
-function getDisplayJobLifecycleStatus(job: SyncJobInstance | null): string {
-  if (!job) {
-    return '-';
-  }
-  const rawJobStatus = String(toObject(job.result_preview).job_status || '')
-    .trim()
-    .toUpperCase();
-  if (rawJobStatus) {
-    return rawJobStatus;
-  }
-  return String(job.status || '-');
-}
-
-function formatJobDateTime(value: string | null | undefined): string {
-  if (!value) {
-    return '-';
-  }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return '-';
-  }
-  return date.toLocaleString();
-}
-
-function formatJobDuration(
-  startedAt: string | null | undefined,
-  finishedAt: string | null | undefined,
-): string {
-  if (!startedAt) {
-    return '-';
-  }
-  const start = new Date(startedAt);
-  if (Number.isNaN(start.getTime())) {
-    return '-';
-  }
-  const end = finishedAt ? new Date(finishedAt) : new Date();
-  if (Number.isNaN(end.getTime())) {
-    return '-';
-  }
-  const durationMs = Math.max(0, end.getTime() - start.getTime());
-  const seconds = Math.floor(durationMs / 1000);
-  if (seconds < 60) {
-    return `${seconds}s`;
-  }
-  const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = seconds % 60;
-  if (minutes < 60) {
-    return `${minutes}m ${String(remainingSeconds).padStart(2, '0')}s`;
-  }
-  const hours = Math.floor(minutes / 60);
-  const remainingMinutes = minutes % 60;
-  return `${hours}h ${String(remainingMinutes).padStart(2, '0')}m ${String(remainingSeconds).padStart(2, '0')}s`;
-}
-
-function getRunModeLabel(
-  job: SyncJobInstance,
-  t: ReturnType<typeof useTranslations<'workbenchStudio'>>,
-): string {
-  const runType = String(job.run_type || '')
-    .trim()
-    .toLowerCase();
-  if (runType === 'preview') {
-    return t('runModePreview');
-  }
-  if (runType === 'schedule' || runType === 'scheduled') {
-    return t('runModeSchedule');
-  }
-  const submitSpec = toObject(job.submit_spec);
-  const triggerSource = String(
-    submitSpec.trigger_source || submitSpec.trigger_mode || '',
-  )
-    .trim()
-    .toLowerCase();
-  if (triggerSource === 'schedule' || triggerSource === 'scheduled') {
-    return t('runModeSchedule');
-  }
-  return t('runModeManual');
-}
-
-function normalizeJobLifecycleStatus(
-  status: string | null | undefined,
-): string {
-  return String(status || '')
-    .trim()
-    .toUpperCase();
-}
-
-function isJobLifecycleActive(status: string | null | undefined): boolean {
-  switch (normalizeJobLifecycleStatus(status)) {
-    case 'PENDING':
-    case 'CREATED':
-    case 'SCHEDULED':
-    case 'STARTING':
-    case 'SUBMITTED':
-    case 'RECONCILING':
-    case 'RUNNING':
-    case 'DOING_SAVEPOINT':
-    case 'CANCELING':
-      return true;
-    default:
-      return false;
-  }
-}
-
-function isJobLifecycleTerminal(status: string | null | undefined): boolean {
-  switch (normalizeJobLifecycleStatus(status)) {
-    case 'SUCCESS':
-    case 'FINISHED':
-    case 'SAVEPOINT_DONE':
-    case 'FAILED':
-    case 'FAILING':
-    case 'CANCELED':
-    case 'CANCELLED':
-      return true;
-    default:
-      return false;
-  }
-}
-
-function canRecoverFromJob(job: SyncJobInstance | null): boolean {
-  if (!job || job.run_type === 'preview') {
-    return false;
-  }
-  if (submitSpecExecutionMode(job.submit_spec) === 'local') {
-    return false;
-  }
-  if (!String(job.platform_job_id || '').trim()) {
-    return false;
-  }
-  return isJobLifecycleTerminal(getDisplayJobLifecycleStatus(job));
-}
-
-function getJobSubmittedScript(job: SyncJobInstance | null): {
-  content: string;
-  format: string;
-} | null {
-  if (!job) {
-    return null;
-  }
-  const submitSpec = toObject(job.submit_spec);
-  const submittedContent = normalizeStoredScriptContent(
-    submitSpec.submitted_content,
-  );
-  if (submittedContent) {
-    return {
-      content: submittedContent,
-      format: String(
-        submitSpec.submitted_format || submitSpec.format || 'hocon',
-      ),
-    };
-  }
-  const previewContent = String(
-    toObject(job.result_preview).preview_content || '',
-  ).trim();
-  if (previewContent) {
-    return {
-      content: previewContent,
-      format: String(
-        toObject(job.result_preview).content_format ||
-          submitSpec.format ||
-          'hocon',
-      ),
-    };
-  }
-  return null;
-}
-
-function buildCheckpointInspectJobConfig(
-  job: SyncJobInstance | null,
-  editor: EditorState,
-  customVariables: VariableRow[],
-): RuntimeStorageCheckpointInspectJobConfig | undefined {
-  const submittedScript = getJobSubmittedScript(job);
-  if (submittedScript?.content?.trim()) {
-    return {
-      content: submittedScript.content,
-      content_format: submittedScript.format || 'hocon',
-      variables: {},
-    };
-  }
-  if (!editor.content.trim()) {
-    return undefined;
-  }
-  return {
-    content: editor.content,
-    content_format: editor.contentFormat || 'hocon',
-    variables: fromVariableRows(customVariables),
-  };
-}
-
-function normalizeCheckpointActionIdentity(value: unknown): string {
-  const raw = String(value || '').trim();
-  if (!raw) {
-    return '';
-  }
-  const bracketMatch = raw.match(/\[(.+)\]$/);
-  return (bracketMatch?.[1] || raw).trim();
-}
-
-type CheckpointActionViewModel = {
-  key: string;
-  actionName: string;
-  actionState?: Record<string, unknown>;
-  taskStatistics?: Record<string, unknown>;
-  sourceState?: Record<string, unknown>;
-  unsupportedSource?: Record<string, unknown>;
-};
-
-function buildCheckpointActionViewModels(
-  result: RuntimeStorageCheckpointInspectResult | null,
-): CheckpointActionViewModel[] {
-  const actionStates = Array.isArray(result?.action_states)
-    ? result.action_states
-    : [];
-  const taskStatistics = Array.isArray(result?.task_statistics)
-    ? result.task_statistics
-    : [];
-  const sourceStates = Array.isArray(result?.source_state_inspect?.sources)
-    ? result.source_state_inspect.sources
-    : [];
-  const unsupportedSources = Array.isArray(
-    result?.source_state_inspect?.unsupported_sources,
-  )
-    ? result.source_state_inspect.unsupported_sources
-    : [];
-  const actionMap = new Map<string, CheckpointActionViewModel>();
-
-  const ensureEntry = (name: unknown): CheckpointActionViewModel => {
-    const actionName = normalizeCheckpointActionIdentity(name);
-    const key = actionName || `unknown-${actionMap.size}`;
-    const existing = actionMap.get(key);
-    if (existing) {
-      return existing;
-    }
-    const created: CheckpointActionViewModel = {
-      key,
-      actionName,
-    };
-    actionMap.set(key, created);
-    return created;
-  };
-
-  actionStates.forEach((item) => {
-    const entry = ensureEntry(item.name);
-    entry.actionState = item;
-  });
-  taskStatistics.forEach((item) => {
-    const entry = ensureEntry(item.jobVertexId);
-    entry.taskStatistics = item;
-  });
-  sourceStates.forEach((item) => {
-    const entry = ensureEntry(item.actionName);
-    entry.sourceState = item;
-  });
-  unsupportedSources.forEach((item) => {
-    const entry = ensureEntry(item.actionName);
-    entry.unsupportedSource = item;
-  });
-
-  return Array.from(actionMap.values()).sort((left, right) =>
-    left.actionName.localeCompare(right.actionName),
-  );
-}
-
-type CheckpointSourceSummary = {
-  target: string;
-  offset: string;
-  splitCount: number;
-  progress: string;
-};
-
-type CheckpointSubtaskViewRow = {
-  subtaskIndex: number;
-  splitCount: number;
-  bytes: number;
-  chunks: number;
-  stateSize: number;
-  status: string;
-  ackTimestamp: unknown;
-};
-
-function summarizeCheckpointSourceState(
-  sourceState?: Record<string, unknown> | null,
-): CheckpointSourceSummary {
-  const subtasks = Array.isArray(sourceState?.subtasks)
-    ? (sourceState?.subtasks as Record<string, unknown>[])
-    : [];
-  const firstSubtask = subtasks[0] || {};
-  const firstSplits = Array.isArray(firstSubtask.splits)
-    ? (firstSubtask.splits as Record<string, unknown>[])
-    : [];
-  const firstSplit = firstSplits[0] || {};
-  const coordinator = toObject(sourceState?.coordinator);
-  const snapshotPhase = toObject(coordinator.snapshotPhase);
-  const incrementalPhase = toObject(coordinator.incrementalPhase);
-  const startupOffset = toObject(firstSplit.startupOffset);
-  const offsetValues = toObject(startupOffset.values);
-  const tableIds = Array.isArray(firstSplit.tableIds)
-    ? (firstSplit.tableIds as unknown[])
-        .map((item) => String(item || '').trim())
-        .filter(Boolean)
-    : [];
-  const processedTables = Array.isArray(snapshotPhase.alreadyProcessedTables)
-    ? (snapshotPhase.alreadyProcessedTables as unknown[])
-        .map((item) => String(item || '').trim())
-        .filter(Boolean)
-    : [];
-  const pendingTables = Array.isArray(coordinator.pendingTables)
-    ? (coordinator.pendingTables as unknown[])
-        .map((item) => String(item || '').trim())
-        .filter(Boolean)
-    : [];
-  const tableOffsets = toObject(coordinator.tableOffsets);
-
-  let offset = '-';
-  if (offsetValues.file || offsetValues.pos) {
-    offset = `${String(offsetValues.file || '').trim()}:${String(
-      offsetValues.pos || '',
-    ).trim()}`.replace(/:$/, '');
-  } else if (offsetValues.scn) {
-    offset = `SCN ${String(offsetValues.scn)}`;
-  } else if (offsetValues.lsn) {
-    offset = `LSN ${String(offsetValues.lsn)}`;
-  } else if (offsetValues.commit_lsn) {
-    offset = `LSN ${String(offsetValues.commit_lsn)}`;
-  } else if (offsetValues.resumeToken) {
-    offset = `resumeToken ${String(offsetValues.resumeToken).slice(0, 24)}`;
-  } else if (offsetValues.resolvedTs) {
-    offset = `resolvedTs ${String(offsetValues.resolvedTs)}`;
-  } else if (firstSplit.resolvedTs !== undefined) {
-    offset = `resolvedTs ${String(firstSplit.resolvedTs)}`;
-  } else if (firstSplit.latestConsumedId) {
-    offset = String(firstSplit.latestConsumedId);
-  } else if (firstSplit.startCursor) {
-    offset = String(firstSplit.startCursor);
-  } else if (firstSplit.currentOffset !== undefined) {
-    offset = String(firstSplit.currentOffset);
-  } else if (offsetValues.timestamp) {
-    offset = String(offsetValues.timestamp);
-  } else if (firstSplit.startOffset || firstSplit.currentOffset) {
-    offset = String(firstSplit.currentOffset || firstSplit.startOffset);
-  } else if (firstSplit.recordOffset !== undefined) {
-    offset = `record ${String(firstSplit.recordOffset)}`;
-  } else if (coordinator.currentSnapshotId !== undefined) {
-    offset = `snapshot ${String(coordinator.currentSnapshotId)}`;
-  } else if (coordinator.resolvedTs !== undefined) {
-    offset = `resolvedTs ${String(coordinator.resolvedTs)}`;
-  }
-
-  let target = '-';
-  if (tableIds.length > 0) {
-    target = tableIds.join(', ');
-  } else if (firstSplit.topic) {
-    target = [
-      String(firstSplit.topic),
-      firstSplit.partition !== undefined
-        ? `partition ${String(firstSplit.partition)}`
-        : '',
-    ]
-      .filter(Boolean)
-      .join(' / ');
-  } else if (firstSplit.project || firstSplit.logStore) {
-    target = [firstSplit.project, firstSplit.logStore, firstSplit.shardId]
-      .filter(
-        (item) => item !== undefined && item !== null && String(item) !== '',
-      )
-      .map((item) => String(item))
-      .join(' / ');
-  } else if (firstSplit.database || firstSplit.table) {
-    target = [firstSplit.database, firstSplit.table]
-      .filter(
-        (item) => item !== undefined && item !== null && String(item) !== '',
-      )
-      .map((item) => String(item))
-      .join('.');
-  } else if (firstSplit.tableName) {
-    target = String(firstSplit.tableName);
-  } else if (firstSplit.tablePath) {
-    target = String(firstSplit.tablePath);
-  } else if (firstSplit.tableId) {
-    target = String(firstSplit.tableId);
-  } else if (processedTables.length > 0) {
-    target = processedTables.join(', ');
-  } else if (pendingTables.length > 0) {
-    target = pendingTables.join(', ');
-  } else if (firstSplit.splitId) {
-    target = String(firstSplit.splitId);
-  }
-
-  let progress = '-';
-  if (processedTables.length > 0) {
-    progress = `${processedTables.length} tables`;
-  } else if (pendingTables.length > 0) {
-    progress = `${pendingTables.length} pending`;
-  } else if (Object.keys(tableOffsets).length > 0) {
-    progress = `${Object.keys(tableOffsets).length} table offsets`;
-  } else if (coordinator.pendingSplitCount !== undefined) {
-    progress = `${String(coordinator.pendingSplitCount)} pending splits`;
-  } else if (coordinator.assignedSplitCount !== undefined) {
-    progress = `${String(coordinator.assignedSplitCount)} assigned`;
-  } else if (incrementalPhase.className) {
-    progress = String(incrementalPhase.className).split('.').pop() || '-';
-  }
-
-  return {
-    target,
-    offset,
-    splitCount: subtasks.reduce(
-      (sum, item) => sum + Number(item.splitCount || 0),
-      0,
-    ),
-    progress,
-  };
-}
-
-function toCheckpointNumber(value: unknown): number {
-  const numeric = Number(value);
-  return Number.isFinite(numeric) ? numeric : 0;
-}
-
-function buildCheckpointSubtaskRows(
-  row: CheckpointActionViewModel,
-): CheckpointSubtaskViewRow[] {
-  const actionState = row.actionState || {};
-  const statistics = row.taskStatistics || {};
-  const sourceState = row.sourceState || {};
-  const stateSubtasks = Array.isArray(actionState.subtasks)
-    ? (actionState.subtasks as Record<string, unknown>[])
-    : [];
-  const statSubtasks = Array.isArray(statistics.subtasks)
-    ? (statistics.subtasks as Record<string, unknown>[])
-    : [];
-  const sourceSubtasks = Array.isArray(sourceState.subtasks)
-    ? (sourceState.subtasks as Record<string, unknown>[])
-    : [];
-  const rowMap = new Map<number, CheckpointSubtaskViewRow>();
-
-  const ensureRow = (index: number): CheckpointSubtaskViewRow => {
-    const normalized = Number.isFinite(index) ? index : rowMap.size;
-    const existing = rowMap.get(normalized);
-    if (existing) {
-      return existing;
-    }
-    const created: CheckpointSubtaskViewRow = {
-      subtaskIndex: normalized,
-      splitCount: 0,
-      bytes: 0,
-      chunks: 0,
-      stateSize: 0,
-      status: '-',
-      ackTimestamp: undefined,
-    };
-    rowMap.set(normalized, created);
-    return created;
-  };
-
-  stateSubtasks.forEach((item, index) => {
-    const rowItem = ensureRow(toCheckpointNumber(item.index ?? index));
-    rowItem.bytes = toCheckpointNumber(item.bytes);
-    rowItem.chunks = toCheckpointNumber(item.chunks);
-  });
-  statSubtasks.forEach((item, index) => {
-    const rowItem = ensureRow(toCheckpointNumber(item.subtaskIndex ?? index));
-    rowItem.stateSize = toCheckpointNumber(item.stateSize);
-    rowItem.status = String(item.status || '-');
-    rowItem.ackTimestamp = item.ackTimestamp;
-  });
-  sourceSubtasks.forEach((item, index) => {
-    const rowItem = ensureRow(toCheckpointNumber(item.subtaskIndex ?? index));
-    rowItem.splitCount = toCheckpointNumber(item.splitCount);
-    rowItem.bytes = Math.max(rowItem.bytes, toCheckpointNumber(item.bytes));
-  });
-
-  return Array.from(rowMap.values()).sort(
-    (left, right) => left.subtaskIndex - right.subtaskIndex,
-  );
-}
-
-function summarizeCheckpointSubtaskMetrics(rows: CheckpointSubtaskViewRow[]) {
-  const metrics: Array<{
-    key: keyof Pick<
-      CheckpointSubtaskViewRow,
-      'splitCount' | 'bytes' | 'chunks' | 'stateSize'
-    >;
-    label: string;
-  }> = [
-    {key: 'splitCount', label: 'Splits'},
-    {key: 'bytes', label: 'Bytes'},
-    {key: 'chunks', label: 'Chunks'},
-    {key: 'stateSize', label: 'State Size'},
-  ];
-  const aggregate = (mode: 'min' | 'avg' | 'max') => {
-    const entry: Record<string, unknown> = {metric: mode};
-    metrics.forEach(({key, label}) => {
-      const values = rows.map((item) => Number(item[key] || 0));
-      if (values.length === 0) {
-        entry[label] = 0;
-        return;
-      }
-      if (mode === 'min') {
-        entry[label] = Math.min(...values);
-        return;
-      }
-      if (mode === 'max') {
-        entry[label] = Math.max(...values);
-        return;
-      }
-      entry[label] = Math.round(
-        values.reduce((sum, value) => sum + value, 0) / values.length,
-      );
-    });
-    return entry;
-  };
-  return [aggregate('min'), aggregate('avg'), aggregate('max')];
-}
-
-function normalizeStoredScriptContent(value: unknown): string {
-  const raw = String(value || '').trim();
-  if (!raw) {
-    return '';
-  }
-  if (raw.includes('\n') || raw.includes('\r')) {
-    return raw;
-  }
-  if (!/^[A-Za-z0-9+/=]+$/.test(raw) || raw.length % 4 !== 0) {
-    return raw;
-  }
-  try {
-    if (typeof window === 'undefined') {
-      return raw;
-    }
-    const decoded = window.atob(raw);
-    if (/[\x00-\x08\x0B\x0C\x0E-\x1F]/.test(decoded)) {
-      return raw;
-    }
-    if (
-      decoded.includes('env {') ||
-      decoded.includes('source {') ||
-      decoded.includes('sink {') ||
-      decoded.includes('transform {')
-    ) {
-      return decoded;
-    }
-    return raw;
-  } catch {
-    return raw;
-  }
-}
-
-function parseMetricNumber(value: unknown): number | null {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return value;
-  }
-  if (typeof value === 'string') {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-  return null;
-}
-
-function extractJobMetricSummary(job: SyncJobInstance): {
-  readCount: number | null;
-  writeCount: number | null;
-  averageSpeed: number | null;
-  metricCount: number;
-} {
-  const metrics = toObject(job.result_preview?.metrics);
-  const readCount = parseMetricNumber(metrics.SourceReceivedCount);
-  const writeCount =
-    parseMetricNumber(metrics.SinkWriteCount) ??
-    parseMetricNumber(metrics.SinkCommittedCount);
-  const readQps = parseMetricNumber(metrics.SourceReceivedQPS);
-  const writeQps =
-    parseMetricNumber(metrics.SinkWriteQPS) ??
-    parseMetricNumber(metrics.SinkCommittedQPS);
-  let averageSpeed: number | null = null;
-  if (readQps !== null && writeQps !== null) {
-    averageSpeed = (readQps + writeQps) / 2;
-  } else if (readQps !== null) {
-    averageSpeed = readQps;
-  } else if (writeQps !== null) {
-    averageSpeed = writeQps;
-  }
-  return {
-    readCount,
-    writeCount,
-    averageSpeed,
-    metricCount: Object.keys(metrics).length,
-  };
-}
-
-function formatMetricValue(value: number | null, digits = 0): string {
-  if (value === null) {
-    return '-';
-  }
-  return digits > 0 ? value.toFixed(digits) : String(Math.round(value));
-}
-
-function buildDisplayLogLines(logs: string, maxLines: number): string[] {
-  const lines = splitLogLines(logs);
-  if (lines.length <= maxLines) {
-    return lines;
-  }
-  return lines.slice(lines.length - maxLines);
-}
-
-function splitLogLines(logs: string): string[] {
-  return logs.split('\n').filter((line) => line.trim() !== '');
-}
-
-function getLogLineClass(line: string): string {
-  const upper = line.toUpperCase();
-  if (upper.includes(' ERROR ') || upper.includes('ERROR')) {
-    return 'text-red-600 dark:text-red-400';
-  }
-  if (upper.includes(' WARN ') || upper.includes('WARNING')) {
-    return 'text-amber-600 dark:text-amber-400';
-  }
-  return 'text-muted-foreground';
-}
-
-function getPreviewRowKindBadgeClass(value: string): string {
-  const normalized = value.trim().toUpperCase();
-  switch (normalized) {
-    case 'INSERT':
-    case '+I':
-      return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400';
-    case 'UPDATE':
-    case 'UPDATE_AFTER':
-    case '+U':
-      return 'border-sky-500/30 bg-sky-500/10 text-sky-600 dark:text-sky-400';
-    case 'DELETE':
-    case 'UPDATE_BEFORE':
-    case '-D':
-    case '-U':
-      return 'border-rose-500/30 bg-rose-500/10 text-rose-600 dark:text-rose-400';
-    default:
-      return 'border-border/60 bg-muted/50 text-muted-foreground';
-  }
-}
-
-function extractEditorState(task?: SyncTask | null): EditorState {
-  if (!task) {
-    return EMPTY_EDITOR;
-  }
-  return {
-    id: task.id,
-    parentId: task.parent_id,
-    name: task.name || '',
-    description: task.description || '',
-    clusterId: task.cluster_id ? String(task.cluster_id) : '',
-    contentFormat: 'hocon',
-    content: task.content || '',
-    definition: task.definition || {},
-    currentVersion: task.current_version || 0,
-    status: task.status || 'draft',
-    createdBy: task.created_by,
-    canEdit: task.can_edit ?? true,
-    canRun: task.can_run ?? true,
-    isOwner: task.is_owner ?? true,
-    isCollaborator: task.is_collaborator ?? false,
-    isPublic: task.is_public ?? true,
-  };
-}
-
-function extractEditorStateFromTreeNode(
-  task?: SyncTaskTreeNode | null,
-): EditorState {
-  if (!task) {
-    return EMPTY_EDITOR;
-  }
-  return {
-    id: task.id,
-    parentId: task.parent_id,
-    name: task.name,
-    description: task.description || '',
-    clusterId: task.cluster_id ? String(task.cluster_id) : '',
-    contentFormat: 'hocon',
-    content: task.content || '',
-    definition: task.definition || {},
-    currentVersion: task.current_version || 0,
-    status: task.status || 'draft',
-    createdBy: task.created_by,
-    canEdit: task.can_edit ?? true,
-    canRun: task.can_run ?? true,
-    isOwner: task.is_owner ?? true,
-    isCollaborator: task.is_collaborator ?? false,
-    isPublic: task.is_public ?? true,
-  };
-}
-
-// 从任务定义中解析自定义变量列表
-// Extract custom variable rows from task definition
-function extractVariableRowsFromDefinition(
-  definition: SyncJSON,
-): VariableRow[] {
-  return toVariableRows(
-    definition?.custom_variables,
-    definition?.custom_variable_types,
-  );
-}
-
-function resolveFolderParent(
-  selectedNodeId: number | null,
-  tree: SyncTaskTreeNode[],
-): number | null {
-  if (!selectedNodeId) {
-    return null;
-  }
-  const node = flattenTree(tree).find((item) => item.id === selectedNodeId);
-  if (!node) {
-    return null;
-  }
-  return node.node_type === 'folder' ? node.id : node.parent_id || null;
-}
-
-function resolveDefaultPreviewHTTPSinkURL(): string {
-  if (typeof window !== 'undefined' && window.location?.origin) {
-    return `${window.location.origin}/api/v1/sync/preview/collect`;
-  }
-  return 'http://127.0.0.1:17800/api/v1/sync/preview/collect';
-}
-
-function buildDefaultContent(format: SyncFormat): string {
-  return (
-    'env {\n' +
-    '  job.mode = "BATCH"\n' +
-    '  parallelism = 1\n' +
-    '  job.retry.times = 0\n' +
-    '  job.retry.interval.seconds = 3\n' +
-    '  min-pause = -1\n' +
-    '  savemode.execute.location = "CLUSTER"\n' +
-    '  \n' +
-    '  ## limit speed\n' +
-    '  # read_limit.rows_per_second = 1000\n' +
-    '  # read_limit.bytes_per_second = 1048576\n' +
-    '  \n' +
-    '  ## checkpoint \n' +
-    '  # checkpoint.interval = 10000\n' +
-    '  # checkpoint.timeout = 30000\n' +
-    '}\n\n' +
-    'source {\n' +
-    '}\n\n' +
-    'transform {\n' +
-    '}\n\n' +
-    'sink {\n' +
-    '  Console {}\n' +
-    '}\n'
-  );
-}
-
-function formatMetricDisplayValue(value: unknown): string {
-  if (value === null || value === undefined || value === '') {
-    return '-';
-  }
-  if (typeof value === 'number') {
-    return Number.isInteger(value) ? String(value) : value.toFixed(2);
-  }
-  if (typeof value === 'object') {
-    return JSON.stringify(value);
-  }
-  return String(value);
-}
-
-function formatMetricCompactValue(value: unknown): string {
-  if (value === null || value === undefined || value === '') {
-    return '-';
-  }
-  const raw =
-    typeof value === 'string' || typeof value === 'number'
-      ? Number(value)
-      : Number.NaN;
-  if (!Number.isFinite(raw)) {
-    return formatMetricDisplayValue(value);
-  }
-  if (Math.abs(raw) >= 1000000) {
-    return `${(raw / 1000000).toFixed(2)}M`;
-  }
-  if (Math.abs(raw) >= 1000) {
-    return `${(raw / 1000).toFixed(2)}K`;
-  }
-  return Number.isInteger(raw) ? String(raw) : raw.toFixed(2);
-}
-
-function formatMetricWithUnit(
-  value: unknown,
-  unit: 'rows' | 'qps' | 'bps',
-): string {
-  if (value === null || value === undefined || value === '') {
-    return '-';
-  }
-  const raw =
-    typeof value === 'string' || typeof value === 'number'
-      ? Number(value)
-      : Number.NaN;
-  if (!Number.isFinite(raw)) {
-    return formatMetricDisplayValue(value);
-  }
-  const compact = formatMetricCompactValue(raw);
-  if (unit === 'rows') {
-    return `${compact} rows`;
-  }
-  if (unit === 'qps') {
-    return `${compact} QPS`;
-  }
-  return `${compact} B/s`;
-}
-
-function getMetricValue(
-  metrics: Record<string, unknown>,
-  key: string,
-): unknown {
-  return metrics[key];
-}
-
-function buildMetricHighlights(
-  metrics: Record<string, unknown>,
-  t: ReturnType<typeof useTranslations<'workbenchStudio'>>,
-): Array<{label: string; value: string; raw: string}> {
-  return [
-    {
-      label: t('metricHighlightSourceRows'),
-      value: formatMetricWithUnit(
-        getMetricValue(metrics, 'SourceReceivedCount'),
-        'rows',
-      ),
-      raw: formatMetricDisplayValue(
-        getMetricValue(metrics, 'SourceReceivedCount'),
-      ),
-    },
-    {
-      label: t('metricHighlightSinkRows'),
-      value: formatMetricWithUnit(
-        getMetricValue(metrics, 'SinkWriteCount'),
-        'rows',
-      ),
-      raw: formatMetricDisplayValue(getMetricValue(metrics, 'SinkWriteCount')),
-    },
-    {
-      label: t('metricHighlightCommittedRows'),
-      value: formatMetricWithUnit(
-        getMetricValue(metrics, 'SinkCommittedCount'),
-        'rows',
-      ),
-      raw: formatMetricDisplayValue(
-        getMetricValue(metrics, 'SinkCommittedCount'),
-      ),
-    },
-    {
-      label: t('metricHighlightReadSpeed'),
-      value: formatMetricWithUnit(
-        getMetricValue(metrics, 'SourceReceivedBytesPerSeconds'),
-        'bps',
-      ),
-      raw: formatMetricDisplayValue(
-        getMetricValue(metrics, 'SourceReceivedBytesPerSeconds'),
-      ),
-    },
-    {
-      label: t('metricHighlightWriteSpeed'),
-      value: formatMetricWithUnit(
-        getMetricValue(metrics, 'SinkWriteBytesPerSeconds'),
-        'bps',
-      ),
-      raw: formatMetricDisplayValue(
-        getMetricValue(metrics, 'SinkWriteBytesPerSeconds'),
-      ),
-    },
-    {
-      label: t('metricHighlightWriteQps'),
-      value: formatMetricWithUnit(
-        getMetricValue(metrics, 'SinkWriteQPS'),
-        'qps',
-      ),
-      raw: formatMetricDisplayValue(getMetricValue(metrics, 'SinkWriteQPS')),
-    },
-  ];
-}
-
-function toStringMetricMap(value: unknown): Record<string, string> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return {};
-  }
-  return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>).map(([key, item]) => [
-      key,
-      formatMetricDisplayValue(item),
-    ]),
-  );
-}
-
-function buildPerTableMetricRows(metrics: Record<string, unknown>) {
-  const sourceCount = toStringMetricMap(metrics.TableSourceReceivedCount);
-  const sourceBytes = toStringMetricMap(metrics.TableSourceReceivedBytes);
-  const sourceQps = toStringMetricMap(metrics.TableSourceReceivedQPS);
-  const sinkCount = toStringMetricMap(metrics.TableSinkWriteCount);
-  const sinkBytes = toStringMetricMap(metrics.TableSinkWriteBytes);
-  const sinkQps = toStringMetricMap(metrics.TableSinkWriteQPS);
-  const committedCount = toStringMetricMap(metrics.TableSinkCommittedCount);
-  const committedBytes = toStringMetricMap(metrics.TableSinkCommittedBytes);
-
-  const allTables = Array.from(
-    new Set([
-      ...Object.keys(sourceCount),
-      ...Object.keys(sourceBytes),
-      ...Object.keys(sourceQps),
-      ...Object.keys(sinkCount),
-      ...Object.keys(sinkBytes),
-      ...Object.keys(sinkQps),
-      ...Object.keys(committedCount),
-      ...Object.keys(committedBytes),
-    ]),
-  ).sort();
-
-  return allTables.map((table) => {
-    const match = table.match(/^(Source|Sink)\[(\d+)\]\.(.+)$/);
-    const nodeType = match?.[1] || 'Table';
-    const nodeIndex = match?.[2] ? Number(match[2]) + 1 : null;
-    const tablePath = match?.[3] || table;
-    return {
-      rawTable: table,
-      nodeLabel: nodeIndex !== null ? `${nodeType} #${nodeIndex}` : nodeType,
-      rowTone:
-        nodeType === 'Source'
-          ? 'source'
-          : nodeType === 'Sink'
-            ? 'sink'
-            : 'neutral',
-      tablePath,
-      sourceCount: sourceCount[table] || '-',
-      sourceBytes: sourceBytes[table] || '-',
-      sourceQps: sourceQps[table] || '-',
-      sinkCount: sinkCount[table] || '-',
-      sinkBytes: sinkBytes[table] || '-',
-      sinkQps: sinkQps[table] || '-',
-      committedCount: committedCount[table] || '-',
-      committedBytes: committedBytes[table] || '-',
-    };
-  });
-}
-
-function normalizePairingTableKey(tablePath: string): string {
-  const leaf =
-    tablePath.split('.').pop()?.trim().toLowerCase() ||
-    tablePath.trim().toLowerCase();
-  return leaf.replace(/^archive_/, '');
-}
-
-function buildPairedMetricRows(metrics: Record<string, unknown>) {
-  const perTableRows = buildPerTableMetricRows(metrics);
-  const sourceBuckets = new Map<string, typeof perTableRows>();
-  const sinkBuckets = new Map<string, typeof perTableRows>();
-  for (const row of perTableRows) {
-    const key = normalizePairingTableKey(row.tablePath);
-    if (row.rowTone === 'source') {
-      const current = sourceBuckets.get(key) || [];
-      current.push(row);
-      sourceBuckets.set(key, current);
-    } else if (row.rowTone === 'sink') {
-      const current = sinkBuckets.get(key) || [];
-      current.push(row);
-      sinkBuckets.set(key, current);
-    }
-  }
-  const keys = Array.from(
-    new Set([
-      ...Array.from(sourceBuckets.keys()),
-      ...Array.from(sinkBuckets.keys()),
-    ]),
-  ).sort();
-  return keys
-    .map((key) => {
-      const sourceRows = sourceBuckets.get(key) || [];
-      const sinkRows = sinkBuckets.get(key) || [];
-      if (sourceRows.length === 1 && sinkRows.length === 1) {
-        const source = sourceRows[0];
-        const sink = sinkRows[0];
-        return {
-          key,
-          sourceNode: source.nodeLabel,
-          sourceTable: source.tablePath,
-          sinkNode: sink.nodeLabel,
-          sinkTable: sink.tablePath,
-          sourceCount: source.sourceCount,
-          sourceBytes: source.sourceBytes,
-          sourceQps: source.sourceQps,
-          sinkCount: sink.sinkCount,
-          sinkBytes: sink.sinkBytes,
-          sinkQps: sink.sinkQps,
-          committedCount: sink.committedCount,
-          committedBytes: sink.committedBytes,
-        };
-      }
-      return null;
-    })
-    .filter((item): item is NonNullable<typeof item> => item !== null);
-}
-
-function classifyMetricGroup(key: string): MetricGroupKey {
-  const normalized = key.toLowerCase();
-  if (
-    normalized.includes('source') ||
-    normalized.includes('read') ||
-    normalized.includes('receive')
-  ) {
-    return 'read';
-  }
-  if (
-    normalized.includes('sink') ||
-    normalized.includes('write') ||
-    normalized.includes('commit')
-  ) {
-    return 'write';
-  }
-  if (
-    normalized.includes('qps') ||
-    normalized.includes('tps') ||
-    normalized.includes('speed') ||
-    normalized.includes('rate') ||
-    normalized.includes('throughput')
-  ) {
-    return 'throughput';
-  }
-  if (
-    normalized.includes('latency') ||
-    normalized.includes('delay') ||
-    normalized.includes('duration') ||
-    normalized.includes('cost')
-  ) {
-    return 'latency';
-  }
-  if (
-    normalized.includes('status') ||
-    normalized.includes('error') ||
-    normalized.includes('fail') ||
-    normalized.includes('retry')
-  ) {
-    return 'status';
-  }
-  return 'other';
-}
-
-function buildMetricGroups(
-  metrics: unknown,
-  t: ReturnType<typeof useTranslations<'workbenchStudio'>>,
-): Array<{
-  key: MetricGroupKey;
-  title: string;
-  items: Array<{key: string; value: unknown}>;
-}> {
-  const rawMetrics = Object.entries(toObject(metrics));
-  const groups: Record<MetricGroupKey, Array<{key: string; value: unknown}>> = {
-    read: [],
-    write: [],
-    throughput: [],
-    latency: [],
-    status: [],
-    other: [],
-  };
-  for (const [key, value] of rawMetrics) {
-    groups[classifyMetricGroup(key)].push({key, value});
-  }
-  const metadata: Array<{key: MetricGroupKey; title: string}> = [
-    {key: 'read', title: t('metricGroupRead')},
-    {key: 'write', title: t('metricGroupWrite')},
-    {key: 'throughput', title: t('metricGroupThroughput')},
-    {key: 'latency', title: t('metricGroupLatency')},
-    {key: 'status', title: t('metricGroupStatus')},
-    {key: 'other', title: t('metricGroupOther')},
-  ];
-  return metadata
-    .map((item) => ({
-      ...item,
-      items: groups[item.key].sort((left, right) =>
-        left.key.localeCompare(right.key),
-      ),
-    }))
-    .filter((item) => item.items.length > 0);
-}
-
-function normalizePluginIdentity(value?: string | null): string {
-  return String(value || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, '');
-}
-
-function buildTemplatePluginItems(
-  plugins: SyncPluginFactoryInfo[],
-): TemplatePluginItem[] {
-  return (plugins || [])
-    .map((item) => {
-      return {
-        value: item.factory_identifier,
-        label: item.factory_identifier,
-        origin: item.origin,
-      };
-    })
-    .filter(
-      (item) =>
-        normalizePluginIdentity(item.value) !==
-        normalizePluginIdentity('MultiTableSink'),
-    )
-    .sort((left, right) => left.label.localeCompare(right.label));
-}
-
-function resolveEditorPluginContext(
-  content: string,
-  lineNumber: number,
-): {
-  pluginType: SyncPluginType | null;
-  factoryIdentifier: string | null;
-} {
-  const lines = content.split('\n').slice(0, Math.max(lineNumber, 1));
-  const blockStack: string[] = [];
-  let pluginType: SyncPluginType | null = null;
-  let factoryIdentifier: string | null = null;
-
-  for (const rawLine of lines) {
-    const line = rawLine.replace(/#.*$/, '').trim();
-    if (!line) {
-      continue;
-    }
-    const opens = (line.match(/\{/g) || []).length;
-    const closes = (line.match(/\}/g) || []).length;
-    const typeMatch = line.match(/^(source|transform|sink|catalog)\s*\{$/i);
-    if (typeMatch) {
-      pluginType = typeMatch[1].toLowerCase() as SyncPluginType;
-      blockStack.push(pluginType);
-      continue;
-    }
-    if (
-      pluginType &&
-      !factoryIdentifier &&
-      blockStack.length === 1 &&
-      opens > 0 &&
-      closes === 0
-    ) {
-      const pluginMatch = line.match(/^([A-Za-z0-9_.-]+)\s*\{$/);
-      if (pluginMatch) {
-        factoryIdentifier = pluginMatch[1];
-        blockStack.push(factoryIdentifier);
-        continue;
-      }
-    }
-    for (let index = 0; index < opens; index += 1) {
-      blockStack.push('{');
-    }
-    for (let index = 0; index < closes; index += 1) {
-      const popped = blockStack.pop();
-      if (popped && factoryIdentifier && popped === factoryIdentifier) {
-        factoryIdentifier = null;
-      } else if (popped && pluginType && popped === pluginType) {
-        pluginType = null;
-      }
-    }
-  }
-
-  return {pluginType, factoryIdentifier};
-}
-
-function findTopLevelBlockInsertOffset(
-  content: string,
-  pluginType: SyncPluginType,
-): number | null {
-  const lines = content.split('\n');
-  let depth = 0;
-  let insideTarget = false;
-  let offset = 0;
-
-  for (const rawLine of lines) {
-    const line = rawLine.replace(/#.*$/, '').trim();
-    const opens = (line.match(/\{/g) || []).length;
-    const closes = (line.match(/\}/g) || []).length;
-    if (!insideTarget && depth === 0 && line === `${pluginType} {`) {
-      insideTarget = true;
-      depth += opens - closes;
-      offset += rawLine.length + 1;
-      continue;
-    }
-    if (insideTarget && depth === 1 && closes > 0) {
-      return offset;
-    }
-    depth += opens - closes;
-    offset += rawLine.length + 1;
-  }
-
-  return null;
-}
-
-function resolveOptionKeyFromLine(
-  lineContent: string,
-  column: number,
-): {
-  key: string | null;
-  startColumn: number;
-  endColumn: number;
-} {
-  const commentedMatch = lineContent.match(/^(\s*#+\s*)([A-Za-z0-9_.-]+)/);
-  if (commentedMatch?.[2]) {
-    const key = commentedMatch[2];
-    const startColumn = commentedMatch[1].length + 1;
-    const endColumn = startColumn + key.length;
-    if (column >= startColumn && column <= endColumn) {
-      return {key, startColumn, endColumn};
-    }
-    return {key: null, startColumn, endColumn};
-  }
-
-  const assignmentMatch = lineContent.match(/^(\s*)([A-Za-z0-9_.-]+)\s*=/);
-  if (!assignmentMatch || !assignmentMatch[2]) {
-    return {key: null, startColumn: column, endColumn: column};
-  }
-  const key = assignmentMatch[2];
-  const startColumn = assignmentMatch[1].length + 1;
-  const endColumn = startColumn + key.length;
-  if (column < startColumn || column > endColumn) {
-    return {key: null, startColumn, endColumn};
-  }
-  return {key, startColumn, endColumn};
-}
-
-function buildInsertedTemplateContent(
-  content: string,
-  pluginType: SyncPluginType,
-  pluginBlock: string,
-): {
-  nextContent: string;
-  startOffset: number;
-  endOffset: number;
-} {
-  const existingInsertOffset = findTopLevelBlockInsertOffset(
-    content,
-    pluginType,
-  );
-  if (existingInsertOffset !== null) {
-    const insertText = `  ${pluginBlock.replace(/\n/g, '\n  ')}\n`;
-    const nextContent =
-      content.slice(0, existingInsertOffset) +
-      insertText +
-      content.slice(existingInsertOffset);
-    return {
-      nextContent,
-      startOffset: existingInsertOffset,
-      endOffset: existingInsertOffset + insertText.length - 1,
-    };
-  }
-
-  const prefix = content.trim().length > 0 ? '\n\n' : '';
-  const wrappedBlock = `${pluginType} {\n  ${pluginBlock.replace(
-    /\n/g,
-    '\n  ',
-  )}\n}`;
-  const nextContent = `${content}${prefix}${wrappedBlock}`;
-  return {
-    nextContent,
-    startOffset: content.length + prefix.length,
-    endOffset: nextContent.length,
-  };
-}
-
+import {
+  SidebarIconTab,
+  StudioSidebarShell,
+} from './StudioSidebarShell';
+import {
+  SettingsSidebarPanel,
+  TemplatePluginSelect,
+} from './SettingsSidebarPanel';
+import {
+  VersionSidebarPanel,
+  SimplePagination,
+} from './VersionSidebarPanel';
+import {
+  ConsolePanel,
+  JobRunsPanel,
+  MixedLogModeBanner,
+} from './ConsolePanel';
+import {
+  PreviewWorkspacePanel,
+  CheckpointWorkspacePanel,
+  CheckpointDetailsSummary,
+  CheckpointInspectOverviewSection,
+  CheckpointInspectSourceHighlightsSection,
+  CheckpointInspectPrimaryTableSection,
+  CheckpointInspectRawDetailsSection,
+} from './CheckpointPanels';
+import {
+  ValidationResultPanel,
+  MetricsDialogContent,
+  JobScriptDialogContent,
+  VirtualizedLogViewer,
+} from './StudioDialogs';
+import {
+  TreeView,
+} from './TreeView';
+import { StudioTreeContextMenu } from './StudioTreeContextMenu';
+import { StudioSharePopover } from './StudioSharePopover';
+import { StudioQuickOpenDialog } from './StudioQuickOpenDialog';
+import {
+  type BottomConsoleTab,
+  type CheckpointActionViewModel,
+  type CheckpointSourceSummary,
+  type CheckpointSubtaskViewRow,
+  type EditorDraftState,
+  type EditorState,
+  type ExecutionMode,
+  type LogFilterMode,
+  type MetricGroupKey,
+  type OpenFileTab,
+  type OptionMetadataMap,
+  type PendingActionKind,
+  type PersistedWorkspaceTabs,
+  type PluginEnumCatalogMap,
+  type PreviewRunDialogState,
+  type RightSidebarTab,
+  type TemplatePluginItem,
+  type TreeContextMenuState,
+  type TreeDialogState,
+  type UserFacingErrorState,
+  type VariableDraft,
+  type VariableRow,
+  EMPTY_EDITOR,
+  ENV_OPTION_METADATA,
+  EXPANDED_LOG_CHUNK_BASE_BYTES,
+  EXPANDED_LOG_CHUNK_MAX_BYTES,
+  LOG_CHUNK_BASE_BYTES,
+  LOG_CHUNK_MAX_BYTES,
+  WORKSPACE_NAME_PATTERN,
+  WORKSPACE_TABS_STORAGE_KEY,
+  buildCheckpointActionViewModels,
+  buildCheckpointInspectJobConfig,
+  buildCheckpointInspectSummary,
+  buildCheckpointSubtaskRows,
+  buildCopiedWorkspaceName,
+  buildDefaultContent,
+  buildDisplayLogLines,
+  buildInsertedTemplateContent,
+  buildMetricGroups,
+  buildMetricHighlights,
+  buildPairedMetricRows,
+  buildPerTableMetricRows,
+  buildTemplatePluginItems,
+  canRecoverFromJob,
+  classifyMetricGroup,
+  collectFolderIds,
+  detectVariables,
+  ensureSyncHoconLanguage,
+  extractCheckpointFileIdentity,
+  extractEditorState,
+  extractEditorStateFromTreeNode,
+  extractJobMetricSummary,
+  extractPreviewColumns,
+  extractPreviewDatasets,
+  extractPreviewRows,
+  extractTaskScheduleValue,
+  extractVariableRowsFromDefinition,
+  filterTree,
+  findTopLevelBlockInsertOffset,
+  findTreeNode,
+  flattenTree,
+  formatCellValue,
+  formatCheckpointFieldValue,
+  formatJobDateTime,
+  formatJobDuration,
+  formatMetadataValue,
+  formatMetricCompactValue,
+  formatMetricDisplayValue,
+  formatMetricValue,
+  formatMetricWithUnit,
+  formatSizeBytes,
+  formatSyncUserFacingError,
+  fromVariableRows,
+  fromVariableTypes,
+  getCheckpointEnumBadgeClass,
+  getCheckpointStatusBadgeClass,
+  getDisplayJobLifecycleStatus,
+  getEngineAPIMode,
+  getEngineEndpointLabel,
+  getExecutionMode,
+  getJobStatusBadgeClass,
+  getJobStatusLabel,
+  getJobSubmittedScript,
+  getLogLineClass,
+  getMetricValue,
+  getNodeBreadcrumbSegments,
+  getPendingActionLabel,
+  getPreviewRowKindBadgeClass,
+  getRunModeLabel,
+  getSyncJobClusterId,
+  hasDuplicateWorkspaceName,
+  isCursorInsideValueRegion,
+  isEditorDraftDirty,
+  isJobLifecycleActive,
+  isJobLifecycleTerminal,
+  isReservedBuiltinVariableKey,
+  isTreeDescendant,
+  listMoveTargets,
+  listSiblingNames,
+  nextLogChunkSize,
+  normalizeCheckpointActionIdentity,
+  normalizeEditorForCompare,
+  normalizeJobLifecycleStatus,
+  normalizePairingTableKey,
+  normalizePluginIdentity,
+  normalizeStoredScriptContent,
+  normalizeVariableRowsForCompare,
+  parseMetricNumber,
+  patchTreeNode,
+  resolveDefaultPreviewHTTPSinkURL,
+  resolveEditorPluginContext,
+  resolveEnumSuggestRange,
+  resolveEnumSuggestionItems,
+  resolveEnumValueBounds,
+  resolveFolderParent,
+  resolveOptionKeyFromLine,
+  splitLogLines,
+  submitSpecExecutionMode,
+  summarizeCheckpointSourceState,
+  summarizeCheckpointSubtaskMetrics,
+  toCheckpointNumber,
+  toObject,
+  toStringMetricMap,
+  toVariableRows,
+  validateCustomVariableRows,
+  validateWorkspaceName,
+} from './sync-studio-utils';
 export function DataSyncStudio() {
   const t = useTranslations('workbenchStudio');
   const {resolvedTheme} = useTheme();
@@ -2990,9 +410,20 @@ export function DataSyncStudio() {
   const [clusters, setClusters] = useState<ClusterInfo[]>([]);
   const [tree, setTree] = useState<SyncTaskTreeNode[]>([]);
   const [keyword, setKeyword] = useState('');
-  const [jobIdLookupInput, setJobIdLookupInput] = useState('');
+  // VSCode Quick Open 快捷检索浮层状态 (Cmd+P)
+  // VSCode Quick Open command palette state (Cmd+P)
+  const [quickOpenOpen, setQuickOpenOpen] = useState(false);
   const [selectedNodeId, setSelectedNodeId] = useState<number | null>(null);
   const [selectedFolderId, setSelectedFolderId] = useState<number | null>(null);
+  // 树节点行内重命名、新建与拖拽状态（VSCode 风格交互）
+  // Tree node inline rename, creation, and drag-drop states (VSCode-style interaction)
+  const [renamingNodeId, setRenamingNodeId] = useState<number | null>(null);
+  const [creatingNode, setCreatingNode] = useState<{
+    parentId: number | null;
+    nodeType: 'file' | 'folder';
+  } | null>(null);
+  const [draggingNodeId, setDraggingNodeId] = useState<number | null>(null);
+  const [dragOverFolderId, setDragOverFolderId] = useState<number | null>(null);
   const [editor, setEditor] = useState<EditorState>(EMPTY_EDITOR);
   const [dagResult, setDagResult] = useState<SyncDagResult | null>(null);
   const [dagError, setDagError] = useState<UserFacingErrorState | null>(null);
@@ -3016,6 +447,10 @@ export function DataSyncStudio() {
   const [globalVariablePage, setGlobalVariablePage] = useState(1);
   const [rightSidebarTab, setRightSidebarTab] =
     useState<RightSidebarTab>('settings');
+  // 全局变量侧边栏默认激活 Tab（'all' 全部 | 'time' 内置时间 | 'string' 文本 | 'secret' 保密）
+  // Global variables sidebar default active Tab ('all' All | 'time' Built-in Time | 'string' Text | 'secret' Secret)
+  const [globalVariablesDefaultTab, setGlobalVariablesDefaultTab] =
+    useState<'all' | 'string' | 'time' | 'secret'>('all');
   const [scheduleDialogOpen, setScheduleDialogOpen] = useState(false);
   const [scheduleDraft, setScheduleDraft] = useState<TaskScheduleValue>(() =>
     extractTaskScheduleValue({}),
@@ -3099,6 +534,53 @@ export function DataSyncStudio() {
     Record<number, EditorDraftState>
   >({});
   const [expandedFolderIds, setExpandedFolderIds] = useState<number[]>([]);
+
+  // 底部控制台全屏与还原状态
+  // Full-screen and restore state for the bottom console
+  const [isConsoleMaximized, setIsConsoleMaximized] = useState(false);
+
+  // 当前激活任务的面包屑路径列表
+  // Breadcrumb segments for the currently active task
+  const activeTaskBreadcrumbs = useMemo(
+    () => (editor.id ? getNodeBreadcrumbSegments(tree, editor.id) : []),
+    [editor.id, tree],
+  );
+
+  // 当前任务绑定的集群信息（用于环境指示胶囊）
+  // Cluster information associated with current task (used in environment indicator capsule)
+  const currentCluster = useMemo(
+    () => clusters.find((c) => c.id === Number(editor.clusterId)) || null,
+    [clusters, editor.clusterId],
+  );
+
+  // 当前编辑器文件是否存在未保存改动
+  // Whether current active editor has unsaved changes
+  const isCurrentDirty = Boolean(editor.id && editorDrafts[editor.id]?.dirty);
+
+  // 存在未保存草稿的任务 ID 集合
+  // Set of task IDs that have unsaved drafts
+  const dirtyNodeIds = useMemo(
+    () =>
+      Object.entries(editorDrafts)
+        .filter(([, draft]) => draft?.dirty)
+        .map(([id]) => Number(id)),
+    [editorDrafts],
+  );
+
+  // 收集所有文件夹 ID，用于一键折叠或展开全部目录
+  // Collect all folder IDs for collapse-all / expand-all toggles
+  const allFolderIds = useMemo(() => {
+    return flattenTree(tree)
+      .filter((n) => n.node_type === 'folder')
+      .map((n) => n.id);
+  }, [tree]);
+
+  // 一键折叠或展开全部目录
+  // Toggle collapse or expand all folders in the explorer
+  const handleToggleCollapseAll = useCallback(() => {
+    setExpandedFolderIds((prev) => (prev.length > 0 ? [] : allFolderIds));
+  }, [allFolderIds]);
+
   const [customVariableRows, setCustomVariableRows] = useState<VariableRow[]>(
     [],
   );
@@ -3112,17 +594,6 @@ export function DataSyncStudio() {
   const [metricsDialogJob, setMetricsDialogJob] =
     useState<SyncJobInstance | null>(null);
   const [logsDialogOpen, setLogsDialogOpen] = useState(false);
-  const [checkpointWarningDialog, setCheckpointWarningDialog] = useState<{
-    open: boolean;
-    sinkName: string;
-    onProceed: () => void;
-    onProceedWithConfig: () => void;
-  }>({
-    open: false,
-    sinkName: '',
-    onProceed: () => {},
-    onProceedWithConfig: () => {},
-  });
   const [logFilterMode, setLogFilterMode] = useState<LogFilterMode>('all');
   const [logSearchTerm, setLogSearchTerm] = useState('');
   const [pluginPanelLoading, setPluginPanelLoading] = useState(false);
@@ -3159,7 +630,7 @@ export function DataSyncStudio() {
   const restoredWorkspaceTabsRef = useRef<PersistedWorkspaceTabs | null>(null);
   const customVariableRowsRef = useRef<VariableRow[]>([]);
   const tabStripRef = useRef<HTMLDivElement | null>(null);
-  const tabButtonRefs = useRef<Record<number, HTMLButtonElement | null>>({});
+  const tabButtonRefs = useRef<Record<number, HTMLElement | null>>({});
 
   if (
     restoredWorkspaceTabsRef.current === null &&
@@ -3305,6 +776,21 @@ export function DataSyncStudio() {
     currentClusterIdRef.current = editor.clusterId;
   }, [editor.clusterId]);
 
+  // 唯一集群或已记住偏好时，自动填入编辑器空的集群选择，避免各处重复手选。
+  // Auto-fill empty editor cluster from sole/default or remembered preference.
+  useEffect(() => {
+    if (clusters.length === 0) {
+      return;
+    }
+    setEditor((prev) => {
+      const nextClusterId = fillPreferredClusterId(prev.clusterId, clusters);
+      if (!nextClusterId || nextClusterId === prev.clusterId) {
+        return prev;
+      }
+      return {...prev, clusterId: nextClusterId};
+    });
+  }, [clusters]);
+
   const markEditorDraft = useCallback(
     (
       taskId: number,
@@ -3378,7 +864,8 @@ export function DataSyncStudio() {
           services.sync.getTree(),
         ]);
         const items = treeData.items || [];
-        setClusters(clusterData.clusters || []);
+        const loadedClusters = clusterData.clusters || [];
+        setClusters(loadedClusters);
         setTree(items);
 
         const allFiles = flattenTree(items).filter(
@@ -3421,20 +908,38 @@ export function DataSyncStudio() {
           }
           const task = await services.sync.getTask(nextSelected);
           const loadedEditor = extractEditorState(task);
+          const preferredClusterId = fillPreferredClusterId(
+            loadedEditor.clusterId,
+            loadedClusters,
+          );
+          const editorWithPreferred =
+            preferredClusterId && preferredClusterId !== loadedEditor.clusterId
+              ? {...loadedEditor, clusterId: preferredClusterId}
+              : loadedEditor;
           const loadedRows = extractVariableRowsFromDefinition(
             task.definition || {},
           );
           const usedDraft = applyDraftOrLoadedState(
             nextSelected,
-            loadedEditor,
+            editorWithPreferred,
             loadedRows,
           );
           if (!usedDraft) {
-            markEditorDraft(nextSelected, loadedEditor, loadedRows, false);
+            markEditorDraft(
+              nextSelected,
+              editorWithPreferred,
+              loadedRows,
+              false,
+            );
           }
           syncOpenTabs(task);
         } else {
-          setEditor(EMPTY_EDITOR);
+          const preferredClusterId = fillPreferredClusterId('', loadedClusters);
+          setEditor(
+            preferredClusterId
+              ? {...EMPTY_EDITOR, clusterId: preferredClusterId}
+              : EMPTY_EDITOR,
+          );
           setCustomVariableRows(extractVariableRowsFromDefinition({}));
         }
       } catch (error) {
@@ -4324,12 +1829,9 @@ export function DataSyncStudio() {
           if (!bounds) {
             return;
           }
-          const isBooleanValue =
-            payload.value === 'true' || payload.value === 'false';
-          const renderedValue =
-            bounds.quoted || isBooleanValue
-              ? payload.value
-              : JSON.stringify(payload.value);
+          const renderedValue = bounds.quoted
+            ? payload.value
+            : JSON.stringify(payload.value);
           editor.executeEdits?.('sync-enum-completion', [
             {
               range: {
@@ -4357,7 +1859,7 @@ export function DataSyncStudio() {
             .getLineContent(position.lineNumber)
             .slice(0, Math.max(position.column - 1, 0));
           const keyMatch = linePrefix.match(
-            /^\s*([A-Za-z0-9_.-]+)\s*=\s*(?:"[^"]*|[A-Za-z0-9_.-]*)?$/,
+            /^\s*([A-Za-z0-9_.-]+)\s*=\s*(?:"[^"]*)?$/,
           );
           if (!keyMatch) {
             return {suggestions: []};
@@ -4652,14 +2154,14 @@ export function DataSyncStudio() {
   }, []);
 
   const buildTaskPayload = useCallback(
-    (overrideContent?: string): CreateSyncTaskRequest => ({
+    (): CreateSyncTaskRequest => ({
       parent_id: editor.parentId,
       node_type: 'file',
       name: editor.name.trim(),
       description: editor.description.trim(),
       cluster_id: editor.clusterId ? Number(editor.clusterId) : 0,
       content_format: 'hocon',
-      content: overrideContent !== undefined ? overrideContent : editor.content,
+      content: editor.content,
       job_name: editor.name.trim(),
       definition: {
         ...editor.definition,
@@ -4977,6 +2479,222 @@ export function DataSyncStudio() {
     }
   };
 
+  // ==========================================
+  // 树节点 VSCode 风格操作处理函数
+  // Tree Node VSCode-Style Action Handlers
+  // ==========================================
+
+  const handleRenameStart = useCallback((node: SyncTaskTreeNode) => {
+    setRenamingNodeId(node.id);
+  }, []);
+
+  const handleRenameCancel = useCallback(() => {
+    setRenamingNodeId(null);
+  }, []);
+
+  const handleRenameCommit = useCallback(
+    async (node: SyncTaskTreeNode, newName: string) => {
+      const name = newName.trim();
+      const nameError = validateWorkspaceName(name, t);
+      if (nameError) {
+        toast.error(nameError);
+        return;
+      }
+      const siblingParentId = node.parent_id == null ? null : node.parent_id;
+      if (hasDuplicateWorkspaceName(tree, siblingParentId, name, node.id)) {
+        toast.error(t('duplicateWorkspaceName'));
+        return;
+      }
+      try {
+        const current = await services.sync.getTask(node.id);
+        await services.sync.updateTask(node.id, {
+          parent_id: current.parent_id,
+          node_type: current.node_type,
+          name,
+          description: current.description,
+          cluster_id: current.cluster_id,
+          content_format: current.content_format,
+          content: current.content,
+          definition: current.definition,
+        });
+        toast.success(t('nameUpdated'));
+        setRenamingNodeId(null);
+        await loadWorkspace(node.id);
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : t('operationFailed'),
+        );
+      }
+    },
+    [loadWorkspace, t, tree],
+  );
+
+  const handleInlineCreateFile = useCallback((parentNode: SyncTaskTreeNode) => {
+    setCreatingNode({ parentId: parentNode.id, nodeType: 'file' });
+    setExpandedFolderIds((prev) =>
+      prev.includes(parentNode.id) ? prev : [...prev, parentNode.id],
+    );
+  }, []);
+
+  const handleInlineCreateFolder = useCallback(
+    (parentNode: SyncTaskTreeNode | null) => {
+      setCreatingNode({ parentId: parentNode?.id || null, nodeType: 'folder' });
+      if (parentNode) {
+        setExpandedFolderIds((prev) =>
+          prev.includes(parentNode.id) ? prev : [...prev, parentNode.id],
+        );
+      }
+    },
+    [],
+  );
+
+  const handleInlineCreateCancel = useCallback(() => {
+    setCreatingNode(null);
+  }, []);
+
+  const handleInlineCreateCommit = useCallback(
+    async (name: string) => {
+      if (!creatingNode) return;
+      const trimmed = name.trim();
+      const nameError = validateWorkspaceName(trimmed, t);
+      if (nameError) {
+        toast.error(nameError);
+        return;
+      }
+      const parentId = creatingNode.parentId;
+      if (creatingNode.nodeType === 'file' && !parentId) {
+        toast.error(t('rootFileCreationBlocked'));
+        return;
+      }
+      if (hasDuplicateWorkspaceName(tree, parentId, trimmed)) {
+        toast.error(t('duplicateWorkspaceName'));
+        return;
+      }
+      try {
+        if (creatingNode.nodeType === 'folder') {
+          await services.sync.createTask({
+            parent_id: parentId || undefined,
+            node_type: 'folder',
+            name: trimmed,
+            content_format: 'hocon',
+          });
+          toast.success(t('folderCreated'));
+          setCreatingNode(null);
+          await loadWorkspace(selectedNodeId);
+        } else {
+          const task = await services.sync.createTask({
+            parent_id: parentId || undefined,
+            node_type: 'file',
+            name: trimmed,
+            cluster_id: editor.clusterId ? Number(editor.clusterId) : 0,
+            content_format: 'hocon',
+            content: buildDefaultContent('hocon'),
+            definition: {},
+          });
+          toast.success(t('fileCreated'));
+          setCreatingNode(null);
+          syncOpenTabs(task);
+          await loadWorkspace(task.id);
+        }
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : t('operationFailed'),
+        );
+      }
+    },
+    [creatingNode, editor.clusterId, loadWorkspace, selectedNodeId, syncOpenTabs, t, tree],
+  );
+
+  const handleInlineDelete = useCallback(
+    (node: SyncTaskTreeNode) => {
+      openTreeDialog('delete', node);
+    },
+    [openTreeDialog],
+  );
+
+  const handleDragStart = useCallback((node: SyncTaskTreeNode) => {
+    setDraggingNodeId(node.id);
+  }, []);
+
+  const handleDragOver = useCallback(
+    (targetFolder: SyncTaskTreeNode) => {
+      if (!draggingNodeId || draggingNodeId === targetFolder.id) return;
+      const draggedNode = findTreeNode(tree, draggingNodeId);
+      if (!draggedNode) return;
+      if (draggedNode.parent_id === targetFolder.id) return;
+      if (
+        draggedNode.node_type === 'folder' &&
+        isTreeDescendant(tree, draggedNode.id, targetFolder.id)
+      ) {
+        return;
+      }
+      setDragOverFolderId(targetFolder.id);
+    },
+    [draggingNodeId, tree],
+  );
+
+  const handleDragLeave = useCallback(
+    (targetFolder: SyncTaskTreeNode) => {
+      if (dragOverFolderId === targetFolder.id) {
+        setDragOverFolderId(null);
+      }
+    },
+    [dragOverFolderId],
+  );
+
+  const handleDrop = useCallback(
+    async (targetFolder: SyncTaskTreeNode) => {
+      setDragOverFolderId(null);
+      if (!draggingNodeId || draggingNodeId === targetFolder.id) return;
+      const draggedNode = findTreeNode(tree, draggingNodeId);
+      if (!draggedNode) return;
+      if (draggedNode.parent_id === targetFolder.id) return;
+      if (
+        draggedNode.node_type === 'folder' &&
+        isTreeDescendant(tree, draggedNode.id, targetFolder.id)
+      ) {
+        toast.error(t('cannotMoveToChild'));
+        return;
+      }
+      if (hasDuplicateWorkspaceName(tree, targetFolder.id, draggedNode.name, draggedNode.id)) {
+        toast.error(t('duplicateWorkspaceName'));
+        return;
+      }
+      try {
+        const current = await services.sync.getTask(draggedNode.id);
+        await services.sync.updateTask(draggedNode.id, {
+          parent_id: targetFolder.id,
+          node_type: current.node_type,
+          name: current.name,
+          description: current.description,
+          cluster_id: current.cluster_id,
+          content_format: current.content_format,
+          content: current.content,
+          definition: current.definition,
+        });
+        toast.success(t('moveCompleted'));
+        setDraggingNodeId(null);
+        setExpandedFolderIds((prev) =>
+          prev.includes(targetFolder.id) ? prev : [...prev, targetFolder.id],
+        );
+        await loadWorkspace(draggedNode.id);
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : t('operationFailed'),
+        );
+      } finally {
+        setDraggingNodeId(null);
+        setDragOverFolderId(null);
+      }
+    },
+    [draggingNodeId, loadWorkspace, t, tree],
+  );
+
+  const handleDragEnd = useCallback(() => {
+    setDraggingNodeId(null);
+    setDragOverFolderId(null);
+  }, []);
+
   const handleSelectNode = async (node: SyncTaskTreeNode) => {
     if (node.node_type === 'folder') {
       setSelectedFolderId(node.id);
@@ -5081,6 +2799,29 @@ export function DataSyncStudio() {
     }
   };
 
+  // 关闭其他打开的标签页
+  // Close other open tabs except the target task ID
+  const handleCloseOtherTabs = (keepTaskId: number) => {
+    setOpenTabs((current) => current.filter((tab) => tab.id === keepTaskId));
+    if (selectedNodeId !== keepTaskId) {
+      void handleSelectTab(keepTaskId);
+    }
+  };
+
+  // 关闭全部标签页并重置编辑器状态
+  // Close all open tabs and reset editor workspace state
+  const handleCloseAllTabs = () => {
+    setOpenTabs([]);
+    setSelectedNodeId(null);
+    setEditor(EMPTY_EDITOR);
+    setCustomVariableRows(extractVariableRowsFromDefinition({}));
+    setJobs([]);
+    setSelectedJobId(null);
+    setJobLogs(null);
+    setExpandedJobLogs(null);
+    setCheckpointSnapshot(null);
+  };
+
   const handleSave = async () => {
     if (editor.id && !editor.canEdit) {
       toast.error(t('readOnlySaveTooltip'));
@@ -5113,7 +2854,7 @@ export function DataSyncStudio() {
   };
 
   const ensureDraftActionContext = useCallback(
-    (actionLabel: string, overrideContent?: string) => {
+    (actionLabel: string) => {
       if (!editor.id) {
         toast.error(t('saveBeforeAction', {action: actionLabel}));
         return null;
@@ -5126,50 +2867,13 @@ export function DataSyncStudio() {
         toast.error(customVariableError);
         return null;
       }
-      return {
-        taskId: editor.id,
-        draft: buildTaskPayload(overrideContent),
-      };
+      return {taskId: editor.id, draft: buildTaskPayload()};
     },
     [buildTaskPayload, editor.id, t],
   );
 
-  const checkCheckpointWarning = useCallback(
-    (
-      executeAction: (overrideContent?: string) => void | Promise<void>,
-    ): boolean => {
-      const check = detectFileSinkMissingCheckpoint(editor.content);
-      if (check.missing) {
-        setCheckpointWarningDialog({
-          open: true,
-          sinkName: check.sinkName,
-          onProceed: () => {
-            setCheckpointWarningDialog((prev) => ({ ...prev, open: false }));
-            void executeAction();
-          },
-          onProceedWithConfig: () => {
-            const nextContent = injectCheckpointInterval(editor.content);
-            updateEditor('content', nextContent);
-            if (editorInstanceRef.current) {
-              editorInstanceRef.current.setValue(nextContent);
-            }
-            toast.success(t('checkpointIntervalConfiguredToast'));
-            setCheckpointWarningDialog((prev) => ({ ...prev, open: false }));
-            void executeAction(nextContent);
-          },
-        });
-        return true;
-      }
-      return false;
-    },
-    [editor.content, t, updateEditor],
-  );
-
-  const executeBuildDag = async (overrideContent?: string) => {
-    const actionContext = ensureDraftActionContext(
-      t('dagActionLabel'),
-      overrideContent,
-    );
+  const handleBuildDag = async () => {
+    const actionContext = ensureDraftActionContext(t('dagActionLabel'));
     if (!actionContext) {
       return;
     }
@@ -5200,13 +2904,6 @@ export function DataSyncStudio() {
     } finally {
       setActionPending((current) => (current === 'dag' ? null : current));
     }
-  };
-
-  const handleBuildDag = async () => {
-    if (checkCheckpointWarning(executeBuildDag)) {
-      return;
-    }
-    await executeBuildDag();
   };
 
   const handleValidateConfig = async () => {
@@ -5242,11 +2939,12 @@ export function DataSyncStudio() {
     }
   };
 
-  const executeTestConnections = async (overrideContent?: string) => {
-    const actionContext = ensureDraftActionContext(
-      t('testConnections'),
-      overrideContent,
-    );
+  const handleTestConnections = async () => {
+    if (editor.id && !editor.canEdit) {
+      toast.error(t('readOnlyTestConnTooltip'));
+      return;
+    }
+    const actionContext = ensureDraftActionContext(t('testConnections'));
     if (!actionContext) {
       return;
     }
@@ -5283,18 +2981,15 @@ export function DataSyncStudio() {
     }
   };
 
-  const handleTestConnections = async () => {
-    if (editor.id && !editor.canEdit) {
-      toast.error(t('readOnlyTestConnTooltip'));
+  const handlePreview = async () => {
+    if (editor.id && !editor.canRun) {
+      toast.error(t('readOnlyPreviewTooltip'));
       return;
     }
-    if (checkCheckpointWarning(executeTestConnections)) {
+    if (hasActiveRun || hasActivePreview) {
+      toast.error(t('waitForActiveRun'));
       return;
     }
-    await executeTestConnections();
-  };
-
-  const executePreview = () => {
     const currentLimit = Number(toObject(editor.definition).preview_row_limit);
     setPreviewRunDialog({
       open: true,
@@ -5308,21 +3003,6 @@ export function DataSyncStudio() {
           : 10,
       ),
     });
-  };
-
-  const handlePreview = async () => {
-    if (editor.id && !editor.canRun) {
-      toast.error(t('readOnlyPreviewTooltip'));
-      return;
-    }
-    if (hasActiveRun || hasActivePreview) {
-      toast.error(t('waitForActiveRun'));
-      return;
-    }
-    if (checkCheckpointWarning(executePreview)) {
-      return;
-    }
-    executePreview();
   };
 
   const handleConfirmPreview = async () => {
@@ -5374,17 +3054,21 @@ export function DataSyncStudio() {
     }
   };
 
-  const executeRun = async (
+  const handleRun = async (
     mode: 'run' | 'recover',
     sourceJobId?: number | null,
-    overrideContent?: string,
   ) => {
+    if (editor.id && !editor.canRun) {
+      toast.error(t('readOnlyRunTooltip'));
+      return;
+    }
+    if (hasActiveRun || hasActivePreview) {
+      toast.error(t('waitForActiveRun'));
+      return;
+    }
     const actionLabel =
       mode === 'recover' ? t('recoverActionLabel') : t('runActionLabel');
-    const actionContext = ensureDraftActionContext(
-      actionLabel,
-      overrideContent,
-    );
+    const actionContext = ensureDraftActionContext(actionLabel);
     if (!actionContext) {
       return;
     }
@@ -5422,28 +3106,6 @@ export function DataSyncStudio() {
     } finally {
       setActionPending((current) => (current === 'recover' ? null : current));
     }
-  };
-
-  const handleRun = async (
-    mode: 'run' | 'recover',
-    sourceJobId?: number | null,
-  ) => {
-    if (editor.id && !editor.canRun) {
-      toast.error(t('readOnlyRunTooltip'));
-      return;
-    }
-    if (hasActiveRun || hasActivePreview) {
-      toast.error(t('waitForActiveRun'));
-      return;
-    }
-    if (
-      checkCheckpointWarning((overrideContent) =>
-        executeRun(mode, sourceJobId, overrideContent),
-      )
-    ) {
-      return;
-    }
-    await executeRun(mode, sourceJobId);
   };
 
   const handleCancelJob = async (jobId: number, stopWithSavepoint = false) => {
@@ -5745,10 +3407,12 @@ export function DataSyncStudio() {
     }
   };
 
-  const handleLocateJobId = async () => {
-    const trimmed = jobIdLookupInput.trim();
+  // 根据 Job ID 快速定位文件并选中作业实例
+  // Quickly locate task file and select job instance by Job ID
+  const handleLocateJobId = async (customId?: string) => {
+    const trimmed = (customId ?? '').trim();
     if (!trimmed) {
-      return;
+      return false;
     }
     try {
       const result = await services.sync.listJobs({
@@ -5759,12 +3423,12 @@ export function DataSyncStudio() {
       const job = result.items?.[0] || null;
       if (!job) {
         toast.error(t('jobIdNotFound'));
-        return;
+        return false;
       }
       const targetNode = findTreeNode(tree, job.task_id);
       if (!targetNode || targetNode.node_type !== 'file') {
         toast.error(t('loadFileFailed'));
-        return;
+        return false;
       }
       const ancestorFolderIds: number[] = [];
       let cursor = targetNode.parent_id
@@ -5782,154 +3446,226 @@ export function DataSyncStudio() {
       await handleSelectNode(targetNode);
       setSelectedJobId(job.id);
       setBottomConsoleTab('jobs');
+      toast.success(t('jobIdLocated'));
+      return true;
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t('loadRunsFailed'));
+      return false;
     }
   };
 
+  // 快速打开工作区文件（展开其所有父级目录并选中加载）
+  // Quickly open a workspace file (expand ancestor folders and select node)
+  const handleQuickOpenFile = useCallback(
+    async (node: SyncTaskTreeNode) => {
+      const ancestorFolderIds: number[] = [];
+      let cursor = node.parent_id ? findTreeNode(tree, node.parent_id) : null;
+      while (cursor) {
+        if (cursor.node_type === 'folder') {
+          ancestorFolderIds.unshift(cursor.id);
+        }
+        cursor = cursor.parent_id ? findTreeNode(tree, cursor.parent_id) : null;
+      }
+      setExpandedFolderIds((current) =>
+        Array.from(new Set([...current, ...ancestorFolderIds])),
+      );
+      await handleSelectNode(node);
+    },
+    [tree, handleSelectNode],
+  );
+
+  // 更新任务共享与共建者设置
+  // Update task sharing and collaborator permissions
+  const handleUpdateSharing = useCallback(
+    (isPublic: boolean, collaboratorIds: number[]) => {
+      const nextDef = {
+        ...editor.definition,
+        is_public: isPublic,
+        collaborator_ids: collaboratorIds,
+        collaborators: collaboratorIds,
+      };
+      setEditor((prev) => {
+        const next = {
+          ...prev,
+          isPublic,
+          definition: nextDef,
+        };
+        if (next.id) {
+          markEditorDraft(
+            next.id,
+            next,
+            customVariableRowsRef.current,
+            true,
+          );
+        }
+        return next;
+      });
+    },
+    [editor.definition, markEditorDraft],
+  );
+
   return (
     <div className='-mx-2 flex h-[calc(100vh-96px)] min-h-[780px] flex-col gap-2 bg-background/10 lg:-mx-3'>
-      <Card className='gap-0 border-border/60 bg-background/85 py-0 shadow-sm'>
+      <Card className='gap-0 border-border/60 bg-background/85 py-0 shadow-xs'>
         <CardContent className='flex h-12 items-center justify-between gap-3 px-3 py-1.5'>
-          {/* 左侧：任务文件名、版本标签、状态胶囊、权限/角色胶囊、公开性胶囊 */}
-          {/* Left: Task name, version badge, status badge, role/lock badge, visibility badge */}
-          <div className='flex min-w-0 items-center gap-2'>
-            <FileCode2 className='size-4 text-primary shrink-0' />
-            <span
-              className='max-w-[180px] sm:max-w-[240px] truncate text-sm font-semibold tracking-tight text-foreground'
-              title={editor.name}
-            >
-              {editor.name || t('noFileSelected')}
-            </span>
-
-            {editor.id ? (
-              <div className='flex items-center gap-1.5 shrink-0'>
-                <Badge
-                  variant='outline'
-                  className='h-5 rounded px-1.5 text-[10px] font-mono font-normal'
-                >
-                  v{editor.currentVersion || 1}
-                </Badge>
-                <Badge
-                  variant='outline'
-                  className={cn(
-                    'h-5 rounded px-1.5 text-[10px] font-normal',
-                    editor.status === 'published'
-                      ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                      : 'border-muted-foreground/30 bg-muted/40 text-muted-foreground',
-                  )}
-                >
-                  {editor.status === 'published' ? t('published') : t('draft')}
-                </Badge>
-
-                {/* 权限锁定 / 所有者 / 共建者 标识 */}
-                {!editor.canEdit ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Badge
-                        variant='outline'
-                        className='h-5 gap-1 rounded border-amber-500/40 bg-amber-500/10 px-1.5 text-[10px] font-normal text-amber-600 dark:text-amber-400'
-                      >
-                        <Lock className='size-2.5' />
-                        {t('readOnlyLocked')}
-                      </Badge>
-                    </TooltipTrigger>
-                    <TooltipContent>{t('readOnlyBannerText')}</TooltipContent>
-                  </Tooltip>
-                ) : editor.isOwner ? (
-                  <Badge
-                    variant='outline'
-                    className='h-5 gap-1 rounded border-primary/30 bg-primary/10 px-1.5 text-[10px] font-normal text-primary'
+          {/* 左侧：任务面包屑导航与状态指示 / 权限角色胶囊 */}
+          {/* Left: Task breadcrumb navigation, status indicator, version & permission badges */}
+          <div className='flex min-w-0 items-center gap-2 text-xs'>
+            <div className='flex size-7 shrink-0 items-center justify-center rounded-md border border-border/50 bg-muted/30 text-primary'>
+              <Layers className='size-3.5' />
+            </div>
+            {activeTaskBreadcrumbs.length > 0 ? (
+              <div className='flex min-w-0 items-center gap-1.5'>
+                {activeTaskBreadcrumbs.slice(0, -1).map((seg, idx) => (
+                  <span
+                    key={idx}
+                    className='flex items-center gap-1.5 text-muted-foreground'
                   >
-                    <Shield className='size-2.5' />
-                    {t('owner')}
-                  </Badge>
-                ) : editor.isCollaborator ? (
-                  <Badge
-                    variant='outline'
-                    className='h-5 gap-1 rounded border-sky-500/30 bg-sky-500/10 px-1.5 text-[10px] font-normal text-sky-600 dark:text-sky-400'
-                  >
-                    <UserCheck className='size-2.5' />
-                    {t('collaborator')}
-                  </Badge>
+                    <span className='max-w-[120px] truncate'>{seg}</span>
+                    <span className='text-muted-foreground/40'>/</span>
+                  </span>
+                ))}
+                <span className='max-w-[180px] truncate font-semibold text-foreground'>
+                  {activeTaskBreadcrumbs[activeTaskBreadcrumbs.length - 1]}
+                </span>
+                {isCurrentDirty ? (
+                  <span
+                    className='size-2 shrink-0 rounded-full bg-amber-500'
+                    title={t('unsavedChanges')}
+                  />
                 ) : null}
 
-                {/* 可见性胶囊 */}
-                <Badge
-                  variant='secondary'
-                  className='h-5 rounded px-1.5 text-[10px] font-normal text-muted-foreground'
-                >
-                  {editor.isPublic !== false ? t('public') : t('private')}
-                </Badge>
+                {editor.id ? (
+                  <div className='flex items-center gap-1.5 shrink-0'>
+                    {/* 版本号 / Version */}
+                    <span className='rounded bg-muted/60 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground'>
+                      v{editor.currentVersion || 1}
+                    </span>
+
+                    {/* 发布状态微胶囊 / Publish status micro-pill */}
+                    <span
+                      className={cn(
+                        'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-normal leading-none',
+                        editor.status === 'published'
+                          ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                          : 'bg-muted/60 text-muted-foreground',
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          'size-1.5 rounded-full',
+                          editor.status === 'published'
+                            ? 'bg-emerald-500'
+                            : 'bg-muted-foreground/50',
+                        )}
+                      />
+                      {editor.status === 'published' ? t('published') : t('draft')}
+                    </span>
+
+                    {/* 只读锁定标识 / Read-only locked badge */}
+                    {!editor.canEdit ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className='inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-normal text-amber-600 dark:text-amber-400'>
+                            <Lock className='size-2.5' />
+                            {t('readOnlyLocked')}
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent>{t('readOnlyBannerText')}</TooltipContent>
+                      </Tooltip>
+                    ) : null}
+
+                    {/* 顶层任务共享与权限协作 / Top-level task sharing & permissions popover */}
+                    <StudioSharePopover
+                      isOwner={editor.isOwner ?? true}
+                      isCollaborator={editor.isCollaborator ?? false}
+                      canEdit={editor.canEdit ?? true}
+                      isPublic={editor.isPublic ?? true}
+                      createdBy={editor.createdBy}
+                      collaboratorIds={
+                        Array.isArray(editor.definition?.collaborator_ids)
+                          ? (editor.definition.collaborator_ids as number[])
+                          : Array.isArray(editor.definition?.collaborators)
+                            ? (editor.definition.collaborators as number[])
+                            : []
+                      }
+                      workspaceUsers={workspaceUsers}
+                      isAdmin={currentUser?.is_admin ?? false}
+                      onUpdateSharing={handleUpdateSharing}
+                      onSavePermissions={() => void handleSave()}
+                    />
+
+                    {/* 格式标签 / Format tag */}
+                    <span className='rounded bg-muted/40 px-1.5 py-0.5 font-mono text-[10px] uppercase text-muted-foreground/70 tracking-wider'>
+                      {editor.contentFormat || 'hocon'}
+                    </span>
+                  </div>
+                ) : (
+                  <span className='rounded bg-muted/40 px-1.5 py-0.5 font-mono text-[10px] uppercase text-muted-foreground/70 tracking-wider'>
+                    {editor.contentFormat || 'hocon'}
+                  </span>
+                )}
               </div>
-            ) : null}
+            ) : (
+              <span className='text-xs text-muted-foreground'>
+                {t('noOpenFiles')}
+              </span>
+            )}
           </div>
 
-          {/* 右侧：Job快速定位 + 格式胶囊 + 操作按钮集 */}
-          {/* Right: Quick job locate + format badge + action buttons */}
+          {/* 中间：全局文件与 Job ID 快速检索跳转栏 (VSCode Quick Open 风格) */}
+          {/* Center: Global file and Job ID quick jump search bar (VSCode Quick Open style) */}
+          <div className='mx-2 hidden flex-1 max-w-sm items-center md:flex'>
+            <button
+              type='button'
+              onClick={() => setQuickOpenOpen(true)}
+              className='group relative flex h-7.5 w-full items-center gap-2 rounded-md border border-border/50 bg-muted/20 px-2.5 text-xs text-muted-foreground transition-all hover:border-border/80 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/40'
+            >
+              <Search className='size-3.5 text-muted-foreground/60 transition-colors group-hover:text-foreground' />
+              <span className='truncate text-[11px] text-muted-foreground/70 group-hover:text-muted-foreground'>
+                {t('searchFileOrJobId')}
+              </span>
+              <kbd className='pointer-events-none ml-auto hidden select-none rounded border border-border/60 bg-muted/60 px-1.5 py-0.5 font-mono text-[9px] text-muted-foreground/80 sm:inline-flex items-center gap-0.5'>
+                <span className='text-[10px]'>⌘</span>P
+              </kbd>
+            </button>
+          </div>
+
+          {/* 右侧：执行环境指示与操作按钮梯队 */}
+          {/* Right: Execution environment capsule and hierarchical action buttons */}
           <div className='flex flex-wrap items-center justify-end gap-1.5'>
-            {/* 紧凑型 Job ID 快速定位 */}
-            <div className='hidden sm:flex items-center gap-1 mr-1'>
-              <div className='relative w-[100px]'>
-                <Search className='absolute left-2 top-1/2 size-3 -translate-y-1/2 text-muted-foreground' />
-                <Input
-                  value={jobIdLookupInput}
-                  onChange={(event) =>
-                    setJobIdLookupInput(event.target.value.replace(/\D/g, ''))
-                  }
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') {
-                      void handleLocateJobId();
-                    }
-                  }}
-                  className='h-7 border-border/50 bg-background/50 pl-6 text-[11px]'
-                  placeholder='Job ID...'
-                  inputMode='numeric'
-                />
-              </div>
-              <Button
-                type='button'
-                size='sm'
-                variant='ghost'
-                className='h-7 px-1.5 text-xs text-muted-foreground hover:text-foreground'
-                onClick={() => void handleLocateJobId()}
-                disabled={!jobIdLookupInput}
-              >
-                {t('locate')}
-              </Button>
+            {/* 环境指示胶囊 */}
+            {/* Environment indicator capsule */}
+            <div
+              className='flex h-7 items-center gap-1.5 rounded-full border border-border/60 bg-muted/30 px-2.5 text-xs text-muted-foreground'
+              title={t('executionTarget')}
+            >
+              {executionMode === 'local' ? (
+                <>
+                  <Cpu className='size-3 text-primary' />
+                  <span className='text-[11px] font-medium'>{t('localMode')}</span>
+                </>
+              ) : (
+                <>
+                  <Globe2 className='size-3 text-sky-500' />
+                  <span className='max-w-[110px] truncate text-[11px] font-medium'>
+                    {currentCluster?.name || t('unassignedCluster')}
+                  </span>
+                </>
+              )}
             </div>
 
-            <Badge variant='outline' className='h-7 rounded px-2 text-xs'>
-              HOCON
-            </Badge>
+            <div className='mx-0.5 h-4 w-px bg-border/60' />
 
+            {/* 校验与探查动作组 */}
+            {/* Verification & inspection actions */}
             <Tooltip>
               <TooltipTrigger asChild>
                 <span>
                   <Button
                     size='sm'
-                    className='h-7 px-2.5 text-xs'
-                    variant='outline'
-                    onClick={handleSave}
-                    disabled={saving || !editor.name.trim() || !editor.canEdit}
-                  >
-                    <Save className='mr-1 size-3.5' />
-                    {t('save')}
-                  </Button>
-                </span>
-              </TooltipTrigger>
-              {!editor.canEdit ? (
-                <TooltipContent>{t('readOnlySaveTooltip')}</TooltipContent>
-              ) : null}
-            </Tooltip>
-
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span>
-                  <Button
-                    size='sm'
-                    className='h-7 px-2.5 text-xs'
-                    variant='outline'
+                    variant='ghost'
+                    className='h-7 gap-1.5 px-2 text-xs font-normal text-muted-foreground hover:text-foreground'
                     onClick={handleTestConnections}
                     disabled={
                       saving ||
@@ -5939,9 +3675,9 @@ export function DataSyncStudio() {
                     }
                   >
                     {actionPending === 'test_connections' ? (
-                      <Loader2 className='mr-1 size-3.5 animate-spin' />
+                      <Loader2 className='size-3.5 animate-spin' />
                     ) : (
-                      <Database className='mr-1 size-3.5' />
+                      <Database className='size-3.5' />
                     )}
                     {actionPending === 'test_connections'
                       ? t('testingConnections')
@@ -5956,15 +3692,15 @@ export function DataSyncStudio() {
 
             <Button
               size='sm'
-              className='h-7 px-2.5 text-xs'
-              variant='outline'
+              variant='ghost'
+              className='h-7 gap-1.5 px-2 text-xs font-normal text-muted-foreground hover:text-foreground'
               onClick={handleBuildDag}
               disabled={saving || !editor.name.trim() || actionPending !== null}
             >
               {actionPending === 'dag' ? (
-                <Loader2 className='mr-1 size-3.5 animate-spin' />
+                <Loader2 className='size-3.5 animate-spin' />
               ) : (
-                <GitBranch className='mr-1 size-3.5' />
+                <GitBranch className='size-3.5' />
               )}
               {actionPending === 'dag' ? t('buildingDag') : 'DAG'}
             </Button>
@@ -5974,8 +3710,8 @@ export function DataSyncStudio() {
                 <span>
                   <Button
                     size='sm'
-                    className='h-7 px-2.5 text-xs'
-                    variant='outline'
+                    variant='ghost'
+                    className='h-7 gap-1.5 px-2 text-xs font-normal text-muted-foreground hover:text-foreground'
                     onClick={handlePreview}
                     disabled={
                       saving ||
@@ -5986,9 +3722,9 @@ export function DataSyncStudio() {
                     }
                   >
                     {actionPending === 'preview' ? (
-                      <Loader2 className='mr-1 size-3.5 animate-spin' />
+                      <Loader2 className='size-3.5 animate-spin' />
                     ) : (
-                      <Bug className='mr-1 size-3.5' />
+                      <Eye className='size-3.5' />
                     )}
                     {actionPending === 'preview'
                       ? t('preparingPreview')
@@ -6001,6 +3737,35 @@ export function DataSyncStudio() {
               ) : null}
             </Tooltip>
 
+            <div className='mx-0.5 h-4 w-px bg-border/60' />
+
+            {/* 核心保存与执行动作组 */}
+            {/* Core save and execution action buttons */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span>
+                  <Button
+                    size='sm'
+                    variant='outline'
+                    className={cn(
+                      'h-7 gap-1.5 px-2.5 text-xs transition-colors',
+                      isCurrentDirty
+                        ? 'border-amber-500/40 bg-amber-500/10 text-amber-700 hover:bg-amber-500/20 dark:text-amber-300'
+                        : 'text-foreground',
+                    )}
+                    onClick={handleSave}
+                    disabled={saving || !editor.name.trim() || !editor.canEdit}
+                  >
+                    <Save className='size-3.5' />
+                    {t('save')}
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              {!editor.canEdit ? (
+                <TooltipContent>{t('readOnlySaveTooltip')}</TooltipContent>
+              ) : null}
+            </Tooltip>
+
             <Tooltip>
               <TooltipTrigger asChild>
                 <span>
@@ -6008,7 +3773,7 @@ export function DataSyncStudio() {
                     <DropdownMenuTrigger asChild>
                       <Button
                         size='sm'
-                        className='h-7 px-2.5 text-xs'
+                        className='h-7 gap-1 bg-primary px-2.5 text-xs font-medium shadow-xs hover:bg-primary/90'
                         disabled={
                           saving ||
                           hasActiveRun ||
@@ -6016,9 +3781,9 @@ export function DataSyncStudio() {
                           !editor.canRun
                         }
                       >
-                        <Play className='mr-1 size-3.5' />
-                        {t('run')}
-                        <ChevronDown className='ml-1 size-3' />
+                        <Play className='size-3.5' />
+                        <span>{t('run')}</span>
+                        <ChevronDown className='size-3 opacity-70' />
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align='end'>
@@ -6050,13 +3815,18 @@ export function DataSyncStudio() {
               <DropdownMenuTrigger asChild>
                 <Button
                   size='sm'
-                  className='h-7 px-2.5 text-xs'
                   variant='outline'
+                  className={cn(
+                    'h-7 gap-1 px-2.5 text-xs transition-colors',
+                    activeJobs.length > 0
+                      ? 'border-rose-500/40 text-rose-600 hover:bg-rose-500/10 dark:text-rose-400'
+                      : 'text-muted-foreground',
+                  )}
                   disabled={activeJobs.length === 0}
                 >
-                  <Square className='mr-1 size-3.5' />
-                  {t('stop')}
-                  <ChevronDown className='ml-1 size-3' />
+                  <Square className='size-3.5' />
+                  <span>{t('stop')}</span>
+                  <ChevronDown className='size-3 opacity-70' />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align='end'>
@@ -6087,45 +3857,49 @@ export function DataSyncStudio() {
         </div>
       ) : null}
 
-      <div className='grid min-h-0 flex-1 grid-cols-[220px_minmax(0,1fr)_304px] grid-rows-[minmax(0,1fr)_260px] gap-2'>
-        <Card className='row-start-1 gap-0 overflow-hidden border-border/60 bg-background/75 py-0 shadow-sm'>
+      <div
+        className={cn(
+          'grid min-h-0 flex-1 grid-cols-[240px_minmax(0,1fr)_360px] gap-2 transition-all duration-200',
+          isConsoleMaximized
+            ? 'grid-rows-[0px_minmax(0,1fr)]'
+            : 'grid-rows-[minmax(0,1fr)_260px]',
+        )}
+      >
+        <Card className='col-start-1 row-start-1 row-span-2 gap-0 overflow-hidden border-border/60 bg-background/85 py-0 shadow-xs'>
           <CardContent className='flex h-full min-h-0 flex-col p-0'>
-            <div className='flex items-center justify-between border-b border-border/50 px-3 py-2'>
-              <div className='flex items-center gap-2 text-sm font-medium'>
-                <Folder className='size-4 text-primary' />
-                {t('resources')}
-              </div>
-              <div className='flex items-center gap-1'>
-                <Badge variant='outline' className='rounded-sm'>
+            {/* 资源管理器标题与工具栏 (VSCode 风格) */}
+            {/* Explorer title and action toolbar (VSCode style) */}
+            <div className='flex h-8.5 shrink-0 items-center justify-between border-b border-border/50 bg-muted/15 px-2.5'>
+              <div className='flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-foreground/80'>
+                <FolderTree className='size-3.5 text-primary/80' />
+                <span>{t('resources')}</span>
+                <span className='rounded-full bg-muted/60 px-1.5 py-0.2 font-mono text-[10px] font-normal text-muted-foreground'>
                   {fileCount}
-                </Badge>
+                </span>
+              </div>
+              <div className='flex items-center gap-0.5'>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button
-                      size='icon'
-                      variant='ghost'
-                      className='size-7'
+                    <button
+                      type='button'
                       aria-label={t('newFolder')}
-                      onClick={() =>
-                        openTreeDialog(
-                          'create-folder',
-                          selectedFolderId
-                            ? findTreeNode(tree, selectedFolderId)
-                            : null,
-                        )
-                      }
+                      onClick={() => {
+                        const folderNode = selectedFolderId
+                          ? findTreeNode(tree, selectedFolderId)
+                          : null;
+                        handleInlineCreateFolder(folderNode);
+                      }}
+                      className='flex size-6 items-center justify-center rounded-[4px] text-muted-foreground/70 transition-colors hover:bg-muted/80 hover:text-foreground active:scale-95'
                     >
-                      <FolderPlus className='size-4' />
-                    </Button>
+                      <FolderPlus className='size-3.5' />
+                    </button>
                   </TooltipTrigger>
-                  <TooltipContent>{t('newFolder')}</TooltipContent>
+                  <TooltipContent side='bottom' className='text-xs'>{t('newFolder')}</TooltipContent>
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button
-                      size='icon'
-                      variant='ghost'
-                      className='size-7'
+                    <button
+                      type='button'
                       aria-label={t('newFile')}
                       onClick={() => {
                         const folderNode = selectedFolderId
@@ -6135,42 +3909,88 @@ export function DataSyncStudio() {
                           toast.error(t('selectFolderBeforeCreateFile'));
                           return;
                         }
-                        openTreeDialog('create-file', folderNode);
+                        handleInlineCreateFile(folderNode);
                       }}
+                      className='flex size-6 items-center justify-center rounded-[4px] text-muted-foreground/70 transition-colors hover:bg-muted/80 hover:text-foreground active:scale-95'
                     >
-                      <FilePlus2 className='size-4' />
-                    </Button>
+                      <FilePlus2 className='size-3.5' />
+                    </button>
                   </TooltipTrigger>
-                  <TooltipContent>{t('newFile')}</TooltipContent>
+                  <TooltipContent side='bottom' className='text-xs'>{t('newFile')}</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type='button'
+                      aria-label={expandedFolderIds.length > 0 ? t('collapseAll') : t('expandAll')}
+                      onClick={handleToggleCollapseAll}
+                      className='flex size-6 items-center justify-center rounded-[4px] text-muted-foreground/70 transition-colors hover:bg-muted/80 hover:text-foreground active:scale-95'
+                    >
+                      <ChevronsUpDown className='size-3.5' />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side='bottom' className='text-xs'>
+                    {expandedFolderIds.length > 0
+                      ? t('collapseAll')
+                      : t('expandAll')}
+                  </TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type='button'
+                      aria-label={t('refresh')}
+                      onClick={() => void loadWorkspace(selectedNodeId)}
+                      className='flex size-6 items-center justify-center rounded-[4px] text-muted-foreground/70 transition-colors hover:bg-muted/80 hover:text-foreground active:scale-95'
+                    >
+                      <RefreshCw
+                        className={cn('size-3.5', loading && 'animate-spin')}
+                      />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side='bottom' className='text-xs'>{t('refresh')}</TooltipContent>
                 </Tooltip>
               </div>
             </div>
-            {/* 工作区树内搜索框 */}
-            {/* Workspace tree in-pane search box */}
-            <div className='border-b border-border/50 p-2'>
-              <div className='relative'>
-                <Search className='absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground' />
+            {/* 快捷过滤输入框 */}
+            {/* Quick search/filter input */}
+            <div className='border-b border-border/40 bg-muted/10 px-2 py-1.5'>
+              <div className='relative flex items-center'>
+                <Search className='pointer-events-none absolute left-2 size-3 text-muted-foreground/60' />
                 <Input
                   value={keyword}
                   onChange={(event) => setKeyword(event.target.value)}
-                  className='h-7 border-border/50 bg-background/50 pl-7 text-xs placeholder:text-muted-foreground'
-                  placeholder={t('searchWorkspace')}
+                  className='h-6 rounded border-border/50 bg-background/80 pl-6 pr-6 text-xs placeholder:text-muted-foreground/50 focus-visible:ring-1 focus-visible:ring-primary/40'
+                  placeholder={t('filterFiles')}
                 />
+                {keyword ? (
+                  <button
+                    type='button'
+                    onClick={() => setKeyword('')}
+                    className='absolute right-1.5 text-muted-foreground/60 hover:text-foreground'
+                  >
+                    <X className='size-3' />
+                  </button>
+                ) : null}
               </div>
             </div>
+
+            {/* 文件树滚动区域 */}
+            {/* File tree scrollable viewport */}
             <ScrollArea
               className='min-h-0 flex-1'
               onContextMenu={(event) =>
                 openTreeContextMenu(event, 'root', null)
               }
             >
-              <div className='px-2 py-2'>
+              <div className='px-1 py-1.5'>
                 {loading ? (
-                  <div className='p-3 text-sm text-muted-foreground'>
-                    {t('loading')}
+                  <div className='flex items-center gap-2 p-3 text-xs text-muted-foreground'>
+                    <Loader2 className='size-3.5 animate-spin' />
+                    <span>{t('loading')}</span>
                   </div>
                 ) : filteredTree.length === 0 ? (
-                  <div className='p-3 text-sm text-muted-foreground'>
+                  <div className='p-3 text-xs text-muted-foreground'>
                     {t('emptyWorkspace')}
                   </div>
                 ) : (
@@ -6181,6 +4001,24 @@ export function DataSyncStudio() {
                     expandedFolderIds={expandedFolderIds}
                     onSelect={handleSelectNode}
                     onContextMenu={openTreeContextMenu}
+                    dirtyNodeIds={dirtyNodeIds}
+                    renamingNodeId={renamingNodeId}
+                    onRenameStart={handleRenameStart}
+                    onRenameCommit={handleRenameCommit}
+                    onRenameCancel={handleRenameCancel}
+                    onCreateFile={handleInlineCreateFile}
+                    onCreateFolder={handleInlineCreateFolder}
+                    onDelete={handleInlineDelete}
+                    creatingNode={creatingNode}
+                    onCreateCommit={handleInlineCreateCommit}
+                    onCreateCancel={handleInlineCreateCancel}
+                    draggingNodeId={draggingNodeId}
+                    dragOverFolderId={dragOverFolderId}
+                    onDragStart={handleDragStart}
+                    onDragOver={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    onDrop={handleDrop}
+                    onDragEnd={handleDragEnd}
                   />
                 )}
               </div>
@@ -6188,69 +4026,223 @@ export function DataSyncStudio() {
           </CardContent>
         </Card>
 
-        <Card className='row-start-1 gap-0 overflow-hidden border-border/60 bg-background/75 py-0 shadow-sm'>
+        <Card
+          className={cn(
+            'col-start-2 row-start-1 gap-0 overflow-hidden border-border/60 bg-background/85 py-0 shadow-xs transition-all duration-200',
+            isConsoleMaximized && 'hidden',
+          )}
+        >
           <CardContent className='flex h-full min-h-0 flex-col p-0'>
-            <div
-              ref={tabStripRef}
-              className='flex min-h-9 items-end gap-0 overflow-x-auto border-b border-border/50 bg-background/80 px-1'
-            >
-              {openTabs.length > 0 ? (
-                openTabs.map((tab) => (
-                  <button
-                    key={tab.id}
-                    ref={(node) => {
-                      tabButtonRefs.current[tab.id] = node;
-                    }}
-                    type='button'
-                    className={cn(
-                      'group -mb-px flex h-8 items-center gap-1.5 border-b-2 px-3 text-xs transition-colors',
-                      selectedNodeId === tab.id
-                        ? 'border-primary bg-primary/5 text-foreground'
-                        : 'border-transparent text-muted-foreground hover:bg-muted/40 hover:text-foreground',
-                    )}
-                    onClick={() => void handleSelectTab(tab.id)}
-                  >
-                    <FileCode2 className='size-3.5' />
-                    {editorDrafts[tab.id]?.dirty ? (
-                      <span
-                        aria-label={t('unsavedDraft')}
-                        className='size-2 rounded-full bg-amber-500'
-                      />
-                    ) : null}
-                    <span className='max-w-[180px] truncate'>{tab.name}</span>
-                    <span
-                      className='rounded px-1 text-[10px] opacity-60 transition hover:bg-muted hover:opacity-100'
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        void handleCloseTab(tab.id);
-                      }}
-                    >
-                      ×
-                    </span>
-                  </button>
-                ))
-              ) : (
-                <div className='px-3 py-2 text-xs text-muted-foreground'>
-                  {t('noOpenFiles')}
-                </div>
-              )}
-            </div>
-            <div className='min-h-0 flex-1 flex flex-col'>
-              {editor.id && !editor.canEdit ? (
-                <div className='flex items-center justify-between border-b border-amber-500/20 bg-amber-500/10 px-3 py-1.5 text-xs text-amber-600 dark:text-amber-400'>
-                  <div className='flex items-center gap-2'>
-                    <Lock className='size-3.5 shrink-0' />
-                    <span>{t('readOnlyBannerText')}</span>
+            {/* VS Code 风格平铺直角标签页栏 */}
+            {/* VS Code style flat rectangular tab bar */}
+            <div className='flex h-9 shrink-0 items-stretch justify-between border-b border-border/40 bg-muted/25 px-0 select-none overflow-hidden'>
+              <div
+                ref={tabStripRef}
+                className='flex h-full flex-1 items-stretch overflow-x-auto scrollbar-none'
+              >
+                {openTabs.length > 0 ? (
+                  openTabs.map((tab) => {
+                    const isTabActive = selectedNodeId === tab.id;
+                    const isTabDirty = Boolean(editorDrafts[tab.id]?.dirty);
+                    return (
+                      <div
+                        key={tab.id}
+                        ref={(node) => {
+                          tabButtonRefs.current[tab.id] = node;
+                        }}
+                        role='tab'
+                        aria-selected={isTabActive}
+                        tabIndex={0}
+                        className={cn(
+                          'group relative flex h-full items-center gap-2 border-r border-border/40 px-3 text-xs select-none cursor-pointer transition-colors',
+                          isTabActive
+                            ? '-mb-px border-b border-b-background bg-background font-medium text-foreground z-10'
+                            : 'bg-transparent text-muted-foreground/80 hover:bg-muted/40 hover:text-foreground',
+                        )}
+                        onClick={() => void handleSelectTab(tab.id)}
+                        onAuxClick={(e) => {
+                          if (e.button === 1) {
+                            e.preventDefault();
+                            void handleCloseTab(tab.id);
+                          }
+                        }}
+                      >
+                        {/* 激活状态顶部 2px 主题色高光指示条 */}
+                        {/* 2px primary accent bar on top for active tab */}
+                        {isTabActive ? (
+                          <span className='absolute inset-x-0 top-0 h-[2px] bg-primary' />
+                        ) : null}
+
+                        <FileCode2
+                          className={cn(
+                            'size-3.5 shrink-0',
+                            isTabActive
+                              ? 'text-primary'
+                              : 'text-muted-foreground/60',
+                          )}
+                        />
+                        <span className='max-w-[150px] truncate' title={tab.name}>
+                          {tab.name}
+                        </span>
+
+                        <div className='relative ml-0.5 flex size-4 shrink-0 items-center justify-center'>
+                          {isTabDirty ? (
+                            <span
+                              aria-label={t('unsavedDraft')}
+                              title={t('unsavedChanges')}
+                              className='size-2 rounded-full bg-amber-500 transition-all group-hover:scale-0 group-hover:opacity-0'
+                            />
+                          ) : null}
+                          <button
+                            type='button'
+                            aria-label={`${t('close')} ${tab.name}`}
+                            className={cn(
+                              'absolute inset-0 flex items-center justify-center rounded-xs text-muted-foreground transition-all hover:bg-muted-foreground/20 hover:text-foreground',
+                              isTabDirty
+                                ? 'scale-0 opacity-0 group-hover:scale-100 group-hover:opacity-100'
+                                : isTabActive
+                                  ? 'opacity-60 hover:opacity-100'
+                                  : 'opacity-0 group-hover:opacity-60 hover:!opacity-100',
+                            )}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void handleCloseTab(tab.id);
+                            }}
+                          >
+                            <X className='size-2.5' />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div className='flex items-center px-3 text-xs text-muted-foreground/60'>
+                    {t('noOpenFiles')}
                   </div>
-                  <Badge
-                    variant='outline'
-                    className='border-amber-500/30 bg-amber-500/15 text-[10px] text-amber-600 dark:text-amber-400'
-                  >
-                    {t('readOnly')}
-                  </Badge>
+                )}
+              </div>
+
+              {/* 标签栏快捷菜单（关闭其他 / 关闭全部） */}
+              {/* Tab bar action dropdown (close others / close all) */}
+              {openTabs.length > 0 ? (
+                <div className='flex items-center px-1 border-l border-border/30 bg-muted/10'>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        size='icon'
+                        variant='ghost'
+                        className='size-7 shrink-0 text-muted-foreground hover:text-foreground'
+                      >
+                        <MoreHorizontal className='size-3.5' />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align='end'>
+                      {selectedNodeId ? (
+                        <DropdownMenuItem
+                          disabled={openTabs.length <= 1}
+                          onClick={() => handleCloseOtherTabs(selectedNodeId)}
+                        >
+                          {t('closeOtherTabs')}
+                        </DropdownMenuItem>
+                      ) : null}
+                      <DropdownMenuItem onClick={handleCloseAllTabs}>
+                        {t('closeAllTabs')}
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
               ) : null}
-              <div className='min-h-0 flex-1'>
+            </div>
+            {/* VS Code 风格文件路径面包屑条 */}
+            {/* VS Code style file path breadcrumb bar */}
+            {openTabs.length > 0 && activeTaskBreadcrumbs.length > 0 ? (
+              <div className='flex h-6 shrink-0 items-center gap-1.5 border-b border-border/30 bg-background/50 px-3 text-[11px] text-muted-foreground overflow-x-auto scrollbar-none'>
+                {activeTaskBreadcrumbs.slice(0, -1).map((segment, index) => (
+                  <span key={index} className='flex items-center gap-1.5'>
+                    <span className='max-w-[120px] truncate hover:text-foreground transition-colors cursor-default'>
+                      {segment}
+                    </span>
+                    <ChevronRight className='size-3 shrink-0 text-muted-foreground/40' />
+                  </span>
+                ))}
+                <span className='flex items-center gap-1 font-medium text-foreground max-w-[180px] truncate'>
+                  <FileCode2 className='size-3 text-primary shrink-0' />
+                  <span className='truncate'>
+                    {activeTaskBreadcrumbs[activeTaskBreadcrumbs.length - 1]}
+                  </span>
+                </span>
+                {isCurrentDirty ? (
+                  <span
+                    className='size-1.5 shrink-0 rounded-full bg-amber-500'
+                    title={t('unsavedChanges')}
+                  />
+                ) : null}
+                <span className='ml-1 font-mono text-[10px] uppercase text-muted-foreground/50'>
+                  ({editor.contentFormat || 'hocon'})
+                </span>
+              </div>
+            ) : null}
+
+            {/* 任务只读锁定横幅提示 */}
+            {/* Read-only locked warning banner */}
+            {editor.id && !editor.canEdit ? (
+              <div className='flex items-center justify-between border-b border-amber-500/20 bg-amber-500/10 px-3 py-1.5 text-xs text-amber-600 dark:text-amber-400 shrink-0'>
+                <div className='flex items-center gap-2'>
+                  <Lock className='size-3.5 shrink-0' />
+                  <span>{t('readOnlyBannerText')}</span>
+                </div>
+                <Badge
+                  variant='outline'
+                  className='border-amber-500/30 bg-amber-500/15 text-[10px] text-amber-600 dark:text-amber-400'
+                >
+                  {t('readOnlyLocked')}
+                </Badge>
+              </div>
+            ) : null}
+
+            {/* Monaco 编辑器或空工作区引导画布 */}
+            {/* Monaco Editor or Empty Workspace Guide Canvas */}
+            <div className='min-h-0 flex-1 bg-background'>
+              {openTabs.length === 0 ? (
+                <div className='flex h-full min-h-[380px] select-none flex-col items-center justify-center gap-3 p-8 text-center'>
+                  <div className='flex size-14 items-center justify-center rounded-2xl border border-dashed border-border/80 bg-muted/20 text-muted-foreground/70'>
+                    <FileCode2 className='size-7' />
+                  </div>
+                  <div className='max-w-xs space-y-1'>
+                    <h3 className='text-sm font-medium text-foreground'>
+                      {t('noOpenFiles')}
+                    </h3>
+                    <p className='text-xs leading-relaxed text-muted-foreground/80'>
+                      {t('noOpenFilesDesc')}
+                    </p>
+                  </div>
+                  <Button
+                    size='sm'
+                    variant='outline'
+                    className='mt-2 h-7 gap-1.5 border-dashed text-xs shadow-none'
+                    onClick={() => {
+                      const folderNode = selectedFolderId
+                        ? findTreeNode(tree, selectedFolderId)
+                        : null;
+                      if (folderNode) {
+                        openTreeDialog('create-file', folderNode);
+                        return;
+                      }
+                      const firstFolder = flattenTree(tree).find(
+                        (n) => n.node_type === 'folder',
+                      );
+                      if (firstFolder) {
+                        openTreeDialog('create-file', firstFolder);
+                        return;
+                      }
+                      openTreeDialog('create-folder', null);
+                    }}
+                  >
+                    <Plus className='size-3.5' />
+                    {t('createTask')}
+                  </Button>
+                </div>
+              ) : (
                 <MonacoEditor
                   height='100%'
                   language={
@@ -6287,13 +4279,13 @@ export function DataSyncStudio() {
                     readOnly: Boolean(editor.id && !editor.canEdit),
                   }}
                 />
-              </div>
+              )}
             </div>
           </CardContent>
         </Card>
 
         <StudioSidebarShell
-          className='row-span-2'
+          className='col-start-3 row-start-1 row-span-2'
           rail={
             <>
               <SidebarIconTab
@@ -6303,10 +4295,10 @@ export function DataSyncStudio() {
                 onClick={() => setRightSidebarTab('settings')}
               />
               <SidebarIconTab
-                active={scheduleDialogOpen}
+                active={rightSidebarTab === 'schedule'}
                 icon={<Clock3 className='size-4' />}
                 label={t('taskSchedule')}
-                onClick={openScheduleDialog}
+                onClick={() => setRightSidebarTab('schedule')}
               />
               <SidebarIconTab
                 active={rightSidebarTab === 'versions'}
@@ -6318,62 +4310,30 @@ export function DataSyncStudio() {
                 active={rightSidebarTab === 'globals'}
                 icon={<Globe2 className='size-4' />}
                 label={t('globalVariables')}
-                onClick={() => setRightSidebarTab('globals')}
+                onClick={() => {
+                  setGlobalVariablesDefaultTab('all');
+                  setRightSidebarTab('globals');
+                }}
               />
             </>
           }
         >
           {rightSidebarTab === 'settings' ? (
             <SettingsSidebarPanel
-              taskId={editor.id}
-              isOwner={editor.isOwner ?? true}
-              isAdmin={currentUser?.is_admin ?? false}
-              canEdit={editor.canEdit ?? true}
-              createdBy={editor.createdBy}
-              isPublic={editor.isPublic ?? true}
-              collaboratorIds={
-                Array.isArray(editor.definition?.collaborator_ids)
-                  ? (editor.definition.collaborator_ids as number[])
-                  : Array.isArray(editor.definition?.collaborators)
-                    ? (editor.definition.collaborators as number[])
-                    : []
-              }
-              workspaceUsers={workspaceUsers}
-              onUpdateSharing={(isPublic, collaboratorIds) => {
-                const nextDef = {
-                  ...editor.definition,
-                  is_public: isPublic,
-                  collaborator_ids: collaboratorIds,
-                  collaborators: collaboratorIds,
-                };
-                setEditor((prev) => {
-                  const next = {
-                    ...prev,
-                    isPublic,
-                    definition: nextDef,
-                  };
-                  if (next.id) {
-                    markEditorDraft(
-                      next.id,
-                      next,
-                      customVariableRowsRef.current,
-                      true,
-                    );
-                  }
-                  return next;
-                });
-              }}
-              onSavePermissions={() => void handleSave()}
-              saving={saving}
               executionMode={executionMode}
               clusterId={editor.clusterId}
               clusters={clusters}
               detectedVariables={detectedVariables}
               customVariableRows={customVariableRows}
               onExecutionModeChange={handleExecutionModeChange}
-              onClusterChange={(value) =>
-                updateEditor('clusterId', value === '__empty__' ? '' : value)
-              }
+              onClusterChange={(value) => {
+                const next =
+                  value === '__empty__' ? '' : value;
+                if (next) {
+                  rememberPreferredClusterId(next);
+                }
+                updateEditor('clusterId', next);
+              }}
               pluginPanelLoading={pluginPanelLoading}
               pluginTemplatePendingType={pluginTemplatePendingType}
               pluginTemplateLoadingText={pluginTemplateLoadingText}
@@ -6390,6 +4350,27 @@ export function DataSyncStudio() {
               onCopyCustomVariableValue={(value) =>
                 void copyToClipboard(value, t('variableValueCopied'))
               }
+              onOpenTimeVariables={() => {
+                setGlobalVariablesDefaultTab('time');
+                setRightSidebarTab('globals');
+              }}
+            />
+          ) : rightSidebarTab === 'schedule' ? (
+            <TaskScheduleSidebarPanel
+              value={extractTaskScheduleValue(editor.definition || {})}
+              lastTriggeredAt={
+                selectedScheduleNode?.schedule_last_triggered_at
+              }
+              nextTriggeredAt={
+                selectedScheduleNode?.schedule_next_triggered_at
+              }
+              onChange={handleScheduleChange}
+              onOpenAdvanced={() => {
+                setScheduleDraft(
+                  extractTaskScheduleValue(editor.definition || {}),
+                );
+                setScheduleDialogOpen(true);
+              }}
             />
           ) : rightSidebarTab === 'versions' ? (
             <VersionSidebarPanel
@@ -6413,6 +4394,7 @@ export function DataSyncStudio() {
               page={globalVariablePage}
               pageSize={8}
               isAdmin={currentUser?.is_admin ?? false}
+              defaultTab={globalVariablesDefaultTab}
               onPageChange={setGlobalVariablePage}
               onOpenCreate={handleOpenCreateGlobalVariable}
               onOpenEdit={handleOpenEditGlobalVariable}
@@ -6425,108 +4407,108 @@ export function DataSyncStudio() {
           )}
         </StudioSidebarShell>
 
-        <GlobalVariableDialog
-          open={globalVariableDialogOpen}
-          onOpenChange={(open) => {
-            setGlobalVariableDialogOpen(open);
-            if (!open) {
-              setEditingGlobalVariable(null);
-            }
-          }}
-          variable={editingGlobalVariable}
-          onSave={handleSaveGlobalVariable}
-        />
-
-        <CustomVariableDialog
-          open={customVariableDialogOpen}
-          onOpenChange={(open) => {
-            setCustomVariableDialogOpen(open);
-            if (!open) {
-              setEditingCustomVariable(null);
-            }
-          }}
-          variable={editingCustomVariable}
-          existingKeys={customVariableRows.map((item) => item.key)}
-          onSave={handleSaveCustomVariable}
-        />
-
-        <Dialog
-          open={scheduleDialogOpen}
-          onOpenChange={(open) => {
-            setScheduleDialogOpen(open);
-            if (open) {
-              setScheduleDraft(
-                extractTaskScheduleValue(editor.definition || {}),
-              );
-            }
-          }}
+        <Card
+          className={cn(
+            'col-start-2 gap-0 overflow-hidden border-border/60 bg-background/85 py-0 shadow-xs transition-all duration-200',
+            isConsoleMaximized ? 'row-start-1 row-span-2' : 'row-start-2',
+          )}
         >
-          <DialogContent className='flex h-[90vh] w-[min(96vw,1280px)] max-w-none flex-col overflow-hidden p-0'>
-            <DialogHeader className='border-b border-border/60 px-6 py-4'>
-              <DialogTitle>{t('taskSchedule')}</DialogTitle>
-            </DialogHeader>
-            <div className='min-h-0 flex-1 overflow-y-auto px-6 py-4'>
-              <TaskScheduleSidebarPanel
-                value={scheduleDraft}
-                lastTriggeredAt={
-                  selectedScheduleNode?.schedule_last_triggered_at
-                }
-                nextTriggeredAt={
-                  selectedScheduleNode?.schedule_next_triggered_at
-                }
-                onChange={handleScheduleDraftChange}
-                className='mx-auto w-full max-w-6xl'
-              />
-            </div>
-            <DialogFooter className='border-t border-border/60 px-6 py-4'>
-              <Button
-                type='button'
-                variant='outline'
-                onClick={() => {
-                  setScheduleDraft(
-                    extractTaskScheduleValue(editor.definition || {}),
-                  );
-                  setScheduleDialogOpen(false);
-                }}
-              >
-                {t('cancel')}
-              </Button>
-              <Button type='button' onClick={handleConfirmScheduleDialog}>
-                {t('confirm')}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+          <CardContent className='flex h-full min-h-0 flex-col p-0'>
+            {/* 控制台顶部横向选项卡与操作区 */}
+            {/* Console top horizontal tab switcher and action area */}
+            <div className='flex h-9 shrink-0 items-center justify-between border-b border-border/50 bg-muted/20 px-2'>
+              <div className='flex items-center gap-1'>
+                <button
+                  type='button'
+                  aria-label={t('jobs')}
+                  className={cn(
+                    'flex h-7 items-center gap-1.5 rounded-sm px-2.5 text-xs font-medium transition-colors',
+                    bottomConsoleTab === 'jobs'
+                      ? 'bg-background text-foreground shadow-xs'
+                      : 'text-muted-foreground hover:bg-background/50 hover:text-foreground',
+                  )}
+                  onClick={() => setBottomConsoleTab('jobs')}
+                >
+                  <ListTree className='size-3.5' />
+                  <span>{t('jobs')}</span>
+                  {activeJobs.length > 0 ? (
+                    <span className='size-1.5 rounded-full bg-emerald-500 animate-pulse' />
+                  ) : null}
+                </button>
+                <button
+                  type='button'
+                  aria-label={t('logs')}
+                  className={cn(
+                    'flex h-7 items-center gap-1.5 rounded-sm px-2.5 text-xs font-medium transition-colors',
+                    bottomConsoleTab === 'logs'
+                      ? 'bg-background text-foreground shadow-xs'
+                      : 'text-muted-foreground hover:bg-background/50 hover:text-foreground',
+                  )}
+                  onClick={() => setBottomConsoleTab('logs')}
+                >
+                  <SquareTerminal className='size-3.5' />
+                  <span>{t('logs')}</span>
+                </button>
+                <button
+                  type='button'
+                  aria-label={t('preview')}
+                  className={cn(
+                    'flex h-7 items-center gap-1.5 rounded-sm px-2.5 text-xs font-medium transition-colors',
+                    bottomConsoleTab === 'preview'
+                      ? 'bg-background text-foreground shadow-xs'
+                      : 'text-muted-foreground hover:bg-background/50 hover:text-foreground',
+                  )}
+                  onClick={() => setBottomConsoleTab('preview')}
+                >
+                  <Bug className='size-3.5' />
+                  <span>{t('preview')}</span>
+                </button>
+                <button
+                  type='button'
+                  aria-label={t('checkpoint')}
+                  className={cn(
+                    'flex h-7 items-center gap-1.5 rounded-sm px-2.5 text-xs font-medium transition-colors',
+                    bottomConsoleTab === 'checkpoint'
+                      ? 'bg-background text-foreground shadow-xs'
+                      : 'text-muted-foreground hover:bg-background/50 hover:text-foreground',
+                  )}
+                  onClick={() => setBottomConsoleTab('checkpoint')}
+                >
+                  <Columns2 className='size-3.5' />
+                  <span>{t('checkpoint')}</span>
+                </button>
+              </div>
 
-        <Card className='col-span-2 row-start-2 gap-0 overflow-hidden border-border/60 bg-background/75 py-0 shadow-sm'>
-          <CardContent className='flex h-full min-h-0 p-0'>
-            <div className='flex w-12 shrink-0 flex-col items-center gap-2 border-r border-border/50 bg-muted/10 py-3'>
-              <SidebarIconTab
-                active={bottomConsoleTab === 'jobs'}
-                icon={<ListTree className='size-4' />}
-                label={t('jobs')}
-                onClick={() => setBottomConsoleTab('jobs')}
-              />
-              <SidebarIconTab
-                active={bottomConsoleTab === 'logs'}
-                icon={<SquareTerminal className='size-4' />}
-                label={t('logs')}
-                onClick={() => setBottomConsoleTab('logs')}
-              />
-              <SidebarIconTab
-                active={bottomConsoleTab === 'preview'}
-                icon={<Bug className='size-4' />}
-                label={t('preview')}
-                onClick={() => setBottomConsoleTab('preview')}
-              />
-              <SidebarIconTab
-                active={bottomConsoleTab === 'checkpoint'}
-                icon={<Columns2 className='size-4' />}
-                label={t('checkpoint')}
-                onClick={() => setBottomConsoleTab('checkpoint')}
-              />
+              {/* 右侧：全屏与还原切换 */}
+              {/* Right: Full-screen and restore toggle */}
+              <div className='flex items-center gap-1.5'>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      size='icon'
+                      variant='ghost'
+                      className='size-6 text-muted-foreground hover:text-foreground'
+                      onClick={() => setIsConsoleMaximized((prev) => !prev)}
+                    >
+                      {isConsoleMaximized ? (
+                        <Minimize2 className='size-3.5' />
+                      ) : (
+                        <Maximize2 className='size-3.5' />
+                      )}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side='left'>
+                    {isConsoleMaximized
+                      ? t('restoreConsole')
+                      : t('maximizeConsole')}
+                  </TooltipContent>
+                </Tooltip>
+              </div>
             </div>
-            <div className='min-h-0 flex-1 p-3'>
+
+            {/* 控制台内容面板 */}
+            {/* Console content panel */}
+            <div className='min-h-0 flex-1 overflow-auto p-3'>
               {bottomConsoleTab === 'jobs' ? (
                 <JobRunsPanel
                   jobs={jobs}
@@ -6597,6 +4579,79 @@ export function DataSyncStudio() {
           </CardContent>
         </Card>
       </div>
+
+      <GlobalVariableDialog
+        open={globalVariableDialogOpen}
+        onOpenChange={(open) => {
+          setGlobalVariableDialogOpen(open);
+          if (!open) {
+            setEditingGlobalVariable(null);
+          }
+        }}
+        variable={editingGlobalVariable}
+        onSave={handleSaveGlobalVariable}
+      />
+
+      <CustomVariableDialog
+        open={customVariableDialogOpen}
+        onOpenChange={(open) => {
+          setCustomVariableDialogOpen(open);
+          if (!open) {
+            setEditingCustomVariable(null);
+          }
+        }}
+        variable={editingCustomVariable}
+        existingKeys={customVariableRows.map((item) => item.key)}
+        onSave={handleSaveCustomVariable}
+      />
+
+      <Dialog
+        open={scheduleDialogOpen}
+        onOpenChange={(open) => {
+          setScheduleDialogOpen(open);
+          if (open) {
+            setScheduleDraft(
+              extractTaskScheduleValue(editor.definition || {}),
+            );
+          }
+        }}
+      >
+        <DialogContent className='flex h-[90vh] w-[min(96vw,1280px)] max-w-none flex-col overflow-hidden p-0'>
+          <DialogHeader className='border-b border-border/60 px-6 py-4'>
+            <DialogTitle>{t('taskSchedule')}</DialogTitle>
+          </DialogHeader>
+          <div className='min-h-0 flex-1 overflow-y-auto px-6 py-4'>
+            <TaskScheduleSidebarPanel
+              value={scheduleDraft}
+              lastTriggeredAt={
+                selectedScheduleNode?.schedule_last_triggered_at
+              }
+              nextTriggeredAt={
+                selectedScheduleNode?.schedule_next_triggered_at
+              }
+              onChange={handleScheduleDraftChange}
+              className='mx-auto w-full max-w-6xl'
+            />
+          </div>
+          <DialogFooter className='border-t border-border/60 px-6 py-4'>
+            <Button
+              type='button'
+              variant='outline'
+              onClick={() => {
+                setScheduleDraft(
+                  extractTaskScheduleValue(editor.definition || {}),
+                );
+                setScheduleDialogOpen(false);
+              }}
+            >
+              {t('cancel')}
+            </Button>
+            <Button type='button' onClick={handleConfirmScheduleDialog}>
+              {t('confirm')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={validationOpen} onOpenChange={setValidationOpen}>
         <DialogContent className='w-[94vw] max-w-[94vw] sm:max-w-[1240px]'>
@@ -6676,130 +4731,6 @@ export function DataSyncStudio() {
               </Button>
             </div>
           </div>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
-        open={checkpointWarningDialog.open}
-        onOpenChange={(open) => {
-          if (!open) {
-            setCheckpointWarningDialog((prev) => ({...prev, open: false}));
-          }
-        }}
-      >
-        <DialogContent className='sm:max-w-[620px]'>
-          <DialogHeader>
-            <div className='flex items-center gap-2 text-amber-600 dark:text-amber-400'>
-              <AlertTriangle className='size-5 shrink-0' />
-              <DialogTitle className='text-base font-semibold'>
-                {t('checkpointWarningDialogTitle')}
-              </DialogTitle>
-            </div>
-            <DialogDescription className='sr-only'>
-              {t('checkpointWarningBanner')}
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className='space-y-4 py-2 text-xs'>
-            <div className='rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-amber-800 dark:text-amber-300'>
-              <div className='flex items-center justify-between gap-2'>
-                <span className='font-semibold'>
-                  {t('checkpointWarningBanner')}
-                </span>
-                <Badge
-                  variant='outline'
-                  className='border-amber-500/40 bg-amber-500/20 text-[11px] text-amber-700 dark:text-amber-300 shrink-0'
-                >
-                  Sink: {checkpointWarningDialog.sinkName}
-                </Badge>
-              </div>
-            </div>
-
-            <div className='space-y-1.5'>
-              <div className='font-semibold text-foreground flex items-center gap-1.5'>
-                <FileCode2 className='size-3.5 text-primary' />
-                <span>{t('checkpointWarningReasonTitle')}：</span>
-              </div>
-              <p className='text-muted-foreground leading-relaxed pl-5'>
-                {t('checkpointWarningReasonContent')}
-              </p>
-            </div>
-
-            <div className='space-y-1.5'>
-              <div className='font-semibold text-foreground flex items-center gap-1.5'>
-                <WandSparkles className='size-3.5 text-primary' />
-                <span>{t('checkpointWarningRecommendTitle')}：</span>
-              </div>
-              <div className='rounded-md border border-border/60 bg-muted/40 p-2.5 font-mono text-[11px] whitespace-pre text-foreground'>
-{`env {
-  checkpoint.interval = 60000 # 建议根据延迟要求设置为 30000-60000 ms
-}`}
-              </div>
-              <div className='text-[11px] text-muted-foreground flex flex-wrap gap-2 pt-1'>
-                <span>参考文档：</span>
-                <a
-                  href='https://github.com/apache/seatunnel/blob/dev/docs/zh/connectors/sink/HdfsFile.md'
-                  target='_blank'
-                  rel='noreferrer'
-                  className='text-primary underline hover:text-primary/80'
-                >
-                  Hdfs文件
-                </a>
-                <span>•</span>
-                <a
-                  href='https://github.com/apache/seatunnel/blob/dev/docs/zh/connectors/cdc-production-cookbook.md'
-                  target='_blank'
-                  rel='noreferrer'
-                  className='text-primary underline hover:text-primary/80'
-                >
-                  CDC 生产实战手册
-                </a>
-                <span>•</span>
-                <a
-                  href='https://github.com/apache/seatunnel/blob/dev/docs/zh/architecture/fault-tolerance/checkpoint-mechanism.md'
-                  target='_blank'
-                  rel='noreferrer'
-                  className='text-primary underline hover:text-primary/80'
-                >
-                  检查点机制
-                </a>
-              </div>
-            </div>
-          </div>
-
-          <DialogFooter className='flex flex-wrap items-center justify-end gap-2 pt-2'>
-            <Button
-              variant='ghost'
-              size='sm'
-              className='text-xs'
-              onClick={() => {
-                setCheckpointWarningDialog((prev) => ({...prev, open: false}));
-              }}
-            >
-              {t('cancel')}
-            </Button>
-            <Button
-              variant='outline'
-              size='sm'
-              className='text-xs text-muted-foreground hover:text-foreground'
-              onClick={() => {
-                checkpointWarningDialog.onProceed();
-              }}
-            >
-              {t('checkpointProceedAnyway')}
-            </Button>
-            <Button
-              variant='default'
-              size='sm'
-              className='text-xs bg-amber-600 hover:bg-amber-700 text-white dark:bg-amber-600 dark:hover:bg-amber-700'
-              onClick={() => {
-                checkpointWarningDialog.onProceedWithConfig();
-              }}
-            >
-              <WandSparkles className='mr-1.5 size-3.5' />
-              {t('checkpointAutoConfigureAndProceed')}
-            </Button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -7232,3100 +5163,71 @@ export function DataSyncStudio() {
         </DialogContent>
       </Dialog>
 
-      {treeMenu.open ? (
-        <div
-          className='fixed z-50 min-w-[160px] rounded-md border bg-popover p-1 shadow-md'
-          style={{left: treeMenu.x, top: treeMenu.y}}
-        >
-          {treeMenu.kind === 'root' || treeMenu.kind === 'folder' ? (
-            <>
-              <button
-                type='button'
-                className='flex w-full items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent'
-                onClick={() => openTreeDialog('create-folder', treeMenu.node)}
-              >
-                {t('newFolder')}
-              </button>
-              {treeMenu.kind === 'folder' ? (
-                <button
-                  type='button'
-                  className='flex w-full items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent'
-                  onClick={() => openTreeDialog('create-file', treeMenu.node)}
-                >
-                  {t('newFile')}
-                </button>
-              ) : null}
-            </>
-          ) : null}
-          {treeMenu.kind !== 'root' && treeMenu.node?.can_edit !== false ? (
-            <button
-              type='button'
-              className='flex w-full items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent'
-              onClick={() =>
-                openTreeDialog(
-                  'rename',
-                  treeMenu.node,
-                  treeMenu.node?.name || '',
-                )
-              }
-            >
-              {t('rename')}
-            </button>
-          ) : null}
-          {treeMenu.kind !== 'root' && treeMenu.node?.can_edit !== false ? (
-            <button
-              type='button'
-              className='flex w-full items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent'
-              onClick={() => openTreeDialog('move', treeMenu.node)}
-            >
-              {t('moveTo')}
-            </button>
-          ) : null}
-          {treeMenu.kind === 'file' ? (
-            <button
-              type='button'
-              className='flex w-full items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent'
-              onClick={() => void handleCopyFile(treeMenu.node)}
-            >
-              <Copy className='mr-2 size-4' />
-              {t('copyFile')}
-            </button>
-          ) : null}
-          {treeMenu.kind !== 'root' && treeMenu.node?.can_edit !== false ? (
-            <button
-              type='button'
-              className='flex w-full items-center rounded-sm px-2 py-1.5 text-sm text-destructive hover:bg-accent'
-              onClick={() => openTreeDialog('delete', treeMenu.node)}
-            >
-              <Trash2 className='mr-2 size-4' />
-              {t('delete')}
-            </button>
-          ) : null}
-          <button
-            type='button'
-            className='flex w-full items-center rounded-sm px-2 py-1.5 text-sm hover:bg-accent'
-            onClick={() => {
-              setTreeMenu((prev) => ({...prev, open: false}));
-              void loadWorkspace(selectedNodeId);
-            }}
-          >
-            <RefreshCw className='mr-2 size-4' />
-            {t('refresh')}
-          </button>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function TreeView({
-  nodes,
-  selectedNodeId,
-  selectedFolderId,
-  expandedFolderIds,
-  onSelect,
-  onContextMenu,
-  depth = 0,
-}: {
-  nodes: SyncTaskTreeNode[];
-  selectedNodeId: number | null;
-  selectedFolderId: number | null;
-  expandedFolderIds: number[];
-  onSelect: (node: SyncTaskTreeNode) => void;
-  onContextMenu: (
-    event: MouseEvent,
-    kind: 'folder' | 'file',
-    node: SyncTaskTreeNode,
-  ) => void;
-  depth?: number;
-}) {
-  const t = useTranslations('workbenchStudio');
-  return (
-    <div className='space-y-0 py-0.5'>
-      {nodes.map((node) => {
-        const selected =
-          node.id === selectedNodeId || node.id === selectedFolderId;
-        const isExpanded = expandedFolderIds.includes(node.id);
-        const hasChildren = Boolean(node.children && node.children.length > 0);
-        return (
-          <div key={node.id}>
-            <button
-              type='button'
-              className={`flex w-full items-center justify-between rounded-sm border border-transparent px-2 py-1 text-left text-xs transition hover:bg-muted/70 ${selected ? 'border-primary/20 bg-primary/10 text-primary' : ''}`}
-              style={{paddingLeft: `${depth * 12 + 6}px`}}
-              onClick={() => onSelect(node)}
-              onContextMenu={(event) =>
-                onContextMenu(event, node.node_type, node)
-              }
-            >
-              <span className='flex min-w-0 items-center gap-2'>
-                {node.node_type === 'folder' ? (
-                  <>
-                    {hasChildren ? (
-                      isExpanded ? (
-                        <ChevronDown className='size-3.5 shrink-0' />
-                      ) : (
-                        <ChevronRight className='size-3.5 shrink-0' />
-                      )
-                    ) : (
-                      <span className='inline-block size-3.5 shrink-0' />
-                    )}
-                    <Folder className='size-3.5 shrink-0' />
-                  </>
-                ) : (
-                  <>
-                    <span className='inline-block size-3.5 shrink-0' />
-                    <FileCode2 className='size-3.5 shrink-0' />
-                  </>
-                )}
-                <span className='truncate'>{node.name}</span>
-              </span>
-              {node.node_type === 'file' ? (
-                <div className='flex items-center gap-1 shrink-0'>
-                  {node.can_edit === false ? (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Lock className='size-3 text-amber-500 shrink-0' />
-                      </TooltipTrigger>
-                      <TooltipContent side='right'>{t('readOnlyLocked')}</TooltipContent>
-                    </Tooltip>
-                  ) : null}
-                  <Badge
-                    variant='outline'
-                    className='h-5 rounded-sm px-1.5 text-[10px]'
-                  >
-                    {node.current_version > 0
-                      ? `v${node.current_version}`
-                      : t('draft')}
-                  </Badge>
-                </div>
-              ) : null}
-            </button>
-            {hasChildren && isExpanded ? (
-              <TreeView
-                nodes={node.children || []}
-                selectedNodeId={selectedNodeId}
-                selectedFolderId={selectedFolderId}
-                expandedFolderIds={expandedFolderIds}
-                onSelect={onSelect}
-                onContextMenu={onContextMenu}
-                depth={depth + 1}
-              />
-            ) : null}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function SidebarIconTab({
-  active,
-  icon,
-  label,
-  onClick,
-}: {
-  active: boolean;
-  icon: ReactNode;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type='button'
-          aria-label={label}
-          className={cn(
-            'flex h-9 w-9 items-center justify-center rounded-md border transition-colors',
-            active
-              ? 'border-primary/40 bg-primary/10 text-primary'
-              : 'border-transparent text-muted-foreground hover:bg-muted hover:text-foreground',
-          )}
-          onClick={onClick}
-        >
-          {icon}
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side='left'>{label}</TooltipContent>
-    </Tooltip>
-  );
-}
-
-function StudioSidebarShell({
-  children,
-  rail,
-  className,
-}: {
-  children: ReactNode;
-  rail: ReactNode;
-  className?: string;
-}) {
-  return (
-    <Card
-      className={cn(
-        'row-start-1 gap-0 overflow-hidden border-border/60 bg-background/75 py-0 shadow-sm',
-        className,
-      )}
-    >
-      <CardContent className='grid h-full min-h-0 min-w-0 grid-cols-[minmax(0,1fr)_40px] p-0'>
-        <div className='min-h-0 min-w-0 overflow-hidden'>
-          <ScrollArea className='h-full'>
-            <div className='min-w-0 p-3'>{children}</div>
-          </ScrollArea>
-        </div>
-        <div className='flex min-h-0 w-10 shrink-0 flex-col items-center gap-2 border-l border-border/50 bg-muted/10 py-3'>
-          {rail}
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function TemplatePluginSelect({
-  label,
-  placeholder,
-  items,
-  disabled,
-  loading,
-  loadingText,
-  onSelect,
-}: {
-  label: string;
-  placeholder: string;
-  items: TemplatePluginItem[];
-  disabled?: boolean;
-  loading?: boolean;
-  loadingText?: string | null;
-  onSelect: (value: string) => void;
-}) {
-  const t = useTranslations('workbenchStudio');
-  const [open, setOpen] = useState(false);
-  const selectedLabel = loading ? loadingText || placeholder : placeholder;
-
-  return (
-    <div className='space-y-1.5'>
-      <Label className='text-[11px] text-muted-foreground'>{label}</Label>
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <Button
-            type='button'
-            variant='outline'
-            role='combobox'
-            aria-expanded={open}
-            disabled={disabled}
-            className='w-full justify-between'
-          >
-            <span className='truncate text-left'>{selectedLabel}</span>
-            {loading ? (
-              <Loader2 className='ml-2 size-4 shrink-0 animate-spin opacity-70' />
-            ) : (
-              <ChevronDown className='ml-2 size-4 shrink-0 opacity-50' />
-            )}
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent className='w-[var(--radix-popover-trigger-width)] min-w-0 p-0'>
-          <Command>
-            <CommandInput placeholder={`${placeholder}...`} />
-            <CommandList>
-              <CommandEmpty>{t('noMatchingPlugins')}</CommandEmpty>
-              {items.map((item) => (
-                <CommandItem
-                  key={`${label}:${item.value}`}
-                  value={`${item.label} ${item.value}`}
-                  onSelect={() => {
-                    setOpen(false);
-                    onSelect(item.value);
-                  }}
-                >
-                  <Check className='size-4 opacity-0' />
-                  <span className='truncate'>{item.label}</span>
-                </CommandItem>
-              ))}
-            </CommandList>
-          </Command>
-        </PopoverContent>
-      </Popover>
-    </div>
-  );
-}
-
-function SettingsSidebarPanel({
-  taskId,
-  isOwner = true,
-  isAdmin = false,
-  canEdit = true,
-  createdBy,
-  isPublic = true,
-  collaboratorIds = [],
-  workspaceUsers = [],
-  onUpdateSharing,
-  onSavePermissions,
-  saving = false,
-  executionMode,
-  clusterId,
-  clusters,
-  pluginPanelLoading,
-  pluginTemplatePendingType,
-  pluginTemplateLoadingText,
-  sourceTemplateItems,
-  transformTemplateItems,
-  sinkTemplateItems,
-  detectedVariables,
-  customVariableRows,
-  onExecutionModeChange,
-  onClusterChange,
-  onInsertPluginTemplate,
-  onOpenCreateCustomVariable,
-  onOpenEditCustomVariable,
-  onDeleteCustomVariable,
-  onCopyCustomVariableReference,
-  onCopyCustomVariableValue,
-}: {
-  taskId?: number;
-  isOwner?: boolean;
-  isAdmin?: boolean;
-  canEdit?: boolean;
-  createdBy?: number;
-  isPublic?: boolean;
-  collaboratorIds?: number[];
-  workspaceUsers?: NotificationRecipientUser[];
-  onUpdateSharing?: (isPublic: boolean, collaboratorIds: number[]) => void;
-  onSavePermissions?: () => void;
-  saving?: boolean;
-  executionMode: ExecutionMode;
-  clusterId: string;
-  clusters: ClusterInfo[];
-  pluginPanelLoading: boolean;
-  pluginTemplatePendingType: SyncPluginType | null;
-  pluginTemplateLoadingText: string | null;
-  sourceTemplateItems: TemplatePluginItem[];
-  transformTemplateItems: TemplatePluginItem[];
-  sinkTemplateItems: TemplatePluginItem[];
-  detectedVariables: string[];
-  customVariableRows: VariableRow[];
-  onExecutionModeChange: (value: ExecutionMode) => void;
-  onClusterChange: (value: string) => void;
-  onInsertPluginTemplate: (
-    pluginType: SyncPluginType,
-    factoryIdentifier: string,
-  ) => void;
-  onOpenCreateCustomVariable: () => void;
-  onOpenEditCustomVariable: (item: VariableRow) => void;
-  onDeleteCustomVariable: (id: string) => void;
-  onCopyCustomVariableReference: (key: string) => void;
-  onCopyCustomVariableValue: (value: string) => void;
-}) {
-  const t = useTranslations('workbenchStudio');
-  const builtinPreviewNow = useMemo(() => new Date(), []);
-  return (
-    <div className='mx-auto min-w-0 max-w-[236px] space-y-4'>
-      {/* 任务共享与权限协作 */}
-      {/* Task Sharing & Permissions Section */}
-      {taskId ? (
-        <div className='rounded-lg border border-border/50 bg-muted/10 p-3 space-y-3'>
-          <div className='flex items-center justify-between'>
-            <div className='flex items-center gap-1.5 text-xs font-medium text-foreground'>
-              <Users className='size-3.5 text-primary' />
-              <span>{t('taskSharingAndPerms')}</span>
-            </div>
-            {isOwner ? (
-              <Badge
-                variant='outline'
-                className='border-primary/30 bg-primary/10 text-[10px] text-primary'
-              >
-                {t('owner')}
-              </Badge>
-            ) : canEdit ? (
-              <Badge
-                variant='outline'
-                className='border-sky-500/30 bg-sky-500/10 text-[10px] text-sky-600 dark:text-sky-400'
-              >
-                {t('collaborator')}
-              </Badge>
-            ) : (
-              <Badge
-                variant='outline'
-                className='border-amber-500/30 bg-amber-500/10 text-[10px] text-amber-600 dark:text-amber-400'
-              >
-                {t('readOnlyLocked')}
-              </Badge>
-            )}
-          </div>
-
-          {/* 所有者展示 */}
-          <div className='flex items-center justify-between text-[11px] text-muted-foreground'>
-            <span>{t('owner')}</span>
-            <span className='font-medium text-foreground'>
-              {createdBy
-                ? workspaceUsers?.find((u) => u.id === createdBy)?.username ||
-                  `User #${createdBy}`
-                : '-'}
-            </span>
-          </div>
-
-          {/* 任务可见性 */}
-          <div className='space-y-1.5'>
-            <Label className='text-xs'>{t('taskVisibility')}</Label>
-            <Select
-              value={isPublic !== false ? 'public' : 'private'}
-              onValueChange={(val) => {
-                if (onUpdateSharing) {
-                  onUpdateSharing(val === 'public', collaboratorIds || []);
-                }
-              }}
-              disabled={!isOwner && !isAdmin}
-            >
-              <SelectTrigger className='h-8 w-full text-xs'>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent className='w-[var(--radix-select-trigger-width)] min-w-0 text-xs'>
-                <SelectItem value='public' className='text-xs'>
-                  {t('taskVisibilityPublic')}
-                </SelectItem>
-                <SelectItem value='private' className='text-xs'>
-                  {t('taskVisibilityPrivate')}
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* 共建开发者管理 */}
-          <div className='space-y-1.5'>
-            <Label className='flex items-center justify-between text-xs'>
-              <span>{t('manageCollaborators')}</span>
-              <span className='font-mono text-[10px] text-muted-foreground'>
-                ({collaboratorIds?.length || 0})
-              </span>
-            </Label>
-
-            {isOwner || isAdmin ? (
-              <Select
-                value='__none__'
-                onValueChange={(val) => {
-                  if (val === '__none__') return;
-                  const uid = Number(val);
-                  if (!uid || isNaN(uid)) return;
-                  const currentIds = collaboratorIds || [];
-                  if (!currentIds.includes(uid)) {
-                    onUpdateSharing?.(isPublic !== false, [...currentIds, uid]);
-                  }
-                }}
-              >
-                <SelectTrigger className='h-8 w-full text-xs'>
-                  <SelectValue placeholder={t('selectCollaborator')} />
-                </SelectTrigger>
-                <SelectContent className='max-h-48 w-[var(--radix-select-trigger-width)] min-w-0 text-xs'>
-                  <SelectItem
-                    value='__none__'
-                    disabled
-                    className='text-xs text-muted-foreground'
-                  >
-                    {t('selectCollaborator')}
-                  </SelectItem>
-                  {(workspaceUsers || [])
-                    .filter(
-                      (u) =>
-                        u.id !== createdBy &&
-                        !(collaboratorIds || []).includes(u.id),
-                    )
-                    .map((u) => (
-                      <SelectItem
-                        key={u.id}
-                        value={String(u.id)}
-                        className='text-xs'
-                      >
-                        {u.username} {u.nickname ? `(${u.nickname})` : ''}
-                      </SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
-            ) : null}
-
-            {/* 已有共建者胶囊 */}
-            <div className='flex flex-wrap gap-1 pt-1'>
-              {(collaboratorIds || []).length > 0 ? (
-                collaboratorIds?.map((uid) => {
-                  const u = workspaceUsers?.find((user) => user.id === uid);
-                  const name = u ? u.username || u.nickname : `User #${uid}`;
-                  return (
-                    <Badge
-                      key={uid}
-                      variant='secondary'
-                      className='h-6 gap-1 px-1.5 text-[11px] font-normal'
-                    >
-                      <UserCheck className='size-3 text-sky-500' />
-                      <span>{name}</span>
-                      {isOwner || isAdmin ? (
-                        <button
-                          type='button'
-                          className='ml-0.5 rounded-full p-0.5 hover:bg-muted-foreground/20'
-                          onClick={() => {
-                            const next = (collaboratorIds || []).filter(
-                              (id) => id !== uid,
-                            );
-                            onUpdateSharing?.(isPublic !== false, next);
-                          }}
-                        >
-                          <X className='size-2.5' />
-                        </button>
-                      ) : null}
-                    </Badge>
-                  );
-                })
-              ) : (
-                <span className='text-[11px] text-muted-foreground'>
-                  {t('noCollaborators')}
-                </span>
-              )}
-            </div>
-
-            {/* 权限提示说明 */}
-            <p className='pt-1 text-[10px] leading-4 text-muted-foreground'>
-              {isOwner || isAdmin
-                ? t('collaboratorHint')
-                : t('nonOwnerPermHint')}
-            </p>
-
-            {/* 保存设置按钮 */}
-            {isOwner || isAdmin ? (
-              <Button
-                size='sm'
-                variant='outline'
-                className='mt-1 h-7 w-full text-xs'
-                onClick={onSavePermissions}
-                disabled={saving}
-              >
-                <Save className='mr-1 size-3' />
-                {t('saveSharingSettings')}
-              </Button>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
-
-      <div className='rounded-lg border border-border/50 bg-muted/10 p-3'>
-        <div className='mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground'>
-          {t('settings')}
-        </div>
-        <div className='space-y-2'>
-          <Label className='text-xs'>{t('executionMode')}</Label>
-          <Select
-            value={executionMode}
-            onValueChange={(value) =>
-              onExecutionModeChange(value as ExecutionMode)
-            }
-          >
-            <SelectTrigger className='w-full'>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent className='w-[var(--radix-select-trigger-width)] min-w-0'>
-              <SelectItem value='cluster'>{t('clusterMode')}</SelectItem>
-              <SelectItem value='local'>{t('localMode')}</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-
-      {executionMode === 'cluster' ? (
-        <div className='rounded-lg border border-border/50 bg-muted/10 p-3'>
-          <Label className='mb-2 block text-xs'>{t('zetaCluster')}</Label>
-          <Select
-            value={clusterId || '__empty__'}
-            onValueChange={onClusterChange}
-          >
-            <SelectTrigger className='w-full'>
-              <SelectValue placeholder={t('selectCluster')} />
-            </SelectTrigger>
-            <SelectContent className='w-[var(--radix-select-trigger-width)] min-w-0'>
-              <SelectItem value='__empty__'>{t('unselected')}</SelectItem>
-              {clusters.map((cluster) => (
-                <SelectItem key={cluster.id} value={String(cluster.id)}>
-                  {cluster.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      ) : null}
-
-      {executionMode === 'cluster' ? (
-        <div className='rounded-lg border border-border/50 bg-muted/10 p-3'>
-          <Label className='mb-3 block text-xs'>{t('pluginTemplates')}</Label>
-          <div className='space-y-3'>
-            <TemplatePluginSelect
-              disabled={!clusterId || pluginPanelLoading}
-              items={sourceTemplateItems}
-              label={t('sourceTemplate')}
-              loading={pluginTemplatePendingType === 'source'}
-              loadingText={
-                pluginTemplatePendingType === 'source'
-                  ? pluginTemplateLoadingText
-                  : null
-              }
-              placeholder={t('selectSourcePlugin')}
-              onSelect={(value) => onInsertPluginTemplate('source', value)}
-            />
-            <TemplatePluginSelect
-              disabled={!clusterId || pluginPanelLoading}
-              items={transformTemplateItems}
-              label={t('transformTemplate')}
-              loading={pluginTemplatePendingType === 'transform'}
-              loadingText={
-                pluginTemplatePendingType === 'transform'
-                  ? pluginTemplateLoadingText
-                  : null
-              }
-              placeholder={t('selectTransformPlugin')}
-              onSelect={(value) => onInsertPluginTemplate('transform', value)}
-            />
-            <TemplatePluginSelect
-              disabled={!clusterId || pluginPanelLoading}
-              items={sinkTemplateItems}
-              label={t('sinkTemplate')}
-              loading={pluginTemplatePendingType === 'sink'}
-              loadingText={
-                pluginTemplatePendingType === 'sink'
-                  ? pluginTemplateLoadingText
-                  : null
-              }
-              placeholder={t('selectSinkPlugin')}
-              onSelect={(value) => onInsertPluginTemplate('sink', value)}
-            />
-            <p className='text-[11px] leading-5 text-muted-foreground'>
-              {!clusterId
-                ? t('selectClusterFirst')
-                : pluginPanelLoading
-                  ? t('loadingPluginTemplates')
-                  : pluginTemplateLoadingText
-                    ? t('generatingPluginTemplate', {
-                        plugin: pluginTemplateLoadingText,
-                      })
-                    : t('pluginTemplateHint')}
-            </p>
-          </div>
-        </div>
-      ) : null}
-
-      {/* 自定义变量管理区域 */}
-      {/* Custom variables management section */}
-      <CustomVariablesSection
-        variables={customVariableRows}
-        onOpenCreate={onOpenCreateCustomVariable}
-        onOpenEdit={onOpenEditCustomVariable}
-        onDelete={onDeleteCustomVariable}
-        onCopyReference={onCopyCustomVariableReference}
-        onCopyValue={onCopyCustomVariableValue}
+      {/* 资源树精致 VSCode 风格右键菜单 */}
+      {/* Studio Tree refined VSCode-style context menu */}
+      <StudioTreeContextMenu
+        menuState={treeMenu}
+        onClose={() => setTreeMenu((prev) => ({ ...prev, open: false }))}
+        onCreateFile={(parent) => {
+          if (parent) {
+            handleInlineCreateFile(parent);
+          }
+        }}
+        onCreateFolder={(parent) => {
+          handleInlineCreateFolder(parent);
+        }}
+        onRename={(node) => {
+          handleRenameStart(node);
+        }}
+        onMove={(node) => {
+          openTreeDialog('move', node);
+        }}
+        onCopyFile={(node) => {
+          void handleCopyFile(node);
+        }}
+        onDelete={(node) => {
+          openTreeDialog('delete', node);
+        }}
+        onRefresh={() => {
+          void loadWorkspace(selectedNodeId);
+        }}
       />
 
-      <div className='rounded-lg border border-border/50 bg-muted/10 p-3'>
-        <Label className='mb-2 block text-xs'>{t('detectedVariables')}</Label>
-        <div className='flex flex-wrap gap-2'>
-          {detectedVariables.length > 0 ? (
-            detectedVariables.map((variable) => (
-              <Tooltip key={variable}>
-                <TooltipTrigger asChild>
-                  <Badge variant='outline'>{`{{${variable}}}`}</Badge>
-                </TooltipTrigger>
-                <TooltipContent className='max-w-[320px] break-all text-xs'>
-                  <div>{`{{${variable}}}`}</div>
-                  {resolveBuiltinPreviewExpression(
-                    variable,
-                    builtinPreviewNow,
-                  ) ? (
-                    <div className='mt-1 text-muted-foreground'>
-                      {t('builtinPreviewResult', {
-                        value:
-                          resolveBuiltinPreviewExpression(
-                            variable,
-                            builtinPreviewNow,
-                          ) || '-',
-                      })}
-                    </div>
-                  ) : null}
-                </TooltipContent>
-              </Tooltip>
-            ))
-          ) : (
-            <span className='text-xs text-muted-foreground'>
-              {t('noDetectedVariables')}
-            </span>
-          )}
-        </div>
-      </div>
-
-      <div className='rounded-lg border border-border/50 bg-muted/10 p-3'>
-        <div className='mb-2 flex items-center gap-2'>
-          <Label className='block text-xs'>{t('builtinTimeVariables')}</Label>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                type='button'
-                size='icon'
-                variant='ghost'
-                className='size-6 text-muted-foreground'
-              >
-                <Eye className='size-3.5' />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent className='max-w-[320px] text-xs leading-5'>
-              {t('builtinTimeVariablesHint')}
-            </TooltipContent>
-          </Tooltip>
-        </div>
-        <div className='flex flex-wrap gap-2'>
-          {BUILTIN_TIME_VARIABLE_ITEMS.map((item) => (
-            <Tooltip key={item.expr}>
-              <TooltipTrigger asChild>
-                <Badge variant='secondary' className='cursor-help'>
-                  {`{{${item.expr}}}`}
-                </Badge>
-              </TooltipTrigger>
-              <TooltipContent className='max-w-[360px] break-all text-xs leading-5'>
-                <div>{t(item.descKey)}</div>
-                <div className='mt-1 text-muted-foreground'>
-                  {t('builtinPreviewResult', {
-                    value:
-                      resolveBuiltinPreviewExpression(
-                        item.expr,
-                        builtinPreviewNow,
-                      ) || '-',
-                  })}
-                </div>
-              </TooltipContent>
-            </Tooltip>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-
-
-function VersionSidebarPanel({
-  taskId,
-  canEdit = true,
-  currentVersion,
-  versions,
-  total,
-  page,
-  pageSize,
-  onPageChange,
-  onPreview,
-  onCompare,
-  onRollback,
-  onDelete,
-}: {
-  taskId?: number;
-  canEdit?: boolean;
-  currentVersion: number;
-  versions: SyncTaskVersion[];
-  total: number;
-  page: number;
-  pageSize: number;
-  onPageChange: (page: number) => void;
-  onPreview: (version: SyncTaskVersion) => void;
-  onCompare: (version: SyncTaskVersion) => void;
-  onRollback: (versionId: number) => void;
-  onDelete: (versionId: number) => void;
-}) {
-  const t = useTranslations('workbenchStudio');
-  if (!taskId) {
-    return (
-      <div className='text-sm text-muted-foreground'>
-        {t('selectFileToViewVersions')}
-      </div>
-    );
-  }
-  return (
-    <div className='space-y-3'>
-      <div className='rounded-lg border border-border/50 bg-muted/10 p-3'>
-        <div className='flex items-center justify-between gap-2'>
-          <div>
-            <div className='text-[11px] uppercase tracking-wide text-muted-foreground'>
-              {t('versionManagement')}
-            </div>
-            <div className='mt-1 text-lg font-semibold'>v{currentVersion}</div>
-          </div>
-          <Badge variant='outline'>
-            {t('totalItems', {count: versions.length})}
-          </Badge>
-        </div>
-        <p className='mt-2 text-xs leading-5 text-muted-foreground'>
-          {t('versionManagementDesc')}
-        </p>
-      </div>
-      <div className='space-y-2'>
-        {versions.length > 0 ? (
-          versions.map((version) => (
-            <div
-              key={version.id}
-              className='rounded-lg border border-border/50 bg-background/70 p-3'
-            >
-              <div className='flex items-center justify-between gap-2'>
-                <div>
-                  <div className='text-sm font-medium'>v{version.version}</div>
-                  <div className='text-[11px] text-muted-foreground'>
-                    {new Date(version.created_at).toLocaleString()}
-                  </div>
-                </div>
-                <Badge
-                  variant={
-                    version.version === currentVersion ? 'secondary' : 'outline'
-                  }
-                >
-                  #{version.id}
-                </Badge>
-              </div>
-              <div className='mt-3 grid grid-cols-2 gap-2'>
-                <Button
-                  size='sm'
-                  variant='outline'
-                  className='h-8 text-xs'
-                  onClick={() => onPreview(version)}
-                >
-                  {t('preview')}
-                </Button>
-                <Button
-                  size='sm'
-                  variant='outline'
-                  className='h-8 text-xs'
-                  onClick={() => onCompare(version)}
-                >
-                  {t('compare')}
-                </Button>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span>
-                      <Button
-                        size='sm'
-                        variant='outline'
-                        className='h-8 text-xs'
-                        disabled={!canEdit}
-                        onClick={() => onRollback(version.id)}
-                      >
-                        {t('rollback')}
-                      </Button>
-                    </span>
-                  </TooltipTrigger>
-                  {!canEdit ? (
-                    <TooltipContent>
-                      {t('readOnlyVersionTooltip')}
-                    </TooltipContent>
-                  ) : null}
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span>
-                      <Button
-                        size='sm'
-                        variant='outline'
-                        className='h-8 text-xs'
-                        disabled={!canEdit}
-                        onClick={() => onDelete(version.id)}
-                      >
-                        {t('delete')}
-                      </Button>
-                    </span>
-                  </TooltipTrigger>
-                  {!canEdit ? (
-                    <TooltipContent>
-                      {t('readOnlyVersionTooltip')}
-                    </TooltipContent>
-                  ) : null}
-                </Tooltip>
-              </div>
-            </div>
-          ))
-        ) : (
-          <div className='text-sm text-muted-foreground'>
-            {t('noVersionHistory')}
-          </div>
-        )}
-      </div>
-      <SimplePagination
-        total={total}
-        page={page}
-        pageSize={pageSize}
-        onPageChange={onPageChange}
+      {/* VSCode 风格 Quick Open 多结果浮层 (Cmd+P) */}
+      {/* VSCode-style Quick Open multi-result palette (Cmd+P) */}
+      <StudioQuickOpenDialog
+        open={quickOpenOpen}
+        onOpenChange={setQuickOpenOpen}
+        tree={tree}
+        recentJobs={jobs.map((j) => ({
+          id: j.id,
+          task_id: j.task_id,
+          platform_job_id: j.platform_job_id,
+          status: j.status,
+          task_name: findTreeNode(tree, j.task_id)?.name || j.platform_job_id,
+        }))}
+        onSelectFile={handleQuickOpenFile}
+        onSelectJob={async (jobId) => {
+          await handleLocateJobId(String(jobId));
+        }}
+        onNewFile={() => {
+          const folderNode = selectedFolderId
+            ? findTreeNode(tree, selectedFolderId)
+            : null;
+          if (folderNode) {
+            handleInlineCreateFile(folderNode);
+          } else {
+            toast.error(t('selectFolderBeforeCreateFile'));
+          }
+        }}
+        onNewFolder={() => {
+          const folderNode = selectedFolderId
+            ? findTreeNode(tree, selectedFolderId)
+            : null;
+          handleInlineCreateFolder(folderNode);
+        }}
       />
     </div>
   );
 }
 
-function SimplePagination({
-  total,
-  page,
-  pageSize,
-  onPageChange,
-}: {
-  total: number;
-  page: number;
-  pageSize: number;
-  onPageChange: (page: number) => void;
-}) {
-  const t = useTranslations('workbenchStudio');
-  const totalPages = Math.max(1, Math.ceil(total / Math.max(pageSize, 1)));
-  if (total <= pageSize) {
-    return null;
-  }
-  return (
-    <div className='flex items-center justify-between gap-2 rounded-lg border border-border/50 bg-muted/10 px-3 py-2 text-xs text-muted-foreground'>
-      <span>{t('paginationSummary', {page, totalPages, total})}</span>
-      <div className='flex items-center gap-2'>
-        <Button
-          size='sm'
-          variant='outline'
-          className='h-7 px-2 text-xs'
-          disabled={page <= 1}
-          onClick={() => onPageChange(page - 1)}
-        >
-          {t('prevPage')}
-        </Button>
-        <Button
-          size='sm'
-          variant='outline'
-          className='h-7 px-2 text-xs'
-          disabled={page >= totalPages}
-          onClick={() => onPageChange(page + 1)}
-        >
-          {t('nextPage')}
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-function MixedLogModeBanner({
-  clusterId,
-  onSwitched,
-}: {
-  clusterId?: number | null;
-  onSwitched?: () => void;
-}) {
-  const t = useTranslations('workbenchStudio');
-  const [switching, setSwitching] = useState(false);
-
-  const handleSwitch = async () => {
-    if (!clusterId) return;
-    setSwitching(true);
-    try {
-      const res = await services.cluster.switchJobLogModeSafe(clusterId, 'per_job');
-      if (!res.success) {
-        toast.error(res.error || t('switchLogModeFailed'));
-        return;
-      }
-      toast.success(t('switchToPerJobSuccessToast'));
-      onSwitched?.();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('switchLogModeFailed'));
-    } finally {
-      setSwitching(false);
-    }
-  };
-
-  return (
-    <div className='flex h-full min-h-[180px] flex-col items-center justify-center p-6 text-center'>
-      <div className='max-w-lg space-y-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-5 text-left shadow-sm'>
-        <div className='flex items-center justify-between gap-2'>
-          <div className='flex items-center gap-2 font-medium text-amber-600 dark:text-amber-400 text-sm'>
-            <AlertTriangle className='size-4 shrink-0' />
-            <span>{t('mixedLogModeTitle')}</span>
-          </div>
-          <Badge
-            variant='outline'
-            className='border-amber-500/30 bg-amber-500/10 text-[11px] text-amber-600 dark:text-amber-400'
-          >
-            {t('mixedLogModeBadge')}
-          </Badge>
-        </div>
-        <p className='text-xs text-muted-foreground leading-relaxed'>
-          {t('mixedLogModeDescription')}
-        </p>
-        <div className='flex flex-wrap items-center gap-2 pt-2'>
-          {clusterId ? (
-            <Button
-              size='sm'
-              variant='default'
-              className='h-8 text-xs bg-amber-600 hover:bg-amber-700 text-white dark:bg-amber-600 dark:hover:bg-amber-700'
-              disabled={switching}
-              onClick={handleSwitch}
-            >
-              {switching ? (
-                <Loader2 className='mr-1.5 size-3.5 animate-spin' />
-              ) : (
-                <WandSparkles className='mr-1.5 size-3.5' />
-              )}
-              {t('switchToPerJobModeBtn')}
-            </Button>
-          ) : null}
-          {clusterId ? (
-            <Button size='sm' variant='outline' className='h-8 text-xs' asChild>
-              <a
-                href={`/clusters/${clusterId}`}
-                target='_blank'
-                rel='noreferrer'
-              >
-                <ExternalLink className='mr-1.5 size-3.5' />
-                {t('viewClusterDetail')}
-              </a>
-            </Button>
-          ) : null}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ConsolePanel({
-  job,
-  logsResult,
-  loading,
-  filterMode,
-  onFilterChange,
-  onExpand,
-}: {
-  job: SyncJobInstance | null;
-  logsResult: SyncJobLogsResult | null;
-  loading: boolean;
-  filterMode: LogFilterMode;
-  onFilterChange: (mode: LogFilterMode) => void;
-  onExpand: () => void;
-}) {
-  const t = useTranslations('workbenchStudio');
-  if (!job) {
-    return <div className='text-sm text-muted-foreground'>{t('noLogs')}</div>;
-  }
-  const displayStatus = getDisplayJobLifecycleStatus(job);
-  const renderedLines = buildDisplayLogLines(logsResult?.logs || '', 800);
-  const isMixedLogMode =
-    logsResult?.empty_reason === 'mixed_log_mode' ||
-    logsResult?.cluster_job_log_mode === 'mixed';
-  const clusterId = logsResult?.cluster_id || getSyncJobClusterId(job);
-
-  return (
-    <div className='flex h-full min-h-0 min-w-0 flex-col gap-2'>
-      <div className='flex flex-wrap items-center gap-2 rounded-lg border border-border/50 bg-background/70 px-3 py-2 text-xs'>
-        <Badge variant='outline'>#{job.id}</Badge>
-        <Badge variant='outline'>{job.run_type}</Badge>
-        <Badge
-          variant='outline'
-          className={cn(
-            'rounded-sm border px-2 py-0.5 text-[11px]',
-            getJobStatusBadgeClass(displayStatus),
-          )}
-        >
-          {getJobStatusLabel(displayStatus)}
-        </Badge>
-        <Badge variant='outline'>
-          {getEngineAPIMode(job) === 'v1'
-            ? 'Legacy REST V1'
-            : submitSpecExecutionMode(job.submit_spec) === 'local'
-              ? 'Local Agent'
-              : 'REST V2'}
-        </Badge>
-        <span className='min-w-0 flex-1 truncate text-muted-foreground'>
-          {getEngineEndpointLabel(job)}
-        </span>
-        <span className='text-muted-foreground'>
-          {loading
-            ? t('loading')
-            : logsResult?.updated_at
-              ? new Date(logsResult.updated_at).toLocaleTimeString()
-              : '-'}
-        </span>
-      </div>
-      <div className='flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-border/50 bg-background/70'>
-        <div className='sticky top-0 z-10 shrink-0 border-b border-border/50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/85'>
-          <div className='grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-3 py-2 text-xs text-muted-foreground'>
-            <div className='flex min-w-0 items-center gap-2 overflow-hidden'>
-              <span className='shrink-0'>{t('liveLogs')}</span>
-              {job.error_message ? (
-                <Badge
-                  className='rounded-sm border-red-500/30 bg-red-500/10 text-[10px] text-red-600 dark:text-red-400'
-                  variant='outline'
-                >
-                  {t('hasErrors')}
-                </Badge>
-              ) : null}
-            </div>
-            <div className='flex items-center justify-self-end gap-2 whitespace-nowrap'>
-              <div className='flex items-center gap-1 rounded-md border border-border/50 bg-background px-1 py-1'>
-                {(['all', 'warn', 'error'] as LogFilterMode[]).map((mode) => (
-                  <button
-                    key={mode}
-                    type='button'
-                    className={cn(
-                      'rounded px-2 py-0.5 text-[11px]',
-                      filterMode === mode
-                        ? 'bg-primary/10 text-primary'
-                        : 'text-muted-foreground',
-                    )}
-                    onClick={() => onFilterChange(mode)}
-                  >
-                    {mode === 'all' ? t('all') : mode.toUpperCase()}
-                  </button>
-                ))}
-              </div>
-              <Button
-                size='sm'
-                variant='ghost'
-                className='h-7 px-1.5 text-xs'
-                onClick={onExpand}
-              >
-                <Maximize2 className='mr-1 size-3.5' />
-                {t('expand')}
-              </Button>
-            </div>
-          </div>
-          <div className='grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-t border-border/50 px-3 py-2 text-[11px] text-muted-foreground'>
-            <div className='flex min-w-0 items-center gap-3 overflow-hidden'>
-              <span className='truncate'>
-                {t('jobId')}: {job.platform_job_id || job.engine_job_id || '-'}
-              </span>
-              {job.engine_job_id &&
-              job.platform_job_id &&
-              job.engine_job_id !== job.platform_job_id ? (
-                <span className='truncate'>
-                  {t('engineJobId')}: {job.engine_job_id}
-                </span>
-              ) : null}
-            </div>
-            <span className='justify-self-end whitespace-nowrap'>
-              {t('logFocusHint')}
-            </span>
-          </div>
-        </div>
-        <div className='min-h-0 min-w-0 flex-1 overflow-auto p-3 font-mono text-xs'>
-          {renderedLines.length > 0 ? (
-            renderedLines.map((line, index) => (
-              <div
-                key={`${index}-${line.slice(0, 24)}`}
-                className={cn(
-                  'max-w-full whitespace-pre-wrap break-all',
-                  getLogLineClass(line),
-                )}
-              >
-                {line}
-              </div>
-            ))
-          ) : isMixedLogMode ? (
-            <MixedLogModeBanner clusterId={clusterId} />
-          ) : (
-            <div className='text-muted-foreground'>{t('noLogs')}</div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function JobRunsPanel({
-  jobs,
-  selectedJobId,
-  currentUserId,
-  isAdmin = false,
-  isOwner = true,
-  canRun = true,
-  workspaceUsers = [],
-  onSelectJob,
-  onRecover,
-  onCancel,
-  onSavepointStop,
-  onViewMetrics,
-  onViewScript,
-  disableRecover,
-}: {
-  jobs: SyncJobInstance[];
-  selectedJobId: number | null;
-  currentUserId?: number;
-  isAdmin?: boolean;
-  isOwner?: boolean;
-  canRun?: boolean;
-  workspaceUsers?: NotificationRecipientUser[];
-  onSelectJob: (jobId: number) => void;
-  onRecover: (jobId: number) => void;
-  onCancel: (jobId: number) => void;
-  onSavepointStop: (jobId: number) => void;
-  onViewMetrics: (job: SyncJobInstance) => void;
-  onViewScript: (job: SyncJobInstance) => void;
-  disableRecover: boolean;
-}) {
-  const t = useTranslations('workbenchStudio');
-  if (jobs.length === 0) {
-    return (
-      <div className='text-sm text-muted-foreground'>{t('noJobRuns')}</div>
-    );
-  }
-  return (
-    <div className='h-full overflow-auto rounded-lg border border-border/50 bg-background/70'>
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>{t('task')}</TableHead>
-            <TableHead>{t('runMode')}</TableHead>
-            <TableHead>{t('status')}</TableHead>
-            <TableHead>{t('channel')}</TableHead>
-            <TableHead>{t('initiator')}</TableHead>
-            <TableHead>{t('startedAt')}</TableHead>
-            <TableHead>{t('finishedAt')}</TableHead>
-            <TableHead>{t('duration')}</TableHead>
-            <TableHead>{t('metrics')}</TableHead>
-            <TableHead className='text-right'>{t('actions')}</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {jobs.map((job) => {
-            const summary = extractJobMetricSummary(job);
-            const displayStatus = getDisplayJobLifecycleStatus(job);
-            return (
-              <TableRow
-                key={job.id}
-                className={cn(selectedJobId === job.id ? 'bg-primary/5' : '')}
-                onClick={() => onSelectJob(job.id)}
-              >
-                <TableCell>
-                  <div className='font-medium'>#{job.id}</div>
-                  <div className='text-xs text-muted-foreground'>
-                    {job.platform_job_id || '-'}
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <Badge variant='outline' className='rounded-sm text-[11px]'>
-                    {getRunModeLabel(job, t)}
-                  </Badge>
-                </TableCell>
-                <TableCell>
-                  <Badge
-                    variant='outline'
-                    className={cn(
-                      'rounded-sm border px-2 py-0.5 text-[11px]',
-                      getJobStatusBadgeClass(displayStatus),
-                    )}
-                  >
-                    {getJobStatusLabel(displayStatus)}
-                  </Badge>
-                </TableCell>
-                <TableCell>
-                  <Badge variant='outline' className='rounded-sm text-[11px]'>
-                    {submitSpecExecutionMode(job.submit_spec) === 'local'
-                      ? 'Local Agent'
-                      : getEngineAPIMode(job) === 'v1'
-                        ? 'Legacy REST V1'
-                        : 'REST V2'}
-                  </Badge>
-                </TableCell>
-                <TableCell className='text-xs'>
-                  <div className='flex items-center gap-1'>
-                    <span className='font-medium text-foreground'>
-                      {job.created_by
-                        ? workspaceUsers.find((u) => u.id === job.created_by)
-                            ?.username || `User #${job.created_by}`
-                        : '-'}
-                    </span>
-                    {currentUserId && job.created_by === currentUserId ? (
-                      <Badge
-                        variant='secondary'
-                        className='h-4 px-1 text-[10px] font-normal text-muted-foreground'
-                      >
-                        {t('you')}
-                      </Badge>
-                    ) : null}
-                  </div>
-                </TableCell>
-                <TableCell className='text-xs text-muted-foreground'>
-                  {formatJobDateTime(job.started_at)}
-                </TableCell>
-                <TableCell className='text-xs text-muted-foreground'>
-                  {formatJobDateTime(job.finished_at)}
-                </TableCell>
-                <TableCell className='text-xs text-muted-foreground'>
-                  {formatJobDuration(job.started_at, job.finished_at)}
-                </TableCell>
-                <TableCell>
-                  <div className='space-y-0.5 text-xs'>
-                    <div>
-                      {t('read')} {formatMetricValue(summary.readCount)}
-                    </div>
-                    <div>
-                      {t('write')} {formatMetricValue(summary.writeCount)}
-                    </div>
-                    <div>
-                      {t('averageSpeed')}{' '}
-                      {formatMetricValue(summary.averageSpeed, 1)}/s
-                    </div>
-                  </div>
-                </TableCell>
-                <TableCell className='text-right'>
-                  <div className='flex justify-end gap-2'>
-                    <Button
-                      size='icon'
-                      variant='outline'
-                      className='size-8'
-                      aria-label={t('viewExecutedScript')}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onViewScript(job);
-                      }}
-                    >
-                      <FileCode2 className='size-4' />
-                    </Button>
-                    <Button
-                      size='icon'
-                      variant='outline'
-                      className='size-8'
-                      aria-label={t('viewMetrics')}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onViewMetrics(job);
-                      }}
-                    >
-                      <BarChart3 className='size-4' />
-                    </Button>
-                    {job.run_type !== 'preview' ? (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span>
-                            <Button
-                              size='sm'
-                              variant='outline'
-                              className='h-8 text-xs'
-                              disabled={
-                                disableRecover ||
-                                !canRecoverFromJob(job) ||
-                                !canRun
-                              }
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                onRecover(job.id);
-                              }}
-                            >
-                              {t('recover')}
-                            </Button>
-                          </span>
-                        </TooltipTrigger>
-                        {!canRun ? (
-                          <TooltipContent>
-                            {t('readOnlyRecoverTooltip')}
-                          </TooltipContent>
-                        ) : null}
-                      </Tooltip>
-                    ) : null}
-                    {isJobLifecycleActive(
-                      getDisplayJobLifecycleStatus(job),
-                    ) ? (
-                      (() => {
-                        const canCancel =
-                          isAdmin ||
-                          isOwner ||
-                          (currentUserId !== undefined &&
-                            job.created_by === currentUserId);
-                        return (
-                          <>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span>
-                                  <Button
-                                    size='sm'
-                                    variant='outline'
-                                    className='h-8 text-xs'
-                                    disabled={!canCancel}
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      onSavepointStop(job.id);
-                                    }}
-                                  >
-                                    {t('savepointStop')}
-                                  </Button>
-                                </span>
-                              </TooltipTrigger>
-                              {!canCancel ? (
-                                <TooltipContent>
-                                  {t('readOnlyCancelTooltip')}
-                                </TooltipContent>
-                              ) : null}
-                            </Tooltip>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span>
-                                  <Button
-                                    size='sm'
-                                    variant='outline'
-                                    className='h-8 text-xs'
-                                    disabled={!canCancel}
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      onCancel(job.id);
-                                    }}
-                                  >
-                                    {t('stop')}
-                                  </Button>
-                                </span>
-                              </TooltipTrigger>
-                              {!canCancel ? (
-                                <TooltipContent>
-                                  {t('readOnlyCancelTooltip')}
-                                </TooltipContent>
-                              ) : null}
-                            </Tooltip>
-                          </>
-                        );
-                      })()
-                    ) : null}
-                  </div>
-                </TableCell>
-              </TableRow>
-            );
-          })}
-        </TableBody>
-      </Table>
-    </div>
-  );
-}
-
-function PreviewWorkspacePanel({
-  job,
-  previewSnapshot,
-  datasets,
-  selectedDatasetName,
-  previewPage,
-  loading,
-  monacoTheme,
-  onSelectDataset,
-  onChangePage,
-}: {
-  job: SyncJobInstance | null;
-  previewSnapshot: SyncPreviewSnapshot | null;
-  datasets: SyncPreviewDataset[];
-  selectedDatasetName: string;
-  previewPage: number;
-  loading?: boolean;
-  monacoTheme: string;
-  onSelectDataset: (name: string) => void;
-  onChangePage: (page: number) => void;
-}) {
-  const t = useTranslations('workbenchStudio');
-  const [previewScriptOpen, setPreviewScriptOpen] = useState(false);
-  if (!job) {
-    return (
-      <div className='text-sm text-muted-foreground'>{t('noPreviewJobs')}</div>
-    );
-  }
-  const activeDataset =
-    datasets.find((dataset) => dataset.name === selectedDatasetName) ||
-    datasets[0] ||
-    null;
-  const columns = activeDataset?.columns || [];
-  const rows = (activeDataset?.rows || []) as Array<Record<string, unknown>>;
-  const previewContent =
-    typeof previewSnapshot?.injected_script === 'string' &&
-    previewSnapshot.injected_script
-      ? previewSnapshot.injected_script
-      : typeof job.result_preview?.preview_content === 'string'
-        ? job.result_preview.preview_content
-        : '';
-  const previewContentFormat =
-    typeof previewSnapshot?.content_format === 'string' &&
-    previewSnapshot.content_format
-      ? previewSnapshot.content_format
-      : typeof job.result_preview?.content_format === 'string'
-        ? job.result_preview.content_format
-        : 'hocon';
-  const previewEmptyMessage =
-    previewSnapshot?.empty_reason === 'preview_not_ready'
-      ? t('preparingPreview')
-      : t('noPreviewDataFallback');
-  const pageSize = Math.max(activeDataset?.page_size || 20, 1);
-  const total = Math.max(activeDataset?.total || rows.length, rows.length);
-  const totalPages = Math.max(Math.ceil(total / pageSize), 1);
-  const currentPage = Math.min(Math.max(previewPage, 1), totalPages);
-  const pageRows = rows.slice(
-    (currentPage - 1) * pageSize,
-    currentPage * pageSize,
-  );
-  return (
-    <div className='grid h-full min-h-0 gap-3 lg:grid-cols-[220px_minmax(0,1fr)]'>
-      <div className='flex min-h-0 flex-col rounded-lg border border-border/50 bg-muted/10 p-3'>
-        <div className='mb-3 shrink-0 text-sm font-medium'>
-          {t('tableTabs')}
-        </div>
-        <ScrollArea className='min-h-0 flex-1'>
-          <div className='space-y-2 pr-2'>
-            {datasets.length > 0 ? (
-              datasets.map((dataset) => (
-                <Tooltip key={dataset.name}>
-                  <TooltipTrigger asChild>
-                    <button
-                      type='button'
-                      title={dataset.name}
-                      className={cn(
-                        'flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm',
-                        dataset.name === activeDataset?.name
-                          ? 'border-primary/30 bg-primary/5'
-                          : 'border-border/50 bg-background/60',
-                      )}
-                      onClick={() => onSelectDataset(dataset.name)}
-                    >
-                      <span className='min-w-0 truncate'>{dataset.name}</span>
-                      <Badge variant='outline'>
-                        {dataset.total ?? (dataset.rows || []).length}
-                      </Badge>
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent
-                    side='right'
-                    className='max-w-[480px] break-all'
-                  >
-                    {dataset.name}
-                  </TooltipContent>
-                </Tooltip>
-              ))
-            ) : (
-              <div className='rounded-md border border-border/50 bg-background/60 px-3 py-2 text-sm text-muted-foreground'>
-                {t('noDatasets')}
-              </div>
-            )}
-          </div>
-        </ScrollArea>
-      </div>
-      <div className='flex min-h-0 flex-col rounded-lg border border-border/50 bg-background/70'>
-        <div className='flex items-center justify-between border-b border-border/50 px-3 py-2 text-sm font-medium'>
-          <span>{t('dataTable')}</span>
-          <div className='flex items-center gap-2 text-xs text-muted-foreground'>
-            {previewContent ? (
-              <Button
-                size='sm'
-                variant='outline'
-                className='h-7 px-2 text-xs'
-                onClick={() => setPreviewScriptOpen(true)}
-              >
-                {t('injectedScript')}
-              </Button>
-            ) : null}
-            <Button
-              size='sm'
-              variant='outline'
-              className='h-7 px-2 text-xs'
-              onClick={() => onChangePage(Math.max(currentPage - 1, 1))}
-              disabled={currentPage <= 1}
-            >
-              {t('prevPage')}
-            </Button>
-            <span>
-              {currentPage} / {totalPages}
-            </span>
-            <Button
-              size='sm'
-              variant='outline'
-              className='h-7 px-2 text-xs'
-              onClick={() =>
-                onChangePage(Math.min(currentPage + 1, totalPages))
-              }
-              disabled={currentPage >= totalPages}
-            >
-              {t('nextPage')}
-            </Button>
-          </div>
-        </div>
-        {loading ? (
-          <div className='flex min-h-0 flex-1 items-center justify-center'>
-            <div className='flex items-center gap-2 text-sm text-muted-foreground'>
-              <Loader2 className='size-4 animate-spin' />
-              <span>{t('preparingPreview')}</span>
-            </div>
-          </div>
-        ) : columns.length > 0 ? (
-          <div className='min-h-0 flex-1 overflow-auto'>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  {columns.map((column) => (
-                    <TableHead key={column}>{column}</TableHead>
-                  ))}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {pageRows.length > 0 ? (
-                  pageRows.map((row, index) => (
-                    <TableRow key={index}>
-                      {columns.map((column) => (
-                        <TableCell key={`${index}-${column}`}>
-                          {column === 'RowKind' ? (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Badge
-                                  variant='outline'
-                                  className={cn(
-                                    'max-w-full truncate rounded-sm',
-                                    getPreviewRowKindBadgeClass(
-                                      formatCellValue(row[column]),
-                                    ),
-                                  )}
-                                >
-                                  {formatCellValue(row[column])}
-                                </Badge>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                {formatCellValue(row[column])}
-                              </TooltipContent>
-                            </Tooltip>
-                          ) : (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span className='block truncate'>
-                                  {formatCellValue(row[column])}
-                                </span>
-                              </TooltipTrigger>
-                              <TooltipContent className='max-w-[480px] break-all'>
-                                {formatCellValue(row[column])}
-                              </TooltipContent>
-                            </Tooltip>
-                          )}
-                        </TableCell>
-                      ))}
-                    </TableRow>
-                  ))
-                ) : (
-                  <TableRow>
-                    <TableCell
-                      colSpan={columns.length}
-                      className='text-center text-muted-foreground'
-                    >
-                      {t('noPreviewDataFallback')}
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
-        ) : (
-          <div className='flex min-h-0 flex-1 items-center justify-center p-3 text-sm text-muted-foreground'>
-            {previewEmptyMessage}
-          </div>
-        )}
-      </div>
-      <Dialog open={previewScriptOpen} onOpenChange={setPreviewScriptOpen}>
-        <DialogContent className='flex h-[86vh] w-[94vw] max-w-[94vw] flex-col overflow-hidden sm:max-w-[1380px]'>
-          <DialogHeader>
-            <DialogTitle>{t('injectedScript')}</DialogTitle>
-            <DialogDescription>
-              {previewContentFormat.toUpperCase()}
-            </DialogDescription>
-          </DialogHeader>
-          <div className='min-h-0 flex-1 overflow-hidden rounded-md border border-border/50'>
-            <MonacoEditor
-              height='100%'
-              language={previewContentFormat === 'json' ? 'json' : 'ini'}
-              theme={monacoTheme}
-              value={previewContent}
-              options={{
-                readOnly: true,
-                minimap: {enabled: false},
-                automaticLayout: true,
-                wordWrap: 'on',
-                scrollBeyondLastLine: false,
-                fontSize: 13,
-                renderLineHighlight: 'all',
-                padding: {top: 14, bottom: 14},
-              }}
-            />
-          </div>
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
-}
-
-function CheckpointWorkspacePanel({
-  job,
-  checkpointSnapshot,
-  loading,
-  checkpointFiles,
-  checkpointFilesLoading,
-  onInspectCheckpointFile,
-  inspectLoadingPath,
-  onRefresh,
-}: {
-  job: SyncJobInstance | null;
-  checkpointSnapshot: SyncCheckpointSnapshot | null;
-  loading?: boolean;
-  checkpointFiles: RuntimeStorageListItem[];
-  checkpointFilesLoading?: boolean;
-  onInspectCheckpointFile: (path: string) => void;
-  inspectLoadingPath?: string | null;
-  onRefresh: () => void;
-}) {
-  const t = useTranslations('workbenchStudio');
-  const checkpointFilesByID = useMemo(() => {
-    const mapping = new Map<string, RuntimeStorageListItem>();
-    checkpointFiles.forEach((item: RuntimeStorageListItem) => {
-      const identity = extractCheckpointFileIdentity(item.name || item.path);
-      if (!identity) {
-        return;
-      }
-      const key = `${identity.pipelineId}:${identity.checkpointId}`;
-      if (!mapping.has(key)) {
-        mapping.set(key, item);
-      }
-    });
-    return mapping;
-  }, [checkpointFiles]);
-  if (!job) {
-    return (
-      <div className='text-sm text-muted-foreground'>
-        {t('noCheckpointJob')}
-      </div>
-    );
-  }
-  const pipelines = checkpointSnapshot?.overview?.pipelines || [];
-  const history = checkpointSnapshot?.history || [];
-  return (
-    <div className='flex h-full min-h-0 flex-col gap-3'>
-      {loading ? (
-        <div className='flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground'>
-          <Loader2 className='mr-2 size-4 animate-spin' />
-          {t('loadingCheckpoint')}
-        </div>
-      ) : checkpointSnapshot?.empty_reason ? (
-        <div className='flex min-h-0 flex-1 items-center justify-center rounded-lg border border-dashed border-border/60 bg-muted/10 p-4 text-sm text-muted-foreground'>
-          {checkpointSnapshot.message || t('checkpointEmpty')}
-        </div>
-      ) : (
-        <div className='flex min-h-0 flex-1 flex-col gap-3 overflow-hidden'>
-          <div className='grid min-h-0 gap-3 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]'>
-            <div className='flex min-h-0 flex-col overflow-hidden rounded-lg border border-border/50 bg-background/70'>
-              <div className='flex items-center justify-between border-b border-border/50 px-3 py-2 text-sm font-medium'>
-                <span>{t('checkpointOverview')}</span>
-                <Button
-                  size='icon'
-                  variant='ghost'
-                  className='size-7'
-                  onClick={onRefresh}
-                >
-                  <RefreshCw className='size-3.5' />
-                </Button>
-              </div>
-              <div className='min-h-0 flex-1 overflow-auto'>
-                <Table>
-                  <TableHeader className='sticky top-0 z-10 bg-background'>
-                    <TableRow>
-                      <TableHead>{t('pipeline')}</TableHead>
-                      <TableHead>{t('triggered')}</TableHead>
-                      <TableHead>{t('completed')}</TableHead>
-                      <TableHead>{t('failed')}</TableHead>
-                      <TableHead>{t('inProgress')}</TableHead>
-                      <TableHead>{t('restored')}</TableHead>
-                      <TableHead>{t('latestCompleted')}</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {pipelines.length > 0 ? (
-                      pipelines.map((pipeline) => (
-                        <TableRow key={pipeline.pipelineId}>
-                          <TableCell>{pipeline.pipelineId}</TableCell>
-                          <TableCell>
-                            {pipeline.counts?.triggered ?? '-'}
-                          </TableCell>
-                          <TableCell>
-                            {pipeline.counts?.completed ?? '-'}
-                          </TableCell>
-                          <TableCell>
-                            {pipeline.counts?.failed ?? '-'}
-                          </TableCell>
-                          <TableCell>
-                            {pipeline.counts?.inProgress ?? '-'}
-                          </TableCell>
-                          <TableCell>
-                            {pipeline.counts?.restored ?? '-'}
-                          </TableCell>
-                          <TableCell>
-                            {pipeline.latestCompleted?.checkpointId
-                              ? `#${pipeline.latestCompleted.checkpointId}`
-                              : '-'}
-                          </TableCell>
-                        </TableRow>
-                      ))
-                    ) : (
-                      <TableRow>
-                        <TableCell
-                          colSpan={7}
-                          className='text-center text-muted-foreground'
-                        >
-                          {t('checkpointEmpty')}
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
-            </div>
-
-            <div className='flex min-h-0 flex-col overflow-hidden rounded-lg border border-border/50 bg-background/70'>
-              <div className='border-b border-border/50 px-3 py-2 text-sm font-medium'>
-                {t('checkpointHistory')}
-              </div>
-              <div className='min-h-0 flex-1 overflow-auto'>
-                <Table>
-                  <TableHeader className='sticky top-0 z-10 bg-background'>
-                    <TableRow>
-                      <TableHead>{t('pipeline')}</TableHead>
-                      <TableHead>{t('checkpointId')}</TableHead>
-                      <TableHead>{t('checkpointStatus')}</TableHead>
-                      <TableHead>{t('durationMillis')}</TableHead>
-                      <TableHead>{t('stateSize')}</TableHead>
-                      <TableHead className='text-right'>
-                        {t('actions')}
-                      </TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {history.length > 0 ? (
-                      history.map((item, index) => {
-                        const checkpointId = item.checkpoint?.checkpointId;
-                        const checkpointKey =
-                          checkpointId !== undefined
-                            ? `${item.pipelineId}:${checkpointId}`
-                            : '';
-                        const matchedFile =
-                          checkpointKey !== ''
-                            ? checkpointFilesByID.get(checkpointKey)
-                            : undefined;
-                        return (
-                          <TableRow
-                            key={`${item.pipelineId}-${item.checkpoint?.checkpointId || index}`}
-                          >
-                            <TableCell>{item.pipelineId}</TableCell>
-                            <TableCell>
-                              {checkpointId ? `#${checkpointId}` : '-'}
-                            </TableCell>
-                            <TableCell>
-                              {item.checkpoint?.status ? (
-                                <Badge
-                                  variant='outline'
-                                  className={cn(
-                                    'rounded-sm border px-2 py-0.5 text-[11px]',
-                                    getCheckpointStatusBadgeClass(
-                                      item.checkpoint.status,
-                                    ),
-                                  )}
-                                >
-                                  {item.checkpoint.status}
-                                </Badge>
-                              ) : (
-                                '-'
-                              )}
-                            </TableCell>
-                            <TableCell>
-                              {item.checkpoint?.durationMillis ?? '-'}
-                            </TableCell>
-                            <TableCell>
-                              {item.checkpoint?.stateSize ?? '-'}
-                            </TableCell>
-                            <TableCell className='text-right'>
-                              <Button
-                                size='sm'
-                                variant='outline'
-                                className='h-8 text-xs'
-                                disabled={
-                                  !matchedFile?.path ||
-                                  inspectLoadingPath === matchedFile.path
-                                }
-                                onClick={() =>
-                                  matchedFile?.path &&
-                                  onInspectCheckpointFile(matchedFile.path)
-                                }
-                              >
-                                {inspectLoadingPath === matchedFile?.path ? (
-                                  <Loader2 className='mr-2 size-3.5 animate-spin' />
-                                ) : (
-                                  <Eye className='mr-2 size-3.5' />
-                                )}
-                                {t('viewDetails')}
-                              </Button>
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })
-                    ) : (
-                      <TableRow>
-                        <TableCell
-                          colSpan={6}
-                          className='text-center text-muted-foreground'
-                        >
-                          {t('checkpointHistoryEmpty')}
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function CheckpointDetailsSummary({
-  children,
-  className,
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <summary
-      className={cn(
-        'flex cursor-pointer list-none items-center gap-2 px-3 py-2 marker:hidden',
-        className,
-      )}
-    >
-      <span className='inline-flex size-4 shrink-0 items-center justify-center rounded-sm border border-border/60 text-muted-foreground'>
-        <Plus className='size-3 group-open:hidden' />
-        <Minus className='hidden size-3 group-open:block' />
-      </span>
-      <div className='min-w-0 flex-1'>{children}</div>
-    </summary>
-  );
-}
-
-function CheckpointInspectSectionShell({
-  title,
-  children,
-  collapsible = false,
-  defaultOpen = true,
-}: {
-  title: string;
-  children: ReactNode;
-  collapsible?: boolean;
-  defaultOpen?: boolean;
-}) {
-  if (collapsible) {
-    return (
-      <details
-        open={defaultOpen}
-        className='group rounded-lg border border-border/50 bg-background/80'
-      >
-        <CheckpointDetailsSummary className='border-b border-border/50 text-sm font-medium'>
-          <span>{title}</span>
-        </CheckpointDetailsSummary>
-        <div className='p-3'>{children}</div>
-      </details>
-    );
-  }
-  return (
-    <div className='rounded-lg border border-border/50 bg-background/80'>
-      <div className='border-b border-border/50 px-3 py-2 text-sm font-medium'>
-        {title}
-      </div>
-      <div className='p-3'>{children}</div>
-    </div>
-  );
-}
-
-function CheckpointInspectObjectSection({
-  title,
-  value,
-  defaultOpen = false,
-}: {
-  title: string;
-  value?: Record<string, unknown> | null;
-  defaultOpen?: boolean;
-}) {
-  const entries = value ? Object.entries(value) : [];
-  return (
-    <CheckpointInspectSectionShell
-      title={title}
-      collapsible
-      defaultOpen={defaultOpen}
-    >
-      {entries.length > 0 ? (
-        <Table>
-          <TableBody>
-            {entries.map(([key, entryValue]) => (
-              <TableRow key={key}>
-                <TableCell className='w-[220px] font-medium'>{key}</TableCell>
-                <TableCell>
-                  {renderCheckpointFieldValue(key, entryValue)}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      ) : (
-        <div className='text-sm text-muted-foreground'>-</div>
-      )}
-    </CheckpointInspectSectionShell>
-  );
-}
-
-function CheckpointInspectSourceHighlightsSection({
-  title,
-  result,
-  decodeStrategyLabel,
-  splitCountLabel,
-  warningsLabel,
-  unsupportedLabel,
-  currentOffsetLabel,
-  targetLabel,
-  progressLabel,
-}: {
-  title: string;
-  result: RuntimeStorageCheckpointInspectResult | null;
-  decodeStrategyLabel: string;
-  splitCountLabel: string;
-  warningsLabel: string;
-  unsupportedLabel: string;
-  currentOffsetLabel: string;
-  targetLabel: string;
-  progressLabel: string;
-}) {
-  const sourceStates = Array.isArray(result?.source_state_inspect?.sources)
-    ? result.source_state_inspect.sources
-    : [];
-  const unsupportedSources = Array.isArray(
-    result?.source_state_inspect?.unsupported_sources,
-  )
-    ? result.source_state_inspect.unsupported_sources
-    : [];
-  const warnings = Array.isArray(result?.source_state_inspect?.warnings)
-    ? result.source_state_inspect.warnings
-    : [];
-  const errorMessage = result?.source_state_inspect?.error_message?.trim();
-
-  if (
-    !errorMessage &&
-    sourceStates.length === 0 &&
-    unsupportedSources.length === 0
-  ) {
-    return null;
-  }
-
-  return (
-    <CheckpointInspectSectionShell title={title}>
-      <div className='space-y-4'>
-        {errorMessage ? (
-          <div className='rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300'>
-            {errorMessage}
-          </div>
-        ) : null}
-        {warnings.length > 0 ? (
-          <div className='rounded-lg border border-border/60 bg-muted/20 p-3'>
-            <div className='mb-2 text-xs font-medium text-muted-foreground'>
-              {warningsLabel}
-            </div>
-            <ul className='list-disc space-y-1 pl-5 text-sm'>
-              {warnings.map((warning, index) => (
-                <li key={`${warning}-${index}`}>{warning}</li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-        {sourceStates.length > 0 ? (
-          <div className='rounded-md border border-border/50 bg-background/70'>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Source</TableHead>
-                  <TableHead>Plugin</TableHead>
-                  <TableHead>{currentOffsetLabel}</TableHead>
-                  <TableHead>{targetLabel}</TableHead>
-                  <TableHead>{splitCountLabel}</TableHead>
-                  <TableHead>{progressLabel}</TableHead>
-                  <TableHead>{decodeStrategyLabel}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {sourceStates.map((item, index) => {
-                  const summary = summarizeCheckpointSourceState(item);
-                  return (
-                    <TableRow
-                      key={`${item.actionName || item.pluginName || index}`}
-                    >
-                      <TableCell className='font-medium'>
-                        <span className='break-all'>
-                          {String(item.actionName || item.pluginName || '-')}
-                        </span>
-                      </TableCell>
-                      <TableCell>{formatCellValue(item.pluginName)}</TableCell>
-                      <TableCell>
-                        {renderCheckpointFieldValue(
-                          'currentOffset',
-                          summary.offset,
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {renderCheckpointFieldValue(
-                          'sourceTarget',
-                          summary.target,
-                        )}
-                      </TableCell>
-                      <TableCell>{summary.splitCount}</TableCell>
-                      <TableCell>{summary.progress}</TableCell>
-                      <TableCell>
-                        {formatCellValue(item.decodeStrategy)}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </div>
-        ) : null}
-        {unsupportedSources.length > 0 ? (
-          <details className='group rounded-lg border border-border/60 bg-background/60'>
-            <CheckpointDetailsSummary className='py-3 text-sm font-medium'>
-              <span>{unsupportedLabel}</span>
-            </CheckpointDetailsSummary>
-            <div className='border-t border-border/50 p-3'>
-              <div className='space-y-3'>
-                {unsupportedSources.map((item, index) => (
-                  <CheckpointInspectMiniObject
-                    key={`${item.actionName || index}`}
-                    title={String(item.actionName || unsupportedLabel)}
-                    value={item}
-                  />
-                ))}
-              </div>
-            </div>
-          </details>
-        ) : null}
-      </div>
-    </CheckpointInspectSectionShell>
-  );
-}
-
-function CheckpointInspectOverviewSection({
-  result,
-  t,
-}: {
-  result: RuntimeStorageCheckpointInspectResult | null;
-  t: (key: string) => string;
-}) {
-  const summary = buildCheckpointInspectSummary(result);
-  return (
-    <CheckpointInspectSectionShell title={t('checkpointOverview')}>
-      <div className='rounded-md border border-border/50 bg-background/70'>
-        <div className='border-b border-border/50'>
-          <Table>
-            <TableBody>
-              <TableRow>
-                <TableCell className='w-[140px] text-muted-foreground'>
-                  {t('fileName')}
-                </TableCell>
-                <TableCell className='break-all font-medium'>
-                  {result?.file_name || '-'}
-                </TableCell>
-              </TableRow>
-            </TableBody>
-          </Table>
-        </div>
-        <div className='overflow-x-auto'>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                {summary.map((item) => (
-                  <TableHead key={item.label}>{item.label}</TableHead>
-                ))}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              <TableRow>
-                {summary.map((item) => (
-                  <TableCell key={item.label} className='font-medium'>
-                    {renderCheckpointFieldValue(item.key, item.value)}
-                  </TableCell>
-                ))}
-              </TableRow>
-            </TableBody>
-          </Table>
-        </div>
-      </div>
-    </CheckpointInspectSectionShell>
-  );
-}
-
-function CheckpointInspectRawDetailsSection({
-  result,
-  t,
-}: {
-  result: RuntimeStorageCheckpointInspectResult | null;
-  t: (key: string) => string;
-}) {
-  return (
-    <details className='group rounded-lg border border-border/60 bg-background/60'>
-      <CheckpointDetailsSummary className='px-4 py-3 text-sm font-medium'>
-        <span>{t('rawDetails')}</span>
-      </CheckpointDetailsSummary>
-      <div className='space-y-4 border-t border-border/50 p-4'>
-        <CheckpointInspectObjectSection
-          title={t('completedCheckpoint')}
-          value={result?.completed_checkpoint}
-          defaultOpen={false}
-        />
-        <CheckpointInspectObjectSection
-          title={t('pipelineState')}
-          value={result?.pipeline_state}
-          defaultOpen={false}
-        />
-      </div>
-    </details>
-  );
-}
-
-function CheckpointInspectPrimaryTableSection({
-  title,
-  result,
-  sourceStateTitle,
-  decodeStrategyLabel,
-  coordinatorLabel,
-  rawDetailsLabel,
-  unsupportedLabel,
-}: {
-  title: string;
-  result: RuntimeStorageCheckpointInspectResult | null;
-  sourceStateTitle: string;
-  decodeStrategyLabel: string;
-  coordinatorLabel: string;
-  rawDetailsLabel: string;
-  unsupportedLabel: string;
-}) {
-  const rows = buildCheckpointActionViewModels(result);
-  return (
-    <CheckpointInspectSectionShell title={title}>
-      {rows.length > 0 ? (
-        <div className='space-y-4'>
-          <div className='hidden rounded-md border border-border/50 bg-muted/10 px-3 py-2 text-xs font-medium text-muted-foreground xl:grid xl:grid-cols-[minmax(0,2fr)_100px_100px_110px_100px_160px_160px] xl:gap-3'>
-            <div>Action</div>
-            <div>Parallelism</div>
-            <div>Subtasks</div>
-            <div>Chunks</div>
-            <div>Acked</div>
-            <div>Latest Ack</div>
-            <div>{decodeStrategyLabel}</div>
-          </div>
-          {rows.map((row) => {
-            const actionState = row.actionState || {};
-            const statistics = row.taskStatistics || {};
-            const sourceSubtasks = Array.isArray(row.sourceState?.subtasks)
-              ? (row.sourceState?.subtasks as Record<string, unknown>[])
-              : [];
-            const subtaskRows = buildCheckpointSubtaskRows(row);
-            const subtaskSummaryRows =
-              summarizeCheckpointSubtaskMetrics(subtaskRows);
-
-            return (
-              <details
-                key={row.key}
-                className='group rounded-lg border border-border/60 bg-background/60'
-              >
-                <CheckpointDetailsSummary className='py-3'>
-                  <div className='grid gap-2 text-sm xl:grid-cols-[minmax(0,2fr)_100px_100px_110px_100px_160px_160px] xl:items-center xl:gap-3'>
-                    <div className='min-w-0 font-medium'>
-                      <span className='break-all'>{row.actionName || '-'}</span>
-                    </div>
-                    <div>{formatCellValue(actionState.parallelism)}</div>
-                    <div>{formatCellValue(actionState.subtaskCount)}</div>
-                    <div>
-                      {formatCellValue(actionState.coordinatorStateChunks)}
-                    </div>
-                    <div>
-                      {formatCellValue(statistics.acknowledgedSubtasks)}
-                    </div>
-                    <div>
-                      {renderCheckpointFieldValue(
-                        'latestAckTimestamp',
-                        statistics.latestAckTimestamp,
-                      )}
-                    </div>
-                    <div>
-                      {formatCellValue(row.sourceState?.decodeStrategy)}
-                    </div>
-                  </div>
-                </CheckpointDetailsSummary>
-                <div className='space-y-4 border-t border-border/50 p-3'>
-                  <CheckpointInspectInlineTable
-                    title='Subtasks Summary'
-                    columns={[
-                      {key: 'metric', label: 'Metric'},
-                      {key: 'Splits', label: 'Splits'},
-                      {key: 'Bytes', label: 'Bytes'},
-                      {key: 'Chunks', label: 'Chunks'},
-                      {key: 'State Size', label: 'State Size'},
-                    ]}
-                    rows={subtaskSummaryRows}
-                  />
-
-                  <CheckpointInspectInlineTable
-                    title='Subtasks'
-                    columns={[
-                      {key: 'subtaskIndex', label: 'Subtask'},
-                      {key: 'splitCount', label: 'Splits'},
-                      {key: 'bytes', label: 'Bytes'},
-                      {key: 'chunks', label: 'Chunks'},
-                      {key: 'stateSize', label: 'State Size'},
-                      {key: 'status', label: 'Status'},
-                      {key: 'ackTimestamp', label: 'Ack Timestamp'},
-                    ]}
-                    rows={subtaskRows as unknown as Record<string, unknown>[]}
-                  />
-
-                  {row.sourceState ? (
-                    <details className='group rounded-md border border-border/50 bg-muted/5'>
-                      <CheckpointDetailsSummary className='py-3 text-sm font-medium'>
-                        <span>
-                          {sourceStateTitle} / {rawDetailsLabel}
-                        </span>
-                      </CheckpointDetailsSummary>
-                      <div className='space-y-3 border-t border-border/50 p-3'>
-                        <CheckpointInspectMiniObject
-                          title={coordinatorLabel}
-                          value={
-                            row.sourceState.coordinator as
-                              | Record<string, unknown>
-                              | undefined
-                          }
-                        />
-                        {sourceSubtasks.map((subtask, subtaskIndex) => {
-                          const splits = Array.isArray(subtask.splits)
-                            ? (subtask.splits as Record<string, unknown>[])
-                            : [];
-                          return (
-                            <div
-                              key={`${row.key}-split-group-${subtaskIndex}`}
-                              className='rounded-md border border-border/50 p-3'
-                            >
-                              <div className='mb-3 text-sm font-medium'>
-                                Subtask {formatCellValue(subtask.subtaskIndex)}
-                              </div>
-                              <div className='space-y-2'>
-                                {splits.length > 0 ? (
-                                  splits.map((split, splitIndex) => (
-                                    <CheckpointInspectMiniObject
-                                      key={`${row.key}-split-${subtaskIndex}-${splitIndex}`}
-                                      title={`Split ${splitIndex + 1}`}
-                                      value={split}
-                                    />
-                                  ))
-                                ) : (
-                                  <div className='text-sm text-muted-foreground'>
-                                    -
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </details>
-                  ) : row.unsupportedSource ? (
-                    <CheckpointInspectMiniObject
-                      title={unsupportedLabel}
-                      value={row.unsupportedSource}
-                    />
-                  ) : null}
-                </div>
-              </details>
-            );
-          })}
-        </div>
-      ) : (
-        <div className='text-sm text-muted-foreground'>-</div>
-      )}
-    </CheckpointInspectSectionShell>
-  );
-}
-
-function CheckpointInspectMetricCard({
-  label,
-  value,
-  valueKey,
-}: {
-  label: string;
-  value: unknown;
-  valueKey?: string;
-}) {
-  return (
-    <div className='rounded-lg border border-border/60 bg-muted/10 p-3'>
-      <div className='text-xs text-muted-foreground'>{label}</div>
-      <div className='mt-1 break-all text-sm font-medium'>
-        {renderCheckpointFieldValue(valueKey || label, value)}
-      </div>
-    </div>
-  );
-}
-
-function CheckpointInspectInlineTable({
-  title,
-  columns,
-  rows,
-}: {
-  title: string;
-  columns: Array<{key: string; label: string}>;
-  rows: Record<string, unknown>[];
-}) {
-  return (
-    <div className='rounded-md border border-border/50'>
-      <div className='border-b border-border/50 px-3 py-2 text-xs font-medium text-muted-foreground'>
-        {title}
-      </div>
-      <Table>
-        <TableHeader>
-          <TableRow>
-            {columns.map((column) => (
-              <TableHead key={column.key}>{column.label}</TableHead>
-            ))}
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {rows.length > 0 ? (
-            rows.map((row, rowIndex) => (
-              <TableRow key={`${title}-${rowIndex}`}>
-                {columns.map((column) => (
-                  <TableCell key={column.key}>
-                    {renderCheckpointFieldValue(column.key, row[column.key])}
-                  </TableCell>
-                ))}
-              </TableRow>
-            ))
-          ) : (
-            <TableRow>
-              <TableCell
-                colSpan={columns.length}
-                className='text-center text-muted-foreground'
-              >
-                -
-              </TableCell>
-            </TableRow>
-          )}
-        </TableBody>
-      </Table>
-    </div>
-  );
-}
-
-function CheckpointInspectMiniObject({
-  title,
-  value,
-}: {
-  title: string;
-  value?: Record<string, unknown> | null;
-}) {
-  const entries = value ? Object.entries(value) : [];
-  return (
-    <div className='rounded-md border border-border/50 p-3'>
-      <div className='mb-2 text-xs font-medium text-muted-foreground'>
-        {title}
-      </div>
-      {entries.length > 0 ? (
-        <div className='grid gap-2 md:grid-cols-2'>
-          {entries.map(([key, entryValue]) => (
-            <div
-              key={key}
-              className='rounded border border-border/40 bg-muted/10 p-2'
-            >
-              <div className='text-[11px] text-muted-foreground'>{key}</div>
-              <div className='mt-1 break-all text-sm'>
-                {renderCheckpointFieldValue(key, entryValue)}
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className='text-sm text-muted-foreground'>-</div>
-      )}
-    </div>
-  );
-}
-
-function ValidationResultPanel({result}: {result: SyncValidateResult | null}) {
-  const t = useTranslations('workbenchStudio');
-  if (!result) {
-    return (
-      <div className='text-sm text-muted-foreground'>
-        {t('noValidationResults')}
-      </div>
-    );
-  }
-  const checks = result.checks || [];
-  return (
-    <div className='grid max-h-[70vh] gap-4 overflow-auto pr-1 lg:grid-cols-[minmax(0,1fr)_360px]'>
-      <div className='space-y-4'>
-        <div className='rounded-lg border border-border/60 bg-background/80 p-4'>
-          <div className='flex items-center justify-between gap-3'>
-            <div className='text-sm font-medium'>{t('conclusion')}</div>
-            <Badge
-              variant='outline'
-              className={cn(
-                'rounded-sm border px-2 py-0.5 text-[11px]',
-                result.valid
-                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300'
-                  : 'border-red-200 bg-red-50 text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300',
-              )}
-            >
-              {result.valid ? t('passed') : t('notPassed')}
-            </Badge>
-          </div>
-          <div className='mt-2 text-sm text-muted-foreground'>
-            {result.summary}
-          </div>
-        </div>
-
-        <div className='grid gap-4 lg:grid-cols-2'>
-          <div className='rounded-lg border border-border/60 bg-background/80 p-4'>
-            <div className='mb-3 text-sm font-medium'>{t('errors')}</div>
-            {result.errors.length > 0 ? (
-              <div className='space-y-2'>
-                {result.errors.map((item, index) => (
-                  <div
-                    key={`${item}-${index}`}
-                    className='rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive'
-                  >
-                    {item}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className='text-sm text-muted-foreground'>
-                {t('noErrors')}
-              </div>
-            )}
-          </div>
-          <div className='rounded-lg border border-border/60 bg-background/80 p-4'>
-            <div className='mb-3 text-sm font-medium'>{t('warnings')}</div>
-            {result.warnings.length > 0 ? (
-              <div className='space-y-2'>
-                {result.warnings.map((item, index) => (
-                  <div
-                    key={`${item}-${index}`}
-                    className='rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300'
-                  >
-                    {item}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className='text-sm text-muted-foreground'>
-                {t('noWarnings')}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <div className='rounded-lg border border-border/60 bg-background/80 p-4'>
-        <div className='mb-3 text-sm font-medium'>{t('connectionChecks')}</div>
-        {checks.length > 0 ? (
-          <div className='space-y-3'>
-            {checks.map((check, index) => (
-              <div
-                key={`${check.node_id}-${check.connector_type}-${index}`}
-                className='rounded-lg border border-border/50 bg-muted/15 p-3'
-              >
-                <div className='flex items-start justify-between gap-3'>
-                  <div className='space-y-1'>
-                    <div className='text-sm font-medium'>
-                      {check.connector_type}
-                    </div>
-                    <div className='text-xs text-muted-foreground'>
-                      {check.node_id}
-                    </div>
-                  </div>
-                  <Badge
-                    variant='outline'
-                    className={cn(
-                      'rounded-sm capitalize',
-                      check.status === 'success'
-                        ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300'
-                        : check.status === 'failed'
-                          ? 'border-red-200 bg-red-50 text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300'
-                          : 'border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-500/30 dark:bg-slate-500/10 dark:text-slate-300',
-                    )}
-                  >
-                    {check.status}
-                  </Badge>
-                </div>
-                {check.target ? (
-                  <div className='mt-2 break-all rounded-md bg-muted/30 px-2 py-1 font-mono text-[11px] text-muted-foreground'>
-                    {check.target}
-                  </div>
-                ) : null}
-                <div className='mt-2 text-sm text-muted-foreground'>
-                  {check.message}
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className='text-sm text-muted-foreground'>
-            {t('noConnectionChecks')}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function MetricsDialogContent({job}: {job: SyncJobInstance | null}) {
-  const t = useTranslations('workbenchStudio');
-  const rawMetrics = toObject(job?.result_preview?.metrics);
-  const metricGroups = buildMetricGroups(rawMetrics, t).filter(
-    (group) => group.key !== 'read' && group.key !== 'write',
-  );
-  const metricHighlights = buildMetricHighlights(rawMetrics, t);
-  const perTableRows = buildPerTableMetricRows(rawMetrics);
-  const pairedMetricRows = buildPairedMetricRows(rawMetrics);
-  const shouldExpandPerTableByDefault = pairedMetricRows.length === 0;
-  const [perTableExpanded, setPerTableExpanded] = useState(
-    shouldExpandPerTableByDefault,
-  );
-  useEffect(() => {
-    setPerTableExpanded(shouldExpandPerTableByDefault);
-  }, [job?.id, shouldExpandPerTableByDefault]);
-  if (!job) {
-    return (
-      <div className='text-sm text-muted-foreground'>{t('noMetrics')}</div>
-    );
-  }
-  if (metricGroups.length === 0) {
-    return (
-      <div className='text-sm text-muted-foreground'>
-        {t('noMetricsOutput')}
-      </div>
-    );
-  }
-  return (
-    <div className='space-y-4 overflow-auto pr-1'>
-      <div className='grid gap-3 md:grid-cols-2 xl:grid-cols-3'>
-        {metricHighlights.map((item) => (
-          <div
-            key={item.label}
-            className='rounded-lg border border-border/60 bg-background/80 p-4'
-          >
-            <div className='text-xs text-muted-foreground'>{item.label}</div>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div className='mt-2 text-2xl font-semibold tracking-tight'>
-                  {item.value}
-                </div>
-              </TooltipTrigger>
-              <TooltipContent>{item.raw}</TooltipContent>
-            </Tooltip>
-          </div>
-        ))}
-      </div>
-
-      {perTableRows.length > 0 ? (
-        <div className='overflow-hidden rounded-lg border border-border/60 bg-background/80'>
-          {pairedMetricRows.length > 0 ? (
-            <>
-              <div className='border-b border-border/50 bg-muted/20 px-3 py-2 text-sm font-medium'>
-                {t('metricMappedView')}
-              </div>
-              <div className='max-h-[240px] overflow-auto border-b border-border/50'>
-                <Table>
-                  <TableHeader className='sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/90'>
-                    <TableRow>
-                      <TableHead>{t('metricPairSourceNode')}</TableHead>
-                      <TableHead>{t('metricPairSourceTable')}</TableHead>
-                      <TableHead>{t('metricPairSinkNode')}</TableHead>
-                      <TableHead>{t('metricPairSinkTable')}</TableHead>
-                      <TableHead>{t('metricSourceRows')}</TableHead>
-                      <TableHead>{t('metricSourceBytes')}</TableHead>
-                      <TableHead>{t('metricSourceQps')}</TableHead>
-                      <TableHead>{t('metricSinkRows')}</TableHead>
-                      <TableHead>{t('metricSinkBytes')}</TableHead>
-                      <TableHead>{t('metricSinkQps')}</TableHead>
-                      <TableHead>{t('metricCommittedRows')}</TableHead>
-                      <TableHead>{t('metricCommittedBytes')}</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {pairedMetricRows.map((row) => (
-                      <TableRow key={row.key}>
-                        <TableCell className='text-xs font-medium'>
-                          {row.sourceNode}
-                        </TableCell>
-                        <TableCell className='font-mono text-xs'>
-                          {row.sourceTable}
-                        </TableCell>
-                        <TableCell className='text-xs font-medium'>
-                          {row.sinkNode}
-                        </TableCell>
-                        <TableCell className='font-mono text-xs'>
-                          {row.sinkTable}
-                        </TableCell>
-                        <TableCell className='text-xs text-emerald-700 dark:text-emerald-300'>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span>{row.sourceCount}</span>
-                            </TooltipTrigger>
-                            <TooltipContent>{row.sourceCount}</TooltipContent>
-                          </Tooltip>
-                        </TableCell>
-                        <TableCell className='text-xs text-emerald-700 dark:text-emerald-300'>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span>{row.sourceBytes}</span>
-                            </TooltipTrigger>
-                            <TooltipContent>{row.sourceBytes}</TooltipContent>
-                          </Tooltip>
-                        </TableCell>
-                        <TableCell className='text-xs text-emerald-700 dark:text-emerald-300'>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span>{row.sourceQps}</span>
-                            </TooltipTrigger>
-                            <TooltipContent>{row.sourceQps}</TooltipContent>
-                          </Tooltip>
-                        </TableCell>
-                        <TableCell className='text-xs text-blue-700 dark:text-blue-300'>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span>{row.sinkCount}</span>
-                            </TooltipTrigger>
-                            <TooltipContent>{row.sinkCount}</TooltipContent>
-                          </Tooltip>
-                        </TableCell>
-                        <TableCell className='text-xs text-blue-700 dark:text-blue-300'>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span>{row.sinkBytes}</span>
-                            </TooltipTrigger>
-                            <TooltipContent>{row.sinkBytes}</TooltipContent>
-                          </Tooltip>
-                        </TableCell>
-                        <TableCell className='text-xs text-blue-700 dark:text-blue-300'>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span>{row.sinkQps}</span>
-                            </TooltipTrigger>
-                            <TooltipContent>{row.sinkQps}</TooltipContent>
-                          </Tooltip>
-                        </TableCell>
-                        <TableCell className='text-xs text-amber-700 dark:text-amber-300'>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span>{row.committedCount}</span>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              {row.committedCount}
-                            </TooltipContent>
-                          </Tooltip>
-                        </TableCell>
-                        <TableCell className='text-xs text-amber-700 dark:text-amber-300'>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span>{row.committedBytes}</span>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              {row.committedBytes}
-                            </TooltipContent>
-                          </Tooltip>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            </>
-          ) : null}
-          <div className='flex items-center justify-between gap-2 border-b border-border/50 bg-muted/20 px-3 py-2'>
-            <div className='text-sm font-medium'>{t('metricPerTable')}</div>
-            {pairedMetricRows.length > 0 ? (
-              <button
-                type='button'
-                className='inline-flex items-center gap-1 rounded-md border border-border/60 bg-background px-2 py-1 text-xs text-muted-foreground hover:text-foreground'
-                onClick={() => setPerTableExpanded((value) => !value)}
-              >
-                {perTableExpanded ? (
-                  <ChevronDown className='size-3.5' />
-                ) : (
-                  <ChevronRight className='size-3.5' />
-                )}
-                <span>
-                  {perTableExpanded
-                    ? t('collapsePerTableMetrics')
-                    : t('expandPerTableMetrics')}
-                </span>
-              </button>
-            ) : null}
-          </div>
-          {perTableExpanded ? (
-            <>
-              <div className='flex flex-wrap gap-2 border-b border-border/50 bg-background px-3 py-2 text-xs'>
-                <div className='inline-flex items-center gap-2 rounded-md border border-border/50 px-2 py-1'>
-                  <span className='size-2 rounded-full bg-emerald-500' />
-                  <span>{t('metricLegendSource')}</span>
-                </div>
-                <div className='inline-flex items-center gap-2 rounded-md border border-border/50 px-2 py-1'>
-                  <span className='size-2 rounded-full bg-blue-500' />
-                  <span>{t('metricLegendWrite')}</span>
-                </div>
-                <div className='inline-flex items-center gap-2 rounded-md border border-border/50 px-2 py-1'>
-                  <span className='size-2 rounded-full bg-amber-500' />
-                  <span>{t('metricLegendCommitted')}</span>
-                </div>
-              </div>
-              <div className='max-h-[320px] overflow-auto'>
-                <Table>
-                  <TableHeader className='sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/90'>
-                    <TableRow>
-                      <TableHead>{t('node')}</TableHead>
-                      <TableHead>{t('table')}</TableHead>
-                      <TableHead>{t('metricSourceRows')}</TableHead>
-                      <TableHead>{t('metricSourceBytes')}</TableHead>
-                      <TableHead>{t('metricSourceQps')}</TableHead>
-                      <TableHead>{t('metricSinkRows')}</TableHead>
-                      <TableHead>{t('metricSinkBytes')}</TableHead>
-                      <TableHead>{t('metricSinkQps')}</TableHead>
-                      <TableHead>{t('metricCommittedRows')}</TableHead>
-                      <TableHead>{t('metricCommittedBytes')}</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {perTableRows.map((row) => (
-                      <TableRow
-                        key={row.rawTable}
-                        className={cn(
-                          row.rowTone === 'source' &&
-                            'bg-emerald-50/50 dark:bg-emerald-500/5',
-                          row.rowTone === 'sink' &&
-                            'bg-blue-50/50 dark:bg-blue-500/5',
-                        )}
-                      >
-                        <TableCell className='text-xs font-medium'>
-                          {row.nodeLabel}
-                        </TableCell>
-                        <TableCell className='font-mono text-xs'>
-                          {row.tablePath}
-                        </TableCell>
-                        <TableCell className='text-xs text-emerald-700 dark:text-emerald-300'>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span>{row.sourceCount}</span>
-                            </TooltipTrigger>
-                            <TooltipContent>{row.sourceCount}</TooltipContent>
-                          </Tooltip>
-                        </TableCell>
-                        <TableCell className='text-xs text-emerald-700 dark:text-emerald-300'>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span>{row.sourceBytes}</span>
-                            </TooltipTrigger>
-                            <TooltipContent>{row.sourceBytes}</TooltipContent>
-                          </Tooltip>
-                        </TableCell>
-                        <TableCell className='text-xs text-emerald-700 dark:text-emerald-300'>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span>{row.sourceQps}</span>
-                            </TooltipTrigger>
-                            <TooltipContent>{row.sourceQps}</TooltipContent>
-                          </Tooltip>
-                        </TableCell>
-                        <TableCell className='text-xs text-blue-700 dark:text-blue-300'>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span>{row.sinkCount}</span>
-                            </TooltipTrigger>
-                            <TooltipContent>{row.sinkCount}</TooltipContent>
-                          </Tooltip>
-                        </TableCell>
-                        <TableCell className='text-xs text-blue-700 dark:text-blue-300'>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span>{row.sinkBytes}</span>
-                            </TooltipTrigger>
-                            <TooltipContent>{row.sinkBytes}</TooltipContent>
-                          </Tooltip>
-                        </TableCell>
-                        <TableCell className='text-xs text-blue-700 dark:text-blue-300'>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span>{row.sinkQps}</span>
-                            </TooltipTrigger>
-                            <TooltipContent>{row.sinkQps}</TooltipContent>
-                          </Tooltip>
-                        </TableCell>
-                        <TableCell className='text-xs text-amber-700 dark:text-amber-300'>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span>{row.committedCount}</span>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              {row.committedCount}
-                            </TooltipContent>
-                          </Tooltip>
-                        </TableCell>
-                        <TableCell className='text-xs text-amber-700 dark:text-amber-300'>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span>{row.committedBytes}</span>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              {row.committedBytes}
-                            </TooltipContent>
-                          </Tooltip>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            </>
-          ) : (
-            <div className='px-3 py-3 text-sm text-muted-foreground'>
-              {t('perTableMetricsCollapsed')}
-            </div>
-          )}
-        </div>
-      ) : null}
-
-      <div className='grid gap-4 lg:grid-cols-2'>
-        {metricGroups.map((group) => (
-          <div
-            key={group.key}
-            className='overflow-hidden rounded-lg border border-border/60 bg-background/80'
-          >
-            <div className='border-b border-border/50 bg-muted/20 px-3 py-2 text-sm font-medium'>
-              {group.title}
-            </div>
-            <div className='max-h-[360px] overflow-auto'>
-              <Table>
-                <TableHeader className='sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/90'>
-                  <TableRow>
-                    <TableHead>{t('metric')}</TableHead>
-                    <TableHead>{t('value')}</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {group.items.map((item) => (
-                    <TableRow key={item.key}>
-                      <TableCell className='font-mono text-xs'>
-                        {item.key}
-                      </TableCell>
-                      <TableCell className='text-xs'>
-                        {formatMetricDisplayValue(item.value)}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function JobScriptDialogContent({
-  job,
-  monacoTheme,
-}: {
-  job: SyncJobInstance | null;
-  monacoTheme: string;
-}) {
-  const t = useTranslations('workbenchStudio');
-  const script = getJobSubmittedScript(job);
-  if (!job) {
-    return (
-      <div className='text-sm text-muted-foreground'>{t('noJobRuns')}</div>
-    );
-  }
-  if (!script) {
-    return (
-      <div className='rounded-md border border-dashed border-border/60 bg-muted/20 px-4 py-6 text-sm text-muted-foreground'>
-        {t('noActualExecutedScript')}
-      </div>
-    );
-  }
-  return (
-    <div className='flex min-h-0 flex-1 flex-col gap-3'>
-      <div className='flex items-center gap-2 text-xs text-muted-foreground'>
-        <Badge variant='outline'>#{job.id}</Badge>
-        <Badge variant='outline'>{script.format || 'hocon'}</Badge>
-        <span className='truncate'>
-          {job.platform_job_id || job.engine_job_id || '-'}
-        </span>
-      </div>
-      <div className='min-h-0 flex-1 overflow-hidden rounded-lg border border-border/60'>
-        <MonacoEditor
-          height='100%'
-          theme={monacoTheme}
-          language={script.format === 'json' ? 'json' : 'shell'}
-          value={script.content}
-          options={{
-            readOnly: true,
-            minimap: {enabled: false},
-            automaticLayout: true,
-            fontSize: 13,
-            scrollBeyondLastLine: false,
-            wordWrap: 'on',
-          }}
-        />
-      </div>
-    </div>
-  );
-}
-
-function VirtualizedLogViewer({
-  lines,
-  height,
-  emptyText,
-  emptyNode,
-}: {
-  lines: string[];
-  height: number;
-  emptyText: string;
-  emptyNode?: ReactNode;
-}) {
-  const rowHeight = 20;
-  const overscan = 24;
-  const [scrollTop, setScrollTop] = useState(0);
-  const startIndex = Math.max(Math.floor(scrollTop / rowHeight) - overscan, 0);
-  const visibleCount = Math.ceil(height / rowHeight) + overscan * 2;
-  const endIndex = Math.min(startIndex + visibleCount, lines.length);
-  const visibleLines = lines.slice(startIndex, endIndex);
-  if (lines.length === 0) {
-    if (emptyNode) {
-      return <>{emptyNode}</>;
-    }
-    return (
-      <div className='rounded-lg border border-border/60 bg-background/80 p-4 text-sm text-muted-foreground'>
-        {emptyText}
-      </div>
-    );
-  }
-  return (
-    <div
-      className='overflow-auto rounded-lg border border-border/60 bg-background/80 p-0 font-mono text-xs'
-      style={{height}}
-      onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
-    >
-      <div style={{height: lines.length * rowHeight, position: 'relative'}}>
-        <div
-          style={{
-            position: 'absolute',
-            top: startIndex * rowHeight,
-            left: 0,
-            right: 0,
-          }}
-          className='px-4 py-3'
-        >
-          {visibleLines.map((line, index) => (
-            <div
-              key={`${startIndex + index}-${line.slice(0, 24)}`}
-              className={cn('h-5 whitespace-pre', getLogLineClass(line))}
-            >
-              {line || ' '}
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}

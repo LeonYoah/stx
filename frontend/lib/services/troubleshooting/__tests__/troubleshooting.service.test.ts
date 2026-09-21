@@ -191,7 +191,7 @@ describe('TroubleshootingService', () => {
     // In English locale, switch to English version along with global language
     const localizedEn = getLocalizedMemory(presetEntry, 'en');
     expect(localizedEn?.title).toContain('MySQL Connection Closed');
-    expect(localizedEn?.author).toBe('stx Official Knowledge Base');
+    expect(localizedEn?.author).toBe('STX Preset Knowledge Base');
     expect(localizedEn?.solution).toContain('autoReconnect=true');
 
     // 用户自定义经验：中英文环境均保持用户填写的原样

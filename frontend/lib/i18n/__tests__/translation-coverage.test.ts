@@ -20,6 +20,7 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import ts from 'typescript';
 import {describe, expect, it} from 'vitest';
+import {createTranslator} from 'next-intl';
 import zhMessages from '../locales/zh.json';
 import enMessages from '../locales/en.json';
 
@@ -216,4 +217,37 @@ describe('translation coverage', () => {
 
     expect(mismatches).toEqual([]);
   });
+
+  it('所有文案能够被 next-intl 成功解析且无 MALFORMED_ARGUMENT 等语法错误', () => {
+    // 验证所有消息都能被 next-intl 成功解析
+    // Verify all messages can be successfully parsed by next-intl
+    const invalidMessages: string[] = [];
+
+    const tZh = createTranslator({
+      locale: 'zh',
+      messages: zhMessages,
+      onError(err) {
+        if (err.code === 'INVALID_MESSAGE') {
+          invalidMessages.push(`zh: ${err.message}`);
+        }
+      },
+    });
+    const tEn = createTranslator({
+      locale: 'en',
+      messages: enMessages,
+      onError(err) {
+        if (err.code === 'INVALID_MESSAGE') {
+          invalidMessages.push(`en: ${err.message}`);
+        }
+      },
+    });
+
+    for (const key of collectLeafKeys(zhMessages)) {
+      tZh(key as never);
+      tEn(key as never);
+    }
+
+    expect(invalidMessages).toEqual([]);
+  });
 });
+

@@ -23,6 +23,11 @@ import {useTranslations} from 'next-intl';
 import {toast} from 'sonner';
 import services from '@/lib/services';
 import {cn} from '@/lib/utils';
+import {
+  resolvePreferredClusterId,
+  rememberPreferredClusterId,
+  isSoleDefaultCluster,
+} from '@/lib/cluster-preference';
 import type {
   InspectionAutoPolicy,
   InspectionConditionItem,
@@ -154,6 +159,7 @@ export function AutoPolicyConfigPanel({
   clusterOptions,
 }: AutoPolicyConfigPanelProps) {
   const t = useTranslations('diagnosticsCenter.autoPolicies');
+  const tCluster = useTranslations('cluster');
   const commonT = useTranslations('common');
   const scheduleT = useTranslations('workbenchStudio');
   const [policies, setPolicies] = useState<InspectionAutoPolicy[]>([]);
@@ -256,7 +262,10 @@ export function AutoPolicyConfigPanel({
   const openCreateForm = useCallback(() => {
     setEditingPolicy(null);
     setFormName('');
-    setFormClusterId(0);
+    const preferred = resolvePreferredClusterId(
+      clusterOptions.map((item) => ({id: item.cluster_id})),
+    );
+    setFormClusterId(preferred ?? 0);
     setFormEnabled(true);
     setFormCooldown(30);
     setFormConditions([]);
@@ -269,7 +278,7 @@ export function AutoPolicyConfigPanel({
       selected_resources: [],
     });
     setFormOpen(true);
-  }, []);
+  }, [clusterOptions]);
 
   const openEditForm = useCallback((policy: InspectionAutoPolicy) => {
     setEditingPolicy(policy);
@@ -611,9 +620,13 @@ export function AutoPolicyConfigPanel({
                     <Label className='text-xs'>{t('clusterLabel')}</Label>
                     <Select
                       value={String(formClusterId)}
-                      onValueChange={(value) =>
-                        setFormClusterId(Number.parseInt(value, 10) || 0)
-                      }
+                      onValueChange={(value) => {
+                        const next = Number.parseInt(value, 10) || 0;
+                        setFormClusterId(next);
+                        if (next > 0) {
+                          rememberPreferredClusterId(next);
+                        }
+                      }}
                     >
                       <SelectTrigger className='h-8 text-xs'>
                         <SelectValue placeholder={t('clusterPlaceholder')} />
@@ -631,6 +644,14 @@ export function AutoPolicyConfigPanel({
                               name: cluster.cluster_name,
                               id: cluster.cluster_id,
                             })}
+                            {isSoleDefaultCluster(
+                              clusterOptions.map((item) => ({
+                                id: item.cluster_id,
+                              })),
+                              cluster.cluster_id,
+                            )
+                              ? ` · ${tCluster('defaultBadge')}`
+                              : ''}
                           </SelectItem>
                         ))}
                       </SelectContent>

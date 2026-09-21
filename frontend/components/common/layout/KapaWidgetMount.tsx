@@ -20,6 +20,7 @@
 import Image from 'next/image';
 import {useEffect, useState} from 'react';
 import {useTranslations} from 'next-intl';
+import {usePathname} from 'next/navigation';
 import {toast} from 'sonner';
 import {cn} from '@/lib/utils';
 import {
@@ -35,6 +36,7 @@ import {
  * 跟随主题的 Ask AI 启动器：挂载 Kapa（隐藏默认球）并展示 STX 风格悬浮按钮。
  */
 export function KapaWidgetMount() {
+  const pathname = usePathname();
   const t = useTranslations('plugin');
   const [allowed, setAllowed] = useState(false);
   const [opening, setOpening] = useState(false);
@@ -50,7 +52,9 @@ export function KapaWidgetMount() {
     });
   }, []);
 
-  if (!allowed) {
+  // 在工作台页面隐去右下角全局悬浮球，避免遮挡右侧属性栏与控制台
+  // Hide global floating FAB on workbench page to prevent blocking sidebar and console
+  if (!allowed || pathname === '/workbench') {
     return null;
   }
 

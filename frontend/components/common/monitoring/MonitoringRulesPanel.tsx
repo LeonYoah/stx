@@ -23,6 +23,11 @@ import {toast} from 'sonner';
 import services from '@/lib/services';
 import type {ClusterInfo} from '@/lib/services/cluster';
 import type {AlertRule, AlertSeverity} from '@/lib/services/monitoring';
+import {
+  resolvePreferredClusterId,
+  rememberPreferredClusterId,
+  isSoleDefaultCluster,
+} from '@/lib/cluster-preference';
 import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card';
 import {
   Select,
@@ -51,6 +56,7 @@ export function MonitoringRulesPanel({
   embedded = false,
 }: MonitoringRulesPanelProps) {
   const t = useTranslations('monitoringCenter');
+  const tCluster = useTranslations('cluster');
 
   const [clusters, setClusters] = useState<ClusterInfo[]>([]);
   const [selectedClusterId, setSelectedClusterId] = useState<string>('');
@@ -65,7 +71,12 @@ export function MonitoringRulesPanel({
       const list = data.clusters || [];
       setClusters(list);
       if (!selectedClusterId && list.length > 0) {
-        setSelectedClusterId(String(list[0].id));
+        const preferred = resolvePreferredClusterId(list, {
+          fallbackToFirst: true,
+        });
+        if (preferred != null) {
+          setSelectedClusterId(String(preferred));
+        }
       }
     } catch {
       setClusters([]);
@@ -156,7 +167,10 @@ export function MonitoringRulesPanel({
           <div className='w-full md:w-72'>
             <Select
               value={selectedClusterId}
-              onValueChange={setSelectedClusterId}
+              onValueChange={(value) => {
+                setSelectedClusterId(value);
+                rememberPreferredClusterId(value);
+              }}
             >
               <SelectTrigger>
                 <SelectValue placeholder={t('rules.clusterSelect')} />
@@ -165,6 +179,9 @@ export function MonitoringRulesPanel({
                 {clusters.map((cluster) => (
                   <SelectItem key={cluster.id} value={String(cluster.id)}>
                     {cluster.name}
+                    {isSoleDefaultCluster(clusters, cluster.id)
+                      ? ` · ${tCluster('defaultBadge')}`
+                      : ''}
                   </SelectItem>
                 ))}
               </SelectContent>

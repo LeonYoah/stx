@@ -129,6 +129,14 @@ function fixKapaModalLogoWidth(): void {
         height: 1.375rem !important;
         object-fit: contain !important;
       }
+      /* 彻底隐藏 Kapa 注入的官方默认悬浮球，避免在屏幕右侧遮挡工作台 */
+      /* Completely hide Kapa official default floating launcher to prevent blocking studio on the right */
+      #kapa-widget-container button,
+      .kapa-launcher-button,
+      [class*="kapa-launcher"],
+      [id*="kapa-launcher"] {
+        display: none !important;
+      }
     `;
     document.head.appendChild(style);
   }
@@ -263,6 +271,7 @@ export function ensureKapaWidget(): Promise<boolean> {
     script.setAttribute('data-project-color', KAPA_PROJECT_COLOR);
     script.setAttribute('data-project-logo', getKapaProjectLogo());
     script.setAttribute('data-modal-title', 'Ask AI');
+    script.setAttribute('data-button-hide', 'true');
     script.setAttribute('data-launcher-button-hidden', 'true');
     script.setAttribute('data-color-scheme-selector', KAPA_COLOR_SCHEME_SELECTOR);
     script.setAttribute('data-modal-override-open-id', KAPA_TRIGGER_ID);

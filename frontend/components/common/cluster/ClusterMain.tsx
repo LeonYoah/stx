@@ -420,6 +420,12 @@ export function ClusterMain() {
               <ClusterCard
                 key={cluster.id}
                 cluster={cluster}
+                isDefault={
+                  total === 1 &&
+                  !searchName &&
+                  filterStatus === 'all' &&
+                  filterDeploymentMode === 'all'
+                }
                 onEdit={handleEdit}
                 onDelete={handleDelete}
                 onRefresh={loadClusters}

@@ -60,6 +60,11 @@ import type {
   UpsertNotificationChannelRequest,
 } from '@/lib/services/monitoring';
 import {cn} from '@/lib/utils';
+import {
+  resolvePreferredClusterId,
+  rememberPreferredClusterId,
+  isSoleDefaultCluster,
+} from '@/lib/cluster-preference';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
 import {Checkbox} from '@/components/ui/checkbox';
@@ -1155,9 +1160,12 @@ export function MonitoringPolicyCenter() {
       if (prev.clusterId) {
         return prev;
       }
+      const preferred = resolvePreferredClusterId(clusters, {
+        fallbackToFirst: true,
+      });
       return {
         ...prev,
-        clusterId: String(clusters[0].id),
+        clusterId: preferred != null ? String(preferred) : '',
       };
     });
   }, [clusters]);
@@ -1184,11 +1192,14 @@ export function MonitoringPolicyCenter() {
     setEditingPolicyId(null);
     setForm((prev) => {
       const nextForm = createDefaultPolicyForm();
+      const preferred =
+        resolvePreferredClusterId(clusters, {fallbackToFirst: true}) ??
+        (clusters[0] ? clusters[0].id : null);
       return {
         ...nextForm,
         ...buildConditionDefaults(defaultTemplate),
         clusterId:
-          prev.clusterId || (clusters[0] ? String(clusters[0].id) : ''),
+          prev.clusterId || (preferred != null ? String(preferred) : ''),
         templateKey: defaultTemplate?.key || nextForm.templateKey,
         receiverUserIds: preferredDefaultReceiverUserIds,
       };
@@ -2165,9 +2176,12 @@ export function MonitoringPolicyCenter() {
                   <Label>{t('fields.cluster')}</Label>
                   <Select
                     value={form.clusterId}
-                    onValueChange={(value) =>
-                      setForm((prev) => ({...prev, clusterId: value}))
-                    }
+                    onValueChange={(value) => {
+                      setForm((prev) => ({...prev, clusterId: value}));
+                      if (value && value !== 'all') {
+                        rememberPreferredClusterId(value);
+                      }
+                    }}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder={t('clusterRequired')} />
@@ -2180,6 +2194,9 @@ export function MonitoringPolicyCenter() {
                           value={String(cluster.id)}
                         >
                           {cluster.name}
+                          {isSoleDefaultCluster(clusters, cluster.id)
+                            ? ` · ${rootT('defaultClusterBadge')}`
+                            : ''}
                         </SelectItem>
                       ))}
                     </SelectContent>

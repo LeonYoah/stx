@@ -35,6 +35,10 @@ import {
 } from 'lucide-react';
 import {toast} from 'sonner';
 import services from '@/lib/services';
+import {
+  rememberPreferredClusterId,
+  isSoleDefaultCluster,
+} from '@/lib/cluster-preference';
 import type {
   DiagnosticsTabKey,
   DiagnosticsWorkspaceBootstrapData,
@@ -71,6 +75,7 @@ function resolveTab(
 
 export function DiagnosticsWorkspace() {
   const t = useTranslations('diagnosticsCenter');
+  const tCluster = useTranslations('cluster');
   const tDock = useTranslations('dock');
   const commonT = useTranslations('common');
   const searchParams = useSearchParams();
@@ -152,6 +157,24 @@ export function DiagnosticsWorkspace() {
   useEffect(() => {
     void loadBootstrap();
   }, [loadBootstrap]);
+
+  // 仅有一个集群且 URL 未指定时，自动切到该默认集群。
+  // When only one cluster exists and URL has no cluster_id, auto-scope to it.
+  useEffect(() => {
+    if (!bootstrap) {
+      return;
+    }
+    if (searchParams.get('cluster_id')) {
+      return;
+    }
+    const options = bootstrap.cluster_options || [];
+    if (options.length !== 1) {
+      return;
+    }
+    const soleId = String(options[0].cluster_id);
+    rememberPreferredClusterId(soleId);
+    updateQuery({cluster_id: soleId});
+  }, [bootstrap, searchParams, updateQuery]);
 
   const selectedClusterName = useMemo(() => {
     if (!bootstrap || selectedClusterId === 'all') {
@@ -276,7 +299,10 @@ export function DiagnosticsWorkspace() {
             <Server className='h-3.5 w-3.5 text-muted-foreground' />
             <Select
               value={selectedClusterId}
-              onValueChange={(value) =>
+              onValueChange={(value) => {
+                if (value !== 'all') {
+                  rememberPreferredClusterId(value);
+                }
                 updateQuery({
                   cluster_id: value === 'all' ? null : value,
                   source: null,
@@ -285,8 +311,8 @@ export function DiagnosticsWorkspace() {
                   report_id: null,
                   finding_id: null,
                   task_id: null,
-                })
-              }
+                });
+              }}
             >
               <SelectTrigger className='h-8 text-xs w-[190px] bg-background'>
                 <SelectValue placeholder={t('filters.cluster')} />
@@ -299,6 +325,14 @@ export function DiagnosticsWorkspace() {
                     value={String(cluster.cluster_id)}
                   >
                     {cluster.cluster_name}
+                    {isSoleDefaultCluster(
+                      (bootstrap?.cluster_options || []).map((item) => ({
+                        id: item.cluster_id,
+                      })),
+                      cluster.cluster_id,
+                    )
+                      ? ` · ${tCluster('defaultBadge')}`
+                      : ''}
                   </SelectItem>
                 ))}
               </SelectContent>

@@ -98,7 +98,7 @@ func TestValidateRejectsRepeatedNonQueryInput(t *testing.T) {
 }
 
 func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
-	require.Len(t, Registry(), 172)
+	require.Len(t, Registry(), 180)
 
 	expected := map[string]struct{}{
 		"auth.user-info.get": {}, "admin.user.list": {}, "admin.user.get": {},
@@ -150,6 +150,23 @@ func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
 		}
 	}
 	require.Equal(t, expected, actual)
+}
+
+func TestRegistryContainsConfigWriteOperations(t *testing.T) {
+	byID := make(map[string]OperationSpec)
+	for _, spec := range Registry() {
+		byID[spec.ID] = spec
+	}
+	for _, operationID := range []string{"config.normalize", "config.update", "config.rollback", "config.promote", "config.sync", "config.push", "config.cluster.init", "config.cluster.sync-all"} {
+		spec, exists := byID[operationID]
+		require.True(t, exists, operationID)
+		require.False(t, spec.GeneratedCLI, operationID)
+		require.NotEmpty(t, spec.CommandPath, operationID)
+	}
+	require.Equal(t, RiskR0, byID["config.normalize"].Risk)
+	require.Equal(t, RiskR2, byID["config.promote"].Risk)
+	require.Equal(t, RiskR2, byID["config.push"].Risk)
+	require.Equal(t, RiskR2, byID["config.cluster.sync-all"].Risk)
 }
 
 func TestRegistryContainsMonitorConfigWriteOperation(t *testing.T) {

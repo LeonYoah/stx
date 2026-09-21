@@ -93,14 +93,14 @@ func (r *TroubleshootingRepository) List(ctx context.Context, query *Troubleshoo
 			dbQuery = dbQuery.Where("target_type = ?", targetType)
 		}
 		if fp := strings.TrimSpace(query.Fingerprint); fp != "" {
-			dbQuery = dbQuery.Where("fingerprint LIKE ? OR title LIKE ?", "%"+fp+"%", "%"+fp+"%")
+			dbQuery = dbQuery.Where("LOWER(fingerprint) LIKE LOWER(?) OR LOWER(title) LIKE LOWER(?)", "%"+fp+"%", "%"+fp+"%")
 		}
 		if query.ClusterID != nil && *query.ClusterID > 0 {
 			dbQuery = dbQuery.Where("cluster_id = ? OR cluster_id = 0", *query.ClusterID)
 		}
 		if kw := strings.TrimSpace(query.Keyword); kw != "" {
 			like := "%" + kw + "%"
-			dbQuery = dbQuery.Where("title LIKE ? OR error_summary LIKE ? OR tags LIKE ? OR solution LIKE ?", like, like, like, like)
+			dbQuery = dbQuery.Where("LOWER(title) LIKE LOWER(?) OR LOWER(error_summary) LIKE LOWER(?) OR LOWER(tags) LIKE LOWER(?) OR LOWER(solution) LIKE LOWER(?)", like, like, like, like)
 		}
 		if lang := strings.TrimSpace(query.Language); lang != "" {
 			langNorm := "zh"

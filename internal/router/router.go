@@ -941,6 +941,7 @@ func Serve() {
 			configService.SetPortMetadataUpdater(&configPortMetadataUpdaterAdapter{clusterRepo: clusterRepo})
 			clusterService.SetRuntimeConfigStore(configService)
 			configHandler := appconfig.NewHandler(configService)
+			configHandler.SetExecutionService(executionService)
 
 			// Inject config initializer into installer service for initializing configs after installation
 			// 将配置初始化器注入安装服务，用于安装后初始化配置

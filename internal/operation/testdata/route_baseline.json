@@ -6,9 +6,9 @@
     "swagger_path_count": 101,
     "swagger_operation_count": 118,
     "swagger_documented_routes": 118,
-    "registered_operations": 172,
+    "registered_operations": 180,
     "route_exceptions": 18,
-    "historical_gaps": 65
+    "historical_gaps": 57
   },
   "routes": [
     {
@@ -238,7 +238,7 @@
     {
       "method": "GET",
       "path": "/api/v1/clusters/:id/configs",
-      "source": "internal/apps/config/routers.go:29",
+      "source": "internal/apps/config/routers.go:30",
       "status": "operation",
       "operation_id": "config.cluster.list",
       "mode": "normal",
@@ -247,15 +247,19 @@
     {
       "method": "POST",
       "path": "/api/v1/clusters/:id/configs/init",
-      "source": "internal/apps/config/routers.go:30",
-      "status": "historical_gap",
+      "source": "internal/apps/config/routers.go:31",
+      "status": "operation",
+      "operation_id": "config.cluster.init",
+      "mode": "normal",
       "swagger": true
     },
     {
       "method": "POST",
       "path": "/api/v1/clusters/:id/configs/sync-all",
-      "source": "internal/apps/config/routers.go:31",
-      "status": "historical_gap",
+      "source": "internal/apps/config/routers.go:32",
+      "status": "operation",
+      "operation_id": "config.cluster.sync-all",
+      "mode": "normal",
       "swagger": true
     },
     {
@@ -626,7 +630,7 @@
     {
       "method": "GET",
       "path": "/api/v1/configs/:id",
-      "source": "internal/apps/config/routers.go:38",
+      "source": "internal/apps/config/routers.go:39",
       "status": "operation",
       "operation_id": "config.get",
       "mode": "normal",
@@ -635,42 +639,52 @@
     {
       "method": "PUT",
       "path": "/api/v1/configs/:id",
-      "source": "internal/apps/config/routers.go:39",
-      "status": "historical_gap",
+      "source": "internal/apps/config/routers.go:40",
+      "status": "operation",
+      "operation_id": "config.update",
+      "mode": "normal",
       "swagger": true
     },
     {
       "method": "POST",
       "path": "/api/v1/configs/:id/promote",
-      "source": "internal/apps/config/routers.go:42",
-      "status": "historical_gap",
+      "source": "internal/apps/config/routers.go:43",
+      "status": "operation",
+      "operation_id": "config.promote",
+      "mode": "normal",
       "swagger": true
     },
     {
       "method": "POST",
       "path": "/api/v1/configs/:id/push",
-      "source": "internal/apps/config/routers.go:44",
-      "status": "historical_gap",
+      "source": "internal/apps/config/routers.go:45",
+      "status": "operation",
+      "operation_id": "config.push",
+      "mode": "normal",
       "swagger": true
     },
     {
       "method": "POST",
       "path": "/api/v1/configs/:id/rollback",
-      "source": "internal/apps/config/routers.go:41",
-      "status": "historical_gap",
+      "source": "internal/apps/config/routers.go:42",
+      "status": "operation",
+      "operation_id": "config.rollback",
+      "mode": "normal",
       "swagger": true
     },
     {
       "method": "POST",
       "path": "/api/v1/configs/:id/sync",
-      "source": "internal/apps/config/routers.go:43",
-      "status": "historical_gap",
+      "source": "internal/apps/config/routers.go:44",
+      "status": "operation",
+      "operation_id": "config.sync",
+      "mode": "normal",
       "swagger": true
     },
     {
       "method": "GET",
       "path": "/api/v1/configs/:id/versions",
-      "source": "internal/apps/config/routers.go:40",
+      "source": "internal/apps/config/routers.go:41",
       "status": "operation",
       "operation_id": "config.version.list",
       "mode": "normal",
@@ -679,8 +693,10 @@
     {
       "method": "POST",
       "path": "/api/v1/configs/normalize",
-      "source": "internal/apps/config/routers.go:37",
-      "status": "historical_gap",
+      "source": "internal/apps/config/routers.go:38",
+      "status": "operation",
+      "operation_id": "config.normalize",
+      "mode": "normal",
       "swagger": true
     },
     {
@@ -1108,7 +1124,7 @@
     {
       "method": "POST",
       "path": "/api/v1/hosts/:id/install",
-      "source": "internal/router/router.go:995",
+      "source": "internal/router/router.go:996",
       "status": "operation",
       "operation_id": "host.install.start",
       "mode": "normal",
@@ -1126,7 +1142,7 @@
     {
       "method": "POST",
       "path": "/api/v1/hosts/:id/install/cancel",
-      "source": "internal/router/router.go:1007",
+      "source": "internal/router/router.go:1008",
       "status": "operation",
       "operation_id": "host.install.cancel",
       "mode": "normal",
@@ -1135,7 +1151,7 @@
     {
       "method": "POST",
       "path": "/api/v1/hosts/:id/install/retry",
-      "source": "internal/router/router.go:1003",
+      "source": "internal/router/router.go:1004",
       "status": "operation",
       "operation_id": "host.install.retry",
       "mode": "normal",
@@ -1144,7 +1160,7 @@
     {
       "method": "GET",
       "path": "/api/v1/hosts/:id/install/status",
-      "source": "internal/router/router.go:999",
+      "source": "internal/router/router.go:1000",
       "status": "operation",
       "operation_id": "host.install.status.get",
       "mode": "normal",
@@ -1153,7 +1169,7 @@
     {
       "method": "POST",
       "path": "/api/v1/hosts/:id/precheck",
-      "source": "internal/router/router.go:990",
+      "source": "internal/router/router.go:991",
       "status": "operation",
       "operation_id": "host.precheck",
       "mode": "normal",
@@ -1171,7 +1187,7 @@
     {
       "method": "POST",
       "path": "/api/v1/installer/runtime-storage/validate",
-      "source": "internal/router/router.go:991",
+      "source": "internal/router/router.go:992",
       "status": "historical_gap",
       "swagger": false
     },
@@ -1743,7 +1759,7 @@
     {
       "method": "POST",
       "path": "/api/v1/st-upgrade/execute",
-      "source": "internal/router/router.go:979",
+      "source": "internal/router/router.go:980",
       "status": "operation",
       "operation_id": "stupgrade.plan.execute",
       "mode": "normal",
@@ -1752,7 +1768,7 @@
     {
       "method": "POST",
       "path": "/api/v1/st-upgrade/plan",
-      "source": "internal/router/router.go:977",
+      "source": "internal/router/router.go:978",
       "status": "operation",
       "operation_id": "stupgrade.plan.create",
       "mode": "normal",
@@ -1761,7 +1777,7 @@
     {
       "method": "GET",
       "path": "/api/v1/st-upgrade/plans/:id",
-      "source": "internal/router/router.go:978",
+      "source": "internal/router/router.go:979",
       "status": "operation",
       "operation_id": "stupgrade.plan.get",
       "mode": "normal",
@@ -1770,7 +1786,7 @@
     {
       "method": "POST",
       "path": "/api/v1/st-upgrade/precheck",
-      "source": "internal/router/router.go:976",
+      "source": "internal/router/router.go:977",
       "status": "operation",
       "operation_id": "stupgrade.precheck",
       "mode": "normal",
@@ -1779,7 +1795,7 @@
     {
       "method": "GET",
       "path": "/api/v1/st-upgrade/tasks",
-      "source": "internal/router/router.go:980",
+      "source": "internal/router/router.go:981",
       "status": "operation",
       "operation_id": "stupgrade.task.list",
       "mode": "normal",
@@ -1788,7 +1804,7 @@
     {
       "method": "GET",
       "path": "/api/v1/st-upgrade/tasks/:id",
-      "source": "internal/router/router.go:981",
+      "source": "internal/router/router.go:982",
       "status": "operation",
       "operation_id": "stupgrade.task.get",
       "mode": "normal",
@@ -1797,7 +1813,7 @@
     {
       "method": "GET",
       "path": "/api/v1/st-upgrade/tasks/:id/events/stream",
-      "source": "internal/router/router.go:984",
+      "source": "internal/router/router.go:985",
       "status": "exception",
       "mode": "watch",
       "swagger": false
@@ -1805,7 +1821,7 @@
     {
       "method": "GET",
       "path": "/api/v1/st-upgrade/tasks/:id/logs",
-      "source": "internal/router/router.go:983",
+      "source": "internal/router/router.go:984",
       "status": "operation",
       "operation_id": "stupgrade.task.logs",
       "mode": "normal",
@@ -1814,7 +1830,7 @@
     {
       "method": "GET",
       "path": "/api/v1/st-upgrade/tasks/:id/steps",
-      "source": "internal/router/router.go:982",
+      "source": "internal/router/router.go:983",
       "status": "operation",
       "operation_id": "stupgrade.task.steps",
       "mode": "normal",

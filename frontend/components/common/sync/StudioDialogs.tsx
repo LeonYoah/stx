@@ -20,8 +20,19 @@
 import dynamic from 'next/dynamic';
 import {useEffect, useState, type ReactNode} from 'react';
 import {useTranslations} from 'next-intl';
-import {ChevronDown, ChevronRight} from 'lucide-react';
+import {
+  AlertCircle,
+  AlertTriangle,
+  Check,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  Copy,
+  Lightbulb,
+} from 'lucide-react';
+import {toast} from 'sonner';
 import {Badge} from '@/components/ui/badge';
+import {Button} from '@/components/ui/button';
 import {
   Table,
   TableBody,
@@ -42,11 +53,120 @@ import {
   getJobSubmittedScript,
   getLogLineClass,
   toObject,
+  type UserFacingErrorState,
 } from './sync-studio-utils';
 
 const MonacoEditor = dynamic(() => import('@monaco-editor/react'), {
   ssr: false,
 });
+
+/**
+ * 专用的高信噪比错误诊断视图，消除重复文案，提供清晰层级与排查建议
+ * High signal-to-noise error diagnostics view, eliminating repetitive text and providing actionable tips
+ */
+export function StudioErrorDiagnosticsView({
+  error,
+  className,
+}: {
+  error: UserFacingErrorState | null;
+  className?: string;
+}) {
+  const t = useTranslations('workbenchStudio');
+  const [copied, setCopied] = useState(false);
+  const [rawExpanded, setRawExpanded] = useState(false);
+
+  if (!error) {
+    return null;
+  }
+
+  const handleCopy = async () => {
+    const textToCopy = error.raw
+      ? `${error.title}\n${error.description}\n\n[Details]\n${error.raw}`
+      : `${error.title}\n${error.description}`;
+    try {
+      await navigator.clipboard.writeText(textToCopy);
+      setCopied(true);
+      toast.success(t('variableValueCopied') || '已复制错误信息');
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast.error('复制失败');
+    }
+  };
+
+  const getCategoryBadge = () => {
+    switch (error.category) {
+      case 'syntax':
+        return <Badge variant='outline' className='border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400'>语法解析异常</Badge>;
+      case 'schema':
+        return <Badge variant='outline' className='border-rose-500/30 bg-rose-500/10 text-rose-600 dark:text-rose-400'>库表结构不匹配</Badge>;
+      case 'network':
+        return <Badge variant='outline' className='border-orange-500/30 bg-orange-500/10 text-orange-600 dark:text-orange-400'>网络连接超时</Badge>;
+      case 'auth':
+        return <Badge variant='outline' className='border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400'>认证授权失败</Badge>;
+      case 'runtime':
+        return <Badge variant='outline' className='border-destructive/30 bg-destructive/10 text-destructive'>运行时错误</Badge>;
+      default:
+        return <Badge variant='outline' className='border-destructive/30 bg-destructive/10 text-destructive'>执行未通过</Badge>;
+    }
+  };
+
+  return (
+    <div className={cn('flex flex-col gap-3 rounded-lg border border-destructive/20 bg-destructive/[0.03] p-4', className)}>
+      {/* 状态与操作横条 */}
+      <div className='flex items-center justify-between gap-3'>
+        <div className='flex items-center gap-2'>
+          <AlertCircle className='size-4 text-destructive shrink-0' />
+          <span className='text-sm font-semibold text-foreground'>{error.title}</span>
+          {getCategoryBadge()}
+        </div>
+        <Button
+          size='sm'
+          variant='ghost'
+          className='h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground'
+          onClick={handleCopy}
+        >
+          {copied ? <Check className='size-3.5 text-emerald-500' /> : <Copy className='size-3.5' />}
+          <span>{copied ? '已复制' : '复制错误'}</span>
+        </Button>
+      </div>
+
+      {/* 核心错误描述 */}
+      <div className='rounded-md border border-destructive/15 bg-background/60 p-3 text-xs leading-relaxed text-foreground font-mono whitespace-pre-wrap break-all'>
+        {error.description}
+      </div>
+
+      {/* 智能排查建议 */}
+      {error.suggestion ? (
+        <div className='flex items-start gap-2 rounded-md border border-amber-500/20 bg-amber-500/[0.06] p-3 text-xs text-amber-700 dark:text-amber-300'>
+          <Lightbulb className='size-4 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5' />
+          <div className='flex-1 leading-relaxed'>
+            <span className='font-medium'>排查建议：</span>
+            {error.suggestion}
+          </div>
+        </div>
+      ) : null}
+
+      {/* 详细技术堆栈（支持折叠） */}
+      {error.raw && error.raw !== error.description ? (
+        <div className='mt-1 space-y-1.5'>
+          <button
+            type='button'
+            className='flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors'
+            onClick={() => setRawExpanded((prev) => !prev)}
+          >
+            {rawExpanded ? <ChevronDown className='size-3.5' /> : <ChevronRight className='size-3.5' />}
+            <span>{rawExpanded ? '收起完整调用堆栈' : '查看完整调用堆栈 (Stacktrace)'}</span>
+          </button>
+          {rawExpanded ? (
+            <pre className='max-h-60 overflow-auto rounded border border-border/50 bg-muted/40 p-3 font-mono text-[11px] leading-relaxed text-muted-foreground'>
+              {error.raw}
+            </pre>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 export function ValidationResultPanel({result}: {result: SyncValidateResult | null}) {
   const t = useTranslations('workbenchStudio');
@@ -58,12 +178,37 @@ export function ValidationResultPanel({result}: {result: SyncValidateResult | nu
     );
   }
   const checks = result.checks || [];
+  const hasChecks = checks.length > 0;
+
+  // 错误去重与智能过滤
+  // Error deduplication and smart filtering
+  const cleanSummary = (result.summary || '').replace(/^sync:\s*/, '').trim();
+  const filteredErrors = (result.errors || []).filter((item) => {
+    const cleanItem = item.replace(/^sync:\s*/, '').trim();
+    return cleanItem !== cleanSummary;
+  });
+
   return (
-    <div className='grid max-h-[70vh] gap-4 overflow-auto pr-1 lg:grid-cols-[minmax(0,1fr)_360px]'>
+    <div
+      className={cn(
+        'max-h-[70vh] overflow-auto pr-1',
+        hasChecks
+          ? 'grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]'
+          : 'flex flex-col gap-4 max-w-3xl mx-auto w-full',
+      )}
+    >
       <div className='space-y-4'>
+        {/* 校验结论卡片 */}
         <div className='rounded-lg border border-border/60 bg-background/80 p-4'>
           <div className='flex items-center justify-between gap-3'>
-            <div className='text-sm font-medium'>{t('conclusion')}</div>
+            <div className='flex items-center gap-2'>
+              {result.valid ? (
+                <CheckCircle2 className='size-4 text-emerald-500' />
+              ) : (
+                <AlertCircle className='size-4 text-destructive' />
+              )}
+              <span className='text-sm font-medium'>{t('conclusion')}</span>
+            </div>
             <Badge
               variant='outline'
               className={cn(
@@ -76,56 +221,79 @@ export function ValidationResultPanel({result}: {result: SyncValidateResult | nu
               {result.valid ? t('passed') : t('notPassed')}
             </Badge>
           </div>
-          <div className='mt-2 text-sm text-muted-foreground'>
-            {result.summary}
-          </div>
+          {cleanSummary ? (
+            <div className='mt-2.5 rounded-md bg-muted/30 p-2.5 font-mono text-xs leading-relaxed text-foreground break-all'>
+              {cleanSummary}
+            </div>
+          ) : null}
         </div>
 
-        <div className='grid gap-4 lg:grid-cols-2'>
-          <div className='rounded-lg border border-border/60 bg-background/80 p-4'>
-            <div className='mb-3 text-sm font-medium'>{t('errors')}</div>
-            {result.errors.length > 0 ? (
+        {/* 错误与警告列表 */}
+        <div
+          className={cn(
+            'grid gap-4',
+            hasChecks ? 'lg:grid-cols-2' : 'grid-cols-1',
+          )}
+        >
+          {result.errors.length > 0 ? (
+            <div className='rounded-lg border border-border/60 bg-background/80 p-4'>
+              <div className='mb-3 flex items-center justify-between'>
+                <div className='text-sm font-medium flex items-center gap-1.5'>
+                  <AlertCircle className='size-3.5 text-destructive' />
+                  <span>{t('errors')}</span>
+                </div>
+                <Badge variant='outline' className='text-[10px] text-destructive'>
+                  {result.errors.length}
+                </Badge>
+              </div>
               <div className='space-y-2'>
-                {result.errors.map((item, index) => (
+                {(filteredErrors.length > 0 ? filteredErrors : result.errors).map((item, index) => (
                   <div
                     key={`${item}-${index}`}
-                    className='rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive'
+                    className='rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs leading-relaxed text-destructive break-all font-mono'
                   >
-                    {item}
+                    {item.replace(/^sync:\s*/, '')}
                   </div>
                 ))}
               </div>
-            ) : (
-              <div className='text-sm text-muted-foreground'>
-                {t('noErrors')}
+            </div>
+          ) : null}
+
+          {result.warnings.length > 0 ? (
+            <div className='rounded-lg border border-border/60 bg-background/80 p-4'>
+              <div className='mb-3 flex items-center justify-between'>
+                <div className='text-sm font-medium flex items-center gap-1.5'>
+                  <AlertTriangle className='size-3.5 text-amber-500' />
+                  <span>{t('warnings')}</span>
+                </div>
+                <Badge variant='outline' className='text-[10px] text-amber-600 dark:text-amber-400'>
+                  {result.warnings.length}
+                </Badge>
               </div>
-            )}
-          </div>
-          <div className='rounded-lg border border-border/60 bg-background/80 p-4'>
-            <div className='mb-3 text-sm font-medium'>{t('warnings')}</div>
-            {result.warnings.length > 0 ? (
               <div className='space-y-2'>
                 {result.warnings.map((item, index) => (
                   <div
                     key={`${item}-${index}`}
-                    className='rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300'
+                    className='rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300 break-all'
                   >
                     {item}
                   </div>
                 ))}
               </div>
-            ) : (
-              <div className='text-sm text-muted-foreground'>
-                {t('noWarnings')}
-              </div>
-            )}
-          </div>
+            </div>
+          ) : null}
         </div>
       </div>
 
-      <div className='rounded-lg border border-border/60 bg-background/80 p-4'>
-        <div className='mb-3 text-sm font-medium'>{t('connectionChecks')}</div>
-        {checks.length > 0 ? (
+      {/* 连接检查结果仅在有数据时呈现 */}
+      {hasChecks ? (
+        <div className='rounded-lg border border-border/60 bg-background/80 p-4'>
+          <div className='mb-3 flex items-center justify-between'>
+            <div className='text-sm font-medium'>{t('connectionChecks')}</div>
+            <Badge variant='outline' className='text-[10px]'>
+              {checks.length}
+            </Badge>
+          </div>
           <div className='space-y-3'>
             {checks.map((check, index) => (
               <div
@@ -160,18 +328,14 @@ export function ValidationResultPanel({result}: {result: SyncValidateResult | nu
                     {check.target}
                   </div>
                 ) : null}
-                <div className='mt-2 text-sm text-muted-foreground'>
+                <div className='mt-2 text-xs text-muted-foreground'>
                   {check.message}
                 </div>
               </div>
             ))}
           </div>
-        ) : (
-          <div className='text-sm text-muted-foreground'>
-            {t('noConnectionChecks')}
-          </div>
-        )}
-      </div>
+        </div>
+      ) : null}
     </div>
   );
 }

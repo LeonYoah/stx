@@ -218,6 +218,7 @@ import {
 } from './CheckpointPanels';
 import {
   ValidationResultPanel,
+  StudioErrorDiagnosticsView,
   MetricsDialogContent,
   JobScriptDialogContent,
   VirtualizedLogViewer,
@@ -539,6 +540,10 @@ export function DataSyncStudio() {
   // 底部控制台全屏与还原状态
   // Full-screen and restore state for the bottom console
   const [isConsoleMaximized, setIsConsoleMaximized] = useState(false);
+
+  // 底部控制台高度档位：默认 260px，展开 390px
+  // Bottom console height mode: default 260px, expanded 390px
+  const [isConsoleExpanded, setIsConsoleExpanded] = useState(false);
 
   // 当前激活任务的面包屑路径列表
   // Breadcrumb segments for the currently active task
@@ -3880,7 +3885,9 @@ export function DataSyncStudio() {
           'grid min-h-0 flex-1 grid-cols-[240px_minmax(0,1fr)_360px] gap-2 transition-all duration-200',
           isConsoleMaximized
             ? 'grid-rows-[0px_minmax(0,1fr)]'
-            : 'grid-rows-[minmax(0,1fr)_260px]',
+            : isConsoleExpanded
+              ? 'grid-rows-[minmax(0,1fr)_390px]'
+              : 'grid-rows-[minmax(0,1fr)_260px]',
         )}
       >
         <Card className='col-start-1 row-start-1 row-span-2 gap-0 overflow-hidden border-border/60 bg-background/85 py-0 shadow-xs'>
@@ -4500,6 +4507,26 @@ export function DataSyncStudio() {
               {/* 右侧：全屏与还原切换 */}
               {/* Right: Full-screen and restore toggle */}
               <div className='flex items-center gap-1.5'>
+                {!isConsoleMaximized ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        size='icon'
+                        variant='ghost'
+                        className={cn(
+                          'size-6 text-muted-foreground hover:text-foreground',
+                          isConsoleExpanded && 'text-primary bg-primary/10',
+                        )}
+                        onClick={() => setIsConsoleExpanded((prev) => !prev)}
+                      >
+                        <ChevronsUpDown className='size-3.5' />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side='left'>
+                      {isConsoleExpanded ? '收缩控制台高度 (260px)' : '扩展控制台高度 (390px)'}
+                    </TooltipContent>
+                  </Tooltip>
+                ) : null}
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
@@ -4672,12 +4699,23 @@ export function DataSyncStudio() {
       </Dialog>
 
       <Dialog open={validationOpen} onOpenChange={setValidationOpen}>
-        <DialogContent className='w-[94vw] max-w-[94vw] sm:max-w-[1240px]'>
+        <DialogContent
+          className={cn(
+            'w-[94vw] max-w-[94vw] transition-all',
+            (validationResult?.checks?.length ?? 0) > 0
+              ? 'sm:max-w-[1100px]'
+              : 'sm:max-w-[680px]',
+          )}
+        >
           <DialogHeader>
             <DialogTitle>{validationTitle}</DialogTitle>
-            <DialogDescription>
-              {validationResult?.summary || t('validationSummaryFallback')}
-            </DialogDescription>
+            {validationResult?.summary &&
+            validationResult.summary.replace(/^sync:\s*/, '').trim() !==
+              validationTitle.trim() ? (
+              <DialogDescription className='truncate'>
+                {validationResult.summary.replace(/^sync:\s*/, '')}
+              </DialogDescription>
+            ) : null}
           </DialogHeader>
           <ValidationResultPanel result={validationResult} />
         </DialogContent>
@@ -4761,62 +4799,61 @@ export function DataSyncStudio() {
           }
         }}
       >
-        <DialogContent className='flex h-[88vh] w-[96vw] max-w-[96vw] flex-col overflow-hidden gap-0 p-0 sm:max-w-[1400px]'>
-          <DialogHeader className='px-6 pt-6'>
-            <DialogTitle>{t('dagPreview')}</DialogTitle>
-            <DialogDescription>
-              {dagError
-                ? t('dagParseErrorDescription')
-                : t('dagSummary', {
-                    nodes: dagNodes.length,
-                    edges: dagEdges.length,
-                  })}
-            </DialogDescription>
+        <DialogContent
+          className={cn(
+            'flex flex-col overflow-hidden transition-all',
+            dagError
+              ? 'h-auto max-h-[85vh] w-[94vw] max-w-2xl p-6'
+              : 'h-[88vh] w-[96vw] max-w-[96vw] gap-0 p-0 sm:max-w-[1400px]',
+          )}
+        >
+          <DialogHeader className={cn(dagError ? 'pb-2' : 'px-6 pt-6')}>
+            <DialogTitle>
+              {dagError ? 'DAG 生成未通过' : t('dagPreview')}
+            </DialogTitle>
+            {!dagError ? (
+              <DialogDescription>
+                {t('dagSummary', {
+                  nodes: dagNodes.length,
+                  edges: dagEdges.length,
+                })}
+              </DialogDescription>
+            ) : null}
           </DialogHeader>
-          <div className='min-h-0 flex-1 overflow-auto px-6 pb-6'>
-            <div className='space-y-4'>
-              {dagError ? (
-                <Card className='border-destructive/30 bg-destructive/5'>
-                  <CardHeader className='pb-3'>
-                    <CardTitle className='text-sm text-destructive'>
-                      {dagError.title}
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className='space-y-3 text-sm'>
-                    <div>{dagError.description}</div>
-                    {dagError.raw ? (
-                      <pre className='max-h-[360px] overflow-auto rounded-lg border border-destructive/20 bg-background/80 p-3 text-xs text-muted-foreground'>
-                        {dagError.raw}
-                      </pre>
-                    ) : null}
-                  </CardContent>
-                </Card>
-              ) : null}
-              {dagWarnings.length > 0 ? (
-                <div className='flex flex-wrap gap-2'>
-                  {dagWarnings.map((warning, index) => (
-                    <Badge key={`${warning}-${index}`} variant='outline'>
-                      {warning}
-                    </Badge>
-                  ))}
-                </div>
-              ) : null}
-              {!dagError && dagWebUIJob ? (
-                <WebUiDagPreview job={dagWebUIJob} />
-              ) : !dagError ? (
-                <Card>
-                  <CardHeader className='pb-3'>
-                    <CardTitle className='text-sm'>{t('rawDagJson')}</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <pre className='max-h-[560px] overflow-auto whitespace-pre-wrap break-all text-xs text-muted-foreground'>
-                      {JSON.stringify(dagResult, null, 2)}
-                    </pre>
-                  </CardContent>
-                </Card>
-              ) : null}
+
+          {dagError ? (
+            <div className='min-h-0 flex-1 overflow-auto pr-1'>
+              <StudioErrorDiagnosticsView error={dagError} />
             </div>
-          </div>
+          ) : (
+            <div className='min-h-0 flex-1 overflow-auto px-6 pb-6'>
+              <div className='space-y-4'>
+                {dagWarnings.length > 0 ? (
+                  <div className='flex flex-wrap gap-2'>
+                    {dagWarnings.map((warning, index) => (
+                      <Badge key={`${warning}-${index}`} variant='outline'>
+                        {warning}
+                      </Badge>
+                    ))}
+                  </div>
+                ) : null}
+                {dagWebUIJob ? (
+                  <WebUiDagPreview job={dagWebUIJob} />
+                ) : (
+                  <Card>
+                    <CardHeader className='pb-3'>
+                      <CardTitle className='text-sm'>{t('rawDagJson')}</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <pre className='max-h-[560px] overflow-auto whitespace-pre-wrap break-all text-xs text-muted-foreground'>
+                        {JSON.stringify(dagResult, null, 2)}
+                      </pre>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 
@@ -4879,17 +4916,29 @@ export function DataSyncStudio() {
                   {t('currentEditing')} / {editor.name || t('unnamedFile')}
                 </span>
               </div>
+              <div className='flex items-center gap-1.5 text-xs ml-auto'>
+                <span className='inline-flex items-center gap-1 rounded border border-emerald-500/30 bg-emerald-500/15 px-2 py-0.5 font-mono text-[11px] font-medium text-emerald-600 dark:text-emerald-400'>
+                  + 新增
+                </span>
+                <span className='inline-flex items-center gap-1 rounded border border-red-500/30 bg-red-500/15 px-2 py-0.5 font-mono text-[11px] font-medium text-red-600 dark:text-red-400'>
+                  - 删除
+                </span>
+              </div>
             </div>
           </div>
           <div className='mx-6 mb-6 min-h-0 flex-1 overflow-hidden rounded-lg border border-border/60'>
             <MonacoDiffEditor
               height='100%'
-              theme={monacoTheme}
+              theme={
+                resolvedTheme === 'light'
+                  ? 'sync-diff-light'
+                  : 'sync-diff-dark'
+              }
               language={
                 (compareVersion?.content_format_snapshot ||
                   editor.contentFormat) === 'json'
                   ? 'json'
-                  : 'shell'
+                  : 'sync-hocon'
               }
               original={compareVersion?.content_snapshot || ''}
               modified={editor.content || ''}
@@ -4900,6 +4949,9 @@ export function DataSyncStudio() {
                 minimap: {enabled: false},
                 fontSize: 13,
                 scrollBeyondLastLine: false,
+                diffAlgorithm: 'advanced',
+                renderIndicators: true,
+                ignoreTrimWhitespace: false,
               }}
             />
           </div>

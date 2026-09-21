@@ -17,7 +17,6 @@
 
 'use client';
 
-import {useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {
   AlertTriangle,
@@ -291,65 +290,85 @@ export function JobRunsPanel({
   }
   return (
     <div className='h-full overflow-auto rounded-lg border border-border/50 bg-background/70'>
-      <Table>
+      <Table className='min-w-[760px]'>
         <TableHeader>
-          <TableRow>
-            <TableHead>{t('task')}</TableHead>
-            <TableHead>{t('runMode')}</TableHead>
-            <TableHead>{t('status')}</TableHead>
-            <TableHead>{t('channel')}</TableHead>
-            <TableHead>{t('initiator')}</TableHead>
-            <TableHead>{t('startedAt')}</TableHead>
-            <TableHead>{t('finishedAt')}</TableHead>
-            <TableHead>{t('duration')}</TableHead>
-            <TableHead>{t('metrics')}</TableHead>
-            <TableHead className='text-right'>{t('actions')}</TableHead>
+          <TableRow className='hover:bg-transparent border-border/50'>
+            <TableHead className='h-8 py-1 px-2.5 text-xs'>{t('task')}</TableHead>
+            <TableHead className='h-8 py-1 px-2.5 text-xs'>{t('status')}</TableHead>
+            <TableHead className='h-8 py-1 px-2.5 text-xs'>模式 / 通道</TableHead>
+            <TableHead className='h-8 py-1 px-2.5 text-xs'>{t('initiator')}</TableHead>
+            <TableHead className='h-8 py-1 px-2.5 text-xs'>时序 / 耗时</TableHead>
+            <TableHead className='h-8 py-1 px-2.5 text-xs'>{t('metrics')}</TableHead>
+            <TableHead className='h-8 py-1 px-2.5 text-right text-xs'>{t('actions')}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {jobs.map((job) => {
             const summary = extractJobMetricSummary(job);
             const displayStatus = getDisplayJobLifecycleStatus(job);
+            const startedStr = formatJobDateTime(job.started_at);
+            const finishedStr = formatJobDateTime(job.finished_at);
+            const durationStr = formatJobDuration(job.started_at, job.finished_at);
+            // 提取开始时间中的时间部分（当天仅显示时分秒）
+            const timeOnly = startedStr.includes(' ') ? startedStr.split(' ')[1] : startedStr;
+
             return (
               <TableRow
                 key={job.id}
-                className={cn(selectedJobId === job.id ? 'bg-primary/5' : '')}
+                className={cn(
+                  'cursor-pointer transition-colors border-border/40 hover:bg-muted/40',
+                  selectedJobId === job.id ? 'bg-primary/5 font-medium' : '',
+                )}
                 onClick={() => onSelectJob(job.id)}
               >
-                <TableCell>
-                  <div className='font-medium'>#{job.id}</div>
-                  <div className='text-xs text-muted-foreground'>
-                    {job.platform_job_id || '-'}
+                {/* 任务 ID 与作业平台号紧凑行 */}
+                <TableCell className='py-1.5 px-2.5 whitespace-nowrap'>
+                  <div className='flex items-center gap-1.5'>
+                    <span className='font-semibold text-foreground text-xs'>#{job.id}</span>
+                    {job.platform_job_id ? (
+                      <span
+                        className='font-mono text-[10px] text-muted-foreground/70 max-w-[100px] truncate'
+                        title={job.platform_job_id}
+                      >
+                        {job.platform_job_id}
+                      </span>
+                    ) : null}
                   </div>
                 </TableCell>
-                <TableCell>
-                  <Badge variant='outline' className='rounded-sm text-[11px]'>
-                    {getRunModeLabel(job, t)}
-                  </Badge>
-                </TableCell>
-                <TableCell>
+
+                {/* 状态胶囊 */}
+                <TableCell className='py-1.5 px-2.5 whitespace-nowrap'>
                   <Badge
                     variant='outline'
                     className={cn(
-                      'rounded-sm border px-2 py-0.5 text-[11px]',
+                      'rounded-sm border px-2 py-0 text-[11px] leading-tight',
                       getJobStatusBadgeClass(displayStatus),
                     )}
                   >
                     {getJobStatusLabel(displayStatus)}
                   </Badge>
                 </TableCell>
-                <TableCell>
-                  <Badge variant='outline' className='rounded-sm text-[11px]'>
-                    {submitSpecExecutionMode(job.submit_spec) === 'local'
-                      ? 'Local Agent'
-                      : getEngineAPIMode(job) === 'v1'
-                        ? 'Legacy REST V1'
-                        : 'REST V2'}
-                  </Badge>
-                </TableCell>
-                <TableCell className='text-xs'>
+
+                {/* 模式与通道合并 */}
+                <TableCell className='py-1.5 px-2.5 whitespace-nowrap'>
                   <div className='flex items-center gap-1'>
-                    <span className='font-medium text-foreground'>
+                    <Badge variant='outline' className='rounded-sm text-[10px] px-1 py-0'>
+                      {getRunModeLabel(job, t)}
+                    </Badge>
+                    <span className='text-[10px] text-muted-foreground font-mono'>
+                      {submitSpecExecutionMode(job.submit_spec) === 'local'
+                        ? 'Local'
+                        : getEngineAPIMode(job) === 'v1'
+                          ? 'V1'
+                          : 'REST V2'}
+                    </span>
+                  </div>
+                </TableCell>
+
+                {/* 发起人 */}
+                <TableCell className='py-1.5 px-2.5 text-xs whitespace-nowrap'>
+                  <div className='flex items-center gap-1'>
+                    <span className='text-foreground text-[11px]'>
                       {job.created_by
                         ? workspaceUsers.find((u) => u.id === job.created_by)
                             ?.username || `User #${job.created_by}`
@@ -358,61 +377,79 @@ export function JobRunsPanel({
                     {currentUserId && job.created_by === currentUserId ? (
                       <Badge
                         variant='secondary'
-                        className='h-4 px-1 text-[10px] font-normal text-muted-foreground'
+                        className='h-3.5 px-1 text-[9px] font-normal text-muted-foreground'
                       >
                         {t('you')}
                       </Badge>
                     ) : null}
                   </div>
                 </TableCell>
-                <TableCell className='text-xs text-muted-foreground'>
-                  {formatJobDateTime(job.started_at)}
+
+                {/* 时序与耗时合并 */}
+                <TableCell className='py-1.5 px-2.5 whitespace-nowrap'>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className='flex items-center gap-1.5 cursor-default'>
+                        <span className='font-mono text-[11px] text-foreground/90' title={startedStr}>
+                          {timeOnly}
+                        </span>
+                        <Badge
+                          variant='secondary'
+                          className='h-4 rounded px-1 font-mono text-[10px] font-normal text-muted-foreground'
+                        >
+                          {durationStr}
+                        </Badge>
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent side='top' className='space-y-1 font-mono text-xs'>
+                      <div>开始时间: {startedStr}</div>
+                      <div>结束时间: {finishedStr}</div>
+                      <div>累计耗时: {durationStr}</div>
+                    </TooltipContent>
+                  </Tooltip>
                 </TableCell>
-                <TableCell className='text-xs text-muted-foreground'>
-                  {formatJobDateTime(job.finished_at)}
-                </TableCell>
-                <TableCell className='text-xs text-muted-foreground'>
-                  {formatJobDuration(job.started_at, job.finished_at)}
-                </TableCell>
-                <TableCell>
-                  <div className='space-y-0.5 text-xs'>
-                    <div>
-                      {t('read')} {formatMetricValue(summary.readCount)}
-                    </div>
-                    <div>
-                      {t('write')} {formatMetricValue(summary.writeCount)}
-                    </div>
-                    <div>
-                      {t('averageSpeed')}{' '}
-                      {formatMetricValue(summary.averageSpeed, 1)}/s
-                    </div>
+
+                {/* 指标紧凑单行化 */}
+                <TableCell className='py-1.5 px-2.5 whitespace-nowrap'>
+                  <div className='font-mono text-[11px] text-muted-foreground flex items-center gap-1.5'>
+                    <span>读 <strong className='font-medium text-foreground'>{formatMetricValue(summary.readCount)}</strong></span>
+                    <span className='text-muted-foreground/40'>·</span>
+                    <span>写 <strong className='font-medium text-foreground'>{formatMetricValue(summary.writeCount)}</strong></span>
+                    {typeof summary.averageSpeed === 'number' && summary.averageSpeed > 0 ? (
+                      <>
+                        <span className='text-muted-foreground/40'>·</span>
+                        <span>{formatMetricValue(summary.averageSpeed, 1)}/s</span>
+                      </>
+                    ) : null}
                   </div>
                 </TableCell>
-                <TableCell className='text-right'>
-                  <div className='flex justify-end gap-2'>
+
+                {/* 操作按钮 */}
+                <TableCell className='py-1.5 px-2.5 text-right whitespace-nowrap'>
+                  <div className='flex justify-end items-center gap-1.5'>
                     <Button
                       size='icon'
-                      variant='outline'
-                      className='size-8'
+                      variant='ghost'
+                      className='size-7 text-muted-foreground hover:text-foreground'
                       aria-label={t('viewExecutedScript')}
                       onClick={(event) => {
                         event.stopPropagation();
                         onViewScript(job);
                       }}
                     >
-                      <FileCode2 className='size-4' />
+                      <FileCode2 className='size-3.5' />
                     </Button>
                     <Button
                       size='icon'
-                      variant='outline'
-                      className='size-8'
+                      variant='ghost'
+                      className='size-7 text-muted-foreground hover:text-foreground'
                       aria-label={t('viewMetrics')}
                       onClick={(event) => {
                         event.stopPropagation();
                         onViewMetrics(job);
                       }}
                     >
-                      <BarChart3 className='size-4' />
+                      <BarChart3 className='size-3.5' />
                     </Button>
                     {job.run_type !== 'preview' ? (
                       <Tooltip>
@@ -421,7 +458,7 @@ export function JobRunsPanel({
                             <Button
                               size='sm'
                               variant='outline'
-                              className='h-8 text-xs'
+                              className='h-7 px-2 text-xs'
                               disabled={
                                 disableRecover ||
                                 !canRecoverFromJob(job) ||

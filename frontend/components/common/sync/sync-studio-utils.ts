@@ -106,9 +106,19 @@ export interface PreviewRunDialogState {
   timeoutMinutes: string;
 }
 
+export type ErrorCategory =
+  | 'schema'
+  | 'network'
+  | 'auth'
+  | 'syntax'
+  | 'runtime'
+  | 'general';
+
 export interface UserFacingErrorState {
   title: string;
   description: string;
+  category?: ErrorCategory;
+  suggestion?: string;
   raw?: string;
 }
 
@@ -467,6 +477,56 @@ export function ensureSyncHoconLanguage(monaco: any) {
       {token: 'comment', foreground: '9ca3af'},
     ],
     colors: {},
+  });
+
+  // 注册高对比度暗色与亮色差异对比主题，彻底解决暗黑模式下差异行对比度过低、看不清的问题
+  // Register high-contrast dark and light diff themes to resolve dim diff lines in dark mode
+  monaco.editor.defineTheme('sync-diff-dark', {
+    base: 'vs-dark',
+    inherit: true,
+    rules: [
+      {token: 'keyword.env', foreground: 'c084fc', fontStyle: 'bold'},
+      {token: 'keyword.source', foreground: '2dd4bf', fontStyle: 'bold'},
+      {token: 'keyword.transform', foreground: 'fbbf24', fontStyle: 'bold'},
+      {token: 'keyword.sink', foreground: '60a5fa', fontStyle: 'bold'},
+      {token: 'string', foreground: 'fca5a5'},
+      {token: 'comment', foreground: '9ca3af'},
+    ],
+    colors: {
+      'diffEditor.insertedLineBackground': '#10b98124',
+      'diffEditor.insertedTextBackground': '#10b98144',
+      'diffEditor.removedLineBackground': '#ef444424',
+      'diffEditor.removedTextBackground': '#ef444444',
+      'diffEditor.diagonalFill': '#27272a80',
+      'diffEditorGutter.insertedLineBackground': '#10b9813b',
+      'diffEditorGutter.removedLineBackground': '#ef44443b',
+      'diffEditorOverview.insertedForeground': '#10b981cc',
+      'diffEditorOverview.removedForeground': '#ef4444cc',
+    },
+  });
+
+  monaco.editor.defineTheme('sync-diff-light', {
+    base: 'vs',
+    inherit: true,
+    rules: [
+      {token: 'keyword.env', foreground: '7c3aed', fontStyle: 'bold'},
+      {token: 'keyword.source', foreground: '0f766e', fontStyle: 'bold'},
+      {token: 'keyword.transform', foreground: 'b45309', fontStyle: 'bold'},
+      {token: 'keyword.sink', foreground: '1d4ed8', fontStyle: 'bold'},
+      {token: 'string', foreground: 'b91c1c'},
+      {token: 'comment', foreground: '6b7280'},
+    ],
+    colors: {
+      'diffEditor.insertedLineBackground': '#10b9811f',
+      'diffEditor.insertedTextBackground': '#10b9813b',
+      'diffEditor.removedLineBackground': '#ef44441f',
+      'diffEditor.removedTextBackground': '#ef44443b',
+      'diffEditor.diagonalFill': '#e4e4e780',
+      'diffEditorGutter.insertedLineBackground': '#10b98133',
+      'diffEditorGutter.removedLineBackground': '#ef444433',
+      'diffEditorOverview.insertedForeground': '#10b981',
+      'diffEditorOverview.removedForeground': '#ef4444',
+    },
   });
 }
 
@@ -1041,32 +1101,92 @@ export function formatSyncUserFacingError(
   fallbackTitle: string,
   t: ReturnType<typeof useTranslations<'workbenchStudio'>>,
 ): UserFacingErrorState {
-  const message = error instanceof Error ? error.message : t('unknownError');
-  if (message.includes('sync: task has not been published')) {
+  const rawMessage = error instanceof Error ? error.message : String(error || t('unknownError'));
+  // 清洗引擎或包装层的套娃前缀
+  // Clean nested wrapper prefixes from engine or RPC layers
+  const cleanMessage = rawMessage
+    .replace(/^sync:\s*/, '')
+    .replace(/^java\.lang\.RuntimeException:\s*/, '')
+    .replace(/^org\.apache\.seatunnel\.common\.exception\.\w+:\s*/, '')
+    .trim();
+
+  // 1. 未发布保存检查
+  if (rawMessage.includes('sync: task has not been published')) {
     return {
       title: t('saveRequiredTitle'),
       description: t('saveRequiredDescription'),
-      raw: error instanceof Error ? error.message : message,
+      category: 'general',
+      suggestion: '任务尚未保存或发布，请先点击保存（Ctrl/Cmd + S）后再进行操作。',
     };
   }
-  if (message.includes('sync: 配置解析失败')) {
-    return {
-      title: t('configParseFailedTitle'),
-      description: message.replace(/^sync:\s*/, ''),
-      raw: error instanceof Error ? error.message : message,
-    };
-  }
-  if (message.includes('sync: DAG 解析失败')) {
+
+  // 2. 库表未找到或 Schema 映射失败
+  if (
+    /table.*(?:doesn't exist|not found|resolution failed)/i.test(cleanMessage) ||
+    /Unknown table/i.test(cleanMessage) ||
+    /schema.*not found/i.test(cleanMessage)
+  ) {
     return {
       title: fallbackTitle,
-      description: message.replace(/^sync:\s*/, ''),
-      raw: error instanceof Error ? error.message : message,
+      description: cleanMessage,
+      category: 'schema',
+      suggestion: '请核对任务配置中的 Source/Sink 库表名（database-names / table-names）是否拼写正确，并确认目标库中该表确实已创建。',
+      raw: rawMessage.length > cleanMessage.length + 30 ? rawMessage : undefined,
     };
   }
+
+  // 3. 网络连通性或超时
+  if (
+    /connection.*(?:refused|timed out|reset)/i.test(cleanMessage) ||
+    /Communications link failure/i.test(cleanMessage) ||
+    /failed to connect/i.test(cleanMessage)
+  ) {
+    return {
+      title: fallbackTitle,
+      description: cleanMessage,
+      category: 'network',
+      suggestion: '请检查目标数据源的主机地址（Host）和端口（Port）是否可正常连接，确认 SeaTunnel 节点与数据源之间未被安全组或防火墙拦截。',
+      raw: rawMessage.length > cleanMessage.length + 30 ? rawMessage : undefined,
+    };
+  }
+
+  // 4. 账号认证或权限
+  if (
+    /access denied/i.test(cleanMessage) ||
+    /authentication failed/i.test(cleanMessage) ||
+    /password/i.test(cleanMessage)
+  ) {
+    return {
+      title: fallbackTitle,
+      description: cleanMessage,
+      category: 'auth',
+      suggestion: '请检查数据源连接配置中的用户名与密码，确认该账号已被授予目标数据库的访问及数据读写权限。',
+      raw: rawMessage.length > cleanMessage.length + 30 ? rawMessage : undefined,
+    };
+  }
+
+  // 5. HOCON 语法结构错误
+  if (
+    /configparsefailed/i.test(cleanMessage) ||
+    /ConfigException/i.test(cleanMessage) ||
+    /syntax error/i.test(cleanMessage) ||
+    /expecting/i.test(cleanMessage)
+  ) {
+    return {
+      title: t('configParseFailedTitle'),
+      description: cleanMessage,
+      category: 'syntax',
+      suggestion: '请检查任务配置的语法结构，特别注意大括号、中括号成对匹配以及字符串引号闭合情况。',
+      raw: rawMessage.length > cleanMessage.length + 30 ? rawMessage : undefined,
+    };
+  }
+
+  // 6. 默认通用/运行时错误
   return {
     title: fallbackTitle,
-    description: message,
-    raw: error instanceof Error ? error.message : undefined,
+    description: cleanMessage || t('unknownError'),
+    category: 'runtime',
+    raw: rawMessage.length > cleanMessage.length + 30 ? rawMessage : undefined,
   };
 }
 

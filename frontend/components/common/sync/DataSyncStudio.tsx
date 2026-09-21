@@ -344,6 +344,7 @@ import {
   resolveEnumSuggestionItems,
   resolveEnumValueBounds,
   resolveFolderParent,
+  resolveOptionAssignmentContext,
   resolveOptionKeyFromLine,
   splitLogLines,
   submitSpecExecutionMode,
@@ -1829,9 +1830,18 @@ export function DataSyncStudio() {
           if (!bounds) {
             return;
           }
-          const renderedValue = bounds.quoted
-            ? payload.value
-            : JSON.stringify(payload.value);
+          const isBoolean =
+            payload.value === 'true' || payload.value === 'false';
+          let renderedValue = payload.value;
+          if (bounds.quoted) {
+            renderedValue = payload.value;
+          } else if (isBoolean) {
+            renderedValue = payload.value;
+          } else {
+            renderedValue = /^[A-Za-z0-9_.-]+$/.test(payload.value)
+              ? payload.value
+              : JSON.stringify(payload.value);
+          }
           editor.executeEdits?.('sync-enum-completion', [
             {
               range: {
@@ -1843,6 +1853,10 @@ export function DataSyncStudio() {
               text: renderedValue,
             },
           ]);
+          editor.setPosition?.({
+            lineNumber: payload.lineNumber,
+            column: bounds.startColumn + renderedValue.length,
+          });
         },
       );
       enumCompletionCommandRegisteredRef.current = true;
@@ -1855,16 +1869,14 @@ export function DataSyncStudio() {
           position: {lineNumber: number; column: number},
         ) => {
           const lineContent = model.getLineContent(position.lineNumber);
-          const linePrefix = model
-            .getLineContent(position.lineNumber)
-            .slice(0, Math.max(position.column - 1, 0));
-          const keyMatch = linePrefix.match(
-            /^\s*([A-Za-z0-9_.-]+)\s*=\s*(?:"[^"]*)?$/,
+          const assignmentCtx = resolveOptionAssignmentContext(
+            lineContent,
+            position.column,
           );
-          if (!keyMatch) {
+          if (!assignmentCtx.inValueRegion || !assignmentCtx.optionKey) {
             return {suggestions: []};
           }
-          const optionKey = keyMatch[1];
+          const optionKey = assignmentCtx.optionKey;
           const context = resolveEditorPluginContext(
             model.getValue(),
             position.lineNumber,
@@ -1914,28 +1926,38 @@ export function DataSyncStudio() {
             return {suggestions: []};
           }
           const currentWord = model.getWordUntilPosition(position)?.word || '';
+          const currentValue = assignmentCtx.bounds?.value || '';
+          const isSittingOnEnumValue = enumValues.some(
+            (val) => val.toLowerCase() === currentValue.toLowerCase(),
+          );
+
           return {
-            suggestions: enumItems.map((item) => ({
-              label: item.label,
-              detail:
-                item.label !== item.value ? `插入值: ${item.value}` : undefined,
-              kind: monaco.languages.CompletionItemKind.EnumMember,
-              insertText: '',
-              filterText: [currentWord, optionKey, item.label, item.value]
-                .filter(Boolean)
-                .join(' '),
-              range: resolveEnumSuggestRange(position),
-              command: {
-                id: enumCompletionCommandIdRef.current,
-                title: 'Apply enum completion',
-                arguments: [
-                  {
-                    lineNumber: position.lineNumber,
-                    value: item.value,
-                  },
-                ],
-              },
-            })),
+            suggestions: enumItems.map((item, index) => {
+              const filterText = isSittingOnEnumValue || !currentWord
+                ? [currentWord, item.label, item.value].filter(Boolean).join(' ')
+                : [item.label, item.value].filter(Boolean).join(' ');
+
+              return {
+                label: item.label,
+                detail:
+                  item.label !== item.value ? `插入值: ${item.value}` : undefined,
+                kind: monaco.languages.CompletionItemKind.EnumMember,
+                insertText: '',
+                filterText,
+                sortText: String(index).padStart(4, '0'),
+                range: resolveEnumSuggestRange(position),
+                command: {
+                  id: enumCompletionCommandIdRef.current,
+                  title: 'Apply enum completion',
+                  arguments: [
+                    {
+                      lineNumber: position.lineNumber,
+                      value: item.value,
+                    },
+                  ],
+                },
+              };
+            }),
           };
         },
       });
@@ -2057,11 +2079,10 @@ export function DataSyncStudio() {
           if (!position || !model) {
             return;
           }
-          const linePrefix = model
-            .getLineContent(position.lineNumber)
-            .slice(0, Math.max(position.column - 1, 0));
-          const inValueRegion = /^\s*[A-Za-z0-9_.-]+\s*=\s*(?:"[^"]*)?$/.test(
-            linePrefix,
+          const lineContent = model.getLineContent(position.lineNumber);
+          const inValueRegion = isCursorInsideValueRegion(
+            lineContent,
+            position.column,
           );
           if (!inValueRegion) {
             return;
@@ -2070,9 +2091,6 @@ export function DataSyncStudio() {
             ['=', ' ', '"'].includes(typedText) ||
             /^[A-Za-z0-9_.-]$/.test(typedText);
           if (!shouldTrigger) {
-            return;
-          }
-          if (typedText === ' ' && !/=\s+$/.test(linePrefix)) {
             return;
           }
           setTimeout(() => {

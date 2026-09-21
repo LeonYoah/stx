@@ -236,7 +236,11 @@ export function isCursorInsideValueRegion(
     return false;
   }
   const prefix = lineContent.slice(0, equalsIndex);
-  if (!/^\s*#*\s*[A-Za-z0-9_.-]+\s*$/.test(prefix)) {
+  if (!/^\s*(?:#+\s*)?[A-Za-z0-9_.-]+\s*$/.test(prefix)) {
+    return false;
+  }
+  const commentIndex = lineContent.indexOf('#', equalsIndex);
+  if (commentIndex >= 0 && column > commentIndex + 1) {
     return false;
   }
   return column >= equalsIndex + 2;
@@ -267,21 +271,102 @@ export function resolveEnumSuggestionItems(metadata: any): Array<{
   label: string;
   value: string;
 }> {
-  const values = Array.isArray(metadata?.enum_values)
+  let values = Array.isArray(metadata?.enum_values)
     ? metadata.enum_values
     : [];
-  const displays = Array.isArray(metadata?.enum_display_values)
+  let displays = Array.isArray(metadata?.enum_display_values)
     ? metadata.enum_display_values
     : [];
+  if (
+    (!values || values.length === 0) &&
+    (metadata?.type === 'boolean' ||
+      metadata?.type === 'Boolean' ||
+      typeof metadata?.defaultValue === 'boolean' ||
+      typeof metadata?.default_value === 'boolean')
+  ) {
+    values = ['true', 'false'];
+    displays = ['true', 'false'];
+  }
   return values.map((value: string, index: number) => ({
     label: displays[index] || value,
     value,
   }));
 }
 
+export interface OptionAssignmentContext {
+  isAssignment: boolean;
+  optionKey: string | null;
+  inValueRegion: boolean;
+  bounds: {
+    quoted: boolean;
+    startColumn: number;
+    endColumn: number;
+    value: string;
+  } | null;
+}
+
+export function resolveOptionAssignmentContext(
+  lineContent: string,
+  column: number,
+): OptionAssignmentContext {
+  const equalsIndex = lineContent.indexOf('=');
+  if (equalsIndex < 0) {
+    return {
+      isAssignment: false,
+      optionKey: null,
+      inValueRegion: false,
+      bounds: null,
+    };
+  }
+
+  const leftSide = lineContent.slice(0, equalsIndex);
+  const keyMatch = leftSide.match(/^\s*(?:#+\s*)?([A-Za-z0-9_.-]+)\s*$/);
+  if (!keyMatch) {
+    return {
+      isAssignment: false,
+      optionKey: null,
+      inValueRegion: false,
+      bounds: null,
+    };
+  }
+  const optionKey = keyMatch[1];
+
+  const commentIndex = lineContent.indexOf('#', equalsIndex);
+  if (commentIndex >= 0 && column > commentIndex + 1) {
+    return {
+      isAssignment: true,
+      optionKey,
+      inValueRegion: false,
+      bounds: null,
+    };
+  }
+
+  const inValueRegion = column >= equalsIndex + 2;
+  const bounds = resolveEnumValueBounds(lineContent, 0);
+
+  let boundsWithValue: OptionAssignmentContext['bounds'] = null;
+  if (bounds) {
+    const rawSnippet = lineContent.slice(
+      Math.max(0, bounds.startColumn - 1),
+      Math.max(0, bounds.endColumn - 1),
+    );
+    boundsWithValue = {
+      ...bounds,
+      value: bounds.quoted ? rawSnippet : rawSnippet.trim(),
+    };
+  }
+
+  return {
+    isAssignment: true,
+    optionKey,
+    inValueRegion,
+    bounds: boundsWithValue,
+  };
+}
+
 export function resolveEnumValueBounds(lineContent: string, lineNumber: number) {
   const assignmentMatch = lineContent.match(
-    /^(\s*[A-Za-z0-9_.-]+\s*=\s*)(.*)$/,
+    /^(\s*(?:#+\s*)?[A-Za-z0-9_.-]+\s*=\s*)(.*)$/,
   );
   if (!assignmentMatch) {
     return null;

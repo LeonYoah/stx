@@ -56,10 +56,10 @@ jobs:
         env:
           APP_VERSION: ${{ github.ref_name }}
         run: |
-          chmod +x scripts/package-release.sh scripts/install-online.sh scripts/download-bundle.sh
+          chmod +x install/package-release.sh install/install-online.sh install/download-bundle.sh
           # 版本发版只打 stx / agent / frontend。Node 与三件套走 release-deps.yml 的 deps tag。
           # Version tags ship stx / agent / frontend only. Node and observability live on the deps tag.
-          scripts/package-release.sh \
+          install/package-release.sh \
             --arch all \
             --layout split \
             --build-frontend \

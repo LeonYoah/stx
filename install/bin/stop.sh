@@ -18,7 +18,39 @@ set -euo pipefail
 
 BASE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 RUN_DIR="$BASE_DIR/run"
-STOP_OBSERVABILITY="${STOP_OBSERVABILITY:-true}"
+CONFIG_PATH="${CONFIG_PATH:-$BASE_DIR/config.yaml}"
+
+OBS_CLI=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --observability)
+      OBS_CLI="${2:-}"
+      shift 2
+      ;;
+    --observability=*)
+      OBS_CLI="${1#*=}"
+      shift
+      ;;
+    -h|--help)
+      cat <<'USAGE'
+Usage: stop.sh [--observability auto|on|off]
+
+Stops STX frontend/backend and optionally the bundled observability stack.
+Default: --observability auto (stop local stack processes if present).
+USAGE
+      exit 0
+      ;;
+    *)
+      echo "unknown argument: $1" >&2
+      exit 1
+      ;;
+  esac
+done
+
+# shellcheck source=lib/observability.sh
+source "$BASE_DIR/bin/lib/observability.sh"
+
+OBS_MODE="$(stx_obs_resolve_mode "$OBS_CLI" "${STOP_OBSERVABILITY:-auto}")"
 
 stop_one() {
   local name="$1"
@@ -45,8 +77,11 @@ stop_one() {
 stop_one "frontend" "$RUN_DIR/frontend.pid"
 stop_one "backend" "$RUN_DIR/backend.pid"
 
-if [[ "$STOP_OBSERVABILITY" == "true" || "$STOP_OBSERVABILITY" == "1" ]]; then
-  if [[ -x "$BASE_DIR/deps/stop-observability.sh" ]]; then
-    (cd "$BASE_DIR" && "$BASE_DIR/deps/stop-observability.sh") || true
-  fi
-fi
+case "$OBS_MODE" in
+  off)
+    echo "observability: leave running (--observability off)"
+    ;;
+  on|auto)
+    stx_obs_stop_stack || true
+    ;;
+esac

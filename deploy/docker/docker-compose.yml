@@ -2,6 +2,7 @@
 # Default: MySQL full stack
 #
 #   cp config.example.yaml config.yaml   # 确认 database 为 mysql / host=mysql
+#   mkdir -p data
 #   docker compose up -d
 
 include:
@@ -18,7 +19,7 @@ services:
       MYSQL_USER: ${MYSQL_USER:-stx}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-stx}
     volumes:
-      - mysql-data:/var/lib/mysql
+      - ./data/mysql:/var/lib/mysql
     ports:
       - "${MYSQL_PORT:-3306}:3306"
     healthcheck:
@@ -33,6 +34,3 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
-
-volumes:
-  mysql-data:

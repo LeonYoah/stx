@@ -1,5 +1,12 @@
 # 公共服务：控制面 + 监控（不含数据库）
 # Shared: control plane + monitoring (no database)
+#
+# Observability YAML is generated from install/observability templates:
+#   ./install/observability/render.sh docker deploy/docker/observability
+# 监控配置由 install/observability 模板生成，勿手改 observability/ 下文件。
+#
+# Persistent data uses relative bind mounts under ./data/ (not named volumes).
+# 持久化数据使用 ./data/ 相对路径绑定，不用 named volume。
 
 name: stx
 
@@ -12,8 +19,8 @@ services:
     restart: unless-stopped
     volumes:
       - ./config.yaml:/opt/stx/config.yaml:ro
-      - stx-data:/opt/stx/data
-      - stx-lib:/opt/stx/lib
+      - ./data/stx:/opt/stx/data
+      - ./data/stx-lib:/opt/stx/lib
     ports:
       - "17800:17800"
       - "17890:17890"
@@ -43,9 +50,9 @@ services:
       - --storage.tsdb.path=/prometheus
       - --web.enable-lifecycle
     volumes:
-      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ./prometheus/rules:/etc/prometheus/rules:ro
-      - prometheus-data:/prometheus
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/prometheus/rules:/etc/prometheus/rules:ro
+      - ./data/prometheus:/prometheus
     ports:
       - "9090:9090"
     depends_on:
@@ -60,8 +67,8 @@ services:
       - --config.file=/etc/alertmanager/alertmanager.yml
       - --storage.path=/alertmanager
     volumes:
-      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
-      - alertmanager-data:/alertmanager
+      - ./observability/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ./data/alertmanager:/alertmanager
     ports:
       - "9093:9093"
     depends_on:
@@ -78,20 +85,14 @@ services:
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_SERVER_HTTP_PORT: "3000"
     volumes:
-      - ./grafana/provisioning:/etc/grafana/provisioning:ro
-      - grafana-data:/var/lib/grafana
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ./data/grafana:/var/lib/grafana
     ports:
       - "3000:3000"
     depends_on:
       - prometheus
     networks: [stx]
-
-volumes:
-  stx-data:
-  stx-lib:
-  prometheus-data:
-  alertmanager-data:
-  grafana-data:
 
 networks:
   stx:

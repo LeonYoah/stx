@@ -27,12 +27,12 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # curl|bash 时仓库不在本地：从 GitHub raw 拉辅助脚本。/ When piped via curl|bash, fetch helpers from GitHub raw.
 stx_bootstrap_root_if_needed() {
-  if [[ -f "$ROOT_DIR/support-files/release/download-lib.sh" ]]; then
+  if [[ -f "$ROOT_DIR/install/download-lib.sh" ]]; then
     return 0
   fi
   local boot ref prefix base path url
   boot="${TMPDIR:-/tmp}/stx-bootstrap-bundle-$$"
-  mkdir -p "$boot/support-files/release" "$boot/bin"
+  mkdir -p "$boot/install/bin/lib"
   ref="${STX_BOOTSTRAP_REF:-main}"
   prefix=""
   if [[ -n "${STX_DOWNLOAD_MIRROR_PREFIX:-}" ]]; then
@@ -43,12 +43,13 @@ stx_bootstrap_root_if_needed() {
   base="https://raw.githubusercontent.com/${STX_GITHUB_OWNER}/${STX_GITHUB_REPO}/${ref}"
   echo "[INFO] standalone mode: bootstrap helpers from ${ref}" >&2
   for path in \
-    support-files/release/download-lib.sh \
-    support-files/release/install-core.sh \
-    support-files/release/install.sh \
-    support-files/release/start.sh \
-    support-files/release/stop.sh \
-    support-files/release/status.sh \
+    install/download-lib.sh \
+    install/install-core.sh \
+    install/install.sh \
+    install/bin/start.sh \
+    install/bin/stop.sh \
+    install/bin/status.sh \
+    install/bin/lib/observability.sh \
     config.example.yaml
   do
     url="${base}/${path}"
@@ -63,8 +64,8 @@ stx_bootstrap_root_if_needed() {
 }
 
 stx_bootstrap_root_if_needed
-# shellcheck source=../support-files/release/download-lib.sh
-source "$ROOT_DIR/support-files/release/download-lib.sh"
+# shellcheck source=../install/download-lib.sh
+source "$ROOT_DIR/install/download-lib.sh"
 
 usage() {
   cat <<'USAGE'
@@ -72,7 +73,7 @@ Build STX offline bundle
 
 Usage:
   curl -fsSL <release-or-proxy-url>/download-bundle.sh | bash -s -- [options]
-  scripts/download-bundle.sh [options]
+  install/download-bundle.sh [options]
 
 Options:
   --version <tag>                 Release tag (default: latest)
@@ -219,12 +220,14 @@ if [[ "$WITH_OBS" == "true" ]]; then
     || echo "[WARN] observability package missing: $obs_asset"
 fi
 
-cp "$ROOT_DIR/support-files/release/install.sh" "$BUNDLE_DIR/install.sh"
-cp "$ROOT_DIR/support-files/release/download-lib.sh" "$BUNDLE_DIR/download-lib.sh"
-cp "$ROOT_DIR/support-files/release/install-core.sh" "$BUNDLE_DIR/install-core.sh"
-cp "$ROOT_DIR/support-files/release/start.sh" "$BUNDLE_DIR/bin/start.sh"
-cp "$ROOT_DIR/support-files/release/stop.sh" "$BUNDLE_DIR/bin/stop.sh"
-cp "$ROOT_DIR/support-files/release/status.sh" "$BUNDLE_DIR/bin/status.sh"
+mkdir -p "$BUNDLE_DIR/bin/lib"
+cp "$ROOT_DIR/install/install.sh" "$BUNDLE_DIR/install.sh"
+cp "$ROOT_DIR/install/download-lib.sh" "$BUNDLE_DIR/download-lib.sh"
+cp "$ROOT_DIR/install/install-core.sh" "$BUNDLE_DIR/install-core.sh"
+cp "$ROOT_DIR/install/bin/start.sh" "$BUNDLE_DIR/bin/start.sh"
+cp "$ROOT_DIR/install/bin/stop.sh" "$BUNDLE_DIR/bin/stop.sh"
+cp "$ROOT_DIR/install/bin/status.sh" "$BUNDLE_DIR/bin/status.sh"
+cp "$ROOT_DIR/install/bin/lib/observability.sh" "$BUNDLE_DIR/bin/lib/observability.sh"
 cp "$ROOT_DIR/config.example.yaml" "$BUNDLE_DIR/config.example.yaml"
 chmod +x "$BUNDLE_DIR/install.sh" "$BUNDLE_DIR/bin/"*.sh
 

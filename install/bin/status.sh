@@ -18,7 +18,11 @@ set -euo pipefail
 
 BASE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 RUN_DIR="$BASE_DIR/run"
+CONFIG_PATH="${CONFIG_PATH:-$BASE_DIR/config.yaml}"
 FRONTEND_PORT="${FRONTEND_PORT:-17880}"
+
+# shellcheck source=lib/observability.sh
+source "$BASE_DIR/bin/lib/observability.sh"
 
 status_one() {
   local name="$1"
@@ -36,15 +40,14 @@ status_one() {
   fi
 }
 
+echo "backend / frontend:"
 status_one "backend" "$RUN_DIR/backend.pid"
 status_one "frontend" "$RUN_DIR/frontend.pid"
 
 echo
-echo "ports:"
-ss -lntp | grep -E ":17800|:17890|:${FRONTEND_PORT}\\b|:9090|:9093|:3000" || true
+echo "observability:"
+stx_obs_status_stack
 
-if [[ -x "$BASE_DIR/deps/status-observability.sh" ]]; then
-  echo
-  echo "observability:"
-  (cd "$BASE_DIR" && "$BASE_DIR/deps/status-observability.sh") || true
-fi
+echo
+echo "ports:"
+ss -lntp 2>/dev/null | grep -E ":17800|:17890|:${FRONTEND_PORT}\\b|:9090|:9093|:3000" || true

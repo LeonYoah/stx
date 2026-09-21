@@ -211,9 +211,18 @@ docker run -d -p 17800:17800 -p 17880:17880 -p 17890:17890 ghcr.io/leonyoah/stx-
 docker run -d -p 17800:17800 -p 17880:17880 -p 17890:17890 swr.cn-east-3.myhuaweicloud.com/stx/stx-all-in-one:latest
 ```
 
-二进制安装后：`/opt/stx/bin/start.sh` 或 `systemctl restart stx`。
+## 启停
 
-更多见 [docs/00-快速开始.md](./docs/00-快速开始.md)、[docs/打包发布说明.md](./docs/打包发布说明.md)。
+```bash
+/opt/stx/bin/start.sh
+/opt/stx/bin/stop.sh
+/opt/stx/bin/status.sh
+# 或 systemctl restart stx
+```
+
+`start.sh` / `stop.sh` 默认 `--observability auto`。需要时：`--observability off` 或 `on`。
+
+更多见 [docs/00-快速开始.md](./docs/00-快速开始.md)、[docs/打包发布说明.md](./docs/打包发布说明.md)、[docs/可观测性三件套一键接入说明.md](./docs/可观测性三件套一键接入说明.md)。
 
 ## 关键配置
 

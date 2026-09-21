@@ -38,17 +38,17 @@ jobs:
 
       - name: Build deps packages
         run: |
-          chmod +x scripts/package-release.sh
+          chmod +x install/package-release.sh
           # Node 22 官方包覆盖 amd64/arm64，并带上三件套。
           # Official Node 22 covers amd64/arm64 and includes the observability bundle.
-          scripts/package-release.sh \
+          install/package-release.sh \
             --deps-only \
             --arch all \
             --node-major 22 \
             --node-variant official
           # glibc217 非官方构建只有 x64，不再重打三件套。
           # glibc217 unofficial builds are x64-only; do not rebuild observability.
-          scripts/package-release.sh \
+          install/package-release.sh \
             --deps-only \
             --no-observability \
             --arch amd64 \

@@ -41,7 +41,7 @@ CAPABILITY_PROXY_DEFAULT_VERSION="${CAPABILITY_PROXY_DEFAULT_VERSION:-2.3.13}"
 # 打印发布打包脚本的用法。/ Print release packaging usage.
 usage() {
   cat <<'EOF'
-Usage: scripts/package-release.sh [options]
+Usage: install/package-release.sh [options]
 
 Options:
   --arch <amd64|arm64|all>          Target CPU arch for stx binary (default: amd64)
@@ -61,9 +61,9 @@ Options:
   --help                             Show this help
 
 Examples:
-  scripts/package-release.sh --arch all --layout split --build-frontend
-  scripts/package-release.sh --deps-only --arch all --node-major 22 --node-variant official
-  scripts/package-release.sh --arch amd64 --layout legacy --bundle-observability both --build-frontend
+  install/package-release.sh --arch all --layout split --build-frontend
+  install/package-release.sh --deps-only --arch all --node-major 22 --node-variant official
+  install/package-release.sh --arch amd64 --layout legacy --bundle-observability both --build-frontend
 EOF
 }
 
@@ -479,15 +479,13 @@ prepare_observability_stack() {
   cp -a "$grafana_dir"/. "$deps_dir/grafana/"
   rm -rf "$tmp"
 
-  cp "$ROOT_DIR/deps/init-observability-defaults.sh" "$deps_dir/"
-  cp "$ROOT_DIR/deps/start-observability.sh" "$deps_dir/"
-  cp "$ROOT_DIR/deps/stop-observability.sh" "$deps_dir/"
-  cp "$ROOT_DIR/deps/status-observability.sh" "$deps_dir/"
-  chmod +x \
-    "$deps_dir/init-observability-defaults.sh" \
-    "$deps_dir/start-observability.sh" \
-    "$deps_dir/stop-observability.sh" \
-    "$deps_dir/status-observability.sh"
+  # Ship config templates + renderer; start/stop lives in bin/.
+  # 只打配置模板与渲染脚本，启停由 bin 负责。
+  cp -a "$ROOT_DIR/install/observability/prometheus_config" "$deps_dir/"
+  cp -a "$ROOT_DIR/install/observability/alertmanager_config" "$deps_dir/"
+  cp -a "$ROOT_DIR/install/observability/grafana_config" "$deps_dir/"
+  cp "$ROOT_DIR/install/observability/render.sh" "$deps_dir/render.sh"
+  chmod +x "$deps_dir/render.sh"
 }
 
 # 写入文件 sha256 sidecar。/ Write sha256 sidecar for a file.
@@ -579,27 +577,31 @@ if [[ "$LAYOUT" == "split" ]]; then
   done
 
   # Also publish installer helpers for curl|bash consumers. / 同步发布安装辅助脚本供 curl|bash 使用。
-  cp "$ROOT_DIR/scripts/install-online.sh" "$OUTPUT_DIR/install-online.sh"
-  cp "$ROOT_DIR/scripts/download-bundle.sh" "$OUTPUT_DIR/download-bundle.sh"
+  cp "$ROOT_DIR/install/install-online.sh" "$OUTPUT_DIR/install-online.sh"
+  cp "$ROOT_DIR/install/download-bundle.sh" "$OUTPUT_DIR/download-bundle.sh"
   chmod +x "$OUTPUT_DIR/install-online.sh" "$OUTPUT_DIR/download-bundle.sh"
 
   # 手动安装辅助包（无仓库时用）。/ Helpers tarball for manual install without a git clone.
   helpers_stage="$STAGE_DIR/install-helpers"
   rm -rf "$helpers_stage"
-  mkdir -p "$helpers_stage/bin" "$helpers_stage/packages"
-  cp "$ROOT_DIR/support-files/release/install.sh" "$helpers_stage/install.sh"
-  cp "$ROOT_DIR/support-files/release/download-lib.sh" "$helpers_stage/download-lib.sh"
-  cp "$ROOT_DIR/support-files/release/install-core.sh" "$helpers_stage/install-core.sh"
-  cp "$ROOT_DIR/support-files/release/start.sh" "$helpers_stage/bin/start.sh"
-  cp "$ROOT_DIR/support-files/release/stop.sh" "$helpers_stage/bin/stop.sh"
-  cp "$ROOT_DIR/support-files/release/status.sh" "$helpers_stage/bin/status.sh"
+  mkdir -p "$helpers_stage/bin/lib" "$helpers_stage/packages"
+  cp "$ROOT_DIR/install/install.sh" "$helpers_stage/install.sh"
+  cp "$ROOT_DIR/install/download-lib.sh" "$helpers_stage/download-lib.sh"
+  cp "$ROOT_DIR/install/install-core.sh" "$helpers_stage/install-core.sh"
+  cp "$ROOT_DIR/install/bin/start.sh" "$helpers_stage/bin/start.sh"
+  cp "$ROOT_DIR/install/bin/stop.sh" "$helpers_stage/bin/stop.sh"
+  cp "$ROOT_DIR/install/bin/status.sh" "$helpers_stage/bin/status.sh"
+  cp "$ROOT_DIR/install/bin/lib/observability.sh" "$helpers_stage/bin/lib/observability.sh"
   cp "$ROOT_DIR/config.example.yaml" "$helpers_stage/config.example.yaml"
   chmod +x "$helpers_stage/install.sh" "$helpers_stage/bin/"*.sh
   tar -C "$helpers_stage" -czf "$OUTPUT_DIR/stx-install-helpers.tar.gz" .
   write_sha256 "$OUTPUT_DIR/stx-install-helpers.tar.gz"
 
   # Docker Compose 全量包（无仓库时下载解压即可）。/ Full Docker Compose pack for users without a clone.
+  # Docker Compose pack: render observability from single-source templates first.
+  # Docker Compose 包：先从单源模板渲染可观测性配置。
   if [[ -d "$ROOT_DIR/deploy/docker" ]]; then
+    "$ROOT_DIR/install/observability/render.sh" docker "$ROOT_DIR/deploy/docker/observability"
     tar -C "$ROOT_DIR/deploy" -czf "$OUTPUT_DIR/stx-docker-compose.tar.gz" docker
     write_sha256 "$OUTPUT_DIR/stx-docker-compose.tar.gz"
   fi
@@ -635,9 +637,9 @@ for arch in "${ARCHES[@]}"; do
     cp "$ROOT_DIR/LICENSE" "$pkg_dir/"
     cp "$ROOT_DIR/NOTICE" "$pkg_dir/"
     cp "$ROOT_DIR/config.example.yaml" "$pkg_dir/config.example.yaml"
-    cp "$ROOT_DIR/support-files/release/install.sh" "$pkg_dir/install.sh"
-    cp "$ROOT_DIR/support-files/release/download-lib.sh" "$pkg_dir/download-lib.sh"
-    cp "$ROOT_DIR/support-files/release/install-core.sh" "$pkg_dir/install-core.sh"
+    cp "$ROOT_DIR/install/install.sh" "$pkg_dir/install.sh"
+    cp "$ROOT_DIR/install/download-lib.sh" "$pkg_dir/download-lib.sh"
+    cp "$ROOT_DIR/install/install-core.sh" "$pkg_dir/install-core.sh"
     mkdir -p "$pkg_dir/lib"
 
     mkdir -p "$pkg_dir/lib/agent" "$pkg_dir/scripts"
@@ -655,14 +657,16 @@ for arch in "${ARCHES[@]}"; do
     mkdir -p "$pkg_dir/runtime"
     cp -a "$local_node_runtime" "$pkg_dir/runtime/node"
 
-    mkdir -p "$pkg_dir/bin" "$pkg_dir/logs" "$pkg_dir/run"
-    cp "$ROOT_DIR/support-files/release/start.sh" "$pkg_dir/bin/start.sh"
-    cp "$ROOT_DIR/support-files/release/stop.sh" "$pkg_dir/bin/stop.sh"
-    cp "$ROOT_DIR/support-files/release/status.sh" "$pkg_dir/bin/status.sh"
+    mkdir -p "$pkg_dir/bin/lib" "$pkg_dir/logs" "$pkg_dir/run"
+    cp "$ROOT_DIR/install/bin/start.sh" "$pkg_dir/bin/start.sh"
+    cp "$ROOT_DIR/install/bin/stop.sh" "$pkg_dir/bin/stop.sh"
+    cp "$ROOT_DIR/install/bin/status.sh" "$pkg_dir/bin/status.sh"
+    cp "$ROOT_DIR/install/bin/lib/observability.sh" "$pkg_dir/bin/lib/observability.sh"
     chmod +x "$pkg_dir/install.sh" "$pkg_dir/bin/start.sh" "$pkg_dir/bin/stop.sh" "$pkg_dir/bin/status.sh"
 
     if [[ "$obs" == "with" ]]; then
-      prepare_observability_stack "$arch" "$pkg_dir/deps"
+      # Legacy layout: still pack under observability/ (not deps/). / 旧包也落到 observability/
+      prepare_observability_stack "$arch" "$pkg_dir/observability"
     fi
 
     cat >"$pkg_dir/BUILD_INFO" <<EOF

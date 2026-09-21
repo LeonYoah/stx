@@ -29,7 +29,44 @@ FRONTEND_ENABLE="${FRONTEND_ENABLE:-true}"
 FRONTEND_PORT="${FRONTEND_PORT:-17880}"
 FRONTEND_HOST="${FRONTEND_HOST:-0.0.0.0}"
 NEXT_PUBLIC_BACKEND_BASE_URL="${NEXT_PUBLIC_BACKEND_BASE_URL:-http://127.0.0.1:17800}"
-START_OBSERVABILITY="${START_OBSERVABILITY:-auto}"
+
+OBS_CLI=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --observability)
+      OBS_CLI="${2:-}"
+      shift 2
+      ;;
+    --observability=*)
+      OBS_CLI="${1#*=}"
+      shift
+      ;;
+    -h|--help)
+      cat <<'USAGE'
+Usage: start.sh [--observability auto|on|off]
+
+Starts STX backend, frontend, and optionally the bundled observability stack.
+Default: --observability auto (start local stack only if present and enabled in config).
+
+Environment:
+  START_OBSERVABILITY   Same as --observability (CLI wins)
+  FRONTEND_PORT / FRONTEND_HOST / FRONTEND_ENABLE
+  NEXT_PUBLIC_BACKEND_BASE_URL
+  CONFIG_PATH
+USAGE
+      exit 0
+      ;;
+    *)
+      echo "unknown argument: $1" >&2
+      exit 1
+      ;;
+  esac
+done
+
+# shellcheck source=lib/observability.sh
+source "$BASE_DIR/bin/lib/observability.sh"
+
+OBS_MODE="$(stx_obs_resolve_mode "$OBS_CLI" "${START_OBSERVABILITY:-}")"
 
 mkdir -p "$RUN_DIR" "$LOG_DIR"
 
@@ -104,17 +141,17 @@ start_frontend() {
 }
 
 start_observability() {
-  if [[ "$START_OBSERVABILITY" == "false" || "$START_OBSERVABILITY" == "0" ]]; then
-    echo "observability start skipped by START_OBSERVABILITY=$START_OBSERVABILITY"
-    return
-  fi
-
-  if [[ -x "$BASE_DIR/deps/start-observability.sh" ]]; then
-    echo "starting bundled observability stack..."
-    (cd "$BASE_DIR" && "$BASE_DIR/deps/start-observability.sh")
-  else
-    echo "bundled observability stack not found, skipping"
-  fi
+  set +e
+  local reason
+  reason="$(stx_obs_should_start "$OBS_MODE" "$CONFIG_PATH")"
+  local rc=$?
+  set -e
+  echo "$reason"
+  case "$rc" in
+    0) stx_obs_start_stack ;;
+    1) return 0 ;;
+    2) exit 1 ;;
+  esac
 }
 
 start_backend
@@ -128,4 +165,5 @@ echo "  backend : follow app.addr in config.yaml"
 if [[ "$FRONTEND_ENABLE" == "true" || "$FRONTEND_ENABLE" == "1" ]]; then
   echo "  frontend: http://$FRONTEND_HOST:$FRONTEND_PORT"
 fi
-echo "  tips    : set FRONTEND_PORT / FRONTEND_HOST to override frontend binding"
+echo "  observability mode: $OBS_MODE"
+echo "  tips    : start.sh --observability off|on|auto"

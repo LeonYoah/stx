@@ -2,6 +2,7 @@
 # SQLite: no external DB container
 #
 #   cp config.example.yaml config.yaml   # database.type=sqlite
+#   mkdir -p data
 #   docker compose -f docker-compose.sqlite.yml up -d
 
 include:

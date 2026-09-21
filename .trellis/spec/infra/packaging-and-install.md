@@ -9,7 +9,7 @@
 
 在以下改动时必须遵守本文：
 
-- 修改 `scripts/package-release.sh`、`support-files/release/*`、`deps/*observability*`
+- 修改 `install/package-release.sh`、`install/bin/*`、`install/observability/*`、`install/install*.sh`
 - 新增/修改在线安装、离线 bundle、下载测速逻辑
 - 变更 GitHub Release 资产命名或 deps 复用策略
 - 控制面 systemd 与 `stx-agent` 安装脚本对齐
@@ -94,10 +94,12 @@ $INSTALL_DIR/stx
 $INSTALL_DIR/frontend/server.js
 $INSTALL_DIR/config.yaml
 $INSTALL_DIR/bin/{start,stop,status}.sh
-$INSTALL_DIR/runtime/node/bin/node    # 可选
-$INSTALL_DIR/deps/start-observability.sh  # 可选 bundled
+$INSTALL_DIR/bin/lib/observability.sh   # internal helper sourced by bin/*
+$INSTALL_DIR/runtime/node/bin/node      # optional
+$INSTALL_DIR/observability/{prometheus,alertmanager,grafana}  # optional bundled stack
 ```
 
+`bin/start.sh` / `stop.sh` 默认 `--observability auto`（CLI 优先于 `START_OBSERVABILITY` / `STOP_OBSERVABILITY`）。
 ### 3.4 配置键（安装器写入）
 
 - 默认端口：前端 `17880`、HTTP API `17800`、gRPC `17890`（避开常见 80/8000/9000）

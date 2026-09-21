@@ -8,6 +8,7 @@ curl -fsSL https://github.com/LeonYoah/stx/releases/latest/download/stx-docker-c
 cd docker
 cp config.example.yaml config.yaml
 # 按所选 Compose 改 database 段
+mkdir -p data
 docker compose up -d
 ```
 
@@ -32,12 +33,43 @@ docker compose up -d
 
 | 数据库 | 启动 |
 | --- | --- |
-| MySQL（默认） | `docker compose up -d`（`config.yaml` 里 `type: mysql` / `host: mysql`） |
-| SQLite | `docker compose -f docker-compose.sqlite.yml up -d`（`type: sqlite`） |
-| PostgreSQL | `docker compose -f docker-compose.postgres.yml up -d`（`type: postgres` / `host: postgres`） |
+| MySQL（默认） | `mkdir -p data && docker compose up -d`（`config.yaml` 里 `type: mysql` / `host: mysql`） |
+| SQLite | `mkdir -p data && docker compose -f docker-compose.sqlite.yml up -d`（`type: sqlite`） |
+| PostgreSQL | `mkdir -p data && docker compose -f docker-compose.postgres.yml up -d`（`type: postgres` / `host: postgres`） |
+
+## 数据目录
+
+持久化一律用相对路径绑定到 `./data/`（不用 Docker named volume）：
+
+```text
+./data/stx/           # 控制面数据
+./data/stx-lib/       # 控制面 lib
+./data/prometheus/
+./data/alertmanager/
+./data/grafana/
+./data/mysql/         # 仅 MySQL compose
+./data/postgres/      # 仅 Postgres compose
+```
+
+`data/` 已 gitignore，备份/迁移直接拷整个 `data/` 目录即可。
 
 | 服务 | 地址 |
 | --- | --- |
 | 控制台 | http://127.0.0.1:17880 |
 | API | http://127.0.0.1:17800 |
 | Grafana | http://127.0.0.1:3000 |
+| Prometheus | http://127.0.0.1:9090 |
+| Alertmanager | http://127.0.0.1:9093 |
+
+## 监控配置（单源）
+
+`observability/` 下 YAML **由模板生成**，不要手改。唯一真相：`install/observability/`。
+
+重新生成：
+
+```bash
+# 在仓库根目录
+./install/observability/render.sh docker deploy/docker/observability
+```
+
+`package-release` 打 `stx-docker-compose.tar.gz` 时会自动执行上述渲染。

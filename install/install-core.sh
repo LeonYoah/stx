@@ -144,8 +144,13 @@ stx_configure_defaults() {
   stx_yaml_set "$config" "grpc.port" "${grpc_port}"
 
   if [[ "$with_obs" == "true" || "$with_obs" == "1" ]]; then
-    if [[ -x "$install_dir/deps/init-observability-defaults.sh" ]]; then
-      (cd "$install_dir" && ./deps/init-observability-defaults.sh) || true
+    # Init bundled stack configs (logic lives in bin/lib/observability.sh).
+    # 初始化本地三件套配置（逻辑在 bin/lib/observability.sh）。
+    if [[ -f "$install_dir/bin/lib/observability.sh" && -d "$install_dir/observability/prometheus" ]]; then
+      BASE_DIR="$install_dir"
+      # shellcheck source=bin/lib/observability.sh
+      source "$install_dir/bin/lib/observability.sh"
+      stx_obs_init_defaults "$install_dir/observability" || true
     fi
     stx_yaml_set "$config" "observability.enabled" "true"
     # Best-effort local stack URLs. / 尽力写入本地三件套 URL。
@@ -241,10 +246,12 @@ stx_print_finish_tips() {
      Start        : $install_dir/bin/start.sh
      Stop         : $install_dir/bin/stop.sh
      Status       : $install_dir/bin/status.sh
+     Observability: bundled stack starts with start.sh (default --observability auto)
 
 To change settings:
   1) edit $install_dir/config.yaml
   2) restart: systemctl restart stx   # or: $install_dir/bin/stop.sh && $install_dir/bin/start.sh
+  Optional: $install_dir/bin/start.sh --observability off
 
 Note: stx-all-in-one Docker image does NOT include Prometheus/Grafana/Alertmanager.
 EOF

@@ -20,7 +20,7 @@
 
 ## 开发前检查
 
-- 改动 `scripts/package-release.sh`、`support-files/release/`、`deps/*observability*` 或安装相关文档前，必读 [打包与安装契约](./packaging-and-install.md)。
+- 改动 `install/package-release.sh`、`install/bin/*`、`install/observability/*` 或安装相关文档前，必读 [打包与安装契约](./packaging-and-install.md)。
 - 区分：**版本资产**（stx / agent / frontend）与 **deps 资产**（node / observability）。
 - stx 与 stx-agent 以**裸二进制**发布；不要只提供巨型聚合 tar.gz。
 - all-in-one Docker **不含**监控三件套。

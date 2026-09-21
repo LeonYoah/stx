@@ -17,10 +17,10 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# shellcheck source=../support-files/release/download-lib.sh
-source "$ROOT_DIR/support-files/release/download-lib.sh"
-# shellcheck source=../support-files/release/install-core.sh
-source "$ROOT_DIR/support-files/release/install-core.sh"
+# shellcheck source=../install/download-lib.sh
+source "$ROOT_DIR/install/download-lib.sh"
+# shellcheck source=../install/install-core.sh
+source "$ROOT_DIR/install/install-core.sh"
 
 fail=0
 

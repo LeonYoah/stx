@@ -31,9 +31,13 @@ frontend/.env
 .DS_Store
 Thumbs.db
 data/
+!deploy/docker/data/
+!deploy/docker/data/.gitignore
 lib/
 !frontend/lib/
 !frontend/lib/**
+!install/bin/lib/
+!install/bin/lib/**
 
 # build
 /build/

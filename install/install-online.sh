@@ -27,12 +27,12 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # curl|bash 时仓库不在本地：从 GitHub raw 拉安装辅助脚本。/ When piped via curl|bash, fetch install helpers from GitHub raw.
 stx_bootstrap_root_if_needed() {
-  if [[ -f "$ROOT_DIR/support-files/release/download-lib.sh" ]]; then
+  if [[ -f "$ROOT_DIR/install/download-lib.sh" ]]; then
     return 0
   fi
   local boot ref prefix base path url
   boot="${TMPDIR:-/tmp}/stx-bootstrap-$$"
-  mkdir -p "$boot/support-files/release" "$boot/bin"
+  mkdir -p "$boot/install/bin/lib"
   ref="${STX_BOOTSTRAP_REF:-main}"
   prefix=""
   if [[ -n "${STX_DOWNLOAD_MIRROR_PREFIX:-}" ]]; then
@@ -43,12 +43,13 @@ stx_bootstrap_root_if_needed() {
   base="https://raw.githubusercontent.com/${STX_GITHUB_OWNER}/${STX_GITHUB_REPO}/${ref}"
   echo "[INFO] standalone mode: bootstrap helpers from ${ref}" >&2
   for path in \
-    support-files/release/download-lib.sh \
-    support-files/release/install-core.sh \
-    support-files/release/install.sh \
-    support-files/release/start.sh \
-    support-files/release/stop.sh \
-    support-files/release/status.sh \
+    install/download-lib.sh \
+    install/install-core.sh \
+    install/install.sh \
+    install/bin/start.sh \
+    install/bin/stop.sh \
+    install/bin/status.sh \
+    install/bin/lib/observability.sh \
     config.example.yaml
   do
     url="${base}/${path}"
@@ -63,10 +64,10 @@ stx_bootstrap_root_if_needed() {
 }
 
 stx_bootstrap_root_if_needed
-# shellcheck source=../support-files/release/download-lib.sh
-source "$ROOT_DIR/support-files/release/download-lib.sh"
-# shellcheck source=../support-files/release/install-core.sh
-source "$ROOT_DIR/support-files/release/install-core.sh"
+# shellcheck source=../install/download-lib.sh
+source "$ROOT_DIR/install/download-lib.sh"
+# shellcheck source=../install/install-core.sh
+source "$ROOT_DIR/install/install-core.sh"
 
 usage() {
   cat <<'USAGE'
@@ -74,7 +75,7 @@ STX online installer
 
 Usage:
   curl -fsSL <release-or-proxy-url>/install-online.sh | bash
-  scripts/install-online.sh [options]
+  install/install-online.sh [options]
 
 Options:
   --version <tag>              Release tag (default: latest)
@@ -254,13 +255,14 @@ if [[ "$WITH_OBS" == "true" && "$WITHOUT_OBS" != "true" ]]; then
 fi
 
 # Stage installer scripts into work dir. / 将安装脚本放入工作目录。
-cp "$ROOT_DIR/support-files/release/install.sh" "$WORK_DIR/install.sh"
-cp "$ROOT_DIR/support-files/release/download-lib.sh" "$WORK_DIR/download-lib.sh"
-cp "$ROOT_DIR/support-files/release/install-core.sh" "$WORK_DIR/install-core.sh"
-mkdir -p "$WORK_DIR/bin"
-cp "$ROOT_DIR/support-files/release/start.sh" "$WORK_DIR/bin/start.sh"
-cp "$ROOT_DIR/support-files/release/stop.sh" "$WORK_DIR/bin/stop.sh"
-cp "$ROOT_DIR/support-files/release/status.sh" "$WORK_DIR/bin/status.sh"
+cp "$ROOT_DIR/install/install.sh" "$WORK_DIR/install.sh"
+cp "$ROOT_DIR/install/download-lib.sh" "$WORK_DIR/download-lib.sh"
+cp "$ROOT_DIR/install/install-core.sh" "$WORK_DIR/install-core.sh"
+mkdir -p "$WORK_DIR/bin/lib"
+cp "$ROOT_DIR/install/bin/start.sh" "$WORK_DIR/bin/start.sh"
+cp "$ROOT_DIR/install/bin/stop.sh" "$WORK_DIR/bin/stop.sh"
+cp "$ROOT_DIR/install/bin/status.sh" "$WORK_DIR/bin/status.sh"
+cp "$ROOT_DIR/install/bin/lib/observability.sh" "$WORK_DIR/bin/lib/observability.sh"
 cp "$ROOT_DIR/config.example.yaml" "$WORK_DIR/config.example.yaml"
 chmod +x "$WORK_DIR/install.sh" "$WORK_DIR/bin/"*.sh
 

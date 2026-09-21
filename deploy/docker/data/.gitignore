@@ -1,0 +1,4 @@
+# Runtime bind-mount data (created by docker compose / first start).
+# 运行时数据目录（compose 启动时创建），不要提交。
+*
+!.gitignore

@@ -27,7 +27,7 @@ Usage:
 Options:
   --install-dir <path>     Install directory (default: /opt/stx)
   --offline                Offline mode: use ./packages only, forbid network
-  --with-observability     Enable bundled observability defaults when deps/ present
+  --with-observability     Enable bundled observability when observability/ present
   --without-observability  Force observability.enabled=false
   --force                  Backup existing install dir before reinstall
   --no-preserve-config     Do not keep existing config.yaml
@@ -183,35 +183,29 @@ if [[ -n "$PACKAGES_DIR" ]]; then
     fi
   fi
 
-  mkdir -p "$STAGE_DIR/bin" "$STAGE_DIR/lib" "$STAGE_DIR/scripts" "$STAGE_DIR/lib/agent"
+  mkdir -p "$STAGE_DIR/bin/lib" "$STAGE_DIR/lib" "$STAGE_DIR/scripts" "$STAGE_DIR/lib/agent"
   for f in start.sh stop.sh status.sh; do
     if [[ -f "$SOURCE_DIR/bin/$f" ]]; then
       cp "$SOURCE_DIR/bin/$f" "$STAGE_DIR/bin/$f"
     elif [[ -f "$SCRIPT_DIR/bin/$f" ]]; then
       cp "$SCRIPT_DIR/bin/$f" "$STAGE_DIR/bin/$f"
-    elif [[ -f "$SCRIPT_DIR/$f" ]]; then
-      # when install.sh lives in support-files/release during offline bundle
-      cp "$SCRIPT_DIR/$f" "$STAGE_DIR/bin/$f" 2>/dev/null || true
     fi
   done
-  # Prefer scripts shipped beside this installer. / 优先使用安装器旁自带脚本。
-  if [[ ! -f "$STAGE_DIR/bin/start.sh" && -f "$SCRIPT_DIR/../release/start.sh" ]]; then
-    :
+  if [[ -f "$SCRIPT_DIR/bin/lib/observability.sh" ]]; then
+    cp "$SCRIPT_DIR/bin/lib/observability.sh" "$STAGE_DIR/bin/lib/observability.sh"
+  elif [[ -f "$SOURCE_DIR/bin/lib/observability.sh" ]]; then
+    cp "$SOURCE_DIR/bin/lib/observability.sh" "$STAGE_DIR/bin/lib/observability.sh"
   fi
-  for f in start.sh stop.sh status.sh; do
-    if [[ ! -f "$STAGE_DIR/bin/$f" && -f "$SCRIPT_DIR/$f" ]]; then
-      cp "$SCRIPT_DIR/$f" "$STAGE_DIR/bin/$f"
-    fi
-  done
 
   cp "$SCRIPT_DIR/install.sh" "$STAGE_DIR/install.sh"
-  mkdir -p "$STAGE_DIR/lib"
-  cp -a "$SCRIPT_DIR/lib" "$STAGE_DIR/"
+  if [[ -d "$SCRIPT_DIR/lib" ]]; then
+    cp -a "$SCRIPT_DIR/lib/." "$STAGE_DIR/lib/"
+  fi
 
   if [[ -f "$SOURCE_DIR/config.example.yaml" ]]; then
     cp "$SOURCE_DIR/config.example.yaml" "$STAGE_DIR/config.example.yaml"
-  elif [[ -f "$SCRIPT_DIR/../../config.example.yaml" ]]; then
-    cp "$SCRIPT_DIR/../../config.example.yaml" "$STAGE_DIR/config.example.yaml"
+  elif [[ -f "$SCRIPT_DIR/../config.example.yaml" ]]; then
+    cp "$SCRIPT_DIR/../config.example.yaml" "$STAGE_DIR/config.example.yaml"
   fi
 
   # Optional node / observability / agent / java-proxy from packages.
@@ -230,8 +224,8 @@ if [[ -n "$PACKAGES_DIR" ]]; then
 
   obs_tar="$(ls "$PACKAGES_DIR"/observability-*-linux-${arch}.tar.gz 2>/dev/null | head -n1 || true)"
   if [[ -n "$obs_tar" ]]; then
-    mkdir -p "$STAGE_DIR/deps"
-    tar -xzf "$obs_tar" -C "$STAGE_DIR/deps"
+    mkdir -p "$STAGE_DIR/observability"
+    tar -xzf "$obs_tar" -C "$STAGE_DIR/observability"
   fi
 
   agent_bin="$PACKAGES_DIR/stx-agent-linux-${arch}"
@@ -315,16 +309,6 @@ if [[ -f "$INSTALL_DIR/scripts/stx-java-proxy.sh" ]]; then
   chmod +x "$INSTALL_DIR/scripts/stx-java-proxy.sh"
 fi
 
-for f in \
-  "$INSTALL_DIR/deps/start-observability.sh" \
-  "$INSTALL_DIR/deps/stop-observability.sh" \
-  "$INSTALL_DIR/deps/status-observability.sh" \
-  "$INSTALL_DIR/deps/init-observability-defaults.sh"; do
-  if [[ -f "$f" ]]; then
-    chmod +x "$f"
-  fi
-done
-
 mkdir -p "$INSTALL_DIR/run" "$INSTALL_DIR/logs" "$INSTALL_DIR/data"
 
 stx_probe_default_ports
@@ -332,7 +316,7 @@ stx_probe_default_ports
 obs_flag=false
 if [[ "$WITH_OBS" == "true" ]]; then
   obs_flag=true
-elif [[ "$WITH_OBS" == "auto" && -x "$INSTALL_DIR/deps/start-observability.sh" ]]; then
+elif [[ "$WITH_OBS" == "auto" && -x "$INSTALL_DIR/observability/prometheus/prometheus" ]]; then
   obs_flag=true
 fi
 if [[ "$WITH_OBS" == "false" ]]; then

@@ -1782,6 +1782,12 @@ func clusterAdditionalOperationSpecs() []OperationSpec {
 				{Name: "kind", Location: InputPath, Required: true, Description: "Runtime storage kind: checkpoint or imap"},
 				{Name: "request", Location: InputBody, Required: true, Description: "Runtime storage settings; secrets must be read from protected input"},
 			}),
+		clusterNonCLIWriteOperation("cluster.log-mode.switch", "Switch cluster job log mode", "POST", "/api/v1/clusters/:id/log-mode", RiskR1,
+			"切换作业日志模式会生成新的 log4j2 配置版本并同步到各节点，需重启集群生效。",
+			[]InputSpec{
+				{Name: "id", Location: InputPath, Required: true, Description: "Cluster ID"},
+				{Name: "mode", Location: InputBody, Required: true, Description: "Target log mode: per_job or mixed"},
+			}),
 		clusterGeneratedOperation("cluster.node.logs", []string{"cluster", "node", "logs"}, "Get cluster node logs", "GET", "/api/v1/clusters/:id/nodes/:nodeId/logs", RiskR0,
 			"读取较多日志会消耗 Agent、网络和 STX 服务资源。", "stx cluster node logs 6 1 --lines 100 --mode tail", []InputSpec{
 				{Name: "id", Location: InputPath, Required: true, Description: "Cluster ID"}, {Name: "nodeId", Location: InputPath, Required: true, Description: "Node ID"},

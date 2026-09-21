@@ -3921,7 +3921,16 @@
     "switchToPerJobModeBtn": "一键切换为单 Job 独立日志模式",
     "switchToPerJobSuccessToast": "已成功切换为单 Job 独立日志模式（已生成新配置版本并同步到各节点），需重启集群后生效！",
     "switchLogModeFailed": "切换日志模式失败",
-    "viewClusterDetail": "前往集群详情"
+    "viewClusterDetail": "前往集群详情",
+    "checkpointWarningDialogTitle": "未配置 Checkpoint 间隔警告",
+    "checkpointWarningBanner": "检测到当前作业写入目标支持事务提交。请在作业的 env 中配置 checkpoint.interval。",
+    "checkpointWarningReasonTitle": "原因解释",
+    "checkpointWarningReasonContent": "文件类与数据湖 Sink 默认启用事务写入（2PC），需要由 Checkpoint 周期性触发提交与新事务开启。若未配置 Checkpoint 间隔，将导致数据无法正常提交可见，同时无法按时间窗口切分输出文件。",
+    "checkpointWarningRecommendTitle": "建议配置",
+    "checkpointWarningTargetSink": "写入端目标插件",
+    "checkpointAutoConfigureAndProceed": "一键配置并继续",
+    "checkpointProceedAnyway": "仍要继续执行",
+    "checkpointIntervalConfiguredToast": "已自动为作业 env 添加 checkpoint.interval = 60000"
   },
   "troubleshooting": {
     "title": "排障经验记忆库",

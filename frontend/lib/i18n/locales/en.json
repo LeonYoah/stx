@@ -3921,7 +3921,16 @@
     "switchToPerJobModeBtn": "Switch to Per-Job Log Mode",
     "switchToPerJobSuccessToast": "Switched to Per-Job Log Mode (new configuration synced to all nodes). Takes effect after cluster restart!",
     "switchLogModeFailed": "Failed to switch log mode",
-    "viewClusterDetail": "Go to Cluster Details"
+    "viewClusterDetail": "Go to Cluster Details",
+    "checkpointWarningDialogTitle": "Missing Checkpoint Interval Warning",
+    "checkpointWarningBanner": "The target sink supports transactional commit. Please configure checkpoint.interval in the job's env block.",
+    "checkpointWarningReasonTitle": "Reason",
+    "checkpointWarningReasonContent": "File and data lake sinks enable two-phase commit (2PC) by default, which requires periodic Checkpoints to commit data and open new transactions. Without checkpoint.interval, written data will not be committed and output files cannot be sliced by time window.",
+    "checkpointWarningRecommendTitle": "Recommended Configuration",
+    "checkpointWarningTargetSink": "Target Sink Plugin",
+    "checkpointAutoConfigureAndProceed": "Auto Configure & Proceed",
+    "checkpointProceedAnyway": "Proceed Anyway",
+    "checkpointIntervalConfiguredToast": "Added checkpoint.interval = 60000 to job env"
   },
   "troubleshooting": {
     "title": "Troubleshooting Memory Bank",

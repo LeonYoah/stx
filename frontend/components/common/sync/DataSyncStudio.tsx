@@ -304,15 +304,26 @@ function resolveEnumSuggestionItems(metadata: any): Array<{
   label: string;
   value: string;
 }> {
-  const values = Array.isArray(metadata?.enum_values)
+  let values = Array.isArray(metadata?.enum_values)
     ? metadata.enum_values
-    : [];
-  const displays = Array.isArray(metadata?.enum_display_values)
+    : Array.isArray(metadata?.enumValues)
+      ? metadata.enumValues
+      : [];
+  let displays = Array.isArray(metadata?.enum_display_values)
     ? metadata.enum_display_values
-    : [];
-  return values.map((value: string, index: number) => ({
-    label: displays[index] || value,
-    value,
+    : Array.isArray(metadata?.enumDisplayValues)
+      ? metadata.enumDisplayValues
+      : [];
+  if (
+    (!values || values.length === 0) &&
+    (metadata?.type === 'boolean' || metadata?.type === 'Boolean')
+  ) {
+    values = ['true', 'false'];
+    displays = ['true', 'false'];
+  }
+  return values.map((value: any, index: number) => ({
+    label: displays[index] != null ? String(displays[index]) : String(value),
+    value: String(value),
   }));
 }
 
@@ -353,6 +364,110 @@ function resolveEnumSuggestRange(position: {
     startColumn: position.column,
     endColumn: position.column,
   };
+}
+
+function isFileOrLakeSink(content: string): {
+  matches: boolean;
+  sinkName?: string;
+} {
+  const sinkMatch = content.match(
+    /sink\s*\{([\s\S]*?)(?:$|\n\s*(?:source|transform|env)\s*\{)/i,
+  );
+  const sinkBlock = sinkMatch
+    ? sinkMatch[1]
+    : content.includes('sink {')
+      ? content.slice(content.indexOf('sink {'))
+      : '';
+  if (sinkBlock) {
+    const m = sinkBlock.match(
+      /\b(hive|hdfsfile|hdfs|localfile|ftpfile|sftpfile|ossfile|s3file|cosfile|obsfile|file|iceberg|paimon|clickhousefile)\b\s*\{/i,
+    );
+    if (m) {
+      return {matches: true, sinkName: m[1]};
+    }
+  }
+  try {
+    const parsed = JSON.parse(content);
+    const sinks = Array.isArray(parsed?.sink)
+      ? parsed.sink
+      : parsed?.sink
+        ? [parsed.sink]
+        : [];
+    for (const s of sinks) {
+      const name =
+        s?.plugin_name || s?.connector || Object.keys(s || {})[0] || '';
+      if (
+        /^(hive|hdfsfile|hdfs|localfile|ftpfile|sftpfile|ossfile|s3file|cosfile|obsfile|file|iceberg|paimon|clickhousefile)$/i.test(
+          name,
+        )
+      ) {
+        return {matches: true, sinkName: name};
+      }
+    }
+  } catch {}
+  return {matches: false};
+}
+
+function hasValidCheckpointInterval(content: string): boolean {
+  const lines = content.split('\n');
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (line.startsWith('#') || line.startsWith('//')) {
+      continue;
+    }
+    const match = line.match(/^checkpoint\.interval\s*=\s*([0-9]+)/);
+    if (match) {
+      const val = parseInt(match[1], 10);
+      if (val > 0) {
+        return true;
+      }
+    }
+  }
+  try {
+    const parsed = JSON.parse(content);
+    const interval = parsed?.env?.['checkpoint.interval'];
+    if (typeof interval === 'number' && interval > 0) {
+      return true;
+    }
+  } catch {}
+  return false;
+}
+
+function detectFileSinkMissingCheckpoint(content: string): {
+  missing: boolean;
+  sinkName: string;
+} {
+  const fileSink = isFileOrLakeSink(content);
+  if (!fileSink.matches) {
+    return {missing: false, sinkName: ''};
+  }
+  const hasInterval = hasValidCheckpointInterval(content);
+  if (hasInterval) {
+    return {missing: false, sinkName: ''};
+  }
+  return {missing: true, sinkName: fileSink.sinkName || 'File/Lake'};
+}
+
+function injectCheckpointInterval(
+  content: string,
+  intervalMs: number = 60000,
+): string {
+  const envRegex = /^(\s*env\s*\{)([\s\S]*?)(\})/m;
+  const match = content.match(envRegex);
+  if (match) {
+    if (/^\s*#?\s*checkpoint\.interval\s*=/m.test(match[2])) {
+      const updatedEnv = match[2].replace(
+        /^\s*#?\s*checkpoint\.interval\s*=.*$/m,
+        `  checkpoint.interval = ${intervalMs}`,
+      );
+      return content.replace(envRegex, `${match[1]}${updatedEnv}${match[3]}`);
+    }
+    return content.replace(
+      envRegex,
+      `${match[1]}\n  checkpoint.interval = ${intervalMs}${match[2]}${match[3]}`,
+    );
+  }
+  return `env {\n  checkpoint.interval = ${intervalMs}\n}\n\n${content}`;
 }
 
 function ensureSyncHoconLanguage(monaco: any) {
@@ -2997,6 +3112,17 @@ export function DataSyncStudio() {
   const [metricsDialogJob, setMetricsDialogJob] =
     useState<SyncJobInstance | null>(null);
   const [logsDialogOpen, setLogsDialogOpen] = useState(false);
+  const [checkpointWarningDialog, setCheckpointWarningDialog] = useState<{
+    open: boolean;
+    sinkName: string;
+    onProceed: () => void;
+    onProceedWithConfig: () => void;
+  }>({
+    open: false,
+    sinkName: '',
+    onProceed: () => {},
+    onProceedWithConfig: () => {},
+  });
   const [logFilterMode, setLogFilterMode] = useState<LogFilterMode>('all');
   const [logSearchTerm, setLogSearchTerm] = useState('');
   const [pluginPanelLoading, setPluginPanelLoading] = useState(false);
@@ -4198,9 +4324,12 @@ export function DataSyncStudio() {
           if (!bounds) {
             return;
           }
-          const renderedValue = bounds.quoted
-            ? payload.value
-            : JSON.stringify(payload.value);
+          const isBooleanValue =
+            payload.value === 'true' || payload.value === 'false';
+          const renderedValue =
+            bounds.quoted || isBooleanValue
+              ? payload.value
+              : JSON.stringify(payload.value);
           editor.executeEdits?.('sync-enum-completion', [
             {
               range: {
@@ -4228,7 +4357,7 @@ export function DataSyncStudio() {
             .getLineContent(position.lineNumber)
             .slice(0, Math.max(position.column - 1, 0));
           const keyMatch = linePrefix.match(
-            /^\s*([A-Za-z0-9_.-]+)\s*=\s*(?:"[^"]*)?$/,
+            /^\s*([A-Za-z0-9_.-]+)\s*=\s*(?:"[^"]*|[A-Za-z0-9_.-]*)?$/,
           );
           if (!keyMatch) {
             return {suggestions: []};
@@ -4523,14 +4652,14 @@ export function DataSyncStudio() {
   }, []);
 
   const buildTaskPayload = useCallback(
-    (): CreateSyncTaskRequest => ({
+    (overrideContent?: string): CreateSyncTaskRequest => ({
       parent_id: editor.parentId,
       node_type: 'file',
       name: editor.name.trim(),
       description: editor.description.trim(),
       cluster_id: editor.clusterId ? Number(editor.clusterId) : 0,
       content_format: 'hocon',
-      content: editor.content,
+      content: overrideContent !== undefined ? overrideContent : editor.content,
       job_name: editor.name.trim(),
       definition: {
         ...editor.definition,
@@ -4984,7 +5113,7 @@ export function DataSyncStudio() {
   };
 
   const ensureDraftActionContext = useCallback(
-    (actionLabel: string) => {
+    (actionLabel: string, overrideContent?: string) => {
       if (!editor.id) {
         toast.error(t('saveBeforeAction', {action: actionLabel}));
         return null;
@@ -4997,13 +5126,50 @@ export function DataSyncStudio() {
         toast.error(customVariableError);
         return null;
       }
-      return {taskId: editor.id, draft: buildTaskPayload()};
+      return {
+        taskId: editor.id,
+        draft: buildTaskPayload(overrideContent),
+      };
     },
     [buildTaskPayload, editor.id, t],
   );
 
-  const handleBuildDag = async () => {
-    const actionContext = ensureDraftActionContext(t('dagActionLabel'));
+  const checkCheckpointWarning = useCallback(
+    (
+      executeAction: (overrideContent?: string) => void | Promise<void>,
+    ): boolean => {
+      const check = detectFileSinkMissingCheckpoint(editor.content);
+      if (check.missing) {
+        setCheckpointWarningDialog({
+          open: true,
+          sinkName: check.sinkName,
+          onProceed: () => {
+            setCheckpointWarningDialog((prev) => ({ ...prev, open: false }));
+            void executeAction();
+          },
+          onProceedWithConfig: () => {
+            const nextContent = injectCheckpointInterval(editor.content);
+            updateEditor('content', nextContent);
+            if (editorInstanceRef.current) {
+              editorInstanceRef.current.setValue(nextContent);
+            }
+            toast.success(t('checkpointIntervalConfiguredToast'));
+            setCheckpointWarningDialog((prev) => ({ ...prev, open: false }));
+            void executeAction(nextContent);
+          },
+        });
+        return true;
+      }
+      return false;
+    },
+    [editor.content, t, updateEditor],
+  );
+
+  const executeBuildDag = async (overrideContent?: string) => {
+    const actionContext = ensureDraftActionContext(
+      t('dagActionLabel'),
+      overrideContent,
+    );
     if (!actionContext) {
       return;
     }
@@ -5034,6 +5200,13 @@ export function DataSyncStudio() {
     } finally {
       setActionPending((current) => (current === 'dag' ? null : current));
     }
+  };
+
+  const handleBuildDag = async () => {
+    if (checkCheckpointWarning(executeBuildDag)) {
+      return;
+    }
+    await executeBuildDag();
   };
 
   const handleValidateConfig = async () => {
@@ -5069,12 +5242,11 @@ export function DataSyncStudio() {
     }
   };
 
-  const handleTestConnections = async () => {
-    if (editor.id && !editor.canEdit) {
-      toast.error(t('readOnlyTestConnTooltip'));
-      return;
-    }
-    const actionContext = ensureDraftActionContext(t('testConnections'));
+  const executeTestConnections = async (overrideContent?: string) => {
+    const actionContext = ensureDraftActionContext(
+      t('testConnections'),
+      overrideContent,
+    );
     if (!actionContext) {
       return;
     }
@@ -5111,15 +5283,18 @@ export function DataSyncStudio() {
     }
   };
 
-  const handlePreview = async () => {
-    if (editor.id && !editor.canRun) {
-      toast.error(t('readOnlyPreviewTooltip'));
+  const handleTestConnections = async () => {
+    if (editor.id && !editor.canEdit) {
+      toast.error(t('readOnlyTestConnTooltip'));
       return;
     }
-    if (hasActiveRun || hasActivePreview) {
-      toast.error(t('waitForActiveRun'));
+    if (checkCheckpointWarning(executeTestConnections)) {
       return;
     }
+    await executeTestConnections();
+  };
+
+  const executePreview = () => {
     const currentLimit = Number(toObject(editor.definition).preview_row_limit);
     setPreviewRunDialog({
       open: true,
@@ -5133,6 +5308,21 @@ export function DataSyncStudio() {
           : 10,
       ),
     });
+  };
+
+  const handlePreview = async () => {
+    if (editor.id && !editor.canRun) {
+      toast.error(t('readOnlyPreviewTooltip'));
+      return;
+    }
+    if (hasActiveRun || hasActivePreview) {
+      toast.error(t('waitForActiveRun'));
+      return;
+    }
+    if (checkCheckpointWarning(executePreview)) {
+      return;
+    }
+    executePreview();
   };
 
   const handleConfirmPreview = async () => {
@@ -5184,21 +5374,17 @@ export function DataSyncStudio() {
     }
   };
 
-  const handleRun = async (
+  const executeRun = async (
     mode: 'run' | 'recover',
     sourceJobId?: number | null,
+    overrideContent?: string,
   ) => {
-    if (editor.id && !editor.canRun) {
-      toast.error(t('readOnlyRunTooltip'));
-      return;
-    }
-    if (hasActiveRun || hasActivePreview) {
-      toast.error(t('waitForActiveRun'));
-      return;
-    }
     const actionLabel =
       mode === 'recover' ? t('recoverActionLabel') : t('runActionLabel');
-    const actionContext = ensureDraftActionContext(actionLabel);
+    const actionContext = ensureDraftActionContext(
+      actionLabel,
+      overrideContent,
+    );
     if (!actionContext) {
       return;
     }
@@ -5236,6 +5422,28 @@ export function DataSyncStudio() {
     } finally {
       setActionPending((current) => (current === 'recover' ? null : current));
     }
+  };
+
+  const handleRun = async (
+    mode: 'run' | 'recover',
+    sourceJobId?: number | null,
+  ) => {
+    if (editor.id && !editor.canRun) {
+      toast.error(t('readOnlyRunTooltip'));
+      return;
+    }
+    if (hasActiveRun || hasActivePreview) {
+      toast.error(t('waitForActiveRun'));
+      return;
+    }
+    if (
+      checkCheckpointWarning((overrideContent) =>
+        executeRun(mode, sourceJobId, overrideContent),
+      )
+    ) {
+      return;
+    }
+    await executeRun(mode, sourceJobId);
   };
 
   const handleCancelJob = async (jobId: number, stopWithSavepoint = false) => {
@@ -6468,6 +6676,130 @@ export function DataSyncStudio() {
               </Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={checkpointWarningDialog.open}
+        onOpenChange={(open) => {
+          if (!open) {
+            setCheckpointWarningDialog((prev) => ({...prev, open: false}));
+          }
+        }}
+      >
+        <DialogContent className='sm:max-w-[620px]'>
+          <DialogHeader>
+            <div className='flex items-center gap-2 text-amber-600 dark:text-amber-400'>
+              <AlertTriangle className='size-5 shrink-0' />
+              <DialogTitle className='text-base font-semibold'>
+                {t('checkpointWarningDialogTitle')}
+              </DialogTitle>
+            </div>
+            <DialogDescription className='sr-only'>
+              {t('checkpointWarningBanner')}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className='space-y-4 py-2 text-xs'>
+            <div className='rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-amber-800 dark:text-amber-300'>
+              <div className='flex items-center justify-between gap-2'>
+                <span className='font-semibold'>
+                  {t('checkpointWarningBanner')}
+                </span>
+                <Badge
+                  variant='outline'
+                  className='border-amber-500/40 bg-amber-500/20 text-[11px] text-amber-700 dark:text-amber-300 shrink-0'
+                >
+                  Sink: {checkpointWarningDialog.sinkName}
+                </Badge>
+              </div>
+            </div>
+
+            <div className='space-y-1.5'>
+              <div className='font-semibold text-foreground flex items-center gap-1.5'>
+                <FileCode2 className='size-3.5 text-primary' />
+                <span>{t('checkpointWarningReasonTitle')}：</span>
+              </div>
+              <p className='text-muted-foreground leading-relaxed pl-5'>
+                {t('checkpointWarningReasonContent')}
+              </p>
+            </div>
+
+            <div className='space-y-1.5'>
+              <div className='font-semibold text-foreground flex items-center gap-1.5'>
+                <WandSparkles className='size-3.5 text-primary' />
+                <span>{t('checkpointWarningRecommendTitle')}：</span>
+              </div>
+              <div className='rounded-md border border-border/60 bg-muted/40 p-2.5 font-mono text-[11px] whitespace-pre text-foreground'>
+{`env {
+  checkpoint.interval = 60000 # 建议根据延迟要求设置为 30000-60000 ms
+}`}
+              </div>
+              <div className='text-[11px] text-muted-foreground flex flex-wrap gap-2 pt-1'>
+                <span>参考文档：</span>
+                <a
+                  href='https://github.com/apache/seatunnel/blob/dev/docs/zh/connectors/sink/HdfsFile.md'
+                  target='_blank'
+                  rel='noreferrer'
+                  className='text-primary underline hover:text-primary/80'
+                >
+                  Hdfs文件
+                </a>
+                <span>•</span>
+                <a
+                  href='https://github.com/apache/seatunnel/blob/dev/docs/zh/connectors/cdc-production-cookbook.md'
+                  target='_blank'
+                  rel='noreferrer'
+                  className='text-primary underline hover:text-primary/80'
+                >
+                  CDC 生产实战手册
+                </a>
+                <span>•</span>
+                <a
+                  href='https://github.com/apache/seatunnel/blob/dev/docs/zh/architecture/fault-tolerance/checkpoint-mechanism.md'
+                  target='_blank'
+                  rel='noreferrer'
+                  className='text-primary underline hover:text-primary/80'
+                >
+                  检查点机制
+                </a>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter className='flex flex-wrap items-center justify-end gap-2 pt-2'>
+            <Button
+              variant='ghost'
+              size='sm'
+              className='text-xs'
+              onClick={() => {
+                setCheckpointWarningDialog((prev) => ({...prev, open: false}));
+              }}
+            >
+              {t('cancel')}
+            </Button>
+            <Button
+              variant='outline'
+              size='sm'
+              className='text-xs text-muted-foreground hover:text-foreground'
+              onClick={() => {
+                checkpointWarningDialog.onProceed();
+              }}
+            >
+              {t('checkpointProceedAnyway')}
+            </Button>
+            <Button
+              variant='default'
+              size='sm'
+              className='text-xs bg-amber-600 hover:bg-amber-700 text-white dark:bg-amber-600 dark:hover:bg-amber-700'
+              onClick={() => {
+                checkpointWarningDialog.onProceedWithConfig();
+              }}
+            >
+              <WandSparkles className='mr-1.5 size-3.5' />
+              {t('checkpointAutoConfigureAndProceed')}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

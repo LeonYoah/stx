@@ -204,6 +204,16 @@ final class PluginOptionSupport {
         return null;
     }
 
+    private static boolean isBooleanType(Type type, Option<?> option) {
+        if (type == Boolean.class || type == boolean.class) {
+            return true;
+        }
+        if (option != null && "boolean".equalsIgnoreCase(resolveType(option.typeReference()))) {
+            return true;
+        }
+        return false;
+    }
+
     static List<String> resolveEnumValues(Option<?> option) {
         if (option == null) {
             return new ArrayList<>();
@@ -216,6 +226,11 @@ final class PluginOptionSupport {
             return new ArrayList<>(values);
         }
         Type type = option.typeReference() == null ? null : option.typeReference().getType();
+        if (isBooleanType(type, option)) {
+            values.add("true");
+            values.add("false");
+            return new ArrayList<>(values);
+        }
         if (type instanceof Class && ((Class<?>) type).isEnum()) {
             Object[] constants = ((Class<?>) type).getEnumConstants();
             if (constants != null) {
@@ -239,6 +254,11 @@ final class PluginOptionSupport {
             return new ArrayList<>(values);
         }
         Type type = option.typeReference() == null ? null : option.typeReference().getType();
+        if (isBooleanType(type, option)) {
+            values.add("true");
+            values.add("false");
+            return new ArrayList<>(values);
+        }
         if (type instanceof Class && ((Class<?>) type).isEnum()) {
             Object[] constants = ((Class<?>) type).getEnumConstants();
             if (constants != null) {

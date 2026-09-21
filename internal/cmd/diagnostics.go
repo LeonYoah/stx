@@ -27,6 +27,7 @@ import (
 	"strings"
 
 	clioutput "github.com/LeonYoah/stx/internal/cli/output"
+	"github.com/LeonYoah/stx/internal/operation"
 	"github.com/spf13/cobra"
 )
 
@@ -70,6 +71,162 @@ func addDiagnosticsWriteCommands(root *cobra.Command, storeProvider authStorePro
 		panic("generated diagnostics resource command is missing")
 	}
 	resourceCommand.AddCommand(newDiagnosticsResourceRunCommand(storeProvider))
+
+	memoryCommand := childCommand(diagnosticsCommand, "troubleshooting-memory")
+	if memoryCommand == nil {
+		panic("generated diagnostics troubleshooting-memory command is missing")
+	}
+	memoryCommand.AddCommand(
+		newTroubleshootingMemoryCreateCommand(storeProvider),
+		newTroubleshootingMemoryUpdateCommand(storeProvider),
+	)
+}
+
+// newTroubleshootingMemoryCreateCommand 创建排障经验写入命令。
+// newTroubleshootingMemoryCreateCommand creates the troubleshooting-memory write command.
+func newTroubleshootingMemoryCreateCommand(storeProvider authStoreProvider) *cobra.Command {
+	var options secureWriteOptions
+	var requestFile string
+	var targetType, fingerprint, language, title, errorSummary, rootCause, solution string
+	var preventiveTips, clusterName, author string
+	var actionsTaken, tags []string
+	var clusterID uint
+	command := &cobra.Command{
+		Use:     "create",
+		Short:   "Create a troubleshooting memory entry",
+		Example: "stx diagnostics troubleshooting-memory create --target-type error --fingerprint network-timeout --title 'Network timeout' --solution 'Check network connectivity' --confirm",
+		Args:    usageArgs(cobra.NoArgs),
+		RunE: func(command *cobra.Command, _ []string) error {
+			body, err := requestBodyFromFile(requestFile)
+			if err != nil {
+				return err
+			}
+			if body == nil {
+				if strings.TrimSpace(targetType) == "" || strings.TrimSpace(fingerprint) == "" || strings.TrimSpace(title) == "" || strings.TrimSpace(solution) == "" {
+					return clioutput.NewError(clioutput.CodeUsage, "--target-type, --fingerprint, --title, and --solution are required unless --request-file is used", clioutput.ExitUsage, false)
+				}
+				body = map[string]any{
+					"target_type": strings.TrimSpace(targetType),
+					"fingerprint": strings.TrimSpace(fingerprint),
+					"title":       strings.TrimSpace(title),
+					"solution":    strings.TrimSpace(solution),
+				}
+				setChangedString(command, body, "language", language)
+				setChangedString(command, body, "error-summary", errorSummary)
+				setChangedString(command, body, "root-cause", rootCause)
+				setChangedString(command, body, "preventive-tips", preventiveTips)
+				setChangedString(command, body, "cluster-name", clusterName)
+				setChangedString(command, body, "author", author)
+				if command.Flags().Changed("action") {
+					body["actions_taken"] = actionsTaken
+				}
+				if command.Flags().Changed("tag") {
+					body["tags"] = tags
+				}
+				if command.Flags().Changed("cluster-id") {
+					body["cluster_id"] = clusterID
+				}
+			}
+			return executeTroubleshootingMemoryWrite(command, storeProvider, "diagnostics.troubleshooting-memory.create", &options, http.MethodPost, "/api/v1/diagnostics/troubleshooting-memories", body)
+		},
+	}
+	addSecureWriteFlags(command, &options)
+	command.Flags().StringVar(&requestFile, "request-file", "", "JSON file containing the complete request body")
+	command.Flags().StringVar(&targetType, "target-type", "", "Target type: error or alert")
+	command.Flags().StringVar(&fingerprint, "fingerprint", "", "Stable problem fingerprint")
+	command.Flags().StringVar(&language, "language", "", "Content language")
+	command.Flags().StringVar(&title, "title", "", "Experience title")
+	command.Flags().StringVar(&errorSummary, "error-summary", "", "Error summary")
+	command.Flags().StringVar(&rootCause, "root-cause", "", "Root cause")
+	command.Flags().StringVar(&solution, "solution", "", "Solution steps")
+	command.Flags().StringSliceVar(&actionsTaken, "action", nil, "Action taken; may be repeated")
+	command.Flags().StringVar(&preventiveTips, "preventive-tips", "", "Preventive suggestions")
+	command.Flags().UintVar(&clusterID, "cluster-id", 0, "Related cluster ID")
+	command.Flags().StringVar(&clusterName, "cluster-name", "", "Related cluster name")
+	command.Flags().StringSliceVar(&tags, "tag", nil, "Tag; may be repeated")
+	command.Flags().StringVar(&author, "author", "", "Author name")
+	return command
+}
+
+// newTroubleshootingMemoryUpdateCommand 创建排障经验修改命令。
+// newTroubleshootingMemoryUpdateCommand creates the troubleshooting-memory update command.
+func newTroubleshootingMemoryUpdateCommand(storeProvider authStoreProvider) *cobra.Command {
+	var options secureWriteOptions
+	var requestFile, title, errorSummary, rootCause, solution, preventiveTips, author string
+	var actionsTaken, tags []string
+	command := &cobra.Command{
+		Use:     "update <id>",
+		Short:   "Update a troubleshooting memory entry",
+		Example: "stx diagnostics troubleshooting-memory update 1 --solution 'Updated steps' --confirm",
+		Args:    usageArgs(cobra.ExactArgs(1)),
+		RunE: func(command *cobra.Command, args []string) error {
+			body, err := requestBodyFromFile(requestFile)
+			if err != nil {
+				return err
+			}
+			if body == nil {
+				body = make(map[string]any)
+				setChangedString(command, body, "title", title)
+				setChangedString(command, body, "error-summary", errorSummary)
+				setChangedString(command, body, "root-cause", rootCause)
+				setChangedString(command, body, "solution", solution)
+				setChangedString(command, body, "preventive-tips", preventiveTips)
+				setChangedString(command, body, "author", author)
+				if command.Flags().Changed("action") {
+					body["actions_taken"] = actionsTaken
+				}
+				if command.Flags().Changed("tag") {
+					body["tags"] = tags
+				}
+				if len(body) == 0 {
+					return clioutput.NewError(clioutput.CodeUsage, "at least one update flag or --request-file is required", clioutput.ExitUsage, false)
+				}
+			}
+			path := "/api/v1/diagnostics/troubleshooting-memories/" + url.PathEscape(args[0])
+			return executeTroubleshootingMemoryWrite(command, storeProvider, "diagnostics.troubleshooting-memory.update", &options, http.MethodPut, path, body)
+		},
+	}
+	addSecureWriteFlags(command, &options)
+	command.Flags().StringVar(&requestFile, "request-file", "", "JSON file containing the complete request body")
+	command.Flags().StringVar(&title, "title", "", "Experience title")
+	command.Flags().StringVar(&errorSummary, "error-summary", "", "Error summary")
+	command.Flags().StringVar(&rootCause, "root-cause", "", "Root cause")
+	command.Flags().StringVar(&solution, "solution", "", "Solution steps")
+	command.Flags().StringSliceVar(&actionsTaken, "action", nil, "Action taken; may be repeated")
+	command.Flags().StringVar(&preventiveTips, "preventive-tips", "", "Preventive suggestions")
+	command.Flags().StringSliceVar(&tags, "tag", nil, "Tag; may be repeated")
+	command.Flags().StringVar(&author, "author", "", "Author name")
+	return command
+}
+
+// executeTroubleshootingMemoryWrite 使用统一确认、幂等键和结果格式调用排障经验写接口。
+// executeTroubleshootingMemoryWrite calls troubleshooting-memory writes with common confirmation, idempotency, and result rendering.
+func executeTroubleshootingMemoryWrite(command *cobra.Command, storeProvider authStoreProvider, operationID string, options *secureWriteOptions, method, path string, body map[string]any) error {
+	client, headers, err := prepareSecureWrite(command, storeProvider, operationID, options, diagnosticsOperationImpact(operationID))
+	if err != nil {
+		return err
+	}
+	var data any
+	requestID, err := client.RequestWithHeaders(command.Context(), method, path, body, headers, &data)
+	if err != nil {
+		return handleSecureWriteError(command, operationID, err)
+	}
+	nextCommand := "stx diagnostics troubleshooting-memory list"
+	if item, ok := data.(map[string]any); ok {
+		if id := taskIDString(item["id"]); id != "" {
+			nextCommand = "stx diagnostics troubleshooting-memory get " + id
+		}
+	}
+	return renderWriteResult(command, operationID, requestID, data, nextCommand)
+}
+
+func diagnosticsOperationImpact(operationID string) string {
+	for _, spec := range operation.Registry() {
+		if spec.ID == operationID && spec.Impact != nil {
+			return spec.Impact.Message
+		}
+	}
+	return "this operation changes diagnostics data"
 }
 
 type diagnosticsTaskDownloadOptions struct {

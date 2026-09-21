@@ -40,7 +40,6 @@ import (
 	"github.com/LeonYoah/stx/internal/apps/cluster"
 	appconfig "github.com/LeonYoah/stx/internal/apps/config"
 	"github.com/LeonYoah/stx/internal/apps/dashboard"
-	"github.com/LeonYoah/stx/internal/apps/deepwiki"
 	"github.com/LeonYoah/stx/internal/apps/diagnostics"
 	"github.com/LeonYoah/stx/internal/apps/discovery"
 	"github.com/LeonYoah/stx/internal/apps/execution"
@@ -51,7 +50,6 @@ import (
 	monitoringapp "github.com/LeonYoah/stx/internal/apps/monitoring"
 	"github.com/LeonYoah/stx/internal/apps/oauth"
 	"github.com/LeonYoah/stx/internal/apps/plugin"
-	"github.com/LeonYoah/stx/internal/apps/releasebundle"
 	"github.com/LeonYoah/stx/internal/apps/stupgrade"
 	syncapp "github.com/LeonYoah/stx/internal/apps/sync"
 	"github.com/LeonYoah/stx/internal/apps/task"
@@ -573,23 +571,6 @@ func Serve() {
 				agentRouter.GET("/assets/stx-java-proxy.sh", agentHandler.DownloadSTXJavaProxyScript)
 			}
 
-			// STX 离线发布包分发 API（无需认证，供客户机器一键下载安装控制面）。
-			// STX offline release bundle distribution API (no authentication required for one-click control-plane install).
-			releaseBundleHandler := releasebundle.NewHandler(&releasebundle.HandlerConfig{
-				ReleaseDir:    "./dist/releases",
-				BundlePattern: releasebundle.DefaultBundlePattern,
-			})
-			releaseBundleRouter := apiV1Router.Group("/stx")
-			{
-				// GET /api/v1/stx/install.sh - 获取控制面一键安装脚本
-				// GET /api/v1/stx/install.sh - Get control-plane one-click install script
-				releaseBundleRouter.GET("/install.sh", releaseBundleHandler.GetInstallScript)
-
-				// GET /api/v1/stx/download - 下载最新的 CentOS 7 兼容离线包
-				// GET /api/v1/stx/download - Download the latest CentOS 7 compatible offline bundle
-				releaseBundleRouter.GET("/download", releaseBundleHandler.DownloadBundle)
-			}
-
 			// Audit 审计日志 API
 			// Audit log API
 			// Initialize audit handler (auditRepo already created above)
@@ -1025,29 +1006,6 @@ func Serve() {
 			// POST /api/v1/hosts/:id/install/cancel - Cancel installation
 			hostRouter.POST("/:id/install/cancel", installerHandler.CancelInstallation)
 
-			// DeepWiki 文档服务
-			// DeepWiki documentation service
-			deepwikiService := deepwiki.NewService(deepwiki.ServiceConfig{
-				UseMCP:  false, // 使用直接 HTTP 模式 / Use direct HTTP mode
-				Timeout: 30 * time.Second,
-			})
-			deepwikiHandler := deepwiki.NewHandler(deepwikiService)
-
-			deepwikiRouter := apiV1Router.Group("/deepwiki")
-			deepwikiRouter.Use(auth.LoginRequired())
-			{
-				// GET /api/v1/deepwiki/docs - 获取 SeaTunnel 文档
-				// GET /api/v1/deepwiki/docs - Get SeaTunnel documentation
-				deepwikiRouter.GET("/docs", deepwikiHandler.GetDocs)
-
-				// POST /api/v1/deepwiki/fetch - 获取指定仓库文档
-				// POST /api/v1/deepwiki/fetch - Fetch documentation for specific repository
-				deepwikiRouter.POST("/fetch", deepwikiHandler.FetchDocs)
-
-				// POST /api/v1/deepwiki/search - 搜索文档
-				// POST /api/v1/deepwiki/search - Search documentation
-				deepwikiRouter.POST("/search", deepwikiHandler.Search)
-			}
 		}
 	}
 

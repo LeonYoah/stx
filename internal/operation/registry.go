@@ -26,7 +26,7 @@ import (
 
 // RegistryRevision 是操作登记表的兼容修订号。
 // RegistryRevision is the compatibility revision of the operation registry.
-const RegistryRevision = 12
+const RegistryRevision = 16
 
 var registry = append([]OperationSpec{
 	{
@@ -1404,6 +1404,8 @@ var registry = append([]OperationSpec{
 func additionalOperationSpecs() []OperationSpec {
 	specs := clusterAdditionalOperationSpecs()
 	specs = append(specs, stUpgradeOperationSpecs()...)
+	specs = append(specs, additionalReadOperationSpecs()...)
+	specs = append(specs, auditOperationSpecs()...)
 	specs = append(specs, monitorOperationSpecs()...)
 	specs = append(specs, monitoringReadOperationSpecs()...)
 	specs = append(specs, syncOperationSpecs()...)
@@ -1526,30 +1528,49 @@ func diagnosticsReadOperationSpecs() []OperationSpec {
 		diagnosticsReadOperation("diagnostics.troubleshooting-memory.get", []string{"diagnostics", "troubleshooting-memory", "get"}, "Get troubleshooting memory detail", "/api/v1/diagnostics/troubleshooting-memories/:id", id, "stx diagnostics troubleshooting-memory get 1"),
 		{
 			ID:           "diagnostics.troubleshooting-memory.create",
+			CommandPath:  []string{"diagnostics", "troubleshooting-memory", "create"},
 			Summary:      "Create a troubleshooting memory entry",
 			GeneratedCLI: false,
 			Method:       "POST",
 			Route:        "/api/v1/diagnostics/troubleshooting-memories",
 			Mode:         ModeNormal,
 			AuthRequired: true,
-			Risk:         RiskR0,
+			Risk:         RiskR1,
 			Revision:     1,
+			SupportsPick: true,
+			Impact: &ImpactSpec{
+				Level:   RiskR1,
+				Message: "新增一条排障经验记录，后续诊断和人工排查可以读取该内容。",
+			},
 			Input: []InputSpec{
 				{Name: "request", Location: InputBody, Required: true, Description: "Troubleshooting memory JSON payload"},
+				{Name: "Idempotency-Key", Location: InputHeader, Required: true, Description: "Stable key for retrying the same request"},
+				{Name: "X-STX-Confirm", Location: InputHeader, Required: true, Description: "Explicit confirmation of the operation impact"},
 			},
+			Example:       "stx diagnostics troubleshooting-memory create --request-file memory.json --confirm",
 			OutputExample: `{"api_version":"v1","operation_id":"diagnostics.troubleshooting-memory.create","request_id":"req_example","data":{"id":1},"result_meta":{"complete":true}}`,
 		},
 		{
-			ID:            "diagnostics.troubleshooting-memory.update",
-			Summary:       "Update a troubleshooting memory entry",
-			GeneratedCLI:  false,
-			Method:        "PUT",
-			Route:         "/api/v1/diagnostics/troubleshooting-memories/:id",
-			Mode:          ModeNormal,
-			AuthRequired:  true,
-			Risk:          RiskR0,
-			Revision:      1,
-			Input:         append(append([]InputSpec{}, id...), InputSpec{Name: "request", Location: InputBody, Required: true, Description: "Troubleshooting memory JSON payload"}),
+			ID:           "diagnostics.troubleshooting-memory.update",
+			CommandPath:  []string{"diagnostics", "troubleshooting-memory", "update"},
+			Summary:      "Update a troubleshooting memory entry",
+			GeneratedCLI: false,
+			Method:       "PUT",
+			Route:        "/api/v1/diagnostics/troubleshooting-memories/:id",
+			Mode:         ModeNormal,
+			AuthRequired: true,
+			Risk:         RiskR1,
+			Revision:     1,
+			SupportsPick: true,
+			Impact: &ImpactSpec{
+				Level:   RiskR1,
+				Message: "修改排障经验记录会改变后续诊断和人工排查读取到的内容。",
+			},
+			Input: append(append(append([]InputSpec{}, id...),
+				InputSpec{Name: "request", Location: InputBody, Required: true, Description: "Troubleshooting memory JSON payload"}),
+				InputSpec{Name: "Idempotency-Key", Location: InputHeader, Required: true, Description: "Stable key for retrying the same request"},
+				InputSpec{Name: "X-STX-Confirm", Location: InputHeader, Required: true, Description: "Explicit confirmation of the operation impact"}),
+			Example:       "stx diagnostics troubleshooting-memory update 1 --request-file memory.json --confirm",
 			OutputExample: `{"api_version":"v1","operation_id":"diagnostics.troubleshooting-memory.update","request_id":"req_example","data":{"id":1},"result_meta":{"complete":true}}`,
 		},
 		{
@@ -1782,12 +1803,12 @@ func clusterAdditionalOperationSpecs() []OperationSpec {
 				{Name: "kind", Location: InputPath, Required: true, Description: "Runtime storage kind: checkpoint or imap"},
 				{Name: "request", Location: InputBody, Required: true, Description: "Runtime storage settings; secrets must be read from protected input"},
 			}),
-		clusterNonCLIWriteOperation("cluster.log-mode.switch", "Switch cluster job log mode", "POST", "/api/v1/clusters/:id/log-mode", RiskR1,
-			"切换作业日志模式会生成新的 log4j2 配置版本并同步到各节点，需重启集群生效。",
+		clusterBodyOperation("cluster.log-mode.update", []string{"cluster", "log-mode", "update"}, "Update cluster job log mode", "POST", "/api/v1/clusters/:id/log-mode", RiskR1,
+			"切换作业日志模式会生成新的 log4j2 配置版本并同步到集群节点，需要重启集群后生效。",
 			[]InputSpec{
 				{Name: "id", Location: InputPath, Required: true, Description: "Cluster ID"},
-				{Name: "mode", Location: InputBody, Required: true, Description: "Target log mode: per_job or mixed"},
-			}),
+				{Name: "mode", Location: InputBody, Required: true, Description: "Job log mode: per_job or mixed"},
+			}, "stx cluster log-mode update 6 --mode per_job --confirm"),
 		clusterGeneratedOperation("cluster.node.logs", []string{"cluster", "node", "logs"}, "Get cluster node logs", "GET", "/api/v1/clusters/:id/nodes/:nodeId/logs", RiskR0,
 			"读取较多日志会消耗 Agent、网络和 STX 服务资源。", "stx cluster node logs 6 1 --lines 100 --mode tail", []InputSpec{
 				{Name: "id", Location: InputPath, Required: true, Description: "Cluster ID"}, {Name: "nodeId", Location: InputPath, Required: true, Description: "Node ID"},
@@ -1976,12 +1997,12 @@ var routeExceptions = []RouteException{
 	{Method: "ANY", Route: "/api/v1/monitoring/proxy/grafana/*proxyPath", Mode: ModeProxy, Reason: "Grafana reverse proxy"},
 	{Method: "GET", Route: "/api/v1/diagnostics/tasks/:id/events/stream", Mode: ModeWatch, Reason: "Diagnostic task event stream"},
 	{Method: "GET", Route: "/api/v1/st-upgrade/tasks/:id/events/stream", Mode: ModeWatch, Reason: "STX upgrade task event stream"},
-	{Method: "GET", Route: "/api/v1/agent/install.sh", Mode: ModeDownload, Reason: "Agent installation script download"},
-	{Method: "GET", Route: "/api/v1/agent/uninstall.sh", Mode: ModeDownload, Reason: "Agent uninstallation script download"},
-	{Method: "GET", Route: "/api/v1/agent/ca.crt", Mode: ModeDownload, Reason: "Agent CA certificate download"},
-	{Method: "GET", Route: "/api/v1/agent/download", Mode: ModeDownload, Reason: "Agent binary download"},
-	{Method: "GET", Route: "/api/v1/stx/install.sh", Mode: ModeDownload, Reason: "STX installation script download"},
-	{Method: "GET", Route: "/api/v1/stx/download", Mode: ModeDownload, Reason: "STX release bundle download"},
+	{Method: "GET", Route: "/api/v1/agent/install.sh", Mode: ModeDownload, Reason: "Agent installation script used by the host setup flow"},
+	{Method: "GET", Route: "/api/v1/agent/uninstall.sh", Mode: ModeDownload, Reason: "Agent uninstallation script used by the host setup flow"},
+	{Method: "GET", Route: "/api/v1/agent/ca.crt", Mode: ModeDownload, Reason: "Agent CA certificate used by the host setup flow"},
+	{Method: "GET", Route: "/api/v1/agent/download", Mode: ModeDownload, Reason: "Agent binary used by the host setup flow"},
+	{Method: "GET", Route: "/api/v1/agent/assets/stx-java-proxy.jar", Mode: ModeDownload, Reason: "Java Proxy jar used by the managed runtime setup flow"},
+	{Method: "GET", Route: "/api/v1/agent/assets/stx-java-proxy.sh", Mode: ModeDownload, Reason: "Java Proxy launcher used by the managed runtime setup flow"},
 }
 
 // Registry 返回登记表的副本，调用方不能修改包内数据。

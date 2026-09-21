@@ -443,3 +443,9 @@ OperationSpec{ID: "package.delete", Method: http.MethodDelete, GeneratedCLI: fal
 ### 11.7 范围边界
 
 本约定只限制 `stx` CLI。服务端 Handler、Repository 和网页删除按钮是否保留，由对应业务需求决定；不能为了移除 CLI 命令而删除已有 API。
+
+### 11.8 安装流程资源接口
+
+- Agent 安装脚本、卸载脚本、CA、Agent 二进制和 Java Proxy 文件只供主机安装流程使用，登记为 `ModeDownload` 路由例外，不生成用户 CLI。
+- 不得仅因为某个路由存在，就为它增加 CLI 命令；先确认它是否属于用户或 AI Agent 的实际使用场景。
+- 已停止使用的临时发布接口应删除路由、实现、测试和 Swagger 内容，不能继续留在操作登记中。

@@ -193,6 +193,50 @@ func TestRootCommandRegistersAuthAdminAndDashboardReadCommands(t *testing.T) {
 	}
 }
 
+func TestRootCommandRegistersAuditReadCommands(t *testing.T) {
+	command := newRootCommand(func() error { return nil })
+	paths := [][]string{
+		{"audit", "list"},
+		{"audit", "get"},
+		{"audit", "command", "list"},
+		{"audit", "command", "get"},
+	}
+	for _, path := range paths {
+		found, remaining, err := command.Find(path)
+		if err != nil || len(remaining) != 0 || found.Name() != path[len(path)-1] {
+			t.Fatalf("审计查询命令未完整注册: path=%v found=%s remaining=%v err=%v", path, found.CommandPath(), remaining, err)
+		}
+	}
+}
+
+func TestRootCommandRegistersSupplementalReadCommands(t *testing.T) {
+	command := newRootCommand(func() error { return nil })
+	paths := [][]string{
+		{"cluster", "health", "list"},
+		{"cluster", "runtime-storage", "get"},
+		{"host", "task", "list"},
+	}
+	for _, path := range paths {
+		found, remaining, err := command.Find(path)
+		if err != nil || len(remaining) != 0 || found.Name() != path[len(path)-1] {
+			t.Fatalf("补充只读命令未完整注册: path=%v found=%s remaining=%v err=%v", path, found.CommandPath(), remaining, err)
+		}
+	}
+}
+
+func TestRootCommandRegistersTroubleshootingMemoryWriteCommands(t *testing.T) {
+	command := newRootCommand(func() error { return nil })
+	for _, path := range [][]string{
+		{"diagnostics", "troubleshooting-memory", "create"},
+		{"diagnostics", "troubleshooting-memory", "update"},
+	} {
+		found, remaining, err := command.Find(path)
+		if err != nil || len(remaining) != 0 || found.Name() != path[len(path)-1] {
+			t.Fatalf("排障经验写命令未完整注册: path=%v found=%s remaining=%v err=%v", path, found.CommandPath(), remaining, err)
+		}
+	}
+}
+
 func TestRootCommandRegistersClusterReadWriteAndProcessCommands(t *testing.T) {
 	command := newRootCommand(func() error { return nil })
 	paths := [][]string{

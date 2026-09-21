@@ -834,7 +834,7 @@ func (h *Handler) GetRuntimeStorage(c *gin.Context) {
 	}
 	result, err := h.service.GetRuntimeStorageDetails(c.Request.Context(), uint(clusterID))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, GetRuntimeStorageResponse{ErrorMsg: err.Error()})
+		c.JSON(h.getStatusCodeForError(err), GetRuntimeStorageResponse{ErrorMsg: err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, GetRuntimeStorageResponse{Data: result})

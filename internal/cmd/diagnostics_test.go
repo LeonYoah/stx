@@ -175,6 +175,92 @@ func TestDiagnosticsTaskCreateRequiresConfirmationBeforeNetwork(t *testing.T) {
 	}
 }
 
+func TestTroubleshootingMemoryCreateSendsBodyAndSafetyHeaders(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/api/v1/capabilities" {
+			writeDiagnosticsCapability(t, writer, "diagnostics.troubleshooting-memory.create", "normal")
+			return
+		}
+		if request.Method != http.MethodPost || request.URL.Path != "/api/v1/diagnostics/troubleshooting-memories" {
+			t.Fatalf("排障经验创建请求错误 / troubleshooting memory create request is incorrect: %s %s", request.Method, request.URL.Path)
+		}
+		if request.Header.Get("Idempotency-Key") != "memory-create-key" || request.Header.Get("X-STX-Confirm") != "true" {
+			t.Fatalf("排障经验创建安全请求头错误 / troubleshooting memory create safety headers are incorrect: %#v", request.Header)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Fatalf("读取排障经验创建正文失败 / decoding troubleshooting memory create body failed: %v", err)
+		}
+		if body["target_type"] != "error" || body["fingerprint"] != "network-timeout" || body["title"] != "Network timeout" || body["solution"] != "Check connectivity" {
+			t.Fatalf("排障经验创建正文错误 / troubleshooting memory create body is incorrect: %#v", body)
+		}
+		writeDiagnosticsTaskResponse(t, writer, map[string]any{"id": "91", "title": "Network timeout"})
+	}))
+	defer server.Close()
+
+	store := newExecutionTestStore(t, server.URL, "test-token")
+	stdout, stderr, exitCode := runDiagnosticsCommand(t, store,
+		"diagnostics", "troubleshooting-memory", "create",
+		"--target-type", "error", "--fingerprint", "network-timeout", "--title", "Network timeout",
+		"--solution", "Check connectivity", "--confirm", "--idempotency-key", "memory-create-key")
+	if exitCode != int(clioutput.ExitSuccess) {
+		t.Fatalf("创建排障经验失败 / creating troubleshooting memory failed: code=%d stdout=%s stderr=%s", exitCode, stdout, stderr)
+	}
+	var result map[string]any
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("排障经验创建输出不是合法 JSON / troubleshooting memory create output is not valid JSON: %v", err)
+	}
+	meta := result["result_meta"].(map[string]any)
+	if meta["next_command"] != "stx diagnostics troubleshooting-memory get 91" {
+		t.Fatalf("排障经验创建后续命令错误 / troubleshooting memory create next command is incorrect: %#v", meta)
+	}
+}
+
+func TestTroubleshootingMemoryUpdateAcceptsRequestFile(t *testing.T) {
+	requestFile := filepath.Join(t.TempDir(), "memory-update.json")
+	if err := os.WriteFile(requestFile, []byte(`{"solution":"Updated steps","tags":["network","timeout"]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/api/v1/capabilities" {
+			writeDiagnosticsCapability(t, writer, "diagnostics.troubleshooting-memory.update", "normal")
+			return
+		}
+		if request.Method != http.MethodPut || request.URL.Path != "/api/v1/diagnostics/troubleshooting-memories/91" {
+			t.Fatalf("排障经验修改请求错误 / troubleshooting memory update request is incorrect: %s %s", request.Method, request.URL.Path)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Fatalf("读取排障经验修改正文失败 / decoding troubleshooting memory update body failed: %v", err)
+		}
+		if body["solution"] != "Updated steps" {
+			t.Fatalf("排障经验修改正文错误 / troubleshooting memory update body is incorrect: %#v", body)
+		}
+		writeDiagnosticsTaskResponse(t, writer, map[string]any{"id": "91", "solution": "Updated steps"})
+	}))
+	defer server.Close()
+
+	store := newExecutionTestStore(t, server.URL, "test-token")
+	_, stderr, exitCode := runDiagnosticsCommand(t, store,
+		"diagnostics", "troubleshooting-memory", "update", "91", "--request-file", requestFile, "--confirm", "--idempotency-key", "memory-update-key")
+	if exitCode != int(clioutput.ExitSuccess) {
+		t.Fatalf("修改排障经验失败 / updating troubleshooting memory failed: code=%d stderr=%s", exitCode, stderr)
+	}
+}
+
+func TestTroubleshootingMemoryWriteRequiresConfirmationBeforeNetwork(t *testing.T) {
+	var calls int
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { calls++ }))
+	defer server.Close()
+	store := newExecutionTestStore(t, server.URL, "test-token")
+	_, stderr, exitCode := runDiagnosticsCommand(t, store,
+		"diagnostics", "troubleshooting-memory", "create",
+		"--target-type", "error", "--fingerprint", "test", "--title", "test", "--solution", "test")
+	if exitCode != int(clioutput.ExitConflict) || calls != 0 {
+		t.Fatalf("缺少确认时不应访问服务 / service must not be called without confirmation: code=%d calls=%d stderr=%s", exitCode, calls, stderr)
+	}
+}
+
 func TestDiagnosticsTaskDownloadsBundleAndReturnsChecksum(t *testing.T) {
 	const content = "diagnostic zip content"
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {

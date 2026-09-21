@@ -98,7 +98,7 @@ func TestValidateRejectsRepeatedNonQueryInput(t *testing.T) {
 }
 
 func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
-	require.Len(t, Registry(), 164)
+	require.Len(t, Registry(), 172)
 
 	expected := map[string]struct{}{
 		"auth.user-info.get": {}, "admin.user.list": {}, "admin.user.get": {},
@@ -106,7 +106,9 @@ func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
 		"dashboard.cluster.list": {}, "dashboard.host.list": {}, "dashboard.activity.list": {},
 		"host.list": {}, "host.get": {}, "host.agent.install-command.get": {}, "cluster.list": {}, "cluster.get": {},
 		"host.discovery.process.list": {},
+		"host.task.list":              {},
 		"cluster.node.list":           {}, "cluster.status.get": {}, "config.cluster.list": {},
+		"cluster.health.list": {}, "cluster.runtime-storage.get": {},
 		"cluster.node.logs": {},
 		"cluster.start":     {}, "cluster.stop": {}, "cluster.restart": {},
 		"cluster.node.start": {}, "cluster.node.stop": {}, "cluster.node.restart": {},
@@ -136,9 +138,10 @@ func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
 		"diagnostics.troubleshooting-memory.list": {}, "diagnostics.troubleshooting-memory.get": {},
 		"sync.tree": {}, "sync.task.list": {}, "sync.task.get": {},
 		"sync.task.version.list": {},
-		"sync.job.list": {}, "sync.job.get": {}, "sync.job.logs": {},
+		"sync.job.list":          {}, "sync.job.get": {}, "sync.job.logs": {},
 		"sync.job.checkpoint": {}, "sync.job.preview": {},
 		"sync.variable.list": {},
+		"audit.command.list": {}, "audit.command.get": {}, "audit.log.list": {}, "audit.log.get": {},
 	}
 	actual := make(map[string]struct{})
 	for _, spec := range Registry() {
@@ -221,6 +224,7 @@ func TestRegistryContainsClusterWriteOperations(t *testing.T) {
 	require.False(t, byID["cluster.node.remove"].GeneratedCLI)
 	require.Empty(t, byID["cluster.node.remove"].CommandPath)
 	require.True(t, byID["cluster.restart"].GeneratedCLI)
+	require.False(t, byID["cluster.log-mode.update"].GeneratedCLI)
 }
 
 func TestRegistryNeverGeneratesDeleteOperations(t *testing.T) {
@@ -286,6 +290,16 @@ func TestRegistryContainsDiscoveryOperationAndLegacyExceptions(t *testing.T) {
 	require.Len(t, RouteExceptions(), 18)
 	require.Contains(t, exceptions, "POST /api/v1/hosts/:id/discover")
 	require.Contains(t, exceptions, "POST /api/v1/hosts/:id/discover/confirm")
+	for _, route := range []string{
+		"GET /api/v1/agent/install.sh",
+		"GET /api/v1/agent/uninstall.sh",
+		"GET /api/v1/agent/ca.crt",
+		"GET /api/v1/agent/download",
+		"GET /api/v1/agent/assets/stx-java-proxy.jar",
+		"GET /api/v1/agent/assets/stx-java-proxy.sh",
+	} {
+		require.Contains(t, exceptions, route)
+	}
 }
 
 func TestRegistryAdminUserOperations(t *testing.T) {

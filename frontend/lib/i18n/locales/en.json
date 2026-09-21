@@ -3938,7 +3938,7 @@
     "noFileSelected": "No file selected",
     "mixedLogModeTitle": "Cluster in Mixed Log Mode",
     "mixedLogModeBadge": "Shared Mixed Log",
-    "mixedLogModeDescription": "The SeaTunnel cluster is currently outputting all job logs into a single shared engine log file, making it impossible to separate logs for this job. Switching to Per-Job Log Mode and restarting the cluster is recommended.",
+    "mixedLogModeDescription": "The SeaTunnel cluster is currently outputting all job logs into a single shared engine log file, making it impossible to separate logs for this job. You can go to [Cluster Details - Overview] to switch to Per-Job Log Mode and restart the cluster to view live logs.",
     "switchToPerJobModeBtn": "Switch to Per-Job Log Mode",
     "switchToPerJobSuccessToast": "Switched to Per-Job Log Mode (new configuration synced to all nodes). Takes effect after cluster restart!",
     "switchLogModeFailed": "Failed to switch log mode",

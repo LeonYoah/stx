@@ -66,6 +66,13 @@ import {
   WorkbenchDialogContent,
 } from '@/components/ui/dialog';
 import {ScrollArea} from '@/components/ui/scroll-area';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {Tabs, TabsContent, TabsList, TabsTrigger} from '@/components/ui/tabs';
 import {toast} from 'sonner';
 import {
@@ -429,6 +436,8 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
     'checkpoint',
   );
   const [copiedInstallDir, setCopiedInstallDir] = useState(false);
+  // 日志输出模式切换状态 / Job log mode switching state
+  const [logModeSwitching, setLogModeSwitching] = useState(false);
 
   /**
    * Load cluster data
@@ -932,6 +941,34 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
     setNodeToEdit(null);
     loadClusterData();
     toast.success(t('cluster.editNodeSuccess'));
+  };
+
+  /**
+   * 切换作业日志输出模式（单 Job 独立日志模式 vs 共享混合日志模式）
+   * Switch cluster job log output mode (per_job vs mixed)
+   */
+  const handleSwitchJobLogMode = async (targetMode: 'per_job' | 'mixed') => {
+    if (logModeSwitching) return;
+    setLogModeSwitching(true);
+    try {
+      const res = await services.cluster.switchJobLogModeSafe(clusterId, targetMode);
+      if (!res.success) {
+        toast.error(res.error || t('config.switchLogModeError'));
+        return;
+      }
+      toast.success(
+        targetMode === 'per_job'
+          ? t('config.switchToPerJobSuccess')
+          : t('config.switchToMixedSuccess'),
+      );
+      await loadClusterData(true);
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : t('config.switchLogModeError'),
+      );
+    } finally {
+      setLogModeSwitching(false);
+    }
   };
 
   /**
@@ -2098,15 +2135,34 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                   </div>
 
                   {/* 日志输出模式 / Log output mode */}
-                  <div className='p-3 rounded-lg border bg-muted/10 space-y-1'>
-                    <span className='text-xs text-muted-foreground'>
-                      {t('cluster.logOutputMode')}
-                    </span>
-                    <p className='font-medium text-sm'>
-                      {runtimeConfig.jobLogMode === 'per_job'
-                        ? t('cluster.logOutputModePerJob')
-                        : t('cluster.logOutputModeMixed')}
-                    </p>
+                  <div className='p-3 rounded-lg border bg-muted/10 space-y-1.5'>
+                    <div className='flex items-center justify-between gap-1.5'>
+                      <span className='text-xs text-muted-foreground'>
+                        {t('cluster.logOutputMode')}
+                      </span>
+                      {logModeSwitching && (
+                        <Loader2 className='size-3 animate-spin text-muted-foreground' />
+                      )}
+                    </div>
+                    <Select
+                      value={runtimeConfig.jobLogMode || 'mixed'}
+                      disabled={logModeSwitching}
+                      onValueChange={(val: 'per_job' | 'mixed') => {
+                        void handleSwitchJobLogMode(val);
+                      }}
+                    >
+                      <SelectTrigger className='h-7 text-xs font-medium bg-background/80'>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value='per_job' className='text-xs'>
+                          {t('config.jobLogModePerJobBadge')}
+                        </SelectItem>
+                        <SelectItem value='mixed' className='text-xs'>
+                          {t('config.jobLogModeMixedBadge')}
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
 
                   {/* Web UI 状态 / Web UI status */}

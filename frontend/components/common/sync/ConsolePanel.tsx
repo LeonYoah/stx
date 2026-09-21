@@ -19,15 +19,12 @@
 
 import {useState} from 'react';
 import {useTranslations} from 'next-intl';
-import {toast} from 'sonner';
 import {
   AlertTriangle,
   BarChart3,
   ExternalLink,
   FileCode2,
-  Loader2,
   Maximize2,
-  WandSparkles,
 } from 'lucide-react';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
@@ -40,7 +37,6 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
-import services from '@/lib/services';
 import type {NotificationRecipientUser} from '@/lib/services/monitoring';
 import type {SyncJobInstance, SyncJobLogsResult} from '@/lib/services/sync';
 import {cn} from '@/lib/utils';
@@ -64,33 +60,17 @@ import {
   type LogFilterMode,
 } from './sync-studio-utils';
 
+/**
+ * 混合日志模式提示卡片
+ * Mixed log mode notification banner
+ */
 export function MixedLogModeBanner({
   clusterId,
-  onSwitched,
 }: {
   clusterId?: number | null;
   onSwitched?: () => void;
 }) {
   const t = useTranslations('workbenchStudio');
-  const [switching, setSwitching] = useState(false);
-
-  const handleSwitch = async () => {
-    if (!clusterId) return;
-    setSwitching(true);
-    try {
-      const res = await services.cluster.switchJobLogModeSafe(clusterId, 'per_job');
-      if (!res.success) {
-        toast.error(res.error || t('switchLogModeFailed'));
-        return;
-      }
-      toast.success(t('switchToPerJobSuccessToast'));
-      onSwitched?.();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('switchLogModeFailed'));
-    } finally {
-      setSwitching(false);
-    }
-  };
 
   return (
     <div className='flex h-full min-h-[180px] flex-col items-center justify-center p-6 text-center'>
@@ -110,24 +90,8 @@ export function MixedLogModeBanner({
         <p className='text-xs text-muted-foreground leading-relaxed'>
           {t('mixedLogModeDescription')}
         </p>
-        <div className='flex flex-wrap items-center gap-2 pt-2'>
-          {clusterId ? (
-            <Button
-              size='sm'
-              variant='default'
-              className='h-8 text-xs bg-amber-600 hover:bg-amber-700 text-white dark:bg-amber-600 dark:hover:bg-amber-700'
-              disabled={switching}
-              onClick={handleSwitch}
-            >
-              {switching ? (
-                <Loader2 className='mr-1.5 size-3.5 animate-spin' />
-              ) : (
-                <WandSparkles className='mr-1.5 size-3.5' />
-              )}
-              {t('switchToPerJobModeBtn')}
-            </Button>
-          ) : null}
-          {clusterId ? (
+        {clusterId ? (
+          <div className='pt-1'>
             <Button size='sm' variant='outline' className='h-8 text-xs' asChild>
               <a
                 href={`/clusters/${clusterId}`}
@@ -138,8 +102,8 @@ export function MixedLogModeBanner({
                 {t('viewClusterDetail')}
               </a>
             </Button>
-          ) : null}
-        </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );

@@ -26,7 +26,7 @@ import (
 
 // RegistryRevision 是操作登记表的兼容修订号。
 // RegistryRevision is the compatibility revision of the operation registry.
-const RegistryRevision = 18
+const RegistryRevision = 19
 
 var registry = append([]OperationSpec{
 	{

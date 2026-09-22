@@ -228,6 +228,24 @@ func TestRootCommandRegistersSupplementalReadCommands(t *testing.T) {
 	}
 }
 
+func TestRootCommandRegistersRuntimeStorageCommands(t *testing.T) {
+	command := newRootCommand(func() error { return nil })
+	paths := [][]string{
+		{"cluster", "runtime-storage", "validate"},
+		{"cluster", "runtime-storage", "list"},
+		{"cluster", "runtime-storage", "preview"},
+		{"cluster", "runtime-storage", "checkpoint", "inspect"},
+		{"cluster", "runtime-storage", "imap", "inspect"},
+		{"installer", "runtime-storage", "validate"},
+	}
+	for _, path := range paths {
+		found, remaining, err := command.Find(path)
+		if err != nil || len(remaining) != 0 || found.Name() != path[len(path)-1] {
+			t.Fatalf("运行时存储命令未完整注册: path=%v found=%s remaining=%v err=%v", path, found.CommandPath(), remaining, err)
+		}
+	}
+}
+
 func TestRootCommandRegistersTroubleshootingMemoryWriteCommands(t *testing.T) {
 	command := newRootCommand(func() error { return nil })
 	for _, path := range [][]string{

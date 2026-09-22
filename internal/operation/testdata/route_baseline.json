@@ -1,14 +1,14 @@
 {
   "version": 1,
-  "baseline_date": "2026-09-21",
+  "baseline_date": "2026-09-22",
   "summary": {
     "route_count": 255,
     "swagger_path_count": 101,
     "swagger_operation_count": 118,
     "swagger_documented_routes": 118,
-    "registered_operations": 184,
+    "registered_operations": 190,
     "route_exceptions": 18,
-    "historical_gaps": 53
+    "historical_gaps": 47
   },
   "routes": [
     {
@@ -474,28 +474,36 @@
       "method": "POST",
       "path": "/api/v1/clusters/:id/runtime-storage/:kind/list",
       "source": "internal/router/router.go:296",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "cluster.runtime-storage.list",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "POST",
       "path": "/api/v1/clusters/:id/runtime-storage/:kind/preview",
       "source": "internal/router/router.go:297",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "cluster.runtime-storage.preview",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "POST",
       "path": "/api/v1/clusters/:id/runtime-storage/:kind/validate",
       "source": "internal/router/router.go:293",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "cluster.runtime-storage.validate",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "POST",
       "path": "/api/v1/clusters/:id/runtime-storage/checkpoint/inspect",
       "source": "internal/router/router.go:298",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "cluster.runtime-storage.checkpoint.inspect",
+      "mode": "normal",
       "swagger": false
     },
     {
@@ -509,7 +517,9 @@
       "method": "POST",
       "path": "/api/v1/clusters/:id/runtime-storage/imap/inspect",
       "source": "internal/router/router.go:299",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "cluster.runtime-storage.imap.inspect",
+      "mode": "normal",
       "swagger": false
     },
     {
@@ -1196,7 +1206,9 @@
       "method": "POST",
       "path": "/api/v1/installer/runtime-storage/validate",
       "source": "internal/router/router.go:992",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "installer.runtime-storage.validate",
+      "mode": "normal",
       "swagger": false
     },
     {

@@ -95,6 +95,14 @@ func (s *Service) ValidateRuntimeStorage(
 			})
 			continue
 		}
+		if runtimeStorageValidationDisabled(kind, cfg) {
+			result.Hosts = append(result.Hosts, &installerapp.RuntimeStorageValidationHostResult{
+				HostID: node.HostID, HostName: hostName, Success: true,
+				Message: "IMAP uses in-memory mode; no external storage validation required",
+				Details: map[string]string{"mode": "disabled"},
+			})
+			continue
+		}
 
 		var hostResult *installerapp.RuntimeStorageValidationHostResult
 		switch kind {
@@ -308,8 +316,12 @@ func checkpointValidationConfigFromCluster(raw map[string]interface{}) *installe
 }
 
 func imapValidationConfigFromCluster(raw map[string]interface{}) *installerapp.IMAPConfig {
+	storageType := strings.ToUpper(asString(raw["storage_type"]))
+	if storageType == "" && !asBool(raw["enabled"]) {
+		storageType = string(installerapp.IMAPStorageDisabled)
+	}
 	return &installerapp.IMAPConfig{
-		StorageType:               installerapp.IMAPStorageType(strings.ToUpper(asString(raw["storage_type"]))),
+		StorageType:               installerapp.IMAPStorageType(storageType),
 		Namespace:                 asString(raw["namespace"]),
 		HDFSNameNodeHost:          asString(raw["hdfs_namenode_host"]),
 		HDFSNameNodePort:          asInt(raw["hdfs_namenode_port"]),
@@ -382,11 +394,21 @@ func parseIMAPResolvedConfigFromYAML(content string) *runtimeStorageResolvedConf
 	if len(engineMapStore) == 0 {
 		return nil
 	}
+	if enabled, exists := engineMapStore["enabled"]; exists && !asBool(enabled) {
+		return &runtimeStorageResolvedConfig{Kind: "imap", StorageType: string(installerapp.IMAPStorageDisabled)}
+	}
 	properties := asMap(engineMapStore["properties"])
 	if len(properties) == 0 {
 		return nil
 	}
 	return resolvedConfigFromPluginConfig("imap", properties)
+}
+
+// runtimeStorageValidationDisabled 判断当前校验配置是否明确关闭了外部存储。
+// runtimeStorageValidationDisabled reports whether external storage is explicitly disabled.
+func runtimeStorageValidationDisabled(kind installerapp.RuntimeStorageValidationKind, cfg *runtimeStorageValidationConfig) bool {
+	return kind == installerapp.RuntimeStorageValidationIMAP && cfg != nil && cfg.IMAP != nil &&
+		strings.EqualFold(strings.TrimSpace(string(cfg.IMAP.StorageType)), string(installerapp.IMAPStorageDisabled))
 }
 
 func resolvedConfigFromPluginConfig(kind string, pluginConfig map[string]interface{}) *runtimeStorageResolvedConfig {

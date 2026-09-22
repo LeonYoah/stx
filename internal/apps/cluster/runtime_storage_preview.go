@@ -118,6 +118,9 @@ func (s *Service) PreviewRuntimeStorage(
 	if err != nil {
 		return nil, err
 	}
+	if runtimeStorageValidationDisabled(kind, cfg) {
+		return nil, fmt.Errorf("imap runtime storage is disabled")
+	}
 	params := runtimeStorageProxyParams(node.InstallDir, clusterObj.Version, kind, cfg.Checkpoint, cfg.IMAP, clusterObj)
 	params["path"] = strings.TrimSpace(path)
 	if maxBytes <= 0 {
@@ -245,6 +248,9 @@ func (s *Service) InspectIMAPRuntimeStorage(
 	resolved, err := s.loadRuntimeStorageResolvedConfigFromNode(ctx, node, "imap")
 	if err != nil {
 		return nil, err
+	}
+	if resolved != nil && strings.EqualFold(strings.TrimSpace(resolved.StorageType), string(installerapp.IMAPStorageDisabled)) {
+		return nil, fmt.Errorf("imap runtime storage is disabled")
 	}
 	var params map[string]string
 	if resolved != nil && strings.EqualFold(strings.TrimSpace(resolved.StorageType), "S3") {

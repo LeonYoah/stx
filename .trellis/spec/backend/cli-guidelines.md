@@ -449,3 +449,78 @@ OperationSpec{ID: "package.delete", Method: http.MethodDelete, GeneratedCLI: fal
 - Agent 安装脚本、卸载脚本、CA、Agent 二进制和 Java Proxy 文件只供主机安装流程使用，登记为 `ModeDownload` 路由例外，不生成用户 CLI。
 - 不得仅因为某个路由存在，就为它增加 CLI 命令；先确认它是否属于用户或 AI Agent 的实际使用场景。
 - 已停止使用的临时发布接口应删除路由、实现、测试和 Swagger 内容，不能继续留在操作登记中。
+
+## 12. 场景：带 JSON 正文的 R0 查询与运行时存储
+
+### 12.1 范围 / 触发条件
+
+- API 使用 `POST`，但只执行查询、解析或连通性检查，不修改服务端和集群状态。
+- CLI 需要发送路径、递归选项、读取上限或存储配置等 JSON 正文。
+- 运行时存储可能处于 `DISABLED`，此时不能继续调用 Agent 或 Java Proxy 假装存在外部文件。
+
+### 12.2 命令与 API
+
+```text
+stx cluster runtime-storage validate <cluster-id> <checkpoint|imap>
+stx cluster runtime-storage list <cluster-id> <checkpoint|imap> [--path <path>] [--recursive] [--limit <n>]
+stx cluster runtime-storage preview <cluster-id> <checkpoint|imap> --path <path> [--max-bytes <n>]
+stx cluster runtime-storage checkpoint inspect <cluster-id> --path <path> [--job-config-file <json>]
+stx cluster runtime-storage imap inspect <cluster-id> --path <path>
+stx installer runtime-storage validate --request-file <json>
+```
+
+对应接口使用 `POST` 和 JSON 正文，但风险等级是 R0。操作登记设置 `GeneratedCLI=false`，由专用 Cobra 命令读取正文并先查询 capability。
+
+### 12.3 请求与响应规则
+
+- `kind` 只允许 `checkpoint` 或 `imap`。
+- `preview` 和 `inspect` 的 `--path` 应使用 `list` 返回的完整 `path`；本地存储也可使用绝对路径。
+- `--request-file` 表示完整正文。提供该参数时，不再用其他字段参数覆盖文件内容。
+- 列表响应的 `items` 必须始终是数组；没有文件时返回 `[]`，不能省略，也不能返回 `null`。
+- IMAP 为 `DISABLED` 时：`validate` 返回成功并说明无需外部存储；`list` 返回 `items: []`；`preview` 和 `inspect` 返回明确的关闭状态错误。
+- Agent 命令日志保留实际命令参数，但 access key、secret key 等敏感字段必须显示为掩码。
+
+### 12.4 校验与错误对应表
+
+| 情况 | 行为 |
+| --- | --- |
+| `kind` 不是 `checkpoint` 或 `imap` | CLI 在发起网络请求前返回用法错误 |
+| `preview` / `inspect` 缺少路径 | CLI 在发起网络请求前返回用法错误 |
+| IMAP 已关闭且执行校验 | 返回成功，`details.mode=disabled` |
+| IMAP 已关闭且执行列表 | 返回成功，`items=[]` |
+| IMAP 已关闭且执行预览或检查 | 返回 `imap runtime storage is disabled` |
+| 文件不存在 | 返回稳定服务端错误，并保留请求编号 |
+| checkpoint 文件格式无效 | Java Proxy 返回解析失败，CLI 使用服务端错误退出码 |
+
+### 12.5 Good / Base / Bad
+
+- Good：先执行 `list`，再把返回的完整路径交给 `preview` 或 `inspect`。
+- Base：安装前使用 `--request-file` 一次传入主机编号、类型和存储配置。
+- Bad：看到接口是 `POST` 就强制要求 `--confirm`，或在 IMAP 已关闭时仍调用 Java Proxy。
+
+### 12.6 必须有的测试
+
+- CLI 单元测试检查六条命令的路径、正文、能力查询和输出。
+- 缺少路径、非法 `kind` 时，断言网络请求数为 0。
+- 服务测试覆盖 IMAP `DISABLED` 的校验、空列表和明确错误。
+- 列表为空时断言 JSON 中存在 `"items":[]`。
+- 真实测试连接本机 STX 和 Agent，至少完成 checkpoint 校验、列表、文本预览和安装前校验；存在合法 checkpoint/WAL 样本时再验证解析成功。
+- 审计检查确认 `request_id`、`client_type=cli`、`created_by` 和脱敏参数正确。
+
+### 12.7 错误与正确示例
+
+错误：
+
+```go
+if kind == "imap" {
+    sendJavaProxyCommand()
+}
+```
+
+正确：
+
+```go
+if runtimeStorageValidationDisabled(kind, cfg) {
+    return &RuntimeStorageListResult{Items: []RuntimeStorageListItem{}}, nil
+}
+```

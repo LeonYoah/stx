@@ -431,6 +431,7 @@ func Serve() {
 
 			monitoringRouter := apiV1Router.Group("/monitoring")
 			monitoringRouter.Use(auth.LoginRequired())
+			monitoringRouter.Use(monitoringAuditMiddleware(auditRepo))
 			{
 				monitoringRouter.GET("/overview", monitoringHandler.GetOverview)
 				monitoringRouter.GET("/clusters/:id/overview", monitoringHandler.GetClusterOverview)

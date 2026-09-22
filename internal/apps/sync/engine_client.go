@@ -759,7 +759,11 @@ func normalizeSubmitFormat(format string) string {
 }
 
 func normalizeJobStatus(status string) JobStatus {
-	switch strings.ToUpper(strings.TrimSpace(status)) {
+	trimmed := strings.ToUpper(strings.TrimSpace(status))
+	if trimmed == "" {
+		return JobStatusFailed
+	}
+	switch trimmed {
 	case "RUNNING":
 		return JobStatusRunning
 	case "DOING_SAVEPOINT":

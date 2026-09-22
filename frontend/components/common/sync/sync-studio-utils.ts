@@ -1342,19 +1342,71 @@ export function patchTreeNode(
   });
 }
 
+export type TreeFilterScope = 'all' | 'mine_and_public' | 'only_mine';
+
+export function isNodeMatchingScope(
+  node: SyncTaskTreeNode,
+  scope: TreeFilterScope,
+  currentUserId?: number,
+): boolean {
+  if (scope === 'all') {
+    return true;
+  }
+
+  const isOwner =
+    Boolean(node.is_owner) ||
+    (Boolean(currentUserId) && node.created_by === currentUserId);
+  const isCollaborator = Boolean(node.is_collaborator);
+  // 公开任务：若未显式设为 false，则为公开任务
+  const isPublic = node.is_public !== false;
+
+  if (scope === 'only_mine') {
+    return isOwner;
+  }
+
+  if (scope === 'mine_and_public') {
+    // 公开任务也属于自己任务
+    return isOwner || isCollaborator || isPublic;
+  }
+
+  return true;
+}
+
 export function filterTree(
   nodes: SyncTaskTreeNode[],
   keyword: string,
+  filterScope: TreeFilterScope = 'all',
+  currentUserId?: number,
 ): SyncTaskTreeNode[] {
   const trimmed = keyword.trim().toLowerCase();
-  if (!trimmed) {
-    return nodes;
-  }
+
   return nodes
     .map((node) => {
-      const children = filterTree(node.children || [], keyword);
-      const matched = node.name.toLowerCase().includes(trimmed);
-      if (matched || children.length > 0) {
+      const children = filterTree(
+        node.children || [],
+        keyword,
+        filterScope,
+        currentUserId,
+      );
+
+      if (node.node_type === 'folder') {
+        const matchesKeyword = !trimmed || node.name.toLowerCase().includes(trimmed);
+        if (children.length > 0) {
+          return {...node, children};
+        }
+        if (trimmed || filterScope !== 'all') {
+          return null;
+        }
+        if (matchesKeyword) {
+          return {...node, children};
+        }
+        return null;
+      }
+
+      const matchesKeyword = !trimmed || node.name.toLowerCase().includes(trimmed);
+      const matchesScope = isNodeMatchingScope(node, filterScope, currentUserId);
+
+      if (matchesKeyword && matchesScope) {
         return {...node, children};
       }
       return null;
@@ -1395,12 +1447,36 @@ export function isReservedBuiltinVariableKey(key: string): boolean {
     'system.project.name',
     'system.project.code',
   ]);
-  if (fixed.has(trimmed)) {
+  if (fixed.has(trimmed) || trimmed.startsWith('system.')) {
     return true;
   }
-  return /(yyyy|MM|dd|HH|mm|ss|add_months|this_day|last_day|year_week|month_first_day|month_last_day|week_first_day|week_last_day)/.test(
-    trimmed,
-  );
+
+  // 内置时间函数调用校验，如 add_months(yyyyMMdd, -1)
+  if (
+    /^(add_months|this_day|last_day|year_week|month_first_day|month_last_day|week_first_day|week_last_day)\s*\(.*\)$/i.test(
+      trimmed,
+    )
+  ) {
+    return true;
+  }
+
+  // 校验是否为时间格式占位模式（如 yyyyMMdd、yyyy-MM-dd、yyyyMMdd-1 等）
+  // 必须包含标准日期占位符（yyyy、MM、dd、HH、mm、ss），且剔除日期占位符和分隔符/偏移量后不得含有普通英文标识符
+  const offsetMatch = trimmed.match(/^(.+?)([+-])([0-9*/. ]+)$/);
+  const formatExpr = offsetMatch ? offsetMatch[1].trim() : trimmed;
+  const dateTokens = ['yyyy', 'MM', 'dd', 'HH', 'mm', 'ss'];
+  const hasDateToken = dateTokens.some((token) => formatExpr.includes(token));
+  if (!hasDateToken) {
+    return false;
+  }
+
+  const stripped = formatExpr.replace(/yyyy|MM|dd|HH|mm|ss/g, '');
+  if (/[a-zA-Z]/.test(stripped)) {
+    // 包含其他英文字符（如 mysqlpass234 中的 pass、password、address 等），为普通变量名
+    return false;
+  }
+
+  return true;
 }
 
 // 校验自定义变量列表的合法性（保留字与重名检查）
@@ -2665,9 +2741,10 @@ export function getMetricValue(
 export function buildMetricHighlights(
   metrics: Record<string, unknown>,
   t: ReturnType<typeof useTranslations<'workbenchStudio'>>,
-): Array<{label: string; value: string; raw: string}> {
+): Array<{key: string; label: string; value: string; raw: string}> {
   return [
     {
+      key: 'sourceRows',
       label: t('metricHighlightSourceRows'),
       value: formatMetricWithUnit(
         getMetricValue(metrics, 'SourceReceivedCount'),
@@ -2678,6 +2755,7 @@ export function buildMetricHighlights(
       ),
     },
     {
+      key: 'sinkRows',
       label: t('metricHighlightSinkRows'),
       value: formatMetricWithUnit(
         getMetricValue(metrics, 'SinkWriteCount'),
@@ -2686,6 +2764,7 @@ export function buildMetricHighlights(
       raw: formatMetricDisplayValue(getMetricValue(metrics, 'SinkWriteCount')),
     },
     {
+      key: 'committedRows',
       label: t('metricHighlightCommittedRows'),
       value: formatMetricWithUnit(
         getMetricValue(metrics, 'SinkCommittedCount'),
@@ -2696,6 +2775,7 @@ export function buildMetricHighlights(
       ),
     },
     {
+      key: 'readSpeed',
       label: t('metricHighlightReadSpeed'),
       value: formatMetricWithUnit(
         getMetricValue(metrics, 'SourceReceivedBytesPerSeconds'),
@@ -2706,6 +2786,7 @@ export function buildMetricHighlights(
       ),
     },
     {
+      key: 'writeSpeed',
       label: t('metricHighlightWriteSpeed'),
       value: formatMetricWithUnit(
         getMetricValue(metrics, 'SinkWriteBytesPerSeconds'),
@@ -2716,6 +2797,7 @@ export function buildMetricHighlights(
       ),
     },
     {
+      key: 'writeQps',
       label: t('metricHighlightWriteQps'),
       value: formatMetricWithUnit(
         getMetricValue(metrics, 'SinkWriteQPS'),

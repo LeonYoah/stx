@@ -52,6 +52,7 @@ import {
   FileCode2,
   FilePlus2,
   GitBranch,
+  GitCommit,
   BarChart3,
   Layers,
   Maximize2,
@@ -210,11 +211,7 @@ import {
 import {
   PreviewWorkspacePanel,
   CheckpointWorkspacePanel,
-  CheckpointDetailsSummary,
-  CheckpointInspectOverviewSection,
-  CheckpointInspectSourceHighlightsSection,
-  CheckpointInspectPrimaryTableSection,
-  CheckpointInspectRawDetailsSection,
+  CheckpointInspectDialog,
 } from './CheckpointPanels';
 import {
   ValidationResultPanel,
@@ -249,6 +246,7 @@ import {
   type TemplatePluginItem,
   type TreeContextMenuState,
   type TreeDialogState,
+  type TreeFilterScope,
   type UserFacingErrorState,
   type VariableDraft,
   type VariableRow,
@@ -347,7 +345,6 @@ import {
   resolveFolderParent,
   resolveOptionAssignmentContext,
   resolveOptionKeyFromLine,
-  resolveValueRegionVariableSuggestions,
   resolveVariableCompletionContext,
   resolveVariableSuggestions,
   splitLogLines,
@@ -415,6 +412,21 @@ export function DataSyncStudio() {
   const [clusters, setClusters] = useState<ClusterInfo[]>([]);
   const [tree, setTree] = useState<SyncTaskTreeNode[]>([]);
   const [keyword, setKeyword] = useState('');
+  const [treeFilterScope, setTreeFilterScope] = useState<TreeFilterScope>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('stx_studio_tree_filter_scope');
+      if (saved === 'all' || saved === 'mine_and_public' || saved === 'only_mine') {
+        return saved;
+      }
+    }
+    return 'mine_and_public';
+  });
+  const handleFilterScopeChange = useCallback((scope: TreeFilterScope) => {
+    setTreeFilterScope(scope);
+    try {
+      localStorage.setItem('stx_studio_tree_filter_scope', scope);
+    } catch {}
+  }, []);
   // VSCode Quick Open 快捷检索浮层状态 (Cmd+P)
   // VSCode Quick Open command palette state (Cmd+P)
   const [quickOpenOpen, setQuickOpenOpen] = useState(false);
@@ -461,6 +473,9 @@ export function DataSyncStudio() {
   const [scheduleDraft, setScheduleDraft] = useState<TaskScheduleValue>(() =>
     extractTaskScheduleValue({}),
   );
+  const [publishDialogOpen, setPublishDialogOpen] = useState(false);
+  const [publishComment, setPublishComment] = useState('');
+  const [publishing, setPublishing] = useState(false);
   const [bottomConsoleTab, setBottomConsoleTab] =
     useState<BottomConsoleTab>('jobs');
   const [versionPreview, setVersionPreview] = useState<SyncTaskVersion | null>(
@@ -672,8 +687,8 @@ export function DataSyncStudio() {
   }
 
   const filteredTree = useMemo(
-    () => filterTree(tree, keyword),
-    [tree, keyword],
+    () => filterTree(tree, keyword, treeFilterScope, currentUser?.id),
+    [tree, keyword, treeFilterScope, currentUser?.id],
   );
   const detectedVariables = useMemo(
     () => detectVariables(editor.content),
@@ -1878,14 +1893,14 @@ export function DataSyncStudio() {
       enumCompletionCommandRegisteredRef.current = true;
     }
     const completionProvider = {
-      triggerCharacters: ['=', ' ', '"', '{'],
+      triggerCharacters: ['=', ' ', '"', '{', '}'],
       provideCompletionItems: async (
         model: any,
         position: {lineNumber: number; column: number},
       ) => {
         const lineContent = model.getLineContent(position.lineNumber);
 
-        // 1. 优先检测是否位于 {{ 变量占位符内部（支持输入 {{ 后以及键入字母时的模糊匹配与一键插入）
+        // 1. 严格仅在 {{ 变量占位符内部（如 {{、{{}}、键入 {{ 后的标识符模糊匹配）才触发变量建议
         const varCtx = resolveVariableCompletionContext(
           lineContent,
           position.column,
@@ -1901,7 +1916,7 @@ export function DataSyncStudio() {
           return {suggestions};
         }
 
-        // 2. 检测属性赋值上下文（枚举提示或无枚举属性的变量备选）
+        // 2. 检测属性赋值上下文（仅针对支持的属性提供枚举提示，普通内容区域不干扰弹窗）
         const assignmentCtx = resolveOptionAssignmentContext(
           lineContent,
           position.column,
@@ -1956,14 +1971,7 @@ export function DataSyncStudio() {
         const enumItems = resolveEnumSuggestionItems(metadata);
         const enumValues = enumItems.map((item) => item.value);
         if (!enumValues?.length) {
-          // 针对普通值属性（如 password、url 等无枚举选项时），主动提供所有变量的快捷选择建议
-          const varSuggestions = resolveValueRegionVariableSuggestions(
-            monaco,
-            customVariableRowsRef.current,
-            allGlobalVariablesRef.current,
-            position,
-          );
-          return {suggestions: varSuggestions};
+          return {suggestions: []};
         }
         const currentWord = model.getWordUntilPosition(position)?.word || '';
         const currentValue = assignmentCtx.bounds?.value || '';
@@ -2900,10 +2908,53 @@ export function DataSyncStudio() {
       toast.error(t('readOnlySaveTooltip'));
       return;
     }
-    const task = await persistCurrentFile(true);
+    const task = await persistCurrentFile(false);
     if (task) {
+      toast.success(t('saveFileSuccess'));
+    }
+  };
+
+  const handleOpenPublishDialog = () => {
+    if (editor.id && !editor.canEdit) {
+      toast.error(t('readOnlySaveTooltip'));
+      return;
+    }
+    if (!editor.name.trim()) {
+      toast.error(t('fileNameRequired'));
+      return;
+    }
+    setPublishComment('');
+    setPublishDialogOpen(true);
+  };
+
+  const handleConfirmPublish = async () => {
+    if (publishing) {
+      return;
+    }
+    setPublishing(true);
+    try {
+      // 先保存最新内容再发布版本
+      // Save current file draft first, then create version snapshot
+      const task = await persistCurrentFile(false);
+      if (!task) {
+        return;
+      }
+      await services.sync.publishTask(task.id, {
+        comment: publishComment.trim() || 'publish from data sync studio',
+      });
+      const refreshedTask = await services.sync.getTask(task.id);
+      const savedEditor = extractEditorState(refreshedTask);
+      setEditor(savedEditor);
+      setTree((current) => patchTreeNode(current, refreshedTask));
       await loadVersions(task.id);
-      toast.success(t('savedNewVersion'));
+      setPublishDialogOpen(false);
+      toast.success(t('publishVersionSuccess'));
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : t('publishVersionFailed'),
+      );
+    } finally {
+      setPublishing(false);
     }
   };
 
@@ -3303,13 +3354,14 @@ export function DataSyncStudio() {
   // 保存自定义变量（新建或更新）
   // Save custom variable (create or update)
   const handleSaveCustomVariable = useCallback(
-    (payload: {
+    async (payload: {
       key: string;
       value: string;
       type: 'string' | 'secret';
       description?: string;
     }) => {
       let nextRows: VariableRow[];
+      const isEditing = Boolean(editingCustomVariable);
       if (editingCustomVariable) {
         nextRows = customVariableRows.map((row) =>
           row.id === editingCustomVariable.id
@@ -3322,7 +3374,6 @@ export function DataSyncStudio() {
               }
             : row,
         );
-        toast.success(t('customVariableUpdated'));
       } else {
         const newRow: VariableRow = {
           id: `custom-var-${Date.now()}`,
@@ -3332,28 +3383,110 @@ export function DataSyncStudio() {
           description: payload.description,
         };
         nextRows = [...customVariableRows, newRow];
-        toast.success(t('customVariableCreated'));
       }
       syncCustomVariablesToEditor(nextRows);
       setCustomVariableDialogOpen(false);
       setEditingCustomVariable(null);
+
+      // 若当前已打开已保存的任务文件，立即自动将自定义变量持久化存储到数据库
+      // If current task is already persisted in DB, immediately sync and persist custom variables to database
+      if (editor.id) {
+        try {
+          const taskPayload = {
+            ...buildTaskPayload(),
+            definition: {
+              ...editor.definition,
+              custom_variables: fromVariableRows(nextRows),
+              custom_variable_types: fromVariableTypes(nextRows),
+            },
+          };
+          const updatedTask = await services.sync.updateTask(
+            editor.id,
+            taskPayload,
+          );
+          const savedEditor = extractEditorState(updatedTask);
+          const savedRows = extractVariableRowsFromDefinition(
+            updatedTask.definition || {},
+          );
+          setEditor(savedEditor);
+          setCustomVariableRows(savedRows);
+          customVariableRowsRef.current = savedRows;
+          markEditorDraft(updatedTask.id, savedEditor, savedRows, false);
+          setTree((current) => patchTreeNode(current, updatedTask));
+          toast.success(
+            isEditing ? t('customVariableUpdated') : t('customVariableCreated'),
+          );
+        } catch (err) {
+          toast.error(err instanceof Error ? err.message : t('saveFileFailed'));
+        }
+      } else {
+        toast.success(
+          isEditing ? t('customVariableUpdated') : t('customVariableCreated'),
+        );
+      }
     },
-    [customVariableRows, editingCustomVariable, syncCustomVariablesToEditor, t],
+    [
+      buildTaskPayload,
+      customVariableRows,
+      editingCustomVariable,
+      editor,
+      markEditorDraft,
+      syncCustomVariablesToEditor,
+      t,
+    ],
   );
 
   // 删除自定义变量
   // Delete custom variable
   const handleDeleteCustomVariable = useCallback(
-    (rowId: string) => {
+    async (rowId: string) => {
       const nextRows = customVariableRows.filter((row) => row.id !== rowId);
       syncCustomVariablesToEditor(nextRows);
-      toast.success(t('customVariableDeleted'));
       if (editingCustomVariable?.id === rowId) {
         setEditingCustomVariable(null);
         setCustomVariableDialogOpen(false);
       }
+
+      if (editor.id) {
+        try {
+          const taskPayload = {
+            ...buildTaskPayload(),
+            definition: {
+              ...editor.definition,
+              custom_variables: fromVariableRows(nextRows),
+              custom_variable_types: fromVariableTypes(nextRows),
+            },
+          };
+          const updatedTask = await services.sync.updateTask(
+            editor.id,
+            taskPayload,
+          );
+          const savedEditor = extractEditorState(updatedTask);
+          const savedRows = extractVariableRowsFromDefinition(
+            updatedTask.definition || {},
+          );
+          setEditor(savedEditor);
+          setCustomVariableRows(savedRows);
+          customVariableRowsRef.current = savedRows;
+          markEditorDraft(updatedTask.id, savedEditor, savedRows, false);
+          setTree((current) => patchTreeNode(current, updatedTask));
+          toast.success(t('customVariableDeleted'));
+        } catch (err) {
+          toast.error(err instanceof Error ? err.message : t('operationFailed'));
+        }
+      } else {
+        toast.success(t('customVariableDeleted'));
+      }
     },
-    [customVariableRows, editingCustomVariable, syncCustomVariablesToEditor, t],
+    [
+      buildTaskPayload,
+      customVariableRows,
+      editingCustomVariable,
+      editor,
+      markEditorDraft,
+      syncCustomVariablesToEditor,
+      t,
+    ],
   );
 
   const handleSaveGlobalVariable = async (
@@ -3547,8 +3680,8 @@ export function DataSyncStudio() {
     [tree, handleSelectNode],
   );
 
-  // 更新任务共享与共建者设置
-  // Update task sharing and collaborator permissions
+  // 更新任务共享与共建者设置（纯内存更新，不污染文件未保存草稿状态）
+  // Update task sharing and collaborator permissions (in-memory only, does not dirty file draft)
   const handleUpdateSharing = useCallback(
     (isPublic: boolean, collaboratorIds: number[]) => {
       const nextDef = {
@@ -3557,25 +3690,65 @@ export function DataSyncStudio() {
         collaborator_ids: collaboratorIds,
         collaborators: collaboratorIds,
       };
-      setEditor((prev) => {
-        const next = {
-          ...prev,
-          isPublic,
-          definition: nextDef,
-        };
-        if (next.id) {
-          markEditorDraft(
-            next.id,
-            next,
-            customVariableRowsRef.current,
-            true,
-          );
-        }
-        return next;
-      });
+      setEditor((prev) => ({
+        ...prev,
+        isPublic,
+        definition: nextDef,
+      }));
     },
-    [editor.definition, markEditorDraft],
+    [editor.definition],
   );
+
+  // 独立保存任务共享与权限设置（仅更新权限字段，不触发文件保存、不校验文件内容、不发布新代码版本）
+  // Independently save task sharing & permissions (only updates permission metadata, without triggering file save, code validation, or publishing new versions)
+  const handleSavePermissions = useCallback(async () => {
+    if (!editor.id) {
+      return;
+    }
+    try {
+      const currentTask = await services.sync.getTask(editor.id);
+      const nextDefinition = {
+        ...(currentTask.definition || {}),
+        ...(editor.definition || {}),
+        is_public: editor.isPublic ?? true,
+        collaborator_ids: Array.isArray(editor.definition?.collaborator_ids)
+          ? editor.definition.collaborator_ids
+          : Array.isArray(editor.definition?.collaborators)
+            ? editor.definition.collaborators
+            : [],
+        collaborators: Array.isArray(editor.definition?.collaborators)
+          ? editor.definition.collaborators
+          : Array.isArray(editor.definition?.collaborator_ids)
+            ? editor.definition.collaborator_ids
+            : [],
+      };
+      const updatedTask = await services.sync.updateTask(editor.id, {
+        parent_id: currentTask.parent_id,
+        node_type: currentTask.node_type,
+        name: currentTask.name,
+        description: currentTask.description,
+        cluster_id: currentTask.cluster_id,
+        engine_version: currentTask.engine_version,
+        mode: currentTask.mode,
+        content_format: currentTask.content_format,
+        content: currentTask.content, // 保持数据库已有文件内容，不覆写用户正在编辑的未保存草稿
+        job_name: currentTask.job_name,
+        sort_order: currentTask.sort_order,
+        definition: nextDefinition,
+      });
+      setEditor((prev) => ({
+        ...prev,
+        isPublic: updatedTask.is_public ?? editor.isPublic,
+        definition: updatedTask.definition || nextDefinition,
+      }));
+      setTree((current) => patchTreeNode(current, updatedTask));
+      toast.success(t('savePermissionsSuccess'));
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : t('savePermissionsFailed'),
+      );
+    }
+  }, [editor.id, editor.definition, editor.isPublic, t]);
 
   return (
     <div className='-mx-2 flex h-[calc(100vh-96px)] min-h-[780px] flex-col gap-2 bg-background/10 lg:-mx-3'>
@@ -3665,7 +3838,7 @@ export function DataSyncStudio() {
                       workspaceUsers={workspaceUsers}
                       isAdmin={currentUser?.is_admin ?? false}
                       onUpdateSharing={handleUpdateSharing}
-                      onSavePermissions={() => void handleSave()}
+                      onSavePermissions={handleSavePermissions}
                     />
 
                     {/* 格式标签 / Format tag */}
@@ -3831,6 +4004,31 @@ export function DataSyncStudio() {
                   >
                     <Save className='size-3.5' />
                     {t('save')}
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              {!editor.canEdit ? (
+                <TooltipContent>{t('readOnlySaveTooltip')}</TooltipContent>
+              ) : null}
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span>
+                  <Button
+                    size='sm'
+                    variant='outline'
+                    className='h-7 gap-1.5 px-2 text-xs font-normal text-muted-foreground hover:text-foreground'
+                    onClick={handleOpenPublishDialog}
+                    disabled={
+                      saving ||
+                      publishing ||
+                      !editor.name.trim() ||
+                      !editor.canEdit
+                    }
+                  >
+                    <GitCommit className='size-3.5 text-primary' />
+                    <span>{t('publishNewVersion')}</span>
                   </Button>
                 </span>
               </TooltipTrigger>
@@ -4027,9 +4225,9 @@ export function DataSyncStudio() {
                 </Tooltip>
               </div>
             </div>
-            {/* 快捷过滤输入框 */}
-            {/* Quick search/filter input */}
-            <div className='border-b border-border/40 bg-muted/10 px-2 py-1.5'>
+            {/* 快捷过滤输入框与范围筛选 */}
+            {/* Quick search/filter input and scope selector */}
+            <div className='border-b border-border/40 bg-muted/10 px-2 py-1.5 space-y-1.5'>
               <div className='relative flex items-center'>
                 <Search className='pointer-events-none absolute left-2 size-3 text-muted-foreground/60' />
                 <Input
@@ -4047,6 +4245,48 @@ export function DataSyncStudio() {
                     <X className='size-3' />
                   </button>
                 ) : null}
+              </div>
+
+              {/* 任务过滤范围切换：我的与公开（默认，过滤非自己任务）/ 全部 / 仅我创建 */}
+              {/* Task filter scope pills: Mine & Public (default, filters non-owned) / All / Only Mine */}
+              <div className='flex items-center rounded-md bg-muted/50 p-0.5 text-[11px] border border-border/40'>
+                <button
+                  type='button'
+                  onClick={() => handleFilterScopeChange('mine_and_public')}
+                  className={cn(
+                    'flex-1 rounded-[3px] py-0.5 text-center font-medium transition-all',
+                    treeFilterScope === 'mine_and_public'
+                      ? 'bg-background text-foreground shadow-2xs font-semibold'
+                      : 'text-muted-foreground/80 hover:text-foreground',
+                  )}
+                  title={t('treeFilterMineAndPublicTooltip')}
+                >
+                  {t('treeFilterMineAndPublic')}
+                </button>
+                <button
+                  type='button'
+                  onClick={() => handleFilterScopeChange('all')}
+                  className={cn(
+                    'flex-1 rounded-[3px] py-0.5 text-center font-medium transition-all',
+                    treeFilterScope === 'all'
+                      ? 'bg-background text-foreground shadow-2xs font-semibold'
+                      : 'text-muted-foreground/80 hover:text-foreground',
+                  )}
+                >
+                  {t('treeFilterAll')}
+                </button>
+                <button
+                  type='button'
+                  onClick={() => handleFilterScopeChange('only_mine')}
+                  className={cn(
+                    'flex-1 rounded-[3px] py-0.5 text-center font-medium transition-all',
+                    treeFilterScope === 'only_mine'
+                      ? 'bg-background text-foreground shadow-2xs font-semibold'
+                      : 'text-muted-foreground/80 hover:text-foreground',
+                  )}
+                >
+                  {t('treeFilterOnlyMine')}
+                </button>
               </div>
             </div>
 
@@ -4461,6 +4701,7 @@ export function DataSyncStudio() {
               onCompare={setCompareVersion}
               onRollback={(versionId) => void handleRollbackVersion(versionId)}
               onDelete={(versionId) => void handleDeleteVersion(versionId)}
+              onPublish={handleOpenPublishDialog}
             />
           ) : (
             <GlobalVariablesSidebarPanel
@@ -4469,6 +4710,7 @@ export function DataSyncStudio() {
               page={globalVariablePage}
               pageSize={8}
               isAdmin={currentUser?.is_admin ?? false}
+              currentUserId={currentUser?.id}
               defaultTab={globalVariablesDefaultTab}
               onPageChange={setGlobalVariablePage}
               onOpenCreate={handleOpenCreateGlobalVariable}
@@ -4609,6 +4851,7 @@ export function DataSyncStudio() {
                   jobs={jobs}
                   selectedJobId={selectedJobId}
                   currentUserId={currentUser?.id}
+                  currentUsername={currentUser?.username || currentUser?.nickname}
                   isAdmin={currentUser?.is_admin ?? false}
                   isOwner={editor.isOwner ?? true}
                   canRun={editor.canRun ?? true}
@@ -4743,6 +4986,68 @@ export function DataSyncStudio() {
             </Button>
             <Button type='button' onClick={handleConfirmScheduleDialog}>
               {t('confirm')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 发布新版本弹窗 */}
+      {/* Publish new version dialog */}
+      <Dialog
+        open={publishDialogOpen}
+        onOpenChange={(open) => {
+          if (!publishing) {
+            setPublishDialogOpen(open);
+          }
+        }}
+      >
+        <DialogContent className='max-w-md'>
+          <DialogHeader>
+            <DialogTitle>{t('publishNewVersion')}</DialogTitle>
+            <DialogDescription>
+              {t('versionManagementDesc')}
+            </DialogDescription>
+          </DialogHeader>
+          <div className='grid gap-4 py-2'>
+            <div className='grid gap-2'>
+              <Label htmlFor='publish-version-comment'>
+                {t('publishComment')}
+              </Label>
+              <Input
+                id='publish-version-comment'
+                value={publishComment}
+                onChange={(e) => setPublishComment(e.target.value)}
+                placeholder={t('publishCommentPlaceholder')}
+                disabled={publishing}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    void handleConfirmPublish();
+                  }
+                }}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              type='button'
+              variant='outline'
+              onClick={() => setPublishDialogOpen(false)}
+              disabled={publishing}
+            >
+              {t('cancel')}
+            </Button>
+            <Button
+              type='button'
+              onClick={() => void handleConfirmPublish()}
+              disabled={publishing}
+              className='gap-1.5'
+            >
+              {publishing ? (
+                <Loader2 className='size-3.5 animate-spin' />
+              ) : (
+                <GitCommit className='size-3.5' />
+              )}
+              <span>{t('confirm')}</span>
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -5113,51 +5418,12 @@ export function DataSyncStudio() {
         </DialogContent>
       </Dialog>
 
-      <Dialog
+      <CheckpointInspectDialog
         open={checkpointInspectDialogOpen}
         onOpenChange={setCheckpointInspectDialogOpen}
-      >
-        <DialogContent className='flex h-[84vh] w-[88vw] max-w-[88vw] flex-col overflow-hidden sm:max-w-[1180px]'>
-          <DialogHeader>
-            <DialogTitle>{t('checkpointFileDetails')}</DialogTitle>
-            <DialogDescription className='break-all'>
-              {checkpointInspectDialogResult?.path || '-'}
-            </DialogDescription>
-          </DialogHeader>
-          <ScrollArea className='min-h-0 flex-1 rounded-md border border-border/50 bg-muted/10 p-3'>
-            <div className='space-y-4'>
-              <CheckpointInspectOverviewSection
-                result={checkpointInspectDialogResult}
-                t={t}
-              />
-              <CheckpointInspectSourceHighlightsSection
-                title={t('checkpointSourceState')}
-                result={checkpointInspectDialogResult}
-                decodeStrategyLabel={t('decodeStrategy')}
-                splitCountLabel={t('splitCount')}
-                warningsLabel={t('warnings')}
-                unsupportedLabel={t('unsupportedSources')}
-                currentOffsetLabel={t('currentOffset')}
-                targetLabel={t('sourceTarget')}
-                progressLabel={t('sourceProgress')}
-              />
-              <CheckpointInspectPrimaryTableSection
-                title={t('actions')}
-                result={checkpointInspectDialogResult}
-                sourceStateTitle={t('checkpointSourceState')}
-                decodeStrategyLabel={t('decodeStrategy')}
-                coordinatorLabel={t('coordinator')}
-                unsupportedLabel={t('unsupportedSources')}
-                rawDetailsLabel={t('rawDetails')}
-              />
-              <CheckpointInspectRawDetailsSection
-                result={checkpointInspectDialogResult}
-                t={t}
-              />
-            </div>
-          </ScrollArea>
-        </DialogContent>
-      </Dialog>
+        result={checkpointInspectDialogResult}
+        t={t}
+      />
 
       <Dialog
         open={treeDialog.open}

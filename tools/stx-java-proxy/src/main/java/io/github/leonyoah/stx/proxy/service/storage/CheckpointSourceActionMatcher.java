@@ -106,14 +106,26 @@ public class CheckpointSourceActionMatcher {
                 content, extractVariables(request.get("variables")), contentFormat);
     }
 
+    static final java.util.regex.Pattern UNQUOTED_MASK_PATTERN =
+            java.util.regex.Pattern.compile("([:=]\\s*)(\\*{2,})([ \\t\\r\\n,]|$)");
+
+    static String sanitizeContent(String content) {
+        if (content == null) {
+            return "";
+        }
+        return UNQUOTED_MASK_PATTERN.matcher(content).replaceAll("$1\"$2\"$3");
+    }
+
     private Config parseConfigContent(
             String content, Map<String, String> variables, String contentFormat) {
         try {
+            String sanitizedContent = sanitizeContent(content);
             ConfigResolveOptions resolveOptions =
                     ConfigResolveOptions.defaults().setAllowUnresolved(true);
             ConfigParseOptions parseOptions = buildParseOptions(contentFormat);
             Config config =
-                    ConfigFactory.parseString(content, parseOptions).resolve(resolveOptions);
+                    ConfigFactory.parseString(sanitizedContent, parseOptions)
+                            .resolve(resolveOptions);
             if (!variables.isEmpty()) {
                 Properties properties = new Properties();
                 for (Map.Entry<String, String> entry : variables.entrySet()) {

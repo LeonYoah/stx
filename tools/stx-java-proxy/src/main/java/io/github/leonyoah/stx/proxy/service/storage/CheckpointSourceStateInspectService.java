@@ -94,8 +94,13 @@ public class CheckpointSourceStateInspectService {
                 List<String> warnings = new ArrayList<>();
                 List<Map<String, Object>> sources = new ArrayList<>();
                 List<Map<String, Object>> unsupportedSources = new ArrayList<>();
-                List<CheckpointSourceActionMatcher.SourceTarget> targets =
-                        actionMatcher.match(request);
+                List<CheckpointSourceActionMatcher.SourceTarget> targets;
+                try {
+                    targets = actionMatcher.match(request);
+                } catch (Exception e) {
+                    warnings.add("Job configuration source matching skipped: " + e.getMessage());
+                    targets = Collections.emptyList();
+                }
                 int splitLimitPerSubtask =
                         Math.max(
                                 1,

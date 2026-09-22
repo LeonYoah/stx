@@ -1,4 +1,4 @@
-﻿/*
+/*
  * MIT License
  *
  * Copyright (c) 2025 linux.do
@@ -45,7 +45,7 @@ type User struct {
 	Username       string     `json:"username" gorm:"size:255;unique"`
 	Nickname       string     `json:"nickname" gorm:"size:255"`
 	AvatarUrl      string     `json:"avatar_url" gorm:"size:255"`
-	OAuthID        string     `json:"oauth_id" gorm:"size:255;index"` // OAuth 提供商 ID，格式: provider:id
+	OAuthID        string     `json:"oauth_id" gorm:"column:oauth_id;size:255;index"` // OAuth 提供商 ID，格式: provider:id
 	IsActive       bool       `json:"is_active" gorm:"default:true"`
 	TrustLevel     TrustLevel `json:"trust_level"`
 	Score          int8       `json:"score"`

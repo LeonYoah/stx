@@ -225,6 +225,32 @@ func (s *Service) DeleteGlobalVariable(ctx context.Context, id uint) error {
 	return s.repo.DeleteGlobalVariable(ctx, id)
 }
 
+// UpdateGlobalVariableForActor updates one workspace-wide variable after enforcing actor permissions.
+// Ordinary users can only edit variables they created; administrators can edit any variable.
+func (s *Service) UpdateGlobalVariableForActor(ctx context.Context, actor executionapp.Actor, id uint, req *UpdateGlobalVariableRequest) (*GlobalVariable, error) {
+	item, err := s.repo.GetGlobalVariableByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if !actor.IsAdmin && (item.CreatedBy != 0 && item.CreatedBy != uint(actor.UserID)) {
+		return nil, ErrGlobalVariablePermissionDenied
+	}
+	return s.UpdateGlobalVariable(ctx, id, req)
+}
+
+// DeleteGlobalVariableForActor deletes one workspace-wide variable after enforcing actor permissions.
+// Ordinary users can only delete variables they created; administrators can delete any variable.
+func (s *Service) DeleteGlobalVariableForActor(ctx context.Context, actor executionapp.Actor, id uint) error {
+	item, err := s.repo.GetGlobalVariableByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if !actor.IsAdmin && (item.CreatedBy != 0 && item.CreatedBy != uint(actor.UserID)) {
+		return ErrGlobalVariablePermissionDenied
+	}
+	return s.repo.DeleteGlobalVariable(ctx, id)
+}
+
 // CreateTask creates one workspace node.
 func (s *Service) CreateTask(ctx context.Context, req *CreateTaskRequest, createdBy uint) (*Task, error) {
 	nodeType, err := normalizeNodeType(req.NodeType)
@@ -1481,6 +1507,33 @@ func (s *Service) CancelJob(ctx context.Context, id uint, stopWithSavepoint bool
 		return nil, ErrJobAlreadyFinished
 	}
 	if instance.Status == JobStatusCancelRequested || instance.Status == JobStatusCancelling {
+		// 如果此前处于带 Savepoint 的停止中（如 DOING_SAVEPOINT），而当前请求普通停止（!stopWithSavepoint），
+		// 则用户意图放弃 Savepoint 强制停止，予以打破死锁并强制结束。
+		isDoingSavepoint := strings.EqualFold(strings.TrimSpace(stringValue(instance.ResultPreview, "job_status")), "DOING_SAVEPOINT")
+		if !stopWithSavepoint && isDoingSavepoint {
+			now := time.Now()
+			if submitSpecExecutionMode(instance.SubmitSpec) == "local" {
+				_ = s.stopLocalJob(ctx, instance)
+			} else if s.engineClient != nil && strings.TrimSpace(instance.EngineJobID) != "" {
+				if endpoint := endpointFromSubmitSpec(instance.SubmitSpec); endpoint != nil {
+					_ = s.engineClient.StopJob(ctx, endpoint, instance.EngineJobID, false)
+				}
+			}
+			instance.Status = JobStatusCanceled
+			instance.FinishedAt = &now
+			if instance.ResultPreview == nil {
+				instance.ResultPreview = JSONMap{}
+			}
+			instance.ResultPreview["job_status"] = "CANCELED"
+			_ = s.repo.UpdateJobStatus(ctx, instance.ID, []JobStatus{JobStatusCancelRequested, JobStatusCancelling}, map[string]any{
+				"status":         instance.Status,
+				"finished_at":    instance.FinishedAt,
+				"result_preview": instance.ResultPreview,
+				"error_message":  "",
+			})
+			_ = s.syncExecutionFromJob(ctx, instance)
+			return instance, nil
+		}
 		return instance, nil
 	}
 	previousStatus := instance.Status
@@ -2277,6 +2330,8 @@ func mergeJobRuntimeInfo(existing JSONMap, info *EngineJobInfo) JSONMap {
 	}
 	if strings.TrimSpace(info.JobStatus) != "" {
 		existing["job_status"] = strings.TrimSpace(info.JobStatus)
+	} else if strings.EqualFold(strings.TrimSpace(stringValue(existing, "job_status")), "DOING_SAVEPOINT") {
+		existing["job_status"] = "CANCELED"
 	}
 	if info.JobDag != nil {
 		existing["job_dag"] = info.JobDag
@@ -2348,20 +2403,44 @@ func (s *Service) refreshJobInstance(ctx context.Context, instance *JobInstance)
 	if endpoint == nil {
 		return instance, nil
 	}
+	previousStatus := instance.Status
 	info, err := s.engineClient.GetJobInfo(ctx, endpoint, instance.EngineJobID)
 	if err != nil {
+		if previousStatus == JobStatusCancelRequested || previousStatus == JobStatusCancelling {
+			now := time.Now()
+			instance.Status = JobStatusCanceled
+			instance.FinishedAt = &now
+			if instance.ResultPreview == nil {
+				instance.ResultPreview = JSONMap{}
+			}
+			instance.ResultPreview["job_status"] = "CANCELED"
+			_ = s.repo.UpdateJobStatus(ctx, instance.ID, []JobStatus{previousStatus}, map[string]any{
+				"status":         instance.Status,
+				"result_preview": instance.ResultPreview,
+				"finished_at":    instance.FinishedAt,
+			})
+		}
 		return instance, nil
 	}
 	if info == nil {
 		return instance, nil
 	}
-	previousStatus := instance.Status
-	observedStatus := normalizeJobStatus(info.JobStatus)
-	if previousStatus == JobStatusCancelRequested || previousStatus == JobStatusCancelling {
-		if observedStatus == JobStatusRunning {
-			observedStatus = previousStatus
-		} else if observedStatus == JobStatusSuccess {
+	rawEngineStatus := strings.TrimSpace(info.JobStatus)
+	var observedStatus JobStatus
+	if rawEngineStatus == "" {
+		if previousStatus == JobStatusCancelRequested || previousStatus == JobStatusCancelling {
 			observedStatus = JobStatusCanceled
+		} else {
+			observedStatus = previousStatus
+		}
+	} else {
+		observedStatus = normalizeJobStatus(rawEngineStatus)
+		if previousStatus == JobStatusCancelRequested || previousStatus == JobStatusCancelling {
+			if observedStatus == JobStatusRunning {
+				observedStatus = previousStatus
+			} else if observedStatus == JobStatusSuccess {
+				observedStatus = JobStatusCanceled
+			}
 		}
 	}
 	instance.Status = observedStatus

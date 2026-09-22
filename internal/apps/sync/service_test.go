@@ -903,6 +903,70 @@ func TestGlobalVariableSecretMaskingAndResolution(t *testing.T) {
 	}
 }
 
+func TestGlobalVariablePermissions(t *testing.T) {
+	service := newTestSyncService(t)
+	ctx := context.Background()
+
+	user1Actor := executionapp.Actor{UserID: 101, IsAdmin: false}
+	user2Actor := executionapp.Actor{UserID: 102, IsAdmin: false}
+	adminActor := executionapp.Actor{UserID: 1, IsAdmin: true}
+
+	// 1. 普通用户 101 创建变量
+	created, err := service.CreateGlobalVariable(ctx, &CreateGlobalVariableRequest{
+		Key:         "user101_var",
+		Value:       "val101",
+		ValueType:   GlobalVariableTypeString,
+		Description: "created by user 101",
+	}, 101)
+	if err != nil {
+		t.Fatalf("user 101 create global variable failed: %v", err)
+	}
+
+	// 2. 普通用户 102 尝试修改用户 101 的变量，应拒绝 ErrGlobalVariablePermissionDenied
+	_, err = service.UpdateGlobalVariableForActor(ctx, user2Actor, created.ID, &UpdateGlobalVariableRequest{
+		Key:   "user101_var",
+		Value: "hacked",
+	})
+	if !errors.Is(err, ErrGlobalVariablePermissionDenied) {
+		t.Fatalf("expected ErrGlobalVariablePermissionDenied for other user, got: %v", err)
+	}
+
+	// 3. 普通用户 102 尝试删除用户 101 的变量，应拒绝 ErrGlobalVariablePermissionDenied
+	err = service.DeleteGlobalVariableForActor(ctx, user2Actor, created.ID)
+	if !errors.Is(err, ErrGlobalVariablePermissionDenied) {
+		t.Fatalf("expected ErrGlobalVariablePermissionDenied for delete by other user, got: %v", err)
+	}
+
+	// 4. 创建者 101 修改自己的变量，应成功
+	updated, err := service.UpdateGlobalVariableForActor(ctx, user1Actor, created.ID, &UpdateGlobalVariableRequest{
+		Key:   "user101_var",
+		Value: "val101_updated",
+	})
+	if err != nil {
+		t.Fatalf("creator 101 update own variable failed: %v", err)
+	}
+	if updated.Value != "val101_updated" {
+		t.Fatalf("expected updated value val101_updated, got %s", updated.Value)
+	}
+
+	// 5. 管理员可以修改任何人的变量
+	adminUpdated, err := service.UpdateGlobalVariableForActor(ctx, adminActor, created.ID, &UpdateGlobalVariableRequest{
+		Key:   "user101_var",
+		Value: "val101_admin_override",
+	})
+	if err != nil {
+		t.Fatalf("admin update variable failed: %v", err)
+	}
+	if adminUpdated.Value != "val101_admin_override" {
+		t.Fatalf("expected admin override value, got %s", adminUpdated.Value)
+	}
+
+	// 6. 管理员删除变量
+	if err := service.DeleteGlobalVariableForActor(ctx, adminActor, created.ID); err != nil {
+		t.Fatalf("admin delete variable failed: %v", err)
+	}
+}
+
 func TestCreateTaskRejectsReservedCustomVariableKey(t *testing.T) {
 	service := newTestSyncService(t)
 	ctx := context.Background()

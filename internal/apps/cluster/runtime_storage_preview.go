@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"io"
 	neturl "net/url"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -342,6 +343,10 @@ func (s *Service) inspectCheckpointSourceStateRuntimeStorage(
 			clusterObj,
 		)
 		params["path"] = strings.TrimSpace(path)
+	}
+	if jobConfig != nil && strings.TrimSpace(jobConfig.Content) != "" {
+		re := regexp.MustCompile(`([:=]\s*)(\*{2,})([ \t\r\n,]|\z)`)
+		jobConfig.Content = re.ReplaceAllString(jobConfig.Content, `${1}"${2}"${3}`)
 	}
 	jobConfigJSON, err := json.Marshal(jobConfig)
 	if err != nil {

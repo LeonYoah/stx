@@ -18,21 +18,31 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import {useEffect, useState, type ReactNode} from 'react';
+import {useEffect, useMemo, useState, type ReactNode} from 'react';
 import {useTranslations} from 'next-intl';
 import {
+  Activity,
   AlertCircle,
   AlertTriangle,
+  ArrowDownToLine,
+  ArrowRight,
+  BarChart3,
   Check,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
+  Clock,
   Copy,
+  Database,
+  Gauge,
   Lightbulb,
+  Search,
+  Zap,
 } from 'lucide-react';
 import {toast} from 'sonner';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
+import {Input} from '@/components/ui/input';
 import {
   Table,
   TableBody,
@@ -49,9 +59,13 @@ import {
   buildMetricHighlights,
   buildPairedMetricRows,
   buildPerTableMetricRows,
+  formatJobDuration,
   formatMetricDisplayValue,
+  getJobStatusBadgeClass,
+  getJobStatusLabel,
   getJobSubmittedScript,
   getLogLineClass,
+  getMetricValue,
   toObject,
   type UserFacingErrorState,
 } from './sync-studio-utils';
@@ -340,6 +354,60 @@ export function ValidationResultPanel({result}: {result: SyncValidateResult | nu
   );
 }
 
+const METRIC_CARD_STYLES: Record<
+  string,
+  {
+    gradient: string;
+    icon: typeof Database;
+    iconBg: string;
+    iconColor: string;
+    badgeLabel: string;
+  }
+> = {
+  sourceRows: {
+    gradient: 'from-emerald-500 to-teal-400',
+    icon: Database,
+    iconBg: 'bg-emerald-500/10 dark:bg-emerald-500/20',
+    iconColor: 'text-emerald-600 dark:text-emerald-400',
+    badgeLabel: '入站读取',
+  },
+  sinkRows: {
+    gradient: 'from-indigo-500 to-blue-400',
+    icon: ArrowDownToLine,
+    iconBg: 'bg-indigo-500/10 dark:bg-indigo-500/20',
+    iconColor: 'text-indigo-600 dark:text-indigo-400',
+    badgeLabel: '出站写入',
+  },
+  committedRows: {
+    gradient: 'from-purple-500 to-pink-400',
+    icon: CheckCircle2,
+    iconBg: 'bg-purple-500/10 dark:bg-purple-500/20',
+    iconColor: 'text-purple-600 dark:text-purple-400',
+    badgeLabel: '确认落盘',
+  },
+  readSpeed: {
+    gradient: 'from-cyan-500 to-teal-400',
+    icon: Activity,
+    iconBg: 'bg-cyan-500/10 dark:bg-cyan-500/20',
+    iconColor: 'text-cyan-600 dark:text-cyan-400',
+    badgeLabel: '读取速率',
+  },
+  writeSpeed: {
+    gradient: 'from-amber-500 to-orange-400',
+    icon: Zap,
+    iconBg: 'bg-amber-500/10 dark:bg-amber-500/20',
+    iconColor: 'text-amber-600 dark:text-amber-400',
+    badgeLabel: '写入速率',
+  },
+  writeQps: {
+    gradient: 'from-rose-500 to-red-400',
+    icon: Gauge,
+    iconBg: 'bg-rose-500/10 dark:bg-rose-500/20',
+    iconColor: 'text-rose-600 dark:text-rose-400',
+    badgeLabel: '处理频次',
+  },
+};
+
 export function MetricsDialogContent({job}: {job: SyncJobInstance | null}) {
   const t = useTranslations('workbenchStudio');
   const rawMetrics = toObject(job?.result_preview?.metrics);
@@ -353,163 +421,387 @@ export function MetricsDialogContent({job}: {job: SyncJobInstance | null}) {
   const [perTableExpanded, setPerTableExpanded] = useState(
     shouldExpandPerTableByDefault,
   );
+  const [tableSearch, setTableSearch] = useState('');
+
   useEffect(() => {
     setPerTableExpanded(shouldExpandPerTableByDefault);
   }, [job?.id, shouldExpandPerTableByDefault]);
+
+  // 表名过滤联动
+  const filteredPairedRows = useMemo(() => {
+    if (!tableSearch.trim()) {
+      return pairedMetricRows;
+    }
+    const q = tableSearch.trim().toLowerCase();
+    return pairedMetricRows.filter(
+      (r) =>
+        r.sourceTable.toLowerCase().includes(q) ||
+        r.sinkTable.toLowerCase().includes(q) ||
+        r.sourceNode.toLowerCase().includes(q) ||
+        r.sinkNode.toLowerCase().includes(q),
+    );
+  }, [pairedMetricRows, tableSearch]);
+
+  const filteredPerTableRows = useMemo(() => {
+    if (!tableSearch.trim()) {
+      return perTableRows;
+    }
+    const q = tableSearch.trim().toLowerCase();
+    return perTableRows.filter(
+      (r) =>
+        r.tablePath.toLowerCase().includes(q) ||
+        r.nodeLabel.toLowerCase().includes(q),
+    );
+  }, [perTableRows, tableSearch]);
+
   if (!job) {
     return (
-      <div className='text-sm text-muted-foreground'>{t('noMetrics')}</div>
+      <div className='flex items-center justify-center p-8 text-sm text-muted-foreground'>
+        {t('noMetrics')}
+      </div>
     );
   }
-  if (metricGroups.length === 0) {
+  if (metricGroups.length === 0 && metricHighlights.length === 0) {
     return (
-      <div className='text-sm text-muted-foreground'>
+      <div className='flex items-center justify-center p-8 text-sm text-muted-foreground'>
         {t('noMetricsOutput')}
       </div>
     );
   }
+
+  // 计算数据流达成度（写入量 / 读取量）
+  const srcCount = Number(getMetricValue(rawMetrics, 'SourceReceivedCount')) || 0;
+  const sinkCount = Number(getMetricValue(rawMetrics, 'SinkWriteCount')) || 0;
+  const syncRatio =
+    srcCount > 0 ? Math.min(100, Math.max(0, Math.round((sinkCount / srcCount) * 100))) : null;
+
   return (
     <div className='space-y-4 overflow-auto pr-1'>
-      <div className='grid gap-3 md:grid-cols-2 xl:grid-cols-3'>
-        {metricHighlights.map((item) => (
-          <div
-            key={item.label}
-            className='rounded-lg border border-border/60 bg-background/80 p-4'
-          >
-            <div className='text-xs text-muted-foreground'>{item.label}</div>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div className='mt-2 text-2xl font-semibold tracking-tight'>
-                  {item.value}
-                </div>
-              </TooltipTrigger>
-              <TooltipContent>{item.raw}</TooltipContent>
-            </Tooltip>
+      {/* 1. 作业执行时况上下文条 */}
+      <div className='flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/60 bg-muted/20 px-3.5 py-2.5 shadow-xs'>
+        <div className='flex items-center gap-2.5 flex-wrap'>
+          <div className='flex items-center gap-1.5'>
+            <span className='font-mono text-xs font-semibold text-foreground'>
+              #{job.id}
+            </span>
+            {job.engine_job_id ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type='button'
+                    className='inline-flex items-center rounded border border-border/60 bg-background px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground hover:text-foreground'
+                    onClick={() => {
+                      void navigator.clipboard.writeText(String(job.engine_job_id));
+                      toast.success(t('copied'));
+                    }}
+                  >
+                    Engine: {job.engine_job_id}
+                    <Copy className='ml-1 size-2.5' />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{t('copy')}</TooltipContent>
+              </Tooltip>
+            ) : null}
           </div>
-        ))}
+
+          <div className='h-3.5 w-px bg-border/60' />
+
+          {/* 状态指示灯与 Badge */}
+          {(() => {
+            const rawStatus = String(job.status || '').toUpperCase();
+            const isSuccess = /SUCCESS|FINISHED|SAVEPOINT_DONE/.test(rawStatus);
+            const isFailed = /FAILED|FAILING/.test(rawStatus);
+            const isRunning = /RUNNING|DOING_SAVEPOINT/.test(rawStatus);
+            return (
+              <Badge
+                variant='outline'
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-sm border px-2 py-0.5 text-[11px] font-medium tracking-tight',
+                  getJobStatusBadgeClass(job.status),
+                )}
+              >
+                <span
+                  className={cn(
+                    'size-1.5 rounded-full',
+                    isSuccess && 'bg-emerald-500 shadow-xs shadow-emerald-500/50',
+                    isFailed && 'bg-destructive shadow-xs shadow-destructive/50',
+                    isRunning && 'bg-sky-500 animate-pulse',
+                    !isSuccess && !isFailed && !isRunning && 'bg-muted-foreground',
+                  )}
+                />
+                <span>{getJobStatusLabel(job.status)}</span>
+              </Badge>
+            );
+          })()}
+
+          <Badge variant='outline' className='font-mono text-[10px] px-1.5 py-0 uppercase'>
+            {job.run_type || 'SYNC'}
+          </Badge>
+        </div>
+
+        {/* 耗时与达成率 */}
+        <div className='flex items-center gap-4 text-xs text-muted-foreground'>
+          <div className='flex items-center gap-1 font-mono'>
+            <Clock className='size-3 text-primary/70' />
+            <span className='font-medium text-foreground'>
+              {formatJobDuration(job.started_at, job.finished_at)}
+            </span>
+          </div>
+
+          {syncRatio !== null ? (
+            <div className='flex items-center gap-1.5'>
+              <span className='text-[11px] text-muted-foreground'>吞吐达成:</span>
+              <div className='flex items-center gap-1.5'>
+                <div className='h-1.5 w-16 overflow-hidden rounded-full bg-muted'>
+                  <div
+                    className={cn(
+                      'h-full rounded-full transition-all duration-300',
+                      syncRatio >= 100 ? 'bg-emerald-500' : 'bg-primary',
+                    )}
+                    style={{width: `${syncRatio}%`}}
+                  />
+                </div>
+                <span
+                  className={cn(
+                    'font-mono text-[11px] font-semibold',
+                    syncRatio >= 100 ? 'text-emerald-600 dark:text-emerald-400' : 'text-foreground',
+                  )}
+                >
+                  {syncRatio}%
+                </span>
+              </div>
+            </div>
+          ) : null}
+        </div>
       </div>
 
+      {/* 2. 六联现代数据流度量磁贴 (Metric Highlights) */}
+      <div className='grid gap-3 grid-cols-2 md:grid-cols-3 xl:grid-cols-6'>
+        {metricHighlights.map((item) => {
+          const style = METRIC_CARD_STYLES[item.key] || {
+            gradient: 'from-primary to-primary/80',
+            icon: BarChart3,
+            iconBg: 'bg-primary/10',
+            iconColor: 'text-primary',
+            badgeLabel: '指标',
+          };
+          const IconComp = style.icon;
+
+          return (
+            <div
+              key={item.label}
+              className='relative overflow-hidden rounded-lg border border-border/60 bg-background/80 p-3 shadow-xs transition-all hover:border-border hover:shadow-xs'
+            >
+              {/* 顶部彩色微渐变条 */}
+              <div
+                className={cn(
+                  'absolute inset-x-0 top-0 h-[2.5px] bg-gradient-to-r',
+                  style.gradient,
+                )}
+              />
+
+              {/* 顶部图标与类型胶囊 */}
+              <div className='flex items-center justify-between gap-1.5'>
+                <div className='flex items-center gap-1.5 min-w-0'>
+                  <div
+                    className={cn(
+                      'flex size-5 items-center justify-center rounded-sm shrink-0',
+                      style.iconBg,
+                      style.iconColor,
+                    )}
+                  >
+                    <IconComp className='size-3' />
+                  </div>
+                  <span
+                    className='truncate text-[11px] font-medium text-muted-foreground'
+                    title={item.label}
+                  >
+                    {item.label}
+                  </span>
+                </div>
+                <Badge
+                  variant='secondary'
+                  className='h-4 px-1 text-[9px] font-normal text-muted-foreground shrink-0'
+                >
+                  {style.badgeLabel}
+                </Badge>
+              </div>
+
+              {/* 主数值 */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className='mt-2 font-mono text-xl font-bold tracking-tight text-foreground truncate'>
+                    {item.value}
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent side='bottom' className='font-mono text-xs'>
+                  精确原始值: {item.raw}
+                </TooltipContent>
+              </Tooltip>
+
+              <div className='mt-0.5 text-[10px] font-mono text-muted-foreground/70 truncate'>
+                原始: {item.raw}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* 3. 映射链路表与分表统计表 */}
       {perTableRows.length > 0 ? (
-        <div className='overflow-hidden rounded-lg border border-border/60 bg-background/80'>
+        <div className='overflow-hidden rounded-lg border border-border/60 bg-background/80 shadow-xs'>
           {pairedMetricRows.length > 0 ? (
             <>
-              <div className='border-b border-border/50 bg-muted/20 px-3 py-2 text-sm font-medium'>
-                {t('metricMappedView')}
+              {/* 映射表头部工具栏 */}
+              <div className='flex items-center justify-between gap-3 border-b border-border/50 bg-muted/20 px-3 py-2'>
+                <div className='flex items-center gap-2'>
+                  <span className='text-xs font-semibold text-foreground'>
+                    {t('metricMappedView')}
+                  </span>
+                  <Badge variant='outline' className='text-[10px] font-mono px-1.5 py-0'>
+                    {filteredPairedRows.length} 条链路
+                  </Badge>
+                </div>
+                <div className='relative w-44'>
+                  <Search className='absolute left-2 top-1/2 -translate-y-1/2 size-3 text-muted-foreground' />
+                  <Input
+                    value={tableSearch}
+                    onChange={(e) => setTableSearch(e.target.value)}
+                    placeholder='按表名搜索...'
+                    className='h-6 pl-7 text-[11px] bg-background'
+                  />
+                </div>
               </div>
-              <div className='max-h-[240px] overflow-auto border-b border-border/50'>
+
+              <div className='max-h-[260px] overflow-auto border-b border-border/50'>
                 <Table>
                   <TableHeader className='sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/90'>
-                    <TableRow>
-                      <TableHead>{t('metricPairSourceNode')}</TableHead>
-                      <TableHead>{t('metricPairSourceTable')}</TableHead>
-                      <TableHead>{t('metricPairSinkNode')}</TableHead>
-                      <TableHead>{t('metricPairSinkTable')}</TableHead>
-                      <TableHead>{t('metricSourceRows')}</TableHead>
-                      <TableHead>{t('metricSourceBytes')}</TableHead>
-                      <TableHead>{t('metricSourceQps')}</TableHead>
-                      <TableHead>{t('metricSinkRows')}</TableHead>
-                      <TableHead>{t('metricSinkBytes')}</TableHead>
-                      <TableHead>{t('metricSinkQps')}</TableHead>
-                      <TableHead>{t('metricCommittedRows')}</TableHead>
-                      <TableHead>{t('metricCommittedBytes')}</TableHead>
+                    <TableRow className='hover:bg-transparent border-border/50'>
+                      <TableHead className='h-8 py-1 px-2.5 text-xs font-semibold'>{t('metricPairSourceNode')}</TableHead>
+                      <TableHead className='h-8 py-1 px-2.5 text-xs font-semibold'>{t('metricPairSourceTable')}</TableHead>
+                      <TableHead className='h-8 py-1 px-1 text-xs text-center w-6'></TableHead>
+                      <TableHead className='h-8 py-1 px-2.5 text-xs font-semibold'>{t('metricPairSinkNode')}</TableHead>
+                      <TableHead className='h-8 py-1 px-2.5 text-xs font-semibold'>{t('metricPairSinkTable')}</TableHead>
+                      <TableHead className='h-8 py-1 px-2.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400'>{t('metricSourceRows')}</TableHead>
+                      <TableHead className='h-8 py-1 px-2.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400'>{t('metricSourceBytes')}</TableHead>
+                      <TableHead className='h-8 py-1 px-2.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400'>{t('metricSourceQps')}</TableHead>
+                      <TableHead className='h-8 py-1 px-2.5 text-xs font-semibold text-indigo-600 dark:text-indigo-400'>{t('metricSinkRows')}</TableHead>
+                      <TableHead className='h-8 py-1 px-2.5 text-xs font-semibold text-indigo-600 dark:text-indigo-400'>{t('metricSinkBytes')}</TableHead>
+                      <TableHead className='h-8 py-1 px-2.5 text-xs font-semibold text-indigo-600 dark:text-indigo-400'>{t('metricSinkQps')}</TableHead>
+                      <TableHead className='h-8 py-1 px-2.5 text-xs font-semibold text-amber-600 dark:text-amber-400'>{t('metricCommittedRows')}</TableHead>
+                      <TableHead className='h-8 py-1 px-2.5 text-xs font-semibold text-amber-600 dark:text-amber-400'>{t('metricCommittedBytes')}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {pairedMetricRows.map((row) => (
-                      <TableRow key={row.key}>
-                        <TableCell className='text-xs font-medium'>
-                          {row.sourceNode}
-                        </TableCell>
-                        <TableCell className='font-mono text-xs'>
-                          {row.sourceTable}
-                        </TableCell>
-                        <TableCell className='text-xs font-medium'>
-                          {row.sinkNode}
-                        </TableCell>
-                        <TableCell className='font-mono text-xs'>
-                          {row.sinkTable}
-                        </TableCell>
-                        <TableCell className='text-xs text-emerald-700 dark:text-emerald-300'>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span>{row.sourceCount}</span>
-                            </TooltipTrigger>
-                            <TooltipContent>{row.sourceCount}</TooltipContent>
-                          </Tooltip>
-                        </TableCell>
-                        <TableCell className='text-xs text-emerald-700 dark:text-emerald-300'>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span>{row.sourceBytes}</span>
-                            </TooltipTrigger>
-                            <TooltipContent>{row.sourceBytes}</TooltipContent>
-                          </Tooltip>
-                        </TableCell>
-                        <TableCell className='text-xs text-emerald-700 dark:text-emerald-300'>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span>{row.sourceQps}</span>
-                            </TooltipTrigger>
-                            <TooltipContent>{row.sourceQps}</TooltipContent>
-                          </Tooltip>
-                        </TableCell>
-                        <TableCell className='text-xs text-blue-700 dark:text-blue-300'>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span>{row.sinkCount}</span>
-                            </TooltipTrigger>
-                            <TooltipContent>{row.sinkCount}</TooltipContent>
-                          </Tooltip>
-                        </TableCell>
-                        <TableCell className='text-xs text-blue-700 dark:text-blue-300'>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span>{row.sinkBytes}</span>
-                            </TooltipTrigger>
-                            <TooltipContent>{row.sinkBytes}</TooltipContent>
-                          </Tooltip>
-                        </TableCell>
-                        <TableCell className='text-xs text-blue-700 dark:text-blue-300'>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span>{row.sinkQps}</span>
-                            </TooltipTrigger>
-                            <TooltipContent>{row.sinkQps}</TooltipContent>
-                          </Tooltip>
-                        </TableCell>
-                        <TableCell className='text-xs text-amber-700 dark:text-amber-300'>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span>{row.committedCount}</span>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              {row.committedCount}
-                            </TooltipContent>
-                          </Tooltip>
-                        </TableCell>
-                        <TableCell className='text-xs text-amber-700 dark:text-amber-300'>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span>{row.committedBytes}</span>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              {row.committedBytes}
-                            </TooltipContent>
-                          </Tooltip>
+                    {filteredPairedRows.length > 0 ? (
+                      filteredPairedRows.map((row) => (
+                        <TableRow key={row.key} className='border-border/40 hover:bg-muted/40'>
+                          <TableCell className='py-1.5 px-2.5 text-xs font-medium text-muted-foreground'>
+                            {row.sourceNode}
+                          </TableCell>
+                          <TableCell className='py-1.5 px-2.5 font-mono text-xs font-semibold text-foreground'>
+                            {row.sourceTable}
+                          </TableCell>
+                          <TableCell className='py-1.5 px-1 text-center text-muted-foreground/50'>
+                            <ArrowRight className='size-3 inline' />
+                          </TableCell>
+                          <TableCell className='py-1.5 px-2.5 text-xs font-medium text-muted-foreground'>
+                            {row.sinkNode}
+                          </TableCell>
+                          <TableCell className='py-1.5 px-2.5 font-mono text-xs font-semibold text-foreground'>
+                            {row.sinkTable}
+                          </TableCell>
+                          <TableCell className='py-1.5 px-2.5 font-mono text-xs text-emerald-700 dark:text-emerald-300'>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span>{row.sourceCount}</span>
+                              </TooltipTrigger>
+                              <TooltipContent>{row.sourceCount}</TooltipContent>
+                            </Tooltip>
+                          </TableCell>
+                          <TableCell className='py-1.5 px-2.5 font-mono text-xs text-emerald-700 dark:text-emerald-300'>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span>{row.sourceBytes}</span>
+                              </TooltipTrigger>
+                              <TooltipContent>{row.sourceBytes}</TooltipContent>
+                            </Tooltip>
+                          </TableCell>
+                          <TableCell className='py-1.5 px-2.5 font-mono text-xs text-emerald-700 dark:text-emerald-300'>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span>{row.sourceQps}</span>
+                              </TooltipTrigger>
+                              <TooltipContent>{row.sourceQps}</TooltipContent>
+                            </Tooltip>
+                          </TableCell>
+                          <TableCell className='py-1.5 px-2.5 font-mono text-xs text-blue-700 dark:text-blue-300'>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span>{row.sinkCount}</span>
+                              </TooltipTrigger>
+                              <TooltipContent>{row.sinkCount}</TooltipContent>
+                            </Tooltip>
+                          </TableCell>
+                          <TableCell className='py-1.5 px-2.5 font-mono text-xs text-blue-700 dark:text-blue-300'>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span>{row.sinkBytes}</span>
+                              </TooltipTrigger>
+                              <TooltipContent>{row.sinkBytes}</TooltipContent>
+                            </Tooltip>
+                          </TableCell>
+                          <TableCell className='py-1.5 px-2.5 font-mono text-xs text-blue-700 dark:text-blue-300'>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span>{row.sinkQps}</span>
+                              </TooltipTrigger>
+                              <TooltipContent>{row.sinkQps}</TooltipContent>
+                            </Tooltip>
+                          </TableCell>
+                          <TableCell className='py-1.5 px-2.5 font-mono text-xs text-amber-700 dark:text-amber-300'>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span>{row.committedCount}</span>
+                              </TooltipTrigger>
+                              <TooltipContent>{row.committedCount}</TooltipContent>
+                            </Tooltip>
+                          </TableCell>
+                          <TableCell className='py-1.5 px-2.5 font-mono text-xs text-amber-700 dark:text-amber-300'>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span>{row.committedBytes}</span>
+                              </TooltipTrigger>
+                              <TooltipContent>{row.committedBytes}</TooltipContent>
+                            </Tooltip>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    ) : (
+                      <TableRow>
+                        <TableCell colSpan={13} className='text-center py-6 text-xs text-muted-foreground'>
+                          未找到匹配表名 &quot;{tableSearch}&quot; 的映射链路
                         </TableCell>
                       </TableRow>
-                    ))}
+                    )}
                   </TableBody>
                 </Table>
               </div>
             </>
           ) : null}
+
+          {/* 分表明细表头部与折叠开关 */}
           <div className='flex items-center justify-between gap-2 border-b border-border/50 bg-muted/20 px-3 py-2'>
-            <div className='text-sm font-medium'>{t('metricPerTable')}</div>
+            <div className='flex items-center gap-2'>
+              <span className='text-xs font-semibold text-foreground'>{t('metricPerTable')}</span>
+              <Badge variant='outline' className='text-[10px] font-mono px-1.5 py-0'>
+                {filteredPerTableRows.length} / {perTableRows.length} 表
+              </Badge>
+            </div>
             {pairedMetricRows.length > 0 ? (
               <button
                 type='button'
-                className='inline-flex items-center gap-1 rounded-md border border-border/60 bg-background px-2 py-1 text-xs text-muted-foreground hover:text-foreground'
+                className='inline-flex items-center gap-1 rounded-md border border-border/60 bg-background px-2 py-1 text-xs text-muted-foreground hover:text-foreground cursor-pointer'
                 onClick={() => setPerTableExpanded((value) => !value)}
               >
                 {perTableExpanded ? (
@@ -525,171 +817,202 @@ export function MetricsDialogContent({job}: {job: SyncJobInstance | null}) {
               </button>
             ) : null}
           </div>
+
           {perTableExpanded ? (
             <>
-              <div className='flex flex-wrap gap-2 border-b border-border/50 bg-background px-3 py-2 text-xs'>
-                <div className='inline-flex items-center gap-2 rounded-md border border-border/50 px-2 py-1'>
-                  <span className='size-2 rounded-full bg-emerald-500' />
-                  <span>{t('metricLegendSource')}</span>
+              <div className='flex flex-wrap items-center justify-between gap-2 border-b border-border/50 bg-background px-3 py-2 text-xs'>
+                <div className='flex flex-wrap gap-2'>
+                  <div className='inline-flex items-center gap-1.5 rounded-md border border-border/50 px-2 py-0.5 text-[11px]'>
+                    <span className='size-2 rounded-full bg-emerald-500' />
+                    <span>{t('metricLegendSource')}</span>
+                  </div>
+                  <div className='inline-flex items-center gap-1.5 rounded-md border border-border/50 px-2 py-0.5 text-[11px]'>
+                    <span className='size-2 rounded-full bg-blue-500' />
+                    <span>{t('metricLegendWrite')}</span>
+                  </div>
+                  <div className='inline-flex items-center gap-1.5 rounded-md border border-border/50 px-2 py-0.5 text-[11px]'>
+                    <span className='size-2 rounded-full bg-amber-500' />
+                    <span>{t('metricLegendCommitted')}</span>
+                  </div>
                 </div>
-                <div className='inline-flex items-center gap-2 rounded-md border border-border/50 px-2 py-1'>
-                  <span className='size-2 rounded-full bg-blue-500' />
-                  <span>{t('metricLegendWrite')}</span>
-                </div>
-                <div className='inline-flex items-center gap-2 rounded-md border border-border/50 px-2 py-1'>
-                  <span className='size-2 rounded-full bg-amber-500' />
-                  <span>{t('metricLegendCommitted')}</span>
-                </div>
+
+                {pairedMetricRows.length === 0 ? (
+                  <div className='relative w-44'>
+                    <Search className='absolute left-2 top-1/2 -translate-y-1/2 size-3 text-muted-foreground' />
+                    <Input
+                      value={tableSearch}
+                      onChange={(e) => setTableSearch(e.target.value)}
+                      placeholder='按表名搜索...'
+                      className='h-6 pl-7 text-[11px] bg-background'
+                    />
+                  </div>
+                ) : null}
               </div>
+
               <div className='max-h-[320px] overflow-auto'>
                 <Table>
                   <TableHeader className='sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/90'>
-                    <TableRow>
-                      <TableHead>{t('node')}</TableHead>
-                      <TableHead>{t('table')}</TableHead>
-                      <TableHead>{t('metricSourceRows')}</TableHead>
-                      <TableHead>{t('metricSourceBytes')}</TableHead>
-                      <TableHead>{t('metricSourceQps')}</TableHead>
-                      <TableHead>{t('metricSinkRows')}</TableHead>
-                      <TableHead>{t('metricSinkBytes')}</TableHead>
-                      <TableHead>{t('metricSinkQps')}</TableHead>
-                      <TableHead>{t('metricCommittedRows')}</TableHead>
-                      <TableHead>{t('metricCommittedBytes')}</TableHead>
+                    <TableRow className='hover:bg-transparent border-border/50'>
+                      <TableHead className='h-8 py-1 px-2.5 text-xs font-semibold'>{t('node')}</TableHead>
+                      <TableHead className='h-8 py-1 px-2.5 text-xs font-semibold'>{t('table')}</TableHead>
+                      <TableHead className='h-8 py-1 px-2.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400'>{t('metricSourceRows')}</TableHead>
+                      <TableHead className='h-8 py-1 px-2.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400'>{t('metricSourceBytes')}</TableHead>
+                      <TableHead className='h-8 py-1 px-2.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400'>{t('metricSourceQps')}</TableHead>
+                      <TableHead className='h-8 py-1 px-2.5 text-xs font-semibold text-indigo-600 dark:text-indigo-400'>{t('metricSinkRows')}</TableHead>
+                      <TableHead className='h-8 py-1 px-2.5 text-xs font-semibold text-indigo-600 dark:text-indigo-400'>{t('metricSinkBytes')}</TableHead>
+                      <TableHead className='h-8 py-1 px-2.5 text-xs font-semibold text-indigo-600 dark:text-indigo-400'>{t('metricSinkQps')}</TableHead>
+                      <TableHead className='h-8 py-1 px-2.5 text-xs font-semibold text-amber-600 dark:text-amber-400'>{t('metricCommittedRows')}</TableHead>
+                      <TableHead className='h-8 py-1 px-2.5 text-xs font-semibold text-amber-600 dark:text-amber-400'>{t('metricCommittedBytes')}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {perTableRows.map((row) => (
-                      <TableRow
-                        key={row.rawTable}
-                        className={cn(
-                          row.rowTone === 'source' &&
-                            'bg-emerald-50/50 dark:bg-emerald-500/5',
-                          row.rowTone === 'sink' &&
-                            'bg-blue-50/50 dark:bg-blue-500/5',
-                        )}
-                      >
-                        <TableCell className='text-xs font-medium'>
-                          {row.nodeLabel}
-                        </TableCell>
-                        <TableCell className='font-mono text-xs'>
-                          {row.tablePath}
-                        </TableCell>
-                        <TableCell className='text-xs text-emerald-700 dark:text-emerald-300'>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span>{row.sourceCount}</span>
-                            </TooltipTrigger>
-                            <TooltipContent>{row.sourceCount}</TooltipContent>
-                          </Tooltip>
-                        </TableCell>
-                        <TableCell className='text-xs text-emerald-700 dark:text-emerald-300'>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span>{row.sourceBytes}</span>
-                            </TooltipTrigger>
-                            <TooltipContent>{row.sourceBytes}</TooltipContent>
-                          </Tooltip>
-                        </TableCell>
-                        <TableCell className='text-xs text-emerald-700 dark:text-emerald-300'>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span>{row.sourceQps}</span>
-                            </TooltipTrigger>
-                            <TooltipContent>{row.sourceQps}</TooltipContent>
-                          </Tooltip>
-                        </TableCell>
-                        <TableCell className='text-xs text-blue-700 dark:text-blue-300'>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span>{row.sinkCount}</span>
-                            </TooltipTrigger>
-                            <TooltipContent>{row.sinkCount}</TooltipContent>
-                          </Tooltip>
-                        </TableCell>
-                        <TableCell className='text-xs text-blue-700 dark:text-blue-300'>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span>{row.sinkBytes}</span>
-                            </TooltipTrigger>
-                            <TooltipContent>{row.sinkBytes}</TooltipContent>
-                          </Tooltip>
-                        </TableCell>
-                        <TableCell className='text-xs text-blue-700 dark:text-blue-300'>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span>{row.sinkQps}</span>
-                            </TooltipTrigger>
-                            <TooltipContent>{row.sinkQps}</TooltipContent>
-                          </Tooltip>
-                        </TableCell>
-                        <TableCell className='text-xs text-amber-700 dark:text-amber-300'>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span>{row.committedCount}</span>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              {row.committedCount}
-                            </TooltipContent>
-                          </Tooltip>
-                        </TableCell>
-                        <TableCell className='text-xs text-amber-700 dark:text-amber-300'>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span>{row.committedBytes}</span>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              {row.committedBytes}
-                            </TooltipContent>
-                          </Tooltip>
+                    {filteredPerTableRows.length > 0 ? (
+                      filteredPerTableRows.map((row) => (
+                        <TableRow
+                          key={row.rawTable}
+                          className={cn(
+                            'border-border/40 hover:bg-muted/40',
+                            row.rowTone === 'source' &&
+                              'bg-emerald-50/30 dark:bg-emerald-500/5',
+                            row.rowTone === 'sink' &&
+                              'bg-blue-50/30 dark:bg-blue-500/5',
+                          )}
+                        >
+                          <TableCell className='py-1.5 px-2.5 text-xs font-medium text-muted-foreground'>
+                            {row.nodeLabel}
+                          </TableCell>
+                          <TableCell className='py-1.5 px-2.5 font-mono text-xs font-semibold text-foreground'>
+                            {row.tablePath}
+                          </TableCell>
+                          <TableCell className='py-1.5 px-2.5 font-mono text-xs text-emerald-700 dark:text-emerald-300'>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span>{row.sourceCount}</span>
+                              </TooltipTrigger>
+                              <TooltipContent>{row.sourceCount}</TooltipContent>
+                            </Tooltip>
+                          </TableCell>
+                          <TableCell className='py-1.5 px-2.5 font-mono text-xs text-emerald-700 dark:text-emerald-300'>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span>{row.sourceBytes}</span>
+                              </TooltipTrigger>
+                              <TooltipContent>{row.sourceBytes}</TooltipContent>
+                            </Tooltip>
+                          </TableCell>
+                          <TableCell className='py-1.5 px-2.5 font-mono text-xs text-emerald-700 dark:text-emerald-300'>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span>{row.sourceQps}</span>
+                              </TooltipTrigger>
+                              <TooltipContent>{row.sourceQps}</TooltipContent>
+                            </Tooltip>
+                          </TableCell>
+                          <TableCell className='py-1.5 px-2.5 font-mono text-xs text-blue-700 dark:text-blue-300'>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span>{row.sinkCount}</span>
+                              </TooltipTrigger>
+                              <TooltipContent>{row.sinkCount}</TooltipContent>
+                            </Tooltip>
+                          </TableCell>
+                          <TableCell className='py-1.5 px-2.5 font-mono text-xs text-blue-700 dark:text-blue-300'>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span>{row.sinkBytes}</span>
+                              </TooltipTrigger>
+                              <TooltipContent>{row.sinkBytes}</TooltipContent>
+                            </Tooltip>
+                          </TableCell>
+                          <TableCell className='py-1.5 px-2.5 font-mono text-xs text-blue-700 dark:text-blue-300'>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span>{row.sinkQps}</span>
+                              </TooltipTrigger>
+                              <TooltipContent>{row.sinkQps}</TooltipContent>
+                            </Tooltip>
+                          </TableCell>
+                          <TableCell className='py-1.5 px-2.5 font-mono text-xs text-amber-700 dark:text-amber-300'>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span>{row.committedCount}</span>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                {row.committedCount}
+                              </TooltipContent>
+                            </Tooltip>
+                          </TableCell>
+                          <TableCell className='py-1.5 px-2.5 font-mono text-xs text-amber-700 dark:text-amber-300'>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span>{row.committedBytes}</span>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                {row.committedBytes}
+                              </TooltipContent>
+                            </Tooltip>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    ) : (
+                      <TableRow>
+                        <TableCell colSpan={10} className='text-center py-6 text-xs text-muted-foreground'>
+                          未找到匹配表名 &quot;{tableSearch}&quot; 的分表统计
                         </TableCell>
                       </TableRow>
-                    ))}
+                    )}
                   </TableBody>
                 </Table>
               </div>
             </>
           ) : (
-            <div className='px-3 py-3 text-sm text-muted-foreground'>
+            <div className='px-3 py-3 text-xs text-muted-foreground'>
               {t('perTableMetricsCollapsed')}
             </div>
           )}
         </div>
       ) : null}
 
-      <div className='grid gap-4 lg:grid-cols-2'>
-        {metricGroups.map((group) => (
-          <div
-            key={group.key}
-            className='overflow-hidden rounded-lg border border-border/60 bg-background/80'
-          >
-            <div className='border-b border-border/50 bg-muted/20 px-3 py-2 text-sm font-medium'>
-              {group.title}
-            </div>
-            <div className='max-h-[360px] overflow-auto'>
-              <Table>
-                <TableHeader className='sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/90'>
-                  <TableRow>
-                    <TableHead>{t('metric')}</TableHead>
-                    <TableHead>{t('value')}</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {group.items.map((item) => (
-                    <TableRow key={item.key}>
-                      <TableCell className='font-mono text-xs'>
-                        {item.key}
-                      </TableCell>
-                      <TableCell className='text-xs'>
-                        {formatMetricDisplayValue(item.value)}
-                      </TableCell>
+      {/* 4. 扩展分类度量（JVM、引擎特有指标等） */}
+      {metricGroups.length > 0 ? (
+        <div className='grid gap-4 lg:grid-cols-2'>
+          {metricGroups.map((group) => (
+            <div
+              key={group.key}
+              className='overflow-hidden rounded-lg border border-border/60 bg-background/80 shadow-xs'
+            >
+              <div className='border-b border-border/50 bg-muted/20 px-3 py-2 text-xs font-semibold text-foreground flex items-center justify-between'>
+                <span>{group.title}</span>
+                <Badge variant='outline' className='text-[10px] font-mono px-1 py-0'>
+                  {group.items.length} 项
+                </Badge>
+              </div>
+              <div className='max-h-[300px] overflow-auto'>
+                <Table>
+                  <TableHeader className='sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/90'>
+                    <TableRow className='hover:bg-transparent border-border/50'>
+                      <TableHead className='h-7 py-1 px-2.5 text-xs'>{t('metric')}</TableHead>
+                      <TableHead className='h-7 py-1 px-2.5 text-xs text-right'>{t('value')}</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {group.items.map((item) => (
+                      <TableRow key={item.key} className='border-border/40 hover:bg-muted/30'>
+                        <TableCell className='py-1.5 px-2.5 font-mono text-xs text-muted-foreground'>
+                          {item.key}
+                        </TableCell>
+                        <TableCell className='py-1.5 px-2.5 text-xs font-mono text-right font-medium text-foreground'>
+                          {formatMetricDisplayValue(item.value)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }

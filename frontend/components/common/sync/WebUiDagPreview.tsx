@@ -481,7 +481,7 @@ export function WebUiDagPreview({job}: {job: SyncWebUIDagPreviewJob}) {
         PADDING;
 
   return (
-    <div className='grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]'>
+    <div className='grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px] items-stretch'>
       <style>{`
         @keyframes stx-dag-flow {
           from {
@@ -498,8 +498,8 @@ export function WebUiDagPreview({job}: {job: SyncWebUIDagPreviewJob}) {
       `}</style>
 
       {/* 左侧拓扑画布 */}
-      <Card className='relative flex flex-col overflow-hidden border-border/60 bg-background/60 shadow-xs'>
-        <CardHeader className='border-b border-border/50 px-4 py-2.5 bg-muted/15 flex flex-row items-center justify-between'>
+      <Card className='relative flex flex-col overflow-hidden border-border/60 bg-background/60 shadow-xs h-full'>
+        <CardHeader className='border-b border-border/50 px-4 py-2.5 bg-muted/15 flex flex-row items-center justify-between shrink-0'>
           <CardTitle className='flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-foreground/80'>
             <GitBranch className='size-3.5 text-primary/80' />
             <span>执行拓扑图 (Execution DAG)</span>
@@ -801,9 +801,9 @@ export function WebUiDagPreview({job}: {job: SyncWebUIDagPreviewJob}) {
       </Card>
 
       {/* 右侧拓扑属性与联动面板 */}
-      <div className='space-y-3.5'>
+      <div className='flex flex-col h-full space-y-3.5 min-h-[580px]'>
         {/* 拓扑全貌极简指标卡 */}
-        <div className='grid grid-cols-3 gap-2'>
+        <div className='grid grid-cols-3 gap-2 shrink-0'>
           <div className='rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-2 text-center'>
             <div className='text-[10px] text-emerald-600 dark:text-emerald-400 font-medium uppercase'>输入源</div>
             <div className='text-base font-bold text-foreground font-mono mt-0.5'>{stats.sources}</div>
@@ -819,82 +819,84 @@ export function WebUiDagPreview({job}: {job: SyncWebUIDagPreviewJob}) {
         </div>
 
         {/* 选中的节点属性 或 作业全景摘要 */}
-        {selectedNode ? (
-          <Card className='border-primary/40 shadow-xs'>
-            <CardHeader className='pb-2.5 pt-3.5 px-4 flex flex-row items-center justify-between border-b border-border/40'>
-              <div className='flex items-center gap-1.5'>
-                {renderNodeIcon(selectedNode.type)}
-                <CardTitle className='text-xs font-semibold'>
-                  节点 #{selectedNode.vertexId}
-                </CardTitle>
-              </div>
-              <Button
-                size='sm'
-                variant='ghost'
-                className='h-6 px-1.5 text-[11px] text-muted-foreground hover:text-foreground'
-                onClick={() => setSelectedVertexId(null)}
-              >
-                取消聚焦
-              </Button>
-            </CardHeader>
-            <CardContent className='p-3.5 space-y-3 text-xs'>
-              <div className='space-y-1.5'>
-                <div className='text-[10px] uppercase font-semibold text-muted-foreground'>算子名称</div>
-                <div className='rounded border border-border/50 bg-muted/20 px-2.5 py-1.5 font-mono text-foreground break-all'>
-                  {selectedNode.connectorType}
+        <div className='shrink-0'>
+          {selectedNode ? (
+            <Card className='border-primary/40 shadow-xs'>
+              <CardHeader className='pb-2.5 pt-3.5 px-4 flex flex-row items-center justify-between border-b border-border/40'>
+                <div className='flex items-center gap-1.5'>
+                  {renderNodeIcon(selectedNode.type)}
+                  <CardTitle className='text-xs font-semibold'>
+                    节点 #{selectedNode.vertexId}
+                  </CardTitle>
                 </div>
-              </div>
-              <div className='flex items-center justify-between text-xs'>
-                <span className='text-muted-foreground'>节点类别:</span>
-                <Badge variant='outline' className={nodeBadgeTone(selectedNode.type)}>
-                  {selectedNode.type.toUpperCase()}
-                </Badge>
-              </div>
-              <div className='flex items-center justify-between text-xs'>
-                <span className='text-muted-foreground'>层级深度 (Level):</span>
-                <span className='font-mono font-medium'>{selectedNode.level}</span>
-              </div>
-              <div className='flex items-center justify-between text-xs'>
-                <span className='text-muted-foreground'>涉及表数量:</span>
-                <span className='font-mono font-medium'>{normalizeTablePaths(selectedNode.tablePaths).length}</span>
-              </div>
-            </CardContent>
-          </Card>
-        ) : (
-          <Card className='border-border/60 shadow-xs'>
-            <CardHeader className='pb-2.5 pt-3.5 px-4 border-b border-border/40'>
-              <CardTitle className='text-xs font-semibold text-foreground/80 uppercase tracking-wider flex items-center justify-between'>
-                <span>预览摘要</span>
-                <Badge variant='outline' className='text-[10px] font-normal'>
-                  {job.jobStatus}
-                </Badge>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className='p-3.5 space-y-2 text-xs'>
-              <div className='flex items-center justify-between gap-3'>
-                <span className='text-muted-foreground'>作业名称</span>
-                <span className='font-mono truncate max-w-[170px]' title={job.jobName}>{job.jobName}</span>
-              </div>
-              <div className='flex items-center justify-between gap-3'>
-                <span className='text-muted-foreground'>覆盖表总数</span>
-                <span className='font-mono font-semibold'>{stats.totalTables} 张</span>
-              </div>
-              <div className='mt-2 rounded-md bg-muted/30 p-2.5 text-[11px] leading-relaxed text-muted-foreground'>
-                提示：点击画布中的任意算子节点，可高亮上下游连线并聚焦查看算子详情。
-              </div>
-            </CardContent>
-          </Card>
-        )}
+                <Button
+                  size='sm'
+                  variant='ghost'
+                  className='h-6 px-1.5 text-[11px] text-muted-foreground hover:text-foreground'
+                  onClick={() => setSelectedVertexId(null)}
+                >
+                  取消聚焦
+                </Button>
+              </CardHeader>
+              <CardContent className='p-3.5 space-y-3 text-xs'>
+                <div className='space-y-1.5'>
+                  <div className='text-[10px] uppercase font-semibold text-muted-foreground'>算子名称</div>
+                  <div className='rounded border border-border/50 bg-muted/20 px-2.5 py-1.5 font-mono text-foreground break-all'>
+                    {selectedNode.connectorType}
+                  </div>
+                </div>
+                <div className='flex items-center justify-between text-xs'>
+                  <span className='text-muted-foreground'>节点类别:</span>
+                  <Badge variant='outline' className={nodeBadgeTone(selectedNode.type)}>
+                    {selectedNode.type.toUpperCase()}
+                  </Badge>
+                </div>
+                <div className='flex items-center justify-between text-xs'>
+                  <span className='text-muted-foreground'>层级深度 (Level):</span>
+                  <span className='font-mono font-medium'>{selectedNode.level}</span>
+                </div>
+                <div className='flex items-center justify-between text-xs'>
+                  <span className='text-muted-foreground'>涉及表数量:</span>
+                  <span className='font-mono font-medium'>{normalizeTablePaths(selectedNode.tablePaths).length}</span>
+                </div>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card className='border-border/60 shadow-xs'>
+              <CardHeader className='pb-2.5 pt-3.5 px-4 border-b border-border/40'>
+                <CardTitle className='text-xs font-semibold text-foreground/80 uppercase tracking-wider flex items-center justify-between'>
+                  <span>预览摘要</span>
+                  <Badge variant='outline' className='text-[10px] font-normal'>
+                    {job.jobStatus}
+                  </Badge>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className='p-3.5 space-y-2 text-xs'>
+                <div className='flex items-center justify-between gap-3'>
+                  <span className='text-muted-foreground'>作业名称</span>
+                  <span className='font-mono truncate max-w-[170px]' title={job.jobName}>{job.jobName}</span>
+                </div>
+                <div className='flex items-center justify-between gap-3'>
+                  <span className='text-muted-foreground'>覆盖表总数</span>
+                  <span className='font-mono font-semibold'>{stats.totalTables} 张</span>
+                </div>
+                <div className='mt-2 rounded-md bg-muted/30 p-2.5 text-[11px] leading-relaxed text-muted-foreground'>
+                  提示：点击画布中的任意算子节点，可高亮上下游连线并聚焦查看算子详情。
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </div>
 
-        {/* 算子节点快速导航列表 */}
-        <Card className='border-border/60 shadow-xs'>
-          <CardHeader className='pb-2.5 pt-3.5 px-4 border-b border-border/40'>
+        {/* 算子节点快速导航列表：flex-1 自动撑满到底部，与左侧画布绝对对齐 */}
+        <Card className='flex-1 flex flex-col min-h-0 border-border/60 shadow-xs'>
+          <CardHeader className='pb-2.5 pt-3.5 px-4 border-b border-border/40 shrink-0'>
             <CardTitle className='text-xs font-semibold text-foreground/80 uppercase tracking-wider flex items-center justify-between'>
               <span>算子列表</span>
               <span className='font-mono text-[10px] text-muted-foreground'>{vertices.length}</span>
             </CardTitle>
           </CardHeader>
-          <CardContent className='p-2 space-y-1.5 max-h-[300px] overflow-auto'>
+          <CardContent className='flex-1 min-h-0 p-2 space-y-1.5 overflow-auto'>
             {vertices.map((vertex) => {
               const isSelected = selectedVertexId === vertex.vertexId;
               return (

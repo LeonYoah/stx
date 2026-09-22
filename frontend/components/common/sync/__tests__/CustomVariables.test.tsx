@@ -183,7 +183,14 @@ describe('CustomVariableDialog', () => {
     expect(isReservedBuiltinVariableKey('system.biz.date')).toBe(true);
     expect(isReservedBuiltinVariableKey('system.task.instance.id')).toBe(true);
     expect(isReservedBuiltinVariableKey('yyyyMMdd')).toBe(true);
+    expect(isReservedBuiltinVariableKey('yyyy-MM-dd')).toBe(true);
+    expect(isReservedBuiltinVariableKey('yyyyMMdd-1')).toBe(true);
+    expect(isReservedBuiltinVariableKey('add_months(yyyyMMdd, -1)')).toBe(true);
     expect(isReservedBuiltinVariableKey('MY_CUSTOM_VAR')).toBe(false);
+    expect(isReservedBuiltinVariableKey('mysqlpass234')).toBe(false);
+    expect(isReservedBuiltinVariableKey('mysqlpas')).toBe(false);
+    expect(isReservedBuiltinVariableKey('password')).toBe(false);
+    expect(isReservedBuiltinVariableKey('server_address')).toBe(false);
   });
 });
 

@@ -168,13 +168,8 @@ func (h *Handler) ListGlobalVariables(c *gin.Context) {
 	c.JSON(http.StatusOK, GlobalVariableListResponse{Data: &GlobalVariableListData{Total: total, Items: items}})
 }
 
-// CreateGlobalVariable handles POST /api/v1/sync/global-variables.
+/// CreateGlobalVariable handles POST /api/v1/sync/global-variables.
 func (h *Handler) CreateGlobalVariable(c *gin.Context) {
-	actor := currentExecutionActor(c)
-	if !actor.IsAdmin {
-		c.JSON(http.StatusForbidden, GlobalVariableResponse{ErrorMsg: ErrGlobalVariablePermissionDenied.Error()})
-		return
-	}
 	var req CreateGlobalVariableRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, GlobalVariableResponse{ErrorMsg: err.Error()})
@@ -191,10 +186,6 @@ func (h *Handler) CreateGlobalVariable(c *gin.Context) {
 // UpdateGlobalVariable handles PUT /api/v1/sync/global-variables/:id.
 func (h *Handler) UpdateGlobalVariable(c *gin.Context) {
 	actor := currentExecutionActor(c)
-	if !actor.IsAdmin {
-		c.JSON(http.StatusForbidden, GlobalVariableResponse{ErrorMsg: ErrGlobalVariablePermissionDenied.Error()})
-		return
-	}
 	id, ok := parseUintParam(c, "id")
 	if !ok {
 		c.JSON(http.StatusBadRequest, GlobalVariableResponse{ErrorMsg: "invalid global variable id"})
@@ -205,7 +196,7 @@ func (h *Handler) UpdateGlobalVariable(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, GlobalVariableResponse{ErrorMsg: err.Error()})
 		return
 	}
-	item, err := h.service.UpdateGlobalVariable(c.Request.Context(), id, &req)
+	item, err := h.service.UpdateGlobalVariableForActor(c.Request.Context(), actor, id, &req)
 	if err != nil {
 		c.JSON(h.getStatusCodeForError(err), GlobalVariableResponse{ErrorMsg: err.Error()})
 		return
@@ -216,16 +207,12 @@ func (h *Handler) UpdateGlobalVariable(c *gin.Context) {
 // DeleteGlobalVariable handles DELETE /api/v1/sync/global-variables/:id.
 func (h *Handler) DeleteGlobalVariable(c *gin.Context) {
 	actor := currentExecutionActor(c)
-	if !actor.IsAdmin {
-		c.JSON(http.StatusForbidden, BasicResponse{ErrorMsg: ErrGlobalVariablePermissionDenied.Error()})
-		return
-	}
 	id, ok := parseUintParam(c, "id")
 	if !ok {
 		c.JSON(http.StatusBadRequest, BasicResponse{ErrorMsg: "invalid global variable id"})
 		return
 	}
-	if err := h.service.DeleteGlobalVariable(c.Request.Context(), id); err != nil {
+	if err := h.service.DeleteGlobalVariableForActor(c.Request.Context(), actor, id); err != nil {
 		c.JSON(h.getStatusCodeForError(err), BasicResponse{ErrorMsg: err.Error()})
 		return
 	}

@@ -18,12 +18,21 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import {useMemo, useState, type ReactNode} from 'react';
+import {useCallback, useMemo, useState, type ReactNode} from 'react';
 import {useTranslations} from 'next-intl';
 import {
+  Activity,
+  AlertTriangle,
+  Check,
+  ChevronDown,
   Clock,
+  Code2,
+  Copy,
   Eye,
+  FileCode,
   HardDrive,
+  Info,
+  Layers,
   Loader2,
   Minus,
   Plus,
@@ -48,6 +57,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import {Tabs, TabsContent, TabsList, TabsTrigger} from '@/components/ui/tabs';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import {cn} from '@/lib/utils';
 import type {
@@ -411,6 +421,8 @@ export function CheckpointWorkspacePanel({
   onRefresh: () => void;
 }) {
   const t = useTranslations('workbenchStudio');
+  const [selectedPipelineId, setSelectedPipelineId] = useState<number | null>(null);
+
   const checkpointFilesByID = useMemo(() => {
     const mapping = new Map<string, RuntimeStorageListItem>();
     checkpointFiles.forEach((item: RuntimeStorageListItem) => {
@@ -425,217 +437,296 @@ export function CheckpointWorkspacePanel({
     });
     return mapping;
   }, [checkpointFiles]);
+
   if (!job) {
     return (
-      <div className='text-sm text-muted-foreground'>
+      <div className='flex h-full items-center justify-center text-sm text-muted-foreground'>
         {t('noCheckpointJob')}
       </div>
     );
   }
+
   const pipelines = checkpointSnapshot?.overview?.pipelines || [];
   const history = checkpointSnapshot?.history || [];
+
+  const activePipeline =
+    selectedPipelineId !== null
+      ? pipelines.find((p) => p.pipelineId === selectedPipelineId) || pipelines[0]
+      : pipelines[0];
+
+  // 提取最近 24 次历史快照用于 Sparkline 脉冲波形
+  const recentHistory = useMemo(() => {
+    const sorted = [...history].reverse().slice(-24);
+    const maxDur = Math.max(...sorted.map((h) => h.checkpoint?.durationMillis ?? 0), 10);
+    const validDurs = sorted.filter((h) => typeof h.checkpoint?.durationMillis === 'number');
+    const avgDur = validDurs.length > 0
+      ? Math.round(validDurs.reduce((acc, h) => acc + (h.checkpoint?.durationMillis || 0), 0) / validDurs.length)
+      : 0;
+    return { list: sorted, maxDur, avgDur };
+  }, [history]);
+
   return (
-    <div className='flex h-full min-h-0 flex-col gap-3'>
+    <div className='flex h-full min-h-0 flex-col gap-2.5 overflow-hidden'>
       {loading ? (
         <div className='flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground'>
           <Loader2 className='mr-2 size-4 animate-spin' />
           {t('loadingCheckpoint')}
         </div>
-      ) : checkpointSnapshot?.empty_reason ? (
-        <div className='flex min-h-0 flex-1 items-center justify-center rounded-lg border border-dashed border-border/60 bg-muted/10 p-4 text-sm text-muted-foreground'>
-          {checkpointSnapshot.message || t('checkpointEmpty')}
+      ) : checkpointSnapshot?.empty_reason || (pipelines.length === 0 && history.length === 0) ? (
+        <div className='flex min-h-0 flex-1 flex-col items-center justify-center p-6 text-center'>
+          <div className='max-w-md space-y-3 rounded-xl border border-dashed border-border/60 bg-muted/20 p-5 text-left'>
+            <div className='flex items-center justify-between gap-2'>
+              <span className='font-medium text-foreground text-sm flex items-center gap-1.5'>
+                <Clock className='size-4 text-muted-foreground' />
+                {checkpointSnapshot?.message || t('checkpointEmpty')}
+              </span>
+              <Button
+                size='icon'
+                variant='ghost'
+                className='size-7'
+                disabled={loading || checkpointFilesLoading}
+                onClick={onRefresh}
+              >
+                <RefreshCw
+                  className={cn(
+                    'size-3.5',
+                    (loading || checkpointFilesLoading) && 'animate-spin',
+                  )}
+                />
+              </Button>
+            </div>
+            <p className='text-xs text-muted-foreground leading-relaxed'>
+              {t('checkpointEmptyGuide')}
+            </p>
+          </div>
         </div>
       ) : (
-        <div className='flex min-h-0 flex-1 flex-col gap-3 overflow-hidden'>
-          <div className='grid min-h-0 gap-3 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]'>
-            <div className='flex min-h-0 flex-col overflow-hidden rounded-lg border border-border/50 bg-background/70'>
-              <div className='flex items-center justify-between border-b border-border/50 px-3 py-2 text-sm font-medium'>
-                <span>{t('checkpointOverview')}</span>
-                <Button
-                  size='icon'
-                  variant='ghost'
-                  className='size-7'
-                  disabled={loading || checkpointFilesLoading}
-                  onClick={onRefresh}
-                >
-                  <RefreshCw
-                    className={cn(
-                      'size-3.5',
-                      (loading || checkpointFilesLoading) && 'animate-spin',
-                    )}
-                  />
-                </Button>
-              </div>
-              <div className='min-h-0 flex-1 overflow-auto'>
-                <Table>
-                  <TableHeader className='sticky top-0 z-10 bg-background'>
-                    <TableRow className='hover:bg-transparent border-border/50'>
-                      <TableHead className='h-8 py-1 px-2.5 text-xs'>{t('pipeline')}</TableHead>
-                      <TableHead className='h-8 py-1 px-2.5 text-xs'>{t('triggered')}</TableHead>
-                      <TableHead className='h-8 py-1 px-2.5 text-xs'>{t('completed')}</TableHead>
-                      <TableHead className='h-8 py-1 px-2.5 text-xs'>{t('failed')}</TableHead>
-                      <TableHead className='h-8 py-1 px-2.5 text-xs'>{t('inProgress')}</TableHead>
-                      <TableHead className='h-8 py-1 px-2.5 text-xs'>{t('restored')}</TableHead>
-                      <TableHead className='h-8 py-1 px-2.5 text-xs'>{t('latestCompleted')}</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {pipelines.length > 0 ? (
-                      pipelines.map((pipeline) => {
-                        const failedCount = pipeline.counts?.failed ?? 0;
-                        const completedCount = pipeline.counts?.completed ?? 0;
-                        const inProgressCount = pipeline.counts?.inProgress ?? 0;
+        <div className='flex min-h-0 flex-1 flex-col gap-2 overflow-hidden'>
+          {/* 顶部紧凑 Pipeline 指标胶囊横幅 */}
+          <div className='flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/50 bg-background/80 px-3 py-1.5 shrink-0 shadow-xs'>
+            <div className='flex flex-wrap items-center gap-2'>
+              {pipelines.length > 1 ? (
+                <div className='flex items-center gap-1 pr-1 border-r border-border/40'>
+                  {pipelines.map((p) => (
+                    <Button
+                      key={p.pipelineId}
+                      size='sm'
+                      variant={activePipeline?.pipelineId === p.pipelineId ? 'secondary' : 'ghost'}
+                      className='h-6 px-2 text-xs font-mono font-medium'
+                      onClick={() => setSelectedPipelineId(p.pipelineId)}
+                    >
+                      Pipeline #{p.pipelineId}
+                    </Button>
+                  ))}
+                </div>
+              ) : (
+                <div className='flex items-center gap-1 font-mono text-xs font-semibold text-foreground/90 pr-1 border-r border-border/40'>
+                  Pipeline #{activePipeline?.pipelineId ?? 1}
+                </div>
+              )}
 
-                        return (
-                          <TableRow key={pipeline.pipelineId} className='border-border/40 hover:bg-muted/40'>
-                            <TableCell className='py-1.5 px-2.5 font-mono text-xs font-medium'>{pipeline.pipelineId}</TableCell>
-                            <TableCell className='py-1.5 px-2.5 font-mono text-xs text-muted-foreground'>
-                              {pipeline.counts?.triggered ?? '-'}
-                            </TableCell>
-                            <TableCell className='py-1.5 px-2.5 font-mono text-xs font-semibold text-emerald-600 dark:text-emerald-400'>
-                              {completedCount}
-                            </TableCell>
-                            <TableCell className={cn(
-                              'py-1.5 px-2.5 font-mono text-xs',
-                              failedCount > 0 ? 'font-semibold text-destructive' : 'text-muted-foreground/60',
-                            )}>
-                              {failedCount}
-                            </TableCell>
-                            <TableCell className={cn(
-                              'py-1.5 px-2.5 font-mono text-xs',
-                              inProgressCount > 0 ? 'font-semibold text-blue-500' : 'text-muted-foreground/60',
-                            )}>
-                              {inProgressCount}
-                            </TableCell>
-                            <TableCell className='py-1.5 px-2.5 font-mono text-xs text-muted-foreground'>
-                              {pipeline.counts?.restored ?? '-'}
-                            </TableCell>
-                            <TableCell className='py-1.5 px-2.5 font-mono text-xs'>
-                              {pipeline.latestCompleted?.checkpointId ? (
-                                <Badge variant='outline' className='rounded-sm text-[10px] px-1 py-0 border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'>
-                                  #{pipeline.latestCompleted.checkpointId}
-                                </Badge>
-                              ) : '-'}
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })
-                    ) : (
-                      <TableRow>
-                        <TableCell
-                          colSpan={7}
-                          className='text-center text-muted-foreground py-6'
-                        >
-                          {t('checkpointEmpty')}
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
+              {/* 统计指标 Pills */}
+              <div className='flex items-center gap-2 text-xs font-mono'>
+                <span className='text-muted-foreground'>
+                  {t('triggered')}: <strong className='font-medium text-foreground'>{activePipeline?.counts?.triggered ?? '-'}</strong>
+                </span>
+                <span className='text-muted-foreground/40'>·</span>
+                <span className='flex items-center gap-1 text-emerald-600 dark:text-emerald-400'>
+                  <span className='size-1.5 rounded-full bg-emerald-500 animate-pulse' />
+                  {t('completed')}: <strong className='font-semibold'>{activePipeline?.counts?.completed ?? 0}</strong>
+                </span>
+                <span className='text-muted-foreground/40'>·</span>
+                <span className={cn(
+                  'flex items-center gap-1',
+                  (activePipeline?.counts?.failed ?? 0) > 0 ? 'text-destructive font-semibold' : 'text-muted-foreground',
+                )}>
+                  {t('failed')}: <strong className='font-medium'>{activePipeline?.counts?.failed ?? 0}</strong>
+                </span>
+                <span className='text-muted-foreground/40'>·</span>
+                <span className={cn(
+                  'flex items-center gap-1',
+                  (activePipeline?.counts?.inProgress ?? 0) > 0 ? 'text-blue-500 font-semibold' : 'text-muted-foreground',
+                )}>
+                  {t('inProgress')}: <strong className='font-medium'>{activePipeline?.counts?.inProgress ?? 0}</strong>
+                </span>
+                {activePipeline?.latestCompleted?.checkpointId ? (
+                  <>
+                    <span className='text-muted-foreground/40'>·</span>
+                    <span className='text-muted-foreground flex items-center gap-1'>
+                      {t('latestCompleted')}:
+                      <Badge variant='outline' className='rounded-sm text-[10px] px-1.5 py-0 border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-mono font-medium'>
+                        #{activePipeline.latestCompleted.checkpointId}
+                      </Badge>
+                    </span>
+                  </>
+                ) : null}
               </div>
             </div>
 
-            <div className='flex min-h-0 flex-col overflow-hidden rounded-lg border border-border/50 bg-background/70'>
-              <div className='border-b border-border/50 px-3 py-2 text-sm font-medium'>
-                {t('checkpointHistory')}
-              </div>
-              <div className='min-h-0 flex-1 overflow-auto'>
-                <Table>
-                  <TableHeader className='sticky top-0 z-10 bg-background'>
-                    <TableRow className='hover:bg-transparent border-border/50'>
-                      <TableHead className='h-8 py-1 px-2.5 text-xs'>{t('pipeline')}</TableHead>
-                      <TableHead className='h-8 py-1 px-2.5 text-xs'>{t('checkpointId')}</TableHead>
-                      <TableHead className='h-8 py-1 px-2.5 text-xs'>{t('checkpointStatus')}</TableHead>
-                      <TableHead className='h-8 py-1 px-2.5 text-xs'>{t('durationMillis')}</TableHead>
-                      <TableHead className='h-8 py-1 px-2.5 text-xs'>{t('stateSize')}</TableHead>
-                      <TableHead className='h-8 py-1 px-2.5 text-right text-xs'>
-                        {t('actions')}
-                      </TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {history.length > 0 ? (
-                      history.map((item, index) => {
-                        const checkpointId = item.checkpoint?.checkpointId;
-                        const checkpointKey =
-                          checkpointId !== undefined
-                            ? `${item.pipelineId}:${checkpointId}`
-                            : '';
-                        const matchedFile =
-                          checkpointKey !== ''
-                            ? checkpointFilesByID.get(checkpointKey)
-                            : undefined;
-                        const durationStr =
-                          item.checkpoint?.durationMillis !== undefined
-                            ? `${item.checkpoint.durationMillis}ms`
-                            : '-';
-                        const sizeStr =
-                          typeof item.checkpoint?.stateSize === 'number'
-                            ? formatSizeBytes(item.checkpoint.stateSize)
-                            : item.checkpoint?.stateSize !== undefined
-                              ? String(item.checkpoint.stateSize)
-                              : '-';
+            <Button
+              size='icon'
+              variant='ghost'
+              className='size-7 shrink-0'
+              disabled={loading || checkpointFilesLoading}
+              onClick={onRefresh}
+            >
+              <RefreshCw
+                className={cn(
+                  'size-3.5',
+                  (loading || checkpointFilesLoading) && 'animate-spin',
+                )}
+              />
+            </Button>
+          </div>
 
-                        return (
-                          <TableRow
-                            key={`${item.pipelineId}-${item.checkpoint?.checkpointId || index}`}
-                            className='border-border/40 hover:bg-muted/40'
-                          >
-                            <TableCell className='py-1.5 px-2.5 font-mono text-xs text-muted-foreground'>{item.pipelineId}</TableCell>
-                            <TableCell className='py-1.5 px-2.5 font-mono text-xs font-semibold text-foreground'>
-                              {checkpointId ? `#${checkpointId}` : '-'}
-                            </TableCell>
-                            <TableCell className='py-1.5 px-2.5'>
-                              {item.checkpoint?.status ? (
-                                renderCheckpointFieldValue('status', item.checkpoint.status)
-                              ) : (
-                                '-'
-                              )}
-                            </TableCell>
-                            <TableCell className='py-1.5 px-2.5 font-mono text-xs text-muted-foreground'>
-                              {durationStr}
-                            </TableCell>
-                            <TableCell className='py-1.5 px-2.5 font-mono text-xs text-foreground/90 font-medium'>
-                              {sizeStr}
-                            </TableCell>
-                            <TableCell className='py-1.5 px-2.5 text-right'>
-                              <Button
-                                size='sm'
-                                variant='outline'
-                                className='h-7 px-2 text-xs'
-                                disabled={
-                                  !matchedFile?.path ||
-                                  inspectLoadingPath === matchedFile.path
-                                }
-                                onClick={() =>
-                                  matchedFile?.path &&
-                                  onInspectCheckpointFile(matchedFile.path)
-                                }
-                              >
-                                {inspectLoadingPath === matchedFile?.path ? (
-                                  <Loader2 className='mr-1.5 size-3.5 animate-spin' />
-                                ) : (
-                                  <Eye className='mr-1.5 size-3.5' />
-                                )}
-                                {t('viewDetails')}
-                              </Button>
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })
-                    ) : (
-                      <TableRow>
-                        <TableCell
-                          colSpan={6}
-                          className='text-center text-muted-foreground py-6'
-                        >
-                          {t('checkpointHistoryEmpty')}
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
+          {/* Sparkline 脉冲波形条 (当有历史记录时展示) */}
+          {recentHistory.list.length > 0 ? (
+            <div className='flex items-center justify-between gap-3 rounded-lg border border-border/40 bg-muted/15 px-3 py-1.5 shrink-0'>
+              <div className='flex items-center gap-2'>
+                <span className='text-[11px] font-medium text-muted-foreground'>
+                  {t('checkpointPulseTitle')}
+                </span>
+                <div className='flex items-end gap-1 h-5 pl-1'>
+                  {recentHistory.list.map((item, idx) => {
+                    const dur = item.checkpoint?.durationMillis ?? 0;
+                    const height = Math.max(Math.round((dur / recentHistory.maxDur) * 18), 4);
+                    const isSuccess = item.checkpoint?.status === 'COMPLETED';
+                    const isFailed = item.checkpoint?.status === 'FAILED';
+                    const colorClass = isSuccess
+                      ? 'bg-emerald-500/80 hover:bg-emerald-400'
+                      : isFailed
+                        ? 'bg-rose-500 hover:bg-rose-400'
+                        : 'bg-blue-500 hover:bg-blue-400';
+                    return (
+                      <Tooltip key={idx}>
+                        <TooltipTrigger asChild>
+                          <div
+                            style={{ height: `${height}px` }}
+                            className={cn('w-1.5 rounded-t-xs transition-all cursor-pointer', colorClass)}
+                          />
+                        </TooltipTrigger>
+                        <TooltipContent side='top' className='text-xs font-mono'>
+                          #{item.checkpoint?.checkpointId || '-'} · {dur}ms · {item.checkpoint?.status || 'UNKNOWN'}
+                        </TooltipContent>
+                      </Tooltip>
+                    );
+                  })}
+                </div>
               </div>
+              <div className='flex items-center gap-2.5 text-[11px] font-mono text-muted-foreground'>
+                <span>avg: <strong className='font-medium text-foreground'>{recentHistory.avgDur}ms</strong></span>
+                <span className='text-muted-foreground/40'>·</span>
+                <span>max: <strong className='font-medium text-foreground'>{recentHistory.maxDur}ms</strong></span>
+              </div>
+            </div>
+          ) : null}
+
+          {/* 全宽 Checkpoint 历史列表 */}
+          <div className='flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border/50 bg-background/70 shadow-xs'>
+            <div className='border-b border-border/50 px-3 py-1.5 text-xs font-semibold text-foreground/80 flex items-center justify-between'>
+              <span>{t('checkpointHistory')}</span>
+              <span className='font-mono text-[11px] text-muted-foreground font-normal'>
+                {history.length} {t('records') || '条快照'}
+              </span>
+            </div>
+            <div className='min-h-0 flex-1 overflow-auto'>
+              <Table>
+                <TableHeader className='sticky top-0 z-10 bg-background/95 backdrop-blur-xs'>
+                  <TableRow className='hover:bg-transparent border-border/50'>
+                    <TableHead className='h-7.5 py-1 px-2.5 text-xs font-medium'>{t('pipeline')}</TableHead>
+                    <TableHead className='h-7.5 py-1 px-2.5 text-xs font-medium'>{t('checkpointId')}</TableHead>
+                    <TableHead className='h-7.5 py-1 px-2.5 text-xs font-medium'>{t('checkpointStatus')}</TableHead>
+                    <TableHead className='h-7.5 py-1 px-2.5 text-xs font-medium'>{t('durationMillis')}</TableHead>
+                    <TableHead className='h-7.5 py-1 px-2.5 text-xs font-medium'>{t('stateSize')}</TableHead>
+                    <TableHead className='h-7.5 py-1 px-2.5 text-right text-xs font-medium'>
+                      {t('actions')}
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {history.length > 0 ? (
+                    history.map((item, index) => {
+                      const checkpointId = item.checkpoint?.checkpointId;
+                      const checkpointKey =
+                        checkpointId !== undefined
+                          ? `${item.pipelineId}:${checkpointId}`
+                          : '';
+                      const matchedFile =
+                        checkpointKey !== ''
+                          ? checkpointFilesByID.get(checkpointKey)
+                          : undefined;
+                      const durationStr =
+                        item.checkpoint?.durationMillis !== undefined
+                          ? `${item.checkpoint.durationMillis}ms`
+                          : '-';
+                      const sizeStr =
+                        typeof item.checkpoint?.stateSize === 'number'
+                          ? formatSizeBytes(item.checkpoint.stateSize)
+                          : item.checkpoint?.stateSize !== undefined
+                            ? String(item.checkpoint.stateSize)
+                            : '-';
+
+                      return (
+                        <TableRow
+                          key={`${item.pipelineId}-${item.checkpoint?.checkpointId || index}`}
+                          className='h-8.5 border-border/40 hover:bg-muted/40 transition-colors'
+                        >
+                          <TableCell className='py-1 px-2.5 font-mono text-xs text-muted-foreground'>
+                            #{item.pipelineId}
+                          </TableCell>
+                          <TableCell className='py-1 px-2.5 font-mono text-xs font-semibold text-foreground'>
+                            {checkpointId ? `#${checkpointId}` : '-'}
+                          </TableCell>
+                          <TableCell className='py-1 px-2.5'>
+                            {item.checkpoint?.status ? (
+                              renderCheckpointFieldValue('status', item.checkpoint.status)
+                            ) : (
+                              '-'
+                            )}
+                          </TableCell>
+                          <TableCell className='py-1 px-2.5 font-mono text-xs text-muted-foreground'>
+                            {durationStr}
+                          </TableCell>
+                          <TableCell className='py-1 px-2.5 font-mono text-xs text-foreground/90 font-medium'>
+                            {sizeStr}
+                          </TableCell>
+                          <TableCell className='py-1 px-2.5 text-right'>
+                            <Button
+                              size='sm'
+                              variant='ghost'
+                              className='h-6 px-2 text-xs hover:bg-muted font-normal'
+                              disabled={
+                                !matchedFile?.path ||
+                                inspectLoadingPath === matchedFile.path
+                              }
+                              onClick={() =>
+                                matchedFile?.path &&
+                                onInspectCheckpointFile(matchedFile.path)
+                              }
+                            >
+                              {inspectLoadingPath === matchedFile?.path ? (
+                                <Loader2 className='mr-1 size-3 animate-spin' />
+                              ) : (
+                                <Eye className='mr-1 size-3 text-muted-foreground' />
+                              )}
+                              {t('viewDetails')}
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
+                  ) : (
+                    <TableRow>
+                      <TableCell
+                        colSpan={6}
+                        className='text-center text-muted-foreground py-8 text-xs'
+                      >
+                        {t('checkpointHistoryEmpty')}
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
             </div>
           </div>
         </div>
@@ -737,6 +828,35 @@ function CheckpointInspectObjectSection({
   );
 }
 
+function formatFriendlyInspectError(raw?: string): {
+  summary: string;
+  detail?: string;
+} {
+  if (!raw) return {summary: ''};
+  const trimmed = raw.trim();
+  if (
+    trimmed.includes('jobConfig parse failed') ||
+    trimmed.includes('ConfigException')
+  ) {
+    const match = trimmed.match(/jobConfig parse failed:\s*([^"]+)/);
+    const reason = match ? match[1].trim() : '任务脚本存在未闭合引号或保留字符';
+    return {
+      summary: `数据源位点深度解析已跳过：任务脚本配置解析受阻（${reason.slice(0, 120)}）。快照基础元数据与算子状态已成功加载。`,
+      detail: trimmed,
+    };
+  }
+  if (trimmed.includes('status 400') || trimmed.includes('stx-java-proxy')) {
+    return {
+      summary:
+        '数据源位点解析服务返回状态提示，已跳过位点深度解析。底层快照元数据与算子状态已正常加载。',
+      detail: trimmed,
+    };
+  }
+  return {
+    summary: trimmed,
+  };
+}
+
 export function CheckpointInspectSourceHighlightsSection({
   title,
   result,
@@ -782,11 +902,31 @@ export function CheckpointInspectSourceHighlightsSection({
   return (
     <CheckpointInspectSectionShell title={title}>
       <div className='space-y-4'>
-        {errorMessage ? (
-          <div className='rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300'>
-            {errorMessage}
-          </div>
-        ) : null}
+        {errorMessage ? (() => {
+          const friendly = formatFriendlyInspectError(errorMessage);
+          return (
+            <div className='rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300'>
+              <div className='flex items-start gap-2.5'>
+                <AlertTriangle className='mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400' />
+                <div className='min-w-0 flex-1 space-y-1.5'>
+                  <div className='text-xs font-medium leading-relaxed'>
+                    {friendly.summary}
+                  </div>
+                  {friendly.detail ? (
+                    <details className='text-[11px] text-muted-foreground'>
+                      <summary className='cursor-pointer text-amber-700/80 hover:underline dark:text-amber-300/80'>
+                        查看技术详情 / Technical Details
+                      </summary>
+                      <pre className='mt-1.5 max-h-28 overflow-auto rounded bg-background/60 p-2 font-mono text-[10px] whitespace-pre-wrap break-all text-foreground'>
+                        {friendly.detail}
+                      </pre>
+                    </details>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          );
+        })() : null}
         {warnings.length > 0 ? (
           <div className='rounded-lg border border-border/60 bg-muted/20 p-3'>
             <div className='mb-2 text-xs font-medium text-muted-foreground'>
@@ -1285,4 +1425,244 @@ function CheckpointInspectMiniObject({
     </div>
   );
 }
+
+export function CheckpointInspectDialog({
+  open,
+  onOpenChange,
+  result,
+  t,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  result: RuntimeStorageCheckpointInspectResult | null;
+  t: (key: string) => string;
+}) {
+  const [copiedPath, setCopiedPath] = useState(false);
+  const [copiedJson, setCopiedJson] = useState(false);
+  const [activeTab, setActiveTab] = useState('overview');
+
+  const completed = result?.completed_checkpoint;
+  const checkpointId =
+    completed?.checkpointId !== undefined && completed?.checkpointId !== null
+      ? String(completed.checkpointId)
+      : '-';
+  const status =
+    typeof completed?.status === 'string' ? completed.status : 'UNKNOWN';
+  const duration =
+    completed?.durationMillis !== undefined
+      ? `${completed.durationMillis} ms`
+      : '-';
+  const stateSizeFormatted =
+    typeof completed?.stateSize === 'number'
+      ? formatSizeBytes(completed.stateSize)
+      : completed?.stateSize !== undefined && completed?.stateSize !== null
+        ? String(completed.stateSize)
+        : '-';
+
+  const handleCopyPath = useCallback(() => {
+    if (!result?.path) return;
+    void navigator.clipboard.writeText(result.path);
+    setCopiedPath(true);
+    setTimeout(() => setCopiedPath(false), 2000);
+  }, [result?.path]);
+
+  const handleCopyJson = useCallback(() => {
+    if (!result) return;
+    void navigator.clipboard.writeText(JSON.stringify(result, null, 2));
+    setCopiedJson(true);
+    setTimeout(() => setCopiedJson(false), 2000);
+  }, [result]);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className='flex h-[86vh] w-[92vw] max-w-[92vw] flex-col overflow-hidden p-0 sm:max-w-[1240px]'>
+        {/* 顶部现代化标题与状态栏 */}
+        <div className='border-b border-border/60 bg-muted/15 px-6 py-4'>
+          <div className='flex flex-wrap items-center justify-between gap-3'>
+            <div className='flex items-center gap-2.5'>
+              <div className='flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary'>
+                <Activity className='size-4' />
+              </div>
+              <div>
+                <div className='flex items-center gap-2'>
+                  <DialogTitle className='text-base font-semibold text-foreground'>
+                    {t('checkpointFileDetails')}
+                  </DialogTitle>
+                  <Badge
+                    variant='outline'
+                    className='font-mono text-xs px-2 py-0'
+                  >
+                    #{checkpointId}
+                  </Badge>
+                  {renderCheckpointFieldValue('status', status)}
+                </div>
+                <DialogDescription className='sr-only'>
+                  {result?.path || '-'}
+                </DialogDescription>
+              </div>
+            </div>
+
+            {/* 右侧关键度量胶囊 */}
+            <div className='flex items-center gap-2'>
+              <div className='inline-flex items-center gap-1.5 rounded-md border border-border/60 bg-background/80 px-2.5 py-1 text-xs text-muted-foreground shadow-xs'>
+                <Clock className='size-3 text-primary' />
+                <span className='font-mono font-medium text-foreground'>
+                  {duration}
+                </span>
+              </div>
+              <div className='inline-flex items-center gap-1.5 rounded-md border border-border/60 bg-background/80 px-2.5 py-1 text-xs text-muted-foreground shadow-xs'>
+                <HardDrive className='size-3 text-emerald-500' />
+                <span className='font-mono font-medium text-foreground'>
+                  {stateSizeFormatted}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* 路径条与一键复制 */}
+          <div className='mt-3 flex items-center justify-between gap-2 rounded-md border border-border/50 bg-background/60 px-3 py-1.5 text-xs'>
+            <div className='flex min-w-0 items-center gap-2'>
+              <FileCode className='size-3.5 shrink-0 text-muted-foreground' />
+              <span
+                className='truncate font-mono text-[11px] text-muted-foreground'
+                title={result?.path}
+              >
+                {result?.path || '-'}
+              </span>
+            </div>
+            <div className='flex shrink-0 items-center gap-1'>
+              <Button
+                variant='ghost'
+                size='sm'
+                className='h-6 gap-1 px-2 text-[11px]'
+                onClick={handleCopyPath}
+                title={t('copyPath')}
+              >
+                {copiedPath ? (
+                  <>
+                    <Check className='size-3 text-emerald-500' />
+                    <span className='font-medium text-emerald-600 dark:text-emerald-400'>
+                      {t('copied')}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className='size-3 text-muted-foreground' />
+                    <span>{t('copyPath')}</span>
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        {/* 主体选项卡布局 */}
+        <Tabs
+          value={activeTab}
+          onValueChange={setActiveTab}
+          className='flex min-h-0 flex-1 flex-col'
+        >
+          <div className='border-b border-border/60 bg-background px-6 pt-2 pb-0'>
+            <TabsList className='grid h-9 w-full max-w-[540px] grid-cols-3 bg-muted/40 p-0.5'>
+              <TabsTrigger
+                value='overview'
+                className='gap-1.5 text-xs data-[state=active]:font-semibold'
+              >
+                <Activity className='size-3.5 text-primary' />
+                {t('tabOverviewAndSources')}
+              </TabsTrigger>
+              <TabsTrigger
+                value='actions'
+                className='gap-1.5 text-xs data-[state=active]:font-semibold'
+              >
+                <Layers className='size-3.5 text-indigo-500' />
+                {t('tabActionsAndSubtasks')}
+              </TabsTrigger>
+              <TabsTrigger
+                value='raw'
+                className='gap-1.5 text-xs data-[state=active]:font-semibold'
+              >
+                <Code2 className='size-3.5 text-amber-500' />
+                {t('tabRawEngineState')}
+              </TabsTrigger>
+            </TabsList>
+          </div>
+
+          <div className='min-h-0 flex-1 bg-muted/10 p-6'>
+            <ScrollArea className='h-full pr-3'>
+              {/* Tab 1: 概览与数据源 */}
+              <TabsContent
+                value='overview'
+                className='mt-0 space-y-5 outline-hidden'
+              >
+                <CheckpointInspectOverviewSection result={result} t={t} />
+                <CheckpointInspectSourceHighlightsSection
+                  title={t('checkpointSourceState')}
+                  result={result}
+                  decodeStrategyLabel={t('decodeStrategy')}
+                  splitCountLabel={t('splitCount')}
+                  warningsLabel={t('warnings')}
+                  unsupportedLabel={t('unsupportedSources')}
+                  currentOffsetLabel={t('currentOffset')}
+                  targetLabel={t('sourceTarget')}
+                  progressLabel={t('sourceProgress')}
+                />
+              </TabsContent>
+
+              {/* Tab 2: 算子与 Task 拆解 */}
+              <TabsContent
+                value='actions'
+                className='mt-0 space-y-5 outline-hidden'
+              >
+                <CheckpointInspectPrimaryTableSection
+                  title={t('actions')}
+                  result={result}
+                  sourceStateTitle={t('checkpointSourceState')}
+                  decodeStrategyLabel={t('decodeStrategy')}
+                  coordinatorLabel={t('coordinator')}
+                  unsupportedLabel={t('unsupportedSources')}
+                  rawDetailsLabel={t('rawDetails')}
+                />
+              </TabsContent>
+
+              {/* Tab 3: 引擎底层快照 */}
+              <TabsContent
+                value='raw'
+                className='mt-0 space-y-5 outline-hidden'
+              >
+                <div className='flex items-center justify-between rounded-lg border border-border/60 bg-background/80 p-3 shadow-xs'>
+                  <div className='text-xs text-muted-foreground'>
+                    包含底层 SeaTunnel 引擎反序列化后的 CompletedCheckpoint 和 PipelineState 完整状态树。
+                  </div>
+                  <Button
+                    variant='outline'
+                    size='sm'
+                    className='h-7 gap-1.5 text-xs'
+                    onClick={handleCopyJson}
+                  >
+                    {copiedJson ? (
+                      <>
+                        <Check className='size-3 text-emerald-500' />
+                        <span className='font-medium text-emerald-600 dark:text-emerald-400'>
+                          {t('copied')}
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className='size-3 text-muted-foreground' />
+                        <span>{t('copyJson')}</span>
+                      </>
+                    )}
+                  </Button>
+                </div>
+                <CheckpointInspectRawDetailsSection result={result} t={t} />
+              </TabsContent>
+            </ScrollArea>
+          </div>
+        </Tabs>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 

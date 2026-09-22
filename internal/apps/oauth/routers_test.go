@@ -118,4 +118,15 @@ func TestFindOrCreateOAuthUserDoesNotLinkExistingUsername(t *testing.T) {
 	var unchanged auth.User
 	require.NoError(t, db.DB(ctx).First(&unchanged, existing.ID).Error)
 	require.Empty(t, unchanged.OAuthID)
+
+	// 重复登录测试：使用相同 OAuth ID 再次调用 findOrCreateOAuthUser，必须返回同一用户，不能重复创建新用户
+	// Repeated login test: calling findOrCreateOAuthUser again with the same OAuth ID must return the same user and not create a duplicate
+	secondUser, err := findOrCreateOAuthUser(ctx, info)
+	require.NoError(t, err)
+	require.Equal(t, user.ID, secondUser.ID)
+	require.Equal(t, user.Username, secondUser.Username)
+
+	var totalOAuthUsers int64
+	require.NoError(t, db.DB(ctx).Model(&auth.User{}).Where("oauth_id = ?", "github:attacker-id").Count(&totalOAuthUsers).Error)
+	require.Equal(t, int64(1), totalOAuthUsers)
 }

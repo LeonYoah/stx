@@ -1,6 +1,8 @@
 import {describe, expect, it} from 'vitest';
 import {
+  filterTree,
   isCursorInsideValueRegion,
+  isNodeMatchingScope,
   resolveEnumSuggestionItems,
   resolveEnumValueBounds,
   resolveOptionAssignmentContext,
@@ -221,6 +223,111 @@ describe('sync-studio-utils Monaco completion & assignment tests', () => {
       );
       const mysqlpas = items.find((it) => it.label === 'mysqlpas');
       expect(mysqlpas.insertText).toBe('mysqlpas }}');
+    });
+  });
+
+  describe('filterTree with filterScope tests', () => {
+    const sampleTree = [
+      {
+        id: 100,
+        node_type: 'folder' as const,
+        name: 'Project Alpha',
+        description: '',
+        cluster_id: 1,
+        engine_version: '2.3.13',
+        mode: 'streaming' as const,
+        status: 'draft' as const,
+        content_format: 'hocon' as const,
+        content: '',
+        job_name: '',
+        definition: {},
+        sort_order: 1,
+        current_version: 1,
+        children: [
+          {
+            id: 1,
+            node_type: 'file' as const,
+            name: 'my_private_task.conf',
+            created_by: 4,
+            is_owner: true,
+            is_public: false,
+            description: '',
+            cluster_id: 1,
+            engine_version: '2.3.13',
+            mode: 'streaming' as const,
+            status: 'draft' as const,
+            content_format: 'hocon' as const,
+            content: 'env {}',
+            job_name: 't1',
+            definition: {},
+            sort_order: 1,
+            current_version: 1,
+          },
+          {
+            id: 2,
+            node_type: 'file' as const,
+            name: 'public_shared_task.conf',
+            created_by: 1, // Created by admin
+            is_owner: false,
+            is_public: true, // Public task
+            description: '',
+            cluster_id: 1,
+            engine_version: '2.3.13',
+            mode: 'streaming' as const,
+            status: 'draft' as const,
+            content_format: 'hocon' as const,
+            content: 'env {}',
+            job_name: 't2',
+            definition: {},
+            sort_order: 2,
+            current_version: 1,
+          },
+          {
+            id: 3,
+            node_type: 'file' as const,
+            name: 'other_user_private_task.conf',
+            created_by: 2, // Created by user 2
+            is_owner: false,
+            is_public: false, // Private task of user 2
+            description: '',
+            cluster_id: 1,
+            engine_version: '2.3.13',
+            mode: 'streaming' as const,
+            status: 'draft' as const,
+            content_format: 'hocon' as const,
+            content: 'env {}',
+            job_name: 't3',
+            definition: {},
+            sort_order: 3,
+            current_version: 1,
+          },
+        ],
+      },
+    ];
+
+    it('returns all tasks when scope is all', () => {
+      const result = filterTree(sampleTree, '', 'all', 4);
+      expect(result).toHaveLength(1);
+      expect(result[0].children).toHaveLength(3);
+    });
+
+    it('keeps own private tasks and public tasks, but filters out non-own private tasks when scope is mine_and_public', () => {
+      const result = filterTree(sampleTree, '', 'mine_and_public', 4);
+      expect(result).toHaveLength(1);
+      const childNames = result[0].children?.map((c) => c.name);
+      // Own task kept
+      expect(childNames).toContain('my_private_task.conf');
+      // Public task kept ("公开任务也属于自己任务")
+      expect(childNames).toContain('public_shared_task.conf');
+      // Other user's private task filtered out!
+      expect(childNames).not.toContain('other_user_private_task.conf');
+    });
+
+    it('keeps only tasks created by user when scope is only_mine', () => {
+      const result = filterTree(sampleTree, '', 'only_mine', 4);
+      expect(result).toHaveLength(1);
+      const childNames = result[0].children?.map((c) => c.name);
+      expect(childNames).toEqual(['my_private_task.conf']);
     });
   });
 });

@@ -18,7 +18,7 @@
 'use client';
 
 import {useTranslations} from 'next-intl';
-import {MoreHorizontal, Trash2} from 'lucide-react';
+import {GitCommit, MoreHorizontal, Trash2} from 'lucide-react';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
 import {
@@ -44,6 +44,7 @@ export function VersionSidebarPanel({
   onCompare,
   onRollback,
   onDelete,
+  onPublish,
 }: {
   taskId?: number;
   canEdit?: boolean;
@@ -57,6 +58,7 @@ export function VersionSidebarPanel({
   onCompare: (version: SyncTaskVersion) => void;
   onRollback: (versionId: number) => void;
   onDelete: (versionId: number) => void;
+  onPublish?: () => void;
 }) {
   const t = useTranslations('workbenchStudio');
   if (!taskId) {
@@ -80,9 +82,22 @@ export function VersionSidebarPanel({
               v{currentVersion}
             </div>
           </div>
-          <Badge variant='outline' className='text-xs'>
-            {t('totalItems', {count: versions.length})}
-          </Badge>
+          <div className='flex items-center gap-1.5'>
+            {onPublish && canEdit ? (
+              <Button
+                size='sm'
+                variant='outline'
+                className='h-6 gap-1 px-2 text-[11px]'
+                onClick={onPublish}
+              >
+                <GitCommit className='size-3 text-primary' />
+                <span>{t('publishNewVersion')}</span>
+              </Button>
+            ) : null}
+            <Badge variant='outline' className='text-xs'>
+              {t('totalItems', {count: versions.length})}
+            </Badge>
+          </div>
         </div>
         <p className='mt-1 text-[11px] leading-relaxed text-muted-foreground'>
           {t('versionManagementDesc')}

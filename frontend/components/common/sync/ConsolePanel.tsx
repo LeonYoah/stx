@@ -23,6 +23,7 @@ import {
   BarChart3,
   ExternalLink,
   FileCode2,
+  FileText,
   Maximize2,
 } from 'lucide-react';
 import {Badge} from '@/components/ui/badge';
@@ -103,6 +104,52 @@ export function MixedLogModeBanner({
             </Button>
           </div>
         ) : null}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 暂无日志输出时的诊断引导卡片
+ * Empty logs diagnostic banner
+ */
+export function JobLogsEmptyBanner({
+  clusterId,
+}: {
+  clusterId?: number | null;
+}) {
+  const t = useTranslations('workbenchStudio');
+
+  return (
+    <div className='flex h-full min-h-[180px] flex-col items-center justify-center p-6 text-center'>
+      <div className='max-w-lg space-y-3 rounded-xl border border-border/60 bg-muted/20 p-5 text-left shadow-sm'>
+        <div className='flex items-center justify-between gap-2'>
+          <div className='flex items-center gap-2 font-medium text-foreground text-sm'>
+            <FileText className='size-4 shrink-0 text-muted-foreground' />
+            <span>{t('noLogsTitle')}</span>
+          </div>
+          <Badge
+            variant='outline'
+            className='border-border/60 bg-background/50 text-[11px] text-muted-foreground'
+          >
+            {t('noLogsBadge')}
+          </Badge>
+        </div>
+        <p className='text-xs text-muted-foreground leading-relaxed'>
+          {t('noLogsGuideHint')}
+        </p>
+        <div className='pt-1 flex items-center gap-2'>
+          <Button size='sm' variant='outline' className='h-8 text-xs' asChild>
+            <a
+              href={clusterId ? `/clusters/${clusterId}` : '/clusters'}
+              target='_blank'
+              rel='noreferrer'
+            >
+              <ExternalLink className='mr-1.5 size-3.5' />
+              {t('switchLogModeInCluster')}
+            </a>
+          </Button>
+        </div>
       </div>
     </div>
   );
@@ -243,7 +290,7 @@ export function ConsolePanel({
           ) : isMixedLogMode ? (
             <MixedLogModeBanner clusterId={clusterId} />
           ) : (
-            <div className='text-muted-foreground'>{t('noLogs')}</div>
+            <JobLogsEmptyBanner clusterId={clusterId} />
           )}
         </div>
       </div>
@@ -255,6 +302,7 @@ export function JobRunsPanel({
   jobs,
   selectedJobId,
   currentUserId,
+  currentUsername,
   isAdmin = false,
   isOwner = true,
   canRun = true,
@@ -270,6 +318,7 @@ export function JobRunsPanel({
   jobs: SyncJobInstance[];
   selectedJobId: number | null;
   currentUserId?: number;
+  currentUsername?: string;
   isAdmin?: boolean;
   isOwner?: boolean;
   canRun?: boolean;
@@ -368,11 +417,18 @@ export function JobRunsPanel({
                 {/* 发起人 */}
                 <TableCell className='py-1.5 px-2.5 text-xs whitespace-nowrap'>
                   <div className='flex items-center gap-1'>
-                    <span className='text-foreground text-[11px]'>
-                      {job.created_by
-                        ? workspaceUsers.find((u) => u.id === job.created_by)
-                            ?.username || `User #${job.created_by}`
-                        : '-'}
+                    <span className='text-foreground text-[11px] font-medium'>
+                      {(() => {
+                        if (!job.created_by) return '-';
+                        if (currentUserId && job.created_by === currentUserId) {
+                          return currentUsername || 'admin';
+                        }
+                        const matched = workspaceUsers.find((u) => u.id === job.created_by);
+                        if (matched?.username) return matched.username;
+                        if (matched?.nickname) return matched.nickname;
+                        if (job.created_by === 1) return 'admin';
+                        return `User #${job.created_by}`;
+                      })()}
                     </span>
                     {currentUserId && job.created_by === currentUserId ? (
                       <Badge

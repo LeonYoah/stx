@@ -69,6 +69,7 @@ export interface GlobalVariablesSidebarPanelProps {
   page: number;
   pageSize: number;
   isAdmin?: boolean;
+  currentUserId?: number;
   defaultTab?: GlobalVariableTabType | 'vars';
   onPageChange: (page: number) => void;
   onOpenCreate: () => void;
@@ -139,6 +140,7 @@ export function GlobalVariablesSidebarPanel({
   page,
   pageSize,
   isAdmin = true,
+  currentUserId,
   defaultTab = 'all',
   onPageChange,
   onOpenCreate,
@@ -244,34 +246,14 @@ export function GlobalVariablesSidebarPanel({
           </div>
 
           {!isTimeMode && (
-            isAdmin ? (
-              <Button
-                size='sm'
-                className='h-7 px-2.5 text-xs gap-1 shadow-xs'
-                onClick={onOpenCreate}
-              >
-                <Plus className='size-3.5' />
-                <span>{t('newCreate')}</span>
-              </Button>
-            ) : (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className='cursor-not-allowed'>
-                    <Button
-                      size='sm'
-                      className='h-7 px-2.5 text-xs gap-1 shadow-xs opacity-50'
-                      disabled
-                    >
-                      <Plus className='size-3.5' />
-                      <span>{t('newCreate')}</span>
-                    </Button>
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent side='bottom' className='text-xs'>
-                  {t('adminOnlyGlobalVars')}
-                </TooltipContent>
-              </Tooltip>
-            )
+            <Button
+              size='sm'
+              className='h-7 px-2.5 text-xs gap-1 shadow-xs'
+              onClick={onOpenCreate}
+            >
+              <Plus className='size-3.5' />
+              <span>{t('newCreate')}</span>
+            </Button>
           )}
         </div>
 
@@ -588,7 +570,7 @@ export function GlobalVariablesSidebarPanel({
                     ? t('noDetectedVariables')
                     : t('noGlobalVariables')}
                 </p>
-                {!searchQuery && typeFilter === 'all' && isAdmin && (
+                {!searchQuery && typeFilter === 'all' && (
                   <Button
                     variant='outline'
                     size='sm'
@@ -604,6 +586,8 @@ export function GlobalVariablesSidebarPanel({
               filteredVariables.map((item) => {
                 const isSecret =
                   item.value_type === 'secret' || item.value === '******';
+                const canEdit =
+                  isAdmin || (Boolean(currentUserId) && item.created_by === currentUserId);
 
                 return (
                   <div
@@ -653,21 +637,41 @@ export function GlobalVariablesSidebarPanel({
                       {/* 操作按钮区 */}
                       {/* Actions */}
                       <div className='flex items-center gap-0.5 shrink-0 opacity-80 group-hover:opacity-100 transition-opacity'>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
-                              size='icon'
-                              variant='ghost'
-                              className='size-6 text-muted-foreground hover:text-primary'
-                              onClick={() => onOpenEdit(item)}
-                            >
-                              <Pencil className='size-3' />
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent side='top' className='text-xs'>
-                            {t('edit')}
-                          </TooltipContent>
-                        </Tooltip>
+                        {canEdit ? (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                size='icon'
+                                variant='ghost'
+                                className='size-6 text-muted-foreground hover:text-primary'
+                                onClick={() => onOpenEdit(item)}
+                              >
+                                <Pencil className='size-3' />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent side='top' className='text-xs'>
+                              {t('edit')}
+                            </TooltipContent>
+                          </Tooltip>
+                        ) : (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className='inline-flex'>
+                                <Button
+                                  size='icon'
+                                  variant='ghost'
+                                  disabled
+                                  className='size-6 text-muted-foreground/40 cursor-not-allowed'
+                                >
+                                  <Pencil className='size-3' />
+                                </Button>
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent side='top' className='text-xs'>
+                              {t('onlyCreatorOrAdminCanEdit')}
+                            </TooltipContent>
+                          </Tooltip>
+                        )}
 
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
@@ -694,7 +698,7 @@ export function GlobalVariablesSidebarPanel({
                                 {t('copyValue')}
                               </DropdownMenuItem>
                             )}
-                            {isAdmin ? (
+                            {canEdit ? (
                               <>
                                 <DropdownMenuItem
                                   onClick={() => onOpenEdit(item)}

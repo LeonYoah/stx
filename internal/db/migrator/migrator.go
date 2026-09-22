@@ -76,6 +76,15 @@ func MigrateWithDB(database *gorm.DB, dbType string) error {
 		return errors.New("数据库连接未初始化 / database connection is nil")
 	}
 
+	// 兼容迁移：若历史数据库中 auth_users 表包含 o_auth_id 列但无 oauth_id 列，自动重命名为 oauth_id
+	if database.Migrator().HasTable(&auth.User{}) {
+		if database.Migrator().HasColumn(&auth.User{}, "o_auth_id") && !database.Migrator().HasColumn(&auth.User{}, "oauth_id") {
+			if err := database.Migrator().RenameColumn(&auth.User{}, "o_auth_id", "oauth_id"); err != nil {
+				log.Printf("[Database] failed to rename o_auth_id to oauth_id: %v\n", err)
+			}
+		}
+	}
+
 	// 执行数据库表迁移，包含用户表
 	// 注意：auth.User 是统一的用户表，同时支持密码登录和 OAuth 登录
 	// Execute database table migration, including user table

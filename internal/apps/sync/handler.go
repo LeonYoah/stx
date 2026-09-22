@@ -30,16 +30,25 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/LeonYoah/stx/internal/apps/audit"
 	"github.com/LeonYoah/stx/internal/apps/auth"
 	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
 	"github.com/LeonYoah/stx/internal/config"
 )
 
+// Handler 提供数据同步工作台 HTTP 处理器。
 // Handler provides HTTP handlers for sync studio APIs.
-type Handler struct{ service *Service }
+type Handler struct {
+	service   *Service
+	auditRepo *audit.Repository
+}
 
 // NewHandler creates a new sync handler.
 func NewHandler(service *Service) *Handler { return &Handler{service: service} }
+
+// SetAuditRepository 配置工作台写操作使用的审计仓库。
+// SetAuditRepository configures the audit repository for sync writes.
+func (h *Handler) SetAuditRepository(repo *audit.Repository) { h.auditRepo = repo }
 
 type TaskResponse struct {
 	ErrorMsg string `json:"error_msg"`
@@ -56,6 +65,10 @@ type TaskTreeResponse struct {
 type TaskVersionResponse struct {
 	ErrorMsg string       `json:"error_msg"`
 	Data     *TaskVersion `json:"data"`
+}
+type TaskPermissionsResponse struct {
+	ErrorMsg string           `json:"error_msg"`
+	Data     *TaskPermissions `json:"data"`
 }
 type TaskVersionListResponse struct {
 	ErrorMsg string               `json:"error_msg"`
@@ -156,6 +169,69 @@ func (h *Handler) GetTask(c *gin.Context) {
 	c.JSON(http.StatusOK, TaskResponse{Data: sanitizeTaskForResponse(task)})
 }
 
+// GetTaskPermissions 处理 GET /api/v1/sync/tasks/:id/permissions。
+// GetTaskPermissions handles GET /api/v1/sync/tasks/:id/permissions.
+// @Summary 获取同步任务共享权限
+// @Tags Sync
+// @Produce json
+// @Param id path int true "任务 ID"
+// @Success 200 {object} TaskPermissionsResponse
+// @Failure 400 {object} TaskPermissionsResponse
+// @Failure 403 {object} TaskPermissionsResponse
+// @Failure 404 {object} TaskPermissionsResponse
+// @Router /api/v1/sync/tasks/{id}/permissions [get]
+func (h *Handler) GetTaskPermissions(c *gin.Context) {
+	id, ok := parseUintParam(c, "id")
+	if !ok {
+		c.JSON(http.StatusBadRequest, TaskPermissionsResponse{ErrorMsg: "invalid task id"})
+		return
+	}
+	permissions, err := h.service.GetTaskPermissionsForActor(c.Request.Context(), currentExecutionActor(c), id)
+	if err != nil {
+		c.JSON(h.getStatusCodeForError(err), TaskPermissionsResponse{ErrorMsg: err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, TaskPermissionsResponse{Data: permissions})
+}
+
+// UpdateTaskPermissions 处理 PUT /api/v1/sync/tasks/:id/permissions。
+// UpdateTaskPermissions handles PUT /api/v1/sync/tasks/:id/permissions.
+// @Summary 更新同步任务共享权限
+// @Tags Sync
+// @Accept json
+// @Produce json
+// @Param id path int true "任务 ID"
+// @Param request body UpdateTaskPermissionsRequest true "共享权限请求"
+// @Success 200 {object} TaskPermissionsResponse
+// @Failure 400 {object} TaskPermissionsResponse
+// @Failure 403 {object} TaskPermissionsResponse
+// @Failure 404 {object} TaskPermissionsResponse
+// @Router /api/v1/sync/tasks/{id}/permissions [put]
+func (h *Handler) UpdateTaskPermissions(c *gin.Context) {
+	id, ok := parseUintParam(c, "id")
+	if !ok {
+		c.JSON(http.StatusBadRequest, TaskPermissionsResponse{ErrorMsg: "invalid task id"})
+		return
+	}
+	var req UpdateTaskPermissionsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, TaskPermissionsResponse{ErrorMsg: err.Error()})
+		return
+	}
+	before, after, err := h.service.UpdateTaskPermissionsForActor(c.Request.Context(), currentExecutionActor(c), id, &req)
+	if err != nil {
+		c.JSON(h.getStatusCodeForError(err), TaskPermissionsResponse{ErrorMsg: err.Error()})
+		return
+	}
+	_ = audit.RecordFromGin(c, h.auditRepo, auth.GetUserIDFromContext(c), auth.GetUsernameFromContext(c),
+		"update", "sync_task_permissions", strconv.FormatUint(uint64(id), 10), "", audit.AuditDetails{
+			"operation_id": "sync.task.permissions.update",
+			"before":       before,
+			"after":        after,
+		})
+	c.JSON(http.StatusOK, TaskPermissionsResponse{Data: after})
+}
+
 // ListGlobalVariables handles GET /api/v1/sync/global-variables.
 func (h *Handler) ListGlobalVariables(c *gin.Context) {
 	page := parsePositiveInt(c.Query("current"), 1)
@@ -168,7 +244,8 @@ func (h *Handler) ListGlobalVariables(c *gin.Context) {
 	c.JSON(http.StatusOK, GlobalVariableListResponse{Data: &GlobalVariableListData{Total: total, Items: items}})
 }
 
-/// CreateGlobalVariable handles POST /api/v1/sync/global-variables.
+// CreateGlobalVariable 处理 POST /api/v1/sync/global-variables。
+// CreateGlobalVariable handles POST /api/v1/sync/global-variables.
 func (h *Handler) CreateGlobalVariable(c *gin.Context) {
 	var req CreateGlobalVariableRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -236,6 +313,11 @@ func (h *Handler) UpdateTask(c *gin.Context) {
 		c.JSON(h.getStatusCodeForError(err), TaskResponse{ErrorMsg: err.Error()})
 		return
 	}
+	_ = audit.RecordFromGin(c, h.auditRepo, auth.GetUserIDFromContext(c), auth.GetUsernameFromContext(c),
+		"update", "sync_task", strconv.FormatUint(uint64(id), 10), task.Name, audit.AuditDetails{
+			"operation_id": "sync.task.update",
+			"field_scope":  "task_content",
+		})
 	c.JSON(http.StatusOK, TaskResponse{Data: sanitizeTaskForResponse(task)})
 }
 
@@ -270,6 +352,12 @@ func (h *Handler) PublishTask(c *gin.Context) {
 		c.JSON(h.getStatusCodeForError(err), TaskVersionResponse{ErrorMsg: err.Error()})
 		return
 	}
+	_ = audit.RecordFromGin(c, h.auditRepo, auth.GetUserIDFromContext(c), auth.GetUsernameFromContext(c),
+		"publish", "sync_task", strconv.FormatUint(uint64(id), 10), "", audit.AuditDetails{
+			"operation_id": "sync.task.publish",
+			"version_id":   version.ID,
+			"version":      version.Version,
+		})
 	c.JSON(http.StatusOK, TaskVersionResponse{Data: sanitizeTaskVersionForResponse(version)})
 }
 
@@ -667,7 +755,7 @@ func (h *Handler) getStatusCodeForError(err error) int {
 		return http.StatusNotFound
 	case errors.Is(err, ErrTaskReadOnly), errors.Is(err, ErrTaskPermissionDenied), errors.Is(err, ErrGlobalVariablePermissionDenied):
 		return http.StatusForbidden
-	case errors.Is(err, ErrTaskNameRequired), errors.Is(err, ErrTaskNameInvalid), errors.Is(err, ErrTaskParentCycle), errors.Is(err, ErrRootFileNotAllowed), errors.Is(err, ErrInvalidTaskMode), errors.Is(err, ErrInvalidTaskStatus), errors.Is(err, ErrInvalidRunType), errors.Is(err, ErrInvalidPreviewMode), errors.Is(err, ErrTaskDefinitionEmpty), errors.Is(err, ErrPreviewHTTPSinkEmpty), errors.Is(err, ErrTaskNotPublished), errors.Is(err, ErrInvalidNodeType), errors.Is(err, ErrParentTaskNotFolder), errors.Is(err, ErrFolderContentUnsupported), errors.Is(err, ErrTaskNotFile), errors.Is(err, ErrInvalidContentFormat), errors.Is(err, ErrRecoverSourceRequired), errors.Is(err, ErrLocalClusterRequired), errors.Is(err, ErrLocalSavepointUnsupported), errors.Is(err, ErrPreviewPayloadInvalid), errors.Is(err, ErrGlobalVariableKeyRequired), errors.Is(err, ErrGlobalVariableKeyInvalid), errors.Is(err, ErrReservedBuiltinVariableKey), errors.Is(err, ErrExecutionTargetClusterMismatch), errors.Is(err, ErrMaskedSecretCannotBeRestored):
+	case errors.Is(err, ErrTaskNameRequired), errors.Is(err, ErrTaskNameInvalid), errors.Is(err, ErrTaskParentCycle), errors.Is(err, ErrRootFileNotAllowed), errors.Is(err, ErrInvalidTaskMode), errors.Is(err, ErrInvalidTaskStatus), errors.Is(err, ErrInvalidRunType), errors.Is(err, ErrInvalidPreviewMode), errors.Is(err, ErrTaskDefinitionEmpty), errors.Is(err, ErrPreviewHTTPSinkEmpty), errors.Is(err, ErrTaskNotPublished), errors.Is(err, ErrInvalidNodeType), errors.Is(err, ErrParentTaskNotFolder), errors.Is(err, ErrFolderContentUnsupported), errors.Is(err, ErrTaskNotFile), errors.Is(err, ErrInvalidContentFormat), errors.Is(err, ErrRecoverSourceRequired), errors.Is(err, ErrLocalClusterRequired), errors.Is(err, ErrLocalSavepointUnsupported), errors.Is(err, ErrPreviewPayloadInvalid), errors.Is(err, ErrGlobalVariableKeyRequired), errors.Is(err, ErrGlobalVariableKeyInvalid), errors.Is(err, ErrReservedBuiltinVariableKey), errors.Is(err, ErrExecutionTargetClusterMismatch), errors.Is(err, ErrMaskedSecretCannotBeRestored), errors.Is(err, ErrInvalidTaskCollaborator):
 		return http.StatusBadRequest
 	case errors.Is(err, ErrTaskArchived), errors.Is(err, ErrJobAlreadyFinished), errors.Is(err, ErrJobStatusChanged), errors.Is(err, ErrGlobalVariableKeyDuplicate), errors.Is(err, ErrTaskNameDuplicate), errors.Is(err, executionapp.ErrIdempotencyConflict):
 		return http.StatusConflict

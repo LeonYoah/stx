@@ -2022,9 +2022,23 @@ func clusterNodeIDInputs() []InputSpec {
 }
 
 var routeExceptions = []RouteException{
+	{Method: "POST", Route: "/api/v1/auth/login", Mode: ModeServerOnly, Reason: "Web 会话登录由控制台使用，CLI 使用 auth.cli.login"},
+	{Method: "POST", Route: "/api/v1/auth/logout", Mode: ModeServerOnly, Reason: "Web 会话退出由控制台使用，CLI 使用 auth.cli.logout"},
 	{Method: "POST", Route: "/api/v1/oauth/callback", Mode: ModeServerOnly, Reason: "OAuth provider callback consumed by the STX server"},
+	{Method: "GET", Route: "/api/v1/oauth/login", Mode: ModeServerOnly, Reason: "OAuth 浏览器跳转入口，不适合作为 CLI 命令"},
+	{Method: "GET", Route: "/api/v1/oauth/providers", Mode: ModeServerOnly, Reason: "OAuth 登录页能力查询，不适合作为 CLI 命令"},
 	{Method: "POST", Route: "/api/v1/hosts/:id/discover", Mode: ModeServerOnly, Reason: "Legacy cluster discovery discards the Agent result and always returns an empty cluster list"},
 	{Method: "POST", Route: "/api/v1/hosts/:id/discover/confirm", Mode: ModeServerOnly, Reason: "Legacy cluster import is not wired with a ClusterMatcher and cannot complete successfully"},
+	{Method: "DELETE", Route: "/api/v1/clusters/:id/plugins/:name", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},
+	{Method: "POST", Route: "/api/v1/clusters/:id/runtime-storage/imap/cleanup", Mode: ModeServerOnly, Reason: "运行时存储清理可能影响集群，首版 CLI 不提供"},
+	{Method: "DELETE", Route: "/api/v1/diagnostics/auto-policies/:id", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},
+	{Method: "DELETE", Route: "/api/v1/hosts/:id", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},
+	{Method: "DELETE", Route: "/api/v1/monitoring/alert-policies/:id", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},
+	{Method: "DELETE", Route: "/api/v1/monitoring/notification-channels/:id", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},
+	{Method: "DELETE", Route: "/api/v1/monitoring/notification-routes/:id", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},
+	{Method: "DELETE", Route: "/api/v1/plugins/:name/dependencies/:depId", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},
+	{Method: "DELETE", Route: "/api/v1/plugins/:name/dependencies/disables/:disableId", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},
+	{Method: "DELETE", Route: "/api/v1/plugins/:name/local", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},
 	{Method: "GET", Route: "/api/v1/monitoring/prometheus/discovery", Mode: ModeServerOnly, Reason: "Prometheus HTTP service discovery endpoint"},
 	{Method: "POST", Route: "/api/v1/monitoring/alertmanager/webhook", Mode: ModeServerOnly, Reason: "Alertmanager webhook receiver"},
 	{Method: "POST", Route: "/api/v1/sync/preview/collect", Mode: ModeServerOnly, Reason: "SeaTunnel preview result callback"},

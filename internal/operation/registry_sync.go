@@ -86,6 +86,8 @@ func syncOperationSpecs() []OperationSpec {
 		syncOp("sync.task.get", []string{"sync", "task", "get"}, "Get one sync task", "GET", "/api/v1/sync/tasks/:id", RiskR0, "", taskIDInput, "stx sync task get 1", true, false),
 		syncOp("sync.task.create", []string{"sync", "task", "create"}, "Create a sync task or folder", "POST", "/api/v1/sync/tasks", RiskR1, "创建同步任务或目录节点。", syncWriteInputs(false, nil), "stx sync task create --name my-task --confirm", false, false),
 		syncOp("sync.task.update", []string{"sync", "task", "update"}, "Update a sync task", "PUT", "/api/v1/sync/tasks/:id", RiskR1, "更新同步任务的基础信息或配置内容。", syncWriteInputs(false, taskIDInput), "stx sync task update 1 --confirm", false, false),
+		syncOp("sync.task.permissions.get", []string{"sync", "task", "permissions", "get"}, "Get sync task sharing permissions", "GET", "/api/v1/sync/tasks/:id/permissions", RiskR0, "", taskIDInput, "stx sync task permissions get 1", false, false),
+		syncOp("sync.task.permissions.update", []string{"sync", "task", "permissions", "update"}, "Update sync task sharing permissions", "PUT", "/api/v1/sync/tasks/:id/permissions", RiskR1, "修改任务公开状态和协作者列表，不会修改任务正文，也不会发布新版本。", syncWriteInputs(true, taskIDInput), "stx sync task permissions update 1 --request-file permissions.json --confirm", false, false),
 		syncOp("sync.task.delete", nil, "Delete a sync task", "DELETE", "/api/v1/sync/tasks/:id", RiskR2, "删除同步任务及其历史版本，删除后不可恢复。", syncWriteInputs(false, taskIDInput), "", false, false),
 		syncOp("sync.task.publish", []string{"sync", "task", "publish"}, "Publish a sync task version", "POST", "/api/v1/sync/tasks/:id/publish", RiskR1, "将当前任务配置冻结发布为一个新的历史版本。", syncWriteInputs(false, taskIDInput), "stx sync task publish 1 --confirm", false, false),
 	)

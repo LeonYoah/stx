@@ -80,6 +80,89 @@ func TestSyncTaskCreateSendsBodyAndSafetyHeaders(t *testing.T) {
 	}
 }
 
+func TestSyncTaskPermissionsGetReturnsPermissionFields(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/api/v1/capabilities" {
+			writeSyncCapabilities(t, writer, "sync.task.permissions.get", "R0")
+			return
+		}
+		if request.Method != http.MethodGet || request.URL.Path != "/api/v1/sync/tasks/42/permissions" {
+			t.Fatalf("读取任务权限请求错误: %s %s", request.Method, request.URL.Path)
+		}
+		_ = json.NewEncoder(writer).Encode(map[string]any{"data": map[string]any{
+			"task_id":          42,
+			"collaborator_ids": []int{2, 3},
+			"can_edit":         true,
+			"can_manage":       true,
+			"is_owner":         true,
+			"is_collaborator":  false,
+			"is_public":        false,
+		}})
+	}))
+	defer server.Close()
+
+	store := newExecutionTestStore(t, server.URL, "test-token")
+	stdout, stderr, exitCode := runSyncCommand(t, store, "sync", "task", "permissions", "get", "42")
+	if exitCode != int(clioutput.ExitSuccess) {
+		t.Fatalf("读取任务权限失败: code=%d stdout=%s stderr=%s", exitCode, stdout, stderr)
+	}
+	var result struct {
+		Data struct {
+			TaskID          float64 `json:"task_id"`
+			IsPublic        bool    `json:"is_public"`
+			CollaboratorIDs []any   `json:"collaborator_ids"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("解析权限结果失败: %v; stdout=%s", err, stdout)
+	}
+	if result.Data.TaskID != 42 || result.Data.IsPublic || len(result.Data.CollaboratorIDs) != 2 {
+		t.Fatalf("权限结果错误: %#v", result.Data)
+	}
+}
+
+func TestSyncTaskPermissionsUpdateSendsOnlyPermissionChanges(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		switch {
+		case request.URL.Path == "/api/v1/capabilities":
+			writeSyncCapabilities(t, writer, "sync.task.permissions.update", "R1")
+		case request.Method == http.MethodPut && request.URL.Path == "/api/v1/sync/tasks/42/permissions":
+			if request.Header.Get("X-STX-Confirm") != "true" || request.Header.Get("Idempotency-Key") != "permissions-key" {
+				t.Fatalf("权限更新安全请求头错误: %#v", request.Header)
+			}
+			var body map[string]any
+			if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+				t.Fatalf("解析权限更新请求体失败: %v", err)
+			}
+			if body["is_public"] != false {
+				t.Fatalf("公开状态未更新: %#v", body)
+			}
+			collaborators, ok := body["collaborator_ids"].([]any)
+			if !ok || len(collaborators) != 2 || collaborators[0] != float64(8) || collaborators[1] != float64(9) {
+				t.Fatalf("协作者未更新: %#v", body)
+			}
+			if len(body) != 2 {
+				t.Fatalf("权限更新请求不应携带任务正文: %#v", body)
+			}
+			_ = json.NewEncoder(writer).Encode(map[string]any{"data": map[string]any{"id": 42, "is_public": false}})
+		default:
+			t.Fatalf("意外的请求: %s %s", request.Method, request.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	store := newExecutionTestStore(t, server.URL, "test-token")
+	_, stderr, exitCode := runSyncCommand(t, store,
+		"sync", "task", "permissions", "update", "42",
+		"--private", "--collaborator-id", "8", "--collaborator-id", "9",
+		"--confirm", "--idempotency-key", "permissions-key",
+	)
+	if exitCode != int(clioutput.ExitSuccess) {
+		t.Fatalf("更新任务权限失败: code=%d stderr=%s", exitCode, stderr)
+	}
+}
+
 func TestSyncTaskSubmitSendsWaitAndPollsExecution(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Content-Type", "application/json")

@@ -322,6 +322,18 @@ func (t *Task) DecoratePermissions(userID uint, isAdmin bool) {
 	t.IsPublicTask = t.IsPublic()
 }
 
+// TaskPermissions 只包含独立权限接口对外提供的共享字段。
+// TaskPermissions contains only the sharing fields exposed by the dedicated permissions API.
+type TaskPermissions struct {
+	TaskID          uint   `json:"task_id"`
+	IsPublic        bool   `json:"is_public"`
+	CollaboratorIDs []uint `json:"collaborator_ids"`
+	CanEdit         bool   `json:"can_edit"`
+	CanManage       bool   `json:"can_manage"`
+	IsOwner         bool   `json:"is_owner"`
+	IsCollaborator  bool   `json:"is_collaborator"`
+}
+
 // TaskVersion stores one immutable snapshot of a sync file task.
 // TaskVersion 存储同步文件任务的一次不可变快照。
 type TaskVersion struct {

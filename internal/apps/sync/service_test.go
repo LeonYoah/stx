@@ -1822,6 +1822,42 @@ func TestTaskPermissionsAndRoles(t *testing.T) {
 		t.Fatalf("创建公开任务失败: %v", err)
 	}
 
+	// 使用独立任务验证共享权限接口，避免改变后续角色权限场景的前置数据。
+	// Use a separate task for permission API coverage so later role assertions keep their fixture state.
+	permissionTask, err := service.CreateTask(ctx, &CreateTaskRequest{
+		ParentID:      &folder.ID,
+		NodeType:      string(TaskNodeTypeFile),
+		Name:          "permission_api.env",
+		Mode:          string(TaskModeBatch),
+		ContentFormat: string(ContentFormatHOCON),
+		Content:       "env { parallelism = 1 }",
+		Definition:    JSONMap{"is_public": true},
+	}, 1)
+	if err != nil {
+		t.Fatalf("创建权限接口测试任务失败: %v", err)
+	}
+
+	ownerPermissions, err := service.GetTaskPermissionsForActor(ctx, executionapp.Actor{UserID: 1}, permissionTask.ID)
+	if err != nil {
+		t.Fatalf("任务所有者读取权限失败: %v", err)
+	}
+	if !ownerPermissions.CanManage || !ownerPermissions.IsOwner || !ownerPermissions.IsPublic {
+		t.Fatalf("任务所有者权限结果错误: %+v", ownerPermissions)
+	}
+	if _, _, err := service.UpdateTaskPermissionsForActor(ctx, executionapp.Actor{UserID: 4}, permissionTask.ID, &UpdateTaskPermissionsRequest{IsPublic: func() *bool { value := false; return &value }()}); !errors.Is(err, ErrTaskPermissionDenied) {
+		t.Fatalf("非所有者修改共享权限应被拒绝，得到: %v", err)
+	}
+	beforePermissions, afterPermissions, err := service.UpdateTaskPermissionsForActor(ctx, executionapp.Actor{UserID: 1}, permissionTask.ID, &UpdateTaskPermissionsRequest{
+		IsPublic:        func() *bool { value := false; return &value }(),
+		CollaboratorIDs: []uint{4},
+	})
+	if err != nil {
+		t.Fatalf("任务所有者修改共享权限失败: %v", err)
+	}
+	if !beforePermissions.IsPublic || afterPermissions.IsPublic || len(afterPermissions.CollaboratorIDs) != 1 || afterPermissions.CollaboratorIDs[0] != 4 {
+		t.Fatalf("共享权限修改前后结果错误: before=%+v after=%+v", beforePermissions, afterPermissions)
+	}
+
 	// 2. Test permission decoration for admin vs ordinary user
 	adminActor := executionapp.Actor{UserID: 1, IsAdmin: true}
 	regularActor := executionapp.Actor{UserID: 4, IsAdmin: false}
@@ -1886,14 +1922,27 @@ func TestTaskPermissionsAndRoles(t *testing.T) {
 
 	// 5. Test Collaborator functionality
 	// Add user 4 as collaborator
-	_, err = service.UpdateTaskForActor(ctx, adminActor, publicTask.ID, &UpdateTaskRequest{
-		ParentID:   &folder.ID,
-		Name:       "public_sync.env",
-		Content:    "env { parallelism = 1 }",
-		Definition: JSONMap{"is_public": true, "collaborators": []interface{}{4}},
+	publicTaskValue := true
+	_, _, err = service.UpdateTaskPermissionsForActor(ctx, adminActor, publicTask.ID, &UpdateTaskPermissionsRequest{
+		IsPublic:        &publicTaskValue,
+		CollaboratorIDs: []uint{4},
 	})
 	if err != nil {
 		t.Fatalf("添加共建者失败: %v", err)
+	}
+	// 即使管理员也必须通过权限接口修改共享字段。
+	// Even an administrator must use the permission endpoint for sharing changes.
+	adminContentTask, err := service.UpdateTaskForActor(ctx, adminActor, publicTask.ID, &UpdateTaskRequest{
+		ParentID:   &folder.ID,
+		Name:       "public_sync.env",
+		Content:    "env { parallelism = 2 }",
+		Definition: JSONMap{"is_public": false, "collaborators": []interface{}{}},
+	})
+	if err != nil {
+		t.Fatalf("管理员更新任务正文失败: %v", err)
+	}
+	if adminContentTask.Definition["is_public"] != true || len(adminContentTask.CollaboratorIDs()) != 1 {
+		t.Fatalf("管理员通过正文接口修改了共享权限: %+v", adminContentTask.Definition)
 	}
 
 	collabTask, err := service.GetTaskForActor(ctx, regularActor, publicTask.ID)

@@ -358,6 +358,109 @@ func (s *Service) GetTaskForActor(ctx context.Context, actor executionapp.Actor,
 	return task, nil
 }
 
+// GetTaskPermissionsForActor 只返回共享权限，不返回任务正文。
+// GetTaskPermissionsForActor returns sharing permissions without exposing task content.
+func (s *Service) GetTaskPermissionsForActor(ctx context.Context, actor executionapp.Actor, id uint) (*TaskPermissions, error) {
+	task, err := s.repo.GetTaskByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if !task.CanUserView(uint(actor.UserID), actor.IsAdmin) {
+		return nil, ErrTaskPermissionDenied
+	}
+	return taskPermissionsForActor(task, actor), nil
+}
+
+// UpdateTaskPermissionsForActor 只修改共享字段，并返回修改前后的值供审计记录使用。
+// UpdateTaskPermissionsForActor changes only sharing fields and returns before/after values for audit.
+func (s *Service) UpdateTaskPermissionsForActor(ctx context.Context, actor executionapp.Actor, id uint, req *UpdateTaskPermissionsRequest) (*TaskPermissions, *TaskPermissions, error) {
+	task, err := s.repo.GetTaskByID(ctx, id)
+	if err != nil {
+		return nil, nil, err
+	}
+	if task.Status == TaskStatusArchived {
+		return nil, nil, ErrTaskArchived
+	}
+	if !canManageTaskPermissions(task, actor) {
+		return nil, nil, ErrTaskPermissionDenied
+	}
+	if req == nil {
+		return nil, nil, ErrTaskPermissionDenied
+	}
+
+	before := taskPermissionsForActor(task, actor)
+	definition := cloneJSONMap(task.Definition)
+	if req.IsPublic != nil {
+		definition["is_public"] = *req.IsPublic
+	}
+	if req.CollaboratorIDs != nil {
+		ids := make([]uint, 0, len(req.CollaboratorIDs))
+		seen := make(map[uint]struct{}, len(req.CollaboratorIDs))
+		for _, id := range req.CollaboratorIDs {
+			if id == 0 {
+				return nil, nil, ErrInvalidTaskCollaborator
+			}
+			if _, exists := seen[id]; exists {
+				continue
+			}
+			seen[id] = struct{}{}
+			ids = append(ids, id)
+		}
+		// 在旧客户端仍读取 collaborators 期间，同时保留两个字段名。
+		// Keep both names while older clients still read `collaborators`.
+		definition["collaborators"] = ids
+		definition["collaborator_ids"] = ids
+	}
+	task.Definition = definition
+	if err := validateTaskDefinition(task.Definition); err != nil {
+		return nil, nil, err
+	}
+	if err := s.repo.UpdateTask(ctx, task); err != nil {
+		return nil, nil, err
+	}
+	task.DecoratePermissions(uint(actor.UserID), actor.IsAdmin)
+	return before, taskPermissionsForActor(task, actor), nil
+}
+
+func canManageTaskPermissions(task *Task, actor executionapp.Actor) bool {
+	if actor.IsAdmin || task == nil {
+		return actor.IsAdmin
+	}
+	return task.CreatedBy == 0 || task.CreatedBy == uint(actor.UserID)
+}
+
+// preserveTaskPermissionFields 在正文更新时保留数据库中的共享字段。
+// preserveTaskPermissionFields keeps sharing fields from the stored task during content updates.
+func preserveTaskPermissionFields(original, updated JSONMap) JSONMap {
+	if updated == nil {
+		updated = JSONMap{}
+	}
+	for _, key := range []string{"is_public", "collaborators", "collaborator_ids"} {
+		if value, exists := original[key]; exists {
+			updated[key] = value
+		} else {
+			delete(updated, key)
+		}
+	}
+	return updated
+}
+
+func taskPermissionsForActor(task *Task, actor executionapp.Actor) *TaskPermissions {
+	ids := append([]uint(nil), task.CollaboratorIDs()...)
+	if ids == nil {
+		ids = []uint{}
+	}
+	return &TaskPermissions{
+		TaskID:          task.ID,
+		IsPublic:        task.IsPublic(),
+		CollaboratorIDs: ids,
+		CanEdit:         task.CanUserEdit(uint(actor.UserID), actor.IsAdmin),
+		CanManage:       canManageTaskPermissions(task, actor),
+		IsOwner:         actor.IsAdmin || (task.CreatedBy != 0 && task.CreatedBy == uint(actor.UserID)),
+		IsCollaborator:  task.HasCollaborator(uint(actor.UserID)),
+	}
+}
+
 // GetTaskTree returns nested workspace nodes for the left tree.
 func (s *Service) GetTaskTree(ctx context.Context) ([]*TaskTreeNode, error) {
 	return s.GetTaskTreeForActor(ctx, executionapp.Actor{IsAdmin: true})
@@ -476,23 +579,9 @@ func (s *Service) UpdateTaskForActor(ctx context.Context, actor executionapp.Act
 	if err != nil {
 		return nil, err
 	}
-	// Non-owner and non-admin cannot alter visibility (is_public) or collaborator list
-	if !actor.IsAdmin && (task.CreatedBy != 0 && task.CreatedBy != uint(actor.UserID)) {
-		if definition == nil {
-			definition = cloneJSONMap(task.Definition)
-		} else {
-			if origPub, exists := task.Definition["is_public"]; exists {
-				definition["is_public"] = origPub
-			} else {
-				delete(definition, "is_public")
-			}
-			if origCollabs, exists := task.Definition["collaborators"]; exists {
-				definition["collaborators"] = origCollabs
-			} else {
-				delete(definition, "collaborators")
-			}
-		}
-	}
+	// 任务正文更新不得修改共享字段；共享字段必须通过独立的权限接口修改。
+	// Task content updates must never change sharing fields; use the dedicated permissions API instead.
+	definition = preserveTaskPermissionFields(task.Definition, definition)
 	jobName := strings.TrimSpace(req.JobName)
 	if nodeType == TaskNodeTypeFolder {
 		content = ""

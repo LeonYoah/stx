@@ -52,7 +52,6 @@ import (
 	"github.com/LeonYoah/stx/internal/apps/plugin"
 	"github.com/LeonYoah/stx/internal/apps/stupgrade"
 	syncapp "github.com/LeonYoah/stx/internal/apps/sync"
-	"github.com/LeonYoah/stx/internal/apps/task"
 	"github.com/LeonYoah/stx/internal/apps/userwrite"
 	"github.com/LeonYoah/stx/internal/config"
 	"github.com/LeonYoah/stx/internal/db"
@@ -686,41 +685,6 @@ func Serve() {
 				packageRouter.POST("/download/:version/cancel", installerHandler.CancelDownload)
 			}
 
-			// Task 任务管理
-			// Initialize task manager and handler
-			// 初始化任务管理器和处理器
-			taskManager := task.NewManager()
-			taskHandler := task.NewHandler(taskManager)
-
-			// Task management routes 任务管理路由
-			taskRouter := apiV1Router.Group("/tasks")
-			taskRouter.Use(auth.LoginRequired())
-			{
-				// POST /api/v1/tasks - 创建任务
-				// POST /api/v1/tasks - Create task
-				taskRouter.POST("", taskHandler.CreateTask)
-
-				// GET /api/v1/tasks - 获取任务列表
-				// GET /api/v1/tasks - List tasks
-				taskRouter.GET("", taskHandler.ListTasks)
-
-				// GET /api/v1/tasks/:id - 获取任务详情
-				// GET /api/v1/tasks/:id - Get task details
-				taskRouter.GET("/:id", taskHandler.GetTask)
-
-				// POST /api/v1/tasks/:id/start - 开始执行任务
-				// POST /api/v1/tasks/:id/start - Start task
-				taskRouter.POST("/:id/start", taskHandler.StartTask)
-
-				// POST /api/v1/tasks/:id/cancel - 取消任务
-				// POST /api/v1/tasks/:id/cancel - Cancel task
-				taskRouter.POST("/:id/cancel", taskHandler.CancelTask)
-
-				// POST /api/v1/tasks/:id/retry - 重试任务
-				// POST /api/v1/tasks/:id/retry - Retry task
-				taskRouter.POST("/:id/retry", taskHandler.RetryTask)
-			}
-
 			// Sync studio 数据同步工作台
 			syncRepo := syncapp.NewRepository(db.DB(context.Background()))
 			syncService := syncapp.NewService(syncRepo)
@@ -739,6 +703,7 @@ func Serve() {
 			syncService.StartPreviewRuntime(ctx)
 			syncService.StartTaskScheduleRuntime(ctx)
 			syncHandler := syncapp.NewHandler(syncService)
+			syncHandler.SetAuditRepository(auditRepo)
 
 			apiV1Router.POST("/sync/preview/collect", syncHandler.CollectPreview)
 
@@ -752,6 +717,8 @@ func Serve() {
 					syncTaskRouter.POST("", syncHandler.CreateTask)
 					syncTaskRouter.GET("", syncHandler.ListTasks)
 					syncTaskRouter.GET("/:id", syncHandler.GetTask)
+					syncTaskRouter.GET("/:id/permissions", syncHandler.GetTaskPermissions)
+					syncTaskRouter.PUT("/:id/permissions", syncHandler.UpdateTaskPermissions)
 					syncTaskRouter.PUT("/:id", syncHandler.UpdateTask)
 					syncTaskRouter.DELETE("/:id", syncHandler.DeleteTask)
 					syncTaskRouter.POST("/:id/publish", syncHandler.PublishTask)
@@ -794,11 +761,6 @@ func Serve() {
 					syncJobRouter.POST("/:id/cancel", syncHandler.CancelJob)
 				}
 			}
-
-			// Host tasks route 主机任务路由
-			// GET /api/v1/hosts/:id/tasks - 获取主机任务列表
-			// GET /api/v1/hosts/:id/tasks - List host tasks
-			hostRouter.GET("/:id/tasks", taskHandler.ListHostTasks)
 
 			// Plugin 插件市场管理
 			// Initialize plugin repository, service and handler

@@ -44,6 +44,7 @@ func addSyncWriteCommands(root *cobra.Command, storeProvider authStoreProvider) 
 	taskCommand.AddCommand(
 		newSyncTaskCreateCommand(storeProvider),
 		newSyncTaskUpdateCommand(storeProvider),
+		newSyncTaskPermissionsCommand(storeProvider),
 		newSyncTaskPublishCommand(storeProvider),
 		newSyncTaskValidateCommand(storeProvider),
 		newSyncTaskTestConnectionsCommand(storeProvider),
@@ -94,6 +95,119 @@ func addSyncWriteCommands(root *cobra.Command, storeProvider authStoreProvider) 
 		newSyncPluginEnumValuesCommand(storeProvider),
 		newSyncPluginEnumCatalogCommand(storeProvider),
 	)
+}
+
+// newSyncTaskPermissionsCommand 提供独立的工作台权限命令，避免调用方手写完整任务更新正文。
+// newSyncTaskPermissionsCommand exposes the workbench sharing permissions without
+// forcing callers to construct the full task update payload.
+func newSyncTaskPermissionsCommand(storeProvider authStoreProvider) *cobra.Command {
+	command := &cobra.Command{
+		Use:   "permissions",
+		Short: "View or update sync task sharing permissions",
+		Long:  "View or update whether a task is public and which users may collaborate on it.",
+	}
+	command.AddCommand(
+		newSyncTaskPermissionsGetCommand(storeProvider),
+		newSyncTaskPermissionsUpdateCommand(storeProvider),
+	)
+	return command
+}
+
+// newSyncTaskPermissionsGetCommand 读取任务的权限字段。
+// newSyncTaskPermissionsGetCommand reads the permission fields from a task.
+func newSyncTaskPermissionsGetCommand(storeProvider authStoreProvider) *cobra.Command {
+	var namespace string
+
+	command := &cobra.Command{
+		Use:     "get <id>",
+		Short:   "Get sync task sharing permissions",
+		Example: "stx sync task permissions get 1",
+		Args:    usageArgs(cobra.ExactArgs(1)),
+		RunE: func(command *cobra.Command, args []string) error {
+			taskID, err := parseTaskID(args[0])
+			if err != nil {
+				return err
+			}
+			client, err := clientForNamespace(storeProvider, namespace)
+			if err != nil {
+				return err
+			}
+			operationID := "sync.task.permissions.get"
+			if err := checkSpecialOperation(command.Context(), client, operationID); err != nil {
+				return err
+			}
+
+			var data any
+			requestID, err := client.Request(command.Context(), http.MethodGet, fmt.Sprintf("/api/v1/sync/tasks/%d/permissions", taskID), nil, &data)
+			if err != nil {
+				return err
+			}
+			return renderCommandResultWithRequestID(command, operationID, requestID, data)
+		},
+	}
+	command.Flags().StringVar(&namespace, "namespace", "", "Local namespace to use")
+	return command
+}
+
+// newSyncTaskPermissionsUpdateCommand 通过独立权限接口修改共享字段，不回传任务正文。
+// newSyncTaskPermissionsUpdateCommand updates only the sharing fields through
+// the dedicated permissions endpoint, so task content is never sent back.
+func newSyncTaskPermissionsUpdateCommand(storeProvider authStoreProvider) *cobra.Command {
+	var options secureWriteOptions
+	var public, private, clearCollaborators bool
+	var collaboratorIDs []uint
+
+	command := &cobra.Command{
+		Use:     "update <id>",
+		Short:   "Update sync task sharing permissions",
+		Long:    "Replace the public flag and/or collaborator list for a sync task. Only the owner or an administrator may change these fields.",
+		Example: "stx sync task permissions update 1 --public --collaborator-id 2 --collaborator-id 3 --confirm",
+		Args:    usageArgs(cobra.ExactArgs(1)),
+		RunE: func(command *cobra.Command, args []string) error {
+			taskID, err := parseTaskID(args[0])
+			if err != nil {
+				return err
+			}
+			if public && private {
+				return clioutput.NewError(clioutput.CodeUsage, "--public and --private cannot be used together", clioutput.ExitUsage, false)
+			}
+			if clearCollaborators && command.Flags().Changed("collaborator-id") {
+				return clioutput.NewError(clioutput.CodeUsage, "--clear-collaborators cannot be used with --collaborator-id", clioutput.ExitUsage, false)
+			}
+			if !public && !private && !command.Flags().Changed("collaborator-id") && !clearCollaborators {
+				return clioutput.NewError(clioutput.CodeUsage, "one of --public, --private, --collaborator-id, or --clear-collaborators is required", clioutput.ExitUsage, false)
+			}
+
+			operationID := "sync.task.permissions.update"
+			client, headers, err := prepareSecureWrite(command, storeProvider, operationID, &options, "修改工作台任务的公开状态或协作者列表，不会修改任务正文。")
+			if err != nil {
+				return err
+			}
+
+			body := make(map[string]any, 2)
+			if public || private {
+				body["is_public"] = public
+			}
+			if clearCollaborators {
+				body["collaborator_ids"] = []uint{}
+			} else if command.Flags().Changed("collaborator-id") {
+				body["collaborator_ids"] = collaboratorIDs
+			}
+
+			var data any
+			requestID, err := client.RequestWithHeaders(command.Context(), http.MethodPut, fmt.Sprintf("/api/v1/sync/tasks/%d/permissions", taskID), body, headers, &data)
+			if err != nil {
+				return handleSecureWriteError(command, operationID, err)
+			}
+			return renderCommandResultWithRequestID(command, operationID, requestID, data)
+		},
+	}
+	addSecureWriteFlags(command, &options)
+	command.Flags().BoolVar(&public, "public", false, "Make the task visible to all users")
+	command.Flags().BoolVar(&private, "private", false, "Make the task visible only to permitted users")
+	command.Flags().UintSliceVar(&collaboratorIDs, "collaborator-id", nil, "Replace collaborators with this user ID; repeat the flag for multiple users")
+	command.Flags().BoolVar(&clearCollaborators, "clear-collaborators", false, "Remove all collaborators")
+	return command
 }
 
 // ----------------------------------------------------------------------

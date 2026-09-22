@@ -98,7 +98,7 @@ func TestValidateRejectsRepeatedNonQueryInput(t *testing.T) {
 }
 
 func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
-	require.Len(t, Registry(), 218)
+	require.Len(t, Registry(), 219)
 
 	expected := map[string]struct{}{
 		"auth.user-info.get": {}, "auth.profile.update": {}, "admin.user.list": {}, "admin.user.get": {},
@@ -106,7 +106,6 @@ func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
 		"dashboard.cluster.list": {}, "dashboard.host.list": {}, "dashboard.activity.list": {},
 		"host.list": {}, "host.get": {}, "host.agent.install-command.get": {}, "cluster.list": {}, "cluster.get": {},
 		"host.discovery.process.list": {},
-		"host.task.list":              {},
 		"cluster.node.list":           {}, "cluster.status.get": {}, "config.cluster.list": {},
 		"cluster.java-proxy.config": {},
 		"cluster.health.list":       {}, "cluster.runtime-storage.get": {},
@@ -323,7 +322,25 @@ func TestRegistryContainsDiscoveryOperationAndLegacyExceptions(t *testing.T) {
 	for _, exception := range RouteExceptions() {
 		exceptions[exception.Method+" "+exception.Route] = exception
 	}
-	require.Len(t, RouteExceptions(), 18)
+	require.Len(t, RouteExceptions(), 32)
+	require.Contains(t, exceptions, "POST /api/v1/auth/login")
+	require.Contains(t, exceptions, "POST /api/v1/auth/logout")
+	require.Contains(t, exceptions, "GET /api/v1/oauth/login")
+	require.Contains(t, exceptions, "GET /api/v1/oauth/providers")
+	require.Contains(t, exceptions, "POST /api/v1/clusters/:id/runtime-storage/imap/cleanup")
+	for _, route := range []string{
+		"DELETE /api/v1/clusters/:id/plugins/:name",
+		"DELETE /api/v1/diagnostics/auto-policies/:id",
+		"DELETE /api/v1/hosts/:id",
+		"DELETE /api/v1/monitoring/alert-policies/:id",
+		"DELETE /api/v1/monitoring/notification-channels/:id",
+		"DELETE /api/v1/monitoring/notification-routes/:id",
+		"DELETE /api/v1/plugins/:name/dependencies/:depId",
+		"DELETE /api/v1/plugins/:name/dependencies/disables/:disableId",
+		"DELETE /api/v1/plugins/:name/local",
+	} {
+		require.Contains(t, exceptions, route)
+	}
 	require.Contains(t, exceptions, "POST /api/v1/hosts/:id/discover")
 	require.Contains(t, exceptions, "POST /api/v1/hosts/:id/discover/confirm")
 	for _, route := range []string{

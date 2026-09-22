@@ -39,6 +39,13 @@ func addClusterWriteCommands(root *cobra.Command, storeProvider authStoreProvide
 	}
 	clusterCommand.AddCommand(newClusterCreateCommand(storeProvider), newClusterUpdateCommand(storeProvider))
 
+	logModeCommand := &cobra.Command{
+		Use:   "log-mode",
+		Short: "Manage cluster job log mode",
+	}
+	logModeCommand.AddCommand(newClusterLogModeUpdateCommand(storeProvider))
+	clusterCommand.AddCommand(logModeCommand)
+
 	nodeCommand := childCommand(clusterCommand, "node")
 	if nodeCommand == nil {
 		panic("generated cluster node command is missing")
@@ -49,6 +56,42 @@ func addClusterWriteCommands(root *cobra.Command, storeProvider authStoreProvide
 		newClusterNodeUpdateCommand(storeProvider),
 		newClusterNodePrecheckCommand(storeProvider),
 	)
+}
+
+// newClusterLogModeUpdateCommand 切换生成的 log4j2 作业日志配置。
+// newClusterLogModeUpdateCommand switches the generated log4j2 job-log configuration.
+func newClusterLogModeUpdateCommand(storeProvider authStoreProvider) *cobra.Command {
+	var options secureWriteOptions
+	var mode string
+	command := &cobra.Command{
+		Use:     "update <id>",
+		Short:   "Update cluster job log mode",
+		Long:    "Switch between per-job logs and a shared mixed log. The change creates a new configuration version and requires a cluster restart to take effect.",
+		Example: "stx cluster log-mode update 6 --mode per_job --confirm",
+		Args:    usageArgs(cobra.ExactArgs(1)),
+		RunE: func(command *cobra.Command, args []string) error {
+			normalizedMode := strings.ToLower(strings.TrimSpace(mode))
+			if normalizedMode != "per_job" && normalizedMode != "mixed" {
+				return clioutput.NewError(clioutput.CodeUsage, "--mode must be per_job or mixed", clioutput.ExitUsage, false)
+			}
+			operationID := "cluster.log-mode.update"
+			client, headers, err := prepareSecureWrite(command, storeProvider, operationID, &options, clusterOperationImpact(operationID))
+			if err != nil {
+				return err
+			}
+			path := fmt.Sprintf("/api/v1/clusters/%s/log-mode", url.PathEscape(args[0]))
+			var data any
+			requestID, err := client.RequestWithHeaders(command.Context(), http.MethodPost, path, map[string]any{"mode": normalizedMode}, headers, &data)
+			if err != nil {
+				return handleSecureWriteError(command, operationID, err)
+			}
+			return renderWriteResult(command, operationID, requestID, data, fmt.Sprintf("stx cluster restart %s --confirm", args[0]))
+		},
+	}
+	addSecureWriteFlags(command, &options)
+	command.Flags().StringVar(&mode, "mode", "", "Job log mode: per_job or mixed")
+	_ = command.MarkFlagRequired("mode")
+	return command
 }
 
 func newClusterCreateCommand(storeProvider authStoreProvider) *cobra.Command {

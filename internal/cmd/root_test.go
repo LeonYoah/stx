@@ -23,6 +23,7 @@ import (
 	"testing"
 
 	clioutput "github.com/LeonYoah/stx/internal/cli/output"
+	"github.com/LeonYoah/stx/internal/operation"
 	"github.com/spf13/cobra"
 )
 
@@ -218,7 +219,6 @@ func TestRootCommandRegistersSupplementalReadCommands(t *testing.T) {
 	paths := [][]string{
 		{"cluster", "health", "list"},
 		{"cluster", "runtime-storage", "get"},
-		{"host", "task", "list"},
 	}
 	for _, path := range paths {
 		found, remaining, err := command.Find(path)
@@ -290,6 +290,19 @@ func TestRootCommandDoesNotExposeDeleteOrRemoveCommands(t *testing.T) {
 		}
 	}
 	visit(root)
+}
+
+func TestRootCommandRegistersEveryOperationCommandPath(t *testing.T) {
+	root := newRootCommand(func() error { return nil })
+	for _, spec := range operation.Registry() {
+		if len(spec.CommandPath) == 0 {
+			continue
+		}
+		found, remaining, err := root.Find(spec.CommandPath)
+		if err != nil || len(remaining) != 0 || found.Name() != spec.CommandPath[len(spec.CommandPath)-1] {
+			t.Errorf("操作登记中的命令路径不可用 / registered command path is unavailable: operation=%s path=%v found=%s remaining=%v err=%v", spec.ID, spec.CommandPath, found.CommandPath(), remaining, err)
+		}
+	}
 }
 
 func TestRootCommandRegistersHostDiscoveryProcessCommand(t *testing.T) {

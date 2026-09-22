@@ -62,5 +62,6 @@ var (
 	ErrMaskedSecretCannotBeRestored   = errors.New("sync: masked secret cannot be restored from the saved task")
 	ErrTaskReadOnly                   = errors.New("sync: task is read-only for current user")
 	ErrTaskPermissionDenied           = errors.New("sync: task permission denied")
+	ErrInvalidTaskCollaborator        = errors.New("sync: collaborator user id must be greater than zero")
 	ErrGlobalVariablePermissionDenied = errors.New("sync: global variable permission denied")
 )

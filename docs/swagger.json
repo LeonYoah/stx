@@ -3123,39 +3123,6 @@
                 }
             }
         },
-        "/api/v1/hosts/{id}/tasks": {
-            "get": {
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "tasks"
-                ],
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "主机ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "integer",
-                        "description": "返回数量限制",
-                        "name": "limit",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/task.TaskListAPIResponse"
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/oauth/callback": {
             "post": {
                 "produces": [
@@ -4008,44 +3975,52 @@
                 }
             }
         },
-        "/api/v1/tasks": {
+        "/api/v1/sync/tasks/{id}/permissions": {
             "get": {
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
-                    "tasks"
+                    "Sync"
                 ],
+                "summary": "获取同步任务共享权限",
                 "parameters": [
                     {
-                        "type": "string",
-                        "description": "任务状态过滤",
-                        "name": "status",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "任务类型过滤",
-                        "name": "type",
-                        "in": "query"
-                    },
-                    {
                         "type": "integer",
-                        "description": "返回数量限制",
-                        "name": "limit",
-                        "in": "query"
+                        "description": "任务 ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
                     }
                 ],
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/task.TaskListAPIResponse"
+                            "$ref": "#/definitions/sync.TaskPermissionsResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/sync.TaskPermissionsResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/sync.TaskPermissionsResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/sync.TaskPermissionsResponse"
                         }
                     }
                 }
             },
-            "post": {
+            "put": {
                 "consumes": [
                     "application/json"
                 ],
@@ -4053,16 +4028,24 @@
                     "application/json"
                 ],
                 "tags": [
-                    "tasks"
+                    "Sync"
                 ],
+                "summary": "更新同步任务共享权限",
                 "parameters": [
                     {
-                        "description": "创建任务请求",
+                        "type": "integer",
+                        "description": "任务 ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "共享权限请求",
                         "name": "request",
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/task.CreateTaskRequest"
+                            "$ref": "#/definitions/sync.UpdateTaskPermissionsRequest"
                         }
                     }
                 ],
@@ -4070,115 +4053,25 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/task.TaskResponse"
+                            "$ref": "#/definitions/sync.TaskPermissionsResponse"
                         }
-                    }
-                }
-            }
-        },
-        "/api/v1/tasks/{id}": {
-            "get": {
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "tasks"
-                ],
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "任务ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
+                    },
+                    "400": {
+                        "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/task.TaskResponse"
+                            "$ref": "#/definitions/sync.TaskPermissionsResponse"
                         }
-                    }
-                }
-            }
-        },
-        "/api/v1/tasks/{id}/cancel": {
-            "post": {
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "tasks"
-                ],
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "任务ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
+                    },
+                    "403": {
+                        "description": "Forbidden",
                         "schema": {
-                            "$ref": "#/definitions/task.TaskResponse"
+                            "$ref": "#/definitions/sync.TaskPermissionsResponse"
                         }
-                    }
-                }
-            }
-        },
-        "/api/v1/tasks/{id}/retry": {
-            "post": {
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "tasks"
-                ],
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "任务ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/task.TaskResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/tasks/{id}/start": {
-            "post": {
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "tasks"
-                ],
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "任务ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/task.TaskResponse"
+                            "$ref": "#/definitions/sync.TaskPermissionsResponse"
                         }
                     }
                 }
@@ -8326,208 +8219,59 @@
                 }
             }
         },
-        "task.CreateTaskRequest": {
-            "type": "object",
-            "required": [
-                "host_id",
-                "type"
-            ],
-            "properties": {
-                "host_id": {
-                    "description": "HostID is the target host ID\nHostID 是目标主机 ID",
-                    "type": "integer"
-                },
-                "params": {
-                    "description": "Params contains task-specific parameters\nParams 包含任务特定的参数",
-                    "type": "object",
-                    "additionalProperties": true
-                },
-                "timeout_seconds": {
-                    "description": "TimeoutSeconds is the task timeout in seconds\nTimeoutSeconds 是任务超时时间（秒）",
-                    "type": "integer"
-                },
-                "type": {
-                    "description": "Type is the task type\nType 是任务类型",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/task.TaskType"
-                        }
-                    ]
-                }
-            }
-        },
-        "task.Task": {
+        "sync.TaskPermissions": {
             "type": "object",
             "properties": {
-                "agent_id": {
-                    "description": "AgentID is the target agent ID\nAgentID 是目标 Agent ID",
-                    "type": "string"
-                },
-                "completed_at": {
-                    "description": "CompletedAt is when the task completed\nCompletedAt 是任务完成时间",
-                    "type": "string"
-                },
-                "created_at": {
-                    "description": "CreatedAt is when the task was created\nCreatedAt 是任务创建时间",
-                    "type": "string"
-                },
-                "created_by": {
-                    "description": "CreatedBy is the user who created the task\nCreatedBy 是创建任务的用户",
-                    "type": "string"
-                },
-                "error": {
-                    "description": "Error is the error message if failed\nError 是失败时的错误消息",
-                    "type": "string"
-                },
-                "host_id": {
-                    "description": "HostID is the target host ID\nHostID 是目标主机 ID",
-                    "type": "integer"
-                },
-                "id": {
-                    "description": "ID is the unique task identifier\nID 是唯一的任务标识符",
-                    "type": "string"
-                },
-                "max_retries": {
-                    "description": "MaxRetries is the maximum number of retries\nMaxRetries 是最大重试次数",
-                    "type": "integer"
-                },
-                "message": {
-                    "description": "Message is the current status message\nMessage 是当前状态消息",
-                    "type": "string"
-                },
-                "params": {
-                    "description": "Params contains task-specific parameters\nParams 包含任务特定的参数",
-                    "type": "object",
-                    "additionalProperties": true
-                },
-                "progress": {
-                    "description": "Progress is the task progress (0-100)\nProgress 是任务进度（0-100）",
-                    "type": "integer"
-                },
-                "result": {
-                    "description": "Result contains task execution result\nResult 包含任务执行结果",
-                    "type": "object",
-                    "additionalProperties": true
-                },
-                "retry_count": {
-                    "description": "RetryCount is the number of retry attempts\nRetryCount 是重试次数",
-                    "type": "integer"
-                },
-                "retryable": {
-                    "description": "Retryable indicates if the task can be retried\nRetryable 表示任务是否可重试",
+                "can_edit": {
                     "type": "boolean"
                 },
-                "started_at": {
-                    "description": "StartedAt is when the task started executing\nStartedAt 是任务开始执行时间",
-                    "type": "string"
+                "can_manage": {
+                    "type": "boolean"
                 },
-                "status": {
-                    "description": "Status is the current task status\nStatus 是当前任务状态",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/task.TaskStatus"
-                        }
-                    ]
-                },
-                "timeout_seconds": {
-                    "description": "TimeoutSeconds is the task timeout in seconds (0 means no timeout)\nTimeoutSeconds 是任务超时时间（秒），0 表示无超时",
-                    "type": "integer"
-                },
-                "type": {
-                    "description": "Type is the task type\nType 是任务类型",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/task.TaskType"
-                        }
-                    ]
-                }
-            }
-        },
-        "task.TaskListAPIResponse": {
-            "type": "object",
-            "properties": {
-                "data": {
-                    "$ref": "#/definitions/task.TaskListResponse"
-                },
-                "error_msg": {
-                    "type": "string"
-                }
-            }
-        },
-        "task.TaskListResponse": {
-            "type": "object",
-            "properties": {
-                "tasks": {
-                    "description": "Tasks is the list of tasks\nTasks 是任务列表",
+                "collaborator_ids": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/task.Task"
+                        "type": "integer"
                     }
                 },
-                "total": {
-                    "description": "Total is the total number of tasks\nTotal 是任务总数",
+                "is_collaborator": {
+                    "type": "boolean"
+                },
+                "is_owner": {
+                    "type": "boolean"
+                },
+                "is_public": {
+                    "type": "boolean"
+                },
+                "task_id": {
                     "type": "integer"
                 }
             }
         },
-        "task.TaskResponse": {
+        "sync.TaskPermissionsResponse": {
             "type": "object",
             "properties": {
                 "data": {
-                    "$ref": "#/definitions/task.Task"
+                    "$ref": "#/definitions/sync.TaskPermissions"
                 },
                 "error_msg": {
                     "type": "string"
                 }
             }
         },
-        "task.TaskStatus": {
-            "type": "string",
-            "enum": [
-                "pending",
-                "running",
-                "success",
-                "failed",
-                "cancelled",
-                "timeout"
-            ],
-            "x-enum-varnames": [
-                "TaskStatusPending",
-                "TaskStatusRunning",
-                "TaskStatusSuccess",
-                "TaskStatusFailed",
-                "TaskStatusCancelled",
-                "TaskStatusTimeout"
-            ]
-        },
-        "task.TaskType": {
-            "type": "string",
-            "enum": [
-                "install",
-                "uninstall",
-                "upgrade",
-                "start",
-                "stop",
-                "restart",
-                "precheck",
-                "collect_logs",
-                "transfer_package",
-                "install_plugin",
-                "uninstall_plugin"
-            ],
-            "x-enum-varnames": [
-                "TaskTypeInstall",
-                "TaskTypeUninstall",
-                "TaskTypeUpgrade",
-                "TaskTypeStart",
-                "TaskTypeStop",
-                "TaskTypeRestart",
-                "TaskTypePrecheck",
-                "TaskTypeCollectLogs",
-                "TaskTypeTransferPackage",
-                "TaskTypeInstallPlugin",
-                "TaskTypeUninstallPlugin"
-            ]
+        "sync.UpdateTaskPermissionsRequest": {
+            "type": "object",
+            "properties": {
+                "collaborator_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "is_public": {
+                    "type": "boolean"
+                }
+            }
         }
     }
 }

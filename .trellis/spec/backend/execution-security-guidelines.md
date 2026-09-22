@@ -717,3 +717,101 @@ if commandType == "transfer_plugin" && resp.Status == pb.CommandStatus_RUNNING {
     commandLog.Status = audit.CommandStatusSuccess
 }
 ```
+
+## 14. 场景：工作台正文与共享权限分开修改
+
+### 14.1 范围 / 触发条件
+
+- 工作台任务正文和共享设置由不同操作修改。
+- 共享设置只包含公开状态与协作者，不应要求客户端回传任务正文。
+- 修改正文时，即使请求体包含共享字段，也不能改变已经保存的共享设置。
+
+### 14.2 接口与命令签名
+
+```text
+GET /api/v1/sync/tasks/:id/permissions
+PUT /api/v1/sync/tasks/:id/permissions
+
+stx sync task permissions get <id>
+stx sync task permissions update <id> [--public|--private]
+    [--collaborator-id <user-id>...] [--clear-collaborators]
+    --confirm [--idempotency-key <key>]
+```
+
+权限修改请求：
+
+```json
+{
+  "is_public": false,
+  "collaborator_ids": [2, 3]
+}
+```
+
+响应至少包含：
+
+```text
+task_id, is_public, collaborator_ids,
+can_edit, can_manage, is_owner, is_collaborator
+```
+
+### 14.3 接口与数据规则
+
+- `PUT /sync/tasks/:id` 只修改任务正文和基础信息；服务端必须从原记录保留 `is_public`、`collaborators`、`collaborator_ids`。
+- `PUT /sync/tasks/:id/permissions` 只修改共享设置，不保存正文，也不创建任务正文版本。
+- 只有任务所有者或管理员可以修改共享设置；拥有查看或编辑权限不等于可以管理共享设置。
+- `collaborator_ids` 使用正整数用户编号，重复值由服务端去重；空数组表示清空协作者。
+- 返回的 `collaborator_ids` 必须是数组，未配置时返回 `[]`，不能返回 `null`。
+- 网页和 CLI 的权限写请求都要发送确认、幂等与客户端来源 Header。
+- 审计使用 `operation_id=sync.task.permissions.update`，只记录修改前后的共享设置，不记录任务正文。
+
+### 14.4 校验与错误对应表
+
+| 情况 | 服务端行为 | CLI 行为 |
+| --- | --- | --- |
+| 无权查看任务 | `403` | 权限错误退出码 |
+| 非所有者、非管理员修改共享设置 | `403` | 权限错误退出码 |
+| 任务不存在 | `404` | 未找到退出码 |
+| 任务已归档 | 拒绝修改 | 输出服务端错误，不宣称成功 |
+| `collaborator_ids` 包含 `0` | `400` | 校验错误退出码 |
+| 同一协作者重复出现 | 保存去重后的数组 | 输出去重后的结果 |
+| 同时使用 `--public` 和 `--private` | 不发送请求 | 用法错误退出码 |
+| 同时使用 `--clear-collaborators` 和 `--collaborator-id` | 不发送请求 | 用法错误退出码 |
+
+### 14.5 Good / Base / Bad
+
+- Good：网页保存共享设置时只调用权限接口，正文请求不携带共享设置；审计只保存共享设置修改前后的值。
+- Base：旧客户端仍读取 `collaborators`，服务端在权限修改时同步保存 `collaborators` 与 `collaborator_ids`。
+- Bad：用完整正文更新接口修改公开状态，或为了改一个协作者而把密码、连接配置和任务正文全部回传。
+
+### 14.6 必须有的测试
+
+- Service：所有者和管理员可以修改；普通查看者、协作者不能修改；编号 `0` 被拒绝；重复编号被去重。
+- Service：正文更新请求携带伪造共享字段时，数据库中的共享设置保持不变。
+- Handler：读取与修改权限的状态码、响应数组、审计 `before/after` 正确。
+- CLI：读取命令路径正确；修改命令只发送共享字段；确认和幂等 Header 存在；冲突参数在本地拒绝。
+- 前端：共享设置保存调用专用接口，不触发正文版本更新。
+- 命令登记：所有登记了 `CommandPath` 的操作都能在 Cobra 命令树中找到。
+
+### 14.7 错误与正确示例
+
+错误：
+
+```go
+task.Definition = req.Definition // 请求可以顺便覆盖共享设置
+repo.UpdateTask(ctx, task)
+```
+
+正确：
+
+```go
+definition := preserveTaskPermissionFields(task.Definition, req.Definition)
+task.Definition = definition
+repo.UpdateTask(ctx, task)
+```
+
+修改共享设置时使用独立入口：
+
+```go
+before, after, err := service.UpdateTaskPermissionsForActor(ctx, actor, taskID, req)
+recordPermissionAudit(before, after)
+```

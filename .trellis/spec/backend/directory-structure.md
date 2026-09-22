@@ -32,8 +32,7 @@ internal/
 │   ├── oauth/               # OAuth 提供商（GitHub、Google）
 │   ├── plugin/              # 插件市场、安装到集群
 │   ├── stupgrade/           # STX 自身升级
-│   ├── sync/                # 数据同步工作台
-│   └── task/                # 任务管理
+│   └── sync/                # 数据同步工作台
 ├── cmd/                     # 入口（root、api、worker、scheduler）
 ├── config/                  # 全局配置加载与校验
 ├── db/                      # 数据库初始化、迁移（GORM）

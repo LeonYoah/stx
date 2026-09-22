@@ -358,6 +358,21 @@ export interface CreateSyncTaskRequest {
 
 export interface UpdateSyncTaskRequest extends CreateSyncTaskRequest {}
 
+export interface SyncTaskPermissions {
+  task_id: number;
+  is_public: boolean;
+  collaborator_ids: number[];
+  can_edit: boolean;
+  can_manage: boolean;
+  is_owner: boolean;
+  is_collaborator: boolean;
+}
+
+export interface UpdateSyncTaskPermissionsRequest {
+  is_public?: boolean;
+  collaborator_ids?: number[];
+}
+
 export interface PublishSyncTaskRequest {
   comment?: string;
 }

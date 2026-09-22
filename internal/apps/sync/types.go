@@ -51,6 +51,13 @@ type UpdateTaskRequest struct {
 	Definition    JSONMap `json:"definition"`
 }
 
+// UpdateTaskPermissionsRequest 表示一次只修改共享权限字段的请求。
+// UpdateTaskPermissionsRequest represents a partial sharing-permission update.
+type UpdateTaskPermissionsRequest struct {
+	IsPublic        *bool  `json:"is_public"`
+	CollaboratorIDs []uint `json:"collaborator_ids"`
+}
+
 // PublishTaskRequest represents the payload for publishing a sync task.
 type PublishTaskRequest struct {
 	Comment string `json:"comment"`

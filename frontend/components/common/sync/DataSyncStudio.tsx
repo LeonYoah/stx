@@ -3712,35 +3712,29 @@ export function DataSyncStudio() {
     }
     try {
       const currentTask = await services.sync.getTask(editor.id);
+      const collaboratorIds = Array.isArray(editor.definition?.collaborator_ids)
+        ? (editor.definition.collaborator_ids as number[])
+        : Array.isArray(editor.definition?.collaborators)
+          ? (editor.definition.collaborators as number[])
+          : [];
+      const permissions = await services.sync.updateTaskPermissions(editor.id, {
+        is_public: editor.isPublic ?? true,
+        collaborator_ids: collaboratorIds,
+      });
       const nextDefinition = {
         ...(currentTask.definition || {}),
-        ...(editor.definition || {}),
-        is_public: editor.isPublic ?? true,
-        collaborator_ids: Array.isArray(editor.definition?.collaborator_ids)
-          ? editor.definition.collaborator_ids
-          : Array.isArray(editor.definition?.collaborators)
-            ? editor.definition.collaborators
-            : [],
-        collaborators: Array.isArray(editor.definition?.collaborators)
-          ? editor.definition.collaborators
-          : Array.isArray(editor.definition?.collaborator_ids)
-            ? editor.definition.collaborator_ids
-            : [],
+        is_public: permissions.is_public,
+        collaborator_ids: permissions.collaborator_ids,
+        collaborators: permissions.collaborator_ids,
       };
-      const updatedTask = await services.sync.updateTask(editor.id, {
-        parent_id: currentTask.parent_id,
-        node_type: currentTask.node_type,
-        name: currentTask.name,
-        description: currentTask.description,
-        cluster_id: currentTask.cluster_id,
-        engine_version: currentTask.engine_version,
-        mode: currentTask.mode,
-        content_format: currentTask.content_format,
-        content: currentTask.content, // 保持数据库已有文件内容，不覆写用户正在编辑的未保存草稿
-        job_name: currentTask.job_name,
-        sort_order: currentTask.sort_order,
+      const updatedTask = {
+        ...currentTask,
+        is_public: permissions.is_public,
+        can_edit: permissions.can_edit,
+        is_owner: permissions.is_owner,
+        is_collaborator: permissions.is_collaborator,
         definition: nextDefinition,
-      });
+      };
       setEditor((prev) => ({
         ...prev,
         isPublic: updatedTask.is_public ?? editor.isPublic,
@@ -5650,4 +5644,3 @@ export function DataSyncStudio() {
     </div>
   );
 }
-

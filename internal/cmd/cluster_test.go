@@ -24,6 +24,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	cliConfig "github.com/LeonYoah/stx/internal/cli/config"
@@ -126,6 +127,40 @@ func TestClusterWriteRequiresConfirmBeforeNetworkRequest(t *testing.T) {
 		"cluster", "create", "--name", "cli-cluster", "--deployment-mode", "hybrid", "--version", "2.3.13")
 	if exitCode != int(clioutput.ExitConflict) || calls != 0 {
 		t.Fatalf("缺少确认时仍发起请求: code=%d calls=%d stderr=%s", exitCode, calls, stderr)
+	}
+}
+
+func TestClusterLogModeUpdateSendsBodyAndRestartHint(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/api/v1/capabilities" {
+			writeClusterCapabilities(t, writer, "cluster.log-mode.update", "R1")
+			return
+		}
+		if request.Method != http.MethodPost || request.URL.Path != "/api/v1/clusters/6/log-mode" {
+			t.Fatalf("切换日志模式请求错误: method=%s path=%s", request.Method, request.URL.Path)
+		}
+		if request.Header.Get("X-STX-Confirm") != "true" || request.Header.Get("Idempotency-Key") != "log-mode-key" {
+			t.Fatalf("切换日志模式安全请求头错误: %#v", request.Header)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Fatalf("读取切换日志模式请求失败: %v", err)
+		}
+		if body["mode"] != "per_job" {
+			t.Fatalf("切换日志模式正文错误: %#v", body)
+		}
+		_ = json.NewEncoder(writer).Encode(map[string]any{"data": map[string]any{"saved": true, "restart_required": true, "mode": "per_job"}})
+	}))
+	defer server.Close()
+
+	store := newExecutionTestStore(t, server.URL, "test-token")
+	stdout, stderr, exitCode := runClusterCommand(t, store,
+		"cluster", "log-mode", "update", "6", "--mode", "per_job", "--confirm", "--idempotency-key", "log-mode-key")
+	if exitCode != int(clioutput.ExitSuccess) {
+		t.Fatalf("切换日志模式命令失败: code=%d stdout=%s stderr=%s", exitCode, stdout, stderr)
+	}
+	if !strings.Contains(stdout, `"next_command":"stx cluster restart 6 --confirm"`) {
+		t.Fatalf("切换日志模式结果缺少重启提示: %s", stdout)
 	}
 }
 

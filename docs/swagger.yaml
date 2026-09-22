@@ -2864,202 +2864,41 @@ definitions:
       supports_slot_num:
         type: boolean
     type: object
-  task.CreateTaskRequest:
+  sync.TaskPermissions:
     properties:
-      host_id:
-        description: |-
-          HostID is the target host ID
-          HostID 是目标主机 ID
-        type: integer
-      params:
-        additionalProperties: true
-        description: |-
-          Params contains task-specific parameters
-          Params 包含任务特定的参数
-        type: object
-      timeout_seconds:
-        description: |-
-          TimeoutSeconds is the task timeout in seconds
-          TimeoutSeconds 是任务超时时间（秒）
-        type: integer
-      type:
-        allOf:
-        - $ref: '#/definitions/task.TaskType'
-        description: |-
-          Type is the task type
-          Type 是任务类型
-    required:
-    - host_id
-    - type
-    type: object
-  task.Task:
-    properties:
-      agent_id:
-        description: |-
-          AgentID is the target agent ID
-          AgentID 是目标 Agent ID
-        type: string
-      completed_at:
-        description: |-
-          CompletedAt is when the task completed
-          CompletedAt 是任务完成时间
-        type: string
-      created_at:
-        description: |-
-          CreatedAt is when the task was created
-          CreatedAt 是任务创建时间
-        type: string
-      created_by:
-        description: |-
-          CreatedBy is the user who created the task
-          CreatedBy 是创建任务的用户
-        type: string
-      error:
-        description: |-
-          Error is the error message if failed
-          Error 是失败时的错误消息
-        type: string
-      host_id:
-        description: |-
-          HostID is the target host ID
-          HostID 是目标主机 ID
-        type: integer
-      id:
-        description: |-
-          ID is the unique task identifier
-          ID 是唯一的任务标识符
-        type: string
-      max_retries:
-        description: |-
-          MaxRetries is the maximum number of retries
-          MaxRetries 是最大重试次数
-        type: integer
-      message:
-        description: |-
-          Message is the current status message
-          Message 是当前状态消息
-        type: string
-      params:
-        additionalProperties: true
-        description: |-
-          Params contains task-specific parameters
-          Params 包含任务特定的参数
-        type: object
-      progress:
-        description: |-
-          Progress is the task progress (0-100)
-          Progress 是任务进度（0-100）
-        type: integer
-      result:
-        additionalProperties: true
-        description: |-
-          Result contains task execution result
-          Result 包含任务执行结果
-        type: object
-      retry_count:
-        description: |-
-          RetryCount is the number of retry attempts
-          RetryCount 是重试次数
-        type: integer
-      retryable:
-        description: |-
-          Retryable indicates if the task can be retried
-          Retryable 表示任务是否可重试
+      can_edit:
         type: boolean
-      started_at:
-        description: |-
-          StartedAt is when the task started executing
-          StartedAt 是任务开始执行时间
-        type: string
-      status:
-        allOf:
-        - $ref: '#/definitions/task.TaskStatus'
-        description: |-
-          Status is the current task status
-          Status 是当前任务状态
-      timeout_seconds:
-        description: |-
-          TimeoutSeconds is the task timeout in seconds (0 means no timeout)
-          TimeoutSeconds 是任务超时时间（秒），0 表示无超时
-        type: integer
-      type:
-        allOf:
-        - $ref: '#/definitions/task.TaskType'
-        description: |-
-          Type is the task type
-          Type 是任务类型
-    type: object
-  task.TaskListAPIResponse:
-    properties:
-      data:
-        $ref: '#/definitions/task.TaskListResponse'
-      error_msg:
-        type: string
-    type: object
-  task.TaskListResponse:
-    properties:
-      tasks:
-        description: |-
-          Tasks is the list of tasks
-          Tasks 是任务列表
+      can_manage:
+        type: boolean
+      collaborator_ids:
         items:
-          $ref: '#/definitions/task.Task'
+          type: integer
         type: array
-      total:
-        description: |-
-          Total is the total number of tasks
-          Total 是任务总数
+      is_collaborator:
+        type: boolean
+      is_owner:
+        type: boolean
+      is_public:
+        type: boolean
+      task_id:
         type: integer
     type: object
-  task.TaskResponse:
+  sync.TaskPermissionsResponse:
     properties:
       data:
-        $ref: '#/definitions/task.Task'
+        $ref: '#/definitions/sync.TaskPermissions'
       error_msg:
         type: string
     type: object
-  task.TaskStatus:
-    enum:
-    - pending
-    - running
-    - success
-    - failed
-    - cancelled
-    - timeout
-    type: string
-    x-enum-varnames:
-    - TaskStatusPending
-    - TaskStatusRunning
-    - TaskStatusSuccess
-    - TaskStatusFailed
-    - TaskStatusCancelled
-    - TaskStatusTimeout
-  task.TaskType:
-    enum:
-    - install
-    - uninstall
-    - upgrade
-    - start
-    - stop
-    - restart
-    - precheck
-    - collect_logs
-    - transfer_package
-    - install_plugin
-    - uninstall_plugin
-    type: string
-    x-enum-varnames:
-    - TaskTypeInstall
-    - TaskTypeUninstall
-    - TaskTypeUpgrade
-    - TaskTypeStart
-    - TaskTypeStop
-    - TaskTypeRestart
-    - TaskTypePrecheck
-    - TaskTypeCollectLogs
-    - TaskTypeTransferPackage
-    - TaskTypeInstallPlugin
-    - TaskTypeUninstallPlugin
+  sync.UpdateTaskPermissionsRequest:
+    properties:
+      collaborator_ids:
+        items:
+          type: integer
+        type: array
+      is_public:
+        type: boolean
+    type: object
 info:
   contact: {}
   title: STX
@@ -5066,27 +4905,6 @@ paths:
             $ref: '#/definitions/installer.PrecheckResponse'
       tags:
       - installation
-  /api/v1/hosts/{id}/tasks:
-    get:
-      parameters:
-      - description: 主机ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      - description: 返回数量限制
-        in: query
-        name: limit
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/task.TaskListAPIResponse'
-      tags:
-      - tasks
   /api/v1/oauth/callback:
     post:
       parameters:
@@ -5629,20 +5447,13 @@ paths:
             $ref: '#/definitions/plugin.ListPluginsResponse'
       tags:
       - plugins
-  /api/v1/tasks:
+  /api/v1/sync/tasks/{id}/permissions:
     get:
       parameters:
-      - description: 任务状态过滤
-        in: query
-        name: status
-        type: string
-      - description: 任务类型过滤
-        in: query
-        name: type
-        type: string
-      - description: 返回数量限制
-        in: query
-        name: limit
+      - description: 任务 ID
+        in: path
+        name: id
+        required: true
         type: integer
       produces:
       - application/json
@@ -5650,94 +5461,57 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/task.TaskListAPIResponse'
+            $ref: '#/definitions/sync.TaskPermissionsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/sync.TaskPermissionsResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/sync.TaskPermissionsResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/sync.TaskPermissionsResponse'
+      summary: 获取同步任务共享权限
       tags:
-      - tasks
-    post:
+      - Sync
+    put:
       consumes:
       - application/json
       parameters:
-      - description: 创建任务请求
+      - description: 任务 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 共享权限请求
         in: body
         name: request
         required: true
         schema:
-          $ref: '#/definitions/task.CreateTaskRequest'
+          $ref: '#/definitions/sync.UpdateTaskPermissionsRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/task.TaskResponse'
-      tags:
-      - tasks
-  /api/v1/tasks/{id}:
-    get:
-      parameters:
-      - description: 任务ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
+            $ref: '#/definitions/sync.TaskPermissionsResponse'
+        "400":
+          description: Bad Request
           schema:
-            $ref: '#/definitions/task.TaskResponse'
-      tags:
-      - tasks
-  /api/v1/tasks/{id}/cancel:
-    post:
-      parameters:
-      - description: 任务ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
+            $ref: '#/definitions/sync.TaskPermissionsResponse'
+        "403":
+          description: Forbidden
           schema:
-            $ref: '#/definitions/task.TaskResponse'
-      tags:
-      - tasks
-  /api/v1/tasks/{id}/retry:
-    post:
-      parameters:
-      - description: 任务ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
+            $ref: '#/definitions/sync.TaskPermissionsResponse'
+        "404":
+          description: Not Found
           schema:
-            $ref: '#/definitions/task.TaskResponse'
+            $ref: '#/definitions/sync.TaskPermissionsResponse'
+      summary: 更新同步任务共享权限
       tags:
-      - tasks
-  /api/v1/tasks/{id}/start:
-    post:
-      parameters:
-      - description: 任务ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/task.TaskResponse'
-      tags:
-      - tasks
+      - Sync
 swagger: "2.0"

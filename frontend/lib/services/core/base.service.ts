@@ -124,6 +124,23 @@ export abstract class BaseService {
   }
 
   /**
+   * 使用完整 Axios 配置发送 PUT 请求。
+   * Send a PUT request with a complete Axios configuration.
+   */
+  protected static async putWithConfig<T>(
+    path: string,
+    data?: unknown,
+    config?: AxiosRequestConfig,
+  ): Promise<T> {
+    const response = await apiClient.put<ApiResponse<T>>(
+      this.getFullPath(path),
+      data,
+      config,
+    );
+    return response.data.data;
+  }
+
+  /**
    * 带查询参数的PUT请求
    * @template T - 响应数据类型
    * @param path - API路径

@@ -42,14 +42,6 @@ func additionalReadOperationSpecs() []OperationSpec {
 			OutputExample: `{"api_version":"v1","operation_id":"cluster.runtime-storage.get","request_id":"req_example","data":{"cluster_id":8},"result_meta":{"complete":true}}`,
 		},
 		{
-			ID: "host.task.list", CommandPath: []string{"host", "task", "list"}, Summary: "List tasks associated with a host",
-			GeneratedCLI: true, Method: "GET", Route: "/api/v1/hosts/:id/tasks", Mode: ModeNormal,
-			AuthRequired: true, Risk: RiskR0, Revision: 1, SupportsPick: true,
-			Input:         []InputSpec{{Name: "id", Location: InputPath, Required: true, Description: "Host ID"}},
-			Example:       "stx host task list 10",
-			OutputExample: `{"api_version":"v1","operation_id":"host.task.list","request_id":"req_example","data":[],"result_meta":{"complete":true}}`,
-		},
-		{
 			ID: "cluster.runtime-storage.validate", CommandPath: []string{"cluster", "runtime-storage", "validate"}, Summary: "Validate cluster runtime storage",
 			GeneratedCLI: true, Method: "POST", Route: "/api/v1/clusters/:id/runtime-storage/:kind/validate", Mode: ModeNormal,
 			AuthRequired: true, Risk: RiskR0, Revision: 1, UsesAgent: true, SupportsPick: true,

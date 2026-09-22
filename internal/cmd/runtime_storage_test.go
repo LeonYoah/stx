@@ -72,11 +72,11 @@ func TestRuntimeStorageCommandsSendExpectedRequests(t *testing.T) {
 	store := newExecutionTestStore(t, server.URL, "test-token")
 	commands := [][]string{
 		{"cluster", "runtime-storage", "validate", "6", "checkpoint"},
-		{"cluster", "runtime-storage", "list", "6", "imap", "--path", "wal", "--recursive", "--limit", "50"},
-		{"cluster", "runtime-storage", "preview", "6", "checkpoint", "--path", "checkpoint.dat", "--max-bytes", "4096"},
-		{"cluster", "runtime-storage", "checkpoint", "inspect", "6", "--path", "checkpoint.dat"},
-		{"cluster", "runtime-storage", "imap", "inspect", "6", "--path", "imap.wal"},
-		{"installer", "runtime-storage", "validate", "--host-id", "10", "--kind", "imap", "--imap-file", writeRuntimeStorageJSONFile(t, `{"storage_type":"DISABLED"}`)},
+		{"cluster", "runtime-storage", "list", "6", "imap", "--request-file", writeRuntimeStorageJSONFile(t, `{"path":"wal","recursive":true,"limit":50}`)},
+		{"cluster", "runtime-storage", "preview", "6", "checkpoint", "--request-file", writeRuntimeStorageJSONFile(t, `{"path":"checkpoint.dat","max_bytes":4096}`)},
+		{"cluster", "runtime-storage", "checkpoint", "inspect", "6", "--request-file", writeRuntimeStorageJSONFile(t, `{"path":"checkpoint.dat"}`)},
+		{"cluster", "runtime-storage", "imap", "inspect", "6", "--request-file", writeRuntimeStorageJSONFile(t, `{"path":"imap.wal"}`)},
+		{"installer", "runtime-storage", "validate", "--request-file", writeRuntimeStorageJSONFile(t, `{"host_ids":[10],"kind":"imap","imap":{"storage_type":"DISABLED"}}`)},
 	}
 	for _, args := range commands {
 		stdout, stderr, exitCode := runRuntimeStorageCommand(t, store, args...)
@@ -133,7 +133,6 @@ func runRuntimeStorageCommand(t *testing.T, store *cliConfig.Store, args ...stri
 	root := &cobra.Command{Use: "stx", SilenceUsage: true, SilenceErrors: true}
 	clioutput.AddGlobalFlags(root)
 	root.AddCommand(newGeneratedCommands(storeProvider)...)
-	addRuntimeStorageCommands(root, storeProvider)
 	var stdout, stderr bytes.Buffer
 	exitCode := executeCommand(root, args, &stdout, &stderr)
 	return stdout.String(), stderr.String(), exitCode

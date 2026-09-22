@@ -26,7 +26,7 @@ import (
 
 // RegistryRevision 是操作登记表的兼容修订号。
 // RegistryRevision is the compatibility revision of the operation registry.
-const RegistryRevision = 24
+const RegistryRevision = 25
 
 var registry = append([]OperationSpec{
 	{
@@ -149,7 +149,7 @@ var registry = append([]OperationSpec{
 		ID:           "auth.profile.update",
 		CommandPath:  []string{"auth", "profile", "update"},
 		Summary:      "Update the current user profile",
-		GeneratedCLI: false,
+		GeneratedCLI: true,
 		Method:       "PUT",
 		Route:        "/api/v1/auth/profile",
 		Mode:         ModeNormal,
@@ -162,10 +162,9 @@ var registry = append([]OperationSpec{
 			Message: "修改当前用户的邮箱或语言偏好，可再次修改恢复。",
 		},
 		Input: []InputSpec{
-			{Name: "email", Location: InputBody, Required: false, Description: "Email address"},
-			{Name: "language", Location: InputBody, Required: false, Description: "Language preference: zh or en"},
+			{Name: "request", Location: InputBody, Required: true, Description: "Profile fields to update"},
 		},
-		Example: "stx auth profile update --language en --confirm",
+		Example: "stx auth profile update --request-file ./profile.json --confirm",
 		OutputExample: `{
   "api_version": "v1",
   "operation_id": "auth.profile.update",

@@ -313,7 +313,7 @@ export function StudioQuickOpenDialog({
         <CommandGroup heading={t('quickActions')}>
           {onNewFile ? (
             <CommandItem
-              value='quick-action-new-file 新建任务文件'
+              value={`quick-action-new-file ${t('newFile')}`}
               onSelect={() => {
                 onOpenChange(false);
                 onNewFile();
@@ -328,7 +328,7 @@ export function StudioQuickOpenDialog({
           ) : null}
           {onNewFolder ? (
             <CommandItem
-              value='quick-action-new-folder 新建文件夹'
+              value={`quick-action-new-folder ${t('newFolder')}`}
               onSelect={() => {
                 onOpenChange(false);
                 onNewFolder();

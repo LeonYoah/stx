@@ -101,7 +101,7 @@ func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
 	require.Len(t, Registry(), 218)
 
 	expected := map[string]struct{}{
-		"auth.user-info.get": {}, "admin.user.list": {}, "admin.user.get": {},
+		"auth.user-info.get": {}, "auth.profile.update": {}, "admin.user.list": {}, "admin.user.get": {},
 		"dashboard.overview.get": {}, "dashboard.stats.get": {},
 		"dashboard.cluster.list": {}, "dashboard.host.list": {}, "dashboard.activity.list": {},
 		"host.list": {}, "host.get": {}, "host.agent.install-command.get": {}, "cluster.list": {}, "cluster.get": {},
@@ -110,6 +110,9 @@ func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
 		"cluster.node.list":           {}, "cluster.status.get": {}, "config.cluster.list": {},
 		"cluster.java-proxy.config": {},
 		"cluster.health.list":       {}, "cluster.runtime-storage.get": {},
+		"cluster.runtime-storage.validate": {}, "cluster.runtime-storage.list": {},
+		"cluster.runtime-storage.preview": {}, "cluster.runtime-storage.checkpoint.inspect": {},
+		"cluster.runtime-storage.imap.inspect": {}, "installer.runtime-storage.validate": {},
 		"cluster.node.logs": {},
 		"cluster.start":     {}, "cluster.stop": {}, "cluster.restart": {},
 		"cluster.node.start": {}, "cluster.node.stop": {}, "cluster.node.restart": {},

@@ -75,6 +75,7 @@ type RuntimeStorageCheckpointSourceStateInspectResult struct {
 	PipelineState       map[string]interface{}   `json:"pipeline_state,omitempty"`
 	CompletedCheckpoint map[string]interface{}   `json:"completed_checkpoint,omitempty"`
 	Sources             []map[string]interface{} `json:"sources,omitempty"`
+	Sinks               []map[string]interface{} `json:"sinks,omitempty"`
 	UnsupportedSources  []map[string]interface{} `json:"unsupported_sources,omitempty"`
 	Warnings            []string                 `json:"warnings,omitempty"`
 	ErrorMessage        string                   `json:"error_message,omitempty"`
@@ -430,6 +431,9 @@ func decodeRuntimeStorageCheckpointSourceStateInspectResult(
 	}
 	if raw := strings.TrimSpace(result.Details["sources_json"]); raw != "" {
 		_ = json.Unmarshal([]byte(raw), &inspect.Sources)
+	}
+	if raw := strings.TrimSpace(result.Details["sinks_json"]); raw != "" {
+		_ = json.Unmarshal([]byte(raw), &inspect.Sinks)
 	}
 	if raw := strings.TrimSpace(result.Details["unsupported_sources_json"]); raw != "" {
 		_ = json.Unmarshal([]byte(raw), &inspect.UnsupportedSources)

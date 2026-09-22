@@ -18,8 +18,6 @@
 package io.github.leonyoah.stx.proxy.service.storage;
 
 import org.apache.seatunnel.engine.checkpoint.storage.PipelineState;
-import org.apache.seatunnel.engine.serializer.api.Serializer;
-import org.apache.seatunnel.engine.serializer.protobuf.ProtoStuffSerializer;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataInputStream;
@@ -27,6 +25,9 @@ import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 
+import io.github.leonyoah.stx.proxy.adapter.CompletedCheckpointData;
+import io.github.leonyoah.stx.proxy.adapter.SeaTunnelEngineAdapter;
+import io.github.leonyoah.stx.proxy.adapter.SeaTunnelEngineAdapterRegistry;
 import io.github.leonyoah.stx.proxy.service.plugin.PluginClassLoaderUtils;
 import io.github.leonyoah.stx.proxy.service.support.ProbeExecutionUtils;
 import io.github.leonyoah.stx.proxy.service.support.ProxyException;
@@ -45,11 +46,7 @@ import java.util.Map;
 
 public class CheckpointDeserializeService {
 
-    private static final String COMPLETED_CHECKPOINT_CLASS =
-            "org.apache.seatunnel.engine.server.checkpoint.CompletedCheckpoint";
-
     private final RuntimeStoragePreviewService previewService = new RuntimeStoragePreviewService();
-    private final Serializer serializer = new ProtoStuffSerializer();
 
     public Map<String, Object> inspect(Map<String, Object> request) {
         return ProbeExecutionUtils.runWithTimeout(
@@ -59,28 +56,48 @@ public class CheckpointDeserializeService {
                 () -> doInspect(request));
     }
 
-    private Map<String, Object> doInspect(Map<String, Object> request) throws IOException {
+    private Map<String, Object> doInspect(Map<String, Object> request) throws Exception {
         Map<String, Object> preview = previewService.preview(request);
         byte[] rawBytes = loadRawBytes(request);
-        PipelineState pipelineState = serializer.deserialize(rawBytes, PipelineState.class);
-        Object checkpoint = deserializeCompletedCheckpoint(pipelineState.getStates());
 
-        Map<String, Object> response = new LinkedHashMap<>(preview);
-        response.put("pipelineState", buildPipelineState(pipelineState));
-        response.put("completedCheckpoint", buildCompletedCheckpoint(checkpoint));
-        response.put("actionStates", buildActionStates(asMap(invoke(checkpoint, "getTaskStates"))));
-        response.put(
-                "taskStatistics",
-                buildTaskStatistics(asMap(invoke(checkpoint, "getTaskStatistics"))));
-        return response;
-    }
-
-    private Object deserializeCompletedCheckpoint(byte[] bytes) throws IOException {
+        List<String> pluginJars = ProxyRequestUtils.getStringList(request, "pluginJars");
+        ClassLoader parent = Thread.currentThread().getContextClassLoader();
+        URLClassLoader urlClassLoader = null;
         try {
-            Class<?> clazz = Class.forName(COMPLETED_CHECKPOINT_CLASS);
-            return serializer.deserialize(bytes, clazz);
-        } catch (ClassNotFoundException e) {
-            throw new ProxyException(500, "CompletedCheckpoint class is unavailable", e);
+            ClassLoader runtimeClassLoader = parent;
+            if (!pluginJars.isEmpty()) {
+                urlClassLoader = PluginClassLoaderUtils.createClassLoader(pluginJars, parent);
+                runtimeClassLoader = urlClassLoader;
+            } else {
+                urlClassLoader = PluginClassLoaderUtils.createClassLoaderFromSeatunnelHome(parent);
+                if (urlClassLoader != null) {
+                    runtimeClassLoader = urlClassLoader;
+                }
+            }
+
+            String version = ProxyRequestUtils.getOptionalString(request, "version");
+            SeaTunnelEngineAdapter adapter =
+                    SeaTunnelEngineAdapterRegistry.getInstance().getAdapter(version);
+
+            CompletedCheckpointData checkpointData =
+                    adapter.deserializeCheckpoint(rawBytes, runtimeClassLoader);
+
+            Map<String, Object> response = new LinkedHashMap<>(preview);
+            response.put("adapterVersion", adapter.getAdapterVersion());
+            response.put("isIncremental", checkpointData.isIncremental());
+            response.put("isSavepoint", checkpointData.isSavepoint());
+            response.put("pipelineState", buildPipelineState(checkpointData.getPipelineState()));
+            response.put(
+                    "completedCheckpoint",
+                    buildCompletedCheckpoint(checkpointData.getCompletedCheckpoint()));
+            response.put("actionStates", buildActionStates(checkpointData.getActionStates()));
+            response.put("taskStatistics", buildTaskStatistics(checkpointData.getTaskStatistics()));
+            if (!checkpointData.getExtraMetadata().isEmpty()) {
+                response.put("extraMetadata", checkpointData.getExtraMetadata());
+            }
+            return response;
+        } finally {
+            PluginClassLoaderUtils.closeQuietly(urlClassLoader);
         }
     }
 

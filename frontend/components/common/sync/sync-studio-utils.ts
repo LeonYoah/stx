@@ -16,7 +16,6 @@
  */
 
 import type {useTranslations} from 'next-intl';
-import {cn} from '@/lib/utils';
 import type {
   RuntimeStorageCheckpointInspectJobConfig,
   RuntimeStorageCheckpointInspectResult,
@@ -2325,6 +2324,17 @@ export function summarizeCheckpointSourceState(
     progress = String(incrementalPhase.className).split('.').pop() || '-';
   }
 
+  const normalized = toObject(sourceState?.normalizedProgress);
+  if (normalized.primaryValue) {
+    offset = String(normalized.primaryValue);
+  }
+  if (Array.isArray(normalized.targetTables) && normalized.targetTables.length > 0) {
+    target = (normalized.targetTables as unknown[]).map(String).join(', ');
+  }
+  if (normalized.secondaryValue) {
+    progress = String(normalized.secondaryValue);
+  }
+
   return {
     target,
     offset,
@@ -2667,7 +2677,7 @@ export function resolveDefaultPreviewHTTPSinkURL(): string {
   return 'http://127.0.0.1:17800/api/v1/sync/preview/collect';
 }
 
-export function buildDefaultContent(format: SyncFormat): string {
+export function buildDefaultContent(_format: SyncFormat): string {
   return (
     'env {\n' +
     '  job.mode = "BATCH"\n' +

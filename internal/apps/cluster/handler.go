@@ -22,6 +22,7 @@ package cluster
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httputil"
@@ -346,6 +347,26 @@ func (h *Handler) RestartSTXJavaProxy(c *gin.Context) {
 	h.handleSTXJavaProxyOperation(c, func(ctx context.Context, clusterID uint) (*STXJavaProxyStatus, error) {
 		return h.service.RestartSTXJavaProxy(ctx, clusterID)
 	})
+}
+
+// UpdateSTXJavaProxyConfig handles PUT/POST /api/v1/clusters/:id/stx-java-proxy/config.
+func (h *Handler) UpdateSTXJavaProxyConfig(c *gin.Context) {
+	clusterID, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, STXJavaProxyResponse{ErrorMsg: "invalid cluster id"})
+		return
+	}
+	var req UpdateSTXJavaProxyConfigRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, STXJavaProxyResponse{ErrorMsg: fmt.Sprintf("invalid request payload: %v", err)})
+		return
+	}
+	status, err := h.service.UpdateSTXJavaProxyConfig(c.Request.Context(), uint(clusterID), &req)
+	if err != nil {
+		c.JSON(h.getStatusCodeForError(err), STXJavaProxyResponse{ErrorMsg: err.Error(), Data: status})
+		return
+	}
+	c.JSON(http.StatusOK, STXJavaProxyResponse{Data: status})
 }
 
 // PreviewSTXJavaProxyServiceLog handles GET /api/v1/clusters/:id/stx-java-proxy/logs.

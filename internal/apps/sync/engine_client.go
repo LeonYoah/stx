@@ -70,6 +70,8 @@ type EngineSubmitResponse struct {
 	JobName         string `json:"jobName"`
 	APIMode         string `json:"apiMode,omitempty"`
 	EndpointBaseURL string `json:"endpointBaseUrl,omitempty"`
+	EngineURL       string `json:"engineUrl,omitempty"`
+	EngineMethod    string `json:"engineMethod,omitempty"`
 }
 
 // EngineJobInfo describes job-info response subset used by sync studio.
@@ -215,6 +217,8 @@ func (c *SeaTunnelEngineClient) Submit(ctx context.Context, req *EngineSubmitReq
 	}
 	result.APIMode = "v2"
 	result.EndpointBaseURL = strings.TrimSpace(req.Endpoint.BaseURL)
+	result.EngineURL = targetURL
+	result.EngineMethod = http.MethodPost
 	return &result, nil
 }
 
@@ -511,6 +515,8 @@ func (c *SeaTunnelEngineClient) submitV1(ctx context.Context, req *EngineSubmitR
 	}
 	result.APIMode = "v1"
 	result.EndpointBaseURL = strings.TrimSpace(req.Endpoint.LegacyURL)
+	result.EngineURL = targetURL
+	result.EngineMethod = http.MethodPost
 	return &result, nil
 }
 

@@ -70,7 +70,7 @@ public class CheckpointSourceStateInspectService {
                 () -> doInspect(request));
     }
 
-    private Map<String, Object> doInspect(Map<String, Object> request) throws IOException {
+    private Map<String, Object> doInspect(Map<String, Object> request) throws Exception {
         List<String> pluginJars = ProxyRequestUtils.getStringList(request, "pluginJars");
         ClassLoader parent = Thread.currentThread().getContextClassLoader();
         URLClassLoader urlClassLoader = null;
@@ -79,17 +79,27 @@ public class CheckpointSourceStateInspectService {
             if (!pluginJars.isEmpty()) {
                 urlClassLoader = PluginClassLoaderUtils.createClassLoader(pluginJars, parent);
                 runtimeClassLoader = urlClassLoader;
+            } else {
+                urlClassLoader = PluginClassLoaderUtils.createClassLoaderFromSeatunnelHome(parent);
+                if (urlClassLoader != null) {
+                    runtimeClassLoader = urlClassLoader;
+                }
             }
             Thread currentThread = Thread.currentThread();
             ClassLoader originalClassLoader = currentThread.getContextClassLoader();
             currentThread.setContextClassLoader(runtimeClassLoader);
             try {
                 byte[] rawBytes = loadRawBytes(request);
-                PipelineState pipelineState = serializer.deserialize(rawBytes, PipelineState.class);
-                Object checkpoint =
-                        deserializeCompletedCheckpoint(
-                                pipelineState.getStates(), runtimeClassLoader);
-                Map<?, ?> actionStates = asMap(invoke(checkpoint, "getTaskStates"));
+                String version = ProxyRequestUtils.getOptionalString(request, "version");
+                io.github.leonyoah.stx.proxy.adapter.SeaTunnelEngineAdapter adapter =
+                        io.github.leonyoah.stx.proxy.adapter.SeaTunnelEngineAdapterRegistry
+                                .getInstance()
+                                .getAdapter(version);
+                io.github.leonyoah.stx.proxy.adapter.CompletedCheckpointData checkpointData =
+                        adapter.deserializeCheckpoint(rawBytes, runtimeClassLoader);
+                PipelineState pipelineState = checkpointData.getPipelineState();
+                Object checkpoint = checkpointData.getCompletedCheckpoint();
+                Map<?, ?> actionStates = checkpointData.getActionStates();
 
                 List<String> warnings = new ArrayList<>();
                 List<Map<String, Object>> sources = new ArrayList<>();
@@ -145,23 +155,39 @@ public class CheckpointSourceStateInspectService {
                                         splitLimitPerSubtask,
                                         includeCoordinator,
                                         includeSubtaskSplits,
+                                        checkpoint,
                                         warnings));
                     } catch (Exception e) {
                         unsupportedSources.add(
-                                buildUnsupported(
-                                        target,
-                                        "DECODE_FAILED",
-                                        e.getMessage() == null
-                                                ? e.getClass().getName()
-                                                : e.getMessage()));
+                                buildUnsupported(target, "DECODE_FAILED", resolveErrorMessage(e)));
+                    }
+                }
+
+                List<Map<String, Object>> sinks = new ArrayList<>();
+                List<CheckpointSourceActionMatcher.SinkTarget> sinkTargets;
+                try {
+                    sinkTargets = actionMatcher.matchSinks(request);
+                } catch (Exception e) {
+                    warnings.add("Job configuration sink matching skipped: " + e.getMessage());
+                    sinkTargets = Collections.emptyList();
+                }
+                for (CheckpointSourceActionMatcher.SinkTarget target : sinkTargets) {
+                    Map<String, Object> actionEntry =
+                            findActionEntry(actionStates, target.getActionName());
+                    if (actionEntry != null) {
+                        sinks.add(decodeSink(target, actionEntry, checkpoint));
                     }
                 }
 
                 Map<String, Object> response = new LinkedHashMap<>();
                 response.put("ok", true);
+                response.put("adapterVersion", adapter.getAdapterVersion());
+                response.put("isIncremental", checkpointData.isIncremental());
+                response.put("isSavepoint", checkpointData.isSavepoint());
                 response.put("pipelineState", buildPipelineState(pipelineState));
                 response.put("completedCheckpoint", buildCompletedCheckpoint(checkpoint));
                 response.put("sources", sources);
+                response.put("sinks", sinks);
                 response.put("unsupportedSources", unsupportedSources);
                 response.put("warnings", warnings);
                 return response;
@@ -181,6 +207,7 @@ public class CheckpointSourceStateInspectService {
             int splitLimitPerSubtask,
             boolean includeCoordinator,
             boolean includeSubtaskSplits,
+            Object completedCheckpoint,
             List<String> warnings)
             throws Exception {
         Object actionState = actionEntry.get("actionState");
@@ -237,12 +264,17 @@ public class CheckpointSourceStateInspectService {
         source.put(
                 "subtaskStateClass",
                 resolveSubtaskClass(splitObjects, descriptor.getSplitClassName()));
-        if (includeCoordinator) {
-            source.put(
-                    "coordinator",
+
+        Map<String, Object> coordinatorProjection = null;
+        if (coordinatorStateObject != null) {
+            coordinatorProjection =
                     projectCoordinator(
-                            descriptor.getProjectorId(), coordinatorStateObject, warnings));
+                            descriptor.getProjectorId(), coordinatorStateObject, warnings);
         }
+        if (includeCoordinator && coordinatorProjection != null) {
+            source.put("coordinator", coordinatorProjection);
+        }
+
         List<Map<String, Object>> subtasks = new ArrayList<>();
         List<?> rawSubtasks = subtaskStates == null ? Collections.emptyList() : subtaskStates;
         for (int i = 0; i < rawSubtasks.size(); i++) {
@@ -270,6 +302,10 @@ public class CheckpointSourceStateInspectService {
             subtasks.add(subtask);
         }
         source.put("subtasks", subtasks);
+        source.put(
+                "normalizedProgress",
+                buildNormalizedProgress(
+                        target, descriptor, coordinatorProjection, subtasks, completedCheckpoint));
         return source;
     }
 
@@ -285,15 +321,25 @@ public class CheckpointSourceStateInspectService {
         }
         Class<?> factoryClass = Class.forName(descriptor.getFactoryClassName(), true, classLoader);
         Object factory = factoryClass.getDeclaredConstructor().newInstance();
-        if (!(factory instanceof ChangeStreamTableSourceFactory)) {
+        ChangeStreamTableSourceCheckpoint checkpoint =
+                new ChangeStreamTableSourceCheckpoint(coordinatorBytes, splitBytes);
+        if (factory instanceof ChangeStreamTableSourceFactory) {
+            return ((ChangeStreamTableSourceFactory) factory)
+                    .deserializeTableSourceState(checkpoint);
+        }
+        try {
+            Method method =
+                    factory.getClass()
+                            .getMethod(
+                                    "deserializeTableSourceState",
+                                    ChangeStreamTableSourceCheckpoint.class);
+            return (ChangeStreamTableSourceState<?, ?>) method.invoke(factory, checkpoint);
+        } catch (NoSuchMethodException ignored) {
             throw new ProxyException(
                     500,
                     "Factory does not implement ChangeStreamTableSourceFactory: "
                             + descriptor.getFactoryClassName());
         }
-        ChangeStreamTableSourceCheckpoint checkpoint =
-                new ChangeStreamTableSourceCheckpoint(coordinatorBytes, splitBytes);
-        return ((ChangeStreamTableSourceFactory) factory).deserializeTableSourceState(checkpoint);
     }
 
     private Object deserializeDefault(byte[] bytes) throws IOException {
@@ -798,13 +844,16 @@ public class CheckpointSourceStateInspectService {
     }
 
     private Map<String, Object> findActionEntry(Map<?, ?> actionStates, String actionName) {
-        if (actionStates == null) {
+        if (actionStates == null || actionName == null) {
             return null;
         }
         String expectedSuffix = "[" + actionName + "]";
         for (Map.Entry<?, ?> entry : actionStates.entrySet()) {
             String candidate = String.valueOf(invoke(entry.getKey(), "getName"));
-            if (actionName.equals(candidate) || candidate.endsWith(expectedSuffix)) {
+            if (actionName.equals(candidate)
+                    || candidate.endsWith(expectedSuffix)
+                    || candidate.contains("[" + actionName + "]")
+                    || candidate.contains("[" + actionName + "-")) {
                 Map<String, Object> result = new LinkedHashMap<>();
                 result.put("key", entry.getKey());
                 result.put("actionState", entry.getValue());
@@ -1055,6 +1104,11 @@ public class CheckpointSourceStateInspectService {
     }
 
     @SuppressWarnings("unchecked")
+    private Map<String, Object> asStringObjectMap(Object value) {
+        return value instanceof Map ? (Map<String, Object>) value : null;
+    }
+
+    @SuppressWarnings("unchecked")
     private List<?> asList(Object value) {
         return value instanceof List ? (List<?>) value : null;
     }
@@ -1085,5 +1139,372 @@ public class CheckpointSourceStateInspectService {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    private String resolveErrorMessage(Throwable e) {
+        if (e == null) {
+            return "Unknown error";
+        }
+        Throwable root = e;
+        while (root.getCause() != null && root.getCause() != root) {
+            if (root instanceof ClassNotFoundException || root instanceof NoClassDefFoundError) {
+                break;
+            }
+            root = root.getCause();
+        }
+        if (root instanceof ClassNotFoundException || root instanceof NoClassDefFoundError) {
+            String missingClass = root.getMessage();
+            return "缺少连接器类: "
+                    + missingClass
+                    + "。请确认连接器 JAR 包已正确放置在 ${SEATUNNEL_HOME}/connectors/ 目录下。";
+        }
+        return e.getMessage() == null ? e.getClass().getName() : e.getMessage();
+    }
+
+    private Map<String, Object> decodeSink(
+            CheckpointSourceActionMatcher.SinkTarget target,
+            Map<String, Object> actionEntry,
+            Object completedCheckpoint) {
+        Object actionState = actionEntry.get("actionState");
+        List<?> subtaskStates = asList(invoke(actionState, "getSubtaskStates"));
+
+        int subtaskCount = subtaskStates != null ? subtaskStates.size() : 0;
+        long totalBytes = 0;
+        int totalChunks = 0;
+        List<Map<String, Object>> subtaskProgressList = new ArrayList<>();
+        if (subtaskStates != null) {
+            for (Object st : subtaskStates) {
+                int chunks = stateChunkCount(st);
+                long bytes = stateChunkBytes(st);
+                totalChunks += chunks;
+                totalBytes += bytes;
+
+                Map<String, Object> item = new LinkedHashMap<>();
+                item.put("subtaskIndex", invoke(st, "getIndex"));
+                item.put("target", target.getPluginName() + "-" + invoke(st, "getIndex"));
+                item.put("chunks", chunks);
+                item.put("bytes", bytes);
+                item.put("status", "PREPARED");
+                subtaskProgressList.add(item);
+            }
+        }
+
+        Map<String, Object> sink = new LinkedHashMap<>();
+        sink.put("configIndex", target.getConfigIndex());
+        sink.put("pluginName", target.getPluginName());
+        sink.put("actionName", target.getActionName());
+        sink.put("subtaskCount", subtaskCount);
+        sink.put("totalChunks", totalChunks);
+        sink.put("totalBytes", totalBytes);
+
+        Map<String, Object> normalized = new LinkedHashMap<>();
+        normalized.put("category", "SINK_2PC");
+        normalized.put("primaryLabel", "提交机制");
+        normalized.put("primaryValue", "两阶段提交 (2PC / Checkpoint)");
+        normalized.put("secondaryLabel", "写入阶段");
+        normalized.put("secondaryValue", "已完成预提交 (Prepared)");
+        normalized.put("phaseBadge", "PREPARED");
+        normalized.put("subtaskProgress", subtaskProgressList);
+
+        sink.put("normalizedProgress", normalized);
+        return sink;
+    }
+
+    private Map<String, Object> buildNormalizedProgress(
+            CheckpointSourceActionMatcher.SourceTarget target,
+            StreamingSourceDescriptorRegistry.StreamingSourceDescriptor descriptor,
+            Map<String, Object> coordinatorProjection,
+            List<Map<String, Object>> subtaskSummaries,
+            Object completedCheckpoint) {
+        Map<String, Object> normalized = new LinkedHashMap<>();
+        StreamingSourceDescriptorRegistry.SourceCategory category =
+                descriptor.getCategory() != null
+                        ? descriptor.getCategory()
+                        : StreamingSourceDescriptorRegistry.SourceCategory.GENERIC;
+        normalized.put("category", category.name());
+
+        Long triggerTimestamp = null;
+        if (completedCheckpoint != null) {
+            Object ts = invoke(completedCheckpoint, "getCheckpointTimestamp");
+            if (ts instanceof Number) {
+                triggerTimestamp = ((Number) ts).longValue();
+            }
+        }
+
+        switch (category) {
+            case LOG_STREAM:
+                buildLogStreamProgress(
+                        normalized,
+                        target,
+                        coordinatorProjection,
+                        subtaskSummaries,
+                        triggerTimestamp);
+                break;
+            case PARTITION_QUEUE:
+                buildPartitionQueueProgress(
+                        normalized, target, coordinatorProjection, subtaskSummaries);
+                break;
+            case LAKE_SPLIT:
+                buildLakeSplitProgress(normalized, target, coordinatorProjection, subtaskSummaries);
+                break;
+            default:
+                buildGenericProgress(normalized, target, subtaskSummaries);
+                break;
+        }
+        return normalized;
+    }
+
+    private void buildLogStreamProgress(
+            Map<String, Object> normalized,
+            CheckpointSourceActionMatcher.SourceTarget target,
+            Map<String, Object> coordinator,
+            List<Map<String, Object>> subtasks,
+            Long triggerTimestamp) {
+        Map<String, Object> snapshotPhase =
+                coordinator != null ? asStringObjectMap(coordinator.get("snapshotPhase")) : null;
+        Map<String, Object> incrementalPhase =
+                coordinator != null ? asStringObjectMap(coordinator.get("incrementalPhase")) : null;
+        boolean isIncremental =
+                incrementalPhase != null
+                        || (snapshotPhase != null
+                                && Boolean.TRUE.equals(snapshotPhase.get("assignerCompleted")));
+
+        String binlogFile = null;
+        String binlogPos = null;
+        String gtid = null;
+        Long eventTime = null;
+        List<String> targetTables = new ArrayList<>();
+        List<Map<String, Object>> subtaskProgressList = new ArrayList<>();
+
+        if (subtasks != null) {
+            for (Map<String, Object> subtask : subtasks) {
+                int subtaskIndex = 0;
+                Object idxObj = subtask.get("subtaskIndex");
+                if (idxObj instanceof Number) {
+                    subtaskIndex = ((Number) idxObj).intValue();
+                }
+                List<Map<String, Object>> splits = asMapList(subtask.get("splits"));
+                if (splits != null) {
+                    for (Map<String, Object> split : splits) {
+                        List<String> tables = toStringList(asCollection(split.get("tableIds")));
+                        for (String t : tables) {
+                            if (!targetTables.contains(t)) {
+                                targetTables.add(t);
+                            }
+                        }
+                        Map<String, Object> startupOffset =
+                                asStringObjectMap(split.get("startupOffset"));
+                        if (startupOffset != null) {
+                            Map<String, Object> values =
+                                    asStringObjectMap(startupOffset.get("values"));
+                            if (values != null) {
+                                if (binlogFile == null
+                                        && values.get("file") != null
+                                        && !String.valueOf(values.get("file")).isEmpty()) {
+                                    binlogFile = String.valueOf(values.get("file"));
+                                }
+                                if (binlogPos == null && values.get("pos") != null) {
+                                    binlogPos = String.valueOf(values.get("pos"));
+                                }
+                                if (gtid == null && values.get("gtid") != null) {
+                                    gtid = String.valueOf(values.get("gtid"));
+                                }
+                                if (eventTime == null && values.get("ts_sec") != null) {
+                                    try {
+                                        long sec =
+                                                Long.parseLong(
+                                                        String.valueOf(values.get("ts_sec")));
+                                        if (sec > 0) {
+                                            eventTime = sec * 1000L;
+                                        }
+                                    } catch (Exception ignored) {
+                                    }
+                                }
+                            }
+                        }
+                        Map<String, Object> item = new LinkedHashMap<>();
+                        item.put("subtaskIndex", subtaskIndex);
+                        item.put("target", String.join(", ", tables));
+                        String offsetStr =
+                                (binlogFile != null ? binlogFile : "")
+                                        + (binlogPos != null ? ":" + binlogPos : "");
+                        item.put("currentOffset", offsetStr.isEmpty() ? "-" : offsetStr);
+                        item.put("status", "NORMAL");
+                        subtaskProgressList.add(item);
+                    }
+                }
+            }
+        }
+
+        if (isIncremental || binlogFile != null) {
+            normalized.put("primaryLabel", "Binlog 位点");
+            String posDisplay =
+                    (binlogFile != null ? binlogFile : "")
+                            + (binlogPos != null ? " : " + binlogPos : "");
+            normalized.put("primaryValue", posDisplay.isEmpty() ? "-" : posDisplay);
+            normalized.put("secondaryLabel", "同步阶段");
+            normalized.put("secondaryValue", "增量实时 (Incremental)");
+            normalized.put("phaseBadge", "INCREMENTAL");
+        } else if (snapshotPhase != null) {
+            normalized.put("primaryLabel", "全量进度");
+            normalized.put(
+                    "primaryValue",
+                    "分片分配: "
+                            + snapshotPhase.getOrDefault("assignedSplitCount", 0)
+                            + " / 剩余: "
+                            + snapshotPhase.getOrDefault("remainingSplitCount", 0));
+            normalized.put("secondaryLabel", "同步阶段");
+            normalized.put("secondaryValue", "全量快照 (Snapshot)");
+            normalized.put("phaseBadge", "SNAPSHOT");
+        } else {
+            normalized.put("primaryLabel", "位点");
+            normalized.put("primaryValue", binlogFile != null ? binlogFile : "-");
+            normalized.put("secondaryLabel", "阶段");
+            normalized.put("secondaryValue", "运行中");
+            normalized.put("phaseBadge", "RUNNING");
+        }
+
+        normalized.put("eventTime", eventTime);
+        if (eventTime != null && triggerTimestamp != null && triggerTimestamp > 0) {
+            double lag = Math.max(0.0, Math.round(((triggerTimestamp - eventTime) / 100.0)) / 10.0);
+            normalized.put("lagSeconds", lag);
+        } else {
+            normalized.put("lagSeconds", null);
+        }
+        normalized.put("targetTables", targetTables);
+        normalized.put("subtaskProgress", subtaskProgressList);
+    }
+
+    private void buildPartitionQueueProgress(
+            Map<String, Object> normalized,
+            CheckpointSourceActionMatcher.SourceTarget target,
+            Map<String, Object> coordinator,
+            List<Map<String, Object>> subtasks) {
+        List<Map<String, Object>> subtaskProgressList = new ArrayList<>();
+        int partitionCount = 0;
+        long minOffset = Long.MAX_VALUE;
+        long maxOffset = Long.MIN_VALUE;
+        String topicName = null;
+
+        if (subtasks != null) {
+            for (Map<String, Object> subtask : subtasks) {
+                int subtaskIndex = 0;
+                Object idxObj = subtask.get("subtaskIndex");
+                if (idxObj instanceof Number) {
+                    subtaskIndex = ((Number) idxObj).intValue();
+                }
+                List<Map<String, Object>> splits = asMapList(subtask.get("splits"));
+                if (splits != null) {
+                    for (Map<String, Object> split : splits) {
+                        partitionCount++;
+                        Object topic = split.get("topic");
+                        if (topic != null && topicName == null) {
+                            topicName = String.valueOf(topic);
+                        }
+                        Object partition = split.get("partition");
+                        Object currentOffset = split.get("currentOffset");
+                        Object startOffset = split.get("startOffset");
+                        Object endOffset = split.get("endOffset");
+
+                        long cur = -1;
+                        if (currentOffset instanceof Number) {
+                            cur = ((Number) currentOffset).longValue();
+                        } else if (startOffset instanceof Number) {
+                            cur = ((Number) startOffset).longValue();
+                        }
+                        if (cur >= 0) {
+                            minOffset = Math.min(minOffset, cur);
+                            maxOffset = Math.max(maxOffset, cur);
+                        }
+
+                        Map<String, Object> item = new LinkedHashMap<>();
+                        item.put("subtaskIndex", subtaskIndex);
+                        item.put(
+                                "target",
+                                (topic != null ? topic + "-" : "")
+                                        + (partition != null ? partition : "0"));
+                        item.put("currentOffset", cur >= 0 ? String.valueOf(cur) : "-");
+                        item.put(
+                                "startOffset",
+                                startOffset != null ? String.valueOf(startOffset) : "-");
+                        item.put("endOffset", endOffset != null ? String.valueOf(endOffset) : "-");
+                        item.put("status", "NORMAL");
+                        subtaskProgressList.add(item);
+                    }
+                }
+            }
+        }
+
+        normalized.put("primaryLabel", "消费分区");
+        normalized.put(
+                "primaryValue",
+                (topicName != null ? topicName + " " : "") + "(" + partitionCount + " 个分区)");
+        normalized.put("secondaryLabel", "位点范围");
+        if (minOffset != Long.MAX_VALUE && maxOffset != Long.MIN_VALUE) {
+            normalized.put("secondaryValue", "Offset " + minOffset + " ~ " + maxOffset);
+        } else {
+            normalized.put("secondaryValue", partitionCount > 0 ? "已就绪" : "无活跃分区");
+        }
+        normalized.put("phaseBadge", "CONSUMING");
+        normalized.put("subtaskProgress", subtaskProgressList);
+    }
+
+    private void buildLakeSplitProgress(
+            Map<String, Object> normalized,
+            CheckpointSourceActionMatcher.SourceTarget target,
+            Map<String, Object> coordinator,
+            List<Map<String, Object>> subtasks) {
+        int splitCount = 0;
+        if (subtasks != null) {
+            for (Map<String, Object> subtask : subtasks) {
+                Object sc = subtask.get("splitCount");
+                if (sc instanceof Number) {
+                    splitCount += ((Number) sc).intValue();
+                }
+            }
+        }
+        normalized.put("primaryLabel", "切片总数");
+        normalized.put("primaryValue", splitCount + " 个切片");
+        normalized.put("secondaryLabel", "存储格式");
+        normalized.put("secondaryValue", target.getPluginName());
+        normalized.put("phaseBadge", "BATCH_STREAM");
+        normalized.put("subtaskProgress", Collections.emptyList());
+    }
+
+    private void buildGenericProgress(
+            Map<String, Object> normalized,
+            CheckpointSourceActionMatcher.SourceTarget target,
+            List<Map<String, Object>> subtasks) {
+        int splitCount = 0;
+        if (subtasks != null) {
+            for (Map<String, Object> subtask : subtasks) {
+                Object sc = subtask.get("splitCount");
+                if (sc instanceof Number) {
+                    splitCount += ((Number) sc).intValue();
+                }
+            }
+        }
+        normalized.put("primaryLabel", "分片数");
+        normalized.put("primaryValue", String.valueOf(splitCount));
+        normalized.put("secondaryLabel", "连接器");
+        normalized.put("secondaryValue", target.getPluginName());
+        normalized.put("phaseBadge", "ACTIVE");
+        normalized.put("subtaskProgress", Collections.emptyList());
+    }
+
+    private List<Map<String, Object>> asMapList(Object object) {
+        if (!(object instanceof List)) {
+            return Collections.emptyList();
+        }
+        List<?> raw = (List<?>) object;
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (Object item : raw) {
+            if (item instanceof Map) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> map = (Map<String, Object>) item;
+                result.add(map);
+            }
+        }
+        return result;
     }
 }

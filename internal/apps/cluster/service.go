@@ -872,6 +872,59 @@ func (c ClusterConfig) GetPortConfig() *ClusterPortConfig {
 	}
 }
 
+// STXJavaProxyConfig represents cluster-level stx-java-proxy configuration.
+// STXJavaProxyConfig 表示集群级 stx-java-proxy 配置。
+type STXJavaProxyConfig struct {
+	Port    int    `json:"port,omitempty"`
+	JvmOpts string `json:"jvm_opts,omitempty"`
+}
+
+// GetSTXJavaProxyConfig returns cluster-level stx-java-proxy configuration.
+// GetSTXJavaProxyConfig 返回集群级 stx-java-proxy 配置。
+func (c ClusterConfig) GetSTXJavaProxyConfig() *STXJavaProxyConfig {
+	if len(c) == 0 {
+		return nil
+	}
+
+	raw, ok := c["stx_java_proxy"]
+	if !ok || raw == nil {
+		return nil
+	}
+
+	parseMap := func(values map[string]interface{}) *STXJavaProxyConfig {
+		cfg := &STXJavaProxyConfig{}
+		if value, ok := parseIntValue(values["port"]); ok {
+			cfg.Port = value
+		}
+		if value, ok := values["jvm_opts"].(string); ok {
+			cfg.JvmOpts = strings.TrimSpace(value)
+		}
+		if cfg.Port <= 0 && cfg.JvmOpts == "" {
+			return nil
+		}
+		return cfg
+	}
+
+	switch typed := raw.(type) {
+	case STXJavaProxyConfig:
+		return &typed
+	case *STXJavaProxyConfig:
+		return typed
+	case map[string]interface{}:
+		return parseMap(typed)
+	default:
+		payload, err := json.Marshal(raw)
+		if err != nil {
+			return nil
+		}
+		var cfg STXJavaProxyConfig
+		if err := json.Unmarshal(payload, &cfg); err != nil {
+			return nil
+		}
+		return &cfg
+	}
+}
+
 // GetJVMConfig returns cluster-level JVM defaults from cluster config.
 // GetJVMConfig 返回 cluster config 中的 JVM 默认值。
 func (c ClusterConfig) GetJVMConfig() *JVMConfig {

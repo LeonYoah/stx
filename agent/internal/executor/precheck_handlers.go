@@ -791,6 +791,9 @@ func runtimeStorageCheckpointSourceStateInspectPrecheckResult(
 	if bytes, err := json.Marshal(result.Sources); err == nil {
 		details["sources_json"] = string(bytes)
 	}
+	if bytes, err := json.Marshal(result.Sinks); err == nil {
+		details["sinks_json"] = string(bytes)
+	}
 	if bytes, err := json.Marshal(result.UnsupportedSources); err == nil {
 		details["unsupported_sources_json"] = string(bytes)
 	}

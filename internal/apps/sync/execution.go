@@ -235,6 +235,28 @@ func (s *Service) runWithExecution(ctx context.Context, ownerUserID uint, operat
 	if err := s.executionService.BindModuleRef(ctx, item.ExecutionID, strconv.FormatUint(uint64(job.ID), 10)); err != nil {
 		return nil, err
 	}
+	auditUpdates := map[string]any{
+		"job_id": job.ID,
+	}
+	if job.EngineJobID != "" {
+		auditUpdates["engine_job_id"] = job.EngineJobID
+	}
+	if job.PlatformJobID != "" {
+		auditUpdates["platform_job_id"] = job.PlatformJobID
+	}
+	if engineURL, ok := job.SubmitSpec["engine_url"].(string); ok && engineURL != "" {
+		auditUpdates["engine_url"] = engineURL
+	}
+	if engineMethod, ok := job.SubmitSpec["engine_method"].(string); ok && engineMethod != "" {
+		auditUpdates["engine_method"] = engineMethod
+	}
+	if engineBaseURL, ok := job.SubmitSpec["engine_base_url"].(string); ok && engineBaseURL != "" {
+		auditUpdates["engine_base_url"] = engineBaseURL
+	}
+	if apiMode, ok := job.SubmitSpec["engine_api_mode"].(string); ok && apiMode != "" {
+		auditUpdates["engine_api_mode"] = apiMode
+	}
+	_ = s.executionService.EnrichAuditDetails(ctx, item.ExecutionID, auditUpdates)
 	if err := s.syncExecutionFromJob(ctx, job); err != nil {
 		return nil, err
 	}

@@ -338,6 +338,31 @@ func (r *Repository) GetAuditLogByIDForOwner(ctx context.Context, id, ownerUserI
 	return &log, nil
 }
 
+// UpdateAuditLogDetailsByExecutionID 合并更新指定 execution_id 对应审计记录的 Details 字段。
+// UpdateAuditLogDetailsByExecutionID merges new key-value pairs into Details for audit logs matching execution_id.
+func (r *Repository) UpdateAuditLogDetailsByExecutionID(ctx context.Context, executionID string, extraDetails map[string]any) error {
+	if r == nil || r.db == nil || strings.TrimSpace(executionID) == "" || len(extraDetails) == 0 {
+		return nil
+	}
+	var logs []*AuditLog
+	if err := r.db.WithContext(ctx).Where("execution_id = ?", strings.TrimSpace(executionID)).Find(&logs).Error; err != nil {
+		return err
+	}
+	for _, l := range logs {
+		if l.Details == nil {
+			l.Details = make(AuditDetails)
+		}
+		for k, v := range extraDetails {
+			l.Details[k] = v
+		}
+		l.Details = RedactDetails(l.Details)
+		if err := r.db.WithContext(ctx).Model(l).Update("details", l.Details).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // ListAuditLogs retrieves audit logs based on filter criteria with pagination.
 // ListAuditLogs 根据过滤条件和分页获取审计日志列表。
 // Returns the list of audit logs and total count.

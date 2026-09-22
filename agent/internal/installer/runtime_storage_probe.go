@@ -46,6 +46,7 @@ const (
 	stxJavaProxyEndpointEnvVar    = "STX_JAVA_PROXY_ENDPOINT"
 	stxJavaProxyPortEnvVar        = "STX_JAVA_PROXY_PORT"
 	stxJavaProxyVersionEnvVar     = "STX_JAVA_PROXY_VERSION"
+	stxJavaProxyJvmOptsEnvVar     = "STX_JAVA_PROXY_JVM_OPTS"
 	stxJavaProxyDefaultSupportDir = "/usr/local/lib/stx-agent"
 	// stxJavaProxyUserSupportDirName is the relative Agent home under $HOME for non-root installs.
 	// stxJavaProxyUserSupportDirName 是非 root 安装时位于 $HOME 下的 Agent 主目录相对路径。
@@ -152,6 +153,7 @@ type RuntimeStorageCheckpointSourceStateInspectResult struct {
 	PipelineState       map[string]interface{}   `json:"pipelineState,omitempty"`
 	CompletedCheckpoint map[string]interface{}   `json:"completedCheckpoint,omitempty"`
 	Sources             []map[string]interface{} `json:"sources,omitempty"`
+	Sinks               []map[string]interface{} `json:"sinks,omitempty"`
 	UnsupportedSources  []map[string]interface{} `json:"unsupportedSources,omitempty"`
 	Warnings            []string                 `json:"warnings,omitempty"`
 }
@@ -538,6 +540,9 @@ func (m *InstallerManager) executeRuntimeStorageProbeWithCLI(
 	if javaProxyPort > 0 {
 		env = append(env, fmt.Sprintf("%s=%d", stxJavaProxyPortEnvVar, javaProxyPort))
 	}
+	if jvmOpts := strings.TrimSpace(os.Getenv(stxJavaProxyJvmOptsEnvVar)); jvmOpts != "" {
+		env = append(env, fmt.Sprintf("%s=%s", stxJavaProxyJvmOptsEnvVar, jvmOpts))
+	}
 	cmd.Env = append(os.Environ(), env...)
 	output, execErr := cmd.CombinedOutput()
 
@@ -582,7 +587,13 @@ func ContextWithSTXJavaProxyPort(ctx context.Context, port int) context.Context 
 	return context.WithValue(ctx, stxJavaProxyPortContextKey{}, port)
 }
 
-func ensureSTXJavaProxyService(ctx context.Context, installDir string, seatunnelVersion string, preferredPort int) (string, error) {
+func ensureSTXJavaProxyService(
+	ctx context.Context,
+	installDir string,
+	seatunnelVersion string,
+	preferredPort int,
+	optionalJvmOpts ...string,
+) (string, error) {
 	// 命令上下文里的端口优先于默认值，安装参数显式传入时仍然最高。
 	// A port carried on the command context overrides the default. An explicit argument still wins.
 	if preferredPort <= 0 {
@@ -614,6 +625,15 @@ func ensureSTXJavaProxyService(ctx context.Context, installDir string, seatunnel
 		return "", fmt.Errorf("create stx-java-proxy state dir: %w", err)
 	}
 
+	// Persist preferred jvm_opts if provided
+	var jvmOpts string
+	if len(optionalJvmOpts) > 0 && strings.TrimSpace(optionalJvmOpts[0]) != "" {
+		jvmOpts = strings.TrimSpace(optionalJvmOpts[0])
+		_ = os.WriteFile(filepath.Join(stateDir, "service.jvm_opts"), []byte(jvmOpts+"\n"), 0o644)
+	} else if bytes, err := os.ReadFile(filepath.Join(stateDir, "service.jvm_opts")); err == nil {
+		jvmOpts = strings.TrimSpace(string(bytes))
+	}
+
 	// 用户/集群指定端口优先写入，后续候选与启动都会认这个端口。
 	// Persist the preferred port first so later candidates / startup honor it.
 	if preferredPort > 0 {
@@ -638,7 +658,7 @@ func ensureSTXJavaProxyService(ctx context.Context, installDir string, seatunnel
 	}
 
 	port := stxJavaProxyPreferredPort(stateDir, preferredPort)
-	baseURL, err := startSTXJavaProxyService(ctx, installDir, seatunnelVersion, scriptPath, jarPath, stateDir, port)
+	baseURL, err := startSTXJavaProxyService(ctx, installDir, seatunnelVersion, scriptPath, jarPath, stateDir, port, jvmOpts)
 	if err == nil {
 		return baseURL, nil
 	}
@@ -650,7 +670,7 @@ func ensureSTXJavaProxyService(ctx context.Context, installDir string, seatunnel
 	if portErr != nil || fallbackPort == port {
 		return "", err
 	}
-	return startSTXJavaProxyService(ctx, installDir, seatunnelVersion, scriptPath, jarPath, stateDir, fallbackPort)
+	return startSTXJavaProxyService(ctx, installDir, seatunnelVersion, scriptPath, jarPath, stateDir, fallbackPort, jvmOpts)
 }
 
 func startSTXJavaProxyService(
@@ -661,6 +681,7 @@ func startSTXJavaProxyService(
 	jarPath string,
 	stateDir string,
 	port int,
+	optionalJvmOpts ...string,
 ) (string, error) {
 	logPath := filepath.Join(stateDir, "service.log")
 	if _, err := os.Stat(logPath); os.IsNotExist(err) {
@@ -679,7 +700,7 @@ func startSTXJavaProxyService(
 	defer cancel()
 
 	cmd := exec.CommandContext(startCtx, "bash", "-lc", command)
-	cmd.Env = append(
+	env := append(
 		os.Environ(),
 		fmt.Sprintf("SEATUNNEL_HOME=%s", installDir),
 		fmt.Sprintf("%s=%s", stxJavaProxyHomeEnvVar, resolveSTXJavaProxyHome(installDir)),
@@ -687,6 +708,18 @@ func startSTXJavaProxyService(
 		fmt.Sprintf("%s=%d", stxJavaProxyPortEnvVar, port),
 		fmt.Sprintf("%s=%s", stxJavaProxyVersionEnvVar, defaultSTXJavaProxyVersion(seatunnelVersion)),
 	)
+	effectiveJvmOpts := ""
+	if len(optionalJvmOpts) > 0 && strings.TrimSpace(optionalJvmOpts[0]) != "" {
+		effectiveJvmOpts = strings.TrimSpace(optionalJvmOpts[0])
+	} else if bytes, err := os.ReadFile(filepath.Join(stateDir, "service.jvm_opts")); err == nil {
+		effectiveJvmOpts = strings.TrimSpace(string(bytes))
+	} else if envVal := strings.TrimSpace(os.Getenv(stxJavaProxyJvmOptsEnvVar)); envVal != "" {
+		effectiveJvmOpts = envVal
+	}
+	if effectiveJvmOpts != "" {
+		env = append(env, fmt.Sprintf("%s=%s", stxJavaProxyJvmOptsEnvVar, effectiveJvmOpts))
+	}
+	cmd.Env = env
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("start managed stx-java-proxy service: %v: %s", err, strings.TrimSpace(string(output)))
@@ -707,7 +740,7 @@ func startSTXJavaProxyService(
 	return baseURL, nil
 }
 
-func waitForSTXJavaProxyHealthy(ctx context.Context, baseURL string, timeout time.Duration) error {
+func probeSTXJavaProxyHealth(ctx context.Context, baseURL string, timeout time.Duration) (error, map[string]interface{}) {
 	healthURL := strings.TrimRight(baseURL, "/") + stxJavaProxyHealthPath
 	deadline := time.Now().Add(timeout)
 	client := &http.Client{Timeout: 1500 * time.Millisecond}
@@ -716,15 +749,22 @@ func waitForSTXJavaProxyHealthy(ctx context.Context, baseURL string, timeout tim
 	for {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, healthURL, nil)
 		if err != nil {
-			return err
+			return err, nil
 		}
 
 		resp, err := client.Do(req)
 		if err == nil {
-			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1024))
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 			resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
-				return nil
+				var payload map[string]interface{}
+				var jvmMemory map[string]interface{}
+				if json.Unmarshal(body, &payload) == nil {
+					if mem, ok := payload["jvmMemory"].(map[string]interface{}); ok {
+						jvmMemory = mem
+					}
+				}
+				return nil, jvmMemory
 			}
 			lastErr = fmt.Errorf("unexpected status %d", resp.StatusCode)
 		} else {
@@ -735,7 +775,7 @@ func waitForSTXJavaProxyHealthy(ctx context.Context, baseURL string, timeout tim
 			if lastErr == nil {
 				lastErr = fmt.Errorf("timed out waiting for stx-java-proxy health")
 			}
-			return lastErr
+			return lastErr, nil
 		}
 
 		select {
@@ -743,10 +783,15 @@ func waitForSTXJavaProxyHealthy(ctx context.Context, baseURL string, timeout tim
 			if lastErr == nil {
 				lastErr = ctx.Err()
 			}
-			return lastErr
+			return lastErr, nil
 		case <-time.After(300 * time.Millisecond):
 		}
 	}
+}
+
+func waitForSTXJavaProxyHealthy(ctx context.Context, baseURL string, timeout time.Duration) error {
+	err, _ := probeSTXJavaProxyHealth(ctx, baseURL, timeout)
+	return err
 }
 
 func stxJavaProxyServiceStateDir(installDir string) string {
@@ -1571,7 +1616,53 @@ func ExecuteCheckpointInspectFromBase64(
 		"fileName":      filepath.Base(strings.TrimSpace(path)),
 		"contentBase64": strings.TrimSpace(contentBase64),
 	}
+	if jars := collectConnectorJars(installDir); len(jars) > 0 {
+		request["pluginJars"] = jars
+	}
+	if strings.TrimSpace(seatunnelVersion) != "" {
+		request["version"] = strings.TrimSpace(seatunnelVersion)
+	}
 	return executeCheckpointRuntimeStorageInspectViaManagedService(ctx, installDir, seatunnelVersion, request)
+}
+
+func collectConnectorJars(installDir string) []string {
+	if strings.TrimSpace(installDir) == "" {
+		return nil
+	}
+	var jars []string
+	searchDirs := []string{
+		filepath.Join(installDir, "connectors"),
+		filepath.Join(installDir, "plugins"),
+		filepath.Join(installDir, "lib"),
+		filepath.Join(installDir, "starter"),
+		filepath.Join(installDir, "seatunnel-dist"),
+	}
+	visited := make(map[string]bool)
+	for _, rootDir := range searchDirs {
+		if _, err := os.Stat(rootDir); err != nil {
+			continue
+		}
+		_ = filepath.WalkDir(rootDir, func(path string, d os.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			rel, _ := filepath.Rel(rootDir, path)
+			if strings.Count(rel, string(filepath.Separator)) > 3 {
+				if d.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if !d.IsDir() && strings.HasSuffix(strings.ToLower(d.Name()), ".jar") {
+				if !visited[path] {
+					visited[path] = true
+					jars = append(jars, path)
+				}
+			}
+			return nil
+		})
+	}
+	return jars
 }
 
 func ExecuteCheckpointInspectSourceState(
@@ -1591,6 +1682,12 @@ func ExecuteCheckpointInspectSourceState(
 		"path":      strings.TrimSpace(path),
 		"jobConfig": jobConfig,
 	}
+	if jars := collectConnectorJars(installDir); len(jars) > 0 {
+		request["pluginJars"] = jars
+	}
+	if strings.TrimSpace(seatunnelVersion) != "" {
+		request["version"] = strings.TrimSpace(seatunnelVersion)
+	}
 	return executeCheckpointRuntimeStorageInspectSourceStateViaManagedService(
 		ctx, installDir, seatunnelVersion, request)
 }
@@ -1608,6 +1705,12 @@ func ExecuteCheckpointInspectSourceStateFromBase64(
 		"contentBase64": strings.TrimSpace(contentBase64),
 		"jobConfig":     jobConfig,
 	}
+	if jars := collectConnectorJars(installDir); len(jars) > 0 {
+		request["pluginJars"] = jars
+	}
+	if strings.TrimSpace(seatunnelVersion) != "" {
+		request["version"] = strings.TrimSpace(seatunnelVersion)
+	}
 	return executeCheckpointRuntimeStorageInspectSourceStateViaManagedService(
 		ctx, installDir, seatunnelVersion, request)
 }
@@ -1624,6 +1727,12 @@ func ExecuteCheckpointInspect(
 		return nil, err
 	}
 	request["path"] = strings.TrimSpace(path)
+	if jars := collectConnectorJars(installDir); len(jars) > 0 {
+		request["pluginJars"] = jars
+	}
+	if strings.TrimSpace(seatunnelVersion) != "" {
+		request["version"] = strings.TrimSpace(seatunnelVersion)
+	}
 	return executeCheckpointRuntimeStorageInspectViaManagedService(ctx, installDir, seatunnelVersion, request)
 }
 

@@ -102,6 +102,73 @@ export function AuditTraceSheet({log, onOpenChange}: AuditTraceSheetProps) {
           </SheetDescription>
         </SheetHeader>
         <div className='mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto pr-1'>
+          {/* 底层集群接口调用 / Underlying Cluster REST API */}
+          {Boolean(log?.details?.engine_url || log?.details?.engine_base_url) ? (
+            <div className='rounded-md border border-primary/20 bg-primary/5 p-3 text-xs space-y-2'>
+              <div className='flex items-center justify-between font-medium text-foreground'>
+                <span className='flex items-center gap-1.5'>
+                  <span className='inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse' />
+                  {t('audit.engineApiTitle')}
+                </span>
+                {log?.details?.engine_api_mode ? (
+                  <Badge variant='outline' className='text-[10px] font-mono'>
+                    REST {String(log.details.engine_api_mode).toUpperCase()}
+                  </Badge>
+                ) : null}
+              </div>
+
+              {log?.details?.engine_url ? (
+                <div>
+                  <span className='text-muted-foreground block mb-0.5'>
+                    {t('audit.engineApiUrl')}:
+                  </span>
+                  <div className='flex items-start gap-1.5'>
+                    {log?.details?.engine_method ? (
+                      <Badge variant='secondary' className='font-mono text-[10px] px-1 py-0 uppercase shrink-0'>
+                        {String(log.details.engine_method)}
+                      </Badge>
+                    ) : null}
+                    <code className='block break-all font-mono text-[11px] bg-background/80 px-1.5 py-1 rounded border'>
+                      {String(log.details.engine_url)}
+                    </code>
+                  </div>
+                </div>
+              ) : log?.details?.engine_base_url ? (
+                <div>
+                  <span className='text-muted-foreground block mb-0.5'>
+                    {t('audit.engineBaseUrl')}:
+                  </span>
+                  <code className='block break-all font-mono text-[11px] bg-background/80 px-1.5 py-1 rounded border'>
+                    {String(log.details.engine_base_url)}
+                  </code>
+                </div>
+              ) : null}
+
+              <div className='grid grid-cols-2 gap-2 pt-1 border-t border-primary/10 text-[11px]'>
+                {log?.details?.engine_job_id ? (
+                  <div>
+                    <span className='text-muted-foreground block'>
+                      {t('audit.engineJobId')}:
+                    </span>
+                    <span className='font-mono font-medium break-all'>
+                      {String(log.details.engine_job_id)}
+                    </span>
+                  </div>
+                ) : null}
+                {log?.details?.platform_job_id ? (
+                  <div>
+                    <span className='text-muted-foreground block'>
+                      {t('audit.platformJobId')}:
+                    </span>
+                    <span className='font-mono font-medium break-all'>
+                      {String(log.details.platform_job_id)}
+                    </span>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+
           {loading ? (
             <p className='text-sm text-muted-foreground'>
               {t('common.loading')}
@@ -110,7 +177,7 @@ export function AuditTraceSheet({log, onOpenChange}: AuditTraceSheetProps) {
           {!loading && error ? (
             <p className='text-sm text-destructive'>{error}</p>
           ) : null}
-          {!loading && !error && commands.length === 0 ? (
+          {!loading && !error && commands.length === 0 && !Boolean(log?.details?.engine_url || log?.details?.engine_base_url) ? (
             <p className='text-sm text-muted-foreground'>
               {t('audit.traceEmpty')}
             </p>

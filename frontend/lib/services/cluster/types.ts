@@ -421,10 +421,65 @@ export interface RuntimeStorageCheckpointInspectJobConfig {
   variables?: Record<string, unknown>;
 }
 
+export interface NormalizedProgressSubtask {
+  subtaskIndex: number;
+  target?: string;
+  currentOffset?: string;
+  latestOffset?: string;
+  lag?: number;
+  status?: string;
+  chunks?: number;
+  bytes?: number;
+}
+
+export interface NormalizedProgress {
+  category: 'LOG_STREAM' | 'PARTITION_QUEUE' | 'LAKE_SPLIT' | 'SINK_2PC' | 'GENERIC';
+  primaryLabel: string;
+  primaryValue: string;
+  secondaryLabel?: string;
+  secondaryValue?: string;
+  phaseBadge?: string;
+  eventTime?: number;
+  lagSeconds?: number;
+  targetTables?: string[];
+  subtaskProgress?: NormalizedProgressSubtask[];
+}
+
+export interface CheckpointInspectSourceItem {
+  actionName?: string;
+  pluginName?: string;
+  configIndex?: number;
+  subtaskCount?: number;
+  stateBytesTotal?: number;
+  splitCountTotal?: number;
+  stateRepresentation?: string;
+  decodeStrategy?: string;
+  subtasks?: Record<string, unknown>[];
+  normalizedProgress?: NormalizedProgress;
+  error?: string;
+  [key: string]: unknown;
+}
+
+export interface CheckpointInspectSinkItem {
+  actionName?: string;
+  pluginName?: string;
+  configIndex?: number;
+  subtaskCount?: number;
+  stateBytesTotal?: number;
+  chunksTotal?: number;
+  stateRepresentation?: string;
+  decodeStrategy?: string;
+  subtasks?: Record<string, unknown>[];
+  normalizedProgress?: NormalizedProgress;
+  error?: string;
+  [key: string]: unknown;
+}
+
 export interface RuntimeStorageCheckpointSourceStateInspectResult {
   pipeline_state?: Record<string, unknown>;
   completed_checkpoint?: Record<string, unknown>;
-  sources?: Record<string, unknown>[];
+  sources?: CheckpointInspectSourceItem[];
+  sinks?: CheckpointInspectSinkItem[];
   unsupported_sources?: Record<string, unknown>[];
   warnings?: string[];
   error_message?: string;
@@ -443,6 +498,14 @@ export interface RuntimeStorageIMAPInspectResult {
   hex_preview?: string;
   entry_count?: number;
   entries?: Record<string, unknown>[];
+}
+
+export interface StxJavaProxyJvmMemory {
+  maxMemoryBytes?: number;
+  totalMemoryBytes?: number;
+  freeMemoryBytes?: number;
+  usedMemoryBytes?: number;
+  maxMemoryMb?: number;
 }
 
 export interface StxJavaProxyStatus {
@@ -464,6 +527,14 @@ export interface StxJavaProxyStatus {
   pid?: number;
   log_path?: string;
   message?: string;
+  jvm_opts?: string;
+  jvm_memory?: StxJavaProxyJvmMemory;
+}
+
+export interface UpdateStxJavaProxyConfigRequest {
+  jvm_opts?: string;
+  port?: number;
+  restart?: boolean;
 }
 
 export interface StxJavaProxyLogPreviewResult {

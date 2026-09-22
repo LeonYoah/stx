@@ -1056,6 +1056,12 @@ func (s *Service) PreviewTask(ctx context.Context, id uint, createdBy uint, opts
 			instance.EngineJobID = strings.TrimSpace(resp.JobID)
 			instance.SubmitSpec["engine_api_mode"] = defaultString(resp.APIMode, "v2")
 			instance.SubmitSpec["engine_base_url"] = defaultString(resp.EndpointBaseURL, endpoint.BaseURL)
+			if resp.EngineURL != "" {
+				instance.SubmitSpec["engine_url"] = resp.EngineURL
+			}
+			if resp.EngineMethod != "" {
+				instance.SubmitSpec["engine_method"] = resp.EngineMethod
+			}
 			if strings.EqualFold(defaultString(resp.APIMode, "v2"), "v1") {
 				instance.SubmitSpec["engine_legacy_base_url"] = defaultString(resp.EndpointBaseURL, endpoint.LegacyURL)
 			} else if endpoint.ContextPath != "" {
@@ -1458,6 +1464,12 @@ func (s *Service) submitTaskInstanceWithPayload(ctx context.Context, task *Task,
 		instance.EngineJobID = strings.TrimSpace(resp.JobID)
 		instance.SubmitSpec["engine_api_mode"] = defaultString(resp.APIMode, "v2")
 		instance.SubmitSpec["engine_base_url"] = defaultString(resp.EndpointBaseURL, endpoint.BaseURL)
+		if resp.EngineURL != "" {
+			instance.SubmitSpec["engine_url"] = resp.EngineURL
+		}
+		if resp.EngineMethod != "" {
+			instance.SubmitSpec["engine_method"] = resp.EngineMethod
+		}
 		if strings.EqualFold(defaultString(resp.APIMode, "v2"), "v1") {
 			instance.SubmitSpec["engine_legacy_base_url"] = defaultString(resp.EndpointBaseURL, endpoint.LegacyURL)
 		} else if endpoint.ContextPath != "" {

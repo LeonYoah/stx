@@ -72,6 +72,7 @@ import {
   StxJavaProxyLogPreviewResult,
   StxJavaProxyResponse,
   StxJavaProxyStatus,
+  UpdateStxJavaProxyConfigRequest,
 } from './types';
 
 /**
@@ -633,6 +634,23 @@ export class ClusterService extends BaseService {
     const response = await apiClient.post<StxJavaProxyResponse>(
       `${this.basePath}/${clusterId}/stx-java-proxy/restart`,
       {},
+    );
+    if (response.data.error_msg) {
+      throw new Error(localizeBackendText(response.data.error_msg));
+    }
+    return {
+      ...response.data.data,
+      message: localizeBackendText(response.data.data.message),
+    };
+  }
+
+  static async updateStxJavaProxyConfig(
+    clusterId: number,
+    data: UpdateStxJavaProxyConfigRequest,
+  ): Promise<StxJavaProxyStatus> {
+    const response = await apiClient.put<StxJavaProxyResponse>(
+      `${this.basePath}/${clusterId}/stx-java-proxy/config`,
+      data,
     );
     if (response.data.error_msg) {
       throw new Error(localizeBackendText(response.data.error_msg));
@@ -1262,6 +1280,24 @@ export class ClusterService extends BaseService {
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : '重启 stx-java-proxy 失败';
+      return {success: false, error: errorMessage};
+    }
+  }
+
+  static async updateStxJavaProxyConfigSafe(
+    clusterId: number,
+    request: UpdateStxJavaProxyConfigRequest,
+  ): Promise<{
+    success: boolean;
+    data?: StxJavaProxyStatus;
+    error?: string;
+  }> {
+    try {
+      const data = await this.updateStxJavaProxyConfig(clusterId, request);
+      return {success: true, data};
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : '更新 stx-java-proxy 配置失败';
       return {success: false, error: errorMessage};
     }
   }

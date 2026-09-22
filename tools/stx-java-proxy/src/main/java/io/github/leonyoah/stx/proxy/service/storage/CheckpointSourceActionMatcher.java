@@ -64,6 +64,56 @@ public class CheckpointSourceActionMatcher {
         }
     }
 
+    public static final class SinkTarget {
+        private final int configIndex;
+        private final String pluginName;
+        private final String actionName;
+
+        SinkTarget(int configIndex, String pluginName, String actionName) {
+            this.configIndex = configIndex;
+            this.pluginName = pluginName;
+            this.actionName = actionName;
+        }
+
+        public int getConfigIndex() {
+            return configIndex;
+        }
+
+        public String getPluginName() {
+            return pluginName;
+        }
+
+        public String getActionName() {
+            return actionName;
+        }
+    }
+
+    public List<SinkTarget> matchSinks(Map<String, Object> request) {
+        Map<String, Object> jobConfigRequest = ProxyRequestUtils.getMap(request, "jobConfig");
+        if (jobConfigRequest.isEmpty()) {
+            return Collections.emptyList();
+        }
+        Config config;
+        try {
+            config = loadJobConfig(jobConfigRequest);
+        } catch (Exception e) {
+            return Collections.emptyList();
+        }
+        List<Config> sinks = getConfigList(config, "sink");
+        List<SinkTarget> results = new ArrayList<>();
+        for (int index = 0; index < sinks.size(); index++) {
+            Config sink = sinks.get(index);
+            String pluginName =
+                    sink.hasPath("plugin_name") ? sink.getString("plugin_name") : "Sink";
+            results.add(new SinkTarget(index, pluginName, buildSinkActionName(index, pluginName)));
+        }
+        return results;
+    }
+
+    static String buildSinkActionName(int sinkIndex, String pluginName) {
+        return "Sink[" + sinkIndex + "]-" + pluginName;
+    }
+
     public List<SourceTarget> match(Map<String, Object> request) {
         Map<String, Object> jobConfigRequest = ProxyRequestUtils.getMap(request, "jobConfig");
         if (jobConfigRequest.isEmpty()) {

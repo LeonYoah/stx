@@ -24,19 +24,19 @@ import {
   Activity,
   AlertTriangle,
   Check,
-  ChevronDown,
+  CheckCheck,
   Clock,
-  Code2,
   Copy,
+  Database,
   Eye,
   FileCode,
   HardDrive,
-  Info,
   Layers,
   Loader2,
   Minus,
   Plus,
   RefreshCw,
+  Terminal,
   Zap,
 } from 'lucide-react';
 import {Badge} from '@/components/ui/badge';
@@ -438,21 +438,8 @@ export function CheckpointWorkspacePanel({
     return mapping;
   }, [checkpointFiles]);
 
-  if (!job) {
-    return (
-      <div className='flex h-full items-center justify-center text-sm text-muted-foreground'>
-        {t('noCheckpointJob')}
-      </div>
-    );
-  }
-
-  const pipelines = checkpointSnapshot?.overview?.pipelines || [];
-  const history = checkpointSnapshot?.history || [];
-
-  const activePipeline =
-    selectedPipelineId !== null
-      ? pipelines.find((p) => p.pipelineId === selectedPipelineId) || pipelines[0]
-      : pipelines[0];
+  const pipelines = useMemo(() => checkpointSnapshot?.overview?.pipelines || [], [checkpointSnapshot?.overview?.pipelines]);
+  const history = useMemo(() => checkpointSnapshot?.history || [], [checkpointSnapshot?.history]);
 
   // 提取最近 24 次历史快照用于 Sparkline 脉冲波形
   const recentHistory = useMemo(() => {
@@ -464,6 +451,19 @@ export function CheckpointWorkspacePanel({
       : 0;
     return { list: sorted, maxDur, avgDur };
   }, [history]);
+
+  if (!job) {
+    return (
+      <div className='flex h-full items-center justify-center text-sm text-muted-foreground'>
+        {t('noCheckpointJob')}
+      </div>
+    );
+  }
+
+  const activePipeline =
+    selectedPipelineId !== null
+      ? pipelines.find((p) => p.pipelineId === selectedPipelineId) || pipelines[0]
+      : pipelines[0];
 
   return (
     <div className='flex h-full min-h-0 flex-col gap-2.5 overflow-hidden'>
@@ -828,12 +828,54 @@ function CheckpointInspectObjectSection({
   );
 }
 
+function QuickCopyButton({text}: {text: string}) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = () => {
+    if (!text) {
+      return;
+    }
+    void navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+  return (
+    <Button
+      variant='ghost'
+      size='icon'
+      className='size-6 text-muted-foreground hover:text-foreground'
+      onClick={handleCopy}
+      title='复制位点'
+    >
+      {copied ? (
+        <Check className='size-3 text-emerald-500' />
+      ) : (
+        <Copy className='size-3' />
+      )}
+    </Button>
+  );
+}
+
 function formatFriendlyInspectError(raw?: string): {
   summary: string;
   detail?: string;
 } {
-  if (!raw) return {summary: ''};
+  if (!raw) {
+    return {summary: ''};
+  }
   const trimmed = raw.trim();
+  if (
+    trimmed.includes('ClassNotFoundException') ||
+    trimmed.includes('连接器未安装') ||
+    trimmed.includes('缺少连接器类') ||
+    trimmed.includes('Plugin not found') ||
+    trimmed.includes('NoClassDefFoundError')
+  ) {
+    return {
+      summary:
+        '未检测到对应连接器插件 JAR。请将连接器 JAR 放置在集群的 connectors/ 目录下，或通过 STX 集群插件管理安装该连接器。',
+      detail: trimmed,
+    };
+  }
   if (
     trimmed.includes('jobConfig parse failed') ||
     trimmed.includes('ConfigException')
@@ -881,6 +923,9 @@ export function CheckpointInspectSourceHighlightsSection({
   const sourceStates = Array.isArray(result?.source_state_inspect?.sources)
     ? result.source_state_inspect.sources
     : [];
+  const sinks = Array.isArray(result?.source_state_inspect?.sinks)
+    ? result.source_state_inspect.sinks
+    : [];
   const unsupportedSources = Array.isArray(
     result?.source_state_inspect?.unsupported_sources,
   )
@@ -894,6 +939,7 @@ export function CheckpointInspectSourceHighlightsSection({
   if (
     !errorMessage &&
     sourceStates.length === 0 &&
+    sinks.length === 0 &&
     unsupportedSources.length === 0
   ) {
     return null;
@@ -927,6 +973,7 @@ export function CheckpointInspectSourceHighlightsSection({
             </div>
           );
         })() : null}
+
         {warnings.length > 0 ? (
           <div className='rounded-lg border border-border/60 bg-muted/20 p-3'>
             <div className='mb-2 text-xs font-medium text-muted-foreground'>
@@ -939,61 +986,391 @@ export function CheckpointInspectSourceHighlightsSection({
             </ul>
           </div>
         ) : null}
+
+        {/* 1. Source 业务位点卡片体系 */}
         {sourceStates.length > 0 ? (
-          <div className='rounded-md border border-border/50 bg-background/70'>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Source</TableHead>
-                  <TableHead>Plugin</TableHead>
-                  <TableHead>{currentOffsetLabel}</TableHead>
-                  <TableHead>{targetLabel}</TableHead>
-                  <TableHead>{splitCountLabel}</TableHead>
-                  <TableHead>{progressLabel}</TableHead>
-                  <TableHead>{decodeStrategyLabel}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {sourceStates.map((item, index) => {
-                  const summary = summarizeCheckpointSourceState(item);
-                  return (
-                    <TableRow
-                      key={`${item.actionName || item.pluginName || index}`}
-                    >
-                      <TableCell className='font-medium'>
-                        <span className='break-all'>
-                          {String(item.actionName || item.pluginName || '-')}
-                        </span>
-                      </TableCell>
-                      <TableCell>{formatCellValue(item.pluginName)}</TableCell>
-                      <TableCell>
-                        {renderCheckpointFieldValue(
-                          'currentOffset',
-                          summary.offset,
+          <div className='space-y-4'>
+            <div className='flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground'>
+              <Activity className='size-3.5 text-primary' />
+              <span>数据源位点 (Sources / Offsets) ({sourceStates.length})</span>
+            </div>
+            {sourceStates.map((item, index) => {
+              const norm = item.normalizedProgress;
+              if (norm) {
+                const categoryStyle = (() => {
+                  switch (norm.category) {
+                    case 'LOG_STREAM':
+                      return {
+                        label: '增量日志流 (CDC / Log Stream)',
+                        icon: Terminal,
+                        border: 'border-emerald-500/30 dark:border-emerald-500/20',
+                        bg: 'bg-emerald-500/5',
+                        badge: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
+                      };
+                    case 'PARTITION_QUEUE':
+                      return {
+                        label: '分区队列 (Partition Queue)',
+                        icon: Layers,
+                        border: 'border-blue-500/30 dark:border-blue-500/20',
+                        bg: 'bg-blue-500/5',
+                        badge: 'border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-300',
+                      };
+                    case 'LAKE_SPLIT':
+                      return {
+                        label: '湖仓分片 (Lakehouse Split)',
+                        icon: Database,
+                        border: 'border-purple-500/30 dark:border-purple-500/20',
+                        bg: 'bg-purple-500/5',
+                        badge: 'border-purple-500/30 bg-purple-500/10 text-purple-700 dark:text-purple-300',
+                      };
+                    default:
+                      return {
+                        label: '通用数据源 (Generic Source)',
+                        icon: Activity,
+                        border: 'border-border/60',
+                        bg: 'bg-background/80',
+                        badge: 'border-border/60 bg-muted/20 text-foreground',
+                      };
+                  }
+                })();
+                const CategoryIcon = categoryStyle.icon;
+
+                return (
+                  <div
+                    key={`${item.actionName || item.pluginName || index}`}
+                    className={cn(
+                      'space-y-3.5 rounded-lg border p-4 shadow-xs',
+                      categoryStyle.border,
+                      categoryStyle.bg,
+                    )}
+                  >
+                    {/* 卡片头部 */}
+                    <div className='flex flex-wrap items-center justify-between gap-2 border-b border-border/50 pb-3'>
+                      <div className='flex items-center gap-2.5'>
+                        <div className='flex size-8 items-center justify-center rounded-md bg-primary/10 text-primary'>
+                          <CategoryIcon className='size-4' />
+                        </div>
+                        <div>
+                          <div className='flex items-center gap-2'>
+                            <span className='font-semibold text-sm text-foreground'>
+                              {item.actionName || `Source[${index}]`}
+                            </span>
+                            <Badge
+                              variant='outline'
+                              className={cn('font-mono text-[11px]', categoryStyle.badge)}
+                            >
+                              {item.pluginName || 'Source'}
+                            </Badge>
+                          </div>
+                          <div className='text-[11px] text-muted-foreground'>
+                            {categoryStyle.label}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 阶段徽章 */}
+                      {norm.phaseBadge === 'INCREMENTAL' ? (
+                        <Badge
+                          variant='outline'
+                          className='inline-flex items-center gap-1.5 border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-700 dark:text-emerald-300'
+                        >
+                          <span className='size-2 rounded-full bg-emerald-500 animate-pulse' />
+                          <span>增量实时 (Incremental)</span>
+                        </Badge>
+                      ) : norm.phaseBadge === 'SNAPSHOT' ? (
+                        <Badge
+                          variant='outline'
+                          className='inline-flex items-center gap-1.5 border-blue-500/40 bg-blue-500/10 px-2 py-0.5 text-xs text-blue-700 dark:text-blue-300'
+                        >
+                          <span className='size-2 rounded-full bg-blue-500 animate-ping' />
+                          <span>全量快照中 (Snapshot)</span>
+                        </Badge>
+                      ) : (
+                        <Badge variant='outline' className='text-xs'>
+                          {norm.phaseBadge || 'RUNNING'}
+                        </Badge>
+                      )}
+                    </div>
+
+                    {/* 核心位点与指标高亮区 */}
+                    <div className='grid grid-cols-1 gap-3 sm:grid-cols-3'>
+                      {/* Hero: Primary Value */}
+                      <div className='rounded-lg border border-border/60 bg-background/90 p-3 shadow-xs'>
+                        <div className='flex items-center justify-between text-xs text-muted-foreground'>
+                          <span className='font-medium'>{norm.primaryLabel}</span>
+                          <QuickCopyButton text={norm.primaryValue} />
+                        </div>
+                        <div className='mt-1.5 break-all font-mono text-base font-bold text-foreground'>
+                          {norm.primaryValue}
+                        </div>
+                      </div>
+
+                      {/* Secondary Metric */}
+                      <div className='rounded-lg border border-border/60 bg-background/80 p-3 shadow-xs'>
+                        <div className='text-xs text-muted-foreground'>
+                          {norm.secondaryLabel || '运行阶段'}
+                        </div>
+                        <div className='mt-1.5 text-sm font-semibold text-foreground'>
+                          {norm.secondaryValue || '-'}
+                        </div>
+                      </div>
+
+                      {/* Lag / Event Timestamp */}
+                      <div className='rounded-lg border border-border/60 bg-background/80 p-3 shadow-xs'>
+                        <div className='flex items-center justify-between text-xs text-muted-foreground'>
+                          <span>业务延迟 / 事件时间</span>
+                          {norm.lagSeconds !== undefined && norm.lagSeconds <= 5 && (
+                            <span className='inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400'>
+                              <span className='size-1.5 rounded-full bg-emerald-500 animate-pulse' />
+                              实时
+                            </span>
+                          )}
+                        </div>
+                        <div className='mt-1.5 text-sm font-semibold text-foreground'>
+                          {norm.lagSeconds !== undefined
+                            ? norm.lagSeconds <= 0
+                              ? '0 秒 (实时无延迟)'
+                              : norm.lagSeconds < 60
+                                ? `${Math.round(norm.lagSeconds)} 秒延迟`
+                                : `${Math.floor(norm.lagSeconds / 60)} 分 ${Math.round(norm.lagSeconds % 60)} 秒延迟`
+                            : '-'}
+                        </div>
+                        {norm.eventTime !== undefined && norm.eventTime > 0 && (
+                          <div className='mt-1 text-[11px] font-mono text-muted-foreground truncate' title={new Date(norm.eventTime).toLocaleString()}>
+                            {new Date(norm.eventTime).toLocaleString()}
+                          </div>
                         )}
-                      </TableCell>
-                      <TableCell>
-                        {renderCheckpointFieldValue(
-                          'sourceTarget',
-                          summary.target,
-                        )}
-                      </TableCell>
-                      <TableCell>{summary.splitCount}</TableCell>
-                      <TableCell>{summary.progress}</TableCell>
-                      <TableCell>
-                        {formatCellValue(item.decodeStrategy)}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
+                      </div>
+                    </div>
+
+                    {/* 目标表 / 主题列表 */}
+                    {Array.isArray(norm.targetTables) && norm.targetTables.length > 0 && (
+                      <div className='flex flex-wrap items-center gap-1.5 text-xs pt-0.5'>
+                        <span className='text-muted-foreground font-medium'>同步目标:</span>
+                        {norm.targetTables.map((tbl) => (
+                          <Badge
+                            key={tbl}
+                            variant='secondary'
+                            className='font-mono text-[11px] bg-background/90 border border-border/50'
+                          >
+                            {tbl}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Subtask 进度明细列表 */}
+                    {Array.isArray(norm.subtaskProgress) && norm.subtaskProgress.length > 0 && (() => {
+                      const subtaskItems = norm.subtaskProgress;
+                      const hasLag = subtaskItems.some((s) => s.lag !== undefined);
+                      return (
+                        <div className='overflow-hidden rounded-md border border-border/50 bg-background/70 shadow-xs'>
+                          <div className='border-b border-border/50 bg-muted/20 px-3 py-1.5 text-xs font-medium text-muted-foreground flex items-center justify-between'>
+                            <span>子任务位点明细 (Subtask Progress)</span>
+                            <span className='font-mono text-[11px]'>{subtaskItems.length} 个子任务</span>
+                          </div>
+                          <Table>
+                            <TableHeader className='bg-muted/10'>
+                              <TableRow>
+                                <TableHead className='h-7 py-1 text-xs'>Subtask</TableHead>
+                                <TableHead className='h-7 py-1 text-xs'>目标 / 分区</TableHead>
+                                <TableHead className='h-7 py-1 text-xs'>当前位点 (Current Offset)</TableHead>
+                                {hasLag && (
+                                  <TableHead className='h-7 py-1 text-xs'>延迟 (Lag)</TableHead>
+                                )}
+                                <TableHead className='h-7 py-1 text-xs'>状态</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {subtaskItems.map((sub) => (
+                                <TableRow key={sub.subtaskIndex} className='hover:bg-muted/20'>
+                                  <TableCell className='py-1.5 font-mono text-xs font-medium'>
+                                    Subtask #{sub.subtaskIndex}
+                                  </TableCell>
+                                  <TableCell className='py-1.5 font-mono text-xs text-muted-foreground'>
+                                    {sub.target || '-'}
+                                  </TableCell>
+                                  <TableCell className='py-1.5 font-mono text-xs font-semibold text-foreground'>
+                                    {sub.currentOffset || '-'}
+                                  </TableCell>
+                                  {hasLag && (
+                                    <TableCell className='py-1.5 font-mono text-xs'>
+                                      {sub.lag !== undefined ? `${sub.lag}` : '-'}
+                                    </TableCell>
+                                  )}
+                                  <TableCell className='py-1.5 text-xs'>
+                                    <Badge
+                                      variant='outline'
+                                      className='border-emerald-500/40 bg-emerald-500/10 px-1.5 py-0 text-[10px] text-emerald-700 dark:text-emerald-300'
+                                    >
+                                      {sub.status || 'NORMAL'}
+                                    </Badge>
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                );
+              }
+
+              // 非归一化 Source 兜底表格行
+              const summary = summarizeCheckpointSourceState(item);
+              return (
+                <div
+                  key={`${item.actionName || item.pluginName || index}`}
+                  className='rounded-md border border-border/50 bg-background/70 p-3'
+                >
+                  <div className='flex items-center justify-between'>
+                    <span className='font-semibold text-sm'>{String(item.actionName || item.pluginName || '-')}</span>
+                    <Badge variant='outline'>{formatCellValue(item.pluginName)}</Badge>
+                  </div>
+                  <div className='mt-2 grid grid-cols-2 gap-2 text-xs sm:grid-cols-5'>
+                    <div>
+                      <div className='text-muted-foreground'>{currentOffsetLabel}</div>
+                      <div className='mt-0.5 font-mono font-medium'>{summary.offset}</div>
+                    </div>
+                    <div>
+                      <div className='text-muted-foreground'>{targetLabel}</div>
+                      <div className='mt-0.5 font-mono font-medium'>{summary.target}</div>
+                    </div>
+                    <div>
+                      <div className='text-muted-foreground'>{splitCountLabel}</div>
+                      <div className='mt-0.5 font-mono font-medium'>{summary.splitCount}</div>
+                    </div>
+                    <div>
+                      <div className='text-muted-foreground'>{progressLabel}</div>
+                      <div className='mt-0.5 font-mono font-medium'>{summary.progress}</div>
+                    </div>
+                    <div>
+                      <div className='text-muted-foreground'>{decodeStrategyLabel}</div>
+                      <div className='mt-0.5 font-mono font-medium'>{formatCellValue(item.decodeStrategy)}</div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         ) : null}
+
+        {/* 2. Sink 下游写入与 2PC 事务看板 */}
+        {sinks.length > 0 ? (
+          <div className='space-y-4 pt-2'>
+            <div className='flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground'>
+              <CheckCheck className='size-3.5 text-emerald-500' />
+              <span>下游提交状态 / 2PC 事务保证 (Sinks) ({sinks.length})</span>
+            </div>
+            {sinks.map((sink, sIdx) => {
+              const sinkNorm = sink.normalizedProgress;
+              return (
+                <div
+                  key={sink.actionName || sIdx}
+                  className='space-y-3.5 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-4 shadow-xs'
+                >
+                  <div className='flex flex-wrap items-center justify-between gap-2 border-b border-border/50 pb-3'>
+                    <div className='flex items-center gap-2.5'>
+                      <div className='flex size-8 items-center justify-center rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'>
+                        <CheckCheck className='size-4' />
+                      </div>
+                      <div>
+                        <div className='flex items-center gap-2'>
+                          <span className='text-sm font-semibold text-foreground'>
+                            {sink.actionName || `Sink[${sIdx}]`}
+                          </span>
+                          <Badge variant='outline' className='font-mono text-[11px] border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'>
+                            {sink.pluginName || 'Sink'}
+                          </Badge>
+                        </div>
+                        <div className='text-[11px] text-muted-foreground'>
+                          两阶段提交事务机制 (Two-Phase Commit / 2PC)
+                        </div>
+                      </div>
+                    </div>
+                    <Badge
+                      variant='outline'
+                      className='gap-1.5 border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-700 dark:text-emerald-300'
+                    >
+                      <span className='size-1.5 rounded-full bg-emerald-500' />
+                      <span>已预提交 (Prepared)</span>
+                    </Badge>
+                  </div>
+
+                  <div className='grid grid-cols-1 gap-3 sm:grid-cols-3'>
+                    <div className='rounded-lg border border-border/60 bg-background/80 p-3 shadow-xs'>
+                      <div className='text-xs text-muted-foreground'>提交机制</div>
+                      <div className='mt-1 text-sm font-semibold text-foreground'>
+                        {sinkNorm?.primaryValue || '两阶段提交 (2PC / Checkpoint)'}
+                      </div>
+                    </div>
+                    <div className='rounded-lg border border-border/60 bg-background/80 p-3 shadow-xs'>
+                      <div className='text-xs text-muted-foreground'>写入阶段</div>
+                      <div className='mt-1 text-sm font-semibold text-foreground'>
+                        {sinkNorm?.secondaryValue || '已完成预提交 (Prepared)'}
+                      </div>
+                    </div>
+                    <div className='rounded-lg border border-border/60 bg-background/80 p-3 shadow-xs'>
+                      <div className='text-xs text-muted-foreground'>待提交数据分块</div>
+                      <div className='mt-1 text-sm font-semibold text-foreground'>
+                        {sink.chunksTotal ?? 1} 个分块 ({formatSizeBytes(sink.stateBytesTotal ?? 0)})
+                      </div>
+                    </div>
+                  </div>
+
+                  {Array.isArray(sinkNorm?.subtaskProgress) && sinkNorm.subtaskProgress.length > 0 && (
+                    <div className='overflow-hidden rounded-md border border-border/50 bg-background/70 shadow-xs'>
+                      <Table>
+                        <TableHeader className='bg-muted/10'>
+                          <TableRow>
+                            <TableHead className='h-7 py-1 text-xs'>Subtask</TableHead>
+                            <TableHead className='h-7 py-1 text-xs'>写入目标</TableHead>
+                            <TableHead className='h-7 py-1 text-xs'>Prepared 分块</TableHead>
+                            <TableHead className='h-7 py-1 text-xs'>状态大小</TableHead>
+                            <TableHead className='h-7 py-1 text-xs'>事务状态</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {sinkNorm.subtaskProgress.map((sub) => (
+                            <TableRow key={sub.subtaskIndex} className='hover:bg-muted/20'>
+                              <TableCell className='py-1.5 font-mono text-xs font-medium'>
+                                Subtask #{sub.subtaskIndex}
+                              </TableCell>
+                              <TableCell className='py-1.5 font-mono text-xs text-muted-foreground'>
+                                {sub.target || `${sink.pluginName}-${sub.subtaskIndex}`}
+                              </TableCell>
+                              <TableCell className='py-1.5 font-mono text-xs font-semibold text-foreground'>
+                                {sub.chunks ?? 1}
+                              </TableCell>
+                              <TableCell className='py-1.5 font-mono text-xs'>
+                                {formatSizeBytes(sub.bytes ?? 0)}
+                              </TableCell>
+                              <TableCell className='py-1.5 text-xs'>
+                                <Badge
+                                  variant='outline'
+                                  className='border-emerald-500/40 bg-emerald-500/10 px-1.5 py-0 text-[10px] text-emerald-700 dark:text-emerald-300'
+                                >
+                                  {sub.status || 'PREPARED'}
+                                </Badge>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
+
+        {/* 3. 不支持或缺失的 Source 诊断提示 */}
         {unsupportedSources.length > 0 ? (
           <details className='group rounded-lg border border-border/60 bg-background/60'>
             <CheckpointDetailsSummary className='py-3 text-sm font-medium'>
-              <span>{unsupportedLabel}</span>
+              <span>{unsupportedLabel} ({unsupportedSources.length})</span>
             </CheckpointDetailsSummary>
             <div className='border-t border-border/50 p-3'>
               <div className='space-y-3'>
@@ -1460,14 +1837,18 @@ export function CheckpointInspectDialog({
         : '-';
 
   const handleCopyPath = useCallback(() => {
-    if (!result?.path) return;
+    if (!result?.path) {
+      return;
+    }
     void navigator.clipboard.writeText(result.path);
     setCopiedPath(true);
     setTimeout(() => setCopiedPath(false), 2000);
   }, [result?.path]);
 
   const handleCopyJson = useCallback(() => {
-    if (!result) return;
+    if (!result) {
+      return;
+    }
     void navigator.clipboard.writeText(JSON.stringify(result, null, 2));
     setCopiedJson(true);
     setTimeout(() => setCopiedJson(false), 2000);
@@ -1552,6 +1933,27 @@ export function CheckpointInspectDialog({
                   </>
                 )}
               </Button>
+              <Button
+                variant='ghost'
+                size='sm'
+                className='h-6 gap-1 px-2 text-[11px]'
+                onClick={handleCopyJson}
+                title={t('copyJson')}
+              >
+                {copiedJson ? (
+                  <>
+                    <Check className='size-3 text-emerald-500' />
+                    <span className='font-medium text-emerald-600 dark:text-emerald-400'>
+                      {t('copied')}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <FileCode className='size-3 text-muted-foreground' />
+                    <span>{t('copyJson')}</span>
+                  </>
+                )}
+              </Button>
             </div>
           </div>
         </div>
@@ -1563,7 +1965,7 @@ export function CheckpointInspectDialog({
           className='flex min-h-0 flex-1 flex-col'
         >
           <div className='border-b border-border/60 bg-background px-6 pt-2 pb-0'>
-            <TabsList className='grid h-9 w-full max-w-[540px] grid-cols-3 bg-muted/40 p-0.5'>
+            <TabsList className='grid h-9 w-full max-w-[380px] grid-cols-2 bg-muted/40 p-0.5'>
               <TabsTrigger
                 value='overview'
                 className='gap-1.5 text-xs data-[state=active]:font-semibold'
@@ -1578,19 +1980,12 @@ export function CheckpointInspectDialog({
                 <Layers className='size-3.5 text-indigo-500' />
                 {t('tabActionsAndSubtasks')}
               </TabsTrigger>
-              <TabsTrigger
-                value='raw'
-                className='gap-1.5 text-xs data-[state=active]:font-semibold'
-              >
-                <Code2 className='size-3.5 text-amber-500' />
-                {t('tabRawEngineState')}
-              </TabsTrigger>
             </TabsList>
           </div>
 
           <div className='min-h-0 flex-1 bg-muted/10 p-6'>
             <ScrollArea className='h-full pr-3'>
-              {/* Tab 1: 概览与数据源 */}
+              {/* Tab 1: 概览与业务位点 */}
               <TabsContent
                 value='overview'
                 className='mt-0 space-y-5 outline-hidden'
@@ -1609,7 +2004,7 @@ export function CheckpointInspectDialog({
                 />
               </TabsContent>
 
-              {/* Tab 2: 算子与 Task 拆解 */}
+              {/* Tab 2: 算子与分片拓扑 */}
               <TabsContent
                 value='actions'
                 className='mt-0 space-y-5 outline-hidden'
@@ -1623,39 +2018,6 @@ export function CheckpointInspectDialog({
                   unsupportedLabel={t('unsupportedSources')}
                   rawDetailsLabel={t('rawDetails')}
                 />
-              </TabsContent>
-
-              {/* Tab 3: 引擎底层快照 */}
-              <TabsContent
-                value='raw'
-                className='mt-0 space-y-5 outline-hidden'
-              >
-                <div className='flex items-center justify-between rounded-lg border border-border/60 bg-background/80 p-3 shadow-xs'>
-                  <div className='text-xs text-muted-foreground'>
-                    包含底层 SeaTunnel 引擎反序列化后的 CompletedCheckpoint 和 PipelineState 完整状态树。
-                  </div>
-                  <Button
-                    variant='outline'
-                    size='sm'
-                    className='h-7 gap-1.5 text-xs'
-                    onClick={handleCopyJson}
-                  >
-                    {copiedJson ? (
-                      <>
-                        <Check className='size-3 text-emerald-500' />
-                        <span className='font-medium text-emerald-600 dark:text-emerald-400'>
-                          {t('copied')}
-                        </span>
-                      </>
-                    ) : (
-                      <>
-                        <Copy className='size-3 text-muted-foreground' />
-                        <span>{t('copyJson')}</span>
-                      </>
-                    )}
-                  </Button>
-                </div>
-                <CheckpointInspectRawDetailsSection result={result} t={t} />
               </TabsContent>
             </ScrollArea>
           </div>

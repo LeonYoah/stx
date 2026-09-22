@@ -1274,6 +1274,7 @@ func (a *Agent) handleStartCommand(ctx context.Context, cmd *pb.CommandRequest, 
 			getParamString(cmd.Parameters, "install_dir", a.config.SeaTunnel.InstallDir),
 			getParamString(cmd.Parameters, "version", seatunnel.DefaultVersion()),
 			getParamInt(cmd.Parameters, "port", 0),
+			getParamString(cmd.Parameters, "jvm_opts", ""),
 		)
 		if err != nil {
 			return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err
@@ -1353,37 +1354,29 @@ func (a *Agent) handleStopCommand(ctx context.Context, cmd *pb.CommandRequest, r
 
 	processName := getParamString(cmd.Parameters, "process_name", processidentity.ManagedName(installDir, role))
 
-	params := &process.StopParams{
+	stopParams := &process.StopParams{
 		Graceful:   graceful,
 		Timeout:    30 * time.Second,
 		InstallDir: installDir,
 		Role:       role,
 	}
 
+	// Check if auto-restart is enabled - mark manually stopped to prevent auto-restart
+	// 检查是否启用了自动重启 - 标记为手动停止以防止自动重启
 	if a.autoRestarter.IsEnabled() {
 		a.processMonitor.MarkManuallyStopped(processName)
 	}
-	err := a.processManager.StopProcess(ctx, processName, params)
+
+	err := a.processManager.StopProcess(ctx, processName, stopParams)
 	if err != nil {
-		a.processMonitor.ClearManuallyStopped(processName)
+		if a.autoRestarter.IsEnabled() {
+			a.processMonitor.ClearManuallyStopped(processName)
+		}
 		return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err
 	}
 
-	// Check if auto-restart is enabled to decide whether to untrack or set PID=0
-	// 检查是否启用了自动重启，以决定是取消跟踪还是设置 PID=0
-	if a.autoRestarter.IsEnabled() {
-		// 人工停止时保留跟踪记录和 PID=0，但禁止自动拉起。
-		// Keep the tracked entry at PID=0 after a manual stop, while preventing auto-restart.
-		a.processMonitor.UpdateProcessPID(processName, 0)
-		logger.InfoF(ctx, "[Agent] Process manually stopped, PID set to 0: %s / 进程已人工停止，PID 设为 0：%s",
-			processName, processName)
-	} else {
-		// Auto-restart disabled: untrack the process completely
-		// 自动重启已禁用：完全取消跟踪进程
-		a.processMonitor.UntrackProcess(processName)
-		logger.InfoF(ctx, "[Agent] Process stopped and untracked (auto-restart disabled): %s / 进程已停止并取消跟踪（自动重启已禁用）：%s",
-			processName, processName)
-	}
+	// Untrack the process / 取消跟踪进程
+	a.processMonitor.UntrackProcess(processName)
 
 	reporter.Report(100, "Process stopped / 进程已停止")
 	return executor.CreateSuccessResponse(cmd.CommandId, fmt.Sprintf("Process stopped successfully (role: %s) / 进程停止成功（角色：%s）", role, role)), nil
@@ -1401,6 +1394,7 @@ func (a *Agent) handleRestartCommand(ctx context.Context, cmd *pb.CommandRequest
 			installDir,
 			getParamString(cmd.Parameters, "version", seatunnel.DefaultVersion()),
 			getParamInt(cmd.Parameters, "port", 0),
+			getParamString(cmd.Parameters, "jvm_opts", ""),
 		)
 		if err != nil {
 			return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err

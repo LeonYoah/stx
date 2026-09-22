@@ -44,8 +44,18 @@ type STXJavaProxyStatus struct {
 	Endpoint    string `json:"endpoint,omitempty"`
 	Port        int    `json:"port,omitempty"`
 	PID         int    `json:"pid,omitempty"`
-	LogPath     string `json:"log_path,omitempty"`
-	Message     string `json:"message,omitempty"`
+	LogPath   string                 `json:"log_path,omitempty"`
+	Message   string                 `json:"message,omitempty"`
+	JvmOpts   string                 `json:"jvm_opts,omitempty"`
+	JvmMemory map[string]interface{} `json:"jvm_memory,omitempty"`
+}
+
+// UpdateSTXJavaProxyConfigRequest represents a request to update proxy parameters.
+// UpdateSTXJavaProxyConfigRequest 表示更新 proxy 参数请求。
+type UpdateSTXJavaProxyConfigRequest struct {
+	JvmOpts *string `json:"jvm_opts"`
+	Port    *int    `json:"port,omitempty"`
+	Restart *bool   `json:"restart,omitempty"`
 }
 
 // STXJavaProxyLogPreviewResult represents a service.log preview result.
@@ -150,13 +160,19 @@ func (s *Service) executeSTXJavaProxyCommand(ctx context.Context, clusterID uint
 		"install_dir": node.InstallDir,
 		"version":     clusterInfo.Version,
 	}
-	// 启动/重启时把集群配置的 java-proxy 端口下发给 Agent。
-	// Pass the cluster-configured java-proxy port to Agent on start/restart.
-	if commandType == "start" || commandType == "restart" {
-		if ports := clusterInfo.Config.GetPortConfig(); ports != nil && ports.JavaProxyPort > 0 {
-			params["port"] = fmt.Sprintf("%d", ports.JavaProxyPort)
+	// 启动/重启/状态查询时把集群配置的 java-proxy 端口与 JVM 参数下发给 Agent。
+	// Pass cluster-configured java-proxy port and JVM options to Agent.
+	if proxyCfg := clusterInfo.Config.GetSTXJavaProxyConfig(); proxyCfg != nil {
+		if proxyCfg.Port > 0 {
+			params["port"] = fmt.Sprintf("%d", proxyCfg.Port)
 		}
+		if strings.TrimSpace(proxyCfg.JvmOpts) != "" {
+			params["jvm_opts"] = strings.TrimSpace(proxyCfg.JvmOpts)
+		}
+	} else if ports := clusterInfo.Config.GetPortConfig(); ports != nil && ports.JavaProxyPort > 0 {
+		params["port"] = fmt.Sprintf("%d", ports.JavaProxyPort)
 	}
+
 	success, message, sendErr := s.agentSender.SendCommand(ctx, hostInfo.AgentID, commandType, params)
 	status := decodeSTXJavaProxyStatus(clusterInfo, node, hostInfo, firstNonEmpty(message, errorString(sendErr)))
 	if sendErr != nil {
@@ -166,6 +182,60 @@ func (s *Service) executeSTXJavaProxyCommand(ctx context.Context, clusterID uint
 		return status, fmt.Errorf("%s", firstNonEmpty(status.Message, parseCommandMessage(message), "stx-java-proxy command failed"))
 	}
 	return status, nil
+}
+
+func (s *Service) UpdateSTXJavaProxyConfig(
+	ctx context.Context,
+	clusterID uint,
+	req *UpdateSTXJavaProxyConfigRequest,
+) (*STXJavaProxyStatus, error) {
+	if req == nil {
+		return nil, fmt.Errorf("request cannot be empty")
+	}
+	clusterInfo, err := s.repo.GetByID(ctx, clusterID, false)
+	if err != nil {
+		return nil, err
+	}
+	if clusterInfo.Config == nil {
+		clusterInfo.Config = make(ClusterConfig)
+	}
+
+	proxyCfg := clusterInfo.Config.GetSTXJavaProxyConfig()
+	if proxyCfg == nil {
+		proxyCfg = &STXJavaProxyConfig{}
+	}
+	if req.JvmOpts != nil {
+		proxyCfg.JvmOpts = strings.TrimSpace(*req.JvmOpts)
+	}
+	if req.Port != nil && *req.Port > 0 {
+		proxyCfg.Port = *req.Port
+	}
+	clusterInfo.Config["stx_java_proxy"] = map[string]interface{}{
+		"jvm_opts": proxyCfg.JvmOpts,
+		"port":     proxyCfg.Port,
+	}
+	if proxyCfg.Port > 0 {
+		ports := clusterInfo.Config.GetPortConfig()
+		if ports == nil {
+			ports = &ClusterPortConfig{}
+		}
+		ports.JavaProxyPort = proxyCfg.Port
+		clusterInfo.Config["ports"] = ports
+	}
+
+	if err := s.repo.Update(ctx, clusterInfo); err != nil {
+		return nil, fmt.Errorf("failed to save cluster proxy configuration: %w", err)
+	}
+
+	shouldRestart := true
+	if req.Restart != nil {
+		shouldRestart = *req.Restart
+	}
+
+	if shouldRestart {
+		return s.RestartSTXJavaProxy(ctx, clusterID)
+	}
+	return s.GetSTXJavaProxyStatus(ctx, clusterID)
 }
 
 func (s *Service) pickSTXJavaProxyNode(ctx context.Context, clusterID uint) (*NodeInfo, *HostInfo, error) {
@@ -226,6 +296,13 @@ func decodeSTXJavaProxyStatus(clusterInfo *Cluster, node *NodeInfo, hostInfo *Ho
 		status.PID = payload.PID
 		status.LogPath = payload.LogPath
 		status.Message = firstNonEmpty(payload.Message, status.Message)
+		status.JvmOpts = payload.JvmOpts
+		status.JvmMemory = payload.JvmMemory
+	}
+	if status.JvmOpts == "" && clusterInfo != nil {
+		if proxyCfg := clusterInfo.Config.GetSTXJavaProxyConfig(); proxyCfg != nil {
+			status.JvmOpts = proxyCfg.JvmOpts
+		}
 	}
 	return status
 }

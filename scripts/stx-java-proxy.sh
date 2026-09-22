@@ -127,16 +127,50 @@ if [ -f "${SEATUNNEL_HOME}/config/seatunnel-env.sh" ]; then
   . "${SEATUNNEL_HOME}/config/seatunnel-env.sh"
 fi
 
-JAVA_OPTS=${JAVA_OPTS:-}
+# Load proxy-specific environment configuration if present
+if [ -n "${STX_JAVA_PROXY_CONF_DIR:-}" ] && [ -f "${STX_JAVA_PROXY_CONF_DIR}/stx-java-proxy-env.sh" ]; then
+  # shellcheck disable=SC1091
+  . "${STX_JAVA_PROXY_CONF_DIR}/stx-java-proxy-env.sh"
+elif [ -f "${PROXY_HOME}/conf/stx-java-proxy-env.sh" ]; then
+  # shellcheck disable=SC1091
+  . "${PROXY_HOME}/conf/stx-java-proxy-env.sh"
+elif [ -f "${PROXY_HOME}/config/stx-java-proxy-env.sh" ]; then
+  # shellcheck disable=SC1091
+  . "${PROXY_HOME}/config/stx-java-proxy-env.sh"
+elif [ -f "${SEATUNNEL_HOME}/config/stx-java-proxy-env.sh" ]; then
+  # shellcheck disable=SC1091
+  . "${SEATUNNEL_HOME}/config/stx-java-proxy-env.sh"
+fi
+
+DEFAULT_PROXY_JVM_OPTS="-Xms64m -Xmx512m"
+PROXY_JVM_OPTS="${STX_JAVA_PROXY_JVM_OPTS:-${JAVA_OPTS:-}}"
+
 APP_ARGS=()
+CLI_JVM_OPTS=""
 for arg in "$@"; do
-  if [[ "${arg}" == -D* ]]; then
-    JAVA_OPTS="${JAVA_OPTS} ${arg}"
-  else
-    APP_ARGS+=("${arg}")
-  fi
+  case "${arg}" in
+    -D*|-X*|-XX:*)
+      CLI_JVM_OPTS="${CLI_JVM_OPTS} ${arg}"
+      ;;
+    *)
+      APP_ARGS+=("${arg}")
+      ;;
+  esac
 done
-JAVA_OPTS="${JAVA_OPTS} -DSEATUNNEL_HOME=${SEATUNNEL_HOME} -Dstx.java.proxy.seatunnel.home=${SEATUNNEL_HOME}"
+
+COMBINED_JVM_OPTS="${PROXY_JVM_OPTS} ${CLI_JVM_OPTS}"
+
+# If no -Xmx memory cap is specified, inject default 512MB limit
+if [[ "${COMBINED_JVM_OPTS}" != *-Xmx* ]]; then
+  CUSTOM_XMX=$(printf '%s' "${COMBINED_JVM_OPTS}" | grep -o '\-Dstx\.java\.proxy\.xmx=[^ ]*' | head -n 1 | cut -d= -f2 || true)
+  if [ -n "${CUSTOM_XMX}" ]; then
+    COMBINED_JVM_OPTS="${COMBINED_JVM_OPTS} -Xmx${CUSTOM_XMX}"
+  else
+    COMBINED_JVM_OPTS="${DEFAULT_PROXY_JVM_OPTS} ${COMBINED_JVM_OPTS}"
+  fi
+fi
+
+JAVA_OPTS="${COMBINED_JVM_OPTS} -DSEATUNNEL_HOME=${SEATUNNEL_HOME} -Dstx.java.proxy.seatunnel.home=${SEATUNNEL_HOME}"
 
 CLASS_PATH=${SEATUNNEL_HOME}/lib/*:${APP_JAR}:${PROXY_JAR}
 

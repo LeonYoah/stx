@@ -355,6 +355,15 @@ export function AuditLogTable({
                             count: log.command_count,
                           })}
                         </button>
+                      ) : Boolean(log.details?.engine_url || log.details?.engine_base_url) && onOpenTrace ? (
+                        <button
+                          type='button'
+                          className='inline-flex items-center gap-1 text-xs text-primary hover:underline font-medium'
+                          onClick={() => onOpenTrace(log)}
+                        >
+                          <span className='inline-block w-1.5 h-1.5 rounded-full bg-emerald-500' />
+                          {t('audit.clusterApiCall')}
+                        </button>
                       ) : (
                         <span className='text-muted-foreground'>-</span>
                       )}

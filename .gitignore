@@ -60,7 +60,8 @@ agent/stx-agent.exe
 app.pid
 frontend-next.pid
 frontend/dist-standalone/
-stx
+/stx
+/github.com/
 frontend/playwright-report/
 frontend/test-results/
 frontend/.playwright/

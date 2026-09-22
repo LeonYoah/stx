@@ -25,6 +25,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/LeonYoah/stx/internal/apps/audit"
@@ -100,11 +101,12 @@ func (e *ConfirmationRequiredError) Unwrap() error {
 // Service 实现公共状态、权限、幂等、确认和取消规则。
 // Service implements shared state, access, idempotency, confirmation, and cancellation rules.
 type Service struct {
-	repo         *Repository
-	providers    *ProviderRegistry
-	now          func() time.Time
-	pollInterval time.Duration
-	auditRepo    *audit.Repository
+	repo             *Repository
+	providers        *ProviderRegistry
+	now              func() time.Time
+	pollInterval     time.Duration
+	auditRepo        *audit.Repository
+	executionDetails sync.Map
 }
 
 // SetAuditRepository 设置公共执行服务使用的审计仓库。
@@ -114,6 +116,28 @@ func (s *Service) SetAuditRepository(repo *audit.Repository) {
 		return
 	}
 	s.auditRepo = repo
+}
+
+// EnrichAuditDetails updates audit logs associated with an execution with extra details (e.g. engine URL).
+func (s *Service) EnrichAuditDetails(ctx context.Context, executionID string, extraDetails map[string]any) error {
+	if s == nil || executionID == "" || len(extraDetails) == 0 {
+		return nil
+	}
+	val, _ := s.executionDetails.LoadOrStore(executionID, make(map[string]any))
+	existing, _ := val.(map[string]any)
+	merged := make(map[string]any, len(existing)+len(extraDetails))
+	for k, v := range existing {
+		merged[k] = v
+	}
+	for k, v := range extraDetails {
+		merged[k] = v
+	}
+	s.executionDetails.Store(executionID, merged)
+
+	if s.auditRepo != nil {
+		return s.auditRepo.UpdateAuditLogDetailsByExecutionID(ctx, executionID, extraDetails)
+	}
+	return nil
 }
 
 // NewService 创建公共执行服务。
@@ -349,6 +373,7 @@ func (s *Service) Transition(ctx context.Context, executionID string, from, to S
 		if item, err := s.repo.GetByExecutionID(ctx, executionID); err == nil {
 			s.recordAudit(ctx, item, item.OwnerUserID, "execution.result", auditClientType(item), string(to), "")
 		}
+		s.executionDetails.Delete(executionID)
 	}
 	return nil
 }
@@ -499,6 +524,18 @@ func (s *Service) recordAudit(ctx context.Context, item *Execution, actorUserID 
 	if userID != nil {
 		username = s.auditRepo.LookupUsername(ctx, *userID)
 	}
+	details := audit.AuditDetails{
+		"operation_id":       item.OperationID,
+		"cancellable":        item.Cancellable,
+		"cancellable_reason": strings.TrimSpace(reason),
+	}
+	if val, ok := s.executionDetails.Load(item.ExecutionID); ok {
+		if extra, ok := val.(map[string]any); ok {
+			for k, v := range extra {
+				details[k] = v
+			}
+		}
+	}
 	if err := s.auditRepo.CreateAuditLog(ctx, &audit.AuditLog{
 		UserID:       userID,
 		Username:     username,
@@ -512,11 +549,7 @@ func (s *Service) recordAudit(ctx context.Context, item *Execution, actorUserID 
 		RiskLevel:    string(item.RiskLevel),
 		ResultStatus: strings.TrimSpace(resultStatus),
 		Trigger:      trigger,
-		Details: audit.AuditDetails{
-			"operation_id":       item.OperationID,
-			"cancellable":        item.Cancellable,
-			"cancellable_reason": strings.TrimSpace(reason),
-		},
+		Details:      details,
 	}); err != nil {
 		logger.WarnF(ctx, "[Execution] 保存审计记录失败: execution_id=%s action=%s err=%v", item.ExecutionID, action, err)
 	}

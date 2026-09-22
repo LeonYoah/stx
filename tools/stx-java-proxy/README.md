@@ -180,6 +180,39 @@ If extra jars are needed at process startup, use:
 
 - `EXTRA_PROXY_CLASSPATH=/path/a.jar:/path/b.jar`
 
+### JVM Memory & Options Configuration
+
+As a lightweight bridge process, `stx-java-proxy` enforces a default max heap limit of **`512MB`** (`-Xms64m -Xmx512m`) to prevent excessive memory usage or host OOM events.
+
+You can customize proxy JVM memory parameters via 4 flexible approaches:
+
+1. **Environment Variable Override (Recommended)**:
+   ```bash
+   export STX_JAVA_PROXY_JVM_OPTS="-Xms128m -Xmx1024m -XX:+UseG1GC"
+   sh bin/stx-java-proxy.sh
+   ```
+2. **CLI Arguments**:
+   ```bash
+   # Direct -Xmx / -Xms flags are automatically routed to JVM options
+   sh bin/stx-java-proxy.sh -Xmx1024m -Xms256m
+   ```
+3. **Environment Config File**:
+   Copy and configure `stx-java-proxy-env.sh`:
+   ```bash
+   cp conf/stx-java-proxy-env.sh.template conf/stx-java-proxy-env.sh
+   echo 'export STX_JAVA_PROXY_JVM_OPTS="-Xms128m -Xmx1024m"' >> conf/stx-java-proxy-env.sh
+   ```
+   The launcher automatically probes and sources configuration files in:
+   - `${STX_JAVA_PROXY_CONF_DIR}/stx-java-proxy-env.sh`
+   - `${PROXY_HOME}/conf/stx-java-proxy-env.sh`
+   - `${PROXY_HOME}/config/stx-java-proxy-env.sh`
+   - `${SEATUNNEL_HOME}/config/stx-java-proxy-env.sh`
+4. **Convenient System Property**:
+   ```bash
+   sh bin/stx-java-proxy.sh -Dstx.java.proxy.xmx=1024m
+   ```
+Querying `GET /healthz` returns runtime JVM memory metrics (`maxMemoryMb`, `totalMemoryBytes`, etc.).
+
 ### Cluster Directory Deployment Checklist
 
 If you deploy the proxy into an existing SeaTunnel cluster directory, use this checklist:

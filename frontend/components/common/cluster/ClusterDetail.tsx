@@ -61,10 +61,12 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
   WorkbenchDialogContent,
 } from '@/components/ui/dialog';
+import {Label} from '@/components/ui/label';
 import {ScrollArea} from '@/components/ui/scroll-area';
 import {
   Select,
@@ -101,6 +103,8 @@ import {
   Copy,
   Check,
   MoreHorizontal,
+  Cpu,
+  SlidersHorizontal,
 } from 'lucide-react';
 import {Checkbox} from '@/components/ui/checkbox';
 import {motion} from 'motion/react';
@@ -355,6 +359,14 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
   const [stxJavaProxyOperating, setStxJavaProxyOperating] = useState<
     'start' | 'stop' | 'restart' | null
   >(null);
+  const [stxJavaProxyConfigOpen, setStxJavaProxyConfigOpen] = useState(false);
+  const [stxJavaProxyJvmPreset, setStxJavaProxyJvmPreset] = useState<
+    '512m' | '1024m' | '2048m' | '4096m' | 'custom'
+  >('512m');
+  const [stxJavaProxyJvmOptsInput, setStxJavaProxyJvmOptsInput] = useState('');
+  const [stxJavaProxyRestartOnSave, setStxJavaProxyRestartOnSave] =
+    useState(true);
+  const [stxJavaProxySaving, setStxJavaProxySaving] = useState(false);
   const [runtimeStorageLoading, setRuntimeStorageLoading] = useState(false);
   const [runtimeStorageValidationLoading, setRuntimeStorageValidationLoading] =
     useState<'checkpoint' | 'imap' | null>(null);
@@ -702,6 +714,92 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
       setStxJavaProxyLogLoading(false);
     }
   }, [clusterId, t]);
+
+  const handleOpenStxJavaProxyConfig = useCallback(() => {
+    const currentOpts = (stxJavaProxy?.jvm_opts || '').trim();
+    setStxJavaProxyJvmOptsInput(currentOpts);
+    setStxJavaProxyRestartOnSave(true);
+    if (!currentOpts || currentOpts.includes('-Xmx512m')) {
+      setStxJavaProxyJvmPreset('512m');
+    } else if (
+      currentOpts.includes('-Xmx1024m') ||
+      currentOpts.includes('-Xmx1g') ||
+      currentOpts.includes('-Xmx1G')
+    ) {
+      setStxJavaProxyJvmPreset('1024m');
+    } else if (
+      currentOpts.includes('-Xmx2048m') ||
+      currentOpts.includes('-Xmx2g') ||
+      currentOpts.includes('-Xmx2G')
+    ) {
+      setStxJavaProxyJvmPreset('2048m');
+    } else if (
+      currentOpts.includes('-Xmx4096m') ||
+      currentOpts.includes('-Xmx4g') ||
+      currentOpts.includes('-Xmx4G')
+    ) {
+      setStxJavaProxyJvmPreset('4096m');
+    } else {
+      setStxJavaProxyJvmPreset('custom');
+    }
+    setStxJavaProxyConfigOpen(true);
+  }, [stxJavaProxy?.jvm_opts]);
+
+  const handleSelectJvmPreset = useCallback(
+    (preset: '512m' | '1024m' | '2048m' | '4096m' | 'custom') => {
+      setStxJavaProxyJvmPreset(preset);
+      switch (preset) {
+        case '512m':
+          setStxJavaProxyJvmOptsInput('-Xms64m -Xmx512m');
+          break;
+        case '1024m':
+          setStxJavaProxyJvmOptsInput('-Xms128m -Xmx1024m');
+          break;
+        case '2048m':
+          setStxJavaProxyJvmOptsInput('-Xms256m -Xmx2048m');
+          break;
+        case '4096m':
+          setStxJavaProxyJvmOptsInput('-Xms512m -Xmx4096m');
+          break;
+        case 'custom':
+          break;
+      }
+    },
+    [],
+  );
+
+  const handleSaveStxJavaProxyConfig = useCallback(async () => {
+    setStxJavaProxySaving(true);
+    try {
+      const result = await services.cluster.updateStxJavaProxyConfigSafe(
+        clusterId,
+        {
+          jvm_opts: stxJavaProxyJvmOptsInput.trim(),
+          restart: stxJavaProxyRestartOnSave,
+        },
+      );
+      if (!result.success || !result.data) {
+        toast.error(
+          result.error || t('cluster.stxJavaProxy.configFailed'),
+        );
+        return;
+      }
+      setStxJavaProxy(result.data);
+      toast.success(
+        result.data.message || t('cluster.stxJavaProxy.configSuccess'),
+      );
+      setStxJavaProxyConfigOpen(false);
+      void loadStxJavaProxyStatus();
+    } finally {
+      setStxJavaProxySaving(false);
+    }
+  }, [
+    clusterId,
+    stxJavaProxyJvmOptsInput,
+    stxJavaProxyRestartOnSave,
+    t,
+    loadStxJavaProxyStatus,
+  ]);
 
   const handleStartInspection = useCallback(async () => {
     setInspectionStarting(true);
@@ -2619,12 +2717,61 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                             : '-'}
                         </div>
                       </div>
+                      <div>
+                        <div className='text-muted-foreground'>
+                          {t('cluster.stxJavaProxy.jvmMemoryMax')}
+                        </div>
+                        <div className='font-medium font-mono'>
+                          {stxJavaProxy?.jvm_memory?.maxMemoryMb
+                            ? `${stxJavaProxy.jvm_memory.maxMemoryMb} MB`
+                            : '512 MB (默认)'}
+                        </div>
+                      </div>
+                      <div>
+                        <div className='text-muted-foreground'>
+                          {t('cluster.stxJavaProxy.jvmMemoryUsage')}
+                        </div>
+                        <div className='font-medium font-mono'>
+                          {stxJavaProxy?.jvm_memory?.usedMemoryBytes != null
+                            ? `${Math.round(stxJavaProxy.jvm_memory.usedMemoryBytes / (1024 * 1024))} MB / ${Math.round((stxJavaProxy.jvm_memory.totalMemoryBytes || 0) / (1024 * 1024))} MB`
+                            : '-'}
+                        </div>
+                      </div>
+                      <div className='md:col-span-2'>
+                        <div className='text-muted-foreground'>
+                          {t('cluster.stxJavaProxy.jvmOpts')}
+                        </div>
+                        <div
+                          className='font-medium font-mono truncate'
+                          title={
+                            stxJavaProxy?.jvm_opts ||
+                            t('cluster.stxJavaProxy.jvmOptsDefault')
+                          }
+                        >
+                          {stxJavaProxy?.jvm_opts &&
+                          stxJavaProxy.jvm_opts.trim() !== ''
+                            ? stxJavaProxy.jvm_opts
+                            : t('cluster.stxJavaProxy.jvmOptsDefault')}
+                        </div>
+                      </div>
                     </div>
                     <div className='rounded-md border bg-muted/20 p-3 text-sm'>
                       {stxJavaProxy?.message ||
                         t('cluster.stxJavaProxy.noStatus')}
                     </div>
                     <div className='flex flex-wrap gap-2'>
+                      <Button
+                        variant='outline'
+                        size='sm'
+                        onClick={handleOpenStxJavaProxyConfig}
+                        disabled={
+                          stxJavaProxyLoading || stxJavaProxyOperating !== null
+                        }
+                        data-testid='stx-java-proxy-config-btn'
+                      >
+                        <SlidersHorizontal className='mr-2 h-4 w-4' />
+                        {t('cluster.stxJavaProxy.configureMemory')}
+                      </Button>
                       <Button
                         variant='outline'
                         size='sm'
@@ -3510,6 +3657,131 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
             </pre>
           </ScrollArea>
         </WorkbenchDialogContent>
+      </Dialog>
+
+      <Dialog
+        open={stxJavaProxyConfigOpen}
+        onOpenChange={setStxJavaProxyConfigOpen}
+      >
+        <DialogContent className='max-w-xl sm:max-w-xl'>
+          <DialogHeader>
+            <DialogTitle className='flex items-center gap-2'>
+              <Cpu className='h-5 w-5 text-primary' />
+              {t('cluster.stxJavaProxy.configDialogTitle')}
+            </DialogTitle>
+            <DialogDescription>
+              {t('cluster.stxJavaProxy.configDialogDescription')}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className='space-y-5 py-3 text-sm'>
+            <div className='space-y-2'>
+              <Label className='font-medium'>
+                {t('cluster.stxJavaProxy.presetLabel')}
+              </Label>
+              <div className='grid grid-cols-2 gap-2 sm:grid-cols-3'>
+                {[
+                  {id: '512m', label: t('cluster.stxJavaProxy.preset512m')},
+                  {id: '1024m', label: t('cluster.stxJavaProxy.preset1g')},
+                  {id: '2048m', label: t('cluster.stxJavaProxy.preset2g')},
+                  {id: '4096m', label: t('cluster.stxJavaProxy.preset4g')},
+                  {id: 'custom', label: t('cluster.stxJavaProxy.presetCustom')},
+                ].map((preset) => (
+                  <Button
+                    key={preset.id}
+                    type='button'
+                    variant={
+                      stxJavaProxyJvmPreset === preset.id
+                        ? 'default'
+                        : 'outline'
+                    }
+                    size='sm'
+                    className='justify-start text-xs font-normal'
+                    onClick={() =>
+                      handleSelectJvmPreset(
+                        preset.id as
+                          | '512m'
+                          | '1024m'
+                          | '2048m'
+                          | '4096m'
+                          | 'custom',
+                      )
+                    }
+                  >
+                    {preset.label}
+                  </Button>
+                ))}
+              </div>
+            </div>
+
+            <div className='space-y-2'>
+              <Label htmlFor='stx-java-proxy-jvm-opts' className='font-medium'>
+                {t('cluster.stxJavaProxy.jvmOptsField')}
+              </Label>
+              <Input
+                id='stx-java-proxy-jvm-opts'
+                value={stxJavaProxyJvmOptsInput}
+                onChange={(e) => {
+                  setStxJavaProxyJvmOptsInput(e.target.value);
+                  setStxJavaProxyJvmPreset('custom');
+                }}
+                placeholder={t('cluster.stxJavaProxy.jvmOptsPlaceholder')}
+                className='font-mono text-xs'
+                data-testid='stx-java-proxy-jvm-opts-input'
+              />
+              <p className='text-xs text-muted-foreground'>
+                {t('cluster.stxJavaProxy.jvmOptsHelp')}
+              </p>
+            </div>
+
+            <div className='flex items-start space-x-2 pt-2 border-t'>
+              <Checkbox
+                id='stx-java-proxy-restart-save'
+                checked={stxJavaProxyRestartOnSave}
+                onCheckedChange={(checked) =>
+                  setStxJavaProxyRestartOnSave(Boolean(checked))
+                }
+              />
+              <div className='grid gap-1 leading-none'>
+                <Label
+                  htmlFor='stx-java-proxy-restart-save'
+                  className='text-sm font-medium cursor-pointer'
+                >
+                  {t('cluster.stxJavaProxy.restartImmediately')}
+                </Label>
+                <p className='text-xs text-muted-foreground'>
+                  {t('cluster.stxJavaProxy.restartImmediatelyHelp')}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              type='button'
+              variant='outline'
+              onClick={() => setStxJavaProxyConfigOpen(false)}
+              disabled={stxJavaProxySaving}
+            >
+              {t('common.cancel')}
+            </Button>
+            <Button
+              type='button'
+              onClick={() => void handleSaveStxJavaProxyConfig()}
+              disabled={stxJavaProxySaving}
+              data-testid='stx-java-proxy-save-config-btn'
+            >
+              {stxJavaProxySaving ? (
+                <>
+                  <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                  {t('cluster.stxJavaProxy.saving')}
+                </>
+              ) : (
+                t('cluster.stxJavaProxy.saveAndApply')
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
       </Dialog>
 
       <Dialog

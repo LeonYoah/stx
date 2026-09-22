@@ -812,7 +812,7 @@ func Serve() {
 			// Inject agent command sender for plugin installation to cluster nodes
 			// 注入 Agent 命令发送器用于将插件安装到集群节点
 			if agentManager != nil {
-				pluginService.SetAgentCommandSender(&pluginAgentCommandSenderAdapter{manager: agentManager})
+				pluginService.SetAgentCommandSender(&pluginAgentCommandSenderAdapter{manager: agentManager, auditRepo: auditRepo})
 				pluginService.SetClusterNodeGetter(&clusterNodeGetterAdapter{clusterService: clusterService})
 				pluginService.SetHostInfoGetter(&hostInfoGetterAdapter{hostService: hostService})
 				log.Println("[API] Agent command sender injected into plugin service / Agent 命令发送器已注入插件服务")
@@ -1220,8 +1220,9 @@ func (a *agentCommandSenderAdapter) recordCommandLog(ctx context.Context, agentI
 		return
 	}
 	metadata := audit.CommandMetadataFromContext(ctx)
-	parameters := make(audit.CommandParameters, len(params))
-	for key, value := range params {
+	safeParams := sanitizeAgentCommandParameters(commandType, params)
+	parameters := make(audit.CommandParameters, len(safeParams))
+	for key, value := range safeParams {
 		parameters[key] = value
 	}
 	var createdBy *uint
@@ -1237,7 +1238,7 @@ func (a *agentCommandSenderAdapter) recordCommandLog(ctx context.Context, agentI
 		AgentID:        agentID,
 		CommandType:    commandType,
 		ClientType:     strings.TrimSpace(metadata.ClientType),
-		DisplayCommand: buildAgentDisplayCommand(commandType, params, resp.Output),
+		DisplayCommand: buildAgentDisplayCommand(commandType, safeParams, resp.Output),
 		Parameters:     parameters,
 		Status:         commandStatusFromAgentResponse(resp.Status),
 		Progress:       int(resp.Progress),
@@ -1246,6 +1247,11 @@ func (a *agentCommandSenderAdapter) recordCommandLog(ctx context.Context, agentI
 		StartedAt:      &startedAt,
 		FinishedAt:     &finishedAt,
 		CreatedBy:      createdBy,
+	}
+	// 插件分片返回 RUNNING 表示当前分片已接收完成，审计记录应结束为成功，不能永久停在运行中。
+	// RUNNING means the current plugin chunk was accepted, so its audit row must finish as successful.
+	if commandType == "transfer_plugin" && resp.Status == pb.CommandStatus_RUNNING {
+		commandLog.Status = audit.CommandStatusSuccess
 	}
 	existing, lookupErr := a.auditRepo.GetCommandLogByCommandID(ctx, resp.CommandId)
 	var commandLogErr error
@@ -1272,8 +1278,9 @@ func (a *agentCommandSenderAdapter) recordPendingCommandLog(ctx context.Context,
 		return
 	}
 	metadata := audit.CommandMetadataFromContext(ctx)
-	parameters := make(audit.CommandParameters, len(params))
-	for key, value := range params {
+	safeParams := sanitizeAgentCommandParameters(commandType, params)
+	parameters := make(audit.CommandParameters, len(safeParams))
+	for key, value := range safeParams {
 		parameters[key] = value
 	}
 	var createdBy *uint
@@ -1288,7 +1295,7 @@ func (a *agentCommandSenderAdapter) recordPendingCommandLog(ctx context.Context,
 		AgentID:        agentID,
 		CommandType:    commandType,
 		ClientType:     strings.TrimSpace(metadata.ClientType),
-		DisplayCommand: buildAgentDisplayCommand(commandType, params, ""),
+		DisplayCommand: buildAgentDisplayCommand(commandType, safeParams, ""),
 		Parameters:     parameters,
 		Status:         audit.CommandStatusPending,
 		Progress:       0,
@@ -1298,6 +1305,37 @@ func (a *agentCommandSenderAdapter) recordPendingCommandLog(ctx context.Context,
 	if err := a.auditRepo.CreateCommandLog(ctx, commandLog); err != nil && !errors.Is(err, audit.ErrCommandIDDuplicate) {
 		log.Printf("[Audit] 保存待发送 Agent 命令失败: command_id=%s err=%v", commandID, err)
 	}
+}
+
+// sanitizeAgentCommandParameters 移除不应进入审计的二进制正文，并保留可核对的大小信息。
+// sanitizeAgentCommandParameters removes binary payloads from audit data while retaining their verifiable size.
+func sanitizeAgentCommandParameters(commandType string, params map[string]string) map[string]string {
+	safeParams := make(map[string]string, len(params)+1)
+	for key, value := range params {
+		if commandType == "transfer_plugin" && key == "chunk" {
+			continue
+		}
+		safeParams[key] = value
+	}
+	if commandType == "transfer_plugin" {
+		if chunk := params["chunk"]; chunk != "" {
+			safeParams["chunk_bytes"] = strconv.Itoa(base64PayloadSize(chunk))
+		}
+	}
+	return safeParams
+}
+
+// base64PayloadSize 计算标准 Base64 正文解码后的字节数，不分配完整解码缓冲区。
+// base64PayloadSize returns the decoded byte length without allocating a full decoded buffer.
+func base64PayloadSize(value string) int {
+	size := base64.StdEncoding.DecodedLen(len(value))
+	if strings.HasSuffix(value, "==") {
+		return size - 2
+	}
+	if strings.HasSuffix(value, "=") {
+		return size - 1
+	}
+	return size
 }
 
 // recordFailedCommandLog 将未得到 Agent 响应的命令更新为失败终态。
@@ -1414,7 +1452,8 @@ func (a *agentCommandSenderAdapter) stringToCommandType(cmdType string) pb.Comma
 // pluginAgentCommandSenderAdapter adapts agent.Manager to plugin.AgentCommandSender interface.
 // pluginAgentCommandSenderAdapter 将 agent.Manager 适配到 plugin.AgentCommandSender 接口。
 type pluginAgentCommandSenderAdapter struct {
-	manager *agent.Manager
+	manager   *agent.Manager
+	auditRepo *audit.Repository
 }
 
 // SendCommand sends a command to an agent and returns the result.
@@ -1431,10 +1470,18 @@ func (a *pluginAgentCommandSenderAdapter) SendCommand(ctx context.Context, agent
 		timeout = 2 * time.Minute
 	}
 
-	resp, err := a.manager.SendCommand(ctx, agentID, cmdType, params, timeout)
+	// 插件命令复用公共 Agent 命令审计，发送失败也会保留一条失败记录。
+	// Plugin commands reuse common Agent command auditing so dispatch failures remain visible.
+	auditSender := &agentCommandSenderAdapter{manager: a.manager, auditRepo: a.auditRepo}
+	startedAt := time.Now()
+	commandID := uuid.NewString()
+	auditSender.recordPendingCommandLog(ctx, commandID, agentID, commandType, params, startedAt)
+	resp, err := a.manager.SendCommandWithID(ctx, commandID, agentID, cmdType, params, timeout)
 	if err != nil {
+		auditSender.recordFailedCommandLog(ctx, commandID, err)
 		return false, "", err
 	}
+	auditSender.recordCommandLog(ctx, agentID, commandType, params, startedAt, resp)
 
 	// For transfer_plugin command, RUNNING status means chunk received successfully
 	// 对于 transfer_plugin 命令，RUNNING 状态表示块接收成功

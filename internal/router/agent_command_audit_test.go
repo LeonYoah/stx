@@ -185,6 +185,95 @@ func TestAgentCommandSendFailureUpdatesPendingAuditRecord(t *testing.T) {
 	}
 }
 
+func TestPluginAgentCommandSendFailureUpdatesPendingAuditRecord(t *testing.T) {
+	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	if err := database.AutoMigrate(&audit.CommandLog{}); err != nil {
+		t.Fatalf("migrate command logs: %v", err)
+	}
+	repo := audit.NewRepository(database)
+	adapter := &pluginAgentCommandSenderAdapter{manager: agentapp.NewManager(nil), auditRepo: repo}
+	ctx := audit.WithCommandMetadata(context.Background(), audit.CommandMetadata{
+		RequestID:   "request-plugin-send-failed",
+		OwnerUserID: 11,
+		ClientType:  "cli",
+	})
+
+	if _, _, err := adapter.SendCommand(ctx, "missing-agent", "install_plugin", map[string]string{"plugin_name": "jdbc", "install_path": "/tmp/st"}); err == nil {
+		t.Fatal("missing agent should fail")
+	}
+	logs, total, err := repo.ListCommandLogs(ctx, &audit.CommandLogFilter{RequestID: "request-plugin-send-failed", Page: 1, PageSize: 20})
+	if err != nil {
+		t.Fatalf("list failed plugin command logs: %v", err)
+	}
+	if total != 1 || len(logs) != 1 {
+		t.Fatalf("plugin send failure should keep one command log: total=%d logs=%+v", total, logs)
+	}
+	item := logs[0]
+	if item.CommandType != "install_plugin" || item.Status != audit.CommandStatusFailed || item.ClientType != "cli" || item.CreatedBy == nil || *item.CreatedBy != 11 {
+		t.Fatalf("failed plugin command audit record is incomplete: %+v", item)
+	}
+}
+
+func TestTransferPluginCommandAuditOmitsBinaryChunkAndFinishesChunkRecord(t *testing.T) {
+	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	if err := database.AutoMigrate(&audit.CommandLog{}); err != nil {
+		t.Fatalf("migrate command logs: %v", err)
+	}
+	repo := audit.NewRepository(database)
+	adapter := &agentCommandSenderAdapter{auditRepo: repo}
+	ctx := audit.WithCommandMetadata(context.Background(), audit.CommandMetadata{
+		RequestID:   "request-transfer-plugin",
+		OwnerUserID: 12,
+		ClientType:  "cli",
+	})
+	params := map[string]string{
+		"chunk":        "YmluYXJ5LWRhdGE=",
+		"file_name":    "connector-demo.jar",
+		"offset":       "0",
+		"total_size":   "11",
+		"install_path": "/tmp/seatunnel",
+	}
+	startedAt := time.Now().Add(-time.Second)
+	adapter.recordPendingCommandLog(ctx, "transfer-command-1", "agent-1", "transfer_plugin", params, startedAt)
+
+	pending, err := repo.GetCommandLogByCommandID(ctx, "transfer-command-1")
+	if err != nil {
+		t.Fatalf("get pending transfer command: %v", err)
+	}
+	if _, exists := pending.Parameters["chunk"]; exists {
+		t.Fatalf("binary chunk must not be stored in pending audit parameters: %#v", pending.Parameters)
+	}
+	if pending.Parameters["chunk_bytes"] != "11" || strings.Contains(pending.DisplayCommand, params["chunk"]) {
+		t.Fatalf("pending transfer audit should keep only safe size metadata: %+v", pending)
+	}
+
+	adapter.recordCommandLog(ctx, "agent-1", "transfer_plugin", params, startedAt, &pb.CommandResponse{
+		CommandId: "transfer-command-1",
+		Status:    pb.CommandStatus_RUNNING,
+		Progress:  10,
+		Output:    `{"success":true,"message":"chunk received"}`,
+	})
+	completed, err := repo.GetCommandLogByCommandID(ctx, "transfer-command-1")
+	if err != nil {
+		t.Fatalf("get completed transfer command: %v", err)
+	}
+	if completed.Status != audit.CommandStatusSuccess || completed.FinishedAt == nil {
+		t.Fatalf("accepted transfer chunk should finish successfully: %+v", completed)
+	}
+	if _, exists := completed.Parameters["chunk"]; exists {
+		t.Fatalf("binary chunk must not be stored in completed audit parameters: %#v", completed.Parameters)
+	}
+	if completed.Parameters["chunk_bytes"] != "11" || strings.Contains(completed.DisplayCommand, params["chunk"]) {
+		t.Fatalf("completed transfer audit should keep only safe size metadata: %+v", completed)
+	}
+}
+
 func TestBuildAgentDisplayCommandUsesActualJavaTool(t *testing.T) {
 	threadCommand := buildAgentDisplayCommand("thread_dump", nil, `{"tool":"jstack","pid":321}`)
 	if threadCommand != "jstack -l 321" {

@@ -233,14 +233,9 @@ func (s *Service) AnalyzeOfficialDependencies(ctx context.Context, pluginName, v
 
 	specs := filterOfficialDependencySpecs(pluginName, profileKey)
 	if len(specs) == 0 {
-		return &OfficialDependenciesResponse{
-			PluginName:               pluginName,
-			SeatunnelVersion:         version,
-			DependencyStatus:         PluginDependencyStatusUnknown,
-			DependencyResolutionMode: DependencyResolutionModeNone,
-			Profiles:                 []PluginDependencyProfile{},
-			EffectiveDependencies:    []PluginDependency{},
-		}, nil
+		// 没有在线分析器时仍返回已经保存的官方依赖，避免分析接口与查询接口结果不一致。
+		// When no online analyzer exists, return stored official dependencies so analyze and lookup stay consistent.
+		return s.GetOfficialDependencies(ctx, pluginName, version, profileKey)
 	}
 
 	if !forceRefresh {

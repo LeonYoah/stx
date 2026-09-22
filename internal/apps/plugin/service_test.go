@@ -1067,6 +1067,39 @@ func TestAnalyzeOfficialDependenciesStoresRuntimeProfile(t *testing.T) {
 	}
 }
 
+func TestAnalyzeOfficialDependenciesFallsBackToStoredProfileWithoutAnalyzer(t *testing.T) {
+	service, repo := newTestPluginService(t)
+	ctx := context.Background()
+	disableSeedAutoLoad(service, "9.9.9")
+
+	if err := repo.UpsertDependencyProfile(ctx, &PluginDependencyProfile{
+		SeatunnelVersion:    "9.9.9",
+		PluginName:          "jdbc",
+		ArtifactID:          "connector-jdbc",
+		ProfileKey:          "mysql",
+		EngineScope:         "zeta",
+		SourceKind:          PluginDependencyProfileSourceOfficialSeed,
+		BaselineVersionUsed: "9.9.9",
+		ResolutionMode:      DependencyResolutionModeExact,
+		TargetDir:           "plugins/connector-jdbc",
+		Confidence:          "high",
+		Items: []PluginDependencyProfileItem{{
+			GroupID: "mysql", ArtifactID: "mysql-connector-java", Version: "8.0.27",
+			TargetDir: "plugins/connector-jdbc", Required: true,
+		}},
+	}); err != nil {
+		t.Fatalf("failed to seed stored profile: %v", err)
+	}
+
+	result, err := service.AnalyzeOfficialDependencies(ctx, "jdbc", "9.9.9", "mysql", true)
+	if err != nil {
+		t.Fatalf("AnalyzeOfficialDependencies returned error: %v", err)
+	}
+	if result.DependencyStatus != PluginDependencyStatusReadyExact || result.DependencyCount != 1 {
+		t.Fatalf("expected stored dependency result, got status=%q count=%d", result.DependencyStatus, result.DependencyCount)
+	}
+}
+
 func TestGetOfficialDependenciesMarksDisabledAndEffectiveRemovesThem(t *testing.T) {
 	service, repo := newTestPluginService(t)
 	ctx := context.Background()

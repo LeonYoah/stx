@@ -6,9 +6,9 @@
     "swagger_path_count": 101,
     "swagger_operation_count": 118,
     "swagger_documented_routes": 118,
-    "registered_operations": 190,
+    "registered_operations": 200,
     "route_exceptions": 18,
-    "historical_gaps": 47
+    "historical_gaps": 37
   },
   "routes": [
     {
@@ -410,7 +410,9 @@
       "method": "POST",
       "path": "/api/v1/clusters/:id/plugins",
       "source": "internal/router/router.go:916",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "cluster.plugin.install",
+      "mode": "normal",
       "swagger": true
     },
     {
@@ -424,14 +426,18 @@
       "method": "PUT",
       "path": "/api/v1/clusters/:id/plugins/:name/disable",
       "source": "internal/router/router.go:928",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "cluster.plugin.disable",
+      "mode": "normal",
       "swagger": true
     },
     {
       "method": "PUT",
       "path": "/api/v1/clusters/:id/plugins/:name/enable",
       "source": "internal/router/router.go:924",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "cluster.plugin.enable",
+      "mode": "normal",
       "swagger": true
     },
     {
@@ -1674,7 +1680,9 @@
       "method": "POST",
       "path": "/api/v1/plugins/:name/dependencies",
       "source": "internal/router/router.go:902",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "plugin.dependency.add",
+      "mode": "normal",
       "swagger": true
     },
     {
@@ -1688,7 +1696,9 @@
       "method": "POST",
       "path": "/api/v1/plugins/:name/dependencies/disables",
       "source": "internal/router/router.go:886",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "plugin.dependency.disable",
+      "mode": "normal",
       "swagger": false
     },
     {
@@ -1702,14 +1712,18 @@
       "method": "POST",
       "path": "/api/v1/plugins/:name/dependencies/upload",
       "source": "internal/router/router.go:882",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "plugin.dependency.upload",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "POST",
       "path": "/api/v1/plugins/:name/download",
       "source": "internal/router/router.go:866",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "plugin.download.start",
+      "mode": "normal",
       "swagger": true
     },
     {
@@ -1741,14 +1755,18 @@
       "method": "POST",
       "path": "/api/v1/plugins/:name/official-dependencies/analyze",
       "source": "internal/router/router.go:898",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "plugin.official-dependency.analyze",
+      "mode": "normal",
       "swagger": false
     },
     {
       "method": "POST",
       "path": "/api/v1/plugins/download-all",
       "source": "internal/router/router.go:858",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "plugin.download-all.start",
+      "mode": "normal",
       "swagger": true
     },
     {
@@ -1773,7 +1791,9 @@
       "method": "POST",
       "path": "/api/v1/plugins/refresh",
       "source": "internal/router/router.go:846",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "plugin.refresh",
+      "mode": "normal",
       "swagger": true
     },
     {

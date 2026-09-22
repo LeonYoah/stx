@@ -68,6 +68,7 @@ func newRootCommand(serverRunner func() error) *cobra.Command {
 	addPackageWriteCommands(rootCmd, cliConfig.NewDefaultStore)
 	addUserWriteCommands(rootCmd, defaultUserWriteCommandOptions())
 	addClusterWriteCommands(rootCmd, cliConfig.NewDefaultStore)
+	addPluginWriteCommands(rootCmd, cliConfig.NewDefaultStore)
 	addConfigWriteCommands(rootCmd, cliConfig.NewDefaultStore)
 	addMonitorWriteCommands(rootCmd, cliConfig.NewDefaultStore)
 	addHostInstallCommands(rootCmd, cliConfig.NewDefaultStore)

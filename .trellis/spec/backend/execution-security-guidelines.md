@@ -635,3 +635,85 @@ if err != nil {
 }
 updateCommandLogFromResponse(commandID, resp)
 ```
+
+## 13. 场景：Agent 文件分片命令审计
+
+### 13.1 范围 / 触发条件
+
+- Agent 命令通过 Base64 参数传输插件、依赖、安装包或其他文件分片。
+- Control Plane 需要记录实际传输动作，并允许按 `request_id` 查询该次操作。
+- 文件正文可能达到数百 KB 或数 MB，不能直接写入命令日志。
+
+### 13.2 签名
+
+发送入口：
+
+```go
+SendCommand(ctx context.Context, agentID string, commandType string, params map[string]string) (bool, string, error)
+```
+
+`transfer_plugin` 的原始参数可包含：
+
+```text
+chunk, file_name, file_type, install_path, is_last,
+offset, plugin_name, target_dir, total_size, version
+```
+
+审计参数只保存：
+
+```text
+chunk_bytes, file_name, file_type, install_path, is_last,
+offset, plugin_name, target_dir, total_size, version
+```
+
+### 13.3 数据规则
+
+- `chunk` 只用于发送，禁止写入 `command_logs.parameters`、`display_command`、`output` 或普通运行日志。
+- `chunk_bytes` 保存当前 Base64 正文解码后的实际字节数，便于核对偏移量和总大小。
+- `display_command` 使用安全参数生成，必须能看到文件名、目标目录、偏移量、分片大小和是否为最后一片。
+- Agent 对普通分片返回 `RUNNING` 表示该分片已经接收完成；对应命令日志应写成 `success` 并设置 `finished_at`，不能长期停在 `running`。
+- 分片记录和最后的 `install_plugin` 记录使用同一个 `request_id`、`client_type` 和 `created_by`，便于查询一次完整安装。
+
+### 13.4 校验与错误对应表
+
+| 情况 | 处理 |
+| --- | --- |
+| 参数包含 `chunk` | 发送给 Agent，但审计前移除正文并计算 `chunk_bytes` |
+| 分片响应为 `RUNNING` | 当前分片审计记录写成 `success` |
+| 分片发送失败或超时 | 预先创建的记录写成 `failed`，保留安全参数和错误 |
+| 缺少 `request_id` | 仍记录技术命令，但无法关联到上层请求；公开 CLI 路径不得出现此情况 |
+| 审计查询返回 Base64 正文 | 视为安全和性能错误，必须修正后再发布 |
+
+### 13.5 Good / Base / Bad
+
+- Good：审计显示 `chunk_bytes=385761`、`offset=0`、`file_name=connector-fake-2.3.13.jar`，并能通过请求编号查到后续安装记录。
+- Base：一个文件有多条分片记录，但每条都很小、状态正确，并可按请求编号过滤。
+- Bad：把完整 Base64 正文保存到参数或展示命令，导致一次查询返回几十 MB；或者已接收的分片一直显示为运行中。
+
+### 13.6 必须有的测试
+
+- 单元测试确认 pending 和完成记录均不含 `chunk`。
+- 单元测试确认 `chunk_bytes` 等于 Base64 正文解码后的长度。
+- 单元测试确认 `RUNNING` 分片响应保存为 `success`，且 `finished_at` 不为空。
+- 真实测试安装一个尚未安装的小插件，再按安装请求编号查询命令日志。
+- 真实查询结果必须同时包含安全的 `transfer_plugin` 和 `install_plugin` 记录，且输出大小不随 Jar 正文增长。
+
+### 13.7 错误与正确示例
+
+错误：
+
+```go
+commandLog.Parameters = audit.CommandParameters(params)
+commandLog.DisplayCommand = buildAgentDisplayCommand(commandType, params, output)
+```
+
+正确：
+
+```go
+safeParams := sanitizeAgentCommandParameters(commandType, params)
+commandLog.Parameters = toAuditParameters(safeParams)
+commandLog.DisplayCommand = buildAgentDisplayCommand(commandType, safeParams, output)
+if commandType == "transfer_plugin" && resp.Status == pb.CommandStatus_RUNNING {
+    commandLog.Status = audit.CommandStatusSuccess
+}
+```

@@ -259,7 +259,7 @@ type InspectionAutoPolicy struct {
 	ID              uint                     `json:"id" gorm:"primaryKey;autoIncrement"`
 	ClusterID       uint                     `json:"cluster_id" gorm:"index;not null;default:0"`
 	Name            string                   `json:"name" gorm:"size:200;not null"`
-	Enabled         bool                     `json:"enabled" gorm:"not null;default:true"`
+	Enabled         bool                     `json:"enabled" gorm:"not null"`
 	Conditions      InspectionConditionItems `json:"conditions" gorm:"type:json;not null"`
 	CooldownMinutes int                      `json:"cooldown_minutes" gorm:"not null;default:30"`
 	// AutoCreateTask controls whether a diagnostics bundle task should be created automatically after an inspection is triggered.
@@ -327,7 +327,7 @@ func (p *InspectionAutoPolicy) ToInfo() *InspectionAutoPolicyInfo {
 type CreateInspectionAutoPolicyRequest struct {
 	ClusterID       uint                     `json:"cluster_id"`
 	Name            string                   `json:"name" binding:"required"`
-	Enabled         bool                     `json:"enabled"`
+	Enabled         *bool                    `json:"enabled,omitempty"`
 	Conditions      InspectionConditionItems `json:"conditions" binding:"required"`
 	CooldownMinutes int                      `json:"cooldown_minutes"`
 	AutoCreateTask  bool                     `json:"auto_create_task"`

@@ -44,6 +44,7 @@ func addDiagnosticsWriteCommands(root *cobra.Command, storeProvider authStorePro
 	}
 	taskCommand.AddCommand(
 		newDiagnosticsTaskCreateCommand(storeProvider),
+		newDiagnosticsTaskStartCommand(storeProvider),
 		newDiagnosticsTaskDownloadCommand(storeProvider, diagnosticsTaskDownloadOptions{
 			use: "bundle <task-id>", short: "Download a diagnostic task bundle", operationID: "diagnostics.task.bundle.download",
 			path: func(taskID string, _ []string) string {
@@ -71,6 +72,20 @@ func addDiagnosticsWriteCommands(root *cobra.Command, storeProvider authStorePro
 		panic("generated diagnostics resource command is missing")
 	}
 	resourceCommand.AddCommand(newDiagnosticsResourceRunCommand(storeProvider))
+	inspectionCommand := childCommand(diagnosticsCommand, "inspection")
+	if inspectionCommand == nil {
+		panic("generated diagnostics inspection command is missing")
+	}
+	inspectionCommand.AddCommand(newDiagnosticsInspectionRunCommand(storeProvider))
+
+	autoPolicyCommand := childCommand(diagnosticsCommand, "auto-policy")
+	if autoPolicyCommand == nil {
+		panic("generated diagnostics auto-policy command is missing")
+	}
+	autoPolicyCommand.AddCommand(
+		newDiagnosticsAutoPolicyCreateCommand(storeProvider),
+		newDiagnosticsAutoPolicyUpdateCommand(storeProvider),
+	)
 
 	memoryCommand := childCommand(diagnosticsCommand, "troubleshooting-memory")
 	if memoryCommand == nil {
@@ -80,6 +95,281 @@ func addDiagnosticsWriteCommands(root *cobra.Command, storeProvider authStorePro
 		newTroubleshootingMemoryCreateCommand(storeProvider),
 		newTroubleshootingMemoryUpdateCommand(storeProvider),
 	)
+}
+
+// newDiagnosticsInspectionRunCommand 发起一次立即巡检。
+// newDiagnosticsInspectionRunCommand starts one immediate inspection.
+func newDiagnosticsInspectionRunCommand(storeProvider authStoreProvider) *cobra.Command {
+	var options secureWriteOptions
+	var requestFile, triggerSource string
+	var clusterID uint
+	var lookbackMinutes, errorThreshold int
+	command := &cobra.Command{
+		Use:     "run",
+		Short:   "Run an inspection immediately",
+		Example: "stx diagnostics inspection run --cluster-id 6 --lookback-minutes 30 --error-threshold 1 --confirm",
+		Args:    usageArgs(cobra.NoArgs),
+		RunE: func(command *cobra.Command, _ []string) error {
+			body, err := requestBodyFromFile(requestFile)
+			if err != nil {
+				return err
+			}
+			if body == nil {
+				body = make(map[string]any)
+			}
+			if command.Flags().Changed("cluster-id") {
+				body["cluster_id"] = clusterID
+			}
+			if command.Flags().Changed("trigger-source") || requestFile == "" {
+				body["trigger_source"] = strings.TrimSpace(triggerSource)
+			}
+			if command.Flags().Changed("lookback-minutes") {
+				body["lookback_minutes"] = lookbackMinutes
+			}
+			if command.Flags().Changed("error-threshold") {
+				body["error_threshold"] = errorThreshold
+			}
+			if requestFile == "" && clusterID == 0 {
+				return clioutput.NewError(clioutput.CodeUsage, "--cluster-id or --request-file is required", clioutput.ExitUsage, false)
+			}
+			return executeDiagnosticsWrite(command, storeProvider, "diagnostics.inspection.run", &options, http.MethodPost, "/api/v1/diagnostics/inspections", body, diagnosticsInspectionNextCommand)
+		},
+	}
+	addSecureWriteFlags(command, &options)
+	command.Flags().StringVar(&requestFile, "request-file", "", "JSON file containing the complete request body")
+	command.Flags().UintVar(&clusterID, "cluster-id", 0, "SeaTunnel cluster ID")
+	command.Flags().StringVar(&triggerSource, "trigger-source", "manual", "Inspection source: manual, cluster_detail, or diagnostics_workspace")
+	command.Flags().IntVar(&lookbackMinutes, "lookback-minutes", 0, "Recent time window to inspect, in minutes")
+	command.Flags().IntVar(&errorThreshold, "error-threshold", 0, "Recent error count threshold")
+	return command
+}
+
+// newDiagnosticsAutoPolicyCreateCommand 创建自动巡检策略。
+// newDiagnosticsAutoPolicyCreateCommand creates an automatic inspection policy.
+func newDiagnosticsAutoPolicyCreateCommand(storeProvider authStoreProvider) *cobra.Command {
+	var options secureWriteOptions
+	var requestFile, name string
+	var clusterID uint
+	var conditions, resources []string
+	var cooldownMinutes, jvmDumpMinFreeMB int
+	var enabled, autoCreateTask, autoStartTask bool
+	command := &cobra.Command{
+		Use:     "create",
+		Short:   "Create a diagnostic auto policy",
+		Example: "stx diagnostics auto-policy create --cluster-id 6 --name 'daily inspection' --condition SCHEDULED --resource config_snapshot --confirm",
+		Args:    usageArgs(cobra.NoArgs),
+		RunE: func(command *cobra.Command, _ []string) error {
+			body, err := requestBodyFromFile(requestFile)
+			if err != nil {
+				return err
+			}
+			if body == nil {
+				body = make(map[string]any)
+			}
+			if command.Flags().Changed("cluster-id") {
+				body["cluster_id"] = clusterID
+			}
+			if command.Flags().Changed("name") {
+				body["name"] = strings.TrimSpace(name)
+			}
+			if command.Flags().Changed("condition") {
+				body["conditions"] = diagnosticsConditionBody(conditions)
+			}
+			if command.Flags().Changed("enabled") || requestFile == "" {
+				body["enabled"] = enabled
+			}
+			if command.Flags().Changed("cooldown-minutes") || requestFile == "" {
+				body["cooldown_minutes"] = cooldownMinutes
+			}
+			if command.Flags().Changed("auto-create-task") || requestFile == "" {
+				body["auto_create_task"] = autoCreateTask
+			}
+			if command.Flags().Changed("auto-start-task") || requestFile == "" {
+				body["auto_start_task"] = autoStartTask
+			}
+			mergeAutoPolicyTaskOptions(command, body, resources, jvmDumpMinFreeMB)
+			if requestFile == "" && (clusterID == 0 || strings.TrimSpace(name) == "" || len(conditions) == 0) {
+				return clioutput.NewError(clioutput.CodeUsage, "--cluster-id, --name, and at least one --condition are required unless --request-file is used", clioutput.ExitUsage, false)
+			}
+			return executeDiagnosticsWrite(command, storeProvider, "diagnostics.auto-policy.create", &options, http.MethodPost, "/api/v1/diagnostics/auto-policies", body, diagnosticsAutoPolicyNextCommand)
+		},
+	}
+	addSecureWriteFlags(command, &options)
+	command.Flags().StringVar(&requestFile, "request-file", "", "JSON file containing the complete request body")
+	command.Flags().UintVar(&clusterID, "cluster-id", 0, "SeaTunnel cluster ID")
+	command.Flags().StringVar(&name, "name", "", "Policy name")
+	command.Flags().StringSliceVar(&conditions, "condition", nil, "Condition template code; may be repeated")
+	command.Flags().BoolVar(&enabled, "enabled", true, "Enable the policy")
+	command.Flags().IntVar(&cooldownMinutes, "cooldown-minutes", 30, "Minimum minutes between triggers")
+	command.Flags().BoolVar(&autoCreateTask, "auto-create-task", true, "Create a diagnostic task when the policy matches")
+	command.Flags().BoolVar(&autoStartTask, "auto-start-task", false, "Start the created diagnostic task automatically")
+	command.Flags().StringSliceVar(&resources, "resource", nil, "Diagnostic resource code for auto-created tasks; may be repeated")
+	command.Flags().IntVar(&jvmDumpMinFreeMB, "jvm-dump-min-free-mb", 0, "Minimum free memory required for JVM dump collection")
+	return command
+}
+
+// newDiagnosticsAutoPolicyUpdateCommand 修改自动巡检策略。
+// newDiagnosticsAutoPolicyUpdateCommand updates an automatic inspection policy.
+func newDiagnosticsAutoPolicyUpdateCommand(storeProvider authStoreProvider) *cobra.Command {
+	var options secureWriteOptions
+	var requestFile, name string
+	var conditions, resources []string
+	var cooldownMinutes, jvmDumpMinFreeMB int
+	var enabled, autoCreateTask, autoStartTask bool
+	command := &cobra.Command{
+		Use:     "update <policy-id>",
+		Short:   "Update a diagnostic auto policy",
+		Example: "stx diagnostics auto-policy update 1 --enabled=false --confirm",
+		Args:    usageArgs(cobra.ExactArgs(1)),
+		RunE: func(command *cobra.Command, args []string) error {
+			body, err := requestBodyFromFile(requestFile)
+			if err != nil {
+				return err
+			}
+			if body == nil {
+				body = make(map[string]any)
+			}
+			if command.Flags().Changed("name") {
+				body["name"] = strings.TrimSpace(name)
+			}
+			if command.Flags().Changed("condition") {
+				body["conditions"] = diagnosticsConditionBody(conditions)
+			}
+			if command.Flags().Changed("enabled") {
+				body["enabled"] = enabled
+			}
+			if command.Flags().Changed("cooldown-minutes") {
+				body["cooldown_minutes"] = cooldownMinutes
+			}
+			if command.Flags().Changed("auto-create-task") {
+				body["auto_create_task"] = autoCreateTask
+			}
+			if command.Flags().Changed("auto-start-task") {
+				body["auto_start_task"] = autoStartTask
+			}
+			mergeAutoPolicyTaskOptions(command, body, resources, jvmDumpMinFreeMB)
+			if len(body) == 0 {
+				return clioutput.NewError(clioutput.CodeUsage, "provide at least one update flag or --request-file", clioutput.ExitUsage, false)
+			}
+			path := "/api/v1/diagnostics/auto-policies/" + url.PathEscape(args[0])
+			return executeDiagnosticsWrite(command, storeProvider, "diagnostics.auto-policy.update", &options, http.MethodPut, path, body, diagnosticsAutoPolicyNextCommand)
+		},
+	}
+	addSecureWriteFlags(command, &options)
+	command.Flags().StringVar(&requestFile, "request-file", "", "JSON file containing the complete request body")
+	command.Flags().StringVar(&name, "name", "", "Policy name")
+	command.Flags().StringSliceVar(&conditions, "condition", nil, "Condition template code; may be repeated")
+	command.Flags().BoolVar(&enabled, "enabled", false, "Enable or disable the policy")
+	command.Flags().IntVar(&cooldownMinutes, "cooldown-minutes", 0, "Minimum minutes between triggers")
+	command.Flags().BoolVar(&autoCreateTask, "auto-create-task", false, "Create a diagnostic task when the policy matches")
+	command.Flags().BoolVar(&autoStartTask, "auto-start-task", false, "Start the created diagnostic task automatically")
+	command.Flags().StringSliceVar(&resources, "resource", nil, "Diagnostic resource code for auto-created tasks; may be repeated")
+	command.Flags().IntVar(&jvmDumpMinFreeMB, "jvm-dump-min-free-mb", 0, "Minimum free memory required for JVM dump collection")
+	return command
+}
+
+// newDiagnosticsTaskStartCommand 启动已经保存的诊断任务。
+// newDiagnosticsTaskStartCommand starts an existing diagnostics task.
+func newDiagnosticsTaskStartCommand(storeProvider authStoreProvider) *cobra.Command {
+	var options secureWriteOptions
+	command := &cobra.Command{
+		Use:     "start <task-id>",
+		Short:   "Start an existing diagnostic task",
+		Example: "stx diagnostics task start 42 --confirm",
+		Args:    usageArgs(cobra.ExactArgs(1)),
+		RunE: func(command *cobra.Command, args []string) error {
+			path := "/api/v1/diagnostics/tasks/" + url.PathEscape(args[0]) + "/start"
+			return executeDiagnosticsWrite(command, storeProvider, "diagnostics.task.start", &options, http.MethodPost, path, nil, diagnosticsStartedTaskNextCommand)
+		},
+	}
+	addSecureWriteFlags(command, &options)
+	return command
+}
+
+func diagnosticsConditionBody(codes []string) []map[string]any {
+	result := make([]map[string]any, 0, len(codes))
+	for _, code := range codes {
+		if code = strings.TrimSpace(code); code != "" {
+			result = append(result, map[string]any{"template_code": code, "enabled": true})
+		}
+	}
+	return result
+}
+
+func mergeAutoPolicyTaskOptions(command *cobra.Command, body map[string]any, resources []string, jvmDumpMinFreeMB int) {
+	if !command.Flags().Changed("resource") && !command.Flags().Changed("jvm-dump-min-free-mb") {
+		return
+	}
+	taskOptions := make(map[string]any)
+	if existing, ok := body["task_options"].(map[string]any); ok {
+		for key, value := range existing {
+			taskOptions[key] = value
+		}
+	}
+	if command.Flags().Changed("resource") {
+		taskOptions["selected_resources"] = resources
+	}
+	if command.Flags().Changed("jvm-dump-min-free-mb") {
+		taskOptions["jvm_dump_min_free_mb"] = jvmDumpMinFreeMB
+	}
+	body["task_options"] = taskOptions
+}
+
+func executeDiagnosticsWrite(command *cobra.Command, storeProvider authStoreProvider, operationID string, options *secureWriteOptions, method, path string, body map[string]any, nextCommand func(any) string) error {
+	client, headers, err := prepareSecureWrite(command, storeProvider, operationID, options, diagnosticsWriteImpact(operationID))
+	if err != nil {
+		return err
+	}
+	var data any
+	requestID, err := client.RequestWithHeaders(command.Context(), method, path, body, headers, &data)
+	if err != nil {
+		return handleSecureWriteError(command, operationID, err)
+	}
+	next := ""
+	if nextCommand != nil {
+		next = nextCommand(data)
+	}
+	return renderWriteResult(command, operationID, requestID, data, next)
+}
+
+func diagnosticsWriteImpact(operationID string) string {
+	for _, spec := range operation.Registry() {
+		if spec.ID == operationID && spec.Impact != nil {
+			return spec.Impact.Message
+		}
+	}
+	return "this operation changes diagnostics data"
+}
+
+func diagnosticsInspectionNextCommand(data any) string {
+	item, ok := data.(map[string]any)
+	if !ok {
+		return "stx diagnostics inspection list"
+	}
+	report, ok := item["report"].(map[string]any)
+	if !ok {
+		return "stx diagnostics inspection list"
+	}
+	return "stx diagnostics inspection get " + taskIDString(report["id"])
+}
+
+func diagnosticsAutoPolicyNextCommand(data any) string {
+	item, ok := data.(map[string]any)
+	if !ok {
+		return "stx diagnostics auto-policy list"
+	}
+	return "stx diagnostics auto-policy get " + taskIDString(item["id"])
+}
+
+func diagnosticsStartedTaskNextCommand(data any) string {
+	item, ok := data.(map[string]any)
+	if !ok {
+		return "stx diagnostics task list"
+	}
+	if executionID, ok := item["execution_id"].(string); ok && strings.TrimSpace(executionID) != "" {
+		return "stx execution wait " + strings.TrimSpace(executionID)
+	}
+	return diagnosticsTaskNextCommand(data)
 }
 
 // newTroubleshootingMemoryCreateCommand 创建排障经验写入命令。

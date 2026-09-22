@@ -61,6 +61,10 @@ func (s *Service) CreateAutoPolicy(ctx context.Context, userID uint, req *Create
 	if cooldownMinutes <= 0 {
 		cooldownMinutes = 30
 	}
+	enabled := true
+	if req.Enabled != nil {
+		enabled = *req.Enabled
+	}
 
 	// Normalize task options for auto-created diagnostic tasks.
 	taskOptions := DiagnosticTaskOptions{}
@@ -76,7 +80,7 @@ func (s *Service) CreateAutoPolicy(ctx context.Context, userID uint, req *Create
 	policy := &InspectionAutoPolicy{
 		ClusterID:       req.ClusterID,
 		Name:            name,
-		Enabled:         req.Enabled,
+		Enabled:         enabled,
 		Conditions:      req.Conditions,
 		CooldownMinutes: cooldownMinutes,
 		AutoCreateTask:  req.AutoCreateTask,

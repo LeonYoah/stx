@@ -80,8 +80,10 @@ func TestRootCommandRegistersDiagnosticsReadCommands(t *testing.T) {
 		{"diagnostics", "bootstrap", "get"},
 		{"diagnostics", "inspection", "list"},
 		{"diagnostics", "inspection", "get"},
+		{"diagnostics", "inspection", "run"},
 		{"diagnostics", "task", "list"},
 		{"diagnostics", "task", "create"},
+		{"diagnostics", "task", "start"},
 		{"diagnostics", "task", "get"},
 		{"diagnostics", "task", "steps"},
 		{"diagnostics", "task", "logs"},
@@ -94,6 +96,8 @@ func TestRootCommandRegistersDiagnosticsReadCommands(t *testing.T) {
 		{"diagnostics", "auto-policy", "template", "list"},
 		{"diagnostics", "auto-policy", "list"},
 		{"diagnostics", "auto-policy", "get"},
+		{"diagnostics", "auto-policy", "create"},
+		{"diagnostics", "auto-policy", "update"},
 	}
 	for _, path := range paths {
 		found, remaining, err := command.Find(path)

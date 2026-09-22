@@ -32,6 +32,126 @@ import (
 	"github.com/spf13/cobra"
 )
 
+func TestDiagnosticsInspectionRunBuildsSecureRequest(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/api/v1/capabilities" {
+			writeDiagnosticsCapability(t, writer, "diagnostics.inspection.run", "normal")
+			return
+		}
+		if request.Method != http.MethodPost || request.URL.Path != "/api/v1/diagnostics/inspections" {
+			t.Fatalf("立即巡检请求错误 / inspection request is incorrect: %s %s", request.Method, request.URL.Path)
+		}
+		assertDiagnosticsSafetyHeaders(t, request, "inspection-run-key")
+		var body map[string]any
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Fatalf("读取立即巡检正文失败 / decoding inspection body failed: %v", err)
+		}
+		if body["cluster_id"] != float64(6) || body["trigger_source"] != "manual" || body["lookback_minutes"] != float64(30) || body["error_threshold"] != float64(2) {
+			t.Fatalf("立即巡检正文错误 / inspection body is incorrect: %#v", body)
+		}
+		writeDiagnosticsTaskResponse(t, writer, map[string]any{"report": map[string]any{"id": 31, "status": "completed"}})
+	}))
+	defer server.Close()
+
+	store := newExecutionTestStore(t, server.URL, "test-token")
+	stdout, stderr, exitCode := runDiagnosticsCommand(t, store, "diagnostics", "inspection", "run", "--cluster-id", "6", "--lookback-minutes", "30", "--error-threshold", "2", "--confirm", "--idempotency-key", "inspection-run-key")
+	if exitCode != int(clioutput.ExitSuccess) || !strings.Contains(stdout, `"next_command":"stx diagnostics inspection get 31"`) {
+		t.Fatalf("立即巡检命令失败 / inspection command failed: code=%d stdout=%s stderr=%s", exitCode, stdout, stderr)
+	}
+}
+
+func TestDiagnosticsAutoPolicyCreateBuildsConditionsAndResources(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/api/v1/capabilities" {
+			writeDiagnosticsCapability(t, writer, "diagnostics.auto-policy.create", "normal")
+			return
+		}
+		if request.Method != http.MethodPost || request.URL.Path != "/api/v1/diagnostics/auto-policies" {
+			t.Fatalf("自动巡检策略创建请求错误 / auto-policy create request is incorrect: %s %s", request.Method, request.URL.Path)
+		}
+		assertDiagnosticsSafetyHeaders(t, request, "auto-policy-create-key")
+		var body map[string]any
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Fatalf("读取自动巡检策略正文失败 / decoding auto-policy body failed: %v", err)
+		}
+		conditions, ok := body["conditions"].([]any)
+		if !ok || len(conditions) != 1 || conditions[0].(map[string]any)["template_code"] != "SCHEDULED" {
+			t.Fatalf("自动巡检条件错误 / auto-policy conditions are incorrect: %#v", body["conditions"])
+		}
+		taskOptions, ok := body["task_options"].(map[string]any)
+		if !ok || len(taskOptions["selected_resources"].([]any)) != 2 {
+			t.Fatalf("自动巡检资源错误 / auto-policy resources are incorrect: %#v", body["task_options"])
+		}
+		writeDiagnosticsTaskResponse(t, writer, map[string]any{"id": 18, "name": "scheduled-check"})
+	}))
+	defer server.Close()
+
+	store := newExecutionTestStore(t, server.URL, "test-token")
+	stdout, stderr, exitCode := runDiagnosticsCommand(t, store,
+		"diagnostics", "auto-policy", "create", "--cluster-id", "6", "--name", "scheduled-check",
+		"--condition", "SCHEDULED", "--resource", "cluster_status", "--resource", "config_files",
+		"--confirm", "--idempotency-key", "auto-policy-create-key")
+	if exitCode != int(clioutput.ExitSuccess) || !strings.Contains(stdout, `"next_command":"stx diagnostics auto-policy get 18"`) {
+		t.Fatalf("自动巡检策略创建失败 / auto-policy create failed: code=%d stdout=%s stderr=%s", exitCode, stdout, stderr)
+	}
+}
+
+func TestDiagnosticsAutoPolicyUpdatePreservesExplicitFalse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/api/v1/capabilities" {
+			writeDiagnosticsCapability(t, writer, "diagnostics.auto-policy.update", "normal")
+			return
+		}
+		if request.Method != http.MethodPut || request.URL.Path != "/api/v1/diagnostics/auto-policies/18" {
+			t.Fatalf("自动巡检策略修改请求错误 / auto-policy update request is incorrect: %s %s", request.Method, request.URL.Path)
+		}
+		assertDiagnosticsSafetyHeaders(t, request, "auto-policy-update-key")
+		var body map[string]any
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Fatalf("读取自动巡检策略修改正文失败 / decoding auto-policy update failed: %v", err)
+		}
+		if enabled, exists := body["enabled"]; !exists || enabled != false {
+			t.Fatalf("显式 false 未保留 / explicit false was not preserved: %#v", body)
+		}
+		writeDiagnosticsTaskResponse(t, writer, map[string]any{"id": 18, "enabled": false})
+	}))
+	defer server.Close()
+
+	store := newExecutionTestStore(t, server.URL, "test-token")
+	_, stderr, exitCode := runDiagnosticsCommand(t, store, "diagnostics", "auto-policy", "update", "18", "--enabled=false", "--confirm", "--idempotency-key", "auto-policy-update-key")
+	if exitCode != int(clioutput.ExitSuccess) {
+		t.Fatalf("自动巡检策略修改失败 / auto-policy update failed: code=%d stderr=%s", exitCode, stderr)
+	}
+}
+
+func TestDiagnosticsTaskStartReturnsExecutionWaitCommand(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/api/v1/capabilities" {
+			writeDiagnosticsCapability(t, writer, "diagnostics.task.start", "normal")
+			return
+		}
+		if request.Method != http.MethodPost || request.URL.Path != "/api/v1/diagnostics/tasks/42/start" {
+			t.Fatalf("诊断任务启动请求错误 / diagnostics task start request is incorrect: %s %s", request.Method, request.URL.Path)
+		}
+		assertDiagnosticsSafetyHeaders(t, request, "diagnostic-start-key")
+		writeDiagnosticsTaskResponse(t, writer, map[string]any{"id": 42, "status": "running", "execution_id": "exec-42"})
+	}))
+	defer server.Close()
+
+	store := newExecutionTestStore(t, server.URL, "test-token")
+	stdout, stderr, exitCode := runDiagnosticsCommand(t, store, "diagnostics", "task", "start", "42", "--confirm", "--idempotency-key", "diagnostic-start-key")
+	if exitCode != int(clioutput.ExitSuccess) || !strings.Contains(stdout, `"next_command":"stx execution wait exec-42"`) {
+		t.Fatalf("诊断任务启动失败 / diagnostics task start failed: code=%d stdout=%s stderr=%s", exitCode, stdout, stderr)
+	}
+}
+
+func assertDiagnosticsSafetyHeaders(t *testing.T, request *http.Request, idempotencyKey string) {
+	t.Helper()
+	if request.Header.Get("Idempotency-Key") != idempotencyKey || request.Header.Get("X-STX-Confirm") != "true" {
+		t.Fatalf("诊断写请求安全请求头错误 / diagnostics safety headers are incorrect: %#v", request.Header)
+	}
+}
+
 func TestDiagnosticsTaskCreateDefaultsToReadyWithoutAutoStart(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.URL.Path == "/api/v1/capabilities" {

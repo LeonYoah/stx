@@ -26,7 +26,7 @@ import (
 
 // RegistryRevision 是操作登记表的兼容修订号。
 // RegistryRevision is the compatibility revision of the operation registry.
-const RegistryRevision = 17
+const RegistryRevision = 18
 
 var registry = append([]OperationSpec{
 	{
@@ -1474,6 +1474,10 @@ func diagnosticsReadOperationSpecs() []OperationSpec {
 			append([]InputSpec{{Name: "cluster_id", Location: InputQuery, Description: "Cluster ID"}, {Name: "status", Location: InputQuery, Description: "Inspection status"}, {Name: "trigger_source", Location: InputQuery, Description: "Inspection trigger source"}, {Name: "severity", Location: InputQuery, Description: "Finding severity"}}, append(timeRange, append(page, lang)...)...),
 			"stx diagnostics inspection list --cluster_id 6 --page_size 20"),
 		diagnosticsReadOperation("diagnostics.inspection.get", []string{"diagnostics", "inspection", "get"}, "Get inspection report detail", "/api/v1/diagnostics/inspections/:id", append(append([]InputSpec{}, id...), lang), "stx diagnostics inspection get 1"),
+		diagnosticsWriteOperation("diagnostics.inspection.run", []string{"diagnostics", "inspection", "run"}, "Run an inspection immediately", "POST", "/api/v1/diagnostics/inspections", RiskR1,
+			"立即巡检会读取集群状态、进程事件、告警和近期错误，并保存巡检报告。", false, false,
+			[]InputSpec{{Name: "request", Location: InputBody, Required: true, Description: "Inspection request"}},
+			"stx diagnostics inspection run --cluster-id 6 --confirm"),
 		diagnosticsReadOperation("diagnostics.task.list", []string{"diagnostics", "task", "list"}, "List diagnostic tasks", "/api/v1/diagnostics/tasks",
 			append([]InputSpec{{Name: "cluster_id", Location: InputQuery, Description: "Cluster ID"}, {Name: "trigger_source", Location: InputQuery, Description: "Diagnostic trigger source"}, {Name: "status", Location: InputQuery, Description: "Diagnostic task status"}}, append(page, lang)...),
 			"stx diagnostics task list --cluster_id 6 --page_size 20"),
@@ -1509,6 +1513,10 @@ func diagnosticsReadOperationSpecs() []OperationSpec {
   "result_meta": {"complete": true, "next_command": "stx diagnostics task get 42"}
 }`,
 		},
+		diagnosticsWriteOperation("diagnostics.task.start", []string{"diagnostics", "task", "start"}, "Start an existing diagnostic task", "POST", "/api/v1/diagnostics/tasks/:id/start", RiskR1,
+			"启动诊断任务会执行任务中已选择的资源采集步骤，部分步骤可能增加节点负载。", true, true,
+			[]InputSpec{{Name: "id", Location: InputPath, Required: true, Description: "Diagnostic task ID"}},
+			"stx diagnostics task start 42 --confirm"),
 		diagnosticsReadOperation("diagnostics.task.get", []string{"diagnostics", "task", "get"}, "Get diagnostic task", "/api/v1/diagnostics/tasks/:id", append(append([]InputSpec{}, id...), lang), "stx diagnostics task get 1"),
 		diagnosticsReadOperation("diagnostics.task.steps", []string{"diagnostics", "task", "steps"}, "List diagnostic task steps", "/api/v1/diagnostics/tasks/:id/steps", append(append([]InputSpec{}, id...), lang), "stx diagnostics task steps 1"),
 		diagnosticsReadOperation("diagnostics.task.artifacts", []string{"diagnostics", "task", "artifacts"}, "List diagnostic task artifacts", "/api/v1/diagnostics/tasks/:id/artifacts", append([]InputSpec{}, id...), "stx diagnostics task artifacts 1"),
@@ -1525,6 +1533,14 @@ func diagnosticsReadOperationSpecs() []OperationSpec {
 		diagnosticsReadOperation("diagnostics.auto-policy.template.list", []string{"diagnostics", "auto-policy", "template", "list"}, "List built-in diagnostic policy templates", "/api/v1/diagnostics/auto-policies/templates", []InputSpec{lang}, "stx diagnostics auto-policy template list"),
 		diagnosticsReadOperation("diagnostics.auto-policy.list", []string{"diagnostics", "auto-policy", "list"}, "List diagnostic auto policies", "/api/v1/diagnostics/auto-policies", append([]InputSpec{{Name: "cluster_id", Location: InputQuery, Description: "Cluster ID"}}, page...), "stx diagnostics auto-policy list --cluster_id 6"),
 		diagnosticsReadOperation("diagnostics.auto-policy.get", []string{"diagnostics", "auto-policy", "get"}, "Get diagnostic auto policy", "/api/v1/diagnostics/auto-policies/:id", id, "stx diagnostics auto-policy get 1"),
+		diagnosticsWriteOperation("diagnostics.auto-policy.create", []string{"diagnostics", "auto-policy", "create"}, "Create a diagnostic auto policy", "POST", "/api/v1/diagnostics/auto-policies", RiskR1,
+			"创建自动巡检策略后，启用的条件可能自动发起巡检和诊断任务。", false, false,
+			[]InputSpec{{Name: "request", Location: InputBody, Required: true, Description: "Auto-policy request"}},
+			"stx diagnostics auto-policy create --cluster-id 6 --name 'daily inspection' --condition SCHEDULED --confirm"),
+		diagnosticsWriteOperation("diagnostics.auto-policy.update", []string{"diagnostics", "auto-policy", "update"}, "Update a diagnostic auto policy", "PUT", "/api/v1/diagnostics/auto-policies/:id", RiskR1,
+			"修改自动巡检策略会改变后续自动巡检和诊断任务的触发方式。", false, false,
+			[]InputSpec{{Name: "id", Location: InputPath, Required: true, Description: "Auto-policy ID"}, {Name: "request", Location: InputBody, Required: true, Description: "Auto-policy update request"}},
+			"stx diagnostics auto-policy update 1 --enabled=false --confirm"),
 		diagnosticsReadOperation("diagnostics.troubleshooting-memory.list", []string{"diagnostics", "troubleshooting-memory", "list"}, "List troubleshooting memories", "/api/v1/diagnostics/troubleshooting-memories", append([]InputSpec{{Name: "target_type", Location: InputQuery, Description: "Target type"}, {Name: "fingerprint", Location: InputQuery, Description: "Fingerprint"}, {Name: "keyword", Location: InputQuery, Description: "Keyword"}, {Name: "cluster_id", Location: InputQuery, Description: "Cluster ID"}}, page...), "stx diagnostics troubleshooting-memory list"),
 		diagnosticsReadOperation("diagnostics.troubleshooting-memory.get", []string{"diagnostics", "troubleshooting-memory", "get"}, "Get troubleshooting memory detail", "/api/v1/diagnostics/troubleshooting-memories/:id", id, "stx diagnostics troubleshooting-memory get 1"),
 		{
@@ -1591,6 +1607,21 @@ func diagnosticsReadOperationSpecs() []OperationSpec {
 			Input:         id,
 			OutputExample: `{"api_version":"v1","operation_id":"diagnostics.troubleshooting-memory.delete","request_id":"req_example","data":{"deleted":true},"result_meta":{"complete":true}}`,
 		},
+	}
+}
+
+// diagnosticsWriteOperation 创建由专用 CLI 处理的诊断写操作登记。
+// diagnosticsWriteOperation creates a diagnostics write registration handled by dedicated CLI code.
+func diagnosticsWriteOperation(operationID string, commandPath []string, summary, method, route string, risk RiskLevel, impact string, usesAgent, async bool, inputs []InputSpec, example string) OperationSpec {
+	inputs = append(inputs,
+		InputSpec{Name: "Idempotency-Key", Location: InputHeader, Required: true, Description: "Stable key for retrying the same request"},
+		InputSpec{Name: "X-STX-Confirm", Location: InputHeader, Required: true, Description: "Explicit confirmation of the operation impact"},
+	)
+	return OperationSpec{
+		ID: operationID, CommandPath: commandPath, Summary: summary, GeneratedCLI: false, Method: method, Route: route,
+		Mode: ModeNormal, AuthRequired: true, Risk: risk, Revision: 1, UsesAgent: usesAgent, Async: async,
+		SupportsPick: true, Impact: &ImpactSpec{Level: risk, Message: impact}, Input: inputs, Example: example,
+		OutputExample: fmt.Sprintf(`{"api_version":"v1","operation_id":%q,"request_id":"req_example","data":{},"result_meta":{"complete":true}}`, operationID),
 	}
 }
 

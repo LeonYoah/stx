@@ -115,7 +115,6 @@ func TestServiceCreateAutoPolicy_rejectsUnsupportedConditionTemplate(t *testing.
 	_, err := service.CreateAutoPolicy(context.Background(), 1, &CreateInspectionAutoPolicyRequest{
 		Name:      "unsupported",
 		ClusterID: 7,
-		Enabled:   true,
 		Conditions: InspectionConditionItems{
 			{TemplateCode: InspectionConditionTemplateCode("NOT_SUPPORTED"), Enabled: true},
 		},
@@ -131,7 +130,6 @@ func TestServiceCreateAutoPolicyUsesDefaultDiagnosticResourcesWithoutStarting(t 
 	policy, err := service.CreateAutoPolicy(context.Background(), 1, &CreateInspectionAutoPolicyRequest{
 		Name:      "scheduled-default-resources",
 		ClusterID: 7,
-		Enabled:   true,
 		Conditions: InspectionConditionItems{
 			{TemplateCode: ConditionCodeScheduled, Enabled: true},
 		},

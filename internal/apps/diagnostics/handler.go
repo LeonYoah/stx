@@ -238,6 +238,15 @@ func (h *Handler) StartInspection(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, Response{ErrorMsg: err.Error()})
 		return
 	}
+	executionItem, existing, err := h.beginDiagnosticsSynchronousWrite(c, "diagnostics.inspection.run", diagnosticsInspectionExecutionModule, "", executionapp.RiskLevelR1, diagnosticsInspectionRunImpact, req)
+	if err != nil {
+		h.writeDiagnosticsError(c, err)
+		return
+	}
+	if existing {
+		h.writeExistingDiagnosticsSynchronousWrite(c, executionItem)
+		return
+	}
 
 	data, err := h.service.StartInspection(
 		c.Request.Context(),
@@ -245,6 +254,11 @@ func (h *Handler) StartInspection(c *gin.Context) {
 		uint(auth.GetUserIDFromContext(c)),
 		auth.GetUsernameFromContext(c),
 	)
+	resultRef := ""
+	if data != nil && data.Report != nil {
+		resultRef = strconv.FormatUint(uint64(data.Report.ID), 10)
+	}
+	h.finishDiagnosticsSynchronousWrite(c, executionItem, resultRef, err)
 	if err != nil {
 		c.JSON(getDiagnosticsStatusCode(err), Response{ErrorMsg: err.Error()})
 		return
@@ -467,11 +481,24 @@ func (h *Handler) StartDiagnosticTask(c *gin.Context) {
 		return
 	}
 	actor := currentDiagnosticActor(c)
+	executionItem, existing, err := h.beginDiagnosticsSynchronousWrite(c, "diagnostics.task.start", diagnosticsTaskStartExecutionModule, strconv.FormatUint(uint64(taskID), 10), executionapp.RiskLevelR1, diagnosticsTaskStartImpact, struct {
+		TaskID uint `json:"task_id"`
+	}{TaskID: taskID})
+	if err != nil {
+		h.writeDiagnosticsError(c, err)
+		return
+	}
+	if existing {
+		h.writeExistingDiagnosticsSynchronousWrite(c, executionItem)
+		return
+	}
 	if err := h.service.StartDiagnosticTaskForActor(c.Request.Context(), actor, taskID); err != nil {
+		h.finishDiagnosticsSynchronousWrite(c, executionItem, strconv.FormatUint(uint64(taskID), 10), err)
 		c.JSON(getDiagnosticsStatusCode(err), Response{ErrorMsg: err.Error()})
 		return
 	}
 	data, err := h.service.GetDiagnosticTaskForActor(c.Request.Context(), actor, taskID)
+	h.finishDiagnosticsSynchronousWrite(c, executionItem, strconv.FormatUint(uint64(taskID), 10), err)
 	if err != nil {
 		c.JSON(getDiagnosticsStatusCode(err), Response{ErrorMsg: err.Error()})
 		return
@@ -1091,12 +1118,26 @@ func (h *Handler) CreateAutoPolicy(c *gin.Context) {
 		c.JSON(getDiagnosticsStatusCode(err), Response{ErrorMsg: err.Error()})
 		return
 	}
+	executionItem, existing, err := h.beginDiagnosticsSynchronousWrite(c, "diagnostics.auto-policy.create", diagnosticsAutoPolicyExecutionModule, "", executionapp.RiskLevelR1, diagnosticsAutoPolicyCreateImpact, req)
+	if err != nil {
+		h.writeDiagnosticsError(c, err)
+		return
+	}
+	if existing {
+		h.writeExistingDiagnosticsSynchronousWrite(c, executionItem)
+		return
+	}
 
 	data, err := h.service.CreateAutoPolicy(
 		c.Request.Context(),
 		uint(auth.GetUserIDFromContext(c)),
 		&req,
 	)
+	resultRef := ""
+	if data != nil {
+		resultRef = strconv.FormatUint(uint64(data.ID), 10)
+	}
+	h.finishDiagnosticsSynchronousWrite(c, executionItem, resultRef, err)
 	if err != nil {
 		c.JSON(getDiagnosticsStatusCode(err), Response{ErrorMsg: err.Error()})
 		return
@@ -1139,8 +1180,25 @@ func (h *Handler) UpdateAutoPolicy(c *gin.Context) {
 		c.JSON(getDiagnosticsStatusCode(err), Response{ErrorMsg: err.Error()})
 		return
 	}
+	executionItem, existing, err := h.beginDiagnosticsSynchronousWrite(c, "diagnostics.auto-policy.update", diagnosticsAutoPolicyExecutionModule, strconv.FormatUint(uint64(policyID), 10), executionapp.RiskLevelR1, diagnosticsAutoPolicyUpdateImpact, struct {
+		ID      uint                              `json:"id"`
+		Request UpdateInspectionAutoPolicyRequest `json:"request"`
+	}{ID: policyID, Request: req})
+	if err != nil {
+		h.writeDiagnosticsError(c, err)
+		return
+	}
+	if existing {
+		h.writeExistingDiagnosticsSynchronousWrite(c, executionItem)
+		return
+	}
 
 	data, err := h.service.UpdateAutoPolicy(c.Request.Context(), policyID, &req)
+	resultRef := ""
+	if data != nil {
+		resultRef = strconv.FormatUint(uint64(data.ID), 10)
+	}
+	h.finishDiagnosticsSynchronousWrite(c, executionItem, resultRef, err)
 	if err != nil {
 		c.JSON(getDiagnosticsStatusCode(err), Response{ErrorMsg: err.Error()})
 		return

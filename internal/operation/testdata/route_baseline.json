@@ -6,9 +6,9 @@
     "swagger_path_count": 101,
     "swagger_operation_count": 118,
     "swagger_documented_routes": 118,
-    "registered_operations": 180,
+    "registered_operations": 184,
     "route_exceptions": 18,
-    "historical_gaps": 57
+    "historical_gaps": 53
   },
   "routes": [
     {
@@ -757,7 +757,9 @@
       "method": "POST",
       "path": "/api/v1/diagnostics/auto-policies",
       "source": "internal/router/router.go:494",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "diagnostics.auto-policy.create",
+      "mode": "normal",
       "swagger": false
     },
     {
@@ -780,7 +782,9 @@
       "method": "PUT",
       "path": "/api/v1/diagnostics/auto-policies/:id",
       "source": "internal/router/router.go:496",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "diagnostics.auto-policy.update",
+      "mode": "normal",
       "swagger": false
     },
     {
@@ -841,7 +845,9 @@
       "method": "POST",
       "path": "/api/v1/diagnostics/inspections",
       "source": "internal/router/router.go:475",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "diagnostics.inspection.run",
+      "mode": "normal",
       "swagger": false
     },
     {
@@ -964,7 +970,9 @@
       "method": "POST",
       "path": "/api/v1/diagnostics/tasks/:id/start",
       "source": "internal/router/router.go:481",
-      "status": "historical_gap",
+      "status": "operation",
+      "operation_id": "diagnostics.task.start",
+      "mode": "normal",
       "swagger": false
     },
     {

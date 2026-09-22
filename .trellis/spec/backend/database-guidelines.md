@@ -85,3 +85,65 @@ func (r *Repository) Transaction(ctx context.Context, fn func(tx *Repository) er
   - 严禁裸写 `Where("col LIKE ?", ...)`（PostgreSQL 默认大小写敏感，会导致查询遗漏），统一使用 `Where("LOWER(col) LIKE LOWER(?)", ...)`。
   - 严禁在原生 SQL 字符串中夹带 MySQL 反引号 \`（PostgreSQL 会直接报语法错误）。
   - 本地或提交前必须运行 `./scripts/test_db_compat.sh` 确保三库迁移与一致性测试通过。
+
+## 场景：创建记录时保留显式 `false`
+
+### 1. 范围
+
+- API 创建请求中的布尔字段既允许省略，也允许显式传入 `false`。
+- 数据模型原本使用 `gorm:"default:true"`，但业务必须区分“未传”和“明确关闭”。
+
+### 2. 签名
+
+```go
+type CreateRequest struct {
+    Enabled *bool `json:"enabled,omitempty"`
+}
+
+type Model struct {
+    Enabled bool `gorm:"not null"`
+}
+```
+
+### 3. 规则
+
+- 请求结构使用 `*bool` 区分省略与显式 `false`。
+- Service 在请求省略时设置业务默认值。
+- Model 不使用会覆盖 Go 零值的 `default:true` 标签，创建 SQL 必须显式写入最终布尔值。
+
+### 4. 校验与错误对应表
+
+| 输入 | 保存值 |
+| --- | --- |
+| 未传 `enabled` | 使用 Service 定义的默认值 |
+| `enabled=true` | `true` |
+| `enabled=false` | `false` |
+
+### 5. Good / Base / Bad
+
+- Good：请求传 `false`，数据库和响应都保持 `false`。
+- Base：请求未传值，Service 使用清晰的默认值。
+- Bad：普通 `bool` 配合 `gorm:"default:true"`，导致显式 `false` 被 GORM 改成 `true`。
+
+### 6. 必须有的测试
+
+- Handler 或 Service 测试必须覆盖省略、`true`、`false` 三种输入。
+- 至少一条数据库测试确认创建后重新读取仍为 `false`。
+
+### 7. 错误与正确示例
+
+错误：
+
+```go
+Enabled bool `json:"enabled" gorm:"default:true"`
+```
+
+正确：
+
+```go
+enabled := true
+if req.Enabled != nil {
+    enabled = *req.Enabled
+}
+model.Enabled = enabled
+```

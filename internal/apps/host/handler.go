@@ -131,7 +131,7 @@ func (h *Handler) CreateHost(c *gin.Context) {
 	}
 
 	_ = audit.RecordFromGin(c, h.auditRepo, auth.GetUserIDFromContext(c), auth.GetUsernameFromContext(c),
-		"create", "host", audit.UintID(host.ID), host.Name, audit.AuditDetails{"trigger": "manual"})
+		"create", "host", audit.UintID(host.ID), host.Name, hostWriteAuditDetails("host.create"))
 	logger.InfoF(c.Request.Context(), "[Host] 创建主机成功: %s (type: %s)", host.Name, host.HostType)
 	c.JSON(http.StatusOK, CreateHostResponse{Data: host.ToHostInfo(h.service.GetHeartbeatTimeout(), h.service.GetProcessStartedAt())})
 }
@@ -234,9 +234,18 @@ func (h *Handler) UpdateHost(c *gin.Context) {
 	}
 
 	_ = audit.RecordFromGin(c, h.auditRepo, auth.GetUserIDFromContext(c), auth.GetUsernameFromContext(c),
-		"update", "host", audit.UintID(host.ID), host.Name, audit.AuditDetails{"trigger": "manual"})
+		"update", "host", audit.UintID(host.ID), host.Name, hostWriteAuditDetails("host.update"))
 	logger.InfoF(c.Request.Context(), "[Host] 更新主机成功: %s", host.Name)
 	c.JSON(http.StatusOK, UpdateHostResponse{Data: host.ToHostInfo(h.service.GetHeartbeatTimeout(), h.service.GetProcessStartedAt())})
+}
+
+// hostWriteAuditDetails 生成主机写操作的公共审计关联字段。
+// hostWriteAuditDetails builds shared audit linkage fields for host writes.
+func hostWriteAuditDetails(operationID string) audit.AuditDetails {
+	return audit.AuditDetails{
+		"trigger": "manual", "operation_id": operationID,
+		"risk_level": "R1", "result_status": "succeeded",
+	}
 }
 
 // DeleteHost handles DELETE /api/v1/hosts/:id - deletes a host.

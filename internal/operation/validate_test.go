@@ -98,7 +98,7 @@ func TestValidateRejectsRepeatedNonQueryInput(t *testing.T) {
 }
 
 func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
-	require.Len(t, Registry(), 215)
+	require.Len(t, Registry(), 217)
 
 	expected := map[string]struct{}{
 		"auth.user-info.get": {}, "admin.user.list": {}, "admin.user.get": {},
@@ -271,6 +271,21 @@ func TestRegistryContainsHostInstallOperations(t *testing.T) {
 		require.True(t, spec.UsesAgent, operationID)
 		require.NotNil(t, spec.Impact, operationID)
 		require.False(t, spec.GeneratedCLI, operationID)
+	}
+}
+
+func TestRegistryContainsHostWriteOperations(t *testing.T) {
+	byID := make(map[string]OperationSpec)
+	for _, spec := range Registry() {
+		byID[spec.ID] = spec
+	}
+
+	for _, operationID := range []string{"host.create", "host.update"} {
+		spec, exists := byID[operationID]
+		require.True(t, exists, operationID)
+		require.Equal(t, RiskR1, spec.Risk, operationID)
+		require.False(t, spec.GeneratedCLI, operationID)
+		require.NotNil(t, spec.Impact, operationID)
 	}
 }
 

@@ -1,6 +1,7 @@
 import {describe, expect, it} from 'vitest';
 import {
   filterTree,
+  extractJobMetricSummary,
   isCursorInsideValueRegion,
   isNodeMatchingScope,
   resolveEnumSuggestionItems,
@@ -330,4 +331,65 @@ describe('sync-studio-utils Monaco completion & assignment tests', () => {
       expect(childNames).toEqual(['my_private_task.conf']);
     });
   });
+
+  // 测试作业指标摘要提取与 SeaTunnel 3.0 多表聚合逻辑
+  // Test job metric summary extraction and SeaTunnel 3.0 multi-table aggregation logic
+  describe('extractJobMetricSummary tests', () => {
+    it('correctly extracts single-table standard metrics', () => {
+      const job: any = {
+        id: 101,
+        result_preview: {
+          metrics: {
+            SourceReceivedCount: 1250,
+            SinkWriteCount: 1248,
+            SourceReceivedQPS: 125,
+            SinkWriteQPS: 124.8,
+          },
+        },
+      };
+
+      const summary = extractJobMetricSummary(job);
+      expect(summary.readCount).toBe(1250);
+      expect(summary.writeCount).toBe(1248);
+      expect(summary.averageSpeed).toBeCloseTo(124.9);
+      expect(summary.tableCount).toBe(0);
+      expect(summary.isMultiTable).toBe(false);
+    });
+
+    it('correctly aggregates SeaTunnel 3.0 per-table metrics and identifies multi-table jobs', () => {
+      const job: any = {
+        id: 102,
+        result_preview: {
+          metrics: {
+            // 全局读写未直接提供数字，而是细化到具体表
+            // Global counts not provided directly, fine-grained to specific tables
+            TableSourceReceivedCount: {
+              'db.users': 1500,
+              'db.orders': 3500,
+            },
+            TableSinkWriteCount: {
+              'sink_db.users': 1500,
+              'sink_db.orders': 3498,
+            },
+            TableSourceReceivedQPS: {
+              'db.users': 150,
+              'db.orders': 350,
+            },
+            TableSinkWriteQPS: {
+              'sink_db.users': 150,
+              'sink_db.orders': 348,
+            },
+          },
+        },
+      };
+
+      const summary = extractJobMetricSummary(job);
+      expect(summary.readCount).toBe(5000);
+      expect(summary.writeCount).toBe(4998);
+      expect(summary.averageSpeed).toBe(499); // (500 + 498) / 2
+      expect(summary.tableCount).toBe(4);
+      expect(summary.isMultiTable).toBe(true);
+    });
+  });
 });
+

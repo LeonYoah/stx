@@ -158,18 +158,54 @@ function extractSchemaColumnDetails(schema?: SyncJSON): SchemaColumnDetail[] {
   });
 }
 
+// 规范化顶点列表，兼容 Zeta 3.0 的 Array/Map 混合结构与字段命名差异（如 vertexName 回退）
+// Normalize vertices list, compatible with Zeta 3.0 Array/Map mixed structure and field naming differences (such as vertexName fallback)
 function normalizeVertices(
   job: SyncWebUIDagPreviewJob,
 ): SyncWebUIDagVertexInfo[] {
-  return Object.values(job.jobDag?.vertexInfoMap || {}).sort(
-    (left, right) => left.vertexId - right.vertexId,
-  );
+  const rawMap = job.jobDag?.vertexInfoMap;
+  const rawList = Array.isArray(rawMap) ? rawMap : Object.values(rawMap || {});
+  return rawList
+    .map((item: unknown) => {
+      const entry = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>;
+      const vertexId = Number(entry.vertexId);
+      const connectorType = String(
+        entry.connectorType || entry.vertexName || entry.name || 'Unknown',
+      );
+      const type = String(entry.type || 'TRANSFORM');
+      const tablePaths = Array.isArray(entry.tablePaths)
+        ? entry.tablePaths.map((p) => String(p))
+        : [];
+      return {
+        ...(entry as unknown as SyncWebUIDagVertexInfo),
+        vertexId,
+        type,
+        connectorType,
+        tablePaths,
+      };
+    })
+    .filter((vertex) => Number.isFinite(vertex.vertexId))
+    .sort((left, right) => left.vertexId - right.vertexId);
 }
 
+// 规范化边拓扑，强制将顶点 ID 转换为数字，防止字符串与数字类型不匹配引发的拓扑层级计算失效
+// Normalize pipeline edges, coerce vertex IDs to numbers to avoid topological ranking collapse from type mismatches
 function normalizeEdges(job: SyncWebUIDagPreviewJob): SyncWebUIDagEdge[] {
   return Object.entries(job.jobDag?.pipelineEdges || {})
     .sort(([left], [right]) => Number(left) - Number(right))
-    .flatMap(([, edges]) => edges || []);
+    .flatMap(([, edges]) => edges || [])
+    .map((edge: unknown) => {
+      const entry = (edge && typeof edge === 'object' ? edge : {}) as Record<string, unknown>;
+      return {
+        inputVertexId: Number(entry.inputVertexId),
+        targetVertexId: Number(entry.targetVertexId),
+      };
+    })
+    .filter(
+      (edge) =>
+        Number.isFinite(edge.inputVertexId) &&
+        Number.isFinite(edge.targetVertexId),
+    );
 }
 
 function computeNodeLevels(
@@ -685,7 +721,9 @@ export function WebUiDagPreview({job}: {job: SyncWebUIDagPreviewJob}) {
                               {normalizeTablePaths(node.tablePaths).length} 表
                             </span>
                           </div>
-                          <div className='space-y-1.5'>
+                          {/* 表路径列表：设置最大高度与滚动条，防止多表场景节点高度无限扩张 */}
+                          {/* Table paths list: set max height and scroll to prevent node height overflow in multi-table setups */}
+                          <div className='space-y-1.5 max-h-36 overflow-y-auto pr-1'>
                             {normalizeTablePaths(node.tablePaths).length > 0 ? (
                               normalizeTablePaths(node.tablePaths).map((path) => (
                                 <TablePathPreviewItem

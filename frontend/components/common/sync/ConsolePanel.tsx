@@ -24,6 +24,7 @@ import {
   ExternalLink,
   FileCode2,
   FileText,
+  GitBranch,
   Maximize2,
 } from 'lucide-react';
 import {Badge} from '@/components/ui/badge';
@@ -313,6 +314,7 @@ export function JobRunsPanel({
   onSavepointStop,
   onViewMetrics,
   onViewScript,
+  onViewJobDag,
   disableRecover,
 }: {
   jobs: SyncJobInstance[];
@@ -329,6 +331,7 @@ export function JobRunsPanel({
   onSavepointStop: (jobId: number) => void;
   onViewMetrics: (job: SyncJobInstance) => void;
   onViewScript: (job: SyncJobInstance) => void;
+  onViewJobDag?: (job: SyncJobInstance) => void;
   disableRecover: boolean;
 }) {
   const t = useTranslations('workbenchStudio');
@@ -465,7 +468,8 @@ export function JobRunsPanel({
                   </Tooltip>
                 </TableCell>
 
-                {/* 指标紧凑单行化 */}
+                {/* 指标紧凑单行化，支持 SeaTunnel 3.0 多表任务胶囊提示与直达 */}
+                {/* Compact single-line metrics, supporting SeaTunnel 3.0 multi-table badge and quick navigation */}
                 <TableCell className='py-1.5 px-2.5 whitespace-nowrap'>
                   <div className='font-mono text-[11px] text-muted-foreground flex items-center gap-1.5'>
                     <span>读 <strong className='font-medium text-foreground'>{formatMetricValue(summary.readCount)}</strong></span>
@@ -477,12 +481,53 @@ export function JobRunsPanel({
                         <span>{formatMetricValue(summary.averageSpeed, 1)}/s</span>
                       </>
                     ) : null}
+                    {summary.tableCount > 1 ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Badge
+                            variant='outline'
+                            className='cursor-pointer rounded-sm border-blue-500/30 bg-blue-50/50 px-1 py-0 font-sans text-[10px] text-blue-600 hover:bg-blue-100/60 dark:border-blue-400/30 dark:bg-blue-950/40 dark:text-blue-400 transition-colors'
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onViewMetrics(job);
+                            }}
+                          >
+                            {t('multiTableBadge', {count: summary.tableCount})}
+                          </Badge>
+                        </TooltipTrigger>
+                        <TooltipContent side='top' className='text-xs'>
+                          {t('viewMultiTableMetricsHint')}
+                        </TooltipContent>
+                      </Tooltip>
+                    ) : null}
                   </div>
                 </TableCell>
 
                 {/* 操作按钮 */}
+                {/* Action buttons */}
                 <TableCell className='py-1.5 px-2.5 text-right whitespace-nowrap'>
                   <div className='flex justify-end items-center gap-1.5'>
+                    {Boolean(job.result_preview?.job_dag) ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            size='icon'
+                            variant='ghost'
+                            className='size-7 text-muted-foreground hover:text-foreground'
+                            aria-label={t('viewExecutionDag')}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onViewJobDag?.(job);
+                            }}
+                          >
+                            <GitBranch className='size-3.5' />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side='top' className='text-xs'>
+                          {t('viewExecutionDag')}
+                        </TooltipContent>
+                      </Tooltip>
+                    ) : null}
                     <Button
                       size='icon'
                       variant='ghost'

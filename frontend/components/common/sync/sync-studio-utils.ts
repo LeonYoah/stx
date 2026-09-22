@@ -2485,27 +2485,103 @@ export function parseMetricNumber(value: unknown): number | null {
     return value;
   }
   if (typeof value === 'string') {
-    const parsed = Number(value);
+    const cleaned = value.replace(/,/g, '').trim();
+    const parsed = Number(cleaned);
     return Number.isFinite(parsed) ? parsed : null;
   }
   return null;
 }
 
+// 将表级指标值解析为数值映射表，用于聚合计算
+// Parse table-level metric map to numerical values for aggregation computation
+export function toNumericMetricMap(value: unknown): Record<string, number> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+  const result: Record<string, number> = {};
+  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+    const num = parseMetricNumber(item);
+    if (num !== null) {
+      result[key] = num;
+    }
+  }
+  return result;
+}
+
+// 提取作业运行指标摘要，兼容单表全局指标与 SeaTunnel 3.0 表级细粒度聚合指标
+// Extract job execution metric summary, compatible with single-table global metrics and SeaTunnel 3.0 table-level metrics
 export function extractJobMetricSummary(job: SyncJobInstance): {
   readCount: number | null;
   writeCount: number | null;
   averageSpeed: number | null;
   metricCount: number;
+  tableCount: number;
+  isMultiTable: boolean;
 } {
   const metrics = toObject(job.result_preview?.metrics);
-  const readCount = parseMetricNumber(metrics.SourceReceivedCount);
-  const writeCount =
+  let readCount = parseMetricNumber(metrics.SourceReceivedCount);
+  let writeCount =
     parseMetricNumber(metrics.SinkWriteCount) ??
     parseMetricNumber(metrics.SinkCommittedCount);
-  const readQps = parseMetricNumber(metrics.SourceReceivedQPS);
-  const writeQps =
+  let readQps = parseMetricNumber(metrics.SourceReceivedQPS);
+  let writeQps =
     parseMetricNumber(metrics.SinkWriteQPS) ??
     parseMetricNumber(metrics.SinkCommittedQPS);
+
+  // 解析 3.0 表级指标映射表，提取涉及的数据表集合
+  // Parse 3.0 table-level metric maps and extract involved table set
+  const tableSourceCountMap = toNumericMetricMap(metrics.TableSourceReceivedCount);
+  const tableSinkCountMap = toNumericMetricMap(metrics.TableSinkWriteCount);
+  const tableSinkCommittedMap = toNumericMetricMap(metrics.TableSinkCommittedCount);
+  const tableSourceQpsMap = toNumericMetricMap(metrics.TableSourceReceivedQPS);
+  const tableSinkQpsMap = toNumericMetricMap(metrics.TableSinkWriteQPS);
+
+  const uniqueTables = new Set([
+    ...Object.keys(tableSourceCountMap),
+    ...Object.keys(tableSinkCountMap),
+    ...Object.keys(tableSinkCommittedMap),
+  ]);
+  const tableCount = uniqueTables.size;
+
+  // 当全局读指标为空但存在表级指标时，汇总表级读取行数
+  // When global read metrics are absent but table-level metrics exist, aggregate table read counts
+  if (readCount === null && Object.keys(tableSourceCountMap).length > 0) {
+    readCount = Object.values(tableSourceCountMap).reduce(
+      (acc, val) => acc + val,
+      0,
+    );
+  }
+
+  // 当全局写指标为空但存在表级指标时，汇总表级写入行数
+  // When global write metrics are absent but table-level metrics exist, aggregate table write counts
+  if (writeCount === null) {
+    const sinkMap =
+      Object.keys(tableSinkCountMap).length > 0
+        ? tableSinkCountMap
+        : tableSinkCommittedMap;
+    if (Object.keys(sinkMap).length > 0) {
+      writeCount = Object.values(sinkMap).reduce(
+        (acc, val) => acc + val,
+        0,
+      );
+    }
+  }
+
+  // 当全局 QPS 为空时，尝试从表级 QPS 中汇总
+  // When global QPS is absent, attempt to aggregate from per-table QPS
+  if (readQps === null && Object.keys(tableSourceQpsMap).length > 0) {
+    readQps = Object.values(tableSourceQpsMap).reduce(
+      (acc, val) => acc + val,
+      0,
+    );
+  }
+  if (writeQps === null && Object.keys(tableSinkQpsMap).length > 0) {
+    writeQps = Object.values(tableSinkQpsMap).reduce(
+      (acc, val) => acc + val,
+      0,
+    );
+  }
+
   let averageSpeed: number | null = null;
   if (readQps !== null && writeQps !== null) {
     averageSpeed = (readQps + writeQps) / 2;
@@ -2514,11 +2590,14 @@ export function extractJobMetricSummary(job: SyncJobInstance): {
   } else if (writeQps !== null) {
     averageSpeed = writeQps;
   }
+
   return {
     readCount,
     writeCount,
     averageSpeed,
     metricCount: Object.keys(metrics).length,
+    tableCount,
+    isMultiTable: tableCount > 1,
   };
 }
 

@@ -116,6 +116,8 @@ import type {
   SyncTaskTreeNode,
   SyncTaskVersion,
   SyncValidateResult,
+  SyncWebUIDagPreviewJob,
+  SyncWebUIJobDag,
 } from '@/lib/services/sync';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
@@ -445,6 +447,9 @@ export function DataSyncStudio() {
   const [dagResult, setDagResult] = useState<SyncDagResult | null>(null);
   const [dagError, setDagError] = useState<UserFacingErrorState | null>(null);
   const [dagOpen, setDagOpen] = useState(false);
+  // 查看运行中/已结束作业的实时执行拓扑
+  // View execution DAG of running or finished jobs
+  const [viewingJobDag, setViewingJobDag] = useState<SyncWebUIDagPreviewJob | null>(null);
   const [validationOpen, setValidationOpen] = useState(false);
   const [validationTitle, setValidationTitle] = useState('');
   const [validationResult, setValidationResult] =
@@ -4868,6 +4873,22 @@ export function DataSyncStudio() {
                     setJobScriptTarget(job);
                     setJobScriptOpen(true);
                   }}
+                  onViewJobDag={(job) => {
+                    const rawJobDag = job.result_preview?.job_dag as SyncWebUIJobDag | undefined;
+                    if (rawJobDag) {
+                      setViewingJobDag({
+                        jobId: String(job.platform_job_id || job.engine_job_id || job.id),
+                        jobName: String(job.result_preview?.job_name || `Job #${job.id}`),
+                        jobStatus: job.status,
+                        createTime: job.started_at || undefined,
+                        finishTime: job.finished_at || undefined,
+                        jobDag: rawJobDag,
+                        metrics: job.result_preview?.metrics as SyncJSON,
+                      });
+                      setDagError(null);
+                      setDagOpen(true);
+                    }
+                  }}
                   disableRecover={hasActiveRun || hasActivePreview}
                 />
               ) : bottomConsoleTab === 'logs' ? (
@@ -5151,6 +5172,7 @@ export function DataSyncStudio() {
           setDagOpen(open);
           if (!open) {
             setDagError(null);
+            setViewingJobDag(null);
           }
         }}
       >
@@ -5164,14 +5186,24 @@ export function DataSyncStudio() {
         >
           <DialogHeader className={cn(dagError ? 'pb-2' : 'px-6 pt-6')}>
             <DialogTitle>
-              {dagError ? 'DAG 生成未通过' : t('dagPreview')}
+              {dagError
+                ? 'DAG 生成未通过'
+                : viewingJobDag
+                  ? t('jobExecutionDagTitle', {id: viewingJobDag.jobId})
+                  : t('dagPreview')}
             </DialogTitle>
             {!dagError ? (
               <DialogDescription>
-                {t('dagSummary', {
-                  nodes: dagNodes.length,
-                  edges: dagEdges.length,
-                })}
+                {viewingJobDag
+                  ? `状态: ${viewingJobDag.jobStatus || '-'} · 顶点: ${
+                      Array.isArray(viewingJobDag.jobDag?.vertexInfoMap)
+                        ? viewingJobDag.jobDag.vertexInfoMap.length
+                        : Object.keys(viewingJobDag.jobDag?.vertexInfoMap || {}).length
+                    }`
+                  : t('dagSummary', {
+                      nodes: dagNodes.length,
+                      edges: dagEdges.length,
+                    })}
               </DialogDescription>
             ) : null}
           </DialogHeader>
@@ -5192,7 +5224,9 @@ export function DataSyncStudio() {
                     ))}
                   </div>
                 ) : null}
-                {dagWebUIJob ? (
+                {viewingJobDag ? (
+                  <WebUiDagPreview job={viewingJobDag} />
+                ) : dagWebUIJob ? (
                   <WebUiDagPreview job={dagWebUIJob} />
                 ) : (
                   <Card>

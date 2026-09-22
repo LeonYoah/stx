@@ -290,7 +290,6 @@ func Serve() {
 				clusterRouter.POST("/:id/stx-java-proxy/stop", clusterHandler.StopSTXJavaProxy)
 				clusterRouter.POST("/:id/stx-java-proxy/restart", clusterHandler.RestartSTXJavaProxy)
 				clusterRouter.PUT("/:id/stx-java-proxy/config", clusterHandler.UpdateSTXJavaProxyConfig)
-				clusterRouter.POST("/:id/stx-java-proxy/config", clusterHandler.UpdateSTXJavaProxyConfig)
 				clusterRouter.GET("/:id/runtime-storage", clusterHandler.GetRuntimeStorage)
 				clusterRouter.POST("/:id/runtime-storage/:kind/validate", clusterHandler.ValidateRuntimeStorage)
 				clusterRouter.POST("/:id/runtime-storage/:kind/apply", clusterHandler.ApplyRuntimeStorage)

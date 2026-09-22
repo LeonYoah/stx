@@ -26,7 +26,7 @@ import (
 
 // RegistryRevision 是操作登记表的兼容修订号。
 // RegistryRevision is the compatibility revision of the operation registry.
-const RegistryRevision = 23
+const RegistryRevision = 24
 
 var registry = append([]OperationSpec{
 	{
@@ -1872,8 +1872,9 @@ func clusterAdditionalOperationSpecs() []OperationSpec {
 			"停止 Java Proxy 会让依赖该代理的配置检查和运行时查询暂时不可用。", "stx cluster java-proxy stop 6 --confirm", clusterIDInputs()),
 		clusterGeneratedOperation("cluster.java-proxy.restart", []string{"cluster", "java-proxy", "restart"}, "Restart STX Java Proxy", "POST", "/api/v1/clusters/:id/stx-java-proxy/restart", RiskR2,
 			"重启 Java Proxy 会造成短暂不可用，并重新创建 JVM 进程。", "stx cluster java-proxy restart 6 --confirm", clusterIDInputs()),
-		clusterGeneratedOperation("cluster.java-proxy.config", []string{"cluster", "java-proxy", "config"}, "Update STX Java Proxy config", "POST", "/api/v1/clusters/:id/stx-java-proxy/config", RiskR2,
-			"修改 Java Proxy 配置或内存参数并在生效时触发重启。", "stx cluster java-proxy config 6 --confirm", clusterIDInputs()),
+		clusterGeneratedOperation("cluster.java-proxy.config", []string{"cluster", "java-proxy", "config"}, "Update STX Java Proxy config", "PUT", "/api/v1/clusters/:id/stx-java-proxy/config", RiskR2,
+			"修改 Java Proxy 配置或内存参数并在生效时触发重启。", "stx cluster java-proxy config 6 --request-file ./java-proxy.json --confirm", append(clusterIDInputs(),
+				InputSpec{Name: "request", Location: InputBody, Required: true, Description: "Complete Java Proxy configuration update request"})),
 	}
 }
 
@@ -2023,7 +2024,6 @@ func clusterNodeIDInputs() []InputSpec {
 
 var routeExceptions = []RouteException{
 	{Method: "POST", Route: "/api/v1/oauth/callback", Mode: ModeServerOnly, Reason: "OAuth provider callback consumed by the STX server"},
-	{Method: "PUT", Route: "/api/v1/clusters/:id/stx-java-proxy/config", Mode: ModeServerOnly, Reason: "Legacy web alias retained for compatibility; CLI uses the registered POST route"},
 	{Method: "POST", Route: "/api/v1/hosts/:id/discover", Mode: ModeServerOnly, Reason: "Legacy cluster discovery discards the Agent result and always returns an empty cluster list"},
 	{Method: "POST", Route: "/api/v1/hosts/:id/discover/confirm", Mode: ModeServerOnly, Reason: "Legacy cluster import is not wired with a ClusterMatcher and cannot complete successfully"},
 	{Method: "GET", Route: "/api/v1/monitoring/prometheus/discovery", Mode: ModeServerOnly, Reason: "Prometheus HTTP service discovery endpoint"},

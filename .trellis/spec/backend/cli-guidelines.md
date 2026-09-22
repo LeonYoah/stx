@@ -115,11 +115,11 @@ Password:
 
 正确：真实终端依次询问用户名和密码，并在显示密码提示前关闭回显；非交互调用继续明确要求用户名来源和 `--password-stdin`。
 
-## 8. 场景：从操作登记生成普通读取命令
+## 8. 场景：从操作登记生成普通命令
 
 ### 8.1 范围 / 触发条件
 
-当现有只读 API 需要提供给 CLI 和 AI Agent 时，优先在 `internal/operation/registry.go` 登记，并由 `internal/cli/command` 构建普通命令。通用构建器支持 GET，也支持无请求体、`ModeNormal`、R0 的 POST。登录、能力查询、公共执行、下载、流式命令，以及任何会修改状态或需要确认的命令，仍保留专用实现。
+当现有 API 需要提供给 CLI 和 AI Agent，且输入只包含 path、query、统一安全 Header 或完整 JSON 正文时，优先在 `internal/operation/registry.go` 登记，并由 `internal/cli/command` 构建普通命令。通用构建器支持 GET、POST、PUT 和 PATCH；包含 `InputBody` 时统一生成 `--request-file`。登录、能力查询、公共执行、下载、流式命令、文件上传和需要特殊交互的命令仍保留专用实现。
 
 ### 8.2 签名
 
@@ -151,13 +151,17 @@ operation.OperationSpec{
 command.Build(specs []operation.OperationSpec, factory command.ClientFactory) ([]*cobra.Command, error)
 ```
 
-### 8.3 契约
+### 8.3 规则
 
 - 本地登记项负责命令路径、帮助摘要、输入、示例和输出样例；执行 `--help` 不访问网络。
 - 实际 HTTP 方法必须取自 `OperationSpec.Method`，不能在构建器中写死为 GET。
-- POST 只有同时满足无 body/header/file 输入、`ModeNormal` 和 `RiskR0` 时才能由通用构建器生成；请求体固定为 `nil`。
+- GET、POST、PUT 和 PATCH 在 `ModeNormal` 下可以由通用构建器生成；DELETE 不能公开为 CLI。
 - `InputPath` 按登记顺序变成位置参数并使用 `url.PathEscape`。
 - `InputQuery` 变成同名长参数，只有用户显式传入时才加入 URL。
+- 存在 `InputBody` 时生成 `--request-file`，文件内容作为完整 JSON 正文发送；任一 body 输入必填时，该参数也必填。
+- 请求文件缺失、为空或 JSON 无效时，在创建客户端和查询 capability 前返回 `usage_error`。
+- 通用构建器不接受任意 Header 和文件上传输入；`Idempotency-Key`、`X-STX-Confirm`、`X-STX-Confirmation-ID` 由写操作参数统一处理。
+- R1 至 R3 命令要求 `--confirm`，并支持幂等键和一次性确认编号。
 - 每个生成命令支持 `--namespace`，结果继续走公共 `--output`、`--format`、`-f` 和 `--pick`。
 - 业务请求前必须调用 `/api/v1/capabilities`，检查 operation ID、权限、mode 和 revision。
 - 登记项包含 `ImpactSpec` 时，帮助必须显示风险等级、影响说明和性能说明；显示帮助不能创建客户端或访问服务端。
@@ -175,23 +179,28 @@ command.Build(specs []operation.OperationSpec, factory command.ClientFactory) ([
 | 服务端 mode 与本地登记不同 | 不调用业务 API，返回 `conflict` / 退出码 6 |
 | path 输入与路由占位符不一致 | 构建命令失败，测试阶段发现 |
 | 必填 query 未传 | 不发请求，返回 `usage_error` / 退出码 2 |
-| POST 风险等级不是 R0 | 构建命令失败，不注册命令 |
-| POST 包含 body、header 或 file 输入 | 构建命令失败，不注册命令 |
-| PUT、PATCH、DELETE 或非 normal 模式 | 构建命令失败，不注册命令 |
+| 必填 body 未提供 `--request-file` | 不发请求，返回 `usage_error` / 退出码 2 |
+| 请求文件为空或 JSON 无效 | 不发请求，返回 `usage_error` / 退出码 2 |
+| GET 或 DELETE 登记 `InputBody` | 构建命令失败，不注册命令 |
+| 输入包含任意 Header 或上传文件 | 构建命令失败，不注册命令 |
+| DELETE 设置 `GeneratedCLI=true` | 操作登记校验失败 |
+| 非 normal 模式 | 构建命令失败，不注册命令 |
 | 成功响应是非法 JSON | 返回 `server_error`，不能输出部分结果 |
 | 遗留接口返回 `404` 和 `{"error":"host not found"}` | 保留服务端消息，返回 `not_found` / 退出码 5 |
 
 ### 8.5 Good / Base / Bad
 
-- Good：登记无请求体的 R0 进程扫描 POST，由同一登记项提供 capability、help、影响说明、请求方法、请求路由和覆盖报告信息。
-- Base：普通 GET 继续使用通用构建器；特殊 watch、download 或需要请求体的命令继续独立实现。
-- Bad：因为接口使用 POST 就直接交给通用构建器，未检查风险等级、输入位置和实际修改效果。
+- Good：登记 Java Proxy 配置 PUT，并声明一个必填 `InputBody`；生成命令通过 `--request-file` 发送完整 JSON，同时保留确认和幂等处理。
+- Base：普通 GET 和无正文 POST 继续使用通用构建器；特殊 watch、download、文件上传或密码交互继续独立实现。
+- Bad：为了绕过构建器的方法检查把 PUT 改成 POST，却仍发送空正文。
 
 ### 8.6 必须有的测试
 
 - path 转义、可选 query、命名空间和字段选择。
-- GET 使用 GET；无请求体 R0 POST 使用登记的方法且请求体为 `nil`。
-- R1/R2/R3 POST、带 body/header/file 输入的 POST、PUT、PATCH、DELETE 和非 normal 模式必须构建失败。
+- GET 使用 GET；无请求体 POST 使用登记的方法且请求体为 `nil`。
+- PUT 和 PATCH 能读取 `--request-file`，原样发送有效 JSON，并携带确认和幂等 Header。
+- 必填请求文件缺失、文件为空、JSON 无效时，能力查询和业务请求次数均为 0。
+- GET/DELETE 带 body、任意 Header、上传文件和非 normal 模式必须构建失败。
 - 离线 help 不创建客户端，不调用 capability。
 - `ImpactSpec` 的风险等级、影响内容和性能说明出现在帮助中。
 - capability 缺失、拒绝、旧 revision 和 mode 不匹配时，业务 API 调用次数为 0。
@@ -204,28 +213,31 @@ command.Build(specs []operation.OperationSpec, factory command.ClientFactory) ([
 错误：
 
 ```go
-spec.Method = "POST"
+spec.Method = "PUT"
 spec.Risk = operation.RiskR2
-spec.Input = append(spec.Input, operation.InputSpec{Location: operation.InputBody})
+spec.Input = append(spec.Input, operation.InputSpec{Location: operation.InputBody, Required: true})
 spec.GeneratedCLI = true
 ```
 
-这会把有修改效果或需要正文的 POST 错当成普通读取命令，绕过专用命令应有的确认、幂等和输入处理。
+如果构建器仍固定发送空正文，这个命令虽然能出现在帮助中，但实际调用必然失败。
 
 正确：
 
 ```go
-spec.Method = "POST"
+spec.Method = "PUT"
 spec.Mode = operation.ModeNormal
-spec.Risk = operation.RiskR0
+spec.Risk = operation.RiskR2
 spec.Input = []operation.InputSpec{
     {Name: "id", Location: operation.InputPath, Required: true},
+    {Name: "request", Location: operation.InputBody, Required: true},
+    {Name: "Idempotency-Key", Location: operation.InputHeader, Required: true},
+    {Name: "X-STX-Confirm", Location: operation.InputHeader, Required: true},
 }
 spec.GeneratedCLI = true
 commands, err := command.Build([]operation.OperationSpec{spec}, clientFactory)
 ```
 
-登记表是命令定义来源。构建器先拒绝不安全的签名，再按 `OperationSpec.Method` 发起无请求体请求，并执行能力检查和统一输出。
+登记表是命令定义来源。构建器按 `OperationSpec.Method` 发起请求，`InputBody` 由 `--request-file` 提供，并继续执行能力检查和统一输出。
 
 ## 9. 同名查询参数
 
@@ -382,15 +394,16 @@ printf '%s\n' "$STX_TEST_PASSWORD" | stx admin user create \
   --username demo --password-stdin --confirm --idempotency-key create-demo
 ```
 
-## 11. 场景：由登记表生成无正文写命令，并禁止 CLI 删除资源
+## 11. 场景：由登记表生成写命令，并禁止 CLI 删除资源
 
 ### 11.1 范围
 
-无正文的 `POST` 可以和普通 GET 一样由操作登记表生成，适用于启停、重启等只需要 path/query 参数的接口。CLI 不提供任何资源删除入口；服务端和网页可以继续保留原有 `DELETE` API。包含 JSON 正文、文件或特殊输入的命令仍使用专用实现。
+无正文的 `POST` 以及带完整 JSON 正文的 `POST`、`PUT`、`PATCH` 都可以由操作登记表生成。CLI 不提供任何资源删除入口；服务端和网页可以继续保留原有 `DELETE` API。文件上传、密码交互和其他特殊输入仍使用专用实现。
 
 ### 11.2 登记和命令约定
 
-- `GeneratedCLI=true` 时，方法只能是 `GET` 或无正文 `POST`；`DELETE` 必须保持 `GeneratedCLI=false`。
+- `GeneratedCLI=true` 时，方法可以是 `GET`、`POST`、`PUT` 或 `PATCH`；`DELETE` 必须保持 `GeneratedCLI=false`。
+- 存在 `InputBody` 时统一增加 `--request-file`，将文件中的完整 JSON 作为请求正文。
 - 删除类操作不设置 `CommandPath` 和 CLI `Example`，避免能力信息和帮助文案推荐不可执行命令。
 - 手写 Cobra 命令也不能使用 `delete` 或表示资源删除的 `remove` 命令名。
 - R1 至 R3 必须提供 `ImpactSpec`，并在登记输入中声明 `Idempotency-Key` 和 `X-STX-Confirm`。
@@ -403,12 +416,14 @@ printf '%s\n' "$STX_TEST_PASSWORD" | stx admin user create \
 ### 11.3 必须有的测试
 
 - 无正文 R0 POST 能正常生成和调用。
+- 带正文的 POST、PUT 和 PATCH 能从请求文件读取 JSON 并发送。
+- 必填请求文件缺失或无效时，不查询能力，也不调用业务接口。
 - R1/R2 POST 缺少确认时网络调用次数为 0。
 - 遍历根命令树，断言不存在 `delete` 或资源删除语义的 `remove` 命令。
 - 遍历操作登记，断言所有 `DELETE` 操作均为 `GeneratedCLI=false` 且没有命令路径。
 - 带确认的命令发送统一安全请求头，并输出影响提示。
 - 服务端返回 `confirmation_required` 时，stderr 包含一次性确认编号。
-- body/header/file 中除统一安全 Header 外的输入仍被生成器拒绝。
+- 任意 Header 和上传文件输入仍被生成器拒绝；`InputBody` 只允许 POST、PUT 和 PATCH。
 
 ### 11.4 错误与正确示例
 

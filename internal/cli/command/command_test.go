@@ -23,6 +23,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -166,6 +168,92 @@ func TestBuildExecutesBodylessR0POST(t *testing.T) {
 	}
 	if client.method != http.MethodPost || client.path != "/api/v1/samples/one" || client.body != nil {
 		t.Fatalf("POST 请求错误 / POST request is incorrect: method=%s path=%s body=%#v", client.method, client.path, client.body)
+	}
+}
+
+func TestBuildExecutesPUTWithJSONRequestFile(t *testing.T) {
+	requestFile := filepath.Join(t.TempDir(), "request.json")
+	if err := os.WriteFile(requestFile, []byte(`{"port":18082,"restart":false}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	spec := testSpec()
+	spec.ID = "sample.update"
+	spec.CommandPath = []string{"sample", "update"}
+	spec.Summary = "Update a sample"
+	spec.Method = http.MethodPut
+	spec.Risk = operation.RiskR1
+	spec.Impact = &operation.ImpactSpec{Level: operation.RiskR1, Message: "Updates the sample."}
+	spec.Input = append(spec.Input,
+		operation.InputSpec{Name: "request", Location: operation.InputBody, Required: true, Description: "Complete update request"},
+		operation.InputSpec{Name: "Idempotency-Key", Location: operation.InputHeader, Required: true, Description: "Stable retry key"},
+		operation.InputSpec{Name: "X-STX-Confirm", Location: operation.InputHeader, Required: true, Description: "Explicit confirmation"},
+	)
+	spec.Example = "stx sample update one --request-file request.json --confirm"
+	client := &fakeClient{
+		capabilities: cliClient.CapabilityData{Operations: []cliClient.CapabilityOperation{{
+			OperationID: spec.ID, Revision: spec.Revision, Allowed: true, Mode: string(spec.Mode),
+		}}},
+		requestID: "req_update", response: map[string]any{"updated": true},
+	}
+	commands, err := Build([]operation.OperationSpec{spec}, func(string) (Client, error) { return client, nil })
+	if err != nil {
+		t.Fatalf("构建 PUT 命令失败 / building PUT command failed: %v", err)
+	}
+	root, _, _ := testRoot(commands)
+	root.SetArgs([]string{"sample", "update", "one", "--filter", "active", "--request-file", requestFile, "--confirm", "--idempotency-key", "update-one"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("执行 PUT 命令失败 / executing PUT command failed: %v", err)
+	}
+	if client.method != http.MethodPut || client.path != "/api/v1/samples/one?filter=active" {
+		t.Fatalf("PUT 请求错误 / PUT request is incorrect: method=%s path=%s", client.method, client.path)
+	}
+	if client.headers["Idempotency-Key"] != "update-one" || client.headers["X-STX-Confirm"] != "true" {
+		t.Fatalf("PUT 安全请求头错误 / PUT safety headers are incorrect: %#v", client.headers)
+	}
+	var body map[string]any
+	raw, ok := client.body.(json.RawMessage)
+	if !ok || json.Unmarshal(raw, &body) != nil || body["port"] != float64(18082) || body["restart"] != false {
+		t.Fatalf("PUT 请求正文错误 / PUT request body is incorrect: %#v", client.body)
+	}
+}
+
+func TestBuildRequiresValidRequestFileBeforeNetwork(t *testing.T) {
+	tests := []struct {
+		name string
+		file string
+	}{
+		{name: "missing"},
+		{name: "invalid", file: filepath.Join(t.TempDir(), "invalid.json")},
+	}
+	if err := os.WriteFile(tests[1].file, []byte(`{"port":`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			spec := testSpec()
+			spec.ID = "sample.update"
+			spec.CommandPath = []string{"sample", "update"}
+			spec.Summary = "Update a sample"
+			spec.Method = http.MethodPatch
+			spec.Risk = operation.RiskR1
+			spec.Impact = &operation.ImpactSpec{Level: operation.RiskR1, Message: "Updates the sample."}
+			spec.Input = append(spec.Input, operation.InputSpec{Name: "request", Location: operation.InputBody, Required: true, Description: "Complete update request"})
+			client := &fakeClient{}
+			commands, err := Build([]operation.OperationSpec{spec}, func(string) (Client, error) { return client, nil })
+			if err != nil {
+				t.Fatal(err)
+			}
+			root, _, _ := testRoot(commands)
+			args := []string{"sample", "update", "one", "--confirm"}
+			if test.file != "" {
+				args = append(args, "--request-file", test.file)
+			}
+			root.SetArgs(args)
+			classified := clioutput.ClassifyError(root.Execute())
+			if classified.Code != clioutput.CodeUsage || client.capabilityCalls != 0 || client.requestCalls != 0 {
+				t.Fatalf("请求文件错误处理不正确 / request file error is incorrect: error=%#v capability_calls=%d request_calls=%d", classified, client.capabilityCalls, client.requestCalls)
+			}
+		})
 	}
 }
 
@@ -348,9 +436,8 @@ func TestBuildRejectsUnsupportedOrMismatchedSpecs(t *testing.T) {
 		name string
 		spec operation.OperationSpec
 	}{
-		{name: "post body", spec: func() operation.OperationSpec {
+		{name: "get body", spec: func() operation.OperationSpec {
 			item := testSpec()
-			item.Method = "POST"
 			item.Input = append(item.Input, operation.InputSpec{Name: "request", Location: operation.InputBody, Required: true, Description: "Request body"})
 			return item
 		}()},
@@ -366,7 +453,6 @@ func TestBuildRejectsUnsupportedOrMismatchedSpecs(t *testing.T) {
 			item.Input = append(item.Input, operation.InputSpec{Name: "file", Location: operation.InputFile, Required: true, Description: "Request file"})
 			return item
 		}()},
-		{name: "put", spec: func() operation.OperationSpec { item := testSpec(); item.Method = "PUT"; return item }()},
 		{name: "watch", spec: func() operation.OperationSpec { item := testSpec(); item.Mode = operation.ModeWatch; return item }()},
 		{name: "missing summary", spec: func() operation.OperationSpec { item := testSpec(); item.Summary = ""; return item }()},
 		{name: "missing path input", spec: func() operation.OperationSpec { item := testSpec(); item.Input = item.Input[1:]; return item }()},

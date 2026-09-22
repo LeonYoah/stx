@@ -349,7 +349,7 @@ func (h *Handler) RestartSTXJavaProxy(c *gin.Context) {
 	})
 }
 
-// UpdateSTXJavaProxyConfig handles PUT/POST /api/v1/clusters/:id/stx-java-proxy/config.
+// UpdateSTXJavaProxyConfig handles PUT /api/v1/clusters/:id/stx-java-proxy/config.
 func (h *Handler) UpdateSTXJavaProxyConfig(c *gin.Context) {
 	clusterID, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {

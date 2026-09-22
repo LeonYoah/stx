@@ -320,8 +320,7 @@ func TestRegistryContainsDiscoveryOperationAndLegacyExceptions(t *testing.T) {
 	for _, exception := range RouteExceptions() {
 		exceptions[exception.Method+" "+exception.Route] = exception
 	}
-	require.Len(t, RouteExceptions(), 19)
-	require.Contains(t, exceptions, "PUT /api/v1/clusters/:id/stx-java-proxy/config")
+	require.Len(t, RouteExceptions(), 18)
 	require.Contains(t, exceptions, "POST /api/v1/hosts/:id/discover")
 	require.Contains(t, exceptions, "POST /api/v1/hosts/:id/discover/confirm")
 	for _, route := range []string{
@@ -334,6 +333,18 @@ func TestRegistryContainsDiscoveryOperationAndLegacyExceptions(t *testing.T) {
 	} {
 		require.Contains(t, exceptions, route)
 	}
+}
+
+func TestRegistryJavaProxyConfigUsesPUTWithRequestBody(t *testing.T) {
+	byID := make(map[string]OperationSpec)
+	for _, spec := range Registry() {
+		byID[spec.ID] = spec
+	}
+
+	spec := byID["cluster.java-proxy.config"]
+	require.Equal(t, http.MethodPut, spec.Method)
+	require.True(t, spec.GeneratedCLI)
+	require.Contains(t, spec.Input, InputSpec{Name: "request", Location: InputBody, Required: true, Description: "Complete Java Proxy configuration update request"})
 }
 
 func TestRegistryAdminUserOperations(t *testing.T) {

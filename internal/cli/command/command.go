@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"regexp"
 	"sort"
 	"strings"
@@ -58,8 +59,8 @@ type queryFlagValue struct {
 	repeated *[]string
 }
 
-// writeOptions 保存无正文写操作使用的确认和幂等参数。
-// writeOptions stores confirmation and idempotency flags for bodyless writes.
+// writeOptions 保存写操作使用的确认和幂等参数。
+// writeOptions stores confirmation and idempotency flags for writes.
 type writeOptions struct {
 	confirmed      bool
 	idempotencyKey string
@@ -130,8 +131,10 @@ func newGroupCommand(name, path string) *cobra.Command {
 func configureLeaf(command *cobra.Command, spec operation.OperationSpec, clientFactory ClientFactory) {
 	pathInputs := inputsAt(spec, operation.InputPath)
 	queryInputs := inputsAt(spec, operation.InputQuery)
+	bodyInputs := inputsAt(spec, operation.InputBody)
 	queryValues := make(map[string]queryFlagValue, len(queryInputs))
 	var namespace string
+	var requestFile string
 	var write writeOptions
 
 	useParts := []string{command.Name()}
@@ -144,6 +147,9 @@ func configureLeaf(command *cobra.Command, spec operation.OperationSpec, clientF
 	command.Example = spec.Example
 	command.Args = exactArgs(len(pathInputs))
 	command.Flags().StringVar(&namespace, "namespace", "", "Local namespace to use")
+	if len(bodyInputs) > 0 {
+		command.Flags().StringVar(&requestFile, "request-file", "", "JSON file containing the complete request body")
+	}
 	if spec.Risk != operation.RiskR0 {
 		command.Flags().BoolVar(&write.confirmed, "confirm", false, "Confirm the operation impact")
 		command.Flags().StringVar(&write.idempotencyKey, "idempotency-key", "", "Stable key for retrying the same request")
@@ -168,6 +174,10 @@ func configureLeaf(command *cobra.Command, spec operation.OperationSpec, clientF
 		if spec.Risk != operation.RiskR0 && !write.confirmed {
 			return clioutput.NewError(clioutput.CodeConflict, "write operation requires --confirm", clioutput.ExitConflict, false)
 		}
+		requestBody, err := buildRequestBody(command, bodyInputs, requestFile)
+		if err != nil {
+			return err
+		}
 		client, err := clientFactory(namespace)
 		if err != nil {
 			return err
@@ -184,9 +194,9 @@ func configureLeaf(command *cobra.Command, spec operation.OperationSpec, clientF
 		var data any
 		var requestID string
 		if len(headers) == 0 {
-			requestID, err = client.Request(command.Context(), strings.ToUpper(spec.Method), requestPath, nil, &data)
+			requestID, err = client.Request(command.Context(), strings.ToUpper(spec.Method), requestPath, requestBody, &data)
 		} else {
-			requestID, err = client.RequestWithHeaders(command.Context(), strings.ToUpper(spec.Method), requestPath, nil, headers, &data)
+			requestID, err = client.RequestWithHeaders(command.Context(), strings.ToUpper(spec.Method), requestPath, requestBody, headers, &data)
 		}
 		if err != nil {
 			return handleConfirmationError(command, spec.ID, err)
@@ -212,9 +222,13 @@ func validateSpec(spec operation.OperationSpec) error {
 		return fmt.Errorf("generated command only supports normal operations")
 	}
 	switch strings.ToUpper(strings.TrimSpace(spec.Method)) {
-	case http.MethodGet, http.MethodPost, http.MethodDelete:
+	case http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
 	default:
-		return fmt.Errorf("generated command only supports GET or bodyless POST/DELETE operations")
+		return fmt.Errorf("generated command only supports GET, POST, PUT, PATCH, or DELETE operations")
+	}
+	bodyInputs := inputsAt(spec, operation.InputBody)
+	if len(bodyInputs) > 0 && !methodSupportsJSONBody(spec.Method) {
+		return fmt.Errorf("%s operations cannot use a generated JSON request body", strings.ToUpper(strings.TrimSpace(spec.Method)))
 	}
 	placeholders := routeParameterPattern.FindAllStringSubmatch(spec.Route, -1)
 	pathInputs := inputsAt(spec, operation.InputPath)
@@ -230,7 +244,7 @@ func validateSpec(spec operation.OperationSpec) error {
 		if input.Location == operation.InputHeader && isGeneratedSafetyHeader(input.Name) {
 			continue
 		}
-		if input.Location != operation.InputPath && input.Location != operation.InputQuery {
+		if input.Location != operation.InputPath && input.Location != operation.InputQuery && input.Location != operation.InputBody {
 			return fmt.Errorf("input %q uses unsupported location %q", input.Name, input.Location)
 		}
 		if input.Repeated && input.Location != operation.InputQuery {
@@ -240,8 +254,48 @@ func validateSpec(spec operation.OperationSpec) error {
 	return nil
 }
 
-// prepareWriteHeaders 校验无正文写操作，并构造统一安全请求头。
-// prepareWriteHeaders validates a bodyless write and builds its common safety headers.
+// buildRequestBody 从完整 JSON 文件读取生成命令的请求正文。
+// buildRequestBody reads a generated command request body from a complete JSON file.
+func buildRequestBody(command *cobra.Command, bodyInputs []operation.InputSpec, requestFile string) (any, error) {
+	if len(bodyInputs) == 0 {
+		return nil, nil
+	}
+	required := false
+	for _, input := range bodyInputs {
+		if input.Required {
+			required = true
+			break
+		}
+	}
+	path := strings.TrimSpace(requestFile)
+	if path == "" {
+		if required {
+			return nil, clioutput.NewError(clioutput.CodeUsage, "required flag --request-file is missing", clioutput.ExitUsage, false)
+		}
+		return nil, nil
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return nil, clioutput.NewError(clioutput.CodeUsage, fmt.Sprintf("read request file: %v", err), clioutput.ExitUsage, false)
+	}
+	content = []byte(strings.TrimSpace(string(content)))
+	if len(content) == 0 || !json.Valid(content) {
+		return nil, clioutput.NewError(clioutput.CodeUsage, "request file must contain valid JSON", clioutput.ExitUsage, false)
+	}
+	return json.RawMessage(content), nil
+}
+
+func methodSupportsJSONBody(method string) bool {
+	switch strings.ToUpper(strings.TrimSpace(method)) {
+	case http.MethodPost, http.MethodPut, http.MethodPatch:
+		return true
+	default:
+		return false
+	}
+}
+
+// prepareWriteHeaders 校验写操作，并构造统一安全请求头。
+// prepareWriteHeaders validates a write and builds its common safety headers.
 func prepareWriteHeaders(command *cobra.Command, spec operation.OperationSpec, options *writeOptions) (map[string]string, error) {
 	if spec.Risk == operation.RiskR0 {
 		return nil, nil

@@ -1838,6 +1838,8 @@ func clusterAdditionalOperationSpecs() []OperationSpec {
 			"停止 Java Proxy 会让依赖该代理的配置检查和运行时查询暂时不可用。", "stx cluster java-proxy stop 6 --confirm", clusterIDInputs()),
 		clusterGeneratedOperation("cluster.java-proxy.restart", []string{"cluster", "java-proxy", "restart"}, "Restart STX Java Proxy", "POST", "/api/v1/clusters/:id/stx-java-proxy/restart", RiskR2,
 			"重启 Java Proxy 会造成短暂不可用，并重新创建 JVM 进程。", "stx cluster java-proxy restart 6 --confirm", clusterIDInputs()),
+		clusterGeneratedOperation("cluster.java-proxy.config", []string{"cluster", "java-proxy", "config"}, "Update STX Java Proxy config", "POST", "/api/v1/clusters/:id/stx-java-proxy/config", RiskR2,
+			"修改 Java Proxy 配置或内存参数并在生效时触发重启。", "stx cluster java-proxy config 6 --confirm", clusterIDInputs()),
 	}
 }
 

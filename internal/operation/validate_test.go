@@ -98,7 +98,7 @@ func TestValidateRejectsRepeatedNonQueryInput(t *testing.T) {
 }
 
 func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
-	require.Len(t, Registry(), 217)
+	require.Len(t, Registry(), 218)
 
 	expected := map[string]struct{}{
 		"auth.user-info.get": {}, "admin.user.list": {}, "admin.user.get": {},
@@ -108,7 +108,8 @@ func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
 		"host.discovery.process.list": {},
 		"host.task.list":              {},
 		"cluster.node.list":           {}, "cluster.status.get": {}, "config.cluster.list": {},
-		"cluster.health.list": {}, "cluster.runtime-storage.get": {},
+		"cluster.java-proxy.config": {},
+		"cluster.health.list":       {}, "cluster.runtime-storage.get": {},
 		"cluster.node.logs": {},
 		"cluster.start":     {}, "cluster.stop": {}, "cluster.restart": {},
 		"cluster.node.start": {}, "cluster.node.stop": {}, "cluster.node.restart": {},
@@ -319,7 +320,8 @@ func TestRegistryContainsDiscoveryOperationAndLegacyExceptions(t *testing.T) {
 	for _, exception := range RouteExceptions() {
 		exceptions[exception.Method+" "+exception.Route] = exception
 	}
-	require.Len(t, RouteExceptions(), 18)
+	require.Len(t, RouteExceptions(), 19)
+	require.Contains(t, exceptions, "PUT /api/v1/clusters/:id/stx-java-proxy/config")
 	require.Contains(t, exceptions, "POST /api/v1/hosts/:id/discover")
 	require.Contains(t, exceptions, "POST /api/v1/hosts/:id/discover/confirm")
 	for _, route := range []string{

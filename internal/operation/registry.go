@@ -26,7 +26,7 @@ import (
 
 // RegistryRevision 是操作登记表的兼容修订号。
 // RegistryRevision is the compatibility revision of the operation registry.
-const RegistryRevision = 22
+const RegistryRevision = 23
 
 var registry = append([]OperationSpec{
 	{
@@ -2023,6 +2023,7 @@ func clusterNodeIDInputs() []InputSpec {
 
 var routeExceptions = []RouteException{
 	{Method: "POST", Route: "/api/v1/oauth/callback", Mode: ModeServerOnly, Reason: "OAuth provider callback consumed by the STX server"},
+	{Method: "PUT", Route: "/api/v1/clusters/:id/stx-java-proxy/config", Mode: ModeServerOnly, Reason: "Legacy web alias retained for compatibility; CLI uses the registered POST route"},
 	{Method: "POST", Route: "/api/v1/hosts/:id/discover", Mode: ModeServerOnly, Reason: "Legacy cluster discovery discards the Agent result and always returns an empty cluster list"},
 	{Method: "POST", Route: "/api/v1/hosts/:id/discover/confirm", Mode: ModeServerOnly, Reason: "Legacy cluster import is not wired with a ClusterMatcher and cannot complete successfully"},
 	{Method: "GET", Route: "/api/v1/monitoring/prometheus/discovery", Mode: ModeServerOnly, Reason: "Prometheus HTTP service discovery endpoint"},

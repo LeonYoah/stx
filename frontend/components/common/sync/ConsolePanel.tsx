@@ -472,9 +472,10 @@ export function JobRunsPanel({
                 {/* Compact single-line metrics, supporting SeaTunnel 3.0 multi-table badge and quick navigation */}
                 <TableCell className='py-1.5 px-2.5 whitespace-nowrap'>
                   <div className='font-mono text-[11px] text-muted-foreground flex items-center gap-1.5'>
-                    <span>读 <strong className='font-medium text-foreground'>{formatMetricValue(summary.readCount)}</strong></span>
+                    {/* 读写数字与前缀等色，不再加粗高亮，降低视觉噪音 / Metrics values match muted color, no bold highlight */}
+                    <span>读 {formatMetricValue(summary.readCount)}</span>
                     <span className='text-muted-foreground/40'>·</span>
-                    <span>写 <strong className='font-medium text-foreground'>{formatMetricValue(summary.writeCount)}</strong></span>
+                    <span>写 {formatMetricValue(summary.writeCount)}</span>
                     {typeof summary.averageSpeed === 'number' && summary.averageSpeed > 0 ? (
                       <>
                         <span className='text-muted-foreground/40'>·</span>
@@ -486,7 +487,7 @@ export function JobRunsPanel({
                         <TooltipTrigger asChild>
                           <Badge
                             variant='outline'
-                            className='cursor-pointer rounded-sm border-blue-500/30 bg-blue-50/50 px-1 py-0 font-sans text-[10px] text-blue-600 hover:bg-blue-100/60 dark:border-blue-400/30 dark:bg-blue-950/40 dark:text-blue-400 transition-colors'
+                            className='cursor-pointer rounded-sm border-border/60 bg-muted/50 px-1 py-0 font-sans text-[10px] text-muted-foreground hover:bg-muted transition-colors'
                             onClick={(e) => {
                               e.stopPropagation();
                               onViewMetrics(job);
@@ -528,30 +529,46 @@ export function JobRunsPanel({
                         </TooltipContent>
                       </Tooltip>
                     ) : null}
-                    <Button
-                      size='icon'
-                      variant='ghost'
-                      className='size-7 text-muted-foreground hover:text-foreground'
-                      aria-label={t('viewExecutedScript')}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onViewScript(job);
-                      }}
-                    >
-                      <FileCode2 className='size-3.5' />
-                    </Button>
-                    <Button
-                      size='icon'
-                      variant='ghost'
-                      className='size-7 text-muted-foreground hover:text-foreground'
-                      aria-label={t('viewMetrics')}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onViewMetrics(job);
-                      }}
-                    >
-                      <BarChart3 className='size-3.5' />
-                    </Button>
+                    {/* 查看实际执行脚本按钮加 Tooltip / Wrap script button with Tooltip */}
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          size='icon'
+                          variant='ghost'
+                          className='size-7 text-muted-foreground hover:text-foreground'
+                          aria-label={t('viewExecutedScript')}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onViewScript(job);
+                          }}
+                        >
+                          <FileCode2 className='size-3.5' />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side='top' className='text-xs'>
+                        {t('viewExecutedScript')}
+                      </TooltipContent>
+                    </Tooltip>
+                    {/* 查看运行指标按钮加 Tooltip / Wrap metrics button with Tooltip */}
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          size='icon'
+                          variant='ghost'
+                          className='size-7 text-muted-foreground hover:text-foreground'
+                          aria-label={t('viewMetrics')}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onViewMetrics(job);
+                          }}
+                        >
+                          <BarChart3 className='size-3.5' />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side='top' className='text-xs'>
+                        {t('viewMetrics')}
+                      </TooltipContent>
+                    </Tooltip>
                     {job.run_type !== 'preview' ? (
                       <Tooltip>
                         <TooltipTrigger asChild>

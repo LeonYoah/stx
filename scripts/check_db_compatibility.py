@@ -118,6 +118,64 @@ def scan_file(filepath: str) -> List[str]:
     return violations
 
 
+def check_composite_indexes(target_dir: str) -> List[str]:
+    """
+    检查复合索引总字符长度，防止超出 MySQL InnoDB 3072 字节（utf8mb4 下约 768 字符）上限。
+    Checks composite index key lengths to prevent exceeding MySQL InnoDB 3072-byte limit (768 chars in utf8mb4).
+    """
+    from collections import defaultdict
+
+    indexes = defaultdict(lambda: {"cols": [], "total_size": 0, "file": ""})
+    gorm_tag_re = re.compile(r'gorm:"([^"]+)"')
+    size_re = re.compile(r'size:(\d+)')
+    index_re = re.compile(r'(?:uniqueIndex|index):([a-zA-Z0-9_]+)')
+
+    for root, _, files in os.walk(target_dir):
+        for file in files:
+            if not file.endswith(".go") or file.endswith("_test.go"):
+                continue
+            filepath = os.path.join(root, file)
+            if is_excluded(filepath):
+                continue
+
+            with open(filepath, "r", encoding="utf-8") as f:
+                for line_idx, line in enumerate(f, start=1):
+                    stripped = line.strip()
+                    if stripped.startswith("//") or stripped.startswith("/*") or stripped.startswith("*"):
+                        continue
+                    m_tag = gorm_tag_re.search(line)
+                    if not m_tag:
+                        continue
+                    tag = m_tag.group(1)
+                    m_idx = index_re.search(tag)
+                    if m_idx:
+                        idx_name = m_idx.group(1)
+                        m_sz = size_re.search(tag)
+                        sz = int(m_sz.group(1)) if m_sz else 0
+                        col = stripped.split()[0]
+                        indexes[idx_name]["cols"].append((col, sz, line_idx))
+                        indexes[idx_name]["total_size"] += sz
+                        indexes[idx_name]["file"] = filepath
+
+    violations = []
+    # 750 字符 * 4 字节/字符 = 3000 字节，安全预警阈值（MySQL InnoDB 上限 3072 字节）
+    # 750 chars * 4 bytes/char = 3000 bytes, safe threshold (MySQL InnoDB limit 3072 bytes)
+    for idx_name, data in indexes.items():
+        if len(data["cols"]) > 1 and data["total_size"] > 700:
+            rel_file = os.path.relpath(data["file"], ROOT_DIR)
+            col_details = ", ".join(f"{c}(size:{s})" for c, s, _ in data["cols"])
+            violations.append(
+                f"[COMPOSITE_INDEX_TOO_LONG] {rel_file}\n"
+                f"  Index: {idx_name}\n"
+                f"  Total VARCHAR size: {data['total_size']} chars (~{data['total_size']*4} bytes in utf8mb4)\n"
+                f"  Columns: {col_details}\n"
+                f"  CN: 复合索引总键长超出安全限制（MySQL 3072 字节上限），请缩减字段 size 或移除不必要的索引列\n"
+                f"  EN: Composite index key length exceeds MySQL 3072-byte limit; shrink column sizes or remove unneeded columns"
+            )
+
+    return violations
+
+
 def main():
     target_dir = sys.argv[1] if len(sys.argv) > 1 else INTERNAL_DIR
     if not os.path.exists(target_dir):
@@ -140,6 +198,11 @@ def main():
             violations = scan_file(filepath)
             if violations:
                 all_violations.extend(violations)
+
+    # 检查复合索引长度 / Check composite index lengths
+    index_violations = check_composite_indexes(target_dir)
+    if index_violations:
+        all_violations.extend(index_violations)
 
     print(f"Scanned {total_files} Go source files.")
 

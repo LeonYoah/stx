@@ -155,9 +155,12 @@ func initSQLiteDialector(sqlitePath string) (gorm.Dialector, error) {
 }
 
 // initMySQLDialector 初始化 MySQL 驱动
+// initMySQLDialector initializes MySQL driver
 func initMySQLDialector(dbConfig config.DatabaseConfig) (gorm.Dialector, error) {
+	// allowPublicKeyRetrieval=true 支持 MySQL 8.0 的 caching_sha2_password 认证
+	// allowPublicKeyRetrieval=true supports caching_sha2_password authentication in MySQL 8.0
 	dsn := fmt.Sprintf(
-		"%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True&loc=Local",
+		"%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True&loc=Local&allowPublicKeyRetrieval=true",
 		dbConfig.Username,
 		dbConfig.Password,
 		dbConfig.Host,

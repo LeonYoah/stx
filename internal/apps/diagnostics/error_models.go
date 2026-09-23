@@ -87,13 +87,13 @@ func (SeatunnelErrorEvent) TableName() string {
 // SeatunnelLogCursor 存储每个来源文件的最新已处理偏移量。
 type SeatunnelLogCursor struct {
 	ID             uint       `json:"id" gorm:"primaryKey;autoIncrement"`
-	AgentID        string     `json:"agent_id" gorm:"size:100;not null;uniqueIndex:idx_diag_log_cursor"`
-	HostID         uint       `json:"host_id" gorm:"index;uniqueIndex:idx_diag_log_cursor"`
+	AgentID        string     `json:"agent_id" gorm:"size:80;not null;uniqueIndex:idx_diag_log_cursor"`
+	HostID         uint       `json:"host_id" gorm:"index"`
 	ClusterID      uint       `json:"cluster_id" gorm:"index"`
 	NodeID         uint       `json:"node_id" gorm:"index"`
-	InstallDir     string     `json:"install_dir" gorm:"size:255;not null;uniqueIndex:idx_diag_log_cursor"`
+	InstallDir     string     `json:"install_dir" gorm:"size:128;not null;uniqueIndex:idx_diag_log_cursor"`
 	Role           string     `json:"role" gorm:"size:20;not null;uniqueIndex:idx_diag_log_cursor"`
-	SourceFile     string     `json:"source_file" gorm:"size:500;not null;uniqueIndex:idx_diag_log_cursor"`
+	SourceFile     string     `json:"source_file" gorm:"size:255;not null;uniqueIndex:idx_diag_log_cursor"`
 	CursorOffset   int64      `json:"cursor_offset"`
 	LastOccurredAt *time.Time `json:"last_occurred_at"`
 	CreatedAt      time.Time  `json:"created_at" gorm:"autoCreateTime"`

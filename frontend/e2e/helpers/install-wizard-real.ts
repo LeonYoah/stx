@@ -348,6 +348,7 @@ async function clusterMatchesInstallDir(
 export async function expectInstallationSuccess(
   page: Page,
   hostId: number,
+  previousInstallationId: string | null = null,
 ): Promise<void> {
   const timeoutMs = 900000;
   const startedAt = Date.now();
@@ -362,12 +363,22 @@ export async function expectInstallationSuccess(
     if (response.ok()) {
       const payload = (await response.json()) as {
         data?: {
+          id?: string;
           status?: string;
           current_step?: string;
           error?: string;
           message?: string;
         };
       };
+      // 同一主机只保留一份安装状态；新请求写入前可能暂时读到上一次成功任务。
+      // A host exposes one installation status, so a new request can briefly return the previous successful task before replacement.
+      if (
+        previousInstallationId &&
+        payload.data?.id === previousInstallationId
+      ) {
+        await page.waitForTimeout(1000);
+        continue;
+      }
       const status = payload.data?.status;
       if (status === 'failed') {
         throw new Error(
@@ -387,12 +398,28 @@ export async function expectInstallationSuccess(
   }
 
   await expect(page.getByTestId('install-wizard-step-complete')).toBeVisible({
-    timeout: 10000,
+    timeout: 30000,
   });
   await expect(page.getByTestId('install-complete-result')).toContainText(
     /安装成功|Installation Success/i,
     {timeout: 900000},
   );
+}
+
+// 读取当前安装任务编号，用于区分同一主机上的前后两次安装。
+// Read the current installation ID so consecutive installs on the same host can be distinguished.
+export async function getCurrentInstallationId(
+  page: Page,
+  hostId: number,
+): Promise<string | null> {
+  const response = await page
+    .context()
+    .request.get(`${backendBaseURL}/api/v1/hosts/${hostId}/install/status`);
+  if (!response.ok()) {
+    return null;
+  }
+  const payload = (await response.json()) as {data?: {id?: string}};
+  return payload.data?.id || null;
 }
 
 export async function waitForClusterByInstallDir(

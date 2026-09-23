@@ -249,10 +249,12 @@ func (c *CommandContext) IsDone() bool {
 // This interface decouples the Agent Manager from the Host Service.
 // 此接口将 Agent Manager 与 Host Service 解耦。
 type HostStatusUpdater interface {
-	// UpdateAgentStatus updates the agent status for a host by IP address.
-	// UpdateAgentStatus 根据 IP 地址更新主机的 Agent 状态。
+	// UpdateAgentStatus updates the agent status for a host by pre-bound host ID or IP address.
+	// UpdateAgentStatus 根据预绑定主机 ID 或 IP 地址更新主机的 Agent 状态。
 	// hostname is used when auto-creating a host (e.g. no host matches by IP).
-	UpdateAgentStatus(ctx context.Context, ipAddress string, agentID string, version string, systemInfo *SystemInfo, hostname string) (hostID uint, err error)
+	// localIPs is the Agent local address set used to detect wrong user-entered host IPs.
+	// localIPs 为本机地址集合，用于识别用户填错的主机 IP。
+	UpdateAgentStatus(ctx context.Context, hostID uint, ipAddress string, agentID string, version string, systemInfo *SystemInfo, hostname string, localIPs []string) (hostIDOut uint, err error)
 
 	// UpdateHeartbeat updates the heartbeat data for a host.
 	// UpdateHeartbeat 更新主机的心跳数据。
@@ -421,7 +423,7 @@ func (m *Manager) RegisterAgent(ctx context.Context, req *pb.RegisterRequest) (*
 			}
 		}
 
-		hostID, err := m.hostUpdater.UpdateAgentStatus(ctx, req.IpAddress, req.AgentId, req.AgentVersion, sysInfo, req.Hostname)
+		hostID, err := m.hostUpdater.UpdateAgentStatus(ctx, uint(req.HostId), req.IpAddress, req.AgentId, req.AgentVersion, sysInfo, req.Hostname, req.GetIpAddresses())
 		if err != nil {
 			// Log error but don't fail registration
 			// 记录错误但不使注册失败
@@ -554,6 +556,15 @@ func (m *Manager) SetAgentStream(agentID string, stream grpc.BidiStreamingServer
 // SendCommand 向 Agent 发送命令并等待结果。
 // Requirements: 1.5 - Implements command dispatching and result receiving.
 func (m *Manager) SendCommand(ctx context.Context, agentID string, cmdType pb.CommandType, params map[string]string, timeout time.Duration) (*pb.CommandResponse, error) {
+	return m.SendCommandWithID(ctx, uuid.New().String(), agentID, cmdType, params, timeout)
+}
+
+// SendCommandWithID sends a command with a caller-provided ID so audit records can exist before dispatch.
+// SendCommandWithID 使用调用方提供的命令编号下发命令，使审计记录可以在发送前创建。
+func (m *Manager) SendCommandWithID(ctx context.Context, commandID, agentID string, cmdType pb.CommandType, params map[string]string, timeout time.Duration) (*pb.CommandResponse, error) {
+	if commandID == "" {
+		commandID = uuid.New().String()
+	}
 	conn, ok := m.GetAgent(agentID)
 	if !ok {
 		return nil, ErrAgentNotFound
@@ -567,10 +578,6 @@ func (m *Manager) SendCommand(ctx context.Context, agentID string, cmdType pb.Co
 	if stream == nil {
 		return nil, ErrStreamNotAvailable
 	}
-
-	// Generate command ID
-	// 生成命令 ID
-	commandID := uuid.New().String()
 
 	// Create command context
 	// 创建命令上下文

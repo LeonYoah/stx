@@ -1,0 +1,2242 @@
+{
+  "version": 1,
+  "baseline_date": "2026-09-22",
+  "summary": {
+    "route_count": 251,
+    "swagger_path_count": 96,
+    "swagger_operation_count": 113,
+    "swagger_documented_routes": 113,
+    "registered_operations": 219,
+    "route_exceptions": 32,
+    "historical_gaps": 0
+  },
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/users",
+      "source": "internal/router/router.go:179",
+      "status": "operation",
+      "operation_id": "admin.user.list",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/users",
+      "source": "internal/router/router.go:180",
+      "status": "operation",
+      "operation_id": "admin.user.create",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/admin/users/:id",
+      "source": "internal/router/router.go:183",
+      "status": "operation",
+      "operation_id": "admin.user.delete",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/users/:id",
+      "source": "internal/router/router.go:181",
+      "status": "operation",
+      "operation_id": "admin.user.get",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/admin/users/:id",
+      "source": "internal/router/router.go:182",
+      "status": "operation",
+      "operation_id": "admin.user.update",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent/assets/stx-java-proxy.jar",
+      "source": "internal/router/router.go:568",
+      "status": "exception",
+      "mode": "download",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent/assets/stx-java-proxy.sh",
+      "source": "internal/router/router.go:572",
+      "status": "exception",
+      "mode": "download",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent/ca.crt",
+      "source": "internal/router/router.go:560",
+      "status": "exception",
+      "mode": "download",
+      "swagger": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent/download",
+      "source": "internal/router/router.go:564",
+      "status": "exception",
+      "mode": "download",
+      "swagger": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent/install.sh",
+      "source": "internal/router/router.go:552",
+      "status": "exception",
+      "mode": "download",
+      "swagger": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent/uninstall.sh",
+      "source": "internal/router/router.go:556",
+      "status": "exception",
+      "mode": "download",
+      "swagger": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/audit-logs",
+      "source": "internal/router/router.go:600",
+      "status": "operation",
+      "operation_id": "audit.log.list",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/audit-logs/:id",
+      "source": "internal/router/router.go:604",
+      "status": "operation",
+      "operation_id": "audit.log.get",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/auth/cli/login",
+      "source": "internal/router/router.go:162",
+      "status": "operation",
+      "operation_id": "auth.cli.login",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/auth/cli/logout",
+      "source": "internal/router/router.go:163",
+      "status": "operation",
+      "operation_id": "auth.cli.logout",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/auth/cli/whoami",
+      "source": "internal/router/router.go:164",
+      "status": "operation",
+      "operation_id": "auth.cli.whoami",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/auth/login",
+      "source": "internal/router/router.go:158",
+      "status": "exception",
+      "mode": "server_only",
+      "swagger": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/auth/logout",
+      "source": "internal/router/router.go:159",
+      "status": "exception",
+      "mode": "server_only",
+      "swagger": true
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/auth/profile",
+      "source": "internal/router/router.go:161",
+      "status": "operation",
+      "operation_id": "auth.profile.update",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/auth/user-info",
+      "source": "internal/router/router.go:160",
+      "status": "operation",
+      "operation_id": "auth.user-info.get",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/capabilities",
+      "source": "internal/router/router.go:165",
+      "status": "operation",
+      "operation_id": "capability.list",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/clusters",
+      "source": "internal/router/router.go:262",
+      "status": "operation",
+      "operation_id": "cluster.list",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/clusters",
+      "source": "internal/router/router.go:261",
+      "status": "operation",
+      "operation_id": "cluster.create",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/clusters/:id",
+      "source": "internal/router/router.go:265",
+      "status": "operation",
+      "operation_id": "cluster.delete",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/clusters/:id",
+      "source": "internal/router/router.go:263",
+      "status": "operation",
+      "operation_id": "cluster.get",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/clusters/:id",
+      "source": "internal/router/router.go:264",
+      "status": "operation",
+      "operation_id": "cluster.update",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/clusters/:id/configs",
+      "source": "internal/apps/config/routers.go:30",
+      "status": "operation",
+      "operation_id": "config.cluster.list",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/clusters/:id/configs/init",
+      "source": "internal/apps/config/routers.go:31",
+      "status": "operation",
+      "operation_id": "config.cluster.init",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/clusters/:id/configs/sync-all",
+      "source": "internal/apps/config/routers.go:32",
+      "status": "operation",
+      "operation_id": "config.cluster.sync-all",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/clusters/:id/events",
+      "source": "internal/router/router.go:337",
+      "status": "operation",
+      "operation_id": "monitor.event.list",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/clusters/:id/events/stats",
+      "source": "internal/router/router.go:338",
+      "status": "operation",
+      "operation_id": "monitor.event.stats",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/clusters/:id/log-mode",
+      "source": "internal/router/router.go:295",
+      "status": "operation",
+      "operation_id": "cluster.log-mode.update",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/clusters/:id/monitor-config",
+      "source": "internal/router/router.go:335",
+      "status": "operation",
+      "operation_id": "monitor.config.get",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/clusters/:id/monitor-config",
+      "source": "internal/router/router.go:336",
+      "status": "operation",
+      "operation_id": "monitor.config.update",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/clusters/:id/nodes",
+      "source": "internal/router/router.go:270",
+      "status": "operation",
+      "operation_id": "cluster.node.list",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/clusters/:id/nodes",
+      "source": "internal/router/router.go:268",
+      "status": "operation",
+      "operation_id": "cluster.node.add",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/clusters/:id/nodes/:nodeId",
+      "source": "internal/router/router.go:272",
+      "status": "operation",
+      "operation_id": "cluster.node.remove",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/clusters/:id/nodes/:nodeId",
+      "source": "internal/router/router.go:271",
+      "status": "operation",
+      "operation_id": "cluster.node.update",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/clusters/:id/nodes/:nodeId/logs",
+      "source": "internal/router/router.go:279",
+      "status": "operation",
+      "operation_id": "cluster.node.logs",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/clusters/:id/nodes/:nodeId/restart",
+      "source": "internal/router/router.go:278",
+      "status": "operation",
+      "operation_id": "cluster.node.restart",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/clusters/:id/nodes/:nodeId/start",
+      "source": "internal/router/router.go:276",
+      "status": "operation",
+      "operation_id": "cluster.node.start",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/clusters/:id/nodes/:nodeId/stop",
+      "source": "internal/router/router.go:277",
+      "status": "operation",
+      "operation_id": "cluster.node.stop",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/clusters/:id/nodes/batch",
+      "source": "internal/router/router.go:269",
+      "status": "operation",
+      "operation_id": "cluster.node.add-batch",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/clusters/:id/nodes/precheck",
+      "source": "internal/router/router.go:273",
+      "status": "operation",
+      "operation_id": "cluster.node.precheck",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/clusters/:id/plugins",
+      "source": "internal/router/router.go:876",
+      "status": "operation",
+      "operation_id": "cluster.plugin.list",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/clusters/:id/plugins",
+      "source": "internal/router/router.go:880",
+      "status": "operation",
+      "operation_id": "cluster.plugin.install",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/clusters/:id/plugins/:name",
+      "source": "internal/router/router.go:884",
+      "status": "exception",
+      "mode": "server_only",
+      "swagger": true
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/clusters/:id/plugins/:name/disable",
+      "source": "internal/router/router.go:892",
+      "status": "operation",
+      "operation_id": "cluster.plugin.disable",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/clusters/:id/plugins/:name/enable",
+      "source": "internal/router/router.go:888",
+      "status": "operation",
+      "operation_id": "cluster.plugin.enable",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/clusters/:id/plugins/:name/progress",
+      "source": "internal/router/router.go:896",
+      "status": "operation",
+      "operation_id": "cluster.plugin.progress.get",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/clusters/:id/restart",
+      "source": "internal/router/router.go:284",
+      "status": "operation",
+      "operation_id": "cluster.restart",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/clusters/:id/runtime-storage",
+      "source": "internal/router/router.go:292",
+      "status": "operation",
+      "operation_id": "cluster.runtime-storage.get",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/clusters/:id/runtime-storage/:kind/apply",
+      "source": "internal/router/router.go:294",
+      "status": "operation",
+      "operation_id": "cluster.runtime-storage.apply",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/clusters/:id/runtime-storage/:kind/list",
+      "source": "internal/router/router.go:296",
+      "status": "operation",
+      "operation_id": "cluster.runtime-storage.list",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/clusters/:id/runtime-storage/:kind/preview",
+      "source": "internal/router/router.go:297",
+      "status": "operation",
+      "operation_id": "cluster.runtime-storage.preview",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/clusters/:id/runtime-storage/:kind/validate",
+      "source": "internal/router/router.go:293",
+      "status": "operation",
+      "operation_id": "cluster.runtime-storage.validate",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/clusters/:id/runtime-storage/checkpoint/inspect",
+      "source": "internal/router/router.go:298",
+      "status": "operation",
+      "operation_id": "cluster.runtime-storage.checkpoint.inspect",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/clusters/:id/runtime-storage/imap/cleanup",
+      "source": "internal/router/router.go:300",
+      "status": "exception",
+      "mode": "server_only",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/clusters/:id/runtime-storage/imap/inspect",
+      "source": "internal/router/router.go:299",
+      "status": "operation",
+      "operation_id": "cluster.runtime-storage.imap.inspect",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/clusters/:id/start",
+      "source": "internal/router/router.go:282",
+      "status": "operation",
+      "operation_id": "cluster.start",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/clusters/:id/status",
+      "source": "internal/router/router.go:285",
+      "status": "operation",
+      "operation_id": "cluster.status.get",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/clusters/:id/stop",
+      "source": "internal/router/router.go:283",
+      "status": "operation",
+      "operation_id": "cluster.stop",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/clusters/:id/stx-java-proxy/config",
+      "source": "internal/router/router.go:291",
+      "status": "operation",
+      "operation_id": "cluster.java-proxy.config",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/clusters/:id/stx-java-proxy/logs",
+      "source": "internal/router/router.go:287",
+      "status": "operation",
+      "operation_id": "cluster.java-proxy.logs",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/clusters/:id/stx-java-proxy/restart",
+      "source": "internal/router/router.go:290",
+      "status": "operation",
+      "operation_id": "cluster.java-proxy.restart",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/clusters/:id/stx-java-proxy/start",
+      "source": "internal/router/router.go:288",
+      "status": "operation",
+      "operation_id": "cluster.java-proxy.start",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/clusters/:id/stx-java-proxy/status",
+      "source": "internal/router/router.go:286",
+      "status": "operation",
+      "operation_id": "cluster.java-proxy.status",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/clusters/:id/stx-java-proxy/stop",
+      "source": "internal/router/router.go:289",
+      "status": "operation",
+      "operation_id": "cluster.java-proxy.stop",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "ANY",
+      "path": "/api/v1/clusters/:id/webui",
+      "source": "internal/router/router.go:301",
+      "status": "exception",
+      "mode": "proxy",
+      "swagger": false
+    },
+    {
+      "method": "ANY",
+      "path": "/api/v1/clusters/:id/webui/*proxyPath",
+      "source": "internal/router/router.go:302",
+      "status": "exception",
+      "mode": "proxy",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/clusters/health",
+      "source": "internal/router/router.go:508",
+      "status": "operation",
+      "operation_id": "cluster.health.list",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/commands",
+      "source": "internal/router/router.go:587",
+      "status": "operation",
+      "operation_id": "audit.command.list",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/commands/:id",
+      "source": "internal/router/router.go:591",
+      "status": "operation",
+      "operation_id": "audit.command.get",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/configs/:id",
+      "source": "internal/apps/config/routers.go:39",
+      "status": "operation",
+      "operation_id": "config.get",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/configs/:id",
+      "source": "internal/apps/config/routers.go:40",
+      "status": "operation",
+      "operation_id": "config.update",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/configs/:id/promote",
+      "source": "internal/apps/config/routers.go:43",
+      "status": "operation",
+      "operation_id": "config.promote",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/configs/:id/push",
+      "source": "internal/apps/config/routers.go:45",
+      "status": "operation",
+      "operation_id": "config.push",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/configs/:id/rollback",
+      "source": "internal/apps/config/routers.go:42",
+      "status": "operation",
+      "operation_id": "config.rollback",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/configs/:id/sync",
+      "source": "internal/apps/config/routers.go:44",
+      "status": "operation",
+      "operation_id": "config.sync",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/configs/:id/versions",
+      "source": "internal/apps/config/routers.go:41",
+      "status": "operation",
+      "operation_id": "config.version.list",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/configs/normalize",
+      "source": "internal/apps/config/routers.go:38",
+      "status": "operation",
+      "operation_id": "config.normalize",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/dashboard/overview",
+      "source": "internal/router/router.go:230",
+      "status": "operation",
+      "operation_id": "dashboard.overview.get",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/dashboard/overview/activities",
+      "source": "internal/router/router.go:234",
+      "status": "operation",
+      "operation_id": "dashboard.activity.list",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/dashboard/overview/clusters",
+      "source": "internal/router/router.go:232",
+      "status": "operation",
+      "operation_id": "dashboard.cluster.list",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/dashboard/overview/hosts",
+      "source": "internal/router/router.go:233",
+      "status": "operation",
+      "operation_id": "dashboard.host.list",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/dashboard/overview/stats",
+      "source": "internal/router/router.go:231",
+      "status": "operation",
+      "operation_id": "dashboard.stats.get",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/diagnostics/auto-policies",
+      "source": "internal/router/router.go:494",
+      "status": "operation",
+      "operation_id": "diagnostics.auto-policy.list",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/diagnostics/auto-policies",
+      "source": "internal/router/router.go:495",
+      "status": "operation",
+      "operation_id": "diagnostics.auto-policy.create",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/diagnostics/auto-policies/:id",
+      "source": "internal/router/router.go:498",
+      "status": "exception",
+      "mode": "server_only",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/diagnostics/auto-policies/:id",
+      "source": "internal/router/router.go:496",
+      "status": "operation",
+      "operation_id": "diagnostics.auto-policy.get",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/diagnostics/auto-policies/:id",
+      "source": "internal/router/router.go:497",
+      "status": "operation",
+      "operation_id": "diagnostics.auto-policy.update",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/diagnostics/auto-policies/templates",
+      "source": "internal/router/router.go:493",
+      "status": "operation",
+      "operation_id": "diagnostics.auto-policy.template.list",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/diagnostics/bootstrap",
+      "source": "internal/router/router.go:472",
+      "status": "operation",
+      "operation_id": "diagnostics.bootstrap.get",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/diagnostics/errors/events",
+      "source": "internal/router/router.go:491",
+      "status": "operation",
+      "operation_id": "diagnostics.error.event.list",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/diagnostics/errors/groups",
+      "source": "internal/router/router.go:490",
+      "status": "operation",
+      "operation_id": "diagnostics.error.group.list",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/diagnostics/errors/groups/:id",
+      "source": "internal/router/router.go:492",
+      "status": "operation",
+      "operation_id": "diagnostics.error.group.get",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/diagnostics/inspections",
+      "source": "internal/router/router.go:477",
+      "status": "operation",
+      "operation_id": "diagnostics.inspection.list",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/diagnostics/inspections",
+      "source": "internal/router/router.go:476",
+      "status": "operation",
+      "operation_id": "diagnostics.inspection.run",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/diagnostics/inspections/:id",
+      "source": "internal/router/router.go:478",
+      "status": "operation",
+      "operation_id": "diagnostics.inspection.get",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/diagnostics/resources",
+      "source": "internal/router/router.go:473",
+      "status": "operation",
+      "operation_id": "diagnostics.resource.list",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/diagnostics/resources/:code",
+      "source": "internal/router/router.go:474",
+      "status": "operation",
+      "operation_id": "diagnostics.resource.get",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/diagnostics/resources/:code/run",
+      "source": "internal/router/router.go:475",
+      "status": "operation",
+      "operation_id": "diagnostics.resource.run",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/diagnostics/tasks",
+      "source": "internal/router/router.go:480",
+      "status": "operation",
+      "operation_id": "diagnostics.task.list",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/diagnostics/tasks",
+      "source": "internal/router/router.go:479",
+      "status": "operation",
+      "operation_id": "diagnostics.task.create",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/diagnostics/tasks/:id",
+      "source": "internal/router/router.go:481",
+      "status": "operation",
+      "operation_id": "diagnostics.task.get",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/diagnostics/tasks/:id/artifacts",
+      "source": "internal/router/router.go:484",
+      "status": "operation",
+      "operation_id": "diagnostics.task.artifacts",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/diagnostics/tasks/:id/bundle",
+      "source": "internal/router/router.go:489",
+      "status": "operation",
+      "operation_id": "diagnostics.task.bundle.download",
+      "mode": "download",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/diagnostics/tasks/:id/events/stream",
+      "source": "internal/router/router.go:486",
+      "status": "exception",
+      "mode": "watch",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/diagnostics/tasks/:id/files/*path",
+      "source": "internal/router/router.go:488",
+      "status": "operation",
+      "operation_id": "diagnostics.task.file.download",
+      "mode": "download",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/diagnostics/tasks/:id/html",
+      "source": "internal/router/router.go:487",
+      "status": "operation",
+      "operation_id": "diagnostics.task.html.download",
+      "mode": "download",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/diagnostics/tasks/:id/logs",
+      "source": "internal/router/router.go:485",
+      "status": "operation",
+      "operation_id": "diagnostics.task.logs",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/diagnostics/tasks/:id/start",
+      "source": "internal/router/router.go:482",
+      "status": "operation",
+      "operation_id": "diagnostics.task.start",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/diagnostics/tasks/:id/steps",
+      "source": "internal/router/router.go:483",
+      "status": "operation",
+      "operation_id": "diagnostics.task.steps",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/diagnostics/troubleshooting-memories",
+      "source": "internal/router/router.go:499",
+      "status": "operation",
+      "operation_id": "diagnostics.troubleshooting-memory.list",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/diagnostics/troubleshooting-memories",
+      "source": "internal/router/router.go:500",
+      "status": "operation",
+      "operation_id": "diagnostics.troubleshooting-memory.create",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/diagnostics/troubleshooting-memories/:id",
+      "source": "internal/router/router.go:503",
+      "status": "operation",
+      "operation_id": "diagnostics.troubleshooting-memory.delete",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/diagnostics/troubleshooting-memories/:id",
+      "source": "internal/router/router.go:501",
+      "status": "operation",
+      "operation_id": "diagnostics.troubleshooting-memory.get",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/diagnostics/troubleshooting-memories/:id",
+      "source": "internal/router/router.go:502",
+      "status": "operation",
+      "operation_id": "diagnostics.troubleshooting-memory.update",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/:id",
+      "source": "internal/router/router.go:199",
+      "status": "operation",
+      "operation_id": "execution.get",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/executions/:id/cancel",
+      "source": "internal/router/router.go:201",
+      "status": "operation",
+      "operation_id": "execution.cancel",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/:id/wait",
+      "source": "internal/router/router.go:200",
+      "status": "operation",
+      "operation_id": "execution.wait",
+      "mode": "watch",
+      "swagger": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/health",
+      "source": "internal/router/router.go:155",
+      "status": "operation",
+      "operation_id": "health.get",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/hosts",
+      "source": "internal/router/router.go:214",
+      "status": "operation",
+      "operation_id": "host.list",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/hosts",
+      "source": "internal/router/router.go:213",
+      "status": "operation",
+      "operation_id": "host.create",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/hosts/:id",
+      "source": "internal/router/router.go:217",
+      "status": "exception",
+      "mode": "server_only",
+      "swagger": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/hosts/:id",
+      "source": "internal/router/router.go:215",
+      "status": "operation",
+      "operation_id": "host.get",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/hosts/:id",
+      "source": "internal/router/router.go:216",
+      "status": "operation",
+      "operation_id": "host.update",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/hosts/:id/discover",
+      "source": "internal/router/router.go:533",
+      "status": "exception",
+      "mode": "server_only",
+      "swagger": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/hosts/:id/discover-processes",
+      "source": "internal/router/router.go:535",
+      "status": "operation",
+      "operation_id": "host.discovery.process.list",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/hosts/:id/discover/confirm",
+      "source": "internal/router/router.go:534",
+      "status": "exception",
+      "mode": "server_only",
+      "swagger": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/hosts/:id/install",
+      "source": "internal/router/router.go:960",
+      "status": "operation",
+      "operation_id": "host.install.start",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/hosts/:id/install-command",
+      "source": "internal/router/router.go:218",
+      "status": "operation",
+      "operation_id": "host.agent.install-command.get",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/hosts/:id/install/cancel",
+      "source": "internal/router/router.go:972",
+      "status": "operation",
+      "operation_id": "host.install.cancel",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/hosts/:id/install/retry",
+      "source": "internal/router/router.go:968",
+      "status": "operation",
+      "operation_id": "host.install.retry",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/hosts/:id/install/status",
+      "source": "internal/router/router.go:964",
+      "status": "operation",
+      "operation_id": "host.install.status.get",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/hosts/:id/precheck",
+      "source": "internal/router/router.go:955",
+      "status": "operation",
+      "operation_id": "host.precheck",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/installer/runtime-storage/validate",
+      "source": "internal/router/router.go:956",
+      "status": "operation",
+      "operation_id": "installer.runtime-storage.validate",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitoring/alert-instances",
+      "source": "internal/router/router.go:441",
+      "status": "operation",
+      "operation_id": "monitoring.alert-instance.list",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/monitoring/alert-instances/:id/ack",
+      "source": "internal/router/router.go:444",
+      "status": "operation",
+      "operation_id": "monitoring.alert-instance.ack",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/monitoring/alert-instances/:id/close",
+      "source": "internal/router/router.go:446",
+      "status": "operation",
+      "operation_id": "monitoring.alert-instance.close",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/monitoring/alert-instances/:id/silence",
+      "source": "internal/router/router.go:445",
+      "status": "operation",
+      "operation_id": "monitoring.alert-instance.silence",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitoring/alert-policies",
+      "source": "internal/router/router.go:436",
+      "status": "operation",
+      "operation_id": "monitoring.alert-policy.list",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/monitoring/alert-policies",
+      "source": "internal/router/router.go:438",
+      "status": "operation",
+      "operation_id": "monitoring.alert-policy.create",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/monitoring/alert-policies/:id",
+      "source": "internal/router/router.go:440",
+      "status": "exception",
+      "mode": "server_only",
+      "swagger": false
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/monitoring/alert-policies/:id",
+      "source": "internal/router/router.go:439",
+      "status": "operation",
+      "operation_id": "monitoring.alert-policy.update",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitoring/alert-policies/:id/executions",
+      "source": "internal/router/router.go:437",
+      "status": "operation",
+      "operation_id": "monitoring.alert-policy.execution.list",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitoring/alert-policies/bootstrap",
+      "source": "internal/router/router.go:452",
+      "status": "operation",
+      "operation_id": "monitoring.alert-policy.bootstrap.get",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/monitoring/alertmanager/webhook",
+      "source": "internal/router/router.go:427",
+      "status": "exception",
+      "mode": "server_only",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitoring/alerts",
+      "source": "internal/router/router.go:442",
+      "status": "operation",
+      "operation_id": "monitoring.alert.list",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/monitoring/alerts/:eventId/ack",
+      "source": "internal/router/router.go:447",
+      "status": "operation",
+      "operation_id": "monitoring.alert.ack",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/monitoring/alerts/:eventId/silence",
+      "source": "internal/router/router.go:448",
+      "status": "operation",
+      "operation_id": "monitoring.alert.silence",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitoring/clusters/:id/overview",
+      "source": "internal/router/router.go:435",
+      "status": "operation",
+      "operation_id": "monitoring.cluster.overview.get",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitoring/clusters/:id/rules",
+      "source": "internal/router/router.go:449",
+      "status": "operation",
+      "operation_id": "monitoring.cluster.rule.list",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/monitoring/clusters/:id/rules/:ruleId",
+      "source": "internal/router/router.go:450",
+      "status": "operation",
+      "operation_id": "monitoring.cluster.rule.update",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitoring/integration/status",
+      "source": "internal/router/router.go:451",
+      "status": "operation",
+      "operation_id": "monitoring.integration.status",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitoring/notifiable-users",
+      "source": "internal/router/router.go:453",
+      "status": "operation",
+      "operation_id": "monitoring.notifiable-user.list",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitoring/notification-channels",
+      "source": "internal/router/router.go:455",
+      "status": "operation",
+      "operation_id": "monitoring.notification-channel.list",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/monitoring/notification-channels",
+      "source": "internal/router/router.go:456",
+      "status": "operation",
+      "operation_id": "monitoring.notification-channel.create",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/monitoring/notification-channels/:id",
+      "source": "internal/router/router.go:458",
+      "status": "exception",
+      "mode": "server_only",
+      "swagger": false
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/monitoring/notification-channels/:id",
+      "source": "internal/router/router.go:457",
+      "status": "operation",
+      "operation_id": "monitoring.notification-channel.update",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/monitoring/notification-channels/:id/test",
+      "source": "internal/router/router.go:461",
+      "status": "operation",
+      "operation_id": "monitoring.notification-channel.test",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/monitoring/notification-channels/test",
+      "source": "internal/router/router.go:459",
+      "status": "operation",
+      "operation_id": "monitoring.notification-channel.test-draft",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/monitoring/notification-channels/test-connection",
+      "source": "internal/router/router.go:460",
+      "status": "operation",
+      "operation_id": "monitoring.notification-channel.test-connection",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitoring/notification-deliveries",
+      "source": "internal/router/router.go:462",
+      "status": "operation",
+      "operation_id": "monitoring.notification-delivery.list",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitoring/notification-routes",
+      "source": "internal/router/router.go:463",
+      "status": "operation",
+      "operation_id": "monitoring.notification-route.list",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/monitoring/notification-routes",
+      "source": "internal/router/router.go:464",
+      "status": "operation",
+      "operation_id": "monitoring.notification-route.create",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/monitoring/notification-routes/:id",
+      "source": "internal/router/router.go:466",
+      "status": "exception",
+      "mode": "server_only",
+      "swagger": false
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/monitoring/notification-routes/:id",
+      "source": "internal/router/router.go:465",
+      "status": "operation",
+      "operation_id": "monitoring.notification-route.update",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitoring/overview",
+      "source": "internal/router/router.go:434",
+      "status": "operation",
+      "operation_id": "monitoring.overview.get",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitoring/platform-health",
+      "source": "internal/router/router.go:454",
+      "status": "operation",
+      "operation_id": "monitoring.platform-health.get",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitoring/prometheus/discovery",
+      "source": "internal/router/router.go:426",
+      "status": "exception",
+      "mode": "server_only",
+      "swagger": false
+    },
+    {
+      "method": "ANY",
+      "path": "/api/v1/monitoring/proxy/grafana",
+      "source": "internal/router/router.go:514",
+      "status": "exception",
+      "mode": "proxy",
+      "swagger": false
+    },
+    {
+      "method": "ANY",
+      "path": "/api/v1/monitoring/proxy/grafana/*proxyPath",
+      "source": "internal/router/router.go:515",
+      "status": "exception",
+      "mode": "proxy",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/monitoring/remote-alerts",
+      "source": "internal/router/router.go:443",
+      "status": "operation",
+      "operation_id": "monitoring.remote-alert.list",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/oauth/callback",
+      "source": "internal/router/router.go:170",
+      "status": "exception",
+      "mode": "server_only",
+      "swagger": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/oauth/login",
+      "source": "internal/router/router.go:169",
+      "status": "exception",
+      "mode": "server_only",
+      "swagger": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/oauth/providers",
+      "source": "internal/router/router.go:168",
+      "status": "exception",
+      "mode": "server_only",
+      "swagger": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/packages",
+      "source": "internal/router/router.go:637",
+      "status": "operation",
+      "operation_id": "package.list",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/packages/:version",
+      "source": "internal/router/router.go:669",
+      "status": "operation",
+      "operation_id": "package.delete",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/packages/:version",
+      "source": "internal/router/router.go:645",
+      "status": "operation",
+      "operation_id": "package.get",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/packages/:version/source/download",
+      "source": "internal/router/router.go:665",
+      "status": "operation",
+      "operation_id": "package.source.download",
+      "mode": "download",
+      "swagger": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/packages/:version/source/fetch",
+      "source": "internal/router/router.go:661",
+      "status": "operation",
+      "operation_id": "package.source.fetch",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/packages/:version/source/upload",
+      "source": "internal/router/router.go:657",
+      "status": "operation",
+      "operation_id": "package.source.upload",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/packages/download",
+      "source": "internal/router/router.go:673",
+      "status": "operation",
+      "operation_id": "package.download.start",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/packages/download/:version",
+      "source": "internal/router/router.go:681",
+      "status": "operation",
+      "operation_id": "package.download.get",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/packages/download/:version/cancel",
+      "source": "internal/router/router.go:685",
+      "status": "operation",
+      "operation_id": "package.download.cancel",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/packages/downloads",
+      "source": "internal/router/router.go:677",
+      "status": "operation",
+      "operation_id": "package.download.list",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/packages/upload",
+      "source": "internal/router/router.go:649",
+      "status": "operation",
+      "operation_id": "package.upload",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/packages/upload/chunk",
+      "source": "internal/router/router.go:653",
+      "status": "operation",
+      "operation_id": "package.upload.chunk",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/packages/versions/refresh",
+      "source": "internal/router/router.go:641",
+      "status": "operation",
+      "operation_id": "package.version.refresh",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/plugins",
+      "source": "internal/router/router.go:806",
+      "status": "operation",
+      "operation_id": "plugin.list",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/plugins/:name",
+      "source": "internal/router/router.go:826",
+      "status": "operation",
+      "operation_id": "plugin.get",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/plugins/:name/dependencies",
+      "source": "internal/router/router.go:842",
+      "status": "operation",
+      "operation_id": "plugin.dependency.list",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/plugins/:name/dependencies",
+      "source": "internal/router/router.go:866",
+      "status": "operation",
+      "operation_id": "plugin.dependency.add",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/plugins/:name/dependencies/:depId",
+      "source": "internal/router/router.go:870",
+      "status": "exception",
+      "mode": "server_only",
+      "swagger": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/plugins/:name/dependencies/disables",
+      "source": "internal/router/router.go:850",
+      "status": "operation",
+      "operation_id": "plugin.dependency.disable",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/plugins/:name/dependencies/disables/:disableId",
+      "source": "internal/router/router.go:854",
+      "status": "exception",
+      "mode": "server_only",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/plugins/:name/dependencies/upload",
+      "source": "internal/router/router.go:846",
+      "status": "operation",
+      "operation_id": "plugin.dependency.upload",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/plugins/:name/download",
+      "source": "internal/router/router.go:830",
+      "status": "operation",
+      "operation_id": "plugin.download.start",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/plugins/:name/download/status",
+      "source": "internal/router/router.go:834",
+      "status": "operation",
+      "operation_id": "plugin.download.status.get",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/plugins/:name/local",
+      "source": "internal/router/router.go:838",
+      "status": "exception",
+      "mode": "server_only",
+      "swagger": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/plugins/:name/official-dependencies",
+      "source": "internal/router/router.go:858",
+      "status": "operation",
+      "operation_id": "plugin.official-dependency.list",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/plugins/:name/official-dependencies/analyze",
+      "source": "internal/router/router.go:862",
+      "status": "operation",
+      "operation_id": "plugin.official-dependency.analyze",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/plugins/download-all",
+      "source": "internal/router/router.go:822",
+      "status": "operation",
+      "operation_id": "plugin.download-all.start",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/plugins/downloads",
+      "source": "internal/router/router.go:818",
+      "status": "operation",
+      "operation_id": "plugin.download.list",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/plugins/local",
+      "source": "internal/router/router.go:814",
+      "status": "operation",
+      "operation_id": "plugin.local.list",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/plugins/refresh",
+      "source": "internal/router/router.go:810",
+      "status": "operation",
+      "operation_id": "plugin.refresh",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/st-upgrade/execute",
+      "source": "internal/router/router.go:944",
+      "status": "operation",
+      "operation_id": "stupgrade.plan.execute",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/st-upgrade/plan",
+      "source": "internal/router/router.go:942",
+      "status": "operation",
+      "operation_id": "stupgrade.plan.create",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/st-upgrade/plans/:id",
+      "source": "internal/router/router.go:943",
+      "status": "operation",
+      "operation_id": "stupgrade.plan.get",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/st-upgrade/precheck",
+      "source": "internal/router/router.go:941",
+      "status": "operation",
+      "operation_id": "stupgrade.precheck",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/st-upgrade/tasks",
+      "source": "internal/router/router.go:945",
+      "status": "operation",
+      "operation_id": "stupgrade.task.list",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/st-upgrade/tasks/:id",
+      "source": "internal/router/router.go:946",
+      "status": "operation",
+      "operation_id": "stupgrade.task.get",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/st-upgrade/tasks/:id/events/stream",
+      "source": "internal/router/router.go:949",
+      "status": "exception",
+      "mode": "watch",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/st-upgrade/tasks/:id/logs",
+      "source": "internal/router/router.go:948",
+      "status": "operation",
+      "operation_id": "stupgrade.task.logs",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/st-upgrade/tasks/:id/steps",
+      "source": "internal/router/router.go:947",
+      "status": "operation",
+      "operation_id": "stupgrade.task.steps",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/sync/global-variables",
+      "source": "internal/router/router.go:738",
+      "status": "operation",
+      "operation_id": "sync.variable.list",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sync/global-variables",
+      "source": "internal/router/router.go:739",
+      "status": "operation",
+      "operation_id": "sync.variable.create",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/sync/global-variables/:id",
+      "source": "internal/router/router.go:741",
+      "status": "operation",
+      "operation_id": "sync.variable.delete",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/sync/global-variables/:id",
+      "source": "internal/router/router.go:740",
+      "status": "operation",
+      "operation_id": "sync.variable.update",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/sync/jobs",
+      "source": "internal/router/router.go:755",
+      "status": "operation",
+      "operation_id": "sync.job.list",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/sync/jobs/:id",
+      "source": "internal/router/router.go:756",
+      "status": "operation",
+      "operation_id": "sync.job.get",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sync/jobs/:id/cancel",
+      "source": "internal/router/router.go:761",
+      "status": "operation",
+      "operation_id": "sync.job.cancel",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/sync/jobs/:id/checkpoint",
+      "source": "internal/router/router.go:758",
+      "status": "operation",
+      "operation_id": "sync.job.checkpoint",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/sync/jobs/:id/logs",
+      "source": "internal/router/router.go:759",
+      "status": "operation",
+      "operation_id": "sync.job.logs",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/sync/jobs/:id/preview",
+      "source": "internal/router/router.go:757",
+      "status": "operation",
+      "operation_id": "sync.job.preview",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sync/jobs/:id/recover",
+      "source": "internal/router/router.go:760",
+      "status": "operation",
+      "operation_id": "sync.job.recover",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sync/plugins/enum-catalog",
+      "source": "internal/router/router.go:750",
+      "status": "operation",
+      "operation_id": "sync.plugin.enum-catalog",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sync/plugins/enum-values",
+      "source": "internal/router/router.go:749",
+      "status": "operation",
+      "operation_id": "sync.plugin.enum-values",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sync/plugins/list",
+      "source": "internal/router/router.go:746",
+      "status": "operation",
+      "operation_id": "sync.plugin.list",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sync/plugins/options",
+      "source": "internal/router/router.go:747",
+      "status": "operation",
+      "operation_id": "sync.plugin.options",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sync/plugins/template",
+      "source": "internal/router/router.go:748",
+      "status": "operation",
+      "operation_id": "sync.plugin.template",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sync/preview/collect",
+      "source": "internal/router/router.go:708",
+      "status": "exception",
+      "mode": "server_only",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/sync/tasks",
+      "source": "internal/router/router.go:718",
+      "status": "operation",
+      "operation_id": "sync.task.list",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sync/tasks",
+      "source": "internal/router/router.go:717",
+      "status": "operation",
+      "operation_id": "sync.task.create",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/sync/tasks/:id",
+      "source": "internal/router/router.go:723",
+      "status": "operation",
+      "operation_id": "sync.task.delete",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/sync/tasks/:id",
+      "source": "internal/router/router.go:719",
+      "status": "operation",
+      "operation_id": "sync.task.get",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/sync/tasks/:id",
+      "source": "internal/router/router.go:722",
+      "status": "operation",
+      "operation_id": "sync.task.update",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sync/tasks/:id/dag",
+      "source": "internal/router/router.go:730",
+      "status": "operation",
+      "operation_id": "sync.task.dag",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/sync/tasks/:id/permissions",
+      "source": "internal/router/router.go:720",
+      "status": "operation",
+      "operation_id": "sync.task.permissions.get",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/sync/tasks/:id/permissions",
+      "source": "internal/router/router.go:721",
+      "status": "operation",
+      "operation_id": "sync.task.permissions.update",
+      "mode": "normal",
+      "swagger": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sync/tasks/:id/preview",
+      "source": "internal/router/router.go:731",
+      "status": "operation",
+      "operation_id": "sync.task.preview",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sync/tasks/:id/preview/sink-savemode",
+      "source": "internal/router/router.go:732",
+      "status": "operation",
+      "operation_id": "sync.task.preview-savemode",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sync/tasks/:id/publish",
+      "source": "internal/router/router.go:724",
+      "status": "operation",
+      "operation_id": "sync.task.publish",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sync/tasks/:id/submit",
+      "source": "internal/router/router.go:733",
+      "status": "operation",
+      "operation_id": "sync.task.submit",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sync/tasks/:id/test-connections",
+      "source": "internal/router/router.go:729",
+      "status": "operation",
+      "operation_id": "sync.task.test-connections",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sync/tasks/:id/validate",
+      "source": "internal/router/router.go:728",
+      "status": "operation",
+      "operation_id": "sync.task.validate",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/sync/tasks/:id/versions",
+      "source": "internal/router/router.go:725",
+      "status": "operation",
+      "operation_id": "sync.task.version.list",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/sync/tasks/:id/versions/:versionId",
+      "source": "internal/router/router.go:727",
+      "status": "operation",
+      "operation_id": "sync.task.version.delete",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sync/tasks/:id/versions/:versionId/rollback",
+      "source": "internal/router/router.go:726",
+      "status": "operation",
+      "operation_id": "sync.task.version.rollback",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/sync/tree",
+      "source": "internal/router/router.go:713",
+      "status": "operation",
+      "operation_id": "sync.tree",
+      "mode": "normal",
+      "swagger": false
+    }
+  ]
+}

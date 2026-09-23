@@ -46,6 +46,19 @@ import {WorkspaceHeader} from '@/components/common/layout';
 import services from '@/lib/services';
 import {AuditLogInfo, ListAuditLogsRequest} from '@/lib/services/audit/types';
 import {AuditLogTable} from './AuditLogTable';
+import {AuditTraceSheet} from './AuditTraceSheet';
+
+/** 审计筛选只暴露用户能理解的操作类别，不把每一种内部 action 铺进下拉框。
+ * Audit filters expose user-facing action categories, not every internal action.
+ */
+const AUDIT_ACTION_GROUPS = ['create', 'update', 'delete', 'lifecycle', 'install', 'diagnose', 'task'] as const;
+
+/** 对象只保留控制层资源。命令、任务模块不做成筛选项。
+ * Object filters keep control-plane resources. Commands and task modules are not filters.
+ */
+const AUDIT_RESOURCE_TYPES = ['host', 'cluster', 'cluster_node', 'user', 'plugin'] as const;
+
+const AUDIT_SOURCES = ['web', 'cli', 'system'] as const;
 
 const DEFAULT_PAGE_SIZE = 20;
 
@@ -65,11 +78,12 @@ export function AuditLogMain() {
 
   // Filter state / 过滤状态
   const [searchUsername, setSearchUsername] = useState('');
-  const [filterTrigger, setFilterTrigger] = useState<string>('all');
-  const [filterAction, setFilterAction] = useState<string>('all');
+  const [filterSource, setFilterSource] = useState<string>('all');
+  const [filterActionGroup, setFilterActionGroup] = useState<string>('all');
   const [filterResourceType, setFilterResourceType] = useState<string>('all');
   const [filterStartDate, setFilterStartDate] = useState('');
   const [filterEndDate, setFilterEndDate] = useState('');
+  const [traceLog, setTraceLog] = useState<AuditLogInfo | null>(null);
 
 
   /**
@@ -92,8 +106,8 @@ export function AuditLogMain() {
         current: currentPage,
         size: pageSize,
         username: searchUsername || undefined,
-        trigger: filterTrigger !== 'all' ? filterTrigger : undefined,
-        action: filterAction !== 'all' ? filterAction : undefined,
+        client_type: filterSource !== 'all' ? filterSource : undefined,
+        action_group: filterActionGroup !== 'all' ? filterActionGroup : undefined,
         resource_type:
           filterResourceType !== 'all' ? filterResourceType : undefined,
         start_time: startTime,
@@ -123,8 +137,8 @@ export function AuditLogMain() {
     currentPage,
     pageSize,
     searchUsername,
-    filterTrigger,
-    filterAction,
+    filterSource,
+    filterActionGroup,
     filterResourceType,
     filterStartDate,
     filterEndDate,
@@ -178,8 +192,8 @@ export function AuditLogMain() {
    */
   const handleClearFilters = () => {
     setSearchUsername('');
-    setFilterTrigger('all');
-    setFilterAction('all');
+    setFilterSource('all');
+    setFilterActionGroup('all');
     setFilterResourceType('all');
     setFilterStartDate('');
     setFilterEndDate('');
@@ -248,41 +262,31 @@ export function AuditLogMain() {
           />
         </div>
 
-        <Select value={filterTrigger} onValueChange={setFilterTrigger}>
-          <SelectTrigger className='w-[130px] h-9 text-xs'>
-            <SelectValue placeholder={t('audit.trigger')} />
+        <Select value={filterSource} onValueChange={setFilterSource}>
+          <SelectTrigger className='w-[120px] h-9 text-xs'>
+            <SelectValue placeholder={t('audit.source')} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value='all'>{t('audit.allTriggers')}</SelectItem>
-            <SelectItem value='auto'>{t('audit.triggerAuto')}</SelectItem>
-            <SelectItem value='manual'>{t('audit.triggerManual')}</SelectItem>
+            <SelectItem value='all'>{t('audit.allSources')}</SelectItem>
+            {AUDIT_SOURCES.map((source) => (
+              <SelectItem key={source} value={source}>
+                {source === 'system' ? t('audit.actorSystem') : t(`audit.clientTypes.${source}`)}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
 
-        <Select value={filterAction} onValueChange={setFilterAction}>
-          <SelectTrigger className='w-[140px] h-9 text-xs'>
+        <Select value={filterActionGroup} onValueChange={setFilterActionGroup}>
+          <SelectTrigger className='w-[120px] h-9 text-xs'>
             <SelectValue placeholder={t('audit.action')} />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value='all'>{t('audit.allActions')}</SelectItem>
-            <SelectItem value='create'>{t('audit.actions.create')}</SelectItem>
-            <SelectItem value='update'>{t('audit.actions.update')}</SelectItem>
-            <SelectItem value='delete'>{t('audit.actions.delete')}</SelectItem>
-            <SelectItem value='start'>{t('audit.actions.start')}</SelectItem>
-            <SelectItem value='stop'>{t('audit.actions.stop')}</SelectItem>
-            <SelectItem value='restart'>{t('audit.actions.restart')}</SelectItem>
-            <SelectItem value='add_node'>{t('audit.actions.add_node')}</SelectItem>
-            <SelectItem value='remove_node'>{t('audit.actions.remove_node')}</SelectItem>
-            <SelectItem value='update_node'>{t('audit.actions.update_node')}</SelectItem>
-            <SelectItem value='start_node'>{t('audit.actions.start_node')}</SelectItem>
-            <SelectItem value='stop_node'>{t('audit.actions.stop_node')}</SelectItem>
-            <SelectItem value='restart_node'>{t('audit.actions.restart_node')}</SelectItem>
-            <SelectItem value='crashed'>{t('audit.actions.crashed')}</SelectItem>
-            <SelectItem value='restart_failed'>{t('audit.actions.restart_failed')}</SelectItem>
-            <SelectItem value='install'>{t('audit.actions.install')}</SelectItem>
-            <SelectItem value='uninstall'>{t('audit.actions.uninstall')}</SelectItem>
-            <SelectItem value='enable'>{t('audit.actions.enable')}</SelectItem>
-            <SelectItem value='disable'>{t('audit.actions.disable')}</SelectItem>
+            {AUDIT_ACTION_GROUPS.map((group) => (
+              <SelectItem key={group} value={group}>
+                {t(`audit.actionGroups.${group}`)}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
 
@@ -292,12 +296,11 @@ export function AuditLogMain() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value='all'>{t('audit.allResourceTypes')}</SelectItem>
-            <SelectItem value='host'>{t('audit.resourceTypes.host')}</SelectItem>
-            <SelectItem value='cluster'>{t('audit.resourceTypes.cluster')}</SelectItem>
-            <SelectItem value='cluster_node'>{t('audit.resourceTypes.cluster_node')}</SelectItem>
-            <SelectItem value='user'>{t('audit.resourceTypes.user')}</SelectItem>
-            <SelectItem value='plugin'>{t('audit.resourceTypes.plugin')}</SelectItem>
-            <SelectItem value='project'>{t('audit.resourceTypes.project')}</SelectItem>
+            {AUDIT_RESOURCE_TYPES.map((resourceType) => (
+              <SelectItem key={resourceType} value={resourceType}>
+                {t(`audit.resourceTypes.${resourceType}`)}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
 
@@ -324,7 +327,7 @@ export function AuditLogMain() {
           {t('common.search')}
         </Button>
 
-        {(searchUsername || filterTrigger !== 'all' || filterAction !== 'all' || filterResourceType !== 'all' || filterStartDate || filterEndDate) && (
+        {(searchUsername || filterSource !== 'all' || filterActionGroup !== 'all' || filterResourceType !== 'all' || filterStartDate || filterEndDate) && (
           <Button variant='ghost' size='sm' onClick={handleClearFilters} className='h-9 text-muted-foreground hover:text-foreground'>
             {t('common.clearFilters')}
           </Button>
@@ -345,8 +348,14 @@ export function AuditLogMain() {
             setPageSize(size);
             setCurrentPage(1);
           }}
+          onOpenTrace={setTraceLog}
         />
       </motion.div>
+      <AuditTraceSheet log={traceLog} onOpenChange={(open) => {
+        if (!open) {
+          setTraceLog(null);
+        }
+      }} />
     </motion.div>
   );
 }

@@ -23,6 +23,7 @@ import {
   chooseSelectOption,
   expectStxJavaProxyProbeSuccess,
   expectInstallationSuccess,
+  getCurrentInstallationId,
   prepareClusterForInstallWizard,
   resolveInstalledConfigPaths,
   waitForOnlineHost,
@@ -63,12 +64,14 @@ const httpPortSecondary = Number(
 test.describe.serial('install wizard real installer', () => {
   test('installs a target version online and writes local checkpoint config', async ({
     page,
-  }) => {
+  }, testInfo) => {
     console.log('[installer-real] starting local checkpoint scenario');
     const host = await waitForOnlineHost(page);
-    const installDir = `${installDirRoot}-local`;
-    const clusterPort = clusterPortPrimary;
-    const httpPort = httpPortPrimary;
+    const retrySuffix = testInfo.retry > 0 ? `-retry-${testInfo.retry}` : '';
+    const retryPortOffset = testInfo.retry * 20;
+    const installDir = `${installDirRoot}-local${retrySuffix}`;
+    const clusterPort = clusterPortPrimary + retryPortOffset;
+    const httpPort = httpPortPrimary + retryPortOffset;
     const cluster = await prepareClusterForInstallWizard(page, {
       hostId: host.id,
       hostName: host.name,
@@ -116,9 +119,13 @@ test.describe.serial('install wizard real installer', () => {
     console.log(
       '[installer-real] config step completed for local checkpoint scenario',
     );
+    const previousInstallationId = await getCurrentInstallationId(
+      page,
+      host.id,
+    );
     await page.getByTestId('install-wizard-next').click();
 
-    await expectInstallationSuccess(page);
+    await expectInstallationSuccess(page, host.id, previousInstallationId);
     console.log(
       '[installer-real] installation succeeded for local checkpoint scenario',
     );
@@ -142,14 +149,16 @@ test.describe.serial('install wizard real installer', () => {
 
   test('installs with MinIO-backed S3 checkpoint and IMAP configuration', async ({
     page,
-  }) => {
+  }, testInfo) => {
     console.log(
       '[installer-real] starting MinIO-backed checkpoint/imap scenario',
     );
     const host = await waitForOnlineHost(page);
-    const installDir = `${installDirRoot}-s3`;
-    const clusterPort = clusterPortSecondary;
-    const httpPort = httpPortSecondary;
+    const retrySuffix = testInfo.retry > 0 ? `-retry-${testInfo.retry}` : '';
+    const retryPortOffset = testInfo.retry * 20;
+    const installDir = `${installDirRoot}-s3${retrySuffix}`;
+    const clusterPort = clusterPortSecondary + retryPortOffset;
+    const httpPort = httpPortSecondary + retryPortOffset;
     const cluster = await prepareClusterForInstallWizard(page, {
       hostId: host.id,
       hostName: host.name,
@@ -223,8 +232,13 @@ test.describe.serial('install wizard real installer', () => {
     console.log('[installer-real] imap validation passed');
 
     await page.getByTestId('install-wizard-next').click();
+    await expect(page.getByTestId('install-wizard-step-plugins')).toBeVisible();
+    const previousInstallationId = await getCurrentInstallationId(
+      page,
+      host.id,
+    );
     await page.getByTestId('install-wizard-next').click();
-    await expectInstallationSuccess(page);
+    await expectInstallationSuccess(page, host.id, previousInstallationId);
     console.log(
       '[installer-real] installation succeeded for MinIO-backed scenario',
     );

@@ -55,6 +55,7 @@ test.describe('install wizard template', () => {
 
     await page.getByTestId('install-plugin-card-jdbc').click();
     await expect(page.getByTestId('plugin-detail-dialog-jdbc')).toBeVisible();
+    await page.getByTestId('plugin-detail-tab-dependencies').click();
     await page
       .getByTestId(`plugin-profile-${installWizardTemplate.profileKey}`)
       .click();

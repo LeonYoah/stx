@@ -17,6 +17,7 @@
 
 import {BaseService} from '../core/base.service';
 import apiClient from '../core/api-client';
+import {createWebExecutionHeaders} from '../core/execution-headers';
 import type {ApiResponse} from '../core/types';
 import type {
   CreateSyncGlobalVariableRequest,
@@ -32,6 +33,7 @@ import type {
   SyncCheckpointSnapshot,
   SyncPreviewSnapshot,
   SyncTask,
+  SyncTaskPermissions,
   SyncTaskListData,
   SyncTaskTreeData,
   SyncTaskVersion,
@@ -41,6 +43,7 @@ import type {
   SyncRecoverJobRequest,
   UpdateSyncGlobalVariableRequest,
   UpdateSyncTaskRequest,
+  UpdateSyncTaskPermissionsRequest,
   SyncPluginType,
   SyncPluginFactoryListResult,
   SyncPluginOptionSchemaResult,
@@ -78,6 +81,26 @@ export class SyncService extends BaseService {
     request: UpdateSyncTaskRequest,
   ): Promise<SyncTask> {
     return this.put<SyncTask>(`/tasks/${taskId}`, request);
+  }
+
+  // 只读取共享权限，不加载任务正文。
+  // Get only sharing permissions, without loading task content.
+  static async getTaskPermissions(taskId: number): Promise<SyncTaskPermissions> {
+    return this.get<SyncTaskPermissions>(`/tasks/${taskId}/permissions`);
+  }
+
+  // 只更新共享权限，不创建新的任务正文版本。
+  // Update only sharing permissions, without creating a new task-content version.
+  static async updateTaskPermissions(
+    taskId: number,
+    request: UpdateSyncTaskPermissionsRequest,
+  ): Promise<SyncTaskPermissions> {
+    const executionHeaders = createWebExecutionHeaders('sync-task-permissions-update');
+    return this.putWithConfig<SyncTaskPermissions>(
+      `/tasks/${taskId}/permissions`,
+      request,
+      {headers: executionHeaders.headers},
+    );
   }
 
   static async deleteTask(taskId: number): Promise<{deleted: boolean}> {

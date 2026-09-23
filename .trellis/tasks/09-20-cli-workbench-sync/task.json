@@ -1,0 +1,32 @@
+{
+  "id": "09-20-cli-workbench-sync",
+  "name": "09-20-cli-workbench-sync",
+  "title": "数据同步工作台 CLI 全面覆盖与真实 MySQL CDC / JDBC 端到端验收",
+  "description": "基于 09-13-stx-cli-agent-entry 设计原则，为 SeaTunnelX 数据同步工作台（Workbench/DataSyncStudio）构建完整的 CLI 命令体系。全面覆盖任务树、任务生命周期、DAG 解析、连接测试、SaveMode 与数据预览、作业提交运行、Checkpoint 查询、Savepoint 触发与恢复、全局变量与插件 Schema。并在本地通过 MySQL / MinIO 容器环境，提交真实的 MySQL CDC 与 JDBC 作业进行端到端闭环验收。",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": "cli,sync,workbench",
+  "package": null,
+  "priority": "P0",
+  "creator": "antigravity",
+  "assignee": "antigravity",
+  "createdAt": "2026-09-20",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "features/stx-cli-agent-entry",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "internal/operation/registry.go",
+    "internal/cmd/root.go",
+    "internal/cmd/sync.go",
+    "internal/apps/sync/execution.go",
+    "internal/apps/sync/handler.go"
+  ],
+  "notes": "",
+  "meta": {}
+}

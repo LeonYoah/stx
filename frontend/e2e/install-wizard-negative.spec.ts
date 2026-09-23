@@ -43,6 +43,7 @@ test.describe('install wizard failure template', () => {
     await page.getByTestId('install-wizard-next').click();
     await page.getByTestId('install-wizard-next').click();
     await page.getByTestId('install-plugin-card-jdbc').click();
+    await page.getByTestId('plugin-detail-tab-dependencies').click();
     await page
       .getByTestId(`plugin-profile-${installWizardFailureTemplate.profileKey}`)
       .click();

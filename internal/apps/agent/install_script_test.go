@@ -26,6 +26,18 @@ import (
 	seatunnelmeta "github.com/LeonYoah/stx/internal/seatunnel"
 )
 
+// TestFormatInstallCommand verifies the one-click install command shape.
+// TestFormatInstallCommand 验证一键安装命令形态。
+func TestFormatInstallCommand(t *testing.T) {
+	cmd := FormatInstallCommand("192.168.1.10:8000")
+	if !strings.Contains(cmd, "http://192.168.1.10:8000/api/v1/agent/install.sh") {
+		t.Fatalf("unexpected control plane URL in command: %s", cmd)
+	}
+	if !strings.Contains(cmd, "bash -s -- --install-dir=$HOME/.stx/agent/") {
+		t.Fatalf("expected bash -s with default install-dir, got: %s", cmd)
+	}
+}
+
 // TestNewInstallScriptGenerator tests the creation of InstallScriptGenerator.
 // TestNewInstallScriptGenerator 测试 InstallScriptGenerator 的创建。
 func TestNewInstallScriptGenerator(t *testing.T) {
@@ -90,7 +102,8 @@ func TestInstallScriptGenerate(t *testing.T) {
 		"#!/bin/bash",
 		"CONTROL_PLANE_ADDR=\"http://test-server:8080\"",
 		"GRPC_ADDR=\"test-server:50051\"",
-		"SUPPORT_DIR=\"/usr/local/lib/stx-agent\"",
+		"DEFAULT_INSTALL_DIR=\"$HOME/.stx/agent\"",
+		"--install-dir",
 		"detect_os()",
 		"detect_arch()",
 		"download_agent",
@@ -98,10 +111,11 @@ func TestInstallScriptGenerate(t *testing.T) {
 		"install_support_assets",
 		"install_agent",
 		"create_systemd_service",
+		"create_launchd_service",
 		"start_agent",
-		"systemctl",
-		"/usr/local/bin",
-		"/etc/stx-agent",
+		"systemctl --user",
+		"launchctl",
+		"$HOME/.stx/agent",
 		"CAPABILITY_PROXY_VERSION=\"" + seatunnelmeta.DefaultSTXJavaProxyVersion + "\"",
 		"/api/v1/agent/assets/stx-java-proxy.jar?version=${CAPABILITY_PROXY_VERSION}",
 		"/api/v1/agent/assets/stx-java-proxy.sh",
@@ -129,7 +143,7 @@ func TestInstallScriptGenerateWithData(t *testing.T) {
 	data := &InstallScriptData{
 		ControlPlaneAddr: "http://custom-server:9090",
 		GRPCAddr:         "custom-server:60000",
-		InstallDir:       "/opt/custom/bin",
+		InstallDir:       "/opt/custom/stx-agent",
 		ConfigDir:        "/opt/custom/config",
 		AgentBinary:      "custom-agent",
 		ServiceName:      "custom-service",
@@ -146,9 +160,7 @@ func TestInstallScriptGenerateWithData(t *testing.T) {
 	expectedContents := []string{
 		"http://custom-server:9090",
 		"custom-server:60000",
-		"/opt/custom/bin",
-		"/opt/custom/config",
-		"/opt/custom/support",
+		"DEFAULT_INSTALL_DIR=\"/opt/custom/stx-agent\"",
 		"custom-agent",
 		"custom-service",
 	}
@@ -259,6 +271,35 @@ func TestNormalizeArch(t *testing.T) {
 	}
 }
 
+// TestInstallScriptGenerate_WithHostID tests that HostID is included in the script.
+// TestInstallScriptGenerate_WithHostID 测试生成的脚本中包含预绑定的 HostID。
+func TestInstallScriptGenerate_WithHostID(t *testing.T) {
+	generator, err := NewInstallScriptGenerator(&InstallScriptConfig{
+		ControlPlaneAddr:  "localhost:8080",
+		GRPCAddr:          "localhost:50051",
+		HeartbeatInterval: 10,
+		HostID:            42,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create generator: %v", err)
+	}
+
+	script, err := generator.Generate()
+	if err != nil {
+		t.Fatalf("Failed to generate script: %v", err)
+	}
+
+	if !strings.Contains(script, `HOST_ID="42"`) {
+		t.Errorf("Generated script should contain HOST_ID=\"42\"")
+	}
+	if !strings.Contains(script, "host_id: ${HOST_ID:-0}") {
+		t.Errorf("Generated script should contain config mapping 'host_id: ${HOST_ID:-0}'")
+	}
+	if !strings.Contains(script, "--host-id") {
+		t.Errorf("Generated script should support --host-id flag")
+	}
+}
+
 // TestNormalizeOS tests OS normalization.
 // TestNormalizeOS 测试操作系统标准化。
 func TestNormalizeOS(t *testing.T) {
@@ -337,9 +378,9 @@ func TestInstallScriptGenerate_TLSEnabled(t *testing.T) {
 		`GRPC_TLS_ENABLED="true"`,
 		"/api/v1/agent/ca.crt",
 		"download_ca",
-		DefaultAgentCAFile,
+		`AGENT_CA_FILE="${CONFIG_DIR}/certs/ca.crt"`,
 		"enabled: true",
-		`ca_file: "` + DefaultAgentCAFile + `"`,
+		`ca_file: "${ca_file_value}"`,
 	}
 	for _, want := range wantSnippets {
 		if !strings.Contains(script, want) {
@@ -408,27 +449,30 @@ func TestInstallScriptContainsRequirements(t *testing.T) {
 		t.Error("Script missing stx-java-proxy asset download functionality")
 	}
 
-	// Requirement 2.3: Install to /usr/local/bin and create config
-	// 需求 2.3: 安装到 /usr/local/bin 并创建配置
-	if !strings.Contains(script, "/usr/local/bin") || !strings.Contains(script, "/etc/stx-agent") {
-		t.Error("Script missing installation paths (Requirement 2.3)")
+	// Requirement 2.3: Install under Agent home ($HOME/.stx/agent by default) and create config
+	// 需求 2.3: 安装到 Agent 主目录（默认 $HOME/.stx/agent）并创建配置
+	if !strings.Contains(script, "$HOME/.stx/agent") || !strings.Contains(script, "--install-dir") {
+		t.Error("Script missing default Agent home / --install-dir (Requirement 2.3)")
 	}
 	if !strings.Contains(script, "config.yaml") {
 		t.Error("Script missing config file creation (Requirement 2.3)")
 	}
-	if !strings.Contains(script, "/usr/local/lib/stx-agent") {
+	if !strings.Contains(script, "SUPPORT_LIB_DIR") && !strings.Contains(script, "/lib") {
 		t.Error("Script missing support asset installation path")
 	}
 
-	// Requirement 2.4: Create systemd service with auto-start
-	// 需求 2.4: 创建 systemd 服务并自动启动
-	if !strings.Contains(script, "create_systemd_service") || !strings.Contains(script, "systemctl enable") {
+	// Requirement 2.4: Create service with auto-start (systemd or launchd)
+	// 需求 2.4: 创建服务并自动启动（systemd 或 launchd）
+	if !strings.Contains(script, "create_systemd_service") || !strings.Contains(script, "systemctl") {
 		t.Error("Script missing systemd service creation (Requirement 2.4)")
+	}
+	if !strings.Contains(script, "create_launchd_service") || !strings.Contains(script, "launchctl") {
+		t.Error("Script missing launchd service creation for macOS")
 	}
 
 	// Requirement 2.5: Start Agent and wait for registration
 	// 需求 2.5: 启动 Agent 并等待注册
-	if !strings.Contains(script, "start_agent") || !strings.Contains(script, "systemctl start") {
+	if !strings.Contains(script, "start_agent") {
 		t.Error("Script missing Agent start functionality (Requirement 2.5)")
 	}
 

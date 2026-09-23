@@ -54,7 +54,7 @@ type ServiceConfig struct {
 // NewService 创建一个新的 Service 实例。
 func NewService(repo *Repository, clusterRepo *cluster.Repository, cfg *ServiceConfig) *Service {
 	timeout := DefaultHeartbeatTimeout
-	controlPlaneAddr := "localhost:8000"
+	controlPlaneAddr := "localhost:17800"
 
 	if cfg != nil {
 		if cfg.HeartbeatTimeout > 0 {
@@ -387,24 +387,60 @@ func (s *Service) GetAssociatedClusters(ctx context.Context, hostID uint) ([]*cl
 
 // UpdateAgentStatus updates the agent status when an Agent registers.
 // UpdateAgentStatus 在 Agent 注册时更新 Agent 状态。
-// Requirements: 3.2 - Matches Agent IP with registered host and updates status to "installed".
-// If no host is found by IP, auto-creates a bare_metal host so that agent registration succeeds
-// and heartbeat updates can find the host (fixes "host not found" after Control Plane restart).
-// hostname is optional; when auto-creating, used for host name or fallback to "agent-{agentID}".
-func (s *Service) UpdateAgentStatus(ctx context.Context, ipAddress string, agentID string, version string, systemInfo *SystemInfo, hostname string) (*Host, error) {
-	// Find host by IP address
-	// 根据 IP 地址查找主机
-	host, err := s.repo.GetByIP(ctx, ipAddress)
-	if err != nil {
-		if errors.Is(err, ErrHostNotFound) {
-			// Auto-create host when no matching IP exists (e.g. after Control Plane restart,
-			// agent re-registers with new ID but hosts table has no record)
-			// 当 IP 无匹配主机时自动创建（例如主服务重启后，Agent 用新 ID 重注册但 hosts 表无对应记录）
-			host, err = s.autoCreateHostForAgent(ctx, ipAddress, agentID, hostname)
-			if err != nil {
-				return nil, err
-			}
-		} else {
+// Requirements: 3.2 - Matches Agent hostID or IP with registered host and updates status to "installed".
+// If hostID > 0, attempts to find and bind to the specified host first.
+// 若 hostID > 0，则优先查找并绑定指定的主机 ID。
+// If no host matches, falls back to matching by IP, then by uninstalled host name, or auto-creates a bare_metal host.
+// 若未匹配到主机，则依次回退到按 IP 查找、按未安装主机名匹配或自动创建物理机。
+// localIPs is the Agent's local address set; when the stored host IP is not among them, it is treated as wrong and corrected.
+// localIPs 为本机地址集合；若主机已存 IP 不在该集合中，视为用户填错并校正为上报主 IP。
+func (s *Service) UpdateAgentStatus(ctx context.Context, hostID uint, ipAddress string, agentID string, version string, systemInfo *SystemInfo, hostname string, localIPs []string) (*Host, error) {
+	var host *Host
+	var err error
+	created := false
+
+	// 1. Try matching by explicit hostID if provided
+	// 1. 若提供了显式 hostID，优先按 hostID 匹配
+	if hostID > 0 {
+		host, err = s.repo.GetByID(ctx, hostID)
+		if err != nil && !errors.Is(err, ErrHostNotFound) {
+			return nil, err
+		}
+	}
+
+	// 2. Fall back to finding host by IP address
+	// 2. 若未指定 hostID 或未找到，按 IP 地址查找主机
+	if host == nil && ipAddress != "" {
+		host, err = s.repo.GetByIP(ctx, ipAddress)
+		if err != nil && !errors.Is(err, ErrHostNotFound) {
+			return nil, err
+		}
+	}
+
+	// 3. Fall back to matching an uninstalled host by hostname
+	// 3. 若按 IP 未找到，尝试匹配同名且未安装的主机
+	if host == nil && hostname != "" {
+		namedHost, err := s.repo.GetByName(ctx, hostname)
+		if err == nil && namedHost != nil && (namedHost.AgentStatus == AgentStatusNotInstalled || namedHost.AgentStatus == "") {
+			host = namedHost
+		}
+	}
+
+	// 4. Auto-create host when still no matching host exists
+	// 4. 当仍无匹配主机时自动创建（如主服务重启后首次上报）
+	if host == nil {
+		host, err = s.autoCreateHostForAgent(ctx, ipAddress, agentID, hostname)
+		if err != nil {
+			return nil, err
+		}
+		created = true
+	}
+
+	// 已有主机：用户填写的 IP 优先保留；仅当为空/回环，或不在 Agent 本机地址集合中时，校正为上报主 IP。
+	// Existing host: keep user-entered IP unless empty/loopback, or not present in Agent local address set.
+	if !created && shouldCorrectHostIP(host.IPAddress, ipAddress, localIPs) {
+		host.IPAddress = ipAddress
+		if err := s.repo.Update(ctx, host); err != nil {
 			return nil, err
 		}
 	}
@@ -426,6 +462,57 @@ func (s *Service) UpdateAgentStatus(ctx context.Context, ipAddress string, agent
 	// Return updated host
 	// 返回更新后的主机
 	return s.repo.GetByID(ctx, host.ID)
+}
+
+// shouldCorrectHostIP 判断是否应用 Agent 上报的主 IP 覆盖主机已存 IP。
+// 规则：上报 IP 无效则不改；已存为空/回环则改；已存等于上报则不改；
+// 若 Agent 提供了本机地址集合且已存 IP 不在集合中，视为用户填错则改。
+// shouldCorrectHostIP decides whether the reported primary IP should replace the stored host IP.
+// Rules: skip when reported IP is invalid; correct empty/loopback stored IP; skip when equal;
+// when Agent provides local IPs and stored IP is absent, treat as wrong user input and correct.
+func shouldCorrectHostIP(storedIP, reportedIP string, localIPs []string) bool {
+	reported := strings.TrimSpace(reportedIP)
+	if reported == "" || isLoopbackOrLocalhost(reported) {
+		return false
+	}
+
+	stored := strings.TrimSpace(storedIP)
+	if stored == "" || isLoopbackOrLocalhost(stored) {
+		return true
+	}
+	if stored == reported {
+		return false
+	}
+
+	if len(localIPs) == 0 {
+		// 无本机地址集合时无法判定用户 IP 是否属于该机器，保留用户填写。
+		// Without a local address set we cannot tell if the stored IP belongs to this machine; keep it.
+		return false
+	}
+	return !ipInList(stored, localIPs)
+}
+
+// isLoopbackOrLocalhost 判断是否为回环或 localhost 占位地址。
+// isLoopbackOrLocalhost reports whether the IP is loopback or a localhost placeholder.
+func isLoopbackOrLocalhost(ip string) bool {
+	switch strings.TrimSpace(ip) {
+	case "127.0.0.1", "::1", "localhost":
+		return true
+	default:
+		return false
+	}
+}
+
+// ipInList 判断目标 IP 是否出现在地址列表中（忽略首尾空白）。
+// ipInList reports whether target appears in the IP list (trim space).
+func ipInList(target string, ips []string) bool {
+	target = strings.TrimSpace(target)
+	for _, ip := range ips {
+		if strings.TrimSpace(ip) == target {
+			return true
+		}
+	}
+	return false
 }
 
 // autoCreateHostForAgent creates a bare_metal host record when an agent registers
@@ -552,15 +639,24 @@ func (s *Service) GetInstallCommand(ctx context.Context, hostID uint) (string, e
 		return "", err
 	}
 
-	// Generate installation command
-	// 生成安装命令
-	// The command uses curl to download and execute the install script from Control Plane
-	// 该命令使用 curl 从 Control Plane 下载并执行安装脚本
-	// controlPlaneAddr should be a full URL like "http://192.168.1.100:8000"
-	// controlPlaneAddr 应该是完整的 URL，如 "http://192.168.1.100:8000"
-	installCmd := fmt.Sprintf("curl -sSL %s/api/v1/agent/install.sh | bash", s.controlPlaneAddr)
-
-	return installCmd, nil
+	// Generate installation command with explicit default --install-dir (user-customizable) and bound host_id.
+	// 生成带显式默认 --install-dir 的安装命令（用户可自行改目录）并携带预绑定 host_id。
+	// controlPlaneAddr should be a full URL like "http://192.168.1.100:17800"
+	// controlPlaneAddr 应该是完整的 URL，如 "http://192.168.1.100:17800"
+	addr := strings.TrimRight(strings.TrimSpace(s.controlPlaneAddr), "/")
+	if addr == "" {
+		addr = "http://localhost:17800"
+	}
+	if !strings.HasPrefix(addr, "http://") && !strings.HasPrefix(addr, "https://") {
+		addr = "http://" + addr
+	}
+	// Keep in sync with agent.DefaultAgentHomePath / 与 agent.DefaultAgentHomePath 保持一致
+	return fmt.Sprintf(
+		"curl -sSL %s/api/v1/agent/install.sh | bash -s -- --install-dir=%s/ --host-id %d",
+		addr,
+		"$HOME/.stx/agent",
+		hostID,
+	), nil
 }
 
 // SystemInfo represents system information reported by an Agent.

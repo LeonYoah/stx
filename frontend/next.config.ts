@@ -21,6 +21,15 @@ const nextConfig: NextConfig = {
   /* config options here */
   // Generate deployable Node server bundle in .next/standalone
   output: 'standalone',
+  // Allow local brand/favicon assets for next/image (Next 16+ requires localPatterns)
+  // 允许本地品牌/favicon 资源供 next/image 使用（Next 16+ 需要 localPatterns）
+  images: {
+    localPatterns: [
+      {pathname: '/brand/**'},
+      {pathname: '/favicon/**'},
+      {pathname: '/icons/**'},
+    ],
+  },
   experimental: {
     // Allow larger request body for Next rewrite proxy (/api/*), needed by package upload.
     // 允许 Next rewrite 代理处理更大的请求体（/api/*），用于安装包上传。
@@ -34,7 +43,7 @@ const nextConfig: NextConfig = {
     return [
       {
         source: '/api/:path*',
-        destination: `${process.env.NEXT_PUBLIC_BACKEND_BASE_URL || 'http://127.0.0.1:8000'}/api/:path*`,
+        destination: `${process.env.NEXT_PUBLIC_BACKEND_BASE_URL || 'http://127.0.0.1:17800'}/api/:path*`,
       },
     ];
   },

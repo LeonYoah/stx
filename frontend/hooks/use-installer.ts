@@ -54,13 +54,19 @@ interface UsePackagesReturn {
   uploadPackage: (
     file: File,
     version: string,
+    sourceFile?: File,
     onProgress?: (percent: number) => void,
   ) => Promise<PackageInfo>;
   deletePackage: (version: string) => Promise<void>;
   startDownload: (
     version: string,
     mirror?: MirrorSource,
+    withSource?: boolean,
+    idempotencyKey?: string,
   ) => Promise<DownloadTask>;
+  uploadSource: (version: string, sourceFile: File) => Promise<PackageInfo>;
+  fetchSource: (version: string, mirror?: MirrorSource) => Promise<PackageInfo>;
+  downloadSource: (version: string) => Promise<void>;
   downloads: DownloadTask[];
   refreshDownloads: () => Promise<void>;
   refreshVersions: () => Promise<void>;
@@ -145,11 +151,13 @@ export function usePackages(): UsePackagesReturn {
     async (
       file: File,
       version: string,
+      sourceFile?: File,
       onProgress?: (percent: number) => void,
     ) => {
       const result = await installerService.uploadPackage(
         file,
         version,
+        sourceFile,
         onProgress,
       );
       await fetchPackages(); // Refresh list after upload
@@ -157,6 +165,22 @@ export function usePackages(): UsePackagesReturn {
     },
     [fetchPackages],
   );
+
+  const uploadSource = useCallback(async (version: string, sourceFile: File) => {
+    const result = await installerService.uploadSourcePackage(version, sourceFile);
+    await fetchPackages();
+    return result;
+  }, [fetchPackages]);
+
+  const fetchSource = useCallback(async (version: string, mirror?: MirrorSource) => {
+    const result = await installerService.fetchSourcePackage(version, mirror);
+    await fetchPackages();
+    return result;
+  }, [fetchPackages]);
+
+  const downloadSource = useCallback(async (version: string) => {
+    await installerService.downloadSourcePackage(version);
+  }, []);
 
   const deletePackage = useCallback(
     async (version: string) => {
@@ -167,8 +191,18 @@ export function usePackages(): UsePackagesReturn {
   );
 
   const startDownload = useCallback(
-    async (version: string, mirror?: MirrorSource) => {
-      const task = await installerService.startDownload(version, mirror);
+    async (
+      version: string,
+      mirror?: MirrorSource,
+      withSource = true,
+      idempotencyKey?: string,
+    ) => {
+      const task = await installerService.startDownload(
+        version,
+        mirror,
+        withSource,
+        idempotencyKey,
+      );
       await fetchDownloads(); // Start polling
       return task;
     },
@@ -207,6 +241,9 @@ export function usePackages(): UsePackagesReturn {
     uploadPackage,
     deletePackage,
     startDownload,
+    uploadSource,
+    fetchSource,
+    downloadSource,
     downloads,
     refreshDownloads: fetchDownloads,
     refreshVersions,
@@ -424,6 +461,8 @@ interface InstallWizardConfig {
   clusterId: string;
   clusterPort: number;
   httpPort: number;
+  /** Managed stx-java-proxy listen port / 托管 stx-java-proxy 监听端口 */
+  javaProxyPort: number;
   runtime: RuntimeEngineConfig;
   jvm: JVMConfig;
   checkpoint: CheckpointConfig;
@@ -452,6 +491,7 @@ const defaultConfig: InstallWizardConfig = {
   clusterId: '',
   clusterPort: 5801,
   httpPort: 8080,
+  javaProxyPort: 18080,
   runtime: {
     dynamic_slot: true,
     slot_num: 2,
@@ -552,6 +592,7 @@ export function useInstallWizard(): UseInstallWizardReturn {
       node_role: config.nodeRole,
       cluster_port: config.clusterPort,
       http_port: config.httpPort,
+      java_proxy_port: config.javaProxyPort,
       enable_http: config.runtime.enable_http,
       dynamic_slot: config.runtime.dynamic_slot,
       slot_num: config.runtime.slot_num,

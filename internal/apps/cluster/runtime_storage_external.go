@@ -95,6 +95,14 @@ func (s *Service) ValidateRuntimeStorage(
 			})
 			continue
 		}
+		if runtimeStorageValidationDisabled(kind, cfg) {
+			result.Hosts = append(result.Hosts, &installerapp.RuntimeStorageValidationHostResult{
+				HostID: node.HostID, HostName: hostName, Success: true,
+				Message: "IMAP uses in-memory mode; no external storage validation required",
+				Details: map[string]string{"mode": "disabled"},
+			})
+			continue
+		}
 
 		var hostResult *installerapp.RuntimeStorageValidationHostResult
 		switch kind {
@@ -144,7 +152,7 @@ func (s *Service) fillRemoteRuntimeStorageStats(ctx context.Context, clusterObj 
 		spec.Warning = firstNonEmpty(spec.Warning, fmt.Sprintf("remote storage statistics unavailable: %v", err))
 		return
 	}
-	params := runtimeStorageProxyParams(node.InstallDir, clusterObj.Version, kind, cfg.Checkpoint, cfg.IMAP)
+	params := runtimeStorageProxyParams(node.InstallDir, clusterObj.Version, kind, cfg.Checkpoint, cfg.IMAP, clusterObj)
 	success, output, sendErr := s.agentSender.SendCommand(ctx, hostInfo.AgentID, "stx_java_proxy_stat", params)
 	if sendErr != nil {
 		spec.Warning = firstNonEmpty(spec.Warning, fmt.Sprintf("remote storage statistics unavailable: %v", sendErr))
@@ -308,8 +316,12 @@ func checkpointValidationConfigFromCluster(raw map[string]interface{}) *installe
 }
 
 func imapValidationConfigFromCluster(raw map[string]interface{}) *installerapp.IMAPConfig {
+	storageType := strings.ToUpper(asString(raw["storage_type"]))
+	if storageType == "" && !asBool(raw["enabled"]) {
+		storageType = string(installerapp.IMAPStorageDisabled)
+	}
 	return &installerapp.IMAPConfig{
-		StorageType:               installerapp.IMAPStorageType(strings.ToUpper(asString(raw["storage_type"]))),
+		StorageType:               installerapp.IMAPStorageType(storageType),
 		Namespace:                 asString(raw["namespace"]),
 		HDFSNameNodeHost:          asString(raw["hdfs_namenode_host"]),
 		HDFSNameNodePort:          asInt(raw["hdfs_namenode_port"]),
@@ -382,11 +394,21 @@ func parseIMAPResolvedConfigFromYAML(content string) *runtimeStorageResolvedConf
 	if len(engineMapStore) == 0 {
 		return nil
 	}
+	if enabled, exists := engineMapStore["enabled"]; exists && !asBool(enabled) {
+		return &runtimeStorageResolvedConfig{Kind: "imap", StorageType: string(installerapp.IMAPStorageDisabled)}
+	}
 	properties := asMap(engineMapStore["properties"])
 	if len(properties) == 0 {
 		return nil
 	}
 	return resolvedConfigFromPluginConfig("imap", properties)
+}
+
+// runtimeStorageValidationDisabled 判断当前校验配置是否明确关闭了外部存储。
+// runtimeStorageValidationDisabled reports whether external storage is explicitly disabled.
+func runtimeStorageValidationDisabled(kind installerapp.RuntimeStorageValidationKind, cfg *runtimeStorageValidationConfig) bool {
+	return kind == installerapp.RuntimeStorageValidationIMAP && cfg != nil && cfg.IMAP != nil &&
+		strings.EqualFold(strings.TrimSpace(string(cfg.IMAP.StorageType)), string(installerapp.IMAPStorageDisabled))
 }
 
 func resolvedConfigFromPluginConfig(kind string, pluginConfig map[string]interface{}) *runtimeStorageResolvedConfig {
@@ -440,7 +462,7 @@ func (s *Service) runRuntimeStorageProbeOnHost(
 	if node == nil || host == nil || strings.TrimSpace(host.AgentID) == "" {
 		return &installerapp.RuntimeStorageValidationHostResult{Success: false, Message: "host agent is offline"}
 	}
-	params := runtimeStorageProxyParams(node.InstallDir, clusterObj.Version, kind, checkpoint, imap)
+	params := runtimeStorageProxyParams(node.InstallDir, clusterObj.Version, kind, checkpoint, imap, clusterObj)
 	success, output, err := s.agentSender.SendCommand(ctx, host.AgentID, "stx_java_proxy_probe", params)
 	if err != nil {
 		return &installerapp.RuntimeStorageValidationHostResult{Success: false, Message: err.Error()}
@@ -557,6 +579,7 @@ func runtimeStorageProxyParams(
 	kind installerapp.RuntimeStorageValidationKind,
 	checkpoint *installerapp.CheckpointConfig,
 	imap *installerapp.IMAPConfig,
+	cluster *Cluster,
 ) map[string]string {
 	params := map[string]string{
 		"kind":        string(kind),
@@ -573,7 +596,19 @@ func runtimeStorageProxyParams(
 			fillRuntimeStorageProxyParams(params, string(imap.StorageType), imap.Namespace, imap.HDFSNameNodeHost, imap.HDFSNameNodePort, imap.KerberosPrincipal, imap.KerberosKeytabFilePath, imap.HDFSHAEnabled, imap.HDFSNameServices, imap.HDFSHANamenodes, imap.HDFSNamenodeRPCAddress1, imap.HDFSNamenodeRPCAddress2, imap.HDFSFailoverProxyProvider, imap.StorageEndpoint, imap.StorageAccessKey, imap.StorageSecretKey, imap.StorageBucket)
 		}
 	}
+	attachClusterJavaProxyPort(params, cluster)
 	return params
+}
+
+// attachClusterJavaProxyPort 把集群配置的 java-proxy 端口写进 Agent 命令参数。
+// attachClusterJavaProxyPort copies the cluster java-proxy port into the agent command params.
+func attachClusterJavaProxyPort(params map[string]string, cluster *Cluster) {
+	if params == nil || cluster == nil {
+		return
+	}
+	if ports := cluster.Config.GetPortConfig(); ports != nil && ports.JavaProxyPort > 0 {
+		params["java_proxy_port"] = strconv.Itoa(ports.JavaProxyPort)
+	}
 }
 
 func fillRuntimeStorageProxyParams(

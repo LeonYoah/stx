@@ -25,6 +25,7 @@ import (
 	"strings"
 	"time"
 
+	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
 	monitoringapp "github.com/LeonYoah/stx/internal/apps/monitoring"
 	"github.com/LeonYoah/stx/internal/pkg/schedulex"
 )
@@ -390,7 +391,7 @@ func (c *AutoPolicyChecker) triggerAutoPolicyInspection(ctx context.Context, clu
 
 	if policy.AutoCreateTask && report != nil && report.Report != nil {
 		options := policy.TaskOptions.Normalize()
-		_, taskErr := c.service.CreateDiagnosticTask(ctx, &CreateDiagnosticTaskRequest{
+		request := &CreateDiagnosticTaskRequest{
 			ClusterID:     report.Report.ClusterID,
 			TriggerSource: DiagnosticTaskSourceInspectionFinding,
 			SourceRef: DiagnosticTaskSourceRef{
@@ -398,7 +399,22 @@ func (c *AutoPolicyChecker) triggerAutoPolicyInspection(ctx context.Context, clu
 			},
 			Options:   options,
 			AutoStart: policy.AutoStartTask,
-		}, 0, "auto-policy")
+		}
+		requestHash, hashErr := executionapp.HashRequest(struct {
+			PolicyID uint                  `json:"policy_id"`
+			ReportID uint                  `json:"report_id"`
+			Options  DiagnosticTaskOptions `json:"options"`
+		}{PolicyID: policy.ID, ReportID: report.Report.ID, Options: options})
+		if hashErr != nil {
+			requestHash = executionapp.HashString(fmt.Sprintf("diagnostics-auto-task:%d:%d", policy.ID, report.Report.ID))
+		}
+		_, taskErr := c.service.CreateDiagnosticTaskWithExecution(ctx, request, 0, "auto-policy", DiagnosticExecutionRequest{
+			RequestID:      fmt.Sprintf("auto-policy-%d-report-%d", policy.ID, report.Report.ID),
+			IdempotencyKey: fmt.Sprintf("diagnostics-auto-task:%d:%d", policy.ID, report.Report.ID),
+			RequestHash:    requestHash,
+			IsAdmin:        true,
+			ClientType:     "system",
+		})
 		if taskErr != nil {
 			log.Printf("[DiagnosticsAutoPolicy] auto create diagnostic task failed: cluster_id=%d policy_id=%d report_id=%d err=%v", clusterID, policy.ID, report.Report.ID, taskErr)
 		}

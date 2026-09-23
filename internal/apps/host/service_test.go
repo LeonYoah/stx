@@ -161,7 +161,7 @@ func TestProperty_AgentRegistrationIPMatching(t *testing.T) {
 
 			// Register agent with matching IP
 			// 使用匹配的 IP 注册 Agent
-			updatedHost, err := svc.UpdateAgentStatus(ctx, ipAddress, agentID, version, nil, "")
+			updatedHost, err := svc.UpdateAgentStatus(ctx, host.ID, ipAddress, agentID, version, nil, "", nil)
 			if err != nil {
 				t.Logf("Failed to update agent status: %v", err)
 				return false
@@ -225,7 +225,7 @@ func TestProperty_AgentRegistrationIPMatching(t *testing.T) {
 
 			// Register agent with different IP; service should auto-create host
 			// 使用不同的 IP 注册 Agent；服务应自动创建主机
-			updatedHost, err := svc.UpdateAgentStatus(ctx, agentIP, agentID, version, nil, "")
+			updatedHost, err := svc.UpdateAgentStatus(ctx, 0, agentIP, agentID, version, nil, "", nil)
 			if err != nil {
 				t.Logf("Failed to auto-create host during agent registration: %v", err)
 				return false
@@ -309,7 +309,7 @@ func TestProperty_HeartbeatDataPersistence(t *testing.T) {
 
 			// Register agent
 			// 注册 Agent
-			_, err = svc.UpdateAgentStatus(ctx, ipAddress, agentID, "1.0.0", nil, "")
+			_, err = svc.UpdateAgentStatus(ctx, host.ID, ipAddress, agentID, "1.0.0", nil, "", nil)
 			if err != nil {
 				t.Logf("Failed to register agent: %v", err)
 				return false
@@ -814,10 +814,23 @@ func TestGetInstallCommand(t *testing.T) {
 		t.Errorf("Install command should contain '%s', got: %s", expectedAddr, cmd)
 	}
 
-	// Verify command is a curl command
-	// 验证命令是 curl 命令
+	// Verify command is a curl command with bash -s, default install-dir, and CLI host-id
+	// 验证命令是 curl，并通过 bash -s 传入默认 install-dir 和 CLI host-id
 	if !containsString(cmd, "curl") {
 		t.Errorf("Install command should contain 'curl', got: %s", cmd)
+	}
+	if !containsString(cmd, "bash -s --") {
+		t.Errorf("Install command should pipe to 'bash -s --', got: %s", cmd)
+	}
+	if !containsString(cmd, "--install-dir=$HOME/.stx/agent/") {
+		t.Errorf("Install command should include default --install-dir=$HOME/.stx/agent/, got: %s", cmd)
+	}
+	expectedHostIDFlag := fmt.Sprintf("--host-id %d", host.ID)
+	if !containsString(cmd, expectedHostIDFlag) {
+		t.Errorf("Install command should include '%s', got: %s", expectedHostIDFlag, cmd)
+	}
+	if containsString(cmd, "?host_id=") {
+		t.Errorf("Install command URL should not contain '?host_id=', got: %s", cmd)
 	}
 }
 
@@ -873,3 +886,162 @@ func TestIsOnlineWithSince(t *testing.T) {
 }
 
 func ptrTime(t time.Time) *time.Time { return &t }
+
+// TestUpdateAgentStatusWithHostIDBinding tests host binding with hostID and IP auto-correction.
+// TestUpdateAgentStatusWithHostIDBinding 测试通过 hostID 显式绑定及 IP 自动校正功能。
+func TestUpdateAgentStatusWithHostIDBinding(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	repo := NewRepository(db)
+	svc := NewService(repo, nil, nil)
+	ctx := context.Background()
+
+	// 1. Create a host with 127.0.0.1
+	// 1. 创建 IP 为 127.0.0.1 的主机
+	createdHost, err := svc.Create(ctx, &CreateHostRequest{
+		Name:      "你瞅啥！",
+		IPAddress: "127.0.0.1",
+		HostType:  HostTypeBareMetal,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create host: %v", err)
+	}
+
+	// 2. Register Agent with hostID and real detected outbound IP 10.0.0.211
+	// 2. 使用 hostID 和真实探测出口 IP 10.0.0.211 注册 Agent
+	updatedHost, err := svc.UpdateAgentStatus(ctx, createdHost.ID, "10.0.0.211", "agent-12345", "1.0.0", nil, "panda001", []string{"10.0.0.211"})
+	if err != nil {
+		t.Fatalf("UpdateAgentStatus failed: %v", err)
+	}
+
+	if updatedHost.ID != createdHost.ID {
+		t.Errorf("Expected host ID %d, got %d", createdHost.ID, updatedHost.ID)
+	}
+	if updatedHost.AgentStatus != AgentStatusInstalled {
+		t.Errorf("Expected status %s, got %s", AgentStatusInstalled, updatedHost.AgentStatus)
+	}
+	if updatedHost.IPAddress != "10.0.0.211" {
+		t.Errorf("Expected IP to be auto-corrected to 10.0.0.211, got %s", updatedHost.IPAddress)
+	}
+}
+
+// TestUpdateAgentStatusKeepsUserIPWhenPresentOnAgent tests that a correct user-entered IP is kept
+// even when the Agent primary/outbound IP differs (multi-NIC).
+// TestUpdateAgentStatusKeepsUserIPWhenPresentOnAgent 测试用户填写的正确 IP 即使与出口 IP 不同也会保留（多网卡）。
+func TestUpdateAgentStatusKeepsUserIPWhenPresentOnAgent(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	repo := NewRepository(db)
+	svc := NewService(repo, nil, nil)
+	ctx := context.Background()
+
+	createdHost, err := svc.Create(ctx, &CreateHostRequest{
+		Name:      "mac-multi-nic",
+		IPAddress: "192.168.0.102",
+		HostType:  HostTypeBareMetal,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create host: %v", err)
+	}
+
+	// Agent outbound is Docker bridge, but LAN IP is still on the machine.
+	// Agent 出口是 Docker 网桥，但局域网 IP 仍在本机地址集合中。
+	updatedHost, err := svc.UpdateAgentStatus(
+		ctx,
+		createdHost.ID,
+		"172.18.196.113",
+		"agent-keep-user-ip",
+		"1.0.0",
+		nil,
+		"macdeMacBook-Pro.local",
+		[]string{"172.18.196.113", "192.168.0.102"},
+	)
+	if err != nil {
+		t.Fatalf("UpdateAgentStatus failed: %v", err)
+	}
+	if updatedHost.ID != createdHost.ID {
+		t.Fatalf("Expected host ID %d, got %d", createdHost.ID, updatedHost.ID)
+	}
+	if updatedHost.IPAddress != "192.168.0.102" {
+		t.Fatalf("Expected user IP 192.168.0.102 to be kept, got %s", updatedHost.IPAddress)
+	}
+}
+
+// TestUpdateAgentStatusCorrectsWrongUserIPWhenAbsentOnAgent tests correcting a wrong user IP
+// when it is not present in the Agent local address set.
+// TestUpdateAgentStatusCorrectsWrongUserIPWhenAbsentOnAgent 测试用户 IP 不在本机地址集合时校正为出口 IP。
+func TestUpdateAgentStatusCorrectsWrongUserIPWhenAbsentOnAgent(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	repo := NewRepository(db)
+	svc := NewService(repo, nil, nil)
+	ctx := context.Background()
+
+	createdHost, err := svc.Create(ctx, &CreateHostRequest{
+		Name:      "mac-wrong-ip",
+		IPAddress: "10.0.0.1",
+		HostType:  HostTypeBareMetal,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create host: %v", err)
+	}
+
+	updatedHost, err := svc.UpdateAgentStatus(
+		ctx,
+		createdHost.ID,
+		"192.168.0.102",
+		"agent-fix-user-ip",
+		"1.0.0",
+		nil,
+		"macdeMacBook-Pro.local",
+		[]string{"192.168.0.102", "172.18.196.113"},
+	)
+	if err != nil {
+		t.Fatalf("UpdateAgentStatus failed: %v", err)
+	}
+	if updatedHost.IPAddress != "192.168.0.102" {
+		t.Fatalf("Expected corrected IP 192.168.0.102, got %s", updatedHost.IPAddress)
+	}
+}
+
+// TestUpdateAgentStatusWithHostnameFallback tests host binding via hostname when uninstalled.
+// TestUpdateAgentStatusWithHostnameFallback 测试未安装状态下通过主机名匹配的兜底机制。
+func TestUpdateAgentStatusWithHostnameFallback(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	repo := NewRepository(db)
+	svc := NewService(repo, nil, nil)
+	ctx := context.Background()
+
+	// 1. Create a host with mismatched IP but matching name
+	// 1. 创建 IP 不匹配但名称匹配的主机
+	createdHost, err := svc.Create(ctx, &CreateHostRequest{
+		Name:      "panda001",
+		IPAddress: "127.0.0.1",
+		HostType:  HostTypeBareMetal,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create host: %v", err)
+	}
+
+	// 2. Register Agent with hostID=0 and reported hostname panda001
+	// 2. 使用 hostID=0 和上报的主机名 panda001 注册 Agent
+	updatedHost, err := svc.UpdateAgentStatus(ctx, 0, "10.0.0.211", "agent-67890", "1.0.0", nil, "panda001", []string{"10.0.0.211"})
+	if err != nil {
+		t.Fatalf("UpdateAgentStatus failed: %v", err)
+	}
+
+	if updatedHost.ID != createdHost.ID {
+		t.Errorf("Expected host ID %d, got %d", createdHost.ID, updatedHost.ID)
+	}
+	if updatedHost.AgentStatus != AgentStatusInstalled {
+		t.Errorf("Expected status %s, got %s", AgentStatusInstalled, updatedHost.AgentStatus)
+	}
+	if updatedHost.IPAddress != "10.0.0.211" {
+		t.Errorf("Expected loopback host IP corrected to 10.0.0.211, got %s", updatedHost.IPAddress)
+	}
+}

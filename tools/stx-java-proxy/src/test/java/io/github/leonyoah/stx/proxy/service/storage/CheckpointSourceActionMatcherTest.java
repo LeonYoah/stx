@@ -56,6 +56,37 @@ class CheckpointSourceActionMatcherTest {
     }
 
     @Test
+    void shouldMatchSourcesWhenHoconContainsUnquotedMask() {
+        Map<String, Object> request = new LinkedHashMap<>();
+        Map<String, Object> jobConfig = new LinkedHashMap<>();
+        jobConfig.put("contentFormat", "hocon");
+        jobConfig.put(
+                "content",
+                "env {\n"
+                        + "  job.mode = \"STREAMING\"\n"
+                        + "}\n"
+                        + "source {\n"
+                        + "  MySQL-CDC {\n"
+                        + "    plugin_name = \"MySQL-CDC\"\n"
+                        + "    username = \"root\"\n"
+                        + "    password = ******\n"
+                        + "  }\n"
+                        + "}\n"
+                        + "sink {\n"
+                        + "  Jdbc {\n"
+                        + "    plugin_name = \"Jdbc\"\n"
+                        + "    password = ******\n"
+                        + "  }\n"
+                        + "}\n");
+        request.put("jobConfig", jobConfig);
+
+        List<CheckpointSourceActionMatcher.SourceTarget> targets = matcher.match(request);
+
+        assertEquals(1, targets.size());
+        assertEquals("Source[0]-MySQL-CDC", targets.get(0).getActionName());
+    }
+
+    @Test
     void shouldRespectSourceTargetsSelection() {
         Map<String, Object> request = new LinkedHashMap<>();
         Map<String, Object> jobConfig = new LinkedHashMap<>();

@@ -46,13 +46,16 @@ func newMockHostUpdater() *mockHostUpdater {
 	}
 }
 
-func (m *mockHostUpdater) UpdateAgentStatus(ctx context.Context, ipAddress string, agentID string, version string, sysInfo *SystemInfo, hostname string) (uint, error) {
+func (m *mockHostUpdater) UpdateAgentStatus(ctx context.Context, hostID uint, ipAddress string, agentID string, version string, sysInfo *SystemInfo, hostname string, localIPs []string) (uint, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.updateAgentErr != nil {
 		return 0, m.updateAgentErr
 	}
 	m.agentStatuses[agentID] = "installed"
+	if hostID > 0 {
+		return hostID, nil
+	}
 	return 1, nil
 }
 

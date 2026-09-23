@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -58,6 +59,29 @@ func (r *Repository) GetDiagnosticTaskByID(ctx context.Context, id uint) (*Diagn
 	return &task, nil
 }
 
+// GetDiagnosticTaskByIDForOwner 按用户归属读取诊断任务，管理员可跳过归属限制。
+// GetDiagnosticTaskByIDForOwner loads a diagnostics task under owner scope, while administrators may bypass the owner filter.
+func (r *Repository) GetDiagnosticTaskByIDForOwner(ctx context.Context, id, ownerUserID uint, includeAll bool) (*DiagnosticTask, error) {
+	if r == nil || r.db == nil {
+		return nil, ErrDiagnosticsRepositoryUnavailable
+	}
+	var task DiagnosticTask
+	query := r.db.WithContext(ctx).Where("id = ?", id)
+	if !includeAll {
+		query = query.Where("created_by = ?", ownerUserID)
+	}
+	if err := query.
+		Preload("Steps", func(db *gorm.DB) *gorm.DB { return db.Order("sequence ASC") }).
+		Preload("NodeExecutions", func(db *gorm.DB) *gorm.DB { return db.Order("host_id ASC, role ASC") }).
+		First(&task).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrDiagnosticTaskNotFound
+		}
+		return nil, err
+	}
+	return &task, nil
+}
+
 // UpdateDiagnosticTask updates one diagnostics task.
 // UpdateDiagnosticTask 更新一条诊断任务。
 func (r *Repository) UpdateDiagnosticTask(ctx context.Context, task *DiagnosticTask) error {
@@ -72,6 +96,25 @@ func (r *Repository) UpdateDiagnosticTask(ctx context.Context, task *DiagnosticT
 		return ErrDiagnosticTaskNotFound
 	}
 	return nil
+}
+
+// UpdateDiagnosticTaskFields 按旧状态条件更新诊断任务字段，避免完成与取消互相覆盖。
+// UpdateDiagnosticTaskFields updates diagnostic task fields under an expected-status guard to prevent completion and cancellation races.
+func (r *Repository) UpdateDiagnosticTaskFields(ctx context.Context, taskID uint, expected []DiagnosticTaskStatus, updates map[string]any) (bool, error) {
+	if r == nil || r.db == nil {
+		return false, ErrDiagnosticsRepositoryUnavailable
+	}
+	if taskID == 0 || len(expected) == 0 || len(updates) == 0 {
+		return false, ErrInvalidDiagnosticTaskRequest
+	}
+	result := r.db.WithContext(ctx).
+		Model(&DiagnosticTask{}).
+		Where("id = ? AND status IN ?", taskID, expected).
+		Updates(updates)
+	if result.Error != nil {
+		return false, result.Error
+	}
+	return result.RowsAffected > 0, nil
 }
 
 // GetLatestDiagnosticTaskByInspectionReportID returns the most recent diagnostic task
@@ -130,6 +173,9 @@ func (r *Repository) ListDiagnosticTasks(ctx context.Context, filter *Diagnostic
 	}
 	query := r.db.WithContext(ctx).Model(&DiagnosticTask{})
 	if filter != nil {
+		if !filter.IncludeAll && filter.OwnerUserID > 0 {
+			query = query.Where("created_by = ?", filter.OwnerUserID)
+		}
 		if filter.ClusterID > 0 {
 			query = query.Where("cluster_id = ?", filter.ClusterID)
 		}
@@ -155,6 +201,7 @@ func (r *Repository) ListDiagnosticTasks(ctx context.Context, filter *Diagnostic
 	err := query.
 		Select([]string{
 			"id",
+			"execution_id",
 			"cluster_id",
 			"trigger_source",
 			"status",
@@ -215,6 +262,15 @@ func (r *Repository) ListDiagnosticTaskSteps(ctx context.Context, taskID uint) (
 	return steps, err
 }
 
+// ListDiagnosticTaskStepsForOwner 仅在调用者可以查看父任务时返回步骤。
+// ListDiagnosticTaskStepsForOwner returns steps only when the parent task is visible to the actor.
+func (r *Repository) ListDiagnosticTaskStepsForOwner(ctx context.Context, taskID, ownerUserID uint, includeAll bool) ([]*DiagnosticTaskStep, error) {
+	if _, err := r.GetDiagnosticTaskByIDForOwner(ctx, taskID, ownerUserID, includeAll); err != nil {
+		return nil, err
+	}
+	return r.ListDiagnosticTaskSteps(ctx, taskID)
+}
+
 // CreateDiagnosticNodeExecutions creates diagnostics node execution records in batch.
 // CreateDiagnosticNodeExecutions 批量创建诊断节点执行记录。
 func (r *Repository) CreateDiagnosticNodeExecutions(ctx context.Context, nodes []*DiagnosticNodeExecution) error {
@@ -254,6 +310,23 @@ func (r *Repository) ListDiagnosticNodeExecutions(ctx context.Context, taskID ui
 	return nodes, err
 }
 
+// SkipPendingDiagnosticNodeExecutions 将尚未开始的节点执行标记为跳过。
+// SkipPendingDiagnosticNodeExecutions marks node executions that have not started as skipped.
+func (r *Repository) SkipPendingDiagnosticNodeExecutions(ctx context.Context, taskID uint, message string, completedAt time.Time) error {
+	if r == nil || r.db == nil {
+		return ErrDiagnosticsRepositoryUnavailable
+	}
+	return r.db.WithContext(ctx).
+		Model(&DiagnosticNodeExecution{}).
+		Where("task_id = ? AND status = ?", taskID, DiagnosticTaskStatusPending).
+		Updates(map[string]any{
+			"status":       DiagnosticTaskStatusSkipped,
+			"message":      strings.TrimSpace(message),
+			"completed_at": completedAt,
+			"updated_at":   completedAt,
+		}).Error
+}
+
 // CreateDiagnosticStepLog creates one diagnostics step log.
 // CreateDiagnosticStepLog 创建一条诊断步骤日志。
 func (r *Repository) CreateDiagnosticStepLog(ctx context.Context, log *DiagnosticStepLog) error {
@@ -271,6 +344,9 @@ func (r *Repository) ListDiagnosticStepLogs(ctx context.Context, filter *Diagnos
 	}
 	query := r.db.WithContext(ctx).Model(&DiagnosticStepLog{})
 	if filter != nil {
+		if !filter.IncludeAll && filter.OwnerUserID > 0 {
+			query = query.Where("task_id IN (?)", r.db.WithContext(ctx).Model(&DiagnosticTask{}).Select("id").Where("created_by = ?", filter.OwnerUserID))
+		}
 		if filter.TaskID > 0 {
 			query = query.Where("task_id = ?", filter.TaskID)
 		}

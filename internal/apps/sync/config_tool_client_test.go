@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -127,5 +128,50 @@ func TestDefaultConfigToolClientParsesFriendlyConfigErrors(t *testing.T) {
 	}
 	if err.Error() != "sync: 配置解析失败，请检查括号、引号、逗号和换行：String: 20: Expecting close brace } or a comma" {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// TestDefaultConfigToolClientHumanizesResolutionErrors 测试各种数据库与连接器常见报错的全局人性化转译
+// TestDefaultConfigToolClientHumanizesResolutionErrors verifies global humanization of common database & connector errors
+func TestDefaultConfigToolClientHumanizesResolutionErrors(t *testing.T) {
+	testCases := []struct {
+		name       string
+		path       string
+		rawMsg     string
+		expectedSub string
+	}{
+		{
+			name:       "CDC catalog table not found",
+			path:       "/api/v1/config/validate",
+			rawMsg:     "Source[0]-MySQL-CDC official tablePath resolution failed: FactoryException: ErrorCode:[API-06], ErrorDescription:[Factory initialize failed] - Unable to create a source for identifier 'MySQL-CDC'. | caused by: SeaTunnelException: Can not find catalog table with factoryId [MySQL]",
+			expectedSub: "目标数据库中未找到匹配的物理表元数据",
+		},
+		{
+			name:       "JDBC table does not exist",
+			path:       "/api/v1/config/validate",
+			rawMsg:     "Source[0]-Jdbc official tablePath resolution failed: SQLSyntaxErrorException: Table 'stx_e2e.users_src' doesn't exist",
+			expectedSub: "指定数据表在数据库中不存在",
+		},
+		{
+			name:       "Access denied credential error",
+			path:       "/api/v1/config/webui-dag",
+			rawMsg:     "SQLException: Access denied for user 'root'@'localhost'",
+			expectedSub: "数据库账号或密码认证失败",
+		},
+		{
+			name:       "Network communication failure",
+			path:       "/api/v1/config/validate",
+			rawMsg:     "Communications link failure: Connection refused",
+			expectedSub: "无法连接到目标数据库",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			humanized := humanizeConfigToolMessage(tc.path, tc.rawMsg)
+			if !strings.Contains(humanized, tc.expectedSub) {
+				t.Fatalf("expected error to contain %q, but got %q", tc.expectedSub, humanized)
+			}
+		})
 	}
 }

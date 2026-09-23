@@ -66,22 +66,33 @@ func (s *Service) CreateDiagnosticTask(ctx context.Context, req *CreateDiagnosti
 			requestedNodeIDs = []uint{group.LastNodeID}
 		}
 	case DiagnosticTaskSourceInspectionFinding:
-		if sourceRef.InspectionFindingID == 0 {
-			return nil, fmt.Errorf("%w: source_ref.inspection_finding_id is required", ErrInvalidDiagnosticTaskRequest)
+		if sourceRef.InspectionFindingID == 0 && sourceRef.InspectionReportID == 0 {
+			return nil, fmt.Errorf("%w: source_ref.inspection_report_id or source_ref.inspection_finding_id is required", ErrInvalidDiagnosticTaskRequest)
 		}
-		finding, err := s.repo.GetInspectionFindingByID(ctx, sourceRef.InspectionFindingID)
-		if err != nil {
-			return nil, err
-		}
-		clusterID, err = resolveDiagnosticTaskClusterID(clusterID, finding.ClusterID)
-		if err != nil {
-			return nil, err
-		}
-		if sourceRef.InspectionReportID == 0 {
-			sourceRef.InspectionReportID = finding.ReportID
-		}
-		if nodeScope != DiagnosticTaskNodeScopeAll && len(requestedNodeIDs) == 0 && finding.RelatedNodeID > 0 {
-			requestedNodeIDs = []uint{finding.RelatedNodeID}
+		if sourceRef.InspectionFindingID > 0 {
+			finding, err := s.repo.GetInspectionFindingByID(ctx, sourceRef.InspectionFindingID)
+			if err != nil {
+				return nil, err
+			}
+			clusterID, err = resolveDiagnosticTaskClusterID(clusterID, finding.ClusterID)
+			if err != nil {
+				return nil, err
+			}
+			if sourceRef.InspectionReportID == 0 {
+				sourceRef.InspectionReportID = finding.ReportID
+			}
+			if nodeScope != DiagnosticTaskNodeScopeAll && len(requestedNodeIDs) == 0 && finding.RelatedNodeID > 0 {
+				requestedNodeIDs = []uint{finding.RelatedNodeID}
+			}
+		} else {
+			report, err := s.repo.GetInspectionReportByID(ctx, sourceRef.InspectionReportID)
+			if err != nil {
+				return nil, err
+			}
+			clusterID, err = resolveDiagnosticTaskClusterID(clusterID, report.ClusterID)
+			if err != nil {
+				return nil, err
+			}
 		}
 	case DiagnosticTaskSourceAlert:
 		if strings.TrimSpace(sourceRef.AlertID) == "" {
@@ -94,6 +105,11 @@ func (s *Service) CreateDiagnosticTask(ctx context.Context, req *CreateDiagnosti
 		return nil, fmt.Errorf("%w: unsupported trigger_source %q", ErrInvalidDiagnosticTaskRequest, triggerSource)
 	}
 
+	options := req.Options.Normalize()
+	if err := validateDiagnosticResourceSelection(options); err != nil {
+		return nil, err
+	}
+
 	nodeTargets, err := s.buildDiagnosticTaskNodeTargets(ctx, clusterID, requestedNodeIDs)
 	if err != nil {
 		return nil, err
@@ -101,7 +117,6 @@ func (s *Service) CreateDiagnosticTask(ctx context.Context, req *CreateDiagnosti
 
 	now := time.Now().UTC()
 	planSteps := DefaultDiagnosticTaskSteps()
-	options := req.Options.Normalize()
 	initialStepCode := resolveInitialDiagnosticTaskStep(planSteps, options)
 	lookbackMinutes := req.LookbackMinutes
 	if lookbackMinutes < minInspectionLookbackMinutes || lookbackMinutes > maxInspectionLookbackMinutes {
@@ -109,19 +124,19 @@ func (s *Service) CreateDiagnosticTask(ctx context.Context, req *CreateDiagnosti
 		lookbackMinutes = 0
 	}
 	task := &DiagnosticTask{
-		ClusterID:      clusterID,
-		TriggerSource:  triggerSource,
-		SourceRef:      sourceRef,
-		Options:        options,
+		ClusterID:       clusterID,
+		TriggerSource:   triggerSource,
+		SourceRef:       sourceRef,
+		Options:         options,
 		LookbackMinutes: lookbackMinutes,
-		Status:         DiagnosticTaskStatusReady,
-		CurrentStep:    initialStepCode,
-		SelectedNodes:  nodeTargets,
-		Summary:        buildDiagnosticTaskSummary(triggerSource, sourceRef, req.Summary),
-		CreatedBy:      createdBy,
-		CreatedByName:  strings.TrimSpace(createdByName),
-		CreatedAt:      now,
-		UpdatedAt:      now,
+		Status:          DiagnosticTaskStatusReady,
+		CurrentStep:     initialStepCode,
+		SelectedNodes:   nodeTargets,
+		Summary:         buildDiagnosticTaskSummary(triggerSource, sourceRef, req.Summary),
+		CreatedBy:       createdBy,
+		CreatedByName:   strings.TrimSpace(createdByName),
+		CreatedAt:       now,
+		UpdatedAt:       now,
 	}
 
 	steps := make([]*DiagnosticTaskStep, 0, len(planSteps))
@@ -392,6 +407,12 @@ func buildDiagnosticTaskSummary(triggerSource DiagnosticTaskSourceType, sourceRe
 			fmt.Sprintf("Diagnostic bundle created from error group #%d", sourceRef.ErrorGroupID),
 		)
 	case DiagnosticTaskSourceInspectionFinding:
+		if sourceRef.InspectionFindingID == 0 {
+			return bilingualText(
+				fmt.Sprintf("巡检报告 #%d 触发的诊断包", sourceRef.InspectionReportID),
+				fmt.Sprintf("Diagnostic bundle created from inspection report #%d", sourceRef.InspectionReportID),
+			)
+		}
 		return bilingualText(
 			fmt.Sprintf("巡检发现 #%d 触发的诊断包", sourceRef.InspectionFindingID),
 			fmt.Sprintf("Diagnostic bundle created from inspection finding #%d", sourceRef.InspectionFindingID),
@@ -407,6 +428,12 @@ func buildDiagnosticTaskSummary(triggerSource DiagnosticTaskSourceType, sourceRe
 }
 
 func shouldSkipDiagnosticPlanStep(code DiagnosticStepCode, options DiagnosticTaskOptions) (string, bool) {
+	if resourceCode, public := diagnosticResourceForStep(code); public && len(options.SelectedResources) > 0 && !containsDiagnosticResource(options.SelectedResources, resourceCode) {
+		return bilingualText("任务未选择该诊断资源。", "The diagnostics resource was not selected for this task."), true
+	}
+	if options.ResourceOnly && (code == DiagnosticStepCodeAssembleManifest || code == DiagnosticStepCodeRenderHTMLSummary) {
+		return bilingualText("单项资源任务不生成诊断包清单或 HTML 报告。", "A single-resource task does not generate a bundle manifest or HTML report."), true
+	}
 	switch code {
 	case DiagnosticStepCodeCollectThreadDump:
 		if !options.IncludeThreadDump {

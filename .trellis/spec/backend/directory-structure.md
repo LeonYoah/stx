@@ -22,7 +22,6 @@ internal/
 │   ├── cluster/             # 集群与节点 CRUD、操作
 │   ├── config/              # 配置文件管理（模板/节点）
 │   ├── dashboard/           # 仪表盘概览与统计
-│   ├── deepwiki/            # 文档服务
 │   ├── diagnostics/         # 诊断任务、报告与巡检
 │   ├── discovery/           # 从主机发现集群
 │   ├── health/              # 健康检查
@@ -32,10 +31,8 @@ internal/
 │   ├── monitoring/          # 监控中心（告警、Grafana 代理等）
 │   ├── oauth/               # OAuth 提供商（GitHub、Google）
 │   ├── plugin/              # 插件市场、安装到集群
-│   ├── releasebundle/       # 发布包探测与读取
 │   ├── stupgrade/           # STX 自身升级
-│   ├── sync/                # 数据同步工作台
-│   └── task/                # 任务管理
+│   └── sync/                # 数据同步工作台
 ├── cmd/                     # 入口（root、api、worker、scheduler）
 ├── config/                  # 全局配置加载与校验
 ├── db/                      # 数据库初始化、迁移（GORM）

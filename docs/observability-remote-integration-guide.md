@@ -158,34 +158,23 @@ STX_PASSWORD=admin \
 
 ---
 
-## 8. deps 三件套联调参考（2026-02-27 实测）
+## 8. 本地三件套联调参考
 
-如果三件套已部署在 `deps` 目录（默认端口 `9090/9093/3000`），本地脚本只做本地启停与状态检查：
-
-```bash
-# 一键重启（会先停旧进程再启动）
-./deps/start-observability.sh
-
-# 一键检查状态
-./deps/status-observability.sh
-```
-
-如果希望使用你自己准备的本地配置文件（例如 Prometheus/Grafana），可先放入：
-
-- `deps/runtime/prometheus/prometheus.yml`
-- `deps/runtime/grafana/grafana.ini`
-
-然后关闭自动初始化再启动：
+本地栈由控制面 `bin/start.sh` 管理（默认 `--observability auto`），资产在 `$INSTALL_DIR/observability/`：
 
 ```bash
-OBSERVABILITY_AUTO_INIT=false ./deps/start-observability.sh
+/opt/stx/bin/start.sh
+/opt/stx/bin/status.sh
+/opt/stx/bin/start.sh --observability off
 ```
 
 约定：
 
-- 本地脚本不负责“远程模式自动改写”；
+- 启停脚本不负责「远程模式自动改写」；
 - 远程可观测性联动依赖 `config.yaml` 中 `observability.*.url`；
-- 默认本地地址就是 `127.0.0.1:9090/9093/3000`，满足本地 deps 部署场景。
+- 默认本地地址是 `127.0.0.1:9090/9093/3000`。
+
+详见 [可观测性三件套一键接入说明](./可观测性三件套一键接入说明.md)。
 
 如需手工检查，关键点如下：
 

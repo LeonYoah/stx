@@ -20,8 +20,11 @@ package cluster
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
+
+	installerapp "github.com/LeonYoah/stx/internal/apps/installer"
 )
 
 func TestParseCheckpointStorageFromYAMLLocalFile(t *testing.T) {
@@ -177,6 +180,40 @@ func TestRuntimeSpecFromClusterConfigDisabledIMAP(t *testing.T) {
 	}
 	if spec.External {
 		t.Fatalf("expected disabled IMAP to be non-external")
+	}
+}
+
+func TestParseIMAPValidationConfigFromYAMLDisabled(t *testing.T) {
+	cfg := parseIMAPValidationConfigFromYAML(`
+hazelcast:
+  map:
+    engine*:
+      map-store:
+        enabled: false
+`)
+	if cfg == nil || cfg.StorageType != installerapp.IMAPStorageDisabled {
+		t.Fatalf("关闭的 IMAP 配置解析错误 / disabled IMAP config parsed incorrectly: %#v", cfg)
+	}
+}
+
+func TestIMAPValidationConfigFromClusterDefaultsDisabled(t *testing.T) {
+	cfg := imapValidationConfigFromCluster(map[string]interface{}{"enabled": false})
+	if cfg == nil || cfg.StorageType != installerapp.IMAPStorageDisabled {
+		t.Fatalf("关闭的集群 IMAP 配置解析错误 / disabled cluster IMAP config parsed incorrectly: %#v", cfg)
+	}
+}
+
+func TestRuntimeStorageListResultKeepsEmptyItemsArray(t *testing.T) {
+	content, err := json.Marshal(&RuntimeStorageListResult{
+		ClusterID: 6,
+		Kind:      "imap",
+		Items:     make([]RuntimeStorageListItem, 0),
+	})
+	if err != nil {
+		t.Fatalf("编码运行时存储列表失败 / encoding runtime storage list failed: %v", err)
+	}
+	if !strings.Contains(string(content), `"items":[]`) {
+		t.Fatalf("空列表必须保留 items 数组 / empty list must keep the items array: %s", content)
 	}
 }
 

@@ -134,6 +134,11 @@ func HandlePrecheckCommand(ctx context.Context, cmd *pb.CommandRequest, reporter
 	if subCommand == "" {
 		subCommand = PrecheckSubCommandFull
 	}
+	// 探测/托管命令带上集群配置的 java-proxy 端口，避免回落到默认 18080。
+	// Carry the cluster-configured java-proxy port so probes do not fall back to default 18080.
+	if port, err := strconv.Atoi(strings.TrimSpace(cmd.Parameters["java_proxy_port"])); err == nil && port > 0 {
+		ctx = installer.ContextWithSTXJavaProxyPort(ctx, port)
+	}
 
 	var result *PrecheckResult
 	var err error
@@ -283,15 +288,17 @@ func handleCheckProcess(ctx context.Context, params map[string]string) (*Prechec
 	if role == "" {
 		role = "hybrid"
 	}
+	installDir := strings.TrimSpace(params["install_dir"])
 
-	checkResult := installer.CheckSeaTunnelRunning(ctx, role)
+	checkResult := installer.CheckSeaTunnelRunning(ctx, installDir, role)
 
 	details := map[string]string{
-		"role": role,
+		"role":        role,
+		"install_dir": installDir,
 	}
 
 	if checkResult.Success {
-		processInfo, err := installer.CheckSeaTunnelProcess(ctx, role)
+		processInfo, err := installer.CheckSeaTunnelProcess(ctx, installDir, role)
 		if err == nil && processInfo != nil {
 			details["pid"] = strconv.Itoa(processInfo.PID)
 			details["actual_role"] = processInfo.Role
@@ -784,6 +791,9 @@ func runtimeStorageCheckpointSourceStateInspectPrecheckResult(
 	if bytes, err := json.Marshal(result.Sources); err == nil {
 		details["sources_json"] = string(bytes)
 	}
+	if bytes, err := json.Marshal(result.Sinks); err == nil {
+		details["sinks_json"] = string(bytes)
+	}
 	if bytes, err := json.Marshal(result.UnsupportedSources); err == nil {
 		details["unsupported_sources_json"] = string(bytes)
 	}
@@ -959,7 +969,7 @@ func handleFullPrecheck(ctx context.Context, params map[string]string, reporter 
 	if role == "" {
 		role = "hybrid"
 	}
-	processResult := installer.CheckSeaTunnelRunning(ctx, role)
+	processResult := installer.CheckSeaTunnelRunning(ctx, params["install_dir"], role)
 	if processResult.Success {
 		results["process_check"] = fmt.Sprintf("SeaTunnel process is already running: %s", processResult.Message)
 	} else {

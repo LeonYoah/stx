@@ -1,0 +1,115 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# 复制为 config.yaml 后按所选 Compose 改 database 段即可。
+# Copy to config.yaml, then adjust the database section for the compose file you use.
+
+app:
+  app_name: "STX"
+  env: "production"
+  addr: ":17800"
+  # 对外地址，Agent 安装命令会用到。/ Public URL used by Agent install commands.
+  external_url: "http://127.0.0.1:17800"
+  session_cookie_name: "stx_session_id"
+  session_secret: "change-me-before-production"
+  session_domain: ""
+  session_age: 86400
+  session_secure: false
+  session_http_only: true
+  api_prefix: "/api"
+
+auth:
+  default_admin_username: "admin"
+  default_admin_password: "admin123"
+  bcrypt_cost: 10
+
+oauth2:
+  client_id: ""
+  client_secret: ""
+  redirect_uri: ""
+  authorization_endpoint: ""
+  token_endpoint: ""
+  user_endpoint: ""
+
+oauth_providers:
+  github:
+    enabled: false
+    client_id: ""
+    client_secret: ""
+    redirect_uri: "http://127.0.0.1:17880/callback"
+  google:
+    enabled: false
+    client_id: ""
+    client_secret: ""
+    redirect_uri: "http://127.0.0.1:17880/callback"
+
+sync:
+  preview_data_ttl_minutes: 1440
+  preview_data_ttl_hours: 24
+
+# --- 数据库：与 Compose 文件对应改这一段 ---
+# database: match the compose file you start
+#
+# MySQL（docker compose up -d）:
+#   type: mysql, host: mysql, port: 3306, username/password/database: stx
+# SQLite（docker compose -f docker-compose.sqlite.yml up -d）:
+#   type: sqlite, sqlite_path: ./data/stx.db
+# PostgreSQL（docker compose -f docker-compose.postgres.yml up -d）:
+#   type: postgres, host: postgres, port: 5432, username/password/database: stx
+database:
+  enabled: true
+  type: "mysql"
+  sqlite_path: "./data/stx.db"
+  host: "mysql"
+  port: 3306
+  username: "stx"
+  password: "stx"
+  database: "stx"
+  max_idle_conn: 10
+  max_open_conn: 100
+  conn_max_lifetime: 3600
+  log_level: "warn"
+
+grpc:
+  enabled: true
+  port: 17890
+  tls_enabled: false
+  cert_file: ""
+  key_file: ""
+  ca_file: ""
+  max_recv_msg_size: 16
+  max_send_msg_size: 16
+  heartbeat_interval: 10
+  heartbeat_timeout: 30
+
+storage:
+  base_dir: "./data/storage"
+  packages_dir: "./lib/packages"
+  plugins_dir: "./lib/plugins"
+  temp_dir: "./data/storage/temp"
+
+observability:
+  enabled: true
+  prometheus:
+    url: "http://127.0.0.1:9090"
+    http_sd_path: "/api/v1/monitoring/prometheus/discovery"
+  alertmanager:
+    url: "http://127.0.0.1:9093"
+    webhook_path: "/api/v1/monitoring/alertmanager/webhook"
+  grafana:
+    url: "http://127.0.0.1:3000"
+  seatunnel_metrics:
+    path: "/hazelcast/rest/instance/metrics"
+    probe_timeout_seconds: 2

@@ -63,7 +63,7 @@ import {Switch} from '@/components/ui/switch';
 import {localizeDiagnosticsText} from './text-utils';
 
 const DEFAULT_TASK_OPTIONS: DiagnosticsTaskOptions = {
-  include_thread_dump: true,
+  include_thread_dump: false,
   include_jvm_dump: false,
   jvm_dump_min_free_mb: 2048,
 };

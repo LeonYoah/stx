@@ -21,6 +21,8 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"errors"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -137,47 +139,199 @@ const (
 type JobStatus string
 
 const (
-	JobStatusPending  JobStatus = "pending"
-	JobStatusRunning  JobStatus = "running"
-	JobStatusSuccess  JobStatus = "success"
-	JobStatusFailed   JobStatus = "failed"
-	JobStatusCanceled JobStatus = "canceled"
+	JobStatusPending         JobStatus = "pending"
+	JobStatusRunning         JobStatus = "running"
+	JobStatusCancelRequested JobStatus = "cancel_requested"
+	JobStatusCancelling      JobStatus = "cancelling"
+	JobStatusSuccess         JobStatus = "success"
+	JobStatusFailed          JobStatus = "failed"
+	JobStatusCanceled        JobStatus = "canceled"
 )
 
 // Task represents one sync studio workspace node.
 // Task 表示一个数据同步工作台节点。
 type Task struct {
-	ID                      uint          `json:"id" gorm:"primaryKey;autoIncrement"`
-	ParentID                *uint         `json:"parent_id,omitempty" gorm:"index"`
-	NodeType                TaskNodeType  `json:"node_type" gorm:"size:20;not null;default:file;index"`
-	Name                    string        `json:"name" gorm:"size:120;not null;index"`
-	Description             string        `json:"description" gorm:"type:text"`
-	ClusterID               uint          `json:"cluster_id" gorm:"index"`
-	EngineVersion           string        `json:"engine_version" gorm:"size:50"`
-	Mode                    TaskMode      `json:"mode" gorm:"size:20;default:streaming"`
-	Status                  TaskStatus    `json:"status" gorm:"size:20;default:draft;index"`
-	ContentFormat           ContentFormat `json:"content_format" gorm:"size:20;not null;default:hocon"`
+	ID            uint          `json:"id" gorm:"primaryKey;autoIncrement"`
+	ParentID      *uint         `json:"parent_id,omitempty" gorm:"index"`
+	NodeType      TaskNodeType  `json:"node_type" gorm:"size:20;not null;default:file;index"`
+	Name          string        `json:"name" gorm:"size:120;not null;index"`
+	Description   string        `json:"description" gorm:"type:text"`
+	ClusterID     uint          `json:"cluster_id" gorm:"index"`
+	EngineVersion string        `json:"engine_version" gorm:"size:50"`
+	Mode          TaskMode      `json:"mode" gorm:"size:20;default:streaming"`
+	Status        TaskStatus    `json:"status" gorm:"size:20;default:draft;index"`
+	ContentFormat ContentFormat `json:"content_format" gorm:"size:20;not null;default:hocon"`
 	// Content 存储任务定义内容（HOCON 或 JSON），兼容多数据库。
 	// Content stores task definition content (HOCON or JSON), compatible with multiple databases.
-	Content                 string        `json:"content" gorm:"type:text"`
-	JobName                 string        `json:"job_name" gorm:"size:255"`
-	Definition              JSONMap       `json:"definition" gorm:"type:json"`
-	SortOrder               int           `json:"sort_order" gorm:"default:0;index"`
-	CurrentVersion          int           `json:"current_version" gorm:"default:0"`
-	ScheduleEnabled         bool          `json:"schedule_enabled" gorm:"-"`
-	ScheduleCronExpr        string        `json:"schedule_cron_expr,omitempty" gorm:"-"`
-	ScheduleTimezone        string        `json:"schedule_timezone,omitempty" gorm:"-"`
-	ScheduleLastTriggeredAt *time.Time    `json:"schedule_last_triggered_at,omitempty" gorm:"-"`
-	ScheduleNextTriggeredAt *time.Time    `json:"schedule_next_triggered_at,omitempty" gorm:"-"`
-	CreatedBy               uint          `json:"created_by"`
-	CreatedAt               time.Time     `json:"created_at" gorm:"autoCreateTime"`
-	UpdatedAt               time.Time     `json:"updated_at" gorm:"autoUpdateTime"`
+	Content                 string     `json:"content" gorm:"type:text"`
+	JobName                 string     `json:"job_name" gorm:"size:255"`
+	Definition              JSONMap    `json:"definition" gorm:"type:json"`
+	SortOrder               int        `json:"sort_order" gorm:"default:0;index"`
+	CurrentVersion          int        `json:"current_version" gorm:"default:0"`
+	ScheduleEnabled         bool       `json:"schedule_enabled" gorm:"-"`
+	ScheduleCronExpr        string     `json:"schedule_cron_expr,omitempty" gorm:"-"`
+	ScheduleTimezone        string     `json:"schedule_timezone,omitempty" gorm:"-"`
+	ScheduleLastTriggeredAt *time.Time `json:"schedule_last_triggered_at,omitempty" gorm:"-"`
+	ScheduleNextTriggeredAt *time.Time `json:"schedule_next_triggered_at,omitempty" gorm:"-"`
+	CanEdit                 bool       `json:"can_edit" gorm:"-"`
+	CanRun                  bool       `json:"can_run" gorm:"-"`
+	IsOwner                 bool       `json:"is_owner" gorm:"-"`
+	IsCollaborator          bool       `json:"is_collaborator" gorm:"-"`
+	IsPublicTask            bool       `json:"is_public" gorm:"-"`
+	CreatedBy               uint       `json:"created_by"`
+	CreatedAt               time.Time  `json:"created_at" gorm:"autoCreateTime"`
+	UpdatedAt               time.Time  `json:"updated_at" gorm:"autoUpdateTime"`
 }
 
 // TableName returns the sync task table name.
 // TableName 返回同步任务表名。
 func (Task) TableName() string {
 	return "sync_tasks"
+}
+
+// IsPublic reports whether this task is publicly visible in the workspace.
+func (t *Task) IsPublic() bool {
+	if t == nil || t.Definition == nil {
+		return true
+	}
+	val, exists := t.Definition["is_public"]
+	if !exists {
+		return true
+	}
+	switch v := val.(type) {
+	case bool:
+		return v
+	case string:
+		return !strings.EqualFold(v, "false")
+	default:
+		return true
+	}
+}
+
+// CollaboratorIDs returns the list of user IDs specified as co-developers.
+func (t *Task) CollaboratorIDs() []uint {
+	if t == nil || t.Definition == nil {
+		return nil
+	}
+	val, exists := t.Definition["collaborators"]
+	if !exists {
+		val = t.Definition["collaborator_ids"]
+	}
+	if val == nil {
+		return nil
+	}
+	var ids []uint
+	switch items := val.(type) {
+	case []interface{}:
+		for _, item := range items {
+			switch idVal := item.(type) {
+			case float64:
+				ids = append(ids, uint(idVal))
+			case int:
+				ids = append(ids, uint(idVal))
+			case uint:
+				ids = append(ids, idVal)
+			case string:
+				if parsed, err := strconv.ParseUint(strings.TrimSpace(idVal), 10, 64); err == nil && parsed > 0 {
+					ids = append(ids, uint(parsed))
+				}
+			case map[string]interface{}:
+				if rawID, exists := idVal["id"]; exists {
+					switch rid := rawID.(type) {
+					case float64:
+						ids = append(ids, uint(rid))
+					case int:
+						ids = append(ids, uint(rid))
+					case uint:
+						ids = append(ids, rid)
+					case string:
+						if parsed, err := strconv.ParseUint(strings.TrimSpace(rid), 10, 64); err == nil && parsed > 0 {
+							ids = append(ids, uint(parsed))
+						}
+					}
+				}
+			}
+		}
+	case []uint:
+		return items
+	case []int:
+		for _, v := range items {
+			if v > 0 {
+				ids = append(ids, uint(v))
+			}
+		}
+	}
+	return ids
+}
+
+// HasCollaborator checks if the given user ID is in collaborators list.
+func (t *Task) HasCollaborator(userID uint) bool {
+	if userID == 0 {
+		return false
+	}
+	for _, id := range t.CollaboratorIDs() {
+		if id == userID {
+			return true
+		}
+	}
+	return false
+}
+
+// CanUserEdit reports whether the given user can edit, save, or delete this task.
+func (t *Task) CanUserEdit(userID uint, isAdmin bool) bool {
+	if isAdmin {
+		return true
+	}
+	if t == nil {
+		return false
+	}
+	if t.CreatedBy == 0 || t.CreatedBy == userID {
+		return true
+	}
+	return t.HasCollaborator(userID)
+}
+
+// CanUserRun reports whether the given user can run/submit/preview this task.
+func (t *Task) CanUserRun(userID uint, isAdmin bool) bool {
+	return t.CanUserEdit(userID, isAdmin)
+}
+
+// CanUserView reports whether the given user can view this task.
+func (t *Task) CanUserView(userID uint, isAdmin bool) bool {
+	if isAdmin {
+		return true
+	}
+	if t == nil {
+		return false
+	}
+	if t.CreatedBy == 0 || t.CreatedBy == userID || t.HasCollaborator(userID) {
+		return true
+	}
+	return t.IsPublic()
+}
+
+// DecoratePermissions populates permission flags based on the caller's identity.
+func (t *Task) DecoratePermissions(userID uint, isAdmin bool) {
+	if t == nil {
+		return
+	}
+	t.CanEdit = t.CanUserEdit(userID, isAdmin)
+	t.CanRun = t.CanUserRun(userID, isAdmin)
+	t.IsOwner = isAdmin || (t.CreatedBy != 0 && t.CreatedBy == userID)
+	t.IsCollaborator = t.HasCollaborator(userID)
+	t.IsPublicTask = t.IsPublic()
+}
+
+// TaskPermissions 只包含独立权限接口对外提供的共享字段。
+// TaskPermissions contains only the sharing fields exposed by the dedicated permissions API.
+type TaskPermissions struct {
+	TaskID          uint   `json:"task_id"`
+	IsPublic        bool   `json:"is_public"`
+	CollaboratorIDs []uint `json:"collaborator_ids"`
+	CanEdit         bool   `json:"can_edit"`
+	CanManage       bool   `json:"can_manage"`
+	IsOwner         bool   `json:"is_owner"`
+	IsCollaborator  bool   `json:"is_collaborator"`
 }
 
 // TaskVersion stores one immutable snapshot of a sync file task.
@@ -194,12 +348,12 @@ type TaskVersion struct {
 	ContentFormatSnapshot ContentFormat `json:"content_format_snapshot" gorm:"size:20"`
 	// ContentSnapshot 存储版本快照内容（HOCON 或 JSON），兼容多数据库。
 	// ContentSnapshot stores version snapshot content (HOCON or JSON), compatible with multiple databases.
-	ContentSnapshot       string        `json:"content_snapshot" gorm:"type:text"`
-	JobNameSnapshot       string        `json:"job_name_snapshot" gorm:"size:255"`
-	DefinitionSnapshot    JSONMap       `json:"definition_snapshot" gorm:"type:json"`
-	Comment               string        `json:"comment" gorm:"size:255"`
-	CreatedBy             uint          `json:"created_by"`
-	CreatedAt             time.Time     `json:"created_at" gorm:"autoCreateTime"`
+	ContentSnapshot    string    `json:"content_snapshot" gorm:"type:text"`
+	JobNameSnapshot    string    `json:"job_name_snapshot" gorm:"size:255"`
+	DefinitionSnapshot JSONMap   `json:"definition_snapshot" gorm:"type:json"`
+	Comment            string    `json:"comment" gorm:"size:255"`
+	CreatedBy          uint      `json:"created_by"`
+	CreatedAt          time.Time `json:"created_at" gorm:"autoCreateTime"`
 }
 
 // TableName returns the sync task version table name.
@@ -212,6 +366,7 @@ func (TaskVersion) TableName() string {
 // JobInstance 存储一次预览/运行/恢复执行实例。
 type JobInstance struct {
 	ID                      uint       `json:"id" gorm:"primaryKey;autoIncrement"`
+	ExecutionID             string     `json:"execution_id" gorm:"size:36;index"`
 	TaskID                  uint       `json:"task_id" gorm:"index;not null"`
 	TaskVersion             int        `json:"task_version" gorm:"not null"`
 	RunType                 RunType    `json:"run_type" gorm:"size:20;not null;index"`

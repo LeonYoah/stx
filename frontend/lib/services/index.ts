@@ -31,6 +31,7 @@ import * as DiscoveryService from './discovery/index';
 import {StUpgradeService} from './st-upgrade/index';
 import {DiagnosticsService} from './diagnostics/index';
 import {SyncService} from './sync/index';
+import {troubleshootingService} from './troubleshooting/index';
 
 /**
  * 服务层架构说明：
@@ -191,6 +192,12 @@ const services = {
    * SeaTunnel upgrade service
    */
   stUpgrade: StUpgradeService,
+
+  /**
+   * 排障经验记忆库服务
+   * Troubleshooting memory bank service
+   */
+  troubleshooting: troubleshootingService,
 };
 
 export default services;

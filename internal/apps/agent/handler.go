@@ -25,6 +25,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/LeonYoah/stx/internal/config"
@@ -165,6 +166,15 @@ type ErrorResponse struct {
 // @Success 200 {string} string "Install script"
 // @Router /api/v1/agent/install.sh [get]
 func (h *Handler) GetInstallScript(c *gin.Context) {
+	// Parse optional host_id from query parameters
+	// 从查询参数中解析可选的 host_id
+	var hostID uint64
+	if hostIDStr := strings.TrimSpace(c.Query("host_id")); hostIDStr != "" {
+		if parsed, err := strconv.ParseUint(hostIDStr, 10, 64); err == nil {
+			hostID = parsed
+		}
+	}
+
 	// Use InstallScriptGenerator to generate the install script
 	// 使用 InstallScriptGenerator 生成安装脚本
 	generator, err := NewInstallScriptGenerator(&InstallScriptConfig{
@@ -172,6 +182,7 @@ func (h *Handler) GetInstallScript(c *gin.Context) {
 		GRPCAddr:          h.getGRPCAddr(),
 		HeartbeatInterval: h.heartbeatInterval,
 		TLSEnabled:        h.tlsEnabled,
+		HostID:            hostID,
 	})
 	if err != nil {
 		logger.ErrorF(c.Request.Context(), "[Agent] Failed to create install script generator: %v", err)
@@ -452,201 +463,302 @@ const uninstallScriptTemplate = `#!/bin/bash
 
 set -e
 
-# Configuration
-# 配置
-INSTALL_DIR="/usr/local/bin"
-CONFIG_DIR="/etc/stx-agent"
-LOG_DIR="/var/log/stx-agent"
+DEFAULT_INSTALL_DIR="$HOME/.stx/agent"
+INSTALL_DIR=""
 AGENT_BINARY="stx-agent"
 SERVICE_NAME="stx-agent"
+LAUNCHD_LABEL="org.apache.stx.${SERVICE_NAME}"
 
-# Colors for output
-# 输出颜色
+BIN_DIR=""
+CONFIG_DIR=""
+LOG_DIR=""
+SUPPORT_LIB_DIR=""
+SUPPORT_SCRIPT_DIR=""
+START_WRAPPER=""
+SYSTEMD_UNIT_PATH=""
+LAUNCHD_PLIST_PATH=""
+USE_SYSTEMD_USER=0
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
-# Logging functions
-# 日志函数
-log_info() {
-    echo -e "${GREEN}[INFO]${NC} $1"
+log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
+log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
+log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
+
+expand_path() {
+    local raw="$1"
+    local tilde_slash='~/'
+    local home_var='$HOME'
+    local home_brace='${HOME}'
+    raw="${raw%\"}"; raw="${raw#\"}"
+    raw="${raw%\'}"; raw="${raw#\'}"
+    if [ "${raw}" = "~" ]; then
+        raw="${HOME}"
+    elif [ "${raw#"${tilde_slash}"}" != "${raw}" ]; then
+        raw="${HOME}/${raw#"${tilde_slash}"}"
+    elif [ "${raw#"${home_var}"}" != "${raw}" ]; then
+        raw="${HOME}${raw#"${home_var}"}"
+    elif [ "${raw#"${home_brace}"}" != "${raw}" ]; then
+        raw="${HOME}${raw#"${home_brace}"}"
+    fi
+    while [ "${#raw}" -gt 1 ] && [ "${raw%/}" != "${raw}" ]; do
+        raw="${raw%/}"
+    done
+    printf '%s' "${raw}"
 }
 
-log_warn() {
-    echo -e "${YELLOW}[WARN]${NC} $1"
+print_usage() {
+    cat << EOF
+Usage: bash uninstall.sh [OPTIONS]
+用法: bash uninstall.sh [选项]
+
+Options / 选项:
+  --install-dir=DIR   Agent home directory (default: ${DEFAULT_INSTALL_DIR})
+                      Agent 主目录（默认: ${DEFAULT_INSTALL_DIR}）
+  --remove-logs       Also remove log files / 同时移除日志文件
+  -h, --help          Show this help / 显示帮助
+EOF
 }
 
-log_error() {
-    echo -e "${RED}[ERROR]${NC} $1"
-}
-
-# Check if running as root
-# 检查是否以 root 身份运行
-check_root() {
-    if [ "$(id -u)" -ne 0 ]; then
-        log_error "This script must be run as root"
-        log_error "此脚本必须以 root 身份运行"
-        exit 1
+resolve_paths() {
+    if [ -z "${INSTALL_DIR}" ]; then
+        INSTALL_DIR="${DEFAULT_INSTALL_DIR}"
+    fi
+    INSTALL_DIR="$(expand_path "${INSTALL_DIR}")"
+    BIN_DIR="${INSTALL_DIR}/bin"
+    CONFIG_DIR="${INSTALL_DIR}/etc"
+    LOG_DIR="${INSTALL_DIR}/logs"
+    SUPPORT_LIB_DIR="${INSTALL_DIR}/lib"
+    SUPPORT_SCRIPT_DIR="${INSTALL_DIR}/scripts"
+    START_WRAPPER="${BIN_DIR}/${AGENT_BINARY}-start.sh"
+    LAUNCHD_PLIST_PATH="${HOME}/Library/LaunchAgents/${LAUNCHD_LABEL}.plist"
+    if [ "$(id -u)" -eq 0 ]; then
+        USE_SYSTEMD_USER=0
+        SYSTEMD_UNIT_PATH="/etc/systemd/system/${SERVICE_NAME}.service"
+    else
+        USE_SYSTEMD_USER=1
+        SYSTEMD_UNIT_PATH="${HOME}/.config/systemd/user/${SERVICE_NAME}.service"
     fi
 }
 
-# Stop Agent service
-# 停止 Agent 服务
+systemctl_do() {
+    if [ "${USE_SYSTEMD_USER}" -eq 1 ]; then
+        systemctl --user "$@"
+    else
+        systemctl "$@"
+    fi
+}
+
+stop_java_proxy() {
+    log_info "Stopping stx-java-proxy..."
+    log_info "正在停止 stx-java-proxy..."
+
+    local state_dir="${LOG_DIR}/stx-java-proxy"
+    local pid_file="${state_dir}/service.pid"
+    local port_file="${state_dir}/service.port"
+    local pid=""
+    local port="18080"
+
+    if [ -f "${pid_file}" ]; then
+        pid=$(tr -d '[:space:]' < "${pid_file}" 2>/dev/null || true)
+    fi
+    if [ -f "${port_file}" ]; then
+        port=$(tr -d '[:space:]' < "${port_file}" 2>/dev/null || true)
+    fi
+
+    if [ -n "${pid}" ]; then
+        kill "${pid}" 2>/dev/null || true
+        sleep 1
+        if kill -0 "${pid}" 2>/dev/null; then
+            kill -9 "${pid}" 2>/dev/null || true
+        fi
+        log_info "stx-java-proxy pid ${pid} stopped / 已停止 stx-java-proxy 进程 ${pid}"
+    fi
+
+    if command -v lsof >/dev/null 2>&1 && [ -n "${port}" ]; then
+        local listener
+        for listener in $(lsof -ti TCP:"${port}" -sTCP:LISTEN 2>/dev/null || true); do
+            local cmdline=""
+            if [ -r "/proc/${listener}/cmdline" ]; then
+                cmdline=$(tr '\0' ' ' < "/proc/${listener}/cmdline" 2>/dev/null || true)
+            elif command -v ps >/dev/null 2>&1; then
+                cmdline=$(ps -ww -p "${listener}" -o command= 2>/dev/null || true)
+            fi
+            if printf '%s' "${cmdline}" | grep -q -e 'StxJavaProxyApplication' -e 'stx-java-proxy'; then
+                kill "${listener}" 2>/dev/null || true
+                log_info "Stopped leftover stx-java-proxy listener pid=${listener} port=${port}"
+                log_info "已停止残留 stx-java-proxy 监听 pid=${listener} port=${port}"
+            fi
+        done
+    fi
+    rm -f "${pid_file}" 2>/dev/null || true
+}
+
 stop_agent() {
     log_info "Stopping Agent service..."
     log_info "正在停止 Agent 服务..."
-    
-    if systemctl is-active --quiet "${SERVICE_NAME}" 2>/dev/null; then
-        systemctl stop "${SERVICE_NAME}"
-        log_info "Agent service stopped"
-        log_info "Agent 服务已停止"
+
+    local os_type
+    os_type=$(uname -s | tr '[:upper:]' '[:lower:]')
+    case "${os_type}" in
+        linux)
+            if command -v systemctl >/dev/null 2>&1; then
+                if systemctl_do is-active --quiet "${SERVICE_NAME}" 2>/dev/null; then
+                    systemctl_do stop "${SERVICE_NAME}"
+                    log_info "Agent service stopped / Agent 服务已停止"
+                else
+                    log_info "Agent service is not running / Agent 服务未运行"
+                fi
+            fi
+            ;;
+        darwin)
+            if [ -f "${LAUNCHD_PLIST_PATH}" ] && command -v launchctl >/dev/null 2>&1; then
+                launchctl bootout "gui/$(id -u)" "${LAUNCHD_PLIST_PATH}" 2>/dev/null || true
+                launchctl unload "${LAUNCHD_PLIST_PATH}" 2>/dev/null || true
+                log_info "launchd job stopped / launchd 任务已停止"
+            else
+                log_info "launchd plist not found / 未找到 launchd plist"
+            fi
+            ;;
+    esac
+}
+
+remove_service() {
+    log_info "Removing service definition..."
+    log_info "正在移除服务定义..."
+
+    local os_type
+    os_type=$(uname -s | tr '[:upper:]' '[:lower:]')
+    case "${os_type}" in
+        linux)
+            if [ -f "${SYSTEMD_UNIT_PATH}" ]; then
+                systemctl_do disable "${SERVICE_NAME}" 2>/dev/null || true
+                rm -f "${SYSTEMD_UNIT_PATH}"
+                systemctl_do daemon-reload 2>/dev/null || true
+                log_info "Systemd unit removed: ${SYSTEMD_UNIT_PATH}"
+                log_info "Systemd unit 已移除: ${SYSTEMD_UNIT_PATH}"
+            else
+                log_info "Systemd unit not found / 未找到 systemd unit"
+            fi
+            # Legacy system path cleanup / 清理旧版系统路径
+            if [ -f "/etc/systemd/system/${SERVICE_NAME}.service" ] && [ "${SYSTEMD_UNIT_PATH}" != "/etc/systemd/system/${SERVICE_NAME}.service" ]; then
+                rm -f "/etc/systemd/system/${SERVICE_NAME}.service"
+                systemctl daemon-reload 2>/dev/null || true
+            fi
+            ;;
+        darwin)
+            if [ -f "${LAUNCHD_PLIST_PATH}" ]; then
+                rm -f "${LAUNCHD_PLIST_PATH}"
+                log_info "launchd plist removed: ${LAUNCHD_PLIST_PATH}"
+                log_info "launchd plist 已移除: ${LAUNCHD_PLIST_PATH}"
+            else
+                log_info "launchd plist not found / 未找到 launchd plist"
+            fi
+            ;;
+    esac
+}
+
+remove_files() {
+    local remove_logs_flag=$1
+
+    log_info "Removing Agent files under ${INSTALL_DIR}..."
+    log_info "正在移除 ${INSTALL_DIR} 下的 Agent 文件..."
+
+    rm -f "${BIN_DIR}/${AGENT_BINARY}" 2>/dev/null || true
+    rm -f "${START_WRAPPER}" 2>/dev/null || true
+    rm -rf "${CONFIG_DIR}" 2>/dev/null || true
+    rm -rf "${SUPPORT_LIB_DIR}" 2>/dev/null || true
+    rm -rf "${SUPPORT_SCRIPT_DIR}" 2>/dev/null || true
+
+    if [ "${remove_logs_flag}" = "yes" ]; then
+        rm -rf "${LOG_DIR}" 2>/dev/null || true
+        log_info "Log directory removed / 日志目录已移除"
     else
-        log_info "Agent service is not running"
-        log_info "Agent 服务未运行"
+        log_info "Keeping log files at ${LOG_DIR} / 保留日志于 ${LOG_DIR}"
+    fi
+
+    # Remove empty home dirs / 清理空的主目录层级
+    rmdir "${BIN_DIR}" 2>/dev/null || true
+    rmdir "${INSTALL_DIR}" 2>/dev/null || true
+
+    # Legacy path cleanup (previous install layout) / 清理旧版安装路径
+    rm -f "/usr/local/bin/${AGENT_BINARY}" 2>/dev/null || true
+    rm -f "/usr/local/bin/${AGENT_BINARY}-start.sh" 2>/dev/null || true
+    if [ "${remove_logs_flag}" = "yes" ]; then
+        rm -rf "/var/log/${SERVICE_NAME}" 2>/dev/null || true
+        rm -rf "/etc/stx-agent" 2>/dev/null || true
+        rm -rf "/usr/local/lib/stx-agent" 2>/dev/null || true
     fi
 }
 
-# Disable and remove systemd service
-# 禁用并移除 systemd 服务
-remove_systemd_service() {
-    log_info "Removing systemd service..."
-    log_info "正在移除 systemd 服务..."
-    
-    if [ -f "/etc/systemd/system/${SERVICE_NAME}.service" ]; then
-        systemctl disable "${SERVICE_NAME}" 2>/dev/null || true
-        rm -f "/etc/systemd/system/${SERVICE_NAME}.service"
-        systemctl daemon-reload
-        log_info "Systemd service removed"
-        log_info "Systemd 服务已移除"
-    else
-        log_info "Systemd service file not found"
-        log_info "未找到 Systemd 服务文件"
-    fi
-}
-
-# Remove Agent binary
-# 移除 Agent 二进制文件
-remove_binary() {
-    log_info "Removing Agent binary..."
-    log_info "正在移除 Agent 二进制文件..."
-    
-    if [ -f "${INSTALL_DIR}/${AGENT_BINARY}" ]; then
-        rm -f "${INSTALL_DIR}/${AGENT_BINARY}"
-        log_info "Agent binary removed"
-        log_info "Agent 二进制文件已移除"
-    else
-        log_info "Agent binary not found"
-        log_info "未找到 Agent 二进制文件"
-    fi
-}
-
-# Remove configuration files
-# 移除配置文件
-remove_config() {
-    log_info "Removing configuration files..."
-    log_info "正在移除配置文件..."
-    
-    if [ -d "${CONFIG_DIR}" ]; then
-        rm -rf "${CONFIG_DIR}"
-        log_info "Configuration directory removed"
-        log_info "配置目录已移除"
-    else
-        log_info "Configuration directory not found"
-        log_info "未找到配置目录"
-    fi
-}
-
-# Remove log files (optional)
-# 移除日志文件（可选）
-remove_logs() {
-    local remove_logs=$1
-    
-    if [ "${remove_logs}" = "yes" ]; then
-        log_info "Removing log files..."
-        log_info "正在移除日志文件..."
-        
-        if [ -d "${LOG_DIR}" ]; then
-            rm -rf "${LOG_DIR}"
-            log_info "Log directory removed"
-            log_info "日志目录已移除"
-        else
-            log_info "Log directory not found"
-            log_info "未找到日志目录"
-        fi
-    else
-        log_info "Keeping log files at ${LOG_DIR}"
-        log_info "保留日志文件于 ${LOG_DIR}"
-    fi
-}
-
-# Main uninstallation process
-# 主卸载流程
 main() {
     local remove_logs_flag="no"
-    
-    # Parse arguments
-    # 解析参数
+
     while [ $# -gt 0 ]; do
         case "$1" in
+            --install-dir=*)
+                INSTALL_DIR="${1#*=}"
+                ;;
+            --install-dir)
+                shift
+                if [ $# -eq 0 ]; then
+                    log_error "--install-dir requires a value / --install-dir 需要参数值"
+                    exit 1
+                fi
+                INSTALL_DIR="$1"
+                ;;
             --remove-logs)
                 remove_logs_flag="yes"
                 ;;
+            --host-id=*)
+                # 兼容安装参数透传，静默忽略 / Accept and ignore install-only parameter for compatibility
+                ;;
+            --host-id)
+                shift
+                ;;
+            --auth-token=*|--control-plane-addr=*|--grpc-port=*)
+                # 兼容透传参数 / Accept install flags
+                ;;
+            --auth-token|--control-plane-addr|--grpc-port)
+                shift
+                ;;
+            --force|--dry-run)
+                ;;
             -h|--help)
-                echo "Usage: $0 [OPTIONS]"
-                echo "用法: $0 [选项]"
-                echo ""
-                echo "Options / 选项:"
-                echo "  --remove-logs    Also remove log files / 同时移除日志文件"
-                echo "  -h, --help       Show this help message / 显示此帮助信息"
+                print_usage
                 exit 0
                 ;;
             *)
-                log_error "Unknown option: $1"
-                log_error "未知选项: $1"
+                log_error "Unknown option: $1 / 未知选项: $1"
+                print_usage
                 exit 1
                 ;;
         esac
         shift
     done
-    
+
+    resolve_paths
+
     log_info "=========================================="
     log_info "STX Agent Uninstall Script"
     log_info "STX Agent 卸载脚本"
+    log_info "Agent home: ${INSTALL_DIR}"
     log_info "=========================================="
-    
-    # Check root
-    # 检查 root
-    check_root
-    
-    # Stop Agent service
-    # 停止 Agent 服务
+
+    stop_java_proxy
     stop_agent
-    
-    # Remove systemd service
-    # 移除 systemd 服务
-    remove_systemd_service
-    
-    # Remove binary
-    # 移除二进制文件
-    remove_binary
-    
-    # Remove configuration
-    # 移除配置
-    remove_config
-    
-    # Remove logs (optional)
-    # 移除日志（可选）
-    remove_logs "${remove_logs_flag}"
-    
+    remove_service
+    remove_files "${remove_logs_flag}"
+
     log_info "=========================================="
     log_info "Uninstallation completed successfully!"
     log_info "卸载成功完成！"
     log_info "=========================================="
 }
 
-# Run main
-# 运行主函数
 main "$@"
 `
 

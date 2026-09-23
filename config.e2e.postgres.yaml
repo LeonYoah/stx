@@ -16,8 +16,8 @@
 app:
   app_name: "STX"
   env: "testing"
-  addr: ":8000"
-  external_url: "http://localhost:8000"
+  addr: ":17800"
+  external_url: "http://localhost:17800"
   session_cookie_name: "stx_e2e_session"
   session_secret: "stx-e2e-secret"
   session_domain: "localhost"
@@ -46,7 +46,7 @@ database:
 
 grpc:
   enabled: false
-  port: 9000
+  port: 17890
   tls_enabled: false
   max_recv_msg_size: 16
   max_send_msg_size: 16

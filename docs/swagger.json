@@ -294,6 +294,21 @@
                         "in": "query"
                     },
                     {
+                        "type": "string",
+                        "name": "action_group",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "name": "client_type",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "name": "command_id",
+                        "in": "query"
+                    },
+                    {
                         "minimum": 1,
                         "type": "integer",
                         "name": "current",
@@ -306,12 +321,27 @@
                     },
                     {
                         "type": "string",
+                        "name": "execution_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "name": "request_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
                         "name": "resource_id",
                         "in": "query"
                     },
                     {
                         "type": "string",
                         "name": "resource_type",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "name": "result_status",
                         "in": "query"
                     },
                     {
@@ -375,6 +405,74 @@
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/audit.GetAuditLogResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/auth/cli/login": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "parameters": [
+                    {
+                        "description": "CLI 登录请求",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/auth.CLILoginRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/auth.CLILoginResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/auth/cli/logout": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/auth.LogoutResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/auth/cli/whoami": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/auth.UserInfoResponse"
                         }
                     }
                 }
@@ -475,6 +573,24 @@
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/auth.UserInfoResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/capabilities": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "capability"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/capability.Response"
                         }
                     }
                 }
@@ -1563,6 +1679,11 @@
                         "in": "query"
                     },
                     {
+                        "type": "string",
+                        "name": "request_id",
+                        "in": "query"
+                    },
+                    {
                         "maximum": 100,
                         "minimum": 1,
                         "type": "integer",
@@ -2159,108 +2280,59 @@
                 }
             }
         },
-        "/api/v1/deepwiki/docs": {
+        "/api/v1/diagnostics/resources": {
             "get": {
-                "description": "Fetch SeaTunnel documentation from DeepWiki",
-                "consumes": [
-                    "application/json"
-                ],
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
-                    "DeepWiki"
+                    "diagnostics"
                 ],
-                "summary": "Get SeaTunnel documentation from DeepWiki",
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/deepwiki.Response"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "$ref": "#/definitions/deepwiki.DeepWikiResponse"
-                                        }
-                                    }
-                                }
-                            ]
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/deepwiki.Response"
+                            "$ref": "#/definitions/diagnostics.Response"
                         }
                     }
                 }
             }
         },
-        "/api/v1/deepwiki/fetch": {
-            "post": {
-                "description": "Fetch documentation from DeepWiki for a specific repository",
-                "consumes": [
-                    "application/json"
-                ],
+        "/api/v1/diagnostics/resources/{code}": {
+            "get": {
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
-                    "DeepWiki"
+                    "diagnostics"
                 ],
-                "summary": "Fetch documentation from DeepWiki",
                 "parameters": [
                     {
-                        "description": "Fetch request",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/deepwiki.DeepWikiRequest"
-                        }
+                        "type": "string",
+                        "description": "诊断资源编码",
+                        "name": "code",
+                        "in": "path",
+                        "required": true
                     }
                 ],
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/deepwiki.Response"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "$ref": "#/definitions/deepwiki.DeepWikiResponse"
-                                        }
-                                    }
-                                }
-                            ]
+                            "$ref": "#/definitions/diagnostics.Response"
                         }
                     },
-                    "400": {
-                        "description": "Bad Request",
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/deepwiki.Response"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/deepwiki.Response"
+                            "$ref": "#/definitions/diagnostics.Response"
                         }
                     }
                 }
             }
         },
-        "/api/v1/deepwiki/search": {
+        "/api/v1/diagnostics/resources/{code}/run": {
             "post": {
-                "description": "Search SeaTunnel documentation in DeepWiki",
                 "consumes": [
                     "application/json"
                 ],
@@ -2268,49 +2340,177 @@
                     "application/json"
                 ],
                 "tags": [
-                    "DeepWiki"
+                    "diagnostics"
                 ],
-                "summary": "Search SeaTunnel documentation",
                 "parameters": [
                     {
-                        "description": "Search request",
+                        "type": "string",
+                        "description": "诊断资源编码",
+                        "name": "code",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "单项诊断资源请求",
                         "name": "request",
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/deepwiki.SearchRequest"
+                            "$ref": "#/definitions/diagnostics.RunDiagnosticResourceRequest"
                         }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/diagnostics.Response"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/diagnostics.Response"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/diagnostics.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/diagnostics/tasks/{id}/artifacts": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "diagnostics"
+                ],
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "诊断任务 ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
                     }
                 ],
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/deepwiki.Response"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "$ref": "#/definitions/deepwiki.SearchResponse"
-                                        }
-                                    }
-                                }
-                            ]
+                            "$ref": "#/definitions/diagnostics.Response"
                         }
                     },
-                    "400": {
-                        "description": "Bad Request",
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/deepwiki.Response"
+                            "$ref": "#/definitions/diagnostics.Response"
                         }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
+                    }
+                }
+            }
+        },
+        "/api/v1/executions/{id}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "execution"
+                ],
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "公共执行编号",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/deepwiki.Response"
+                            "$ref": "#/definitions/execution.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/executions/{id}/cancel": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "execution"
+                ],
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "公共执行编号",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "幂等键",
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "确认取消影响",
+                        "name": "X-STX-Confirm",
+                        "in": "header",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/execution.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/executions/{id}/wait": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "execution"
+                ],
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "公共执行编号",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "服务端单次等待秒数，范围为 1 到 30",
+                        "name": "timeout_seconds",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/execution.Response"
                         }
                     }
                 }
@@ -2923,39 +3123,6 @@
                 }
             }
         },
-        "/api/v1/hosts/{id}/tasks": {
-            "get": {
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "tasks"
-                ],
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "主机ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "integer",
-                        "description": "返回数量限制",
-                        "name": "limit",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/task.TaskListAPIResponse"
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/oauth/callback": {
             "post": {
                 "produces": [
@@ -3172,6 +3339,12 @@
                         "required": true
                     },
                     {
+                        "type": "file",
+                        "description": "同版本源码包文件",
+                        "name": "source_file",
+                        "in": "formData"
+                    },
+                    {
                         "type": "string",
                         "description": "版本号",
                         "name": "version",
@@ -3325,6 +3498,109 @@
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/installer.DeletePackageResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/packages/{version}/source/download": {
+            "get": {
+                "produces": [
+                    "application/gzip"
+                ],
+                "tags": [
+                    "packages"
+                ],
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "版本号",
+                        "name": "version",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/packages/{version}/source/fetch": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "packages"
+                ],
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "版本号",
+                        "name": "version",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "源码下载请求",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/installer.SourceFetchRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/installer.UploadPackageResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/packages/{version}/source/upload": {
+            "post": {
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "packages"
+                ],
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "版本号",
+                        "name": "version",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "file",
+                        "description": "源码包文件",
+                        "name": "source_file",
+                        "in": "formData",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/installer.UploadPackageResponse"
                         }
                     }
                 }
@@ -3699,44 +3975,52 @@
                 }
             }
         },
-        "/api/v1/tasks": {
+        "/api/v1/sync/tasks/{id}/permissions": {
             "get": {
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
-                    "tasks"
+                    "Sync"
                 ],
+                "summary": "获取同步任务共享权限",
                 "parameters": [
                     {
-                        "type": "string",
-                        "description": "任务状态过滤",
-                        "name": "status",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "任务类型过滤",
-                        "name": "type",
-                        "in": "query"
-                    },
-                    {
                         "type": "integer",
-                        "description": "返回数量限制",
-                        "name": "limit",
-                        "in": "query"
+                        "description": "任务 ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
                     }
                 ],
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/task.TaskListAPIResponse"
+                            "$ref": "#/definitions/sync.TaskPermissionsResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/sync.TaskPermissionsResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/sync.TaskPermissionsResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/sync.TaskPermissionsResponse"
                         }
                     }
                 }
             },
-            "post": {
+            "put": {
                 "consumes": [
                     "application/json"
                 ],
@@ -3744,16 +4028,24 @@
                     "application/json"
                 ],
                 "tags": [
-                    "tasks"
+                    "Sync"
                 ],
+                "summary": "更新同步任务共享权限",
                 "parameters": [
                     {
-                        "description": "创建任务请求",
+                        "type": "integer",
+                        "description": "任务 ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "共享权限请求",
                         "name": "request",
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/task.CreateTaskRequest"
+                            "$ref": "#/definitions/sync.UpdateTaskPermissionsRequest"
                         }
                     }
                 ],
@@ -3761,115 +4053,25 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/task.TaskResponse"
+                            "$ref": "#/definitions/sync.TaskPermissionsResponse"
                         }
-                    }
-                }
-            }
-        },
-        "/api/v1/tasks/{id}": {
-            "get": {
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "tasks"
-                ],
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "任务ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
+                    },
+                    "400": {
+                        "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/task.TaskResponse"
+                            "$ref": "#/definitions/sync.TaskPermissionsResponse"
                         }
-                    }
-                }
-            }
-        },
-        "/api/v1/tasks/{id}/cancel": {
-            "post": {
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "tasks"
-                ],
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "任务ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
+                    },
+                    "403": {
+                        "description": "Forbidden",
                         "schema": {
-                            "$ref": "#/definitions/task.TaskResponse"
+                            "$ref": "#/definitions/sync.TaskPermissionsResponse"
                         }
-                    }
-                }
-            }
-        },
-        "/api/v1/tasks/{id}/retry": {
-            "post": {
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "tasks"
-                ],
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "任务ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/task.TaskResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/v1/tasks/{id}/start": {
-            "post": {
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "tasks"
-                ],
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "任务ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/task.TaskResponse"
+                            "$ref": "#/definitions/sync.TaskPermissionsResponse"
                         }
                     }
                 }
@@ -4013,16 +4215,32 @@
                 "action": {
                     "type": "string"
                 },
+                "client_type": {
+                    "type": "string"
+                },
+                "command_count": {
+                    "description": "CommandCount 是同一次请求下发到 Agent 的命令数，只在列表接口填充。\nCommandCount is the number of Agent commands from the same request. Only list responses fill it.",
+                    "type": "integer"
+                },
+                "command_id": {
+                    "type": "string"
+                },
                 "created_at": {
                     "type": "string"
                 },
                 "details": {
                     "$ref": "#/definitions/audit.AuditDetails"
                 },
+                "execution_id": {
+                    "type": "string"
+                },
                 "id": {
                     "type": "integer"
                 },
                 "ip_address": {
+                    "type": "string"
+                },
+                "request_id": {
                     "type": "string"
                 },
                 "resource_id": {
@@ -4032,6 +4250,12 @@
                     "type": "string"
                 },
                 "resource_type": {
+                    "type": "string"
+                },
+                "result_status": {
+                    "type": "string"
+                },
+                "risk_level": {
                     "type": "string"
                 },
                 "trigger": {
@@ -4055,6 +4279,9 @@
                 "agent_id": {
                     "type": "string"
                 },
+                "client_type": {
+                    "type": "string"
+                },
                 "command_id": {
                     "type": "string"
                 },
@@ -4067,7 +4294,13 @@
                 "created_by": {
                     "type": "integer"
                 },
+                "display_command": {
+                    "type": "string"
+                },
                 "error": {
+                    "type": "string"
+                },
+                "execution_id": {
                     "type": "string"
                 },
                 "finished_at": {
@@ -4087,6 +4320,9 @@
                 },
                 "progress": {
                     "type": "integer"
+                },
+                "request_id": {
+                    "type": "string"
                 },
                 "started_at": {
                     "type": "string"
@@ -4177,6 +4413,52 @@
                             "type": "integer"
                         }
                     }
+                },
+                "error_msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "auth.CLILoginData": {
+            "type": "object",
+            "properties": {
+                "expires_at": {
+                    "type": "string"
+                },
+                "token": {
+                    "type": "string"
+                },
+                "token_type": {
+                    "type": "string"
+                },
+                "user": {
+                    "$ref": "#/definitions/auth.UserInfo"
+                }
+            }
+        },
+        "auth.CLILoginRequest": {
+            "type": "object",
+            "required": [
+                "password",
+                "username"
+            ],
+            "properties": {
+                "expires_in": {
+                    "type": "string"
+                },
+                "password": {
+                    "type": "string"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
+        "auth.CLILoginResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/auth.CLILoginData"
                 },
                 "error_msg": {
                     "type": "string"
@@ -4283,6 +4565,66 @@
             "properties": {
                 "data": {
                     "$ref": "#/definitions/auth.UserInfo"
+                },
+                "error_msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "capability.Data": {
+            "type": "object",
+            "properties": {
+                "api_version": {
+                    "type": "string"
+                },
+                "min_cli_version": {
+                    "type": "string"
+                },
+                "operations": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/capability.Operation"
+                    }
+                },
+                "registry_revision": {
+                    "type": "string"
+                },
+                "server_version": {
+                    "type": "string"
+                }
+            }
+        },
+        "capability.Operation": {
+            "type": "object",
+            "properties": {
+                "allowed": {
+                    "type": "boolean"
+                },
+                "denial_code": {
+                    "type": "string"
+                },
+                "impact": {
+                    "$ref": "#/definitions/operation.ImpactSpec"
+                },
+                "mode": {
+                    "$ref": "#/definitions/operation.OperationMode"
+                },
+                "operation_id": {
+                    "type": "string"
+                },
+                "revision": {
+                    "type": "integer"
+                },
+                "risk": {
+                    "$ref": "#/definitions/operation.RiskLevel"
+                }
+            }
+        },
+        "capability.Response": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/capability.Data"
                 },
                 "error_msg": {
                     "type": "string"
@@ -5234,118 +5576,50 @@
                 }
             }
         },
-        "deepwiki.DeepWikiError": {
-            "type": "object",
-            "properties": {
-                "reason": {
-                    "type": "string"
-                },
-                "url": {
-                    "type": "string"
-                }
-            }
-        },
-        "deepwiki.DeepWikiRequest": {
-            "type": "object",
-            "required": [
-                "url"
+        "diagnostics.DiagnosticTaskNodeScope": {
+            "type": "string",
+            "enum": [
+                "all",
+                "related",
+                "custom"
             ],
-            "properties": {
-                "max_depth": {
-                    "description": "MaxDepth is the maximum depth of pages to crawl (default: 1)\nMaxDepth 是爬取页面的最大深度（默认：1）",
-                    "type": "integer"
-                },
-                "mode": {
-                    "description": "Mode is the output mode: \"aggregate\" (single document) or \"pages\" (structured)\nMode 是输出模式：\"aggregate\"（单文档）或 \"pages\"（结构化）",
-                    "type": "string"
-                },
-                "query": {
-                    "description": "Query is an optional search query to filter results\nQuery 是可选的搜索查询，用于过滤结果",
-                    "type": "string"
-                },
-                "url": {
-                    "description": "URL is the repository URL or path (e.g., \"apache/seatunnel\")\nURL 是仓库地址或路径（如 \"apache/seatunnel\"）",
-                    "type": "string"
-                }
-            }
+            "x-enum-varnames": [
+                "DiagnosticTaskNodeScopeAll",
+                "DiagnosticTaskNodeScopeRelated",
+                "DiagnosticTaskNodeScopeCustom"
+            ]
         },
-        "deepwiki.DeepWikiResponse": {
-            "type": "object",
-            "properties": {
-                "code": {
-                    "description": "Code is the error code (only present on error)\nCode 是错误代码（仅在错误时存在）",
-                    "type": "string"
-                },
-                "data": {
-                    "description": "Data contains the markdown content (aggregate mode) or page array (pages mode)\nData 包含 markdown 内容（aggregate 模式）或页面数组（pages 模式）"
-                },
-                "elapsed_ms": {
-                    "description": "ElapsedMs is the time taken in milliseconds\nElapsedMs 是耗时（毫秒）",
-                    "type": "integer"
-                },
-                "errors": {
-                    "description": "Errors contains any errors encountered during fetching\nErrors 包含获取过程中遇到的错误",
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/deepwiki.DeepWikiError"
-                    }
-                },
-                "message": {
-                    "description": "Message is the error message (only present on error)\nMessage 是错误消息（仅在错误时存在）",
-                    "type": "string"
-                },
-                "status": {
-                    "description": "Status is the response status: \"ok\", \"partial\", or \"error\"\nStatus 是响应状态：\"ok\"、\"partial\" 或 \"error\"",
-                    "type": "string"
-                },
-                "total_bytes": {
-                    "description": "TotalBytes is the total size of fetched content\nTotalBytes 是获取内容的总大小",
-                    "type": "integer"
-                },
-                "total_pages": {
-                    "description": "TotalPages is the number of pages fetched\nTotalPages 是获取的页面数量",
-                    "type": "integer"
-                }
-            }
-        },
-        "deepwiki.Response": {
+        "diagnostics.Response": {
             "type": "object",
             "properties": {
                 "data": {},
-                "error": {
+                "error_msg": {
                     "type": "string"
                 }
             }
         },
-        "deepwiki.SearchRequest": {
-            "type": "object",
-            "required": [
-                "query"
-            ],
-            "properties": {
-                "query": {
-                    "description": "Query is the search query\nQuery 是搜索查询",
-                    "type": "string"
-                },
-                "repo": {
-                    "description": "Repo is the repository to search (default: \"apache/seatunnel\")\nRepo 是要搜索的仓库（默认：\"apache/seatunnel\"）",
-                    "type": "string"
-                }
-            }
-        },
-        "deepwiki.SearchResponse": {
+        "diagnostics.RunDiagnosticResourceRequest": {
             "type": "object",
             "properties": {
-                "query": {
-                    "description": "Query is the original search query\nQuery 是原始搜索查询",
-                    "type": "string"
+                "cluster_id": {
+                    "type": "integer"
                 },
-                "results": {
-                    "description": "Results contains the search results\nResults 包含搜索结果",
-                    "type": "string"
+                "jvm_dump_min_free_mb": {
+                    "type": "integer"
                 },
-                "source": {
-                    "description": "Source indicates the data source\nSource 表示数据来源",
+                "lookback_minutes": {
+                    "type": "integer"
+                },
+                "node_scope": {
+                    "$ref": "#/definitions/diagnostics.DiagnosticTaskNodeScope"
+                },
+                "selected_node_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "summary": {
                     "type": "string"
                 }
             }
@@ -5415,6 +5689,18 @@
                 }
             }
         },
+        "execution.Response": {
+            "type": "object",
+            "properties": {
+                "data": {},
+                "error_code": {
+                    "type": "string"
+                },
+                "error_msg": {
+                    "type": "string"
+                }
+            }
+        },
         "github_com_LeonYoah_stx_internal_apps_config.ConfigType": {
             "type": "string",
             "enum": [
@@ -5423,6 +5709,7 @@
                 "hazelcast-client.yaml",
                 "jvm_options",
                 "log4j2.properties",
+                "seatunnel-env.sh",
                 "hazelcast-master.yaml",
                 "hazelcast-worker.yaml",
                 "jvm_master_options",
@@ -5434,6 +5721,7 @@
                 "ConfigTypeHazelcastClient",
                 "ConfigTypeJVMOptions",
                 "ConfigTypeLog4j2",
+                "ConfigTypeSeatunnelEnv",
                 "ConfigTypeHazelcastMaster",
                 "ConfigTypeHazelcastWorker",
                 "ConfigTypeJVMMasterOptions",
@@ -5568,6 +5856,10 @@
         "github_com_LeonYoah_stx_internal_apps_installer.CheckpointConfig": {
             "type": "object",
             "properties": {
+                "disable_cache": {
+                    "description": "DisableCache 对应 plugin-config.disable.cache；nil 表示沿用默认（hdfs 类型默认关闭缓存）。\nDisableCache maps to plugin-config.disable.cache; nil keeps the default (cache off for hdfs type).",
+                    "type": "boolean"
+                },
                 "hdfs_failover_proxy_provider": {
                     "type": "string"
                 },
@@ -5593,6 +5885,10 @@
                 "hdfs_namenode_rpc_address_2": {
                     "type": "string"
                 },
+                "hdfs_site_path": {
+                    "description": "HdfsSitePath 是可选的 hdfs-site.xml 路径，对应 SeaTunnel hdfs_site_path。\nHdfsSitePath is the optional hdfs-site.xml path, mapped to SeaTunnel hdfs_site_path.",
+                    "type": "string"
+                },
                 "kerberos_keytab_file_path": {
                     "type": "string"
                 },
@@ -5601,6 +5897,10 @@
                     "type": "string"
                 },
                 "namespace": {
+                    "type": "string"
+                },
+                "s3_credentials_provider": {
+                    "description": "S3CredentialsProvider 对应 fs.s3a.aws.credentials.provider；空则使用 SimpleAWSCredentialsProvider。\nS3CredentialsProvider maps to fs.s3a.aws.credentials.provider; empty uses SimpleAWSCredentialsProvider.",
                     "type": "string"
                 },
                 "storage_access_key": {
@@ -5684,6 +5984,10 @@
         "github_com_LeonYoah_stx_internal_apps_installer.IMAPConfig": {
             "type": "object",
             "properties": {
+                "disable_cache": {
+                    "description": "DisableCache 对应 plugin-config.disable.cache；nil 表示沿用默认。\nDisableCache maps to plugin-config.disable.cache; nil keeps the default.",
+                    "type": "boolean"
+                },
                 "hdfs_failover_proxy_provider": {
                     "type": "string"
                 },
@@ -5710,6 +6014,10 @@
                 "hdfs_namenode_rpc_address_2": {
                     "type": "string"
                 },
+                "hdfs_site_path": {
+                    "description": "HdfsSitePath 是可选的 hdfs-site.xml 路径，对应 SeaTunnel hdfs_site_path。\nHdfsSitePath is the optional hdfs-site.xml path, mapped to SeaTunnel hdfs_site_path.",
+                    "type": "string"
+                },
                 "kerberos_keytab_file_path": {
                     "type": "string"
                 },
@@ -5718,6 +6026,10 @@
                     "type": "string"
                 },
                 "namespace": {
+                    "type": "string"
+                },
+                "s3_credentials_provider": {
+                    "description": "S3CredentialsProvider 对应 fs.s3a.aws.credentials.provider；空则使用 SimpleAWSCredentialsProvider。\nS3CredentialsProvider maps to fs.s3a.aws.credentials.provider; empty uses SimpleAWSCredentialsProvider.",
                     "type": "string"
                 },
                 "storage_access_key": {
@@ -5840,6 +6152,10 @@
                 },
                 "install_mode": {
                     "$ref": "#/definitions/github_com_LeonYoah_stx_internal_apps_installer.InstallMode"
+                },
+                "java_proxy_port": {
+                    "description": "Managed stx-java-proxy listen port / 托管 stx-java-proxy 监听端口",
+                    "type": "integer"
                 },
                 "job_log_mode": {
                     "$ref": "#/definitions/github_com_LeonYoah_stx_internal_apps_installer.JobLogMode"
@@ -6006,10 +6322,37 @@
                 "file_size": {
                     "type": "integer"
                 },
+                "has_source": {
+                    "type": "boolean"
+                },
                 "is_local": {
                     "type": "boolean"
                 },
                 "local_path": {
+                    "type": "string"
+                },
+                "source_checksum": {
+                    "type": "string"
+                },
+                "source_download_urls": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "source_error": {
+                    "type": "string"
+                },
+                "source_file_name": {
+                    "type": "string"
+                },
+                "source_file_size": {
+                    "type": "integer"
+                },
+                "source_status": {
+                    "$ref": "#/definitions/installer.DownloadStatus"
+                },
+                "source_uploaded_at": {
                     "type": "string"
                 },
                 "uploaded_at": {
@@ -6456,6 +6799,9 @@
                 },
                 "version": {
                     "type": "string"
+                },
+                "with_source": {
+                    "type": "boolean"
                 }
             }
         },
@@ -6475,6 +6821,7 @@
             "enum": [
                 "pending",
                 "downloading",
+                "cancelling",
                 "completed",
                 "failed",
                 "cancelled"
@@ -6482,6 +6829,7 @@
             "x-enum-varnames": [
                 "DownloadStatusPending",
                 "DownloadStatusDownloading",
+                "DownloadStatusCancelling",
                 "DownloadStatusCompleted",
                 "DownloadStatusFailed",
                 "DownloadStatusCancelled"
@@ -6502,6 +6850,9 @@
                 "error": {
                     "type": "string"
                 },
+                "execution_id": {
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -6514,6 +6865,30 @@
                 "progress": {
                     "description": "0-100",
                     "type": "integer"
+                },
+                "source_checksum": {
+                    "type": "string"
+                },
+                "source_downloaded_bytes": {
+                    "type": "integer"
+                },
+                "source_error": {
+                    "type": "string"
+                },
+                "source_progress": {
+                    "type": "integer"
+                },
+                "source_requested": {
+                    "type": "boolean"
+                },
+                "source_status": {
+                    "$ref": "#/definitions/installer.DownloadStatus"
+                },
+                "source_total_bytes": {
+                    "type": "integer"
+                },
+                "source_url": {
+                    "type": "string"
                 },
                 "speed": {
                     "description": "bytes per second",
@@ -6669,6 +7044,14 @@
                 "SlotAllocationStrategySlotRatio"
             ]
         },
+        "installer.SourceFetchRequest": {
+            "type": "object",
+            "properties": {
+                "mirror": {
+                    "$ref": "#/definitions/github_com_LeonYoah_stx_internal_apps_installer.MirrorSource"
+                }
+            }
+        },
         "installer.UploadChunkResponse": {
             "type": "object",
             "properties": {
@@ -6801,6 +7184,52 @@
                     "type": "string"
                 }
             }
+        },
+        "operation.ImpactSpec": {
+            "type": "object",
+            "properties": {
+                "level": {
+                    "$ref": "#/definitions/operation.RiskLevel"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "performance": {
+                    "type": "string"
+                }
+            }
+        },
+        "operation.OperationMode": {
+            "type": "string",
+            "enum": [
+                "normal",
+                "watch",
+                "download",
+                "server_only",
+                "proxy"
+            ],
+            "x-enum-varnames": [
+                "ModeNormal",
+                "ModeWatch",
+                "ModeDownload",
+                "ModeServerOnly",
+                "ModeProxy"
+            ]
+        },
+        "operation.RiskLevel": {
+            "type": "string",
+            "enum": [
+                "R0",
+                "R1",
+                "R2",
+                "R3"
+            ],
+            "x-enum-varnames": [
+                "RiskR0",
+                "RiskR1",
+                "RiskR2",
+                "RiskR3"
+            ]
         },
         "plugin.AddDependencyRequest": {
             "type": "object",
@@ -7790,208 +8219,59 @@
                 }
             }
         },
-        "task.CreateTaskRequest": {
-            "type": "object",
-            "required": [
-                "host_id",
-                "type"
-            ],
-            "properties": {
-                "host_id": {
-                    "description": "HostID is the target host ID\nHostID 是目标主机 ID",
-                    "type": "integer"
-                },
-                "params": {
-                    "description": "Params contains task-specific parameters\nParams 包含任务特定的参数",
-                    "type": "object",
-                    "additionalProperties": true
-                },
-                "timeout_seconds": {
-                    "description": "TimeoutSeconds is the task timeout in seconds\nTimeoutSeconds 是任务超时时间（秒）",
-                    "type": "integer"
-                },
-                "type": {
-                    "description": "Type is the task type\nType 是任务类型",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/task.TaskType"
-                        }
-                    ]
-                }
-            }
-        },
-        "task.Task": {
+        "sync.TaskPermissions": {
             "type": "object",
             "properties": {
-                "agent_id": {
-                    "description": "AgentID is the target agent ID\nAgentID 是目标 Agent ID",
-                    "type": "string"
-                },
-                "completed_at": {
-                    "description": "CompletedAt is when the task completed\nCompletedAt 是任务完成时间",
-                    "type": "string"
-                },
-                "created_at": {
-                    "description": "CreatedAt is when the task was created\nCreatedAt 是任务创建时间",
-                    "type": "string"
-                },
-                "created_by": {
-                    "description": "CreatedBy is the user who created the task\nCreatedBy 是创建任务的用户",
-                    "type": "string"
-                },
-                "error": {
-                    "description": "Error is the error message if failed\nError 是失败时的错误消息",
-                    "type": "string"
-                },
-                "host_id": {
-                    "description": "HostID is the target host ID\nHostID 是目标主机 ID",
-                    "type": "integer"
-                },
-                "id": {
-                    "description": "ID is the unique task identifier\nID 是唯一的任务标识符",
-                    "type": "string"
-                },
-                "max_retries": {
-                    "description": "MaxRetries is the maximum number of retries\nMaxRetries 是最大重试次数",
-                    "type": "integer"
-                },
-                "message": {
-                    "description": "Message is the current status message\nMessage 是当前状态消息",
-                    "type": "string"
-                },
-                "params": {
-                    "description": "Params contains task-specific parameters\nParams 包含任务特定的参数",
-                    "type": "object",
-                    "additionalProperties": true
-                },
-                "progress": {
-                    "description": "Progress is the task progress (0-100)\nProgress 是任务进度（0-100）",
-                    "type": "integer"
-                },
-                "result": {
-                    "description": "Result contains task execution result\nResult 包含任务执行结果",
-                    "type": "object",
-                    "additionalProperties": true
-                },
-                "retry_count": {
-                    "description": "RetryCount is the number of retry attempts\nRetryCount 是重试次数",
-                    "type": "integer"
-                },
-                "retryable": {
-                    "description": "Retryable indicates if the task can be retried\nRetryable 表示任务是否可重试",
+                "can_edit": {
                     "type": "boolean"
                 },
-                "started_at": {
-                    "description": "StartedAt is when the task started executing\nStartedAt 是任务开始执行时间",
-                    "type": "string"
+                "can_manage": {
+                    "type": "boolean"
                 },
-                "status": {
-                    "description": "Status is the current task status\nStatus 是当前任务状态",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/task.TaskStatus"
-                        }
-                    ]
-                },
-                "timeout_seconds": {
-                    "description": "TimeoutSeconds is the task timeout in seconds (0 means no timeout)\nTimeoutSeconds 是任务超时时间（秒），0 表示无超时",
-                    "type": "integer"
-                },
-                "type": {
-                    "description": "Type is the task type\nType 是任务类型",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/task.TaskType"
-                        }
-                    ]
-                }
-            }
-        },
-        "task.TaskListAPIResponse": {
-            "type": "object",
-            "properties": {
-                "data": {
-                    "$ref": "#/definitions/task.TaskListResponse"
-                },
-                "error_msg": {
-                    "type": "string"
-                }
-            }
-        },
-        "task.TaskListResponse": {
-            "type": "object",
-            "properties": {
-                "tasks": {
-                    "description": "Tasks is the list of tasks\nTasks 是任务列表",
+                "collaborator_ids": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/task.Task"
+                        "type": "integer"
                     }
                 },
-                "total": {
-                    "description": "Total is the total number of tasks\nTotal 是任务总数",
+                "is_collaborator": {
+                    "type": "boolean"
+                },
+                "is_owner": {
+                    "type": "boolean"
+                },
+                "is_public": {
+                    "type": "boolean"
+                },
+                "task_id": {
                     "type": "integer"
                 }
             }
         },
-        "task.TaskResponse": {
+        "sync.TaskPermissionsResponse": {
             "type": "object",
             "properties": {
                 "data": {
-                    "$ref": "#/definitions/task.Task"
+                    "$ref": "#/definitions/sync.TaskPermissions"
                 },
                 "error_msg": {
                     "type": "string"
                 }
             }
         },
-        "task.TaskStatus": {
-            "type": "string",
-            "enum": [
-                "pending",
-                "running",
-                "success",
-                "failed",
-                "cancelled",
-                "timeout"
-            ],
-            "x-enum-varnames": [
-                "TaskStatusPending",
-                "TaskStatusRunning",
-                "TaskStatusSuccess",
-                "TaskStatusFailed",
-                "TaskStatusCancelled",
-                "TaskStatusTimeout"
-            ]
-        },
-        "task.TaskType": {
-            "type": "string",
-            "enum": [
-                "install",
-                "uninstall",
-                "upgrade",
-                "start",
-                "stop",
-                "restart",
-                "precheck",
-                "collect_logs",
-                "transfer_package",
-                "install_plugin",
-                "uninstall_plugin"
-            ],
-            "x-enum-varnames": [
-                "TaskTypeInstall",
-                "TaskTypeUninstall",
-                "TaskTypeUpgrade",
-                "TaskTypeStart",
-                "TaskTypeStop",
-                "TaskTypeRestart",
-                "TaskTypePrecheck",
-                "TaskTypeCollectLogs",
-                "TaskTypeTransferPackage",
-                "TaskTypeInstallPlugin",
-                "TaskTypeUninstallPlugin"
-            ]
+        "sync.UpdateTaskPermissionsRequest": {
+            "type": "object",
+            "properties": {
+                "collaborator_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "is_public": {
+                    "type": "boolean"
+                }
+            }
         }
     }
 }

@@ -166,6 +166,10 @@ type ManagedProcess struct {
 	// InstallDir 是安装目录
 	InstallDir string `json:"install_dir"`
 
+	// Role is the SeaTunnel node role used to isolate processes in the same install directory.
+	// Role 是 SeaTunnel 节点角色，用于隔离同一安装目录中的不同进程。
+	Role string `json:"role,omitempty"`
+
 	// LastError is the last error encountered
 	// LastError 是最后遇到的错误
 	LastError string `json:"last_error,omitempty"`
@@ -190,6 +194,7 @@ type ProcessInfo struct {
 	CPUUsage    float64       `json:"cpu_usage"`
 	MemoryUsage int64         `json:"memory_usage"`
 	InstallDir  string        `json:"install_dir"`
+	Role        string        `json:"role,omitempty"`
 	LastError   string        `json:"last_error,omitempty"`
 }
 
@@ -450,6 +455,7 @@ func (m *ProcessManager) notifyEvent(name string, event ProcessEvent, proc *Mana
 			CPUUsage:    proc.CPUUsage,
 			MemoryUsage: proc.MemoryUsage,
 			InstallDir:  proc.InstallDir,
+			Role:        proc.Role,
 			LastError:   proc.LastError,
 		}
 		handler(name, event, info)
@@ -493,6 +499,7 @@ func (m *ProcessManager) StartProcess(ctx context.Context, name string, params *
 		Name:       name,
 		Status:     StatusStarting,
 		InstallDir: params.InstallDir,
+		Role:       params.Role,
 	}
 	m.processes.Store(name, proc)
 
@@ -605,68 +612,8 @@ func (m *ProcessManager) StartProcess(ctx context.Context, name string, params *
 // findSeaTunnelProcess finds the SeaTunnel Java process by install dir and role
 // findSeaTunnelProcess 通过安装目录和角色查找 SeaTunnel Java 进程
 func findSeaTunnelProcess(installDir string, role string) (int, error) {
-	// SeaTunnel main class name / SeaTunnel 主类名
-	const appMain = "org.apache.seatunnel.core.starter.seatunnel.SeaTunnelServer"
-
-	// Determine if this is hybrid mode / 判断是否为混合模式
-	// Hybrid mode: empty, "hybrid", or "master/worker"
-	// 混合模式：空、"hybrid" 或 "master/worker"
-	isHybridMode := role == "" || role == "hybrid" || role == "master/worker"
-
-	// Use pgrep or ps to find the process
-	// 使用 pgrep 或 ps 查找进程
-	var cmd *exec.Cmd
-	if runtime.GOOS == "windows" {
-		// On Windows, use wmic / 在 Windows 上使用 wmic
-		cmd = exec.Command("wmic", "process", "where", fmt.Sprintf("CommandLine like '%%%s%%' and CommandLine like '%%SeaTunnel%%'", installDir), "get", "ProcessId")
-	} else {
-		// On Linux, use ps + grep to find the process more reliably
-		// 在 Linux 上使用 ps + grep 更可靠地查找进程
-		var grepCmd string
-		if isHybridMode {
-			// For hybrid mode, find processes without -r flag or with SEATUNNEL_HOME matching installDir
-			// 混合模式，查找没有 -r 参数的进程或 SEATUNNEL_HOME 匹配 installDir 的进程
-			grepCmd = fmt.Sprintf("ps -ef | grep '%s' | grep -v '\\-r master' | grep -v '\\-r worker' | grep -v grep | awk '{print $2}'", appMain)
-		} else {
-			// For separated mode, find processes with specific role
-			// 分离模式，查找特定角色的进程
-			grepCmd = fmt.Sprintf("ps -ef | grep '%s' | grep '\\-r %s' | grep -v grep | awk '{print $2}'", appMain, role)
-		}
-		cmd = exec.Command("/bin/bash", "-c", grepCmd)
-	}
-
-	output, err := cmd.Output()
-	if err != nil {
-		// If ps+grep fails, try pgrep as fallback / 如果 ps+grep 失败，尝试 pgrep 作为备用
-		if runtime.GOOS != "windows" {
-			pattern := installDir
-			if !isHybridMode {
-				pattern = fmt.Sprintf("seatunnel.*%s", role)
-			}
-			fallbackCmd := exec.Command("pgrep", "-f", pattern)
-			output, err = fallbackCmd.Output()
-			if err != nil {
-				return 0, err
-			}
-		} else {
-			return 0, err
-		}
-	}
-
-	// Parse the first PID / 解析第一个 PID
-	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" || line == "ProcessId" {
-			continue
-		}
-		pid, err := strconv.Atoi(line)
-		if err == nil && pid > 0 {
-			return pid, nil
-		}
-	}
-
-	return 0, fmt.Errorf("no SeaTunnel process found / 未找到 SeaTunnel 进程")
+	pid, _, err := FindSeaTunnelProcess(context.Background(), installDir, role)
+	return pid, err
 }
 
 // monitorProcess monitors a process and updates status when it exits
@@ -701,70 +648,48 @@ func (m *ProcessManager) monitorProcess(name string, proc *ManagedProcess) {
 // Requirements 6.2: Send SIGTERM, wait for graceful shutdown (max 30s), send SIGKILL if timeout
 // 需求 6.2：发送 SIGTERM 信号、等待进程优雅关闭（最长 30 秒）、若超时则发送 SIGKILL
 func (m *ProcessManager) StopProcess(ctx context.Context, name string, params *StopParams) error {
-	const appMain = "org.apache.seatunnel.core.starter.seatunnel.SeaTunnelServer"
-
 	// Set timeout / 设置超时
 	timeout := m.gracefulTimeout
 	if params != nil && params.Timeout > 0 {
 		timeout = params.Timeout
 	}
 
-	// Find SeaTunnel processes by role using ps command
-	// 使用 ps 命令根据角色查找 SeaTunnel 进程
+	// Resolve the exact install directory and role before scanning processes.
+	// 扫描进程前先确定准确的安装目录和角色。
+	installDir := ""
 	role := ""
 	if params != nil {
+		installDir = strings.TrimSpace(params.InstallDir)
 		role = params.Role
 	}
-
-	// Determine if this is hybrid mode / 判断是否为混合模式
-	// Hybrid mode: empty, "hybrid", or "master/worker"
-	// 混合模式：空、"hybrid" 或 "master/worker"
-	isHybridMode := role == "" || role == "hybrid" || role == "master/worker"
-
-	var grepCmd string
-	if isHybridMode {
-		// For hybrid mode, find processes without -r flag / 混合模式，查找没有 -r 参数的进程
-		grepCmd = fmt.Sprintf("ps -ef | grep '%s' | grep -v '\\-r master' | grep -v '\\-r worker' | grep -v grep | awk '{print $2}'", appMain)
-	} else {
-		// For separated mode, find processes with specific role / 分离模式，查找特定角色的进程
-		grepCmd = fmt.Sprintf("ps -ef | grep '%s' | grep '\\-r %s' | grep -v grep | awk '{print $2}'", appMain, role)
-	}
-
-	// Execute ps command to find PIDs / 执行 ps 命令查找 PID
-	var pids []int
-	if runtime.GOOS != "windows" {
-		cmd := exec.CommandContext(ctx, "/bin/bash", "-c", grepCmd)
-		output, _ := cmd.Output()
-		pidStrs := strings.Fields(strings.TrimSpace(string(output)))
-		for _, pidStr := range pidStrs {
-			if pid, err := strconv.Atoi(pidStr); err == nil {
-				pids = append(pids, pid)
-			}
-		}
-	}
-
-	// Also check tracked process / 同时检查跟踪的进程
 	if value, ok := m.processes.Load(name); ok {
 		proc := value.(*ManagedProcess)
 		proc.mu.RLock()
-		if proc.PID > 0 && proc.Status == StatusRunning {
-			// Add tracked PID if not already in list / 如果不在列表中则添加跟踪的 PID
-			found := false
-			for _, p := range pids {
-				if p == proc.PID {
-					found = true
-					break
-				}
-			}
-			if !found {
-				pids = append(pids, proc.PID)
-			}
+		if installDir == "" {
+			installDir = strings.TrimSpace(proc.InstallDir)
+		}
+		if strings.TrimSpace(role) == "" {
+			role = proc.Role
 		}
 		proc.mu.RUnlock()
 	}
+	if installDir == "" {
+		return ErrInvalidInstallDir
+	}
+
+	processes, err := listSeaTunnelProcesses(ctx)
+	if err != nil {
+		return fmt.Errorf("%w: failed to inspect SeaTunnel processes: %v", ErrStopFailed, err)
+	}
+	pids := make([]int, 0)
+	for _, proc := range processes {
+		if matchesManagedSeaTunnelProcess(proc.CommandLine, installDir, role) {
+			pids = append(pids, proc.PID)
+		}
+	}
 
 	if len(pids) == 0 {
-		logger.InfoF(ctx, "No SeaTunnel process found for role '%s' / 未找到角色 '%s' 的 SeaTunnel 进程", role, role)
+		logger.InfoF(ctx, "No SeaTunnel process found for install dir '%s' and role '%s' / 未找到安装目录 '%s'、角色 '%s' 的 SeaTunnel 进程", installDir, role, installDir, role)
 		// Update tracked process status / 更新跟踪的进程状态
 		if value, ok := m.processes.Load(name); ok {
 			proc := value.(*ManagedProcess)
@@ -817,7 +742,7 @@ func (m *ProcessManager) StopProcess(ctx context.Context, name string, params *S
 		m.notifyEvent(name, EventStopped, proc)
 	}
 
-	logger.InfoF(ctx, "Stopped %d SeaTunnel process(es) for role '%s' / 停止了 %d 个角色 '%s' 的 SeaTunnel 进程", len(pids), role, len(pids), role)
+	logger.InfoF(ctx, "Stopped %d SeaTunnel process(es) for install dir '%s' and role '%s' / 停止了 %d 个安装目录 '%s'、角色 '%s' 的 SeaTunnel 进程", len(pids), installDir, role, len(pids), installDir, role)
 	return nil
 }
 
@@ -826,8 +751,11 @@ func (m *ProcessManager) StopProcess(ctx context.Context, name string, params *S
 // Requirements 6.3: Stop first, wait for complete exit, then start
 // 需求 6.3：先执行停止操作、等待进程完全退出、再执行启动操作
 func (m *ProcessManager) RestartProcess(ctx context.Context, name string, startParams *StartParams, stopParams *StopParams) error {
-	// Always try to stop first / 始终先尝试停止
-	_ = m.StopProcess(ctx, name, stopParams)
+	// Always stop the exact managed process before starting it again.
+	// 重启前先准确停止对应的受管进程。
+	if err := m.StopProcess(ctx, name, stopParams); err != nil {
+		return err
+	}
 	// Wait for process to fully exit / 等待进程完全退出
 	time.Sleep(3 * time.Second)
 
@@ -871,6 +799,7 @@ func (m *ProcessManager) GetStatus(ctx context.Context, name string) (*ProcessIn
 		CPUUsage:    proc.CPUUsage,
 		MemoryUsage: proc.MemoryUsage,
 		InstallDir:  proc.InstallDir,
+		Role:        proc.Role,
 		LastError:   proc.LastError,
 	}, nil
 }
@@ -892,6 +821,7 @@ func (m *ProcessManager) ListProcesses() []*ProcessInfo {
 			CPUUsage:    proc.CPUUsage,
 			MemoryUsage: proc.MemoryUsage,
 			InstallDir:  proc.InstallDir,
+			Role:        proc.Role,
 			LastError:   proc.LastError,
 		}
 		proc.mu.RUnlock()
@@ -937,7 +867,7 @@ func (m *ProcessManager) StopAll(ctx context.Context) error {
 		proc.mu.RUnlock()
 
 		if status == StatusRunning {
-			if err := m.StopProcess(ctx, name, &StopParams{Graceful: true}); err != nil {
+			if err := m.StopProcess(ctx, name, &StopParams{Graceful: true, InstallDir: proc.InstallDir, Role: proc.Role}); err != nil {
 				lastErr = err
 			}
 		}

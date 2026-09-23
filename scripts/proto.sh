@@ -20,6 +20,8 @@ if ! command -v protoc &> /dev/null; then
     exit 1
 fi
 
+export PATH="${PATH}:$(go env GOPATH)/bin"
+
 # Check if protoc-gen-go is installed
 if ! command -v protoc-gen-go &> /dev/null; then
     echo "Installing protoc-gen-go..."
@@ -32,8 +34,18 @@ if ! command -v protoc-gen-go-grpc &> /dev/null; then
     go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 fi
 
-# Generate Go code for agent proto
-echo "Generating agent proto..."
+# Generate Go code for internal/proto/agent
+echo "Generating internal/proto/agent proto..."
+protoc \
+    --proto_path=. \
+    --go_out=. \
+    --go_opt=paths=source_relative \
+    --go-grpc_out=. \
+    --go-grpc_opt=paths=source_relative \
+    "${AGENT_PROTO_DIR}/agent.proto"
+
+# Generate Go code for agent module
+echo "Generating agent module proto..."
 protoc \
     --proto_path="${PROTO_DIR}" \
     --go_out=. \

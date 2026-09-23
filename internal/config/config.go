@@ -19,7 +19,6 @@ package config
 
 import (
 	"fmt"
-	"log"
 	"net/url"
 	"os"
 	"strconv"
@@ -28,50 +27,63 @@ import (
 	"github.com/spf13/viper"
 )
 
-var Config *configModel
+var (
+	Config          *configModel
+	serverConfigErr error
+)
 
 func init() {
-	// 加载配置文件路径
+	Config, serverConfigErr = loadConfig()
+}
+
+// ServerConfigError 返回服务端配置加载或校验错误，CLI 本地命令不受该错误影响。
+// ServerConfigError returns the server configuration loading or validation error without blocking local CLI commands.
+func ServerConfigError() error {
+	return serverConfigErr
+}
+
+// loadConfig 加载服务端配置；失败时返回可供本地 CLI 使用的安全默认配置。
+// loadConfig loads server configuration and returns safe defaults for local CLI usage on failure.
+func loadConfig() (*configModel, error) {
+	// 加载配置文件路径。/ Load the configuration file path.
 	configPath := os.Getenv("CONFIG_PATH")
 	if configPath == "" {
 		configPath = "config.yaml"
 	}
 
-	// 设置配置文件
-	viper.SetConfigFile(configPath)
-	viper.AutomaticEnv()
+	loader := viper.New()
+	loader.SetConfigFile(configPath)
+	loader.AutomaticEnv()
 
-	// 读取配置文件
-	if err := viper.ReadInConfig(); err != nil {
-		// 在测试环境中，如果配置文件不存在，使用默认配置
-		if os.Getenv("GO_TEST") == "1" || isTestEnvironment() {
-			log.Printf("[Config] 测试环境，使用默认配置: %v\n", err)
-			Config = &configModel{}
-			setDefaults(Config)
-			applyEnvironmentOverrides(Config)
-			return
-		}
-		log.Fatalf("[Config] read config failed: %v\n", err)
+	// 本地 CLI 必须能在没有服务端配置文件时运行，因此保留错误并返回默认配置。
+	// Local CLI commands must work without a server config file, so preserve the error and return defaults.
+	if err := loader.ReadInConfig(); err != nil {
+		fallback := &configModel{}
+		setDefaults(fallback, false)
+		applyEnvironmentOverrides(fallback)
+		return fallback, fmt.Errorf("read server config %q: %w", configPath, err)
 	}
 
-	// 解析配置到结构体
+	// 解析配置到结构体。/ Decode the configuration into the model.
 	var c configModel
-	if err := viper.Unmarshal(&c); err != nil {
-		log.Fatalf("[Config] parse config failed: %v\n", err)
+	if err := loader.Unmarshal(&c); err != nil {
+		fallback := &configModel{}
+		setDefaults(fallback, false)
+		applyEnvironmentOverrides(fallback)
+		return fallback, fmt.Errorf("parse server config %q: %w", configPath, err)
 	}
 
-	// 设置默认值
-	setDefaults(&c)
+	// 设置默认值并应用环境变量。/ Apply defaults and environment overrides.
+	setDefaults(&c, loader.IsSet("observability.enabled"))
 	applyEnvironmentOverrides(&c)
 
 	if os.Getenv("GO_TEST") != "1" && !isTestEnvironment() {
 		if err := validateConfig(&c); err != nil {
-			log.Fatalf("[Config] validate config failed: %v\n", err)
+			return &c, fmt.Errorf("validate server config %q: %w", configPath, err)
 		}
 	}
 
-	// 设置全局配置
-	Config = &c
+	return &c, nil
 }
 
 // applyEnvironmentOverrides 从环境变量覆盖关键配置（便于容器化与 E2E 测试环境动态切换）
@@ -118,8 +130,9 @@ func isTestEnvironment() bool {
 	return false
 }
 
-// setDefaults 设置配置默认值
-func setDefaults(c *configModel) {
+// setDefaults 设置配置默认值，并保留用户显式设置的可观测性开关。
+// setDefaults applies defaults while preserving an explicitly configured observability switch.
+func setDefaults(c *configModel, observabilityEnabledSet bool) {
 	// 数据库默认配置
 	if c.Database.Type == "" {
 		c.Database.Type = "sqlite"
@@ -156,7 +169,7 @@ func setDefaults(c *configModel) {
 
 	// gRPC 默认配置
 	if c.GRPC.Port == 0 {
-		c.GRPC.Port = 9000
+		c.GRPC.Port = 17890
 	}
 	if c.GRPC.MaxRecvMsgSize == 0 {
 		c.GRPC.MaxRecvMsgSize = 16 // 16MB
@@ -209,7 +222,7 @@ func setDefaults(c *configModel) {
 	}
 
 	// 默认启用可观测中心（仅在用户未显式配置时）
-	if !viper.IsSet("observability.enabled") {
+	if !observabilityEnabledSet {
 		c.Observability.Enabled = true
 	}
 
@@ -372,5 +385,5 @@ func GetGRPCPort() int {
 	if Config.GRPC.Port > 0 {
 		return Config.GRPC.Port
 	}
-	return 9000
+	return 17890
 }

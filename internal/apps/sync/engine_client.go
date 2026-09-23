@@ -70,6 +70,8 @@ type EngineSubmitResponse struct {
 	JobName         string `json:"jobName"`
 	APIMode         string `json:"apiMode,omitempty"`
 	EndpointBaseURL string `json:"endpointBaseUrl,omitempty"`
+	EngineURL       string `json:"engineUrl,omitempty"`
+	EngineMethod    string `json:"engineMethod,omitempty"`
 }
 
 // EngineJobInfo describes job-info response subset used by sync studio.
@@ -215,6 +217,8 @@ func (c *SeaTunnelEngineClient) Submit(ctx context.Context, req *EngineSubmitReq
 	}
 	result.APIMode = "v2"
 	result.EndpointBaseURL = strings.TrimSpace(req.Endpoint.BaseURL)
+	result.EngineURL = targetURL
+	result.EngineMethod = http.MethodPost
 	return &result, nil
 }
 
@@ -511,6 +515,8 @@ func (c *SeaTunnelEngineClient) submitV1(ctx context.Context, req *EngineSubmitR
 	}
 	result.APIMode = "v1"
 	result.EndpointBaseURL = strings.TrimSpace(req.Endpoint.LegacyURL)
+	result.EngineURL = targetURL
+	result.EngineMethod = http.MethodPost
 	return &result, nil
 }
 
@@ -759,19 +765,25 @@ func normalizeSubmitFormat(format string) string {
 }
 
 func normalizeJobStatus(status string) JobStatus {
-	switch strings.ToUpper(strings.TrimSpace(status)) {
+	trimmed := strings.ToUpper(strings.TrimSpace(status))
+	if trimmed == "" {
+		return JobStatusFailed
+	}
+	switch trimmed {
 	case "RUNNING":
 		return JobStatusRunning
 	case "DOING_SAVEPOINT":
 		return JobStatusRunning
 	case "SAVEPOINT_DONE":
-		return JobStatusSuccess
+		return JobStatusCanceled
 	case "FINISHED", "SUCCESS":
 		return JobStatusSuccess
 	case "FAILING", "FAILED":
 		return JobStatusFailed
-	case "CANCELED", "CANCELLED", "CANCELING":
+	case "CANCELED", "CANCELLED":
 		return JobStatusCanceled
+	case "CANCELING", "CANCELLING", "CANCEL_REQUESTED":
+		return JobStatusCancelling
 	case "CREATED", "STARTING", "SCHEDULED", "SUBMITTED", "PENDING":
 		return JobStatusPending
 	default:

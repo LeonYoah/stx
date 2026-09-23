@@ -21,10 +21,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
@@ -901,6 +903,70 @@ func TestGlobalVariableSecretMaskingAndResolution(t *testing.T) {
 	}
 }
 
+func TestGlobalVariablePermissions(t *testing.T) {
+	service := newTestSyncService(t)
+	ctx := context.Background()
+
+	user1Actor := executionapp.Actor{UserID: 101, IsAdmin: false}
+	user2Actor := executionapp.Actor{UserID: 102, IsAdmin: false}
+	adminActor := executionapp.Actor{UserID: 1, IsAdmin: true}
+
+	// 1. 普通用户 101 创建变量
+	created, err := service.CreateGlobalVariable(ctx, &CreateGlobalVariableRequest{
+		Key:         "user101_var",
+		Value:       "val101",
+		ValueType:   GlobalVariableTypeString,
+		Description: "created by user 101",
+	}, 101)
+	if err != nil {
+		t.Fatalf("user 101 create global variable failed: %v", err)
+	}
+
+	// 2. 普通用户 102 尝试修改用户 101 的变量，应拒绝 ErrGlobalVariablePermissionDenied
+	_, err = service.UpdateGlobalVariableForActor(ctx, user2Actor, created.ID, &UpdateGlobalVariableRequest{
+		Key:   "user101_var",
+		Value: "hacked",
+	})
+	if !errors.Is(err, ErrGlobalVariablePermissionDenied) {
+		t.Fatalf("expected ErrGlobalVariablePermissionDenied for other user, got: %v", err)
+	}
+
+	// 3. 普通用户 102 尝试删除用户 101 的变量，应拒绝 ErrGlobalVariablePermissionDenied
+	err = service.DeleteGlobalVariableForActor(ctx, user2Actor, created.ID)
+	if !errors.Is(err, ErrGlobalVariablePermissionDenied) {
+		t.Fatalf("expected ErrGlobalVariablePermissionDenied for delete by other user, got: %v", err)
+	}
+
+	// 4. 创建者 101 修改自己的变量，应成功
+	updated, err := service.UpdateGlobalVariableForActor(ctx, user1Actor, created.ID, &UpdateGlobalVariableRequest{
+		Key:   "user101_var",
+		Value: "val101_updated",
+	})
+	if err != nil {
+		t.Fatalf("creator 101 update own variable failed: %v", err)
+	}
+	if updated.Value != "val101_updated" {
+		t.Fatalf("expected updated value val101_updated, got %s", updated.Value)
+	}
+
+	// 5. 管理员可以修改任何人的变量
+	adminUpdated, err := service.UpdateGlobalVariableForActor(ctx, adminActor, created.ID, &UpdateGlobalVariableRequest{
+		Key:   "user101_var",
+		Value: "val101_admin_override",
+	})
+	if err != nil {
+		t.Fatalf("admin update variable failed: %v", err)
+	}
+	if adminUpdated.Value != "val101_admin_override" {
+		t.Fatalf("expected admin override value, got %s", adminUpdated.Value)
+	}
+
+	// 6. 管理员删除变量
+	if err := service.DeleteGlobalVariableForActor(ctx, adminActor, created.ID); err != nil {
+		t.Fatalf("admin delete variable failed: %v", err)
+	}
+}
+
 func TestCreateTaskRejectsReservedCustomVariableKey(t *testing.T) {
 	service := newTestSyncService(t)
 	ctx := context.Background()
@@ -1165,6 +1231,7 @@ func TestCollectPreviewAppendsRowsIntoPreviewSession(t *testing.T) {
 
 func TestCollectPreviewStopsAtRowLimit(t *testing.T) {
 	service := newTestSyncService(t)
+	service.engineClient = &stubEngineClient{info: &EngineJobInfo{JobID: "preview-2", JobStatus: "CANCELED"}}
 	ctx := context.Background()
 	now := time.Now()
 	instance := &JobInstance{
@@ -1174,7 +1241,7 @@ func TestCollectPreviewStopsAtRowLimit(t *testing.T) {
 		Status:        JobStatusRunning,
 		PlatformJobID: "preview-2",
 		EngineJobID:   "preview-2",
-		SubmitSpec:    JSONMap{},
+		SubmitSpec:    JSONMap{"engine_base_url": "http://127.0.0.1:8080"},
 		ResultPreview: JSONMap{},
 		StartedAt:     &now,
 		CreatedBy:     1,
@@ -1481,7 +1548,9 @@ func TestSubmitScheduledTaskUsesPublishedVersionSnapshot(t *testing.T) {
 }
 
 type stubEngineClient struct {
-	info *EngineJobInfo
+	info      *EngineJobInfo
+	stopErr   error
+	stopCalls int
 }
 
 func (s *stubEngineClient) Submit(ctx context.Context, req *EngineSubmitRequest) (*EngineSubmitResponse, error) {
@@ -1497,7 +1566,8 @@ func (s *stubEngineClient) GetJobCheckpointHistory(ctx context.Context, endpoint
 	return nil, nil
 }
 func (s *stubEngineClient) StopJob(ctx context.Context, endpoint *EngineEndpoint, jobID string, stopWithSavepoint bool) error {
-	return nil
+	s.stopCalls++
+	return s.stopErr
 }
 func (s *stubEngineClient) GetJobLogs(ctx context.Context, endpoint *EngineEndpoint, jobID string) (string, error) {
 	return "", nil
@@ -1542,6 +1612,365 @@ func TestRefreshJobInstanceUsesEngineFinishedTime(t *testing.T) {
 	}
 }
 
+func TestGetPreviewSnapshotKeepsTerminalStateWhenEngineReturnsStaleRunningStatus(t *testing.T) {
+	service := newTestSyncService(t)
+	if err := service.repo.db.AutoMigrate(&executionapp.Execution{}, &executionapp.Confirmation{}); err != nil {
+		t.Fatalf("迁移公共执行表失败: %v", err)
+	}
+	executionService := executionapp.NewService(executionapp.NewRepository(service.repo.db), executionapp.NewProviderRegistry())
+	service.SetExecutionService(executionService)
+	service.engineClient = &stubEngineClient{info: &EngineJobInfo{JobID: "preview-terminal", JobStatus: "RUNNING"}}
+	ctx := context.Background()
+	execution, _, err := executionService.Create(ctx, executionapp.CreateInput{
+		OperationID: "sync.task.preview",
+		OwnerUserID: 1,
+		ActorType:   executionapp.ActorTypeUser,
+		Module:      syncExecutionModule,
+		Status:      executionapp.StatusCancelled,
+		Cancellable: false,
+	})
+	if err != nil {
+		t.Fatalf("创建公共执行记录失败: %v", err)
+	}
+	finishedAt := time.Now()
+	job := &JobInstance{
+		TaskID:        1,
+		TaskVersion:   1,
+		RunType:       RunTypePreview,
+		Status:        JobStatusCanceled,
+		PlatformJobID: "preview-terminal",
+		EngineJobID:   "preview-terminal",
+		ExecutionID:   execution.ExecutionID,
+		SubmitSpec:    JSONMap{"engine_base_url": "http://127.0.0.1:8080"},
+		ResultPreview: JSONMap{"job_status": "CANCEL_REQUESTED"},
+		FinishedAt:    &finishedAt,
+		CreatedBy:     1,
+	}
+	if err := service.repo.CreateJobInstance(ctx, job); err != nil {
+		t.Fatalf("创建预览作业失败: %v", err)
+	}
+	if err := executionService.BindModuleRef(ctx, execution.ExecutionID, strconv.FormatUint(uint64(job.ID), 10)); err != nil {
+		t.Fatalf("绑定公共执行记录失败: %v", err)
+	}
+
+	snapshot, err := service.GetPreviewSnapshot(ctx, job.ID, "")
+	if err != nil {
+		t.Fatalf("读取预览快照失败: %v", err)
+	}
+	if snapshot.Status != string(JobStatusCanceled) {
+		t.Fatalf("迟到的运行状态不应覆盖作业终态，实际为 %s", snapshot.Status)
+	}
+	storedExecution, err := executionService.Get(ctx, executionapp.Actor{UserID: 1}, execution.ExecutionID)
+	if err != nil {
+		t.Fatalf("读取公共执行记录失败: %v", err)
+	}
+	if storedExecution.Status != executionapp.StatusCancelled {
+		t.Fatalf("迟到的运行状态不应覆盖公共执行终态，实际为 %s", storedExecution.Status)
+	}
+}
+
+func TestGetPreviewSnapshotKeepsRunningStateWhenEngineReturnsCreated(t *testing.T) {
+	service := newTestSyncService(t)
+	if err := service.repo.db.AutoMigrate(&executionapp.Execution{}, &executionapp.Confirmation{}); err != nil {
+		t.Fatalf("迁移公共执行表失败: %v", err)
+	}
+	executionService := executionapp.NewService(executionapp.NewRepository(service.repo.db), executionapp.NewProviderRegistry())
+	service.SetExecutionService(executionService)
+	service.engineClient = &stubEngineClient{info: &EngineJobInfo{JobID: "preview-created", JobStatus: "CREATED"}}
+	ctx := context.Background()
+	execution, _, err := executionService.Create(ctx, executionapp.CreateInput{
+		OperationID: "sync.task.preview",
+		OwnerUserID: 1,
+		ActorType:   executionapp.ActorTypeUser,
+		Module:      syncExecutionModule,
+		Status:      executionapp.StatusRunning,
+		Cancellable: true,
+	})
+	if err != nil {
+		t.Fatalf("创建公共执行记录失败: %v", err)
+	}
+	job := &JobInstance{
+		TaskID:        1,
+		TaskVersion:   1,
+		RunType:       RunTypePreview,
+		Status:        JobStatusRunning,
+		PlatformJobID: "preview-created",
+		EngineJobID:   "preview-created",
+		ExecutionID:   execution.ExecutionID,
+		SubmitSpec:    JSONMap{"engine_base_url": "http://127.0.0.1:8080"},
+		ResultPreview: JSONMap{},
+		CreatedBy:     1,
+	}
+	if err := service.repo.CreateJobInstance(ctx, job); err != nil {
+		t.Fatalf("创建预览作业失败: %v", err)
+	}
+	if err := executionService.BindModuleRef(ctx, execution.ExecutionID, strconv.FormatUint(uint64(job.ID), 10)); err != nil {
+		t.Fatalf("绑定公共执行记录失败: %v", err)
+	}
+
+	snapshot, err := service.GetPreviewSnapshot(ctx, job.ID, "")
+	if err != nil {
+		t.Fatalf("CREATED 状态不应导致预览读取失败: %v", err)
+	}
+	if snapshot.Status != string(JobStatusRunning) {
+		t.Fatalf("CREATED 状态不应把运行中任务改回 pending，实际为 %s", snapshot.Status)
+	}
+	storedExecution, err := executionService.Get(ctx, executionapp.Actor{UserID: 1}, execution.ExecutionID)
+	if err != nil {
+		t.Fatalf("读取公共执行记录失败: %v", err)
+	}
+	if storedExecution.Status != executionapp.StatusRunning {
+		t.Fatalf("公共执行不应从 running 倒退，实际为 %s", storedExecution.Status)
+	}
+}
+
+func TestSyncExecutionFromJobIgnoresStaleStatusAfterTerminalState(t *testing.T) {
+	service := newTestSyncService(t)
+	if err := service.repo.db.AutoMigrate(&executionapp.Execution{}, &executionapp.Confirmation{}); err != nil {
+		t.Fatalf("迁移公共执行表失败: %v", err)
+	}
+	executionService := executionapp.NewService(executionapp.NewRepository(service.repo.db), executionapp.NewProviderRegistry())
+	service.SetExecutionService(executionService)
+	ctx := context.Background()
+	execution, _, err := executionService.Create(ctx, executionapp.CreateInput{
+		OperationID: "sync.task.preview",
+		OwnerUserID: 1,
+		ActorType:   executionapp.ActorTypeUser,
+		Module:      syncExecutionModule,
+		Status:      executionapp.StatusSucceeded,
+	})
+	if err != nil {
+		t.Fatalf("创建公共执行记录失败: %v", err)
+	}
+
+	err = service.syncExecutionFromJob(ctx, &JobInstance{
+		ID:          1,
+		Status:      JobStatusRunning,
+		ExecutionID: execution.ExecutionID,
+		CreatedBy:   1,
+	})
+	if err != nil {
+		t.Fatalf("迟到状态不应导致只读刷新失败: %v", err)
+	}
+	storedExecution, err := executionService.Get(ctx, executionapp.Actor{UserID: 1}, execution.ExecutionID)
+	if err != nil {
+		t.Fatalf("读取公共执行记录失败: %v", err)
+	}
+	if storedExecution.Status != executionapp.StatusSucceeded {
+		t.Fatalf("公共执行终态不应被迟到状态覆盖，实际为 %s", storedExecution.Status)
+	}
+}
+
+func TestSyncExecutionFromJobIgnoresStalePendingStatus(t *testing.T) {
+	service := newTestSyncService(t)
+	if err := service.repo.db.AutoMigrate(&executionapp.Execution{}, &executionapp.Confirmation{}); err != nil {
+		t.Fatalf("迁移公共执行表失败: %v", err)
+	}
+	executionService := executionapp.NewService(executionapp.NewRepository(service.repo.db), executionapp.NewProviderRegistry())
+	service.SetExecutionService(executionService)
+	ctx := context.Background()
+	execution, _, err := executionService.Create(ctx, executionapp.CreateInput{
+		OperationID: "sync.task.preview",
+		OwnerUserID: 1,
+		ActorType:   executionapp.ActorTypeUser,
+		Module:      syncExecutionModule,
+		Status:      executionapp.StatusRunning,
+	})
+	if err != nil {
+		t.Fatalf("创建公共执行记录失败: %v", err)
+	}
+
+	err = service.syncExecutionFromJob(ctx, &JobInstance{
+		ID:          1,
+		Status:      JobStatusPending,
+		ExecutionID: execution.ExecutionID,
+		CreatedBy:   1,
+	})
+	if err != nil {
+		t.Fatalf("迟到的 pending 状态不应导致只读刷新失败: %v", err)
+	}
+	storedExecution, err := executionService.Get(ctx, executionapp.Actor{UserID: 1}, execution.ExecutionID)
+	if err != nil {
+		t.Fatalf("读取公共执行记录失败: %v", err)
+	}
+	if storedExecution.Status != executionapp.StatusRunning {
+		t.Fatalf("公共执行不应从 running 倒退到 pending，实际为 %s", storedExecution.Status)
+	}
+}
+
+func TestCancelJobWaitsForEngineConfirmation(t *testing.T) {
+	service := newTestSyncService(t)
+	engine := &stubEngineClient{info: &EngineJobInfo{JobID: "engine-cancel-1", JobStatus: "RUNNING"}}
+	service.engineClient = engine
+	ctx := context.Background()
+	job := &JobInstance{
+		TaskID:        1,
+		TaskVersion:   1,
+		RunType:       RunTypeRun,
+		Status:        JobStatusRunning,
+		PlatformJobID: "platform-cancel-1",
+		EngineJobID:   "engine-cancel-1",
+		SubmitSpec:    JSONMap{"engine_base_url": "http://127.0.0.1:8080"},
+		ResultPreview: JSONMap{},
+		CreatedBy:     1,
+	}
+	if err := service.repo.CreateJobInstance(ctx, job); err != nil {
+		t.Fatalf("创建作业失败: %v", err)
+	}
+
+	cancelled, err := service.CancelJob(ctx, job.ID, false)
+	if err != nil {
+		t.Fatalf("请求取消失败: %v", err)
+	}
+	if cancelled.Status != JobStatusCancelling {
+		t.Fatalf("停止请求成功后应处于 cancelling，实际为 %s", cancelled.Status)
+	}
+	if engine.stopCalls != 1 {
+		t.Fatalf("停止接口调用次数错误: %d", engine.stopCalls)
+	}
+	if _, err := service.CancelJob(ctx, job.ID, false); err != nil {
+		t.Fatalf("重复取消应幂等: %v", err)
+	}
+	if engine.stopCalls != 1 {
+		t.Fatalf("重复取消不应再次调用停止接口: %d", engine.stopCalls)
+	}
+
+	refreshed, err := service.GetJob(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("刷新取消中作业失败: %v", err)
+	}
+	if refreshed.Status != JobStatusCancelling {
+		t.Fatalf("引擎仍运行时不能宣称已取消: %s", refreshed.Status)
+	}
+
+	engine.info = &EngineJobInfo{JobID: "engine-cancel-1", JobStatus: "CANCELED"}
+	refreshed, err = service.GetJob(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("读取引擎取消结果失败: %v", err)
+	}
+	if refreshed.Status != JobStatusCanceled {
+		t.Fatalf("引擎确认后应进入 canceled，实际为 %s", refreshed.Status)
+	}
+}
+
+func TestCancelJobFailureRestoresRunningStatus(t *testing.T) {
+	service := newTestSyncService(t)
+	service.engineClient = &stubEngineClient{stopErr: errors.New("stop unavailable")}
+	ctx := context.Background()
+	job := &JobInstance{
+		TaskID:        1,
+		TaskVersion:   1,
+		RunType:       RunTypeRun,
+		Status:        JobStatusRunning,
+		PlatformJobID: "platform-cancel-2",
+		EngineJobID:   "engine-cancel-2",
+		SubmitSpec:    JSONMap{"engine_base_url": "http://127.0.0.1:8080"},
+		ResultPreview: JSONMap{},
+		CreatedBy:     1,
+	}
+	if err := service.repo.CreateJobInstance(ctx, job); err != nil {
+		t.Fatalf("创建作业失败: %v", err)
+	}
+	if _, err := service.CancelJob(ctx, job.ID, false); err == nil {
+		t.Fatal("停止接口失败时应返回错误")
+	}
+	stored, err := service.repo.GetJobInstanceByID(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("读取作业失败: %v", err)
+	}
+	if stored.Status != JobStatusRunning {
+		t.Fatalf("停止失败后应恢复 running，实际为 %s", stored.Status)
+	}
+	if stored.ErrorMessage != "cancel request failed" {
+		t.Fatalf("停止失败摘要错误: %q", stored.ErrorMessage)
+	}
+}
+
+func TestJobOwnershipFiltersListAndDetail(t *testing.T) {
+	service := newTestSyncService(t)
+	ctx := context.Background()
+	for _, owner := range []uint{1, 2} {
+		job := &JobInstance{
+			TaskID:        owner,
+			TaskVersion:   1,
+			RunType:       RunTypeRun,
+			Status:        JobStatusRunning,
+			PlatformJobID: "platform-owner-" + strconv.FormatUint(uint64(owner), 10),
+			CreatedBy:     owner,
+		}
+		if err := service.repo.CreateJobInstance(ctx, job); err != nil {
+			t.Fatalf("创建用户 %d 的作业失败: %v", owner, err)
+		}
+	}
+
+	items, total, err := service.ListJobsForActor(ctx, executionapp.Actor{UserID: 1}, &JobFilter{Page: 1, Size: 10})
+	if err != nil {
+		t.Fatalf("按用户列出作业失败: %v", err)
+	}
+	if total != 1 || len(items) != 1 || items[0].CreatedBy != 1 {
+		t.Fatalf("普通用户看到了其他用户作业: total=%d items=%+v", total, items)
+	}
+	if _, err := service.GetJobForActor(ctx, executionapp.Actor{UserID: 1}, items[0].ID+1); !errors.Is(err, ErrJobInstanceNotFound) {
+		t.Fatalf("普通用户读取他人作业应返回未找到: %v", err)
+	}
+	adminItems, adminTotal, err := service.ListJobsForActor(ctx, executionapp.Actor{UserID: 9, IsAdmin: true}, &JobFilter{Page: 1, Size: 10})
+	if err != nil {
+		t.Fatalf("管理员列出全部作业失败: %v", err)
+	}
+	if adminTotal != 2 || len(adminItems) != 2 {
+		t.Fatalf("管理员应看到全部作业: total=%d len=%d", adminTotal, len(adminItems))
+	}
+}
+
+func TestRunWithExecutionReusesIdempotentJob(t *testing.T) {
+	service := newTestSyncService(t)
+	if err := service.repo.db.AutoMigrate(&executionapp.Execution{}, &executionapp.Confirmation{}); err != nil {
+		t.Fatalf("迁移公共执行表失败: %v", err)
+	}
+	executionRepo := executionapp.NewRepository(service.repo.db)
+	executionService := executionapp.NewService(executionRepo, executionapp.NewProviderRegistry())
+	service.SetExecutionService(executionService)
+	ctx := context.Background()
+	runCalls := 0
+	run := func(runCtx context.Context) (*JobInstance, error) {
+		runCalls++
+		job := &JobInstance{
+			TaskID:        1,
+			TaskVersion:   1,
+			RunType:       RunTypeRun,
+			Status:        JobStatusRunning,
+			PlatformJobID: "platform-idempotent",
+			CreatedBy:     1,
+		}
+		if err := service.repo.CreateJobInstance(runCtx, job); err != nil {
+			return nil, err
+		}
+		return job, nil
+	}
+	request := ExecutionRequest{RequestID: "request-1", IdempotencyKey: "same-key", RequestHash: "same-request"}
+	first, err := service.runWithExecution(ctx, 1, "sync.task.submit", executionapp.RiskLevelR1, request, run)
+	if err != nil {
+		t.Fatalf("首次执行失败: %v", err)
+	}
+	second, err := service.runWithExecution(ctx, 1, "sync.task.submit", executionapp.RiskLevelR1, request, run)
+	if err != nil {
+		t.Fatalf("幂等重试失败: %v", err)
+	}
+	if runCalls != 1 {
+		t.Fatalf("同一幂等键启动了多次实际任务: %d", runCalls)
+	}
+	if first.ID != second.ID || first.ExecutionID == "" || first.ExecutionID != second.ExecutionID {
+		t.Fatalf("幂等重试没有返回同一作业: first=%+v second=%+v", first, second)
+	}
+	item, err := executionService.Get(ctx, executionapp.Actor{UserID: 1}, first.ExecutionID)
+	if err != nil {
+		t.Fatalf("读取公共执行记录失败: %v", err)
+	}
+	if item.Status != executionapp.StatusRunning || item.ModuleRef != strconv.FormatUint(uint64(first.ID), 10) {
+		t.Fatalf("公共执行记录错误: %+v", item)
+	}
+}
+
 func TestEngineJobInfoUsesFinishTimeField(t *testing.T) {
 	var info EngineJobInfo
 	payload := []byte(`{"jobId":"1","jobStatus":"FINISHED","finishTime":"2026-03-29 16:18:59"}`)
@@ -1550,5 +1979,223 @@ func TestEngineJobInfoUsesFinishTimeField(t *testing.T) {
 	}
 	if info.FinishedTime != "2026-03-29 16:18:59" {
 		t.Fatalf("expected finishTime to populate FinishedTime, got %q", info.FinishedTime)
+	}
+}
+
+func TestTaskPermissionsAndRoles(t *testing.T) {
+	ctx := context.Background()
+	service := newTestSyncService(t)
+
+	// 1. Create a parent folder and a public task created by admin (userID 1)
+	folder, err := service.CreateTask(ctx, &CreateTaskRequest{
+		NodeType: string(TaskNodeTypeFolder),
+		Name:     "data_pipelines",
+	}, 1)
+	if err != nil {
+		t.Fatalf("创建目录失败: %v", err)
+	}
+
+	publicTask, err := service.CreateTask(ctx, &CreateTaskRequest{
+		ParentID:      &folder.ID,
+		NodeType:      string(TaskNodeTypeFile),
+		Name:          "public_sync.env",
+		Mode:          string(TaskModeBatch),
+		ContentFormat: string(ContentFormatHOCON),
+		Content:       "env { parallelism = 1 }",
+		Definition:    JSONMap{"is_public": true},
+	}, 1)
+	if err != nil {
+		t.Fatalf("创建公开任务失败: %v", err)
+	}
+
+	// 使用独立任务验证共享权限接口，避免改变后续角色权限场景的前置数据。
+	// Use a separate task for permission API coverage so later role assertions keep their fixture state.
+	permissionTask, err := service.CreateTask(ctx, &CreateTaskRequest{
+		ParentID:      &folder.ID,
+		NodeType:      string(TaskNodeTypeFile),
+		Name:          "permission_api.env",
+		Mode:          string(TaskModeBatch),
+		ContentFormat: string(ContentFormatHOCON),
+		Content:       "env { parallelism = 1 }",
+		Definition:    JSONMap{"is_public": true},
+	}, 1)
+	if err != nil {
+		t.Fatalf("创建权限接口测试任务失败: %v", err)
+	}
+
+	ownerPermissions, err := service.GetTaskPermissionsForActor(ctx, executionapp.Actor{UserID: 1}, permissionTask.ID)
+	if err != nil {
+		t.Fatalf("任务所有者读取权限失败: %v", err)
+	}
+	if !ownerPermissions.CanManage || !ownerPermissions.IsOwner || !ownerPermissions.IsPublic {
+		t.Fatalf("任务所有者权限结果错误: %+v", ownerPermissions)
+	}
+	if _, _, err := service.UpdateTaskPermissionsForActor(ctx, executionapp.Actor{UserID: 4}, permissionTask.ID, &UpdateTaskPermissionsRequest{IsPublic: func() *bool { value := false; return &value }()}); !errors.Is(err, ErrTaskPermissionDenied) {
+		t.Fatalf("非所有者修改共享权限应被拒绝，得到: %v", err)
+	}
+	beforePermissions, afterPermissions, err := service.UpdateTaskPermissionsForActor(ctx, executionapp.Actor{UserID: 1}, permissionTask.ID, &UpdateTaskPermissionsRequest{
+		IsPublic:        func() *bool { value := false; return &value }(),
+		CollaboratorIDs: []uint{4},
+	})
+	if err != nil {
+		t.Fatalf("任务所有者修改共享权限失败: %v", err)
+	}
+	if !beforePermissions.IsPublic || afterPermissions.IsPublic || len(afterPermissions.CollaboratorIDs) != 1 || afterPermissions.CollaboratorIDs[0] != 4 {
+		t.Fatalf("共享权限修改前后结果错误: before=%+v after=%+v", beforePermissions, afterPermissions)
+	}
+
+	// 2. Test permission decoration for admin vs ordinary user
+	adminActor := executionapp.Actor{UserID: 1, IsAdmin: true}
+	regularActor := executionapp.Actor{UserID: 4, IsAdmin: false}
+
+	adminTask, err := service.GetTaskForActor(ctx, adminActor, publicTask.ID)
+	if err != nil {
+		t.Fatalf("admin 读取公开任务失败: %v", err)
+	}
+	if !adminTask.CanEdit || !adminTask.CanRun || !adminTask.IsOwner {
+		t.Fatalf("admin 应该拥有完整权限: %+v", adminTask)
+	}
+
+	regularTask, err := service.GetTaskForActor(ctx, regularActor, publicTask.ID)
+	if err != nil {
+		t.Fatalf("普通用户读取公开任务失败: %v", err)
+	}
+	if regularTask.CanEdit || regularTask.CanRun || regularTask.IsOwner {
+		t.Fatalf("普通用户对他人公开任务应为只读锁定状态: %+v", regularTask)
+	}
+
+	// 3. Regular user attempting to edit or delete should be rejected
+	_, err = service.UpdateTaskForActor(ctx, regularActor, publicTask.ID, &UpdateTaskRequest{
+		Name:    "public_sync.env",
+		Content: "env { parallelism = 2 }",
+	})
+	if !errors.Is(err, ErrTaskReadOnly) {
+		t.Fatalf("普通用户更新他人公开任务应返回 ErrTaskReadOnly, got: %v", err)
+	}
+
+	err = service.DeleteTaskForActor(ctx, regularActor, publicTask.ID)
+	if !errors.Is(err, ErrTaskPermissionDenied) {
+		t.Fatalf("普通用户删除他人任务应返回 ErrTaskPermissionDenied, got: %v", err)
+	}
+
+	// 4. Create an admin job for this task, regular user should see it when querying by task_id
+	adminJob := &JobInstance{
+		TaskID:        publicTask.ID,
+		TaskVersion:   1,
+		RunType:       RunTypeRun,
+		Status:        JobStatusRunning,
+		PlatformJobID: "platform-public-1",
+		CreatedBy:     1,
+	}
+	if err := service.repo.CreateJobInstance(ctx, adminJob); err != nil {
+		t.Fatalf("创建 admin 作业失败: %v", err)
+	}
+
+	// Regular user queries jobs with task_id -> should see admin's job
+	jobs, total, err := service.ListJobsForActor(ctx, regularActor, &JobFilter{TaskID: publicTask.ID, Page: 1, Size: 10})
+	if err != nil {
+		t.Fatalf("普通用户查询任务运行历史失败: %v", err)
+	}
+	if total != 1 || len(jobs) != 1 || jobs[0].ID != adminJob.ID {
+		t.Fatalf("普通用户应能查看该任务下的历史作业: total=%d, jobs=%+v", total, jobs)
+	}
+
+	// Regular user trying to cancel admin's job should be denied
+	_, err = service.CancelJobForActor(ctx, regularActor, adminJob.ID, false)
+	if !errors.Is(err, ErrTaskPermissionDenied) {
+		t.Fatalf("普通用户取消他人作业应返回 ErrTaskPermissionDenied, got: %v", err)
+	}
+
+	// 5. Test Collaborator functionality
+	// Add user 4 as collaborator
+	publicTaskValue := true
+	_, _, err = service.UpdateTaskPermissionsForActor(ctx, adminActor, publicTask.ID, &UpdateTaskPermissionsRequest{
+		IsPublic:        &publicTaskValue,
+		CollaboratorIDs: []uint{4},
+	})
+	if err != nil {
+		t.Fatalf("添加共建者失败: %v", err)
+	}
+	// 即使管理员也必须通过权限接口修改共享字段。
+	// Even an administrator must use the permission endpoint for sharing changes.
+	adminContentTask, err := service.UpdateTaskForActor(ctx, adminActor, publicTask.ID, &UpdateTaskRequest{
+		ParentID:   &folder.ID,
+		Name:       "public_sync.env",
+		Content:    "env { parallelism = 2 }",
+		Definition: JSONMap{"is_public": false, "collaborators": []interface{}{}},
+	})
+	if err != nil {
+		t.Fatalf("管理员更新任务正文失败: %v", err)
+	}
+	if adminContentTask.Definition["is_public"] != true || len(adminContentTask.CollaboratorIDs()) != 1 {
+		t.Fatalf("管理员通过正文接口修改了共享权限: %+v", adminContentTask.Definition)
+	}
+
+	collabTask, err := service.GetTaskForActor(ctx, regularActor, publicTask.ID)
+	if err != nil {
+		t.Fatalf("共建者读取任务失败: %v", err)
+	}
+	if !collabTask.CanEdit || !collabTask.CanRun || !collabTask.IsCollaborator || collabTask.IsOwner {
+		t.Fatalf("共建者应具有编辑与运行权限，但不是所有者: %+v", collabTask)
+	}
+
+	// Collaborator can update content
+	updatedTask, err := service.UpdateTaskForActor(ctx, regularActor, publicTask.ID, &UpdateTaskRequest{
+		ParentID:   &folder.ID,
+		Name:       "public_sync.env",
+		Content:    "env { parallelism = 4 }",
+		Definition: JSONMap{"is_public": false, "collaborators": []interface{}{}}, // Try to tamper permissions
+	})
+	if err != nil {
+		t.Fatalf("共建者更新任务内容失败: %v", err)
+	}
+	if updatedTask.Content != "env { parallelism = 4 }" {
+		t.Fatalf("共建者更新内容未生效")
+	}
+	// Verify collaborator cannot tamper with is_public or collaborators
+	if updatedTask.Definition["is_public"] != true || len(updatedTask.CollaboratorIDs()) != 1 {
+		t.Fatalf("共建者篡改权限配置应该被忽略: %+v", updatedTask.Definition)
+	}
+
+	// 6. Test Private Task visibility
+	privateTask, err := service.CreateTask(ctx, &CreateTaskRequest{
+		ParentID:      &folder.ID,
+		NodeType:      string(TaskNodeTypeFile),
+		Name:          "secret_sync.env",
+		Mode:          string(TaskModeBatch),
+		ContentFormat: string(ContentFormatHOCON),
+		Content:       "env { parallelism = 1 }",
+		Definition:    JSONMap{"is_public": false},
+	}, 1)
+	if err != nil {
+		t.Fatalf("创建私有任务失败: %v", err)
+	}
+
+	// User 4 has no permission on privateTask
+	otherUserActor := executionapp.Actor{UserID: 8, IsAdmin: false}
+	_, err = service.GetTaskForActor(ctx, otherUserActor, privateTask.ID)
+	if !errors.Is(err, ErrTaskPermissionDenied) {
+		t.Fatalf("非所有者/非共建者访问私有任务应被拒绝: %v", err)
+	}
+
+	// Check tree filtering for otherUserActor
+	tree, err := service.GetTaskTreeForActor(ctx, otherUserActor)
+	if err != nil {
+		t.Fatalf("获取任务树失败: %v", err)
+	}
+	var findTaskInTree func(nodes []*TaskTreeNode, targetID uint) bool
+	findTaskInTree = func(nodes []*TaskTreeNode, targetID uint) bool {
+		for _, n := range nodes {
+			if n.ID == targetID {
+				return true
+			}
+			if findTaskInTree(n.Children, targetID) {
+				return true
+			}
+		}
+		return false
+	}
+	if findTaskInTree(tree, privateTask.ID) {
+		t.Fatalf("私有任务不应该出现在非授权用户的任务树中")
 	}
 }

@@ -18,6 +18,7 @@
 package installer
 
 import (
+	"context"
 	"time"
 
 	"github.com/LeonYoah/stx/internal/seatunnel"
@@ -103,14 +104,22 @@ const (
 // PackageInfo contains information about a SeaTunnel package
 // PackageInfo 包含 SeaTunnel 安装包信息
 type PackageInfo struct {
-	Version      string                  `json:"version"`
-	FileName     string                  `json:"file_name"`
-	FileSize     int64                   `json:"file_size"`
-	Checksum     string                  `json:"checksum,omitempty"`
-	DownloadURLs map[MirrorSource]string `json:"download_urls"`
-	IsLocal      bool                    `json:"is_local"`
-	LocalPath    string                  `json:"local_path,omitempty"`
-	UploadedAt   *time.Time              `json:"uploaded_at,omitempty"`
+	Version            string                  `json:"version"`
+	FileName           string                  `json:"file_name"`
+	FileSize           int64                   `json:"file_size"`
+	Checksum           string                  `json:"checksum,omitempty"`
+	DownloadURLs       map[MirrorSource]string `json:"download_urls"`
+	IsLocal            bool                    `json:"is_local"`
+	LocalPath          string                  `json:"local_path,omitempty"`
+	UploadedAt         *time.Time              `json:"uploaded_at,omitempty"`
+	HasSource          bool                    `json:"has_source"`
+	SourceStatus       DownloadStatus          `json:"source_status,omitempty"`
+	SourceFileName     string                  `json:"source_file_name,omitempty"`
+	SourceFileSize     int64                   `json:"source_file_size,omitempty"`
+	SourceChecksum     string                  `json:"source_checksum,omitempty"`
+	SourceUploadedAt   *time.Time              `json:"source_uploaded_at,omitempty"`
+	SourceDownloadURLs map[MirrorSource]string `json:"source_download_urls"`
+	SourceError        string                  `json:"source_error,omitempty"`
 }
 
 // AvailableVersions contains available SeaTunnel versions
@@ -198,11 +207,20 @@ type CheckpointConfig struct {
 	HDFSNamenodeRPCAddress1   string `json:"hdfs_namenode_rpc_address_1,omitempty"`
 	HDFSNamenodeRPCAddress2   string `json:"hdfs_namenode_rpc_address_2,omitempty"`
 	HDFSFailoverProxyProvider string `json:"hdfs_failover_proxy_provider,omitempty"`
+	// HdfsSitePath 是可选的 hdfs-site.xml 路径，对应 SeaTunnel hdfs_site_path。
+	// HdfsSitePath is the optional hdfs-site.xml path, mapped to SeaTunnel hdfs_site_path.
+	HdfsSitePath string `json:"hdfs_site_path,omitempty"`
+	// DisableCache 对应 plugin-config.disable.cache；nil 表示沿用默认（hdfs 类型默认关闭缓存）。
+	// DisableCache maps to plugin-config.disable.cache; nil keeps the default (cache off for hdfs type).
+	DisableCache *bool `json:"disable_cache,omitempty"`
 	// OSS/S3 configuration / OSS/S3 配置
 	StorageEndpoint  string `json:"storage_endpoint,omitempty"`
 	StorageAccessKey string `json:"storage_access_key,omitempty"`
 	StorageSecretKey string `json:"storage_secret_key,omitempty"`
 	StorageBucket    string `json:"storage_bucket,omitempty"`
+	// S3CredentialsProvider 对应 fs.s3a.aws.credentials.provider；空则使用 SimpleAWSCredentialsProvider。
+	// S3CredentialsProvider maps to fs.s3a.aws.credentials.provider; empty uses SimpleAWSCredentialsProvider.
+	S3CredentialsProvider string `json:"s3_credentials_provider,omitempty"`
 }
 
 // IMAPConfig contains IMAP persistence configuration.
@@ -223,11 +241,20 @@ type IMAPConfig struct {
 	HDFSNamenodeRPCAddress1   string `json:"hdfs_namenode_rpc_address_1,omitempty"`
 	HDFSNamenodeRPCAddress2   string `json:"hdfs_namenode_rpc_address_2,omitempty"`
 	HDFSFailoverProxyProvider string `json:"hdfs_failover_proxy_provider,omitempty"`
+	// HdfsSitePath 是可选的 hdfs-site.xml 路径，对应 SeaTunnel hdfs_site_path。
+	// HdfsSitePath is the optional hdfs-site.xml path, mapped to SeaTunnel hdfs_site_path.
+	HdfsSitePath string `json:"hdfs_site_path,omitempty"`
+	// DisableCache 对应 plugin-config.disable.cache；nil 表示沿用默认。
+	// DisableCache maps to plugin-config.disable.cache; nil keeps the default.
+	DisableCache *bool `json:"disable_cache,omitempty"`
 	// OSS/S3 configuration / OSS/S3 配置
 	StorageEndpoint  string `json:"storage_endpoint,omitempty"`
 	StorageAccessKey string `json:"storage_access_key,omitempty"`
 	StorageSecretKey string `json:"storage_secret_key,omitempty"`
 	StorageBucket    string `json:"storage_bucket,omitempty"`
+	// S3CredentialsProvider 对应 fs.s3a.aws.credentials.provider；空则使用 SimpleAWSCredentialsProvider。
+	// S3CredentialsProvider maps to fs.s3a.aws.credentials.provider; empty uses SimpleAWSCredentialsProvider.
+	S3CredentialsProvider string `json:"s3_credentials_provider,omitempty"`
 }
 
 // ConnectorConfig contains connector installation configuration
@@ -302,6 +329,7 @@ type InstallationRequest struct {
 	ClusterPort             int                    `json:"cluster_port,omitempty"`     // Master hazelcast port / Master Hazelcast 端口
 	WorkerPort              int                    `json:"worker_port,omitempty"`      // Worker hazelcast port / Worker Hazelcast 端口
 	HTTPPort                int                    `json:"http_port,omitempty"`        // SeaTunnel HTTP API 端口
+	JavaProxyPort           int                    `json:"java_proxy_port,omitempty"`  // Managed stx-java-proxy listen port / 托管 stx-java-proxy 监听端口
 	EnableHTTP              *bool                  `json:"enable_http,omitempty"`      // 是否开启 SeaTunnel HTTP / Web UI
 	DynamicSlot             *bool                  `json:"dynamic_slot,omitempty"`
 	SlotNum                 *int                   `json:"slot_num,omitempty"`
@@ -372,6 +400,7 @@ type DownloadStatus string
 const (
 	DownloadStatusPending     DownloadStatus = "pending"
 	DownloadStatusDownloading DownloadStatus = "downloading"
+	DownloadStatusCancelling  DownloadStatus = "cancelling"
 	DownloadStatusCompleted   DownloadStatus = "completed"
 	DownloadStatusFailed      DownloadStatus = "failed"
 	DownloadStatusCancelled   DownloadStatus = "cancelled"
@@ -393,13 +422,42 @@ type DownloadTask struct {
 	Error           string         `json:"error,omitempty"`
 	StartTime       time.Time      `json:"start_time"`
 	EndTime         *time.Time     `json:"end_time,omitempty"`
+	ExecutionID     string         `json:"execution_id,omitempty"`
+	SourceRequested bool           `json:"source_requested"`
+	SourceStatus    DownloadStatus `json:"source_status,omitempty"`
+	SourceURL       string         `json:"source_url,omitempty"`
+	SourceProgress  int            `json:"source_progress,omitempty"`
+	SourceBytes     int64          `json:"source_downloaded_bytes,omitempty"`
+	SourceTotal     int64          `json:"source_total_bytes,omitempty"`
+	SourceChecksum  string         `json:"source_checksum,omitempty"`
+	SourceError     string         `json:"source_error,omitempty"`
+	OwnerUserID     uint64         `json:"-"`
+	// cancel stops the active HTTP request and is not exposed in API responses.
+	// cancel 用于停止正在执行的 HTTP 请求，不对外暴露。
+	cancel context.CancelFunc `json:"-"`
+	// done closes only after the background downloader has stopped.
+	// done 仅在后台下载协程真正停止后关闭。
+	done chan struct{} `json:"-"`
 }
 
 // DownloadRequest represents a request to download a package
 // DownloadRequest 表示下载安装包的请求
 type DownloadRequest struct {
-	Version string       `json:"version" binding:"required"`
-	Mirror  MirrorSource `json:"mirror"`
+	Version    string       `json:"version" binding:"required"`
+	Mirror     MirrorSource `json:"mirror"`
+	WithSource *bool        `json:"with_source,omitempty"`
+}
+
+// IncludeSource returns true when the caller omitted with_source or explicitly enabled it.
+// IncludeSource 在调用方未传 with_source 或显式启用时返回 true。
+func (r DownloadRequest) IncludeSource() bool {
+	return r.WithSource == nil || *r.WithSource
+}
+
+// SourceFetchRequest requests a source-only online supplement for an existing runtime package.
+// SourceFetchRequest 请求为已有运行包在线补充源码包。
+type SourceFetchRequest struct {
+	Mirror MirrorSource `json:"mirror"`
 }
 
 // RuntimeStorageValidationKind indicates which runtime storage config to validate.

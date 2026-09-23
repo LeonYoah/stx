@@ -32,6 +32,7 @@ import (
 	"strings"
 	"time"
 
+	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
 	"github.com/LeonYoah/stx/internal/config"
 	"github.com/LeonYoah/stx/internal/pkg/schedulex"
 	"github.com/LeonYoah/stx/internal/seatunnel"
@@ -51,6 +52,7 @@ type Service struct {
 	executionTargetResolver ExecutionTargetResolver
 	clusterLogProvider      ClusterLogProvider
 	clusterVersionProvider  ClusterVersionProvider
+	executionService        *executionapp.Service
 }
 
 // ClusterVersionProvider provides SeaTunnel cluster version lookup.
@@ -72,6 +74,10 @@ func NewService(repo *Repository) *Service {
 
 // SetEngineClient sets the SeaTunnel engine client used by submit/get/cancel flows.
 func (s *Service) SetEngineClient(client EngineClient) { s.engineClient = client }
+
+// SetExecutionService 设置公共执行协议服务。
+// SetExecutionService configures the shared execution-contract service.
+func (s *Service) SetExecutionService(service *executionapp.Service) { s.executionService = service }
 
 // SetRuntimeResolver sets the runtime endpoint resolver for cluster-backed submissions.
 func (s *Service) SetRuntimeResolver(resolver ClusterRuntimeResolver) { s.runtimeResolver = resolver }
@@ -219,6 +225,32 @@ func (s *Service) DeleteGlobalVariable(ctx context.Context, id uint) error {
 	return s.repo.DeleteGlobalVariable(ctx, id)
 }
 
+// UpdateGlobalVariableForActor updates one workspace-wide variable after enforcing actor permissions.
+// Ordinary users can only edit variables they created; administrators can edit any variable.
+func (s *Service) UpdateGlobalVariableForActor(ctx context.Context, actor executionapp.Actor, id uint, req *UpdateGlobalVariableRequest) (*GlobalVariable, error) {
+	item, err := s.repo.GetGlobalVariableByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if !actor.IsAdmin && (item.CreatedBy != 0 && item.CreatedBy != uint(actor.UserID)) {
+		return nil, ErrGlobalVariablePermissionDenied
+	}
+	return s.UpdateGlobalVariable(ctx, id, req)
+}
+
+// DeleteGlobalVariableForActor deletes one workspace-wide variable after enforcing actor permissions.
+// Ordinary users can only delete variables they created; administrators can delete any variable.
+func (s *Service) DeleteGlobalVariableForActor(ctx context.Context, actor executionapp.Actor, id uint) error {
+	item, err := s.repo.GetGlobalVariableByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if !actor.IsAdmin && (item.CreatedBy != 0 && item.CreatedBy != uint(actor.UserID)) {
+		return ErrGlobalVariablePermissionDenied
+	}
+	return s.repo.DeleteGlobalVariable(ctx, id)
+}
+
 // CreateTask creates one workspace node.
 func (s *Service) CreateTask(ctx context.Context, req *CreateTaskRequest, createdBy uint) (*Task, error) {
 	nodeType, err := normalizeNodeType(req.NodeType)
@@ -247,11 +279,18 @@ func (s *Service) CreateTask(ctx context.Context, req *CreateTaskRequest, create
 	if err := s.ensureSiblingTaskNameAvailable(ctx, parentID, name, nil); err != nil {
 		return nil, err
 	}
-	definition := cloneJSONMap(req.Definition)
+	definition, err := restoreMaskedJSONMap(nil, cloneJSONMap(req.Definition))
+	if err != nil {
+		return nil, err
+	}
 	if err := validateTaskDefinition(definition); err != nil {
 		return nil, err
 	}
 	content := strings.TrimSpace(req.Content)
+	content, err = restoreMaskedTaskContent(format, "", content)
+	if err != nil {
+		return nil, err
+	}
 	jobName := strings.TrimSpace(req.JobName)
 	if nodeType == TaskNodeTypeFolder {
 		content = ""
@@ -299,19 +338,136 @@ func (s *Service) ListTasks(ctx context.Context, filter *TaskFilter) ([]*Task, i
 
 // GetTask returns one workspace node.
 func (s *Service) GetTask(ctx context.Context, id uint) (*Task, error) {
+	return s.GetTaskForActor(ctx, executionapp.Actor{IsAdmin: true}, id)
+}
+
+// GetTaskForActor returns one workspace node decorated with actor permissions.
+func (s *Service) GetTaskForActor(ctx context.Context, actor executionapp.Actor, id uint) (*Task, error) {
 	task, err := s.repo.GetTaskByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 	s.applyTaskDefaults(task)
+	task.DecoratePermissions(uint(actor.UserID), actor.IsAdmin)
+	if !task.CanUserView(uint(actor.UserID), actor.IsAdmin) {
+		return nil, ErrTaskPermissionDenied
+	}
 	if err := s.decorateTaskScheduleMetadata(ctx, []*Task{task}); err != nil {
 		return nil, err
 	}
 	return task, nil
 }
 
+// GetTaskPermissionsForActor 只返回共享权限，不返回任务正文。
+// GetTaskPermissionsForActor returns sharing permissions without exposing task content.
+func (s *Service) GetTaskPermissionsForActor(ctx context.Context, actor executionapp.Actor, id uint) (*TaskPermissions, error) {
+	task, err := s.repo.GetTaskByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if !task.CanUserView(uint(actor.UserID), actor.IsAdmin) {
+		return nil, ErrTaskPermissionDenied
+	}
+	return taskPermissionsForActor(task, actor), nil
+}
+
+// UpdateTaskPermissionsForActor 只修改共享字段，并返回修改前后的值供审计记录使用。
+// UpdateTaskPermissionsForActor changes only sharing fields and returns before/after values for audit.
+func (s *Service) UpdateTaskPermissionsForActor(ctx context.Context, actor executionapp.Actor, id uint, req *UpdateTaskPermissionsRequest) (*TaskPermissions, *TaskPermissions, error) {
+	task, err := s.repo.GetTaskByID(ctx, id)
+	if err != nil {
+		return nil, nil, err
+	}
+	if task.Status == TaskStatusArchived {
+		return nil, nil, ErrTaskArchived
+	}
+	if !canManageTaskPermissions(task, actor) {
+		return nil, nil, ErrTaskPermissionDenied
+	}
+	if req == nil {
+		return nil, nil, ErrTaskPermissionDenied
+	}
+
+	before := taskPermissionsForActor(task, actor)
+	definition := cloneJSONMap(task.Definition)
+	if req.IsPublic != nil {
+		definition["is_public"] = *req.IsPublic
+	}
+	if req.CollaboratorIDs != nil {
+		ids := make([]uint, 0, len(req.CollaboratorIDs))
+		seen := make(map[uint]struct{}, len(req.CollaboratorIDs))
+		for _, id := range req.CollaboratorIDs {
+			if id == 0 {
+				return nil, nil, ErrInvalidTaskCollaborator
+			}
+			if _, exists := seen[id]; exists {
+				continue
+			}
+			seen[id] = struct{}{}
+			ids = append(ids, id)
+		}
+		// 在旧客户端仍读取 collaborators 期间，同时保留两个字段名。
+		// Keep both names while older clients still read `collaborators`.
+		definition["collaborators"] = ids
+		definition["collaborator_ids"] = ids
+	}
+	task.Definition = definition
+	if err := validateTaskDefinition(task.Definition); err != nil {
+		return nil, nil, err
+	}
+	if err := s.repo.UpdateTask(ctx, task); err != nil {
+		return nil, nil, err
+	}
+	task.DecoratePermissions(uint(actor.UserID), actor.IsAdmin)
+	return before, taskPermissionsForActor(task, actor), nil
+}
+
+func canManageTaskPermissions(task *Task, actor executionapp.Actor) bool {
+	if actor.IsAdmin || task == nil {
+		return actor.IsAdmin
+	}
+	return task.CreatedBy == 0 || task.CreatedBy == uint(actor.UserID)
+}
+
+// preserveTaskPermissionFields 在正文更新时保留数据库中的共享字段。
+// preserveTaskPermissionFields keeps sharing fields from the stored task during content updates.
+func preserveTaskPermissionFields(original, updated JSONMap) JSONMap {
+	if updated == nil {
+		updated = JSONMap{}
+	}
+	for _, key := range []string{"is_public", "collaborators", "collaborator_ids"} {
+		if value, exists := original[key]; exists {
+			updated[key] = value
+		} else {
+			delete(updated, key)
+		}
+	}
+	return updated
+}
+
+func taskPermissionsForActor(task *Task, actor executionapp.Actor) *TaskPermissions {
+	ids := append([]uint(nil), task.CollaboratorIDs()...)
+	if ids == nil {
+		ids = []uint{}
+	}
+	return &TaskPermissions{
+		TaskID:          task.ID,
+		IsPublic:        task.IsPublic(),
+		CollaboratorIDs: ids,
+		CanEdit:         task.CanUserEdit(uint(actor.UserID), actor.IsAdmin),
+		CanManage:       canManageTaskPermissions(task, actor),
+		IsOwner:         actor.IsAdmin || (task.CreatedBy != 0 && task.CreatedBy == uint(actor.UserID)),
+		IsCollaborator:  task.HasCollaborator(uint(actor.UserID)),
+	}
+}
+
 // GetTaskTree returns nested workspace nodes for the left tree.
 func (s *Service) GetTaskTree(ctx context.Context) ([]*TaskTreeNode, error) {
+	return s.GetTaskTreeForActor(ctx, executionapp.Actor{IsAdmin: true})
+}
+
+// GetTaskTreeForActor returns nested workspace nodes filtered and decorated with actor permissions.
+func (s *Service) GetTaskTreeForActor(ctx context.Context, actor executionapp.Actor) ([]*TaskTreeNode, error) {
 	if err := s.ensureRootFilesNested(ctx); err != nil {
 		return nil, err
 	}
@@ -321,21 +477,72 @@ func (s *Service) GetTaskTree(ctx context.Context) ([]*TaskTreeNode, error) {
 	}
 	for _, task := range tasks {
 		s.applyTaskDefaults(task)
+		task.DecoratePermissions(uint(actor.UserID), actor.IsAdmin)
 	}
 	if err := s.decorateTaskScheduleMetadata(ctx, tasks); err != nil {
 		return nil, err
 	}
-	return buildTaskTree(tasks), nil
+
+	visibleTasks := tasks
+	if !actor.IsAdmin {
+		visibleMap := make(map[uint]bool)
+		for _, task := range tasks {
+			if task.NodeType == TaskNodeTypeFile {
+				if task.CanUserView(uint(actor.UserID), actor.IsAdmin) {
+					visibleMap[task.ID] = true
+				}
+			} else if task.CreatedBy != 0 && task.CreatedBy == uint(actor.UserID) {
+				visibleMap[task.ID] = true
+			}
+		}
+		parentMap := make(map[uint]uint)
+		for _, task := range tasks {
+			if task.ParentID != nil {
+				parentMap[task.ID] = *task.ParentID
+			}
+		}
+		for id := range visibleMap {
+			curr := id
+			for {
+				pID, exists := parentMap[curr]
+				if !exists || pID == 0 {
+					break
+				}
+				visibleMap[pID] = true
+				curr = pID
+			}
+		}
+		visibleTasks = make([]*Task, 0, len(tasks))
+		for _, task := range tasks {
+			if task.NodeType == TaskNodeTypeFolder {
+				if visibleMap[task.ID] || task.IsPublic() {
+					visibleTasks = append(visibleTasks, task)
+				}
+			} else if visibleMap[task.ID] {
+				visibleTasks = append(visibleTasks, task)
+			}
+		}
+	}
+
+	return buildTaskTree(visibleTasks), nil
 }
 
 // UpdateTask updates one workspace node.
 func (s *Service) UpdateTask(ctx context.Context, id uint, req *UpdateTaskRequest) (*Task, error) {
+	return s.UpdateTaskForActor(ctx, executionapp.Actor{IsAdmin: true}, id, req)
+}
+
+// UpdateTaskForActor updates one workspace node after enforcing actor permissions.
+func (s *Service) UpdateTaskForActor(ctx context.Context, actor executionapp.Actor, id uint, req *UpdateTaskRequest) (*Task, error) {
 	task, err := s.repo.GetTaskByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 	if task.Status == TaskStatusArchived {
 		return nil, ErrTaskArchived
+	}
+	if !task.CanUserEdit(uint(actor.UserID), actor.IsAdmin) {
+		return nil, ErrTaskReadOnly
 	}
 	mode, err := normalizeTaskMode(req.Mode)
 	if err != nil {
@@ -364,6 +571,17 @@ func (s *Service) UpdateTask(ctx context.Context, id uint, req *UpdateTaskReques
 		return nil, err
 	}
 	content := strings.TrimSpace(req.Content)
+	content, err = restoreMaskedTaskContent(format, task.Content, content)
+	if err != nil {
+		return nil, err
+	}
+	definition, err := restoreMaskedJSONMap(task.Definition, cloneJSONMap(req.Definition))
+	if err != nil {
+		return nil, err
+	}
+	// 任务正文更新不得修改共享字段；共享字段必须通过独立的权限接口修改。
+	// Task content updates must never change sharing fields; use the dedicated permissions API instead.
+	definition = preserveTaskPermissionFields(task.Definition, definition)
 	jobName := strings.TrimSpace(req.JobName)
 	if nodeType == TaskNodeTypeFolder {
 		content = ""
@@ -382,25 +600,30 @@ func (s *Service) UpdateTask(ctx context.Context, id uint, req *UpdateTaskReques
 	task.Content = content
 	task.JobName = jobName
 	task.SortOrder = req.SortOrder
-	if req.Definition == nil {
-		task.Definition = JSONMap{}
-	} else {
-		task.Definition = cloneJSONMap(req.Definition)
-	}
+	task.Definition = definition
 	if err := validateTaskDefinition(task.Definition); err != nil {
 		return nil, err
 	}
 	if err := s.repo.UpdateTask(ctx, task); err != nil {
 		return nil, err
 	}
+	task.DecoratePermissions(uint(actor.UserID), actor.IsAdmin)
 	return task, nil
 }
 
 // DeleteTask removes one workspace node and all nested descendants.
 func (s *Service) DeleteTask(ctx context.Context, id uint) error {
+	return s.DeleteTaskForActor(ctx, executionapp.Actor{IsAdmin: true}, id)
+}
+
+// DeleteTaskForActor removes one workspace node after verifying owner/admin rights.
+func (s *Service) DeleteTaskForActor(ctx context.Context, actor executionapp.Actor, id uint) error {
 	task, err := s.repo.GetTaskByID(ctx, id)
 	if err != nil {
 		return err
+	}
+	if !actor.IsAdmin && (task.CreatedBy != 0 && task.CreatedBy != uint(actor.UserID)) {
+		return ErrTaskPermissionDenied
 	}
 	s.applyTaskDefaults(task)
 
@@ -454,8 +677,15 @@ func (s *Service) getTaskForExecution(ctx context.Context, id uint, draft *TaskD
 	if err != nil {
 		return nil, err
 	}
-	definition := cloneJSONMap(draft.Definition)
+	definition, err := restoreMaskedJSONMap(task.Definition, cloneJSONMap(draft.Definition))
+	if err != nil {
+		return nil, err
+	}
 	if err := validateTaskDefinition(definition); err != nil {
+		return nil, err
+	}
+	content, err := restoreMaskedTaskContent(format, task.Content, draft.Content)
+	if err != nil {
 		return nil, err
 	}
 	task.Name = name
@@ -464,7 +694,7 @@ func (s *Service) getTaskForExecution(ctx context.Context, id uint, draft *TaskD
 	task.EngineVersion = strings.TrimSpace(draft.EngineVersion)
 	task.Mode = mode
 	task.ContentFormat = format
-	task.Content = draft.Content
+	task.Content = content
 	task.JobName = strings.TrimSpace(draft.JobName)
 	task.Definition = definition
 	return task, nil
@@ -472,6 +702,11 @@ func (s *Service) getTaskForExecution(ctx context.Context, id uint, draft *TaskD
 
 // PublishTask snapshots current file definition and marks task as published.
 func (s *Service) PublishTask(ctx context.Context, id uint, comment string, createdBy uint) (*Task, *TaskVersion, error) {
+	return s.PublishTaskForActor(ctx, executionapp.Actor{UserID: uint64(createdBy), IsAdmin: true}, id, comment, createdBy)
+}
+
+// PublishTaskForActor snapshots current file definition after checking edit permission.
+func (s *Service) PublishTaskForActor(ctx context.Context, actor executionapp.Actor, id uint, comment string, createdBy uint) (*Task, *TaskVersion, error) {
 	var publishedTask *Task
 	var version *TaskVersion
 	err := s.repo.Transaction(ctx, func(tx *Repository) error {
@@ -485,6 +720,9 @@ func (s *Service) PublishTask(ctx context.Context, id uint, comment string, crea
 		}
 		if task.NodeType != TaskNodeTypeFile {
 			return ErrTaskNotFile
+		}
+		if !task.CanUserEdit(uint(actor.UserID), actor.IsAdmin) {
+			return ErrTaskReadOnly
 		}
 		version = &TaskVersion{
 			TaskID:                task.ID,
@@ -515,6 +753,7 @@ func (s *Service) PublishTask(ctx context.Context, id uint, comment string, crea
 	if err != nil {
 		return nil, nil, err
 	}
+	publishedTask.DecoratePermissions(uint(actor.UserID), actor.IsAdmin)
 	return publishedTask, version, nil
 }
 
@@ -533,6 +772,11 @@ func (s *Service) ListTaskVersions(ctx context.Context, id uint) ([]*TaskVersion
 
 // ListTaskVersionsPaginated returns paginated immutable snapshots for one file task.
 func (s *Service) ListTaskVersionsPaginated(ctx context.Context, id uint, page, size int) ([]*TaskVersion, int64, error) {
+	return s.ListTaskVersionsPaginatedForActor(ctx, executionapp.Actor{IsAdmin: true}, id, page, size)
+}
+
+// ListTaskVersionsPaginatedForActor returns paginated snapshots after verifying view permission.
+func (s *Service) ListTaskVersionsPaginatedForActor(ctx context.Context, actor executionapp.Actor, id uint, page, size int) ([]*TaskVersion, int64, error) {
 	task, err := s.repo.GetTaskByID(ctx, id)
 	if err != nil {
 		return nil, 0, err
@@ -541,11 +785,19 @@ func (s *Service) ListTaskVersionsPaginated(ctx context.Context, id uint, page, 
 	if task.NodeType != TaskNodeTypeFile {
 		return nil, 0, ErrTaskNotFile
 	}
+	if !task.CanUserView(uint(actor.UserID), actor.IsAdmin) {
+		return nil, 0, ErrTaskPermissionDenied
+	}
 	return s.repo.ListTaskVersionsByTaskIDPaginated(ctx, id, page, size)
 }
 
 // RollbackTaskVersion restores one immutable snapshot back to the editable task.
 func (s *Service) RollbackTaskVersion(ctx context.Context, id uint, versionID uint) (*Task, error) {
+	return s.RollbackTaskVersionForActor(ctx, executionapp.Actor{IsAdmin: true}, id, versionID)
+}
+
+// RollbackTaskVersionForActor restores snapshot after checking edit permission.
+func (s *Service) RollbackTaskVersionForActor(ctx context.Context, actor executionapp.Actor, id uint, versionID uint) (*Task, error) {
 	task, err := s.repo.GetTaskByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -553,6 +805,9 @@ func (s *Service) RollbackTaskVersion(ctx context.Context, id uint, versionID ui
 	s.applyTaskDefaults(task)
 	if task.NodeType != TaskNodeTypeFile {
 		return nil, ErrTaskNotFile
+	}
+	if !task.CanUserEdit(uint(actor.UserID), actor.IsAdmin) {
+		return nil, ErrTaskReadOnly
 	}
 	version, err := s.repo.GetTaskVersionByID(ctx, id, versionID)
 	if err != nil {
@@ -571,11 +826,17 @@ func (s *Service) RollbackTaskVersion(ctx context.Context, id uint, versionID ui
 	if err := s.repo.UpdateTask(ctx, task); err != nil {
 		return nil, err
 	}
+	task.DecoratePermissions(uint(actor.UserID), actor.IsAdmin)
 	return task, nil
 }
 
 // DeleteTaskVersion removes one immutable snapshot.
 func (s *Service) DeleteTaskVersion(ctx context.Context, id uint, versionID uint) error {
+	return s.DeleteTaskVersionForActor(ctx, executionapp.Actor{IsAdmin: true}, id, versionID)
+}
+
+// DeleteTaskVersionForActor removes one immutable snapshot after checking edit permission.
+func (s *Service) DeleteTaskVersionForActor(ctx context.Context, actor executionapp.Actor, id uint, versionID uint) error {
 	task, err := s.repo.GetTaskByID(ctx, id)
 	if err != nil {
 		return err
@@ -584,7 +845,46 @@ func (s *Service) DeleteTaskVersion(ctx context.Context, id uint, versionID uint
 	if task.NodeType != TaskNodeTypeFile {
 		return ErrTaskNotFile
 	}
+	if !task.CanUserEdit(uint(actor.UserID), actor.IsAdmin) {
+		return ErrTaskReadOnly
+	}
 	return s.repo.DeleteTaskVersion(ctx, id, versionID)
+}
+
+// ValidateTaskForActor validates task after checking view permission.
+func (s *Service) ValidateTaskForActor(ctx context.Context, actor executionapp.Actor, id uint, draft *TaskDraftPayload) (*ValidateResult, error) {
+	task, err := s.repo.GetTaskByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if !task.CanUserView(uint(actor.UserID), actor.IsAdmin) {
+		return nil, ErrTaskPermissionDenied
+	}
+	return s.ValidateTask(ctx, id, draft)
+}
+
+// TestTaskConnectionsForActor tests connections after checking run permission.
+func (s *Service) TestTaskConnectionsForActor(ctx context.Context, actor executionapp.Actor, id uint, draft *TaskDraftPayload) (*ValidateResult, error) {
+	task, err := s.repo.GetTaskByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if !task.CanUserRun(uint(actor.UserID), actor.IsAdmin) {
+		return nil, ErrTaskReadOnly
+	}
+	return s.TestTaskConnections(ctx, id, draft)
+}
+
+// BuildTaskDAGForActor builds DAG after checking view permission.
+func (s *Service) BuildTaskDAGForActor(ctx context.Context, actor executionapp.Actor, id uint, draft *TaskDraftPayload) (*DAGResult, error) {
+	task, err := s.repo.GetTaskByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if !task.CanUserView(uint(actor.UserID), actor.IsAdmin) {
+		return nil, ErrTaskPermissionDenied
+	}
+	return s.BuildTaskDAG(ctx, id, draft)
 }
 
 // ValidateTask validates current file content.
@@ -845,6 +1145,12 @@ func (s *Service) PreviewTask(ctx context.Context, id uint, createdBy uint, opts
 			instance.EngineJobID = strings.TrimSpace(resp.JobID)
 			instance.SubmitSpec["engine_api_mode"] = defaultString(resp.APIMode, "v2")
 			instance.SubmitSpec["engine_base_url"] = defaultString(resp.EndpointBaseURL, endpoint.BaseURL)
+			if resp.EngineURL != "" {
+				instance.SubmitSpec["engine_url"] = resp.EngineURL
+			}
+			if resp.EngineMethod != "" {
+				instance.SubmitSpec["engine_method"] = resp.EngineMethod
+			}
 			if strings.EqualFold(defaultString(resp.APIMode, "v2"), "v1") {
 				instance.SubmitSpec["engine_legacy_base_url"] = defaultString(resp.EndpointBaseURL, endpoint.LegacyURL)
 			} else if endpoint.ContextPath != "" {
@@ -1247,6 +1553,12 @@ func (s *Service) submitTaskInstanceWithPayload(ctx context.Context, task *Task,
 		instance.EngineJobID = strings.TrimSpace(resp.JobID)
 		instance.SubmitSpec["engine_api_mode"] = defaultString(resp.APIMode, "v2")
 		instance.SubmitSpec["engine_base_url"] = defaultString(resp.EndpointBaseURL, endpoint.BaseURL)
+		if resp.EngineURL != "" {
+			instance.SubmitSpec["engine_url"] = resp.EngineURL
+		}
+		if resp.EngineMethod != "" {
+			instance.SubmitSpec["engine_method"] = resp.EngineMethod
+		}
 		if strings.EqualFold(defaultString(resp.APIMode, "v2"), "v1") {
 			instance.SubmitSpec["engine_legacy_base_url"] = defaultString(resp.EndpointBaseURL, endpoint.LegacyURL)
 		} else if endpoint.ContextPath != "" {
@@ -1285,7 +1597,8 @@ func (s *Service) GetJob(ctx context.Context, id uint) (*JobInstance, error) {
 	return s.refreshJobInstance(ctx, instance)
 }
 
-// CancelJob marks one running/pending job instance as canceled.
+// CancelJob 请求真实停止作业，并在确认停止前保留取消中间状态。
+// CancelJob requests a real stop and keeps intermediate cancellation states until the stop is confirmed.
 func (s *Service) CancelJob(ctx context.Context, id uint, stopWithSavepoint bool) (*JobInstance, error) {
 	instance, err := s.repo.GetJobInstanceByID(ctx, id)
 	if err != nil {
@@ -1294,28 +1607,81 @@ func (s *Service) CancelJob(ctx context.Context, id uint, stopWithSavepoint bool
 	if instance.Status == JobStatusSuccess || instance.Status == JobStatusFailed || instance.Status == JobStatusCanceled {
 		return nil, ErrJobAlreadyFinished
 	}
+	if instance.Status == JobStatusCancelRequested || instance.Status == JobStatusCancelling {
+		// 如果此前处于带 Savepoint 的停止中（如 DOING_SAVEPOINT），而当前请求普通停止（!stopWithSavepoint），
+		// 则用户意图放弃 Savepoint 强制停止，予以打破死锁并强制结束。
+		isDoingSavepoint := strings.EqualFold(strings.TrimSpace(stringValue(instance.ResultPreview, "job_status")), "DOING_SAVEPOINT")
+		if !stopWithSavepoint && isDoingSavepoint {
+			now := time.Now()
+			if submitSpecExecutionMode(instance.SubmitSpec) == "local" {
+				_ = s.stopLocalJob(ctx, instance)
+			} else if s.engineClient != nil && strings.TrimSpace(instance.EngineJobID) != "" {
+				if endpoint := endpointFromSubmitSpec(instance.SubmitSpec); endpoint != nil {
+					_ = s.engineClient.StopJob(ctx, endpoint, instance.EngineJobID, false)
+				}
+			}
+			instance.Status = JobStatusCanceled
+			instance.FinishedAt = &now
+			if instance.ResultPreview == nil {
+				instance.ResultPreview = JSONMap{}
+			}
+			instance.ResultPreview["job_status"] = "CANCELED"
+			_ = s.repo.UpdateJobStatus(ctx, instance.ID, []JobStatus{JobStatusCancelRequested, JobStatusCancelling}, map[string]any{
+				"status":         instance.Status,
+				"finished_at":    instance.FinishedAt,
+				"result_preview": instance.ResultPreview,
+				"error_message":  "",
+			})
+			_ = s.syncExecutionFromJob(ctx, instance)
+			return instance, nil
+		}
+		return instance, nil
+	}
+	previousStatus := instance.Status
+	if err := s.repo.UpdateJobStatus(ctx, instance.ID, []JobStatus{JobStatusPending, JobStatusRunning}, map[string]any{
+		"status":        JobStatusCancelRequested,
+		"error_message": "",
+	}); err != nil {
+		if errors.Is(err, ErrJobStatusChanged) {
+			return s.repo.GetJobInstanceByID(ctx, id)
+		}
+		return nil, err
+	}
+	instance.Status = JobStatusCancelRequested
+
+	targetStatus := JobStatusCancelling
 	if submitSpecExecutionMode(instance.SubmitSpec) == "local" {
 		if err := s.stopLocalJob(ctx, instance); err != nil {
+			s.restoreJobAfterCancelFailure(ctx, instance, previousStatus)
 			return nil, err
 		}
-	} else if s.engineClient != nil && strings.TrimSpace(instance.EngineJobID) != "" {
-		if endpoint := endpointFromSubmitSpec(instance.SubmitSpec); endpoint != nil {
-			if err := s.engineClient.StopJob(ctx, endpoint, instance.EngineJobID, stopWithSavepoint); err != nil {
-				return nil, err
-			}
+		targetStatus = JobStatusCanceled
+	} else {
+		if s.engineClient == nil || strings.TrimSpace(instance.EngineJobID) == "" {
+			s.restoreJobAfterCancelFailure(ctx, instance, previousStatus)
+			return nil, ErrExecutionTargetUnavailable
+		}
+		endpoint := endpointFromSubmitSpec(instance.SubmitSpec)
+		if endpoint == nil {
+			s.restoreJobAfterCancelFailure(ctx, instance, previousStatus)
+			return nil, ErrExecutionTargetUnavailable
+		}
+		if err := s.engineClient.StopJob(ctx, endpoint, instance.EngineJobID, stopWithSavepoint); err != nil {
+			s.restoreJobAfterCancelFailure(ctx, instance, previousStatus)
+			return nil, err
 		}
 	}
+
 	now := time.Now()
-	if stopWithSavepoint {
-		instance.Status = JobStatusRunning
+	instance.Status = targetStatus
+	if targetStatus == JobStatusCancelling {
 		instance.FinishedAt = nil
 		instance.ResultPreview = mergeJobRuntimeInfo(instance.ResultPreview, &EngineJobInfo{
 			JobID:     instance.EngineJobID,
 			JobName:   strings.TrimSpace(stringValue(instance.SubmitSpec, "job_name")),
-			JobStatus: "DOING_SAVEPOINT",
+			JobStatus: cancelRequestedRuntimeStatus(stopWithSavepoint),
 		})
 	} else {
-		instance.Status = JobStatusCanceled
 		instance.FinishedAt = &now
 		instance.ResultPreview = mergeJobRuntimeInfo(instance.ResultPreview, &EngineJobInfo{
 			JobID:        instance.EngineJobID,
@@ -1324,10 +1690,40 @@ func (s *Service) CancelJob(ctx context.Context, id uint, stopWithSavepoint bool
 			FinishedTime: now.Format(time.DateTime),
 		})
 	}
-	if err := s.repo.UpdateJobInstance(ctx, instance); err != nil {
+	if err := s.repo.UpdateJobStatus(ctx, instance.ID, []JobStatus{JobStatusCancelRequested}, map[string]any{
+		"status":         instance.Status,
+		"finished_at":    instance.FinishedAt,
+		"result_preview": instance.ResultPreview,
+		"error_message":  "",
+	}); err != nil {
+		return nil, err
+	}
+	if err := s.syncExecutionFromJob(ctx, instance); err != nil {
 		return nil, err
 	}
 	return instance, nil
+}
+
+func (s *Service) restoreJobAfterCancelFailure(ctx context.Context, instance *JobInstance, previousStatus JobStatus) {
+	if instance == nil {
+		return
+	}
+	_ = s.repo.UpdateJobStatus(ctx, instance.ID, []JobStatus{JobStatusCancelRequested}, map[string]any{
+		"status":        previousStatus,
+		"error_message": "cancel request failed",
+		"finished_at":   nil,
+	})
+	instance.Status = previousStatus
+	instance.ErrorMessage = "cancel request failed"
+	instance.FinishedAt = nil
+	_ = s.syncExecutionFromJob(ctx, instance)
+}
+
+func cancelRequestedRuntimeStatus(stopWithSavepoint bool) string {
+	if stopWithSavepoint {
+		return "DOING_SAVEPOINT"
+	}
+	return "CANCEL_REQUESTED"
 }
 
 func (s *Service) validateParent(ctx context.Context, parentID *uint) (*uint, error) {
@@ -1514,7 +1910,35 @@ func buildTaskTree(tasks []*Task) []*TaskTreeNode {
 	nodes := make(map[uint]*TaskTreeNode, len(tasks))
 	roots := make([]*TaskTreeNode, 0)
 	for _, task := range tasks {
-		nodes[task.ID] = &TaskTreeNode{ID: task.ID, ParentID: task.ParentID, NodeType: task.NodeType, Name: task.Name, Description: task.Description, ClusterID: task.ClusterID, EngineVersion: task.EngineVersion, Mode: task.Mode, Status: task.Status, ContentFormat: task.ContentFormat, Content: task.Content, JobName: task.JobName, Definition: cloneJSONMap(task.Definition), SortOrder: task.SortOrder, CurrentVersion: task.CurrentVersion, ScheduleEnabled: task.ScheduleEnabled, ScheduleCronExpr: task.ScheduleCronExpr, ScheduleTimezone: task.ScheduleTimezone, ScheduleLastTriggeredAt: task.ScheduleLastTriggeredAt, ScheduleNextTriggeredAt: task.ScheduleNextTriggeredAt, Children: []*TaskTreeNode{}}
+		nodes[task.ID] = &TaskTreeNode{
+			ID:                      task.ID,
+			ParentID:                task.ParentID,
+			NodeType:                task.NodeType,
+			Name:                    task.Name,
+			Description:             task.Description,
+			ClusterID:               task.ClusterID,
+			EngineVersion:           task.EngineVersion,
+			Mode:                    task.Mode,
+			Status:                  task.Status,
+			ContentFormat:           task.ContentFormat,
+			Content:                 task.Content,
+			JobName:                 task.JobName,
+			Definition:              cloneJSONMap(task.Definition),
+			SortOrder:               task.SortOrder,
+			CurrentVersion:          task.CurrentVersion,
+			ScheduleEnabled:         task.ScheduleEnabled,
+			ScheduleCronExpr:        task.ScheduleCronExpr,
+			ScheduleTimezone:        task.ScheduleTimezone,
+			ScheduleLastTriggeredAt: task.ScheduleLastTriggeredAt,
+			ScheduleNextTriggeredAt: task.ScheduleNextTriggeredAt,
+			CreatedBy:               task.CreatedBy,
+			CanEdit:                 task.CanEdit,
+			CanRun:                  task.CanRun,
+			IsOwner:                 task.IsOwner,
+			IsCollaborator:          task.IsCollaborator,
+			IsPublicTask:            task.IsPublicTask,
+			Children:                []*TaskTreeNode{},
+		}
 	}
 	for _, task := range tasks {
 		node := nodes[task.ID]
@@ -2007,6 +2431,8 @@ func mergeJobRuntimeInfo(existing JSONMap, info *EngineJobInfo) JSONMap {
 	}
 	if strings.TrimSpace(info.JobStatus) != "" {
 		existing["job_status"] = strings.TrimSpace(info.JobStatus)
+	} else if strings.EqualFold(strings.TrimSpace(stringValue(existing, "job_status")), "DOING_SAVEPOINT") {
+		existing["job_status"] = "CANCELED"
 	}
 	if info.JobDag != nil {
 		existing["job_dag"] = info.JobDag
@@ -2078,11 +2504,57 @@ func (s *Service) refreshJobInstance(ctx context.Context, instance *JobInstance)
 	if endpoint == nil {
 		return instance, nil
 	}
+	previousStatus := instance.Status
 	info, err := s.engineClient.GetJobInfo(ctx, endpoint, instance.EngineJobID)
 	if err != nil {
+		if previousStatus == JobStatusCancelRequested || previousStatus == JobStatusCancelling {
+			now := time.Now()
+			instance.Status = JobStatusCanceled
+			instance.FinishedAt = &now
+			if instance.ResultPreview == nil {
+				instance.ResultPreview = JSONMap{}
+			}
+			instance.ResultPreview["job_status"] = "CANCELED"
+			_ = s.repo.UpdateJobStatus(ctx, instance.ID, []JobStatus{previousStatus}, map[string]any{
+				"status":         instance.Status,
+				"result_preview": instance.ResultPreview,
+				"finished_at":    instance.FinishedAt,
+			})
+		}
 		return instance, nil
 	}
-	instance.Status = normalizeJobStatus(info.JobStatus)
+	if info == nil {
+		return instance, nil
+	}
+	rawEngineStatus := strings.TrimSpace(info.JobStatus)
+	var observedStatus JobStatus
+	if rawEngineStatus == "" {
+		if previousStatus == JobStatusCancelRequested || previousStatus == JobStatusCancelling {
+			observedStatus = JobStatusCanceled
+		} else {
+			observedStatus = previousStatus
+		}
+	} else {
+		observedStatus = normalizeJobStatus(rawEngineStatus)
+		if previousStatus == JobStatusCancelRequested || previousStatus == JobStatusCancelling {
+			if observedStatus == JobStatusPending || observedStatus == JobStatusRunning {
+				observedStatus = previousStatus
+			} else if observedStatus == JobStatusSuccess {
+				observedStatus = JobStatusCanceled
+			}
+		}
+	}
+	// 引擎启动阶段可能短暂返回 CREATED，不能把已经运行的任务改回 pending。
+	// Engines may briefly report CREATED during startup; do not move a running job back to pending.
+	if previousStatus == JobStatusRunning && observedStatus == JobStatusPending {
+		observedStatus = previousStatus
+	}
+	// 作业终态不可被迟到或过期的引擎状态改回运行态。
+	// A late or stale engine status must not move a terminal job back to a running state.
+	if isFinalNormalizedJobStatus(previousStatus) {
+		observedStatus = previousStatus
+	}
+	instance.Status = observedStatus
 	instance.ResultPreview = mergeJobRuntimeInfo(instance.ResultPreview, info)
 	if isFinalNormalizedJobStatus(instance.Status) {
 		if parsedFinishedAt := parseEngineJobTime(info.FinishedTime); parsedFinishedAt != nil {
@@ -2097,10 +2569,21 @@ func (s *Service) refreshJobInstance(ctx context.Context, instance *JobInstance)
 	} else {
 		instance.FinishedAt = nil
 	}
-	if err := s.repo.UpdateJobInstance(ctx, instance); err != nil {
+	if err := s.repo.UpdateJobStatus(ctx, instance.ID, []JobStatus{previousStatus}, map[string]any{
+		"status":         instance.Status,
+		"result_preview": instance.ResultPreview,
+		"error_message":  instance.ErrorMessage,
+		"finished_at":    instance.FinishedAt,
+	}); err != nil {
+		if errors.Is(err, ErrJobStatusChanged) {
+			return s.repo.GetJobInstanceByID(ctx, instance.ID)
+		}
 		return nil, err
 	}
 	if err := s.syncPreviewSessionTerminalState(ctx, instance); err != nil {
+		return nil, err
+	}
+	if err := s.syncExecutionFromJob(ctx, instance); err != nil {
 		return nil, err
 	}
 	return instance, nil

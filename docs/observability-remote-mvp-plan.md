@@ -170,11 +170,11 @@
 
 - 2026-02-27 / Step-9（外部三件套端到端联调完成）  
   在 `deps` 已部署 Prometheus/Alertmanager/Grafana 的前提下，完成真实联调闭环：  
-  1) STX 控制面升级为当前分支最新二进制并重启（端口 `8000`）；<br>
+  1) STX 控制面升级为当前分支最新二进制并重启（端口 `17800`）；<br>
   2) Prometheus 配置切换为 `http_sd_configs` 指向  
-     `http://127.0.0.1:8000/api/v1/monitoring/prometheus/discovery` 并 reload；  
+     `http://127.0.0.1:17800/api/v1/monitoring/prometheus/discovery` 并 reload；  
   3) Alertmanager receiver 增加 webhook  
-     `http://127.0.0.1:8000/api/v1/monitoring/alertmanager/webhook` 并热重载；  
+     `http://127.0.0.1:17800/api/v1/monitoring/alertmanager/webhook` 并热重载；  
   4) 通过 `https://cpa.120501.xyz` 执行  
      `scripts/observability-remote-smoke.sh`（含登录态）全部通过；  
   5) 通过向 Alertmanager `POST /api/v2/alerts` 注入测试告警，验证告警成功转发并落库到  

@@ -51,6 +51,13 @@ type UpdateTaskRequest struct {
 	Definition    JSONMap `json:"definition"`
 }
 
+// UpdateTaskPermissionsRequest 表示一次只修改共享权限字段的请求。
+// UpdateTaskPermissionsRequest represents a partial sharing-permission update.
+type UpdateTaskPermissionsRequest struct {
+	IsPublic        *bool  `json:"is_public"`
+	CollaboratorIDs []uint `json:"collaborator_ids"`
+}
+
 // PublishTaskRequest represents the payload for publishing a sync task.
 type PublishTaskRequest struct {
 	Comment string `json:"comment"`
@@ -133,6 +140,8 @@ type JobFilter struct {
 	RunType       RunType
 	PlatformJobID string
 	EngineJobID   string
+	OwnerUserID   uint
+	IncludeAll    bool
 	Page          int
 	Size          int
 }
@@ -258,6 +267,12 @@ type TaskTreeNode struct {
 	ScheduleTimezone        string          `json:"schedule_timezone,omitempty"`
 	ScheduleLastTriggeredAt *time.Time      `json:"schedule_last_triggered_at,omitempty"`
 	ScheduleNextTriggeredAt *time.Time      `json:"schedule_next_triggered_at,omitempty"`
+	CreatedBy               uint            `json:"created_by"`
+	CanEdit                 bool            `json:"can_edit"`
+	CanRun                  bool            `json:"can_run"`
+	IsOwner                 bool            `json:"is_owner"`
+	IsCollaborator          bool            `json:"is_collaborator"`
+	IsPublicTask            bool            `json:"is_public"`
 	Children                []*TaskTreeNode `json:"children,omitempty"`
 }
 

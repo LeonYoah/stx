@@ -275,6 +275,9 @@ func (r *Repository) UpdateAgentStatus(ctx context.Context, id uint, status Agen
 	switch status {
 	case AgentStatusInstalled:
 		updates["status"] = HostStatusConnected
+		// 注册成功视为首次接入，写入心跳时间，避免引导页一直卡在“侦听中”
+		// Treat successful registration as first contact so the install guide can leave the waiting state.
+		updates["last_heartbeat"] = time.Now()
 	case AgentStatusOffline:
 		updates["status"] = HostStatusOffline
 	}

@@ -23,19 +23,33 @@
 'use client';
 
 import {useState, useMemo} from 'react';
+import {toast} from 'sonner';
 import {usePackages} from '@/hooks/use-installer';
 import {PackageTable} from './PackageTable';
 import {UploadPackageDialog} from './UploadPackageDialog';
+import {DownloadPackageDialog} from './DownloadPackageDialog';
 import {Button} from '@/components/ui/button';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import {Card} from '@/components/ui/card';
 import {Badge} from '@/components/ui/badge';
-import {Upload, RefreshCw, Package, Cloud, HardDrive} from 'lucide-react';
+import {Upload, RefreshCw, Package, Puzzle, Cloud, HardDrive} from 'lucide-react';
 import {useTranslations} from 'next-intl';
 import {
   WorkspaceHeader,
   StatPillsBar,
+  ModuleNavTabs,
   type StatPillItem,
 } from '@/components/common/layout';
+import type {MirrorSource} from '@/lib/services/installer/types';
 
 export function PackageMain() {
   const t = useTranslations();
@@ -47,38 +61,67 @@ export function PackageMain() {
     uploadPackage,
     deletePackage,
     startDownload,
+    uploadSource,
+    fetchSource,
+    downloadSource,
     downloads,
     refreshVersions,
     refreshingVersions,
   } = usePackages();
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
+  const [downloadVersion, setDownloadVersion] = useState<string | null>(null);
+  // 删除确认用独立 open，避免 Action preventDefault 后受控状态关不掉
+  // Keep a dedicated open flag so preventDefault on AlertDialogAction cannot leave the dialog stuck
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleteVersion, setDeleteVersion] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [activeTab, setActiveTab] = useState<'online' | 'local'>('online');
 
   const handleUpload = async (
     file: File,
     version: string,
+    sourceFile?: File,
     onProgress?: (percent: number) => void,
   ) => {
-    await uploadPackage(file, version, onProgress);
+    await uploadPackage(file, version, sourceFile, onProgress);
     setUploadDialogOpen(false);
   };
 
-  const handleDelete = async (version: string) => {
-    if (confirm(t('installer.confirmDeletePackage', {version}))) {
+  const handleSourceUpload = async (version: string, sourceFile: File) => {
+    await uploadSource(version, sourceFile);
+  };
+
+  // 打开页面内确认框，不用浏览器原生 confirm；延后到下拉菜单卸下后再开，避免双层 Modal 抢焦点
+  // Open in-app confirm (not window.confirm); defer until the dropdown unmounts so nested modals do not fight focus
+  const handleDelete = (version: string) => {
+    setDeleteVersion(version);
+    window.setTimeout(() => setDeleteConfirmOpen(true), 0);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteVersion) {
+      return;
+    }
+    const version = deleteVersion;
+    setDeleting(true);
+    try {
       await deletePackage(version);
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : t('installer.deletePackageFailed'),
+      );
+    } finally {
+      setDeleting(false);
     }
   };
 
   const handleDownload = async (
     version: string,
-    mirror: 'aliyun' | 'apache' | 'huaweicloud',
+    mirror: MirrorSource,
+    withSource: boolean,
+    idempotencyKey: string,
   ) => {
-    try {
-      await startDownload(version, mirror);
-    } catch (err) {
-      // 错误由 hook 统一捕获与通知 / Error handled by hook
-      console.error('Download failed:', err);
-    }
+    await startDownload(version, mirror, withSource, idempotencyKey);
   };
 
   // 状态胶囊配置：消除冗余说明卡片，垂直空间利用率最大化
@@ -110,6 +153,26 @@ export function PackageMain() {
         icon={<Package />}
         title={t('installer.packageManagement')}
         subtitle={t('installer.packageManagementDesc')}
+        tabs={
+          <ModuleNavTabs
+              reorderGroupId='packages-plugins'
+              items={[
+              {
+                key: 'packages',
+                label: t('installer.packageManagement'),
+                href: '/packages',
+                icon: <Package className='size-3.5' />,
+              },
+              {
+                key: 'plugins',
+                label: t('dock.pluginMarketplace'),
+                href: '/plugins',
+                icon: <Puzzle className='size-3.5' />,
+              },
+            ]}
+            activeKey='packages'
+          />
+        }
         actions={
           <div className='flex items-center gap-2'>
             {packages?.recommended_version && (
@@ -187,7 +250,7 @@ export function PackageMain() {
               localPackages={packages?.local_packages || []}
               recommendedVersion={packages?.recommended_version}
               loading={loading}
-              onDownload={handleDownload}
+              onDownloadRequest={setDownloadVersion}
               downloads={downloads}
             />
           ) : (
@@ -196,6 +259,9 @@ export function PackageMain() {
               localPackages={packages?.local_packages || []}
               loading={loading}
               onDelete={handleDelete}
+              onSourceUpload={handleSourceUpload}
+              onSourceFetch={(version) => fetchSource(version, 'apache')}
+              onSourceDownload={downloadSource}
             />
           )}
         </div>
@@ -210,6 +276,45 @@ export function PackageMain() {
           (pkg) => pkg.version,
         )}
       />
+
+      {/* 在线下载对话框 / Online download dialog */}
+      <DownloadPackageDialog
+        open={downloadVersion !== null}
+        version={downloadVersion}
+        onOpenChange={(open) => !open && setDownloadVersion(null)}
+        onDownload={handleDownload}
+      />
+
+      {/* 删除本地安装包确认：沿用 AlertDialog，不走浏览器 confirm */}
+      {/* Confirm local package deletion with AlertDialog, not the browser confirm */}
+      <AlertDialog
+        open={deleteConfirmOpen}
+        onOpenChange={(open) => {
+          setDeleteConfirmOpen(open);
+          if (!open) {
+            setDeleting(false);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('installer.deletePackageTitle')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('installer.confirmDeletePackage', {version: deleteVersion || ''})}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={deleting}
+              className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+              onClick={() => void handleConfirmDelete()}
+            >
+              {deleting ? t('common.loading') : t('common.delete')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

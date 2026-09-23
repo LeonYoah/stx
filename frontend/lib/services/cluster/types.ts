@@ -135,6 +135,7 @@ export interface ClusterPortConfig {
   master_hazelcast_port?: number;
   master_api_port?: number;
   worker_port?: number;
+  java_proxy_port?: number;
 }
 
 /**
@@ -295,6 +296,19 @@ export interface RuntimeStorageSpec {
   endpoint?: string;
   bucket?: string;
   external: boolean;
+  hdfs_ha_enabled?: boolean;
+  hdfs_name_services?: string;
+  hdfs_ha_namenodes?: string;
+  hdfs_namenode_rpc_address_1?: string;
+  hdfs_namenode_rpc_address_2?: string;
+  hdfs_failover_proxy_provider?: string;
+  hdfs_namenode_host?: string;
+  hdfs_namenode_port?: number;
+  kerberos_principal?: string;
+  kerberos_keytab_file_path?: string;
+  hdfs_site_path?: string;
+  disable_cache?: boolean;
+  s3_credentials_provider?: string;
   size_available: boolean;
   total_size_bytes: number;
   cleanup_supported: boolean;
@@ -307,6 +321,22 @@ export interface RuntimeStorageDetails {
   config_source?: string;
   checkpoint?: RuntimeStorageSpec;
   imap?: RuntimeStorageSpec;
+  configured_checkpoint?: RuntimeStorageSpec;
+  configured_imap?: RuntimeStorageSpec;
+}
+
+export interface ApplyRuntimeStorageVersion {
+  config_type: string;
+  config_id: number;
+  version: number;
+}
+
+export interface ApplyRuntimeStorageResult {
+  saved: boolean;
+  restart_required: boolean;
+  message: string;
+  versions?: ApplyRuntimeStorageVersion[];
+  validation?: RuntimeStorageValidationResult;
 }
 
 export interface RuntimeStorageCleanupNodeResult {
@@ -391,10 +421,65 @@ export interface RuntimeStorageCheckpointInspectJobConfig {
   variables?: Record<string, unknown>;
 }
 
+export interface NormalizedProgressSubtask {
+  subtaskIndex: number;
+  target?: string;
+  currentOffset?: string;
+  latestOffset?: string;
+  lag?: number;
+  status?: string;
+  chunks?: number;
+  bytes?: number;
+}
+
+export interface NormalizedProgress {
+  category: 'LOG_STREAM' | 'PARTITION_QUEUE' | 'LAKE_SPLIT' | 'SINK_2PC' | 'GENERIC';
+  primaryLabel: string;
+  primaryValue: string;
+  secondaryLabel?: string;
+  secondaryValue?: string;
+  phaseBadge?: string;
+  eventTime?: number;
+  lagSeconds?: number;
+  targetTables?: string[];
+  subtaskProgress?: NormalizedProgressSubtask[];
+}
+
+export interface CheckpointInspectSourceItem {
+  actionName?: string;
+  pluginName?: string;
+  configIndex?: number;
+  subtaskCount?: number;
+  stateBytesTotal?: number;
+  splitCountTotal?: number;
+  stateRepresentation?: string;
+  decodeStrategy?: string;
+  subtasks?: Record<string, unknown>[];
+  normalizedProgress?: NormalizedProgress;
+  error?: string;
+  [key: string]: unknown;
+}
+
+export interface CheckpointInspectSinkItem {
+  actionName?: string;
+  pluginName?: string;
+  configIndex?: number;
+  subtaskCount?: number;
+  stateBytesTotal?: number;
+  chunksTotal?: number;
+  stateRepresentation?: string;
+  decodeStrategy?: string;
+  subtasks?: Record<string, unknown>[];
+  normalizedProgress?: NormalizedProgress;
+  error?: string;
+  [key: string]: unknown;
+}
+
 export interface RuntimeStorageCheckpointSourceStateInspectResult {
   pipeline_state?: Record<string, unknown>;
   completed_checkpoint?: Record<string, unknown>;
-  sources?: Record<string, unknown>[];
+  sources?: CheckpointInspectSourceItem[];
+  sinks?: CheckpointInspectSinkItem[];
   unsupported_sources?: Record<string, unknown>[];
   warnings?: string[];
   error_message?: string;
@@ -413,6 +498,14 @@ export interface RuntimeStorageIMAPInspectResult {
   hex_preview?: string;
   entry_count?: number;
   entries?: Record<string, unknown>[];
+}
+
+export interface StxJavaProxyJvmMemory {
+  maxMemoryBytes?: number;
+  totalMemoryBytes?: number;
+  freeMemoryBytes?: number;
+  usedMemoryBytes?: number;
+  maxMemoryMb?: number;
 }
 
 export interface StxJavaProxyStatus {
@@ -434,6 +527,14 @@ export interface StxJavaProxyStatus {
   pid?: number;
   log_path?: string;
   message?: string;
+  jvm_opts?: string;
+  jvm_memory?: StxJavaProxyJvmMemory;
+}
+
+export interface UpdateStxJavaProxyConfigRequest {
+  jvm_opts?: string;
+  port?: number;
+  restart?: boolean;
 }
 
 export interface StxJavaProxyLogPreviewResult {
@@ -687,12 +788,14 @@ export function getClusterPortConfig(
     ),
     master_api_port: toPositivePortOrUndefined(ports.master_api_port),
     worker_port: toPositivePortOrUndefined(ports.worker_port),
+    java_proxy_port: toPositivePortOrUndefined(ports.java_proxy_port),
   };
 
   if (
     result.master_hazelcast_port === undefined &&
     result.master_api_port === undefined &&
-    result.worker_port === undefined
+    result.worker_port === undefined &&
+    result.java_proxy_port === undefined
   ) {
     return undefined;
   }

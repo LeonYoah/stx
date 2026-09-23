@@ -22,18 +22,25 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/LeonYoah/stx/internal/apps/auth"
+	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
 	"github.com/gin-gonic/gin"
 )
 
 // Handler 配置管理 HTTP 处理器
 type Handler struct {
-	service *Service
+	service          *Service
+	executionService *executionapp.Service
 }
 
 // NewHandler 创建处理器实例
 func NewHandler(service *Service) *Handler {
 	return &Handler{service: service}
 }
+
+// SetExecutionService 设置 CLI 和直接 API 写请求使用的公共执行服务。
+// SetExecutionService sets the shared execution service used by CLI and direct API writes.
+func (h *Handler) SetExecutionService(service *executionapp.Service) { h.executionService = service }
 
 // Response 标准响应格式
 type Response struct {
@@ -141,9 +148,26 @@ func (h *Handler) UpdateConfig(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, Response{ErrorMsg: err.Error(), Data: nil})
 		return
 	}
+	executionItem, existing, err := h.beginConfigWrite(c, "config.update", strconv.FormatUint(id, 10), executionapp.RiskLevelR1, configUpdateImpact, struct {
+		ID      uint64              `json:"id"`
+		Request UpdateConfigRequest `json:"request"`
+	}{id, req})
+	if err != nil {
+		executionapp.WriteError(c, err)
+		return
+	}
+	if existing {
+		h.writeExistingConfigWrite(c, executionItem)
+		return
+	}
 
 	userID := getUserID(c)
 	config, err := h.service.Update(c.Request.Context(), uint(id), &req, userID)
+	resultRef := ""
+	if config != nil {
+		resultRef = strconv.FormatUint(uint64(config.ID), 10)
+	}
+	h.finishConfigWrite(c, executionItem, resultRef, err)
 	if err != nil {
 		if err == ErrConfigNotFound {
 			c.JSON(http.StatusNotFound, Response{ErrorMsg: "config not found", Data: nil})
@@ -205,9 +229,26 @@ func (h *Handler) RollbackConfig(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, Response{ErrorMsg: err.Error(), Data: nil})
 		return
 	}
+	executionItem, existing, err := h.beginConfigWrite(c, "config.rollback", strconv.FormatUint(id, 10), executionapp.RiskLevelR1, configRollbackImpact, struct {
+		ID      uint64                `json:"id"`
+		Request RollbackConfigRequest `json:"request"`
+	}{id, req})
+	if err != nil {
+		executionapp.WriteError(c, err)
+		return
+	}
+	if existing {
+		h.writeExistingConfigWrite(c, executionItem)
+		return
+	}
 
 	userID := getUserID(c)
 	config, err := h.service.Rollback(c.Request.Context(), uint(id), &req, userID)
+	resultRef := ""
+	if config != nil {
+		resultRef = strconv.FormatUint(uint64(config.ID), 10)
+	}
+	h.finishConfigWrite(c, executionItem, resultRef, err)
 	if err != nil {
 		if err == ErrConfigNotFound {
 			c.JSON(http.StatusNotFound, Response{ErrorMsg: "config not found", Data: nil})
@@ -250,9 +291,23 @@ func (h *Handler) PromoteConfig(c *gin.Context) {
 		// 允许空 body
 		req = PromoteConfigRequest{}
 	}
+	executionItem, existing, err := h.beginConfigWrite(c, "config.promote", strconv.FormatUint(id, 10), executionapp.RiskLevelR2, configPromoteImpact, struct {
+		ID      uint64               `json:"id"`
+		Request PromoteConfigRequest `json:"request"`
+	}{id, req})
+	if err != nil {
+		executionapp.WriteError(c, err)
+		return
+	}
+	if existing {
+		h.writeExistingConfigWrite(c, executionItem)
+		return
+	}
 
 	userID := getUserID(c)
-	if err := h.service.Promote(c.Request.Context(), uint(id), &req, userID); err != nil {
+	err = h.service.Promote(c.Request.Context(), uint(id), &req, userID)
+	h.finishConfigWrite(c, executionItem, strconv.FormatUint(id, 10), err)
+	if err != nil {
 		if err == ErrConfigNotFound {
 			c.JSON(http.StatusNotFound, Response{ErrorMsg: "config not found", Data: nil})
 			return
@@ -294,9 +349,26 @@ func (h *Handler) SyncFromTemplate(c *gin.Context) {
 		// 允许空 body
 		req = SyncConfigRequest{}
 	}
+	executionItem, existing, err := h.beginConfigWrite(c, "config.sync", strconv.FormatUint(id, 10), executionapp.RiskLevelR1, configSyncImpact, struct {
+		ID      uint64            `json:"id"`
+		Request SyncConfigRequest `json:"request"`
+	}{id, req})
+	if err != nil {
+		executionapp.WriteError(c, err)
+		return
+	}
+	if existing {
+		h.writeExistingConfigWrite(c, executionItem)
+		return
+	}
 
 	userID := getUserID(c)
 	config, err := h.service.SyncFromTemplate(c.Request.Context(), uint(id), &req, userID)
+	resultRef := ""
+	if config != nil {
+		resultRef = strconv.FormatUint(uint64(config.ID), 10)
+	}
+	h.finishConfigWrite(c, executionItem, resultRef, err)
 	if err != nil {
 		if err == ErrConfigNotFound {
 			c.JSON(http.StatusNotFound, Response{ErrorMsg: "config not found", Data: nil})
@@ -349,9 +421,23 @@ func (h *Handler) InitClusterConfigs(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, Response{ErrorMsg: err.Error(), Data: nil})
 		return
 	}
+	executionItem, existing, err := h.beginConfigWrite(c, "config.cluster.init", strconv.FormatUint(clusterID, 10), executionapp.RiskLevelR1, configClusterInitImpact, struct {
+		ClusterID uint64                    `json:"cluster_id"`
+		Request   InitClusterConfigsRequest `json:"request"`
+	}{clusterID, req})
+	if err != nil {
+		executionapp.WriteError(c, err)
+		return
+	}
+	if existing {
+		h.writeExistingConfigWrite(c, executionItem)
+		return
+	}
 
 	userID := getUserID(c)
-	if err := h.service.InitClusterConfigs(c.Request.Context(), uint(clusterID), req.HostID, req.InstallDir, userID); err != nil {
+	err = h.service.InitClusterConfigs(c.Request.Context(), uint(clusterID), req.HostID, req.InstallDir, userID)
+	h.finishConfigWrite(c, executionItem, strconv.FormatUint(clusterID, 10), err)
+	if err != nil {
 		var validationErr *ValidationError
 		if errors.As(err, &validationErr) {
 			c.JSON(http.StatusBadRequest, Response{ErrorMsg: validationErr.Error(), Data: nil})
@@ -390,8 +476,22 @@ func (h *Handler) PushConfigToNode(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, Response{ErrorMsg: err.Error(), Data: nil})
 		return
 	}
+	executionItem, existing, err := h.beginConfigWrite(c, "config.push", strconv.FormatUint(id, 10), executionapp.RiskLevelR2, configPushImpact, struct {
+		ID      uint64            `json:"id"`
+		Request PushConfigRequest `json:"request"`
+	}{id, req})
+	if err != nil {
+		executionapp.WriteError(c, err)
+		return
+	}
+	if existing {
+		h.writeExistingConfigWrite(c, executionItem)
+		return
+	}
 
-	if err := h.service.PushConfigToNode(c.Request.Context(), uint(id), req.InstallDir); err != nil {
+	err = h.service.PushConfigToNode(c.Request.Context(), uint(id), req.InstallDir)
+	h.finishConfigWrite(c, executionItem, strconv.FormatUint(id, 10), err)
+	if err != nil {
 		if err == ErrConfigNotFound {
 			c.JSON(http.StatusNotFound, Response{ErrorMsg: "config not found", Data: nil})
 			return
@@ -434,9 +534,26 @@ func (h *Handler) SyncTemplateToAllNodes(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, Response{ErrorMsg: err.Error(), Data: nil})
 		return
 	}
+	executionItem, existing, err := h.beginConfigWrite(c, "config.cluster.sync-all", strconv.FormatUint(clusterID, 10), executionapp.RiskLevelR2, configClusterSyncAllImpact, struct {
+		ClusterID uint64                        `json:"cluster_id"`
+		Request   SyncTemplateToAllNodesRequest `json:"request"`
+	}{clusterID, req})
+	if err != nil {
+		executionapp.WriteError(c, err)
+		return
+	}
+	if existing {
+		h.writeExistingConfigWrite(c, executionItem)
+		return
+	}
 
 	userID := getUserID(c)
 	result, err := h.service.SyncTemplateToAllNodes(c.Request.Context(), uint(clusterID), ConfigType(req.ConfigType), userID)
+	resultRef := strconv.FormatUint(clusterID, 10) + ":0"
+	if result != nil {
+		resultRef = strconv.FormatUint(clusterID, 10) + ":" + strconv.Itoa(result.SyncedCount)
+	}
+	h.finishConfigWrite(c, executionItem, resultRef, err)
 	if err != nil {
 		if err == ErrTemplateNotFound {
 			c.JSON(http.StatusNotFound, Response{ErrorMsg: "configuration template not found", Data: nil})
@@ -458,12 +575,8 @@ func (h *Handler) SyncTemplateToAllNodes(c *gin.Context) {
 	}})
 }
 
-// getUserID 从上下文获取用户ID
+// getUserID 从统一认证上下文获取用户 ID。
+// getUserID reads the user ID from the shared authentication context.
 func getUserID(c *gin.Context) uint {
-	if userID, exists := c.Get("user_id"); exists {
-		if id, ok := userID.(uint); ok {
-			return id
-		}
-	}
-	return 0
+	return uint(auth.GetUserIDFromContext(c))
 }

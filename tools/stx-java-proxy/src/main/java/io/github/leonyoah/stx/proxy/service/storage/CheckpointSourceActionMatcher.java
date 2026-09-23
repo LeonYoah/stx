@@ -64,6 +64,56 @@ public class CheckpointSourceActionMatcher {
         }
     }
 
+    public static final class SinkTarget {
+        private final int configIndex;
+        private final String pluginName;
+        private final String actionName;
+
+        SinkTarget(int configIndex, String pluginName, String actionName) {
+            this.configIndex = configIndex;
+            this.pluginName = pluginName;
+            this.actionName = actionName;
+        }
+
+        public int getConfigIndex() {
+            return configIndex;
+        }
+
+        public String getPluginName() {
+            return pluginName;
+        }
+
+        public String getActionName() {
+            return actionName;
+        }
+    }
+
+    public List<SinkTarget> matchSinks(Map<String, Object> request) {
+        Map<String, Object> jobConfigRequest = ProxyRequestUtils.getMap(request, "jobConfig");
+        if (jobConfigRequest.isEmpty()) {
+            return Collections.emptyList();
+        }
+        Config config;
+        try {
+            config = loadJobConfig(jobConfigRequest);
+        } catch (Exception e) {
+            return Collections.emptyList();
+        }
+        List<Config> sinks = getConfigList(config, "sink");
+        List<SinkTarget> results = new ArrayList<>();
+        for (int index = 0; index < sinks.size(); index++) {
+            Config sink = sinks.get(index);
+            String pluginName =
+                    sink.hasPath("plugin_name") ? sink.getString("plugin_name") : "Sink";
+            results.add(new SinkTarget(index, pluginName, buildSinkActionName(index, pluginName)));
+        }
+        return results;
+    }
+
+    static String buildSinkActionName(int sinkIndex, String pluginName) {
+        return "Sink[" + sinkIndex + "]-" + pluginName;
+    }
+
     public List<SourceTarget> match(Map<String, Object> request) {
         Map<String, Object> jobConfigRequest = ProxyRequestUtils.getMap(request, "jobConfig");
         if (jobConfigRequest.isEmpty()) {
@@ -106,14 +156,26 @@ public class CheckpointSourceActionMatcher {
                 content, extractVariables(request.get("variables")), contentFormat);
     }
 
+    static final java.util.regex.Pattern UNQUOTED_MASK_PATTERN =
+            java.util.regex.Pattern.compile("([:=]\\s*)(\\*{2,})([ \\t\\r\\n,]|$)");
+
+    static String sanitizeContent(String content) {
+        if (content == null) {
+            return "";
+        }
+        return UNQUOTED_MASK_PATTERN.matcher(content).replaceAll("$1\"$2\"$3");
+    }
+
     private Config parseConfigContent(
             String content, Map<String, String> variables, String contentFormat) {
         try {
+            String sanitizedContent = sanitizeContent(content);
             ConfigResolveOptions resolveOptions =
                     ConfigResolveOptions.defaults().setAllowUnresolved(true);
             ConfigParseOptions parseOptions = buildParseOptions(contentFormat);
             Config config =
-                    ConfigFactory.parseString(content, parseOptions).resolve(resolveOptions);
+                    ConfigFactory.parseString(sanitizedContent, parseOptions)
+                            .resolve(resolveOptions);
             if (!variables.isEmpty()) {
                 Properties properties = new Properties();
                 for (Map.Entry<String, String> entry : variables.entrySet()) {

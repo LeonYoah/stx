@@ -32,27 +32,46 @@ import (
 // RuntimeStorageDetails summarizes checkpoint and IMAP runtime storage.
 // RuntimeStorageDetails 汇总 checkpoint 与 IMAP 运行时存储信息。
 type RuntimeStorageDetails struct {
-	ClusterID    uint                `json:"cluster_id"`
-	Checkpoint   *RuntimeStorageSpec `json:"checkpoint,omitempty"`
-	IMAP         *RuntimeStorageSpec `json:"imap,omitempty"`
-	ConfigSource string              `json:"config_source,omitempty"`
+	ClusterID            uint                `json:"cluster_id"`
+	Checkpoint           *RuntimeStorageSpec `json:"checkpoint,omitempty"`
+	IMAP                 *RuntimeStorageSpec `json:"imap,omitempty"`
+	ConfiguredCheckpoint *RuntimeStorageSpec `json:"configured_checkpoint,omitempty"`
+	ConfiguredIMAP       *RuntimeStorageSpec `json:"configured_imap,omitempty"`
+	ConfigSource         string              `json:"config_source,omitempty"`
 }
 
 // RuntimeStorageSpec describes one runtime storage area.
 // RuntimeStorageSpec 描述一类运行时存储。
 type RuntimeStorageSpec struct {
-	Kind             string                    `json:"kind"`
-	Enabled          bool                      `json:"enabled"`
-	StorageType      string                    `json:"storage_type"`
-	Namespace        string                    `json:"namespace,omitempty"`
-	Endpoint         string                    `json:"endpoint,omitempty"`
-	Bucket           string                    `json:"bucket,omitempty"`
-	External         bool                      `json:"external"`
-	SizeAvailable    bool                      `json:"size_available"`
-	TotalSizeBytes   int64                     `json:"total_size_bytes"`
-	CleanupSupported bool                      `json:"cleanup_supported"`
-	Warning          string                    `json:"warning,omitempty"`
-	Nodes            []*RuntimeStorageNodeStat `json:"nodes,omitempty"`
+	Kind        string `json:"kind"`
+	Enabled     bool   `json:"enabled"`
+	StorageType string `json:"storage_type"`
+	Namespace   string `json:"namespace,omitempty"`
+	Endpoint    string `json:"endpoint,omitempty"`
+	Bucket      string `json:"bucket,omitempty"`
+	External    bool   `json:"external"`
+	// HDFS HA / Kerberos / hdfs-site，仅 HDFS 类型有值。
+	// HDFS HA / Kerberos / hdfs-site; populated only for HDFS.
+	HDFSHAEnabled             bool   `json:"hdfs_ha_enabled,omitempty"`
+	HDFSNameServices          string `json:"hdfs_name_services,omitempty"`
+	HDFSHANamenodes           string `json:"hdfs_ha_namenodes,omitempty"`
+	HDFSNamenodeRPCAddress1   string `json:"hdfs_namenode_rpc_address_1,omitempty"`
+	HDFSNamenodeRPCAddress2   string `json:"hdfs_namenode_rpc_address_2,omitempty"`
+	HDFSFailoverProxyProvider string `json:"hdfs_failover_proxy_provider,omitempty"`
+	HDFSNameNodeHost          string `json:"hdfs_namenode_host,omitempty"`
+	HDFSNameNodePort          int    `json:"hdfs_namenode_port,omitempty"`
+	KerberosPrincipal         string `json:"kerberos_principal,omitempty"`
+	KerberosKeytabFilePath    string `json:"kerberos_keytab_file_path,omitempty"`
+	HdfsSitePath              string `json:"hdfs_site_path,omitempty"`
+	DisableCache              *bool  `json:"disable_cache,omitempty"`
+	// S3CredentialsProvider 对应 fs.s3a.aws.credentials.provider。
+	// S3CredentialsProvider maps to fs.s3a.aws.credentials.provider.
+	S3CredentialsProvider string                    `json:"s3_credentials_provider,omitempty"`
+	SizeAvailable         bool                      `json:"size_available"`
+	TotalSizeBytes        int64                     `json:"total_size_bytes"`
+	CleanupSupported      bool                      `json:"cleanup_supported"`
+	Warning               string                    `json:"warning,omitempty"`
+	Nodes                 []*RuntimeStorageNodeStat `json:"nodes,omitempty"`
 }
 
 // RuntimeStorageNodeStat describes one node's runtime storage usage.
@@ -129,6 +148,10 @@ func (s *Service) GetRuntimeStorageDetails(ctx context.Context, clusterID uint) 
 	}
 	details.Checkpoint = checkpoint
 	details.IMAP = imap
+	if configuredCheckpoint, configuredIMAP := s.loadConfiguredRuntimeStorage(ctx, clusterID); configuredCheckpoint != nil || configuredIMAP != nil {
+		details.ConfiguredCheckpoint = configuredCheckpoint
+		details.ConfiguredIMAP = configuredIMAP
+	}
 	return details, nil
 }
 
@@ -447,8 +470,30 @@ func runtimeSpecFromPluginConfig(kind string, pluginConfig map[string]interface{
 	case "S3":
 		spec.Endpoint = asString(pluginConfig["fs.s3a.endpoint"])
 		spec.Bucket = runtimeStorageFirstNonEmpty(asString(pluginConfig["s3.bucket"]), asString(pluginConfig["fs.defaultFS"]))
+		spec.S3CredentialsProvider = asString(pluginConfig["fs.s3a.aws.credentials.provider"])
 	case "HDFS":
 		spec.Endpoint = asString(pluginConfig["fs.defaultFS"])
+		spec.KerberosPrincipal = asString(pluginConfig["kerberosPrincipal"])
+		spec.KerberosKeytabFilePath = asString(pluginConfig["kerberosKeytabFilePath"])
+		spec.HdfsSitePath = asString(pluginConfig["hdfs_site_path"])
+		if rawCache := strings.TrimSpace(asString(pluginConfig["disable.cache"])); rawCache != "" {
+			enabled := strings.EqualFold(rawCache, "true")
+			spec.DisableCache = &enabled
+		}
+		if nameServices := asString(pluginConfig["seatunnel.hadoop.dfs.nameservices"]); nameServices != "" {
+			spec.HDFSHAEnabled = true
+			spec.HDFSNameServices = nameServices
+			spec.HDFSHANamenodes = asString(pluginConfig["seatunnel.hadoop.dfs.ha.namenodes."+nameServices])
+			spec.HDFSNamenodeRPCAddress1 = asString(pluginConfig["seatunnel.hadoop.dfs.namenode.rpc-address."+nameServices+".nn1"])
+			spec.HDFSNamenodeRPCAddress2 = asString(pluginConfig["seatunnel.hadoop.dfs.namenode.rpc-address."+nameServices+".nn2"])
+			spec.HDFSFailoverProxyProvider = asString(pluginConfig["seatunnel.hadoop.dfs.client.failover.proxy.provider."+nameServices])
+		} else if fs := spec.Endpoint; strings.HasPrefix(fs, "hdfs://") {
+			hostPort := strings.TrimPrefix(fs, "hdfs://")
+			if host, port, ok := splitHostPort(hostPort); ok {
+				spec.HDFSNameNodeHost = host
+				spec.HDFSNameNodePort = port
+			}
+		}
 	}
 	return spec
 }
@@ -541,6 +586,18 @@ func asString(v interface{}) string {
 	default:
 		return strings.TrimSpace(fmt.Sprintf("%v", v))
 	}
+}
+
+func splitHostPort(value string) (string, int, bool) {
+	host, portText, ok := strings.Cut(value, ":")
+	if !ok || host == "" || portText == "" {
+		return "", 0, false
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil || port <= 0 {
+		return "", 0, false
+	}
+	return host, port, true
 }
 
 func parseCommandMessage(message string) string {

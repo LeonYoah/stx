@@ -90,12 +90,36 @@ export function isReservedBuiltinVariableKey(key: string): boolean {
     'system.project.name',
     'system.project.code',
   ]);
-  if (fixed.has(trimmed)) {
+  if (fixed.has(trimmed) || trimmed.startsWith('system.')) {
     return true;
   }
-  return /(yyyy|MM|dd|HH|mm|ss|add_months|this_day|last_day|year_week|month_first_day|month_last_day|week_first_day|week_last_day)/.test(
-    trimmed,
-  );
+
+  // 内置时间函数调用校验，如 add_months(yyyyMMdd, -1)
+  if (
+    /^(add_months|this_day|last_day|year_week|month_first_day|month_last_day|week_first_day|week_last_day)\s*\(.*\)$/i.test(
+      trimmed,
+    )
+  ) {
+    return true;
+  }
+
+  // 校验是否为时间格式占位模式（如 yyyyMMdd、yyyy-MM-dd、yyyyMMdd-1 等）
+  // 必须包含标准日期占位符（yyyy、MM、dd、HH、mm、ss），且剔除日期占位符和分隔符/偏移量后不得含有普通英文标识符
+  const offsetMatch = trimmed.match(/^(.+?)([+-])([0-9*/. ]+)$/);
+  const formatExpr = offsetMatch ? offsetMatch[1].trim() : trimmed;
+  const dateTokens = ['yyyy', 'MM', 'dd', 'HH', 'mm', 'ss'];
+  const hasDateToken = dateTokens.some((token) => formatExpr.includes(token));
+  if (!hasDateToken) {
+    return false;
+  }
+
+  const stripped = formatExpr.replace(/yyyy|MM|dd|HH|mm|ss/g, '');
+  if (/[a-zA-Z]/.test(stripped)) {
+    // 包含其他英文字符（如 mysqlpass234 中的 pass、password、address 等），为普通变量名
+    return false;
+  }
+
+  return true;
 }
 
 /**

@@ -22,6 +22,7 @@ package cluster
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httputil"
@@ -211,7 +212,19 @@ type GetClusterStatusResponse struct {
 	Data     *ClusterStatusInfo `json:"data"`
 }
 
-// GetRuntimeStorageResponse represents runtime storage details response.
+// ApplyRuntimeStorageResponse 表示保存运行时存储配置的响应。
+// ApplyRuntimeStorageResponse is the response for applying runtime storage settings.
+type ApplyRuntimeStorageResponse struct {
+	ErrorMsg string                     `json:"error_msg"`
+	Data     *ApplyRuntimeStorageResult `json:"data"`
+}
+
+// SwitchJobLogModeResponse represents job log mode switch response.
+type SwitchJobLogModeResponse struct {
+	ErrorMsg string                  `json:"error_msg"`
+	Data     *SwitchJobLogModeResult `json:"data"`
+}
+
 // GetRuntimeStorageResponse 表示运行时存储详情响应。
 type GetRuntimeStorageResponse struct {
 	ErrorMsg string                 `json:"error_msg"`
@@ -334,6 +347,26 @@ func (h *Handler) RestartSTXJavaProxy(c *gin.Context) {
 	h.handleSTXJavaProxyOperation(c, func(ctx context.Context, clusterID uint) (*STXJavaProxyStatus, error) {
 		return h.service.RestartSTXJavaProxy(ctx, clusterID)
 	})
+}
+
+// UpdateSTXJavaProxyConfig handles PUT /api/v1/clusters/:id/stx-java-proxy/config.
+func (h *Handler) UpdateSTXJavaProxyConfig(c *gin.Context) {
+	clusterID, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, STXJavaProxyResponse{ErrorMsg: "invalid cluster id"})
+		return
+	}
+	var req UpdateSTXJavaProxyConfigRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, STXJavaProxyResponse{ErrorMsg: fmt.Sprintf("invalid request payload: %v", err)})
+		return
+	}
+	status, err := h.service.UpdateSTXJavaProxyConfig(c.Request.Context(), uint(clusterID), &req)
+	if err != nil {
+		c.JSON(h.getStatusCodeForError(err), STXJavaProxyResponse{ErrorMsg: err.Error(), Data: status})
+		return
+	}
+	c.JSON(http.StatusOK, STXJavaProxyResponse{Data: status})
 }
 
 // PreviewSTXJavaProxyServiceLog handles GET /api/v1/clusters/:id/stx-java-proxy/logs.
@@ -822,7 +855,7 @@ func (h *Handler) GetRuntimeStorage(c *gin.Context) {
 	}
 	result, err := h.service.GetRuntimeStorageDetails(c.Request.Context(), uint(clusterID))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, GetRuntimeStorageResponse{ErrorMsg: err.Error()})
+		c.JSON(h.getStatusCodeForError(err), GetRuntimeStorageResponse{ErrorMsg: err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, GetRuntimeStorageResponse{Data: result})
@@ -843,6 +876,48 @@ func (h *Handler) ValidateRuntimeStorage(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, ValidateRuntimeStorageResponse{Data: result})
+}
+
+// ApplyRuntimeStorage 保存可视化存储设置：先真实读写测试，通过后生成配置版本。
+// ApplyRuntimeStorage saves visual storage settings: probe first, then create a config version.
+func (h *Handler) ApplyRuntimeStorage(c *gin.Context) {
+	clusterID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, ApplyRuntimeStorageResponse{ErrorMsg: "无效的集群 ID / Invalid cluster ID"})
+		return
+	}
+	kind := installerapp.RuntimeStorageValidationKind(strings.ToLower(strings.TrimSpace(c.Param("kind"))))
+	var req ApplyRuntimeStorageRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, ApplyRuntimeStorageResponse{ErrorMsg: err.Error()})
+		return
+	}
+	result, err := h.service.ApplyRuntimeStorage(c.Request.Context(), uint(clusterID), kind, &req, uint(auth.GetUserIDFromContext(c)))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, ApplyRuntimeStorageResponse{ErrorMsg: err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, ApplyRuntimeStorageResponse{Data: result})
+}
+
+// SwitchJobLogMode 一键切换集群作业日志输出模式 (单 Job 独立日志模式 vs 共享混合日志模式)
+func (h *Handler) SwitchJobLogMode(c *gin.Context) {
+	clusterID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, SwitchJobLogModeResponse{ErrorMsg: "无效的集群 ID / Invalid cluster ID"})
+		return
+	}
+	var req SwitchJobLogModeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, SwitchJobLogModeResponse{ErrorMsg: err.Error()})
+		return
+	}
+	result, err := h.service.SwitchJobLogMode(c.Request.Context(), uint(clusterID), &req, uint(auth.GetUserIDFromContext(c)))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, SwitchJobLogModeResponse{ErrorMsg: err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, SwitchJobLogModeResponse{Data: result})
 }
 
 // ListRuntimeStorage handles POST /api/v1/clusters/:id/runtime-storage/:kind/list.

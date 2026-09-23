@@ -37,6 +37,7 @@ import (
 	"github.com/LeonYoah/stx/internal/apps/cluster"
 	appconfig "github.com/LeonYoah/stx/internal/apps/config"
 	"github.com/LeonYoah/stx/internal/apps/diagnostics"
+	"github.com/LeonYoah/stx/internal/apps/execution"
 	"github.com/LeonYoah/stx/internal/apps/host"
 	"github.com/LeonYoah/stx/internal/apps/monitor"
 	monitoringapp "github.com/LeonYoah/stx/internal/apps/monitoring"
@@ -75,17 +76,29 @@ func MigrateWithDB(database *gorm.DB, dbType string) error {
 		return errors.New("数据库连接未初始化 / database connection is nil")
 	}
 
+	// 兼容迁移：若历史数据库中 auth_users 表包含 o_auth_id 列但无 oauth_id 列，自动重命名为 oauth_id
+	if database.Migrator().HasTable(&auth.User{}) {
+		if database.Migrator().HasColumn(&auth.User{}, "o_auth_id") && !database.Migrator().HasColumn(&auth.User{}, "oauth_id") {
+			if err := database.Migrator().RenameColumn(&auth.User{}, "o_auth_id", "oauth_id"); err != nil {
+				log.Printf("[Database] failed to rename o_auth_id to oauth_id: %v\n", err)
+			}
+		}
+	}
+
 	// 执行数据库表迁移，包含用户表
 	// 注意：auth.User 是统一的用户表，同时支持密码登录和 OAuth 登录
 	// Execute database table migration, including user table
 	// Note: auth.User is the unified user table, supporting both password and OAuth login
 	if err := database.AutoMigrate(
 		&auth.User{},                            // 统一用户表（支持密码认证和 OAuth 认证）/ Unified user table
+		&auth.CLIToken{},                        // CLI 令牌表 / CLI token table
 		&host.Host{},                            // 主机管理表 / Host management table
 		&cluster.Cluster{},                      // 集群表 / Cluster table
 		&cluster.ClusterNode{},                  // 集群节点表 / Cluster node table
 		&audit.CommandLog{},                     // 命令日志表 / Command log table
 		&audit.AuditLog{},                       // 审计日志表 / Audit log table
+		&execution.Execution{},                  // 公共执行记录表 / Shared execution record table
+		&execution.Confirmation{},               // 一次性操作确认表 / One-time operation confirmation table
 		&plugin.InstalledPlugin{},               // 已安装插件表 / Installed plugin table
 		&plugin.PluginDependencyConfig{},        // 插件依赖配置表 / Plugin dependency config table
 		&plugin.PluginDependencyDisable{},       // 插件官方依赖禁用表 / Plugin official dependency disable table
@@ -114,6 +127,7 @@ func MigrateWithDB(database *gorm.DB, dbType string) error {
 		&diagnostics.DiagnosticNodeExecution{},  // 诊断任务节点执行表 / Diagnostics node execution table
 		&diagnostics.DiagnosticStepLog{},        // 诊断任务日志表 / Diagnostics task log table
 		&diagnostics.InspectionAutoPolicy{},     // 诊断自动巡检策略表 / Diagnostics auto-inspection policy table
+		&diagnostics.TroubleshootingMemory{},    // 诊断排障经验记忆库表 / Diagnostics troubleshooting memory table
 		&stupgrade.UpgradePlanRecord{},          // SeaTunnel 升级计划表 / SeaTunnel upgrade plan table
 		&stupgrade.UpgradeTask{},                // SeaTunnel 升级任务表 / SeaTunnel upgrade task table
 		&stupgrade.UpgradeTaskStep{},            // SeaTunnel 升级步骤表 / SeaTunnel upgrade step table
@@ -160,6 +174,12 @@ func MigrateWithDB(database *gorm.DB, dbType string) error {
 	// 初始化默认管理员用户 / Initialize default admin user
 	if err := InitDefaultAdminUserWithDB(database); err != nil {
 		log.Printf("[Database] 初始化默认管理员用户失败: %v\n", err)
+	}
+
+	// 播种预置排障经验库（若排障经验表为空）/ Seed preset troubleshooting memories (if table is empty)
+	troubleshootingRepo := diagnostics.NewTroubleshootingRepository(database)
+	if err := troubleshootingRepo.SeedPresetMemories(context.Background()); err != nil {
+		log.Printf("[Database] 播种预置排障经验库失败 / Failed to seed preset troubleshooting memories: %v\n", err)
 	}
 
 	// 创建存储过程（仅 MySQL 支持）/ Create stored procedures (MySQL only)

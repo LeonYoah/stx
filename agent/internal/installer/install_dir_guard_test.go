@@ -53,6 +53,7 @@ func TestRemoveManagedInstallDirRejectsLegacyLookingDirWithoutMarker(t *testing.
 
 func TestInstallerManagerUninstallAllowsMarkerManagedDir(t *testing.T) {
 	manager := NewInstallerManager()
+	t.Setenv(stxJavaProxyHomeEnvVar, t.TempDir())
 	targetDir := filepath.Join(t.TempDir(), "managed-install")
 	if err := os.MkdirAll(targetDir, 0o755); err != nil {
 		t.Fatalf("failed to create target dir: %v", err)

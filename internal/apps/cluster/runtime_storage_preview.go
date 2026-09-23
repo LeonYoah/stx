@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"io"
 	neturl "net/url"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -74,6 +75,7 @@ type RuntimeStorageCheckpointSourceStateInspectResult struct {
 	PipelineState       map[string]interface{}   `json:"pipeline_state,omitempty"`
 	CompletedCheckpoint map[string]interface{}   `json:"completed_checkpoint,omitempty"`
 	Sources             []map[string]interface{} `json:"sources,omitempty"`
+	Sinks               []map[string]interface{} `json:"sinks,omitempty"`
 	UnsupportedSources  []map[string]interface{} `json:"unsupported_sources,omitempty"`
 	Warnings            []string                 `json:"warnings,omitempty"`
 	ErrorMessage        string                   `json:"error_message,omitempty"`
@@ -116,7 +118,10 @@ func (s *Service) PreviewRuntimeStorage(
 	if err != nil {
 		return nil, err
 	}
-	params := runtimeStorageProxyParams(node.InstallDir, clusterObj.Version, kind, cfg.Checkpoint, cfg.IMAP)
+	if runtimeStorageValidationDisabled(kind, cfg) {
+		return nil, fmt.Errorf("imap runtime storage is disabled")
+	}
+	params := runtimeStorageProxyParams(node.InstallDir, clusterObj.Version, kind, cfg.Checkpoint, cfg.IMAP, clusterObj)
 	params["path"] = strings.TrimSpace(path)
 	if maxBytes <= 0 {
 		maxBytes = 64 * 1024
@@ -173,7 +178,7 @@ func (s *Service) InspectCheckpointRuntimeStorage(
 		if cfgErr != nil {
 			return nil, cfgErr
 		}
-		params := runtimeStorageProxyParams(node.InstallDir, clusterObj.Version, installerapp.RuntimeStorageValidationCheckpoint, cfg.Checkpoint, cfg.IMAP)
+		params := runtimeStorageProxyParams(node.InstallDir, clusterObj.Version, installerapp.RuntimeStorageValidationCheckpoint, cfg.Checkpoint, cfg.IMAP, clusterObj)
 		params["path"] = strings.TrimSpace(path)
 		success, output, sendErr := s.agentSender.SendCommand(ctx, hostInfo.AgentID, "stx_java_proxy_inspect_checkpoint", params)
 		result := runtimeStorageHostResultFromCommandOutput(success, output)
@@ -244,6 +249,9 @@ func (s *Service) InspectIMAPRuntimeStorage(
 	if err != nil {
 		return nil, err
 	}
+	if resolved != nil && strings.EqualFold(strings.TrimSpace(resolved.StorageType), string(installerapp.IMAPStorageDisabled)) {
+		return nil, fmt.Errorf("imap runtime storage is disabled")
+	}
 	var params map[string]string
 	if resolved != nil && strings.EqualFold(strings.TrimSpace(resolved.StorageType), "S3") {
 		content, _, readErr := readS3RuntimeStorageBytes(ctx, resolved, path, 8<<20)
@@ -261,7 +269,7 @@ func (s *Service) InspectIMAPRuntimeStorage(
 		if cfgErr != nil {
 			return nil, cfgErr
 		}
-		params = runtimeStorageProxyParams(node.InstallDir, clusterObj.Version, installerapp.RuntimeStorageValidationIMAP, cfg.Checkpoint, cfg.IMAP)
+		params = runtimeStorageProxyParams(node.InstallDir, clusterObj.Version, installerapp.RuntimeStorageValidationIMAP, cfg.Checkpoint, cfg.IMAP, clusterObj)
 		params["path"] = strings.TrimSpace(path)
 	}
 	success, output, sendErr := s.agentSender.SendCommand(ctx, hostInfo.AgentID, "stx_java_proxy_inspect_imap_wal", params)
@@ -326,6 +334,7 @@ func (s *Service) inspectCheckpointSourceStateRuntimeStorage(
 			"path":           strings.TrimSpace(path),
 			"content_base64": strings.TrimSpace(contentBase64),
 		}
+		attachClusterJavaProxyPort(params, clusterObj)
 	} else {
 		cfg, err := s.resolveRuntimeStorageValidationConfig(
 			ctx, clusterObj, node, installerapp.RuntimeStorageValidationCheckpoint)
@@ -338,8 +347,13 @@ func (s *Service) inspectCheckpointSourceStateRuntimeStorage(
 			installerapp.RuntimeStorageValidationCheckpoint,
 			cfg.Checkpoint,
 			cfg.IMAP,
+			clusterObj,
 		)
 		params["path"] = strings.TrimSpace(path)
+	}
+	if jobConfig != nil && strings.TrimSpace(jobConfig.Content) != "" {
+		re := regexp.MustCompile(`([:=]\s*)(\*{2,})([ \t\r\n,]|\z)`)
+		jobConfig.Content = re.ReplaceAllString(jobConfig.Content, `${1}"${2}"${3}`)
 	}
 	jobConfigJSON, err := json.Marshal(jobConfig)
 	if err != nil {
@@ -423,6 +437,9 @@ func decodeRuntimeStorageCheckpointSourceStateInspectResult(
 	}
 	if raw := strings.TrimSpace(result.Details["sources_json"]); raw != "" {
 		_ = json.Unmarshal([]byte(raw), &inspect.Sources)
+	}
+	if raw := strings.TrimSpace(result.Details["sinks_json"]); raw != "" {
+		_ = json.Unmarshal([]byte(raw), &inspect.Sinks)
 	}
 	if raw := strings.TrimSpace(result.Details["unsupported_sources_json"]); raw != "" {
 		_ = json.Unmarshal([]byte(raw), &inspect.UnsupportedSources)

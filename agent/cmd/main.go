@@ -55,6 +55,7 @@ import (
 	"github.com/LeonYoah/stx/agent/internal/monitor"
 	"github.com/LeonYoah/stx/agent/internal/process"
 	"github.com/LeonYoah/stx/agent/internal/restart"
+	"github.com/LeonYoah/stx/internal/processidentity"
 	"github.com/LeonYoah/stx/internal/seatunnel"
 	"github.com/spf13/cobra"
 )
@@ -109,6 +110,14 @@ type Agent struct {
 	// processMonitor monitors SeaTunnel process status
 	// processMonitor 监控 SeaTunnel 进程状态
 	processMonitor *monitor.ProcessMonitor
+
+	// matchSeaTunnelProcess 校验 PID 是否属于指定安装目录和角色，测试可替换该依赖。
+	// matchSeaTunnelProcess verifies PID ownership by install directory and role and can be replaced in tests.
+	matchSeaTunnelProcess func(context.Context, int, string, string) (bool, error)
+
+	// findSeaTunnelProcess 按安装目录和角色查找进程，测试可替换该依赖。
+	// findSeaTunnelProcess finds a process by install directory and role and can be replaced in tests.
+	findSeaTunnelProcess func(context.Context, string, string) (int, string, error)
 
 	// autoRestarter handles automatic process restart
 	// autoRestarter 处理自动进程重启
@@ -168,18 +177,20 @@ func NewAgent(cfg *config.Config) *Agent {
 	ec := agentdiagnostics.NewCollector(grpcClient)
 
 	return &Agent{
-		config:           cfg,
-		ctx:              ctx,
-		cancel:           cancel,
-		grpcClient:       grpcClient,
-		executor:         exec,
-		processManager:   pm,
-		metricsCollector: mc,
-		installerManager: im,
-		processMonitor:   pmon,
-		autoRestarter:    ar,
-		eventReporter:    er,
-		errorCollector:   ec,
+		config:                cfg,
+		ctx:                   ctx,
+		cancel:                cancel,
+		grpcClient:            grpcClient,
+		executor:              exec,
+		processManager:        pm,
+		metricsCollector:      mc,
+		installerManager:      im,
+		processMonitor:        pmon,
+		matchSeaTunnelProcess: process.MatchesSeaTunnelProcess,
+		findSeaTunnelProcess:  process.FindSeaTunnelProcess,
+		autoRestarter:         ar,
+		eventReporter:         er,
+		errorCollector:        ec,
 	}
 }
 
@@ -461,7 +472,8 @@ func (a *Agent) registerWithControlPlane() error {
 	// Collect system info for registration / 收集系统信息用于注册
 	sysInfo := a.metricsCollector.GetSystemInfo()
 	hostname := a.metricsCollector.GetHostname()
-	ipAddress := a.metricsCollector.GetIPAddress()
+	ipAddress := a.resolveAgentIP()
+	localIPs := a.collectLocalIPAddresses(ipAddress)
 
 	req := &pb.RegisterRequest{
 		AgentId:      a.config.Agent.ID,
@@ -471,6 +483,8 @@ func (a *Agent) registerWithControlPlane() error {
 		Arch:         runtime.GOARCH,
 		AgentVersion: Version,
 		SystemInfo:   sysInfo,
+		HostId:       a.config.Agent.HostID,
+		IpAddresses:  localIPs,
 	}
 
 	resp, err := a.grpcClient.Register(a.ctx, req)
@@ -521,6 +535,59 @@ func (a *Agent) registerWithControlPlane() error {
 	}
 
 	return nil
+}
+
+// resolveAgentIP 确定 Agent 用于注册的最佳 IP 地址。
+// 优先级：1. 手动配置的 IP；2. 通向 Control Plane 的内核出口路由 IP；3. 网卡 IP 兜底。
+// resolveAgentIP determines the best IP address for the Agent to register with.
+// Priority: 1. Manually configured IP; 2. Kernel outbound route to Control Plane; 3. Network interface IP fallback.
+func (a *Agent) resolveAgentIP() string {
+	// 1. 配置文件中手动指定的 IP
+	// 1. Manually specified IP in config
+	if configuredIP := strings.TrimSpace(a.config.Agent.IP); configuredIP != "" {
+		logger.InfoF(a.ctx, "Using manually configured Agent IP: %s / 使用手动配置的 Agent IP：%s", configuredIP, configuredIP)
+		return configuredIP
+	}
+
+	// 2. 查询通往 Control Plane 的内核路由表出口 IP
+	// 2. Kernel routing table lookup towards Control Plane
+	for _, addr := range a.config.ControlPlane.Addresses {
+		if outbound := a.metricsCollector.GetOutboundIP(addr); outbound != "" {
+			// 如果出口 IP 不是回环地址，说明是真正的物理/局域网接口
+			// If outbound IP is not loopback, it is the real network interface
+			if outbound != "127.0.0.1" && outbound != "::1" {
+				logger.InfoF(a.ctx, "Detected outbound IP towards Control Plane (%s): %s / 探测到通往 Control Plane (%s) 的出口 IP：%s", addr, outbound, addr, outbound)
+				return outbound
+			}
+		}
+	}
+
+	// 3. 兜底回退到枚举物理网卡 IP (hostname -I)
+	// 3. Fallback to network interfaces enumeration (hostname -I)
+	fallbackIP := a.metricsCollector.GetIPAddress()
+	if fallbackIP != "" {
+		return fallbackIP
+	}
+
+	// 4. 若未找到其他有效 IP 则退回回环地址
+	// 4. Default to loopback if nothing else found
+	return "127.0.0.1"
+}
+
+// collectLocalIPAddresses 汇总本机全部网卡 IP，并确保主注册 IP 也在列表中。
+// collectLocalIPAddresses aggregates all local interface IPs and ensures the primary register IP is included.
+func (a *Agent) collectLocalIPAddresses(primaryIP string) []string {
+	ips := a.metricsCollector.ListLocalIPAddresses()
+	primaryIP = strings.TrimSpace(primaryIP)
+	if primaryIP == "" || primaryIP == "127.0.0.1" || primaryIP == "::1" || primaryIP == "localhost" {
+		return ips
+	}
+	for _, ip := range ips {
+		if ip == primaryIP {
+			return ips
+		}
+	}
+	return append(ips, primaryIP)
 }
 
 // setupEventReporter sets up the event reporter with gRPC report function.
@@ -725,16 +792,27 @@ func (a *Agent) sendHeartbeat() {
 	trackedProcesses := a.processMonitor.GetAllTrackedProcesses()
 	processes := make([]*pb.ProcessStatus, 0, len(trackedProcesses))
 	for _, proc := range trackedProcesses {
-		// Check if process is alive and get metrics / 检查进程是否存活并获取指标
+		// 心跳必须核对安装目录和角色，不能只看 PID 是否存在。
+		// Heartbeats must verify install directory and role instead of checking PID existence alone.
 		status := "stopped"
-		if isProcessAlive(proc.PID) {
-			status = "running"
+		reportedPID := 0
+		alive := isProcessAlive(proc.PID)
+		if alive && proc.InstallDir != "" {
+			if matched, matchErr := process.MatchesSeaTunnelProcess(a.ctx, proc.PID, proc.InstallDir, proc.Role); matchErr == nil {
+				alive = matched
+			}
 		}
-		cpuUsage, memUsage := getProcessMetrics(proc.PID)
+		cpuUsage := float64(0)
+		memUsage := int64(0)
+		if alive {
+			status = "running"
+			reportedPID = proc.PID
+			cpuUsage, memUsage = getProcessMetrics(proc.PID)
+		}
 
 		processes = append(processes, &pb.ProcessStatus{
 			Name:        proc.Name,
-			Pid:         int32(proc.PID),
+			Pid:         int32(reportedPID),
 			Status:      status,
 			CpuUsage:    cpuUsage,
 			MemoryUsage: memUsage,
@@ -977,6 +1055,7 @@ func (a *Agent) handleInstallCommand(ctx context.Context, cmd *pb.CommandRequest
 		ClusterPort:    getParamInt(cmd.Parameters, "cluster_port", 5801),
 		WorkerPort:     getParamInt(cmd.Parameters, "worker_port", 5802),
 		HTTPPort:       getParamInt(cmd.Parameters, "http_port", 8080),
+		JavaProxyPort:  getParamInt(cmd.Parameters, "java_proxy_port", 0),
 		ClusterID:      getParamString(cmd.Parameters, "cluster_id", ""),
 	}
 	if enableHTTPValue := strings.TrimSpace(getParamString(cmd.Parameters, "enable_http", "")); enableHTTPValue != "" {
@@ -1063,12 +1142,15 @@ func (a *Agent) handleInstallCommand(ctx context.Context, cmd *pb.CommandRequest
 		}
 		// OSS/S3 config
 		storageEndpoint := getParamString(cmd.Parameters, "checkpoint_storage_endpoint", "")
-		if storageEndpoint != "" {
+		storageBucket := getParamString(cmd.Parameters, "checkpoint_storage_bucket", "")
+		if storageEndpoint != "" || storageBucket != "" {
 			params.Checkpoint.StorageEndpoint = storageEndpoint
-			params.Checkpoint.StorageBucket = getParamString(cmd.Parameters, "checkpoint_storage_bucket", "")
+			params.Checkpoint.StorageBucket = storageBucket
 			params.Checkpoint.StorageAccessKey = getParamString(cmd.Parameters, "checkpoint_storage_access_key", "")
 			params.Checkpoint.StorageSecretKey = getParamString(cmd.Parameters, "checkpoint_storage_secret_key", "")
 		}
+		params.Checkpoint.HdfsSitePath = getParamString(cmd.Parameters, "checkpoint_hdfs_site_path", "")
+		params.Checkpoint.S3CredentialsProvider = getParamString(cmd.Parameters, "checkpoint_s3_credentials_provider", "")
 		logger.InfoF(ctx, "[Install] Checkpoint config created: type=%s, namespace=%s", checkpointStorageType, checkpointNamespace)
 	}
 
@@ -1102,12 +1184,15 @@ func (a *Agent) handleInstallCommand(ctx context.Context, cmd *pb.CommandRequest
 			params.IMAP.HDFSFailoverProxyProvider = getParamString(cmd.Parameters, "imap_hdfs_failover_proxy_provider", "")
 		}
 		imapStorageEndpoint := getParamString(cmd.Parameters, "imap_storage_endpoint", "")
-		if imapStorageEndpoint != "" {
+		imapStorageBucket := getParamString(cmd.Parameters, "imap_storage_bucket", "")
+		if imapStorageEndpoint != "" || imapStorageBucket != "" {
 			params.IMAP.StorageEndpoint = imapStorageEndpoint
-			params.IMAP.StorageBucket = getParamString(cmd.Parameters, "imap_storage_bucket", "")
+			params.IMAP.StorageBucket = imapStorageBucket
 			params.IMAP.StorageAccessKey = getParamString(cmd.Parameters, "imap_storage_access_key", "")
 			params.IMAP.StorageSecretKey = getParamString(cmd.Parameters, "imap_storage_secret_key", "")
 		}
+		params.IMAP.HdfsSitePath = getParamString(cmd.Parameters, "imap_hdfs_site_path", "")
+		params.IMAP.S3CredentialsProvider = getParamString(cmd.Parameters, "imap_s3_credentials_provider", "")
 		logger.InfoF(ctx, "[Install] IMAP config created: type=%s, namespace=%s", imapStorageType, imapNamespace)
 	}
 
@@ -1188,6 +1273,8 @@ func (a *Agent) handleStartCommand(ctx context.Context, cmd *pb.CommandRequest, 
 			ctx,
 			getParamString(cmd.Parameters, "install_dir", a.config.SeaTunnel.InstallDir),
 			getParamString(cmd.Parameters, "version", seatunnel.DefaultVersion()),
+			getParamInt(cmd.Parameters, "port", 0),
+			getParamString(cmd.Parameters, "jvm_opts", ""),
 		)
 		if err != nil {
 			return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err
@@ -1200,14 +1287,9 @@ func (a *Agent) handleStartCommand(ctx context.Context, cmd *pb.CommandRequest, 
 
 	role := getParamString(cmd.Parameters, "role", "")
 	installDir := getParamString(cmd.Parameters, "install_dir", a.config.SeaTunnel.InstallDir)
+	clusterID := strings.TrimSpace(getParamString(cmd.Parameters, "cluster_id", ""))
 
-	// Use role as process name for tracking / 使用角色作为进程名进行跟踪
-	// For hybrid mode (empty, "hybrid", or "master/worker"), use "seatunnel"
-	// 对于混合模式（空、"hybrid" 或 "master/worker"），使用 "seatunnel"
-	processName := "seatunnel"
-	if role != "" && role != "hybrid" && role != "master/worker" {
-		processName = "seatunnel-" + role
-	}
+	processName := getParamString(cmd.Parameters, "process_name", processidentity.ManagedName(installDir, role))
 
 	params := &process.StartParams{
 		InstallDir: installDir,
@@ -1222,6 +1304,7 @@ func (a *Agent) handleStartCommand(ctx context.Context, cmd *pb.CommandRequest, 
 		// Auto-restart enabled: register process with PID=0, let auto-restarter handle the actual start
 		// 自动重启已启用：用 PID=0 注册进程，让自动重启器处理实际的启动
 		a.processMonitor.TrackProcessSilent(processName, 0, installDir, role, params)
+		a.processMonitor.SetProcessClusterID(processName, clusterID)
 		a.autoRestarter.ResetRestartCount(processName)
 		logger.InfoF(ctx, "[Agent] Process registered for auto-start: %s (auto-restart will handle startup) / 进程已注册等待自动启动：%s（自动重启将处理启动）",
 			processName, processName)
@@ -1240,6 +1323,7 @@ func (a *Agent) handleStartCommand(ctx context.Context, cmd *pb.CommandRequest, 
 	// Get the PID from process manager / 从进程管理器获取 PID
 	if info, err := a.processManager.GetStatus(ctx, processName); err == nil && info.PID > 0 {
 		a.processMonitor.TrackProcess(processName, info.PID, installDir, role, params)
+		a.processMonitor.SetProcessClusterID(processName, clusterID)
 		logger.InfoF(ctx, "[Agent] Process started and tracked: %s (PID: %d) / 进程已启动并跟踪：%s（PID：%d）",
 			processName, info.PID, processName, info.PID)
 	}
@@ -1268,41 +1352,31 @@ func (a *Agent) handleStopCommand(ctx context.Context, cmd *pb.CommandRequest, r
 	installDir := getParamString(cmd.Parameters, "install_dir", a.config.SeaTunnel.InstallDir)
 	graceful := getParamBool(cmd.Parameters, "graceful", true)
 
-	// Use role as process name for tracking / 使用角色作为进程名进行跟踪
-	// For hybrid mode (empty, "hybrid", or "master/worker"), use "seatunnel"
-	// 对于混合模式（空、"hybrid" 或 "master/worker"），使用 "seatunnel"
-	processName := "seatunnel"
-	if role != "" && role != "hybrid" && role != "master/worker" {
-		processName = "seatunnel-" + role
-	}
+	processName := getParamString(cmd.Parameters, "process_name", processidentity.ManagedName(installDir, role))
 
-	params := &process.StopParams{
+	stopParams := &process.StopParams{
 		Graceful:   graceful,
 		Timeout:    30 * time.Second,
 		InstallDir: installDir,
 		Role:       role,
 	}
 
-	err := a.processManager.StopProcess(ctx, processName, params)
+	// Check if auto-restart is enabled - mark manually stopped to prevent auto-restart
+	// 检查是否启用了自动重启 - 标记为手动停止以防止自动重启
+	if a.autoRestarter.IsEnabled() {
+		a.processMonitor.MarkManuallyStopped(processName)
+	}
+
+	err := a.processManager.StopProcess(ctx, processName, stopParams)
 	if err != nil {
+		if a.autoRestarter.IsEnabled() {
+			a.processMonitor.ClearManuallyStopped(processName)
+		}
 		return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err
 	}
 
-	// Check if auto-restart is enabled to decide whether to untrack or set PID=0
-	// 检查是否启用了自动重启，以决定是取消跟踪还是设置 PID=0
-	if a.autoRestarter.IsEnabled() {
-		// Auto-restart enabled: set PID=0, auto-restart will start it again
-		// 自动重启已启用：设置 PID=0，自动重启会重新启动它
-		a.processMonitor.UpdateProcessPID(processName, 0)
-		logger.InfoF(ctx, "[Agent] Process stopped, PID set to 0 (auto-restart enabled): %s / 进程已停止，PID 设为 0（自动重启已启用）：%s",
-			processName, processName)
-	} else {
-		// Auto-restart disabled: untrack the process completely
-		// 自动重启已禁用：完全取消跟踪进程
-		a.processMonitor.UntrackProcess(processName)
-		logger.InfoF(ctx, "[Agent] Process stopped and untracked (auto-restart disabled): %s / 进程已停止并取消跟踪（自动重启已禁用）：%s",
-			processName, processName)
-	}
+	// Untrack the process / 取消跟踪进程
+	a.processMonitor.UntrackProcess(processName)
 
 	reporter.Report(100, "Process stopped / 进程已停止")
 	return executor.CreateSuccessResponse(cmd.CommandId, fmt.Sprintf("Process stopped successfully (role: %s) / 进程停止成功（角色：%s）", role, role)), nil
@@ -1319,6 +1393,8 @@ func (a *Agent) handleRestartCommand(ctx context.Context, cmd *pb.CommandRequest
 			ctx,
 			installDir,
 			getParamString(cmd.Parameters, "version", seatunnel.DefaultVersion()),
+			getParamInt(cmd.Parameters, "port", 0),
+			getParamString(cmd.Parameters, "jvm_opts", ""),
 		)
 		if err != nil {
 			return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err
@@ -1331,14 +1407,9 @@ func (a *Agent) handleRestartCommand(ctx context.Context, cmd *pb.CommandRequest
 
 	role := getParamString(cmd.Parameters, "role", "")
 	installDir := getParamString(cmd.Parameters, "install_dir", a.config.SeaTunnel.InstallDir)
+	clusterID := strings.TrimSpace(getParamString(cmd.Parameters, "cluster_id", ""))
 
-	// Use role as process name for tracking / 使用角色作为进程名进行跟踪
-	// For hybrid mode (empty, "hybrid", or "master/worker"), use "seatunnel"
-	// 对于混合模式（空、"hybrid" 或 "master/worker"），使用 "seatunnel"
-	processName := "seatunnel"
-	if role != "" && role != "hybrid" && role != "master/worker" {
-		processName = "seatunnel-" + role
-	}
+	processName := getParamString(cmd.Parameters, "process_name", processidentity.ManagedName(installDir, role))
 
 	startParams := &process.StartParams{
 		InstallDir: installDir,
@@ -1356,14 +1427,17 @@ func (a *Agent) handleRestartCommand(ctx context.Context, cmd *pb.CommandRequest
 	if a.autoRestarter.IsEnabled() {
 		// Auto-restart enabled: stop process, then set PID=0 to let auto-restarter handle the start
 		// 自动重启已启用：停止进程，然后设置 PID=0 让自动重启器处理启动
+		a.processMonitor.MarkManuallyStopped(processName)
 		err := a.processManager.StopProcess(ctx, processName, stopParams)
 		if err != nil {
+			a.processMonitor.ClearManuallyStopped(processName)
 			return executor.CreateErrorResponse(cmd.CommandId, err.Error()), err
 		}
 
 		// Register process with PID=0, auto-restarter will start it
 		// 用 PID=0 注册进程，自动重启器会启动它
 		a.processMonitor.TrackProcessSilent(processName, 0, installDir, role, startParams)
+		a.processMonitor.SetProcessClusterID(processName, clusterID)
 		a.autoRestarter.ResetRestartCount(processName)
 		logger.InfoF(ctx, "[Agent] Process stopped, registered for auto-restart: %s / 进程已停止，已注册等待自动重启：%s",
 			processName, processName)
@@ -1381,6 +1455,7 @@ func (a *Agent) handleRestartCommand(ctx context.Context, cmd *pb.CommandRequest
 	// Update tracking with new PID / 使用新 PID 更新跟踪
 	if info, err := a.processManager.GetStatus(ctx, processName); err == nil && info.PID > 0 {
 		a.processMonitor.TrackProcess(processName, info.PID, installDir, role, startParams)
+		a.processMonitor.SetProcessClusterID(processName, clusterID)
 		logger.InfoF(ctx, "[Agent] Process restarted and tracked: %s (PID: %d) / 进程已重启并跟踪：%s（PID：%d）",
 			processName, info.PID, processName, info.PID)
 	}
@@ -1401,7 +1476,9 @@ func (a *Agent) handleStatusCommand(ctx context.Context, cmd *pb.CommandRequest,
 		return createSTXJavaProxyCommandResponse(cmd.CommandId, status), nil
 	}
 
-	processName := getParamString(cmd.Parameters, "process_name", "seatunnel")
+	installDir := getParamString(cmd.Parameters, "install_dir", a.config.SeaTunnel.InstallDir)
+	role := getParamString(cmd.Parameters, "role", "")
+	processName := getParamString(cmd.Parameters, "process_name", processidentity.ManagedName(installDir, role))
 
 	info, err := a.processManager.GetStatus(ctx, processName)
 	if err != nil {
@@ -1985,12 +2062,18 @@ var versionCmd = &cobra.Command{
 
 // configFile is the path to the configuration file
 // configFile 是配置文件的路径
-var configFile string
+var (
+	configFile string
+	hostIDFlag uint64
+	ipFlag     string
+)
 
 func init() {
 	// Add flags to root command
 	// 向根命令添加标志
 	rootCmd.PersistentFlags().StringVarP(&configFile, "config", "c", "", "config file path (default: /etc/stx-agent/config.yaml)")
+	rootCmd.PersistentFlags().Uint64Var(&hostIDFlag, "host-id", 0, "pre-assigned host ID from Control Plane / 来自 Control Plane 的预分配主机 ID")
+	rootCmd.PersistentFlags().StringVar(&ipFlag, "ip", "", "manually override outbound IP / 手动覆盖出口 IP")
 
 	// Add subcommands
 	// 添加子命令
@@ -2005,6 +2088,15 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	cfg, err := config.Load(configFile)
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w / 加载配置失败：%w", err, err)
+	}
+
+	// Apply CLI overrides if provided
+	// 如果提供了命令行覆盖参数，则应用
+	if hostIDFlag > 0 {
+		cfg.Agent.HostID = hostIDFlag
+	}
+	if ipFlag != "" {
+		cfg.Agent.IP = ipFlag
 	}
 
 	// Validate configuration
@@ -2130,30 +2222,19 @@ func (a *Agent) handleDiscoverClustersCommand(ctx context.Context, cmd *pb.Comma
 	return executor.CreateSuccessResponse(cmd.CommandId, string(jsonOutput)), nil
 }
 
-func (a *Agent) updateDiagnosticsTargets(ctx context.Context, trackedProcessesJSON string) {
+func (a *Agent) updateDiagnosticsTargets(ctx context.Context) {
 	if a.errorCollector == nil {
 		return
 	}
 
-	targets := make([]*agentdiagnostics.ScanTarget, 0)
-	if strings.TrimSpace(trackedProcessesJSON) != "" {
-		var trackedProcesses []struct {
-			PID        int    `json:"pid"`
-			Name       string `json:"name"`
-			InstallDir string `json:"install_dir"`
-			Role       string `json:"role"`
-		}
-		if err := json.Unmarshal([]byte(trackedProcessesJSON), &trackedProcesses); err != nil {
-			logger.ErrorF(ctx, "[Agent] Failed to parse diagnostics tracked_processes: %v / 解析 diagnostics tracked_processes 失败：%v", err, err)
-			return
-		}
-		for _, proc := range trackedProcesses {
-			targets = append(targets, &agentdiagnostics.ScanTarget{
-				Name:       proc.Name,
-				InstallDir: proc.InstallDir,
-				Role:       proc.Role,
-			})
-		}
+	trackedProcesses := a.processMonitor.GetAllTrackedProcesses()
+	targets := make([]*agentdiagnostics.ScanTarget, 0, len(trackedProcesses))
+	for _, proc := range trackedProcesses {
+		targets = append(targets, &agentdiagnostics.ScanTarget{
+			Name:       proc.Name,
+			InstallDir: proc.InstallDir,
+			Role:       proc.Role,
+		})
 	}
 
 	a.errorCollector.ReplaceTargets(targets)
@@ -2170,6 +2251,7 @@ func (a *Agent) handleUpdateMonitorConfigCommand(ctx context.Context, cmd *pb.Co
 	// Parse config from parameters / 从参数解析配置
 	autoMonitorEnabled := getParamBool(cmd.Parameters, "auto_monitor", true)
 	autoRestartEnabled := getParamBool(cmd.Parameters, "auto_restart", true)
+	clusterID := strings.TrimSpace(getParamString(cmd.Parameters, "cluster_id", ""))
 	trackedProcessesJSON := getParamString(cmd.Parameters, "tracked_processes", "")
 	config := &restart.RestartConfig{
 		Enabled:        autoRestartEnabled,
@@ -2187,24 +2269,19 @@ func (a *Agent) handleUpdateMonitorConfigCommand(ctx context.Context, cmd *pb.Co
 		a.processMonitor.SetMonitorInterval(time.Duration(monitorInterval) * time.Second)
 	}
 
-	// Update diagnostics scan targets from Control Plane.
-	// Diagnostics binds to managed monitoring targets instead of auto-restart.
-	// 根据 Control Plane 下发的受管进程刷新诊断扫描目标。
-	if autoMonitorEnabled {
-		a.updateDiagnosticsTargets(ctx, trackedProcessesJSON)
-	} else {
-		a.updateDiagnosticsTargets(ctx, "")
-	}
-
 	// If auto-monitor is disabled, untrack all processes immediately.
 	// 如果禁用了自动监控，静默取消跟踪所有进程（不发送事件，因为进程仍在运行）
 	if !autoMonitorEnabled {
 		trackedProcesses := a.processMonitor.GetAllTrackedProcesses()
 		for _, proc := range trackedProcesses {
+			if clusterID != "" && clusterID != "0" && proc.ClusterID != clusterID {
+				continue
+			}
 			a.processMonitor.UntrackProcessSilent(proc.Name)
 			logger.InfoF(ctx, "[Agent] Auto-monitor disabled, stopped monitoring process: %s / 自动监控已禁用，停止监控进程：%s",
 				proc.Name, proc.Name)
 		}
+		a.updateDiagnosticsTargets(ctx)
 		reporter.Report(100, "Monitor config updated (auto-monitor disabled, stopped monitoring) / 监控配置已更新（自动监控已禁用，停止监控）")
 		return executor.CreateSuccessResponse(cmd.CommandId, "Monitor config updated, auto-monitor disabled / 监控配置已更新，自动监控已禁用"), nil
 	}
@@ -2215,6 +2292,7 @@ func (a *Agent) handleUpdateMonitorConfigCommand(ctx context.Context, cmd *pb.Co
 		var trackedProcesses []struct {
 			PID        int    `json:"pid"`
 			Name       string `json:"name"`
+			ClusterID  uint   `json:"cluster_id"`
 			InstallDir string `json:"install_dir"`
 			Role       string `json:"role"`
 		}
@@ -2226,9 +2304,12 @@ func (a *Agent) handleUpdateMonitorConfigCommand(ctx context.Context, cmd *pb.Co
 
 			expected := make(map[string]struct{}, len(trackedProcesses))
 			for _, proc := range trackedProcesses {
-				expected[proc.Name] = struct{}{}
+				expected[processidentity.ManagedName(proc.InstallDir, proc.Role)] = struct{}{}
 			}
 			for _, existing := range a.processMonitor.GetAllTrackedProcesses() {
+				if clusterID != "" && clusterID != "0" && existing.ClusterID != clusterID {
+					continue
+				}
 				if _, ok := expected[existing.Name]; ok {
 					continue
 				}
@@ -2237,30 +2318,80 @@ func (a *Agent) handleUpdateMonitorConfigCommand(ctx context.Context, cmd *pb.Co
 			}
 
 			for _, proc := range trackedProcesses {
+				processName := processidentity.ManagedName(proc.InstallDir, proc.Role)
+				processClusterID := ""
+				if proc.ClusterID > 0 {
+					processClusterID = strconv.FormatUint(uint64(proc.ClusterID), 10)
+				}
+				if processClusterID == "" {
+					processClusterID = clusterID
+				}
+				resolvedPID := a.resolveMonitorProcessPID(ctx, processName, proc.PID, proc.InstallDir, proc.Role)
 				// Create start params for potential restart / 创建启动参数用于可能的重启
 				startParams := &process.StartParams{
 					InstallDir: proc.InstallDir,
 					Role:       proc.Role,
 				}
 
-				if proc.PID > 0 {
-					a.processMonitor.TrackProcessSilent(proc.Name, proc.PID, proc.InstallDir, proc.Role, startParams)
+				if resolvedPID > 0 {
+					a.processMonitor.TrackProcessSilent(processName, resolvedPID, proc.InstallDir, proc.Role, startParams)
+					a.processMonitor.SetProcessClusterID(processName, processClusterID)
 					logger.InfoF(ctx, "[Agent] Tracking running process (silent): %s (PID: %d, Role: %s, Dir: %s) / 静默跟踪运行中的进程：%s（PID：%d，角色：%s，目录：%s）",
-						proc.Name, proc.PID, proc.Role, proc.InstallDir, proc.Name, proc.PID, proc.Role, proc.InstallDir)
+						processName, resolvedPID, proc.Role, proc.InstallDir, processName, resolvedPID, proc.Role, proc.InstallDir)
 				} else if autoRestartEnabled {
-					a.processMonitor.TrackProcessSilent(proc.Name, 0, proc.InstallDir, proc.Role, startParams)
+					a.processMonitor.TrackProcessSilent(processName, 0, proc.InstallDir, proc.Role, startParams)
+					a.processMonitor.SetProcessClusterID(processName, processClusterID)
 					logger.InfoF(ctx, "[Agent] Registered stopped process (will auto-restart): %s (Role: %s, Dir: %s) / 注册已停止的进程（将自动重启）：%s（角色：%s，目录：%s）",
-						proc.Name, proc.Role, proc.InstallDir, proc.Name, proc.Role, proc.InstallDir)
+						processName, proc.Role, proc.InstallDir, processName, proc.Role, proc.InstallDir)
 				} else {
 					logger.InfoF(ctx, "[Agent] Skip stopped process without auto-restart: %s (Role: %s, Dir: %s) / 自动拉起已禁用，跳过已停止进程：%s（角色：%s，目录：%s）",
-						proc.Name, proc.Role, proc.InstallDir, proc.Name, proc.Role, proc.InstallDir)
+						processName, proc.Role, proc.InstallDir, processName, proc.Role, proc.InstallDir)
 				}
 			}
 		}
 	}
+	a.updateDiagnosticsTargets(ctx)
 
 	reporter.Report(100, "Monitor config updated / 监控配置已更新")
 	return executor.CreateSuccessResponse(cmd.CommandId, "Monitor config updated successfully / 监控配置更新成功"), nil
+}
+
+// resolveMonitorProcessPID 核对控制面下发的 PID，并优先保留 Agent 已确认的本地 PID。
+// resolveMonitorProcessPID verifies the Control Plane PID and prefers a locally verified PID already tracked by the Agent.
+func (a *Agent) resolveMonitorProcessPID(ctx context.Context, processName string, configuredPID int, installDir, role string) int {
+	candidates := make([]int, 0, 2)
+	if existing := a.processMonitor.GetTrackedProcess(processName); existing != nil && existing.PID > 0 {
+		candidates = append(candidates, existing.PID)
+	}
+	if configuredPID > 0 && (len(candidates) == 0 || candidates[0] != configuredPID) {
+		candidates = append(candidates, configuredPID)
+	}
+
+	for _, pid := range candidates {
+		matched, err := a.matchSeaTunnelProcess(ctx, pid, installDir, role)
+		if err != nil {
+			// 无法读取系统进程时保留候选 PID，避免监控抖动触发重复启动。
+			// Keep the candidate PID when process inspection fails to avoid a duplicate start caused by monitoring jitter.
+			logger.WarnF(ctx, "[Agent] Failed to verify monitored PID %d for %s: %v / 校验受监控 PID %d（%s）失败：%v", pid, processName, err, pid, processName, err)
+			return pid
+		}
+		if matched {
+			return pid
+		}
+		logger.WarnF(ctx, "[Agent] Ignoring stale monitored PID %d for %s (Role: %s, Dir: %s) / 忽略过期的受监控 PID %d（进程：%s，角色：%s，目录：%s）",
+			pid, processName, role, installDir, pid, processName, role, installDir)
+	}
+
+	discoveredPID, _, err := a.findSeaTunnelProcess(ctx, installDir, role)
+	if err == nil {
+		logger.InfoF(ctx, "[Agent] Discovered monitored process %s with PID %d (Role: %s, Dir: %s) / 已发现受监控进程 %s，PID 为 %d（角色：%s，目录：%s）",
+			processName, discoveredPID, role, installDir, processName, discoveredPID, role, installDir)
+		return discoveredPID
+	}
+	if err != process.ErrProcessNotFound {
+		logger.WarnF(ctx, "[Agent] Failed to discover monitored process %s: %v / 查找受监控进程 %s 失败：%v", processName, err, processName, err)
+	}
+	return 0
 }
 
 // handleRemoveInstallDirCommand handles the REMOVE_INSTALL_DIR command (force delete: remove install directory on host).

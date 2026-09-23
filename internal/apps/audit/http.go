@@ -20,6 +20,7 @@ package audit
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -45,6 +46,10 @@ func RecordFromGin(c *gin.Context, repo *Repository, userID uint64, username, ac
 		u := uint(userID)
 		uid = &u
 	}
+	requestID := strings.TrimSpace(c.GetHeader("X-Request-ID"))
+	if requestID == "" && c.Request != nil {
+		requestID = CommandMetadataFromContext(c.Request.Context()).RequestID
+	}
 	log := &AuditLog{
 		UserID:       uid,
 		Username:     username,
@@ -52,7 +57,9 @@ func RecordFromGin(c *gin.Context, repo *Repository, userID uint64, username, ac
 		ResourceType: resourceType,
 		ResourceID:   resourceID,
 		ResourceName: resourceName,
-		Details:      details,
+		RequestID:    requestID,
+		ClientType:   auditClientType(c.GetHeader("X-STX-Client"), ua),
+		Details:      RedactDetails(details),
 		IPAddress:    ip,
 		UserAgent:    ua,
 	}
@@ -62,6 +69,7 @@ func RecordFromGin(c *gin.Context, repo *Repository, userID uint64, username, ac
 				log.Trigger = s
 			}
 		}
+		applyAuditDetailLinks(log, details)
 	}
 	return repo.CreateAuditLog(c.Request.Context(), log)
 }
@@ -98,7 +106,9 @@ func RecordFromGinNoUser(repo *Repository, req *http.Request, userID uint64, use
 		ResourceType: resourceType,
 		ResourceID:   resourceID,
 		ResourceName: resourceName,
-		Details:      details,
+		RequestID:    strings.TrimSpace(req.Header.Get("X-Request-ID")),
+		ClientType:   auditClientType(req.Header.Get("X-STX-Client"), ua),
+		Details:      RedactDetails(details),
 		IPAddress:    ip,
 		UserAgent:    ua,
 	}
@@ -108,9 +118,45 @@ func RecordFromGinNoUser(repo *Repository, req *http.Request, userID uint64, use
 				log.Trigger = s
 			}
 		}
+		applyAuditDetailLinks(log, details)
 	}
 	return repo.CreateAuditLog(req.Context(), log)
 }
 
 // UintID formats a uint as string for ResourceID.
 func UintID(id uint) string { return strconv.FormatUint(uint64(id), 10) }
+
+func applyAuditDetailLinks(log *AuditLog, details AuditDetails) {
+	if log == nil || details == nil {
+		return
+	}
+	log.ExecutionID = auditDetailString(details, "execution_id")
+	log.CommandID = auditDetailString(details, "command_id")
+	log.RiskLevel = auditDetailString(details, "risk_level")
+	log.ResultStatus = auditDetailString(details, "result_status")
+	if log.RequestID == "" {
+		log.RequestID = auditDetailString(details, "request_id")
+	}
+}
+
+func auditDetailString(details AuditDetails, key string) string {
+	value, ok := details[key]
+	if !ok {
+		return ""
+	}
+	text, ok := value.(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(text)
+}
+
+func auditClientType(marker, userAgent string) string {
+	if strings.EqualFold(strings.TrimSpace(marker), "cli") {
+		return "cli"
+	}
+	if strings.TrimSpace(userAgent) == "" {
+		return "api"
+	}
+	return "web"
+}

@@ -31,6 +31,7 @@ import type {
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
 import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card';
+import {Pagination} from '@/components/ui/pagination';
 import {Input} from '@/components/ui/input';
 import {
   Select,
@@ -278,8 +279,8 @@ export function MonitoringNotificationHistoryPanel() {
   };
 
   return (
-    <div className='space-y-4'>
-      <Card>
+    <div className='flex-1 flex flex-col space-y-4'>
+      <Card className='flex flex-col flex-1 min-h-[480px] sm:min-h-[calc(100vh-270px)]'>
         <CardHeader>
           <CardTitle>{t('history.title')}</CardTitle>
           <div className='flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between'>
@@ -443,124 +444,96 @@ export function MonitoringNotificationHistoryPanel() {
           </div>
         </CardHeader>
 
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{t('history.cluster')}</TableHead>
-                <TableHead>{t('history.alertName')}</TableHead>
-                <TableHead>{t('history.channel')}</TableHead>
-                <TableHead>{t('history.eventType')}</TableHead>
-                <TableHead>{t('history.status')}</TableHead>
-                <TableHead>{t('history.attempts')}</TableHead>
-                <TableHead>{t('history.lastError')}</TableHead>
-                <TableHead>{t('history.sentAt')}</TableHead>
-                <TableHead>{t('history.createdAt')}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {loading ? (
+        <CardContent className='flex-1 flex flex-col p-0'>
+          <div className='overflow-x-auto flex-1'>
+            <Table>
+              <TableHeader>
                 <TableRow>
-                  <TableCell
-                    colSpan={9}
-                    className='text-center text-muted-foreground'
-                  >
-                    {t('loading')}
-                  </TableCell>
+                  <TableHead>{t('history.cluster')}</TableHead>
+                  <TableHead>{t('history.alertName')}</TableHead>
+                  <TableHead>{t('history.channel')}</TableHead>
+                  <TableHead>{t('history.eventType')}</TableHead>
+                  <TableHead>{t('history.status')}</TableHead>
+                  <TableHead>{t('history.attempts')}</TableHead>
+                  <TableHead>{t('history.lastError')}</TableHead>
+                  <TableHead>{t('history.sentAt')}</TableHead>
+                  <TableHead>{t('history.createdAt')}</TableHead>
                 </TableRow>
-              ) : !deliveries.length ? (
-                <TableRow>
-                  <TableCell
-                    colSpan={9}
-                    className='text-center text-muted-foreground'
-                  >
-                    {t('history.empty')}
-                  </TableCell>
-                </TableRow>
-              ) : (
-                deliveries.map((delivery) => (
-                  <TableRow key={delivery.id}>
-                    <TableCell>
-                      {delivery.cluster_name || delivery.cluster_id || '-'}
-                    </TableCell>
-                    <TableCell>
-                      {delivery.alert_name || delivery.alert_id}
-                    </TableCell>
-                    <TableCell>
-                      {delivery.channel_name || delivery.channel_id}
-                    </TableCell>
-                    <TableCell>
-                      <Badge
-                        variant={resolveEventTypeVariant(delivery.event_type)}
-                      >
-                        {resolveEventTypeLabel(delivery.event_type)}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={resolveStatusVariant(delivery.status)}>
-                        {resolveStatusLabel(delivery.status)}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>{delivery.attempt_count || 0}</TableCell>
+              </TableHeader>
+              <TableBody>
+                {loading ? (
+                  <TableRow>
                     <TableCell
-                      className='max-w-[320px] truncate'
-                      title={renderLastError(delivery)}
+                      colSpan={9}
+                      className='text-center text-muted-foreground'
                     >
-                      {renderLastError(delivery)}
+                      {t('loading')}
                     </TableCell>
-                    <TableCell>{formatDateTime(delivery.sent_at)}</TableCell>
-                    <TableCell>{formatDateTime(delivery.created_at)}</TableCell>
                   </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
+                ) : !deliveries.length ? (
+                  <TableRow>
+                    <TableCell
+                      colSpan={9}
+                      className='text-center text-muted-foreground'
+                    >
+                      {t('history.empty')}
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  deliveries.map((delivery) => (
+                    <TableRow key={delivery.id}>
+                      <TableCell>
+                        {delivery.cluster_name || delivery.cluster_id || '-'}
+                      </TableCell>
+                      <TableCell>
+                        {delivery.alert_name || delivery.alert_id}
+                      </TableCell>
+                      <TableCell>
+                        {delivery.channel_name || delivery.channel_id}
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant={resolveEventTypeVariant(delivery.event_type)}
+                        >
+                          {resolveEventTypeLabel(delivery.event_type)}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={resolveStatusVariant(delivery.status)}>
+                          {resolveStatusLabel(delivery.status)}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>{delivery.attempt_count || 0}</TableCell>
+                      <TableCell
+                        className='max-w-[320px] truncate'
+                        title={renderLastError(delivery)}
+                      >
+                        {renderLastError(delivery)}
+                      </TableCell>
+                      <TableCell>{formatDateTime(delivery.sent_at)}</TableCell>
+                      <TableCell>{formatDateTime(delivery.created_at)}</TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
 
-          <div className='mt-4 flex flex-col gap-2 border-t pt-4 md:flex-row md:items-center md:justify-between'>
-            <div className='flex items-center gap-2'>
-              <span className='text-sm text-muted-foreground'>
-                {t('history.pageSize')}
-              </span>
-              <Select
-                value={pageSize}
-                onValueChange={(value) => {
-                  setPageSize(value);
-                  setPage(1);
-                }}
-              >
-                <SelectTrigger className='w-24'>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value='20'>20</SelectItem>
-                  <SelectItem value='50'>50</SelectItem>
-                  <SelectItem value='100'>100</SelectItem>
-                  <SelectItem value='200'>200</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className='flex items-center gap-2'>
-              <Button
-                variant='outline'
-                onClick={() => setPage((prev) => Math.max(1, prev - 1))}
-                disabled={loading || page <= 1}
-              >
-                {t('history.prevPage')}
-              </Button>
-              <span className='text-sm text-muted-foreground'>
-                {t('history.pageInfo', {current: page, total: totalPages})}
-              </span>
-              <Button
-                variant='outline'
-                onClick={() =>
-                  setPage((prev) => Math.min(totalPages, prev + 1))
-                }
-                disabled={loading || page >= totalPages}
-              >
-                {t('history.nextPage')}
-              </Button>
-            </div>
+          {/* 底部分页栏 / Table Footer Pagination */}
+          <div className='border-t bg-muted/10 px-4 py-2.5 mt-auto'>
+            <Pagination
+              currentPage={page}
+              totalPages={totalPages}
+              pageSize={pageSizeNumber}
+              totalItems={total}
+              onPageChange={setPage}
+              onPageSizeChange={(newSize) => {
+                setPageSize(String(newSize));
+                setPage(1);
+              }}
+              showPageSizeSelector={true}
+              pageSizeOptions={[20, 50, 100, 200]}
+            />
           </div>
         </CardContent>
       </Card>

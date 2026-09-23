@@ -69,6 +69,8 @@ interface ClusterCardProps {
   onEdit: (cluster: ClusterInfo) => void;
   onDelete: (cluster: ClusterInfo, options?: { forceDelete?: boolean }) => void;
   onRefresh: () => void;
+  /** 唯一集群时展示默认标记 / Show default badge when this is the sole cluster */
+  isDefault?: boolean;
 }
 
 /**
@@ -129,7 +131,13 @@ function isRunningButUnhealthy(cluster: ClusterInfo): boolean {
  */
 type ConfirmOp = 'start' | 'stop' | 'restart';
 
-export function ClusterCard({cluster, onEdit, onDelete, onRefresh}: ClusterCardProps) {
+export function ClusterCard({
+  cluster,
+  onEdit,
+  onDelete,
+  onRefresh,
+  isDefault = false,
+}: ClusterCardProps) {
   const t = useTranslations();
   const router = useRouter();
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
@@ -241,6 +249,11 @@ export function ClusterCard({cluster, onEdit, onDelete, onRefresh}: ClusterCardP
             <div className='flex items-center gap-2'>
               <div className={`w-2 h-2 rounded-full ${getStatusColorClass(cluster)}`} />
               <CardTitle className='text-lg'>{cluster.name}</CardTitle>
+              {isDefault ? (
+                <Badge variant='secondary' className='text-[10px] px-1.5 py-0'>
+                  {t('cluster.defaultBadge')}
+                </Badge>
+              ) : null}
             </div>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>

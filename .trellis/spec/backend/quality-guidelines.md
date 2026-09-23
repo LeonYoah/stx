@@ -74,7 +74,7 @@
 
 - **Good**
   - `app.session_domain: ""`
-  - 部署后通过 `http://10.0.0.5:8000` 或 `https://stx.company.com` 访问
+  - 部署后通过 `http://10.0.0.5:17800` 或 `https://stx.company.com` 访问
   - 登录成功后 `/api/v1/auth/user-info` 返回 200
 - **Base**
   - `app.session_domain: "stx.company.com"`

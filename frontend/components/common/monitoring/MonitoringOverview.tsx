@@ -29,6 +29,11 @@ import type {
   PlatformHealthData,
 } from '@/lib/services/monitoring';
 import {useLocale} from '@/lib/i18n';
+import {
+  resolvePreferredClusterId,
+  rememberPreferredClusterId,
+  isSoleDefaultCluster,
+} from '@/lib/cluster-preference';
 import {Button} from '@/components/ui/button';
 import {Badge} from '@/components/ui/badge';
 import {
@@ -178,11 +183,18 @@ export function MonitoringOverview({
       if (clustersResult.success && clustersResult.data) {
         const clusters = clustersResult.data.clusters || [];
         setClusterHealth(clusters);
-        // 默认选中第一个集群（仅在还未手动选择时）
+        // 唯一集群或记住的偏好优先；否则回退第一项。
+        // Prefer sole/default or remembered cluster; otherwise first item.
         if (clusters.length > 0 && !selectedClusterName) {
-          const first = clusters[0];
-          setSelectedClusterName(first.cluster_name);
-          setSelectedClusterId(first.cluster_id);
+          const preferredId = resolvePreferredClusterId(
+            clusters.map((item) => ({id: item.cluster_id})),
+            {fallbackToFirst: true},
+          );
+          const preferred =
+            clusters.find((item) => item.cluster_id === preferredId) ||
+            clusters[0];
+          setSelectedClusterName(preferred.cluster_name);
+          setSelectedClusterId(preferred.cluster_id);
           setSelectedInstance('$__all');
         }
       } else {
@@ -555,10 +567,13 @@ export function MonitoringOverview({
                       (c) => c.cluster_name === value,
                     );
                     setSelectedClusterId(found ? found.cluster_id : null);
+                    if (found?.cluster_id) {
+                      rememberPreferredClusterId(found.cluster_id);
+                    }
                   }}
                 >
                   <SelectTrigger className={compactSelectTriggerClass}>
-                    <SelectValue placeholder='选择集群' />
+                    <SelectValue placeholder={t('selectCluster')} />
                   </SelectTrigger>
                   <SelectContent>
                     {clusterHealth.map((cluster) => (
@@ -567,6 +582,12 @@ export function MonitoringOverview({
                         value={cluster.cluster_name}
                       >
                         {cluster.cluster_name}
+                        {isSoleDefaultCluster(
+                          clusterHealth.map((item) => ({id: item.cluster_id})),
+                          cluster.cluster_id,
+                        )
+                          ? ` · ${t('defaultClusterBadge')}`
+                          : ''}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -583,10 +604,10 @@ export function MonitoringOverview({
                   }}
                 >
                   <SelectTrigger className={compactSelectTriggerClass}>
-                    <SelectValue placeholder='选择节点' />
+                    <SelectValue placeholder={t('selectNode')} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value='$__all'>全部节点</SelectItem>
+                    <SelectItem value='$__all'>{t('allNodes')}</SelectItem>
                     {currentInstances.map((addr) => (
                       <SelectItem key={addr} value={addr}>
                         {addr}

@@ -74,6 +74,14 @@ type AgentConfig struct {
 	// ID is the unique identifier for this Agent (auto-generated if empty)
 	// ID 是此 Agent 的唯一标识符（如果为空则自动生成）
 	ID string `mapstructure:"id"`
+
+	// HostID is the pre-bound Host ID from Control Plane (0 means auto-match)
+	// HostID 是来自 Control Plane 的预绑定主机 ID（0 表示自动匹配）
+	HostID uint64 `mapstructure:"host_id"`
+
+	// IP is an optional manually configured IP address to override auto-detection
+	// IP 是可选的手动配置 IP 地址，用于覆盖自动探测
+	IP string `mapstructure:"ip"`
 }
 
 // ControlPlaneConfig contains Control Plane connection settings

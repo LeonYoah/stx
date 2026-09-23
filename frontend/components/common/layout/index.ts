@@ -17,6 +17,7 @@
 
 export * from './EmptyState';
 export * from './LanguageSwitcher';
+export * from './KapaWidgetMount';
 export * from './ManagementBar';
 export * from './ThemeProvider';
 export * from './WorkspaceHeader';
@@ -25,3 +26,4 @@ export * from './CompactTimeFilter';
 export * from './TableLoadingBar';
 export * from './TableSkeletonRows';
 export * from './RouteProgressBar';
+export * from './ModuleNavTabs';

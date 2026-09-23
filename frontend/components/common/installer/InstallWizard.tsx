@@ -329,8 +329,8 @@ export function InstallWizard({
     const supportsHTTPService = isSeatunnelVersionAtLeast(config.version, '2.3.9');
     const ports =
       supportsHTTPService && config.runtime.enable_http
-        ? [config.clusterPort, config.httpPort]
-        : [config.clusterPort];
+        ? [config.clusterPort, config.httpPort, config.javaProxyPort]
+        : [config.clusterPort, config.javaProxyPort];
     try {
       await runPrecheck({
         min_memory_mb: 2048,
@@ -345,6 +345,7 @@ export function InstallWizard({
   }, [
     config.clusterPort,
     config.httpPort,
+    config.javaProxyPort,
     config.installDir,
     config.runtime.enable_http,
     config.version,

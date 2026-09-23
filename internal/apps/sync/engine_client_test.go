@@ -176,3 +176,109 @@ func TestSeaTunnelEngineClientFallsBackToLegacyV1(t *testing.T) {
 		t.Fatalf("expected resolved legacy log content, got %q", logs)
 	}
 }
+
+// TestSeaTunnelEngineClient_SeaTunnel30_JobInfoWithMultiTableDagAndMetrics 验证 SeaTunnel 3.0 多表拓扑与表级指标解析
+// TestSeaTunnelEngineClient_SeaTunnel30_JobInfoWithMultiTableDagAndMetrics verifies SeaTunnel 3.0 multi-table DAG and table-level metrics parsing
+func TestSeaTunnelEngineClient_SeaTunnel30_JobInfoWithMultiTableDagAndMetrics(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/job-info/999", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		// 模拟 SeaTunnel 3.0 REST V2 返回的 JSON 结构 (vertexInfoMap 为数组，包含 tablePaths，指标细化到表)
+		// Simulate SeaTunnel 3.0 REST V2 JSON response (vertexInfoMap as array with tablePaths and per-table metrics)
+		raw30JobInfo := `{
+			"jobId": "999",
+			"jobName": "seatunnel-30-multi-table",
+			"jobStatus": "RUNNING",
+			"createTime": "2026-09-22 10:00:00",
+			"finishTime": "",
+			"jobDag": {
+				"jobId": "999",
+				"pipelineEdges": {
+					"1": [
+						{"inputVertexId": "1", "targetVertexId": "2"}
+					]
+				},
+				"vertexInfoMap": [
+					{
+						"vertexId": 1,
+						"type": "SOURCE",
+						"vertexName": "connector-cdc-mysql",
+						"tablePaths": ["mydb.users", "mydb.orders"]
+					},
+					{
+						"vertexId": 2,
+						"type": "SINK",
+						"vertexName": "connector-jdbc",
+						"tablePaths": ["sinkdb.users", "sinkdb.orders"]
+					}
+				]
+			},
+			"metrics": {
+				"TableSourceReceivedCount": {
+					"mydb.users": 1500,
+					"mydb.orders": 3200
+				},
+				"TableSinkWriteCount": {
+					"sinkdb.users": 1500,
+					"sinkdb.orders": 3198
+				},
+				"TableSourceReceivedQPS": {
+					"mydb.users": 150.5,
+					"mydb.orders": 320.0
+				},
+				"TableSinkWriteQPS": {
+					"sinkdb.users": 150.0,
+					"sinkdb.orders": 319.5
+				}
+			}
+		}`
+		_, _ = w.Write([]byte(raw30JobInfo))
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	client := NewSeaTunnelEngineClient()
+	endpoint := &EngineEndpoint{BaseURL: server.URL, APIMode: "v2"}
+
+	jobInfo, err := client.GetJobInfo(context.Background(), endpoint, "999")
+	if err != nil {
+		t.Fatalf("GetJobInfo returned error: %v", err)
+	}
+
+	if jobInfo.JobID != "999" || jobInfo.JobStatus != "RUNNING" {
+		t.Fatalf("unexpected job info: %+v", jobInfo)
+	}
+
+	// 验证 jobDag 中包含 vertexInfoMap 数组结构
+	// Verify jobDag contains vertexInfoMap array structure
+	vertices, ok := jobInfo.JobDag["vertexInfoMap"].([]interface{})
+	if !ok || len(vertices) != 2 {
+		t.Fatalf("expected 2 vertices in vertexInfoMap, got: %v", jobInfo.JobDag["vertexInfoMap"])
+	}
+
+	v1, ok := vertices[0].(map[string]interface{})
+	if !ok || v1["vertexName"] != "connector-cdc-mysql" {
+		t.Fatalf("expected vertexName connector-cdc-mysql, got: %v", vertices[0])
+	}
+	tablePaths, ok := v1["tablePaths"].([]interface{})
+	if !ok || len(tablePaths) != 2 {
+		t.Fatalf("expected 2 table paths, got: %v", v1["tablePaths"])
+	}
+
+	// 验证 metrics 中正确反序列化表级指标映射
+	// Verify metrics correctly deserializes per-table metric maps
+	srcTableCounts, ok := jobInfo.Metrics["TableSourceReceivedCount"].(map[string]interface{})
+	if !ok || len(srcTableCounts) != 2 {
+		t.Fatalf("expected 2 table counts in TableSourceReceivedCount, got: %v", jobInfo.Metrics["TableSourceReceivedCount"])
+	}
+
+	// 验证 mergeJobRuntimeInfo 正确将 3.0 多表拓扑与指标合并入 ResultPreview
+	// Verify mergeJobRuntimeInfo properly incorporates 3.0 multi-table DAG and metrics into ResultPreview
+	merged := mergeJobRuntimeInfo(nil, jobInfo)
+	if merged["job_status"] != "RUNNING" {
+		t.Fatalf("expected RUNNING in merged result, got %v", merged["job_status"])
+	}
+	if merged["job_dag"] == nil || merged["metrics"] == nil {
+		t.Fatalf("expected job_dag and metrics to be preserved in merged result")
+	}
+}

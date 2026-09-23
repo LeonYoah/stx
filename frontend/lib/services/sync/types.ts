@@ -50,6 +50,11 @@ export interface SyncTask {
   schedule_timezone?: string;
   schedule_last_triggered_at?: string;
   schedule_next_triggered_at?: string;
+  can_edit?: boolean;
+  can_run?: boolean;
+  is_owner?: boolean;
+  is_collaborator?: boolean;
+  is_public?: boolean;
   created_by: number;
   created_at: string;
   updated_at: string;
@@ -76,6 +81,12 @@ export interface SyncTaskTreeNode {
   schedule_timezone?: string;
   schedule_last_triggered_at?: string;
   schedule_next_triggered_at?: string;
+  can_edit?: boolean;
+  can_run?: boolean;
+  is_owner?: boolean;
+  is_collaborator?: boolean;
+  is_public?: boolean;
+  created_by?: number;
   children?: SyncTaskTreeNode[];
 }
 
@@ -113,6 +124,8 @@ export interface SyncJobLogsResult {
   source: string;
   logs: string;
   empty_reason?: string;
+  cluster_job_log_mode?: string;
+  cluster_id?: number;
   next_offset?: string;
   file_size?: number;
   updated_at: string;
@@ -344,6 +357,21 @@ export interface CreateSyncTaskRequest {
 }
 
 export interface UpdateSyncTaskRequest extends CreateSyncTaskRequest {}
+
+export interface SyncTaskPermissions {
+  task_id: number;
+  is_public: boolean;
+  collaborator_ids: number[];
+  can_edit: boolean;
+  can_manage: boolean;
+  is_owner: boolean;
+  is_collaborator: boolean;
+}
+
+export interface UpdateSyncTaskPermissionsRequest {
+  is_public?: boolean;
+  collaborator_ids?: number[];
+}
 
 export interface PublishSyncTaskRequest {
   comment?: string;

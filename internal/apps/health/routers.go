@@ -1,4 +1,4 @@
-﻿/*
+/*
  * MIT License
  *
  * Copyright (c) 2025 linux.do
@@ -40,5 +40,7 @@ type HealthResponse struct {
 // @Success 200 {object} HealthResponse
 // @Router /api/v1/health [get]
 func Health(c *gin.Context) {
-	c.JSON(http.StatusOK, HealthResponse{})
+	// 返回空对象而不是 null，便于 CLI 和 Agent 将健康检查结果当作稳定 JSON 数据处理。
+	// Return an empty object instead of null so the CLI and agents can consume a stable JSON value.
+	c.JSON(http.StatusOK, HealthResponse{Data: map[string]any{}})
 }

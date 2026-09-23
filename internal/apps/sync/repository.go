@@ -322,10 +322,30 @@ func (r *Repository) GetJobInstanceByID(ctx context.Context, id uint) (*JobInsta
 	return &instance, nil
 }
 
+// GetJobInstanceByIDForOwner 按用户归属读取作业实例，管理员可跳过归属限制。
+// GetJobInstanceByIDForOwner loads a job instance under owner scope, while administrators may bypass the owner filter.
+func (r *Repository) GetJobInstanceByIDForOwner(ctx context.Context, id, ownerUserID uint, includeAll bool) (*JobInstance, error) {
+	query := r.db.WithContext(ctx).Where("id = ?", id)
+	if !includeAll {
+		query = query.Where("created_by = ?", ownerUserID)
+	}
+	var instance JobInstance
+	if err := query.First(&instance).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrJobInstanceNotFound
+		}
+		return nil, err
+	}
+	return &instance, nil
+}
+
 // ListJobInstances lists job instances with filter and pagination.
 func (r *Repository) ListJobInstances(ctx context.Context, filter *JobFilter) ([]*JobInstance, int64, error) {
 	query := r.db.WithContext(ctx).Model(&JobInstance{})
 	if filter != nil {
+		if !filter.IncludeAll {
+			query = query.Where("created_by = ?", filter.OwnerUserID)
+		}
 		if filter.TaskID > 0 {
 			query = query.Where("task_id = ?", filter.TaskID)
 		}
@@ -358,6 +378,27 @@ func (r *Repository) ListJobInstances(ctx context.Context, filter *JobFilter) ([
 		return nil, 0, err
 	}
 	return instances, total, nil
+}
+
+// UpdateJobStatus 使用旧状态条件更新作业，防止完成回调覆盖取消状态。
+// UpdateJobStatus updates a job under an expected-status condition so completion callbacks cannot overwrite cancellation state.
+func (r *Repository) UpdateJobStatus(ctx context.Context, id uint, expected []JobStatus, updates map[string]any) error {
+	if len(expected) == 0 {
+		return ErrJobStatusChanged
+	}
+	result := r.db.WithContext(ctx).Model(&JobInstance{}).
+		Where("id = ? AND status IN ?", id, expected).
+		Updates(updates)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		if _, err := r.GetJobInstanceByID(ctx, id); err != nil {
+			return err
+		}
+		return ErrJobStatusChanged
+	}
+	return nil
 }
 
 // GetPreviewJobInstanceByPlatformOrEngineJobID retrieves one preview job by platform or engine job id.

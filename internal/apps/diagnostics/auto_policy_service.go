@@ -61,23 +61,26 @@ func (s *Service) CreateAutoPolicy(ctx context.Context, userID uint, req *Create
 	if cooldownMinutes <= 0 {
 		cooldownMinutes = 30
 	}
+	enabled := true
+	if req.Enabled != nil {
+		enabled = *req.Enabled
+	}
 
 	// Normalize task options for auto-created diagnostic tasks.
 	taskOptions := DiagnosticTaskOptions{}
 	if req.TaskOptions != nil {
 		taskOptions = req.TaskOptions.Normalize()
 	} else {
-		taskOptions = DiagnosticTaskOptions{
-			IncludeThreadDump: true,
-			IncludeJVMDump:    false,
-			JVMDumpMinFreeMB:  2048,
-		}.Normalize()
+		taskOptions = DefaultDiagnosticTaskOptions()
+	}
+	if err := validateDiagnosticResourceSelection(taskOptions); err != nil {
+		return nil, err
 	}
 
 	policy := &InspectionAutoPolicy{
 		ClusterID:       req.ClusterID,
 		Name:            name,
-		Enabled:         req.Enabled,
+		Enabled:         enabled,
 		Conditions:      req.Conditions,
 		CooldownMinutes: cooldownMinutes,
 		AutoCreateTask:  req.AutoCreateTask,
@@ -138,7 +141,11 @@ func (s *Service) UpdateAutoPolicy(ctx context.Context, id uint, req *UpdateInsp
 		policy.AutoStartTask = *req.AutoStartTask
 	}
 	if req.TaskOptions != nil {
-		policy.TaskOptions = req.TaskOptions.Normalize()
+		options := req.TaskOptions.Normalize()
+		if err := validateDiagnosticResourceSelection(options); err != nil {
+			return nil, err
+		}
+		policy.TaskOptions = options
 	}
 
 	if err := s.repo.UpdateAutoPolicy(ctx, policy); err != nil {

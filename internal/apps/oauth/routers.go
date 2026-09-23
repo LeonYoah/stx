@@ -243,7 +243,11 @@ func findOrCreateOAuthUser(ctx context.Context, info *OAuthUserInfo) (*auth.User
 
 	// 先尝试通过 OAuth ID 查找
 	oauthID := fmt.Sprintf("%s:%s", info.Provider, info.ID)
-	tx := db.DB(ctx).Where("oauth_id = ?", oauthID).First(&user)
+	tx := db.DB(ctx).Where("oauth_id = ?", oauthID).Order("id ASC").First(&user)
+	if tx.Error != nil && strings.Contains(strings.ToLower(tx.Error.Error()), "oauth_id") {
+		// 容错：旧库若仍为 o_auth_id 字段
+		tx = db.DB(ctx).Where("o_auth_id = ?", oauthID).Order("id ASC").First(&user)
+	}
 
 	if tx.Error == nil {
 		// 用户已存在，更新信息

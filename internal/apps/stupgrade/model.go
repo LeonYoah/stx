@@ -96,6 +96,7 @@ func (UpgradePlanRecord) TableName() string {
 // UpgradeTask persists an upgrade execution task.
 type UpgradeTask struct {
 	ID             uint                   `json:"id" gorm:"primaryKey;autoIncrement"`
+	ExecutionID    string                 `json:"execution_id,omitempty" gorm:"size:36;index"`
 	ClusterID      uint                   `json:"cluster_id" gorm:"index;not null"`
 	PlanID         uint                   `json:"plan_id" gorm:"index;not null"`
 	SourceVersion  string                 `json:"source_version" gorm:"size:50;not null"`

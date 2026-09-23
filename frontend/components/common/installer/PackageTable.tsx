@@ -40,12 +40,12 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Progress } from '@/components/ui/progress';
-import { Download, Trash2, MoreHorizontal, Star, Loader2, CheckCircle, XCircle } from 'lucide-react';
+import { Download, Trash2, MoreHorizontal, Star, Loader2, CheckCircle, XCircle, FileCode2, Upload } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useGSAP } from '@gsap/react';
 import { TableLoadingBar, TableSkeletonRows } from '@/components/common/layout';
 import { animateTableRows } from '@/lib/animations/gsap-motion';
-import type { PackageInfo, MirrorSource, DownloadTask } from '@/lib/services/installer/types';
+import type { PackageInfo, DownloadTask } from '@/lib/services/installer/types';
 
 interface PackageTableProps {
   type: 'online' | 'local';
@@ -54,16 +54,12 @@ interface PackageTableProps {
   recommendedVersion?: string;
   loading?: boolean;
   onDelete?: (version: string) => void;
-  onDownload?: (version: string, mirror: MirrorSource) => void;
+  onDownloadRequest?: (version: string) => void;
   downloads?: DownloadTask[];
+  onSourceUpload?: (version: string, file: File) => void;
+  onSourceFetch?: (version: string) => void;
+  onSourceDownload?: (version: string) => void;
 }
-
-// Mirror source labels / 镜像源标签
-const mirrorLabels: Record<MirrorSource, string> = {
-  aliyun: '阿里云 Aliyun',
-  huaweicloud: '华为云 HuaweiCloud',
-  apache: 'Apache Archive',
-};
 
 // Format file size / 格式化文件大小
 function formatFileSize(bytes: number): string {
@@ -91,8 +87,11 @@ export function PackageTable({
   recommendedVersion,
   loading,
   onDelete,
-  onDownload,
+  onDownloadRequest,
   downloads = [],
+  onSourceUpload,
+  onSourceFetch,
+  onSourceDownload,
 }: PackageTableProps) {
   const t = useTranslations();
 
@@ -142,15 +141,16 @@ export function PackageTable({
             <TableRow>
               <TableHead>{t('installer.version')}</TableHead>
               <TableHead>{t('installer.status')}</TableHead>
+              <TableHead>{t('installer.sourcePackage')}</TableHead>
               <TableHead>{t('installer.downloadLinks')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading && versions.length === 0 ? (
-              <TableSkeletonRows columns={3} rows={5} />
+              <TableSkeletonRows columns={4} rows={5} />
             ) : versions.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={3} className="text-center py-12 text-muted-foreground">
+                <TableCell colSpan={4} className="text-center py-12 text-muted-foreground">
                   {t('installer.noVersionsAvailable')}
                 </TableCell>
               </TableRow>
@@ -175,6 +175,57 @@ export function PackageTable({
                   </TableCell>
                   <TableCell>
                     <Badge variant="outline">{t('installer.available')}</Badge>
+                  </TableCell>
+                  <TableCell>
+                    {(() => {
+                      const localPackage = localPackages.find((pkg) => pkg.version === version);
+                      const task = getDownloadTask(version);
+
+                      // 优先展示本地文件状态，其次展示当前下载任务的源码状态。
+                      // Prefer local file state, then show source state from the active download task.
+                      if (localPackage?.has_source || task?.source_status === 'completed') {
+                        return (
+                          <Badge variant="outline" className="border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300">
+                            <CheckCircle className="h-3 w-3 mr-1" />
+                            {t('installer.sourceDownloaded')}
+                          </Badge>
+                        );
+                      }
+
+                      if (
+                        task?.source_requested
+                        && (task.source_status === 'pending' || task.source_status === 'downloading')
+                      ) {
+                        return (
+                          <div className="flex items-center gap-2 min-w-[150px]">
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            <div className="flex-1">
+                              <Progress value={task.source_progress || 0} className="h-1.5" />
+                              <span className="mt-1 block text-xs text-muted-foreground">
+                                {t('installer.sourceDownloading')} {task.source_progress || 0}%
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      if (localPackage || task?.source_status === 'failed') {
+                        return (
+                          <Badge variant="secondary" title={task?.source_error}>
+                            {task?.source_status === 'failed'
+                              ? t('installer.sourceFailed')
+                              : t('installer.sourceMissing')}
+                          </Badge>
+                        );
+                      }
+
+                      return (
+                        <Badge variant="outline" className="text-muted-foreground">
+                          <FileCode2 className="h-3 w-3 mr-1" />
+                          {t('installer.sourceAvailable')}
+                        </Badge>
+                      );
+                    })()}
                   </TableCell>
                   <TableCell>
                     {(() => {
@@ -226,50 +277,28 @@ export function PackageTable({
                               <XCircle className="h-4 w-4" />
                               <span className="text-sm">{t('installer.downloadFailed')}</span>
                             </div>
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button variant="outline" size="sm">
-                                  <Download className="h-4 w-4 mr-2" />
-                                  {t('installer.retry')}
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end">
-                                {Object.entries(mirrorLabels).map(([mirror, label]) => (
-                                  <DropdownMenuItem
-                                    key={mirror}
-                                    onClick={() => onDownload?.(version, mirror as MirrorSource)}
-                                  >
-                                    <Download className="h-4 w-4 mr-2" />
-                                    {label}
-                                  </DropdownMenuItem>
-                                ))}
-                              </DropdownMenuContent>
-                            </DropdownMenu>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => onDownloadRequest?.(version)}
+                            >
+                              <Download className="h-4 w-4 mr-2" />
+                              {t('installer.retry')}
+                            </Button>
                           </div>
                         );
                       }
 
                       // Show download button / 显示下载按钮
                       return (
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="outline" size="sm">
-                              <Download className="h-4 w-4 mr-2" />
-                              {t('installer.downloadToServer')}
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            {Object.entries(mirrorLabels).map(([mirror, label]) => (
-                              <DropdownMenuItem
-                                key={mirror}
-                                onClick={() => onDownload?.(version, mirror as MirrorSource)}
-                              >
-                                <Download className="h-4 w-4 mr-2" />
-                                {label}
-                              </DropdownMenuItem>
-                            ))}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => onDownloadRequest?.(version)}
+                        >
+                          <Download className="h-4 w-4 mr-2" />
+                          {t('installer.downloadToServer')}
+                        </Button>
                       );
                     })()}
                   </TableCell>
@@ -292,16 +321,17 @@ export function PackageTable({
             <TableHead>{t('installer.version')}</TableHead>
             <TableHead>{t('installer.fileName')}</TableHead>
             <TableHead>{t('installer.fileSize')}</TableHead>
+            <TableHead>{t('installer.sourcePackage')}</TableHead>
             <TableHead>{t('installer.uploadedAt')}</TableHead>
             <TableHead className="w-[100px]">{t('common.actions')}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {loading && localPackages.length === 0 ? (
-            <TableSkeletonRows columns={5} rows={5} />
+            <TableSkeletonRows columns={6} rows={5} />
           ) : localPackages.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={5} className="text-center py-12 text-muted-foreground">
+              <TableCell colSpan={6} className="text-center py-12 text-muted-foreground">
                 {t('installer.noLocalPackages')}
               </TableCell>
             </TableRow>
@@ -316,6 +346,24 @@ export function PackageTable({
                 <TableCell className="font-medium">{pkg.version}</TableCell>
                 <TableCell className="font-mono text-sm">{pkg.file_name}</TableCell>
                 <TableCell>{formatFileSize(pkg.file_size)}</TableCell>
+                <TableCell>
+                  {pkg.has_source ? (
+                    <div className="flex items-center gap-2 min-w-max">
+                      <Badge variant="outline" className="border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300">
+                        <CheckCircle className="h-3 w-3 mr-1" />
+                        {t('installer.sourceImported')}
+                      </Badge>
+                      <span className="text-xs text-muted-foreground">{formatFileSize(pkg.source_file_size || 0)}</span>
+                    </div>
+                  ) : pkg.source_status === 'failed' ? (
+                    <Badge variant="outline" className="border-destructive/30 bg-destructive/10 text-destructive" title={pkg.source_error}>
+                      <XCircle className="h-3 w-3 mr-1" />
+                      {t('installer.sourceFailed')}
+                    </Badge>
+                  ) : (
+                    <Badge variant="secondary">{t('installer.sourceMissing')}</Badge>
+                  )}
+                </TableCell>
                 <TableCell>{formatDate(pkg.uploaded_at)}</TableCell>
                 <TableCell>
                   <DropdownMenu>
@@ -325,9 +373,42 @@ export function PackageTable({
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
+                      {pkg.has_source ? (
+                        <DropdownMenuItem onClick={() => onSourceDownload?.(pkg.version)}>
+                          <Download className="h-4 w-4 mr-2" />
+                          {t('installer.downloadSource')}
+                        </DropdownMenuItem>
+                      ) : (
+                        <DropdownMenuItem onClick={() => onSourceFetch?.(pkg.version)}>
+                          <FileCode2 className="h-4 w-4 mr-2" />
+                          {t('installer.fetchSource')}
+                        </DropdownMenuItem>
+                      )}
+                      <DropdownMenuItem asChild>
+                        <label className="cursor-pointer">
+                          <Upload className="h-4 w-4 mr-2" />
+                          {pkg.has_source ? t('installer.replaceSource') : t('installer.uploadSource')}
+                          <input
+                            type="file"
+                            accept=".tar.gz"
+                            className="hidden"
+                            onChange={(event) => {
+                              const selected = event.target.files?.[0];
+                              if (selected) {
+                                onSourceUpload?.(pkg.version, selected);
+                              }
+                              event.target.value = '';
+                            }}
+                          />
+                        </label>
+                      </DropdownMenuItem>
                       <DropdownMenuItem
                         className="text-destructive"
-                        onClick={() => onDelete?.(pkg.version)}
+                        onSelect={() => {
+                          // 等下拉菜单关闭后再弹出确认框，避免与 AlertDialog 双重焦点陷阱
+                          // Close the dropdown first, then open the confirm dialog to avoid nested focus traps
+                          window.setTimeout(() => onDelete?.(pkg.version), 0);
+                        }}
                       >
                         <Trash2 className="h-4 w-4 mr-2" />
                         {t('common.delete')}

@@ -28,6 +28,7 @@ import (
 
 	"github.com/LeonYoah/stx/internal/apps/cluster"
 	appconfig "github.com/LeonYoah/stx/internal/apps/config"
+	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
 	"github.com/LeonYoah/stx/internal/apps/monitor"
 	monitoringapp "github.com/LeonYoah/stx/internal/apps/monitoring"
 	"github.com/LeonYoah/stx/internal/db"
@@ -71,10 +72,21 @@ type Service struct {
 	monitorService    processEventReader
 	monitoringService alertInstanceReader
 	agentSender       diagnosticAgentCommandSender
+	executionService  *executionapp.Service
 	taskEvents        *diagnosticTaskEventHub
 	taskEventsOnce    sync.Once
 	autoPolicyRuntime sync.Once
 	policyChecker     *AutoPolicyChecker
+	troubleshooting   *TroubleshootingService
+}
+
+// SetExecutionService 设置诊断任务使用的公共执行服务。
+// SetExecutionService sets the shared execution service used by diagnostic tasks.
+func (s *Service) SetExecutionService(service *executionapp.Service) {
+	if s == nil {
+		return
+	}
+	s.executionService = service
 }
 
 // ListLogCursorsByAgent returns all log cursors for the given agent.
@@ -124,6 +136,9 @@ func newDiagnosticsService(repo *Repository, configRepo *appconfig.Repository, c
 	}
 	if repo != nil {
 		svc.policyChecker = NewAutoPolicyChecker(repo, svc)
+		if repo.db != nil {
+			svc.troubleshooting = NewTroubleshootingService(NewTroubleshootingRepository(repo.db))
+		}
 	}
 	return svc
 }
@@ -163,6 +178,11 @@ func (s *Service) GetWorkspaceBootstrap(ctx context.Context, req *WorkspaceBoots
 				Key:         WorkspaceTabInspections,
 				Label:       bilingualText("巡检中心", "Inspections"),
 				Description: bilingualText("基于受管运行时信号发起并查看集群巡检。", "Run and review cluster inspections based on managed runtime signals."),
+			},
+			{
+				Key:         WorkspaceTabMemories,
+				Label:       bilingualText("排障经验库", "Troubleshooting Memories"),
+				Description: bilingualText("沉淀并复用集群与任务排障经验、解决方案与根因记录。", "Accumulate and reuse troubleshooting solutions, root causes, and prevention notes."),
 			},
 		},
 		ClusterOptions: make([]*ClusterOption, 0),
@@ -499,4 +519,58 @@ func (s *Service) resolveDiagnosticHostDisplayContext(ctx context.Context, hostI
 		HostName: strings.TrimSpace(hostInfo.Name),
 		HostIP:   strings.TrimSpace(hostInfo.IPAddress),
 	}
+}
+
+// Troubleshooting 返回排障经验记忆库服务实例
+// Troubleshooting returns the troubleshooting memory service instance
+func (s *Service) Troubleshooting() *TroubleshootingService {
+	if s == nil {
+		return nil
+	}
+	return s.troubleshooting
+}
+
+// ListTroubleshootingMemories 检索排障经验列表
+// ListTroubleshootingMemories queries troubleshooting memories
+func (s *Service) ListTroubleshootingMemories(ctx context.Context, query *TroubleshootingMemoryQuery) ([]*TroubleshootingMemoryItem, int64, error) {
+	if s == nil || s.troubleshooting == nil {
+		return nil, 0, ErrDiagnosticsRepositoryUnavailable
+	}
+	return s.troubleshooting.ListMemories(ctx, query)
+}
+
+// GetTroubleshootingMemory 根据 ID 获取单条排障经验
+// GetTroubleshootingMemory retrieves single troubleshooting memory by ID
+func (s *Service) GetTroubleshootingMemory(ctx context.Context, id uint) (*TroubleshootingMemoryItem, error) {
+	if s == nil || s.troubleshooting == nil {
+		return nil, ErrDiagnosticsRepositoryUnavailable
+	}
+	return s.troubleshooting.GetMemory(ctx, id)
+}
+
+// CreateTroubleshootingMemory 创建排障经验
+// CreateTroubleshootingMemory creates a new troubleshooting memory
+func (s *Service) CreateTroubleshootingMemory(ctx context.Context, req *CreateTroubleshootingMemoryRequest) (*TroubleshootingMemoryItem, error) {
+	if s == nil || s.troubleshooting == nil {
+		return nil, ErrDiagnosticsRepositoryUnavailable
+	}
+	return s.troubleshooting.CreateMemory(ctx, req)
+}
+
+// UpdateTroubleshootingMemory 更新排障经验
+// UpdateTroubleshootingMemory updates an existing troubleshooting memory
+func (s *Service) UpdateTroubleshootingMemory(ctx context.Context, id uint, req *UpdateTroubleshootingMemoryRequest) (*TroubleshootingMemoryItem, error) {
+	if s == nil || s.troubleshooting == nil {
+		return nil, ErrDiagnosticsRepositoryUnavailable
+	}
+	return s.troubleshooting.UpdateMemory(ctx, id, req)
+}
+
+// DeleteTroubleshootingMemory 删除排障经验
+// DeleteTroubleshootingMemory deletes a troubleshooting memory by ID
+func (s *Service) DeleteTroubleshootingMemory(ctx context.Context, id uint) error {
+	if s == nil || s.troubleshooting == nil {
+		return ErrDiagnosticsRepositoryUnavailable
+	}
+	return s.troubleshooting.DeleteMemory(ctx, id)
 }

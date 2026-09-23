@@ -25,6 +25,7 @@ export interface ApiResponse<T = unknown> {
 
 export interface ApiError {
   error_msg: string;
+  data?: unknown;
 }
 ```
 
@@ -41,6 +42,10 @@ export interface ApiError {
   - 安装向导 / 创建集群这类**版本敏感配置**，不要在前端硬编码版本比较逻辑来猜哪些字段可用。应优先消费后端返回的能力矩阵（如 `installer.listPackages()` 返回的 `version_capabilities`），再决定是否展示 `history_job_expire_minutes`、`scheduled_deletion_enable`、`job_schedule_strategy` 等高级配置。
   - 若后端来自 Go / GORM 等实现，**不要假定数组字段一定是 `[]`**；对于会被 UI 直接 `.map()` / `.filter()` 的字段，优先在 service 或 session 恢复边界统一做 normalize，把 `null` 兜底成 `[]`。
   - 若接口返回**后端本地化文案**（如 diagnostics 摘要、诊断报告、SSE 事件、模板说明），service 应显式附带当前语言参数 `lang`，避免后端回落到默认语言或双语拼接结果。
+  - 后端写接口接入公共执行协议后，Web service 必须同步接入 `createWebExecutionHeaders`。不能只验证 CLI，也不能在全局 axios 拦截器里给所有 POST/PUT/DELETE 自动加执行请求头，因为登录、查询型 POST 和未接入公共执行协议的接口不需要这些请求头。
+  - R1 请求必须发送稳定的 `Idempotency-Key` 和 `X-STX-Confirm: true`；R2/R3 首次请求取得 `confirmation_id` 后，必须复用同一个幂等键，并通过 `X-STX-Confirmation-ID` 只重试一次。上传分片应为每个分片生成稳定且互不相同的幂等键，使单个分片可以安全重试。
+  - 在线补充 SeaTunnel 源码属于长耗时写请求，service 要为该请求设置独立的 10 分钟超时，不能沿用普通 API 客户端的 60 秒超时。
+  - 同一业务动作的 CLI 与 Web 调用方必须一起检查。后端新增或提高风险等级时，至少验证 Web 正常请求、幂等重试、一次性确认和错误结构透传。
 - **使用**：组件或 hooks 从 `lib/services/<domain>` 导入 service，调用静态方法；错误用 try/catch 捕获，消息在 UI 中展示（toast 或行内错误状态）。
 
 ---
@@ -52,6 +57,7 @@ export interface ApiError {
 - **5xx**：以「服务器内部错误，请稍后重试」reject。
 - **超时 (ECONNABORTED)**：以「请求超时，请检查网络连接」reject。
 - **后端 error_msg**：若存在 `error.response?.data?.error_msg`，用该消息 reject；否则使用通用提示。
+- **结构化确认数据**：响应拦截器应把后端 `data` 保留在抛出的 `ApiError.data` 中，R2/R3 service 据此读取 `confirmation_required` 和 `confirmation_id`。不能只保留错误文案，否则 Web 无法完成第二次确认请求。
 - **在组件中**：对 service 调用包一层 try/catch；用 toast（如 sonner）或行内错误状态展示 `error.message`。不要向用户暴露堆栈或打日志。
 
 ---
@@ -73,6 +79,9 @@ export interface ApiError {
 - 基于会话的认证忘记 `withCredentials: true`；客户端与请求拦截器中已配置。
 - 在调用处定义包含 `error_msg` 的响应类型；应把成功视为 `T`，错误视为抛出的 `Error`。
 - 直接信任后端数组字段永远不是 `null`；尤其是 Go 的 nil slice 可能在 JSON 中变成 `null`，会让 UI 在 `.map()` / `.filter()` / `.length` 处崩溃。对这类字段要在边界统一 normalize。
+- 后端给某个写接口加上 `Authorize` 后，只修改 CLI，不检查 Web service。这样浏览器请求会缺少 `Idempotency-Key` 或确认请求头，并直接收到 4xx。
+- 在全局请求拦截器里无条件给全部写请求添加确认头。这样会把公共执行语义错误地扩散到登录、查询型 POST 和普通配置接口。
+- R2/R3 第二次确认请求重新生成幂等键。确认编号与原幂等键、请求摘要绑定，换键会导致确认失败。
 
 ## Scenario: Sync 工作台 Config DAG 兼容 WebUI `jobDag`
 

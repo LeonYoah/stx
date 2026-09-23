@@ -18,6 +18,8 @@
 package installer
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -38,6 +40,7 @@ import (
 	"sync"
 	"time"
 
+	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
 	"github.com/LeonYoah/stx/internal/config"
 	"github.com/LeonYoah/stx/internal/logger"
 	"github.com/LeonYoah/stx/internal/seatunnel"
@@ -52,6 +55,8 @@ var (
 	ErrInvalidPackageFile     = errors.New("invalid package file / 安装包文件不合法")
 	ErrInvalidPackagePath     = errors.New("invalid package path / 安装包路径不合法")
 	ErrPackageTooLarge        = errors.New("package too large / 安装包过大")
+	ErrSourcePackageNotFound  = errors.New("source package not found / 源码包未找到")
+	ErrInvalidSourcePackage   = errors.New("invalid source package / 源码包不合法")
 	ErrInvalidUploadID        = errors.New("invalid upload id / 上传会话 ID 不合法")
 	ErrInvalidChunkIndex      = errors.New("invalid chunk index / 分片索引不合法")
 	ErrChunkOutOfOrder        = errors.New("chunk out of order / 分片顺序错误")
@@ -135,6 +140,9 @@ type NodeStatusUpdater interface {
 // NodeStarter is the interface for starting cluster nodes
 // NodeStarter 是启动集群节点的接口
 type NodeStarter interface {
+	// EnsureNodeForInstallation ensures the installed node exists in cluster metadata before startup.
+	// EnsureNodeForInstallation 在启动前确保已安装节点存在于集群元数据中。
+	EnsureNodeForInstallation(ctx context.Context, clusterID uint, hostID uint, role string, installDir string, hazelcastPort int, apiPort int, workerPort int) error
 	// StartNodeByClusterAndHost starts a node by cluster ID and host ID
 	// StartNodeByClusterAndHost 根据集群 ID 和主机 ID 启动节点
 	StartNodeByClusterAndHost(ctx context.Context, clusterID uint, hostID uint) (bool, string, error)
@@ -270,6 +278,10 @@ type Service struct {
 	// preparedPlugins stores plugin bundles already transferred and installed on an Agent.
 	// preparedPlugins 保存已传输并安装到 Agent 的插件包标记。
 	preparedPlugins map[string]time.Time
+
+	// executionService stores shared execution state for package operations.
+	// executionService 保存安装包操作的公共执行状态。
+	executionService *executionapp.Service
 }
 
 type preparedPackageCacheEntry struct {
@@ -388,6 +400,44 @@ func (s *Service) SetNodeJVMResolver(resolver NodeJVMResolver) {
 // SetConfigInitializer 设置用于初始化集群配置的配置初始化器。
 func (s *Service) SetConfigInitializer(initializer ConfigInitializer) {
 	s.configInitializer = initializer
+}
+
+// SetExecutionService sets the shared execution service used by package operations.
+// SetExecutionService 设置安装包操作使用的公共执行服务。
+func (s *Service) SetExecutionService(service *executionapp.Service) {
+	if s == nil {
+		return
+	}
+	s.executionService = service
+}
+
+// RequestCancel stops a package download through the real downloader signal.
+// RequestCancel 通过真实下载停止信号取消安装包下载。
+func (s *Service) RequestCancel(ctx context.Context, item *executionapp.Execution, actor executionapp.Actor) (executionapp.CancelResult, error) {
+	if item == nil || strings.TrimSpace(item.ModuleRef) == "" {
+		return executionapp.CancelResult{}, ErrDownloadNotFound
+	}
+	task, err := s.GetDownloadStatus(ctx, item.ModuleRef)
+	if err != nil {
+		return executionapp.CancelResult{}, err
+	}
+	if task.OwnerUserID != 0 && task.OwnerUserID != actor.UserID && !actor.IsAdmin {
+		return executionapp.CancelResult{}, executionapp.ErrPermissionDenied
+	}
+	updated, err := s.CancelDownload(ctx, task.Version)
+	if err != nil {
+		return executionapp.CancelResult{}, err
+	}
+	switch updated.Status {
+	case DownloadStatusCancelled:
+		return executionapp.CancelResult{Status: executionapp.StatusCancelled, Cancellable: false, CancellableReason: "package download stopped"}, nil
+	case DownloadStatusCancelling:
+		return executionapp.CancelResult{Status: executionapp.StatusCancelling, Cancellable: true, CancellableReason: "package download is still stopping"}, nil
+	case DownloadStatusCompleted:
+		return executionapp.CancelResult{Status: executionapp.StatusSucceeded, Cancellable: false, CancellableReason: "package download already completed"}, nil
+	default:
+		return executionapp.CancelResult{Status: executionapp.StatusFailed, Cancellable: false, CancellableReason: "package download is no longer cancellable"}, nil
+	}
 }
 
 // ==================== Version Management 版本管理 ====================
@@ -557,15 +607,18 @@ func (s *Service) ListAvailableVersions(ctx context.Context) (*AvailableVersions
 		version := extractVersionFromFileName(name)
 		uploadedAt := info.ModTime()
 
-		result.LocalPackages = append(result.LocalPackages, PackageInfo{
-			Version:      version,
-			FileName:     name,
-			FileSize:     info.Size(),
-			IsLocal:      true,
-			LocalPath:    filepath.Join(s.packageDir, name),
-			UploadedAt:   &uploadedAt,
-			DownloadURLs: getDownloadURLs(version),
-		})
+		packageInfo := PackageInfo{
+			Version:            version,
+			FileName:           name,
+			FileSize:           info.Size(),
+			IsLocal:            true,
+			LocalPath:          filepath.Join(s.packageDir, name),
+			UploadedAt:         &uploadedAt,
+			DownloadURLs:       getDownloadURLs(version),
+			SourceDownloadURLs: getSourceDownloadURLs(version),
+		}
+		s.populateSourceInfo(&packageInfo)
+		result.LocalPackages = append(result.LocalPackages, packageInfo)
 		if version != "" {
 			result.VersionCapabilities[version] = seatunnel.CapabilitiesForVersion(version)
 		}
@@ -582,9 +635,10 @@ func (s *Service) GetPackageInfo(ctx context.Context, version string) (*PackageI
 	localPath := filepath.Join(s.packageDir, fileName)
 
 	info := &PackageInfo{
-		Version:      version,
-		FileName:     fileName,
-		DownloadURLs: getDownloadURLs(version),
+		Version:            version,
+		FileName:           fileName,
+		DownloadURLs:       getDownloadURLs(version),
+		SourceDownloadURLs: getSourceDownloadURLs(version),
 	}
 
 	if fileInfo, err := os.Stat(localPath); err == nil {
@@ -600,8 +654,36 @@ func (s *Service) GetPackageInfo(ctx context.Context, version string) (*PackageI
 			info.Checksum = checksum
 		}
 	}
+	s.populateSourceInfo(info)
 
 	return info, nil
+}
+
+// populateSourceInfo adds source archive metadata without making the runtime package unavailable.
+// populateSourceInfo 补充源码包元数据，源码缺失或失败不会影响运行包可用性。
+func (s *Service) populateSourceInfo(info *PackageInfo) {
+	if info == nil || strings.TrimSpace(info.Version) == "" {
+		return
+	}
+	path := filepath.Join(s.packageDir, sourcePackageFileName(info.Version))
+	fileInfo, err := os.Stat(path)
+	if err == nil && fileInfo.Mode().IsRegular() {
+		uploadedAt := fileInfo.ModTime()
+		info.HasSource = true
+		info.SourceStatus = DownloadStatusCompleted
+		info.SourceFileName = fileInfo.Name()
+		info.SourceFileSize = fileInfo.Size()
+		info.SourceUploadedAt = &uploadedAt
+		info.SourceChecksum, _ = calculateChecksum(path)
+		return
+	}
+	info.SourceStatus = DownloadStatusPending
+	s.downloadsMu.RLock()
+	if task := s.downloads[info.Version]; task != nil {
+		info.SourceStatus = task.SourceStatus
+		info.SourceError = task.SourceError
+	}
+	s.downloadsMu.RUnlock()
 }
 
 // UploadPackage handles package file upload.
@@ -618,6 +700,45 @@ func (s *Service) UploadPackage(ctx context.Context, version string, file *multi
 	defer src.Close()
 
 	return s.savePackageFromReader(ctx, version, file.Filename, file.Size, src)
+}
+
+// UploadPackageBundle stores the required runtime package and an optional matching source archive.
+// UploadPackageBundle 保存必需的运行包以及可选的同版本源码包。
+func (s *Service) UploadPackageBundle(ctx context.Context, version string, file, sourceFile *multipart.FileHeader) (*PackageInfo, error) {
+	info, err := s.UploadPackage(ctx, version, file)
+	if err != nil || sourceFile == nil {
+		return info, err
+	}
+	if _, sourceErr := s.UploadSourcePackage(ctx, version, sourceFile); sourceErr != nil {
+		info.SourceStatus = DownloadStatusFailed
+		info.SourceError = sourceErr.Error()
+		return info, nil
+	}
+	return s.GetPackageInfo(ctx, version)
+}
+
+// UploadSourcePackage validates and atomically stores a source archive for an existing runtime package.
+// UploadSourcePackage 校验源码包，并为已有运行包原子保存源码包。
+func (s *Service) UploadSourcePackage(ctx context.Context, version string, file *multipart.FileHeader) (*PackageInfo, error) {
+	version = strings.TrimSpace(version)
+	if file == nil || !packageVersionRegexp.MatchString(version) {
+		return nil, ErrInvalidSourcePackage
+	}
+	if _, err := os.Stat(filepath.Join(s.packageDir, packageFileName(version))); err != nil {
+		return nil, ErrPackageNotFound
+	}
+	if file.Size <= 0 {
+		return nil, ErrInvalidSourcePackage
+	}
+	src, err := file.Open()
+	if err != nil {
+		return nil, fmt.Errorf("%w: cannot open upload", ErrInvalidSourcePackage)
+	}
+	defer src.Close()
+	if err := s.saveSourceFromReader(ctx, version, file.Size, src); err != nil {
+		return nil, err
+	}
+	return s.GetPackageInfo(ctx, version)
 }
 
 // UploadPackageChunk handles package chunk upload.
@@ -823,15 +944,97 @@ func (s *Service) savePackageFromReader(ctx context.Context, version, fileName s
 	uploadedAt := fileInfo.ModTime()
 	logger.InfoF(ctx, "[Installer] package saved: version=%s size=%d path=%s", version, fileInfo.Size(), destPath)
 	return &PackageInfo{
-		Version:      version,
-		FileName:     finalFileName,
-		FileSize:     fileInfo.Size(),
-		Checksum:     checksum,
-		IsLocal:      true,
-		LocalPath:    destPath,
-		UploadedAt:   &uploadedAt,
-		DownloadURLs: getDownloadURLs(version),
+		Version:            version,
+		FileName:           finalFileName,
+		FileSize:           fileInfo.Size(),
+		Checksum:           checksum,
+		IsLocal:            true,
+		LocalPath:          destPath,
+		UploadedAt:         &uploadedAt,
+		DownloadURLs:       getDownloadURLs(version),
+		SourceDownloadURLs: getSourceDownloadURLs(version),
 	}, nil
+}
+
+// saveSourceFromReader validates a gzip/tar source archive before replacing the stored source atomically.
+// saveSourceFromReader 在原子替换源码包前校验 gzip/tar 内容。
+func (s *Service) saveSourceFromReader(ctx context.Context, version string, fileSize int64, src io.Reader) error {
+	if !packageVersionRegexp.MatchString(version) || fileSize <= 0 {
+		return ErrInvalidSourcePackage
+	}
+	maxPackageSize := config.GetMaxPackageSize()
+	if maxPackageSize > 0 && fileSize > maxPackageSize {
+		return ErrPackageTooLarge
+	}
+	tempFile, err := os.CreateTemp(s.tempDir, "source-upload-*.tar.gz")
+	if err != nil {
+		return fmt.Errorf("create source temp file: %w", err)
+	}
+	tempPath := tempFile.Name()
+	defer func() {
+		_ = tempFile.Close()
+		_ = os.Remove(tempPath)
+	}()
+	written, err := io.Copy(tempFile, src)
+	if err != nil || written != fileSize {
+		return fmt.Errorf("%w: source size mismatch", ErrInvalidSourcePackage)
+	}
+	if err := tempFile.Close(); err != nil {
+		return fmt.Errorf("close source temp file: %w", err)
+	}
+	if err := validateSourceArchive(tempPath, version); err != nil {
+		return err
+	}
+	destPath, err := normalizePathInDir(s.packageDir, filepath.Join(s.packageDir, sourcePackageFileName(version)))
+	if err != nil {
+		return ErrInvalidPackagePath
+	}
+	if err := os.Rename(tempPath, destPath); err != nil {
+		return fmt.Errorf("store source package: %w", err)
+	}
+	logger.InfoF(ctx, "[Installer] source package saved: version=%s path=%s", version, destPath)
+	return nil
+}
+
+// validateSourceArchive checks that the archive is readable and contains the matching release root.
+// validateSourceArchive 检查源码压缩包可读，且包含对应版本的发布根目录。
+func validateSourceArchive(path, version string) error {
+	file, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("%w: cannot open archive", ErrInvalidSourcePackage)
+	}
+	defer file.Close()
+	gzipReader, err := gzip.NewReader(file)
+	if err != nil {
+		return fmt.Errorf("%w: invalid gzip stream", ErrInvalidSourcePackage)
+	}
+	defer gzipReader.Close()
+	tarReader := tar.NewReader(gzipReader)
+	prefixes := []string{
+		"apache-seatunnel-" + version + "-src/",
+		"apache-seatunnel-" + version + "/",
+	}
+	foundMatchingRoot := false
+	for {
+		header, readErr := tarReader.Next()
+		if errors.Is(readErr, io.EOF) {
+			break
+		}
+		if readErr != nil {
+			return fmt.Errorf("%w: invalid tar stream", ErrInvalidSourcePackage)
+		}
+		name := strings.TrimPrefix(filepath.ToSlash(header.Name), "./")
+		for _, prefix := range prefixes {
+			if strings.HasPrefix(name, prefix) {
+				foundMatchingRoot = true
+				break
+			}
+		}
+	}
+	if foundMatchingRoot {
+		return nil
+	}
+	return fmt.Errorf("%w: archive version does not match %s", ErrInvalidSourcePackage, version)
 }
 
 func (s *Service) getChunkUploadDir(uploadID string) (string, error) {
@@ -878,7 +1081,54 @@ func (s *Service) DeletePackage(ctx context.Context, version string) error {
 		return ErrPackageNotFound
 	}
 
-	return os.Remove(localPath)
+	if err := os.Remove(localPath); err != nil {
+		return err
+	}
+	// 服务端和网页删除运行包时一并清理关联源码；CLI 不暴露删除入口。
+	// Server and web deletion removes the associated source; the CLI exposes no delete entry.
+	_ = os.Remove(filepath.Join(s.packageDir, sourcePackageFileName(version)))
+	return nil
+}
+
+// FetchSourcePackage downloads and validates source for an existing runtime package.
+// FetchSourcePackage 为已有运行包下载并校验同版本源码。
+func (s *Service) FetchSourcePackage(ctx context.Context, version string, mirror MirrorSource) (*PackageInfo, error) {
+	version = strings.TrimSpace(version)
+	if !packageVersionRegexp.MatchString(version) {
+		return nil, ErrInvalidPackageVersion
+	}
+	if _, err := os.Stat(filepath.Join(s.packageDir, packageFileName(version))); err != nil {
+		return nil, ErrPackageNotFound
+	}
+	if mirror == "" {
+		mirror = MirrorApache
+	}
+	baseURL, exists := MirrorURLs[mirror]
+	if !exists {
+		return nil, ErrInvalidPackageFile
+	}
+	_, err := s.downloadSourceArchive(ctx, version, fmt.Sprintf("%s/%s/%s", baseURL, version, sourcePackageFileName(version)), nil)
+	if err != nil {
+		return nil, err
+	}
+	return s.GetPackageInfo(ctx, version)
+}
+
+// SourcePackagePath returns a validated source archive path for authenticated download handlers.
+// SourcePackagePath 返回已校验的源码包路径，供鉴权后的下载接口使用。
+func (s *Service) SourcePackagePath(version string) (string, error) {
+	version = strings.TrimSpace(version)
+	if !packageVersionRegexp.MatchString(version) {
+		return "", ErrInvalidPackageVersion
+	}
+	path, err := normalizePathInDir(s.packageDir, filepath.Join(s.packageDir, sourcePackageFileName(version)))
+	if err != nil {
+		return "", ErrInvalidPackagePath
+	}
+	if info, statErr := os.Stat(path); statErr != nil || !info.Mode().IsRegular() {
+		return "", ErrSourcePackageNotFound
+	}
+	return path, nil
 }
 
 // ==================== Package Download 安装包下载 ====================
@@ -894,6 +1144,12 @@ var ErrDownloadNotFound = errors.New("download task not found / 下载任务未�
 // StartDownload starts downloading a package from mirror to local storage.
 // StartDownload 开始从镜像源下载安装包到本地存储。
 func (s *Service) StartDownload(ctx context.Context, req *DownloadRequest) (*DownloadTask, error) {
+	return s.startDownload(ctx, req, "", 0)
+}
+
+// startDownload creates a download task with optional shared execution ownership before the worker starts.
+// startDownload 在工作协程启动前创建带有可选公共执行归属的下载任务。
+func (s *Service) startDownload(ctx context.Context, req *DownloadRequest, executionID string, ownerUserID uint64) (*DownloadTask, error) {
 	version := strings.TrimSpace(req.Version)
 	if !packageVersionRegexp.MatchString(version) {
 		return nil, ErrInvalidPackageVersion
@@ -901,12 +1157,13 @@ func (s *Service) StartDownload(ctx context.Context, req *DownloadRequest) (*Dow
 	req.Version = version
 
 	s.downloadsMu.Lock()
-	defer s.downloadsMu.Unlock()
 
 	// Check if download is already in progress / 检查是否已有下载正在进行
 	if existing, ok := s.downloads[req.Version]; ok {
 		if existing.Status == DownloadStatusDownloading || existing.Status == DownloadStatusPending {
-			return existing, ErrDownloadInProgress
+			result := cloneDownloadTask(existing)
+			s.downloadsMu.Unlock()
+			return result, ErrDownloadInProgress
 		}
 	}
 
@@ -916,28 +1173,47 @@ func (s *Service) StartDownload(ctx context.Context, req *DownloadRequest) (*Dow
 		mirror = MirrorAliyun
 	}
 
-	// Get download URL / 获取下载 URL
-	downloadURL := fmt.Sprintf("%s/%s/apache-seatunnel-%s-bin.tar.gz",
-		MirrorURLs[mirror], req.Version, req.Version)
+	baseURL, exists := MirrorURLs[mirror]
+	if !exists {
+		s.downloadsMu.Unlock()
+		return nil, ErrInvalidPackageFile
+	}
+	// Get download URLs / 获取运行包和源码包下载地址
+	downloadURL := fmt.Sprintf("%s/%s/%s", baseURL, req.Version, packageFileName(req.Version))
+	sourceURL := fmt.Sprintf("%s/%s/%s", baseURL, req.Version, sourcePackageFileName(req.Version))
 
 	// Create download task / 创建下载任务
 	task := &DownloadTask{
-		ID:          uuid.New().String(),
-		Version:     req.Version,
-		Mirror:      mirror,
-		DownloadURL: downloadURL,
-		Status:      DownloadStatusPending,
-		Progress:    0,
-		Message:     "准备下载 / Preparing download",
-		StartTime:   time.Now(),
+		ID:              uuid.New().String(),
+		Version:         req.Version,
+		Mirror:          mirror,
+		DownloadURL:     downloadURL,
+		Status:          DownloadStatusPending,
+		Progress:        0,
+		Message:         "准备下载 / Preparing download",
+		StartTime:       time.Now(),
+		ExecutionID:     strings.TrimSpace(executionID),
+		OwnerUserID:     ownerUserID,
+		SourceRequested: req.IncludeSource(),
+		SourceURL:       sourceURL,
 	}
+	if task.SourceRequested {
+		task.SourceStatus = DownloadStatusPending
+	}
+	// Keep cancellation tied to the HTTP request so cancelling a task closes the network body.
+	// 将取消信号绑定到 HTTP 请求，确保取消任务时同时关闭网络请求。
+	downloadCtx, cancel := context.WithCancel(context.Background())
+	task.cancel = cancel
+	task.done = make(chan struct{})
 
 	s.downloads[req.Version] = task
+	result := cloneDownloadTask(task)
+	s.downloadsMu.Unlock()
 
 	// Start download in background / 在后台开始下载
-	go s.runDownload(context.Background(), task)
+	go s.runDownload(downloadCtx, task)
 
-	return task, nil
+	return result, nil
 }
 
 // GetDownloadStatus returns the current download status for a version.
@@ -951,7 +1227,7 @@ func (s *Service) GetDownloadStatus(ctx context.Context, version string) (*Downl
 		return nil, ErrDownloadNotFound
 	}
 
-	return task, nil
+	return cloneDownloadTask(task), nil
 }
 
 // CancelDownload cancels an ongoing download.
@@ -963,27 +1239,39 @@ func (s *Service) CancelDownload(ctx context.Context, version string) (*Download
 	}
 
 	s.downloadsMu.Lock()
-	defer s.downloadsMu.Unlock()
 
 	task, ok := s.downloads[version]
 	if !ok {
+		s.downloadsMu.Unlock()
 		return nil, ErrDownloadNotFound
 	}
 
-	if task.Status != DownloadStatusDownloading && task.Status != DownloadStatusPending {
-		return task, nil // Already completed or failed / 已完成或失败
+	if task.Status != DownloadStatusDownloading && task.Status != DownloadStatusPending && task.Status != DownloadStatusCancelling {
+		result := cloneDownloadTask(task)
+		s.downloadsMu.Unlock()
+		return result, nil // Already completed or failed / 已完成或失败
 	}
 
-	now := time.Now()
-	task.Status = DownloadStatusCancelled
-	task.Message = "下载已取消 / Download cancelled"
-	task.EndTime = &now
-
-	// Clean up temp file / 清理临时文件
-	tempPath := filepath.Join(s.tempDir, fmt.Sprintf("apache-seatunnel-%s-bin.tar.gz.tmp", version))
-	os.Remove(tempPath)
-
-	return task, nil
+	// Mark cancellation as in progress; only the downloader may publish cancelled after it stops.
+	// 先标记为取消中，只有后台下载确认停止后才能对外报告 cancelled。
+	task.Status = DownloadStatusCancelling
+	task.Message = "正在停止下载 / Stopping download"
+	if task.cancel != nil {
+		task.cancel()
+	}
+	done := task.done
+	s.downloadsMu.Unlock()
+	if done != nil {
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			// Return cancelling instead of claiming the download has stopped.
+			// 超时后仍返回 cancelling，不能假报已经停止。
+		}
+	}
+	s.downloadsMu.RLock()
+	defer s.downloadsMu.RUnlock()
+	return cloneDownloadTask(task), nil
 }
 
 // ListDownloads returns all download tasks.
@@ -994,17 +1282,41 @@ func (s *Service) ListDownloads(ctx context.Context) []*DownloadTask {
 
 	tasks := make([]*DownloadTask, 0, len(s.downloads))
 	for _, task := range s.downloads {
-		tasks = append(tasks, task)
+		tasks = append(tasks, cloneDownloadTask(task))
 	}
 	return tasks
+}
+
+// cloneDownloadTask returns a response-safe copy without internal cancellation handles.
+// cloneDownloadTask 返回不包含内部取消句柄的响应副本。
+func cloneDownloadTask(task *DownloadTask) *DownloadTask {
+	if task == nil {
+		return nil
+	}
+	result := *task
+	result.cancel = nil
+	result.done = nil
+	return &result
 }
 
 // runDownload executes the download process.
 // runDownload 执行下载过程。
 func (s *Service) runDownload(ctx context.Context, task *DownloadTask) {
+	defer func() {
+		close(task.done)
+		s.finishDownloadExecution(task)
+	}()
 	logger.InfoF(ctx, "[Installer] 开始下载安装包 / Start downloading package: version=%s, mirror=%s", task.Version, task.Mirror)
 
 	s.downloadsMu.Lock()
+	if task.Status == DownloadStatusCancelling {
+		now := time.Now()
+		task.Status = DownloadStatusCancelled
+		task.Message = "下载已取消 / Download cancelled"
+		task.EndTime = &now
+		s.downloadsMu.Unlock()
+		return
+	}
 	task.Status = DownloadStatusDownloading
 	task.Message = "正在下载 / Downloading"
 	s.downloadsMu.Unlock()
@@ -1033,16 +1345,21 @@ func (s *Service) runDownload(ctx context.Context, task *DownloadTask) {
 		return
 	}
 
-	// Create HTTP request / 创建 HTTP 请求
-	resp, err := http.Get(task.DownloadURL)
+	// Create a cancellable HTTP request so cancellation closes the active network operation.
+	// 创建可取消的 HTTP 请求，确保取消时能停止当前网络操作。
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, task.DownloadURL, nil)
 	if err != nil {
+		s.markDownloadFailed(task, fmt.Sprintf("创建请求失败 / Failed to create request: %v", err), tempPath)
+		return
+	}
+	resp, err := http.DefaultClient.Do(request)
+	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			s.markDownloadCancelled(task, tempPath)
+			return
+		}
 		logger.ErrorF(ctx, "[Installer] 下载请求失败 / Download request failed: version=%s, error=%v", task.Version, err)
-		s.downloadsMu.Lock()
-		now := time.Now()
-		task.Status = DownloadStatusFailed
-		task.Error = fmt.Sprintf("请求失败 / Request failed: %v", err)
-		task.EndTime = &now
-		s.downloadsMu.Unlock()
+		s.markDownloadFailed(task, fmt.Sprintf("请求失败 / Request failed: %v", err), tempPath)
 		return
 	}
 	defer resp.Body.Close()
@@ -1083,12 +1400,18 @@ func (s *Service) runDownload(ctx context.Context, task *DownloadTask) {
 	var lastDownloaded int64
 
 	for {
+		select {
+		case <-ctx.Done():
+			s.markDownloadCancelled(task, tempPath)
+			return
+		default:
+		}
 		// Check if cancelled / 检查是否已取消
 		s.downloadsMu.RLock()
-		if task.Status == DownloadStatusCancelled {
+		if task.Status == DownloadStatusCancelling || task.Status == DownloadStatusCancelled {
 			s.downloadsMu.RUnlock()
-			out.Close()
-			os.Remove(tempPath)
+			_ = out.Close()
+			s.markDownloadCancelled(task, tempPath)
 			return
 		}
 		s.downloadsMu.RUnlock()
@@ -1131,13 +1454,11 @@ func (s *Service) runDownload(ctx context.Context, task *DownloadTask) {
 			break
 		}
 		if err != nil {
-			s.downloadsMu.Lock()
-			now := time.Now()
-			task.Status = DownloadStatusFailed
-			task.Error = fmt.Sprintf("下载失败 / Download failed: %v", err)
-			task.EndTime = &now
-			s.downloadsMu.Unlock()
-			os.Remove(tempPath)
+			if errors.Is(err, context.Canceled) {
+				s.markDownloadCancelled(task, tempPath)
+				return
+			}
+			s.markDownloadFailed(task, fmt.Sprintf("下载失败 / Download failed: %v", err), tempPath)
 			return
 		}
 	}
@@ -1146,35 +1467,207 @@ func (s *Service) runDownload(ctx context.Context, task *DownloadTask) {
 	out.Close()
 
 	// Move temp file to final location / 将临时文件移动到最终位置
+	s.downloadsMu.RLock()
+	cancelling := task.Status == DownloadStatusCancelling || ctx.Err() != nil
+	s.downloadsMu.RUnlock()
+	if cancelling {
+		s.markDownloadCancelled(task, tempPath)
+		return
+	}
 	if err := os.Rename(tempPath, finalPath); err != nil {
-		s.downloadsMu.Lock()
-		now := time.Now()
-		task.Status = DownloadStatusFailed
-		task.Error = fmt.Sprintf("移动文件失败 / Failed to move file: %v", err)
-		task.EndTime = &now
-		s.downloadsMu.Unlock()
-		os.Remove(tempPath)
+		s.markDownloadFailed(task, fmt.Sprintf("移动文件失败 / Failed to move file: %v", err), tempPath)
 		return
 	}
 
-	// Mark as completed / 标记为完成
+	if task.SourceRequested {
+		s.downloadsMu.Lock()
+		task.SourceStatus = DownloadStatusDownloading
+		task.Message = "运行包下载完成，正在下载源码 / Runtime package downloaded; downloading source"
+		s.downloadsMu.Unlock()
+		checksum, sourceErr := s.downloadSourceArchive(ctx, task.Version, task.SourceURL, task)
+		s.downloadsMu.Lock()
+		if sourceErr != nil {
+			task.SourceStatus = DownloadStatusFailed
+			task.SourceError = sourceErr.Error()
+			task.Message = "运行包下载完成，源码下载失败 / Runtime package downloaded; source download failed"
+		} else {
+			task.SourceStatus = DownloadStatusCompleted
+			task.SourceProgress = 100
+			task.SourceChecksum = checksum
+			task.Message = "运行包和源码下载完成 / Runtime and source packages downloaded"
+		}
+		s.downloadsMu.Unlock()
+	}
+
+	// Mark the runtime package operation completed even when the optional source download failed.
+	// 即使可选源码下载失败，运行包下载任务仍按成功完成。
 	s.downloadsMu.Lock()
+	if task.Status == DownloadStatusCancelling || ctx.Err() != nil {
+		s.downloadsMu.Unlock()
+		_ = os.Remove(finalPath)
+		s.markDownloadCancelled(task, tempPath)
+		return
+	}
 	now := time.Now()
 	task.Status = DownloadStatusCompleted
 	task.Progress = 100
 	task.DownloadedBytes = downloaded
-	task.Message = "下载完成 / Download completed"
+	if !task.SourceRequested {
+		task.Message = "下载完成 / Download completed"
+	}
 	task.EndTime = &now
 	s.downloadsMu.Unlock()
 
 	logger.InfoF(ctx, "[Installer] 下载完成 / Download completed: version=%s, size=%d bytes", task.Version, downloaded)
 }
 
+// downloadSourceArchive streams, validates, and atomically stores one source archive.
+// downloadSourceArchive 流式下载、校验并原子保存一个源码包。
+func (s *Service) downloadSourceArchive(ctx context.Context, version, sourceURL string, task *DownloadTask) (string, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, sourceURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("create source request: %w", err)
+	}
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		return "", fmt.Errorf("download source package: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("download source package: HTTP %d", response.StatusCode)
+	}
+	maxPackageSize := config.GetMaxPackageSize()
+	if maxPackageSize > 0 && response.ContentLength > maxPackageSize {
+		return "", ErrPackageTooLarge
+	}
+	tempFile, err := os.CreateTemp(s.tempDir, "source-download-*.tar.gz")
+	if err != nil {
+		return "", fmt.Errorf("create source temp file: %w", err)
+	}
+	tempPath := tempFile.Name()
+	defer func() {
+		_ = tempFile.Close()
+		_ = os.Remove(tempPath)
+	}()
+	if task != nil {
+		s.downloadsMu.Lock()
+		task.SourceTotal = response.ContentLength
+		s.downloadsMu.Unlock()
+	}
+	buffer := make([]byte, 32*1024)
+	var downloaded int64
+	for {
+		n, readErr := response.Body.Read(buffer)
+		if n > 0 {
+			if _, writeErr := tempFile.Write(buffer[:n]); writeErr != nil {
+				return "", fmt.Errorf("write source package: %w", writeErr)
+			}
+			downloaded += int64(n)
+			if maxPackageSize > 0 && downloaded > maxPackageSize {
+				return "", ErrPackageTooLarge
+			}
+			if task != nil {
+				s.downloadsMu.Lock()
+				task.SourceBytes = downloaded
+				if task.SourceTotal > 0 {
+					task.SourceProgress = int(downloaded * 100 / task.SourceTotal)
+				}
+				s.downloadsMu.Unlock()
+			}
+		}
+		if errors.Is(readErr, io.EOF) {
+			break
+		}
+		if readErr != nil {
+			return "", fmt.Errorf("read source package: %w", readErr)
+		}
+	}
+	if err := tempFile.Close(); err != nil {
+		return "", fmt.Errorf("close source package: %w", err)
+	}
+	if err := validateSourceArchive(tempPath, version); err != nil {
+		return "", err
+	}
+	checksum, err := calculateChecksum(tempPath)
+	if err != nil {
+		return "", err
+	}
+	destPath, err := normalizePathInDir(s.packageDir, filepath.Join(s.packageDir, sourcePackageFileName(version)))
+	if err != nil {
+		return "", ErrInvalidPackagePath
+	}
+	if err := os.Rename(tempPath, destPath); err != nil {
+		return "", fmt.Errorf("store source package: %w", err)
+	}
+	return checksum, nil
+}
+
+// finishDownloadExecution mirrors the actual downloader result to the shared execution record.
+// finishDownloadExecution 将真实下载结果同步到公共执行记录。
+func (s *Service) finishDownloadExecution(task *DownloadTask) {
+	if s.executionService == nil || task == nil || strings.TrimSpace(task.ExecutionID) == "" {
+		return
+	}
+	s.downloadsMu.RLock()
+	status := task.Status
+	progress := task.Progress
+	errorMessage := task.Error
+	s.downloadsMu.RUnlock()
+	var target executionapp.Status
+	switch status {
+	case DownloadStatusCompleted:
+		target = executionapp.StatusSucceeded
+	case DownloadStatusCancelled:
+		target = executionapp.StatusCancelled
+	case DownloadStatusFailed:
+		target = executionapp.StatusFailed
+	default:
+		return
+	}
+	item, err := s.executionService.Get(context.Background(), executionapp.Actor{UserID: task.OwnerUserID}, task.ExecutionID)
+	if err != nil || item == nil || executionapp.IsTerminal(item.Status) {
+		return
+	}
+	_ = s.executionService.Transition(context.Background(), task.ExecutionID, item.Status, target, map[string]any{
+		"progress":      progress,
+		"result_ref":    task.Version,
+		"error_message": errorMessage,
+		"cancellable":   false,
+	})
+}
+
+// markDownloadCancelled publishes cancelled only after the worker has stopped and removes partial output.
+// markDownloadCancelled 仅在工作协程停止后发布 cancelled，并清理未完成文件。
+func (s *Service) markDownloadCancelled(task *DownloadTask, tempPath string) {
+	_ = os.Remove(tempPath)
+	s.downloadsMu.Lock()
+	defer s.downloadsMu.Unlock()
+	now := time.Now()
+	task.Status = DownloadStatusCancelled
+	task.Message = "下载已取消 / Download cancelled"
+	task.EndTime = &now
+}
+
+// markDownloadFailed records a failure and removes any partial output.
+// markDownloadFailed 记录失败并清理未完成文件。
+func (s *Service) markDownloadFailed(task *DownloadTask, message, tempPath string) {
+	_ = os.Remove(tempPath)
+	s.downloadsMu.Lock()
+	defer s.downloadsMu.Unlock()
+	if task.Status == DownloadStatusCancelled {
+		return
+	}
+	now := time.Now()
+	task.Status = DownloadStatusFailed
+	task.Error = message
+	task.EndTime = &now
+}
+
 // ==================== Precheck 预检查 ====================
 
 // DefaultPrecheckPorts is the default list of ports to check for SeaTunnel installation
 // DefaultPrecheckPorts 是 SeaTunnel 安装时默认检查的端口列表
-var DefaultPrecheckPorts = []int{5801, 5802, 8080}
+var DefaultPrecheckPorts = []int{5801, 5802, 8080, 18080}
 
 // RunPrecheck runs precheck on a host via Agent.
 // RunPrecheck 通过 Agent 在主机上运行预检查。
@@ -1415,11 +1908,29 @@ func (s *Service) RunPrecheck(ctx context.Context, hostID uint, req *PrecheckReq
 		}
 	}
 
-	if result.OverallStatus == CheckStatusPassed {
-		result.Summary = fmt.Sprintf("All checks passed (%d passed) / 所有检查通过（%d 通过）", passedCount, passedCount)
+	// 有失败优先 failed；无失败但有警告则整体为 warning，避免“全部就绪”掩盖 Java 版本告警。
+	// Prefer failed when any item failed; otherwise elevate overall to warning so UI does not show "all ready".
+	if failedCount > 0 {
+		result.OverallStatus = CheckStatusFailed
+	} else if warningCount > 0 {
+		result.OverallStatus = CheckStatusWarning
 	} else {
-		result.Summary = fmt.Sprintf("Precheck failed: %d passed, %d failed, %d warnings / 预检查失败：%d 通过，%d 失败，%d 警告",
-			passedCount, failedCount, warningCount, passedCount, failedCount, warningCount)
+		result.OverallStatus = CheckStatusPassed
+	}
+
+	switch result.OverallStatus {
+	case CheckStatusPassed:
+		result.Summary = fmt.Sprintf("All checks passed (%d passed) / 所有检查通过（%d 通过）", passedCount, passedCount)
+	case CheckStatusWarning:
+		result.Summary = fmt.Sprintf(
+			"Checks ready with warnings: %d passed, %d warnings / 预检查可继续但有警告：%d 通过，%d 警告",
+			passedCount, warningCount, passedCount, warningCount,
+		)
+	default:
+		result.Summary = fmt.Sprintf(
+			"Precheck failed: %d passed, %d failed, %d warnings / 预检查失败：%d 通过，%d 失败，%d 警告",
+			passedCount, failedCount, warningCount, passedCount, failedCount, warningCount,
+		)
 	}
 
 	logger.InfoF(ctx, "[Installer] 预检查完成 / Precheck completed: host=%d, status=%s", hostID, result.OverallStatus)
@@ -2260,14 +2771,14 @@ func (s *Service) pollInstallationStatus(ctx context.Context, commandID string, 
 			switch cmdStatus {
 			case "success":
 				now := time.Now()
-				status.Status = StepStatusSuccess
 				status.Progress = 100
 				if len(status.Warnings) > 0 {
 					status.Message = "Installation completed with warnings, starting cluster... / 安装完成，但存在警告，正在启动集群..."
 				} else {
 					status.Message = "Installation completed, starting cluster... / 安装完成，正在启动集群..."
 				}
-				status.EndTime = &now
+				// 节点登记和启动完成前保持 running，避免客户端提前看到成功终态。
+				// Keep the task running until node registration and startup finish so clients never observe a premature success state.
 				// Mark all steps as complete
 				// 将所有步骤标记为完成
 				for j := range status.Steps {
@@ -2313,6 +2824,24 @@ func (s *Service) pollInstallationStatus(ctx context.Context, commandID string, 
 // startClusterAfterInstall starts the SeaTunnel cluster after installation completes.
 // startClusterAfterInstall 在安装完成后启动 SeaTunnel 集群。
 func (s *Service) startClusterAfterInstall(ctx context.Context, agentID string, req *InstallationRequest, status *InstallationStatus) {
+	// 未指定集群时只完成安装，不应把独立安装误判为启动失败。
+	// When no cluster is specified, finish the standalone installation without reporting a startup failure.
+	if strings.TrimSpace(req.ClusterID) == "" {
+		s.installMu.Lock()
+		now := time.Now()
+		status.Status = StepStatusSuccess
+		status.CurrentStep = InstallStepComplete
+		status.EndTime = &now
+		if len(status.Warnings) > 0 {
+			status.Message = "Installation completed with warnings; cluster startup skipped because no cluster ID was provided / 安装完成但存在警告；未提供集群 ID，已跳过集群启动"
+		} else {
+			status.Message = "Installation completed; cluster startup skipped because no cluster ID was provided / 安装完成；未提供集群 ID，已跳过集群启动"
+		}
+		s.installMu.Unlock()
+		logger.InfoF(ctx, "[Installer] 未提供集群 ID，跳过安装后启动 / Cluster ID not provided; skipping post-install startup: host=%s", req.HostID)
+		return
+	}
+
 	// Build node info for logging / 构建节点信息用于日志
 	nodeRole := string(req.NodeRole)
 	if nodeRole == "" {
@@ -2335,9 +2864,7 @@ func (s *Service) startClusterAfterInstall(ctx context.Context, agentID string, 
 	if clusterErr != nil || hostErr != nil {
 		logger.ErrorF(ctx, "[Installer] 解析 ID 失败 / Failed to parse IDs: cluster=%s, host=%s, role=%s, clusterErr=%v, hostErr=%v",
 			req.ClusterID, req.HostID, nodeRole, clusterErr, hostErr)
-		s.installMu.Lock()
-		status.Message = fmt.Sprintf("Installation completed but failed to start node (%s): invalid cluster or host ID / 安装完成但启动节点 (%s) 失败: 无效的集群或主机 ID", nodeRole, nodeRole)
-		s.installMu.Unlock()
+		s.markPostInstallFailure(status, fmt.Sprintf("Installation completed but failed to start node (%s): invalid cluster or host ID / 安装完成但启动节点 (%s) 失败: 无效的集群或主机 ID", nodeRole, nodeRole))
 		return
 	}
 
@@ -2346,9 +2873,16 @@ func (s *Service) startClusterAfterInstall(ctx context.Context, agentID string, 
 	if s.nodeStarter == nil {
 		logger.ErrorF(ctx, "[Installer] nodeStarter 未配置 / nodeStarter not configured: cluster=%d, host=%d, role=%s",
 			clusterID, hostID, nodeRole)
-		s.installMu.Lock()
-		status.Message = fmt.Sprintf("Installation completed but failed to start node (%s): nodeStarter not configured / 安装完成但启动节点 (%s) 失败: nodeStarter 未配置", nodeRole, nodeRole)
-		s.installMu.Unlock()
+		s.markPostInstallFailure(status, fmt.Sprintf("Installation completed but failed to start node (%s): nodeStarter not configured / 安装完成但启动节点 (%s) 失败: nodeStarter 未配置", nodeRole, nodeRole))
+		return
+	}
+
+	// Agent 安装完成后，先登记或刷新控制面的节点元数据，再使用统一的集群启动逻辑。
+	// After the Agent installation completes, register or refresh control-plane node metadata before using the shared startup logic.
+	if err := s.nodeStarter.EnsureNodeForInstallation(ctx, clusterID, hostID, nodeRole, req.InstallDir, req.ClusterPort, req.HTTPPort, req.WorkerPort); err != nil {
+		logger.ErrorF(ctx, "[Installer] 登记安装节点失败 / Failed to register installed node: cluster=%d, host=%d, role=%s, error=%v",
+			clusterID, hostID, nodeRole, err)
+		s.markPostInstallFailure(status, fmt.Sprintf("Installation completed but failed to register node (%s): %v / 安装完成但登记节点 (%s) 失败: %v", nodeRole, err, nodeRole, err))
 		return
 	}
 
@@ -2358,18 +2892,14 @@ func (s *Service) startClusterAfterInstall(ctx context.Context, agentID string, 
 	if err != nil {
 		logger.ErrorF(ctx, "[Installer] 启动节点失败 / Failed to start node: cluster=%d, host=%d, role=%s, error=%v",
 			clusterID, hostID, nodeRole, err)
-		s.installMu.Lock()
-		status.Message = fmt.Sprintf("Installation completed but failed to start node (%s): %v / 安装完成但启动节点 (%s) 失败: %v", nodeRole, err, nodeRole, err)
-		s.installMu.Unlock()
+		s.markPostInstallFailure(status, fmt.Sprintf("Installation completed but failed to start node (%s): %v / 安装完成但启动节点 (%s) 失败: %v", nodeRole, err, nodeRole, err))
 		return
 	}
 
 	if !success {
 		logger.WarnF(ctx, "[Installer] 启动节点返回失败 / Start node returned failure: cluster=%d, host=%d, role=%s, message=%s",
 			clusterID, hostID, nodeRole, message)
-		s.installMu.Lock()
-		status.Message = fmt.Sprintf("Installation completed but node (%s) start failed: %s / 安装完成但节点 (%s) 启动失败: %s", nodeRole, message, nodeRole, message)
-		s.installMu.Unlock()
+		s.markPostInstallFailure(status, fmt.Sprintf("Installation completed but node (%s) start failed: %s / 安装完成但节点 (%s) 启动失败: %s", nodeRole, message, nodeRole, message))
 		return
 	}
 
@@ -2414,6 +2944,10 @@ func (s *Service) startClusterAfterInstall(ctx context.Context, agentID string, 
 	// Final status update
 	// 最终状态更新
 	s.installMu.Lock()
+	now := time.Now()
+	status.Status = StepStatusSuccess
+	status.CurrentStep = InstallStepComplete
+	status.EndTime = &now
 	if len(status.Warnings) > 0 {
 		status.Message = fmt.Sprintf(
 			"Installation and node (%s) startup completed with warnings / 安装和节点 (%s) 启动完成，但存在警告",
@@ -2423,6 +2957,21 @@ func (s *Service) startClusterAfterInstall(ctx context.Context, agentID string, 
 	} else {
 		status.Message = fmt.Sprintf("Installation and node (%s) startup completed / 安装和节点 (%s) 启动完成", nodeRole, nodeRole)
 	}
+	s.installMu.Unlock()
+}
+
+// markPostInstallFailure 将登记或启动失败反映到安装任务终态，避免成功状态掩盖真实失败。
+// markPostInstallFailure reflects registration or startup failures in the installation terminal state.
+func (s *Service) markPostInstallFailure(status *InstallationStatus, message string) {
+	if status == nil {
+		return
+	}
+	now := time.Now()
+	s.installMu.Lock()
+	status.Status = StepStatusFailed
+	status.Message = message
+	status.Error = message
+	status.EndTime = &now
 	s.installMu.Unlock()
 }
 
@@ -2558,6 +3107,9 @@ func buildInstallParams(req *InstallationRequest) map[string]string {
 	if req.HTTPPort > 0 {
 		params["http_port"] = fmt.Sprintf("%d", req.HTTPPort)
 	}
+	if req.JavaProxyPort > 0 {
+		params["java_proxy_port"] = fmt.Sprintf("%d", req.JavaProxyPort)
+	}
 	if req.EnableHTTP != nil {
 		params["enable_http"] = strconv.FormatBool(*req.EnableHTTP)
 	}
@@ -2602,7 +3154,7 @@ func buildInstallParams(req *InstallationRequest) map[string]string {
 			params["checkpoint_hdfs_host"] = req.Checkpoint.HDFSNameNodeHost
 			params["checkpoint_hdfs_port"] = fmt.Sprintf("%d", req.Checkpoint.HDFSNameNodePort)
 		}
-		if req.Checkpoint.StorageEndpoint != "" {
+		if req.Checkpoint.StorageBucket != "" || req.Checkpoint.StorageEndpoint != "" || req.Checkpoint.StorageAccessKey != "" {
 			params["checkpoint_storage_endpoint"] = req.Checkpoint.StorageEndpoint
 			params["checkpoint_storage_bucket"] = req.Checkpoint.StorageBucket
 			params["checkpoint_storage_access_key"] = req.Checkpoint.StorageAccessKey
@@ -2634,6 +3186,12 @@ func buildInstallParams(req *InstallationRequest) map[string]string {
 				params["checkpoint_hdfs_failover_proxy_provider"] = req.Checkpoint.HDFSFailoverProxyProvider
 			}
 		}
+		if req.Checkpoint.HdfsSitePath != "" {
+			params["checkpoint_hdfs_site_path"] = req.Checkpoint.HdfsSitePath
+		}
+		if req.Checkpoint.S3CredentialsProvider != "" {
+			params["checkpoint_s3_credentials_provider"] = req.Checkpoint.S3CredentialsProvider
+		}
 	}
 
 	// Add IMAP config / 添加 IMAP 配置
@@ -2644,7 +3202,7 @@ func buildInstallParams(req *InstallationRequest) map[string]string {
 			params["imap_hdfs_host"] = req.IMAP.HDFSNameNodeHost
 			params["imap_hdfs_port"] = fmt.Sprintf("%d", req.IMAP.HDFSNameNodePort)
 		}
-		if req.IMAP.StorageEndpoint != "" {
+		if req.IMAP.StorageBucket != "" || req.IMAP.StorageEndpoint != "" || req.IMAP.StorageAccessKey != "" {
 			params["imap_storage_endpoint"] = req.IMAP.StorageEndpoint
 			params["imap_storage_bucket"] = req.IMAP.StorageBucket
 			params["imap_storage_access_key"] = req.IMAP.StorageAccessKey
@@ -2673,6 +3231,12 @@ func buildInstallParams(req *InstallationRequest) map[string]string {
 			if req.IMAP.HDFSFailoverProxyProvider != "" {
 				params["imap_hdfs_failover_proxy_provider"] = req.IMAP.HDFSFailoverProxyProvider
 			}
+		}
+		if req.IMAP.HdfsSitePath != "" {
+			params["imap_hdfs_site_path"] = req.IMAP.HdfsSitePath
+		}
+		if req.IMAP.S3CredentialsProvider != "" {
+			params["imap_s3_credentials_provider"] = req.IMAP.S3CredentialsProvider
 		}
 	}
 
@@ -2744,8 +3308,22 @@ func getDownloadURLs(version string) map[MirrorSource]string {
 	return urls
 }
 
+// getSourceDownloadURLs returns source archive URLs for one version.
+// getSourceDownloadURLs 返回某版本源码包的下载地址。
+func getSourceDownloadURLs(version string) map[MirrorSource]string {
+	urls := make(map[MirrorSource]string)
+	for mirror, baseURL := range MirrorURLs {
+		urls[mirror] = fmt.Sprintf("%s/%s/%s", baseURL, version, sourcePackageFileName(version))
+	}
+	return urls
+}
+
 func packageFileName(version string) string {
 	return fmt.Sprintf("apache-seatunnel-%s-bin.tar.gz", version)
+}
+
+func sourcePackageFileName(version string) string {
+	return fmt.Sprintf("apache-seatunnel-%s-src.tar.gz", version)
 }
 
 func preparedPackageCacheKey(agentID, version, localPath string) string {

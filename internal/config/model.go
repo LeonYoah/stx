@@ -73,8 +73,8 @@ type AppConfig struct {
 	// ExternalURL 是访问 Control Plane 的外部 URL。
 	// This is used for generating Agent install commands and other external references.
 	// 用于生成 Agent 安装命令和其他外部引用。
-	// Example: "http://192.168.1.100:8000" or "https://stx.example.com"
-	// 示例: "http://192.168.1.100:8000" 或 "https://stx.example.com"
+	// Example: "http://192.168.1.100:17800" or "https://stx.example.com"
+	// 示例: "http://192.168.1.100:17800" 或 "https://stx.example.com"
 	ExternalURL string `mapstructure:"external_url"`
 }
 
@@ -119,8 +119,8 @@ type GRPCConfig struct {
 	// Enabled 表示是否启用 gRPC 服务器
 	Enabled bool `mapstructure:"enabled"`
 
-	// Port is the port number for the gRPC server (default: 9000)
-	// Port 是 gRPC 服务器的端口号（默认：9000）
+	// Port is the port number for the gRPC server (default: 17890)
+	// Port 是 gRPC 服务器的端口号（默认：17890）
 	Port int `mapstructure:"port"`
 
 	// TLSEnabled indicates whether TLS is enabled

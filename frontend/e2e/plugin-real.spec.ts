@@ -71,17 +71,15 @@ test.describe.serial('plugin real e2e', () => {
     });
     await page.getByTestId('plugin-card-jdbc').click();
     await expect(page.getByTestId('plugin-detail-dialog-jdbc')).toBeVisible();
+    await page.getByTestId('plugin-detail-tab-dependencies').click();
     await page.getByTestId('plugin-profile-mysql').click();
     await expect(
       page.getByTestId('plugin-active-official-dependencies'),
     ).toContainText(/mysql-connector-java/i, {timeout: 30000});
     await downloadPluginApi(request, 'jdbc', seatunnelVersion, ['mysql']);
-    await waitForPluginDownloadCompleted(
-      request,
-      'jdbc',
-      seatunnelVersion,
-      ['mysql'],
-    );
+    await waitForPluginDownloadCompleted(request, 'jdbc', seatunnelVersion, [
+      'mysql',
+    ]);
     console.log(
       '[plugin-real] jdbc mysql download triggered via api with fixed version',
     );

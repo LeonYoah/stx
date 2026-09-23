@@ -45,6 +45,7 @@ interface UploadPackageDialogProps {
   onUpload: (
     file: File,
     version: string,
+    sourceFile?: File,
     onProgress?: (percent: number) => void,
   ) => Promise<void>;
   existingLocalVersions: string[];
@@ -58,6 +59,7 @@ export function UploadPackageDialog({
 }: UploadPackageDialogProps) {
   const t = useTranslations();
   const [file, setFile] = useState<File | null>(null);
+  const [sourceFile, setSourceFile] = useState<File | null>(null);
   const [version, setVersion] = useState('');
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -130,7 +132,7 @@ export function UploadPackageDialog({
       setProgress(0);
       setError(null);
 
-      await onUpload(file, version, (percent) => {
+      await onUpload(file, version, sourceFile || undefined, (percent) => {
         setProgress(percent);
       });
 
@@ -139,6 +141,7 @@ export function UploadPackageDialog({
       // Reset and close / 重置并关闭
       setTimeout(() => {
         setFile(null);
+        setSourceFile(null);
         setVersion('');
         setProgress(0);
         onOpenChange(false);
@@ -154,6 +157,7 @@ export function UploadPackageDialog({
   const handleOpenChange = (open: boolean) => {
     if (!open) {
       setFile(null);
+      setSourceFile(null);
       setVersion('');
       setProgress(0);
       setError(null);
@@ -220,6 +224,21 @@ export function UploadPackageDialog({
                 />
               </div>
             )}
+          </div>
+
+          {/* 可选源码包：运行包上传成功后再补传，失败不会撤销运行包。 / Optional source archive: uploaded after runtime; failure does not remove runtime. */}
+          <div className="space-y-2">
+            <Label htmlFor="source-file">{t('installer.sourcePackageOptional')}</Label>
+            <Input
+              id="source-file"
+              type="file"
+              accept=".tar.gz"
+              disabled={uploading}
+              onChange={(event) => setSourceFile(event.target.files?.[0] || null)}
+            />
+            <p className="text-xs text-muted-foreground">
+              {sourceFile ? sourceFile.name : t('installer.sourcePackageHint')}
+            </p>
           </div>
 
           {/* Version input / 版本输入 */}

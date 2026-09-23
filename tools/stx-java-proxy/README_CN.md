@@ -184,6 +184,39 @@ sh ${SEATUNNEL_HOME}/bin/stx-java-proxy.sh \
 
 - `EXTRA_PROXY_CLASSPATH=/path/a.jar:/path/b.jar`
 
+### JVM 内存与参数配置
+
+`stx-java-proxy` 作为轻量级中继进程，默认强制限制最大堆内存上限为 **`512MB`**（默认参数 `-Xms64m -Xmx512m`），避免占用过多宿主机内存或触发 OOM Killer。
+
+支持以下 4 种方式按需调整与修改 proxy 内存参数：
+
+1. **环境变量覆盖（推荐）**：
+   ```bash
+   export STX_JAVA_PROXY_JVM_OPTS="-Xms128m -Xmx1024m -XX:+UseG1GC"
+   sh bin/stx-java-proxy.sh
+   ```
+2. **命令行参数直接传参**：
+   ```bash
+   # 直接传入 -Xmx / -Xms 等 JVM 参数（脚本自动识别并注入 JVM，不污染应用参数）
+   sh bin/stx-java-proxy.sh -Xmx1024m -Xms256m
+   ```
+3. **配置文件持久化配置**：
+   复制模板并配置 `stx-java-proxy-env.sh`：
+   ```bash
+   cp conf/stx-java-proxy-env.sh.template conf/stx-java-proxy-env.sh
+   echo 'export STX_JAVA_PROXY_JVM_OPTS="-Xms128m -Xmx1024m"' >> conf/stx-java-proxy-env.sh
+   ```
+   脚本启动时会依次自动探测并加载以下路径的配置文件：
+   - `${STX_JAVA_PROXY_CONF_DIR}/stx-java-proxy-env.sh`
+   - `${PROXY_HOME}/conf/stx-java-proxy-env.sh`
+   - `${PROXY_HOME}/config/stx-java-proxy-env.sh`
+   - `${SEATUNNEL_HOME}/config/stx-java-proxy-env.sh`
+4. **快捷系统属性指定**：
+   ```bash
+   sh bin/stx-java-proxy.sh -Dstx.java.proxy.xmx=1024m
+   ```
+通过 `GET /healthz` 接口可即时观测当前生效的 JVM 内存指标（包括 `maxMemoryMb`、`totalMemoryBytes` 等）。
+
 ### 集群目录部署清单
 
 如果你要把 proxy 部署到一套已经安装好的 SeaTunnel 集群目录，建议按这个顺序核对：

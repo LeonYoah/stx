@@ -24,7 +24,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/LeonYoah/stx/internal/apps/audit"
 	clusterapp "github.com/LeonYoah/stx/internal/apps/cluster"
+	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
 	installerapp "github.com/LeonYoah/stx/internal/apps/installer"
 )
 
@@ -96,12 +98,38 @@ func (s *Service) executeTask(ctx context.Context, taskID uint) (*UpgradeTask, e
 	if err != nil {
 		return nil, err
 	}
+	ctx = audit.WithCommandMetadata(ctx, audit.CommandMetadata{
+		ExecutionID: task.ExecutionID,
+		OwnerUserID: task.CreatedBy,
+	})
 	plan := normalizePlanSnapshot(task.Plan.Snapshot)
 	startedAt := time.Now()
+	updated, err := s.repo.UpdateTaskFields(ctx, task.ID, []ExecutionStatus{ExecutionStatusPending, ExecutionStatusReady}, map[string]any{
+		"status":       ExecutionStatusRunning,
+		"current_step": plan.Steps[0].Code,
+		"started_at":   startedAt,
+		"updated_at":   startedAt,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if !updated {
+		latest, loadErr := s.GetTaskDetail(ctx, task.ID)
+		if loadErr != nil {
+			return nil, loadErr
+		}
+		if latest.Status == ExecutionStatusCancelled {
+			_ = s.syncExecutionFromTask(ctx, latest)
+			return latest, nil
+		}
+		return latest, executionapp.ErrConcurrentUpdate
+	}
 	task.Status = ExecutionStatusRunning
 	task.CurrentStep = plan.Steps[0].Code
 	task.StartedAt = &startedAt
-	if err := s.UpdateTask(ctx, task); err != nil {
+	task.UpdatedAt = startedAt
+	s.publishTaskEvent(newTaskUpdatedEvent(task))
+	if err := s.syncExecutionFromTask(ctx, task); err != nil {
 		return nil, err
 	}
 
@@ -134,6 +162,7 @@ func (s *Service) executeTask(ctx context.Context, taskID uint) (*UpgradeTask, e
 		completedAt := time.Now()
 		task.CompletedAt = &completedAt
 		_ = s.UpdateTask(ctx, task)
+		_ = s.syncExecutionFromTask(ctx, task)
 		return s.GetTaskDetail(ctx, task.ID)
 	}
 
@@ -146,6 +175,9 @@ func (s *Service) executeTask(ctx context.Context, taskID uint) (*UpgradeTask, e
 	task.CurrentStep = StepCodeComplete
 	task.CompletedAt = &completedAt
 	if err := s.UpdateTask(ctx, task); err != nil {
+		return nil, err
+	}
+	if err := s.syncExecutionFromTask(ctx, task); err != nil {
 		return nil, err
 	}
 	return s.GetTaskDetail(ctx, task.ID)
@@ -662,16 +694,53 @@ func (s *Service) executeSmokeTestStep(ctx context.Context, task *UpgradeTask, s
 		return "", err
 	}
 
-	output, err := s.runManagedCommand(ctx, target.HostID, map[string]string{
-		"sub_command": "run_smoke_test_template",
-		"install_dir": target.TargetInstallDir,
-	})
+	maxAttempts := len(s.smokeRetryDelays) + 1
+	attempt := 0
+	var output string
+	var err error
+	for attempt = 1; attempt <= maxAttempts; attempt++ {
+		output, err = s.runManagedCommand(ctx, target.HostID, map[string]string{
+			"sub_command": "run_smoke_test_template",
+			"install_dir": target.TargetInstallDir,
+		})
+		if err == nil || !isRetryableSmokeTestError(err) || attempt == maxAttempts {
+			break
+		}
+
+		delay := s.smokeRetryDelays[attempt-1]
+		step.RetryCount = attempt
+		if updateErr := s.UpdateTaskStep(ctx, step); updateErr != nil {
+			return "", updateErr
+		}
+		retryMessage := fmt.Sprintf(
+			"post-upgrade smoke test attempt %d failed because the cluster is not ready; retrying in %s / 升级后可用性验证第 %d 次执行失败，判断为集群尚未就绪，%s 后重试",
+			attempt,
+			delay.String(),
+			attempt,
+			formatRetryDelayChinese(delay),
+		)
+		metadata := LogMetadata{
+			"host_id":             target.HostID,
+			"host_name":           target.HostName,
+			"role":                target.Role,
+			"attempt":             attempt,
+			"max_attempts":        maxAttempts,
+			"retryable":           true,
+			"retry_delay_seconds": delay.Seconds(),
+		}
+		if logErr := s.appendStructuredLog(ctx, task.ID, uintPtr(step.ID), nodeExecutionID(node), step.Code, LogLevelWarn, LogEventTypeProgress, retryMessage, commandSummary, metadata); logErr != nil {
+			return "", logErr
+		}
+		if waitErr := s.waitBeforeSmokeRetry(ctx, delay); waitErr != nil {
+			return "", waitErr
+		}
+	}
 	if err != nil {
 		nodeMessage := fmt.Sprintf("smoke test reported warning on %s / %s 的可用性验证出现告警", target.HostName, target.HostName)
 		if finishErr := s.finishNodeStep(ctx, step, node, ExecutionStatusRunning, nodeMessage, commandSummary); finishErr != nil {
 			return "", finishErr
 		}
-		warningDetail := fmt.Sprintf("post-upgrade smoke test warned on %s: %s / %s 的升级后可用性验证告警：%s", target.HostName, err.Error(), target.HostName, err.Error())
+		warningDetail := fmt.Sprintf("post-upgrade smoke test warned on %s after %d attempt(s): %s / %s 的升级后可用性验证在执行 %d 次后仍有告警：%s", target.HostName, attempt, err.Error(), target.HostName, attempt, err.Error())
 		if logErr := s.appendNodeLog(ctx, step, node, LogLevelWarn, LogEventTypeNote, warningDetail, commandSummary); logErr != nil {
 			return "", logErr
 		}
@@ -681,7 +750,7 @@ func (s *Service) executeSmokeTestStep(ctx context.Context, task *UpgradeTask, s
 		return "已完成升级后可用性验证（有告警，不阻塞升级）", nil
 	}
 
-	successMessage := fmt.Sprintf("smoke test passed on %s / %s 的可用性验证通过", target.HostName, target.HostName)
+	successMessage := fmt.Sprintf("smoke test passed on %s after %d attempt(s) / %s 的可用性验证在第 %d 次尝试通过", target.HostName, attempt, target.HostName, attempt)
 	if err := s.finishNodeStep(ctx, step, node, ExecutionStatusRunning, successMessage, commandSummary); err != nil {
 		return "", err
 	}
@@ -691,7 +760,54 @@ func (s *Service) executeSmokeTestStep(ctx context.Context, task *UpgradeTask, s
 			return "", err
 		}
 	}
-	return fmt.Sprintf("已完成升级后可用性验证，执行节点：%s", target.HostName), nil
+	return fmt.Sprintf("已完成升级后可用性验证，执行节点：%s，第 %d 次尝试通过", target.HostName, attempt), nil
+}
+
+// isRetryableSmokeTestError 判断冒烟任务是否因集群暂未就绪而失败。
+// isRetryableSmokeTestError reports whether the smoke test failed because the cluster is temporarily not ready.
+func isRetryableSmokeTestError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	retryableFragments := []string{
+		"unable to connect to any cluster",
+		"connection refused",
+		"cluster is not ready",
+	}
+	for _, fragment := range retryableFragments {
+		if strings.Contains(message, fragment) {
+			return true
+		}
+	}
+	return false
+}
+
+// waitBeforeSmokeRetry 使用可替换的等待函数，避免测试真实等待。
+// waitBeforeSmokeRetry uses an injectable wait function so tests do not sleep in real time.
+func (s *Service) waitBeforeSmokeRetry(ctx context.Context, delay time.Duration) error {
+	if s.waitForRetry == nil {
+		return waitForRetryDelay(ctx, delay)
+	}
+	return s.waitForRetry(ctx, delay)
+}
+
+// formatRetryDelayChinese 生成适合中文文案使用的短等待时长。
+// formatRetryDelayChinese formats a short retry delay for Chinese user-facing messages.
+func formatRetryDelayChinese(delay time.Duration) string {
+	if delay%time.Second == 0 {
+		return fmt.Sprintf("%d 秒", int(delay/time.Second))
+	}
+	return delay.String()
+}
+
+// nodeExecutionID 返回可选的节点执行编号。
+// nodeExecutionID returns the optional node execution identifier.
+func nodeExecutionID(node *UpgradeNodeExecution) *uint {
+	if node == nil {
+		return nil
+	}
+	return uintPtr(node.ID)
 }
 
 func (s *Service) executeClusterLifecycleStep(ctx context.Context, task *UpgradeTask, step *UpgradeTaskStep, operation clusterapp.OperationType, nodesByClusterNodeID map[uint]*UpgradeNodeExecution, nodeSuccessStatus ExecutionStatus) error {

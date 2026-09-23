@@ -30,13 +30,13 @@ STX 就是围绕这些事的控制面：把主机、集群、安装包、插件�
 | 登录   | ![登录](docs/screenshots/00-login.png)         |
 | 控制台  | ![控制台](docs/screenshots/01-dashboard.png)    |
 | 工作台  | ![工作台](docs/screenshots/02-workbench.png)    |
+| DAG  | ![DAG](docs/screenshots/09-dag.png)           |
 | 主机管理 | ![主机管理](docs/screenshots/03-hosts.png)       |
 | 集群管理 | ![集群管理](docs/screenshots/04-clusters.png)    |
 | 监控中心 | ![监控中心](docs/screenshots/05-monitoring.png)  |
 | 诊断中心 | ![诊断中心](docs/screenshots/06-diagnostics.png) |
 | 安装包  | ![安装包](docs/screenshots/07-packages.png)     |
 | 插件市场 | ![插件市场](docs/screenshots/08-plugins.png)     |
-| 数据同步 | ![数据同步](docs/screenshots/10-sync.png)        |
 | 用户中心 | ![用户中心](docs/screenshots/11-user-center.png) |
 
 
@@ -60,17 +60,26 @@ STX 就是围绕这些事的控制面：把主机、集群、安装包、插件�
 
 
 
+## 支持的操作系统
+
+控制面一键安装面向 **Linux**，架构 **amd64 / arm64**。
+
+| 发行版 | amd64 | arm64 | 说明 |
+| --- | --- | --- | --- |
+| Ubuntu / Debian | 支持 | 支持 | 推荐；本机 Node ≥ 18.18 可跳过下载 Node 包 |
+| Rocky Linux / AlmaLinux / CentOS Stream / RHEL 8+ | 支持 | 支持 | 走官方 Node 22 |
+| CentOS 7（glibc 2.17） | 支持 | **不支持** | 仅 amd64；自动选用 `node-18-glibc217`。arm64 无该 Node 构建，故不支持 |
+| 其他带 systemd 的 Linux | 通常可用 | 通常可用 | 需 glibc ≥ 2.17；低于 2.27 按 CentOS 7 规则选 Node |
+
+macOS / Windows 可作本地开发，不是当前一键安装目标。默认端口：API **17800**、前端 **17880**、gRPC **17890**。
+
 ## 快速开始
 
-
-
-### 环境要求
+### 环境要求（本地开发）
 
 - Go >= 1.24
 - Node.js >= 18
 - pnpm >= 8（推荐）
-
-
 
 ### 本地启动
 
@@ -93,21 +102,127 @@ pnpm dev
 
 浏览器打开 `http://localhost:3000`，默认账号 `admin` / `admin123`（或 `config.yaml` 中的配置）。
 
-### 离线安装包
+### 在线安装（推荐）
+
+默认装最新 Release。
 
 ```bash
-scripts/package-release.sh \
-  --arch amd64 \
-  --bundle-observability without \
-  --node-major 18 \
-  --node-variant glibc217
+# 海外
+curl -fsSL https://github.com/LeonYoah/stx/releases/latest/download/install-online.sh | bash
 
-tar -xzf stx-<version>-linux-amd64-node18-glibc217-without-observability.tar.gz
-cd stx-<version>-linux-amd64-node18-glibc217-without-observability
-sudo ./install.sh
+# 中国（链接已带 gh-proxy）
+curl -fsSL https://v4.gh-proxy.org/https://github.com/LeonYoah/stx/releases/latest/download/install-online.sh | bash
 ```
 
-更多部署说明见 [docs/00-快速开始.md](./docs/00-快速开始.md)、[docs/打包发布说明.md](./docs/打包发布说明.md)。
+常用参数：`--install-dir /opt/stx`、`--arch amd64|arm64`、`--without-node`、`--without-observability`、`--no-systemd`、`--no-start`。  
+脚本按 glibc 选 Node 变体（&lt;2.27 → glibc217）；本机 Node ≥ 18.18 自动跳过；也可用 `--without-node`。
+
+### 离线安装（脚本生成 bundle）
+
+```bash
+# 海外
+curl -fsSL https://github.com/LeonYoah/stx/releases/latest/download/download-bundle.sh | bash
+# 中国
+curl -fsSL https://v4.gh-proxy.org/https://github.com/LeonYoah/stx/releases/latest/download/download-bundle.sh | bash
+```
+
+| 环境 | 是否组装 Node |
+|------|----------------|
+| glibc ≤ 2.17（CentOS 7） | 会下 `node-18-glibc217`（**仅 amd64**） |
+| glibc > 2.17 且本机 Node ≥ 18.18 | **不**组装（或 `--without-node`） |
+| glibc > 2.17 且无合格 Node | 会下 `node-22-official` |
+
+CentOS 7：`bash -s -- --node-variant glibc217 --arch amd64`。产出 `dist/offline/stx-offline-bundle-*.tar.gz`。
+
+```bash
+tar -xzf dist/offline/stx-offline-bundle-*-linux-*.tar.gz
+cd stx-offline-bundle-*-linux-*
+sudo ./install.sh --install-dir /opt/stx --offline
+```
+
+### 手动点链接下载（不能跑脚本）
+
+1. 下辅助包并解压：[stx-install-helpers.tar.gz](https://github.com/LeonYoah/stx/releases/latest/download/stx-install-helpers.tar.gz)  
+2. 再下下面的包，放进 `packages/`  
+3. `./install.sh --offline`  
+
+中国：复制链接到 [https://gh-proxy.com/](https://gh-proxy.com/) 打开。
+
+| 包 | amd64 | arm64 |
+| --- | --- | --- |
+| stx | [下载](https://github.com/LeonYoah/stx/releases/latest/download/stx-linux-amd64) | [下载](https://github.com/LeonYoah/stx/releases/latest/download/stx-linux-arm64) |
+| frontend | [下载](https://github.com/LeonYoah/stx/releases/latest/download/frontend-standalone-linux-amd64.tar.gz) | [下载](https://github.com/LeonYoah/stx/releases/latest/download/frontend-standalone-linux-arm64.tar.gz) |
+| stx-agent | [下载](https://github.com/LeonYoah/stx/releases/latest/download/stx-agent-linux-amd64) | [下载](https://github.com/LeonYoah/stx/releases/latest/download/stx-agent-linux-arm64) |
+| 监控三件套 | [下载](https://github.com/LeonYoah/stx/releases/download/deps/observability-prom3.9.1-am0.31.1-gf12.3.3-linux-amd64.tar.gz) | [下载](https://github.com/LeonYoah/stx/releases/download/deps/observability-prom3.9.1-am0.31.1-gf12.3.3-linux-arm64.tar.gz) |
+
+```bash
+ldd --version | head -1
+node -v
+```
+
+| 环境 | amd64 | arm64 |
+| --- | --- | --- |
+| glibc ≤ 2.17（CentOS 7）必下 | [node-18-glibc217](https://github.com/LeonYoah/stx/releases/download/deps/node-18-glibc217-linux-amd64.tar.gz) | 不支持 |
+| glibc > 2.17 且无 Node ≥ 18.18 | [node-22-official](https://github.com/LeonYoah/stx/releases/download/deps/node-22-official-linux-amd64.tar.gz) | [node-22-official](https://github.com/LeonYoah/stx/releases/download/deps/node-22-official-linux-arm64.tar.gz) |
+| 已有 Node ≥ 18.18 | 不用下 | 不用下 |
+
+### Docker 全量启动
+
+发版会打 `stx-docker-compose.tar.gz`（仓库已接入；**新 tag 发布后** `latest` 才有该文件）。
+
+```bash
+mkdir -p stx-docker && cd stx-docker
+curl -fsSL https://github.com/LeonYoah/stx/releases/latest/download/stx-docker-compose.tar.gz | tar -xz
+cd docker
+cp config.example.yaml config.yaml   # 改 external_url / 密码，并按库类型改 database
+docker compose up -d                 # 默认 MySQL
+```
+
+中国：链接贴 [gh-proxy.com](https://gh-proxy.com/)，或  
+`https://v4.gh-proxy.org/https://github.com/LeonYoah/stx/releases/latest/download/stx-docker-compose.tar.gz`
+
+中国拉镜像（华为云 SWR）：把 `.env` 的 `STX_IMAGE_REGISTRY` 改为 `swr.cn-east-3.myhuaweicloud.com/stx`，或：
+
+```bash
+cp .env.cn.example .env
+docker compose up -d
+```
+
+| 数据库 | 启动（先改好 config.yaml 的 database） |
+| --- | --- |
+| MySQL（默认） | `docker compose up -d` |
+| SQLite | `docker compose -f docker-compose.sqlite.yml up -d` |
+| PostgreSQL | `docker compose -f docker-compose.postgres.yml up -d` |
+
+| 服务 | 地址 |
+| --- | --- |
+| 控制台 | http://127.0.0.1:17880 |
+| API | http://127.0.0.1:17800 |
+| Grafana | http://127.0.0.1:3000 |
+| Prometheus | http://127.0.0.1:9090 |
+| Alertmanager | http://127.0.0.1:9093 |
+
+单容器体验（无监控）：
+
+```bash
+# 海外 GHCR
+docker run -d -p 17800:17800 -p 17880:17880 -p 17890:17890 ghcr.io/leonyoah/stx-all-in-one:latest
+# 中国华为云 SWR
+docker run -d -p 17800:17800 -p 17880:17880 -p 17890:17890 swr.cn-east-3.myhuaweicloud.com/stx/stx-all-in-one:latest
+```
+
+## 启停
+
+```bash
+/opt/stx/bin/start.sh
+/opt/stx/bin/stop.sh
+/opt/stx/bin/status.sh
+# 或 systemctl restart stx
+```
+
+`start.sh` / `stop.sh` 默认 `--observability auto`。需要时：`--observability off` 或 `on`。
+
+更多见 [docs/00-快速开始.md](./docs/00-快速开始.md)、[docs/打包发布说明.md](./docs/打包发布说明.md)、[docs/可观测性三件套一键接入说明.md](./docs/可观测性三件套一键接入说明.md)。
 
 ## 关键配置
 

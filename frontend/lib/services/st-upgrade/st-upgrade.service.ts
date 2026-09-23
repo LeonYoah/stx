@@ -22,6 +22,7 @@
 
 import {BaseService} from '../core/base.service';
 import apiClient from '../core/api-client';
+import {createWebExecutionHeaders} from '../core/execution-headers';
 import type {ApiResponse} from '../core/types';
 import type {
   CreatePlanRequest,
@@ -98,8 +99,38 @@ export class StUpgradeService extends BaseService {
     return sanitizeUpgradePlanRecord(result) || result;
   }
 
-  static async executePlan(payload: ExecutePlanRequest): Promise<UpgradeTask> {
-    return this.post<UpgradeTask>('/execute', payload);
+  static async executePlan(
+    payload: ExecutePlanRequest,
+    idempotencyKey?: string,
+    confirmationId?: string,
+  ): Promise<UpgradeTask> {
+    const executionHeaders = createWebExecutionHeaders(
+      'stupgrade-plan-execute',
+      {idempotencyKey, confirmationId},
+    );
+    try {
+      return await this.postWithConfig<UpgradeTask>('/execute', payload, {
+        headers: executionHeaders.headers,
+      });
+    } catch (error) {
+      const confirmationData = (
+        error as Error & {
+          data?: {confirmation_required?: boolean; confirmation_id?: string};
+        }
+      ).data;
+      if (
+        !confirmationId &&
+        confirmationData?.confirmation_required &&
+        confirmationData.confirmation_id
+      ) {
+        return this.executePlan(
+          payload,
+          executionHeaders.idempotencyKey,
+          confirmationData.confirmation_id,
+        );
+      }
+      throw error;
+    }
   }
 
   static async listTasks(query?: ListUpgradeTasksQuery): Promise<TaskListData> {

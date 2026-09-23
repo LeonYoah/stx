@@ -259,7 +259,7 @@ type InspectionAutoPolicy struct {
 	ID              uint                     `json:"id" gorm:"primaryKey;autoIncrement"`
 	ClusterID       uint                     `json:"cluster_id" gorm:"index;not null;default:0"`
 	Name            string                   `json:"name" gorm:"size:200;not null"`
-	Enabled         bool                     `json:"enabled" gorm:"not null;default:true"`
+	Enabled         bool                     `json:"enabled" gorm:"not null"`
 	Conditions      InspectionConditionItems `json:"conditions" gorm:"type:json;not null"`
 	CooldownMinutes int                      `json:"cooldown_minutes" gorm:"not null;default:30"`
 	// AutoCreateTask controls whether a diagnostics bundle task should be created automatically after an inspection is triggered.
@@ -267,7 +267,7 @@ type InspectionAutoPolicy struct {
 	AutoCreateTask bool `json:"auto_create_task" gorm:"not null;default:false"`
 	// AutoStartTask controls whether the auto-created diagnostics task should start immediately.
 	// AutoStartTask 控制自动创建的诊断任务是否立即开始执行。
-	AutoStartTask bool `json:"auto_start_task" gorm:"not null;default:true"`
+	AutoStartTask bool `json:"auto_start_task" gorm:"not null;default:false"`
 	// TaskOptions configures the diagnostics task bundle options (thread dump / JVM dump / log sample, etc.).
 	// TaskOptions 配置诊断任务的采集选项（线程栈 / JVM Dump / 日志采样等）。
 	TaskOptions DiagnosticTaskOptions `json:"task_options" gorm:"type:json;not null"`
@@ -327,7 +327,7 @@ func (p *InspectionAutoPolicy) ToInfo() *InspectionAutoPolicyInfo {
 type CreateInspectionAutoPolicyRequest struct {
 	ClusterID       uint                     `json:"cluster_id"`
 	Name            string                   `json:"name" binding:"required"`
-	Enabled         bool                     `json:"enabled"`
+	Enabled         *bool                    `json:"enabled,omitempty"`
 	Conditions      InspectionConditionItems `json:"conditions" binding:"required"`
 	CooldownMinutes int                      `json:"cooldown_minutes"`
 	AutoCreateTask  bool                     `json:"auto_create_task"`

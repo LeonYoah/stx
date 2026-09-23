@@ -95,7 +95,7 @@ type RuntimeStorageListResult struct {
 	ClusterID uint                     `json:"cluster_id"`
 	Kind      string                   `json:"kind"`
 	Path      string                   `json:"path,omitempty"`
-	Items     []RuntimeStorageListItem `json:"items,omitempty"`
+	Items     []RuntimeStorageListItem `json:"items"`
 }
 
 func (s *Service) ListRuntimeStorage(
@@ -121,7 +121,10 @@ func (s *Service) ListRuntimeStorage(
 	if err != nil {
 		return nil, err
 	}
-	params := runtimeStorageProxyParams(node.InstallDir, clusterObj.Version, kind, cfg.Checkpoint, cfg.IMAP)
+	if runtimeStorageValidationDisabled(kind, cfg) {
+		return &RuntimeStorageListResult{ClusterID: clusterID, Kind: string(kind), Path: strings.TrimSpace(path), Items: make([]RuntimeStorageListItem, 0)}, nil
+	}
+	params := runtimeStorageProxyParams(node.InstallDir, clusterObj.Version, kind, cfg.Checkpoint, cfg.IMAP, clusterObj)
 	if strings.TrimSpace(path) != "" {
 		params["path"] = strings.TrimSpace(path)
 	}
@@ -132,7 +135,7 @@ func (s *Service) ListRuntimeStorage(
 	success, output, err := s.agentSender.SendCommand(ctx, hostInfo.AgentID, "stx_java_proxy_list", params)
 	result := runtimeStorageHostResultFromCommandOutput(success, output)
 	if err == nil && result.Success {
-		listResult := &RuntimeStorageListResult{ClusterID: clusterID, Kind: string(kind), Path: strings.TrimSpace(path)}
+		listResult := &RuntimeStorageListResult{ClusterID: clusterID, Kind: string(kind), Path: strings.TrimSpace(path), Items: make([]RuntimeStorageListItem, 0)}
 		if result.Details != nil {
 			if resolvedPath := strings.TrimSpace(result.Details["path"]); resolvedPath != "" {
 				listResult.Path = resolvedPath

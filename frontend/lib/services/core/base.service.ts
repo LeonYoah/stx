@@ -16,6 +16,7 @@
  */
 
 import apiClient from './api-client';
+import type {AxiosRequestConfig} from 'axios';
 import {ApiResponse} from './types';
 
 /**
@@ -91,6 +92,23 @@ export abstract class BaseService {
   }
 
   /**
+   * 使用完整 Axios 配置发送 POST 请求。
+   * Send a POST request with a complete Axios configuration.
+   */
+  protected static async postWithConfig<T>(
+    path: string,
+    data?: unknown,
+    config?: AxiosRequestConfig,
+  ): Promise<T> {
+    const response = await apiClient.post<ApiResponse<T>>(
+      this.getFullPath(path),
+      data,
+      config,
+    );
+    return response.data.data;
+  }
+
+  /**
    * PUT请求
    * @template T - 响应数据类型
    * @param path - API路径
@@ -101,6 +119,23 @@ export abstract class BaseService {
     const response = await apiClient.put<ApiResponse<T>>(
       this.getFullPath(path),
       data,
+    );
+    return response.data.data;
+  }
+
+  /**
+   * 使用完整 Axios 配置发送 PUT 请求。
+   * Send a PUT request with a complete Axios configuration.
+   */
+  protected static async putWithConfig<T>(
+    path: string,
+    data?: unknown,
+    config?: AxiosRequestConfig,
+  ): Promise<T> {
+    const response = await apiClient.put<ApiResponse<T>>(
+      this.getFullPath(path),
+      data,
+      config,
     );
     return response.data.data;
   }

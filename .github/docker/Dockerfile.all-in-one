@@ -33,15 +33,16 @@ WORKDIR /opt/stx
 COPY --from=backend-builder /out/stx /opt/stx/stx
 COPY --from=frontend-builder /src/frontend/dist-standalone /opt/stx/frontend
 COPY config.example.yaml /opt/stx/config.yaml
-COPY support-files/release/start.sh /opt/stx/bin/start.sh
-COPY support-files/release/stop.sh /opt/stx/bin/stop.sh
-COPY support-files/release/status.sh /opt/stx/bin/status.sh
+COPY install/bin/start.sh /opt/stx/bin/start.sh
+COPY install/bin/stop.sh /opt/stx/bin/stop.sh
+COPY install/bin/status.sh /opt/stx/bin/status.sh
+COPY install/bin/lib/observability.sh /opt/stx/bin/lib/observability.sh
 COPY .github/docker/all-in-one-entrypoint.sh /opt/stx/bin/all-in-one-entrypoint.sh
 
-RUN mkdir -p /opt/stx/runtime/node/bin /opt/stx/logs /opt/stx/run && \
+RUN mkdir -p /opt/stx/runtime/node/bin /opt/stx/bin/lib /opt/stx/logs /opt/stx/run && \
     ln -sf /usr/local/bin/node /opt/stx/runtime/node/bin/node && \
     chmod +x /opt/stx/stx /opt/stx/bin/*.sh
 
-EXPOSE 80 8000 9000
+EXPOSE 17880 17800 17890
 
 ENTRYPOINT ["/opt/stx/bin/all-in-one-entrypoint.sh"]

@@ -24,15 +24,20 @@ frontend/package-lock.json
 frontend/.env
 .env.*
 !.env.example
+!.env.cn.example
 *.tsbuildinfo
 
 # os
 .DS_Store
 Thumbs.db
 data/
+!deploy/docker/data/
+!deploy/docker/data/.gitignore
 lib/
 !frontend/lib/
 !frontend/lib/**
+!install/bin/lib/
+!install/bin/lib/**
 
 # build
 /build/
@@ -55,7 +60,8 @@ agent/stx-agent.exe
 app.pid
 frontend-next.pid
 frontend/dist-standalone/
-stx
+/stx
+/github.com/
 frontend/playwright-report/
 frontend/test-results/
 frontend/.playwright/

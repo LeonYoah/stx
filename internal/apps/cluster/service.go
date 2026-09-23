@@ -30,6 +30,8 @@ import (
 	appconfig "github.com/LeonYoah/stx/internal/apps/config"
 	installerapp "github.com/LeonYoah/stx/internal/apps/installer"
 	"github.com/LeonYoah/stx/internal/logger"
+	"github.com/LeonYoah/stx/internal/processidentity"
+	"github.com/LeonYoah/stx/internal/seatunnel"
 	"gopkg.in/yaml.v3"
 )
 
@@ -173,6 +175,7 @@ type Service struct {
 	heartbeatTimeout         time.Duration
 	agentSender              AgentCommandSender
 	configAgentClient        ConfigAgentClient
+	runtimeConfigStore       runtimeConfigStore
 	onBeforeClusterDelete    func(context.Context, uint) // optional hook for monitor cleanup etc.
 	onClusterTopologyChanged func(context.Context, uint) // optional hook for observability sync etc.
 }
@@ -512,10 +515,11 @@ func (s *Service) stopProcessesForDeletion(ctx context.Context, cluster *Cluster
 			installDir = cluster.InstallDir
 		}
 		params := map[string]string{
-			"cluster_id":  fmt.Sprintf("%d", cluster.ID),
-			"node_id":     fmt.Sprintf("%d", node.ID),
-			"role":        string(node.Role),
-			"install_dir": installDir,
+			"cluster_id":   fmt.Sprintf("%d", cluster.ID),
+			"node_id":      fmt.Sprintf("%d", node.ID),
+			"role":         string(node.Role),
+			"install_dir":  installDir,
+			"process_name": processidentity.ManagedName(installDir, string(node.Role)),
 		}
 		logger.InfoF(ctx, "[Cluster] Delete: sending stop to agent / 删除集群：向 Agent 发送停止命令: agent_id=%s, node_id=%d", hostInfo.AgentID, node.ID)
 		_, _, err = s.agentSender.SendCommand(ctx, hostInfo.AgentID, string(OperationStop), params)
@@ -794,12 +798,15 @@ type ClusterPortConfig struct {
 	MasterHazelcastPort int `json:"master_hazelcast_port,omitempty"`
 	MasterAPIPort       int `json:"master_api_port,omitempty"`
 	WorkerPort          int `json:"worker_port,omitempty"`
+	// JavaProxyPort is the managed stx-java-proxy listen port (default 18080).
+	// JavaProxyPort 是托管 stx-java-proxy 监听端口（默认 18080）。
+	JavaProxyPort int `json:"java_proxy_port,omitempty"`
 }
 
 // HasValues 返回端口配置是否包含任意显式值。
 // HasValues returns whether the port config contains any explicit value.
 func (c *ClusterPortConfig) HasValues() bool {
-	return c != nil && (c.MasterHazelcastPort > 0 || c.MasterAPIPort > 0 || c.WorkerPort > 0)
+	return c != nil && (c.MasterHazelcastPort > 0 || c.MasterAPIPort > 0 || c.WorkerPort > 0 || c.JavaProxyPort > 0)
 }
 
 // GetPortConfig 返回 cluster config 中的端口默认值。
@@ -824,6 +831,9 @@ func (c ClusterConfig) GetPortConfig() *ClusterPortConfig {
 		}
 		if value, ok := parseIntValue(values["worker_port"]); ok {
 			cfg.WorkerPort = value
+		}
+		if value, ok := parseIntValue(values["java_proxy_port"]); ok {
+			cfg.JavaProxyPort = value
 		}
 		if !cfg.HasValues() {
 			return nil
@@ -856,6 +866,59 @@ func (c ClusterConfig) GetPortConfig() *ClusterPortConfig {
 			return nil
 		}
 		if !cfg.HasValues() {
+			return nil
+		}
+		return &cfg
+	}
+}
+
+// STXJavaProxyConfig represents cluster-level stx-java-proxy configuration.
+// STXJavaProxyConfig 表示集群级 stx-java-proxy 配置。
+type STXJavaProxyConfig struct {
+	Port    int    `json:"port,omitempty"`
+	JvmOpts string `json:"jvm_opts,omitempty"`
+}
+
+// GetSTXJavaProxyConfig returns cluster-level stx-java-proxy configuration.
+// GetSTXJavaProxyConfig 返回集群级 stx-java-proxy 配置。
+func (c ClusterConfig) GetSTXJavaProxyConfig() *STXJavaProxyConfig {
+	if len(c) == 0 {
+		return nil
+	}
+
+	raw, ok := c["stx_java_proxy"]
+	if !ok || raw == nil {
+		return nil
+	}
+
+	parseMap := func(values map[string]interface{}) *STXJavaProxyConfig {
+		cfg := &STXJavaProxyConfig{}
+		if value, ok := parseIntValue(values["port"]); ok {
+			cfg.Port = value
+		}
+		if value, ok := values["jvm_opts"].(string); ok {
+			cfg.JvmOpts = strings.TrimSpace(value)
+		}
+		if cfg.Port <= 0 && cfg.JvmOpts == "" {
+			return nil
+		}
+		return cfg
+	}
+
+	switch typed := raw.(type) {
+	case STXJavaProxyConfig:
+		return &typed
+	case *STXJavaProxyConfig:
+		return typed
+	case map[string]interface{}:
+		return parseMap(typed)
+	default:
+		payload, err := json.Marshal(raw)
+		if err != nil {
+			return nil
+		}
+		var cfg STXJavaProxyConfig
+		if err := json.Unmarshal(payload, &cfg); err != nil {
 			return nil
 		}
 		return &cfg
@@ -1662,10 +1725,11 @@ func (s *Service) executeOperation(ctx context.Context, clusterID uint, operatio
 						installDir = cluster.InstallDir
 					}
 					params := map[string]string{
-						"cluster_id":  fmt.Sprintf("%d", clusterID),
-						"node_id":     fmt.Sprintf("%d", node.ID),
-						"role":        string(node.Role),
-						"install_dir": installDir,
+						"cluster_id":   fmt.Sprintf("%d", clusterID),
+						"node_id":      fmt.Sprintf("%d", node.ID),
+						"role":         string(node.Role),
+						"install_dir":  installDir,
+						"process_name": processidentity.ManagedName(installDir, string(node.Role)),
 					}
 
 					success, message, err := s.agentSender.SendCommand(ctx, hostInfo.AgentID, string(operation), params)
@@ -1979,7 +2043,8 @@ func (s *Service) detectAndUpdateNodeProcess(ctx context.Context, node *ClusterN
 	}
 
 	params := map[string]string{
-		"role": role,
+		"role":        role,
+		"install_dir": node.InstallDir,
 	}
 
 	success, message, err := s.agentSender.SendCommand(ctx, hostInfo.AgentID, "check_process", params)
@@ -2048,6 +2113,45 @@ func (s *Service) StartNode(ctx context.Context, clusterID uint, nodeID uint) (*
 	return s.executeNodeOperation(ctx, clusterID, nodeID, OperationStart)
 }
 
+// EnsureNodeForInstallation 确保一键安装完成后的节点已登记，并刷新安装目录与端口。
+// EnsureNodeForInstallation ensures a one-click installation node is registered and refreshes its install directory and ports.
+func (s *Service) EnsureNodeForInstallation(ctx context.Context, clusterID uint, hostID uint, role string, installDir string, hazelcastPort int, apiPort int, workerPort int) error {
+	cluster, err := s.repo.GetByID(ctx, clusterID, false)
+	if err != nil {
+		return err
+	}
+	if err := s.ensureHostReady(ctx, hostID); err != nil {
+		return err
+	}
+
+	desired, err := buildNodeForCreate(clusterID, hostID, cluster, NodeRole(role), installDir, hazelcastPort, apiPort, workerPort, nil)
+	if err != nil {
+		return err
+	}
+	existing, err := s.repo.GetNodeByClusterAndHostAndRole(ctx, clusterID, hostID, string(desired.Role))
+	if err != nil {
+		return err
+	}
+	if existing == nil {
+		if err := s.repo.AddNode(ctx, desired); err != nil {
+			return err
+		}
+		s.updateClusterStatusFromNodes(ctx, clusterID)
+		s.notifyClusterTopologyChanged(ctx, clusterID)
+		return nil
+	}
+
+	existing.InstallDir = desired.InstallDir
+	existing.HazelcastPort = desired.HazelcastPort
+	existing.APIPort = desired.APIPort
+	existing.WorkerPort = desired.WorkerPort
+	if err := s.repo.UpdateNode(ctx, existing); err != nil {
+		return err
+	}
+	s.notifyClusterTopologyChanged(ctx, clusterID)
+	return nil
+}
+
 // StartNodeByClusterAndHost starts a node by cluster ID and host ID.
 // StartNodeByClusterAndHost 根据集群 ID 和主机 ID 启动节点。
 // When a host has multiple nodes (master + worker), use StartNodeByClusterAndHostAndRole to start the specific role.
@@ -2077,12 +2181,24 @@ func (s *Service) StartNodeByClusterAndHost(ctx context.Context, clusterID uint,
 // Used after install when one host has both master and worker (separated mode); starts the node that was just installed.
 // 安装完成后、同一主机兼有 master 与 worker 时使用，用于启动刚安装完成的那一个节点。
 func (s *Service) StartNodeByClusterAndHostAndRole(ctx context.Context, clusterID uint, hostID uint, role string) (bool, string, error) {
-	node, err := s.repo.GetNodeByClusterAndHostAndRole(ctx, clusterID, hostID, role)
+	cluster, err := s.repo.GetByID(ctx, clusterID, false)
+	if err != nil {
+		return false, "", err
+	}
+
+	// 混合部署只保存 master/worker 逻辑节点，启动前必须按部署模式规范化安装请求中的角色。
+	// Hybrid deployments store a master/worker logical node, so normalize the requested install role before startup.
+	normalizedRole, err := normalizeNodeRoleForDeployment(cluster.DeploymentMode, NodeRole(role))
+	if err != nil {
+		return false, "", err
+	}
+
+	node, err := s.repo.GetNodeByClusterAndHostAndRole(ctx, clusterID, hostID, string(normalizedRole))
 	if err != nil {
 		return false, "", fmt.Errorf("failed to find node: %w / 查找节点失败: %w", err, err)
 	}
 	if node == nil {
-		return false, "", fmt.Errorf("node not found for cluster %d, host %d, role %s / 未找到集群 %d 主机 %d 角色 %s 对应的节点", clusterID, hostID, role, clusterID, hostID, role)
+		return false, "", fmt.Errorf("node not found for cluster %d, host %d, role %s / 未找到集群 %d 主机 %d 角色 %s 对应的节点", clusterID, hostID, normalizedRole, clusterID, hostID, normalizedRole)
 	}
 	result, err := s.executeNodeOperation(ctx, clusterID, node.ID, OperationStart)
 	if err != nil {
@@ -2189,10 +2305,11 @@ func (s *Service) executeNodeOperationWithResolvedNode(ctx context.Context, clus
 		}
 
 		params := map[string]string{
-			"cluster_id":  fmt.Sprintf("%d", cluster.ID),
-			"node_id":     fmt.Sprintf("%d", node.ID),
-			"role":        string(node.Role),
-			"install_dir": installDir,
+			"cluster_id":   fmt.Sprintf("%d", cluster.ID),
+			"node_id":      fmt.Sprintf("%d", node.ID),
+			"role":         string(node.Role),
+			"install_dir":  installDir,
+			"process_name": processidentity.ManagedName(installDir, string(node.Role)),
 		}
 
 		success, message, err := s.agentSender.SendCommand(ctx, hostInfo.AgentID, string(operation), params)
@@ -2346,9 +2463,12 @@ func (s *Service) GetNodeLogs(ctx context.Context, clusterID uint, nodeID uint, 
 
 	// Determine log file based on deployment mode and role
 	// 根据部署模式和角色确定日志文件
-	installDir := node.InstallDir
+	installDir := strings.TrimSpace(node.InstallDir)
 	if installDir == "" {
-		installDir = "/opt/seatunnel"
+		installDir = strings.TrimSpace(cluster.InstallDir)
+	}
+	if installDir == "" {
+		installDir = seatunnel.DefaultInstallDir(cluster.Version)
 	}
 
 	var logFile string

@@ -39,26 +39,52 @@ const stxJavaProxyStopTimeout = 8 * time.Second
 
 // STXJavaProxyServiceStatus describes the current managed stx-java-proxy state.
 type STXJavaProxyServiceStatus struct {
-	Service  string `json:"service"`
-	Managed  bool   `json:"managed"`
-	Running  bool   `json:"running"`
-	Healthy  bool   `json:"healthy"`
-	Endpoint string `json:"endpoint,omitempty"`
-	Port     int    `json:"port,omitempty"`
-	PID      int    `json:"pid,omitempty"`
-	LogPath  string `json:"log_path,omitempty"`
-	StateDir string `json:"state_dir,omitempty"`
-	Message  string `json:"message,omitempty"`
+	Service   string                 `json:"service"`
+	Managed   bool                   `json:"managed"`
+	Running   bool                   `json:"running"`
+	Healthy   bool                   `json:"healthy"`
+	Endpoint  string                 `json:"endpoint,omitempty"`
+	Port      int                    `json:"port,omitempty"`
+	PID       int                    `json:"pid,omitempty"`
+	LogPath   string                 `json:"log_path,omitempty"`
+	StateDir  string                 `json:"state_dir,omitempty"`
+	Message   string                 `json:"message,omitempty"`
+	JvmOpts   string                 `json:"jvm_opts,omitempty"`
+	JvmMemory map[string]interface{} `json:"jvm_memory,omitempty"`
 }
 
 // StartManagedSTXJavaProxyService ensures the managed stx-java-proxy service is available.
-func StartManagedSTXJavaProxyService(ctx context.Context, installDir string, seatunnelVersion string) (*STXJavaProxyServiceStatus, error) {
-	status, _ := GetManagedSTXJavaProxyServiceStatus(ctx, installDir)
-	if status != nil && status.Healthy {
-		return status, nil
+// preferredPort>0 时优先使用该端口；否则回退到环境变量 / 落盘端口 / 默认 18080。
+// When preferredPort > 0 it is tried first; otherwise env / persisted / default 18080 apply.
+func StartManagedSTXJavaProxyService(
+	ctx context.Context,
+	installDir string,
+	seatunnelVersion string,
+	preferredPort int,
+	optionalJvmOpts ...string,
+) (*STXJavaProxyServiceStatus, error) {
+	desiredJvmOpts := ""
+	if len(optionalJvmOpts) > 0 && strings.TrimSpace(optionalJvmOpts[0]) != "" {
+		desiredJvmOpts = strings.TrimSpace(optionalJvmOpts[0])
 	}
 
-	baseURL, err := ensureSTXJavaProxyService(ctx, installDir, seatunnelVersion)
+	status, _ := GetManagedSTXJavaProxyServiceStatus(ctx, installDir)
+	// 已健康且端口与 JVM 参数匹配时直接返回，避免无谓重启。
+	// Skip restart when already healthy and the port & jvmOpts match.
+	if status != nil && status.Healthy {
+		portMatches := preferredPort <= 0 || status.Port <= 0 || status.Port == preferredPort
+		jvmMatches := desiredJvmOpts == "" || status.JvmOpts == desiredJvmOpts
+		if portMatches && jvmMatches {
+			return status, nil
+		}
+		// 端口或 JVM 参数不一致时先停旧实例，再按指定参数启动。
+		// Stop the old instance before starting on the preferred port / jvmOpts.
+		if _, stopErr := StopManagedSTXJavaProxyService(ctx, installDir); stopErr != nil {
+			logger.WarnF(ctx, "[stx-java-proxy] stop before config switch failed: preferredPort=%d, desiredJvmOpts=%s, error=%v", preferredPort, desiredJvmOpts, stopErr)
+		}
+	}
+
+	baseURL, err := ensureSTXJavaProxyService(ctx, installDir, seatunnelVersion, preferredPort, desiredJvmOpts)
 	if err != nil {
 		return nil, err
 	}
@@ -74,6 +100,7 @@ func StartManagedSTXJavaProxyService(ctx context.Context, installDir string, sea
 			Message:  "stx-java-proxy service started",
 			StateDir: stxJavaProxyServiceStateDir(installDir),
 			LogPath:  filepath.Join(stxJavaProxyServiceStateDir(installDir), "service.log"),
+			JvmOpts:  desiredJvmOpts,
 		}, nil
 	}
 	status.Message = firstNonBlank(status.Message, "stx-java-proxy service started")
@@ -89,6 +116,10 @@ func GetManagedSTXJavaProxyServiceStatus(ctx context.Context, installDir string)
 		LogPath:  filepath.Join(stxJavaProxyServiceStateDir(installDir), "service.log"),
 	}
 
+	if jvmBytes, err := os.ReadFile(filepath.Join(status.StateDir, "service.jvm_opts")); err == nil {
+		status.JvmOpts = strings.TrimSpace(string(jvmBytes))
+	}
+
 	if endpoint := strings.TrimSpace(os.Getenv(stxJavaProxyEndpointEnvVar)); endpoint != "" {
 		normalized := strings.TrimRight(endpoint, "/")
 		status.Managed = false
@@ -96,9 +127,12 @@ func GetManagedSTXJavaProxyServiceStatus(ctx context.Context, installDir string)
 		if port := stxJavaProxyPortFromEndpoint(normalized); port > 0 {
 			status.Port = port
 		}
-		err := waitForSTXJavaProxyHealthy(ctx, normalized, 1500*time.Millisecond)
+		err, mem := probeSTXJavaProxyHealth(ctx, normalized, 1500*time.Millisecond)
 		status.Healthy = err == nil
 		status.Running = status.Healthy
+		if mem != nil {
+			status.JvmMemory = mem
+		}
 		if status.Healthy {
 			status.Message = "using configured external stx-java-proxy endpoint"
 		} else {
@@ -120,16 +154,19 @@ func GetManagedSTXJavaProxyServiceStatus(ctx context.Context, installDir string)
 	}
 
 	if status.Endpoint == "" {
-		for _, port := range stxJavaProxyPortCandidates(status.StateDir) {
+		for _, port := range stxJavaProxyPortCandidates(status.StateDir, 0) {
 			if port <= 0 {
 				continue
 			}
 			endpoint := stxJavaProxyServiceBaseURL(port)
-			if err := waitForSTXJavaProxyHealthy(ctx, endpoint, 1200*time.Millisecond); err == nil {
+			if err, mem := probeSTXJavaProxyHealth(ctx, endpoint, 1200*time.Millisecond); err == nil {
 				status.Endpoint = endpoint
 				status.Port = port
 				status.Healthy = true
 				status.Running = true
+				if mem != nil {
+					status.JvmMemory = mem
+				}
 				_ = os.MkdirAll(status.StateDir, 0o755)
 				_ = os.WriteFile(filepath.Join(status.StateDir, "service.port"), []byte(strconv.Itoa(port)+"\n"), 0o644)
 				break
@@ -148,9 +185,12 @@ func GetManagedSTXJavaProxyServiceStatus(ctx context.Context, installDir string)
 		status.Running = stxJavaProxyPIDAlive(status.PID)
 	}
 	if status.Endpoint != "" && !status.Healthy {
-		if err := waitForSTXJavaProxyHealthy(ctx, status.Endpoint, 1500*time.Millisecond); err == nil {
+		if err, mem := probeSTXJavaProxyHealth(ctx, status.Endpoint, 1500*time.Millisecond); err == nil {
 			status.Healthy = true
 			status.Running = true
+			if mem != nil {
+				status.JvmMemory = mem
+			}
 		}
 	}
 
@@ -171,6 +211,22 @@ func GetManagedSTXJavaProxyServiceStatus(ctx context.Context, installDir string)
 	}
 
 	return status, nil
+}
+
+// stopTrackedSTXJavaProxy 仅在已有 pid/port 状态文件时停止托管进程。
+// 没有状态文件时直接返回，避免卸载探测默认端口误停无关监听。
+// stopTrackedSTXJavaProxy stops the managed process only when pid/port state files exist.
+// Skip when no state file is present so uninstall does not probe the default port and kill an unrelated listener.
+func stopTrackedSTXJavaProxy(ctx context.Context, installDir string) {
+	stateDir := stxJavaProxyServiceStateDir(installDir)
+	pidFile := filepath.Join(stateDir, "service.pid")
+	portFile := filepath.Join(stateDir, "service.port")
+	if !fileExists(pidFile) && !fileExists(portFile) {
+		return
+	}
+	if _, err := StopManagedSTXJavaProxyService(ctx, installDir); err != nil {
+		logger.WarnF(ctx, "[Uninstall] stop stx-java-proxy failed, continue uninstall: install_dir=%s, error=%v", installDir, err)
+	}
 }
 
 // StopManagedSTXJavaProxyService stops the locally managed stx-java-proxy service.
@@ -413,8 +469,12 @@ func uniquePositivePIDs(pids []int) []int {
 	return result
 }
 
+// defaultSTXJavaProxyVersion 返回给定 SeaTunnel 版本对应的 stx-java-proxy 代际标签。
+// 空 version 时回退到内置默认代际（v2）。
+// defaultSTXJavaProxyVersion returns the proxy epoch label for the given
+// SeaTunnel version, falling back to the built-in default epoch (v2) when blank.
 func defaultSTXJavaProxyVersion(version string) string {
-	return firstNonBlank(strings.TrimSpace(version), seatunnelmeta.DefaultSTXJavaProxyVersion)
+	return seatunnelmeta.ProxyEpochForVersion(version)
 }
 
 func stxJavaProxyErrorString(err error) string {

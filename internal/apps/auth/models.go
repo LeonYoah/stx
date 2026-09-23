@@ -63,7 +63,7 @@ type User struct {
 	Email        string    `json:"email" gorm:"size:255;index"`
 	Language     string    `json:"language" gorm:"size:8;default:zh"`
 	AvatarURL    string    `json:"avatar_url" gorm:"column:avatar_url;size:255"` // 头像 URL
-	OAuthID      string    `json:"oauth_id" gorm:"size:255;index"`               // OAuth 提供商 ID，格式: provider:id
+	OAuthID      string    `json:"oauth_id" gorm:"column:oauth_id;size:255;index"`               // OAuth 提供商 ID，格式: provider:id
 	IsActive     bool      `json:"is_active" gorm:"default:true"`
 	IsAdmin      bool      `json:"is_admin" gorm:"default:false"`
 	LastLoginAt  time.Time `json:"last_login_at"`
@@ -193,7 +193,11 @@ func (u *User) ToUserInfo() *UserInfo {
 // FindByOAuthID 根据 OAuth ID 查找用户
 func FindByOAuthID(db *gorm.DB, oauthID string) (*User, error) {
 	var user User
-	if err := db.Where("oauth_id = ?", oauthID).First(&user).Error; err != nil {
+	err := db.Where("oauth_id = ?", oauthID).Order("id ASC").First(&user).Error
+	if err != nil && strings.Contains(strings.ToLower(err.Error()), "oauth_id") {
+		err = db.Where("o_auth_id = ?", oauthID).Order("id ASC").First(&user).Error
+	}
+	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrUserNotFound
 		}

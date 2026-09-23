@@ -114,6 +114,14 @@ export interface PackageInfo {
   is_local: boolean;
   local_path?: string;
   uploaded_at?: string;
+  has_source: boolean;
+  source_status?: DownloadStatus;
+  source_file_name?: string;
+  source_file_size?: number;
+  source_checksum?: string;
+  source_uploaded_at?: string;
+  source_download_urls: Record<MirrorSource, string>;
+  source_error?: string;
 }
 
 /**
@@ -200,11 +208,17 @@ export interface CheckpointConfig {
   hdfs_namenode_rpc_address_1?: string; // e.g., "usdp-bing-nn1:8020"
   hdfs_namenode_rpc_address_2?: string; // e.g., "usdp-bing-nn2:8020"
   hdfs_failover_proxy_provider?: string; // default: org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider
+  /** hdfs-site.xml 路径，对应 SeaTunnel hdfs_site_path / hdfs-site.xml path, mapped to SeaTunnel hdfs_site_path */
+  hdfs_site_path?: string;
+  /** 对应 disable.cache；不传表示不写入 / maps to disable.cache; omit to leave unset */
+  disable_cache?: boolean;
   // OSS/S3 configuration / OSS/S3 配置
   storage_endpoint?: string;
   storage_access_key?: string;
   storage_secret_key?: string;
   storage_bucket?: string;
+  /** S3 凭证提供方，对应 fs.s3a.aws.credentials.provider / S3 credentials provider */
+  s3_credentials_provider?: string;
 }
 
 /**
@@ -224,10 +238,13 @@ export interface IMAPConfig {
   hdfs_namenode_rpc_address_1?: string;
   hdfs_namenode_rpc_address_2?: string;
   hdfs_failover_proxy_provider?: string;
+  hdfs_site_path?: string;
+  disable_cache?: boolean;
   storage_endpoint?: string;
   storage_access_key?: string;
   storage_secret_key?: string;
   storage_bucket?: string;
+  s3_credentials_provider?: string;
 }
 
 /**
@@ -279,6 +296,7 @@ export interface InstallationRequest {
   cluster_port?: number; // Cluster communication port / 集群通信端口
   worker_port?: number; // Worker hazelcast port / Worker Hazelcast 端口
   http_port?: number; // HTTP API port / HTTP API 端口
+  java_proxy_port?: number; // Managed stx-java-proxy listen port / 托管 stx-java-proxy 监听端口
   enable_http?: boolean; // Enable SeaTunnel HTTP/Web UI / 是否开启 SeaTunnel HTTP/Web UI
   dynamic_slot?: boolean;
   slot_num?: number;
@@ -472,6 +490,13 @@ export interface DownloadTask {
   error?: string;
   start_time: string;
   end_time?: string;
+  source_requested: boolean;
+  source_status?: DownloadStatus;
+  source_progress?: number;
+  source_downloaded_bytes?: number;
+  source_total_bytes?: number;
+  source_checksum?: string;
+  source_error?: string;
 }
 
 /**
@@ -481,6 +506,7 @@ export interface DownloadTask {
 export interface DownloadRequest {
   version: string;
   mirror?: MirrorSource;
+  with_source?: boolean;
 }
 
 /**

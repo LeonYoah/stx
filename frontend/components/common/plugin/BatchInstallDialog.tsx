@@ -28,6 +28,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslations } from 'next-intl';
 import {
+  resolvePreferredClusterId,
+  rememberPreferredClusterId,
+  isSoleDefaultCluster,
+} from '@/lib/cluster-preference';
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -103,8 +108,13 @@ export function BatchInstallDialog({
           (c: Cluster) => c.version === version,
         );
         setClusters(matchingClusters);
+        // 唯一匹配或已记住偏好时自动选中，免再手选。
+        // Auto-select sole match or remembered preference.
+        const preferred = resolvePreferredClusterId(matchingClusters);
+        setSelectedClusterId(preferred != null ? String(preferred) : '');
       } else {
         setClusters([]);
+        setSelectedClusterId('');
       }
     } catch (error) {
       console.error('Failed to load clusters:', error);
@@ -118,8 +128,8 @@ export function BatchInstallDialog({
   useEffect(() => {
     if (open) {
       void loadClusters();
-      // Reset state / 重置状态
-      setSelectedClusterId('');
+      // Reset install statuses; cluster selection is filled after load.
+      // 重置安装状态；集群选择在加载后自动填入。
       setInstallStatuses([]);
     }
   }, [open, loadClusters]);
@@ -237,7 +247,10 @@ export function BatchInstallDialog({
             </label>
             <Select
               value={selectedClusterId}
-              onValueChange={setSelectedClusterId}
+              onValueChange={(value) => {
+                setSelectedClusterId(value);
+                rememberPreferredClusterId(value);
+              }}
               disabled={installing}
             >
               <SelectTrigger>
@@ -256,6 +269,9 @@ export function BatchInstallDialog({
                   clusters.map((cluster) => (
                     <SelectItem key={cluster.id} value={cluster.id.toString()}>
                       {cluster.name} (v{cluster.version})
+                      {isSoleDefaultCluster(clusters, cluster.id)
+                        ? ` · ${t('cluster.defaultBadge')}`
+                        : ''}
                     </SelectItem>
                   ))
                 )}

@@ -242,6 +242,22 @@ export function CommandDetail({
 
           <Separator />
 
+          {command.display_command ? (
+            <div>
+              <p className='text-sm text-muted-foreground'>
+                {t('audit.actualCommand')}
+              </p>
+              <code
+                className='mt-2 block overflow-x-auto whitespace-nowrap rounded-md border bg-muted/30 p-3 font-mono text-xs'
+                title={command.display_command}
+              >
+                {command.display_command}
+              </code>
+            </div>
+          ) : null}
+
+          {command.display_command ? <Separator /> : null}
+
           {/* Output and Error Tabs / 输出和错误标签页 */}
           <Tabs defaultValue='output' className='w-full'>
             <TabsList className='grid w-full grid-cols-3'>

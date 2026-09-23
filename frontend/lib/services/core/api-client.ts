@@ -74,8 +74,7 @@ apiClient.interceptors.response.use(
   (error: AxiosError<ApiError>) => {
     // 处理401未授权错误
     // 注意：登录接口 /auth/login 返回 401 表示凭证错误，应直接 reject 显示错误信息，不触发 OAuth 重定向
-    const isLoginRequest =
-      error.config?.url?.includes('/auth/login') ?? false;
+    const isLoginRequest = error.config?.url?.includes('/auth/login') ?? false;
     if (error.response?.status === 401 && !isLoginRequest) {
       return redirectToLogin(window.location.pathname);
     }
@@ -84,6 +83,12 @@ apiClient.interceptors.response.use(
     if (error.response?.data?.error_msg) {
       const apiError = new Error(error.response.data.error_msg);
       apiError.name = 'ApiError';
+      // 保留结构化错误数据，供需要二次确认的写操作继续提交。
+      // Preserve structured error data so confirmed writes can be retried safely.
+      Object.assign(apiError, {
+        status: error.response.status,
+        data: error.response.data.data,
+      });
       return Promise.reject(apiError);
     }
 
@@ -101,8 +106,8 @@ apiClient.interceptors.response.use(
     if (error.response?.status === 413) {
       return Promise.reject(
         new Error(
-          '上传文件过大或被网关限制（如 Cloudflare/Nginx body size 限制）。请使用更小文件、直连入口，或改用服务器下载。'
-        )
+          '上传文件过大或被网关限制（如 Cloudflare/Nginx body size 限制）。请使用更小文件、直连入口，或改用服务器下载。',
+        ),
       );
     }
 

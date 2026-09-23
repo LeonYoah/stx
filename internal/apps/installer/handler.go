@@ -20,13 +20,17 @@
 package installer
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"strconv"
 	"strings"
 
+	"github.com/LeonYoah/stx/internal/apps/auth"
+	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
 	"github.com/LeonYoah/stx/internal/config"
 	"github.com/LeonYoah/stx/internal/logger"
 	"github.com/gin-gonic/gin"
@@ -148,6 +152,7 @@ type UploadChunkResponse struct {
 // @Accept multipart/form-data
 // @Produce json
 // @Param file formData file true "安装包文件"
+// @Param source_file formData file false "同版本源码包文件"
 // @Param version formData string true "版本号"
 // @Success 200 {object} UploadPackageResponse
 // @Router /api/v1/packages/upload [post]
@@ -173,6 +178,11 @@ func (h *Handler) UploadPackage(c *gin.Context) {
 		c.JSON(statusCode, UploadPackageResponse{ErrorMsg: message})
 		return
 	}
+	sourceFile, sourceFileErr := c.FormFile("source_file")
+	if sourceFileErr != nil && !errors.Is(sourceFileErr, http.ErrMissingFile) {
+		c.JSON(http.StatusBadRequest, UploadPackageResponse{ErrorMsg: "源码包上传失败 / Source upload failed: " + sourceFileErr.Error()})
+		return
+	}
 
 	maxPackageSize := config.GetMaxPackageSize()
 	if maxPackageSize > 0 && file.Size > maxPackageSize {
@@ -185,26 +195,156 @@ func (h *Handler) UploadPackage(c *gin.Context) {
 		})
 		return
 	}
+	if sourceFile != nil && maxPackageSize > 0 && sourceFile.Size > maxPackageSize {
+		c.JSON(http.StatusRequestEntityTooLarge, UploadPackageResponse{
+			ErrorMsg: fmt.Sprintf(
+				"源码包超过配置上限（%.2f MB > %.2f MB） / Source package exceeds configured max size",
+				float64(sourceFile.Size)/1024.0/1024.0,
+				float64(maxPackageSize)/1024.0/1024.0,
+			),
+		})
+		return
+	}
 
-	info, err := h.service.UploadPackage(c.Request.Context(), version, file)
+	metadata := executionapp.MetadataFromGin(c)
+	fileSHA256, err := hashMultipartFile(file)
 	if err != nil {
-		switch {
-		case errors.Is(err, ErrInvalidPackageVersion),
-			errors.Is(err, ErrInvalidPackageFile),
-			errors.Is(err, ErrInvalidPackagePath):
-			c.JSON(http.StatusBadRequest, UploadPackageResponse{ErrorMsg: err.Error()})
-		case errors.Is(err, ErrPackageAlreadyExists):
-			c.JSON(http.StatusConflict, UploadPackageResponse{ErrorMsg: err.Error()})
-		case errors.Is(err, ErrPackageTooLarge):
-			c.JSON(http.StatusRequestEntityTooLarge, UploadPackageResponse{ErrorMsg: err.Error()})
-		default:
-			c.JSON(http.StatusInternalServerError, UploadPackageResponse{ErrorMsg: err.Error()})
+		h.writePackageError(c, err)
+		return
+	}
+	sourceSHA256 := ""
+	if sourceFile != nil {
+		sourceSHA256, err = hashMultipartFile(sourceFile)
+		if err != nil {
+			h.writePackageError(c, err)
+			return
 		}
+	}
+	requestHash, err := executionapp.HashRequest(struct {
+		Version          string `json:"version"`
+		FileName         string `json:"file_name"`
+		FileSize         int64  `json:"file_size"`
+		FileSHA256       string `json:"file_sha256"`
+		SourceFileName   string `json:"source_file_name,omitempty"`
+		SourceFileSize   int64  `json:"source_file_size,omitempty"`
+		SourceFileSHA256 string `json:"source_file_sha256,omitempty"`
+	}{
+		Version: strings.TrimSpace(version), FileName: file.Filename, FileSize: file.Size, FileSHA256: fileSHA256,
+		SourceFileName: multipartFileName(sourceFile), SourceFileSize: multipartFileSize(sourceFile), SourceFileSHA256: sourceSHA256,
+	})
+	if err != nil {
+		h.writePackageError(c, err)
+		return
+	}
+	info, err := h.service.UploadPackageBundleWithExecution(c.Request.Context(), currentInstallerActor(c), version, file, sourceFile, installerExecutionRequest(metadata, requestHash))
+	if err != nil {
+		h.writePackageError(c, err)
 		return
 	}
 
 	logger.InfoF(c.Request.Context(), "[Installer] 上传安装包成功: %s", version)
 	c.JSON(http.StatusOK, UploadPackageResponse{Data: info})
+}
+
+// UploadSourcePackage handles POST /api/v1/packages/:version/source/upload.
+// UploadSourcePackage 处理 POST /api/v1/packages/:version/source/upload。
+// @Tags packages
+// @Accept multipart/form-data
+// @Produce json
+// @Param version path string true "版本号"
+// @Param source_file formData file true "源码包文件"
+// @Success 200 {object} UploadPackageResponse
+// @Router /api/v1/packages/{version}/source/upload [post]
+func (h *Handler) UploadSourcePackage(c *gin.Context) {
+	version := strings.TrimSpace(c.Param("version"))
+	file, err := c.FormFile("source_file")
+	if version == "" || err != nil {
+		c.JSON(http.StatusBadRequest, UploadPackageResponse{ErrorMsg: "版本号和源码包不能为空 / Version and source file are required"})
+		return
+	}
+	maxPackageSize := config.GetMaxPackageSize()
+	if maxPackageSize > 0 && file.Size > maxPackageSize {
+		c.JSON(http.StatusRequestEntityTooLarge, UploadPackageResponse{
+			ErrorMsg: fmt.Sprintf(
+				"源码包超过配置上限（%.2f MB > %.2f MB） / Source package exceeds configured max size",
+				float64(file.Size)/1024.0/1024.0,
+				float64(maxPackageSize)/1024.0/1024.0,
+			),
+		})
+		return
+	}
+	fileSHA256, err := hashMultipartFile(file)
+	if err != nil {
+		h.writePackageError(c, err)
+		return
+	}
+	requestHash, err := executionapp.HashRequest(struct {
+		Version    string `json:"version"`
+		FileName   string `json:"file_name"`
+		FileSize   int64  `json:"file_size"`
+		FileSHA256 string `json:"file_sha256"`
+	}{version, file.Filename, file.Size, fileSHA256})
+	if err != nil {
+		h.writePackageError(c, err)
+		return
+	}
+	metadata := executionapp.MetadataFromGin(c)
+	info, err := h.service.UploadSourcePackageWithExecution(c.Request.Context(), currentInstallerActor(c), version, file, installerExecutionRequest(metadata, requestHash))
+	if err != nil {
+		h.writePackageError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, UploadPackageResponse{Data: info})
+}
+
+// FetchSourcePackage handles POST /api/v1/packages/:version/source/fetch.
+// FetchSourcePackage 处理 POST /api/v1/packages/:version/source/fetch。
+// @Tags packages
+// @Accept json
+// @Produce json
+// @Param version path string true "版本号"
+// @Param request body SourceFetchRequest true "源码下载请求"
+// @Success 200 {object} UploadPackageResponse
+// @Router /api/v1/packages/{version}/source/fetch [post]
+func (h *Handler) FetchSourcePackage(c *gin.Context) {
+	version := strings.TrimSpace(c.Param("version"))
+	var request SourceFetchRequest
+	if err := c.ShouldBindJSON(&request); err != nil && !errors.Is(err, io.EOF) {
+		c.JSON(http.StatusBadRequest, UploadPackageResponse{ErrorMsg: err.Error()})
+		return
+	}
+	metadata := executionapp.MetadataFromGin(c)
+	requestHash, err := executionapp.HashRequest(struct {
+		Version string       `json:"version"`
+		Mirror  MirrorSource `json:"mirror"`
+	}{version, request.Mirror})
+	if err != nil {
+		h.writePackageError(c, err)
+		return
+	}
+	info, err := h.service.FetchSourcePackageWithExecution(c.Request.Context(), currentInstallerActor(c), version, request.Mirror, installerExecutionRequest(metadata, requestHash))
+	if err != nil {
+		h.writePackageError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, UploadPackageResponse{Data: info})
+}
+
+// DownloadSourcePackage handles GET /api/v1/packages/:version/source/download.
+// DownloadSourcePackage 处理 GET /api/v1/packages/:version/source/download。
+// @Tags packages
+// @Produce application/gzip
+// @Param version path string true "版本号"
+// @Success 200 {file} binary
+// @Router /api/v1/packages/{version}/source/download [get]
+func (h *Handler) DownloadSourcePackage(c *gin.Context) {
+	version := strings.TrimSpace(c.Param("version"))
+	path, err := h.service.SourcePackagePath(version)
+	if err != nil {
+		h.writePackageError(c, err)
+		return
+	}
+	c.FileAttachment(path, sourcePackageFileName(version))
 }
 
 // UploadPackageChunk handles POST /api/v1/packages/upload/chunk - uploads one package chunk.
@@ -272,30 +412,37 @@ func (h *Handler) UploadPackageChunk(c *gin.Context) {
 		return
 	}
 
-	result, err := h.service.UploadPackageChunk(c.Request.Context(), &PackageChunkUploadRequest{
+	uploadRequest := &PackageChunkUploadRequest{
 		Version:     version,
 		UploadID:    uploadID,
 		ChunkIndex:  chunkIndex,
 		TotalChunks: totalChunks,
 		TotalSize:   totalSize,
 		FileName:    fileName,
-	}, file)
+	}
+	metadata := executionapp.MetadataFromGin(c)
+	fileSHA256, err := hashMultipartFile(file)
 	if err != nil {
-		switch {
-		case errors.Is(err, ErrInvalidPackageVersion),
-			errors.Is(err, ErrInvalidPackageFile),
-			errors.Is(err, ErrInvalidPackagePath),
-			errors.Is(err, ErrInvalidUploadID),
-			errors.Is(err, ErrInvalidChunkIndex):
-			c.JSON(http.StatusBadRequest, UploadChunkResponse{ErrorMsg: err.Error()})
-		case errors.Is(err, ErrChunkOutOfOrder),
-			errors.Is(err, ErrPackageAlreadyExists):
-			c.JSON(http.StatusConflict, UploadChunkResponse{ErrorMsg: err.Error()})
-		case errors.Is(err, ErrPackageTooLarge):
-			c.JSON(http.StatusRequestEntityTooLarge, UploadChunkResponse{ErrorMsg: err.Error()})
-		default:
-			c.JSON(http.StatusInternalServerError, UploadChunkResponse{ErrorMsg: err.Error()})
-		}
+		h.writePackageError(c, err)
+		return
+	}
+	requestHash, err := executionapp.HashRequest(struct {
+		Version     string `json:"version"`
+		UploadID    string `json:"upload_id"`
+		ChunkIndex  int    `json:"chunk_index"`
+		TotalChunks int    `json:"total_chunks"`
+		TotalSize   int64  `json:"total_size"`
+		FileName    string `json:"file_name"`
+		ChunkSize   int64  `json:"chunk_size"`
+		ChunkSHA256 string `json:"chunk_sha256"`
+	}{version, uploadID, chunkIndex, totalChunks, totalSize, fileName, file.Size, fileSHA256})
+	if err != nil {
+		h.writePackageError(c, err)
+		return
+	}
+	result, err := h.service.UploadPackageChunkWithExecution(c.Request.Context(), currentInstallerActor(c), uploadRequest, file, installerExecutionRequest(metadata, requestHash))
+	if err != nil {
+		h.writePackageError(c, err)
 		return
 	}
 
@@ -323,8 +470,10 @@ func (h *Handler) DeletePackage(c *gin.Context) {
 		return
 	}
 
-	if err := h.service.DeletePackage(c.Request.Context(), version); err != nil {
-		c.JSON(http.StatusInternalServerError, DeletePackageResponse{ErrorMsg: err.Error()})
+	metadata := executionapp.MetadataFromGin(c)
+	requestHash := executionapp.HashString(strings.TrimSpace(version))
+	if err := h.service.DeletePackageWithExecution(c.Request.Context(), currentInstallerActor(c), version, installerExecutionRequest(metadata, requestHash)); err != nil {
+		h.writePackageError(c, err)
 		return
 	}
 
@@ -363,7 +512,13 @@ func (h *Handler) StartDownload(c *gin.Context) {
 		return
 	}
 
-	task, err := h.service.StartDownload(c.Request.Context(), &req)
+	metadata := executionapp.MetadataFromGin(c)
+	requestHash, err := executionapp.HashRequest(req)
+	if err != nil {
+		h.writePackageError(c, err)
+		return
+	}
+	task, err := h.service.StartDownloadWithExecution(c.Request.Context(), currentInstallerActor(c), &req, installerExecutionRequest(metadata, requestHash))
 	if err != nil {
 		// If download is already in progress, return the existing task / 如果下载已在进行中，返回现有任务
 		if err == ErrDownloadInProgress {
@@ -374,7 +529,7 @@ func (h *Handler) StartDownload(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, DownloadResponse{ErrorMsg: err.Error()})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, DownloadResponse{ErrorMsg: err.Error()})
+		h.writePackageError(c, err)
 		return
 	}
 
@@ -396,9 +551,9 @@ func (h *Handler) GetDownloadStatus(c *gin.Context) {
 		return
 	}
 
-	task, err := h.service.GetDownloadStatus(c.Request.Context(), version)
+	task, err := h.service.GetDownloadStatusForActor(c.Request.Context(), currentInstallerActor(c), version)
 	if err != nil {
-		c.JSON(http.StatusNotFound, DownloadResponse{ErrorMsg: err.Error()})
+		h.writePackageError(c, err)
 		return
 	}
 
@@ -419,13 +574,11 @@ func (h *Handler) CancelDownload(c *gin.Context) {
 		return
 	}
 
-	task, err := h.service.CancelDownload(c.Request.Context(), version)
+	metadata := executionapp.MetadataFromGin(c)
+	requestHash := executionapp.HashString(strings.TrimSpace(version))
+	task, err := h.service.CancelDownloadWithExecution(c.Request.Context(), currentInstallerActor(c), version, installerExecutionRequest(metadata, requestHash))
 	if err != nil {
-		if errors.Is(err, ErrInvalidPackageVersion) {
-			c.JSON(http.StatusBadRequest, DownloadResponse{ErrorMsg: err.Error()})
-			return
-		}
-		c.JSON(http.StatusInternalServerError, DownloadResponse{ErrorMsg: err.Error()})
+		h.writePackageError(c, err)
 		return
 	}
 
@@ -440,8 +593,105 @@ func (h *Handler) CancelDownload(c *gin.Context) {
 // @Success 200 {object} DownloadListResponse
 // @Router /api/v1/packages/downloads [get]
 func (h *Handler) ListDownloads(c *gin.Context) {
-	tasks := h.service.ListDownloads(c.Request.Context())
+	tasks := h.service.ListDownloadsForActor(c.Request.Context(), currentInstallerActor(c))
 	c.JSON(http.StatusOK, DownloadListResponse{Data: tasks})
+}
+
+func installerExecutionRequest(metadata executionapp.RequestMetadata, requestHash string) ExecutionRequest {
+	return ExecutionRequest{
+		RequestID:      metadata.RequestID,
+		IdempotencyKey: metadata.IdempotencyKey,
+		RequestHash:    requestHash,
+		Confirmed:      metadata.Confirmed,
+		ConfirmationID: metadata.ConfirmationID,
+		ClientType:     metadata.ClientType,
+	}
+}
+
+func currentInstallerActor(c *gin.Context) executionapp.Actor {
+	user := auth.GetUserFromContext(c)
+	if user == nil {
+		return executionapp.Actor{}
+	}
+	return executionapp.Actor{UserID: user.ID, IsAdmin: user.IsAdmin}
+}
+
+// hashMultipartFile 流式计算上传内容摘要，用于区分同名同大小但内容不同的幂等请求。
+// hashMultipartFile streams the upload digest so equal names and sizes with different content remain distinct requests.
+func hashMultipartFile(file *multipart.FileHeader) (string, error) {
+	if file == nil {
+		return "", ErrInvalidPackageFile
+	}
+	reader, err := file.Open()
+	if err != nil {
+		return "", fmt.Errorf("%w: cannot open uploaded content", ErrInvalidPackageFile)
+	}
+	defer reader.Close()
+	hasher := sha256.New()
+	if _, err := io.Copy(hasher, reader); err != nil {
+		return "", fmt.Errorf("%w: cannot hash uploaded content", ErrInvalidPackageFile)
+	}
+	return fmt.Sprintf("%x", hasher.Sum(nil)), nil
+}
+
+// writePackageError 将安装包和公共执行错误转换为稳定的 HTTP 响应。
+// writePackageError maps package and shared execution failures to stable HTTP responses.
+func (h *Handler) writePackageError(c *gin.Context, err error) {
+	status, code := http.StatusInternalServerError, "internal_error"
+	switch {
+	case errors.Is(err, ErrInvalidPackageVersion), errors.Is(err, ErrInvalidPackageFile), errors.Is(err, ErrInvalidPackagePath),
+		errors.Is(err, ErrInvalidUploadID), errors.Is(err, ErrInvalidChunkIndex):
+		status, code = http.StatusBadRequest, "invalid_package_request"
+	case errors.Is(err, ErrPackageTooLarge):
+		status, code = http.StatusRequestEntityTooLarge, "package_too_large"
+	case errors.Is(err, ErrPackageNotFound), errors.Is(err, ErrSourcePackageNotFound), errors.Is(err, ErrDownloadNotFound):
+		status, code = http.StatusNotFound, "package_not_found"
+	case errors.Is(err, ErrInvalidSourcePackage):
+		status, code = http.StatusBadRequest, "invalid_source_package"
+	case errors.Is(err, ErrChunkOutOfOrder), errors.Is(err, ErrPackageAlreadyExists), errors.Is(err, ErrDownloadInProgress),
+		errors.Is(err, executionapp.ErrIdempotencyConflict), errors.Is(err, executionapp.ErrConcurrentUpdate):
+		status, code = http.StatusConflict, executionapp.ErrorCodeIdempotencyConflict
+	case errors.Is(err, executionapp.ErrPermissionDenied), errors.Is(err, executionapp.ErrAdminRequired):
+		status, code = http.StatusForbidden, executionapp.ErrorCodePermissionDenied
+	case errors.Is(err, executionapp.ErrIdempotencyKeyMissing):
+		status, code = http.StatusBadRequest, executionapp.ErrorCodeIdempotencyRequired
+	case errors.Is(err, executionapp.ErrExplicitConfirmNeeded):
+		status, code = http.StatusPreconditionRequired, executionapp.ErrorCodeConfirmationRequired
+	case errors.Is(err, executionapp.ErrConfirmationInvalid):
+		status, code = http.StatusConflict, executionapp.ErrorCodeConfirmationInvalid
+	case errors.Is(err, executionapp.ErrNotCancellable), errors.Is(err, executionapp.ErrProviderNotRegistered):
+		status, code = http.StatusConflict, executionapp.ErrorCodeNotCancellable
+	}
+	var confirmationErr *executionapp.ConfirmationRequiredError
+	if errors.As(err, &confirmationErr) {
+		c.JSON(http.StatusPreconditionRequired, gin.H{
+			"error_code": executionapp.ErrorCodeConfirmationRequired,
+			"error_msg":  confirmationErr.Error(),
+			"data": gin.H{
+				"confirmation_required": true,
+				"confirmation_id":       confirmationErr.ConfirmationID,
+				"risk_level":            confirmationErr.RiskLevel,
+				"impact":                confirmationErr.Impact,
+				"expires_at":            confirmationErr.ExpiresAt,
+			},
+		})
+		return
+	}
+	c.JSON(status, gin.H{"error_code": code, "error_msg": err.Error(), "data": nil})
+}
+
+func multipartFileName(file *multipart.FileHeader) string {
+	if file == nil {
+		return ""
+	}
+	return file.Filename
+}
+
+func multipartFileSize(file *multipart.FileHeader) int64 {
+	if file == nil {
+		return 0
+	}
+	return file.Size
 }
 
 // ==================== Precheck APIs 预检查 API ====================

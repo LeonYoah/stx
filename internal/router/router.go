@@ -23,8 +23,10 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -34,12 +36,13 @@ import (
 	"github.com/LeonYoah/stx/internal/apps/agent"
 	"github.com/LeonYoah/stx/internal/apps/audit"
 	"github.com/LeonYoah/stx/internal/apps/auth"
+	"github.com/LeonYoah/stx/internal/apps/capability"
 	"github.com/LeonYoah/stx/internal/apps/cluster"
 	appconfig "github.com/LeonYoah/stx/internal/apps/config"
 	"github.com/LeonYoah/stx/internal/apps/dashboard"
-	"github.com/LeonYoah/stx/internal/apps/deepwiki"
 	"github.com/LeonYoah/stx/internal/apps/diagnostics"
 	"github.com/LeonYoah/stx/internal/apps/discovery"
+	"github.com/LeonYoah/stx/internal/apps/execution"
 	"github.com/LeonYoah/stx/internal/apps/health"
 	"github.com/LeonYoah/stx/internal/apps/host"
 	"github.com/LeonYoah/stx/internal/apps/installer"
@@ -47,10 +50,9 @@ import (
 	monitoringapp "github.com/LeonYoah/stx/internal/apps/monitoring"
 	"github.com/LeonYoah/stx/internal/apps/oauth"
 	"github.com/LeonYoah/stx/internal/apps/plugin"
-	"github.com/LeonYoah/stx/internal/apps/releasebundle"
 	"github.com/LeonYoah/stx/internal/apps/stupgrade"
 	syncapp "github.com/LeonYoah/stx/internal/apps/sync"
-	"github.com/LeonYoah/stx/internal/apps/task"
+	"github.com/LeonYoah/stx/internal/apps/userwrite"
 	"github.com/LeonYoah/stx/internal/config"
 	"github.com/LeonYoah/stx/internal/db"
 	grpcServer "github.com/LeonYoah/stx/internal/grpc"
@@ -60,6 +62,7 @@ import (
 	"github.com/LeonYoah/stx/internal/tlsbootstrap"
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
@@ -67,6 +70,7 @@ import (
 )
 
 func Serve() {
+	auth.OnUserBound = audit.BindOperator
 	ctx := context.Background()
 
 	// Initialize OpenTelemetry tracing (based on config)
@@ -138,6 +142,15 @@ func Serve() {
 		// API V1
 		apiV1Router := apiGroup.Group("/v1")
 		{
+			// 公共执行服务在写接口注册前创建，避免业务处理器依赖全局可变实例。
+			// The shared execution service is created before write routes so business handlers do not depend on mutable globals.
+			auditRepo := audit.NewRepository(db.DB(context.Background()))
+			executionRepo := execution.NewRepository(db.DB(context.Background()))
+			executionProviders := execution.NewProviderRegistry()
+			executionService := execution.NewService(executionRepo, executionProviders)
+			executionService.SetAuditRepository(auditRepo)
+			userWriteHandler := userwrite.NewHandler(executionService, auditRepo)
+
 			// Health
 			apiV1Router.GET("/health", health.Health)
 
@@ -145,7 +158,11 @@ func Serve() {
 			apiV1Router.POST("/auth/login", auth.Login)
 			apiV1Router.POST("/auth/logout", auth.LoginRequired(), auth.Logout)
 			apiV1Router.GET("/auth/user-info", auth.LoginRequired(), auth.GetUserInfo)
-			apiV1Router.PUT("/auth/profile", auth.LoginRequired(), auth.UpdateProfile)
+			apiV1Router.PUT("/auth/profile", auth.LoginRequired(), userWriteHandler.UpdateProfile)
+			apiV1Router.POST("/auth/cli/login", auth.CLIClientRequired(), auth.CLILogin)
+			apiV1Router.POST("/auth/cli/logout", auth.CLIAuthRequired(), auth.CLILogout)
+			apiV1Router.GET("/auth/cli/whoami", auth.CLIAuthRequired(), auth.CLIWhoAmI)
+			apiV1Router.GET("/capabilities", auth.CLIAuthRequired(), capability.List)
 
 			// OAuth（备选登录方式：GitHub、Google）
 			apiV1Router.GET("/oauth/providers", oauth.GetEnabledProvidersHandler)
@@ -160,10 +177,10 @@ func Serve() {
 				userAdminRouter := adminRouter.Group("/users")
 				{
 					userAdminRouter.GET("", admin.ListUsersHandler)
-					userAdminRouter.POST("", admin.CreateUserHandler)
+					userAdminRouter.POST("", userWriteHandler.CreateUser)
 					userAdminRouter.GET("/:id", admin.GetUserHandler)
-					userAdminRouter.PUT("/:id", admin.UpdateUserHandler)
-					userAdminRouter.DELETE("/:id", admin.DeleteUserHandler)
+					userAdminRouter.PUT("/:id", userWriteHandler.UpdateUser)
+					userAdminRouter.DELETE("/:id", userWriteHandler.DeleteUser)
 				}
 			}
 
@@ -172,7 +189,18 @@ func Serve() {
 			// 初始化主机服务和处理器
 			hostRepo := host.NewRepository(db.DB(context.Background()))
 			clusterRepo := cluster.NewRepository(db.DB(context.Background()))
-			auditRepo := audit.NewRepository(db.DB(context.Background()))
+
+			// 公共执行协议只保存统一状态和安全信息，具体执行仍由业务模块负责。
+			// The shared execution contract stores common state and safety data while business modules remain responsible for actual work.
+			executionHandler := execution.NewHandler(executionService)
+			executionRouter := apiV1Router.Group("/executions")
+			executionRouter.Use(auth.LoginRequired())
+			{
+				executionRouter.GET("/:id", executionHandler.Get)
+				executionRouter.GET("/:id/wait", executionHandler.Wait)
+				executionRouter.POST("/:id/cancel", executionHandler.Cancel)
+			}
+
 			hostService := host.NewService(hostRepo, clusterRepo, &host.ServiceConfig{
 				HeartbeatTimeout: time.Duration(config.Config.GRPC.HeartbeatTimeout) * time.Second,
 				ControlPlaneAddr: config.GetExternalURL(),
@@ -216,7 +244,7 @@ func Serve() {
 			// Inject agent command sender if agent manager is available
 			// 如果 Agent Manager 可用，注入 Agent 命令发送器
 			if agentManager != nil {
-				clusterService.SetAgentCommandSender(&agentCommandSenderAdapter{manager: agentManager})
+				clusterService.SetAgentCommandSender(&agentCommandSenderAdapter{manager: agentManager, auditRepo: auditRepo})
 				clusterService.SetConfigAgentClient(&configAgentClientAdapter{
 					manager:     agentManager,
 					hostService: hostService,
@@ -260,8 +288,11 @@ func Serve() {
 				clusterRouter.POST("/:id/stx-java-proxy/start", clusterHandler.StartSTXJavaProxy)
 				clusterRouter.POST("/:id/stx-java-proxy/stop", clusterHandler.StopSTXJavaProxy)
 				clusterRouter.POST("/:id/stx-java-proxy/restart", clusterHandler.RestartSTXJavaProxy)
+				clusterRouter.PUT("/:id/stx-java-proxy/config", clusterHandler.UpdateSTXJavaProxyConfig)
 				clusterRouter.GET("/:id/runtime-storage", clusterHandler.GetRuntimeStorage)
 				clusterRouter.POST("/:id/runtime-storage/:kind/validate", clusterHandler.ValidateRuntimeStorage)
+				clusterRouter.POST("/:id/runtime-storage/:kind/apply", clusterHandler.ApplyRuntimeStorage)
+				clusterRouter.POST("/:id/log-mode", clusterHandler.SwitchJobLogMode)
 				clusterRouter.POST("/:id/runtime-storage/:kind/list", clusterHandler.ListRuntimeStorage)
 				clusterRouter.POST("/:id/runtime-storage/:kind/preview", clusterHandler.PreviewRuntimeStorage)
 				clusterRouter.POST("/:id/runtime-storage/checkpoint/inspect", clusterHandler.InspectCheckpointRuntimeStorage)
@@ -380,9 +411,12 @@ func Serve() {
 			monitoringHandler := monitoringapp.NewHandler(monitoringService)
 			diagnosticsService := diagnostics.NewService(clusterService, monitorService, monitoringService)
 			diagnosticsService.SetHostReader(hostService)
-			diagnosticsService.SetAgentCommandSender(&agentCommandSenderAdapter{manager: agentManager})
+			diagnosticsService.SetAgentCommandSender(&agentCommandSenderAdapter{manager: agentManager, auditRepo: auditRepo})
+			diagnosticsService.SetExecutionService(executionService)
+			executionProviders.Register("diagnostics", diagnosticsService)
 			diagnosticsService.StartAutoPolicyRuntime(ctx)
 			diagnosticsHandler := diagnostics.NewHandler(diagnosticsService)
+			diagnosticsHandler.SetAuditRepository(auditRepo)
 
 			// Public remote-observability integration endpoints (no login required).
 			// 远程可观测集成公开接口（无需登录）。
@@ -395,6 +429,7 @@ func Serve() {
 
 			monitoringRouter := apiV1Router.Group("/monitoring")
 			monitoringRouter.Use(auth.LoginRequired())
+			monitoringRouter.Use(monitoringAuditMiddleware(auditRepo))
 			{
 				monitoringRouter.GET("/overview", monitoringHandler.GetOverview)
 				monitoringRouter.GET("/clusters/:id/overview", monitoringHandler.GetClusterOverview)
@@ -435,6 +470,9 @@ func Serve() {
 			diagnosticsRouter.Use(auth.LoginRequired())
 			{
 				diagnosticsRouter.GET("/bootstrap", diagnosticsHandler.GetWorkspaceBootstrap)
+				diagnosticsRouter.GET("/resources", diagnosticsHandler.ListDiagnosticResources)
+				diagnosticsRouter.GET("/resources/:code", diagnosticsHandler.GetDiagnosticResource)
+				diagnosticsRouter.POST("/resources/:code/run", diagnosticsHandler.RunDiagnosticResource)
 				diagnosticsRouter.POST("/inspections", diagnosticsHandler.StartInspection)
 				diagnosticsRouter.GET("/inspections", diagnosticsHandler.ListInspectionReports)
 				diagnosticsRouter.GET("/inspections/:id", diagnosticsHandler.GetInspectionReportDetail)
@@ -443,6 +481,7 @@ func Serve() {
 				diagnosticsRouter.GET("/tasks/:id", diagnosticsHandler.GetDiagnosticTask)
 				diagnosticsRouter.POST("/tasks/:id/start", diagnosticsHandler.StartDiagnosticTask)
 				diagnosticsRouter.GET("/tasks/:id/steps", diagnosticsHandler.ListDiagnosticTaskSteps)
+				diagnosticsRouter.GET("/tasks/:id/artifacts", diagnosticsHandler.ListDiagnosticTaskArtifacts)
 				diagnosticsRouter.GET("/tasks/:id/logs", diagnosticsHandler.ListDiagnosticTaskLogs)
 				diagnosticsRouter.GET("/tasks/:id/events/stream", diagnosticsHandler.StreamDiagnosticTaskEvents)
 				diagnosticsRouter.GET("/tasks/:id/html", diagnosticsHandler.PreviewDiagnosticTaskHTML)
@@ -457,6 +496,11 @@ func Serve() {
 				diagnosticsRouter.GET("/auto-policies/:id", diagnosticsHandler.GetAutoPolicy)
 				diagnosticsRouter.PUT("/auto-policies/:id", diagnosticsHandler.UpdateAutoPolicy)
 				diagnosticsRouter.DELETE("/auto-policies/:id", diagnosticsHandler.DeleteAutoPolicy)
+				diagnosticsRouter.GET("/troubleshooting-memories", diagnosticsHandler.ListTroubleshootingMemories)
+				diagnosticsRouter.POST("/troubleshooting-memories", diagnosticsHandler.CreateTroubleshootingMemory)
+				diagnosticsRouter.GET("/troubleshooting-memories/:id", diagnosticsHandler.GetTroubleshootingMemory)
+				diagnosticsRouter.PUT("/troubleshooting-memories/:id", diagnosticsHandler.UpdateTroubleshootingMemory)
+				diagnosticsRouter.DELETE("/troubleshooting-memories/:id", diagnosticsHandler.DeleteTroubleshootingMemory)
 			}
 
 			// Platform cluster health summary (powered by monitoring remote integration).
@@ -528,23 +572,6 @@ func Serve() {
 				agentRouter.GET("/assets/stx-java-proxy.sh", agentHandler.DownloadSTXJavaProxyScript)
 			}
 
-			// STX 离线发布包分发 API（无需认证，供客户机器一键下载安装控制面）。
-			// STX offline release bundle distribution API (no authentication required for one-click control-plane install).
-			releaseBundleHandler := releasebundle.NewHandler(&releasebundle.HandlerConfig{
-				ReleaseDir:    "./dist/releases",
-				BundlePattern: releasebundle.DefaultBundlePattern,
-			})
-			releaseBundleRouter := apiV1Router.Group("/stx")
-			{
-				// GET /api/v1/stx/install.sh - 获取控制面一键安装脚本
-				// GET /api/v1/stx/install.sh - Get control-plane one-click install script
-				releaseBundleRouter.GET("/install.sh", releaseBundleHandler.GetInstallScript)
-
-				// GET /api/v1/stx/download - 下载最新的 CentOS 7 兼容离线包
-				// GET /api/v1/stx/download - Download the latest CentOS 7 compatible offline bundle
-				releaseBundleRouter.GET("/download", releaseBundleHandler.DownloadBundle)
-			}
-
 			// Audit 审计日志 API
 			// Audit log API
 			// Initialize audit handler (auditRepo already created above)
@@ -585,6 +612,8 @@ func Serve() {
 			// 使用配置中的 packages_dir，而不是硬编码仓库路径，
 			// 这样 E2E / 测试才能在各自隔离目录中预热安装包。
 			installerService := installer.NewService("", nil)
+			installerService.SetExecutionService(executionService)
+			executionProviders.Register("installer", installerService)
 			// Set host provider for precheck operations
 			// 设置用于预检查操作的主机提供者
 			installerService.SetHostProvider(&hostProviderAdapter{hostService: hostService})
@@ -623,6 +652,18 @@ func Serve() {
 				// POST /api/v1/packages/upload/chunk - Upload package chunk
 				packageRouter.POST("/upload/chunk", installerHandler.UploadPackageChunk)
 
+				// POST /api/v1/packages/:version/source/upload - 单独上传或替换源码包
+				// POST /api/v1/packages/:version/source/upload - Upload or replace source archive
+				packageRouter.POST("/:version/source/upload", installerHandler.UploadSourcePackage)
+
+				// POST /api/v1/packages/:version/source/fetch - 从镜像补充源码包
+				// POST /api/v1/packages/:version/source/fetch - Fetch source archive from mirror
+				packageRouter.POST("/:version/source/fetch", installerHandler.FetchSourcePackage)
+
+				// GET /api/v1/packages/:version/source/download - 下载本地源码包
+				// GET /api/v1/packages/:version/source/download - Download local source archive
+				packageRouter.GET("/:version/source/download", installerHandler.DownloadSourcePackage)
+
 				// DELETE /api/v1/packages/:version - 删除本地安装包
 				// DELETE /api/v1/packages/:version - Delete local package
 				packageRouter.DELETE("/:version", installerHandler.DeletePackage)
@@ -644,44 +685,11 @@ func Serve() {
 				packageRouter.POST("/download/:version/cancel", installerHandler.CancelDownload)
 			}
 
-			// Task 任务管理
-			// Initialize task manager and handler
-			// 初始化任务管理器和处理器
-			taskManager := task.NewManager()
-			taskHandler := task.NewHandler(taskManager)
-
-			// Task management routes 任务管理路由
-			taskRouter := apiV1Router.Group("/tasks")
-			taskRouter.Use(auth.LoginRequired())
-			{
-				// POST /api/v1/tasks - 创建任务
-				// POST /api/v1/tasks - Create task
-				taskRouter.POST("", taskHandler.CreateTask)
-
-				// GET /api/v1/tasks - 获取任务列表
-				// GET /api/v1/tasks - List tasks
-				taskRouter.GET("", taskHandler.ListTasks)
-
-				// GET /api/v1/tasks/:id - 获取任务详情
-				// GET /api/v1/tasks/:id - Get task details
-				taskRouter.GET("/:id", taskHandler.GetTask)
-
-				// POST /api/v1/tasks/:id/start - 开始执行任务
-				// POST /api/v1/tasks/:id/start - Start task
-				taskRouter.POST("/:id/start", taskHandler.StartTask)
-
-				// POST /api/v1/tasks/:id/cancel - 取消任务
-				// POST /api/v1/tasks/:id/cancel - Cancel task
-				taskRouter.POST("/:id/cancel", taskHandler.CancelTask)
-
-				// POST /api/v1/tasks/:id/retry - 重试任务
-				// POST /api/v1/tasks/:id/retry - Retry task
-				taskRouter.POST("/:id/retry", taskHandler.RetryTask)
-			}
-
 			// Sync studio 数据同步工作台
 			syncRepo := syncapp.NewRepository(db.DB(context.Background()))
 			syncService := syncapp.NewService(syncRepo)
+			syncService.SetExecutionService(executionService)
+			executionProviders.Register("sync", syncService)
 			syncService.SetEngineClient(syncapp.NewSeaTunnelEngineClient())
 			syncService.SetRuntimeResolver(syncapp.NewDefaultClusterRuntimeResolver(clusterRepo, hostRepo))
 			syncService.SetExecutionTargetResolver(syncapp.NewDefaultExecutionTargetResolver(clusterRepo, hostRepo))
@@ -690,11 +698,12 @@ func Serve() {
 			syncService.SetConfigToolClient(syncapp.NewDefaultConfigToolClient())
 			syncService.SetConfigToolResolver(syncapp.NewDefaultConfigToolResolver(clusterService))
 			if agentManager != nil {
-				syncService.SetAgentCommandSender(&agentCommandSenderAdapter{manager: agentManager})
+				syncService.SetAgentCommandSender(&agentCommandSenderAdapter{manager: agentManager, auditRepo: auditRepo})
 			}
 			syncService.StartPreviewRuntime(ctx)
 			syncService.StartTaskScheduleRuntime(ctx)
 			syncHandler := syncapp.NewHandler(syncService)
+			syncHandler.SetAuditRepository(auditRepo)
 
 			apiV1Router.POST("/sync/preview/collect", syncHandler.CollectPreview)
 
@@ -708,6 +717,8 @@ func Serve() {
 					syncTaskRouter.POST("", syncHandler.CreateTask)
 					syncTaskRouter.GET("", syncHandler.ListTasks)
 					syncTaskRouter.GET("/:id", syncHandler.GetTask)
+					syncTaskRouter.GET("/:id/permissions", syncHandler.GetTaskPermissions)
+					syncTaskRouter.PUT("/:id/permissions", syncHandler.UpdateTaskPermissions)
 					syncTaskRouter.PUT("/:id", syncHandler.UpdateTask)
 					syncTaskRouter.DELETE("/:id", syncHandler.DeleteTask)
 					syncTaskRouter.POST("/:id/publish", syncHandler.PublishTask)
@@ -751,11 +762,6 @@ func Serve() {
 				}
 			}
 
-			// Host tasks route 主机任务路由
-			// GET /api/v1/hosts/:id/tasks - 获取主机任务列表
-			// GET /api/v1/hosts/:id/tasks - List host tasks
-			hostRouter.GET("/:id/tasks", taskHandler.ListHostTasks)
-
 			// Plugin 插件市场管理
 			// Initialize plugin repository, service and handler
 			// 初始化插件仓库、服务和处理器
@@ -768,7 +774,7 @@ func Serve() {
 			// Inject agent command sender for plugin installation to cluster nodes
 			// 注入 Agent 命令发送器用于将插件安装到集群节点
 			if agentManager != nil {
-				pluginService.SetAgentCommandSender(&pluginAgentCommandSenderAdapter{manager: agentManager})
+				pluginService.SetAgentCommandSender(&pluginAgentCommandSenderAdapter{manager: agentManager, auditRepo: auditRepo})
 				pluginService.SetClusterNodeGetter(&clusterNodeGetterAdapter{clusterService: clusterService})
 				pluginService.SetHostInfoGetter(&hostInfoGetterAdapter{hostService: hostService})
 				log.Println("[API] Agent command sender injected into plugin service / Agent 命令发送器已注入插件服务")
@@ -897,7 +903,9 @@ func Serve() {
 			configNodeInfoProvider := &configNodeInfoProviderAdapter{clusterService: clusterService}
 			configService := appconfig.NewService(configRepo, &configHostProviderAdapter{hostService: hostService}, configNodeInfoProvider, configAgentClient)
 			configService.SetPortMetadataUpdater(&configPortMetadataUpdaterAdapter{clusterRepo: clusterRepo})
+			clusterService.SetRuntimeConfigStore(configService)
 			configHandler := appconfig.NewHandler(configService)
+			configHandler.SetExecutionService(executionService)
 
 			// Inject config initializer into installer service for initializing configs after installation
 			// 将配置初始化器注入安装服务，用于安装后初始化配置
@@ -910,6 +918,8 @@ func Serve() {
 			// SeaTunnel upgrade routes / SeaTunnel 升级路由
 			stUpgradeRepo := stupgrade.NewRepository(db.DB(context.Background()))
 			stUpgradeService := stupgrade.NewService(stUpgradeRepo)
+			stUpgradeService.SetExecutionService(executionService)
+			executionProviders.Register("stupgrade", stUpgradeService)
 			stUpgradeService.SetClusterProvider(clusterService)
 			stUpgradeService.SetHostProvider(hostService)
 			stUpgradeService.SetPackageProvider(installerService)
@@ -961,29 +971,6 @@ func Serve() {
 			// POST /api/v1/hosts/:id/install/cancel - Cancel installation
 			hostRouter.POST("/:id/install/cancel", installerHandler.CancelInstallation)
 
-			// DeepWiki 文档服务
-			// DeepWiki documentation service
-			deepwikiService := deepwiki.NewService(deepwiki.ServiceConfig{
-				UseMCP:  false, // 使用直接 HTTP 模式 / Use direct HTTP mode
-				Timeout: 30 * time.Second,
-			})
-			deepwikiHandler := deepwiki.NewHandler(deepwikiService)
-
-			deepwikiRouter := apiV1Router.Group("/deepwiki")
-			deepwikiRouter.Use(auth.LoginRequired())
-			{
-				// GET /api/v1/deepwiki/docs - 获取 SeaTunnel 文档
-				// GET /api/v1/deepwiki/docs - Get SeaTunnel documentation
-				deepwikiRouter.GET("/docs", deepwikiHandler.GetDocs)
-
-				// POST /api/v1/deepwiki/fetch - 获取指定仓库文档
-				// POST /api/v1/deepwiki/fetch - Fetch documentation for specific repository
-				deepwikiRouter.POST("/fetch", deepwikiHandler.FetchDocs)
-
-				// POST /api/v1/deepwiki/search - 搜索文档
-				// POST /api/v1/deepwiki/search - Search documentation
-				deepwikiRouter.POST("/search", deepwikiHandler.Search)
-			}
 		}
 	}
 
@@ -1074,7 +1061,7 @@ func initGRPCServer(ctx context.Context) (*grpcServer.Server, *agent.Manager) {
 	grpcServer.SetMonitorService(monitorService)
 	diagnosticsService := diagnostics.NewService(clusterService, monitorService, monitoringService)
 	diagnosticsService.SetHostReader(hostService)
-	diagnosticsService.SetAgentCommandSender(&agentCommandSenderAdapter{manager: agentManager})
+	diagnosticsService.SetAgentCommandSender(&agentCommandSenderAdapter{manager: agentManager, auditRepo: auditRepo})
 	grpcServer.SetDiagnosticsService(diagnosticsService)
 	log.Println("[gRPC] Cluster node provider, monitor service and diagnostics service set for gRPC handlers / 已为 gRPC 处理器设置集群节点提供者、监控服务和诊断服务")
 
@@ -1100,9 +1087,9 @@ type hostStatusUpdaterAdapter struct {
 	hostService *host.Service
 }
 
-// UpdateAgentStatus updates the agent status for a host by IP address.
-// UpdateAgentStatus 根据 IP 地址更新主机的 Agent 状态。
-func (a *hostStatusUpdaterAdapter) UpdateAgentStatus(ctx context.Context, ipAddress string, agentID string, version string, systemInfo *agent.SystemInfo, hostname string) (hostID uint, err error) {
+// UpdateAgentStatus updates the agent status for a host by pre-bound host ID or IP address.
+// UpdateAgentStatus 根据预绑定主机 ID 或 IP 地址更新主机的 Agent 状态。
+func (a *hostStatusUpdaterAdapter) UpdateAgentStatus(ctx context.Context, hostID uint, ipAddress string, agentID string, version string, systemInfo *agent.SystemInfo, hostname string, localIPs []string) (uint, error) {
 	var sysInfo *host.SystemInfo
 	if systemInfo != nil {
 		sysInfo = &host.SystemInfo{
@@ -1114,7 +1101,7 @@ func (a *hostStatusUpdaterAdapter) UpdateAgentStatus(ctx context.Context, ipAddr
 		}
 	}
 
-	h, err := a.hostService.UpdateAgentStatus(ctx, ipAddress, agentID, version, sysInfo, hostname)
+	h, err := a.hostService.UpdateAgentStatus(ctx, hostID, ipAddress, agentID, version, sysInfo, hostname, localIPs)
 	if err != nil {
 		return 0, err
 	}
@@ -1140,7 +1127,8 @@ func (a *hostStatusUpdaterAdapter) MarkHostOffline(ctx context.Context, agentID 
 // agentCommandSenderAdapter adapts agent.Manager to cluster.AgentCommandSender interface.
 // agentCommandSenderAdapter 将 agent.Manager 适配到 cluster.AgentCommandSender 接口。
 type agentCommandSenderAdapter struct {
-	manager *agent.Manager
+	manager   *agent.Manager
+	auditRepo *audit.Repository
 }
 
 // SendCommand sends a command to an agent and returns the result.
@@ -1168,10 +1156,15 @@ func (a *agentCommandSenderAdapter) SendCommand(ctx context.Context, agentID str
 
 	// Send command with command-specific timeout
 	// 使用命令级超时发送命令
-	resp, err := a.manager.SendCommand(ctx, agentID, cmdType, params, timeout)
+	startedAt := time.Now()
+	commandID := uuid.NewString()
+	a.recordPendingCommandLog(ctx, commandID, agentID, commandType, params, startedAt)
+	resp, err := a.manager.SendCommandWithID(ctx, commandID, agentID, cmdType, params, timeout)
 	if err != nil {
+		a.recordFailedCommandLog(ctx, commandID, err)
 		return false, "", err
 	}
+	a.recordCommandLog(ctx, agentID, commandType, params, startedAt, resp)
 
 	// Convert response to (bool, string, error)
 	// 将响应转换为 (bool, string, error)
@@ -1182,6 +1175,203 @@ func (a *agentCommandSenderAdapter) SendCommand(ctx context.Context, agentID str
 	}
 
 	return success, message, nil
+}
+
+func (a *agentCommandSenderAdapter) recordCommandLog(ctx context.Context, agentID, commandType string, params map[string]string, startedAt time.Time, resp *pb.CommandResponse) {
+	if a.auditRepo == nil || resp == nil || strings.TrimSpace(resp.CommandId) == "" {
+		return
+	}
+	metadata := audit.CommandMetadataFromContext(ctx)
+	safeParams := sanitizeAgentCommandParameters(commandType, params)
+	parameters := make(audit.CommandParameters, len(safeParams))
+	for key, value := range safeParams {
+		parameters[key] = value
+	}
+	var createdBy *uint
+	if metadata.OwnerUserID > 0 {
+		ownerUserID := metadata.OwnerUserID
+		createdBy = &ownerUserID
+	}
+	finishedAt := time.Now()
+	commandLog := &audit.CommandLog{
+		CommandID:      resp.CommandId,
+		RequestID:      strings.TrimSpace(metadata.RequestID),
+		ExecutionID:    strings.TrimSpace(metadata.ExecutionID),
+		AgentID:        agentID,
+		CommandType:    commandType,
+		ClientType:     strings.TrimSpace(metadata.ClientType),
+		DisplayCommand: buildAgentDisplayCommand(commandType, safeParams, resp.Output),
+		Parameters:     parameters,
+		Status:         commandStatusFromAgentResponse(resp.Status),
+		Progress:       int(resp.Progress),
+		Output:         resp.Output,
+		Error:          resp.Error,
+		StartedAt:      &startedAt,
+		FinishedAt:     &finishedAt,
+		CreatedBy:      createdBy,
+	}
+	// 插件分片返回 RUNNING 表示当前分片已接收完成，审计记录应结束为成功，不能永久停在运行中。
+	// RUNNING means the current plugin chunk was accepted, so its audit row must finish as successful.
+	if commandType == "transfer_plugin" && resp.Status == pb.CommandStatus_RUNNING {
+		commandLog.Status = audit.CommandStatusSuccess
+	}
+	existing, lookupErr := a.auditRepo.GetCommandLogByCommandID(ctx, resp.CommandId)
+	var commandLogErr error
+	if lookupErr == nil {
+		commandLog.ID = existing.ID
+		commandLog.CreatedAt = existing.CreatedAt
+		commandLogErr = a.auditRepo.UpdateCommandLog(ctx, commandLog)
+	} else if errors.Is(lookupErr, audit.ErrCommandLogNotFound) {
+		commandLogErr = a.auditRepo.CreateCommandLog(ctx, commandLog)
+	} else {
+		commandLogErr = lookupErr
+	}
+	if commandLogErr != nil && !errors.Is(commandLogErr, audit.ErrCommandIDDuplicate) {
+		log.Printf("[Audit] 保存 Agent 命令日志失败: command_id=%s err=%v", resp.CommandId, commandLogErr)
+	}
+	// Agent 命令是控制层操作的执行细节，写入命令日志即可，不单独占审计行。
+	// Agent commands are execution details of a control-plane action. Keep them in command logs, not as audit rows.
+}
+
+// recordPendingCommandLog 在发送前记录命令，确保连接失败和超时也能审计。
+// recordPendingCommandLog records a command before dispatch so connection failures and timeouts remain auditable.
+func (a *agentCommandSenderAdapter) recordPendingCommandLog(ctx context.Context, commandID, agentID, commandType string, params map[string]string, startedAt time.Time) {
+	if a.auditRepo == nil {
+		return
+	}
+	metadata := audit.CommandMetadataFromContext(ctx)
+	safeParams := sanitizeAgentCommandParameters(commandType, params)
+	parameters := make(audit.CommandParameters, len(safeParams))
+	for key, value := range safeParams {
+		parameters[key] = value
+	}
+	var createdBy *uint
+	if metadata.OwnerUserID > 0 {
+		ownerUserID := metadata.OwnerUserID
+		createdBy = &ownerUserID
+	}
+	commandLog := &audit.CommandLog{
+		CommandID:      commandID,
+		RequestID:      strings.TrimSpace(metadata.RequestID),
+		ExecutionID:    strings.TrimSpace(metadata.ExecutionID),
+		AgentID:        agentID,
+		CommandType:    commandType,
+		ClientType:     strings.TrimSpace(metadata.ClientType),
+		DisplayCommand: buildAgentDisplayCommand(commandType, safeParams, ""),
+		Parameters:     parameters,
+		Status:         audit.CommandStatusPending,
+		Progress:       0,
+		StartedAt:      &startedAt,
+		CreatedBy:      createdBy,
+	}
+	if err := a.auditRepo.CreateCommandLog(ctx, commandLog); err != nil && !errors.Is(err, audit.ErrCommandIDDuplicate) {
+		log.Printf("[Audit] 保存待发送 Agent 命令失败: command_id=%s err=%v", commandID, err)
+	}
+}
+
+// sanitizeAgentCommandParameters 移除不应进入审计的二进制正文，并保留可核对的大小信息。
+// sanitizeAgentCommandParameters removes binary payloads from audit data while retaining their verifiable size.
+func sanitizeAgentCommandParameters(commandType string, params map[string]string) map[string]string {
+	safeParams := make(map[string]string, len(params)+1)
+	for key, value := range params {
+		if commandType == "transfer_plugin" && key == "chunk" {
+			continue
+		}
+		safeParams[key] = value
+	}
+	if commandType == "transfer_plugin" {
+		if chunk := params["chunk"]; chunk != "" {
+			safeParams["chunk_bytes"] = strconv.Itoa(base64PayloadSize(chunk))
+		}
+	}
+	return safeParams
+}
+
+// base64PayloadSize 计算标准 Base64 正文解码后的字节数，不分配完整解码缓冲区。
+// base64PayloadSize returns the decoded byte length without allocating a full decoded buffer.
+func base64PayloadSize(value string) int {
+	size := base64.StdEncoding.DecodedLen(len(value))
+	if strings.HasSuffix(value, "==") {
+		return size - 2
+	}
+	if strings.HasSuffix(value, "=") {
+		return size - 1
+	}
+	return size
+}
+
+// recordFailedCommandLog 将未得到 Agent 响应的命令更新为失败终态。
+// recordFailedCommandLog marks a command that received no Agent response as failed.
+func (a *agentCommandSenderAdapter) recordFailedCommandLog(ctx context.Context, commandID string, commandErr error) {
+	if a.auditRepo == nil || strings.TrimSpace(commandID) == "" {
+		return
+	}
+	item, err := a.auditRepo.GetCommandLogByCommandID(ctx, commandID)
+	if err != nil {
+		return
+	}
+	finishedAt := time.Now()
+	item.Status = audit.CommandStatusFailed
+	item.Error = commandErr.Error()
+	item.FinishedAt = &finishedAt
+	if err := a.auditRepo.UpdateCommandLog(ctx, item); err != nil {
+		log.Printf("[Audit] 更新失败 Agent 命令日志失败: command_id=%s err=%v", commandID, err)
+	}
+}
+
+// buildAgentDisplayCommand 生成经过仓库脱敏后可展示的 Agent 操作说明。
+// buildAgentDisplayCommand builds an Agent action description that is redacted by the repository before storage.
+func buildAgentDisplayCommand(commandType string, params map[string]string, output string) string {
+	var result struct {
+		Tool       string `json:"tool"`
+		PID        int    `json:"pid"`
+		OutputPath string `json:"output_path"`
+	}
+	_ = json.Unmarshal([]byte(output), &result)
+	if result.PID > 0 {
+		switch commandType {
+		case "thread_dump":
+			if result.Tool == "jcmd" {
+				return fmt.Sprintf("jcmd %d Thread.print -l", result.PID)
+			}
+			if result.Tool == "jstack" {
+				return fmt.Sprintf("jstack -l %d", result.PID)
+			}
+		case "jvm_dump":
+			if result.Tool == "jcmd" {
+				return fmt.Sprintf("jcmd %d GC.heap_dump %q", result.PID, result.OutputPath)
+			}
+			if result.Tool == "jmap" {
+				return fmt.Sprintf("jmap -dump:live,format=b,file=%q %d", result.OutputPath, result.PID)
+			}
+		}
+	}
+	keys := make([]string, 0, len(params))
+	for key := range params {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys)+1)
+	parts = append(parts, "agent:"+commandType)
+	for _, key := range keys {
+		parts = append(parts, key+"="+strconv.Quote(params[key]))
+	}
+	return strings.Join(parts, " ")
+}
+
+func commandStatusFromAgentResponse(status pb.CommandStatus) audit.CommandStatus {
+	switch status {
+	case pb.CommandStatus_RUNNING:
+		return audit.CommandStatusRunning
+	case pb.CommandStatus_SUCCESS:
+		return audit.CommandStatusSuccess
+	case pb.CommandStatus_FAILED:
+		return audit.CommandStatusFailed
+	case pb.CommandStatus_CANCELLED:
+		return audit.CommandStatusCancelled
+	default:
+		return audit.CommandStatusPending
+	}
 }
 
 // stringToCommandType converts a command type string to pb.CommandType.
@@ -1224,7 +1414,8 @@ func (a *agentCommandSenderAdapter) stringToCommandType(cmdType string) pb.Comma
 // pluginAgentCommandSenderAdapter adapts agent.Manager to plugin.AgentCommandSender interface.
 // pluginAgentCommandSenderAdapter 将 agent.Manager 适配到 plugin.AgentCommandSender 接口。
 type pluginAgentCommandSenderAdapter struct {
-	manager *agent.Manager
+	manager   *agent.Manager
+	auditRepo *audit.Repository
 }
 
 // SendCommand sends a command to an agent and returns the result.
@@ -1241,10 +1432,18 @@ func (a *pluginAgentCommandSenderAdapter) SendCommand(ctx context.Context, agent
 		timeout = 2 * time.Minute
 	}
 
-	resp, err := a.manager.SendCommand(ctx, agentID, cmdType, params, timeout)
+	// 插件命令复用公共 Agent 命令审计，发送失败也会保留一条失败记录。
+	// Plugin commands reuse common Agent command auditing so dispatch failures remain visible.
+	auditSender := &agentCommandSenderAdapter{manager: a.manager, auditRepo: a.auditRepo}
+	startedAt := time.Now()
+	commandID := uuid.NewString()
+	auditSender.recordPendingCommandLog(ctx, commandID, agentID, commandType, params, startedAt)
+	resp, err := a.manager.SendCommandWithID(ctx, commandID, agentID, cmdType, params, timeout)
 	if err != nil {
+		auditSender.recordFailedCommandLog(ctx, commandID, err)
 		return false, "", err
 	}
+	auditSender.recordCommandLog(ctx, agentID, commandType, params, startedAt, resp)
 
 	// For transfer_plugin command, RUNNING status means chunk received successfully
 	// 对于 transfer_plugin 命令，RUNNING 状态表示块接收成功

@@ -25,14 +25,20 @@ import {
   AlertTriangle,
   ArrowUpRight,
   ClipboardCheck,
+  Lightbulb,
   RefreshCw,
   Server,
   Settings,
   ScanSearch,
+  BellRing,
   X,
 } from 'lucide-react';
 import {toast} from 'sonner';
 import services from '@/lib/services';
+import {
+  rememberPreferredClusterId,
+  isSoleDefaultCluster,
+} from '@/lib/cluster-preference';
 import type {
   DiagnosticsTabKey,
   DiagnosticsWorkspaceBootstrapData,
@@ -49,16 +55,19 @@ import {
 } from '@/components/ui/select';
 import {Tabs, TabsContent, TabsList, TabsTrigger} from '@/components/ui/tabs';
 import {cn} from '@/lib/utils';
-import {WorkspaceHeader} from '@/components/common/layout';
+import {WorkspaceHeader, ModuleNavTabs} from '@/components/common/layout';
+import {TroubleshootingMemoryCenter} from '@/components/common/troubleshooting';
 import {DiagnosticsErrorCenter} from './DiagnosticsErrorCenter';
 import {DiagnosticsInspectionCenter} from './DiagnosticsInspectionCenter';
 import {AutoPolicyConfigPanel} from './AutoPolicyConfigPanel';
 
+// 解析当前激活的诊断标签页（支持错误中心、巡检中心、排障经验库）
+// Resolve currently active diagnostics tab (supports error center, inspections, and troubleshooting memories)
 function resolveTab(
   tab: string | null,
   fallback: DiagnosticsTabKey = 'errors',
 ): DiagnosticsTabKey {
-  if (tab === 'errors' || tab === 'inspections') {
+  if (tab === 'errors' || tab === 'inspections' || tab === 'memories') {
     return tab;
   }
   return fallback;
@@ -66,6 +75,8 @@ function resolveTab(
 
 export function DiagnosticsWorkspace() {
   const t = useTranslations('diagnosticsCenter');
+  const tCluster = useTranslations('cluster');
+  const tDock = useTranslations('dock');
   const commonT = useTranslations('common');
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -147,6 +158,24 @@ export function DiagnosticsWorkspace() {
     void loadBootstrap();
   }, [loadBootstrap]);
 
+  // 仅有一个集群且 URL 未指定时，自动切到该默认集群。
+  // When only one cluster exists and URL has no cluster_id, auto-scope to it.
+  useEffect(() => {
+    if (!bootstrap) {
+      return;
+    }
+    if (searchParams.get('cluster_id')) {
+      return;
+    }
+    const options = bootstrap.cluster_options || [];
+    if (options.length !== 1) {
+      return;
+    }
+    const soleId = String(options[0].cluster_id);
+    rememberPreferredClusterId(soleId);
+    updateQuery({cluster_id: soleId});
+  }, [bootstrap, searchParams, updateQuery]);
+
   const selectedClusterName = useMemo(() => {
     if (!bootstrap || selectedClusterId === 'all') {
       return '';
@@ -171,7 +200,39 @@ export function DiagnosticsWorkspace() {
     }
   }, [source, t]);
 
-  const tabs = bootstrap?.tabs || [];
+  // 工作台二级标签列表（保证至少包含错误中心、巡检中心、排障经验库三大核心模块）
+  // Workspace secondary tab list (guarantees error center, inspections, and troubleshooting memories)
+  const tabs = useMemo(() => {
+    const defaultList = [
+      {
+        key: 'errors' as DiagnosticsTabKey,
+        label: t('tabs.errors'),
+        description: t('tabDescriptions.errors'),
+      },
+      {
+        key: 'inspections' as DiagnosticsTabKey,
+        label: t('tabs.inspections'),
+        description: t('tabDescriptions.inspections'),
+      },
+      {
+        key: 'memories' as DiagnosticsTabKey,
+        label: t('tabs.memories'),
+        description: t('tabDescriptions.memories'),
+      },
+    ];
+    if (!bootstrap?.tabs || bootstrap.tabs.length === 0) {
+      return defaultList;
+    }
+    const list = [...bootstrap.tabs];
+    if (!list.some((item) => item.key === 'memories')) {
+      list.push({
+        key: 'memories' as DiagnosticsTabKey,
+        label: t('tabs.memories'),
+        description: t('tabDescriptions.memories'),
+      });
+    }
+    return list;
+  }, [bootstrap?.tabs, t]);
 
   return (
     <div className='space-y-4'>
@@ -179,6 +240,26 @@ export function DiagnosticsWorkspace() {
       <WorkspaceHeader
         icon={<ScanSearch />}
         title={t('title')}
+        tabs={
+          <ModuleNavTabs
+            reorderGroupId='monitoring-diagnostics'
+            items={[
+              {
+                key: 'monitoring',
+                label: tDock('monitoringCenter'),
+                href: '/monitoring',
+                icon: <BellRing className='size-3.5' />,
+              },
+              {
+                key: 'diagnostics',
+                label: t('title'),
+                href: '/diagnostics',
+                icon: <ScanSearch className='size-3.5' />,
+              },
+            ]}
+            activeKey='diagnostics'
+          />
+        }
         badge={
           <span className='inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground'>
             Diagnostics Center
@@ -218,7 +299,10 @@ export function DiagnosticsWorkspace() {
             <Server className='h-3.5 w-3.5 text-muted-foreground' />
             <Select
               value={selectedClusterId}
-              onValueChange={(value) =>
+              onValueChange={(value) => {
+                if (value !== 'all') {
+                  rememberPreferredClusterId(value);
+                }
                 updateQuery({
                   cluster_id: value === 'all' ? null : value,
                   source: null,
@@ -227,8 +311,8 @@ export function DiagnosticsWorkspace() {
                   report_id: null,
                   finding_id: null,
                   task_id: null,
-                })
-              }
+                });
+              }}
             >
               <SelectTrigger className='h-8 text-xs w-[190px] bg-background'>
                 <SelectValue placeholder={t('filters.cluster')} />
@@ -241,6 +325,14 @@ export function DiagnosticsWorkspace() {
                     value={String(cluster.cluster_id)}
                   >
                     {cluster.cluster_name}
+                    {isSoleDefaultCluster(
+                      (bootstrap?.cluster_options || []).map((item) => ({
+                        id: item.cluster_id,
+                      })),
+                      cluster.cluster_id,
+                    )
+                      ? ` · ${tCluster('defaultBadge')}`
+                      : ''}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -326,7 +418,7 @@ export function DiagnosticsWorkspace() {
           updateQuery({tab: resolveTab(value) as string})
         }
       >
-        <TabsList className='grid w-full grid-cols-2 gap-1 p-0.5 h-8 md:w-[320px]'>
+        <TabsList className='grid w-full grid-cols-3 gap-1 p-0.5 h-8 md:w-[480px]'>
           <TabsTrigger value='errors' className='flex items-center gap-1.5 text-xs h-7'>
             <AlertTriangle className='h-3.5 w-3.5 text-amber-500' />
             <span>{t('tabs.errors')}</span>
@@ -334,6 +426,10 @@ export function DiagnosticsWorkspace() {
           <TabsTrigger value='inspections' className='flex items-center gap-1.5 text-xs h-7'>
             <ClipboardCheck className='h-3.5 w-3.5 text-primary' />
             <span>{t('tabs.inspections')}</span>
+          </TabsTrigger>
+          <TabsTrigger value='memories' className='flex items-center gap-1.5 text-xs h-7'>
+            <Lightbulb className='h-3.5 w-3.5 text-emerald-500' />
+            <span>{t('tabs.memories')}</span>
           </TabsTrigger>
         </TabsList>
 
@@ -372,6 +468,15 @@ export function DiagnosticsWorkspace() {
                 onSelectReport={(value) =>
                   updateQuery({report_id: value ? String(value) : null})
                 }
+              />
+            ) : tab.key === 'memories' ? (
+              <TroubleshootingMemoryCenter
+                clusterId={
+                  selectedClusterId !== 'all'
+                    ? Number.parseInt(selectedClusterId, 10)
+                    : undefined
+                }
+                clusterName={selectedClusterName || undefined}
               />
             ) : null}
           </TabsContent>

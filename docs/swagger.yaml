@@ -91,19 +91,36 @@ definitions:
     properties:
       action:
         type: string
+      client_type:
+        type: string
+      command_count:
+        description: |-
+          CommandCount 是同一次请求下发到 Agent 的命令数，只在列表接口填充。
+          CommandCount is the number of Agent commands from the same request. Only list responses fill it.
+        type: integer
+      command_id:
+        type: string
       created_at:
         type: string
       details:
         $ref: '#/definitions/audit.AuditDetails'
+      execution_id:
+        type: string
       id:
         type: integer
       ip_address:
+        type: string
+      request_id:
         type: string
       resource_id:
         type: string
       resource_name:
         type: string
       resource_type:
+        type: string
+      result_status:
+        type: string
+      risk_level:
         type: string
       trigger:
         description: '"auto" | "manual" | ""'
@@ -119,6 +136,8 @@ definitions:
     properties:
       agent_id:
         type: string
+      client_type:
+        type: string
       command_id:
         type: string
       command_type:
@@ -127,7 +146,11 @@ definitions:
         type: string
       created_by:
         type: integer
+      display_command:
+        type: string
       error:
+        type: string
+      execution_id:
         type: string
       finished_at:
         type: string
@@ -141,6 +164,8 @@ definitions:
         $ref: '#/definitions/audit.CommandParameters'
       progress:
         type: integer
+      request_id:
+        type: string
       started_at:
         type: string
       status:
@@ -202,6 +227,36 @@ definitions:
           total:
             type: integer
         type: object
+      error_msg:
+        type: string
+    type: object
+  auth.CLILoginData:
+    properties:
+      expires_at:
+        type: string
+      token:
+        type: string
+      token_type:
+        type: string
+      user:
+        $ref: '#/definitions/auth.UserInfo'
+    type: object
+  auth.CLILoginRequest:
+    properties:
+      expires_in:
+        type: string
+      password:
+        type: string
+      username:
+        type: string
+    required:
+    - password
+    - username
+    type: object
+  auth.CLILoginResponse:
+    properties:
+      data:
+        $ref: '#/definitions/auth.CLILoginData'
       error_msg:
         type: string
     type: object
@@ -272,6 +327,45 @@ definitions:
     properties:
       data:
         $ref: '#/definitions/auth.UserInfo'
+      error_msg:
+        type: string
+    type: object
+  capability.Data:
+    properties:
+      api_version:
+        type: string
+      min_cli_version:
+        type: string
+      operations:
+        items:
+          $ref: '#/definitions/capability.Operation'
+        type: array
+      registry_revision:
+        type: string
+      server_version:
+        type: string
+    type: object
+  capability.Operation:
+    properties:
+      allowed:
+        type: boolean
+      denial_code:
+        type: string
+      impact:
+        $ref: '#/definitions/operation.ImpactSpec'
+      mode:
+        $ref: '#/definitions/operation.OperationMode'
+      operation_id:
+        type: string
+      revision:
+        type: integer
+      risk:
+        $ref: '#/definitions/operation.RiskLevel'
+    type: object
+  capability.Response:
+    properties:
+      data:
+        $ref: '#/definitions/capability.Data'
       error_msg:
         type: string
     type: object
@@ -920,119 +1014,37 @@ definitions:
         description: success, warning, info, error
         type: string
     type: object
-  deepwiki.DeepWikiError:
-    properties:
-      reason:
-        type: string
-      url:
-        type: string
-    type: object
-  deepwiki.DeepWikiRequest:
-    properties:
-      max_depth:
-        description: |-
-          MaxDepth is the maximum depth of pages to crawl (default: 1)
-          MaxDepth 是爬取页面的最大深度（默认：1）
-        type: integer
-      mode:
-        description: |-
-          Mode is the output mode: "aggregate" (single document) or "pages" (structured)
-          Mode 是输出模式："aggregate"（单文档）或 "pages"（结构化）
-        type: string
-      query:
-        description: |-
-          Query is an optional search query to filter results
-          Query 是可选的搜索查询，用于过滤结果
-        type: string
-      url:
-        description: |-
-          URL is the repository URL or path (e.g., "apache/seatunnel")
-          URL 是仓库地址或路径（如 "apache/seatunnel"）
-        type: string
-    required:
-    - url
-    type: object
-  deepwiki.DeepWikiResponse:
-    properties:
-      code:
-        description: |-
-          Code is the error code (only present on error)
-          Code 是错误代码（仅在错误时存在）
-        type: string
-      data:
-        description: |-
-          Data contains the markdown content (aggregate mode) or page array (pages mode)
-          Data 包含 markdown 内容（aggregate 模式）或页面数组（pages 模式）
-      elapsed_ms:
-        description: |-
-          ElapsedMs is the time taken in milliseconds
-          ElapsedMs 是耗时（毫秒）
-        type: integer
-      errors:
-        description: |-
-          Errors contains any errors encountered during fetching
-          Errors 包含获取过程中遇到的错误
-        items:
-          $ref: '#/definitions/deepwiki.DeepWikiError'
-        type: array
-      message:
-        description: |-
-          Message is the error message (only present on error)
-          Message 是错误消息（仅在错误时存在）
-        type: string
-      status:
-        description: |-
-          Status is the response status: "ok", "partial", or "error"
-          Status 是响应状态："ok"、"partial" 或 "error"
-        type: string
-      total_bytes:
-        description: |-
-          TotalBytes is the total size of fetched content
-          TotalBytes 是获取内容的总大小
-        type: integer
-      total_pages:
-        description: |-
-          TotalPages is the number of pages fetched
-          TotalPages 是获取的页面数量
-        type: integer
-    type: object
-  deepwiki.Response:
+  diagnostics.DiagnosticTaskNodeScope:
+    enum:
+    - all
+    - related
+    - custom
+    type: string
+    x-enum-varnames:
+    - DiagnosticTaskNodeScopeAll
+    - DiagnosticTaskNodeScopeRelated
+    - DiagnosticTaskNodeScopeCustom
+  diagnostics.Response:
     properties:
       data: {}
-      error:
+      error_msg:
         type: string
     type: object
-  deepwiki.SearchRequest:
+  diagnostics.RunDiagnosticResourceRequest:
     properties:
-      query:
-        description: |-
-          Query is the search query
-          Query 是搜索查询
-        type: string
-      repo:
-        description: |-
-          Repo is the repository to search (default: "apache/seatunnel")
-          Repo 是要搜索的仓库（默认："apache/seatunnel"）
-        type: string
-    required:
-    - query
-    type: object
-  deepwiki.SearchResponse:
-    properties:
-      query:
-        description: |-
-          Query is the original search query
-          Query 是原始搜索查询
-        type: string
-      results:
-        description: |-
-          Results contains the search results
-          Results 包含搜索结果
-        type: string
-      source:
-        description: |-
-          Source indicates the data source
-          Source 表示数据来源
+      cluster_id:
+        type: integer
+      jvm_dump_min_free_mb:
+        type: integer
+      lookback_minutes:
+        type: integer
+      node_scope:
+        $ref: '#/definitions/diagnostics.DiagnosticTaskNodeScope'
+      selected_node_ids:
+        items:
+          type: integer
+        type: array
+      summary:
         type: string
     type: object
   discovery.ConfirmDiscoveryRequest:
@@ -1078,6 +1090,14 @@ definitions:
       success:
         type: boolean
     type: object
+  execution.Response:
+    properties:
+      data: {}
+      error_code:
+        type: string
+      error_msg:
+        type: string
+    type: object
   github_com_LeonYoah_stx_internal_apps_config.ConfigType:
     enum:
     - seatunnel.yaml
@@ -1085,6 +1105,7 @@ definitions:
     - hazelcast-client.yaml
     - jvm_options
     - log4j2.properties
+    - seatunnel-env.sh
     - hazelcast-master.yaml
     - hazelcast-worker.yaml
     - jvm_master_options
@@ -1096,6 +1117,7 @@ definitions:
     - ConfigTypeHazelcastClient
     - ConfigTypeJVMOptions
     - ConfigTypeLog4j2
+    - ConfigTypeSeatunnelEnv
     - ConfigTypeHazelcastMaster
     - ConfigTypeHazelcastWorker
     - ConfigTypeJVMMasterOptions
@@ -1188,6 +1210,11 @@ definitions:
     - CheckStatusWarning
   github_com_LeonYoah_stx_internal_apps_installer.CheckpointConfig:
     properties:
+      disable_cache:
+        description: |-
+          DisableCache 对应 plugin-config.disable.cache；nil 表示沿用默认（hdfs 类型默认关闭缓存）。
+          DisableCache maps to plugin-config.disable.cache; nil keeps the default (cache off for hdfs type).
+        type: boolean
       hdfs_failover_proxy_provider:
         type: string
       hdfs_ha_enabled:
@@ -1205,12 +1232,22 @@ definitions:
         type: string
       hdfs_namenode_rpc_address_2:
         type: string
+      hdfs_site_path:
+        description: |-
+          HdfsSitePath 是可选的 hdfs-site.xml 路径，对应 SeaTunnel hdfs_site_path。
+          HdfsSitePath is the optional hdfs-site.xml path, mapped to SeaTunnel hdfs_site_path.
+        type: string
       kerberos_keytab_file_path:
         type: string
       kerberos_principal:
         description: HDFS Kerberos authentication / HDFS Kerberos 认证
         type: string
       namespace:
+        type: string
+      s3_credentials_provider:
+        description: |-
+          S3CredentialsProvider 对应 fs.s3a.aws.credentials.provider；空则使用 SimpleAWSCredentialsProvider。
+          S3CredentialsProvider maps to fs.s3a.aws.credentials.provider; empty uses SimpleAWSCredentialsProvider.
         type: string
       storage_access_key:
         type: string
@@ -1273,6 +1310,11 @@ definitions:
     - DeploymentModeSeparated
   github_com_LeonYoah_stx_internal_apps_installer.IMAPConfig:
     properties:
+      disable_cache:
+        description: |-
+          DisableCache 对应 plugin-config.disable.cache；nil 表示沿用默认。
+          DisableCache maps to plugin-config.disable.cache; nil keeps the default.
+        type: boolean
       hdfs_failover_proxy_provider:
         type: string
       hdfs_ha_enabled:
@@ -1291,12 +1333,22 @@ definitions:
         type: string
       hdfs_namenode_rpc_address_2:
         type: string
+      hdfs_site_path:
+        description: |-
+          HdfsSitePath 是可选的 hdfs-site.xml 路径，对应 SeaTunnel hdfs_site_path。
+          HdfsSitePath is the optional hdfs-site.xml path, mapped to SeaTunnel hdfs_site_path.
+        type: string
       kerberos_keytab_file_path:
         type: string
       kerberos_principal:
         description: HDFS Kerberos authentication / HDFS Kerberos 认证
         type: string
       namespace:
+        type: string
+      s3_credentials_provider:
+        description: |-
+          S3CredentialsProvider 对应 fs.s3a.aws.credentials.provider；空则使用 SimpleAWSCredentialsProvider。
+          S3CredentialsProvider maps to fs.s3a.aws.credentials.provider; empty uses SimpleAWSCredentialsProvider.
         type: string
       storage_access_key:
         type: string
@@ -1387,6 +1439,9 @@ definitions:
         type: string
       install_mode:
         $ref: '#/definitions/github_com_LeonYoah_stx_internal_apps_installer.InstallMode'
+      java_proxy_port:
+        description: Managed stx-java-proxy listen port / 托管 stx-java-proxy 监听端口
+        type: integer
       job_log_mode:
         $ref: '#/definitions/github_com_LeonYoah_stx_internal_apps_installer.JobLogMode'
       job_schedule_strategy:
@@ -1502,9 +1557,27 @@ definitions:
         type: string
       file_size:
         type: integer
+      has_source:
+        type: boolean
       is_local:
         type: boolean
       local_path:
+        type: string
+      source_checksum:
+        type: string
+      source_download_urls:
+        additionalProperties:
+          type: string
+        type: object
+      source_error:
+        type: string
+      source_file_name:
+        type: string
+      source_file_size:
+        type: integer
+      source_status:
+        $ref: '#/definitions/installer.DownloadStatus'
+      source_uploaded_at:
         type: string
       uploaded_at:
         type: string
@@ -1807,6 +1880,8 @@ definitions:
         $ref: '#/definitions/github_com_LeonYoah_stx_internal_apps_installer.MirrorSource'
       version:
         type: string
+      with_source:
+        type: boolean
     required:
     - version
     type: object
@@ -1821,6 +1896,7 @@ definitions:
     enum:
     - pending
     - downloading
+    - cancelling
     - completed
     - failed
     - cancelled
@@ -1828,6 +1904,7 @@ definitions:
     x-enum-varnames:
     - DownloadStatusPending
     - DownloadStatusDownloading
+    - DownloadStatusCancelling
     - DownloadStatusCompleted
     - DownloadStatusFailed
     - DownloadStatusCancelled
@@ -1841,6 +1918,8 @@ definitions:
         type: string
       error:
         type: string
+      execution_id:
+        type: string
       id:
         type: string
       message:
@@ -1850,6 +1929,22 @@ definitions:
       progress:
         description: 0-100
         type: integer
+      source_checksum:
+        type: string
+      source_downloaded_bytes:
+        type: integer
+      source_error:
+        type: string
+      source_progress:
+        type: integer
+      source_requested:
+        type: boolean
+      source_status:
+        $ref: '#/definitions/installer.DownloadStatus'
+      source_total_bytes:
+        type: integer
+      source_url:
+        type: string
       speed:
         description: bytes per second
         type: integer
@@ -1952,6 +2047,11 @@ definitions:
     - SlotAllocationStrategyRandom
     - SlotAllocationStrategySystemLoad
     - SlotAllocationStrategySlotRatio
+  installer.SourceFetchRequest:
+    properties:
+      mirror:
+        $ref: '#/definitions/github_com_LeonYoah_stx_internal_apps_installer.MirrorSource'
+    type: object
   installer.UploadChunkResponse:
     properties:
       data:
@@ -2042,6 +2142,41 @@ definitions:
       error_msg:
         type: string
     type: object
+  operation.ImpactSpec:
+    properties:
+      level:
+        $ref: '#/definitions/operation.RiskLevel'
+      message:
+        type: string
+      performance:
+        type: string
+    type: object
+  operation.OperationMode:
+    enum:
+    - normal
+    - watch
+    - download
+    - server_only
+    - proxy
+    type: string
+    x-enum-varnames:
+    - ModeNormal
+    - ModeWatch
+    - ModeDownload
+    - ModeServerOnly
+    - ModeProxy
+  operation.RiskLevel:
+    enum:
+    - R0
+    - R1
+    - R2
+    - R3
+    type: string
+    x-enum-varnames:
+    - RiskR0
+    - RiskR1
+    - RiskR2
+    - RiskR3
   plugin.AddDependencyRequest:
     properties:
       artifact_id:
@@ -2729,202 +2864,41 @@ definitions:
       supports_slot_num:
         type: boolean
     type: object
-  task.CreateTaskRequest:
+  sync.TaskPermissions:
     properties:
-      host_id:
-        description: |-
-          HostID is the target host ID
-          HostID 是目标主机 ID
-        type: integer
-      params:
-        additionalProperties: true
-        description: |-
-          Params contains task-specific parameters
-          Params 包含任务特定的参数
-        type: object
-      timeout_seconds:
-        description: |-
-          TimeoutSeconds is the task timeout in seconds
-          TimeoutSeconds 是任务超时时间（秒）
-        type: integer
-      type:
-        allOf:
-        - $ref: '#/definitions/task.TaskType'
-        description: |-
-          Type is the task type
-          Type 是任务类型
-    required:
-    - host_id
-    - type
-    type: object
-  task.Task:
-    properties:
-      agent_id:
-        description: |-
-          AgentID is the target agent ID
-          AgentID 是目标 Agent ID
-        type: string
-      completed_at:
-        description: |-
-          CompletedAt is when the task completed
-          CompletedAt 是任务完成时间
-        type: string
-      created_at:
-        description: |-
-          CreatedAt is when the task was created
-          CreatedAt 是任务创建时间
-        type: string
-      created_by:
-        description: |-
-          CreatedBy is the user who created the task
-          CreatedBy 是创建任务的用户
-        type: string
-      error:
-        description: |-
-          Error is the error message if failed
-          Error 是失败时的错误消息
-        type: string
-      host_id:
-        description: |-
-          HostID is the target host ID
-          HostID 是目标主机 ID
-        type: integer
-      id:
-        description: |-
-          ID is the unique task identifier
-          ID 是唯一的任务标识符
-        type: string
-      max_retries:
-        description: |-
-          MaxRetries is the maximum number of retries
-          MaxRetries 是最大重试次数
-        type: integer
-      message:
-        description: |-
-          Message is the current status message
-          Message 是当前状态消息
-        type: string
-      params:
-        additionalProperties: true
-        description: |-
-          Params contains task-specific parameters
-          Params 包含任务特定的参数
-        type: object
-      progress:
-        description: |-
-          Progress is the task progress (0-100)
-          Progress 是任务进度（0-100）
-        type: integer
-      result:
-        additionalProperties: true
-        description: |-
-          Result contains task execution result
-          Result 包含任务执行结果
-        type: object
-      retry_count:
-        description: |-
-          RetryCount is the number of retry attempts
-          RetryCount 是重试次数
-        type: integer
-      retryable:
-        description: |-
-          Retryable indicates if the task can be retried
-          Retryable 表示任务是否可重试
+      can_edit:
         type: boolean
-      started_at:
-        description: |-
-          StartedAt is when the task started executing
-          StartedAt 是任务开始执行时间
-        type: string
-      status:
-        allOf:
-        - $ref: '#/definitions/task.TaskStatus'
-        description: |-
-          Status is the current task status
-          Status 是当前任务状态
-      timeout_seconds:
-        description: |-
-          TimeoutSeconds is the task timeout in seconds (0 means no timeout)
-          TimeoutSeconds 是任务超时时间（秒），0 表示无超时
-        type: integer
-      type:
-        allOf:
-        - $ref: '#/definitions/task.TaskType'
-        description: |-
-          Type is the task type
-          Type 是任务类型
-    type: object
-  task.TaskListAPIResponse:
-    properties:
-      data:
-        $ref: '#/definitions/task.TaskListResponse'
-      error_msg:
-        type: string
-    type: object
-  task.TaskListResponse:
-    properties:
-      tasks:
-        description: |-
-          Tasks is the list of tasks
-          Tasks 是任务列表
+      can_manage:
+        type: boolean
+      collaborator_ids:
         items:
-          $ref: '#/definitions/task.Task'
+          type: integer
         type: array
-      total:
-        description: |-
-          Total is the total number of tasks
-          Total 是任务总数
+      is_collaborator:
+        type: boolean
+      is_owner:
+        type: boolean
+      is_public:
+        type: boolean
+      task_id:
         type: integer
     type: object
-  task.TaskResponse:
+  sync.TaskPermissionsResponse:
     properties:
       data:
-        $ref: '#/definitions/task.Task'
+        $ref: '#/definitions/sync.TaskPermissions'
       error_msg:
         type: string
     type: object
-  task.TaskStatus:
-    enum:
-    - pending
-    - running
-    - success
-    - failed
-    - cancelled
-    - timeout
-    type: string
-    x-enum-varnames:
-    - TaskStatusPending
-    - TaskStatusRunning
-    - TaskStatusSuccess
-    - TaskStatusFailed
-    - TaskStatusCancelled
-    - TaskStatusTimeout
-  task.TaskType:
-    enum:
-    - install
-    - uninstall
-    - upgrade
-    - start
-    - stop
-    - restart
-    - precheck
-    - collect_logs
-    - transfer_package
-    - install_plugin
-    - uninstall_plugin
-    type: string
-    x-enum-varnames:
-    - TaskTypeInstall
-    - TaskTypeUninstall
-    - TaskTypeUpgrade
-    - TaskTypeStart
-    - TaskTypeStop
-    - TaskTypeRestart
-    - TaskTypePrecheck
-    - TaskTypeCollectLogs
-    - TaskTypeTransferPackage
-    - TaskTypeInstallPlugin
-    - TaskTypeUninstallPlugin
+  sync.UpdateTaskPermissionsRequest:
+    properties:
+      collaborator_ids:
+        items:
+          type: integer
+        type: array
+      is_public:
+        type: boolean
+    type: object
 info:
   contact: {}
   title: STX
@@ -3110,6 +3084,15 @@ paths:
         name: action
         type: string
       - in: query
+        name: action_group
+        type: string
+      - in: query
+        name: client_type
+        type: string
+      - in: query
+        name: command_id
+        type: string
+      - in: query
         minimum: 1
         name: current
         type: integer
@@ -3117,10 +3100,19 @@ paths:
         name: end_time
         type: string
       - in: query
+        name: execution_id
+        type: string
+      - in: query
+        name: request_id
+        type: string
+      - in: query
         name: resource_id
         type: string
       - in: query
         name: resource_type
+        type: string
+      - in: query
+        name: result_status
         type: string
       - in: query
         maximum: 100
@@ -3166,6 +3158,48 @@ paths:
             $ref: '#/definitions/audit.GetAuditLogResponse'
       tags:
       - audit
+  /api/v1/auth/cli/login:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: CLI 登录请求
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/auth.CLILoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/auth.CLILoginResponse'
+      tags:
+      - auth
+  /api/v1/auth/cli/logout:
+    post:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/auth.LogoutResponse'
+      tags:
+      - auth
+  /api/v1/auth/cli/whoami:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/auth.UserInfoResponse'
+      tags:
+      - auth
   /api/v1/auth/login:
     post:
       consumes:
@@ -3228,6 +3262,17 @@ paths:
             $ref: '#/definitions/auth.UserInfoResponse'
       tags:
       - auth
+  /api/v1/capabilities:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/capability.Response'
+      tags:
+      - capability
   /api/v1/clusters:
     get:
       parameters:
@@ -3930,6 +3975,9 @@ paths:
         name: host_id
         type: integer
       - in: query
+        name: request_id
+        type: string
+      - in: query
         maximum: 100
         minimum: 1
         name: size
@@ -4310,100 +4358,157 @@ paths:
       summary: Get dashboard overview statistics
       tags:
       - Dashboard
-  /api/v1/deepwiki/docs:
+  /api/v1/diagnostics/resources:
     get:
-      consumes:
-      - application/json
-      description: Fetch SeaTunnel documentation from DeepWiki
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            allOf:
-            - $ref: '#/definitions/deepwiki.Response'
-            - properties:
-                data:
-                  $ref: '#/definitions/deepwiki.DeepWikiResponse'
-              type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/deepwiki.Response'
-      summary: Get SeaTunnel documentation from DeepWiki
+            $ref: '#/definitions/diagnostics.Response'
       tags:
-      - DeepWiki
-  /api/v1/deepwiki/fetch:
+      - diagnostics
+  /api/v1/diagnostics/resources/{code}:
+    get:
+      parameters:
+      - description: 诊断资源编码
+        in: path
+        name: code
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/diagnostics.Response'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/diagnostics.Response'
+      tags:
+      - diagnostics
+  /api/v1/diagnostics/resources/{code}/run:
     post:
       consumes:
       - application/json
-      description: Fetch documentation from DeepWiki for a specific repository
       parameters:
-      - description: Fetch request
+      - description: 诊断资源编码
+        in: path
+        name: code
+        required: true
+        type: string
+      - description: 单项诊断资源请求
         in: body
         name: request
         required: true
         schema:
-          $ref: '#/definitions/deepwiki.DeepWikiRequest'
+          $ref: '#/definitions/diagnostics.RunDiagnosticResourceRequest'
       produces:
       - application/json
       responses:
-        "200":
-          description: OK
+        "201":
+          description: Created
           schema:
-            allOf:
-            - $ref: '#/definitions/deepwiki.Response'
-            - properties:
-                data:
-                  $ref: '#/definitions/deepwiki.DeepWikiResponse'
-              type: object
+            $ref: '#/definitions/diagnostics.Response'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/deepwiki.Response'
-        "500":
-          description: Internal Server Error
+            $ref: '#/definitions/diagnostics.Response'
+        "403":
+          description: Forbidden
           schema:
-            $ref: '#/definitions/deepwiki.Response'
-      summary: Fetch documentation from DeepWiki
+            $ref: '#/definitions/diagnostics.Response'
       tags:
-      - DeepWiki
-  /api/v1/deepwiki/search:
-    post:
-      consumes:
-      - application/json
-      description: Search SeaTunnel documentation in DeepWiki
+      - diagnostics
+  /api/v1/diagnostics/tasks/{id}/artifacts:
+    get:
       parameters:
-      - description: Search request
-        in: body
-        name: request
+      - description: 诊断任务 ID
+        in: path
+        name: id
         required: true
-        schema:
-          $ref: '#/definitions/deepwiki.SearchRequest'
+        type: integer
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            allOf:
-            - $ref: '#/definitions/deepwiki.Response'
-            - properties:
-                data:
-                  $ref: '#/definitions/deepwiki.SearchResponse'
-              type: object
-        "400":
-          description: Bad Request
+            $ref: '#/definitions/diagnostics.Response'
+        "404":
+          description: Not Found
           schema:
-            $ref: '#/definitions/deepwiki.Response'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/deepwiki.Response'
-      summary: Search SeaTunnel documentation
+            $ref: '#/definitions/diagnostics.Response'
       tags:
-      - DeepWiki
+      - diagnostics
+  /api/v1/executions/{id}:
+    get:
+      parameters:
+      - description: 公共执行编号
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/execution.Response'
+      tags:
+      - execution
+  /api/v1/executions/{id}/cancel:
+    post:
+      parameters:
+      - description: 公共执行编号
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 幂等键
+        in: header
+        name: Idempotency-Key
+        required: true
+        type: string
+      - description: 确认取消影响
+        in: header
+        name: X-STX-Confirm
+        required: true
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/execution.Response'
+      tags:
+      - execution
+  /api/v1/executions/{id}/wait:
+    get:
+      parameters:
+      - description: 公共执行编号
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 服务端单次等待秒数，范围为 1 到 30
+        in: query
+        name: timeout_seconds
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/execution.Response'
+      tags:
+      - execution
   /api/v1/health:
     get:
       produces:
@@ -4800,27 +4905,6 @@ paths:
             $ref: '#/definitions/installer.PrecheckResponse'
       tags:
       - installation
-  /api/v1/hosts/{id}/tasks:
-    get:
-      parameters:
-      - description: 主机ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      - description: 返回数量限制
-        in: query
-        name: limit
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/task.TaskListAPIResponse'
-      tags:
-      - tasks
   /api/v1/oauth/callback:
     post:
       parameters:
@@ -4911,6 +4995,72 @@ paths:
             $ref: '#/definitions/installer.GetPackageInfoResponse'
       tags:
       - packages
+  /api/v1/packages/{version}/source/download:
+    get:
+      parameters:
+      - description: 版本号
+        in: path
+        name: version
+        required: true
+        type: string
+      produces:
+      - application/gzip
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+      tags:
+      - packages
+  /api/v1/packages/{version}/source/fetch:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: 版本号
+        in: path
+        name: version
+        required: true
+        type: string
+      - description: 源码下载请求
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/installer.SourceFetchRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/installer.UploadPackageResponse'
+      tags:
+      - packages
+  /api/v1/packages/{version}/source/upload:
+    post:
+      consumes:
+      - multipart/form-data
+      parameters:
+      - description: 版本号
+        in: path
+        name: version
+        required: true
+        type: string
+      - description: 源码包文件
+        in: formData
+        name: source_file
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/installer.UploadPackageResponse'
+      tags:
+      - packages
   /api/v1/packages/download:
     post:
       consumes:
@@ -4985,6 +5135,10 @@ paths:
         in: formData
         name: file
         required: true
+        type: file
+      - description: 同版本源码包文件
+        in: formData
+        name: source_file
         type: file
       - description: 版本号
         in: formData
@@ -5293,20 +5447,13 @@ paths:
             $ref: '#/definitions/plugin.ListPluginsResponse'
       tags:
       - plugins
-  /api/v1/tasks:
+  /api/v1/sync/tasks/{id}/permissions:
     get:
       parameters:
-      - description: 任务状态过滤
-        in: query
-        name: status
-        type: string
-      - description: 任务类型过滤
-        in: query
-        name: type
-        type: string
-      - description: 返回数量限制
-        in: query
-        name: limit
+      - description: 任务 ID
+        in: path
+        name: id
+        required: true
         type: integer
       produces:
       - application/json
@@ -5314,94 +5461,57 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/task.TaskListAPIResponse'
+            $ref: '#/definitions/sync.TaskPermissionsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/sync.TaskPermissionsResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/sync.TaskPermissionsResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/sync.TaskPermissionsResponse'
+      summary: 获取同步任务共享权限
       tags:
-      - tasks
-    post:
+      - Sync
+    put:
       consumes:
       - application/json
       parameters:
-      - description: 创建任务请求
+      - description: 任务 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 共享权限请求
         in: body
         name: request
         required: true
         schema:
-          $ref: '#/definitions/task.CreateTaskRequest'
+          $ref: '#/definitions/sync.UpdateTaskPermissionsRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/task.TaskResponse'
-      tags:
-      - tasks
-  /api/v1/tasks/{id}:
-    get:
-      parameters:
-      - description: 任务ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
+            $ref: '#/definitions/sync.TaskPermissionsResponse'
+        "400":
+          description: Bad Request
           schema:
-            $ref: '#/definitions/task.TaskResponse'
-      tags:
-      - tasks
-  /api/v1/tasks/{id}/cancel:
-    post:
-      parameters:
-      - description: 任务ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
+            $ref: '#/definitions/sync.TaskPermissionsResponse'
+        "403":
+          description: Forbidden
           schema:
-            $ref: '#/definitions/task.TaskResponse'
-      tags:
-      - tasks
-  /api/v1/tasks/{id}/retry:
-    post:
-      parameters:
-      - description: 任务ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
+            $ref: '#/definitions/sync.TaskPermissionsResponse'
+        "404":
+          description: Not Found
           schema:
-            $ref: '#/definitions/task.TaskResponse'
+            $ref: '#/definitions/sync.TaskPermissionsResponse'
+      summary: 更新同步任务共享权限
       tags:
-      - tasks
-  /api/v1/tasks/{id}/start:
-    post:
-      parameters:
-      - description: 任务ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/task.TaskResponse'
-      tags:
-      - tasks
+      - Sync
 swagger: "2.0"

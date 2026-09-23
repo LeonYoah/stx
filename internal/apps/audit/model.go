@@ -106,22 +106,28 @@ func (d *AuditDetails) Scan(value interface{}) error {
 // CommandLog 表示 Agent 执行命令的记录。
 // Requirements: 10.1, 10.3
 type CommandLog struct {
-	ID          uint              `json:"id" gorm:"primaryKey;autoIncrement"`
-	CommandID   string            `json:"command_id" gorm:"size:50;uniqueIndex;not null"`
-	AgentID     string            `json:"agent_id" gorm:"size:100;not null;index"`
-	HostID      *uint             `json:"host_id" gorm:"index"`
-	CommandType string            `json:"command_type" gorm:"size:30;not null"`
-	Parameters  CommandParameters `json:"parameters" gorm:"type:json"`
-	Status      CommandStatus     `json:"status" gorm:"size:20;not null;index"`
-	Progress    int               `json:"progress" gorm:"default:0"`
+	ID          uint   `json:"id" gorm:"primaryKey;autoIncrement"`
+	CommandID   string `json:"command_id" gorm:"size:50;uniqueIndex;not null"`
+	RequestID   string `json:"request_id,omitempty" gorm:"size:64;index"`
+	ExecutionID string `json:"execution_id,omitempty" gorm:"size:36;index"`
+	AgentID     string `json:"agent_id" gorm:"size:100;not null;index"`
+	HostID      *uint  `json:"host_id" gorm:"index"`
+	CommandType string `json:"command_type" gorm:"size:30;not null"`
+	ClientType  string `json:"client_type,omitempty" gorm:"size:20;index"`
+	// DisplayCommand 保存经过脱敏、适合审计展示的实际命令或 Agent 操作说明。
+	// DisplayCommand stores a redacted command or Agent action description suitable for audit display.
+	DisplayCommand string            `json:"display_command,omitempty" gorm:"type:text"`
+	Parameters     CommandParameters `json:"parameters" gorm:"type:json"`
+	Status         CommandStatus     `json:"status" gorm:"size:20;not null;index"`
+	Progress       int               `json:"progress" gorm:"default:0"`
 	// Output 存储命令执行的原始内容输出，兼容 SQLite/MySQL/PostgreSQL。
 	// Output stores the raw command execution output, compatible with SQLite/MySQL/PostgreSQL.
-	Output      string            `json:"output" gorm:"type:text"`
-	Error       string            `json:"error" gorm:"type:text"`
-	StartedAt   *time.Time        `json:"started_at"`
-	FinishedAt  *time.Time        `json:"finished_at"`
-	CreatedAt   time.Time         `json:"created_at" gorm:"autoCreateTime;index"`
-	CreatedBy   *uint             `json:"created_by"`
+	Output     string     `json:"output" gorm:"type:text"`
+	Error      string     `json:"error" gorm:"type:text"`
+	StartedAt  *time.Time `json:"started_at"`
+	FinishedAt *time.Time `json:"finished_at"`
+	CreatedAt  time.Time  `json:"created_at" gorm:"autoCreateTime;index"`
+	CreatedBy  *uint      `json:"created_by"`
 }
 
 // TableName specifies the table name for the CommandLog model.
@@ -141,6 +147,12 @@ type AuditLog struct {
 	ResourceType string `json:"resource_type" gorm:"size:50;not null;index:idx_resource"`
 	ResourceID   string `json:"resource_id" gorm:"size:100;index:idx_resource"`
 	ResourceName string `json:"resource_name" gorm:"size:200"`
+	RequestID    string `json:"request_id,omitempty" gorm:"size:64;index"`
+	ExecutionID  string `json:"execution_id,omitempty" gorm:"size:36;index"`
+	CommandID    string `json:"command_id,omitempty" gorm:"size:50;index"`
+	ClientType   string `json:"client_type,omitempty" gorm:"size:20;index"`
+	RiskLevel    string `json:"risk_level,omitempty" gorm:"size:4;index"`
+	ResultStatus string `json:"result_status,omitempty" gorm:"size:32;index"`
 	// Trigger: "auto" (Agent) or "manual" (user), empty for legacy records.
 	// Trigger：自动（Agent）或手动（用户），空表示旧数据。
 	Trigger   string       `json:"trigger" gorm:"size:20;index"`
@@ -167,6 +179,7 @@ type CommandLogFilter struct {
 	StartTime   *time.Time    `json:"start_time"`
 	EndTime     *time.Time    `json:"end_time"`
 	CreatedBy   *uint         `json:"created_by"`
+	RequestID   string        `json:"request_id"`
 	Page        int           `json:"page"`
 	PageSize    int           `json:"page_size"`
 }
@@ -175,11 +188,20 @@ type CommandLogFilter struct {
 // AuditLogFilter 表示查询审计日志的过滤条件。
 // Requirements: 10.4
 type AuditLogFilter struct {
-	UserID       *uint  `json:"user_id"`
-	Username     string `json:"username"`
-	Action       string `json:"action"`
+	UserID   *uint  `json:"user_id"`
+	Username string `json:"username"`
+	Action   string `json:"action"`
+	// ActionGroup 是界面上的操作类别，展开后过滤多个 action。
+	// ActionGroup is a UI action category that filters several stored actions.
+	ActionGroup  string `json:"-"`
 	ResourceType string `json:"resource_type"`
 	ResourceID   string `json:"resource_id"`
+	RequestID    string `json:"request_id"`
+	ExecutionID  string `json:"execution_id"`
+	CommandID    string `json:"command_id"`
+	ClientType   string `json:"client_type"`
+	ResultStatus string `json:"result_status"`
+	IncludeAll   bool   `json:"-"`
 	// Trigger filters by trigger column: "auto" (agent) or "manual" (user).
 	// Trigger 按 trigger 字段过滤：auto（Agent 自动）或 manual（手动）。
 	Trigger   string     `json:"trigger"`
@@ -192,40 +214,48 @@ type AuditLogFilter struct {
 // CommandLogInfo represents command log information for API responses.
 // CommandLogInfo 表示 API 响应的命令日志信息。
 type CommandLogInfo struct {
-	ID          uint              `json:"id"`
-	CommandID   string            `json:"command_id"`
-	AgentID     string            `json:"agent_id"`
-	HostID      *uint             `json:"host_id"`
-	CommandType string            `json:"command_type"`
-	Parameters  CommandParameters `json:"parameters"`
-	Status      CommandStatus     `json:"status"`
-	Progress    int               `json:"progress"`
-	Output      string            `json:"output"`
-	Error       string            `json:"error"`
-	StartedAt   *time.Time        `json:"started_at"`
-	FinishedAt  *time.Time        `json:"finished_at"`
-	CreatedAt   time.Time         `json:"created_at"`
-	CreatedBy   *uint             `json:"created_by"`
+	ID             uint              `json:"id"`
+	CommandID      string            `json:"command_id"`
+	RequestID      string            `json:"request_id,omitempty"`
+	ExecutionID    string            `json:"execution_id,omitempty"`
+	AgentID        string            `json:"agent_id"`
+	HostID         *uint             `json:"host_id"`
+	CommandType    string            `json:"command_type"`
+	ClientType     string            `json:"client_type,omitempty"`
+	DisplayCommand string            `json:"display_command,omitempty"`
+	Parameters     CommandParameters `json:"parameters"`
+	Status         CommandStatus     `json:"status"`
+	Progress       int               `json:"progress"`
+	Output         string            `json:"output"`
+	Error          string            `json:"error"`
+	StartedAt      *time.Time        `json:"started_at"`
+	FinishedAt     *time.Time        `json:"finished_at"`
+	CreatedAt      time.Time         `json:"created_at"`
+	CreatedBy      *uint             `json:"created_by"`
 }
 
 // ToCommandLogInfo converts a CommandLog to CommandLogInfo.
 // ToCommandLogInfo 将 CommandLog 转换为 CommandLogInfo。
 func (c *CommandLog) ToCommandLogInfo() *CommandLogInfo {
 	return &CommandLogInfo{
-		ID:          c.ID,
-		CommandID:   c.CommandID,
-		AgentID:     c.AgentID,
-		HostID:      c.HostID,
-		CommandType: c.CommandType,
-		Parameters:  c.Parameters,
-		Status:      c.Status,
-		Progress:    c.Progress,
-		Output:      c.Output,
-		Error:       c.Error,
-		StartedAt:   c.StartedAt,
-		FinishedAt:  c.FinishedAt,
-		CreatedAt:   c.CreatedAt,
-		CreatedBy:   c.CreatedBy,
+		ID:             c.ID,
+		CommandID:      c.CommandID,
+		RequestID:      c.RequestID,
+		ExecutionID:    c.ExecutionID,
+		AgentID:        c.AgentID,
+		HostID:         c.HostID,
+		CommandType:    c.CommandType,
+		ClientType:     c.ClientType,
+		DisplayCommand: c.DisplayCommand,
+		Parameters:     c.Parameters,
+		Status:         c.Status,
+		Progress:       c.Progress,
+		Output:         c.Output,
+		Error:          c.Error,
+		StartedAt:      c.StartedAt,
+		FinishedAt:     c.FinishedAt,
+		CreatedAt:      c.CreatedAt,
+		CreatedBy:      c.CreatedBy,
 	}
 }
 
@@ -239,11 +269,20 @@ type AuditLogInfo struct {
 	ResourceType string       `json:"resource_type"`
 	ResourceID   string       `json:"resource_id"`
 	ResourceName string       `json:"resource_name"`
+	RequestID    string       `json:"request_id,omitempty"`
+	ExecutionID  string       `json:"execution_id,omitempty"`
+	CommandID    string       `json:"command_id,omitempty"`
+	ClientType   string       `json:"client_type,omitempty"`
+	RiskLevel    string       `json:"risk_level,omitempty"`
+	ResultStatus string       `json:"result_status,omitempty"`
 	Trigger      string       `json:"trigger"` // "auto" | "manual" | ""
 	Details      AuditDetails `json:"details"`
 	IPAddress    string       `json:"ip_address"`
 	UserAgent    string       `json:"user_agent"`
 	CreatedAt    time.Time    `json:"created_at"`
+	// CommandCount 是同一次请求下发到 Agent 的命令数，只在列表接口填充。
+	// CommandCount is the number of Agent commands from the same request. Only list responses fill it.
+	CommandCount int `json:"command_count,omitempty"`
 }
 
 // ToAuditLogInfo converts an AuditLog to AuditLogInfo.
@@ -257,6 +296,12 @@ func (a *AuditLog) ToAuditLogInfo() *AuditLogInfo {
 		ResourceType: a.ResourceType,
 		ResourceID:   a.ResourceID,
 		ResourceName: a.ResourceName,
+		RequestID:    a.RequestID,
+		ExecutionID:  a.ExecutionID,
+		CommandID:    a.CommandID,
+		ClientType:   a.ClientType,
+		RiskLevel:    a.RiskLevel,
+		ResultStatus: a.ResultStatus,
 		Trigger:      a.Trigger,
 		Details:      a.Details,
 		IPAddress:    a.IPAddress,

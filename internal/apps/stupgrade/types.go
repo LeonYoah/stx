@@ -61,6 +61,8 @@ const (
 	ExecutionStatusPending           ExecutionStatus = "pending"
 	ExecutionStatusReady             ExecutionStatus = "ready"
 	ExecutionStatusRunning           ExecutionStatus = "running"
+	ExecutionStatusCancelRequested   ExecutionStatus = "cancel_requested"
+	ExecutionStatusCancelling        ExecutionStatus = "cancelling"
 	ExecutionStatusSucceeded         ExecutionStatus = "succeeded"
 	ExecutionStatusFailed            ExecutionStatus = "failed"
 	ExecutionStatusBlocked           ExecutionStatus = "blocked"
@@ -342,15 +344,18 @@ type CreatePlanResult struct {
 // TaskListFilter 描述升级任务列表查询条件。
 // TaskListFilter describes the filters used when querying upgrade tasks.
 type TaskListFilter struct {
-	ClusterID uint
-	Page      int
-	PageSize  int
+	ClusterID   uint
+	Page        int
+	PageSize    int
+	OwnerUserID uint
+	IncludeAll  bool
 }
 
 // UpgradeTaskSummary 描述升级任务列表中的摘要信息。
 // UpgradeTaskSummary describes the summary fields returned by the upgrade task list.
 type UpgradeTaskSummary struct {
 	ID             uint            `json:"id"`
+	ExecutionID    string          `json:"execution_id,omitempty"`
 	ClusterID      uint            `json:"cluster_id"`
 	PlanID         uint            `json:"plan_id"`
 	SourceVersion  string          `json:"source_version"`
@@ -377,6 +382,8 @@ type StepLogFilter struct {
 	Level           LogLevel
 	Page            int
 	PageSize        int
+	OwnerUserID     uint
+	IncludeAll      bool
 }
 
 // DefaultExecutionSteps 返回 MVP 升级执行的固定步骤顺序。

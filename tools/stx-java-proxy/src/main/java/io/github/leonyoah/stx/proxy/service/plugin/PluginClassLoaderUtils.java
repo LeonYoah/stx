@@ -86,6 +86,21 @@ public final class PluginClassLoaderUtils {
         }
         collectJarPaths(seatunnelHome.resolve("connectors"), pluginJars);
         collectJarPaths(seatunnelHome.resolve("plugins"), pluginJars);
+        collectJarPaths(seatunnelHome.resolve("lib"), pluginJars);
+        collectJarPaths(seatunnelHome.resolve("starter"), pluginJars);
+        collectJarPaths(seatunnelHome.resolve("seatunnel-dist"), pluginJars);
+
+        String extraPaths = System.getProperty("stx.connector.paths");
+        if (StringUtils.isBlank(extraPaths)) {
+            extraPaths = System.getenv("STX_CONNECTOR_PATHS");
+        }
+        if (StringUtils.isNotBlank(extraPaths)) {
+            for (String extraPath : extraPaths.split("[,;:]")) {
+                if (StringUtils.isNotBlank(extraPath)) {
+                    collectJarPaths(Paths.get(extraPath.trim()), pluginJars);
+                }
+            }
+        }
         return pluginJars;
     }
 
@@ -197,9 +212,18 @@ public final class PluginClassLoaderUtils {
      * current proxy.
      */
     private static String resolveSeatunnelHome() {
-        String seatunnelHome = System.getProperty("SEATUNNEL_HOME");
+        String seatunnelHome = System.getProperty("stx.java.proxy.seatunnel.home");
+        if (StringUtils.isBlank(seatunnelHome)) {
+            seatunnelHome = System.getProperty("SEATUNNEL_HOME");
+        }
+        if (StringUtils.isBlank(seatunnelHome)) {
+            seatunnelHome = System.getProperty("seatunnel.home");
+        }
         if (StringUtils.isBlank(seatunnelHome)) {
             seatunnelHome = System.getenv("SEATUNNEL_HOME");
+        }
+        if (StringUtils.isBlank(seatunnelHome)) {
+            seatunnelHome = System.getenv("STX_JAVA_PROXY_SEATUNNEL_HOME");
         }
         return seatunnelHome;
     }

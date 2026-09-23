@@ -160,7 +160,19 @@ public class StxJavaProxyServer {
     private void registerContexts() {
         httpServer.createContext(
                 "/healthz",
-                exchange -> writeJson(exchange, 200, Collections.singletonMap("ok", true)));
+                exchange -> {
+                    Runtime runtime = Runtime.getRuntime();
+                    Map<String, Object> resp = new LinkedHashMap<>();
+                    resp.put("ok", true);
+                    Map<String, Object> memory = new LinkedHashMap<>();
+                    memory.put("maxMemoryBytes", runtime.maxMemory());
+                    memory.put("totalMemoryBytes", runtime.totalMemory());
+                    memory.put("freeMemoryBytes", runtime.freeMemory());
+                    memory.put("usedMemoryBytes", runtime.totalMemory() - runtime.freeMemory());
+                    memory.put("maxMemoryMb", runtime.maxMemory() / (1024 * 1024));
+                    resp.put("jvmMemory", memory);
+                    writeJson(exchange, 200, resp);
+                });
         httpServer.createContext(
                 "/api/v1/config/validate",
                 new JsonPostHandler() {

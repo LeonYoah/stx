@@ -17,6 +17,7 @@
 
 'use client';
 
+import {KapaWidgetMount} from '@/components/common/layout/KapaWidgetMount';
 import {ManagementBar} from '@/components/common/layout/ManagementBar';
 import {RouteProgressBar} from '@/components/common/layout/RouteProgressBar';
 import {usePathname} from 'next/navigation';
@@ -33,6 +34,9 @@ export default function ProjectLayout({children}: {children: React.ReactNode}) {
       <Suspense fallback={null}>
         <RouteProgressBar />
       </Suspense>
+
+      {/* Ask AI 右下角常驻悬浮按钮 / Persistent bottom-right Ask AI floating widget */}
+      <KapaWidgetMount />
 
       {/* 底部常驻 Dock 栏：保持挂载，页面切换时零卸载与零重绘 */}
       {/* Bottom persistent Dock bar: remains mounted across page switches without remounting */}

@@ -37,6 +37,7 @@ import {
 import {Badge} from '@/components/ui/badge';
 import {ScrollArea} from '@/components/ui/scroll-area';
 import {cn} from '@/lib/utils';
+import {localizeBackendText} from '@/lib/i18n/localize-text';
 import {
   CheckCircle2,
   XCircle,
@@ -167,7 +168,9 @@ export function PrecheckStep({
             </h4>
             <StatusIcon className={cn('h-5 w-5 flex-shrink-0', config.color)} />
           </div>
-          <p className='text-sm text-muted-foreground mt-1'>{item.message}</p>
+          <p className='text-sm text-muted-foreground mt-1'>
+            {localizeBackendText(item.message)}
+          </p>
 
           {/* Details / 详细信息 */}
           {item.details && Object.keys(item.details).length > 0 && (
@@ -227,7 +230,9 @@ export function PrecheckStep({
             </Button>
 
             {result && (
-              <p className='text-sm text-muted-foreground'>{result.summary}</p>
+              <p className='text-sm text-muted-foreground'>
+                {localizeBackendText(result.summary)}
+              </p>
             )}
           </div>
         </CardContent>

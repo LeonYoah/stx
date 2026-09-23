@@ -20,9 +20,9 @@ WORKDIR /opt/stx/frontend
 COPY --from=builder /src/frontend/dist-standalone ./
 
 ENV NODE_ENV=production \
-    PORT=80 \
+    PORT=17880 \
     HOSTNAME=0.0.0.0
 
-EXPOSE 80
+EXPOSE 17880
 
 ENTRYPOINT ["node", "server.js"]

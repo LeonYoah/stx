@@ -28,3 +28,4 @@ export {CommandTable} from './CommandTable';
 export {CommandDetail} from './CommandDetail';
 export {AuditLogMain} from './AuditLogMain';
 export {AuditLogTable} from './AuditLogTable';
+export {AuditTraceSheet} from './AuditTraceSheet';

@@ -43,8 +43,6 @@ on:
           - sqlite
           - postgres
           - mysql
-  schedule:
-    - cron: '0 18 * * *'
 
 permissions:
   contents: read
@@ -99,6 +97,7 @@ jobs:
               - 'scripts/restart.sh'
             installer_real:
               - 'frontend/e2e/install-wizard-real.spec.ts'
+              - 'frontend/e2e/stx-cli-installer-real.spec.ts'
               - 'frontend/e2e/helpers/install-wizard-real.ts'
               - 'frontend/scripts/e2e/run-real-installer.sh'
               - 'frontend/playwright.config.ts'
@@ -106,6 +105,10 @@ jobs:
               - 'frontend/lib/services/installer/**'
               - 'frontend/app/(main)/e2e-lab/install-wizard/**'
               - 'internal/apps/installer/**'
+              - 'internal/apps/cluster/**'
+              - 'internal/cmd/**'
+              - 'internal/cli/**'
+              - 'internal/operation/**'
               - 'agent/internal/installer/**'
               - 'internal/router/router.go'
               - 'config.e2e.installer-real.yaml'
@@ -313,7 +316,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.E2E_INSTALLER_REAL_PACKAGE_CACHE_DIR }}
-          key: e2e-seatunnel-bin-${{ runner.os }}-${{ hashFiles('frontend/scripts/e2e/run-real-installer.sh') }}-2.3.13
+          key: e2e-seatunnel-bin-${{ runner.os }}-2.3.12-2.3.13
+          restore-keys: |
+            e2e-seatunnel-bin-${{ runner.os }}-
 
       - name: Preload SeaTunnel package into cache dir
         env:

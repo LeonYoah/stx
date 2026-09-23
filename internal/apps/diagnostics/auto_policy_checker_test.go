@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/LeonYoah/stx/internal/apps/cluster"
+	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
 	monitoringapp "github.com/LeonYoah/stx/internal/apps/monitoring"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
@@ -114,13 +115,54 @@ func TestServiceCreateAutoPolicy_rejectsUnsupportedConditionTemplate(t *testing.
 	_, err := service.CreateAutoPolicy(context.Background(), 1, &CreateInspectionAutoPolicyRequest{
 		Name:      "unsupported",
 		ClusterID: 7,
-		Enabled:   true,
 		Conditions: InspectionConditionItems{
 			{TemplateCode: InspectionConditionTemplateCode("NOT_SUPPORTED"), Enabled: true},
 		},
 	})
 	if err == nil {
 		t.Fatal("expected unsupported template to be rejected")
+	}
+}
+
+func TestServiceCreateAutoPolicyUsesDefaultDiagnosticResourcesWithoutStarting(t *testing.T) {
+	service, repo := newAutoPolicyTestService(t, nil)
+
+	policy, err := service.CreateAutoPolicy(context.Background(), 1, &CreateInspectionAutoPolicyRequest{
+		Name:      "scheduled-default-resources",
+		ClusterID: 7,
+		Conditions: InspectionConditionItems{
+			{TemplateCode: ConditionCodeScheduled, Enabled: true},
+		},
+		AutoCreateTask: true,
+	})
+	if err != nil {
+		t.Fatalf("CreateAutoPolicy returned error: %v", err)
+	}
+	if len(policy.TaskOptions.SelectedResources) != 5 || policy.TaskOptions.IncludeThreadDump || policy.TaskOptions.IncludeJVMDump {
+		t.Fatalf("unexpected default auto-policy resources: %+v", policy.TaskOptions)
+	}
+	if containsDiagnosticResource(policy.TaskOptions.SelectedResources, DiagnosticResourceThreadDump) {
+		t.Fatalf("thread dump should require explicit selection: %+v", policy.TaskOptions)
+	}
+	if policy.AutoStartTask {
+		t.Fatal("new auto-policy should create the diagnostics task without starting it by default")
+	}
+	persisted, err := repo.GetAutoPolicyByID(context.Background(), policy.ID)
+	if err != nil {
+		t.Fatalf("GetAutoPolicyByID returned error: %v", err)
+	}
+	if persisted.AutoStartTask {
+		t.Fatal("auto_start_task should remain false after persistence")
+	}
+}
+
+func TestValidateAutoPolicyTaskOptionsForActorRequiresAdminForJVMDump(t *testing.T) {
+	options := &DiagnosticTaskOptions{SelectedResources: []DiagnosticResourceCode{DiagnosticResourceJVMDump}}
+	if err := validateAutoPolicyTaskOptionsForActor(executionapp.Actor{UserID: 8}, options); err == nil {
+		t.Fatal("普通用户不应配置 JVM Dump / non-admin users must not configure JVM dumps")
+	}
+	if err := validateAutoPolicyTaskOptionsForActor(executionapp.Actor{UserID: 1, IsAdmin: true}, options); err != nil {
+		t.Fatalf("管理员应允许配置 JVM Dump / admins should be allowed to configure JVM dumps: %v", err)
 	}
 }
 

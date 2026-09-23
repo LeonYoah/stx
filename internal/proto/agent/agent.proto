@@ -53,11 +53,15 @@ message DiagnosticsCursorResponse {
 message RegisterRequest {
   string agent_id = 1;        // Agent 唯一标识
   string hostname = 2;        // 主机名
-  string ip_address = 3;      // IP 地址
+  string ip_address = 3;      // 主 IP（优先出口 IP）/ Primary IP (prefer outbound)
   string os_type = 4;         // 操作系统类型: linux, darwin, windows
   string arch = 5;            // CPU 架构: amd64, arm64
   string agent_version = 6;   // Agent 版本号
-  SystemInfo system_info = 7; // 系统信息
+  SystemInfo system_info = 7; // 系统信息 / System information
+  uint64 host_id = 8;         // 关联的主机 ID (可选，用于显式绑定) / Associated host ID (optional, for explicit binding)
+  // 本机全部非回环网卡 IP，用于校验用户填写的主机 IP 是否属于该机器
+  // All non-loopback local IPs; used to verify whether the user-entered host IP belongs to this machine
+  repeated string ip_addresses = 9;
 }
 
 // SystemInfo - 系统硬件信息

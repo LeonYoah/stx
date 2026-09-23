@@ -30,9 +30,17 @@ public class StreamingSourceDescriptorRegistry {
         SINGLE_SPLIT_EMPTY
     }
 
+    public enum SourceCategory {
+        LOG_STREAM,
+        PARTITION_QUEUE,
+        LAKE_SPLIT,
+        GENERIC
+    }
+
     public static final class StreamingSourceDescriptor {
         private final String pluginName;
         private final DecodeStrategy decodeStrategy;
+        private final SourceCategory category;
         private final String splitClassName;
         private final String enumeratorStateClassName;
         private final String factoryClassName;
@@ -41,16 +49,35 @@ public class StreamingSourceDescriptorRegistry {
         StreamingSourceDescriptor(
                 String pluginName,
                 DecodeStrategy decodeStrategy,
+                SourceCategory category,
                 String splitClassName,
                 String enumeratorStateClassName,
                 String factoryClassName,
                 String projectorId) {
             this.pluginName = pluginName;
             this.decodeStrategy = decodeStrategy;
+            this.category = category != null ? category : SourceCategory.GENERIC;
             this.splitClassName = splitClassName;
             this.enumeratorStateClassName = enumeratorStateClassName;
             this.factoryClassName = factoryClassName;
             this.projectorId = projectorId;
+        }
+
+        StreamingSourceDescriptor(
+                String pluginName,
+                DecodeStrategy decodeStrategy,
+                String splitClassName,
+                String enumeratorStateClassName,
+                String factoryClassName,
+                String projectorId) {
+            this(
+                    pluginName,
+                    decodeStrategy,
+                    SourceCategory.GENERIC,
+                    splitClassName,
+                    enumeratorStateClassName,
+                    factoryClassName,
+                    projectorId);
         }
 
         public String getPluginName() {
@@ -59,6 +86,10 @@ public class StreamingSourceDescriptorRegistry {
 
         public DecodeStrategy getDecodeStrategy() {
             return decodeStrategy;
+        }
+
+        public SourceCategory getCategory() {
+            return category;
         }
 
         public String getSplitClassName() {
@@ -148,6 +179,7 @@ public class StreamingSourceDescriptorRegistry {
                 items,
                 "MySQL-CDC",
                 DecodeStrategy.CHANGE_STREAM_FACTORY,
+                SourceCategory.LOG_STREAM,
                 CDC_SPLIT_CLASS,
                 CDC_ENUMERATOR_STATE_CLASS,
                 "org.apache.seatunnel.connectors.seatunnel.cdc.mysql.source.MySqlIncrementalSourceFactory",
@@ -156,6 +188,7 @@ public class StreamingSourceDescriptorRegistry {
                 items,
                 "Oracle-CDC",
                 DecodeStrategy.CHANGE_STREAM_FACTORY,
+                SourceCategory.LOG_STREAM,
                 CDC_SPLIT_CLASS,
                 CDC_ENUMERATOR_STATE_CLASS,
                 "org.apache.seatunnel.connectors.seatunnel.cdc.oracle.source.OracleIncrementalSourceFactory",
@@ -164,6 +197,7 @@ public class StreamingSourceDescriptorRegistry {
                 items,
                 "Postgres-CDC",
                 DecodeStrategy.DEFAULT_SERIALIZER_TYPED,
+                SourceCategory.LOG_STREAM,
                 CDC_SPLIT_CLASS,
                 CDC_ENUMERATOR_STATE_CLASS,
                 null,
@@ -172,6 +206,7 @@ public class StreamingSourceDescriptorRegistry {
                 items,
                 "SQLServer-CDC",
                 DecodeStrategy.DEFAULT_SERIALIZER_TYPED,
+                SourceCategory.LOG_STREAM,
                 CDC_SPLIT_CLASS,
                 CDC_ENUMERATOR_STATE_CLASS,
                 null,
@@ -180,6 +215,7 @@ public class StreamingSourceDescriptorRegistry {
                 items,
                 "OpenGauss-CDC",
                 DecodeStrategy.DEFAULT_SERIALIZER_TYPED,
+                SourceCategory.LOG_STREAM,
                 CDC_SPLIT_CLASS,
                 CDC_ENUMERATOR_STATE_CLASS,
                 null,
@@ -188,6 +224,7 @@ public class StreamingSourceDescriptorRegistry {
                 items,
                 "MongoDB-CDC",
                 DecodeStrategy.DEFAULT_SERIALIZER_TYPED,
+                SourceCategory.LOG_STREAM,
                 CDC_SPLIT_CLASS,
                 CDC_ENUMERATOR_STATE_CLASS,
                 null,
@@ -196,6 +233,7 @@ public class StreamingSourceDescriptorRegistry {
                 items,
                 "TiDB-CDC",
                 DecodeStrategy.DEFAULT_SERIALIZER_TYPED,
+                SourceCategory.LOG_STREAM,
                 TIDB_SPLIT_CLASS,
                 TIDB_ENUMERATOR_STATE_CLASS,
                 null,
@@ -204,6 +242,7 @@ public class StreamingSourceDescriptorRegistry {
                 items,
                 "Kafka",
                 DecodeStrategy.DEFAULT_SERIALIZER_TYPED,
+                SourceCategory.PARTITION_QUEUE,
                 KAFKA_SPLIT_CLASS,
                 KAFKA_ENUMERATOR_STATE_CLASS,
                 null,
@@ -212,6 +251,7 @@ public class StreamingSourceDescriptorRegistry {
                 items,
                 "Pulsar",
                 DecodeStrategy.DEFAULT_SERIALIZER_TYPED,
+                SourceCategory.PARTITION_QUEUE,
                 PULSAR_SPLIT_CLASS,
                 PULSAR_ENUMERATOR_STATE_CLASS,
                 null,
@@ -220,6 +260,7 @@ public class StreamingSourceDescriptorRegistry {
                 items,
                 "Rocketmq",
                 DecodeStrategy.DEFAULT_SERIALIZER_TYPED,
+                SourceCategory.PARTITION_QUEUE,
                 ROCKETMQ_SPLIT_CLASS,
                 ROCKETMQ_ENUMERATOR_STATE_CLASS,
                 null,
@@ -228,6 +269,7 @@ public class StreamingSourceDescriptorRegistry {
                 items,
                 "RabbitMQ",
                 DecodeStrategy.DEFAULT_SERIALIZER_TYPED,
+                SourceCategory.PARTITION_QUEUE,
                 RABBITMQ_SPLIT_CLASS,
                 RABBITMQ_ENUMERATOR_STATE_CLASS,
                 null,
@@ -236,6 +278,7 @@ public class StreamingSourceDescriptorRegistry {
                 items,
                 "Sls",
                 DecodeStrategy.DEFAULT_SERIALIZER_TYPED,
+                SourceCategory.PARTITION_QUEUE,
                 SLS_SPLIT_CLASS,
                 SLS_ENUMERATOR_STATE_CLASS,
                 null,
@@ -244,6 +287,7 @@ public class StreamingSourceDescriptorRegistry {
                 items,
                 "TableStore",
                 DecodeStrategy.DEFAULT_SERIALIZER_TYPED,
+                SourceCategory.PARTITION_QUEUE,
                 TABLESTORE_SPLIT_CLASS,
                 TABLESTORE_ENUMERATOR_STATE_CLASS,
                 null,
@@ -252,6 +296,7 @@ public class StreamingSourceDescriptorRegistry {
                 items,
                 "Paimon",
                 DecodeStrategy.DEFAULT_SERIALIZER_TYPED,
+                SourceCategory.LAKE_SPLIT,
                 PAIMON_SPLIT_CLASS,
                 PAIMON_ENUMERATOR_STATE_CLASS,
                 null,
@@ -260,6 +305,7 @@ public class StreamingSourceDescriptorRegistry {
                 items,
                 "Iceberg",
                 DecodeStrategy.DEFAULT_SERIALIZER_TYPED,
+                SourceCategory.LAKE_SPLIT,
                 ICEBERG_SPLIT_CLASS,
                 ICEBERG_ENUMERATOR_STATE_CLASS,
                 null,
@@ -268,6 +314,7 @@ public class StreamingSourceDescriptorRegistry {
                 items,
                 "FakeSource",
                 DecodeStrategy.DEFAULT_SERIALIZER_TYPED,
+                SourceCategory.GENERIC,
                 FAKE_SPLIT_CLASS,
                 FAKE_ENUMERATOR_STATE_CLASS,
                 null,
@@ -278,6 +325,7 @@ public class StreamingSourceDescriptorRegistry {
                     items,
                     name,
                     DecodeStrategy.SINGLE_SPLIT_EMPTY,
+                    SourceCategory.GENERIC,
                     SINGLE_SPLIT_CLASS,
                     SINGLE_SPLIT_ENUMERATOR_STATE_CLASS,
                     null,
@@ -297,6 +345,7 @@ public class StreamingSourceDescriptorRegistry {
             Map<String, StreamingSourceDescriptor> items,
             String pluginName,
             DecodeStrategy decodeStrategy,
+            SourceCategory category,
             String splitClassName,
             String enumeratorStateClassName,
             String factoryClassName,
@@ -306,10 +355,30 @@ public class StreamingSourceDescriptorRegistry {
                 new StreamingSourceDescriptor(
                         pluginName,
                         decodeStrategy,
+                        category,
                         splitClassName,
                         enumeratorStateClassName,
                         factoryClassName,
                         projectorId));
+    }
+
+    private void register(
+            Map<String, StreamingSourceDescriptor> items,
+            String pluginName,
+            DecodeStrategy decodeStrategy,
+            String splitClassName,
+            String enumeratorStateClassName,
+            String factoryClassName,
+            String projectorId) {
+        register(
+                items,
+                pluginName,
+                decodeStrategy,
+                SourceCategory.GENERIC,
+                splitClassName,
+                enumeratorStateClassName,
+                factoryClassName,
+                projectorId);
     }
 
     private String normalize(String pluginName) {

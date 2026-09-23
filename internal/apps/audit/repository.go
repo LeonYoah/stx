@@ -20,6 +20,7 @@ package audit
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"gorm.io/gorm"
 )
@@ -34,6 +35,20 @@ type Repository struct {
 // NewRepository 创建一个新的 Repository 实例。
 func NewRepository(db *gorm.DB) *Repository {
 	return &Repository{db: db}
+}
+
+// LookupUsername 按用户 ID 读取登录名，供审计补齐操作人。表不存在或查不到时返回空。
+// LookupUsername loads the login name for an audit actor. It returns empty when the user table or row is missing.
+func (r *Repository) LookupUsername(ctx context.Context, userID uint) string {
+	if r == nil || r.db == nil || userID == 0 {
+		return ""
+	}
+	var username string
+	err := r.db.WithContext(ctx).Table("auth_users").Select("username").Where("id = ?", userID).Limit(1).Scan(&username).Error
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(username)
 }
 
 // ============================================================================
@@ -67,6 +82,10 @@ func (r *Repository) CreateCommandLog(ctx context.Context, log *CommandLog) erro
 	if count > 0 {
 		return ErrCommandIDDuplicate
 	}
+	log.Parameters = RedactParameters(log.Parameters)
+	log.DisplayCommand = RedactText(log.DisplayCommand)
+	log.Output = RedactText(log.Output)
+	log.Error = RedactText(log.Error)
 
 	return r.db.WithContext(ctx).Create(log).Error
 }
@@ -78,6 +97,23 @@ func (r *Repository) CreateCommandLog(ctx context.Context, log *CommandLog) erro
 func (r *Repository) GetCommandLogByID(ctx context.Context, id uint) (*CommandLog, error) {
 	var log CommandLog
 	if err := r.db.WithContext(ctx).First(&log, id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrCommandLogNotFound
+		}
+		return nil, err
+	}
+	return &log, nil
+}
+
+// GetCommandLogByIDForOwner 按用户归属读取命令日志，管理员可查看全部。
+// GetCommandLogByIDForOwner loads a command log under owner scope, while administrators may view all entries.
+func (r *Repository) GetCommandLogByIDForOwner(ctx context.Context, id, ownerUserID uint, includeAll bool) (*CommandLog, error) {
+	var log CommandLog
+	query := r.db.WithContext(ctx).Where("id = ?", id)
+	if !includeAll {
+		query = query.Where("created_by = ?", ownerUserID)
+	}
+	if err := query.First(&log).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrCommandLogNotFound
 		}
@@ -135,6 +171,9 @@ func (r *Repository) ListCommandLogs(ctx context.Context, filter *CommandLogFilt
 		if filter.CreatedBy != nil {
 			query = query.Where("created_by = ?", *filter.CreatedBy)
 		}
+		if filter.RequestID != "" {
+			query = query.Where("request_id = ?", filter.RequestID)
+		}
 	}
 
 	// Get total count - 获取总数
@@ -161,6 +200,31 @@ func (r *Repository) ListCommandLogs(ctx context.Context, filter *CommandLogFilt
 	return logs, total, nil
 }
 
+// CountCommandsByRequestIDs 统计每个请求编号下的 Agent 命令数。
+// CountCommandsByRequestIDs counts Agent commands grouped by request ID.
+func (r *Repository) CountCommandsByRequestIDs(ctx context.Context, requestIDs []string) (map[string]int64, error) {
+	counts := make(map[string]int64)
+	if r == nil || r.db == nil || len(requestIDs) == 0 {
+		return counts, nil
+	}
+	var rows []struct {
+		RequestID string
+		Total     int64
+	}
+	err := r.db.WithContext(ctx).Model(&CommandLog{}).
+		Select("request_id, COUNT(*) as total").
+		Where("request_id IN ?", requestIDs).
+		Group("request_id").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		counts[row.RequestID] = row.Total
+	}
+	return counts, nil
+}
+
 // UpdateCommandLog updates an existing command log record.
 // UpdateCommandLog 更新现有的命令日志记录。
 // Returns ErrCommandLogNotFound if the command log does not exist.
@@ -176,6 +240,10 @@ func (r *Repository) UpdateCommandLog(ctx context.Context, log *CommandLog) erro
 		return err
 	}
 
+	log.Parameters = RedactParameters(log.Parameters)
+	log.DisplayCommand = RedactText(log.DisplayCommand)
+	log.Output = RedactText(log.Output)
+	log.Error = RedactText(log.Error)
 	return r.db.WithContext(ctx).Save(log).Error
 }
 
@@ -184,6 +252,14 @@ func (r *Repository) UpdateCommandLog(ctx context.Context, log *CommandLog) erro
 // Returns ErrCommandLogNotFound if the command log does not exist.
 // 如果命令日志不存在，则返回 ErrCommandLogNotFound。
 func (r *Repository) UpdateCommandLogStatus(ctx context.Context, id uint, updates map[string]interface{}) error {
+	if parameters, ok := updates["parameters"].(CommandParameters); ok {
+		updates["parameters"] = RedactParameters(parameters)
+	}
+	for _, key := range []string{"display_command", "output", "error"} {
+		if value, ok := updates[key].(string); ok {
+			updates[key] = RedactText(value)
+		}
+	}
 	result := r.db.WithContext(ctx).Model(&CommandLog{}).Where("id = ?", id).Updates(updates)
 	if result.Error != nil {
 		return result.Error
@@ -225,6 +301,7 @@ func (r *Repository) CreateAuditLog(ctx context.Context, log *AuditLog) error {
 	if log.ResourceType == "" {
 		return ErrResourceTypeEmpty
 	}
+	log.Details = RedactDetails(log.Details)
 
 	return r.db.WithContext(ctx).Create(log).Error
 }
@@ -244,6 +321,48 @@ func (r *Repository) GetAuditLogByID(ctx context.Context, id uint) (*AuditLog, e
 	return &log, nil
 }
 
+// GetAuditLogByIDForOwner 按用户归属读取审计记录，管理员可查看全部。
+// GetAuditLogByIDForOwner loads an audit entry under owner scope, while administrators may view all entries.
+func (r *Repository) GetAuditLogByIDForOwner(ctx context.Context, id, ownerUserID uint, includeAll bool) (*AuditLog, error) {
+	var log AuditLog
+	query := r.db.WithContext(ctx).Where("id = ?", id)
+	if !includeAll {
+		query = query.Where("user_id = ?", ownerUserID)
+	}
+	if err := query.First(&log).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrAuditLogNotFound
+		}
+		return nil, err
+	}
+	return &log, nil
+}
+
+// UpdateAuditLogDetailsByExecutionID 合并更新指定 execution_id 对应审计记录的 Details 字段。
+// UpdateAuditLogDetailsByExecutionID merges new key-value pairs into Details for audit logs matching execution_id.
+func (r *Repository) UpdateAuditLogDetailsByExecutionID(ctx context.Context, executionID string, extraDetails map[string]any) error {
+	if r == nil || r.db == nil || strings.TrimSpace(executionID) == "" || len(extraDetails) == 0 {
+		return nil
+	}
+	var logs []*AuditLog
+	if err := r.db.WithContext(ctx).Where("execution_id = ?", strings.TrimSpace(executionID)).Find(&logs).Error; err != nil {
+		return err
+	}
+	for _, l := range logs {
+		if l.Details == nil {
+			l.Details = make(AuditDetails)
+		}
+		for k, v := range extraDetails {
+			l.Details[k] = v
+		}
+		l.Details = RedactDetails(l.Details)
+		if err := r.db.WithContext(ctx).Model(l).Update("details", l.Details).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // ListAuditLogs retrieves audit logs based on filter criteria with pagination.
 // ListAuditLogs 根据过滤条件和分页获取审计日志列表。
 // Returns the list of audit logs and total count.
@@ -252,21 +371,42 @@ func (r *Repository) GetAuditLogByID(ctx context.Context, id uint) (*AuditLog, e
 // 需求: 10.4 - 支持按时间范围、操作类型、用户和主机过滤。
 func (r *Repository) ListAuditLogs(ctx context.Context, filter *AuditLogFilter) ([]*AuditLog, int64, error) {
 	query := r.db.WithContext(ctx).Model(&AuditLog{})
+	// 审计列表只保留控制层操作。Agent 命令和日志流在命令记录里追查，不占审计行。
+	// The audit list keeps control-plane actions. Agent commands and log streams stay in command logs.
+	query = query.Where("action NOT IN ? AND resource_type NOT IN ?",
+		[]string{"agent.command", "agent_log", "agent_error", "agent_warning"},
+		[]string{"agent", "agent_command"},
+	)
 
 	// Apply filters - 应用过滤条件
 	if filter != nil {
+		if !filter.IncludeAll && filter.UserID != nil {
+			query = query.Where("user_id = ?", *filter.UserID)
+		}
 		// Filter by user ID - 按用户 ID 过滤
-		if filter.UserID != nil {
+		if filter.IncludeAll && filter.UserID != nil {
 			query = query.Where("user_id = ?", *filter.UserID)
 		}
 		// Filter by username - 按用户名过滤（使用 LOWER 忽略大小写，兼容多数据库）
 		// Filter by username - case-insensitive using LOWER for multi-database compatibility
 		if filter.Username != "" {
-			query = query.Where("LOWER(username) LIKE LOWER(?)", "%"+filter.Username+"%")
+			// 用户名搜索同时覆盖 Agent 记录：这类日志用户名常为空，但 action/resource_type 以 agent 开头。
+			// Username search also matches Agent rows whose username is empty but action/resource type starts with agent.
+			like := "%" + filter.Username + "%"
+			clause := "LOWER(username) LIKE LOWER(?)"
+			args := []interface{}{like}
+			if strings.Contains(strings.ToLower(filter.Username), "agent") {
+				clause += " OR LOWER(resource_type) LIKE LOWER(?) OR LOWER(action) LIKE LOWER(?)"
+				args = append(args, "%agent%", "agent%")
+			}
+			query = query.Where(clause, args...)
 		}
 		// Filter by action type - 按操作类型过滤
 		if filter.Action != "" {
 			query = query.Where("action = ?", filter.Action)
+		}
+		if actions := ActionsForGroup(filter.ActionGroup); len(actions) > 0 {
+			query = query.Where("action IN ?", actions)
 		}
 		// Filter by resource type - 按资源类型过滤
 		if filter.ResourceType != "" {
@@ -275,6 +415,30 @@ func (r *Repository) ListAuditLogs(ctx context.Context, filter *AuditLogFilter) 
 		// Filter by resource ID - 按资源 ID 过滤
 		if filter.ResourceID != "" {
 			query = query.Where("resource_id = ?", filter.ResourceID)
+		}
+		if filter.RequestID != "" {
+			query = query.Where("request_id = ?", filter.RequestID)
+		}
+		if filter.ExecutionID != "" {
+			query = query.Where("execution_id = ?", filter.ExecutionID)
+		}
+		if filter.CommandID != "" {
+			query = query.Where("command_id = ?", filter.CommandID)
+		}
+		if filter.ClientType != "" {
+			switch filter.ClientType {
+			case "web":
+				// 旧的控制台记录往往没写 client_type，但有登录用户。
+				// Older console rows often have no client_type, but they do have a logged-in user.
+				query = query.Where("(client_type = ? OR (COALESCE(client_type, '') = '' AND user_id IS NOT NULL))", "web")
+			case "system":
+				query = query.Where("(client_type IN ? OR (COALESCE(client_type, '') = '' AND user_id IS NULL))", []string{"system", "api"})
+			default:
+				query = query.Where("client_type = ?", filter.ClientType)
+			}
+		}
+		if filter.ResultStatus != "" {
+			query = query.Where("result_status = ?", filter.ResultStatus)
 		}
 		// Filter by trigger column - 按 trigger 字段过滤
 		if filter.Trigger == "auto" || filter.Trigger == "manual" {

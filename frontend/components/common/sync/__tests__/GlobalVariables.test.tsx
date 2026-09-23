@@ -266,4 +266,73 @@ describe('GlobalVariablesSidebarPanel', () => {
 
     expect(onCopyReference).toHaveBeenCalledWith('JDBC_URL');
   });
+
+  // 测试切换至内置时间变量 Tab 并渲染时间变量列表
+  // Test switching to built-in time variables tab and rendering time variables list
+  it('switches to time tab and displays built-in time variables', () => {
+    const onCopyReference = vi.fn();
+    render(
+      <GlobalVariablesSidebarPanel
+        variables={mockVariables}
+        total={2}
+        page={1}
+        pageSize={8}
+        onPageChange={vi.fn()}
+        onOpenCreate={vi.fn()}
+        onOpenEdit={vi.fn()}
+        onDelete={vi.fn()}
+        onCopyValue={vi.fn()}
+        onCopyReference={onCopyReference}
+      />,
+    );
+
+    // 点击时间 Tab 切换
+    // Click Time Tab to switch
+    const timeTabButton = screen.getByText('filterTime');
+    fireEvent.click(timeTabButton);
+
+    // 验证内置时间变量展示
+    // Verify built-in time variable is shown
+    expect(screen.getByText('{{system.biz.curdate}}')).toBeDefined();
+    expect(screen.getByText('builtinSystemBizCurdateDesc')).toBeDefined();
+
+    // 点击复制语法
+    // Click to copy syntax
+    const timeRefButton = screen.getByText('{{system.biz.curdate}}');
+    fireEvent.click(timeRefButton);
+    expect(onCopyReference).toHaveBeenCalledWith('system.biz.curdate');
+  });
+
+  // 测试时间变量按关键字检索过滤
+  // Test searching and filtering time variables by query
+  it('filters built-in time variables by search query', () => {
+    render(
+      <GlobalVariablesSidebarPanel
+        variables={mockVariables}
+        total={2}
+        page={1}
+        pageSize={8}
+        defaultTab='time'
+        onPageChange={vi.fn()}
+        onOpenCreate={vi.fn()}
+        onOpenEdit={vi.fn()}
+        onDelete={vi.fn()}
+        onCopyValue={vi.fn()}
+        onCopyReference={vi.fn()}
+      />,
+    );
+
+    // 默认直接打开时间 Tab
+    // Directly opens time Tab by defaultTab prop
+    expect(screen.getByText('{{system.biz.curdate}}')).toBeDefined();
+
+    // 搜索特定表达式
+    // Search specific expression
+    const timeSearchInput = screen.getByPlaceholderText('searchTimeVariables');
+    fireEvent.change(timeSearchInput, {target: {value: 'month_first_day'}});
+
+    expect(screen.getByText('{{month_first_day(yyyy-MM-dd,0)}}')).toBeDefined();
+    expect(screen.queryByText('{{system.biz.curdate}}')).toBeNull();
+  });
 });
+

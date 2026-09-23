@@ -30,13 +30,15 @@ import (
 type DiagnosticTaskStatus string
 
 const (
-	DiagnosticTaskStatusPending   DiagnosticTaskStatus = "pending"
-	DiagnosticTaskStatusReady     DiagnosticTaskStatus = "ready"
-	DiagnosticTaskStatusRunning   DiagnosticTaskStatus = "running"
-	DiagnosticTaskStatusSucceeded DiagnosticTaskStatus = "succeeded"
-	DiagnosticTaskStatusFailed    DiagnosticTaskStatus = "failed"
-	DiagnosticTaskStatusSkipped   DiagnosticTaskStatus = "skipped"
-	DiagnosticTaskStatusCancelled DiagnosticTaskStatus = "cancelled"
+	DiagnosticTaskStatusPending         DiagnosticTaskStatus = "pending"
+	DiagnosticTaskStatusReady           DiagnosticTaskStatus = "ready"
+	DiagnosticTaskStatusRunning         DiagnosticTaskStatus = "running"
+	DiagnosticTaskStatusCancelRequested DiagnosticTaskStatus = "cancel_requested"
+	DiagnosticTaskStatusCancelling      DiagnosticTaskStatus = "cancelling"
+	DiagnosticTaskStatusSucceeded       DiagnosticTaskStatus = "succeeded"
+	DiagnosticTaskStatusFailed          DiagnosticTaskStatus = "failed"
+	DiagnosticTaskStatusSkipped         DiagnosticTaskStatus = "skipped"
+	DiagnosticTaskStatusCancelled       DiagnosticTaskStatus = "cancelled"
 )
 
 // DiagnosticTaskSourceType represents where a diagnostic bundle task was created from.
@@ -207,6 +209,12 @@ type DiagnosticTaskOptions struct {
 	IncludeThreadDump bool `json:"include_thread_dump"`
 	IncludeJVMDump    bool `json:"include_jvm_dump"`
 	JVMDumpMinFreeMB  int  `json:"jvm_dump_min_free_mb,omitempty"`
+	// SelectedResources 显式限制组合任务需要采集的公开资源；空值保持原有默认行为。
+	// SelectedResources explicitly limits public resources collected by a bundle task; empty keeps the legacy defaults.
+	SelectedResources []DiagnosticResourceCode `json:"selected_resources,omitempty"`
+	// ResourceOnly 表示任务只运行一个资源，不生成 Manifest 和 HTML 报告。
+	// ResourceOnly marks a single-resource task that skips Manifest and HTML report generation.
+	ResourceOnly bool `json:"resource_only,omitempty"`
 }
 
 // Normalize fills default option values.
@@ -214,6 +222,13 @@ type DiagnosticTaskOptions struct {
 func (o DiagnosticTaskOptions) Normalize() DiagnosticTaskOptions {
 	if o.JVMDumpMinFreeMB <= 0 {
 		o.JVMDumpMinFreeMB = 2048
+	}
+	o.SelectedResources = normalizeDiagnosticResourceCodes(o.SelectedResources)
+	if containsDiagnosticResource(o.SelectedResources, DiagnosticResourceThreadDump) {
+		o.IncludeThreadDump = true
+	}
+	if containsDiagnosticResource(o.SelectedResources, DiagnosticResourceJVMDump) {
+		o.IncludeJVMDump = true
 	}
 	return o
 }
@@ -275,6 +290,7 @@ func DefaultDiagnosticTaskSteps() []DiagnosticPlanStep {
 // DiagnosticTask 存储一条诊断包任务。
 type DiagnosticTask struct {
 	ID            uint                     `json:"id" gorm:"primaryKey;autoIncrement"`
+	ExecutionID   string                   `json:"execution_id,omitempty" gorm:"size:36;index"`
 	ClusterID     uint                     `json:"cluster_id" gorm:"index;not null"`
 	TriggerSource DiagnosticTaskSourceType `json:"trigger_source" gorm:"size:40;index;not null"`
 	SourceRef     DiagnosticTaskSourceRef  `json:"source_ref" gorm:"type:json;not null"`
@@ -391,12 +407,15 @@ type DiagnosticTaskListFilter struct {
 	Status        DiagnosticTaskStatus     `json:"status"`
 	Page          int                      `json:"page"`
 	PageSize      int                      `json:"page_size"`
+	OwnerUserID   uint                     `json:"-"`
+	IncludeAll    bool                     `json:"-"`
 }
 
 // DiagnosticTaskSummary defines task list summary fields.
 // DiagnosticTaskSummary 定义任务列表摘要字段。
 type DiagnosticTaskSummary struct {
 	ID            uint                     `json:"id"`
+	ExecutionID   string                   `json:"execution_id,omitempty"`
 	ClusterID     uint                     `json:"cluster_id"`
 	TriggerSource DiagnosticTaskSourceType `json:"trigger_source"`
 	Status        DiagnosticTaskStatus     `json:"status"`
@@ -421,6 +440,8 @@ type DiagnosticTaskLogFilter struct {
 	Level           DiagnosticLogLevel
 	Page            int
 	PageSize        int
+	OwnerUserID     uint
+	IncludeAll      bool
 }
 
 // CreateDiagnosticTaskRequest describes one task creation request.

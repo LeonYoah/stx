@@ -62,6 +62,7 @@ import {
   RuntimeStorageDetails,
   RuntimeStorageCleanupResult,
   RuntimeStorageValidationResult,
+  ApplyRuntimeStorageResult,
   RuntimeStorageListResult,
   RuntimeStoragePreviewResult,
   RuntimeStorageCheckpointInspectResult,
@@ -71,6 +72,7 @@ import {
   StxJavaProxyLogPreviewResult,
   StxJavaProxyResponse,
   StxJavaProxyStatus,
+  UpdateStxJavaProxyConfigRequest,
 } from './types';
 
 /**
@@ -642,6 +644,23 @@ export class ClusterService extends BaseService {
     };
   }
 
+  static async updateStxJavaProxyConfig(
+    clusterId: number,
+    data: UpdateStxJavaProxyConfigRequest,
+  ): Promise<StxJavaProxyStatus> {
+    const response = await apiClient.put<StxJavaProxyResponse>(
+      `${this.basePath}/${clusterId}/stx-java-proxy/config`,
+      data,
+    );
+    if (response.data.error_msg) {
+      throw new Error(localizeBackendText(response.data.error_msg));
+    }
+    return {
+      ...response.data.data,
+      message: localizeBackendText(response.data.data.message),
+    };
+  }
+
   static async previewStxJavaProxyServiceLog(
     clusterId: number,
     params?: {lines?: number},
@@ -1107,6 +1126,104 @@ export class ClusterService extends BaseService {
     }
   }
 
+  // 保存可视化存储：后端先做真实读写测试，通过后生成配置版本
+  // Save visual storage: backend probes read/write first, then creates a config version
+  static async applyRuntimeStorageSafe(
+    clusterId: number,
+    kind: 'checkpoint' | 'imap',
+    request: {
+      enabled: boolean;
+      storage_type: string;
+      namespace?: string;
+      endpoint?: string;
+      bucket?: string;
+      access_key?: string;
+      secret_key?: string;
+      hdfs_namenode_host?: string;
+      hdfs_namenode_port?: number;
+      hdfs_ha_enabled?: boolean;
+      hdfs_name_services?: string;
+      hdfs_ha_namenodes?: string;
+      hdfs_namenode_rpc_address_1?: string;
+      hdfs_namenode_rpc_address_2?: string;
+      kerberos_principal?: string;
+      kerberos_keytab_file_path?: string;
+      hdfs_site_path?: string;
+      s3_credentials_provider?: string;
+    },
+  ): Promise<{success: boolean; data?: ApplyRuntimeStorageResult; error?: string}> {
+    try {
+      const response = await apiClient.post<{
+        error_msg: string;
+        data: ApplyRuntimeStorageResult;
+      }>(`${this.basePath}/${clusterId}/runtime-storage/${kind}/apply`, request);
+      if (response.data.error_msg) {
+        throw new Error(localizeBackendText(response.data.error_msg));
+      }
+      return {success: true, data: response.data.data};
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : '保存运行时存储失败';
+      return {success: false, error: errorMessage};
+    }
+  }
+
+  /**
+   * 一键切换作业日志输出模式 (单 Job 独立日志模式 vs 共享混合日志模式)
+   * Switch cluster job log output mode (per_job vs mixed)
+   */
+  static async switchJobLogMode(
+    clusterId: number,
+    mode: 'per_job' | 'mixed'
+  ): Promise<{
+    saved: boolean;
+    restart_required: boolean;
+    mode: 'per_job' | 'mixed';
+    message: string;
+    config_version?: number;
+  }> {
+    const response = await apiClient.post<{
+      error_msg?: string;
+      data: {
+        saved: boolean;
+        restart_required: boolean;
+        mode: 'per_job' | 'mixed';
+        message: string;
+        config_version?: number;
+      };
+    }>(`${this.basePath}/${clusterId}/log-mode`, { mode });
+
+    if (response.data.error_msg) {
+      throw new Error(localizeBackendText(response.data.error_msg));
+    }
+
+    return response.data.data;
+  }
+
+  static async switchJobLogModeSafe(
+    clusterId: number,
+    mode: 'per_job' | 'mixed'
+  ): Promise<{
+    success: boolean;
+    data?: {
+      saved: boolean;
+      restart_required: boolean;
+      mode: 'per_job' | 'mixed';
+      message: string;
+      config_version?: number;
+    };
+    error?: string;
+  }> {
+    try {
+      const data = await this.switchJobLogMode(clusterId, mode);
+      return { success: true, data };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : '切换日志模式失败',
+      };
+    }
+  }
+
   static async getStxJavaProxyStatusSafe(clusterId: number): Promise<{
     success: boolean;
     data?: StxJavaProxyStatus;
@@ -1163,6 +1280,24 @@ export class ClusterService extends BaseService {
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : '重启 stx-java-proxy 失败';
+      return {success: false, error: errorMessage};
+    }
+  }
+
+  static async updateStxJavaProxyConfigSafe(
+    clusterId: number,
+    request: UpdateStxJavaProxyConfigRequest,
+  ): Promise<{
+    success: boolean;
+    data?: StxJavaProxyStatus;
+    error?: string;
+  }> {
+    try {
+      const data = await this.updateStxJavaProxyConfig(clusterId, request);
+      return {success: true, data};
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : '更新 stx-java-proxy 配置失败';
       return {success: false, error: errorMessage};
     }
   }

@@ -36,6 +36,7 @@ const allSpecs = [
 
 const smokeExcludedSpecs = new Set([
   'e2e/install-wizard-real.spec.ts',
+  'e2e/stx-cli-installer-real.spec.ts',
   'e2e/workbench-real.spec.ts',
   'e2e/config-real.spec.ts',
   'e2e/upgrade-real.spec.ts',

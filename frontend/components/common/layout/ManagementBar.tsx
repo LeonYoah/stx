@@ -514,60 +514,32 @@ export function ManagementBar() {
       isActive: isRouteActive('/workbench'),
     });
 
-    // 主机管理入口 / Host management entry
+    // 主机与集群入口（合并菜单入口，进入页面后通过顶层 Tab 自由切换）
+    // Hosts & Clusters entry (merged dock entry, navigated via top tabs inside pages)
     items.push({
-      title: tDock('hostManagement'),
-      icon: StaticIcons.server,
-      href: '/hosts',
-      isActive: isRouteActive('/hosts'),
-    });
-
-    // 集群管理入口 / Cluster management entry
-    items.push({
-      title: tDock('clusterManagement'),
+      title: tDock('hostsAndClusters'),
       icon: StaticIcons.layers,
       href: '/clusters',
-      isActive: isRouteActive('/clusters'),
+      isActive: isRouteActive('/clusters') || isRouteActive('/hosts'),
     });
 
-    // 监控中心入口 / Monitoring center entry
+    // 安装包与插件入口（合并菜单入口，进入页面后通过顶层 Tab 自由切换）
+    // Packages & Plugins entry (merged dock entry, navigated via top tabs inside pages)
     items.push({
-      title: tDock('monitoringCenter'),
-      icon: StaticIcons.monitoring,
-      href: '/monitoring',
-      isActive: isRouteActive('/monitoring'),
-    });
-
-    // 诊断中心入口 / Diagnostics center entry
-    items.push({
-      title: tDock('diagnosticsCenter'),
-      icon: StaticIcons.diagnostics,
-      href: '/diagnostics',
-      isActive: isRouteActive('/diagnostics'),
-    });
-
-    // 安装包管理入口 / Package management entry
-    items.push({
-      title: tDock('packageManagement'),
+      title: tDock('packagesAndPlugins'),
       icon: StaticIcons.package,
       href: '/packages',
-      isActive: isRouteActive('/packages'),
+      isActive: isRouteActive('/packages') || isRouteActive('/plugins'),
     });
 
-    // 插件市场入口 / Plugin marketplace entry
+    // 告警与诊断入口（合并菜单入口，进入页面后通过顶层 Tab 自由切换）
+    // Alerts & Diagnostics entry (merged dock entry, navigated via top tabs inside pages)
     items.push({
-      title: tDock('pluginMarketplace'),
-      icon: StaticIcons.puzzle,
-      href: '/plugins',
-      isActive: isRouteActive('/plugins'),
+      title: tDock('alertsAndDiagnostics'),
+      icon: StaticIcons.monitoring,
+      href: '/monitoring',
+      isActive: isRouteActive('/monitoring') || isRouteActive('/diagnostics'),
     });
-
-    // 命令记录入口暂时隐藏 / Command logs entry hidden for now
-    // items.push({
-    //   title: tDock('commandLogs'),
-    //   icon: StaticIcons.terminal,
-    //   href: '/commands',
-    // });
 
     // 审计日志入口 / Audit logs entry
     items.push({

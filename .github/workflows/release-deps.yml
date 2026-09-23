@@ -1,0 +1,77 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Release deps
+
+# 手动发布可复用 deps。版本 tag 不跑这个。Node / 三件套版本不变就不要重跑。
+# Manual reusable-deps release. Version tags do not run this. Skip when Node / observability versions are unchanged.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-deps
+  cancel-in-progress: false
+
+jobs:
+  package-deps:
+    name: Package and publish deps
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build deps packages
+        run: |
+          chmod +x install/package-release.sh
+          # Node 22 官方包覆盖 amd64/arm64，并带上三件套。
+          # Official Node 22 covers amd64/arm64 and includes the observability bundle.
+          install/package-release.sh \
+            --deps-only \
+            --arch all \
+            --node-major 22 \
+            --node-variant official
+          # glibc217 非官方构建只有 x64，不再重打三件套。
+          # glibc217 unofficial builds are x64-only; do not rebuild observability.
+          install/package-release.sh \
+            --deps-only \
+            --no-observability \
+            --arch amd64 \
+            --node-major 18 \
+            --node-variant glibc217
+
+      - name: Publish deps release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # --latest=false：deps 不能抢走版本 Release 的 latest，否则在线安装会去 deps 上找 stx。
+          # --latest=false: deps must not become the latest release, or online install looks for stx there.
+          notes="可复用依赖，不随版本 tag 重打。Reusable deps. Not rebuilt on version tags."
+          if gh release view deps >/dev/null 2>&1; then
+            gh release delete deps --yes --cleanup-tag
+          fi
+          gh release create deps \
+            --target "${GITHUB_SHA}" \
+            --latest=false \
+            --title "deps" \
+            --notes "$notes" \
+            dist/releases/node-*.tar.gz \
+            dist/releases/node-*.tar.gz.sha256 \
+            dist/releases/observability-*.tar.gz \
+            dist/releases/observability-*.tar.gz.sha256 \
+            dist/releases/MANIFEST.json

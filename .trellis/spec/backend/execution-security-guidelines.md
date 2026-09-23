@@ -21,6 +21,60 @@ timed_out
 
 `cancelled`、`succeeded`、`failed`、`timed_out` 是终态，不能重新进入运行状态。收到取消请求时不能直接写成 `cancelled`，只有业务模块确认实际执行已经停止后才能进入该状态。
 
+### 1.1 终态刷新保护
+
+#### 1. 适用范围
+
+查询任务、读取预览、轮询等待等只读流程会向 SeaTunnel 或 Agent 刷新运行时状态。当业务任务或公共执行已经结束时，迟到的运行中状态不能改变本地终态。
+
+#### 2. 方法签名
+
+```go
+func (s *Service) refreshJobInstance(ctx context.Context, instance *JobInstance) (*JobInstance, error)
+func (s *Service) syncExecutionFromJob(ctx context.Context, job *JobInstance) error
+```
+
+#### 3. 行为规则
+
+- `JobInstance` 已为 `success`、`failed` 或 `canceled` 时，运行时刷新保留原状态。
+- 公共执行已为 `cancelled`、`succeeded`、`failed` 或 `timed_out` 时，忽略业务任务的迟到状态。
+- 只读接口继续返回当前结果，不能因为过期状态返回 `500 invalid_transition`。
+
+#### 4. 校验与错误对应表
+
+| 当前状态 | 迟到状态 | 处理方式 |
+| --- | --- | --- |
+| 业务任务终态 | `running` | 保留业务任务终态 |
+| 公共执行终态 | 非终态或其他终态 | 保留公共执行终态 |
+| 非终态 | 合法后续状态 | 按状态迁移规则更新 |
+| 非终态 | 非法后续状态 | 返回 `invalid_transition` |
+
+#### 5. Good / Base / Bad
+
+- Good：预览任务已经取消，引擎短暂返回 `RUNNING`，预览接口仍返回取消状态和已有数据。
+- Base：任务仍在运行时，引擎返回成功，业务任务和公共执行正常进入成功状态。
+- Bad：只读预览接口把已取消任务改回运行中，随后因公共执行不能倒退而返回 `500`。
+
+#### 6. 必须有的测试
+
+- 引擎在业务任务结束后返回 `RUNNING`，任务查询和预览仍成功。
+- 业务任务与公共执行保持原终态。
+- 非终态的正常状态变化仍可执行。
+
+#### 7. 错误与正确示例
+
+```go
+// 错误：直接采用迟到的运行时状态。
+// Wrong: apply a stale runtime status directly.
+instance.Status = observedStatus
+
+// 正确：终态任务保留原状态。
+// Correct: preserve the existing terminal status.
+if isFinalNormalizedJobStatus(previousStatus) {
+    observedStatus = previousStatus
+}
+```
+
 ## 2. 接口、命令与数据库签名
 
 公共 API：

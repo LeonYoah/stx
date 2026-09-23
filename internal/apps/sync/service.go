@@ -2544,6 +2544,11 @@ func (s *Service) refreshJobInstance(ctx context.Context, instance *JobInstance)
 			}
 		}
 	}
+	// 作业终态不可被迟到或过期的引擎状态改回运行态。
+	// A late or stale engine status must not move a terminal job back to a running state.
+	if isFinalNormalizedJobStatus(previousStatus) {
+		observedStatus = previousStatus
+	}
 	instance.Status = observedStatus
 	instance.ResultPreview = mergeJobRuntimeInfo(instance.ResultPreview, info)
 	if isFinalNormalizedJobStatus(instance.Status) {

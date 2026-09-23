@@ -297,6 +297,11 @@ func (s *Service) syncExecutionFromJob(ctx context.Context, job *JobInstance) er
 	if item.Status == target {
 		return nil
 	}
+	// 公共执行终态不可逆；忽略作业刷新过程中迟到的非终态结果。
+	// Shared execution terminal states are immutable; ignore stale non-terminal job refreshes.
+	if executionapp.IsTerminal(item.Status) {
+		return nil
+	}
 	updates := map[string]any{
 		"progress":           executionProgressFromJob(job.Status),
 		"cancellable":        !isFinalNormalizedJobStatus(job.Status),

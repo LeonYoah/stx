@@ -1612,6 +1612,100 @@ func TestRefreshJobInstanceUsesEngineFinishedTime(t *testing.T) {
 	}
 }
 
+func TestGetPreviewSnapshotKeepsTerminalStateWhenEngineReturnsStaleRunningStatus(t *testing.T) {
+	service := newTestSyncService(t)
+	if err := service.repo.db.AutoMigrate(&executionapp.Execution{}, &executionapp.Confirmation{}); err != nil {
+		t.Fatalf("迁移公共执行表失败: %v", err)
+	}
+	executionService := executionapp.NewService(executionapp.NewRepository(service.repo.db), executionapp.NewProviderRegistry())
+	service.SetExecutionService(executionService)
+	service.engineClient = &stubEngineClient{info: &EngineJobInfo{JobID: "preview-terminal", JobStatus: "RUNNING"}}
+	ctx := context.Background()
+	execution, _, err := executionService.Create(ctx, executionapp.CreateInput{
+		OperationID: "sync.task.preview",
+		OwnerUserID: 1,
+		ActorType:   executionapp.ActorTypeUser,
+		Module:      syncExecutionModule,
+		Status:      executionapp.StatusCancelled,
+		Cancellable: false,
+	})
+	if err != nil {
+		t.Fatalf("创建公共执行记录失败: %v", err)
+	}
+	finishedAt := time.Now()
+	job := &JobInstance{
+		TaskID:        1,
+		TaskVersion:   1,
+		RunType:       RunTypePreview,
+		Status:        JobStatusCanceled,
+		PlatformJobID: "preview-terminal",
+		EngineJobID:   "preview-terminal",
+		ExecutionID:   execution.ExecutionID,
+		SubmitSpec:    JSONMap{"engine_base_url": "http://127.0.0.1:8080"},
+		ResultPreview: JSONMap{"job_status": "CANCEL_REQUESTED"},
+		FinishedAt:    &finishedAt,
+		CreatedBy:     1,
+	}
+	if err := service.repo.CreateJobInstance(ctx, job); err != nil {
+		t.Fatalf("创建预览作业失败: %v", err)
+	}
+	if err := executionService.BindModuleRef(ctx, execution.ExecutionID, strconv.FormatUint(uint64(job.ID), 10)); err != nil {
+		t.Fatalf("绑定公共执行记录失败: %v", err)
+	}
+
+	snapshot, err := service.GetPreviewSnapshot(ctx, job.ID, "")
+	if err != nil {
+		t.Fatalf("读取预览快照失败: %v", err)
+	}
+	if snapshot.Status != string(JobStatusCanceled) {
+		t.Fatalf("迟到的运行状态不应覆盖作业终态，实际为 %s", snapshot.Status)
+	}
+	storedExecution, err := executionService.Get(ctx, executionapp.Actor{UserID: 1}, execution.ExecutionID)
+	if err != nil {
+		t.Fatalf("读取公共执行记录失败: %v", err)
+	}
+	if storedExecution.Status != executionapp.StatusCancelled {
+		t.Fatalf("迟到的运行状态不应覆盖公共执行终态，实际为 %s", storedExecution.Status)
+	}
+}
+
+func TestSyncExecutionFromJobIgnoresStaleStatusAfterTerminalState(t *testing.T) {
+	service := newTestSyncService(t)
+	if err := service.repo.db.AutoMigrate(&executionapp.Execution{}, &executionapp.Confirmation{}); err != nil {
+		t.Fatalf("迁移公共执行表失败: %v", err)
+	}
+	executionService := executionapp.NewService(executionapp.NewRepository(service.repo.db), executionapp.NewProviderRegistry())
+	service.SetExecutionService(executionService)
+	ctx := context.Background()
+	execution, _, err := executionService.Create(ctx, executionapp.CreateInput{
+		OperationID: "sync.task.preview",
+		OwnerUserID: 1,
+		ActorType:   executionapp.ActorTypeUser,
+		Module:      syncExecutionModule,
+		Status:      executionapp.StatusSucceeded,
+	})
+	if err != nil {
+		t.Fatalf("创建公共执行记录失败: %v", err)
+	}
+
+	err = service.syncExecutionFromJob(ctx, &JobInstance{
+		ID:          1,
+		Status:      JobStatusRunning,
+		ExecutionID: execution.ExecutionID,
+		CreatedBy:   1,
+	})
+	if err != nil {
+		t.Fatalf("迟到状态不应导致只读刷新失败: %v", err)
+	}
+	storedExecution, err := executionService.Get(ctx, executionapp.Actor{UserID: 1}, execution.ExecutionID)
+	if err != nil {
+		t.Fatalf("读取公共执行记录失败: %v", err)
+	}
+	if storedExecution.Status != executionapp.StatusSucceeded {
+		t.Fatalf("公共执行终态不应被迟到状态覆盖，实际为 %s", storedExecution.Status)
+	}
+}
+
 func TestCancelJobWaitsForEngineConfirmation(t *testing.T) {
 	service := newTestSyncService(t)
 	engine := &stubEngineClient{info: &EngineJobInfo{JobID: "engine-cancel-1", JobStatus: "RUNNING"}}

@@ -74,7 +74,7 @@ func TestNewHandler(t *testing.T) {
 	customConfig := &HandlerConfig{
 		ControlPlaneAddr:       "http://custom-host:8080",
 		AgentBinaryDir:         "/custom/path",
-		STXJavaProxyJarPath:    "/custom/lib/stx-java-proxy-2.3.13.jar",
+		STXJavaProxyJarPath:    "/custom/lib/stx-java-proxy-v2.jar",
 		STXJavaProxyScriptPath: "/custom/scripts/stx-java-proxy.sh",
 		GRPCPort:               "50052",
 	}
@@ -85,7 +85,7 @@ func TestNewHandler(t *testing.T) {
 	if h2.agentBinaryDir != "/custom/path" {
 		t.Errorf("Expected custom binary dir '/custom/path', got '%s'", h2.agentBinaryDir)
 	}
-	if h2.stxJavaProxyJarPath != "/custom/lib/stx-java-proxy-2.3.13.jar" {
+	if h2.stxJavaProxyJarPath != "/custom/lib/stx-java-proxy-v2.jar" {
 		t.Errorf("Expected custom stx-java-proxy jar path, got '%s'", h2.stxJavaProxyJarPath)
 	}
 	if h2.stxJavaProxyScriptPath != "/custom/scripts/stx-java-proxy.sh" {

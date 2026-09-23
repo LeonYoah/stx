@@ -1330,13 +1330,19 @@ func stxJavaProxyDevelopmentJarDirs() []string {
 	return dedupeStrings(candidates)
 }
 
+// stxJavaProxyVersionCandidates 根据 SeaTunnel 集群版本号返回要查找的 jar 代际标签列表。
+// 代际标签（如 "v2"、"v3"）是 jar 命名的唯一依据，同一主版本下所有小版本共享同一 jar；
+// 仅在真正出现 breaking API 变更时才引入新代际。
+//
+// stxJavaProxyVersionCandidates returns the proxy epoch labels to search for,
+// derived from the SeaTunnel cluster version. Epoch labels (e.g. "v2", "v3")
+// are the sole basis for jar naming; all patch/minor versions within the same
+// major share the same jar. A new epoch is added only on genuine breaking change.
 func stxJavaProxyVersionCandidates(seatunnelVersion string) []string {
-	candidates := []string{}
-	if version := strings.TrimSpace(seatunnelVersion); version != "" {
-		candidates = append(candidates, version)
-	}
-	candidates = append(candidates, seatunnelmeta.DefaultSTXJavaProxyVersion)
-	return dedupeStrings(candidates)
+	epoch := seatunnelmeta.ProxyEpochForVersion(seatunnelVersion)
+	// 代际标签已去重（同一主版本映射到同一 epoch），直接返回单元素列表。
+	// The epoch mapping is deterministic; return a single-element list.
+	return []string{epoch}
 }
 
 func fileExists(path string) bool {

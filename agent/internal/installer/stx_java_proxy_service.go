@@ -469,8 +469,12 @@ func uniquePositivePIDs(pids []int) []int {
 	return result
 }
 
+// defaultSTXJavaProxyVersion 返回给定 SeaTunnel 版本对应的 stx-java-proxy 代际标签。
+// 空 version 时回退到内置默认代际（v2）。
+// defaultSTXJavaProxyVersion returns the proxy epoch label for the given
+// SeaTunnel version, falling back to the built-in default epoch (v2) when blank.
 func defaultSTXJavaProxyVersion(version string) string {
-	return firstNonBlank(strings.TrimSpace(version), seatunnelmeta.DefaultSTXJavaProxyVersion)
+	return seatunnelmeta.ProxyEpochForVersion(version)
 }
 
 func stxJavaProxyErrorString(err error) string {

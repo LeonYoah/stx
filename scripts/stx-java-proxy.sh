@@ -47,7 +47,12 @@ if [ -z "${SEATUNNEL_HOME:-}" ]; then
 fi
 
 APP_JAR=${SEATUNNEL_HOME:-}/starter/seatunnel-starter.jar
-DEFAULT_PROXY_VERSION="${STX_JAVA_PROXY_DEFAULT_VERSION:-2.3.13}"
+# 代际标签是 stx-java-proxy jar 命名的唯一依据，与 SeaTunnel 具体小版本无关。
+# 仅在真正出现 breaking API 变更时才需要引入新代际（如 v3）。
+# The epoch label is the sole naming basis for the proxy jar, independent of
+# the exact SeaTunnel patch version.  Introduce a new epoch (e.g. v3) only on
+# a genuine breaking API change.
+DEFAULT_PROXY_VERSION="${STX_JAVA_PROXY_DEFAULT_VERSION:-v2}"
 APP_MAIN="io.github.leonyoah.stx.proxy.StxJavaProxyApplication"
 DEFAULT_PROXY_PORT="18080"
 
@@ -71,14 +76,37 @@ validate_seatunnel_home() {
   fi
 }
 
+# proxy_epoch_for_version 将 SeaTunnel 版本字符串映射为 stx-java-proxy 代际标签。
+# proxy_epoch_for_version maps a SeaTunnel version string to the proxy epoch label.
+proxy_epoch_for_version() {
+  local version="${1:-}"
+  local major
+  major="${version%%.*}"
+  case "${major}" in
+    3)
+      # 3.x 与 v2 jar 核心存储接口兼容；真正 breaking 时改为 echo "v3"。
+      # 3.x is storage-API compatible with v2; change to "v3" on genuine break.
+      echo "v2"
+      ;;
+    *)
+      # 2.x 及未知版本均使用 v2 代际。
+      # 2.x and unknown versions use the v2 epoch.
+      echo "v2"
+      ;;
+  esac
+}
+
 proxy_version_candidates() {
   local requested_version="${STX_JAVA_PROXY_VERSION:-${SEATUNNEL_VERSION:-}}"
+  local epoch
+  # 优先使用显式指定的 epoch（如 v2/v3），否则按版本号推导。
+  # If the caller sets an explicit epoch label use it, else derive from version.
   if [ -n "${requested_version}" ]; then
-    printf '%s\n' "${requested_version}"
+    epoch=$(proxy_epoch_for_version "${requested_version}")
+  else
+    epoch="${DEFAULT_PROXY_VERSION}"
   fi
-  if [ "${requested_version}" != "${DEFAULT_PROXY_VERSION}" ]; then
-    printf '%s\n' "${DEFAULT_PROXY_VERSION}"
-  fi
+  printf '%s\n' "${epoch}"
 }
 
 find_proxy_jar() {

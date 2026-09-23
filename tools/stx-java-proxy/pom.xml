@@ -31,6 +31,13 @@
     <packaging>jar</packaging>
     <name>STX : Java Proxy</name>
 
+    <build>
+        <!-- 代际标签命名：jar 名与 SeaTunnel 具体小版本解耦，仅在真正 breaking change 时切换到 v3。 -->
+        <!-- Epoch-based jar name, decoupled from the exact SeaTunnel patch version.
+             Bump to v3 only when a genuine breaking API change requires a new build. -->
+        <finalName>stx-java-proxy-v2</finalName>
+    </build>
+
     <dependencies>
         <dependency>
             <groupId>org.apache.seatunnel</groupId>

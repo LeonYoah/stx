@@ -33,6 +33,7 @@ PLAYWRIGHT_PROJECT="${PLAYWRIGHT_PROJECT:-}"
 PLAYWRIGHT_GREP="${PLAYWRIGHT_GREP:-}"
 PLAYWRIGHT_SPEC="${E2E_REAL_PLAYWRIGHT_SPEC:-e2e/install-wizard-real.spec.ts}"
 JAVA_PROXY_VERSION="${E2E_INSTALLER_REAL_VERSION:-2.3.13}"
+JAVA_PROXY_EPOCH="${STX_JAVA_PROXY_DEFAULT_VERSION:-v2}"
 PACKAGE_PRELOAD_MIRROR="${E2E_INSTALLER_REAL_PRELOAD_MIRROR:-}"
 PACKAGE_DOWNLOAD_TIMEOUT_SECONDS="${E2E_INSTALLER_REAL_DOWNLOAD_TIMEOUT_SECONDS:-1800}"
 PACKAGE_CACHE_DIR="${E2E_INSTALLER_REAL_PACKAGE_CACHE_DIR:-}"
@@ -186,12 +187,12 @@ fi
 docker rm -f "${MINIO_NAME}" >/dev/null 2>&1 || true
 
 JAVA_PROXY_SCRIPT_PATH="${ROOT_DIR}/scripts/stx-java-proxy.sh"
-JAVA_PROXY_LIB_PATH="${ROOT_DIR}/lib/stx-java-proxy-${JAVA_PROXY_VERSION}.jar"
+JAVA_PROXY_LIB_PATH="${ROOT_DIR}/lib/stx-java-proxy-${JAVA_PROXY_EPOCH}.jar"
 if [[ ! -f "${JAVA_PROXY_LIB_PATH}" ]]; then
   mvn -q -DskipTests package -f "${ROOT_DIR}/tools/stx-java-proxy/pom.xml"
-  BUILT_JAVA_PROXY_JAR="$(find "${ROOT_DIR}/tools/stx-java-proxy/target" -maxdepth 1 -type f -name "stx-java-proxy-${JAVA_PROXY_VERSION}*.jar" | grep -v '\-bin\.jar$' | sort | head -n 1 || true)"
+  BUILT_JAVA_PROXY_JAR="$(find "${ROOT_DIR}/tools/stx-java-proxy/target" -maxdepth 1 -type f -name "stx-java-proxy-${JAVA_PROXY_EPOCH}.jar" | sort | head -n 1 || true)"
   if [[ -z "${BUILT_JAVA_PROXY_JAR}" ]]; then
-    echo "failed to build stx-java-proxy jar for version ${JAVA_PROXY_VERSION}" >&2
+    echo "failed to build stx-java-proxy jar for epoch ${JAVA_PROXY_EPOCH}" >&2
     exit 1
   fi
   mkdir -p "${ROOT_DIR}/lib"

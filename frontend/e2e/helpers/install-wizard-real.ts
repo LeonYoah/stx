@@ -642,6 +642,14 @@ export async function listClusterRuntimeStorage(
 async function resolveStxJavaProxyAssets(version: string) {
   const script = path.join(repoRoot, 'scripts', 'stx-java-proxy.sh');
   const candidates = [
+    path.join(repoRoot, 'lib', 'stx-java-proxy-v2.jar'),
+    path.join(
+      repoRoot,
+      'tools',
+      'stx-java-proxy',
+      'target',
+      'stx-java-proxy-v2.jar',
+    ),
     path.join(repoRoot, 'lib', `stx-java-proxy-${version}.jar`),
     path.join(repoRoot, 'lib', 'stx-java-proxy.jar'),
     path.join(

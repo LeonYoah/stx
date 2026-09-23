@@ -21,11 +21,11 @@ timed_out
 
 `cancelled`、`succeeded`、`failed`、`timed_out` 是终态，不能重新进入运行状态。收到取消请求时不能直接写成 `cancelled`，只有业务模块确认实际执行已经停止后才能进入该状态。
 
-### 1.1 终态刷新保护
+### 1.1 状态刷新倒退保护
 
 #### 1. 适用范围
 
-查询任务、读取预览、轮询等待等只读流程会向 SeaTunnel 或 Agent 刷新运行时状态。当业务任务或公共执行已经结束时，迟到的运行中状态不能改变本地终态。
+查询任务、读取预览、轮询等待等只读流程会向 SeaTunnel 或 Agent 刷新运行时状态。引擎可能在提交成功后短暂返回 `CREATED`，也可能在任务结束后返回迟到状态；这些结果不能让本地状态倒退。
 
 #### 2. 方法签名
 
@@ -37,13 +37,18 @@ func (s *Service) syncExecutionFromJob(ctx context.Context, job *JobInstance) er
 #### 3. 行为规则
 
 - `JobInstance` 已为 `success`、`failed` 或 `canceled` 时，运行时刷新保留原状态。
+- `JobInstance` 已为 `running` 时，引擎返回 `CREATED`、`STARTING`、`SCHEDULED`、`SUBMITTED` 或 `PENDING` 时保持 `running`。
+- `JobInstance` 已进入取消流程时，引擎返回 `pending` 或 `running` 时保持当前取消状态。
 - 公共执行已为 `cancelled`、`succeeded`、`failed` 或 `timed_out` 时，忽略业务任务的迟到状态。
+- 公共执行已为 `running` 时，忽略迟到的 `pending`；取消流程也忽略更早的状态。
 - 只读接口继续返回当前结果，不能因为过期状态返回 `500 invalid_transition`。
 
 #### 4. 校验与错误对应表
 
 | 当前状态 | 迟到状态 | 处理方式 |
 | --- | --- | --- |
+| 业务任务 `running` | `pending` | 保持 `running` |
+| 业务任务取消中 | `pending` 或 `running` | 保持当前取消状态 |
 | 业务任务终态 | `running` | 保留业务任务终态 |
 | 公共执行终态 | 非终态或其他终态 | 保留公共执行终态 |
 | 非终态 | 合法后续状态 | 按状态迁移规则更新 |
@@ -51,12 +56,13 @@ func (s *Service) syncExecutionFromJob(ctx context.Context, job *JobInstance) er
 
 #### 5. Good / Base / Bad
 
-- Good：预览任务已经取消，引擎短暂返回 `RUNNING`，预览接口仍返回取消状态和已有数据。
+- Good：预览任务已经运行，引擎第一次查询返回 `CREATED`，预览接口仍返回运行状态和已有数据。
 - Base：任务仍在运行时，引擎返回成功，业务任务和公共执行正常进入成功状态。
-- Bad：只读预览接口把已取消任务改回运行中，随后因公共执行不能倒退而返回 `500`。
+- Bad：只读预览接口把运行中任务改回待执行，随后因公共执行不能从 `running` 回到 `pending` 而返回 `500`。
 
 #### 6. 必须有的测试
 
+- 引擎在任务运行后返回 `CREATED`，任务查询和预览仍成功。
 - 引擎在业务任务结束后返回 `RUNNING`，任务查询和预览仍成功。
 - 业务任务与公共执行保持原终态。
 - 非终态的正常状态变化仍可执行。

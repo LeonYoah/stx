@@ -1669,6 +1669,61 @@ func TestGetPreviewSnapshotKeepsTerminalStateWhenEngineReturnsStaleRunningStatus
 	}
 }
 
+func TestGetPreviewSnapshotKeepsRunningStateWhenEngineReturnsCreated(t *testing.T) {
+	service := newTestSyncService(t)
+	if err := service.repo.db.AutoMigrate(&executionapp.Execution{}, &executionapp.Confirmation{}); err != nil {
+		t.Fatalf("迁移公共执行表失败: %v", err)
+	}
+	executionService := executionapp.NewService(executionapp.NewRepository(service.repo.db), executionapp.NewProviderRegistry())
+	service.SetExecutionService(executionService)
+	service.engineClient = &stubEngineClient{info: &EngineJobInfo{JobID: "preview-created", JobStatus: "CREATED"}}
+	ctx := context.Background()
+	execution, _, err := executionService.Create(ctx, executionapp.CreateInput{
+		OperationID: "sync.task.preview",
+		OwnerUserID: 1,
+		ActorType:   executionapp.ActorTypeUser,
+		Module:      syncExecutionModule,
+		Status:      executionapp.StatusRunning,
+		Cancellable: true,
+	})
+	if err != nil {
+		t.Fatalf("创建公共执行记录失败: %v", err)
+	}
+	job := &JobInstance{
+		TaskID:        1,
+		TaskVersion:   1,
+		RunType:       RunTypePreview,
+		Status:        JobStatusRunning,
+		PlatformJobID: "preview-created",
+		EngineJobID:   "preview-created",
+		ExecutionID:   execution.ExecutionID,
+		SubmitSpec:    JSONMap{"engine_base_url": "http://127.0.0.1:8080"},
+		ResultPreview: JSONMap{},
+		CreatedBy:     1,
+	}
+	if err := service.repo.CreateJobInstance(ctx, job); err != nil {
+		t.Fatalf("创建预览作业失败: %v", err)
+	}
+	if err := executionService.BindModuleRef(ctx, execution.ExecutionID, strconv.FormatUint(uint64(job.ID), 10)); err != nil {
+		t.Fatalf("绑定公共执行记录失败: %v", err)
+	}
+
+	snapshot, err := service.GetPreviewSnapshot(ctx, job.ID, "")
+	if err != nil {
+		t.Fatalf("CREATED 状态不应导致预览读取失败: %v", err)
+	}
+	if snapshot.Status != string(JobStatusRunning) {
+		t.Fatalf("CREATED 状态不应把运行中任务改回 pending，实际为 %s", snapshot.Status)
+	}
+	storedExecution, err := executionService.Get(ctx, executionapp.Actor{UserID: 1}, execution.ExecutionID)
+	if err != nil {
+		t.Fatalf("读取公共执行记录失败: %v", err)
+	}
+	if storedExecution.Status != executionapp.StatusRunning {
+		t.Fatalf("公共执行不应从 running 倒退，实际为 %s", storedExecution.Status)
+	}
+}
+
 func TestSyncExecutionFromJobIgnoresStaleStatusAfterTerminalState(t *testing.T) {
 	service := newTestSyncService(t)
 	if err := service.repo.db.AutoMigrate(&executionapp.Execution{}, &executionapp.Confirmation{}); err != nil {
@@ -1703,6 +1758,43 @@ func TestSyncExecutionFromJobIgnoresStaleStatusAfterTerminalState(t *testing.T) 
 	}
 	if storedExecution.Status != executionapp.StatusSucceeded {
 		t.Fatalf("公共执行终态不应被迟到状态覆盖，实际为 %s", storedExecution.Status)
+	}
+}
+
+func TestSyncExecutionFromJobIgnoresStalePendingStatus(t *testing.T) {
+	service := newTestSyncService(t)
+	if err := service.repo.db.AutoMigrate(&executionapp.Execution{}, &executionapp.Confirmation{}); err != nil {
+		t.Fatalf("迁移公共执行表失败: %v", err)
+	}
+	executionService := executionapp.NewService(executionapp.NewRepository(service.repo.db), executionapp.NewProviderRegistry())
+	service.SetExecutionService(executionService)
+	ctx := context.Background()
+	execution, _, err := executionService.Create(ctx, executionapp.CreateInput{
+		OperationID: "sync.task.preview",
+		OwnerUserID: 1,
+		ActorType:   executionapp.ActorTypeUser,
+		Module:      syncExecutionModule,
+		Status:      executionapp.StatusRunning,
+	})
+	if err != nil {
+		t.Fatalf("创建公共执行记录失败: %v", err)
+	}
+
+	err = service.syncExecutionFromJob(ctx, &JobInstance{
+		ID:          1,
+		Status:      JobStatusPending,
+		ExecutionID: execution.ExecutionID,
+		CreatedBy:   1,
+	})
+	if err != nil {
+		t.Fatalf("迟到的 pending 状态不应导致只读刷新失败: %v", err)
+	}
+	storedExecution, err := executionService.Get(ctx, executionapp.Actor{UserID: 1}, execution.ExecutionID)
+	if err != nil {
+		t.Fatalf("读取公共执行记录失败: %v", err)
+	}
+	if storedExecution.Status != executionapp.StatusRunning {
+		t.Fatalf("公共执行不应从 running 倒退到 pending，实际为 %s", storedExecution.Status)
 	}
 }
 

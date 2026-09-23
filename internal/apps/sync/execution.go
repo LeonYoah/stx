@@ -302,6 +302,11 @@ func (s *Service) syncExecutionFromJob(ctx context.Context, job *JobInstance) er
 	if executionapp.IsTerminal(item.Status) {
 		return nil
 	}
+	// 忽略运行时查询返回的已过期早期状态，避免只读接口触发反向迁移错误。
+	// Ignore stale earlier runtime states so read-only requests do not trigger reverse-transition errors.
+	if staleExecutionRefresh(item.Status, target) {
+		return nil
+	}
 	updates := map[string]any{
 		"progress":           executionProgressFromJob(job.Status),
 		"cancellable":        !isFinalNormalizedJobStatus(job.Status),
@@ -323,6 +328,19 @@ func (s *Service) syncExecutionFromJob(ctx context.Context, job *JobInstance) er
 		item.Status = next
 	}
 	return nil
+}
+
+func staleExecutionRefresh(current, target executionapp.Status) bool {
+	switch current {
+	case executionapp.StatusRunning:
+		return target == executionapp.StatusPending
+	case executionapp.StatusCancelRequested:
+		return target == executionapp.StatusPending
+	case executionapp.StatusCancelling:
+		return target == executionapp.StatusPending || target == executionapp.StatusRunning || target == executionapp.StatusCancelRequested
+	default:
+		return false
+	}
 }
 
 func nextExecutionStatus(current, target executionapp.Status) (executionapp.Status, bool) {

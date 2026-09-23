@@ -2537,12 +2537,17 @@ func (s *Service) refreshJobInstance(ctx context.Context, instance *JobInstance)
 	} else {
 		observedStatus = normalizeJobStatus(rawEngineStatus)
 		if previousStatus == JobStatusCancelRequested || previousStatus == JobStatusCancelling {
-			if observedStatus == JobStatusRunning {
+			if observedStatus == JobStatusPending || observedStatus == JobStatusRunning {
 				observedStatus = previousStatus
 			} else if observedStatus == JobStatusSuccess {
 				observedStatus = JobStatusCanceled
 			}
 		}
+	}
+	// 引擎启动阶段可能短暂返回 CREATED，不能把已经运行的任务改回 pending。
+	// Engines may briefly report CREATED during startup; do not move a running job back to pending.
+	if previousStatus == JobStatusRunning && observedStatus == JobStatusPending {
+		observedStatus = previousStatus
 	}
 	// 作业终态不可被迟到或过期的引擎状态改回运行态。
 	// A late or stale engine status must not move a terminal job back to a running state.

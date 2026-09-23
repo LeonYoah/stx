@@ -135,6 +135,22 @@ function getStatusBadgeVariant(
 }
 
 /**
+ * 从安装命令生成卸载命令，移除安装专属参数（如 --host-id、--auth-token）
+ * Generate uninstall command from install command, stripping install-only flags (e.g. --host-id, --auth-token)
+ */
+function getUninstallCommand(installCmd: string): string {
+  if (!installCmd) {
+    return '';
+  }
+  return installCmd
+    .replace('/install.sh', '/uninstall.sh')
+    .replace(/\s+--host-id(?:=\S+|\s+\S+)/g, '')
+    .replace(/\s+--auth-token(?:=\S+|\s+\S+)/g, '')
+    .replace(/\s+--control-plane-addr(?:=\S+|\s+\S+)/g, '')
+    .trim();
+}
+
+/**
  * Host Detail Component
  * 主机详情组件
  */
@@ -492,7 +508,7 @@ export function HostDetail({open, onOpenChange, host, onEdit}: HostDetailProps) 
                         className='h-6 px-2 text-[11px] text-zinc-300 hover:text-white hover:bg-zinc-800 gap-1'
                         onClick={() =>
                           handleCopyCommand(
-                            installCommand.replace('/install.sh', '/uninstall.sh'),
+                            getUninstallCommand(installCommand),
                             true,
                           )
                         }
@@ -512,7 +528,7 @@ export function HostDetail({open, onOpenChange, host, onEdit}: HostDetailProps) 
                     </div>
 
                     <div className='p-3 font-mono text-xs text-amber-300/90 overflow-x-auto leading-relaxed select-all whitespace-pre-wrap break-all'>
-                      {installCommand.replace('/install.sh', '/uninstall.sh')}
+                      {getUninstallCommand(installCommand)}
                     </div>
                   </div>
 

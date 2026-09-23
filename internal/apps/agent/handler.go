@@ -713,6 +713,20 @@ main() {
             --remove-logs)
                 remove_logs_flag="yes"
                 ;;
+            --host-id=*)
+                # 兼容安装参数透传，静默忽略 / Accept and ignore install-only parameter for compatibility
+                ;;
+            --host-id)
+                shift
+                ;;
+            --auth-token=*|--control-plane-addr=*|--grpc-port=*)
+                # 兼容透传参数 / Accept install flags
+                ;;
+            --auth-token|--control-plane-addr|--grpc-port)
+                shift
+                ;;
+            --force|--dry-run)
+                ;;
             -h|--help)
                 print_usage
                 exit 0

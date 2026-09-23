@@ -2995,6 +2995,17 @@ export function buildPairedMetricRows(metrics: Record<string, unknown>) {
       if (sourceRows.length === 1 && sinkRows.length === 1) {
         const source = sourceRows[0];
         const sink = sinkRows[0];
+        // 解析数值以计算条数差额与对等性 / Parse numbers to compute count disparity
+        const parseMetricNum = (v: string): number | null => {
+          if (!v || v === '-') return null;
+          const num = Number(v.replace(/,/g, ''));
+          return isNaN(num) ? null : num;
+        };
+        const srcNum = parseMetricNum(source.sourceCount);
+        const sinkNum = parseMetricNum(sink.sinkCount);
+        const countDiff =
+          srcNum !== null && sinkNum !== null ? sinkNum - srcNum : null;
+
         return {
           key,
           sourceNode: source.nodeLabel,
@@ -3007,6 +3018,7 @@ export function buildPairedMetricRows(metrics: Record<string, unknown>) {
           sinkCount: sink.sinkCount,
           sinkBytes: sink.sinkBytes,
           sinkQps: sink.sinkQps,
+          countDiff,
           committedCount: sink.committedCount,
           committedBytes: sink.committedBytes,
         };

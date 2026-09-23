@@ -2771,14 +2771,14 @@ func (s *Service) pollInstallationStatus(ctx context.Context, commandID string, 
 			switch cmdStatus {
 			case "success":
 				now := time.Now()
-				status.Status = StepStatusSuccess
 				status.Progress = 100
 				if len(status.Warnings) > 0 {
 					status.Message = "Installation completed with warnings, starting cluster... / 安装完成，但存在警告，正在启动集群..."
 				} else {
 					status.Message = "Installation completed, starting cluster... / 安装完成，正在启动集群..."
 				}
-				status.EndTime = &now
+				// 节点登记和启动完成前保持 running，避免客户端提前看到成功终态。
+				// Keep the task running until node registration and startup finish so clients never observe a premature success state.
 				// Mark all steps as complete
 				// 将所有步骤标记为完成
 				for j := range status.Steps {
@@ -2828,7 +2828,10 @@ func (s *Service) startClusterAfterInstall(ctx context.Context, agentID string, 
 	// When no cluster is specified, finish the standalone installation without reporting a startup failure.
 	if strings.TrimSpace(req.ClusterID) == "" {
 		s.installMu.Lock()
+		now := time.Now()
+		status.Status = StepStatusSuccess
 		status.CurrentStep = InstallStepComplete
+		status.EndTime = &now
 		if len(status.Warnings) > 0 {
 			status.Message = "Installation completed with warnings; cluster startup skipped because no cluster ID was provided / 安装完成但存在警告；未提供集群 ID，已跳过集群启动"
 		} else {
@@ -2941,7 +2944,10 @@ func (s *Service) startClusterAfterInstall(ctx context.Context, agentID string, 
 	// Final status update
 	// 最终状态更新
 	s.installMu.Lock()
+	now := time.Now()
+	status.Status = StepStatusSuccess
 	status.CurrentStep = InstallStepComplete
+	status.EndTime = &now
 	if len(status.Warnings) > 0 {
 		status.Message = fmt.Sprintf(
 			"Installation and node (%s) startup completed with warnings / 安装和节点 (%s) 启动完成，但存在警告",

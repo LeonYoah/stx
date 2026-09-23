@@ -209,7 +209,7 @@ func TestBuildInstallParamsIncludesRuntimeConfig(t *testing.T) {
 
 func TestStartClusterAfterInstallSkipsStandaloneInstallation(t *testing.T) {
 	service := NewService(t.TempDir(), nil)
-	status := &InstallationStatus{Status: StepStatusSuccess}
+	status := &InstallationStatus{Status: StepStatusRunning}
 
 	service.startClusterAfterInstall(context.Background(), "agent-test", &InstallationRequest{
 		HostID:   "10",
@@ -224,6 +224,9 @@ func TestStartClusterAfterInstallSkipsStandaloneInstallation(t *testing.T) {
 	}
 	if status.CurrentStep != InstallStepComplete {
 		t.Fatalf("独立安装完成步骤错误: %q", status.CurrentStep)
+	}
+	if status.EndTime == nil {
+		t.Fatal("独立安装成功后缺少结束时间")
 	}
 }
 
@@ -254,7 +257,7 @@ func TestStartClusterAfterInstallRegistersNodeBeforeStarting(t *testing.T) {
 	service := NewService(t.TempDir(), nil)
 	starter := &stubInstallationNodeStarter{startOK: true, startMsg: "started"}
 	service.SetNodeStarter(starter)
-	status := &InstallationStatus{Status: StepStatusSuccess}
+	status := &InstallationStatus{Status: StepStatusRunning}
 
 	service.startClusterAfterInstall(context.Background(), "agent-test", &InstallationRequest{
 		HostID:      "10",
@@ -280,6 +283,9 @@ func TestStartClusterAfterInstallRegistersNodeBeforeStarting(t *testing.T) {
 	}
 	if status.CurrentStep != InstallStepComplete {
 		t.Fatalf("expected current step %q, got %q", InstallStepComplete, status.CurrentStep)
+	}
+	if status.EndTime == nil {
+		t.Fatal("expected successful installation to record an end time")
 	}
 }
 

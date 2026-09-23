@@ -118,7 +118,7 @@ test.describe.serial('install wizard real installer', () => {
     );
     await page.getByTestId('install-wizard-next').click();
 
-    await expectInstallationSuccess(page);
+    await expectInstallationSuccess(page, host.id);
     console.log(
       '[installer-real] installation succeeded for local checkpoint scenario',
     );
@@ -224,7 +224,7 @@ test.describe.serial('install wizard real installer', () => {
 
     await page.getByTestId('install-wizard-next').click();
     await page.getByTestId('install-wizard-next').click();
-    await expectInstallationSuccess(page);
+    await expectInstallationSuccess(page, host.id);
     console.log(
       '[installer-real] installation succeeded for MinIO-backed scenario',
     );

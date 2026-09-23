@@ -36,6 +36,12 @@ CLI 参数或 request-file
 
 升级后的模板任务由 STX 编排侧执行有限重试，不改变 Agent 的单次命令语义。只匹配 `Unable to connect to any cluster`、`connection refused`、`cluster is not ready` 三类暂时错误。第一次失败等待 3 秒，第二次失败等待 5 秒，第三次仍失败则按原有规则记录告警但不阻塞升级。每次重试更新 `UpgradeTaskStep.RetryCount`，日志记录尝试次数、最大次数和等待秒数。
 
+## 真实 CLI E2E
+
+安装真实 E2E 在启动 STX、Agent 和前端后构建 `dist/stx`，再由独立 Playwright 场景通过子进程调用该二进制。测试使用独立的 `XDG_CONFIG_HOME`、集群名、安装目录和端口，依次验证登录、能力查询、主机查询、集群创建、主机预检、安装启动、安装状态查询和节点列表。stdout 必须能解析为单个 JSON，stderr 每个非空行必须是 JSON 事件。
+
+该场景与网页安装向导共用真实服务和预加载安装包，但不依赖网页按钮或页面状态。最终以 CLI 返回的安装终态、节点记录和实际安装目录为准。
+
 ## 安全与兼容
 
 - 预检是只读操作，风险等级为 R0。

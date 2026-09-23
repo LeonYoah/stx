@@ -1115,6 +1115,56 @@ func TestService_EnsureNodeForInstallationCreatesAndRefreshesNode(t *testing.T) 
 	}
 }
 
+func TestService_StartNodeByClusterAndHostAndRoleNormalizesHybridRole(t *testing.T) {
+	db, cleanup := setupServiceTestDB(t)
+	defer cleanup()
+
+	repo := NewRepository(db)
+	mockHostProvider := NewMockHostProvider()
+	now := time.Now()
+	mockHostProvider.AddHost(&HostInfo{
+		ID:            10,
+		Name:          "installer-host",
+		HostType:      "bare_metal",
+		IPAddress:     "127.0.0.1",
+		AgentStatus:   "installed",
+		AgentID:       "agent-installer",
+		LastHeartbeat: &now,
+	})
+	service := NewService(repo, mockHostProvider, nil)
+	agentSender := &scriptedAgentSender{
+		send: func(ctx context.Context, agentID string, commandType string, params map[string]string) (bool, string, error) {
+			if commandType == string(OperationStart) && params["role"] != string(NodeRoleMasterWorker) {
+				t.Fatalf("expected normalized start role %q, got %q", NodeRoleMasterWorker, params["role"])
+			}
+			return true, "started", nil
+		},
+	}
+	service.SetAgentCommandSender(agentSender)
+	ctx := context.Background()
+
+	clusterInfo, err := service.Create(ctx, &CreateClusterRequest{
+		Name:           "installer-hybrid-start",
+		DeploymentMode: DeploymentModeHybrid,
+		Version:        "2.3.13",
+		InstallDir:     "/tmp/seatunnel-2.3.13",
+	})
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+	if err := service.EnsureNodeForInstallation(ctx, clusterInfo.ID, 10, "master", "/tmp/seatunnel-2.3.13", 38181, 38080, 38182); err != nil {
+		t.Fatalf("EnsureNodeForInstallation returned error: %v", err)
+	}
+
+	success, message, err := service.StartNodeByClusterAndHostAndRole(ctx, clusterInfo.ID, 10, "master")
+	if err != nil {
+		t.Fatalf("StartNodeByClusterAndHostAndRole returned error: %v", err)
+	}
+	if !success || message != "started" {
+		t.Fatalf("unexpected start result: success=%v message=%q", success, message)
+	}
+}
+
 func TestService_GetStatus_refreshesStoppedProcessToStoppedCluster(t *testing.T) {
 	db, cleanup := setupServiceTestDB(t)
 	defer cleanup()

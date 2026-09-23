@@ -2181,12 +2181,24 @@ func (s *Service) StartNodeByClusterAndHost(ctx context.Context, clusterID uint,
 // Used after install when one host has both master and worker (separated mode); starts the node that was just installed.
 // 安装完成后、同一主机兼有 master 与 worker 时使用，用于启动刚安装完成的那一个节点。
 func (s *Service) StartNodeByClusterAndHostAndRole(ctx context.Context, clusterID uint, hostID uint, role string) (bool, string, error) {
-	node, err := s.repo.GetNodeByClusterAndHostAndRole(ctx, clusterID, hostID, role)
+	cluster, err := s.repo.GetByID(ctx, clusterID, false)
+	if err != nil {
+		return false, "", err
+	}
+
+	// 混合部署只保存 master/worker 逻辑节点，启动前必须按部署模式规范化安装请求中的角色。
+	// Hybrid deployments store a master/worker logical node, so normalize the requested install role before startup.
+	normalizedRole, err := normalizeNodeRoleForDeployment(cluster.DeploymentMode, NodeRole(role))
+	if err != nil {
+		return false, "", err
+	}
+
+	node, err := s.repo.GetNodeByClusterAndHostAndRole(ctx, clusterID, hostID, string(normalizedRole))
 	if err != nil {
 		return false, "", fmt.Errorf("failed to find node: %w / 查找节点失败: %w", err, err)
 	}
 	if node == nil {
-		return false, "", fmt.Errorf("node not found for cluster %d, host %d, role %s / 未找到集群 %d 主机 %d 角色 %s 对应的节点", clusterID, hostID, role, clusterID, hostID, role)
+		return false, "", fmt.Errorf("node not found for cluster %d, host %d, role %s / 未找到集群 %d 主机 %d 角色 %s 对应的节点", clusterID, hostID, normalizedRole, clusterID, hostID, normalizedRole)
 	}
 	result, err := s.executeNodeOperation(ctx, clusterID, node.ID, OperationStart)
 	if err != nil {

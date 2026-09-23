@@ -67,7 +67,7 @@ export default defineConfig({
     ['html', {open: 'never', outputFolder: 'playwright-report'}],
   ],
   retries: process.env.CI ? 1 : 0,
-  workers: process.env.CI ? 1 : undefined,
+  workers: installerRealMode ? 1 : process.env.CI ? 1 : undefined,
   use: {
     baseURL: frontendBaseURL,
     trace: 'retain-on-failure',

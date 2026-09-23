@@ -37,6 +37,7 @@
     - `frontend/e2e/upgrade-real.spec.ts`
     - `frontend/e2e/plugin-real.spec.ts`
     - `frontend/e2e/workbench-real.spec.ts`
+    - `frontend/e2e/stx-cli-installer-real.spec.ts`
 
 ### 3. Contracts
 
@@ -49,6 +50,10 @@
 - 安装类流程优先覆盖“失败后停留在当前步骤并给出重试/回滚提示”
 - 升级类流程优先覆盖“存在阻断问题时禁止继续，并给出明确处置入口”
 - 真实环境 E2E（real suites）允许“**UI 触发关键用户动作 + API/文件系统验证最终收敛**”的混合模式，不要求所有等待条件都绑死在页面提示或横幅上
+- 已提供 CLI 的关键真实流程需要直接执行打包后的 `dist/stx`，不能用 HTTP helper 代替 CLI 命令本身
+- CLI 真实用例要求 stdout 可解析为单个 JSON，stderr 的每个非空行都可解析为一条 NDJSON 事件
+- CLI 与页面真实用例可以共用 STX、Agent 和预加载安装包，但必须使用独立目录、端口、集群名和 CLI 配置目录，并串行运行
+- CLI 安装类用例需要同时检查任务终态、节点记录和目标目录中的关键文件，不能只检查命令退出码
 - 登录契约：
     - `auth.setup.ts` 负责生成 `frontend/.playwright/auth/admin.json`
     - 业务 spec 默认复用登录态，不要每条用例都从登录页重新走一遍

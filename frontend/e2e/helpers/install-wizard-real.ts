@@ -345,9 +345,49 @@ async function clusterMatchesInstallDir(
   );
 }
 
-export async function expectInstallationSuccess(page: Page): Promise<void> {
+export async function expectInstallationSuccess(
+  page: Page,
+  hostId: number,
+): Promise<void> {
+  const timeoutMs = 900000;
+  const startedAt = Date.now();
+  let completed = false;
+
+  // 先检查真实任务终态，业务失败时立即输出服务端错误，避免只等待完成页面直到超时。
+  // Check the real terminal status first so business failures surface immediately instead of timing out on the completion page.
+  while (Date.now() - startedAt < timeoutMs) {
+    const response = await page
+      .context()
+      .request.get(`${backendBaseURL}/api/v1/hosts/${hostId}/install/status`);
+    if (response.ok()) {
+      const payload = (await response.json()) as {
+        data?: {
+          status?: string;
+          current_step?: string;
+          error?: string;
+          message?: string;
+        };
+      };
+      const status = payload.data?.status;
+      if (status === 'failed') {
+        throw new Error(
+          `installation failed at ${payload.data?.current_step || 'unknown'}: ${payload.data?.error || payload.data?.message || 'unknown error'}`,
+        );
+      }
+      if (status === 'success') {
+        completed = true;
+        break;
+      }
+    }
+    await page.waitForTimeout(1000);
+  }
+
+  if (!completed) {
+    throw new Error(`installation did not finish within ${timeoutMs}ms`);
+  }
+
   await expect(page.getByTestId('install-wizard-step-complete')).toBeVisible({
-    timeout: 900000,
+    timeout: 10000,
   });
   await expect(page.getByTestId('install-complete-result')).toContainText(
     /安装成功|Installation Success/i,

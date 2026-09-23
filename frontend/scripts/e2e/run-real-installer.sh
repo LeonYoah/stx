@@ -127,6 +127,7 @@ download_package_if_missing() {
   if command -v curl >/dev/null 2>&1; then
     curl -fL \
       --retry 3 \
+      --retry-all-errors \
       --retry-delay 2 \
       --connect-timeout 30 \
       --max-time "${timeout_seconds}" \

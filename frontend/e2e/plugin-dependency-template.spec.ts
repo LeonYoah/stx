@@ -22,7 +22,10 @@ import {
   pluginDependencyTemplate,
 } from './helpers/plugin-dependency-template';
 
-async function openJdbcTemplateDialog(page: Page) {
+async function openJdbcTemplateDialog(
+  page: Page,
+  tab: 'dependencies' | 'custom',
+) {
   await page.goto('/plugins');
   await expect(page).toHaveURL(/\/plugins$/);
   await expect(page.getByRole('heading', {level: 1})).toHaveText(
@@ -31,6 +34,7 @@ async function openJdbcTemplateDialog(page: Page) {
   await expect(page.getByTestId('plugin-card-jdbc')).toBeVisible();
   await page.getByTestId('plugin-card-jdbc').click();
   await expect(page.getByTestId('plugin-detail-dialog-jdbc')).toBeVisible();
+  await page.getByTestId(`plugin-detail-tab-${tab}`).click();
 }
 
 test.describe('plugin dependency template', () => {
@@ -41,7 +45,7 @@ test.describe('plugin dependency template', () => {
   test('disables and restores an official dependency with a deterministic fixture', async ({
     page,
   }) => {
-    await openJdbcTemplateDialog(page);
+    await openJdbcTemplateDialog(page, 'dependencies');
 
     await page.getByTestId('plugin-profile-mysql').click();
     const officialDependencies = page.getByTestId(
@@ -87,7 +91,7 @@ test.describe('plugin dependency template', () => {
   test('uploads and removes a custom dependency within the same template flow', async ({
     page,
   }, testInfo) => {
-    await openJdbcTemplateDialog(page);
+    await openJdbcTemplateDialog(page, 'custom');
 
     const uploadFilePath = await createPlaceholderJar(
       testInfo.outputPath(pluginDependencyTemplate.uploadFileName),
@@ -124,7 +128,7 @@ test.describe('plugin dependency template', () => {
       ),
     ).toHaveCount(0);
     await expect(
-      page.getByText(/暂无依赖配置|No dependencies configured/i),
+      page.getByText(/暂无自定义驱动配置|No custom drivers configured/i),
     ).toBeVisible();
   });
 

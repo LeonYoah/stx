@@ -25,8 +25,7 @@ const frontendHost =
   process.env.E2E_FRONTEND_HOST ??
   (installerRealMode ? '127.0.0.1' : 'localhost');
 const frontendBaseURL =
-  process.env.E2E_FRONTEND_BASE_URL ??
-  `http://${frontendHost}:${installerRealMode ? frontendPort : '3000'}`;
+  process.env.E2E_FRONTEND_BASE_URL ?? `http://${frontendHost}:${frontendPort}`;
 const backendBaseURL =
   process.env.E2E_BACKEND_BASE_URL ??
   (installerRealMode
@@ -42,10 +41,9 @@ const backendConfigPath =
 const backendServer =
   apiMode === 'real'
     ? {
-        command:
-          installerRealMode
-            ? `bash -lc 'CONFIG_PATH=${process.env.E2E_INSTALLER_REAL_CONFIG_PATH ?? '../config.e2e.installer-real.yaml'} \"\${GO_BIN:-go}\" run .. api'`
-            : `bash -lc 'CONFIG_PATH=${backendConfigPath} "\${GO_BIN:-go}" run .. api'`,
+        command: installerRealMode
+          ? `bash -lc 'CONFIG_PATH=${process.env.E2E_INSTALLER_REAL_CONFIG_PATH ?? '../config.e2e.installer-real.yaml'} \"\${GO_BIN:-go}\" run .. api'`
+          : `bash -lc 'CONFIG_PATH=${backendConfigPath} "\${GO_BIN:-go}" run .. api'`,
         url: `${backendBaseURL}/api/v1/health`,
         reuseExistingServer: installerRealMode ? false : !process.env.CI,
         timeout: installerRealMode ? 600_000 : 300_000,
@@ -116,7 +114,7 @@ export default defineConfig({
       command:
         `NEXT_PUBLIC_BACKEND_BASE_URL=${backendBaseURL} ` +
         `NEXT_PUBLIC_FRONTEND_BASE_URL=${frontendBaseURL} ` +
-        `pnpm exec next dev --hostname ${frontendHost} --port ${installerRealMode ? frontendPort : '3000'}`,
+        `pnpm exec next dev --hostname ${frontendHost} --port ${frontendPort}`,
       url: `${frontendBaseURL}/login`,
       reuseExistingServer: installerRealMode ? false : !process.env.CI,
       timeout: installerRealMode ? 300_000 : 120_000,

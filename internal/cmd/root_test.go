@@ -68,7 +68,7 @@ func TestRootCommandRegistersOnlyPublicServerEntry(t *testing.T) {
 	if _, ok := children["worker"]; ok {
 		t.Fatalf("worker 不应注册 / worker must not be registered")
 	}
-	for _, name := range []string{"auth", "admin", "dashboard", "host", "cluster", "config", "package", "plugin", "monitor", "monitoring", "diagnostics"} {
+	for _, name := range []string{"auth", "admin", "dashboard", "host", "cluster", "config", "package", "plugin", "monitor", "monitoring", "diagnostics", "skill"} {
 		if hidden, ok := children[name]; !ok || hidden {
 			t.Fatalf("%s API 命令组应公开 / %s API command group must be public: %#v", name, name, children)
 		}

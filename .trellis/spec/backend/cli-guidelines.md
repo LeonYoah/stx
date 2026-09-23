@@ -539,3 +539,101 @@ if runtimeStorageValidationDisabled(kind, cfg) {
     return &RuntimeStorageListResult{Items: []RuntimeStorageListItem{}}, nil
 }
 ```
+
+## 13. 场景：内置 STX Skill 的语言选择与安装
+
+### 13.1 范围 / 触发条件
+
+- `stx` 二进制需要为 AI Agent 安装 STX 使用说明。
+- 发布物同时携带中文版和英文版，但每个安装目标最终只保存一个 `SKILL.md`。
+- 首版只管理 Claude 与 Agents 目录，不允许传入任意安装路径。
+
+### 13.2 命令签名
+
+```text
+stx skill show [--language auto|zh-CN|en]
+stx skill status [--target all|claude|agents] [--language auto|zh-CN|en]
+stx skill install [--target all|claude|agents] [--language auto|zh-CN|en]
+stx skill update [--target all|claude|agents] [--language auto|zh-CN|en]
+stx skill backup [--target all|claude|agents]
+stx skill restore [--target all|claude|agents] [--backup <id>]
+```
+
+固定安装位置：
+
+```text
+claude -> ~/.claude/skills/stx/SKILL.md
+agents -> ~/.agents/skills/stx/SKILL.md
+```
+
+### 13.3 语言与文件规则
+
+- `--language auto` 依次读取 `LC_ALL`、`LC_MESSAGES`、`LANGUAGE`、`LANG`。
+- 明确识别到 `en`、`en_US`、`en-US` 等英语区域时使用英文版。
+- 中文、空值、`C`、无法识别的语言都使用中文版；中文版是默认版本。
+- `--language zh-CN` 与 `--language en` 可以覆盖自动选择；其他显式值返回用法错误。
+- `show` 只把选中的 `SKILL.md` 原样写到 stdout，不加普通结果外壳。
+- `status`、`install`、`update`、`backup`、`restore` 使用普通机器可读结果外壳。
+- `install` 只补缺失文件，不覆盖已有文件。
+- `update` 对缺失文件执行安装；内容变化时先备份，再用同目录临时文件原子替换；内容相同则返回 `unchanged`。
+- 备份存放在 `~/.stx/skill-backups/<target>/<backup-id>/SKILL.md`，文件权限为 `0600`。
+- `restore` 默认选择每个目标最新的备份。覆盖当前文件前再次保存安全备份。
+- 备份编号只能包含字母、数字、点、短横线和下划线，不能包含路径分隔符。
+
+### 13.4 校验与错误对应表
+
+| 情况 | 行为 |
+| --- | --- |
+| 系统语言为英语 | `auto` 选择 `en` |
+| 系统语言缺失或无法识别 | `auto` 选择 `zh-CN` |
+| 显式语言不是 `auto|zh-CN|en` | 用法错误，不写文件 |
+| target 不是 `all|claude|agents` | 用法错误，不写文件 |
+| `install` 遇到已有文件 | 返回 `skipped_existing`，不覆盖、不备份 |
+| `update` 遇到不同内容 | 先备份，随后原子替换 |
+| `restore` 没有可用备份 | 未找到错误，不改变目标文件 |
+| 指定的备份只存在于部分目标 | 在写入前完成全部目标校验；任一目标缺失则不恢复 |
+
+### 13.5 Good / Base / Bad
+
+- Good：英语机器自动安装英文版，中文或没有语言信息的机器安装中文版；用户可用 `--language` 明确覆盖。
+- Base：已有自定义 Skill 时，`install` 保留原文件，用户确认后再运行 `update`。
+- Bad：仓库维护两套安装目录并让 Agent 同时加载中英文，或根据服务端用户语言改写本机 Skill。
+
+### 13.6 必须有的测试
+
+- 内置中英文文件都通过 Skill 格式校验，且核心命令示例能在当前 Cobra 命令树中找到。
+- 语言检测覆盖英语、中文、空值、`C` 和其他语言。
+- `show` 断言 stdout 是原始 Markdown，不是 JSON。
+- `install` 覆盖双目标、已有文件不覆盖和默认中文。
+- `update` 断言内容变化前生成备份，内容相同时不重复写入。
+- `restore` 断言最新备份、指定备份、安全备份和非法备份编号。
+- 构建真实 `dist/stx` 后检查 `skill --help`、两种语言 `show` 和 `status`。
+
+### 13.7 错误与正确示例
+
+错误：
+
+```go
+language := os.Getenv("LANG")
+if language == "" {
+    language = "en"
+}
+```
+
+这会在没有语言信息时错误地安装英文版。
+
+正确：
+
+```go
+language := DetectLanguage(os.Getenv)
+// 只有明确的英语区域返回 en，其他情况返回 zh-CN。
+// Only an explicit English locale returns en; all other cases return zh-CN.
+```
+
+错误：
+
+```go
+os.WriteFile(target, source, 0o644)
+```
+
+正确：更新时先保存当前文件，再在目标目录写临时文件并通过 `os.Rename` 替换。

@@ -59,6 +59,7 @@ func newRootCommand(serverRunner func() error) *cobra.Command {
 		newServerCommand(serverRunner),
 		newAPICompatibilityCommand(serverRunner),
 		newNamespaceCommand(),
+		newSkillCommand(),
 		newCapabilityCommand(),
 		newHealthCommand(),
 		newExecutionCommand(),

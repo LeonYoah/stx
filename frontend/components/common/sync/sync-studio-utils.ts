@@ -1571,13 +1571,14 @@ export function formatSyncUserFacingError(
     .replace(/^org\.apache\.seatunnel\.common\.exception\.\w+:\s*/, '')
     .trim();
 
-  // 1. 未发布保存检查
+  // 1. 未发布版本检查（运行 / 恢复 / 定时等正式入口要求至少发布一次）
+  // Unpublished gate: run / recover / schedule require at least one published version.
   if (rawMessage.includes('sync: task has not been published')) {
     return {
       title: t('saveRequiredTitle'),
       description: t('saveRequiredDescription'),
       category: 'general',
-      suggestion: '任务尚未保存或发布，请先点击保存（Ctrl/Cmd + S）后再进行操作。',
+      suggestion: t('saveRequiredSuggestion'),
     };
   }
 

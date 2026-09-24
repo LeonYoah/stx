@@ -293,6 +293,7 @@ type diagnosticBundleHTMLPayload struct {
 	ProcessEvents   *diagnosticBundleHTMLProcessPanel   `json:"process_events,omitempty"`
 	ConfigSnapshot  *diagnosticBundleHTMLConfigPanel    `json:"config_snapshot,omitempty"`
 	MetricsSnapshot *diagnosticBundleHTMLMetricsPanel   `json:"metrics_snapshot,omitempty"`
+	ThreadDumps     []diagnosticBundleHTMLThreadDumpItem `json:"thread_dumps,omitempty"`
 	ArtifactGroups  []diagnosticBundleHTMLArtifactGroup `json:"artifact_groups"`
 
 	// 附录类信息：任务概览、执行过程、溯源与建议，弱化展示
@@ -448,19 +449,54 @@ type diagnosticBundleHTMLProcessPanel struct {
 	Events []diagnosticBundleHTMLProcessEvent `json:"events"`
 }
 
+// diagnosticBundleHTMLConfigFileEntry 将单份配置的关键摘要与原始内容预览聚合展示。
+// diagnosticBundleHTMLConfigFileEntry aggregates key highlights and raw content preview for a single config file.
+type diagnosticBundleHTMLConfigFileEntry struct {
+	HostID     uint                       `json:"host_id"`
+	HostName   string                     `json:"host_name,omitempty"`
+	HostIP     string                     `json:"host_ip,omitempty"`
+	NodeID     uint                       `json:"node_id"`
+	Role       string                     `json:"role,omitempty"`
+	ConfigType string                     `json:"config_type"`
+	RemotePath string                     `json:"remote_path,omitempty"`
+	Items      []diagnosticConfigKeyValue `json:"items,omitempty"`
+	Preview    string                     `json:"preview,omitempty"`
+}
+
 type diagnosticBundleHTMLConfigPanel struct {
-	FileCount          int                            `json:"file_count"`
-	KeyHighlightCount  int                            `json:"key_highlight_count"`
-	DirectoryCount     int                            `json:"directory_count"`
-	ChangedConfigCount int                            `json:"changed_config_count"`
-	KeyHighlights      []diagnosticConfigKeyHighlight `json:"key_highlights"`
-	FilePreviews       []diagnosticConfigFilePreview  `json:"file_previews"`
-	RecentChanges      []diagnosticConfigChangeRecord `json:"recent_changes"`
-	RemainingChanges   []diagnosticConfigChangeRecord `json:"remaining_changes"`
-	Files              []diagnosticConfigSnapshotFile `json:"files"`
-	DirectoryManifests []diagnosticDirectoryManifest  `json:"directory_manifests"`
-	ConfigChanges      []diagnosticConfigChangeRecord `json:"config_changes"`
-	CollectionNotes    []diagnosticConfigSnapshotNote `json:"collection_notes"`
+	FileCount          int                                   `json:"file_count"`
+	KeyHighlightCount  int                                   `json:"key_highlight_count"`
+	DirectoryCount     int                                   `json:"directory_count"`
+	ChangedConfigCount int                                   `json:"changed_config_count"`
+	ConfigFileEntries  []diagnosticBundleHTMLConfigFileEntry `json:"config_file_entries"`
+	KeyHighlights      []diagnosticConfigKeyHighlight        `json:"key_highlights"`
+	FilePreviews       []diagnosticConfigFilePreview         `json:"file_previews"`
+	RecentChanges      []diagnosticConfigChangeRecord        `json:"recent_changes"`
+	RemainingChanges   []diagnosticConfigChangeRecord        `json:"remaining_changes"`
+	Files              []diagnosticConfigSnapshotFile        `json:"files"`
+	DirectoryManifests []diagnosticDirectoryManifest         `json:"directory_manifests"`
+	ConfigChanges      []diagnosticConfigChangeRecord        `json:"config_changes"`
+	CollectionNotes    []diagnosticConfigSnapshotNote        `json:"collection_notes"`
+}
+
+// diagnosticBundleHTMLThreadDumpItem 描述节点线程栈快照及其本地预览。
+// diagnosticBundleHTMLThreadDumpItem describes a node thread dump snapshot and its local preview.
+type diagnosticBundleHTMLThreadDumpItem struct {
+	HostID       uint   `json:"host_id"`
+	HostName     string `json:"host_name,omitempty"`
+	HostIP       string `json:"host_ip,omitempty"`
+	HostLabel    string `json:"host_label"`
+	NodeID       uint   `json:"node_id"`
+	Role         string `json:"role,omitempty"`
+	Tool         string `json:"tool,omitempty"`
+	RemotePath   string `json:"remote_path,omitempty"`
+	LocalPath    string `json:"local_path,omitempty"`
+	RelativePath string `json:"relative_path,omitempty"`
+	PreviewURL   string `json:"preview_url,omitempty"`
+	SizeBytes    int64  `json:"size_bytes"`
+	SizeLabel    string `json:"size_label"`
+	Preview      string `json:"preview"`
+	TotalLines   int    `json:"total_lines"`
 }
 
 type diagnosticBundleHTMLMetricsPanel struct {
@@ -2161,6 +2197,39 @@ func (s *Service) executeRenderHTMLSummaryStep(ctx context.Context, task *Diagno
 		Path:     indexPath,
 		Message:  bilingualText("离线诊断报告", "Offline diagnostic report"),
 	}
+
+	// 重新拉取最新的任务步骤与节点执行状态，确保报告中附录步骤与节点不再显示初始等待状态
+	// Re-fetch latest task steps and node executions from repo to ensure appendix steps and nodes do not show initial pending state
+	if s.repo != nil {
+		if freshSteps, err := s.repo.ListDiagnosticTaskSteps(ctx, task.ID); err == nil && len(freshSteps) > 0 {
+			task.Steps = make([]DiagnosticTaskStep, 0, len(freshSteps))
+			for _, st := range freshSteps {
+				if st != nil {
+					task.Steps = append(task.Steps, *st)
+				}
+			}
+		}
+		if freshNodes, err := s.repo.ListDiagnosticNodeExecutions(ctx, task.ID); err == nil && len(freshNodes) > 0 {
+			task.NodeExecutions = make([]DiagnosticNodeExecution, 0, len(freshNodes))
+			for _, nd := range freshNodes {
+				if nd != nil {
+					task.NodeExecutions = append(task.NodeExecutions, *nd)
+				}
+			}
+		}
+	}
+	now := time.Now().UTC()
+	for i := range task.Steps {
+		if task.Steps[i].Code == step.Code {
+			task.Steps[i].Status = DiagnosticTaskStatusSucceeded
+			if task.Steps[i].StartedAt == nil {
+				task.Steps[i].StartedAt = &now
+			}
+			task.Steps[i].CompletedAt = &now
+			task.Steps[i].Message = bilingualText("离线诊断报告生成完成。", "Offline diagnostic report generated.")
+		}
+	}
+
 	payload := buildDiagnosticBundleHTMLPayload(task, state, bundleDir, append(cloneDiagnosticArtifacts(state.Artifacts), htmlArtifact))
 	renderTargets := []struct {
 		Path string
@@ -2699,6 +2768,12 @@ func (s *Service) beginDiagnosticTaskStep(ctx context.Context, task *DiagnosticT
 	step.StartedAt = &now
 	step.CompletedAt = nil
 	step.Message = step.Description
+	for i := range task.Steps {
+		if task.Steps[i].Code == step.Code {
+			task.Steps[i] = *step
+			break
+		}
+	}
 	return s.UpdateDiagnosticTaskStep(ctx, step)
 }
 
@@ -2708,6 +2783,12 @@ func (s *Service) finishDiagnosticTaskStep(ctx context.Context, task *Diagnostic
 	step.Message = message
 	step.Error = ""
 	step.CompletedAt = &now
+	for i := range task.Steps {
+		if task.Steps[i].Code == step.Code {
+			task.Steps[i] = *step
+			break
+		}
+	}
 	return s.UpdateDiagnosticTaskStep(ctx, step)
 }
 
@@ -2717,6 +2798,12 @@ func (s *Service) failDiagnosticTaskStep(ctx context.Context, task *DiagnosticTa
 	step.Error = stepErr.Error()
 	step.Message = stepErr.Error()
 	step.CompletedAt = &now
+	for i := range task.Steps {
+		if task.Steps[i].Code == step.Code {
+			task.Steps[i] = *step
+			break
+		}
+	}
 	return s.UpdateDiagnosticTaskStep(ctx, step)
 }
 
@@ -2869,6 +2956,7 @@ func buildDiagnosticBundleHTMLPayload(task *DiagnosticTask, state *diagnosticBun
 	payload.Categories = buildDiagnosticBundleHTMLCategoryCards(task, state)
 	payload.Timeline = buildDiagnosticBundleHTMLTimeline(task, state)
 	payload.KeySignals = buildDiagnosticBundleHTMLSignalCards(state)
+	payload.ThreadDumps = buildDiagnosticBundleHTMLThreadDumps(bundleDir, artifacts, task)
 	if state == nil {
 		payload.Recommendations = buildDiagnosticBundleHTMLRecommendations(task, state)
 		payload.PassedChecks = buildDiagnosticBundleHTMLPassedChecks(task, state, artifacts)
@@ -3160,6 +3248,160 @@ func buildDiagnosticBundleHTMLProcessPanel(events []*monitor.ProcessEvent) *diag
 	return panel
 }
 
+// buildDiagnosticBundleHTMLThreadDumps 收集线程栈快照文件并提取预览文本与元数据。
+// buildDiagnosticBundleHTMLThreadDumps collects thread dump snapshot files and extracts preview text and metadata.
+func buildDiagnosticBundleHTMLThreadDumps(bundleDir string, artifacts []*diagnosticBundleArtifact, task *DiagnosticTask) []diagnosticBundleHTMLThreadDumpItem {
+	var dumpArtifacts []*diagnosticBundleArtifact
+	for _, art := range artifacts {
+		if art != nil && art.Category == "thread_dump" {
+			dumpArtifacts = append(dumpArtifacts, art)
+		}
+	}
+
+	// 兜底扫描磁盘 thread-dumps 目录（用于离线重算或测试重建）
+	// Fallback to scanning disk thread-dumps directory (for offline rebuild or test fixtures)
+	dumpDir := filepath.Join(bundleDir, "thread-dumps")
+	if len(dumpArtifacts) == 0 && strings.TrimSpace(bundleDir) != "" {
+		entries, err := os.ReadDir(dumpDir)
+		if err == nil {
+			for _, entry := range entries {
+				if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".txt") {
+					continue
+				}
+				info, err := entry.Info()
+				if err != nil {
+					continue
+				}
+				dumpArtifacts = append(dumpArtifacts, &diagnosticBundleArtifact{
+					Category:  "thread_dump",
+					Format:    "txt",
+					Status:    "succeeded",
+					Path:      filepath.Join(dumpDir, entry.Name()),
+					SizeBytes: info.Size(),
+				})
+			}
+		}
+	}
+
+	if len(dumpArtifacts) == 0 {
+		return nil
+	}
+
+	// 建立选定节点查找索引
+	// Build lookup index for selected task nodes
+	targetByHostID := make(map[uint]DiagnosticTaskNodeTarget)
+	if task != nil {
+		for _, node := range task.SelectedNodes {
+			targetByHostID[node.HostID] = node
+		}
+	}
+
+	items := make([]diagnosticBundleHTMLThreadDumpItem, 0, len(dumpArtifacts))
+	for _, art := range dumpArtifacts {
+		filePath := art.Path
+		if !filepath.IsAbs(filePath) && bundleDir != "" {
+			filePath = filepath.Join(bundleDir, filePath)
+		}
+		contentBytes, err := os.ReadFile(filePath)
+		if err != nil {
+			relPath := filepath.Join(dumpDir, filepath.Base(art.Path))
+			contentBytes, err = os.ReadFile(relPath)
+			if err != nil {
+				continue
+			}
+			filePath = relPath
+		}
+
+		fullContent := string(contentBytes)
+		lines := strings.Split(strings.ReplaceAll(fullContent, "\r\n", "\n"), "\n")
+		totalLines := len(lines)
+		previewLines := lines
+		if len(previewLines) > 300 {
+			previewLines = previewLines[:300]
+		}
+		preview := strings.Join(previewLines, "\n")
+		if totalLines > 300 {
+			preview += fmt.Sprintf("\n... (%d lines truncated, view full thread dump)", totalLines-300)
+		}
+
+		hostID := art.HostID
+		hostName := art.HostName
+		hostIP := ""
+		role := ""
+		nodeID := art.NodeID
+
+		// 从文件名推断 host 和 role（例如 thread-dump-host-10-hybrid.txt）
+		// Infer host and role from filename (e.g. thread-dump-host-10-hybrid.txt)
+		baseName := filepath.Base(filePath)
+		if hostID == 0 {
+			var parsedHost uint
+			var parsedRole string
+			if n, _ := fmt.Sscanf(baseName, "thread-dump-host-%d-%s", &parsedHost, &parsedRole); n >= 1 {
+				hostID = parsedHost
+				role = strings.TrimSuffix(parsedRole, ".txt")
+			}
+		}
+
+		if tgt, ok := targetByHostID[hostID]; ok {
+			if hostName == "" {
+				hostName = tgt.HostName
+			}
+			if hostIP == "" {
+				hostIP = tgt.HostIP
+			}
+			if role == "" {
+				role = tgt.Role
+			}
+			if nodeID == 0 {
+				nodeID = tgt.NodeID
+			}
+		}
+
+		hostLabel := resolveDiagnosticHostLabel(hostName, hostID, hostIP)
+		sizeBytes := art.SizeBytes
+		if sizeBytes <= 0 {
+			sizeBytes = int64(len(contentBytes))
+		}
+
+		relPath := filepath.Join("thread-dumps", baseName)
+		var previewURL string
+		if task != nil && task.ID > 0 {
+			previewURL = fmt.Sprintf("/api/v1/diagnostics/tasks/%d/files/%s", task.ID, filepath.ToSlash(relPath))
+		}
+
+		toolName := art.Message
+		if toolName == "" {
+			toolName = "jcmd Thread.print"
+		}
+
+		items = append(items, diagnosticBundleHTMLThreadDumpItem{
+			HostID:       hostID,
+			HostName:     hostName,
+			HostIP:       hostIP,
+			HostLabel:    hostLabel,
+			NodeID:       nodeID,
+			Role:         role,
+			Tool:         toolName,
+			RemotePath:   art.RemotePath,
+			LocalPath:    filePath,
+			RelativePath: filepath.ToSlash(relPath),
+			PreviewURL:   previewURL,
+			SizeBytes:    sizeBytes,
+			SizeLabel:    formatDiagnosticBytes(sizeBytes),
+			Preview:      preview,
+			TotalLines:   totalLines,
+		})
+	}
+
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].HostID != items[j].HostID {
+			return items[i].HostID < items[j].HostID
+		}
+		return items[i].Role < items[j].Role
+	})
+	return items
+}
+
 func buildDiagnosticBundleHTMLConfigPanel(summary *diagnosticConfigSnapshotSummary) *diagnosticBundleHTMLConfigPanel {
 	if summary == nil {
 		return nil
@@ -3170,11 +3412,85 @@ func buildDiagnosticBundleHTMLConfigPanel(summary *diagnosticConfigSnapshotSumma
 		remainingChanges = append(remainingChanges, recentChanges[8:]...)
 		recentChanges = recentChanges[:8]
 	}
+
+	// 聚合每个配置文件对应的关键摘要与文本预览
+	// Aggregate key highlights and raw content preview per configuration file
+	fileEntries := make([]diagnosticBundleHTMLConfigFileEntry, 0, len(summary.Files)+len(summary.FilePreviews))
+	previewMap := make(map[string]string, len(summary.FilePreviews))
+	for _, p := range summary.FilePreviews {
+		key := fmt.Sprintf("%d:%s:%s", p.HostID, p.ConfigType, p.RemotePath)
+		previewMap[key] = p.Preview
+	}
+	itemsMap := make(map[string][]diagnosticConfigKeyValue, len(summary.KeyHighlights))
+	for _, h := range summary.KeyHighlights {
+		key := fmt.Sprintf("%d:%s:%s", h.HostID, h.ConfigType, h.RemotePath)
+		itemsMap[key] = h.Items
+	}
+
+	seenKeys := make(map[string]bool)
+	// 优先根据 Files 列表按序构建
+	// Build by Files list in priority order
+	for _, file := range summary.Files {
+		key := fmt.Sprintf("%d:%s:%s", file.HostID, file.ConfigType, file.RemotePath)
+		seenKeys[key] = true
+		fileEntries = append(fileEntries, diagnosticBundleHTMLConfigFileEntry{
+			HostID:     file.HostID,
+			HostName:   file.HostName,
+			HostIP:     file.HostIP,
+			NodeID:     file.NodeID,
+			Role:       file.Role,
+			ConfigType: file.ConfigType,
+			RemotePath: file.RemotePath,
+			Items:      itemsMap[key],
+			Preview:    previewMap[key],
+		})
+	}
+
+	// 兜底处理仅存在于 KeyHighlights 或 FilePreviews 中的配置（例如单测或历史数据）
+	// Fallback for configs only existing in KeyHighlights or FilePreviews (e.g. unit tests or legacy data)
+	for _, h := range summary.KeyHighlights {
+		key := fmt.Sprintf("%d:%s:%s", h.HostID, h.ConfigType, h.RemotePath)
+		if seenKeys[key] {
+			continue
+		}
+		seenKeys[key] = true
+		fileEntries = append(fileEntries, diagnosticBundleHTMLConfigFileEntry{
+			HostID:     h.HostID,
+			HostName:   h.HostName,
+			HostIP:     h.HostIP,
+			NodeID:     h.NodeID,
+			Role:       h.Role,
+			ConfigType: h.ConfigType,
+			RemotePath: h.RemotePath,
+			Items:      h.Items,
+			Preview:    previewMap[key],
+		})
+	}
+	for _, p := range summary.FilePreviews {
+		key := fmt.Sprintf("%d:%s:%s", p.HostID, p.ConfigType, p.RemotePath)
+		if seenKeys[key] {
+			continue
+		}
+		seenKeys[key] = true
+		fileEntries = append(fileEntries, diagnosticBundleHTMLConfigFileEntry{
+			HostID:     p.HostID,
+			HostName:   p.HostName,
+			HostIP:     p.HostIP,
+			NodeID:     p.NodeID,
+			Role:       p.Role,
+			ConfigType: p.ConfigType,
+			RemotePath: p.RemotePath,
+			Items:      itemsMap[key],
+			Preview:    p.Preview,
+		})
+	}
+
 	return &diagnosticBundleHTMLConfigPanel{
 		FileCount:          len(summary.Files),
 		KeyHighlightCount:  len(summary.KeyHighlights),
 		DirectoryCount:     len(summary.DirectoryManifests),
 		ChangedConfigCount: len(summary.ConfigChanges),
+		ConfigFileEntries:  fileEntries,
 		KeyHighlights:      append([]diagnosticConfigKeyHighlight(nil), summary.KeyHighlights...),
 		FilePreviews:       append([]diagnosticConfigFilePreview(nil), summary.FilePreviews...),
 		RecentChanges:      recentChanges,
@@ -4835,12 +5151,26 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{{pair "STX 诊断报告" "STX Diagnostic Report"}}</title>
+  <link rel="icon" type="image/png" href="{{stxBrandMark}}" />
+  <link rel="apple-touch-icon" href="{{stxBrandMark}}" />
+  <script>
+    (function() {
+      try {
+        var t = localStorage.getItem('stx-diagnostic-theme');
+        if (t === 'dark' || t === 'light') {
+          document.documentElement.setAttribute('data-theme', t);
+        } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+          document.documentElement.setAttribute('data-theme', 'dark');
+        }
+      } catch (e) {}
+    })();
+  </script>
   <style>
     /*
      * 诊断报告设计规范与通用美学约定（遵照 .trellis/spec/frontend/ui-conventions.md）
      * Diagnostic report design specifications & UI conventions.
      */
-    :root {
+    :root, html[data-theme="light"] {
       color-scheme: light dark;
       --bg: #f8fafc;
       --panel: #ffffff;
@@ -4882,7 +5212,7 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
     }
 
     @media (prefers-color-scheme: dark) {
-      :root {
+      :root:not([data-theme="light"]) {
         --bg: #0b0f19;
         --panel: #111827;
         --panel-soft: #172033;
@@ -4916,6 +5246,41 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
         --code-inline-text: #93c5fd;
         --code-inline-border: rgba(59, 130, 246, 0.28);
       }
+    }
+
+    html[data-theme="dark"] {
+      --bg: #0b0f19;
+      --panel: #111827;
+      --panel-soft: #172033;
+      --panel-hover: #1f293d;
+      --border: #1f2937;
+      --border-strong: #374151;
+      --muted: #9ca3af;
+      --text: #f9fafb;
+      --text-sub: #cbd5e1;
+      --primary: #3b82f6;
+      --primary-soft: rgba(59, 130, 246, 0.16);
+      --primary-border: rgba(59, 130, 246, 0.32);
+      --ok: #10b981;
+      --ok-soft: rgba(16, 185, 129, 0.14);
+      --ok-border: rgba(16, 185, 129, 0.28);
+      --warn: #f59e0b;
+      --warn-soft: rgba(245, 158, 11, 0.14);
+      --warn-border: rgba(245, 158, 11, 0.28);
+      --critical: #ef4444;
+      --critical-soft: rgba(239, 68, 68, 0.16);
+      --critical-border: rgba(239, 68, 68, 0.32);
+      --neutral: #60a5fa;
+      --neutral-soft: rgba(59, 130, 246, 0.16);
+      --neutral-border: rgba(59, 130, 246, 0.3);
+      --skip: #64748b;
+      --skip-soft: rgba(100, 116, 139, 0.16);
+      --skip-border: rgba(100, 116, 139, 0.3);
+      --code-bg: #030712;
+      --code-text: #e2e8f0;
+      --code-inline-bg: rgba(59, 130, 246, 0.14);
+      --code-inline-text: #93c5fd;
+      --code-inline-border: rgba(59, 130, 246, 0.28);
     }
 
     * { box-sizing: border-box; }
@@ -5131,6 +5496,9 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       margin-top: 14px;
       padding-top: 12px;
       border-top: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
     }
     .sidebar-action-btn {
       width: 100%;
@@ -5697,6 +6065,40 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       word-break: break-word;
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     }
+    .config-preview-details {
+      margin-top: 12px;
+      border-top: 1px solid var(--border);
+      padding-top: 10px;
+    }
+    .config-preview-summary {
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--primary);
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      user-select: none;
+      outline: none;
+    }
+    .config-preview-summary:hover {
+      text-decoration: underline;
+    }
+    .config-preview-summary::-webkit-details-marker {
+      display: none;
+    }
+    .config-preview-summary::before {
+      content: '▶';
+      font-size: 10px;
+      transition: transform 0.15s ease;
+      display: inline-block;
+    }
+    .config-preview-details[open] > .config-preview-summary::before {
+      transform: rotate(90deg);
+    }
+    .config-preview-details[open] > .config-preview-summary {
+      margin-bottom: 8px;
+    }
     .copyable-block {
       margin-top: 10px;
     }
@@ -6252,6 +6654,15 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
         </a>
       </nav>
       <div class="sidebar-footer">
+        <button class="sidebar-action-btn" id="theme-toggle-btn" type="button" title="{{pair "切换浅色/暗色模式" "Toggle Light/Dark Theme"}}">
+          <span class="theme-icon-light" style="display: none;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+          </span>
+          <span class="theme-icon-dark" style="display: none;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+          </span>
+          <span id="theme-toggle-label">{{pair "切换主题" "Switch Theme"}}</span>
+        </button>
         <button class="sidebar-action-btn" type="button" onclick="window.print()">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V2h12v7"></path><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
           <span>{{pair "打印 / 导出 PDF" "Print / Export PDF"}}</span>
@@ -6497,6 +6908,7 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
         <button type="button" class="inner-tab-btn" data-inner-tab-group="evidence" data-inner-tab-key="inspection">{{pair "巡检" "Inspection"}}</button>
         <button type="button" class="inner-tab-btn" data-inner-tab-group="evidence" data-inner-tab-key="config">{{pair "配置" "Config"}}</button>
         <button type="button" class="inner-tab-btn" data-inner-tab-group="evidence" data-inner-tab-key="metrics">{{pair "指标" "Signals"}}</button>
+        <button type="button" class="inner-tab-btn" data-inner-tab-group="evidence" data-inner-tab-key="threaddump">{{pair "线程栈" "Thread Dumps"}}</button>
         <button type="button" class="inner-tab-btn" data-inner-tab-group="evidence" data-inner-tab-key="alerts">{{pair "告警" "Alerts"}}</button>
         <button type="button" class="inner-tab-btn" data-inner-tab-group="evidence" data-inner-tab-key="process">{{pair "进程" "Process"}}</button>
       </div>
@@ -6636,6 +7048,51 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
             <div class="stat-card"><div class="label">{{pair "目录清单" "Inventories"}}</div><div class="value">{{.ConfigSnapshot.DirectoryCount}}</div></div>
             <div class="stat-card"><div class="label">{{pair "配置变更" "DB Changes"}}</div><div class="value">{{.ConfigSnapshot.ChangedConfigCount}}</div></div>
           </div>
+          {{if .ConfigSnapshot.ConfigFileEntries}}
+          <div class="subsection">
+            <div class="subsection-label">{{pair "配置详情与预览" "Configurations & Previews"}}</div>
+            <div class="list">
+              {{range .ConfigSnapshot.ConfigFileEntries}}
+              <div class="entry">
+                <div class="entry-header">
+                  <div>
+                    <div class="entry-title">{{.ConfigType}}</div>
+                    <div class="muted small">{{if .HostName}}{{.HostName}}{{else}}{{pair "主机" "Host"}} #{{.HostID}}{{end}} / {{.Role}}</div>
+                  </div>
+                </div>
+                <div class="muted small"><code class="inline">{{.RemotePath}}</code></div>
+                {{if .Items}}
+                <div class="dl" style="margin-top: 10px;">
+                  {{range .Items}}
+                  <div class="dl-row">
+                    <div class="dl-term">{{loc .Label}}</div>
+                    <div class="dl-value">{{.Value}}</div>
+                  </div>
+                  {{end}}
+                </div>
+                {{end}}
+                {{if .Preview}}
+                <details class="config-preview-details">
+                  <summary class="config-preview-summary">
+                    <span>{{pair "查看配置原文预览" "View Raw Config Preview"}}</span>
+                  </summary>
+                  <div class="copyable-block">
+                    <div class="copyable-actions">
+                      <button type="button" class="copy-btn" data-copy-button>
+                        <span class="label-copy">{{pair "复制内容" "Copy"}}</span>
+                        <span class="label-copied">{{pair "已复制" "Copied"}}</span>
+                        <span class="label-failed">{{pair "复制失败" "Copy failed"}}</span>
+                      </button>
+                    </div>
+                    <pre>{{.Preview}}</pre>
+                  </div>
+                </details>
+                {{end}}
+              </div>
+              {{end}}
+            </div>
+          </div>
+          {{else}}
           {{if .ConfigSnapshot.KeyHighlights}}
           <div class="subsection">
             <div class="subsection-label">{{pair "关键配置摘要" "Key Runtime Settings"}}</div>
@@ -6689,6 +7146,7 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
               {{end}}
             </div>
           </div>
+          {{end}}
           {{end}}
           {{if .ConfigSnapshot.RecentChanges}}
           <div class="subsection">
@@ -6914,6 +7372,64 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
           {{end}}
           {{else}}
           <div class="empty">{{pair "未采集到 Prometheus 指标快照。" "No Prometheus metrics snapshot was collected."}}</div>
+          {{end}}
+        </div>
+      </div>
+
+      <div class="inner-tab-panel" data-inner-tab-group="evidence" data-inner-tab-key="threaddump">
+        <div class="detail-panel">
+          <div class="panel-label">{{pair "线程栈快照" "Thread Dumps"}}</div>
+          {{if .ThreadDumps}}
+          <div class="stat-grid">
+            <div class="stat-card"><div class="label">{{pair "快照总数" "Total Dumps"}}</div><div class="value">{{len .ThreadDumps}}</div></div>
+          </div>
+          <div class="list" style="margin-top: 14px;">
+            {{range .ThreadDumps}}
+            <div class="entry">
+              <div class="entry-header">
+                <div>
+                  <div class="entry-title">{{pair "线程栈快照" "Thread Dump"}} · {{.Role}}</div>
+                  <div class="muted small">{{.HostLabel}} · {{pair "工具" "Tool"}}: <code class="inline">{{if .Tool}}{{.Tool}}{{else}}jcmd Thread.print{{end}}</code> · {{pair "大小" "Size"}}: {{.SizeLabel}} ({{.TotalLines}} {{pair "行" "lines"}})</div>
+                </div>
+              </div>
+              <div class="copyable-block" style="margin-top: 10px;">
+                <div class="copyable-actions">
+                  <button type="button" class="copy-btn" data-copy-button>
+                    <span class="label-copy">{{pair "复制预览" "Copy Preview"}}</span>
+                    <span class="label-copied">{{pair "已复制" "Copied"}}</span>
+                    <span class="label-failed">{{pair "复制失败" "Copy failed"}}</span>
+                  </button>
+                  {{if .RelativePath}}
+                  <button
+                    type="button"
+                    class="log-action-btn"
+                    data-full-log-button
+                    data-log-relative-path="{{.RelativePath}}"
+                    data-log-preview-url="{{.PreviewURL}}"
+                    data-log-title="{{.HostLabel}} · {{pair "线程栈" "Thread Dump"}} ({{.Role}})"
+                  >
+                    {{pair "查看完整堆栈" "View Full Thread Dump"}}
+                  </button>
+                  <a
+                    class="log-action-btn"
+                    data-full-log-link
+                    data-log-relative-path="{{.RelativePath}}"
+                    data-log-preview-url="{{.PreviewURL}}"
+                    href="{{.RelativePath}}"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    {{pair "新窗口打开" "Open in New Window"}}
+                  </a>
+                  {{end}}
+                </div>
+                <pre>{{.Preview}}</pre>
+              </div>
+            </div>
+            {{end}}
+          </div>
+          {{else}}
+          <div class="empty">{{pair "未采集到线程栈快照，或任务未勾选线程栈采集选项。" "No thread dump captured, or thread dump collection was not selected for this task."}}</div>
           {{end}}
         </div>
       </div>
@@ -7420,10 +7936,62 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
         }
         window.scrollTo({top: 0, behavior: 'auto'});
       }
+      function initThemeToggle() {
+        const STORAGE_KEY = 'stx-diagnostic-theme';
+        const toggleBtn = document.getElementById('theme-toggle-btn');
+        const iconLight = toggleBtn ? toggleBtn.querySelector('.theme-icon-light') : null;
+        const iconDark = toggleBtn ? toggleBtn.querySelector('.theme-icon-dark') : null;
+        const label = document.getElementById('theme-toggle-label');
+        const isZH = {{if eq .Language "en"}}false{{else}}true{{end}};
+
+        function getStoredTheme() {
+          return localStorage.getItem(STORAGE_KEY);
+        }
+
+        function getSystemTheme() {
+          return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+
+        function applyTheme(theme) {
+          document.documentElement.setAttribute('data-theme', theme);
+          if (iconLight && iconDark) {
+            if (theme === 'dark') {
+              iconLight.style.display = 'inline-flex';
+              iconDark.style.display = 'none';
+              if (label) label.textContent = isZH ? '浅色模式' : 'Light Mode';
+            } else {
+              iconLight.style.display = 'none';
+              iconDark.style.display = 'inline-flex';
+              if (label) label.textContent = isZH ? '暗色模式' : 'Dark Mode';
+            }
+          }
+        }
+
+        const initialTheme = getStoredTheme() || getSystemTheme();
+        applyTheme(initialTheme);
+
+        if (window.matchMedia) {
+          window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+            if (!getStoredTheme()) {
+              applyTheme(e.matches ? 'dark' : 'light');
+            }
+          });
+        }
+
+        if (toggleBtn) {
+          toggleBtn.addEventListener('click', () => {
+            const current = document.documentElement.getAttribute('data-theme') || getSystemTheme();
+            const next = current === 'dark' ? 'light' : 'dark';
+            localStorage.setItem(STORAGE_KEY, next);
+            applyTheme(next);
+          });
+        }
+      }
       window.addEventListener('hashchange', applyTab);
       initInnerTabs();
       initCopyButtons();
       initFullLogActions();
+      initThemeToggle();
       applyTab();
     })();
   </script>

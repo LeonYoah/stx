@@ -832,6 +832,17 @@ func TestDiagnosticBundleHTMLTemplateParsesAndRendersMetricsPanels(t *testing.T)
 					ModTime: now,
 				}},
 			}},
+			ConfigFileEntries: []diagnosticBundleHTMLConfigFileEntry{{
+				HostID:     1,
+				Role:       "master",
+				ConfigType: "seatunnel.yaml",
+				RemotePath: "/opt/seatunnel/config/seatunnel.yaml",
+				Items: []diagnosticConfigKeyValue{{
+					Label: "Metrics",
+					Value: "true",
+				}},
+				Preview: "metrics:\n  enabled: true",
+			}},
 			CollectionNotes: []diagnosticConfigSnapshotNote{{
 				HostID:     1,
 				Role:       "master",
@@ -839,6 +850,18 @@ func TestDiagnosticBundleHTMLTemplateParsesAndRendersMetricsPanels(t *testing.T)
 				Message:    "file missing",
 			}},
 		},
+		ThreadDumps: []diagnosticBundleHTMLThreadDumpItem{{
+			HostID:       1,
+			HostLabel:    "127.0.0.1 (主机 #1)",
+			Role:         "master",
+			Tool:         "jcmd Thread.print",
+			RelativePath: "thread-dumps/thread-dump-host-1-master.txt",
+			PreviewURL:   "/api/v1/diagnostics/tasks/44/files/thread-dumps/thread-dump-host-1-master.txt",
+			SizeBytes:    2048,
+			SizeLabel:    "2.0 KB",
+			Preview:      "Full thread dump Java HotSpot...",
+			TotalLines:   50,
+		}},
 		PassedChecks: []diagnosticBundleHTMLAdvice{{
 			Title:   "进程运行正常 / Process Running",
 			Details: "所有节点均处于 RUNNING 状态 / All nodes are running",
@@ -875,11 +898,17 @@ func TestDiagnosticBundleHTMLTemplateParsesAndRendersMetricsPanels(t *testing.T)
 	if strings.Contains(enHTML, "借鉴 Allure categories") {
 		t.Fatalf("expected rendered html to remove internal allure guidance copy")
 	}
-	if !strings.Contains(enHTML, "Key Runtime Settings") || !strings.Contains(enHTML, "connector-fake.jar") || !strings.Contains(enHTML, "<svg") || !strings.Contains(enHTML, "CPU") {
+	if !strings.Contains(enHTML, "Configurations &amp; Previews") && !strings.Contains(enHTML, "Key Runtime Settings") {
+		t.Fatalf("expected english rendered html to contain config section")
+	}
+	if !strings.Contains(enHTML, "connector-fake.jar") || !strings.Contains(enHTML, "<svg") || !strings.Contains(enHTML, "CPU") {
 		t.Fatalf("expected english rendered html to contain config inventory details")
 	}
-	if !strings.Contains(string(zhHTML), "关键配置摘要") || !strings.Contains(string(zhHTML), "复制内容") {
-		t.Fatalf("expected chinese rendered html to contain localized config and copy labels")
+	if !strings.Contains(string(zhHTML), "配置详情与预览") && !strings.Contains(string(zhHTML), "关键配置摘要") {
+		t.Fatalf("expected chinese rendered html to contain localized config label")
+	}
+	if !strings.Contains(string(zhHTML), "复制内容") {
+		t.Fatalf("expected chinese rendered html to contain localized copy label")
 	}
 	if !strings.Contains(enHTML, "View Full Log") || !strings.Contains(enHTML, "Open in New Window") {
 		t.Fatalf("expected english rendered html to contain full log actions")
@@ -892,6 +921,21 @@ func TestDiagnosticBundleHTMLTemplateParsesAndRendersMetricsPanels(t *testing.T)
 	}
 	if !strings.Contains(enHTML, "stx-brand-logo") || !strings.Contains(enHTML, "STX") {
 		t.Fatalf("expected english document to contain STX brand lockup and logo")
+	}
+	if !strings.Contains(enHTML, "rel=\"icon\"") {
+		t.Fatalf("expected rendered html to contain favicon link")
+	}
+	if !strings.Contains(enHTML, "theme-toggle-btn") || !strings.Contains(enHTML, "data-theme") {
+		t.Fatalf("expected rendered html to contain theme toggle and data-theme")
+	}
+	if !strings.Contains(enHTML, "data-inner-tab-key=\"threaddump\"") {
+		t.Fatalf("expected rendered html to contain threaddump inner tab")
+	}
+	if !strings.Contains(enHTML, "config-preview-details") {
+		t.Fatalf("expected rendered html to contain collapsible config preview details")
+	}
+	if !strings.Contains(enHTML, "View Raw Config Preview") || !strings.Contains(string(zhHTML), "查看配置原文预览") {
+		t.Fatalf("expected rendered html to contain config preview toggle labels")
 	}
 	if !strings.Contains(enHTML, "prefers-color-scheme: dark") {
 		t.Fatalf("expected document to contain dark mode styles")
@@ -980,46 +1024,65 @@ func containsConfigHighlight(items []diagnosticConfigKeyValue, label, value stri
 	return false
 }
 
-func TestRebuildTask9OfflineReport(t *testing.T) {
-	manifestPath := "../../../data/storage/diagnostics/tasks/9/manifest.json"
+func rebuildOfflineReportForTask(t *testing.T, taskID uint) {
+	bundleDir := fmt.Sprintf("../../../data/storage/diagnostics/tasks/%d", taskID)
+	manifestPath := filepath.Join(bundleDir, "manifest.json")
 	manifestBytes, err := os.ReadFile(manifestPath)
 	if err != nil {
-		t.Skip("task 9 manifest not found, skipping local re-render")
+		t.Logf("task %d manifest not found, skipping local re-render", taskID)
+		return
 	}
 	var manifest diagnosticBundleManifest
 	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
-		t.Fatalf("unmarshal manifest: %v", err)
+		t.Fatalf("unmarshal manifest for task %d: %v", taskID, err)
 	}
 
-	errorContextBytes, _ := os.ReadFile("../../../data/storage/diagnostics/tasks/9/error-context.json")
+	errorContextBytes, _ := os.ReadFile(filepath.Join(bundleDir, "error-context.json"))
 	var errorContextPayload struct {
 		RelatedDiagnosticTask *DiagnosticTask                    `json:"related_diagnostic_task"`
 		Report                 *ClusterInspectionReportDetailData `json:"report"`
 	}
 	_ = json.Unmarshal(errorContextBytes, &errorContextPayload)
 
-	configSnapshotBytes, _ := os.ReadFile("../../../data/storage/diagnostics/tasks/9/config-snapshot.json")
+	configSnapshotBytes, _ := os.ReadFile(filepath.Join(bundleDir, "config-snapshot.json"))
 	var configSnapshot diagnosticConfigSnapshotSummary
 	_ = json.Unmarshal(configSnapshotBytes, &configSnapshot)
 
 	task := errorContextPayload.RelatedDiagnosticTask
 	if task == nil {
 		task = &DiagnosticTask{
-			ID:            9,
-			ClusterID:     6,
+			ID:            taskID,
+			ClusterID:     manifest.ClusterID,
 			TriggerSource: manifest.TriggerSource,
 			Status:        manifest.Status,
 			Summary:       manifest.Summary,
 			Options:       manifest.Options,
-			BundleDir:     "data/storage/diagnostics/tasks/9",
-			ManifestPath:  "data/storage/diagnostics/tasks/9/manifest.json",
-			IndexPath:     "data/storage/diagnostics/tasks/9/index.html",
+			BundleDir:     bundleDir,
+			ManifestPath:  manifestPath,
+			IndexPath:     filepath.Join(bundleDir, "index.html"),
 		}
 	}
 	task.Status = DiagnosticTaskStatusSucceeded
-	task.BundleDir = "data/storage/diagnostics/tasks/9"
-	task.ManifestPath = "data/storage/diagnostics/tasks/9/manifest.json"
-	task.IndexPath = "data/storage/diagnostics/tasks/9/index.html"
+	task.BundleDir = bundleDir
+	task.ManifestPath = manifestPath
+	task.IndexPath = filepath.Join(bundleDir, "index.html")
+
+	// 尝试从本地 sqlite 读取真实的已完成步骤与节点执行记录
+	// Try loading authentic completed steps and node executions from local sqlite
+	dbPath := "../../../data/seatunnelx.db"
+	if _, err := os.Stat(dbPath); err == nil {
+		db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
+		if err == nil {
+			var dbSteps []DiagnosticTaskStep
+			if err := db.Table("diagnostics_task_steps").Where("task_id = ?", taskID).Order("sequence asc").Find(&dbSteps).Error; err == nil && len(dbSteps) > 0 {
+				task.Steps = dbSteps
+			}
+			var dbNodes []DiagnosticNodeExecution
+			if err := db.Table("diagnostics_task_nodes").Where("task_id = ?", taskID).Find(&dbNodes).Error; err == nil && len(dbNodes) > 0 {
+				task.NodeExecutions = dbNodes
+			}
+		}
+	}
 
 	state := &diagnosticBundleExecutionState{
 		InspectionDetail: errorContextPayload.Report,
@@ -1027,7 +1090,6 @@ func TestRebuildTask9OfflineReport(t *testing.T) {
 		Artifacts:        manifest.Artifacts,
 	}
 
-	bundleDir := "../../../data/storage/diagnostics/tasks/9"
 	payload := buildDiagnosticBundleHTMLPayload(task, state, bundleDir, manifest.Artifacts)
 
 	renderTargets := []struct {
@@ -1046,5 +1108,70 @@ func TestRebuildTask9OfflineReport(t *testing.T) {
 		if err := os.WriteFile(target.Path, content, 0o644); err != nil {
 			t.Fatalf("write %s: %v", target.Path, err)
 		}
+	}
+}
+
+func TestRebuildTask9OfflineReport(t *testing.T) {
+	rebuildOfflineReportForTask(t, 9)
+	rebuildOfflineReportForTask(t, 10)
+}
+
+func TestStepExecutionStatusSyncAndConfigPairing(t *testing.T) {
+	// 1. 验证 buildDiagnosticBundleHTMLConfigPanel 聚合 ConfigFileEntries 并将摘要与预览配对
+	// 1. Verify buildDiagnosticBundleHTMLConfigPanel aggregates ConfigFileEntries and pairs highlights with previews
+	cfgSummary := &diagnosticConfigSnapshotSummary{
+		Files: []diagnosticConfigSnapshotFile{
+			{HostID: 1, HostName: "host-1", NodeID: 1, Role: "master", ConfigType: "seatunnel.yaml", RemotePath: "/etc/st/seatunnel.yaml"},
+			{HostID: 2, HostName: "host-2", NodeID: 2, Role: "worker", ConfigType: "hazelcast.yaml", RemotePath: "/etc/st/hazelcast.yaml"},
+		},
+		KeyHighlights: []diagnosticConfigKeyHighlight{
+			{HostID: 1, ConfigType: "seatunnel.yaml", RemotePath: "/etc/st/seatunnel.yaml", Items: []diagnosticConfigKeyValue{{Label: "Cluster", Value: "seatunnel"}}},
+		},
+		FilePreviews: []diagnosticConfigFilePreview{
+			{HostID: 1, ConfigType: "seatunnel.yaml", RemotePath: "/etc/st/seatunnel.yaml", Preview: "cluster: seatunnel"},
+			{HostID: 2, ConfigType: "hazelcast.yaml", RemotePath: "/etc/st/hazelcast.yaml", Preview: "hazelcast: enabled"},
+		},
+	}
+	cfgPanel := buildDiagnosticBundleHTMLConfigPanel(cfgSummary)
+	if cfgPanel == nil || len(cfgPanel.ConfigFileEntries) != 2 {
+		t.Fatalf("expected 2 ConfigFileEntries, got %v", cfgPanel)
+	}
+	if len(cfgPanel.ConfigFileEntries[0].Items) != 1 || cfgPanel.ConfigFileEntries[0].Preview != "cluster: seatunnel" {
+		t.Fatalf("expected entry 0 to have both highlights and preview, got %+v", cfgPanel.ConfigFileEntries[0])
+	}
+	if len(cfgPanel.ConfigFileEntries[1].Items) != 0 || cfgPanel.ConfigFileEntries[1].Preview != "hazelcast: enabled" {
+		t.Fatalf("expected entry 1 to have empty highlights and preview, got %+v", cfgPanel.ConfigFileEntries[1])
+	}
+
+	// 2. 验证 buildDiagnosticBundleHTMLThreadDumps 收集线程栈与行数、大小格式化
+	// 2. Verify buildDiagnosticBundleHTMLThreadDumps collects thread dumps with line count and size formatting
+	tmpDir := t.TempDir()
+	dumpDir := filepath.Join(tmpDir, "thread-dumps")
+	if err := os.MkdirAll(dumpDir, 0o755); err != nil {
+		t.Fatalf("mkdir dumpDir: %v", err)
+	}
+	dumpFile := filepath.Join(dumpDir, "thread-dump-host-10-hybrid.txt")
+	sampleContent := "Full thread dump Java HotSpot...\nline 1\nline 2\nline 3\n"
+	if err := os.WriteFile(dumpFile, []byte(sampleContent), 0o644); err != nil {
+		t.Fatalf("write dumpFile: %v", err)
+	}
+	task := &DiagnosticTask{
+		ID: 10,
+		SelectedNodes: []DiagnosticTaskNodeTarget{
+			{HostID: 10, HostName: "node-10", HostIP: "192.168.1.10", Role: "hybrid", NodeID: 12},
+		},
+	}
+	dumps := buildDiagnosticBundleHTMLThreadDumps(tmpDir, nil, task)
+	if len(dumps) != 1 {
+		t.Fatalf("expected 1 thread dump, got %d", len(dumps))
+	}
+	if dumps[0].HostID != 10 || dumps[0].Role != "hybrid" {
+		t.Fatalf("expected host 10 and role hybrid, got %+v", dumps[0])
+	}
+	if !strings.Contains(dumps[0].Preview, "Full thread dump") {
+		t.Fatalf("expected preview to contain sample content, got %s", dumps[0].Preview)
+	}
+	if dumps[0].RelativePath != "thread-dumps/thread-dump-host-10-hybrid.txt" {
+		t.Fatalf("unexpected relative path: %s", dumps[0].RelativePath)
 	}
 }

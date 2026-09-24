@@ -703,7 +703,7 @@ export function DiagnosticsErrorCenter({
           </SheetHeader>
 
           {/* 抽屉滚动内容区 / Sheet Scrollable Body */}
-          <ScrollArea className='flex-1 p-4'>
+          <div className='flex-1 min-h-0 overflow-y-auto p-4'>
             {loadingDetail ? (
               <div className='space-y-3'>
                 <Skeleton className='h-16 w-full' />
@@ -891,7 +891,7 @@ export function DiagnosticsErrorCenter({
                 </div>
               </div>
             ) : null}
-          </ScrollArea>
+          </div>
 
           {/* 抽屉底部操作栏 / Sheet Sticky Footer */}
           {selectedGroup && (

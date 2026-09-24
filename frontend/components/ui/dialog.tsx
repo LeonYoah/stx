@@ -86,7 +86,7 @@ function DialogContent({
           // Fixed hit area with a centered icon so the bare 16px X does not sit off-center or look faint
           <DialogPrimitive.Close
             data-slot='dialog-close'
-            className='absolute top-3.5 right-3.5 inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden disabled:pointer-events-none'
+            className='absolute top-3.5 right-3.5 z-50 inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden disabled:pointer-events-none'
           >
             <XIcon className='size-4' strokeWidth={1.75} />
             <span className='sr-only'>Close</span>

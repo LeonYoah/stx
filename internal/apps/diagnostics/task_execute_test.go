@@ -955,11 +955,11 @@ func TestDiagnosticBundleHTMLTemplateParsesAndRendersMetricsPanels(t *testing.T)
 	if !strings.Contains(enHTML, "prefers-color-scheme: dark") {
 		t.Fatalf("expected document to contain dark mode styles")
 	}
-	if !strings.Contains(enHTML, "Appendix &amp; Nodes") {
-		t.Fatalf("expected english document to contain renamed appendix tab")
+	if !strings.Contains(enHTML, `<div class="title">Appendix</div>`) {
+		t.Fatalf("expected English appendix navigation label")
 	}
-	if !strings.Contains(string(zhHTML), "附录与节点") {
-		t.Fatalf("expected chinese document to contain renamed appendix tab")
+	if !strings.Contains(string(zhHTML), `<div class="title">附录</div>`) {
+		t.Fatalf("expected Chinese appendix navigation label")
 	}
 	if strings.Contains(enHTML, "data-tab-link=\"tab-overview\" href=\"#tab-overview\">\n          <div class=\"meta\">\n            <div class=\"title\">Overview</div>\n          </div>\n          <span class=\"count\">") {
 		t.Fatalf("expected overview tab badge to be removed")
@@ -1257,5 +1257,83 @@ func TestCollectDiagnosticConfigArtifactPersistsOnlyRedactedContent(t *testing.T
 	}
 	if summary.Files[0].ContentHash != buildDiagnosticContentHash(string(stored)) {
 		t.Fatal("artifact hash must be calculated from the persisted redacted content")
+	}
+}
+
+// TestDiagnosticHTMLReportPresentsAllEvidence 验证真实 HTML 模板按证据优先展示所有发现项。
+// TestDiagnosticHTMLReportPresentsAllEvidence checks that the generated HTML presents every finding with evidence first.
+func TestDiagnosticHTMLReportPresentsAllEvidence(t *testing.T) {
+	findings := make([]*ClusterInspectionFindingInfo, 0, 6)
+	for index := 0; index < 6; index++ {
+		severity := InspectionFindingSeverityInfo
+		if index == 5 {
+			severity = InspectionFindingSeverityCritical
+		}
+		findings = append(findings, &ClusterInspectionFindingInfo{
+			Severity:        severity,
+			CheckCode:       fmt.Sprintf("CHECK_%d", index),
+			CheckName:       fmt.Sprintf("检查项 %d", index),
+			Summary:         fmt.Sprintf("观测描述 %d", index),
+			EvidenceSummary: fmt.Sprintf("heap.use=%d%%", 80+index),
+			Recommendation:  "查看原始指标",
+			RelatedHostID:   4,
+			RelatedHostName: "worker-04",
+		})
+	}
+	state := &diagnosticBundleExecutionState{
+		InspectionDetail: &ClusterInspectionReportDetailData{Findings: findings},
+	}
+	cards := buildDiagnosticBundleHTMLFindingCards(&DiagnosticTask{ID: 14}, state)
+	if len(cards) != 6 || cards[0].CheckCode != "CHECK_5" || cards[0].Origin != "worker-04" {
+		t.Fatalf("expected six severity-ordered findings with origin, got %#v", cards)
+	}
+	payload := &diagnosticBundleHTMLPayload{Task: diagnosticBundleHTMLTaskSummary{ID: 14}, Findings: cards}
+	document, err := renderDiagnosticBundleHTMLDocument(payload, DiagnosticLanguageZH)
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(document)
+	if strings.Count(html, `class="evidence-item"`) != 6 || strings.Count(html, `class="evidence-index-item"`) != 3 {
+		t.Fatal("expected all six findings in detail and only three in the overview")
+	}
+	if !strings.Contains(html, "heap.use=85%") || !strings.Contains(html, "worker-04") || !strings.Contains(html, "观测依据") {
+		t.Fatal("expected original evidence and node origin in the report")
+	}
+	// 正式报告必须包含原型的导航、发现项列表及独立详情，不再直接展开所有长卡片。
+	// The generated report needs prototype-style navigation, a finding index and hidden detail views.
+	for _, token := range []string{`class="report-masthead"`, `data-findings-index`, `class="report-finding-row"`, `data-finding-detail hidden`, `data-finding-back`, `class="report-page-title"`, `--bg:#f6f6f2`} {
+		if !strings.Contains(html, token) {
+			t.Fatalf("missing report prototype element %q", token)
+		}
+	}
+	if strings.Contains(html, "诊断结论") || strings.Contains(html, "根因分类分布") {
+		t.Fatal("report must not present unsupported conclusions as its primary view")
+	}
+	if !strings.Contains(html, "严重") || !strings.Contains(html, `>01</span>`) {
+		t.Fatal("expected localized severity and one-based finding numbers")
+	}
+	enDocument, err := renderDiagnosticBundleHTMLDocument(payload, DiagnosticLanguageEN)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(enDocument), "Observed Evidence") || !strings.Contains(string(enDocument), "Critical") {
+		t.Fatal("expected English evidence labels")
+	}
+}
+
+// TestDiagnosticHTMLReportZeroState 只描述当前诊断窗口内没有生成发现项。
+// TestDiagnosticHTMLReportZeroState describes the current run, without declaring the cluster healthy.
+func TestDiagnosticHTMLReportZeroState(t *testing.T) {
+	payload := &diagnosticBundleHTMLPayload{Task: diagnosticBundleHTMLTaskSummary{ID: 15}, Health: diagnosticBundleHTMLHealthSummary{ClusterLabel: "cluster-prod", WindowLabel: "30 min"}}
+	document, err := renderDiagnosticBundleHTMLDocument(payload, DiagnosticLanguageZH)
+	if err != nil {
+		t.Fatal(err)
+	}
+	html := string(document)
+	if !strings.Contains(html, "本次未生成结构化发现项") || !strings.Contains(html, "仅表示本次时间窗内的已执行检查") {
+		t.Fatal("expected a scoped zero-finding state")
+	}
+	if strings.Contains(html, "集群存在严重风险") || strings.Contains(html, "诊断结论") {
+		t.Fatal("zero-finding HTML must not state an overall cluster conclusion")
 	}
 }

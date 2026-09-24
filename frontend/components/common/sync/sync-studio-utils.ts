@@ -3291,3 +3291,103 @@ export function buildInsertedTemplateContent(
     endOffset: nextContent.length,
   };
 }
+
+/**
+ * Insert curated seed content by section.
+ * 按分区插入精选种子正文。
+ * - env/combo: content is a full top-level block or full job
+ * - source/transform/sink: content is a single plugin block body
+ */
+export function buildInsertedCuratedContent(
+  content: string,
+  section: 'env' | 'source' | 'transform' | 'sink' | 'combo',
+  curatedContent: string,
+): {
+  nextContent: string;
+  startOffset: number;
+  endOffset: number;
+  replacesAll?: boolean;
+} {
+  const block = curatedContent.trim();
+  if (section === 'combo') {
+    return {
+      nextContent: block,
+      startOffset: 0,
+      endOffset: block.length,
+      replacesAll: true,
+    };
+  }
+  if (section === 'env') {
+    const envBlock = block.toLowerCase().startsWith('env')
+      ? block
+      : `env {\n  ${block.replace(/\n/g, '\n  ')}\n}`;
+    const match = content.match(/(^|\n)env\s*\{/);
+    if (match && match.index !== undefined) {
+      const start = match.index + (match[1] === '\n' ? 1 : 0);
+      const brace = content.indexOf('{', start);
+      const end = findMatchingBraceOffset(content, brace);
+      if (end > brace) {
+        const nextContent =
+          content.slice(0, start) + envBlock + content.slice(end + 1);
+        return {
+          nextContent,
+          startOffset: start,
+          endOffset: start + envBlock.length,
+        };
+      }
+    }
+    const prefix = content.trim().length > 0 ? '\n\n' : '';
+    const nextContent = `${envBlock}${prefix}${content}`;
+    return {
+      nextContent,
+      startOffset: 0,
+      endOffset: envBlock.length,
+    };
+  }
+  return buildInsertedTemplateContent(
+    content,
+    section,
+    block,
+  );
+}
+
+function findMatchingBraceOffset(content: string, openIdx: number): number {
+  if (openIdx < 0 || content[openIdx] !== '{') {
+    return -1;
+  }
+  let depth = 0;
+  let inSingle = false;
+  let inDouble = false;
+  let escape = false;
+  for (let i = openIdx; i < content.length; i++) {
+    const ch = content[i];
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    if (ch === '\\' && (inSingle || inDouble)) {
+      escape = true;
+      continue;
+    }
+    if (!inDouble && ch === "'") {
+      inSingle = !inSingle;
+      continue;
+    }
+    if (!inSingle && ch === '"') {
+      inDouble = !inDouble;
+      continue;
+    }
+    if (inSingle || inDouble) {
+      continue;
+    }
+    if (ch === '{') {
+      depth++;
+    } else if (ch === '}') {
+      depth--;
+      if (depth === 0) {
+        return i;
+      }
+    }
+  }
+  return -1;
+}

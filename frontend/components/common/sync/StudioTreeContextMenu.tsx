@@ -25,6 +25,7 @@ import {
   Copy,
   Trash2,
   RefreshCw,
+  Sparkles,
 } from 'lucide-react';
 import { SyncTaskTreeNode, TreeContextMenuState } from './sync-studio-utils';
 
@@ -42,6 +43,8 @@ export interface StudioTreeContextMenuProps {
   onCopyFile: (node: SyncTaskTreeNode) => void;
   onDelete: (node: SyncTaskTreeNode) => void;
   onRefresh: () => void;
+  /** 文件另存为精选模板 / Save file as curated template */
+  onSaveAsCurated?: (node: SyncTaskTreeNode) => void;
 }
 
 // ============================================================================
@@ -59,6 +62,7 @@ export function StudioTreeContextMenu({
   onCopyFile,
   onDelete,
   onRefresh,
+  onSaveAsCurated,
 }: StudioTreeContextMenuProps) {
   const t = useTranslations('workbenchStudio');
   const menuRef = useRef<HTMLDivElement>(null);
@@ -195,22 +199,39 @@ export function StudioTreeContextMenu({
         </>
       ) : null}
 
-      {/* 文件复制 */}
-      {/* File duplication */}
+      {/* 文件复制 / 另存精选 */}
+      {/* File duplication / save as curated */}
       {isFile && menuState.node ? (
-        <button
-          type='button'
-          className='group flex w-full items-center rounded-sm px-2.5 py-1.5 text-xs text-popover-foreground transition-colors hover:bg-accent hover:text-accent-foreground'
-          onClick={() => {
-            onClose();
-            if (menuState.node) {
-              onCopyFile(menuState.node);
-            }
-          }}
-        >
-          <Copy className='mr-2 size-3.5 text-muted-foreground transition-colors group-hover:text-foreground' />
-          <span>{t('copyFile')}</span>
-        </button>
+        <>
+          <button
+            type='button'
+            className='group flex w-full items-center rounded-sm px-2.5 py-1.5 text-xs text-popover-foreground transition-colors hover:bg-accent hover:text-accent-foreground'
+            onClick={() => {
+              onClose();
+              if (menuState.node) {
+                onCopyFile(menuState.node);
+              }
+            }}
+          >
+            <Copy className='mr-2 size-3.5 text-muted-foreground transition-colors group-hover:text-foreground' />
+            <span>{t('copyFile')}</span>
+          </button>
+          {onSaveAsCurated ? (
+            <button
+              type='button'
+              className='group flex w-full items-center rounded-sm px-2.5 py-1.5 text-xs text-popover-foreground transition-colors hover:bg-accent hover:text-accent-foreground'
+              onClick={() => {
+                onClose();
+                if (menuState.node) {
+                  onSaveAsCurated(menuState.node);
+                }
+              }}
+            >
+              <Sparkles className='mr-2 size-3.5 text-muted-foreground transition-colors group-hover:text-foreground' />
+              <span>{t('saveAsCurated')}</span>
+            </button>
+          ) : null}
+        </>
       ) : null}
 
       {/* 危险操作组：删除 */}

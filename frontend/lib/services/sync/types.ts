@@ -465,3 +465,40 @@ export interface SyncPluginEnumCatalogResult {
   plugins: SyncPluginEnumCatalogPlugin[];
   warnings?: string[];
 }
+
+export type SyncCuratedSection =
+  | 'env'
+  | 'source'
+  | 'transform'
+  | 'sink'
+  | 'combo';
+
+export interface SyncCuratedTemplateView {
+  id?: number;
+  builtin_id?: string;
+  name: string;
+  description?: string;
+  section: SyncCuratedSection;
+  mode: string;
+  pattern: string;
+  connectors?: string[];
+  content: string;
+  enabled: boolean;
+  origin: 'builtin' | 'user' | 'override';
+  has_override?: boolean;
+  owner_user_id?: number;
+}
+
+export interface SyncCuratedTemplateListResult {
+  items: SyncCuratedTemplateView[];
+  total: number;
+}
+
+export interface SyncCuratedComboParseResult {
+  env: string;
+  source: string;
+  transform: string;
+  sink: string;
+  present: SyncCuratedSection[];
+  combined: string;
+}

@@ -137,6 +137,17 @@ func syncOperationSpecs() []OperationSpec {
 		syncOp("sync.plugin.enum-catalog", []string{"sync", "plugin", "enum-catalog"}, "Get dynamic enum catalog for plugin options", "POST", "/api/v1/sync/plugins/enum-catalog", RiskR0, "", nil, "stx sync plugin enum-catalog", false, false),
 	)
 
+	// 7. Curated templates（精选模板）
+	specs = append(specs,
+		syncOp("sync.curated.list", []string{"sync", "curated", "list"}, "List curated sync templates", "POST", "/api/v1/sync/curated-templates/list", RiskR0, "", nil, "stx sync curated list", false, false),
+		syncOp("sync.curated.create", []string{"sync", "curated", "create"}, "Create a curated sync template", "POST", "/api/v1/sync/curated-templates", RiskR1, "创建精选模板，供工作台复用。", syncWriteInputs(false, nil), "stx sync curated create --confirm", false, false),
+		syncOp("sync.curated.update", nil, "Update a curated sync template", "PUT", "/api/v1/sync/curated-templates/:id", RiskR1, "更新精选模板内容。", syncWriteInputs(false, []InputSpec{{Name: "id", Location: InputPath, Required: true, Description: "Curated template id"}}), "", false, false),
+		syncOp("sync.curated.delete", nil, "Delete a curated sync template", "DELETE", "/api/v1/sync/curated-templates/:id", RiskR1, "删除用户精选模板。", syncWriteInputs(false, []InputSpec{{Name: "id", Location: InputPath, Required: true, Description: "Curated template id"}}), "", false, false),
+		syncOp("sync.curated.fork", []string{"sync", "curated", "fork"}, "Fork a built-in curated template", "POST", "/api/v1/sync/curated-templates/fork", RiskR1, "从内置精选生成可编辑副本。", syncWriteInputs(false, nil), "stx sync curated fork --confirm", false, false),
+		syncOp("sync.curated.parse-combo", []string{"sync", "curated", "parse-combo"}, "Parse env/source/transform/sink sections", "POST", "/api/v1/sync/curated-templates/parse-combo", RiskR0, "", nil, "stx sync curated parse-combo", false, false),
+		syncOp("sync.curated.render", []string{"sync", "curated", "render"}, "Render curated template content for insert", "POST", "/api/v1/sync/curated-templates/render", RiskR0, "", nil, "stx sync curated render", false, false),
+	)
+
 	return specs
 }
 

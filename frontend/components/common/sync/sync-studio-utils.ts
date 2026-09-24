@@ -124,7 +124,12 @@ export interface UserFacingErrorState {
 
 // 右侧属性边栏选项卡类型：设置 / 定时调度 / 版本历史 / 全局变量
 // Right sidebar tab types: settings / schedule / versions / globals
-export type RightSidebarTab = 'settings' | 'schedule' | 'versions' | 'globals';
+export type RightSidebarTab =
+  | 'settings'
+  | 'templates'
+  | 'schedule'
+  | 'versions'
+  | 'globals';
 export type BottomConsoleTab = 'jobs' | 'logs' | 'preview' | 'checkpoint';
 export type ExecutionMode = 'cluster' | 'local';
 export type LogFilterMode = 'all' | 'warn' | 'error';
@@ -3293,6 +3298,23 @@ export function buildInsertedTemplateContent(
 }
 
 /**
+ * Normalize curated env seed into a single top-level `env { ... }` block.
+ * 将精选 env 种子规范为单个顶层 `env { ... }` 块（种子可能含注释头）。
+ */
+function normalizeCuratedEnvBlock(block: string): string {
+  const trimmed = block.trim();
+  if (!trimmed) {
+    return 'env {\n}';
+  }
+  // Seed files often start with comments before `env { ... }` — do not wrap again.
+  // 种子常以注释开头再跟 env 块，禁止再次外包一层 env。
+  if (/(^|\n)\s*env\s*\{/i.test(trimmed)) {
+    return trimmed;
+  }
+  return `env {\n  ${trimmed.replace(/\n/g, '\n  ')}\n}`;
+}
+
+/**
  * Insert curated seed content by section.
  * 按分区插入精选种子正文。
  * - env/combo: content is a full top-level block or full job
@@ -3318,9 +3340,7 @@ export function buildInsertedCuratedContent(
     };
   }
   if (section === 'env') {
-    const envBlock = block.toLowerCase().startsWith('env')
-      ? block
-      : `env {\n  ${block.replace(/\n/g, '\n  ')}\n}`;
+    const envBlock = normalizeCuratedEnvBlock(block);
     const match = content.match(/(^|\n)env\s*\{/);
     if (match && match.index !== undefined) {
       const start = match.index + (match[1] === '\n' ? 1 : 0);

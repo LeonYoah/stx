@@ -19,7 +19,7 @@
 
 import {useEffect, useMemo, useState} from 'react';
 import {useTranslations} from 'next-intl';
-import {GitFork, Loader2, Save, Sparkles, Trash2} from 'lucide-react';
+import {Eye, Loader2, Plus, Sparkles} from 'lucide-react';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
@@ -30,6 +30,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {cn} from '@/lib/utils';
 import type {
   SyncCuratedSection,
   SyncCuratedTemplateView,
@@ -44,20 +45,22 @@ const SECTION_ORDER: SyncCuratedSection[] = [
   'combo',
 ];
 
+function itemKey(item: SyncCuratedTemplateView) {
+  return `${item.origin}-${item.builtin_id || item.id}-${item.name}`;
+}
+
+/**
+ * 精选模板插入面板：列表在上可选预览，确认后再插入。
+ * Curated insert panel: list on top with preview, insert after confirm.
+ */
 export function CuratedTemplatesPanel({
   onInsert,
-  onSaveCurrent,
-  onForkAndEdit,
-  onDelete,
+  clusterId,
   refreshToken = 0,
 }: {
   onInsert: (item: SyncCuratedTemplateView) => void;
-  onSaveCurrent: () => void;
-  /** 编辑内置：fork 后插入编辑器 / Edit builtin: fork then insert */
-  onForkAndEdit: (item: SyncCuratedTemplateView) => void;
-  /** 删除我的/副本精选 / Delete user or override curated */
-  onDelete: (item: SyncCuratedTemplateView) => void;
-  /** 另存成功后递增以刷新列表 / Increment after save-as to refresh list */
+  /** 有集群时用 render 预览（含低版本 plugin IO 改写） / Use render for preview when cluster is set */
+  clusterId?: string;
   refreshToken?: number;
 }) {
   const t = useTranslations('workbenchStudio');
@@ -66,7 +69,9 @@ export function CuratedTemplatesPanel({
   const [section, setSection] = useState<string>('all');
   const [query, setQuery] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [preview, setPreview] = useState('');
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -103,26 +108,67 @@ export function CuratedTemplatesPanel({
     }));
   }, [items]);
 
-  const itemKey = (item: SyncCuratedTemplateView) =>
-    `${item.origin}-${item.builtin_id || item.id}-${item.name}`;
+  const selected = useMemo(
+    () => items.find((item) => itemKey(item) === selectedKey) || null,
+    [items, selectedKey],
+  );
+
+  // 选中后立刻展示正文；有集群再走 render 做版本改写预览
+  // Show content immediately on select; render with cluster for legacy rewrite preview
+  useEffect(() => {
+    if (!selected) {
+      setPreview('');
+      setPreviewLoading(false);
+      return;
+    }
+    const fallback = (selected.content || '').trim();
+    setPreview(fallback);
+    const clusterNum = clusterId ? Number(clusterId) : 0;
+    if (!Number.isFinite(clusterNum) || clusterNum <= 0) {
+      setPreviewLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setPreviewLoading(true);
+    void services.sync
+      .renderCuratedTemplate({
+        builtin_id: selected.builtin_id,
+        id: selected.id,
+        cluster_id: clusterNum,
+      })
+      .then((data) => {
+        if (!cancelled) {
+          setPreview((data.content || fallback).trim());
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPreview(fallback);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setPreviewLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selected, clusterId]);
+
+  // 列表刷新后若当前选中项消失则清空
+  // Clear selection when it disappears after list refresh
+  useEffect(() => {
+    if (selectedKey && !items.some((item) => itemKey(item) === selectedKey)) {
+      setSelectedKey(null);
+    }
+  }, [items, selectedKey]);
 
   return (
     <div className='space-y-2.5'>
-      <div className='flex items-center justify-between gap-2'>
-        <div className='flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-foreground'>
-          <Sparkles className='size-3.5 text-primary' />
-          <span>{t('curatedTemplates')}</span>
-        </div>
-        <Button
-          type='button'
-          size='sm'
-          variant='outline'
-          className='h-7 px-2 text-[11px]'
-          onClick={onSaveCurrent}
-        >
-          <Save className='size-3.5 mr-1' />
-          {t('saveAsCurated')}
-        </Button>
+      <div className='flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-foreground'>
+        <Sparkles className='size-3.5 text-primary' />
+        <span>{t('curatedTemplates')}</span>
       </div>
 
       <div className='flex gap-2'>
@@ -162,111 +208,88 @@ export function CuratedTemplatesPanel({
       ) : grouped.length === 0 ? (
         <p className='text-[11px] text-muted-foreground'>{t('noCuratedTemplates')}</p>
       ) : (
-        <div className='space-y-3 max-h-64 overflow-y-auto pr-1'>
+        <div className='space-y-1.5 max-h-44 overflow-y-auto pr-1'>
           {grouped.map((group) => (
-            <div key={group.section} className='space-y-1.5'>
-              <div className='text-[10px] uppercase tracking-wide text-muted-foreground'>
+            <div key={group.section} className='space-y-1'>
+              <div className='text-[10px] uppercase tracking-wide text-muted-foreground sticky top-0 bg-muted/10 py-0.5'>
                 {group.section}
               </div>
               {group.items.map((item) => {
                 const key = itemKey(item);
-                const canForkEdit = item.origin === 'builtin' && !!item.builtin_id;
-                const canDelete =
-                  (item.origin === 'user' || item.origin === 'override') &&
-                  !!item.id;
+                const active = key === selectedKey;
                 return (
-                  <div
+                  <button
                     key={key}
-                    className='rounded-md border border-border/50 bg-background/60 hover:border-primary/40 hover:bg-muted/30 transition-colors'
-                  >
-                    <button
-                      type='button'
-                      className='w-full px-2.5 pt-2 pb-1.5 text-left'
-                      onClick={() => onInsert(item)}
-                    >
-                      <div className='flex items-center gap-1.5 min-w-0'>
-                        <span className='text-xs font-medium truncate'>
-                          {item.name}
-                        </span>
-                        <Badge
-                          variant='secondary'
-                          className='text-[9px] px-1 py-0 shrink-0'
-                        >
-                          {item.origin}
-                        </Badge>
-                        {item.has_override ? (
-                          <Badge
-                            variant='outline'
-                            className='text-[9px] px-1 py-0 shrink-0'
-                          >
-                            {t('curatedHasOverride')}
-                          </Badge>
-                        ) : null}
-                      </div>
-                      {item.description ? (
-                        <p className='mt-0.5 text-[10px] text-muted-foreground line-clamp-2'>
-                          {item.description}
-                        </p>
-                      ) : null}
-                    </button>
-                    {(canForkEdit || canDelete) && (
-                      <div className='flex items-center gap-1 px-2 pb-2'>
-                        {canForkEdit ? (
-                          <Button
-                            type='button'
-                            size='sm'
-                            variant='ghost'
-                            className='h-6 px-1.5 text-[10px]'
-                            disabled={busyKey === key}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setBusyKey(key);
-                              Promise.resolve(onForkAndEdit(item)).finally(() =>
-                                setBusyKey(null),
-                              );
-                            }}
-                          >
-                            {busyKey === key ? (
-                              <Loader2 className='size-3 mr-1 animate-spin' />
-                            ) : (
-                              <GitFork className='size-3 mr-1' />
-                            )}
-                            {item.has_override
-                              ? t('curatedEditOverride')
-                              : t('curatedForkEdit')}
-                          </Button>
-                        ) : null}
-                        {canDelete ? (
-                          <Button
-                            type='button'
-                            size='sm'
-                            variant='ghost'
-                            className='h-6 px-1.5 text-[10px] text-destructive hover:text-destructive'
-                            disabled={busyKey === key}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (!window.confirm(t('curatedDeleteConfirm'))) {
-                                return;
-                              }
-                              setBusyKey(key);
-                              Promise.resolve(onDelete(item)).finally(() =>
-                                setBusyKey(null),
-                              );
-                            }}
-                          >
-                            <Trash2 className='size-3 mr-1' />
-                            {t('delete')}
-                          </Button>
-                        ) : null}
-                      </div>
+                    type='button'
+                    className={cn(
+                      'w-full rounded-md border px-2.5 py-1.5 text-left transition-colors',
+                      active
+                        ? 'border-primary/50 bg-primary/5'
+                        : 'border-border/50 bg-background/60 hover:border-primary/40 hover:bg-muted/30',
                     )}
-                  </div>
+                    onClick={() => setSelectedKey(key)}
+                  >
+                    <div className='flex items-center gap-1.5 min-w-0'>
+                      <span className='text-xs font-medium truncate'>
+                        {item.name}
+                      </span>
+                      <Badge
+                        variant='secondary'
+                        className='text-[9px] px-1 py-0 shrink-0'
+                      >
+                        {item.origin}
+                      </Badge>
+                    </div>
+                    {item.description ? (
+                      <p className='mt-0.5 text-[10px] text-muted-foreground line-clamp-1'>
+                        {item.description}
+                      </p>
+                    ) : null}
+                  </button>
                 );
               })}
             </div>
           ))}
         </div>
       )}
+
+      {/* 预览区：选中后展示 HOCON */}
+      {/* Preview pane: show HOCON after selection */}
+      <div className='rounded-md border border-border/50 bg-background/70 overflow-hidden'>
+        <div className='flex items-center justify-between gap-2 border-b border-border/40 px-2.5 py-1.5'>
+          <div className='flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-muted-foreground'>
+            <Eye className='size-3' />
+            <span>{t('curatedPreview')}</span>
+            {previewLoading ? (
+              <Loader2 className='size-3 animate-spin' />
+            ) : null}
+          </div>
+          <Button
+            type='button'
+            size='sm'
+            className='h-6 px-2 text-[11px]'
+            disabled={!selected}
+            onClick={() => {
+              if (selected) {
+                onInsert(selected);
+              }
+            }}
+          >
+            <Plus className='size-3 mr-1' />
+            {t('curatedInsert')}
+          </Button>
+        </div>
+        {selected ? (
+          <pre className='max-h-40 overflow-auto px-2.5 py-2 text-[10px] leading-4 font-mono text-foreground/90 whitespace-pre-wrap break-all'>
+            {preview || t('curatedPreviewEmpty')}
+          </pre>
+        ) : (
+          <p className='px-2.5 py-3 text-[11px] text-muted-foreground'>
+            {t('curatedPreviewHint')}
+          </p>
+        )}
+      </div>
+
       <p className='text-[11px] leading-5 text-muted-foreground'>
         {t('curatedTemplateHint')}
       </p>

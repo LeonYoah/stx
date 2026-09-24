@@ -12,10 +12,10 @@
 - [x] Repository：CRUD、按 owner 过滤、按 builtin_id 查副本
 - [x] Service：List 合并视图、Fork、CreateFromContent（另存）、**ParseFourSections**（一键组合）
 - [x] Handler + router + `operation` 注册（226 ops / route_baseline 已对齐）
-- [ ] （可选）CLI：`stx sync curated-template list|save|delete`
+- [x] CLI：`stx sync curated list|create|update|delete|fork|render|parse-combo`
 - [x] 单测：合并规则、fork、四节解析、禁止删内置、升级种子不影响 DB、凭证变量覆盖
 
-**验证**：`go test ./internal/apps/sync/ ./internal/operation/` 已通过
+**验证**：`go test ./internal/apps/sync/ ./internal/operation/ ./internal/cmd/` 已通过
 
 ## 阶段 2：前端「模板」Tab 改造
 
@@ -24,8 +24,9 @@
 - [x] sync.service + types：curated-templates API（含 update）
 - [x] 插入：env/source/transform/sink 分别落入对应节（transform 同 source/sink 插入工具扩展）
 - [x] 另存 Dialog（选区优先，否则全文）；**一键组合须带上存在的四节**
-- [x] 树右键另存入口
-- [x] 编辑内置 → fork 再编辑（插入后「另存精选」写回副本）
+- [x] 树右键另存入口 → 已改为编辑器选区右键「另存为精选」
+- [x] 右侧「模板管理」Tab：我的精选改/删；内置创建副本
+- [x] 精选插入列表纯插入，不再混入编辑/副本操作
 
 **验证**：`tsc --noEmit` + vitest curated helpers 已通过；手动 UI 冒烟待用户确认
 

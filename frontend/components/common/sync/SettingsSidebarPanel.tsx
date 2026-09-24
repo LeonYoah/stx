@@ -148,9 +148,6 @@ export function SettingsSidebarPanel({
   onClusterChange,
   onInsertPluginTemplate,
   onInsertCuratedTemplate,
-  onSaveAsCuratedTemplate,
-  onForkAndEditCuratedTemplate,
-  onDeleteCuratedTemplate,
   curatedRefreshToken = 0,
   onOpenCreateCustomVariable,
   onOpenEditCustomVariable,
@@ -177,9 +174,6 @@ export function SettingsSidebarPanel({
     factoryIdentifier: string,
   ) => void;
   onInsertCuratedTemplate: (item: SyncCuratedTemplateView) => void;
-  onSaveAsCuratedTemplate: () => void;
-  onForkAndEditCuratedTemplate: (item: SyncCuratedTemplateView) => void;
-  onDeleteCuratedTemplate: (item: SyncCuratedTemplateView) => void;
   curatedRefreshToken?: number;
   onOpenCreateCustomVariable: () => void;
   onOpenEditCustomVariable: (item: VariableRow) => void;
@@ -193,8 +187,8 @@ export function SettingsSidebarPanel({
   const builtinPreviewNow = useMemo(() => new Date(), []);
   return (
     <div className='min-w-0 w-full space-y-3.5'>
-      {/* 运行与集群环境配置 */}
-      {/* Execution mode and cluster environment settings */}
+      {/* 运行与集群环境配置（置顶） */}
+      {/* Execution mode and cluster environment settings (top) */}
       <div className='rounded-lg border border-border/50 bg-muted/10 p-3 space-y-2.5'>
         <div className='flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-foreground'>
           <Cpu className='size-3.5 text-primary' />
@@ -244,8 +238,8 @@ export function SettingsSidebarPanel({
         ) : null}
       </div>
 
-      {/* 模板：精选 + 原始默认参数 */}
-      {/* Templates: curated + raw default params */}
+      {/* 模板：精选列表 + 预览，再是原始默认参数 */}
+      {/* Templates: curated list + preview, then raw defaults */}
       <div className='rounded-lg border border-border/50 bg-muted/10 p-3 space-y-2.5'>
         <div className='flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-foreground'>
           <Layers className='size-3.5 text-primary' />
@@ -263,9 +257,7 @@ export function SettingsSidebarPanel({
           <TabsContent value='curated' className='mt-2.5'>
             <CuratedTemplatesPanel
               onInsert={onInsertCuratedTemplate}
-              onSaveCurrent={onSaveAsCuratedTemplate}
-              onForkAndEdit={onForkAndEditCuratedTemplate}
-              onDelete={onDeleteCuratedTemplate}
+              clusterId={clusterId}
               refreshToken={curatedRefreshToken}
             />
           </TabsContent>

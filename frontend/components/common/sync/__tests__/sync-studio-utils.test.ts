@@ -446,6 +446,29 @@ source {
     expect(inserted.nextContent).not.toContain('STREAMING');
   });
 
+  it('does not nest env when curated seed already contains env block with comments', () => {
+    const seed = `# env · BATCH
+# curated-section: env | batch
+
+env {
+  parallelism = 1
+  job.mode = "BATCH"
+}`;
+    const inserted = buildInsertedCuratedContent('', 'env', seed);
+    expect(inserted.nextContent.match(/\benv\s*\{/g)?.length).toBe(1);
+    expect(inserted.nextContent).toContain('parallelism = 1');
+    expect(inserted.nextContent).not.toMatch(/env\s*\{\s*\n\s*# env/);
+
+    const withExisting = buildInsertedCuratedContent(
+      'env {\n  job.mode = "STREAMING"\n}\n\nsource {\n  FakeSource {}\n}\n',
+      'env',
+      seed,
+    );
+    expect(withExisting.nextContent.match(/\benv\s*\{/g)?.length).toBe(1);
+    expect(withExisting.nextContent).toContain('FakeSource');
+    expect(withExisting.nextContent).not.toContain('STREAMING');
+  });
+
   it('combo insert replaces entire editor content', () => {
     const inserted = buildInsertedCuratedContent(
       'old content',

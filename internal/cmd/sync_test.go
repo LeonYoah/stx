@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	cliConfig "github.com/LeonYoah/stx/internal/cli/config"
@@ -272,6 +273,55 @@ func TestSyncJobRecoverSendsRequestAndNextCommand(t *testing.T) {
 	)
 	if exitCode != int(clioutput.ExitSuccess) {
 		t.Fatalf("恢复作业命令失败: code=%d stderr=%s", exitCode, stderr)
+	}
+}
+
+func TestSyncCuratedListCommand(t *testing.T) {
+	var calls int
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		calls++
+		writer.Header().Set("Content-Type", "application/json")
+		if request.Method != http.MethodPost || request.URL.Path != "/api/v1/sync/curated-templates/list" {
+			t.Fatalf("list request mismatch: %s %s", request.Method, request.URL.Path)
+		}
+		_ = json.NewEncoder(writer).Encode(map[string]any{
+			"data": map[string]any{
+				"items": []map[string]any{
+					{"name": "FakeSource 冒烟", "section": "source", "origin": "builtin"},
+				},
+				"total": 1,
+			},
+		})
+	}))
+	defer server.Close()
+
+	store := newExecutionTestStore(t, server.URL, "test-token")
+	stdout, stderr, exitCode := runSyncCommand(t, store, "sync", "curated", "list", "--section", "source")
+	if exitCode != int(clioutput.ExitSuccess) {
+		t.Fatalf("curated list failed: code=%d stderr=%s", exitCode, stderr)
+	}
+	if calls != 1 {
+		t.Fatalf("expected 1 call, got %d", calls)
+	}
+	if !strings.Contains(stdout, "FakeSource") {
+		t.Fatalf("unexpected stdout: %s", stdout)
+	}
+}
+
+func TestSyncCuratedCreateRequiresConfirm(t *testing.T) {
+	var calls int
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { calls++ }))
+	defer server.Close()
+
+	store := newExecutionTestStore(t, server.URL, "test-token")
+	_, stderr, exitCode := runSyncCommand(t, store,
+		"sync", "curated", "create",
+		"--name", "my-env",
+		"--section", "env",
+		"--content", `env { job.mode = "BATCH" }`,
+	)
+	if exitCode != int(clioutput.ExitConflict) || calls != 0 {
+		t.Fatalf("expected confirm gate before network: code=%d calls=%d stderr=%s", exitCode, calls, stderr)
 	}
 }
 

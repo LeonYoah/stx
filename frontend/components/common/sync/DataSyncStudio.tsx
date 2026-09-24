@@ -85,6 +85,7 @@ import {
   Share2,
   Workflow,
   WandSparkles,
+  Wrench,
   Code2,
   HelpCircle,
   X,
@@ -139,6 +140,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -203,6 +214,7 @@ import {
   SettingsSidebarPanel,
   TemplatePluginSelect,
 } from './SettingsSidebarPanel';
+import {CuratedTemplatesManagePanel} from './CuratedTemplatesManagePanel';
 import {
   VersionSidebarPanel,
   SimplePagination,
@@ -670,11 +682,14 @@ export function DataSyncStudio() {
   const [curatedSaveContent, setCuratedSaveContent] = useState('');
   const [curatedSaving, setCuratedSaving] = useState(false);
   const [curatedRefreshToken, setCuratedRefreshToken] = useState(0);
-  // 正在编辑的用户/副本精选 id；有值时另存改为写回
-  // Active user/override curated id; when set, save writes back via update
-  const [curatedEditTargetId, setCuratedEditTargetId] = useState<number | null>(
-    null,
-  );
+  // combo 整文替换确认弹窗
+  // Confirm dialog before combo replace-all insert
+  const [curatedReplaceDialogOpen, setCuratedReplaceDialogOpen] =
+    useState(false);
+  const [pendingCuratedInsert, setPendingCuratedInsert] =
+    useState<SyncCuratedTemplateView | null>(null);
+  const saveAsCuratedFromSelectionRef = useRef<() => void>(() => {});
+
   const restoredWorkspaceTabsRef = useRef<PersistedWorkspaceTabs | null>(null);
   const customVariableRowsRef = useRef<VariableRow[]>([]);
   const tabStripRef = useRef<HTMLDivElement | null>(null);
@@ -1823,17 +1838,11 @@ export function DataSyncStudio() {
     [editor.clusterId, ensurePluginSchema, markEditorDraft, t],
   );
 
-  // 插入精选模板：render 后按 section 合并进编辑器
-  // Insert curated template: render then merge by section
-  const insertCuratedTemplate = useCallback(
+  // 执行精选插入（已确认 combo 替换或无需确认）
+  // Perform curated insert (combo replace already confirmed or not needed)
+  const performInsertCuratedTemplate = useCallback(
     async (item: SyncCuratedTemplateView) => {
       const section = (item.section || 'combo') as SyncCuratedSection;
-      if (section === 'combo') {
-        const existing = (editor.content || '').trim();
-        if (existing && !window.confirm(t('curatedReplaceConfirm'))) {
-          return;
-        }
-      }
       const loadingToastId = toast.loading(t('loadingCurated'));
       try {
         const clusterIdNum = editor.clusterId
@@ -1881,17 +1890,37 @@ export function DataSyncStudio() {
         );
       }
     },
-    [editor.clusterId, editor.content, markEditorDraft, t],
+    [editor.clusterId, markEditorDraft, t],
   );
 
-  // 打开另存精选弹窗（可指定正文、默认名称与写回目标）
-  // Open save-as curated dialog with content, name hint, and optional write-back id
+  // 插入精选模板：combo 且编辑器非空时先弹确认框
+  // Insert curated template: confirm first when combo would replace non-empty editor
+  const insertCuratedTemplate = useCallback(
+    async (item: SyncCuratedTemplateView) => {
+      const section = (item.section || 'combo') as SyncCuratedSection;
+      if (section === 'combo' && (editor.content || '').trim()) {
+        setPendingCuratedInsert(item);
+        setCuratedReplaceDialogOpen(true);
+        return;
+      }
+      await performInsertCuratedTemplate(item);
+    },
+    [editor.content, performInsertCuratedTemplate],
+  );
+
+  const handleConfirmCuratedReplace = useCallback(() => {
+    const item = pendingCuratedInsert;
+    setCuratedReplaceDialogOpen(false);
+    setPendingCuratedInsert(null);
+    if (item) {
+      void performInsertCuratedTemplate(item);
+    }
+  }, [pendingCuratedInsert, performInsertCuratedTemplate]);
+
+  // 打开另存精选弹窗（由选区正文驱动）
+  // Open save-as curated dialog from selected content
   const openSaveAsCuratedFromContent = useCallback(
-    async (
-      rawInput: string,
-      nameHint?: string,
-      options?: {editTargetId?: number | null; description?: string},
-    ) => {
+    async (rawInput: string, nameHint?: string) => {
       const raw = rawInput || '';
       if (!raw.trim()) {
         toast.error(t('curatedSaveEmpty'));
@@ -1928,16 +1957,12 @@ export function DataSyncStudio() {
         setCuratedSaveContent(content);
         setCuratedSaveSection(section);
         const baseName = (nameHint || '').trim();
-        const editId = options?.editTargetId ?? null;
         setCuratedSaveName(
-          editId
-            ? baseName || `curated-${section}`
-            : baseName
-              ? `${baseName} · curated`
-              : `curated-${section}-${Date.now().toString(36)}`,
+          baseName
+            ? `${baseName} · curated`
+            : `curated-${section}-${Date.now().toString(36)}`,
         );
-        setCuratedSaveDescription(options?.description?.trim() || '');
-        setCuratedEditTargetId(editId);
+        setCuratedSaveDescription('');
         setCuratedSaveDialogOpen(true);
       } catch (error) {
         toast.error(
@@ -1948,59 +1973,26 @@ export function DataSyncStudio() {
     [t],
   );
 
-  // 打开另存精选：优先选区，否则全文；若正在编辑副本则写回
-  // Open save-as: selection preferred; write back when editing an override
-  const handleOpenSaveAsCuratedTemplate = useCallback(async () => {
-    let raw = '';
+  // 编辑器选区右键「另存为精选」：必须先选中文本
+  // Editor selection context-menu save-as curated: selection required
+  const handleOpenSaveAsCuratedFromSelection = useCallback(async () => {
     const monacoEditor = editorInstanceRef.current;
     const model = monacoEditor?.getModel?.();
     const selection = monacoEditor?.getSelection?.();
-    if (model && selection && !selection.isEmpty?.()) {
-      raw = model.getValueInRange(selection) || '';
+    if (!model || !selection || selection.isEmpty?.()) {
+      toast.error(t('curatedSaveNeedSelection'));
+      return;
     }
-    if (!raw.trim()) {
-      raw = editor.content || '';
-    }
-    await openSaveAsCuratedFromContent(raw, editor.name, {
-      editTargetId: curatedEditTargetId,
-    });
-  }, [
-    curatedEditTargetId,
-    editor.content,
-    editor.name,
-    openSaveAsCuratedFromContent,
-  ]);
+    const raw = model.getValueInRange(selection) || '';
+    await openSaveAsCuratedFromContent(raw, editor.name);
+  }, [editor.name, openSaveAsCuratedFromContent, t]);
 
-  // 从资源树文件另存精选（始终新建）
-  // Save-as curated from a tree file node (always create)
-  const handleTreeSaveAsCurated = useCallback(
-    async (node: SyncTaskTreeNode) => {
-      try {
-        if (editor.id && editor.id === node.id) {
-          await openSaveAsCuratedFromContent(
-            editor.content || '',
-            editor.name || node.name,
-            {editTargetId: null},
-          );
-          return;
-        }
-        const task = await services.sync.getTask(node.id);
-        await openSaveAsCuratedFromContent(
-          task.content || '',
-          task.name || node.name,
-          {editTargetId: null},
-        );
-      } catch (error) {
-        toast.error(
-          error instanceof Error ? error.message : t('curatedSaveFailed'),
-        );
-      }
-    },
-    [editor.content, editor.id, editor.name, openSaveAsCuratedFromContent, t],
-  );
+  saveAsCuratedFromSelectionRef.current = () => {
+    void handleOpenSaveAsCuratedFromSelection();
+  };
 
-  // 确认另存精选模板（有 editTargetId 时写回）
-  // Confirm save-as curated (update when editTargetId is set)
+  // 确认另存为新的精选模板
+  // Confirm save-as a new curated template
   const handleConfirmSaveAsCuratedTemplate = useCallback(async () => {
     const name = curatedSaveName.trim();
     const content = curatedSaveContent.trim();
@@ -2010,26 +2002,15 @@ export function DataSyncStudio() {
     }
     setCuratedSaving(true);
     try {
-      if (curatedEditTargetId) {
-        await services.sync.updateCuratedTemplate(curatedEditTargetId, {
-          name,
-          description: curatedSaveDescription.trim() || undefined,
-          section: curatedSaveSection,
-          content,
-        });
-        toast.success(t('curatedUpdated'));
-      } else {
-        await services.sync.createCuratedTemplate({
-          name,
-          description: curatedSaveDescription.trim() || undefined,
-          section: curatedSaveSection,
-          content,
-        });
-        toast.success(t('curatedSaved'));
-      }
+      await services.sync.createCuratedTemplate({
+        name,
+        description: curatedSaveDescription.trim() || undefined,
+        section: curatedSaveSection,
+        content,
+      });
       setCuratedSaveDialogOpen(false);
-      setCuratedEditTargetId(null);
       setCuratedRefreshToken((n) => n + 1);
+      toast.success(t('curatedSaved'));
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : t('curatedSaveFailed'),
@@ -2038,70 +2019,12 @@ export function DataSyncStudio() {
       setCuratedSaving(false);
     }
   }, [
-    curatedEditTargetId,
     curatedSaveContent,
     curatedSaveDescription,
     curatedSaveName,
     curatedSaveSection,
     t,
   ]);
-
-  // 编辑内置：无副本则 fork，再插入编辑器；后续另存写回副本
-  // Edit builtin: fork if needed, insert; later save writes back to override
-  const handleForkAndEditCuratedTemplate = useCallback(
-    async (item: SyncCuratedTemplateView) => {
-      if (!item.builtin_id) {
-        toast.error(t('curatedForkFailed'));
-        return;
-      }
-      try {
-        let target = item;
-        if (item.origin === 'builtin' && !item.has_override) {
-          target = await services.sync.forkCuratedTemplate({
-            builtin_id: item.builtin_id,
-          });
-          setCuratedRefreshToken((n) => n + 1);
-          toast.success(t('curatedForked'));
-        } else if (item.origin === 'builtin' && item.has_override && item.id) {
-          target = {...item, origin: 'override'};
-        }
-        await insertCuratedTemplate(target);
-        if (target.id) {
-          setCuratedEditTargetId(target.id);
-          toast.info(t('curatedEditHint'));
-        }
-      } catch (error) {
-        toast.error(
-          error instanceof Error ? error.message : t('curatedForkFailed'),
-        );
-      }
-    },
-    [insertCuratedTemplate, t],
-  );
-
-  // 删除我的精选或内置副本
-  // Delete user curated or builtin override
-  const handleDeleteCuratedTemplate = useCallback(
-    async (item: SyncCuratedTemplateView) => {
-      if (!item.id) {
-        toast.error(t('curatedDeleteFailed'));
-        return;
-      }
-      try {
-        await services.sync.deleteCuratedTemplate(item.id);
-        if (curatedEditTargetId === item.id) {
-          setCuratedEditTargetId(null);
-        }
-        setCuratedRefreshToken((n) => n + 1);
-        toast.success(t('curatedDeleted'));
-      } catch (error) {
-        toast.error(
-          error instanceof Error ? error.message : t('curatedDeleteFailed'),
-        );
-      }
-    },
-    [curatedEditTargetId, t],
-  );
 
   useEffect(() => {
     if (!pendingTemplateSelectionRef.current || !editorInstanceRef.current) {
@@ -2435,6 +2358,23 @@ export function DataSyncStudio() {
     (instance: any, monaco: any) => {
       editorInstanceRef.current = instance;
       registerEditorAssistProviders(monaco);
+      // 选区右键：另存为精选模板
+      // Selection context menu: save as curated template
+      try {
+        instance.addAction?.({
+          id: 'stx.sync.saveAsCurated',
+          label: t('saveAsCurated'),
+          precondition: 'editorHasSelection',
+          contextMenuGroupId: '9_cutcopypaste',
+          contextMenuOrder: 1.5,
+          run: () => {
+            saveAsCuratedFromSelectionRef.current();
+          },
+        });
+      } catch {
+        // Monaco action may already exist after remount; ignore.
+        // 编辑器重挂载时动作可能已存在，忽略。
+      }
       contentChangeDisposableRef.current?.dispose?.();
       cursorPositionChangeDisposableRef.current?.dispose?.();
       cursorSelectionChangeDisposableRef.current?.dispose?.();
@@ -2517,7 +2457,7 @@ export function DataSyncStudio() {
           }, 0);
         });
     },
-    [registerEditorAssistProviders],
+    [registerEditorAssistProviders, t],
   );
 
   useEffect(() => {
@@ -4907,6 +4847,12 @@ export function DataSyncStudio() {
                 onClick={() => setRightSidebarTab('settings')}
               />
               <SidebarIconTab
+                active={rightSidebarTab === 'templates'}
+                icon={<Wrench className='size-4' />}
+                label={t('curatedManage')}
+                onClick={() => setRightSidebarTab('templates')}
+              />
+              <SidebarIconTab
                 active={rightSidebarTab === 'schedule'}
                 icon={<Clock3 className='size-4' />}
                 label={t('taskSchedule')}
@@ -4958,15 +4904,6 @@ export function DataSyncStudio() {
               onInsertCuratedTemplate={(item) =>
                 void insertCuratedTemplate(item)
               }
-              onSaveAsCuratedTemplate={() =>
-                void handleOpenSaveAsCuratedTemplate()
-              }
-              onForkAndEditCuratedTemplate={(item) =>
-                void handleForkAndEditCuratedTemplate(item)
-              }
-              onDeleteCuratedTemplate={(item) =>
-                void handleDeleteCuratedTemplate(item)
-              }
               curatedRefreshToken={curatedRefreshToken}
               onOpenCreateCustomVariable={handleOpenCreateCustomVariable}
               onOpenEditCustomVariable={handleOpenEditCustomVariable}
@@ -4979,6 +4916,11 @@ export function DataSyncStudio() {
                 setGlobalVariablesDefaultTab('time');
                 setRightSidebarTab('globals');
               }}
+            />
+          ) : rightSidebarTab === 'templates' ? (
+            <CuratedTemplatesManagePanel
+              refreshToken={curatedRefreshToken}
+              onChanged={() => setCuratedRefreshToken((n) => n + 1)}
             />
           ) : rightSidebarTab === 'schedule' ? (
             <TaskScheduleSidebarPanel
@@ -5317,6 +5259,33 @@ export function DataSyncStudio() {
         </DialogContent>
       </Dialog>
 
+      {/* combo 精选整文替换确认 */}
+      {/* Confirm before combo curated replace-all */}
+      <AlertDialog
+        open={curatedReplaceDialogOpen}
+        onOpenChange={(open) => {
+          setCuratedReplaceDialogOpen(open);
+          if (!open) {
+            setPendingCuratedInsert(null);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('curatedReplaceTitle')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('curatedReplaceConfirm')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('cancel')}</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmCuratedReplace}>
+              {t('curatedReplaceConfirmAction')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* 另存精选模板弹窗 */}
       {/* Save-as curated template dialog */}
       <Dialog
@@ -5329,16 +5298,8 @@ export function DataSyncStudio() {
       >
         <DialogContent className='max-w-md'>
           <DialogHeader>
-            <DialogTitle>
-              {curatedEditTargetId
-                ? t('curatedUpdateTitle')
-                : t('saveAsCurated')}
-            </DialogTitle>
-            <DialogDescription>
-              {curatedEditTargetId
-                ? t('curatedUpdateDialogDesc')
-                : t('curatedSaveDialogDesc')}
-            </DialogDescription>
+            <DialogTitle>{t('saveAsCurated')}</DialogTitle>
+            <DialogDescription>{t('curatedSaveDialogDesc')}</DialogDescription>
           </DialogHeader>
           <div className='grid gap-4 py-2'>
             <div className='grid gap-2'>
@@ -6004,9 +5965,6 @@ export function DataSyncStudio() {
         }}
         onCopyFile={(node) => {
           void handleCopyFile(node);
-        }}
-        onSaveAsCurated={(node) => {
-          void handleTreeSaveAsCurated(node);
         }}
         onDelete={(node) => {
           openTreeDialog('delete', node);

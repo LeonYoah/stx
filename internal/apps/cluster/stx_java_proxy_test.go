@@ -229,3 +229,91 @@ func TestGetSTXJavaProxyServiceLogUsesReportedLogPath(t *testing.T) {
 		t.Fatalf("expected get_logs to target reported log path, got %#v", agentSender.lastParams)
 	}
 }
+
+// TestDeleteStopsSTXJavaProxy 验证删除集群时会额外下发带 service=stx_java_proxy 的 stop。
+// TestDeleteStopsSTXJavaProxy verifies cluster delete also sends stop with service=stx_java_proxy.
+func TestDeleteStopsSTXJavaProxy(t *testing.T) {
+	db, cleanup := setupServiceTestDB(t)
+	defer cleanup()
+
+	repo := NewRepository(db)
+	hostProvider := NewMockHostProvider()
+	service := NewService(repo, hostProvider, nil)
+	lastHeartbeat := time.Now()
+	hostProvider.AddHost(&HostInfo{
+		ID:            1,
+		Name:          "master-1",
+		IPAddress:     "10.0.0.1",
+		AgentID:       "agent-master-1",
+		AgentStatus:   "installed",
+		LastHeartbeat: &lastHeartbeat,
+	})
+	hostProvider.AddHost(&HostInfo{
+		ID:            2,
+		Name:          "worker-1",
+		IPAddress:     "10.0.0.2",
+		AgentID:       "agent-worker-1",
+		AgentStatus:   "installed",
+		LastHeartbeat: &lastHeartbeat,
+	})
+
+	agentSender := &mockOperationAgentSender{}
+	service.SetAgentCommandSender(agentSender)
+
+	clusterInfo, err := service.Create(context.Background(), &CreateClusterRequest{
+		Name:           "cluster-delete-proxy",
+		Version:        "2.3.13",
+		InstallDir:     "/opt/seatunnel",
+		DeploymentMode: DeploymentModeSeparated,
+	})
+	if err != nil {
+		t.Fatalf("create cluster: %v", err)
+	}
+	if _, err := service.AddNode(context.Background(), clusterInfo.ID, &AddNodeRequest{
+		HostID:     1,
+		Role:       NodeRoleMaster,
+		InstallDir: "/opt/seatunnel",
+	}); err != nil {
+		t.Fatalf("add master node: %v", err)
+	}
+	if _, err := service.AddNode(context.Background(), clusterInfo.ID, &AddNodeRequest{
+		HostID:     2,
+		Role:       NodeRoleWorker,
+		InstallDir: "/opt/seatunnel",
+	}); err != nil {
+		t.Fatalf("add worker node: %v", err)
+	}
+	// 删除要求集群非 running/deploying；显式置为 stopped。
+	// Delete rejects running/deploying clusters; mark stopped explicitly.
+	if err := service.UpdateStatus(context.Background(), clusterInfo.ID, ClusterStatusStopped); err != nil {
+		t.Fatalf("UpdateStatus returned error: %v", err)
+	}
+
+	if err := service.Delete(context.Background(), clusterInfo.ID, false); err != nil {
+		t.Fatalf("Delete returned error: %v", err)
+	}
+
+	var seatunnelStops, proxyStops int
+	for _, cmd := range agentSender.commands {
+		if cmd.commandType != string(OperationStop) {
+			continue
+		}
+		if cmd.params["service"] == "stx_java_proxy" {
+			proxyStops++
+			if cmd.agentID != "agent-master-1" {
+				t.Fatalf("expected stx-java-proxy stop on master agent, got agent_id=%s params=%#v", cmd.agentID, cmd.params)
+			}
+			if cmd.params["install_dir"] != "/opt/seatunnel" {
+				t.Fatalf("expected install_dir=/opt/seatunnel on proxy stop, got %#v", cmd.params)
+			}
+			continue
+		}
+		seatunnelStops++
+	}
+	if seatunnelStops != 2 {
+		t.Fatalf("expected 2 SeaTunnel stop commands, got %d (commands=%#v)", seatunnelStops, agentSender.commands)
+	}
+	if proxyStops != 1 {
+		t.Fatalf("expected 1 stx-java-proxy stop command, got %d (commands=%#v)", proxyStops, agentSender.commands)
+	}
+}

@@ -455,8 +455,10 @@ func (s *Service) Update(ctx context.Context, id uint, req *UpdateClusterRequest
 }
 
 // Delete removes a cluster after checking for running tasks.
-// Before DB deletion it sends stop to all nodes' agents (best effort). If forceRemoveInstallDir is true, also sends REMOVE_INSTALL_DIR to each agent.
-// Delete 在检查运行中的任务后删除集群；删除前向各节点 Agent 发送停止命令；若 forceRemoveInstallDir 为 true 则再发送删除安装目录命令。
+// Before DB deletion it best-effort stops SeaTunnel processes and stx-java-proxy on node agents.
+// If forceRemoveInstallDir is true, also sends REMOVE_INSTALL_DIR to each agent.
+// Delete 在检查运行中的任务后删除集群；删除前尽力向各节点 Agent 停止 SeaTunnel 与 stx-java-proxy；
+// 若 forceRemoveInstallDir 为 true 则再发送删除安装目录命令。
 // Requirements: 7.5 - Checks if cluster has running tasks before deletion.
 func (s *Service) Delete(ctx context.Context, id uint, forceRemoveInstallDir bool) error {
 	// Get cluster to check status
@@ -496,9 +498,11 @@ func (s *Service) Delete(ctx context.Context, id uint, forceRemoveInstallDir boo
 	return nil
 }
 
-// stopProcessesForDeletion sends stop command to each node's agent so actual SeaTunnel processes are stopped.
+// stopProcessesForDeletion sends stop command to each node's agent so SeaTunnel processes are stopped,
+// then best-effort stops managed stx-java-proxy on master nodes.
 // Best effort: logs errors but does not fail the deletion.
-// stopProcessesForDeletion 向各节点 Agent 发送停止命令以停止主机上的 SeaTunnel 进程；尽力而为，不阻断删除。
+// stopProcessesForDeletion 向各节点 Agent 发送停止命令以停止 SeaTunnel 进程，
+// 再尽力在 master 节点停止托管的 stx-java-proxy；不阻断删除。
 func (s *Service) stopProcessesForDeletion(ctx context.Context, cluster *Cluster) {
 	if s.hostProvider == nil || s.agentSender == nil {
 		logger.WarnF(ctx, "[Cluster] Delete: skip notifying agents (hostProvider or agentSender not set) / 删除集群：未通知 Agent（主机提供者或命令发送器未配置）")
@@ -525,6 +529,48 @@ func (s *Service) stopProcessesForDeletion(ctx context.Context, cluster *Cluster
 		_, _, err = s.agentSender.SendCommand(ctx, hostInfo.AgentID, string(OperationStop), params)
 		if err != nil {
 			logger.WarnF(ctx, "[Cluster] Delete: stop process on agent failed / 删除集群时向 Agent 发送停止失败: host_id=%d, node_id=%d, err=%v", node.HostID, node.ID, err)
+		}
+	}
+	s.stopSTXJavaProxyForDeletion(ctx, cluster)
+}
+
+// stopSTXJavaProxyForDeletion 向 master / master-worker 节点 Agent 发送 stx-java-proxy 停止命令（尽力而为）。
+// 删除时不依赖节点在线状态：只要有 AgentID 就尝试，避免心跳过期导致 proxy 残留。
+// stopSTXJavaProxyForDeletion sends stx-java-proxy stop to master / master-worker agents (best effort).
+// Deletion does not require node online status so a stale heartbeat cannot leave the proxy running.
+func (s *Service) stopSTXJavaProxyForDeletion(ctx context.Context, cluster *Cluster) {
+	if s.hostProvider == nil || s.agentSender == nil || cluster == nil {
+		return
+	}
+	for _, node := range cluster.Nodes {
+		if node.Role != NodeRoleMaster && node.Role != NodeRoleMasterWorker {
+			continue
+		}
+		hostInfo, err := s.hostProvider.GetHostByID(ctx, node.HostID)
+		if err != nil || hostInfo == nil || strings.TrimSpace(hostInfo.AgentID) == "" {
+			logger.WarnF(ctx, "[Cluster] Delete: skip stx-java-proxy stop (no host or no agent) / 删除集群：跳过 stx-java-proxy 停止: node_id=%d, host_id=%d", node.ID, node.HostID)
+			continue
+		}
+		installDir := strings.TrimSpace(node.InstallDir)
+		if installDir == "" {
+			installDir = strings.TrimSpace(cluster.InstallDir)
+		}
+		params := map[string]string{
+			"service":     "stx_java_proxy",
+			"cluster_id":  fmt.Sprintf("%d", cluster.ID),
+			"node_id":     fmt.Sprintf("%d", node.ID),
+			"install_dir": installDir,
+			"version":     cluster.Version,
+		}
+		if proxyCfg := cluster.Config.GetSTXJavaProxyConfig(); proxyCfg != nil && proxyCfg.Port > 0 {
+			params["port"] = fmt.Sprintf("%d", proxyCfg.Port)
+		} else if ports := cluster.Config.GetPortConfig(); ports != nil && ports.JavaProxyPort > 0 {
+			params["port"] = fmt.Sprintf("%d", ports.JavaProxyPort)
+		}
+		logger.InfoF(ctx, "[Cluster] Delete: sending stx-java-proxy stop to agent / 删除集群：向 Agent 发送 stx-java-proxy 停止: agent_id=%s, node_id=%d", hostInfo.AgentID, node.ID)
+		_, _, err = s.agentSender.SendCommand(ctx, hostInfo.AgentID, string(OperationStop), params)
+		if err != nil {
+			logger.WarnF(ctx, "[Cluster] Delete: stop stx-java-proxy on agent failed / 删除集群时停止 stx-java-proxy 失败: host_id=%d, node_id=%d, err=%v", node.HostID, node.ID, err)
 		}
 	}
 }

@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "min_seatunnel_plugin_io": "2.3.9",
   "templates": [
     {
@@ -40,7 +40,7 @@
     {
       "id": "source-jdbc-mysql-single",
       "name": "Jdbc MySQL 单表",
-      "description": "精选片段：Jdbc MySQL 单表",
+      "description": "table_list 动态切分；含 split.size / fetch_size 与 partition_column、query 注释",
       "section": "source",
       "mode": "BATCH",
       "pattern": "single",
@@ -53,7 +53,7 @@
     {
       "id": "source-jdbc-mysql-multi",
       "name": "Jdbc MySQL 多表",
-      "description": "精选片段：Jdbc MySQL 多表",
+      "description": "多表 table_list 动态切分；含 split.size / fetch_size 注释",
       "section": "source",
       "mode": "BATCH",
       "pattern": "multi",

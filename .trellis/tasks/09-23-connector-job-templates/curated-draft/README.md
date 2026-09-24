@@ -36,8 +36,8 @@ curated-draft/
 | 文件 | 说明 |
 |---|---|
 | `fake.conf` | FakeSource 冒烟 |
-| `jdbc-mysql-single.conf` | JDBC 单表 |
-| `jdbc-mysql-multi.conf` | JDBC 多表 |
+| `jdbc-mysql-single.conf` | JDBC 单表（`split.size` / `fetch_size` + 切分注释） |
+| `jdbc-mysql-multi.conf` | JDBC 多表（同上） |
 | `mysql-cdc-single.conf` | MySQL-CDC 单表 |
 | `mysql-cdc-multi.conf` | MySQL-CDC 多表 |
 | `kafka-json.conf` | Kafka JSON |

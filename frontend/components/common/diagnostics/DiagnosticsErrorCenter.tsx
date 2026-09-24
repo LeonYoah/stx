@@ -141,6 +141,7 @@ export function DiagnosticsErrorCenter({
 }: DiagnosticsErrorCenterProps) {
   const t = useTranslations('diagnosticsCenter');
   const commonT = useTranslations('common');
+  const tsT = useTranslations('troubleshooting');
 
   const [keywordInput, setKeywordInput] = useState('');
   const [keyword, setKeyword] = useState('');
@@ -915,7 +916,7 @@ export function DiagnosticsErrorCenter({
                   </Button>
                 ) : null}
 
-                {/* 沉淀/更新排障经验按钮 / Record or update troubleshooting memory */}
+                {/* 沉淀/更新经验库方案 / Record or update playbook */}
                 <Button
                   variant='outline'
                   size='sm'
@@ -923,7 +924,7 @@ export function DiagnosticsErrorCenter({
                   onClick={() => setMemoryDialogOpen(true)}
                 >
                   <Lightbulb className='h-3.5 w-3.5 text-emerald-500' />
-                  {primaryMemory ? '更新排障经验' : '沉淀排障方案'}
+                  {primaryMemory ? tsT('updateSolution') : tsT('recordSolution')}
                 </Button>
               </div>
 
@@ -955,7 +956,7 @@ export function DiagnosticsErrorCenter({
                   selectedGroup.title,
                 title:
                   primaryMemory?.title ||
-                  `${selectedGroup.title || selectedGroup.exception_class || '异常'} 排障恢复方案`,
+                  `${selectedGroup.title || selectedGroup.exception_class || '异常'} ${tsT('defaultTitleSuffix')}`,
                 error_summary:
                   selectedGroup.sample_message || selectedGroup.title,
                 root_cause: primaryMemory?.root_cause,

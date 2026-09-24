@@ -18,6 +18,7 @@
 import {Suspense} from 'react';
 import {Metadata} from 'next';
 import InspectionDetailPage from '@/components/common/diagnostics/InspectionDetailPage';
+import {Skeleton} from '@/components/ui/skeleton';
 
 export const metadata: Metadata = {
   title: '巡检详情',
@@ -31,7 +32,17 @@ export default async function Page({params}: Props) {
   const {id} = await params;
   const inspectionId = parseInt(id, 10);
   return (
-    <Suspense fallback={<div>Loading...</div>}>
+    <Suspense
+      fallback={
+        // 保留报告首屏占位，避免路由加载时版面跳动。
+        // Reserve the report shape during route loading to prevent layout shifts.
+        <div className='space-y-6' aria-busy='true'>
+          <Skeleton className='h-8 w-40' />
+          <Skeleton className='h-44 w-full' />
+          <Skeleton className='h-56 w-full' />
+        </div>
+      }
+    >
       <InspectionDetailPage inspectionId={inspectionId} />
     </Suspense>
   );

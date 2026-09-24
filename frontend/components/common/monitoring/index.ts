@@ -23,7 +23,4 @@
 export {MonitoringOverview} from './MonitoringOverview';
 export {MonitoringAlertsCenter} from './MonitoringAlertsCenter';
 export {MonitoringPolicyCenter} from './MonitoringPolicyCenter';
-export {MonitoringRulesPanel} from './MonitoringRulesPanel';
-export {MonitoringIntegrationsPanel} from './MonitoringIntegrationsPanel';
-export {MonitoringNotificationHistoryPanel} from './MonitoringNotificationHistoryPanel';
 export {MonitoringCenterWorkspace} from './MonitoringCenterWorkspace';

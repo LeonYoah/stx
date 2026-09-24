@@ -18,6 +18,7 @@
 'use client';
 
 import {useState, useEffect, useCallback, type ReactNode} from 'react';
+import {useTranslations} from 'next-intl';
 import {
   AlertCircle,
   FileCode,
@@ -62,7 +63,7 @@ type ExpandableFieldKey =
   | 'error_summary';
 
 const FIELD_EXPAND_TITLES: Record<ExpandableFieldKey, string> = {
-  solution: '解决方案与排障具体步骤',
+  solution: '解决方案与处置步骤',
   root_cause: '根本原因剖析',
   preventive_tips: '防范与优化建议',
   error_summary: '故障现象 / 关键错误日志摘要',
@@ -196,8 +197,8 @@ const QUICK_TAGS = [
 ];
 
 /**
- * 沉淀排障解决方案与经验弹窗组件
- * Dialog to record verified solution & troubleshooting memory
+ * 经验库方案编辑弹窗
+ * Dialog to record or edit a verified playbook entry
  */
 export function SaveMemoryDialog({
   open,
@@ -205,6 +206,7 @@ export function SaveMemoryDialog({
   initialData,
   onSaved,
 }: SaveMemoryDialogProps) {
+  const t = useTranslations('troubleshooting');
   const {user: currentUser} = useAuth();
   const defaultAuthorName =
     currentUser?.nickname?.trim() || currentUser?.username?.trim() || '运维工程师';
@@ -259,7 +261,9 @@ export function SaveMemoryDialog({
     if (open && initialData) {
       setTitle(
         initialData.title ||
-          (initialData.fingerprint ? `${initialData.fingerprint} 排障方案` : ''),
+          (initialData.fingerprint
+            ? `${initialData.fingerprint} ${t('defaultTitleSuffix')}`
+            : ''),
       );
       setTargetType(initialData.target_type || 'error');
       setFingerprint(initialData.fingerprint || '');
@@ -287,7 +291,7 @@ export function SaveMemoryDialog({
       setExpandedField(null);
       setIsMaximized(false);
     }
-  }, [defaultAuthorName, initialData, open]);
+  }, [defaultAuthorName, initialData, open, t]);
 
   const expandedValue =
     expandedField === 'solution'
@@ -377,9 +381,7 @@ export function SaveMemoryDialog({
       });
 
       toast.success(
-        initialData?.id
-          ? '排障经验已成功更新！'
-          : '排障方案已入库！后续发生同类故障时将自动在此置顶回显。',
+        initialData?.id ? t('updateSuccess') : t('saveSuccess'),
       );
       onSaved?.(saved);
       onOpenChange(false);
@@ -401,6 +403,7 @@ export function SaveMemoryDialog({
     preventiveTips,
     rootCause,
     solution,
+    t,
     tags,
     targetType,
     title,
@@ -435,17 +438,17 @@ export function SaveMemoryDialog({
               <Lightbulb className='size-3.5' />
             </div>
             <DialogTitle className='text-sm font-bold tracking-tight text-foreground'>
-              {initialData?.id ? '编辑排障方案' : '记录排障解决方案与经验'}
+              {initialData?.id ? t('dialogEditTitle') : t('dialogCreateTitle')}
             </DialogTitle>
             <Badge
               variant='outline'
               className='h-5 px-1.5 text-[10px] font-mono border-emerald-500/30 text-emerald-600 dark:text-emerald-400 bg-emerald-500/10'
             >
-              经验库
+              {t('title')}
             </Badge>
           </div>
           <DialogDescription className='text-xs text-muted-foreground mt-1'>
-            沉淀已验证的故障处置步骤，后续同类错误将自动置顶回显与辅助排障。
+            {t('dialogSubtitle')}
           </DialogDescription>
 
           {/* 右上角快捷操作区：放大/还原 + 关闭窗口 */}
@@ -563,7 +566,9 @@ export function SaveMemoryDialog({
                 label={
                   <>
                     <ShieldCheck className='size-3.5 text-emerald-600 dark:text-emerald-400' />
-                    <span className='font-semibold text-foreground'>解决方案与排障具体步骤</span>
+                    <span className='font-semibold text-foreground'>
+                      {t('solutionStepsLabel')}
+                    </span>
                     <span className='text-destructive'>* (必填)</span>
                   </>
                 }
@@ -820,7 +825,7 @@ export function SaveMemoryDialog({
             className='h-8 text-xs bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white gap-1.5 shadow-xs font-medium'
           >
             <Save className='size-3.5' />
-            保存到排障经验库
+            {t('saveToLibrary')}
           </Button>
         </DialogFooter>
       </DialogContent>

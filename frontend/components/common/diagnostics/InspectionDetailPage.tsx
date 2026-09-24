@@ -28,9 +28,8 @@ import {
 import Link from 'next/link';
 import {useTranslations} from 'next-intl';
 import {
+  Activity,
   ArrowLeft,
-  Check,
-  Copy,
   Download,
   ExternalLink,
   FileText,
@@ -49,6 +48,7 @@ import type {
 } from '@/lib/services/diagnostics';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
+import {WorkspaceHeader} from '@/components/common/layout/WorkspaceHeader';
 import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card';
 import {
   Dialog,
@@ -63,6 +63,10 @@ import {Label} from '@/components/ui/label';
 import {Skeleton} from '@/components/ui/skeleton';
 import {Switch} from '@/components/ui/switch';
 import {localizeDiagnosticsText} from './text-utils';
+import {
+  InspectionFindingCard,
+  InspectionZeroState,
+} from './InspectionEvidenceView';
 
 interface InspectionDetailPageProps {
   inspectionId: number;
@@ -77,22 +81,6 @@ function formatDateTime(value?: string | null): string {
     return value;
   }
   return parsed.toLocaleString();
-}
-
-// 获取巡检发现严重程度的现代样式类（高对比度、暗黑模式适配）
-// Get modern style class for inspection finding severity (high contrast, dark mode compatible)
-function getSeverityBadgeClass(
-  severity: DiagnosticsInspectionFindingSeverity,
-): string {
-  switch (severity) {
-    case 'critical':
-      return 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20 font-semibold';
-    case 'warning':
-      return 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20 font-medium';
-    case 'info':
-    default:
-      return 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20';
-  }
 }
 
 function getStatusVariant(
@@ -156,21 +144,6 @@ export default function InspectionDetailPage({
 }: InspectionDetailPageProps) {
   const t = useTranslations('diagnosticsCenter');
   const commonT = useTranslations('common');
-  const getSeverityLabel = useCallback(
-    (severity: DiagnosticsInspectionFindingSeverity): string => {
-      switch (severity) {
-        case 'critical':
-          return t('inspections.severity.critical');
-        case 'warning':
-          return t('inspections.severity.warning');
-        case 'info':
-          return t('inspections.severity.info');
-        default:
-          return severity;
-      }
-    },
-    [t],
-  );
   const getStatusLabel = useCallback(
     (status: string): string => {
       switch (status) {
@@ -412,238 +385,193 @@ export default function InspectionDetailPage({
 
   const isCompleted = report.status === 'completed';
   const hasFindings = findings.length > 0;
+  const findingCount = Math.max(report.finding_total, sortedFindings.length);
 
+  // 页面只强调本次有依据的发现，不把零发现解释为集群整体健康。
+  // Focus on findings backed by this run; zero findings do not imply overall cluster health.
   return (
-    <div className='space-y-4'>
-      {/* Header */}
-      <div className='flex items-center gap-3'>
-        <Button asChild variant='ghost' size='sm'>
-          <Link href='/diagnostics?tab=inspections'>
-            <ArrowLeft className='mr-2 h-4 w-4' />
-            {t('inspections.detailPage.backToList')}
-          </Link>
-        </Button>
-        <h1 className='text-2xl font-bold tracking-tight'>
-          {t('inspections.detailPage.title')}
-        </h1>
-        <Badge variant='outline'>#{report.id}</Badge>
-      </div>
-
-      {/* Status Banner */}
-      <Card>
-        <CardContent className='space-y-3 pt-6'>
-          <div className='flex flex-wrap items-center gap-2'>
-            <Badge variant={getStatusVariant(report.status)}>
-              {getStatusLabel(report.status)}
-            </Badge>
-            <Badge variant='outline'>
-              {getTriggerSourceLabel(report.trigger_source)}
-            </Badge>
-            {report.cluster_name ? (
-              <Badge variant='outline'>{report.cluster_name}</Badge>
-            ) : (
-              <Badge variant='outline'>
-                {t('inspections.detailPage.clusterFallback', {
+    <div className='space-y-8 pb-28'>
+      <WorkspaceHeader
+        icon={<Activity aria-hidden='true' />}
+        title={t('inspections.detailPage.title')}
+        actions={
+          <Button asChild variant='outline' size='sm'>
+            <Link href='/diagnostics?tab=inspections'>
+              <ArrowLeft aria-hidden='true' className='mr-2 h-4 w-4' />
+              {t('inspections.detailPage.backToList')}
+            </Link>
+          </Button>
+        }
+      />
+      <header className='border-b border-border/70 pb-7'>
+        <div className='flex justify-end'>
+          <span className='font-mono text-xs tabular-nums text-muted-foreground'>
+            STX / {t('inspections.evidence.reportNumber', {id: report.id})}
+          </span>
+        </div>
+        <div className='mt-8 flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between'>
+          <div className='min-w-0'>
+            <div className='mb-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground'>
+              <Badge variant={getStatusVariant(report.status)}>
+                {getStatusLabel(report.status)}
+              </Badge>
+              <span>{getTriggerSourceLabel(report.trigger_source)}</span>
+            </div>
+            <h2 className='font-serif text-4xl leading-tight tracking-tight text-foreground sm:text-5xl'>
+              {t('inspections.evidence.runTitle')}
+            </h2>
+            <p className='mt-3 break-words text-sm text-muted-foreground'>
+              {report.cluster_name ||
+                t('inspections.detailPage.clusterFallback', {
                   clusterId: report.cluster_id,
                 })}
-              </Badge>
-            )}
+            </p>
           </div>
-          {report.trigger_source === 'auto' && report.auto_trigger_reason ? (
-            <div className='rounded-md border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400'>
-              <span className='font-medium'>
-                {t('inspections.detailPage.autoTriggerReason')}{' '}
+          {isCompleted && findingCount > 0 && (
+            <div className='flex shrink-0 items-baseline gap-2 sm:flex-col sm:items-end sm:gap-0'>
+              <span className='font-serif text-5xl leading-none tabular-nums text-foreground sm:text-6xl'>
+                {findingCount}
               </span>
-              {report.auto_trigger_reason}
-            </div>
-          ) : null}
-          <div className='grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-5'>
-            <div>
-              <span className='text-muted-foreground'>
-                {t('inspections.detailPage.createdAt')}
+              <span className='text-xs text-muted-foreground'>
+                {t('inspections.evidence.attentionCount', {
+                  count: findingCount,
+                })}
               </span>
-              {formatDateTime(report.created_at)}
-            </div>
-            <div>
-              <span className='text-muted-foreground'>
-                {t('inspections.detailPage.finishedAt')}
-              </span>
-              {formatDateTime(report.finished_at)}
-            </div>
-            <div>
-              <span className='text-muted-foreground'>
-                {t('inspections.detailPage.lookbackMinutes')}
-              </span>
-              {t('inspections.lookbackValue', {
-                minutes: report.lookback_minutes || 30,
-              })}
-            </div>
-            <div>
-              <span className='text-muted-foreground'>
-                {t('inspections.detailPage.errorThreshold')}
-              </span>
-              {t('inspections.errorThresholdValue', {
-                count: report.error_threshold || 1,
-              })}
-            </div>
-            <div>
-              <span className='text-muted-foreground'>
-                {t('inspections.requestedBy')}：
-              </span>
-              {report.requested_by || '-'}
-            </div>
-          </div>
-          {report.summary ? (
-            <div className='text-sm'>
-              {localizeDiagnosticsText(report.summary)}
-            </div>
-          ) : null}
-          {report.error_message ? (
-            <div className='rounded-md border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive'>
-              {report.error_message}
-            </div>
-          ) : null}
-          {/* 巡检发现统计指标胶囊 */}
-          {/* Inspection findings count badges */}
-          <div className='flex flex-wrap items-center gap-2 pt-1 border-t'>
-            <span className='text-xs text-muted-foreground mr-1'>
-              {t('inspections.countSummary')}：
-            </span>
-            <Badge variant='outline' className='text-xs font-mono font-medium'>
-              共 {report.finding_total} 项
-            </Badge>
-            {report.critical_count > 0 && (
-              <Badge
-                variant='outline'
-                className='border-rose-500/30 bg-rose-500/10 text-rose-600 dark:text-rose-400 text-xs font-mono font-medium'
-              >
-                {t('inspections.severity.critical')} {report.critical_count}
-              </Badge>
-            )}
-            {report.warning_count > 0 && (
-              <Badge
-                variant='outline'
-                className='border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-xs font-mono font-medium'
-              >
-                {t('inspections.severity.warning')} {report.warning_count}
-              </Badge>
-            )}
-            {report.info_count > 0 && (
-              <Badge
-                variant='outline'
-                className='border-blue-500/30 bg-blue-500/10 text-blue-600 dark:text-blue-400 text-xs font-mono font-medium'
-              >
-                {t('inspections.severity.info')} {report.info_count}
-              </Badge>
-            )}
-            {report.finding_total === 0 && (
-              <Badge
-                variant='outline'
-                className='border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-xs font-medium'
-              >
-                健康正常
-              </Badge>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Findings Section */}
-      <Card>
-        <CardHeader>
-          <CardTitle>{t('inspections.findingsTitle')}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {sortedFindings.length === 0 ? (
-            <div className='flex items-center justify-center rounded-lg border border-dashed p-8 text-sm text-muted-foreground'>
-              {t('inspections.noFindings')}
-            </div>
-          ) : (
-            <div className='space-y-4'>
-              {sortedFindings.map((finding) => (
-                <div
-                  key={finding.id}
-                  className='rounded-lg border p-4 space-y-3'
-                >
-                  <div className='flex flex-wrap items-center gap-2'>
-                    <Badge
-                      variant='outline'
-                      className={getSeverityBadgeClass(finding.severity)}
-                    >
-                      {getSeverityLabel(finding.severity)}
-                    </Badge>
-                    <Badge variant='outline'>{finding.category}</Badge>
-                    <Badge variant='outline'>{finding.check_code}</Badge>
-                  </div>
-                  <div className='font-medium'>
-                    {localizeDiagnosticsText(
-                      finding.check_name || finding.summary,
-                    )}
-                  </div>
-                  <div className='text-sm text-muted-foreground'>
-                    {localizeDiagnosticsText(finding.summary)}
-                  </div>
-                  {finding.evidence_summary ? (
-                    <div className='rounded-md bg-muted/40 p-3 text-sm text-muted-foreground'>
-                      {localizeDiagnosticsText(finding.evidence_summary)}
-                    </div>
-                  ) : null}
-                  {/* 排查与修复建议（支持一键复制） */}
-                  {/* Investigation and remediation recommendation (supports one-click copy) */}
-                  {finding.recommendation ? (
-                    <div className='rounded-md border border-primary/20 bg-primary/5 p-3 text-xs space-y-1.5'>
-                      <div className='flex items-center justify-between font-medium text-foreground'>
-                        <span>
-                          {t('inspections.detailPage.recommendation')}
-                        </span>
-                        <Button
-                          variant='ghost'
-                          size='sm'
-                          className='h-6 text-xs px-1.5 gap-1 text-muted-foreground hover:text-foreground'
-                          onClick={() => {
-                            navigator.clipboard.writeText(
-                              localizeDiagnosticsText(finding.recommendation) ||
-                                '',
-                            );
-                            toast.success('排查与修复建议已复制');
-                          }}
-                        >
-                          <Copy className='h-3 w-3' />
-                          <span>复制建议</span>
-                        </Button>
-                      </div>
-                      <div className='text-muted-foreground leading-relaxed'>
-                        {localizeDiagnosticsText(finding.recommendation)}
-                      </div>
-                    </div>
-                  ) : null}
-                  <div className='text-xs text-muted-foreground'>
-                    {t('inspections.nodeLabel')}：
-                    {formatNodeOrigin({
-                      nodeId: finding.related_node_id,
-                      hostId: finding.related_host_id,
-                      hostName: finding.related_host_name,
-                      hostIp: finding.related_host_ip,
-                    })}
-                  </div>
-                  {finding.related_error_group_id > 0 ? (
-                    <Button asChild size='sm' variant='outline'>
-                      <Link
-                        href={`/diagnostics?tab=errors&cluster_id=${finding.cluster_id}&group_id=${finding.related_error_group_id}&source=inspection-finding`}
-                      >
-                        {t('inspections.actions.viewErrorGroup')} &rarr;
-                      </Link>
-                    </Button>
-                  ) : null}
-                </div>
-              ))}
             </div>
           )}
-        </CardContent>
-      </Card>
+        </div>
+        <div className='mt-8 flex flex-wrap gap-x-8 gap-y-2 border-t border-border/60 pt-4 text-xs text-muted-foreground'>
+          {report.finished_at && (
+            <span>
+              {t('inspections.evidence.checkTime')} ·{' '}
+              {formatDateTime(report.finished_at)}
+            </span>
+          )}
+          <span>
+            {t('inspections.detailPage.lookbackMinutes')}
+            {t('inspections.lookbackValue', {
+              minutes: report.lookback_minutes || 30,
+            })}
+          </span>
+          <details className='group relative basis-full'>
+            <summary className='cursor-pointer list-none font-medium text-foreground underline decoration-border underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary [&::-webkit-details-marker]:hidden'>
+              {t('inspections.evidence.metadata')}{' '}
+              <span aria-hidden='true'>↗</span>
+            </summary>
+            <div className='mt-3 grid gap-x-8 gap-y-2 text-xs text-muted-foreground sm:grid-cols-2'>
+              <span>
+                {t('inspections.detailPage.createdAt')}
+                {formatDateTime(report.created_at)}
+              </span>
+              <span>
+                {t('inspections.detailPage.errorThreshold')}
+                {t('inspections.errorThresholdValue', {
+                  count: report.error_threshold || 1,
+                })}
+              </span>
+              {report.requested_by && (
+                <span>
+                  {t('inspections.requestedBy')} · {report.requested_by}
+                </span>
+              )}
+              {report.trigger_source === 'auto' &&
+                report.auto_trigger_reason && (
+                  <span>
+                    {t('inspections.detailPage.autoTriggerReason')}{' '}
+                    {report.auto_trigger_reason}
+                  </span>
+                )}
+              {report.summary && sortedFindings.length > 0 && (
+                <span className='sm:col-span-2'>
+                  {t('inspections.evidence.sourceSummary')} ·{' '}
+                  {localizeDiagnosticsText(report.summary)}
+                </span>
+              )}
+            </div>
+          </details>
+        </div>
+        {report.error_message && (
+          <p
+            role='alert'
+            className='mt-5 border-l-2 border-destructive pl-3 text-sm text-destructive'
+          >
+            {report.error_message}
+          </p>
+        )}
+      </header>
+
+      <section
+        aria-label={t('inspections.evidence.attentionTitle')}
+        className='space-y-5'
+      >
+        {sortedFindings.length > 0 ? (
+          <>
+            <div className='flex flex-wrap items-baseline justify-between gap-3 border-b border-border/70 pb-3'>
+              <h2
+                id='inspection-evidence-title'
+                className='font-serif text-2xl text-foreground sm:text-3xl'
+              >
+                {t('inspections.evidence.attentionTitle')}
+              </h2>
+              <div className='flex flex-wrap gap-3 text-xs text-muted-foreground'>
+                {report.critical_count > 0 && (
+                  <span>
+                    {t('inspections.severity.critical')} {report.critical_count}
+                  </span>
+                )}
+                {report.warning_count > 0 && (
+                  <span>
+                    {t('inspections.severity.warning')} {report.warning_count}
+                  </span>
+                )}
+                {report.info_count > 0 && (
+                  <span>
+                    {t('inspections.severity.info')} {report.info_count}
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className='space-y-3'>
+              {sortedFindings.map((finding, index) => (
+                <InspectionFindingCard
+                  key={finding.id}
+                  finding={finding}
+                  index={index}
+                  origin={formatNodeOrigin({
+                    nodeId: finding.related_node_id,
+                    hostId: finding.related_host_id,
+                    hostName: finding.related_host_name,
+                    hostIp: finding.related_host_ip,
+                  })}
+                />
+              ))}
+            </div>
+          </>
+        ) : isCompleted && findingCount === 0 && !report.error_message ? (
+          <InspectionZeroState />
+        ) : isCompleted ? (
+          <div className='border border-border/70 bg-card px-6 py-10 text-sm text-muted-foreground'>
+            {t('inspections.evidence.unavailable')}
+          </div>
+        ) : (
+          <div className='border border-border/70 bg-card px-6 py-10'>
+            <h2
+              id='inspection-evidence-title'
+              className='font-semibold text-foreground'
+            >
+              {t('inspections.evidence.pendingTitle')}
+            </h2>
+            <p className='mt-2 text-sm text-muted-foreground'>
+              {report.status === 'failed'
+                ? t('inspections.evidence.incompleteDescription')
+                : t('inspections.evidence.pendingDescription')}
+            </p>
+          </div>
+        )}
+      </section>
 
       {/* Diagnostic Bundle Section */}
-      {isCompleted ? (
+      {isCompleted && (hasFindings || bundleTask) ? (
         <Card>
           <CardHeader>
             <CardTitle>{t('inspections.detailPage.bundleTitle')}</CardTitle>
@@ -733,12 +661,7 @@ export default function InspectionDetailPage({
                 </div>
               </div>
             ) : hasFindings ? (
-              <div className='space-y-3'>
-                <p className='text-sm text-muted-foreground'>
-                  {t('inspections.detailPage.hasFindingsHint', {
-                    count: findings.length,
-                  })}
-                </p>
+              <div>
                 <Button
                   onClick={handleConfirmAndCreateBundle}
                   disabled={creatingBundle}
@@ -751,11 +674,7 @@ export default function InspectionDetailPage({
                   {t('inspections.followUp.generateBundle')}
                 </Button>
               </div>
-            ) : (
-              <p className='text-sm text-muted-foreground'>
-                {t('inspections.detailPage.noBundleNeeded')}
-              </p>
-            )}
+            ) : null}
           </CardContent>
         </Card>
       ) : null}

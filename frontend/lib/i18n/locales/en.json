@@ -324,7 +324,7 @@
     "clusterManagement": "Cluster Management",
     "hostsAndClusters": "Hosts & Clusters",
     "monitoringCenter": "Alert Center",
-    "diagnosticsCenter": "Diagnostics",
+    "diagnosticsCenter": "Diagnostics Center",
     "errorsAndAlerts": "Alerts & Diagnostics",
     "alertsAndDiagnostics": "Alerts & Diagnostics",
     "commandLogs": "Command Logs",
@@ -1970,8 +1970,8 @@
     }
   },
   "monitoringCenter": {
-    "title": "Monitoring Center",
-    "subtitle": "Unified workspace for monitoring, alert handling, and notifications.",
+    "title": "Alert Center",
+    "subtitle": "Review alert events and configure alert rules and notification channels.",
     "refresh": "Refresh",
     "loadError": "Failed to load monitoring data",
     "totalClusters": "Total Clusters",
@@ -2033,8 +2033,8 @@
       "critical": "Critical"
     },
     "alerts": {
-      "entry": "Alert Center",
-      "title": "Alert Center",
+      "entry": "Alert Events",
+      "title": "Alert Events",
       "subtitle": "Unified view of local process alerts and remote Alertmanager alerts",
       "listTitle": "Alert List",
       "clusterFilter": "Filter by cluster",
@@ -2173,13 +2173,13 @@
       "saveError": "Failed to update rule"
     },
     "policyCenter": {
-      "title": "Alert Policy Center",
-      "subtitle": "Unify platform-health and Prometheus-backed policies behind one capability-aware product surface.",
+      "title": "Rules & Notifications",
+      "subtitle": "Manage alert rules and notification channels with capability-aware controls.",
       "generatedAt": "Generated at: {value}",
-      "unifiedExperienceHint": "User-facing alerting stays unified in one policy center, while the backend continues to separate platform-health signals from Prometheus-based signals and only exposes advanced builders when the required integrations are ready.",
-      "loadError": "Failed to load alert policy center bootstrap",
-      "policyListLoadError": "Failed to load alert policies",
-      "channelListLoadError": "Failed to load notification channels for policy binding",
+      "unifiedExperienceHint": "One surface for alert rules and notifications; platform-health and Prometheus signals stay distinct internally.",
+      "loadError": "Failed to load rules & notifications bootstrap data",
+      "policyListLoadError": "Failed to load alert rules",
+      "channelListLoadError": "Failed to load notification channels for rule binding",
       "clusterListLoadError": "Failed to load clusters for policy scope selection",
       "recommended": "Recommended",
       "healthy": "Healthy",
@@ -2188,7 +2188,7 @@
       "capabilitySectionTitle": "Capability Status",
       "integrationSectionTitle": "Integration Dependency Status",
       "templatesSectionTitle": "Recommended Policy Templates",
-      "templatesSectionSubtitle": "These templates define the product skeleton of the unified policy center: platform-health templates always remain evolvable, while metrics templates unlock when Prometheus capabilities are available.",
+      "templatesSectionSubtitle": "These templates define the product skeleton of the rules & notifications: platform-health templates always remain evolvable, while metrics templates unlock when Prometheus capabilities are available.",
       "listTitle": "Current Policies",
       "listSubtitle": "Currently managing {count} unified alert policies.",
       "listGeneratedAt": "Policy list generated at: {value}",
@@ -2397,7 +2397,7 @@
         }
       },
       "editTitle": "Edit Policy",
-      "editSubtitle": "Update an existing unified alert policy without leaving the unified policy center.",
+      "editSubtitle": "Update an existing unified alert policy without leaving the rules & notifications.",
       "editingHint": "You are editing policy \"{name}\". Changes here will overwrite the persisted policy resource.",
       "editingBadge": "Editing",
       "editModeHint": "Edit mode keeps the existing policy resource and writes changes back in place.",
@@ -2578,11 +2578,11 @@
     },
     "tabs": {
       "dashboard": "Dashboard",
-      "alerts": "Alerts",
-      "policies": "Policies",
-      "rules": "Rules",
-      "integrations": "Notifications",
-      "history": "History"
+      "alerts": "Alert Events",
+      "policies": "Rules & Notifications",
+      "rules": "Alert Rules",
+      "integrations": "Notification Channels",
+      "history": "Delivery History"
     },
     "loading": "Loading...",
     "degradedClusters": "Degraded Clusters",
@@ -2636,25 +2636,25 @@
       }
     },
     "policyCenterV2": {
-      "title": "Alert Policies",
-      "subtitle": "A DorisManager-inspired policy editor that keeps only the controls users actually need.",
-      "policyCount": "{count} policies",
-      "policySubtitle": "View and manage alert policies.",
-      "searchPlaceholder": "Search policy name, description, or template",
+      "title": "Rules & Notifications",
+      "subtitle": "Manage alert rules, notification channels, and delivery history.",
+      "policyCount": "{count} rules",
+      "policySubtitle": "View and manage alert rules.",
+      "searchPlaceholder": "Search rule name, description, or template",
       "statusFilter": "Enabled Status",
       "allStatuses": "All Statuses",
-      "createNew": "New Policy",
-      "createFirst": "Create the first alert policy",
-      "policyListTitle": "Policy List",
-      "editorCreateTitle": "Create Alert Policy",
-      "editorEditTitle": "Edit Alert Policy",
+      "createNew": "New Rule",
+      "createFirst": "Create the first alert rule",
+      "policyListTitle": "Rule List",
+      "editorCreateTitle": "Create Alert Rule",
+      "editorEditTitle": "Edit Alert Rule",
       "dialogSubtitleCreate": "Configure trigger conditions and notification methods.",
       "dialogSubtitleEdit": "Update trigger conditions and notification methods.",
       "sectionBasic": "Basic Information",
       "sectionRules": "Rule Configuration",
       "columns": {
-        "name": "Name",
-        "template": "Template",
+        "name": "Rule Name",
+        "template": "Rule Template",
         "cluster": "Cluster",
         "severity": "Severity",
         "methods": "Methods",
@@ -2663,9 +2663,9 @@
         "updatedAt": "Updated At"
       },
       "actions": {
-        "viewHistory": "View execution history",
-        "editPolicy": "Edit policy",
-        "deletePolicy": "Delete policy"
+        "viewHistory": "View delivery history",
+        "editPolicy": "Edit rule",
+        "deletePolicy": "Delete rule"
       },
       "history": {
         "statuses": {
@@ -2680,30 +2680,30 @@
       },
       "enabled": "Enabled",
       "disabled": "Disabled",
-      "emptyPolicies": "No alert policies yet",
-      "nameRequired": "Please enter a policy name",
+      "emptyPolicies": "No alert rules yet",
+      "nameRequired": "Please enter an alert name",
       "clusterRequired": "Please select a cluster",
-      "templateRequired": "Please select a template",
+      "templateRequired": "Please select a rule template",
       "promqlRequired": "Please enter a PromQL expression",
       "receiverRequired": "Select at least one notification recipient, or keep recipients configured on the current email channel",
       "concreteClusterRequired": "This template must be bound to a specific cluster",
-      "concreteClusterHint": "Runtime event policies must target a concrete cluster instead of all clusters.",
-      "createSuccess": "Alert policy created successfully",
-      "updateSuccess": "Alert policy updated successfully",
-      "deleteSuccess": "Alert policy deleted successfully",
-      "toggleEnabledSuccess": "Alert policy enabled",
-      "toggleDisabledSuccess": "Alert policy disabled",
-      "createError": "Failed to create alert policy",
-      "updateError": "Failed to update alert policy",
-      "deleteError": "Failed to delete alert policy",
+      "concreteClusterHint": "Runtime event rules must bind to a concrete cluster, not all clusters.",
+      "createSuccess": "Alert rule created",
+      "updateSuccess": "Alert rule updated",
+      "deleteSuccess": "Alert rule deleted",
+      "toggleEnabledSuccess": "Alert rule enabled",
+      "toggleDisabledSuccess": "Alert rule disabled",
+      "createError": "Failed to create alert rule",
+      "updateError": "Failed to update alert rule",
+      "deleteError": "Failed to delete alert rule",
       "cancelEdit": "Cancel",
       "createSubmit": "Confirm",
       "saveSubmit": "Save",
       "fields": {
         "name": "Policy Name",
         "description": "Description",
-        "strategyType": "Strategy Type",
-        "template": "Template",
+        "strategyType": "Rule Type",
+        "template": "Rule Template",
         "cluster": "Cluster",
         "promql": "PromQL",
         "severity": "Severity",
@@ -2722,12 +2722,12 @@
       },
       "placeholders": {
         "name": "For example: Cluster restart notification",
-        "description": "Add extra notes so operators understand the alert intent quickly.",
+        "description": "Add notes so the team understands this alert rule.",
         "promql": "For example: sum(rate(seatunnel_job_failed_total[5m])) > 0",
         "threshold": "For example: 0.8 (means 80%)"
       },
       "staticConfig": "Static Config",
-      "staticConfigDesc": "Start from platform-health or metric templates.",
+      "staticConfigDesc": "Pick a platform-health or metrics template to create a rule quickly.",
       "customPromql": "Custom PromQL",
       "customPromqlDesc": "Write your own PromQL when Prometheus is available.",
       "customPromqlUnavailable": "Prometheus is not ready yet.",
@@ -2753,7 +2753,7 @@
       "channel": {
         "manageEmail": "Email Config",
         "dialogTitle": "Email Notification Config",
-        "dialogSubtitle": "Configure SMTP delivery for alert emails. Recipients are selected in alert policies, while test send can target one temporary user.",
+        "dialogSubtitle": "Configure SMTP sending only; real recipients are chosen on the alert rule. Tests can temporarily pick a recipient.",
         "savedConfigs": "Saved Email Configs",
         "empty": "No email config yet",
         "createTitle": "Create Email Config",
@@ -2798,11 +2798,11 @@
         "testRecipientPlaceholder": "Choose a temporary recipient for test send",
         "testRecipientNone": "Do not pick a recipient yet",
         "testRecipientLegacyFallback": "Legacy fallback recipients",
-        "testRecipientHint": "This only affects test send. Real alert recipients are selected in the policy editor.",
+        "testRecipientHint": "Affects test sends only; choose real alert recipients in the rule editor.",
         "testRecipientHintSelected": "Test send will be delivered to {value}",
         "testRecipientHintCurrentUserMissing": "The current signed-in account \"{value}\" does not have a valid email yet. Add one in your profile before sending a test email.",
         "legacyRecipientsConfigured": "This email channel still has {count} legacy fallback recipient(s) configured for compatibility.",
-        "legacyRecipientsEmpty": "No legacy fallback recipients are configured. Alert policies should choose recipients directly.",
+        "legacyRecipientsEmpty": "No legacy fallback recipients configured. Prefer selecting receivers on the alert rule.",
         "clearLegacyRecipients": "Clear legacy fallback recipients",
         "lastTest": {
           "idle": "No test has been sent in this session yet",
@@ -2840,7 +2840,10 @@
           "checkedAt": "Checked at: {value}"
         },
         "statusOutdated": "Current form has changed since the last test result",
-        "unsavedChangesConfirm": "You have unsaved email channel changes. Discard them?"
+        "unsavedChangesConfirm": "You have unsaved email channel changes. Discard them?",
+        "unsavedChangesTitle": "Discard unsaved changes?",
+        "discardChanges": "Discard",
+        "keepEditing": "Keep editing"
       },
       "webhook": {
         "manage": "Webhook Config",
@@ -2894,14 +2897,80 @@
           "failed": "Test send failed",
           "sentAt": "Sent at: {value}",
           "statusCode": "Response status code: {value}"
-        }
+        },
+        "unsavedChangesTitle": "Discard unsaved changes?",
+        "discardChanges": "Discard",
+        "keepEditing": "Keep editing"
       },
       "conditionThresholdRequired": "Please enter a trigger threshold",
       "conditionWindowInvalid": "Window must be between 0 and 10080 minutes",
       "conditionHint": "Keep the template defaults or override the operator, threshold, and evaluation window.",
       "customPromqlLegacy": "Legacy Custom PromQL",
-      "customPromqlLegacyDesc": "New policies no longer expose custom PromQL. This editor is kept only for existing legacy policies.",
-      "metricsUnavailableHint": "Prometheus metric templates are currently unavailable: {reason}"
+      "customPromqlLegacyDesc": "Custom PromQL is no longer offered for new rules; existing legacy rules remain editable.",
+      "metricsUnavailableHint": "Prometheus metric templates are currently unavailable: {reason}",
+      "sections": {
+        "rules": "Alert Rules",
+        "channels": "Notification Channels",
+        "history": "Delivery History"
+      },
+      "statPills": {
+        "all": "All",
+        "enabled": "Enabled",
+        "disabled": "Disabled",
+        "email": "Email",
+        "webhook": "Webhook",
+        "sent": "Success",
+        "failed": "Failed"
+      },
+      "channelList": {
+        "searchPlaceholder": "Search channel name, address, or endpoint",
+        "empty": "No notification channels yet",
+        "createEmail": "New Email Channel",
+        "createWebhook": "New Webhook",
+        "typeEmail": "Email",
+        "typeWebhook": "Webhook",
+        "columns": {
+          "type": "Type",
+          "name": "Name",
+          "target": "Target",
+          "status": "Status",
+          "updatedAt": "Updated At"
+        },
+        "actions": {
+          "edit": "Edit channel",
+          "delete": "Delete channel"
+        }
+      },
+      "deliveryHistory": {
+        "searchPlaceholder": "Search alert name, channel, or error",
+        "empty": "No delivery records yet",
+        "loadError": "Failed to load delivery history",
+        "allPolicies": "All rules",
+        "policyFilter": "Filter by rule",
+        "resetFilters": "Reset filters",
+        "columns": {
+          "policy": "Alert Rule",
+          "channel": "Channel",
+          "event": "Event",
+          "status": "Status",
+          "responseCode": "Response",
+          "sentAt": "Sent At",
+          "error": "Error"
+        },
+        "events": {
+          "firing": "Firing",
+          "resolved": "Resolved",
+          "test": "Test"
+        },
+        "statuses": {
+          "sent": "Sent",
+          "failed": "Failed",
+          "sending": "Sending",
+          "retrying": "Retrying",
+          "pending": "Pending",
+          "canceled": "Canceled"
+        }
+      }
     }
   },
   "discovery": {
@@ -2950,23 +3019,23 @@
   },
   "diagnosticsCenter": {
     "title": "Diagnostics Center",
-    "subtitle": "Start from problem clues, run a diagnosis check, and collect live evidence with a diagnostic report when needed.",
+    "subtitle": "Investigate from error clues and inspection results; collect evidence and generate reports when needed.",
     "workspaceTitle": "Unified Diagnosis Workspace",
     "loading": "Loading diagnostics workspace...",
     "loadError": "Failed to load diagnostics center",
     "clearContext": "Clear Context",
     "comingSoon": "{tab} will be implemented in upcoming phases.",
     "tabs": {
-      "errors": "Problem Clues",
-      "inspections": "Diagnosis Check",
+      "errors": "Errors",
+      "inspections": "Inspections",
       "tasks": "Diagnosis Execution",
-      "memories": "Troubleshooting Memories"
+      "memories": "Playbooks"
     },
     "tabDescriptions": {
       "errors": "Aggregate historical anomalies as problem clues and continue investigating from there.",
       "inspections": "Run a lightweight check first and decide whether live evidence collection is needed.",
       "tasks": "Review diagnosis execution, bundles, and diagnostic reports.",
-      "memories": "Accumulate and reuse troubleshooting solutions, root causes, and prevention notes."
+      "memories": "Reuse verified remediation playbooks, root causes, and prevention notes."
     },
     "status": {
       "planned": "Planned"
@@ -2986,7 +3055,7 @@
       "title": "Current Boundaries"
     },
     "errors": {
-      "title": "Error Center",
+      "title": "Errors",
       "globalHint": "Group Seatunnel ERROR events by fingerprint for cross-cluster triage.",
       "clusterScopedHint": "Errors are pre-filtered for cluster {name}.",
       "matchedGroups": "{count} matched groups",
@@ -3019,7 +3088,7 @@
       }
     },
     "inspections": {
-      "title": "Diagnosis Check",
+      "title": "Inspections",
       "globalHint": "Select a managed cluster to run a lightweight diagnosis check first, and then decide whether to collect live evidence.",
       "clusterScopedHint": "Diagnosis checks are filtered for cluster {name}.",
       "matchedReports": "{count} matched reports",
@@ -3552,8 +3621,8 @@
     "filterFiles": "Search files or folders...",
     "taskResources": "Tasks",
     "executionTarget": "Execution Target",
-    "localMode": "Local Mode",
-    "clusterMode": "Cluster Mode",
+    "localMode": "Local",
+    "clusterMode": "Cluster",
     "unassignedCluster": "No Cluster Selected",
     "maximizeConsole": "Maximize Console",
     "restoreConsole": "Restore Console",
@@ -3622,7 +3691,7 @@
     "rawDefaultNeedsCluster": "Raw default params need cluster plugin discovery. Switch to cluster mode and select a cluster first.",
     "curatedTemplateHint": "Select to preview, then Insert. Edit in Template Manage; save via editor selection right-click.",
     "curatedPreview": "Preview",
-    "curatedPreviewHint": "Select a curated template above to preview its HOCON.",
+    "curatedPreviewHint": "Nothing selected",
     "curatedPreviewEmpty": "(empty)",
     "curatedInsert": "Insert",
     "saveAsCurated": "Save as curated",
@@ -3905,8 +3974,6 @@
     "metricGroupLatency": "Latency Metrics",
     "metricGroupStatus": "Status Metrics",
     "metricGroupOther": "Other Metrics",
-    "clusterMode": "Cluster",
-    "localMode": "Local",
     "key": "Key",
     "metricHighlightSourceRows": "Source Rows",
     "metricHighlightSinkRows": "Sink Rows",
@@ -4016,7 +4083,7 @@
     "realtime": "Realtime Streaming",
     "copyPath": "Copy Path",
     "copyJson": "Copy Full State JSON",
-    "copied": "Copied",
+    "copied": "Copied to clipboard",
     "sourceStateNotice": "Source State Notice",
     "showTechnicalDetails": "Show Technical Details",
     "hideTechnicalDetails": "Hide Technical Details",
@@ -4118,7 +4185,6 @@
     "treeFilterOnlyMine": "Only Mine",
     "treeFilterMineAndPublicTooltip": "Filter out non-owned private tasks (keeps public tasks and mine)",
     "records": "records",
-    "copied": "Copied to clipboard",
     "copy": "Copy",
     "locate": "Locate",
     "initiator": "Initiator",
@@ -4180,39 +4246,39 @@
     "noMatchingResults": "No matching items found"
   },
   "troubleshooting": {
-    "title": "Troubleshooting Memory Bank",
+    "title": "Playbooks",
     "hasSolution": "Solution Available",
-    "matchedSolution": "Historical Solution",
+    "matchedSolution": "Matched Playbook",
     "presetSolution": "Built-in",
     "teamSolution": "Internal",
-    "recordSolution": "Record Solution",
-    "editSolution": "Edit Solution",
-    "updateSolution": "Update Solution",
+    "recordSolution": "Record Playbook",
+    "editSolution": "Edit Playbook",
+    "updateSolution": "Update Playbook",
     "copySolution": "Copy Solution",
     "solutionCopied": "Solution copied to clipboard",
-    "noMemoryFound": "No historical troubleshooting memory found for this fingerprint yet. Once resolved, you can record verified solutions to automatically recall them next time.",
-    "solutionRequired": "Solution cannot be empty; troubleshooting memory must include concrete remediation steps and actions",
-    "saveSuccess": "Troubleshooting solution saved! It will automatically recall on similar faults.",
-    "updateSuccess": "Troubleshooting solution updated successfully!",
-    "centerTitle": "Troubleshooting Memory Bank",
-    "centerSubtitle": "Aggregate and accumulate historical solutions for cluster exceptions and alerts, enabling sticky recall and search.",
-    "allMemories": "All Memories",
+    "noMemoryFound": "No playbook matched this fingerprint yet. After you resolve it, record the steps so similar faults can recall it automatically.",
+    "solutionRequired": "Solution cannot be empty; include concrete remediation steps.",
+    "saveSuccess": "Playbook saved. Similar faults will recall it automatically.",
+    "updateSuccess": "Playbook updated.",
+    "centerTitle": "Playbooks",
+    "centerSubtitle": "Collect verified solutions for exceptions and alerts, with sticky recall and search.",
+    "allMemories": "All Playbooks",
     "presetMemories": "Built-in",
     "customMemories": "Internal",
     "errorType": "Error Logs",
-    "alertType": "Alert Metrics",
-    "searchPlaceholder": "Search solution title, fingerprint, keywords, tags, or author...",
-    "recordNewMemory": "Record Solution",
-    "confirmDeleteTitle": "Confirm Deleting Solution",
-    "confirmDeleteDesc": "Are you sure you want to delete solution \"{title}\"? Similar errors will no longer recall this solution.",
-    "deleteSuccess": "Troubleshooting solution deleted successfully",
-    "deleteFailed": "Failed to delete troubleshooting solution",
-    "noMemoriesFound": "No matching troubleshooting memories found",
-    "noMemoriesFoundHint": "Try different search terms or record a new troubleshooting solution.",
-    "viewFullDetail": "View Solution Details",
+    "alertType": "Alerts",
+    "searchPlaceholder": "Search title, fingerprint, keywords, tags, or author...",
+    "recordNewMemory": "New Playbook",
+    "confirmDeleteTitle": "Delete Playbook",
+    "confirmDeleteDesc": "Delete playbook \"{title}\"? Similar faults will no longer recall it.",
+    "deleteSuccess": "Playbook deleted",
+    "deleteFailed": "Failed to delete playbook",
+    "noMemoriesFound": "No matching playbooks",
+    "noMemoriesFoundHint": "Try different keywords, or create a new playbook.",
+    "viewFullDetail": "View Details",
     "edit": "Edit",
     "delete": "Delete",
-    "cannotDeletePreset": "Built-in solutions cannot be deleted",
+    "cannotDeletePreset": "Built-in playbooks cannot be deleted",
     "rootCause": "Root Cause",
     "preventiveTips": "Prevention Tips",
     "actionsTaken": "Actions Taken",
@@ -4221,6 +4287,14 @@
     "updatedAt": "Updated At",
     "verifiedSolution": "Verified Solution",
     "cancel": "Cancel",
-    "confirmDelete": "Confirm Delete"
+    "confirmDelete": "Delete",
+    "loadError": "Failed to load playbooks. Please refresh.",
+    "saveToLibrary": "Save to Playbooks",
+    "dialogCreateTitle": "Record Playbook",
+    "dialogEditTitle": "Edit Playbook",
+    "dialogSubtitle": "Capture verified remediation steps for sticky recall on similar faults.",
+    "solutionStepsLabel": "Solution & Remediation Steps",
+    "solutionActionsHint": "Solution & recommended actions:",
+    "defaultTitleSuffix": "Recovery Playbook"
   }
 }

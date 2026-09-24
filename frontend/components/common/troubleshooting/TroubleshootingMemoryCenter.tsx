@@ -114,8 +114,8 @@ function formatDateTime(value?: string | null): string {
 }
 
 /**
- * 统一排障经验库中心组件
- * Unified Troubleshooting Memory Center Component
+ * 统一经验库工作台
+ * Unified Playbooks workspace
  */
 export function TroubleshootingMemoryCenter({
   clusterId,
@@ -172,11 +172,11 @@ export function TroubleshootingMemoryCenter({
       });
       setMemories(data);
     } catch {
-      toast.error('加载排障经验失败，请刷新重试');
+      toast.error(t('loadError'));
     } finally {
       setLoading(false);
     }
-  }, [clusterId, isEn]);
+  }, [clusterId, isEn, t]);
 
   // 初始化加载
   // Initial loading
@@ -754,7 +754,7 @@ export function TroubleshootingMemoryCenter({
                           <span>
                             {isEn
                               ? 'Verified Remediation Solution & Steps'
-                              : '已验证排障方案与操作步骤'}
+                              : t('verifiedSolution')}
                           </span>
                         </span>
                         <Button

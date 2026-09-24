@@ -20,7 +20,7 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {usePathname, useRouter, useSearchParams} from 'next/navigation';
-import {BellRing, ShieldAlert, ScanSearch} from 'lucide-react';
+import {BellRing, ScanSearch} from 'lucide-react';
 import gsap from 'gsap';
 import {useGSAP} from '@gsap/react';
 import {Tabs, TabsList, TabsTrigger} from '@/components/ui/tabs';
@@ -101,8 +101,8 @@ export function MonitoringCenterWorkspace() {
     setActiveTab(resolveTab(searchParams.get('tab')));
   }, [searchParams]);
 
-  // 切换标签页并同步更新 URL 参数
-  // Switch tab and sync with URL query parameters
+  // 切换标签页并同步更新 URL 参数；离开「规则与通知」时清理三级 section，避免脏 query
+  // Switch tab and sync URL; clear tertiary section when leaving Rules & Notifications
   const handleTabChange = useCallback(
     (value: string) => {
       const nextTab = value as MonitoringTab;
@@ -110,14 +110,47 @@ export function MonitoringCenterWorkspace() {
       const params = new URLSearchParams(searchParams.toString());
       if (nextTab === 'alerts') {
         params.delete('tab');
+        params.delete('section');
       } else {
         params.set('tab', nextTab);
+        // 进入 policies 时保留已有 section；缺省由 PolicyCenter 处理为 rules
+        // Keep existing section when entering policies; PolicyCenter defaults to rules
       }
       const query = params.toString();
       router.replace(query ? `${pathname}?${query}` : pathname);
     },
     [pathname, router, searchParams],
   );
+
+  // 兼容旧深链 tab=history → policies + section=history；非 policies 时清理 section
+  // Legacy deep-link tab=history → policies + section=history; clear section off policies
+  useEffect(() => {
+    const rawTab = searchParams.get('tab');
+    const resolved = resolveTab(rawTab);
+    const section = searchParams.get('section');
+    const params = new URLSearchParams(searchParams.toString());
+    let dirty = false;
+
+    if (resolved !== 'policies' && section) {
+      params.delete('section');
+      dirty = true;
+    }
+
+    // 历史 alias：tab=history 映射到 policies，并默认打开投递记录分段
+    // History alias: map tab=history to policies and open delivery section
+    if (rawTab === 'history') {
+      params.set('tab', 'policies');
+      if (!section || section === 'rules') {
+        params.set('section', 'history');
+      }
+      dirty = true;
+    }
+
+    if (dirty) {
+      const query = params.toString();
+      router.replace(query ? `${pathname}?${query}` : pathname);
+    }
+  }, [pathname, router, searchParams]);
 
   return (
     <div ref={workspaceRef} className='space-y-3.5 flex-1 flex flex-col'>
@@ -146,19 +179,13 @@ export function MonitoringCenterWorkspace() {
             activeKey='monitoring'
           />
         }
-        badge={
-          <span className='inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground'>
-            <ShieldAlert className='h-3 w-3' />
-            Alerts & Policies
-          </span>
-        }
         actions={
           <Tabs
             value={activeTab}
             onValueChange={handleTabChange}
             className='w-full sm:w-auto'
           >
-            <TabsList className='grid w-full grid-cols-2 sm:w-[280px] bg-muted/60 p-1 h-8.5'>
+            <TabsList className='grid w-full grid-cols-2 sm:w-[320px] bg-muted/60 p-1 h-8.5'>
               <TabsTrigger
                 value='alerts'
                 className='data-[state=active]:bg-background data-[state=active]:shadow-xs text-xs font-medium py-1'

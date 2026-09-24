@@ -264,8 +264,8 @@ export function CuratedTemplatesManagePanel({
         : t('curatedCreate');
 
   return (
-    <div className='min-w-0 w-full space-y-3.5'>
-      <div className='rounded-lg border border-border/50 bg-muted/10 p-3 space-y-2.5'>
+    <div className='flex h-full min-h-0 w-full min-w-0 flex-col gap-3.5'>
+      <div className='shrink-0 rounded-lg border border-border/50 bg-muted/10 p-3 space-y-2.5'>
         <div className='flex items-center justify-between gap-2'>
           <div className='flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-foreground'>
             <Wrench className='size-3.5 text-primary' />
@@ -342,7 +342,7 @@ export function CuratedTemplatesManagePanel({
           {t('noCuratedTemplates')}
         </p>
       ) : (
-        <div className='space-y-1.5 max-h-[min(28rem,60vh)] overflow-y-auto pr-1'>
+        <div className='min-h-0 flex-1 space-y-1.5 overflow-y-auto pr-1'>
           {visibleItems.map((item) => {
             const key = itemKey(item);
             const owned = isOwned(item);

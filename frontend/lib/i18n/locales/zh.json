@@ -1971,7 +1971,7 @@
   },
   "monitoringCenter": {
     "title": "告警中心",
-    "subtitle": "集中查看告警与通知渠道配置。",
+    "subtitle": "查看告警事件，配置告警规则与通知通道。",
     "refresh": "刷新",
     "loadError": "加载监控数据失败",
     "totalClusters": "集群总数",
@@ -2033,8 +2033,8 @@
       "critical": "严重"
     },
     "alerts": {
-      "entry": "告警中心",
-      "title": "告警中心",
+      "entry": "告警事件",
+      "title": "告警事件",
       "subtitle": "统一查看本地进程事件告警与远程 Alertmanager 告警",
       "listTitle": "告警列表",
       "clusterFilter": "按集群筛选",
@@ -2173,13 +2173,13 @@
       "saveError": "更新规则失败"
     },
     "policyCenter": {
-      "title": "告警策略中心",
-      "subtitle": "统一承接平台健康与 Prometheus 指标策略，并按能力自动裁剪功能入口。",
+      "title": "规则与通知",
+      "subtitle": "管理告警规则与通知通道，并按能力自动裁剪功能入口。",
       "generatedAt": "生成时间：{value}",
-      "unifiedExperienceHint": "面向用户，只保留一个统一的告警策略中心；面向系统内部，继续区分平台健康信号与 Prometheus 指标信号，并根据当前集成能力自动显示或隐藏高级构建器。",
-      "loadError": "加载告警策略中心初始化数据失败",
-      "policyListLoadError": "加载告警策略列表失败",
-      "channelListLoadError": "加载可绑定通知渠道失败",
+      "unifiedExperienceHint": "面向用户只保留规则与通知一个工作面；面向系统内部继续区分平台健康与 Prometheus 指标信号。",
+      "loadError": "加载规则与通知初始化数据失败",
+      "policyListLoadError": "加载告警规则列表失败",
+      "channelListLoadError": "加载可绑定通知通道失败",
       "clusterListLoadError": "加载可选集群范围失败",
       "recommended": "推荐",
       "healthy": "健康",
@@ -2188,7 +2188,7 @@
       "capabilitySectionTitle": "能力状态",
       "integrationSectionTitle": "集成依赖状态",
       "templatesSectionTitle": "推荐策略模板",
-      "templatesSectionSubtitle": "这些模板是统一策略中心的产品骨架：平台健康模板始终可演进，指标模板则在 Prometheus 能力可用时解锁。",
+      "templatesSectionSubtitle": "这些模板是规则与通知的产品骨架：平台健康模板始终可演进，指标模板则在 Prometheus 能力可用时解锁。",
       "listTitle": "现有策略",
       "listSubtitle": "当前共管理 {count} 条统一告警策略。",
       "listGeneratedAt": "策略列表生成时间：{value}",
@@ -2239,7 +2239,7 @@
       "legacyRulesTitle": "现有运行时规则入口",
       "legacyRulesDescription": "当前按集群配置的运行时规则仍然继续生效，用来承接平台健康策略的第一阶段演进；后续会被统一策略资源替代。",
       "legacyRulesCardTitle": "现有运行时规则",
-      "legacyRulesCardSubtitle": "兼容当前 cluster 级运行时规则配置，作为统一策略中心落地期间的过渡入口。",
+      "legacyRulesCardSubtitle": "兼容当前 cluster 级运行时规则配置，作为规则与通知落地期间的过渡入口。",
       "templateCapability": "能力键：",
       "severityWarning": "警告",
       "severityCritical": "严重",
@@ -2397,7 +2397,7 @@
         }
       },
       "editTitle": "编辑策略",
-      "editSubtitle": "直接在统一策略中心内修改已有的统一告警策略。",
+      "editSubtitle": "直接在规则与通知内修改已有的统一告警策略。",
       "editingHint": "当前正在编辑策略“{name}”，这里的保存会直接覆盖已持久化的策略资源。",
       "editingBadge": "编辑中",
       "editModeHint": "编辑模式会保留当前策略资源，并将改动原位写回。",
@@ -2578,11 +2578,11 @@
     },
     "tabs": {
       "dashboard": "监控看板",
-      "alerts": "告警中心",
-      "policies": "策略中心",
+      "alerts": "告警事件",
+      "policies": "规则与通知",
       "rules": "告警规则",
-      "integrations": "通知渠道",
-      "history": "通知历史"
+      "integrations": "通知通道",
+      "history": "投递记录"
     },
     "loading": "加载中...",
     "degradedClusters": "降级集群",
@@ -2636,25 +2636,25 @@
       }
     },
     "policyCenterV2": {
-      "title": "告警策略",
-      "subtitle": "参考 DorisManager 收敛策略编辑体验，只保留用户真正需要配置的内容。",
-      "policyCount": "{count} 条策略",
-      "policySubtitle": "查看和管理告警策略。",
-      "searchPlaceholder": "搜索策略名称、说明或模板",
+      "title": "规则与通知",
+      "subtitle": "管理告警规则、通知通道与投递记录。",
+      "policyCount": "{count} 条规则",
+      "policySubtitle": "查看和管理告警规则。",
+      "searchPlaceholder": "搜索规则名称、说明或模板",
       "statusFilter": "启用状态",
       "allStatuses": "全部状态",
-      "createNew": "新建策略",
-      "createFirst": "新建第一条告警策略",
-      "policyListTitle": "策略列表",
-      "editorCreateTitle": "新建告警策略",
-      "editorEditTitle": "编辑告警策略",
+      "createNew": "新建规则",
+      "createFirst": "新建第一条告警规则",
+      "policyListTitle": "规则列表",
+      "editorCreateTitle": "新建告警规则",
+      "editorEditTitle": "编辑告警规则",
       "dialogSubtitleCreate": "配置触发条件和通知方式。",
       "dialogSubtitleEdit": "修改触发条件和通知方式。",
       "sectionBasic": "基本信息",
       "sectionRules": "规则配置",
       "columns": {
-        "name": "策略名称",
-        "template": "策略模板",
+        "name": "规则名称",
+        "template": "规则模板",
         "cluster": "作用集群",
         "severity": "告警等级",
         "methods": "通知方式",
@@ -2663,9 +2663,9 @@
         "updatedAt": "更新时间"
       },
       "actions": {
-        "viewHistory": "查看执行历史",
-        "editPolicy": "编辑策略",
-        "deletePolicy": "删除策略"
+        "viewHistory": "查看投递记录",
+        "editPolicy": "编辑规则",
+        "deletePolicy": "删除规则"
       },
       "history": {
         "statuses": {
@@ -2680,30 +2680,30 @@
       },
       "enabled": "已启用",
       "disabled": "已停用",
-      "emptyPolicies": "暂无告警策略",
+      "emptyPolicies": "暂无告警规则",
       "nameRequired": "请输入告警名称",
       "clusterRequired": "请选择集群",
-      "templateRequired": "请选择策略模板",
+      "templateRequired": "请选择规则模板",
       "promqlRequired": "请输入 PromQL",
       "receiverRequired": "请选择至少一个通知接收人，或为当前邮件通道保留收件人配置",
       "concreteClusterRequired": "当前模板必须绑定具体集群",
-      "concreteClusterHint": "运行时事件类策略需要绑定具体集群，不能选择全部集群。",
-      "createSuccess": "告警策略创建成功",
-      "updateSuccess": "告警策略更新成功",
-      "deleteSuccess": "告警策略删除成功",
-      "toggleEnabledSuccess": "告警策略已启用",
-      "toggleDisabledSuccess": "告警策略已停用",
-      "createError": "创建告警策略失败",
-      "updateError": "更新告警策略失败",
-      "deleteError": "删除告警策略失败",
+      "concreteClusterHint": "运行时事件类规则需要绑定具体集群，不能选择全部集群。",
+      "createSuccess": "告警规则创建成功",
+      "updateSuccess": "告警规则更新成功",
+      "deleteSuccess": "告警规则删除成功",
+      "toggleEnabledSuccess": "告警规则已启用",
+      "toggleDisabledSuccess": "告警规则已停用",
+      "createError": "创建告警规则失败",
+      "updateError": "更新告警规则失败",
+      "deleteError": "删除告警规则失败",
       "cancelEdit": "取消编辑",
       "createSubmit": "确认",
       "saveSubmit": "保存修改",
       "fields": {
         "name": "告警名称",
         "description": "描述",
-        "strategyType": "策略类型",
-        "template": "策略模板",
+        "strategyType": "规则类型",
+        "template": "规则模板",
         "cluster": "作用集群",
         "promql": "PromQL",
         "severity": "告警等级",
@@ -2722,12 +2722,12 @@
       },
       "placeholders": {
         "name": "例如：集群重启通知",
-        "description": "补充策略说明，方便运维团队识别告警含义。",
+        "description": "补充规则说明，方便运维团队识别告警含义。",
         "promql": "例如：sum(rate(seatunnel_job_failed_total[5m])) > 0",
         "threshold": "例如：0.8（表示 80%）"
       },
       "staticConfig": "静态配置",
-      "staticConfigDesc": "选择平台健康或指标模板，快速生成策略。",
+      "staticConfigDesc": "选择平台健康或指标模板，快速生成规则。",
       "customPromql": "自定义 PromQL",
       "customPromqlDesc": "Prometheus 可用时，允许输入自定义查询语句。",
       "customPromqlUnavailable": "Prometheus 未就绪，暂不可用。",
@@ -2753,7 +2753,7 @@
       "channel": {
         "manageEmail": "邮件配置",
         "dialogTitle": "邮件通知配置",
-        "dialogSubtitle": "这里仅配置 SMTP 发信能力；真实收件人由告警策略选择，测试发送可临时指定一个通知对象。",
+        "dialogSubtitle": "这里仅配置 SMTP 发信能力；真实收件人由告警规则选择，测试发送可临时指定一个通知对象。",
         "savedConfigs": "已保存邮件配置",
         "empty": "暂无邮件配置",
         "createTitle": "新增邮件配置",
@@ -2798,11 +2798,11 @@
         "testRecipientPlaceholder": "选择一个临时测试收件人",
         "testRecipientNone": "暂不指定测试收件人",
         "testRecipientLegacyFallback": "兼容性回退收件人",
-        "testRecipientHint": "这里只影响测试发送；真实告警收件人请在策略编辑器中选择。",
+        "testRecipientHint": "这里只影响测试发送；真实告警收件人请在规则编辑器中选择。",
         "testRecipientHintSelected": "本次测试邮件将发送到 {value}",
         "testRecipientHintCurrentUserMissing": "当前登录账号“{value}”还没有可用邮箱，测试发送前请先在个人中心补充邮箱。",
         "legacyRecipientsConfigured": "当前邮件通道仍保留 {count} 个兼容性回退收件人配置。",
-        "legacyRecipientsEmpty": "当前没有配置兼容性回退收件人，建议直接在告警策略中选择通知对象。",
+        "legacyRecipientsEmpty": "当前没有配置兼容性回退收件人，建议直接在告警规则中选择通知对象。",
         "clearLegacyRecipients": "清空兼容性回退收件人",
         "lastTest": {
           "idle": "本次会话中尚未执行测试发送",
@@ -2840,7 +2840,10 @@
           "checkedAt": "检测时间：{value}"
         },
         "statusOutdated": "当前表单已发生变更，上面的测试结果可能已过期",
-        "unsavedChangesConfirm": "当前邮件通道存在未保存变更，确认放弃吗？"
+        "unsavedChangesConfirm": "当前邮件通道存在未保存变更，确认放弃吗？",
+        "unsavedChangesTitle": "放弃未保存变更？",
+        "discardChanges": "放弃变更",
+        "keepEditing": "继续编辑"
       },
       "webhook": {
         "manage": "Webhook 配置",
@@ -2894,14 +2897,80 @@
           "failed": "测试发送失败",
           "sentAt": "发送时间：{value}",
           "statusCode": "响应状态码：{value}"
-        }
+        },
+        "unsavedChangesTitle": "放弃未保存变更？",
+        "discardChanges": "放弃变更",
+        "keepEditing": "继续编辑"
       },
       "conditionThresholdRequired": "请输入触发阈值",
       "conditionWindowInvalid": "持续时间必须在 0 到 10080 分钟之间",
       "conditionHint": "可按模板默认值直接保存，也可以覆盖阈值、比较符和持续时间。",
       "customPromqlLegacy": "历史自定义 PromQL",
-      "customPromqlLegacyDesc": "新策略不再提供自定义 PromQL，仅兼容查看和编辑已有历史策略。",
-      "metricsUnavailableHint": "Prometheus 指标模板当前不可用：{reason}"
+      "customPromqlLegacyDesc": "新规则不再提供自定义 PromQL，仅兼容查看和编辑已有历史规则。",
+      "metricsUnavailableHint": "Prometheus 指标模板当前不可用：{reason}",
+      "sections": {
+        "rules": "告警规则",
+        "channels": "通知通道",
+        "history": "投递记录"
+      },
+      "statPills": {
+        "all": "全部",
+        "enabled": "已启用",
+        "disabled": "已停用",
+        "email": "邮件",
+        "webhook": "Webhook",
+        "sent": "成功",
+        "failed": "失败"
+      },
+      "channelList": {
+        "searchPlaceholder": "搜索通道名称、地址或端点",
+        "empty": "暂无通知通道",
+        "createEmail": "新建邮件通道",
+        "createWebhook": "新建 Webhook",
+        "typeEmail": "邮件",
+        "typeWebhook": "Webhook",
+        "columns": {
+          "type": "类型",
+          "name": "名称",
+          "target": "目标",
+          "status": "状态",
+          "updatedAt": "更新时间"
+        },
+        "actions": {
+          "edit": "编辑通道",
+          "delete": "删除通道"
+        }
+      },
+      "deliveryHistory": {
+        "searchPlaceholder": "搜索告警名称、通道或错误信息",
+        "empty": "暂无投递记录",
+        "loadError": "加载投递记录失败",
+        "allPolicies": "全部规则",
+        "policyFilter": "按规则筛选",
+        "resetFilters": "重置筛选",
+        "columns": {
+          "policy": "告警规则",
+          "channel": "通知通道",
+          "event": "事件",
+          "status": "状态",
+          "responseCode": "响应码",
+          "sentAt": "发送时间",
+          "error": "错误信息"
+        },
+        "events": {
+          "firing": "触发",
+          "resolved": "恢复",
+          "test": "测试"
+        },
+        "statuses": {
+          "sent": "已发送",
+          "failed": "发送失败",
+          "sending": "发送中",
+          "retrying": "重试中",
+          "pending": "待发送",
+          "canceled": "已取消"
+        }
+      }
     }
   },
   "discovery": {
@@ -2950,23 +3019,23 @@
   },
   "diagnosticsCenter": {
     "title": "诊断中心",
-    "subtitle": "错误中心聚合历史异常；巡检中心汇总检查结果，支持一键生成诊断包与报告。",
+    "subtitle": "从错误线索与巡检结果排查问题，按需采集证据并生成诊断报告。",
     "workspaceTitle": "统一诊断工作台",
     "loading": "加载诊断中心中...",
     "loadError": "加载诊断中心失败",
     "clearContext": "清除上下文",
     "comingSoon": "{tab} 能力将在后续阶段逐步落地。",
     "tabs": {
-      "errors": "错误中心",
-      "inspections": "巡检中心",
+      "errors": "错误",
+      "inspections": "巡检",
       "tasks": "诊断执行",
-      "memories": "排障经验库"
+      "memories": "经验库"
     },
     "tabDescriptions": {
       "errors": "按错误线索聚合历史异常，并进入后续排查。",
       "inspections": "先做轻量检查，确认是否需要继续抓现场。",
       "tasks": "查看诊断执行过程、诊断包和诊断报告。",
-      "memories": "沉淀并复用排障经验方案、故障根因剖析与防范记录。"
+      "memories": "沉淀并复用已验证的故障处置方案、根因与防范记录。"
     },
     "status": {
       "planned": "规划中"
@@ -2986,7 +3055,7 @@
       "title": "当前边界"
     },
     "errors": {
-      "title": "错误中心",
+      "title": "错误",
       "globalHint": "按错误指纹聚合 Seatunnel ERROR，支持全局跨集群排查。",
       "clusterScopedHint": "当前已按集群 {name} 预过滤错误组。",
       "matchedGroups": "匹配错误组 {count} 个",
@@ -3019,7 +3088,7 @@
       }
     },
     "inspections": {
-      "title": "巡检中心",
+      "title": "巡检",
       "globalHint": "请选择一个受管集群，先做一次轻量检查，再决定是否继续抓现场证据。",
       "clusterScopedHint": "当前已按集群 {name} 过滤检查记录。",
       "matchedReports": "匹配巡检报告 {count} 条",
@@ -3232,7 +3301,7 @@
     },
     "tasks": {
       "title": "诊断执行",
-      "globalHint": "你可以手动开始一次诊断，或从错误中心、巡检异常、告警等错误线索继续排查。",
+      "globalHint": "你可以手动开始一次诊断，或从错误、巡检异常、告警等线索继续排查。",
       "clusterScopedHint": "当前按集群 {name} 过滤诊断记录；你也可以围绕该集群继续排查。",
       "matchedTasks": "匹配任务 {count} 条",
       "listTitle": "任务列表",
@@ -3340,7 +3409,7 @@
       "manualOnlyHint": "当前没有带入错误、巡检异常或告警线索，所以这里只能手动开始。若想直接围绕某个问题排查，请从对应页面进入。",
       "switchToManual": "改为手动开始",
       "entryRouteLabel": "进入方式：{source}",
-      "diagnosisBasisLabel": "错误中心",
+      "diagnosisBasisLabel": "错误",
       "noDiagnosisBasis": "当前没有带入具体错误线索，本次会围绕所选集群做一次通用诊断。"
     }
   },
@@ -3552,8 +3621,8 @@
     "filterFiles": "搜索文件或目录...",
     "taskResources": "任务资源",
     "executionTarget": "执行环境",
-    "localMode": "本地模式",
-    "clusterMode": "集群模式",
+    "localMode": "本地",
+    "clusterMode": "集群",
     "unassignedCluster": "未选择集群",
     "maximizeConsole": "最大化控制台",
     "restoreConsole": "还原控制台",
@@ -3622,7 +3691,7 @@
     "rawDefaultNeedsCluster": "原始默认参数依赖集群插件发现，请先切换到集群模式并选择集群。",
     "curatedTemplateHint": "先点选预览，再点「插入」。修改请到「模板管理」；另存请在编辑器选中文本后右键。",
     "curatedPreview": "预览",
-    "curatedPreviewHint": "从上方列表点选一条精选模板以预览 HOCON。",
+    "curatedPreviewHint": "暂无选中",
     "curatedPreviewEmpty": "（无内容）",
     "curatedInsert": "插入",
     "saveAsCurated": "另存为精选",
@@ -3905,8 +3974,6 @@
     "metricGroupLatency": "时延指标",
     "metricGroupStatus": "状态指标",
     "metricGroupOther": "其他指标",
-    "clusterMode": "集群",
-    "localMode": "本地",
     "key": "Key",
     "metricHighlightSourceRows": "源读取条数",
     "metricHighlightSinkRows": "写入条数",
@@ -4016,7 +4083,7 @@
     "realtime": "实时同步中",
     "copyPath": "复制路径",
     "copyJson": "复制完整快照 JSON",
-    "copied": "已复制",
+    "copied": "已复制到剪贴板",
     "sourceStateNotice": "数据源解析提示",
     "showTechnicalDetails": "查看技术详情",
     "hideTechnicalDetails": "收起技术详情",
@@ -4118,7 +4185,6 @@
     "treeFilterOnlyMine": "仅我创建",
     "treeFilterMineAndPublicTooltip": "过滤非自己任务（公开任务也属于自己任务）",
     "records": "条快照",
-    "copied": "已复制到剪贴板",
     "copy": "复制",
     "locate": "定位",
     "initiator": "发起人",
@@ -4180,35 +4246,35 @@
     "noMatchingResults": "未找到匹配项"
   },
   "troubleshooting": {
-    "title": "排障经验记忆库",
+    "title": "经验库",
     "hasSolution": "已有方案",
-    "matchedSolution": "历史排障方案",
+    "matchedSolution": "历史方案",
     "presetSolution": "系统内置",
     "teamSolution": "内部经验",
-    "recordSolution": "沉淀排障方案",
-    "editSolution": "编辑经验",
-    "updateSolution": "更新排障经验",
+    "recordSolution": "记录方案",
+    "editSolution": "编辑方案",
+    "updateSolution": "更新方案",
     "copySolution": "复制方案",
-    "solutionCopied": "排障解决方案已复制到剪切板",
-    "noMemoryFound": "暂无针对此异常指纹的历史排障经验。若您已成功解决，欢迎沉淀具体的解决方案，下次发生同类故障时将自动在此置顶回显。",
-    "solutionRequired": "解决方案内容不能为空，排障经验必须包含具体的处理措施与步骤",
-    "saveSuccess": "排障方案已入库！后续发生同类故障时将自动置顶回显。",
-    "updateSuccess": "排障经验已成功更新！",
-    "centerTitle": "排障经验库",
-    "centerSubtitle": "汇总与沉淀集群异常日志、指标告警的历史解决方案，支持同类故障置顶回显与经验检索复用。",
-    "allMemories": "全部经验",
+    "solutionCopied": "方案已复制到剪切板",
+    "noMemoryFound": "暂无针对此异常指纹的历史方案。若已解决，欢迎沉淀具体处置步骤，下次同类故障将自动置顶回显。",
+    "solutionRequired": "解决方案不能为空，须包含具体处理措施与步骤",
+    "saveSuccess": "方案已入库，后续同类故障将自动置顶回显。",
+    "updateSuccess": "方案已更新。",
+    "centerTitle": "经验库",
+    "centerSubtitle": "汇总与沉淀异常日志、告警的历史解决方案，支持同类故障置顶回显与检索复用。",
+    "allMemories": "全部方案",
     "presetMemories": "系统内置",
     "customMemories": "内部经验",
     "errorType": "错误日志",
     "alertType": "监控告警",
     "searchPlaceholder": "搜索方案标题、异常指纹、关键词、标签或记录人...",
-    "recordNewMemory": "记录排障经验",
-    "confirmDeleteTitle": "确认删除排障方案",
-    "confirmDeleteDesc": "确定要删除排障方案「{title}」吗？删除后同类故障将无法再自动匹配置顶该方案。",
-    "deleteSuccess": "排障方案已成功删除",
-    "deleteFailed": "删除排障方案失败",
-    "noMemoriesFound": "未找到匹配的排障经验",
-    "noMemoriesFoundHint": "尝试更换搜索关键字，或点击右上角记录新的排障方案。",
+    "recordNewMemory": "新建方案",
+    "confirmDeleteTitle": "确认删除方案",
+    "confirmDeleteDesc": "确定要删除方案「{title}」吗？删除后同类故障将无法再自动匹配置顶。",
+    "deleteSuccess": "方案已删除",
+    "deleteFailed": "删除方案失败",
+    "noMemoriesFound": "未找到匹配的方案",
+    "noMemoriesFoundHint": "尝试更换搜索关键字，或点击右上角新建方案。",
     "viewFullDetail": "查看方案详情",
     "edit": "编辑",
     "delete": "删除",
@@ -4219,8 +4285,16 @@
     "tags": "分类标签",
     "author": "记录人",
     "updatedAt": "更新于",
-    "verifiedSolution": "已验证排障方案",
+    "verifiedSolution": "已验证方案",
     "cancel": "取消",
-    "confirmDelete": "确定删除"
+    "confirmDelete": "确定删除",
+    "loadError": "加载经验库失败，请刷新重试",
+    "saveToLibrary": "保存到经验库",
+    "dialogCreateTitle": "记录方案",
+    "dialogEditTitle": "编辑方案",
+    "dialogSubtitle": "沉淀已验证的故障处置步骤，后续同类错误将自动置顶回显。",
+    "solutionStepsLabel": "解决方案与处置步骤",
+    "solutionActionsHint": "解决方案与处置动作（建议采纳）:",
+    "defaultTitleSuffix": "恢复方案"
   }
 }

@@ -4838,6 +4838,9 @@ export function DataSyncStudio() {
 
         <StudioSidebarShell
           className='col-start-3 row-start-1 row-span-2'
+          contentMode={
+            rightSidebarTab === 'templates' ? 'fill' : 'scroll'
+          }
           rail={
             <>
               <SidebarIconTab

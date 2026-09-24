@@ -839,6 +839,10 @@ func TestDiagnosticBundleHTMLTemplateParsesAndRendersMetricsPanels(t *testing.T)
 				Message:    "file missing",
 			}},
 		},
+		PassedChecks: []diagnosticBundleHTMLAdvice{{
+			Title:   "进程运行正常 / Process Running",
+			Details: "所有节点均处于 RUNNING 状态 / All nodes are running",
+		}},
 	}
 
 	var enBuf bytes.Buffer
@@ -874,7 +878,7 @@ func TestDiagnosticBundleHTMLTemplateParsesAndRendersMetricsPanels(t *testing.T)
 	if !strings.Contains(enHTML, "Key Runtime Settings") || !strings.Contains(enHTML, "connector-fake.jar") || !strings.Contains(enHTML, "<svg") || !strings.Contains(enHTML, "CPU") {
 		t.Fatalf("expected english rendered html to contain config inventory details")
 	}
-	if !strings.Contains(string(zhHTML), "关键配置摘要") || !strings.Contains(string(zhHTML), "复制预览") {
+	if !strings.Contains(string(zhHTML), "关键配置摘要") || !strings.Contains(string(zhHTML), "复制内容") {
 		t.Fatalf("expected chinese rendered html to contain localized config and copy labels")
 	}
 	if !strings.Contains(enHTML, "View Full Log") || !strings.Contains(enHTML, "Open in New Window") {
@@ -885,6 +889,30 @@ func TestDiagnosticBundleHTMLTemplateParsesAndRendersMetricsPanels(t *testing.T)
 	}
 	if !strings.Contains(enHTML, "line-1000") || strings.Contains(enHTML, "line-1005") {
 		t.Fatalf("expected english rendered html to contain only preview log lines")
+	}
+	if !strings.Contains(enHTML, "stx-brand-logo") || !strings.Contains(enHTML, "STX") {
+		t.Fatalf("expected english document to contain STX brand lockup and logo")
+	}
+	if !strings.Contains(enHTML, "prefers-color-scheme: dark") {
+		t.Fatalf("expected document to contain dark mode styles")
+	}
+	if !strings.Contains(enHTML, "Appendix &amp; Nodes") {
+		t.Fatalf("expected english document to contain renamed appendix tab")
+	}
+	if !strings.Contains(string(zhHTML), "附录与节点") {
+		t.Fatalf("expected chinese document to contain renamed appendix tab")
+	}
+	if strings.Contains(enHTML, "data-tab-link=\"tab-overview\" href=\"#tab-overview\">\n          <div class=\"meta\">\n            <div class=\"title\">Overview</div>\n          </div>\n          <span class=\"count\">") {
+		t.Fatalf("expected overview tab badge to be removed")
+	}
+	if !strings.Contains(enHTML, "passed-checklist-grid") || !strings.Contains(enHTML, "passed-check-item") {
+		t.Fatalf("expected rendered html to contain passed checklist grid")
+	}
+	if !strings.Contains(enHTML, "collection-notes-card") || !strings.Contains(enHTML, "collection-notes-hint") {
+		t.Fatalf("expected rendered html to contain collection notes card and hint")
+	}
+	if !strings.Contains(enHTML, "debug-details") {
+		t.Fatalf("expected rendered html to contain collapsible debug details")
 	}
 }
 
@@ -950,4 +978,73 @@ func containsConfigHighlight(items []diagnosticConfigKeyValue, label, value stri
 		}
 	}
 	return false
+}
+
+func TestRebuildTask9OfflineReport(t *testing.T) {
+	manifestPath := "../../../data/storage/diagnostics/tasks/9/manifest.json"
+	manifestBytes, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Skip("task 9 manifest not found, skipping local re-render")
+	}
+	var manifest diagnosticBundleManifest
+	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
+		t.Fatalf("unmarshal manifest: %v", err)
+	}
+
+	errorContextBytes, _ := os.ReadFile("../../../data/storage/diagnostics/tasks/9/error-context.json")
+	var errorContextPayload struct {
+		RelatedDiagnosticTask *DiagnosticTask                    `json:"related_diagnostic_task"`
+		Report                 *ClusterInspectionReportDetailData `json:"report"`
+	}
+	_ = json.Unmarshal(errorContextBytes, &errorContextPayload)
+
+	configSnapshotBytes, _ := os.ReadFile("../../../data/storage/diagnostics/tasks/9/config-snapshot.json")
+	var configSnapshot diagnosticConfigSnapshotSummary
+	_ = json.Unmarshal(configSnapshotBytes, &configSnapshot)
+
+	task := errorContextPayload.RelatedDiagnosticTask
+	if task == nil {
+		task = &DiagnosticTask{
+			ID:            9,
+			ClusterID:     6,
+			TriggerSource: manifest.TriggerSource,
+			Status:        manifest.Status,
+			Summary:       manifest.Summary,
+			Options:       manifest.Options,
+			BundleDir:     "data/storage/diagnostics/tasks/9",
+			ManifestPath:  "data/storage/diagnostics/tasks/9/manifest.json",
+			IndexPath:     "data/storage/diagnostics/tasks/9/index.html",
+		}
+	}
+	task.Status = DiagnosticTaskStatusSucceeded
+	task.BundleDir = "data/storage/diagnostics/tasks/9"
+	task.ManifestPath = "data/storage/diagnostics/tasks/9/manifest.json"
+	task.IndexPath = "data/storage/diagnostics/tasks/9/index.html"
+
+	state := &diagnosticBundleExecutionState{
+		InspectionDetail: errorContextPayload.Report,
+		ConfigSnapshot:   &configSnapshot,
+		Artifacts:        manifest.Artifacts,
+	}
+
+	bundleDir := "../../../data/storage/diagnostics/tasks/9"
+	payload := buildDiagnosticBundleHTMLPayload(task, state, bundleDir, manifest.Artifacts)
+
+	renderTargets := []struct {
+		Path string
+		Lang DiagnosticLanguage
+	}{
+		{Path: filepath.Join(bundleDir, "index.html"), Lang: DiagnosticLanguageZH},
+		{Path: filepath.Join(bundleDir, "index.zh.html"), Lang: DiagnosticLanguageZH},
+		{Path: filepath.Join(bundleDir, "index.en.html"), Lang: DiagnosticLanguageEN},
+	}
+	for _, target := range renderTargets {
+		content, err := renderDiagnosticBundleHTMLDocument(payload, target.Lang)
+		if err != nil {
+			t.Fatalf("render %s: %v", target.Path, err)
+		}
+		if err := os.WriteFile(target.Path, content, 0o644); err != nil {
+			t.Fatalf("write %s: %v", target.Path, err)
+		}
+	}
 }

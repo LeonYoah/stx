@@ -3722,13 +3722,17 @@ func resolveDiagnosticRiskTone(task *DiagnosticTask, state *diagnosticBundleExec
 				return "warning"
 			}
 		}
-		for _, signal := range state.MetricsSnapshot.Signals {
-			status := strings.ToLower(strings.TrimSpace(signal.Status))
-			if status == "critical" {
-				return "critical"
-			}
-			if status == "warning" {
-				return "warning"
+		// 检查 Prometheus 指标快照中的异常风险等级（防 nil 保护）
+		// Inspect risk tone from Prometheus signals with nil-safety protection.
+		if state.MetricsSnapshot != nil {
+			for _, signal := range state.MetricsSnapshot.Signals {
+				status := strings.ToLower(strings.TrimSpace(signal.Status))
+				if status == "critical" {
+					return "critical"
+				}
+				if status == "warning" {
+					return "warning"
+				}
 			}
 		}
 		if state.ErrorGroup != nil {
@@ -4407,6 +4411,9 @@ func newDiagnosticBundleHTMLTemplate(lang DiagnosticLanguage) (*template.Templat
 			}
 			return value[:12]
 		},
+		"stxBrandMark": func() template.URL {
+			return template.URL(stxBrandMarkBase64)
+		},
 	}).Parse(diagnosticBundleHTMLTemplate)
 }
 
@@ -4834,33 +4841,83 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
      * Diagnostic report design specifications & UI conventions.
      */
     :root {
-      color-scheme: light;
+      color-scheme: light dark;
       --bg: #f8fafc;
       --panel: #ffffff;
       --panel-soft: #f8fbff;
+      --panel-hover: #f1f5f9;
       --border: #e2e8f0;
       --border-strong: #cbd5e1;
       --muted: #64748b;
       --text: #0f172a;
+      --text-sub: #334155;
       --primary: #2563eb;
+      --primary-soft: #eff6ff;
+      --primary-border: #bfdbfe;
       --ok: #10b981;
       --ok-soft: #f0fdf4;
+      --ok-border: rgba(16, 185, 129, 0.28);
       --warn: #f59e0b;
       --warn-soft: #fffbeb;
+      --warn-border: rgba(245, 158, 11, 0.28);
       --critical: #ef4444;
       --critical-soft: #fef2f2;
+      --critical-border: rgba(239, 68, 68, 0.28);
       --neutral: #3b82f6;
       --neutral-soft: #eff6ff;
+      --neutral-border: rgba(59, 130, 246, 0.24);
       --skip: #94a3b8;
       --skip-soft: #f8fafc;
+      --skip-border: rgba(148, 163, 184, 0.36);
       --code-bg: #0f172a;
       --code-text: #e2e8f0;
+      --code-inline-bg: #eff6ff;
+      --code-inline-text: #1d4ed8;
+      --code-inline-border: rgba(37, 99, 235, 0.16);
       /* 统一圆角规范 / Standardized border radius hierarchy */
       --radius-lg: 16px;
       --radius-md: 12px;
       --radius-sm: 8px;
       --radius-full: 999px;
     }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0b0f19;
+        --panel: #111827;
+        --panel-soft: #172033;
+        --panel-hover: #1f293d;
+        --border: #1f2937;
+        --border-strong: #374151;
+        --muted: #9ca3af;
+        --text: #f9fafb;
+        --text-sub: #cbd5e1;
+        --primary: #3b82f6;
+        --primary-soft: rgba(59, 130, 246, 0.16);
+        --primary-border: rgba(59, 130, 246, 0.32);
+        --ok: #10b981;
+        --ok-soft: rgba(16, 185, 129, 0.14);
+        --ok-border: rgba(16, 185, 129, 0.28);
+        --warn: #f59e0b;
+        --warn-soft: rgba(245, 158, 11, 0.14);
+        --warn-border: rgba(245, 158, 11, 0.28);
+        --critical: #ef4444;
+        --critical-soft: rgba(239, 68, 68, 0.16);
+        --critical-border: rgba(239, 68, 68, 0.32);
+        --neutral: #60a5fa;
+        --neutral-soft: rgba(59, 130, 246, 0.16);
+        --neutral-border: rgba(59, 130, 246, 0.3);
+        --skip: #64748b;
+        --skip-soft: rgba(100, 116, 139, 0.16);
+        --skip-border: rgba(100, 116, 139, 0.3);
+        --code-bg: #030712;
+        --code-text: #e2e8f0;
+        --code-inline-bg: rgba(59, 130, 246, 0.14);
+        --code-inline-text: #93c5fd;
+        --code-inline-border: rgba(59, 130, 246, 0.28);
+      }
+    }
+
     * { box-sizing: border-box; }
     html { scroll-behavior: smooth; }
     body {
@@ -4871,6 +4928,7 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       background: var(--bg);
       line-height: 1.6;
       -webkit-font-smoothing: antialiased;
+      transition: background 0.2s ease, color 0.2s ease;
     }
     h1, h2, h3, h4, p { margin: 0; }
     a { color: var(--primary); text-decoration: none; }
@@ -4894,122 +4952,206 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       position: sticky;
       top: 20px;
       align-self: start;
-      min-height: calc(100vh - 40px);
+      max-height: calc(100vh - 40px);
       display: flex;
       flex-direction: column;
       border: 1px solid var(--border);
       border-radius: var(--radius-lg);
-      background: #ffffff;
-      padding: 18px 14px;
-      box-shadow: 0 2px 12px rgba(15, 23, 42, 0.04);
+      background: var(--panel);
+      padding: 16px 14px;
+      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.05);
+      min-width: 0;
+      overflow-y: auto;
     }
     .sidebar-brand {
-      padding-bottom: 14px;
-      border-bottom: 1px solid #f1f5f9;
-      margin-bottom: 14px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 12px;
     }
-    .sidebar-brand .eyebrow {
+    .stx-brand-lockup {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .stx-brand-logo {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      object-fit: contain;
+      flex-shrink: 0;
+    }
+    .stx-brand-text {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    .stx-brand-title {
+      font-size: 16px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      color: var(--text);
+      line-height: 1.2;
+    }
+    .stx-brand-subtitle {
       font-size: 11px;
-      letter-spacing: 0.10em;
-      text-transform: uppercase;
       color: var(--muted);
-      margin-bottom: 4px;
-      font-weight: 700;
-    }
-    .sidebar-brand .title {
-      font-size: 18px;
-      font-weight: 700;
-      color: #0f172a;
+      font-weight: 500;
       line-height: 1.3;
-    }
-    .sidebar-meta {
-      display: grid;
-      gap: 8px;
-      margin-bottom: 14px;
-    }
-    .sidebar-meta-card {
-      border-radius: var(--radius-sm);
-      background: #f8fafc;
-      border: 1px solid #edf2f7;
-      padding: 8px 10px;
-    }
-    .sidebar-meta-card .label {
-      font-size: 10px;
-      color: var(--muted);
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
-      font-weight: 600;
-    }
-    .sidebar-meta-card .value {
-      margin-top: 3px;
-      color: #0f172a;
-      font-size: 13px;
-      font-weight: 600;
-      line-height: 1.4;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
+    .sidebar-status-pill {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 6px 10px;
+      border-radius: var(--radius-full);
+      font-size: 12px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      border: 1px solid var(--border);
+      background: var(--panel-soft);
+      min-width: 0;
+    }
+    .sidebar-status-pill .status-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .sidebar-status-pill .status-text {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      min-width: 0;
+    }
+    .sidebar-status-pill.tone-healthy {
+      background: var(--ok-soft);
+      border-color: var(--ok-border);
+      color: var(--ok);
+    }
+    .sidebar-status-pill.tone-healthy .status-dot { background: var(--ok); }
+    .sidebar-status-pill.tone-warning {
+      background: var(--warn-soft);
+      border-color: var(--warn-border);
+      color: var(--warn);
+    }
+    .sidebar-status-pill.tone-warning .status-dot { background: var(--warn); }
+    .sidebar-status-pill.tone-critical {
+      background: var(--critical-soft);
+      border-color: var(--critical-border);
+      color: var(--critical);
+    }
+    .sidebar-status-pill.tone-critical .status-dot { background: var(--critical); }
+    .sidebar-status-pill.tone-neutral {
+      background: var(--neutral-soft);
+      border-color: var(--neutral-border);
+      color: var(--neutral);
+    }
+    .sidebar-status-pill.tone-neutral .status-dot { background: var(--neutral); }
+
     .sidebar-nav {
       display: flex;
       flex-direction: column;
-      gap: 6px;
+      gap: 4px;
       flex: 1 1 auto;
+      min-width: 0;
     }
     .sidebar-link {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 10px;
+      gap: 8px;
       text-decoration: none;
-      color: #334155;
+      color: var(--text-sub);
       border: 1px solid transparent;
       border-radius: var(--radius-sm);
-      padding: 9px 12px;
+      padding: 8px 10px;
       transition: all 0.16s ease;
       background: transparent;
+      min-width: 0;
     }
     .sidebar-link:hover {
-      background: #f8fafc;
-      border-color: #e2e8f0;
+      background: var(--panel-hover);
+      border-color: var(--border);
+      color: var(--text);
       text-decoration: none;
     }
     .sidebar-link.active {
-      background: #eff6ff;
-      border-color: #bfdbfe;
-      color: #1d4ed8;
+      background: var(--primary-soft);
+      border-color: var(--primary-border);
+      color: var(--primary);
+      font-weight: 600;
     }
     .sidebar-link .meta {
       min-width: 0;
+      overflow: hidden;
     }
     .sidebar-link .title {
-      font-weight: 600;
       font-size: 13px;
       white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     .sidebar-link .desc {
-      margin-top: 2px;
-      color: #64748b;
+      margin-top: 1px;
+      color: var(--muted);
       font-size: 11px;
-      line-height: 1.4;
+      line-height: 1.3;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     .sidebar-link .count {
       flex-shrink: 0;
-      min-width: 24px;
-      height: 24px;
+      min-width: 18px;
+      height: 18px;
       border-radius: var(--radius-full);
-      background: #e2e8f0;
-      color: #0f172a;
+      background: var(--border);
+      color: var(--muted);
       display: inline-flex;
       align-items: center;
       justify-content: center;
       font-size: 11px;
       font-weight: 700;
-      padding: 0 6px;
+      padding: 0 5px;
+    }
+    .sidebar-link .count.warn {
+      background: var(--warn-soft);
+      color: var(--warn);
+      border: 1px solid var(--warn-border);
     }
     .sidebar-link.active .count {
-      background: #dbeafe;
-      color: #1d4ed8;
+      background: var(--primary);
+      color: #ffffff;
+    }
+
+    .sidebar-footer {
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border);
+    }
+    .sidebar-action-btn {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 7px 10px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      background: var(--panel-soft);
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.16s ease;
+    }
+    .sidebar-action-btn:hover {
+      background: var(--panel-hover);
+      color: var(--text);
+      border-color: var(--border-strong);
     }
     .report-main {
       min-width: 0;
@@ -5064,10 +5206,10 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       font-weight: 700;
       line-height: 1.25;
       margin-bottom: 8px;
-      color: #0f172a;
+      color: var(--text);
     }
     .hero-summary {
-      color: #334155;
+      color: var(--text-sub);
       max-width: 840px;
       font-size: 14px;
       line-height: 1.6;
@@ -5075,24 +5217,24 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
     .hero-side {
       border: 1px solid var(--border);
       border-radius: var(--radius-md);
-      background: #fafcff;
+      background: var(--panel-soft);
       padding: 16px;
     }
     .hero-side.tone-healthy {
-      background: #f8fdfa;
-      border-color: rgba(16,185,129,0.28);
+      background: var(--ok-soft);
+      border-color: var(--ok-border);
     }
     .hero-side.tone-warning {
-      background: #fffdf8;
-      border-color: rgba(245,158,11,0.28);
+      background: var(--warn-soft);
+      border-color: var(--warn-border);
     }
     .hero-side.tone-critical {
-      background: #fffafa;
-      border-color: rgba(239,68,68,0.28);
+      background: var(--critical-soft);
+      border-color: var(--critical-border);
     }
     .hero-side.tone-neutral {
-      background: #f8fbff;
-      border-color: rgba(59,130,246,0.22);
+      background: var(--neutral-soft);
+      border-color: var(--neutral-border);
     }
     .side-label,
     .focus-label,
@@ -5116,17 +5258,17 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       border: 1px solid var(--border);
       font-size: 12px;
       font-weight: 600;
-      background: #fff;
+      background: var(--panel);
       color: var(--text);
       white-space: nowrap;
       flex-shrink: 0;
       line-height: 1.4;
     }
-    .status-ok { background: var(--ok-soft); border-color: rgba(16,185,129,0.32); color: #065f46; }
-    .status-warn { background: var(--warn-soft); border-color: rgba(245,158,11,0.32); color: #92400e; }
-    .status-critical { background: var(--critical-soft); border-color: rgba(239,68,68,0.32); color: #991b1b; }
-    .status-neutral { background: var(--neutral-soft); border-color: rgba(59,130,246,0.24); color: #1e40af; }
-    .status-skip { background: var(--skip-soft); border-color: rgba(148,163,184,0.36); color: #475569; }
+    .status-ok { background: var(--ok-soft); border-color: var(--ok-border); color: var(--ok); }
+    .status-warn { background: var(--warn-soft); border-color: var(--warn-border); color: var(--warn); }
+    .status-critical { background: var(--critical-soft); border-color: var(--critical-border); color: var(--critical); }
+    .status-neutral { background: var(--neutral-soft); border-color: var(--neutral-border); color: var(--neutral); }
+    .status-skip { background: var(--skip-soft); border-color: var(--skip-border); color: var(--skip); }
 
     /* 指标卡片网格与数值单行防护 / Metric & Stat Cards single-line integrity */
     .metric-grid,
@@ -5139,7 +5281,7 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
     .stat-card {
       border: 1px solid var(--border);
       border-radius: var(--radius-md);
-      background: #fff;
+      background: var(--panel);
       padding: 12px 14px;
       min-height: 76px;
       display: flex;
@@ -5161,6 +5303,7 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       font-size: 18px;
       font-weight: 700;
       line-height: 1.2;
+      color: var(--text);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -5179,7 +5322,7 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       border: 1px solid var(--border);
       border-radius: var(--radius-lg);
       padding: 20px 24px;
-      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.03);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
     }
     .section-heading {
       display: flex;
@@ -5207,30 +5350,31 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
     .detail-panel {
       border: 1px solid var(--border);
       border-radius: var(--radius-md);
-      background: #fff;
+      background: var(--panel);
       padding: 16px;
     }
     .focus-panel.tone-healthy {
-      background: #f8fdfa;
-      border-color: rgba(16,185,129,0.25);
+      background: var(--ok-soft);
+      border-color: var(--ok-border);
     }
     .focus-panel.tone-warning {
-      background: #fffdf8;
-      border-color: rgba(245,158,11,0.25);
+      background: var(--warn-soft);
+      border-color: var(--warn-border);
     }
     .focus-panel.tone-critical {
-      background: #fffafa;
-      border-color: rgba(239,68,68,0.25);
+      background: var(--critical-soft);
+      border-color: var(--critical-border);
     }
     .focus-panel.tone-neutral {
-      background: #f8fbff;
-      border-color: rgba(59,130,246,0.20);
+      background: var(--neutral-soft);
+      border-color: var(--neutral-border);
     }
     .focus-panel h3,
     .detail-title {
       font-size: 18px;
       line-height: 1.35;
       margin-bottom: 8px;
+      color: var(--text);
     }
     .focus-panel p,
     .detail-panel p {
@@ -5258,7 +5402,7 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       grid-template-columns: 160px minmax(0, 1fr);
       gap: 14px;
       padding: 8px 0;
-      border-bottom: 1px solid #f1f5f9;
+      border-bottom: 1px solid var(--border);
       align-items: baseline;
     }
     .dl-row:last-child { border-bottom: none; }
@@ -5277,7 +5421,7 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
     .subsection + .subsection {
       margin-top: 16px;
       padding-top: 16px;
-      border-top: 1px solid #f1f5f9;
+      border-top: 1px solid var(--border);
     }
     .list {
       display: flex;
@@ -5286,7 +5430,7 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
     }
     .entry {
       padding: 12px 0;
-      border-bottom: 1px solid #f1f5f9;
+      border-bottom: 1px solid var(--border);
     }
     .entry:first-child { padding-top: 0; }
     .entry:last-child {
@@ -5305,6 +5449,7 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       font-weight: 600;
       font-size: 14px;
       line-height: 1.4;
+      color: var(--text);
     }
     .muted {
       color: var(--muted);
@@ -5320,17 +5465,18 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       margin-top: 12px;
       padding: 12px 14px;
       border-radius: var(--radius-sm);
-      background: #f8fbff;
+      background: var(--panel-soft);
       border: 1px solid var(--border);
       font-size: 13px;
+      color: var(--text);
     }
     .callout.critical {
       background: var(--critical-soft);
-      border-color: rgba(239,68,68,0.28);
+      border-color: var(--critical-border);
     }
     .callout.warn {
       background: var(--warn-soft);
-      border-color: rgba(245,158,11,0.28);
+      border-color: var(--warn-border);
     }
     .list-clean {
       margin: 0;
@@ -5339,7 +5485,7 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       flex-direction: column;
       gap: 8px;
     }
-    .list-clean li { color: #1e293b; }
+    .list-clean li { color: var(--text); }
 
     /*
      * 表格排版防破碎与横向溢出保护（遵循 UI 规范 12.4 策略 B）
@@ -5351,7 +5497,7 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       overflow-x: auto;
       overflow-y: hidden;
       margin-top: 12px;
-      background: #fff;
+      background: var(--panel);
       -webkit-overflow-scrolling: touch;
     }
     table {
@@ -5361,7 +5507,7 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       line-height: 1.5;
     }
     th {
-      background: #f8fbff;
+      background: var(--panel-soft);
       color: var(--muted);
       font-weight: 600;
       font-size: 12px;
@@ -5375,12 +5521,12 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
     td {
       padding: 10px 14px;
       text-align: left;
-      border-bottom: 1px solid #f1f5f9;
+      border-bottom: 1px solid var(--border);
       vertical-align: top;
       color: var(--text);
     }
     tr:last-child td { border-bottom: none; }
-    tbody tr:hover { background: #fafcff; }
+    tbody tr:hover { background: var(--panel-hover); }
 
     /* 语义化数据列防断裂规则 / Semantic column atomic integrity classes */
     .col-time,
@@ -5484,7 +5630,7 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
     .artifact-group + .artifact-group {
       margin-top: 20px;
       padding-top: 20px;
-      border-top: 1px solid #f1f5f9;
+      border-top: 1px solid var(--border);
     }
     .artifact-grid {
       display: grid;
@@ -5494,7 +5640,7 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
     .artifact-card {
       border: 1px solid var(--border);
       border-radius: var(--radius-md);
-      background: #fff;
+      background: var(--panel);
       padding: 16px;
       display: flex;
       flex-direction: column;
@@ -5506,10 +5652,10 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       gap: 10px;
     }
     .artifact-meta .meta-item {
-      border: 1px solid #f1f5f9;
+      border: 1px solid var(--border);
       border-radius: var(--radius-sm);
       padding: 8px 10px;
-      background: #fafcff;
+      background: var(--panel-soft);
     }
     .meta-item .label {
       color: var(--muted);
@@ -5518,6 +5664,7 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
     }
     .meta-item .value {
       font-size: 13px;
+      color: var(--text);
       word-break: normal;
       overflow-wrap: break-word;
     }
@@ -5525,9 +5672,9 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
     /* 行内代码与路径保护（整行展示、杜绝字中折行） / Inline Code & Path Integrity */
     code.inline {
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-      background: #eff6ff;
-      color: #1d4ed8;
-      border: 1px solid rgba(37,99,235,0.12);
+      background: var(--code-inline-bg);
+      color: var(--code-inline-text);
+      border: 1px solid var(--code-inline-border);
       padding: 1.5px 6px;
       border-radius: 6px;
       font-size: 12px;
@@ -5563,9 +5710,9 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
     .copy-btn,
     .log-action-btn,
     .modal-close-btn {
-      border: 1px solid #dbeafe;
-      background: #eff6ff;
-      color: #1d4ed8;
+      border: 1px solid var(--primary-border);
+      background: var(--primary-soft);
+      color: var(--primary);
       border-radius: var(--radius-sm);
       padding: 6px 12px;
       font-size: 12px;
@@ -5581,18 +5728,18 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
     .copy-btn:hover,
     .log-action-btn:hover,
     .modal-close-btn:hover {
-      background: #dbeafe;
+      background: var(--panel-hover);
       text-decoration: none;
     }
     .copy-btn.copied {
-      background: #dcfce7;
-      border-color: #bbf7d0;
-      color: #166534;
+      background: var(--ok-soft);
+      border-color: var(--ok-border);
+      color: var(--ok);
     }
     .copy-btn.failed {
-      background: #fef2f2;
-      border-color: #fecaca;
-      color: #b91c1c;
+      background: var(--critical-soft);
+      border-color: var(--critical-border);
+      color: var(--critical);
     }
     .copy-btn .label-copied,
     .copy-btn .label-failed {
@@ -5628,16 +5775,18 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
     .full-log-dialog {
       width: min(1120px, 100%);
       height: min(82vh, 920px);
-      background: #ffffff;
+      background: var(--panel);
       border-radius: var(--radius-lg);
-      box-shadow: 0 24px 60px rgba(15, 23, 42, 0.24);
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+      border: 1px solid var(--border);
       display: flex;
       flex-direction: column;
       overflow: hidden;
     }
     .full-log-header {
       padding: 16px 20px;
-      border-bottom: 1px solid #e2e8f0;
+      border-bottom: 1px solid var(--border);
+      background: var(--panel-soft);
       display: flex;
       gap: 12px;
       align-items: center;
@@ -5654,7 +5803,7 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       position: relative;
       flex: 1;
       min-height: 0;
-      background: #0f172a;
+      background: var(--code-bg);
     }
     .full-log-loading {
       position: absolute;
@@ -5676,33 +5825,34 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       width: 100%;
       height: 100%;
       border: none;
-      background: #ffffff;
+      background: var(--panel);
     }
     details {
       border: 1px dashed var(--border);
       border-radius: var(--radius-sm);
       padding: 12px 14px;
-      background: #f8fafc;
+      background: var(--panel-soft);
     }
     details summary {
       cursor: pointer;
       font-weight: 600;
+      color: var(--text);
     }
     .metric-chart {
       width: 100%;
       min-width: 320px;
       height: 156px;
       display: block;
-      background: linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
-      border: 1px solid #e2e8f0;
+      background: var(--panel-soft);
+      border: 1px solid var(--border);
       border-radius: var(--radius-sm);
     }
-    .metric-chart-axis { stroke-width: 1.2; }
-    .metric-chart-grid { stroke-width: 1; stroke-dasharray: 3 4; }
-    .metric-chart-path { fill: none; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
-    .metric-chart-threshold { stroke: #f59e0b; stroke-width: 1.2; stroke-dasharray: 4 3; }
-    .metric-chart-dot { fill: #0f172a; }
-    .metric-chart-label { fill: #64748b; font-size: 10px; }
+    .metric-chart-axis { stroke: var(--border-strong); stroke-width: 1.2; }
+    .metric-chart-grid { stroke: var(--border); stroke-width: 1; stroke-dasharray: 3 4; }
+    .metric-chart-path { fill: none; stroke: var(--primary); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+    .metric-chart-threshold { stroke: var(--warn); stroke-width: 1.2; stroke-dasharray: 4 3; }
+    .metric-chart-dot { fill: var(--text); }
+    .metric-chart-label { fill: var(--muted); font-size: 10px; }
     .metric-chart-label.x-mid { text-anchor: middle; }
     .metric-chart-label.x-end,
     .metric-chart-label.threshold-label { text-anchor: end; }
@@ -5728,10 +5878,7 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       border: 1px solid var(--border);
       border-radius: var(--radius-md);
       padding: 16px;
-      background: #fff;
-    }
-    .signal-card {
-      background: #fafcff;
+      background: var(--panel);
     }
     .finding-meta,
     .category-meta {
@@ -5745,7 +5892,7 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       font-size: 28px;
       line-height: 1;
       font-weight: 700;
-      color: #0f172a;
+      color: var(--text);
       font-variant-numeric: tabular-nums;
     }
     .timeline-list {
@@ -5776,15 +5923,15 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       width: 10px;
       height: 10px;
       border-radius: var(--radius-full);
-      background: #94a3b8;
+      background: var(--muted);
     }
-    .timeline-dot.tone-critical { background: #dc2626; }
-    .timeline-dot.tone-warning { background: #f59e0b; }
-    .timeline-dot.tone-healthy { background: #059669; }
+    .timeline-dot.tone-critical { background: var(--critical); }
+    .timeline-dot.tone-warning { background: var(--warn); }
+    .timeline-dot.tone-healthy { background: var(--ok); }
     .timeline-content {
       min-width: 0;
       padding-bottom: 12px;
-      border-bottom: 1px dashed #e2e8f0;
+      border-bottom: 1px dashed var(--border);
       overflow-wrap: break-word;
       word-break: normal;
     }
@@ -5812,7 +5959,8 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
     }
     .signal-stat {
       border-radius: var(--radius-sm);
-      background: #f8fafc;
+      background: var(--panel-soft);
+      border: 1px solid var(--border);
       padding: 8px 10px;
     }
     .signal-stat .label {
@@ -5824,7 +5972,7 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
     .signal-stat .value {
       font-size: 14px;
       font-weight: 600;
-      color: #0f172a;
+      color: var(--text);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -5839,7 +5987,7 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
     .drill-card {
       border: 1px solid var(--border);
       border-radius: var(--radius-md);
-      background: #fff;
+      background: var(--panel);
       padding: 16px;
       text-decoration: none;
       color: inherit;
@@ -5848,21 +5996,21 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
     }
     .drill-card:hover {
       transform: translateY(-2px);
-      border-color: #93c5fd;
-      box-shadow: 0 10px 24px rgba(37,99,235,0.08);
+      border-color: var(--primary);
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.08);
       text-decoration: none;
     }
     .drill-card .title {
       font-size: 15px;
       font-weight: 700;
-      color: #0f172a;
+      color: var(--text);
       white-space: nowrap;
     }
     .drill-card .count {
       margin-top: 8px;
       font-size: 26px;
       font-weight: 700;
-      color: #2563eb;
+      color: var(--primary);
       line-height: 1;
       font-variant-numeric: tabular-nums;
     }
@@ -5881,9 +6029,9 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       margin: 14px 0 18px;
     }
     .inner-tab-btn {
-      border: 1px solid #dbeafe;
-      background: #eff6ff;
-      color: #1e3a8a;
+      border: 1px solid var(--border);
+      background: var(--panel-soft);
+      color: var(--text-sub);
       border-radius: var(--radius-full);
       padding: 7px 14px;
       font-size: 12px;
@@ -5893,13 +6041,14 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       white-space: nowrap;
     }
     .inner-tab-btn:hover {
-      background: #dbeafe;
+      background: var(--panel-hover);
+      color: var(--text);
     }
     .inner-tab-btn.active {
-      background: #2563eb;
-      border-color: #2563eb;
+      background: var(--primary);
+      border-color: var(--primary);
       color: #ffffff;
-      box-shadow: 0 4px 12px rgba(37,99,235,0.20);
+      box-shadow: 0 4px 12px rgba(37,99,235,0.25);
     }
     .inner-tab-panel {
       display: none;
@@ -5913,8 +6062,99 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       border-radius: var(--radius-sm);
       padding: 16px;
       color: var(--muted);
-      background: #fafcff;
+      background: var(--panel-soft);
       font-size: 13px;
+    }
+
+    /* 附录已确认正常项检查网格 / Appendix Passed Check Items Grid */
+    .passed-checklist-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .passed-check-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 10px 12px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--ok-border);
+      background: var(--ok-soft);
+      min-width: 0;
+    }
+    .passed-check-item .check-icon {
+      color: var(--ok);
+      font-weight: 700;
+      line-height: 1;
+      font-size: 14px;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+    .passed-check-item .check-text {
+      min-width: 0;
+    }
+    .passed-check-item .check-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      line-height: 1.3;
+    }
+    .passed-check-item .check-desc {
+      font-size: 11px;
+      color: var(--muted);
+      line-height: 1.4;
+      margin-top: 2px;
+    }
+
+    /* 采集备注与诊断警告卡片 / Collection Notes & Warning Callouts */
+    .collection-notes-card {
+      border: 1px solid var(--warn-border);
+      background: var(--warn-soft);
+      border-radius: var(--radius-md);
+      padding: 14px 16px;
+      margin-bottom: 16px;
+    }
+    .collection-notes-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 700;
+      font-size: 14px;
+      color: var(--warn);
+      margin-bottom: 8px;
+    }
+    .collection-notes-hint {
+      font-size: 12px;
+      line-height: 1.5;
+      color: var(--text-sub);
+      margin-bottom: 10px;
+    }
+    .error-text {
+      color: var(--critical);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 12px;
+    }
+
+    /* 调试与内部路径折叠区 / Debug & Internal Path Collapsible Section */
+    .debug-details {
+      margin-top: 14px;
+      border: 1px dashed var(--border);
+      border-radius: var(--radius-sm);
+      background: var(--panel-soft);
+      padding: 10px 14px;
+    }
+    .debug-details summary {
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--muted);
+    }
+    .debug-details summary:hover {
+      color: var(--text);
+    }
+    .debug-details .dl {
+      margin-top: 10px;
     }
 
     @media (max-width: 1280px) {
@@ -5963,61 +6203,60 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
   <div class="page report-shell">
     <aside class="report-sidebar">
       <div class="sidebar-brand">
-        <div class="eyebrow">STX</div>
-        <div class="title">{{pair "诊断报告" "Diagnostic Report"}}</div>
+        <div class="stx-brand-lockup">
+          <img src="{{stxBrandMark}}" alt="STX" class="stx-brand-logo" />
+          <div class="stx-brand-text">
+            <span class="stx-brand-title">STX</span>
+            <span class="stx-brand-subtitle">{{pair "诊断报告" "Diagnostic Report"}}</span>
+          </div>
+        </div>
       </div>
-      <div class="sidebar-meta">
-        <div class="sidebar-meta-card">
-          <div class="label">{{pair "风险" "Risk"}}</div>
-          <div class="value">{{loc .Health.Tone}} · {{.Health.ClusterLabel}}</div>
-        </div>
-        <div class="sidebar-meta-card">
-          <div class="label">{{pair "时间范围" "Window"}}</div>
-          <div class="value">{{.Health.WindowLabel}}</div>
-        </div>
-        <div class="sidebar-meta-card">
-          <div class="label">{{pair "生成时间" "Generated"}}</div>
-          <div class="value">{{formatTime .GeneratedAt}}</div>
-        </div>
+      <div class="sidebar-status-pill {{toneClass .Health.Tone}}">
+        <span class="status-dot"></span>
+        <span class="status-text">{{loc .Health.Tone}} · {{.Health.ClusterLabel}}</span>
       </div>
       <nav class="sidebar-nav">
         <a class="sidebar-link active" data-tab-link="tab-overview" href="#tab-overview">
           <div class="meta">
             <div class="title">{{pair "总览" "Overview"}}</div>
           </div>
-          <span class="count">1</span>
         </a>
         <a class="sidebar-link" data-tab-link="tab-findings" href="#tab-findings">
           <div class="meta">
             <div class="title">{{pair "关键发现" "Findings"}}</div>
           </div>
-          <span class="count">{{len .Findings}}</span>
+          {{if .Findings}}<span class="count warn">{{len .Findings}}</span>{{end}}
         </a>
         <a class="sidebar-link" data-tab-link="tab-timeline" href="#tab-timeline">
           <div class="meta">
             <div class="title">{{pair "时间线" "Timeline"}}</div>
           </div>
-          <span class="count">{{len .Timeline}}</span>
+          {{if .Timeline}}<span class="count">{{len .Timeline}}</span>{{end}}
         </a>
         <a class="sidebar-link" data-tab-link="tab-signals" href="#tab-signals">
           <div class="meta">
             <div class="title">{{pair "指标" "Signals"}}</div>
           </div>
-          <span class="count">{{if .MetricsSnapshot}}{{.MetricsSnapshot.SignalCount}}{{else}}0{{end}}</span>
+          {{if .MetricsSnapshot}}{{if gt .MetricsSnapshot.SignalCount 0}}<span class="count">{{.MetricsSnapshot.SignalCount}}</span>{{end}}{{end}}
         </a>
         <a class="sidebar-link" data-tab-link="tab-evidence" href="#tab-evidence">
           <div class="meta">
             <div class="title">{{pair "相关证据" "Evidence"}}</div>
           </div>
-          <span class="count">{{if .ErrorContext}}{{.ErrorContext.RecentEventCount}}{{else}}0{{end}}</span>
+          {{if .ErrorContext}}{{if gt .ErrorContext.RecentEventCount 0}}<span class="count">{{.ErrorContext.RecentEventCount}}</span>{{end}}{{end}}
         </a>
         <a class="sidebar-link" data-tab-link="tab-appendix" href="#tab-appendix">
           <div class="meta">
-            <div class="title">{{pair "更多信息" "More"}}</div>
+            <div class="title">{{pair "附录与节点" "Appendix & Nodes"}}</div>
           </div>
-          <span class="count">{{len .TaskExecution.Steps}}</span>
         </a>
       </nav>
+      <div class="sidebar-footer">
+        <button class="sidebar-action-btn" type="button" onclick="window.print()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V2h12v7"></path><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+          <span>{{pair "打印 / 导出 PDF" "Print / Export PDF"}}</span>
+        </button>
+      </div>
     </aside>
 
     <main class="report-main">
@@ -6574,23 +6813,35 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
           {{end}}
           {{if .ConfigSnapshot.CollectionNotes}}
           <div class="subsection">
-            <details>
-              <summary>{{pair "查看采集备注" "View collection notes"}}</summary>
-              <div class="list" style="margin-top: 12px;">
-                {{range .ConfigSnapshot.CollectionNotes}}
-                <div class="entry">
-                  <div class="entry-header">
-                    <div class="entry-title">{{if .ConfigType}}{{.ConfigType}}{{else}}{{pair "备注" "Note"}}{{end}}</div>
-                    <span class="badge">{{if .Role}}{{.Role}}{{else}}{{pair "系统" "System"}}{{end}}</span>
-                  </div>
-                  <div class="muted small">
-                    {{if .HostID}}{{pair "主机" "Host"}} #{{.HostID}}{{else}}{{pair "集群范围" "Cluster scope"}}{{end}}
-                  </div>
-                  <div style="margin-top: 6px;">{{loc .Message}}</div>
-                </div>
-                {{end}}
+            <div class="collection-notes-card">
+              <div class="collection-notes-header">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+                <span>{{pair "采集告警与环境提示" "Collection Warnings & Environment Hints"}} ({{len .ConfigSnapshot.CollectionNotes}})</span>
               </div>
-            </details>
+              <div class="collection-notes-hint">
+                {{pair "提示：若集群部署在系统临时目录（如 /tmp），操作系统定时维护机制（如 macOS tmp_cleaner 或 Linux systemd-tmpfiles）可能会自动清理活跃配置文件，导致采集失败或仅残留 .bak 备份文件。建议将生产或长期运行的集群部署在标准工作路径（如 /opt 或 ~/.seatunnel）。" "Notice: If the cluster is deployed in system temporary directories (e.g. /tmp), OS periodic maintenance daemons (such as macOS tmp_cleaner or Linux systemd-tmpfiles) may purge active config files, causing collection failures or leaving only .bak backup files. Consider deploying long-running clusters to standard paths (e.g. /opt or ~/.seatunnel)."}}
+              </div>
+              <div class="table-wrap" style="margin-top: 10px;">
+                <table>
+                  <thead>
+                    <tr>
+                      <th class="col-type">{{pair "配置类型" "Config Type"}}</th>
+                      <th class="col-scope">{{pair "范围 / 主机" "Scope / Host"}}</th>
+                      <th class="col-desc">{{pair "采集说明" "Message"}}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {{range .ConfigSnapshot.CollectionNotes}}
+                    <tr>
+                      <td class="col-type"><strong>{{if .ConfigType}}{{.ConfigType}}{{else}}-{{end}}</strong></td>
+                      <td class="col-scope"><span class="badge">{{if .Role}}{{.Role}}{{else}}{{pair "系统" "System"}}{{end}}</span> {{if .HostID}}{{pair "主机" "Host"}} #{{.HostID}}{{else}}{{pair "集群" "Cluster"}}{{end}}</td>
+                      <td class="col-desc error-text">{{loc .Message}}</td>
+                    </tr>
+                    {{end}}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
           {{end}}
           {{else}}
@@ -6755,7 +7006,7 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
     <section class="section" id="task-overview">
       <div class="section-heading">
         <div>
-          <h2>{{pair "更多信息" "More"}}</h2>
+          <h2>{{pair "附录与节点信息" "Appendix & Nodes"}}</h2>
         </div>
       </div>
       <div class="inner-tab-toolbar">
@@ -6773,21 +7024,30 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
               <div class="dl-row"><div class="dl-term">{{pair "创建人" "Created By"}}</div><div class="dl-value">{{.Task.CreatedBy}}</div></div>
               <div class="dl-row"><div class="dl-term">{{pair "开始时间" "Started At"}}</div><div class="dl-value">{{formatTime .Task.StartedAt}}</div></div>
               <div class="dl-row"><div class="dl-term">{{pair "完成时间" "Completed At"}}</div><div class="dl-value">{{formatTime .Task.CompletedAt}}</div></div>
-              <div class="dl-row"><div class="dl-term">{{pair "诊断包目录" "Bundle Dir"}}</div><div class="dl-value"><code class="inline">{{.Task.BundleDir}}</code></div></div>
-              <div class="dl-row"><div class="dl-term">{{pair "清单文件" "Manifest"}}</div><div class="dl-value"><code class="inline">{{.Task.ManifestPath}}</code></div></div>
-              <div class="dl-row"><div class="dl-term">{{pair "报告入口" "Report Index"}}</div><div class="dl-value"><code class="inline">{{.Task.IndexPath}}</code></div></div>
             </div>
+            <details class="debug-details">
+              <summary>{{pair "查看诊断包内部存储路径" "View bundle storage paths"}}</summary>
+              <div class="dl">
+                <div class="dl-row"><div class="dl-term">{{pair "诊断包目录" "Bundle Dir"}}</div><div class="dl-value"><code class="inline">{{.Task.BundleDir}}</code></div></div>
+                <div class="dl-row"><div class="dl-term">{{pair "清单文件" "Manifest"}}</div><div class="dl-value"><code class="inline">{{.Task.ManifestPath}}</code></div></div>
+                <div class="dl-row"><div class="dl-term">{{pair "报告入口" "Report Index"}}</div><div class="dl-value"><code class="inline">{{.Task.IndexPath}}</code></div></div>
+              </div>
+            </details>
           </div>
 
           <div class="detail-panel">
             <div class="panel-label">{{pair "来源与选项" "Source & Options"}}</div>
             <div class="dl">
               {{range .SourceTraceability}}
+              {{if and (ne .Value "-") (ne .Value "")}}
               <div class="dl-row"><div class="dl-term">{{loc .Label}}</div><div class="dl-value">{{loc .Value}}</div></div>
               {{end}}
-              <div class="dl-row"><div class="dl-term">{{pair "线程栈" "Thread Dump"}}</div><div class="dl-value">{{if .Task.Options.IncludeThreadDump}}{{pair "已开启" "Enabled"}}{{else}}{{pair "已关闭" "Disabled"}}{{end}}</div></div>
+              {{end}}
+              <div class="dl-row"><div class="dl-term">{{pair "线程栈采集" "Thread Dump"}}</div><div class="dl-value">{{if .Task.Options.IncludeThreadDump}}{{pair "已开启" "Enabled"}}{{else}}{{pair "已关闭" "Disabled"}}{{end}}</div></div>
               <div class="dl-row"><div class="dl-term">JVM Dump</div><div class="dl-value">{{if .Task.Options.IncludeJVMDump}}{{pair "已开启" "Enabled"}}{{else}}{{pair "已关闭" "Disabled"}}{{end}}</div></div>
-              <div class="dl-row"><div class="dl-term">{{pair "JVM Dump 最小剩余空间" "Min Free Space for JVM Dump"}}</div><div class="dl-value">{{.Task.Options.JVMDumpMinFreeMB}} MB</div></div>
+              {{if .Task.Options.IncludeJVMDump}}
+              <div class="dl-row"><div class="dl-term">{{pair "JVM Dump 最小空间" "Min Free Space"}}</div><div class="dl-value">{{.Task.Options.JVMDumpMinFreeMB}} MB</div></div>
+              {{end}}
             </div>
           </div>
         </div>
@@ -6824,13 +7084,16 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
           </div>
 
           <div class="detail-panel">
-            <div class="panel-label">{{pair "已确认正常" "Confirmed Normal"}}</div>
+            <div class="panel-label">{{pair "已确认正常项" "Confirmed Normal"}} ({{if .PassedChecks}}{{len .PassedChecks}}{{else}}0{{end}})</div>
             {{if .PassedChecks}}
-            <div class="list">
+            <div class="passed-checklist-grid">
               {{range .PassedChecks}}
-              <div class="entry">
-                <div class="entry-title">{{loc .Title}}</div>
-                <div class="muted" style="margin-top: 6px;">{{loc .Details}}</div>
+              <div class="passed-check-item">
+                <span class="check-icon">✓</span>
+                <div class="check-text">
+                  <div class="check-title">{{loc .Title}}</div>
+                  <div class="check-desc">{{loc .Details}}</div>
+                </div>
               </div>
               {{end}}
             </div>

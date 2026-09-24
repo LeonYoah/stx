@@ -779,7 +779,7 @@ func TestDiagnosticBundleHTMLTemplateParsesAndRendersMetricsPanels(t *testing.T)
 			Content:     logContent,
 		}}),
 		ConfigSnapshot: &diagnosticBundleHTMLConfigPanel{
-			FileCount:          1,
+			FileCount:          2,
 			KeyHighlightCount:  1,
 			DirectoryCount:     1,
 			ChangedConfigCount: 1,
@@ -842,6 +842,12 @@ func TestDiagnosticBundleHTMLTemplateParsesAndRendersMetricsPanels(t *testing.T)
 					Value: "true",
 				}},
 				Preview: "metrics:\n  enabled: true",
+			}, {
+				HostID:     2,
+				Role:       "worker",
+				ConfigType: "hazelcast.yaml",
+				RemotePath: "/opt/seatunnel/config/hazelcast.yaml",
+				Preview:    "enabled: false",
 			}},
 			CollectionNotes: []diagnosticConfigSnapshotNote{{
 				HostID:     1,
@@ -934,7 +940,16 @@ func TestDiagnosticBundleHTMLTemplateParsesAndRendersMetricsPanels(t *testing.T)
 	if !strings.Contains(enHTML, "config-preview-details") {
 		t.Fatalf("expected rendered html to contain collapsible config preview details")
 	}
-	if !strings.Contains(enHTML, "View Raw Config Preview") || !strings.Contains(string(zhHTML), "查看配置原文预览") {
+	if !strings.Contains(enHTML, `data-inner-tab-group="config-files"`) || !strings.Contains(enHTML, `role="tablist"`) {
+		t.Fatalf("expected file-scoped configuration tabs")
+	}
+	if !strings.Contains(enHTML, `id="config-file-tab-0"`) || !strings.Contains(enHTML, `id="config-file-tab-1"`) || !strings.Contains(enHTML, `id="config-file-panel-1"`) {
+		t.Fatalf("expected separate accessible tab and panel for each file")
+	}
+	if !strings.Contains(enHTML, `id="config-file-tab-1" aria-controls="config-file-panel-1" aria-selected="false" tabindex="-1"`) {
+		t.Fatalf("expected only the first config tab to be active initially")
+	}
+	if !strings.Contains(enHTML, "View Redacted Config") || !strings.Contains(string(zhHTML), "查看已脱敏配置") {
 		t.Fatalf("expected rendered html to contain config preview toggle labels")
 	}
 	if !strings.Contains(enHTML, "prefers-color-scheme: dark") {
@@ -1040,7 +1055,7 @@ func rebuildOfflineReportForTask(t *testing.T, taskID uint) {
 	errorContextBytes, _ := os.ReadFile(filepath.Join(bundleDir, "error-context.json"))
 	var errorContextPayload struct {
 		RelatedDiagnosticTask *DiagnosticTask                    `json:"related_diagnostic_task"`
-		Report                 *ClusterInspectionReportDetailData `json:"report"`
+		Report                *ClusterInspectionReportDetailData `json:"report"`
 	}
 	_ = json.Unmarshal(errorContextBytes, &errorContextPayload)
 
@@ -1173,5 +1188,74 @@ func TestStepExecutionStatusSyncAndConfigPairing(t *testing.T) {
 	}
 	if dumps[0].RelativePath != "thread-dumps/thread-dump-host-10-hybrid.txt" {
 		t.Fatalf("unexpected relative path: %s", dumps[0].RelativePath)
+	}
+}
+
+// TestBuildDiagnosticConfigPanelRedactsLegacyPreviews 验证旧快照在生成报告时也不会回显凭证。
+// TestBuildDiagnosticConfigPanelRedactsLegacyPreviews ensures historical snapshots are masked when rendered.
+func TestBuildDiagnosticConfigPanelRedactsLegacyPreviews(t *testing.T) {
+	summary := &diagnosticConfigSnapshotSummary{
+		Files: []diagnosticConfigSnapshotFile{
+			{HostID: 1, ConfigType: "seatunnel.yaml", RemotePath: "/config/seatunnel.yaml"},
+			{HostID: 2, ConfigType: "hazelcast.yaml", RemotePath: "/config/hazelcast.yaml"},
+		},
+		FilePreviews: []diagnosticConfigFilePreview{
+			{HostID: 1, ConfigType: "seatunnel.yaml", RemotePath: "/config/seatunnel.yaml", Preview: "imap:\n  password: imap-secret"},
+			{HostID: 2, ConfigType: "hazelcast.yaml", RemotePath: "/config/hazelcast.yaml", Preview: "url: imaps://user:mail-secret@mail.example"},
+		},
+	}
+	panel := buildDiagnosticBundleHTMLConfigPanel(summary)
+	if len(panel.ConfigFileEntries) != 2 || len(panel.FilePreviews) != 2 {
+		t.Fatalf("expected two separate file entries and previews, got %#v", panel)
+	}
+	for _, entry := range panel.ConfigFileEntries {
+		if strings.Contains(entry.Preview, "imap-secret") || strings.Contains(entry.Preview, "mail-secret") {
+			t.Fatalf("unmasked credential in report panel for %s", entry.ConfigType)
+		}
+	}
+	if strings.Contains(panel.FilePreviews[0].Preview, "imap-secret") || strings.Contains(panel.FilePreviews[1].Preview, "mail-secret") {
+		t.Fatal("unmasked credential in legacy preview fields")
+	}
+}
+
+// TestCollectDiagnosticConfigArtifactPersistsOnlyRedactedContent 验证诊断包文件、预览与摘要均不保存凭证。
+// TestCollectDiagnosticConfigArtifactPersistsOnlyRedactedContent checks that artifact files, previews and highlights omit credentials.
+func TestCollectDiagnosticConfigArtifactPersistsOnlyRedactedContent(t *testing.T) {
+	repo := newDiagnosticTaskServiceRepository(t)
+	service := NewServiceWithRepository(repo, nil, nil, nil)
+	task := &DiagnosticTask{ClusterID: 1, TriggerSource: DiagnosticTaskSourceManual, Status: DiagnosticTaskStatusRunning}
+	if err := repo.db.Create(task).Error; err != nil {
+		t.Fatal(err)
+	}
+	step := &DiagnosticTaskStep{TaskID: task.ID, Code: DiagnosticStepCodeCollectConfigSnapshot, Status: DiagnosticTaskStatusRunning}
+	if err := repo.db.Create(step).Error; err != nil {
+		t.Fatal(err)
+	}
+	node := &DiagnosticNodeExecution{TaskID: task.ID, TaskStepID: &step.ID, HostID: 4, Role: "worker", Status: DiagnosticTaskStatusRunning}
+	if err := repo.db.Create(node).Error; err != nil {
+		t.Fatal(err)
+	}
+	configDir := t.TempDir()
+	state := &diagnosticBundleExecutionState{}
+	summary := &diagnosticConfigSnapshotSummary{}
+	content := "ck:\n  url: jdbc:clickhouse://reader:ck-secret@db:8123/events\nimap:\n  password: imap-secret\n  enabled: true"
+	target := DiagnosticTaskNodeTarget{HostID: 4, Role: "worker", NodeID: 8}
+	if err := service.collectDiagnosticConfigArtifact(t.Context(), task, step, state, summary, configDir, target, "seatunnel.yaml", "/opt/seatunnel/config/seatunnel.yaml", content, node, map[string]struct{}{}); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := os.ReadFile(summary.Files[0].LocalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, text := range []string{string(stored), summary.FilePreviews[0].Preview} {
+		if strings.Contains(text, "ck-secret") || strings.Contains(text, "imap-secret") {
+			t.Fatal("credential was persisted in a diagnostics artifact")
+		}
+		if !strings.Contains(text, "enabled: true") || !strings.Contains(text, "******") {
+			t.Fatalf("expected readable, redacted config, got %q", text)
+		}
+	}
+	if summary.Files[0].ContentHash != buildDiagnosticContentHash(string(stored)) {
+		t.Fatal("artifact hash must be calculated from the persisted redacted content")
 	}
 }

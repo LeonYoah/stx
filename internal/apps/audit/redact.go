@@ -32,13 +32,19 @@ var (
 		"password", "passwd", "pwd", "secret", "token", "credential",
 		"authorization", "cookie", "private_key", "api_key", "access_key", "secret_key",
 		"password_value", "secret_value", "token_value", "credential_value",
+		"access_key_id", "secret_access_key", "client_secret",
 	}
-	assignmentPattern = regexp.MustCompile(`(?m)(["']?)([A-Za-z_][A-Za-z0-9_.-]*)(["']?)(\s*[:=]\s*)("[^"\\]*(?:\\.[^"\\]*)*"|'[^'\\]*(?:\\.[^'\\]*)*'|\{\{[^{}]*\}\}|\$\{[^{}]*\}|[^\s,;}\]]+)`)
+	assignmentPattern = regexp.MustCompile(`(?m)(["']?)([A-Za-z_][A-Za-z0-9_.-]*)(["']?)([ \t]*[:=][ \t]*)("[^"\\]*(?:\\.[^"\\]*)*"|'[^'\\]*(?:\\.[^'\\]*)*'|\{\{[^{}]*\}\}|\$\{[^{}]*\}|[^\s,;}\]]+)`)
 	camelBoundary     = regexp.MustCompile(`([a-z0-9])([A-Z])`)
+	// URL 用户信息中的密码不带 password 字段名，需单独处理。 / Passwords in URL userinfo have no password key and need separate handling.
+	urlUserinfoPattern = regexp.MustCompile(`(?i)([a-z][a-z0-9+.-]*://[^\s/@:'"<>]+:)[^\s/@'"<>]+(@)`)
+	// URL 查询参数的密钥可能藏在普通 url 字段值里。 / URL query secrets may hide inside a non-sensitive url field.
+	urlQueryPattern    = regexp.MustCompile(`([?&])([A-Za-z_][A-Za-z0-9_.-]*)(=)([^&#\s'"<>]+)`)
+	blockScalarPattern = regexp.MustCompile(`^([ \t]*)([A-Za-z_][A-Za-z0-9_.-]*)([ \t]*[:=][ \t]*)([|>][-+]?)`)
 )
 
 // IsVariablePlaceholder 判断给定值是否为模板变量或占位符表达式（如 {{var}}、${var}）。
-//这类变量引用不应被脱敏替换，因为它们是变量名而非明文凭据。
+// 这类变量引用不应被脱敏替换，因为它们是变量名而非明文凭据。
 // IsVariablePlaceholder reports whether a value represents a template variable or placeholder.
 func IsVariablePlaceholder(value string) bool {
 	trimmed := strings.TrimSpace(value)
@@ -85,10 +91,22 @@ func RedactText(value string) string {
 	var decoded any
 	if json.Unmarshal([]byte(trimmed), &decoded) == nil {
 		if encoded, err := json.Marshal(redactValue(decoded)); err == nil {
-			return string(encoded)
+			return urlUserinfoPattern.ReplaceAllString(string(encoded), `${1}******${2}`)
 		}
 	}
-	return assignmentPattern.ReplaceAllStringFunc(value, func(match string) string {
+	// 块状 YAML 值必须整块移除，仅替换首行会把后续密钥留在产物中。 / Remove the entire YAML block; replacing only its header would leave the secret behind.
+	value = redactSensitiveBlockScalars(value)
+	// 先处理地址中的查询参数，避免外层 url 字段把内层 password=... 整段吞掉。
+	// Mask query parameters first so an outer URL assignment cannot swallow password=... inside it.
+	value = urlUserinfoPattern.ReplaceAllString(value, `${1}******${2}`)
+	value = urlQueryPattern.ReplaceAllStringFunc(value, func(match string) string {
+		parts := urlQueryPattern.FindStringSubmatch(match)
+		if !isSensitiveKey(parts[2]) || IsVariablePlaceholder(parts[4]) {
+			return match
+		}
+		return parts[1] + parts[2] + parts[3] + redactedValue
+	})
+	redacted := assignmentPattern.ReplaceAllStringFunc(value, func(match string) string {
 		parts := assignmentPattern.FindStringSubmatch(match)
 		if len(parts) < 6 || !isSensitiveKey(parts[2]) {
 			return match
@@ -98,6 +116,32 @@ func RedactText(value string) string {
 		}
 		return parts[1] + parts[2] + parts[3] + parts[4] + redactedValue
 	})
+	return urlUserinfoPattern.ReplaceAllString(redacted, `${1}******${2}`)
+}
+
+// redactSensitiveBlockScalars 移除敏感字段对应的 YAML 多行正文，同时保留其余行。
+// redactSensitiveBlockScalars removes YAML multiline bodies for sensitive keys while keeping other lines.
+func redactSensitiveBlockScalars(value string) string {
+	lines := strings.Split(value, "\n")
+	result := make([]string, 0, len(lines))
+	blockIndent := -1
+	for _, line := range lines {
+		indent := len(line) - len(strings.TrimLeft(line, " \t"))
+		if blockIndent >= 0 {
+			if strings.TrimSpace(line) == "" || indent > blockIndent {
+				continue
+			}
+			blockIndent = -1
+		}
+		matches := blockScalarPattern.FindStringSubmatch(line)
+		if len(matches) == 5 && isSensitiveKey(matches[2]) {
+			result = append(result, matches[1]+matches[2]+matches[3]+redactedValue)
+			blockIndent = len(matches[1])
+			continue
+		}
+		result = append(result, line)
+	}
+	return strings.Join(result, "\n")
 }
 
 func redactValue(value any) any {

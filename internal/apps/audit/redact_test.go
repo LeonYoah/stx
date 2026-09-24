@@ -188,3 +188,31 @@ func TestRepositoryRedactsSecretsBeforePersistence(t *testing.T) {
 		}
 	}
 }
+
+// TestRedactTextMasksConnectionCredentials 验证连接地址和多行密钥不会写进诊断资料。
+// TestRedactTextMasksConnectionCredentials ensures URL and multiline secrets cannot reach diagnostic artifacts.
+func TestRedactTextMasksConnectionCredentials(t *testing.T) {
+	input := `ck:
+  url: "jdbc:clickhouse://reader:ck-secret@db:8123/events?password=query-secret"
+  accessKeyId: "ck-access-id"
+imap:
+  endpoint: imaps://mailbox:imap-secret@mail.example:993/inbox
+  password: "imap-password"
+  username: mailbox
+  private_key: |
+    -----BEGIN PRIVATE KEY-----
+    multiline-secret
+    -----END PRIVATE KEY-----
+  enabled: true`
+	got := RedactText(input)
+	for _, secret := range []string{"ck-secret", "query-secret", "ck-access-id", "imap-secret", "imap-password", "multiline-secret", "BEGIN PRIVATE KEY"} {
+		if strings.Contains(got, secret) {
+			t.Fatalf("credential %q remained in redacted text", secret)
+		}
+	}
+	for _, ordinary := range []string{"jdbc:clickhouse://reader:******@db:8123", "imaps://mailbox:******@mail.example", "username: mailbox", "enabled: true"} {
+		if !strings.Contains(got, ordinary) {
+			t.Fatalf("expected ordinary structure %q to remain, got %q", ordinary, got)
+		}
+	}
+}

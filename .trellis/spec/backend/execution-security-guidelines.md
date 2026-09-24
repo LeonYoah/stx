@@ -641,6 +641,7 @@ display_command, parameters, status, error, started_at, finished_at, created_by
 - Agent 命令在发送前先写 `pending` 命令日志，得到响应后更新为终态；Agent 不存在、未连接、发送失败、超时或上下文取消都必须更新为 `failed`。
 - 后台诊断任务从公共执行记录恢复 `request_id` 和 `client_type`，再写入命令上下文。
 - `display_command` 必须经过服务端脱敏。线程快照和 JVM Dump 成功时记录 Agent 实际采用的 `jcmd`、`jstack` 或 `jmap` 命令；不经过系统命令的 Agent 操作记录为 `agent:<command_type>` 加安全参数说明。
+- 配置快照在写入诊断包之前先去除凭证；检查普通敏感字段、YAML 多行值、连接地址中的 `user:password@host` 和敏感查询参数。摘要、预览、下载文件使用同一份已处理正文，大小与校验和也以这份正文计算。已有诊断包不会因升级自动改写，应重新采集或单独处理旧文件。
 
 ### 12.4 校验与错误对应表
 

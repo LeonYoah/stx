@@ -288,13 +288,13 @@ type diagnosticBundleHTMLPayload struct {
 	// Critical Findings：按严重级别排序的关键发现（来自巡检发现或错误/告警上下文）
 	Inspection *diagnosticBundleHTMLInspectionPanel `json:"inspection,omitempty"`
 	// Evidence：证据详情，按需展开
-	ErrorContext    *diagnosticBundleHTMLErrorPanel     `json:"error_context,omitempty"`
-	AlertSnapshot   *diagnosticBundleHTMLAlertPanel     `json:"alert_snapshot,omitempty"`
-	ProcessEvents   *diagnosticBundleHTMLProcessPanel   `json:"process_events,omitempty"`
-	ConfigSnapshot  *diagnosticBundleHTMLConfigPanel    `json:"config_snapshot,omitempty"`
-	MetricsSnapshot *diagnosticBundleHTMLMetricsPanel   `json:"metrics_snapshot,omitempty"`
+	ErrorContext    *diagnosticBundleHTMLErrorPanel      `json:"error_context,omitempty"`
+	AlertSnapshot   *diagnosticBundleHTMLAlertPanel      `json:"alert_snapshot,omitempty"`
+	ProcessEvents   *diagnosticBundleHTMLProcessPanel    `json:"process_events,omitempty"`
+	ConfigSnapshot  *diagnosticBundleHTMLConfigPanel     `json:"config_snapshot,omitempty"`
+	MetricsSnapshot *diagnosticBundleHTMLMetricsPanel    `json:"metrics_snapshot,omitempty"`
 	ThreadDumps     []diagnosticBundleHTMLThreadDumpItem `json:"thread_dumps,omitempty"`
-	ArtifactGroups  []diagnosticBundleHTMLArtifactGroup `json:"artifact_groups"`
+	ArtifactGroups  []diagnosticBundleHTMLArtifactGroup  `json:"artifact_groups"`
 
 	// 附录类信息：任务概览、执行过程、溯源与建议，弱化展示
 	Cluster            *diagnosticBundleHTMLClusterSummary `json:"cluster,omitempty"`
@@ -3419,12 +3419,17 @@ func buildDiagnosticBundleHTMLConfigPanel(summary *diagnosticConfigSnapshotSumma
 	previewMap := make(map[string]string, len(summary.FilePreviews))
 	for _, p := range summary.FilePreviews {
 		key := fmt.Sprintf("%d:%s:%s", p.HostID, p.ConfigType, p.RemotePath)
-		previewMap[key] = p.Preview
+		// 历史快照也在渲染前再次遮盖，避免旧数据直达报告。 / Redact legacy previews again before rendering to avoid exposing old snapshots.
+		previewMap[key] = audit.RedactText(p.Preview)
 	}
 	itemsMap := make(map[string][]diagnosticConfigKeyValue, len(summary.KeyHighlights))
 	for _, h := range summary.KeyHighlights {
 		key := fmt.Sprintf("%d:%s:%s", h.HostID, h.ConfigType, h.RemotePath)
-		itemsMap[key] = h.Items
+		items := append([]diagnosticConfigKeyValue(nil), h.Items...)
+		for i := range items {
+			items[i].Value = audit.RedactText(items[i].Value)
+		}
+		itemsMap[key] = items
 	}
 
 	seenKeys := make(map[string]bool)
@@ -3462,7 +3467,7 @@ func buildDiagnosticBundleHTMLConfigPanel(summary *diagnosticConfigSnapshotSumma
 			Role:       h.Role,
 			ConfigType: h.ConfigType,
 			RemotePath: h.RemotePath,
-			Items:      h.Items,
+			Items:      itemsMap[key],
 			Preview:    previewMap[key],
 		})
 	}
@@ -3481,8 +3486,21 @@ func buildDiagnosticBundleHTMLConfigPanel(summary *diagnosticConfigSnapshotSumma
 			ConfigType: p.ConfigType,
 			RemotePath: p.RemotePath,
 			Items:      itemsMap[key],
-			Preview:    p.Preview,
+			Preview:    previewMap[key],
 		})
+	}
+
+	// 历史摘要和预览也要走同一套遮盖，避免兼容字段再次带出明文。
+	// Apply the same redaction to legacy summary fields to prevent plaintext from resurfacing.
+	safeHighlights := append([]diagnosticConfigKeyHighlight(nil), summary.KeyHighlights...)
+	for i := range safeHighlights {
+		key := fmt.Sprintf("%d:%s:%s", safeHighlights[i].HostID, safeHighlights[i].ConfigType, safeHighlights[i].RemotePath)
+		safeHighlights[i].Items = itemsMap[key]
+	}
+	safePreviews := append([]diagnosticConfigFilePreview(nil), summary.FilePreviews...)
+	for i := range safePreviews {
+		key := fmt.Sprintf("%d:%s:%s", safePreviews[i].HostID, safePreviews[i].ConfigType, safePreviews[i].RemotePath)
+		safePreviews[i].Preview = previewMap[key]
 	}
 
 	return &diagnosticBundleHTMLConfigPanel{
@@ -3491,8 +3509,8 @@ func buildDiagnosticBundleHTMLConfigPanel(summary *diagnosticConfigSnapshotSumma
 		DirectoryCount:     len(summary.DirectoryManifests),
 		ChangedConfigCount: len(summary.ConfigChanges),
 		ConfigFileEntries:  fileEntries,
-		KeyHighlights:      append([]diagnosticConfigKeyHighlight(nil), summary.KeyHighlights...),
-		FilePreviews:       append([]diagnosticConfigFilePreview(nil), summary.FilePreviews...),
+		KeyHighlights:      safeHighlights,
+		FilePreviews:       safePreviews,
 		RecentChanges:      recentChanges,
 		RemainingChanges:   remainingChanges,
 		Files:              summary.Files,
@@ -6065,6 +6083,23 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       word-break: break-word;
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     }
+    /* 配置文件页签允许横向滚动，避免较长文件名挤压内容。 / Config tabs scroll horizontally so long file names do not squeeze content. */
+    .config-file-tabs {
+      overflow-x: auto;
+      flex-wrap: nowrap;
+      max-width: 100%;
+      padding-bottom: 4px;
+    }
+    .config-file-tabs .inner-tab-btn {
+      flex: 0 0 auto;
+      max-width: 260px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .config-file-tabs .inner-tab-btn:focus-visible {
+      outline: 2px solid var(--primary);
+      outline-offset: 2px;
+    }
     .config-preview-details {
       margin-top: 12px;
       border-top: 1px solid var(--border);
@@ -7051,8 +7086,15 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
           {{if .ConfigSnapshot.ConfigFileEntries}}
           <div class="subsection">
             <div class="subsection-label">{{pair "配置详情与预览" "Configurations & Previews"}}</div>
-            <div class="list">
-              {{range .ConfigSnapshot.ConfigFileEntries}}
+            <div class="inner-tab-toolbar config-file-tabs" role="tablist" aria-label="{{pair "配置文件" "Configuration files"}}">
+              {{range $index, $file := .ConfigSnapshot.ConfigFileEntries}}
+              <button type="button" role="tab" id="config-file-tab-{{$index}}" aria-controls="config-file-panel-{{$index}}" aria-selected="{{if eq $index 0}}true{{else}}false{{end}}" tabindex="{{if eq $index 0}}0{{else}}-1{{end}}" class="inner-tab-btn{{if eq $index 0}} active{{end}}" data-inner-tab-group="config-files" data-inner-tab-key="{{$index}}" title="{{$file.RemotePath}}">
+                {{$file.ConfigType}} · {{if $file.HostName}}{{$file.HostName}}{{else}}{{pair "主机" "Host"}} #{{$file.HostID}}{{end}} / {{$file.Role}}
+              </button>
+              {{end}}
+            </div>
+            {{range $index, $file := .ConfigSnapshot.ConfigFileEntries}}
+            <div class="inner-tab-panel{{if eq $index 0}} active{{end}}" role="tabpanel" id="config-file-panel-{{$index}}" aria-labelledby="config-file-tab-{{$index}}" data-inner-tab-group="config-files" data-inner-tab-key="{{$index}}">
               <div class="entry">
                 <div class="entry-header">
                   <div>
@@ -7074,7 +7116,7 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
                 {{if .Preview}}
                 <details class="config-preview-details">
                   <summary class="config-preview-summary">
-                    <span>{{pair "查看配置原文预览" "View Raw Config Preview"}}</span>
+                    <span>{{pair "查看已脱敏配置" "View Redacted Config"}}</span>
                   </summary>
                   <div class="copyable-block">
                     <div class="copyable-actions">
@@ -7089,8 +7131,8 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
                 </details>
                 {{end}}
               </div>
-              {{end}}
             </div>
+            {{end}}
           </div>
           {{else}}
           {{if .ConfigSnapshot.KeyHighlights}}
@@ -7792,6 +7834,10 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
           const activate = (key) => {
             buttons.forEach((button) => {
               button.classList.toggle('active', button.dataset.innerTabKey === key);
+              if (button.getAttribute('role') === 'tab') {
+                button.setAttribute('aria-selected', String(button.dataset.innerTabKey === key));
+                button.tabIndex = button.dataset.innerTabKey === key ? 0 : -1;
+              }
             });
             panels.forEach((panel) => {
               panel.classList.toggle('active', panel.dataset.innerTabKey === key);
@@ -7800,6 +7846,19 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
           const initial = buttons.find((button) => button.classList.contains('active'))?.dataset.innerTabKey || buttons[0].dataset.innerTabKey;
           buttons.forEach((button) => {
             button.addEventListener('click', () => activate(button.dataset.innerTabKey));
+            if (button.getAttribute('role') === 'tab') {
+              // 配置页签支持方向键与首尾跳转。 / Configuration tabs support arrow, Home and End keys.
+              button.addEventListener('keydown', (event) => {
+                const index = buttons.indexOf(button);
+                const next = event.key === 'ArrowRight' ? (index + 1) % buttons.length
+                  : event.key === 'ArrowLeft' ? (index - 1 + buttons.length) % buttons.length
+                  : event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : -1;
+                if (next < 0) return;
+                event.preventDefault();
+                activate(buttons[next].dataset.innerTabKey);
+                buttons[next].focus();
+              });
+            }
           });
           activate(initial);
         });

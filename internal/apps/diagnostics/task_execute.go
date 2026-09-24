@@ -4829,20 +4829,24 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{{pair "STX 诊断报告" "STX Diagnostic Report"}}</title>
   <style>
+    /*
+     * 诊断报告设计规范与通用美学约定（遵照 .trellis/spec/frontend/ui-conventions.md）
+     * Diagnostic report design specifications & UI conventions.
+     */
     :root {
       color-scheme: light;
-      --bg: #f4f7fb;
+      --bg: #f8fafc;
       --panel: #ffffff;
       --panel-soft: #f8fbff;
-      --border: #d9e2ec;
-      --border-strong: #c6d3e1;
+      --border: #e2e8f0;
+      --border-strong: #cbd5e1;
       --muted: #64748b;
       --text: #0f172a;
       --primary: #2563eb;
       --ok: #10b981;
-      --ok-soft: #ecfdf5;
+      --ok-soft: #f0fdf4;
       --warn: #f59e0b;
-      --warn-soft: #fff7ed;
+      --warn-soft: #fffbeb;
       --critical: #ef4444;
       --critical-soft: #fef2f2;
       --neutral: #3b82f6;
@@ -4851,16 +4855,22 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       --skip-soft: #f8fafc;
       --code-bg: #0f172a;
       --code-text: #e2e8f0;
+      /* 统一圆角规范 / Standardized border radius hierarchy */
+      --radius-lg: 16px;
+      --radius-md: 12px;
+      --radius-sm: 8px;
+      --radius-full: 999px;
     }
     * { box-sizing: border-box; }
     html { scroll-behavior: smooth; }
     body {
       margin: 0;
-      padding: 28px;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      padding: 24px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
       color: var(--text);
       background: var(--bg);
       line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
     }
     h1, h2, h3, h4, p { margin: 0; }
     a { color: var(--primary); text-decoration: none; }
@@ -4872,196 +4882,372 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       flex-direction: column;
       gap: 18px;
     }
+
+    /* 报告主容器与侧栏 / Report Shell & Navigation Sidebar */
+    .report-shell {
+      display: grid;
+      grid-template-columns: 260px minmax(0, 1fr);
+      gap: 20px;
+      align-items: start;
+    }
+    .report-sidebar {
+      position: sticky;
+      top: 20px;
+      align-self: start;
+      min-height: calc(100vh - 40px);
+      display: flex;
+      flex-direction: column;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      background: #ffffff;
+      padding: 18px 14px;
+      box-shadow: 0 2px 12px rgba(15, 23, 42, 0.04);
+    }
+    .sidebar-brand {
+      padding-bottom: 14px;
+      border-bottom: 1px solid #f1f5f9;
+      margin-bottom: 14px;
+    }
+    .sidebar-brand .eyebrow {
+      font-size: 11px;
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 4px;
+      font-weight: 700;
+    }
+    .sidebar-brand .title {
+      font-size: 18px;
+      font-weight: 700;
+      color: #0f172a;
+      line-height: 1.3;
+    }
+    .sidebar-meta {
+      display: grid;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+    .sidebar-meta-card {
+      border-radius: var(--radius-sm);
+      background: #f8fafc;
+      border: 1px solid #edf2f7;
+      padding: 8px 10px;
+    }
+    .sidebar-meta-card .label {
+      font-size: 10px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      font-weight: 600;
+    }
+    .sidebar-meta-card .value {
+      margin-top: 3px;
+      color: #0f172a;
+      font-size: 13px;
+      font-weight: 600;
+      line-height: 1.4;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .sidebar-nav {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      flex: 1 1 auto;
+    }
+    .sidebar-link {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      text-decoration: none;
+      color: #334155;
+      border: 1px solid transparent;
+      border-radius: var(--radius-sm);
+      padding: 9px 12px;
+      transition: all 0.16s ease;
+      background: transparent;
+    }
+    .sidebar-link:hover {
+      background: #f8fafc;
+      border-color: #e2e8f0;
+      text-decoration: none;
+    }
+    .sidebar-link.active {
+      background: #eff6ff;
+      border-color: #bfdbfe;
+      color: #1d4ed8;
+    }
+    .sidebar-link .meta {
+      min-width: 0;
+    }
+    .sidebar-link .title {
+      font-weight: 600;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+    .sidebar-link .desc {
+      margin-top: 2px;
+      color: #64748b;
+      font-size: 11px;
+      line-height: 1.4;
+    }
+    .sidebar-link .count {
+      flex-shrink: 0;
+      min-width: 24px;
+      height: 24px;
+      border-radius: var(--radius-full);
+      background: #e2e8f0;
+      color: #0f172a;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 0 6px;
+    }
+    .sidebar-link.active .count {
+      background: #dbeafe;
+      color: #1d4ed8;
+    }
+    .report-main {
+      min-width: 0;
+      min-height: calc(100vh - 40px);
+    }
+    .tab-page {
+      display: none;
+      min-width: 0;
+      min-height: calc(100vh - 40px);
+    }
+    .tab-page.active {
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .tab-page.active > .section:last-child,
+    .tab-page.active > .hero:last-child {
+      flex: 1 1 auto;
+    }
+
+    /* 头部决策横幅（首屏聚焦、拒绝花哨渐变与堆叠） / Executive Hero Header */
     .hero {
       background: var(--panel);
-      border: 1px solid var(--border-strong);
-      border-radius: 16px;
-      padding: 24px 28px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 22px 24px;
+      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.03);
     }
     .hero-grid {
       display: grid;
       grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.65fr);
-      gap: 24px;
+      gap: 20px;
       align-items: start;
     }
     .hero-badges {
       display: flex;
       flex-wrap: wrap;
-      gap: 8px;
-      margin-bottom: 14px;
+      gap: 6px;
+      margin-bottom: 12px;
+      align-items: center;
     }
     .hero-kicker {
       color: var(--primary);
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 700;
       letter-spacing: 0.08em;
       text-transform: uppercase;
-      margin-bottom: 8px;
+      margin-bottom: 6px;
     }
     .hero-title {
-      font-size: 32px;
-      line-height: 1.2;
-      margin-bottom: 10px;
+      font-size: 26px;
+      font-weight: 700;
+      line-height: 1.25;
+      margin-bottom: 8px;
+      color: #0f172a;
     }
     .hero-summary {
-      color: var(--muted);
+      color: #334155;
       max-width: 840px;
-      font-size: 15px;
+      font-size: 14px;
+      line-height: 1.6;
     }
     .hero-side {
       border: 1px solid var(--border);
-      border-radius: 14px;
-      background: var(--panel-soft);
-      padding: 18px;
+      border-radius: var(--radius-md);
+      background: #fafcff;
+      padding: 16px;
     }
     .hero-side.tone-healthy {
-      background: linear-gradient(180deg, var(--ok-soft) 0, #fff 100%);
+      background: #f8fdfa;
       border-color: rgba(16,185,129,0.28);
     }
     .hero-side.tone-warning {
-      background: linear-gradient(180deg, var(--warn-soft) 0, #fff 100%);
+      background: #fffdf8;
       border-color: rgba(245,158,11,0.28);
     }
     .hero-side.tone-critical {
-      background: linear-gradient(180deg, var(--critical-soft) 0, #fff 100%);
+      background: #fffafa;
       border-color: rgba(239,68,68,0.28);
     }
     .hero-side.tone-neutral {
-      background: linear-gradient(180deg, var(--neutral-soft) 0, #fff 100%);
-      border-color: rgba(59,130,246,0.24);
+      background: #f8fbff;
+      border-color: rgba(59,130,246,0.22);
     }
     .side-label,
     .focus-label,
     .panel-label,
     .subsection-label {
       color: var(--muted);
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 700;
-      letter-spacing: 0.04em;
+      letter-spacing: 0.05em;
       text-transform: uppercase;
-      margin-bottom: 10px;
+      margin-bottom: 8px;
     }
+
+    /* 状态徽标与原子组件（绝对防破碎） / Badges with atomic protection */
     .badge {
       display: inline-flex;
       align-items: center;
-      gap: 6px;
-      padding: 4px 10px;
-      border-radius: 999px;
+      gap: 5px;
+      padding: 3px 9px;
+      border-radius: var(--radius-full);
       border: 1px solid var(--border);
       font-size: 12px;
       font-weight: 600;
       background: #fff;
       color: var(--text);
+      white-space: nowrap;
+      flex-shrink: 0;
+      line-height: 1.4;
     }
-    .status-ok { background: var(--ok-soft); border-color: rgba(16,185,129,0.32); }
-    .status-warn { background: var(--warn-soft); border-color: rgba(245,158,11,0.32); }
-    .status-critical { background: var(--critical-soft); border-color: rgba(239,68,68,0.32); }
-    .status-neutral { background: var(--neutral-soft); border-color: rgba(59,130,246,0.24); }
-    .status-skip { background: var(--skip-soft); border-color: rgba(148,163,184,0.36); }
+    .status-ok { background: var(--ok-soft); border-color: rgba(16,185,129,0.32); color: #065f46; }
+    .status-warn { background: var(--warn-soft); border-color: rgba(245,158,11,0.32); color: #92400e; }
+    .status-critical { background: var(--critical-soft); border-color: rgba(239,68,68,0.32); color: #991b1b; }
+    .status-neutral { background: var(--neutral-soft); border-color: rgba(59,130,246,0.24); color: #1e40af; }
+    .status-skip { background: var(--skip-soft); border-color: rgba(148,163,184,0.36); color: #475569; }
+
+    /* 指标卡片网格与数值单行防护 / Metric & Stat Cards single-line integrity */
     .metric-grid,
     .stat-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 12px;
+      gap: 10px;
     }
     .metric-card,
     .stat-card {
       border: 1px solid var(--border);
-      border-radius: 12px;
+      border-radius: var(--radius-md);
       background: #fff;
-      padding: 14px;
-      min-height: 96px;
+      padding: 12px 14px;
+      min-height: 76px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
     }
     .metric-card .label,
     .stat-card .label {
       color: var(--muted);
-      font-size: 12px;
-      margin-bottom: 8px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 4px;
+      white-space: nowrap;
     }
     .metric-card .value,
     .stat-card .value {
-      font-size: 24px;
+      font-size: 18px;
       font-weight: 700;
-      line-height: 1.15;
+      line-height: 1.2;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     .metric-card .note,
     .stat-card .note {
       color: var(--muted);
-      font-size: 12px;
-      margin-top: 8px;
-      line-height: 1.5;
+      font-size: 11px;
+      margin-top: 4px;
+      line-height: 1.4;
     }
+
+    /* 页面分段卡片 / Sections & Panels */
     .section {
       background: var(--panel);
       border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: 22px 24px;
+      border-radius: var(--radius-lg);
+      padding: 20px 24px;
+      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.03);
     }
     .section-heading {
       display: flex;
       align-items: flex-start;
       justify-content: space-between;
       gap: 16px;
-      margin-bottom: 18px;
+      margin-bottom: 16px;
     }
     .section-lead {
-      margin-top: 6px;
+      margin-top: 4px;
       color: var(--muted);
-      font-size: 14px;
+      font-size: 13px;
     }
     .grid-2 {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
-      gap: 18px;
+      gap: 16px;
     }
     .focus-grid {
       display: grid;
       grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr) minmax(0, 1fr);
-      gap: 16px;
+      gap: 14px;
     }
     .focus-panel,
     .detail-panel {
       border: 1px solid var(--border);
-      border-radius: 14px;
+      border-radius: var(--radius-md);
       background: #fff;
-      padding: 18px;
+      padding: 16px;
     }
     .focus-panel.tone-healthy {
-      background: linear-gradient(180deg, var(--ok-soft) 0, #fff 100%);
-      border-color: rgba(16,185,129,0.28);
+      background: #f8fdfa;
+      border-color: rgba(16,185,129,0.25);
     }
     .focus-panel.tone-warning {
-      background: linear-gradient(180deg, var(--warn-soft) 0, #fff 100%);
-      border-color: rgba(245,158,11,0.28);
+      background: #fffdf8;
+      border-color: rgba(245,158,11,0.25);
     }
     .focus-panel.tone-critical {
-      background: linear-gradient(180deg, var(--critical-soft) 0, #fff 100%);
-      border-color: rgba(239,68,68,0.28);
+      background: #fffafa;
+      border-color: rgba(239,68,68,0.25);
     }
     .focus-panel.tone-neutral {
-      background: linear-gradient(180deg, var(--neutral-soft) 0, #fff 100%);
-      border-color: rgba(59,130,246,0.24);
+      background: #f8fbff;
+      border-color: rgba(59,130,246,0.20);
     }
     .focus-panel h3,
     .detail-title {
-      font-size: 20px;
+      font-size: 18px;
       line-height: 1.35;
-      margin-bottom: 10px;
+      margin-bottom: 8px;
     }
     .focus-panel p,
     .detail-panel p {
       color: var(--muted);
     }
     .panel-note {
-      margin-top: 12px;
+      margin-top: 10px;
       color: var(--muted);
-      font-size: 13px;
+      font-size: 12px;
     }
     .detail-columns {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
-      gap: 18px;
+      gap: 16px;
     }
+
+    /* 属性键值列表（原子防破碎、标签对齐） / Description Lists */
     .dl {
       display: flex;
       flex-direction: column;
@@ -5069,33 +5255,38 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
     }
     .dl-row {
       display: grid;
-      grid-template-columns: 180px minmax(0, 1fr);
+      grid-template-columns: 160px minmax(0, 1fr);
       gap: 14px;
-      padding: 10px 0;
-      border-bottom: 1px solid #edf2f7;
+      padding: 8px 0;
+      border-bottom: 1px solid #f1f5f9;
+      align-items: baseline;
     }
     .dl-row:last-child { border-bottom: none; }
     .dl-term {
       color: var(--muted);
       font-size: 13px;
+      font-weight: 500;
+      white-space: nowrap;
     }
     .dl-value {
-      word-break: break-word;
-      font-size: 14px;
+      font-size: 13px;
+      color: var(--text);
+      word-break: normal;
+      overflow-wrap: break-word;
     }
     .subsection + .subsection {
-      margin-top: 18px;
-      padding-top: 18px;
-      border-top: 1px solid #edf2f7;
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid #f1f5f9;
     }
     .list {
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: 10px;
     }
     .entry {
-      padding: 14px 0;
-      border-bottom: 1px solid #edf2f7;
+      padding: 12px 0;
+      border-bottom: 1px solid #f1f5f9;
     }
     .entry:first-child { padding-top: 0; }
     .entry:last-child {
@@ -5108,11 +5299,12 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       justify-content: space-between;
       gap: 12px;
       flex-wrap: wrap;
-      margin-bottom: 8px;
+      margin-bottom: 6px;
     }
     .entry-title {
-      font-weight: 700;
-      line-height: 1.5;
+      font-weight: 600;
+      font-size: 14px;
+      line-height: 1.4;
     }
     .muted {
       color: var(--muted);
@@ -5125,11 +5317,12 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
     }
     .small { font-size: 12px; }
     .callout {
-      margin-top: 14px;
-      padding: 14px 16px;
-      border-radius: 12px;
+      margin-top: 12px;
+      padding: 12px 14px;
+      border-radius: var(--radius-sm);
       background: #f8fbff;
       border: 1px solid var(--border);
+      font-size: 13px;
     }
     .callout.critical {
       background: var(--critical-soft);
@@ -5144,36 +5337,94 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       padding-left: 18px;
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: 8px;
     }
     .list-clean li { color: #1e293b; }
+
+    /*
+     * 表格排版防破碎与横向溢出保护（遵循 UI 规范 12.4 策略 B）
+     * Anti-forced-wrapping table layouts with horizontal scroll protection.
+     */
     .table-wrap {
       border: 1px solid var(--border);
-      border-radius: 14px;
+      border-radius: var(--radius-md);
       overflow-x: auto;
       overflow-y: hidden;
-      margin-top: 14px;
+      margin-top: 12px;
       background: #fff;
+      -webkit-overflow-scrolling: touch;
     }
     table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 14px;
+      font-size: 13px;
+      line-height: 1.5;
     }
-    th, td {
-      padding: 12px 14px;
+    th {
+      background: #f8fbff;
+      color: var(--muted);
+      font-weight: 600;
+      font-size: 12px;
+      letter-spacing: 0.02em;
+      padding: 10px 14px;
       text-align: left;
-      border-bottom: 1px solid #edf2f7;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+      user-select: none;
+    }
+    td {
+      padding: 10px 14px;
+      text-align: left;
+      border-bottom: 1px solid #f1f5f9;
       vertical-align: top;
-      word-break: break-word;
+      color: var(--text);
+    }
+    tr:last-child td { border-bottom: none; }
+    tbody tr:hover { background: #fafcff; }
+
+    /* 语义化数据列防断裂规则 / Semantic column atomic integrity classes */
+    .col-time,
+    .col-host,
+    .col-role,
+    .col-status,
+    .col-id,
+    .col-size,
+    .col-hash,
+    .col-seq,
+    .col-type,
+    .col-scope,
+    .col-version,
+    .col-node,
+    .col-name,
+    .col-proc,
+    .col-step,
+    .cell-nowrap {
+      white-space: nowrap;
+      word-break: keep-all;
+    }
+    .col-desc,
+    .cell-wrap {
+      white-space: normal;
+      overflow-wrap: break-word;
+      word-break: normal;
+      min-width: 240px;
+    }
+    .col-file {
+      white-space: nowrap;
+      word-break: keep-all;
+    }
+
+    /* 进程事件与指标快照特定尺寸微调 / Process & Metric tables layout tuning */
+    .process-events-table,
+    .metric-signals-table {
+      width: max-content;
+      min-width: 100%;
     }
     .process-events-table th:first-child,
     .process-events-table td:first-child {
       width: 188px;
       min-width: 188px;
       white-space: nowrap;
-      overflow-wrap: normal;
-      word-break: normal;
     }
     .process-events-table th:nth-child(2),
     .process-events-table td:nth-child(2) {
@@ -5185,11 +5436,13 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
     .process-events-table td:nth-child(3) {
       width: 140px;
       min-width: 140px;
+      white-space: nowrap;
     }
     .process-events-table th:nth-child(4),
     .process-events-table td:nth-child(4) {
       width: 180px;
       min-width: 180px;
+      white-space: nowrap;
     }
     .process-events-table th:nth-child(5),
     .process-events-table td:nth-child(5) {
@@ -5198,26 +5451,11 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       overflow-wrap: anywhere;
       word-break: break-word;
     }
-    .process-events-table {
-      width: max-content;
-      min-width: 100%;
-    }
-    .metric-signals-table th {
-      white-space: nowrap;
-      word-break: normal;
-      overflow-wrap: normal;
-    }
-    .metric-signals-table {
-      width: max-content;
-      min-width: 100%;
-    }
     .metric-signals-table th:first-child,
     .metric-signals-table td:first-child {
       width: 132px;
       min-width: 132px;
       white-space: nowrap;
-      word-break: normal;
-      overflow-wrap: normal;
     }
     .metric-signals-table th:nth-child(2),
     .metric-signals-table td:nth-child(2) {
@@ -5235,27 +5473,18 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       width: 84px;
       min-width: 84px;
       white-space: nowrap;
-      word-break: normal;
-      overflow-wrap: normal;
     }
     .metric-signals-table th:nth-child(5),
     .metric-signals-table td:nth-child(5) {
       width: 88px;
       min-width: 88px;
       white-space: nowrap;
-      word-break: normal;
-      overflow-wrap: normal;
     }
-    th {
-      background: #f8fbff;
-      color: var(--muted);
-      font-weight: 600;
-    }
-    tr:last-child td { border-bottom: none; }
+
     .artifact-group + .artifact-group {
-      margin-top: 22px;
-      padding-top: 22px;
-      border-top: 1px solid #edf2f7;
+      margin-top: 20px;
+      padding-top: 20px;
+      border-top: 1px solid #f1f5f9;
     }
     .artifact-grid {
       display: grid;
@@ -5264,7 +5493,7 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
     }
     .artifact-card {
       border: 1px solid var(--border);
-      border-radius: 14px;
+      border-radius: var(--radius-md);
       background: #fff;
       padding: 16px;
       display: flex;
@@ -5277,41 +5506,49 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       gap: 10px;
     }
     .artifact-meta .meta-item {
-      border: 1px solid #edf2f7;
-      border-radius: 10px;
-      padding: 10px 12px;
+      border: 1px solid #f1f5f9;
+      border-radius: var(--radius-sm);
+      padding: 8px 10px;
       background: #fafcff;
     }
     .meta-item .label {
       color: var(--muted);
-      font-size: 12px;
-      margin-bottom: 6px;
+      font-size: 11px;
+      margin-bottom: 4px;
     }
     .meta-item .value {
       font-size: 13px;
-      word-break: break-word;
+      word-break: normal;
+      overflow-wrap: break-word;
     }
+
+    /* 行内代码与路径保护（整行展示、杜绝字中折行） / Inline Code & Path Integrity */
     code.inline {
-      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
       background: #eff6ff;
       color: #1d4ed8;
-      padding: 2px 6px;
+      border: 1px solid rgba(37,99,235,0.12);
+      padding: 1.5px 6px;
       border-radius: 6px;
-      word-break: break-all;
+      font-size: 12px;
+      white-space: nowrap;
+      word-break: keep-all;
+      display: inline-block;
+      vertical-align: baseline;
     }
     pre {
       margin: 0;
       background: var(--code-bg);
       color: var(--code-text);
-      padding: 16px;
-      border-radius: 12px;
+      padding: 14px 16px;
+      border-radius: var(--radius-sm);
       overflow: auto;
-      line-height: 1.6;
+      line-height: 1.55;
       font-size: 12px;
       max-height: 420px;
       white-space: pre-wrap;
       word-break: break-word;
-      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     }
     .copyable-block {
       margin-top: 10px;
@@ -5329,21 +5566,23 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       border: 1px solid #dbeafe;
       background: #eff6ff;
       color: #1d4ed8;
-      border-radius: 10px;
-      padding: 7px 12px;
+      border-radius: var(--radius-sm);
+      padding: 6px 12px;
       font-size: 12px;
-      font-weight: 700;
+      font-weight: 600;
       cursor: pointer;
-      transition: all 0.18s ease;
+      transition: all 0.16s ease;
       text-decoration: none;
       display: inline-flex;
       align-items: center;
       justify-content: center;
+      white-space: nowrap;
     }
     .copy-btn:hover,
     .log-action-btn:hover,
     .modal-close-btn:hover {
       background: #dbeafe;
+      text-decoration: none;
     }
     .copy-btn.copied {
       background: #dcfce7;
@@ -5370,7 +5609,7 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       display: inline;
     }
     .log-preview-note {
-      margin-top: 10px;
+      margin-top: 8px;
     }
     .full-log-modal {
       position: fixed;
@@ -5390,14 +5629,14 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       width: min(1120px, 100%);
       height: min(82vh, 920px);
       background: #ffffff;
-      border-radius: 18px;
+      border-radius: var(--radius-lg);
       box-shadow: 0 24px 60px rgba(15, 23, 42, 0.24);
       display: flex;
       flex-direction: column;
       overflow: hidden;
     }
     .full-log-header {
-      padding: 18px 20px;
+      padding: 16px 20px;
       border-bottom: 1px solid #e2e8f0;
       display: flex;
       gap: 12px;
@@ -5441,7 +5680,7 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
     }
     details {
       border: 1px dashed var(--border);
-      border-radius: 12px;
+      border-radius: var(--radius-sm);
       padding: 12px 14px;
       background: #f8fafc;
     }
@@ -5456,46 +5695,24 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       display: block;
       background: linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
       border: 1px solid #e2e8f0;
-      border-radius: 10px;
+      border-radius: var(--radius-sm);
     }
-    .metric-chart-axis {
-      stroke-width: 1.2;
-    }
-    .metric-chart-grid {
-      stroke-width: 1;
-      stroke-dasharray: 3 4;
-    }
-    .metric-chart-path {
-      fill: none;
-      stroke-width: 2.4;
-      stroke-linecap: round;
-      stroke-linejoin: round;
-    }
-    .metric-chart-threshold {
-      stroke: #f59e0b;
-      stroke-width: 1.2;
-      stroke-dasharray: 4 3;
-    }
-    .metric-chart-dot {
-      fill: #0f172a;
-    }
-    .metric-chart-label {
-      fill: #64748b;
-      font-size: 10px;
-    }
-    .metric-chart-label.x-mid {
-      text-anchor: middle;
-    }
+    .metric-chart-axis { stroke-width: 1.2; }
+    .metric-chart-grid { stroke-width: 1; stroke-dasharray: 3 4; }
+    .metric-chart-path { fill: none; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+    .metric-chart-threshold { stroke: #f59e0b; stroke-width: 1.2; stroke-dasharray: 4 3; }
+    .metric-chart-dot { fill: #0f172a; }
+    .metric-chart-label { fill: #64748b; font-size: 10px; }
+    .metric-chart-label.x-mid { text-anchor: middle; }
     .metric-chart-label.x-end,
-    .metric-chart-label.threshold-label {
-      text-anchor: end;
-    }
+    .metric-chart-label.threshold-label { text-anchor: end; }
+
     .summary-grid,
     .finding-grid,
     .category-grid,
     .signal-card-grid {
       display: grid;
-      gap: 16px;
+      gap: 14px;
     }
     .summary-grid,
     .category-grid {
@@ -5509,12 +5726,12 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
     .category-card,
     .signal-card {
       border: 1px solid var(--border);
-      border-radius: 20px;
-      padding: 18px;
+      border-radius: var(--radius-md);
+      padding: 16px;
       background: #fff;
     }
     .signal-card {
-      background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+      background: #fafcff;
     }
     .finding-meta,
     .category-meta {
@@ -5522,29 +5739,33 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       align-items: center;
       justify-content: space-between;
       gap: 12px;
-      margin-bottom: 12px;
+      margin-bottom: 10px;
     }
     .category-count {
-      font-size: 30px;
+      font-size: 28px;
       line-height: 1;
       font-weight: 700;
       color: #0f172a;
+      font-variant-numeric: tabular-nums;
     }
     .timeline-list {
       display: flex;
       flex-direction: column;
-      gap: 14px;
+      gap: 12px;
     }
     .timeline-item {
       display: grid;
-      grid-template-columns: 176px 16px minmax(0, 1fr);
-      gap: 14px;
+      grid-template-columns: 160px 16px minmax(0, 1fr);
+      gap: 12px;
+      align-items: start;
     }
     .timeline-time {
       color: var(--muted);
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 600;
+      white-space: nowrap;
       padding-top: 2px;
+      font-variant-numeric: tabular-nums;
     }
     .timeline-dot-wrap {
       display: flex;
@@ -5554,7 +5775,7 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       margin-top: 6px;
       width: 10px;
       height: 10px;
-      border-radius: 999px;
+      border-radius: var(--radius-full);
       background: #94a3b8;
     }
     .timeline-dot.tone-critical { background: #dc2626; }
@@ -5564,8 +5785,8 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       min-width: 0;
       padding-bottom: 12px;
       border-bottom: 1px dashed #e2e8f0;
-      overflow-wrap: anywhere;
-      word-break: break-word;
+      overflow-wrap: break-word;
+      word-break: normal;
     }
     .timeline-content:last-child {
       border-bottom: none;
@@ -5573,8 +5794,8 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
     }
     .timeline-content .entry-title,
     .timeline-content .muted {
-      overflow-wrap: anywhere;
-      word-break: break-word;
+      overflow-wrap: break-word;
+      word-break: normal;
     }
     .signal-head {
       display: flex;
@@ -5586,186 +5807,90 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
     .signal-stats {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 10px;
+      gap: 8px;
       margin-bottom: 12px;
     }
     .signal-stat {
-      border-radius: 12px;
+      border-radius: var(--radius-sm);
       background: #f8fafc;
-      padding: 10px 12px;
+      padding: 8px 10px;
     }
     .signal-stat .label {
-      font-size: 12px;
+      font-size: 11px;
       color: var(--muted);
-      margin-bottom: 4px;
+      margin-bottom: 3px;
+      white-space: nowrap;
     }
     .signal-stat .value {
-      font-size: 15px;
-      font-weight: 600;
-      color: #0f172a;
-    }
-    .report-shell {
-      display: grid;
-      grid-template-columns: 280px minmax(0, 1fr);
-      gap: 24px;
-      align-items: start;
-    }
-    .report-sidebar {
-      position: sticky;
-      top: 20px;
-      align-self: start;
-      min-height: calc(100vh - 40px);
-      display: flex;
-      flex-direction: column;
-      border: 1px solid var(--border);
-      border-radius: 24px;
-      background: rgba(255,255,255,0.92);
-      backdrop-filter: blur(14px);
-      padding: 20px 18px;
-      box-shadow: 0 18px 48px rgba(15, 23, 42, 0.08);
-    }
-    .sidebar-brand {
-      padding-bottom: 16px;
-      border-bottom: 1px solid #e2e8f0;
-      margin-bottom: 16px;
-    }
-    .sidebar-brand .eyebrow {
-      font-size: 12px;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      color: #64748b;
-      margin-bottom: 8px;
-      font-weight: 700;
-    }
-    .sidebar-brand .title {
-      font-size: 20px;
-      font-weight: 700;
-      color: #0f172a;
-      line-height: 1.35;
-    }
-    .sidebar-meta {
-      display: grid;
-      gap: 10px;
-      margin-bottom: 16px;
-    }
-    .sidebar-meta-card {
-      border-radius: 16px;
-      background: linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
-      border: 1px solid #e2e8f0;
-      padding: 12px 14px;
-    }
-    .sidebar-meta-card .label {
-      font-size: 11px;
-      color: #64748b;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-    }
-    .sidebar-meta-card .value {
-      margin-top: 6px;
-      color: #0f172a;
       font-size: 14px;
       font-weight: 600;
-      line-height: 1.5;
-    }
-    .sidebar-nav {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      flex: 1 1 auto;
-    }
-    .sidebar-link {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      text-decoration: none;
-      color: #334155;
-      border: 1px solid transparent;
-      border-radius: 16px;
-      padding: 12px 14px;
-      transition: all 0.18s ease;
-      background: transparent;
-    }
-    .sidebar-link:hover {
-      background: #f8fafc;
-      border-color: #e2e8f0;
-    }
-    .sidebar-link.active {
-      background: linear-gradient(180deg, #eff6ff 0%, #ffffff 100%);
-      border-color: #bfdbfe;
-      color: #1d4ed8;
-      box-shadow: 0 8px 22px rgba(37,99,235,0.10);
-    }
-    .sidebar-link .meta {
-      min-width: 0;
-    }
-    .sidebar-link .title {
-      font-weight: 600;
-      font-size: 14px;
-    }
-    .sidebar-link .desc {
-      margin-top: 4px;
-      color: #64748b;
-      font-size: 12px;
-      line-height: 1.5;
-    }
-    .sidebar-link .count {
-      flex-shrink: 0;
-      min-width: 28px;
-      height: 28px;
-      border-radius: 999px;
-      background: #e2e8f0;
       color: #0f172a;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 12px;
-      font-weight: 700;
-      padding: 0 8px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
-    .sidebar-link.active .count {
-      background: #dbeafe;
-      color: #1d4ed8;
-    }
-    .report-main {
-      min-width: 0;
-      min-height: calc(100vh - 40px);
-    }
-    .tab-page {
-      display: none;
-      min-width: 0;
-      min-height: calc(100vh - 40px);
-    }
-    .tab-page.active {
-      display: flex;
-      flex-direction: column;
-      gap: 18px;
-    }
-    .tab-page.active > .section:last-child,
-    .tab-page.active > .hero:last-child {
-      flex: 1 1 auto;
-    }
+
+    /* 下钻穿透卡片（概览快速穿透） / Quick Drill-down Cards */
     .overview-drill-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-      gap: 16px;
+      gap: 14px;
     }
+    .drill-card {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: #fff;
+      padding: 16px;
+      text-decoration: none;
+      color: inherit;
+      display: block;
+      transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
+    }
+    .drill-card:hover {
+      transform: translateY(-2px);
+      border-color: #93c5fd;
+      box-shadow: 0 10px 24px rgba(37,99,235,0.08);
+      text-decoration: none;
+    }
+    .drill-card .title {
+      font-size: 15px;
+      font-weight: 700;
+      color: #0f172a;
+      white-space: nowrap;
+    }
+    .drill-card .count {
+      margin-top: 8px;
+      font-size: 26px;
+      font-weight: 700;
+      color: #2563eb;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+    }
+    .drill-card .desc {
+      margin-top: 8px;
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    /* 二级内部 Tab 标签栏 / Inner Tab Toolbars */
     .inner-tab-toolbar {
       display: flex;
       flex-wrap: wrap;
-      gap: 10px;
-      margin: 18px 0 20px;
+      gap: 8px;
+      margin: 14px 0 18px;
     }
     .inner-tab-btn {
       border: 1px solid #dbeafe;
       background: #eff6ff;
       color: #1e3a8a;
-      border-radius: 999px;
-      padding: 9px 14px;
-      font-size: 13px;
+      border-radius: var(--radius-full);
+      padding: 7px 14px;
+      font-size: 12px;
       font-weight: 600;
       cursor: pointer;
-      transition: all 0.18s ease;
+      transition: all 0.16s ease;
+      white-space: nowrap;
     }
     .inner-tab-btn:hover {
       background: #dbeafe;
@@ -5774,7 +5899,7 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       background: #2563eb;
       border-color: #2563eb;
       color: #ffffff;
-      box-shadow: 0 10px 22px rgba(37,99,235,0.18);
+      box-shadow: 0 4px 12px rgba(37,99,235,0.20);
     }
     .inner-tab-panel {
       display: none;
@@ -5783,46 +5908,15 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
     .inner-tab-panel.active {
       display: block;
     }
-    .drill-card {
-      border: 1px solid var(--border);
-      border-radius: 20px;
-      background: #fff;
-      padding: 18px;
-      text-decoration: none;
-      color: inherit;
-      display: block;
-      transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
-    }
-    .drill-card:hover {
-      transform: translateY(-2px);
-      border-color: #bfdbfe;
-      box-shadow: 0 14px 30px rgba(37,99,235,0.10);
-    }
-    .drill-card .title {
-      font-size: 16px;
-      font-weight: 700;
-      color: #0f172a;
-    }
-    .drill-card .count {
-      margin-top: 12px;
-      font-size: 28px;
-      font-weight: 700;
-      color: #2563eb;
-      line-height: 1;
-    }
-    .drill-card .desc {
-      margin-top: 10px;
-      font-size: 13px;
-      color: #64748b;
-      line-height: 1.6;
-    }
     .empty {
       border: 1px dashed var(--border);
-      border-radius: 12px;
-      padding: 18px;
+      border-radius: var(--radius-sm);
+      padding: 16px;
       color: var(--muted);
       background: #fafcff;
+      font-size: 13px;
     }
+
     @media (max-width: 1280px) {
       .report-shell {
         grid-template-columns: 1fr;
@@ -5837,7 +5931,7 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       }
       .sidebar-nav {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
       }
     }
     @media (max-width: 1120px) {
@@ -5847,11 +5941,11 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       }
     }
     @media (max-width: 900px) {
-      body { padding: 16px; }
-      .section, .hero { padding: 18px; }
+      body { padding: 14px; }
+      .section, .hero { padding: 16px; }
       .dl-row {
         grid-template-columns: 1fr;
-        gap: 6px;
+        gap: 4px;
       }
       .metric-grid,
       .stat-grid,
@@ -5931,24 +6025,23 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
     <header class="hero">
       <div class="hero-grid">
         <div class="hero-main">
+          <div class="hero-kicker">STX · {{pair "诊断结论" "Diagnosis Overview"}}</div>
+          <h1 class="hero-title">{{loc .Health.Title}}</h1>
           <div class="hero-badges">
             <span class="badge {{statusClass .Health.Tone}}">{{loc .Health.Tone}}</span>
             <span class="badge">{{.Health.ClusterLabel}}</span>
             <span class="badge">{{.Health.WindowLabel}}</span>
+            <span class="badge" style="color: var(--muted); font-weight: 500;">{{pair "生成于" "Generated"}} {{formatTime .GeneratedAt}}</span>
           </div>
-          <div class="hero-kicker">STX</div>
-          <h1 class="hero-title">{{pair "诊断报告" "Diagnostic Report"}}</h1>
-          <div class="muted small" style="margin-top: 10px;">{{pair "生成时间" "Generated"}} {{formatTime .GeneratedAt}}</div>
-          <h2 style="margin: 16px 0 0; font-size: 28px; line-height: 1.3; color: #0f172a;">{{loc .Health.Title}}</h2>
           <p class="hero-summary">{{loc .Health.Summary}}</p>
-          <div class="summary-grid" style="margin-top: 24px;">
+          <div class="summary-grid" style="margin-top: 18px;">
             <div class="stat-card">
-              <div class="label">{{pair "影响范围" "Impact"}}</div>
-              <div class="value" style="font-size: 18px;">{{loc .Health.ImpactSummary}}</div>
+              <div class="label">{{pair "影响范围" "Blast Radius / Impact"}}</div>
+              <div class="value" style="font-size: 15px; font-weight: 600; line-height: 1.4;">{{loc .Health.ImpactSummary}}</div>
             </div>
             <div class="stat-card">
-              <div class="label">{{pair "优先排查" "Priority"}}</div>
-              <div class="value" style="font-size: 18px;">{{loc .Health.PrimaryFocus}}</div>
+              <div class="label">{{pair "优先排查" "Priority Focus"}}</div>
+              <div class="value" style="font-size: 15px; font-weight: 600; line-height: 1.4;">{{loc .Health.PrimaryFocus}}</div>
             </div>
           </div>
         </div>
@@ -5957,16 +6050,17 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
           {{if .Recommendations}}
           <div class="list">
             {{range .Recommendations}}
-            <div class="entry" style="background: rgba(255,255,255,0.78);">
-              <div class="entry-title">{{loc .Title}}</div>
-              <div class="muted small" style="margin-top: 6px;">{{loc .Details}}</div>
+            <div class="entry" style="background: rgba(255,255,255,0.85); padding: 8px 10px; border-radius: var(--radius-sm); border: 1px solid rgba(0,0,0,0.04);">
+              <div class="entry-title" style="font-size: 13px;">{{loc .Title}}</div>
+              <div class="muted small" style="margin-top: 4px;">{{loc .Details}}</div>
             </div>
             {{end}}
           </div>
           {{else}}
           <div class="empty">{{pair "当前没有额外建议，可直接查看关键发现与时间线。" "No extra advice is available for now."}}</div>
           {{end}}
-          <div class="side-label" style="margin-top: 18px;">{{pair "核心指标" "Key Signals"}}</div>
+          {{if .Health.Metrics}}
+          <div class="side-label" style="margin-top: 16px;">{{pair "核心指标" "Key Signals"}}</div>
           <div class="metric-grid">
             {{range .Health.Metrics}}
             <div class="metric-card">
@@ -5976,6 +6070,7 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
             </div>
             {{end}}
           </div>
+          {{end}}
         </aside>
       </div>
     </header>
@@ -5983,46 +6078,28 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
     <section class="section" id="focus">
       <div class="section-heading">
         <div>
-          <h2>{{pair "结论摘要" "Executive Summary"}}</h2>
+          <h2>{{pair "诊断全景与下钻" "Overview & Drill-down"}}</h2>
+          <div class="section-lead">{{pair "快速穿透到关键发现、时序时间线、重点指标与深层证据。" "Drill down into critical findings, timeline, prioritized signals, and runtime evidence."}}</div>
         </div>
       </div>
       <div class="inner-tab-toolbar">
-        <button type="button" class="inner-tab-btn active" data-inner-tab-group="overview" data-inner-tab-key="summary">{{pair "摘要" "Summary"}}</button>
-        <button type="button" class="inner-tab-btn" data-inner-tab-group="overview" data-inner-tab-key="next">{{pair "继续查看" "Explore More"}}</button>
+        <button type="button" class="inner-tab-btn active" data-inner-tab-group="overview" data-inner-tab-key="next">{{pair "快速下钻" "Quick Drill-down"}}</button>
+        <button type="button" class="inner-tab-btn" data-inner-tab-group="overview" data-inner-tab-key="summary">{{pair "核心快照" "Core Highlights"}}</button>
       </div>
-      <div class="inner-tab-panel active" data-inner-tab-group="overview" data-inner-tab-key="summary">
-        <div class="summary-grid">
-          <article class="focus-panel {{toneClass .Health.Tone}}">
-            <div class="focus-label">{{pair "风险等级" "Risk Level"}}</div>
-            <h3>{{loc .Health.Tone}}</h3>
-            <p>{{loc .Health.Summary}}</p>
-          </article>
-          <article class="focus-panel">
-            <div class="focus-label">{{pair "核心现象" "Core Signals"}}</div>
-            <p>{{loc .Health.PrimaryFocus}}</p>
-            {{if .ErrorContext}}<div class="panel-note">{{pair "主要错误" "Top error"}}: {{.ErrorContext.GroupTitle}}</div>{{end}}
-          </article>
-          <article class="focus-panel">
-            <div class="focus-label">{{pair "影响范围" "Blast Radius"}}</div>
-            <p>{{loc .Health.ImpactSummary}}</p>
-            <div class="panel-note">{{.Health.WindowLabel}}</div>
-          </article>
-        </div>
-      </div>
-      <div class="inner-tab-panel" data-inner-tab-group="overview" data-inner-tab-key="next">
+      <div class="inner-tab-panel active" data-inner-tab-group="overview" data-inner-tab-key="next">
         <div class="overview-drill-grid">
           <a class="drill-card" href="#tab-findings">
-            <div class="title">{{pair "关键发现" "Findings"}}</div>
+            <div class="title">{{pair "关键发现" "Critical Findings"}}</div>
             <div class="count">{{len .Findings}}</div>
             <div class="desc">{{pair "查看最需要优先处理的问题和建议动作。" "Review the most urgent issues and next actions."}}</div>
           </a>
           <a class="drill-card" href="#tab-timeline">
-            <div class="title">{{pair "时间线" "Timeline"}}</div>
+            <div class="title">{{pair "时间线" "Timeline & Categories"}}</div>
             <div class="count">{{len .Timeline}}</div>
             <div class="desc">{{pair "按时间查看异常、事件和峰值的先后关系。" "See the order of anomalies, events and peaks over time."}}</div>
           </a>
           <a class="drill-card" href="#tab-signals">
-            <div class="title">{{pair "指标" "Signals"}}</div>
+            <div class="title">{{pair "重点指标" "Key Signals"}}</div>
             <div class="count">{{if .MetricsSnapshot}}{{.MetricsSnapshot.SignalCount}}{{else}}0{{end}}</div>
             <div class="desc">{{pair "查看关键指标和趋势变化。" "Inspect prioritized signals and their trends."}}</div>
           </a>
@@ -6031,6 +6108,32 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
             <div class="count">{{if .ErrorContext}}{{.ErrorContext.RecentEventCount}}{{else}}0{{end}}</div>
             <div class="desc">{{pair "查看日志、配置和运行时上下文。" "Open logs, config and runtime context."}}</div>
           </a>
+        </div>
+      </div>
+      <div class="inner-tab-panel" data-inner-tab-group="overview" data-inner-tab-key="summary">
+        <div class="summary-grid">
+          <article class="focus-panel">
+            <div class="focus-label">{{pair "核心现象" "Core Signals"}}</div>
+            <div class="entry-title" style="margin-bottom: 6px;">{{loc .Health.PrimaryFocus}}</div>
+            {{if .ErrorContext}}<div class="panel-note"><strong>{{pair "主要错误组" "Top Error Group"}}</strong>: {{.ErrorContext.GroupTitle}} ({{.ErrorContext.OccurrenceCount}} {{pair "次出现" "events"}})</div>{{end}}
+          </article>
+          <article class="focus-panel">
+            <div class="focus-label">{{pair "波及范围" "Blast Radius"}}</div>
+            <div class="entry-title" style="margin-bottom: 6px;">{{loc .Health.ImpactSummary}}</div>
+            <div class="panel-note"><strong>{{pair "观测窗口" "Window"}}</strong>: {{.Health.WindowLabel}}</div>
+          </article>
+          <article class="focus-panel">
+            <div class="focus-label">{{pair "根因分类分布" "Root Cause Distribution"}}</div>
+            {{if .Categories}}
+            <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px;">
+              {{range .Categories}}
+              <span class="badge"><strong>{{loc .Label}}</strong>: {{.Count}}</span>
+              {{end}}
+            </div>
+            {{else}}
+            <div class="muted small" style="margin-top: 6px;">{{pair "暂无归类数据" "No categories classified"}}</div>
+            {{end}}
+          </article>
         </div>
       </div>
     </section>
@@ -6177,24 +6280,24 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
             <table>
               <thead>
                 <tr>
-                  <th>{{pair "发生时间" "Occurred At"}}</th>
-                  <th>{{pair "主机" "Host"}}</th>
-                  <th>{{pair "角色" "Role"}}</th>
-                  <th>{{pair "作业 ID" "Job ID"}}</th>
-                  <th>{{pair "来源文件" "Source File"}}</th>
+                  <th class="col-time">{{pair "发生时间" "Occurred At"}}</th>
+                  <th class="col-host">{{pair "主机" "Host"}}</th>
+                  <th class="col-role">{{pair "角色" "Role"}}</th>
+                  <th class="col-id">{{pair "作业 ID" "Job ID"}}</th>
+                  <th class="col-file">{{pair "来源文件" "Source File"}}</th>
                 </tr>
               </thead>
               <tbody>
                 {{range .ErrorContext.Events}}
                 <tr>
-                  <td>{{.OccurredAt}}</td>
-                  <td>{{.HostLabel}}</td>
-                  <td>{{.Role}}</td>
-                  <td>{{.JobID}}</td>
-                  <td><code class="inline">{{.SourceFile}}</code></td>
+                  <td class="col-time">{{.OccurredAt}}</td>
+                  <td class="col-host">{{.HostLabel}}</td>
+                  <td class="col-role">{{.Role}}</td>
+                  <td class="col-id">{{.JobID}}</td>
+                  <td class="col-file"><code class="inline">{{.SourceFile}}</code></td>
                 </tr>
                 <tr>
-                  <td colspan="5">
+                  <td colspan="5" class="cell-wrap">
                     <div>{{.Message}}</div>
                     {{if .Evidence}}<div class="muted small wrap-text" style="margin-top: 6px;">{{.Evidence}}</div>{{end}}
                   </td>
@@ -6372,21 +6475,21 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
                 <table>
                   <thead>
                     <tr>
-                      <th>{{pair "更新时间" "Updated At"}}</th>
-                      <th>{{pair "配置类型" "Config Type"}}</th>
-                      <th>{{pair "范围" "Scope"}}</th>
-                      <th>{{pair "版本" "Version"}}</th>
-                      <th>{{pair "路径" "Path"}}</th>
+                      <th class="col-time">{{pair "更新时间" "Updated At"}}</th>
+                      <th class="col-type">{{pair "配置类型" "Config Type"}}</th>
+                      <th class="col-scope">{{pair "范围" "Scope"}}</th>
+                      <th class="col-version">{{pair "版本" "Version"}}</th>
+                      <th class="col-file">{{pair "路径" "Path"}}</th>
                     </tr>
                   </thead>
                   <tbody>
                     {{range .ConfigSnapshot.RemainingChanges}}
                     <tr>
-                      <td>{{formatTime .UpdatedAt}}</td>
-                      <td>{{.ConfigType}}</td>
-                      <td>{{.HostScope}}</td>
-                      <td>{{.Version}}</td>
-                      <td><code class="inline">{{.FilePath}}</code></td>
+                      <td class="col-time">{{formatTime .UpdatedAt}}</td>
+                      <td class="col-type">{{.ConfigType}}</td>
+                      <td class="col-scope">{{.HostScope}}</td>
+                      <td class="col-version">{{.Version}}</td>
+                      <td class="col-file"><code class="inline">{{.FilePath}}</code></td>
                     </tr>
                     {{end}}
                   </tbody>
@@ -6404,23 +6507,23 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
                 <table class="metric-signals-table">
                   <thead>
                     <tr>
-                      <th>{{pair "主机" "Host"}}</th>
-                      <th>{{pair "角色" "Role"}}</th>
-                      <th>{{pair "类型" "Type"}}</th>
-                      <th>{{pair "远程路径" "Remote Path"}}</th>
-                      <th>{{pair "大小" "Size"}}</th>
-                      <th>{{pair "哈希" "Hash"}}</th>
+                      <th class="col-host">{{pair "主机" "Host"}}</th>
+                      <th class="col-role">{{pair "角色" "Role"}}</th>
+                      <th class="col-type">{{pair "类型" "Type"}}</th>
+                      <th class="col-file">{{pair "远程路径" "Remote Path"}}</th>
+                      <th class="col-size">{{pair "大小" "Size"}}</th>
+                      <th class="col-hash">{{pair "哈希" "Hash"}}</th>
                     </tr>
                   </thead>
                   <tbody>
                     {{range .ConfigSnapshot.Files}}
                     <tr>
-                      <td>{{if .HostName}}{{.HostName}}{{else}}{{pair "主机" "Host"}} #{{.HostID}}{{end}}</td>
-                      <td>{{.Role}}</td>
-                      <td>{{.ConfigType}}</td>
-                      <td><code class="inline">{{.RemotePath}}</code></td>
-                      <td>{{formatBytes .SizeBytes}}</td>
-                      <td><code class="inline">{{shortHash .ContentHash}}</code></td>
+                      <td class="col-host">{{if .HostName}}{{.HostName}}{{else}}{{pair "主机" "Host"}} #{{.HostID}}{{end}}</td>
+                      <td class="col-role">{{.Role}}</td>
+                      <td class="col-type">{{.ConfigType}}</td>
+                      <td class="col-file"><code class="inline">{{.RemotePath}}</code></td>
+                      <td class="col-size">{{formatBytes .SizeBytes}}</td>
+                      <td class="col-hash"><code class="inline">{{shortHash .ContentHash}}</code></td>
                     </tr>
                     {{end}}
                   </tbody>
@@ -6445,19 +6548,19 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
                     <table>
                       <thead>
                         <tr>
-                          <th>{{pair "名称" "Name"}}</th>
-                          <th>{{pair "路径" "Path"}}</th>
-                          <th>{{pair "大小" "Size"}}</th>
-                          <th>{{pair "修改时间" "Modified"}}</th>
+                          <th class="col-name">{{pair "名称" "Name"}}</th>
+                          <th class="col-file">{{pair "路径" "Path"}}</th>
+                          <th class="col-size">{{pair "大小" "Size"}}</th>
+                          <th class="col-time">{{pair "修改时间" "Modified"}}</th>
                         </tr>
                       </thead>
                       <tbody>
                         {{range .Entries}}
                         <tr>
-                          <td>{{.Name}}</td>
-                          <td><code class="inline">{{.Path}}</code></td>
-                          <td>{{formatBytes .Size}}</td>
-                          <td>{{formatTime .ModTime}}</td>
+                          <td class="col-name">{{.Name}}</td>
+                          <td class="col-file"><code class="inline">{{.Path}}</code></td>
+                          <td class="col-size">{{formatBytes .Size}}</td>
+                          <td class="col-time">{{formatTime .ModTime}}</td>
                         </tr>
                         {{end}}
                       </tbody>
@@ -6620,21 +6723,21 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
             <table class="process-events-table">
               <thead>
                 <tr>
-                  <th>{{pair "发生时间" "Created At"}}</th>
-                  <th>{{pair "事件类型" "Event Type"}}</th>
-                  <th>{{pair "进程" "Process"}}</th>
-                  <th>{{pair "节点" "Node"}}</th>
-                  <th>{{pair "详情" "Details"}}</th>
+                  <th class="col-time">{{pair "发生时间" "Created At"}}</th>
+                  <th class="col-type">{{pair "事件类型" "Event Type"}}</th>
+                  <th class="col-proc">{{pair "进程" "Process"}}</th>
+                  <th class="col-node">{{pair "节点" "Node"}}</th>
+                  <th class="col-desc">{{pair "详情" "Details"}}</th>
                 </tr>
               </thead>
               <tbody>
                 {{range .ProcessEvents.Events}}
                 <tr>
-                  <td>{{.CreatedAt}}</td>
-                  <td>{{loc .EventType}}</td>
-                  <td>{{.ProcessName}}</td>
-                  <td>{{.NodeLabel}}</td>
-                  <td>{{loc .Details}}</td>
+                  <td class="col-time">{{.CreatedAt}}</td>
+                  <td class="col-type">{{loc .EventType}}</td>
+                  <td class="col-proc">{{.ProcessName}}</td>
+                  <td class="col-node">{{.NodeLabel}}</td>
+                  <td class="col-desc">{{loc .Details}}</td>
                 </tr>
                 {{end}}
               </tbody>
@@ -6697,19 +6800,19 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
               <table>
                 <thead>
                   <tr>
-                    <th>{{pair "主机" "Host"}}</th>
-                    <th>{{pair "角色" "Role"}}</th>
-                    <th>{{pair "集群节点" "Cluster Node"}}</th>
-                    <th>{{pair "安装目录" "Install Dir"}}</th>
+                    <th class="col-host">{{pair "主机" "Host"}}</th>
+                    <th class="col-role">{{pair "角色" "Role"}}</th>
+                    <th class="col-node">{{pair "集群节点" "Cluster Node"}}</th>
+                    <th class="col-file">{{pair "安装目录" "Install Dir"}}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {{range .Task.SelectedNodes}}
                   <tr>
-                    <td>{{.HostLabel}}</td>
-                    <td>{{.Role}}</td>
-                    <td>{{.ClusterNode}}</td>
-                    <td><code class="inline">{{.InstallDir}}</code></td>
+                    <td class="col-host">{{.HostLabel}}</td>
+                    <td class="col-role">{{.Role}}</td>
+                    <td class="col-node">{{.ClusterNode}}</td>
+                    <td class="col-file"><code class="inline">{{.InstallDir}}</code></td>
                   </tr>
                   {{end}}
                 </tbody>
@@ -6747,21 +6850,21 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
               <table>
                 <thead>
                   <tr>
-                    <th>#</th>
-                    <th>{{pair "步骤" "Step"}}</th>
-                    <th>{{pair "状态" "Status"}}</th>
-                    <th>{{pair "信息" "Message"}}</th>
-                    <th>{{pair "时间" "Time"}}</th>
+                    <th class="col-seq">#</th>
+                    <th class="col-step">{{pair "步骤" "Step"}}</th>
+                    <th class="col-status">{{pair "状态" "Status"}}</th>
+                    <th class="col-desc">{{pair "信息" "Message"}}</th>
+                    <th class="col-time">{{pair "时间" "Time"}}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {{range .TaskExecution.Steps}}
                   <tr>
-                    <td>{{.Sequence}}</td>
-                    <td><strong>{{loc .Title}}</strong><div class="muted small">{{.Code}}</div></td>
-                    <td><span class="badge {{statusClass .Status}}">{{loc .Status}}</span></td>
-                    <td>{{if ne .Error "-"}}{{loc .Error}}{{else}}{{loc .Message}}{{end}}</td>
-                    <td>{{.StartedAt}} → {{.CompletedAt}}</td>
+                    <td class="col-seq">{{.Sequence}}</td>
+                    <td class="col-step"><strong>{{loc .Title}}</strong><div class="muted small">{{.Code}}</div></td>
+                    <td class="col-status"><span class="badge {{statusClass .Status}}">{{loc .Status}}</span></td>
+                    <td class="col-desc">{{if ne .Error "-"}}{{loc .Error}}{{else}}{{loc .Message}}{{end}}</td>
+                    <td class="col-time">{{.StartedAt}} → {{.CompletedAt}}</td>
                   </tr>
                   {{end}}
                 </tbody>
@@ -6779,21 +6882,21 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
               <table>
                 <thead>
                   <tr>
-                    <th>{{pair "主机" "Host"}}</th>
-                    <th>{{pair "角色" "Role"}}</th>
-                    <th>{{pair "状态" "Status"}}</th>
-                    <th>{{pair "当前步骤" "Current Step"}}</th>
-                    <th>{{pair "信息" "Message"}}</th>
+                    <th class="col-host">{{pair "主机" "Host"}}</th>
+                    <th class="col-role">{{pair "角色" "Role"}}</th>
+                    <th class="col-status">{{pair "状态" "Status"}}</th>
+                    <th class="col-step">{{pair "当前步骤" "Current Step"}}</th>
+                    <th class="col-desc">{{pair "信息" "Message"}}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {{range .TaskExecution.Nodes}}
                   <tr>
-                    <td>{{.HostLabel}}</td>
-                    <td>{{.Role}}</td>
-                    <td><span class="badge {{statusClass .Status}}">{{loc .Status}}</span></td>
-                    <td>{{loc .CurrentStep}}</td>
-                    <td>{{if ne .Error "-"}}{{loc .Error}}{{else}}{{loc .Message}}{{end}}</td>
+                    <td class="col-host">{{.HostLabel}}</td>
+                    <td class="col-role">{{.Role}}</td>
+                    <td class="col-status"><span class="badge {{statusClass .Status}}">{{loc .Status}}</span></td>
+                    <td class="col-step">{{loc .CurrentStep}}</td>
+                    <td class="col-desc">{{if ne .Error "-"}}{{loc .Error}}{{else}}{{loc .Message}}{{end}}</td>
                   </tr>
                   {{end}}
                 </tbody>
@@ -6826,23 +6929,23 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
               <table>
                 <thead>
                   <tr>
-                    <th>{{pair "主机" "Host"}}</th>
-                    <th>{{pair "集群节点" "Cluster Node"}}</th>
-                    <th>{{pair "角色" "Role"}}</th>
-                    <th>{{pair "状态" "Status"}}</th>
-                    <th>PID</th>
-                    <th>{{pair "安装目录" "Install Dir"}}</th>
+                    <th class="col-host">{{pair "主机" "Host"}}</th>
+                    <th class="col-node">{{pair "集群节点" "Cluster Node"}}</th>
+                    <th class="col-role">{{pair "角色" "Role"}}</th>
+                    <th class="col-status">{{pair "状态" "Status"}}</th>
+                    <th class="col-id">PID</th>
+                    <th class="col-file">{{pair "安装目录" "Install Dir"}}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {{range .Cluster.Nodes}}
                   <tr>
-                    <td>{{.HostLabel}}</td>
-                    <td>#{{.ClusterNodeID}}</td>
-                    <td>{{.Role}}</td>
-                    <td><span class="badge {{statusClass .Status}}">{{loc .Status}}</span></td>
-                    <td>{{.ProcessPID}}</td>
-                    <td><code class="inline">{{.InstallDir}}</code></td>
+                    <td class="col-host">{{.HostLabel}}</td>
+                    <td class="col-node">#{{.ClusterNodeID}}</td>
+                    <td class="col-role">{{.Role}}</td>
+                    <td class="col-status"><span class="badge {{statusClass .Status}}">{{loc .Status}}</span></td>
+                    <td class="col-id">{{.ProcessPID}}</td>
+                    <td class="col-file"><code class="inline">{{.InstallDir}}</code></td>
                   </tr>
                   {{end}}
                 </tbody>

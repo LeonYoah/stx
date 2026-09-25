@@ -232,11 +232,13 @@ func InitDefaultAdminUserWithDB(database *gorm.DB) error {
 	}
 
 	// 创建默认管理员用户 / Create default admin user
+	now := time.Now()
 	adminUser := &auth.User{
-		Username: authConfig.DefaultAdminUsername,
-		Nickname: "系统管理员",
-		IsActive: true,
-		IsAdmin:  true,
+		Username:    authConfig.DefaultAdminUsername,
+		Nickname:    "系统管理员",
+		IsActive:    true,
+		IsAdmin:     true,
+		LastLoginAt: &now,
 	}
 
 	// 设置密码（使用 bcrypt 哈希）/ Set password (hashed using bcrypt)

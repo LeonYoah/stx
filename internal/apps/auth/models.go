@@ -64,11 +64,11 @@ type User struct {
 	Language     string    `json:"language" gorm:"size:8;default:zh"`
 	AvatarURL    string    `json:"avatar_url" gorm:"column:avatar_url;size:255"` // 头像 URL
 	OAuthID      string    `json:"oauth_id" gorm:"column:oauth_id;size:255;index"`               // OAuth 提供商 ID，格式: provider:id
-	IsActive     bool      `json:"is_active" gorm:"default:true"`
-	IsAdmin      bool      `json:"is_admin" gorm:"default:false"`
-	LastLoginAt  time.Time `json:"last_login_at"`
-	CreatedAt    time.Time `json:"created_at" gorm:"autoCreateTime"`
-	UpdatedAt    time.Time `json:"updated_at" gorm:"autoUpdateTime"`
+	IsActive     bool       `json:"is_active" gorm:"default:true"`
+	IsAdmin      bool       `json:"is_admin" gorm:"default:false"`
+	LastLoginAt  *time.Time `json:"last_login_at"`
+	CreatedAt    time.Time  `json:"created_at" gorm:"autoCreateTime"`
+	UpdatedAt    time.Time  `json:"updated_at" gorm:"autoUpdateTime"`
 }
 
 // TableName 指定表名
@@ -156,22 +156,23 @@ func (u *User) Create(db *gorm.DB) error {
 
 // UpdateLastLogin 更新最后登录时间
 func (u *User) UpdateLastLogin(db *gorm.DB) error {
-	u.LastLoginAt = time.Now()
+	now := time.Now()
+	u.LastLoginAt = &now
 	return db.Model(u).Update("last_login_at", u.LastLoginAt).Error
 }
 
 // UserInfo 用户信息（用于 API 响应，不包含敏感信息）
 type UserInfo struct {
-	ID          uint64    `json:"id"`
-	Username    string    `json:"username"`
-	Nickname    string    `json:"nickname"`
-	Email       string    `json:"email"`
-	Language    string    `json:"language"`
-	AvatarURL   string    `json:"avatar_url"`
-	IsActive    bool      `json:"is_active"`
-	IsAdmin     bool      `json:"is_admin"`
-	LastLoginAt time.Time `json:"last_login_at"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID          uint64     `json:"id"`
+	Username    string     `json:"username"`
+	Nickname    string     `json:"nickname"`
+	Email       string     `json:"email"`
+	Language    string     `json:"language"`
+	AvatarURL   string     `json:"avatar_url"`
+	IsActive    bool       `json:"is_active"`
+	IsAdmin     bool       `json:"is_admin"`
+	LastLoginAt *time.Time `json:"last_login_at"`
+	CreatedAt   time.Time  `json:"created_at"`
 }
 
 // ToUserInfo 将 User 转换为 UserInfo

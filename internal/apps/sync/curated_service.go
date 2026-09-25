@@ -21,6 +21,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/LeonYoah/stx/internal/db"
 )
 
 // CreateCuratedTemplateRequest creates one user curated template.
@@ -211,7 +213,7 @@ func (s *Service) CreateCuratedTemplate(ctx context.Context, req *CreateCuratedT
 		Mode:        normalizeCuratedMode(req.Mode),
 		Pattern:     normalizeCuratedPattern(req.Pattern),
 		Connectors:  JSONStringSlice(req.Connectors),
-		Content:     content,
+		Content:     db.ScriptText(content),
 		Enabled:     true,
 	}
 	if err := s.repo.CreateCuratedTemplate(ctx, item); err != nil {
@@ -268,7 +270,7 @@ func (s *Service) UpdateCuratedTemplate(ctx context.Context, id uint, req *Updat
 		if content == "" {
 			return nil, ErrCuratedTemplateContentRequired
 		}
-		item.Content = content
+		item.Content = db.ScriptText(content)
 	}
 	if req.Enabled != nil {
 		item.Enabled = *req.Enabled
@@ -352,7 +354,7 @@ func (s *Service) GetCuratedTemplateContentForInsert(ctx context.Context, builti
 		if row.OwnerUserID != userID {
 			return "", ErrCuratedTemplatePermissionDenied
 		}
-		content = row.Content
+		content = row.Content.String()
 	} else if strings.TrimSpace(builtinID) != "" {
 		seed, ok := findCuratedSeedByID(strings.TrimSpace(builtinID))
 		if !ok {
@@ -408,7 +410,7 @@ func curatedRowToView(row *CuratedTemplate) *CuratedTemplateView {
 		Mode:        row.Mode,
 		Pattern:     row.Pattern,
 		Connectors:  append([]string{}, row.Connectors...),
-		Content:     row.Content,
+		Content:     row.Content.String(),
 		Enabled:     row.Enabled,
 		OwnerUserID: row.OwnerUserID,
 	}

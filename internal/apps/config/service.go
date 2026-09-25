@@ -25,6 +25,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/LeonYoah/stx/internal/db"
 	"gopkg.in/yaml.v3"
 )
 
@@ -144,7 +145,7 @@ func (s *Service) Create(ctx context.Context, req *CreateConfigRequest, userID u
 		HostID:     req.HostID,
 		ConfigType: req.ConfigType,
 		FilePath:   GetConfigFilePath(req.ConfigType),
-		Content:    req.Content,
+		Content:    db.ScriptText(req.Content),
 		Version:    1,
 		UpdatedBy:  userID,
 	}
@@ -157,7 +158,7 @@ func (s *Service) Create(ctx context.Context, req *CreateConfigRequest, userID u
 		version := &ConfigVersion{
 			ConfigID:  config.ID,
 			Version:   1,
-			Content:   req.Content,
+			Content:   db.ScriptText(req.Content),
 			Comment:   req.Comment,
 			CreatedBy: userID,
 		}
@@ -182,12 +183,12 @@ func (s *Service) Update(ctx context.Context, id uint, req *UpdateConfigRequest,
 	}
 
 	// 内容没变化则不更新
-	if config.Content == req.Content {
+	if config.Content.String() == req.Content {
 		return s.toConfigInfo(ctx, config)
 	}
 
 	oldVersion := config.Version
-	config.Content = req.Content
+	config.Content = db.ScriptText(req.Content)
 	config.Version = oldVersion + 1
 	config.UpdatedBy = userID
 	config.UpdatedAt = time.Now()
@@ -200,7 +201,7 @@ func (s *Service) Update(ctx context.Context, id uint, req *UpdateConfigRequest,
 		version := &ConfigVersion{
 			ConfigID:  config.ID,
 			Version:   config.Version,
-			Content:   req.Content,
+			Content:   db.ScriptText(req.Content),
 			Comment:   req.Comment,
 			CreatedBy: userID,
 		}
@@ -221,16 +222,16 @@ func (s *Service) Update(ctx context.Context, id uint, req *UpdateConfigRequest,
 		if dirErr != nil {
 			info.PushError = "获取节点安装目录失败: " + dirErr.Error()
 		} else if installDir != "" {
-			pushErr := s.agentClient.PushConfig(ctx, *config.HostID, installDir, config.ConfigType, config.Content)
+			pushErr := s.agentClient.PushConfig(ctx, *config.HostID, installDir, config.ConfigType, config.Content.String())
 			if pushErr != nil {
 				info.PushError = "推送配置到节点失败: " + pushErr.Error()
 			} else {
-				s.syncDerivedRuntimeMetadata(ctx, config.ClusterID, config.HostID, config.ConfigType, config.Content)
+				s.syncDerivedRuntimeMetadata(ctx, config.ClusterID, config.HostID, config.ConfigType, config.Content.String())
 			}
 		}
 	}
 	if config.ConfigType == ConfigTypeLog4j2 {
-		s.syncDerivedRuntimeMetadata(ctx, config.ClusterID, config.HostID, config.ConfigType, config.Content)
+		s.syncDerivedRuntimeMetadata(ctx, config.ClusterID, config.HostID, config.ConfigType, config.Content.String())
 	}
 
 	return info, nil
@@ -249,7 +250,7 @@ func (s *Service) GetVersions(ctx context.Context, configID uint) ([]*ConfigVers
 			ID:        v.ID,
 			ConfigID:  v.ConfigID,
 			Version:   v.Version,
-			Content:   v.Content,
+			Content:   v.Content.String(),
 			Comment:   v.Comment,
 			CreatedBy: v.CreatedBy,
 			CreatedAt: v.CreatedAt,
@@ -271,7 +272,7 @@ func (s *Service) Rollback(ctx context.Context, id uint, req *RollbackConfigRequ
 		return nil, err
 	}
 
-	if err := validateConfigContent(config.ConfigType, targetVersion.Content); err != nil {
+	if err := validateConfigContent(config.ConfigType, targetVersion.Content.String()); err != nil {
 		return nil, err
 	}
 
@@ -314,7 +315,7 @@ func (s *Service) Rollback(ctx context.Context, id uint, req *RollbackConfigRequ
 		if dirErr != nil {
 			info.PushError = "获取节点安装目录失败: " + dirErr.Error()
 		} else if installDir != "" {
-			pushErr := s.agentClient.PushConfig(ctx, *config.HostID, installDir, config.ConfigType, config.Content)
+			pushErr := s.agentClient.PushConfig(ctx, *config.HostID, installDir, config.ConfigType, config.Content.String())
 			if pushErr != nil {
 				info.PushError = "推送配置到节点失败: " + pushErr.Error()
 			}
@@ -336,7 +337,7 @@ func (s *Service) Promote(ctx context.Context, id uint, req *PromoteConfigReques
 		return ErrCannotPromoteTemplate
 	}
 
-	if err := validateConfigContent(config.ConfigType, config.Content); err != nil {
+	if err := validateConfigContent(config.ConfigType, config.Content.String()); err != nil {
 		return err
 	}
 
@@ -434,7 +435,7 @@ func (s *Service) SyncFromTemplate(ctx context.Context, id uint, req *SyncConfig
 		return nil, ErrTemplateNotFound
 	}
 
-	if err := validateConfigContent(config.ConfigType, template.Content); err != nil {
+	if err := validateConfigContent(config.ConfigType, template.Content.String()); err != nil {
 		return nil, err
 	}
 
@@ -481,7 +482,7 @@ func (s *Service) SyncFromTemplate(ctx context.Context, id uint, req *SyncConfig
 		if dirErr != nil {
 			info.PushError = "获取节点安装目录失败: " + dirErr.Error()
 		} else if installDir != "" {
-			pushErr := s.agentClient.PushConfig(ctx, *config.HostID, installDir, config.ConfigType, config.Content)
+			pushErr := s.agentClient.PushConfig(ctx, *config.HostID, installDir, config.ConfigType, config.Content.String())
 			if pushErr != nil {
 				info.PushError = "推送配置到节点失败: " + pushErr.Error()
 			}
@@ -512,8 +513,8 @@ func (s *Service) InitClusterConfigs(ctx context.Context, clusterID uint, hostID
 		existingTemplate, err := s.repo.GetTemplate(ctx, clusterID, configType)
 		if err == nil && existingTemplate != nil {
 			// 模板已存在，更新内容
-			if existingTemplate.Content != content {
-				existingTemplate.Content = content
+			if existingTemplate.Content.String() != content {
+				existingTemplate.Content = db.ScriptText(content)
 				existingTemplate.Version = existingTemplate.Version + 1
 				existingTemplate.UpdatedBy = userID
 				existingTemplate.UpdatedAt = time.Now()
@@ -524,7 +525,7 @@ func (s *Service) InitClusterConfigs(ctx context.Context, clusterID uint, hostID
 				templateVersion := &ConfigVersion{
 					ConfigID:  existingTemplate.ID,
 					Version:   existingTemplate.Version,
-					Content:   content,
+					Content:   db.ScriptText(content),
 					Comment:   "Updated from node sync",
 					CreatedBy: userID,
 				}
@@ -539,7 +540,7 @@ func (s *Service) InitClusterConfigs(ctx context.Context, clusterID uint, hostID
 				HostID:     nil,
 				ConfigType: configType,
 				FilePath:   GetConfigFilePath(configType),
-				Content:    content,
+				Content:    db.ScriptText(content),
 				Version:    1,
 				UpdatedBy:  userID,
 			}
@@ -551,7 +552,7 @@ func (s *Service) InitClusterConfigs(ctx context.Context, clusterID uint, hostID
 			templateVersion := &ConfigVersion{
 				ConfigID:  template.ID,
 				Version:   1,
-				Content:   content,
+				Content:   db.ScriptText(content),
 				Comment:   "Initial config from installation",
 				CreatedBy: userID,
 			}
@@ -564,8 +565,8 @@ func (s *Service) InitClusterConfigs(ctx context.Context, clusterID uint, hostID
 		existingNodeConfig, err := s.repo.GetNodeConfig(ctx, clusterID, hostID, configType)
 		if err == nil && existingNodeConfig != nil {
 			// 节点配置已存在，更新内容
-			if existingNodeConfig.Content != content {
-				existingNodeConfig.Content = content
+			if existingNodeConfig.Content.String() != content {
+				existingNodeConfig.Content = db.ScriptText(content)
 				existingNodeConfig.Version = existingNodeConfig.Version + 1
 				existingNodeConfig.UpdatedBy = userID
 				existingNodeConfig.UpdatedAt = time.Now()
@@ -576,7 +577,7 @@ func (s *Service) InitClusterConfigs(ctx context.Context, clusterID uint, hostID
 				nodeVersion := &ConfigVersion{
 					ConfigID:  existingNodeConfig.ID,
 					Version:   existingNodeConfig.Version,
-					Content:   content,
+					Content:   db.ScriptText(content),
 					Comment:   "Updated from node sync",
 					CreatedBy: userID,
 				}
@@ -591,7 +592,7 @@ func (s *Service) InitClusterConfigs(ctx context.Context, clusterID uint, hostID
 				HostID:     &hostID,
 				ConfigType: configType,
 				FilePath:   GetConfigFilePath(configType),
-				Content:    content,
+				Content:    db.ScriptText(content),
 				Version:    1,
 				UpdatedBy:  userID,
 			}
@@ -603,7 +604,7 @@ func (s *Service) InitClusterConfigs(ctx context.Context, clusterID uint, hostID
 			nodeVersion := &ConfigVersion{
 				ConfigID:  nodeConfig.ID,
 				Version:   1,
-				Content:   content,
+				Content:   db.ScriptText(content),
 				Comment:   "Initial config from installation",
 				CreatedBy: userID,
 			}
@@ -623,7 +624,7 @@ func (s *Service) SyncTemplateToAllNodes(ctx context.Context, clusterID uint, co
 		return nil, ErrTemplateNotFound
 	}
 
-	if err := validateConfigContent(configType, template.Content); err != nil {
+	if err := validateConfigContent(configType, template.Content.String()); err != nil {
 		return nil, err
 	}
 
@@ -687,7 +688,7 @@ func (s *Service) SyncTemplateToAllNodes(ctx context.Context, clusterID uint, co
 					}
 					result.PushErrors = append(result.PushErrors, pushErr)
 				} else if installDir != "" {
-					if pushErr := s.agentClient.PushConfig(ctx, *nc.HostID, installDir, configType, template.Content); pushErr != nil {
+					if pushErr := s.agentClient.PushConfig(ctx, *nc.HostID, installDir, configType, template.Content.String()); pushErr != nil {
 						errInfo := &PushError{
 							HostID:  *nc.HostID,
 							Message: "推送配置失败: " + pushErr.Error(),
@@ -700,7 +701,7 @@ func (s *Service) SyncTemplateToAllNodes(ctx context.Context, clusterID uint, co
 						}
 						result.PushErrors = append(result.PushErrors, errInfo)
 					} else {
-						s.syncDerivedRuntimeMetadata(ctx, clusterID, nc.HostID, configType, template.Content)
+						s.syncDerivedRuntimeMetadata(ctx, clusterID, nc.HostID, configType, template.Content.String())
 					}
 				}
 			}
@@ -721,11 +722,11 @@ func (s *Service) PushConfigToNode(ctx context.Context, id uint, installDir stri
 		return errors.New("cannot push template config directly")
 	}
 
-	if err := validateConfigContent(config.ConfigType, config.Content); err != nil {
+	if err := validateConfigContent(config.ConfigType, config.Content.String()); err != nil {
 		return err
 	}
 
-	return s.agentClient.PushConfig(ctx, *config.HostID, installDir, config.ConfigType, config.Content)
+	return s.agentClient.PushConfig(ctx, *config.HostID, installDir, config.ConfigType, config.Content.String())
 }
 
 // toConfigInfo 转换为 ConfigInfo
@@ -736,7 +737,7 @@ func (s *Service) toConfigInfo(ctx context.Context, config *Config) (*ConfigInfo
 		HostID:     config.HostID,
 		ConfigType: config.ConfigType,
 		FilePath:   config.FilePath,
-		Content:    config.Content,
+		Content:    config.Content.String(),
 		Version:    config.Version,
 		IsTemplate: config.IsTemplate(),
 		UpdatedAt:  config.UpdatedAt,

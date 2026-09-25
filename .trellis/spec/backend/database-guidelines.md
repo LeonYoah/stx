@@ -81,7 +81,10 @@ func (r *Repository) Transaction(ctx context.Context, fn func(tx *Repository) er
 - 需要一致性时在循环中多次更新却未包在事务中。
 - 依赖外键级联删除而未考虑项目配置（`DisableForeignKeyConstraintWhenMigrating`）；建议在事务中显式删除（如先删节点再删集群），参见 `cluster/repository.Delete`。
 - **多数据库方言不兼容**：
-  - 严禁在 GORM tag 中使用 MySQL 独有类型 `gorm:"type:longtext"` 或 `mediumtext`，大文本一律使用通用的 `gorm:"type:text"`。
+  - 严禁在 GORM tag 中使用 MySQL 独有类型 `gorm:"type:longtext"` 或 `mediumtext`。
+  - **长脚本 / 大配置字段例外**：模型字段必须使用 `db.ScriptText`（方言感知类型：MySQL → `MEDIUMTEXT`，PostgreSQL / SQLite → `TEXT`），不要再写 `gorm:"type:text"`（会覆盖方言分流），也不允许裸写 `type:longtext` / `type:mediumtext`。
+  - **普通短文本**：仍使用 `gorm:"type:text"`（或省略 type，交给 GORM 默认）。
+  - API / DTO 边界保持 `string`：写入模型时用 `db.ScriptText(s)`，读出到 string 时用 `.String()` 或 `string(x)`。
   - 严禁裸写 `Where("col LIKE ?", ...)`（PostgreSQL 默认大小写敏感，会导致查询遗漏），统一使用 `Where("LOWER(col) LIKE LOWER(?)", ...)`。
   - 严禁在原生 SQL 字符串中夹带 MySQL 反引号 \`（PostgreSQL 会直接报语法错误）。
   - 本地或提交前必须运行 `./scripts/test_db_compat.sh` 确保三库迁移与一致性测试通过。

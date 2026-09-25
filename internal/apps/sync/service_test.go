@@ -27,6 +27,7 @@ import (
 	"time"
 
 	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
+	"github.com/LeonYoah/stx/internal/db"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
@@ -244,7 +245,7 @@ func TestUpdateTaskAllowsMovingFileToFolder(t *testing.T) {
 		NodeType:      string(TaskNodeTypeFile),
 		Name:          file.Name,
 		ContentFormat: string(ContentFormatHOCON),
-		Content:       file.Content,
+		Content:       file.Content.String(),
 		Definition:    file.Definition,
 	})
 	if err != nil {
@@ -343,7 +344,7 @@ func TestRecoverJobUsesHistoricalSubmittedScriptWhenDraftIsNil(t *testing.T) {
 	if err != nil {
 		t.Fatalf("update task failed: %v", err)
 	}
-	if strings.Contains(updated.Content, "plugin_output = \"fake\"") {
+	if strings.Contains(updated.Content.String(), "plugin_output = \"fake\"") {
 		t.Fatalf("expected task content to change before recover")
 	}
 
@@ -426,7 +427,7 @@ func TestUpdateTaskRejectsDuplicateSiblingName(t *testing.T) {
 		NodeType:      string(TaskNodeTypeFile),
 		Name:          left.Name,
 		ContentFormat: string(ContentFormatHOCON),
-		Content:       right.Content,
+		Content:       right.Content.String(),
 		Definition:    right.Definition,
 	})
 	if !errors.Is(err, ErrTaskNameDuplicate) {
@@ -758,7 +759,7 @@ func TestResolveTaskContentSupportsBuiltinTimeVariables(t *testing.T) {
 		ID:            23,
 		Name:          "time-demo",
 		ContentFormat: ContentFormatHOCON,
-		Content: strings.Join([]string{
+		Content: db.ScriptText(strings.Join([]string{
 			"biz_date = {{system.biz.date}}",
 			"biz_curdate = {{system.biz.curdate}}",
 			"datetime = {{system.datetime}}",
@@ -766,7 +767,7 @@ func TestResolveTaskContentSupportsBuiltinTimeVariables(t *testing.T) {
 			"month_start = {{month_first_day(yyyy-MM-dd,0)}}",
 			"week_end = {{week_last_day(yyyyMMdd,0)}}",
 			"native = ${table_name}",
-		}, "\n"),
+		}, "\n")),
 	}
 
 	resolved, err := service.resolveTaskContent(ctx, task, &taskVariableRuntime{

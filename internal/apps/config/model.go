@@ -21,6 +21,8 @@ package config
 
 import (
 	"time"
+
+	"github.com/LeonYoah/stx/internal/db"
 )
 
 // ConfigType 配置文件类型
@@ -124,9 +126,9 @@ type Config struct {
 	ClusterID  uint       `json:"cluster_id" gorm:"index;not null"`
 	HostID     *uint      `json:"host_id" gorm:"index"`                // NULL = 集群模板
 	ConfigType ConfigType `json:"config_type" gorm:"size:50;not null"` // 配置类型
-	FilePath   string     `json:"file_path" gorm:"size:255"`           // 节点上的实际路径
-	Content    string     `json:"content" gorm:"type:text"`            // 配置内容
-	Version    int        `json:"version" gorm:"default:1"`            // 当前版本号
+	FilePath   string        `json:"file_path" gorm:"size:255"`           // 节点上的实际路径
+	Content    db.ScriptText `json:"content"`                             // 配置内容；MySQL MEDIUMTEXT / PG·SQLite TEXT
+	Version    int           `json:"version" gorm:"default:1"`            // 当前版本号
 	UpdatedAt  time.Time  `json:"updated_at" gorm:"autoUpdateTime"`
 	UpdatedBy  uint       `json:"updated_by"`
 	CreatedAt  time.Time  `json:"created_at" gorm:"autoCreateTime"`
@@ -146,9 +148,9 @@ func (c *Config) IsTemplate() bool {
 type ConfigVersion struct {
 	ID        uint      `json:"id" gorm:"primaryKey;autoIncrement"`
 	ConfigID  uint      `json:"config_id" gorm:"index;not null"`
-	Version   int       `json:"version" gorm:"not null"`
-	Content   string    `json:"content" gorm:"type:text"`
-	Comment   string    `json:"comment" gorm:"size:255"` // 修改说明
+	Version   int           `json:"version" gorm:"not null"`
+	Content   db.ScriptText `json:"content"`              // 配置版本正文；MySQL MEDIUMTEXT / PG·SQLite TEXT
+	Comment   string        `json:"comment" gorm:"size:255"` // 修改说明
 	CreatedBy uint      `json:"created_by"`
 	CreatedAt time.Time `json:"created_at" gorm:"autoCreateTime"`
 }

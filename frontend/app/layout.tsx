@@ -38,20 +38,24 @@ export const metadata: Metadata = {
   icons: {
     icon: [
       {
-        url: '/favicon/favicon-16x16.png?v=qingluan-1',
+        url: '/favicon/favicon-16x16.png?v=qingluan-2',
         sizes: '16x16',
         type: 'image/png',
       },
       {
-        url: '/favicon/favicon-32x32.png?v=qingluan-1',
+        url: '/favicon/favicon-32x32.png?v=qingluan-2',
         sizes: '32x32',
         type: 'image/png',
       },
+      {
+        url: '/favicon.ico?v=qingluan-2',
+        sizes: 'any',
+      },
     ],
-    shortcut: '/favicon/favicon.ico?v=qingluan-1',
+    shortcut: '/favicon.ico?v=qingluan-2',
     apple: [
       {
-        url: '/favicon/apple-touch-icon.png?v=qingluan-1',
+        url: '/favicon/apple-touch-icon.png?v=qingluan-2',
         sizes: '180x180',
         type: 'image/png',
       },

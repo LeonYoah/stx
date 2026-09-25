@@ -21,7 +21,18 @@ RUN_DIR="$BASE_DIR/run"
 LOG_DIR="$BASE_DIR/logs"
 
 BACKEND_BIN="$BASE_DIR/stx"
-FRONTEND_NODE_BIN="${FRONTEND_NODE_BIN:-$BASE_DIR/runtime/node/bin/node}"
+# 优先使用内置 Node，缺失时回退至系统 Node。
+# Prefer bundled Node; fallback to system Node when omitted.
+FRONTEND_NODE_BIN="${FRONTEND_NODE_BIN:-}"
+if [[ -z "$FRONTEND_NODE_BIN" ]]; then
+  if [[ -x "$BASE_DIR/runtime/node/bin/node" ]]; then
+    FRONTEND_NODE_BIN="$BASE_DIR/runtime/node/bin/node"
+  elif command -v node >/dev/null 2>&1; then
+    FRONTEND_NODE_BIN="$(command -v node)"
+  else
+    FRONTEND_NODE_BIN="$BASE_DIR/runtime/node/bin/node"
+  fi
+fi
 FRONTEND_SERVER="$BASE_DIR/frontend/server.js"
 CONFIG_PATH="${CONFIG_PATH:-$BASE_DIR/config.yaml}"
 
@@ -87,7 +98,7 @@ start_backend() {
     exit 1
   fi
 
-  CONFIG_PATH="$CONFIG_PATH" nohup "$BACKEND_BIN" api >>"$LOG_DIR/backend.log" 2>&1 &
+  CONFIG_PATH="$CONFIG_PATH" nohup "$BACKEND_BIN" server >>"$LOG_DIR/backend.log" 2>&1 &
   echo $! >"$pidfile"
   sleep 1
   if kill -0 "$(cat "$pidfile")" 2>/dev/null; then
@@ -148,7 +159,7 @@ start_observability() {
   set -e
   echo "$reason"
   case "$rc" in
-    0) stx_obs_start_stack ;;
+    0) stx_obs_start_stack || echo "[WARN] observability failed to start; backend and frontend remain available" >&2 ;;
     1) return 0 ;;
     2) exit 1 ;;
   esac

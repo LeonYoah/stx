@@ -130,7 +130,6 @@ else
 fi
 
 if [[ "$OFFLINE" == "true" ]]; then
-  stx_assert_online_allowed || exit 1
   if [[ -z "$PACKAGES_DIR" && -d "$SOURCE_DIR/packages" ]]; then
     PACKAGES_DIR="$SOURCE_DIR/packages"
   fi
@@ -183,6 +182,29 @@ if [[ -n "$PACKAGES_DIR" ]]; then
     fi
   fi
 
+  # 规范化 pnpm/Next.js standalone 解压后可能包含的构建机绝对路径软链接。
+  # Normalize potential build-machine absolute symlinks after extracting Next.js standalone.
+  if command -v python3 >/dev/null 2>&1; then
+    python3 -c "
+import os
+root = '$STAGE_DIR/frontend'
+for dirpath, dirnames, filenames in os.walk(root):
+    for f in filenames + dirnames:
+        p = os.path.join(dirpath, f)
+        if os.path.islink(p):
+            target = os.readlink(p)
+            if '/frontend/.next/standalone/' in target:
+                rel_suffix = target.split('/frontend/.next/standalone/')[1]
+                real_target = os.path.join(root, rel_suffix)
+                rel_target = os.path.relpath(real_target, dirpath)
+                try:
+                    os.unlink(p)
+                    os.symlink(rel_target, p)
+                except OSError:
+                    pass
+" 2>/dev/null || true
+  fi
+
   mkdir -p "$STAGE_DIR/bin/lib" "$STAGE_DIR/lib" "$STAGE_DIR/scripts" "$STAGE_DIR/lib/agent"
   for f in start.sh stop.sh status.sh; do
     if [[ -f "$SOURCE_DIR/bin/$f" ]]; then
@@ -220,6 +242,11 @@ if [[ -n "$PACKAGES_DIR" ]]; then
         mv "$nested" "$STAGE_DIR/runtime/node"
       fi
     fi
+  elif command -v node >/dev/null 2>&1; then
+    # 复用本机系统 Node 时建立符号链接，保证 systemd 等无 NVM 环境下亦可直接执行。
+    # Link local system Node so systemd service without NVM in PATH can execute directly.
+    mkdir -p "$STAGE_DIR/runtime/node/bin"
+    ln -sf "$(command -v node)" "$STAGE_DIR/runtime/node/bin/node"
   fi
 
   obs_tar="$(ls "$PACKAGES_DIR"/observability-*-linux-${arch}.tar.gz 2>/dev/null | head -n1 || true)"

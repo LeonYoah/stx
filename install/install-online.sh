@@ -22,7 +22,7 @@ set -euo pipefail
 STX_GITHUB_OWNER="${STX_GITHUB_OWNER:-LeonYoah}"
 STX_GITHUB_REPO="${STX_GITHUB_REPO:-stx}"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # curl|bash 时仓库不在本地：从 GitHub raw 拉安装辅助脚本。/ When piped via curl|bash, fetch install helpers from GitHub raw.

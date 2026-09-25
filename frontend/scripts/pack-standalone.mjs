@@ -104,6 +104,41 @@ async function main() {
   await fs.mkdir(distDir, {recursive: true});
   await fs.cp(standaloneDir, distDir, {recursive: true});
 
+  // 将 distDir 内指向 standaloneDir 的绝对路径软链接规范化为相对路径，
+  // 避免打包到异机解压后因绝对路径不匹配导致 dangling symlink。
+  // Normalize absolute symlinks pointing into standaloneDir to relative symlinks,
+  // preventing dangling links after extracting on machines with different paths.
+  async function normalizeSymlinks(currentDir, standaloneRoot) {
+    const entries = await fs.readdir(currentDir, {withFileTypes: true});
+    for (const entry of entries) {
+      const fullPath = path.join(currentDir, entry.name);
+      if (entry.isSymbolicLink()) {
+        const target = await fs.readlink(fullPath);
+        if (path.isAbsolute(target)) {
+          let relSuffix = '';
+          if (target.startsWith(standaloneRoot)) {
+            relSuffix = path.relative(standaloneRoot, target);
+          } else {
+            const marker = `${path.sep}.next${path.sep}standalone${path.sep}`;
+            const idx = target.indexOf(marker);
+            if (idx !== -1) {
+              relSuffix = target.slice(idx + marker.length);
+            }
+          }
+          if (relSuffix) {
+            const destinationInDist = path.join(distDir, relSuffix);
+            const relativeTarget = path.relative(path.dirname(fullPath), destinationInDist);
+            await fs.unlink(fullPath);
+            await fs.symlink(relativeTarget, fullPath);
+          }
+        }
+      } else if (entry.isDirectory()) {
+        await normalizeSymlinks(fullPath, standaloneRoot);
+      }
+    }
+  }
+  await normalizeSymlinks(distDir, standaloneDir);
+
   await copyOptionalDirectory(
     path.join(frontendDir, '.next', 'static'),
     path.join(runtimeDir, '.next', 'static'),

@@ -24,9 +24,11 @@ permissions:
   contents: write
   packages: write
 
+# 并发控制：同一 tag 重新推送时取消旧构建，避免陈旧构建阻塞或覆盖新产物
+# Concurrency: cancel obsolete in-progress runs when retrying the same tag
 concurrency:
   group: release-${{ github.ref_name }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   package-release:

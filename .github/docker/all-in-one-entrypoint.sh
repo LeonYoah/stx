@@ -48,7 +48,9 @@ if [[ ! -x "$BACKEND_BIN" ]]; then
   exit 1
 fi
 
-CONFIG_PATH="$CONFIG_PATH" "$BACKEND_BIN" api >>"$LOG_DIR/backend.log" 2>&1 &
+# 启动服务端（统一使用 server 命令）
+# Start server using standard 'server' subcommand
+CONFIG_PATH="$CONFIG_PATH" "$BACKEND_BIN" server >>"$LOG_DIR/backend.log" 2>&1 &
 backend_pid=$!
 echo "$backend_pid" >"$RUN_DIR/backend.pid"
 echo "[entrypoint] backend started (pid=$backend_pid)"

@@ -1,4 +1,6 @@
-FROM golang:1.24-bookworm AS backend-builder
+# 使用构建宿主平台运行 Go 编译器，实现免 QEMU 快速交叉编译
+# Use builder host platform to run Go compiler for fast cross-compilation without QEMU
+FROM --platform=$BUILDPLATFORM golang:1.24-bookworm AS backend-builder
 
 WORKDIR /src
 
@@ -7,8 +9,10 @@ RUN go mod download
 
 COPY . .
 
-ARG TARGETOS=linux
-ARG TARGETARCH=amd64
+# BuildKit 自动注入目标系统与目标架构，勿赋予写死默认值
+# BuildKit automatically injects target OS and target architecture; do not set hardcoded defaults
+ARG TARGETOS
+ARG TARGETARCH
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o /out/stx .
 
 FROM node:22-bookworm AS frontend-builder

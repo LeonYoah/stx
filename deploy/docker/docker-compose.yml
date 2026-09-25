@@ -17,7 +17,7 @@
 # Default: MySQL full stack
 #
 #   cp config.example.yaml config.yaml   # 确认 database 为 mysql / host=mysql
-#   mkdir -p data
+#   mkdir -p data && chmod -R 777 data
 #   docker compose up -d
 
 include:

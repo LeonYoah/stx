@@ -8,7 +8,7 @@ curl -fsSL https://github.com/LeonYoah/stx/releases/latest/download/stx-docker-c
 cd docker
 cp config.example.yaml config.yaml
 # 按所选 Compose 改 database 段
-mkdir -p data
+mkdir -p data && chmod -R 777 data
 docker compose up -d
 ```
 
@@ -33,9 +33,9 @@ docker compose up -d
 
 | 数据库 | 启动 |
 | --- | --- |
-| MySQL（默认） | `mkdir -p data && docker compose up -d`（`config.yaml` 里 `type: mysql` / `host: mysql`） |
-| SQLite | `mkdir -p data && docker compose -f docker-compose.sqlite.yml up -d`（`type: sqlite`） |
-| PostgreSQL | `mkdir -p data && docker compose -f docker-compose.postgres.yml up -d`（`type: postgres` / `host: postgres`） |
+| MySQL（默认） | `mkdir -p data && chmod -R 777 data && docker compose up -d`（`config.yaml` 里 `type: mysql` / `host: mysql`） |
+| SQLite | `mkdir -p data && chmod -R 777 data && docker compose -f docker-compose.sqlite.yml up -d`（`type: sqlite`） |
+| PostgreSQL | `mkdir -p data && chmod -R 777 data && docker compose -f docker-compose.postgres.yml up -d`（`type: postgres` / `host: postgres`） |
 
 ## 数据目录
 

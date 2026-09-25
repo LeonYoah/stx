@@ -194,5 +194,7 @@ func TestPermissionForOperationRequiresAdmin(t *testing.T) {
 }
 
 func testNow() time.Time {
-	return time.Date(2026, 9, 18, 10, 0, 0, 0, time.UTC)
+	// 用接近当前时间签发，避免固定日期在 7d 过期后令 CI 误红。
+	// Use near-current time so a 7d TTL does not expire and flake CI.
+	return time.Now().UTC()
 }

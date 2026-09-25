@@ -22,9 +22,14 @@ test('opens dashboard with a reused authenticated session', async ({page}) => {
 
   await expect(page).toHaveURL(/\/dashboard$/);
   await expect(page.getByRole('heading', {level: 1})).toHaveText(
-    /控制台|Dashboard/i,
+    /控制台|Console|Dashboard/i,
   );
   await expect(page.getByRole('button', {name: /刷新|Refresh/i})).toBeVisible();
-  await expect(page.getByText(/主机总数|Total Hosts/i)).toBeVisible();
-  await expect(page.getByText(/集群数量|Total Clusters/i)).toBeVisible();
+  // 资源统计胶囊：主机 / 集群（不再使用 KPI「主机总数」大卡）
+  // Resource pills: hosts / clusters (old KPI total cards removed)
+  await expect(page.getByText(/^主机$|^Hosts$/i).first()).toBeVisible();
+  await expect(page.getByText(/^集群$|^Clusters$/i).first()).toBeVisible();
+  await expect(
+    page.getByText(/告警事件列表|Alert Events/i).first(),
+  ).toBeVisible();
 });

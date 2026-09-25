@@ -108,7 +108,7 @@ func addSyncWriteCommands(root *cobra.Command, storeProvider authStoreProvider) 
 		newSyncCuratedListCommand(storeProvider),
 		newSyncCuratedCreateCommand(storeProvider),
 		newSyncCuratedUpdateCommand(storeProvider),
-		newSyncCuratedDeleteCommand(storeProvider),
+		// 不注册 delete：CLI 统一禁止暴露删除类命令 / Do not register delete: CLI forbids delete/remove commands
 		newSyncCuratedForkCommand(storeProvider),
 		newSyncCuratedRenderCommand(storeProvider),
 		newSyncCuratedParseComboCommand(storeProvider),
@@ -1406,37 +1406,6 @@ func newSyncCuratedUpdateCommand(storeProvider authStoreProvider) *cobra.Command
 	command.Flags().StringVar(&content, "content", "", "Inline HOCON content")
 	command.Flags().StringVar(&contentFile, "content-file", "", "File containing HOCON content")
 	command.Flags().BoolVar(&enabled, "enabled", true, "Enable or disable the template")
-	return command
-}
-
-func newSyncCuratedDeleteCommand(storeProvider authStoreProvider) *cobra.Command {
-	var options secureWriteOptions
-
-	command := &cobra.Command{
-		Use:     "delete <id>",
-		Short:   "Delete a curated sync template",
-		Long:    "Delete an owned curated template. Built-in seeds cannot be deleted.",
-		Example: "stx sync curated delete 12 --confirm",
-		Args:    usageArgs(cobra.ExactArgs(1)),
-		RunE: func(command *cobra.Command, args []string) error {
-			id, err := parseTaskID(args[0])
-			if err != nil {
-				return err
-			}
-			operationID := "sync.curated.delete"
-			client, headers, err := prepareSecureWrite(command, storeProvider, operationID, &options, "删除用户精选模板。")
-			if err != nil {
-				return err
-			}
-			var data any
-			requestID, err := client.RequestWithHeaders(command.Context(), http.MethodDelete, fmt.Sprintf("/api/v1/sync/curated-templates/%d", id), nil, headers, &data)
-			if err != nil {
-				return handleSecureWriteError(command, operationID, err)
-			}
-			return renderCommandResultWithRequestID(command, operationID, requestID, data)
-		},
-	}
-	addSecureWriteFlags(command, &options)
 	return command
 }
 

@@ -525,7 +525,7 @@ type CuratedTemplate struct {
 	Mode        string          `json:"mode" gorm:"size:32;not null;default:'ANY'"`
 	Pattern     string          `json:"pattern" gorm:"size:32;not null;default:'other'"`
 	Connectors  JSONStringSlice `json:"connectors" gorm:"type:json"`
-	Content     string          `json:"content" gorm:"type:longtext;not null"`
+	Content     string          `json:"content" gorm:"type:text;not null"`
 	Enabled     bool            `json:"enabled" gorm:"not null;default:true"`
 	CreatedAt   time.Time       `json:"created_at" gorm:"autoCreateTime"`
 	UpdatedAt   time.Time       `json:"updated_at" gorm:"autoUpdateTime"`

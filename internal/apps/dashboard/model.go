@@ -78,9 +78,14 @@ type HostSummary struct {
 // RecentActivity represents a recent activity log entry.
 // RecentActivity 表示最近活动日志条目。
 type RecentActivity struct {
-	ID        uint   `json:"id"`
-	Type      string `json:"type"` // success, warning, info, error
-	Message   string `json:"message"`
+	ID       uint   `json:"id"`
+	Type     string `json:"type"` // success, warning, info, error
+	Operator string `json:"operator"`
+	Source   string `json:"source"`
+	Action   string `json:"action"`
+	// Message is kept for backward compatibility; prefer Operator/Source/Action.
+	// Message 保留兼容旧客户端；优先使用 Operator/Source/Action。
+	Message   string `json:"message,omitempty"`
 	Timestamp string `json:"timestamp"`
 }
 

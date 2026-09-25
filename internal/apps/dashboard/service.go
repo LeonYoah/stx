@@ -19,6 +19,7 @@ package dashboard
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/LeonYoah/stx/internal/apps/audit"
@@ -229,10 +230,28 @@ func (s *OverviewService) GetRecentActivities(ctx context.Context, limit int) ([
 			activityType = "warning"
 		}
 
+		// 展示操作人 + 来源 + 操作名，不拼资源名以免噪音
+		// Prefer operator + source + action; skip resource name to reduce noise
+		operator := strings.TrimSpace(log.Username)
+		if operator == "" {
+			operator = "system"
+		}
+		source := strings.TrimSpace(log.ClientType)
+		if source == "" {
+			source = "system"
+		}
+		action := strings.TrimSpace(log.Action)
+		if action == "" {
+			action = "-"
+		}
+
 		activities = append(activities, &RecentActivity{
 			ID:        log.ID,
 			Type:      activityType,
-			Message:   log.Action + " " + log.ResourceType + " " + log.ResourceName,
+			Operator:  operator,
+			Source:    source,
+			Action:    action,
+			Message:   operator + " · " + source + " · " + action,
 			Timestamp: log.CreatedAt.Format("2006-01-02 15:04:05"),
 		})
 	}

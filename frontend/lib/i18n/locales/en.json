@@ -44,8 +44,7 @@
     "noMatchingData": "No matching data"
   },
   "dashboard": {
-    "title": "Dashboard",
-    "subtitle": "STX Operations Overview",
+    "title": "Console",
     "refresh": "Refresh",
     "totalHosts": "Total Hosts",
     "online": "Online",
@@ -73,7 +72,65 @@
     "welcome": "Welcome to STX",
     "welcomeDesc": "Start by adding hosts and deploying your first SeaTunnel cluster",
     "addHost": "Add Host",
-    "createCluster": "Create Cluster"
+    "createCluster": "Create Cluster",
+    "pills": {
+      "hosts": "Hosts",
+      "clusters": "Clusters",
+      "unhealthyClusters": "Unhealthy",
+      "offlineAgents": "Offline Agents",
+      "activeAlerts": "Active Alerts",
+      "criticalAlerts": "Critical Alerts"
+    },
+    "activitiesEmpty": "No recent operations",
+    "recentActivitiesTitle": "Recent Activity",
+    "viewAllAlerts": "View Alert Events",
+    "viewClusters": "View Clusters",
+    "viewAuditLogs": "Audit Logs",
+    "loadError": "Failed to load dashboard data",
+    "refreshing": "Refreshing",
+    "alertEventsTitle": "Alert Events",
+    "alertEventsEmpty": "No firing alerts",
+    "todosTitle": "Action Items",
+    "todosEmpty": "Nothing needs attention",
+    "todos": {
+      "onboardHostTitle": "Add your first host",
+      "onboardHostDetail": "Register a host before deploying clusters",
+      "offlineHostsTitle": "{count} hosts offline",
+      "offlineHostsDetail": "Check network and Agent heartbeat",
+      "offlineAgentsTitle": "{count} Agents offline",
+      "offlineAgentsDetail": "Open Hosts to verify probe status",
+      "unhealthyClustersTitle": "{count} clusters unhealthy or degraded",
+      "unhealthyClustersDetail": "Inspect cluster details and nodes",
+      "criticalAlertsTitle": "{count} critical alerts pending",
+      "criticalAlertsDetail": "Handle critical alert events first",
+      "activeAlertsTitle": "{count} alerts firing",
+      "activeAlertsDetail": "Acknowledge or silence in Alert Events",
+      "severity": {
+        "critical": "Critical",
+        "warning": "Warning",
+        "info": "Info"
+      }
+    },
+    "resourcesTitle": "Resource Inventory",
+    "resources": {
+      "hosts": "Hosts",
+      "clusters": "Clusters",
+      "syncTasks": "Sync Tasks",
+      "templates": "Templates",
+      "variables": "Variables",
+      "playbooks": "Playbooks",
+      "total": "total",
+      "mine": "mine",
+      "all": "all",
+      "online": "online",
+      "offline": "offline",
+      "running": "running",
+      "error": "error",
+      "scheduled": "scheduled",
+      "custom": "custom",
+      "preset": "preset",
+      "builtin": "builtin"
+    }
   },
   "auth": {
     "brand": {
@@ -2574,7 +2631,9 @@
       "refreshInterval": {
         "label": "Auto Refresh",
         "off": "Off"
-      }
+      },
+      "expand": "Expand metrics dashboard",
+      "collapse": "Collapse dashboard"
     },
     "tabs": {
       "dashboard": "Dashboard",

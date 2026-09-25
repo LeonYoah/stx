@@ -45,7 +45,6 @@
   },
   "dashboard": {
     "title": "控制台",
-    "subtitle": "STX 运维管理概览",
     "refresh": "刷新",
     "totalHosts": "主机总数",
     "online": "在线",
@@ -73,7 +72,65 @@
     "welcome": "欢迎使用 STX",
     "welcomeDesc": "开始添加主机并部署您的第一个 SeaTunnel 集群",
     "addHost": "添加主机",
-    "createCluster": "创建集群"
+    "createCluster": "创建集群",
+    "pills": {
+      "hosts": "主机",
+      "clusters": "集群",
+      "unhealthyClusters": "异常集群",
+      "offlineAgents": "离线 Agent",
+      "activeAlerts": "活跃告警",
+      "criticalAlerts": "严重告警"
+    },
+    "activitiesEmpty": "暂无最近操作",
+    "recentActivitiesTitle": "最近活动",
+    "viewAllAlerts": "查看告警事件",
+    "viewClusters": "查看集群",
+    "viewAuditLogs": "审计日志",
+    "loadError": "加载控制台数据失败",
+    "refreshing": "刷新中",
+    "alertEventsTitle": "告警事件列表",
+    "alertEventsEmpty": "当前无触发中的告警",
+    "todosTitle": "待办提醒",
+    "todosEmpty": "暂无需要处理的事项",
+    "todos": {
+      "onboardHostTitle": "接入第一台主机",
+      "onboardHostDetail": "完成主机注册后才能部署集群与采集指标",
+      "offlineHostsTitle": "{count} 台主机离线",
+      "offlineHostsDetail": "检查网络与 Agent 心跳",
+      "offlineAgentsTitle": "{count} 个 Agent 离线",
+      "offlineAgentsDetail": "前往主机页确认探针状态",
+      "unhealthyClustersTitle": "{count} 个集群异常或降级",
+      "unhealthyClustersDetail": "查看集群详情并排查节点",
+      "criticalAlertsTitle": "{count} 条严重告警待处理",
+      "criticalAlertsDetail": "优先处理严重级别告警事件",
+      "activeAlertsTitle": "{count} 条告警触发中",
+      "activeAlertsDetail": "打开告警事件进行确认或静默",
+      "severity": {
+        "critical": "严重",
+        "warning": "警告",
+        "info": "提示"
+      }
+    },
+    "resourcesTitle": "资源统计",
+    "resources": {
+      "hosts": "主机",
+      "clusters": "集群",
+      "syncTasks": "同步任务",
+      "templates": "精选模板",
+      "variables": "全局变量",
+      "playbooks": "经验库",
+      "total": "合计",
+      "mine": "我的",
+      "all": "全部",
+      "online": "在线",
+      "offline": "离线",
+      "running": "运行",
+      "error": "异常",
+      "scheduled": "定时",
+      "custom": "自定义",
+      "preset": "预置",
+      "builtin": "内置"
+    }
   },
   "auth": {
     "brand": {
@@ -2574,7 +2631,9 @@
       "refreshInterval": {
         "label": "自动刷新",
         "off": "关闭"
-      }
+      },
+      "expand": "展开监控看板",
+      "collapse": "收起看板"
     },
     "tabs": {
       "dashboard": "监控看板",

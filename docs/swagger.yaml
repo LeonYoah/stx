@@ -1004,9 +1004,15 @@ definitions:
     type: object
   dashboard.RecentActivity:
     properties:
+      action:
+        type: string
       id:
         type: integer
       message:
+        type: string
+      operator:
+        type: string
+      source:
         type: string
       timestamp:
         type: string

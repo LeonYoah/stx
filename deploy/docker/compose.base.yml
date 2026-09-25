@@ -57,7 +57,7 @@ services:
     networks: [stx]
 
   prometheus:
-    image: prom/prometheus:v3.9.1
+    image: ${PROMETHEUS_IMAGE:-prom/prometheus:v3.9.1}
     container_name: stx-prometheus
     restart: unless-stopped
     user: "${PROMETHEUS_USER:-0:0}"
@@ -76,7 +76,7 @@ services:
     networks: [stx]
 
   alertmanager:
-    image: prom/alertmanager:v0.31.1
+    image: ${ALERTMANAGER_IMAGE:-prom/alertmanager:v0.31.1}
     container_name: stx-alertmanager
     restart: unless-stopped
     user: "${ALERTMANAGER_USER:-0:0}"
@@ -93,7 +93,7 @@ services:
     networks: [stx]
 
   grafana:
-    image: grafana/grafana:12.3.3
+    image: ${GRAFANA_IMAGE:-grafana/grafana:12.3.3}
     container_name: stx-grafana
     restart: unless-stopped
     user: "${GRAFANA_USER:-0:0}"

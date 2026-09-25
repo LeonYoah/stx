@@ -25,7 +25,7 @@ include:
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: ${POSTGRES_IMAGE:-postgres:16-alpine}
     container_name: stx-postgres
     restart: unless-stopped
     environment:

@@ -28,8 +28,13 @@ docker compose up -d
 
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
-| `STX_IMAGE_REGISTRY` | `ghcr.io/leonyoah` | 镜像前缀；中国用 `swr.cn-east-3.myhuaweicloud.com/stx` |
-| `STX_IMAGE_TAG` | `latest` | 镜像 tag |
+| `STX_IMAGE_REGISTRY` | `ghcr.io/leonyoah` | STX 镜像前缀；中国华为云使用 `swr.cn-east-3.myhuaweicloud.com/stx` |
+| `STX_IMAGE_TAG` | `latest` | STX 镜像 tag |
+| `MYSQL_IMAGE` | `mysql:8.4` | MySQL 镜像；`.env.cn.example` 已预配置国内 SWR 加速镜像 |
+| `POSTGRES_IMAGE` | `postgres:16-alpine` | PostgreSQL 镜像；`.env.cn.example` 已预配置国内 SWR 加速镜像 |
+| `PROMETHEUS_IMAGE` | `prom/prometheus:v3.9.1` | Prometheus 镜像；`.env.cn.example` 已预配置国内 SWR 加速镜像 |
+| `ALERTMANAGER_IMAGE` | `prom/alertmanager:v0.31.1` | Alertmanager 镜像；`.env.cn.example` 已预配置国内 SWR 加速镜像 |
+| `GRAFANA_IMAGE` | `grafana/grafana:12.3.3` | Grafana 镜像；`.env.cn.example` 已预配置国内 SWR 加速镜像 |
 
 | 数据库 | 启动 |
 | --- | --- |

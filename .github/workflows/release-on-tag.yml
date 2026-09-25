@@ -260,27 +260,39 @@ jobs:
             type=raw,value=latest
 
       - name: Create and push multi-arch manifest
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
         run: |
-          cd /tmp/digests
           IMAGE_REPO="ghcr.io/${{ steps.owner.outputs.value }}/${{ matrix.image_name }}"
           
-          # 收集并构造各架构 digest 参数
-          # Collect and build digest parameters for each architecture
+          # 递归收集各架构 digest，兼容平铺或子目录解压结构
+          # Recursively collect architecture digests, compatible with flat or nested artifact extractions
           DIGEST_ARGS=()
-          for digest in *; do
-            DIGEST_ARGS+=("${IMAGE_REPO}@sha256:${digest}")
+          for digest in $(find /tmp/digests -type f -exec basename {} \; | sort -u); do
+            [[ -n "$digest" ]] && DIGEST_ARGS+=("${IMAGE_REPO}@sha256:${digest}")
           done
 
-          # 收集目标 Tags
-          # Collect destination tags
+          echo "[INFO] Found ${#DIGEST_ARGS[@]} digests for ${IMAGE_REPO}:"
+          for d in "${DIGEST_ARGS[@]}"; do
+            echo "  - $d"
+          done
+
+          if [[ "${#DIGEST_ARGS[@]}" -lt 2 ]]; then
+            echo "[ERROR] Expected at least 2 digests (amd64, arm64), but found ${#DIGEST_ARGS[@]}" >&2
+            exit 1
+          fi
+
+          # 逐行读取 Docker metadata 生成的多行 Tags，构造 -t 参数数组，避免多行模板展开语法错误
+          # Read multiline tags from Docker metadata line by line into -t parameter array to avoid template syntax errors
           TAG_ARGS=()
-          for tag in ${{ steps.meta.outputs.tags }}; do
-            TAG_ARGS+=("-t" "${tag}")
-          done
+          while IFS= read -r tag; do
+            [[ -n "$tag" ]] && TAG_ARGS+=("-t" "$tag")
+          done <<< "$TAGS"
 
-          echo "[INFO] Creating multi-arch manifest for ${IMAGE_REPO}..."
-          echo "  Tags: ${TAG_ARGS[*]}"
-          echo "  Digests: ${DIGEST_ARGS[*]}"
+          echo "[INFO] Creating and pushing multi-arch manifest for ${IMAGE_REPO}..."
+          for ((i=0; i<${#TAG_ARGS[@]}; i+=2)); do
+            echo "  Target tag: ${TAG_ARGS[i+1]}"
+          done
 
           # docker buildx imagetools create 秒级合并并推送到所有目标仓库
           # docker buildx imagetools create merges and pushes to all target registries in seconds

@@ -103,13 +103,13 @@ storage:
 observability:
   enabled: true
   prometheus:
-    url: "http://127.0.0.1:9090"
+    url: "http://prometheus:9090"
     http_sd_path: "/api/v1/monitoring/prometheus/discovery"
   alertmanager:
-    url: "http://127.0.0.1:9093"
+    url: "http://alertmanager:9093"
     webhook_path: "/api/v1/monitoring/alertmanager/webhook"
   grafana:
-    url: "http://127.0.0.1:3000"
+    url: "http://grafana:3000"
   seatunnel_metrics:
     path: "/hazelcast/rest/instance/metrics"
     probe_timeout_seconds: 2

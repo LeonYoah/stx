@@ -157,6 +157,30 @@ func TestListRejectsTokenAfterUserDisabled(t *testing.T) {
 	}
 }
 
+func TestVersionEndpointReturnsProductVersion(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.GET("/api/v1/version", Version)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/version", nil)
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("version status = %d, want %d", recorder.Code, http.StatusOK)
+	}
+
+	var body VersionResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode version response: %v", err)
+	}
+	if body.Data.Version == "" {
+		t.Fatal("expected non-empty version")
+	}
+	if body.Data.MinCLIVersion == "" {
+		t.Fatal("expected non-empty min_cli_version")
+	}
+}
+
 func TestPermissionForOperationRequiresAdmin(t *testing.T) {
 	allowed, denialCode := permissionForOperation(operation.OperationSpec{AdminOnly: true}, &auth.User{IsAdmin: false})
 	if allowed || denialCode != "admin_required" {
@@ -170,5 +194,7 @@ func TestPermissionForOperationRequiresAdmin(t *testing.T) {
 }
 
 func testNow() time.Time {
-	return time.Date(2026, 9, 18, 10, 0, 0, 0, time.UTC)
+	// 用接近当前时间签发，避免固定日期在 7d 过期后令 CI 误红。
+	// Use near-current time so a 7d TTL does not expire and flake CI.
+	return time.Now().UTC()
 }

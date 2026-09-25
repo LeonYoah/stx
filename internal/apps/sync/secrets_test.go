@@ -33,13 +33,13 @@ func TestSanitizeTaskAndJobResponsesDoNotExposeSecrets(t *testing.T) {
 		},
 	}
 	safeTask := sanitizeTaskForResponse(task)
-	if strings.Contains(safeTask.Content, "task-secret") || safeTask.Definition["clientSecret"] != maskedSecretValue {
+	if strings.Contains(safeTask.Content.String(), "task-secret") || safeTask.Definition["clientSecret"] != maskedSecretValue {
 		t.Fatalf("expected task secrets to be masked, got content=%q definition=%#v", safeTask.Content, safeTask.Definition)
 	}
 	if safeTask.Definition["name"] != "sample" {
 		t.Fatalf("expected ordinary task field to remain unchanged, got %#v", safeTask.Definition["name"])
 	}
-	if !strings.Contains(task.Content, "task-secret") || task.Definition["clientSecret"] != "definition-secret" {
+	if !strings.Contains(task.Content.String(), "task-secret") || task.Definition["clientSecret"] != "definition-secret" {
 		t.Fatal("sanitizing a response must not mutate the stored task")
 	}
 
@@ -101,10 +101,10 @@ func TestUpdateTaskPreservesMaskedHOCONAndDefinitionSecrets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("update task: %v", err)
 	}
-	if !strings.Contains(updated.Content, "saved-password") || strings.Contains(updated.Content, maskedSecretValue) {
+	if !strings.Contains(updated.Content.String(), "saved-password") || strings.Contains(updated.Content.String(), maskedSecretValue) {
 		t.Fatalf("expected saved HOCON password to be preserved, got %q", updated.Content)
 	}
-	if !strings.Contains(updated.Content, `username = "admin"`) {
+	if !strings.Contains(updated.Content.String(), `username = "admin"`) {
 		t.Fatalf("expected non-secret HOCON change to be saved, got %q", updated.Content)
 	}
 	if updated.Definition["accessToken"] != "saved-token" || updated.Definition["parallelism"] != float64(2) {
@@ -166,13 +166,13 @@ sink {
 }`,
 	}
 	safe := sanitizeTaskForResponse(task)
-	if !strings.Contains(safe.Content, "password = {{mysqlpas}}") {
+	if !strings.Contains(safe.Content.String(), "password = {{mysqlpas}}") {
 		t.Fatalf("expected unquoted {{mysqlpas}} to be preserved, got %q", safe.Content)
 	}
-	if !strings.Contains(safe.Content, `password = "{{mysqlpas}}"`) {
+	if !strings.Contains(safe.Content.String(), `password = "{{mysqlpas}}"`) {
 		t.Fatalf("expected quoted \"{{mysqlpas}}\" to be preserved, got %q", safe.Content)
 	}
-	if strings.Contains(safe.Content, "******") {
+	if strings.Contains(safe.Content.String(), "******") {
 		t.Fatalf("expected no ****** in task with variable placeholder, got %q", safe.Content)
 	}
 }

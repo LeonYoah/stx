@@ -24,6 +24,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/LeonYoah/stx/internal/db"
 )
 
 // JSONMap represents JSON object payload stored in database.
@@ -161,10 +163,10 @@ type Task struct {
 	Mode          TaskMode      `json:"mode" gorm:"size:20;default:streaming"`
 	Status        TaskStatus    `json:"status" gorm:"size:20;default:draft;index"`
 	ContentFormat ContentFormat `json:"content_format" gorm:"size:20;not null;default:hocon"`
-	// Content 存储任务定义内容（HOCON 或 JSON），兼容多数据库。
-	// Content stores task definition content (HOCON or JSON), compatible with multiple databases.
-	Content                 string     `json:"content" gorm:"type:text"`
-	JobName                 string     `json:"job_name" gorm:"size:255"`
+	// Content 存储任务定义内容（HOCON 或 JSON）；MySQL 用 MEDIUMTEXT，PG/SQLite 用 TEXT。
+	// Content stores task definition (HOCON/JSON); MySQL uses MEDIUMTEXT, PG/SQLite use TEXT.
+	Content                 db.ScriptText `json:"content"`
+	JobName                 string        `json:"job_name" gorm:"size:255"`
 	Definition              JSONMap    `json:"definition" gorm:"type:json"`
 	SortOrder               int        `json:"sort_order" gorm:"default:0;index"`
 	CurrentVersion          int        `json:"current_version" gorm:"default:0"`
@@ -346,10 +348,10 @@ type TaskVersion struct {
 	EngineVersionSnapshot string        `json:"engine_version_snapshot" gorm:"size:50"`
 	ModeSnapshot          TaskMode      `json:"mode_snapshot" gorm:"size:20"`
 	ContentFormatSnapshot ContentFormat `json:"content_format_snapshot" gorm:"size:20"`
-	// ContentSnapshot 存储版本快照内容（HOCON 或 JSON），兼容多数据库。
-	// ContentSnapshot stores version snapshot content (HOCON or JSON), compatible with multiple databases.
-	ContentSnapshot    string    `json:"content_snapshot" gorm:"type:text"`
-	JobNameSnapshot    string    `json:"job_name_snapshot" gorm:"size:255"`
+	// ContentSnapshot 存储版本快照内容（HOCON 或 JSON）；MySQL 用 MEDIUMTEXT，PG/SQLite 用 TEXT。
+	// ContentSnapshot stores version snapshot (HOCON/JSON); MySQL uses MEDIUMTEXT, PG/SQLite use TEXT.
+	ContentSnapshot    db.ScriptText `json:"content_snapshot"`
+	JobNameSnapshot    string        `json:"job_name_snapshot" gorm:"size:255"`
 	DefinitionSnapshot JSONMap   `json:"definition_snapshot" gorm:"type:json"`
 	Comment            string    `json:"comment" gorm:"size:255"`
 	CreatedBy          uint      `json:"created_by"`
@@ -525,8 +527,10 @@ type CuratedTemplate struct {
 	Mode        string          `json:"mode" gorm:"size:32;not null;default:'ANY'"`
 	Pattern     string          `json:"pattern" gorm:"size:32;not null;default:'other'"`
 	Connectors  JSONStringSlice `json:"connectors" gorm:"type:json"`
-	Content     string          `json:"content" gorm:"type:text;not null"`
-	Enabled     bool            `json:"enabled" gorm:"not null;default:true"`
+	// Content 精选模板脚本正文；MySQL 用 MEDIUMTEXT，PG/SQLite 用 TEXT。
+	// Content is curated template script body; MySQL uses MEDIUMTEXT, PG/SQLite use TEXT.
+	Content   db.ScriptText `json:"content" gorm:"not null"`
+	Enabled   bool          `json:"enabled" gorm:"not null;default:true"`
 	CreatedAt   time.Time       `json:"created_at" gorm:"autoCreateTime"`
 	UpdatedAt   time.Time       `json:"updated_at" gorm:"autoUpdateTime"`
 }

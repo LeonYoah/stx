@@ -23,12 +23,15 @@ import (
 	cliClient "github.com/LeonYoah/stx/internal/cli/client"
 	cliConfig "github.com/LeonYoah/stx/internal/cli/config"
 	clioutput "github.com/LeonYoah/stx/internal/cli/output"
+	stxversion "github.com/LeonYoah/stx/internal/version"
 	"github.com/spf13/cobra"
 )
 
 type capabilityGetResult struct {
 	APIVersion       string                        `json:"api_version" yaml:"api_version"`
 	ServerVersion    string                        `json:"server_version" yaml:"server_version"`
+	GitCommit        string                        `json:"git_commit" yaml:"git_commit"`
+	BuildTime        string                        `json:"build_time" yaml:"build_time"`
 	MinCLIVersion    string                        `json:"min_cli_version" yaml:"min_cli_version"`
 	RegistryRevision string                        `json:"registry_revision" yaml:"registry_revision"`
 	Operation        cliClient.CapabilityOperation `json:"operation" yaml:"operation"`
@@ -66,6 +69,7 @@ func newCapabilityListCommand(storeProvider authStoreProvider) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			warnCLICompatibility(command, data)
 			return renderCommandResultWithRequestID(command, "capability.list", requestID, data)
 		},
 	}
@@ -88,12 +92,15 @@ func newCapabilityGetCommand(storeProvider authStoreProvider) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			warnCLICompatibility(command, data)
 			operationID := strings.TrimSpace(args[0])
 			for _, item := range data.Operations {
 				if item.OperationID == operationID {
 					return renderCommandResultWithRequestID(command, "capability.get", requestID, capabilityGetResult{
 						APIVersion:       data.APIVersion,
 						ServerVersion:    data.ServerVersion,
+						GitCommit:        data.GitCommit,
+						BuildTime:        data.BuildTime,
 						MinCLIVersion:    data.MinCLIVersion,
 						RegistryRevision: data.RegistryRevision,
 						Operation:        item,
@@ -121,3 +128,18 @@ func clientForNamespace(storeProvider authStoreProvider, namespace string) (*cli
 	}
 	return cliClient.New(resolved, nil)
 }
+
+// warnCLICompatibility 在 CLI 低于服务端最低版本时向 stderr 发出软警告。
+// warnCLICompatibility emits a soft stderr warning when the CLI is below the server minimum.
+func warnCLICompatibility(command *cobra.Command, data cliClient.CapabilityData) {
+	if !stxversion.IsBelowMin(stxversion.Version, data.MinCLIVersion) {
+		return
+	}
+	_ = clioutput.NewEventWriter(command.ErrOrStderr()).Emit(clioutput.Event{
+		Event:   "warning",
+		Code:    "cli_version_below_min",
+		Message: stxversion.CompatibilityWarning(stxversion.Version, data.MinCLIVersion, data.ServerVersion),
+		Level:   "warn",
+	})
+}
+

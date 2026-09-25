@@ -36,7 +36,7 @@ type CompatTestModel struct {
 	ID        uint                   `gorm:"primaryKey"`
 	Name      string                 `gorm:"type:varchar(100);index"`
 	Status    string                 `gorm:"type:varchar(32)"`
-	Content   string                 `gorm:"type:text"`
+	Content   ScriptText             `gorm:""`
 	Metadata  map[string]interface{} `gorm:"type:json;serializer:json"`
 	CreatedAt time.Time
 }
@@ -208,7 +208,7 @@ func TestDatabaseCompatibilitySuite(t *testing.T) {
 				largeText := strings.Repeat("ABCDEFGHIJ", 7000) // 70,000 字节 / 70,000 bytes
 				record := &CompatTestModel{
 					Name:    "large-text-test",
-					Content: largeText,
+					Content: ScriptText(largeText),
 				}
 				if err := targetDB.Create(record).Error; err != nil {
 					t.Fatalf("[%s] 插入大文本记录失败: %v", dbType, err)

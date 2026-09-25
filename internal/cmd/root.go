@@ -25,11 +25,13 @@
 package cmd
 
 import (
+	"fmt"
 	"io"
 	"os"
 
 	cliConfig "github.com/LeonYoah/stx/internal/cli/config"
 	clioutput "github.com/LeonYoah/stx/internal/cli/output"
+	stxversion "github.com/LeonYoah/stx/internal/version"
 	"github.com/spf13/cobra"
 )
 
@@ -40,9 +42,11 @@ func NewRootCommand() *cobra.Command {
 }
 
 func newRootCommand(serverRunner func() error) *cobra.Command {
+	info := stxversion.Current()
 	rootCmd := &cobra.Command{
 		Use:           "stx",
 		Short:         "STX server and remote command line client",
+		Version:       humanVersionLine(info),
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Args:          usageArgs(cobra.NoArgs),
@@ -50,6 +54,8 @@ func newRootCommand(serverRunner func() error) *cobra.Command {
 			return cmd.Help()
 		},
 	}
+	// stx --version：人类可读单行输出 / Human-readable one-liner for stx --version
+	rootCmd.SetVersionTemplate("{{.Version}}\n")
 	rootCmd.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
 		return clioutput.WrapError(err, clioutput.CodeUsage, err.Error(), clioutput.ExitUsage, false)
 	})
@@ -58,6 +64,7 @@ func newRootCommand(serverRunner func() error) *cobra.Command {
 	rootCmd.AddCommand(
 		newServerCommand(serverRunner),
 		newAPICompatibilityCommand(serverRunner),
+		newVersionCommand(),
 		newNamespaceCommand(),
 		newSkillCommand(),
 		newCapabilityCommand(),
@@ -79,6 +86,19 @@ func newRootCommand(serverRunner func() error) *cobra.Command {
 	addDiagnosticsWriteCommands(rootCmd, cliConfig.NewDefaultStore)
 	addSyncWriteCommands(rootCmd, cliConfig.NewDefaultStore)
 	return rootCmd
+}
+
+// humanVersionLine 生成 --version 用的可读版本行。
+// humanVersionLine builds the human-readable line for --version.
+func humanVersionLine(info stxversion.Info) string {
+	line := fmt.Sprintf("stx %s", info.Version)
+	if info.GitCommit != "" && info.GitCommit != "unknown" {
+		line = fmt.Sprintf("%s (%s)", line, info.GitCommit)
+	}
+	if info.BuildTime != "" && info.BuildTime != "unknown" {
+		line = fmt.Sprintf("%s built %s", line, info.BuildTime)
+	}
+	return line
 }
 
 // Execute 运行 STX 根命令。

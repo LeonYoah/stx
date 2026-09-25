@@ -32,6 +32,7 @@ import {StUpgradeService} from './st-upgrade/index';
 import {DiagnosticsService} from './diagnostics/index';
 import {SyncService} from './sync/index';
 import {troubleshootingService} from './troubleshooting/index';
+import {CapabilityService} from './capability/index';
 
 /**
  * 服务层架构说明：
@@ -106,6 +107,12 @@ const services = {
    * 认证服务
    */
   auth: AuthService,
+
+  /**
+   * 产品版本服务
+   * Product version service
+   */
+  capability: CapabilityService,
 
   /**
    * 项目服务

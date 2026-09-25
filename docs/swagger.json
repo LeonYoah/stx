@@ -3,7 +3,7 @@
     "info": {
         "title": "STX",
         "contact": {},
-        "version": "0.1.0"
+        "version": "1.0.0"
     },
     "paths": {
         "/api/v1/admin/users": {

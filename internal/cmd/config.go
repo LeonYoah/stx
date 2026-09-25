@@ -64,7 +64,7 @@ func newConfigNormalizeCommand(storeProvider authStoreProvider) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		if err := checkSpecialOperation(command.Context(), client, "config.normalize"); err != nil {
+		if err := checkSpecialOperation(command, client, "config.normalize"); err != nil {
 			return err
 		}
 		var data any

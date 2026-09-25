@@ -49,6 +49,7 @@ import Link from 'next/link';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -106,11 +107,47 @@ const ProfileButton = memo(() => {
   const [savingLanguage, setSavingLanguage] = useState(false);
   const [languageError, setLanguageError] = useState<string | null>(null);
   const [languageSaved, setLanguageSaved] = useState(false);
+  const [serverVersion, setServerVersion] = useState<string | null>(null);
+  const [serverBuildTime, setServerBuildTime] = useState<string | null>(null);
+  const [serverGitCommit, setServerGitCommit] = useState<string | null>(null);
   const t = useTranslations('profile');
 
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  // 拉取服务端真实产品版本，供个人资料 / 关于展示
+  // Fetch real product version for profile / About
+  useEffect(() => {
+    if (!mounted) {
+      return;
+    }
+    let cancelled = false;
+    services.capability
+      .getVersion()
+      .then((info) => {
+        if (cancelled) {
+          return;
+        }
+        setServerVersion(info.version || null);
+        setServerBuildTime(
+          info.build_time && info.build_time !== 'unknown' ? info.build_time : null,
+        );
+        setServerGitCommit(
+          info.git_commit && info.git_commit !== 'unknown' ? info.git_commit : null,
+        );
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setServerVersion(null);
+          setServerBuildTime(null);
+          setServerGitCommit(null);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [mounted]);
 
   useEffect(() => {
     setEmailDraft(user?.email || '');
@@ -226,6 +263,10 @@ const ProfileButton = memo(() => {
       <DialogContent className='max-w-md'>
         <DialogHeader>
           <DialogTitle>{t('title')}</DialogTitle>
+          <DialogDescription className='text-xs font-mono tabular-nums'>
+            STX {serverVersion ? `v${serverVersion}` : t('versionUnavailable')}
+            {serverGitCommit ? ` · ${serverGitCommit}` : null}
+          </DialogDescription>
         </DialogHeader>
         <div className='space-y-4'>
           {!isLoading && user && (
@@ -443,15 +484,24 @@ const ProfileButton = memo(() => {
             <h4 className='text-sm font-semibold mb-3 text-muted-foreground'>
               {t('about')}
             </h4>
-            <div className='space-y-2'>
-              <div className='text-xs text-muted-foreground font-light'>
-                {t('version')}: 1.1.0
+            <div className='rounded-md border border-border/60 bg-muted/15 px-3 py-2.5 space-y-1.5'>
+              <div className='flex items-baseline justify-between gap-3 text-xs'>
+                <span className='text-muted-foreground shrink-0'>{t('version')}</span>
+                <span className='font-mono tabular-nums text-foreground'>
+                  {serverVersion ? `v${serverVersion}` : t('versionUnavailable')}
+                </span>
               </div>
-              <div className='text-xs text-muted-foreground font-light'>
-                {t('buildTime')}: 2025-09-27
+              <div className='flex items-baseline justify-between gap-3 text-xs'>
+                <span className='text-muted-foreground shrink-0'>{t('gitCommit')}</span>
+                <span className='font-mono tabular-nums text-foreground truncate'>
+                  {serverGitCommit ?? '—'}
+                </span>
               </div>
-              <div className='text-xs text-muted-foreground font-light'>
-                {t('description')}
+              <div className='flex items-baseline justify-between gap-3 text-xs'>
+                <span className='text-muted-foreground shrink-0'>{t('buildTime')}</span>
+                <span className='font-mono tabular-nums text-foreground truncate'>
+                  {serverBuildTime ?? '—'}
+                </span>
               </div>
             </div>
           </div>

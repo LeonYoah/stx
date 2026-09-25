@@ -550,7 +550,7 @@ func newDiagnosticsTaskDownloadCommand(storeProvider authStoreProvider, commandO
 			if err != nil {
 				return err
 			}
-			if err := checkSpecialOperation(command.Context(), client, commandOptions.operationID); err != nil {
+			if err := checkSpecialOperation(command, client, commandOptions.operationID); err != nil {
 				return err
 			}
 			if strings.TrimSpace(outputPath) == "" {

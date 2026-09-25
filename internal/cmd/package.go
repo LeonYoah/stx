@@ -287,7 +287,7 @@ func newPackageSourceDownloadCommand(storeProvider authStoreProvider) *cobra.Com
 			if err != nil {
 				return err
 			}
-			if err := checkSpecialOperation(command.Context(), client, "package.source.download"); err != nil {
+			if err := checkSpecialOperation(command, client, "package.source.download"); err != nil {
 				return err
 			}
 			if strings.TrimSpace(outputPath) == "" {

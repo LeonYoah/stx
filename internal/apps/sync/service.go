@@ -34,6 +34,7 @@ import (
 
 	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
 	"github.com/LeonYoah/stx/internal/config"
+	"github.com/LeonYoah/stx/internal/db"
 	"github.com/LeonYoah/stx/internal/pkg/schedulex"
 	"github.com/LeonYoah/stx/internal/seatunnel"
 )
@@ -308,7 +309,7 @@ func (s *Service) CreateTask(ctx context.Context, req *CreateTaskRequest, create
 		Mode:           mode,
 		Status:         TaskStatusDraft,
 		ContentFormat:  format,
-		Content:        content,
+		Content:        db.ScriptText(content),
 		JobName:        jobName,
 		Definition:     definition,
 		SortOrder:      req.SortOrder,
@@ -571,7 +572,7 @@ func (s *Service) UpdateTaskForActor(ctx context.Context, actor executionapp.Act
 		return nil, err
 	}
 	content := strings.TrimSpace(req.Content)
-	content, err = restoreMaskedTaskContent(format, task.Content, content)
+	content, err = restoreMaskedTaskContent(format, task.Content.String(), content)
 	if err != nil {
 		return nil, err
 	}
@@ -597,7 +598,7 @@ func (s *Service) UpdateTaskForActor(ctx context.Context, actor executionapp.Act
 	task.EngineVersion = strings.TrimSpace(req.EngineVersion)
 	task.Mode = mode
 	task.ContentFormat = format
-	task.Content = content
+	task.Content = db.ScriptText(content)
 	task.JobName = jobName
 	task.SortOrder = req.SortOrder
 	task.Definition = definition
@@ -684,7 +685,7 @@ func (s *Service) getTaskForExecution(ctx context.Context, id uint, draft *TaskD
 	if err := validateTaskDefinition(definition); err != nil {
 		return nil, err
 	}
-	content, err := restoreMaskedTaskContent(format, task.Content, draft.Content)
+	content, err := restoreMaskedTaskContent(format, task.Content.String(), draft.Content)
 	if err != nil {
 		return nil, err
 	}
@@ -694,7 +695,7 @@ func (s *Service) getTaskForExecution(ctx context.Context, id uint, draft *TaskD
 	task.EngineVersion = strings.TrimSpace(draft.EngineVersion)
 	task.Mode = mode
 	task.ContentFormat = format
-	task.Content = content
+	task.Content = db.ScriptText(content)
 	task.JobName = strings.TrimSpace(draft.JobName)
 	task.Definition = definition
 	return task, nil
@@ -898,7 +899,7 @@ func (s *Service) ValidateTask(ctx context.Context, id uint, draft *TaskDraftPay
 	}
 	errorsList := []string{}
 	warnings := []string{}
-	if strings.TrimSpace(task.Content) == "" {
+	if strings.TrimSpace(task.Content.String()) == "" {
 		errorsList = append(errorsList, ErrTaskDefinitionEmpty.Error())
 	}
 	if task.ClusterID == 0 && taskExecutionMode(task) != "local" {
@@ -924,7 +925,7 @@ func (s *Service) ValidateTask(ctx context.Context, id uint, draft *TaskDraftPay
 					Warnings:     dedupeStrings(warnings),
 					Summary:      defaultString(validateResp.Summary, "Studio validation finished."),
 					Resolved:     map[string]string{"mode": string(task.Mode), "content_format": string(task.ContentFormat)},
-					DetectedVars: detectTemplateVariables(task.Content),
+					DetectedVars: detectTemplateVariables(task.Content.String()),
 					Checks:       toValidateChecks(validateResp.Checks),
 				}, nil
 			}
@@ -936,7 +937,7 @@ func (s *Service) ValidateTask(ctx context.Context, id uint, draft *TaskDraftPay
 		Warnings:     warnings,
 		Summary:      "Studio validation finished.",
 		Resolved:     map[string]string{"mode": string(task.Mode), "content_format": string(task.ContentFormat)},
-		DetectedVars: detectTemplateVariables(task.Content),
+		DetectedVars: detectTemplateVariables(task.Content.String()),
 	}, nil
 }
 
@@ -978,7 +979,7 @@ func (s *Service) TestTaskConnections(ctx context.Context, id uint, draft *TaskD
 		Warnings:     append([]string{}, validateResp.Warnings...),
 		Summary:      defaultString(validateResp.Summary, "Connection test finished."),
 		Resolved:     map[string]string{"mode": string(task.Mode), "content_format": string(task.ContentFormat)},
-		DetectedVars: detectTemplateVariables(task.Content),
+		DetectedVars: detectTemplateVariables(task.Content.String()),
 		Checks:       toValidateChecks(validateResp.Checks),
 	}, nil
 }
@@ -1118,7 +1119,7 @@ func (s *Service) PreviewTask(ctx context.Context, id uint, createdBy uint, opts
 		instance.Status = JobStatusRunning
 		instance.ResultPreview["note"] = "preview config derived and submitted to engine"
 		instance.ResultPreview["payload_bytes"] = len(previewPayload)
-		instance.ResultPreview["detected_vars"] = detectTemplateVariables(task.Content)
+		instance.ResultPreview["detected_vars"] = detectTemplateVariables(task.Content.String())
 		if previewResult != nil {
 			if strings.TrimSpace(previewResult.Content) != "" {
 				instance.ResultPreview["preview_content"] = previewResult.Content
@@ -1921,7 +1922,7 @@ func buildTaskTree(tasks []*Task) []*TaskTreeNode {
 			Mode:                    task.Mode,
 			Status:                  task.Status,
 			ContentFormat:           task.ContentFormat,
-			Content:                 task.Content,
+			Content:                 task.Content.String(),
 			JobName:                 task.JobName,
 			Definition:              cloneJSONMap(task.Definition),
 			SortOrder:               task.SortOrder,
@@ -2707,7 +2708,7 @@ func (s *Service) resolveTaskContent(ctx context.Context, task *Task, runtime *t
 	if task == nil {
 		return "", ErrTaskDefinitionEmpty
 	}
-	content := task.Content
+	content := task.Content.String()
 	if strings.TrimSpace(content) == "" {
 		return "", nil
 	}

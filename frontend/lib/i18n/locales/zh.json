@@ -362,6 +362,8 @@
     "about": "关于 STX",
     "version": "版本",
     "buildTime": "构建时间",
+    "gitCommit": "提交",
+    "versionUnavailable": "暂无法获取",
     "description": "STX 是一个面向数据集成的一站式运维管理平台，旨在提供快速、安全、便捷的数据同步服务。平台支持多种 Source，具备完善的任务管理和监控机制。",
     "trustLevel": {
       "newUser": "新用户",

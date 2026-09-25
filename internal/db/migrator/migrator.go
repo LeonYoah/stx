@@ -147,6 +147,12 @@ func MigrateWithDB(database *gorm.DB, dbType string) error {
 	}
 	log.Printf("[Database] auto migrate success\n")
 
+	// 将已有 MySQL 脚本列从 TEXT 升到 MEDIUMTEXT（新装已由 ScriptText 分流）。
+	// Widen existing MySQL script columns from TEXT to MEDIUMTEXT (new installs already use ScriptText).
+	if err := ensureMySQLScriptTextColumns(database); err != nil {
+		log.Printf("[Database] ensure MySQL script text columns failed: %v\n", err)
+	}
+
 	upgradeMigrator := database.Migrator()
 	if upgradeMigrator.HasIndex(&stupgrade.UpgradeTaskStep{}, "idx_st_upgrade_task_step_code") {
 		if err := upgradeMigrator.DropIndex(&stupgrade.UpgradeTaskStep{}, "idx_st_upgrade_task_step_code"); err != nil {
@@ -292,6 +298,42 @@ func createStoredProceduresWithDB(database *gorm.DB) error {
 
 	// 执行SQL语句 / Execute SQL statement
 	return database.Exec(sqlContent).Error
+}
+
+// ensureMySQLScriptTextColumns 将脚本类列在 MySQL 上升级为 MEDIUMTEXT，避免 TEXT 64KB 截断。
+// ensureMySQLScriptTextColumns upgrades script columns to MEDIUMTEXT on MySQL to avoid the 64KB TEXT cap.
+func ensureMySQLScriptTextColumns(database *gorm.DB) error {
+	if database == nil || database.Dialector == nil {
+		return nil
+	}
+	if !strings.EqualFold(database.Dialector.Name(), "mysql") {
+		return nil
+	}
+
+	type scriptColumn struct {
+		table  string
+		column string
+	}
+	columns := []scriptColumn{
+		{table: "sync_tasks", column: "content"},
+		{table: "sync_task_versions", column: "content_snapshot"},
+		{table: "sync_curated_templates", column: "content"},
+		{table: "configs", column: "content"},
+		{table: "config_versions", column: "content"},
+	}
+
+	migrator := database.Migrator()
+	for _, item := range columns {
+		if !migrator.HasTable(item.table) || !migrator.HasColumn(item.table, item.column) {
+			continue
+		}
+		// MySQL：幂等 MODIFY 到 MEDIUMTEXT / MySQL: idempotent MODIFY to MEDIUMTEXT
+		stmt := fmt.Sprintf("ALTER TABLE `%s` MODIFY COLUMN `%s` MEDIUMTEXT", item.table, item.column)
+		if err := database.Exec(stmt).Error; err != nil {
+			return fmt.Errorf("upgrade %s.%s to MEDIUMTEXT: %w", item.table, item.column, err)
+		}
+	}
+	return nil
 }
 
 // createStoredProcedures 创建存储过程（使用全局数据库）

@@ -362,6 +362,8 @@
     "about": "About STX",
     "version": "Version",
     "buildTime": "Build Time",
+    "gitCommit": "Commit",
+    "versionUnavailable": "Unavailable",
     "description": "STX is a one-stop operations platform for data integration, providing fast, secure, and convenient data synchronization services. The platform supports multiple data sources with comprehensive task management and monitoring capabilities.",
     "trustLevel": {
       "newUser": "New User",

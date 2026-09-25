@@ -23,6 +23,7 @@ import (
 	"strings"
 
 	"github.com/LeonYoah/stx/internal/apps/audit"
+	"github.com/LeonYoah/stx/internal/db"
 )
 
 const maskedSecretValue = "******"
@@ -36,7 +37,7 @@ func sanitizeTaskForResponse(task *Task) *Task {
 		return nil
 	}
 	clone := *task
-	clone.Content = audit.RedactText(task.Content)
+	clone.Content = db.ScriptText(audit.RedactText(task.Content.String()))
 	clone.Definition = redactSyncJSONMap(task.Definition)
 	return &clone
 }
@@ -69,7 +70,7 @@ func sanitizeTaskVersionForResponse(version *TaskVersion) *TaskVersion {
 		return nil
 	}
 	clone := *version
-	clone.ContentSnapshot = audit.RedactText(version.ContentSnapshot)
+	clone.ContentSnapshot = db.ScriptText(audit.RedactText(version.ContentSnapshot.String()))
 	clone.DefinitionSnapshot = redactSyncJSONMap(version.DefinitionSnapshot)
 	return &clone
 }

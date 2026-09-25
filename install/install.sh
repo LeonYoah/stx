@@ -310,10 +310,14 @@ if [[ "$FORCE" == "true" && -d "$INSTALL_DIR" && "$(ls -A "$INSTALL_DIR" 2>/dev/
 fi
 
 echo "[INFO] installing STX to: $INSTALL_DIR"
+# 复制源文件到安装目录，使用 --anchored 确保仅排除根目录下的临时文件/缓存包，避免误伤 frontend/.next/server/app/(main)/packages 等深层业务路由
+# Copy source files to install directory, use --anchored to ensure only root-level temporary files/cached packages are excluded, avoiding unintended exclusion of deep routes like frontend/.next/server/app/(main)/packages
 tar -C "$SOURCE_DIR" \
-  --exclude='run/*' \
-  --exclude='logs/*' \
-  --exclude='packages' \
+  --anchored \
+  --exclude='./run/*' \
+  --exclude='./logs/*' \
+  --exclude='./packages' \
+  --exclude='./packages/*' \
   --exclude='.DS_Store' \
   -cf - . | tar -C "$INSTALL_DIR" -xf -
 

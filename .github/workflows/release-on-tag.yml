@@ -163,13 +163,27 @@ jobs:
           username: ${{ secrets.SWR_USERNAME }}
           password: ${{ secrets.SWR_PASSWORD }}
 
+      - name: Compute images to publish
+        id: images
+        env:
+          SWR_USER: ${{ secrets.SWR_USERNAME }}
+          SWR_PASS: ${{ secrets.SWR_PASSWORD }}
+        run: |
+          IMAGES="ghcr.io/${{ steps.owner.outputs.value }}/${{ matrix.image_name }}"
+          if [[ -n "$SWR_USER" && -n "$SWR_PASS" ]]; then
+            IMAGES="${IMAGES}"$'\n'"${{ env.SWR_REGISTRY }}/${{ env.SWR_NAMESPACE }}/${{ matrix.image_name }}"
+          fi
+          {
+            echo "list<<EOF"
+            echo "$IMAGES"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Docker metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: |
-            ghcr.io/${{ steps.owner.outputs.value }}/${{ matrix.image_name }}
-            ${{ (secrets.SWR_USERNAME != '' && secrets.SWR_PASSWORD != '') && format('{0}/{1}/{2}', env.SWR_REGISTRY, env.SWR_NAMESPACE, matrix.image_name) || '' }}
+          images: ${{ steps.images.outputs.list }}
           tags: |
             type=ref,event=tag
             type=semver,pattern={{version}}

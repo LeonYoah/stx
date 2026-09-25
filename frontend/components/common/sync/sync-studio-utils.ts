@@ -124,7 +124,12 @@ export interface UserFacingErrorState {
 
 // 右侧属性边栏选项卡类型：设置 / 定时调度 / 版本历史 / 全局变量
 // Right sidebar tab types: settings / schedule / versions / globals
-export type RightSidebarTab = 'settings' | 'schedule' | 'versions' | 'globals';
+export type RightSidebarTab =
+  | 'settings'
+  | 'templates'
+  | 'schedule'
+  | 'versions'
+  | 'globals';
 export type BottomConsoleTab = 'jobs' | 'logs' | 'preview' | 'checkpoint';
 export type ExecutionMode = 'cluster' | 'local';
 export type LogFilterMode = 'all' | 'warn' | 'error';
@@ -1571,13 +1576,14 @@ export function formatSyncUserFacingError(
     .replace(/^org\.apache\.seatunnel\.common\.exception\.\w+:\s*/, '')
     .trim();
 
-  // 1. 未发布保存检查
+  // 1. 未发布版本检查（运行 / 恢复 / 定时等正式入口要求至少发布一次）
+  // Unpublished gate: run / recover / schedule require at least one published version.
   if (rawMessage.includes('sync: task has not been published')) {
     return {
       title: t('saveRequiredTitle'),
       description: t('saveRequiredDescription'),
       category: 'general',
-      suggestion: '任务尚未保存或发布，请先点击保存（Ctrl/Cmd + S）后再进行操作。',
+      suggestion: t('saveRequiredSuggestion'),
     };
   }
 
@@ -3289,4 +3295,119 @@ export function buildInsertedTemplateContent(
     startOffset: content.length + prefix.length,
     endOffset: nextContent.length,
   };
+}
+
+/**
+ * Normalize curated env seed into a single top-level `env { ... }` block.
+ * 将精选 env 种子规范为单个顶层 `env { ... }` 块（种子可能含注释头）。
+ */
+function normalizeCuratedEnvBlock(block: string): string {
+  const trimmed = block.trim();
+  if (!trimmed) {
+    return 'env {\n}';
+  }
+  // Seed files often start with comments before `env { ... }` — do not wrap again.
+  // 种子常以注释开头再跟 env 块，禁止再次外包一层 env。
+  if (/(^|\n)\s*env\s*\{/i.test(trimmed)) {
+    return trimmed;
+  }
+  return `env {\n  ${trimmed.replace(/\n/g, '\n  ')}\n}`;
+}
+
+/**
+ * Insert curated seed content by section.
+ * 按分区插入精选种子正文。
+ * - env/combo: content is a full top-level block or full job
+ * - source/transform/sink: content is a single plugin block body
+ */
+export function buildInsertedCuratedContent(
+  content: string,
+  section: 'env' | 'source' | 'transform' | 'sink' | 'combo',
+  curatedContent: string,
+): {
+  nextContent: string;
+  startOffset: number;
+  endOffset: number;
+  replacesAll?: boolean;
+} {
+  const block = curatedContent.trim();
+  if (section === 'combo') {
+    return {
+      nextContent: block,
+      startOffset: 0,
+      endOffset: block.length,
+      replacesAll: true,
+    };
+  }
+  if (section === 'env') {
+    const envBlock = normalizeCuratedEnvBlock(block);
+    const match = content.match(/(^|\n)env\s*\{/);
+    if (match && match.index !== undefined) {
+      const start = match.index + (match[1] === '\n' ? 1 : 0);
+      const brace = content.indexOf('{', start);
+      const end = findMatchingBraceOffset(content, brace);
+      if (end > brace) {
+        const nextContent =
+          content.slice(0, start) + envBlock + content.slice(end + 1);
+        return {
+          nextContent,
+          startOffset: start,
+          endOffset: start + envBlock.length,
+        };
+      }
+    }
+    const prefix = content.trim().length > 0 ? '\n\n' : '';
+    const nextContent = `${envBlock}${prefix}${content}`;
+    return {
+      nextContent,
+      startOffset: 0,
+      endOffset: envBlock.length,
+    };
+  }
+  return buildInsertedTemplateContent(
+    content,
+    section,
+    block,
+  );
+}
+
+function findMatchingBraceOffset(content: string, openIdx: number): number {
+  if (openIdx < 0 || content[openIdx] !== '{') {
+    return -1;
+  }
+  let depth = 0;
+  let inSingle = false;
+  let inDouble = false;
+  let escape = false;
+  for (let i = openIdx; i < content.length; i++) {
+    const ch = content[i];
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    if (ch === '\\' && (inSingle || inDouble)) {
+      escape = true;
+      continue;
+    }
+    if (!inDouble && ch === "'") {
+      inSingle = !inSingle;
+      continue;
+    }
+    if (!inSingle && ch === '"') {
+      inDouble = !inDouble;
+      continue;
+    }
+    if (inSingle || inDouble) {
+      continue;
+    }
+    if (ch === '{') {
+      depth++;
+    } else if (ch === '}') {
+      depth--;
+      if (depth === 0) {
+        return i;
+      }
+    }
+  }
+  return -1;
 }

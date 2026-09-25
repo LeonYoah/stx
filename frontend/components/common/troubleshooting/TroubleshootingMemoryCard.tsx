@@ -18,6 +18,7 @@
 'use client';
 
 import {useState, useCallback} from 'react';
+import {useTranslations} from 'next-intl';
 import {
   Check,
   Copy,
@@ -78,8 +79,8 @@ function formatDateTime(value?: string | null): string {
 }
 
 /**
- * 历史排障经验置顶回显卡片组件
- * Troubleshooting memory sticky recall card component
+ * 经验库方案置顶回显卡片
+ * Sticky playbook recall card for matched fingerprints
  */
 export function TroubleshootingMemoryCard({
   matchedMemory,
@@ -87,6 +88,7 @@ export function TroubleshootingMemoryCard({
   onAddOrEdit,
   className,
 }: TroubleshootingMemoryCardProps) {
+  const t = useTranslations('troubleshooting');
   const {locale} = useLocale();
   const isEn = String(locale).toLowerCase().startsWith('en');
   // 官方经典方案自动做中英文两版自适应，自定义方案保持原样
@@ -103,12 +105,10 @@ export function TroubleshootingMemoryCard({
       }
       navigator.clipboard.writeText(text);
       setCopiedSolution(true);
-      toast.success(
-        isEn ? 'Solution copied to clipboard' : '排障解决方案已复制到剪切板',
-      );
+      toast.success(t('solutionCopied'));
       setTimeout(() => setCopiedSolution(false), 2000);
     },
-    [isEn],
+    [t],
   );
 
   // 未命中历史经验时的引导提示态
@@ -127,7 +127,7 @@ export function TroubleshootingMemoryCard({
           </div>
           <div className='space-y-0.5'>
             <div className='font-semibold text-foreground flex items-center gap-1.5'>
-              <span>{isEn ? 'Troubleshooting Memory' : '排障经验记忆库'}</span>
+              <span>{t('title')}</span>
               <span className='text-[11px] font-normal text-muted-foreground'>
                 {isEn
                   ? '(No record for this fingerprint)'
@@ -135,9 +135,7 @@ export function TroubleshootingMemoryCard({
               </span>
             </div>
             <p className='text-muted-foreground text-[11px] leading-relaxed'>
-              {isEn
-                ? 'After resolving this issue, record verified solutions and configuration changes here to auto-recall when similar issues occur.'
-                : '排查处理此问题后，可沉淀真实解决方案与配置调整措施，下次发生同类故障时将在此自动置顶回显。'}
+              {t('noMemoryFound')}
             </p>
           </div>
         </div>
@@ -149,7 +147,7 @@ export function TroubleshootingMemoryCard({
             className='h-7 px-2.5 text-xs shrink-0 border-emerald-500/30 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/10 gap-1'
           >
             <PlusCircle className='h-3.5 w-3.5' />
-            {isEn ? 'Record Solution' : '记排障方案'}
+            {t('recordSolution')}
           </Button>
         )}
       </div>
@@ -179,14 +177,14 @@ export function TroubleshootingMemoryCard({
               variant='outline'
               className='text-[10px] py-0 px-1.5 border-emerald-500/30 text-emerald-600 dark:text-emerald-400 bg-emerald-500/10'
             >
-              {isEn ? 'Built-in' : '系统内置'}
+              {isEn ? 'Built-in' : t('presetSolution')}
             </Badge>
           ) : (
             <Badge
               variant='outline'
               className='text-[10px] py-0 px-1.5 border-primary/30 text-primary bg-primary/10'
             >
-              {isEn ? 'Internal' : '内部经验'}
+              {isEn ? 'Internal' : t('teamSolution')}
             </Badge>
           )}
           {totalMatches > 1 && (
@@ -216,9 +214,7 @@ export function TroubleshootingMemoryCard({
                 ? isEn
                   ? 'Add Note'
                   : '补充心得'
-                : isEn
-                  ? 'Edit'
-                  : '编辑经验'}
+                : t('edit')}
             </Button>
           )}
         </div>
@@ -241,9 +237,7 @@ export function TroubleshootingMemoryCard({
         <div className='flex items-center justify-between'>
           <span className='font-semibold text-emerald-950 dark:text-emerald-100 flex items-center gap-1 text-xs'>
             <ShieldCheck className='h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400' />
-            {isEn
-              ? 'Verified Solution & Remediation:'
-              : '解决方案与排障动作（建议采纳）:'}
+            {t('solutionActionsHint')}
           </span>
           <Button
             variant='ghost'
@@ -259,7 +253,7 @@ export function TroubleshootingMemoryCard({
             ) : (
               <>
                 <Copy className='mr-1 h-3 w-3' />
-                {isEn ? 'Copy Solution' : '复制方案'}
+                {t('copySolution')}
               </>
             )}
           </Button>
@@ -274,7 +268,7 @@ export function TroubleshootingMemoryCard({
         {memory.preventive_tips ? (
           <div className='flex items-center gap-1 leading-snug'>
             <span className='font-medium text-foreground'>
-              {isEn ? '💡 Prevention:' : '💡 防范建议:'}
+              {isEn ? '💡 Prevention:' : `💡 ${t('preventiveTips')}:`}
             </span>
             <span>{memory.preventive_tips}</span>
           </div>

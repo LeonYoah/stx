@@ -139,7 +139,9 @@ export class TroubleshootingService extends BaseService {
   ): TroubleshootingMemoryEntry {
     const trimmedSolution = entry.solution?.trim();
     if (!trimmedSolution) {
-      throw new Error('解决方案内容不能为空，排障经验必须包含具体的处理措施与步骤');
+      throw new Error(
+        '解决方案内容不能为空，须包含具体处理措施与步骤',
+      );
     }
 
     const now = new Date().toISOString();
@@ -148,7 +150,7 @@ export class TroubleshootingService extends BaseService {
       ...entry,
       id,
       solution: trimmedSolution,
-      title: entry.title.trim() || '未命名排障方案',
+      title: entry.title.trim() || '未命名方案',
       error_summary: entry.error_summary?.trim() || '',
       root_cause: entry.root_cause?.trim(),
       preventive_tips: entry.preventive_tips?.trim(),

@@ -85,6 +85,7 @@ import {
   Share2,
   Workflow,
   WandSparkles,
+  Wrench,
   Code2,
   HelpCircle,
   X,
@@ -102,6 +103,8 @@ import type {
 import type {
   CreateSyncTaskRequest,
   SyncCheckpointSnapshot,
+  SyncCuratedSection,
+  SyncCuratedTemplateView,
   SyncDagResult,
   SyncFormat,
   SyncGlobalVariable,
@@ -137,6 +140,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -201,6 +214,7 @@ import {
   SettingsSidebarPanel,
   TemplatePluginSelect,
 } from './SettingsSidebarPanel';
+import {CuratedTemplatesManagePanel} from './CuratedTemplatesManagePanel';
 import {
   VersionSidebarPanel,
   SimplePagination,
@@ -268,6 +282,7 @@ import {
   buildDefaultContent,
   buildDisplayLogLines,
   buildInsertedTemplateContent,
+  buildInsertedCuratedContent,
   buildMetricGroups,
   buildMetricHighlights,
   buildPairedMetricRows,
@@ -657,6 +672,24 @@ export function DataSyncStudio() {
     useState(false);
   const [editingGlobalVariable, setEditingGlobalVariable] =
     useState<SyncGlobalVariable | null>(null);
+  // 另存精选模板弹窗状态
+  // Save-as curated template dialog state
+  const [curatedSaveDialogOpen, setCuratedSaveDialogOpen] = useState(false);
+  const [curatedSaveName, setCuratedSaveName] = useState('');
+  const [curatedSaveDescription, setCuratedSaveDescription] = useState('');
+  const [curatedSaveSection, setCuratedSaveSection] =
+    useState<SyncCuratedSection>('combo');
+  const [curatedSaveContent, setCuratedSaveContent] = useState('');
+  const [curatedSaving, setCuratedSaving] = useState(false);
+  const [curatedRefreshToken, setCuratedRefreshToken] = useState(0);
+  // combo 整文替换确认弹窗
+  // Confirm dialog before combo replace-all insert
+  const [curatedReplaceDialogOpen, setCuratedReplaceDialogOpen] =
+    useState(false);
+  const [pendingCuratedInsert, setPendingCuratedInsert] =
+    useState<SyncCuratedTemplateView | null>(null);
+  const saveAsCuratedFromSelectionRef = useRef<() => void>(() => {});
+
   const restoredWorkspaceTabsRef = useRef<PersistedWorkspaceTabs | null>(null);
   const customVariableRowsRef = useRef<VariableRow[]>([]);
   const tabStripRef = useRef<HTMLDivElement | null>(null);
@@ -1805,6 +1838,194 @@ export function DataSyncStudio() {
     [editor.clusterId, ensurePluginSchema, markEditorDraft, t],
   );
 
+  // 执行精选插入（已确认 combo 替换或无需确认）
+  // Perform curated insert (combo replace already confirmed or not needed)
+  const performInsertCuratedTemplate = useCallback(
+    async (item: SyncCuratedTemplateView) => {
+      const section = (item.section || 'combo') as SyncCuratedSection;
+      const loadingToastId = toast.loading(t('loadingCurated'));
+      try {
+        const clusterIdNum = editor.clusterId
+          ? Number(editor.clusterId)
+          : undefined;
+        const rendered = await services.sync.renderCuratedTemplate({
+          builtin_id: item.builtin_id,
+          id: item.id,
+          cluster_id:
+            clusterIdNum && Number.isFinite(clusterIdNum)
+              ? clusterIdNum
+              : undefined,
+        });
+        const curatedContent = (rendered.content || item.content || '').trim();
+        if (!curatedContent) {
+          throw new Error(t('curatedInsertFailed'));
+        }
+        setEditor((prev) => {
+          const inserted = buildInsertedCuratedContent(
+            prev.content || '',
+            section,
+            curatedContent,
+          );
+          pendingTemplateSelectionRef.current = {
+            startOffset: inserted.startOffset,
+            endOffset: inserted.endOffset,
+          };
+          const nextEditor = {...prev, content: inserted.nextContent};
+          if (nextEditor.id) {
+            markEditorDraft(
+              nextEditor.id,
+              nextEditor,
+              customVariableRowsRef.current,
+              true,
+            );
+          }
+          return nextEditor;
+        });
+        toast.dismiss(loadingToastId);
+        toast.success(t('curatedInserted'));
+      } catch (error) {
+        toast.dismiss(loadingToastId);
+        toast.error(
+          error instanceof Error ? error.message : t('curatedInsertFailed'),
+        );
+      }
+    },
+    [editor.clusterId, markEditorDraft, t],
+  );
+
+  // 插入精选模板：combo 且编辑器非空时先弹确认框
+  // Insert curated template: confirm first when combo would replace non-empty editor
+  const insertCuratedTemplate = useCallback(
+    async (item: SyncCuratedTemplateView) => {
+      const section = (item.section || 'combo') as SyncCuratedSection;
+      if (section === 'combo' && (editor.content || '').trim()) {
+        setPendingCuratedInsert(item);
+        setCuratedReplaceDialogOpen(true);
+        return;
+      }
+      await performInsertCuratedTemplate(item);
+    },
+    [editor.content, performInsertCuratedTemplate],
+  );
+
+  const handleConfirmCuratedReplace = useCallback(() => {
+    const item = pendingCuratedInsert;
+    setCuratedReplaceDialogOpen(false);
+    setPendingCuratedInsert(null);
+    if (item) {
+      void performInsertCuratedTemplate(item);
+    }
+  }, [pendingCuratedInsert, performInsertCuratedTemplate]);
+
+  // 打开另存精选弹窗（由选区正文驱动）
+  // Open save-as curated dialog from selected content
+  const openSaveAsCuratedFromContent = useCallback(
+    async (rawInput: string, nameHint?: string) => {
+      const raw = rawInput || '';
+      if (!raw.trim()) {
+        toast.error(t('curatedSaveEmpty'));
+        return;
+      }
+      try {
+        const parsed = await services.sync.parseCuratedCombo({content: raw});
+        const present = (parsed.present || []).filter(
+          (s): s is SyncCuratedSection =>
+            s === 'env' ||
+            s === 'source' ||
+            s === 'transform' ||
+            s === 'sink',
+        );
+        const section: SyncCuratedSection =
+          present.length >= 2
+            ? 'combo'
+            : present.length === 1
+              ? present[0]
+              : 'combo';
+        const sectionFragments: Record<
+          Exclude<SyncCuratedSection, 'combo'>,
+          string
+        > = {
+          env: parsed.env || '',
+          source: parsed.source || '',
+          transform: parsed.transform || '',
+          sink: parsed.sink || '',
+        };
+        const content =
+          section === 'combo'
+            ? (parsed.combined || raw).trim()
+            : (sectionFragments[section] || raw).trim();
+        setCuratedSaveContent(content);
+        setCuratedSaveSection(section);
+        const baseName = (nameHint || '').trim();
+        setCuratedSaveName(
+          baseName
+            ? `${baseName} · curated`
+            : `curated-${section}-${Date.now().toString(36)}`,
+        );
+        setCuratedSaveDescription('');
+        setCuratedSaveDialogOpen(true);
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : t('curatedSaveFailed'),
+        );
+      }
+    },
+    [t],
+  );
+
+  // 编辑器选区右键「另存为精选」：必须先选中文本
+  // Editor selection context-menu save-as curated: selection required
+  const handleOpenSaveAsCuratedFromSelection = useCallback(async () => {
+    const monacoEditor = editorInstanceRef.current;
+    const model = monacoEditor?.getModel?.();
+    const selection = monacoEditor?.getSelection?.();
+    if (!model || !selection || selection.isEmpty?.()) {
+      toast.error(t('curatedSaveNeedSelection'));
+      return;
+    }
+    const raw = model.getValueInRange(selection) || '';
+    await openSaveAsCuratedFromContent(raw, editor.name);
+  }, [editor.name, openSaveAsCuratedFromContent, t]);
+
+  saveAsCuratedFromSelectionRef.current = () => {
+    void handleOpenSaveAsCuratedFromSelection();
+  };
+
+  // 确认另存为新的精选模板
+  // Confirm save-as a new curated template
+  const handleConfirmSaveAsCuratedTemplate = useCallback(async () => {
+    const name = curatedSaveName.trim();
+    const content = curatedSaveContent.trim();
+    if (!name || !content) {
+      toast.error(t('curatedSaveEmpty'));
+      return;
+    }
+    setCuratedSaving(true);
+    try {
+      await services.sync.createCuratedTemplate({
+        name,
+        description: curatedSaveDescription.trim() || undefined,
+        section: curatedSaveSection,
+        content,
+      });
+      setCuratedSaveDialogOpen(false);
+      setCuratedRefreshToken((n) => n + 1);
+      toast.success(t('curatedSaved'));
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : t('curatedSaveFailed'),
+      );
+    } finally {
+      setCuratedSaving(false);
+    }
+  }, [
+    curatedSaveContent,
+    curatedSaveDescription,
+    curatedSaveName,
+    curatedSaveSection,
+    t,
+  ]);
+
   useEffect(() => {
     if (!pendingTemplateSelectionRef.current || !editorInstanceRef.current) {
       return;
@@ -2137,6 +2358,23 @@ export function DataSyncStudio() {
     (instance: any, monaco: any) => {
       editorInstanceRef.current = instance;
       registerEditorAssistProviders(monaco);
+      // 选区右键：另存为精选模板
+      // Selection context menu: save as curated template
+      try {
+        instance.addAction?.({
+          id: 'stx.sync.saveAsCurated',
+          label: t('saveAsCurated'),
+          precondition: 'editorHasSelection',
+          contextMenuGroupId: '9_cutcopypaste',
+          contextMenuOrder: 1.5,
+          run: () => {
+            saveAsCuratedFromSelectionRef.current();
+          },
+        });
+      } catch {
+        // Monaco action may already exist after remount; ignore.
+        // 编辑器重挂载时动作可能已存在，忽略。
+      }
       contentChangeDisposableRef.current?.dispose?.();
       cursorPositionChangeDisposableRef.current?.dispose?.();
       cursorSelectionChangeDisposableRef.current?.dispose?.();
@@ -2219,7 +2457,7 @@ export function DataSyncStudio() {
           }, 0);
         });
     },
-    [registerEditorAssistProviders],
+    [registerEditorAssistProviders, t],
   );
 
   useEffect(() => {
@@ -4600,6 +4838,9 @@ export function DataSyncStudio() {
 
         <StudioSidebarShell
           className='col-start-3 row-start-1 row-span-2'
+          contentMode={
+            rightSidebarTab === 'templates' ? 'fill' : 'scroll'
+          }
           rail={
             <>
               <SidebarIconTab
@@ -4607,6 +4848,12 @@ export function DataSyncStudio() {
                 icon={<Database className='size-4' />}
                 label={t('settings')}
                 onClick={() => setRightSidebarTab('settings')}
+              />
+              <SidebarIconTab
+                active={rightSidebarTab === 'templates'}
+                icon={<Wrench className='size-4' />}
+                label={t('curatedManage')}
+                onClick={() => setRightSidebarTab('templates')}
               />
               <SidebarIconTab
                 active={rightSidebarTab === 'schedule'}
@@ -4657,6 +4904,10 @@ export function DataSyncStudio() {
               onInsertPluginTemplate={(pluginType, factoryIdentifier) =>
                 void insertPluginTemplate(pluginType, factoryIdentifier)
               }
+              onInsertCuratedTemplate={(item) =>
+                void insertCuratedTemplate(item)
+              }
+              curatedRefreshToken={curatedRefreshToken}
               onOpenCreateCustomVariable={handleOpenCreateCustomVariable}
               onOpenEditCustomVariable={handleOpenEditCustomVariable}
               onDeleteCustomVariable={handleDeleteCustomVariable}
@@ -4668,6 +4919,11 @@ export function DataSyncStudio() {
                 setGlobalVariablesDefaultTab('time');
                 setRightSidebarTab('globals');
               }}
+            />
+          ) : rightSidebarTab === 'templates' ? (
+            <CuratedTemplatesManagePanel
+              refreshToken={curatedRefreshToken}
+              onChanged={() => setCuratedRefreshToken((n) => n + 1)}
             />
           ) : rightSidebarTab === 'schedule' ? (
             <TaskScheduleSidebarPanel
@@ -5001,6 +5257,120 @@ export function DataSyncStudio() {
             </Button>
             <Button type='button' onClick={handleConfirmScheduleDialog}>
               {t('confirm')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* combo 精选整文替换确认 */}
+      {/* Confirm before combo curated replace-all */}
+      <AlertDialog
+        open={curatedReplaceDialogOpen}
+        onOpenChange={(open) => {
+          setCuratedReplaceDialogOpen(open);
+          if (!open) {
+            setPendingCuratedInsert(null);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('curatedReplaceTitle')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('curatedReplaceConfirm')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('cancel')}</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmCuratedReplace}>
+              {t('curatedReplaceConfirmAction')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* 另存精选模板弹窗 */}
+      {/* Save-as curated template dialog */}
+      <Dialog
+        open={curatedSaveDialogOpen}
+        onOpenChange={(open) => {
+          if (!curatedSaving) {
+            setCuratedSaveDialogOpen(open);
+          }
+        }}
+      >
+        <DialogContent className='max-w-md'>
+          <DialogHeader>
+            <DialogTitle>{t('saveAsCurated')}</DialogTitle>
+            <DialogDescription>{t('curatedSaveDialogDesc')}</DialogDescription>
+          </DialogHeader>
+          <div className='grid gap-4 py-2'>
+            <div className='grid gap-2'>
+              <Label htmlFor='curated-save-name'>{t('curatedSaveName')}</Label>
+              <Input
+                id='curated-save-name'
+                value={curatedSaveName}
+                onChange={(e) => setCuratedSaveName(e.target.value)}
+                disabled={curatedSaving}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    void handleConfirmSaveAsCuratedTemplate();
+                  }
+                }}
+              />
+            </div>
+            <div className='grid gap-2'>
+              <Label htmlFor='curated-save-desc'>
+                {t('curatedSaveDescription')}
+              </Label>
+              <Input
+                id='curated-save-desc'
+                value={curatedSaveDescription}
+                onChange={(e) => setCuratedSaveDescription(e.target.value)}
+                disabled={curatedSaving}
+                placeholder={t('curatedSaveDescriptionPlaceholder')}
+              />
+            </div>
+            <div className='grid gap-2'>
+              <Label>{t('curatedSaveSection')}</Label>
+              <Select
+                value={curatedSaveSection}
+                onValueChange={(value) =>
+                  setCuratedSaveSection(value as SyncCuratedSection)
+                }
+                disabled={curatedSaving}
+              >
+                <SelectTrigger className='h-9 w-full text-sm'>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value='env'>env</SelectItem>
+                  <SelectItem value='source'>source</SelectItem>
+                  <SelectItem value='transform'>transform</SelectItem>
+                  <SelectItem value='sink'>sink</SelectItem>
+                  <SelectItem value='combo'>combo</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              type='button'
+              variant='outline'
+              onClick={() => setCuratedSaveDialogOpen(false)}
+              disabled={curatedSaving}
+            >
+              {t('cancel')}
+            </Button>
+            <Button
+              type='button'
+              onClick={() => void handleConfirmSaveAsCuratedTemplate()}
+              disabled={curatedSaving || !curatedSaveName.trim()}
+            >
+              {curatedSaving ? (
+                <Loader2 className='size-3.5 animate-spin' />
+              ) : null}
+              <span>{t('confirm')}</span>
             </Button>
           </DialogFooter>
         </DialogContent>

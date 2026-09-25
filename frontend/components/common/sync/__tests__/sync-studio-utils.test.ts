@@ -17,6 +17,8 @@
 
 import {describe, expect, it} from 'vitest';
 import {
+  buildInsertedCuratedContent,
+  detectVariables,
   filterTree,
   extractJobMetricSummary,
   isCursorInsideValueRegion,
@@ -407,6 +409,74 @@ describe('sync-studio-utils Monaco completion & assignment tests', () => {
       expect(summary.tableCount).toBe(4);
       expect(summary.isMultiTable).toBe(true);
     });
+  });
+});
+
+describe('curated template helpers', () => {
+  it('detects credential {{vars}} from curated seed style content', () => {
+    const content = `
+source {
+  Jdbc { password = "{{jdbc_password}}" }
+  MySQL-CDC { password = "{{cdc_password}}" }
+  FtpFile { password = "{{ftp_password}}" }
+  S3File {
+    access_key = "{{s3_access_key}}"
+    secret_key = "{{s3_secret_key}}"
+  }
+}
+`;
+    expect(detectVariables(content)).toEqual([
+      'cdc_password',
+      'ftp_password',
+      'jdbc_password',
+      's3_access_key',
+      's3_secret_key',
+    ]);
+  });
+
+  it('replaces env block and keeps other sections when inserting curated env', () => {
+    const existing = `env {\n  job.mode = "STREAMING"\n}\n\nsource {\n  FakeSource {}\n}\n`;
+    const inserted = buildInsertedCuratedContent(
+      existing,
+      'env',
+      'job.mode = "BATCH"',
+    );
+    expect(inserted.nextContent).toContain('job.mode = "BATCH"');
+    expect(inserted.nextContent).toContain('FakeSource');
+    expect(inserted.nextContent).not.toContain('STREAMING');
+  });
+
+  it('does not nest env when curated seed already contains env block with comments', () => {
+    const seed = `# env · BATCH
+# curated-section: env | batch
+
+env {
+  parallelism = 1
+  job.mode = "BATCH"
+}`;
+    const inserted = buildInsertedCuratedContent('', 'env', seed);
+    expect(inserted.nextContent.match(/\benv\s*\{/g)?.length).toBe(1);
+    expect(inserted.nextContent).toContain('parallelism = 1');
+    expect(inserted.nextContent).not.toMatch(/env\s*\{\s*\n\s*# env/);
+
+    const withExisting = buildInsertedCuratedContent(
+      'env {\n  job.mode = "STREAMING"\n}\n\nsource {\n  FakeSource {}\n}\n',
+      'env',
+      seed,
+    );
+    expect(withExisting.nextContent.match(/\benv\s*\{/g)?.length).toBe(1);
+    expect(withExisting.nextContent).toContain('FakeSource');
+    expect(withExisting.nextContent).not.toContain('STREAMING');
+  });
+
+  it('combo insert replaces entire editor content', () => {
+    const inserted = buildInsertedCuratedContent(
+      'old content',
+      'combo',
+      'env { job.mode = "BATCH" }',
+    );
+    expect(inserted.replacesAll).toBe(true);
+    expect(inserted.nextContent).toBe('env { job.mode = "BATCH" }');
   });
 });
 

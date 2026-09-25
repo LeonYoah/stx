@@ -22,10 +22,7 @@ import Link from 'next/link';
 import {usePathname, useRouter, useSearchParams} from 'next/navigation';
 import {useTranslations} from 'next-intl';
 import {
-  AlertTriangle,
   ArrowUpRight,
-  ClipboardCheck,
-  Lightbulb,
   RefreshCw,
   Server,
   Settings,
@@ -53,7 +50,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {Tabs, TabsContent, TabsList, TabsTrigger} from '@/components/ui/tabs';
+import {Tabs, TabsList, TabsTrigger} from '@/components/ui/tabs';
 import {cn} from '@/lib/utils';
 import {WorkspaceHeader, ModuleNavTabs} from '@/components/common/layout';
 import {TroubleshootingMemoryCenter} from '@/components/common/troubleshooting';
@@ -61,8 +58,8 @@ import {DiagnosticsErrorCenter} from './DiagnosticsErrorCenter';
 import {DiagnosticsInspectionCenter} from './DiagnosticsInspectionCenter';
 import {AutoPolicyConfigPanel} from './AutoPolicyConfigPanel';
 
-// 解析当前激活的诊断标签页（支持错误中心、巡检中心、排障经验库）
-// Resolve currently active diagnostics tab (supports error center, inspections, and troubleshooting memories)
+// 解析当前激活的诊断标签页（错误 / 巡检 / 经验库）
+// Resolve currently active diagnostics tab (errors / inspections / memories)
 function resolveTab(
   tab: string | null,
   fallback: DiagnosticsTabKey = 'errors',
@@ -200,8 +197,8 @@ export function DiagnosticsWorkspace() {
     }
   }, [source, t]);
 
-  // 工作台二级标签列表（保证至少包含错误中心、巡检中心、排障经验库三大核心模块）
-  // Workspace secondary tab list (guarantees error center, inspections, and troubleshooting memories)
+  // 工作台二级标签列表（错误 / 巡检 / 经验库）
+  // Workspace secondary tab list (errors / inspections / memories)
   const tabs = useMemo(() => {
     const defaultList = [
       {
@@ -234,12 +231,22 @@ export function DiagnosticsWorkspace() {
     return list;
   }, [bootstrap?.tabs, t]);
 
+  // 切换二级 Tab 并同步 URL / Switch secondary tab and sync URL
+  const handleTabChange = useCallback(
+    (value: string) => {
+      updateQuery({tab: resolveTab(value) as string});
+    },
+    [updateQuery],
+  );
+
   return (
-    <div className='space-y-4'>
-      {/* 头部标题区域（复用全局 WorkspaceHeader） / Workspace Header */}
+    <div className='space-y-3.5 flex-1 flex flex-col'>
+      {/* 头部：二级 Tab 放入 actions，与告警中心 chrome 对齐 */}
+      {/* Header: secondary tabs in actions to match alert-center chrome */}
       <WorkspaceHeader
         icon={<ScanSearch />}
         title={t('title')}
+        subtitle={t('subtitle')}
         tabs={
           <ModuleNavTabs
             reorderGroupId='monitoring-diagnostics'
@@ -260,19 +267,39 @@ export function DiagnosticsWorkspace() {
             activeKey='diagnostics'
           />
         }
-        badge={
-          <span className='inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground'>
-            Diagnostics Center
-          </span>
-        }
-        subtitle={t('subtitle')}
         actions={
-          <>
+          <div className='flex flex-wrap items-center gap-2'>
+            <Tabs
+              value={activeTab}
+              onValueChange={handleTabChange}
+              className='w-full sm:w-auto'
+            >
+              <TabsList className='grid w-full grid-cols-3 sm:w-[360px] bg-muted/60 p-1 h-8.5'>
+                <TabsTrigger
+                  value='errors'
+                  className='data-[state=active]:bg-background data-[state=active]:shadow-xs text-xs font-medium py-1'
+                >
+                  {t('tabs.errors')}
+                </TabsTrigger>
+                <TabsTrigger
+                  value='inspections'
+                  className='data-[state=active]:bg-background data-[state=active]:shadow-xs text-xs font-medium py-1'
+                >
+                  {t('tabs.inspections')}
+                </TabsTrigger>
+                <TabsTrigger
+                  value='memories'
+                  className='data-[state=active]:bg-background data-[state=active]:shadow-xs text-xs font-medium py-1'
+                >
+                  {t('tabs.memories')}
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
             <Button
               variant='outline'
               size='sm'
               onClick={() => setAutoPolicyOpen(true)}
-              className='h-8 text-xs'
+              className='h-8.5 text-xs'
             >
               <Settings className='mr-1.5 h-3.5 w-3.5' />
               {t('autoPolicies.buttonLabel')}
@@ -281,14 +308,14 @@ export function DiagnosticsWorkspace() {
               variant='outline'
               size='sm'
               onClick={() => void loadBootstrap()}
-              className='h-8 text-xs'
+              className='h-8.5 text-xs'
             >
               <RefreshCw
                 className={cn('mr-1.5 h-3.5 w-3.5', loading && 'animate-spin')}
               />
               {commonT('refresh')}
             </Button>
-          </>
+          </div>
         }
       />
 
@@ -412,39 +439,25 @@ export function DiagnosticsWorkspace() {
         ) : null}
       </div>
 
-      <Tabs
-        value={activeTab}
-        onValueChange={(value) =>
-          updateQuery({tab: resolveTab(value) as string})
-        }
-      >
-        <TabsList className='grid w-full grid-cols-3 gap-1 p-0.5 h-8 md:w-[480px]'>
-          <TabsTrigger value='errors' className='flex items-center gap-1.5 text-xs h-7'>
-            <AlertTriangle className='h-3.5 w-3.5 text-amber-500' />
-            <span>{t('tabs.errors')}</span>
-          </TabsTrigger>
-          <TabsTrigger value='inspections' className='flex items-center gap-1.5 text-xs h-7'>
-            <ClipboardCheck className='h-3.5 w-3.5 text-primary' />
-            <span>{t('tabs.inspections')}</span>
-          </TabsTrigger>
-          <TabsTrigger value='memories' className='flex items-center gap-1.5 text-xs h-7'>
-            <Lightbulb className='h-3.5 w-3.5 text-emerald-500' />
-            <span>{t('tabs.memories')}</span>
-          </TabsTrigger>
-        </TabsList>
-
+      {/* 标签页内容区（无重复 TabsList；切换由 Header actions 控制） */}
+      {/* Tab content area (no duplicate TabsList; switching is controlled from header actions) */}
+      <div className='flex-1 flex flex-col'>
         {loading && !bootstrap ? (
-          <Card className='mt-4'>
+          <Card>
             <CardContent className='py-8 text-sm text-muted-foreground'>
               {t('loading')}
             </CardContent>
           </Card>
         ) : null}
 
-        {tabs.map((tab) => (
-          <TabsContent key={tab.key} value={tab.key} className='mt-4'>
-            {tab.key === 'errors' ? (
+        {tabs.map((tab) => {
+          if (tab.key !== activeTab) {
+            return null;
+          }
+          if (tab.key === 'errors') {
+            return (
               <DiagnosticsErrorCenter
+                key={tab.key}
                 clusterId={
                   selectedClusterId !== 'all'
                     ? Number.parseInt(selectedClusterId, 10)
@@ -456,8 +469,12 @@ export function DiagnosticsWorkspace() {
                   updateQuery({group_id: value ? String(value) : null})
                 }
               />
-            ) : tab.key === 'inspections' ? (
+            );
+          }
+          if (tab.key === 'inspections') {
+            return (
               <DiagnosticsInspectionCenter
+                key={tab.key}
                 clusterId={
                   selectedClusterId !== 'all'
                     ? Number.parseInt(selectedClusterId, 10)
@@ -469,19 +486,21 @@ export function DiagnosticsWorkspace() {
                   updateQuery({report_id: value ? String(value) : null})
                 }
               />
-            ) : tab.key === 'memories' ? (
-              <TroubleshootingMemoryCenter
-                clusterId={
-                  selectedClusterId !== 'all'
-                    ? Number.parseInt(selectedClusterId, 10)
-                    : undefined
-                }
-                clusterName={selectedClusterName || undefined}
-              />
-            ) : null}
-          </TabsContent>
-        ))}
-      </Tabs>
+            );
+          }
+          return (
+            <TroubleshootingMemoryCenter
+              key={tab.key}
+              clusterId={
+                selectedClusterId !== 'all'
+                  ? Number.parseInt(selectedClusterId, 10)
+                  : undefined
+              }
+              clusterName={selectedClusterName || undefined}
+            />
+          );
+        })}
+      </div>
 
       <AutoPolicyConfigPanel
         open={autoPolicyOpen}

@@ -17,7 +17,8 @@
 
 'use client';
 
-import {useCallback, useEffect, useMemo, useState} from 'react';
+import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {usePathname, useRouter, useSearchParams} from 'next/navigation';
 import {useTranslations} from 'next-intl';
 import {toast} from 'sonner';
 import {
@@ -31,6 +32,7 @@ import {
   Pencil,
   Plus,
   RefreshCw,
+  RotateCcw,
   Save,
   Search,
   Send,
@@ -65,10 +67,26 @@ import {
   rememberPreferredClusterId,
   isSoleDefaultCluster,
 } from '@/lib/cluster-preference';
+import {
+  StatPillsBar,
+  type StatPillItem,
+  TableLoadingBar,
+  TableSkeletonRows,
+} from '@/components/common/layout';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
 import {Checkbox} from '@/components/ui/checkbox';
 import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import {
   Dialog,
   DialogContent,
@@ -96,7 +114,27 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import {Tabs, TabsList, TabsTrigger} from '@/components/ui/tabs';
 import {Textarea} from '@/components/ui/textarea';
+
+// 规则与通知三级分段：告警规则 | 通知通道 | 投递记录
+// Tertiary sections for Rules & Notifications: rules | channels | history
+type PolicySection = 'rules' | 'channels' | 'history';
+
+// 通道列表筛选：全部 / 邮件 / Webhook / 已启用
+// Channel list filter: all / email / webhook / enabled
+type ChannelPillFilter = 'all' | 'email' | 'webhook' | 'enabled';
+
+// 投递记录状态筛选（客户端聚合 pill）
+// Delivery history status filter (client-aggregated pills)
+type HistoryPillFilter = 'all' | 'sent' | 'failed';
+
+function resolvePolicySection(value: string | null): PolicySection {
+  if (value === 'channels' || value === 'history' || value === 'rules') {
+    return value;
+  }
+  return 'rules';
+}
 
 type StrategyEditorMode = 'static' | 'custom_promql';
 
@@ -674,6 +712,35 @@ export function MonitoringPolicyCenter() {
   const rootT = useTranslations('monitoringCenter');
   const t = useTranslations('monitoringCenter.policyCenterV2');
   const legacyT = useTranslations('monitoringCenter.policyCenter');
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+
+  // 三级分段与 URL section 同步（缺省 rules，可省略 query）
+  // Sync tertiary section with URL section param (default rules; omit ok)
+  const activeSection = useMemo(
+    () => resolvePolicySection(searchParams.get('section')),
+    [searchParams],
+  );
+
+  const setActiveSection = useCallback(
+    (next: PolicySection) => {
+      const params = new URLSearchParams(searchParams.toString());
+      // 确保二级 tab 落在 policies，避免仅带 section 的脏链
+      // Ensure secondary tab stays on policies for section deep-links
+      if (params.get('tab') !== 'policies') {
+        params.set('tab', 'policies');
+      }
+      if (next === 'rules') {
+        params.delete('section');
+      } else {
+        params.set('section', next);
+      }
+      const query = params.toString();
+      router.replace(query ? `${pathname}?${query}` : pathname);
+    },
+    [pathname, router, searchParams],
+  );
 
   const [bootstrap, setBootstrap] =
     useState<AlertPolicyCenterBootstrapData>(EMPTY_BOOTSTRAP);
@@ -690,13 +757,28 @@ export function MonitoringPolicyCenter() {
     useState<string>('all');
   const [policyStatusFilter, setPolicyStatusFilter] = useState<string>('all');
   const [deletingPolicyId, setDeletingPolicyId] = useState<number | null>(null);
-  const [historyPolicy, setHistoryPolicy] = useState<AlertPolicy | null>(null);
-  const [historyOpen, setHistoryOpen] = useState<boolean>(false);
+  const [historyPolicyIdFilter, setHistoryPolicyIdFilter] = useState<
+    number | null
+  >(null);
   const [historyData, setHistoryData] =
     useState<NotificationDeliveryListData>(EMPTY_HISTORY);
   const [historyLoading, setHistoryLoading] = useState<boolean>(false);
+  const [historyStatusFilter, setHistoryStatusFilter] =
+    useState<HistoryPillFilter>('all');
+  const [historySearchKeyword, setHistorySearchKeyword] = useState<string>('');
+  const [channelPillFilter, setChannelPillFilter] =
+    useState<ChannelPillFilter>('all');
+  const [channelListSearch, setChannelListSearch] = useState<string>('');
 
   const [emailDialogOpen, setEmailDialogOpen] = useState<boolean>(false);
+  // 放弃未保存变更确认（系统 AlertDialog，替代 window.confirm）
+  // Discard-unsaved confirm via in-app AlertDialog (replaces window.confirm)
+  const [emailDiscardDialogOpen, setEmailDiscardDialogOpen] =
+    useState<boolean>(false);
+  const emailDiscardActionRef = useRef<(() => void) | null>(null);
+  const emailChannelFormRef = useRef<EmailChannelFormState>(
+    createDefaultEmailChannelForm(),
+  );
   const [emailChannelForm, setEmailChannelForm] =
     useState<EmailChannelFormState>(createDefaultEmailChannelForm());
   const [emailChannelBaseline, setEmailChannelBaseline] = useState<string>(
@@ -704,7 +786,6 @@ export function MonitoringPolicyCenter() {
   );
   const [emailChannelTouched, setEmailChannelTouched] =
     useState<boolean>(false);
-  const [emailChannelSearch, setEmailChannelSearch] = useState<string>('');
   const [savingEmailChannel, setSavingEmailChannel] = useState<boolean>(false);
   const [testingEmailChannelId, setTestingEmailChannelId] = useState<
     number | null
@@ -727,6 +808,12 @@ export function MonitoringPolicyCenter() {
   const [lastEmailChannelTestSnapshot, setLastEmailChannelTestSnapshot] =
     useState<string | null>(null);
   const [webhookDialogOpen, setWebhookDialogOpen] = useState<boolean>(false);
+  const [webhookDiscardDialogOpen, setWebhookDiscardDialogOpen] =
+    useState<boolean>(false);
+  const webhookDiscardActionRef = useRef<(() => void) | null>(null);
+  const webhookChannelFormRef = useRef<WebhookChannelFormState>(
+    createDefaultWebhookChannelForm(),
+  );
   const [webhookChannelForm, setWebhookChannelForm] =
     useState<WebhookChannelFormState>(createDefaultWebhookChannelForm());
   const [webhookChannelBaseline, setWebhookChannelBaseline] = useState<string>(
@@ -734,7 +821,6 @@ export function MonitoringPolicyCenter() {
   );
   const [webhookChannelTouched, setWebhookChannelTouched] =
     useState<boolean>(false);
-  const [webhookChannelSearch, setWebhookChannelSearch] = useState<string>('');
   const [savingWebhookChannel, setSavingWebhookChannel] =
     useState<boolean>(false);
   const [testingWebhookChannelId, setTestingWebhookChannelId] = useState<
@@ -818,33 +904,10 @@ export function MonitoringPolicyCenter() {
     () => channels.filter((channel) => channel.type === 'email'),
     [channels],
   );
-  const filteredEmailChannels = useMemo(() => {
-    const keyword = emailChannelSearch.trim().toLowerCase();
-    if (!keyword) {
-      return emailChannels;
-    }
-    return emailChannels.filter((channel) => {
-      const config = getEmailConfig(channel);
-      return [channel.name, channel.description, config?.from, config?.host]
-        .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(keyword));
-    });
-  }, [emailChannelSearch, emailChannels]);
   const webhookChannels = useMemo(
     () => channels.filter((channel) => channel.type === 'webhook'),
     [channels],
   );
-  const filteredWebhookChannels = useMemo(() => {
-    const keyword = webhookChannelSearch.trim().toLowerCase();
-    if (!keyword) {
-      return webhookChannels;
-    }
-    return webhookChannels.filter((channel) =>
-      [channel.name, channel.description, channel.endpoint]
-        .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(keyword)),
-    );
-  }, [webhookChannelSearch, webhookChannels]);
   const notifiableUsers = useMemo(
     () =>
       Array.isArray(bootstrap.notifiable_users)
@@ -966,6 +1029,8 @@ export function MonitoringPolicyCenter() {
     () => serializeEmailChannelForm(emailChannelForm),
     [emailChannelForm],
   );
+  // 保持最新表单快照，供打开弹窗后吸收浏览器自动填充 / Keep latest form for autofill absorb
+  emailChannelFormRef.current = emailChannelForm;
   const emailChannelDirty = useMemo(
     () =>
       emailChannelTouched && emailChannelSerialized !== emailChannelBaseline,
@@ -1004,6 +1069,7 @@ export function MonitoringPolicyCenter() {
     () => serializeWebhookChannelForm(webhookChannelForm),
     [webhookChannelForm],
   );
+  webhookChannelFormRef.current = webhookChannelForm;
   const webhookChannelDirty = useMemo(
     () =>
       webhookChannelTouched &&
@@ -1103,12 +1169,47 @@ export function MonitoringPolicyCenter() {
     setEmailTestReceiver(defaultEmailTestReceiver);
   }, [defaultEmailTestReceiver, emailDialogOpen, emailTestReceiver]);
 
-  const confirmDiscardEmailChannelChanges = useCallback((): boolean => {
-    if (!emailDialogOpen || !emailChannelDirty) {
-      return true;
+  // 弹窗打开后短暂窗口内吸收浏览器自动填充，避免误判未保存变更
+  // After open, absorb browser autofill briefly so it is not treated as dirty edits
+  useEffect(() => {
+    if (!emailDialogOpen) {
+      return;
     }
-    return window.confirm(t('channel.unsavedChangesConfirm'));
-  }, [emailChannelDirty, emailDialogOpen, t]);
+    const timer = window.setTimeout(() => {
+      setEmailChannelBaseline(
+        serializeEmailChannelForm(emailChannelFormRef.current),
+      );
+      setEmailChannelTouched(false);
+    }, 500);
+    return () => window.clearTimeout(timer);
+  }, [emailDialogOpen]);
+
+  useEffect(() => {
+    if (!webhookDialogOpen) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setWebhookChannelBaseline(
+        serializeWebhookChannelForm(webhookChannelFormRef.current),
+      );
+      setWebhookChannelTouched(false);
+    }, 500);
+    return () => window.clearTimeout(timer);
+  }, [webhookDialogOpen]);
+
+  // 请求放弃未保存变更：无脏数据则直接执行，否则弹出系统确认框
+  // Request discard of unsaved changes: run immediately if clean, else show AlertDialog
+  const requestEmailChannelDiscard = useCallback(
+    (action: () => void) => {
+      if (!emailDialogOpen || !emailChannelDirty) {
+        action();
+        return;
+      }
+      emailDiscardActionRef.current = action;
+      setEmailDiscardDialogOpen(true);
+    },
+    [emailChannelDirty, emailDialogOpen],
+  );
   const closeEmailChannelDialog = useCallback(
     (discardChanges: boolean = false) => {
       if (discardChanges && emailChannelDirty) {
@@ -1127,12 +1228,17 @@ export function MonitoringPolicyCenter() {
     },
     [emailChannelBaseline, emailChannelDirty],
   );
-  const confirmDiscardWebhookChannelChanges = useCallback((): boolean => {
-    if (!webhookDialogOpen || !webhookChannelDirty) {
-      return true;
-    }
-    return window.confirm(t('webhook.unsavedChangesConfirm'));
-  }, [t, webhookChannelDirty, webhookDialogOpen]);
+  const requestWebhookChannelDiscard = useCallback(
+    (action: () => void) => {
+      if (!webhookDialogOpen || !webhookChannelDirty) {
+        action();
+        return;
+      }
+      webhookDiscardActionRef.current = action;
+      setWebhookDiscardDialogOpen(true);
+    },
+    [webhookChannelDirty, webhookDialogOpen],
+  );
   const closeWebhookChannelDialog = useCallback(
     (discardChanges: boolean = false) => {
       if (discardChanges && webhookChannelDirty) {
@@ -1318,28 +1424,45 @@ export function MonitoringPolicyCenter() {
     }
   };
 
-  const loadHistory = useCallback(
-    async (policy: AlertPolicy) => {
-      setHistoryLoading(true);
-      try {
-        const result = await services.monitoring.listAlertPolicyExecutionsSafe(
-          policy.id,
-          {page: 1, page_size: 10},
-        );
-        if (!result.success || !result.data) {
-          toast.error(result.error || legacyT('history.loadError'));
-          setHistoryData(EMPTY_HISTORY);
-          return;
-        }
-        setHistoryPolicy(policy);
-        setHistoryData(result.data);
-        setHistoryOpen(true);
-      } finally {
-        setHistoryLoading(false);
-      }
+  // 从规则行跳到投递记录分段，并按规则过滤
+  // Jump from a rule row into delivery history section filtered by that rule
+  const openPolicyDeliveryHistory = useCallback(
+    (policy: AlertPolicy) => {
+      setHistoryPolicyIdFilter(policy.id);
+      setHistoryStatusFilter('all');
+      setHistorySearchKeyword('');
+      setActiveSection('history');
     },
-    [legacyT],
+    [setActiveSection],
   );
+
+  // 加载全局投递记录（页内主工作面；较大 page_size 供客户端 pill 聚合）
+  // Load global delivery history (in-page surface; larger page size for client pills)
+  const loadDeliveryHistory = useCallback(async () => {
+    setHistoryLoading(true);
+    try {
+      const result = await services.monitoring.listNotificationDeliveriesSafe({
+        page: 1,
+        page_size: 100,
+        policy_id: historyPolicyIdFilter ?? undefined,
+      });
+      if (!result.success || !result.data) {
+        toast.error(result.error || t('deliveryHistory.loadError'));
+        setHistoryData(EMPTY_HISTORY);
+        return;
+      }
+      setHistoryData(result.data);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [historyPolicyIdFilter, t]);
+
+  useEffect(() => {
+    if (activeSection !== 'history') {
+      return;
+    }
+    void loadDeliveryHistory();
+  }, [activeSection, loadDeliveryHistory]);
 
   const handleSubmitPolicy = async () => {
     if (!form.name.trim()) {
@@ -1423,27 +1546,8 @@ export function MonitoringPolicyCenter() {
   };
 
   const openNewEmailChannelDialog = () => {
-    if (!confirmDiscardEmailChannelChanges()) {
-      return;
-    }
-    const nextForm = createDefaultEmailChannelForm();
-    applyEmailChannelFormSnapshot(nextForm);
-    setEmailChannelSearch('');
-    setShowEmailPassword(false);
-    setEmailTestReceiver(defaultEmailTestReceiver);
-    setLastEmailChannelConnectionResult(null);
-    setLastEmailChannelConnectionSnapshot(null);
-    setLastEmailChannelTestResult(null);
-    setLastEmailChannelTestSnapshot(null);
-    setEmailDialogOpen(true);
-  };
-
-  const handleEditEmailChannel = useCallback(
-    (channel: NotificationChannel) => {
-      if (!confirmDiscardEmailChannelChanges()) {
-        return;
-      }
-      const nextForm = createEmailChannelFormFromChannel(channel);
+    requestEmailChannelDiscard(() => {
+      const nextForm = createDefaultEmailChannelForm();
       applyEmailChannelFormSnapshot(nextForm);
       setShowEmailPassword(false);
       setEmailTestReceiver(defaultEmailTestReceiver);
@@ -1452,11 +1556,27 @@ export function MonitoringPolicyCenter() {
       setLastEmailChannelTestResult(null);
       setLastEmailChannelTestSnapshot(null);
       setEmailDialogOpen(true);
+    });
+  };
+
+  const handleEditEmailChannel = useCallback(
+    (channel: NotificationChannel) => {
+      requestEmailChannelDiscard(() => {
+        const nextForm = createEmailChannelFormFromChannel(channel);
+        applyEmailChannelFormSnapshot(nextForm);
+        setShowEmailPassword(false);
+        setEmailTestReceiver(defaultEmailTestReceiver);
+        setLastEmailChannelConnectionResult(null);
+        setLastEmailChannelConnectionSnapshot(null);
+        setLastEmailChannelTestResult(null);
+        setLastEmailChannelTestSnapshot(null);
+        setEmailDialogOpen(true);
+      });
     },
     [
       applyEmailChannelFormSnapshot,
-      confirmDiscardEmailChannelChanges,
       defaultEmailTestReceiver,
+      requestEmailChannelDiscard,
     ],
   );
 
@@ -1616,31 +1736,28 @@ export function MonitoringPolicyCenter() {
   };
 
   const openNewWebhookChannelDialog = useCallback(() => {
-    if (!confirmDiscardWebhookChannelChanges()) {
-      return;
-    }
-    const nextForm = createDefaultWebhookChannelForm();
-    applyWebhookChannelFormSnapshot(nextForm);
-    setWebhookChannelSearch('');
-    setShowWebhookSecret(false);
-    setLastWebhookChannelTestResult(null);
-    setLastWebhookChannelTestSnapshot(null);
-    setWebhookDialogOpen(true);
-  }, [applyWebhookChannelFormSnapshot, confirmDiscardWebhookChannelChanges]);
-
-  const handleEditWebhookChannel = useCallback(
-    (channel: NotificationChannel) => {
-      if (!confirmDiscardWebhookChannelChanges()) {
-        return;
-      }
-      const nextForm = createWebhookChannelFormFromChannel(channel);
+    requestWebhookChannelDiscard(() => {
+      const nextForm = createDefaultWebhookChannelForm();
       applyWebhookChannelFormSnapshot(nextForm);
       setShowWebhookSecret(false);
       setLastWebhookChannelTestResult(null);
       setLastWebhookChannelTestSnapshot(null);
       setWebhookDialogOpen(true);
+    });
+  }, [applyWebhookChannelFormSnapshot, requestWebhookChannelDiscard]);
+
+  const handleEditWebhookChannel = useCallback(
+    (channel: NotificationChannel) => {
+      requestWebhookChannelDiscard(() => {
+        const nextForm = createWebhookChannelFormFromChannel(channel);
+        applyWebhookChannelFormSnapshot(nextForm);
+        setShowWebhookSecret(false);
+        setLastWebhookChannelTestResult(null);
+        setLastWebhookChannelTestSnapshot(null);
+        setWebhookDialogOpen(true);
+      });
     },
-    [applyWebhookChannelFormSnapshot, confirmDiscardWebhookChannelChanges],
+    [applyWebhookChannelFormSnapshot, requestWebhookChannelDiscard],
   );
 
   const handleSaveWebhookChannel = async (enabledOverride?: boolean) => {
@@ -1771,8 +1888,8 @@ export function MonitoringPolicyCenter() {
     [emailChannelForm.recipients],
   );
 
-  // 多条件过滤后的策略列表
-  // Filtered policy rows based on keyword, cluster, and status
+  // 多条件过滤后的规则列表
+  // Filtered rule rows based on keyword, cluster, and status
   const policyRows = useMemo(() => {
     return policies.filter((policy) => {
       if (
@@ -1798,97 +1915,247 @@ export function MonitoringPolicyCenter() {
     });
   }, [policies, policyClusterFilter, policySearchKeyword, policyStatusFilter]);
 
+  // 规则段 StatPills：全部 / 已启用 / 已停用（客户端聚合）
+  // Rules-section StatPills: all / enabled / disabled (client aggregated)
+  const rulePillItems = useMemo<StatPillItem[]>(() => {
+    const enabledCount = policies.filter((p) => p.enabled).length;
+    const disabledCount = policies.length - enabledCount;
+    return [
+      {key: 'all', label: t('statPills.all'), count: policies.length},
+      {
+        key: 'enabled',
+        label: t('statPills.enabled'),
+        count: enabledCount,
+        variant: 'success',
+      },
+      {
+        key: 'disabled',
+        label: t('statPills.disabled'),
+        count: disabledCount,
+      },
+    ];
+  }, [policies, t]);
+
+  // 通道列表：邮件 + Webhook 合并，按 pill / 关键字筛选
+  // Channel list: merge email + webhook, filter by pill / keyword
+  const channelRows = useMemo(() => {
+    let rows = channels;
+    if (channelPillFilter === 'email') {
+      rows = rows.filter((c) => c.type === 'email');
+    } else if (channelPillFilter === 'webhook') {
+      rows = rows.filter((c) => c.type === 'webhook');
+    } else if (channelPillFilter === 'enabled') {
+      rows = rows.filter((c) => c.enabled);
+    }
+    const kw = channelListSearch.trim().toLowerCase();
+    if (!kw) {
+      return rows;
+    }
+    return rows.filter((channel) => {
+      const config =
+        channel.type === 'email' ? getEmailConfig(channel) : null;
+      return [
+        channel.name,
+        channel.description,
+        channel.endpoint,
+        config?.from,
+        config?.host,
+      ]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(kw));
+    });
+  }, [channelListSearch, channelPillFilter, channels]);
+
+  const channelPillItems = useMemo<StatPillItem[]>(() => {
+    const emailCount = channels.filter((c) => c.type === 'email').length;
+    const webhookCount = channels.filter((c) => c.type === 'webhook').length;
+    const enabledCount = channels.filter((c) => c.enabled).length;
+    return [
+      {key: 'all', label: t('statPills.all'), count: channels.length},
+      {key: 'email', label: t('statPills.email'), count: emailCount, icon: <Mail className='h-3 w-3' />},
+      {key: 'webhook', label: t('statPills.webhook'), count: webhookCount, icon: <Webhook className='h-3 w-3' />},
+      {
+        key: 'enabled',
+        label: t('statPills.enabled'),
+        count: enabledCount,
+        variant: 'success',
+      },
+    ];
+  }, [channels, t]);
+
+  // 投递记录：状态 pill + 关键字客户端过滤
+  // Delivery rows: client-side status pill + keyword filter
+  const historyRows = useMemo(() => {
+    const deliveries = Array.isArray(historyData.deliveries)
+      ? historyData.deliveries
+      : [];
+    let rows = deliveries;
+    if (historyStatusFilter === 'sent') {
+      rows = rows.filter((d) => d.status === 'sent');
+    } else if (historyStatusFilter === 'failed') {
+      rows = rows.filter((d) => d.status === 'failed');
+    }
+    const kw = historySearchKeyword.trim().toLowerCase();
+    if (!kw) {
+      return rows;
+    }
+    return rows.filter((delivery) =>
+      [
+        delivery.alert_name,
+        delivery.channel_name,
+        delivery.last_error,
+        delivery.cluster_name,
+      ]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(kw)),
+    );
+  }, [historyData.deliveries, historySearchKeyword, historyStatusFilter]);
+
+  const historyPillItems = useMemo<StatPillItem[]>(() => {
+    const deliveries = Array.isArray(historyData.deliveries)
+      ? historyData.deliveries
+      : [];
+    // pill 计数基于当前已载入结果集（与告警事件页一致，不假装全局精确）
+    // Pill counts reflect the currently loaded result set (same as alerts page)
+    const sentCount = deliveries.filter((d) => d.status === 'sent').length;
+    const failedCount = deliveries.filter((d) => d.status === 'failed').length;
+    return [
+      {
+        key: 'all',
+        label: t('statPills.all'),
+        count: deliveries.length,
+      },
+      {
+        key: 'sent',
+        label: t('statPills.sent'),
+        count: sentCount,
+        variant: 'success',
+      },
+      {
+        key: 'failed',
+        label: t('statPills.failed'),
+        count: failedCount,
+        variant: 'danger',
+      },
+    ];
+  }, [historyData.deliveries, t]);
+
+  const policyNameById = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const policy of policies) {
+      map.set(policy.id, policy.name);
+    }
+    return map;
+  }, [policies]);
+
   return (
-    <div className='space-y-4'>
-      {/* 顶部操作与通道管理卡片 / Top Actions & Channels Management Card */}
-      <Card className='border-border/70 shadow-xs'>
-        <CardHeader className='flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between py-4 px-4 sm:px-6'>
-          <div className='space-y-1'>
-            <div className='flex items-center gap-2'>
-              <BellRing className='h-5 w-5 text-primary' />
-              <CardTitle className='text-base font-semibold'>
-                {t('title')}
-              </CardTitle>
-              <Badge variant='outline' className='font-mono font-normal'>
-                {t('policyCount', {count: policyRows.length})}
-              </Badge>
-            </div>
-            <p className='text-xs text-muted-foreground'>
-              {t('policySubtitle')}
-            </p>
-          </div>
+    <div className='flex-1 flex flex-col space-y-3'>
+      {/* 三级分段：告警规则 | 通知通道 | 投递记录 / Tertiary sections */}
+      <Tabs
+        value={activeSection}
+        onValueChange={(value) => setActiveSection(value as PolicySection)}
+        className='w-full'
+      >
+        <TabsList className='grid w-full grid-cols-3 sm:w-[420px] bg-muted/60 p-1 h-8.5'>
+          <TabsTrigger
+            value='rules'
+            className='data-[state=active]:bg-background data-[state=active]:shadow-xs text-xs font-medium py-1'
+          >
+            {t('sections.rules')}
+          </TabsTrigger>
+          <TabsTrigger
+            value='channels'
+            className='data-[state=active]:bg-background data-[state=active]:shadow-xs text-xs font-medium py-1'
+          >
+            {t('sections.channels')}
+          </TabsTrigger>
+          <TabsTrigger
+            value='history'
+            className='data-[state=active]:bg-background data-[state=active]:shadow-xs text-xs font-medium py-1'
+          >
+            {t('sections.history')}
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
 
-          <div className='flex flex-wrap items-center gap-2'>
-            <Button
-              variant='outline'
-              size='sm'
-              onClick={handleRefresh}
-              disabled={loading}
-              className='h-8.5 text-xs'
-            >
-              <RefreshCw
-                className={cn('mr-1.5 h-3.5 w-3.5', loading && 'animate-spin')}
-              />
-              {rootT('refresh')}
-            </Button>
-            <Button
-              variant='outline'
-              size='sm'
-              onClick={openNewEmailChannelDialog}
-              className='h-8.5 text-xs'
-            >
-              <Mail className='mr-1.5 h-3.5 w-3.5' />
-              {t('channel.manageEmail')}
-            </Button>
-            <Button
-              variant='outline'
-              size='sm'
-              onClick={openNewWebhookChannelDialog}
-              className='h-8.5 text-xs'
-            >
-              <Webhook className='mr-1.5 h-3.5 w-3.5' />
-              {t('webhook.manage')}
-            </Button>
-            <Button
-              size='sm'
-              onClick={() => {
-                resetPolicyForm();
-                setPolicyDialogOpen(true);
+      {/* ===== 告警规则段 / Alert Rules Section ===== */}
+      {activeSection === 'rules' ? (
+        <Card className='border-border/70 shadow-xs overflow-hidden flex flex-col flex-1 min-h-[480px] sm:min-h-[calc(100vh-300px)]'>
+          <div className='p-3 sm:p-3.5 border-b bg-muted/20 space-y-2.5'>
+            <StatPillsBar
+              items={rulePillItems}
+              activeKey={policyStatusFilter}
+              onChange={(key) => {
+                setPolicyStatusFilter(key);
               }}
-              className='h-8.5 text-xs font-medium shadow-xs'
-            >
-              <Plus className='mr-1.5 h-3.5 w-3.5' />
-              {t('createNew')}
-            </Button>
-          </div>
-        </CardHeader>
-      </Card>
+              actions={
+                <div className='flex items-center gap-1.5'>
+                  <Button
+                    variant='ghost'
+                    size='sm'
+                    onClick={() => {
+                      setPolicySearchKeyword('');
+                      setPolicyClusterFilter('all');
+                      setPolicyStatusFilter('all');
+                    }}
+                    className='h-7 px-2 text-xs text-muted-foreground hover:text-foreground cursor-pointer'
+                  >
+                    <RotateCcw className='mr-1 h-3 w-3' />
+                    {rootT('alerts.reset')}
+                  </Button>
+                  <Button
+                    variant='outline'
+                    size='sm'
+                    onClick={handleRefresh}
+                    disabled={loading}
+                    className='h-7 px-2.5 text-xs cursor-pointer'
+                  >
+                    <RefreshCw
+                      className={cn('mr-1.5 h-3 w-3', loading && 'animate-spin')}
+                    />
+                    {rootT('refresh')}
+                  </Button>
+                  <Button
+                    size='sm'
+                    onClick={() => {
+                      resetPolicyForm();
+                      setPolicyDialogOpen(true);
+                    }}
+                    className='h-7 px-2.5 text-xs font-medium shadow-xs cursor-pointer'
+                  >
+                    <Plus className='mr-1 h-3 w-3' />
+                    {t('createNew')}
+                  </Button>
+                </div>
+              }
+            />
 
-      {/* 全宽策略管理列表卡片 / Full-width Policy Management Table Card */}
-      <Card className='border-border/70 shadow-xs overflow-hidden'>
-        <CardHeader className='py-3.5 px-4 sm:px-6 border-b bg-muted/15 space-y-3'>
-          <div className='flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3'>
-            <CardTitle className='text-sm font-semibold'>
-              {t('policyListTitle')}
-            </CardTitle>
-
-            {/* 列表过滤控制：搜索关键字、适用集群、启用状态 */}
-            <div className='flex flex-wrap items-center gap-2'>
-              <div className='relative w-full sm:w-56'>
+            {/* 筛选栏左对齐 / Left-aligned filter bar */}
+            <div className='flex flex-wrap items-center gap-2 pt-0.5'>
+              <div className='relative flex-1 min-w-[200px] max-w-sm'>
                 <Search className='absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground' />
                 <Input
                   value={policySearchKeyword}
                   onChange={(e) => setPolicySearchKeyword(e.target.value)}
                   placeholder={t('searchPlaceholder')}
-                  className='pl-8 h-8 text-xs'
+                  className='pl-8 pr-7 h-8 text-xs bg-background'
                 />
+                {policySearchKeyword ? (
+                  <button
+                    type='button'
+                    onClick={() => setPolicySearchKeyword('')}
+                    className='absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground'
+                  >
+                    <X className='h-3.5 w-3.5' />
+                  </button>
+                ) : null}
               </div>
 
               <Select
                 value={policyClusterFilter}
                 onValueChange={setPolicyClusterFilter}
               >
-                <SelectTrigger className='h-8 w-36 text-xs'>
+                <SelectTrigger className='h-8 w-[145px] text-xs bg-background'>
                   <SelectValue placeholder={t('fields.cluster')} />
                 </SelectTrigger>
                 <SelectContent>
@@ -1900,53 +2167,28 @@ export function MonitoringPolicyCenter() {
                   ))}
                 </SelectContent>
               </Select>
-
-              <Select
-                value={policyStatusFilter}
-                onValueChange={setPolicyStatusFilter}
-              >
-                <SelectTrigger className='h-8 w-32 text-xs'>
-                  <SelectValue placeholder={t('statusFilter')} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value='all'>{t('allStatuses')}</SelectItem>
-                  <SelectItem value='enabled'>{t('enabled')}</SelectItem>
-                  <SelectItem value='disabled'>{t('disabled')}</SelectItem>
-                </SelectContent>
-              </Select>
             </div>
           </div>
-        </CardHeader>
 
-        <CardContent className='p-0'>
-          <div className='overflow-x-auto'>
+          <TableLoadingBar loading={loading && policyRows.length > 0} />
+          <div className='overflow-x-auto flex-1'>
             <Table>
               <TableHeader>
-                <TableRow className='bg-muted/30 hover:bg-muted/30'>
-                  <TableHead className='min-w-[180px]'>{t('columns.name')}</TableHead>
-                  <TableHead className='min-w-[170px]'>{t('columns.template')}</TableHead>
-                  <TableHead className='w-[130px]'>{t('columns.cluster')}</TableHead>
-                  <TableHead className='w-[100px]'>{t('columns.severity')}</TableHead>
-                  <TableHead className='min-w-[160px]'>{t('columns.methods')}</TableHead>
-                  <TableHead className='w-[110px]'>{t('columns.status')}</TableHead>
-                  <TableHead className='w-[90px] text-center'>{t('columns.enabled')}</TableHead>
-                  <TableHead className='w-[150px] whitespace-nowrap'>{t('columns.updatedAt')}</TableHead>
-                  <TableHead className='w-[120px] text-right'>{rootT('actions')}</TableHead>
+                <TableRow className='bg-muted/30 hover:bg-muted/30 h-8'>
+                  <TableHead className='min-w-[180px] py-1.5 px-3 text-xs'>{t('columns.name')}</TableHead>
+                  <TableHead className='min-w-[170px] py-1.5 px-3 text-xs'>{t('columns.template')}</TableHead>
+                  <TableHead className='w-[130px] py-1.5 px-3 text-xs'>{t('columns.cluster')}</TableHead>
+                  <TableHead className='w-[100px] py-1.5 px-3 text-xs'>{t('columns.severity')}</TableHead>
+                  <TableHead className='min-w-[160px] py-1.5 px-3 text-xs'>{t('columns.methods')}</TableHead>
+                  <TableHead className='w-[110px] py-1.5 px-3 text-xs'>{t('columns.status')}</TableHead>
+                  <TableHead className='w-[90px] text-center py-1.5 px-3 text-xs'>{t('columns.enabled')}</TableHead>
+                  <TableHead className='w-[150px] whitespace-nowrap py-1.5 px-3 text-xs'>{t('columns.updatedAt')}</TableHead>
+                  <TableHead className='w-[120px] text-right py-1.5 px-3 text-xs'>{rootT('actions')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {loading ? (
-                  <TableRow>
-                    <TableCell
-                      colSpan={9}
-                      className='h-36 text-center text-muted-foreground'
-                    >
-                      <div className='flex flex-col items-center justify-center gap-2'>
-                        <RefreshCw className='h-5 w-5 animate-spin text-primary' />
-                        <span>{rootT('loading')}</span>
-                      </div>
-                    </TableCell>
-                  </TableRow>
+                {loading && policyRows.length === 0 ? (
+                  <TableSkeletonRows columns={9} rows={6} />
                 ) : policyRows.length === 0 ? (
                   <TableRow>
                     <TableCell
@@ -1980,49 +2222,46 @@ export function MonitoringPolicyCenter() {
                       (item) => String(item.id) === policy.cluster_id,
                     );
                     return (
-                      <TableRow key={policy.id} className='transition-colors'>
-                        {/* 策略名称与描述 / Policy Name & Description */}
-                        <TableCell className='font-medium'>
+                      <TableRow
+                        key={policy.id}
+                        className={cn(
+                          'transition-colors',
+                          loading && 'opacity-60 pointer-events-none',
+                        )}
+                      >
+                        <TableCell className='py-2 px-3 font-medium'>
                           <div className='space-y-0.5'>
                             <div className='text-sm text-foreground'>
                               {policy.name}
                             </div>
-                            {policy.description && (
+                            {policy.description ? (
                               <div className='text-xs text-muted-foreground line-clamp-1 max-w-[240px]'>
                                 {policy.description}
                               </div>
-                            )}
+                            ) : null}
                           </div>
                         </TableCell>
-
-                        {/* 规则/模板 / Rule & Template */}
-                        <TableCell>
-                          <div className='space-y-1'>
-                            <span className='inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-xs font-medium'>
-                              {policy.policy_type === 'custom_promql'
-                                ? t('customPromql')
-                                : template
-                                  ? getTemplateDisplayName(template, legacyT)
-                                  : getTemplateTranslation(
-                                      legacyT,
-                                      policy.template_key || '',
-                                      'name',
-                                    ) ||
-                                    policy.template_key ||
-                                    '-'}
-                            </span>
-                          </div>
+                        <TableCell className='py-2 px-3'>
+                          <span className='inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-xs font-medium'>
+                            {policy.policy_type === 'custom_promql'
+                              ? t('customPromql')
+                              : template
+                                ? getTemplateDisplayName(template, legacyT)
+                                : getTemplateTranslation(
+                                    legacyT,
+                                    policy.template_key || '',
+                                    'name',
+                                  ) ||
+                                  policy.template_key ||
+                                  '-'}
+                          </span>
                         </TableCell>
-
-                        {/* 适用集群 / Target Cluster */}
-                        <TableCell>
+                        <TableCell className='py-2 px-3'>
                           <span className='text-xs font-medium'>
                             {cluster?.name || policy.cluster_id || '-'}
                           </span>
                         </TableCell>
-
-                        {/* 严重级别 / Severity */}
-                        <TableCell>
+                        <TableCell className='py-2 px-3'>
                           <Badge
                             variant={resolveSeverityVariant(policy.severity)}
                             className='text-[11px]'
@@ -2032,16 +2271,12 @@ export function MonitoringPolicyCenter() {
                               : rootT('alertSeverity.warning')}
                           </Badge>
                         </TableCell>
-
-                        {/* 通知方式 / Notification Methods */}
-                        <TableCell className='max-w-[220px]'>
+                        <TableCell className='py-2 px-3 max-w-[220px]'>
                           <span className='text-xs text-muted-foreground'>
                             {notificationMethodSummary(policy, channelMap)}
                           </span>
                         </TableCell>
-
-                        {/* 执行状态 / Execution Status */}
-                        <TableCell>
+                        <TableCell className='py-2 px-3'>
                           <Badge
                             variant={resolveDeliveryStatusVariant(
                               policy.last_execution_status,
@@ -2054,9 +2289,7 @@ export function MonitoringPolicyCenter() {
                             )}
                           </Badge>
                         </TableCell>
-
-                        {/* 快捷启用 Switch / Quick Enable Switch */}
-                        <TableCell className='text-center'>
+                        <TableCell className='py-2 px-3 text-center'>
                           <Switch
                             checked={policy.enabled}
                             onCheckedChange={(checked) =>
@@ -2064,21 +2297,16 @@ export function MonitoringPolicyCenter() {
                             }
                           />
                         </TableCell>
-
-                        {/* 最近更新时间 / Last Updated At */}
-                        <TableCell className='text-xs font-mono text-muted-foreground whitespace-nowrap'>
+                        <TableCell className='py-2 px-3 text-xs font-mono text-muted-foreground whitespace-nowrap'>
                           {formatDateTime(policy.updated_at)}
                         </TableCell>
-
-                        {/* 操作栏 / Actions */}
-                        <TableCell className='text-right whitespace-nowrap'>
+                        <TableCell className='py-2 px-3 text-right whitespace-nowrap'>
                           <div className='flex items-center justify-end gap-1'>
                             <Button
                               variant='ghost'
                               size='icon'
                               className='h-7 w-7'
-                              onClick={() => void loadHistory(policy)}
-                              disabled={historyLoading}
+                              onClick={() => openPolicyDeliveryHistory(policy)}
                               title={t('actions.viewHistory')}
                             >
                               <History className='h-3.5 w-3.5' />
@@ -2111,8 +2339,352 @@ export function MonitoringPolicyCenter() {
               </TableBody>
             </Table>
           </div>
-        </CardContent>
-      </Card>
+        </Card>
+      ) : null}
+
+      {/* ===== 通知通道段 / Notification Channels Section ===== */}
+      {activeSection === 'channels' ? (
+        <Card className='border-border/70 shadow-xs overflow-hidden flex flex-col flex-1 min-h-[480px] sm:min-h-[calc(100vh-300px)]'>
+          <div className='p-3 sm:p-3.5 border-b bg-muted/20 space-y-2.5'>
+            <StatPillsBar
+              items={channelPillItems}
+              activeKey={channelPillFilter}
+              onChange={(key) => setChannelPillFilter(key as ChannelPillFilter)}
+              actions={
+                <div className='flex items-center gap-1.5'>
+                  <Button
+                    variant='outline'
+                    size='sm'
+                    onClick={handleRefresh}
+                    disabled={loading}
+                    className='h-7 px-2.5 text-xs cursor-pointer'
+                  >
+                    <RefreshCw
+                      className={cn('mr-1.5 h-3 w-3', loading && 'animate-spin')}
+                    />
+                    {rootT('refresh')}
+                  </Button>
+                  <Button
+                    variant='outline'
+                    size='sm'
+                    onClick={openNewEmailChannelDialog}
+                    className='h-7 px-2.5 text-xs cursor-pointer'
+                  >
+                    <Mail className='mr-1 h-3 w-3' />
+                    {t('channelList.createEmail')}
+                  </Button>
+                  <Button
+                    size='sm'
+                    onClick={openNewWebhookChannelDialog}
+                    className='h-7 px-2.5 text-xs font-medium shadow-xs cursor-pointer'
+                  >
+                    <Webhook className='mr-1 h-3 w-3' />
+                    {t('channelList.createWebhook')}
+                  </Button>
+                </div>
+              }
+            />
+            <div className='flex flex-wrap items-center gap-2 pt-0.5'>
+              <div className='relative flex-1 min-w-[200px] max-w-sm'>
+                <Search className='absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground' />
+                <Input
+                  value={channelListSearch}
+                  onChange={(e) => setChannelListSearch(e.target.value)}
+                  placeholder={t('channelList.searchPlaceholder')}
+                  className='pl-8 pr-7 h-8 text-xs bg-background'
+                />
+                {channelListSearch ? (
+                  <button
+                    type='button'
+                    onClick={() => setChannelListSearch('')}
+                    className='absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground'
+                  >
+                    <X className='h-3.5 w-3.5' />
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          </div>
+
+          <TableLoadingBar loading={loading && channelRows.length > 0} />
+          <div className='overflow-x-auto flex-1'>
+            <Table>
+              <TableHeader>
+                <TableRow className='bg-muted/30 hover:bg-muted/30 h-8'>
+                  <TableHead className='w-[100px] py-1.5 px-3 text-xs'>{t('channelList.columns.type')}</TableHead>
+                  <TableHead className='min-w-[160px] py-1.5 px-3 text-xs'>{t('channelList.columns.name')}</TableHead>
+                  <TableHead className='min-w-[220px] py-1.5 px-3 text-xs'>{t('channelList.columns.target')}</TableHead>
+                  <TableHead className='w-[100px] py-1.5 px-3 text-xs'>{t('channelList.columns.status')}</TableHead>
+                  <TableHead className='w-[150px] whitespace-nowrap py-1.5 px-3 text-xs'>{t('channelList.columns.updatedAt')}</TableHead>
+                  <TableHead className='w-[100px] text-right py-1.5 px-3 text-xs'>{rootT('actions')}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {loading && channelRows.length === 0 ? (
+                  <TableSkeletonRows columns={6} rows={6} />
+                ) : channelRows.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className='h-40 text-center text-muted-foreground'>
+                      <div className='flex flex-col items-center justify-center gap-2'>
+                        <Mail className='h-7 w-7 text-muted-foreground/40' />
+                        <span className='font-medium'>{t('channelList.empty')}</span>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  channelRows.map((channel) => {
+                    const emailConfig =
+                      channel.type === 'email' ? getEmailConfig(channel) : null;
+                    const target =
+                      channel.type === 'email'
+                        ? emailConfig?.from ||
+                          `${emailConfig?.host || '-'}:${emailConfig?.port || '-'}`
+                        : channel.endpoint || '-';
+                    return (
+                      <TableRow
+                        key={channel.id}
+                        className={cn(
+                          'transition-colors',
+                          loading && 'opacity-60 pointer-events-none',
+                        )}
+                      >
+                        <TableCell className='py-2 px-3'>
+                          <Badge variant='outline' className='text-[10px] py-0 px-1.5 font-normal gap-1'>
+                            {channel.type === 'email' ? (
+                              <>
+                                <Mail className='h-3 w-3' />
+                                {t('channelList.typeEmail')}
+                              </>
+                            ) : (
+                              <>
+                                <Webhook className='h-3 w-3' />
+                                {t('channelList.typeWebhook')}
+                              </>
+                            )}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className='py-2 px-3'>
+                          <div className='space-y-0.5'>
+                            <div className='text-sm font-medium'>{channel.name}</div>
+                            {channel.description ? (
+                              <div className='text-xs text-muted-foreground line-clamp-1 max-w-[240px]'>
+                                {channel.description}
+                              </div>
+                            ) : null}
+                          </div>
+                        </TableCell>
+                        <TableCell className='py-2 px-3 text-xs text-muted-foreground font-mono truncate max-w-[280px]' title={target}>
+                          {target}
+                        </TableCell>
+                        <TableCell className='py-2 px-3'>
+                          <Badge variant={channel.enabled ? 'default' : 'secondary'} className='text-[11px]'>
+                            {channel.enabled
+                              ? t('channel.statusEnabled')
+                              : t('channel.statusDraft')}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className='py-2 px-3 text-xs font-mono text-muted-foreground whitespace-nowrap'>
+                          {formatDateTime(channel.updated_at)}
+                        </TableCell>
+                        <TableCell className='py-2 px-3 text-right'>
+                          <Button
+                            variant='ghost'
+                            size='icon'
+                            className='h-7 w-7'
+                            title={t('channelList.actions.edit')}
+                            onClick={() => {
+                              if (channel.type === 'email') {
+                                handleEditEmailChannel(channel);
+                              } else {
+                                handleEditWebhookChannel(channel);
+                              }
+                            }}
+                          >
+                            <Pencil className='h-3.5 w-3.5' />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </Card>
+      ) : null}
+
+      {/* ===== 投递记录段 / Delivery History Section ===== */}
+      {activeSection === 'history' ? (
+        <Card className='border-border/70 shadow-xs overflow-hidden flex flex-col flex-1 min-h-[480px] sm:min-h-[calc(100vh-300px)]'>
+          <div className='p-3 sm:p-3.5 border-b bg-muted/20 space-y-2.5'>
+            <StatPillsBar
+              items={historyPillItems}
+              activeKey={historyStatusFilter}
+              onChange={(key) => setHistoryStatusFilter(key as HistoryPillFilter)}
+              actions={
+                <div className='flex items-center gap-1.5'>
+                  <Button
+                    variant='ghost'
+                    size='sm'
+                    onClick={() => {
+                      setHistoryStatusFilter('all');
+                      setHistoryPolicyIdFilter(null);
+                      setHistorySearchKeyword('');
+                    }}
+                    className='h-7 px-2 text-xs text-muted-foreground hover:text-foreground cursor-pointer'
+                  >
+                    <RotateCcw className='mr-1 h-3 w-3' />
+                    {t('deliveryHistory.resetFilters')}
+                  </Button>
+                  <Button
+                    variant='outline'
+                    size='sm'
+                    onClick={() => void loadDeliveryHistory()}
+                    disabled={historyLoading}
+                    className='h-7 px-2.5 text-xs cursor-pointer'
+                  >
+                    <RefreshCw
+                      className={cn(
+                        'mr-1.5 h-3 w-3',
+                        historyLoading && 'animate-spin',
+                      )}
+                    />
+                    {rootT('refresh')}
+                  </Button>
+                </div>
+              }
+            />
+            <div className='flex flex-wrap items-center gap-2 pt-0.5'>
+              <div className='relative flex-1 min-w-[200px] max-w-sm'>
+                <Search className='absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground' />
+                <Input
+                  value={historySearchKeyword}
+                  onChange={(e) => setHistorySearchKeyword(e.target.value)}
+                  placeholder={t('deliveryHistory.searchPlaceholder')}
+                  className='pl-8 pr-7 h-8 text-xs bg-background'
+                />
+                {historySearchKeyword ? (
+                  <button
+                    type='button'
+                    onClick={() => setHistorySearchKeyword('')}
+                    className='absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground'
+                  >
+                    <X className='h-3.5 w-3.5' />
+                  </button>
+                ) : null}
+              </div>
+              <Select
+                value={
+                  historyPolicyIdFilter === null
+                    ? 'all'
+                    : String(historyPolicyIdFilter)
+                }
+                onValueChange={(val) => {
+                  setHistoryPolicyIdFilter(val === 'all' ? null : Number(val));
+                }}
+              >
+                <SelectTrigger className='h-8 w-[180px] text-xs bg-background'>
+                  <SelectValue placeholder={t('deliveryHistory.policyFilter')} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value='all'>
+                    {t('deliveryHistory.allPolicies')}
+                  </SelectItem>
+                  {policies.map((policy) => (
+                    <SelectItem key={policy.id} value={String(policy.id)}>
+                      {policy.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <TableLoadingBar loading={historyLoading && historyRows.length > 0} />
+          <div className='overflow-x-auto flex-1'>
+            <Table>
+              <TableHeader>
+                <TableRow className='bg-muted/30 hover:bg-muted/30 h-8'>
+                  <TableHead className='min-w-[140px] py-1.5 px-3 text-xs'>{t('deliveryHistory.columns.policy')}</TableHead>
+                  <TableHead className='min-w-[130px] py-1.5 px-3 text-xs'>{t('deliveryHistory.columns.channel')}</TableHead>
+                  <TableHead className='w-[90px] py-1.5 px-3 text-xs'>{t('deliveryHistory.columns.event')}</TableHead>
+                  <TableHead className='w-[100px] py-1.5 px-3 text-xs'>{t('deliveryHistory.columns.status')}</TableHead>
+                  <TableHead className='w-[90px] py-1.5 px-3 text-xs'>{t('deliveryHistory.columns.responseCode')}</TableHead>
+                  <TableHead className='w-[150px] whitespace-nowrap py-1.5 px-3 text-xs'>{t('deliveryHistory.columns.sentAt')}</TableHead>
+                  <TableHead className='min-w-[180px] py-1.5 px-3 text-xs'>{t('deliveryHistory.columns.error')}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {historyLoading && historyRows.length === 0 ? (
+                  <TableSkeletonRows columns={7} rows={6} />
+                ) : historyRows.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className='h-40 text-center text-muted-foreground'>
+                      <div className='flex flex-col items-center justify-center gap-2'>
+                        <History className='h-7 w-7 text-muted-foreground/40' />
+                        <span className='font-medium'>{t('deliveryHistory.empty')}</span>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  historyRows.map((delivery: NotificationDelivery) => (
+                    <TableRow
+                      key={delivery.id}
+                      className={cn(
+                        'transition-colors',
+                        historyLoading && 'opacity-60 pointer-events-none',
+                      )}
+                    >
+                      <TableCell className='py-2 px-3 text-xs font-medium'>
+                        {policyNameById.get(delivery.policy_id) ||
+                          delivery.alert_name ||
+                          '-'}
+                      </TableCell>
+                      <TableCell className='py-2 px-3 text-xs'>
+                        {delivery.channel_name || '-'}
+                      </TableCell>
+                      <TableCell className='py-2 px-3 text-xs'>
+                        {delivery.event_type === 'resolved'
+                          ? t('deliveryHistory.events.resolved')
+                          : delivery.event_type === 'test'
+                            ? t('deliveryHistory.events.test')
+                            : t('deliveryHistory.events.firing')}
+                      </TableCell>
+                      <TableCell className='py-2 px-3'>
+                        <Badge
+                          variant={resolveDeliveryStatusVariant(delivery.status)}
+                          className='text-[11px]'
+                        >
+                          {delivery.status === 'sent'
+                            ? t('deliveryHistory.statuses.sent')
+                            : delivery.status === 'failed'
+                              ? t('deliveryHistory.statuses.failed')
+                              : delivery.status === 'sending'
+                                ? t('deliveryHistory.statuses.sending')
+                                : delivery.status === 'retrying'
+                                  ? t('deliveryHistory.statuses.retrying')
+                                  : delivery.status === 'canceled'
+                                    ? t('deliveryHistory.statuses.canceled')
+                                    : t('deliveryHistory.statuses.pending')}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className='py-2 px-3 text-xs font-mono'>
+                        {delivery.response_status_code || '-'}
+                      </TableCell>
+                      <TableCell className='py-2 px-3 text-xs font-mono text-muted-foreground whitespace-nowrap'>
+                        {formatDateTime(delivery.sent_at)}
+                      </TableCell>
+                      <TableCell className='py-2 px-3 text-xs text-muted-foreground max-w-[260px] truncate' title={delivery.last_error || ''}>
+                        {delivery.last_error || '-'}
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </Card>
+      ) : null}
 
       {/* 策略创建/编辑独立弹窗 (分层模块化设计) / Policy Editor Modal Dialog */}
       <Dialog
@@ -2124,7 +2696,7 @@ export function MonitoringPolicyCenter() {
           }
         }}
       >
-        <DialogContent className='flex h-[88vh] w-[95vw] max-w-[900px] flex-col overflow-hidden p-0 sm:max-w-[900px]'>
+        <DialogContent className='flex h-[88vh] w-[95vw] max-w-[900px] flex-col overflow-hidden p-0 sm:max-w-[900px] border border-border/80 dark:border-border/60 shadow-2xl'>
           <DialogHeader className='px-6 py-4 border-b bg-muted/15'>
             <DialogTitle className='text-lg font-semibold'>
               {editingPolicyId === null
@@ -2802,100 +3374,18 @@ export function MonitoringPolicyCenter() {
             setEmailDialogOpen(true);
             return;
           }
-          if (!confirmDiscardEmailChannelChanges()) {
-            return;
-          }
-          closeEmailChannelDialog(true);
+          // 关闭时若有脏数据，先走系统确认框 / Confirm discard via in-app dialog when dirty
+          requestEmailChannelDiscard(() => closeEmailChannelDialog(true));
         }}
       >
-        <DialogContent className='flex h-[85vh] w-[96vw] max-w-[calc(100vw-2rem)] flex-col overflow-hidden sm:max-w-[1320px]'>
-          <DialogHeader>
-            <DialogTitle>{t('channel.dialogTitle')}</DialogTitle>
-            <DialogDescription>{t('channel.dialogSubtitle')}</DialogDescription>
+        <DialogContent className='flex h-[85vh] w-[95vw] max-w-[900px] flex-col overflow-hidden p-0 sm:max-w-[900px] border border-border/80 dark:border-border/60 shadow-2xl'>
+          <DialogHeader className='px-6 py-4 border-b bg-muted/15 shrink-0'>
+            <DialogTitle className='text-lg font-semibold'>{t('channel.dialogTitle')}</DialogTitle>
+            <DialogDescription className='text-xs text-muted-foreground'>{t('channel.dialogSubtitle')}</DialogDescription>
           </DialogHeader>
 
-          <div className='grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(320px,30%)_minmax(0,1fr)]'>
-            <Card className='flex min-h-0 flex-col'>
-              <CardHeader className='space-y-4'>
-                <div className='flex items-center justify-between gap-2'>
-                  <CardTitle>{t('channel.savedConfigs')}</CardTitle>
-                  <Button size='sm' onClick={openNewEmailChannelDialog}>
-                    <Plus className='mr-2 h-4 w-4' />
-                    {t('channel.new')}
-                  </Button>
-                </div>
-                <div className='relative'>
-                  <Search className='absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground' />
-                  <Input
-                    value={emailChannelSearch}
-                    onChange={(event) =>
-                      setEmailChannelSearch(event.target.value)
-                    }
-                    placeholder={t('channel.searchPlaceholder')}
-                    className='pl-9'
-                  />
-                </div>
-              </CardHeader>
-              <CardContent className='min-h-0 flex-1 overflow-y-auto'>
-                <div className='space-y-2'>
-                  {filteredEmailChannels.length === 0 ? (
-                    <div className='rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted-foreground'>
-                      {emailChannels.length === 0
-                        ? t('channel.empty')
-                        : t('channel.searchEmpty')}
-                    </div>
-                  ) : (
-                    filteredEmailChannels.map((channel) => {
-                      const config = getEmailConfig(channel);
-                      const selected = emailChannelForm.id === channel.id;
-                      return (
-                        <button
-                          key={channel.id}
-                          type='button'
-                          className={cn(
-                            'w-full rounded-lg border px-4 py-3 text-left transition-colors',
-                            selected
-                              ? 'border-primary bg-primary/5'
-                              : 'border-border hover:border-primary/40',
-                          )}
-                          onClick={() => handleEditEmailChannel(channel)}
-                        >
-                          <div className='flex items-start justify-between gap-3'>
-                            <div className='min-w-0 space-y-1'>
-                              <div className='truncate font-medium'>
-                                {channel.name}
-                              </div>
-                              <div className='truncate text-xs text-muted-foreground'>
-                                {config?.from || '-'}
-                              </div>
-                              <div className='truncate text-xs text-muted-foreground'>
-                                {config?.host || '-'}:{config?.port || '-'}
-                              </div>
-                            </div>
-                            <Badge
-                              variant={
-                                channel.enabled ? 'default' : 'secondary'
-                              }
-                            >
-                              {channel.enabled
-                                ? t('channel.statusEnabled')
-                                : t('channel.statusDraft')}
-                            </Badge>
-                          </div>
-                          <div className='mt-2 text-xs text-muted-foreground'>
-                            {t('channel.updatedAt', {
-                              value: formatDateTime(channel.updated_at),
-                            })}
-                          </div>
-                        </button>
-                      );
-                    })
-                  )}
-                </div>
-              </CardContent>
-            </Card>
+          <div className='min-h-0 flex-1 overflow-y-auto px-6 py-4'>
 
-            <div className='min-h-0 overflow-y-auto pr-1'>
               <div className='space-y-4'>
                 <Card>
                   <CardHeader className='space-y-3'>
@@ -3149,6 +3639,11 @@ export function MonitoringPolicyCenter() {
                         <Label>{t('channel.fields.username')}</Label>
                         <Input
                           value={emailChannelForm.username}
+                          name='stx-smtp-username'
+                          autoComplete='off'
+                          autoCorrect='off'
+                          autoCapitalize='none'
+                          spellCheck={false}
                           onChange={(event) =>
                             updateEmailChannelForm((prev) => ({
                               ...prev,
@@ -3165,6 +3660,8 @@ export function MonitoringPolicyCenter() {
                         <Input
                           type={showEmailPassword ? 'text' : 'password'}
                           value={emailChannelForm.password}
+                          name='stx-smtp-password'
+                          autoComplete='new-password'
                           onChange={(event) =>
                             updateEmailChannelForm((prev) => ({
                               ...prev,
@@ -3307,12 +3804,11 @@ export function MonitoringPolicyCenter() {
                   <div className='flex flex-wrap items-center justify-end gap-2'>
                     <Button
                       variant='outline'
-                      onClick={() => {
-                        if (!confirmDiscardEmailChannelChanges()) {
-                          return;
-                        }
-                        closeEmailChannelDialog(true);
-                      }}
+                      onClick={() =>
+                        requestEmailChannelDiscard(() =>
+                          closeEmailChannelDialog(true),
+                        )
+                      }
                     >
                       {t('channel.cancel')}
                     </Button>
@@ -3334,7 +3830,7 @@ export function MonitoringPolicyCenter() {
                   </div>
                 </div>
               </div>
-            </div>
+            
           </div>
         </DialogContent>
       </Dialog>
@@ -3346,96 +3842,17 @@ export function MonitoringPolicyCenter() {
             setWebhookDialogOpen(true);
             return;
           }
-          if (!confirmDiscardWebhookChannelChanges()) {
-            return;
-          }
-          closeWebhookChannelDialog(true);
+          requestWebhookChannelDiscard(() => closeWebhookChannelDialog(true));
         }}
       >
-        <DialogContent className='flex h-[80vh] w-[96vw] max-w-[calc(100vw-2rem)] flex-col overflow-hidden sm:max-w-[1180px]'>
-          <DialogHeader>
-            <DialogTitle>{t('webhook.dialogTitle')}</DialogTitle>
-            <DialogDescription>{t('webhook.dialogSubtitle')}</DialogDescription>
+        <DialogContent className='flex h-[85vh] w-[95vw] max-w-[900px] flex-col overflow-hidden p-0 sm:max-w-[900px] border border-border/80 dark:border-border/60 shadow-2xl'>
+          <DialogHeader className='px-6 py-4 border-b bg-muted/15 shrink-0'>
+            <DialogTitle className='text-lg font-semibold'>{t('webhook.dialogTitle')}</DialogTitle>
+            <DialogDescription className='text-xs text-muted-foreground'>{t('webhook.dialogSubtitle')}</DialogDescription>
           </DialogHeader>
 
-          <div className='grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(280px,30%)_minmax(0,1fr)]'>
-            <Card className='flex min-h-0 flex-col'>
-              <CardHeader className='space-y-4'>
-                <div className='flex items-center justify-between gap-2'>
-                  <CardTitle>{t('webhook.savedConfigs')}</CardTitle>
-                  <Button size='sm' onClick={openNewWebhookChannelDialog}>
-                    <Plus className='mr-2 h-4 w-4' />
-                    {t('webhook.new')}
-                  </Button>
-                </div>
-                <div className='relative'>
-                  <Search className='absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground' />
-                  <Input
-                    value={webhookChannelSearch}
-                    onChange={(event) =>
-                      setWebhookChannelSearch(event.target.value)
-                    }
-                    placeholder={t('webhook.searchPlaceholder')}
-                    className='pl-9'
-                  />
-                </div>
-              </CardHeader>
-              <CardContent className='min-h-0 flex-1 overflow-y-auto'>
-                <div className='space-y-2'>
-                  {filteredWebhookChannels.length === 0 ? (
-                    <div className='rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted-foreground'>
-                      {webhookChannels.length === 0
-                        ? t('webhook.empty')
-                        : t('webhook.searchEmpty')}
-                    </div>
-                  ) : (
-                    filteredWebhookChannels.map((channel) => {
-                      const selected = webhookChannelForm.id === channel.id;
-                      return (
-                        <button
-                          key={channel.id}
-                          type='button'
-                          className={cn(
-                            'w-full rounded-lg border px-4 py-3 text-left transition-colors',
-                            selected
-                              ? 'border-primary bg-primary/5'
-                              : 'border-border hover:border-primary/40',
-                          )}
-                          onClick={() => handleEditWebhookChannel(channel)}
-                        >
-                          <div className='flex items-start justify-between gap-3'>
-                            <div className='min-w-0 space-y-1'>
-                              <div className='truncate font-medium'>
-                                {channel.name}
-                              </div>
-                              <div className='truncate text-xs text-muted-foreground'>
-                                {channel.endpoint || '-'}
-                              </div>
-                            </div>
-                            <Badge
-                              variant={
-                                channel.enabled ? 'default' : 'secondary'
-                              }
-                            >
-                              {channel.enabled
-                                ? t('webhook.statusEnabled')
-                                : t('webhook.statusDraft')}
-                            </Badge>
-                          </div>
-                          <div className='mt-2 text-xs text-muted-foreground'>
-                            {t('webhook.updatedAt', {
-                              value: formatDateTime(channel.updated_at),
-                            })}
-                          </div>
-                        </button>
-                      );
-                    })
-                  )}
-                </div>
-              </CardContent>
-            </Card>
+          <div className='min-h-0 flex-1 overflow-y-auto px-6 py-4'>
 
-            <div className='min-h-0 overflow-y-auto pr-1'>
               <div className='space-y-4'>
                 <Card>
                   <CardHeader className='space-y-3'>
@@ -3584,6 +4001,8 @@ export function MonitoringPolicyCenter() {
                         <Input
                           type={showWebhookSecret ? 'text' : 'password'}
                           value={webhookChannelForm.secret}
+                          name='stx-webhook-secret'
+                          autoComplete='new-password'
                           onChange={(event) =>
                             updateWebhookChannelForm((prev) => ({
                               ...prev,
@@ -3630,12 +4049,11 @@ export function MonitoringPolicyCenter() {
                   <div className='flex flex-wrap items-center justify-end gap-2'>
                     <Button
                       variant='outline'
-                      onClick={() => {
-                        if (!confirmDiscardWebhookChannelChanges()) {
-                          return;
-                        }
-                        closeWebhookChannelDialog(true);
-                      }}
+                      onClick={() =>
+                        requestWebhookChannelDiscard(() =>
+                          closeWebhookChannelDialog(true),
+                        )
+                      }
                     >
                       {t('webhook.cancel')}
                     </Button>
@@ -3657,103 +4075,82 @@ export function MonitoringPolicyCenter() {
                   </div>
                 </div>
               </div>
-            </div>
+            
           </div>
         </DialogContent>
       </Dialog>
 
-      <Dialog
-        open={historyOpen}
-        onOpenChange={(open) => {
-          setHistoryOpen(open);
-          if (!open) {
-            setHistoryPolicy(null);
-            setHistoryData(EMPTY_HISTORY);
-          }
-        }}
+      {/* 邮件通道：放弃未保存变更确认 / Email channel discard confirmation */}
+      <AlertDialog
+        open={emailDiscardDialogOpen}
+        onOpenChange={setEmailDiscardDialogOpen}
       >
-        <DialogContent className='max-w-4xl'>
-          <DialogHeader>
-            <DialogTitle>
-              {legacyT('history.title', {name: historyPolicy?.name || '-'})}
-            </DialogTitle>
-            <DialogDescription>
-              {legacyT('history.subtitle', {
-                total: historyData.total,
-                generatedAt: formatDateTime(historyData.generated_at),
-              })}
-            </DialogDescription>
-          </DialogHeader>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{legacyT('history.columns.channel')}</TableHead>
-                <TableHead>{legacyT('history.columns.event')}</TableHead>
-                <TableHead>{legacyT('history.columns.status')}</TableHead>
-                <TableHead>{legacyT('history.columns.responseCode')}</TableHead>
-                <TableHead>{legacyT('history.columns.sentAt')}</TableHead>
-                <TableHead>{legacyT('history.columns.error')}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {historyLoading ? (
-                <TableRow>
-                  <TableCell
-                    colSpan={6}
-                    className='text-center text-muted-foreground'
-                  >
-                    {rootT('loading')}
-                  </TableCell>
-                </TableRow>
-              ) : historyData.deliveries.length === 0 ? (
-                <TableRow>
-                  <TableCell
-                    colSpan={6}
-                    className='text-center text-muted-foreground'
-                  >
-                    {legacyT('history.empty')}
-                  </TableCell>
-                </TableRow>
-              ) : (
-                historyData.deliveries.map((delivery: NotificationDelivery) => (
-                  <TableRow key={delivery.id}>
-                    <TableCell>{delivery.channel_name || '-'}</TableCell>
-                    <TableCell>
-                      {delivery.event_type === 'resolved'
-                        ? legacyT('history.events.resolved')
-                        : delivery.event_type === 'test'
-                          ? legacyT('history.events.test')
-                          : legacyT('history.events.firing')}
-                    </TableCell>
-                    <TableCell>
-                      <Badge
-                        variant={resolveDeliveryStatusVariant(delivery.status)}
-                      >
-                        {delivery.status === 'sent'
-                          ? legacyT('history.statuses.sent')
-                          : delivery.status === 'failed'
-                            ? legacyT('history.statuses.failed')
-                            : delivery.status === 'sending'
-                              ? legacyT('history.statuses.sending')
-                              : delivery.status === 'retrying'
-                                ? legacyT('history.statuses.retrying')
-                                : legacyT('history.statuses.pending')}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      {delivery.response_status_code || '-'}
-                    </TableCell>
-                    <TableCell>{formatDateTime(delivery.sent_at)}</TableCell>
-                    <TableCell className='max-w-[260px] truncate'>
-                      {delivery.last_error || '-'}
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </DialogContent>
-      </Dialog>
+        <AlertDialogContent className='border border-border/80 dark:border-border/60 shadow-2xl'>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t('channel.unsavedChangesTitle')}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('channel.unsavedChangesConfirm')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              onClick={() => {
+                emailDiscardActionRef.current = null;
+              }}
+            >
+              {t('channel.keepEditing')}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+              onClick={() => {
+                const action = emailDiscardActionRef.current;
+                emailDiscardActionRef.current = null;
+                action?.();
+              }}
+            >
+              {t('channel.discardChanges')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Webhook 通道：放弃未保存变更确认 / Webhook channel discard confirmation */}
+      <AlertDialog
+        open={webhookDiscardDialogOpen}
+        onOpenChange={setWebhookDiscardDialogOpen}
+      >
+        <AlertDialogContent className='border border-border/80 dark:border-border/60 shadow-2xl'>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t('webhook.unsavedChangesTitle')}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('webhook.unsavedChangesConfirm')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              onClick={() => {
+                webhookDiscardActionRef.current = null;
+              }}
+            >
+              {t('webhook.keepEditing')}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+              onClick={() => {
+                const action = webhookDiscardActionRef.current;
+                webhookDiscardActionRef.current = null;
+                action?.();
+              }}
+            >
+              {t('webhook.discardChanges')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

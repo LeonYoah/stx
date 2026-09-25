@@ -171,6 +171,7 @@ function resolveLastChangedAt(alert: AlertInstance): string | null {
 
 export function MonitoringAlertsCenter() {
   const t = useTranslations('monitoringCenter');
+  const tsT = useTranslations('troubleshooting');
   const searchParams = useSearchParams();
   const router = useRouter();
 
@@ -1204,7 +1205,7 @@ export function MonitoringAlertsCenter() {
               </Button>
 
               <div className='flex items-center gap-2'>
-                {/* 沉淀/更新排障经验按钮 / Record or update troubleshooting memory */}
+                {/* 沉淀/更新经验库方案 / Record or update playbook */}
                 <Button
                   variant='outline'
                   size='sm'
@@ -1212,7 +1213,7 @@ export function MonitoringAlertsCenter() {
                   onClick={() => setMemoryDialogOpen(true)}
                 >
                   <Lightbulb className='h-3.5 w-3.5 text-emerald-500' />
-                  {primaryMemory ? '更新排障经验' : '沉淀排障方案'}
+                  {primaryMemory ? tsT('updateSolution') : tsT('recordSolution')}
                 </Button>
 
                 {selectedAlert.status === 'firing' &&
@@ -1261,7 +1262,7 @@ export function MonitoringAlertsCenter() {
                   selectedAlert.alert_name,
                 title:
                   primaryMemory?.title ||
-                  `${selectedAlert.alert_name || selectedAlert.rule_key} 排查与恢复方案`,
+                  `${selectedAlert.alert_name || selectedAlert.rule_key} ${tsT('defaultTitleSuffix')}`,
                 error_summary:
                   selectedAlert.summary ||
                   selectedAlert.description,

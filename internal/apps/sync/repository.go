@@ -683,3 +683,76 @@ func (r *Repository) DeleteGlobalVariable(ctx context.Context, id uint) error {
 	}
 	return nil
 }
+
+// ListCuratedTemplatesByOwner returns curated templates owned by one user.
+// ListCuratedTemplatesByOwner 返回某用户拥有的精选模板。
+func (r *Repository) ListCuratedTemplatesByOwner(ctx context.Context, ownerUserID uint) ([]*CuratedTemplate, error) {
+	var items []*CuratedTemplate
+	if err := r.db.WithContext(ctx).
+		Where("owner_user_id = ?", ownerUserID).
+		Order("updated_at DESC, id DESC").
+		Find(&items).Error; err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+// GetCuratedTemplateByID returns one curated template by id.
+// GetCuratedTemplateByID 按 id 返回精选模板。
+func (r *Repository) GetCuratedTemplateByID(ctx context.Context, id uint) (*CuratedTemplate, error) {
+	var item CuratedTemplate
+	if err := r.db.WithContext(ctx).First(&item, id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrCuratedTemplateNotFound
+		}
+		return nil, err
+	}
+	return &item, nil
+}
+
+// GetCuratedTemplateByOwnerAndBuiltin returns override row for one builtin id.
+// GetCuratedTemplateByOwnerAndBuiltin 返回用户对某内置 id 的副本行。
+func (r *Repository) GetCuratedTemplateByOwnerAndBuiltin(ctx context.Context, ownerUserID uint, builtinID string) (*CuratedTemplate, error) {
+	var item CuratedTemplate
+	if err := r.db.WithContext(ctx).
+		Where("owner_user_id = ? AND builtin_id = ?", ownerUserID, builtinID).
+		First(&item).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrCuratedTemplateNotFound
+		}
+		return nil, err
+	}
+	return &item, nil
+}
+
+// CreateCuratedTemplate creates one curated template row.
+// CreateCuratedTemplate 创建一条精选模板。
+func (r *Repository) CreateCuratedTemplate(ctx context.Context, item *CuratedTemplate) error {
+	return r.db.WithContext(ctx).Create(item).Error
+}
+
+// UpdateCuratedTemplate updates one curated template row.
+// UpdateCuratedTemplate 更新一条精选模板。
+func (r *Repository) UpdateCuratedTemplate(ctx context.Context, item *CuratedTemplate) error {
+	result := r.db.WithContext(ctx).Save(item)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return ErrCuratedTemplateNotFound
+	}
+	return nil
+}
+
+// DeleteCuratedTemplate deletes one curated template by id.
+// DeleteCuratedTemplate 按 id 删除精选模板。
+func (r *Repository) DeleteCuratedTemplate(ctx context.Context, id uint) error {
+	result := r.db.WithContext(ctx).Delete(&CuratedTemplate{}, id)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return ErrCuratedTemplateNotFound
+	}
+	return nil
+}

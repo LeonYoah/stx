@@ -4,7 +4,7 @@
   "title": "STX Monitoring",
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 3,
+  "version": 4,
   "refresh": "15s",
   "editable": true,
   "graphTooltip": 0,
@@ -1156,7 +1156,7 @@
     {
       "id": 1005,
       "type": "row",
-      "title": "P4 Anomaly & Playbook",
+      "title": "P4 Anomaly Signals",
       "gridPos": {
         "h": 1,
         "w": 24,
@@ -1173,7 +1173,7 @@
       "gridPos": {
         "x": 0,
         "y": 57,
-        "w": 12,
+        "w": 24,
         "h": 10
       },
       "datasource": {
@@ -1225,21 +1225,6 @@
           "mode": "multi",
           "sort": "desc"
         }
-      }
-    },
-    {
-      "id": 18,
-      "type": "text",
-      "title": "Deep Troubleshooting Playbook",
-      "gridPos": {
-        "x": 12,
-        "y": 57,
-        "w": 12,
-        "h": 10
-      },
-      "options": {
-        "mode": "markdown",
-        "content": "### Deep Troubleshooting Path\n1. **Split-brain / partition risk first**: watch `Cluster Safe` and `Local Member Safe`; any persistent `0` is HA consistency risk.\n2. **CPU vs FD correlation**: high CPU + high FD% often indicates downstream/socket pressure; high FD alone often suggests connection leak risk.\n3. **Memory & GC pressure**: if old-gen stays high while `GC Time Ratio` climbs, investigate state accumulation / leakage.\n4. **Thread deadlock**: `Deadlocked Threads > 0` requires immediate thread-dump and lock analysis.\n5. **Jobs stuck / backlog rising**: if completed/s stays low while failure/rejection rises, focus on scheduler or downstream bottlenecks.\n6. **Recovery priority**: restore partition safety first, then reduce rejection and queue backlog."
       }
     }
   ]

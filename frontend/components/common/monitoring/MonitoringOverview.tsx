@@ -21,7 +21,7 @@ import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import Link from 'next/link';
 import {useTranslations} from 'next-intl';
 import {useTheme} from 'next-themes';
-import {ExternalLink, Loader2, RefreshCw} from 'lucide-react';
+import {ChevronDown, ChevronUp, ExternalLink, Loader2, RefreshCw} from 'lucide-react';
 import {toast} from 'sonner';
 import services from '@/lib/services';
 import type {
@@ -121,14 +121,25 @@ function resolveHealthBadgeVariant(
 
 export function MonitoringOverview({
   compact = false,
-}: {compact?: boolean} = {}) {
+  // 控制台等场景默认收起 Grafana，避免 iframe 抢占首屏
+  // Collapse Grafana by default on console to keep first viewport light
+  defaultGrafanaExpanded = true,
+}: {
+  compact?: boolean;
+  defaultGrafanaExpanded?: boolean;
+} = {}) {
   const t = useTranslations('monitoringCenter');
   const {locale} = useLocale();
   const {resolvedTheme} = useTheme();
 
   const [timeRange, setTimeRange] = useState<TimeRange>('now-6h');
+  // 默认关闭自动刷新，降低代理与 iframe 压力；用户可按需开启
+  // Default refresh off to cut proxy/iframe load; users can enable as needed
   const [refreshInterval, setRefreshInterval] =
-    useState<RefreshInterval>('15s');
+    useState<RefreshInterval>('off');
+  const [grafanaExpanded, setGrafanaExpanded] = useState(
+    defaultGrafanaExpanded,
+  );
   const [iframeKey, setIframeKey] = useState(1);
   const [loaded, setLoaded] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -352,6 +363,11 @@ export function MonitoringOverview({
   }, []);
 
   useEffect(() => {
+    // 收起时不挂 iframe，也不跑加载超时 / Skip timeout while Grafana is collapsed
+    if (!grafanaExpanded) {
+      clearLoadTimeout();
+      return;
+    }
     setLoaded(false);
     setLoadFailed(false);
     clearLoadTimeout();
@@ -359,7 +375,7 @@ export function MonitoringOverview({
       setLoadFailed(true);
     }, loadTimeoutMs);
     return () => clearLoadTimeout();
-  }, [embedURL, iframeKey, loadTimeoutMs]);
+  }, [embedURL, iframeKey, loadTimeoutMs, grafanaExpanded]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -411,7 +427,7 @@ export function MonitoringOverview({
       window.removeEventListener('scroll', recalcHeight);
       observer?.disconnect();
     };
-  }, [locale]);
+  }, [locale, grafanaExpanded]);
 
   return (
     <div className='space-y-4'>
@@ -518,21 +534,54 @@ export function MonitoringOverview({
                 : 'flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between'
             }
           >
-            <CardTitle className={compact ? 'text-base' : undefined}>
-              {t('grafana.title')}
-            </CardTitle>
+            <div className='space-y-1'>
+              <CardTitle className={compact ? 'text-base' : undefined}>
+                {t('grafana.title')}
+              </CardTitle>
+            </div>
             <div className='flex flex-wrap items-center gap-2'>
               <Button
-                variant='outline'
+                variant={grafanaExpanded ? 'outline' : 'default'}
                 size='sm'
-                onClick={() => setIframeKey((value) => value + 1)}
+                onClick={() => {
+                  setGrafanaExpanded((prev) => {
+                    const next = !prev;
+                    if (next) {
+                      // 展开时重新进入加载态 / Re-enter loading state when expanding
+                      setLoaded(false);
+                      setLoadFailed(false);
+                    }
+                    return next;
+                  });
+                }}
                 className={compactActionButtonClass}
               >
-                <RefreshCw
-                  className={compact ? 'mr-1.5 h-3.5 w-3.5' : 'mr-2 h-4 w-4'}
-                />
-                {t('grafana.reload')}
+                {grafanaExpanded ? (
+                  <ChevronUp
+                    className={compact ? 'mr-1.5 h-3.5 w-3.5' : 'mr-2 h-4 w-4'}
+                  />
+                ) : (
+                  <ChevronDown
+                    className={compact ? 'mr-1.5 h-3.5 w-3.5' : 'mr-2 h-4 w-4'}
+                  />
+                )}
+                {grafanaExpanded
+                  ? t('grafana.collapse')
+                  : t('grafana.expand')}
               </Button>
+              {grafanaExpanded ? (
+                <Button
+                  variant='outline'
+                  size='sm'
+                  onClick={() => setIframeKey((value) => value + 1)}
+                  className={compactActionButtonClass}
+                >
+                  <RefreshCw
+                    className={compact ? 'mr-1.5 h-3.5 w-3.5' : 'mr-2 h-4 w-4'}
+                  />
+                  {t('grafana.reload')}
+                </Button>
+              ) : null}
               <Button
                 asChild
                 variant='outline'
@@ -549,177 +598,183 @@ export function MonitoringOverview({
             </div>
           </div>
 
-          <div
-            className={
-              compact
-                ? 'flex flex-col gap-1.5 md:flex-row md:flex-wrap md:items-center'
-                : 'flex flex-col gap-2 md:flex-row md:flex-wrap md:items-center'
-            }
-          >
-            {clusterHealth.length > 0 && (
+          {grafanaExpanded ? (
+            <div
+              className={
+                compact
+                  ? 'flex flex-col gap-1.5 md:flex-row md:flex-wrap md:items-center'
+                  : 'flex flex-col gap-2 md:flex-row md:flex-wrap md:items-center'
+              }
+            >
+              {clusterHealth.length > 0 && (
+                <div className={compactControlWidthClass}>
+                  <Select
+                    value={selectedClusterName ?? ''}
+                    onValueChange={(value) => {
+                      setSelectedClusterName(value);
+                      setSelectedInstance('$__all');
+                      const found = clusterHealth.find(
+                        (c) => c.cluster_name === value,
+                      );
+                      setSelectedClusterId(found ? found.cluster_id : null);
+                      if (found?.cluster_id) {
+                        rememberPreferredClusterId(found.cluster_id);
+                      }
+                    }}
+                  >
+                    <SelectTrigger className={compactSelectTriggerClass}>
+                      <SelectValue placeholder={t('selectCluster')} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {clusterHealth.map((cluster) => (
+                        <SelectItem
+                          key={cluster.cluster_id}
+                          value={cluster.cluster_name}
+                        >
+                          {cluster.cluster_name}
+                          {isSoleDefaultCluster(
+                            clusterHealth.map((item) => ({id: item.cluster_id})),
+                            cluster.cluster_id,
+                          )
+                            ? ` · ${t('defaultClusterBadge')}`
+                            : ''}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              {selectedClusterId && (
+                <div className={compactControlWidthClass}>
+                  <Select
+                    value={selectedInstance}
+                    onValueChange={(value) => {
+                      setSelectedInstance(value);
+                    }}
+                  >
+                    <SelectTrigger className={compactSelectTriggerClass}>
+                      <SelectValue placeholder={t('selectNode')} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value='$__all'>{t('allNodes')}</SelectItem>
+                      {currentInstances.map((addr) => (
+                        <SelectItem key={addr} value={addr}>
+                          {addr}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
               <div className={compactControlWidthClass}>
                 <Select
-                  value={selectedClusterName ?? ''}
-                  onValueChange={(value) => {
-                    setSelectedClusterName(value);
-                    setSelectedInstance('$__all');
-                    const found = clusterHealth.find(
-                      (c) => c.cluster_name === value,
-                    );
-                    setSelectedClusterId(found ? found.cluster_id : null);
-                    if (found?.cluster_id) {
-                      rememberPreferredClusterId(found.cluster_id);
-                    }
-                  }}
+                  value={timeRange}
+                  onValueChange={(value) => setTimeRange(value as TimeRange)}
                 >
                   <SelectTrigger className={compactSelectTriggerClass}>
-                    <SelectValue placeholder={t('selectCluster')} />
+                    <SelectValue placeholder={t('grafana.timeRange.label')} />
                   </SelectTrigger>
                   <SelectContent>
-                    {clusterHealth.map((cluster) => (
-                      <SelectItem
-                        key={cluster.cluster_id}
-                        value={cluster.cluster_name}
-                      >
-                        {cluster.cluster_name}
-                        {isSoleDefaultCluster(
-                          clusterHealth.map((item) => ({id: item.cluster_id})),
-                          cluster.cluster_id,
-                        )
-                          ? ` · ${t('defaultClusterBadge')}`
-                          : ''}
-                      </SelectItem>
-                    ))}
+                    <SelectItem value='now-1h'>
+                      {t('grafana.timeRange.last1h')}
+                    </SelectItem>
+                    <SelectItem value='now-6h'>
+                      {t('grafana.timeRange.last6h')}
+                    </SelectItem>
+                    <SelectItem value='now-24h'>
+                      {t('grafana.timeRange.last24h')}
+                    </SelectItem>
+                    <SelectItem value='now-7d'>
+                      {t('grafana.timeRange.last7d')}
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </div>
-            )}
 
-            {selectedClusterId && (
               <div className={compactControlWidthClass}>
                 <Select
-                  value={selectedInstance}
-                  onValueChange={(value) => {
-                    setSelectedInstance(value);
-                  }}
+                  value={refreshInterval}
+                  onValueChange={(value) =>
+                    setRefreshInterval(value as RefreshInterval)
+                  }
                 >
                   <SelectTrigger className={compactSelectTriggerClass}>
-                    <SelectValue placeholder={t('selectNode')} />
+                    <SelectValue
+                      placeholder={t('grafana.refreshInterval.label')}
+                    />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value='$__all'>{t('allNodes')}</SelectItem>
-                    {currentInstances.map((addr) => (
-                      <SelectItem key={addr} value={addr}>
-                        {addr}
-                      </SelectItem>
-                    ))}
+                    <SelectItem value='off'>
+                      {t('grafana.refreshInterval.off')}
+                    </SelectItem>
+                    <SelectItem value='15s'>15s</SelectItem>
+                    <SelectItem value='30s'>30s</SelectItem>
+                    <SelectItem value='1m'>1m</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
-            )}
-
-            <div className={compactControlWidthClass}>
-              <Select
-                value={timeRange}
-                onValueChange={(value) => setTimeRange(value as TimeRange)}
-              >
-                <SelectTrigger className={compactSelectTriggerClass}>
-                  <SelectValue placeholder={t('grafana.timeRange.label')} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value='now-1h'>
-                    {t('grafana.timeRange.last1h')}
-                  </SelectItem>
-                  <SelectItem value='now-6h'>
-                    {t('grafana.timeRange.last6h')}
-                  </SelectItem>
-                  <SelectItem value='now-24h'>
-                    {t('grafana.timeRange.last24h')}
-                  </SelectItem>
-                  <SelectItem value='now-7d'>
-                    {t('grafana.timeRange.last7d')}
-                  </SelectItem>
-                </SelectContent>
-              </Select>
             </div>
-
-            <div className={compactControlWidthClass}>
-              <Select
-                value={refreshInterval}
-                onValueChange={(value) =>
-                  setRefreshInterval(value as RefreshInterval)
-                }
-              >
-                <SelectTrigger className={compactSelectTriggerClass}>
-                  <SelectValue
-                    placeholder={t('grafana.refreshInterval.label')}
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value='off'>
-                    {t('grafana.refreshInterval.off')}
-                  </SelectItem>
-                  <SelectItem value='15s'>15s</SelectItem>
-                  <SelectItem value='30s'>30s</SelectItem>
-                  <SelectItem value='1m'>1m</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
+          ) : null}
         </CardHeader>
 
-        <CardContent className='p-0'>
-          <div
-            ref={frameContainerRef}
-            className='relative overflow-hidden border-t bg-muted/20'
-            style={{height: `${iframeHeight}px`}}
-          >
-            {!loaded && !loadFailed ? (
-              <div className='absolute inset-0 z-10 flex items-center justify-center bg-background/70 backdrop-blur-sm'>
-                <div className='flex items-center gap-2 text-sm text-muted-foreground'>
-                  <Loader2 className='h-4 w-4 animate-spin' />
-                  {t('grafana.loading')}
+        {/* 仅展开时挂载 iframe，避免收起态仍拉取 Grafana */}
+        {/* Mount iframe only when expanded to avoid loading Grafana while collapsed */}
+        {grafanaExpanded ? (
+          <CardContent className='p-0'>
+            <div
+              ref={frameContainerRef}
+              className='relative overflow-hidden border-t bg-muted/20'
+              style={{height: `${iframeHeight}px`}}
+            >
+              {!loaded && !loadFailed ? (
+                <div className='absolute inset-0 z-10 flex items-center justify-center bg-background/70 backdrop-blur-sm'>
+                  <div className='flex items-center gap-2 text-sm text-muted-foreground'>
+                    <Loader2 className='h-4 w-4 animate-spin' />
+                    {t('grafana.loading')}
+                  </div>
                 </div>
-              </div>
-            ) : null}
+              ) : null}
 
-            {loadFailed ? (
-              <div className='absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-background/80 px-6 text-center backdrop-blur-sm'>
-                <div className='text-sm text-muted-foreground'>
-                  {t('grafana.loadFailed')}
+              {loadFailed ? (
+                <div className='absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-background/80 px-6 text-center backdrop-blur-sm'>
+                  <div className='text-sm text-muted-foreground'>
+                    {t('grafana.loadFailed')}
+                  </div>
+                  <Button
+                    variant='outline'
+                    onClick={() => setIframeKey((value) => value + 1)}
+                  >
+                    {t('grafana.retry')}
+                  </Button>
                 </div>
-                <Button
-                  variant='outline'
-                  onClick={() => setIframeKey((value) => value + 1)}
-                >
-                  {t('grafana.retry')}
-                </Button>
-              </div>
-            ) : null}
+              ) : null}
 
-            <iframe
-              key={iframeKey}
-              title='Seatunnel Grafana Dashboard'
-              src={embedURL}
-              className='h-full w-full rounded-b-xl border-0'
-              sandbox='allow-scripts allow-same-origin allow-forms allow-popups allow-downloads'
-              referrerPolicy='strict-origin-when-cross-origin'
-              loading='eager'
-              onLoad={() => {
-                clearLoadTimeout();
-                setLoaded(true);
-                setLoadFailed(false);
-              }}
-              onError={() => {
-                clearLoadTimeout();
-                setLoadFailed(true);
-              }}
-            />
+              <iframe
+                key={iframeKey}
+                title='Seatunnel Grafana Dashboard'
+                src={embedURL}
+                className='h-full w-full rounded-b-xl border-0'
+                sandbox='allow-scripts allow-same-origin allow-forms allow-popups allow-downloads'
+                referrerPolicy='strict-origin-when-cross-origin'
+                loading='lazy'
+                onLoad={() => {
+                  clearLoadTimeout();
+                  setLoaded(true);
+                  setLoadFailed(false);
+                }}
+                onError={() => {
+                  clearLoadTimeout();
+                  setLoadFailed(true);
+                }}
+              />
 
-            <div className='pointer-events-none absolute left-0 right-0 top-0 h-12 bg-background/95' />
-            <div className='pointer-events-none absolute bottom-0 left-0 right-0 h-2 bg-background/95' />
-          </div>
-        </CardContent>
+              <div className='pointer-events-none absolute left-0 right-0 top-0 h-12 bg-background/95' />
+              <div className='pointer-events-none absolute bottom-0 left-0 right-0 h-2 bg-background/95' />
+            </div>
+          </CardContent>
+        ) : null}
       </Card>
     </div>
   );

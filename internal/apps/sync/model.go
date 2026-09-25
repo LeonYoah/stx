@@ -494,3 +494,45 @@ type PreviewRow struct {
 func (PreviewRow) TableName() string {
 	return "sync_preview_rows"
 }
+
+// Curated template section / origin constants.
+// 精选模板分区与来源常量。
+const (
+	CuratedSectionEnv       = "env"
+	CuratedSectionSource    = "source"
+	CuratedSectionTransform = "transform"
+	CuratedSectionSink      = "sink"
+	CuratedSectionCombo     = "combo"
+
+	CuratedOriginBuiltin  = "builtin"
+	CuratedOriginUser     = "user"
+	CuratedOriginOverride = "override"
+
+	CuratedModeBatch     = "BATCH"
+	CuratedModeStreaming = "STREAMING"
+	CuratedModeAny       = "ANY"
+)
+
+// CuratedTemplate stores one user-owned or forked curated template row.
+// CuratedTemplate 存储用户自建或从内置 fork 的精选模板行。
+type CuratedTemplate struct {
+	ID          uint            `json:"id" gorm:"primaryKey;autoIncrement"`
+	BuiltinID   string          `json:"builtin_id" gorm:"size:120;index"`
+	OwnerUserID uint            `json:"owner_user_id" gorm:"index;not null"`
+	Name        string          `json:"name" gorm:"size:200;not null"`
+	Description string          `json:"description" gorm:"type:text"`
+	Section     string          `json:"section" gorm:"size:32;not null;index"`
+	Mode        string          `json:"mode" gorm:"size:32;not null;default:'ANY'"`
+	Pattern     string          `json:"pattern" gorm:"size:32;not null;default:'other'"`
+	Connectors  JSONStringSlice `json:"connectors" gorm:"type:json"`
+	Content     string          `json:"content" gorm:"type:text;not null"`
+	Enabled     bool            `json:"enabled" gorm:"not null;default:true"`
+	CreatedAt   time.Time       `json:"created_at" gorm:"autoCreateTime"`
+	UpdatedAt   time.Time       `json:"updated_at" gorm:"autoUpdateTime"`
+}
+
+// TableName returns the curated template table name.
+// TableName 返回精选模板表名。
+func (CuratedTemplate) TableName() string {
+	return "sync_curated_templates"
+}

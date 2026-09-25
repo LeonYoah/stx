@@ -741,6 +741,17 @@ func Serve() {
 					syncGlobalVarRouter.DELETE("/:id", syncHandler.DeleteGlobalVariable)
 				}
 
+				syncCuratedRouter := syncRouter.Group("/curated-templates")
+				{
+					syncCuratedRouter.POST("/list", syncHandler.ListCuratedTemplates)
+					syncCuratedRouter.POST("", syncHandler.CreateCuratedTemplate)
+					syncCuratedRouter.PUT("/:id", syncHandler.UpdateCuratedTemplate)
+					syncCuratedRouter.DELETE("/:id", syncHandler.DeleteCuratedTemplate)
+					syncCuratedRouter.POST("/fork", syncHandler.ForkCuratedTemplate)
+					syncCuratedRouter.POST("/parse-combo", syncHandler.ParseCuratedCombo)
+					syncCuratedRouter.POST("/render", syncHandler.RenderCuratedTemplate)
+				}
+
 				syncPluginRouter := syncRouter.Group("/plugins")
 				{
 					syncPluginRouter.POST("/list", syncHandler.ListPluginFactories)

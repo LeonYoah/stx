@@ -95,6 +95,24 @@ func addSyncWriteCommands(root *cobra.Command, storeProvider authStoreProvider) 
 		newSyncPluginEnumValuesCommand(storeProvider),
 		newSyncPluginEnumCatalogCommand(storeProvider),
 	)
+
+	curatedCommand := childCommand(syncCommand, "curated")
+	if curatedCommand == nil {
+		curatedCommand = &cobra.Command{
+			Use:   "curated",
+			Short: "STX sync curated template commands",
+		}
+		syncCommand.AddCommand(curatedCommand)
+	}
+	curatedCommand.AddCommand(
+		newSyncCuratedListCommand(storeProvider),
+		newSyncCuratedCreateCommand(storeProvider),
+		newSyncCuratedUpdateCommand(storeProvider),
+		// 不注册 delete：CLI 统一禁止暴露删除类命令 / Do not register delete: CLI forbids delete/remove commands
+		newSyncCuratedForkCommand(storeProvider),
+		newSyncCuratedRenderCommand(storeProvider),
+		newSyncCuratedParseComboCommand(storeProvider),
+	)
 }
 
 // newSyncTaskPermissionsCommand 提供独立的工作台权限命令，避免调用方手写完整任务更新正文。
@@ -1211,6 +1229,326 @@ func newSyncPluginEnumCatalogCommand(storeProvider authStoreProvider) *cobra.Com
 	command.Flags().UintVar(&clusterID, "cluster-id", 1, "Target SeaTunnel cluster ID")
 	command.Flags().BoolVar(&includeSupplement, "include-supplement", true, "Include supplemental catalog entries")
 	return command
+}
+
+// ----------------------------------------------------------------------
+// Curated Template Commands
+// ----------------------------------------------------------------------
+
+func newSyncCuratedListCommand(storeProvider authStoreProvider) *cobra.Command {
+	var namespace, section, query, origin string
+
+	command := &cobra.Command{
+		Use:     "list",
+		Short:   "List curated sync templates",
+		Long:    "List built-in and user curated sync templates, optionally filtered by section or keyword.",
+		Example: "stx sync curated list --section source",
+		Args:    usageArgs(cobra.NoArgs),
+		RunE: func(command *cobra.Command, _ []string) error {
+			client, err := clientForNamespace(storeProvider, namespace)
+			if err != nil {
+				return err
+			}
+			body := map[string]any{}
+			if strings.TrimSpace(section) != "" {
+				body["section"] = strings.TrimSpace(section)
+			}
+			if strings.TrimSpace(query) != "" {
+				body["q"] = strings.TrimSpace(query)
+			}
+			if strings.TrimSpace(origin) != "" {
+				body["origin"] = strings.TrimSpace(origin)
+			}
+			var data any
+			operationID := "sync.curated.list"
+			requestID, err := client.Request(command.Context(), http.MethodPost, "/api/v1/sync/curated-templates/list", body, &data)
+			if err != nil {
+				return err
+			}
+			return renderCommandResultWithRequestID(command, operationID, requestID, data)
+		},
+	}
+	command.Flags().StringVar(&namespace, "namespace", "", "Local namespace to use")
+	command.Flags().StringVar(&section, "section", "", "Filter by section: env|source|transform|sink|combo")
+	command.Flags().StringVar(&query, "q", "", "Keyword search against name/description")
+	command.Flags().StringVar(&origin, "origin", "", "Filter by origin: builtin|user|override|all")
+	return command
+}
+
+func newSyncCuratedCreateCommand(storeProvider authStoreProvider) *cobra.Command {
+	var options secureWriteOptions
+	var name, description, section, mode, pattern, content, contentFile, builtinID string
+
+	command := &cobra.Command{
+		Use:     "create",
+		Short:   "Create a curated sync template",
+		Long:    "Save HOCON content as a user curated template for Studio reuse.",
+		Example: "stx sync curated create --name my-jdbc --section source --content-file ./fragment.conf --confirm",
+		Args:    usageArgs(cobra.NoArgs),
+		RunE: func(command *cobra.Command, _ []string) error {
+			if strings.TrimSpace(name) == "" {
+				return clioutput.NewError(clioutput.CodeUsage, "--name is required", clioutput.ExitUsage, false)
+			}
+			bodyContent, err := resolveCuratedContent(content, contentFile)
+			if err != nil {
+				return err
+			}
+			body := map[string]any{
+				"name":    name,
+				"content": bodyContent,
+			}
+			if strings.TrimSpace(description) != "" {
+				body["description"] = description
+			}
+			if strings.TrimSpace(section) != "" {
+				body["section"] = section
+			}
+			if strings.TrimSpace(mode) != "" {
+				body["mode"] = mode
+			}
+			if strings.TrimSpace(pattern) != "" {
+				body["pattern"] = pattern
+			}
+			if strings.TrimSpace(builtinID) != "" {
+				body["builtin_id"] = builtinID
+			}
+
+			operationID := "sync.curated.create"
+			client, headers, err := prepareSecureWrite(command, storeProvider, operationID, &options, "创建精选模板，供工作台复用。")
+			if err != nil {
+				return err
+			}
+			var data any
+			requestID, err := client.RequestWithHeaders(command.Context(), http.MethodPost, "/api/v1/sync/curated-templates", body, headers, &data)
+			if err != nil {
+				return handleSecureWriteError(command, operationID, err)
+			}
+			return renderCommandResultWithRequestID(command, operationID, requestID, data)
+		},
+	}
+	addSecureWriteFlags(command, &options)
+	command.Flags().StringVar(&name, "name", "", "Template name")
+	command.Flags().StringVar(&description, "description", "", "Template description")
+	command.Flags().StringVar(&section, "section", "", "Section: env|source|transform|sink|combo")
+	command.Flags().StringVar(&mode, "mode", "", "Mode hint: BATCH|STREAMING|ANY")
+	command.Flags().StringVar(&pattern, "pattern", "", "Pattern hint")
+	command.Flags().StringVar(&content, "content", "", "Inline HOCON content")
+	command.Flags().StringVar(&contentFile, "content-file", "", "File containing HOCON content")
+	command.Flags().StringVar(&builtinID, "builtin-id", "", "Optional builtin id when creating an override row")
+	return command
+}
+
+func newSyncCuratedUpdateCommand(storeProvider authStoreProvider) *cobra.Command {
+	var options secureWriteOptions
+	var name, description, section, mode, pattern, content, contentFile string
+	var enabled bool
+
+	command := &cobra.Command{
+		Use:     "update <id>",
+		Short:   "Update a curated sync template",
+		Long:    "Update an owned curated template (user or override).",
+		Example: "stx sync curated update 12 --content-file ./fragment.conf --confirm",
+		Args:    usageArgs(cobra.ExactArgs(1)),
+		RunE: func(command *cobra.Command, args []string) error {
+			id, err := parseTaskID(args[0])
+			if err != nil {
+				return err
+			}
+			body := map[string]any{}
+			if command.Flags().Changed("name") {
+				body["name"] = name
+			}
+			if command.Flags().Changed("description") {
+				body["description"] = description
+			}
+			if command.Flags().Changed("section") {
+				body["section"] = section
+			}
+			if command.Flags().Changed("mode") {
+				body["mode"] = mode
+			}
+			if command.Flags().Changed("pattern") {
+				body["pattern"] = pattern
+			}
+			if command.Flags().Changed("content") || command.Flags().Changed("content-file") {
+				bodyContent, readErr := resolveCuratedContent(content, contentFile)
+				if readErr != nil {
+					return readErr
+				}
+				body["content"] = bodyContent
+			}
+			if command.Flags().Changed("enabled") {
+				body["enabled"] = enabled
+			}
+			if len(body) == 0 {
+				return clioutput.NewError(clioutput.CodeUsage, "at least one update field is required", clioutput.ExitUsage, false)
+			}
+
+			operationID := "sync.curated.update"
+			client, headers, err := prepareSecureWrite(command, storeProvider, operationID, &options, "更新精选模板内容。")
+			if err != nil {
+				return err
+			}
+			var data any
+			requestID, err := client.RequestWithHeaders(command.Context(), http.MethodPut, fmt.Sprintf("/api/v1/sync/curated-templates/%d", id), body, headers, &data)
+			if err != nil {
+				return handleSecureWriteError(command, operationID, err)
+			}
+			return renderCommandResultWithRequestID(command, operationID, requestID, data)
+		},
+	}
+	addSecureWriteFlags(command, &options)
+	command.Flags().StringVar(&name, "name", "", "Template name")
+	command.Flags().StringVar(&description, "description", "", "Template description")
+	command.Flags().StringVar(&section, "section", "", "Section: env|source|transform|sink|combo")
+	command.Flags().StringVar(&mode, "mode", "", "Mode hint")
+	command.Flags().StringVar(&pattern, "pattern", "", "Pattern hint")
+	command.Flags().StringVar(&content, "content", "", "Inline HOCON content")
+	command.Flags().StringVar(&contentFile, "content-file", "", "File containing HOCON content")
+	command.Flags().BoolVar(&enabled, "enabled", true, "Enable or disable the template")
+	return command
+}
+
+func newSyncCuratedForkCommand(storeProvider authStoreProvider) *cobra.Command {
+	var options secureWriteOptions
+	var builtinID, name, description string
+
+	command := &cobra.Command{
+		Use:     "fork",
+		Short:   "Fork a built-in curated template",
+		Long:    "Copy a built-in curated seed into an editable user override.",
+		Example: "stx sync curated fork --builtin-id source-fake --confirm",
+		Args:    usageArgs(cobra.NoArgs),
+		RunE: func(command *cobra.Command, _ []string) error {
+			if strings.TrimSpace(builtinID) == "" {
+				return clioutput.NewError(clioutput.CodeUsage, "--builtin-id is required", clioutput.ExitUsage, false)
+			}
+			body := map[string]any{"builtin_id": strings.TrimSpace(builtinID)}
+			if strings.TrimSpace(name) != "" {
+				body["name"] = name
+			}
+			if strings.TrimSpace(description) != "" {
+				body["description"] = description
+			}
+			operationID := "sync.curated.fork"
+			client, headers, err := prepareSecureWrite(command, storeProvider, operationID, &options, "从内置精选生成可编辑副本。")
+			if err != nil {
+				return err
+			}
+			var data any
+			requestID, err := client.RequestWithHeaders(command.Context(), http.MethodPost, "/api/v1/sync/curated-templates/fork", body, headers, &data)
+			if err != nil {
+				return handleSecureWriteError(command, operationID, err)
+			}
+			return renderCommandResultWithRequestID(command, operationID, requestID, data)
+		},
+	}
+	addSecureWriteFlags(command, &options)
+	command.Flags().StringVar(&builtinID, "builtin-id", "", "Built-in curated template id")
+	command.Flags().StringVar(&name, "name", "", "Optional override name")
+	command.Flags().StringVar(&description, "description", "", "Optional override description")
+	return command
+}
+
+func newSyncCuratedRenderCommand(storeProvider authStoreProvider) *cobra.Command {
+	var namespace, builtinID string
+	var id, clusterID uint
+
+	command := &cobra.Command{
+		Use:     "render",
+		Short:   "Render curated template content for insert",
+		Long:    "Render curated content, rewriting plugin_input/output keys for legacy clusters when needed.",
+		Example: "stx sync curated render --builtin-id env-batch --cluster-id 1",
+		Args:    usageArgs(cobra.NoArgs),
+		RunE: func(command *cobra.Command, _ []string) error {
+			if strings.TrimSpace(builtinID) == "" && id == 0 {
+				return clioutput.NewError(clioutput.CodeUsage, "--builtin-id or --id is required", clioutput.ExitUsage, false)
+			}
+			client, err := clientForNamespace(storeProvider, namespace)
+			if err != nil {
+				return err
+			}
+			body := map[string]any{}
+			if strings.TrimSpace(builtinID) != "" {
+				body["builtin_id"] = strings.TrimSpace(builtinID)
+			}
+			if id > 0 {
+				body["id"] = id
+			}
+			if clusterID > 0 {
+				body["cluster_id"] = clusterID
+			}
+			var data any
+			operationID := "sync.curated.render"
+			requestID, err := client.Request(command.Context(), http.MethodPost, "/api/v1/sync/curated-templates/render", body, &data)
+			if err != nil {
+				return err
+			}
+			return renderCommandResultWithRequestID(command, operationID, requestID, data)
+		},
+	}
+	command.Flags().StringVar(&namespace, "namespace", "", "Local namespace to use")
+	command.Flags().StringVar(&builtinID, "builtin-id", "", "Built-in curated template id")
+	command.Flags().UintVar(&id, "id", 0, "User curated template id")
+	command.Flags().UintVar(&clusterID, "cluster-id", 0, "Optional cluster id for legacy plugin IO rewrite")
+	return command
+}
+
+func newSyncCuratedParseComboCommand(storeProvider authStoreProvider) *cobra.Command {
+	var namespace, content, contentFile string
+
+	command := &cobra.Command{
+		Use:     "parse-combo",
+		Short:   "Parse env/source/transform/sink sections",
+		Long:    "Parse a full HOCON job into the four top-level sections used by combo save-as.",
+		Example: "stx sync curated parse-combo --content-file ./job.conf",
+		Args:    usageArgs(cobra.NoArgs),
+		RunE: func(command *cobra.Command, _ []string) error {
+			bodyContent, err := resolveCuratedContent(content, contentFile)
+			if err != nil {
+				return err
+			}
+			client, err := clientForNamespace(storeProvider, namespace)
+			if err != nil {
+				return err
+			}
+			body := map[string]any{"content": bodyContent}
+			var data any
+			operationID := "sync.curated.parse-combo"
+			requestID, err := client.Request(command.Context(), http.MethodPost, "/api/v1/sync/curated-templates/parse-combo", body, &data)
+			if err != nil {
+				return err
+			}
+			return renderCommandResultWithRequestID(command, operationID, requestID, data)
+		},
+	}
+	command.Flags().StringVar(&namespace, "namespace", "", "Local namespace to use")
+	command.Flags().StringVar(&content, "content", "", "Inline HOCON content")
+	command.Flags().StringVar(&contentFile, "content-file", "", "File containing HOCON content")
+	return command
+}
+
+func resolveCuratedContent(content, contentFile string) (string, error) {
+	filePath := strings.TrimSpace(contentFile)
+	inline := strings.TrimSpace(content)
+	switch {
+	case filePath != "" && inline != "":
+		return "", clioutput.NewError(clioutput.CodeUsage, "use either --content or --content-file, not both", clioutput.ExitUsage, false)
+	case filePath != "":
+		raw, err := os.ReadFile(filePath)
+		if err != nil {
+			return "", clioutput.NewError(clioutput.CodeUsage, fmt.Sprintf("read content file: %v", err), clioutput.ExitUsage, false)
+		}
+		text := strings.TrimSpace(string(raw))
+		if text == "" {
+			return "", clioutput.NewError(clioutput.CodeUsage, "content file is empty", clioutput.ExitUsage, false)
+		}
+		return text, nil
+	case inline != "":
+		return inline, nil
+	default:
+		return "", clioutput.NewError(clioutput.CodeUsage, "--content or --content-file is required", clioutput.ExitUsage, false)
+	}
 }
 
 func parseTaskID(raw string) (uint, error) {

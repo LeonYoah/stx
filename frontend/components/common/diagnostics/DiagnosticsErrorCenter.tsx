@@ -141,6 +141,7 @@ export function DiagnosticsErrorCenter({
 }: DiagnosticsErrorCenterProps) {
   const t = useTranslations('diagnosticsCenter');
   const commonT = useTranslations('common');
+  const tsT = useTranslations('troubleshooting');
 
   const [keywordInput, setKeywordInput] = useState('');
   const [keyword, setKeyword] = useState('');
@@ -703,7 +704,7 @@ export function DiagnosticsErrorCenter({
           </SheetHeader>
 
           {/* 抽屉滚动内容区 / Sheet Scrollable Body */}
-          <ScrollArea className='flex-1 p-4'>
+          <div className='flex-1 min-h-0 overflow-y-auto p-4'>
             {loadingDetail ? (
               <div className='space-y-3'>
                 <Skeleton className='h-16 w-full' />
@@ -891,7 +892,7 @@ export function DiagnosticsErrorCenter({
                 </div>
               </div>
             ) : null}
-          </ScrollArea>
+          </div>
 
           {/* 抽屉底部操作栏 / Sheet Sticky Footer */}
           {selectedGroup && (
@@ -915,7 +916,7 @@ export function DiagnosticsErrorCenter({
                   </Button>
                 ) : null}
 
-                {/* 沉淀/更新排障经验按钮 / Record or update troubleshooting memory */}
+                {/* 沉淀/更新经验库方案 / Record or update playbook */}
                 <Button
                   variant='outline'
                   size='sm'
@@ -923,7 +924,7 @@ export function DiagnosticsErrorCenter({
                   onClick={() => setMemoryDialogOpen(true)}
                 >
                   <Lightbulb className='h-3.5 w-3.5 text-emerald-500' />
-                  {primaryMemory ? '更新排障经验' : '沉淀排障方案'}
+                  {primaryMemory ? tsT('updateSolution') : tsT('recordSolution')}
                 </Button>
               </div>
 
@@ -955,7 +956,7 @@ export function DiagnosticsErrorCenter({
                   selectedGroup.title,
                 title:
                   primaryMemory?.title ||
-                  `${selectedGroup.title || selectedGroup.exception_class || '异常'} 排障恢复方案`,
+                  `${selectedGroup.title || selectedGroup.exception_class || '异常'} ${tsT('defaultTitleSuffix')}`,
                 error_summary:
                   selectedGroup.sample_message || selectedGroup.title,
                 root_cause: primaryMemory?.root_cause,

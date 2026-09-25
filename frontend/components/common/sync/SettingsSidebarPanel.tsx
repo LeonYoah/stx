@@ -49,10 +49,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {Tabs, TabsContent, TabsList, TabsTrigger} from '@/components/ui/tabs';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import type {ClusterInfo} from '@/lib/services/cluster';
-import type {SyncPluginType} from '@/lib/services/sync';
+import type {SyncCuratedTemplateView, SyncPluginType} from '@/lib/services/sync';
 import {CustomVariablesSection} from './CustomVariablesSection';
+import {CuratedTemplatesPanel} from './CuratedTemplatesPanel';
 import {
   resolveBuiltinPreviewExpression,
 } from './builtin-time-variables';
@@ -145,6 +147,8 @@ export function SettingsSidebarPanel({
   onExecutionModeChange,
   onClusterChange,
   onInsertPluginTemplate,
+  onInsertCuratedTemplate,
+  curatedRefreshToken = 0,
   onOpenCreateCustomVariable,
   onOpenEditCustomVariable,
   onDeleteCustomVariable,
@@ -169,6 +173,8 @@ export function SettingsSidebarPanel({
     pluginType: SyncPluginType,
     factoryIdentifier: string,
   ) => void;
+  onInsertCuratedTemplate: (item: SyncCuratedTemplateView) => void;
+  curatedRefreshToken?: number;
   onOpenCreateCustomVariable: () => void;
   onOpenEditCustomVariable: (item: VariableRow) => void;
   onDeleteCustomVariable: (id: string) => void;
@@ -181,8 +187,8 @@ export function SettingsSidebarPanel({
   const builtinPreviewNow = useMemo(() => new Date(), []);
   return (
     <div className='min-w-0 w-full space-y-3.5'>
-      {/* 运行与集群环境配置 */}
-      {/* Execution mode and cluster environment settings */}
+      {/* 运行与集群环境配置（置顶） */}
+      {/* Execution mode and cluster environment settings (top) */}
       <div className='rounded-lg border border-border/50 bg-muted/10 p-3 space-y-2.5'>
         <div className='flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-foreground'>
           <Cpu className='size-3.5 text-primary' />
@@ -232,68 +238,93 @@ export function SettingsSidebarPanel({
         ) : null}
       </div>
 
-      {/* 插件模板快捷插入 */}
-      {/* Plugin template quick insertion */}
-      {executionMode === 'cluster' ? (
-        <div className='rounded-lg border border-border/50 bg-muted/10 p-3 space-y-2.5'>
-          <div className='flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-foreground'>
-            <Layers className='size-3.5 text-primary' />
-            <span>{t('pluginTemplates')}</span>
-          </div>
-          <div className='space-y-2.5'>
-            <TemplatePluginSelect
-              disabled={!clusterId || pluginPanelLoading}
-              items={sourceTemplateItems}
-              label={t('sourceTemplate')}
-              loading={pluginTemplatePendingType === 'source'}
-              loadingText={
-                pluginTemplatePendingType === 'source'
-                  ? pluginTemplateLoadingText
-                  : null
-              }
-              placeholder={t('selectSourcePlugin')}
-              onSelect={(value) => onInsertPluginTemplate('source', value)}
-            />
-            <TemplatePluginSelect
-              disabled={!clusterId || pluginPanelLoading}
-              items={transformTemplateItems}
-              label={t('transformTemplate')}
-              loading={pluginTemplatePendingType === 'transform'}
-              loadingText={
-                pluginTemplatePendingType === 'transform'
-                  ? pluginTemplateLoadingText
-                  : null
-              }
-              placeholder={t('selectTransformPlugin')}
-              onSelect={(value) => onInsertPluginTemplate('transform', value)}
-            />
-            <TemplatePluginSelect
-              disabled={!clusterId || pluginPanelLoading}
-              items={sinkTemplateItems}
-              label={t('sinkTemplate')}
-              loading={pluginTemplatePendingType === 'sink'}
-              loadingText={
-                pluginTemplatePendingType === 'sink'
-                  ? pluginTemplateLoadingText
-                  : null
-              }
-              placeholder={t('selectSinkPlugin')}
-              onSelect={(value) => onInsertPluginTemplate('sink', value)}
-            />
-            <p className='text-[11px] leading-5 text-muted-foreground'>
-              {!clusterId
-                ? t('selectClusterFirst')
-                : pluginPanelLoading
-                  ? t('loadingPluginTemplates')
-                  : pluginTemplateLoadingText
-                    ? t('generatingPluginTemplate', {
-                        plugin: pluginTemplateLoadingText,
-                      })
-                    : t('pluginTemplateHint')}
-            </p>
-          </div>
+      {/* 模板：精选列表 + 预览，再是原始默认参数 */}
+      {/* Templates: curated list + preview, then raw defaults */}
+      <div className='rounded-lg border border-border/50 bg-muted/10 p-3 space-y-2.5'>
+        <div className='flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-foreground'>
+          <Layers className='size-3.5 text-primary' />
+          <span>{t('templates')}</span>
         </div>
-      ) : null}
+        <Tabs defaultValue='curated' className='w-full'>
+          <TabsList className='grid h-8 w-full grid-cols-2'>
+            <TabsTrigger value='curated' className='text-[11px]'>
+              {t('curatedTemplates')}
+            </TabsTrigger>
+            <TabsTrigger value='raw' className='text-[11px]'>
+              {t('rawDefaultParamTemplates')}
+            </TabsTrigger>
+          </TabsList>
+          <TabsContent value='curated' className='mt-2.5'>
+            <CuratedTemplatesPanel
+              onInsert={onInsertCuratedTemplate}
+              clusterId={clusterId}
+              refreshToken={curatedRefreshToken}
+            />
+          </TabsContent>
+          <TabsContent value='raw' className='mt-2.5 space-y-2.5'>
+            {executionMode === 'cluster' ? (
+              <>
+                <TemplatePluginSelect
+                  disabled={!clusterId || pluginPanelLoading}
+                  items={sourceTemplateItems}
+                  label={t('sourceTemplate')}
+                  loading={pluginTemplatePendingType === 'source'}
+                  loadingText={
+                    pluginTemplatePendingType === 'source'
+                      ? pluginTemplateLoadingText
+                      : null
+                  }
+                  placeholder={t('selectSourcePlugin')}
+                  onSelect={(value) => onInsertPluginTemplate('source', value)}
+                />
+                <TemplatePluginSelect
+                  disabled={!clusterId || pluginPanelLoading}
+                  items={transformTemplateItems}
+                  label={t('transformTemplate')}
+                  loading={pluginTemplatePendingType === 'transform'}
+                  loadingText={
+                    pluginTemplatePendingType === 'transform'
+                      ? pluginTemplateLoadingText
+                      : null
+                  }
+                  placeholder={t('selectTransformPlugin')}
+                  onSelect={(value) =>
+                    onInsertPluginTemplate('transform', value)
+                  }
+                />
+                <TemplatePluginSelect
+                  disabled={!clusterId || pluginPanelLoading}
+                  items={sinkTemplateItems}
+                  label={t('sinkTemplate')}
+                  loading={pluginTemplatePendingType === 'sink'}
+                  loadingText={
+                    pluginTemplatePendingType === 'sink'
+                      ? pluginTemplateLoadingText
+                      : null
+                  }
+                  placeholder={t('selectSinkPlugin')}
+                  onSelect={(value) => onInsertPluginTemplate('sink', value)}
+                />
+                <p className='text-[11px] leading-5 text-muted-foreground'>
+                  {!clusterId
+                    ? t('selectClusterFirst')
+                    : pluginPanelLoading
+                      ? t('loadingPluginTemplates')
+                      : pluginTemplateLoadingText
+                        ? t('generatingPluginTemplate', {
+                            plugin: pluginTemplateLoadingText,
+                          })
+                        : t('rawDefaultParamHint')}
+                </p>
+              </>
+            ) : (
+              <p className='text-[11px] leading-5 text-muted-foreground'>
+                {t('rawDefaultNeedsCluster')}
+              </p>
+            )}
+          </TabsContent>
+        </Tabs>
+      </div>
 
       {/* 任务变量管理（自定义、模板提取与内置时间变量） */}
       {/* Task variables management (custom, detected, and builtin time variables) */}

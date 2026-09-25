@@ -1,0 +1,262 @@
+{
+  "version": 2,
+  "min_seatunnel_plugin_io": "2.3.9",
+  "templates": [
+    {
+      "id": "env-batch",
+      "name": "批处理环境",
+      "description": "精选片段：批处理环境",
+      "section": "env",
+      "mode": "BATCH",
+      "pattern": "other",
+      "connectors": [],
+      "file": "env-batch.conf",
+      "enabled": true
+    },
+    {
+      "id": "env-streaming",
+      "name": "流处理环境",
+      "description": "精选片段：流处理环境",
+      "section": "env",
+      "mode": "STREAMING",
+      "pattern": "other",
+      "connectors": [],
+      "file": "env-streaming.conf",
+      "enabled": true
+    },
+    {
+      "id": "source-fake",
+      "name": "FakeSource 冒烟",
+      "description": "精选片段：FakeSource 冒烟",
+      "section": "source",
+      "mode": "BATCH",
+      "pattern": "single",
+      "connectors": [
+        "FakeSource"
+      ],
+      "file": "source-fake.conf",
+      "enabled": true
+    },
+    {
+      "id": "source-jdbc-mysql-single",
+      "name": "Jdbc MySQL 单表",
+      "description": "table_list 动态切分；含 split.size / fetch_size 与 partition_column、query 注释",
+      "section": "source",
+      "mode": "BATCH",
+      "pattern": "single",
+      "connectors": [
+        "Jdbc"
+      ],
+      "file": "source-jdbc-mysql-single.conf",
+      "enabled": true
+    },
+    {
+      "id": "source-jdbc-mysql-multi",
+      "name": "Jdbc MySQL 多表",
+      "description": "多表 table_list 动态切分；含 split.size / fetch_size 注释",
+      "section": "source",
+      "mode": "BATCH",
+      "pattern": "multi",
+      "connectors": [
+        "Jdbc"
+      ],
+      "file": "source-jdbc-mysql-multi.conf",
+      "enabled": true
+    },
+    {
+      "id": "source-mysql-cdc-single",
+      "name": "MySQL-CDC 单表",
+      "description": "精选片段：MySQL-CDC 单表",
+      "section": "source",
+      "mode": "STREAMING",
+      "pattern": "cdc",
+      "connectors": [
+        "MySQL-CDC"
+      ],
+      "file": "source-mysql-cdc-single.conf",
+      "enabled": true
+    },
+    {
+      "id": "source-mysql-cdc-multi",
+      "name": "MySQL-CDC 多表",
+      "description": "精选片段：MySQL-CDC 多表",
+      "section": "source",
+      "mode": "STREAMING",
+      "pattern": "cdc",
+      "connectors": [
+        "MySQL-CDC"
+      ],
+      "file": "source-mysql-cdc-multi.conf",
+      "enabled": true
+    },
+    {
+      "id": "source-kafka-json",
+      "name": "Kafka JSON",
+      "description": "精选片段：Kafka JSON",
+      "section": "source",
+      "mode": "STREAMING",
+      "pattern": "single",
+      "connectors": [
+        "Kafka"
+      ],
+      "file": "source-kafka-json.conf",
+      "enabled": true
+    },
+    {
+      "id": "source-localfile-json",
+      "name": "LocalFile JSON",
+      "description": "精选片段：LocalFile JSON",
+      "section": "source",
+      "mode": "BATCH",
+      "pattern": "single",
+      "connectors": [
+        "LocalFile"
+      ],
+      "file": "source-localfile-json.conf",
+      "enabled": true
+    },
+    {
+      "id": "source-s3file-json",
+      "name": "S3File JSON",
+      "description": "精选片段：S3File JSON",
+      "section": "source",
+      "mode": "BATCH",
+      "pattern": "single",
+      "connectors": [
+        "S3File"
+      ],
+      "file": "source-s3file-json.conf",
+      "enabled": true
+    },
+    {
+      "id": "source-hdfsfile-json",
+      "name": "HdfsFile JSON",
+      "description": "精选片段：HdfsFile JSON",
+      "section": "source",
+      "mode": "BATCH",
+      "pattern": "single",
+      "connectors": [
+        "HdfsFile"
+      ],
+      "file": "source-hdfsfile-json.conf",
+      "enabled": true
+    },
+    {
+      "id": "source-ftpfile-json",
+      "name": "FtpFile JSON",
+      "description": "精选片段：FtpFile JSON",
+      "section": "source",
+      "mode": "BATCH",
+      "pattern": "single",
+      "connectors": [
+        "FtpFile"
+      ],
+      "file": "source-ftpfile-json.conf",
+      "enabled": true
+    },
+    {
+      "id": "transform-copy-field",
+      "name": "Copy 字段拷贝",
+      "description": "精选片段：Copy 字段拷贝",
+      "section": "transform",
+      "mode": "ANY",
+      "pattern": "other",
+      "connectors": [
+        "Copy"
+      ],
+      "file": "transform-copy-field.conf",
+      "enabled": true
+    },
+    {
+      "id": "sink-console",
+      "name": "Console",
+      "description": "精选片段：Console",
+      "section": "sink",
+      "mode": "ANY",
+      "pattern": "other",
+      "connectors": [
+        "Console"
+      ],
+      "file": "sink-console.conf",
+      "enabled": true
+    },
+    {
+      "id": "sink-jdbc-mysql",
+      "name": "Jdbc MySQL",
+      "description": "精选片段：Jdbc MySQL",
+      "section": "sink",
+      "mode": "ANY",
+      "pattern": "single",
+      "connectors": [
+        "Jdbc"
+      ],
+      "file": "sink-jdbc-mysql.conf",
+      "enabled": true
+    },
+    {
+      "id": "sink-jdbc-mysql-multi-route",
+      "name": "Jdbc MySQL 多表路由",
+      "description": "精选片段：Jdbc MySQL 多表路由",
+      "section": "sink",
+      "mode": "BATCH",
+      "pattern": "multi",
+      "connectors": [
+        "Jdbc"
+      ],
+      "file": "sink-jdbc-mysql-multi-route.conf",
+      "enabled": true
+    },
+    {
+      "id": "sink-kafka-canal-json",
+      "name": "Kafka canal_json",
+      "description": "精选片段：Kafka canal_json",
+      "section": "sink",
+      "mode": "STREAMING",
+      "pattern": "cdc",
+      "connectors": [
+        "Kafka"
+      ],
+      "file": "sink-kafka-canal-json.conf",
+      "enabled": true
+    },
+    {
+      "id": "sink-hive-basic",
+      "name": "Hive 基础",
+      "description": "精选片段：Hive 基础",
+      "section": "sink",
+      "mode": "BATCH",
+      "pattern": "single",
+      "connectors": [
+        "Hive"
+      ],
+      "file": "sink-hive-basic.conf",
+      "enabled": true
+    },
+    {
+      "id": "sink-hive-kerberos",
+      "name": "Hive Kerberos",
+      "description": "精选片段：Hive Kerberos",
+      "section": "sink",
+      "mode": "BATCH",
+      "pattern": "single",
+      "connectors": [
+        "Hive"
+      ],
+      "file": "sink-hive-kerberos.conf",
+      "enabled": true
+    },
+    {
+      "id": "sink-hive-s3",
+      "name": "Hive S3 warehouse",
+      "description": "精选片段：Hive S3 warehouse",
+      "section": "sink",
+      "mode": "BATCH",
+      "pattern": "single",
+      "connectors": [
+        "Hive"
+      ],
+      "file": "sink-hive-s3.conf",
+      "enabled": true
+    }
+  ]
+}

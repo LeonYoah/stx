@@ -28,7 +28,11 @@ KEEP_ARTIFACTS="${E2E_INSTALLER_REAL_KEEP_ARTIFACTS:-0}"
 SKIP_LOCAL_CLEANUP="${E2E_INSTALLER_REAL_SKIP_LOCAL_CLEANUP:-}"
 BACKEND_TEMPLATE="${ROOT_DIR}/config.e2e.installer-real.yaml"
 AGENT_TEMPLATE="${ROOT_DIR}/config.e2e.agent-real.yaml"
-MINIO_MC_IMAGE="${E2E_INSTALLER_REAL_MINIO_MC_IMAGE:-quay.io/minio/mc:RELEASE.2025-03-12T17-29-24Z}"
+# MinIO 服务：官方 / quay 已难匿名拉取，改用 pgsty 维护镜像
+# MinIO server: official/quay anonymous pulls are blocked; use pgsty image
+MINIO_IMAGE="${E2E_INSTALLER_REAL_MINIO_IMAGE:-pgsty/minio:RELEASE.2026-08-04T00-00-00Z}"
+# mc 客户端：silo 镜像内置 mcli/mc 兼容别名 / Client: silo image ships mcli with mc alias
+MINIO_MC_IMAGE="${E2E_INSTALLER_REAL_MINIO_MC_IMAGE:-pgsty/silo:RELEASE.2026-09-16T00-00-00Z}"
 PLAYWRIGHT_PROJECT="${PLAYWRIGHT_PROJECT:-}"
 PLAYWRIGHT_GREP="${PLAYWRIGHT_GREP:-}"
 declare -a PLAYWRIGHT_SPECS=()
@@ -285,7 +289,7 @@ docker run -d \
   -e MINIO_ROOT_USER=minioadmin \
   -e MINIO_ROOT_PASSWORD=minioadmin \
   -v "${TMP_DIR}/minio:/data" \
-  quay.io/minio/minio:RELEASE.2025-02-18T16-25-55Z \
+  "${MINIO_IMAGE}" \
   server /data --console-address :9001
 )"
 

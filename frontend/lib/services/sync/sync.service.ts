@@ -50,6 +50,9 @@ import type {
   SyncPluginTemplateResult,
   SyncPluginEnumValuesResult,
   SyncPluginEnumCatalogResult,
+  SyncCuratedTemplateListResult,
+  SyncCuratedTemplateView,
+  SyncCuratedComboParseResult,
 } from './types';
 
 export class SyncService extends BaseService {
@@ -328,5 +331,81 @@ export class SyncService extends BaseService {
       '/plugins/enum-catalog',
       request,
     );
+  }
+
+  static async listCuratedTemplates(request?: {
+    section?: string;
+    mode?: string;
+    q?: string;
+    origin?: string;
+  }): Promise<SyncCuratedTemplateListResult> {
+    return this.post<SyncCuratedTemplateListResult>(
+      '/curated-templates/list',
+      request || {},
+    );
+  }
+
+  static async createCuratedTemplate(request: {
+    name: string;
+    description?: string;
+    section?: string;
+    mode?: string;
+    pattern?: string;
+    connectors?: string[];
+    content: string;
+    builtin_id?: string;
+  }): Promise<SyncCuratedTemplateView> {
+    return this.post<SyncCuratedTemplateView>('/curated-templates', request);
+  }
+
+  static async updateCuratedTemplate(
+    id: number,
+    request: {
+      name?: string;
+      description?: string;
+      section?: string;
+      mode?: string;
+      pattern?: string;
+      connectors?: string[];
+      content?: string;
+      enabled?: boolean;
+    },
+  ): Promise<SyncCuratedTemplateView> {
+    return this.put<SyncCuratedTemplateView>(
+      `/curated-templates/${id}`,
+      request,
+    );
+  }
+
+  static async forkCuratedTemplate(request: {
+    builtin_id: string;
+    name?: string;
+    description?: string;
+  }): Promise<SyncCuratedTemplateView> {
+    return this.post<SyncCuratedTemplateView>(
+      '/curated-templates/fork',
+      request,
+    );
+  }
+
+  static async deleteCuratedTemplate(id: number): Promise<void> {
+    await this.delete(`/curated-templates/${id}`);
+  }
+
+  static async parseCuratedCombo(request: {
+    content: string;
+  }): Promise<SyncCuratedComboParseResult> {
+    return this.post<SyncCuratedComboParseResult>(
+      '/curated-templates/parse-combo',
+      request,
+    );
+  }
+
+  static async renderCuratedTemplate(request: {
+    builtin_id?: string;
+    id?: number;
+    cluster_id?: number;
+  }): Promise<{content: string}> {
+    return this.post<{content: string}>('/curated-templates/render', request);
   }
 }

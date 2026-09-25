@@ -18,6 +18,7 @@
 'use client';
 
 import {useState, useEffect, useCallback, type ReactNode} from 'react';
+import {useTranslations} from 'next-intl';
 import {
   AlertCircle,
   FileCode,
@@ -29,9 +30,11 @@ import {
   Save,
   ShieldCheck,
   Tag,
+  User,
   X,
 } from 'lucide-react';
 import {toast} from 'sonner';
+import {useAuth} from '@/hooks/use-auth';
 import {cn} from '@/lib/utils';
 import services from '@/lib/services';
 import type {
@@ -60,7 +63,7 @@ type ExpandableFieldKey =
   | 'error_summary';
 
 const FIELD_EXPAND_TITLES: Record<ExpandableFieldKey, string> = {
-  solution: '解决方案与排障具体步骤',
+  solution: '解决方案与处置步骤',
   root_cause: '根本原因剖析',
   preventive_tips: '防范与优化建议',
   error_summary: '故障现象 / 关键错误日志摘要',
@@ -194,8 +197,8 @@ const QUICK_TAGS = [
 ];
 
 /**
- * 沉淀排障解决方案与经验弹窗组件
- * Dialog to record verified solution & troubleshooting memory
+ * 经验库方案编辑弹窗
+ * Dialog to record or edit a verified playbook entry
  */
 export function SaveMemoryDialog({
   open,
@@ -203,6 +206,11 @@ export function SaveMemoryDialog({
   initialData,
   onSaved,
 }: SaveMemoryDialogProps) {
+  const t = useTranslations('troubleshooting');
+  const {user: currentUser} = useAuth();
+  const defaultAuthorName =
+    currentUser?.nickname?.trim() || currentUser?.username?.trim() || '运维工程师';
+
   const [title, setTitle] = useState('');
   const [targetType, setTargetType] = useState<TroubleshootingTargetType>('error');
   const [fingerprint, setFingerprint] = useState('');
@@ -210,7 +218,8 @@ export function SaveMemoryDialog({
   const [rootCause, setRootCause] = useState('');
   const [solution, setSolution] = useState('');
   const [preventiveTips, setPreventiveTips] = useState('');
-  const [author, setAuthor] = useState('运维工程师');
+  const [author, setAuthor] = useState(defaultAuthorName);
+  const [userOptions, setUserOptions] = useState<Array<{id: number | string; label: string; value: string}>>([]);
   const [tags, setTags] = useState<string[]>([]);
   const [customTagInput, setCustomTagInput] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -220,13 +229,41 @@ export function SaveMemoryDialog({
   const [expandedField, setExpandedField] = useState<ExpandableFieldKey | null>(null);
   const [errors, setErrors] = useState<{title?: string; solution?: string}>({});
 
+  // 弹窗打开时拉取有权限的候选用户列表（用于作者快捷下拉选择）
+  useEffect(() => {
+    if (!open) return;
+    let isMounted = true;
+    services.monitoring
+      .listNotifiableUsers()
+      .then((res) => {
+        if (!isMounted || !res?.users) return;
+        const opts = res.users.map((u) => {
+          const displayName = u.nickname?.trim() || u.username;
+          return {
+            id: u.id,
+            label: u.nickname?.trim() ? `${u.nickname} (${u.username})` : u.username,
+            value: displayName,
+          };
+        });
+        setUserOptions(opts);
+      })
+      .catch(() => {
+        // 静默降级：如失败则仅使用当前用户与手动输入
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, [open]);
+
   // 初始化或当 initialData 变动时预填充表单
   // Sync form state when initialData changes or dialog opens
   useEffect(() => {
     if (open && initialData) {
       setTitle(
         initialData.title ||
-          (initialData.fingerprint ? `${initialData.fingerprint} 排障方案` : ''),
+          (initialData.fingerprint
+            ? `${initialData.fingerprint} ${t('defaultTitleSuffix')}`
+            : ''),
       );
       setTargetType(initialData.target_type || 'error');
       setFingerprint(initialData.fingerprint || '');
@@ -234,7 +271,7 @@ export function SaveMemoryDialog({
       setRootCause(initialData.root_cause || '');
       setSolution(initialData.solution || '');
       setPreventiveTips(initialData.preventive_tips || '');
-      setAuthor(initialData.author || '运维工程师');
+      setAuthor(initialData.author || defaultAuthorName);
       setTags(initialData.tags || []);
       setErrors({});
       setExpandedField(null);
@@ -246,7 +283,7 @@ export function SaveMemoryDialog({
       setRootCause('');
       setSolution('');
       setPreventiveTips('');
-      setAuthor('运维工程师');
+      setAuthor(defaultAuthorName);
       setTags([]);
       setErrors({});
       setExpandedField(null);
@@ -254,7 +291,7 @@ export function SaveMemoryDialog({
       setExpandedField(null);
       setIsMaximized(false);
     }
-  }, [initialData, open]);
+  }, [defaultAuthorName, initialData, open, t]);
 
   const expandedValue =
     expandedField === 'solution'
@@ -344,9 +381,7 @@ export function SaveMemoryDialog({
       });
 
       toast.success(
-        initialData?.id
-          ? '排障经验已成功更新！'
-          : '排障方案已入库！后续发生同类故障时将自动在此置顶回显。',
+        initialData?.id ? t('updateSuccess') : t('saveSuccess'),
       );
       onSaved?.(saved);
       onOpenChange(false);
@@ -368,6 +403,7 @@ export function SaveMemoryDialog({
     preventiveTips,
     rootCause,
     solution,
+    t,
     tags,
     targetType,
     title,
@@ -384,6 +420,7 @@ export function SaveMemoryDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
+        showCloseButton={false}
         className={cn(
           // 必须保留 fixed 居中；勿加 relative，否则会覆盖 DialogContent 默认 fixed，弹窗落到视口外
           // Keep fixed centering; do not add relative or it overrides DialogContent fixed and drops the dialog off-screen
@@ -393,38 +430,50 @@ export function SaveMemoryDialog({
             : 'w-[95vw] sm:max-w-3xl h-[85vh] max-h-[85vh]',
         )}
       >
-        {/* 弹窗头部：明确预留 pr-20 物理安全避让区，杜绝与右上角 X 按钮及放大按钮重叠 */}
-        {/* Dialog Header: explicit pr-20 safe area avoiding collision with top-right Close and Maximize buttons */}
+        {/* 弹窗头部：明确预留 pr-20 物理安全避让区，杜绝与右上角操作按钮重叠 */}
+        {/* Dialog Header: explicit pr-20 safe area avoiding collision with top-right action buttons */}
         <DialogHeader className='px-5 py-3.5 border-b bg-muted/20 pr-20 text-left sm:text-left relative z-30'>
           <div className='flex items-center gap-2'>
             <div className='flex size-7 shrink-0 items-center justify-center rounded-lg bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'>
               <Lightbulb className='size-3.5' />
             </div>
             <DialogTitle className='text-sm font-bold tracking-tight text-foreground'>
-              {initialData?.id ? '编辑排障方案' : '记录排障解决方案与经验'}
+              {initialData?.id ? t('dialogEditTitle') : t('dialogCreateTitle')}
             </DialogTitle>
             <Badge
               variant='outline'
               className='h-5 px-1.5 text-[10px] font-mono border-emerald-500/30 text-emerald-600 dark:text-emerald-400 bg-emerald-500/10'
             >
-              经验库
+              {t('title')}
             </Badge>
           </div>
           <DialogDescription className='text-xs text-muted-foreground mt-1'>
-            沉淀已验证的故障处置步骤，后续同类错误将自动置顶回显与辅助排障。
+            {t('dialogSubtitle')}
           </DialogDescription>
 
-          {/* 放大/还原切换按钮 / Maximize and restore toggle button */}
-          <Button
-            type='button'
-            variant='ghost'
-            size='icon'
-            className='size-7 text-muted-foreground hover:text-foreground absolute right-11 top-3'
-            onClick={() => setIsMaximized((prev) => !prev)}
-            title={isMaximized ? '还原窗口' : '放大看'}
-          >
-            {isMaximized ? <Minimize2 className='size-3.5' /> : <Maximize2 className='size-3.5' />}
-          </Button>
+          {/* 右上角快捷操作区：放大/还原 + 关闭窗口 */}
+          <div className='absolute right-3 top-3 flex items-center gap-1 z-40'>
+            <Button
+              type='button'
+              variant='ghost'
+              size='icon'
+              className='size-7 text-muted-foreground hover:text-foreground'
+              onClick={() => setIsMaximized((prev) => !prev)}
+              title={isMaximized ? '还原窗口' : '放大看'}
+            >
+              {isMaximized ? <Minimize2 className='size-3.5' /> : <Maximize2 className='size-3.5' />}
+            </Button>
+            <Button
+              type='button'
+              variant='ghost'
+              size='icon'
+              className='size-7 text-muted-foreground hover:text-foreground'
+              onClick={() => onOpenChange(false)}
+              title='关闭'
+            >
+              <X className='size-4' />
+            </Button>
+          </div>
         </DialogHeader>
 
         {/* 表单主体：默认滚动；单个字段放大时用同层覆盖编辑 */}
@@ -517,7 +566,9 @@ export function SaveMemoryDialog({
                 label={
                   <>
                     <ShieldCheck className='size-3.5 text-emerald-600 dark:text-emerald-400' />
-                    <span className='font-semibold text-foreground'>解决方案与排障具体步骤</span>
+                    <span className='font-semibold text-foreground'>
+                      {t('solutionStepsLabel')}
+                    </span>
                     <span className='text-destructive'>* (必填)</span>
                   </>
                 }
@@ -652,16 +703,47 @@ export function SaveMemoryDialog({
               </div>
 
               <div className='space-y-1.5'>
-                <Label htmlFor='author' className='text-xs font-medium text-muted-foreground'>
-                  记录人 / 署名
-                </Label>
-                <Input
-                  id='author'
-                  value={author}
-                  onChange={(e) => setAuthor(e.target.value)}
-                  placeholder='例如：SRE 运维组 / 工程师'
-                  className='h-7 text-xs'
-                />
+                <div className='flex items-center justify-between gap-2'>
+                  <Label htmlFor='author' className='text-xs font-medium text-muted-foreground flex items-center gap-1'>
+                    <User className='size-3 text-muted-foreground' />
+                    <span>记录人 / 署名</span>
+                  </Label>
+                  {userOptions.length > 0 && (
+                    <span className='text-[10px] text-muted-foreground'>
+                      支持下拉选择或直接修改
+                    </span>
+                  )}
+                </div>
+                <div className='flex items-center gap-2'>
+                  <Input
+                    id='author'
+                    value={author}
+                    onChange={(e) => setAuthor(e.target.value)}
+                    placeholder='例如：SRE 运维组 / 工程师'
+                    className='h-7 text-xs flex-1'
+                  />
+                  {userOptions.length > 0 && (
+                    <select
+                      value={userOptions.some((u) => u.value === author) ? author : ''}
+                      onChange={(e) => {
+                        if (e.target.value) {
+                          setAuthor(e.target.value);
+                        }
+                      }}
+                      className='h-7 text-xs rounded-md border border-input bg-background px-2 py-0 text-muted-foreground hover:text-foreground focus:outline-hidden focus:ring-1 focus:ring-ring shrink-0 max-w-[130px] cursor-pointer'
+                      title='选择有权限的用户'
+                    >
+                      <option value='' disabled>
+                        选择成员...
+                      </option>
+                      {userOptions.map((u) => (
+                        <option key={u.id} value={u.value}>
+                          {u.label}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -743,7 +825,7 @@ export function SaveMemoryDialog({
             className='h-8 text-xs bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white gap-1.5 shadow-xs font-medium'
           >
             <Save className='size-3.5' />
-            保存到排障经验库
+            {t('saveToLibrary')}
           </Button>
         </DialogFooter>
       </DialogContent>

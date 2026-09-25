@@ -278,22 +278,24 @@ type diagnosticPrometheusSeriesSummary struct {
 type diagnosticBundleHTMLPayload struct {
 	Language    DiagnosticLanguage `json:"language"`
 	GeneratedAt time.Time          `json:"generated_at"`
-	// Summary：聚焦一句话结论 + 少量关键指标
+	// Summary：保留任务元信息与少量观测指标 / Keep task metadata and a few observed metrics
 	Health diagnosticBundleHTMLHealthSummary `json:"health"`
-	// 3.0 信息架构：结论、分类、时间线、关键信号
-	Findings   []diagnosticBundleHTMLFindingCard  `json:"findings"`
-	Categories []diagnosticBundleHTMLCategoryCard `json:"categories"`
-	Timeline   []diagnosticBundleHTMLTimelineItem `json:"timeline"`
-	KeySignals []diagnosticBundleHTMLSignalCard   `json:"key_signals"`
+	// 3.0 信息组织：发现项、分类、时间线、关键信号 / Organize findings, categories, timeline and signals
+	Findings             []diagnosticBundleHTMLFindingCard  `json:"findings"`
+	Categories           []diagnosticBundleHTMLCategoryCard `json:"categories"`
+	Timeline             []diagnosticBundleHTMLTimelineItem `json:"timeline"`
+	KeySignals           []diagnosticBundleHTMLSignalCard   `json:"key_signals"`
+	CollectionIncomplete bool                               `json:"collection_incomplete"`
 	// Critical Findings：按严重级别排序的关键发现（来自巡检发现或错误/告警上下文）
 	Inspection *diagnosticBundleHTMLInspectionPanel `json:"inspection,omitempty"`
 	// Evidence：证据详情，按需展开
-	ErrorContext    *diagnosticBundleHTMLErrorPanel     `json:"error_context,omitempty"`
-	AlertSnapshot   *diagnosticBundleHTMLAlertPanel     `json:"alert_snapshot,omitempty"`
-	ProcessEvents   *diagnosticBundleHTMLProcessPanel   `json:"process_events,omitempty"`
-	ConfigSnapshot  *diagnosticBundleHTMLConfigPanel    `json:"config_snapshot,omitempty"`
-	MetricsSnapshot *diagnosticBundleHTMLMetricsPanel   `json:"metrics_snapshot,omitempty"`
-	ArtifactGroups  []diagnosticBundleHTMLArtifactGroup `json:"artifact_groups"`
+	ErrorContext    *diagnosticBundleHTMLErrorPanel      `json:"error_context,omitempty"`
+	AlertSnapshot   *diagnosticBundleHTMLAlertPanel      `json:"alert_snapshot,omitempty"`
+	ProcessEvents   *diagnosticBundleHTMLProcessPanel    `json:"process_events,omitempty"`
+	ConfigSnapshot  *diagnosticBundleHTMLConfigPanel     `json:"config_snapshot,omitempty"`
+	MetricsSnapshot *diagnosticBundleHTMLMetricsPanel    `json:"metrics_snapshot,omitempty"`
+	ThreadDumps     []diagnosticBundleHTMLThreadDumpItem `json:"thread_dumps,omitempty"`
+	ArtifactGroups  []diagnosticBundleHTMLArtifactGroup  `json:"artifact_groups"`
 
 	// 附录类信息：任务概览、执行过程、溯源与建议，弱化展示
 	Cluster            *diagnosticBundleHTMLClusterSummary `json:"cluster,omitempty"`
@@ -317,12 +319,16 @@ type diagnosticBundleHTMLHealthSummary struct {
 }
 
 type diagnosticBundleHTMLFindingCard struct {
-	Severity string `json:"severity"`
-	Category string `json:"category"`
-	Title    string `json:"title"`
-	Summary  string `json:"summary"`
-	Impact   string `json:"impact"`
-	Action   string `json:"action"`
+	Severity  string                              `json:"severity"`
+	Category  string                              `json:"category"`
+	Title     string                              `json:"title"`
+	Summary   string                              `json:"summary"`
+	Evidence  string                              `json:"evidence,omitempty"`
+	Origin    string                              `json:"origin,omitempty"`
+	CheckCode string                              `json:"check_code,omitempty"`
+	Metric    *diagnosticBundleHTMLMetricEvidence `json:"metric,omitempty"`
+	Impact    string                              `json:"impact"`
+	Action    string                              `json:"action"`
 }
 
 type diagnosticBundleHTMLCategoryCard struct {
@@ -338,6 +344,7 @@ type diagnosticBundleHTMLTimelineItem struct {
 	Tone       string    `json:"tone"`
 	Title      string    `json:"title"`
 	Details    string    `json:"details"`
+	Source     string    `json:"source"`
 }
 
 type diagnosticBundleHTMLTaskSummary struct {
@@ -448,19 +455,54 @@ type diagnosticBundleHTMLProcessPanel struct {
 	Events []diagnosticBundleHTMLProcessEvent `json:"events"`
 }
 
+// diagnosticBundleHTMLConfigFileEntry 将单份配置的关键摘要与原始内容预览聚合展示。
+// diagnosticBundleHTMLConfigFileEntry aggregates key highlights and raw content preview for a single config file.
+type diagnosticBundleHTMLConfigFileEntry struct {
+	HostID     uint                       `json:"host_id"`
+	HostName   string                     `json:"host_name,omitempty"`
+	HostIP     string                     `json:"host_ip,omitempty"`
+	NodeID     uint                       `json:"node_id"`
+	Role       string                     `json:"role,omitempty"`
+	ConfigType string                     `json:"config_type"`
+	RemotePath string                     `json:"remote_path,omitempty"`
+	Items      []diagnosticConfigKeyValue `json:"items,omitempty"`
+	Preview    string                     `json:"preview,omitempty"`
+}
+
 type diagnosticBundleHTMLConfigPanel struct {
-	FileCount          int                            `json:"file_count"`
-	KeyHighlightCount  int                            `json:"key_highlight_count"`
-	DirectoryCount     int                            `json:"directory_count"`
-	ChangedConfigCount int                            `json:"changed_config_count"`
-	KeyHighlights      []diagnosticConfigKeyHighlight `json:"key_highlights"`
-	FilePreviews       []diagnosticConfigFilePreview  `json:"file_previews"`
-	RecentChanges      []diagnosticConfigChangeRecord `json:"recent_changes"`
-	RemainingChanges   []diagnosticConfigChangeRecord `json:"remaining_changes"`
-	Files              []diagnosticConfigSnapshotFile `json:"files"`
-	DirectoryManifests []diagnosticDirectoryManifest  `json:"directory_manifests"`
-	ConfigChanges      []diagnosticConfigChangeRecord `json:"config_changes"`
-	CollectionNotes    []diagnosticConfigSnapshotNote `json:"collection_notes"`
+	FileCount          int                                   `json:"file_count"`
+	KeyHighlightCount  int                                   `json:"key_highlight_count"`
+	DirectoryCount     int                                   `json:"directory_count"`
+	ChangedConfigCount int                                   `json:"changed_config_count"`
+	ConfigFileEntries  []diagnosticBundleHTMLConfigFileEntry `json:"config_file_entries"`
+	KeyHighlights      []diagnosticConfigKeyHighlight        `json:"key_highlights"`
+	FilePreviews       []diagnosticConfigFilePreview         `json:"file_previews"`
+	RecentChanges      []diagnosticConfigChangeRecord        `json:"recent_changes"`
+	RemainingChanges   []diagnosticConfigChangeRecord        `json:"remaining_changes"`
+	Files              []diagnosticConfigSnapshotFile        `json:"files"`
+	DirectoryManifests []diagnosticDirectoryManifest         `json:"directory_manifests"`
+	ConfigChanges      []diagnosticConfigChangeRecord        `json:"config_changes"`
+	CollectionNotes    []diagnosticConfigSnapshotNote        `json:"collection_notes"`
+}
+
+// diagnosticBundleHTMLThreadDumpItem 描述节点线程栈快照及其本地预览。
+// diagnosticBundleHTMLThreadDumpItem describes a node thread dump snapshot and its local preview.
+type diagnosticBundleHTMLThreadDumpItem struct {
+	HostID       uint   `json:"host_id"`
+	HostName     string `json:"host_name,omitempty"`
+	HostIP       string `json:"host_ip,omitempty"`
+	HostLabel    string `json:"host_label"`
+	NodeID       uint   `json:"node_id"`
+	Role         string `json:"role,omitempty"`
+	Tool         string `json:"tool,omitempty"`
+	RemotePath   string `json:"remote_path,omitempty"`
+	LocalPath    string `json:"local_path,omitempty"`
+	RelativePath string `json:"relative_path,omitempty"`
+	PreviewURL   string `json:"preview_url,omitempty"`
+	SizeBytes    int64  `json:"size_bytes"`
+	SizeLabel    string `json:"size_label"`
+	Preview      string `json:"preview"`
+	TotalLines   int    `json:"total_lines"`
 }
 
 type diagnosticBundleHTMLMetricsPanel struct {
@@ -558,20 +600,21 @@ type diagnosticBundleHTMLMetricCard struct {
 }
 
 type diagnosticBundleHTMLSignalCard struct {
-	Key            string                      `json:"key"`
-	Title          string                      `json:"title"`
-	Status         string                      `json:"status"`
-	Summary        string                      `json:"summary"`
-	ThresholdText  string                      `json:"threshold_text"`
-	Instance       string                      `json:"instance"`
-	LastValue      string                      `json:"last_value"`
-	PeakValue      string                      `json:"peak_value"`
-	PeakAt         string                      `json:"peak_at"`
-	Interpretation string                      `json:"interpretation"`
-	Threshold      float64                     `json:"threshold"`
-	Comparator     string                      `json:"comparator"`
-	Unit           string                      `json:"unit"`
-	Points         []diagnosticPrometheusPoint `json:"points"`
+	Key            string                              `json:"key"`
+	Title          string                              `json:"title"`
+	Status         string                              `json:"status"`
+	Summary        string                              `json:"summary"`
+	ThresholdText  string                              `json:"threshold_text"`
+	Instance       string                              `json:"instance"`
+	LastValue      string                              `json:"last_value"`
+	PeakValue      string                              `json:"peak_value"`
+	PeakAt         string                              `json:"peak_at"`
+	Interpretation string                              `json:"interpretation"`
+	Threshold      float64                             `json:"threshold"`
+	Comparator     string                              `json:"comparator"`
+	Unit           string                              `json:"unit"`
+	Points         []diagnosticPrometheusPoint         `json:"points"`
+	Metric         *diagnosticBundleHTMLMetricEvidence `json:"metric,omitempty"`
 }
 
 type diagnosticBundleHTMLAdvice struct {
@@ -812,6 +855,38 @@ func (s *Service) runDiagnosticTask(ctx context.Context, task *DiagnosticTask) e
 	s.publishDiagnosticTaskEvent(newDiagnosticTaskUpdatedEvent(task))
 	if err := s.syncExecutionFromDiagnosticTask(ctx, task); err != nil {
 		return err
+	}
+	// 完成状态落库后重新渲染静态报告，避免在渲染步骤尚为 running 时留下过期状态。
+	// Refresh the static report after final status is persisted; the render step is still running when its first draft is written.
+	if task.IndexPath != "" {
+		finalTask, loadErr := s.repo.GetDiagnosticTaskByID(ctx, task.ID)
+		if loadErr != nil {
+			return loadErr
+		}
+		payload := buildDiagnosticBundleHTMLPayload(finalTask, state, bundleDir, state.Artifacts)
+		for _, target := range []struct {
+			path string
+			lang DiagnosticLanguage
+		}{
+			{task.IndexPath, DiagnosticLanguageZH},
+			{filepath.Join(bundleDir, "index.zh.html"), DiagnosticLanguageZH},
+			{filepath.Join(bundleDir, "index.en.html"), DiagnosticLanguageEN},
+		} {
+			content, renderErr := renderDiagnosticBundleHTMLDocument(payload, target.lang)
+			if renderErr != nil {
+				return renderErr
+			}
+			if writeErr := os.WriteFile(target.path, content, 0o644); writeErr != nil {
+				return writeErr
+			}
+			if target.path == task.IndexPath {
+				for _, artifact := range state.Artifacts {
+					if artifact != nil && artifact.Category == "diagnostic_report" {
+						artifact.SizeBytes = int64(len(content))
+					}
+				}
+			}
+		}
 	}
 	if task.ManifestPath != "" {
 		if err := writeDiagnosticBundleManifestFile(task.ManifestPath, task, state.Artifacts, state); err != nil {
@@ -2161,6 +2236,39 @@ func (s *Service) executeRenderHTMLSummaryStep(ctx context.Context, task *Diagno
 		Path:     indexPath,
 		Message:  bilingualText("离线诊断报告", "Offline diagnostic report"),
 	}
+
+	// 重新拉取最新的任务步骤与节点执行状态，确保报告中附录步骤与节点不再显示初始等待状态
+	// Re-fetch latest task steps and node executions from repo to ensure appendix steps and nodes do not show initial pending state
+	if s.repo != nil {
+		if freshSteps, err := s.repo.ListDiagnosticTaskSteps(ctx, task.ID); err == nil && len(freshSteps) > 0 {
+			task.Steps = make([]DiagnosticTaskStep, 0, len(freshSteps))
+			for _, st := range freshSteps {
+				if st != nil {
+					task.Steps = append(task.Steps, *st)
+				}
+			}
+		}
+		if freshNodes, err := s.repo.ListDiagnosticNodeExecutions(ctx, task.ID); err == nil && len(freshNodes) > 0 {
+			task.NodeExecutions = make([]DiagnosticNodeExecution, 0, len(freshNodes))
+			for _, nd := range freshNodes {
+				if nd != nil {
+					task.NodeExecutions = append(task.NodeExecutions, *nd)
+				}
+			}
+		}
+	}
+	now := time.Now().UTC()
+	for i := range task.Steps {
+		if task.Steps[i].Code == step.Code {
+			task.Steps[i].Status = DiagnosticTaskStatusSucceeded
+			if task.Steps[i].StartedAt == nil {
+				task.Steps[i].StartedAt = &now
+			}
+			task.Steps[i].CompletedAt = &now
+			task.Steps[i].Message = bilingualText("离线诊断报告生成完成。", "Offline diagnostic report generated.")
+		}
+	}
+
 	payload := buildDiagnosticBundleHTMLPayload(task, state, bundleDir, append(cloneDiagnosticArtifacts(state.Artifacts), htmlArtifact))
 	renderTargets := []struct {
 		Path string
@@ -2699,6 +2807,12 @@ func (s *Service) beginDiagnosticTaskStep(ctx context.Context, task *DiagnosticT
 	step.StartedAt = &now
 	step.CompletedAt = nil
 	step.Message = step.Description
+	for i := range task.Steps {
+		if task.Steps[i].Code == step.Code {
+			task.Steps[i] = *step
+			break
+		}
+	}
 	return s.UpdateDiagnosticTaskStep(ctx, step)
 }
 
@@ -2708,6 +2822,12 @@ func (s *Service) finishDiagnosticTaskStep(ctx context.Context, task *Diagnostic
 	step.Message = message
 	step.Error = ""
 	step.CompletedAt = &now
+	for i := range task.Steps {
+		if task.Steps[i].Code == step.Code {
+			task.Steps[i] = *step
+			break
+		}
+	}
 	return s.UpdateDiagnosticTaskStep(ctx, step)
 }
 
@@ -2717,6 +2837,12 @@ func (s *Service) failDiagnosticTaskStep(ctx context.Context, task *DiagnosticTa
 	step.Error = stepErr.Error()
 	step.Message = stepErr.Error()
 	step.CompletedAt = &now
+	for i := range task.Steps {
+		if task.Steps[i].Code == step.Code {
+			task.Steps[i] = *step
+			break
+		}
+	}
 	return s.UpdateDiagnosticTaskStep(ctx, step)
 }
 
@@ -2864,11 +2990,29 @@ func buildDiagnosticBundleHTMLPayload(task *DiagnosticTask, state *diagnosticBun
 		TaskExecution:      buildDiagnosticBundleHTMLExecutionPanel(task),
 		ArtifactGroups:     buildDiagnosticBundleHTMLArtifactGroups(bundleDir, artifacts),
 	}
+	// 任务或步骤失败时，不把缺失的发现项称为零问题。
+	// Failed task or steps cannot be presented as a clean zero-finding result.
+	payload.CollectionIncomplete = task == nil || task.Status == DiagnosticTaskStatusFailed || task.Status == DiagnosticTaskStatusCancelled
+	if task != nil {
+		for _, step := range task.Steps {
+			if step.Status == DiagnosticTaskStatusFailed {
+				payload.CollectionIncomplete = true
+				break
+			}
+		}
+		for _, node := range task.NodeExecutions {
+			if node.Status == DiagnosticTaskStatusFailed {
+				payload.CollectionIncomplete = true
+				break
+			}
+		}
+	}
 	payload.Health = buildDiagnosticBundleHTMLHealthSummary(task, state, artifacts)
 	payload.Findings = buildDiagnosticBundleHTMLFindingCards(task, state)
 	payload.Categories = buildDiagnosticBundleHTMLCategoryCards(task, state)
 	payload.Timeline = buildDiagnosticBundleHTMLTimeline(task, state)
 	payload.KeySignals = buildDiagnosticBundleHTMLSignalCards(state)
+	payload.ThreadDumps = buildDiagnosticBundleHTMLThreadDumps(bundleDir, artifacts, task)
 	if state == nil {
 		payload.Recommendations = buildDiagnosticBundleHTMLRecommendations(task, state)
 		payload.PassedChecks = buildDiagnosticBundleHTMLPassedChecks(task, state, artifacts)
@@ -3160,6 +3304,160 @@ func buildDiagnosticBundleHTMLProcessPanel(events []*monitor.ProcessEvent) *diag
 	return panel
 }
 
+// buildDiagnosticBundleHTMLThreadDumps 收集线程栈快照文件并提取预览文本与元数据。
+// buildDiagnosticBundleHTMLThreadDumps collects thread dump snapshot files and extracts preview text and metadata.
+func buildDiagnosticBundleHTMLThreadDumps(bundleDir string, artifacts []*diagnosticBundleArtifact, task *DiagnosticTask) []diagnosticBundleHTMLThreadDumpItem {
+	var dumpArtifacts []*diagnosticBundleArtifact
+	for _, art := range artifacts {
+		if art != nil && art.Category == "thread_dump" {
+			dumpArtifacts = append(dumpArtifacts, art)
+		}
+	}
+
+	// 兜底扫描磁盘 thread-dumps 目录（用于离线重算或测试重建）
+	// Fallback to scanning disk thread-dumps directory (for offline rebuild or test fixtures)
+	dumpDir := filepath.Join(bundleDir, "thread-dumps")
+	if len(dumpArtifacts) == 0 && strings.TrimSpace(bundleDir) != "" {
+		entries, err := os.ReadDir(dumpDir)
+		if err == nil {
+			for _, entry := range entries {
+				if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".txt") {
+					continue
+				}
+				info, err := entry.Info()
+				if err != nil {
+					continue
+				}
+				dumpArtifacts = append(dumpArtifacts, &diagnosticBundleArtifact{
+					Category:  "thread_dump",
+					Format:    "txt",
+					Status:    "succeeded",
+					Path:      filepath.Join(dumpDir, entry.Name()),
+					SizeBytes: info.Size(),
+				})
+			}
+		}
+	}
+
+	if len(dumpArtifacts) == 0 {
+		return nil
+	}
+
+	// 建立选定节点查找索引
+	// Build lookup index for selected task nodes
+	targetByHostID := make(map[uint]DiagnosticTaskNodeTarget)
+	if task != nil {
+		for _, node := range task.SelectedNodes {
+			targetByHostID[node.HostID] = node
+		}
+	}
+
+	items := make([]diagnosticBundleHTMLThreadDumpItem, 0, len(dumpArtifacts))
+	for _, art := range dumpArtifacts {
+		filePath := art.Path
+		if !filepath.IsAbs(filePath) && bundleDir != "" {
+			filePath = filepath.Join(bundleDir, filePath)
+		}
+		contentBytes, err := os.ReadFile(filePath)
+		if err != nil {
+			relPath := filepath.Join(dumpDir, filepath.Base(art.Path))
+			contentBytes, err = os.ReadFile(relPath)
+			if err != nil {
+				continue
+			}
+			filePath = relPath
+		}
+
+		fullContent := string(contentBytes)
+		lines := strings.Split(strings.ReplaceAll(fullContent, "\r\n", "\n"), "\n")
+		totalLines := len(lines)
+		previewLines := lines
+		if len(previewLines) > 300 {
+			previewLines = previewLines[:300]
+		}
+		preview := strings.Join(previewLines, "\n")
+		if totalLines > 300 {
+			preview += fmt.Sprintf("\n... (%d lines truncated, view full thread dump)", totalLines-300)
+		}
+
+		hostID := art.HostID
+		hostName := art.HostName
+		hostIP := ""
+		role := ""
+		nodeID := art.NodeID
+
+		// 从文件名推断 host 和 role（例如 thread-dump-host-10-hybrid.txt）
+		// Infer host and role from filename (e.g. thread-dump-host-10-hybrid.txt)
+		baseName := filepath.Base(filePath)
+		if hostID == 0 {
+			var parsedHost uint
+			var parsedRole string
+			if n, _ := fmt.Sscanf(baseName, "thread-dump-host-%d-%s", &parsedHost, &parsedRole); n >= 1 {
+				hostID = parsedHost
+				role = strings.TrimSuffix(parsedRole, ".txt")
+			}
+		}
+
+		if tgt, ok := targetByHostID[hostID]; ok {
+			if hostName == "" {
+				hostName = tgt.HostName
+			}
+			if hostIP == "" {
+				hostIP = tgt.HostIP
+			}
+			if role == "" {
+				role = tgt.Role
+			}
+			if nodeID == 0 {
+				nodeID = tgt.NodeID
+			}
+		}
+
+		hostLabel := resolveDiagnosticHostLabel(hostName, hostID, hostIP)
+		sizeBytes := art.SizeBytes
+		if sizeBytes <= 0 {
+			sizeBytes = int64(len(contentBytes))
+		}
+
+		relPath := filepath.Join("thread-dumps", baseName)
+		var previewURL string
+		if task != nil && task.ID > 0 {
+			previewURL = fmt.Sprintf("/api/v1/diagnostics/tasks/%d/files/%s", task.ID, filepath.ToSlash(relPath))
+		}
+
+		toolName := art.Message
+		if toolName == "" {
+			toolName = "jcmd Thread.print"
+		}
+
+		items = append(items, diagnosticBundleHTMLThreadDumpItem{
+			HostID:       hostID,
+			HostName:     hostName,
+			HostIP:       hostIP,
+			HostLabel:    hostLabel,
+			NodeID:       nodeID,
+			Role:         role,
+			Tool:         toolName,
+			RemotePath:   art.RemotePath,
+			LocalPath:    filePath,
+			RelativePath: filepath.ToSlash(relPath),
+			PreviewURL:   previewURL,
+			SizeBytes:    sizeBytes,
+			SizeLabel:    formatDiagnosticBytes(sizeBytes),
+			Preview:      preview,
+			TotalLines:   totalLines,
+		})
+	}
+
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].HostID != items[j].HostID {
+			return items[i].HostID < items[j].HostID
+		}
+		return items[i].Role < items[j].Role
+	})
+	return items
+}
+
 func buildDiagnosticBundleHTMLConfigPanel(summary *diagnosticConfigSnapshotSummary) *diagnosticBundleHTMLConfigPanel {
 	if summary == nil {
 		return nil
@@ -3170,13 +3468,105 @@ func buildDiagnosticBundleHTMLConfigPanel(summary *diagnosticConfigSnapshotSumma
 		remainingChanges = append(remainingChanges, recentChanges[8:]...)
 		recentChanges = recentChanges[:8]
 	}
+
+	// 聚合每个配置文件对应的关键摘要与文本预览
+	// Aggregate key highlights and raw content preview per configuration file
+	fileEntries := make([]diagnosticBundleHTMLConfigFileEntry, 0, len(summary.Files)+len(summary.FilePreviews))
+	previewMap := make(map[string]string, len(summary.FilePreviews))
+	for _, p := range summary.FilePreviews {
+		key := fmt.Sprintf("%d:%s:%s", p.HostID, p.ConfigType, p.RemotePath)
+		// 历史快照也在渲染前再次遮盖，避免旧数据直达报告。 / Redact legacy previews again before rendering to avoid exposing old snapshots.
+		previewMap[key] = audit.RedactText(p.Preview)
+	}
+	itemsMap := make(map[string][]diagnosticConfigKeyValue, len(summary.KeyHighlights))
+	for _, h := range summary.KeyHighlights {
+		key := fmt.Sprintf("%d:%s:%s", h.HostID, h.ConfigType, h.RemotePath)
+		items := append([]diagnosticConfigKeyValue(nil), h.Items...)
+		for i := range items {
+			items[i].Value = audit.RedactText(items[i].Value)
+		}
+		itemsMap[key] = items
+	}
+
+	seenKeys := make(map[string]bool)
+	// 优先根据 Files 列表按序构建
+	// Build by Files list in priority order
+	for _, file := range summary.Files {
+		key := fmt.Sprintf("%d:%s:%s", file.HostID, file.ConfigType, file.RemotePath)
+		seenKeys[key] = true
+		fileEntries = append(fileEntries, diagnosticBundleHTMLConfigFileEntry{
+			HostID:     file.HostID,
+			HostName:   file.HostName,
+			HostIP:     file.HostIP,
+			NodeID:     file.NodeID,
+			Role:       file.Role,
+			ConfigType: file.ConfigType,
+			RemotePath: file.RemotePath,
+			Items:      itemsMap[key],
+			Preview:    previewMap[key],
+		})
+	}
+
+	// 兜底处理仅存在于 KeyHighlights 或 FilePreviews 中的配置（例如单测或历史数据）
+	// Fallback for configs only existing in KeyHighlights or FilePreviews (e.g. unit tests or legacy data)
+	for _, h := range summary.KeyHighlights {
+		key := fmt.Sprintf("%d:%s:%s", h.HostID, h.ConfigType, h.RemotePath)
+		if seenKeys[key] {
+			continue
+		}
+		seenKeys[key] = true
+		fileEntries = append(fileEntries, diagnosticBundleHTMLConfigFileEntry{
+			HostID:     h.HostID,
+			HostName:   h.HostName,
+			HostIP:     h.HostIP,
+			NodeID:     h.NodeID,
+			Role:       h.Role,
+			ConfigType: h.ConfigType,
+			RemotePath: h.RemotePath,
+			Items:      itemsMap[key],
+			Preview:    previewMap[key],
+		})
+	}
+	for _, p := range summary.FilePreviews {
+		key := fmt.Sprintf("%d:%s:%s", p.HostID, p.ConfigType, p.RemotePath)
+		if seenKeys[key] {
+			continue
+		}
+		seenKeys[key] = true
+		fileEntries = append(fileEntries, diagnosticBundleHTMLConfigFileEntry{
+			HostID:     p.HostID,
+			HostName:   p.HostName,
+			HostIP:     p.HostIP,
+			NodeID:     p.NodeID,
+			Role:       p.Role,
+			ConfigType: p.ConfigType,
+			RemotePath: p.RemotePath,
+			Items:      itemsMap[key],
+			Preview:    previewMap[key],
+		})
+	}
+
+	// 历史摘要和预览也要走同一套遮盖，避免兼容字段再次带出明文。
+	// Apply the same redaction to legacy summary fields to prevent plaintext from resurfacing.
+	safeHighlights := append([]diagnosticConfigKeyHighlight(nil), summary.KeyHighlights...)
+	for i := range safeHighlights {
+		key := fmt.Sprintf("%d:%s:%s", safeHighlights[i].HostID, safeHighlights[i].ConfigType, safeHighlights[i].RemotePath)
+		safeHighlights[i].Items = itemsMap[key]
+	}
+	safePreviews := append([]diagnosticConfigFilePreview(nil), summary.FilePreviews...)
+	for i := range safePreviews {
+		key := fmt.Sprintf("%d:%s:%s", safePreviews[i].HostID, safePreviews[i].ConfigType, safePreviews[i].RemotePath)
+		safePreviews[i].Preview = previewMap[key]
+	}
+
 	return &diagnosticBundleHTMLConfigPanel{
 		FileCount:          len(summary.Files),
 		KeyHighlightCount:  len(summary.KeyHighlights),
 		DirectoryCount:     len(summary.DirectoryManifests),
 		ChangedConfigCount: len(summary.ConfigChanges),
-		KeyHighlights:      append([]diagnosticConfigKeyHighlight(nil), summary.KeyHighlights...),
-		FilePreviews:       append([]diagnosticConfigFilePreview(nil), summary.FilePreviews...),
+		ConfigFileEntries:  fileEntries,
+		KeyHighlights:      safeHighlights,
+		FilePreviews:       safePreviews,
 		RecentChanges:      recentChanges,
 		RemainingChanges:   remainingChanges,
 		Files:              summary.Files,
@@ -3277,7 +3667,7 @@ func buildDiagnosticBundleHTMLHealthSummary(task *DiagnosticTask, state *diagnos
 		Summary:       "",
 		ClusterLabel:  resolveDiagnosticClusterLabel(task, state),
 		WindowLabel:   resolveDiagnosticWindowLabel(task, state),
-		ImpactSummary: bilingualText("当前影响范围正在根据错误、巡检、告警与进程证据综合判断。", "Impact is summarized from errors, inspections, alerts and process evidence."),
+		ImpactSummary: bilingualText("当前仅汇总已采集的观测证据。", "Only collected observations are summarized here."),
 		PrimaryFocus:  bilingualText("继续查看关键发现与时间线。", "Continue with key findings and the timeline."),
 		LastSignalAt:  resolveDiagnosticLastSignalAt(state),
 		Metrics:       []diagnosticBundleHTMLMetricCard{},
@@ -3287,20 +3677,22 @@ func buildDiagnosticBundleHTMLHealthSummary(task *DiagnosticTask, state *diagnos
 
 	if state != nil && state.InspectionDetail != nil && state.InspectionDetail.Report != nil {
 		report := state.InspectionDetail.Report
-		// 按巡检结果给出一句话结论与语气
+		// 只描述本次巡检产生的发现项，不把统计值写成集群健康判断。
+		// Describe findings from this inspection without turning counts into a cluster health verdict.
 		switch {
-		case report.Status == InspectionReportStatusFailed || report.CriticalCount > 0:
-			summary.Title = bilingualText("集群存在严重风险", "Cluster requires immediate attention")
-			summary.Summary = normalizeDiagnosticDisplayText(firstNonEmptyString(report.Summary, report.ErrorMessage))
-		case report.WarningCount > 0:
-			summary.Title = bilingualText("集群存在待排查问题", "Cluster has issues to investigate")
-			summary.Summary = normalizeDiagnosticDisplayText(report.Summary)
+		case report.Status == InspectionReportStatusFailed:
+			summary.Title = bilingualText("本次巡检未完成", "This Inspection Did Not Complete")
+		case report.FindingTotal > 0:
+			summary.Title = bilingualText("需关注的证据", "Evidence to Review")
 		default:
-			summary.Title = bilingualText("巡检未发现明显异常", "Inspection found no critical issue")
-			summary.Summary = normalizeDiagnosticDisplayText(report.Summary)
+			summary.Title = bilingualText("本次未生成结构化发现项", "No Structured Findings in This Run")
 		}
+		summary.Summary = bilingualText(
+			fmt.Sprintf("本次巡检产生 %d 项发现项。", report.FindingTotal),
+			fmt.Sprintf("This inspection produced %d findings.", report.FindingTotal),
+		)
 		summary.ImpactSummary = bilingualText(
-			fmt.Sprintf("巡检窗口内共发现 %d 项异常（严重 %d / 告警 %d / 信息 %d）。", report.FindingTotal, report.CriticalCount, report.WarningCount, report.InfoCount),
+			fmt.Sprintf("本次时间窗内产生 %d 项发现项（严重 %d / 关注 %d / 提示 %d）。", report.FindingTotal, report.CriticalCount, report.WarningCount, report.InfoCount),
 			fmt.Sprintf("%d findings were generated in the inspection window (%d critical / %d warning / %d info).", report.FindingTotal, report.CriticalCount, report.WarningCount, report.InfoCount),
 		)
 		summary.PrimaryFocus = buildDiagnosticPrimaryFocus(state)
@@ -3397,12 +3789,26 @@ func buildDiagnosticBundleHTMLFindingCards(task *DiagnosticTask, state *diagnost
 		item.Category = normalizeDiagnosticDisplayText(item.Category)
 		item.Title = normalizeDiagnosticDisplayText(item.Title)
 		item.Summary = normalizeDiagnosticDisplayText(item.Summary)
+		item.Evidence = strings.TrimSpace(audit.RedactText(item.Evidence))
+		item.Origin = strings.TrimSpace(item.Origin)
+		item.CheckCode = strings.TrimSpace(item.CheckCode)
 		item.Impact = normalizeDiagnosticDisplayText(item.Impact)
 		item.Action = normalizeDiagnosticDisplayText(item.Action)
 		items = append(items, item)
 	}
 
-	if state != nil && state.ErrorGroup != nil {
+	// 已由巡检发现关联的错误组不再重复生成一条相同证据。
+	// Do not duplicate an error group already represented by an inspection finding.
+	coveredErrorGroup := false
+	if state != nil && state.ErrorGroup != nil && state.InspectionDetail != nil {
+		for _, finding := range state.InspectionDetail.Findings {
+			if finding != nil && state.ErrorGroup.ID > 0 && finding.RelatedErrorGroupID == state.ErrorGroup.ID {
+				coveredErrorGroup = true
+				break
+			}
+		}
+	}
+	if state != nil && state.ErrorGroup != nil && !coveredErrorGroup {
 		appendItem(diagnosticBundleHTMLFindingCard{
 			Severity: resolveDiagnosticRiskTone(task, state),
 			Category: resolveDiagnosticPrimaryCategory(state),
@@ -3411,8 +3817,9 @@ func buildDiagnosticBundleHTMLFindingCards(task *DiagnosticTask, state *diagnost
 				fmt.Sprintf("诊断窗口内累计出现 %d 次，最近一次发生在 %s。", state.ErrorGroup.OccurrenceCount, formatDiagnosticBundleTimeValue(state.ErrorGroup.LastSeenAt)),
 				fmt.Sprintf("%d occurrences were observed in this window, and the last one happened at %s.", state.ErrorGroup.OccurrenceCount, formatDiagnosticBundleTimeValue(state.ErrorGroup.LastSeenAt)),
 			),
-			Impact: buildDiagnosticFindingImpact(state),
-			Action: buildDiagnosticPrimaryFocus(state),
+			Evidence: firstNonEmptyString(state.ErrorGroup.SampleMessage, state.ErrorGroup.ExceptionClass),
+			Impact:   buildDiagnosticFindingImpact(state),
+			Action:   buildDiagnosticPrimaryFocus(state),
 		})
 	}
 
@@ -3422,32 +3829,67 @@ func buildDiagnosticBundleHTMLFindingCards(task *DiagnosticTask, state *diagnost
 				continue
 			}
 			appendItem(diagnosticBundleHTMLFindingCard{
-				Severity: strings.ToLower(strings.TrimSpace(string(finding.Severity))),
-				Category: mapInspectionFindingToDiagnosticCategory(finding),
-				Title:    firstNonEmptyString(finding.CheckName, finding.CheckCode),
-				Summary:  firstNonEmptyString(finding.Summary, finding.EvidenceSummary),
+				Severity:  strings.ToLower(strings.TrimSpace(string(finding.Severity))),
+				Category:  mapInspectionFindingToDiagnosticCategory(finding),
+				Title:     firstNonEmptyString(finding.CheckName, finding.CheckCode),
+				Summary:   firstNonEmptyString(finding.Summary, finding.EvidenceSummary),
+				Evidence:  finding.EvidenceSummary,
+				Origin:    resolveDiagnosticFindingOrigin(finding),
+				CheckCode: finding.CheckCode,
 				Impact: bilingualText(
 					fmt.Sprintf("影响范围：%s", resolveDiagnosticInspectionImpact(state.InspectionDetail.Report)),
 					fmt.Sprintf("Impact: %s", resolveDiagnosticInspectionImpact(state.InspectionDetail.Report)),
 				),
-				Action: firstNonEmptyString(finding.Recommendation, buildDiagnosticPrimaryFocus(state)),
+				Action: finding.Recommendation,
 			})
-			if len(items) >= 3 {
-				break
-			}
 		}
 	}
 
-	if len(items) < 3 {
-		resourceSummary := buildDiagnosticResourceFinding(state)
-		if resourceSummary.Title != "" {
-			appendItem(resourceSummary)
+	// 指标越阈项来自明确的信号与实例；普通巡检发现不按名称猜测指标归属。
+	// Metric findings have explicit signal and instance references; never match ordinary findings by title.
+	if state != nil {
+		for _, metricFinding := range buildDiagnosticMetricFindings(state.MetricsSnapshot) {
+			appendItem(metricFinding)
 		}
 	}
-	if len(items) > 4 {
-		items = items[:4]
-	}
+	// 先展示严重与告警，但保留所有发现项，不因为版面限制丢弃证据。
+	// Prioritize critical and warning findings without discarding evidence to fit a layout.
+	sort.SliceStable(items, func(i, j int) bool {
+		severityRank := func(value string) int {
+			switch strings.ToLower(value) {
+			case "critical":
+				return 3
+			case "warning":
+				return 2
+			case "info":
+				return 1
+			default:
+				return 0
+			}
+		}
+		return severityRank(items[i].Severity) > severityRank(items[j].Severity)
+	})
 	return items
+}
+
+// resolveDiagnosticFindingOrigin 只使用已知节点信息，不猜测未采集的检查范围。
+// resolveDiagnosticFindingOrigin uses known node metadata without inferring uncollected scope.
+func resolveDiagnosticFindingOrigin(finding *ClusterInspectionFindingInfo) string {
+	if finding == nil || (finding.RelatedHostID == 0 && finding.RelatedNodeID == 0 && strings.TrimSpace(finding.RelatedHostName) == "") {
+		return ""
+	}
+	parts := make([]string, 0, 2)
+	if finding.RelatedHostID > 0 || strings.TrimSpace(finding.RelatedHostName) != "" {
+		host := resolveDiagnosticHostLabel(finding.RelatedHostName, finding.RelatedHostID, finding.RelatedHostIP)
+		if host == fmt.Sprintf("#%d", finding.RelatedHostID) {
+			host = bilingualText(fmt.Sprintf("主机 #%d", finding.RelatedHostID), fmt.Sprintf("Host #%d", finding.RelatedHostID))
+		}
+		parts = append(parts, host)
+	}
+	if finding.RelatedNodeID > 0 {
+		parts = append(parts, bilingualText(fmt.Sprintf("节点 #%d", finding.RelatedNodeID), fmt.Sprintf("Node #%d", finding.RelatedNodeID)))
+	}
+	return strings.Join(parts, " · ")
 }
 
 func buildDiagnosticBundleHTMLCategoryCards(task *DiagnosticTask, state *diagnosticBundleExecutionState) []diagnosticBundleHTMLCategoryCard {
@@ -3495,18 +3937,18 @@ func buildDiagnosticBundleHTMLCategoryCards(task *DiagnosticTask, state *diagnos
 	return cards
 }
 
+// buildDiagnosticBundleHTMLTimeline 只列出带原始时间的记录，来源与时间并列展示。
+// buildDiagnosticBundleHTMLTimeline lists timestamped records with their source, without claiming causation.
 func buildDiagnosticBundleHTMLTimeline(task *DiagnosticTask, state *diagnosticBundleExecutionState) []diagnosticBundleHTMLTimelineItem {
 	items := make([]diagnosticBundleHTMLTimelineItem, 0, 16)
-	appendItem := func(at time.Time, tone, title, details string) {
+	appendItem := func(at time.Time, tone, title, details, source string) {
 		if at.IsZero() || strings.TrimSpace(title) == "" {
 			return
 		}
 		items = append(items, diagnosticBundleHTMLTimelineItem{
-			OccurredAt: at.UTC(),
-			TimeLabel:  formatDiagnosticBundleTimeValue(at),
-			Tone:       normalizeDiagnosticDisplayText(tone),
-			Title:      normalizeDiagnosticDisplayText(title),
-			Details:    normalizeDiagnosticDisplayText(details),
+			OccurredAt: at.UTC(), TimeLabel: formatDiagnosticBundleTimeValue(at),
+			Tone: normalizeDiagnosticDisplayText(tone), Title: normalizeDiagnosticDisplayText(title),
+			Details: normalizeDiagnosticDisplayText(details), Source: normalizeDiagnosticDisplayText(source),
 		})
 	}
 	if state != nil {
@@ -3514,99 +3956,108 @@ func buildDiagnosticBundleHTMLTimeline(task *DiagnosticTask, state *diagnosticBu
 			if event == nil {
 				continue
 			}
-			appendItem(event.OccurredAt, resolveDiagnosticRiskTone(task, state), bilingualText("错误事件", "Error Event"), firstNonEmptyString(event.Message, event.Evidence))
+			appendItem(event.OccurredAt, resolveDiagnosticRiskTone(task, state), bilingualText("错误事件", "Error Event"), firstNonEmptyString(event.Message, event.Evidence), bilingualText("日志记录", "Log record"))
 		}
 		for _, event := range state.ProcessEvents {
 			if event == nil {
 				continue
 			}
-			appendItem(event.CreatedAt, "warning", bilingualText("进程事件", "Process Event"), fmt.Sprintf("%s · %s", normalizeDiagnosticDisplayText(string(event.EventType)), normalizeDiagnosticDisplayText(event.Details)))
+			appendItem(event.CreatedAt, "warning", bilingualText("进程事件", "Process Event"), fmt.Sprintf("%s · %s", normalizeDiagnosticDisplayText(string(event.EventType)), normalizeDiagnosticDisplayText(event.Details)), bilingualText("进程记录", "Process record"))
 		}
 		for _, alert := range state.AlertSnapshot {
 			if alert == nil {
 				continue
 			}
-			appendItem(alert.FiringAt, strings.ToLower(strings.TrimSpace(string(alert.Severity))), bilingualText("告警触发", "Alert Fired"), firstNonEmptyString(alert.AlertName, alert.Summary))
+			appendItem(alert.FiringAt, strings.ToLower(strings.TrimSpace(string(alert.Severity))), bilingualText("告警触发", "Alert Fired"), firstNonEmptyString(alert.AlertName, alert.Summary), bilingualText("告警记录", "Alert record"))
 		}
 		if state.MetricsSnapshot != nil {
-			for _, signal := range state.MetricsSnapshot.Signals {
-				if strings.EqualFold(strings.TrimSpace(signal.Status), "healthy") || len(signal.Series) == 0 {
-					continue
+			snapshot := state.MetricsSnapshot
+			for _, signal := range snapshot.Signals {
+				for _, series := range signal.Series {
+					points := diagnosticSortedMetricPoints(series.Points, snapshot.WindowStart, snapshot.WindowEnd)
+					at := diagnosticFirstMetricBreach(points, signal.Comparator, signal.Threshold)
+					if at == nil {
+						continue
+					}
+					value := points[0].Value
+					for _, point := range points {
+						if point.Timestamp.Equal(*at) {
+							value = point.Value
+							break
+						}
+					}
+					appendItem(*at, signal.Status, bilingualText("指标首次越阈采样", "First Breaching Sample"), fmt.Sprintf("%s · %s · %s", signal.Title, series.Instance, formatDiagnosticMetricValue(signal.Unit, value)), "Prometheus · "+signal.Key)
 				}
-				top := signal.Series[0]
-				if top.MaxAt == nil {
-					continue
-				}
-				appendItem(*top.MaxAt, signal.Status, bilingualText("指标峰值", "Metric Peak"), fmt.Sprintf("%s · %s", signal.Title, formatDiagnosticMetricValue(signal.Unit, top.MaxValue)))
 			}
 		}
 	}
-	if task != nil && task.StartedAt != nil && !task.StartedAt.IsZero() {
-		appendItem(*task.StartedAt, "neutral", bilingualText("开始采集", "Task Started"), normalizeDiagnosticDisplayText(task.Summary))
+	if task != nil && task.StartedAt != nil {
+		appendItem(*task.StartedAt, "neutral", bilingualText("开始采集", "Task Started"), task.Summary, bilingualText("任务执行", "Task execution"))
 	}
-	if task != nil && task.CompletedAt != nil && !task.CompletedAt.IsZero() {
-		appendItem(*task.CompletedAt, strings.ToLower(strings.TrimSpace(string(task.Status))), bilingualText("生成诊断报告", "Report Generated"), bilingualText("采集执行完成。", "Task execution completed."))
+	if task != nil && task.CompletedAt != nil {
+		appendItem(*task.CompletedAt, strings.ToLower(strings.TrimSpace(string(task.Status))), bilingualText("生成诊断报告", "Report Generated"), bilingualText("采集执行结束，详情见附录。", "Collection ended; see the appendix for execution details."), bilingualText("任务执行", "Task execution"))
 	}
-	sort.SliceStable(items, func(i, j int) bool {
-		return items[i].OccurredAt.Before(items[j].OccurredAt)
-	})
-	if len(items) > 12 {
-		items = items[len(items)-12:]
-	}
+	sort.SliceStable(items, func(i, j int) bool { return items[i].OccurredAt.Before(items[j].OccurredAt) })
 	return items
 }
 
+// buildDiagnosticBundleHTMLSignalCards 保留所有有实例的信号，按实际实例分别展示。
+// buildDiagnosticBundleHTMLSignalCards retains every collected instance instead of hiding non-priority signals.
 func buildDiagnosticBundleHTMLSignalCards(state *diagnosticBundleExecutionState) []diagnosticBundleHTMLSignalCard {
-	if state == nil || state.MetricsSnapshot == nil || len(state.MetricsSnapshot.Signals) == 0 {
-		return []diagnosticBundleHTMLSignalCard{}
+	if state == nil || state.MetricsSnapshot == nil {
+		return nil
 	}
-	preferred := []string{"cpu_usage_high", "memory_usage_high", "old_gen_usage_high", "gc_time_ratio_high"}
-	byKey := make(map[string]diagnosticPrometheusSignal, len(state.MetricsSnapshot.Signals))
-	for _, signal := range state.MetricsSnapshot.Signals {
-		byKey[signal.Key] = signal
-	}
-	cards := make([]diagnosticBundleHTMLSignalCard, 0, 4)
-	for _, key := range preferred {
-		signal, ok := byKey[key]
-		if !ok {
-			continue
+	snapshot := state.MetricsSnapshot
+	cards := make([]diagnosticBundleHTMLSignalCard, 0)
+	// 核心指标优先，其余已采集的信号仍完整保留。
+	// Prioritize core signals while retaining all other collected signals.
+	signals := append([]diagnosticPrometheusSignal(nil), snapshot.Signals...)
+	priority := map[string]int{"cpu_usage_high": 0, "memory_usage_high": 1, "old_gen_usage_high": 2, "gc_time_ratio_high": 3}
+	sort.SliceStable(signals, func(i, j int) bool {
+		left, lok := priority[signals[i].Key]
+		right, rok := priority[signals[j].Key]
+		if lok != rok {
+			return lok
 		}
-		cards = append(cards, buildDiagnosticBundleHTMLSignalCard(signal))
-	}
-	if len(cards) == 0 {
-		for _, signal := range state.MetricsSnapshot.Signals {
-			cards = append(cards, buildDiagnosticBundleHTMLSignalCard(signal))
-			if len(cards) >= 4 {
-				break
+		if lok {
+			return left < right
+		}
+		return false
+	})
+	for _, signal := range signals {
+		for _, series := range signal.Series {
+			points := diagnosticSortedMetricPoints(series.Points, snapshot.WindowStart, snapshot.WindowEnd)
+			status := signal.Status
+			if len(points) == 0 {
+				status = bilingualText("未采集", "Not collected")
+			} else if signal.Comparator == "gt" || signal.Comparator == "lt" {
+				if diagnosticFirstMetricBreach(points, signal.Comparator, signal.Threshold) == nil {
+					status = bilingualText("未越阈", "Within threshold")
+				}
 			}
+			card := diagnosticBundleHTMLSignalCard{
+				Key: signal.Key, Title: normalizeDiagnosticDisplayText(signal.Title), Status: status,
+				ThresholdText: normalizeDiagnosticDisplayText(signal.ThresholdText), Instance: normalizeDiagnosticDisplayText(series.Instance),
+				Threshold: signal.Threshold, Comparator: signal.Comparator, Unit: signal.Unit,
+				Points: points, PeakValue: formatDiagnosticMetricValue(signal.Unit, series.MaxValue), PeakAt: formatDiagnosticBundleTime(series.MaxAt),
+			}
+			metric := &diagnosticBundleHTMLMetricEvidence{
+				SignalKey: signal.Key, Instance: series.Instance, Threshold: signal.Threshold, ThresholdText: signal.ThresholdText,
+				Comparator: signal.Comparator, Unit: signal.Unit, WindowStart: snapshot.WindowStart, WindowEnd: snapshot.WindowEnd,
+				StepSeconds: snapshot.StepSeconds, Points: points,
+			}
+			metric.HasTrend, metric.HasGaps = diagnosticMetricContinuity(points, snapshot.StepSeconds)
+			if len(points) > 0 {
+				card.LastValue = formatDiagnosticMetricValue(signal.Unit, points[len(points)-1].Value)
+				metric.LastAt = formatDiagnosticBundleTimeValue(points[len(points)-1].Timestamp)
+			} else {
+				card.LastValue = "-"
+			}
+			card.Metric = metric
+			cards = append(cards, card)
 		}
 	}
 	return cards
-}
-
-func buildDiagnosticBundleHTMLSignalCard(signal diagnosticPrometheusSignal) diagnosticBundleHTMLSignalCard {
-	card := diagnosticBundleHTMLSignalCard{
-		Key:            signal.Key,
-		Title:          normalizeDiagnosticDisplayText(signal.Title),
-		Status:         normalizeDiagnosticDisplayText(signal.Status),
-		Summary:        normalizeDiagnosticDisplayText(signal.Summary),
-		ThresholdText:  normalizeDiagnosticDisplayText(signal.ThresholdText),
-		Interpretation: buildDiagnosticSignalInterpretation(signal),
-		Threshold:      signal.Threshold,
-		Comparator:     signal.Comparator,
-		Unit:           signal.Unit,
-		Points:         []diagnosticPrometheusPoint{},
-	}
-	if len(signal.Series) == 0 {
-		return card
-	}
-	series := signal.Series[0]
-	card.Instance = normalizeDiagnosticDisplayText(series.Instance)
-	card.LastValue = formatDiagnosticMetricValue(signal.Unit, series.LastValue)
-	card.PeakValue = formatDiagnosticMetricValue(signal.Unit, series.MaxValue)
-	card.PeakAt = formatDiagnosticBundleTime(series.MaxAt)
-	card.Points = append(card.Points, series.Points...)
-	return card
 }
 
 func buildDiagnosticBundleHTMLArtifactGroups(bundleDir string, artifacts []*diagnosticBundleArtifact) []diagnosticBundleHTMLArtifactGroup {
@@ -3722,13 +4173,17 @@ func resolveDiagnosticRiskTone(task *DiagnosticTask, state *diagnosticBundleExec
 				return "warning"
 			}
 		}
-		for _, signal := range state.MetricsSnapshot.Signals {
-			status := strings.ToLower(strings.TrimSpace(signal.Status))
-			if status == "critical" {
-				return "critical"
-			}
-			if status == "warning" {
-				return "warning"
+		// 检查 Prometheus 指标快照中的异常风险等级（防 nil 保护）
+		// Inspect risk tone from Prometheus signals with nil-safety protection.
+		if state.MetricsSnapshot != nil {
+			for _, signal := range state.MetricsSnapshot.Signals {
+				status := strings.ToLower(strings.TrimSpace(signal.Status))
+				if status == "critical" {
+					return "critical"
+				}
+				if status == "warning" {
+					return "warning"
+				}
 			}
 		}
 		if state.ErrorGroup != nil {
@@ -3741,13 +4196,11 @@ func resolveDiagnosticRiskTone(task *DiagnosticTask, state *diagnosticBundleExec
 func resolveDiagnosticHealthCopy(riskTone string, state *diagnosticBundleExecutionState) (string, string) {
 	primary := buildDiagnosticPrimaryFocus(state)
 	switch riskTone {
-	case "critical":
-		return bilingualText("当前问题已影响运行稳定性", "Current issue impacts runtime stability"), primary
-	case "warning":
-		return bilingualText("当前存在待定位异常信号", "There are anomaly signals to investigate"), primary
+	case "critical", "warning":
+		return bilingualText("本次有需关注的证据", "Evidence Needs Review in This Run"), primary
 	default:
-		return bilingualText("当前未见明显高风险信号", "No high-risk signal is visible in this window"),
-			bilingualText("当前报告主要用于复盘问题窗口内的关键证据。", "This report is mainly for reviewing evidence in the diagnostics window.")
+		return bilingualText("本次未生成结构化发现项", "No Structured Findings in This Run"),
+			bilingualText("仅显示本次采集的证据。", "Only evidence collected in this run is shown.")
 	}
 }
 
@@ -4183,11 +4636,10 @@ func resolveDiagnosticBundleRelativePath(bundleDir, path string) string {
 		return ""
 	}
 	relative, err := filepath.Rel(trimmedBundle, trimmedPath)
-	if err != nil {
-		return trimmedPath
-	}
-	if strings.HasPrefix(relative, "..") {
-		return trimmedPath
+	// 离线报告只链接诊断包内部文件，不能把任意本机路径当成可点开的证据。
+	// Offline evidence links must stay inside the bundle, never point to arbitrary local paths.
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
+		return ""
 	}
 	return filepath.ToSlash(relative)
 }
@@ -4204,16 +4656,27 @@ func readDiagnosticArtifactPreview(artifact *diagnosticBundleArtifact) (string, 
 	if path == "" {
 		return "", ""
 	}
-	bytes, err := os.ReadFile(path)
+	// 二进制产物和大文件不进入 HTML 正文，预览也再次遮盖敏感文字。
+	// Never inline binary or full large artifacts; redact the bounded preview again.
+	if category == "jvm_dump" || strings.EqualFold(artifact.Format, "hprof") {
+		return "", bilingualText("二进制文件不提供文字预览。", "Binary artifact has no text preview.")
+	}
+	file, err := os.Open(path)
 	if err != nil {
 		return "", bilingualText("产物预览读取失败。", "Failed to read artifact preview.")
 	}
-	content := string(bytes)
+	defer file.Close()
+	bytes, err := io.ReadAll(io.LimitReader(file, 24001))
+	if err != nil {
+		return "", bilingualText("产物预览读取失败。", "Failed to read artifact preview.")
+	}
+	content := audit.RedactText(string(bytes))
 	if strings.TrimSpace(content) == "" {
 		return "", bilingualText("产物文件为空。", "Artifact file is empty.")
 	}
 	const maxPreviewRunes = 6000
 	preview, truncated := truncateDiagnosticText(content, maxPreviewRunes)
+	truncated = truncated || len(bytes) > 24000 || artifact.SizeBytes > int64(len(bytes))
 	if truncated {
 		return preview, bilingualText("仅展示前 6000 个字符，完整内容请打开对应文件。", "Preview shows the first 6000 characters only. Open the file for full content.")
 	}
@@ -4388,6 +4851,17 @@ func newDiagnosticBundleHTMLTemplate(lang DiagnosticLanguage) (*template.Templat
 		"statusClass": func(status interface{}) string {
 			return diagnosticHTMLStatusClass(fmt.Sprint(status))
 		},
+		"inc": func(index int) int { return index + 1 },
+		"severityLabel": func(severity string) template.HTML {
+			switch strings.ToLower(strings.TrimSpace(severity)) {
+			case "critical":
+				return renderDiagnosticLocalizedPairByLanguage("严重", "Critical", lang)
+			case "warning":
+				return renderDiagnosticLocalizedPairByLanguage("关注", "Warning", lang)
+			default:
+				return renderDiagnosticLocalizedPairByLanguage("提示", "Info", lang)
+			}
+		},
 		"toneClass": func(tone interface{}) string {
 			return diagnosticHTMLToneClass(fmt.Sprint(tone))
 		},
@@ -4397,8 +4871,11 @@ func newDiagnosticBundleHTMLTemplate(lang DiagnosticLanguage) (*template.Templat
 		"formatMetricValue": func(unit string, value float64) string {
 			return formatDiagnosticMetricValue(unit, value)
 		},
-		"metricChartSVG": func(points []diagnosticPrometheusPoint, threshold float64, comparator string, unit string) template.HTML {
-			return renderDiagnosticMetricChart(points, threshold, comparator, unit, lang)
+		"evidenceChartSVG": func(metric *diagnosticBundleHTMLMetricEvidence, focus bool) template.HTML {
+			return renderDiagnosticEvidenceChart(metric, focus, lang)
+		},
+		"artifactPreviewURL": func(taskID uint, path string) string {
+			return buildDiagnosticTaskPreviewFileURL(taskID, path)
 		},
 		"shortHash": func(value string) string {
 			value = strings.TrimSpace(value)
@@ -4406,6 +4883,9 @@ func newDiagnosticBundleHTMLTemplate(lang DiagnosticLanguage) (*template.Templat
 				return value
 			}
 			return value[:12]
+		},
+		"stxBrandMark": func() template.URL {
+			return template.URL(stxBrandMarkBase64)
 		},
 	}).Parse(diagnosticBundleHTMLTemplate)
 }
@@ -4426,115 +4906,6 @@ func renderDiagnosticBundleHTMLDocument(payload *diagnosticBundleHTMLPayload, la
 		return nil, err
 	}
 	return buffer.Bytes(), nil
-}
-
-func renderDiagnosticMetricChart(points []diagnosticPrometheusPoint, threshold float64, comparator string, unit string, lang DiagnosticLanguage) template.HTML {
-	if len(points) < 2 {
-		return ""
-	}
-	const width = 360.0
-	const height = 156.0
-	const leftPadding = 48.0
-	const rightPadding = 16.0
-	const topPadding = 12.0
-	const bottomPadding = 32.0
-
-	minValue := points[0].Value
-	maxValue := points[0].Value
-	for _, point := range points[1:] {
-		if point.Value < minValue {
-			minValue = point.Value
-		}
-		if point.Value > maxValue {
-			maxValue = point.Value
-		}
-	}
-	if threshold < minValue {
-		minValue = threshold
-	}
-	if threshold > maxValue {
-		maxValue = threshold
-	}
-	if minValue == maxValue {
-		maxValue = minValue + 1
-	}
-
-	start := points[0].Timestamp.Unix()
-	end := points[len(points)-1].Timestamp.Unix()
-	if end <= start {
-		end = start + 1
-	}
-	plotWidth := width - leftPadding - rightPadding
-	plotHeight := height - topPadding - bottomPadding
-	pathParts := make([]string, 0, len(points))
-	for index, point := range points {
-		x := leftPadding + (float64(point.Timestamp.Unix()-start)/float64(end-start))*plotWidth
-		y := topPadding + (1-((point.Value-minValue)/(maxValue-minValue)))*plotHeight
-		if index == 0 {
-			pathParts = append(pathParts, fmt.Sprintf("M %.2f %.2f", x, y))
-			continue
-		}
-		pathParts = append(pathParts, fmt.Sprintf("L %.2f %.2f", x, y))
-	}
-	thresholdY := topPadding + (1-((threshold-minValue)/(maxValue-minValue)))*plotHeight
-	if thresholdY < topPadding {
-		thresholdY = topPadding
-	}
-	if thresholdY > height-bottomPadding {
-		thresholdY = height - bottomPadding
-	}
-	strokeColor := "#2563eb"
-	if strings.TrimSpace(comparator) == "lt" {
-		strokeColor = "#dc2626"
-	}
-	axisColor := "#94a3b8"
-	gridColor := "#e2e8f0"
-	lastX := leftPadding + (float64(points[len(points)-1].Timestamp.Unix()-start)/float64(end-start))*plotWidth
-	lastY := topPadding + (1-((points[len(points)-1].Value-minValue)/(maxValue-minValue)))*plotHeight
-	midTime := points[0].Timestamp.Add(points[len(points)-1].Timestamp.Sub(points[0].Timestamp) / 2)
-	formatLabel := func(ts time.Time) string {
-		return ts.Local().Format("01-02 15:04")
-	}
-	yTop := formatDiagnosticMetricValue(unit, maxValue)
-	yBottom := formatDiagnosticMetricValue(unit, minValue)
-	thresholdLabel := chooseDiagnosticLocalizedText(diagnosticLocalizedText{
-		ZH: fmt.Sprintf("阈值 %s", formatDiagnosticMetricValue(unit, threshold)),
-		EN: fmt.Sprintf("Threshold %s", formatDiagnosticMetricValue(unit, threshold)),
-	}, lang)
-	ariaLabel := chooseDiagnosticLocalizedText(diagnosticLocalizedText{
-		ZH: "诊断指标图表",
-		EN: "diagnostic metric chart",
-	}, lang)
-	svg := fmt.Sprintf(
-		`<svg viewBox="0 0 %.0f %.0f" class="metric-chart" preserveAspectRatio="none" aria-label="%s">
-<line x1="%.2f" y1="%.2f" x2="%.2f" y2="%.2f" class="metric-chart-axis" style="stroke:%s"/>
-<line x1="%.2f" y1="%.2f" x2="%.2f" y2="%.2f" class="metric-chart-axis" style="stroke:%s"/>
-<line x1="%.2f" y1="%.2f" x2="%.2f" y2="%.2f" class="metric-chart-grid" style="stroke:%s"/>
-<line x1="%.2f" y1="%.2f" x2="%.2f" y2="%.2f" class="metric-chart-threshold"/>
-<path d="%s" class="metric-chart-path" style="stroke:%s"/>
-<circle cx="%.2f" cy="%.2f" r="3.2" class="metric-chart-dot"/>
-<text x="%.2f" y="%.2f" class="metric-chart-label y-top">%s</text>
-<text x="%.2f" y="%.2f" class="metric-chart-label y-bottom">%s</text>
-<text x="%.2f" y="%.2f" class="metric-chart-label x-start">%s</text>
-<text x="%.2f" y="%.2f" class="metric-chart-label x-mid">%s</text>
-<text x="%.2f" y="%.2f" class="metric-chart-label x-end">%s</text>
-<text x="%.2f" y="%.2f" class="metric-chart-label threshold-label">%s</text>
-</svg>`,
-		width, height, template.HTMLEscapeString(ariaLabel),
-		leftPadding, topPadding, leftPadding, height-bottomPadding, axisColor,
-		leftPadding, height-bottomPadding, width-rightPadding, height-bottomPadding, axisColor,
-		leftPadding, topPadding+plotHeight/2, width-rightPadding, topPadding+plotHeight/2, gridColor,
-		leftPadding, thresholdY, width-rightPadding, thresholdY,
-		strings.Join(pathParts, " "), strokeColor,
-		lastX, lastY,
-		8.0, topPadding+4.0, template.HTMLEscapeString(yTop),
-		8.0, height-bottomPadding, template.HTMLEscapeString(yBottom),
-		leftPadding, height-10.0, template.HTMLEscapeString(formatLabel(points[0].Timestamp)),
-		leftPadding+plotWidth/2, height-10.0, template.HTMLEscapeString(formatLabel(midTime)),
-		width-rightPadding, height-10.0, template.HTMLEscapeString(formatLabel(points[len(points)-1].Timestamp)),
-		width-rightPadding, thresholdY-4.0, template.HTMLEscapeString(thresholdLabel),
-	)
-	return template.HTML(svg)
 }
 
 func diagnosticHTMLStatusClass(status string) string {
@@ -4828,39 +5199,149 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{{pair "STX 诊断报告" "STX Diagnostic Report"}}</title>
+  <link rel="icon" type="image/png" href="{{stxBrandMark}}" />
+  <link rel="apple-touch-icon" href="{{stxBrandMark}}" />
+  <script>
+    (function() {
+      try {
+        var t = localStorage.getItem('stx-diagnostic-theme');
+        if (t === 'dark' || t === 'light') {
+          document.documentElement.setAttribute('data-theme', t);
+        } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+          document.documentElement.setAttribute('data-theme', 'dark');
+        }
+      } catch (e) {}
+    })();
+  </script>
   <style>
-    :root {
-      color-scheme: light;
-      --bg: #f4f7fb;
+    /*
+     * 诊断报告设计规范与通用美学约定（遵照 .trellis/spec/frontend/ui-conventions.md）
+     * Diagnostic report design specifications & UI conventions.
+     */
+    :root, html[data-theme="light"] {
+      color-scheme: light dark;
+      --bg: #f7f7f4;
       --panel: #ffffff;
-      --panel-soft: #f8fbff;
-      --border: #d9e2ec;
-      --border-strong: #c6d3e1;
+      --panel-soft: #f5f6f7;
+      --panel-hover: #f1f5f9;
+      --border: #dfe3e7;
+      --border-strong: #c7d0d9;
       --muted: #64748b;
-      --text: #0f172a;
-      --primary: #2563eb;
+      --text: #172842;
+      --text-sub: #3c4b61;
+      --primary: #19446f;
+      --primary-soft: #eff6ff;
+      --primary-border: #bfdbfe;
       --ok: #10b981;
-      --ok-soft: #ecfdf5;
-      --warn: #f59e0b;
-      --warn-soft: #fff7ed;
+      --ok-soft: #f0fdf4;
+      --ok-border: rgba(16, 185, 129, 0.28);
+      --warn: #96610b;
+      --warn-soft: #fff8e8;
+      --warn-border: rgba(245, 158, 11, 0.28);
       --critical: #ef4444;
       --critical-soft: #fef2f2;
+      --critical-border: rgba(239, 68, 68, 0.28);
       --neutral: #3b82f6;
       --neutral-soft: #eff6ff;
+      --neutral-border: rgba(59, 130, 246, 0.24);
       --skip: #94a3b8;
       --skip-soft: #f8fafc;
+      --skip-border: rgba(148, 163, 184, 0.36);
       --code-bg: #0f172a;
       --code-text: #e2e8f0;
+      --code-inline-bg: #eff6ff;
+      --code-inline-text: #1d4ed8;
+      --code-inline-border: rgba(37, 99, 235, 0.16);
+      /* 统一圆角规范 / Standardized border radius hierarchy */
+      --radius-lg: 16px;
+      --radius-md: 12px;
+      --radius-sm: 8px;
+      --radius-full: 999px;
     }
+
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --bg: #0b0f19;
+        --panel: #111827;
+        --panel-soft: #172033;
+        --panel-hover: #1f293d;
+        --border: #1f2937;
+        --border-strong: #374151;
+        --muted: #9ca3af;
+        --text: #f9fafb;
+        --text-sub: #cbd5e1;
+        --primary: #3b82f6;
+        --primary-soft: rgba(59, 130, 246, 0.16);
+        --primary-border: rgba(59, 130, 246, 0.32);
+        --ok: #10b981;
+        --ok-soft: rgba(16, 185, 129, 0.14);
+        --ok-border: rgba(16, 185, 129, 0.28);
+        --warn: #f59e0b;
+        --warn-soft: rgba(245, 158, 11, 0.14);
+        --warn-border: rgba(245, 158, 11, 0.28);
+        --critical: #ef4444;
+        --critical-soft: rgba(239, 68, 68, 0.16);
+        --critical-border: rgba(239, 68, 68, 0.32);
+        --neutral: #60a5fa;
+        --neutral-soft: rgba(59, 130, 246, 0.16);
+        --neutral-border: rgba(59, 130, 246, 0.3);
+        --skip: #64748b;
+        --skip-soft: rgba(100, 116, 139, 0.16);
+        --skip-border: rgba(100, 116, 139, 0.3);
+        --code-bg: #030712;
+        --code-text: #e2e8f0;
+        --code-inline-bg: rgba(59, 130, 246, 0.14);
+        --code-inline-text: #93c5fd;
+        --code-inline-border: rgba(59, 130, 246, 0.28);
+      }
+    }
+
+    html[data-theme="dark"] {
+      --bg: #0b0f19;
+      --panel: #111827;
+      --panel-soft: #172033;
+      --panel-hover: #1f293d;
+      --border: #1f2937;
+      --border-strong: #374151;
+      --muted: #9ca3af;
+      --text: #f9fafb;
+      --text-sub: #cbd5e1;
+      --primary: #3b82f6;
+      --primary-soft: rgba(59, 130, 246, 0.16);
+      --primary-border: rgba(59, 130, 246, 0.32);
+      --ok: #10b981;
+      --ok-soft: rgba(16, 185, 129, 0.14);
+      --ok-border: rgba(16, 185, 129, 0.28);
+      --warn: #f59e0b;
+      --warn-soft: rgba(245, 158, 11, 0.14);
+      --warn-border: rgba(245, 158, 11, 0.28);
+      --critical: #ef4444;
+      --critical-soft: rgba(239, 68, 68, 0.16);
+      --critical-border: rgba(239, 68, 68, 0.32);
+      --neutral: #60a5fa;
+      --neutral-soft: rgba(59, 130, 246, 0.16);
+      --neutral-border: rgba(59, 130, 246, 0.3);
+      --skip: #64748b;
+      --skip-soft: rgba(100, 116, 139, 0.16);
+      --skip-border: rgba(100, 116, 139, 0.3);
+      --code-bg: #030712;
+      --code-text: #e2e8f0;
+      --code-inline-bg: rgba(59, 130, 246, 0.14);
+      --code-inline-text: #93c5fd;
+      --code-inline-border: rgba(59, 130, 246, 0.28);
+    }
+
     * { box-sizing: border-box; }
     html { scroll-behavior: smooth; }
     body {
       margin: 0;
-      padding: 28px;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      padding: 24px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
       color: var(--text);
       background: var(--bg);
       line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      transition: background 0.2s ease, color 0.2s ease;
     }
     h1, h2, h3, h4, p { margin: 0; }
     a { color: var(--primary); text-decoration: none; }
@@ -4872,196 +5353,461 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       flex-direction: column;
       gap: 18px;
     }
+
+    /* 报告主容器与侧栏 / Report Shell & Navigation Sidebar */
+    .report-shell {
+      display: grid;
+      grid-template-columns: 260px minmax(0, 1fr);
+      gap: 20px;
+      align-items: start;
+    }
+    .report-sidebar {
+      position: sticky;
+      top: 20px;
+      align-self: start;
+      max-height: calc(100vh - 40px);
+      display: flex;
+      flex-direction: column;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      background: var(--panel);
+      padding: 16px 14px;
+      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.05);
+      min-width: 0;
+      overflow-y: auto;
+    }
+    .sidebar-brand {
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 12px;
+    }
+    .stx-brand-lockup {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .stx-brand-logo {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      object-fit: contain;
+      flex-shrink: 0;
+    }
+    .stx-brand-text {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    .stx-brand-title {
+      font-size: 16px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      color: var(--text);
+      line-height: 1.2;
+    }
+    .stx-brand-subtitle {
+      font-size: 11px;
+      color: var(--muted);
+      font-weight: 500;
+      line-height: 1.3;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .sidebar-status-pill {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 6px 10px;
+      border-radius: var(--radius-full);
+      font-size: 12px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      border: 1px solid var(--border);
+      background: var(--panel-soft);
+      min-width: 0;
+    }
+    .sidebar-status-pill .status-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .sidebar-status-pill .status-text {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      min-width: 0;
+    }
+    .sidebar-status-pill.tone-healthy {
+      background: var(--ok-soft);
+      border-color: var(--ok-border);
+      color: var(--ok);
+    }
+    .sidebar-status-pill.tone-healthy .status-dot { background: var(--ok); }
+    .sidebar-status-pill.tone-warning {
+      background: var(--warn-soft);
+      border-color: var(--warn-border);
+      color: var(--warn);
+    }
+    .sidebar-status-pill.tone-warning .status-dot { background: var(--warn); }
+    .sidebar-status-pill.tone-critical {
+      background: var(--critical-soft);
+      border-color: var(--critical-border);
+      color: var(--critical);
+    }
+    .sidebar-status-pill.tone-critical .status-dot { background: var(--critical); }
+    .sidebar-status-pill.tone-neutral {
+      background: var(--neutral-soft);
+      border-color: var(--neutral-border);
+      color: var(--neutral);
+    }
+    .sidebar-status-pill.tone-neutral .status-dot { background: var(--neutral); }
+
+    .sidebar-nav {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+    .sidebar-link {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      text-decoration: none;
+      color: var(--text-sub);
+      border: 1px solid transparent;
+      border-radius: var(--radius-sm);
+      padding: 8px 10px;
+      transition: all 0.16s ease;
+      background: transparent;
+      min-width: 0;
+    }
+    .sidebar-link:hover {
+      background: var(--panel-hover);
+      border-color: var(--border);
+      color: var(--text);
+      text-decoration: none;
+    }
+    .sidebar-link.active {
+      background: var(--primary-soft);
+      border-color: var(--primary-border);
+      color: var(--primary);
+      font-weight: 600;
+    }
+    .sidebar-link .meta {
+      min-width: 0;
+      overflow: hidden;
+    }
+    .sidebar-link .title {
+      font-size: 13px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .sidebar-link .desc {
+      margin-top: 1px;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.3;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .sidebar-link .count {
+      flex-shrink: 0;
+      min-width: 18px;
+      height: 18px;
+      border-radius: var(--radius-full);
+      background: var(--border);
+      color: var(--muted);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 0 5px;
+    }
+    .sidebar-link .count.warn {
+      background: var(--warn-soft);
+      color: var(--warn);
+      border: 1px solid var(--warn-border);
+    }
+    .sidebar-link.active .count {
+      background: var(--primary);
+      color: #ffffff;
+    }
+
+    .sidebar-footer {
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .sidebar-action-btn {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 7px 10px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      background: var(--panel-soft);
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.16s ease;
+    }
+    .sidebar-action-btn:hover {
+      background: var(--panel-hover);
+      color: var(--text);
+      border-color: var(--border-strong);
+    }
+    .report-main {
+      min-width: 0;
+      min-height: calc(100vh - 40px);
+    }
+    .tab-page {
+      display: none;
+      min-width: 0;
+      min-height: calc(100vh - 40px);
+    }
+    .tab-page.active {
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .tab-page.active > .section:last-child,
+    .tab-page.active > .hero:last-child {
+      flex: 1 1 auto;
+    }
+
+    /* 头部决策横幅（首屏聚焦、拒绝花哨渐变与堆叠） / Executive Hero Header */
     .hero {
       background: var(--panel);
-      border: 1px solid var(--border-strong);
-      border-radius: 16px;
-      padding: 24px 28px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 22px 24px;
+      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.03);
     }
     .hero-grid {
       display: grid;
       grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.65fr);
-      gap: 24px;
+      gap: 20px;
       align-items: start;
     }
     .hero-badges {
       display: flex;
       flex-wrap: wrap;
-      gap: 8px;
-      margin-bottom: 14px;
+      gap: 6px;
+      margin-bottom: 12px;
+      align-items: center;
     }
     .hero-kicker {
       color: var(--primary);
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 700;
       letter-spacing: 0.08em;
       text-transform: uppercase;
-      margin-bottom: 8px;
+      margin-bottom: 6px;
     }
     .hero-title {
-      font-size: 32px;
-      line-height: 1.2;
-      margin-bottom: 10px;
+      font-size: 26px;
+      font-weight: 700;
+      line-height: 1.25;
+      margin-bottom: 8px;
+      color: var(--text);
     }
     .hero-summary {
-      color: var(--muted);
+      color: var(--text-sub);
       max-width: 840px;
-      font-size: 15px;
+      font-size: 14px;
+      line-height: 1.6;
     }
     .hero-side {
       border: 1px solid var(--border);
-      border-radius: 14px;
+      border-radius: var(--radius-md);
       background: var(--panel-soft);
-      padding: 18px;
+      padding: 16px;
     }
     .hero-side.tone-healthy {
-      background: linear-gradient(180deg, var(--ok-soft) 0, #fff 100%);
-      border-color: rgba(16,185,129,0.28);
+      background: var(--ok-soft);
+      border-color: var(--ok-border);
     }
     .hero-side.tone-warning {
-      background: linear-gradient(180deg, var(--warn-soft) 0, #fff 100%);
-      border-color: rgba(245,158,11,0.28);
+      background: var(--warn-soft);
+      border-color: var(--warn-border);
     }
     .hero-side.tone-critical {
-      background: linear-gradient(180deg, var(--critical-soft) 0, #fff 100%);
-      border-color: rgba(239,68,68,0.28);
+      background: var(--critical-soft);
+      border-color: var(--critical-border);
     }
     .hero-side.tone-neutral {
-      background: linear-gradient(180deg, var(--neutral-soft) 0, #fff 100%);
-      border-color: rgba(59,130,246,0.24);
+      background: var(--neutral-soft);
+      border-color: var(--neutral-border);
     }
     .side-label,
     .focus-label,
     .panel-label,
     .subsection-label {
       color: var(--muted);
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 700;
-      letter-spacing: 0.04em;
+      letter-spacing: 0.05em;
       text-transform: uppercase;
-      margin-bottom: 10px;
+      margin-bottom: 8px;
     }
+
+    /* 状态徽标与原子组件（绝对防破碎） / Badges with atomic protection */
     .badge {
       display: inline-flex;
       align-items: center;
-      gap: 6px;
-      padding: 4px 10px;
-      border-radius: 999px;
+      gap: 5px;
+      padding: 3px 9px;
+      border-radius: var(--radius-full);
       border: 1px solid var(--border);
       font-size: 12px;
       font-weight: 600;
-      background: #fff;
+      background: var(--panel);
       color: var(--text);
+      white-space: nowrap;
+      flex-shrink: 0;
+      line-height: 1.4;
     }
-    .status-ok { background: var(--ok-soft); border-color: rgba(16,185,129,0.32); }
-    .status-warn { background: var(--warn-soft); border-color: rgba(245,158,11,0.32); }
-    .status-critical { background: var(--critical-soft); border-color: rgba(239,68,68,0.32); }
-    .status-neutral { background: var(--neutral-soft); border-color: rgba(59,130,246,0.24); }
-    .status-skip { background: var(--skip-soft); border-color: rgba(148,163,184,0.36); }
+    .status-ok { background: var(--ok-soft); border-color: var(--ok-border); color: var(--ok); }
+    .status-warn { background: var(--warn-soft); border-color: var(--warn-border); color: var(--warn); }
+    .status-critical { background: var(--critical-soft); border-color: var(--critical-border); color: var(--critical); }
+    .status-neutral { background: var(--neutral-soft); border-color: var(--neutral-border); color: var(--neutral); }
+    .status-skip { background: var(--skip-soft); border-color: var(--skip-border); color: var(--skip); }
+
+    /* 指标卡片网格与数值单行防护 / Metric & Stat Cards single-line integrity */
     .metric-grid,
     .stat-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 12px;
+      gap: 10px;
     }
     .metric-card,
     .stat-card {
       border: 1px solid var(--border);
-      border-radius: 12px;
-      background: #fff;
-      padding: 14px;
-      min-height: 96px;
+      border-radius: var(--radius-md);
+      background: var(--panel);
+      padding: 12px 14px;
+      min-height: 76px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
     }
     .metric-card .label,
     .stat-card .label {
       color: var(--muted);
-      font-size: 12px;
-      margin-bottom: 8px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 4px;
+      white-space: nowrap;
     }
     .metric-card .value,
     .stat-card .value {
-      font-size: 24px;
+      font-size: 18px;
       font-weight: 700;
-      line-height: 1.15;
+      line-height: 1.2;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     .metric-card .note,
     .stat-card .note {
       color: var(--muted);
-      font-size: 12px;
-      margin-top: 8px;
-      line-height: 1.5;
+      font-size: 11px;
+      margin-top: 4px;
+      line-height: 1.4;
     }
+
+    /* 页面分段卡片 / Sections & Panels */
     .section {
       background: var(--panel);
       border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: 22px 24px;
+      border-radius: var(--radius-lg);
+      padding: 20px 24px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
     }
     .section-heading {
       display: flex;
       align-items: flex-start;
       justify-content: space-between;
       gap: 16px;
-      margin-bottom: 18px;
+      margin-bottom: 16px;
     }
     .section-lead {
-      margin-top: 6px;
+      margin-top: 4px;
       color: var(--muted);
-      font-size: 14px;
+      font-size: 13px;
     }
     .grid-2 {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
-      gap: 18px;
+      gap: 16px;
     }
     .focus-grid {
       display: grid;
       grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr) minmax(0, 1fr);
-      gap: 16px;
+      gap: 14px;
     }
     .focus-panel,
     .detail-panel {
       border: 1px solid var(--border);
-      border-radius: 14px;
-      background: #fff;
-      padding: 18px;
+      border-radius: var(--radius-md);
+      background: var(--panel);
+      padding: 16px;
     }
     .focus-panel.tone-healthy {
-      background: linear-gradient(180deg, var(--ok-soft) 0, #fff 100%);
-      border-color: rgba(16,185,129,0.28);
+      background: var(--ok-soft);
+      border-color: var(--ok-border);
     }
     .focus-panel.tone-warning {
-      background: linear-gradient(180deg, var(--warn-soft) 0, #fff 100%);
-      border-color: rgba(245,158,11,0.28);
+      background: var(--warn-soft);
+      border-color: var(--warn-border);
     }
     .focus-panel.tone-critical {
-      background: linear-gradient(180deg, var(--critical-soft) 0, #fff 100%);
-      border-color: rgba(239,68,68,0.28);
+      background: var(--critical-soft);
+      border-color: var(--critical-border);
     }
     .focus-panel.tone-neutral {
-      background: linear-gradient(180deg, var(--neutral-soft) 0, #fff 100%);
-      border-color: rgba(59,130,246,0.24);
+      background: var(--neutral-soft);
+      border-color: var(--neutral-border);
     }
     .focus-panel h3,
     .detail-title {
-      font-size: 20px;
+      font-size: 18px;
       line-height: 1.35;
-      margin-bottom: 10px;
+      margin-bottom: 8px;
+      color: var(--text);
     }
     .focus-panel p,
     .detail-panel p {
       color: var(--muted);
     }
     .panel-note {
-      margin-top: 12px;
+      margin-top: 10px;
       color: var(--muted);
-      font-size: 13px;
+      font-size: 12px;
     }
     .detail-columns {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
-      gap: 18px;
+      gap: 16px;
     }
+
+    /* 属性键值列表（原子防破碎、标签对齐） / Description Lists */
     .dl {
       display: flex;
       flex-direction: column;
@@ -5069,33 +5815,38 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
     }
     .dl-row {
       display: grid;
-      grid-template-columns: 180px minmax(0, 1fr);
+      grid-template-columns: 160px minmax(0, 1fr);
       gap: 14px;
-      padding: 10px 0;
-      border-bottom: 1px solid #edf2f7;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--border);
+      align-items: baseline;
     }
     .dl-row:last-child { border-bottom: none; }
     .dl-term {
       color: var(--muted);
       font-size: 13px;
+      font-weight: 500;
+      white-space: nowrap;
     }
     .dl-value {
-      word-break: break-word;
-      font-size: 14px;
+      font-size: 13px;
+      color: var(--text);
+      word-break: normal;
+      overflow-wrap: break-word;
     }
     .subsection + .subsection {
-      margin-top: 18px;
-      padding-top: 18px;
-      border-top: 1px solid #edf2f7;
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid var(--border);
     }
     .list {
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: 10px;
     }
     .entry {
-      padding: 14px 0;
-      border-bottom: 1px solid #edf2f7;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--border);
     }
     .entry:first-child { padding-top: 0; }
     .entry:last-child {
@@ -5108,11 +5859,13 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       justify-content: space-between;
       gap: 12px;
       flex-wrap: wrap;
-      margin-bottom: 8px;
+      margin-bottom: 6px;
     }
     .entry-title {
-      font-weight: 700;
-      line-height: 1.5;
+      font-weight: 600;
+      font-size: 14px;
+      line-height: 1.4;
+      color: var(--text);
     }
     .muted {
       color: var(--muted);
@@ -5125,55 +5878,115 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
     }
     .small { font-size: 12px; }
     .callout {
-      margin-top: 14px;
-      padding: 14px 16px;
-      border-radius: 12px;
-      background: #f8fbff;
+      margin-top: 12px;
+      padding: 12px 14px;
+      border-radius: var(--radius-sm);
+      background: var(--panel-soft);
       border: 1px solid var(--border);
+      font-size: 13px;
+      color: var(--text);
     }
     .callout.critical {
       background: var(--critical-soft);
-      border-color: rgba(239,68,68,0.28);
+      border-color: var(--critical-border);
     }
     .callout.warn {
       background: var(--warn-soft);
-      border-color: rgba(245,158,11,0.28);
+      border-color: var(--warn-border);
     }
     .list-clean {
       margin: 0;
       padding-left: 18px;
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: 8px;
     }
-    .list-clean li { color: #1e293b; }
+    .list-clean li { color: var(--text); }
+
+    /*
+     * 表格排版防破碎与横向溢出保护（遵循 UI 规范 12.4 策略 B）
+     * Anti-forced-wrapping table layouts with horizontal scroll protection.
+     */
     .table-wrap {
       border: 1px solid var(--border);
-      border-radius: 14px;
+      border-radius: var(--radius-md);
       overflow-x: auto;
       overflow-y: hidden;
-      margin-top: 14px;
-      background: #fff;
+      margin-top: 12px;
+      background: var(--panel);
+      -webkit-overflow-scrolling: touch;
     }
     table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 14px;
+      font-size: 13px;
+      line-height: 1.5;
     }
-    th, td {
-      padding: 12px 14px;
+    th {
+      background: var(--panel-soft);
+      color: var(--muted);
+      font-weight: 600;
+      font-size: 12px;
+      letter-spacing: 0.02em;
+      padding: 10px 14px;
       text-align: left;
-      border-bottom: 1px solid #edf2f7;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+      user-select: none;
+    }
+    td {
+      padding: 10px 14px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
       vertical-align: top;
-      word-break: break-word;
+      color: var(--text);
+    }
+    tr:last-child td { border-bottom: none; }
+    tbody tr:hover { background: var(--panel-hover); }
+
+    /* 语义化数据列防断裂规则 / Semantic column atomic integrity classes */
+    .col-time,
+    .col-host,
+    .col-role,
+    .col-status,
+    .col-id,
+    .col-size,
+    .col-hash,
+    .col-seq,
+    .col-type,
+    .col-scope,
+    .col-version,
+    .col-node,
+    .col-name,
+    .col-proc,
+    .col-step,
+    .cell-nowrap {
+      white-space: nowrap;
+      word-break: keep-all;
+    }
+    .col-desc,
+    .cell-wrap {
+      white-space: normal;
+      overflow-wrap: break-word;
+      word-break: normal;
+      min-width: 240px;
+    }
+    .col-file {
+      white-space: nowrap;
+      word-break: keep-all;
+    }
+
+    /* 进程事件与指标快照特定尺寸微调 / Process & Metric tables layout tuning */
+    .process-events-table,
+    .metric-signals-table {
+      width: max-content;
+      min-width: 100%;
     }
     .process-events-table th:first-child,
     .process-events-table td:first-child {
       width: 188px;
       min-width: 188px;
       white-space: nowrap;
-      overflow-wrap: normal;
-      word-break: normal;
     }
     .process-events-table th:nth-child(2),
     .process-events-table td:nth-child(2) {
@@ -5185,11 +5998,13 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
     .process-events-table td:nth-child(3) {
       width: 140px;
       min-width: 140px;
+      white-space: nowrap;
     }
     .process-events-table th:nth-child(4),
     .process-events-table td:nth-child(4) {
       width: 180px;
       min-width: 180px;
+      white-space: nowrap;
     }
     .process-events-table th:nth-child(5),
     .process-events-table td:nth-child(5) {
@@ -5198,26 +6013,11 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       overflow-wrap: anywhere;
       word-break: break-word;
     }
-    .process-events-table {
-      width: max-content;
-      min-width: 100%;
-    }
-    .metric-signals-table th {
-      white-space: nowrap;
-      word-break: normal;
-      overflow-wrap: normal;
-    }
-    .metric-signals-table {
-      width: max-content;
-      min-width: 100%;
-    }
     .metric-signals-table th:first-child,
     .metric-signals-table td:first-child {
       width: 132px;
       min-width: 132px;
       white-space: nowrap;
-      word-break: normal;
-      overflow-wrap: normal;
     }
     .metric-signals-table th:nth-child(2),
     .metric-signals-table td:nth-child(2) {
@@ -5235,27 +6035,18 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       width: 84px;
       min-width: 84px;
       white-space: nowrap;
-      word-break: normal;
-      overflow-wrap: normal;
     }
     .metric-signals-table th:nth-child(5),
     .metric-signals-table td:nth-child(5) {
       width: 88px;
       min-width: 88px;
       white-space: nowrap;
-      word-break: normal;
-      overflow-wrap: normal;
     }
-    th {
-      background: #f8fbff;
-      color: var(--muted);
-      font-weight: 600;
-    }
-    tr:last-child td { border-bottom: none; }
+
     .artifact-group + .artifact-group {
-      margin-top: 22px;
-      padding-top: 22px;
-      border-top: 1px solid #edf2f7;
+      margin-top: 20px;
+      padding-top: 20px;
+      border-top: 1px solid var(--border);
     }
     .artifact-grid {
       display: grid;
@@ -5264,8 +6055,8 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
     }
     .artifact-card {
       border: 1px solid var(--border);
-      border-radius: 14px;
-      background: #fff;
+      border-radius: var(--radius-md);
+      background: var(--panel);
       padding: 16px;
       display: flex;
       flex-direction: column;
@@ -5277,41 +6068,101 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       gap: 10px;
     }
     .artifact-meta .meta-item {
-      border: 1px solid #edf2f7;
-      border-radius: 10px;
-      padding: 10px 12px;
-      background: #fafcff;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 8px 10px;
+      background: var(--panel-soft);
     }
     .meta-item .label {
       color: var(--muted);
-      font-size: 12px;
-      margin-bottom: 6px;
+      font-size: 11px;
+      margin-bottom: 4px;
     }
     .meta-item .value {
       font-size: 13px;
-      word-break: break-word;
+      color: var(--text);
+      word-break: normal;
+      overflow-wrap: break-word;
     }
+
+    /* 行内代码与路径保护（整行展示、杜绝字中折行） / Inline Code & Path Integrity */
     code.inline {
-      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-      background: #eff6ff;
-      color: #1d4ed8;
-      padding: 2px 6px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      background: var(--code-inline-bg);
+      color: var(--code-inline-text);
+      border: 1px solid var(--code-inline-border);
+      padding: 1.5px 6px;
       border-radius: 6px;
-      word-break: break-all;
+      font-size: 12px;
+      white-space: nowrap;
+      word-break: keep-all;
+      display: inline-block;
+      vertical-align: baseline;
     }
     pre {
       margin: 0;
       background: var(--code-bg);
       color: var(--code-text);
-      padding: 16px;
-      border-radius: 12px;
+      padding: 14px 16px;
+      border-radius: var(--radius-sm);
       overflow: auto;
-      line-height: 1.6;
+      line-height: 1.55;
       font-size: 12px;
       max-height: 420px;
       white-space: pre-wrap;
       word-break: break-word;
-      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+    /* 配置文件页签允许横向滚动，避免较长文件名挤压内容。 / Config tabs scroll horizontally so long file names do not squeeze content. */
+    .config-file-tabs {
+      overflow-x: auto;
+      flex-wrap: nowrap;
+      max-width: 100%;
+      padding-bottom: 4px;
+    }
+    .config-file-tabs .inner-tab-btn {
+      flex: 0 0 auto;
+      max-width: 260px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .config-file-tabs .inner-tab-btn:focus-visible {
+      outline: 2px solid var(--primary);
+      outline-offset: 2px;
+    }
+    .config-preview-details {
+      margin-top: 12px;
+      border-top: 1px solid var(--border);
+      padding-top: 10px;
+    }
+    .config-preview-summary {
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--primary);
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      user-select: none;
+      outline: none;
+    }
+    .config-preview-summary:hover {
+      text-decoration: underline;
+    }
+    .config-preview-summary::-webkit-details-marker {
+      display: none;
+    }
+    .config-preview-summary::before {
+      content: '▶';
+      font-size: 10px;
+      transition: transform 0.15s ease;
+      display: inline-block;
+    }
+    .config-preview-details[open] > .config-preview-summary::before {
+      transform: rotate(90deg);
+    }
+    .config-preview-details[open] > .config-preview-summary {
+      margin-bottom: 8px;
     }
     .copyable-block {
       margin-top: 10px;
@@ -5326,34 +6177,36 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
     .copy-btn,
     .log-action-btn,
     .modal-close-btn {
-      border: 1px solid #dbeafe;
-      background: #eff6ff;
-      color: #1d4ed8;
-      border-radius: 10px;
-      padding: 7px 12px;
+      border: 1px solid var(--primary-border);
+      background: var(--primary-soft);
+      color: var(--primary);
+      border-radius: var(--radius-sm);
+      padding: 6px 12px;
       font-size: 12px;
-      font-weight: 700;
+      font-weight: 600;
       cursor: pointer;
-      transition: all 0.18s ease;
+      transition: all 0.16s ease;
       text-decoration: none;
       display: inline-flex;
       align-items: center;
       justify-content: center;
+      white-space: nowrap;
     }
     .copy-btn:hover,
     .log-action-btn:hover,
     .modal-close-btn:hover {
-      background: #dbeafe;
+      background: var(--panel-hover);
+      text-decoration: none;
     }
     .copy-btn.copied {
-      background: #dcfce7;
-      border-color: #bbf7d0;
-      color: #166534;
+      background: var(--ok-soft);
+      border-color: var(--ok-border);
+      color: var(--ok);
     }
     .copy-btn.failed {
-      background: #fef2f2;
-      border-color: #fecaca;
-      color: #b91c1c;
+      background: var(--critical-soft);
+      border-color: var(--critical-border);
+      color: var(--critical);
     }
     .copy-btn .label-copied,
     .copy-btn .label-failed {
@@ -5370,7 +6223,7 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       display: inline;
     }
     .log-preview-note {
-      margin-top: 10px;
+      margin-top: 8px;
     }
     .full-log-modal {
       position: fixed;
@@ -5389,16 +6242,18 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
     .full-log-dialog {
       width: min(1120px, 100%);
       height: min(82vh, 920px);
-      background: #ffffff;
-      border-radius: 18px;
-      box-shadow: 0 24px 60px rgba(15, 23, 42, 0.24);
+      background: var(--panel);
+      border-radius: var(--radius-lg);
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+      border: 1px solid var(--border);
       display: flex;
       flex-direction: column;
       overflow: hidden;
     }
     .full-log-header {
-      padding: 18px 20px;
-      border-bottom: 1px solid #e2e8f0;
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      background: var(--panel-soft);
       display: flex;
       gap: 12px;
       align-items: center;
@@ -5415,7 +6270,7 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       position: relative;
       flex: 1;
       min-height: 0;
-      background: #0f172a;
+      background: var(--code-bg);
     }
     .full-log-loading {
       position: absolute;
@@ -5437,65 +6292,25 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       width: 100%;
       height: 100%;
       border: none;
-      background: #ffffff;
+      background: var(--panel);
     }
     details {
       border: 1px dashed var(--border);
-      border-radius: 12px;
+      border-radius: var(--radius-sm);
       padding: 12px 14px;
-      background: #f8fafc;
+      background: var(--panel-soft);
     }
     details summary {
       cursor: pointer;
       font-weight: 600;
-    }
-    .metric-chart {
-      width: 100%;
-      min-width: 320px;
-      height: 156px;
-      display: block;
-      background: linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
-      border: 1px solid #e2e8f0;
-      border-radius: 10px;
-    }
-    .metric-chart-axis {
-      stroke-width: 1.2;
-    }
-    .metric-chart-grid {
-      stroke-width: 1;
-      stroke-dasharray: 3 4;
-    }
-    .metric-chart-path {
-      fill: none;
-      stroke-width: 2.4;
-      stroke-linecap: round;
-      stroke-linejoin: round;
-    }
-    .metric-chart-threshold {
-      stroke: #f59e0b;
-      stroke-width: 1.2;
-      stroke-dasharray: 4 3;
-    }
-    .metric-chart-dot {
-      fill: #0f172a;
-    }
-    .metric-chart-label {
-      fill: #64748b;
-      font-size: 10px;
-    }
-    .metric-chart-label.x-mid {
-      text-anchor: middle;
-    }
-    .metric-chart-label.x-end,
-    .metric-chart-label.threshold-label {
-      text-anchor: end;
+      color: var(--text);
     }
     .summary-grid,
     .finding-grid,
     .category-grid,
     .signal-card-grid {
       display: grid;
-      gap: 16px;
+      gap: 14px;
     }
     .summary-grid,
     .category-grid {
@@ -5509,12 +6324,9 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
     .category-card,
     .signal-card {
       border: 1px solid var(--border);
-      border-radius: 20px;
-      padding: 18px;
-      background: #fff;
-    }
-    .signal-card {
-      background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+      border-radius: var(--radius-md);
+      padding: 16px;
+      background: var(--panel);
     }
     .finding-meta,
     .category-meta {
@@ -5522,29 +6334,33 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       align-items: center;
       justify-content: space-between;
       gap: 12px;
-      margin-bottom: 12px;
+      margin-bottom: 10px;
     }
     .category-count {
-      font-size: 30px;
+      font-size: 28px;
       line-height: 1;
       font-weight: 700;
-      color: #0f172a;
+      color: var(--text);
+      font-variant-numeric: tabular-nums;
     }
     .timeline-list {
       display: flex;
       flex-direction: column;
-      gap: 14px;
+      gap: 12px;
     }
     .timeline-item {
       display: grid;
-      grid-template-columns: 176px 16px minmax(0, 1fr);
-      gap: 14px;
+      grid-template-columns: 160px 16px minmax(0, 1fr);
+      gap: 12px;
+      align-items: start;
     }
     .timeline-time {
       color: var(--muted);
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 600;
+      white-space: nowrap;
       padding-top: 2px;
+      font-variant-numeric: tabular-nums;
     }
     .timeline-dot-wrap {
       display: flex;
@@ -5554,18 +6370,18 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       margin-top: 6px;
       width: 10px;
       height: 10px;
-      border-radius: 999px;
-      background: #94a3b8;
+      border-radius: var(--radius-full);
+      background: var(--muted);
     }
-    .timeline-dot.tone-critical { background: #dc2626; }
-    .timeline-dot.tone-warning { background: #f59e0b; }
-    .timeline-dot.tone-healthy { background: #059669; }
+    .timeline-dot.tone-critical { background: var(--critical); }
+    .timeline-dot.tone-warning { background: var(--warn); }
+    .timeline-dot.tone-healthy { background: var(--ok); }
     .timeline-content {
       min-width: 0;
       padding-bottom: 12px;
-      border-bottom: 1px dashed #e2e8f0;
-      overflow-wrap: anywhere;
-      word-break: break-word;
+      border-bottom: 1px dashed var(--border);
+      overflow-wrap: break-word;
+      word-break: normal;
     }
     .timeline-content:last-child {
       border-bottom: none;
@@ -5573,8 +6389,8 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
     }
     .timeline-content .entry-title,
     .timeline-content .muted {
-      overflow-wrap: anywhere;
-      word-break: break-word;
+      overflow-wrap: break-word;
+      word-break: normal;
     }
     .signal-head {
       display: flex;
@@ -5586,195 +6402,101 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
     .signal-stats {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 10px;
+      gap: 8px;
       margin-bottom: 12px;
     }
     .signal-stat {
-      border-radius: 12px;
-      background: #f8fafc;
-      padding: 10px 12px;
+      border-radius: var(--radius-sm);
+      background: var(--panel-soft);
+      border: 1px solid var(--border);
+      padding: 8px 10px;
     }
     .signal-stat .label {
-      font-size: 12px;
+      font-size: 11px;
       color: var(--muted);
-      margin-bottom: 4px;
+      margin-bottom: 3px;
+      white-space: nowrap;
     }
     .signal-stat .value {
-      font-size: 15px;
-      font-weight: 600;
-      color: #0f172a;
-    }
-    .report-shell {
-      display: grid;
-      grid-template-columns: 280px minmax(0, 1fr);
-      gap: 24px;
-      align-items: start;
-    }
-    .report-sidebar {
-      position: sticky;
-      top: 20px;
-      align-self: start;
-      min-height: calc(100vh - 40px);
-      display: flex;
-      flex-direction: column;
-      border: 1px solid var(--border);
-      border-radius: 24px;
-      background: rgba(255,255,255,0.92);
-      backdrop-filter: blur(14px);
-      padding: 20px 18px;
-      box-shadow: 0 18px 48px rgba(15, 23, 42, 0.08);
-    }
-    .sidebar-brand {
-      padding-bottom: 16px;
-      border-bottom: 1px solid #e2e8f0;
-      margin-bottom: 16px;
-    }
-    .sidebar-brand .eyebrow {
-      font-size: 12px;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      color: #64748b;
-      margin-bottom: 8px;
-      font-weight: 700;
-    }
-    .sidebar-brand .title {
-      font-size: 20px;
-      font-weight: 700;
-      color: #0f172a;
-      line-height: 1.35;
-    }
-    .sidebar-meta {
-      display: grid;
-      gap: 10px;
-      margin-bottom: 16px;
-    }
-    .sidebar-meta-card {
-      border-radius: 16px;
-      background: linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
-      border: 1px solid #e2e8f0;
-      padding: 12px 14px;
-    }
-    .sidebar-meta-card .label {
-      font-size: 11px;
-      color: #64748b;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-    }
-    .sidebar-meta-card .value {
-      margin-top: 6px;
-      color: #0f172a;
       font-size: 14px;
       font-weight: 600;
-      line-height: 1.5;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
-    .sidebar-nav {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      flex: 1 1 auto;
-    }
-    .sidebar-link {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      text-decoration: none;
-      color: #334155;
-      border: 1px solid transparent;
-      border-radius: 16px;
-      padding: 12px 14px;
-      transition: all 0.18s ease;
-      background: transparent;
-    }
-    .sidebar-link:hover {
-      background: #f8fafc;
-      border-color: #e2e8f0;
-    }
-    .sidebar-link.active {
-      background: linear-gradient(180deg, #eff6ff 0%, #ffffff 100%);
-      border-color: #bfdbfe;
-      color: #1d4ed8;
-      box-shadow: 0 8px 22px rgba(37,99,235,0.10);
-    }
-    .sidebar-link .meta {
-      min-width: 0;
-    }
-    .sidebar-link .title {
-      font-weight: 600;
-      font-size: 14px;
-    }
-    .sidebar-link .desc {
-      margin-top: 4px;
-      color: #64748b;
-      font-size: 12px;
-      line-height: 1.5;
-    }
-    .sidebar-link .count {
-      flex-shrink: 0;
-      min-width: 28px;
-      height: 28px;
-      border-radius: 999px;
-      background: #e2e8f0;
-      color: #0f172a;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 12px;
-      font-weight: 700;
-      padding: 0 8px;
-    }
-    .sidebar-link.active .count {
-      background: #dbeafe;
-      color: #1d4ed8;
-    }
-    .report-main {
-      min-width: 0;
-      min-height: calc(100vh - 40px);
-    }
-    .tab-page {
-      display: none;
-      min-width: 0;
-      min-height: calc(100vh - 40px);
-    }
-    .tab-page.active {
-      display: flex;
-      flex-direction: column;
-      gap: 18px;
-    }
-    .tab-page.active > .section:last-child,
-    .tab-page.active > .hero:last-child {
-      flex: 1 1 auto;
-    }
+
+    /* 下钻穿透卡片（概览快速穿透） / Quick Drill-down Cards */
     .overview-drill-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-      gap: 16px;
+      gap: 14px;
     }
+    .drill-card {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--panel);
+      padding: 16px;
+      text-decoration: none;
+      color: inherit;
+      display: block;
+      transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
+    }
+    .drill-card:hover {
+      transform: translateY(-2px);
+      border-color: var(--primary);
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.08);
+      text-decoration: none;
+    }
+    .drill-card .title {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text);
+      white-space: nowrap;
+    }
+    .drill-card .count {
+      margin-top: 8px;
+      font-size: 26px;
+      font-weight: 700;
+      color: var(--primary);
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+    }
+    .drill-card .desc {
+      margin-top: 8px;
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    /* 二级内部 Tab 标签栏 / Inner Tab Toolbars */
     .inner-tab-toolbar {
       display: flex;
       flex-wrap: wrap;
-      gap: 10px;
-      margin: 18px 0 20px;
+      gap: 8px;
+      margin: 14px 0 18px;
     }
     .inner-tab-btn {
-      border: 1px solid #dbeafe;
-      background: #eff6ff;
-      color: #1e3a8a;
-      border-radius: 999px;
-      padding: 9px 14px;
-      font-size: 13px;
+      border: 1px solid var(--border);
+      background: var(--panel-soft);
+      color: var(--text-sub);
+      border-radius: var(--radius-full);
+      padding: 7px 14px;
+      font-size: 12px;
       font-weight: 600;
       cursor: pointer;
-      transition: all 0.18s ease;
+      transition: all 0.16s ease;
+      white-space: nowrap;
     }
     .inner-tab-btn:hover {
-      background: #dbeafe;
+      background: var(--panel-hover);
+      color: var(--text);
     }
     .inner-tab-btn.active {
-      background: #2563eb;
-      border-color: #2563eb;
+      background: var(--primary);
+      border-color: var(--primary);
       color: #ffffff;
-      box-shadow: 0 10px 22px rgba(37,99,235,0.18);
+      box-shadow: 0 4px 12px rgba(37,99,235,0.25);
     }
     .inner-tab-panel {
       display: none;
@@ -5783,46 +6505,350 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
     .inner-tab-panel.active {
       display: block;
     }
-    .drill-card {
-      border: 1px solid var(--border);
-      border-radius: 20px;
-      background: #fff;
-      padding: 18px;
-      text-decoration: none;
-      color: inherit;
-      display: block;
-      transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
-    }
-    .drill-card:hover {
-      transform: translateY(-2px);
-      border-color: #bfdbfe;
-      box-shadow: 0 14px 30px rgba(37,99,235,0.10);
-    }
-    .drill-card .title {
-      font-size: 16px;
-      font-weight: 700;
-      color: #0f172a;
-    }
-    .drill-card .count {
-      margin-top: 12px;
-      font-size: 28px;
-      font-weight: 700;
-      color: #2563eb;
-      line-height: 1;
-    }
-    .drill-card .desc {
-      margin-top: 10px;
-      font-size: 13px;
-      color: #64748b;
-      line-height: 1.6;
-    }
     .empty {
       border: 1px dashed var(--border);
-      border-radius: 12px;
-      padding: 18px;
+      border-radius: var(--radius-sm);
+      padding: 16px;
       color: var(--muted);
-      background: #fafcff;
+      background: var(--panel-soft);
+      font-size: 13px;
     }
+
+    /* 附录已确认正常项检查网格 / Appendix Passed Check Items Grid */
+    .passed-checklist-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .passed-check-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 10px 12px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--ok-border);
+      background: var(--ok-soft);
+      min-width: 0;
+    }
+    .passed-check-item .check-icon {
+      color: var(--ok);
+      font-weight: 700;
+      line-height: 1;
+      font-size: 14px;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+    .passed-check-item .check-text {
+      min-width: 0;
+    }
+    .passed-check-item .check-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      line-height: 1.3;
+    }
+    .passed-check-item .check-desc {
+      font-size: 11px;
+      color: var(--muted);
+      line-height: 1.4;
+      margin-top: 2px;
+    }
+
+    /* 采集备注与诊断警告卡片 / Collection Notes & Warning Callouts */
+    .collection-notes-card {
+      border: 1px solid var(--warn-border);
+      background: var(--warn-soft);
+      border-radius: var(--radius-md);
+      padding: 14px 16px;
+      margin-bottom: 16px;
+    }
+    .collection-notes-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 700;
+      font-size: 14px;
+      color: var(--warn);
+      margin-bottom: 8px;
+    }
+    .collection-notes-hint {
+      font-size: 12px;
+      line-height: 1.5;
+      color: var(--text-sub);
+      margin-bottom: 10px;
+    }
+    .error-text {
+      color: var(--critical);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 12px;
+    }
+
+    /* 调试与内部路径折叠区 / Debug & Internal Path Collapsible Section */
+    .debug-details {
+      margin-top: 14px;
+      border: 1px dashed var(--border);
+      border-radius: var(--radius-sm);
+      background: var(--panel-soft);
+      padding: 10px 14px;
+    }
+    .debug-details summary {
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--muted);
+    }
+    .debug-details summary:hover {
+      color: var(--text);
+    }
+    .debug-details .dl {
+      margin-top: 10px;
+    }
+
+    /* 报告首页和发现页保留 Web 导航，借鉴参考图的留白和证据顺序，不使用 PDF 分页。 */
+    /* Keep Web navigation while borrowing the references' spacing and evidence order, not their PDF pagination. */
+    .sidebar-run-meta {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      margin: 12px 0 20px;
+      color: var(--muted);
+      font-size: 12px;
+      min-width: 0;
+    }
+    .sidebar-run-meta span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .report-intro,
+    .report-overview-findings,
+    .report-findings {
+      box-shadow: none;
+    }
+    .report-intro {
+      padding: clamp(28px, 5vw, 68px);
+      border-color: var(--border);
+      background: var(--panel);
+    }
+    .report-overline,
+    .report-section-head,
+    .report-intro-main {
+      display: flex;
+      justify-content: space-between;
+      gap: 24px;
+    }
+    .report-overline {
+      padding-bottom: 18px;
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      color: var(--text-sub);
+      font-variant-numeric: tabular-nums;
+    }
+    .report-intro-main {
+      align-items: flex-end;
+      padding-top: clamp(40px, 6vw, 92px);
+    }
+    .report-kicker,
+    .report-scope-line {
+      color: var(--muted);
+      font-size: 13px;
+      overflow-wrap: break-word;
+    }
+    .report-kicker { margin-bottom: 20px; }
+    .report-scope-line { margin-top: 26px; }
+    .report-intro h1,
+    .report-section-head h2,
+    .report-zero h2 {
+      font-family: Georgia, "Noto Serif SC", "Songti SC", serif;
+      font-weight: 600;
+      letter-spacing: -0.025em;
+      color: var(--text);
+    }
+    .report-intro h1 {
+      max-width: 840px;
+      margin: 0;
+      font-size: clamp(35px, 5vw, 64px);
+      line-height: 1.22;
+      text-wrap: balance;
+    }
+    .report-count {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      flex: 0 0 auto;
+      color: var(--warn);
+      font-variant-numeric: tabular-nums;
+    }
+    .report-count strong {
+      font-family: Georgia, "Noto Serif SC", "Songti SC", serif;
+      font-size: clamp(44px, 6vw, 80px);
+      font-weight: 400;
+      line-height: 1;
+    }
+    .report-count span { font-size: 12px; white-space: nowrap; }
+    .report-overview-findings,
+    .report-findings {
+      border: 0;
+      background: transparent;
+      padding: 8px 0;
+    }
+    .report-section-head {
+      align-items: baseline;
+      border-bottom: 1px solid var(--border-strong);
+      padding: 0 4px 17px;
+      margin-bottom: 0;
+    }
+    .report-section-head h2 {
+      margin: 0;
+      font-size: clamp(22px, 3vw, 30px);
+    }
+    .report-section-head a,
+    .report-zero a {
+      color: var(--primary);
+      font-size: 13px;
+      font-weight: 600;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+    .report-section-head a:hover,
+    .report-zero a:hover { text-decoration: underline; }
+    .evidence-index-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 20px;
+      padding: 20px 4px;
+      border-bottom: 1px solid var(--border);
+      color: var(--text);
+      text-decoration: none;
+    }
+    .evidence-index-item:hover { background: var(--panel-soft); }
+    .evidence-index-number {
+      flex: 0 0 26px;
+      color: var(--muted);
+      font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-variant-numeric: tabular-nums;
+      padding-top: 4px;
+    }
+    .evidence-index-main {
+      min-width: 0;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .evidence-index-main strong { font-size: 17px; line-height: 1.4; }
+    .evidence-index-main > span {
+      font-size: 13px;
+      color: var(--muted);
+      overflow-wrap: break-word;
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+      line-clamp: 2;
+      overflow: hidden;
+    }
+    .evidence-index-item .badge { margin-left: auto; }
+    .evidence-list { display: flex; flex-direction: column; gap: 12px; }
+    .evidence-item {
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--border-strong);
+      background: var(--panel);
+      padding: clamp(18px, 3vw, 30px);
+      min-width: 0;
+    }
+    .evidence-item[data-severity="status-critical"] { border-left-color: var(--critical); }
+    .evidence-item[data-severity="status-warn"] { border-left-color: var(--warn); }
+    .evidence-item[data-severity="status-neutral"] { border-left-color: var(--neutral); }
+    .evidence-heading { display: flex; align-items: flex-start; gap: 18px; }
+    .evidence-heading > div { min-width: 0; }
+    .evidence-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; color: var(--muted); font-size: 12px; }
+    .evidence-item h3 { margin: 12px 0 0; font-size: clamp(19px, 2.5vw, 24px); line-height: 1.35; color: var(--text); text-wrap: balance; }
+    .evidence-observation { margin: 8px 0 0; font-size: 14px; color: var(--text-sub); max-width: 72ch; }
+    .evidence-observed { margin: 22px 0 0 44px; padding-top: 16px; border-top: 1px solid var(--border); }
+    .evidence-label { display: block; color: var(--muted); font-size: 12px; font-weight: 600; margin-bottom: 6px; }
+    .evidence-value {
+      color: var(--text);
+      white-space: pre-wrap;
+      overflow-x: auto;
+      font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .evidence-more { margin: 20px 0 0 44px; padding-top: 12px; border-top: 1px solid var(--border); }
+    .evidence-more summary { cursor: pointer; width: fit-content; color: var(--text-sub); font-size: 13px; font-weight: 600; }
+    .evidence-more summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
+    .evidence-more summary span { display: inline-block; transition: transform .15s ease; }
+    .evidence-more[open] summary span { transform: rotate(90deg); }
+    .evidence-more-body { display: grid; gap: 16px; padding-top: 16px; font-size: 13px; }
+    .evidence-more-body p { margin: 0; color: var(--text-sub); white-space: pre-wrap; }
+    .evidence-more-body code { color: var(--text-sub); font-size: 12px; }
+    .report-zero { display: flex; align-items: center; gap: 38px; padding: clamp(32px, 5vw, 60px); box-shadow: none; }
+    .report-zero-number { font-family: Georgia, "Noto Serif SC", "Songti SC", serif; font-size: 86px; line-height: 1; color: var(--text); }
+    .report-zero h2 { font-size: clamp(20px, 3vw, 30px); margin: 0 0 8px; }
+    .report-zero p { color: var(--muted); margin: 0 0 16px; font-size: 14px; max-width: 62ch; }
+    .report-zero-inline { padding: 40px 20px; }
+    .report-zero-inline p { margin: 0; }
+    /* 指标和发现项只在信号与实例明确时关联；横轴使用真实采样时间。 */
+    /* Link findings to metrics only by explicit signal and instance; use real sample timestamps on the x-axis. */
+    .finding-trend { margin: 22px 0 0 44px; padding: 19px 22px; border: 1px solid var(--border); background: var(--panel); min-width: 0; }
+    .finding-trend-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px; }
+    .finding-trend-head strong { color: var(--text); font-size: 15px; }
+    .finding-trend-value { color: var(--text); text-align: right; font-size: 21px; font-weight: 650; font-variant-numeric: tabular-nums; }
+    .finding-trend-value small { display: block; color: var(--muted); font-size: 11px; font-weight: 400; }
+    .finding-range-switch { display: flex; flex-wrap: wrap; gap: 12px; margin: 15px 0 4px; border-bottom: 1px solid var(--border); }
+    .finding-range-switch button { border: 0; border-bottom: 2px solid transparent; padding: 8px 3px; background: transparent; color: var(--muted); cursor: pointer; font-size: 12px; }
+    .finding-range-switch button[aria-pressed="true"] { color: var(--text); border-color: var(--primary); font-weight: 650; }
+    .finding-range-switch button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+    .finding-trend-panel { overflow-x: auto; }
+    .finding-trend-panel[hidden] { display: none; }
+    .evidence-trend-svg { display: block; width: 100%; min-width: 460px; height: auto; max-height: 290px; }
+    .evidence-trend-threshold { stroke: var(--warn); stroke-width: 1.4; stroke-dasharray: 5 4; }
+    .evidence-trend-marker { stroke: var(--warn); stroke-width: 1.2; stroke-dasharray: 3 4; }
+    .evidence-trend-path { fill: none; stroke: var(--primary); stroke-width: 2.7; stroke-linecap: round; stroke-linejoin: round; }
+    .evidence-trend-point { fill: var(--panel); stroke: var(--primary); stroke-width: 1.6; }
+    .evidence-trend-point:focus-visible { stroke: var(--warn); stroke-width: 3; outline: none; }
+    .evidence-trend-axis { fill: var(--muted); font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    .finding-trend-single { padding: 22px 0; color: var(--muted); font-size: 13px; }
+    /* 时间线与指标采用可核查的单列布局，避免把不同实例的采样挤在一起。 */
+    /* Keep timestamped events and per-instance samples readable in one column. */
+    .report-data-section { box-shadow: none; }
+    .report-data-section .section-heading { margin-bottom: 25px; }
+    .report-data-section .section-heading p { margin: 7px 0 0; }
+    .report-event-list { gap: 0; max-width: 980px; }
+    .report-event-list .timeline-item { border-bottom: 1px solid var(--border); padding: 14px 0; }
+    .report-event-source { display: inline-block; margin-top: 8px; font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); }
+    .report-signal-list { display: grid; gap: 16px; }
+    .report-signal-row { border: 1px solid var(--border); padding: clamp(18px, 3vw, 30px); min-width: 0; }
+    .report-signal-row .finding-trend-value { margin: 22px 0 8px; text-align: left; }
+    .report-signal-row .finding-trend-panel { max-width: 1020px; }
+    .finding-source-links { display: flex; flex-wrap: wrap; gap: 9px 24px; margin-top: 16px; font-size: 12px; }
+    .finding-source-links a:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
+    .report-artifact-index { border: 1px solid var(--border); padding: 18px 22px; margin-bottom: 18px; }
+    .report-artifact-index > summary { cursor: pointer; font-weight: 650; }
+    .report-artifact-index > summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
+    .report-artifact-index > p { margin: 12px 0; }
+    .report-artifact-group { border-top: 1px solid var(--border); padding: 13px 0 2px; }
+    .report-artifact-group h3 { font-size: 14px; margin: 0 0 8px; }
+    .report-artifact-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 20px; padding: 9px 0; font-size: 12px; }
+    .report-artifact-row strong { margin-right: 12px; }
+    .report-artifact-row a, .report-artifact-row code { overflow-wrap: anywhere; }
+    .report-artifact-row a:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
+    .finding-trend-footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 5px 16px; padding-top: 11px; border-top: 1px solid var(--border); color: var(--muted); font-size: 11px; }
+    .finding-trend-event { margin-top: 10px; color: var(--text-sub); font-size: 12px; }
+    @media (max-width: 700px) {
+      .report-intro-main, .report-overline { flex-wrap: wrap; }
+      .report-intro-main { padding-top: 34px; }
+      .report-count { align-items: flex-start; }
+      .report-section-head { flex-wrap: wrap; }
+      .evidence-index-item { gap: 10px; }
+      .evidence-item { padding: 18px 14px; }
+      .evidence-observed, .evidence-more, .finding-trend { margin-left: 0; }
+      .finding-trend { padding: 16px 12px; }
+      .report-zero { align-items: flex-start; gap: 18px; }
+      .report-zero-number { font-size: 64px; }
+    }
+
     @media (max-width: 1280px) {
       .report-shell {
         grid-template-columns: 1fr;
@@ -5837,7 +6863,7 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       }
       .sidebar-nav {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
       }
     }
     @media (max-width: 1120px) {
@@ -5847,11 +6873,11 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
       }
     }
     @media (max-width: 900px) {
-      body { padding: 16px; }
-      .section, .hero { padding: 18px; }
+      body { padding: 14px; }
+      .section, .hero { padding: 16px; }
       .dl-row {
         grid-template-columns: 1fr;
-        gap: 6px;
+        gap: 4px;
       }
       .metric-grid,
       .stat-grid,
@@ -5863,301 +6889,416 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
         grid-template-columns: 1fr;
       }
     }
+
+    /* 原型的纸面式信息布局；仅更换展示方式，不更改观测数据。 */
+    /* Editorial report layout from the approved prototype; collected observations are unchanged. */
+    :root, html[data-theme="light"] {
+      --bg:#f6f6f2; --panel:#fff; --panel-soft:#f7f8f8; --panel-hover:#f1f3f3;
+      --border:#dce1e4; --border-strong:#c4cdd2; --text:#172942; --text-sub:#3b4b60;
+      --muted:#697586; --primary:#19466d; --primary-soft:#eaf1f5; --primary-border:#c4d2dc;
+      --warn:#966514; --warn-soft:#fff5dd; --critical:#af423e; --critical-soft:#fdf0ed;
+      --radius-lg:4px; --radius-md:4px; --radius-sm:3px;
+    }
+    html[data-theme="dark"]:root {
+      --bg:#101821; --panel:#18232e; --panel-soft:#1c2b36; --panel-hover:#233440;
+      --border:#34424d; --border-strong:#53616b; --text:#edf1f3; --text-sub:#c3cdd2;
+      --muted:#a0adb6; --primary:#accbd9; --primary-soft:#263f4d; --primary-border:#53616b;
+      --warn:#f1c377; --warn-soft:#413728; --critical:#ffaaa2; --critical-soft:#493237;
+    }
+    [hidden] { display:none !important; }
+    body { padding:0; font-family:-apple-system,BlinkMacSystemFont,"Noto Sans SC","PingFang SC",sans-serif; line-height:1.55; }
+    .page.report-shell { max-width:1680px; margin:0 auto; gap:0; grid-template-columns:238px minmax(0,1fr); align-items:stretch; }
+    .report-sidebar { position:sticky; top:0; height:100vh; max-height:100vh; min-height:0; border:0; border-right:1px solid var(--border); border-radius:0; box-shadow:none; background:var(--bg); padding:34px 20px 20px 28px; }
+    .sidebar-brand { border-bottom:1px solid var(--border-strong); padding:0 10px 28px; margin:0; }
+    .stx-brand-title { font:700 28px/1 Georgia,"Noto Serif SC",serif; letter-spacing:.025em; }
+    .stx-brand-subtitle { font-size:10px; letter-spacing:.08em; margin-top:4px; }
+    .sidebar-run-meta { padding:24px 10px 17px; margin:0; gap:6px; }
+    .sidebar-run-meta span:first-child { color:var(--text); font:13px ui-monospace,SFMono-Regular,monospace; }
+    .sidebar-nav { gap:2px; }
+    .sidebar-link { border:0; border-left:2px solid transparent; border-radius:0 4px 4px 0; padding:10px 12px; font-size:13px; }
+    .sidebar-link:hover { border-color:transparent; }
+    .sidebar-link.active { border-left-color:var(--primary); border-radius:0 4px 4px 0; background:var(--primary-soft); color:var(--text); }
+    .sidebar-footer { border-top:1px solid var(--border); margin-top:auto; padding-top:20px; }
+    .report-main { min-height:100vh; padding:0 clamp(28px,4.8vw,80px) 90px; }
+    .report-masthead { max-width:1140px; margin:0 auto; display:flex; justify-content:space-between; gap:18px; padding:29px 0 23px; border-bottom:1px solid var(--border-strong); color:var(--muted); font-size:12px; }
+    .report-masthead strong { color:var(--text); font-weight:600; }
+    .tab-page { max-width:1140px; margin:0 auto; min-height:auto; }
+    .tab-page.active { display:block; }
+    .tab-page.active > .section:last-child,.tab-page.active > .hero:last-child { flex:auto; }
+    .tab-page .section,.tab-page .hero { border:0; border-radius:0; background:transparent; box-shadow:none; padding:0; margin:0; }
+    .report-intro { border-bottom:1px solid var(--border-strong) !important; padding:55px 0 46px !important; }
+    .report-overline { border:0; padding:0; color:var(--primary); letter-spacing:.08em; font-size:12px; }
+    .report-overline span:last-child { display:none; }
+    .report-intro-main { padding-top:22px; align-items:flex-end; }
+    .report-kicker { margin:0 0 8px; color:var(--muted); font-size:13px; font-weight:500; }
+    .report-intro h1 { font-size:clamp(38px,4.7vw,66px); line-height:1.18; letter-spacing:-.035em; }
+    .report-scope-line { margin-top:31px; font-size:13px; }
+    .report-count strong { font-size:clamp(50px,5.3vw,78px); }
+    .report-overview-findings { margin-top:43px !important; }
+    .report-section-head { border-bottom:1px solid var(--border-strong); padding:0 0 14px; margin:0; align-items:baseline; }
+    .report-section-head h2 { font-size:27px; letter-spacing:-.02em; }
+    .evidence-index-item { padding:25px 6px 24px; border-bottom:1px solid var(--border); }
+    .evidence-index-main strong { font-size:18px; }
+    .evidence-index-item:hover,.report-finding-row:hover { background:var(--panel-soft); }
+    .report-zero { border:0; border-bottom:1px solid var(--border-strong); padding:68px 0 !important; min-height:310px; gap:30px; }
+    .report-zero-number { font-size:clamp(72px,9vw,112px); }
+    .report-zero h2 { font-size:clamp(26px,3vw,38px); }
+    .report-page-title { padding:50px 0 30px; }
+    .report-eyebrow { display:block; color:var(--muted); font-size:11px; font-weight:700; letter-spacing:.11em; margin-bottom:10px; }
+    .report-page-title h1 { font:600 clamp(31px,3.5vw,51px)/1.2 Georgia,"Noto Serif SC","Songti SC",serif; letter-spacing:-.03em; }
+    .report-page-title p { margin-top:18px; color:var(--muted); font-size:13px; }
+    .report-finding-row { display:grid; grid-template-columns:30px minmax(0,1fr) auto; align-items:start; gap:18px; width:100%; border:0; border-bottom:1px solid var(--border); padding:25px 6px 24px; text-align:left; background:transparent; color:var(--text); cursor:pointer; }
+    .report-finding-row strong { display:block; font-size:18px; font-weight:650; }
+    .report-finding-row small { display:block; color:var(--muted); font-size:13px; margin-top:5px; line-height:1.55; }
+    .report-finding-row:focus-visible,.report-back:focus-visible { outline:2px solid var(--primary); outline-offset:3px; }
+    .report-back { border:0; background:transparent; color:var(--primary); cursor:pointer; font-size:12px; padding:4px 0; margin:0 0 26px; }
+    .evidence-item { border:0; border-top:3px solid var(--warn); padding:24px 0 30px; background:transparent; }
+    .evidence-item[data-severity="status-critical"] { border-top-color:var(--critical); }
+    .evidence-heading { gap:18px; }
+    .evidence-item h3 { font:600 clamp(27px,3.1vw,42px)/1.25 Georgia,"Noto Serif SC","Songti SC",serif; margin-top:16px; max-width:760px; }
+    .evidence-observed,.finding-trend,.evidence-more { margin-left:0; }
+    .evidence-observed { border-top:1px solid var(--border); margin-top:27px; padding:25px 0 28px; display:grid; grid-template-columns:170px minmax(0,1fr); gap:32px; }
+    .evidence-observed .evidence-label { color:var(--primary); }
+    .finding-trend { border:0; border-top:1px solid var(--border); padding:25px 0 31px; margin:0; background:transparent; }
+    .finding-trend-head { max-width:850px; }
+    .finding-trend-panel { border:1px solid var(--border); background:var(--panel); padding:20px; margin:18px 0 0; }
+    .evidence-more { border-top:1px solid var(--border); margin:0; padding:25px 0; }
+    .report-data-section .section-heading { border:0; padding:0; margin:0 0 18px; }
+    .report-data-section .section-heading h2 { font-size:24px; }
+    .report-event-list .timeline-item { grid-template-columns:160px minmax(0,1fr); gap:16px; }
+    .report-event-list .timeline-dot-wrap { display:none; }
+    .report-event-list .timeline-content { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:4px 18px; }
+    .report-event-list .timeline-content .muted { grid-column:1/-1; }
+    .report-event-source { grid-column:2; grid-row:1; margin:0; white-space:nowrap; }
+    .report-signal-row { background:var(--panel); border:1px solid var(--border); padding:24px 26px; }
+    .report-artifact-index,.detail-panel { border:1px solid var(--border); border-radius:0; box-shadow:none; }
+    .inner-tab-toolbar { border-bottom:1px solid var(--border); gap:2px; overflow-x:auto; white-space:nowrap; }
+    .inner-tab-btn { border-radius:0; }
+    .copyable-block pre,.log-preview pre { max-height:350px; overflow:auto; }
+    @media(max-width:780px) {
+      .page.report-shell { display:block; }
+      .report-sidebar { position:static; height:auto; max-height:none; padding:15px 16px 0; border:0; border-bottom:1px solid var(--border); }
+      .sidebar-brand,.sidebar-run-meta,.sidebar-footer { display:none; }
+      .sidebar-nav { display:flex; flex-wrap:nowrap; overflow-x:auto; white-space:nowrap; padding-bottom:12px; }
+      .sidebar-link { width:auto; flex:0 0 auto; border-left:0; border-bottom:2px solid transparent; }
+      .sidebar-link.active { border-left:0; border-bottom:2px solid var(--primary); }
+      .report-main { padding:0 17px 50px; }
+      .report-intro { padding:39px 0 30px !important; }
+      .report-intro-main,.report-zero { display:block; }
+      .evidence-observed { grid-template-columns:1fr; gap:8px; }
+      .report-event-list .timeline-item { grid-template-columns:110px minmax(0,1fr); }
+      .report-event-source { grid-column:1/-1; grid-row:auto; white-space:normal; }
+      .report-finding-row { grid-template-columns:25px minmax(0,1fr); gap:10px; }
+      .report-finding-row .badge { grid-column:2; justify-self:start; }
+      .report-masthead span:last-child { display:none; }
+    }
+    @media print { .report-sidebar,.report-masthead,.report-back { display:none!important; } .page.report-shell { display:block; } .report-main { padding:0; } }
+
 </style>
 </head>
 <body>
   <div class="page report-shell">
     <aside class="report-sidebar">
       <div class="sidebar-brand">
-        <div class="eyebrow">STX</div>
-        <div class="title">{{pair "诊断报告" "Diagnostic Report"}}</div>
+        <div class="stx-brand-lockup">
+          <img src="{{stxBrandMark}}" alt="STX" class="stx-brand-logo" />
+          <div class="stx-brand-text">
+            <span class="stx-brand-title">STX</span>
+            <span class="stx-brand-subtitle">{{pair "诊断报告" "Diagnostic Report"}}</span>
+          </div>
+        </div>
       </div>
-      <div class="sidebar-meta">
-        <div class="sidebar-meta-card">
-          <div class="label">{{pair "风险" "Risk"}}</div>
-          <div class="value">{{loc .Health.Tone}} · {{.Health.ClusterLabel}}</div>
-        </div>
-        <div class="sidebar-meta-card">
-          <div class="label">{{pair "时间范围" "Window"}}</div>
-          <div class="value">{{.Health.WindowLabel}}</div>
-        </div>
-        <div class="sidebar-meta-card">
-          <div class="label">{{pair "生成时间" "Generated"}}</div>
-          <div class="value">{{formatTime .GeneratedAt}}</div>
-        </div>
+      <div class="sidebar-run-meta">
+        <span>{{pair "报告" "Report"}} #{{.Task.ID}}</span>
+        <span title="{{.Health.ClusterLabel}}">{{.Health.ClusterLabel}}</span>
       </div>
       <nav class="sidebar-nav">
         <a class="sidebar-link active" data-tab-link="tab-overview" href="#tab-overview">
           <div class="meta">
             <div class="title">{{pair "总览" "Overview"}}</div>
           </div>
-          <span class="count">1</span>
         </a>
         <a class="sidebar-link" data-tab-link="tab-findings" href="#tab-findings">
           <div class="meta">
-            <div class="title">{{pair "关键发现" "Findings"}}</div>
+            <div class="title">{{pair "需关注的证据" "Findings to Review"}}</div>
           </div>
-          <span class="count">{{len .Findings}}</span>
+          {{if .Findings}}<span class="count warn">{{len .Findings}}</span>{{end}}
         </a>
         <a class="sidebar-link" data-tab-link="tab-timeline" href="#tab-timeline">
           <div class="meta">
             <div class="title">{{pair "时间线" "Timeline"}}</div>
           </div>
-          <span class="count">{{len .Timeline}}</span>
+          {{if .Timeline}}<span class="count">{{len .Timeline}}</span>{{end}}
         </a>
         <a class="sidebar-link" data-tab-link="tab-signals" href="#tab-signals">
           <div class="meta">
             <div class="title">{{pair "指标" "Signals"}}</div>
           </div>
-          <span class="count">{{if .MetricsSnapshot}}{{.MetricsSnapshot.SignalCount}}{{else}}0{{end}}</span>
+          {{if .MetricsSnapshot}}{{if gt .MetricsSnapshot.SignalCount 0}}<span class="count">{{.MetricsSnapshot.SignalCount}}</span>{{end}}{{end}}
         </a>
         <a class="sidebar-link" data-tab-link="tab-evidence" href="#tab-evidence">
           <div class="meta">
-            <div class="title">{{pair "相关证据" "Evidence"}}</div>
+            <div class="title">{{pair "原始证据" "Collected Evidence"}}</div>
           </div>
-          <span class="count">{{if .ErrorContext}}{{.ErrorContext.RecentEventCount}}{{else}}0{{end}}</span>
+          {{if .ErrorContext}}{{if gt .ErrorContext.RecentEventCount 0}}<span class="count">{{.ErrorContext.RecentEventCount}}</span>{{end}}{{end}}
         </a>
         <a class="sidebar-link" data-tab-link="tab-appendix" href="#tab-appendix">
           <div class="meta">
-            <div class="title">{{pair "更多信息" "More"}}</div>
+            <div class="title">{{pair "附录" "Appendix"}}</div>
           </div>
-          <span class="count">{{len .TaskExecution.Steps}}</span>
         </a>
       </nav>
+      <div class="sidebar-footer">
+        <button class="sidebar-action-btn" id="theme-toggle-btn" type="button" title="{{pair "切换浅色/暗色模式" "Toggle Light/Dark Theme"}}">
+          <span class="theme-icon-light" style="display: none;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+          </span>
+          <span class="theme-icon-dark" style="display: none;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+          </span>
+          <span id="theme-toggle-label">{{pair "切换主题" "Switch Theme"}}</span>
+        </button>
+        <button class="sidebar-action-btn" type="button" onclick="window.print()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V2h12v7"></path><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+          <span>{{pair "打印 / 导出 PDF" "Print / Export PDF"}}</span>
+        </button>
+      </div>
     </aside>
 
     <main class="report-main">
+    <div class="report-masthead"><span>STX / {{pair "巡检报告" "Inspection Report"}} <strong>#{{.Task.ID}}</strong></span><span>{{.Health.ClusterLabel}}</span></div>
     <div class="tab-page active" id="tab-overview" data-tab-page="tab-overview">
-    <header class="hero">
-      <div class="hero-grid">
-        <div class="hero-main">
-          <div class="hero-badges">
-            <span class="badge {{statusClass .Health.Tone}}">{{loc .Health.Tone}}</span>
-            <span class="badge">{{.Health.ClusterLabel}}</span>
-            <span class="badge">{{.Health.WindowLabel}}</span>
-          </div>
-          <div class="hero-kicker">STX</div>
-          <h1 class="hero-title">{{pair "诊断报告" "Diagnostic Report"}}</h1>
-          <div class="muted small" style="margin-top: 10px;">{{pair "生成时间" "Generated"}} {{formatTime .GeneratedAt}}</div>
-          <h2 style="margin: 16px 0 0; font-size: 28px; line-height: 1.3; color: #0f172a;">{{loc .Health.Title}}</h2>
-          <p class="hero-summary">{{loc .Health.Summary}}</p>
-          <div class="summary-grid" style="margin-top: 24px;">
-            <div class="stat-card">
-              <div class="label">{{pair "影响范围" "Impact"}}</div>
-              <div class="value" style="font-size: 18px;">{{loc .Health.ImpactSummary}}</div>
-            </div>
-            <div class="stat-card">
-              <div class="label">{{pair "优先排查" "Priority"}}</div>
-              <div class="value" style="font-size: 18px;">{{loc .Health.PrimaryFocus}}</div>
-            </div>
-          </div>
+    <header class="hero report-intro">
+      <div class="report-overline">
+        <span>STX / {{pair "诊断报告" "Diagnostic Report"}}</span>
+        <span>{{pair "报告" "Report"}} #{{.Task.ID}}</span>
+      </div>
+      <div class="report-intro-main">
+        <div>
+          <div class="report-kicker">{{.Health.ClusterLabel}} · {{.Health.WindowLabel}}</div>
+          <h1>{{if .Findings}}{{pair "需关注的证据" "Evidence to Review"}}{{else if .CollectionIncomplete}}{{pair "采集未完整完成" "Collection Incomplete"}}{{else}}{{pair "本次未生成结构化发现项" "No Structured Findings in This Run"}}{{end}}</h1>
+          <div class="report-scope-line">{{pair "生成于" "Generated"}} {{formatTime .GeneratedAt}}</div>
         </div>
-        <aside class="hero-side {{toneClass .Health.Tone}}">
-          <div class="side-label">{{pair "建议动作" "Suggested Actions"}}</div>
-          {{if .Recommendations}}
-          <div class="list">
-            {{range .Recommendations}}
-            <div class="entry" style="background: rgba(255,255,255,0.78);">
-              <div class="entry-title">{{loc .Title}}</div>
-              <div class="muted small" style="margin-top: 6px;">{{loc .Details}}</div>
-            </div>
-            {{end}}
-          </div>
-          {{else}}
-          <div class="empty">{{pair "当前没有额外建议，可直接查看关键发现与时间线。" "No extra advice is available for now."}}</div>
-          {{end}}
-          <div class="side-label" style="margin-top: 18px;">{{pair "核心指标" "Key Signals"}}</div>
-          <div class="metric-grid">
-            {{range .Health.Metrics}}
-            <div class="metric-card">
-              <div class="label">{{loc .Label}}</div>
-              <div class="value">{{.Value}}</div>
-              {{if .Note}}<div class="note">{{loc .Note}}</div>{{end}}
-            </div>
-            {{end}}
-          </div>
-        </aside>
+        {{if .Findings}}
+        <div class="report-count" aria-label="{{pair "发现项数量" "Finding count"}}">
+          <strong>{{len .Findings}}</strong>
+          <span>{{pair "项发现" "findings"}}</span>
+        </div>
+        {{end}}
       </div>
     </header>
 
-    <section class="section" id="focus">
-      <div class="section-heading">
-        <div>
-          <h2>{{pair "结论摘要" "Executive Summary"}}</h2>
-        </div>
+    {{if .Findings}}
+    <section class="section report-overview-findings" aria-label="{{pair "需关注的证据" "Evidence to Review"}}">
+      <div class="report-section-head">
+        <h2>{{pair "本次发现" "Findings in This Run"}}</h2>
+        <a href="#tab-findings">{{pair "查看全部证据" "View All Findings"}} →</a>
       </div>
-      <div class="inner-tab-toolbar">
-        <button type="button" class="inner-tab-btn active" data-inner-tab-group="overview" data-inner-tab-key="summary">{{pair "摘要" "Summary"}}</button>
-        <button type="button" class="inner-tab-btn" data-inner-tab-group="overview" data-inner-tab-key="next">{{pair "继续查看" "Explore More"}}</button>
-      </div>
-      <div class="inner-tab-panel active" data-inner-tab-group="overview" data-inner-tab-key="summary">
-        <div class="summary-grid">
-          <article class="focus-panel {{toneClass .Health.Tone}}">
-            <div class="focus-label">{{pair "风险等级" "Risk Level"}}</div>
-            <h3>{{loc .Health.Tone}}</h3>
-            <p>{{loc .Health.Summary}}</p>
-          </article>
-          <article class="focus-panel">
-            <div class="focus-label">{{pair "核心现象" "Core Signals"}}</div>
-            <p>{{loc .Health.PrimaryFocus}}</p>
-            {{if .ErrorContext}}<div class="panel-note">{{pair "主要错误" "Top error"}}: {{.ErrorContext.GroupTitle}}</div>{{end}}
-          </article>
-          <article class="focus-panel">
-            <div class="focus-label">{{pair "影响范围" "Blast Radius"}}</div>
-            <p>{{loc .Health.ImpactSummary}}</p>
-            <div class="panel-note">{{.Health.WindowLabel}}</div>
-          </article>
-        </div>
-      </div>
-      <div class="inner-tab-panel" data-inner-tab-group="overview" data-inner-tab-key="next">
-        <div class="overview-drill-grid">
-          <a class="drill-card" href="#tab-findings">
-            <div class="title">{{pair "关键发现" "Findings"}}</div>
-            <div class="count">{{len .Findings}}</div>
-            <div class="desc">{{pair "查看最需要优先处理的问题和建议动作。" "Review the most urgent issues and next actions."}}</div>
-          </a>
-          <a class="drill-card" href="#tab-timeline">
-            <div class="title">{{pair "时间线" "Timeline"}}</div>
-            <div class="count">{{len .Timeline}}</div>
-            <div class="desc">{{pair "按时间查看异常、事件和峰值的先后关系。" "See the order of anomalies, events and peaks over time."}}</div>
-          </a>
-          <a class="drill-card" href="#tab-signals">
-            <div class="title">{{pair "指标" "Signals"}}</div>
-            <div class="count">{{if .MetricsSnapshot}}{{.MetricsSnapshot.SignalCount}}{{else}}0{{end}}</div>
-            <div class="desc">{{pair "查看关键指标和趋势变化。" "Inspect prioritized signals and their trends."}}</div>
-          </a>
-          <a class="drill-card" href="#tab-evidence">
-            <div class="title">{{pair "相关证据" "Evidence"}}</div>
-            <div class="count">{{if .ErrorContext}}{{.ErrorContext.RecentEventCount}}{{else}}0{{end}}</div>
-            <div class="desc">{{pair "查看日志、配置和运行时上下文。" "Open logs, config and runtime context."}}</div>
-          </a>
-        </div>
+      <div class="evidence-index">
+        {{range $index, $finding := .Findings}}
+        {{if lt $index 3}}
+        <a class="evidence-index-item" href="#tab-findings" data-finding-target="finding-{{$index}}">
+          <span class="evidence-index-number">{{printf "%02d" (inc $index)}}</span>
+          <span class="evidence-index-main">
+            <strong>{{loc $finding.Title}}</strong>
+            <span>{{if $finding.Evidence}}{{loc $finding.Evidence}}{{else}}{{loc $finding.Summary}}{{end}}</span>
+          </span>
+          <span class="badge {{statusClass $finding.Severity}}">{{severityLabel $finding.Severity}}</span>
+        </a>
+        {{end}}
+        {{end}}
       </div>
     </section>
+    {{else}}
+    <section class="section report-zero" aria-label="{{pair "本次发现项" "Findings in This Run"}}">
+      <span class="report-zero-number" aria-hidden="true">{{if .CollectionIncomplete}}—{{else}}0{{end}}</span>
+      <div>
+        <h2>{{if .CollectionIncomplete}}{{pair "采集未完整完成" "Collection Incomplete"}}{{else}}{{pair "本次未生成结构化发现项" "No Structured Findings in This Run"}}{{end}}</h2>
+        <p>{{if .CollectionIncomplete}}{{pair "当前没有可展示的发现项；部分采集未成功，请查看执行记录，不能据此判断没有问题。" "No findings to display; some collection failed. Check execution records before drawing conclusions."}}{{else}}{{pair "仅表示本次时间窗内的已执行检查没有产生发现项。" "Only checks run in this time window produced no findings."}}{{end}}</p>
+        <a href="#tab-evidence">{{pair "查看采集证据" "View Collected Evidence"}} →</a>
+      </div>
+    </section>
+    {{end}}
     </div>
 
     <div class="tab-page" id="tab-findings" data-tab-page="tab-findings">
-    <section class="section" id="findings">
-      <div class="section-heading">
-        <div>
-          <h2>{{pair "关键发现" "Critical Findings"}}</h2>
-        </div>
+    <section class="section report-findings" id="findings">
+      <div data-findings-index>
+      <div class="report-page-title"><span class="report-eyebrow">01 / FINDINGS</span><h1>{{pair "发现项" "Findings"}}</h1><p>{{pair "按观测证据查看，不根据时间邻近推断原因。" "Review observed evidence without inferring causes from nearby timestamps."}}</p></div>
+      <div class="report-section-head">
+        <h2>{{pair "需关注的证据" "Evidence to Review"}}</h2>
+        {{if .Findings}}<span class="muted small">{{len .Findings}} {{pair "项" "items"}}</span>{{end}}
       </div>
       {{if .Findings}}
-      <div class="finding-grid">
-        {{range .Findings}}
-        <article class="finding-card">
-          <div class="finding-meta">
+      <div class="report-finding-index">
+        {{range $index, $finding := .Findings}}
+        <button type="button" class="report-finding-row" data-finding-target="finding-{{$index}}">
+          <span class="evidence-index-number">{{printf "%02d" (inc $index)}}</span>
+          <span><strong>{{loc $finding.Title}}</strong><small>{{if $finding.Evidence}}{{loc $finding.Evidence}}{{else}}{{loc $finding.Summary}}{{end}}</small></span>
+          <span class="badge {{statusClass $finding.Severity}}">{{severityLabel $finding.Severity}}</span>
+        </button>
+        {{end}}
+      </div>
+      </div>
+      <div class="evidence-list">
+        {{range $index, $finding := .Findings}}
+        <article id="finding-{{$index}}" class="evidence-item" data-finding-detail hidden data-severity="{{statusClass $finding.Severity}}">
+          <button type="button" class="report-back" data-finding-back>← {{pair "返回发现项" "Back to Findings"}}</button>
+          <div class="report-eyebrow">FINDING / {{printf "%02d" (inc $index)}}</div>
+          <div class="evidence-heading">
+            <span class="evidence-index-number">{{printf "%02d" (inc $index)}}</span>
             <div>
-              <div class="entry-title">{{loc .Title}}</div>
-              <div class="muted small">{{loc .Category}}</div>
+              <div class="evidence-meta">
+                <span class="badge {{statusClass $finding.Severity}}">{{severityLabel $finding.Severity}}</span>
+                {{if $finding.Origin}}<span>{{loc $finding.Origin}}</span>{{end}}
+              </div>
+              <h3>{{loc $finding.Title}}</h3>
+              {{if and $finding.Summary (ne $finding.Summary $finding.Title) (ne $finding.Summary "-")}}<p class="evidence-observation">{{loc $finding.Summary}}</p>{{end}}
             </div>
-            <span class="badge {{statusClass .Severity}}">{{loc .Severity}}</span>
           </div>
-          <div>{{loc .Summary}}</div>
-          <div class="muted small" style="margin-top: 10px;">{{loc .Impact}}</div>
-          <div class="callout" style="margin-top: 12px;">{{loc .Action}}</div>
+          <div class="evidence-observed">
+            <div class="evidence-label">{{pair "观测依据" "Observed Evidence"}}</div>
+            <div class="evidence-value">{{if $finding.Evidence}}{{loc $finding.Evidence}}{{else}}{{loc $finding.Summary}}{{end}}</div>
+          </div>
+          {{if $finding.Metric}}
+          <div class="finding-trend" aria-label="{{pair "该指标的真实采样" "Collected Metric Samples"}}">
+            <div class="finding-trend-head">
+              <div>
+                <strong>{{pair "对应时间范围的指标" "Metric in This Time Window"}}</strong>
+                <div class="muted small">{{$finding.Metric.Instance}} · {{$finding.Metric.SignalKey}}</div>
+              </div>
+              <div class="finding-trend-value">{{$finding.Metric.LastValue}}<small>{{pair "最近采样" "Last sample"}} · {{$finding.Metric.LastAt}}</small></div>
+            </div>
+            {{if $finding.Metric.HasTrend}}
+            {{if $finding.Metric.FocusPoints}}
+            <div class="finding-range-switch" role="group" aria-label="{{pair "趋势时间范围" "Trend Time Window"}}">
+              <button type="button" data-trend-range="full" data-trend-group="finding-{{$index}}" aria-pressed="true">{{pair "本次采集窗口" "Collection Window"}}</button>
+              <button type="button" data-trend-range="focus" data-trend-group="finding-{{$index}}" aria-pressed="false">{{pair "首次越阈前后" "Around First Breach"}}</button>
+            </div>
+            {{end}}
+            <div class="finding-trend-panel" data-trend-panel="finding-{{$index}}" data-trend-window="full">
+              {{evidenceChartSVG $finding.Metric false}}
+            </div>
+            {{if $finding.Metric.FocusPoints}}
+            <div class="finding-trend-panel" data-trend-panel="finding-{{$index}}" data-trend-window="focus" hidden>
+              {{evidenceChartSVG $finding.Metric true}}
+            </div>
+            {{end}}
+            {{else}}
+            <div class="finding-trend-single">{{pair "没有足够的连续采样，不能画趋势；最近一次采样值见上方。" "Not enough adjacent samples for a trend; the latest sample is shown above."}}</div>
+            {{end}}
+            <div class="finding-trend-footer">
+              <span>{{pair "采集范围" "Collected"}} · {{formatTime $finding.Metric.WindowStart}} → {{formatTime $finding.Metric.WindowEnd}}</span>
+              <span>{{pair "阈值" "Threshold"}} · {{$finding.Metric.ThresholdText}} · Prometheus</span>
+            </div>
+            {{if $finding.Metric.HasGaps}}<div class="finding-trend-event">{{pair "采样存在缺口，曲线已断开。" "Sampling gaps are shown as breaks in the line."}}</div>{{end}}
+            {{if $finding.Metric.FirstBreach}}<div class="finding-trend-event">{{pair "首次越阈采样" "First Breaching Sample"}} · {{formatTime $finding.Metric.FirstBreach}}</div>{{end}}
+            <nav class="finding-source-links" aria-label="{{pair "关联证据入口" "Evidence Links"}}"><a href="#tab-timeline">{{pair "事件时间线" "Event Timeline"}} →</a><a href="#tab-evidence">{{pair "原始证据" "Collected Evidence"}} →</a><a href="#tab-signals">{{pair "全部指标" "All Signals"}} →</a></nav>
+          </div>
+          {{end}}
+          {{if or $finding.CheckCode (and $finding.Action (ne $finding.Action "-"))}}
+          <details class="evidence-more">
+            <summary>{{pair "检查信息与排查方向" "Check Details & Investigation"}} <span aria-hidden="true">→</span></summary>
+            <div class="evidence-more-body">
+              {{if $finding.CheckCode}}<div><span class="evidence-label">{{pair "检查代码" "Check Code"}}</span><code>{{$finding.CheckCode}}</code></div>{{end}}
+              {{if and $finding.Action (ne $finding.Action "-")}}<div><span class="evidence-label">{{pair "排查方向" "Further Investigation"}}</span><p>{{loc $finding.Action}}</p></div>{{end}}
+            </div>
+          </details>
+          {{end}}
         </article>
         {{end}}
       </div>
       {{else}}
-      <div class="empty">{{pair "当前诊断窗口内没有生成结构化关键发现，请继续查看相关证据确认是否存在偶发问题。" "No structured findings were generated in this window. Continue with the evidence view if needed."}}</div>
+      </div>
+      <div class="report-zero report-zero-inline">
+        <span class="report-zero-number" aria-hidden="true">{{if .CollectionIncomplete}}—{{else}}0{{end}}</span>
+        <p>{{if .CollectionIncomplete}}{{pair "采集未完整完成，当前没有可展示的发现项；请查看附录中的执行记录。" "Collection incomplete; no findings to display. Check execution records in the appendix."}}{{else}}{{pair "本次未生成结构化发现项。可查看其他采集证据。" "No structured findings in this run. Other collected evidence is still available."}}{{end}}</p>
+      </div>
       {{end}}
     </section>
     </div>
 
     <div class="tab-page" id="tab-timeline" data-tab-page="tab-timeline">
-    <section class="section" id="categories">
-      <div class="section-heading">
-        <div>
-          <h2>{{pair "根因分类" "Root Cause Categories"}}</h2>
+    <header class="report-page-title"><span class="report-eyebrow">02 / TIMELINE</span><h1>{{pair "事件时间线" "Event Timeline"}}</h1><p>{{pair "按原始记录时间排序；时间邻近不表示因果关系。" "Sorted by recorded time; proximity does not imply causation."}}</p></header>
+    <section class="section report-data-section" id="timeline">
+      <div class="section-heading"><div><h2>{{pair "带时间的记录" "Timestamped Records"}}</h2>
+        <p class="muted small">{{pair "按原始记录时间排序；时间邻近不表示因果关系。" "Sorted by recorded time; proximity does not imply causation."}}</p></div></div>
+      {{if .Timeline}}
+      <div class="timeline-list report-event-list">
+        {{range .Timeline}}
+        <div class="timeline-item">
+          <time class="timeline-time" datetime="{{.OccurredAt.Format "2006-01-02T15:04:05Z07:00"}}">{{.TimeLabel}}</time>
+          <div class="timeline-dot-wrap"><span class="timeline-dot {{toneClass .Tone}}"></span></div>
+          <div class="timeline-content"><div class="entry-title">{{loc .Title}}</div>
+            <div class="muted small">{{loc .Details}}</div><span class="report-event-source">{{loc .Source}}</span></div>
         </div>
+        {{end}}
       </div>
-      <div class="grid-2">
-        <div class="category-grid">
-          {{range .Categories}}
-          <article class="category-card">
-            <div class="category-meta">
-              <div class="entry-title">{{loc .Label}}</div>
-              <div class="category-count">{{.Count}}</div>
-            </div>
-            <div class="muted small">{{loc .Note}}</div>
-          </article>
-          {{end}}
-        </div>
-        <div class="detail-panel">
-          <div class="panel-label">{{pair "时间线" "Timeline"}}</div>
-          {{if .Timeline}}
-          <div class="timeline-list">
-            {{range .Timeline}}
-            <div class="timeline-item">
-              <div class="timeline-time">{{.TimeLabel}}</div>
-              <div class="timeline-dot-wrap"><span class="timeline-dot {{toneClass .Tone}}"></span></div>
-              <div class="timeline-content">
-                <div class="entry-title">{{loc .Title}}</div>
-                <div class="muted small" style="margin-top: 4px;">{{loc .Details}}</div>
-              </div>
-            </div>
-            {{end}}
-          </div>
-          {{else}}
-          <div class="empty">{{pair "当前没有可展示的时间线事件。" "No timeline events are available for this report."}}</div>
-          {{end}}
-        </div>
-      </div>
+      {{else}}<div class="empty">{{pair "本次没有可展示的带时间记录；可查看原始证据。" "No timestamped events to show; check the collected evidence."}}</div>{{end}}
     </section>
     </div>
 
     <div class="tab-page" id="tab-signals" data-tab-page="tab-signals">
-    <section class="section" id="signals">
-      <div class="section-heading">
-        <div>
-          <h2>{{pair "重点指标" "Key Signals"}}</h2>
-        </div>
-      </div>
+    <header class="report-page-title"><span class="report-eyebrow">03 / SIGNALS</span><h1>{{pair "指标采样" "Metric Samples"}}</h1><p>{{pair "按信号与实例查看；缺少连续采样时不画曲线。" "View each signal and instance; no line is drawn without adjacent samples."}}</p></header>
+    <section class="section report-data-section" id="signals">
+      <div class="section-heading"><div><h2>{{pair "采集序列" "Collected Series"}}</h2>
+        <p class="muted small">{{pair "按信号和实例分别展示；单点值不画趋势，缺口不连线。" "Each signal and instance is separate; single samples and gaps are not joined."}}</p></div></div>
       {{if .KeySignals}}
-      <div class="signal-card-grid">
+      <div class="report-signal-list">
         {{range .KeySignals}}
-        <article class="signal-card">
-          <div class="signal-head">
-            <div>
-              <div class="entry-title">{{loc .Title}}</div>
-              <div class="muted small">{{loc .ThresholdText}}</div>
-            </div>
-            <span class="badge {{statusClass .Status}}">{{loc .Status}}</span>
-          </div>
-          <div class="signal-stats">
-            <div class="signal-stat"><div class="label">{{pair "实例" "Instance"}}</div><div class="value">{{.Instance}}</div></div>
-            <div class="signal-stat"><div class="label">{{pair "峰值" "Peak"}}</div><div class="value">{{.PeakValue}}</div></div>
-            <div class="signal-stat"><div class="label">{{pair "最新值" "Last"}}</div><div class="value">{{.LastValue}}</div></div>
-          </div>
-          {{metricChartSVG .Points .Threshold .Comparator .Unit}}
-          <div class="muted small" style="margin-top: 12px;">{{pair "峰值时间" "Peak At"}} {{.PeakAt}}</div>
-          <div style="margin-top: 10px;">{{loc .Interpretation}}</div>
+        <article class="report-signal-row">
+          <div class="finding-trend-head"><div><strong>{{loc .Title}}</strong><div class="muted small">{{.Instance}} · {{.Key}} · Prometheus</div></div>
+            <span class="badge {{statusClass .Status}}">{{loc .Status}}</span></div>
+          {{if .Metric}}
+          <div class="finding-trend-value">{{.LastValue}}<small>{{pair "最近采样" "Last sample"}} · {{.Metric.LastAt}}</small></div>
+          {{if .Metric.HasTrend}}<div class="finding-trend-panel">{{evidenceChartSVG .Metric false}}</div>
+          {{else}}<div class="finding-trend-single">{{pair "没有足够的连续采样，不能画趋势。" "Not enough adjacent samples for a trend."}}</div>{{end}}
+          {{if .Metric.HasGaps}}<div class="finding-trend-event">{{pair "采样存在缺口，曲线已断开。" "Sampling gaps are shown as breaks in the line."}}</div>{{end}}
+          <div class="finding-trend-footer"><span>{{pair "采集范围" "Collected"}} · {{formatTime .Metric.WindowStart}} → {{formatTime .Metric.WindowEnd}} · {{pair "采样步长" "Step"}} {{.Metric.StepSeconds}}s</span>
+            <span>{{pair "阈值" "Threshold"}} · {{.ThresholdText}}</span></div>
+          {{end}}
         </article>
         {{end}}
       </div>
-      {{else}}
-      <div class="empty">{{pair "未采集到关键指标信号。" "No prioritized signals are available for this report."}}</div>
-      {{end}}
+      {{else}}<div class="empty">{{pair "没有可展示的指标采样；检查附录中的采集步骤。" "No metric samples available; check collection steps in the appendix."}}</div>{{end}}
     </section>
     </div>
 
     <div class="tab-page" id="tab-evidence" data-tab-page="tab-evidence">
+    <header class="report-page-title"><span class="report-eyebrow">04 / EVIDENCE</span><h1>{{pair "原始证据" "Collected Evidence"}}</h1><p>{{pair "查看原文与来源；长内容按需展开。" "Inspect records and sources; expand long content only when needed."}}</p></header>
     <section class="section" id="evidence">
-      <div class="section-heading">
-        <div>
-          <h2>{{pair "相关证据" "Evidence"}}</h2>
-        </div>
-      </div>
+      <div class="section-heading"><div>
+        <h2>{{pair "按类型查看" "Browse by Type"}}</h2>
+        <p class="muted small">{{pair "保留采集来源与原文，配置预览显示脱敏副本。" "Collected sources and original records; configuration previews are redacted."}}</p>
+      </div></div>
       <div class="inner-tab-toolbar">
         <button type="button" class="inner-tab-btn active" data-inner-tab-group="evidence" data-inner-tab-key="error">{{pair "错误" "Errors"}}</button>
         <button type="button" class="inner-tab-btn" data-inner-tab-group="evidence" data-inner-tab-key="inspection">{{pair "巡检" "Inspection"}}</button>
         <button type="button" class="inner-tab-btn" data-inner-tab-group="evidence" data-inner-tab-key="config">{{pair "配置" "Config"}}</button>
         <button type="button" class="inner-tab-btn" data-inner-tab-group="evidence" data-inner-tab-key="metrics">{{pair "指标" "Signals"}}</button>
+        <button type="button" class="inner-tab-btn" data-inner-tab-group="evidence" data-inner-tab-key="threaddump">{{pair "线程栈" "Thread Dumps"}}</button>
         <button type="button" class="inner-tab-btn" data-inner-tab-group="evidence" data-inner-tab-key="alerts">{{pair "告警" "Alerts"}}</button>
         <button type="button" class="inner-tab-btn" data-inner-tab-group="evidence" data-inner-tab-key="process">{{pair "进程" "Process"}}</button>
       </div>
+
+      {{if .ArtifactGroups}}
+      <details class="report-artifact-index">
+        <summary>{{pair "采集文件" "Collected Files"}} · {{len .ArtifactGroups}} {{pair "类" "groups"}}</summary>
+        <p class="muted small">{{pair "文件路径相对于诊断包；配置文件副本已脱敏。" "Paths are relative to the bundle; configuration copies are redacted."}}</p>
+        {{range .ArtifactGroups}}
+        <div class="report-artifact-group">
+          <h3>{{loc .Label}} <span class="muted small">{{len .Items}}</span></h3>
+          {{range .Items}}
+          <div class="report-artifact-row">
+            <div><strong>{{.HostLabel}}</strong><span class="muted small">{{.StepCode}} · {{.SizeLabel}}</span></div>
+            {{if .RelativePath}}<a href="{{artifactPreviewURL $.Task.ID .RelativePath}}" data-artifact-link data-local-path="{{.RelativePath}}" data-server-path="{{artifactPreviewURL $.Task.ID .RelativePath}}" target="_blank" rel="noopener noreferrer"><code>{{.RelativePath}}</code> ↗</a>
+            {{else}}<span class="muted small">{{pair "无可用文件入口" "No file link"}}</span>{{end}}
+          </div>
+          {{end}}
+        </div>
+        {{end}}
+      </details>
+      {{end}}
 
       <div class="inner-tab-panel active" data-inner-tab-group="evidence" data-inner-tab-key="error">
         <div class="detail-panel">
@@ -6177,24 +7318,24 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
             <table>
               <thead>
                 <tr>
-                  <th>{{pair "发生时间" "Occurred At"}}</th>
-                  <th>{{pair "主机" "Host"}}</th>
-                  <th>{{pair "角色" "Role"}}</th>
-                  <th>{{pair "作业 ID" "Job ID"}}</th>
-                  <th>{{pair "来源文件" "Source File"}}</th>
+                  <th class="col-time">{{pair "发生时间" "Occurred At"}}</th>
+                  <th class="col-host">{{pair "主机" "Host"}}</th>
+                  <th class="col-role">{{pair "角色" "Role"}}</th>
+                  <th class="col-id">{{pair "作业 ID" "Job ID"}}</th>
+                  <th class="col-file">{{pair "来源文件" "Source File"}}</th>
                 </tr>
               </thead>
               <tbody>
                 {{range .ErrorContext.Events}}
                 <tr>
-                  <td>{{.OccurredAt}}</td>
-                  <td>{{.HostLabel}}</td>
-                  <td>{{.Role}}</td>
-                  <td>{{.JobID}}</td>
-                  <td><code class="inline">{{.SourceFile}}</code></td>
+                  <td class="col-time">{{.OccurredAt}}</td>
+                  <td class="col-host">{{.HostLabel}}</td>
+                  <td class="col-role">{{.Role}}</td>
+                  <td class="col-id">{{.JobID}}</td>
+                  <td class="col-file"><code class="inline">{{.SourceFile}}</code></td>
                 </tr>
                 <tr>
-                  <td colspan="5">
+                  <td colspan="5" class="cell-wrap">
                     <div>{{.Message}}</div>
                     {{if .Evidence}}<div class="muted small wrap-text" style="margin-top: 6px;">{{.Evidence}}</div>{{end}}
                   </td>
@@ -6294,6 +7435,58 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
             <div class="stat-card"><div class="label">{{pair "目录清单" "Inventories"}}</div><div class="value">{{.ConfigSnapshot.DirectoryCount}}</div></div>
             <div class="stat-card"><div class="label">{{pair "配置变更" "DB Changes"}}</div><div class="value">{{.ConfigSnapshot.ChangedConfigCount}}</div></div>
           </div>
+          {{if .ConfigSnapshot.ConfigFileEntries}}
+          <div class="subsection">
+            <div class="subsection-label">{{pair "配置详情与预览" "Configurations & Previews"}}</div>
+            <div class="inner-tab-toolbar config-file-tabs" role="tablist" aria-label="{{pair "配置文件" "Configuration files"}}">
+              {{range $index, $file := .ConfigSnapshot.ConfigFileEntries}}
+              <button type="button" role="tab" id="config-file-tab-{{$index}}" aria-controls="config-file-panel-{{$index}}" aria-selected="{{if eq $index 0}}true{{else}}false{{end}}" tabindex="{{if eq $index 0}}0{{else}}-1{{end}}" class="inner-tab-btn{{if eq $index 0}} active{{end}}" data-inner-tab-group="config-files" data-inner-tab-key="{{$index}}" title="{{$file.RemotePath}}">
+                {{$file.ConfigType}} · {{if $file.HostName}}{{$file.HostName}}{{else}}{{pair "主机" "Host"}} #{{$file.HostID}}{{end}} / {{$file.Role}}
+              </button>
+              {{end}}
+            </div>
+            {{range $index, $file := .ConfigSnapshot.ConfigFileEntries}}
+            <div class="inner-tab-panel{{if eq $index 0}} active{{end}}" role="tabpanel" id="config-file-panel-{{$index}}" aria-labelledby="config-file-tab-{{$index}}" data-inner-tab-group="config-files" data-inner-tab-key="{{$index}}">
+              <div class="entry">
+                <div class="entry-header">
+                  <div>
+                    <div class="entry-title">{{.ConfigType}}</div>
+                    <div class="muted small">{{if .HostName}}{{.HostName}}{{else}}{{pair "主机" "Host"}} #{{.HostID}}{{end}} / {{.Role}}</div>
+                  </div>
+                </div>
+                <div class="muted small"><code class="inline">{{.RemotePath}}</code></div>
+                {{if .Items}}
+                <div class="dl" style="margin-top: 10px;">
+                  {{range .Items}}
+                  <div class="dl-row">
+                    <div class="dl-term">{{loc .Label}}</div>
+                    <div class="dl-value">{{.Value}}</div>
+                  </div>
+                  {{end}}
+                </div>
+                {{end}}
+                {{if .Preview}}
+                <details class="config-preview-details">
+                  <summary class="config-preview-summary">
+                    <span>{{pair "查看已脱敏配置" "View Redacted Config"}}</span>
+                  </summary>
+                  <div class="copyable-block">
+                    <div class="copyable-actions">
+                      <button type="button" class="copy-btn" data-copy-button>
+                        <span class="label-copy">{{pair "复制内容" "Copy"}}</span>
+                        <span class="label-copied">{{pair "已复制" "Copied"}}</span>
+                        <span class="label-failed">{{pair "复制失败" "Copy failed"}}</span>
+                      </button>
+                    </div>
+                    <pre>{{.Preview}}</pre>
+                  </div>
+                </details>
+                {{end}}
+              </div>
+            </div>
+            {{end}}
+          </div>
+          {{else}}
           {{if .ConfigSnapshot.KeyHighlights}}
           <div class="subsection">
             <div class="subsection-label">{{pair "关键配置摘要" "Key Runtime Settings"}}</div>
@@ -6348,6 +7541,7 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
             </div>
           </div>
           {{end}}
+          {{end}}
           {{if .ConfigSnapshot.RecentChanges}}
           <div class="subsection">
             <div class="subsection-label">{{pair "窗口内变化轨迹" "Change Timeline"}}</div>
@@ -6372,21 +7566,21 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
                 <table>
                   <thead>
                     <tr>
-                      <th>{{pair "更新时间" "Updated At"}}</th>
-                      <th>{{pair "配置类型" "Config Type"}}</th>
-                      <th>{{pair "范围" "Scope"}}</th>
-                      <th>{{pair "版本" "Version"}}</th>
-                      <th>{{pair "路径" "Path"}}</th>
+                      <th class="col-time">{{pair "更新时间" "Updated At"}}</th>
+                      <th class="col-type">{{pair "配置类型" "Config Type"}}</th>
+                      <th class="col-scope">{{pair "范围" "Scope"}}</th>
+                      <th class="col-version">{{pair "版本" "Version"}}</th>
+                      <th class="col-file">{{pair "路径" "Path"}}</th>
                     </tr>
                   </thead>
                   <tbody>
                     {{range .ConfigSnapshot.RemainingChanges}}
                     <tr>
-                      <td>{{formatTime .UpdatedAt}}</td>
-                      <td>{{.ConfigType}}</td>
-                      <td>{{.HostScope}}</td>
-                      <td>{{.Version}}</td>
-                      <td><code class="inline">{{.FilePath}}</code></td>
+                      <td class="col-time">{{formatTime .UpdatedAt}}</td>
+                      <td class="col-type">{{.ConfigType}}</td>
+                      <td class="col-scope">{{.HostScope}}</td>
+                      <td class="col-version">{{.Version}}</td>
+                      <td class="col-file"><code class="inline">{{.FilePath}}</code></td>
                     </tr>
                     {{end}}
                   </tbody>
@@ -6404,23 +7598,23 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
                 <table class="metric-signals-table">
                   <thead>
                     <tr>
-                      <th>{{pair "主机" "Host"}}</th>
-                      <th>{{pair "角色" "Role"}}</th>
-                      <th>{{pair "类型" "Type"}}</th>
-                      <th>{{pair "远程路径" "Remote Path"}}</th>
-                      <th>{{pair "大小" "Size"}}</th>
-                      <th>{{pair "哈希" "Hash"}}</th>
+                      <th class="col-host">{{pair "主机" "Host"}}</th>
+                      <th class="col-role">{{pair "角色" "Role"}}</th>
+                      <th class="col-type">{{pair "类型" "Type"}}</th>
+                      <th class="col-file">{{pair "远程路径" "Remote Path"}}</th>
+                      <th class="col-size">{{pair "大小" "Size"}}</th>
+                      <th class="col-hash">{{pair "哈希" "Hash"}}</th>
                     </tr>
                   </thead>
                   <tbody>
                     {{range .ConfigSnapshot.Files}}
                     <tr>
-                      <td>{{if .HostName}}{{.HostName}}{{else}}{{pair "主机" "Host"}} #{{.HostID}}{{end}}</td>
-                      <td>{{.Role}}</td>
-                      <td>{{.ConfigType}}</td>
-                      <td><code class="inline">{{.RemotePath}}</code></td>
-                      <td>{{formatBytes .SizeBytes}}</td>
-                      <td><code class="inline">{{shortHash .ContentHash}}</code></td>
+                      <td class="col-host">{{if .HostName}}{{.HostName}}{{else}}{{pair "主机" "Host"}} #{{.HostID}}{{end}}</td>
+                      <td class="col-role">{{.Role}}</td>
+                      <td class="col-type">{{.ConfigType}}</td>
+                      <td class="col-file"><code class="inline">{{.RemotePath}}</code></td>
+                      <td class="col-size">{{formatBytes .SizeBytes}}</td>
+                      <td class="col-hash"><code class="inline">{{shortHash .ContentHash}}</code></td>
                     </tr>
                     {{end}}
                   </tbody>
@@ -6445,19 +7639,19 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
                     <table>
                       <thead>
                         <tr>
-                          <th>{{pair "名称" "Name"}}</th>
-                          <th>{{pair "路径" "Path"}}</th>
-                          <th>{{pair "大小" "Size"}}</th>
-                          <th>{{pair "修改时间" "Modified"}}</th>
+                          <th class="col-name">{{pair "名称" "Name"}}</th>
+                          <th class="col-file">{{pair "路径" "Path"}}</th>
+                          <th class="col-size">{{pair "大小" "Size"}}</th>
+                          <th class="col-time">{{pair "修改时间" "Modified"}}</th>
                         </tr>
                       </thead>
                       <tbody>
                         {{range .Entries}}
                         <tr>
-                          <td>{{.Name}}</td>
-                          <td><code class="inline">{{.Path}}</code></td>
-                          <td>{{formatBytes .Size}}</td>
-                          <td>{{formatTime .ModTime}}</td>
+                          <td class="col-name">{{.Name}}</td>
+                          <td class="col-file"><code class="inline">{{.Path}}</code></td>
+                          <td class="col-size">{{formatBytes .Size}}</td>
+                          <td class="col-time">{{formatTime .ModTime}}</td>
                         </tr>
                         {{end}}
                       </tbody>
@@ -6471,23 +7665,35 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
           {{end}}
           {{if .ConfigSnapshot.CollectionNotes}}
           <div class="subsection">
-            <details>
-              <summary>{{pair "查看采集备注" "View collection notes"}}</summary>
-              <div class="list" style="margin-top: 12px;">
-                {{range .ConfigSnapshot.CollectionNotes}}
-                <div class="entry">
-                  <div class="entry-header">
-                    <div class="entry-title">{{if .ConfigType}}{{.ConfigType}}{{else}}{{pair "备注" "Note"}}{{end}}</div>
-                    <span class="badge">{{if .Role}}{{.Role}}{{else}}{{pair "系统" "System"}}{{end}}</span>
-                  </div>
-                  <div class="muted small">
-                    {{if .HostID}}{{pair "主机" "Host"}} #{{.HostID}}{{else}}{{pair "集群范围" "Cluster scope"}}{{end}}
-                  </div>
-                  <div style="margin-top: 6px;">{{loc .Message}}</div>
-                </div>
-                {{end}}
+            <div class="collection-notes-card">
+              <div class="collection-notes-header">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+                <span>{{pair "采集告警与环境提示" "Collection Warnings & Environment Hints"}} ({{len .ConfigSnapshot.CollectionNotes}})</span>
               </div>
-            </details>
+              <div class="collection-notes-hint">
+                {{pair "提示：若集群部署在系统临时目录（如 /tmp），操作系统定时维护机制（如 macOS tmp_cleaner 或 Linux systemd-tmpfiles）可能会自动清理活跃配置文件，导致采集失败或仅残留 .bak 备份文件。建议将生产或长期运行的集群部署在标准工作路径（如 /opt 或 ~/.seatunnel）。" "Notice: If the cluster is deployed in system temporary directories (e.g. /tmp), OS periodic maintenance daemons (such as macOS tmp_cleaner or Linux systemd-tmpfiles) may purge active config files, causing collection failures or leaving only .bak backup files. Consider deploying long-running clusters to standard paths (e.g. /opt or ~/.seatunnel)."}}
+              </div>
+              <div class="table-wrap" style="margin-top: 10px;">
+                <table>
+                  <thead>
+                    <tr>
+                      <th class="col-type">{{pair "配置类型" "Config Type"}}</th>
+                      <th class="col-scope">{{pair "范围 / 主机" "Scope / Host"}}</th>
+                      <th class="col-desc">{{pair "采集说明" "Message"}}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {{range .ConfigSnapshot.CollectionNotes}}
+                    <tr>
+                      <td class="col-type"><strong>{{if .ConfigType}}{{.ConfigType}}{{else}}-{{end}}</strong></td>
+                      <td class="col-scope"><span class="badge">{{if .Role}}{{.Role}}{{else}}{{pair "系统" "System"}}{{end}}</span> {{if .HostID}}{{pair "主机" "Host"}} #{{.HostID}}{{else}}{{pair "集群" "Cluster"}}{{end}}</td>
+                      <td class="col-desc error-text">{{loc .Message}}</td>
+                    </tr>
+                    {{end}}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
           {{end}}
           {{else}}
@@ -6564,6 +7770,64 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
         </div>
       </div>
 
+      <div class="inner-tab-panel" data-inner-tab-group="evidence" data-inner-tab-key="threaddump">
+        <div class="detail-panel">
+          <div class="panel-label">{{pair "线程栈快照" "Thread Dumps"}}</div>
+          {{if .ThreadDumps}}
+          <div class="stat-grid">
+            <div class="stat-card"><div class="label">{{pair "快照总数" "Total Dumps"}}</div><div class="value">{{len .ThreadDumps}}</div></div>
+          </div>
+          <div class="list" style="margin-top: 14px;">
+            {{range .ThreadDumps}}
+            <div class="entry">
+              <div class="entry-header">
+                <div>
+                  <div class="entry-title">{{pair "线程栈快照" "Thread Dump"}} · {{.Role}}</div>
+                  <div class="muted small">{{.HostLabel}} · {{pair "工具" "Tool"}}: <code class="inline">{{if .Tool}}{{.Tool}}{{else}}jcmd Thread.print{{end}}</code> · {{pair "大小" "Size"}}: {{.SizeLabel}} ({{.TotalLines}} {{pair "行" "lines"}})</div>
+                </div>
+              </div>
+              <div class="copyable-block" style="margin-top: 10px;">
+                <div class="copyable-actions">
+                  <button type="button" class="copy-btn" data-copy-button>
+                    <span class="label-copy">{{pair "复制预览" "Copy Preview"}}</span>
+                    <span class="label-copied">{{pair "已复制" "Copied"}}</span>
+                    <span class="label-failed">{{pair "复制失败" "Copy failed"}}</span>
+                  </button>
+                  {{if .RelativePath}}
+                  <button
+                    type="button"
+                    class="log-action-btn"
+                    data-full-log-button
+                    data-log-relative-path="{{.RelativePath}}"
+                    data-log-preview-url="{{.PreviewURL}}"
+                    data-log-title="{{.HostLabel}} · {{pair "线程栈" "Thread Dump"}} ({{.Role}})"
+                  >
+                    {{pair "查看完整堆栈" "View Full Thread Dump"}}
+                  </button>
+                  <a
+                    class="log-action-btn"
+                    data-full-log-link
+                    data-log-relative-path="{{.RelativePath}}"
+                    data-log-preview-url="{{.PreviewURL}}"
+                    href="{{.RelativePath}}"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    {{pair "新窗口打开" "Open in New Window"}}
+                  </a>
+                  {{end}}
+                </div>
+                <pre>{{.Preview}}</pre>
+              </div>
+            </div>
+            {{end}}
+          </div>
+          {{else}}
+          <div class="empty">{{pair "未采集到线程栈快照，或任务未勾选线程栈采集选项。" "No thread dump captured, or thread dump collection was not selected for this task."}}</div>
+          {{end}}
+        </div>
+      </div>
+
       <div class="inner-tab-panel" data-inner-tab-group="evidence" data-inner-tab-key="alerts">
         <div class="detail-panel">
           <div class="panel-label">{{pair "告警快照" "Alert Snapshot"}}</div>
@@ -6620,21 +7884,21 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
             <table class="process-events-table">
               <thead>
                 <tr>
-                  <th>{{pair "发生时间" "Created At"}}</th>
-                  <th>{{pair "事件类型" "Event Type"}}</th>
-                  <th>{{pair "进程" "Process"}}</th>
-                  <th>{{pair "节点" "Node"}}</th>
-                  <th>{{pair "详情" "Details"}}</th>
+                  <th class="col-time">{{pair "发生时间" "Created At"}}</th>
+                  <th class="col-type">{{pair "事件类型" "Event Type"}}</th>
+                  <th class="col-proc">{{pair "进程" "Process"}}</th>
+                  <th class="col-node">{{pair "节点" "Node"}}</th>
+                  <th class="col-desc">{{pair "详情" "Details"}}</th>
                 </tr>
               </thead>
               <tbody>
                 {{range .ProcessEvents.Events}}
                 <tr>
-                  <td>{{.CreatedAt}}</td>
-                  <td>{{loc .EventType}}</td>
-                  <td>{{.ProcessName}}</td>
-                  <td>{{.NodeLabel}}</td>
-                  <td>{{loc .Details}}</td>
+                  <td class="col-time">{{.CreatedAt}}</td>
+                  <td class="col-type">{{loc .EventType}}</td>
+                  <td class="col-proc">{{.ProcessName}}</td>
+                  <td class="col-node">{{.NodeLabel}}</td>
+                  <td class="col-desc">{{loc .Details}}</td>
                 </tr>
                 {{end}}
               </tbody>
@@ -6649,10 +7913,11 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
     </div>
 
     <div class="tab-page" id="tab-appendix" data-tab-page="tab-appendix">
+    <header class="report-page-title"><span class="report-eyebrow">05 / APPENDIX</span><h1>{{pair "附录" "Appendix"}}</h1><p>{{pair "任务、执行结果与节点信息。" "Task metadata, execution and node details."}}</p></header>
     <section class="section" id="task-overview">
       <div class="section-heading">
         <div>
-          <h2>{{pair "更多信息" "More"}}</h2>
+          <h2>{{pair "任务记录" "Task Records"}}</h2>
         </div>
       </div>
       <div class="inner-tab-toolbar">
@@ -6670,21 +7935,30 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
               <div class="dl-row"><div class="dl-term">{{pair "创建人" "Created By"}}</div><div class="dl-value">{{.Task.CreatedBy}}</div></div>
               <div class="dl-row"><div class="dl-term">{{pair "开始时间" "Started At"}}</div><div class="dl-value">{{formatTime .Task.StartedAt}}</div></div>
               <div class="dl-row"><div class="dl-term">{{pair "完成时间" "Completed At"}}</div><div class="dl-value">{{formatTime .Task.CompletedAt}}</div></div>
-              <div class="dl-row"><div class="dl-term">{{pair "诊断包目录" "Bundle Dir"}}</div><div class="dl-value"><code class="inline">{{.Task.BundleDir}}</code></div></div>
-              <div class="dl-row"><div class="dl-term">{{pair "清单文件" "Manifest"}}</div><div class="dl-value"><code class="inline">{{.Task.ManifestPath}}</code></div></div>
-              <div class="dl-row"><div class="dl-term">{{pair "报告入口" "Report Index"}}</div><div class="dl-value"><code class="inline">{{.Task.IndexPath}}</code></div></div>
             </div>
+            <details class="debug-details">
+              <summary>{{pair "查看诊断包内部存储路径" "View bundle storage paths"}}</summary>
+              <div class="dl">
+                <div class="dl-row"><div class="dl-term">{{pair "诊断包目录" "Bundle Dir"}}</div><div class="dl-value"><code class="inline">{{.Task.BundleDir}}</code></div></div>
+                <div class="dl-row"><div class="dl-term">{{pair "清单文件" "Manifest"}}</div><div class="dl-value"><code class="inline">{{.Task.ManifestPath}}</code></div></div>
+                <div class="dl-row"><div class="dl-term">{{pair "报告入口" "Report Index"}}</div><div class="dl-value"><code class="inline">{{.Task.IndexPath}}</code></div></div>
+              </div>
+            </details>
           </div>
 
           <div class="detail-panel">
             <div class="panel-label">{{pair "来源与选项" "Source & Options"}}</div>
             <div class="dl">
               {{range .SourceTraceability}}
+              {{if and (ne .Value "-") (ne .Value "")}}
               <div class="dl-row"><div class="dl-term">{{loc .Label}}</div><div class="dl-value">{{loc .Value}}</div></div>
               {{end}}
-              <div class="dl-row"><div class="dl-term">{{pair "线程栈" "Thread Dump"}}</div><div class="dl-value">{{if .Task.Options.IncludeThreadDump}}{{pair "已开启" "Enabled"}}{{else}}{{pair "已关闭" "Disabled"}}{{end}}</div></div>
+              {{end}}
+              <div class="dl-row"><div class="dl-term">{{pair "线程栈采集" "Thread Dump"}}</div><div class="dl-value">{{if .Task.Options.IncludeThreadDump}}{{pair "已开启" "Enabled"}}{{else}}{{pair "已关闭" "Disabled"}}{{end}}</div></div>
               <div class="dl-row"><div class="dl-term">JVM Dump</div><div class="dl-value">{{if .Task.Options.IncludeJVMDump}}{{pair "已开启" "Enabled"}}{{else}}{{pair "已关闭" "Disabled"}}{{end}}</div></div>
-              <div class="dl-row"><div class="dl-term">{{pair "JVM Dump 最小剩余空间" "Min Free Space for JVM Dump"}}</div><div class="dl-value">{{.Task.Options.JVMDumpMinFreeMB}} MB</div></div>
+              {{if .Task.Options.IncludeJVMDump}}
+              <div class="dl-row"><div class="dl-term">{{pair "JVM Dump 最小空间" "Min Free Space"}}</div><div class="dl-value">{{.Task.Options.JVMDumpMinFreeMB}} MB</div></div>
+              {{end}}
             </div>
           </div>
         </div>
@@ -6697,19 +7971,19 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
               <table>
                 <thead>
                   <tr>
-                    <th>{{pair "主机" "Host"}}</th>
-                    <th>{{pair "角色" "Role"}}</th>
-                    <th>{{pair "集群节点" "Cluster Node"}}</th>
-                    <th>{{pair "安装目录" "Install Dir"}}</th>
+                    <th class="col-host">{{pair "主机" "Host"}}</th>
+                    <th class="col-role">{{pair "角色" "Role"}}</th>
+                    <th class="col-node">{{pair "集群节点" "Cluster Node"}}</th>
+                    <th class="col-file">{{pair "安装目录" "Install Dir"}}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {{range .Task.SelectedNodes}}
                   <tr>
-                    <td>{{.HostLabel}}</td>
-                    <td>{{.Role}}</td>
-                    <td>{{.ClusterNode}}</td>
-                    <td><code class="inline">{{.InstallDir}}</code></td>
+                    <td class="col-host">{{.HostLabel}}</td>
+                    <td class="col-role">{{.Role}}</td>
+                    <td class="col-node">{{.ClusterNode}}</td>
+                    <td class="col-file"><code class="inline">{{.InstallDir}}</code></td>
                   </tr>
                   {{end}}
                 </tbody>
@@ -6721,13 +7995,16 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
           </div>
 
           <div class="detail-panel">
-            <div class="panel-label">{{pair "已确认正常" "Confirmed Normal"}}</div>
+            <div class="panel-label">{{pair "已确认正常项" "Confirmed Normal"}} ({{if .PassedChecks}}{{len .PassedChecks}}{{else}}0{{end}})</div>
             {{if .PassedChecks}}
-            <div class="list">
+            <div class="passed-checklist-grid">
               {{range .PassedChecks}}
-              <div class="entry">
-                <div class="entry-title">{{loc .Title}}</div>
-                <div class="muted" style="margin-top: 6px;">{{loc .Details}}</div>
+              <div class="passed-check-item">
+                <span class="check-icon">✓</span>
+                <div class="check-text">
+                  <div class="check-title">{{loc .Title}}</div>
+                  <div class="check-desc">{{loc .Details}}</div>
+                </div>
               </div>
               {{end}}
             </div>
@@ -6747,21 +8024,21 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
               <table>
                 <thead>
                   <tr>
-                    <th>#</th>
-                    <th>{{pair "步骤" "Step"}}</th>
-                    <th>{{pair "状态" "Status"}}</th>
-                    <th>{{pair "信息" "Message"}}</th>
-                    <th>{{pair "时间" "Time"}}</th>
+                    <th class="col-seq">#</th>
+                    <th class="col-step">{{pair "步骤" "Step"}}</th>
+                    <th class="col-status">{{pair "状态" "Status"}}</th>
+                    <th class="col-desc">{{pair "信息" "Message"}}</th>
+                    <th class="col-time">{{pair "时间" "Time"}}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {{range .TaskExecution.Steps}}
                   <tr>
-                    <td>{{.Sequence}}</td>
-                    <td><strong>{{loc .Title}}</strong><div class="muted small">{{.Code}}</div></td>
-                    <td><span class="badge {{statusClass .Status}}">{{loc .Status}}</span></td>
-                    <td>{{if ne .Error "-"}}{{loc .Error}}{{else}}{{loc .Message}}{{end}}</td>
-                    <td>{{.StartedAt}} → {{.CompletedAt}}</td>
+                    <td class="col-seq">{{.Sequence}}</td>
+                    <td class="col-step"><strong>{{loc .Title}}</strong><div class="muted small">{{.Code}}</div></td>
+                    <td class="col-status"><span class="badge {{statusClass .Status}}">{{loc .Status}}</span></td>
+                    <td class="col-desc">{{if ne .Error "-"}}{{loc .Error}}{{else}}{{loc .Message}}{{end}}</td>
+                    <td class="col-time">{{.StartedAt}} → {{.CompletedAt}}</td>
                   </tr>
                   {{end}}
                 </tbody>
@@ -6779,21 +8056,21 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
               <table>
                 <thead>
                   <tr>
-                    <th>{{pair "主机" "Host"}}</th>
-                    <th>{{pair "角色" "Role"}}</th>
-                    <th>{{pair "状态" "Status"}}</th>
-                    <th>{{pair "当前步骤" "Current Step"}}</th>
-                    <th>{{pair "信息" "Message"}}</th>
+                    <th class="col-host">{{pair "主机" "Host"}}</th>
+                    <th class="col-role">{{pair "角色" "Role"}}</th>
+                    <th class="col-status">{{pair "状态" "Status"}}</th>
+                    <th class="col-step">{{pair "当前步骤" "Current Step"}}</th>
+                    <th class="col-desc">{{pair "信息" "Message"}}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {{range .TaskExecution.Nodes}}
                   <tr>
-                    <td>{{.HostLabel}}</td>
-                    <td>{{.Role}}</td>
-                    <td><span class="badge {{statusClass .Status}}">{{loc .Status}}</span></td>
-                    <td>{{loc .CurrentStep}}</td>
-                    <td>{{if ne .Error "-"}}{{loc .Error}}{{else}}{{loc .Message}}{{end}}</td>
+                    <td class="col-host">{{.HostLabel}}</td>
+                    <td class="col-role">{{.Role}}</td>
+                    <td class="col-status"><span class="badge {{statusClass .Status}}">{{loc .Status}}</span></td>
+                    <td class="col-step">{{loc .CurrentStep}}</td>
+                    <td class="col-desc">{{if ne .Error "-"}}{{loc .Error}}{{else}}{{loc .Message}}{{end}}</td>
                   </tr>
                   {{end}}
                 </tbody>
@@ -6826,23 +8103,23 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
               <table>
                 <thead>
                   <tr>
-                    <th>{{pair "主机" "Host"}}</th>
-                    <th>{{pair "集群节点" "Cluster Node"}}</th>
-                    <th>{{pair "角色" "Role"}}</th>
-                    <th>{{pair "状态" "Status"}}</th>
-                    <th>PID</th>
-                    <th>{{pair "安装目录" "Install Dir"}}</th>
+                    <th class="col-host">{{pair "主机" "Host"}}</th>
+                    <th class="col-node">{{pair "集群节点" "Cluster Node"}}</th>
+                    <th class="col-role">{{pair "角色" "Role"}}</th>
+                    <th class="col-status">{{pair "状态" "Status"}}</th>
+                    <th class="col-id">PID</th>
+                    <th class="col-file">{{pair "安装目录" "Install Dir"}}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {{range .Cluster.Nodes}}
                   <tr>
-                    <td>{{.HostLabel}}</td>
-                    <td>#{{.ClusterNodeID}}</td>
-                    <td>{{.Role}}</td>
-                    <td><span class="badge {{statusClass .Status}}">{{loc .Status}}</span></td>
-                    <td>{{.ProcessPID}}</td>
-                    <td><code class="inline">{{.InstallDir}}</code></td>
+                    <td class="col-host">{{.HostLabel}}</td>
+                    <td class="col-node">#{{.ClusterNodeID}}</td>
+                    <td class="col-role">{{.Role}}</td>
+                    <td class="col-status"><span class="badge {{statusClass .Status}}">{{loc .Status}}</span></td>
+                    <td class="col-id">{{.ProcessPID}}</td>
+                    <td class="col-file"><code class="inline">{{.InstallDir}}</code></td>
                   </tr>
                   {{end}}
                 </tbody>
@@ -6910,6 +8187,10 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
           const activate = (key) => {
             buttons.forEach((button) => {
               button.classList.toggle('active', button.dataset.innerTabKey === key);
+              if (button.getAttribute('role') === 'tab') {
+                button.setAttribute('aria-selected', String(button.dataset.innerTabKey === key));
+                button.tabIndex = button.dataset.innerTabKey === key ? 0 : -1;
+              }
             });
             panels.forEach((panel) => {
               panel.classList.toggle('active', panel.dataset.innerTabKey === key);
@@ -6918,6 +8199,19 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
           const initial = buttons.find((button) => button.classList.contains('active'))?.dataset.innerTabKey || buttons[0].dataset.innerTabKey;
           buttons.forEach((button) => {
             button.addEventListener('click', () => activate(button.dataset.innerTabKey));
+            if (button.getAttribute('role') === 'tab') {
+              // 配置页签支持方向键与首尾跳转。 / Configuration tabs support arrow, Home and End keys.
+              button.addEventListener('keydown', (event) => {
+                const index = buttons.indexOf(button);
+                const next = event.key === 'ArrowRight' ? (index + 1) % buttons.length
+                  : event.key === 'ArrowLeft' ? (index - 1 + buttons.length) % buttons.length
+                  : event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : -1;
+                if (next < 0) return;
+                event.preventDefault();
+                activate(buttons[next].dataset.innerTabKey);
+                buttons[next].focus();
+              });
+            }
           });
           activate(initial);
         });
@@ -6940,6 +8234,14 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
         } finally {
           document.body.removeChild(textarea);
         }
+      }
+      // 服务端报告走受权文件接口，离线报告改用包内相对路径。
+      // Server-hosted reports use the authorized file route; offline copies use bundle-relative paths.
+      function initArtifactLinks() {
+        document.querySelectorAll('[data-artifact-link]').forEach((link) => {
+          const path = window.location.protocol === 'file:' ? link.dataset.localPath : link.dataset.serverPath;
+          if (path) link.setAttribute('href', path);
+        });
       }
       function initCopyButtons() {
         const buttons = Array.from(document.querySelectorAll('[data-copy-button]'));
@@ -7054,10 +8356,107 @@ const diagnosticBundleHTMLTemplate = `<!DOCTYPE html>
         }
         window.scrollTo({top: 0, behavior: 'auto'});
       }
+      function initThemeToggle() {
+        const STORAGE_KEY = 'stx-diagnostic-theme';
+        const toggleBtn = document.getElementById('theme-toggle-btn');
+        const iconLight = toggleBtn ? toggleBtn.querySelector('.theme-icon-light') : null;
+        const iconDark = toggleBtn ? toggleBtn.querySelector('.theme-icon-dark') : null;
+        const label = document.getElementById('theme-toggle-label');
+        const isZH = {{if eq .Language "en"}}false{{else}}true{{end}};
+
+        function getStoredTheme() {
+          return localStorage.getItem(STORAGE_KEY);
+        }
+
+        function getSystemTheme() {
+          return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+
+        function applyTheme(theme) {
+          document.documentElement.setAttribute('data-theme', theme);
+          if (iconLight && iconDark) {
+            if (theme === 'dark') {
+              iconLight.style.display = 'inline-flex';
+              iconDark.style.display = 'none';
+              if (label) label.textContent = isZH ? '浅色模式' : 'Light Mode';
+            } else {
+              iconLight.style.display = 'none';
+              iconDark.style.display = 'inline-flex';
+              if (label) label.textContent = isZH ? '暗色模式' : 'Dark Mode';
+            }
+          }
+        }
+
+        const initialTheme = getStoredTheme() || getSystemTheme();
+        applyTheme(initialTheme);
+
+        if (window.matchMedia) {
+          window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+            if (!getStoredTheme()) {
+              applyTheme(e.matches ? 'dark' : 'light');
+            }
+          });
+        }
+
+        if (toggleBtn) {
+          toggleBtn.addEventListener('click', () => {
+            const current = document.documentElement.getAttribute('data-theme') || getSystemTheme();
+            const next = current === 'dark' ? 'light' : 'dark';
+            localStorage.setItem(STORAGE_KEY, next);
+            applyTheme(next);
+          });
+        }
+      }
+      // 趋势图的两段时间范围只切换现有采样，不请求或补造新数据。
+      // Trend windows switch pre-rendered real samples without fetching or inventing values.
+      document.querySelectorAll('[data-trend-range]').forEach((button) => {
+        button.addEventListener('click', () => {
+          const group = button.dataset.trendGroup;
+          const range = button.dataset.trendRange;
+          document.querySelectorAll('[data-trend-range]').forEach((item) => {
+            if (item.dataset.trendGroup === group) {
+              item.setAttribute('aria-pressed', String(item.dataset.trendRange === range));
+            }
+          });
+          document.querySelectorAll('[data-trend-panel]').forEach((panel) => {
+            if (panel.dataset.trendPanel === group) {
+              panel.hidden = panel.dataset.trendWindow !== range;
+            }
+          });
+        });
+      });
+      // 发现项列表与详情在同一页切换，保留键盘可用的返回入口。
+      // Finding list and detail share one page with a keyboard-accessible back control.
+      function showFinding(id) {
+        const index = document.querySelector('[data-findings-index]');
+        const details = Array.from(document.querySelectorAll('[data-finding-detail]'));
+        const target = details.find((item) => item.id === id);
+        if (index) index.hidden = Boolean(target);
+        details.forEach((item) => { item.hidden = item !== target; });
+        if (target) target.querySelector('[data-finding-back]')?.focus({ preventScroll: true });
+        window.scrollTo({ top: 0, behavior: 'auto' });
+      }
+      document.querySelectorAll('[data-finding-target]').forEach((link) => {
+        link.addEventListener('click', (event) => {
+          event.preventDefault();
+          history.replaceState(null, '', '#tab-findings');
+          applyTab();
+          showFinding(link.dataset.findingTarget);
+        });
+      });
+      document.querySelectorAll('[data-finding-back]').forEach((button) => {
+        button.addEventListener('click', () => {
+          showFinding('');
+          document.querySelector('[data-finding-target]')?.focus({ preventScroll: true });
+        });
+      });
+      document.querySelector('[data-tab-link="tab-findings"]')?.addEventListener('click', () => showFinding(''));
       window.addEventListener('hashchange', applyTab);
       initInnerTabs();
       initCopyButtons();
+      initArtifactLinks();
       initFullLogActions();
+      initThemeToggle();
       applyTab();
     })();
   </script>

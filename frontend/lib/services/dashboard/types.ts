@@ -344,11 +344,16 @@ export interface HostSummary {
 
 /**
  * Recent activity / 最近活动
+ * Prefer operator + source + action; message kept for compatibility.
+ * 优先展示操作人 + 来源 + 操作名；message 仅作兼容。
  */
 export interface RecentActivity {
   id: number;
   type: 'success' | 'warning' | 'info' | 'error';
-  message: string;
+  operator?: string;
+  source?: string;
+  action?: string;
+  message?: string;
   timestamp: string;
 }
 

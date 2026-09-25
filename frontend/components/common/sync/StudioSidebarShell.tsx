@@ -61,17 +61,20 @@ export function SidebarIconTab({
 }
 
 /**
- * 工作台侧边栏外壳容器
- * Studio sidebar shell container
+ * 工作台侧边栏外壳容器。
+ * contentMode=scroll：整页滚动（设置/版本等）；fill：子面板自管高度（模板管理列表吃满剩余空间）。
+ * Studio sidebar shell. scroll = page scroll; fill = child owns height (manage list fills leftover).
  */
 export function StudioSidebarShell({
   children,
   rail,
   className,
+  contentMode = 'scroll',
 }: {
   children: ReactNode;
   rail: ReactNode;
   className?: string;
+  contentMode?: 'scroll' | 'fill';
 }) {
   return (
     <Card
@@ -82,9 +85,15 @@ export function StudioSidebarShell({
     >
       <CardContent className='grid h-full min-h-0 min-w-0 grid-cols-[minmax(0,1fr)_40px] p-0'>
         <div className='min-h-0 min-w-0 overflow-hidden'>
-          <ScrollArea className='h-full'>
-            <div className='min-w-0 p-3'>{children}</div>
-          </ScrollArea>
+          {contentMode === 'fill' ? (
+            <div className='flex h-full min-h-0 min-w-0 flex-col overflow-hidden p-3'>
+              {children}
+            </div>
+          ) : (
+            <ScrollArea className='h-full'>
+              <div className='min-w-0 p-3'>{children}</div>
+            </ScrollArea>
+          )}
         </div>
         <div className='flex min-h-0 w-10 shrink-0 flex-col items-center gap-2 border-l border-border/50 bg-muted/10 py-3'>
           {rail}

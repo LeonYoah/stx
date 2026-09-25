@@ -153,9 +153,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # 用户名格式：区域@AK，例如 cn-east-3@HPUAKxxxx；密码为 SWR 控制台登录密钥。
-      # Username format: region@AK (e.g. cn-east-3@HPUAKxxxx); password is the SWR console login key.
+      # 用户名格式：区域@AK，例如 cn-east-3@HPUAKxxxx；密码为 SWR 控制台登录密钥（未配置时跳过）。
+      # Username format: region@AK (e.g. cn-east-3@HPUAKxxxx); password is SWR console login key (skipped if not configured).
       - name: Login to Huawei SWR
+        if: ${{ secrets.SWR_USERNAME != '' && secrets.SWR_PASSWORD != '' }}
         uses: docker/login-action@v3
         with:
           registry: ${{ env.SWR_REGISTRY }}
@@ -168,7 +169,7 @@ jobs:
         with:
           images: |
             ghcr.io/${{ steps.owner.outputs.value }}/${{ matrix.image_name }}
-            ${{ env.SWR_REGISTRY }}/${{ env.SWR_NAMESPACE }}/${{ matrix.image_name }}
+            ${{ (secrets.SWR_USERNAME != '' && secrets.SWR_PASSWORD != '') && format('{0}/{1}/{2}', env.SWR_REGISTRY, env.SWR_NAMESPACE, matrix.image_name) || '' }}
           tags: |
             type=ref,event=tag
             type=semver,pattern={{version}}

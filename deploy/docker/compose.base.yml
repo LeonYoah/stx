@@ -60,6 +60,7 @@ services:
     image: prom/prometheus:v3.9.1
     container_name: stx-prometheus
     restart: unless-stopped
+    user: "${PROMETHEUS_USER:-0:0}"
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
@@ -78,6 +79,7 @@ services:
     image: prom/alertmanager:v0.31.1
     container_name: stx-alertmanager
     restart: unless-stopped
+    user: "${ALERTMANAGER_USER:-0:0}"
     command:
       - --config.file=/etc/alertmanager/alertmanager.yml
       - --storage.path=/alertmanager
@@ -94,6 +96,7 @@ services:
     image: grafana/grafana:12.3.3
     container_name: stx-grafana
     restart: unless-stopped
+    user: "${GRAFANA_USER:-0:0}"
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}

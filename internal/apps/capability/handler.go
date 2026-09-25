@@ -45,6 +45,8 @@ type Operation struct {
 type Data struct {
 	APIVersion       string      `json:"api_version"`
 	ServerVersion    string      `json:"server_version"`
+	GitCommit        string      `json:"git_commit"`
+	BuildTime        string      `json:"build_time"`
 	MinCLIVersion    string      `json:"min_cli_version"`
 	RegistryRevision string      `json:"registry_revision"`
 	Operations       []Operation `json:"operations"`
@@ -86,10 +88,13 @@ func List(c *gin.Context) {
 		operations = append(operations, item)
 	}
 
+	info := stxversion.Current()
 	c.JSON(http.StatusOK, Response{Data: Data{
 		APIVersion:       "v1",
-		ServerVersion:    stxversion.Version,
-		MinCLIVersion:    stxversion.MinCLIVersion,
+		ServerVersion:    info.Version,
+		GitCommit:        info.GitCommit,
+		BuildTime:        info.BuildTime,
+		MinCLIVersion:    stxversion.Normalize(stxversion.MinCLIVersion),
 		RegistryRevision: operation.RegistryDigest(),
 		Operations:       operations,
 	}})

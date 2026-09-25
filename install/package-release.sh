@@ -358,14 +358,39 @@ if [[ "$DEPS_ONLY" != "true" ]]; then
   fi
 fi
 
+# 规范化产品版本（去掉 tag 的 v 前缀）供 ldflags 注入。
+# Normalize product version (strip tag v prefix) for ldflags injection.
+stx_product_version() {
+  local raw="${1:-}"
+  raw="${raw#v}"
+  raw="${raw#V}"
+  echo "$raw"
+}
+
+# 组装写入 internal/version 的 ldflags。
+# Build ldflags that stamp internal/version variables.
+stx_version_ldflags() {
+  local product_version
+  local git_commit
+  local build_time
+  product_version="$(stx_product_version "$APP_VERSION")"
+  git_commit="$(git -C "$ROOT_DIR" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+  build_time="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  printf -- '-X github.com/LeonYoah/stx/internal/version.Version=%s -X github.com/LeonYoah/stx/internal/version.GitCommit=%s -X github.com/LeonYoah/stx/internal/version.BuildTime=%s' \
+    "$product_version" "$git_commit" "$build_time"
+}
+
 # 构建指定架构的 STX 后端二进制。/ Build the STX backend binary for the requested architecture.
 build_stx_binary() {
   local arch="$1"
   local out="$BUILD_DIR/stx-linux-${arch}"
-  echo "building stx for linux/$arch ..."
+  local ldflags
+  ldflags="$(stx_version_ldflags)"
+  echo "building stx for linux/$arch (version=$(stx_product_version "$APP_VERSION")) ..."
   (
     cd "$ROOT_DIR"
-    GOOS=linux GOARCH="$arch" CGO_ENABLED=0 go build -o "$out" .
+    # shellcheck disable=SC2086
+    GOOS=linux GOARCH="$arch" CGO_ENABLED=0 go build -ldflags "$ldflags" -o "$out" .
   )
 }
 
@@ -373,16 +398,20 @@ build_stx_binary() {
 build_agent_binaries() {
   local out_amd64="$BUILD_DIR/stx-agent-linux-amd64"
   local out_arm64="$BUILD_DIR/stx-agent-linux-arm64"
+  local ldflags
+  ldflags="$(stx_version_ldflags)"
 
-  echo "building stx-agent for linux/amd64 ..."
+  echo "building stx-agent for linux/amd64 (version=$(stx_product_version "$APP_VERSION")) ..."
   (
     cd "$ROOT_DIR/agent"
-    GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o "$out_amd64" ./cmd
+    # shellcheck disable=SC2086
+    GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$ldflags" -o "$out_amd64" ./cmd
   )
-  echo "building stx-agent for linux/arm64 ..."
+  echo "building stx-agent for linux/arm64 (version=$(stx_product_version "$APP_VERSION")) ..."
   (
     cd "$ROOT_DIR/agent"
-    GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o "$out_arm64" ./cmd
+    # shellcheck disable=SC2086
+    GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "$ldflags" -o "$out_arm64" ./cmd
   )
 }
 

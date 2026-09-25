@@ -153,6 +153,9 @@ func Serve() {
 
 			// Health
 			apiV1Router.GET("/health", health.Health)
+			// 产品版本（公开，供控制台 About / 安装脚本探测）
+			// Product version (public; used by console About and install probes)
+			apiV1Router.GET("/version", capability.Version)
 
 			// Auth（统一认证接口，支持密码登录和 OAuth 登录）
 			apiV1Router.POST("/auth/login", auth.Login)

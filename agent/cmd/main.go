@@ -57,15 +57,8 @@ import (
 	"github.com/LeonYoah/stx/agent/internal/restart"
 	"github.com/LeonYoah/stx/internal/processidentity"
 	"github.com/LeonYoah/stx/internal/seatunnel"
+	stxversion "github.com/LeonYoah/stx/internal/version"
 	"github.com/spf13/cobra"
-)
-
-// Version information, set at build time
-// 版本信息，在构建时设置
-var (
-	Version   = "dev"
-	GitCommit = "unknown"
-	BuildTime = "unknown"
 )
 
 var agentLogTimestampPattern = regexp.MustCompile(`\b(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:,\d{3})?)\b`)
@@ -216,7 +209,7 @@ func (a *Agent) Run() error {
 	logger.InfoF(ctx, "  STX Agent Starting...")
 	logger.InfoF(ctx, "  STX Agent 正在启动...")
 	logger.InfoF(ctx, "========================================")
-	logger.InfoF(ctx, "Version: %s, Commit: %s, Build: %s", Version, GitCommit, BuildTime)
+	logger.InfoF(ctx, "Version: %s, Commit: %s, Build: %s", stxversion.Version, stxversion.GitCommit, stxversion.BuildTime)
 	logger.InfoF(ctx, "Control Plane: %v", a.config.ControlPlane.Addresses)
 	logger.InfoF(ctx, "Heartbeat Interval: %v", a.config.Heartbeat.Interval)
 	logger.InfoF(ctx, "Log Level: %s", a.config.Log.Level)
@@ -481,7 +474,7 @@ func (a *Agent) registerWithControlPlane() error {
 		IpAddress:    ipAddress,
 		OsType:       runtime.GOOS,
 		Arch:         runtime.GOARCH,
-		AgentVersion: Version,
+		AgentVersion: stxversion.Version,
 		SystemInfo:   sysInfo,
 		HostId:       a.config.Agent.HostID,
 		IpAddresses:  localIPs,
@@ -2052,7 +2045,7 @@ var versionCmd = &cobra.Command{
 		ctx := context.Background()
 		msg := fmt.Sprintf(
 			"STX Agent\n  Version:    %s\n  Git Commit: %s\n  Build Time: %s\n  Go Version: %s\n  OS/Arch:    %s/%s\n",
-			Version, GitCommit, BuildTime, runtime.Version(), runtime.GOOS, runtime.GOARCH,
+			stxversion.Version, stxversion.GitCommit, stxversion.BuildTime, runtime.Version(), runtime.GOOS, runtime.GOARCH,
 		)
 		// 同时打印到控制台和写入日志，保持 CLI 体验又统一日志出口
 		fmt.Print(msg)

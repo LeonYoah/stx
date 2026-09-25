@@ -401,6 +401,8 @@ type UserInfo struct {
 type CapabilityData struct {
 	APIVersion       string                `json:"api_version"`
 	ServerVersion    string                `json:"server_version"`
+	GitCommit        string                `json:"git_commit"`
+	BuildTime        string                `json:"build_time"`
 	MinCLIVersion    string                `json:"min_cli_version"`
 	RegistryRevision string                `json:"registry_revision"`
 	Operations       []CapabilityOperation `json:"operations"`

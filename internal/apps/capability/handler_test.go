@@ -157,6 +157,30 @@ func TestListRejectsTokenAfterUserDisabled(t *testing.T) {
 	}
 }
 
+func TestVersionEndpointReturnsProductVersion(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.GET("/api/v1/version", Version)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/version", nil)
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("version status = %d, want %d", recorder.Code, http.StatusOK)
+	}
+
+	var body VersionResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode version response: %v", err)
+	}
+	if body.Data.Version == "" {
+		t.Fatal("expected non-empty version")
+	}
+	if body.Data.MinCLIVersion == "" {
+		t.Fatal("expected non-empty min_cli_version")
+	}
+}
+
 func TestPermissionForOperationRequiresAdmin(t *testing.T) {
 	allowed, denialCode := permissionForOperation(operation.OperationSpec{AdminOnly: true}, &auth.User{IsAdmin: false})
 	if allowed || denialCode != "admin_required" {

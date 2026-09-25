@@ -27,7 +27,7 @@ package main
 import "github.com/LeonYoah/stx/internal/cmd"
 
 // @title STX
-// @version 0.1.0
+// @version 1.0.0
 func main() {
 	cmd.Execute()
 }

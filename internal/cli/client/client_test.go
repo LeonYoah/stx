@@ -28,9 +28,11 @@ import (
 
 	cliConfig "github.com/LeonYoah/stx/internal/cli/config"
 	clioutput "github.com/LeonYoah/stx/internal/cli/output"
+	stxversion "github.com/LeonYoah/stx/internal/version"
 )
 
 func TestRequestSetsCLIHeadersAndDecodesData(t *testing.T) {
+	expectedUA := "stx-cli/" + stxversion.Version
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.URL.Path != "/api/v1/test" {
 			t.Errorf("请求路径 = %s", request.URL.Path)
@@ -41,8 +43,8 @@ func TestRequestSetsCLIHeadersAndDecodesData(t *testing.T) {
 		if request.Header.Get("X-STX-Client") != "cli" {
 			t.Errorf("X-STX-Client 请求头错误: %q", request.Header.Get("X-STX-Client"))
 		}
-		if request.Header.Get("User-Agent") != "stx-cli/0.1.0" {
-			t.Errorf("User-Agent 请求头错误: %q", request.Header.Get("User-Agent"))
+		if request.Header.Get("User-Agent") != expectedUA {
+			t.Errorf("User-Agent 请求头错误: %q, want %q", request.Header.Get("User-Agent"), expectedUA)
 		}
 		if request.Header.Get("X-Request-ID") == "" {
 			t.Error("缺少 X-Request-ID")

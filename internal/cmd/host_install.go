@@ -83,7 +83,7 @@ func newHostPrecheckCommand(storeProvider authStoreProvider) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := checkSpecialOperation(command.Context(), client, "host.precheck"); err != nil {
+			if err := checkSpecialOperation(command, client, "host.precheck"); err != nil {
 				return err
 			}
 			var data any

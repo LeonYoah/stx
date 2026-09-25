@@ -276,7 +276,7 @@ func executeRuntimeStorageQuery(command *cobra.Command, storeProvider authStoreP
 	if err != nil {
 		return err
 	}
-	if err := checkSpecialOperation(command.Context(), client, operationID); err != nil {
+	if err := checkSpecialOperation(command, client, operationID); err != nil {
 		return err
 	}
 	var data any

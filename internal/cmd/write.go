@@ -18,7 +18,6 @@
 package cmd
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -91,7 +90,7 @@ func prepareSecureWrite(command *cobra.Command, storeProvider authStoreProvider,
 	if err != nil {
 		return nil, nil, err
 	}
-	if err := checkSpecialOperation(command.Context(), client, operationID); err != nil {
+	if err := checkSpecialOperation(command, client, operationID); err != nil {
 		return nil, nil, err
 	}
 	if strings.TrimSpace(options.idempotencyKey) == "" {
@@ -115,7 +114,7 @@ func prepareSecureWrite(command *cobra.Command, storeProvider authStoreProvider,
 
 // checkSpecialOperation 在调用专用写接口前核对服务端能力和登记版本。
 // checkSpecialOperation verifies remote capability and registry compatibility before calling a dedicated write endpoint.
-func checkSpecialOperation(ctx context.Context, client *cliClient.Client, operationID string) error {
+func checkSpecialOperation(command *cobra.Command, client *cliClient.Client, operationID string) error {
 	var local *operation.OperationSpec
 	for _, item := range operation.Registry() {
 		if item.ID == operationID {
@@ -127,10 +126,11 @@ func checkSpecialOperation(ctx context.Context, client *cliClient.Client, operat
 	if local == nil {
 		return clioutput.NewError(clioutput.CodeServer, "local operation is not registered: "+operationID, clioutput.ExitServer, false)
 	}
-	requestID, capabilities, err := client.Capabilities(ctx)
+	requestID, capabilities, err := client.Capabilities(command.Context())
 	if err != nil {
 		return err
 	}
+	warnCLICompatibility(command, capabilities)
 	for _, remote := range capabilities.Operations {
 		if remote.OperationID != operationID {
 			continue

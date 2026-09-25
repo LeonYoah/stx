@@ -93,7 +93,7 @@ func newUpgradePrecheckCommand(storeProvider authStoreProvider) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := checkSpecialOperation(command.Context(), client, "stupgrade.precheck"); err != nil {
+			if err := checkSpecialOperation(command, client, "stupgrade.precheck"); err != nil {
 				return err
 			}
 			var data any
@@ -128,7 +128,7 @@ func newUpgradePlanCreateCommand(storeProvider authStoreProvider) *cobra.Command
 			if err != nil {
 				return err
 			}
-			if err := checkSpecialOperation(command.Context(), client, "stupgrade.plan.create"); err != nil {
+			if err := checkSpecialOperation(command, client, "stupgrade.plan.create"); err != nil {
 				return err
 			}
 			var data any
@@ -201,7 +201,7 @@ func newUpgradeTaskWaitCommand(storeProvider authStoreProvider) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := checkSpecialOperation(command.Context(), client, "stupgrade.task.get"); err != nil {
+			if err := checkSpecialOperation(command, client, "stupgrade.task.get"); err != nil {
 				return err
 			}
 

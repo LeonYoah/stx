@@ -99,7 +99,7 @@ var registry = append([]OperationSpec{
   "api_version": "v1",
   "operation_id": "capability.list",
   "request_id": "req_example",
-  "data": {"server_version":"0.1.0","operations":[]},
+  "data": {"server_version":"1.0.0","operations":[]},
   "result_meta": {"complete": true}
 }`,
 	},
@@ -2022,6 +2022,7 @@ func clusterNodeIDInputs() []InputSpec {
 }
 
 var routeExceptions = []RouteException{
+	{Method: "GET", Route: "/api/v1/version", Mode: ModeServerOnly, Reason: "产品版本公开探测由控制台使用，CLI 使用本地 stx version / stx --version"},
 	{Method: "POST", Route: "/api/v1/auth/login", Mode: ModeServerOnly, Reason: "Web 会话登录由控制台使用，CLI 使用 auth.cli.login"},
 	{Method: "POST", Route: "/api/v1/auth/logout", Mode: ModeServerOnly, Reason: "Web 会话退出由控制台使用，CLI 使用 auth.cli.logout"},
 	{Method: "POST", Route: "/api/v1/oauth/callback", Mode: ModeServerOnly, Reason: "OAuth provider callback consumed by the STX server"},

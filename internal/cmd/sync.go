@@ -151,7 +151,7 @@ func newSyncTaskPermissionsGetCommand(storeProvider authStoreProvider) *cobra.Co
 				return err
 			}
 			operationID := "sync.task.permissions.get"
-			if err := checkSpecialOperation(command.Context(), client, operationID); err != nil {
+			if err := checkSpecialOperation(command, client, operationID); err != nil {
 				return err
 			}
 

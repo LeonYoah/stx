@@ -98,7 +98,7 @@ start_backend() {
     exit 1
   fi
 
-  CONFIG_PATH="$CONFIG_PATH" nohup "$BACKEND_BIN" server >>"$LOG_DIR/backend.log" 2>&1 &
+  setsid sh -c "exec env CONFIG_PATH=\"$CONFIG_PATH\" \"$BACKEND_BIN\" server >>\"$LOG_DIR/backend.log\" 2>&1" < /dev/null &
   echo $! >"$pidfile"
   sleep 1
   if kill -0 "$(cat "$pidfile")" 2>/dev/null; then
@@ -136,10 +136,7 @@ start_frontend() {
     exit 1
   fi
 
-  HOSTNAME="$FRONTEND_HOST" \
-  PORT="$FRONTEND_PORT" \
-  NEXT_PUBLIC_BACKEND_BASE_URL="$NEXT_PUBLIC_BACKEND_BASE_URL" \
-  nohup "$FRONTEND_NODE_BIN" "$FRONTEND_SERVER" >>"$LOG_DIR/frontend.log" 2>&1 &
+  setsid sh -c "exec env HOSTNAME=\"$FRONTEND_HOST\" PORT=\"$FRONTEND_PORT\" NEXT_PUBLIC_BACKEND_BASE_URL=\"$NEXT_PUBLIC_BACKEND_BASE_URL\" \"$FRONTEND_NODE_BIN\" \"$FRONTEND_SERVER\" >>\"$LOG_DIR/frontend.log\" 2>&1" < /dev/null &
   echo $! >"$pidfile"
   sleep 1
   if kill -0 "$(cat "$pidfile")" 2>/dev/null; then

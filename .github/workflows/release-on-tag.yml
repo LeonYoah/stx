@@ -202,5 +202,6 @@ jobs:
           push: true
           provenance: false
           sbom: false
+          outputs: type=image,push=true,oci-mediatypes=false
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

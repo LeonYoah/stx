@@ -296,9 +296,9 @@ func (s *Service) CreateTask(ctx context.Context, req *CreateTaskRequest, create
 	if nodeType == TaskNodeTypeFolder {
 		content = ""
 		jobName = ""
-	} else if content == "" {
-		return nil, ErrTaskDefinitionEmpty
 	}
+	// 草稿文件允许空正文；发布/校验/提交仍要求非空。
+	// Draft files may have empty content; publish/validate/submit still require non-empty content.
 	task := &Task{
 		ParentID:       parentID,
 		NodeType:       nodeType,
@@ -587,9 +587,9 @@ func (s *Service) UpdateTaskForActor(ctx context.Context, actor executionapp.Act
 	if nodeType == TaskNodeTypeFolder {
 		content = ""
 		jobName = ""
-	} else if content == "" {
-		return nil, ErrTaskDefinitionEmpty
 	}
+	// 草稿文件允许空正文；发布/校验/提交仍要求非空。
+	// Draft files may have empty content; publish/validate/submit still require non-empty content.
 	task.ParentID = parentID
 	task.NodeType = nodeType
 	task.Name = name

@@ -2763,6 +2763,8 @@ export function resolveDefaultPreviewHTTPSinkURL(): string {
 }
 
 export function buildDefaultContent(_format: SyncFormat): string {
+  // 保留模板生成能力供插入/示例使用；新建文件默认不再自动填充。
+  // Keep template generation for insert/demo use; new files no longer auto-fill.
   return (
     'env {\n' +
     '  job.mode = "BATCH"\n' +

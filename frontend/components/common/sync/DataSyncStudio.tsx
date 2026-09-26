@@ -279,7 +279,6 @@ import {
   buildCheckpointInspectSummary,
   buildCheckpointSubtaskRows,
   buildCopiedWorkspaceName,
-  buildDefaultContent,
   buildDisplayLogLines,
   buildInsertedTemplateContent,
   buildInsertedCuratedContent,
@@ -2543,7 +2542,9 @@ export function DataSyncStudio() {
         toast.error(t('fileNameRequired'));
         return null;
       }
-      if (!editor.content.trim()) {
+      // 仅发布时强制要求正文；草稿允许空内容保存。
+      // Require content only when publishing; drafts may persist empty content.
+      if (publishAfterSave && !editor.content.trim()) {
         toast.error(t('fileContentRequired'));
         return null;
       }
@@ -2683,7 +2684,7 @@ export function DataSyncStudio() {
           name,
           cluster_id: editor.clusterId ? Number(editor.clusterId) : 0,
           content_format: 'hocon',
-          content: buildDefaultContent('hocon'),
+          content: '',
           definition: {},
         });
         toast.success(t('fileCreated'));
@@ -2912,7 +2913,7 @@ export function DataSyncStudio() {
             name: trimmed,
             cluster_id: editor.clusterId ? Number(editor.clusterId) : 0,
             content_format: 'hocon',
-            content: buildDefaultContent('hocon'),
+            content: '',
             definition: {},
           });
           toast.success(t('fileCreated'));

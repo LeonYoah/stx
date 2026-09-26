@@ -72,6 +72,7 @@ import {
 import {PluginService} from '@/lib/services/plugin';
 import {usePackages} from '@/hooks/use-installer';
 import {resolveSeatunnelVersion} from '@/lib/seatunnel-version';
+import {resolvePreferredClusterId} from '@/lib/cluster-preference';
 import {ClusterService} from '@/lib/services/cluster';
 import type {
   Plugin,
@@ -167,9 +168,19 @@ export function PluginMain() {
   const [activeTab, setActiveTab] = useState<'available' | 'local' | 'custom'>(
     'available',
   );
-  const {packages} = usePackages();
+  // 用户手动改过版本后，不再被默认集群 / packages 推荐覆盖。
+  // After a manual version pick, do not overwrite with cluster / packages defaults.
+  const userOverrideVersionRef = useRef(false);
+  const {packages, loading: packagesLoading} = usePackages();
   const availableVersions = packages?.versions || [];
   const recommendedVersion = resolveSeatunnelVersion(packages);
+  // 用于解析默认版本的集群列表（含偏好 / 唯一默认集群）。
+  // Cluster list used to resolve default version (preferred / sole default).
+  const [preferenceClusters, setPreferenceClusters] = useState<ClusterInfo[]>(
+    [],
+  );
+  const [preferenceClustersLoaded, setPreferenceClustersLoaded] =
+    useState(false);
 
   // Local plugins state / 本地插件状态
   const [localPlugins, setLocalPlugins] = useState<LocalPlugin[]>([]);
@@ -230,6 +241,37 @@ export function PluginMain() {
   >(new Map());
   const [clusters, setClusters] = useState<ClusterInfo[]>([]);
 
+  // 默认集群版本：唯一集群或本地偏好；无明确默认则不用集群版本。
+  // Preferred cluster version: sole cluster or stored preference; skip when ambiguous.
+  const preferredClusterVersion = useMemo(() => {
+    const preferredId = resolvePreferredClusterId(preferenceClusters);
+    if (preferredId == null) {
+      return '';
+    }
+    const cluster = preferenceClusters.find((item) => item.id === preferredId);
+    return String(cluster?.version || '').trim();
+  }, [preferenceClusters]);
+
+  // 版本优先级：默认集群版本 > packages 最新推荐。
+  // Version priority: preferred cluster version > packages recommended.
+  const resolvedDefaultVersion =
+    preferredClusterVersion || recommendedVersion || '';
+
+  // 下拉选项需包含当前选中版本（集群版本可能不在 packages 列表中）。
+  // Version options must include the current selection (cluster version may be absent from packages).
+  const versionOptions = useMemo(() => {
+    const base =
+      availableVersions.length > 0
+        ? availableVersions
+        : recommendedVersion
+          ? [recommendedVersion]
+          : [];
+    if (selectedVersion && !base.includes(selectedVersion)) {
+      return [selectedVersion, ...base];
+    }
+    return base;
+  }, [availableVersions, recommendedVersion, selectedVersion]);
+
   /**
    * Load available plugins
    * 加载可用插件列表
@@ -268,7 +310,14 @@ export function PluginMain() {
 
   const loadPlugins = useCallback(
     async (options?: {force?: boolean}) => {
-      const requestVersion = selectedVersion || recommendedVersion || '';
+      // 必须带明确版本请求，禁止空 version 触发后端 DefaultVersion(2.3.12) 锁死 UI。
+      // Always request with an explicit version; never let empty version lock UI to backend DefaultVersion.
+      const requestVersion =
+        selectedVersion || resolvedDefaultVersion || '';
+      if (!requestVersion) {
+        setLoading(false);
+        return;
+      }
       const queryKey = buildAvailableQueryKey(requestVersion);
 
       if (!options?.force && lastLoadedAvailableQueryRef.current === queryKey) {
@@ -281,7 +330,7 @@ export function PluginMain() {
       try {
         const result: AvailablePluginsResponse =
           await PluginService.listAvailablePlugins(
-            requestVersion || undefined,
+            requestVersion,
             selectedMirror,
           );
 
@@ -291,10 +340,8 @@ export function PluginMain() {
         lastLoadedAvailableQueryRef.current = buildAvailableQueryKey(
           result.version || requestVersion,
         );
-
-        if (result.version && result.version !== selectedVersion) {
-          setSelectedVersion(result.version);
-        }
+        // 不再用响应 version 覆盖选中项，避免后端兜底抢跑覆盖推荐 / 集群版本。
+        // Do not overwrite selection from response.version (avoids backend fallback racing defaults).
 
         if (
           result.source === 'remote' &&
@@ -319,7 +366,7 @@ export function PluginMain() {
     },
     [
       buildAvailableQueryKey,
-      recommendedVersion,
+      resolvedDefaultVersion,
       selectedMirror,
       selectedVersion,
       t,
@@ -347,6 +394,10 @@ export function PluginMain() {
         ),
       );
       setActiveDownloads(downloadsResult || []);
+      // 同步偏好集群列表，保持默认版本解析与本地 Tab 数据一致。
+      // Keep preference clusters in sync with local-tab fetch for default version resolution.
+      setPreferenceClusters(clustersResult?.clusters ?? []);
+      setPreferenceClustersLoaded(true);
 
       // Filter available clusters / 过滤可用集群
       const availableClusters = (clustersResult?.clusters || []).filter(
@@ -445,7 +496,7 @@ export function PluginMain() {
     setIsBatchProfileDialogOpen(true);
 
     try {
-      const version = selectedVersion || recommendedVersion || '';
+      const version = selectedVersion || resolvedDefaultVersion || '';
       const entries = await Promise.all(
         requiredPlugins.map(async (plugin) => {
           const data = await PluginService.getOfficialDependencies(
@@ -471,7 +522,7 @@ export function PluginMain() {
   }, [
     applyDefaultBatchProfiles,
     plugins,
-    recommendedVersion,
+    resolvedDefaultVersion,
     requiresProfileSelection,
     selectedVersion,
     t,
@@ -551,12 +602,73 @@ export function PluginMain() {
     [],
   );
 
+  // 预加载集群列表，用于解析默认版本（不依赖「本地插件」Tab）。
+  // Prefetch clusters to resolve default version (independent of local-plugins tab).
+  useEffect(() => {
+    void ClusterService.getClusters({current: 1, size: 100})
+      .then((result) => {
+        setPreferenceClusters(result?.clusters ?? []);
+      })
+      .catch(() => {
+        setPreferenceClusters([]);
+      })
+      .finally(() => {
+        setPreferenceClustersLoaded(true);
+      });
+  }, []);
+
+  // 自动填充默认版本：优先默认集群，否则 packages 推荐；用户手选后不再覆盖。
+  // Auto-fill default version: preferred cluster first, else packages recommended; stop after user pick.
+  useEffect(() => {
+    if (userOverrideVersionRef.current) {
+      return;
+    }
+    if (!preferenceClustersLoaded) {
+      return;
+    }
+    if (!preferredClusterVersion && packagesLoading) {
+      return;
+    }
+    if (!resolvedDefaultVersion) {
+      return;
+    }
+    if (selectedVersion !== resolvedDefaultVersion) {
+      setSelectedVersion(resolvedDefaultVersion);
+    }
+  }, [
+    packagesLoading,
+    preferenceClustersLoaded,
+    preferredClusterVersion,
+    resolvedDefaultVersion,
+    selectedVersion,
+  ]);
+
   useEffect(() => {
     if (activeTab !== 'available') {
       return;
     }
+    // 等默认版本解析完成后再拉列表，避免空 version 抢跑。
+    // Wait until default version is resolved before loading available plugins.
+    if (!preferenceClustersLoaded) {
+      return;
+    }
+    if (!preferredClusterVersion && packagesLoading) {
+      return;
+    }
+    if (!selectedVersion && !resolvedDefaultVersion) {
+      setLoading(false);
+      return;
+    }
     void loadPlugins();
-  }, [activeTab, loadPlugins]);
+  }, [
+    activeTab,
+    loadPlugins,
+    packagesLoading,
+    preferenceClustersLoaded,
+    preferredClusterVersion,
+    resolvedDefaultVersion,
+    selectedVersion,
+  ]);
 
   useEffect(() => {
     void PluginService.listLocalPlugins()
@@ -571,12 +683,6 @@ export function PluginMain() {
         // ignore preload errors
       });
   }, [selectedVersion]);
-
-  useEffect(() => {
-    if (!selectedVersion && recommendedVersion) {
-      setSelectedVersion(recommendedVersion);
-    }
-  }, [selectedVersion, recommendedVersion]);
 
   // Load local plugins when switching to local tab / 切换到本地插件标签时加载
   useEffect(() => {
@@ -619,11 +725,14 @@ export function PluginMain() {
     if (activeTab === 'local') {
       loadLocalPlugins();
     } else {
-      const requestVersion = selectedVersion || recommendedVersion || '';
+      const requestVersion = selectedVersion || resolvedDefaultVersion || '';
+      if (!requestVersion) {
+        return;
+      }
       setRefreshingConnectors(true);
       setError(null);
       void PluginService.refreshAvailablePlugins(
-        requestVersion || undefined,
+        requestVersion,
         selectedMirror,
       )
         .then((result) => {
@@ -1214,17 +1323,18 @@ export function PluginMain() {
           </div>
 
           {/* Version selector / 版本选择器 */}
-          <Select value={selectedVersion} onValueChange={setSelectedVersion}>
+          <Select
+            value={selectedVersion}
+            onValueChange={(value) => {
+              userOverrideVersionRef.current = true;
+              setSelectedVersion(value);
+            }}
+          >
             <SelectTrigger className='w-[130px] h-8 text-xs' data-testid='plugin-version-select'>
               <SelectValue placeholder={t('plugin.version')} />
             </SelectTrigger>
             <SelectContent>
-              {(availableVersions.length > 0
-                ? availableVersions
-                : recommendedVersion
-                  ? [recommendedVersion]
-                  : []
-              ).map((version) => (
+              {versionOptions.map((version) => (
                 <SelectItem key={version} value={version} className='text-xs'>
                   v{version}
                 </SelectItem>

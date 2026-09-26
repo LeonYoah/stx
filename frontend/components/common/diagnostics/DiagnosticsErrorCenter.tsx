@@ -21,7 +21,6 @@ import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {
   ArrowUpRight,
-  Check,
   Copy,
   Eye,
   FileCode,
@@ -43,7 +42,6 @@ import {Button} from '@/components/ui/button';
 import {Card} from '@/components/ui/card';
 import {Input} from '@/components/ui/input';
 import {Pagination} from '@/components/ui/pagination';
-import {ScrollArea} from '@/components/ui/scroll-area';
 import {Skeleton} from '@/components/ui/skeleton';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import {
@@ -62,6 +60,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import {
+  ExpandableTextPanel,
   StatPillsBar,
   type StatPillItem,
   TableLoadingBar,
@@ -162,7 +161,6 @@ export function DiagnosticsErrorCenter({
   );
   const [groupEvents, setGroupEvents] = useState<DiagnosticsErrorEvent[]>([]);
   const [selectedEventId, setSelectedEventId] = useState<number | null>(null);
-  const [copiedEvidence, setCopiedEvidence] = useState(false);
   const groupsRequestIdRef = useRef(0);
   const detailRequestIdRef = useRef(0);
 
@@ -171,16 +169,14 @@ export function DiagnosticsErrorCenter({
   const [memoryDialogOpen, setMemoryDialogOpen] = useState(false);
   const [memoriesVersion, setMemoriesVersion] = useState(0);
 
-  // 复制异常堆栈到剪贴板
-  // Copy exception evidence stack trace to clipboard
+  // 复制摘要等到剪贴板
+  // Copy summary text to clipboard
   const handleCopyEvidence = useCallback((text?: string | null) => {
     if (!text) {
       return;
     }
     navigator.clipboard.writeText(text);
-    setCopiedEvidence(true);
     toast.success('堆栈信息已复制到剪贴板');
-    setTimeout(() => setCopiedEvidence(false), 2000);
   }, []);
 
   const clearSelectedGroupDetail = useCallback(() => {
@@ -847,48 +843,23 @@ export function DiagnosticsErrorCenter({
 
                 {/* 选中事件详情与异常堆栈阅读器 / Exception Evidence Viewer */}
                 <div className='sheet-section-animate space-y-2 pt-1 border-t'>
-                  <div className='flex items-center justify-between'>
-                    <div className='font-semibold text-foreground flex items-center gap-1.5'>
-                      <FileCode className='h-4 w-4 text-primary' />
-                      <span>{t('errors.evidenceTitle')}</span>
-                    </div>
-                    {selectedEvent?.evidence && (
-                      <Button
-                        variant='outline'
-                        size='sm'
-                        className='h-7 text-xs gap-1'
-                        onClick={() =>
-                          handleCopyEvidence(selectedEvent.evidence)
-                        }
-                      >
-                        {copiedEvidence ? (
-                          <>
-                            <Check className='h-3.5 w-3.5 text-emerald-500' />
-                            <span>已复制</span>
-                          </>
-                        ) : (
-                          <>
-                            <Copy className='h-3.5 w-3.5' />
-                            <span>复制完整堆栈</span>
-                          </>
-                        )}
-                      </Button>
-                    )}
+                  <div className='font-semibold text-foreground flex items-center gap-1.5 min-w-0'>
+                    <FileCode className='h-4 w-4 text-primary shrink-0' />
+                    <span className='truncate'>{t('errors.evidenceTitle')}</span>
                   </div>
-
-                  <div className='relative rounded-lg border border-zinc-800 bg-zinc-950 dark:bg-zinc-900/95 text-zinc-200 overflow-hidden shadow-inner'>
-                    <div className='flex items-center justify-between px-3 py-1.5 border-b border-zinc-800/80 bg-zinc-900/70 text-[11px] text-zinc-400 font-mono'>
-                      <span>Stack Trace / Exception Snapshot</span>
-                      <span className='truncate max-w-[260px]'>
-                        {selectedEvent?.source_file || 'Standard Error Stream'}
-                      </span>
-                    </div>
-                    <ScrollArea className='h-[260px]'>
-                      <pre className='p-3.5 font-mono text-[11px] leading-relaxed text-zinc-300 whitespace-pre-wrap break-words select-text'>
-                        {selectedEvent?.evidence || t('errors.noEvidence')}
-                      </pre>
-                    </ScrollArea>
-                  </div>
+                  <ExpandableTextPanel
+                    title='Stack Trace / Exception Snapshot'
+                    subtitle={
+                      selectedEvent?.source_file || 'Standard Error Stream'
+                    }
+                    content={selectedEvent?.evidence || ''}
+                    emptyLabel={t('errors.noEvidence')}
+                    height={260}
+                    tone='dark'
+                    expandLabel={t('errors.expandEvidence')}
+                    copyLabel={t('errors.copyEvidence')}
+                    copiedLabel={t('errors.copiedEvidence')}
+                  />
                 </div>
               </div>
             ) : null}

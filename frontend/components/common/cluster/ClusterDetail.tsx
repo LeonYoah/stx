@@ -67,7 +67,6 @@ import {
   WorkbenchDialogContent,
 } from '@/components/ui/dialog';
 import {Label} from '@/components/ui/label';
-import {ScrollArea} from '@/components/ui/scroll-area';
 import {
   Select,
   SelectContent,
@@ -109,6 +108,7 @@ import {
 import {Checkbox} from '@/components/ui/checkbox';
 import {motion} from 'motion/react';
 import {
+  ExpandableTextPanel,
   WorkspaceHeader,
   StatPillsBar,
   TableLoadingBar,
@@ -3631,19 +3631,24 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
               </div>
             </div>
           </div>
-          <ScrollArea className='h-[50vh] rounded-md border p-3'>
-            <pre className='text-xs whitespace-pre-wrap break-all'>
-              {runtimeStoragePreview?.binary
+          <ExpandableTextPanel
+            title={t('cluster.runtimeStorage.fileName')}
+            subtitle={runtimeStoragePreview?.file_name || '-'}
+            content={
+              runtimeStoragePreview?.binary
                 ? runtimeStoragePreview?.hex_preview || '-'
-                : runtimeStoragePreview?.text_preview || '-'}
-            </pre>
-          </ScrollArea>
+                : runtimeStoragePreview?.text_preview || '-'
+            }
+            height='50vh'
+            tone='plain'
+            wrap
+          />
         </DialogContent>
       </Dialog>
 
       <Dialog open={stxJavaProxyLogOpen} onOpenChange={setStxJavaProxyLogOpen}>
-        <WorkbenchDialogContent className='sm:max-w-[1560px]'>
-          <DialogHeader>
+        <WorkbenchDialogContent className='sm:max-w-[1560px] gap-0 p-0'>
+          <DialogHeader className='shrink-0 space-y-1 border-b px-6 py-4 pr-12 text-left'>
             <DialogTitle>
               {t('cluster.stxJavaProxy.viewRuntimeLog')}
             </DialogTitle>
@@ -3651,11 +3656,16 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
               {stxJavaProxyLogResult?.log_path || stxJavaProxy?.log_path || '-'}
             </DialogDescription>
           </DialogHeader>
-          <ScrollArea className='min-h-0 flex-1 rounded-md border p-3'>
-            <pre className='text-xs whitespace-pre-wrap break-all'>
-              {stxJavaProxyLogResult?.logs || '-'}
-            </pre>
-          </ScrollArea>
+          <div className='flex min-h-0 flex-1 flex-col p-4'>
+            <ExpandableTextPanel
+              content={stxJavaProxyLogResult?.logs || '-'}
+              height='flex'
+              className='h-full min-h-0'
+              tone='plain'
+              wrap
+              showExpand={false}
+            />
+          </div>
         </WorkbenchDialogContent>
       </Dialog>
 
@@ -3831,21 +3841,24 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
               </div>
             </div>
           </div>
-          <ScrollArea className='h-[55vh] rounded-md border p-3'>
-            <pre className='text-xs whitespace-pre-wrap break-all'>
-              {JSON.stringify(
-                {
-                  pipeline_state: checkpointInspectResult?.pipeline_state,
-                  completed_checkpoint:
-                    checkpointInspectResult?.completed_checkpoint,
-                  action_states: checkpointInspectResult?.action_states,
-                  task_statistics: checkpointInspectResult?.task_statistics,
-                },
-                null,
-                2,
-              )}
-            </pre>
-          </ScrollArea>
+          <ExpandableTextPanel
+            title={t('cluster.runtimeStorage.deserializeCheckpoint')}
+            subtitle={checkpointInspectResult?.path || '-'}
+            content={JSON.stringify(
+              {
+                pipeline_state: checkpointInspectResult?.pipeline_state,
+                completed_checkpoint:
+                  checkpointInspectResult?.completed_checkpoint,
+                action_states: checkpointInspectResult?.action_states,
+                task_statistics: checkpointInspectResult?.task_statistics,
+              },
+              null,
+              2,
+            )}
+            height='55vh'
+            tone='plain'
+            wrap
+          />
         </DialogContent>
       </Dialog>
 
@@ -3899,17 +3912,20 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
               </div>
             </div>
           </div>
-          <ScrollArea className='h-[55vh] rounded-md border p-3'>
-            <pre className='text-xs whitespace-pre-wrap break-all'>
-              {JSON.stringify(
-                {
-                  entries: imapInspectResult?.entries,
-                },
-                null,
-                2,
-              )}
-            </pre>
-          </ScrollArea>
+          <ExpandableTextPanel
+            title={t('cluster.runtimeStorage.inspectWal')}
+            subtitle={imapInspectResult?.path || '-'}
+            content={JSON.stringify(
+              {
+                entries: imapInspectResult?.entries,
+              },
+              null,
+              2,
+            )}
+            height='55vh'
+            tone='plain'
+            wrap
+          />
         </DialogContent>
       </Dialog>
 

@@ -22,7 +22,7 @@
 
 | 文档 | 说明 | 状态 |
 | --- | --- | --- |
-| [UI 约定](./ui-conventions.md) | Dock 导航、WorkspaceHeader、StatPillsBar、零塌陷加载、表格与分页卡片、弹窗与引导、凭证保密规范 | 已填写 |
+| [UI 约定](./ui-conventions.md) | Dock 导航、WorkspaceHeader、StatPillsBar、零塌陷加载、表格与分页卡片、弹窗与引导、ExpandableTextPanel 长文本、凭证保密规范 | 已填写 |
 | [目录结构](./directory-structure.md) | App Router、Dock 架构、公共 UI 模块化、lib 与 hooks 组织 | 已填写 |
 | [API 与 Services](./api-and-services.md) | API 客户端、BaseService 服务层、错误拦截、类型与运行时兜底 | 已填写 |
 | [E2E 测试](./e2e-testing.md) | Playwright 目录、夹具策略、功能流样例、CI 门禁过滤规则 | 已填写 |

@@ -53,6 +53,7 @@ import {
 } from '@/components/ui/table';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import {cn} from '@/lib/utils';
+import {ExpandableTextPanel} from '@/components/common/layout';
 import type {SyncJobInstance, SyncValidateResult} from '@/lib/services/sync';
 import {
   buildMetricGroups,
@@ -174,9 +175,13 @@ export function StudioErrorDiagnosticsView({
             <span>{rawExpanded ? '收起完整调用堆栈' : '查看完整调用堆栈 (Stacktrace)'}</span>
           </button>
           {rawExpanded ? (
-            <pre className='max-h-60 overflow-auto rounded border border-border/50 bg-muted/40 p-3 font-mono text-[11px] leading-relaxed text-muted-foreground'>
-              {error.raw}
-            </pre>
+            <ExpandableTextPanel
+              title='Stacktrace'
+              content={error.raw}
+              height={240}
+              tone='plain'
+              wrap={false}
+            />
           ) : null}
         </div>
       ) : null}

@@ -147,7 +147,17 @@ STX 控制台采用现代化控制台体验架构：
    - 必须显式在 `DialogContent` 上放宽尺寸，严禁挤在窄框内：
      - `sm:max-w-4xl` 或 `sm:max-w-5xl`，甚至特定全屏级工具使用 `w-[92vw] max-w-[1400px]`；
      - 高度限制：`max-h-[85vh]` 或 `h-[88vh]`；
-     - 结构收口：`flex flex-col overflow-hidden`，内部内容区通过 `ScrollArea` 或 `overflow-y-auto min-h-0 flex-1` 自行滚动。
+     - 结构收口：`flex flex-col overflow-hidden`，内部内容区通过 `overflow-auto min-h-0 flex-1` 自行滚动；**长 mono 日志/堆栈/证据禁止用 `ScrollArea` 包一层**（默认只有纵向条，易裁切长行）。
+
+### 7.3 只读长文本面板（ExpandableTextPanel）
+适用于错误堆栈、运行日志、配置/JSON 预览、证据样本等**只读长文本**：
+
+- 统一使用 `frontend/components/common/layout/ExpandableTextPanel`：
+  - 紧凑区用原生 `overflow-auto`（双向滚动），**禁止**再包 `ScrollArea`；
+  - 「放大查看」必须走 `WorkbenchDialogContent`（约 `94vw` / 最高 `1400px` / `88vh`），禁止手写窄 `max-w-5xl` 放大框；
+  - `wrap=false`（默认）保留行并横向可滚；`wrap=true` 用于 JSON/配置折行预览；
+  - `tone='dark'` 用于堆栈/日志；`tone='plain'` 用于浅色边框场景；
+- 短摘要、卡片内一两行预览可继续本地写 `<pre>`；**可编辑**大文本放大（如排障方案表单）不并入本组件，沿用既有字段内放大编辑模式。
 
 ---
 

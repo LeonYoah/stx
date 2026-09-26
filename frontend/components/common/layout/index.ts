@@ -27,3 +27,4 @@ export * from './TableLoadingBar';
 export * from './TableSkeletonRows';
 export * from './RouteProgressBar';
 export * from './ModuleNavTabs';
+export * from './ExpandableTextPanel';

@@ -58,6 +58,7 @@ import type {
 } from '@/lib/services/monitoring';
 import {cn} from '@/lib/utils';
 import {
+  ExpandableTextPanel,
   StatPillsBar,
   type StatPillItem,
   CompactTimeFilter,
@@ -1081,9 +1082,14 @@ export function MonitoringAlertsCenter() {
                       <h4 className='text-xs font-semibold text-muted-foreground uppercase tracking-wider'>
                         {t('alerts.detailedDescription')}
                       </h4>
-                      <div className='rounded-lg bg-muted/20 p-3.5 text-xs text-muted-foreground leading-relaxed border whitespace-pre-wrap font-mono'>
-                        {selectedAlert.description}
-                      </div>
+                      {/* 长 JSON/标签串无空格，须 wrap+break-all，否则单行溢出裁切。 */}
+                      {/* Long JSON/label blobs need wrap+break-all or they clip as one line. */}
+                      <ExpandableTextPanel
+                        content={selectedAlert.description}
+                        height={220}
+                        tone='plain'
+                        wrap
+                      />
                     </div>
                   )}
 

@@ -28,6 +28,7 @@ import {usePackages} from '@/hooks/use-installer';
 import {PackageTable} from './PackageTable';
 import {UploadPackageDialog} from './UploadPackageDialog';
 import {DownloadPackageDialog} from './DownloadPackageDialog';
+import {OfflineBundleDialog} from './OfflineBundleDialog';
 import {Button} from '@/components/ui/button';
 import {
   AlertDialog,
@@ -41,7 +42,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import {Card} from '@/components/ui/card';
 import {Badge} from '@/components/ui/badge';
-import {Upload, RefreshCw, Package, Puzzle, Cloud, HardDrive} from 'lucide-react';
+import {Upload, RefreshCw, Package, Puzzle, Cloud, HardDrive, PackageOpen} from 'lucide-react';
 import {useTranslations} from 'next-intl';
 import {
   WorkspaceHeader,
@@ -76,6 +77,7 @@ export function PackageMain() {
   const [deleteVersion, setDeleteVersion] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [activeTab, setActiveTab] = useState<'online' | 'local'>('online');
+  const [offlineBundleOpen, setOfflineBundleOpen] = useState(false);
 
   const handleUpload = async (
     file: File,
@@ -197,6 +199,15 @@ export function PackageMain() {
               {t('common.refresh')}
             </Button>
             <Button
+              variant='outline'
+              size='sm'
+              onClick={() => setOfflineBundleOpen(true)}
+              className='h-8 text-xs'
+            >
+              <PackageOpen className='h-3.5 w-3.5 mr-1.5' />
+              {t('installer.offlineBundleTitle')}
+            </Button>
+            <Button
               size='sm'
               onClick={() => setUploadDialogOpen(true)}
               className='h-8 text-xs'
@@ -266,6 +277,16 @@ export function PackageMain() {
           )}
         </div>
       </Card>
+
+      {/* 一键打包离线资产 / Offline asset pack dialog */}
+      <OfflineBundleDialog
+        open={offlineBundleOpen}
+        onOpenChange={setOfflineBundleOpen}
+        localPackages={packages?.local_packages || []}
+        onImported={() => {
+          void refresh();
+        }}
+      />
 
       {/* 上传对话框 / Upload Dialog */}
       <UploadPackageDialog

@@ -23,6 +23,7 @@
 export { PackageMain } from './PackageMain';
 export { PackageTable } from './PackageTable';
 export { UploadPackageDialog } from './UploadPackageDialog';
+export { OfflineBundleDialog } from './OfflineBundleDialog';
 export { StepStatusBadge, StepStatusIcon } from './StepStatusBadge';
 export { InstallationProgress } from './InstallationProgress';
 

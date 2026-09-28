@@ -52,6 +52,22 @@ func addPackageWriteCommands(root *cobra.Command, storeProvider authStoreProvide
 		panic("generated package download command is missing")
 	}
 	downloadCommand.AddCommand(newPackageDownloadStartCommand(storeProvider), newPackageDownloadCancelCommand(storeProvider))
+
+	// 离线资产包：list 由 GeneratedCLI 生成；create/download/import/delete 在此挂载。
+	// Offline bundles: list is GeneratedCLI; create/download/import/delete attach here.
+	offlineBundleCommand := childCommand(packageCommand, "offline-bundle")
+	if offlineBundleCommand == nil {
+		offlineBundleCommand = &cobra.Command{
+			Use:   "offline-bundle",
+			Short: "STX package offline-bundle commands",
+		}
+		packageCommand.AddCommand(offlineBundleCommand)
+	}
+	offlineBundleCommand.AddCommand(
+		newPackageOfflineBundleCreateCommand(storeProvider),
+		newPackageOfflineBundleDownloadCommand(storeProvider),
+		newPackageOfflineBundleImportCommand(storeProvider),
+	)
 }
 
 func childCommand(parent *cobra.Command, name string) *cobra.Command {
@@ -351,6 +367,137 @@ func newPackageDownloadCancelCommand(storeProvider authStoreProvider) *cobra.Com
 				return err
 			}
 			return renderPackageResult(command, "package.download.cancel", requestID, data, "")
+		},
+	}
+	addPackageWriteFlags(command, &options)
+	return command
+}
+
+// newPackageOfflineBundleCreateCommand 从本地仓组装离线资产包。
+// newPackageOfflineBundleCreateCommand creates an offline asset bundle from local cache.
+func newPackageOfflineBundleCreateCommand(storeProvider authStoreProvider) *cobra.Command {
+	var options packageWriteOptions
+	var includePlugins, includeSource bool
+	command := &cobra.Command{
+		Use:   "create <version>",
+		Short: "Create an offline asset bundle from local package/plugins",
+		Long:  "Requires the SeaTunnel package (and optionally plugins) to already exist in STX local storage. Does not download from the internet.",
+		Example: "stx package offline-bundle create 2.3.13 --include-plugins --confirm",
+		Args:  usageArgs(cobra.ExactArgs(1)),
+		RunE: func(command *cobra.Command, args []string) error {
+			client, headers, err := preparePackageWrite(command, storeProvider, "package.offline-bundle.create", &options,
+				"create reads local package/plugins and writes a new offline bundle archive")
+			if err != nil {
+				return err
+			}
+			includePluginsPtr := includePlugins
+			body := map[string]any{
+				"version":         args[0],
+				"include_plugins": includePluginsPtr,
+				"include_source":  includeSource,
+			}
+			var data any
+			requestID, err := client.RequestWithHeaders(command.Context(), http.MethodPost,
+				"/api/v1/packages/offline-bundles", body, headers, &data)
+			if err != nil {
+				return err
+			}
+			return renderPackageResult(command, "package.offline-bundle.create", requestID, data, "")
+		},
+	}
+	addPackageWriteFlags(command, &options)
+	command.Flags().BoolVar(&includePlugins, "include-plugins", true, "Include local plugins directory when present")
+	command.Flags().BoolVar(&includeSource, "include-source", false, "Include local source archive when present")
+	return command
+}
+
+// newPackageOfflineBundleDownloadCommand 下载已生成的离线资产包到本地文件。
+// newPackageOfflineBundleDownloadCommand downloads a generated offline bundle to a local file.
+func newPackageOfflineBundleDownloadCommand(storeProvider authStoreProvider) *cobra.Command {
+	var namespace, outputPath string
+	command := &cobra.Command{
+		Use:     "download <name>",
+		Short:   "Download a generated offline asset bundle",
+		Example: "stx package offline-bundle download stx-seatunnel-offline-2.3.13.tar.gz --file ./stx-seatunnel-offline-2.3.13.tar.gz",
+		Args:    usageArgs(cobra.ExactArgs(1)),
+		RunE: func(command *cobra.Command, args []string) error {
+			client, err := clientForNamespace(storeProvider, namespace)
+			if err != nil {
+				return err
+			}
+			if err := checkSpecialOperation(command, client, "package.offline-bundle.download"); err != nil {
+				return err
+			}
+			name := strings.TrimSpace(args[0])
+			if strings.TrimSpace(outputPath) == "" {
+				outputPath = name
+			}
+			finalPath, err := filepath.Abs(outputPath)
+			if err != nil {
+				return clioutput.WrapError(err, clioutput.CodeUsage, "resolve output path", clioutput.ExitUsage, false)
+			}
+			if _, err := os.Stat(finalPath); err == nil {
+				return clioutput.NewError(clioutput.CodeConflict, "download target already exists", clioutput.ExitConflict, false)
+			}
+			tempFile, err := os.CreateTemp(filepath.Dir(finalPath), ".stx-offline-bundle-*.part")
+			if err != nil {
+				return clioutput.WrapError(err, clioutput.CodeFileTransfer, "create temporary download file", clioutput.ExitFileTransfer, false)
+			}
+			tempPath := tempFile.Name()
+			defer func() { _ = os.Remove(tempPath) }()
+			requestID, err := client.Download(command.Context(),
+				"/api/v1/packages/offline-bundles/"+url.PathEscape(name)+"/download", tempFile)
+			if closeErr := tempFile.Close(); err == nil && closeErr != nil {
+				err = closeErr
+			}
+			if err != nil {
+				return err
+			}
+			if err := os.Rename(tempPath, finalPath); err != nil {
+				return clioutput.WrapError(err, clioutput.CodeFileTransfer, "store downloaded offline bundle", clioutput.ExitFileTransfer, false)
+			}
+			checksum, size, err := checksumFile(finalPath)
+			if err != nil {
+				return err
+			}
+			return renderCommandResultWithRequestID(command, "package.offline-bundle.download", requestID, map[string]any{
+				"name": name, "file": finalPath, "size": size, "sha256": checksum,
+			})
+		},
+	}
+	command.Flags().StringVar(&namespace, "namespace", "", "Local namespace to use")
+	command.Flags().StringVar(&outputPath, "file", "", "Destination file path")
+	return command
+}
+
+// newPackageOfflineBundleImportCommand 将离线资产包导入本地 packages/plugins。
+// newPackageOfflineBundleImportCommand imports an offline bundle into local packages/plugins.
+func newPackageOfflineBundleImportCommand(storeProvider authStoreProvider) *cobra.Command {
+	var options packageWriteOptions
+	command := &cobra.Command{
+		Use:     "import <file>",
+		Short:   "Import an offline asset bundle into local cache",
+		Example: "stx package offline-bundle import ./stx-seatunnel-offline-2.3.13.tar.gz --confirm",
+		Args:    usageArgs(cobra.ExactArgs(1)),
+		RunE: func(command *cobra.Command, args []string) error {
+			file, info, err := openPackageFile(args[0])
+			if err != nil {
+				return err
+			}
+			defer file.Close()
+			client, headers, err := preparePackageWrite(command, storeProvider, "package.offline-bundle.import", &options,
+				"import writes package and plugin files from the bundle into STX local storage")
+			if err != nil {
+				return err
+			}
+			files := []cliClient.MultipartFile{{FieldName: "file", FileName: info.Name(), Reader: file}}
+			var data any
+			requestID, err := client.RequestMultipartFiles(command.Context(), http.MethodPost,
+				"/api/v1/packages/offline-bundles/import", nil, files, headers, &data)
+			if err != nil {
+				return err
+			}
+			return renderPackageResult(command, "package.offline-bundle.import", requestID, data, "")
 		},
 	}
 	addPackageWriteFlags(command, &options)

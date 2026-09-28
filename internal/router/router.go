@@ -643,6 +643,14 @@ func Serve() {
 				// POST /api/v1/packages/versions/refresh - Refresh version list
 				packageRouter.POST("/versions/refresh", installerHandler.RefreshVersions)
 
+				// 离线资产包（须注册在 /:version 之前，避免被版本参数吞掉）
+				// Offline asset bundles (register before /:version so Gin does not swallow the path)
+				packageRouter.GET("/offline-bundles", installerHandler.ListOfflineBundles)
+				packageRouter.POST("/offline-bundles", installerHandler.CreateOfflineBundle)
+				packageRouter.POST("/offline-bundles/import", installerHandler.ImportOfflineBundle)
+				packageRouter.GET("/offline-bundles/:name/download", installerHandler.DownloadOfflineBundle)
+				packageRouter.DELETE("/offline-bundles/:name", installerHandler.DeleteOfflineBundle)
+
 				// GET /api/v1/packages/:version - 获取安装包信息
 				// GET /api/v1/packages/:version - Get package info
 				packageRouter.GET("/:version", installerHandler.GetPackageInfo)

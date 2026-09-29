@@ -60,6 +60,7 @@ import {
   Server,
   Upload,
   DownloadCloud,
+  AlertTriangle,
 } from 'lucide-react';
 import {motion} from 'motion/react';
 import {easeOut} from 'motion';
@@ -83,6 +84,7 @@ import type {
   InstalledPlugin,
   PluginDependency,
   OfficialDependenciesResponse,
+  PluginListSource,
 } from '@/lib/services/plugin';
 import type {ClusterInfo} from '@/lib/services/cluster';
 import {Progress} from '@/components/ui/progress';
@@ -158,6 +160,11 @@ export function PluginMain() {
   const [loading, setLoading] = useState(true);
   const [refreshingConnectors, setRefreshingConnectors] = useState(false);
   const [catalogRefreshedAt, setCatalogRefreshedAt] = useState<string>('');
+  // 目录来源：seed 表示官方 Maven 不可用、回退内置清单，下载可能失败。
+  // Catalog source: seed means Maven unavailable / bundled fallback; downloads may fail.
+  const [catalogSource, setCatalogSource] = useState<PluginListSource | null>(
+    null,
+  );
   const [error, setError] = useState<string | null>(null);
 
   // Filter state / 过滤状态
@@ -233,6 +240,9 @@ export function PluginMain() {
   const [isBatchInstallOpen, setIsBatchInstallOpen] = useState(false);
 
   const lastLoadedAvailableQueryRef = useRef<string | null>(null);
+  // 已提示过的失败下载，避免轮询重复 toast。
+  // Already-notified failed downloads to avoid toast spam while polling.
+  const notifiedFailedDownloadsRef = useRef<Set<string>>(new Set());
 
   // Plugin installation status per cluster / 每个集群的插件安装状态
   // Map: pluginName:version -> { clusterId -> InstalledPlugin }
@@ -337,13 +347,19 @@ export function PluginMain() {
         setPlugins(result.plugins || []);
         setTotal(result.total || (result.plugins || []).length);
         setCatalogRefreshedAt(result.catalog_refreshed_at || '');
+        setCatalogSource(result.source || null);
         lastLoadedAvailableQueryRef.current = buildAvailableQueryKey(
           result.version || requestVersion,
         );
         // 不再用响应 version 覆盖选中项，避免后端兜底抢跑覆盖推荐 / 集群版本。
         // Do not overwrite selection from response.version (avoids backend fallback racing defaults).
 
-        if (
+        if (result.source === 'seed' && (result.total || 0) > 0) {
+          toast.warning(t('plugin.catalogFromSeedTitle'), {
+            description: t('plugin.catalogFromSeedDesc'),
+            duration: 8000,
+          });
+        } else if (
           result.source === 'remote' &&
           !result.cache_hit &&
           (result.total || 0) > 0
@@ -359,6 +375,7 @@ export function PluginMain() {
         toast.error(errorMsg);
         setPlugins([]);
         setTotal(0);
+        setCatalogSource(null);
         lastLoadedAvailableQueryRef.current = null;
       } finally {
         setLoading(false);
@@ -405,13 +422,53 @@ export function PluginMain() {
       );
       setClusters(availableClusters);
 
-      // Update downloadingPlugins set / 更新下载中集合
+      // 下载失败时主动 toast（请求本身只表示入队成功，真正失败在异步任务里）。
+      // Surface async download failures; the download API only means the job was queued.
+      for (const item of downloadsResult || []) {
+        if (item.status !== 'failed') {
+          continue;
+        }
+        const failKey = pluginDownloadKey(item.plugin_name, item.version);
+        if (notifiedFailedDownloadsRef.current.has(failKey)) {
+          continue;
+        }
+        notifiedFailedDownloadsRef.current.add(failKey);
+        toast.error(
+          t('plugin.downloadFailedNamed', {
+            name: item.plugin_name,
+            version: item.version,
+          }),
+          {
+            description:
+              item.error || item.message || t('plugin.downloadFailedHint'),
+            duration: 10000,
+          },
+        );
+      }
+
+      // 活动下载中的 downloading 集合；保留刚入队、尚未出现在列表中的乐观态。
+      // Build downloading set from active tasks; keep optimistic keys not yet listed.
       const downloading = new Set(
         downloadsResult
           ?.filter((d) => d.status === 'downloading')
           .map((d) => pluginDownloadKey(d.plugin_name, d.version)) || [],
       );
-      setDownloadingPlugins(downloading);
+      setDownloadingPlugins((prev) => {
+        const next = new Set(downloading);
+        for (const key of prev) {
+          const listed = (downloadsResult || []).find(
+            (d) => pluginDownloadKey(d.plugin_name, d.version) === key,
+          );
+          if (!listed) {
+            next.add(key);
+            continue;
+          }
+          if (listed.status === 'downloading') {
+            next.add(key);
+          }
+        }
+        return next;
+      });
 
       // Load installed plugins for each cluster / 加载每个集群的已安装插件
       const statusMap = new Map<string, Map<number, InstalledPlugin>>();
@@ -443,7 +500,7 @@ export function PluginMain() {
     } finally {
       setLocalPluginsLoading(false);
     }
-  }, []);
+  }, [t]);
 
   const getSelectedProfileKeysForPlugin = useCallback(
     (pluginName: string) => selectedProfileKeysByPlugin[pluginName] || [],
@@ -532,6 +589,12 @@ export function PluginMain() {
     async (selectedProfiles?: Record<string, string[]>) => {
       try {
         setIsDownloadingAll(true);
+        if (catalogSource === 'seed') {
+          toast.warning(t('plugin.downloadOnSeedWarning'), {
+            description: t('plugin.downloadOnSeedWarningDesc'),
+            duration: 6000,
+          });
+        }
         toast.info(t('plugin.downloadAllStarted', {count: total}));
 
         const result = await PluginService.downloadAllPlugins(
@@ -540,13 +603,24 @@ export function PluginMain() {
           selectedProfiles,
         );
 
-        toast.success(
-          t('plugin.downloadAllSuccess', {
-            total: result.total,
-            downloaded: result.downloaded,
-            skipped: result.skipped,
-          }),
-        );
+        if ((result.failed || 0) > 0) {
+          toast.error(
+            t('plugin.downloadAllPartialFailed', {
+              failed: result.failed,
+              downloaded: result.downloaded,
+              total: result.total,
+            }),
+            {duration: 10000},
+          );
+        } else {
+          toast.success(
+            t('plugin.downloadAllSuccess', {
+              total: result.total,
+              downloaded: result.downloaded,
+              skipped: result.skipped,
+            }),
+          );
+        }
         void loadLocalPlugins();
       } catch (err) {
         const errorMsg =
@@ -556,7 +630,14 @@ export function PluginMain() {
         setIsDownloadingAll(false);
       }
     },
-    [loadLocalPlugins, selectedMirror, selectedVersion, t, total],
+    [
+      catalogSource,
+      loadLocalPlugins,
+      selectedMirror,
+      selectedVersion,
+      t,
+      total,
+    ],
   );
 
   const handleConfirmBatchProfileDownload = useCallback(async () => {
@@ -691,21 +772,22 @@ export function PluginMain() {
     }
   }, [activeTab, loadLocalPlugins]);
 
-  // Poll for active downloads when there are downloading plugins / 有下载中的插件时轮询
+  // 有下载中任务时持续轮询（不限本地 Tab），以便异步失败能 toast。
+  // Poll while downloads are in flight (any tab) so async failures can surface.
   useEffect(() => {
-    if (
-      activeTab !== 'local' ||
-      activeDownloads.filter((d) => d.status === 'downloading').length === 0
-    ) {
+    const hasDownloading =
+      activeDownloads.some((d) => d.status === 'downloading') ||
+      downloadingPlugins.size > 0;
+    if (!hasDownloading) {
       return;
     }
 
     const interval = setInterval(() => {
-      loadLocalPlugins();
-    }, 2000); // Poll every 2 seconds / 每2秒轮询一次
+      void loadLocalPlugins();
+    }, 2000);
 
     return () => clearInterval(interval);
-  }, [activeTab, activeDownloads, loadLocalPlugins]);
+  }, [activeDownloads, downloadingPlugins, loadLocalPlugins]);
 
   /**
    * Handle search
@@ -739,10 +821,18 @@ export function PluginMain() {
           setPlugins(result.plugins || []);
           setTotal(result.total || (result.plugins || []).length);
           setCatalogRefreshedAt(result.catalog_refreshed_at || '');
+          setCatalogSource(result.source || null);
           lastLoadedAvailableQueryRef.current = buildAvailableQueryKey(
             result.version || requestVersion,
           );
-          toast.success(t('plugin.refreshConnectorsSuccess'));
+          if (result.source === 'seed') {
+            toast.warning(t('plugin.catalogFromSeedTitle'), {
+              description: t('plugin.catalogFromSeedDesc'),
+              duration: 8000,
+            });
+          } else {
+            toast.success(t('plugin.refreshConnectorsSuccess'));
+          }
         })
         .catch((err) => {
           const errorMsg =
@@ -1083,8 +1173,20 @@ export function PluginMain() {
 
     setSelectedProfileKeysForPlugin(plugin.name, selectedProfileKeys);
 
+    // seed 目录只是内置清单，Maven 可能尚无构件；先警告再继续入队。
+    // Seed catalog is a bundled list only — Maven may lack artifacts; warn then queue.
+    if (catalogSource === 'seed') {
+      toast.warning(t('plugin.downloadOnSeedWarning'), {
+        description: t('plugin.downloadOnSeedWarningDesc'),
+        duration: 6000,
+      });
+    }
+
     try {
       setDownloadingPlugins((prev) => new Set(prev).add(downloadKey));
+      // 允许同一插件再次失败时重新提示。
+      // Allow re-notifying if the same plugin fails again.
+      notifiedFailedDownloadsRef.current.delete(downloadKey);
 
       await PluginService.downloadPlugin(
         plugin.name,
@@ -1094,12 +1196,6 @@ export function PluginMain() {
       );
 
       toast.success(t('plugin.downloadStarted'));
-
-      setDownloadingPlugins((prev) => {
-        const next = new Set(prev);
-        next.delete(downloadKey);
-        return next;
-      });
       void loadLocalPlugins();
     } catch (err) {
       setDownloadingPlugins((prev) => {
@@ -1271,6 +1367,22 @@ export function PluginMain() {
         <Card className='border-destructive bg-destructive/5'>
           <CardContent className='p-3 text-sm text-destructive'>
             {error}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* seed 目录：官方 Maven 尚无该版本构件时的回退清单提示。
+          Seed catalog banner: bundled fallback when official Maven lacks this version. */}
+      {catalogSource === 'seed' && activeTab === 'available' && !error && (
+        <Card className='border-amber-500/40 bg-amber-500/5'>
+          <CardContent className='flex gap-2.5 p-3 text-sm text-amber-900 dark:text-amber-200'>
+            <AlertTriangle className='mt-0.5 h-4 w-4 shrink-0' />
+            <div className='space-y-0.5'>
+              <div className='font-medium'>{t('plugin.catalogFromSeedTitle')}</div>
+              <p className='text-xs leading-relaxed text-amber-800/90 dark:text-amber-200/80'>
+                {t('plugin.catalogFromSeedDesc')}
+              </p>
+            </div>
           </CardContent>
         </Card>
       )}
@@ -1458,24 +1570,43 @@ export function PluginMain() {
                     <TableBody>
                       {/* Active downloads / 活动下载 */}
                       {activeDownloads
-                        .filter((d) => d.status === 'downloading')
+                        .filter(
+                          (d) =>
+                            d.status === 'downloading' || d.status === 'failed',
+                        )
                         .map((download) => (
                           <TableRow
-                            key={`downloading-${download.plugin_name}-${download.version}`}
-                            className='bg-blue-50 dark:bg-blue-950'
+                            key={`download-${download.plugin_name}-${download.version}-${download.status}`}
+                            className={
+                              download.status === 'failed'
+                                ? 'bg-destructive/5'
+                                : 'bg-blue-50 dark:bg-blue-950'
+                            }
                           >
                             <TableCell>
                               <Checkbox disabled />
                             </TableCell>
                             <TableCell className='font-medium'>
                               <div className='flex items-center gap-2'>
-                                <RefreshCw className='h-4 w-4 animate-spin text-blue-500' />
+                                {download.status === 'failed' ? (
+                                  <AlertTriangle className='h-4 w-4 text-destructive' />
+                                ) : (
+                                  <RefreshCw className='h-4 w-4 animate-spin text-blue-500' />
+                                )}
                                 {download.plugin_name}
                               </div>
                             </TableCell>
                             <TableCell>
-                              <Badge variant='outline'>
-                                {t('plugin.downloading')}
+                              <Badge
+                                variant={
+                                  download.status === 'failed'
+                                    ? 'destructive'
+                                    : 'outline'
+                                }
+                              >
+                                {download.status === 'failed'
+                                  ? t('plugin.downloadFailed')
+                                  : t('plugin.downloading')}
                               </Badge>
                             </TableCell>
                             <TableCell>v{download.version}</TableCell>
@@ -1485,6 +1616,15 @@ export function PluginMain() {
                               </span>
                             </TableCell>
                             <TableCell>
+                              {download.status === 'failed' ? (
+                                <div className='max-w-[280px] space-y-1 text-xs text-destructive break-all'>
+                                  <div>
+                                    {download.error ||
+                                      download.message ||
+                                      t('plugin.downloadFailedHint')}
+                                  </div>
+                                </div>
+                              ) : (
                               <div className='space-y-1'>
                                 <div className='flex items-center justify-between text-sm'>
                                   <span>
@@ -1554,10 +1694,19 @@ export function PluginMain() {
                                     </div>
                                   )}
                               </div>
+                              )}
                             </TableCell>
                             <TableCell className='text-right'>
-                              <Badge variant='secondary'>
-                                {t('plugin.downloading')}
+                              <Badge
+                                variant={
+                                  download.status === 'failed'
+                                    ? 'destructive'
+                                    : 'secondary'
+                                }
+                              >
+                                {download.status === 'failed'
+                                  ? t('plugin.downloadFailed')
+                                  : t('plugin.downloading')}
                               </Badge>
                             </TableCell>
                           </TableRow>

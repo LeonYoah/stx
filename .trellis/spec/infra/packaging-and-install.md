@@ -67,7 +67,7 @@ curl -fsSL <raw-or-mirrored-url>/install-online.sh | bash -s -- [options]
 | `POST /api/v1/packages/offline-bundles/import` | 无网机导入回本地仓 |
 | `DELETE /api/v1/packages/offline-bundles/:name` | 删除已生成包 |
 
-包内布局：`MANIFEST.json` + `packages/` + `plugins/{version}/`。UI 入口：安装包管理页「一键打包离线资产」。
+包内布局：`MANIFEST.json` + `packages/` + `plugins/{version}/`。UI 入口：安装包管理页「离线导入 / 导出」（导入按文件名分流资产包 vs 官方 bin；导出一键打包）。
 
 ---
 

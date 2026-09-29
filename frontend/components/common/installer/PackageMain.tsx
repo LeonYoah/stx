@@ -42,7 +42,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import {Card} from '@/components/ui/card';
 import {Badge} from '@/components/ui/badge';
-import {Upload, RefreshCw, Package, Puzzle, Cloud, HardDrive, PackageOpen} from 'lucide-react';
+import {RefreshCw, Package, Puzzle, Cloud, HardDrive, PackageOpen} from 'lucide-react';
 import {useTranslations} from 'next-intl';
 import {
   WorkspaceHeader,
@@ -199,21 +199,12 @@ export function PackageMain() {
               {t('common.refresh')}
             </Button>
             <Button
-              variant='outline'
               size='sm'
               onClick={() => setOfflineBundleOpen(true)}
               className='h-8 text-xs'
             >
               <PackageOpen className='h-3.5 w-3.5 mr-1.5' />
-              {t('installer.offlineBundleTitle')}
-            </Button>
-            <Button
-              size='sm'
-              onClick={() => setUploadDialogOpen(true)}
-              className='h-8 text-xs'
-            >
-              <Upload className='h-3.5 w-3.5 mr-1.5' />
-              {t('installer.uploadPackage')}
+              {t('installer.offlineAssetsTitle')}
             </Button>
           </div>
         }
@@ -278,17 +269,23 @@ export function PackageMain() {
         </div>
       </Card>
 
-      {/* 一键打包离线资产 / Offline asset pack dialog */}
+      {/* 离线导入 / 导出（资产包 + 单包上传收敛入口）
+          Offline import / export (asset bundle + single-package upload) */}
       <OfflineBundleDialog
         open={offlineBundleOpen}
         onOpenChange={setOfflineBundleOpen}
         localPackages={packages?.local_packages || []}
+        onOpenSinglePackageUpload={() => setUploadDialogOpen(true)}
+        onUploadSinglePackage={async (file, version) => {
+          await uploadPackage(file, version);
+        }}
         onImported={() => {
           void refresh();
         }}
       />
 
-      {/* 上传对话框 / Upload Dialog */}
+      {/* 完整单包上传（含源码）：由离线对话框「高级」入口打开
+          Full single-package upload (incl. source): opened from offline dialog advanced link */}
       <UploadPackageDialog
         open={uploadDialogOpen}
         onOpenChange={setUploadDialogOpen}

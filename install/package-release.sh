@@ -631,6 +631,21 @@ if [[ "$LAYOUT" == "split" ]]; then
     fi
   done
 
+  # 发布跨架构通用的 stx-java-proxy 薄 jar（v2/v3）与启动脚本。
+  # Publish architecture-independent stx-java-proxy thin jars (v2/v3) and launcher script.
+  for epoch in v2 v3; do
+    epoch_jar="$BUILD_DIR/stx-java-proxy-${epoch}.jar"
+    if [[ -f "$epoch_jar" ]]; then
+      cp "$epoch_jar" "$OUTPUT_DIR/stx-java-proxy-${epoch}.jar"
+      write_sha256 "$OUTPUT_DIR/stx-java-proxy-${epoch}.jar"
+    fi
+  done
+  if [[ -f "$ROOT_DIR/scripts/stx-java-proxy.sh" ]]; then
+    cp "$ROOT_DIR/scripts/stx-java-proxy.sh" "$OUTPUT_DIR/stx-java-proxy.sh"
+    chmod +x "$OUTPUT_DIR/stx-java-proxy.sh"
+    write_sha256 "$OUTPUT_DIR/stx-java-proxy.sh"
+  fi
+
   # Also publish installer helpers for curl|bash consumers. / 同步发布安装辅助脚本供 curl|bash 使用。
   cp "$ROOT_DIR/install/install-online.sh" "$OUTPUT_DIR/install-online.sh"
   cp "$ROOT_DIR/install/download-bundle.sh" "$OUTPUT_DIR/download-bundle.sh"
@@ -639,7 +654,7 @@ if [[ "$LAYOUT" == "split" ]]; then
   # 手动安装辅助包（无仓库时用）。/ Helpers tarball for manual install without a git clone.
   helpers_stage="$STAGE_DIR/install-helpers"
   rm -rf "$helpers_stage"
-  mkdir -p "$helpers_stage/bin/lib" "$helpers_stage/packages"
+  mkdir -p "$helpers_stage/bin/lib" "$helpers_stage/packages" "$helpers_stage/lib" "$helpers_stage/scripts"
   cp "$ROOT_DIR/install/install.sh" "$helpers_stage/install.sh"
   cp "$ROOT_DIR/install/download-lib.sh" "$helpers_stage/download-lib.sh"
   cp "$ROOT_DIR/install/install-core.sh" "$helpers_stage/install-core.sh"
@@ -648,6 +663,11 @@ if [[ "$LAYOUT" == "split" ]]; then
   cp "$ROOT_DIR/install/bin/status.sh" "$helpers_stage/bin/status.sh"
   cp "$ROOT_DIR/install/bin/lib/observability.sh" "$helpers_stage/bin/lib/observability.sh"
   cp "$ROOT_DIR/config.example.yaml" "$helpers_stage/config.example.yaml"
+  if [[ -f "$ROOT_DIR/scripts/stx-java-proxy.sh" ]]; then
+    cp "$ROOT_DIR/scripts/stx-java-proxy.sh" "$helpers_stage/scripts/stx-java-proxy.sh"
+    chmod +x "$helpers_stage/scripts/stx-java-proxy.sh"
+  fi
+  stage_stx_java_proxy_jars "$helpers_stage/lib"
   chmod +x "$helpers_stage/install.sh" "$helpers_stage/bin/"*.sh
   tar -C "$helpers_stage" -czf "$OUTPUT_DIR/stx-install-helpers.tar.gz" .
   write_sha256 "$OUTPUT_DIR/stx-install-helpers.tar.gz"
@@ -664,9 +684,9 @@ if [[ "$LAYOUT" == "split" ]]; then
   (
     cd "$OUTPUT_DIR"
     if command -v sha256sum >/dev/null 2>&1; then
-      sha256sum stx-linux-* stx-agent-linux-* frontend-standalone-*.tar.gz 2>/dev/null >SHA256SUMS || true
+      sha256sum stx-linux-* stx-agent-linux-* frontend-standalone-*.tar.gz stx-java-proxy-*.jar stx-java-proxy.sh 2>/dev/null >SHA256SUMS || true
     else
-      shasum -a 256 stx-linux-* stx-agent-linux-* frontend-standalone-*.tar.gz 2>/dev/null >SHA256SUMS || true
+      shasum -a 256 stx-linux-* stx-agent-linux-* frontend-standalone-*.tar.gz stx-java-proxy-*.jar stx-java-proxy.sh 2>/dev/null >SHA256SUMS || true
     fi
   )
 

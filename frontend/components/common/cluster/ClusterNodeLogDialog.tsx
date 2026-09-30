@@ -150,11 +150,11 @@ export function ClusterNodeLogDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className='sm:max-w-5xl h-[88vh] flex flex-col p-0 overflow-hidden border border-border/80 shadow-2xl'>
         {/* 弹窗头部 / Dialog Header */}
-        <DialogHeader className='px-6 py-4 border-b bg-muted/15'>
-          <div className='flex items-center justify-between gap-4'>
-            <div className='space-y-1'>
-              <DialogTitle className='flex items-center gap-2 text-base font-semibold'>
-                <FileText className='size-4 text-primary' />
+        <DialogHeader className='border-b bg-muted/15 px-6 py-4'>
+          <div className='flex items-start justify-between gap-4'>
+            <div className='min-w-0 space-y-1'>
+              <DialogTitle className='flex flex-wrap items-center gap-2 text-base font-semibold'>
+                <FileText className='size-4 shrink-0 text-primary' />
                 <span>{t('cluster.viewLogs')}</span>
                 {node && (
                   <Badge variant='outline' className='font-mono text-xs'>
@@ -167,11 +167,12 @@ export function ClusterNodeLogDialog({
                   </Badge>
                 )}
               </DialogTitle>
-              <DialogDescription className='text-xs text-muted-foreground break-all'>
+              <DialogDescription className='break-all text-xs text-muted-foreground'>
                 {node?.install_dir ? `${node.install_dir}/logs` : '-'}
               </DialogDescription>
             </div>
-            <div className='flex items-center gap-2'>
+            {/* 动作组靠左收口，右侧留给全局关闭按钮 / Keep actions clear of the global close control */}
+            <div className='flex shrink-0 items-center gap-2'>
               <Button
                 variant='outline'
                 size='sm'
@@ -180,9 +181,9 @@ export function ClusterNodeLogDialog({
                 className='h-8'
               >
                 {copied ? (
-                  <Check className='size-3.5 mr-1.5 text-emerald-500' />
+                  <Check className='mr-1.5 size-3.5 text-emerald-500' />
                 ) : (
-                  <Copy className='size-3.5 mr-1.5' />
+                  <Copy className='mr-1.5 size-3.5' />
                 )}
                 {t('cluster.copyLog')}
               </Button>
@@ -194,7 +195,7 @@ export function ClusterNodeLogDialog({
                 className='h-8'
               >
                 <RefreshCw
-                  className={`size-3.5 mr-1.5 ${logLoading ? 'animate-spin' : ''}`}
+                  className={`mr-1.5 size-3.5 ${logLoading ? 'animate-spin' : ''}`}
                 />
                 {t('common.refresh')}
               </Button>

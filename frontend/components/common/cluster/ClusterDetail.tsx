@@ -96,6 +96,7 @@ import {
   FolderOpen,
   Eye,
   ChevronUp,
+  ChevronDown,
   Database,
   Search,
   Layers,
@@ -1337,6 +1338,17 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
     runtimeConfig.enableHTTP,
   );
   const webUIProxyURL = webUINode ? `/api/v1/clusters/${clusterId}/webui/` : '';
+  // 原始 Web UI 地址：直连主节点 HTTP 端口，绕过控制面代理。
+  // Direct Web UI URL: hit the master HTTP port and bypass the control-plane proxy.
+  const webUIDirectURL = webUINode
+    ? `http://${webUINode.host_ip || webUINode.host_name}:${webUINode.api_port}/`
+    : '';
+  const openWebUIWindow = (url: string) => {
+    if (!url) {
+      return;
+    }
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
   const upgradeTaskTotalPages = Math.max(
     1,
     Math.ceil(upgradeTasksTotal / upgradeTasksPageSize),
@@ -2490,19 +2502,38 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                       })}
                     </CardDescription>
                   </div>
-                  <Button
-                    variant='outline'
-                    onClick={() =>
-                      window.open(
-                        webUIProxyURL,
-                        '_blank',
-                        'noopener,noreferrer',
-                      )
-                    }
-                  >
-                    <ExternalLink className='mr-2 h-4 w-4' />
-                    {t('cluster.openWebUiInNewWindow')}
-                  </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant='outline'>
+                        <ExternalLink className='mr-2 h-4 w-4' />
+                        {t('cluster.openWebUiInNewWindow')}
+                        <ChevronDown className='ml-2 h-4 w-4 opacity-70' />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align='end' className='min-w-[240px]'>
+                      <DropdownMenuItem
+                        onClick={() => openWebUIWindow(webUIProxyURL)}
+                      >
+                        <div className='flex min-w-0 flex-col gap-0.5'>
+                          <span>{t('cluster.openWebUiViaProxy')}</span>
+                          <span className='truncate text-xs text-muted-foreground'>
+                            {webUIProxyURL}
+                          </span>
+                        </div>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => openWebUIWindow(webUIDirectURL)}
+                        disabled={!webUIDirectURL}
+                      >
+                        <div className='flex min-w-0 flex-col gap-0.5'>
+                          <span>{t('cluster.openWebUiDirect')}</span>
+                          <span className='truncate text-xs text-muted-foreground'>
+                            {webUIDirectURL || '-'}
+                          </span>
+                        </div>
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </CardHeader>
                 <CardContent className='space-y-4'>
                   <div className='rounded-md border bg-muted/20 p-3 text-xs text-muted-foreground'>

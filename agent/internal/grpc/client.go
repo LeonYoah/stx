@@ -35,17 +35,24 @@ import (
 	"github.com/LeonYoah/stx/agent/internal/config"
 	"github.com/LeonYoah/stx/agent/internal/logger"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 )
 
-// Default values for exponential backoff
-// 指数退避的默认值
+// Default values for exponential backoff.
+// CP 短暂不可用时上限压到 10s，避免假在线拖到几十秒才恢复。
+// Cap at 10s so brief Control Plane outages recover without tens of seconds of sticky "online".
 const (
-	DefaultInitialBackoff = 1 * time.Second  // 初始退避时间
-	DefaultMaxBackoff     = 60 * time.Second // 最大退避时间
-	DefaultBackoffFactor  = 2.0              // 退避因子
+	DefaultInitialBackoff = 1 * time.Second  // 初始退避时间 / initial backoff
+	DefaultMaxBackoff     = 10 * time.Second // 最大退避时间 / max backoff
+	DefaultBackoffFactor  = 2.0              // 退避因子 / backoff factor
 )
+
+// ErrReconnectInProgress 表示已有重连在进行，调用方应跳过重复触发。
+// ErrReconnectInProgress means a reconnect is already running; callers should skip duplicates.
+var ErrReconnectInProgress = errors.New("reconnect already in progress")
 
 // ExponentialBackoff implements exponential backoff reconnection strategy
 // ExponentialBackoff 实现指数退避重连策略
@@ -153,6 +160,8 @@ type Client struct {
 	lastHeartbeat   time.Time                                                       // 最后心跳时间
 	cmdStream       grpc.BidiStreamingClient[pb.CommandResponse, pb.CommandRequest] // 命令流
 	cmdStreamMu     sync.Mutex                                                      // 命令流锁
+	reconnectMu     sync.Mutex                                                      // 重连单飞锁 / reconnect single-flight lock
+	reconnecting    bool                                                            // 是否正在重连 / whether reconnect is running
 }
 
 // GetDiagnosticsLogCursors fetches diagnostics log cursors from Control Plane.
@@ -342,6 +351,70 @@ func (c *Client) IsConnected() bool {
 	return c.connected
 }
 
+// MarkDisconnected 将连接标记为断开，但不关闭底层 conn。
+// 用于心跳/流检测到传输错误后立刻让 IsConnected() 变假，避免假在线。
+// MarkDisconnected flips connected to false without closing the underlying conn,
+// so transport errors clear sticky "online" immediately.
+func (c *Client) MarkDisconnected() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.connected = false
+}
+
+// IsTransportError 判断是否为传输层错误（CP 宕机、拒连、流关闭等），应触发快速重连。
+// 业务类错误（如 NotFound 未注册）返回 false，由调用方走重注册而非断连。
+// IsTransportError reports transport-level failures that should trigger fast reconnect.
+// Business errors (e.g. NotFound / not registered) return false so callers re-register instead.
+func IsTransportError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if st, ok := status.FromError(err); ok {
+		if st.Code() == codes.Unavailable {
+			return true
+		}
+	}
+	msg := strings.ToLower(err.Error())
+	for _, needle := range []string{
+		"connection refused",
+		"transport is closing",
+		"connection reset",
+		"broken pipe",
+		"unavailable",
+		"no such host",
+		"network is unreachable",
+		"i/o timeout",
+		"connectex:",
+	} {
+		if strings.Contains(msg, needle) {
+			return true
+		}
+	}
+	return false
+}
+
+// TryReconnect 单飞重连：同一时刻只允许一个 Reconnect 循环。
+// 若已有重连在进行，返回 ErrReconnectInProgress。
+// TryReconnect single-flights reconnect so only one loop runs at a time.
+// Returns ErrReconnectInProgress when another reconnect is already running.
+func (c *Client) TryReconnect(ctx context.Context) error {
+	c.reconnectMu.Lock()
+	if c.reconnecting {
+		c.reconnectMu.Unlock()
+		return ErrReconnectInProgress
+	}
+	c.reconnecting = true
+	c.reconnectMu.Unlock()
+
+	defer func() {
+		c.reconnectMu.Lock()
+		c.reconnecting = false
+		c.reconnectMu.Unlock()
+	}()
+
+	return c.Reconnect(ctx)
+}
+
 // Reconnect attempts to reconnect with exponential backoff
 // Reconnect 使用指数退避尝试重连
 func (c *Client) Reconnect(ctx context.Context) error {
@@ -381,10 +454,10 @@ func (c *Client) Reconnect(ctx context.Context) error {
 			return nil
 		}
 
-		// Log reconnection attempt
-		// 记录重连尝试
-		logger.WarnF(ctx, "Reconnection attempt %d failed: %v, next retry in %v",
-			c.backoff.Attempt(), err, c.backoff.NextBackoff())
+		// 只记录本次已消耗的退避，避免再调 NextBackoff 把计数翻倍。
+		// Log the backoff already used; do not call NextBackoff again (would double the attempt).
+		logger.WarnF(ctx, "Reconnection attempt %d failed: %v, retrying with backoff up to %v / 重连第 %d 次失败：%v，将按不超过 %v 的退避重试",
+			c.backoff.Attempt(), err, c.backoff.MaxInterval, c.backoff.Attempt(), err, c.backoff.MaxInterval)
 	}
 }
 

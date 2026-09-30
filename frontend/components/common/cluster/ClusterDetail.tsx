@@ -115,6 +115,7 @@ import {
   TableLoadingBar,
   TableSkeletonRows,
 } from '@/components/common/layout';
+import {CheckpointInspectDialog} from '@/components/common/sync/CheckpointPanels';
 import {Skeleton} from '@/components/ui/skeleton';
 import {
   DropdownMenu,
@@ -327,6 +328,8 @@ function pickWebUINode(
  */
 export function ClusterDetail({clusterId}: ClusterDetailProps) {
   const t = useTranslations();
+  // 复用工作台 Checkpoint 详情弹窗文案 / Reuse workbench Checkpoint dialog copy
+  const tCheckpoint = useTranslations('workbenchStudio');
   const router = useRouter();
 
   // Data state / 数据状态
@@ -3825,73 +3828,14 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
         </DialogContent>
       </Dialog>
 
-      <Dialog
+      {/* 与工作台共用 Checkpoint 双看板；存储侧不传 job_config，位点区无数据时自动隐藏。
+          Reuse workbench Checkpoint dual-pane dialog; without job_config, source highlights stay hidden. */}
+      <CheckpointInspectDialog
         open={checkpointInspectOpen}
         onOpenChange={setCheckpointInspectOpen}
-      >
-        <DialogContent className='max-w-5xl'>
-          <DialogHeader>
-            <DialogTitle>
-              {t('cluster.runtimeStorage.deserializeCheckpoint')}
-            </DialogTitle>
-            <DialogDescription className='break-all'>
-              {checkpointInspectResult?.path || '-'}
-            </DialogDescription>
-          </DialogHeader>
-          <div className='grid gap-3 text-sm md:grid-cols-4'>
-            <div>
-              <div className='text-muted-foreground'>
-                {t('cluster.runtimeStorage.fileName')}
-              </div>
-              <div className='font-medium break-all'>
-                {checkpointInspectResult?.file_name || '-'}
-              </div>
-            </div>
-            <div>
-              <div className='text-muted-foreground'>
-                {t('cluster.runtimeStorage.size')}
-              </div>
-              <div className='font-medium'>
-                {formatBytes(checkpointInspectResult?.size_bytes)}
-              </div>
-            </div>
-            <div>
-              <div className='text-muted-foreground'>
-                {t('cluster.runtimeStorage.encoding')}
-              </div>
-              <div className='font-medium'>
-                {checkpointInspectResult?.encoding || '-'}
-              </div>
-            </div>
-            <div>
-              <div className='text-muted-foreground'>
-                {t('cluster.runtimeStorage.storageType')}
-              </div>
-              <div className='font-medium'>
-                {checkpointInspectResult?.storage_type || '-'}
-              </div>
-            </div>
-          </div>
-          <ExpandableTextPanel
-            title={t('cluster.runtimeStorage.deserializeCheckpoint')}
-            subtitle={checkpointInspectResult?.path || '-'}
-            content={JSON.stringify(
-              {
-                pipeline_state: checkpointInspectResult?.pipeline_state,
-                completed_checkpoint:
-                  checkpointInspectResult?.completed_checkpoint,
-                action_states: checkpointInspectResult?.action_states,
-                task_statistics: checkpointInspectResult?.task_statistics,
-              },
-              null,
-              2,
-            )}
-            height='55vh'
-            tone='plain'
-            wrap
-          />
-        </DialogContent>
-      </Dialog>
+        result={checkpointInspectResult}
+        t={tCheckpoint}
+      />
 
       <Dialog open={imapInspectOpen} onOpenChange={setImapInspectOpen}>
         <DialogContent className='max-w-5xl'>

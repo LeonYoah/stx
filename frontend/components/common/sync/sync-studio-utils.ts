@@ -2645,6 +2645,35 @@ export function toNumericMetricMap(value: unknown): Record<string, number> {
   return result;
 }
 
+// 从 SeaTunnel 表级指标 key 去掉 Source[n]. / Sink[n]. 前缀，得到表路径。
+// Strip Source[n]. / Sink[n]. prefix from SeaTunnel table metric keys.
+export function extractMetricTablePath(metricKey: string): string {
+  const match = String(metricKey || '').match(/^(Source|Sink)\[\d+\]\.(.+)$/i);
+  return (match?.[2] || String(metricKey || '')).trim();
+}
+
+// 配对与多表判定用的逻辑表键（取末段表名，忽略 archive_ 前缀）。
+// Logical table key for pairing / multi-table checks (leaf name, ignore archive_ prefix).
+export function normalizePairingTableKey(tablePath: string): string {
+  const path = extractMetricTablePath(tablePath);
+  const leaf =
+    path.split('.').pop()?.trim().toLowerCase() || path.trim().toLowerCase();
+  return leaf.replace(/^archive_/, '');
+}
+
+// 按逻辑表去重计数：Source/Sink 两端同一表只算 1，不再把端点当多表。
+// Count unique logical tables; Source/Sink endpoints of the same table count as one.
+export function countLogicalTables(metricKeys: Iterable<string>): number {
+  const keys = new Set<string>();
+  for (const raw of metricKeys) {
+    const logical = normalizePairingTableKey(String(raw));
+    if (logical) {
+      keys.add(logical);
+    }
+  }
+  return keys.size;
+}
+
 // 提取作业运行指标摘要，兼容单表全局指标与 SeaTunnel 3.0 表级细粒度聚合指标
 // Extract job execution metric summary, compatible with single-table global metrics and SeaTunnel 3.0 table-level metrics
 export function extractJobMetricSummary(job: SyncJobInstance): {
@@ -2673,12 +2702,14 @@ export function extractJobMetricSummary(job: SyncJobInstance): {
   const tableSourceQpsMap = toNumericMetricMap(metrics.TableSourceReceivedQPS);
   const tableSinkQpsMap = toNumericMetricMap(metrics.TableSinkWriteQPS);
 
-  const uniqueTables = new Set([
+  const uniqueMetricKeys = new Set([
     ...Object.keys(tableSourceCountMap),
     ...Object.keys(tableSinkCountMap),
     ...Object.keys(tableSinkCommittedMap),
   ]);
-  const tableCount = uniqueTables.size;
+  // 多表以逻辑表为准，避免 Source[0].t / Sink[0].t 被计成 2 张表。
+  // Multi-table uses logical tables so Source[0].t / Sink[0].t count as one.
+  const tableCount = countLogicalTables(uniqueMetricKeys);
 
   // 当全局读指标为空但存在表级指标时，汇总表级读取行数
   // When global read metrics are absent but table-level metrics exist, aggregate table read counts
@@ -2745,12 +2776,68 @@ export function formatMetricValue(value: number | null, digits = 0): string {
   return digits > 0 ? value.toFixed(digits) : String(Math.round(value));
 }
 
+/**
+ * 将指标值格式化为可读字符串；对象/数组（如 *PerVertex map）不再落到 [object Object]。
+ * Format metric values for display; maps/arrays (e.g. *PerVertex) stay readable.
+ */
 export function formatMetricDisplayValue(value: unknown): string {
   if (value === null || value === undefined) {
     return '-';
   }
   if (typeof value === 'number') {
-    return value.toLocaleString();
+    return Number.isFinite(value) ? value.toLocaleString() : String(value);
+  }
+  if (typeof value === 'boolean') {
+    return value ? 'true' : 'false';
+  }
+  if (typeof value === 'string') {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    if (value.length === 0) {
+      return '[]';
+    }
+    const allPrimitive = value.every(
+      (item) =>
+        item === null ||
+        item === undefined ||
+        typeof item === 'string' ||
+        typeof item === 'number' ||
+        typeof item === 'boolean',
+    );
+    if (allPrimitive) {
+      return value.map((item) => formatMetricDisplayValue(item)).join(', ');
+    }
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return '[array]';
+    }
+  }
+  if (typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>);
+    if (entries.length === 0) {
+      return '{}';
+    }
+    // *PerVertex 等扁平 map：vertexId → 标量 / Flat maps like *PerVertex: vertexId → scalar
+    const allPrimitive = entries.every(
+      ([, item]) =>
+        item === null ||
+        item === undefined ||
+        typeof item === 'string' ||
+        typeof item === 'number' ||
+        typeof item === 'boolean',
+    );
+    if (allPrimitive) {
+      return entries
+        .map(([key, item]) => `${key}: ${formatMetricDisplayValue(item)}`)
+        .join(', ');
+    }
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return '[object]';
+    }
   }
   return String(value);
 }
@@ -3072,10 +3159,13 @@ export function buildPerTableMetricRows(metrics: Record<string, unknown>) {
   ).sort();
 
   return allTables.map((table) => {
-    const match = table.match(/^(Source|Sink)\[(\d+)\]\.(.+)$/);
-    const nodeType = match?.[1] || 'Table';
+    const path = extractMetricTablePath(table);
+    const match = table.match(/^(Source|Sink)\[(\d+)\]\.(.+)$/i);
+    const nodeType = match?.[1]
+      ? match[1][0].toUpperCase() + match[1].slice(1).toLowerCase()
+      : 'Table';
     const nodeIndex = match?.[2] ? Number(match[2]) + 1 : null;
-    const tablePath = match?.[3] || table;
+    const tablePath = path || table;
     return {
       rawTable: table,
       nodeLabel: nodeIndex !== null ? `${nodeType} #${nodeIndex}` : nodeType,
@@ -3096,13 +3186,6 @@ export function buildPerTableMetricRows(metrics: Record<string, unknown>) {
       committedBytes: committedBytes[table] || '-',
     };
   });
-}
-
-export function normalizePairingTableKey(tablePath: string): string {
-  const leaf =
-    tablePath.split('.').pop()?.trim().toLowerCase() ||
-    tablePath.trim().toLowerCase();
-  return leaf.replace(/^archive_/, '');
 }
 
 export function buildPairedMetricRows(metrics: Record<string, unknown>) {

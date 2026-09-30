@@ -4170,6 +4170,7 @@
     "pipelineSpeedDraining": "缓冲落盘中",
     "pipelineSpeedNoFlow": "暂无流速",
     "metricPerTable": "分表指标",
+    "metricPerTableCount": "{endpoints} / {totalEndpoints} 端点 · {tables} 表",
     "metricPairView": "配对视图",
     "metricMappedView": "映射视图",
     "collapsePerTableMetrics": "折叠分表指标",

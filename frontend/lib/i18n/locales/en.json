@@ -4170,6 +4170,7 @@
     "pipelineSpeedDraining": "Draining Buffer",
     "pipelineSpeedNoFlow": "No Flow",
     "metricPerTable": "Per-table Metrics",
+    "metricPerTableCount": "{endpoints} / {totalEndpoints} endpoints · {tables} tables",
     "metricPairView": "Pair View",
     "metricMappedView": "Mapped View",
     "collapsePerTableMetrics": "Collapse per-table metrics",

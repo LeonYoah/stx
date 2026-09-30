@@ -116,6 +116,10 @@ type InstallScriptData struct {
 	// STXJavaProxyVersion 是默认打包的 stx-java-proxy 版本。
 	STXJavaProxyVersion string
 
+	// STXJavaProxyEpochs is the space-separated list of proxy epochs to install (e.g. "v2 v3").
+	// STXJavaProxyEpochs 是要安装的 proxy 代际列表（空格分隔，如 "v2 v3"）。
+	STXJavaProxyEpochs string
+
 	// STXJavaProxyJarFileName is the packaged default stx-java-proxy jar file name.
 	// STXJavaProxyJarFileName 是默认打包的 stx-java-proxy jar 文件名。
 	STXJavaProxyJarFileName string
@@ -268,6 +272,7 @@ func (g *InstallScriptGenerator) Generate() (string, error) {
 		ServiceName:                DefaultServiceName,
 		SupportDir:                 DefaultSupportDir,
 		STXJavaProxyVersion:        seatunnelmeta.DefaultSTXJavaProxyVersion,
+		STXJavaProxyEpochs:         strings.Join(seatunnelmeta.STXJavaProxyEpochs(), " "),
 		STXJavaProxyJarFileName:    seatunnelmeta.STXJavaProxyJarFileName(seatunnelmeta.DefaultSTXJavaProxyVersion),
 		STXJavaProxyScriptFileName: seatunnelmeta.STXJavaProxyScriptFileName,
 		HeartbeatInterval:          fmt.Sprintf("%ds", g.heartbeatInterval),
@@ -311,6 +316,9 @@ func (g *InstallScriptGenerator) GenerateWithData(data *InstallScriptData) (stri
 	}
 	if data.STXJavaProxyVersion == "" {
 		data.STXJavaProxyVersion = seatunnelmeta.DefaultSTXJavaProxyVersion
+	}
+	if data.STXJavaProxyEpochs == "" {
+		data.STXJavaProxyEpochs = strings.Join(seatunnelmeta.STXJavaProxyEpochs(), " ")
 	}
 	if data.STXJavaProxyJarFileName == "" {
 		data.STXJavaProxyJarFileName = seatunnelmeta.STXJavaProxyJarFileName(data.STXJavaProxyVersion)
@@ -428,6 +436,7 @@ DEFAULT_INSTALL_DIR="{{.InstallDir}}"
 AGENT_BINARY="{{.AgentBinary}}"
 SERVICE_NAME="{{.ServiceName}}"
 CAPABILITY_PROXY_VERSION="{{.STXJavaProxyVersion}}"
+CAPABILITY_PROXY_EPOCHS="{{.STXJavaProxyEpochs}}"
 GRPC_TLS_ENABLED="{{if .TLSEnabled}}true{{else}}false{{end}}"
 LAUNCHD_LABEL="org.apache.stx.${SERVICE_NAME}"
 HOST_ID="{{if gt .HostID 0}}{{.HostID}}{{end}}"
@@ -781,31 +790,100 @@ download_agent() {
 }
 
 download_support_assets() {
-    local jar_url="${CONTROL_PLANE_ADDR}/api/v1/agent/assets/stx-java-proxy.jar?version=${CAPABILITY_PROXY_VERSION}"
     local script_url="${CONTROL_PLANE_ADDR}/api/v1/agent/assets/stx-java-proxy.sh"
-    local temp_jar="/tmp/${SERVICE_NAME}-{{.STXJavaProxyJarFileName}}"
     local temp_script="/tmp/${SERVICE_NAME}-{{.STXJavaProxyScriptFileName}}"
+    local epoch=""
+    local jar_name=""
+    local jar_url=""
+    local temp_jar=""
+    local temp_hdr=""
+    local required_ok=0
 
     log_step "Downloading Agent support assets..."
     log_step "正在下载 Agent 辅助资产..."
 
-    if command -v curl >/dev/null 2>&1; then
-        if ! curl -fsSL -o "${temp_jar}" "${jar_url}"; then
-            log_error "Failed to download stx-java-proxy jar using curl"
-            log_error "使用 curl 下载 stx-java-proxy jar 失败"
-            exit 1
+    # 下载全部代际 jar（v2/v3）；默认代际必须成功，其余代际若控制面尚未发布则跳过。
+    # Download every epoch jar (v2/v3); the default epoch is required, others may be skipped
+    # when the control plane has not published that epoch yet.
+    for epoch in ${CAPABILITY_PROXY_EPOCHS}; do
+        jar_name="stx-java-proxy-${epoch}.jar"
+        jar_url="${CONTROL_PLANE_ADDR}/api/v1/agent/assets/stx-java-proxy.jar?version=${epoch}"
+        temp_jar="/tmp/${SERVICE_NAME}-${jar_name}"
+        temp_hdr="/tmp/${SERVICE_NAME}-${jar_name}.hdr"
+        rm -f "${temp_jar}" "${temp_hdr}"
+
+        if command -v curl >/dev/null 2>&1; then
+            if ! curl -fsSL -D "${temp_hdr}" -o "${temp_jar}" "${jar_url}"; then
+                if [ "${epoch}" = "${CAPABILITY_PROXY_VERSION}" ]; then
+                    log_error "Failed to download required stx-java-proxy jar (${epoch}) using curl"
+                    log_error "使用 curl 下载必需的 stx-java-proxy jar（${epoch}）失败"
+                    exit 1
+                fi
+                log_warn "Failed to download optional stx-java-proxy jar (${epoch}); skipping"
+                log_warn "可选 stx-java-proxy jar（${epoch}）下载失败，已跳过"
+                continue
+            fi
+        else
+            if ! wget -q -O "${temp_jar}" "${jar_url}"; then
+                if [ "${epoch}" = "${CAPABILITY_PROXY_VERSION}" ]; then
+                    log_error "Failed to download required stx-java-proxy jar (${epoch}) using wget"
+                    log_error "使用 wget 下载必需的 stx-java-proxy jar（${epoch}）失败"
+                    exit 1
+                fi
+                log_warn "Failed to download optional stx-java-proxy jar (${epoch}); skipping"
+                log_warn "可选 stx-java-proxy jar（${epoch}）下载失败，已跳过"
+                continue
+            fi
         fi
+
+        if [ ! -s "${temp_jar}" ]; then
+            if [ "${epoch}" = "${CAPABILITY_PROXY_VERSION}" ]; then
+                log_error "Downloaded required stx-java-proxy jar (${epoch}) is missing or empty"
+                log_error "下载的必需 stx-java-proxy jar（${epoch}）不存在或为空"
+                exit 1
+            fi
+            log_warn "Downloaded optional stx-java-proxy jar (${epoch}) is empty; skipping"
+            log_warn "下载的可选 stx-java-proxy jar（${epoch}）为空，已跳过"
+            rm -f "${temp_jar}" "${temp_hdr}"
+            continue
+        fi
+
+        # 控制面若尚未提供该代际，会回退返回默认 jar；通过 Content-Disposition 识别并跳过误装。
+        # When the control plane lacks this epoch it falls back to the default jar; detect via
+        # Content-Disposition and skip installing the wrong artifact as this epoch.
+        if [ -f "${temp_hdr}" ] && ! grep -qiE "filename=.*stx-java-proxy-${epoch}\\.jar" "${temp_hdr}"; then
+            if [ "${epoch}" = "${CAPABILITY_PROXY_VERSION}" ]; then
+                log_warn "Content-Disposition did not match ${jar_name}; keeping download as default epoch"
+                log_warn "Content-Disposition 未匹配 ${jar_name}，仍按默认代际保留下载结果"
+            else
+                log_warn "Control plane has no ${jar_name} yet (got fallback asset); skipping optional epoch ${epoch}"
+                log_warn "控制面尚无 ${jar_name}（返回了回退资产），跳过可选代际 ${epoch}"
+                rm -f "${temp_jar}" "${temp_hdr}"
+                continue
+            fi
+        fi
+
+        if [ "${epoch}" = "${CAPABILITY_PROXY_VERSION}" ]; then
+            required_ok=1
+        fi
+        rm -f "${temp_hdr}"
+        log_info "Downloaded capability proxy jar: ${jar_name}"
+        log_info "已下载 capability proxy jar：${jar_name}"
+    done
+
+    if [ "${required_ok}" -ne 1 ]; then
+        log_error "Required capability proxy jar (${CAPABILITY_PROXY_VERSION}) was not downloaded"
+        log_error "必需的 capability proxy jar（${CAPABILITY_PROXY_VERSION}）未下载成功"
+        exit 1
+    fi
+
+    if command -v curl >/dev/null 2>&1; then
         if ! curl -fsSL -o "${temp_script}" "${script_url}"; then
             log_error "Failed to download stx-java-proxy script using curl"
             log_error "使用 curl 下载 stx-java-proxy 脚本失败"
             exit 1
         fi
     else
-        if ! wget -q -O "${temp_jar}" "${jar_url}"; then
-            log_error "Failed to download stx-java-proxy jar using wget"
-            log_error "使用 wget 下载 stx-java-proxy jar 失败"
-            exit 1
-        fi
         if ! wget -q -O "${temp_script}" "${script_url}"; then
             log_error "Failed to download stx-java-proxy script using wget"
             log_error "使用 wget 下载 stx-java-proxy 脚本失败"
@@ -813,9 +891,9 @@ download_support_assets() {
         fi
     fi
 
-    if [ ! -s "${temp_jar}" ] || [ ! -s "${temp_script}" ]; then
-        log_error "Downloaded support assets are missing or empty"
-        log_error "下载的辅助资产不存在或为空"
+    if [ ! -s "${temp_script}" ]; then
+        log_error "Downloaded support script is missing or empty"
+        log_error "下载的辅助脚本不存在或为空"
         exit 1
     fi
 
@@ -938,20 +1016,46 @@ EOF
 }
 
 install_support_assets() {
-    local temp_jar="/tmp/${SERVICE_NAME}-{{.STXJavaProxyJarFileName}}"
     local temp_script="/tmp/${SERVICE_NAME}-{{.STXJavaProxyScriptFileName}}"
+    local epoch=""
+    local jar_name=""
+    local temp_jar=""
+    local dest_jar=""
+    local installed_any=0
 
     log_step "Installing Agent support assets..."
     log_step "正在安装 Agent 辅助资产..."
 
     mkdir -p "${SUPPORT_LIB_DIR}" "${SUPPORT_SCRIPT_DIR}"
-    mv "${temp_jar}" "${CAPABILITY_PROXY_JAR}"
+
+    for epoch in ${CAPABILITY_PROXY_EPOCHS}; do
+        jar_name="stx-java-proxy-${epoch}.jar"
+        temp_jar="/tmp/${SERVICE_NAME}-${jar_name}"
+        dest_jar="${SUPPORT_LIB_DIR}/${jar_name}"
+        if [ ! -s "${temp_jar}" ]; then
+            if [ "${epoch}" = "${CAPABILITY_PROXY_VERSION}" ]; then
+                log_error "Required capability proxy jar is missing before install: ${temp_jar}"
+                log_error "安装前缺少必需的 capability proxy jar：${temp_jar}"
+                exit 1
+            fi
+            continue
+        fi
+        mv "${temp_jar}" "${dest_jar}"
+        chmod 0644 "${dest_jar}"
+        installed_any=1
+        log_info "Capability proxy jar installed to ${dest_jar}"
+        log_info "Capability proxy jar 已安装到 ${dest_jar}"
+    done
+
+    if [ "${installed_any}" -ne 1 ]; then
+        log_error "No capability proxy jar was installed"
+        log_error "未安装任何 capability proxy jar"
+        exit 1
+    fi
+
     mv "${temp_script}" "${CAPABILITY_PROXY_SCRIPT}"
-    chmod 0644 "${CAPABILITY_PROXY_JAR}"
     chmod +x "${CAPABILITY_PROXY_SCRIPT}"
 
-    log_info "Capability proxy jar installed to ${CAPABILITY_PROXY_JAR}"
-    log_info "Capability proxy jar 已安装到 ${CAPABILITY_PROXY_JAR}"
     log_info "Capability proxy script installed to ${CAPABILITY_PROXY_SCRIPT}"
     log_info "Capability proxy 脚本已安装到 ${CAPABILITY_PROXY_SCRIPT}"
 }

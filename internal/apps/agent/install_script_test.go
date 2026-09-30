@@ -117,12 +117,14 @@ func TestInstallScriptGenerate(t *testing.T) {
 		"launchctl",
 		"$HOME/.stx/agent",
 		"CAPABILITY_PROXY_VERSION=\"" + seatunnelmeta.DefaultSTXJavaProxyVersion + "\"",
-		"/api/v1/agent/assets/stx-java-proxy.jar?version=${CAPABILITY_PROXY_VERSION}",
+		"CAPABILITY_PROXY_EPOCHS=\"" + strings.Join(seatunnelmeta.STXJavaProxyEpochs(), " ") + "\"",
+		"/api/v1/agent/assets/stx-java-proxy.jar?version=${epoch}",
 		"/api/v1/agent/assets/stx-java-proxy.sh",
 		"STX_JAVA_PROXY_HOME",
 		"STX_JAVA_PROXY_SCRIPT",
 		"stx-agent",
 		seatunnelmeta.STXJavaProxyJarFileName(seatunnelmeta.DefaultSTXJavaProxyVersion),
+		"stx-java-proxy-${epoch}.jar",
 	}
 
 	for _, expected := range expectedContents {
@@ -445,7 +447,8 @@ func TestInstallScriptContainsRequirements(t *testing.T) {
 	}
 	if !strings.Contains(script, "download_support_assets") ||
 		!strings.Contains(script, "CAPABILITY_PROXY_VERSION=\""+seatunnelmeta.DefaultSTXJavaProxyVersion+"\"") ||
-		!strings.Contains(script, "/api/v1/agent/assets/stx-java-proxy.jar?version=${CAPABILITY_PROXY_VERSION}") {
+		!strings.Contains(script, "CAPABILITY_PROXY_EPOCHS=\""+strings.Join(seatunnelmeta.STXJavaProxyEpochs(), " ")+"\"") ||
+		!strings.Contains(script, "/api/v1/agent/assets/stx-java-proxy.jar?version=${epoch}") {
 		t.Error("Script missing stx-java-proxy asset download functionality")
 	}
 

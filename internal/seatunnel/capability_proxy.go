@@ -95,3 +95,10 @@ func ResolveSTXJavaProxyVersion(seatunnelVersion string) string {
 func STXJavaProxyJarFileName(seatunnelVersion string) string {
 	return fmt.Sprintf(STXJavaProxyJarFileNamePattern, ProxyEpochForVersion(seatunnelVersion))
 }
+
+// STXJavaProxyEpochs returns all packaged proxy epochs that should be shipped
+// with the control plane and installed onto each Agent host.
+// STXJavaProxyEpochs 返回控制面应随包发布、并安装到每台 Agent 主机的全部代际列表。
+func STXJavaProxyEpochs() []string {
+	return []string{STXJavaProxyEpochV2, STXJavaProxyEpochV3}
+}

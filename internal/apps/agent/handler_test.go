@@ -255,7 +255,11 @@ func TestGetInstallScript(t *testing.T) {
 		t.Error("Expected script to contain stx-java-proxy version variable")
 	}
 
-	if !strings.Contains(body, "/api/v1/agent/assets/stx-java-proxy.jar?version=${CAPABILITY_PROXY_VERSION}") {
+	if !strings.Contains(body, "CAPABILITY_PROXY_EPOCHS=\""+strings.Join(seatunnelmeta.STXJavaProxyEpochs(), " ")+"\"") {
+		t.Error("Expected script to contain stx-java-proxy epochs variable")
+	}
+
+	if !strings.Contains(body, "/api/v1/agent/assets/stx-java-proxy.jar?version=${epoch}") {
 		t.Error("Expected script to contain stx-java-proxy jar download URL")
 	}
 

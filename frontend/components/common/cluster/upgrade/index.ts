@@ -18,3 +18,5 @@
 export {ClusterUpgradePrepare} from './ClusterUpgradePrepare';
 export {ClusterUpgradeConfig} from './ClusterUpgradeConfig';
 export {ClusterUpgradeExecute} from './ClusterUpgradeExecute';
+export {UpgradeSteps} from './UpgradeSteps';
+export type {UpgradeStage} from './UpgradeSteps';

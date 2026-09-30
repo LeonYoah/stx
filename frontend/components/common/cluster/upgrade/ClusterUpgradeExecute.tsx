@@ -23,10 +23,10 @@ import {useRouter, useSearchParams} from 'next/navigation';
 import {useTranslations} from 'next-intl';
 import {toast} from 'sonner';
 import {
-  Activity,
   AlertTriangle,
   ArrowLeft,
   Clock3,
+  History,
   Loader2,
   PlayCircle,
   RefreshCw,
@@ -59,6 +59,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {Skeleton} from '@/components/ui/skeleton';
 import {
   Table,
   TableBody,
@@ -67,6 +68,13 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import {Tabs, TabsList, TabsTrigger} from '@/components/ui/tabs';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import {ScrollArea} from '@/components/ui/scroll-area';
 import services from '@/lib/services';
 import {
@@ -82,6 +90,7 @@ import type {
   UpgradePlanRecord,
   UpgradeTask,
 } from '@/lib/services/st-upgrade';
+import {UpgradeSteps} from './UpgradeSteps';
 import {
   buildPlanStepMap,
   calculateExecutionProgress,
@@ -117,6 +126,10 @@ export function ClusterUpgradeExecute({clusterId}: ClusterUpgradeExecuteProps) {
   });
   const [loading, setLoading] = useState(true);
   const [starting, setStarting] = useState(false);
+  // 步骤 / 节点视图切换，释放横向空间 / Toggle steps vs nodes for horizontal space
+  const [executionView, setExecutionView] = useState<'steps' | 'nodes'>(
+    'steps',
+  );
   const logEndRef = useRef<HTMLDivElement | null>(null);
   const initializedLogsTaskRef = useRef<number | null>(null);
   const previousLogsTotalPagesRef = useRef(1);
@@ -378,7 +391,40 @@ export function ClusterUpgradeExecute({clusterId}: ClusterUpgradeExecuteProps) {
     });
   }, [hasActiveTask, logsData?.items, logsQuery.page]);
 
-  if (!loading && !currentPlan) {
+  if (loading) {
+    return (
+      <div className='space-y-6' data-testid='upgrade-execute-page'>
+        <WorkspaceHeader
+          icon={<PlayCircle />}
+          title={t('executeTitle')}
+          subtitle={<span>{t('executeDescription')}</span>}
+        />
+        <UpgradeSteps current='execute' clusterId={clusterId} />
+        <div className='space-y-6'>
+          <div className='grid gap-4 md:grid-cols-2 xl:grid-cols-4'>
+            <Skeleton className='h-24 w-full' />
+            <Skeleton className='h-24 w-full' />
+            <Skeleton className='h-24 w-full' />
+            <Skeleton className='h-24 w-full' />
+          </div>
+          <Card>
+            <CardHeader>
+              <Skeleton className='h-6 w-48' />
+            </CardHeader>
+            <CardContent>
+              <Skeleton className='h-4 w-full' />
+            </CardContent>
+          </Card>
+          <div className='grid gap-6 xl:grid-cols-2'>
+            <Skeleton className='h-96 w-full' />
+            <Skeleton className='h-96 w-full' />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!currentPlan) {
     return (
       <Card>
         <CardHeader>
@@ -398,6 +444,9 @@ export function ClusterUpgradeExecute({clusterId}: ClusterUpgradeExecuteProps) {
       </Card>
     );
   }
+
+  const currentLogsPage = logsQuery.page || 1;
+  const canLoadEarlierLogs = currentLogsPage > 1;
 
   return (
     <div className='space-y-6' data-testid='upgrade-execute-page'>
@@ -469,11 +518,12 @@ export function ClusterUpgradeExecute({clusterId}: ClusterUpgradeExecuteProps) {
         />
       </div>
 
+      <UpgradeSteps current='execute' clusterId={clusterId} />
+
       <div className='grid gap-4 md:grid-cols-2 xl:grid-cols-4'>
         <StatusCard
           title={t('taskStatus')}
           value={task ? getExecutionStatusLabel(task.status) : t('notStarted')}
-          badgeVariant={task ? getStatusBadgeVariant(task.status) : 'secondary'}
         />
         <StatusCard
           title={t('rollbackStatus')}
@@ -482,19 +532,14 @@ export function ClusterUpgradeExecute({clusterId}: ClusterUpgradeExecuteProps) {
               ? getExecutionStatusLabel(task.rollback_status)
               : t('notStarted')
           }
-          badgeVariant={
-            task ? getStatusBadgeVariant(task.rollback_status) : 'secondary'
-          }
         />
         <StatusCard
           title={t('currentStep')}
           value={task?.current_step || '-'}
-          badgeVariant='outline'
         />
         <StatusCard
           title={t('refreshStatus')}
           value={hasActiveTask ? t('pollingActive') : t('pollingStopped')}
-          badgeVariant={hasActiveTask ? 'default' : 'secondary'}
         />
       </div>
 
@@ -575,46 +620,121 @@ export function ClusterUpgradeExecute({clusterId}: ClusterUpgradeExecuteProps) {
 
       <div className='grid items-stretch gap-6 xl:grid-cols-[minmax(0,1fr)_420px]'>
         <Card className={`flex flex-col ${EXECUTION_PANES_HEIGHT_CLASS}`}>
-          <CardHeader>
-            <CardTitle>{t('stepTree')}</CardTitle>
-            <CardDescription>{t('stepTreeDescription')}</CardDescription>
+          <CardHeader className='space-y-3'>
+            <div>
+              <CardTitle>{t('executionDetailTitle')}</CardTitle>
+              <CardDescription>
+                {t('executionDetailDescription')}
+              </CardDescription>
+            </div>
+            {/* 步骤 / 节点 Tabs，释放横向空间 / Steps↔nodes tabs for more room */}
+            <Tabs
+              value={executionView}
+              onValueChange={(value) =>
+                setExecutionView(value as 'steps' | 'nodes')
+              }
+            >
+              <TabsList>
+                <TabsTrigger value='steps' data-testid='upgrade-view-steps'>
+                  {t('stepTree')}
+                </TabsTrigger>
+                <TabsTrigger value='nodes' data-testid='upgrade-view-nodes'>
+                  {t('nodeExecutions')}
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
           </CardHeader>
           <CardContent className='flex min-h-0 flex-1 flex-col'>
-            <ScrollArea className='min-h-0 flex-1 pr-4'>
-              <div className='space-y-3'>
-                {(stepsData?.steps || task?.steps || []).map((step) => (
-                  <div key={step.id} className='rounded-lg border p-4'>
-                    <div className='flex flex-wrap items-center justify-between gap-3'>
-                      <div>
-                        <div className='font-medium'>
-                          {stepMap[step.code]?.title || step.code}
+            {executionView === 'steps' ? (
+              <ScrollArea className='min-h-0 flex-1 pr-4'>
+                <div className='space-y-3'>
+                  {(stepsData?.steps || task?.steps || []).map((step) => (
+                    <div key={step.id} className='rounded-lg border p-4'>
+                      <div className='flex flex-wrap items-center justify-between gap-3'>
+                        <div>
+                          <div className='font-medium'>
+                            {stepMap[step.code]?.title || step.code}
+                          </div>
+                          <div className='text-xs text-muted-foreground'>
+                            {step.sequence}. {step.code}
+                          </div>
                         </div>
-                        <div className='text-xs text-muted-foreground'>
-                          {step.sequence}. {step.code}
+                        <div className='flex items-center gap-2'>
+                          <Badge variant={getStatusBadgeVariant(step.status)}>
+                            {getExecutionStatusLabel(step.status)}
+                          </Badge>
+                          <Badge variant='outline'>
+                            {t('stepNodeCount')}:{' '}
+                            {getStepNodeCount(step, stepsData)}
+                          </Badge>
                         </div>
                       </div>
-                      <div className='flex items-center gap-2'>
-                        <Badge variant={getStatusBadgeVariant(step.status)}>
-                          {getExecutionStatusLabel(step.status)}
-                        </Badge>
-                        <Badge variant='outline'>
-                          {t('stepNodeCount')}:{' '}
-                          {getStepNodeCount(step, stepsData)}
-                        </Badge>
+                      <div className='mt-3 text-sm text-muted-foreground'>
+                        {step.message || stepMap[step.code]?.description}
                       </div>
+                      {step.error ? (
+                        <div className='mt-2 text-sm text-destructive'>
+                          {step.error}
+                        </div>
+                      ) : null}
                     </div>
-                    <div className='mt-3 text-sm text-muted-foreground'>
-                      {step.message || stepMap[step.code]?.description}
-                    </div>
-                    {step.error ? (
-                      <div className='mt-2 text-sm text-destructive'>
-                        {step.error}
-                      </div>
-                    ) : null}
-                  </div>
-                ))}
-              </div>
-            </ScrollArea>
+                  ))}
+                </div>
+              </ScrollArea>
+            ) : (
+              <ScrollArea className='min-h-0 flex-1 pr-4'>
+                <TooltipProvider delayDuration={300}>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>{t('host')}</TableHead>
+                        <TableHead>{t('role')}</TableHead>
+                        <TableHead>{t('statusLabel')}</TableHead>
+                        <TableHead>{t('currentStep')}</TableHead>
+                        <TableHead>{t('messageLabel')}</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {nodeOptions.map((node) => {
+                        const messageText = node.message || node.error || '-';
+                        return (
+                          <TableRow key={node.id}>
+                            <TableCell>{node.host_name}</TableCell>
+                            <TableCell>{node.role}</TableCell>
+                            <TableCell>
+                              <Badge
+                                variant={getStatusBadgeVariant(node.status)}
+                              >
+                                {getExecutionStatusLabel(node.status)}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>{node.current_step || '-'}</TableCell>
+                            <TableCell>
+                              {/* 截断 + Tooltip 完整展示 / Truncate with full Tooltip */}
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <div className='max-w-[340px] cursor-help truncate text-left'>
+                                    {messageText}
+                                  </div>
+                                </TooltipTrigger>
+                                <TooltipContent
+                                  side='bottom'
+                                  className='max-w-md break-words'
+                                >
+                                  <p className='whitespace-pre-wrap'>
+                                    {messageText}
+                                  </p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </TooltipProvider>
+              </ScrollArea>
+            )}
           </CardContent>
         </Card>
 
@@ -698,6 +818,38 @@ export function ClusterUpgradeExecute({clusterId}: ClusterUpgradeExecuteProps) {
               </div>
             </div>
 
+            {/* 显式加载更早日志，替代隐式分页感知 / Explicit earlier-logs control */}
+            <div className='flex items-center justify-between gap-3'>
+              {canLoadEarlierLogs ? (
+                <Button
+                  variant='outline'
+                  size='sm'
+                  data-testid='upgrade-load-earlier-logs'
+                  onClick={() =>
+                    setLogsQuery((current) => ({
+                      ...current,
+                      page: Math.max(1, (current.page || 1) - 1),
+                    }))
+                  }
+                >
+                  <History className='mr-2 h-3.5 w-3.5' />
+                  {t('loadEarlierLogs')}
+                </Button>
+              ) : (
+                <span className='text-xs text-muted-foreground'>
+                  {logsTotalPages > 1 ? t('noEarlierLogs') : null}
+                </span>
+              )}
+              {logsTotalPages > 1 ? (
+                <span className='text-xs text-muted-foreground tabular-nums'>
+                  {t('logsPageIndicator', {
+                    page: currentLogsPage,
+                    total: logsTotalPages,
+                  })}
+                </span>
+              ) : null}
+            </div>
+
             <ScrollArea className='min-h-0 flex-1 rounded-lg border'>
               <div className='space-y-3 p-4'>
                 {logsData?.items.length ? (
@@ -745,7 +897,7 @@ export function ClusterUpgradeExecute({clusterId}: ClusterUpgradeExecuteProps) {
             </ScrollArea>
 
             <Pagination
-              currentPage={logsQuery.page || 1}
+              currentPage={currentLogsPage}
               totalPages={logsTotalPages}
               pageSize={logsData?.page_size || logsQuery.page_size || 100}
               totalItems={logsData?.total || 0}
@@ -761,43 +913,6 @@ export function ClusterUpgradeExecute({clusterId}: ClusterUpgradeExecuteProps) {
           </CardContent>
         </Card>
       </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>{t('nodeExecutions')}</CardTitle>
-          <CardDescription>{t('nodeExecutionsDescription')}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{t('host')}</TableHead>
-                <TableHead>{t('role')}</TableHead>
-                <TableHead>{t('statusLabel')}</TableHead>
-                <TableHead>{t('currentStep')}</TableHead>
-                <TableHead>{t('messageLabel')}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {nodeOptions.map((node) => (
-                <TableRow key={node.id}>
-                  <TableCell>{node.host_name}</TableCell>
-                  <TableCell>{node.role}</TableCell>
-                  <TableCell>
-                    <Badge variant={getStatusBadgeVariant(node.status)}>
-                      {getExecutionStatusLabel(node.status)}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>{node.current_step || '-'}</TableCell>
-                  <TableCell className='max-w-[340px] truncate'>
-                    {node.message || node.error || '-'}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
     </div>
   );
 }
@@ -805,18 +920,18 @@ export function ClusterUpgradeExecute({clusterId}: ClusterUpgradeExecuteProps) {
 interface StatusCardProps {
   title: string;
   value: string;
-  badgeVariant: 'default' | 'secondary' | 'destructive' | 'outline';
 }
 
-function StatusCard({title, value, badgeVariant}: StatusCardProps) {
+/**
+ * 状态摘要卡：仅展示文本值，避免 title/badge 重复
+ * Status summary card: text value only, no duplicate badge
+ */
+function StatusCard({title, value}: StatusCardProps) {
   return (
     <Card>
       <CardHeader>
         <CardDescription>{title}</CardDescription>
-        <CardTitle className='flex items-center justify-between gap-3 text-base'>
-          <span>{value}</span>
-          <Badge variant={badgeVariant}>{value}</Badge>
-        </CardTitle>
+        <CardTitle className='text-base'>{value}</CardTitle>
       </CardHeader>
     </Card>
   );

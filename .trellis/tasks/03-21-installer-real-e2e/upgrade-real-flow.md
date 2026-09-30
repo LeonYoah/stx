@@ -128,6 +128,7 @@ The suite waits for a successful upgrade task and requires the expected step cha
 
 - `SWITCH_VERSION`
 - `START_CLUSTER`
+- `RESTART_JAVA_PROXY`
 - `HEALTH_CHECK`
 - `SMOKE_TEST`
 - `COMPLETE`

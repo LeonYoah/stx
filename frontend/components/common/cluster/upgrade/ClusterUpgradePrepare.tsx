@@ -23,7 +23,10 @@ import {useTranslations} from 'next-intl';
 import {toast} from 'sonner';
 import {
   ArrowLeft,
+  ChevronDown,
+  ChevronRight,
   FileSearch,
+  Loader2,
   Package,
   PlugZap,
   RefreshCw,
@@ -43,6 +46,7 @@ import {
 import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';
 import {Separator} from '@/components/ui/separator';
+import {Skeleton} from '@/components/ui/skeleton';
 import {
   Select,
   SelectContent,
@@ -72,6 +76,7 @@ import type {
   CreatePlanRequest,
   PrecheckResult,
 } from '@/lib/services/st-upgrade';
+import {UpgradeSteps} from './UpgradeSteps';
 import {getIssueCategoryLabel} from './utils';
 
 interface ClusterUpgradePrepareProps {
@@ -97,6 +102,8 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
   const [loading, setLoading] = useState(true);
   const [runningPrecheck, setRunningPrecheck] = useState(false);
   const [initializingConfigs, setInitializingConfigs] = useState(false);
+  // 高级选项默认折叠，渐进式披露 / Advanced options collapsed by default
+  const [advancedExpanded, setAdvancedExpanded] = useState(false);
 
   const restoreDraft = useCallback(() => {
     const draft = loadStUpgradeSession(clusterId);
@@ -111,6 +118,13 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
     }
     if (draft.request?.connector_names?.length) {
       setConnectorNamesText(draft.request.connector_names.join(','));
+    }
+    // 草稿已有高级字段时自动展开 / Auto-expand when draft has advanced fields
+    if (
+      draft.request?.package_checksum ||
+      draft.request?.connector_names?.length
+    ) {
+      setAdvancedExpanded(true);
     }
     if (draft.request?.target_install_dir) {
       setTargetInstallDir(draft.request.target_install_dir);
@@ -342,6 +356,52 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
     [blockingIssues, canContinueThroughConfig, isPrecheckStale, precheck],
   );
 
+  // 零塌陷加载：首屏骨架屏占位 / Zero-collapse loading skeleton
+  if (loading && !cluster) {
+    return (
+      <div className='space-y-6' data-testid='upgrade-prepare-page'>
+        <WorkspaceHeader
+          icon={<FileSearch />}
+          title={t('prepareTitle')}
+          subtitle={<span>{t('prepareDescription')}</span>}
+        />
+        <UpgradeSteps current='prepare' clusterId={clusterId} />
+        <div className='grid gap-6 xl:grid-cols-[420px_minmax(0,1fr)]'>
+          <Card>
+            <CardHeader>
+              <Skeleton className='h-6 w-48' />
+              <Skeleton className='mt-2 h-4 w-full' />
+            </CardHeader>
+            <CardContent className='space-y-4'>
+              <div className='space-y-2'>
+                <Skeleton className='h-4 w-32' />
+                <Skeleton className='h-10 w-full' />
+              </div>
+              <div className='space-y-2'>
+                <Skeleton className='h-4 w-32' />
+                <Skeleton className='h-10 w-full' />
+              </div>
+              <Skeleton className='h-10 w-full' />
+              <div className='flex gap-2'>
+                <Skeleton className='h-10 w-32' />
+                <Skeleton className='h-10 flex-1' />
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <Skeleton className='h-6 w-40' />
+              <Skeleton className='mt-2 h-4 w-3/4' />
+            </CardHeader>
+            <CardContent>
+              <Skeleton className='h-32 w-full' />
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className='space-y-6' data-testid='upgrade-prepare-page'>
       <WorkspaceHeader
@@ -379,6 +439,8 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
           </>
         }
       />
+
+      <UpgradeSteps current='prepare' clusterId={clusterId} />
 
       {isPrecheckStale ? (
         <div className='rounded-lg border border-amber-500/30 bg-amber-500/5 p-4'>
@@ -418,16 +480,6 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
             </div>
 
             <div className='space-y-2'>
-              <Label htmlFor='package-checksum'>{t('packageChecksum')}</Label>
-              <Input
-                id='package-checksum'
-                value={packageChecksum}
-                onChange={(event) => setPackageChecksum(event.target.value)}
-                placeholder={t('packageChecksumPlaceholder')}
-              />
-            </div>
-
-            <div className='space-y-2'>
               <Label htmlFor='target-install-dir'>
                 {t('targetInstallDir')}
               </Label>
@@ -446,14 +498,54 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
               </p>
             </div>
 
-            <div className='space-y-2'>
-              <Label htmlFor='connector-names'>{t('connectorNames')}</Label>
-              <Input
-                id='connector-names'
-                value={connectorNamesText}
-                onChange={(event) => setConnectorNamesText(event.target.value)}
-                placeholder={t('connectorNamesPlaceholder')}
-              />
+            {/* 高级选项折叠：checksum / connector 非首屏必填 / Advanced options collapsible */}
+            <div className='rounded-lg border'>
+              <button
+                type='button'
+                className='flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left text-sm font-medium hover:bg-muted/40'
+                onClick={() => setAdvancedExpanded((prev) => !prev)}
+                aria-expanded={advancedExpanded}
+                data-testid='upgrade-prepare-advanced-toggle'
+              >
+                <span className='inline-flex items-center gap-2'>
+                  {advancedExpanded ? (
+                    <ChevronDown className='h-4 w-4' />
+                  ) : (
+                    <ChevronRight className='h-4 w-4' />
+                  )}
+                  {t('advancedOptions')}
+                </span>
+              </button>
+              {advancedExpanded ? (
+                <div className='space-y-4 border-t px-3 py-3'>
+                  <div className='space-y-2'>
+                    <Label htmlFor='package-checksum'>
+                      {t('packageChecksum')}
+                    </Label>
+                    <Input
+                      id='package-checksum'
+                      value={packageChecksum}
+                      onChange={(event) =>
+                        setPackageChecksum(event.target.value)
+                      }
+                      placeholder={t('packageChecksumPlaceholder')}
+                    />
+                  </div>
+                  <div className='space-y-2'>
+                    <Label htmlFor='connector-names'>
+                      {t('connectorNames')}
+                    </Label>
+                    <Input
+                      id='connector-names'
+                      value={connectorNamesText}
+                      onChange={(event) =>
+                        setConnectorNamesText(event.target.value)
+                      }
+                      placeholder={t('connectorNamesPlaceholder')}
+                    />
+                  </div>
+                </div>
+              ) : null}
             </div>
 
             <Separator />
@@ -472,9 +564,13 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
                 data-testid='upgrade-prepare-run-precheck'
                 disabled={runningPrecheck || loading}
               >
-                <ShieldAlert className='mr-2 h-4 w-4' />
+                {runningPrecheck ? (
+                  <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                ) : (
+                  <ShieldAlert className='mr-2 h-4 w-4' />
+                )}
                 {runningPrecheck
-                  ? t('checking')
+                  ? t('runningPrecheck')
                   : precheck
                     ? t('rerunPrecheck')
                     : t('runPrecheck')}

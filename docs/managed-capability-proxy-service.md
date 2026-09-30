@@ -76,6 +76,11 @@ This first pass does **not** yet provide:
 - UI exposure for proxy lifecycle management
 - storage-tab list / stat / inspect APIs wired into the control plane
 
+> Update: cluster upgrade orchestration now best-effort stops `stx-java-proxy` during
+> `STOP_CLUSTER` / rollback prepare, and restarts it in `RESTART_JAVA_PROXY` after the
+> target version is live (warn-only on failure). Dedicated platform UI / metadata for
+> proxy health is still separate.
+
 ## Recommended next phases
 
 ### Phase 2: platform-managed lifecycle

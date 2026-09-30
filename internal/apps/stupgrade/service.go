@@ -325,6 +325,10 @@ func normalizePlanSnapshot(snapshot UpgradePlanSnapshot) UpgradePlanSnapshot {
 	}
 	if len(normalized.Steps) == 0 {
 		normalized.Steps = DefaultExecutionSteps()
+	} else {
+		// 兼容旧计划快照：补齐切版本后重启 stx-java-proxy 的步骤。
+		// Backfill older plan snapshots that predate RESTART_JAVA_PROXY.
+		normalized.Steps = ensureRestartJavaProxyStep(normalized.Steps)
 	}
 	if !containsRollbackSteps(normalized.Steps) {
 		normalized.Steps = append(normalized.Steps, DefaultRollbackSteps(len(normalized.Steps)+1)...)
@@ -350,4 +354,38 @@ func containsRollbackSteps(steps []PlanStep) bool {
 		}
 	}
 	return false
+}
+
+// ensureRestartJavaProxyStep 在旧计划步骤链缺少 RESTART_JAVA_PROXY 时，插入到 START_CLUSTER 之后。
+// ensureRestartJavaProxyStep inserts RESTART_JAVA_PROXY after START_CLUSTER when an older snapshot lacks it.
+func ensureRestartJavaProxyStep(steps []PlanStep) []PlanStep {
+	hasRestart := false
+	startIndex := -1
+	for i, step := range steps {
+		if step.Code == StepCodeRestartJavaProxy {
+			hasRestart = true
+		}
+		if step.Code == StepCodeStartCluster {
+			startIndex = i
+		}
+	}
+	if hasRestart || startIndex < 0 {
+		return steps
+	}
+
+	inserted := PlanStep{
+		Sequence:    steps[startIndex].Sequence + 1,
+		Code:        StepCodeRestartJavaProxy,
+		Title:       "重启 Java Proxy",
+		Description: "按目标版本代际重启托管 stx-java-proxy，对齐新安装目录与 classpath；失败只告警不阻断升级。",
+		Required:    true,
+	}
+	out := make([]PlanStep, 0, len(steps)+1)
+	out = append(out, steps[:startIndex+1]...)
+	out = append(out, inserted)
+	out = append(out, steps[startIndex+1:]...)
+	for i := range out {
+		out[i].Sequence = i + 1
+	}
+	return out
 }

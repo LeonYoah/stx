@@ -158,6 +158,7 @@ test.describe.serial('upgrade real e2e', () => {
     await waitForUpgradeTaskSuccess(page, taskId, [
       'SWITCH_VERSION',
       'START_CLUSTER',
+      'RESTART_JAVA_PROXY',
       'HEALTH_CHECK',
       'SMOKE_TEST',
       'COMPLETE',

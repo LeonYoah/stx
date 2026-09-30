@@ -415,27 +415,50 @@ build_agent_binaries() {
   )
 }
 
-# 构建并暂存 STX Java Proxy 薄 JAR。/ Build and stage the STX Java Proxy thin JAR.
+# 按代际 profile 构建并暂存 STX Java Proxy 薄 JAR（v2 + v3）。
+# Build and stage STX Java Proxy thin JARs for each epoch profile (v2 + v3).
 build_stx_java_proxy_jar() {
   local proxy_project_dir="$ROOT_DIR/tools/stx-java-proxy"
   local proxy_target_dir="$proxy_project_dir/target"
-  local proxy_out="$BUILD_DIR/stx-java-proxy-${CAPABILITY_PROXY_DEFAULT_VERSION}.jar"
+  local profiles=("epoch-v2" "epoch-v3")
+  local epochs=("v2" "v3")
+  local i
 
-  echo "building stx-java-proxy thin jar ..."
-  (
-    cd "$ROOT_DIR"
-    mvn -q -f "$proxy_project_dir/pom.xml" -DskipTests package
-  )
+  mkdir -p "$BUILD_DIR"
+  for i in "${!profiles[@]}"; do
+    local profile="${profiles[$i]}"
+    local epoch="${epochs[$i]}"
+    local proxy_out="$BUILD_DIR/stx-java-proxy-${epoch}.jar"
 
-  local built_proxy_jar
-  built_proxy_jar="$(find "$proxy_target_dir" -maxdepth 1 -type f -name 'stx-java-proxy-*.jar' ! -name '*-bin.jar' | sort | head -n1)"
-  if [[ -z "$built_proxy_jar" || ! -f "$built_proxy_jar" ]]; then
-    echo "failed to locate built stx-java-proxy thin jar under $proxy_target_dir"
+    echo "building stx-java-proxy thin jar (${profile} → stx-java-proxy-${epoch}.jar) ..."
+    (
+      cd "$ROOT_DIR"
+      # v3 构建必须关闭默认 epoch-v2，避免同时解析 2.3 optional 与 3.0 shade 坐标。
+      # v3 builds must disable default epoch-v2 to avoid resolving both 2.3 optional and 3.0 shade coords.
+      if [[ "$epoch" == "v3" ]]; then
+        mvn -q -f "$proxy_project_dir/pom.xml" -P'epoch-v3,!epoch-v2' -DskipTests package
+      else
+        mvn -q -f "$proxy_project_dir/pom.xml" -Pepoch-v2 -DskipTests package
+      fi
+    )
+
+    local built_proxy_jar="$proxy_target_dir/stx-java-proxy-${epoch}.jar"
+    if [[ ! -f "$built_proxy_jar" ]]; then
+      built_proxy_jar="$(find "$proxy_target_dir" -maxdepth 1 -type f -name "stx-java-proxy-${epoch}.jar" ! -name '*-bin.jar' | sort | head -n1)"
+    fi
+    if [[ -z "$built_proxy_jar" || ! -f "$built_proxy_jar" ]]; then
+      echo "failed to locate built stx-java-proxy-${epoch}.jar under $proxy_target_dir"
+      exit 1
+    fi
+
+    cp "$built_proxy_jar" "$proxy_out"
+  done
+
+  CAPABILITY_PROXY_JAR="$BUILD_DIR/stx-java-proxy-${CAPABILITY_PROXY_DEFAULT_VERSION}.jar"
+  if [[ ! -f "$CAPABILITY_PROXY_JAR" ]]; then
+    echo "failed to locate default capability proxy jar: $CAPABILITY_PROXY_JAR"
     exit 1
   fi
-
-  cp "$built_proxy_jar" "$proxy_out"
-  CAPABILITY_PROXY_JAR="$proxy_out"
 }
 
 # 将可用的 STX Java Proxy JAR 放入发布目录。/ Stage available STX Java Proxy JARs in the release directory.
@@ -449,7 +472,10 @@ stage_stx_java_proxy_jars() {
     done
   fi
 
-  cp "$CAPABILITY_PROXY_JAR" "$destination_dir/$(basename "$CAPABILITY_PROXY_JAR")"
+  # 发布构建目录内全部代际 jar（v2/v3）。 / Stage every epoch jar produced in BUILD_DIR.
+  find "$BUILD_DIR" -maxdepth 1 -type f -name 'stx-java-proxy-*.jar' -print0 | while IFS= read -r -d '' jar_path; do
+    cp "$jar_path" "$destination_dir/"
+  done
 }
 
 if [[ "$DEPS_ONLY" != "true" ]]; then

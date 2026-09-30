@@ -23,10 +23,18 @@ import (
 )
 
 const (
-	// DefaultSTXJavaProxyVersion is kept for backward compatibility in scripts
-	// that reference the old per-SeaTunnel-version jar name.
-	// DefaultSTXJavaProxyVersion 保留用于向后兼容仍引用旧精确版本 jar 名的脚本。
+	// DefaultSTXJavaProxyVersion is the default packaged proxy epoch for scripts
+	// that do not yet know the target SeaTunnel cluster version.
+	// DefaultSTXJavaProxyVersion 是尚不知道目标 SeaTunnel 集群版本时脚本使用的默认代际。
 	DefaultSTXJavaProxyVersion = "v2"
+
+	// STXJavaProxyEpochV2 is the jar epoch compiled against SeaTunnel 2.3.x.
+	// STXJavaProxyEpochV2 是按 SeaTunnel 2.3.x 编译的 jar 代际。
+	STXJavaProxyEpochV2 = "v2"
+
+	// STXJavaProxyEpochV3 is the jar epoch compiled against SeaTunnel 3.0.x.
+	// STXJavaProxyEpochV3 是按 SeaTunnel 3.0.x 编译的 jar 代际。
+	STXJavaProxyEpochV3 = "v3"
 
 	// STXJavaProxyJarFileNamePattern defines the packaged jar naming convention.
 	// STXJavaProxyJarFileNamePattern 定义 stx-java-proxy jar 的统一命名规则。
@@ -37,41 +45,40 @@ const (
 	STXJavaProxyScriptFileName = "stx-java-proxy.sh"
 )
 
-// ProxyEpochForVersion maps a SeaTunnel cluster version string to its
-// stx-java-proxy compatibility epoch label (e.g. "2.3.5" → "v2").
+// ProxyEpochForVersion maps a SeaTunnel cluster version string (or an epoch
+// label such as "v2"/"v3") to its stx-java-proxy compatibility epoch.
 //
-// A new epoch label is only introduced when a genuinely breaking API change
-// requires a separate jar build; otherwise all versions within the same major
-// share the same epoch and the same jar. The epoch label is the single source
-// of truth for jar naming: stx-java-proxy-v2.jar, stx-java-proxy-v3.jar, etc.
+// Epoch labels are the single source of truth for jar naming:
+// stx-java-proxy-v2.jar, stx-java-proxy-v3.jar.
 //
-// ProxyEpochForVersion 将 SeaTunnel 集群版本字符串映射到 stx-java-proxy 兼容代际标签
-// （例如 "2.3.5" → "v2"）。仅在真正出现 breaking API 变更、需要单独构建 jar 时才引入
-// 新的代际标签；同一主版本下的所有小版本共享同一代际和同一 jar。代际标签是 jar 命名的
-// 唯一真相来源：stx-java-proxy-v2.jar、stx-java-proxy-v3.jar，以此类推。
+// ProxyEpochForVersion 将 SeaTunnel 集群版本字符串（或已是 "v2"/"v3" 的代际标签）
+// 映射到 stx-java-proxy 兼容代际。代际标签是 jar 命名的唯一真相来源。
 func ProxyEpochForVersion(seatunnelVersion string) string {
 	trimmed := strings.TrimSpace(seatunnelVersion)
 	if trimmed == "" {
-		return "v2"
+		return STXJavaProxyEpochV2
 	}
+	// 已是代际标签则直接返回，供下载接口 ?version=v3 使用。
+	// Pass through epoch labels so asset download ?version=v3 resolves correctly.
+	switch trimmed {
+	case STXJavaProxyEpochV2, STXJavaProxyEpochV3:
+		return trimmed
+	}
+
 	// 取主版本号（第一个 "." 之前的部分）。
 	// Extract major version number (everything before the first ".").
 	major := trimmed
 	if idx := strings.Index(trimmed, "."); idx >= 0 {
 		major = trimmed[:idx]
 	}
+	// 去掉可选的 "v" 前缀（如 v3.0.0）。
+	// Strip optional leading "v" (e.g. v3.0.0).
+	major = strings.TrimPrefix(major, "v")
 	switch major {
 	case "3":
-		// 3.x 目前与 v2 jar 的核心存储接口完全兼容，共用 v2 代际。
-		// 真正出现 breaking change 时在此处返回 "v3"，并发布 stx-java-proxy-v3.jar。
-		// 3.x is currently API-compatible with the v2 jar at the core storage level.
-		// Return "v3" here (and ship stx-java-proxy-v3.jar) only when a genuine
-		// breaking change is introduced in a future 3.x release.
-		return "v2"
+		return STXJavaProxyEpochV3
 	default:
-		// 2.x 及更早版本、未知版本均使用 v2 代际。
-		// 2.x and earlier (or unrecognised) versions use the v2 epoch.
-		return "v2"
+		return STXJavaProxyEpochV2
 	}
 }
 
@@ -83,8 +90,8 @@ func ResolveSTXJavaProxyVersion(seatunnelVersion string) string {
 }
 
 // STXJavaProxyJarFileName returns the packaged stx-java-proxy jar file name
-// for the given SeaTunnel cluster version.
-// STXJavaProxyJarFileName 返回与指定 SeaTunnel 集群版本对应的 stx-java-proxy jar 文件名。
+// for the given SeaTunnel cluster version or epoch label.
+// STXJavaProxyJarFileName 返回与指定 SeaTunnel 集群版本或代际标签对应的 jar 文件名。
 func STXJavaProxyJarFileName(seatunnelVersion string) string {
 	return fmt.Sprintf(STXJavaProxyJarFileNamePattern, ProxyEpochForVersion(seatunnelVersion))
 }

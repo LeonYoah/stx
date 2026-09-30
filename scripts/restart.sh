@@ -767,25 +767,41 @@ if $DO_BUILD && $RUN_BACKEND; then
     echo "      已同步 agent 到 lib/agent/${agent_binary_name}."
   fi
 
-  step=$((step + 1)); echo "[$step/$total] 构建 stx-java-proxy 薄 jar ..."
+  step=$((step + 1)); echo "[$step/$total] 构建 stx-java-proxy 薄 jar（v2 + v3）..."
   if command -v mvn >/dev/null 2>&1; then
-    mvn -q -f tools/stx-java-proxy/pom.xml -DskipTests package
-    proxy_jar="$(find tools/stx-java-proxy/target -maxdepth 1 -type f -name 'stx-java-proxy-*.jar' ! -name '*-bin.jar' | sort | head -n1)"
-    if [[ -n "${proxy_jar:-}" && -f "${proxy_jar:-}" ]]; then
-      mkdir -p lib
-      cp -f "$proxy_jar" "lib/stx-java-proxy-${CAPABILITY_PROXY_DEFAULT_VERSION}.jar"
-      echo "      已同步 stx-java-proxy jar 到 lib/stx-java-proxy-${CAPABILITY_PROXY_DEFAULT_VERSION}.jar."
-      if [[ -d "$AGENT_PROXY_LIB_DIR" ]]; then
-        cp -f "$proxy_jar" "$AGENT_PROXY_LIB_DIR/stx-java-proxy-${CAPABILITY_PROXY_DEFAULT_VERSION}.jar"
-        echo "      已同步 stx-java-proxy jar 到 $AGENT_PROXY_LIB_DIR/stx-java-proxy-${CAPABILITY_PROXY_DEFAULT_VERSION}.jar."
+    mkdir -p lib
+    proxy_synced=false
+    for proxy_profile_epoch in epoch-v2:v2 epoch-v3:v3; do
+      proxy_profile="${proxy_profile_epoch%%:*}"
+      proxy_epoch="${proxy_profile_epoch##*:}"
+      if [[ "$proxy_epoch" == "v3" ]]; then
+        mvn -q -f tools/stx-java-proxy/pom.xml -P'epoch-v3,!epoch-v2' -DskipTests package
+      else
+        mvn -q -f tools/stx-java-proxy/pom.xml -Pepoch-v2 -DskipTests package
       fi
-      if [[ -d "$AGENT_HOME/scripts" && -f "$PROJECT_ROOT/scripts/stx-java-proxy.sh" ]]; then
-        cp -f "$PROJECT_ROOT/scripts/stx-java-proxy.sh" "$AGENT_HOME/scripts/stx-java-proxy.sh"
-        chmod +x "$AGENT_HOME/scripts/stx-java-proxy.sh"
-        echo "      已同步 stx-java-proxy 启动脚本到 $AGENT_HOME/scripts/stx-java-proxy.sh."
+      proxy_jar="tools/stx-java-proxy/target/stx-java-proxy-${proxy_epoch}.jar"
+      if [[ ! -f "$proxy_jar" ]]; then
+        proxy_jar="$(find tools/stx-java-proxy/target -maxdepth 1 -type f -name "stx-java-proxy-${proxy_epoch}.jar" ! -name '*-bin.jar' | sort | head -n1)"
       fi
-    else
-      echo "      未找到 stx-java-proxy 薄 jar，跳过同步."
+      if [[ -n "${proxy_jar:-}" && -f "${proxy_jar:-}" ]]; then
+        cp -f "$proxy_jar" "lib/stx-java-proxy-${proxy_epoch}.jar"
+        echo "      已同步 stx-java-proxy jar 到 lib/stx-java-proxy-${proxy_epoch}.jar."
+        if [[ -d "$AGENT_PROXY_LIB_DIR" ]]; then
+          cp -f "$proxy_jar" "$AGENT_PROXY_LIB_DIR/stx-java-proxy-${proxy_epoch}.jar"
+          echo "      已同步 stx-java-proxy jar 到 $AGENT_PROXY_LIB_DIR/stx-java-proxy-${proxy_epoch}.jar."
+        fi
+        proxy_synced=true
+      else
+        echo "      未找到 stx-java-proxy-${proxy_epoch}.jar，跳过该代际同步."
+      fi
+    done
+    if [[ -d "$AGENT_HOME/scripts" && -f "$PROJECT_ROOT/scripts/stx-java-proxy.sh" ]]; then
+      cp -f "$PROJECT_ROOT/scripts/stx-java-proxy.sh" "$AGENT_HOME/scripts/stx-java-proxy.sh"
+      chmod +x "$AGENT_HOME/scripts/stx-java-proxy.sh"
+      echo "      已同步 stx-java-proxy 启动脚本到 $AGENT_HOME/scripts/stx-java-proxy.sh."
+    fi
+    if [[ "$proxy_synced" != "true" ]]; then
+      echo "      未找到任何 stx-java-proxy 薄 jar，跳过同步."
     fi
   else
     echo "      未找到 mvn，跳过 stx-java-proxy 薄 jar 构建与同步."

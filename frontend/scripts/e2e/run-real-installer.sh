@@ -202,7 +202,11 @@ docker rm -f "${MINIO_NAME}" >/dev/null 2>&1 || true
 JAVA_PROXY_SCRIPT_PATH="${ROOT_DIR}/scripts/stx-java-proxy.sh"
 JAVA_PROXY_LIB_PATH="${ROOT_DIR}/lib/stx-java-proxy-${JAVA_PROXY_EPOCH}.jar"
 if [[ ! -f "${JAVA_PROXY_LIB_PATH}" ]]; then
-  mvn -q -DskipTests package -f "${ROOT_DIR}/tools/stx-java-proxy/pom.xml"
+  if [[ "${JAVA_PROXY_EPOCH}" == "v3" ]]; then
+    mvn -q -DskipTests -P'epoch-v3,!epoch-v2' package -f "${ROOT_DIR}/tools/stx-java-proxy/pom.xml"
+  else
+    mvn -q -DskipTests -Pepoch-v2 package -f "${ROOT_DIR}/tools/stx-java-proxy/pom.xml"
+  fi
   BUILT_JAVA_PROXY_JAR="$(find "${ROOT_DIR}/tools/stx-java-proxy/target" -maxdepth 1 -type f -name "stx-java-proxy-${JAVA_PROXY_EPOCH}.jar" | sort | head -n 1 || true)"
   if [[ -z "${BUILT_JAVA_PROXY_JAR}" ]]; then
     echo "failed to build stx-java-proxy jar for epoch ${JAVA_PROXY_EPOCH}" >&2

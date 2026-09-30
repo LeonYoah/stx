@@ -282,8 +282,10 @@ func TestResolveSTXJavaProxyJarPathPrefersVersionAndFallsBack(t *testing.T) {
 	if err := os.WriteFile(exactJar, []byte("exact"), 0o644); err != nil {
 		t.Fatalf("failed to write exact jar: %v", err)
 	}
-	if err := os.WriteFile(defaultJar, []byte("default"), 0o644); err != nil {
-		t.Fatalf("failed to write default jar: %v", err)
+	if exactJar != defaultJar {
+		if err := os.WriteFile(defaultJar, []byte("default"), 0o644); err != nil {
+			t.Fatalf("failed to write default jar: %v", err)
+		}
 	}
 
 	t.Setenv(stxJavaProxyHomeEnvVar, supportDir)
@@ -302,6 +304,42 @@ func TestResolveSTXJavaProxyJarPathPrefersVersionAndFallsBack(t *testing.T) {
 	}
 	if resolvedFallback != defaultJar {
 		t.Fatalf("expected fallback jar %s, got %s", defaultJar, resolvedFallback)
+	}
+}
+
+func TestResolveSTXJavaProxyJarPathPrefersV3ThenFallsBackToV2(t *testing.T) {
+	supportDir := t.TempDir()
+	libDir := filepath.Join(supportDir, "lib")
+	if err := os.MkdirAll(libDir, 0o755); err != nil {
+		t.Fatalf("failed to create lib dir: %v", err)
+	}
+
+	v3Jar := filepath.Join(libDir, seatunnelmeta.STXJavaProxyJarFileName("3.0.0"))
+	v2Jar := filepath.Join(libDir, seatunnelmeta.STXJavaProxyJarFileName("2.3.13"))
+	if err := os.WriteFile(v2Jar, []byte("v2"), 0o644); err != nil {
+		t.Fatalf("failed to write v2 jar: %v", err)
+	}
+
+	t.Setenv(stxJavaProxyHomeEnvVar, supportDir)
+
+	// 仅有 v2 时，3.x 集群可回退。 / With only v2 present, 3.x may fall back.
+	resolvedFallback, err := resolveSTXJavaProxyJarPath(t.TempDir(), "3.0.0")
+	if err != nil {
+		t.Fatalf("expected v2 fallback for 3.0.0, got error: %v", err)
+	}
+	if resolvedFallback != v2Jar {
+		t.Fatalf("expected v2 fallback jar %s, got %s", v2Jar, resolvedFallback)
+	}
+
+	if err := os.WriteFile(v3Jar, []byte("v3"), 0o644); err != nil {
+		t.Fatalf("failed to write v3 jar: %v", err)
+	}
+	resolvedExact, err := resolveSTXJavaProxyJarPath(t.TempDir(), "3.0.0")
+	if err != nil {
+		t.Fatalf("expected v3 jar for 3.0.0, got error: %v", err)
+	}
+	if resolvedExact != v3Jar {
+		t.Fatalf("expected v3 jar %s, got %s", v3Jar, resolvedExact)
 	}
 }
 

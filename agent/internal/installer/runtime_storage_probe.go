@@ -1340,8 +1340,11 @@ func stxJavaProxyDevelopmentJarDirs() []string {
 // major share the same jar. A new epoch is added only on genuine breaking change.
 func stxJavaProxyVersionCandidates(seatunnelVersion string) []string {
 	epoch := seatunnelmeta.ProxyEpochForVersion(seatunnelVersion)
-	// 代际标签已去重（同一主版本映射到同一 epoch），直接返回单元素列表。
-	// The epoch mapping is deterministic; return a single-element list.
+	// 3.x 优先使用 v3 jar；若尚未发布/同步则回退 v2，便于滚动升级。
+	// Prefer v3 for 3.x clusters; fall back to v2 when the v3 jar is not yet shipped.
+	if epoch == seatunnelmeta.STXJavaProxyEpochV3 {
+		return []string{seatunnelmeta.STXJavaProxyEpochV3, seatunnelmeta.STXJavaProxyEpochV2}
+	}
 	return []string{epoch}
 }
 

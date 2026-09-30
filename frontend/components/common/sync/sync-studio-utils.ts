@@ -902,6 +902,38 @@ export function resolveEnumSuggestRange(position: {
   };
 }
 
+/**
+ * 光标是否落在已写完的枚举值末尾（含引号外），此时 Enter 应换行而非再次采纳补全。
+ * Whether the cursor sits at/after a finished enum value so Enter should insert a newline.
+ */
+export function isCursorAtFinishedEnumValue(
+  bounds: OptionAssignmentContext['bounds'],
+  column: number,
+  enumValues: string[],
+): boolean {
+  if (!bounds || !enumValues.length) {
+    return false;
+  }
+  const current = (bounds.value || '').trim();
+  if (!current) {
+    return false;
+  }
+  const matchesEnum = enumValues.some(
+    (val) => val.toLowerCase() === current.toLowerCase(),
+  );
+  if (!matchesEnum) {
+    return false;
+  }
+  // 带引号：落在闭合引号上或之后视为写完。
+  // Quoted: finished when cursor is on/after the closing quote.
+  if (bounds.quoted) {
+    return column >= bounds.endColumn;
+  }
+  // 无引号：光标在值末尾或之后视为写完（行尾按 Enter 换行）。
+  // Unquoted: finished when cursor is at/after the value token end.
+  return column >= bounds.endColumn;
+}
+
 export function ensureSyncHoconLanguage(monaco: any) {
   const languageId = 'sync-hocon';
   const languages = monaco.languages.getLanguages?.() || [];

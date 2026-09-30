@@ -24,6 +24,7 @@ import {
   isCursorInsideValueRegion,
   isNodeMatchingScope,
   formatValueConstraintHints,
+  isCursorAtFinishedEnumValue,
   resolveEnumSuggestionItems,
   resolveEnumValueBounds,
   resolveOptionAssignmentContext,
@@ -105,6 +106,50 @@ describe('sync-studio-utils Monaco completion & assignment tests', () => {
     expect(ctx.optionKey).toBe('startup.mode');
     expect(ctx.bounds?.quoted).toBe(true);
     expect(ctx.bounds?.value).toBe('INITIAL');
+  });
+
+  it('treats cursor at end of finished quoted enum as complete (Enter should newline)', () => {
+    const line = '  job.mode = "BATCH"';
+    const ctx = resolveOptionAssignmentContext(line, line.length + 1);
+    expect(ctx.bounds?.value).toBe('BATCH');
+    expect(
+      isCursorAtFinishedEnumValue(ctx.bounds, line.length + 1, [
+        'BATCH',
+        'STREAMING',
+      ]),
+    ).toBe(true);
+    // 光标仍在值中间时可切换枚举 / still switchable when cursor is inside the value
+    const inside = resolveOptionAssignmentContext(line, ctx.bounds!.startColumn + 1);
+    expect(
+      isCursorAtFinishedEnumValue(inside.bounds, ctx.bounds!.startColumn + 1, [
+        'BATCH',
+        'STREAMING',
+      ]),
+    ).toBe(false);
+  });
+
+  it('treats cursor at end of finished unquoted enum as complete', () => {
+    const line = 'job_schedule_strategy = CLUSTER';
+    const ctx = resolveOptionAssignmentContext(line, line.length + 1);
+    expect(ctx.bounds?.value).toBe('CLUSTER');
+    expect(
+      isCursorAtFinishedEnumValue(ctx.bounds, line.length + 1, [
+        'CLUSTER',
+        'ENGINE',
+      ]),
+    ).toBe(true);
+  });
+
+  it('still offers enum completion for partial values at end of line', () => {
+    const line = '  job.mode = "BAT"';
+    const ctx = resolveOptionAssignmentContext(line, line.length + 1);
+    expect(ctx.bounds?.value).toBe('BAT');
+    expect(
+      isCursorAtFinishedEnumValue(ctx.bounds, line.length + 1, [
+        'BATCH',
+        'STREAMING',
+      ]),
+    ).toBe(false);
   });
 
   it('returns inValueRegion=false if cursor is in trailing comment', () => {

@@ -360,6 +360,7 @@ import {
   resolveEnumSuggestionItems,
   resolveEnumValueBounds,
   resolveFolderParent,
+  isCursorAtFinishedEnumValue,
   resolveOptionAssignmentContext,
   resolveOptionKeyFromLine,
   resolveVariableCompletionContext,
@@ -2327,6 +2328,17 @@ export function DataSyncStudio() {
         const enumItems = resolveEnumSuggestionItems(metadata);
         const enumValues = enumItems.map((item) => item.value);
         if (!enumValues?.length) {
+          return {suggestions: []};
+        }
+        // 已写完枚举且光标在值末尾时不再弹出补全，避免 Enter 再次填充当前值。
+        // Skip suggestions when sitting on a finished enum so Enter inserts a newline.
+        if (
+          isCursorAtFinishedEnumValue(
+            assignmentCtx.bounds,
+            position.column,
+            enumValues,
+          )
+        ) {
           return {suggestions: []};
         }
         const currentWord = model.getWordUntilPosition(position)?.word || '';

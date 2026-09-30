@@ -667,6 +667,105 @@ export function formatMetadataValue(value: unknown): string {
   }
 }
 
+/**
+ * 将 3.0 valueConstraints 链压成可读摘要（hover 用）。
+ * Flatten 3.0 valueConstraints chains into short hover hints.
+ */
+export function formatValueConstraintHints(
+  optionKey: string,
+  constraints: unknown,
+): string[] {
+  if (!optionKey || !Array.isArray(constraints) || constraints.length === 0) {
+    return [];
+  }
+  const hints: string[] = [];
+  for (const root of constraints) {
+    collectConstraintHints(optionKey, root, hints);
+  }
+  return hints;
+}
+
+function collectConstraintHints(
+  optionKey: string,
+  node: unknown,
+  hints: string[],
+  depth = 0,
+): void {
+  if (!node || typeof node !== 'object' || depth > 32) {
+    return;
+  }
+  const item = node as Record<string, unknown>;
+  const key = String(item.optionKey || item.option_key || '');
+  if (key === optionKey) {
+    const hint = describeConstraintNode(item);
+    if (hint && !hints.includes(hint)) {
+      hints.push(hint);
+    }
+  }
+  if (item.next) {
+    collectConstraintHints(optionKey, item.next, hints, depth + 1);
+  }
+}
+
+function describeConstraintNode(item: Record<string, unknown>): string {
+  const operator = String(item.operator || '').toUpperCase();
+  const expectValue = item.expectValue ?? item.expect_value;
+  const compareKey = String(
+    item.compareOptionKey || item.compare_option_key || '',
+  );
+  const extension = String(
+    item.extensionDescription || item.extension_description || '',
+  );
+  switch (operator) {
+    case 'GREATER_THAN':
+      return compareKey
+        ? `> \`${compareKey}\``
+        : `> ${formatMetadataValue(expectValue)}`;
+    case 'GREATER_OR_EQUAL':
+      return compareKey
+        ? `≥ \`${compareKey}\``
+        : `≥ ${formatMetadataValue(expectValue)}`;
+    case 'LESS_THAN':
+    case 'FIELD_LESS_THAN':
+      return compareKey
+        ? `< \`${compareKey}\``
+        : `< ${formatMetadataValue(expectValue)}`;
+    case 'LESS_OR_EQUAL':
+    case 'FIELD_LESS_OR_EQUAL':
+      return compareKey
+        ? `≤ \`${compareKey}\``
+        : `≤ ${formatMetadataValue(expectValue)}`;
+    case 'FIELD_GREATER_THAN':
+      return compareKey ? `> \`${compareKey}\`` : operator;
+    case 'FIELD_GREATER_OR_EQUAL':
+      return compareKey ? `≥ \`${compareKey}\`` : operator;
+    case 'EQUAL':
+      return `= ${formatMetadataValue(expectValue)}`;
+    case 'NOT_EQUAL':
+      return `≠ ${formatMetadataValue(expectValue)}`;
+    case 'NOT_BLANK':
+      return '非空白';
+    case 'NOT_EMPTY':
+    case 'MAP_NOT_EMPTY':
+      return '非空';
+    case 'STARTS_WITH':
+      return `以 ${formatMetadataValue(expectValue)} 开头`;
+    case 'CONTAINS':
+      return `包含 ${formatMetadataValue(expectValue)}`;
+    case 'MATCHES':
+      return `匹配 ${formatMetadataValue(expectValue)}`;
+    case 'EXTENSION':
+      return extension || '自定义约束';
+    default:
+      if (!operator) {
+        return '';
+      }
+      return expectValue !== undefined && expectValue !== null
+        ? `${operator} ${formatMetadataValue(expectValue)}`
+        : operator;
+  }
+}
+
 export function resolveEnumSuggestionItems(metadata: any): Array<{
   label: string;
   value: string;

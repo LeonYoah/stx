@@ -74,7 +74,7 @@ public class PluginRuntimeService {
         }
     }
 
-    PluginExecutionContext openContext(Map<String, Object> request) {
+    public PluginExecutionContext openContext(Map<String, Object> request) {
         String pluginType =
                 normalizePluginType(ProxyRequestUtils.getRequiredString(request, "pluginType"));
         List<String> pluginJars = ProxyRequestUtils.getStringList(request, "pluginJars");
@@ -110,7 +110,7 @@ public class PluginRuntimeService {
                 warnings);
     }
 
-    Factory discoverFactory(PluginExecutionContext context, String factoryIdentifier) {
+    public Factory discoverFactory(PluginExecutionContext context, String factoryIdentifier) {
         try {
             switch (context.getPluginType()) {
                 case "source":
@@ -359,7 +359,8 @@ public class PluginRuntimeService {
         }
     }
 
-    static class PluginExecutionContext implements AutoCloseable {
+    /** 插件运行时上下文（跨包校验 / schema 抽取共用）。 Shared plugin runtime context. */
+    public static class PluginExecutionContext implements AutoCloseable {
         private final String pluginType;
         private final List<String> pluginJars;
         private final ClassLoader classLoader;
@@ -385,23 +386,23 @@ public class PluginRuntimeService {
             this.warnings = warnings;
         }
 
-        String getPluginType() {
+        public String getPluginType() {
             return pluginType;
         }
 
-        List<String> getPluginJars() {
+        public List<String> getPluginJars() {
             return pluginJars;
         }
 
-        ClassLoader getClassLoader() {
+        public ClassLoader getClassLoader() {
             return classLoader;
         }
 
-        String getClasspathFingerprint() {
+        public String getClasspathFingerprint() {
             return classpathFingerprint;
         }
 
-        List<String> getWarnings() {
+        public List<String> getWarnings() {
             return warnings;
         }
 

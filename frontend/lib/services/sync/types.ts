@@ -435,6 +435,10 @@ export interface SyncPluginOptionSchemaResult {
   plugin_type: SyncPluginType;
   factory_identifier: string;
   options: SyncPluginOptionDescriptor[];
+  /** SeaTunnel 3.0 valueConstraints；2.x 为空 */
+  value_constraints?: Record<string, unknown>[];
+  /** SeaTunnel 3.0 conditionRules；2.x 为空 */
+  condition_rules?: Record<string, unknown>[];
   warnings?: string[];
 }
 

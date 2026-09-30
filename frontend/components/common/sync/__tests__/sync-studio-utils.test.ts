@@ -23,12 +23,42 @@ import {
   extractJobMetricSummary,
   isCursorInsideValueRegion,
   isNodeMatchingScope,
+  formatValueConstraintHints,
   resolveEnumSuggestionItems,
   resolveEnumValueBounds,
   resolveOptionAssignmentContext,
   resolveVariableCompletionContext,
   resolveVariableSuggestions,
 } from '../sync-studio-utils';
+
+describe('formatValueConstraintHints', () => {
+  it('summarizes matching value constraints for hover', () => {
+    const hints = formatValueConstraintHints('port', [
+      {
+        optionKey: 'port',
+        operator: 'GREATER_OR_EQUAL',
+        expectValue: 1,
+        and: true,
+        next: {
+          optionKey: 'port',
+          operator: 'LESS_OR_EQUAL',
+          expectValue: 65535,
+        },
+      },
+      {
+        optionKey: 'timeout',
+        operator: 'GREATER_THAN',
+        expectValue: 0,
+      },
+    ]);
+    expect(hints).toEqual(['≥ 1', '≤ 65535']);
+  });
+
+  it('returns empty when option has no constraints', () => {
+    expect(formatValueConstraintHints('port', [])).toEqual([]);
+    expect(formatValueConstraintHints('port', undefined as any)).toEqual([]);
+  });
+});
 
 describe('sync-studio-utils Monaco completion & assignment tests', () => {
   it('correctly resolves unquoted boolean assignment context regardless of cursor position', () => {

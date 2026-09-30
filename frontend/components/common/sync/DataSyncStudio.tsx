@@ -310,6 +310,7 @@ import {
   formatJobDateTime,
   formatJobDuration,
   formatMetadataValue,
+  formatValueConstraintHints,
   formatMetricCompactValue,
   formatMetricDisplayValue,
   formatMetricValue,
@@ -374,6 +375,16 @@ import {
   validateCustomVariableRows,
   validateWorkspaceName,
 } from './sync-studio-utils';
+import {
+  buildOptionRuleDiagnostics,
+  extractPluginBlockSnapshots,
+  rankOptionKeyCompletions,
+  resolveOptionKeyCompletionContext,
+  toOptionRuleAssistSchema,
+} from './sync-option-rule-assist';
+
+const OPTION_RULE_MARKER_OWNER = 'stx-option-rule';
+
 export function DataSyncStudio() {
   const t = useTranslations('workbenchStudio');
   const {resolvedTheme} = useTheme();
@@ -399,6 +410,10 @@ export function DataSyncStudio() {
   const completionDisposableRef = useRef<any>(null);
   const hoverDisposableRef = useRef<any>(null);
   const contentChangeDisposableRef = useRef<any>(null);
+  const modelContentDisposableRef = useRef<any>(null);
+  const optionRuleMarkersTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const cursorPositionChangeDisposableRef = useRef<any>(null);
   const cursorSelectionChangeDisposableRef = useRef<any>(null);
   const lastSuggestTriggerRef = useRef('');
@@ -1109,9 +1124,15 @@ export function DataSyncStudio() {
         factory_identifier: factoryIdentifier,
         include_supplement: true,
       });
-      const mapped = Object.fromEntries(
+      const mapped: Record<string, any> = Object.fromEntries(
         (result.options || []).map((item) => [item.key, item]),
       );
+      // 挂载 3.0 约束元数据，供 hover / 后续诊断使用（不污染真实 option key）。
+      // Attach 3.0 constraint metadata for hover / future diagnostics (reserved keys).
+      mapped.__schema_meta__ = {
+        value_constraints: result.value_constraints || [],
+        condition_rules: result.condition_rules || [],
+      };
       pluginSchemaCacheRef.current[cacheKey] = mapped;
       return mapped;
     },
@@ -2050,6 +2071,56 @@ export function DataSyncStudio() {
     editorInstanceRef.current.revealLineNearTop?.(start.lineNumber);
   }, [editor.content]);
 
+  const refreshOptionRuleMarkers = useCallback(async () => {
+    const monaco = monacoInstanceRef.current;
+    const editor = editorInstanceRef.current;
+    const model = editor?.getModel?.();
+    if (!monaco || !model || !currentClusterIdRef.current) {
+      return;
+    }
+    const content = model.getValue?.() || '';
+    const snapshots = extractPluginBlockSnapshots(content);
+    const markers: any[] = [];
+    for (const snapshot of snapshots) {
+      try {
+        const schemaMap = await ensurePluginSchemaRef.current(
+          snapshot.pluginType,
+          snapshot.factoryIdentifier,
+        );
+        const diagnostics = buildOptionRuleDiagnostics(
+          toOptionRuleAssistSchema(schemaMap),
+          snapshot,
+        );
+        for (const item of diagnostics) {
+          markers.push({
+            severity:
+              item.severity === 'error'
+                ? monaco.MarkerSeverity.Error
+                : monaco.MarkerSeverity.Warning,
+            message: item.message,
+            startLineNumber: item.lineNumber,
+            startColumn: item.startColumn,
+            endLineNumber: item.lineNumber,
+            endColumn: item.endColumn,
+            source: 'option-rule',
+          });
+        }
+      } catch {
+        // 单个插件 schema 失败不阻断其余诊断
+      }
+    }
+    monaco.editor.setModelMarkers(model, OPTION_RULE_MARKER_OWNER, markers);
+  }, []);
+
+  const scheduleOptionRuleMarkersRefresh = useCallback(() => {
+    if (optionRuleMarkersTimerRef.current) {
+      clearTimeout(optionRuleMarkersTimerRef.current);
+    }
+    optionRuleMarkersTimerRef.current = setTimeout(() => {
+      void refreshOptionRuleMarkers();
+    }, 350);
+  }, [refreshOptionRuleMarkers]);
+
   const registerEditorAssistProviders = useCallback((monaco: any) => {
     monacoInstanceRef.current = monaco;
     if (typeof window !== 'undefined') {
@@ -2118,14 +2189,16 @@ export function DataSyncStudio() {
       enumCompletionCommandRegisteredRef.current = true;
     }
     const completionProvider = {
-      triggerCharacters: ['=', ' ', '"', '{', '}'],
+      triggerCharacters: ['=', ' ', '"', '{', '}', '.', '_'],
       provideCompletionItems: async (
         model: any,
         position: {lineNumber: number; column: number},
       ) => {
         const lineContent = model.getLineContent(position.lineNumber);
+        const fullContent = model.getValue();
 
-        // 1. 严格仅在 {{ 变量占位符内部（如 {{、{{}}、键入 {{ 后的标识符模糊匹配）才触发变量建议
+        // 1. 严格仅在 {{ 变量占位符内部才触发变量建议
+        // Only suggest variables inside {{ }} placeholders.
         const varCtx = resolveVariableCompletionContext(
           lineContent,
           position.column,
@@ -2141,7 +2214,65 @@ export function DataSyncStudio() {
           return {suggestions};
         }
 
-        // 2. 检测属性赋值上下文（仅针对支持的属性提供枚举提示，普通内容区域不干扰弹窗）
+        // 2. 插件块内写 option key：按 conditionRules 收敛排序
+        // Rank option-key completions via conditionRules inside plugin blocks.
+        const keyCtx = resolveOptionKeyCompletionContext(
+          fullContent,
+          position.lineNumber,
+          position.column,
+        );
+        if (
+          keyCtx.inKeyRegion &&
+          keyCtx.snapshot &&
+          currentClusterIdRef.current
+        ) {
+          try {
+            const schemaMap = await ensurePluginSchemaRef.current(
+              keyCtx.snapshot.pluginType,
+              keyCtx.snapshot.factoryIdentifier,
+            );
+            const assistSchema = toOptionRuleAssistSchema(schemaMap);
+            const ranks = rankOptionKeyCompletions(
+              assistSchema,
+              keyCtx.snapshot.values,
+            );
+            const prefix = (keyCtx.prefix || '').toLowerCase();
+            const word = model.getWordUntilPosition(position);
+            const range = {
+              startLineNumber: position.lineNumber,
+              endLineNumber: position.lineNumber,
+              startColumn: word?.startColumn || position.column,
+              endColumn: word?.endColumn || position.column,
+            };
+            const suggestions = ranks
+              .filter((item) =>
+                prefix
+                  ? item.key.toLowerCase().startsWith(prefix) ||
+                    item.key.toLowerCase().includes(prefix)
+                  : true,
+              )
+              .slice(0, 80)
+              .map((item, index) => ({
+                label: item.key,
+                kind: monaco.languages.CompletionItemKind.Property,
+                detail: item.active
+                  ? item.description || '当前模式相关'
+                  : item.description || '其他可选字段',
+                insertText: `${item.key} = `,
+                filterText: item.key,
+                sortText: `${item.sortBucket}-${String(index).padStart(4, '0')}-${item.key}`,
+                range,
+              }));
+            if (suggestions.length > 0) {
+              return {suggestions};
+            }
+          } catch {
+            // fall through to enum path
+          }
+        }
+
+        // 3. 属性赋值右侧：枚举值提示
+        // Value-side enum suggestions.
         const assignmentCtx = resolveOptionAssignmentContext(
           lineContent,
           position.column,
@@ -2151,7 +2282,7 @@ export function DataSyncStudio() {
         }
         const optionKey = assignmentCtx.optionKey;
         const context = resolveEditorPluginContext(
-          model.getValue(),
+          fullContent,
           position.lineNumber,
         );
         let metadata: any = null;
@@ -2266,6 +2397,7 @@ export function DataSyncStudio() {
           }
           const optionKey = optionKeyInfo.key;
           let metadata: any = ENV_OPTION_METADATA[optionKey] || null;
+          let schemaMeta: any = null;
           const context = resolveEditorPluginContext(
             model.getValue(),
             position.lineNumber,
@@ -2282,7 +2414,6 @@ export function DataSyncStudio() {
               ] || null;
           }
           if (
-            !metadata &&
             context.pluginType &&
             context.factoryIdentifier &&
             currentClusterIdRef.current
@@ -2292,9 +2423,12 @@ export function DataSyncStudio() {
                 context.pluginType,
                 context.factoryIdentifier,
               );
-              metadata = schema[optionKey] || null;
+              schemaMeta = schema.__schema_meta__ || null;
+              if (!metadata) {
+                metadata = schema[optionKey] || null;
+              }
             } catch {
-              metadata = null;
+              // ignore schema fetch failures for hover
             }
           }
           if (!metadata) {
@@ -2312,6 +2446,21 @@ export function DataSyncStudio() {
           }
           if (metadata.required_mode) {
             lines.push('', `必填模式：\`${String(metadata.required_mode)}\``);
+          }
+          if (metadata.condition_expression || metadata.conditionExpression) {
+            lines.push(
+              '',
+              `条件：\`${String(
+                metadata.condition_expression || metadata.conditionExpression,
+              )}\``,
+            );
+          }
+          const constraintHints = formatValueConstraintHints(
+            optionKey,
+            schemaMeta?.value_constraints,
+          );
+          if (constraintHints.length > 0) {
+            lines.push('', `值约束：${constraintHints.join('；')}`);
           }
           if (metadata.enum_values?.length || metadata.enumValues?.length) {
             const values = resolveEnumSuggestionItems({
@@ -2375,6 +2524,7 @@ export function DataSyncStudio() {
         // 编辑器重挂载时动作可能已存在，忽略。
       }
       contentChangeDisposableRef.current?.dispose?.();
+      modelContentDisposableRef.current?.dispose?.();
       cursorPositionChangeDisposableRef.current?.dispose?.();
       cursorSelectionChangeDisposableRef.current?.dispose?.();
       contentChangeDisposableRef.current = instance.onDidType?.(
@@ -2389,11 +2539,16 @@ export function DataSyncStudio() {
             lineContent,
             position.column,
           );
-          if (!inValueRegion) {
+          const keyCtx = resolveOptionKeyCompletionContext(
+            model.getValue?.() || '',
+            position.lineNumber,
+            position.column,
+          );
+          if (!inValueRegion && !keyCtx.inKeyRegion) {
             return;
           }
           const shouldTrigger =
-            ['=', ' ', '"'].includes(typedText) ||
+            ['=', ' ', '"', '.', '_'].includes(typedText) ||
             /^[A-Za-z0-9_.-]$/.test(typedText);
           if (!shouldTrigger) {
             return;
@@ -2407,6 +2562,12 @@ export function DataSyncStudio() {
           }, 0);
         },
       );
+      modelContentDisposableRef.current = instance.onDidChangeModelContent?.(
+        () => {
+          scheduleOptionRuleMarkersRefresh();
+        },
+      );
+      scheduleOptionRuleMarkersRefresh();
       cursorPositionChangeDisposableRef.current =
         instance.onDidChangeCursorPosition?.((event: any) => {
           const model = instance.getModel?.();
@@ -2456,7 +2617,7 @@ export function DataSyncStudio() {
           }, 0);
         });
     },
-    [registerEditorAssistProviders, t],
+    [registerEditorAssistProviders, scheduleOptionRuleMarkersRefresh, t],
   );
 
   useEffect(() => {
@@ -2471,8 +2632,12 @@ export function DataSyncStudio() {
       completionDisposableRef.current?.dispose?.();
       hoverDisposableRef.current?.dispose?.();
       contentChangeDisposableRef.current?.dispose?.();
+      modelContentDisposableRef.current?.dispose?.();
       cursorPositionChangeDisposableRef.current?.dispose?.();
       cursorSelectionChangeDisposableRef.current?.dispose?.();
+      if (optionRuleMarkersTimerRef.current) {
+        clearTimeout(optionRuleMarkersTimerRef.current);
+      }
     };
   }, []);
 

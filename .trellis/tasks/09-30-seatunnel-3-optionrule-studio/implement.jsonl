@@ -1,0 +1,4 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": "tools/stx-java-proxy/src/main/java/io/github/leonyoah/stx/proxy/service/plugin/FactoryOptionRuleExtractor.java", "reason": "现有 OptionRule 抽取入口"}
+{"file": "frontend/lib/services/sync/types.ts", "reason": "前端 SyncPluginOptionDescriptor 契约"}
+{"file": "frontend/components/common/sync/DataSyncStudio.tsx", "reason": "Studio hover/补全消费点"}

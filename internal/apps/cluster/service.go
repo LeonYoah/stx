@@ -258,6 +258,60 @@ func (s *Service) Create(ctx context.Context, req *CreateClusterRequest) (*Clust
 		return nil, ErrInvalidDeploymentMode
 	}
 
+	// In separated deployment mode with nodes provided, ensure at least one master and one worker node
+	// 在提供节点的分离部署模式下，确保至少包含一个 master 节点和一个 worker 节点
+	if req.DeploymentMode == DeploymentModeSeparated && len(req.Nodes) > 0 {
+		hasMaster := false
+		hasWorker := false
+		for _, nodeReq := range req.Nodes {
+			role := strings.ToLower(strings.TrimSpace(nodeReq.Role))
+			if role == "master" {
+				hasMaster = true
+			} else if role == "worker" {
+				hasWorker = true
+			}
+		}
+		if !hasMaster || !hasWorker {
+			return nil, ErrSeparatedClusterRequiresMasterAndWorker
+		}
+	}
+
+	// Fallback cluster install directory from first node if not explicitly specified
+	// 若未显式指定集群安装目录，回退使用首个节点的安装目录
+	installDir := req.InstallDir
+	if installDir == "" && len(req.Nodes) > 0 {
+		installDir = req.Nodes[0].InstallDir
+	}
+
+	// Populate cluster-level port config from discovered node ports if omitted
+	// 若未提供集群级端口配置，从发现的节点端口回填端口配置
+	clusterConfig := req.Config
+	if clusterConfig == nil {
+		clusterConfig = make(ClusterConfig)
+	}
+	if clusterConfig.GetPortConfig() == nil && len(req.Nodes) > 0 {
+		portCfg := &ClusterPortConfig{}
+		for _, n := range req.Nodes {
+			role := strings.ToLower(strings.TrimSpace(n.Role))
+			if role == "master" || role == "hybrid" {
+				if n.HazelcastPort > 0 && portCfg.MasterHazelcastPort == 0 {
+					portCfg.MasterHazelcastPort = n.HazelcastPort
+				}
+				if n.APIPort > 0 && portCfg.MasterAPIPort == 0 {
+					portCfg.MasterAPIPort = n.APIPort
+				}
+			}
+			if role == "worker" {
+				if n.HazelcastPort > 0 && portCfg.WorkerPort == 0 {
+					portCfg.WorkerPort = n.HazelcastPort
+				}
+			}
+		}
+		if portCfg.HasValues() {
+			clusterConfig["ports"] = portCfg
+		}
+	}
+
 	// Create cluster
 	// 创建集群
 	cluster := &Cluster{
@@ -266,8 +320,8 @@ func (s *Service) Create(ctx context.Context, req *CreateClusterRequest) (*Clust
 		DeploymentMode: req.DeploymentMode,
 		Version:        req.Version,
 		Status:         ClusterStatusCreated,
-		InstallDir:     req.InstallDir,
-		Config:         req.Config,
+		InstallDir:     installDir,
+		Config:         clusterConfig,
 	}
 
 	if err := s.repo.Create(ctx, cluster); err != nil {
@@ -316,15 +370,23 @@ func (s *Service) Create(ctx context.Context, req *CreateClusterRequest) (*Clust
 				SkipPrecheck:  true, // Skip precheck for discovered nodes / 跳过发现节点的预检查
 			}
 
-			_, err := s.AddNode(ctx, cluster.ID, addNodeReq)
+			createdNode, err := s.AddNode(ctx, cluster.ID, addNodeReq)
 			if err != nil {
 				// Log error but continue with other nodes
 				// 记录错误但继续处理其他节点
 				logger.ErrorF(ctx, "[Cluster] Failed to auto-create node for host %d: %v / 为主机 %d 自动创建节点失败: %v",
 					nodeReq.HostID, err, nodeReq.HostID, err)
 			} else {
-				logger.InfoF(ctx, "[Cluster] Auto-created node: host_id=%d, role=%s, install_dir=%s, hazelcast_port=%d, api_port=%d / 自动创建节点: host_id=%d, role=%s, install_dir=%s, hazelcast_port=%d, api_port=%d",
-					nodeReq.HostID, role, nodeReq.InstallDir, hazelcastPort, apiPort, nodeReq.HostID, role, nodeReq.InstallDir, hazelcastPort, apiPort)
+				if nodeReq.PID > 0 && createdNode != nil {
+					// Seed discovered PID and running status immediately to prevent pending status lock
+					// 立即设置发现的 PID 和运行中状态，防止初始异步检查偶发延迟导致卡在待处理状态
+					_ = s.repo.UpdateNodeProcess(ctx, createdNode.ID, nodeReq.PID, "running")
+					_ = s.repo.UpdateNodeStatus(ctx, createdNode.ID, NodeStatusRunning)
+					createdNode.ProcessPID = nodeReq.PID
+					createdNode.Status = NodeStatusRunning
+				}
+				logger.InfoF(ctx, "[Cluster] Auto-created node: host_id=%d, role=%s, install_dir=%s, hazelcast_port=%d, api_port=%d, pid=%d / 自动创建节点: host_id=%d, role=%s, install_dir=%s, hazelcast_port=%d, api_port=%d, pid=%d",
+					nodeReq.HostID, role, nodeReq.InstallDir, hazelcastPort, apiPort, nodeReq.PID, nodeReq.HostID, role, nodeReq.InstallDir, hazelcastPort, apiPort, nodeReq.PID)
 			}
 		}
 
@@ -1663,7 +1725,9 @@ func (s *Service) refreshNodeProcessesForStatus(ctx context.Context, cluster *Cl
 
 	for i := range cluster.Nodes {
 		node := &cluster.Nodes[i]
-		if node.Status != NodeStatusRunning && node.ProcessPID <= 0 {
+		// Refresh nodes that are running, have a PID, or are still pending to support self-healing
+		// 刷新运行中、拥有 PID 或处于待处理状态的节点以支持状态自愈
+		if node.Status != NodeStatusRunning && node.ProcessPID <= 0 && node.Status != NodeStatusPending {
 			continue
 		}
 		s.detectAndUpdateNodeProcess(ctx, node, node.HostID)

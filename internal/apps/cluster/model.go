@@ -293,6 +293,7 @@ type CreateNodeFromDiscovery struct {
 	HostID        uint   `json:"host_id"`                  // Host ID / 主机 ID
 	InstallDir    string `json:"install_dir"`              // SeaTunnel installation directory / SeaTunnel 安装目录
 	Role          string `json:"role"`                     // Node role: master, worker, hybrid / 节点角色
+	PID           int    `json:"pid,omitempty"`            // Process ID / 进程 ID
 	HazelcastPort int    `json:"hazelcast_port,omitempty"` // Hazelcast cluster port (optional) / Hazelcast 集群端口（可选）
 	APIPort       int    `json:"api_port,omitempty"`       // REST API port (optional) / REST API 端口（可选）
 }

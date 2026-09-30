@@ -765,6 +765,8 @@
     "registerCluster": "注册集群",
     "registerClusterDescription": "注册一个已有的 SeaTunnel 集群",
     "selectHostFirst": "请先选择一个主机",
+    "selectAtLeastOneNode": "请至少选择一个已发现的节点进行注册",
+    "separatedRequiresMasterAndWorker": "分离模式集群必须至少包含一个 Master 节点和一个 Worker 节点",
     "wizard": {
       "title": "创建集群向导",
       "basic": "基本信息",
@@ -3125,7 +3127,12 @@
     "discoverHint": "选择一个已安装 Agent 的主机，点击自动发现按钮扫描运行中的 SeaTunnel 集群节点",
     "discoverMultiHostHint": "选择一个或多个已安装 Agent 的主机，点击自动发现按钮扫描各主机上运行的 SeaTunnel 集群节点",
     "discoverProcessesOnHosts": "自动发现节点 ({count} 台主机)",
-    "processes": "个节点"
+    "processes": "个节点",
+    "selectAllHosts": "全选主机",
+    "deselectAllHosts": "取消全选",
+    "selectAllProcesses": "全选节点",
+    "deselectAllProcesses": "取消全选",
+    "selectAllOnHost": "全选该主机节点"
   },
   "diagnosticsCenter": {
     "title": "诊断中心",

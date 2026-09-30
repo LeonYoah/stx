@@ -765,6 +765,8 @@
     "registerCluster": "Register Cluster",
     "registerClusterDescription": "Register an existing SeaTunnel cluster",
     "selectHostFirst": "Please select a host first",
+    "selectAtLeastOneNode": "Please select at least one discovered node to register",
+    "separatedRequiresMasterAndWorker": "Separated mode cluster must contain at least one Master node and one Worker node",
     "wizard": {
       "title": "Deploy Cluster Wizard",
       "basic": "Basic Info",
@@ -3125,7 +3127,12 @@
     "discoverHint": "Select a host with Agent installed, click Auto-Discover to scan running SeaTunnel cluster nodes",
     "discoverMultiHostHint": "Select one or more hosts with Agent installed, click Auto-Discover to scan SeaTunnel cluster nodes on each host",
     "discoverProcessesOnHosts": "Auto-Discover Nodes ({count} hosts)",
-    "processes": "node(s)"
+    "processes": "node(s)",
+    "selectAllHosts": "Select All Hosts",
+    "deselectAllHosts": "Deselect All",
+    "selectAllProcesses": "Select All Nodes",
+    "deselectAllProcesses": "Deselect All",
+    "selectAllOnHost": "Select All on Host"
   },
   "diagnosticsCenter": {
     "title": "Diagnostics Center",

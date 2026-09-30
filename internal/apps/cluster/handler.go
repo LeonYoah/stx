@@ -1225,7 +1225,8 @@ func (h *Handler) getStatusCodeForError(err error) int {
 		errors.Is(err, ErrInvalidWorkerPort),
 		errors.Is(err, ErrNodeBatchEntriesRequired),
 		errors.Is(err, ErrInvalidNodeJVMOverride),
-		errors.Is(err, ErrPrecheckFailed):
+		errors.Is(err, ErrPrecheckFailed),
+		errors.Is(err, ErrSeparatedClusterRequiresMasterAndWorker):
 		return http.StatusBadRequest
 	default:
 		return http.StatusInternalServerError

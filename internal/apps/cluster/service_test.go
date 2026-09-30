@@ -1435,3 +1435,217 @@ func TestClusterNode_ResolveJVM_usesNodeOverrideOverClusterDefault(t *testing.T)
 		t.Fatalf("expected worker heap override 10GB, got %d", resolved.WorkerHeapSize)
 	}
 }
+
+// TestService_Create_SeparatedModeValidation tests validation of master and worker roles in separated deployment mode.
+// TestService_Create_SeparatedModeValidation 测试分离部署模式下对 master 和 worker 角色的校验。
+func TestService_Create_SeparatedModeValidation(t *testing.T) {
+	db, cleanup := setupServiceTestDB(t)
+	defer cleanup()
+
+	repo := NewRepository(db)
+	mockHostProvider := NewMockHostProvider()
+	now := time.Now()
+	mockHostProvider.AddHost(&HostInfo{ID: 1, Name: "host-1", IPAddress: "127.0.0.1", AgentID: "agent-1", AgentStatus: "installed", LastHeartbeat: &now})
+	mockHostProvider.AddHost(&HostInfo{ID: 2, Name: "host-2", IPAddress: "127.0.0.2", AgentID: "agent-2", AgentStatus: "installed", LastHeartbeat: &now})
+
+	svc := NewService(repo, mockHostProvider, nil)
+	ctx := context.Background()
+
+	// 1. 分离模式下仅包含 master 节点应失败 / Separated mode with only master nodes should fail
+	_, err := svc.Create(ctx, &CreateClusterRequest{
+		Name:           "separated-no-worker",
+		DeploymentMode: DeploymentModeSeparated,
+		Nodes: []CreateNodeFromDiscovery{
+			{HostID: 1, Role: "master", InstallDir: "/opt/seatunnel", HazelcastPort: 5801, APIPort: 8080},
+		},
+	})
+	if err != ErrSeparatedClusterRequiresMasterAndWorker {
+		t.Fatalf("expected ErrSeparatedClusterRequiresMasterAndWorker, got %v", err)
+	}
+
+	// 2. 分离模式下仅包含 worker 节点应失败 / Separated mode with only worker nodes should fail
+	_, err = svc.Create(ctx, &CreateClusterRequest{
+		Name:           "separated-no-master",
+		DeploymentMode: DeploymentModeSeparated,
+		Nodes: []CreateNodeFromDiscovery{
+			{HostID: 2, Role: "worker", InstallDir: "/opt/seatunnel", HazelcastPort: 5802},
+		},
+	})
+	if err != ErrSeparatedClusterRequiresMasterAndWorker {
+		t.Fatalf("expected ErrSeparatedClusterRequiresMasterAndWorker, got %v", err)
+	}
+
+	// 3. 分离模式下同时包含 master 和 worker 节点应成功 / Separated mode with both master and worker nodes should succeed
+	createdCluster, err := svc.Create(ctx, &CreateClusterRequest{
+		Name:           "separated-valid",
+		DeploymentMode: DeploymentModeSeparated,
+		Nodes: []CreateNodeFromDiscovery{
+			{HostID: 1, Role: "master", InstallDir: "/opt/seatunnel", HazelcastPort: 5801, APIPort: 8080},
+			{HostID: 2, Role: "worker", InstallDir: "/opt/seatunnel", HazelcastPort: 5802},
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected create cluster to succeed, got %v", err)
+	}
+	if createdCluster == nil || createdCluster.ID == 0 {
+		t.Fatalf("expected created cluster to be valid")
+	}
+}
+
+// TestService_CreateFromDiscovery_PopulatesInstallDirAndPortsAndSeedsPID tests auto-filling installDir, port config, and seeding PID on registration.
+// TestService_CreateFromDiscovery_PopulatesInstallDirAndPortsAndSeedsPID 测试注册集群时自动回填安装目录、端口配置以及预置 PID。
+func TestService_CreateFromDiscovery_PopulatesInstallDirAndPortsAndSeedsPID(t *testing.T) {
+	db, cleanup := setupServiceTestDB(t)
+	defer cleanup()
+
+	repo := NewRepository(db)
+	mockHostProvider := NewMockHostProvider()
+	now := time.Now()
+	mockHostProvider.AddHost(&HostInfo{ID: 1, Name: "host-1", IPAddress: "127.0.0.1", AgentID: "agent-1", AgentStatus: "installed", LastHeartbeat: &now})
+	mockHostProvider.AddHost(&HostInfo{ID: 2, Name: "host-2", IPAddress: "127.0.0.2", AgentID: "agent-2", AgentStatus: "installed", LastHeartbeat: &now})
+
+	svc := NewService(repo, mockHostProvider, nil)
+	ctx := context.Background()
+
+	// 省略集群 InstallDir 与 ports 配置；提供带有 PID 和端口的发现节点
+	// Omit cluster InstallDir and cluster Config.ports; provide discovered nodes with PID & ports
+	createdCluster, err := svc.Create(ctx, &CreateClusterRequest{
+		Name:           "discovery-cluster",
+		DeploymentMode: DeploymentModeSeparated,
+		Nodes: []CreateNodeFromDiscovery{
+			{
+				HostID:        1,
+				Role:          "master",
+				InstallDir:    "/opt/seatunnel-discovered",
+				HazelcastPort: 5801,
+				APIPort:       8080,
+				PID:           11223,
+			},
+			{
+				HostID:        2,
+				Role:          "worker",
+				InstallDir:    "/opt/seatunnel-discovered",
+				HazelcastPort: 5802,
+				PID:           11224,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to create cluster: %v", err)
+	}
+
+	// 验证集群安装目录回退 / Verify cluster install dir fallback
+	if createdCluster.InstallDir != "/opt/seatunnel-discovered" {
+		t.Errorf("expected cluster install dir '/opt/seatunnel-discovered', got '%s'", createdCluster.InstallDir)
+	}
+
+	// 验证集群端口配置提取 / Verify cluster port config extraction
+	ports := createdCluster.Config.GetPortConfig()
+	if ports == nil {
+		t.Fatalf("expected cluster port config to be populated, got nil")
+	}
+	if ports.MasterHazelcastPort != 5801 {
+		t.Errorf("expected MasterHazelcastPort 5801, got %d", ports.MasterHazelcastPort)
+	}
+	if ports.MasterAPIPort != 8080 {
+		t.Errorf("expected MasterAPIPort 8080, got %d", ports.MasterAPIPort)
+	}
+	if ports.WorkerPort != 5802 {
+		t.Errorf("expected WorkerPort 5802, got %d", ports.WorkerPort)
+	}
+
+	// 验证数据库中节点进程 PID 与状态 / Verify node process PID and status in database
+	nodes, err := repo.GetNodesByClusterID(ctx, createdCluster.ID)
+	if err != nil {
+		t.Fatalf("failed to get nodes: %v", err)
+	}
+	if len(nodes) != 2 {
+		t.Fatalf("expected 2 nodes, got %d", len(nodes))
+	}
+
+	for _, n := range nodes {
+		if n.Role == NodeRoleMaster {
+			if n.ProcessPID != 11223 {
+				t.Errorf("expected master node PID 11223, got %d", n.ProcessPID)
+			}
+			if n.Status != NodeStatusRunning {
+				t.Errorf("expected master node status running, got %s", n.Status)
+			}
+		} else if n.Role == NodeRoleWorker {
+			if n.ProcessPID != 11224 {
+				t.Errorf("expected worker node PID 11224, got %d", n.ProcessPID)
+			}
+			if n.Status != NodeStatusRunning {
+				t.Errorf("expected worker node status running, got %s", n.Status)
+			}
+		}
+	}
+}
+
+// TestService_RefreshNodeProcessesForStatus_PendingNodeHealing tests self-healing of pending nodes during status refresh.
+// TestService_RefreshNodeProcessesForStatus_PendingNodeHealing 测试状态刷新期间待处理节点的自愈逻辑。
+func TestService_RefreshNodeProcessesForStatus_PendingNodeHealing(t *testing.T) {
+	db, cleanup := setupServiceTestDB(t)
+	defer cleanup()
+
+	repo := NewRepository(db)
+	mockHostProvider := NewMockHostProvider()
+	now := time.Now()
+	mockHostProvider.AddHost(&HostInfo{ID: 1, Name: "host-1", IPAddress: "127.0.0.1", AgentID: "agent-1", AgentStatus: "installed", LastHeartbeat: &now})
+
+	svc := NewService(repo, mockHostProvider, nil)
+	agentSender := &mockOperationAgentSender{}
+	svc.SetAgentCommandSender(agentSender)
+
+	ctx := context.Background()
+
+	// 创建包含一个无 PID 且处于待处理状态节点的集群
+	// Create cluster with a pending node that has no PID
+	cluster := &Cluster{
+		Name:           "pending-heal-cluster",
+		DeploymentMode: DeploymentModeHybrid,
+		InstallDir:     "/opt/seatunnel",
+		Status:         ClusterStatusDeploying,
+	}
+	if err := repo.Create(ctx, cluster); err != nil {
+		t.Fatalf("failed to create cluster: %v", err)
+	}
+
+	node := &ClusterNode{
+		ClusterID:     cluster.ID,
+		HostID:        1,
+		Role:          NodeRoleMasterWorker,
+		InstallDir:    "/opt/seatunnel",
+		HazelcastPort: 5801,
+		APIPort:       8080,
+		Status:        NodeStatusPending,
+		ProcessPID:    0,
+	}
+	if err := repo.AddNode(ctx, node); err != nil {
+		t.Fatalf("failed to add node: %v", err)
+	}
+
+	// 触发 GetStatus，内部会调用 refreshNodeProcessesForStatus
+	// Trigger GetStatus which calls refreshNodeProcessesForStatus
+	statusInfo, err := svc.GetStatus(ctx, cluster.ID)
+	if err != nil {
+		t.Fatalf("GetStatus failed: %v", err)
+	}
+
+	// Agent 模拟返回 PID=4321，检查节点是否已恢复并更新
+	// Agent mock returns PID=4321, check that the node was updated and healed
+	updatedNode, err := repo.GetNodeByID(ctx, node.ID)
+	if err != nil {
+		t.Fatalf("failed to get updated node: %v", err)
+	}
+	if updatedNode.ProcessPID != 4321 {
+		t.Errorf("expected node PID to be updated to 4321, got %d", updatedNode.ProcessPID)
+	}
+	if updatedNode.Status != NodeStatusRunning {
+		t.Errorf("expected node status to be running, got %s", updatedNode.Status)
+	}
+	if statusInfo.HealthStatus != HealthStatusHealthy {
+		t.Errorf("expected cluster health healthy, got %s", statusInfo.HealthStatus)
+	}
+}
+

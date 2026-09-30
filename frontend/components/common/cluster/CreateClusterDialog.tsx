@@ -152,6 +152,24 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
   };
 
   /**
+   * Select all hosts
+   * 全选主机
+   */
+  const selectAllHosts = () => {
+    setSelectedHostIds(new Set(availableHosts.map((h) => h.id)));
+  };
+
+  /**
+   * Deselect all hosts
+   * 取消全选主机
+   */
+  const deselectAllHosts = () => {
+    setSelectedHostIds(new Set());
+    setDiscoveredProcessesByHost(new Map());
+    setSelectedProcesses(new Set());
+  };
+
+  /**
    * Handle process discovery for all selected hosts
    * 处理所有选中主机的进程发现
    */
@@ -198,6 +216,14 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
             hosts: hostIds.length - failedHosts,
           })
         );
+        // Auto-select all discovered processes by default to save user manual clicks
+        // 发现后默认全选所有扫描出的进程，减少用户逐个点击的成本
+        const allKeys = new Set<string>();
+        newProcessesByHost.forEach((procs, hId) => {
+          procs.forEach((p) => allKeys.add(getProcessKey(hId, p)));
+        });
+        setSelectedProcesses(allKeys);
+
         // Auto-detect deployment mode from all discovered processes
         // 从所有发现的进程自动检测部署模式
         const allProcesses = Array.from(newProcessesByHost.values()).flat();
@@ -249,6 +275,43 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
       newSelected.add(processKey);
     }
     setSelectedProcesses(newSelected);
+  };
+
+  /**
+   * Select all discovered processes
+   * 全选所有发现的进程
+   */
+  const selectAllProcesses = () => {
+    const allKeys = new Set<string>();
+    discoveredProcessesByHost.forEach((procs, hId) => {
+      procs.forEach((p) => allKeys.add(getProcessKey(hId, p)));
+    });
+    setSelectedProcesses(allKeys);
+  };
+
+  /**
+   * Deselect all processes
+   * 取消全选进程
+   */
+  const deselectAllProcesses = () => {
+    setSelectedProcesses(new Set());
+  };
+
+  /**
+   * Toggle all processes for a specific host
+   * 切换特定主机下所有进程的选择
+   */
+  const toggleHostProcesses = (hostId: number) => {
+    const hostProcs = discoveredProcessesByHost.get(hostId) || [];
+    const hostKeys = hostProcs.map((p) => getProcessKey(hostId, p));
+    const allSelected = hostKeys.every((k) => selectedProcesses.has(k));
+    const next = new Set(selectedProcesses);
+    if (allSelected) {
+      hostKeys.forEach((k) => next.delete(k));
+    } else {
+      hostKeys.forEach((k) => next.add(k));
+    }
+    setSelectedProcesses(next);
   };
 
   /**
@@ -314,11 +377,25 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
       return;
     }
 
+    // Get selected processes info / 获取选中的进程信息
+    const selectedProcessInfo = getSelectedProcessesWithHost();
+    if (selectedProcessInfo.length === 0) {
+      toast.error(t('cluster.selectAtLeastOneNode'));
+      return;
+    }
+
+    // Role validation in separated mode / 分离部署模式下的角色完整性校验
+    if (deploymentMode === DeploymentMode.SEPARATED) {
+      const hasMaster = selectedProcessInfo.some((p) => p.role === 'master');
+      const hasWorker = selectedProcessInfo.some((p) => p.role === 'worker');
+      if (!hasMaster || !hasWorker) {
+        toast.error(t('cluster.separatedRequiresMasterAndWorker'));
+        return;
+      }
+    }
+
     setLoading(true);
     try {
-      // Get selected processes info / 获取选中的进程信息
-      const selectedProcessInfo = getSelectedProcessesWithHost();
-
       // Build nodes from selected processes / 从选中的进程构建节点
       // In separated mode, each process (master/worker) is a separate node
       // 在分离模式下，每个进程（master/worker）是一个独立的节点
@@ -362,11 +439,12 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
         }
       });
 
-      // Convert to nodes array / 转换为节点数组
+      // Convert to nodes array with discovered PID / 转换为包含发现 PID 的节点数组
       const nodes = Array.from(nodeMap.values()).map((node) => ({
         host_id: node.hostId,
         install_dir: node.installDir,
         role: node.role,
+        pid: node.pids[0] || undefined,
         hazelcast_port: node.hazelcastPort > 0 ? node.hazelcastPort : undefined,
         api_port: node.apiPort > 0 ? node.apiPort : undefined,
       }));
@@ -376,6 +454,7 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
         description: description.trim() || undefined,
         deployment_mode: deploymentMode,
         version: version.trim() || undefined,
+        install_dir: selectedProcessInfo[0]?.installDir || undefined,
         nodes: nodes.length > 0 ? nodes : undefined,
       };
 
@@ -383,6 +462,19 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
 
       if (result.success) {
         toast.success(t('cluster.createSuccess'));
+        // Trigger initial config sync from master or hybrid node in background
+        // 后台静默触发首次集群配置拉取，填充模板供后续配置管理查看
+        if (result.data?.id) {
+          const createdClusterId = result.data.id;
+          const targetNode =
+            selectedProcessInfo.find((p) => p.role === 'master' || p.role === 'hybrid') ||
+            selectedProcessInfo[0];
+          if (targetNode) {
+            services.config
+              .initClusterConfigsSafe(createdClusterId, targetNode.hostId, targetNode.installDir)
+              .catch(() => {});
+          }
+        }
         resetForm();
         onSuccess();
       } else {
@@ -507,7 +599,31 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
 
           {/* Host Selection for Discovery / 用于发现的主机选择 */}
           <div className='space-y-2'>
-            <Label>{t('discovery.selectHostsToDiscover')}</Label>
+            <div className='flex items-center justify-between'>
+              <Label>{t('discovery.selectHostsToDiscover')}</Label>
+              {availableHosts.length > 0 && (
+                <div className='flex items-center gap-1'>
+                  <Button
+                    type='button'
+                    variant='ghost'
+                    size='sm'
+                    className='h-6 px-2 text-xs text-muted-foreground hover:text-foreground'
+                    onClick={selectAllHosts}
+                  >
+                    {t('discovery.selectAllHosts')}
+                  </Button>
+                  <Button
+                    type='button'
+                    variant='ghost'
+                    size='sm'
+                    className='h-6 px-2 text-xs text-muted-foreground hover:text-foreground'
+                    onClick={deselectAllHosts}
+                  >
+                    {t('discovery.deselectAllHosts')}
+                  </Button>
+                </div>
+              )}
+            </div>
             {loadingHosts ? (
               <div className='flex items-center gap-2 text-muted-foreground'>
                 <Loader2 className='h-4 w-4 animate-spin' />
@@ -571,17 +687,53 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
           {/* Discovered Processes by Host / 按主机分组的发现进程 */}
           {discoveredProcessesByHost.size > 0 && (
             <div className='space-y-2'>
-              <Label>{t('discovery.discoveredProcesses')}</Label>
+              <div className='flex items-center justify-between'>
+                <Label>{t('discovery.discoveredProcesses')}</Label>
+                <div className='flex items-center gap-1'>
+                  <Button
+                    type='button'
+                    variant='ghost'
+                    size='sm'
+                    className='h-6 px-2 text-xs text-muted-foreground hover:text-foreground'
+                    onClick={selectAllProcesses}
+                  >
+                    {t('discovery.selectAllProcesses')}
+                  </Button>
+                  <Button
+                    type='button'
+                    variant='ghost'
+                    size='sm'
+                    className='h-6 px-2 text-xs text-muted-foreground hover:text-foreground'
+                    onClick={deselectAllProcesses}
+                  >
+                    {t('discovery.deselectAllProcesses')}
+                  </Button>
+                </div>
+              </div>
               <div className='border rounded-md max-h-[250px] overflow-y-auto'>
                 {Array.from(discoveredProcessesByHost.entries()).map(([hostId, processes]) => (
                   <div key={hostId} className='border-b last:border-b-0'>
                     {/* Host header / 主机标题 */}
-                    <div className='bg-muted/50 px-3 py-2 flex items-center gap-2 sticky top-0'>
-                      <Server className='h-4 w-4 text-muted-foreground' />
-                      <span className='font-medium text-sm'>{getHostName(hostId)}</span>
-                      <span className='text-xs text-muted-foreground'>
-                        ({processes.length} {t('discovery.processes')})
-                      </span>
+                    <div className='bg-muted/50 px-3 py-2 flex items-center justify-between sticky top-0 z-10'>
+                      <div className='flex items-center gap-2'>
+                        <Server className='h-4 w-4 text-muted-foreground' />
+                        <span className='font-medium text-sm'>{getHostName(hostId)}</span>
+                        <span className='text-xs text-muted-foreground'>
+                          ({processes.length} {t('discovery.processes')})
+                        </span>
+                      </div>
+                      <Button
+                        type='button'
+                        variant='ghost'
+                        size='sm'
+                        className='h-6 px-2 text-xs text-muted-foreground hover:text-foreground'
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleHostProcesses(hostId);
+                        }}
+                      >
+                        {t('discovery.selectAllOnHost')}
+                      </Button>
                     </div>
                     {/* Processes / 进程列表 */}
                     <div className='divide-y'>
@@ -602,7 +754,7 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
                               }`}
                             >
                               {isSelected && (
-                                <CheckCircle2 className='h-4 w-4 text-primary-foreground' />
+                                <CheckCircle2 className='h-3 w-3 text-primary-foreground' />
                               )}
                             </div>
                             <Cpu className='h-4 w-4 text-muted-foreground flex-shrink-0' />
@@ -637,7 +789,7 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
                                     Hazelcast: {proc.hazelcast_port}
                                   </span>
                                 )}
-                                {proc.api_port > 0 && (
+                                {proc.role !== 'worker' && proc.api_port > 0 && (
                                   <span className='flex items-center gap-1'>
                                     <span className='w-2 h-2 rounded-full bg-green-500'></span>
                                     API: {proc.api_port}

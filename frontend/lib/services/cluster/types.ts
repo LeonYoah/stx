@@ -600,6 +600,7 @@ export interface CreateClusterRequest {
     host_id: number;
     install_dir: string;
     role: string;
+    pid?: number;
     hazelcast_port?: number;
     api_port?: number;
   }>;

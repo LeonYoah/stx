@@ -4,6 +4,9 @@
     "For 2.3.12+ on Zeta, plugin-specific dependencies are installed under plugins/<plugin-mapping value>.",
     "For 3.0.0, 20 new connectors from upstream v3.0.0 release are added to catalog and dependency baseline.",
     "Bundled assets are excluded from additional dependency recommendations, including connector-cdc-base, seatunnel-hadoop3-3.1.4-uber and seatunnel-hadoop-aws.",
+    "Cloud filesystem SDKs (Cos/Bos/Obs/Jindo and similar Hadoop FS implementations) must go to lib/, not plugins/<connector>/: Zeta loads plugins/<connector> jars into the connector classloader, but Hadoop FileSystem SPI is resolved from the shared lib classloader.",
+    "JDBC and most connector-local jars can stay under plugins/<connector>/ and are picked up by getPluginJarAndDependencyPaths.",
+    "file-s3 keeps relying on the engine-bundled seatunnel-shade-hadoop-aws; docs-only hadoop-aws/aws-java-sdk-bundle are not duplicated in the seed.",
     "file-base and file-base-hadoop stay hidden in marketplace but are auto-attached for matching file connectors.",
     "http-base stays visible and is auto-attached for http-* and prometheus."
   ],
@@ -276,7 +279,7 @@
       "display_name": "File Cos",
       "artifact_id": "connector-file-cos",
       "group_id": "org.apache.seatunnel",
-      "doc_url": "https://seatunnel.apache.org/zh-CN/docs/2.3.12/connector-v2"
+      "doc_url": "https://seatunnel.apache.org/zh-CN/docs/3.0.0/connectors/sink/CosFile"
     },
     {
       "name": "file-ftp",
@@ -1224,17 +1227,17 @@
       "profile_key": "default",
       "profile_name": "default",
       "engine_scope": "zeta",
-      "target_dir": "plugins/connector-file-cos",
+      "target_dir": "lib",
       "applies_to": "*",
       "include_versions": [],
       "exclude_versions": [],
       "doc_slug": "",
-      "doc_source_url": "https://seatunnel.apache.org/zh-CN/docs/2.3.12/connector-v2",
+      "doc_source_url": "https://seatunnel.apache.org/zh-CN/docs/3.0.0/connectors/sink/CosFile",
       "confidence": "manual",
       "is_default": true,
       "no_additional_dependencies": false,
       "resolution_mode": "exact",
-      "baseline_version_used": "2.3.12",
+      "baseline_version_used": "3.0.0",
       "items": [
         {
           "group_id": "org.apache.seatunnel",
@@ -1243,7 +1246,25 @@
           "target_dir": "connectors",
           "required": true,
           "source_url": "",
-          "note": ""
+          "note": "伴生 connector / companion connector"
+        },
+        {
+          "group_id": "com.qcloud.cos",
+          "artifact_id": "hadoop-cos",
+          "version": "2.6.5-8.0.2",
+          "target_dir": "lib",
+          "required": true,
+          "source_url": "",
+          "note": "官方要求放入 lib；POM provided / Official docs require lib; POM provided scope"
+        },
+        {
+          "group_id": "com.qcloud",
+          "artifact_id": "cos_api-bundle",
+          "version": "5.6.65",
+          "target_dir": "lib",
+          "required": true,
+          "source_url": "",
+          "note": "hadoop-cos 传递依赖，文档亦要求 / Transitive of hadoop-cos; also required by docs"
         }
       ]
     },
@@ -1320,17 +1341,17 @@
       "profile_key": "default",
       "profile_name": "default",
       "engine_scope": "zeta",
-      "target_dir": "plugins/connector-file-jindo-oss",
+      "target_dir": "lib",
       "applies_to": "*",
       "include_versions": [],
       "exclude_versions": [],
       "doc_slug": "",
-      "doc_source_url": "https://seatunnel.apache.org/zh-CN/docs/2.3.12/connector-v2",
+      "doc_source_url": "https://seatunnel.apache.org/zh-CN/docs/3.0.0/connectors/sink/OssJindoFile",
       "confidence": "manual",
       "is_default": true,
       "no_additional_dependencies": false,
       "resolution_mode": "exact",
-      "baseline_version_used": "2.3.12",
+      "baseline_version_used": "3.0.0",
       "items": [
         {
           "group_id": "org.apache.seatunnel",
@@ -1339,7 +1360,25 @@
           "target_dir": "connectors",
           "required": true,
           "source_url": "",
-          "note": ""
+          "note": "伴生 connector / companion connector"
+        },
+        {
+          "group_id": "com.aliyun.jindodata",
+          "artifact_id": "jindo-sdk",
+          "version": "4.6.1",
+          "target_dir": "lib",
+          "required": true,
+          "source_url": "https://jindodata-binary.oss-cn-shanghai.aliyuncs.com/release/4.6.1/jindosdk-4.6.1.tar.gz",
+          "note": "非 Maven Central：解压 tar 后取 lib/jindo-sdk-4.6.1.jar 上传到 lib / Not on Maven Central: extract tar and upload lib/jindo-sdk-4.6.1.jar"
+        },
+        {
+          "group_id": "com.aliyun.jindodata",
+          "artifact_id": "jindo-core",
+          "version": "4.6.1",
+          "target_dir": "lib",
+          "required": true,
+          "source_url": "https://jindodata-binary.oss-cn-shanghai.aliyuncs.com/release/4.6.1/jindosdk-4.6.1.tar.gz",
+          "note": "非 Maven Central：解压 tar 后取 lib/jindo-core-4.6.1.jar 上传到 lib / Not on Maven Central: extract tar and upload lib/jindo-core-4.6.1.jar"
         }
       ]
     },
@@ -3159,12 +3198,12 @@
       "profile_key": "default",
       "profile_name": "default",
       "engine_scope": "zeta",
-      "target_dir": "plugins/connector-file-bos",
+      "target_dir": "lib",
       "applies_to": "*",
       "include_versions": [],
       "exclude_versions": [],
       "doc_slug": "",
-      "doc_source_url": "https://seatunnel.apache.org/zh-CN/docs/3.0.0/connector-v2",
+      "doc_source_url": "https://seatunnel.apache.org/zh-CN/docs/3.0.0/connectors/sink/BosFile",
       "confidence": "manual",
       "is_default": true,
       "no_additional_dependencies": false,
@@ -3179,6 +3218,15 @@
           "required": true,
           "source_url": "",
           "note": "伴生 connector / companion connector"
+        },
+        {
+          "group_id": "com.baidubce",
+          "artifact_id": "bos-hdfs-sdk",
+          "version": "1.0.4-community",
+          "target_dir": "lib",
+          "required": true,
+          "source_url": "https://sdk.bce.baidu.com/console-sdk/bos-hdfs-sdk-1.0.4-community.jar.zip",
+          "note": "非 Maven Central / POM 未声明：下载 zip 解压后上传到 lib / Not on Maven Central or POM: download zip, extract jar, upload to lib"
         }
       ]
     },

@@ -312,6 +312,23 @@ func (s *Service) Create(ctx context.Context, req *CreateClusterRequest) (*Clust
 		}
 	}
 
+	// Synchronize stx-java-proxy port with cluster port config
+	// 同步 stx-java-proxy 端口与集群端口配置
+	proxyCfg := clusterConfig.GetSTXJavaProxyConfig()
+	portCfg := clusterConfig.GetPortConfig()
+	if portCfg != nil && proxyCfg != nil && proxyCfg.Port > 0 && portCfg.JavaProxyPort == 0 {
+		portCfg.JavaProxyPort = proxyCfg.Port
+		clusterConfig["ports"] = portCfg
+	} else if portCfg != nil && proxyCfg == nil && portCfg.JavaProxyPort > 0 {
+		clusterConfig["stx_java_proxy"] = map[string]interface{}{
+			"port": portCfg.JavaProxyPort,
+		}
+	} else if portCfg == nil && proxyCfg != nil && proxyCfg.Port > 0 {
+		clusterConfig["ports"] = &ClusterPortConfig{
+			JavaProxyPort: proxyCfg.Port,
+		}
+	}
+
 	// Create cluster
 	// 创建集群
 	cluster := &Cluster{
@@ -393,6 +410,26 @@ func (s *Service) Create(ctx context.Context, req *CreateClusterRequest) (*Clust
 		// Reload cluster with nodes
 		// 重新加载集群及其节点
 		cluster, _ = s.repo.GetByID(ctx, cluster.ID, true)
+
+		// Auto-start stx-java-proxy service in background if nodes exist and not explicitly disabled
+		// 如果存在发现节点且未显式禁用，在后台异步拉起 stx-java-proxy 辅助服务
+		shouldAutoStartProxy := len(req.Nodes) > 0
+		if rawProxy, ok := clusterConfig["stx_java_proxy"].(map[string]interface{}); ok {
+			if autoStart, exists := rawProxy["auto_start"].(bool); exists && !autoStart {
+				shouldAutoStartProxy = false
+			}
+		}
+		if shouldAutoStartProxy && s.agentSender != nil && s.hostProvider != nil {
+			go func(cid uint) {
+				bgCtx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+				defer cancel()
+				if _, err := s.StartSTXJavaProxy(bgCtx, cid); err != nil {
+					logger.WarnF(bgCtx, "[Cluster] Auto-start stx-java-proxy on cluster %d registration failed: %v / 注册集群 %d 时自动拉起 stx-java-proxy 失败: %v", cid, err, cid, err)
+				} else {
+					logger.InfoF(bgCtx, "[Cluster] Auto-started stx-java-proxy for registered cluster %d / 已为注册集群 %d 成功启动 stx-java-proxy", cid, cid)
+				}
+			}(cluster.ID)
+		}
 	}
 
 	s.notifyClusterTopologyChanged(ctx, cluster.ID)

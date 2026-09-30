@@ -48,7 +48,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {Loader2, Search, Server, Cpu, CheckCircle2} from 'lucide-react';
+import {Checkbox} from '@/components/ui/checkbox';
+import {
+  Loader2,
+  Search,
+  Server,
+  Cpu,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  SlidersHorizontal,
+  Sparkles,
+} from 'lucide-react';
 import {toast} from 'sonner';
 import services from '@/lib/services';
 import {DeploymentMode, CreateClusterRequest} from '@/lib/services/cluster/types';
@@ -85,6 +96,13 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
     Map<number, DiscoveredProcess[]>
   >(new Map());
   const [selectedProcesses, setSelectedProcesses] = useState<Set<string>>(new Set());
+
+  // Advanced settings state (stx-java-proxy & JVM) / 高级配置状态（stx-java-proxy 与 JVM 参数）
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [autoStartProxy, setAutoStartProxy] = useState(true);
+  const [proxyPort, setProxyPort] = useState<number>(18080);
+  const [proxyJvmOpts, setProxyJvmOpts] = useState<string>('-Xms128m -Xmx512m');
+  const [proxyJvmPreset, setProxyJvmPreset] = useState<string>('512m');
 
   /**
    * Load available hosts when dialog opens
@@ -131,6 +149,11 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
     setSelectedHostIds(new Set());
     setDiscoveredProcessesByHost(new Map());
     setSelectedProcesses(new Set());
+    setShowAdvanced(false);
+    setAutoStartProxy(true);
+    setProxyPort(18080);
+    setProxyJvmOpts('-Xms128m -Xmx512m');
+    setProxyJvmPreset('512m');
   };
 
   /**
@@ -449,12 +472,25 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
         api_port: node.apiPort > 0 ? node.apiPort : undefined,
       }));
 
+      const effectivePort = Number(proxyPort) > 0 ? Number(proxyPort) : 18080;
+      const effectiveJvmOpts = proxyJvmOpts.trim() || '-Xms128m -Xmx512m';
+
       const data: CreateClusterRequest = {
         name: name.trim(),
         description: description.trim() || undefined,
         deployment_mode: deploymentMode,
         version: version.trim() || undefined,
         install_dir: selectedProcessInfo[0]?.installDir || undefined,
+        config: {
+          stx_java_proxy: {
+            port: effectivePort,
+            jvm_opts: effectiveJvmOpts,
+            auto_start: autoStartProxy,
+          },
+          ports: {
+            java_proxy_port: effectivePort,
+          },
+        },
         nodes: nodes.length > 0 ? nodes : undefined,
       };
 
@@ -462,8 +498,8 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
 
       if (result.success) {
         toast.success(t('cluster.createSuccess'));
-        // Trigger initial config sync from master or hybrid node in background
-        // 后台静默触发首次集群配置拉取，填充模板供后续配置管理查看
+        // Trigger initial config sync and java-proxy startup in background
+        // 后台静默触发首次集群配置拉取与 stx-java-proxy 辅助服务拉起
         if (result.data?.id) {
           const createdClusterId = result.data.id;
           const targetNode =
@@ -473,6 +509,10 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
             services.config
               .initClusterConfigsSafe(createdClusterId, targetNode.hostId, targetNode.installDir)
               .catch(() => {});
+          }
+
+          if (autoStartProxy) {
+            services.cluster.startStxJavaProxySafe(createdClusterId).catch(() => {});
           }
         }
         resetForm();
@@ -809,6 +849,141 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
               </p>
             </div>
           )}
+
+          {/* Advanced Settings Section / 高级配置部分 */}
+          <div className='border rounded-lg overflow-hidden'>
+            <Button
+              type='button'
+              variant='ghost'
+              size='sm'
+              className='w-full flex items-center justify-between px-3 py-2.5 h-auto text-xs font-medium bg-muted/30 hover:bg-muted/50 rounded-none'
+              onClick={() => setShowAdvanced(!showAdvanced)}
+            >
+              <div className='flex items-center gap-2'>
+                <SlidersHorizontal className='h-3.5 w-3.5 text-muted-foreground' />
+                <span>{t('cluster.advancedSettings')}</span>
+                <span className='text-[10px] text-muted-foreground font-mono'>
+                  (STX Java Proxy)
+                </span>
+              </div>
+              {showAdvanced ? (
+                <ChevronDown className='h-3.5 w-3.5 text-muted-foreground' />
+              ) : (
+                <ChevronRight className='h-3.5 w-3.5 text-muted-foreground' />
+              )}
+            </Button>
+
+            {showAdvanced && (
+              <div className='p-3.5 space-y-4 border-t bg-card/60'>
+                {/* Proxy Service Description & Toggle / 代理服务说明与开关 */}
+                <div className='space-y-2'>
+                  <div className='flex items-center justify-between'>
+                    <div className='flex items-center gap-1.5'>
+                      <Label className='text-xs font-semibold'>
+                        {t('cluster.stxJavaProxy.title')}
+                      </Label>
+                      <span className='inline-flex items-center gap-0.5 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary'>
+                        <Sparkles className='h-2.5 w-2.5' />
+                        {t('cluster.modeBadgeProduction') || '推荐'}
+                      </span>
+                    </div>
+                  </div>
+                  <p className='text-xs text-muted-foreground leading-relaxed'>
+                    {t('cluster.stxJavaProxyDesc')}
+                  </p>
+
+                  <div className='flex items-start gap-2 pt-1'>
+                    <Checkbox
+                      id='auto-start-proxy'
+                      checked={autoStartProxy}
+                      onCheckedChange={(checked) => setAutoStartProxy(Boolean(checked))}
+                    />
+                    <div className='grid gap-0.5 leading-none'>
+                      <Label
+                        htmlFor='auto-start-proxy'
+                        className='text-xs font-medium cursor-pointer'
+                      >
+                        {t('cluster.autoStartProxy')}
+                      </Label>
+                      <p className='text-[11px] text-muted-foreground'>
+                        {t('cluster.autoStartProxyHelp')}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Proxy Port / 代理端口 */}
+                <div className='space-y-1.5'>
+                  <Label htmlFor='proxy-port' className='text-xs font-medium'>
+                    {t('cluster.proxyPort')}
+                  </Label>
+                  <Input
+                    id='proxy-port'
+                    type='number'
+                    value={proxyPort}
+                    onChange={(e) => setProxyPort(parseInt(e.target.value) || 0)}
+                    min={1024}
+                    max={65535}
+                    placeholder={t('cluster.proxyPortPlaceholder') || '18080'}
+                    className='h-8 text-xs font-mono'
+                  />
+                  <p className='text-[11px] text-muted-foreground'>
+                    {t('cluster.proxyPortHelp')}
+                  </p>
+                </div>
+
+                {/* JVM Options / JVM 参数与预设 */}
+                <div className='space-y-1.5'>
+                  <Label htmlFor='proxy-jvm-opts' className='text-xs font-medium'>
+                    {t('cluster.proxyJvmOpts')}
+                  </Label>
+                  <div className='flex flex-wrap gap-1.5 mb-1.5'>
+                    {[
+                      {id: '512m', label: '512M', value: '-Xms128m -Xmx512m'},
+                      {id: '1024m', label: '1024M', value: '-Xms256m -Xmx1024m'},
+                      {id: '2048m', label: '2048M', value: '-Xms512m -Xmx2048m'},
+                    ].map((preset) => (
+                      <Button
+                        key={preset.id}
+                        type='button'
+                        variant={proxyJvmPreset === preset.id ? 'default' : 'outline'}
+                        size='sm'
+                        className='h-6 px-2 text-[11px]'
+                        onClick={() => {
+                          setProxyJvmPreset(preset.id);
+                          setProxyJvmOpts(preset.value);
+                        }}
+                      >
+                        {preset.label}
+                      </Button>
+                    ))}
+                    <Button
+                      type='button'
+                      variant={proxyJvmPreset === 'custom' ? 'default' : 'outline'}
+                      size='sm'
+                      className='h-6 px-2 text-[11px]'
+                      onClick={() => setProxyJvmPreset('custom')}
+                    >
+                      {t('cluster.stxJavaProxy.presetCustom')}
+                    </Button>
+                  </div>
+                  <Input
+                    id='proxy-jvm-opts'
+                    value={proxyJvmOpts}
+                    onChange={(e) => {
+                      setProxyJvmOpts(e.target.value);
+                      setProxyJvmPreset('custom');
+                    }}
+                    placeholder='-Xms128m -Xmx512m'
+                    className='h-8 text-xs font-mono'
+                  />
+                  <p className='text-[11px] text-muted-foreground'>
+                    {t('cluster.proxyJvmOptsHelp')}
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         <DialogFooter>

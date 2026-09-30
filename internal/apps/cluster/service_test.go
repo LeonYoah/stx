@@ -1649,3 +1649,93 @@ func TestService_RefreshNodeProcessesForStatus_PendingNodeHealing(t *testing.T) 
 	}
 }
 
+// TestService_CreateFromDiscovery_SynchronizesAndAutoStartsSTXJavaProxy tests that stx-java-proxy port and JVM options
+// are properly stored, synchronized with port config, and automatically started on registration.
+// TestService_CreateFromDiscovery_SynchronizesAndAutoStartsSTXJavaProxy 测试注册集群时 stx-java-proxy 端口与 JVM 参数
+// 被正确保存、与端口配置同步并自动触发拉起。
+func TestService_CreateFromDiscovery_SynchronizesAndAutoStartsSTXJavaProxy(t *testing.T) {
+	db, cleanup := setupServiceTestDB(t)
+	defer cleanup()
+
+	repo := NewRepository(db)
+	mockHostProvider := NewMockHostProvider()
+	now := time.Now()
+	mockHostProvider.AddHost(&HostInfo{ID: 1, Name: "host-1", IPAddress: "127.0.0.1", AgentID: "agent-1", AgentStatus: "installed", LastHeartbeat: &now})
+
+	agentSender := &mockOperationAgentSender{}
+	svc := NewService(repo, mockHostProvider, nil)
+	svc.SetAgentCommandSender(agentSender)
+
+	ctx := context.Background()
+
+	// 传入自定义 stx_java_proxy 配置创建集群
+	// Create cluster with custom stx_java_proxy config
+	createdCluster, err := svc.Create(ctx, &CreateClusterRequest{
+		Name:           "proxy-cluster",
+		DeploymentMode: DeploymentModeHybrid,
+		Version:        "2.3.9",
+		Config: ClusterConfig{
+			"stx_java_proxy": map[string]interface{}{
+				"port":       18090,
+				"jvm_opts":   "-Xms256m -Xmx1024m",
+				"auto_start": true,
+			},
+		},
+		Nodes: []CreateNodeFromDiscovery{
+			{
+				HostID:        1,
+				Role:          "hybrid",
+				InstallDir:    "/opt/seatunnel",
+				HazelcastPort: 5801,
+				APIPort:       8080,
+				PID:           12345,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to create cluster: %v", err)
+	}
+
+	// 验证 stx-java-proxy 配置读取 / Verify stx-java-proxy config retrieval
+	proxyCfg := createdCluster.Config.GetSTXJavaProxyConfig()
+	if proxyCfg == nil {
+		t.Fatalf("expected stx_java_proxy config to be present")
+	}
+	if proxyCfg.Port != 18090 {
+		t.Errorf("expected proxy port 18090, got %d", proxyCfg.Port)
+	}
+	if proxyCfg.JvmOpts != "-Xms256m -Xmx1024m" {
+		t.Errorf("expected jvm_opts '-Xms256m -Xmx1024m', got '%s'", proxyCfg.JvmOpts)
+	}
+
+	// 验证 ports.java_proxy_port 同步 / Verify ports.java_proxy_port synchronization
+	portCfg := createdCluster.Config.GetPortConfig()
+	if portCfg == nil || portCfg.JavaProxyPort != 18090 {
+		t.Errorf("expected portCfg.JavaProxyPort to be 18090, got %+v", portCfg)
+	}
+
+	// 给异步拉起 goroutine 留出执行窗口
+	// Allow small window for async start goroutine
+	time.Sleep(100 * time.Millisecond)
+
+	// 验证是否向 Agent 发送了 start stx_java_proxy 命令
+	// Verify that the start stx_java_proxy command was dispatched to the Agent
+	foundProxyStart := false
+	for _, cmd := range agentSender.commands {
+		if cmd.commandType == "start" && cmd.params["service"] == "stx_java_proxy" {
+			foundProxyStart = true
+			if cmd.params["port"] != "18090" {
+				t.Errorf("expected command port '18090', got '%s'", cmd.params["port"])
+			}
+			if cmd.params["jvm_opts"] != "-Xms256m -Xmx1024m" {
+				t.Errorf("expected command jvm_opts '-Xms256m -Xmx1024m', got '%s'", cmd.params["jvm_opts"])
+			}
+			break
+		}
+	}
+	if !foundProxyStart {
+		t.Errorf("expected start stx_java_proxy command to be sent, recorded commands: %+v", agentSender.commands)
+	}
+}
+
+

@@ -884,7 +884,7 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
                       </Label>
                       <span className='inline-flex items-center gap-0.5 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary'>
                         <Sparkles className='h-2.5 w-2.5' />
-                        {t('cluster.modeBadgeProduction') || '推荐'}
+                        {t('cluster.wizard.modeBadgeProduction')}
                       </span>
                     </div>
                   </div>

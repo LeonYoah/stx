@@ -478,9 +478,78 @@ public class JobConfigSupportService {
                 pluginIdentifier ->
                         new SeaTunnelSourcePluginDiscovery().createPluginInstance(pluginIdentifier);
         Tuple2<SeaTunnelSource<Object, SourceSplit, Serializable>, List<CatalogTable>> tuple =
-                FactoryUtil.createAndPrepareSource(
-                        readonlyConfig, classLoader, factoryId, fallbackCreateSource, null);
+                createAndPrepareSourceCompat(
+                        readonlyConfig, classLoader, factoryId, fallbackCreateSource);
         return tuple._2();
+    }
+
+    /**
+     * 兼容 SeaTunnel 2.3.x（5 参数）与 3.0.x（6 参数，末尾带 MetadataConfig）的 Source 创建与准备。 Invokes
+     * FactoryUtil.createAndPrepareSource compatibly across SeaTunnel 2.3.x (5 params) and 3.0.x (6
+     * params with trailing MetadataConfig).
+     */
+    @SuppressWarnings("unchecked")
+    private static Tuple2<SeaTunnelSource<Object, SourceSplit, Serializable>, List<CatalogTable>>
+            createAndPrepareSourceCompat(
+                    ReadonlyConfig readonlyConfig,
+                    ClassLoader classLoader,
+                    String factoryId,
+                    Function<PluginIdentifier, SeaTunnelSource> fallbackCreateSource) {
+        for (java.lang.reflect.Method method : FactoryUtil.class.getMethods()) {
+            if ("createAndPrepareSource".equals(method.getName())) {
+                Class<?>[] params = method.getParameterTypes();
+                if (params.length == 5
+                        && params[0].equals(ReadonlyConfig.class)
+                        && params[1].equals(ClassLoader.class)
+                        && params[2].equals(String.class)
+                        && params[3].equals(Function.class)) {
+                    try {
+                        return (Tuple2<
+                                        SeaTunnelSource<Object, SourceSplit, Serializable>,
+                                        List<CatalogTable>>)
+                                method.invoke(
+                                        null,
+                                        readonlyConfig,
+                                        classLoader,
+                                        factoryId,
+                                        fallbackCreateSource,
+                                        null);
+                    } catch (Exception e) {
+                        throw new ProxyException(
+                                500,
+                                "Failed to invoke FactoryUtil.createAndPrepareSource (2.3.x): "
+                                        + e.getMessage(),
+                                e);
+                    }
+                } else if (params.length == 6
+                        && params[0].equals(ReadonlyConfig.class)
+                        && params[1].equals(ClassLoader.class)
+                        && params[2].equals(String.class)
+                        && params[3].equals(Function.class)) {
+                    try {
+                        return (Tuple2<
+                                        SeaTunnelSource<Object, SourceSplit, Serializable>,
+                                        List<CatalogTable>>)
+                                method.invoke(
+                                        null,
+                                        readonlyConfig,
+                                        classLoader,
+                                        factoryId,
+                                        fallbackCreateSource,
+                                        null,
+                                        null);
+                    } catch (Exception e) {
+                        throw new ProxyException(
+                                500,
+                                "Failed to invoke FactoryUtil.createAndPrepareSource (3.0.x): "
+                                        + e.getMessage(),
+                                e);
+                    }
+                }
+            }
+        }
+        throw new ProxyException(
+                500, "Compatible FactoryUtil.createAndPrepareSource method not found");
     }
 
     List<CatalogTable> resolveTransformCatalogTables(

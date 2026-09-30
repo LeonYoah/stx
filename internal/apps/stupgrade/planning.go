@@ -20,6 +20,8 @@ package stupgrade
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -131,7 +133,21 @@ func (s *Service) RunPrecheck(ctx context.Context, req *PrecheckRequest) (*Prech
 	result.ConnectorManifest = &connectorManifest
 	result.Issues = append(result.Issues, connectorIssues...)
 
-	configMergePlan, configIssues, err := s.buildConfigMergePlan(ctx, req.ClusterID, targetVersion, packageManifest.LocalPath)
+	sourceInstallDirs := make([]string, 0, len(nodeTargets))
+	for _, target := range nodeTargets {
+		if strings.TrimSpace(target.SourceInstallDir) == "" {
+			continue
+		}
+		sourceInstallDirs = append(sourceInstallDirs, target.SourceInstallDir)
+	}
+	configMergePlan, configIssues, err := s.buildConfigMergePlan(
+		ctx,
+		req.ClusterID,
+		string(clusterInfo.DeploymentMode),
+		targetVersion,
+		packageManifest.LocalPath,
+		sourceInstallDirs,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -449,7 +465,13 @@ func resolveRequiredConnectors(installedPlugins []pluginapp.InstalledPlugin, con
 	return dedupeSortedStrings(required)
 }
 
-func (s *Service) buildConfigMergePlan(ctx context.Context, clusterID uint, targetVersion, packagePath string) (ConfigMergePlan, []BlockingIssue, error) {
+func (s *Service) buildConfigMergePlan(
+	ctx context.Context,
+	clusterID uint,
+	deploymentMode string,
+	targetVersion, packagePath string,
+	sourceInstallDirs []string,
+) (ConfigMergePlan, []BlockingIssue, error) {
 	plan := ConfigMergePlan{Files: make([]ConfigMergeFile, 0), GeneratedAt: time.Now()}
 	issues := make([]BlockingIssue, 0)
 	configs, err := s.configProvider.GetByCluster(ctx, clusterID)
@@ -466,21 +488,59 @@ func (s *Service) buildConfigMergePlan(ctx context.Context, clusterID uint, targ
 		return plan, issues, nil
 	}
 
-	inputs, inputIssues := buildConfigMergeInputs(configs)
+	dbInputs, inputIssues := buildConfigMergeInputs(configs)
 	issues = append(issues, inputIssues...)
 
-	targetPaths := make([]string, 0, len(inputs))
+	// 先探测目标包内容：包含 DB 已有路径 + 部署模式可能补齐的路径。
+	// Probe package contents for DB paths plus mode-supported candidates.
+	probePaths := make([]string, 0, len(dbInputs)+8)
+	for _, input := range dbInputs {
+		if input.TargetPath != "" {
+			probePaths = append(probePaths, input.TargetPath)
+		}
+	}
+	for _, configType := range appconfig.GetConfigTypesForMode(deploymentMode) {
+		probePaths = append(probePaths, normalizeConfigArchivePath(appconfig.GetConfigFilePath(configType)))
+	}
+	targetContents, targetIssues := readTargetConfigContentsFromPackage(packagePath, targetVersion, probePaths)
+
+	// 仅当源目录可读或目标包存在时，补齐 DB 未入库的模式配置（如 seatunnel-env.sh）。
+	// Backfill mode configs missing from DB only when source dir or target package has them.
+	inputs := supplementConfigMergeInputs(dbInputs, deploymentMode, sourceInstallDirs, targetContents)
+
+	// package_config_missing 只针对「原本就在 DB / 已纳入 inputs」的配置；可选配置降级为告警。
+	// Restrict package_config_missing to configs included in inputs; soften optional ones.
+	requiredPaths := make(map[string]struct{}, len(inputs))
 	for _, input := range inputs {
-		if input.TargetPath == "" {
+		if input.TargetPath != "" {
+			requiredPaths[input.TargetPath] = struct{}{}
+		}
+	}
+	filteredTargetIssues := make([]BlockingIssue, 0, len(targetIssues))
+	for _, issue := range targetIssues {
+		if issue.Code != "package_config_missing" {
+			filteredTargetIssues = append(filteredTargetIssues, issue)
 			continue
 		}
-		targetPaths = append(targetPaths, input.TargetPath)
+		targetPath := ""
+		if issue.Metadata != nil {
+			targetPath = normalizeConfigArchivePath(issue.Metadata["target_path"])
+		}
+		if _, ok := requiredPaths[targetPath]; !ok {
+			continue
+		}
+		filteredTargetIssues = append(filteredTargetIssues, issue)
 	}
-	targetContents, targetIssues := readTargetConfigContentsFromPackage(packagePath, targetVersion, targetPaths)
-	issues = append(issues, targetIssues...)
+	issues = append(issues, softenOptionalPackageConfigIssues(filteredTargetIssues)...)
 
 	for _, input := range inputs {
-		plan.Files = append(plan.Files, buildConfigMergeFile(input, targetContents[input.TargetPath]))
+		targetContent, found := targetContents[input.TargetPath]
+		// 必选配置若目标包缺失：已有 package_config_missing 阻断，不再生成空合并文件。
+		// Required configs missing from package are blocked already; skip empty merge files.
+		if !found && !isOptionalUpgradeConfigType(input.ConfigType) {
+			continue
+		}
+		plan.Files = append(plan.Files, buildConfigMergeFile(input, targetContent))
 	}
 	sort.Slice(plan.Files, func(i, j int) bool {
 		if plan.Files[i].ConfigType == plan.Files[j].ConfigType {
@@ -495,6 +555,102 @@ func (s *Service) buildConfigMergePlan(ctx context.Context, clusterID uint, targ
 	plan.HasConflicts = plan.ConflictCount > 0
 	plan.Ready = !plan.HasConflicts
 	return plan, issues, nil
+}
+
+// supplementConfigMergeInputs 为部署模式支持、但 DB 尚未入库的配置类型补齐合并输入。
+// 仅在源安装目录可读或目标包存在该文件时补齐，避免凭空制造 package_config_missing。
+// supplementConfigMergeInputs backfills mode-supported types missing from DB.
+// Only add when the source install dir or target package actually has the file.
+func supplementConfigMergeInputs(
+	inputs []configMergeInput,
+	deploymentMode string,
+	sourceInstallDirs []string,
+	targetContents map[string]string,
+) []configMergeInput {
+	existing := make(map[string]struct{}, len(inputs))
+	for _, input := range inputs {
+		existing[input.ConfigType] = struct{}{}
+	}
+
+	for _, configType := range appconfig.GetConfigTypesForMode(deploymentMode) {
+		typeName := string(configType)
+		if _, ok := existing[typeName]; ok {
+			continue
+		}
+		targetPath := normalizeConfigArchivePath(appconfig.GetConfigFilePath(configType))
+		localContent := tryReadConfigFromInstallDirs(sourceInstallDirs, targetPath)
+		_, inPackage := targetContents[targetPath]
+		if localContent == "" && !inPackage {
+			continue
+		}
+		inputs = append(inputs, configMergeInput{
+			ConfigType:   typeName,
+			TargetPath:   targetPath,
+			BaseContent:  "",
+			LocalContent: localContent,
+		})
+		existing[typeName] = struct{}{}
+	}
+	return inputs
+}
+
+func tryReadConfigFromInstallDirs(installDirs []string, relativePath string) string {
+	rel := normalizeConfigArchivePath(relativePath)
+	if rel == "" {
+		return ""
+	}
+	for _, installDir := range installDirs {
+		dir := strings.TrimSpace(installDir)
+		if dir == "" {
+			continue
+		}
+		content, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(rel)))
+		if err != nil {
+			continue
+		}
+		return string(content)
+	}
+	return ""
+}
+
+func isOptionalUpgradeConfigType(configType string) bool {
+	switch strings.TrimSpace(configType) {
+	case string(appconfig.ConfigTypeSeatunnelEnv):
+		return true
+	default:
+		return false
+	}
+}
+
+// softenOptionalPackageConfigIssues 将可选配置的 package_config_missing 降为非阻断告警。
+// softenOptionalPackageConfigIssues downgrades optional package_config_missing issues to non-blocking warnings.
+func softenOptionalPackageConfigIssues(issues []BlockingIssue) []BlockingIssue {
+	if len(issues) == 0 {
+		return issues
+	}
+	out := make([]BlockingIssue, 0, len(issues))
+	for _, issue := range issues {
+		if issue.Code != "package_config_missing" {
+			out = append(out, issue)
+			continue
+		}
+		targetPath := ""
+		if issue.Metadata != nil {
+			targetPath = issue.Metadata["target_path"]
+		}
+		configType := filepath.Base(normalizeConfigArchivePath(targetPath))
+		if !isOptionalUpgradeConfigType(configType) {
+			out = append(out, issue)
+			continue
+		}
+		out = append(out, warningIssue(
+			issue.Category,
+			issue.Code,
+			fmt.Sprintf("%s (optional / 可选配置不阻断升级)", issue.Message),
+			issue.Metadata,
+		))
+	}
+	return out
 }
 
 func filterNodeScope(nodes []*clusterapp.NodeInfo, requestedNodeIDs []uint) ([]*clusterapp.NodeInfo, []BlockingIssue) {
@@ -587,6 +743,16 @@ func blockingIssue(category CheckCategory, code, message string, metadata map[st
 		Code:     code,
 		Message:  normalizeUserVisibleText(message),
 		Blocking: true,
+		Metadata: metadata,
+	}
+}
+
+func warningIssue(category CheckCategory, code, message string, metadata map[string]string) BlockingIssue {
+	return BlockingIssue{
+		Category: category,
+		Code:     code,
+		Message:  normalizeUserVisibleText(message),
+		Blocking: false,
 		Metadata: metadata,
 	}
 }

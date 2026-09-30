@@ -18,7 +18,7 @@
 'use client';
 
 import Link from 'next/link';
-import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {useCallback, useEffect, useMemo, useRef, useState, type ReactNode} from 'react';
 import {useRouter, useSearchParams} from 'next/navigation';
 import {useTranslations} from 'next-intl';
 import {toast} from 'sonner';
@@ -27,9 +27,13 @@ import {
   ArrowLeft,
   Clock3,
   History,
+  ListOrdered,
   Loader2,
+  Package,
   PlayCircle,
+  PlugZap,
   RefreshCw,
+  Server,
   Terminal,
 } from 'lucide-react';
 import {Button} from '@/components/ui/button';
@@ -604,180 +608,367 @@ export function ClusterUpgradeExecute({clusterId}: ClusterUpgradeExecuteProps) {
         </Card>
       ) : null}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{t('executionProgress')}</CardTitle>
-          <CardDescription>{t('executionProgressDescription')}</CardDescription>
-        </CardHeader>
-        <CardContent className='space-y-3'>
-          <div className='flex items-center justify-between text-sm text-muted-foreground'>
-            <span>{t('completedPercent')}</span>
-            <span>{progress}%</span>
-          </div>
-          <Progress value={progress} />
-        </CardContent>
-      </Card>
+      {/* 尚未启动任务：展示计划内容供确认，避免空壳点「开始」 / Before start: show plan review instead of empty execution panes */}
+      {!task ? (
+        <>
+          <Card data-testid='upgrade-plan-review'>
+            <CardHeader>
+              <CardTitle>{t('planReviewTitle')}</CardTitle>
+              <CardDescription>{t('planReviewDescription')}</CardDescription>
+            </CardHeader>
+            <CardContent className='space-y-4'>
+              <div className='flex flex-wrap items-center gap-2 text-sm text-muted-foreground'>
+                <Badge variant='default'>
+                  {currentPlan.source_version} → {currentPlan.target_version}
+                </Badge>
+                <span>
+                  {t('nodeTargetCount')}:{' '}
+                  {currentPlan.snapshot.node_targets?.length || 0}
+                </span>
+                <span>
+                  {t('planStepCount')}: {currentPlan.snapshot.steps?.length || 0}
+                </span>
+                <span>
+                  {t('planConfigFileCount')}:{' '}
+                  {currentPlan.snapshot.config_merge_plan?.files?.length || 0}
+                </span>
+                <span>
+                  {t('unresolvedConflicts')}:{' '}
+                  {currentPlan.snapshot.config_merge_plan?.conflict_count || 0}
+                </span>
+              </div>
 
-      <div className='grid items-stretch gap-6 xl:grid-cols-[minmax(0,1fr)_420px]'>
-        <Card className={`flex flex-col ${EXECUTION_PANES_HEIGHT_CLASS}`}>
-          <CardHeader className='space-y-3'>
-            <div>
-              <CardTitle>{t('executionDetailTitle')}</CardTitle>
-              <CardDescription>
-                {t('executionDetailDescription')}
-              </CardDescription>
-            </div>
-            {/* 步骤 / 节点 Tabs，释放横向空间 / Steps↔nodes tabs for more room */}
-            <Tabs
-              value={executionView}
-              onValueChange={(value) =>
-                setExecutionView(value as 'steps' | 'nodes')
-              }
+              <div className='grid gap-4 xl:grid-cols-2'>
+                <PlanSummaryCard
+                  icon={<Package className='h-4 w-4 text-primary' />}
+                  title={t('packageInfo')}
+                  description={
+                    currentPlan.snapshot.package_manifest?.file_name || '-'
+                  }
+                  lines={[
+                    `${t('checksum')}: ${currentPlan.snapshot.package_manifest?.checksum || '-'}`,
+                    `${t('packageArch')}: ${currentPlan.snapshot.package_manifest?.arch || '-'}`,
+                  ]}
+                />
+                <PlanSummaryCard
+                  icon={<PlugZap className='h-4 w-4 text-primary' />}
+                  title={t('connectorInfo')}
+                  description={`${currentPlan.snapshot.connector_manifest?.connectors?.length || 0} / ${currentPlan.snapshot.connector_manifest?.libraries?.length || 0} / ${currentPlan.snapshot.connector_manifest?.plugin_dependencies?.length || 0}`}
+                  lines={[
+                    `${t('connectorCount')}: ${currentPlan.snapshot.connector_manifest?.connectors?.length || 0}`,
+                    `${t('libraryCount')}: ${currentPlan.snapshot.connector_manifest?.libraries?.length || 0}`,
+                    `${t('pluginDependencyCount')}: ${currentPlan.snapshot.connector_manifest?.plugin_dependencies?.length || 0}`,
+                  ]}
+                />
+              </div>
+
+              <p className='text-sm text-muted-foreground'>
+                {t('planReviewReadyHint')}
+              </p>
+            </CardContent>
+          </Card>
+
+          <div className='grid items-stretch gap-6 xl:grid-cols-2'>
+            <Card
+              className={`flex flex-col ${EXECUTION_PANES_HEIGHT_CLASS}`}
+              data-testid='upgrade-plan-steps'
             >
-              <TabsList>
-                <TabsTrigger value='steps' data-testid='upgrade-view-steps'>
-                  {t('stepTree')}
-                </TabsTrigger>
-                <TabsTrigger value='nodes' data-testid='upgrade-view-nodes'>
-                  {t('nodeExecutions')}
-                </TabsTrigger>
-              </TabsList>
-            </Tabs>
-          </CardHeader>
-          <CardContent className='flex min-h-0 flex-1 flex-col'>
-            {executionView === 'steps' ? (
-              <ScrollArea className='min-h-0 flex-1 pr-4'>
-                <div className='space-y-3'>
-                  {(stepsData?.steps || task?.steps || []).map((step) => (
-                    <div key={step.id} className='rounded-lg border p-4'>
-                      <div className='flex flex-wrap items-center justify-between gap-3'>
-                        <div>
-                          <div className='font-medium'>
-                            {stepMap[step.code]?.title || step.code}
+              <CardHeader>
+                <CardTitle className='flex items-center gap-2'>
+                  <ListOrdered className='h-4 w-4' />
+                  {t('plannedSteps')}
+                </CardTitle>
+                <CardDescription>
+                  {t('plannedStepsDescription')}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className='flex min-h-0 flex-1 flex-col'>
+                <ScrollArea className='min-h-0 flex-1 pr-4'>
+                  <div className='space-y-3'>
+                    {(currentPlan.snapshot.steps || []).map((step) => (
+                      <div
+                        key={`${step.sequence}-${step.code}`}
+                        className='rounded-lg border p-4'
+                      >
+                        <div className='flex flex-wrap items-center justify-between gap-3'>
+                          <div>
+                            <div className='font-medium'>
+                              {step.title || step.code}
+                            </div>
+                            <div className='text-xs text-muted-foreground'>
+                              {step.sequence}. {step.code}
+                            </div>
                           </div>
-                          <div className='text-xs text-muted-foreground'>
-                            {step.sequence}. {step.code}
-                          </div>
-                        </div>
-                        <div className='flex items-center gap-2'>
-                          <Badge variant={getStatusBadgeVariant(step.status)}>
-                            {getExecutionStatusLabel(step.status)}
-                          </Badge>
-                          <Badge variant='outline'>
-                            {t('stepNodeCount')}:{' '}
-                            {getStepNodeCount(step, stepsData)}
+                          <Badge variant={step.required ? 'default' : 'outline'}>
+                            {step.required
+                              ? t('requiredStep')
+                              : t('optionalStep')}
                           </Badge>
                         </div>
+                        {step.description ? (
+                          <div className='mt-3 text-sm text-muted-foreground'>
+                            {step.description}
+                          </div>
+                        ) : null}
                       </div>
-                      <div className='mt-3 text-sm text-muted-foreground'>
-                        {step.message || stepMap[step.code]?.description}
-                      </div>
-                      {step.error ? (
-                        <div className='mt-2 text-sm text-destructive'>
-                          {step.error}
-                        </div>
-                      ) : null}
-                    </div>
-                  ))}
-                </div>
-              </ScrollArea>
-            ) : (
-              <ScrollArea className='min-h-0 flex-1 pr-4'>
-                <TooltipProvider delayDuration={300}>
+                    ))}
+                  </div>
+                </ScrollArea>
+              </CardContent>
+            </Card>
+
+            <Card
+              className={`flex flex-col ${EXECUTION_PANES_HEIGHT_CLASS}`}
+              data-testid='upgrade-plan-nodes'
+            >
+              <CardHeader>
+                <CardTitle className='flex items-center gap-2'>
+                  <Server className='h-4 w-4' />
+                  {t('nodeTargets')}
+                </CardTitle>
+                <CardDescription>{t('nodeTargetsDescription')}</CardDescription>
+              </CardHeader>
+              <CardContent className='flex min-h-0 flex-1 flex-col'>
+                <ScrollArea className='min-h-0 flex-1 pr-4'>
                   <Table>
                     <TableHeader>
                       <TableRow>
                         <TableHead>{t('host')}</TableHead>
                         <TableHead>{t('role')}</TableHead>
-                        <TableHead>{t('statusLabel')}</TableHead>
-                        <TableHead>{t('currentStep')}</TableHead>
-                        <TableHead>{t('messageLabel')}</TableHead>
+                        <TableHead>{t('sourceVersion')}</TableHead>
+                        <TableHead>{t('sourceInstallDir')}</TableHead>
+                        <TableHead>{t('targetDir')}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {nodeOptions.map((node) => {
-                        const messageText = node.message || node.error || '-';
-                        return (
-                          <TableRow key={node.id}>
-                            <TableCell>{node.host_name}</TableCell>
-                            <TableCell>{node.role}</TableCell>
+                      {(currentPlan.snapshot.node_targets || []).map(
+                        (target) => (
+                          <TableRow key={target.cluster_node_id}>
                             <TableCell>
-                              <Badge
-                                variant={getStatusBadgeVariant(node.status)}
-                              >
-                                {getExecutionStatusLabel(node.status)}
-                              </Badge>
+                              <div className='font-medium'>
+                                {target.host_name || target.host_ip || '-'}
+                              </div>
+                              <div className='text-xs text-muted-foreground'>
+                                {target.host_ip || '-'}
+                              </div>
                             </TableCell>
-                            <TableCell>{node.current_step || '-'}</TableCell>
+                            <TableCell>{target.role || '-'}</TableCell>
                             <TableCell>
-                              {/* 截断 + Tooltip 完整展示 / Truncate with full Tooltip */}
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <div className='max-w-[340px] cursor-help truncate text-left'>
-                                    {messageText}
-                                  </div>
-                                </TooltipTrigger>
-                                <TooltipContent
-                                  side='bottom'
-                                  className='max-w-md break-words'
-                                >
-                                  <p className='whitespace-pre-wrap'>
-                                    {messageText}
-                                  </p>
-                                </TooltipContent>
-                              </Tooltip>
+                              {target.source_version ||
+                                currentPlan.source_version}
+                            </TableCell>
+                            <TableCell>
+                              <div className='max-w-[200px] truncate font-mono text-xs'>
+                                {target.source_install_dir || '-'}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div className='max-w-[200px] truncate font-mono text-xs'>
+                                {target.target_install_dir || '-'}
+                              </div>
                             </TableCell>
                           </TableRow>
-                        );
-                      })}
+                        ),
+                      )}
                     </TableBody>
                   </Table>
-                </TooltipProvider>
-              </ScrollArea>
-            )}
-          </CardContent>
-        </Card>
+                </ScrollArea>
+              </CardContent>
+            </Card>
+          </div>
+        </>
+      ) : (
+        <>
+          <Card>
+            <CardHeader>
+              <CardTitle>{t('executionProgress')}</CardTitle>
+              <CardDescription>
+                {t('executionProgressDescription')}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className='space-y-3'>
+              <div className='flex items-center justify-between text-sm text-muted-foreground'>
+                <span>{t('completedPercent')}</span>
+                <span>{progress}%</span>
+              </div>
+              <Progress value={progress} />
+            </CardContent>
+          </Card>
 
-        <Card className={`flex flex-col ${EXECUTION_PANES_HEIGHT_CLASS}`}>
-          <CardHeader>
-            <CardTitle>{t('logsTitle')}</CardTitle>
-            <CardDescription>{t('logsDescription')}</CardDescription>
-          </CardHeader>
-          <CardContent className='flex min-h-0 flex-1 flex-col space-y-4'>
-            <div className='grid gap-3'>
-              <div className='grid gap-3 sm:grid-cols-3'>
-                <Select
-                  value={logsQuery.step_code || 'all'}
+          <div className='grid items-stretch gap-6 xl:grid-cols-[minmax(0,1fr)_420px]'>
+            <Card className={`flex flex-col ${EXECUTION_PANES_HEIGHT_CLASS}`}>
+              <CardHeader className='space-y-3'>
+                <div>
+                  <CardTitle>{t('executionDetailTitle')}</CardTitle>
+                  <CardDescription>
+                    {t('executionDetailDescription')}
+                  </CardDescription>
+                </div>
+                {/* 步骤 / 节点 Tabs，释放横向空间 / Steps↔nodes tabs for more room */}
+                <Tabs
+                  value={executionView}
                   onValueChange={(value) =>
-                    setLogsQuery((current) => ({
-                      ...current,
-                      step_code:
-                        value === 'all' ? undefined : (value as StepCode),
-                    }))
+                    setExecutionView(value as 'steps' | 'nodes')
                   }
                 >
-                  <SelectTrigger>
-                    <SelectValue placeholder={t('allSteps')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value='all'>{t('allSteps')}</SelectItem>
-                    {(stepsData?.steps || task?.steps || []).map((step) => (
-                      <SelectItem key={step.id} value={step.code}>
-                        {step.code}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  <TabsList>
+                    <TabsTrigger
+                      value='steps'
+                      data-testid='upgrade-view-steps'
+                    >
+                      {t('stepTree')}
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value='nodes'
+                      data-testid='upgrade-view-nodes'
+                    >
+                      {t('nodeExecutions')}
+                    </TabsTrigger>
+                  </TabsList>
+                </Tabs>
+              </CardHeader>
+              <CardContent className='flex min-h-0 flex-1 flex-col'>
+                {executionView === 'steps' ? (
+                  <ScrollArea className='min-h-0 flex-1 pr-4'>
+                    <div className='space-y-3'>
+                      {(stepsData?.steps || task?.steps || []).map((step) => (
+                        <div key={step.id} className='rounded-lg border p-4'>
+                          <div className='flex flex-wrap items-center justify-between gap-3'>
+                            <div>
+                              <div className='font-medium'>
+                                {stepMap[step.code]?.title || step.code}
+                              </div>
+                              <div className='text-xs text-muted-foreground'>
+                                {step.sequence}. {step.code}
+                              </div>
+                            </div>
+                            <div className='flex items-center gap-2'>
+                              <Badge
+                                variant={getStatusBadgeVariant(step.status)}
+                              >
+                                {getExecutionStatusLabel(step.status)}
+                              </Badge>
+                              <Badge variant='outline'>
+                                {t('stepNodeCount')}:{' '}
+                                {getStepNodeCount(step, stepsData)}
+                              </Badge>
+                            </div>
+                          </div>
+                          <div className='mt-3 text-sm text-muted-foreground'>
+                            {step.message || stepMap[step.code]?.description}
+                          </div>
+                          {step.error ? (
+                            <div className='mt-2 text-sm text-destructive'>
+                              {step.error}
+                            </div>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  </ScrollArea>
+                ) : (
+                  <ScrollArea className='min-h-0 flex-1 pr-4'>
+                    <TooltipProvider delayDuration={300}>
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>{t('host')}</TableHead>
+                            <TableHead>{t('role')}</TableHead>
+                            <TableHead>{t('statusLabel')}</TableHead>
+                            <TableHead>{t('currentStep')}</TableHead>
+                            <TableHead>{t('messageLabel')}</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {nodeOptions.map((node) => {
+                            const messageText =
+                              node.message || node.error || '-';
+                            return (
+                              <TableRow key={node.id}>
+                                <TableCell>{node.host_name}</TableCell>
+                                <TableCell>{node.role}</TableCell>
+                                <TableCell>
+                                  <Badge
+                                    variant={getStatusBadgeVariant(
+                                      node.status,
+                                    )}
+                                  >
+                                    {getExecutionStatusLabel(node.status)}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell>
+                                  {node.current_step || '-'}
+                                </TableCell>
+                                <TableCell>
+                                  {/* 截断 + Tooltip 完整展示 / Truncate with full Tooltip */}
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <div className='max-w-[340px] cursor-help truncate text-left'>
+                                        {messageText}
+                                      </div>
+                                    </TooltipTrigger>
+                                    <TooltipContent
+                                      side='bottom'
+                                      className='max-w-md break-words'
+                                    >
+                                      <p className='whitespace-pre-wrap'>
+                                        {messageText}
+                                      </p>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
+                    </TooltipProvider>
+                  </ScrollArea>
+                )}
+              </CardContent>
+            </Card>
 
-                <Select
-                  value={logsQuery.level || 'all'}
-                  onValueChange={(value) =>
-                    setLogsQuery((current) => ({
-                      ...current,
-                      level: value === 'all' ? undefined : (value as LogLevel),
-                    }))
-                  }
-                >
+            <Card className={`flex flex-col ${EXECUTION_PANES_HEIGHT_CLASS}`}>
+              <CardHeader>
+                <CardTitle>{t('logsTitle')}</CardTitle>
+                <CardDescription>{t('logsDescription')}</CardDescription>
+              </CardHeader>
+              <CardContent className='flex min-h-0 flex-1 flex-col space-y-4'>
+                <div className='grid gap-3'>
+                  <div className='grid gap-3 sm:grid-cols-3'>
+                    <Select
+                      value={logsQuery.step_code || 'all'}
+                      onValueChange={(value) =>
+                        setLogsQuery((current) => ({
+                          ...current,
+                          step_code:
+                            value === 'all' ? undefined : (value as StepCode),
+                        }))
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder={t('allSteps')} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value='all'>{t('allSteps')}</SelectItem>
+                        {(stepsData?.steps || task?.steps || []).map((step) => (
+                          <SelectItem key={step.id} value={step.code}>
+                            {step.code}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+
+                    <Select
+                      value={logsQuery.level || 'all'}
+                      onValueChange={(value) =>
+                        setLogsQuery((current) => ({
+                          ...current,
+                          level:
+                            value === 'all' ? undefined : (value as LogLevel),
+                        }))
+                      }
+                    >
                   <SelectTrigger>
                     <SelectValue placeholder={t('allLevels')} />
                   </SelectTrigger>
@@ -913,6 +1104,8 @@ export function ClusterUpgradeExecute({clusterId}: ClusterUpgradeExecuteProps) {
           </CardContent>
         </Card>
       </div>
+        </>
+      )}
     </div>
   );
 }
@@ -934,5 +1127,44 @@ function StatusCard({title, value}: StatusCardProps) {
         <CardTitle className='text-base'>{value}</CardTitle>
       </CardHeader>
     </Card>
+  );
+}
+
+interface PlanSummaryCardProps {
+  icon: ReactNode;
+  title: string;
+  description: string;
+  lines: string[];
+}
+
+/**
+ * 计划资产摘要卡：安装包 / 插件等只读速览
+ * Plan asset summary card for package / connector read-only preview
+ */
+function PlanSummaryCard({
+  icon,
+  title,
+  description,
+  lines,
+}: PlanSummaryCardProps) {
+  return (
+    <div className='rounded-lg border p-4'>
+      <div className='flex items-start gap-3'>
+        <div className='mt-0.5'>{icon}</div>
+        <div className='min-w-0 space-y-1'>
+          <div className='font-medium'>{title}</div>
+          <div className='truncate text-sm text-muted-foreground'>
+            {description}
+          </div>
+          <div className='space-y-0.5 pt-1 text-xs text-muted-foreground'>
+            {lines.map((line) => (
+              <div key={line} className='truncate'>
+                {line}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }

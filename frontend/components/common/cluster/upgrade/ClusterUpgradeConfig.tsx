@@ -41,6 +41,7 @@ import {
   patchStUpgradeSession,
 } from '@/lib/st-upgrade-session';
 import type {
+  BlockingIssue,
   ConfigMergeFile,
   ConfigMergePlan,
   CreatePlanRequest,
@@ -49,6 +50,7 @@ import {cn} from '@/lib/utils';
 import {UpgradeSteps} from './UpgradeSteps';
 import {
   buildMergeEditorRows,
+  getIssueCategoryLabel,
   normalizeMergePlan,
   rebuildMergeFileFromRows,
 } from './utils';
@@ -80,6 +82,8 @@ export function ClusterUpgradeConfig({clusterId}: ClusterUpgradeConfigProps) {
   const [highlightedRowId, setHighlightedRowId] = useState<string | null>(null);
   // session 同步水合完成前显示骨架 / Skeleton until session hydrate finishes
   const [hydrated, setHydrated] = useState(false);
+  // 生成计划被阻断时展示的预检查问题 / Blocking precheck issues after createPlan fails
+  const [blockedIssues, setBlockedIssues] = useState<BlockingIssue[]>([]);
 
   useEffect(() => {
     const session = loadStUpgradeSession(clusterId);
@@ -95,6 +99,11 @@ export function ClusterUpgradeConfig({clusterId}: ClusterUpgradeConfigProps) {
     setRequest(session.request);
     setMergePlan(normalizeMergePlan(initialPlan));
     setSelectedConfigType(initialPlan.files[0]?.config_type || '');
+    // 恢复上次 createPlan 阻断时写入 session 的 issues / Restore issues from last blocked createPlan
+    const sessionIssues = (session.precheck.issues || []).filter(
+      (issue) => issue.blocking,
+    );
+    setBlockedIssues(sessionIssues);
     setHydrated(true);
   }, [clusterId]);
 
@@ -291,7 +300,15 @@ export function ClusterUpgradeConfig({clusterId}: ClusterUpgradeConfigProps) {
         return;
       }
       if (!result.data.plan) {
-        toast.warning(t('planBlocked'));
+        const issues = (result.data.precheck?.issues || []).filter(
+          (issue) => issue.blocking,
+        );
+        setBlockedIssues(issues);
+        toast.warning(
+          issues.length > 0
+            ? t('planBlockedWithCount', {count: issues.length})
+            : t('planBlocked'),
+        );
         patchStUpgradeSession(clusterId, {
           clusterId,
           request,
@@ -302,6 +319,7 @@ export function ClusterUpgradeConfig({clusterId}: ClusterUpgradeConfigProps) {
         return;
       }
 
+      setBlockedIssues([]);
       patchStUpgradeSession(clusterId, {
         clusterId,
         request,
@@ -415,6 +433,49 @@ export function ClusterUpgradeConfig({clusterId}: ClusterUpgradeConfigProps) {
       />
 
       <UpgradeSteps current='config' clusterId={clusterId} />
+
+      {blockedIssues.length > 0 ? (
+        <Card
+          className='border-amber-500/40 bg-amber-500/5'
+          data-testid='upgrade-config-blocked-issues'
+        >
+          <CardHeader>
+            <CardTitle className='flex items-center gap-2 text-base'>
+              <AlertTriangle className='h-4 w-4 text-amber-600' />
+              {t('planBlockedIssuesTitle')}
+            </CardTitle>
+            <CardDescription>{t('planBlockedIssuesDescription')}</CardDescription>
+          </CardHeader>
+          <CardContent className='space-y-3'>
+            {blockedIssues.map((issue) => (
+              <div
+                key={`${issue.category}-${issue.code}-${issue.message}`}
+                className='rounded-md border bg-background/70 p-3 text-sm'
+              >
+                <div className='flex flex-wrap items-center gap-2'>
+                  <Badge variant='destructive'>
+                    {getIssueCategoryLabel(issue.category)}
+                  </Badge>
+                  <span className='font-medium text-foreground'>{issue.code}</span>
+                </div>
+                <div className='mt-2 text-muted-foreground'>{issue.message}</div>
+              </div>
+            ))}
+            <div className='flex flex-wrap gap-2 pt-1'>
+              <Button
+                variant='outline'
+                size='sm'
+                onClick={() =>
+                  router.push(`/clusters/${clusterId}/upgrade/prepare`)
+                }
+              >
+                <ArrowLeft className='mr-2 h-4 w-4' />
+                {t('backToPrepare')}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <div
         className={cn(

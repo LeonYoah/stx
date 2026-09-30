@@ -157,3 +157,64 @@ func TestBuildConfigMergeFile_marksDivergentLinesAsPendingConflict(t *testing.T)
 		t.Fatalf("expected merged content to include TARGET marker, got %q", file.MergedContent)
 	}
 }
+
+func TestSupplementConfigMergeInputs_addsSeatunnelEnvWhenPackageHasIt(t *testing.T) {
+	inputs := []configMergeInput{{
+		ConfigType:   string(appconfig.ConfigTypeSeatunnel),
+		TargetPath:   "config/seatunnel.yaml",
+		LocalContent: "seatunnel: local",
+	}}
+	targetContents := map[string]string{
+		"config/seatunnel.yaml":  "seatunnel: target",
+		"config/seatunnel-env.sh": "export JAVA_OPTS=1\n",
+	}
+
+	got := supplementConfigMergeInputs(inputs, "hybrid", nil, targetContents)
+	foundEnv := false
+	for _, input := range got {
+		if input.ConfigType == string(appconfig.ConfigTypeSeatunnelEnv) {
+			foundEnv = true
+			if input.TargetPath != "config/seatunnel-env.sh" {
+				t.Fatalf("unexpected env target path: %q", input.TargetPath)
+			}
+		}
+	}
+	if !foundEnv {
+		t.Fatalf("expected seatunnel-env.sh to be backfilled from package contents")
+	}
+}
+
+func TestSupplementConfigMergeInputs_skipsMissingModeConfigs(t *testing.T) {
+	inputs := []configMergeInput{{
+		ConfigType:   string(appconfig.ConfigTypeSeatunnel),
+		TargetPath:   "config/seatunnel.yaml",
+		LocalContent: "seatunnel: local",
+	}}
+	got := supplementConfigMergeInputs(inputs, "hybrid", nil, map[string]string{
+		"config/seatunnel.yaml": "seatunnel: target",
+	})
+	if len(got) != 1 {
+		t.Fatalf("expected no extra mode configs when package/source lack them, got %d", len(got))
+	}
+}
+
+func TestSoftenOptionalPackageConfigIssues(t *testing.T) {
+	issues := []BlockingIssue{
+		blockingIssue(CheckCategoryPackage, "package_config_missing", "missing env", map[string]string{
+			"target_path": "config/seatunnel-env.sh",
+		}),
+		blockingIssue(CheckCategoryPackage, "package_config_missing", "missing yaml", map[string]string{
+			"target_path": "config/seatunnel.yaml",
+		}),
+	}
+	got := softenOptionalPackageConfigIssues(issues)
+	if len(got) != 2 {
+		t.Fatalf("expected 2 issues, got %d", len(got))
+	}
+	if got[0].Blocking {
+		t.Fatalf("expected seatunnel-env.sh missing to be non-blocking")
+	}
+	if !got[1].Blocking {
+		t.Fatalf("expected seatunnel.yaml missing to stay blocking")
+	}
+}

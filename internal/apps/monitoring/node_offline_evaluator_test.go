@@ -270,24 +270,21 @@ func TestEvaluateNodeHealthAlerts_emitsAndResolvesNodeOfflineEpisode(t *testing.
 		t.Fatalf("expected recovery event after offline event, got offline=%s recovered=%s", offlineEvent.CreatedAt, recoveredEvent.CreatedAt)
 	}
 
-	time.Sleep(100 * time.Millisecond)
-
-	alerts, err := service.ListAlertInstances(ctx, &AlertInstanceFilter{
-		ClusterID: strconv.FormatUint(uint64(testCluster.ID), 10),
-		Page:      1,
-		PageSize:  20,
-	})
-	if err != nil {
-		t.Fatalf("ListAlertInstances returned error: %v", err)
-	}
-	if alerts.Total != 1 {
-		t.Fatalf("expected one local alert instance, got %d", alerts.Total)
-	}
-	if alerts.Alerts[0].LifecycleStatus != AlertLifecycleStatusResolved {
-		t.Fatalf("expected node_offline alert instance to be resolved, got %s", alerts.Alerts[0].LifecycleStatus)
-	}
-	if alerts.Alerts[0].ResolvedAt == nil {
-		t.Fatal("expected resolved_at to be set on node_offline alert instance")
+	// 等待告警实例状态异步更新为 resolved
+	// Wait for alert instance lifecycle status to be asynchronously updated to resolved
+	var alerts *AlertInstanceListData
+	if !waitForCondition(3*time.Second, func() bool {
+		var err error
+		alerts, err = service.ListAlertInstances(ctx, &AlertInstanceFilter{
+			ClusterID: strconv.FormatUint(uint64(testCluster.ID), 10),
+			Page:      1,
+			PageSize:  20,
+		})
+		return err == nil && alerts != nil && alerts.Total == 1 &&
+			alerts.Alerts[0].LifecycleStatus == AlertLifecycleStatusResolved &&
+			alerts.Alerts[0].ResolvedAt != nil
+	}) {
+		t.Fatalf("expected resolved node_offline alert instance, got %+v", alerts)
 	}
 }
 
@@ -420,16 +417,19 @@ func TestEvaluateNodeHealthAlerts_repeatsNodeOfflineReminderAfterCooldown(t *tes
 		t.Fatal("expected node_offline event to exist")
 	}
 
-	delivery, err := repo.GetNotificationDeliveryByDedupKey(
-		ctx,
-		buildLocalAlertSourceKey(offlineEvent.ID),
-		channel.ID,
-		string(NotificationDeliveryEventTypeFiring),
-	)
-	if err != nil {
-		t.Fatalf("failed to load notification delivery: %v", err)
-	}
-	if delivery == nil || delivery.SentAt == nil {
+	// 等待投递记录落库并更新为 sent 状态（由于事件回调通过后台异步协程处理，需要等待落库完成）
+	// Wait for delivery record to be saved and updated to sent status (since event callback runs in background goroutine)
+	var delivery *NotificationDelivery
+	if !waitForCondition(3*time.Second, func() bool {
+		var err error
+		delivery, err = repo.GetNotificationDeliveryByDedupKey(
+			ctx,
+			buildLocalAlertSourceKey(offlineEvent.ID),
+			channel.ID,
+			string(NotificationDeliveryEventTypeFiring),
+		)
+		return err == nil && delivery != nil && delivery.SentAt != nil && NotificationDeliveryStatus(delivery.Status) == NotificationDeliveryStatusSent
+	}) {
 		t.Fatalf("expected sent delivery record, got %+v", delivery)
 	}
 

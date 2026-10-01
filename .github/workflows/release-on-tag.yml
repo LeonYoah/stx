@@ -292,21 +292,69 @@ jobs:
             exit 1
           fi
 
-          # 逐行读取 Docker metadata 生成的多行 Tags，构造 -t 参数数组，避免多行模板展开语法错误
-          # Read multiline tags from Docker metadata line by line into -t parameter array to avoid template syntax errors
-          TAG_ARGS=()
+          # 区分 GHCR 与 SWR 目标 Tag，避免单个 Registry 网络抖动阻塞全局
+          # Separate GHCR and SWR target tags to prevent single registry jitter from blocking global release
+          GHCR_TAG_ARGS=()
+          SWR_TAG_ARGS=()
           while IFS= read -r tag; do
-            [[ -n "$tag" ]] && TAG_ARGS+=("-t" "$tag")
+            [[ -z "$tag" ]] && continue
+            if [[ "$tag" == ghcr.io/* ]]; then
+              GHCR_TAG_ARGS+=("-t" "$tag")
+            else
+              SWR_TAG_ARGS+=("-t" "$tag")
+            fi
           done <<< "$TAGS"
 
-          echo "[INFO] Creating and pushing multi-arch manifest for ${IMAGE_REPO}..."
-          for ((i=0; i<${#TAG_ARGS[@]}; i+=2)); do
-            echo "  Target tag: ${TAG_ARGS[i+1]}"
+          echo "[INFO] Pushing multi-arch manifest to GHCR (total tags: $((${#GHCR_TAG_ARGS[@]} / 2)))..."
+          for ((i=0; i<${#GHCR_TAG_ARGS[@]}; i+=2)); do
+            echo "  GHCR Tag: ${GHCR_TAG_ARGS[i+1]}"
           done
 
-          # docker buildx imagetools create 秒级合并并推送到所有目标仓库
-          # docker buildx imagetools create merges and pushes to all target registries in seconds
-          docker buildx imagetools create "${TAG_ARGS[@]}" "${DIGEST_ARGS[@]}"
+          # 推送 GHCR 多架构清单，带重试保护
+          # Push multi-arch manifest to GHCR with retry protection
+          MAX_RETRIES=3
+          GHCR_SUCCESS=false
+          for ((attempt=1; attempt<=MAX_RETRIES; attempt++)); do
+            echo "[INFO] GHCR Attempt ${attempt}/${MAX_RETRIES}..."
+            if docker buildx imagetools create "${GHCR_TAG_ARGS[@]}" "${DIGEST_ARGS[@]}"; then
+              GHCR_SUCCESS=true
+              echo "[SUCCESS] Multi-arch manifest pushed to GHCR successfully."
+              break
+            fi
+            echo "[WARN] GHCR push attempt ${attempt} failed, retrying in 10s..."
+            sleep 10
+          done
+
+          if [[ "$GHCR_SUCCESS" != "true" ]]; then
+            echo "[ERROR] Failed to push multi-arch manifest to GHCR after ${MAX_RETRIES} attempts." >&2
+            exit 1
+          fi
+
+          # 推送华为云 SWR 多架构清单（若配置），带重试保护与独立错误处理
+          # Push multi-arch manifest to Huawei SWR (if configured) with retry protection and isolated error handling
+          if [[ ${#SWR_TAG_ARGS[@]} -gt 0 ]]; then
+            echo "[INFO] Pushing multi-arch manifest to SWR (total tags: $((${#SWR_TAG_ARGS[@]} / 2)))..."
+            for ((i=0; i<${#SWR_TAG_ARGS[@]}; i+=2)); do
+              echo "  SWR Tag: ${SWR_TAG_ARGS[i+1]}"
+            done
+
+            SWR_SUCCESS=false
+            for ((attempt=1; attempt<=MAX_RETRIES; attempt++)); do
+              echo "[INFO] SWR Attempt ${attempt}/${MAX_RETRIES}..."
+              if docker buildx imagetools create "${SWR_TAG_ARGS[@]}" "${DIGEST_ARGS[@]}"; then
+                SWR_SUCCESS=true
+                echo "[SUCCESS] Multi-arch manifest pushed to SWR successfully."
+                break
+              fi
+              echo "[WARN] SWR push attempt ${attempt} failed, retrying in 15s..."
+              sleep 15
+            done
+
+            if [[ "$SWR_SUCCESS" != "true" ]]; then
+              echo "[ERROR] Failed to push multi-arch manifest to SWR after ${MAX_RETRIES} attempts." >&2
+              exit 1
+            fi
+          fi
 
       - name: Inspect final multi-arch manifest
         run: |

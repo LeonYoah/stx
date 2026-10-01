@@ -271,6 +271,50 @@ func TestCreateTaskRejectsRootFile(t *testing.T) {
 	}
 }
 
+func TestCreateTaskAllowsEmptyDraftContent(t *testing.T) {
+	service := newTestSyncService(t)
+	ctx := context.Background()
+
+	folder, err := service.CreateTask(ctx, &CreateTaskRequest{
+		NodeType:      string(TaskNodeTypeFolder),
+		Name:          "empty_draft_root",
+		ContentFormat: string(ContentFormatHOCON),
+	}, 1)
+	if err != nil {
+		t.Fatalf("create folder failed: %v", err)
+	}
+
+	task, err := service.CreateTask(ctx, &CreateTaskRequest{
+		ParentID:      uintPtr(folder.ID),
+		NodeType:      string(TaskNodeTypeFile),
+		Name:          "empty_draft",
+		ContentFormat: string(ContentFormatHOCON),
+		Content:       "",
+		Definition:    JSONMap{},
+	}, 1)
+	if err != nil {
+		t.Fatalf("create empty draft file failed: %v", err)
+	}
+	if strings.TrimSpace(task.Content.String()) != "" {
+		t.Fatalf("expected empty content, got %q", task.Content.String())
+	}
+
+	updated, err := service.UpdateTask(ctx, task.ID, &UpdateTaskRequest{
+		ParentID:      uintPtr(folder.ID),
+		NodeType:      string(TaskNodeTypeFile),
+		Name:          task.Name,
+		ContentFormat: string(ContentFormatHOCON),
+		Content:       "",
+		Definition:    task.Definition,
+	})
+	if err != nil {
+		t.Fatalf("update empty draft file failed: %v", err)
+	}
+	if strings.TrimSpace(updated.Content.String()) != "" {
+		t.Fatalf("expected empty content after update, got %q", updated.Content.String())
+	}
+}
+
 func TestCreateTaskRejectsDuplicateNameInSameFolder(t *testing.T) {
 	service := newTestSyncService(t)
 	ctx := context.Background()

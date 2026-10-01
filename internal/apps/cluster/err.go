@@ -58,6 +58,9 @@ var (
 	// ErrPrecheckFailed indicates the node precheck failed.
 	// ErrPrecheckFailed 表示节点预检查失败。
 	ErrPrecheckFailed = errors.New("cluster: node precheck failed")
+	// ErrSeparatedClusterRequiresMasterAndWorker indicates separated mode cluster must have at least one master and one worker node.
+	// ErrSeparatedClusterRequiresMasterAndWorker 表示分离模式集群必须至少包含一个 master 节点和一个 worker 节点。
+	ErrSeparatedClusterRequiresMasterAndWorker = errors.New("cluster: separated deployment mode requires at least one master and one worker node / 分离模式集群必须至少包含一个 master 节点和一个 worker 节点")
 )
 
 // Error codes for cluster management operations.

@@ -72,12 +72,13 @@
 7. `SYNC_LIB`：按规则处理 `lib` 目录；
 8. `SYNC_CONNECTORS`：按清单全量替换 connectors；
 9. `MERGE_CONFIG`：应用三方合并后的配置；
-10. `STOP_CLUSTER`：停旧版本进程；
+10. `STOP_CLUSTER`：停旧版本进程，并 best-effort 停止托管 `stx-java-proxy`（双目录时额外清理目标目录残留）；
 11. `SWITCH_VERSION`：切换软链/目录到新版本；
 12. `START_CLUSTER`：启动新版本；
-13. `HEALTH_CHECK`：集群与节点健康检查；
-14. `SMOKE_TEST`：关键任务验证；
-15. `COMPLETE`：升级成功收尾。
+13. `RESTART_JAVA_PROXY`：按目标版本代际重启托管 `stx-java-proxy`（对齐新 `install_dir` / classpath）；失败只告警，不阻断升级；
+14. `HEALTH_CHECK`：集群与节点健康检查；
+15. `SMOKE_TEST`：关键任务验证；
+16. `COMPLETE`：升级成功收尾。
 
 失败分支步骤（自动）：
 

@@ -651,10 +651,24 @@ func ensureSTXJavaProxyService(
 			continue
 		}
 		baseURL := stxJavaProxyServiceBaseURL(port)
-		if err := waitForSTXJavaProxyHealthy(ctx, baseURL, 1500*time.Millisecond); err == nil {
-			_ = os.WriteFile(filepath.Join(stateDir, "service.port"), []byte(strconv.Itoa(port)+"\n"), 0o644)
-			return baseURL, nil
+		if err := waitForSTXJavaProxyHealthy(ctx, baseURL, 1500*time.Millisecond); err != nil {
+			continue
 		}
+		// 健康端点仍可能是旧安装目录 / 旧代际 jar 上的残留进程，必须校验后再复用。
+		// A healthy endpoint may still be a leftover on the old installDir / epoch jar; verify before reuse.
+		pid := stxJavaProxyPIDByPort(ctx, port)
+		if pid > 0 && !stxJavaProxyCommandLineMatchesDesired(stxJavaProxyProcessCommandLine(pid), installDir, seatunnelVersion) {
+			logger.WarnF(ctx, "[stx-java-proxy] healthy listener mismatches desired runtime, restarting: port=%d, pid=%d, installDir=%s, version=%s", port, pid, installDir, seatunnelVersion)
+			if _, stopErr := StopManagedSTXJavaProxyService(ctx, installDir); stopErr != nil {
+				logger.WarnF(ctx, "[stx-java-proxy] stop mismatched healthy listener failed: port=%d, pid=%d, error=%v", port, pid, stopErr)
+			}
+			break
+		}
+		_ = os.WriteFile(filepath.Join(stateDir, "service.port"), []byte(strconv.Itoa(port)+"\n"), 0o644)
+		if pid > 0 {
+			_ = os.WriteFile(filepath.Join(stateDir, "service.pid"), []byte(strconv.Itoa(pid)+"\n"), 0o644)
+		}
+		return baseURL, nil
 	}
 
 	port := stxJavaProxyPreferredPort(stateDir, preferredPort)
@@ -1340,8 +1354,11 @@ func stxJavaProxyDevelopmentJarDirs() []string {
 // major share the same jar. A new epoch is added only on genuine breaking change.
 func stxJavaProxyVersionCandidates(seatunnelVersion string) []string {
 	epoch := seatunnelmeta.ProxyEpochForVersion(seatunnelVersion)
-	// 代际标签已去重（同一主版本映射到同一 epoch），直接返回单元素列表。
-	// The epoch mapping is deterministic; return a single-element list.
+	// 3.x 优先使用 v3 jar；若尚未发布/同步则回退 v2，便于滚动升级。
+	// Prefer v3 for 3.x clusters; fall back to v2 when the v3 jar is not yet shipped.
+	if epoch == seatunnelmeta.STXJavaProxyEpochV3 {
+		return []string{seatunnelmeta.STXJavaProxyEpochV3, seatunnelmeta.STXJavaProxyEpochV2}
+	}
 	return []string{epoch}
 }
 

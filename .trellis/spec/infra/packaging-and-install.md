@@ -55,6 +55,20 @@ curl -fsSL <raw-or-mirrored-url>/install-online.sh | bash -s -- [options]
 ./install.sh [--install-dir /opt/stx] [--offline] [--with-observability] [--no-start]
 ```
 
+### 2.4 SeaTunnel 离线资产包（控制面本地仓导出）
+
+有网机在 STX 控制面将本地 `packages_dir` + `plugins_dir/{version}` 打成可带走的 tar.gz：
+
+| API | 说明 |
+|------|------|
+| `POST /api/v1/packages/offline-bundles` | 按版本 create（要求本地 bin 已存在） |
+| `GET /api/v1/packages/offline-bundles` | 列出已生成包 |
+| `GET /api/v1/packages/offline-bundles/:name/download` | 下载 tar.gz |
+| `POST /api/v1/packages/offline-bundles/import` | 无网机导入回本地仓 |
+| `DELETE /api/v1/packages/offline-bundles/:name` | 删除已生成包 |
+
+包内布局：`MANIFEST.json` + `packages/` + `plugins/{version}/`。UI 入口：安装包管理页「离线导入 / 导出」（导入按文件名分流资产包 vs 官方 bin；导出一键打包）。
+
 ---
 
 ## 3. Contracts

@@ -112,6 +112,8 @@ public class PluginOptionSchemaService {
                             context.getPluginType(),
                             factory.factoryIdentifier(),
                             Collections.unmodifiableList(options),
+                            optionRuleResult.getValueConstraints(),
+                            optionRuleResult.getConditionRules(),
                             Collections.unmodifiableList(warnings));
             SCHEMA_CACHE.put(cacheKey, result);
             return result;

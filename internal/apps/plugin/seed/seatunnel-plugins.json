@@ -1,8 +1,12 @@
 {
   "notes": [
-    "This baseline follows user-confirmed rules for SeaTunnel 2.3.12.",
+    "This baseline follows user-confirmed rules for SeaTunnel 2.3.12 and extends to 3.0.0.",
     "For 2.3.12+ on Zeta, plugin-specific dependencies are installed under plugins/<plugin-mapping value>.",
+    "For 3.0.0, 20 new connectors from upstream v3.0.0 release are added to catalog and dependency baseline.",
     "Bundled assets are excluded from additional dependency recommendations, including connector-cdc-base, seatunnel-hadoop3-3.1.4-uber and seatunnel-hadoop-aws.",
+    "Cloud filesystem SDKs (Cos/Bos/Obs/Jindo and similar Hadoop FS implementations) must go to lib/, not plugins/<connector>/: Zeta loads plugins/<connector> jars into the connector classloader, but Hadoop FileSystem SPI is resolved from the shared lib classloader.",
+    "JDBC and most connector-local jars can stay under plugins/<connector>/ and are picked up by getPluginJarAndDependencyPaths.",
+    "file-s3 keeps relying on the engine-bundled seatunnel-shade-hadoop-aws; docs-only hadoop-aws/aws-java-sdk-bundle are not duplicated in the seed.",
     "file-base and file-base-hadoop stay hidden in marketplace but are auto-attached for matching file connectors.",
     "http-base stays visible and is auto-attached for http-* and prometheus."
   ],
@@ -26,6 +30,13 @@
       "doc_url": "https://seatunnel.apache.org/zh-CN/docs/2.3.12/connector-v2"
     },
     {
+      "name": "amazondocumentdb",
+      "display_name": "Amazon DocumentDB",
+      "artifact_id": "connector-amazondocumentdb",
+      "group_id": "org.apache.seatunnel",
+      "doc_url": "https://seatunnel.apache.org/zh-CN/docs/3.0.0/connector-v2"
+    },
+    {
       "name": "amazondynamodb",
       "display_name": "Amazondynamodb",
       "artifact_id": "connector-amazondynamodb",
@@ -47,6 +58,20 @@
       "doc_url": "https://seatunnel.apache.org/zh-CN/docs/2.3.12/connector-v2"
     },
     {
+      "name": "azure-queue-storage",
+      "display_name": "Azure Queue Storage",
+      "artifact_id": "connector-azure-queue-storage",
+      "group_id": "org.apache.seatunnel",
+      "doc_url": "https://seatunnel.apache.org/zh-CN/docs/3.0.0/connector-v2"
+    },
+    {
+      "name": "azurecosmosdb",
+      "display_name": "Azure Cosmos DB",
+      "artifact_id": "connector-azurecosmosdb",
+      "group_id": "org.apache.seatunnel",
+      "doc_url": "https://seatunnel.apache.org/zh-CN/docs/3.0.0/connector-v2"
+    },
+    {
       "name": "bigquery",
       "display_name": "BigQuery",
       "artifact_id": "connector-bigquery",
@@ -59,6 +84,13 @@
       "artifact_id": "connector-cassandra",
       "group_id": "org.apache.seatunnel",
       "doc_url": "https://seatunnel.apache.org/zh-CN/docs/2.3.12/connector-v2"
+    },
+    {
+      "name": "cdc-db2",
+      "display_name": "DB2 CDC",
+      "artifact_id": "connector-cdc-db2",
+      "group_id": "org.apache.seatunnel",
+      "doc_url": "https://seatunnel.apache.org/zh-CN/docs/3.0.0/connector-v2"
     },
     {
       "name": "cdc-mongodb",
@@ -152,6 +184,13 @@
       "doc_url": "https://seatunnel.apache.org/zh-CN/docs/2.3.12/connector-v2"
     },
     {
+      "name": "deeplake",
+      "display_name": "DeepLake",
+      "artifact_id": "connector-deeplake",
+      "group_id": "org.apache.seatunnel",
+      "doc_url": "https://seatunnel.apache.org/zh-CN/docs/3.0.0/connector-v2"
+    },
+    {
       "name": "dingtalk",
       "display_name": "Dingtalk",
       "artifact_id": "connector-dingtalk",
@@ -201,6 +240,13 @@
       "doc_url": "https://seatunnel.apache.org/zh-CN/docs/2.3.12/connector-v2"
     },
     {
+      "name": "facebook-ads",
+      "display_name": "Facebook Ads",
+      "artifact_id": "connector-facebook-ads",
+      "group_id": "org.apache.seatunnel",
+      "doc_url": "https://seatunnel.apache.org/zh-CN/docs/3.0.0/connector-v2"
+    },
+    {
       "name": "fake",
       "display_name": "Fake",
       "artifact_id": "connector-fake",
@@ -222,11 +268,18 @@
       "doc_url": "https://seatunnel.apache.org/zh-CN/docs/2.3.12/connector-v2"
     },
     {
+      "name": "file-bos",
+      "display_name": "BOS File",
+      "artifact_id": "connector-file-bos",
+      "group_id": "org.apache.seatunnel",
+      "doc_url": "https://seatunnel.apache.org/zh-CN/docs/3.0.0/connector-v2"
+    },
+    {
       "name": "file-cos",
       "display_name": "File Cos",
       "artifact_id": "connector-file-cos",
       "group_id": "org.apache.seatunnel",
-      "doc_url": "https://seatunnel.apache.org/zh-CN/docs/2.3.12/connector-v2"
+      "doc_url": "https://seatunnel.apache.org/zh-CN/docs/3.0.0/connectors/sink/CosFile"
     },
     {
       "name": "file-ftp",
@@ -234,6 +287,13 @@
       "artifact_id": "connector-file-ftp",
       "group_id": "org.apache.seatunnel",
       "doc_url": "https://seatunnel.apache.org/zh-CN/docs/2.3.12/connector-v2"
+    },
+    {
+      "name": "file-gcs",
+      "display_name": "GCS File",
+      "artifact_id": "connector-file-gcs",
+      "group_id": "org.apache.seatunnel",
+      "doc_url": "https://seatunnel.apache.org/zh-CN/docs/3.0.0/connector-v2"
     },
     {
       "name": "file-hadoop",
@@ -285,11 +345,25 @@
       "doc_url": "https://seatunnel.apache.org/zh-CN/docs/2.3.12/connector-v2"
     },
     {
+      "name": "firebase",
+      "display_name": "Firebase",
+      "artifact_id": "connector-firebase",
+      "group_id": "org.apache.seatunnel",
+      "doc_url": "https://seatunnel.apache.org/zh-CN/docs/3.0.0/connector-v2"
+    },
+    {
       "name": "fluss",
       "display_name": "Fluss",
       "artifact_id": "connector-fluss",
       "group_id": "org.apache.seatunnel",
       "doc_url": "https://seatunnel.apache.org/zh-CN/docs/2.3.13/connector-v2"
+    },
+    {
+      "name": "google-ads",
+      "display_name": "Google Ads",
+      "artifact_id": "connector-google-ads",
+      "group_id": "org.apache.seatunnel",
+      "doc_url": "https://seatunnel.apache.org/zh-CN/docs/3.0.0/connector-v2"
     },
     {
       "name": "google-bigtable",
@@ -304,6 +378,13 @@
       "artifact_id": "connector-google-firestore",
       "group_id": "org.apache.seatunnel",
       "doc_url": "https://seatunnel.apache.org/zh-CN/docs/2.3.12/connector-v2"
+    },
+    {
+      "name": "google-pubsub",
+      "display_name": "Google Pub/Sub",
+      "artifact_id": "connector-google-pubsub",
+      "group_id": "org.apache.seatunnel",
+      "doc_url": "https://seatunnel.apache.org/zh-CN/docs/3.0.0/connector-v2"
     },
     {
       "name": "google-sheets",
@@ -390,6 +471,13 @@
       "doc_url": "https://seatunnel.apache.org/zh-CN/docs/2.3.12/connector-v2"
     },
     {
+      "name": "http-linear",
+      "display_name": "HTTP Linear",
+      "artifact_id": "connector-http-linear",
+      "group_id": "org.apache.seatunnel",
+      "doc_url": "https://seatunnel.apache.org/zh-CN/docs/3.0.0/connector-v2"
+    },
+    {
       "name": "http-myhours",
       "display_name": "Http Myhours",
       "artifact_id": "connector-http-myhours",
@@ -416,6 +504,27 @@
       "artifact_id": "connector-http-persistiq",
       "group_id": "org.apache.seatunnel",
       "doc_url": "https://seatunnel.apache.org/zh-CN/docs/2.3.12/connector-v2"
+    },
+    {
+      "name": "http-posthog",
+      "display_name": "HTTP PostHog",
+      "artifact_id": "connector-http-posthog",
+      "group_id": "org.apache.seatunnel",
+      "doc_url": "https://seatunnel.apache.org/zh-CN/docs/3.0.0/connector-v2"
+    },
+    {
+      "name": "http-shopify",
+      "display_name": "HTTP Shopify",
+      "artifact_id": "connector-http-shopify",
+      "group_id": "org.apache.seatunnel",
+      "doc_url": "https://seatunnel.apache.org/zh-CN/docs/3.0.0/connector-v2"
+    },
+    {
+      "name": "http-stripe",
+      "display_name": "HTTP Stripe",
+      "artifact_id": "connector-http-stripe",
+      "group_id": "org.apache.seatunnel",
+      "doc_url": "https://seatunnel.apache.org/zh-CN/docs/3.0.0/connector-v2"
     },
     {
       "name": "http-wechat",
@@ -509,6 +618,13 @@
       "doc_url": "https://seatunnel.apache.org/zh-CN/docs/2.3.12/connector-v2"
     },
     {
+      "name": "mem0",
+      "display_name": "Mem0",
+      "artifact_id": "connector-mem0",
+      "group_id": "org.apache.seatunnel",
+      "doc_url": "https://seatunnel.apache.org/zh-CN/docs/3.0.0/connector-v2"
+    },
+    {
       "name": "milvus",
       "display_name": "Milvus",
       "artifact_id": "connector-milvus",
@@ -535,6 +651,13 @@
       "artifact_id": "connector-nats-jetstream",
       "group_id": "org.apache.seatunnel",
       "doc_url": "https://seatunnel.apache.org/zh-CN/docs/connector-v2"
+    },
+    {
+      "name": "nebulagraph",
+      "display_name": "NebulaGraph",
+      "artifact_id": "connector-nebulagraph",
+      "group_id": "org.apache.seatunnel",
+      "doc_url": "https://seatunnel.apache.org/zh-CN/docs/3.0.0/connector-v2"
     },
     {
       "name": "neo4j",
@@ -570,6 +693,13 @@
       "artifact_id": "connector-pulsar",
       "group_id": "org.apache.seatunnel",
       "doc_url": "https://seatunnel.apache.org/zh-CN/docs/2.3.12/connector-v2"
+    },
+    {
+      "name": "python",
+      "display_name": "Python",
+      "artifact_id": "connector-python",
+      "group_id": "org.apache.seatunnel",
+      "doc_url": "https://seatunnel.apache.org/zh-CN/docs/3.0.0/connector-v2"
     },
     {
       "name": "qdrant",
@@ -649,6 +779,13 @@
       "doc_url": "https://seatunnel.apache.org/zh-CN/docs/2.3.12/connector-v2"
     },
     {
+      "name": "snmp",
+      "display_name": "SNMP",
+      "artifact_id": "connector-snmp",
+      "group_id": "org.apache.seatunnel",
+      "doc_url": "https://seatunnel.apache.org/zh-CN/docs/3.0.0/connector-v2"
+    },
+    {
       "name": "socket",
       "display_name": "Socket",
       "artifact_id": "connector-socket",
@@ -677,6 +814,13 @@
       "doc_url": "https://seatunnel.apache.org/zh-CN/docs/2.3.12/connector-v2"
     },
     {
+      "name": "tiktok-ads",
+      "display_name": "TikTok Ads",
+      "artifact_id": "connector-tiktok-ads",
+      "group_id": "org.apache.seatunnel",
+      "doc_url": "https://seatunnel.apache.org/zh-CN/docs/3.0.0/connector-v2"
+    },
+    {
       "name": "typesense",
       "display_name": "Typesense",
       "artifact_id": "connector-typesense",
@@ -694,9 +838,12 @@
   "default_not_required": [
     "activemq",
     "aerospike",
+    "amazondocumentdb",
     "amazondynamodb",
     "amazonsqs",
     "assert",
+    "azure-queue-storage",
+    "azurecosmosdb",
     "bigquery",
     "cassandra",
     "cdc-mongodb",
@@ -705,16 +852,21 @@
     "console",
     "couchbase",
     "datahub",
+    "deeplake",
     "dingtalk",
     "druid",
     "easysearch",
     "edge-socket",
     "elasticsearch",
     "email",
+    "facebook-ads",
     "fake",
+    "firebase",
     "fluss",
+    "google-ads",
     "google-bigtable",
     "google-firestore",
+    "google-pubsub",
     "google-sheets",
     "graphql",
     "hbase",
@@ -731,10 +883,12 @@
     "mongodb",
     "mqtt",
     "nats-jetstream",
+    "nebulagraph",
     "neo4j",
     "openmldb",
     "prometheus",
     "pulsar",
+    "python",
     "qdrant",
     "rabbitmq",
     "redis",
@@ -745,9 +899,11 @@
     "sentry",
     "slack",
     "sls",
+    "snmp",
     "socket",
     "tablestore",
     "tdengine",
+    "tiktok-ads",
     "typesense",
     "web3j"
   ],
@@ -1071,17 +1227,17 @@
       "profile_key": "default",
       "profile_name": "default",
       "engine_scope": "zeta",
-      "target_dir": "plugins/connector-file-cos",
+      "target_dir": "lib",
       "applies_to": "*",
       "include_versions": [],
       "exclude_versions": [],
       "doc_slug": "",
-      "doc_source_url": "https://seatunnel.apache.org/zh-CN/docs/2.3.12/connector-v2",
+      "doc_source_url": "https://seatunnel.apache.org/zh-CN/docs/3.0.0/connectors/sink/CosFile",
       "confidence": "manual",
       "is_default": true,
       "no_additional_dependencies": false,
       "resolution_mode": "exact",
-      "baseline_version_used": "2.3.12",
+      "baseline_version_used": "3.0.0",
       "items": [
         {
           "group_id": "org.apache.seatunnel",
@@ -1090,7 +1246,25 @@
           "target_dir": "connectors",
           "required": true,
           "source_url": "",
-          "note": ""
+          "note": "伴生 connector / companion connector"
+        },
+        {
+          "group_id": "com.qcloud.cos",
+          "artifact_id": "hadoop-cos",
+          "version": "2.6.5-8.0.2",
+          "target_dir": "lib",
+          "required": true,
+          "source_url": "",
+          "note": "官方要求放入 lib；POM provided / Official docs require lib; POM provided scope"
+        },
+        {
+          "group_id": "com.qcloud",
+          "artifact_id": "cos_api-bundle",
+          "version": "5.6.65",
+          "target_dir": "lib",
+          "required": true,
+          "source_url": "",
+          "note": "hadoop-cos 传递依赖，文档亦要求 / Transitive of hadoop-cos; also required by docs"
         }
       ]
     },
@@ -1167,17 +1341,17 @@
       "profile_key": "default",
       "profile_name": "default",
       "engine_scope": "zeta",
-      "target_dir": "plugins/connector-file-jindo-oss",
+      "target_dir": "lib",
       "applies_to": "*",
       "include_versions": [],
       "exclude_versions": [],
       "doc_slug": "",
-      "doc_source_url": "https://seatunnel.apache.org/zh-CN/docs/2.3.12/connector-v2",
+      "doc_source_url": "https://seatunnel.apache.org/zh-CN/docs/3.0.0/connectors/sink/OssJindoFile",
       "confidence": "manual",
       "is_default": true,
       "no_additional_dependencies": false,
       "resolution_mode": "exact",
-      "baseline_version_used": "2.3.12",
+      "baseline_version_used": "3.0.0",
       "items": [
         {
           "group_id": "org.apache.seatunnel",
@@ -1186,7 +1360,25 @@
           "target_dir": "connectors",
           "required": true,
           "source_url": "",
-          "note": ""
+          "note": "伴生 connector / companion connector"
+        },
+        {
+          "group_id": "com.aliyun.jindodata",
+          "artifact_id": "jindo-sdk",
+          "version": "4.6.1",
+          "target_dir": "lib",
+          "required": true,
+          "source_url": "https://jindodata-binary.oss-cn-shanghai.aliyuncs.com/release/4.6.1/jindosdk-4.6.1.tar.gz",
+          "note": "非 Maven Central：解压 tar 后取 lib/jindo-sdk-4.6.1.jar 上传到 lib / Not on Maven Central: extract tar and upload lib/jindo-sdk-4.6.1.jar"
+        },
+        {
+          "group_id": "com.aliyun.jindodata",
+          "artifact_id": "jindo-core",
+          "version": "4.6.1",
+          "target_dir": "lib",
+          "required": true,
+          "source_url": "https://jindodata-binary.oss-cn-shanghai.aliyuncs.com/release/4.6.1/jindosdk-4.6.1.tar.gz",
+          "note": "非 Maven Central：解压 tar 后取 lib/jindo-core-4.6.1.jar 上传到 lib / Not on Maven Central: extract tar and upload lib/jindo-core-4.6.1.jar"
         }
       ]
     },
@@ -2993,6 +3185,343 @@
           "group_id": "com.yashandb",
           "artifact_id": "yashandb-jdbc",
           "version": "1.10.7",
+          "target_dir": "plugins/connector-jdbc",
+          "required": true,
+          "source_url": "",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "plugin_name": "file-bos",
+      "artifact_id": "connector-file-bos",
+      "profile_key": "default",
+      "profile_name": "default",
+      "engine_scope": "zeta",
+      "target_dir": "lib",
+      "applies_to": "*",
+      "include_versions": [],
+      "exclude_versions": [],
+      "doc_slug": "",
+      "doc_source_url": "https://seatunnel.apache.org/zh-CN/docs/3.0.0/connectors/sink/BosFile",
+      "confidence": "manual",
+      "is_default": true,
+      "no_additional_dependencies": false,
+      "resolution_mode": "exact",
+      "baseline_version_used": "3.0.0",
+      "items": [
+        {
+          "group_id": "org.apache.seatunnel",
+          "artifact_id": "connector-file-base",
+          "version": "3.0.0",
+          "target_dir": "connectors",
+          "required": true,
+          "source_url": "",
+          "note": "伴生 connector / companion connector"
+        },
+        {
+          "group_id": "com.baidubce",
+          "artifact_id": "bos-hdfs-sdk",
+          "version": "1.0.4-community",
+          "target_dir": "lib",
+          "required": true,
+          "source_url": "https://sdk.bce.baidu.com/console-sdk/bos-hdfs-sdk-1.0.4-community.jar.zip",
+          "note": "非 Maven Central / POM 未声明：下载 zip 解压后上传到 lib / Not on Maven Central or POM: download zip, extract jar, upload to lib"
+        }
+      ]
+    },
+    {
+      "plugin_name": "file-gcs",
+      "artifact_id": "connector-file-gcs",
+      "profile_key": "default",
+      "profile_name": "default",
+      "engine_scope": "zeta",
+      "target_dir": "plugins/connector-file-gcs",
+      "applies_to": "*",
+      "include_versions": [],
+      "exclude_versions": [],
+      "doc_slug": "",
+      "doc_source_url": "https://seatunnel.apache.org/zh-CN/docs/3.0.0/connector-v2",
+      "confidence": "manual",
+      "is_default": true,
+      "no_additional_dependencies": false,
+      "resolution_mode": "exact",
+      "baseline_version_used": "3.0.0",
+      "items": [
+        {
+          "group_id": "org.apache.seatunnel",
+          "artifact_id": "connector-file-base",
+          "version": "3.0.0",
+          "target_dir": "connectors",
+          "required": true,
+          "source_url": "",
+          "note": "伴生 connector / companion connector"
+        }
+      ]
+    },
+    {
+      "plugin_name": "http-linear",
+      "artifact_id": "connector-http-linear",
+      "profile_key": "default",
+      "profile_name": "default",
+      "engine_scope": "zeta",
+      "target_dir": "plugins/connector-http-linear",
+      "applies_to": "*",
+      "include_versions": [],
+      "exclude_versions": [],
+      "doc_slug": "",
+      "doc_source_url": "https://seatunnel.apache.org/zh-CN/docs/3.0.0/connector-v2",
+      "confidence": "manual",
+      "is_default": true,
+      "no_additional_dependencies": false,
+      "resolution_mode": "exact",
+      "baseline_version_used": "3.0.0",
+      "items": [
+        {
+          "group_id": "org.apache.seatunnel",
+          "artifact_id": "connector-http-base",
+          "version": "3.0.0",
+          "target_dir": "connectors",
+          "required": true,
+          "source_url": "",
+          "note": "伴生 connector / companion connector"
+        }
+      ]
+    },
+    {
+      "plugin_name": "http-posthog",
+      "artifact_id": "connector-http-posthog",
+      "profile_key": "default",
+      "profile_name": "default",
+      "engine_scope": "zeta",
+      "target_dir": "plugins/connector-http-posthog",
+      "applies_to": "*",
+      "include_versions": [],
+      "exclude_versions": [],
+      "doc_slug": "",
+      "doc_source_url": "https://seatunnel.apache.org/zh-CN/docs/3.0.0/connector-v2",
+      "confidence": "manual",
+      "is_default": true,
+      "no_additional_dependencies": false,
+      "resolution_mode": "exact",
+      "baseline_version_used": "3.0.0",
+      "items": [
+        {
+          "group_id": "org.apache.seatunnel",
+          "artifact_id": "connector-http-base",
+          "version": "3.0.0",
+          "target_dir": "connectors",
+          "required": true,
+          "source_url": "",
+          "note": "伴生 connector / companion connector"
+        }
+      ]
+    },
+    {
+      "plugin_name": "http-shopify",
+      "artifact_id": "connector-http-shopify",
+      "profile_key": "default",
+      "profile_name": "default",
+      "engine_scope": "zeta",
+      "target_dir": "plugins/connector-http-shopify",
+      "applies_to": "*",
+      "include_versions": [],
+      "exclude_versions": [],
+      "doc_slug": "",
+      "doc_source_url": "https://seatunnel.apache.org/zh-CN/docs/3.0.0/connector-v2",
+      "confidence": "manual",
+      "is_default": true,
+      "no_additional_dependencies": false,
+      "resolution_mode": "exact",
+      "baseline_version_used": "3.0.0",
+      "items": [
+        {
+          "group_id": "org.apache.seatunnel",
+          "artifact_id": "connector-http-base",
+          "version": "3.0.0",
+          "target_dir": "connectors",
+          "required": true,
+          "source_url": "",
+          "note": "伴生 connector / companion connector"
+        }
+      ]
+    },
+    {
+      "plugin_name": "http-stripe",
+      "artifact_id": "connector-http-stripe",
+      "profile_key": "default",
+      "profile_name": "default",
+      "engine_scope": "zeta",
+      "target_dir": "plugins/connector-http-stripe",
+      "applies_to": "*",
+      "include_versions": [],
+      "exclude_versions": [],
+      "doc_slug": "",
+      "doc_source_url": "https://seatunnel.apache.org/zh-CN/docs/3.0.0/connector-v2",
+      "confidence": "manual",
+      "is_default": true,
+      "no_additional_dependencies": false,
+      "resolution_mode": "exact",
+      "baseline_version_used": "3.0.0",
+      "items": [
+        {
+          "group_id": "org.apache.seatunnel",
+          "artifact_id": "connector-http-base",
+          "version": "3.0.0",
+          "target_dir": "connectors",
+          "required": true,
+          "source_url": "",
+          "note": "伴生 connector / companion connector"
+        }
+      ]
+    },
+    {
+      "plugin_name": "mem0",
+      "artifact_id": "connector-mem0",
+      "profile_key": "default",
+      "profile_name": "default",
+      "engine_scope": "zeta",
+      "target_dir": "plugins/connector-mem0",
+      "applies_to": "*",
+      "include_versions": [],
+      "exclude_versions": [],
+      "doc_slug": "",
+      "doc_source_url": "https://seatunnel.apache.org/zh-CN/docs/3.0.0/connector-v2",
+      "confidence": "manual",
+      "is_default": true,
+      "no_additional_dependencies": false,
+      "resolution_mode": "exact",
+      "baseline_version_used": "3.0.0",
+      "items": [
+        {
+          "group_id": "org.apache.seatunnel",
+          "artifact_id": "connector-http-base",
+          "version": "3.0.0",
+          "target_dir": "connectors",
+          "required": true,
+          "source_url": "",
+          "note": "伴生 connector / companion connector"
+        }
+      ]
+    },
+    {
+      "plugin_name": "cdc-db2",
+      "artifact_id": "connector-cdc-db2",
+      "profile_key": "default",
+      "profile_name": "Default",
+      "engine_scope": "zeta",
+      "target_dir": "plugins/connector-cdc-db2",
+      "doc_slug": "",
+      "doc_source_url": "https://seatunnel.apache.org/zh-CN/docs/3.0.0/connector-v2",
+      "confidence": "manual",
+      "is_default": true,
+      "no_additional_dependencies": false,
+      "resolution_mode": "exact",
+      "baseline_version_used": "3.0.0",
+      "items": [
+        {
+          "group_id": "org.apache.seatunnel",
+          "artifact_id": "connector-jdbc",
+          "version": "3.0.0",
+          "target_dir": "connectors",
+          "required": true,
+          "source_url": "https://seatunnel.apache.org/zh-CN/docs/3.0.0/connector-v2",
+          "note": "伴生 connector / companion connector"
+        },
+        {
+          "group_id": "com.ibm.db2.jcc",
+          "artifact_id": "db2jcc",
+          "version": "db2jcc4",
+          "target_dir": "plugins/connector-cdc-db2",
+          "required": true,
+          "source_url": "",
+          "note": ""
+        }
+      ],
+      "applies_to": "*",
+      "include_versions": [],
+      "exclude_versions": []
+    },
+    {
+      "plugin_name": "jdbc",
+      "artifact_id": "connector-jdbc",
+      "profile_key": "gbase8a",
+      "profile_name": "GBase 8a",
+      "engine_scope": "zeta",
+      "target_dir": "plugins/connector-jdbc",
+      "applies_to": "*",
+      "include_versions": [],
+      "exclude_versions": [],
+      "doc_slug": "source/Jdbc",
+      "doc_source_url": "https://seatunnel.apache.org/docs/3.0.0/connector-v2/source/Jdbc/",
+      "confidence": "manual",
+      "is_default": false,
+      "no_additional_dependencies": false,
+      "resolution_mode": "exact",
+      "baseline_version_used": "3.0.0",
+      "items": [
+        {
+          "group_id": "com.gbase",
+          "artifact_id": "gbase-connector-java",
+          "version": "8.8",
+          "target_dir": "plugins/connector-jdbc",
+          "required": true,
+          "source_url": "",
+          "note": "GBase 8a JDBC driver / GBase 8a JDBC 驱动"
+        }
+      ]
+    },
+    {
+      "plugin_name": "jdbc",
+      "artifact_id": "connector-jdbc",
+      "profile_key": "greenplum",
+      "profile_name": "Greenplum",
+      "engine_scope": "zeta",
+      "target_dir": "plugins/connector-jdbc",
+      "applies_to": "*",
+      "include_versions": [],
+      "exclude_versions": [],
+      "doc_slug": "source/Jdbc",
+      "doc_source_url": "https://seatunnel.apache.org/docs/3.0.0/connector-v2/source/Jdbc/",
+      "confidence": "manual",
+      "is_default": false,
+      "no_additional_dependencies": false,
+      "resolution_mode": "exact",
+      "baseline_version_used": "3.0.0",
+      "items": [
+        {
+          "group_id": "com.pivotal.jdbc",
+          "artifact_id": "greenplum",
+          "version": "5.1.4",
+          "target_dir": "plugins/connector-jdbc",
+          "required": true,
+          "source_url": "",
+          "note": "Pivotal Greenplum native driver / Pivotal Greenplum 原生驱动"
+        }
+      ]
+    },
+    {
+      "plugin_name": "jdbc",
+      "artifact_id": "connector-jdbc",
+      "profile_key": "phoenix",
+      "profile_name": "Phoenix",
+      "engine_scope": "zeta",
+      "target_dir": "plugins/connector-jdbc",
+      "applies_to": "*",
+      "include_versions": [],
+      "exclude_versions": [],
+      "doc_slug": "source/Jdbc",
+      "doc_source_url": "https://seatunnel.apache.org/docs/3.0.0/connector-v2/source/Jdbc/",
+      "confidence": "manual",
+      "is_default": false,
+      "no_additional_dependencies": false,
+      "resolution_mode": "exact",
+      "baseline_version_used": "3.0.0",
+      "items": [
+        {
+          "group_id": "com.aliyun.phoenix",
+          "artifact_id": "ali-phoenix-shaded-thin-client",
+          "version": "5.2.5-HBase-2.x",
           "target_dir": "plugins/connector-jdbc",
           "required": true,
           "source_url": "",

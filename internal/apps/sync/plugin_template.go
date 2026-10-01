@@ -67,6 +67,8 @@ type SyncPluginOptionSchemaResult struct {
 	PluginType        string                       `json:"plugin_type"`
 	FactoryIdentifier string                       `json:"factory_identifier"`
 	Options           []SyncPluginOptionDescriptor `json:"options"`
+	ValueConstraints  []map[string]interface{}     `json:"value_constraints,omitempty"`
+	ConditionRules    []map[string]interface{}     `json:"condition_rules,omitempty"`
 	Warnings          []string                     `json:"warnings,omitempty"`
 }
 
@@ -208,7 +210,7 @@ func (s *Service) GetPluginOptions(
 	if err != nil {
 		return nil, err
 	}
-	return &SyncPluginOptionSchemaResult{PluginType: result.PluginType, FactoryIdentifier: result.FactoryIdentifier, Options: mapSyncPluginOptions(result.Options), Warnings: result.Warnings}, nil
+	return &SyncPluginOptionSchemaResult{PluginType: result.PluginType, FactoryIdentifier: result.FactoryIdentifier, Options: mapSyncPluginOptions(result.Options), ValueConstraints: result.ValueConstraints, ConditionRules: result.ConditionRules, Warnings: result.Warnings}, nil
 }
 
 func (s *Service) RenderPluginTemplate(

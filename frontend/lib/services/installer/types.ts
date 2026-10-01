@@ -554,6 +554,34 @@ export interface RuntimeStorageValidationResponse {
   data: RuntimeStorageValidationResult | null;
 }
 
+/** 离线资产包信息 / Offline asset bundle info */
+export interface OfflineBundleInfo {
+  name: string;
+  file_name: string;
+  seatunnel_version: string;
+  file_size: number;
+  created_at: string;
+  include_plugins: boolean;
+  plugin_count: number;
+  download_path: string;
+}
+
+export interface OfflineBundleCreateRequest {
+  version: string;
+  include_plugins?: boolean;
+  include_source?: boolean;
+}
+
+export interface OfflineBundleListResponse {
+  error_msg: string;
+  data: OfflineBundleInfo[] | null;
+}
+
+export interface OfflineBundleResponse {
+  error_msg: string;
+  data: OfflineBundleInfo | null;
+}
+
 /**
  * Download response
  * 下载响应

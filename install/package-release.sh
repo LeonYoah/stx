@@ -415,27 +415,50 @@ build_agent_binaries() {
   )
 }
 
-# 构建并暂存 STX Java Proxy 薄 JAR。/ Build and stage the STX Java Proxy thin JAR.
+# 按代际 profile 构建并暂存 STX Java Proxy 薄 JAR（v2 + v3）。
+# Build and stage STX Java Proxy thin JARs for each epoch profile (v2 + v3).
 build_stx_java_proxy_jar() {
   local proxy_project_dir="$ROOT_DIR/tools/stx-java-proxy"
   local proxy_target_dir="$proxy_project_dir/target"
-  local proxy_out="$BUILD_DIR/stx-java-proxy-${CAPABILITY_PROXY_DEFAULT_VERSION}.jar"
+  local profiles=("epoch-v2" "epoch-v3")
+  local epochs=("v2" "v3")
+  local i
 
-  echo "building stx-java-proxy thin jar ..."
-  (
-    cd "$ROOT_DIR"
-    mvn -q -f "$proxy_project_dir/pom.xml" -DskipTests package
-  )
+  mkdir -p "$BUILD_DIR"
+  for i in "${!profiles[@]}"; do
+    local profile="${profiles[$i]}"
+    local epoch="${epochs[$i]}"
+    local proxy_out="$BUILD_DIR/stx-java-proxy-${epoch}.jar"
 
-  local built_proxy_jar
-  built_proxy_jar="$(find "$proxy_target_dir" -maxdepth 1 -type f -name 'stx-java-proxy-*.jar' ! -name '*-bin.jar' | sort | head -n1)"
-  if [[ -z "$built_proxy_jar" || ! -f "$built_proxy_jar" ]]; then
-    echo "failed to locate built stx-java-proxy thin jar under $proxy_target_dir"
+    echo "building stx-java-proxy thin jar (${profile} → stx-java-proxy-${epoch}.jar) ..."
+    (
+      cd "$ROOT_DIR"
+      # v3 构建必须关闭默认 epoch-v2，避免同时解析 2.3 optional 与 3.0 shade 坐标。
+      # v3 builds must disable default epoch-v2 to avoid resolving both 2.3 optional and 3.0 shade coords.
+      if [[ "$epoch" == "v3" ]]; then
+        mvn -q -f "$proxy_project_dir/pom.xml" -P'epoch-v3,!epoch-v2' -DskipTests package
+      else
+        mvn -q -f "$proxy_project_dir/pom.xml" -Pepoch-v2 -DskipTests package
+      fi
+    )
+
+    local built_proxy_jar="$proxy_target_dir/stx-java-proxy-${epoch}.jar"
+    if [[ ! -f "$built_proxy_jar" ]]; then
+      built_proxy_jar="$(find "$proxy_target_dir" -maxdepth 1 -type f -name "stx-java-proxy-${epoch}.jar" ! -name '*-bin.jar' | sort | head -n1)"
+    fi
+    if [[ -z "$built_proxy_jar" || ! -f "$built_proxy_jar" ]]; then
+      echo "failed to locate built stx-java-proxy-${epoch}.jar under $proxy_target_dir"
+      exit 1
+    fi
+
+    cp "$built_proxy_jar" "$proxy_out"
+  done
+
+  CAPABILITY_PROXY_JAR="$BUILD_DIR/stx-java-proxy-${CAPABILITY_PROXY_DEFAULT_VERSION}.jar"
+  if [[ ! -f "$CAPABILITY_PROXY_JAR" ]]; then
+    echo "failed to locate default capability proxy jar: $CAPABILITY_PROXY_JAR"
     exit 1
   fi
-
-  cp "$built_proxy_jar" "$proxy_out"
-  CAPABILITY_PROXY_JAR="$proxy_out"
 }
 
 # 将可用的 STX Java Proxy JAR 放入发布目录。/ Stage available STX Java Proxy JARs in the release directory.
@@ -449,7 +472,10 @@ stage_stx_java_proxy_jars() {
     done
   fi
 
-  cp "$CAPABILITY_PROXY_JAR" "$destination_dir/$(basename "$CAPABILITY_PROXY_JAR")"
+  # 发布构建目录内全部代际 jar（v2/v3）。 / Stage every epoch jar produced in BUILD_DIR.
+  find "$BUILD_DIR" -maxdepth 1 -type f -name 'stx-java-proxy-*.jar' -print0 | while IFS= read -r -d '' jar_path; do
+    cp "$jar_path" "$destination_dir/"
+  done
 }
 
 if [[ "$DEPS_ONLY" != "true" ]]; then
@@ -605,6 +631,21 @@ if [[ "$LAYOUT" == "split" ]]; then
     fi
   done
 
+  # 发布跨架构通用的 stx-java-proxy 薄 jar（v2/v3）与启动脚本。
+  # Publish architecture-independent stx-java-proxy thin jars (v2/v3) and launcher script.
+  for epoch in v2 v3; do
+    epoch_jar="$BUILD_DIR/stx-java-proxy-${epoch}.jar"
+    if [[ -f "$epoch_jar" ]]; then
+      cp "$epoch_jar" "$OUTPUT_DIR/stx-java-proxy-${epoch}.jar"
+      write_sha256 "$OUTPUT_DIR/stx-java-proxy-${epoch}.jar"
+    fi
+  done
+  if [[ -f "$ROOT_DIR/scripts/stx-java-proxy.sh" ]]; then
+    cp "$ROOT_DIR/scripts/stx-java-proxy.sh" "$OUTPUT_DIR/stx-java-proxy.sh"
+    chmod +x "$OUTPUT_DIR/stx-java-proxy.sh"
+    write_sha256 "$OUTPUT_DIR/stx-java-proxy.sh"
+  fi
+
   # Also publish installer helpers for curl|bash consumers. / 同步发布安装辅助脚本供 curl|bash 使用。
   cp "$ROOT_DIR/install/install-online.sh" "$OUTPUT_DIR/install-online.sh"
   cp "$ROOT_DIR/install/download-bundle.sh" "$OUTPUT_DIR/download-bundle.sh"
@@ -613,7 +654,7 @@ if [[ "$LAYOUT" == "split" ]]; then
   # 手动安装辅助包（无仓库时用）。/ Helpers tarball for manual install without a git clone.
   helpers_stage="$STAGE_DIR/install-helpers"
   rm -rf "$helpers_stage"
-  mkdir -p "$helpers_stage/bin/lib" "$helpers_stage/packages"
+  mkdir -p "$helpers_stage/bin/lib" "$helpers_stage/packages" "$helpers_stage/lib" "$helpers_stage/scripts"
   cp "$ROOT_DIR/install/install.sh" "$helpers_stage/install.sh"
   cp "$ROOT_DIR/install/download-lib.sh" "$helpers_stage/download-lib.sh"
   cp "$ROOT_DIR/install/install-core.sh" "$helpers_stage/install-core.sh"
@@ -622,6 +663,11 @@ if [[ "$LAYOUT" == "split" ]]; then
   cp "$ROOT_DIR/install/bin/status.sh" "$helpers_stage/bin/status.sh"
   cp "$ROOT_DIR/install/bin/lib/observability.sh" "$helpers_stage/bin/lib/observability.sh"
   cp "$ROOT_DIR/config.example.yaml" "$helpers_stage/config.example.yaml"
+  if [[ -f "$ROOT_DIR/scripts/stx-java-proxy.sh" ]]; then
+    cp "$ROOT_DIR/scripts/stx-java-proxy.sh" "$helpers_stage/scripts/stx-java-proxy.sh"
+    chmod +x "$helpers_stage/scripts/stx-java-proxy.sh"
+  fi
+  stage_stx_java_proxy_jars "$helpers_stage/lib"
   chmod +x "$helpers_stage/install.sh" "$helpers_stage/bin/"*.sh
   tar -C "$helpers_stage" -czf "$OUTPUT_DIR/stx-install-helpers.tar.gz" .
   write_sha256 "$OUTPUT_DIR/stx-install-helpers.tar.gz"
@@ -638,9 +684,9 @@ if [[ "$LAYOUT" == "split" ]]; then
   (
     cd "$OUTPUT_DIR"
     if command -v sha256sum >/dev/null 2>&1; then
-      sha256sum stx-linux-* stx-agent-linux-* frontend-standalone-*.tar.gz 2>/dev/null >SHA256SUMS || true
+      sha256sum stx-linux-* stx-agent-linux-* frontend-standalone-*.tar.gz stx-java-proxy-*.jar stx-java-proxy.sh 2>/dev/null >SHA256SUMS || true
     else
-      shasum -a 256 stx-linux-* stx-agent-linux-* frontend-standalone-*.tar.gz 2>/dev/null >SHA256SUMS || true
+      shasum -a 256 stx-linux-* stx-agent-linux-* frontend-standalone-*.tar.gz stx-java-proxy-*.jar stx-java-proxy.sh 2>/dev/null >SHA256SUMS || true
     fi
   )
 

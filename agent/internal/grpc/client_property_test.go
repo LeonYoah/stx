@@ -28,9 +28,9 @@ import (
 // **Validates: Requirements 1.4**
 //
 // Property: For any reconnection attempt sequence, the delay between attempts
-// SHALL follow exponential backoff (initial 1s, max 60s): delay = min(60, 2^(attempt-1)).
+// SHALL follow exponential backoff (initial 1s, max 10s): delay = min(10, 2^(attempt-1)).
 // 属性：对于任何重连尝试序列，尝试之间的延迟应该遵循指数退避
-// （初始 1 秒，最大 60 秒）：delay = min(60, 2^(尝试次数-1))。
+// （初始 1 秒，最大 10 秒）：delay = min(10, 2^(尝试次数-1))。
 func TestProperty_ExponentialBackoffCalculation(t *testing.T) {
 	rapid.Check(t, func(rt *rapid.T) {
 		// Generate attempt number (1 to 20 to cover various scenarios)
@@ -40,7 +40,7 @@ func TestProperty_ExponentialBackoffCalculation(t *testing.T) {
 		// Use default values as specified in requirements
 		// 使用需求中指定的默认值
 		initialInterval := DefaultInitialBackoff // 1 second
-		maxInterval := DefaultMaxBackoff         // 60 seconds
+		maxInterval := DefaultMaxBackoff         // 10 seconds
 		factor := DefaultBackoffFactor           // 2.0
 
 		// Calculate expected backoff using the formula: min(max, initial * factor^(attempt-1))

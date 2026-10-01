@@ -33,6 +33,7 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import {Textarea} from '@/components/ui/textarea';
+import {Skeleton} from '@/components/ui/skeleton';
 import {Tabs, TabsList, TabsTrigger} from '@/components/ui/tabs';
 import services from '@/lib/services';
 import {
@@ -40,13 +41,16 @@ import {
   patchStUpgradeSession,
 } from '@/lib/st-upgrade-session';
 import type {
+  BlockingIssue,
   ConfigMergeFile,
   ConfigMergePlan,
   CreatePlanRequest,
 } from '@/lib/services/st-upgrade';
 import {cn} from '@/lib/utils';
+import {UpgradeSteps} from './UpgradeSteps';
 import {
   buildMergeEditorRows,
+  getIssueCategoryLabel,
   normalizeMergePlan,
   rebuildMergeFileFromRows,
 } from './utils';
@@ -76,10 +80,15 @@ export function ClusterUpgradeConfig({clusterId}: ClusterUpgradeConfigProps) {
   const [selectedConfigType, setSelectedConfigType] = useState('');
   const [creatingPlan, setCreatingPlan] = useState(false);
   const [highlightedRowId, setHighlightedRowId] = useState<string | null>(null);
+  // session 同步水合完成前显示骨架 / Skeleton until session hydrate finishes
+  const [hydrated, setHydrated] = useState(false);
+  // 生成计划被阻断时展示的预检查问题 / Blocking precheck issues after createPlan fails
+  const [blockedIssues, setBlockedIssues] = useState<BlockingIssue[]>([]);
 
   useEffect(() => {
     const session = loadStUpgradeSession(clusterId);
     if (!session?.request || !session.precheck?.config_merge_plan) {
+      setHydrated(true);
       return;
     }
 
@@ -90,6 +99,12 @@ export function ClusterUpgradeConfig({clusterId}: ClusterUpgradeConfigProps) {
     setRequest(session.request);
     setMergePlan(normalizeMergePlan(initialPlan));
     setSelectedConfigType(initialPlan.files[0]?.config_type || '');
+    // 恢复上次 createPlan 阻断时写入 session 的 issues / Restore issues from last blocked createPlan
+    const sessionIssues = (session.precheck.issues || []).filter(
+      (issue) => issue.blocking,
+    );
+    setBlockedIssues(sessionIssues);
+    setHydrated(true);
   }, [clusterId]);
 
   useEffect(() => {
@@ -285,7 +300,15 @@ export function ClusterUpgradeConfig({clusterId}: ClusterUpgradeConfigProps) {
         return;
       }
       if (!result.data.plan) {
-        toast.warning(t('planBlocked'));
+        const issues = (result.data.precheck?.issues || []).filter(
+          (issue) => issue.blocking,
+        );
+        setBlockedIssues(issues);
+        toast.warning(
+          issues.length > 0
+            ? t('planBlockedWithCount', {count: issues.length})
+            : t('planBlocked'),
+        );
         patchStUpgradeSession(clusterId, {
           clusterId,
           request,
@@ -296,6 +319,7 @@ export function ClusterUpgradeConfig({clusterId}: ClusterUpgradeConfigProps) {
         return;
       }
 
+      setBlockedIssues([]);
       patchStUpgradeSession(clusterId, {
         clusterId,
         request,
@@ -311,6 +335,36 @@ export function ClusterUpgradeConfig({clusterId}: ClusterUpgradeConfigProps) {
       setCreatingPlan(false);
     }
   };
+
+  if (!hydrated) {
+    return (
+      <div className='space-y-6' data-testid='upgrade-config-page'>
+        <WorkspaceHeader
+          icon={<FileDiff />}
+          title={t('configTitle')}
+          subtitle={<span>{t('configDescription')}</span>}
+        />
+        <UpgradeSteps current='config' clusterId={clusterId} />
+        <div className='space-y-6'>
+          <Skeleton className='h-12 w-full' />
+          <Card>
+            <CardHeader>
+              <Skeleton className='h-6 w-48' />
+              <Skeleton className='mt-2 h-4 w-full' />
+            </CardHeader>
+            <CardContent>
+              <div className='grid grid-cols-1 gap-4 xl:grid-cols-3'>
+                <Skeleton className='h-96 w-full' />
+                <Skeleton className='h-96 w-full' />
+                <Skeleton className='h-96 w-full' />
+              </div>
+            </CardContent>
+          </Card>
+          <Skeleton className='h-10 w-32' />
+        </div>
+      </div>
+    );
+  }
 
   if (!request || !mergePlan) {
     return (
@@ -378,6 +432,51 @@ export function ClusterUpgradeConfig({clusterId}: ClusterUpgradeConfigProps) {
         }
       />
 
+      <UpgradeSteps current='config' clusterId={clusterId} />
+
+      {blockedIssues.length > 0 ? (
+        <Card
+          className='border-amber-500/40 bg-amber-500/5'
+          data-testid='upgrade-config-blocked-issues'
+        >
+          <CardHeader>
+            <CardTitle className='flex items-center gap-2 text-base'>
+              <AlertTriangle className='h-4 w-4 text-amber-600' />
+              {t('planBlockedIssuesTitle')}
+            </CardTitle>
+            <CardDescription>{t('planBlockedIssuesDescription')}</CardDescription>
+          </CardHeader>
+          <CardContent className='space-y-3'>
+            {blockedIssues.map((issue) => (
+              <div
+                key={`${issue.category}-${issue.code}-${issue.message}`}
+                className='rounded-md border bg-background/70 p-3 text-sm'
+              >
+                <div className='flex flex-wrap items-center gap-2'>
+                  <Badge variant='destructive'>
+                    {getIssueCategoryLabel(issue.category)}
+                  </Badge>
+                  <span className='font-medium text-foreground'>{issue.code}</span>
+                </div>
+                <div className='mt-2 text-muted-foreground'>{issue.message}</div>
+              </div>
+            ))}
+            <div className='flex flex-wrap gap-2 pt-1'>
+              <Button
+                variant='outline'
+                size='sm'
+                onClick={() =>
+                  router.push(`/clusters/${clusterId}/upgrade/prepare`)
+                }
+              >
+                <ArrowLeft className='mr-2 h-4 w-4' />
+                {t('backToPrepare')}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
       <div
         className={cn(
           'rounded-lg border p-4',
@@ -431,13 +530,20 @@ export function ClusterUpgradeConfig({clusterId}: ClusterUpgradeConfigProps) {
                     className='border'
                   >
                     <span className='mr-2'>{file.config_type}</span>
-                    <Badge
-                      variant={
-                        file.conflict_count > 0 ? 'destructive' : 'default'
-                      }
-                    >
-                      {getFileBadgeLabel(file, t)}
-                    </Badge>
+                    {/* 冲突文件用红色数字角标，无冲突用状态文案 / Conflict count badge vs status label */}
+                    {file.conflict_count > 0 ? (
+                      <Badge
+                        variant='destructive'
+                        className='h-5 min-w-5 rounded-full px-1.5 text-[11px] tabular-nums'
+                        title={`${file.conflict_count} ${t('pendingResolution')}`}
+                      >
+                        {file.conflict_count}
+                      </Badge>
+                    ) : (
+                      <Badge variant='default'>
+                        {getFileBadgeLabel(file, t)}
+                      </Badge>
+                    )}
                   </TabsTrigger>
                 ))}
               </TabsList>

@@ -262,8 +262,10 @@ for dirpath, dirnames, filenames in os.walk(root):
   fi
 
   # Soft requirement: java-proxy may arrive later via control plane. / java-proxy 可后续由控制面下发。
-  if [[ -f "$PACKAGES_DIR/stx-java-proxy-${CAPABILITY_PROXY_DEFAULT_VERSION}.jar" ]]; then
-    cp "$PACKAGES_DIR/stx-java-proxy-${CAPABILITY_PROXY_DEFAULT_VERSION}.jar" "$STAGE_DIR/lib/"
+  # 同步全部代际 jar（v2/v3），供 2.x / 3.x 集群按版本选型。
+  # Stage every epoch jar (v2/v3) so 2.x / 3.x clusters can pick the matching build.
+  if compgen -G "$PACKAGES_DIR/stx-java-proxy-*.jar" >/dev/null; then
+    cp "$PACKAGES_DIR"/stx-java-proxy-*.jar "$STAGE_DIR/lib/"
   fi
   if [[ -f "$SOURCE_DIR/scripts/stx-java-proxy.sh" ]]; then
     cp "$SOURCE_DIR/scripts/stx-java-proxy.sh" "$STAGE_DIR/scripts/"
@@ -281,8 +283,10 @@ if [[ -z "$PACKAGES_DIR" ]]; then
       exit 1
     fi
   done
-  if [[ ! -e "$SOURCE_DIR/lib/stx-java-proxy-${CAPABILITY_PROXY_DEFAULT_VERSION}.jar" ]]; then
-    echo "[WARN] missing lib/stx-java-proxy-${CAPABILITY_PROXY_DEFAULT_VERSION}.jar (Agent capability proxy)"
+  if ! compgen -G "$SOURCE_DIR/lib/stx-java-proxy-*.jar" >/dev/null; then
+    echo "[WARN] missing lib/stx-java-proxy-*.jar (Agent capability proxy epochs v2/v3)"
+  elif [[ ! -e "$SOURCE_DIR/lib/stx-java-proxy-${CAPABILITY_PROXY_DEFAULT_VERSION}.jar" ]]; then
+    echo "[WARN] missing default lib/stx-java-proxy-${CAPABILITY_PROXY_DEFAULT_VERSION}.jar (Agent capability proxy)"
   fi
 fi
 

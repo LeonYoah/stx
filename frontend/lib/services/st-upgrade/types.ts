@@ -54,6 +54,7 @@ export type StepCode =
   | 'STOP_CLUSTER'
   | 'SWITCH_VERSION'
   | 'START_CLUSTER'
+  | 'RESTART_JAVA_PROXY'
   | 'HEALTH_CHECK'
   | 'SMOKE_TEST'
   | 'COMPLETE'

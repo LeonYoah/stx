@@ -26,6 +26,8 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -640,11 +642,13 @@ func (h *Handler) writePackageError(c *gin.Context, err error) {
 	status, code := http.StatusInternalServerError, "internal_error"
 	switch {
 	case errors.Is(err, ErrInvalidPackageVersion), errors.Is(err, ErrInvalidPackageFile), errors.Is(err, ErrInvalidPackagePath),
-		errors.Is(err, ErrInvalidUploadID), errors.Is(err, ErrInvalidChunkIndex):
+		errors.Is(err, ErrInvalidUploadID), errors.Is(err, ErrInvalidChunkIndex),
+		errors.Is(err, ErrOfflineBundleInvalid), errors.Is(err, ErrOfflineBundlePackageMissing):
 		status, code = http.StatusBadRequest, "invalid_package_request"
 	case errors.Is(err, ErrPackageTooLarge):
 		status, code = http.StatusRequestEntityTooLarge, "package_too_large"
-	case errors.Is(err, ErrPackageNotFound), errors.Is(err, ErrSourcePackageNotFound), errors.Is(err, ErrDownloadNotFound):
+	case errors.Is(err, ErrPackageNotFound), errors.Is(err, ErrSourcePackageNotFound), errors.Is(err, ErrDownloadNotFound),
+		errors.Is(err, ErrOfflineBundleNotFound):
 		status, code = http.StatusNotFound, "package_not_found"
 	case errors.Is(err, ErrInvalidSourcePackage):
 		status, code = http.StatusBadRequest, "invalid_source_package"
@@ -894,4 +898,93 @@ func (h *Handler) CancelInstallation(c *gin.Context) {
 
 	logger.InfoF(c.Request.Context(), "[Installer] 取消安装: host=%d", hostID)
 	c.JSON(http.StatusOK, InstallResponse{Data: status})
+}
+
+// ==================== Offline bundle APIs 离线资产包 API ====================
+
+type offlineBundleListResponse struct {
+	ErrorMsg string              `json:"error_msg"`
+	Data     []OfflineBundleInfo `json:"data"`
+}
+
+type offlineBundleResponse struct {
+	ErrorMsg string             `json:"error_msg"`
+	Data     *OfflineBundleInfo `json:"data"`
+}
+
+// ListOfflineBundles handles GET /api/v1/packages/offline-bundles
+// ListOfflineBundles 处理 GET /api/v1/packages/offline-bundles
+func (h *Handler) ListOfflineBundles(c *gin.Context) {
+	items, err := h.service.ListOfflineBundles(c.Request.Context())
+	if err != nil {
+		h.writePackageError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, offlineBundleListResponse{Data: items})
+}
+
+// CreateOfflineBundle handles POST /api/v1/packages/offline-bundles
+// CreateOfflineBundle 处理 POST /api/v1/packages/offline-bundles
+func (h *Handler) CreateOfflineBundle(c *gin.Context) {
+	var req OfflineBundleCreateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, offlineBundleResponse{ErrorMsg: err.Error()})
+		return
+	}
+	info, err := h.service.CreateOfflineBundle(c.Request.Context(), &req)
+	if err != nil {
+		h.writePackageError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, offlineBundleResponse{Data: info})
+}
+
+// DownloadOfflineBundle handles GET /api/v1/packages/offline-bundles/:name/download
+// DownloadOfflineBundle 处理 GET /api/v1/packages/offline-bundles/:name/download
+func (h *Handler) DownloadOfflineBundle(c *gin.Context) {
+	path, err := h.service.ResolveOfflineBundlePath(c.Param("name"))
+	if err != nil {
+		h.writePackageError(c, err)
+		return
+	}
+	c.FileAttachment(path, filepath.Base(path))
+}
+
+// DeleteOfflineBundle handles DELETE /api/v1/packages/offline-bundles/:name
+// DeleteOfflineBundle 处理 DELETE /api/v1/packages/offline-bundles/:name
+func (h *Handler) DeleteOfflineBundle(c *gin.Context) {
+	if err := h.service.DeleteOfflineBundle(c.Request.Context(), c.Param("name")); err != nil {
+		h.writePackageError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"error_msg": "", "data": true})
+}
+
+// ImportOfflineBundle handles POST /api/v1/packages/offline-bundles/import
+// ImportOfflineBundle 处理 POST /api/v1/packages/offline-bundles/import
+func (h *Handler) ImportOfflineBundle(c *gin.Context) {
+	file, err := c.FormFile("file")
+	if err != nil || file == nil {
+		c.JSON(http.StatusBadRequest, offlineBundleResponse{ErrorMsg: "file is required"})
+		return
+	}
+	tmp, err := os.CreateTemp(config.GetTempDir(), "stx-offline-upload-*")
+	if err != nil {
+		h.writePackageError(c, err)
+		return
+	}
+	tmpPath := tmp.Name()
+	_ = tmp.Close()
+	defer os.Remove(tmpPath)
+
+	if err := c.SaveUploadedFile(file, tmpPath); err != nil {
+		h.writePackageError(c, err)
+		return
+	}
+	info, err := h.service.ImportOfflineBundle(c.Request.Context(), tmpPath)
+	if err != nil {
+		h.writePackageError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, offlineBundleResponse{Data: info})
 }

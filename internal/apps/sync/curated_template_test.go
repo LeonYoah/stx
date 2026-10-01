@@ -43,11 +43,13 @@ func TestLoadCuratedSeedTemplates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load seeds: %v", err)
 	}
-	if len(items) < 15 {
-		t.Fatalf("expected curated seeds, got %d", len(items))
+	if len(items) < 25 {
+		t.Fatalf("expected curated seeds including combos, got %d", len(items))
 	}
 	foundHive := false
 	foundTransform := false
+	foundCombo := false
+	comboIDs := map[string]bool{}
 	for _, item := range items {
 		if item.ID == "sink-hive-kerberos" {
 			foundHive = true
@@ -55,12 +57,32 @@ func TestLoadCuratedSeedTemplates(t *testing.T) {
 		if item.Section == CuratedSectionTransform {
 			foundTransform = true
 		}
+		if item.Section == CuratedSectionCombo {
+			foundCombo = true
+			comboIDs[item.ID] = true
+			if !strings.Contains(item.Content, "env") || !strings.Contains(item.Content, "source") || !strings.Contains(item.Content, "sink") {
+				t.Fatalf("combo seed %s missing env/source/sink: %q", item.ID, item.Content[:min(80, len(item.Content))])
+			}
+		}
 		if item.Section == "" || item.Content == "" {
 			t.Fatalf("invalid seed %+v", item)
 		}
 	}
-	if !foundHive || !foundTransform {
-		t.Fatalf("missing hive/transform seeds hive=%v transform=%v", foundHive, foundTransform)
+	if !foundHive || !foundTransform || !foundCombo {
+		t.Fatalf("missing hive/transform/combo seeds hive=%v transform=%v combo=%v", foundHive, foundTransform, foundCombo)
+	}
+	requiredCombos := []string{
+		"combo-mysql-cdc-to-kafka",
+		"combo-jdbc-to-jdbc",
+		"combo-multi-table-cdc",
+	}
+	for _, id := range requiredCombos {
+		if !comboIDs[id] {
+			t.Fatalf("missing required combo seed %s", id)
+		}
+	}
+	if len(comboIDs) < 11 {
+		t.Fatalf("expected at least 11 official recipe combos, got %d", len(comboIDs))
 	}
 }
 

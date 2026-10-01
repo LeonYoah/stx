@@ -1253,3 +1253,30 @@ func TestBuildPluginPreparationFingerprint_IsStableAndDetectsChanges(t *testing.
 		t.Fatalf("expected fingerprint to change when uploaded dependency payload changes")
 	}
 }
+
+func TestBundledSeedCoversV30NewConnectors(t *testing.T) {
+	service, _ := newTestPluginService(t)
+	ctx := context.Background()
+
+	cases := []struct {
+		pluginName     string
+		expectedStatus PluginDependencyStatus
+	}{
+		{pluginName: "azure-queue-storage", expectedStatus: PluginDependencyStatusNotRequired},
+		{pluginName: "file-gcs", expectedStatus: PluginDependencyStatusReadyExact},
+		{pluginName: "http-linear", expectedStatus: PluginDependencyStatusReadyExact},
+		{pluginName: "cdc-db2", expectedStatus: PluginDependencyStatusReadyExact},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.pluginName, func(t *testing.T) {
+			result, err := service.GetOfficialDependencies(ctx, tc.pluginName, "3.0.0", "")
+			if err != nil {
+				t.Fatalf("GetOfficialDependencies returned error: %v", err)
+			}
+			if result.DependencyStatus != tc.expectedStatus {
+				t.Fatalf("expected %q, got %q", tc.expectedStatus, result.DependencyStatus)
+			}
+		})
+	}
+}

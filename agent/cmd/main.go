@@ -29,6 +29,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -127,6 +128,10 @@ type Agent struct {
 	// wg tracks running goroutines for graceful shutdown
 	// wg 跟踪运行中的 goroutine 以实现优雅关闭
 	wg sync.WaitGroup
+
+	// registerMu 串行化向 Control Plane 的注册，避免心跳 NotFound 与重连后注册并发冲突。
+	// registerMu serializes Control Plane registration to avoid races between NotFound re-register and post-reconnect register.
+	registerMu sync.Mutex
 
 	// running indicates if the agent is running
 	// running 表示 Agent 是否正在运行
@@ -442,8 +447,15 @@ func (a *Agent) connectToControlPlane() error {
 		a.wg.Add(1)
 		go func() {
 			defer a.wg.Done()
-			if err := a.grpcClient.Reconnect(a.ctx); err != nil {
+			if err := a.grpcClient.TryReconnect(a.ctx); err != nil {
+				if errors.Is(err, agentgrpc.ErrReconnectInProgress) {
+					return
+				}
 				logger.ErrorF(ctx, "Reconnection failed: %v / 重连失败：%v", err, err)
+				return
+			}
+			if err := a.registerWithControlPlane(); err != nil {
+				logger.ErrorF(ctx, "Re-registration failed: %v / 重新注册失败：%v", err, err)
 			}
 		}()
 		return nil // Don't fail startup, let reconnection handle it
@@ -456,6 +468,9 @@ func (a *Agent) connectToControlPlane() error {
 // registerWithControlPlane sends registration request to Control Plane
 // registerWithControlPlane 向 Control Plane 发送注册请求
 func (a *Agent) registerWithControlPlane() error {
+	a.registerMu.Lock()
+	defer a.registerMu.Unlock()
+
 	ctx := a.ctx
 	if !a.grpcClient.IsConnected() {
 		logger.WarnF(ctx, "Not connected yet, registration will happen after connection / 尚未连接，将在连接后注册")
@@ -826,8 +841,37 @@ func (a *Agent) sendHeartbeat() {
 					logger.ErrorF(ctx, "Re-registration failed: %v / 重新注册失败：%v", regErr, regErr)
 				}
 			}()
+			return
+		}
+
+		// 传输错误：立刻清掉假在线并单飞快速重连 + 注册。
+		// Transport error: clear sticky online and single-flight fast reconnect + register.
+		if agentgrpc.IsTransportError(err) {
+			logger.WarnF(ctx, "Heartbeat transport error, triggering fast reconnect... / 心跳传输错误，触发快速重连...")
+			a.grpcClient.MarkDisconnected()
+			a.triggerReconnectAndRegister()
 		}
 	}
+}
+
+// triggerReconnectAndRegister 单飞触发重连，成功后立即重新注册。
+// triggerReconnectAndRegister single-flights reconnect and registers immediately on success.
+func (a *Agent) triggerReconnectAndRegister() {
+	a.wg.Add(1)
+	go func() {
+		defer a.wg.Done()
+		ctx := context.Background()
+		if err := a.grpcClient.TryReconnect(a.ctx); err != nil {
+			if errors.Is(err, agentgrpc.ErrReconnectInProgress) {
+				return
+			}
+			logger.ErrorF(ctx, "Reconnection failed: %v / 重连失败：%v", err, err)
+			return
+		}
+		if err := a.registerWithControlPlane(); err != nil {
+			logger.ErrorF(ctx, "Re-registration failed: %v / 重新注册失败：%v", err, err)
+		}
+	}()
 }
 
 // runCommandStreamLoop runs the command stream listener loop
@@ -865,6 +909,18 @@ func (a *Agent) runCommandStreamLoop() {
 				if regErr := a.registerWithControlPlane(); regErr != nil {
 					logger.ErrorF(ctx, "Re-registration failed: %v / 重新注册失败：%v", regErr, regErr)
 				}
+				time.Sleep(1 * time.Second)
+				continue
+			}
+
+			// 传输错误：清假在线并快速重连，短等待后由循环看 IsConnected。
+			// Transport error: clear sticky online and fast-reconnect; short wait then re-check IsConnected.
+			if agentgrpc.IsTransportError(err) {
+				logger.WarnF(ctx, "Command stream transport error, triggering fast reconnect... / 命令流传输错误，触发快速重连...")
+				a.grpcClient.MarkDisconnected()
+				a.triggerReconnectAndRegister()
+				time.Sleep(1 * time.Second)
+				continue
 			}
 
 			time.Sleep(5 * time.Second)
@@ -926,17 +982,9 @@ func (a *Agent) runConnectionMonitor() {
 		case <-ticker.C:
 			if !a.grpcClient.IsConnected() {
 				logger.WarnF(ctx, "Connection lost, attempting reconnection... / 连接丢失，尝试重连...")
-				go func() {
-					ctx := context.Background()
-					if err := a.grpcClient.Reconnect(a.ctx); err != nil {
-						logger.ErrorF(ctx, "Reconnection failed: %v / 重连失败：%v", err, err)
-					} else {
-						// Re-register after reconnection / 重连后重新注册
-						if err := a.registerWithControlPlane(); err != nil {
-							logger.ErrorF(ctx, "Re-registration failed: %v / 重新注册失败：%v", err, err)
-						}
-					}
-				}()
+				// 走单飞重连，避免每 5s 叠多个 Reconnect 协程。
+				// Use single-flight reconnect to avoid stacking Reconnect goroutines every 5s.
+				a.triggerReconnectAndRegister()
 			}
 		}
 	}

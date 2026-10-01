@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "min_seatunnel_plugin_io": "2.3.9",
   "templates": [
     {
@@ -256,6 +256,167 @@
         "Hive"
       ],
       "file": "sink-hive-s3.conf",
+      "enabled": true
+    },
+    {
+      "id": "combo-mysql-cdc-to-kafka",
+      "name": "MySQL CDC → Kafka",
+      "description": "官方场景：CDC 实时同步到 Kafka，附带元数据消息头与字段整形",
+      "section": "combo",
+      "mode": "STREAMING",
+      "pattern": "cdc",
+      "connectors": [
+        "MySQL-CDC",
+        "Metadata",
+        "Sql",
+        "Kafka"
+      ],
+      "file": "combo-mysql-cdc-to-kafka.conf",
+      "enabled": true
+    },
+    {
+      "id": "combo-mysql-cdc-to-elasticsearch",
+      "name": "MySQL CDC → Elasticsearch",
+      "description": "官方场景：CDC 实时同步到 ES，含过滤、清洗与字段整形",
+      "section": "combo",
+      "mode": "STREAMING",
+      "pattern": "cdc",
+      "connectors": [
+        "MySQL-CDC",
+        "Metadata",
+        "Replace",
+        "Sql",
+        "Elasticsearch"
+      ],
+      "file": "combo-mysql-cdc-to-elasticsearch.conf",
+      "enabled": true
+    },
+    {
+      "id": "combo-jdbc-to-jdbc",
+      "name": "JDBC → JDBC",
+      "description": "官方场景：JDBC 批量同步到 JDBC，含过滤与字段转换",
+      "section": "combo",
+      "mode": "BATCH",
+      "pattern": "single",
+      "connectors": [
+        "Jdbc",
+        "Sql"
+      ],
+      "file": "combo-jdbc-to-jdbc.conf",
+      "enabled": true
+    },
+    {
+      "id": "combo-jdbc-to-s3",
+      "name": "JDBC → S3",
+      "description": "官方场景：JDBC 批量同步到 S3 对象存储",
+      "section": "combo",
+      "mode": "BATCH",
+      "pattern": "single",
+      "connectors": [
+        "Jdbc",
+        "S3File"
+      ],
+      "file": "combo-jdbc-to-s3.conf",
+      "enabled": true
+    },
+    {
+      "id": "combo-mysql-to-hdfs",
+      "name": "MySQL → HDFS Parquet",
+      "description": "官方场景：MySQL 批量写入 HDFS，按日期分区 Parquet",
+      "section": "combo",
+      "mode": "BATCH",
+      "pattern": "single",
+      "connectors": [
+        "Jdbc",
+        "Sql",
+        "HdfsFile"
+      ],
+      "file": "combo-mysql-to-hdfs.conf",
+      "enabled": true
+    },
+    {
+      "id": "combo-kafka-to-iceberg",
+      "name": "Kafka → Iceberg",
+      "description": "官方场景：Kafka 流式写入 Iceberg（Upsert）",
+      "section": "combo",
+      "mode": "STREAMING",
+      "pattern": "single",
+      "connectors": [
+        "Kafka",
+        "Iceberg"
+      ],
+      "file": "combo-kafka-to-iceberg.conf",
+      "enabled": true
+    },
+    {
+      "id": "combo-postgresql-cdc-to-iceberg",
+      "name": "PostgreSQL CDC → Iceberg",
+      "description": "官方场景：PostgreSQL CDC 实时同步到 Iceberg，含字段整形与 Upsert",
+      "section": "combo",
+      "mode": "STREAMING",
+      "pattern": "cdc",
+      "connectors": [
+        "Postgres-CDC",
+        "Sql",
+        "Iceberg"
+      ],
+      "file": "combo-postgresql-cdc-to-iceberg.conf",
+      "enabled": true
+    },
+    {
+      "id": "combo-http-to-jdbc",
+      "name": "HTTP → JDBC",
+      "description": "官方场景：HTTP 批量写入 JDBC 关系库",
+      "section": "combo",
+      "mode": "BATCH",
+      "pattern": "single",
+      "connectors": [
+        "Http",
+        "Jdbc"
+      ],
+      "file": "combo-http-to-jdbc.conf",
+      "enabled": true
+    },
+    {
+      "id": "combo-mysql-cdc-to-doris",
+      "name": "MySQL CDC → Doris",
+      "description": "官方场景：MySQL CDC 实时同步到 Doris",
+      "section": "combo",
+      "mode": "STREAMING",
+      "pattern": "cdc",
+      "connectors": [
+        "MySQL-CDC",
+        "Doris"
+      ],
+      "file": "combo-mysql-cdc-to-doris.conf",
+      "enabled": true
+    },
+    {
+      "id": "combo-file-to-starrocks",
+      "name": "LocalFile → StarRocks",
+      "description": "官方场景：本地文件同步到 StarRocks",
+      "section": "combo",
+      "mode": "BATCH",
+      "pattern": "single",
+      "connectors": [
+        "LocalFile",
+        "StarRocks"
+      ],
+      "file": "combo-file-to-starrocks.conf",
+      "enabled": true
+    },
+    {
+      "id": "combo-multi-table-cdc",
+      "name": "多表 CDC → JDBC",
+      "description": "官方场景：MySQL 多表 CDC 实时同步到 JDBC（动态表名）",
+      "section": "combo",
+      "mode": "STREAMING",
+      "pattern": "multi",
+      "connectors": [
+        "MySQL-CDC",
+        "Jdbc"
+      ],
+      "file": "combo-multi-table-cdc.conf",
       "enabled": true
     }
   ]

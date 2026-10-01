@@ -32,6 +32,10 @@ import (
 type stubClusterOperator struct {
 	stopCalls         int
 	startCalls        int
+	proxyStopCalls    int
+	proxyRestartCalls int
+	proxyStopErr      error
+	proxyRestartErr   error
 	clusterVersions   []string
 	clusterInstallDir []string
 	nodeInstallDirs   map[uint][]string
@@ -68,6 +72,45 @@ func (s *stubClusterOperator) Stop(ctx context.Context, clusterID uint) (*cluste
 			Success:  true,
 			Message:  "stopped",
 		}},
+	}, nil
+}
+
+func (s *stubClusterOperator) StopSTXJavaProxy(ctx context.Context, clusterID uint) (*clusterapp.STXJavaProxyStatus, error) {
+	s.proxyStopCalls++
+	if s.proxyStopErr != nil {
+		return &clusterapp.STXJavaProxyStatus{
+			ClusterID: clusterID,
+			Service:   "stx_java_proxy",
+			Message:   s.proxyStopErr.Error(),
+		}, s.proxyStopErr
+	}
+	return &clusterapp.STXJavaProxyStatus{
+		ClusterID: clusterID,
+		Service:   "stx_java_proxy",
+		Managed:   true,
+		Running:   false,
+		Healthy:   false,
+		Message:   "stopped",
+	}, nil
+}
+
+func (s *stubClusterOperator) RestartSTXJavaProxy(ctx context.Context, clusterID uint) (*clusterapp.STXJavaProxyStatus, error) {
+	s.proxyRestartCalls++
+	if s.proxyRestartErr != nil {
+		return &clusterapp.STXJavaProxyStatus{
+			ClusterID: clusterID,
+			Service:   "stx_java_proxy",
+			Message:   s.proxyRestartErr.Error(),
+		}, s.proxyRestartErr
+	}
+	return &clusterapp.STXJavaProxyStatus{
+		ClusterID: clusterID,
+		Service:   "stx_java_proxy",
+		Managed:   true,
+		Running:   true,
+		Healthy:   true,
+		Endpoint:  "http://127.0.0.1:18080",
+		Message:   "restarted",
 	}, nil
 }
 
@@ -131,6 +174,12 @@ func (s *stubAgentCommandSender) SendCommand(ctx context.Context, agentID string
 		copied[key] = value
 	}
 	s.commands = append(s.commands, agentCommandRecord{agentID: agentID, commandType: commandType, params: copied})
+
+	// 升级流程会在双目录场景下直接下发 stx_java_proxy stop。
+	// Dual-dir upgrade may send stx_java_proxy stop commands directly.
+	if commandType == "stop" && (copied["service"] == "stx_java_proxy" || copied["target"] == "stx_java_proxy") {
+		return true, `{"service":"stx_java_proxy","managed":true,"running":false,"healthy":false,"message":"stopped"}`, nil
+	}
 
 	subCommand := copied["sub_command"]
 	switch subCommand {
@@ -222,6 +271,12 @@ func TestService_ExecutePlan_success(t *testing.T) {
 	if clusterOperator.stopCalls != 1 || clusterOperator.startCalls != 1 {
 		t.Fatalf("expected stop/start to each run once, got stop=%d start=%d", clusterOperator.stopCalls, clusterOperator.startCalls)
 	}
+	if clusterOperator.proxyStopCalls < 1 {
+		t.Fatalf("expected stx-java-proxy stop during STOP_CLUSTER, got proxyStopCalls=%d", clusterOperator.proxyStopCalls)
+	}
+	if clusterOperator.proxyRestartCalls < 1 {
+		t.Fatalf("expected stx-java-proxy restart during RESTART_JAVA_PROXY, got proxyRestartCalls=%d", clusterOperator.proxyRestartCalls)
+	}
 	if len(clusterOperator.clusterVersions) == 0 || clusterOperator.clusterVersions[len(clusterOperator.clusterVersions)-1] != "2.3.12" {
 		t.Fatalf("expected cluster version updated to 2.3.12, got %+v", clusterOperator.clusterVersions)
 	}
@@ -232,6 +287,10 @@ func TestService_ExecutePlan_success(t *testing.T) {
 		t.Fatalf("expected node install dir switched to target version, got %q", got)
 	}
 	for _, command := range agentSender.commands {
+		if command.commandType == "stop" &&
+			(command.params["service"] == "stx_java_proxy" || command.params["target"] == "stx_java_proxy") {
+			continue
+		}
 		if command.commandType != "upgrade" {
 			t.Fatalf("expected managed upgrade command type, got %s", command.commandType)
 		}
@@ -419,6 +478,12 @@ func TestService_ExecutePlan_failureTriggersRollback(t *testing.T) {
 	}
 	if clusterOperator.stopCalls != 2 || clusterOperator.startCalls != 2 {
 		t.Fatalf("expected upgrade + rollback to call stop/start twice, got stop=%d start=%d", clusterOperator.stopCalls, clusterOperator.startCalls)
+	}
+	if clusterOperator.proxyStopCalls < 2 {
+		t.Fatalf("expected proxy stop during upgrade STOP_CLUSTER and rollback prepare, got proxyStopCalls=%d", clusterOperator.proxyStopCalls)
+	}
+	if clusterOperator.proxyRestartCalls < 2 {
+		t.Fatalf("expected proxy restart during upgrade and rollback restart, got proxyRestartCalls=%d", clusterOperator.proxyRestartCalls)
 	}
 	if got := lastString(clusterOperator.clusterVersions); got != "2.3.11" {
 		t.Fatalf("expected cluster version restored to source version, got %q", got)
@@ -659,6 +724,56 @@ func TestService_ExecutePlan_smokeTestRetriesWhenClusterIsNotReady(t *testing.T)
 	}
 	if !foundRetry {
 		t.Fatalf("expected retry progress log, got %+v", logs)
+	}
+}
+
+func TestService_ExecutePlan_javaProxyRestartWarnDoesNotBlock(t *testing.T) {
+	database := openTestDB(t)
+	repo := NewRepository(database)
+	clusterOperator := &stubClusterOperator{
+		proxyRestartErr: fmt.Errorf("stx-java-proxy jar missing for epoch v2"),
+	}
+	agentSender := &stubAgentCommandSender{agents: map[uint]string{101: "agent-node-a"}}
+	service := newExecutionService(t, repo, clusterOperator, agentSender)
+
+	planID := mustCreateReadyPlan(t, service)
+	task, err := service.ExecutePlan(context.Background(), planID, 7)
+	if err != nil {
+		t.Fatalf("ExecutePlan returned error: %v", err)
+	}
+	if task.Status != ExecutionStatusSucceeded {
+		t.Fatalf("expected task status succeeded despite proxy restart warning, got %s", task.Status)
+	}
+
+	proxyStep := findTaskStep(task.Steps, StepCodeRestartJavaProxy)
+	if proxyStep == nil {
+		t.Fatal("expected RESTART_JAVA_PROXY step to exist")
+	}
+	if proxyStep.Status != ExecutionStatusSucceeded {
+		t.Fatalf("expected RESTART_JAVA_PROXY to succeed with warning, got %s", proxyStep.Status)
+	}
+	if clusterOperator.proxyRestartCalls < 1 {
+		t.Fatalf("expected proxy restart to be attempted, got %d", clusterOperator.proxyRestartCalls)
+	}
+
+	logs, _, err := service.ListStepLogs(context.Background(), &StepLogFilter{
+		TaskID:   task.ID,
+		StepCode: StepCodeRestartJavaProxy,
+		Page:     1,
+		PageSize: 50,
+	})
+	if err != nil {
+		t.Fatalf("ListStepLogs returned error: %v", err)
+	}
+	foundWarn := false
+	for _, logEntry := range logs {
+		if logEntry.Level == LogLevelWarn && strings.Contains(logEntry.Message, "best-effort") {
+			foundWarn = true
+			break
+		}
+	}
+	if !foundWarn {
+		t.Fatalf("expected best-effort proxy restart warning log, got %+v", logs)
 	}
 }
 

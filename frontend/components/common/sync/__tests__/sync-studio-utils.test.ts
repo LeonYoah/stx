@@ -21,14 +21,47 @@ import {
   detectVariables,
   filterTree,
   extractJobMetricSummary,
+  countLogicalTables,
+  formatMetricDisplayValue,
   isCursorInsideValueRegion,
   isNodeMatchingScope,
+  formatValueConstraintHints,
+  isCursorAtFinishedEnumValue,
   resolveEnumSuggestionItems,
   resolveEnumValueBounds,
   resolveOptionAssignmentContext,
   resolveVariableCompletionContext,
   resolveVariableSuggestions,
 } from '../sync-studio-utils';
+
+describe('formatValueConstraintHints', () => {
+  it('summarizes matching value constraints for hover', () => {
+    const hints = formatValueConstraintHints('port', [
+      {
+        optionKey: 'port',
+        operator: 'GREATER_OR_EQUAL',
+        expectValue: 1,
+        and: true,
+        next: {
+          optionKey: 'port',
+          operator: 'LESS_OR_EQUAL',
+          expectValue: 65535,
+        },
+      },
+      {
+        optionKey: 'timeout',
+        operator: 'GREATER_THAN',
+        expectValue: 0,
+      },
+    ]);
+    expect(hints).toEqual(['≥ 1', '≤ 65535']);
+  });
+
+  it('returns empty when option has no constraints', () => {
+    expect(formatValueConstraintHints('port', [])).toEqual([]);
+    expect(formatValueConstraintHints('port', undefined as any)).toEqual([]);
+  });
+});
 
 describe('sync-studio-utils Monaco completion & assignment tests', () => {
   it('correctly resolves unquoted boolean assignment context regardless of cursor position', () => {
@@ -75,6 +108,50 @@ describe('sync-studio-utils Monaco completion & assignment tests', () => {
     expect(ctx.optionKey).toBe('startup.mode');
     expect(ctx.bounds?.quoted).toBe(true);
     expect(ctx.bounds?.value).toBe('INITIAL');
+  });
+
+  it('treats cursor at end of finished quoted enum as complete (Enter should newline)', () => {
+    const line = '  job.mode = "BATCH"';
+    const ctx = resolveOptionAssignmentContext(line, line.length + 1);
+    expect(ctx.bounds?.value).toBe('BATCH');
+    expect(
+      isCursorAtFinishedEnumValue(ctx.bounds, line.length + 1, [
+        'BATCH',
+        'STREAMING',
+      ]),
+    ).toBe(true);
+    // 光标仍在值中间时可切换枚举 / still switchable when cursor is inside the value
+    const inside = resolveOptionAssignmentContext(line, ctx.bounds!.startColumn + 1);
+    expect(
+      isCursorAtFinishedEnumValue(inside.bounds, ctx.bounds!.startColumn + 1, [
+        'BATCH',
+        'STREAMING',
+      ]),
+    ).toBe(false);
+  });
+
+  it('treats cursor at end of finished unquoted enum as complete', () => {
+    const line = 'job_schedule_strategy = CLUSTER';
+    const ctx = resolveOptionAssignmentContext(line, line.length + 1);
+    expect(ctx.bounds?.value).toBe('CLUSTER');
+    expect(
+      isCursorAtFinishedEnumValue(ctx.bounds, line.length + 1, [
+        'CLUSTER',
+        'ENGINE',
+      ]),
+    ).toBe(true);
+  });
+
+  it('still offers enum completion for partial values at end of line', () => {
+    const line = '  job.mode = "BAT"';
+    const ctx = resolveOptionAssignmentContext(line, line.length + 1);
+    expect(ctx.bounds?.value).toBe('BAT');
+    expect(
+      isCursorAtFinishedEnumValue(ctx.bounds, line.length + 1, [
+        'BATCH',
+        'STREAMING',
+      ]),
+    ).toBe(false);
   });
 
   it('returns inValueRegion=false if cursor is in trailing comment', () => {
@@ -352,7 +429,7 @@ describe('sync-studio-utils Monaco completion & assignment tests', () => {
   });
 
   // 测试作业指标摘要提取与 SeaTunnel 3.0 多表聚合逻辑
-  // Test job metric summary extraction and SeaTunnel 3.0 multi-table aggregation logic
+  // Test job metric summary extraction and SeaTunnel 3.0 table-level aggregation logic
   describe('extractJobMetricSummary tests', () => {
     it('correctly extracts single-table standard metrics', () => {
       const job: any = {
@@ -375,6 +452,25 @@ describe('sync-studio-utils Monaco completion & assignment tests', () => {
       expect(summary.isMultiTable).toBe(false);
     });
 
+    it('treats Source/Sink endpoints of one table as single-table', () => {
+      const job: any = {
+        id: 1015,
+        result_preview: {
+          metrics: {
+            TableSourceReceivedCount: {'Source[0].fake': 10},
+            TableSinkWriteCount: {'Sink[0].fake': 10},
+            TableSinkCommittedCount: {'Sink[0].fake': 10},
+          },
+        },
+      };
+
+      const summary = extractJobMetricSummary(job);
+      expect(summary.readCount).toBe(10);
+      expect(summary.writeCount).toBe(10);
+      expect(summary.tableCount).toBe(1);
+      expect(summary.isMultiTable).toBe(false);
+    });
+
     it('correctly aggregates SeaTunnel 3.0 per-table metrics and identifies multi-table jobs', () => {
       const job: any = {
         id: 102,
@@ -383,20 +479,20 @@ describe('sync-studio-utils Monaco completion & assignment tests', () => {
             // 全局读写未直接提供数字，而是细化到具体表
             // Global counts not provided directly, fine-grained to specific tables
             TableSourceReceivedCount: {
-              'db.users': 1500,
-              'db.orders': 3500,
+              'Source[0].db.users': 1500,
+              'Source[0].db.orders': 3500,
             },
             TableSinkWriteCount: {
-              'sink_db.users': 1500,
-              'sink_db.orders': 3498,
+              'Sink[0].sink_db.users': 1500,
+              'Sink[0].sink_db.orders': 3498,
             },
             TableSourceReceivedQPS: {
-              'db.users': 150,
-              'db.orders': 350,
+              'Source[0].db.users': 150,
+              'Source[0].db.orders': 350,
             },
             TableSinkWriteQPS: {
-              'sink_db.users': 150,
-              'sink_db.orders': 348,
+              'Sink[0].sink_db.users': 150,
+              'Sink[0].sink_db.orders': 348,
             },
           },
         },
@@ -406,8 +502,24 @@ describe('sync-studio-utils Monaco completion & assignment tests', () => {
       expect(summary.readCount).toBe(5000);
       expect(summary.writeCount).toBe(4998);
       expect(summary.averageSpeed).toBe(499); // (500 + 498) / 2
-      expect(summary.tableCount).toBe(4);
+      // users / orders 两张逻辑表，Source+Sink 端点不再计成 4
+      // Two logical tables (users/orders); Source+Sink endpoints no longer count as 4
+      expect(summary.tableCount).toBe(2);
       expect(summary.isMultiTable).toBe(true);
+    });
+
+    it('countLogicalTables ignores Source/Sink prefixes', () => {
+      expect(
+        countLogicalTables(['Source[0].fake', 'Sink[0].fake']),
+      ).toBe(1);
+      expect(
+        countLogicalTables([
+          'Source[0].db.users',
+          'Source[0].db.orders',
+          'Sink[0].archive_users',
+          'Sink[0].orders',
+        ]),
+      ).toBe(2);
     });
   });
 });
@@ -477,6 +589,28 @@ env {
     );
     expect(inserted.replacesAll).toBe(true);
     expect(inserted.nextContent).toBe('env { job.mode = "BATCH" }');
+  });
+});
+
+describe('formatMetricDisplayValue', () => {
+  it('keeps scalars readable', () => {
+    expect(formatMetricDisplayValue(null)).toBe('-');
+    expect(formatMetricDisplayValue(12345)).toBe((12345).toLocaleString());
+    expect(formatMetricDisplayValue('ok')).toBe('ok');
+  });
+
+  it('formats *PerVertex style maps instead of [object Object]', () => {
+    expect(
+      formatMetricDisplayValue({
+        '0': 1.5,
+        '1': 0,
+      }),
+    ).toBe(`0: ${(1.5).toLocaleString()}, 1: 0`);
+    expect(formatMetricDisplayValue({})).toBe('{}');
+  });
+
+  it('formats nested objects via JSON', () => {
+    expect(formatMetricDisplayValue({a: {b: 1}})).toBe('{"a":{"b":1}}');
   });
 });
 

@@ -129,11 +129,13 @@ type ConfigToolPluginOptionDescriptor struct {
 
 // ConfigToolPluginOptionsResponse mirrors java-proxy plugin options response.
 type ConfigToolPluginOptionsResponse struct {
-	OK                bool                               `json:"ok"`
-	PluginType        string                             `json:"pluginType"`
-	FactoryIdentifier string                             `json:"factoryIdentifier"`
-	Options           []ConfigToolPluginOptionDescriptor `json:"options"`
-	Warnings          []string                           `json:"warnings"`
+	OK                bool                                   `json:"ok"`
+	PluginType        string                                 `json:"pluginType"`
+	FactoryIdentifier string                                 `json:"factoryIdentifier"`
+	Options           []ConfigToolPluginOptionDescriptor     `json:"options"`
+	ValueConstraints  []map[string]interface{}               `json:"valueConstraints,omitempty"`
+	ConditionRules    []map[string]interface{}               `json:"conditionRules,omitempty"`
+	Warnings          []string                               `json:"warnings"`
 }
 
 // ConfigToolPluginTemplateRequest represents plugin template rendering input.

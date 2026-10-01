@@ -6,9 +6,9 @@
   The ASF licenses this file to You under the Apache License, Version 2.0
   (the "License"); you may not use this file except in compliance with
   the License.  You may obtain a copy of the License at
- 
+
       http://www.apache.org/licenses/LICENSE-2.0
- 
+
   Unless required by applicable law or agreed to in writing, software
   distributed under the License is distributed on an "AS IS" BASIS,
   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -19,6 +19,12 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
+    <!--
+      Parent 固定 2.3.13，仅复用插件管理与公共属性；SeaTunnel 编译依赖版本由 seatunnel.version 控制。
+      Parent stays on 2.3.13 for pluginManagement; compile-time SeaTunnel deps follow seatunnel.version.
+      3.0 shade 模块坐标/版本与 2.3 不同，放在 epoch profile 内分别声明。
+      3.0 shade module coordinates/versions differ from 2.3 and are declared per epoch profile.
+    -->
     <parent>
         <groupId>org.apache.seatunnel</groupId>
         <artifactId>seatunnel</artifactId>
@@ -31,50 +37,37 @@
     <packaging>jar</packaging>
     <name>STX : Java Proxy</name>
 
+    <properties>
+        <!-- 默认编译对齐 2.3.x；epoch-v3 profile 会覆盖为 3.0.0。 / Default compile line is 2.3.x; epoch-v3 overrides to 3.0.0. -->
+        <seatunnel.version>2.3.13</seatunnel.version>
+        <proxy.epoch>v2</proxy.epoch>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>org.apache.seatunnel</groupId>
             <artifactId>seatunnel-api</artifactId>
-            <version>${project.version}</version>
+            <version>${seatunnel.version}</version>
         </dependency>
         <dependency>
             <groupId>org.apache.seatunnel</groupId>
             <artifactId>seatunnel-core-starter</artifactId>
-            <version>${project.version}</version>
+            <version>${seatunnel.version}</version>
         </dependency>
         <dependency>
             <groupId>org.apache.seatunnel</groupId>
             <artifactId>seatunnel-engine-core</artifactId>
-            <version>${project.version}</version>
+            <version>${seatunnel.version}</version>
         </dependency>
         <dependency>
             <groupId>org.apache.seatunnel</groupId>
             <artifactId>checkpoint-storage-api</artifactId>
-            <version>${project.version}</version>
+            <version>${seatunnel.version}</version>
         </dependency>
         <dependency>
             <groupId>org.apache.seatunnel</groupId>
             <artifactId>imap-storage-api</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.seatunnel</groupId>
-            <artifactId>seatunnel-jackson</artifactId>
-            <version>${project.version}</version>
-            <classifier>optional</classifier>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.seatunnel</groupId>
-            <artifactId>seatunnel-commons-lang3</artifactId>
-            <version>${project.version}</version>
-            <classifier>optional</classifier>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.seatunnel</groupId>
-            <artifactId>seatunnel-guava</artifactId>
-            <version>${project.version}</version>
-            <classifier>optional</classifier>
+            <version>${seatunnel.version}</version>
         </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
@@ -85,31 +78,93 @@
         <dependency>
             <groupId>org.apache.seatunnel</groupId>
             <artifactId>checkpoint-storage-hdfs</artifactId>
-            <version>${project.version}</version>
+            <version>${seatunnel.version}</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.apache.seatunnel</groupId>
             <artifactId>imap-storage-file</artifactId>
-            <version>${project.version}</version>
+            <version>${seatunnel.version}</version>
             <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.seatunnel</groupId>
-            <artifactId>seatunnel-hadoop3-3.1.4-uber</artifactId>
-            <version>${project.version}</version>
-            <classifier>optional</classifier>
         </dependency>
     </dependencies>
 
     <build>
-        <!-- 代际标签命名：jar 名与 SeaTunnel 具体小版本解耦，仅在真正 breaking change 时切换到 v3。 -->
-        <!-- Epoch-based jar name, decoupled from the exact SeaTunnel patch version.
-             Bump to v3 only when a genuine breaking API change requires a new build. -->
-        <finalName>stx-java-proxy-v2</finalName>
+        <!-- 代际标签命名：同一套源码分别产出 stx-java-proxy-v2.jar / stx-java-proxy-v3.jar。 -->
+        <!-- Epoch-based jar name: one source tree produces stx-java-proxy-v2.jar / stx-java-proxy-v3.jar. -->
+        <finalName>stx-java-proxy-${proxy.epoch}</finalName>
     </build>
 
     <profiles>
+        <!-- 默认激活 v2；打 v3 时脚本必须使用 -Pepoch-v3,!epoch-v2。 -->
+        <!-- epoch-v2 is active by default; v3 builds must use -Pepoch-v3,!epoch-v2. -->
+        <profile>
+            <id>epoch-v2</id>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
+            <properties>
+                <seatunnel.version>2.3.13</seatunnel.version>
+                <proxy.epoch>v2</proxy.epoch>
+            </properties>
+            <dependencies>
+                <dependency>
+                    <groupId>org.apache.seatunnel</groupId>
+                    <artifactId>seatunnel-jackson</artifactId>
+                    <version>${seatunnel.version}</version>
+                    <classifier>optional</classifier>
+                </dependency>
+                <dependency>
+                    <groupId>org.apache.seatunnel</groupId>
+                    <artifactId>seatunnel-commons-lang3</artifactId>
+                    <version>${seatunnel.version}</version>
+                    <classifier>optional</classifier>
+                </dependency>
+                <dependency>
+                    <groupId>org.apache.seatunnel</groupId>
+                    <artifactId>seatunnel-guava</artifactId>
+                    <version>${seatunnel.version}</version>
+                    <classifier>optional</classifier>
+                </dependency>
+                <dependency>
+                    <groupId>org.apache.seatunnel</groupId>
+                    <artifactId>seatunnel-hadoop3-3.1.4-uber</artifactId>
+                    <version>${seatunnel.version}</version>
+                    <classifier>optional</classifier>
+                </dependency>
+            </dependencies>
+        </profile>
+        <profile>
+            <id>epoch-v3</id>
+            <properties>
+                <seatunnel.version>3.0.0</seatunnel.version>
+                <proxy.epoch>v3</proxy.epoch>
+            </properties>
+            <dependencies>
+                <!-- 3.0 shade 模块使用独立版本号（上游依赖版本-3.0.0）。 -->
+                <!-- 3.0 shade modules use independent versions (upstream-dep-version-3.0.0). -->
+                <dependency>
+                    <groupId>org.apache.seatunnel</groupId>
+                    <artifactId>seatunnel-shade-jackson</artifactId>
+                    <version>2.15.4-3.0.0</version>
+                </dependency>
+                <dependency>
+                    <groupId>org.apache.seatunnel</groupId>
+                    <artifactId>seatunnel-shade-commons-lang3</artifactId>
+                    <version>3.18.0-3.0.0</version>
+                </dependency>
+                <dependency>
+                    <groupId>org.apache.seatunnel</groupId>
+                    <artifactId>seatunnel-shade-guava</artifactId>
+                    <version>27.0-jre-3.0.0</version>
+                </dependency>
+                <dependency>
+                    <groupId>org.apache.seatunnel</groupId>
+                    <artifactId>seatunnel-shade-hadoop3-uber</artifactId>
+                    <version>3.1.4-3.0.0</version>
+                </dependency>
+            </dependencies>
+        </profile>
         <profile>
             <id>standalone-bin</id>
             <build>
@@ -133,7 +188,9 @@
                                             <exclude>org.apache.seatunnel:checkpoint-storage-hdfs</exclude>
                                             <exclude>org.apache.seatunnel:imap-storage-file</exclude>
                                             <exclude>org.apache.seatunnel:seatunnel-hadoop3-3.1.4-uber</exclude>
+                                            <exclude>org.apache.seatunnel:seatunnel-shade-hadoop3-uber</exclude>
                                             <exclude>org.apache.seatunnel:seatunnel-hazelcast-shade</exclude>
+                                            <exclude>org.apache.seatunnel:seatunnel-shade-hazelcast</exclude>
                                         </excludes>
                                     </artifactSet>
                                     <transformers>

@@ -44,6 +44,10 @@ import type {
   RuntimeStorageValidationRequest,
   RuntimeStorageValidationResponse,
   RuntimeStorageValidationResult,
+  OfflineBundleInfo,
+  OfflineBundleCreateRequest,
+  OfflineBundleListResponse,
+  OfflineBundleResponse,
 } from './types';
 
 const API_PREFIX = '';
@@ -239,6 +243,67 @@ export async function downloadSourcePackage(version: string): Promise<void> {
   anchor.download = `apache-seatunnel-${version}-src.tar.gz`;
   anchor.click();
   URL.revokeObjectURL(url);
+}
+
+// ==================== Offline asset bundles 离线资产包 ====================
+
+/** List generated offline bundles / 列出已生成的离线资产包 */
+export async function listOfflineBundles(): Promise<OfflineBundleInfo[]> {
+  const response = await apiClient.get<OfflineBundleListResponse>(
+    `${API_PREFIX}/packages/offline-bundles`,
+  );
+  if (response.data.error_msg) {
+    throw new Error(response.data.error_msg);
+  }
+  return response.data.data ?? [];
+}
+
+/** Create offline bundle from local package (+ plugins) / 从本地仓打包离线资产 */
+export async function createOfflineBundle(
+  request: OfflineBundleCreateRequest,
+): Promise<OfflineBundleInfo> {
+  const response = await apiClient.post<OfflineBundleResponse>(
+    `${API_PREFIX}/packages/offline-bundles`,
+    request,
+  );
+  if (response.data.error_msg || !response.data.data) {
+    throw new Error(response.data.error_msg || 'create offline bundle failed');
+  }
+  return response.data.data;
+}
+
+/** Download offline bundle file / 下载离线资产包文件 */
+export async function downloadOfflineBundle(
+  fileName: string,
+): Promise<void> {
+  const name = fileName.replace(/\.tar\.gz$/i, '');
+  const response = await apiClient.get<Blob>(
+    `${API_PREFIX}/packages/offline-bundles/${encodeURIComponent(fileName)}/download`,
+    {responseType: 'blob'},
+  );
+  const url = URL.createObjectURL(response.data);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = fileName.endsWith('.tar.gz')
+    ? fileName
+    : `stx-seatunnel-offline-${name}.tar.gz`;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
+/** Import offline bundle into local storage / 导入离线资产包到本地仓 */
+export async function importOfflineBundle(file: File): Promise<OfflineBundleInfo> {
+  const form = new FormData();
+  form.append('file', file);
+  const response = await apiClient.post<OfflineBundleResponse>(
+    `${API_PREFIX}/packages/offline-bundles/import`,
+    form,
+    {headers: {'Content-Type': 'multipart/form-data'}},
+  );
+  if (response.data.error_msg || !response.data.data) {
+    throw new Error(response.data.error_msg || 'import offline bundle failed');
+  }
+  return response.data.data;
 }
 
 // ==================== Precheck 预检查 ====================
@@ -469,6 +534,11 @@ export const installerService = {
   uploadSourcePackage,
   fetchSourcePackage,
   downloadSourcePackage,
+  // Offline bundles / 离线资产包
+  listOfflineBundles,
+  createOfflineBundle,
+  downloadOfflineBundle,
+  importOfflineBundle,
   // Package download / 安装包下载
   startDownload,
   getDownloadStatus,

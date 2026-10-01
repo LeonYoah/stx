@@ -69,18 +69,19 @@ func StartManagedSTXJavaProxyService(
 	}
 
 	status, _ := GetManagedSTXJavaProxyServiceStatus(ctx, installDir)
-	// 已健康且端口与 JVM 参数匹配时直接返回，避免无谓重启。
-	// Skip restart when already healthy and the port & jvmOpts match.
+	// 已健康且端口 / JVM / 安装目录 / 代际 jar 均匹配时直接返回，避免无谓重启。
+	// Skip restart when healthy and port / jvmOpts / installDir / epoch jar all match.
 	if status != nil && status.Healthy {
 		portMatches := preferredPort <= 0 || status.Port <= 0 || status.Port == preferredPort
 		jvmMatches := desiredJvmOpts == "" || status.JvmOpts == desiredJvmOpts
-		if portMatches && jvmMatches {
+		runtimeMatches := stxJavaProxyStatusMatchesDesired(status, installDir, seatunnelVersion)
+		if portMatches && jvmMatches && runtimeMatches {
 			return status, nil
 		}
-		// 端口或 JVM 参数不一致时先停旧实例，再按指定参数启动。
-		// Stop the old instance before starting on the preferred port / jvmOpts.
+		// 端口、JVM、安装目录或代际不一致时先停旧实例，再按目标参数启动。
+		// Stop the old instance before starting with the preferred port / jvmOpts / runtime.
 		if _, stopErr := StopManagedSTXJavaProxyService(ctx, installDir); stopErr != nil {
-			logger.WarnF(ctx, "[stx-java-proxy] stop before config switch failed: preferredPort=%d, desiredJvmOpts=%s, error=%v", preferredPort, desiredJvmOpts, stopErr)
+			logger.WarnF(ctx, "[stx-java-proxy] stop before config switch failed: preferredPort=%d, desiredJvmOpts=%s, installDir=%s, version=%s, error=%v", preferredPort, desiredJvmOpts, installDir, seatunnelVersion, stopErr)
 		}
 	}
 
@@ -151,6 +152,11 @@ func GetManagedSTXJavaProxyServiceStatus(ctx context.Context, installDir string)
 		if pid, err := strconv.Atoi(strings.TrimSpace(string(bytes))); err == nil && pid > 0 {
 			status.PID = pid
 		}
+	}
+	// 状态文件 PID 已失效时清零，后续按端口回填真实监听进程。
+	// Clear a stale pid-file value so later port lookup can refill the live listener.
+	if status.PID > 0 && !stxJavaProxyPIDAlive(status.PID) {
+		status.PID = 0
 	}
 
 	if status.Endpoint == "" {
@@ -392,14 +398,86 @@ func linuxProcessState(pid int) (string, bool) {
 // stxJavaProxyPIDMatches 检查进程命令行是否属于 stx-java-proxy。
 // stxJavaProxyPIDMatches checks whether a process command line belongs to stx-java-proxy.
 func stxJavaProxyPIDMatches(pid int) bool {
-	cmdlinePath := filepath.Join("/proc", strconv.Itoa(pid), "cmdline")
-	content, err := os.ReadFile(cmdlinePath)
+	return isSTXJavaProxyCommandLine(stxJavaProxyProcessCommandLine(pid))
+}
+
+// stxJavaProxyProcessCommandLine 跨平台读取进程完整命令行；失败返回空串。
+// stxJavaProxyProcessCommandLine reads the full process command line cross-platform; empty on failure.
+func stxJavaProxyProcessCommandLine(pid int) string {
+	if pid <= 0 {
+		return ""
+	}
+	if runtime.GOOS == "linux" {
+		cmdlinePath := filepath.Join("/proc", strconv.Itoa(pid), "cmdline")
+		content, err := os.ReadFile(cmdlinePath)
+		if err != nil {
+			return ""
+		}
+		return strings.ReplaceAll(string(content), "\x00", " ")
+	}
+
+	// macOS / 其他：ps -axww 才能拿到接近完整的 argv（默认 ps 会截断）。
+	// macOS / others: ps -axww is required for near-complete argv (default ps truncates).
+	cmd := exec.Command("ps", "-axww", "-p", strconv.Itoa(pid), "-o", "args=")
+	output, err := cmd.Output()
 	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(output))
+}
+
+// isSTXJavaProxyCommandLine 判断命令行是否为托管 stx-java-proxy 进程。
+// isSTXJavaProxyCommandLine reports whether a command line belongs to managed stx-java-proxy.
+func isSTXJavaProxyCommandLine(cmdline string) bool {
+	cmdline = strings.TrimSpace(cmdline)
+	if cmdline == "" {
 		return false
 	}
-	cmdline := strings.ReplaceAll(string(content), "\x00", " ")
 	return strings.Contains(cmdline, "StxJavaProxyApplication") ||
 		strings.Contains(cmdline, "stx-java-proxy")
+}
+
+// stxJavaProxyStatusMatchesDesired 判断当前托管状态是否已对齐目标安装目录与代际 jar。
+// stxJavaProxyStatusMatchesDesired reports whether the managed status already matches the desired runtime.
+func stxJavaProxyStatusMatchesDesired(status *STXJavaProxyServiceStatus, installDir, seatunnelVersion string) bool {
+	if status == nil {
+		return false
+	}
+	cmdline := stxJavaProxyProcessCommandLine(status.PID)
+	if cmdline == "" && status.Port > 0 {
+		cmdline = stxJavaProxyProcessCommandLine(stxJavaProxyPIDByPort(context.Background(), status.Port))
+	}
+	return stxJavaProxyCommandLineMatchesDesired(cmdline, installDir, seatunnelVersion)
+}
+
+// stxJavaProxyCommandLineMatchesDesired 校验命令行是否指向目标 SEATUNNEL_HOME 与代际 jar。
+// stxJavaProxyCommandLineMatchesDesired checks whether cmdline points at the desired SEATUNNEL_HOME and epoch jar.
+func stxJavaProxyCommandLineMatchesDesired(cmdline, installDir, seatunnelVersion string) bool {
+	if !isSTXJavaProxyCommandLine(cmdline) {
+		return false
+	}
+	installDir = filepath.Clean(strings.TrimSpace(installDir))
+	if installDir != "" && installDir != "." {
+		homeMarkers := []string{
+			"-DSEATUNNEL_HOME=" + installDir,
+			"-Dstx.java.proxy.seatunnel.home=" + installDir,
+		}
+		matchedHome := false
+		for _, marker := range homeMarkers {
+			if strings.Contains(cmdline, marker) {
+				matchedHome = true
+				break
+			}
+		}
+		if !matchedHome {
+			return false
+		}
+	}
+	if strings.TrimSpace(seatunnelVersion) == "" {
+		return true
+	}
+	jarName := seatunnelmeta.STXJavaProxyJarFileName(seatunnelVersion)
+	return strings.Contains(cmdline, jarName)
 }
 
 func stxJavaProxyPortFromEndpoint(endpoint string) int {

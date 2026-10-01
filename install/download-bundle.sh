@@ -220,7 +220,21 @@ if [[ "$WITH_OBS" == "true" ]]; then
     || echo "[WARN] observability package missing: $obs_asset"
 fi
 
-mkdir -p "$BUNDLE_DIR/bin/lib"
+# 下载 capability proxy 代际 jar（v2 + v3）与启动脚本。
+# Download capability proxy epoch jars (v2 + v3) and launcher script.
+for epoch in v2 v3; do
+  proxy_jar="stx-java-proxy-${epoch}.jar"
+  download_checked "$VERSION" "$proxy_jar" "$BUNDLE_DIR/packages/$proxy_jar" || \
+    echo "[WARN] capability proxy jar missing on release $VERSION: $proxy_jar"
+done
+
+mkdir -p "$BUNDLE_DIR/bin/lib" "$BUNDLE_DIR/scripts"
+if stx_download_release_asset "$VERSION" "stx-java-proxy.sh" "$BUNDLE_DIR/scripts/stx-java-proxy.sh" 2>/dev/null; then
+  chmod +x "$BUNDLE_DIR/scripts/stx-java-proxy.sh"
+elif [[ -f "$ROOT_DIR/scripts/stx-java-proxy.sh" ]]; then
+  cp "$ROOT_DIR/scripts/stx-java-proxy.sh" "$BUNDLE_DIR/scripts/stx-java-proxy.sh"
+  chmod +x "$BUNDLE_DIR/scripts/stx-java-proxy.sh"
+fi
 cp "$ROOT_DIR/install/install.sh" "$BUNDLE_DIR/install.sh"
 cp "$ROOT_DIR/install/download-lib.sh" "$BUNDLE_DIR/download-lib.sh"
 cp "$ROOT_DIR/install/install-core.sh" "$BUNDLE_DIR/install-core.sh"

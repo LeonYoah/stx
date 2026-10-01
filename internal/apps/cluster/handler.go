@@ -1108,19 +1108,7 @@ func (h *Handler) ProxyWebUI(c *gin.Context) {
 		}
 		_ = resp.Body.Close()
 
-		content := string(body)
-		if strings.Contains(contentType, "text/html") && !strings.Contains(strings.ToLower(content), "<base ") {
-			content = strings.Replace(content, "<head>", "<head><base href=\""+prefix+"/\">", 1)
-		}
-		content = strings.ReplaceAll(content, "href=\"/", "href=\""+prefix+"/")
-		content = strings.ReplaceAll(content, "src=\"/", "src=\""+prefix+"/")
-		content = strings.ReplaceAll(content, "action=\"/", "action=\""+prefix+"/")
-		content = strings.ReplaceAll(content, "fetch('/api/", "fetch('"+prefix+"/api/")
-		content = strings.ReplaceAll(content, "fetch(\"/api/", "fetch(\""+prefix+"/api/")
-		content = strings.ReplaceAll(content, "baseURL:\"/api\"", "baseURL:\""+prefix+"/api\"")
-		content = strings.ReplaceAll(content, "baseURL: '/api'", "baseURL: '"+prefix+"/api'")
-		content = strings.ReplaceAll(content, "baseURL:'/api'", "baseURL:'"+prefix+"/api'")
-		content = strings.ReplaceAll(content, "axios.defaults.baseURL=\"/api\"", "axios.defaults.baseURL=\""+prefix+"/api\"")
+		content := rewriteSeaTunnelWebUIContent(string(body), contentType, prefix)
 
 		resp.Body = io.NopCloser(strings.NewReader(content))
 		resp.ContentLength = int64(len(content))
@@ -1237,7 +1225,8 @@ func (h *Handler) getStatusCodeForError(err error) int {
 		errors.Is(err, ErrInvalidWorkerPort),
 		errors.Is(err, ErrNodeBatchEntriesRequired),
 		errors.Is(err, ErrInvalidNodeJVMOverride),
-		errors.Is(err, ErrPrecheckFailed):
+		errors.Is(err, ErrPrecheckFailed),
+		errors.Is(err, ErrSeparatedClusterRequiresMasterAndWorker):
 		return http.StatusBadRequest
 	default:
 		return http.StatusInternalServerError

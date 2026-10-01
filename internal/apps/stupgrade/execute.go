@@ -28,6 +28,7 @@ import (
 	clusterapp "github.com/LeonYoah/stx/internal/apps/cluster"
 	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
 	installerapp "github.com/LeonYoah/stx/internal/apps/installer"
+	"github.com/LeonYoah/stx/internal/seatunnel"
 )
 
 // ClusterOperator 定义升级执行期所需的集群生命周期能力。
@@ -37,6 +38,12 @@ type ClusterOperator interface {
 	Stop(ctx context.Context, clusterID uint) (*clusterapp.OperationResult, error)
 	Update(ctx context.Context, id uint, req *clusterapp.UpdateClusterRequest) (*clusterapp.Cluster, error)
 	UpdateNode(ctx context.Context, clusterID uint, nodeID uint, req *clusterapp.UpdateNodeRequest) (*clusterapp.ClusterNode, error)
+	// StopSTXJavaProxy 按集群当前元数据停止托管 stx-java-proxy。
+	// StopSTXJavaProxy stops the managed stx-java-proxy using current cluster metadata.
+	StopSTXJavaProxy(ctx context.Context, clusterID uint) (*clusterapp.STXJavaProxyStatus, error)
+	// RestartSTXJavaProxy 按集群当前元数据（切版本后为目标目录/版本）重启托管 stx-java-proxy。
+	// RestartSTXJavaProxy restarts managed stx-java-proxy using current cluster metadata (target dir/version after switch).
+	RestartSTXJavaProxy(ctx context.Context, clusterID uint) (*clusterapp.STXJavaProxyStatus, error)
 }
 
 // PackageTransferer 定义安装包分发能力。
@@ -235,14 +242,21 @@ func (s *Service) executePlanSteps(ctx context.Context, task *UpgradeTask, plan 
 			stepErr = s.executeMergeConfigStep(ctx, task, step, plan, nodesByKey)
 			successMessage = fmt.Sprintf("applied %d merged config files / 已应用 %d 个合并后的配置文件", len(plan.ConfigMergePlan.Files), len(plan.ConfigMergePlan.Files))
 		case StepCodeStopCluster:
-			stepErr = s.executeClusterLifecycleStep(ctx, task, step, clusterapp.OperationStop, nodesByClusterNodeID, ExecutionStatusRunning)
-			successMessage = "cluster stopped and upgrade window opened / 集群已停止，切换窗口已打开"
+			// 先停 proxy 再停 SeaTunnel，避免旧 classpath 悬挂。
+			// Stop proxy before SeaTunnel so the old classpath is not left hanging.
+			stepErr = s.stopJavaProxyForUpgrade(ctx, task, step, plan)
+			if stepErr == nil {
+				stepErr = s.executeClusterLifecycleStep(ctx, task, step, clusterapp.OperationStop, nodesByClusterNodeID, ExecutionStatusRunning)
+				successMessage = "cluster stopped and upgrade window opened / 集群已停止，切换窗口已打开"
+			}
 		case StepCodeSwitchVersion:
 			stepErr = s.executeSwitchVersionStep(ctx, task, step, plan, nodesByKey)
 			successMessage = fmt.Sprintf("switched cluster metadata to target version %s / 已将集群元数据切换到目标版本 %s", plan.TargetVersion, plan.TargetVersion)
 		case StepCodeStartCluster:
 			stepErr = s.executeClusterLifecycleStep(ctx, task, step, clusterapp.OperationStart, nodesByClusterNodeID, ExecutionStatusRunning)
 			successMessage = "cluster started on target version / 目标版本集群已启动"
+		case StepCodeRestartJavaProxy:
+			successMessage, stepErr = s.executeRestartJavaProxyStep(ctx, task, step, plan)
 		case StepCodeHealthCheck:
 			stepErr = s.executeHealthCheckStep(ctx, task, step, plan.NodeTargets, nodesByKey)
 			successMessage = fmt.Sprintf("health checks passed on %d node targets / %d 个节点目标健康检查通过", len(plan.NodeTargets), len(plan.NodeTargets))
@@ -287,6 +301,11 @@ func (s *Service) rollbackTask(ctx context.Context, task *UpgradeTask, plan Upgr
 		return err
 	}
 	if err := s.appendTaskLog(ctx, task.ID, uintPtr(prepareStep.ID), nil, prepareStep.Code, LogLevelWarn, LogEventTypeRollback, fmt.Sprintf("rollback triggered because %s failed: %s / 因 %s 失败触发回滚：%s", task.FailureStep, task.FailureReason, task.FailureStep, task.FailureReason), ""); err != nil {
+		return err
+	}
+	// 回滚停集群前先停 proxy，避免目标目录残留进程干扰恢复。
+	// Stop proxy before rollback cluster stop to avoid leftover processes on the target dir.
+	if err := s.stopJavaProxyForUpgrade(ctx, task, prepareStep, plan); err != nil {
 		return err
 	}
 	if err := s.executeClusterLifecycleStep(ctx, task, prepareStep, clusterapp.OperationStop, nodesByClusterNodeID, ExecutionStatusRollbackRunning); err != nil {
@@ -352,6 +371,11 @@ func (s *Service) rollbackTask(ctx context.Context, task *UpgradeTask, plan Upgr
 			return failErr
 		}
 		return err
+	}
+	// 元数据已回到源版本后，best-effort 重启 proxy 对齐旧 classpath。
+	// After metadata is restored to the source version, best-effort restart proxy for the old classpath.
+	if _, restartErr := s.restartJavaProxyBestEffort(ctx, task, restartStep, plan.SourceVersion); restartErr != nil {
+		return restartErr
 	}
 	if err := s.finishStep(ctx, task, restartStep, "rollback restart completed / 回滚重启完成"); err != nil {
 		return err
@@ -808,6 +832,228 @@ func nodeExecutionID(node *UpgradeNodeExecution) *uint {
 		return nil
 	}
 	return uintPtr(node.ID)
+}
+
+// executeRestartJavaProxyStep 在集群已切到目标版本后重启托管 stx-java-proxy。
+// 失败只记告警，不阻断升级（与 SMOKE_TEST 同策略），避免 proxy 可选能力拖垮主流程。
+// executeRestartJavaProxyStep restarts managed stx-java-proxy after the cluster is on the target version.
+// Failures are warnings only (same policy as SMOKE_TEST) so optional proxy capability cannot block upgrades.
+func (s *Service) executeRestartJavaProxyStep(
+	ctx context.Context,
+	task *UpgradeTask,
+	step *UpgradeTaskStep,
+	plan UpgradePlanSnapshot,
+) (string, error) {
+	epoch := seatunnel.ProxyEpochForVersion(plan.TargetVersion)
+	status, err := s.restartJavaProxyBestEffort(ctx, task, step, plan.TargetVersion)
+	if err != nil {
+		return "", err
+	}
+	if status != nil && status.Healthy {
+		return fmt.Sprintf(
+			"stx-java-proxy restarted for target version %s (epoch %s), endpoint=%s / 已按目标版本 %s（代际 %s）重启 stx-java-proxy，endpoint=%s",
+			plan.TargetVersion,
+			epoch,
+			status.Endpoint,
+			plan.TargetVersion,
+			epoch,
+			status.Endpoint,
+		), nil
+	}
+	if status != nil && status.Running {
+		return fmt.Sprintf(
+			"stx-java-proxy restarted for target version %s (epoch %s) but health probe is not ready yet / 已按目标版本 %s（代际 %s）重启 stx-java-proxy，健康探测尚未就绪",
+			plan.TargetVersion,
+			epoch,
+			plan.TargetVersion,
+			epoch,
+		), nil
+	}
+	return fmt.Sprintf(
+		"stx-java-proxy restart finished with warnings for target version %s (epoch %s) / 目标版本 %s（代际 %s）的 stx-java-proxy 重启已完成（含告警）",
+		plan.TargetVersion,
+		epoch,
+		plan.TargetVersion,
+		epoch,
+	), nil
+}
+
+// stopJavaProxyForUpgrade 在停 SeaTunnel 前 best-effort 停止 proxy：
+// 1) 按集群当前元数据停（切版本前通常是源目录）；
+// 2) 双目录升级时额外按目标目录下发 stop，清理失败升级残留。
+// stopJavaProxyForUpgrade best-effort stops proxy before SeaTunnel stop:
+// 1) stop via current cluster metadata (usually the source dir before switch);
+// 2) for dual-dir upgrades, also stop against the target dir to clear leftovers from failed upgrades.
+func (s *Service) stopJavaProxyForUpgrade(
+	ctx context.Context,
+	task *UpgradeTask,
+	step *UpgradeTaskStep,
+	plan UpgradePlanSnapshot,
+) error {
+	commandSummary := fmt.Sprintf("cluster.stop stx_java_proxy cluster_id=%d", task.ClusterID)
+	if status, err := s.clusterOperator.StopSTXJavaProxy(ctx, task.ClusterID); err != nil {
+		if !isBenignJavaProxyLifecycleError(err) {
+			message := fmt.Sprintf(
+				"best-effort stop of stx-java-proxy before cluster stop failed: %s / 停集群前 best-effort 停止 stx-java-proxy 失败：%s",
+				err.Error(),
+				err.Error(),
+			)
+			if logErr := s.appendTaskLog(ctx, task.ID, uintPtr(step.ID), nil, step.Code, LogLevelWarn, LogEventTypeNote, message, commandSummary); logErr != nil {
+				return logErr
+			}
+		}
+	} else if status != nil {
+		message := fmt.Sprintf(
+			"stx-java-proxy stopped before cluster stop (running=%v) / 停集群前已停止 stx-java-proxy（running=%v）",
+			status.Running,
+			status.Running,
+		)
+		if logErr := s.appendTaskLog(ctx, task.ID, uintPtr(step.ID), nil, step.Code, LogLevelInfo, LogEventTypeProgress, message, commandSummary); logErr != nil {
+			return logErr
+		}
+	}
+
+	// 双目录：源目录已通过集群元数据停止；再对目标目录各 master 节点补一次 stop。
+	// Dual-dir: source dir was stopped via cluster metadata; also stop any leftover proxy on target dirs.
+	for _, target := range plan.NodeTargets {
+		if sameInstallDirForUpgrade(target.SourceInstallDir, target.TargetInstallDir) {
+			continue
+		}
+		if target.Role != string(clusterapp.NodeRoleMaster) && target.Role != string(clusterapp.NodeRoleMasterWorker) {
+			continue
+		}
+		agentID, connected := s.agentCommandSender.GetAgentByHostID(target.HostID)
+		if !connected || strings.TrimSpace(agentID) == "" {
+			continue
+		}
+		targetSummary := fmt.Sprintf(
+			"agent.stop stx_java_proxy install_dir=%s version=%s",
+			target.TargetInstallDir,
+			plan.TargetVersion,
+		)
+		success, output, sendErr := s.agentCommandSender.SendCommand(ctx, agentID, "stop", map[string]string{
+			"service":     "stx_java_proxy",
+			"cluster_id":  fmt.Sprintf("%d", task.ClusterID),
+			"install_dir": target.TargetInstallDir,
+			"version":     plan.TargetVersion,
+		})
+		if sendErr != nil || !success {
+			detail := firstNonEmptyUpgradeMessage(errorStringUpgrade(sendErr), output, "stop stx-java-proxy on target dir failed")
+			if isBenignJavaProxyLifecycleError(fmt.Errorf("%s", detail)) {
+				continue
+			}
+			message := fmt.Sprintf(
+				"best-effort stop of stx-java-proxy on target dir %s failed: %s / 在目标目录 %s 上 best-effort 停止 stx-java-proxy 失败：%s",
+				target.TargetInstallDir,
+				detail,
+				target.TargetInstallDir,
+				detail,
+			)
+			if logErr := s.appendTaskLog(ctx, task.ID, uintPtr(step.ID), nil, step.Code, LogLevelWarn, LogEventTypeNote, message, targetSummary); logErr != nil {
+				return logErr
+			}
+		}
+	}
+	return nil
+}
+
+// restartJavaProxyBestEffort 按当前集群元数据重启 proxy；失败只记 WARN，返回 (status, nil)。
+// 仅在写日志失败时返回 error，避免拖垮升级/回滚主链路。
+// restartJavaProxyBestEffort restarts proxy using current cluster metadata; failures are WARN-only and return (status, nil).
+// It only returns error when appending logs fails, so upgrade/rollback is not blocked.
+func (s *Service) restartJavaProxyBestEffort(
+	ctx context.Context,
+	task *UpgradeTask,
+	step *UpgradeTaskStep,
+	seatunnelVersion string,
+) (*clusterapp.STXJavaProxyStatus, error) {
+	epoch := seatunnel.ProxyEpochForVersion(seatunnelVersion)
+	commandSummary := fmt.Sprintf(
+		"cluster.restart stx_java_proxy cluster_id=%d version=%s epoch=%s",
+		task.ClusterID,
+		seatunnelVersion,
+		epoch,
+	)
+	status, err := s.clusterOperator.RestartSTXJavaProxy(ctx, task.ClusterID)
+	if err != nil {
+		message := fmt.Sprintf(
+			"best-effort restart of stx-java-proxy for version %s (epoch %s) failed: %s / 按版本 %s（代际 %s）best-effort 重启 stx-java-proxy 失败：%s",
+			seatunnelVersion,
+			epoch,
+			err.Error(),
+			seatunnelVersion,
+			epoch,
+			err.Error(),
+		)
+		if logErr := s.appendTaskLog(ctx, task.ID, uintPtr(step.ID), nil, step.Code, LogLevelWarn, LogEventTypeNote, message, commandSummary); logErr != nil {
+			return status, logErr
+		}
+		return status, nil
+	}
+	if status != nil && !status.Healthy {
+		message := fmt.Sprintf(
+			"stx-java-proxy restarted for version %s (epoch %s) but is not healthy yet: %s / 已按版本 %s（代际 %s）重启 stx-java-proxy，但尚未健康：%s",
+			seatunnelVersion,
+			epoch,
+			firstNonEmptyUpgradeMessage(status.Message, "health probe failed"),
+			seatunnelVersion,
+			epoch,
+			firstNonEmptyUpgradeMessage(status.Message, "health probe failed"),
+		)
+		if logErr := s.appendTaskLog(ctx, task.ID, uintPtr(step.ID), nil, step.Code, LogLevelWarn, LogEventTypeNote, message, commandSummary); logErr != nil {
+			return status, logErr
+		}
+		return status, nil
+	}
+	message := fmt.Sprintf(
+		"stx-java-proxy restarted for version %s (epoch %s) / 已按版本 %s（代际 %s）重启 stx-java-proxy",
+		seatunnelVersion,
+		epoch,
+		seatunnelVersion,
+		epoch,
+	)
+	if logErr := s.appendTaskLog(ctx, task.ID, uintPtr(step.ID), nil, step.Code, LogLevelInfo, LogEventTypeSuccess, message, commandSummary); logErr != nil {
+		return status, logErr
+	}
+	return status, nil
+}
+
+// isBenignJavaProxyLifecycleError 判断 proxy 启停失败是否可忽略（未运行 / 已停止 / 无 master）。
+// isBenignJavaProxyLifecycleError reports whether a proxy lifecycle error is benign (not running / already stopped / no master).
+func isBenignJavaProxyLifecycleError(err error) bool {
+	if err == nil {
+		return true
+	}
+	message := strings.ToLower(err.Error())
+	benignFragments := []string{
+		"already stopped",
+		"not running",
+		"no online master",
+		"not found",
+		"no such process",
+	}
+	for _, fragment := range benignFragments {
+		if strings.Contains(message, fragment) {
+			return true
+		}
+	}
+	return false
+}
+
+func firstNonEmptyUpgradeMessage(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func errorStringUpgrade(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }
 
 func (s *Service) executeClusterLifecycleStep(ctx context.Context, task *UpgradeTask, step *UpgradeTaskStep, operation clusterapp.OperationType, nodesByClusterNodeID map[uint]*UpgradeNodeExecution, nodeSuccessStatus ExecutionStatus) error {

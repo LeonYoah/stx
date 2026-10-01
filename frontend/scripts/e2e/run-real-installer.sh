@@ -202,7 +202,11 @@ docker rm -f "${MINIO_NAME}" >/dev/null 2>&1 || true
 JAVA_PROXY_SCRIPT_PATH="${ROOT_DIR}/scripts/stx-java-proxy.sh"
 JAVA_PROXY_LIB_PATH="${ROOT_DIR}/lib/stx-java-proxy-${JAVA_PROXY_EPOCH}.jar"
 if [[ ! -f "${JAVA_PROXY_LIB_PATH}" ]]; then
-  mvn -q -DskipTests package -f "${ROOT_DIR}/tools/stx-java-proxy/pom.xml"
+  if [[ "${JAVA_PROXY_EPOCH}" == "v3" ]]; then
+    mvn -q -DskipTests -P'epoch-v3,!epoch-v2' package -f "${ROOT_DIR}/tools/stx-java-proxy/pom.xml"
+  else
+    mvn -q -DskipTests -Pepoch-v2 package -f "${ROOT_DIR}/tools/stx-java-proxy/pom.xml"
+  fi
   BUILT_JAVA_PROXY_JAR="$(find "${ROOT_DIR}/tools/stx-java-proxy/target" -maxdepth 1 -type f -name "stx-java-proxy-${JAVA_PROXY_EPOCH}.jar" | sort | head -n 1 || true)"
   if [[ -z "${BUILT_JAVA_PROXY_JAR}" ]]; then
     echo "failed to build stx-java-proxy jar for epoch ${JAVA_PROXY_EPOCH}" >&2
@@ -264,7 +268,35 @@ if [[ "${PREPARE_PACKAGE_ONLY}" == "--prepare-package-only" ]]; then
 fi
 
 mkdir -p "${ROOT_DIR}/dist"
-(cd "${ROOT_DIR}" && go build -o dist/stx .)
+# 编译后端二进制，为应对 Go proxy 偶发网络抖动增加自动重试
+# Compile backend binary with automatic retries to handle transient Go proxy network glitches
+build_ok=false
+for attempt in 1 2 3; do
+  if (cd "${ROOT_DIR}" && go build -o dist/stx .); then
+    build_ok=true
+    break
+  fi
+  if [[ "${attempt}" -lt 3 ]]; then
+    echo "[e2e-real] go build failed (attempt ${attempt}/3), retrying in 5s..."
+    sleep 5
+  fi
+done
+if [[ "${build_ok}" != "true" ]]; then
+  echo "[e2e-real] go build failed after 3 attempts"
+  exit 1
+fi
+
+# 预先拉取 Agent 模块依赖，防止 Supervisor 启动 Agent 时因网络抖动中断
+# Pre-download Agent module dependencies to avoid supervisor termination caused by network glitches
+for attempt in 1 2 3; do
+  if (cd "${ROOT_DIR}/agent" && go mod download); then
+    break
+  fi
+  if [[ "${attempt}" -lt 3 ]]; then
+    echo "[e2e-real] agent go mod download failed (attempt ${attempt}/3), retrying in 5s..."
+    sleep 5
+  fi
+done
 
 sed \
   -e "s/:18000/:${BACKEND_HTTP_PORT}/g" \

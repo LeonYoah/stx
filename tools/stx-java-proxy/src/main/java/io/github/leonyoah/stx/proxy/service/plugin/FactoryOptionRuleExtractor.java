@@ -31,6 +31,7 @@ import io.github.leonyoah.stx.proxy.model.RequiredMode;
 import io.github.leonyoah.stx.proxy.service.support.ProxyException;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -90,7 +91,14 @@ class FactoryOptionRuleExtractor {
         if (descriptors.isEmpty()) {
             warnings.add("factory.optionRule() is empty");
         }
-        return new ExtractionResult(new ArrayList<>(descriptors.values()), warnings);
+        // 3.0：透传值约束与条件子规则；2.x 反射不到 getter 时为空列表。
+        // 3.0: emit value constraints / condition rules; empty on 2.x without getters.
+        List<Map<String, Object>> valueConstraints =
+                OptionRuleConstraintCodec.encodeValueConstraints(optionRule);
+        List<Map<String, Object>> conditionRules =
+                OptionRuleConstraintCodec.encodeConditionRules(optionRule);
+        return new ExtractionResult(
+                new ArrayList<>(descriptors.values()), valueConstraints, conditionRules, warnings);
     }
 
     private OptionRule resolveOptionRule(String pluginType, Factory factory) {
@@ -125,15 +133,36 @@ class FactoryOptionRuleExtractor {
 
     static class ExtractionResult {
         private final List<PluginOptionDescriptor> options;
+        private final List<Map<String, Object>> valueConstraints;
+        private final List<Map<String, Object>> conditionRules;
         private final List<String> warnings;
 
         ExtractionResult(List<PluginOptionDescriptor> options, List<String> warnings) {
+            this(options, Collections.emptyList(), Collections.emptyList(), warnings);
+        }
+
+        ExtractionResult(
+                List<PluginOptionDescriptor> options,
+                List<Map<String, Object>> valueConstraints,
+                List<Map<String, Object>> conditionRules,
+                List<String> warnings) {
             this.options = options;
+            this.valueConstraints =
+                    valueConstraints == null ? Collections.emptyList() : valueConstraints;
+            this.conditionRules = conditionRules == null ? Collections.emptyList() : conditionRules;
             this.warnings = warnings;
         }
 
         List<PluginOptionDescriptor> getOptions() {
             return options;
+        }
+
+        List<Map<String, Object>> getValueConstraints() {
+            return valueConstraints;
+        }
+
+        List<Map<String, Object>> getConditionRules() {
+            return conditionRules;
         }
 
         List<String> getWarnings() {

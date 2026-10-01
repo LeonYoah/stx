@@ -60,6 +60,7 @@ import {
   Server,
   Upload,
   DownloadCloud,
+  AlertTriangle,
 } from 'lucide-react';
 import {motion} from 'motion/react';
 import {easeOut} from 'motion';
@@ -72,6 +73,7 @@ import {
 import {PluginService} from '@/lib/services/plugin';
 import {usePackages} from '@/hooks/use-installer';
 import {resolveSeatunnelVersion} from '@/lib/seatunnel-version';
+import {resolvePreferredClusterId} from '@/lib/cluster-preference';
 import {ClusterService} from '@/lib/services/cluster';
 import type {
   Plugin,
@@ -82,6 +84,7 @@ import type {
   InstalledPlugin,
   PluginDependency,
   OfficialDependenciesResponse,
+  PluginListSource,
 } from '@/lib/services/plugin';
 import type {ClusterInfo} from '@/lib/services/cluster';
 import {Progress} from '@/components/ui/progress';
@@ -157,6 +160,11 @@ export function PluginMain() {
   const [loading, setLoading] = useState(true);
   const [refreshingConnectors, setRefreshingConnectors] = useState(false);
   const [catalogRefreshedAt, setCatalogRefreshedAt] = useState<string>('');
+  // 目录来源：seed 表示官方 Maven 不可用、回退内置清单，下载可能失败。
+  // Catalog source: seed means Maven unavailable / bundled fallback; downloads may fail.
+  const [catalogSource, setCatalogSource] = useState<PluginListSource | null>(
+    null,
+  );
   const [error, setError] = useState<string | null>(null);
 
   // Filter state / 过滤状态
@@ -167,9 +175,19 @@ export function PluginMain() {
   const [activeTab, setActiveTab] = useState<'available' | 'local' | 'custom'>(
     'available',
   );
-  const {packages} = usePackages();
+  // 用户手动改过版本后，不再被默认集群 / packages 推荐覆盖。
+  // After a manual version pick, do not overwrite with cluster / packages defaults.
+  const userOverrideVersionRef = useRef(false);
+  const {packages, loading: packagesLoading} = usePackages();
   const availableVersions = packages?.versions || [];
   const recommendedVersion = resolveSeatunnelVersion(packages);
+  // 用于解析默认版本的集群列表（含偏好 / 唯一默认集群）。
+  // Cluster list used to resolve default version (preferred / sole default).
+  const [preferenceClusters, setPreferenceClusters] = useState<ClusterInfo[]>(
+    [],
+  );
+  const [preferenceClustersLoaded, setPreferenceClustersLoaded] =
+    useState(false);
 
   // Local plugins state / 本地插件状态
   const [localPlugins, setLocalPlugins] = useState<LocalPlugin[]>([]);
@@ -222,6 +240,9 @@ export function PluginMain() {
   const [isBatchInstallOpen, setIsBatchInstallOpen] = useState(false);
 
   const lastLoadedAvailableQueryRef = useRef<string | null>(null);
+  // 已提示过的失败下载，避免轮询重复 toast。
+  // Already-notified failed downloads to avoid toast spam while polling.
+  const notifiedFailedDownloadsRef = useRef<Set<string>>(new Set());
 
   // Plugin installation status per cluster / 每个集群的插件安装状态
   // Map: pluginName:version -> { clusterId -> InstalledPlugin }
@@ -229,6 +250,37 @@ export function PluginMain() {
     Map<string, Map<number, InstalledPlugin>>
   >(new Map());
   const [clusters, setClusters] = useState<ClusterInfo[]>([]);
+
+  // 默认集群版本：唯一集群或本地偏好；无明确默认则不用集群版本。
+  // Preferred cluster version: sole cluster or stored preference; skip when ambiguous.
+  const preferredClusterVersion = useMemo(() => {
+    const preferredId = resolvePreferredClusterId(preferenceClusters);
+    if (preferredId == null) {
+      return '';
+    }
+    const cluster = preferenceClusters.find((item) => item.id === preferredId);
+    return String(cluster?.version || '').trim();
+  }, [preferenceClusters]);
+
+  // 版本优先级：默认集群版本 > packages 最新推荐。
+  // Version priority: preferred cluster version > packages recommended.
+  const resolvedDefaultVersion =
+    preferredClusterVersion || recommendedVersion || '';
+
+  // 下拉选项需包含当前选中版本（集群版本可能不在 packages 列表中）。
+  // Version options must include the current selection (cluster version may be absent from packages).
+  const versionOptions = useMemo(() => {
+    const base =
+      availableVersions.length > 0
+        ? availableVersions
+        : recommendedVersion
+          ? [recommendedVersion]
+          : [];
+    if (selectedVersion && !base.includes(selectedVersion)) {
+      return [selectedVersion, ...base];
+    }
+    return base;
+  }, [availableVersions, recommendedVersion, selectedVersion]);
 
   /**
    * Load available plugins
@@ -268,7 +320,14 @@ export function PluginMain() {
 
   const loadPlugins = useCallback(
     async (options?: {force?: boolean}) => {
-      const requestVersion = selectedVersion || recommendedVersion || '';
+      // 必须带明确版本请求，禁止空 version 触发后端 DefaultVersion(2.3.12) 锁死 UI。
+      // Always request with an explicit version; never let empty version lock UI to backend DefaultVersion.
+      const requestVersion =
+        selectedVersion || resolvedDefaultVersion || '';
+      if (!requestVersion) {
+        setLoading(false);
+        return;
+      }
       const queryKey = buildAvailableQueryKey(requestVersion);
 
       if (!options?.force && lastLoadedAvailableQueryRef.current === queryKey) {
@@ -281,22 +340,26 @@ export function PluginMain() {
       try {
         const result: AvailablePluginsResponse =
           await PluginService.listAvailablePlugins(
-            requestVersion || undefined,
+            requestVersion,
             selectedMirror,
           );
 
         setPlugins(result.plugins || []);
         setTotal(result.total || (result.plugins || []).length);
         setCatalogRefreshedAt(result.catalog_refreshed_at || '');
+        setCatalogSource(result.source || null);
         lastLoadedAvailableQueryRef.current = buildAvailableQueryKey(
           result.version || requestVersion,
         );
+        // 不再用响应 version 覆盖选中项，避免后端兜底抢跑覆盖推荐 / 集群版本。
+        // Do not overwrite selection from response.version (avoids backend fallback racing defaults).
 
-        if (result.version && result.version !== selectedVersion) {
-          setSelectedVersion(result.version);
-        }
-
-        if (
+        if (result.source === 'seed' && (result.total || 0) > 0) {
+          toast.warning(t('plugin.catalogFromSeedTitle'), {
+            description: t('plugin.catalogFromSeedDesc'),
+            duration: 8000,
+          });
+        } else if (
           result.source === 'remote' &&
           !result.cache_hit &&
           (result.total || 0) > 0
@@ -312,6 +375,7 @@ export function PluginMain() {
         toast.error(errorMsg);
         setPlugins([]);
         setTotal(0);
+        setCatalogSource(null);
         lastLoadedAvailableQueryRef.current = null;
       } finally {
         setLoading(false);
@@ -319,7 +383,7 @@ export function PluginMain() {
     },
     [
       buildAvailableQueryKey,
-      recommendedVersion,
+      resolvedDefaultVersion,
       selectedMirror,
       selectedVersion,
       t,
@@ -347,6 +411,10 @@ export function PluginMain() {
         ),
       );
       setActiveDownloads(downloadsResult || []);
+      // 同步偏好集群列表，保持默认版本解析与本地 Tab 数据一致。
+      // Keep preference clusters in sync with local-tab fetch for default version resolution.
+      setPreferenceClusters(clustersResult?.clusters ?? []);
+      setPreferenceClustersLoaded(true);
 
       // Filter available clusters / 过滤可用集群
       const availableClusters = (clustersResult?.clusters || []).filter(
@@ -354,13 +422,53 @@ export function PluginMain() {
       );
       setClusters(availableClusters);
 
-      // Update downloadingPlugins set / 更新下载中集合
+      // 下载失败时主动 toast（请求本身只表示入队成功，真正失败在异步任务里）。
+      // Surface async download failures; the download API only means the job was queued.
+      for (const item of downloadsResult || []) {
+        if (item.status !== 'failed') {
+          continue;
+        }
+        const failKey = pluginDownloadKey(item.plugin_name, item.version);
+        if (notifiedFailedDownloadsRef.current.has(failKey)) {
+          continue;
+        }
+        notifiedFailedDownloadsRef.current.add(failKey);
+        toast.error(
+          t('plugin.downloadFailedNamed', {
+            name: item.plugin_name,
+            version: item.version,
+          }),
+          {
+            description:
+              item.error || item.message || t('plugin.downloadFailedHint'),
+            duration: 10000,
+          },
+        );
+      }
+
+      // 活动下载中的 downloading 集合；保留刚入队、尚未出现在列表中的乐观态。
+      // Build downloading set from active tasks; keep optimistic keys not yet listed.
       const downloading = new Set(
         downloadsResult
           ?.filter((d) => d.status === 'downloading')
           .map((d) => pluginDownloadKey(d.plugin_name, d.version)) || [],
       );
-      setDownloadingPlugins(downloading);
+      setDownloadingPlugins((prev) => {
+        const next = new Set(downloading);
+        for (const key of prev) {
+          const listed = (downloadsResult || []).find(
+            (d) => pluginDownloadKey(d.plugin_name, d.version) === key,
+          );
+          if (!listed) {
+            next.add(key);
+            continue;
+          }
+          if (listed.status === 'downloading') {
+            next.add(key);
+          }
+        }
+        return next;
+      });
 
       // Load installed plugins for each cluster / 加载每个集群的已安装插件
       const statusMap = new Map<string, Map<number, InstalledPlugin>>();
@@ -392,7 +500,7 @@ export function PluginMain() {
     } finally {
       setLocalPluginsLoading(false);
     }
-  }, []);
+  }, [t]);
 
   const getSelectedProfileKeysForPlugin = useCallback(
     (pluginName: string) => selectedProfileKeysByPlugin[pluginName] || [],
@@ -445,7 +553,7 @@ export function PluginMain() {
     setIsBatchProfileDialogOpen(true);
 
     try {
-      const version = selectedVersion || recommendedVersion || '';
+      const version = selectedVersion || resolvedDefaultVersion || '';
       const entries = await Promise.all(
         requiredPlugins.map(async (plugin) => {
           const data = await PluginService.getOfficialDependencies(
@@ -471,7 +579,7 @@ export function PluginMain() {
   }, [
     applyDefaultBatchProfiles,
     plugins,
-    recommendedVersion,
+    resolvedDefaultVersion,
     requiresProfileSelection,
     selectedVersion,
     t,
@@ -481,6 +589,12 @@ export function PluginMain() {
     async (selectedProfiles?: Record<string, string[]>) => {
       try {
         setIsDownloadingAll(true);
+        if (catalogSource === 'seed') {
+          toast.warning(t('plugin.downloadOnSeedWarning'), {
+            description: t('plugin.downloadOnSeedWarningDesc'),
+            duration: 6000,
+          });
+        }
         toast.info(t('plugin.downloadAllStarted', {count: total}));
 
         const result = await PluginService.downloadAllPlugins(
@@ -489,13 +603,24 @@ export function PluginMain() {
           selectedProfiles,
         );
 
-        toast.success(
-          t('plugin.downloadAllSuccess', {
-            total: result.total,
-            downloaded: result.downloaded,
-            skipped: result.skipped,
-          }),
-        );
+        if ((result.failed || 0) > 0) {
+          toast.error(
+            t('plugin.downloadAllPartialFailed', {
+              failed: result.failed,
+              downloaded: result.downloaded,
+              total: result.total,
+            }),
+            {duration: 10000},
+          );
+        } else {
+          toast.success(
+            t('plugin.downloadAllSuccess', {
+              total: result.total,
+              downloaded: result.downloaded,
+              skipped: result.skipped,
+            }),
+          );
+        }
         void loadLocalPlugins();
       } catch (err) {
         const errorMsg =
@@ -505,7 +630,14 @@ export function PluginMain() {
         setIsDownloadingAll(false);
       }
     },
-    [loadLocalPlugins, selectedMirror, selectedVersion, t, total],
+    [
+      catalogSource,
+      loadLocalPlugins,
+      selectedMirror,
+      selectedVersion,
+      t,
+      total,
+    ],
   );
 
   const handleConfirmBatchProfileDownload = useCallback(async () => {
@@ -551,12 +683,73 @@ export function PluginMain() {
     [],
   );
 
+  // 预加载集群列表，用于解析默认版本（不依赖「本地插件」Tab）。
+  // Prefetch clusters to resolve default version (independent of local-plugins tab).
+  useEffect(() => {
+    void ClusterService.getClusters({current: 1, size: 100})
+      .then((result) => {
+        setPreferenceClusters(result?.clusters ?? []);
+      })
+      .catch(() => {
+        setPreferenceClusters([]);
+      })
+      .finally(() => {
+        setPreferenceClustersLoaded(true);
+      });
+  }, []);
+
+  // 自动填充默认版本：优先默认集群，否则 packages 推荐；用户手选后不再覆盖。
+  // Auto-fill default version: preferred cluster first, else packages recommended; stop after user pick.
+  useEffect(() => {
+    if (userOverrideVersionRef.current) {
+      return;
+    }
+    if (!preferenceClustersLoaded) {
+      return;
+    }
+    if (!preferredClusterVersion && packagesLoading) {
+      return;
+    }
+    if (!resolvedDefaultVersion) {
+      return;
+    }
+    if (selectedVersion !== resolvedDefaultVersion) {
+      setSelectedVersion(resolvedDefaultVersion);
+    }
+  }, [
+    packagesLoading,
+    preferenceClustersLoaded,
+    preferredClusterVersion,
+    resolvedDefaultVersion,
+    selectedVersion,
+  ]);
+
   useEffect(() => {
     if (activeTab !== 'available') {
       return;
     }
+    // 等默认版本解析完成后再拉列表，避免空 version 抢跑。
+    // Wait until default version is resolved before loading available plugins.
+    if (!preferenceClustersLoaded) {
+      return;
+    }
+    if (!preferredClusterVersion && packagesLoading) {
+      return;
+    }
+    if (!selectedVersion && !resolvedDefaultVersion) {
+      setLoading(false);
+      return;
+    }
     void loadPlugins();
-  }, [activeTab, loadPlugins]);
+  }, [
+    activeTab,
+    loadPlugins,
+    packagesLoading,
+    preferenceClustersLoaded,
+    preferredClusterVersion,
+    resolvedDefaultVersion,
+    selectedVersion,
+  ]);
 
   useEffect(() => {
     void PluginService.listLocalPlugins()
@@ -572,12 +765,6 @@ export function PluginMain() {
       });
   }, [selectedVersion]);
 
-  useEffect(() => {
-    if (!selectedVersion && recommendedVersion) {
-      setSelectedVersion(recommendedVersion);
-    }
-  }, [selectedVersion, recommendedVersion]);
-
   // Load local plugins when switching to local tab / 切换到本地插件标签时加载
   useEffect(() => {
     if (activeTab === 'local') {
@@ -585,21 +772,22 @@ export function PluginMain() {
     }
   }, [activeTab, loadLocalPlugins]);
 
-  // Poll for active downloads when there are downloading plugins / 有下载中的插件时轮询
+  // 有下载中任务时持续轮询（不限本地 Tab），以便异步失败能 toast。
+  // Poll while downloads are in flight (any tab) so async failures can surface.
   useEffect(() => {
-    if (
-      activeTab !== 'local' ||
-      activeDownloads.filter((d) => d.status === 'downloading').length === 0
-    ) {
+    const hasDownloading =
+      activeDownloads.some((d) => d.status === 'downloading') ||
+      downloadingPlugins.size > 0;
+    if (!hasDownloading) {
       return;
     }
 
     const interval = setInterval(() => {
-      loadLocalPlugins();
-    }, 2000); // Poll every 2 seconds / 每2秒轮询一次
+      void loadLocalPlugins();
+    }, 2000);
 
     return () => clearInterval(interval);
-  }, [activeTab, activeDownloads, loadLocalPlugins]);
+  }, [activeDownloads, downloadingPlugins, loadLocalPlugins]);
 
   /**
    * Handle search
@@ -619,21 +807,32 @@ export function PluginMain() {
     if (activeTab === 'local') {
       loadLocalPlugins();
     } else {
-      const requestVersion = selectedVersion || recommendedVersion || '';
+      const requestVersion = selectedVersion || resolvedDefaultVersion || '';
+      if (!requestVersion) {
+        return;
+      }
       setRefreshingConnectors(true);
       setError(null);
       void PluginService.refreshAvailablePlugins(
-        requestVersion || undefined,
+        requestVersion,
         selectedMirror,
       )
         .then((result) => {
           setPlugins(result.plugins || []);
           setTotal(result.total || (result.plugins || []).length);
           setCatalogRefreshedAt(result.catalog_refreshed_at || '');
+          setCatalogSource(result.source || null);
           lastLoadedAvailableQueryRef.current = buildAvailableQueryKey(
             result.version || requestVersion,
           );
-          toast.success(t('plugin.refreshConnectorsSuccess'));
+          if (result.source === 'seed') {
+            toast.warning(t('plugin.catalogFromSeedTitle'), {
+              description: t('plugin.catalogFromSeedDesc'),
+              duration: 8000,
+            });
+          } else {
+            toast.success(t('plugin.refreshConnectorsSuccess'));
+          }
         })
         .catch((err) => {
           const errorMsg =
@@ -974,8 +1173,20 @@ export function PluginMain() {
 
     setSelectedProfileKeysForPlugin(plugin.name, selectedProfileKeys);
 
+    // seed 目录只是内置清单，Maven 可能尚无构件；先警告再继续入队。
+    // Seed catalog is a bundled list only — Maven may lack artifacts; warn then queue.
+    if (catalogSource === 'seed') {
+      toast.warning(t('plugin.downloadOnSeedWarning'), {
+        description: t('plugin.downloadOnSeedWarningDesc'),
+        duration: 6000,
+      });
+    }
+
     try {
       setDownloadingPlugins((prev) => new Set(prev).add(downloadKey));
+      // 允许同一插件再次失败时重新提示。
+      // Allow re-notifying if the same plugin fails again.
+      notifiedFailedDownloadsRef.current.delete(downloadKey);
 
       await PluginService.downloadPlugin(
         plugin.name,
@@ -985,12 +1196,6 @@ export function PluginMain() {
       );
 
       toast.success(t('plugin.downloadStarted'));
-
-      setDownloadingPlugins((prev) => {
-        const next = new Set(prev);
-        next.delete(downloadKey);
-        return next;
-      });
       void loadLocalPlugins();
     } catch (err) {
       setDownloadingPlugins((prev) => {
@@ -1166,6 +1371,22 @@ export function PluginMain() {
         </Card>
       )}
 
+      {/* seed 目录：官方 Maven 尚无该版本构件时的回退清单提示。
+          Seed catalog banner: bundled fallback when official Maven lacks this version. */}
+      {catalogSource === 'seed' && activeTab === 'available' && !error && (
+        <Card className='border-amber-500/40 bg-amber-500/5'>
+          <CardContent className='flex gap-2.5 p-3 text-sm text-amber-900 dark:text-amber-200'>
+            <AlertTriangle className='mt-0.5 h-4 w-4 shrink-0' />
+            <div className='space-y-0.5'>
+              <div className='font-medium'>{t('plugin.catalogFromSeedTitle')}</div>
+              <p className='text-xs leading-relaxed text-amber-800/90 dark:text-amber-200/80'>
+                {t('plugin.catalogFromSeedDesc')}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* 一体化紧凑卡片容器 / Unified Compact Table & Grid Container */}
       <Card className='border-border/70 shadow-xs overflow-hidden'>
         {/* 工具栏第一行：胶囊导航与快捷操作 / Toolbar Row 1: Stat pills bar & Quick actions */}
@@ -1214,17 +1435,18 @@ export function PluginMain() {
           </div>
 
           {/* Version selector / 版本选择器 */}
-          <Select value={selectedVersion} onValueChange={setSelectedVersion}>
+          <Select
+            value={selectedVersion}
+            onValueChange={(value) => {
+              userOverrideVersionRef.current = true;
+              setSelectedVersion(value);
+            }}
+          >
             <SelectTrigger className='w-[130px] h-8 text-xs' data-testid='plugin-version-select'>
               <SelectValue placeholder={t('plugin.version')} />
             </SelectTrigger>
             <SelectContent>
-              {(availableVersions.length > 0
-                ? availableVersions
-                : recommendedVersion
-                  ? [recommendedVersion]
-                  : []
-              ).map((version) => (
+              {versionOptions.map((version) => (
                 <SelectItem key={version} value={version} className='text-xs'>
                   v{version}
                 </SelectItem>
@@ -1348,24 +1570,43 @@ export function PluginMain() {
                     <TableBody>
                       {/* Active downloads / 活动下载 */}
                       {activeDownloads
-                        .filter((d) => d.status === 'downloading')
+                        .filter(
+                          (d) =>
+                            d.status === 'downloading' || d.status === 'failed',
+                        )
                         .map((download) => (
                           <TableRow
-                            key={`downloading-${download.plugin_name}-${download.version}`}
-                            className='bg-blue-50 dark:bg-blue-950'
+                            key={`download-${download.plugin_name}-${download.version}-${download.status}`}
+                            className={
+                              download.status === 'failed'
+                                ? 'bg-destructive/5'
+                                : 'bg-blue-50 dark:bg-blue-950'
+                            }
                           >
                             <TableCell>
                               <Checkbox disabled />
                             </TableCell>
                             <TableCell className='font-medium'>
                               <div className='flex items-center gap-2'>
-                                <RefreshCw className='h-4 w-4 animate-spin text-blue-500' />
+                                {download.status === 'failed' ? (
+                                  <AlertTriangle className='h-4 w-4 text-destructive' />
+                                ) : (
+                                  <RefreshCw className='h-4 w-4 animate-spin text-blue-500' />
+                                )}
                                 {download.plugin_name}
                               </div>
                             </TableCell>
                             <TableCell>
-                              <Badge variant='outline'>
-                                {t('plugin.downloading')}
+                              <Badge
+                                variant={
+                                  download.status === 'failed'
+                                    ? 'destructive'
+                                    : 'outline'
+                                }
+                              >
+                                {download.status === 'failed'
+                                  ? t('plugin.downloadFailed')
+                                  : t('plugin.downloading')}
                               </Badge>
                             </TableCell>
                             <TableCell>v{download.version}</TableCell>
@@ -1375,6 +1616,15 @@ export function PluginMain() {
                               </span>
                             </TableCell>
                             <TableCell>
+                              {download.status === 'failed' ? (
+                                <div className='max-w-[280px] space-y-1 text-xs text-destructive break-all'>
+                                  <div>
+                                    {download.error ||
+                                      download.message ||
+                                      t('plugin.downloadFailedHint')}
+                                  </div>
+                                </div>
+                              ) : (
                               <div className='space-y-1'>
                                 <div className='flex items-center justify-between text-sm'>
                                   <span>
@@ -1444,10 +1694,19 @@ export function PluginMain() {
                                     </div>
                                   )}
                               </div>
+                              )}
                             </TableCell>
                             <TableCell className='text-right'>
-                              <Badge variant='secondary'>
-                                {t('plugin.downloading')}
+                              <Badge
+                                variant={
+                                  download.status === 'failed'
+                                    ? 'destructive'
+                                    : 'secondary'
+                                }
+                              >
+                                {download.status === 'failed'
+                                  ? t('plugin.downloadFailed')
+                                  : t('plugin.downloading')}
                               </Badge>
                             </TableCell>
                           </TableRow>

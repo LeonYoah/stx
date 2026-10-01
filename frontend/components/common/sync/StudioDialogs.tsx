@@ -53,12 +53,14 @@ import {
 } from '@/components/ui/table';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import {cn} from '@/lib/utils';
+import {ExpandableTextPanel} from '@/components/common/layout';
 import type {SyncJobInstance, SyncValidateResult} from '@/lib/services/sync';
 import {
   buildMetricGroups,
   buildMetricHighlights,
   buildPairedMetricRows,
   buildPerTableMetricRows,
+  countLogicalTables,
   formatJobDuration,
   formatMetricCompactValue,
   formatMetricDisplayValue,
@@ -174,9 +176,13 @@ export function StudioErrorDiagnosticsView({
             <span>{rawExpanded ? '收起完整调用堆栈' : '查看完整调用堆栈 (Stacktrace)'}</span>
           </button>
           {rawExpanded ? (
-            <pre className='max-h-60 overflow-auto rounded border border-border/50 bg-muted/40 p-3 font-mono text-[11px] leading-relaxed text-muted-foreground'>
-              {error.raw}
-            </pre>
+            <ExpandableTextPanel
+              title='Stacktrace'
+              content={error.raw}
+              height={240}
+              tone='plain'
+              wrap={false}
+            />
           ) : null}
         </div>
       ) : null}
@@ -365,6 +371,10 @@ export function MetricsDialogContent({job}: {job: SyncJobInstance | null}) {
   const metricHighlights = buildMetricHighlights(rawMetrics, t);
   const perTableRows = buildPerTableMetricRows(rawMetrics);
   const pairedMetricRows = buildPairedMetricRows(rawMetrics);
+  const logicalTableCount = useMemo(
+    () => countLogicalTables(perTableRows.map((row) => row.rawTable)),
+    [perTableRows],
+  );
   const shouldExpandPerTableByDefault = pairedMetricRows.length === 0;
   const [perTableExpanded, setPerTableExpanded] = useState(
     shouldExpandPerTableByDefault,
@@ -1002,7 +1012,11 @@ export function MetricsDialogContent({job}: {job: SyncJobInstance | null}) {
             <div className='flex items-center gap-2'>
               <span className='text-xs font-semibold text-foreground'>{t('metricPerTable')}</span>
               <Badge variant='outline' className='text-[10px] font-mono px-1.5 py-0'>
-                {filteredPerTableRows.length} / {perTableRows.length} 表
+                {t('metricPerTableCount', {
+                  endpoints: filteredPerTableRows.length,
+                  totalEndpoints: perTableRows.length,
+                  tables: logicalTableCount,
+                })}
               </Badge>
             </div>
             {pairedMetricRows.length > 0 ? (

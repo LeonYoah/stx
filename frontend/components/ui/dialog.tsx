@@ -123,7 +123,13 @@ function DialogHeader({className, ...props}: React.ComponentProps<'div'>) {
   return (
     <div
       data-slot='dialog-header'
-      className={cn('flex flex-col gap-2 text-center sm:text-left pr-9', className)}
+      // pr-* 放在 className 之后，避免业务侧 px-* 覆盖关闭按钮预留位。
+      // Keep trailing pr-* so consumer px-* does not eat the close-button clearance.
+      className={cn(
+        'flex flex-col gap-2 text-center sm:text-left',
+        className,
+        'pr-12',
+      )}
       {...props}
     />
   );

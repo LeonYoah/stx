@@ -1,12 +1,12 @@
 {
   "version": 1,
-  "baseline_date": "2026-09-25",
+  "baseline_date": "2026-09-28",
   "summary": {
-    "route_count": 259,
+    "route_count": 264,
     "swagger_path_count": 96,
     "swagger_operation_count": 113,
     "swagger_documented_routes": 113,
-    "registered_operations": 226,
+    "registered_operations": 231,
     "route_exceptions": 33,
     "historical_gaps": 0
   },
@@ -402,7 +402,7 @@
     {
       "method": "GET",
       "path": "/api/v1/clusters/:id/plugins",
-      "source": "internal/router/router.go:890",
+      "source": "internal/router/router.go:898",
       "status": "operation",
       "operation_id": "cluster.plugin.list",
       "mode": "normal",
@@ -411,7 +411,7 @@
     {
       "method": "POST",
       "path": "/api/v1/clusters/:id/plugins",
-      "source": "internal/router/router.go:894",
+      "source": "internal/router/router.go:902",
       "status": "operation",
       "operation_id": "cluster.plugin.install",
       "mode": "normal",
@@ -420,7 +420,7 @@
     {
       "method": "DELETE",
       "path": "/api/v1/clusters/:id/plugins/:name",
-      "source": "internal/router/router.go:898",
+      "source": "internal/router/router.go:906",
       "status": "exception",
       "mode": "server_only",
       "swagger": true
@@ -428,7 +428,7 @@
     {
       "method": "PUT",
       "path": "/api/v1/clusters/:id/plugins/:name/disable",
-      "source": "internal/router/router.go:906",
+      "source": "internal/router/router.go:914",
       "status": "operation",
       "operation_id": "cluster.plugin.disable",
       "mode": "normal",
@@ -437,7 +437,7 @@
     {
       "method": "PUT",
       "path": "/api/v1/clusters/:id/plugins/:name/enable",
-      "source": "internal/router/router.go:902",
+      "source": "internal/router/router.go:910",
       "status": "operation",
       "operation_id": "cluster.plugin.enable",
       "mode": "normal",
@@ -446,7 +446,7 @@
     {
       "method": "GET",
       "path": "/api/v1/clusters/:id/plugins/:name/progress",
-      "source": "internal/router/router.go:910",
+      "source": "internal/router/router.go:918",
       "status": "operation",
       "operation_id": "cluster.plugin.progress.get",
       "mode": "normal",
@@ -1167,7 +1167,7 @@
     {
       "method": "POST",
       "path": "/api/v1/hosts/:id/install",
-      "source": "internal/router/router.go:974",
+      "source": "internal/router/router.go:982",
       "status": "operation",
       "operation_id": "host.install.start",
       "mode": "normal",
@@ -1185,7 +1185,7 @@
     {
       "method": "POST",
       "path": "/api/v1/hosts/:id/install/cancel",
-      "source": "internal/router/router.go:986",
+      "source": "internal/router/router.go:994",
       "status": "operation",
       "operation_id": "host.install.cancel",
       "mode": "normal",
@@ -1194,7 +1194,7 @@
     {
       "method": "POST",
       "path": "/api/v1/hosts/:id/install/retry",
-      "source": "internal/router/router.go:982",
+      "source": "internal/router/router.go:990",
       "status": "operation",
       "operation_id": "host.install.retry",
       "mode": "normal",
@@ -1203,7 +1203,7 @@
     {
       "method": "GET",
       "path": "/api/v1/hosts/:id/install/status",
-      "source": "internal/router/router.go:978",
+      "source": "internal/router/router.go:986",
       "status": "operation",
       "operation_id": "host.install.status.get",
       "mode": "normal",
@@ -1212,7 +1212,7 @@
     {
       "method": "POST",
       "path": "/api/v1/hosts/:id/precheck",
-      "source": "internal/router/router.go:969",
+      "source": "internal/router/router.go:977",
       "status": "operation",
       "operation_id": "host.precheck",
       "mode": "normal",
@@ -1221,7 +1221,7 @@
     {
       "method": "POST",
       "path": "/api/v1/installer/runtime-storage/validate",
-      "source": "internal/router/router.go:970",
+      "source": "internal/router/router.go:978",
       "status": "operation",
       "operation_id": "installer.runtime-storage.validate",
       "mode": "normal",
@@ -1589,7 +1589,7 @@
     {
       "method": "DELETE",
       "path": "/api/v1/packages/:version",
-      "source": "internal/router/router.go:672",
+      "source": "internal/router/router.go:680",
       "status": "operation",
       "operation_id": "package.delete",
       "mode": "normal",
@@ -1598,7 +1598,7 @@
     {
       "method": "GET",
       "path": "/api/v1/packages/:version",
-      "source": "internal/router/router.go:648",
+      "source": "internal/router/router.go:656",
       "status": "operation",
       "operation_id": "package.get",
       "mode": "normal",
@@ -1607,7 +1607,7 @@
     {
       "method": "GET",
       "path": "/api/v1/packages/:version/source/download",
-      "source": "internal/router/router.go:668",
+      "source": "internal/router/router.go:676",
       "status": "operation",
       "operation_id": "package.source.download",
       "mode": "download",
@@ -1616,7 +1616,7 @@
     {
       "method": "POST",
       "path": "/api/v1/packages/:version/source/fetch",
-      "source": "internal/router/router.go:664",
+      "source": "internal/router/router.go:672",
       "status": "operation",
       "operation_id": "package.source.fetch",
       "mode": "normal",
@@ -1625,7 +1625,7 @@
     {
       "method": "POST",
       "path": "/api/v1/packages/:version/source/upload",
-      "source": "internal/router/router.go:660",
+      "source": "internal/router/router.go:668",
       "status": "operation",
       "operation_id": "package.source.upload",
       "mode": "normal",
@@ -1634,7 +1634,7 @@
     {
       "method": "POST",
       "path": "/api/v1/packages/download",
-      "source": "internal/router/router.go:676",
+      "source": "internal/router/router.go:684",
       "status": "operation",
       "operation_id": "package.download.start",
       "mode": "normal",
@@ -1643,7 +1643,7 @@
     {
       "method": "GET",
       "path": "/api/v1/packages/download/:version",
-      "source": "internal/router/router.go:684",
+      "source": "internal/router/router.go:692",
       "status": "operation",
       "operation_id": "package.download.get",
       "mode": "normal",
@@ -1652,7 +1652,7 @@
     {
       "method": "POST",
       "path": "/api/v1/packages/download/:version/cancel",
-      "source": "internal/router/router.go:688",
+      "source": "internal/router/router.go:696",
       "status": "operation",
       "operation_id": "package.download.cancel",
       "mode": "normal",
@@ -1661,16 +1661,61 @@
     {
       "method": "GET",
       "path": "/api/v1/packages/downloads",
-      "source": "internal/router/router.go:680",
+      "source": "internal/router/router.go:688",
       "status": "operation",
       "operation_id": "package.download.list",
       "mode": "normal",
       "swagger": true
     },
     {
+      "method": "GET",
+      "path": "/api/v1/packages/offline-bundles",
+      "source": "internal/router/router.go:648",
+      "status": "operation",
+      "operation_id": "package.offline-bundle.list",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/packages/offline-bundles",
+      "source": "internal/router/router.go:649",
+      "status": "operation",
+      "operation_id": "package.offline-bundle.create",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/packages/offline-bundles/:name",
+      "source": "internal/router/router.go:652",
+      "status": "operation",
+      "operation_id": "package.offline-bundle.delete",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/packages/offline-bundles/:name/download",
+      "source": "internal/router/router.go:651",
+      "status": "operation",
+      "operation_id": "package.offline-bundle.download",
+      "mode": "download",
+      "swagger": false
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/packages/offline-bundles/import",
+      "source": "internal/router/router.go:650",
+      "status": "operation",
+      "operation_id": "package.offline-bundle.import",
+      "mode": "normal",
+      "swagger": false
+    },
+    {
       "method": "POST",
       "path": "/api/v1/packages/upload",
-      "source": "internal/router/router.go:652",
+      "source": "internal/router/router.go:660",
       "status": "operation",
       "operation_id": "package.upload",
       "mode": "normal",
@@ -1679,7 +1724,7 @@
     {
       "method": "POST",
       "path": "/api/v1/packages/upload/chunk",
-      "source": "internal/router/router.go:656",
+      "source": "internal/router/router.go:664",
       "status": "operation",
       "operation_id": "package.upload.chunk",
       "mode": "normal",
@@ -1697,7 +1742,7 @@
     {
       "method": "GET",
       "path": "/api/v1/plugins",
-      "source": "internal/router/router.go:820",
+      "source": "internal/router/router.go:828",
       "status": "operation",
       "operation_id": "plugin.list",
       "mode": "normal",
@@ -1706,7 +1751,7 @@
     {
       "method": "GET",
       "path": "/api/v1/plugins/:name",
-      "source": "internal/router/router.go:840",
+      "source": "internal/router/router.go:848",
       "status": "operation",
       "operation_id": "plugin.get",
       "mode": "normal",
@@ -1715,7 +1760,7 @@
     {
       "method": "GET",
       "path": "/api/v1/plugins/:name/dependencies",
-      "source": "internal/router/router.go:856",
+      "source": "internal/router/router.go:864",
       "status": "operation",
       "operation_id": "plugin.dependency.list",
       "mode": "normal",
@@ -1724,7 +1769,7 @@
     {
       "method": "POST",
       "path": "/api/v1/plugins/:name/dependencies",
-      "source": "internal/router/router.go:880",
+      "source": "internal/router/router.go:888",
       "status": "operation",
       "operation_id": "plugin.dependency.add",
       "mode": "normal",
@@ -1733,7 +1778,7 @@
     {
       "method": "DELETE",
       "path": "/api/v1/plugins/:name/dependencies/:depId",
-      "source": "internal/router/router.go:884",
+      "source": "internal/router/router.go:892",
       "status": "exception",
       "mode": "server_only",
       "swagger": true
@@ -1741,7 +1786,7 @@
     {
       "method": "POST",
       "path": "/api/v1/plugins/:name/dependencies/disables",
-      "source": "internal/router/router.go:864",
+      "source": "internal/router/router.go:872",
       "status": "operation",
       "operation_id": "plugin.dependency.disable",
       "mode": "normal",
@@ -1750,7 +1795,7 @@
     {
       "method": "DELETE",
       "path": "/api/v1/plugins/:name/dependencies/disables/:disableId",
-      "source": "internal/router/router.go:868",
+      "source": "internal/router/router.go:876",
       "status": "exception",
       "mode": "server_only",
       "swagger": false
@@ -1758,7 +1803,7 @@
     {
       "method": "POST",
       "path": "/api/v1/plugins/:name/dependencies/upload",
-      "source": "internal/router/router.go:860",
+      "source": "internal/router/router.go:868",
       "status": "operation",
       "operation_id": "plugin.dependency.upload",
       "mode": "normal",
@@ -1767,7 +1812,7 @@
     {
       "method": "POST",
       "path": "/api/v1/plugins/:name/download",
-      "source": "internal/router/router.go:844",
+      "source": "internal/router/router.go:852",
       "status": "operation",
       "operation_id": "plugin.download.start",
       "mode": "normal",
@@ -1776,7 +1821,7 @@
     {
       "method": "GET",
       "path": "/api/v1/plugins/:name/download/status",
-      "source": "internal/router/router.go:848",
+      "source": "internal/router/router.go:856",
       "status": "operation",
       "operation_id": "plugin.download.status.get",
       "mode": "normal",
@@ -1785,7 +1830,7 @@
     {
       "method": "DELETE",
       "path": "/api/v1/plugins/:name/local",
-      "source": "internal/router/router.go:852",
+      "source": "internal/router/router.go:860",
       "status": "exception",
       "mode": "server_only",
       "swagger": true
@@ -1793,7 +1838,7 @@
     {
       "method": "GET",
       "path": "/api/v1/plugins/:name/official-dependencies",
-      "source": "internal/router/router.go:872",
+      "source": "internal/router/router.go:880",
       "status": "operation",
       "operation_id": "plugin.official-dependency.list",
       "mode": "normal",
@@ -1802,7 +1847,7 @@
     {
       "method": "POST",
       "path": "/api/v1/plugins/:name/official-dependencies/analyze",
-      "source": "internal/router/router.go:876",
+      "source": "internal/router/router.go:884",
       "status": "operation",
       "operation_id": "plugin.official-dependency.analyze",
       "mode": "normal",
@@ -1811,7 +1856,7 @@
     {
       "method": "POST",
       "path": "/api/v1/plugins/download-all",
-      "source": "internal/router/router.go:836",
+      "source": "internal/router/router.go:844",
       "status": "operation",
       "operation_id": "plugin.download-all.start",
       "mode": "normal",
@@ -1820,7 +1865,7 @@
     {
       "method": "GET",
       "path": "/api/v1/plugins/downloads",
-      "source": "internal/router/router.go:832",
+      "source": "internal/router/router.go:840",
       "status": "operation",
       "operation_id": "plugin.download.list",
       "mode": "normal",
@@ -1829,7 +1874,7 @@
     {
       "method": "GET",
       "path": "/api/v1/plugins/local",
-      "source": "internal/router/router.go:828",
+      "source": "internal/router/router.go:836",
       "status": "operation",
       "operation_id": "plugin.local.list",
       "mode": "normal",
@@ -1838,7 +1883,7 @@
     {
       "method": "POST",
       "path": "/api/v1/plugins/refresh",
-      "source": "internal/router/router.go:824",
+      "source": "internal/router/router.go:832",
       "status": "operation",
       "operation_id": "plugin.refresh",
       "mode": "normal",
@@ -1847,7 +1892,7 @@
     {
       "method": "POST",
       "path": "/api/v1/st-upgrade/execute",
-      "source": "internal/router/router.go:958",
+      "source": "internal/router/router.go:966",
       "status": "operation",
       "operation_id": "stupgrade.plan.execute",
       "mode": "normal",
@@ -1856,7 +1901,7 @@
     {
       "method": "POST",
       "path": "/api/v1/st-upgrade/plan",
-      "source": "internal/router/router.go:956",
+      "source": "internal/router/router.go:964",
       "status": "operation",
       "operation_id": "stupgrade.plan.create",
       "mode": "normal",
@@ -1865,7 +1910,7 @@
     {
       "method": "GET",
       "path": "/api/v1/st-upgrade/plans/:id",
-      "source": "internal/router/router.go:957",
+      "source": "internal/router/router.go:965",
       "status": "operation",
       "operation_id": "stupgrade.plan.get",
       "mode": "normal",
@@ -1874,7 +1919,7 @@
     {
       "method": "POST",
       "path": "/api/v1/st-upgrade/precheck",
-      "source": "internal/router/router.go:955",
+      "source": "internal/router/router.go:963",
       "status": "operation",
       "operation_id": "stupgrade.precheck",
       "mode": "normal",
@@ -1883,7 +1928,7 @@
     {
       "method": "GET",
       "path": "/api/v1/st-upgrade/tasks",
-      "source": "internal/router/router.go:959",
+      "source": "internal/router/router.go:967",
       "status": "operation",
       "operation_id": "stupgrade.task.list",
       "mode": "normal",
@@ -1892,7 +1937,7 @@
     {
       "method": "GET",
       "path": "/api/v1/st-upgrade/tasks/:id",
-      "source": "internal/router/router.go:960",
+      "source": "internal/router/router.go:968",
       "status": "operation",
       "operation_id": "stupgrade.task.get",
       "mode": "normal",
@@ -1901,7 +1946,7 @@
     {
       "method": "GET",
       "path": "/api/v1/st-upgrade/tasks/:id/events/stream",
-      "source": "internal/router/router.go:963",
+      "source": "internal/router/router.go:971",
       "status": "exception",
       "mode": "watch",
       "swagger": false
@@ -1909,7 +1954,7 @@
     {
       "method": "GET",
       "path": "/api/v1/st-upgrade/tasks/:id/logs",
-      "source": "internal/router/router.go:962",
+      "source": "internal/router/router.go:970",
       "status": "operation",
       "operation_id": "stupgrade.task.logs",
       "mode": "normal",
@@ -1918,7 +1963,7 @@
     {
       "method": "GET",
       "path": "/api/v1/st-upgrade/tasks/:id/steps",
-      "source": "internal/router/router.go:961",
+      "source": "internal/router/router.go:969",
       "status": "operation",
       "operation_id": "stupgrade.task.steps",
       "mode": "normal",
@@ -1927,7 +1972,7 @@
     {
       "method": "POST",
       "path": "/api/v1/sync/curated-templates",
-      "source": "internal/router/router.go:750",
+      "source": "internal/router/router.go:758",
       "status": "operation",
       "operation_id": "sync.curated.create",
       "mode": "normal",
@@ -1936,7 +1981,7 @@
     {
       "method": "DELETE",
       "path": "/api/v1/sync/curated-templates/:id",
-      "source": "internal/router/router.go:752",
+      "source": "internal/router/router.go:760",
       "status": "operation",
       "operation_id": "sync.curated.delete",
       "mode": "normal",
@@ -1945,7 +1990,7 @@
     {
       "method": "PUT",
       "path": "/api/v1/sync/curated-templates/:id",
-      "source": "internal/router/router.go:751",
+      "source": "internal/router/router.go:759",
       "status": "operation",
       "operation_id": "sync.curated.update",
       "mode": "normal",
@@ -1954,7 +1999,7 @@
     {
       "method": "POST",
       "path": "/api/v1/sync/curated-templates/fork",
-      "source": "internal/router/router.go:753",
+      "source": "internal/router/router.go:761",
       "status": "operation",
       "operation_id": "sync.curated.fork",
       "mode": "normal",
@@ -1963,7 +2008,7 @@
     {
       "method": "POST",
       "path": "/api/v1/sync/curated-templates/list",
-      "source": "internal/router/router.go:749",
+      "source": "internal/router/router.go:757",
       "status": "operation",
       "operation_id": "sync.curated.list",
       "mode": "normal",
@@ -1972,7 +2017,7 @@
     {
       "method": "POST",
       "path": "/api/v1/sync/curated-templates/parse-combo",
-      "source": "internal/router/router.go:754",
+      "source": "internal/router/router.go:762",
       "status": "operation",
       "operation_id": "sync.curated.parse-combo",
       "mode": "normal",
@@ -1981,7 +2026,7 @@
     {
       "method": "POST",
       "path": "/api/v1/sync/curated-templates/render",
-      "source": "internal/router/router.go:755",
+      "source": "internal/router/router.go:763",
       "status": "operation",
       "operation_id": "sync.curated.render",
       "mode": "normal",
@@ -1990,7 +2035,7 @@
     {
       "method": "GET",
       "path": "/api/v1/sync/global-variables",
-      "source": "internal/router/router.go:741",
+      "source": "internal/router/router.go:749",
       "status": "operation",
       "operation_id": "sync.variable.list",
       "mode": "normal",
@@ -1999,7 +2044,7 @@
     {
       "method": "POST",
       "path": "/api/v1/sync/global-variables",
-      "source": "internal/router/router.go:742",
+      "source": "internal/router/router.go:750",
       "status": "operation",
       "operation_id": "sync.variable.create",
       "mode": "normal",
@@ -2008,7 +2053,7 @@
     {
       "method": "DELETE",
       "path": "/api/v1/sync/global-variables/:id",
-      "source": "internal/router/router.go:744",
+      "source": "internal/router/router.go:752",
       "status": "operation",
       "operation_id": "sync.variable.delete",
       "mode": "normal",
@@ -2017,7 +2062,7 @@
     {
       "method": "PUT",
       "path": "/api/v1/sync/global-variables/:id",
-      "source": "internal/router/router.go:743",
+      "source": "internal/router/router.go:751",
       "status": "operation",
       "operation_id": "sync.variable.update",
       "mode": "normal",
@@ -2026,7 +2071,7 @@
     {
       "method": "GET",
       "path": "/api/v1/sync/jobs",
-      "source": "internal/router/router.go:769",
+      "source": "internal/router/router.go:777",
       "status": "operation",
       "operation_id": "sync.job.list",
       "mode": "normal",
@@ -2035,7 +2080,7 @@
     {
       "method": "GET",
       "path": "/api/v1/sync/jobs/:id",
-      "source": "internal/router/router.go:770",
+      "source": "internal/router/router.go:778",
       "status": "operation",
       "operation_id": "sync.job.get",
       "mode": "normal",
@@ -2044,7 +2089,7 @@
     {
       "method": "POST",
       "path": "/api/v1/sync/jobs/:id/cancel",
-      "source": "internal/router/router.go:775",
+      "source": "internal/router/router.go:783",
       "status": "operation",
       "operation_id": "sync.job.cancel",
       "mode": "normal",
@@ -2053,7 +2098,7 @@
     {
       "method": "GET",
       "path": "/api/v1/sync/jobs/:id/checkpoint",
-      "source": "internal/router/router.go:772",
+      "source": "internal/router/router.go:780",
       "status": "operation",
       "operation_id": "sync.job.checkpoint",
       "mode": "normal",
@@ -2062,7 +2107,7 @@
     {
       "method": "GET",
       "path": "/api/v1/sync/jobs/:id/logs",
-      "source": "internal/router/router.go:773",
+      "source": "internal/router/router.go:781",
       "status": "operation",
       "operation_id": "sync.job.logs",
       "mode": "normal",
@@ -2071,7 +2116,7 @@
     {
       "method": "GET",
       "path": "/api/v1/sync/jobs/:id/preview",
-      "source": "internal/router/router.go:771",
+      "source": "internal/router/router.go:779",
       "status": "operation",
       "operation_id": "sync.job.preview",
       "mode": "normal",
@@ -2080,7 +2125,7 @@
     {
       "method": "POST",
       "path": "/api/v1/sync/jobs/:id/recover",
-      "source": "internal/router/router.go:774",
+      "source": "internal/router/router.go:782",
       "status": "operation",
       "operation_id": "sync.job.recover",
       "mode": "normal",
@@ -2089,7 +2134,7 @@
     {
       "method": "POST",
       "path": "/api/v1/sync/plugins/enum-catalog",
-      "source": "internal/router/router.go:764",
+      "source": "internal/router/router.go:772",
       "status": "operation",
       "operation_id": "sync.plugin.enum-catalog",
       "mode": "normal",
@@ -2098,7 +2143,7 @@
     {
       "method": "POST",
       "path": "/api/v1/sync/plugins/enum-values",
-      "source": "internal/router/router.go:763",
+      "source": "internal/router/router.go:771",
       "status": "operation",
       "operation_id": "sync.plugin.enum-values",
       "mode": "normal",
@@ -2107,7 +2152,7 @@
     {
       "method": "POST",
       "path": "/api/v1/sync/plugins/list",
-      "source": "internal/router/router.go:760",
+      "source": "internal/router/router.go:768",
       "status": "operation",
       "operation_id": "sync.plugin.list",
       "mode": "normal",
@@ -2116,7 +2161,7 @@
     {
       "method": "POST",
       "path": "/api/v1/sync/plugins/options",
-      "source": "internal/router/router.go:761",
+      "source": "internal/router/router.go:769",
       "status": "operation",
       "operation_id": "sync.plugin.options",
       "mode": "normal",
@@ -2125,7 +2170,7 @@
     {
       "method": "POST",
       "path": "/api/v1/sync/plugins/template",
-      "source": "internal/router/router.go:762",
+      "source": "internal/router/router.go:770",
       "status": "operation",
       "operation_id": "sync.plugin.template",
       "mode": "normal",
@@ -2134,7 +2179,7 @@
     {
       "method": "POST",
       "path": "/api/v1/sync/preview/collect",
-      "source": "internal/router/router.go:711",
+      "source": "internal/router/router.go:719",
       "status": "exception",
       "mode": "server_only",
       "swagger": false
@@ -2142,7 +2187,7 @@
     {
       "method": "GET",
       "path": "/api/v1/sync/tasks",
-      "source": "internal/router/router.go:721",
+      "source": "internal/router/router.go:729",
       "status": "operation",
       "operation_id": "sync.task.list",
       "mode": "normal",
@@ -2151,7 +2196,7 @@
     {
       "method": "POST",
       "path": "/api/v1/sync/tasks",
-      "source": "internal/router/router.go:720",
+      "source": "internal/router/router.go:728",
       "status": "operation",
       "operation_id": "sync.task.create",
       "mode": "normal",
@@ -2160,7 +2205,7 @@
     {
       "method": "DELETE",
       "path": "/api/v1/sync/tasks/:id",
-      "source": "internal/router/router.go:726",
+      "source": "internal/router/router.go:734",
       "status": "operation",
       "operation_id": "sync.task.delete",
       "mode": "normal",
@@ -2169,7 +2214,7 @@
     {
       "method": "GET",
       "path": "/api/v1/sync/tasks/:id",
-      "source": "internal/router/router.go:722",
+      "source": "internal/router/router.go:730",
       "status": "operation",
       "operation_id": "sync.task.get",
       "mode": "normal",
@@ -2178,7 +2223,7 @@
     {
       "method": "PUT",
       "path": "/api/v1/sync/tasks/:id",
-      "source": "internal/router/router.go:725",
+      "source": "internal/router/router.go:733",
       "status": "operation",
       "operation_id": "sync.task.update",
       "mode": "normal",
@@ -2187,7 +2232,7 @@
     {
       "method": "POST",
       "path": "/api/v1/sync/tasks/:id/dag",
-      "source": "internal/router/router.go:733",
+      "source": "internal/router/router.go:741",
       "status": "operation",
       "operation_id": "sync.task.dag",
       "mode": "normal",
@@ -2196,7 +2241,7 @@
     {
       "method": "GET",
       "path": "/api/v1/sync/tasks/:id/permissions",
-      "source": "internal/router/router.go:723",
+      "source": "internal/router/router.go:731",
       "status": "operation",
       "operation_id": "sync.task.permissions.get",
       "mode": "normal",
@@ -2205,7 +2250,7 @@
     {
       "method": "PUT",
       "path": "/api/v1/sync/tasks/:id/permissions",
-      "source": "internal/router/router.go:724",
+      "source": "internal/router/router.go:732",
       "status": "operation",
       "operation_id": "sync.task.permissions.update",
       "mode": "normal",
@@ -2214,7 +2259,7 @@
     {
       "method": "POST",
       "path": "/api/v1/sync/tasks/:id/preview",
-      "source": "internal/router/router.go:734",
+      "source": "internal/router/router.go:742",
       "status": "operation",
       "operation_id": "sync.task.preview",
       "mode": "normal",
@@ -2223,7 +2268,7 @@
     {
       "method": "POST",
       "path": "/api/v1/sync/tasks/:id/preview/sink-savemode",
-      "source": "internal/router/router.go:735",
+      "source": "internal/router/router.go:743",
       "status": "operation",
       "operation_id": "sync.task.preview-savemode",
       "mode": "normal",
@@ -2232,7 +2277,7 @@
     {
       "method": "POST",
       "path": "/api/v1/sync/tasks/:id/publish",
-      "source": "internal/router/router.go:727",
+      "source": "internal/router/router.go:735",
       "status": "operation",
       "operation_id": "sync.task.publish",
       "mode": "normal",
@@ -2241,7 +2286,7 @@
     {
       "method": "POST",
       "path": "/api/v1/sync/tasks/:id/submit",
-      "source": "internal/router/router.go:736",
+      "source": "internal/router/router.go:744",
       "status": "operation",
       "operation_id": "sync.task.submit",
       "mode": "normal",
@@ -2250,7 +2295,7 @@
     {
       "method": "POST",
       "path": "/api/v1/sync/tasks/:id/test-connections",
-      "source": "internal/router/router.go:732",
+      "source": "internal/router/router.go:740",
       "status": "operation",
       "operation_id": "sync.task.test-connections",
       "mode": "normal",
@@ -2259,7 +2304,7 @@
     {
       "method": "POST",
       "path": "/api/v1/sync/tasks/:id/validate",
-      "source": "internal/router/router.go:731",
+      "source": "internal/router/router.go:739",
       "status": "operation",
       "operation_id": "sync.task.validate",
       "mode": "normal",
@@ -2268,7 +2313,7 @@
     {
       "method": "GET",
       "path": "/api/v1/sync/tasks/:id/versions",
-      "source": "internal/router/router.go:728",
+      "source": "internal/router/router.go:736",
       "status": "operation",
       "operation_id": "sync.task.version.list",
       "mode": "normal",
@@ -2277,7 +2322,7 @@
     {
       "method": "DELETE",
       "path": "/api/v1/sync/tasks/:id/versions/:versionId",
-      "source": "internal/router/router.go:730",
+      "source": "internal/router/router.go:738",
       "status": "operation",
       "operation_id": "sync.task.version.delete",
       "mode": "normal",
@@ -2286,7 +2331,7 @@
     {
       "method": "POST",
       "path": "/api/v1/sync/tasks/:id/versions/:versionId/rollback",
-      "source": "internal/router/router.go:729",
+      "source": "internal/router/router.go:737",
       "status": "operation",
       "operation_id": "sync.task.version.rollback",
       "mode": "normal",
@@ -2295,7 +2340,7 @@
     {
       "method": "GET",
       "path": "/api/v1/sync/tree",
-      "source": "internal/router/router.go:716",
+      "source": "internal/router/router.go:724",
       "status": "operation",
       "operation_id": "sync.tree",
       "mode": "normal",

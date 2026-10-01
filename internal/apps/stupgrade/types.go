@@ -91,6 +91,9 @@ const (
 	StepCodeStopCluster       StepCode = "STOP_CLUSTER"
 	StepCodeSwitchVersion     StepCode = "SWITCH_VERSION"
 	StepCodeStartCluster      StepCode = "START_CLUSTER"
+	// StepCodeRestartJavaProxy 在切到目标目录/版本后重启托管 stx-java-proxy，对齐代际与 classpath。
+	// StepCodeRestartJavaProxy restarts managed stx-java-proxy after switching to the target dir/version.
+	StepCodeRestartJavaProxy StepCode = "RESTART_JAVA_PROXY"
 	StepCodeHealthCheck       StepCode = "HEALTH_CHECK"
 	StepCodeSmokeTest         StepCode = "SMOKE_TEST"
 	StepCodeComplete          StepCode = "COMPLETE"
@@ -398,12 +401,13 @@ func DefaultExecutionSteps() []PlanStep {
 		{Sequence: 6, Code: StepCodeSyncConnectors, Title: "同步 Connector", Description: "保留目标安装包自带 connector，并叠加平台管理 connector。", Required: true},
 		{Sequence: 7, Code: StepCodeSyncPlugins, Title: "同步隔离依赖", Description: "保留目标安装包自带资产，并叠加 plugins 目录中的隔离依赖。", Required: true},
 		{Sequence: 8, Code: StepCodeMergeConfig, Title: "应用配置", Description: "应用已确认的三方合并配置。", Required: true},
-		{Sequence: 9, Code: StepCodeStopCluster, Title: "停止集群", Description: "停止当前集群进程并进入切换窗口。", Required: true},
+		{Sequence: 9, Code: StepCodeStopCluster, Title: "停止集群", Description: "停止当前集群进程与 stx-java-proxy，并进入切换窗口。", Required: true},
 		{Sequence: 10, Code: StepCodeSwitchVersion, Title: "切换版本", Description: "切换到目标版本目录或 current 指针。", Required: true},
 		{Sequence: 11, Code: StepCodeStartCluster, Title: "启动集群", Description: "启动切换后的目标版本。", Required: true},
-		{Sequence: 12, Code: StepCodeHealthCheck, Title: "健康检查", Description: "校验节点与集群服务健康状态。", Required: true},
-		{Sequence: 13, Code: StepCodeSmokeTest, Title: "可用性验证", Description: "执行升级后的模板任务验证；失败只记录告警，不阻塞升级。", Required: true},
-		{Sequence: 14, Code: StepCodeComplete, Title: "完成", Description: "标记升级成功并收尾清理。", Required: true},
+		{Sequence: 12, Code: StepCodeRestartJavaProxy, Title: "重启 Java Proxy", Description: "按目标版本代际重启托管 stx-java-proxy，对齐新安装目录与 classpath；失败只告警不阻断升级。", Required: true},
+		{Sequence: 13, Code: StepCodeHealthCheck, Title: "健康检查", Description: "校验节点与集群服务健康状态。", Required: true},
+		{Sequence: 14, Code: StepCodeSmokeTest, Title: "可用性验证", Description: "执行升级后的模板任务验证；失败只记录告警，不阻塞升级。", Required: true},
+		{Sequence: 15, Code: StepCodeComplete, Title: "完成", Description: "标记升级成功并收尾清理。", Required: true},
 	}
 }
 

@@ -667,6 +667,105 @@ export function formatMetadataValue(value: unknown): string {
   }
 }
 
+/**
+ * 将 3.0 valueConstraints 链压成可读摘要（hover 用）。
+ * Flatten 3.0 valueConstraints chains into short hover hints.
+ */
+export function formatValueConstraintHints(
+  optionKey: string,
+  constraints: unknown,
+): string[] {
+  if (!optionKey || !Array.isArray(constraints) || constraints.length === 0) {
+    return [];
+  }
+  const hints: string[] = [];
+  for (const root of constraints) {
+    collectConstraintHints(optionKey, root, hints);
+  }
+  return hints;
+}
+
+function collectConstraintHints(
+  optionKey: string,
+  node: unknown,
+  hints: string[],
+  depth = 0,
+): void {
+  if (!node || typeof node !== 'object' || depth > 32) {
+    return;
+  }
+  const item = node as Record<string, unknown>;
+  const key = String(item.optionKey || item.option_key || '');
+  if (key === optionKey) {
+    const hint = describeConstraintNode(item);
+    if (hint && !hints.includes(hint)) {
+      hints.push(hint);
+    }
+  }
+  if (item.next) {
+    collectConstraintHints(optionKey, item.next, hints, depth + 1);
+  }
+}
+
+function describeConstraintNode(item: Record<string, unknown>): string {
+  const operator = String(item.operator || '').toUpperCase();
+  const expectValue = item.expectValue ?? item.expect_value;
+  const compareKey = String(
+    item.compareOptionKey || item.compare_option_key || '',
+  );
+  const extension = String(
+    item.extensionDescription || item.extension_description || '',
+  );
+  switch (operator) {
+    case 'GREATER_THAN':
+      return compareKey
+        ? `> \`${compareKey}\``
+        : `> ${formatMetadataValue(expectValue)}`;
+    case 'GREATER_OR_EQUAL':
+      return compareKey
+        ? `≥ \`${compareKey}\``
+        : `≥ ${formatMetadataValue(expectValue)}`;
+    case 'LESS_THAN':
+    case 'FIELD_LESS_THAN':
+      return compareKey
+        ? `< \`${compareKey}\``
+        : `< ${formatMetadataValue(expectValue)}`;
+    case 'LESS_OR_EQUAL':
+    case 'FIELD_LESS_OR_EQUAL':
+      return compareKey
+        ? `≤ \`${compareKey}\``
+        : `≤ ${formatMetadataValue(expectValue)}`;
+    case 'FIELD_GREATER_THAN':
+      return compareKey ? `> \`${compareKey}\`` : operator;
+    case 'FIELD_GREATER_OR_EQUAL':
+      return compareKey ? `≥ \`${compareKey}\`` : operator;
+    case 'EQUAL':
+      return `= ${formatMetadataValue(expectValue)}`;
+    case 'NOT_EQUAL':
+      return `≠ ${formatMetadataValue(expectValue)}`;
+    case 'NOT_BLANK':
+      return '非空白';
+    case 'NOT_EMPTY':
+    case 'MAP_NOT_EMPTY':
+      return '非空';
+    case 'STARTS_WITH':
+      return `以 ${formatMetadataValue(expectValue)} 开头`;
+    case 'CONTAINS':
+      return `包含 ${formatMetadataValue(expectValue)}`;
+    case 'MATCHES':
+      return `匹配 ${formatMetadataValue(expectValue)}`;
+    case 'EXTENSION':
+      return extension || '自定义约束';
+    default:
+      if (!operator) {
+        return '';
+      }
+      return expectValue !== undefined && expectValue !== null
+        ? `${operator} ${formatMetadataValue(expectValue)}`
+        : operator;
+  }
+}
+
 export function resolveEnumSuggestionItems(metadata: any): Array<{
   label: string;
   value: string;
@@ -801,6 +900,38 @@ export function resolveEnumSuggestRange(position: {
     startColumn: position.column,
     endColumn: position.column,
   };
+}
+
+/**
+ * 光标是否落在已写完的枚举值末尾（含引号外），此时 Enter 应换行而非再次采纳补全。
+ * Whether the cursor sits at/after a finished enum value so Enter should insert a newline.
+ */
+export function isCursorAtFinishedEnumValue(
+  bounds: OptionAssignmentContext['bounds'],
+  column: number,
+  enumValues: string[],
+): boolean {
+  if (!bounds || !enumValues.length) {
+    return false;
+  }
+  const current = (bounds.value || '').trim();
+  if (!current) {
+    return false;
+  }
+  const matchesEnum = enumValues.some(
+    (val) => val.toLowerCase() === current.toLowerCase(),
+  );
+  if (!matchesEnum) {
+    return false;
+  }
+  // 带引号：落在闭合引号上或之后视为写完。
+  // Quoted: finished when cursor is on/after the closing quote.
+  if (bounds.quoted) {
+    return column >= bounds.endColumn;
+  }
+  // 无引号：光标在值末尾或之后视为写完（行尾按 Enter 换行）。
+  // Unquoted: finished when cursor is at/after the value token end.
+  return column >= bounds.endColumn;
 }
 
 export function ensureSyncHoconLanguage(monaco: any) {
@@ -2514,6 +2645,35 @@ export function toNumericMetricMap(value: unknown): Record<string, number> {
   return result;
 }
 
+// 从 SeaTunnel 表级指标 key 去掉 Source[n]. / Sink[n]. 前缀，得到表路径。
+// Strip Source[n]. / Sink[n]. prefix from SeaTunnel table metric keys.
+export function extractMetricTablePath(metricKey: string): string {
+  const match = String(metricKey || '').match(/^(Source|Sink)\[\d+\]\.(.+)$/i);
+  return (match?.[2] || String(metricKey || '')).trim();
+}
+
+// 配对与多表判定用的逻辑表键（取末段表名，忽略 archive_ 前缀）。
+// Logical table key for pairing / multi-table checks (leaf name, ignore archive_ prefix).
+export function normalizePairingTableKey(tablePath: string): string {
+  const path = extractMetricTablePath(tablePath);
+  const leaf =
+    path.split('.').pop()?.trim().toLowerCase() || path.trim().toLowerCase();
+  return leaf.replace(/^archive_/, '');
+}
+
+// 按逻辑表去重计数：Source/Sink 两端同一表只算 1，不再把端点当多表。
+// Count unique logical tables; Source/Sink endpoints of the same table count as one.
+export function countLogicalTables(metricKeys: Iterable<string>): number {
+  const keys = new Set<string>();
+  for (const raw of metricKeys) {
+    const logical = normalizePairingTableKey(String(raw));
+    if (logical) {
+      keys.add(logical);
+    }
+  }
+  return keys.size;
+}
+
 // 提取作业运行指标摘要，兼容单表全局指标与 SeaTunnel 3.0 表级细粒度聚合指标
 // Extract job execution metric summary, compatible with single-table global metrics and SeaTunnel 3.0 table-level metrics
 export function extractJobMetricSummary(job: SyncJobInstance): {
@@ -2542,12 +2702,14 @@ export function extractJobMetricSummary(job: SyncJobInstance): {
   const tableSourceQpsMap = toNumericMetricMap(metrics.TableSourceReceivedQPS);
   const tableSinkQpsMap = toNumericMetricMap(metrics.TableSinkWriteQPS);
 
-  const uniqueTables = new Set([
+  const uniqueMetricKeys = new Set([
     ...Object.keys(tableSourceCountMap),
     ...Object.keys(tableSinkCountMap),
     ...Object.keys(tableSinkCommittedMap),
   ]);
-  const tableCount = uniqueTables.size;
+  // 多表以逻辑表为准，避免 Source[0].t / Sink[0].t 被计成 2 张表。
+  // Multi-table uses logical tables so Source[0].t / Sink[0].t count as one.
+  const tableCount = countLogicalTables(uniqueMetricKeys);
 
   // 当全局读指标为空但存在表级指标时，汇总表级读取行数
   // When global read metrics are absent but table-level metrics exist, aggregate table read counts
@@ -2614,12 +2776,68 @@ export function formatMetricValue(value: number | null, digits = 0): string {
   return digits > 0 ? value.toFixed(digits) : String(Math.round(value));
 }
 
+/**
+ * 将指标值格式化为可读字符串；对象/数组（如 *PerVertex map）不再落到 [object Object]。
+ * Format metric values for display; maps/arrays (e.g. *PerVertex) stay readable.
+ */
 export function formatMetricDisplayValue(value: unknown): string {
   if (value === null || value === undefined) {
     return '-';
   }
   if (typeof value === 'number') {
-    return value.toLocaleString();
+    return Number.isFinite(value) ? value.toLocaleString() : String(value);
+  }
+  if (typeof value === 'boolean') {
+    return value ? 'true' : 'false';
+  }
+  if (typeof value === 'string') {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    if (value.length === 0) {
+      return '[]';
+    }
+    const allPrimitive = value.every(
+      (item) =>
+        item === null ||
+        item === undefined ||
+        typeof item === 'string' ||
+        typeof item === 'number' ||
+        typeof item === 'boolean',
+    );
+    if (allPrimitive) {
+      return value.map((item) => formatMetricDisplayValue(item)).join(', ');
+    }
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return '[array]';
+    }
+  }
+  if (typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>);
+    if (entries.length === 0) {
+      return '{}';
+    }
+    // *PerVertex 等扁平 map：vertexId → 标量 / Flat maps like *PerVertex: vertexId → scalar
+    const allPrimitive = entries.every(
+      ([, item]) =>
+        item === null ||
+        item === undefined ||
+        typeof item === 'string' ||
+        typeof item === 'number' ||
+        typeof item === 'boolean',
+    );
+    if (allPrimitive) {
+      return entries
+        .map(([key, item]) => `${key}: ${formatMetricDisplayValue(item)}`)
+        .join(', ');
+    }
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return '[object]';
+    }
   }
   return String(value);
 }
@@ -2763,6 +2981,8 @@ export function resolveDefaultPreviewHTTPSinkURL(): string {
 }
 
 export function buildDefaultContent(_format: SyncFormat): string {
+  // 保留模板生成能力供插入/示例使用；新建文件默认不再自动填充。
+  // Keep template generation for insert/demo use; new files no longer auto-fill.
   return (
     'env {\n' +
     '  job.mode = "BATCH"\n' +
@@ -2939,10 +3159,13 @@ export function buildPerTableMetricRows(metrics: Record<string, unknown>) {
   ).sort();
 
   return allTables.map((table) => {
-    const match = table.match(/^(Source|Sink)\[(\d+)\]\.(.+)$/);
-    const nodeType = match?.[1] || 'Table';
+    const path = extractMetricTablePath(table);
+    const match = table.match(/^(Source|Sink)\[(\d+)\]\.(.+)$/i);
+    const nodeType = match?.[1]
+      ? match[1][0].toUpperCase() + match[1].slice(1).toLowerCase()
+      : 'Table';
     const nodeIndex = match?.[2] ? Number(match[2]) + 1 : null;
-    const tablePath = match?.[3] || table;
+    const tablePath = path || table;
     return {
       rawTable: table,
       nodeLabel: nodeIndex !== null ? `${nodeType} #${nodeIndex}` : nodeType,
@@ -2963,13 +3186,6 @@ export function buildPerTableMetricRows(metrics: Record<string, unknown>) {
       committedBytes: committedBytes[table] || '-',
     };
   });
-}
-
-export function normalizePairingTableKey(tablePath: string): string {
-  const leaf =
-    tablePath.split('.').pop()?.trim().toLowerCase() ||
-    tablePath.trim().toLowerCase();
-  return leaf.replace(/^archive_/, '');
 }
 
 export function buildPairedMetricRows(metrics: Record<string, unknown>) {

@@ -48,7 +48,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {Loader2, Search, Server, Cpu, CheckCircle2} from 'lucide-react';
+import {Checkbox} from '@/components/ui/checkbox';
+import {
+  Loader2,
+  Search,
+  Server,
+  Cpu,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  SlidersHorizontal,
+  Sparkles,
+} from 'lucide-react';
 import {toast} from 'sonner';
 import services from '@/lib/services';
 import {DeploymentMode, CreateClusterRequest} from '@/lib/services/cluster/types';
@@ -85,6 +96,13 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
     Map<number, DiscoveredProcess[]>
   >(new Map());
   const [selectedProcesses, setSelectedProcesses] = useState<Set<string>>(new Set());
+
+  // Advanced settings state (stx-java-proxy & JVM) / 高级配置状态（stx-java-proxy 与 JVM 参数）
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [autoStartProxy, setAutoStartProxy] = useState(true);
+  const [proxyPort, setProxyPort] = useState<number>(18080);
+  const [proxyJvmOpts, setProxyJvmOpts] = useState<string>('-Xms128m -Xmx512m');
+  const [proxyJvmPreset, setProxyJvmPreset] = useState<string>('512m');
 
   /**
    * Load available hosts when dialog opens
@@ -131,6 +149,11 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
     setSelectedHostIds(new Set());
     setDiscoveredProcessesByHost(new Map());
     setSelectedProcesses(new Set());
+    setShowAdvanced(false);
+    setAutoStartProxy(true);
+    setProxyPort(18080);
+    setProxyJvmOpts('-Xms128m -Xmx512m');
+    setProxyJvmPreset('512m');
   };
 
   /**
@@ -149,6 +172,24 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
       newSelected.add(hostId);
     }
     setSelectedHostIds(newSelected);
+  };
+
+  /**
+   * Select all hosts
+   * 全选主机
+   */
+  const selectAllHosts = () => {
+    setSelectedHostIds(new Set(availableHosts.map((h) => h.id)));
+  };
+
+  /**
+   * Deselect all hosts
+   * 取消全选主机
+   */
+  const deselectAllHosts = () => {
+    setSelectedHostIds(new Set());
+    setDiscoveredProcessesByHost(new Map());
+    setSelectedProcesses(new Set());
   };
 
   /**
@@ -198,6 +239,14 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
             hosts: hostIds.length - failedHosts,
           })
         );
+        // Auto-select all discovered processes by default to save user manual clicks
+        // 发现后默认全选所有扫描出的进程，减少用户逐个点击的成本
+        const allKeys = new Set<string>();
+        newProcessesByHost.forEach((procs, hId) => {
+          procs.forEach((p) => allKeys.add(getProcessKey(hId, p)));
+        });
+        setSelectedProcesses(allKeys);
+
         // Auto-detect deployment mode from all discovered processes
         // 从所有发现的进程自动检测部署模式
         const allProcesses = Array.from(newProcessesByHost.values()).flat();
@@ -249,6 +298,43 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
       newSelected.add(processKey);
     }
     setSelectedProcesses(newSelected);
+  };
+
+  /**
+   * Select all discovered processes
+   * 全选所有发现的进程
+   */
+  const selectAllProcesses = () => {
+    const allKeys = new Set<string>();
+    discoveredProcessesByHost.forEach((procs, hId) => {
+      procs.forEach((p) => allKeys.add(getProcessKey(hId, p)));
+    });
+    setSelectedProcesses(allKeys);
+  };
+
+  /**
+   * Deselect all processes
+   * 取消全选进程
+   */
+  const deselectAllProcesses = () => {
+    setSelectedProcesses(new Set());
+  };
+
+  /**
+   * Toggle all processes for a specific host
+   * 切换特定主机下所有进程的选择
+   */
+  const toggleHostProcesses = (hostId: number) => {
+    const hostProcs = discoveredProcessesByHost.get(hostId) || [];
+    const hostKeys = hostProcs.map((p) => getProcessKey(hostId, p));
+    const allSelected = hostKeys.every((k) => selectedProcesses.has(k));
+    const next = new Set(selectedProcesses);
+    if (allSelected) {
+      hostKeys.forEach((k) => next.delete(k));
+    } else {
+      hostKeys.forEach((k) => next.add(k));
+    }
+    setSelectedProcesses(next);
   };
 
   /**
@@ -314,11 +400,25 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
       return;
     }
 
+    // Get selected processes info / 获取选中的进程信息
+    const selectedProcessInfo = getSelectedProcessesWithHost();
+    if (selectedProcessInfo.length === 0) {
+      toast.error(t('cluster.selectAtLeastOneNode'));
+      return;
+    }
+
+    // Role validation in separated mode / 分离部署模式下的角色完整性校验
+    if (deploymentMode === DeploymentMode.SEPARATED) {
+      const hasMaster = selectedProcessInfo.some((p) => p.role === 'master');
+      const hasWorker = selectedProcessInfo.some((p) => p.role === 'worker');
+      if (!hasMaster || !hasWorker) {
+        toast.error(t('cluster.separatedRequiresMasterAndWorker'));
+        return;
+      }
+    }
+
     setLoading(true);
     try {
-      // Get selected processes info / 获取选中的进程信息
-      const selectedProcessInfo = getSelectedProcessesWithHost();
-
       // Build nodes from selected processes / 从选中的进程构建节点
       // In separated mode, each process (master/worker) is a separate node
       // 在分离模式下，每个进程（master/worker）是一个独立的节点
@@ -362,20 +462,35 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
         }
       });
 
-      // Convert to nodes array / 转换为节点数组
+      // Convert to nodes array with discovered PID / 转换为包含发现 PID 的节点数组
       const nodes = Array.from(nodeMap.values()).map((node) => ({
         host_id: node.hostId,
         install_dir: node.installDir,
         role: node.role,
+        pid: node.pids[0] || undefined,
         hazelcast_port: node.hazelcastPort > 0 ? node.hazelcastPort : undefined,
         api_port: node.apiPort > 0 ? node.apiPort : undefined,
       }));
+
+      const effectivePort = Number(proxyPort) > 0 ? Number(proxyPort) : 18080;
+      const effectiveJvmOpts = proxyJvmOpts.trim() || '-Xms128m -Xmx512m';
 
       const data: CreateClusterRequest = {
         name: name.trim(),
         description: description.trim() || undefined,
         deployment_mode: deploymentMode,
         version: version.trim() || undefined,
+        install_dir: selectedProcessInfo[0]?.installDir || undefined,
+        config: {
+          stx_java_proxy: {
+            port: effectivePort,
+            jvm_opts: effectiveJvmOpts,
+            auto_start: autoStartProxy,
+          },
+          ports: {
+            java_proxy_port: effectivePort,
+          },
+        },
         nodes: nodes.length > 0 ? nodes : undefined,
       };
 
@@ -383,6 +498,23 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
 
       if (result.success) {
         toast.success(t('cluster.createSuccess'));
+        // Trigger initial config sync and java-proxy startup in background
+        // 后台静默触发首次集群配置拉取与 stx-java-proxy 辅助服务拉起
+        if (result.data?.id) {
+          const createdClusterId = result.data.id;
+          const targetNode =
+            selectedProcessInfo.find((p) => p.role === 'master' || p.role === 'hybrid') ||
+            selectedProcessInfo[0];
+          if (targetNode) {
+            services.config
+              .initClusterConfigsSafe(createdClusterId, targetNode.hostId, targetNode.installDir)
+              .catch(() => {});
+          }
+
+          if (autoStartProxy) {
+            services.cluster.startStxJavaProxySafe(createdClusterId).catch(() => {});
+          }
+        }
         resetForm();
         onSuccess();
       } else {
@@ -507,7 +639,31 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
 
           {/* Host Selection for Discovery / 用于发现的主机选择 */}
           <div className='space-y-2'>
-            <Label>{t('discovery.selectHostsToDiscover')}</Label>
+            <div className='flex items-center justify-between'>
+              <Label>{t('discovery.selectHostsToDiscover')}</Label>
+              {availableHosts.length > 0 && (
+                <div className='flex items-center gap-1'>
+                  <Button
+                    type='button'
+                    variant='ghost'
+                    size='sm'
+                    className='h-6 px-2 text-xs text-muted-foreground hover:text-foreground'
+                    onClick={selectAllHosts}
+                  >
+                    {t('discovery.selectAllHosts')}
+                  </Button>
+                  <Button
+                    type='button'
+                    variant='ghost'
+                    size='sm'
+                    className='h-6 px-2 text-xs text-muted-foreground hover:text-foreground'
+                    onClick={deselectAllHosts}
+                  >
+                    {t('discovery.deselectAllHosts')}
+                  </Button>
+                </div>
+              )}
+            </div>
             {loadingHosts ? (
               <div className='flex items-center gap-2 text-muted-foreground'>
                 <Loader2 className='h-4 w-4 animate-spin' />
@@ -571,17 +727,53 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
           {/* Discovered Processes by Host / 按主机分组的发现进程 */}
           {discoveredProcessesByHost.size > 0 && (
             <div className='space-y-2'>
-              <Label>{t('discovery.discoveredProcesses')}</Label>
+              <div className='flex items-center justify-between'>
+                <Label>{t('discovery.discoveredProcesses')}</Label>
+                <div className='flex items-center gap-1'>
+                  <Button
+                    type='button'
+                    variant='ghost'
+                    size='sm'
+                    className='h-6 px-2 text-xs text-muted-foreground hover:text-foreground'
+                    onClick={selectAllProcesses}
+                  >
+                    {t('discovery.selectAllProcesses')}
+                  </Button>
+                  <Button
+                    type='button'
+                    variant='ghost'
+                    size='sm'
+                    className='h-6 px-2 text-xs text-muted-foreground hover:text-foreground'
+                    onClick={deselectAllProcesses}
+                  >
+                    {t('discovery.deselectAllProcesses')}
+                  </Button>
+                </div>
+              </div>
               <div className='border rounded-md max-h-[250px] overflow-y-auto'>
                 {Array.from(discoveredProcessesByHost.entries()).map(([hostId, processes]) => (
                   <div key={hostId} className='border-b last:border-b-0'>
                     {/* Host header / 主机标题 */}
-                    <div className='bg-muted/50 px-3 py-2 flex items-center gap-2 sticky top-0'>
-                      <Server className='h-4 w-4 text-muted-foreground' />
-                      <span className='font-medium text-sm'>{getHostName(hostId)}</span>
-                      <span className='text-xs text-muted-foreground'>
-                        ({processes.length} {t('discovery.processes')})
-                      </span>
+                    <div className='bg-muted/50 px-3 py-2 flex items-center justify-between sticky top-0 z-10'>
+                      <div className='flex items-center gap-2'>
+                        <Server className='h-4 w-4 text-muted-foreground' />
+                        <span className='font-medium text-sm'>{getHostName(hostId)}</span>
+                        <span className='text-xs text-muted-foreground'>
+                          ({processes.length} {t('discovery.processes')})
+                        </span>
+                      </div>
+                      <Button
+                        type='button'
+                        variant='ghost'
+                        size='sm'
+                        className='h-6 px-2 text-xs text-muted-foreground hover:text-foreground'
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleHostProcesses(hostId);
+                        }}
+                      >
+                        {t('discovery.selectAllOnHost')}
+                      </Button>
                     </div>
                     {/* Processes / 进程列表 */}
                     <div className='divide-y'>
@@ -602,7 +794,7 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
                               }`}
                             >
                               {isSelected && (
-                                <CheckCircle2 className='h-4 w-4 text-primary-foreground' />
+                                <CheckCircle2 className='h-3 w-3 text-primary-foreground' />
                               )}
                             </div>
                             <Cpu className='h-4 w-4 text-muted-foreground flex-shrink-0' />
@@ -637,7 +829,7 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
                                     Hazelcast: {proc.hazelcast_port}
                                   </span>
                                 )}
-                                {proc.api_port > 0 && (
+                                {proc.role !== 'worker' && proc.api_port > 0 && (
                                   <span className='flex items-center gap-1'>
                                     <span className='w-2 h-2 rounded-full bg-green-500'></span>
                                     API: {proc.api_port}
@@ -657,6 +849,141 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
               </p>
             </div>
           )}
+
+          {/* Advanced Settings Section / 高级配置部分 */}
+          <div className='border rounded-lg overflow-hidden'>
+            <Button
+              type='button'
+              variant='ghost'
+              size='sm'
+              className='w-full flex items-center justify-between px-3 py-2.5 h-auto text-xs font-medium bg-muted/30 hover:bg-muted/50 rounded-none'
+              onClick={() => setShowAdvanced(!showAdvanced)}
+            >
+              <div className='flex items-center gap-2'>
+                <SlidersHorizontal className='h-3.5 w-3.5 text-muted-foreground' />
+                <span>{t('cluster.advancedSettings')}</span>
+                <span className='text-[10px] text-muted-foreground font-mono'>
+                  (STX Java Proxy)
+                </span>
+              </div>
+              {showAdvanced ? (
+                <ChevronDown className='h-3.5 w-3.5 text-muted-foreground' />
+              ) : (
+                <ChevronRight className='h-3.5 w-3.5 text-muted-foreground' />
+              )}
+            </Button>
+
+            {showAdvanced && (
+              <div className='p-3.5 space-y-4 border-t bg-card/60'>
+                {/* Proxy Service Description & Toggle / 代理服务说明与开关 */}
+                <div className='space-y-2'>
+                  <div className='flex items-center justify-between'>
+                    <div className='flex items-center gap-1.5'>
+                      <Label className='text-xs font-semibold'>
+                        {t('cluster.stxJavaProxy.title')}
+                      </Label>
+                      <span className='inline-flex items-center gap-0.5 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary'>
+                        <Sparkles className='h-2.5 w-2.5' />
+                        {t('cluster.wizard.modeBadgeProduction')}
+                      </span>
+                    </div>
+                  </div>
+                  <p className='text-xs text-muted-foreground leading-relaxed'>
+                    {t('cluster.stxJavaProxyDesc')}
+                  </p>
+
+                  <div className='flex items-start gap-2 pt-1'>
+                    <Checkbox
+                      id='auto-start-proxy'
+                      checked={autoStartProxy}
+                      onCheckedChange={(checked) => setAutoStartProxy(Boolean(checked))}
+                    />
+                    <div className='grid gap-0.5 leading-none'>
+                      <Label
+                        htmlFor='auto-start-proxy'
+                        className='text-xs font-medium cursor-pointer'
+                      >
+                        {t('cluster.autoStartProxy')}
+                      </Label>
+                      <p className='text-[11px] text-muted-foreground'>
+                        {t('cluster.autoStartProxyHelp')}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Proxy Port / 代理端口 */}
+                <div className='space-y-1.5'>
+                  <Label htmlFor='proxy-port' className='text-xs font-medium'>
+                    {t('cluster.proxyPort')}
+                  </Label>
+                  <Input
+                    id='proxy-port'
+                    type='number'
+                    value={proxyPort}
+                    onChange={(e) => setProxyPort(parseInt(e.target.value) || 0)}
+                    min={1024}
+                    max={65535}
+                    placeholder={t('cluster.proxyPortPlaceholder') || '18080'}
+                    className='h-8 text-xs font-mono'
+                  />
+                  <p className='text-[11px] text-muted-foreground'>
+                    {t('cluster.proxyPortHelp')}
+                  </p>
+                </div>
+
+                {/* JVM Options / JVM 参数与预设 */}
+                <div className='space-y-1.5'>
+                  <Label htmlFor='proxy-jvm-opts' className='text-xs font-medium'>
+                    {t('cluster.proxyJvmOpts')}
+                  </Label>
+                  <div className='flex flex-wrap gap-1.5 mb-1.5'>
+                    {[
+                      {id: '512m', label: '512M', value: '-Xms128m -Xmx512m'},
+                      {id: '1024m', label: '1024M', value: '-Xms256m -Xmx1024m'},
+                      {id: '2048m', label: '2048M', value: '-Xms512m -Xmx2048m'},
+                    ].map((preset) => (
+                      <Button
+                        key={preset.id}
+                        type='button'
+                        variant={proxyJvmPreset === preset.id ? 'default' : 'outline'}
+                        size='sm'
+                        className='h-6 px-2 text-[11px]'
+                        onClick={() => {
+                          setProxyJvmPreset(preset.id);
+                          setProxyJvmOpts(preset.value);
+                        }}
+                      >
+                        {preset.label}
+                      </Button>
+                    ))}
+                    <Button
+                      type='button'
+                      variant={proxyJvmPreset === 'custom' ? 'default' : 'outline'}
+                      size='sm'
+                      className='h-6 px-2 text-[11px]'
+                      onClick={() => setProxyJvmPreset('custom')}
+                    >
+                      {t('cluster.stxJavaProxy.presetCustom')}
+                    </Button>
+                  </div>
+                  <Input
+                    id='proxy-jvm-opts'
+                    value={proxyJvmOpts}
+                    onChange={(e) => {
+                      setProxyJvmOpts(e.target.value);
+                      setProxyJvmPreset('custom');
+                    }}
+                    placeholder='-Xms128m -Xmx512m'
+                    className='h-8 text-xs font-mono'
+                  />
+                  <p className='text-[11px] text-muted-foreground'>
+                    {t('cluster.proxyJvmOptsHelp')}
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         <DialogFooter>

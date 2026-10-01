@@ -255,7 +255,11 @@ func TestGetInstallScript(t *testing.T) {
 		t.Error("Expected script to contain stx-java-proxy version variable")
 	}
 
-	if !strings.Contains(body, "/api/v1/agent/assets/stx-java-proxy.jar?version=${CAPABILITY_PROXY_VERSION}") {
+	if !strings.Contains(body, "CAPABILITY_PROXY_EPOCHS=\""+strings.Join(seatunnelmeta.STXJavaProxyEpochs(), " ")+"\"") {
+		t.Error("Expected script to contain stx-java-proxy epochs variable")
+	}
+
+	if !strings.Contains(body, "/api/v1/agent/assets/stx-java-proxy.jar?version=${epoch}") {
 		t.Error("Expected script to contain stx-java-proxy jar download URL")
 	}
 
@@ -489,7 +493,9 @@ func TestDownloadSTXJavaProxyJarFallsBackToDefaultVersion(t *testing.T) {
 	})
 	router := setupTestRouter(handler)
 
-	req, _ := http.NewRequest("GET", "/api/v1/agent/assets/stx-java-proxy.jar?version=2.3.99", nil)
+	// 请求 3.x 代际但本地无 v3 jar 时，回退到默认 v2。
+	// When the v3 jar is absent, fall back to the default v2 asset.
+	req, _ := http.NewRequest("GET", "/api/v1/agent/assets/stx-java-proxy.jar?version=3.0.0", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -501,6 +507,37 @@ func TestDownloadSTXJavaProxyJarFallsBackToDefaultVersion(t *testing.T) {
 	}
 	if w.Body.String() != string(expectedContent) {
 		t.Fatalf("Unexpected fallback jar content: %q", w.Body.String())
+	}
+}
+
+func TestDownloadSTXJavaProxyJarServesV3Epoch(t *testing.T) {
+	tempDir := t.TempDir()
+	defaultJarPath := filepath.Join(tempDir, seatunnelmeta.STXJavaProxyJarFileName(seatunnelmeta.DefaultSTXJavaProxyVersion))
+	v3JarPath := filepath.Join(tempDir, seatunnelmeta.STXJavaProxyJarFileName("3.0.0"))
+	if err := os.WriteFile(defaultJarPath, []byte("v2-jar"), 0o644); err != nil {
+		t.Fatalf("Failed to create default proxy jar: %v", err)
+	}
+	if err := os.WriteFile(v3JarPath, []byte("v3-jar"), 0o644); err != nil {
+		t.Fatalf("Failed to create v3 proxy jar: %v", err)
+	}
+
+	handler := NewHandler(&HandlerConfig{
+		STXJavaProxyJarPath: defaultJarPath,
+	})
+	router := setupTestRouter(handler)
+
+	req, _ := http.NewRequest("GET", "/api/v1/agent/assets/stx-java-proxy.jar?version=v3", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected status 200, got %d", w.Code)
+	}
+	if !strings.Contains(w.Header().Get("Content-Disposition"), "stx-java-proxy-v3.jar") {
+		t.Fatalf("Expected v3 jar attachment header, got %q", w.Header().Get("Content-Disposition"))
+	}
+	if w.Body.String() != "v3-jar" {
+		t.Fatalf("Unexpected v3 jar content: %q", w.Body.String())
 	}
 }
 

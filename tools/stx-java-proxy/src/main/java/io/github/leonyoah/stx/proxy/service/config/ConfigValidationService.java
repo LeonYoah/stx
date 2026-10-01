@@ -41,22 +41,44 @@ import static org.apache.seatunnel.api.options.ConnectorCommonOptions.PLUGIN_NAM
 public class ConfigValidationService {
 
     private final JobConfigSupportService jobConfigSupportService;
+    private final OptionRuleValidationService optionRuleValidationService;
 
     public ConfigValidationService() {
-        this(new JobConfigSupportService());
+        this(new JobConfigSupportService(), new OptionRuleValidationService());
     }
 
+    /**
+     * 测试用：仅注入 JobConfigSupport；不跑 OptionRule（避免 Fake 上下文误伤连接测试用例）。
+     *
+     * <p>Test helper: inject JobConfigSupport only; skip OptionRule to avoid breaking
+     * connection-test fakes.
+     */
     ConfigValidationService(JobConfigSupportService jobConfigSupportService) {
+        this(jobConfigSupportService, null);
+    }
+
+    ConfigValidationService(
+            JobConfigSupportService jobConfigSupportService,
+            OptionRuleValidationService optionRuleValidationService) {
         this.jobConfigSupportService = jobConfigSupportService;
+        this.optionRuleValidationService = optionRuleValidationService;
     }
 
     public Map<String, Object> validate(Map<String, Object> request) {
         boolean testConnection = ProxyRequestUtils.getBoolean(request, "testConnection", false);
+        // 默认开启 OptionRule 校验；草稿探测可显式关闭。
+        // OptionRule validation is on by default; draft probes may disable it explicitly.
+        boolean validateOptionRules =
+                ProxyRequestUtils.getBoolean(request, "validateOptionRules", true);
         JobConfigContext context = jobConfigSupportService.parseJobContext(request);
         List<String> warnings = filterUserVisibleWarnings(context.getWarnings());
         List<String> infos = new ArrayList<>();
         List<String> errors = new ArrayList<>();
         List<Map<String, Object>> checks = new ArrayList<>();
+
+        if (validateOptionRules && optionRuleValidationService != null) {
+            optionRuleValidationService.validate(context, errors, warnings);
+        }
 
         boolean allChecksSucceeded = true;
         if (testConnection) {

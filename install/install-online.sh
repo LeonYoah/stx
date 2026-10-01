@@ -207,6 +207,28 @@ if stx_download_release_asset "$VERSION" "stx-agent-linux-${ARCH}" "$WORK_DIR/pa
   fi
 fi
 
+# 可选 capability proxy 代际 jar（v2 + v3）与启动脚本。
+# Optional capability proxy epoch jars (v2 + v3) and launcher script.
+for epoch in v2 v3; do
+  proxy_jar="stx-java-proxy-${epoch}.jar"
+  if stx_download_release_asset "$VERSION" "$proxy_jar" "$WORK_DIR/packages/$proxy_jar" 2>/dev/null; then
+    stx_download_release_asset "$VERSION" "${proxy_jar}.sha256" "$WORK_DIR/packages/${proxy_jar}.sha256" 2>/dev/null || true
+    if [[ -f "$WORK_DIR/packages/${proxy_jar}.sha256" ]]; then
+      stx_verify_sha256 "$WORK_DIR/packages/$proxy_jar" "$WORK_DIR/packages/${proxy_jar}.sha256" || true
+    fi
+  else
+    echo "[WARN] capability proxy jar missing on release $VERSION: $proxy_jar"
+  fi
+done
+
+mkdir -p "$WORK_DIR/scripts"
+if stx_download_release_asset "$VERSION" "stx-java-proxy.sh" "$WORK_DIR/scripts/stx-java-proxy.sh" 2>/dev/null; then
+  chmod +x "$WORK_DIR/scripts/stx-java-proxy.sh"
+elif [[ -f "$ROOT_DIR/scripts/stx-java-proxy.sh" ]]; then
+  cp "$ROOT_DIR/scripts/stx-java-proxy.sh" "$WORK_DIR/scripts/stx-java-proxy.sh"
+  chmod +x "$WORK_DIR/scripts/stx-java-proxy.sh"
+fi
+
 # Node: skip when asked, or when local node is good enough. / 显式跳过，或本机 node 足够则跳过。
 need_node=true
 if [[ "$WITHOUT_NODE" == "true" ]]; then

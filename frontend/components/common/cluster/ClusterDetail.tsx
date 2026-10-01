@@ -67,7 +67,6 @@ import {
   WorkbenchDialogContent,
 } from '@/components/ui/dialog';
 import {Label} from '@/components/ui/label';
-import {ScrollArea} from '@/components/ui/scroll-area';
 import {
   Select,
   SelectContent,
@@ -97,6 +96,7 @@ import {
   FolderOpen,
   Eye,
   ChevronUp,
+  ChevronDown,
   Database,
   Search,
   Layers,
@@ -109,11 +109,13 @@ import {
 import {Checkbox} from '@/components/ui/checkbox';
 import {motion} from 'motion/react';
 import {
+  ExpandableTextPanel,
   WorkspaceHeader,
   StatPillsBar,
   TableLoadingBar,
   TableSkeletonRows,
 } from '@/components/common/layout';
+import {CheckpointInspectDialog} from '@/components/common/sync/CheckpointPanels';
 import {Skeleton} from '@/components/ui/skeleton';
 import {
   DropdownMenu,
@@ -326,6 +328,8 @@ function pickWebUINode(
  */
 export function ClusterDetail({clusterId}: ClusterDetailProps) {
   const t = useTranslations();
+  // 复用工作台 Checkpoint 详情弹窗文案 / Reuse workbench Checkpoint dialog copy
+  const tCheckpoint = useTranslations('workbenchStudio');
   const router = useRouter();
 
   // Data state / 数据状态
@@ -1337,6 +1341,17 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
     runtimeConfig.enableHTTP,
   );
   const webUIProxyURL = webUINode ? `/api/v1/clusters/${clusterId}/webui/` : '';
+  // 原始 Web UI 地址：直连主节点 HTTP 端口，绕过控制面代理。
+  // Direct Web UI URL: hit the master HTTP port and bypass the control-plane proxy.
+  const webUIDirectURL = webUINode
+    ? `http://${webUINode.host_ip || webUINode.host_name}:${webUINode.api_port}/`
+    : '';
+  const openWebUIWindow = (url: string) => {
+    if (!url) {
+      return;
+    }
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
   const upgradeTaskTotalPages = Math.max(
     1,
     Math.ceil(upgradeTasksTotal / upgradeTasksPageSize),
@@ -2490,19 +2505,38 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                       })}
                     </CardDescription>
                   </div>
-                  <Button
-                    variant='outline'
-                    onClick={() =>
-                      window.open(
-                        webUIProxyURL,
-                        '_blank',
-                        'noopener,noreferrer',
-                      )
-                    }
-                  >
-                    <ExternalLink className='mr-2 h-4 w-4' />
-                    {t('cluster.openWebUiInNewWindow')}
-                  </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant='outline'>
+                        <ExternalLink className='mr-2 h-4 w-4' />
+                        {t('cluster.openWebUiInNewWindow')}
+                        <ChevronDown className='ml-2 h-4 w-4 opacity-70' />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align='end' className='min-w-[240px]'>
+                      <DropdownMenuItem
+                        onClick={() => openWebUIWindow(webUIProxyURL)}
+                      >
+                        <div className='flex min-w-0 flex-col gap-0.5'>
+                          <span>{t('cluster.openWebUiViaProxy')}</span>
+                          <span className='truncate text-xs text-muted-foreground'>
+                            {webUIProxyURL}
+                          </span>
+                        </div>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => openWebUIWindow(webUIDirectURL)}
+                        disabled={!webUIDirectURL}
+                      >
+                        <div className='flex min-w-0 flex-col gap-0.5'>
+                          <span>{t('cluster.openWebUiDirect')}</span>
+                          <span className='truncate text-xs text-muted-foreground'>
+                            {webUIDirectURL || '-'}
+                          </span>
+                        </div>
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </CardHeader>
                 <CardContent className='space-y-4'>
                   <div className='rounded-md border bg-muted/20 p-3 text-xs text-muted-foreground'>
@@ -3631,19 +3665,24 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
               </div>
             </div>
           </div>
-          <ScrollArea className='h-[50vh] rounded-md border p-3'>
-            <pre className='text-xs whitespace-pre-wrap break-all'>
-              {runtimeStoragePreview?.binary
+          <ExpandableTextPanel
+            title={t('cluster.runtimeStorage.fileName')}
+            subtitle={runtimeStoragePreview?.file_name || '-'}
+            content={
+              runtimeStoragePreview?.binary
                 ? runtimeStoragePreview?.hex_preview || '-'
-                : runtimeStoragePreview?.text_preview || '-'}
-            </pre>
-          </ScrollArea>
+                : runtimeStoragePreview?.text_preview || '-'
+            }
+            height='50vh'
+            tone='plain'
+            wrap
+          />
         </DialogContent>
       </Dialog>
 
       <Dialog open={stxJavaProxyLogOpen} onOpenChange={setStxJavaProxyLogOpen}>
-        <WorkbenchDialogContent className='sm:max-w-[1560px]'>
-          <DialogHeader>
+        <WorkbenchDialogContent className='sm:max-w-[1560px] gap-0 p-0'>
+          <DialogHeader className='shrink-0 space-y-1 border-b px-6 py-4 pr-12 text-left'>
             <DialogTitle>
               {t('cluster.stxJavaProxy.viewRuntimeLog')}
             </DialogTitle>
@@ -3651,11 +3690,16 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
               {stxJavaProxyLogResult?.log_path || stxJavaProxy?.log_path || '-'}
             </DialogDescription>
           </DialogHeader>
-          <ScrollArea className='min-h-0 flex-1 rounded-md border p-3'>
-            <pre className='text-xs whitespace-pre-wrap break-all'>
-              {stxJavaProxyLogResult?.logs || '-'}
-            </pre>
-          </ScrollArea>
+          <div className='flex min-h-0 flex-1 flex-col p-4'>
+            <ExpandableTextPanel
+              content={stxJavaProxyLogResult?.logs || '-'}
+              height='flex'
+              className='h-full min-h-0'
+              tone='plain'
+              wrap
+              showExpand={false}
+            />
+          </div>
         </WorkbenchDialogContent>
       </Dialog>
 
@@ -3784,70 +3828,14 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
         </DialogContent>
       </Dialog>
 
-      <Dialog
+      {/* 与工作台共用 Checkpoint 双看板；存储侧不传 job_config，位点区无数据时自动隐藏。
+          Reuse workbench Checkpoint dual-pane dialog; without job_config, source highlights stay hidden. */}
+      <CheckpointInspectDialog
         open={checkpointInspectOpen}
         onOpenChange={setCheckpointInspectOpen}
-      >
-        <DialogContent className='max-w-5xl'>
-          <DialogHeader>
-            <DialogTitle>
-              {t('cluster.runtimeStorage.deserializeCheckpoint')}
-            </DialogTitle>
-            <DialogDescription className='break-all'>
-              {checkpointInspectResult?.path || '-'}
-            </DialogDescription>
-          </DialogHeader>
-          <div className='grid gap-3 text-sm md:grid-cols-4'>
-            <div>
-              <div className='text-muted-foreground'>
-                {t('cluster.runtimeStorage.fileName')}
-              </div>
-              <div className='font-medium break-all'>
-                {checkpointInspectResult?.file_name || '-'}
-              </div>
-            </div>
-            <div>
-              <div className='text-muted-foreground'>
-                {t('cluster.runtimeStorage.size')}
-              </div>
-              <div className='font-medium'>
-                {formatBytes(checkpointInspectResult?.size_bytes)}
-              </div>
-            </div>
-            <div>
-              <div className='text-muted-foreground'>
-                {t('cluster.runtimeStorage.encoding')}
-              </div>
-              <div className='font-medium'>
-                {checkpointInspectResult?.encoding || '-'}
-              </div>
-            </div>
-            <div>
-              <div className='text-muted-foreground'>
-                {t('cluster.runtimeStorage.storageType')}
-              </div>
-              <div className='font-medium'>
-                {checkpointInspectResult?.storage_type || '-'}
-              </div>
-            </div>
-          </div>
-          <ScrollArea className='h-[55vh] rounded-md border p-3'>
-            <pre className='text-xs whitespace-pre-wrap break-all'>
-              {JSON.stringify(
-                {
-                  pipeline_state: checkpointInspectResult?.pipeline_state,
-                  completed_checkpoint:
-                    checkpointInspectResult?.completed_checkpoint,
-                  action_states: checkpointInspectResult?.action_states,
-                  task_statistics: checkpointInspectResult?.task_statistics,
-                },
-                null,
-                2,
-              )}
-            </pre>
-          </ScrollArea>
-        </DialogContent>
-      </Dialog>
+        result={checkpointInspectResult}
+        t={tCheckpoint}
+      />
 
       <Dialog open={imapInspectOpen} onOpenChange={setImapInspectOpen}>
         <DialogContent className='max-w-5xl'>
@@ -3899,17 +3887,20 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
               </div>
             </div>
           </div>
-          <ScrollArea className='h-[55vh] rounded-md border p-3'>
-            <pre className='text-xs whitespace-pre-wrap break-all'>
-              {JSON.stringify(
-                {
-                  entries: imapInspectResult?.entries,
-                },
-                null,
-                2,
-              )}
-            </pre>
-          </ScrollArea>
+          <ExpandableTextPanel
+            title={t('cluster.runtimeStorage.inspectWal')}
+            subtitle={imapInspectResult?.path || '-'}
+            content={JSON.stringify(
+              {
+                entries: imapInspectResult?.entries,
+              },
+              null,
+              2,
+            )}
+            height='55vh'
+            tone='plain'
+            wrap
+          />
         </DialogContent>
       </Dialog>
 

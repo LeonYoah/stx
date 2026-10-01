@@ -98,6 +98,7 @@ jobs:
           files: |
             release-assets/stx-linux-*
             release-assets/stx-agent-linux-*
+            release-assets/stx-java-proxy-*
             release-assets/frontend-standalone-*.tar.gz
             release-assets/frontend-standalone-*.tar.gz.sha256
             release-assets/SHA256SUMS

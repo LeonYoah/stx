@@ -274,6 +274,25 @@ func (h *Handler) DownloadAgent(c *gin.Context) {
 	// 构建二进制文件路径
 	binaryPath := filepath.Join(h.agentBinaryDir, binaryName)
 
+	// Check if binary exists; when using default directory, check fallback locations if not found
+	// 检查二进制文件是否存在；使用默认目录时，若未找到尝试候选备选目录
+	if _, err := os.Stat(binaryPath); os.IsNotExist(err) && h.agentBinaryDir == "./lib/agent" {
+		candidates := []string{
+			filepath.Join("/opt/stx/lib/agent", binaryName),
+			filepath.Join("/opt/stx/default-lib/agent", binaryName),
+			filepath.Join("./default-lib/agent", binaryName),
+			filepath.Join("../lib/agent", binaryName),
+			filepath.Join("../../lib/agent", binaryName),
+			filepath.Join("../../../lib/agent", binaryName),
+		}
+		for _, candidate := range candidates {
+			if _, statErr := os.Stat(candidate); statErr == nil {
+				binaryPath = candidate
+				break
+			}
+		}
+	}
+
 	// Check if binary exists
 	// 检查二进制文件是否存在
 	if _, err := os.Stat(binaryPath); os.IsNotExist(err) {
@@ -353,9 +372,27 @@ func (h *Handler) DownloadSTXJavaProxyJar(c *gin.Context) {
 // DownloadSTXJavaProxyScript handles GET /api/v1/agent/assets/stx-java-proxy.sh - downloads the stx-java-proxy launcher script.
 // DownloadSTXJavaProxyScript 处理 GET /api/v1/agent/assets/stx-java-proxy.sh - 下载 stx-java-proxy 启动脚本。
 func (h *Handler) DownloadSTXJavaProxyScript(c *gin.Context) {
+	scriptPath := h.stxJavaProxyScriptPath
+	// 使用默认脚本路径且文件不存在时，尝试候选备选路径
+	// When using default script path and file does not exist, check fallback candidate paths
+	if _, err := os.Stat(scriptPath); os.IsNotExist(err) && scriptPath == filepath.Join("./scripts", seatunnelmeta.STXJavaProxyScriptFileName) {
+		candidates := []string{
+			filepath.Join("/opt/stx/scripts", seatunnelmeta.STXJavaProxyScriptFileName),
+			filepath.Join("./scripts", seatunnelmeta.STXJavaProxyScriptFileName),
+			filepath.Join("../scripts", seatunnelmeta.STXJavaProxyScriptFileName),
+			filepath.Join("../../scripts", seatunnelmeta.STXJavaProxyScriptFileName),
+			filepath.Join("../../../scripts", seatunnelmeta.STXJavaProxyScriptFileName),
+		}
+		for _, candidate := range candidates {
+			if _, statErr := os.Stat(candidate); statErr == nil {
+				scriptPath = candidate
+				break
+			}
+		}
+	}
 	h.serveStaticAssetDownload(
 		c,
-		h.stxJavaProxyScriptPath,
+		scriptPath,
 		seatunnelmeta.STXJavaProxyScriptFileName,
 		"text/x-shellscript; charset=utf-8",
 		"Capability proxy script",
@@ -365,18 +402,41 @@ func (h *Handler) DownloadSTXJavaProxyScript(c *gin.Context) {
 
 func (h *Handler) resolveSTXJavaProxyJarAsset(version string) (string, string, error) {
 	requestedVersion := strings.TrimSpace(version)
+	defaultJarName := seatunnelmeta.STXJavaProxyJarFileName(seatunnelmeta.DefaultSTXJavaProxyVersion)
+	defaultExpectedPath := filepath.Join("./lib", defaultJarName)
+
 	if requestedVersion == "" || requestedVersion == seatunnelmeta.DefaultSTXJavaProxyVersion {
-		return h.stxJavaProxyJarPath, filepath.Base(h.stxJavaProxyJarPath), nil
+		jarPath := h.stxJavaProxyJarPath
+		// 使用默认 jar 路径且文件不存在时，尝试备选路径
+		// When using default jar path and file is missing, try fallback candidates
+		if _, err := os.Stat(jarPath); os.IsNotExist(err) && jarPath == defaultExpectedPath {
+			candidates := []string{
+				filepath.Join("/opt/stx/lib", defaultJarName),
+				filepath.Join("/opt/stx/default-lib", defaultJarName),
+				filepath.Join("./default-lib", defaultJarName),
+				filepath.Join("../lib", defaultJarName),
+				filepath.Join("../../lib", defaultJarName),
+				filepath.Join("../../../lib", defaultJarName),
+			}
+			for _, candidate := range candidates {
+				if _, statErr := os.Stat(candidate); statErr == nil {
+					jarPath = candidate
+					break
+				}
+			}
+		}
+		return jarPath, filepath.Base(jarPath), nil
 	}
 
 	if !stxJavaProxyVersionPattern.MatchString(requestedVersion) {
 		return "", "", fmt.Errorf("invalid version parameter: only letters, numbers, dot, underscore, and hyphen are allowed")
 	}
 
+	requestedJarName := seatunnelmeta.STXJavaProxyJarFileName(requestedVersion)
 	baseDir := filepath.Dir(h.stxJavaProxyJarPath)
 	versionedPath := filepath.Join(
 		baseDir,
-		seatunnelmeta.STXJavaProxyJarFileName(requestedVersion),
+		requestedJarName,
 	)
 	relativePath, err := filepath.Rel(baseDir, versionedPath)
 	if err != nil || relativePath == ".." || strings.HasPrefix(relativePath, ".."+string(filepath.Separator)) {
@@ -384,6 +444,24 @@ func (h *Handler) resolveSTXJavaProxyJarAsset(version string) (string, string, e
 	}
 	if _, err := os.Stat(versionedPath); err == nil {
 		return versionedPath, filepath.Base(versionedPath), nil
+	}
+
+	// 尝试特定版本候选备选路径
+	// Try fallback candidates for requested version
+	if baseDir == "./lib" || baseDir == "/opt/stx/lib" {
+		candidates := []string{
+			filepath.Join("/opt/stx/lib", requestedJarName),
+			filepath.Join("/opt/stx/default-lib", requestedJarName),
+			filepath.Join("./default-lib", requestedJarName),
+			filepath.Join("../lib", requestedJarName),
+			filepath.Join("../../lib", requestedJarName),
+			filepath.Join("../../../lib", requestedJarName),
+		}
+		for _, candidate := range candidates {
+			if _, statErr := os.Stat(candidate); statErr == nil {
+				return candidate, filepath.Base(candidate), nil
+			}
+		}
 	}
 
 	return h.stxJavaProxyJarPath, filepath.Base(h.stxJavaProxyJarPath), nil

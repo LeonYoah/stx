@@ -48,6 +48,13 @@ if [[ ! -x "$BACKEND_BIN" ]]; then
   exit 1
 fi
 
+# 种子资产补齐：若 /opt/stx/lib 缺少内置代理或 Agent 资产（例如被宿主机空卷挂载覆盖），自动从种子目录补齐
+# Seed assets auto-completion: if /opt/stx/lib is missing builtin proxy or Agent assets (e.g. masked by host bind mount), seed from defaults
+if [[ -d "$BASE_DIR/default-lib" ]]; then
+  mkdir -p "$BASE_DIR/lib"
+  cp -rn "$BASE_DIR/default-lib"/* "$BASE_DIR/lib/" 2>/dev/null || true
+fi
+
 # 启动服务端（统一使用 server 命令）
 # Start server using standard 'server' subcommand
 CONFIG_PATH="$CONFIG_PATH" "$BACKEND_BIN" server >>"$LOG_DIR/backend.log" 2>&1 &

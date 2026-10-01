@@ -1,5 +1,32 @@
-# 使用构建宿主平台运行 Go 编译器，实现免 QEMU 快速交叉编译
-# Use builder host platform to run Go compiler for fast cross-compilation without QEMU
+# ------------------------------------------------------------------------------
+# 阶段 1: 编译或提取 Java Proxy 薄 JAR（v2/v3）
+# Stage 1: Build or extract Java Proxy thin JARs (v2/v3)
+# ------------------------------------------------------------------------------
+FROM --platform=$BUILDPLATFORM maven:3.9-eclipse-temurin-11 AS proxy-builder
+
+WORKDIR /src
+COPY . .
+
+RUN set -e; \
+    mkdir -p /out/proxy; \
+    # 优先复用已有发布资产或本地编译产物
+    # Prefer existing release assets or local build targets
+    for f in dist/releases/stx-java-proxy-*.jar tools/stx-java-proxy/target/stx-java-proxy-*.jar lib/stx-java-proxy-*.jar; do \
+        if [ -f "$f" ]; then \
+            cp "$f" /out/proxy/; \
+        fi; \
+    done; \
+    if [ ! -f /out/proxy/stx-java-proxy-v2.jar ] || [ ! -f /out/proxy/stx-java-proxy-v3.jar ]; then \
+        mvn -q -f tools/stx-java-proxy/pom.xml -Pepoch-v2 -DskipTests package && \
+        mvn -q -f tools/stx-java-proxy/pom.xml -P'epoch-v3,!epoch-v2' -DskipTests package && \
+        cp tools/stx-java-proxy/target/stx-java-proxy-v2.jar /out/proxy/ && \
+        cp tools/stx-java-proxy/target/stx-java-proxy-v3.jar /out/proxy/; \
+    fi
+
+# ------------------------------------------------------------------------------
+# 阶段 2: 使用构建宿主平台运行 Go 编译器，实现免 QEMU 快速交叉编译
+# Stage 2: Use builder host platform to run Go compiler for fast cross-compilation without QEMU
+# ------------------------------------------------------------------------------
 FROM --platform=$BUILDPLATFORM golang:1.24-bookworm AS backend-builder
 
 WORKDIR /src
@@ -13,8 +40,33 @@ COPY . .
 # BuildKit automatically injects target OS and target architecture; do not set hardcoded defaults
 ARG TARGETOS
 ARG TARGETARCH
-RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o /out/stx .
+ARG APP_VERSION
+ARG GIT_COMMIT
 
+RUN set -e; \
+    product_version="${APP_VERSION#v}"; \
+    product_version="${product_version#V}"; \
+    if [ -z "$product_version" ]; then product_version="1.1.0"; fi; \
+    git_commit="${GIT_COMMIT:-unknown}"; \
+    build_time=$(date -u +%Y-%m-%dT%H:%M:%SZ); \
+    ldflags="-X github.com/LeonYoah/stx/internal/version.Version=${product_version} -X github.com/LeonYoah/stx/internal/version.GitCommit=${git_commit} -X github.com/LeonYoah/stx/internal/version.BuildTime=${build_time}"; \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -ldflags "$ldflags" -o /out/stx . ; \
+    mkdir -p /out/lib/agent ; \
+    if [ -f "dist/releases/stx-agent-linux-amd64" ]; then \
+        cp dist/releases/stx-agent-linux-amd64 /out/lib/agent/ ; \
+    else \
+        CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "$ldflags" -o /out/lib/agent/stx-agent-linux-amd64 ./agent/cmd ; \
+    fi ; \
+    if [ -f "dist/releases/stx-agent-linux-arm64" ]; then \
+        cp dist/releases/stx-agent-linux-arm64 /out/lib/agent/ ; \
+    else \
+        CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags "$ldflags" -o /out/lib/agent/stx-agent-linux-arm64 ./agent/cmd ; \
+    fi
+
+# ------------------------------------------------------------------------------
+# 阶段 3: 前端构建
+# Stage 3: Frontend build
+# ------------------------------------------------------------------------------
 FROM node:22-bookworm AS frontend-builder
 
 WORKDIR /src/frontend
@@ -26,6 +78,10 @@ RUN pnpm install --frozen-lockfile
 COPY frontend/ .
 RUN pnpm run pack:standalone
 
+# ------------------------------------------------------------------------------
+# 阶段 4: 运行环境
+# Stage 4: Runtime environment
+# ------------------------------------------------------------------------------
 FROM node:22-bookworm-slim
 
 RUN apt-get update && \
@@ -43,9 +99,17 @@ COPY install/bin/status.sh /opt/stx/bin/status.sh
 COPY install/bin/lib/observability.sh /opt/stx/bin/lib/observability.sh
 COPY .github/docker/all-in-one-entrypoint.sh /opt/stx/bin/all-in-one-entrypoint.sh
 
-RUN mkdir -p /opt/stx/runtime/node/bin /opt/stx/bin/lib /opt/stx/logs /opt/stx/run && \
+# 拷贝启动脚本与分发资产
+# Copy launcher script and distribution assets
+COPY scripts/stx-java-proxy.sh /opt/stx/scripts/stx-java-proxy.sh
+COPY --from=backend-builder /out/lib/agent /opt/stx/lib/agent
+COPY --from=backend-builder /out/lib/agent /opt/stx/default-lib/agent
+COPY --from=proxy-builder /out/proxy/* /opt/stx/lib/
+COPY --from=proxy-builder /out/proxy/* /opt/stx/default-lib/
+
+RUN mkdir -p /opt/stx/runtime/node/bin /opt/stx/bin/lib /opt/stx/logs /opt/stx/run /opt/stx/scripts && \
     ln -sf /usr/local/bin/node /opt/stx/runtime/node/bin/node && \
-    chmod +x /opt/stx/stx /opt/stx/bin/*.sh
+    chmod +x /opt/stx/stx /opt/stx/bin/*.sh /opt/stx/scripts/*.sh /opt/stx/lib/agent/* /opt/stx/default-lib/agent/*
 
 EXPOSE 17880 17800 17890
 

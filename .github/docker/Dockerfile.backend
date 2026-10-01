@@ -1,5 +1,32 @@
-# 使用构建宿主平台运行 Go 编译器，实现免 QEMU 快速交叉编译
-# Use builder host platform to run Go compiler for fast cross-compilation without QEMU
+# ------------------------------------------------------------------------------
+# 阶段 1: 编译或提取 Java Proxy 薄 JAR（v2/v3）
+# Stage 1: Build or extract Java Proxy thin JARs (v2/v3)
+# ------------------------------------------------------------------------------
+FROM --platform=$BUILDPLATFORM maven:3.9-eclipse-temurin-11 AS proxy-builder
+
+WORKDIR /src
+COPY . .
+
+RUN set -e; \
+    mkdir -p /out/proxy; \
+    # 优先复用已有发布资产或本地编译产物
+    # Prefer existing release assets or local build targets
+    for f in dist/releases/stx-java-proxy-*.jar tools/stx-java-proxy/target/stx-java-proxy-*.jar lib/stx-java-proxy-*.jar; do \
+        if [ -f "$f" ]; then \
+            cp "$f" /out/proxy/; \
+        fi; \
+    done; \
+    if [ ! -f /out/proxy/stx-java-proxy-v2.jar ] || [ ! -f /out/proxy/stx-java-proxy-v3.jar ]; then \
+        mvn -q -f tools/stx-java-proxy/pom.xml -Pepoch-v2 -DskipTests package && \
+        mvn -q -f tools/stx-java-proxy/pom.xml -P'epoch-v3,!epoch-v2' -DskipTests package && \
+        cp tools/stx-java-proxy/target/stx-java-proxy-v2.jar /out/proxy/ && \
+        cp tools/stx-java-proxy/target/stx-java-proxy-v3.jar /out/proxy/; \
+    fi
+
+# ------------------------------------------------------------------------------
+# 阶段 2: 使用构建宿主平台运行 Go 编译器，实现免 QEMU 快速交叉编译
+# Stage 2: Use builder host platform to run Go compiler for fast cross-compilation without QEMU
+# ------------------------------------------------------------------------------
 FROM --platform=$BUILDPLATFORM golang:1.24-bookworm AS builder
 
 WORKDIR /src
@@ -13,8 +40,33 @@ COPY . .
 # BuildKit automatically injects target OS and target architecture; do not set hardcoded defaults
 ARG TARGETOS
 ARG TARGETARCH
-RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o /out/stx .
+ARG APP_VERSION
+ARG GIT_COMMIT
 
+RUN set -e; \
+    product_version="${APP_VERSION#v}"; \
+    product_version="${product_version#V}"; \
+    if [ -z "$product_version" ]; then product_version="1.1.0"; fi; \
+    git_commit="${GIT_COMMIT:-unknown}"; \
+    build_time=$(date -u +%Y-%m-%dT%H:%M:%SZ); \
+    ldflags="-X github.com/LeonYoah/stx/internal/version.Version=${product_version} -X github.com/LeonYoah/stx/internal/version.GitCommit=${git_commit} -X github.com/LeonYoah/stx/internal/version.BuildTime=${build_time}"; \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -ldflags "$ldflags" -o /out/stx . ; \
+    mkdir -p /out/lib/agent ; \
+    if [ -f "dist/releases/stx-agent-linux-amd64" ]; then \
+        cp dist/releases/stx-agent-linux-amd64 /out/lib/agent/ ; \
+    else \
+        CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "$ldflags" -o /out/lib/agent/stx-agent-linux-amd64 ./agent/cmd ; \
+    fi ; \
+    if [ -f "dist/releases/stx-agent-linux-arm64" ]; then \
+        cp dist/releases/stx-agent-linux-arm64 /out/lib/agent/ ; \
+    else \
+        CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags "$ldflags" -o /out/lib/agent/stx-agent-linux-arm64 ./agent/cmd ; \
+    fi
+
+# ------------------------------------------------------------------------------
+# 阶段 3: 运行环境
+# Stage 3: Runtime environment
+# ------------------------------------------------------------------------------
 FROM debian:bookworm-slim
 
 RUN apt-get update && \
@@ -26,8 +78,24 @@ WORKDIR /opt/stx
 COPY --from=builder /out/stx /opt/stx/stx
 COPY config.example.yaml /opt/stx/config.yaml
 
+# 拷贝启动脚本与 entrypoint
+# Copy launcher script and entrypoint
+COPY scripts/stx-java-proxy.sh /opt/stx/scripts/stx-java-proxy.sh
+COPY .github/docker/backend-entrypoint.sh /opt/stx/bin/backend-entrypoint.sh
+
+# 预置分发资产到 lib 目录及 default-lib 种子目录（防宿主机空卷挂载覆盖）
+# Stage distribution assets in lib and default-lib seed directory (prevent host empty bind mount masking)
+COPY --from=builder /out/lib/agent /opt/stx/lib/agent
+COPY --from=builder /out/lib/agent /opt/stx/default-lib/agent
+COPY --from=proxy-builder /out/proxy/* /opt/stx/lib/
+COPY --from=proxy-builder /out/proxy/* /opt/stx/default-lib/
+
+RUN mkdir -p /opt/stx/scripts /opt/stx/bin && \
+    chmod +x /opt/stx/stx /opt/stx/scripts/*.sh /opt/stx/bin/*.sh /opt/stx/lib/agent/* /opt/stx/default-lib/agent/*
+
 EXPOSE 17800 17890
 
-# 统一使用规范的服务端启动子命令 server
-# Standardize on server subcommand for starting backend service
-ENTRYPOINT ["/opt/stx/stx", "server"]
+# 使用带种子保护的 entrypoint 启动
+# Start with entrypoint providing seed protection
+ENTRYPOINT ["/opt/stx/bin/backend-entrypoint.sh"]
+CMD ["server"]

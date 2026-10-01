@@ -593,6 +593,24 @@ func TestDownloadSTXJavaProxyScriptNotFound(t *testing.T) {
 	}
 }
 
+// TestDownloadSTXJavaProxyScriptDefaultSuccess tests that default handler resolves the repo's proxy script.
+// TestDownloadSTXJavaProxyScriptDefaultSuccess 测试默认 handler 能够正常解析仓库内置的 proxy 脚本。
+func TestDownloadSTXJavaProxyScriptDefaultSuccess(t *testing.T) {
+	handler := NewHandler(nil)
+	router := setupTestRouter(handler)
+
+	req, _ := http.NewRequest("GET", "/api/v1/agent/assets/stx-java-proxy.sh", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected status 200, got %d, body: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "stx-java-proxy") {
+		t.Fatalf("Expected script content to mention stx-java-proxy")
+	}
+}
+
 // TestDownloadAgentAllArchitectures tests download for all supported architectures.
 // TestDownloadAgentAllArchitectures 测试所有支持架构的下载。
 func TestDownloadAgentAllArchitectures(t *testing.T) {

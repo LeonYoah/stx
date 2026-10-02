@@ -47,12 +47,14 @@ STX 构建/重启脚本
   --no-local-agent-restart
                    后端构建后不同步/不重启本机 stx-agent（默认仅在本机已安装时同步并重启）
   --restart-java-proxy
-                   构建/重启后，重启本机 stx-java-proxy
+                   构建/重启后，强制重启本机 stx-java-proxy
+  --no-java-proxy-restart
+                   构建/重启后，不重启本机 stx-java-proxy
   --stop-frontend  仅停止前端 PM2 进程并退出
   -h, --help       显示本帮助
 
 示例:
-  ./scripts/restart.sh                               # 默认：构建并重启前后端；本机已安装 Agent 时同步/重启
+  ./scripts/restart.sh                               # 默认：构建并重启前后端；本机已安装 Agent/Proxy 时同步/重启
   ./scripts/restart.sh --restart-only --frontend-only # 仅重启前端
   ./scripts/restart.sh --build-only --backend-only    # 构建后端；本机已安装 Agent 时同步/重启
   ./scripts/restart.sh --backend-only --no-local-agent-restart
@@ -71,8 +73,9 @@ STX 构建/重启脚本
   LOCAL_AGENT_SERVICE            本机 Agent systemd 服务名（Linux），默认 stx-agent
   LOCAL_AGENT_LAUNCHD_LABEL      本机 Agent launchd Label（macOS），默认 org.apache.stx.stx-agent
   LOCAL_AGENT_RESTART            本机已安装 Agent 时是否默认同步/重启，默认 true
-  LOCAL_SEATUNNEL_HOME           本机 SeaTunnel 安装目录，默认 /opt/seatunnel-2.3.13-new
-  LOCAL_JAVA_PROXY_PORT          本机 stx-java-proxy 端口，默认 18080
+  LOCAL_JAVA_PROXY_RESTART       本机已配置或运行时是否默认同步/重启 stx-java-proxy，默认 true
+  LOCAL_SEATUNNEL_HOME           本机 SeaTunnel 安装目录，默认优先探测 3.0.0 / 2.3.13
+  LOCAL_JAVA_PROXY_PORT          本机 stx-java-proxy 端口，默认优先读取运行中状态或 18080
   CONTROL_PLANE_BASE_URL         控制面地址，默认 http://10.0.0.211:8000
   CONTROL_PLANE_USERNAME         登录用户名，默认 admin
   CONTROL_PLANE_PASSWORD         登录密码，默认 admin123
@@ -93,7 +96,14 @@ FRONTEND_ONLY=false
 BACKEND_ONLY=false
 STOP_FRONTEND=false
 FRONTEND_DEV=false
-RESTART_JAVA_PROXY=false
+case "${LOCAL_JAVA_PROXY_RESTART:-true}" in
+  true|TRUE|1|yes|YES|y|Y) RESTART_JAVA_PROXY=true ;;
+  false|FALSE|0|no|NO|n|N) RESTART_JAVA_PROXY=false ;;
+  *)
+    echo "LOCAL_JAVA_PROXY_RESTART 取值无效: ${LOCAL_JAVA_PROXY_RESTART}（支持 true/false）"
+    exit 1
+    ;;
+esac
 case "${LOCAL_AGENT_RESTART:-true}" in
   true|TRUE|1|yes|YES|y|Y) RESTART_LOCAL_AGENT=true ;;
   false|FALSE|0|no|NO|n|N) RESTART_LOCAL_AGENT=false ;;
@@ -120,6 +130,7 @@ while [[ $# -gt 0 ]]; do
     --stop-frontend) STOP_FRONTEND=true ;;
     --no-local-agent-restart) RESTART_LOCAL_AGENT=false ;;
     --restart-java-proxy) RESTART_JAVA_PROXY=true ;;
+    --no-java-proxy-restart) RESTART_JAVA_PROXY=false ;;
     *)
       echo "未知参数: $arg"
       echo
@@ -184,7 +195,7 @@ AGENT_HOME="${AGENT_HOME:-$HOME/.stx/agent}"
 AGENT_PROXY_LIB_DIR="${AGENT_PROXY_LIB_DIR:-$AGENT_HOME/lib}"
 LOCAL_AGENT_START_WRAPPER="${LOCAL_AGENT_START_WRAPPER:-$LOCAL_AGENT_INSTALL_DIR/stx-agent-start.sh}"
 LOCAL_AGENT_LAUNCHD_PLIST="${LOCAL_AGENT_LAUNCHD_PLIST:-$HOME/Library/LaunchAgents/${LOCAL_AGENT_LAUNCHD_LABEL}.plist}"
-LOCAL_SEATUNNEL_HOME="${LOCAL_SEATUNNEL_HOME:-/opt/seatunnel-2.3.13-new}"
+LOCAL_SEATUNNEL_HOME="${LOCAL_SEATUNNEL_HOME:-}"
 LOCAL_JAVA_PROXY_PORT="${LOCAL_JAVA_PROXY_PORT:-18080}"
 CONTROL_PLANE_BASE_URL="${CONTROL_PLANE_BASE_URL:-http://10.0.0.211:8000}"
 CONTROL_PLANE_USERNAME="${CONTROL_PLANE_USERNAME:-admin}"
@@ -408,17 +419,68 @@ is_java_proxy_pid() {
   return 1
 }
 
+# 检测本机 SeaTunnel 安装目录。/ Detect local SeaTunnel install directory.
+detect_local_seatunnel_home() {
+  if [[ -n "${LOCAL_SEATUNNEL_HOME:-}" && -f "${LOCAL_SEATUNNEL_HOME}/starter/seatunnel-starter.jar" ]]; then
+    echo "$LOCAL_SEATUNNEL_HOME"
+    return 0
+  fi
+  if [[ -n "${SEATUNNEL_HOME:-}" && -f "${SEATUNNEL_HOME}/starter/seatunnel-starter.jar" ]]; then
+    echo "$SEATUNNEL_HOME"
+    return 0
+  fi
+  for candidate in \
+    /opt/seatunnel-3.0.0 \
+    /opt/seatunnel-2.3.13-new \
+    /opt/seatunnel-2.3.13 \
+    /opt/seatunnel \
+    /usr/local/seatunnel \
+    "$HOME/seatunnel"
+  do
+    if [[ -f "$candidate/starter/seatunnel-starter.jar" ]]; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+  echo "${LOCAL_SEATUNNEL_HOME:-/opt/seatunnel-3.0.0}"
+}
+
+# 检测 SeaTunnel 对应 stx-java-proxy 代际（v2 或 v3）。/ Detect SeaTunnel epoch for proxy (v2 or v3).
+detect_proxy_epoch_for_seatunnel() {
+  local install_dir="$1"
+  if [[ "$install_dir" =~ 3\.[0-9]+ ]]; then
+    echo "v3"
+    return 0
+  fi
+  local match
+  match="$(find "$install_dir/starter" "$install_dir/lib" "$install_dir/connectors" -maxdepth 2 -name "*3.0*.jar" 2>/dev/null | head -n1 || true)"
+  if [[ -n "$match" ]]; then
+    echo "v3"
+    return 0
+  fi
+  echo "v2"
+}
+
 # 使用新名称的脚本与状态目录重启本机 STX Java Proxy。/ Restart the local STX Java Proxy with the renamed script and state directory.
 restart_local_java_proxy() {
-  local install_dir="$LOCAL_SEATUNNEL_HOME"
-  local port="$LOCAL_JAVA_PROXY_PORT"
+  local install_dir
+  install_dir="$(detect_local_seatunnel_home)"
+  local epoch
+  epoch="$(detect_proxy_epoch_for_seatunnel "$install_dir")"
   local script_path=""
-  local jar_path="$AGENT_PROXY_LIB_DIR/stx-java-proxy-${CAPABILITY_PROXY_DEFAULT_VERSION}.jar"
-  local state_dir="$install_dir/.stx/stx-java-proxy"
+  local jar_path="$AGENT_PROXY_LIB_DIR/stx-java-proxy-${epoch}.jar"
+
+  # 状态目录统一优先使用 Agent logs 目录，兼容旧版 install_dir/.stx。
+  # State directory prefers Agent logs with legacy fallback to installDir/.stx.
+  local state_dir="$AGENT_HOME/logs/stx-java-proxy"
+  if [[ ! -d "$state_dir" && -d "$install_dir/.stx/stx-java-proxy" ]]; then
+    state_dir="$install_dir/.stx/stx-java-proxy"
+  fi
   local log_path="$state_dir/service.log"
   local pid_path="$state_dir/service.pid"
   local port_path="$state_dir/service.port"
   local old_pid=""
+  local port="${LOCAL_JAVA_PROXY_PORT:-18080}"
 
   for candidate in \
     "$AGENT_HOME/scripts/stx-java-proxy.sh" \
@@ -431,23 +493,72 @@ restart_local_java_proxy() {
     fi
   done
 
+  # 寻找实际可用的 jar 产物（优先 target 与 lib 中的最新构建产物）。
+  # Locate usable jar artifact (prefer latest builds under target or lib).
+  if [[ ! -f "$jar_path" ]]; then
+    for candidate in \
+      "$PROJECT_ROOT/tools/stx-java-proxy/target/stx-java-proxy-${epoch}.jar" \
+      "$PROJECT_ROOT/lib/stx-java-proxy-${epoch}.jar" \
+      "$AGENT_PROXY_LIB_DIR/stx-java-proxy.jar" \
+      "$PROJECT_ROOT/lib/stx-java-proxy.jar"
+    do
+      if [[ -f "$candidate" ]]; then
+        jar_path="$candidate"
+        break
+      fi
+    done
+  fi
+
   if [[ -z "$script_path" ]]; then
     echo "      未找到本机 stx-java-proxy 启动脚本，跳过重启."
-    return 1
+    return 0
   fi
   if [[ ! -f "$jar_path" ]]; then
-    echo "      未找到本机 stx-java-proxy jar: $jar_path"
-    return 1
+    echo "      未找到本机 stx-java-proxy jar: $jar_path，跳过重启."
+    return 0
   fi
   if [[ ! -f "$install_dir/starter/seatunnel-starter.jar" ]]; then
-    echo "      未找到本机 SeaTunnel 安装目录: $install_dir"
-    return 1
+    echo "      未找到本机 SeaTunnel 安装目录: $install_dir，跳过重启."
+    return 0
+  fi
+
+  # 优先读取落盘的真实端口号。
+  # Prefer reading persisted port from state directory.
+  if [[ -f "$port_path" ]]; then
+    local persisted_port
+    persisted_port="$(tr -d ' \r\n' < "$port_path" 2>/dev/null || true)"
+    if [[ "$persisted_port" =~ ^[0-9]+$ && "$persisted_port" -gt 0 ]]; then
+      port="$persisted_port"
+    fi
+  fi
+
+  # 检查当前正在监听的实际进程及端口。
+  # Inspect currently active listener process and port.
+  local running_proxy_pid
+  running_proxy_pid="$(pgrep -f "StxJavaProxyApplication" | head -n1 || true)"
+  if [[ -n "$running_proxy_pid" ]]; then
+    local active_port
+    active_port="$(ss -lntp 2>/dev/null | grep "pid=${running_proxy_pid}," | awk '{print $4}' | sed -n 's/.*:\([0-9]\+\)$/\1/p' | head -n1 || true)"
+    if [[ "$active_port" =~ ^[0-9]+$ && "$active_port" -gt 0 ]]; then
+      port="$active_port"
+    fi
+    old_pid="$running_proxy_pid"
   fi
 
   mkdir -p "$state_dir"
   touch "$log_path"
 
-  old_pid="$(ss -lntp 2>/dev/null | awk -v port=":$port" '$4 ~ port"$" {print $NF}' | sed -n 's/.*pid=\([0-9]\+\).*/\1/p' | head -n1 || true)"
+  if [[ -z "$old_pid" ]]; then
+    old_pid="$(ss -lntp 2>/dev/null | awk -v port=":$port" '$4 ~ port"$" {print $NF}' | sed -n 's/.*pid=\([0-9]\+\).*/\1/p' | head -n1 || true)"
+  fi
+  if [[ -z "$old_pid" && -f "$pid_path" ]]; then
+    local pid_from_file
+    pid_from_file="$(tr -d ' \r\n' < "$pid_path" 2>/dev/null || true)"
+    if [[ "$pid_from_file" =~ ^[0-9]+$ && "$pid_from_file" -gt 0 ]] && kill -0 "$pid_from_file" 2>/dev/null; then
+      old_pid="$pid_from_file"
+    fi
+  fi
+
   if [[ -n "$old_pid" ]]; then
     if ! is_java_proxy_pid "$old_pid"; then
       echo "      端口 $port 当前被非 stx-java-proxy 进程占用 (pid=$old_pid)，为避免误杀已跳过重启."
@@ -468,14 +579,20 @@ restart_local_java_proxy() {
     fi
   fi
 
-  echo "[*] 启动本机 stx-java-proxy ..."
-  local pid
-  pid="$(
-    SEATUNNEL_HOME="$install_dir" \
-    STX_JAVA_PROXY_JAR="$jar_path" \
-    STX_JAVA_PROXY_VERSION="$CAPABILITY_PROXY_DEFAULT_VERSION" \
-    nohup bash "$script_path" -Dstx.java.proxy.port="$port" >>"$log_path" 2>&1 < /dev/null & echo $!
-  )"
+  echo "[*] 启动本机 stx-java-proxy (epoch=$epoch, port=$port, runtime=$install_dir) ..."
+  # 优先采用 setsid 隔离会话，避免主 Shell 退出或终端挂起时导致后台守护进程异常终止。
+  # Prefer setsid to isolate the session and prevent termination upon shell exit or hangup.
+  local launcher=()
+  if command -v setsid >/dev/null 2>&1; then
+    launcher=(setsid)
+  fi
+  SEATUNNEL_HOME="$install_dir" \
+  STX_JAVA_PROXY_HOME="$AGENT_HOME" \
+  STX_JAVA_PROXY_JAR="$jar_path" \
+  STX_JAVA_PROXY_VERSION="$epoch" \
+  nohup "${launcher[@]}" bash "$script_path" -Dstx.java.proxy.port="$port" >>"$log_path" 2>&1 < /dev/null &
+  local pid=$!
+  disown "$pid" 2>/dev/null || true
   echo "$pid" >"$pid_path"
   echo "$port" >"$port_path"
 
@@ -486,6 +603,11 @@ restart_local_java_proxy() {
     fi
     if curl -fsS -o /dev/null "$health_url" 2>/dev/null; then
       echo "      本机 stx-java-proxy 已就绪: http://127.0.0.1:${port}"
+      local active_pid
+      active_pid="$(ss -lntp 2>/dev/null | awk -v port=":$port" '$4 ~ port"$" {print $NF}' | sed -n 's/.*pid=\([0-9]\+\).*/\1/p' | head -n1 || true)"
+      if [[ -n "$active_pid" ]]; then
+        echo "$active_pid" >"$pid_path"
+      fi
       return 0
     fi
     sleep 1

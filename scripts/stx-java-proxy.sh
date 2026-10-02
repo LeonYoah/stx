@@ -38,7 +38,9 @@ if [ -z "${SEATUNNEL_HOME:-}" ] && [ -f "${PROXY_HOME}/starter/seatunnel-starter
   SEATUNNEL_HOME="${PROXY_HOME}"
 fi
 if [ -z "${SEATUNNEL_HOME:-}" ]; then
-  for candidate in /opt/seatunnel-2.3.13 /opt/seatunnel /usr/local/seatunnel; do
+  # 优先检测 3.0，再回退 2.3 与默认安装目录。
+  # Prefer 3.0 before falling back to 2.3 and default installation paths.
+  for candidate in /opt/seatunnel-3.0.0 /opt/seatunnel-2.3.13-new /opt/seatunnel-2.3.13 /opt/seatunnel /usr/local/seatunnel; do
     if [ -f "${candidate}/starter/seatunnel-starter.jar" ]; then
       SEATUNNEL_HOME="${candidate}"
       break
@@ -84,9 +86,9 @@ proxy_epoch_for_version() {
   major="${version%%.*}"
   case "${major}" in
     3)
-      # 3.x 与 v2 jar 核心存储接口兼容；真正 breaking 时改为 echo "v3"。
-      # 3.x is storage-API compatible with v2; change to "v3" on genuine break.
-      echo "v2"
+      # 3.x 使用 v3 代际 jar。
+      # 3.x uses the v3 epoch jar.
+      echo "v3"
       ;;
     *)
       # 2.x 及未知版本均使用 v2 代际。

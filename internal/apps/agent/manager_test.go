@@ -625,6 +625,50 @@ func TestRemoveAgentStreamOnlyMatchesCurrent(t *testing.T) {
 	}
 }
 
+// TestHandleCommandResponseIgnoresRunningStatusOnResultChan 验证中间进度更新不会提前唤醒 ResultChan。
+// TestHandleCommandResponseIgnoresRunningStatusOnResultChan verifies that progress updates do not unblock ResultChan prematurely.
+func TestHandleCommandResponseIgnoresRunningStatusOnResultChan(t *testing.T) {
+	m := NewManager(nil)
+	cmdID := "cmd-progress-test"
+	cmdCtx := &CommandContext{
+		CommandID:  cmdID,
+		ResultChan: make(chan *pb.CommandResponse, 1),
+	}
+	m.commands.Store(cmdID, cmdCtx)
+
+	// 发送中间运行进度 / Send intermediate running update
+	m.HandleCommandResponse(&pb.CommandResponse{
+		CommandId: cmdID,
+		Status:    pb.CommandStatus_RUNNING,
+		Progress:  10,
+		Output:    "Collecting logs... / 收集日志...",
+	})
+
+	select {
+	case <-cmdCtx.ResultChan:
+		t.Fatal("ResultChan was prematurely unblocked by RUNNING progress update")
+	default:
+		// 符合预期：通道保持为空 / Expected: ResultChan remains empty
+	}
+
+	// 发送最终成功响应 / Send final success response
+	m.HandleCommandResponse(&pb.CommandResponse{
+		CommandId: cmdID,
+		Status:    pb.CommandStatus_SUCCESS,
+		Progress:  100,
+		Output:    "actual log content",
+	})
+
+	select {
+	case res := <-cmdCtx.ResultChan:
+		if res.Status != pb.CommandStatus_SUCCESS || res.Output != "actual log content" {
+			t.Fatalf("unexpected response: status=%v output=%v", res.Status, res.Output)
+		}
+	default:
+		t.Fatal("expected ResultChan to receive terminal SUCCESS response")
+	}
+}
+
 type mockBidiStream struct {
 	grpc.BidiStreamingServer[pb.CommandResponse, pb.CommandRequest]
 }

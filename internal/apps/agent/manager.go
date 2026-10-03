@@ -739,27 +739,31 @@ func (m *Manager) HandleCommandResponse(resp *pb.CommandResponse) {
 	cmdCtx.LastError = resp.Error
 	cmdCtx.mu.Unlock()
 
-	// Send result if channel exists
-	// 如果通道存在则发送结果
-	if cmdCtx.ResultChan != nil {
+	// 仅当状态为终态（SUCCESS / FAILED / CANCELLED）时才发送给 ResultChan，唤醒等待该命令的同步调用方。
+	// 对于中间进度状态（如 RUNNING），仅更新 cmdCtx 的进度和输出，不能提前唤醒同步等待。
+	// Send to ResultChan only when reaching terminal status (SUCCESS / FAILED / CANCELLED).
+	// Intermediate progress status (e.g. RUNNING) should not prematurely unblock synchronous callers.
+	isTerminal := resp.Status == pb.CommandStatus_SUCCESS ||
+		resp.Status == pb.CommandStatus_FAILED ||
+		resp.Status == pb.CommandStatus_CANCELLED
+
+	if isTerminal && cmdCtx.ResultChan != nil {
 		select {
 		case cmdCtx.ResultChan <- resp:
 		default:
-			// Channel full or closed
 			// 通道已满或已关闭
+			// Channel full or closed
 		}
 	}
 
-	// Mark as done if terminal status
 	// 如果是终止状态则标记为完成
-	if resp.Status == pb.CommandStatus_SUCCESS ||
-		resp.Status == pb.CommandStatus_FAILED ||
-		resp.Status == pb.CommandStatus_CANCELLED {
+	// Mark as done if terminal status
+	if isTerminal {
 		cmdCtx.MarkDone()
-		// Don't delete immediately, keep for status queries
 		// 不要立即删除，保留用于状态查询
-		// Schedule deletion after 5 minutes
+		// Don't delete immediately, keep for status queries
 		// 5 分钟后计划删除
+		// Schedule deletion after 5 minutes
 		go func(commandID string) {
 			time.Sleep(5 * time.Minute)
 			m.commands.Delete(commandID)

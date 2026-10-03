@@ -204,6 +204,18 @@ JAVA_OPTS="${COMBINED_JVM_OPTS} -DSEATUNNEL_HOME=${SEATUNNEL_HOME} -Dstx.java.pr
 
 CLASS_PATH=${SEATUNNEL_HOME}/lib/*:${APP_JAR}:${PROXY_JAR}
 
+# 解析状态目录（优先 Agent logs 目录，兼容 install_dir/.stx）。
+# Resolve state directory (prefers Agent logs directory, falls back to install_dir/.stx).
+resolve_state_dir() {
+  if [ -d "${PROXY_HOME}/logs/stx-java-proxy" ]; then
+    echo "${PROXY_HOME}/logs/stx-java-proxy"
+  elif [ -n "${SEATUNNEL_HOME:-}" ] && [ -d "${SEATUNNEL_HOME}/.stx/stx-java-proxy" ]; then
+    echo "${SEATUNNEL_HOME}/.stx/stx-java-proxy"
+  else
+    echo "${PROXY_HOME}/logs/stx-java-proxy"
+  fi
+}
+
 resolve_proxy_port() {
   local port="${STX_JAVA_PROXY_PORT:-}"
   local arg
@@ -214,6 +226,21 @@ resolve_proxy_port() {
         ;;
     esac
   done
+  # 优先从状态目录读取已分配记录的端口
+  # Prefer reading persisted port from state directory
+  if [ -z "${port}" ]; then
+    local state_dir candidate persisted
+    state_dir="$(resolve_state_dir)"
+    for candidate in "${state_dir}/service.port" "${PROXY_HOME}/logs/stx-java-proxy/service.port" "${SEATUNNEL_HOME:-}/.stx/stx-java-proxy/service.port"; do
+      if [ -f "${candidate}" ]; then
+        persisted=$(tr -d ' \r\n' < "${candidate}" 2>/dev/null || true)
+        if [[ "${persisted}" =~ ^[0-9]+$ && "${persisted}" -gt 0 ]]; then
+          port="${persisted}"
+          break
+        fi
+      fi
+    done
+  fi
   if [ -z "${port}" ]; then
     port="${DEFAULT_PROXY_PORT}"
   fi
@@ -280,6 +307,118 @@ kill_existing_proxy_listener() {
 if [ -n "${EXTRA_PROXY_CLASSPATH:-}" ]; then
   CLASS_PATH=${CLASS_PATH}:${EXTRA_PROXY_CLASSPATH}
 fi
+
+# 守护进程管理子命令处理（start/stop/restart/status）
+# Daemon lifecycle subcommands handler (start/stop/restart/status)
+subcmd="${1:-}"
+case "${subcmd}" in
+  start|stop|restart|status)
+    shift
+    state_dir="$(resolve_state_dir)"
+    mkdir -p "${state_dir}"
+    port="$(resolve_proxy_port "$@")"
+    pid_file="${state_dir}/service.pid"
+    port_file="${state_dir}/service.port"
+    log_file="${state_dir}/service.log"
+
+    case "${subcmd}" in
+      status)
+        pid=""
+        if [ -f "${pid_file}" ]; then
+          pid="$(tr -d ' \r\n' < "${pid_file}" 2>/dev/null || true)"
+        fi
+        if [ -z "${pid}" ] && command -v ss >/dev/null 2>&1; then
+          pid=$(ss -lntp 2>/dev/null | awk -v p=":${port}" '$4 ~ p"$" {print $NF}' | sed -n 's/.*pid=\([0-9]\+\).*/\1/p' | head -n1 || true)
+        fi
+        if [ -n "${pid}" ] && kill -0 "${pid}" 2>/dev/null; then
+          if curl -fsS "http://127.0.0.1:${port}/healthz" >/dev/null 2>&1; then
+            echo "stx-java-proxy is running (pid=${pid}, port=${port}, healthy=true)"
+            exit 0
+          else
+            echo "stx-java-proxy is running but unhealthy (pid=${pid}, port=${port})"
+            exit 1
+          fi
+        fi
+        echo "stx-java-proxy is not running (port=${port})"
+        exit 3
+        ;;
+
+      stop|restart)
+        target_pid=""
+        if [ -f "${pid_file}" ]; then
+          pid_from_file="$(tr -d ' \r\n' < "${pid_file}" 2>/dev/null || true)"
+          if [ -n "${pid_from_file}" ] && kill -0 "${pid_from_file}" 2>/dev/null; then
+            target_pid="${pid_from_file}"
+          fi
+        fi
+        if [ -z "${target_pid}" ] && command -v ss >/dev/null 2>&1; then
+          target_pid=$(ss -lntp 2>/dev/null | awk -v p=":${port}" '$4 ~ p"$" {print $NF}' | sed -n 's/.*pid=\([0-9]\+\).*/\1/p' | head -n1 || true)
+        fi
+        if [ -n "${target_pid}" ]; then
+          echo "Stopping stx-java-proxy (pid=${target_pid}, port=${port}) ..."
+          kill_proxy_pid "${target_pid}" "${port}"
+        else
+          echo "stx-java-proxy is not running (port=${port})"
+        fi
+        rm -f "${pid_file}"
+        if [ "${subcmd}" = "stop" ]; then
+          echo "stx-java-proxy stopped"
+          exit 0
+        fi
+        ;&
+
+      start)
+        # 检查是否已在运行
+        # Check if already running
+        if [ -f "${pid_file}" ]; then
+          existing_pid="$(tr -d ' \r\n' < "${pid_file}" 2>/dev/null || true)"
+          if [ -n "${existing_pid}" ] && kill -0 "${existing_pid}" 2>/dev/null; then
+            if curl -fsS "http://127.0.0.1:${port}/healthz" >/dev/null 2>&1; then
+              echo "stx-java-proxy is already running (pid=${existing_pid}, port=${port})"
+              exit 0
+            fi
+          fi
+        fi
+
+        kill_existing_proxy_listener "${port}"
+
+        launcher=()
+        if command -v setsid >/dev/null 2>&1; then
+          launcher=(setsid)
+        fi
+
+        echo "Starting stx-java-proxy (port=${port}, runtime=${SEATUNNEL_HOME}) ..."
+        touch "${log_file}"
+        nohup "${launcher[@]}" bash "$0" -Dstx.java.proxy.port="${port}" "$@" >> "${log_file}" 2>&1 < /dev/null &
+        new_pid=$!
+        disown "${new_pid}" 2>/dev/null || true
+        echo "${new_pid}" > "${pid_file}"
+        echo "${port}" > "${port_file}"
+
+        health_url="http://127.0.0.1:${port}/healthz"
+        for _ in {1..30}; do
+          if ! kill -0 "${new_pid}" 2>/dev/null; then
+            break
+          fi
+          if curl -fsS -o /dev/null "${health_url}" 2>/dev/null; then
+            if command -v ss >/dev/null 2>&1; then
+              active_pid=$(ss -lntp 2>/dev/null | awk -v p=":${port}" '$4 ~ p"$" {print $NF}' | sed -n 's/.*pid=\([0-9]\+\).*/\1/p' | head -n1 || true)
+              if [ -n "${active_pid}" ]; then
+                echo "${active_pid}" > "${pid_file}"
+              fi
+            fi
+            echo "stx-java-proxy started successfully: http://127.0.0.1:${port}"
+            exit 0
+          fi
+          sleep 1
+        done
+
+        echo "stx-java-proxy failed to pass health check, check log: ${log_file}" >&2
+        exit 1
+        ;;
+    esac
+    ;;
+esac
 
 PROXY_PORT="$(resolve_proxy_port "$@")"
 kill_existing_proxy_listener "${PROXY_PORT}"

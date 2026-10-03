@@ -123,4 +123,36 @@ hazelcast:
 	if spec == nil || spec.Enabled || !strings.EqualFold(spec.StorageType, "DISABLED") {
 		t.Fatalf("unexpected imap spec: %+v\n%s", spec, next)
 	}
+	if strings.Contains(next, "factory-class-name") || strings.Contains(next, "initial-mode") || strings.Contains(next, "properties:") {
+		t.Fatalf("disabled imap yaml leaked map-store attributes:\n%s", next)
+	}
+}
+
+// TestPatchIMAPYAMLEnablesFactoryClassName 验证启用 IMAP 时自动注入 SeaTunnel FileMapStoreFactory 与 initial-mode。
+// TestPatchIMAPYAMLEnablesFactoryClassName verifies SeaTunnel FileMapStoreFactory and initial-mode are automatically injected when enabling IMAP.
+func TestPatchIMAPYAMLEnablesFactoryClassName(t *testing.T) {
+	content := `
+hazelcast:
+  map:
+    engine*:
+      map-store:
+        enabled: false
+`
+	next, err := patchRuntimeStorageYAML(content, installerapp.RuntimeStorageValidationIMAP, &ApplyRuntimeStorageRequest{
+		Enabled:     true,
+		StorageType: "HDFS",
+		Namespace:   "/tmp/imap/",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(next, "factory-class-name: org.apache.seatunnel.engine.server.persistence.FileMapStoreFactory") {
+		t.Fatalf("expected factory-class-name in output:\n%s", next)
+	}
+	if !strings.Contains(next, "initial-mode: EAGER") {
+		t.Fatalf("expected initial-mode in output:\n%s", next)
+	}
+	if !strings.Contains(next, "enabled: true") {
+		t.Fatalf("expected enabled: true in output:\n%s", next)
+	}
 }

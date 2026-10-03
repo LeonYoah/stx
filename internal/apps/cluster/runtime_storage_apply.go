@@ -334,14 +334,23 @@ func patchRuntimeStorageYAML(content string, kind installerapp.RuntimeStorageVal
 			mapStore = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
 			setMappingChild(parent, "map-store", mapStore)
 		}
-		setMappingChild(mapStore, "enabled", boolNode(req.Enabled && req.StorageType != string(installerapp.IMAPStorageDisabled)))
-		if req.Enabled && req.StorageType != string(installerapp.IMAPStorageDisabled) {
+		isEnabled := req.Enabled && req.StorageType != string(installerapp.IMAPStorageDisabled)
+		setMappingChild(mapStore, "enabled", boolNode(isEnabled))
+		if isEnabled {
+			// SeaTunnel 引擎持久化 MapStore 必须指定工厂类与 EAGER 加载模式，防止 Hazelcast 初始化因 className 为空死循环报错
+			// SeaTunnel Engine persistence MapStore requires factory-class-name and EAGER initial-mode to avoid Hazelcast className null error loops
+			setMappingChild(mapStore, "initial-mode", &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "EAGER"})
+			setMappingChild(mapStore, "factory-class-name", &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "org.apache.seatunnel.engine.server.persistence.FileMapStoreFactory"})
 			properties := mappingChild(mapStore, "properties")
 			if properties == nil || properties.Kind != yaml.MappingNode {
 				properties = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
 				setMappingChild(mapStore, "properties", properties)
 			}
 			replaceMapping(properties, runtimeStoragePluginValues(kind, req, content))
+		} else {
+			removeMappingChild(mapStore, "initial-mode")
+			removeMappingChild(mapStore, "factory-class-name")
+			removeMappingChild(mapStore, "properties")
 		}
 	}
 	out, err := yaml.Marshal(&doc)
@@ -522,6 +531,20 @@ func setMappingChild(parent *yaml.Node, key string, value *yaml.Node) {
 		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key},
 		value,
 	)
+}
+
+// removeMappingChild 从 YAML 映射节点中移除指定的键。
+// removeMappingChild removes the specified key from a YAML mapping node.
+func removeMappingChild(parent *yaml.Node, key string) {
+	if parent == nil || parent.Kind != yaml.MappingNode {
+		return
+	}
+	for i := 0; i+1 < len(parent.Content); i += 2 {
+		if parent.Content[i].Value == key {
+			parent.Content = append(parent.Content[:i], parent.Content[i+2:]...)
+			return
+		}
+	}
 }
 
 func replaceMapping(parent *yaml.Node, values map[string]string) {

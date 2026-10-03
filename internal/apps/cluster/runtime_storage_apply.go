@@ -391,7 +391,13 @@ func runtimeStoragePluginValues(kind installerapp.RuntimeStorageValidationKind, 
 	if cfg == nil {
 		return map[string]string{"namespace": strings.TrimSpace(req.Namespace)}
 	}
-	return checkpointPluginValues(cfg)
+	values := checkpointPluginValues(cfg)
+	if kind == installerapp.RuntimeStorageValidationIMAP {
+		// SeaTunnel FileMapStore 依赖 type 属性发现 IMapStorageFactory (默认为 hdfs)
+		// SeaTunnel FileMapStore relies on type property to discover IMapStorageFactory (defaults to hdfs)
+		values["type"] = "hdfs"
+	}
+	return values
 }
 
 // checkpointPluginValues 按 SeaTunnel checkpoint plugin-config 生成差异化键。

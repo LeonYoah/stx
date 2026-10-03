@@ -155,4 +155,7 @@ hazelcast:
 	if !strings.Contains(next, "enabled: true") {
 		t.Fatalf("expected enabled: true in output:\n%s", next)
 	}
+	if !strings.Contains(next, "type: hdfs") {
+		t.Fatalf("expected type: hdfs in output:\n%s", next)
+	}
 }

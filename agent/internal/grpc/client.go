@@ -732,24 +732,20 @@ func (c *Client) StartCommandStream(ctx context.Context, handler CommandHandler)
 // ReportCommandResult sends a command execution result to Control Plane
 // ReportCommandResult 向 Control Plane 发送指令执行结果
 func (c *Client) ReportCommandResult(ctx context.Context, resp *pb.CommandResponse) error {
-	c.mu.RLock()
-	client := c.client
-	c.mu.RUnlock()
+	c.cmdStreamMu.Lock()
+	stream := c.cmdStream
+	c.cmdStreamMu.Unlock()
 
-	if client == nil {
-		return errors.New("client not connected")
+	if stream == nil {
+		return errors.New("command stream not established, cannot report command result")
 	}
 
-	// Create a new stream for reporting
-	// 创建新的流用于上报
-	stream, err := client.CommandStream(ctx)
+	// 复用主命令流发送中间进度或结果，避免创建独立未握手临时流造成服务端误断连
+	// Reuse the main command stream to send progress/result, preventing unhandshaked streams from breaking connection
+	c.cmdStreamMu.Lock()
+	err := stream.Send(resp)
+	c.cmdStreamMu.Unlock()
 	if err != nil {
-		return fmt.Errorf("failed to create command stream: %w", err)
-	}
-
-	// Send the response
-	// 发送响应
-	if err := stream.Send(resp); err != nil {
 		return fmt.Errorf("failed to send command result: %w", err)
 	}
 

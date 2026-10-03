@@ -23,6 +23,8 @@ import (
 	"testing"
 	"time"
 
+	"google.golang.org/grpc"
+
 	pb "github.com/LeonYoah/stx/internal/proto/agent"
 )
 
@@ -544,4 +546,85 @@ func TestHeartbeatRestoresConnectedStatus(t *testing.T) {
 	if conn.GetStatus() != AgentStatusConnected {
 		t.Errorf("Expected status 'connected' after heartbeat, got '%s'", conn.GetStatus())
 	}
+}
+
+// TestRegisterAgentPreservesExistingStream verifies that re-registration does not clear an active stream.
+// TestRegisterAgentPreservesExistingStream 验证重新注册时不会清空已建立的活跃命令流。
+func TestRegisterAgentPreservesExistingStream(t *testing.T) {
+	m := NewManager(nil)
+	ctx := context.Background()
+
+	regReq := &pb.RegisterRequest{
+		AgentId:   "agent-stream-preserve",
+		IpAddress: "192.168.1.10",
+	}
+	conn, err := m.RegisterAgent(ctx, regReq)
+	if err != nil {
+		t.Fatalf("RegisterAgent failed: %v", err)
+	}
+
+	mockStream := &mockBidiStream{}
+	conn.SetStream(mockStream)
+
+	// Simulate re-registration
+	// 模拟 Agent 重新注册
+	regReq2 := &pb.RegisterRequest{
+		AgentId:      "agent-stream-preserve",
+		IpAddress:    "192.168.1.11",
+		AgentVersion: "1.1.0",
+	}
+	conn2, err := m.RegisterAgent(ctx, regReq2)
+	if err != nil {
+		t.Fatalf("second RegisterAgent failed: %v", err)
+	}
+
+	if conn2.GetStream() != mockStream {
+		t.Fatalf("expected stream to be preserved on re-registration, got nil or different stream")
+	}
+	if conn2.IPAddress != "192.168.1.11" || conn2.Version != "1.1.0" {
+		t.Errorf("expected metadata to be updated, got ip=%s version=%s", conn2.IPAddress, conn2.Version)
+	}
+}
+
+// TestRemoveAgentStreamOnlyMatchesCurrent verifies CAS behavior of stream removal.
+// TestRemoveAgentStreamOnlyMatchesCurrent 验证仅当前流匹配时才移除流。
+func TestRemoveAgentStreamOnlyMatchesCurrent(t *testing.T) {
+	m := NewManager(nil)
+	ctx := context.Background()
+
+	regReq := &pb.RegisterRequest{
+		AgentId:   "agent-stream-cas",
+		IpAddress: "192.168.1.20",
+	}
+	conn, err := m.RegisterAgent(ctx, regReq)
+	if err != nil {
+		t.Fatalf("RegisterAgent failed: %v", err)
+	}
+
+	stream1 := &mockBidiStream{}
+	stream2 := &mockBidiStream{}
+
+	conn.SetStream(stream1)
+
+	// Stream2 is not the active stream, removal should return false and not clear stream1
+	// stream2 不是当前活跃流，移除应返回 false 且不能清空 stream1
+	if m.RemoveAgentStream("agent-stream-cas", stream2) {
+		t.Fatal("expected RemoveAgentStream to return false for mismatched stream")
+	}
+	if conn.GetStream() != stream1 {
+		t.Fatal("active stream was unexpectedly removed by mismatched stream")
+	}
+
+	// Stream1 matches active stream, removal should succeed
+	// stream1 匹配活跃流，移除应成功
+	if !m.RemoveAgentStream("agent-stream-cas", stream1) {
+		t.Fatal("expected RemoveAgentStream to return true for matching stream")
+	}
+	if conn.GetStream() != nil {
+		t.Fatalf("expected stream to be nil after removal, got %v", conn.GetStream())
+	}
+}
+
+type mockBidiStream struct {
+	grpc.BidiStreamingServer[pb.CommandResponse, pb.CommandRequest]
 }

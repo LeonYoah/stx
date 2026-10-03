@@ -172,6 +172,22 @@ func (c *AgentConnection) GetStream() grpc.BidiStreamingServer[pb.CommandRespons
 	return c.Stream
 }
 
+// waitForStream waits briefly for the command stream to become available if the agent is reconnecting.
+// waitForStream 在 Agent 处于重连窗口时短暂等待可用流，平滑吸收网络抖动。
+func (c *AgentConnection) waitForStream(timeout time.Duration) grpc.BidiStreamingServer[pb.CommandResponse, pb.CommandRequest] {
+	if s := c.GetStream(); s != nil {
+		return s
+	}
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+		if s := c.GetStream(); s != nil {
+			return s
+		}
+	}
+	return nil
+}
+
 // CommandContext represents the context for a pending command.
 // CommandContext 表示待处理命令的上下文。
 type CommandContext struct {
@@ -399,16 +415,31 @@ func (m *Manager) IsRunning() bool {
 // RegisterAgent 注册一个新的 Agent 连接。
 // Requirements: 1.2 - Handles Agent registration and connection management.
 func (m *Manager) RegisterAgent(ctx context.Context, req *pb.RegisterRequest) (*AgentConnection, error) {
-	// Create new connection
-	// 创建新连接
-	conn := &AgentConnection{
-		AgentID:       req.AgentId,
-		IPAddress:     req.IpAddress,
-		Hostname:      req.Hostname,
-		Version:       req.AgentVersion,
-		Status:        AgentStatusConnected,
-		ConnectedAt:   time.Now(),
-		LastHeartbeat: time.Now(),
+	conn, ok := m.GetAgent(req.AgentId)
+	if ok {
+		// 复用已有连接对象，保留活跃的命令流，更新元数据与心跳
+		// Reuse existing connection, retain active command stream, and update metadata and heartbeat
+		conn.mu.Lock()
+		conn.IPAddress = req.IpAddress
+		conn.Hostname = req.Hostname
+		conn.Version = req.AgentVersion
+		conn.Status = AgentStatusConnected
+		conn.ConnectedAt = time.Now()
+		conn.LastHeartbeat = time.Now()
+		conn.mu.Unlock()
+	} else {
+		// 创建新连接
+		// Create new connection
+		conn = &AgentConnection{
+			AgentID:       req.AgentId,
+			IPAddress:     req.IpAddress,
+			Hostname:      req.Hostname,
+			Version:       req.AgentVersion,
+			Status:        AgentStatusConnected,
+			ConnectedAt:   time.Now(),
+			LastHeartbeat: time.Now(),
+		}
+		m.agents.Store(req.AgentId, conn)
 	}
 
 	// Update host status if updater is available
@@ -430,13 +461,11 @@ func (m *Manager) RegisterAgent(ctx context.Context, req *pb.RegisterRequest) (*
 			// The Agent can still connect even if host update fails
 			// 即使主机更新失败，Agent 仍然可以连接
 		} else {
+			conn.mu.Lock()
 			conn.HostID = hostID
+			conn.mu.Unlock()
 		}
 	}
-
-	// Store connection
-	// 存储连接
-	m.agents.Store(req.AgentId, conn)
 
 	return conn, nil
 }
@@ -574,7 +603,7 @@ func (m *Manager) SendCommandWithID(ctx context.Context, commandID, agentID stri
 		return nil, ErrAgentNotConnected
 	}
 
-	stream := conn.GetStream()
+	stream := conn.waitForStream(2 * time.Second)
 	if stream == nil {
 		return nil, ErrStreamNotAvailable
 	}
@@ -637,7 +666,7 @@ func (m *Manager) SendCommandAsync(agentID string, cmdType pb.CommandType, param
 		return "", ErrAgentNotConnected
 	}
 
-	stream := conn.GetStream()
+	stream := conn.waitForStream(2 * time.Second)
 	if stream == nil {
 		return "", ErrStreamNotAvailable
 	}
@@ -803,6 +832,24 @@ func (m *Manager) HandleDisconnect(agentID string) {
 		ctx := context.Background()
 		_ = m.hostUpdater.MarkHostOffline(ctx, agentID)
 	}
+}
+
+// RemoveAgentStream removes the command stream if it matches the current stream.
+// RemoveAgentStream 当传入的流与当前连接持有的流相同时才将其置空，避免重连建立新流后旧流退出发生误杀。
+func (m *Manager) RemoveAgentStream(agentID string, stream grpc.BidiStreamingServer[pb.CommandResponse, pb.CommandRequest]) bool {
+	conn, ok := m.GetAgent(agentID)
+	if !ok {
+		return false
+	}
+
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+	if conn.Stream == stream {
+		conn.Stream = nil
+		conn.Status = AgentStatusDisconnected
+		return true
+	}
+	return false
 }
 
 // heartbeatChecker runs in the background to check for heartbeat timeouts.

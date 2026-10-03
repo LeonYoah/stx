@@ -282,13 +282,12 @@ func (s *Server) buildServerOptions() ([]grpc.ServerOption, error) {
 
 	// Add keepalive options
 	// 添加 keepalive 选项
+	// 对于托管 Agent 场景，不强制限制 MaxConnectionAge，避免每 30 分钟强行踢下线导致双向命令流震荡
+	// For managed Agent scenarios, avoid MaxConnectionAge to prevent forced disconnection every 30 minutes
 	opts = append(opts,
 		grpc.KeepaliveParams(keepalive.ServerParameters{
-			MaxConnectionIdle:     15 * time.Minute,
-			MaxConnectionAge:      30 * time.Minute,
-			MaxConnectionAgeGrace: 5 * time.Minute,
-			Time:                  5 * time.Minute,
-			Timeout:               20 * time.Second,
+			Time:    2 * time.Minute,
+			Timeout: 20 * time.Second,
 		}),
 		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
 			MinTime:             5 * time.Second,

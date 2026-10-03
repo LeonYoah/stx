@@ -326,9 +326,17 @@ func (s *Server) CommandStream(stream grpc.BidiStreamingServer[pb.CommandRespons
 				)
 			}
 
-			// Handle Agent disconnect
-			// 处理 Agent 断开连接
-			s.agentManager.HandleDisconnect(agentID)
+			// 仅当退出的流仍是当前有效流时才清理流引用，防止快速重连时旧流异步退出误清空新流
+			// Only remove stream if this exiting stream is still the active one
+			if s.agentManager.RemoveAgentStream(agentID, stream) {
+				s.logger.Warn("CommandStream removed for Agent",
+					zap.String("agent_id", agentID),
+				)
+			} else {
+				s.logger.Info("Stale CommandStream closed, active stream preserved for Agent",
+					zap.String("agent_id", agentID),
+				)
+			}
 			return err
 		}
 

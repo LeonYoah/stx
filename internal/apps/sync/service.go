@@ -1439,10 +1439,11 @@ func (s *Service) SubmitTask(ctx context.Context, id uint, createdBy uint, draft
 		}
 		return s.submitLocalTaskInstance(ctx, task, createdBy, RunTypeRun, jobID, body, format, jobName)
 	}
-	return s.submitTaskInstance(ctx, task, createdBy, RunTypeRun, s.nextJobID(), false, nil)
+	return s.submitTaskInstance(ctx, task, createdBy, RunTypeRun, s.nextJobID(), JobRestorePlan{}, nil)
 }
 
-// RecoverJob recreates a run using the original platform job id as savepoint recovery source.
+// RecoverJob recreates a run from checkpoint or savepoint per engine version and source status.
+// RecoverJob 按引擎版本与源作业状态从 Checkpoint 或 Savepoint 重新提交运行。
 func (s *Service) RecoverJob(ctx context.Context, sourceJobID uint, createdBy uint, draft *TaskDraftPayload) (*JobInstance, error) {
 	source, err := s.repo.GetJobInstanceByID(ctx, sourceJobID)
 	if err != nil {
@@ -1471,6 +1472,7 @@ func (s *Service) RecoverJob(ctx context.Context, sourceJobID uint, createdBy ui
 	if taskExecutionMode(task) == "local" {
 		return nil, ErrLocalSavepointUnsupported
 	}
+	restorePlan, platformJobID := s.buildJobRestorePlan(ctx, task, source)
 	if draft == nil {
 		submittedContent := strings.TrimSpace(stringValue(source.SubmitSpec, "submitted_content"))
 		if submittedContent != "" {
@@ -1479,8 +1481,8 @@ func (s *Service) RecoverJob(ctx context.Context, sourceJobID uint, createdBy ui
 				task,
 				createdBy,
 				RunTypeRecover,
-				strings.TrimSpace(source.PlatformJobID),
-				true,
+				platformJobID,
+				restorePlan,
 				&source.ID,
 				[]byte(submittedContent),
 				normalizeSubmitFormat(stringValue(source.SubmitSpec, "submitted_format", "format")),
@@ -1488,10 +1490,45 @@ func (s *Service) RecoverJob(ctx context.Context, sourceJobID uint, createdBy ui
 			)
 		}
 	}
-	return s.submitTaskInstance(ctx, task, createdBy, RunTypeRecover, strings.TrimSpace(source.PlatformJobID), true, &source.ID)
+	return s.submitTaskInstance(ctx, task, createdBy, RunTypeRecover, platformJobID, restorePlan, &source.ID)
 }
 
-func (s *Service) submitTaskInstance(ctx context.Context, task *Task, createdBy uint, runType RunType, platformJobID string, startWithSavepoint bool, recoveredFrom *uint) (*JobInstance, error) {
+func (s *Service) buildJobRestorePlan(ctx context.Context, task *Task, source *JobInstance) (JobRestorePlan, string) {
+	sourcePlatformJobID := strings.TrimSpace(source.PlatformJobID)
+	plan := resolveRestorePlan(
+		s.resolveEngineVersionForRecover(ctx, task, source),
+		sourceJobLifecycleStatus(source),
+		sourcePlatformJobID,
+	)
+	platformJobID := sourcePlatformJobID
+	if strings.TrimSpace(plan.RestoreMode) == RestoreModeCheckpoint {
+		platformJobID = s.nextJobID()
+	} else if strings.TrimSpace(plan.PlatformJobID) != "" {
+		platformJobID = strings.TrimSpace(plan.PlatformJobID)
+	}
+	return plan, platformJobID
+}
+
+func (s *Service) resolveEngineVersionForRecover(ctx context.Context, task *Task, source *JobInstance) string {
+	if task != nil {
+		if version := strings.TrimSpace(task.EngineVersion); version != "" {
+			return version
+		}
+	}
+	if source != nil {
+		if version := strings.TrimSpace(stringValue(source.SubmitSpec, "engine_version")); version != "" {
+			return version
+		}
+	}
+	if s != nil && s.clusterVersionProvider != nil && task != nil && task.ClusterID > 0 {
+		if version, err := s.clusterVersionProvider.GetClusterVersion(ctx, task.ClusterID); err == nil {
+			return strings.TrimSpace(version)
+		}
+	}
+	return ""
+}
+
+func (s *Service) submitTaskInstance(ctx context.Context, task *Task, createdBy uint, runType RunType, platformJobID string, restore JobRestorePlan, recoveredFrom *uint) (*JobInstance, error) {
 	submitBody, submitFormat, jobName, err := s.buildSubmitPayload(ctx, task, buildTaskVariableRuntime(task, platformJobID))
 	if err != nil {
 		return nil, err
@@ -1502,7 +1539,7 @@ func (s *Service) submitTaskInstance(ctx context.Context, task *Task, createdBy 
 		createdBy,
 		runType,
 		platformJobID,
-		startWithSavepoint,
+		restore,
 		recoveredFrom,
 		submitBody,
 		submitFormat,
@@ -1510,7 +1547,7 @@ func (s *Service) submitTaskInstance(ctx context.Context, task *Task, createdBy 
 	)
 }
 
-func (s *Service) submitTaskInstanceWithPayload(ctx context.Context, task *Task, createdBy uint, runType RunType, platformJobID string, startWithSavepoint bool, recoveredFrom *uint, submitBody []byte, submitFormat string, jobName string) (*JobInstance, error) {
+func (s *Service) submitTaskInstanceWithPayload(ctx context.Context, task *Task, createdBy uint, runType RunType, platformJobID string, restore JobRestorePlan, recoveredFrom *uint, submitBody []byte, submitFormat string, jobName string) (*JobInstance, error) {
 	now := time.Now()
 	instance := &JobInstance{
 		TaskID:                  task.ID,
@@ -1529,10 +1566,14 @@ func (s *Service) submitTaskInstanceWithPayload(ctx context.Context, task *Task,
 			"job_name":             jobName,
 			"trigger_source":       triggerSourceForRunType(runType),
 			"platform_job_id":      platformJobID,
-			"start_with_savepoint": startWithSavepoint,
+			"start_with_savepoint": restore.LegacySavepoint,
 		},
 		StartedAt: &now,
 		CreatedBy: createdBy,
+	}
+	if mode := strings.TrimSpace(restore.RestoreMode); mode != "" {
+		instance.SubmitSpec["restore_mode"] = mode
+		instance.SubmitSpec["restore_source_job_id"] = strings.TrimSpace(restore.RestoreSourceJobID)
 	}
 	if s.engineClient != nil && s.runtimeResolver != nil {
 		endpoint, err := s.runtimeResolver.ResolveEngineEndpoint(ctx, task.ClusterID, task.Definition)
@@ -1547,7 +1588,16 @@ func (s *Service) submitTaskInstanceWithPayload(ctx context.Context, task *Task,
 				instance.SubmitSpec["install_dir"] = target.InstallDir
 			}
 		}
-		resp, err := s.engineClient.Submit(ctx, &EngineSubmitRequest{Endpoint: endpoint, Format: submitFormat, JobID: platformJobID, JobName: jobName, StartWithSavepoint: startWithSavepoint, Body: submitBody})
+		resp, err := s.engineClient.Submit(ctx, &EngineSubmitRequest{
+			Endpoint:           endpoint,
+			Format:             submitFormat,
+			JobID:              platformJobID,
+			JobName:            jobName,
+			StartWithSavepoint: restore.LegacySavepoint,
+			RestoreMode:        restore.RestoreMode,
+			RestoreSourceJobID: restore.RestoreSourceJobID,
+			Body:               submitBody,
+		})
 		if err != nil {
 			return nil, err
 		}

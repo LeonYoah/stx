@@ -841,7 +841,7 @@ func newSyncJobRecoverCommand(storeProvider authStoreProvider) *cobra.Command {
 	command := &cobra.Command{
 		Use:     "recover <id>",
 		Short:   "Recover a stopped or failed job from checkpoint or savepoint",
-		Long:    "Resume a SeaTunnel job from its last recorded checkpoint or savepoint state.",
+		Long:    "Resume a SeaTunnel job automatically from Savepoint (after savepoint stop) or Checkpoint (after failure/cancel on SeaTunnel 3.0+). Mode is chosen from the source job status; no manual override in MVP.",
 		Example: "stx sync job recover 1 --wait --confirm",
 		Args:    usageArgs(cobra.ExactArgs(1)),
 		RunE: func(command *cobra.Command, args []string) error {

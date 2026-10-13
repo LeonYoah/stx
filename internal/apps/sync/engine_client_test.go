@@ -37,6 +37,42 @@ func TestBuildEngineURLWithContextPath(t *testing.T) {
 	}
 }
 
+func TestSeaTunnelEngineClientSubmitRestoreModeParams(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/submit-job", func(w http.ResponseWriter, r *http.Request) {
+		query := r.URL.Query()
+		if got := query.Get("restoreMode"); got != RestoreModeCheckpoint {
+			t.Fatalf("expected restoreMode=%s, got %s", RestoreModeCheckpoint, got)
+		}
+		if got := query.Get("restoreSourceJobId"); got != "old-job" {
+			t.Fatalf("expected restoreSourceJobId=old-job, got %s", got)
+		}
+		if got := query.Get("jobId"); got != "new-job" {
+			t.Fatalf("expected jobId=new-job, got %s", got)
+		}
+		if query.Get("isStartWithSavePoint") != "" {
+			t.Fatalf("expected legacy savepoint flag omitted when restoreMode is set")
+		}
+		_ = json.NewEncoder(w).Encode(EngineSubmitResponse{JobID: "new-job", JobName: "demo"})
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	client := NewSeaTunnelEngineClient()
+	_, err := client.Submit(context.Background(), &EngineSubmitRequest{
+		Endpoint:           &EngineEndpoint{BaseURL: server.URL},
+		Format:             "hocon",
+		JobID:              "new-job",
+		JobName:            "demo",
+		RestoreMode:        RestoreModeCheckpoint,
+		RestoreSourceJobID: "old-job",
+		Body:               []byte("env {}"),
+	})
+	if err != nil {
+		t.Fatalf("Submit returned error: %v", err)
+	}
+}
+
 func TestSeaTunnelEngineClientSubmitGetAndStop(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/submit-job", func(w http.ResponseWriter, r *http.Request) {

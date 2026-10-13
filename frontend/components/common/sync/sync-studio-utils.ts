@@ -2189,6 +2189,38 @@ export function canRecoverFromJob(job: SyncJobInstance | null): boolean {
   return isJobLifecycleTerminal(getDisplayJobLifecycleStatus(job));
 }
 
+/** Studio 与后端 resolveRestorePlan 对齐的恢复模式标签键。 */
+/** Label key for recover action aligned with backend resolveRestorePlan. */
+export type JobRecoverLabelKey =
+  | 'savepointRecover'
+  | 'recoverFromSavepoint'
+  | 'recoverFromCheckpoint';
+
+export function engineVersionSupportsRestoreMode(engineVersion: string): boolean {
+  const version = String(engineVersion || '').trim();
+  if (!version) {
+    return false;
+  }
+  const major = Number(version.split('.')[0]);
+  return Number.isFinite(major) && major >= 3;
+}
+
+export function resolveJobRecoverLabelKey(
+  job: SyncJobInstance | null,
+  engineVersion?: string,
+): JobRecoverLabelKey {
+  const version =
+    String(engineVersion || '').trim() ||
+    String(toObject(job?.submit_spec).engine_version || '').trim();
+  if (!engineVersionSupportsRestoreMode(version)) {
+    return 'savepointRecover';
+  }
+  if (getDisplayJobLifecycleStatus(job) === 'SAVEPOINT_DONE') {
+    return 'recoverFromSavepoint';
+  }
+  return 'recoverFromCheckpoint';
+}
+
 export function getJobSubmittedScript(job: SyncJobInstance | null): {
   content: string;
   format: string;

@@ -225,6 +225,6 @@ func (s *Service) submitScheduledTask(ctx context.Context, task *Task) error {
 		_, err = s.submitLocalTaskInstance(ctx, scheduledTask, 0, RunTypeSchedule, platformJobID, body, format, jobName)
 		return err
 	}
-	_, err = s.submitTaskInstance(ctx, scheduledTask, 0, RunTypeSchedule, platformJobID, false, nil)
+	_, err = s.submitTaskInstance(ctx, scheduledTask, 0, RunTypeSchedule, platformJobID, JobRestorePlan{}, nil)
 	return err
 }

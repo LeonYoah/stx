@@ -555,6 +555,7 @@
     "updatedAt": "更新时间",
     "noClusters": "暂无集群",
     "defaultBadge": "默认",
+    "modeBadgeProduction": "生产推荐",
     "searchPlaceholder": "按集群名称搜索",
     "allStatuses": "所有状态",
     "allModes": "所有模式",

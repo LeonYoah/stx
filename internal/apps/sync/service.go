@@ -1194,7 +1194,7 @@ func (s *Service) ensurePreviewSession(ctx context.Context, task *Task, instance
 		Status:         "collecting",
 		StartedAt:      &now,
 	}
-	if instance.Status == JobStatusSuccess || instance.Status == JobStatusFailed || instance.Status == JobStatusCanceled {
+	if isFinalNormalizedJobStatus(instance.Status) {
 		session.Status = string(instance.Status)
 		session.FinishedAt = instance.FinishedAt
 	}
@@ -1449,6 +1449,11 @@ func (s *Service) RecoverJob(ctx context.Context, sourceJobID uint, createdBy ui
 	if err != nil {
 		return nil, err
 	}
+	// 恢复前修正历史误记，避免 status=canceled 与预览 SAVEPOINT_DONE 长期不一致。
+	// Correct the legacy mislabel before recover so status=canceled does not stay out of sync with preview SAVEPOINT_DONE.
+	if err := s.promoteLegacySavepointDone(ctx, source); err != nil {
+		return nil, err
+	}
 	if source.TaskID == 0 || strings.TrimSpace(source.PlatformJobID) == "" {
 		return nil, ErrRecoverSourceRequired
 	}
@@ -1655,7 +1660,7 @@ func (s *Service) CancelJob(ctx context.Context, id uint, stopWithSavepoint bool
 	if err != nil {
 		return nil, err
 	}
-	if instance.Status == JobStatusSuccess || instance.Status == JobStatusFailed || instance.Status == JobStatusCanceled {
+	if isFinalNormalizedJobStatus(instance.Status) {
 		return nil, ErrJobAlreadyFinished
 	}
 	if instance.Status == JobStatusCancelRequested || instance.Status == JobStatusCancelling {
@@ -2545,7 +2550,12 @@ func (s *Service) refreshJobInstance(ctx context.Context, instance *JobInstance)
 	if s.engineClient == nil || strings.TrimSpace(instance.EngineJobID) == "" {
 		return instance, nil
 	}
-	if instance.Status == JobStatusSuccess || instance.Status == JobStatusFailed || instance.Status == JobStatusCanceled {
+	// 终态提前返回前先升级历史行，否则 canceled + SAVEPOINT_DONE 会永远停在错误状态。
+	// Upgrade historical rows before the terminal early-return, or canceled + SAVEPOINT_DONE stays wrong forever.
+	if err := s.promoteLegacySavepointDone(ctx, instance); err != nil {
+		return nil, err
+	}
+	if isFinalNormalizedJobStatus(instance.Status) {
 		jobStatus := strings.ToUpper(strings.TrimSpace(stringValue(instance.ResultPreview, "job_status")))
 		if jobStatus == "" || isFinalEngineJobStatus(jobStatus) {
 			return instance, nil
@@ -2671,7 +2681,38 @@ func (s *Service) syncPreviewSessionTerminalState(ctx context.Context, instance 
 }
 
 func isFinalNormalizedJobStatus(status JobStatus) bool {
-	return status == JobStatusSuccess || status == JobStatusFailed || status == JobStatusCanceled
+	return status == JobStatusSuccess || status == JobStatusFailed || status == JobStatusCanceled || status == JobStatusSavepointDone
+}
+
+// promoteLegacySavepointDone 把历史误记为 canceled、但预览已是 SAVEPOINT_DONE 的实例升为 savepoint_done。
+// promoteLegacySavepointDone upgrades historical canceled rows whose preview is already SAVEPOINT_DONE.
+func (s *Service) promoteLegacySavepointDone(ctx context.Context, instance *JobInstance) error {
+	if instance == nil || instance.Status != JobStatusCanceled {
+		return nil
+	}
+	if !strings.EqualFold(strings.TrimSpace(stringValue(instance.ResultPreview, "job_status")), "SAVEPOINT_DONE") {
+		return nil
+	}
+	instance.Status = JobStatusSavepointDone
+	if s == nil || s.repo == nil || instance.ID == 0 {
+		return nil
+	}
+	if err := s.repo.UpdateJobStatus(ctx, instance.ID, []JobStatus{JobStatusCanceled}, map[string]any{
+		"status": instance.Status,
+	}); err != nil {
+		if errors.Is(err, ErrJobStatusChanged) {
+			latest, getErr := s.repo.GetJobInstanceByID(ctx, instance.ID)
+			if getErr != nil {
+				return getErr
+			}
+			if latest != nil {
+				*instance = *latest
+			}
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 func isFinalEngineJobStatus(status string) bool {

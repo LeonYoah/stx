@@ -148,6 +148,9 @@ const (
 	JobStatusSuccess         JobStatus = "success"
 	JobStatusFailed          JobStatus = "failed"
 	JobStatusCanceled        JobStatus = "canceled"
+	// JobStatusSavepointDone 表示引擎已完成 Savepoint 停止，可从该 Savepoint 恢复。
+	// JobStatusSavepointDone means the engine finished a savepoint stop and can recover from it.
+	JobStatusSavepointDone JobStatus = "savepoint_done"
 )
 
 // Task represents one sync studio workspace node.

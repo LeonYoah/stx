@@ -42,6 +42,26 @@ func TestResolveRestorePlan(t *testing.T) {
 		}
 	})
 
+	t.Run("3.0 stored savepoint_done uses SAVEPOINT mode", func(t *testing.T) {
+		plan := resolveRestorePlan("3.0.0", sourceJobLifecycleStatus(&JobInstance{Status: JobStatusSavepointDone}), sourceID)
+		if plan.LegacySavepoint || plan.RestoreMode != RestoreModeSavepoint {
+			t.Fatalf("expected SAVEPOINT mode from savepoint_done, got %+v", plan)
+		}
+		if plan.PlatformJobID != sourceID {
+			t.Fatalf("expected reused platform job id, got %q", plan.PlatformJobID)
+		}
+	})
+
+	t.Run("2.x savepoint_done stays on legacy savepoint path", func(t *testing.T) {
+		plan := resolveRestorePlan("2.3.13", "SAVEPOINT_DONE", sourceID)
+		if !plan.LegacySavepoint || plan.RestoreMode != "" {
+			t.Fatalf("expected legacy savepoint plan, got %+v", plan)
+		}
+		if plan.PlatformJobID != sourceID {
+			t.Fatalf("expected reused platform job id, got %q", plan.PlatformJobID)
+		}
+	})
+
 	t.Run("3.0 failed uses CHECKPOINT mode with new job id assigned later", func(t *testing.T) {
 		plan := resolveRestorePlan("3.0.0", "FAILED", sourceID)
 		if plan.LegacySavepoint || plan.RestoreMode != RestoreModeCheckpoint {
@@ -65,5 +85,8 @@ func TestSourceJobLifecycleStatus(t *testing.T) {
 	}
 	if got := sourceJobLifecycleStatus(source); got != "SAVEPOINT_DONE" {
 		t.Fatalf("expected result_preview job_status, got %q", got)
+	}
+	if got := sourceJobLifecycleStatus(&JobInstance{Status: JobStatusSavepointDone}); got != "SAVEPOINT_DONE" {
+		t.Fatalf("expected savepoint_done to normalize to SAVEPOINT_DONE, got %q", got)
 	}
 }

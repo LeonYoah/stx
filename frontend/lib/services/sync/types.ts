@@ -26,7 +26,8 @@ export type SyncJobStatus =
   | 'running'
   | 'success'
   | 'failed'
-  | 'canceled';
+  | 'canceled'
+  | 'savepoint_done';
 export type SyncFormat = 'hocon' | 'json';
 
 export interface SyncTask {

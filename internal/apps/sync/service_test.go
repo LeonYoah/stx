@@ -494,6 +494,108 @@ func TestRecoverJobUsesCheckpointModeForSeaTunnel30Failed(t *testing.T) {
 	}
 }
 
+func TestRecoverJobUsesSavepointModeForSeaTunnel30SavepointDone(t *testing.T) {
+	service := newTestSyncService(t)
+	ctx := context.Background()
+	task := createRecoverTask(t, service, ctx, "recover_sp", "3.0.0")
+	source := &JobInstance{
+		TaskID:        task.ID,
+		TaskVersion:   1,
+		RunType:       RunTypeRun,
+		PlatformJobID: "177467000000000088",
+		EngineJobID:   "177467000000000088",
+		Status:        JobStatusSavepointDone,
+		ResultPreview: JSONMap{"job_status": "SAVEPOINT_DONE"},
+		SubmitSpec: JSONMap{
+			"mode":              "cluster",
+			"submitted_content": "env { job.mode = \"STREAMING\" }\nsource { FakeSource {} }\nsink { Console {} }",
+			"engine_version":    "3.0.0",
+		},
+		CreatedBy: 1,
+	}
+	if err := service.repo.CreateJobInstance(ctx, source); err != nil {
+		t.Fatalf("create source job failed: %v", err)
+	}
+
+	recovered, err := service.RecoverJob(ctx, source.ID, 2, nil)
+	if err != nil {
+		t.Fatalf("recover job failed: %v", err)
+	}
+	if recovered.PlatformJobID != source.PlatformJobID {
+		t.Fatalf("expected reused platform job id %q, got %q", source.PlatformJobID, recovered.PlatformJobID)
+	}
+	if stringValue(recovered.SubmitSpec, "restore_mode") != RestoreModeSavepoint {
+		t.Fatalf("expected restore_mode SAVEPOINT, got %q", stringValue(recovered.SubmitSpec, "restore_mode"))
+	}
+	if legacy, _ := recovered.SubmitSpec["start_with_savepoint"].(bool); legacy {
+		t.Fatalf("3.0 savepoint recover must not set isStartWithSavePoint")
+	}
+}
+
+func TestRecoverJobKeepsLegacySavepointForSeaTunnel2x(t *testing.T) {
+	service := newTestSyncService(t)
+	ctx := context.Background()
+	task := createRecoverTask(t, service, ctx, "recover_legacy", "2.3.13")
+	source := &JobInstance{
+		TaskID:        task.ID,
+		TaskVersion:   1,
+		RunType:       RunTypeRun,
+		PlatformJobID: "177467000000000077",
+		EngineJobID:   "177467000000000077",
+		Status:        JobStatusSavepointDone,
+		SubmitSpec: JSONMap{
+			"mode":              "cluster",
+			"submitted_content": "env { job.mode = \"STREAMING\" }\nsource { FakeSource {} }\nsink { Console {} }",
+			"engine_version":    "2.3.13",
+		},
+		CreatedBy: 1,
+	}
+	if err := service.repo.CreateJobInstance(ctx, source); err != nil {
+		t.Fatalf("create source job failed: %v", err)
+	}
+
+	recovered, err := service.RecoverJob(ctx, source.ID, 2, nil)
+	if err != nil {
+		t.Fatalf("recover job failed: %v", err)
+	}
+	if recovered.PlatformJobID != source.PlatformJobID {
+		t.Fatalf("expected reused platform job id %q, got %q", source.PlatformJobID, recovered.PlatformJobID)
+	}
+	if _, exists := recovered.SubmitSpec["restore_mode"]; exists {
+		t.Fatalf("2.x recover must not set restore_mode, got %v", recovered.SubmitSpec["restore_mode"])
+	}
+	if legacy, _ := recovered.SubmitSpec["start_with_savepoint"].(bool); !legacy {
+		t.Fatalf("2.x recover must keep start_with_savepoint")
+	}
+}
+
+func createRecoverTask(t *testing.T, service *Service, ctx context.Context, name, engineVersion string) *Task {
+	t.Helper()
+	folder, err := service.CreateTask(ctx, &CreateTaskRequest{
+		NodeType:      string(TaskNodeTypeFolder),
+		Name:          name + "_root",
+		ContentFormat: string(ContentFormatHOCON),
+	}, 1)
+	if err != nil {
+		t.Fatalf("create folder failed: %v", err)
+	}
+	task, err := service.CreateTask(ctx, &CreateTaskRequest{
+		ParentID:      uintPtr(folder.ID),
+		NodeType:      string(TaskNodeTypeFile),
+		Name:          name + "_job",
+		ContentFormat: string(ContentFormatHOCON),
+		Content:       "env { job.mode = \"STREAMING\" }\nsource { FakeSource {} }\nsink { Console {} }",
+		EngineVersion: engineVersion,
+		Definition: JSONMap{
+			"execution_mode": "cluster",
+		},
+	}, 1)
+	if err != nil {
+		t.Fatalf("create task failed: %v", err)
+	}
+	return task
+}
+
 func TestUpdateTaskRejectsDuplicateSiblingName(t *testing.T) {
 	service := newTestSyncService(t)
 	ctx := context.Background()
@@ -1957,6 +2059,93 @@ func TestCancelJobWaitsForEngineConfirmation(t *testing.T) {
 	}
 	if refreshed.Status != JobStatusCanceled {
 		t.Fatalf("引擎确认后应进入 canceled，实际为 %s", refreshed.Status)
+	}
+}
+
+func TestRefreshSavepointDoneKeepsDistinctStatus(t *testing.T) {
+	service := newTestSyncService(t)
+	engine := &stubEngineClient{info: &EngineJobInfo{JobID: "engine-sp-1", JobStatus: "DOING_SAVEPOINT"}}
+	service.engineClient = engine
+	ctx := context.Background()
+	job := &JobInstance{
+		TaskID:        1,
+		TaskVersion:   1,
+		RunType:       RunTypeRun,
+		Status:        JobStatusCancelling,
+		PlatformJobID: "platform-sp-1",
+		EngineJobID:   "engine-sp-1",
+		SubmitSpec:    JSONMap{"engine_base_url": "http://127.0.0.1:8080"},
+		ResultPreview: JSONMap{"job_status": "DOING_SAVEPOINT"},
+		CreatedBy:     1,
+	}
+	if err := service.repo.CreateJobInstance(ctx, job); err != nil {
+		t.Fatalf("创建作业失败: %v", err)
+	}
+
+	refreshed, err := service.GetJob(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("刷新 savepoint 中作业失败: %v", err)
+	}
+	if refreshed.Status != JobStatusCancelling {
+		t.Fatalf("引擎仍在做 savepoint 时应保持 cancelling，实际为 %s", refreshed.Status)
+	}
+
+	engine.info = &EngineJobInfo{JobID: "engine-sp-1", JobStatus: "SAVEPOINT_DONE", FinishedTime: "2026-10-13 12:00:00"}
+	refreshed, err = service.GetJob(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("刷新 savepoint 完成结果失败: %v", err)
+	}
+	if refreshed.Status != JobStatusSavepointDone {
+		t.Fatalf("引擎 SAVEPOINT_DONE 应记为 savepoint_done，实际为 %s", refreshed.Status)
+	}
+	if stringValue(refreshed.ResultPreview, "job_status") != "SAVEPOINT_DONE" {
+		t.Fatalf("预览 job_status 应为 SAVEPOINT_DONE，实际为 %q", stringValue(refreshed.ResultPreview, "job_status"))
+	}
+	if refreshed.FinishedAt == nil {
+		t.Fatalf("savepoint_done 应写入 finished_at")
+	}
+	if _, err := service.CancelJob(ctx, job.ID, false); !errors.Is(err, ErrJobAlreadyFinished) {
+		t.Fatalf("savepoint_done 应视为已结束，实际错误 %v", err)
+	}
+}
+
+func TestRefreshUpgradesLegacyCanceledSavepoint(t *testing.T) {
+	service := newTestSyncService(t)
+	service.engineClient = &stubEngineClient{info: &EngineJobInfo{JobID: "engine-legacy-sp", JobStatus: "RUNNING"}}
+	ctx := context.Background()
+	job := &JobInstance{
+		TaskID:        1,
+		TaskVersion:   1,
+		RunType:       RunTypeRun,
+		Status:        JobStatusCanceled,
+		PlatformJobID: "platform-legacy-sp",
+		EngineJobID:   "engine-legacy-sp",
+		SubmitSpec:    JSONMap{"engine_base_url": "http://127.0.0.1:8080"},
+		ResultPreview: JSONMap{"job_status": "SAVEPOINT_DONE"},
+		CreatedBy:     1,
+	}
+	if err := service.repo.CreateJobInstance(ctx, job); err != nil {
+		t.Fatalf("创建历史作业失败: %v", err)
+	}
+
+	refreshed, err := service.GetJob(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("刷新历史 savepoint 作业失败: %v", err)
+	}
+	if refreshed.Status != JobStatusSavepointDone {
+		t.Fatalf("历史 canceled + SAVEPOINT_DONE 应升级为 savepoint_done，实际为 %s", refreshed.Status)
+	}
+	if stringValue(refreshed.ResultPreview, "job_status") != "SAVEPOINT_DONE" {
+		t.Fatalf("升级不应改写预览 job_status，实际为 %q", stringValue(refreshed.ResultPreview, "job_status"))
+	}
+}
+
+func TestExecutionStatusFromSavepointDone(t *testing.T) {
+	if executionStatusFromJob(JobStatusSavepointDone) != executionapp.StatusCancelled {
+		t.Fatalf("公共执行应把 savepoint_done 记为 cancelled")
+	}
+	if executionProgressFromJob(JobStatusSavepointDone) != 100 {
+		t.Fatalf("savepoint_done 进度应为 100")
 	}
 }
 

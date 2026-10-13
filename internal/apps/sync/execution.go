@@ -379,7 +379,9 @@ func executionStatusFromJob(status JobStatus) executionapp.Status {
 		return executionapp.StatusCancelRequested
 	case JobStatusCancelling:
 		return executionapp.StatusCancelling
-	case JobStatusCanceled:
+	case JobStatusCanceled, JobStatusSavepointDone:
+		// 公共执行没有 savepoint 终态，Cancelling 只能转到 cancelled。作业状态本身仍是 savepoint_done。
+		// Shared execution has no savepoint terminal state; Cancelling can only move to cancelled. The job status stays savepoint_done.
 		return executionapp.StatusCancelled
 	case JobStatusSuccess:
 		return executionapp.StatusSucceeded
@@ -394,7 +396,7 @@ func executionProgressFromJob(status JobStatus) int {
 	switch status {
 	case JobStatusPending:
 		return 0
-	case JobStatusSuccess, JobStatusFailed, JobStatusCanceled:
+	case JobStatusSuccess, JobStatusFailed, JobStatusCanceled, JobStatusSavepointDone:
 		return 100
 	case JobStatusCancelRequested:
 		return 50

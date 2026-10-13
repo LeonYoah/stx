@@ -202,3 +202,38 @@ func mustNestedMap(t *testing.T, value map[string]any, path ...string) map[strin
 	}
 	return current
 }
+
+func TestModifySeaTunnelConfigClearsBackupCountForSingleNodeSeaTunnel3(t *testing.T) {
+	configPath := writeRuntimeConfigFixture(t)
+	manager := NewInstallerManager()
+	err := manager.modifySeaTunnelConfig(configPath, &InstallParams{
+		Version:         "3.0.0",
+		DeploymentMode:  DeploymentModeHybrid,
+		MasterAddresses: []string{"127.0.0.1"},
+		HTTPPort:        8080,
+	})
+	if err != nil {
+		t.Fatalf("modifySeaTunnelConfig returned error: %v", err)
+	}
+	root := readRuntimeConfigMap(t, configPath)
+	engine := mustNestedMap(t, root, "seatunnel", "engine")
+	if got := engine["backup-count"]; got != 0 && got != int64(0) && got != float64(0) {
+		t.Fatalf("expected backup-count=0 for single-node 3.0 hybrid, got %#v", got)
+	}
+
+	separatedPath := writeRuntimeConfigFixture(t)
+	err = manager.modifySeaTunnelConfig(separatedPath, &InstallParams{
+		Version:         "3.0.0",
+		DeploymentMode:  DeploymentModeSeparated,
+		MasterAddresses: []string{"127.0.0.1", "127.0.0.2"},
+		HTTPPort:        8080,
+	})
+	if err != nil {
+		t.Fatalf("modifySeaTunnelConfig returned error: %v", err)
+	}
+	separated := readRuntimeConfigMap(t, separatedPath)
+	separatedEngine := mustNestedMap(t, separated, "seatunnel", "engine")
+	if _, ok := separatedEngine["backup-count"]; ok {
+		t.Fatalf("separated 3.0 should keep the package backup-count, got %#v", separatedEngine["backup-count"])
+	}
+}

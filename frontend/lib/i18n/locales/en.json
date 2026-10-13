@@ -3793,6 +3793,8 @@
     "testConnections": "Test Connections",
     "run": "Run",
     "savepointRecover": "Savepoint Recover",
+    "recoverFromSavepoint": "Recover from Savepoint",
+    "recoverFromCheckpoint": "Recover from Checkpoint",
     "stop": "Stop",
     "normalStop": "Normal Stop",
     "savepointStop": "Savepoint Stop",

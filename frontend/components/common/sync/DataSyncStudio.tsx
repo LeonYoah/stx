@@ -359,6 +359,7 @@ import {
   resolveEnumSuggestRange,
   resolveEnumSuggestionItems,
   resolveEnumValueBounds,
+  resolveJobRecoverLabelKey,
   resolveFolderParent,
   isCursorAtFinishedEnumValue,
   resolveOptionAssignmentContext,
@@ -772,6 +773,17 @@ export function DataSyncStudio() {
     }
     return recoverableRunJobs[0]?.id ?? null;
   }, [recoverSourceId, recoverableRunJobs]);
+  const preferredRecoverSourceJob = useMemo(
+    () =>
+      recoverableRunJobs.find((job) => job.id === preferredRecoverSourceId) ||
+      recoverableRunJobs[0] ||
+      null,
+    [recoverableRunJobs, preferredRecoverSourceId],
+  );
+  const recoverActionLabelKey = useMemo(
+    () => resolveJobRecoverLabelKey(preferredRecoverSourceJob),
+    [preferredRecoverSourceJob],
+  );
   const selectedJob = useMemo(
     () => jobs.find((job) => job.id === selectedJobId) || jobs[0] || null,
     [jobs, selectedJobId],
@@ -4486,7 +4498,7 @@ export function DataSyncStudio() {
                         }
                         onClick={() => void handleRun('recover')}
                       >
-                        {t('savepointRecover')}
+                        {t(recoverActionLabelKey)}
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>

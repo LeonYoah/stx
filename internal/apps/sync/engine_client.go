@@ -61,6 +61,8 @@ type EngineSubmitRequest struct {
 	JobID              string
 	JobName            string
 	StartWithSavepoint bool
+	RestoreMode        string
+	RestoreSourceJobID string
 	Body               []byte
 }
 
@@ -163,7 +165,12 @@ func (c *SeaTunnelEngineClient) Submit(ctx context.Context, req *EngineSubmitReq
 	if jobID := strings.TrimSpace(req.JobID); jobID != "" {
 		params["jobId"] = jobID
 	}
-	if req.StartWithSavepoint {
+	if mode := strings.TrimSpace(req.RestoreMode); mode != "" {
+		params["restoreMode"] = mode
+		if sourceID := strings.TrimSpace(req.RestoreSourceJobID); sourceID != "" {
+			params["restoreSourceJobId"] = sourceID
+		}
+	} else if req.StartWithSavepoint {
 		params["isStartWithSavePoint"] = "true"
 	}
 	targetURL, err := buildEngineURL(req.Endpoint, "/submit-job", params)

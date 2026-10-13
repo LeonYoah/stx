@@ -432,6 +432,68 @@ func TestRecoverJobUsesHistoricalSubmittedScriptWhenDraftIsNil(t *testing.T) {
 	}
 }
 
+func TestRecoverJobUsesCheckpointModeForSeaTunnel30Failed(t *testing.T) {
+	service := newTestSyncService(t)
+	ctx := context.Background()
+
+	folder, err := service.CreateTask(ctx, &CreateTaskRequest{
+		NodeType:      string(TaskNodeTypeFolder),
+		Name:          "recover_ck_root",
+		ContentFormat: string(ContentFormatHOCON),
+	}, 1)
+	if err != nil {
+		t.Fatalf("create folder failed: %v", err)
+	}
+
+	task, err := service.CreateTask(ctx, &CreateTaskRequest{
+		ParentID:      uintPtr(folder.ID),
+		NodeType:      string(TaskNodeTypeFile),
+		Name:          "recover_ck_job",
+		ContentFormat: string(ContentFormatHOCON),
+		Content:       "env { job.mode = \"BATCH\" }\nsource { FakeSource {} }\nsink { Console {} }",
+		EngineVersion: "3.0.0",
+		Definition: JSONMap{
+			"execution_mode": "cluster",
+		},
+	}, 1)
+	if err != nil {
+		t.Fatalf("create task failed: %v", err)
+	}
+
+	source := &JobInstance{
+		TaskID:        task.ID,
+		TaskVersion:   1,
+		RunType:       RunTypeRun,
+		PlatformJobID: "177467000000000099",
+		EngineJobID:   "177467000000000099",
+		Status:        JobStatusFailed,
+		ResultPreview: JSONMap{"job_status": "FAILED"},
+		SubmitSpec: JSONMap{
+			"mode":              "cluster",
+			"submitted_content": "env { job.mode = \"BATCH\" }\nsource { FakeSource {} }\nsink { Console {} }",
+			"engine_version":    "3.0.0",
+		},
+		CreatedBy: 1,
+	}
+	if err := service.repo.CreateJobInstance(ctx, source); err != nil {
+		t.Fatalf("create source job failed: %v", err)
+	}
+
+	recovered, err := service.RecoverJob(ctx, source.ID, 2, nil)
+	if err != nil {
+		t.Fatalf("recover job failed: %v", err)
+	}
+	if recovered.PlatformJobID == source.PlatformJobID {
+		t.Fatalf("expected new platform job id for checkpoint recover, got %q", recovered.PlatformJobID)
+	}
+	if stringValue(recovered.SubmitSpec, "restore_mode") != RestoreModeCheckpoint {
+		t.Fatalf("expected restore_mode CHECKPOINT, got %q", stringValue(recovered.SubmitSpec, "restore_mode"))
+	}
+	if stringValue(recovered.SubmitSpec, "restore_source_job_id") != source.PlatformJobID {
+		t.Fatalf("expected restore_source_job_id=%q, got %q", source.PlatformJobID, stringValue(recovered.SubmitSpec, "restore_source_job_id"))
+	}
+}
+
 func TestUpdateTaskRejectsDuplicateSiblingName(t *testing.T) {
 	service := newTestSyncService(t)
 	ctx := context.Background()

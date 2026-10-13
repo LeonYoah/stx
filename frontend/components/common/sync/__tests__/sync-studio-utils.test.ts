@@ -29,6 +29,7 @@ import {
   isCursorAtFinishedEnumValue,
   resolveEnumSuggestionItems,
   resolveEnumValueBounds,
+  resolveJobRecoverLabelKey,
   resolveOptionAssignmentContext,
   resolveVariableCompletionContext,
   resolveVariableSuggestions,
@@ -589,6 +590,41 @@ env {
     );
     expect(inserted.replacesAll).toBe(true);
     expect(inserted.nextContent).toBe('env { job.mode = "BATCH" }');
+  });
+});
+
+describe('resolveJobRecoverLabelKey', () => {
+  it('uses checkpoint label for 3.0 failed jobs', () => {
+    expect(
+      resolveJobRecoverLabelKey({
+        platform_job_id: '1',
+        status: 'failed',
+        submit_spec: {engine_version: '3.0.0'},
+        result_preview: {job_status: 'FAILED'},
+      } as any),
+    ).toBe('recoverFromCheckpoint');
+  });
+
+  it('uses savepoint label for savepoint done on 3.0', () => {
+    expect(
+      resolveJobRecoverLabelKey({
+        platform_job_id: '1',
+        status: 'success',
+        submit_spec: {engine_version: '3.0.0'},
+        result_preview: {job_status: 'SAVEPOINT_DONE'},
+      } as any),
+    ).toBe('recoverFromSavepoint');
+  });
+
+  it('keeps legacy label on 2.x', () => {
+    expect(
+      resolveJobRecoverLabelKey({
+        platform_job_id: '1',
+        status: 'failed',
+        submit_spec: {engine_version: '2.3.12'},
+        result_preview: {job_status: 'FAILED'},
+      } as any),
+    ).toBe('savepointRecover');
   });
 });
 

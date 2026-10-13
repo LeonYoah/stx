@@ -3793,6 +3793,8 @@
     "testConnections": "测试连接",
     "run": "运行",
     "savepointRecover": "Savepoint 恢复",
+    "recoverFromSavepoint": "从 Savepoint 恢复",
+    "recoverFromCheckpoint": "从 Checkpoint 恢复",
     "stop": "停止",
     "normalStop": "正常停止",
     "savepointStop": "Savepoint 停止",

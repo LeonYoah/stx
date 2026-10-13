@@ -45,6 +45,7 @@ import {
   buildDisplayLogLines,
   canRecoverFromJob,
   extractJobMetricSummary,
+  resolveJobRecoverLabelKey,
   formatJobDateTime,
   formatJobDuration,
   formatMetricValue,
@@ -587,7 +588,7 @@ export function JobRunsPanel({
                                 onRecover(job.id);
                               }}
                             >
-                              {t('recover')}
+                              {t(resolveJobRecoverLabelKey(job))}
                             </Button>
                           </span>
                         </TooltipTrigger>

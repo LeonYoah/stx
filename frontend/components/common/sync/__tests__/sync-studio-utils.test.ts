@@ -27,6 +27,7 @@ import {
   isNodeMatchingScope,
   formatValueConstraintHints,
   isCursorAtFinishedEnumValue,
+  isJobLifecycleTerminal,
   resolveEnumSuggestionItems,
   resolveEnumValueBounds,
   resolveJobRecoverLabelKey,
@@ -614,6 +615,27 @@ describe('resolveJobRecoverLabelKey', () => {
         result_preview: {job_status: 'SAVEPOINT_DONE'},
       } as any),
     ).toBe('recoverFromSavepoint');
+  });
+
+  it('uses savepoint label from stored savepoint_done without preview on 3.0', () => {
+    expect(
+      resolveJobRecoverLabelKey({
+        platform_job_id: '1',
+        status: 'savepoint_done',
+        submit_spec: {engine_version: '3.0.0'},
+      } as any),
+    ).toBe('recoverFromSavepoint');
+    expect(isJobLifecycleTerminal('savepoint_done')).toBe(true);
+  });
+
+  it('keeps legacy label for stored savepoint_done on 2.x', () => {
+    expect(
+      resolveJobRecoverLabelKey({
+        platform_job_id: '1',
+        status: 'savepoint_done',
+        submit_spec: {engine_version: '2.3.13'},
+      } as any),
+    ).toBe('savepointRecover');
   });
 
   it('keeps legacy label on 2.x', () => {

@@ -555,6 +555,7 @@
     "updatedAt": "Updated At",
     "noClusters": "No clusters found",
     "defaultBadge": "Default",
+    "modeBadgeProduction": "Production recommended",
     "searchPlaceholder": "Search by cluster name",
     "allStatuses": "All Statuses",
     "allModes": "All Modes",

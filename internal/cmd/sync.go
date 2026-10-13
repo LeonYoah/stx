@@ -805,7 +805,7 @@ func newSyncJobCancelCommand(storeProvider authStoreProvider) *cobra.Command {
 	command := &cobra.Command{
 		Use:     "cancel <id>",
 		Short:   "Cancel a running SeaTunnel job",
-		Long:    "Request graceful termination of a running SeaTunnel job. Use --savepoint to trigger a savepoint before stopping.",
+		Long:    "Request graceful termination of a running SeaTunnel job. Use --savepoint to trigger a savepoint before stopping. A completed savepoint is stored as status savepoint_done, not canceled.",
 		Example: "stx sync job cancel 1 --savepoint --confirm",
 		Args:    usageArgs(cobra.ExactArgs(1)),
 		RunE: func(command *cobra.Command, args []string) error {
@@ -830,7 +830,7 @@ func newSyncJobCancelCommand(storeProvider authStoreProvider) *cobra.Command {
 		},
 	}
 	addSecureWriteFlags(command, &options)
-	command.Flags().BoolVar(&savepoint, "savepoint", false, "Trigger SeaTunnel Savepoint before stopping the job")
+	command.Flags().BoolVar(&savepoint, "savepoint", false, "Trigger SeaTunnel Savepoint before stopping the job. A completed savepoint is recorded as savepoint_done")
 	return command
 }
 
@@ -841,7 +841,7 @@ func newSyncJobRecoverCommand(storeProvider authStoreProvider) *cobra.Command {
 	command := &cobra.Command{
 		Use:     "recover <id>",
 		Short:   "Recover a stopped or failed job from checkpoint or savepoint",
-		Long:    "Resume a SeaTunnel job automatically from Savepoint (after savepoint stop) or Checkpoint (after failure/cancel on SeaTunnel 3.0+). Mode is chosen from the source job status; no manual override in MVP.",
+		Long:    "Resume a SeaTunnel job automatically from Savepoint (after savepoint stop, status savepoint_done) or Checkpoint (after failure/cancel on SeaTunnel 3.0+). Mode is chosen from the source job status; 2.x keeps isStartWithSavePoint. No manual override in MVP.",
 		Example: "stx sync job recover 1 --wait --confirm",
 		Args:    usageArgs(cobra.ExactArgs(1)),
 		RunE: func(command *cobra.Command, args []string) error {

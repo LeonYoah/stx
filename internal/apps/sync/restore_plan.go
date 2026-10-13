@@ -50,6 +50,8 @@ func sourceJobLifecycleStatus(source *JobInstance) string {
 	if raw := strings.TrimSpace(stringValue(source.ResultPreview, "job_status")); raw != "" {
 		return strings.ToUpper(raw)
 	}
+	// 无预览时把实例状态大写：savepoint_done → SAVEPOINT_DONE，2.x 仍忽略该值走旧路径。
+	// Without a preview, uppercase the instance status so savepoint_done matches SAVEPOINT_DONE; 2.x still ignores it.
 	return strings.ToUpper(strings.TrimSpace(string(source.Status)))
 }
 

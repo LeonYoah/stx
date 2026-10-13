@@ -374,7 +374,7 @@ func (s *Service) refreshLocalJob(ctx context.Context, instance *JobInstance) (*
 	if strings.TrimSpace(status.Message) != "" {
 		instance.ResultPreview["status_message"] = strings.TrimSpace(status.Message)
 	}
-	if (instance.Status == JobStatusSuccess || instance.Status == JobStatusFailed || instance.Status == JobStatusCanceled) && instance.FinishedAt == nil {
+	if isFinalNormalizedJobStatus(instance.Status) && instance.FinishedAt == nil {
 		now := time.Now()
 		instance.FinishedAt = &now
 		if strings.TrimSpace(status.Message) != "" && instance.Status == JobStatusFailed {

@@ -2067,7 +2067,13 @@ export function getDisplayJobLifecycleStatus(job: SyncJobInstance | null): strin
   if (rawJobStatus) {
     return rawJobStatus;
   }
-  return String(job.status || '-');
+  const stored = String(job.status || '-').trim();
+  // 实例状态 savepoint_done 与引擎 SAVEPOINT_DONE 是同一终态，恢复标签按后者判断。
+  // Stored savepoint_done is the same terminal state as engine SAVEPOINT_DONE; recover labels use the latter.
+  if (stored.toLowerCase() === 'savepoint_done') {
+    return 'SAVEPOINT_DONE';
+  }
+  return stored;
 }
 
 export function formatJobDateTime(value: string | null | undefined): string {

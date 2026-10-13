@@ -782,7 +782,9 @@ func normalizeJobStatus(status string) JobStatus {
 	case "DOING_SAVEPOINT":
 		return JobStatusRunning
 	case "SAVEPOINT_DONE":
-		return JobStatusCanceled
+		// Savepoint 停止是独立终态。记成 canceled 会让只看 status 的 3.0 恢复误走 CHECKPOINT。
+		// Savepoint stop is its own terminal status. Storing canceled would make status-only 3.0 recover pick CHECKPOINT.
+		return JobStatusSavepointDone
 	case "FINISHED", "SUCCESS":
 		return JobStatusSuccess
 	case "FAILING", "FAILED":

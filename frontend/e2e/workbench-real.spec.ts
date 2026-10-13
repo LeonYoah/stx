@@ -226,6 +226,7 @@ test.describe.serial('workbench real flows', () => {
       240000,
     );
     expect(stoppedJob.platform_job_id).toBeTruthy();
+    expect((stoppedJob.status ?? '').toLowerCase()).toBe('savepoint_done');
 
     const checkpointFiles = await listCheckpointFiles(request, clusterId, stoppedJob.platform_job_id as string);
     expect(checkpointFiles.length).toBeGreaterThan(0);

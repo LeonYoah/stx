@@ -55,6 +55,9 @@ env:
   # .github/workflows/seatunnel-package-cache.yml so every PR can restore them.
   E2E_INSTALLER_REAL_VERSION: '2.3.13'
   E2E_UPGRADE_REAL_SOURCE_VERSION: '2.3.12'
+  # Extra SeaTunnel versions warmed by seatunnel-package-cache.yml (space separated).
+  # That workflow reads the *_VERSION values above from this file, so keep them here.
+  E2E_SEATUNNEL_EXTRA_CACHE_VERSIONS: '3.0.0'
   SEATUNNEL_PACKAGE_CACHE_EPOCH: v1
 
 concurrency:
@@ -553,12 +556,6 @@ jobs:
           cd frontend
           pnpm exec playwright install --with-deps chromium
 
-      - name: Restore SeaTunnel package cache
-        uses: actions/cache/restore@v4
-        with:
-          path: ${{ env.E2E_INSTALLER_REAL_PACKAGE_CACHE_DIR }}/apache-seatunnel-${{ env.E2E_INSTALLER_REAL_VERSION }}-bin.tar.gz
-          key: seatunnel-bin-${{ runner.os }}-${{ env.E2E_INSTALLER_REAL_VERSION }}-${{ env.SEATUNNEL_PACKAGE_CACHE_EPOCH }}
-
       - name: Download SeaTunnel package artifact
         uses: actions/download-artifact@v4
         with:
@@ -626,12 +623,6 @@ jobs:
           cd frontend
           pnpm exec playwright install --with-deps chromium
 
-      - name: Restore SeaTunnel package cache
-        uses: actions/cache/restore@v4
-        with:
-          path: ${{ env.E2E_INSTALLER_REAL_PACKAGE_CACHE_DIR }}/apache-seatunnel-${{ env.E2E_INSTALLER_REAL_VERSION }}-bin.tar.gz
-          key: seatunnel-bin-${{ runner.os }}-${{ env.E2E_INSTALLER_REAL_VERSION }}-${{ env.SEATUNNEL_PACKAGE_CACHE_EPOCH }}
-
       - name: Download SeaTunnel package artifact
         uses: actions/download-artifact@v4
         with:
@@ -697,12 +688,6 @@ jobs:
         run: |
           cd frontend
           pnpm exec playwright install --with-deps chromium
-
-      - name: Restore SeaTunnel package cache
-        uses: actions/cache/restore@v4
-        with:
-          path: ${{ env.E2E_INSTALLER_REAL_PACKAGE_CACHE_DIR }}/apache-seatunnel-${{ env.E2E_INSTALLER_REAL_VERSION }}-bin.tar.gz
-          key: seatunnel-bin-${{ runner.os }}-${{ env.E2E_INSTALLER_REAL_VERSION }}-${{ env.SEATUNNEL_PACKAGE_CACHE_EPOCH }}
 
       - name: Download SeaTunnel package artifact
         uses: actions/download-artifact@v4
@@ -770,12 +755,6 @@ jobs:
           cd frontend
           pnpm exec playwright install --with-deps chromium
 
-      - name: Restore SeaTunnel package cache
-        uses: actions/cache/restore@v4
-        with:
-          path: ${{ env.E2E_INSTALLER_REAL_PACKAGE_CACHE_DIR }}/apache-seatunnel-${{ env.E2E_INSTALLER_REAL_VERSION }}-bin.tar.gz
-          key: seatunnel-bin-${{ runner.os }}-${{ env.E2E_INSTALLER_REAL_VERSION }}-${{ env.SEATUNNEL_PACKAGE_CACHE_EPOCH }}
-
       - name: Download SeaTunnel package artifact
         uses: actions/download-artifact@v4
         with:
@@ -841,12 +820,6 @@ jobs:
         run: |
           cd frontend
           pnpm exec playwright install --with-deps chromium
-
-      - name: Restore SeaTunnel package cache
-        uses: actions/cache/restore@v4
-        with:
-          path: ${{ env.E2E_INSTALLER_REAL_PACKAGE_CACHE_DIR }}/apache-seatunnel-${{ env.E2E_INSTALLER_REAL_VERSION }}-bin.tar.gz
-          key: seatunnel-bin-${{ runner.os }}-${{ env.E2E_INSTALLER_REAL_VERSION }}-${{ env.SEATUNNEL_PACKAGE_CACHE_EPOCH }}
 
       - name: Download SeaTunnel package artifact
         uses: actions/download-artifact@v4

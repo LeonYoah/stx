@@ -87,3 +87,53 @@ func TestFormatOffset(t *testing.T) {
 		t.Fatal("formatOffset")
 	}
 }
+
+type legacyTimeRowB struct {
+	ID        uint
+	CreatedAt time.Time
+}
+
+// TestMigrateTimeColumnsToUTC_RollbackOnFailure 迁移中途失败时整体回滚且不写入标记，下次启动可重试。
+// A failure mid-migration rolls everything back and leaves no flag so the next start retries.
+func TestMigrateTimeColumnsToUTC_RollbackOnFailure(t *testing.T) {
+	database, err := gorm.Open(sqlite.Open("file:rollback?mode=memory&cache=shared"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.AutoMigrate(&legacyTimeRow{}, &legacyTimeRowB{}); err != nil {
+		t.Fatal(err)
+	}
+	for _, stmt := range []string{
+		"INSERT INTO legacy_time_rows (id, name, created_at) VALUES (1, 'a', '2026-10-14 13:31:03+08:00')",
+		"INSERT INTO legacy_time_row_bs (id, created_at) VALUES (1, '2026-10-14 13:31:03+08:00')",
+		"CREATE TRIGGER fail_b BEFORE UPDATE ON legacy_time_row_bs BEGIN SELECT RAISE(ABORT, 'boom'); END",
+	} {
+		if err := database.Exec(stmt).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	models := []interface{}{&legacyTimeRow{}, &legacyTimeRowB{}}
+	if err := MigrateTimeColumnsToUTC(database, "sqlite", models, ""); err == nil {
+		t.Fatal("expected migration failure")
+	}
+	var raw string
+	database.Raw("SELECT CAST(created_at AS TEXT) FROM legacy_time_rows WHERE id = 1").Scan(&raw)
+	if !strings.HasSuffix(raw, "+08:00") {
+		t.Fatalf("first table must be rolled back, got %q", raw)
+	}
+	var flags int64
+	database.Model(&SchemaFlag{}).Count(&flags)
+	if flags != 0 {
+		t.Fatal("flag must not be written on failure")
+	}
+	if err := database.Exec("DROP TRIGGER fail_b").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := MigrateTimeColumnsToUTC(database, "sqlite", models, ""); err != nil {
+		t.Fatalf("retry after fix must succeed: %v", err)
+	}
+	database.Raw("SELECT CAST(created_at AS TEXT) FROM legacy_time_row_bs WHERE id = 1").Scan(&raw)
+	if !strings.HasSuffix(raw, "Z") {
+		t.Fatalf("retry must migrate, got %q", raw)
+	}
+}

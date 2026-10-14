@@ -24,6 +24,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/LeonYoah/stx/internal/pkg/timex"
 	"github.com/spf13/viper"
 )
 
@@ -34,6 +35,13 @@ var (
 
 func init() {
 	Config, serverConfigErr = loadConfig()
+	if Config != nil {
+		if err := timex.SetDisplayTimezone(Config.App.DisplayTimezone); err != nil {
+			fmt.Fprintf(os.Stderr, "[Config] %v, fallback to %s\n", err, timex.DefaultDisplayTimezone)
+			_ = timex.SetDisplayTimezone(timex.DefaultDisplayTimezone)
+			Config.App.DisplayTimezone = timex.DefaultDisplayTimezone
+		}
+	}
 }
 
 // ServerConfigError 返回服务端配置加载或校验错误，CLI 本地命令不受该错误影响。
@@ -93,6 +101,11 @@ func applyEnvironmentOverrides(c *configModel) {
 		return
 	}
 
+	// 展示时区环境变量覆盖（兼容 STX_REPORT_TIMEZONE）/ Display timezone env override (legacy STX_REPORT_TIMEZONE alias)
+	if tz := timex.EnvDisplayTimezone(); tz != "" {
+		c.App.DisplayTimezone = tz
+	}
+
 	// 数据库环境变量覆盖 / Database environment variable overrides
 	if dbType := os.Getenv("STX_DATABASE_TYPE"); dbType != "" {
 		c.Database.Type = dbType
@@ -133,6 +146,9 @@ func isTestEnvironment() bool {
 // setDefaults 设置配置默认值，并保留用户显式设置的可观测性开关。
 // setDefaults applies defaults while preserving an explicitly configured observability switch.
 func setDefaults(c *configModel, observabilityEnabledSet bool) {
+	if strings.TrimSpace(c.App.DisplayTimezone) == "" {
+		c.App.DisplayTimezone = timex.DefaultDisplayTimezone
+	}
 	// 数据库默认配置
 	if c.Database.Type == "" {
 		c.Database.Type = "sqlite"
@@ -300,6 +316,16 @@ func validateRequiredPath(name, raw string) error {
 		return fmt.Errorf("%s must start with '/'", name)
 	}
 	return nil
+}
+
+// GetDisplayTimezone 获取系统默认展示时区 / GetDisplayTimezone returns the system display timezone.
+func GetDisplayTimezone() string {
+	return Config.App.DisplayTimezone
+}
+
+// GetDatabaseLegacyTimezone 返回历史数据写入时区（仅用于 UTC 迁移）/ legacy write timezone used only for the UTC migration.
+func GetDatabaseLegacyTimezone() string {
+	return Config.Database.LegacyTimezone
 }
 
 // GetDatabaseType 获取数据库类型

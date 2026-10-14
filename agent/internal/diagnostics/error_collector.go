@@ -35,6 +35,7 @@ import (
 
 	pb "github.com/LeonYoah/stx/agent"
 	"github.com/LeonYoah/stx/agent/internal/logger"
+	"github.com/LeonYoah/stx/agent/internal/logtime"
 )
 
 const (
@@ -723,13 +724,10 @@ func parseLogTime(value string) time.Time {
 		"2006-01-02 15:04:05",
 		"2006-01-02T15:04:05",
 	}
-	trimmed := strings.TrimSpace(value)
-	for _, layout := range layouts {
-		if ts, err := time.ParseInLocation(layout, trimmed, time.Local); err == nil {
-			return ts
-		}
+	if ts, ok := logtime.Parse(value, layouts...); ok {
+		return ts
 	}
-	return time.Now()
+	return time.Now().UTC()
 }
 
 // shouldMergeSeatunnelErrorHeader decides whether a new ERROR/FATAL header should

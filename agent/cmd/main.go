@@ -44,6 +44,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/spf13/cobra"
+
 	pb "github.com/LeonYoah/stx/agent"
 	"github.com/LeonYoah/stx/agent/internal/collector"
 	"github.com/LeonYoah/stx/agent/internal/config"
@@ -53,13 +55,13 @@ import (
 	agentgrpc "github.com/LeonYoah/stx/agent/internal/grpc"
 	"github.com/LeonYoah/stx/agent/internal/installer"
 	"github.com/LeonYoah/stx/agent/internal/logger"
+	"github.com/LeonYoah/stx/agent/internal/logtime"
 	"github.com/LeonYoah/stx/agent/internal/monitor"
 	"github.com/LeonYoah/stx/agent/internal/process"
 	"github.com/LeonYoah/stx/agent/internal/restart"
 	"github.com/LeonYoah/stx/internal/processidentity"
 	"github.com/LeonYoah/stx/internal/seatunnel"
 	stxversion "github.com/LeonYoah/stx/internal/version"
-	"github.com/spf13/cobra"
 )
 
 var agentLogTimestampPattern = regexp.MustCompile(`\b(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:,\d{3})?)\b`)
@@ -1821,13 +1823,7 @@ func parseAgentLogTimestamp(line string) (time.Time, bool) {
 		return time.Time{}, false
 	}
 	value := strings.TrimSpace(matches[1])
-	layouts := []string{"2006-01-02 15:04:05,000", "2006-01-02 15:04:05"}
-	for _, layout := range layouts {
-		if parsed, err := time.ParseInLocation(layout, value, time.Local); err == nil {
-			return parsed, true
-		}
-	}
-	return time.Time{}, false
+	return logtime.Parse(value, "2006-01-02 15:04:05,000", "2006-01-02 15:04:05")
 }
 
 func (a *Agent) handleJVMDumpCommand(ctx context.Context, cmd *pb.CommandRequest, reporter executor.ProgressReporter) (*pb.CommandResponse, error) {

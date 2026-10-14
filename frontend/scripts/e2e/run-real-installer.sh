@@ -49,6 +49,8 @@ JAVA_PROXY_EPOCH="${STX_JAVA_PROXY_DEFAULT_VERSION:-v2}"
 PACKAGE_PRELOAD_MIRROR="${E2E_INSTALLER_REAL_PRELOAD_MIRROR:-}"
 PACKAGE_DOWNLOAD_TIMEOUT_SECONDS="${E2E_INSTALLER_REAL_DOWNLOAD_TIMEOUT_SECONDS:-1800}"
 PACKAGE_CACHE_DIR="${E2E_INSTALLER_REAL_PACKAGE_CACHE_DIR:-}"
+SEATUNNEL_CI_RELEASE_TAG="${E2E_SEATUNNEL_CI_RELEASE_TAG:-ci-seatunnel-packages}"
+SEATUNNEL_CI_RELEASE_REPO="${E2E_SEATUNNEL_CI_RELEASE_REPO:-LeonYoah/stx}"
 
 if [[ -z "${SKIP_LOCAL_CLEANUP}" ]]; then
   if [[ "${CI:-}" == "true" || "${GITHUB_ACTIONS:-}" == "true" ]]; then
@@ -148,10 +150,11 @@ download_package_if_missing() {
   fi
   local temp_path="${final_path}.tmp"
   local mirror base_url url
-  for mirror in "${mirrors[@]}"; do
-    base_url="$(mirror_url "${mirror}")"
-    url="${base_url}/${version}/${file_name}"
-    echo "[e2e-real] preloading package ${file_name} from ${mirror} ..."
+
+  download_url_to_package() {
+    local url="$1"
+    local label="$2"
+    echo "[e2e-real] preloading package ${file_name} from ${label} ..."
     rm -f "${temp_path}"
     if command -v curl >/dev/null 2>&1; then
       if curl -fL \
@@ -170,34 +173,38 @@ download_package_if_missing() {
       fi
     elif command -v wget >/dev/null 2>&1; then
       if command -v timeout >/dev/null 2>&1; then
-        if timeout "${timeout_seconds}" wget -q \
-          --tries=2 \
-          --timeout=20 \
-          --read-timeout=30 \
-          -O "${temp_path}" \
-          "${url}" && tar -tzf "${temp_path}" >/dev/null; then
-          mv "${temp_path}" "${final_path}"
-          ls -lh "${final_path}"
-          return 0
-        fi
+        timeout "${timeout_seconds}" wget -q --tries=2 --timeout=20 --read-timeout=30 -O "${temp_path}" "${url}" || return 1
       else
-        if wget -q \
-          --tries=2 \
-          --timeout=20 \
-          --read-timeout=30 \
-          -O "${temp_path}" \
-          "${url}" && tar -tzf "${temp_path}" >/dev/null; then
-          mv "${temp_path}" "${final_path}"
-          ls -lh "${final_path}"
-          return 0
-        fi
+        wget -q --tries=2 --timeout=20 --read-timeout=30 -O "${temp_path}" "${url}" || return 1
+      fi
+      if tar -tzf "${temp_path}" >/dev/null; then
+        mv "${temp_path}" "${final_path}"
+        ls -lh "${final_path}"
+        return 0
       fi
     else
       echo "curl or wget is required to preload SeaTunnel packages" >&2
       return 1
     fi
-    echo "[e2e-real] download from ${mirror} failed, trying next mirror" >&2
+    echo "[e2e-real] download from ${label} failed" >&2
     rm -f "${temp_path}"
+    return 1
+  }
+
+  if [[ -n "${SEATUNNEL_CI_RELEASE_TAG}" && -n "${SEATUNNEL_CI_RELEASE_REPO}" ]]; then
+    if download_url_to_package \
+      "https://github.com/${SEATUNNEL_CI_RELEASE_REPO}/releases/download/${SEATUNNEL_CI_RELEASE_TAG}/${file_name}" \
+      "github-release:${SEATUNNEL_CI_RELEASE_TAG}"; then
+      return 0
+    fi
+  fi
+
+  for mirror in "${mirrors[@]}"; do
+    base_url="$(mirror_url "${mirror}")"
+    url="${base_url}/${version}/${file_name}"
+    if download_url_to_package "${url}" "${mirror}"; then
+      return 0
+    fi
   done
   echo "[e2e-real] failed to download ${file_name} from all mirrors" >&2
   return 1

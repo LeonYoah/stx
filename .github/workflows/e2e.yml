@@ -54,7 +54,6 @@ env:
   # (seatunnel-bin-<os>-<version>-v1) and are saved on main by
   # .github/workflows/seatunnel-package-cache.yml so every PR can restore them.
   E2E_INSTALLER_REAL_VERSION: '2.3.13'
-  E2E_UPGRADE_REAL_SOURCE_VERSION: '2.3.12'
   # Extra SeaTunnel versions warmed by seatunnel-package-cache.yml (space separated).
   # That workflow reads the *_VERSION values above from this file, so keep them here.
   E2E_SEATUNNEL_EXTRA_CACHE_VERSIONS: '3.0.0'
@@ -289,6 +288,8 @@ jobs:
           echo "run_installer_real=${run_installer_real}" >> "$GITHUB_OUTPUT"
           echo "run_workbench_real=${run_workbench_real}" >> "$GITHUB_OUTPUT"
           echo "run_config_real=${run_config_real}" >> "$GITHUB_OUTPUT"
+          # 2.3.12 package removed from CI; never schedule upgrade-real.
+          run_upgrade_real=false
           echo "run_upgrade_real=${run_upgrade_real}" >> "$GITHUB_OUTPUT"
           echo "run_plugin_real=${run_plugin_real}" >> "$GITHUB_OUTPUT"
 
@@ -327,25 +328,18 @@ jobs:
           path: ${{ env.E2E_INSTALLER_REAL_PACKAGE_CACHE_DIR }}/apache-seatunnel-${{ env.E2E_INSTALLER_REAL_VERSION }}-bin.tar.gz
           key: seatunnel-bin-${{ runner.os }}-${{ env.E2E_INSTALLER_REAL_VERSION }}-${{ env.SEATUNNEL_PACKAGE_CACHE_EPOCH }}
 
-      - name: Restore SeaTunnel package cache (upgrade source version)
-        id: cache-seatunnel-upgrade-source
-        uses: actions/cache/restore@v4
-        with:
-          path: ${{ env.E2E_INSTALLER_REAL_PACKAGE_CACHE_DIR }}/apache-seatunnel-${{ env.E2E_UPGRADE_REAL_SOURCE_VERSION }}-bin.tar.gz
-          key: seatunnel-bin-${{ runner.os }}-${{ env.E2E_UPGRADE_REAL_SOURCE_VERSION }}-${{ env.SEATUNNEL_PACKAGE_CACHE_EPOCH }}
 
       - name: Preload SeaTunnel package into cache dir
         # Downloads only versions missing from the cache dir (script skips existing files).
         env:
           E2E_INSTALLER_REAL_PRELOAD_MIRROR: aliyun
-          E2E_UPGRADE_REAL_TARGET_VERSION: ${{ env.E2E_INSTALLER_REAL_VERSION }}
+          E2E_SEATUNNEL_CI_RELEASE_TAG: ci-seatunnel-packages
         run: |
           bash frontend/scripts/e2e/run-real-installer.sh --prepare-package-only
 
       - name: Ensure packages exist
         run: |
           test -f "${E2E_INSTALLER_REAL_PACKAGE_CACHE_DIR}/apache-seatunnel-${E2E_INSTALLER_REAL_VERSION}-bin.tar.gz"
-          test -f "${E2E_INSTALLER_REAL_PACKAGE_CACHE_DIR}/apache-seatunnel-${E2E_UPGRADE_REAL_SOURCE_VERSION}-bin.tar.gz"
 
       - name: Upload SeaTunnel package artifact
         uses: actions/upload-artifact@v4
@@ -714,7 +708,8 @@ jobs:
     name: E2E Real Upgrade
     runs-on: ubuntu-24.04
     needs: [changes, prepare-package]
-    if: needs.changes.outputs.run_upgrade_real == 'true'
+    # Dropped: upgrade-from-2.3.12 real E2E (no 2.3.12 package in CI cache/release).
+    if: false
     timeout-minutes: 90
 
     steps:

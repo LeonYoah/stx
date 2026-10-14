@@ -45,6 +45,7 @@ import {
 } from 'lucide-react';
 import services from '@/lib/services';
 import {AgentStatus, HostInfo, HostStatus} from '@/lib/services/host/types';
+import {formatTimeTz} from '@/lib/timezone';
 
 interface HostInstallGuideContentProps {
   // 目标主机信息
@@ -381,7 +382,7 @@ export function HostInstallGuideContent({
                 </span>
                 <span className='font-medium font-mono text-[11px] truncate block'>
                   {currentHost.last_heartbeat
-                    ? new Date(currentHost.last_heartbeat).toLocaleTimeString()
+                    ? formatTimeTz(currentHost.last_heartbeat)
                     : '-'}
                 </span>
               </div>

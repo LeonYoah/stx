@@ -46,6 +46,7 @@ import {
 } from '@/components/ui/tooltip';
 import {Eye} from 'lucide-react';
 import {CommandLogInfo, CommandStatus} from '@/lib/services/audit/types';
+import {formatDateTimeTz} from '@/lib/timezone';
 
 interface CommandTableProps {
   commands: CommandLogInfo[];
@@ -190,7 +191,7 @@ export function CommandTable({
                     {formatDuration(command.started_at, command.finished_at)}
                   </TableCell>
                   <TableCell>
-                    {new Date(command.created_at).toLocaleString()}
+                    {formatDateTimeTz(command.created_at)}
                   </TableCell>
                   <TableCell>
                     <TooltipProvider>

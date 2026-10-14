@@ -83,6 +83,7 @@ import {
   summarizeCheckpointSourceState,
   summarizeCheckpointSubtaskMetrics,
 } from './sync-studio-utils';
+import {formatDateTimeTz} from '@/lib/timezone';
 
 const MonacoEditor = dynamic(() => import('@monaco-editor/react'), {
   ssr: false,
@@ -1136,8 +1137,8 @@ export function CheckpointInspectSourceHighlightsSection({
                             : '-'}
                         </div>
                         {norm.eventTime !== undefined && norm.eventTime > 0 && (
-                          <div className='mt-1 text-[11px] font-mono text-muted-foreground truncate' title={new Date(norm.eventTime).toLocaleString()}>
-                            {new Date(norm.eventTime).toLocaleString()}
+                          <div className='mt-1 text-[11px] font-mono text-muted-foreground truncate' title={formatDateTimeTz(norm.eventTime)}>
+                            {formatDateTimeTz(norm.eventTime)}
                           </div>
                         )}
                       </div>

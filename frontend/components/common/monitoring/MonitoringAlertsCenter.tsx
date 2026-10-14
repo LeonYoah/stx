@@ -101,6 +101,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
+import {formatDateTimeTz} from '@/lib/timezone';
 
 type ClusterOption = {
   id: string;
@@ -123,7 +124,7 @@ function formatDateTime(value?: string | null): string {
   if (Number.isNaN(parsed.getTime())) {
     return value;
   }
-  return parsed.toLocaleString();
+  return formatDateTimeTz(parsed);
 }
 
 // 转换为 RFC3339 字符串

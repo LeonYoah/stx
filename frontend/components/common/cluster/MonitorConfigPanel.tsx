@@ -40,6 +40,7 @@ import {
   getMonitorConfig,
   updateMonitorConfig,
 } from '@/lib/services/monitor';
+import {formatDateTimeTz} from '@/lib/timezone';
 
 interface MonitorConfigPanelProps {
   clusterId: number;
@@ -148,7 +149,7 @@ export function MonitorConfigPanel({ clusterId, clusterName }: MonitorConfigPane
           <div className="flex items-center gap-2">
             {config?.last_sync_at && (
               <Badge variant="outline" className="text-xs">
-                {t('monitor.lastSync')}: {new Date(config.last_sync_at).toLocaleString()}
+                {t('monitor.lastSync')}: {formatDateTimeTz(config.last_sync_at)}
               </Badge>
             )}
             <Badge variant="secondary">v{config?.config_version}</Badge>

@@ -80,6 +80,7 @@ import {
 import {ScrollArea} from '@/components/ui/scroll-area';
 import {StatPillsBar, type StatPillItem} from '@/components/common/layout';
 import {SaveMemoryDialog} from './SaveMemoryDialog';
+import {formatDateTz} from '@/lib/timezone';
 
 export interface TroubleshootingMemoryCenterProps {
   // 可选过滤的集群 ID
@@ -106,11 +107,7 @@ function formatDateTime(value?: string | null): string {
   if (Number.isNaN(parsed.getTime())) {
     return value;
   }
-  return parsed.toLocaleDateString(undefined, {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  });
+  return formatDateTz(parsed);
 }
 
 /**

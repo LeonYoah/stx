@@ -78,6 +78,10 @@ export interface BasicUserInfo {
   email?: string;
   /** 语言偏好 */
   language?: 'zh' | 'en';
+  /** 展示时区（IANA），空串表示跟随浏览器 */
+  timezone?: string;
+  /** 系统默认展示时区 */
+  system_timezone?: string;
   /** 信任等级 */
   trust_level: TrustLevel;
   /** 头像URL */

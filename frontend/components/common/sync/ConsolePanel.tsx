@@ -60,6 +60,7 @@ import {
   submitSpecExecutionMode,
   type LogFilterMode,
 } from './sync-studio-utils';
+import {formatTimeTz} from '@/lib/timezone';
 
 /**
  * 混合日志模式提示卡片
@@ -210,7 +211,7 @@ export function ConsolePanel({
           {loading
             ? t('loading')
             : logsResult?.updated_at
-              ? new Date(logsResult.updated_at).toLocaleTimeString()
+              ? formatTimeTz(logsResult.updated_at)
               : '-'}
         </span>
       </div>
@@ -422,14 +423,14 @@ export function JobRunsPanel({
                   <div className='flex items-center gap-1'>
                     <span className='text-foreground text-[11px] font-medium'>
                       {(() => {
-                        if (!job.created_by) return '-';
+                        if (!job.created_by) {return '-';}
                         if (currentUserId && job.created_by === currentUserId) {
                           return currentUsername || 'admin';
                         }
                         const matched = workspaceUsers.find((u) => u.id === job.created_by);
-                        if (matched?.username) return matched.username;
-                        if (matched?.nickname) return matched.nickname;
-                        if (job.created_by === 1) return 'admin';
+                        if (matched?.username) {return matched.username;}
+                        if (matched?.nickname) {return matched.nickname;}
+                        if (job.created_by === 1) {return 'admin';}
                         return `User #${job.created_by}`;
                       })()}
                     </span>

@@ -59,6 +59,7 @@ import {useGSAP} from '@gsap/react';
 import {animateSheetSections} from '@/lib/animations/gsap-motion';
 import services from '@/lib/services';
 import {HostInfo, HostType, HostStatus} from '@/lib/services/host/types';
+import {formatDateTimeTz} from '@/lib/timezone';
 
 interface HostDetailProps {
   open: boolean;
@@ -93,7 +94,7 @@ function formatDateTime(dateStr: string | null | undefined): string {
   if (!dateStr) {
     return '-';
   }
-  return new Date(dateStr).toLocaleString();
+  return formatDateTimeTz(dateStr);
 }
 
 /**

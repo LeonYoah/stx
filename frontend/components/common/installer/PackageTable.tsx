@@ -46,6 +46,7 @@ import { useGSAP } from '@gsap/react';
 import { TableLoadingBar, TableSkeletonRows } from '@/components/common/layout';
 import { animateTableRows } from '@/lib/animations/gsap-motion';
 import type { PackageInfo, DownloadTask } from '@/lib/services/installer/types';
+import {formatDateTimeTz} from '@/lib/timezone';
 
 interface PackageTableProps {
   type: 'online' | 'local';
@@ -77,7 +78,7 @@ function formatDate(dateStr?: string): string {
   if (!dateStr) {
     return '-';
   }
-  return new Date(dateStr).toLocaleString();
+  return formatDateTimeTz(dateStr);
 }
 
 export function PackageTable({

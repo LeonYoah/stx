@@ -41,6 +41,10 @@ export interface LoginResponseData {
   email?: string;
   /** 语言偏好 */
   language?: 'zh' | 'en';
+  /** 展示时区（IANA），空串表示跟随浏览器 / Display timezone, '' = follow browser */
+  timezone?: string;
+  /** 系统默认展示时区 / System default display timezone */
+  system_timezone?: string;
   /** 头像 */
   avatar_url?: string;
   /** 是否管理员 */
@@ -87,6 +91,8 @@ export interface UpdateProfileRequest {
   email?: string;
   /** 语言偏好 */
   language?: 'zh' | 'en';
+  /** 展示时区（IANA），空串表示跟随浏览器 / Display timezone, '' = follow browser */
+  timezone?: string;
 }
 
 /**

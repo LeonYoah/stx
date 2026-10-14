@@ -48,6 +48,7 @@ import {Table, TableBody, TableCell, TableHead, TableHeader, TableRow} from '@/c
 import {DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger} from '@/components/ui/dropdown-menu';
 import {Skeleton} from '@/components/ui/skeleton';
 import {cn} from '@/lib/utils';
+import {formatDateTimeTz} from '@/lib/timezone';
 
 interface ClusterConfigsProps {
   clusterId: number;
@@ -609,7 +610,7 @@ export function ClusterConfigs({clusterId, deploymentMode, onConfigChanged}: Clu
                     <div className="flex items-center gap-2">
                       <Badge variant="outline">{ConfigTypeNames[selectedConfigType]}</Badge>
                       <Badge variant="secondary">v{templateConfig.version}</Badge>
-                      <span className="text-sm text-muted-foreground">{new Date(templateConfig.updated_at).toLocaleString()}</span>
+                      <span className="text-sm text-muted-foreground">{formatDateTimeTz(templateConfig.updated_at)}</span>
                     </div>
                     <div className="flex gap-1">
                       <Button variant="outline" size="sm" title={t('config.tipEdit')} onClick={() => handleEdit(templateConfig)} data-testid="cluster-configs-template-edit">
@@ -685,7 +686,7 @@ export function ClusterConfigs({clusterId, deploymentMode, onConfigChanged}: Clu
                             </div>
                           </TableCell>
                           <TableCell className="font-mono text-xs">v{config.version}</TableCell>
-                          <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{new Date(config.updated_at).toLocaleString()}</TableCell>
+                          <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{formatDateTimeTz(config.updated_at)}</TableCell>
                           <TableCell className="text-right">
                             <div className="flex items-center justify-end gap-1">
                               {!config.match_template && (
@@ -951,7 +952,7 @@ export function ClusterConfigs({clusterId, deploymentMode, onConfigChanged}: Clu
                             {isCurrent && <Badge variant="outline">{t('config.current')}</Badge>}
                           </div>
                           <p className="mt-2 text-sm text-muted-foreground">
-                            {new Date(version.created_at).toLocaleString()}
+                            {formatDateTimeTz(version.created_at)}
                           </p>
                           <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">
                             {version.comment || t('config.noComment')}
@@ -986,7 +987,7 @@ export function ClusterConfigs({clusterId, deploymentMode, onConfigChanged}: Clu
                             <Badge variant="outline">{t('config.current')}</Badge>
                           )}
                           <span className="text-sm text-muted-foreground">
-                            {new Date(selectedVersion.created_at).toLocaleString()}
+                            {formatDateTimeTz(selectedVersion.created_at)}
                           </span>
                         </div>
                         <p className="mt-2 text-sm text-muted-foreground">

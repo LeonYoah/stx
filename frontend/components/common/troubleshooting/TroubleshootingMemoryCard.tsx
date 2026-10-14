@@ -38,6 +38,7 @@ import {
 } from '@/lib/services/troubleshooting';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
+import {formatDateTz} from '@/lib/timezone';
 
 export interface TroubleshootingMemoryCardProps {
   /**
@@ -75,7 +76,7 @@ function formatDateTime(value?: string | null): string {
   if (Number.isNaN(parsed.getTime())) {
     return value;
   }
-  return parsed.toLocaleDateString();
+  return formatDateTz(parsed);
 }
 
 /**

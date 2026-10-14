@@ -110,6 +110,7 @@ import {
   InspectionZeroState,
 } from './InspectionEvidenceView';
 import {DiagnosticResourceSelector} from './DiagnosticResourceSelector';
+import {formatDateTimeTz} from '@/lib/timezone';
 
 const DEFAULT_BUNDLE_OPTIONS: DiagnosticsTaskOptions = {
   include_thread_dump: false,
@@ -132,7 +133,7 @@ function formatDateTime(value?: string | null): string {
   if (Number.isNaN(parsed.getTime())) {
     return value;
   }
-  return parsed.toLocaleString();
+  return formatDateTimeTz(parsed);
 }
 
 function getStatusVariant(

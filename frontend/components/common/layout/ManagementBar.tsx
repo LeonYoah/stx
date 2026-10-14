@@ -59,6 +59,14 @@ import {TrustLevel} from '@/lib/services/core';
 import {useLocale, locales, localeNames, Locale} from '@/lib/i18n';
 import services from '@/lib/services';
 import {STXMark} from '@/components/icons/logo';
+import {
+  FOLLOW_BROWSER_TIMEZONE,
+  getBrowserTimezone,
+  isValidTimezone,
+  listTimezones,
+  resolveDisplayTimezone,
+  setUserTimezonePreference,
+} from '@/lib/timezone';
 
 const IconOptions = {
   className: 'h-4 w-4',
@@ -107,6 +115,11 @@ const ProfileButton = memo(() => {
   const [savingLanguage, setSavingLanguage] = useState(false);
   const [languageError, setLanguageError] = useState<string | null>(null);
   const [languageSaved, setLanguageSaved] = useState(false);
+  const [timezoneDraft, setTimezoneDraft] = useState<string>(FOLLOW_BROWSER_TIMEZONE);
+  const [savingTimezone, setSavingTimezone] = useState(false);
+  const [timezoneError, setTimezoneError] = useState<string | null>(null);
+  const [timezoneSaved, setTimezoneSaved] = useState(false);
+  const timezoneOptions = useMemo(() => listTimezones(), []);
   const [serverVersion, setServerVersion] = useState<string | null>(null);
   const [serverBuildTime, setServerBuildTime] = useState<string | null>(null);
   const [serverGitCommit, setServerGitCommit] = useState<string | null>(null);
@@ -160,7 +173,10 @@ const ProfileButton = memo(() => {
     setLanguageDraft(nextLanguage);
     setLanguageError(null);
     setLanguageSaved(false);
-  }, [locale, user?.email, user?.id, user?.language]);
+    setTimezoneDraft(user?.timezone || FOLLOW_BROWSER_TIMEZONE);
+    setTimezoneError(null);
+    setTimezoneSaved(false);
+  }, [locale, user?.email, user?.id, user?.language, user?.timezone]);
 
   useEffect(() => {
     if (!mounted || !user?.language) {
@@ -250,6 +266,32 @@ const ProfileButton = memo(() => {
       setLanguageSaved(false);
     } finally {
       setSavingLanguage(false);
+    }
+  };
+
+  const handleSaveTimezone = async () => {
+    if (!user) {
+      return;
+    }
+    if (timezoneDraft && !isValidTimezone(timezoneDraft)) {
+      setTimezoneError(t('timezoneInvalid'));
+      return;
+    }
+    try {
+      setSavingTimezone(true);
+      setTimezoneError(null);
+      await services.auth.updateProfile({timezone: timezoneDraft});
+      setUserTimezonePreference(timezoneDraft);
+      setTimezoneSaved(true);
+      // 重新加载以便所有时间按新时区渲染 / Reload so every time renders in the new timezone
+      window.location.reload();
+    } catch (error) {
+      setTimezoneError(
+        error instanceof Error ? error.message : t('timezoneSaveFailed'),
+      );
+      setTimezoneSaved(false);
+    } finally {
+      setSavingTimezone(false);
     }
   };
 
@@ -441,6 +483,63 @@ const ProfileButton = memo(() => {
                 {!languageError && languageSaved ? (
                   <p className='text-xs text-emerald-600'>
                     {t('languageSaved')}
+                  </p>
+                ) : null}
+              </div>
+            </div>
+          )}
+
+          {/* 时区设置 / Timezone settings */}
+          {mounted && (
+            <div>
+              <h4 className='text-sm font-semibold mb-3 text-muted-foreground'>
+                {t('timezoneSettings')}
+              </h4>
+              <select
+                aria-label={t('timezoneSettings')}
+                data-testid='profile-timezone-select'
+                className='w-full h-9 rounded-md border bg-background px-2 text-sm'
+                value={timezoneDraft}
+                disabled={savingTimezone}
+                onChange={(event) => {
+                  setTimezoneDraft(event.target.value);
+                  setTimezoneError(null);
+                  setTimezoneSaved(false);
+                }}
+              >
+                <option value={FOLLOW_BROWSER_TIMEZONE}>
+                  {t('timezoneFollowBrowser', {timezone: getBrowserTimezone()})}
+                </option>
+                {timezoneOptions.map((tz) => (
+                  <option key={tz} value={tz}>
+                    {tz}
+                  </option>
+                ))}
+              </select>
+              <p className='mt-2 text-xs text-muted-foreground'>
+                {t('timezoneHint', {
+                  current: resolveDisplayTimezone(),
+                  system: user?.system_timezone || '-',
+                })}
+              </p>
+              <div className='mt-3 flex items-center gap-2'>
+                <Button
+                  size='sm'
+                  onClick={handleSaveTimezone}
+                  disabled={
+                    savingTimezone ||
+                    !user ||
+                    timezoneDraft === (user.timezone || FOLLOW_BROWSER_TIMEZONE)
+                  }
+                >
+                  {savingTimezone ? t('savingTimezone') : t('saveTimezone')}
+                </Button>
+                {timezoneError ? (
+                  <p className='text-xs text-destructive'>{timezoneError}</p>
+                ) : null}
+                {!timezoneError && timezoneSaved ? (
+                  <p className='text-xs text-emerald-600'>
+                    {t('timezoneSaved')}
                   </p>
                 ) : null}
               </div>

@@ -72,7 +72,8 @@ jobs:
           read_env() {
             sed -nE "s/^  $1: *['\"]?([^'\"#]*)['\"]?.*$/\1/p" .github/workflows/e2e.yml | head -n 1
           }
-          versions="$(read_env E2E_INSTALLER_REAL_VERSION) $(read_env E2E_UPGRADE_REAL_SOURCE_VERSION) $(read_env E2E_SEATUNNEL_EXTRA_CACHE_VERSIONS)"
+          # 2.3.12 / upgrade-from-source dropped; warm installer + extra versions only.
+          versions="$(read_env E2E_INSTALLER_REAL_VERSION) $(read_env E2E_SEATUNNEL_EXTRA_CACHE_VERSIONS)"
           matrix="$(printf '%s\n' ${versions} | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -uV | jq -R . | jq -cs .)"
           if [ "${matrix}" = "[]" ]; then
             echo "No SeaTunnel versions found in e2e.yml" >&2
@@ -106,19 +107,14 @@ jobs:
         if: steps.restore.outputs.cache-hit != 'true'
         env:
           VERSION: ${{ matrix.version }}
+          SEATUNNEL_CI_RELEASE_TAG: ci-seatunnel-packages
         run: |
           set -euo pipefail
           mkdir -p "${E2E_INSTALLER_REAL_PACKAGE_CACHE_DIR}"
           final_path="${E2E_INSTALLER_REAL_PACKAGE_CACHE_DIR}/${PACKAGE_FILE}"
           temp_path="${final_path}.tmp"
-          # Prefer CDN mirrors first: archive.apache.org is too slow from GitHub-hosted runners
-          # (often <7 MB/s and hits the 30-minute curl --max-time with a partial file).
-          # Keep each attempt short so a stalled mirror fails over quickly.
-          for base_url in \
-            https://mirrors.aliyun.com/apache/seatunnel \
-            https://mirrors.huaweicloud.com/apache/seatunnel \
-            https://archive.apache.org/dist/seatunnel; do
-            url="${base_url}/${VERSION}/${PACKAGE_FILE}"
+          try_download() {
+            local url="$1"
             echo "Downloading ${url}"
             rm -f "${temp_path}"
             if curl -fL \
@@ -133,12 +129,25 @@ jobs:
               "${url}" && tar -tzf "${temp_path}" >/dev/null; then
               mv "${temp_path}" "${final_path}"
               ls -lh "${final_path}"
+              return 0
+            fi
+            echo "Download failed: ${url}" >&2
+            rm -f "${temp_path}"
+            return 1
+          }
+          # Prefer the dedicated CI release (seeded assets), then CDN mirrors, then archive.apache.org.
+          if try_download "https://github.com/${{ github.repository }}/releases/download/${SEATUNNEL_CI_RELEASE_TAG}/${PACKAGE_FILE}"; then
+            exit 0
+          fi
+          for base_url in \
+            https://mirrors.aliyun.com/apache/seatunnel \
+            https://mirrors.huaweicloud.com/apache/seatunnel \
+            https://archive.apache.org/dist/seatunnel; do
+            if try_download "${base_url}/${VERSION}/${PACKAGE_FILE}"; then
               exit 0
             fi
-            echo "Download from ${base_url} failed, trying next mirror" >&2
-            rm -f "${temp_path}"
           done
-          echo "Failed to download ${PACKAGE_FILE} from all mirrors" >&2
+          echo "Failed to download ${PACKAGE_FILE} from release and all mirrors" >&2
           exit 1
 
       - name: Save SeaTunnel package cache

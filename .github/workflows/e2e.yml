@@ -50,6 +50,16 @@ permissions:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   E2E_INSTALLER_REAL_PACKAGE_CACHE_DIR: ${{ github.workspace }}/tmp/e2e-package-cache
+  # SeaTunnel versions used by real E2E. Package caches are keyed by version only
+  # (seatunnel-bin-<os>-<version>-v1) and are saved on main by
+  # .github/workflows/seatunnel-package-cache.yml so every PR can restore them.
+  E2E_INSTALLER_REAL_VERSION: '2.3.13'
+  E2E_UPGRADE_REAL_SOURCE_VERSION: '2.3.13'
+  E2E_UPGRADE_REAL_TARGET_VERSION: '3.0.0'
+  # Extra SeaTunnel versions warmed by seatunnel-package-cache.yml (space separated).
+  # That workflow reads the *_VERSION values above from this file, so keep them here.
+  E2E_SEATUNNEL_EXTRA_CACHE_VERSIONS: '3.0.0'
+  SEATUNNEL_PACKAGE_CACHE_EPOCH: v1
 
 concurrency:
   group: e2e-${{ github.event.pull_request.number || github.ref }}
@@ -311,27 +321,41 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Restore SeaTunnel package cache
+      - name: Restore SeaTunnel package cache (installer version)
         id: cache-seatunnel
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
-          path: ${{ env.E2E_INSTALLER_REAL_PACKAGE_CACHE_DIR }}
-          key: e2e-seatunnel-bin-${{ runner.os }}-2.3.12-2.3.13
-          restore-keys: |
-            e2e-seatunnel-bin-${{ runner.os }}-
+          path: ${{ env.E2E_INSTALLER_REAL_PACKAGE_CACHE_DIR }}/apache-seatunnel-${{ env.E2E_INSTALLER_REAL_VERSION }}-bin.tar.gz
+          key: seatunnel-bin-${{ runner.os }}-${{ env.E2E_INSTALLER_REAL_VERSION }}-${{ env.SEATUNNEL_PACKAGE_CACHE_EPOCH }}
+
+      - name: Restore SeaTunnel package cache (upgrade source version)
+        id: cache-seatunnel-upgrade-source
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.E2E_INSTALLER_REAL_PACKAGE_CACHE_DIR }}/apache-seatunnel-${{ env.E2E_UPGRADE_REAL_SOURCE_VERSION }}-bin.tar.gz
+          key: seatunnel-bin-${{ runner.os }}-${{ env.E2E_UPGRADE_REAL_SOURCE_VERSION }}-${{ env.SEATUNNEL_PACKAGE_CACHE_EPOCH }}
+
+      - name: Restore SeaTunnel package cache (upgrade target version)
+        id: cache-seatunnel-upgrade-target
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.E2E_INSTALLER_REAL_PACKAGE_CACHE_DIR }}/apache-seatunnel-${{ env.E2E_UPGRADE_REAL_TARGET_VERSION }}-bin.tar.gz
+          key: seatunnel-bin-${{ runner.os }}-${{ env.E2E_UPGRADE_REAL_TARGET_VERSION }}-${{ env.SEATUNNEL_PACKAGE_CACHE_EPOCH }}
+
 
       - name: Preload SeaTunnel package into cache dir
+        # Downloads only versions missing from the cache dir (script skips existing files).
         env:
-          E2E_INSTALLER_REAL_PRELOAD_MIRROR: apache
-          E2E_UPGRADE_REAL_SOURCE_VERSION: 2.3.12
-          E2E_UPGRADE_REAL_TARGET_VERSION: 2.3.13
+          E2E_INSTALLER_REAL_PRELOAD_MIRROR: aliyun
+          E2E_SEATUNNEL_CI_RELEASE_TAG: ci-seatunnel-packages
         run: |
           bash frontend/scripts/e2e/run-real-installer.sh --prepare-package-only
 
       - name: Ensure packages exist
         run: |
-          test -f "${E2E_INSTALLER_REAL_PACKAGE_CACHE_DIR}/apache-seatunnel-2.3.13-bin.tar.gz"
-          test -f "${E2E_INSTALLER_REAL_PACKAGE_CACHE_DIR}/apache-seatunnel-2.3.12-bin.tar.gz"
+          test -f "${E2E_INSTALLER_REAL_PACKAGE_CACHE_DIR}/apache-seatunnel-${E2E_INSTALLER_REAL_VERSION}-bin.tar.gz"
+          test -f "${E2E_INSTALLER_REAL_PACKAGE_CACHE_DIR}/apache-seatunnel-${E2E_UPGRADE_REAL_SOURCE_VERSION}-bin.tar.gz"
+          test -f "${E2E_INSTALLER_REAL_PACKAGE_CACHE_DIR}/apache-seatunnel-${E2E_UPGRADE_REAL_TARGET_VERSION}-bin.tar.gz"
 
       - name: Upload SeaTunnel package artifact
         uses: actions/upload-artifact@v4
@@ -542,12 +566,6 @@ jobs:
           cd frontend
           pnpm exec playwright install --with-deps chromium
 
-      - name: Restore SeaTunnel package cache
-        uses: actions/cache@v4
-        with:
-          path: ${{ env.E2E_INSTALLER_REAL_PACKAGE_CACHE_DIR }}
-          key: e2e-seatunnel-bin-${{ runner.os }}-${{ hashFiles('frontend/scripts/e2e/run-real-installer.sh') }}-2.3.13
-
       - name: Download SeaTunnel package artifact
         uses: actions/download-artifact@v4
         with:
@@ -615,12 +633,6 @@ jobs:
           cd frontend
           pnpm exec playwright install --with-deps chromium
 
-      - name: Restore SeaTunnel package cache
-        uses: actions/cache@v4
-        with:
-          path: ${{ env.E2E_INSTALLER_REAL_PACKAGE_CACHE_DIR }}
-          key: e2e-seatunnel-bin-${{ runner.os }}-${{ hashFiles('frontend/scripts/e2e/run-real-installer.sh') }}-2.3.13
-
       - name: Download SeaTunnel package artifact
         uses: actions/download-artifact@v4
         with:
@@ -686,12 +698,6 @@ jobs:
         run: |
           cd frontend
           pnpm exec playwright install --with-deps chromium
-
-      - name: Restore SeaTunnel package cache
-        uses: actions/cache@v4
-        with:
-          path: ${{ env.E2E_INSTALLER_REAL_PACKAGE_CACHE_DIR }}
-          key: e2e-seatunnel-bin-${{ runner.os }}-${{ hashFiles('frontend/scripts/e2e/run-real-installer.sh') }}-2.3.13
 
       - name: Download SeaTunnel package artifact
         uses: actions/download-artifact@v4
@@ -759,12 +765,6 @@ jobs:
           cd frontend
           pnpm exec playwright install --with-deps chromium
 
-      - name: Restore SeaTunnel package cache
-        uses: actions/cache@v4
-        with:
-          path: ${{ env.E2E_INSTALLER_REAL_PACKAGE_CACHE_DIR }}
-          key: e2e-seatunnel-bin-${{ runner.os }}-${{ hashFiles('frontend/scripts/e2e/run-real-installer.sh') }}-2.3.13
-
       - name: Download SeaTunnel package artifact
         uses: actions/download-artifact@v4
         with:
@@ -830,12 +830,6 @@ jobs:
         run: |
           cd frontend
           pnpm exec playwright install --with-deps chromium
-
-      - name: Restore SeaTunnel package cache
-        uses: actions/cache@v4
-        with:
-          path: ${{ env.E2E_INSTALLER_REAL_PACKAGE_CACHE_DIR }}
-          key: e2e-seatunnel-bin-${{ runner.os }}-${{ hashFiles('frontend/scripts/e2e/run-real-installer.sh') }}-2.3.13
 
       - name: Download SeaTunnel package artifact
         uses: actions/download-artifact@v4

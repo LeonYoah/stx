@@ -29,11 +29,10 @@ import {
   waitForUpgradeTaskSuccess,
 } from './helpers/upgrade-real';
 
-const sourceVersion = process.env.E2E_UPGRADE_REAL_SOURCE_VERSION ?? '2.3.12';
+const sourceVersion = process.env.E2E_UPGRADE_REAL_SOURCE_VERSION ?? '2.3.13';
 const targetVersion =
   process.env.E2E_UPGRADE_REAL_TARGET_VERSION ??
-  process.env.E2E_INSTALLER_REAL_VERSION ??
-  '2.3.13';
+  '3.0.0';
 const tmpDirRoot =
   process.env.E2E_INSTALLER_REAL_TMP_DIR ??
   path.resolve(process.cwd(), '../tmp/e2e/installer-real');

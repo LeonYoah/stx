@@ -41,3 +41,11 @@ func Parse(value string, layouts ...string) (time.Time, bool) {
 	}
 	return time.Time{}, false
 }
+
+// SetLocation 覆盖日志时区（主要用于测试或启动参数）。/ SetLocation overrides the log zone (tests or startup flags).
+func SetLocation(l *time.Location) {
+	once.Do(func() {})
+	if l != nil {
+		loc = l
+	}
+}

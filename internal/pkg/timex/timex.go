@@ -141,3 +141,15 @@ func BoundAny(v interface{}) interface{} {
 	}
 	return v
 }
+
+// SeatunnelLocation 返回解析 SeaTunnel 引擎/日志中无偏移时间时使用的时区：
+// 环境变量 STX_SEATUNNEL_TIMEZONE，未设置时使用系统展示时区。
+// SeatunnelLocation returns the zone for naive SeaTunnel engine/log timestamps: STX_SEATUNNEL_TIMEZONE or the display zone.
+func SeatunnelLocation() *time.Location {
+	if name := strings.TrimSpace(os.Getenv("STX_SEATUNNEL_TIMEZONE")); name != "" {
+		if loc, err := time.LoadLocation(name); err == nil {
+			return loc
+		}
+	}
+	return DisplayLocation()
+}

@@ -979,7 +979,7 @@ func formatAlertNotificationTime(value time.Time) string {
 	}
 
 	utcValue := value.UTC()
-	localValue := utcValue.In(time.Local)
+	localValue := utcValue.In(timex.DisplayLocation())
 	localLine := fmt.Sprintf(
 		"%s (server local)",
 		localValue.Format("2006-01-02 15:04:05 -07:00"),

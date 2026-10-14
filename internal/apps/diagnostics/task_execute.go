@@ -5141,8 +5141,8 @@ func parseDiagnosticLogTimestamp(line string) (time.Time, bool) {
 	value := strings.TrimSpace(matches[1])
 	layouts := []string{"2006-01-02 15:04:05,000", "2006-01-02 15:04:05"}
 	for _, layout := range layouts {
-		if parsed, err := time.ParseInLocation(layout, value, time.Local); err == nil {
-			return parsed, true
+		if parsed, err := time.ParseInLocation(layout, value, timex.SeatunnelLocation()); err == nil {
+			return parsed.UTC(), true
 		}
 	}
 	return time.Time{}, false

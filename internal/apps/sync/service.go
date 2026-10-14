@@ -54,6 +54,7 @@ type Service struct {
 	clusterLogProvider      ClusterLogProvider
 	clusterVersionProvider  ClusterVersionProvider
 	executionService        *executionapp.Service
+	schedule                scheduleRuntimeState
 }
 
 // ClusterVersionProvider provides SeaTunnel cluster version lookup.

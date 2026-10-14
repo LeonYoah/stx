@@ -144,6 +144,13 @@ func setDefaults(c *configModel, observabilityEnabledSet bool) {
 	if c.Sync.PreviewDataTTLMinutes <= 0 && c.Sync.PreviewDataTTLHours <= 0 {
 		c.Sync.PreviewDataTTLMinutes = 24 * 60
 	}
+	if c.Sync.ScheduleMisfireCatchupEnabled == nil {
+		enabled := true
+		c.Sync.ScheduleMisfireCatchupEnabled = &enabled
+	}
+	if c.Sync.ScheduleMisfireGraceMinutes <= 0 {
+		c.Sync.ScheduleMisfireGraceMinutes = 10
+	}
 
 	// 认证默认配置
 	if c.Auth.DefaultAdminUsername == "" {

@@ -139,11 +139,17 @@ export async function installSourceCluster(
     installDir: string;
     clusterPort: number;
     httpPort: number;
+    // dynamicSlot 缺省保持 2.x 套件的动态槽位。3.x 在受限环境里可能报 0 核，调用方应改成静态槽位。
+    // dynamicSlot defaults to the 2.x suite's dynamic slots. 3.x can report 0 cores in constrained environments, so callers should switch to static slots.
+    dynamicSlot?: boolean;
+    slotNum?: number;
   },
 ): Promise<InstalledClusterFixture> {
   const host = await waitForOnlineHost(page);
   const request = page.context().request;
   const clusterName = `e2e-upgrade-${Date.now()}`;
+  const dynamicSlot = options.dynamicSlot ?? true;
+  const slotNum = options.slotNum ?? 2;
 
   const createResponse = await request.post(`${backendBaseURL}/api/v1/clusters`, {
     data: {
@@ -154,8 +160,8 @@ export async function installSourceCluster(
       install_dir: options.installDir,
       config: {
         runtime: {
-          dynamic_slot: true,
-          slot_num: 2,
+          dynamic_slot: dynamicSlot,
+          slot_num: slotNum,
           slot_allocation_strategy: 'RANDOM',
           job_schedule_strategy: 'REJECT',
           history_job_expire_minutes: 1440,
@@ -230,8 +236,8 @@ export async function installSourceCluster(
         worker_port: 5802,
         http_port: options.httpPort,
         enable_http: true,
-        dynamic_slot: true,
-        slot_num: 2,
+        dynamic_slot: dynamicSlot,
+        slot_num: slotNum,
         slot_allocation_strategy: 'RANDOM',
         job_schedule_strategy: 'REJECT',
         history_job_expire_minutes: 1440,

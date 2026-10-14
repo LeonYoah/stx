@@ -409,11 +409,16 @@ export async function prepareWorkbenchRealCluster(
   const httpPort = Number(
     process.env.E2E_INSTALLER_REAL_HTTP_PORT_PRIMARY ?? '38080',
   );
+  // 3.x 动态槽位在部分环境会报 0 核，静态槽位才能稳定接住并行度为 2 的工作台作业。
+  // 3.x dynamic slots can report 0 cores in some environments; static slots keep parallelism-2 workbench jobs schedulable.
+  const seatunnel3 = engineSupportsRestoreMode(seatunnelVersion);
   const cluster = await installSourceCluster(page, {
     sourceVersion: seatunnelVersion,
     installDir,
     clusterPort,
     httpPort,
+    dynamicSlot: seatunnel3 ? false : undefined,
+    slotNum: seatunnel3 ? 4 : undefined,
   });
   await ensureClusterRunning(page, cluster.clusterId);
   await waitForRuntimeStorageReady(page, cluster.clusterId);
@@ -980,6 +985,104 @@ export function buildMysqlMultiSourceMultiSinkContent(): string {
 
 export function buildMysqlMultiTransformContent(): string {
   return `env {\n  job.mode = "batch"\n}\n\nsource {\n  Jdbc {\n    plugin_output = "users_src"\n    url = "jdbc:mysql://127.0.0.1:${mysqlPort}/seatunnel_demo"\n    username = "root"\n    password = "${mysqlPassword}"\n    driver = "com.mysql.cj.jdbc.Driver"\n    table_list = [\n      { table_path = "seatunnel_demo.users" }\n    ]\n  }\n}\n\ntransform {\n  Copy {\n    plugin_input = "users_src"\n    plugin_output = "stage_1"\n    fields {\n      copied_name = name\n    }\n  }\n\n  Copy {\n    plugin_input = "stage_1"\n    plugin_output = "stage_2"\n    fields {\n      copied_name_2 = copied_name\n    }\n  }\n}\n\nsink {\n  Jdbc {\n    plugin_input = ["stage_2"]\n    url = "jdbc:mysql://127.0.0.1:${mysqlPort}/demo2"\n    username = "root"\n    password = "${mysqlPassword}"\n    driver = "com.mysql.cj.jdbc.Driver"\n    database = "demo2"\n    table = "archive_users_transform"\n    generate_sink_sql = true\n  }\n}`;
+}
+
+// engineSupportsRestoreMode 与后端 resolveRestorePlan 的 3.0 门控一致。
+// engineSupportsRestoreMode matches the backend resolveRestorePlan 3.0 gate.
+export function engineSupportsRestoreMode(version: string): boolean {
+  const major = Number(String(version || '').split('.')[0]);
+  return Number.isFinite(major) && major >= 3;
+}
+
+export function buildCheckpointRestoreTaskContent(): string {
+  return `env {\n  parallelism = 1\n  job.mode = "STREAMING"\n  checkpoint.interval = 3000\n  checkpoint.retain-after-job-cancelled = true\n}\n\nsource {\n  FakeSource {\n    plugin_output = "fake"\n    row.num = 200000\n    split.num = 1\n    split.read-interval = 2000\n    schema = {\n      fields {\n        id = "int"\n        name = "string"\n      }\n    }\n  }\n}\n\nsink {\n  Console {}\n}`;
+}
+
+export async function checkpointJobDirectory(
+  request: APIRequestContext,
+  clusterId: number,
+  jobPlatformId: string,
+): Promise<string> {
+  const detailsResponse = await request.get(
+    `${backendBaseURL}/api/v1/clusters/${clusterId}/runtime-storage`,
+  );
+  await assertOK(detailsResponse, 'get runtime storage details for checkpoint dir');
+  const detailsBody =
+    await readJSON<RuntimeStorageDetailsResponse>(detailsResponse);
+  expect(detailsBody.error_msg ?? '').toBe('');
+  const namespace = detailsBody.data?.checkpoint?.namespace?.trim();
+  expect(namespace, 'checkpoint namespace should be available').toBeTruthy();
+  return `${namespace!.replace(/\/$/, '')}/${jobPlatformId}`;
+}
+
+// setCheckpointDirectoryMode 把作业 checkpoint 目录改成只读或恢复可写，用来让下一次 checkpoint 失败。
+// setCheckpointDirectoryMode makes a job checkpoint directory read-only or writable so the next checkpoint fails.
+export async function setCheckpointDirectoryMode(
+  directory: string,
+  mode: number,
+): Promise<void> {
+  await fs.chmod(directory, mode);
+}
+
+export async function readEngineSourceReceivedCount(
+  request: APIRequestContext,
+  httpPort: number,
+  platformJobId: string,
+): Promise<number> {
+  const response = await request.get(
+    `http://127.0.0.1:${httpPort}/job-info/${platformJobId}`,
+  );
+  expect(response.ok(), `engine job-info ${platformJobId}`).toBeTruthy();
+  const body = (await response.json()) as {
+    metrics?: {SourceReceivedCount?: string | number};
+  };
+  const raw = body.metrics?.SourceReceivedCount ?? 0;
+  const count = Number(raw);
+  return Number.isFinite(count) ? count : 0;
+}
+
+// 3.0 把 “restore with SAVEPOINT/CHECKPOINT” 和 jobId 写在相邻两行，单行正则会漏掉。
+// SeaTunnel 3.0 writes “restore with SAVEPOINT/CHECKPOINT” and the job id on adjacent lines.
+const engineLogMatchWindow = 3;
+
+// findEngineLogLine 在集群日志尾部查找恢复证据，相邻几行拼在一起再匹配。
+// findEngineLogLine searches the tail of cluster logs and matches across a few adjacent lines.
+export async function findEngineLogLine(
+  installDir: string,
+  pattern: string,
+): Promise<string> {
+  const logsDir = path.join(installDir, 'logs');
+  let names: string[] = [];
+  try {
+    names = (await fs.readdir(logsDir)).filter((name) => name.endsWith('.log'));
+  } catch {
+    return '';
+  }
+  const matcher = new RegExp(pattern);
+  let matched = '';
+  for (const name of names) {
+    const filePath = path.join(logsDir, name);
+    const handle = await fs.open(filePath, 'r');
+    try {
+      const stat = await handle.stat();
+      const length = Math.min(stat.size, 8 * 1024 * 1024);
+      const buffer = Buffer.alloc(length);
+      await handle.read(buffer, 0, length, Math.max(0, stat.size - length));
+      const lines = buffer.toString('utf8').split('\n');
+      for (let index = 0; index < lines.length; index += 1) {
+        const window = lines
+          .slice(index, index + engineLogMatchWindow)
+          .join(' ');
+        if (!matcher.test(window)) {
+          continue;
+        }
+        matched = window.replace(/\s+/g, ' ').slice(0, 240);
+      }
+    } finally {
+      await handle.close();
+    }
+  }
+  return matched;
 }
 
 export function buildStreamingFakeTaskContent(): string {

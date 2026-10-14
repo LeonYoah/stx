@@ -253,10 +253,14 @@ func (r *Repository) GetTaskVersionByVersion(ctx context.Context, taskID uint, v
 // HasScheduledJobInstanceInWindow reports whether a scheduled job already exists in the target trigger window.
 func (r *Repository) HasScheduledJobInstanceInWindow(ctx context.Context, taskID uint, startedAt time.Time, finishedAt time.Time) (bool, error) {
 	var count int64
+	// SQLite 把时间存成带时区偏移的字符串并按字符串比较；autoCreateTime 用的是本地时区，
+	// 所以窗口边界也要换成本地时区，否则 UTC 边界永远匹配不到。
+	// SQLite stores timestamps as offset strings compared lexically; autoCreateTime writes
+	// local time, so bounds must be local too or a UTC window never matches.
 	err := r.db.WithContext(ctx).Model(&JobInstance{}).
 		Where("task_id = ?", taskID).
 		Where("run_type = ?", RunTypeSchedule).
-		Where("created_at >= ? AND created_at < ?", startedAt, finishedAt).
+		Where("created_at >= ? AND created_at < ?", startedAt.In(time.Local), finishedAt.In(time.Local)).
 		Count(&count).Error
 	if err != nil {
 		return false, err

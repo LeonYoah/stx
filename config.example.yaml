@@ -28,6 +28,10 @@ app:
   # 必须配置为目标主机可访问的地址，例如: "http://192.168.1.100:17800"
   # Must be configured as an address accessible from target hosts, e.g.: "http://192.168.1.100:17800"
   external_url: "http://your-server-ip:17800"
+  # 系统默认展示时区（IANA）。数据库始终存 UTC；该值用于报告渲染、未指定时区的 cron、前端默认提示。
+  # 环境变量 STX_DISPLAY_TIMEZONE 可覆盖（兼容旧的 STX_REPORT_TIMEZONE）。
+  # System default display timezone (IANA). Storage is always UTC. Env STX_DISPLAY_TIMEZONE (legacy STX_REPORT_TIMEZONE).
+  display_timezone: "Asia/Shanghai"
   session_cookie_name: "stx_session_id"
   session_secret: "123456" # 首次启动后不可更改
   # Cookie domain。私有化部署通常应留空，让浏览器按当前访问 host 绑定 Cookie。
@@ -98,6 +102,9 @@ database:
   enabled: true
   type: "sqlite"  # sqlite, mysql, postgres
   sqlite_path: "./data/stx.db"  # SQLite 文件路径
+  # 仅 MySQL：升级前 DATETIME 写入所用时区（旧版 DSN 为 loc=Local），用于一次性迁移到 UTC；留空=进程本地时区。
+  # MySQL only: zone legacy DATETIME values were written in (old DSN loc=Local); used once for the UTC migration.
+  # legacy_timezone: "Asia/Shanghai"
   # MySQL/PostgreSQL 配置（使用 sqlite 时可忽略）
   host: "127.0.0.1"
   port: 3306

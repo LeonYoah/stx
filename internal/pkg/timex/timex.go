@@ -8,6 +8,10 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	// 内嵌 IANA 时区库，避免精简镜像缺少 tzdata 时 LoadLocation 失败。
+	// Embed the IANA timezone database so LoadLocation works on images without tzdata.
+	_ "time/tzdata"
 )
 
 // DefaultDisplayTimezone 系统默认展示时区。/ System default display timezone.

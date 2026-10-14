@@ -39,3 +39,18 @@ func TestDisplayTimezone(t *testing.T) {
 		t.Fatal("FormatAPI")
 	}
 }
+
+func TestInvalidEnvDisplayTimezoneFallsBack(t *testing.T) {
+	t.Setenv("STX_DISPLAY_TIMEZONE", "Not/AZone")
+	displayMu.Lock()
+	displayLoc, displayName = nil, ""
+	displayMu.Unlock()
+	if got := DisplayTimezone(); got != DefaultDisplayTimezone {
+		t.Fatalf("invalid env must fall back to default, got %s", got)
+	}
+	t.Setenv("STX_DISPLAY_TIMEZONE", "Europe/Berlin")
+	t.Setenv("STX_REPORT_TIMEZONE", "UTC")
+	if EnvDisplayTimezone() != "Europe/Berlin" {
+		t.Fatal("STX_DISPLAY_TIMEZONE must win over the legacy alias")
+	}
+}

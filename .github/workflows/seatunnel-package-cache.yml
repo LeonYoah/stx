@@ -1,0 +1,145 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+
+# Warms a GLOBAL SeaTunnel binary package cache.
+#
+# Caches saved from pull_request runs are scoped to the PR merge ref and cannot be
+# restored by other PRs. Caches saved on the default branch (main) are visible to
+# every PR, so this workflow saves one entry per SeaTunnel version on main and the
+# E2E workflow only restores them (actions/cache/restore).
+#
+# Key scheme: seatunnel-bin-<runner.os>-<version>-<epoch>
+# The cached path must match the one restored in e2e.yml exactly.
+
+name: SeaTunnel Package Cache
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/seatunnel-package-cache.yml
+      - .github/workflows/e2e.yml
+      - frontend/scripts/e2e/run-real-installer.sh
+  schedule:
+    # Every 5 days, so entries are refreshed before the 7-day idle eviction.
+    - cron: '17 3 */5 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  E2E_INSTALLER_REAL_PACKAGE_CACHE_DIR: ${{ github.workspace }}/tmp/e2e-package-cache
+  SEATUNNEL_PACKAGE_CACHE_EPOCH: v1
+
+concurrency:
+  group: seatunnel-package-cache
+  cancel-in-progress: false
+
+jobs:
+  versions:
+    name: Resolve SeaTunnel versions
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.resolve.outputs.matrix }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/workflows/e2e.yml
+          sparse-checkout-cone-mode: false
+
+      - name: Read versions from e2e.yml
+        id: resolve
+        # Single source of truth: the version env vars of e2e.yml.
+        run: |
+          set -euo pipefail
+          read_env() {
+            sed -nE "s/^  $1: *['\"]?([^'\"#]*)['\"]?.*$/\1/p" .github/workflows/e2e.yml | head -n 1
+          }
+          versions="$(read_env E2E_INSTALLER_REAL_VERSION) $(read_env E2E_UPGRADE_REAL_SOURCE_VERSION) $(read_env E2E_SEATUNNEL_EXTRA_CACHE_VERSIONS)"
+          matrix="$(printf '%s\n' ${versions} | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -uV | jq -R . | jq -cs .)"
+          if [ "${matrix}" = "[]" ]; then
+            echo "No SeaTunnel versions found in e2e.yml" >&2
+            exit 1
+          fi
+          echo "Resolved versions: ${matrix}"
+          echo "matrix=${matrix}" >> "${GITHUB_OUTPUT}"
+
+  warm:
+    name: Warm SeaTunnel ${{ matrix.version }}
+    needs: versions
+    # Keep the runner image in sync with the E2E jobs (same OS and workspace path).
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ${{ fromJSON(needs.versions.outputs.matrix) }}
+    env:
+      PACKAGE_FILE: apache-seatunnel-${{ matrix.version }}-bin.tar.gz
+    steps:
+      - name: Restore SeaTunnel package cache
+        id: restore
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.E2E_INSTALLER_REAL_PACKAGE_CACHE_DIR }}/apache-seatunnel-${{ matrix.version }}-bin.tar.gz
+          key: seatunnel-bin-${{ runner.os }}-${{ matrix.version }}-${{ env.SEATUNNEL_PACKAGE_CACHE_EPOCH }}
+          lookup-only: true
+
+      - name: Download SeaTunnel package
+        if: steps.restore.outputs.cache-hit != 'true'
+        env:
+          VERSION: ${{ matrix.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${E2E_INSTALLER_REAL_PACKAGE_CACHE_DIR}"
+          final_path="${E2E_INSTALLER_REAL_PACKAGE_CACHE_DIR}/${PACKAGE_FILE}"
+          temp_path="${final_path}.tmp"
+          # Same mirrors as frontend/scripts/e2e/run-real-installer.sh (mirror_url).
+          for base_url in \
+            https://archive.apache.org/dist/seatunnel \
+            https://mirrors.huaweicloud.com/apache/seatunnel \
+            https://mirrors.aliyun.com/apache/seatunnel; do
+            url="${base_url}/${VERSION}/${PACKAGE_FILE}"
+            echo "Downloading ${url}"
+            if curl -fL \
+              --retry 3 \
+              --retry-all-errors \
+              --retry-delay 2 \
+              --connect-timeout 30 \
+              --max-time 1800 \
+              --continue-at - \
+              -o "${temp_path}" \
+              "${url}" && tar -tzf "${temp_path}" >/dev/null; then
+              mv "${temp_path}" "${final_path}"
+              ls -lh "${final_path}"
+              exit 0
+            fi
+            echo "Download from ${base_url} failed, trying next mirror" >&2
+            rm -f "${temp_path}"
+          done
+          echo "Failed to download ${PACKAGE_FILE} from all mirrors" >&2
+          exit 1
+
+      - name: Save SeaTunnel package cache
+        if: steps.restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.E2E_INSTALLER_REAL_PACKAGE_CACHE_DIR }}/apache-seatunnel-${{ matrix.version }}-bin.tar.gz
+          key: seatunnel-bin-${{ runner.os }}-${{ matrix.version }}-${{ env.SEATUNNEL_PACKAGE_CACHE_EPOCH }}

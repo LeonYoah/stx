@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
@@ -627,7 +628,7 @@ func (r *Repository) ListGlobalVariablesPaginated(ctx context.Context, page, siz
 		}
 		query = query.Offset(offset).Limit(size)
 	}
-	if err := query.Order("key ASC").Find(&items).Error; err != nil {
+	if err := query.Order(clause.OrderByColumn{Column: clause.Column{Name: "key"}}).Find(&items).Error; err != nil {
 		return nil, 0, err
 	}
 	return items, total, nil
@@ -648,7 +649,7 @@ func (r *Repository) GetGlobalVariableByID(ctx context.Context, id uint) (*Globa
 // GetGlobalVariableByKey returns one global variable by key.
 func (r *Repository) GetGlobalVariableByKey(ctx context.Context, key string) (*GlobalVariable, error) {
 	var item GlobalVariable
-	if err := r.db.WithContext(ctx).Where("key = ?", strings.TrimSpace(key)).First(&item).Error; err != nil {
+	if err := r.db.WithContext(ctx).Where(clause.Eq{Column: clause.Column{Name: "key"}, Value: strings.TrimSpace(key)}).First(&item).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrGlobalVariableNotFound
 		}

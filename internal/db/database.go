@@ -25,13 +25,15 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/LeonYoah/stx/internal/config"
 	"github.com/glebarez/sqlite"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 	"gorm.io/plugin/opentelemetry/tracing"
+
+	"github.com/LeonYoah/stx/internal/config"
+	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
 
 // 全局数据库实例
@@ -106,9 +108,16 @@ func OpenDB(dbConfig config.DatabaseConfig) (*gorm.DB, error) {
 	database, err := gorm.Open(dialector, &gorm.Config{
 		DisableForeignKeyConstraintWhenMigrating: true,
 		Logger:                                   gormLogger,
+		// 所有自动时间戳统一为 UTC / All auto timestamps are UTC.
+		NowFunc: timex.Now,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("[Database] 连接 %s 数据库失败: %w", dbType, err)
+	}
+
+	// 时间统一为 UTC 的兜底插件 / UTC normalization safety-net plugin
+	if err := database.Use(UTCPlugin{}); err != nil {
+		return nil, fmt.Errorf("[Database] 注册 UTC 插件失败: %w", err)
 	}
 
 	// 注入 OpenTelemetry 追踪 / Inject OpenTelemetry tracing
@@ -158,7 +167,7 @@ func initSQLiteDialector(sqlitePath string) (gorm.Dialector, error) {
 // initMySQLDialector initializes MySQL driver
 func initMySQLDialector(dbConfig config.DatabaseConfig) (gorm.Dialector, error) {
 	dsn := fmt.Sprintf(
-		"%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True&loc=Local",
+		"%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True&loc=UTC&time_zone=%%27%%2B00%%3A00%%27",
 		dbConfig.Username,
 		dbConfig.Password,
 		dbConfig.Host,
@@ -172,7 +181,7 @@ func initMySQLDialector(dbConfig config.DatabaseConfig) (gorm.Dialector, error) 
 // initPostgresDialector 初始化 PostgreSQL 驱动
 func initPostgresDialector(dbConfig config.DatabaseConfig) (gorm.Dialector, error) {
 	dsn := fmt.Sprintf(
-		"host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
+		"host=%s port=%d user=%s password=%s dbname=%s sslmode=disable TimeZone=UTC",
 		dbConfig.Host,
 		dbConfig.Port,
 		dbConfig.Username,

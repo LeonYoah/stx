@@ -26,7 +26,7 @@ function ok<T>(data: T) {
 
 const now = '2026-03-20T12:30:00Z';
 const clusterId = 1;
-const sourceVersion = '2.3.12';
+const sourceVersion = '2.3.13';
 const targetVersion = '2.3.13';
 const targetInstallDir = '/opt/seatunnel-2.3.13';
 const blockedIssueCode = 'package_missing';
@@ -119,7 +119,7 @@ function buildReadyPrecheck() {
         arch: 'linux-amd64',
         source_version: sourceVersion,
         target_version: targetVersion,
-        source_install_dir: '/opt/seatunnel-2.3.12',
+        source_install_dir: '/opt/seatunnel-2.3.13',
         target_install_dir: targetInstallDir,
       },
     ],
@@ -167,7 +167,7 @@ function buildBlockedPrecheck() {
         arch: 'linux-amd64',
         source_version: sourceVersion,
         target_version: targetVersion,
-        source_install_dir: '/opt/seatunnel-2.3.12',
+        source_install_dir: '/opt/seatunnel-2.3.13',
         target_install_dir: targetInstallDir,
       },
     ],
@@ -206,7 +206,7 @@ export async function installUpgradePrepareTemplateRoutes(
           deployment_mode: 'hybrid',
           version: sourceVersion,
           status: 'running',
-          install_dir: '/opt/seatunnel-2.3.12',
+          install_dir: '/opt/seatunnel-2.3.13',
           config: {},
           node_count: 1,
           online_nodes: 1,

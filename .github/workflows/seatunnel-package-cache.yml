@@ -72,8 +72,7 @@ jobs:
           read_env() {
             sed -nE "s/^  $1: *['\"]?([^'\"#]*)['\"]?.*$/\1/p" .github/workflows/e2e.yml | head -n 1
           }
-          # 2.3.12 / upgrade-from-source dropped; warm installer + extra versions only.
-          versions="$(read_env E2E_INSTALLER_REAL_VERSION) $(read_env E2E_SEATUNNEL_EXTRA_CACHE_VERSIONS)"
+          versions="$(read_env E2E_INSTALLER_REAL_VERSION) $(read_env E2E_UPGRADE_REAL_SOURCE_VERSION) $(read_env E2E_UPGRADE_REAL_TARGET_VERSION) $(read_env E2E_SEATUNNEL_EXTRA_CACHE_VERSIONS)"
           matrix="$(printf '%s\n' ${versions} | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -uV | jq -R . | jq -cs .)"
           if [ "${matrix}" = "[]" ]; then
             echo "No SeaTunnel versions found in e2e.yml" >&2

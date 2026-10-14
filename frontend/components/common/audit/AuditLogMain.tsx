@@ -47,6 +47,7 @@ import services from '@/lib/services';
 import {AuditLogInfo, ListAuditLogsRequest} from '@/lib/services/audit/types';
 import {AuditLogTable} from './AuditLogTable';
 import {AuditTraceSheet} from './AuditTraceSheet';
+import {wallTimeToRFC3339} from '@/lib/timezone';
 
 /** 审计筛选只暴露用户能理解的操作类别，不把每一种内部 action 铺进下拉框。
  * Audit filters expose user-facing action categories, not every internal action.
@@ -97,10 +98,10 @@ export function AuditLogMain() {
       let startTime: string | undefined;
       let endTime: string | undefined;
       if (filterStartDate) {
-        startTime = new Date(filterStartDate + 'T00:00:00').toISOString();
+        startTime = wallTimeToRFC3339(filterStartDate + 'T00:00:00');
       }
       if (filterEndDate) {
-        endTime = new Date(filterEndDate + 'T23:59:59.999').toISOString();
+        endTime = wallTimeToRFC3339(filterEndDate + 'T23:59:59.999');
       }
       const params: ListAuditLogsRequest = {
         current: currentPage,

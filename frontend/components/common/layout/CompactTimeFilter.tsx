@@ -22,6 +22,7 @@ import {useTranslations} from 'next-intl';
 import {Calendar, X} from 'lucide-react';
 import {Button} from '@/components/ui/button';
 import {cn} from '@/lib/utils';
+import {formatDateTimeLocalInput} from '@/lib/timezone';
 
 export interface TimePresetOption {
   label: string;
@@ -58,16 +59,10 @@ export interface CompactTimeFilterProps {
   className?: string;
 }
 
-// 格式化 Date 对象为 datetime-local 所需的标准 YYYY-MM-DDTHH:mm 本地时间字符串
-// Format Date object into standard YYYY-MM-DDTHH:mm string required by HTML5 datetime-local input
+// 格式化 Date 为 datetime-local 输入值，按用户有效时区（用户时区，否则浏览器）。
+// Format a Date as a datetime-local value in the effective user timezone (user tz, else browser).
 export function formatToDateTimeLocal(date: Date): string {
-  const pad = (num: number) => String(num).padStart(2, '0');
-  const year = date.getFullYear();
-  const month = pad(date.getMonth() + 1);
-  const day = pad(date.getDate());
-  const hours = pad(date.getHours());
-  const minutes = pad(date.getMinutes());
-  return `${year}-${month}-${day}T${hours}:${minutes}`;
+  return formatDateTimeLocalInput(date);
 }
 
 // 统一的紧凑时间范围筛选组件（带快捷预设、明确起止胶囊、防数字截断、暗色模式适配）

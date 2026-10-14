@@ -33,7 +33,7 @@ import {
   parseExpressionToParts,
   type CronTranslator,
 } from '@/components/common/sync/task-schedule-cron';
-import {formatDateTimeTz, isValidTimezone} from '@/lib/timezone';
+import {formatDateTimeTz, resolveCronTimezone} from '@/lib/timezone';
 
 export interface CronPresetOption {
   key: string;
@@ -57,7 +57,7 @@ export interface CronExpressionEditorLabels {
 }
 
 function formatDate(date: Date, timeZone?: string) {
-  return formatDateTimeTz(date, {timeZone: isValidTimezone(timeZone) ? timeZone : undefined});
+  return formatDateTimeTz(date, {timeZone: resolveCronTimezone(timeZone)});
 }
 
 function BuilderFields({
@@ -144,7 +144,7 @@ export function CronExpressionEditor({
           expression || derivedExpression,
           5,
           new Date(),
-          isValidTimezone(timezone) ? timezone : undefined,
+          resolveCronTimezone(timezone),
         ),
       } as const;
     } catch (error) {

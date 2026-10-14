@@ -195,3 +195,90 @@ export function formatDateTz(value: TimeInput, options?: FormatTimeOptions): str
 export function formatTimeTz(value: TimeInput, options?: FormatTimeOptions): string {
   return format(value, {hour: '2-digit', minute: '2-digit', second: '2-digit'}, options);
 }
+
+let systemTimezone = '';
+
+/** 记录系统默认展示时区（来自用户信息 system_timezone）/ Record the system display timezone from user info. */
+export function setSystemTimezone(value: string | null | undefined): void {
+  systemTimezone = isValidTimezone(value) ? value : '';
+}
+
+/**
+ * 系统默认展示时区（app.display_timezone）；未知时返回空串。与后端一致，用于未设置时区的 cron。
+ * System display timezone (app.display_timezone), '' when unknown. Mirrors the backend fallback for cron without a timezone.
+ */
+export function getSystemTimezone(): string {
+  return systemTimezone;
+}
+
+/** 解析 cron 任务实际使用的时区：任务时区 > 系统时区 > 浏览器 / Effective cron timezone: task > system > browser. */
+export function resolveCronTimezone(taskTimezone?: string | null): string {
+  if (isValidTimezone(taskTimezone)) {
+    return taskTimezone;
+  }
+  return getSystemTimezone() || getBrowserTimezone();
+}
+
+const pad2 = (value: number) => String(value).padStart(2, '0');
+
+function wallFieldsInZone(date: Date, timeZone: string) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hourCycle: 'h23',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }).formatToParts(date);
+  const get = (type: string) => Number(parts.find((part) => part.type === type)?.value ?? 0);
+  return {
+    year: get('year'),
+    month: get('month'),
+    day: get('day'),
+    hour: get('hour') % 24,
+    minute: get('minute'),
+    second: get('second'),
+  };
+}
+
+/** 某时刻在时区下的 UTC 偏移（毫秒）/ UTC offset (ms) of the zone at the given instant. */
+export function timezoneOffsetMs(date: Date, timeZone: string): number {
+  const f = wallFieldsInZone(date, timeZone);
+  const asUTC = Date.UTC(f.year, f.month - 1, f.day, f.hour, f.minute, f.second);
+  return asUTC - Math.floor(date.getTime() / 1000) * 1000;
+}
+
+const WALL_TIME = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?)?$/;
+
+/**
+ * 把无偏移的墙上时间（datetime-local / date 输入值）按时区解释为绝对时刻；默认用户有效时区。
+ * Interpret a naive wall time (datetime-local / date input value) in a timezone; defaults to the effective user zone.
+ */
+export function zonedWallTimeToDate(value: string, timeZone?: string): Date | null {
+  const match = WALL_TIME.exec((value || '').trim());
+  if (!match) {
+    return null;
+  }
+  const zone = isValidTimezone(timeZone) ? timeZone : resolveDisplayTimezone();
+  const [, y, mo, d, h = '0', mi = '0', s = '0', ms = '0'] = match;
+  const wallAsUTC = Date.UTC(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(s), Number(ms.padEnd(3, '0')));
+  // 两次修正以处理夏令时边界 / two passes to settle DST boundaries
+  let instant = wallAsUTC - timezoneOffsetMs(new Date(wallAsUTC), zone);
+  instant = wallAsUTC - timezoneOffsetMs(new Date(instant), zone);
+  return new Date(instant);
+}
+
+/** 墙上时间转 RFC3339（UTC，Z）；无效返回 undefined / Wall time to RFC3339 UTC, undefined when invalid. */
+export function wallTimeToRFC3339(value: string, timeZone?: string): string | undefined {
+  const date = zonedWallTimeToDate(value, timeZone);
+  return date ? date.toISOString() : undefined;
+}
+
+/** 绝对时刻转 datetime-local 输入值 YYYY-MM-DDTHH:mm（默认用户有效时区）/ Instant to datetime-local input value. */
+export function formatDateTimeLocalInput(date: Date, timeZone?: string): string {
+  const zone = isValidTimezone(timeZone) ? timeZone : resolveDisplayTimezone();
+  const f = wallFieldsInZone(date, zone);
+  return `${f.year}-${pad2(f.month)}-${pad2(f.day)}T${pad2(f.hour)}:${pad2(f.minute)}`;
+}

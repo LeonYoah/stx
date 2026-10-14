@@ -24,6 +24,9 @@ import (
 	"testing"
 	"time"
 
+	stxdb "github.com/LeonYoah/stx/internal/db"
+	"github.com/LeonYoah/stx/internal/pkg/timex"
+
 	"github.com/glebarez/sqlite"
 	"github.com/leanovate/gopter"
 	"github.com/leanovate/gopter/gen"
@@ -44,11 +47,15 @@ func setupTestDB(t *testing.T) (*gorm.DB, func()) {
 
 	dbPath := filepath.Join(tempDir, "test.db")
 	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Silent),
+		Logger:  logger.Default.LogMode(logger.Silent),
+		NowFunc: timex.Now,
 	})
 	if err != nil {
 		os.RemoveAll(tempDir)
 		t.Fatalf("Failed to open database: %v", err)
+	}
+	if err := db.Use(stxdb.UTCPlugin{}); err != nil {
+		t.Fatalf("Failed to register UTC plugin: %v", err)
 	}
 
 	// Auto-migrate the models

@@ -25,6 +25,7 @@ import (
 	"time"
 
 	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
+	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
 
 const diagnosticExecutionModule = "diagnostics"
@@ -281,7 +282,7 @@ func (s *Service) RequestCancel(ctx context.Context, item *executionapp.Executio
 		updated, err := s.repo.UpdateDiagnosticTaskFields(ctx, task.ID, []DiagnosticTaskStatus{DiagnosticTaskStatusRunning}, map[string]any{
 			"status":     DiagnosticTaskStatusCancelRequested,
 			"summary":    bilingualText("已请求取消，将在当前步骤完成后停止。", "Cancellation requested; the task will stop after the current step."),
-			"updated_at": time.Now().UTC(),
+			"updated_at": timex.Now(),
 		})
 		if err != nil {
 			return executionapp.CancelResult{}, err
@@ -304,7 +305,7 @@ func (s *Service) RequestCancel(ctx context.Context, item *executionapp.Executio
 }
 
 func (s *Service) cancelDiagnosticTaskImmediately(ctx context.Context, task *DiagnosticTask) error {
-	now := time.Now().UTC()
+	now := timex.Now()
 	updated, err := s.repo.UpdateDiagnosticTaskFields(ctx, task.ID, []DiagnosticTaskStatus{DiagnosticTaskStatusPending, DiagnosticTaskStatusReady}, map[string]any{
 		"status":         DiagnosticTaskStatusCancelled,
 		"summary":        bilingualText("诊断任务已在开始前取消。", "Diagnostic task cancelled before it started."),
@@ -357,7 +358,7 @@ func (s *Service) cancelDiagnosticTaskAtBoundary(ctx context.Context, taskID uin
 		return false, nil
 	}
 
-	now := time.Now().UTC()
+	now := timex.Now()
 	if task.Status == DiagnosticTaskStatusCancelRequested {
 		updated, err := s.repo.UpdateDiagnosticTaskFields(ctx, task.ID, []DiagnosticTaskStatus{DiagnosticTaskStatusCancelRequested}, map[string]any{
 			"status":     DiagnosticTaskStatusCancelling,

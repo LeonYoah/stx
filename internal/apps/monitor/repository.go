@@ -22,6 +22,8 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+
+	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
 
 // Repository provides data access for monitor configurations and events.
@@ -114,10 +116,10 @@ func (r *Repository) ListEvents(ctx context.Context, filter *ProcessEventFilter)
 		query = query.Where("event_type = ?", filter.EventType)
 	}
 	if filter.StartTime != nil {
-		query = query.Where("created_at >= ?", filter.StartTime)
+		query = query.Where("created_at >= ?", timex.BoundPtr(filter.StartTime))
 	}
 	if filter.EndTime != nil {
-		query = query.Where("created_at <= ?", filter.EndTime)
+		query = query.Where("created_at <= ?", timex.BoundPtr(filter.EndTime))
 	}
 
 	// Count total / 统计总数
@@ -161,10 +163,10 @@ func (r *Repository) ListEventsWithHost(ctx context.Context, filter *ProcessEven
 		countQuery = countQuery.Where("event_type = ?", filter.EventType)
 	}
 	if filter.StartTime != nil {
-		countQuery = countQuery.Where("created_at >= ?", filter.StartTime)
+		countQuery = countQuery.Where("created_at >= ?", timex.BoundPtr(filter.StartTime))
 	}
 	if filter.EndTime != nil {
-		countQuery = countQuery.Where("created_at <= ?", filter.EndTime)
+		countQuery = countQuery.Where("created_at <= ?", timex.BoundPtr(filter.EndTime))
 	}
 	if err := countQuery.Count(&total).Error; err != nil {
 		return nil, 0, err
@@ -190,10 +192,10 @@ func (r *Repository) ListEventsWithHost(ctx context.Context, filter *ProcessEven
 		query = query.Where("process_events.event_type = ?", filter.EventType)
 	}
 	if filter.StartTime != nil {
-		query = query.Where("process_events.created_at >= ?", filter.StartTime)
+		query = query.Where("process_events.created_at >= ?", timex.BoundPtr(filter.StartTime))
 	}
 	if filter.EndTime != nil {
-		query = query.Where("process_events.created_at <= ?", filter.EndTime)
+		query = query.Where("process_events.created_at <= ?", timex.BoundPtr(filter.EndTime))
 	}
 
 	// Apply pagination / 应用分页
@@ -278,7 +280,7 @@ func (r *Repository) HasNodeEventAfter(ctx context.Context, nodeID uint, after t
 
 	var event ProcessEvent
 	err := r.db.WithContext(ctx).
-		Where("node_id = ? AND event_type IN ? AND created_at > ?", nodeID, eventTypes, after).
+		Where("node_id = ? AND event_type IN ? AND created_at > ?", nodeID, eventTypes, timex.Bound(after)).
 		Order("created_at ASC").
 		First(&event).Error
 	if err != nil {
@@ -296,7 +298,7 @@ func (r *Repository) CountEventsByType(ctx context.Context, clusterID uint, even
 	var count int64
 	query := r.db.WithContext(ctx).Model(&ProcessEvent{}).Where("cluster_id = ? AND event_type = ?", clusterID, eventType)
 	if since != nil {
-		query = query.Where("created_at >= ?", since)
+		query = query.Where("created_at >= ?", timex.BoundPtr(since))
 	}
 	if err := query.Count(&count).Error; err != nil {
 		return 0, err

@@ -26,6 +26,8 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+
+	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
 
 func (s *Service) deliverManagedRemoteAlertPolicyNotifications(
@@ -343,7 +345,7 @@ func buildManagedRemoteAlertPolicyPayload(
 			"title":   title,
 			"message": message,
 			"alert":   alert,
-			"sent_at": time.Now().UTC().Format(time.RFC3339),
+			"sent_at": timex.Now().Format(time.RFC3339),
 		}, nil
 	case NotificationChannelTypeWeCom, NotificationChannelTypeDingTalk:
 		return map[string]interface{}{

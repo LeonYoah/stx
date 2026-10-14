@@ -34,8 +34,9 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/LeonYoah/stx/internal/apps/audit"
 	"github.com/LeonYoah/stx/internal/apps/cluster"
@@ -45,12 +46,10 @@ import (
 	monitoringapp "github.com/LeonYoah/stx/internal/apps/monitoring"
 	"github.com/LeonYoah/stx/internal/config"
 	"github.com/LeonYoah/stx/internal/logger"
-	"gopkg.in/yaml.v3"
+	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
 
 var (
-	diagnosticDisplayTimezoneOnce sync.Once
-	diagnosticDisplayTimezone     *time.Location
 	diagnosticFileNameUnsafeChars = regexp.MustCompile(`[<>:"/\\|?*\s]+`)
 	diagnosticFileNameDashRuns    = regexp.MustCompile(`-+`)
 )
@@ -666,7 +665,7 @@ func (s *Service) StartDiagnosticTask(ctx context.Context, taskID uint) error {
 	case DiagnosticTaskStatusCancelRequested, DiagnosticTaskStatusCancelling, DiagnosticTaskStatusCancelled, DiagnosticTaskStatusFailed:
 		return ErrDiagnosticTaskAlreadyFinished
 	}
-	now := time.Now().UTC()
+	now := timex.Now()
 	startedAt := task.StartedAt
 	if startedAt == nil {
 		startedAt = &now
@@ -767,7 +766,7 @@ func (s *Service) runDiagnosticTask(ctx context.Context, task *DiagnosticTask) e
 	task.BundleDir = bundleDir
 	updated, err := s.repo.UpdateDiagnosticTaskFields(ctx, task.ID, []DiagnosticTaskStatus{DiagnosticTaskStatusRunning}, map[string]any{
 		"bundle_dir": bundleDir,
-		"updated_at": time.Now().UTC(),
+		"updated_at": timex.Now(),
 	})
 	if err != nil {
 		return err
@@ -813,7 +812,7 @@ func (s *Service) runDiagnosticTask(ctx context.Context, task *DiagnosticTask) e
 				Level:          DiagnosticLogLevelWarn,
 				EventType:      DiagnosticLogEventTypeNote,
 				Message:        bilingualText("可选步骤失败，任务继续执行。", "Optional step failed and task will continue."),
-				CreatedAt:      time.Now().UTC(),
+				CreatedAt:      timex.Now(),
 				CommandSummary: stepErr.Error(),
 			})
 			continue
@@ -827,7 +826,7 @@ func (s *Service) runDiagnosticTask(ctx context.Context, task *DiagnosticTask) e
 		}
 	}
 
-	now := time.Now().UTC()
+	now := timex.Now()
 	task.Summary = strings.TrimSpace(task.Summary)
 	if task.Summary == "" {
 		task.Summary = bilingualText("诊断任务执行完成。", "Diagnostic bundle task completed.")
@@ -924,7 +923,7 @@ func (s *Service) executeDiagnosticPlanStep(ctx context.Context, task *Diagnosti
 			Level:      DiagnosticLogLevelInfo,
 			EventType:  DiagnosticLogEventTypeSuccess,
 			Message:    bilingualText("诊断任务执行完成。", "Diagnostic task completed."),
-			CreatedAt:  time.Now().UTC(),
+			CreatedAt:  timex.Now(),
 		})
 	default:
 		return nil
@@ -1097,7 +1096,7 @@ func (s *Service) executeCollectAlertSnapshotStep(ctx context.Context, task *Dia
 			EventType:      DiagnosticLogEventTypeNote,
 			Message:        bilingualText(fmt.Sprintf("指标快照采集失败：%v", err), fmt.Sprintf("Metrics snapshot collection failed: %v", err)),
 			CommandSummary: "metrics_snapshot",
-			CreatedAt:      time.Now().UTC(),
+			CreatedAt:      timex.Now(),
 		})
 		return nil
 	}
@@ -1139,7 +1138,7 @@ func (s *Service) executeCollectConfigSnapshotStep(ctx context.Context, task *Di
 		ClusterID:          task.ClusterID,
 		ClusterName:        strings.TrimSpace(clusterInfo.Name),
 		DeploymentMode:     strings.TrimSpace(string(clusterInfo.DeploymentMode)),
-		CollectedAt:        time.Now().UTC(),
+		CollectedAt:        timex.Now(),
 		Files:              make([]diagnosticConfigSnapshotFile, 0, len(task.SelectedNodes)*6),
 		KeyHighlights:      make([]diagnosticConfigKeyHighlight, 0, len(task.SelectedNodes)*4),
 		FilePreviews:       make([]diagnosticConfigFilePreview, 0, len(task.SelectedNodes)*4),
@@ -1178,7 +1177,7 @@ func (s *Service) executeCollectConfigSnapshotStep(ctx context.Context, task *Di
 					EventType:       DiagnosticLogEventTypeNote,
 					Message:         bilingualText(fmt.Sprintf("读取 %s 失败：%s", configType, detail), fmt.Sprintf("Failed to read %s: %s", configType, detail)),
 					CommandSummary:  string(configType),
-					CreatedAt:       time.Now().UTC(),
+					CreatedAt:       timex.Now(),
 				})
 				continue
 			}
@@ -1381,7 +1380,7 @@ func (s *Service) collectDiagnosticConfigArtifact(ctx context.Context, task *Dia
 		EventType:       DiagnosticLogEventTypeSuccess,
 		Message:         bilingualText(fmt.Sprintf("已采集 %s 到 %s", configType, localPath), fmt.Sprintf("Collected %s to %s", configType, localPath)),
 		CommandSummary:  configType,
-		CreatedAt:       time.Now().UTC(),
+		CreatedAt:       timex.Now(),
 		Metadata: DiagnosticLogMetadata{
 			"remote_path": normalizedRemotePath,
 			"local_path":  localPath,
@@ -1439,7 +1438,7 @@ func (s *Service) collectDiagnosticDirectoryManifestArtifact(ctx context.Context
 		EventType:       DiagnosticLogEventTypeSuccess,
 		Message:         bilingualText(fmt.Sprintf("已采集 %s 目录清单到 %s", category, localPath), fmt.Sprintf("Collected %s directory manifest to %s", category, localPath)),
 		CommandSummary:  category,
-		CreatedAt:       time.Now().UTC(),
+		CreatedAt:       timex.Now(),
 	})
 }
 
@@ -1940,7 +1939,7 @@ func (s *Service) executeCollectLogSampleStep(ctx context.Context, task *Diagnos
 					EventType:       DiagnosticLogEventTypeNote,
 					Message:         bilingualText(fmt.Sprintf("从 %s 采集日志样本失败：%s", candidate, detail), fmt.Sprintf("Failed to collect log sample from %s: %s", candidate, detail)),
 					CommandSummary:  candidate,
-					CreatedAt:       time.Now().UTC(),
+					CreatedAt:       timex.Now(),
 				})
 				continue
 			}
@@ -1983,7 +1982,7 @@ func (s *Service) executeCollectLogSampleStep(ctx context.Context, task *Diagnos
 				EventType:       DiagnosticLogEventTypeSuccess,
 				Message:         bilingualText(fmt.Sprintf("已从 %s 采集日志样本", candidate), fmt.Sprintf("Collected log sample from %s", candidate)),
 				CommandSummary:  candidate,
-				CreatedAt:       time.Now().UTC(),
+				CreatedAt:       timex.Now(),
 			})
 			nodeSuccess = true
 			successCount++
@@ -2046,7 +2045,7 @@ func (s *Service) executeCollectThreadDumpStep(ctx context.Context, task *Diagno
 				EventType:       DiagnosticLogEventTypeFailed,
 				Message:         detail,
 				CommandSummary:  selected.Role,
-				CreatedAt:       time.Now().UTC(),
+				CreatedAt:       timex.Now(),
 			})
 			if finishErr := s.finishDiagnosticNodeStep(ctx, step, node, DiagnosticTaskStatusFailed, detail); finishErr != nil {
 				return finishErr
@@ -2083,7 +2082,7 @@ func (s *Service) executeCollectThreadDumpStep(ctx context.Context, task *Diagno
 			EventType:       DiagnosticLogEventTypeSuccess,
 			Message:         bilingualText(fmt.Sprintf("线程栈已保存到 %s", localPath), fmt.Sprintf("Thread dump collected to %s", localPath)),
 			CommandSummary:  result.Tool,
-			CreatedAt:       time.Now().UTC(),
+			CreatedAt:       timex.Now(),
 			Metadata: DiagnosticLogMetadata{
 				"remote_path": result.OutputPath,
 			},
@@ -2137,7 +2136,7 @@ func (s *Service) executeCollectJVMDumpStep(ctx context.Context, task *Diagnosti
 				EventType:       DiagnosticLogEventTypeFailed,
 				Message:         detail,
 				CommandSummary:  selected.Role,
-				CreatedAt:       time.Now().UTC(),
+				CreatedAt:       timex.Now(),
 			})
 			if finishErr := s.finishDiagnosticNodeStep(ctx, step, node, DiagnosticTaskStatusFailed, detail); finishErr != nil {
 				return finishErr
@@ -2181,7 +2180,7 @@ func (s *Service) executeCollectJVMDumpStep(ctx context.Context, task *Diagnosti
 			EventType:       DiagnosticLogEventTypeNote,
 			Message:         result.Message,
 			CommandSummary:  result.Tool,
-			CreatedAt:       time.Now().UTC(),
+			CreatedAt:       timex.Now(),
 			Metadata: DiagnosticLogMetadata{
 				"remote_path":    result.OutputPath,
 				"free_bytes":     result.FreeBytes,
@@ -2257,7 +2256,7 @@ func (s *Service) executeRenderHTMLSummaryStep(ctx context.Context, task *Diagno
 			}
 		}
 	}
-	now := time.Now().UTC()
+	now := timex.Now()
 	for i := range task.Steps {
 		if task.Steps[i].Code == step.Code {
 			task.Steps[i].Status = DiagnosticTaskStatusSucceeded
@@ -2306,7 +2305,7 @@ func (s *Service) executeRenderHTMLSummaryStep(ctx context.Context, task *Diagno
 }
 
 func resolveDiagnosticCollectionWindow(task *DiagnosticTask, inspectionDetail *ClusterInspectionReportDetailData) diagnosticCollectionWindow {
-	end := time.Now().UTC()
+	end := timex.Now()
 	lookbackMinutes := 0
 	taskOverridesWindow := false
 	if inspectionDetail != nil && inspectionDetail.Report != nil {
@@ -2325,7 +2324,7 @@ func resolveDiagnosticCollectionWindow(task *DiagnosticTask, inspectionDetail *C
 		taskOverridesWindow = true
 	}
 	if taskOverridesWindow {
-		end = time.Now().UTC()
+		end = timex.Now()
 	}
 	if lookbackMinutes == 0 {
 		lookbackMinutes = defaultInspectionLookbackMinutes
@@ -2788,7 +2787,7 @@ func joinDiagnosticPrometheusURL(baseURL, suffix string) string {
 }
 
 func (s *Service) beginDiagnosticTaskStep(ctx context.Context, task *DiagnosticTask, step *DiagnosticTaskStep) error {
-	now := time.Now().UTC()
+	now := timex.Now()
 	updated, err := s.repo.UpdateDiagnosticTaskFields(ctx, task.ID, []DiagnosticTaskStatus{DiagnosticTaskStatusRunning}, map[string]any{
 		"current_step": step.Code,
 		"updated_at":   now,
@@ -2817,7 +2816,7 @@ func (s *Service) beginDiagnosticTaskStep(ctx context.Context, task *DiagnosticT
 }
 
 func (s *Service) finishDiagnosticTaskStep(ctx context.Context, task *DiagnosticTask, step *DiagnosticTaskStep, message string) error {
-	now := time.Now().UTC()
+	now := timex.Now()
 	step.Status = DiagnosticTaskStatusSucceeded
 	step.Message = message
 	step.Error = ""
@@ -2832,7 +2831,7 @@ func (s *Service) finishDiagnosticTaskStep(ctx context.Context, task *Diagnostic
 }
 
 func (s *Service) failDiagnosticTaskStep(ctx context.Context, task *DiagnosticTask, step *DiagnosticTaskStep, stepErr error) error {
-	now := time.Now().UTC()
+	now := timex.Now()
 	step.Status = DiagnosticTaskStatusFailed
 	step.Error = stepErr.Error()
 	step.Message = stepErr.Error()
@@ -2847,7 +2846,7 @@ func (s *Service) failDiagnosticTaskStep(ctx context.Context, task *DiagnosticTa
 }
 
 func (s *Service) failDiagnosticTask(ctx context.Context, task *DiagnosticTask, failureStep DiagnosticStepCode, taskErr error) error {
-	now := time.Now().UTC()
+	now := timex.Now()
 	updated, err := s.repo.UpdateDiagnosticTaskFields(ctx, task.ID, []DiagnosticTaskStatus{DiagnosticTaskStatusRunning}, map[string]any{
 		"status":         DiagnosticTaskStatusFailed,
 		"failure_step":   failureStep,
@@ -2874,7 +2873,7 @@ func (s *Service) failDiagnosticTask(ctx context.Context, task *DiagnosticTask, 
 }
 
 func (s *Service) beginDiagnosticNodeStep(ctx context.Context, step *DiagnosticTaskStep, node *DiagnosticNodeExecution, message string) error {
-	now := time.Now().UTC()
+	now := timex.Now()
 	node.TaskStepID = uintPtr(step.ID)
 	node.CurrentStep = step.Code
 	node.Status = DiagnosticTaskStatusRunning
@@ -2885,7 +2884,7 @@ func (s *Service) beginDiagnosticNodeStep(ctx context.Context, step *DiagnosticT
 }
 
 func (s *Service) finishDiagnosticNodeStep(ctx context.Context, step *DiagnosticTaskStep, node *DiagnosticNodeExecution, status DiagnosticTaskStatus, message string) error {
-	now := time.Now().UTC()
+	now := timex.Now()
 	node.TaskStepID = uintPtr(step.ID)
 	node.CurrentStep = step.Code
 	node.Status = status
@@ -2918,7 +2917,7 @@ func (s *Service) writeDiagnosticJSONArtifact(ctx context.Context, task *Diagnos
 		EventType:      DiagnosticLogEventTypeSuccess,
 		Message:        bilingualText(fmt.Sprintf("已生成 %s", fileName), fmt.Sprintf("Created %s", fileName)),
 		CommandSummary: path,
-		CreatedAt:      time.Now().UTC(),
+		CreatedAt:      timex.Now(),
 	})
 }
 
@@ -2962,7 +2961,7 @@ func buildDiagnosticBundleManifest(task *DiagnosticTask, artifacts []*diagnostic
 		LookbackMinutes: window.LookbackMinutes,
 		WindowStart:     timePtr(window.Start),
 		WindowEnd:       timePtr(window.End),
-		GeneratedAt:     time.Now().UTC(),
+		GeneratedAt:     timex.Now(),
 		Artifacts:       cloneDiagnosticArtifacts(artifacts),
 	}
 }
@@ -2984,7 +2983,7 @@ func cloneDiagnosticArtifacts(src []*diagnosticBundleArtifact) []*diagnosticBund
 
 func buildDiagnosticBundleHTMLPayload(task *DiagnosticTask, state *diagnosticBundleExecutionState, bundleDir string, artifacts []*diagnosticBundleArtifact) *diagnosticBundleHTMLPayload {
 	payload := &diagnosticBundleHTMLPayload{
-		GeneratedAt:        time.Now().UTC(),
+		GeneratedAt:        timex.Now(),
 		Task:               buildDiagnosticBundleHTMLTaskSummary(task),
 		SourceTraceability: buildDiagnosticBundleHTMLTraceItems(task),
 		TaskExecution:      buildDiagnosticBundleHTMLExecutionPanel(task),
@@ -4738,23 +4737,10 @@ func formatDiagnosticBundleTimeValue(value time.Time) string {
 	return value.In(diagnosticDisplayLocation()).Format("2006-01-02 15:04:05 MST")
 }
 
+// diagnosticDisplayLocation 返回报告展示时区（app.display_timezone，兼容 STX_REPORT_TIMEZONE）。
+// diagnosticDisplayLocation returns the report display location (app.display_timezone, legacy STX_REPORT_TIMEZONE).
 func diagnosticDisplayLocation() *time.Location {
-	diagnosticDisplayTimezoneOnce.Do(func() {
-		name := strings.TrimSpace(os.Getenv("STX_REPORT_TIMEZONE"))
-		if name == "" {
-			name = "Asia/Shanghai"
-		}
-		loc, err := time.LoadLocation(name)
-		if err != nil {
-			diagnosticDisplayTimezone = time.FixedZone("CST", 8*3600)
-			return
-		}
-		diagnosticDisplayTimezone = loc
-	})
-	if diagnosticDisplayTimezone == nil {
-		return time.FixedZone("CST", 8*3600)
-	}
-	return diagnosticDisplayTimezone
+	return timex.DisplayLocation()
 }
 
 func (s *Service) sendDiagnosticAgentCommandWithRetry(ctx context.Context, agentID, command string, params map[string]string) (bool, string, error) {

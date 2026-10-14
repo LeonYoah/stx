@@ -20,6 +20,8 @@ package diagnostics
 import (
 	"sync"
 	"time"
+
+	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
 
 // DiagnosticTaskEventType represents the event type in diagnostics task streaming.
@@ -140,7 +142,7 @@ func (s *Service) publishDiagnosticTaskEvent(event DiagnosticTaskEvent) {
 		return
 	}
 	if event.Timestamp.IsZero() {
-		event.Timestamp = time.Now().UTC()
+		event.Timestamp = timex.Now()
 	}
 	hub.Publish(event)
 }

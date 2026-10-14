@@ -28,6 +28,8 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+
+	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
 
 type alertPolicyLegacyBridgeRef struct {
@@ -555,7 +557,7 @@ func derefInt(value *int) int {
 }
 
 func timeNowUTC() time.Time {
-	return time.Now().UTC()
+	return timex.Now()
 }
 
 func resolveAlertPolicyTemplate(policyType AlertPolicyBuilderKind, templateKey string) (*AlertPolicyTemplateSummaryDTO, error) {

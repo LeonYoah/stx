@@ -22,6 +22,8 @@ import (
 	"errors"
 
 	"gorm.io/gorm"
+
+	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
 
 // ListNotificationRoutes returns all notification routes.
@@ -115,10 +117,10 @@ func (r *Repository) ListNotificationDeliveries(ctx context.Context, filter *Not
 		query = query.Where("cluster_id = ?", filter.ClusterID)
 	}
 	if filter.StartTime != nil {
-		query = query.Where("updated_at >= ?", filter.StartTime)
+		query = query.Where("updated_at >= ?", timex.BoundPtr(filter.StartTime))
 	}
 	if filter.EndTime != nil {
-		query = query.Where("updated_at <= ?", filter.EndTime)
+		query = query.Where("updated_at <= ?", timex.BoundPtr(filter.EndTime))
 	}
 
 	var total int64

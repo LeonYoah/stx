@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/LeonYoah/stx/internal/apps/monitor"
+	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
 
 // AlertPolicyExecutionStateUpdate describes aggregate execution changes for one policy.
@@ -499,7 +500,7 @@ func (s *Service) dispatchLocalAlertPolicyDelivery(
 	if err != nil {
 		return nil, err
 	}
-	handlingStatus := resolveAlertHandlingStatus(alertState, time.Now().UTC())
+	handlingStatus := resolveAlertHandlingStatus(alertState, timex.Now())
 	if handlingStatus == AlertHandlingStatusClosed {
 		return nil, nil
 	}
@@ -690,7 +691,7 @@ func buildLocalAlertPolicyPayload(
 			"title":   title,
 			"message": message,
 			"alert":   alert,
-			"sent_at": time.Now().UTC().Format(time.RFC3339),
+			"sent_at": timex.Now().Format(time.RFC3339),
 		}, nil
 	case NotificationChannelTypeWeCom, NotificationChannelTypeDingTalk:
 		return map[string]interface{}{

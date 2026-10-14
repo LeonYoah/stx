@@ -23,6 +23,8 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+
+	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
 
 // Repository 负责公共执行记录和一次性确认记录的持久化。
@@ -145,7 +147,7 @@ func (r *Repository) ConsumeConfirmation(ctx context.Context, confirmationHash s
 		Where("confirmation_hash = ?", confirmationHash).
 		Where("owner_user_id = ? AND operation_id = ?", ownerUserID, operationID).
 		Where("idempotency_key_hash = ? AND request_hash = ?", idempotencyKeyHash, requestHash).
-		Where("consumed_at IS NULL AND expires_at > ?", now).
+		Where("consumed_at IS NULL AND expires_at > ?", timex.Bound(now)).
 		Update("consumed_at", now)
 	if result.Error != nil {
 		return result.Error

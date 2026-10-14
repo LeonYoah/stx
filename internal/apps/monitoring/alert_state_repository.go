@@ -20,9 +20,10 @@ package monitoring
 import (
 	"context"
 	"errors"
-	"time"
 
 	"gorm.io/gorm"
+
+	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
 
 // GetAlertStateBySourceKey returns one unified alert state by source key.
@@ -81,7 +82,7 @@ func (r *Repository) SaveAlertState(ctx context.Context, state *AlertState) erro
 			"closed_by":       state.ClosedBy,
 			"closed_at":       state.ClosedAt,
 			"note":            state.Note,
-			"updated_at":      time.Now().UTC(),
+			"updated_at":      timex.Now(),
 		}).
 		FirstOrCreate(&AlertState{SourceKey: state.SourceKey}).Error
 }

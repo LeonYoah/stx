@@ -24,6 +24,8 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+
+	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
 
 // Repository provides persistence operations for sync tasks and instances.
@@ -256,7 +258,7 @@ func (r *Repository) HasScheduledJobInstanceInWindow(ctx context.Context, taskID
 	err := r.db.WithContext(ctx).Model(&JobInstance{}).
 		Where("task_id = ?", taskID).
 		Where("run_type = ?", RunTypeSchedule).
-		Where("created_at >= ? AND created_at < ?", startedAt, finishedAt).
+		Where("created_at >= ? AND created_at < ?", timex.Bound(startedAt), timex.Bound(finishedAt)).
 		Count(&count).Error
 	if err != nil {
 		return false, err
@@ -544,7 +546,7 @@ func (r *Repository) ListPreviewRowsByTableID(ctx context.Context, tableID uint,
 func (r *Repository) ListExpiredPreviewSessions(ctx context.Context, cutoff time.Time) ([]*PreviewSession, error) {
 	var items []*PreviewSession
 	if err := r.db.WithContext(ctx).
-		Where("finished_at IS NOT NULL AND finished_at < ?", cutoff).
+		Where("finished_at IS NOT NULL AND finished_at < ?", timex.Bound(cutoff)).
 		Order("finished_at ASC").
 		Find(&items).Error; err != nil {
 		return nil, err

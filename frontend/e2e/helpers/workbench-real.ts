@@ -994,8 +994,11 @@ export function engineSupportsRestoreMode(version: string): boolean {
   return Number.isFinite(major) && major >= 3;
 }
 
+// checkpointRestoreRowNum 是 checkpoint 恢复用例 FakeSource 的总行数。/ Total FakeSource rows of the checkpoint restore case.
+export const checkpointRestoreRowNum = 200000;
+
 export function buildCheckpointRestoreTaskContent(): string {
-  return `env {\n  parallelism = 1\n  job.mode = "STREAMING"\n  checkpoint.interval = 3000\n  checkpoint.retain-after-job-cancelled = true\n}\n\nsource {\n  FakeSource {\n    plugin_output = "fake"\n    row.num = 200000\n    split.num = 1\n    split.read-interval = 2000\n    schema = {\n      fields {\n        id = "int"\n        name = "string"\n      }\n    }\n  }\n}\n\nsink {\n  Console {}\n}`;
+  return `env {\n  parallelism = 1\n  job.mode = "STREAMING"\n  checkpoint.interval = 3000\n  checkpoint.retain-after-job-cancelled = true\n}\n\nsource {\n  FakeSource {\n    plugin_output = "fake"\n    row.num = ${checkpointRestoreRowNum}\n    split.num = 1\n    split.read-interval = 2000\n    schema = {\n      fields {\n        id = "int"\n        name = "string"\n      }\n    }\n  }\n}\n\nsink {\n  Console {}\n}`;
 }
 
 export async function checkpointJobDirectory(

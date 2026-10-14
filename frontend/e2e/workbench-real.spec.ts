@@ -19,6 +19,7 @@ import {expect, test, type Page} from '@playwright/test';
 
 import {
   buildCheckpointRestoreTaskContent,
+  checkpointRestoreRowNum,
   buildMysqlHundredTablesTaskContent,
   buildMysqlMultiSourceMultiSinkContent,
   buildMysqlMultiTransformContent,
@@ -59,7 +60,9 @@ import {
 
 const seatunnelVersion = process.env.E2E_INSTALLER_REAL_VERSION ?? '2.3.13';
 const reuseCluster = process.env.E2E_WORKBENCH_REUSE_CLUSTER === '1';
-const skipMysql = process.env.E2E_WORKBENCH_SKIP_MYSQL === '1';
+// 复用集群时 beforeAll 不会启动 MySQL fixture，因此依赖 MySQL 的用例也必须跳过。
+// When reusing a cluster, beforeAll never starts the MySQL fixture, so MySQL cases must be skipped too.
+const skipMysql = process.env.E2E_WORKBENCH_SKIP_MYSQL === '1' || reuseCluster;
 const restoreOnSeaTunnel3 = engineSupportsRestoreMode(seatunnelVersion);
 
 test.describe.serial('workbench real flows', () => {
@@ -367,6 +370,12 @@ test.describe.serial('workbench real flows', () => {
       clusterId,
       String(sourceDetails.platform_job_id),
     );
+    const sourceReceivedBefore = await readEngineSourceReceivedCount(
+      request,
+      clusterHttpPort,
+      String(sourceDetails.platform_job_id),
+    );
+    expect(sourceReceivedBefore).toBeGreaterThan(0);
     await setCheckpointDirectoryMode(checkpointDir, 0o555);
     try {
       const failedJob = await waitForJobStatus(
@@ -402,12 +411,17 @@ test.describe.serial('workbench real flows', () => {
         return checkpointId > checkpointBefore;
       }, {timeout: 180000, intervals: [2000, 5000, 10000]})
       .toBeTruthy();
-    const received = await readEngineSourceReceivedCount(
+    // FakeSource 的 split 状态记录剩余行数：从 checkpoint 恢复只会补发剩余行，
+    // 从零重启则会把 checkpointRestoreRowNum 行全部重发。等计数稳定后再断言，避免只是“还没发完”。
+    // FakeSource split state stores the remaining rows: a checkpoint restore only emits the rest,
+    // while a restart from zero re-emits all checkpointRestoreRowNum rows. Wait until the count settles
+    // so a slow restart-from-zero cannot pass just because it has not finished yet.
+    const received = await waitForStableSourceReceivedCount(
       request,
       clusterHttpPort,
       String(recoveredDetails.platform_job_id),
     );
-    expect(received).toBeLessThan(200000);
+    expect(received).toBeLessThan(checkpointRestoreRowNum);
     await expect
       .poll(
         () =>
@@ -448,4 +462,23 @@ function assertRecoverSubmit(
     return;
   }
   expect(platformJobId).not.toBe(sourcePlatformJobId);
+}
+
+// waitForStableSourceReceivedCount 轮询引擎指标，直到两次读取相同（作业不再产出）为止。
+// waitForStableSourceReceivedCount polls engine metrics until two consecutive reads match.
+async function waitForStableSourceReceivedCount(
+  request: Parameters<typeof readEngineSourceReceivedCount>[0],
+  httpPort: number,
+  platformJobId: string,
+): Promise<number> {
+  let previous = -1;
+  let current = -1;
+  await expect
+    .poll(async () => {
+      previous = current;
+      current = await readEngineSourceReceivedCount(request, httpPort, platformJobId);
+      return previous === current;
+    }, {timeout: 240000, intervals: [10000]})
+    .toBeTruthy();
+  return current;
 }

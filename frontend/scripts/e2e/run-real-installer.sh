@@ -85,10 +85,7 @@ resolve_preload_mirror() {
     echo "${mirror}"
     return 0
   fi
-  if [[ "${CI:-}" == "true" || "${GITHUB_ACTIONS:-}" == "true" ]]; then
-    echo "apache"
-    return 0
-  fi
+  # GitHub-hosted runners pull archive.apache.org too slowly (~120MB/30min), so prefer CDN mirrors.
   echo "aliyun"
 }
 
@@ -113,70 +110,97 @@ mirror_url() {
 
 download_package_if_missing() {
   local version="$1"
-  local mirror="$2"
+  local preferred_mirror="$2"
   local packages_dir="$3"
 
   if [[ -z "${version}" ]]; then
     return 0
   fi
 
+  mkdir -p "${packages_dir}"
   local file_name="apache-seatunnel-${version}-bin.tar.gz"
   local final_path="${packages_dir}/${file_name}"
-  local temp_path="${final_path}.tmp"
-  local base_url
-  base_url="$(mirror_url "${mirror}")"
-  local download_url="${base_url}/${version}/${file_name}"
-  local timeout_seconds="${PACKAGE_DOWNLOAD_TIMEOUT_SECONDS}"
-
-  if [[ -s "${final_path}" ]]; then
-    echo "[e2e-real] package cache hit: ${file_name}"
+  if [[ -f "${final_path}" ]]; then
     return 0
   fi
 
-  echo "[e2e-real] preloading package ${file_name} from ${mirror} ..."
-  mkdir -p "${packages_dir}"
-
-  if command -v curl >/dev/null 2>&1; then
-    curl -fL \
-      --retry 3 \
-      --retry-all-errors \
-      --retry-delay 2 \
-      --connect-timeout 30 \
-      --max-time "${timeout_seconds}" \
-      --continue-at - \
-      -o "${temp_path}" \
-      "${download_url}"
-  elif command -v wget >/dev/null 2>&1; then
-    if command -v timeout >/dev/null 2>&1; then
-      timeout "${timeout_seconds}" \
-        wget \
-        --tries=3 \
-        --waitretry=2 \
-        --timeout=30 \
-        --read-timeout=30 \
-        -O "${temp_path}" \
-        "${download_url}"
-    else
-      wget \
-        --tries=3 \
-        --waitretry=2 \
-        --timeout=30 \
-        --read-timeout=30 \
-        -O "${temp_path}" \
-        "${download_url}"
+  local mirrors=()
+  if [[ -n "${preferred_mirror}" ]]; then
+    mirrors+=("${preferred_mirror}")
+  fi
+  for candidate in aliyun huaweicloud apache; do
+    local seen=0
+    for existing in "${mirrors[@]:-}"; do
+      if [[ "${existing}" == "${candidate}" ]]; then
+        seen=1
+        break
+      fi
+    done
+    if [[ "${seen}" -eq 0 ]]; then
+      mirrors+=("${candidate}")
     fi
-  else
-    echo "curl or wget is required to preload SeaTunnel packages" >&2
-    exit 1
-  fi
+  done
 
-  if [[ ! -s "${temp_path}" ]]; then
-    echo "failed to preload package ${file_name}" >&2
-    exit 1
+  local timeout_seconds="${PACKAGE_DOWNLOAD_TIMEOUT_SECONDS}"
+  # Cap a single mirror attempt so a stalled CDN fails over (CI default 1800s is too long for one host).
+  if [[ "${timeout_seconds}" -gt 480 ]]; then
+    timeout_seconds=480
   fi
-
-  mv "${temp_path}" "${final_path}"
-  echo "[e2e-real] package preloaded: ${final_path}"
+  local temp_path="${final_path}.tmp"
+  local mirror base_url url
+  for mirror in "${mirrors[@]}"; do
+    base_url="$(mirror_url "${mirror}")"
+    url="${base_url}/${version}/${file_name}"
+    echo "[e2e-real] preloading package ${file_name} from ${mirror} ..."
+    rm -f "${temp_path}"
+    if command -v curl >/dev/null 2>&1; then
+      if curl -fL \
+        --retry 2 \
+        --retry-all-errors \
+        --retry-delay 2 \
+        --connect-timeout 20 \
+        --max-time "${timeout_seconds}" \
+        --speed-time 60 \
+        --speed-limit 50000 \
+        -o "${temp_path}" \
+        "${url}" && tar -tzf "${temp_path}" >/dev/null; then
+        mv "${temp_path}" "${final_path}"
+        ls -lh "${final_path}"
+        return 0
+      fi
+    elif command -v wget >/dev/null 2>&1; then
+      if command -v timeout >/dev/null 2>&1; then
+        if timeout "${timeout_seconds}" wget -q \
+          --tries=2 \
+          --timeout=20 \
+          --read-timeout=30 \
+          -O "${temp_path}" \
+          "${url}" && tar -tzf "${temp_path}" >/dev/null; then
+          mv "${temp_path}" "${final_path}"
+          ls -lh "${final_path}"
+          return 0
+        fi
+      else
+        if wget -q \
+          --tries=2 \
+          --timeout=20 \
+          --read-timeout=30 \
+          -O "${temp_path}" \
+          "${url}" && tar -tzf "${temp_path}" >/dev/null; then
+          mv "${temp_path}" "${final_path}"
+          ls -lh "${final_path}"
+          return 0
+        fi
+      fi
+    else
+      echo "curl or wget is required to preload SeaTunnel packages" >&2
+      return 1
+    fi
+    echo "[e2e-real] download from ${mirror} failed, trying next mirror" >&2
+    rm -f "${temp_path}"
+  done
+  echo "[e2e-real] failed to download ${file_name} from all mirrors" >&2
+  return 1
 }
 
 cleanup() {

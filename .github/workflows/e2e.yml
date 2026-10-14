@@ -337,7 +337,7 @@ jobs:
       - name: Preload SeaTunnel package into cache dir
         # Downloads only versions missing from the cache dir (script skips existing files).
         env:
-          E2E_INSTALLER_REAL_PRELOAD_MIRROR: apache
+          E2E_INSTALLER_REAL_PRELOAD_MIRROR: aliyun
           E2E_UPGRADE_REAL_TARGET_VERSION: ${{ env.E2E_INSTALLER_REAL_VERSION }}
         run: |
           bash frontend/scripts/e2e/run-real-installer.sh --prepare-package-only

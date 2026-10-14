@@ -111,20 +111,24 @@ jobs:
           mkdir -p "${E2E_INSTALLER_REAL_PACKAGE_CACHE_DIR}"
           final_path="${E2E_INSTALLER_REAL_PACKAGE_CACHE_DIR}/${PACKAGE_FILE}"
           temp_path="${final_path}.tmp"
-          # Same mirrors as frontend/scripts/e2e/run-real-installer.sh (mirror_url).
+          # Prefer CDN mirrors first: archive.apache.org is too slow from GitHub-hosted runners
+          # (often <7 MB/s and hits the 30-minute curl --max-time with a partial file).
+          # Keep each attempt short so a stalled mirror fails over quickly.
           for base_url in \
-            https://archive.apache.org/dist/seatunnel \
+            https://mirrors.aliyun.com/apache/seatunnel \
             https://mirrors.huaweicloud.com/apache/seatunnel \
-            https://mirrors.aliyun.com/apache/seatunnel; do
+            https://archive.apache.org/dist/seatunnel; do
             url="${base_url}/${VERSION}/${PACKAGE_FILE}"
             echo "Downloading ${url}"
+            rm -f "${temp_path}"
             if curl -fL \
-              --retry 3 \
+              --retry 2 \
               --retry-all-errors \
               --retry-delay 2 \
-              --connect-timeout 30 \
-              --max-time 1800 \
-              --continue-at - \
+              --connect-timeout 20 \
+              --max-time 480 \
+              --speed-time 60 \
+              --speed-limit 50000 \
               -o "${temp_path}" \
               "${url}" && tar -tzf "${temp_path}" >/dev/null; then
               mv "${temp_path}" "${final_path}"

@@ -1041,8 +1041,12 @@ export async function readEngineSourceReceivedCount(
   return Number.isFinite(count) ? count : 0;
 }
 
-// findEngineLogLine 在集群日志里查找恢复证据，避免把整份日志读进内存。
-// findEngineLogLine searches cluster logs for restore evidence without loading the whole file.
+// 3.0 把 “restore with SAVEPOINT/CHECKPOINT” 和 jobId 写在相邻两行，单行正则会漏掉。
+// SeaTunnel 3.0 writes “restore with SAVEPOINT/CHECKPOINT” and the job id on adjacent lines.
+const engineLogMatchWindow = 3;
+
+// findEngineLogLine 在集群日志尾部查找恢复证据，相邻几行拼在一起再匹配。
+// findEngineLogLine searches the tail of cluster logs and matches across a few adjacent lines.
 export async function findEngineLogLine(
   installDir: string,
   pattern: string,
@@ -1064,10 +1068,15 @@ export async function findEngineLogLine(
       const length = Math.min(stat.size, 8 * 1024 * 1024);
       const buffer = Buffer.alloc(length);
       await handle.read(buffer, 0, length, Math.max(0, stat.size - length));
-      const text = buffer.toString('utf8');
-      const line = text.split('\n').find((item) => matcher.test(item));
-      if (line) {
-        matched = line.slice(0, 240);
+      const lines = buffer.toString('utf8').split('\n');
+      for (let index = 0; index < lines.length; index += 1) {
+        const window = lines
+          .slice(index, index + engineLogMatchWindow)
+          .join(' ');
+        if (!matcher.test(window)) {
+          continue;
+        }
+        matched = window.replace(/\s+/g, ' ').slice(0, 240);
       }
     } finally {
       await handle.close();

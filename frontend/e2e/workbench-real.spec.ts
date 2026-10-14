@@ -413,7 +413,7 @@ test.describe.serial('workbench real flows', () => {
         () =>
           findEngineLogLine(
             installDir,
-            `${recoveredDetails.platform_job_id}.*restore with CHECKPOINT|restore with CHECKPOINT.*${sourceDetails.platform_job_id}`,
+            `${recoveredDetails.platform_job_id}.*restore with CHECKPOINT|restore with CHECKPOINT.*${recoveredDetails.platform_job_id}`,
           ),
         {timeout: 60000, intervals: [2000, 5000]},
       )

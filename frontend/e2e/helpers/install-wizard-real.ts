@@ -605,10 +605,13 @@ export async function waitForStxJavaProxyHealthy(
         return payload.data!;
       }
       if (payload?.data?.endpoint) {
+        // proxy 还没监听时直接抛 ECONNREFUSED，会打断重试，也走不到下面的 /start。
+        // A connection refused error aborts the retry loop before the /start call below.
         const healthz = await page
           .context()
-          .request.get(`${payload.data.endpoint.replace(/\/$/, '')}/healthz`);
-        if (healthz.ok()) {
+          .request.get(`${payload.data.endpoint.replace(/\/$/, '')}/healthz`)
+          .catch(() => null);
+        if (healthz?.ok()) {
           return {
             ...payload.data!,
             healthy: true,

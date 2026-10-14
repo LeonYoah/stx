@@ -2866,14 +2866,6 @@ func (m *InstallerManager) modifySeaTunnelConfig(filePath string, params *Instal
 		}
 	}
 
-	// 3.0 单节点 Hybrid 的默认 backup-count=1 无法选出备份副本，集群会起不来。
-	// SeaTunnel 3.0's default backup-count=1 cannot elect a backup on a single-node hybrid cluster.
-	if seatunnelmeta.CompareVersions(params.Version, "3.0.0") >= 0 &&
-		params.DeploymentMode == DeploymentModeHybrid &&
-		len(params.MasterAddresses) <= 1 {
-		_ = setYAMLValueCreate(&root, []string{"seatunnel", "engine", "backup-count"}, 0)
-	}
-
 	if capabilities.SupportsDynamicSlot {
 		dynamicSlotValue := capabilities.DefaultDynamicSlot
 		if params.DynamicSlot != nil {

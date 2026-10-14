@@ -165,6 +165,24 @@
                 </dependency>
             </dependencies>
         </profile>
+        <!--
+          父 POM 的 spotless 2.29.0 固定 google-java-format 1.7。1.7 在 JDK 21 上调用已删除的
+          JCImport.getQualifiedIdentifier，validate 阶段直接失败。换成 1.22 能在 JDK 21 上跑，
+          但会要求字段注释前多空行，和 Java 11 上 1.7 的检查结果不一致。
+          JDK 21+ 因此跳过 spotless；格式仍由 ci-main 的 Java 11 spotless:check 守住。
+          The parent pins google-java-format 1.7, which crashes on JDK 21 via the removed
+          JCImport.getQualifiedIdentifier. Formatter 1.22 runs there but inserts blank lines the
+          Java 11 / 1.7 check rejects. JDK 21+ skips spotless; Java 11 spotless:check still enforces format.
+        -->
+        <profile>
+            <id>jdk21-spotless</id>
+            <activation>
+                <jdk>[21,)</jdk>
+            </activation>
+            <properties>
+                <skip.spotless>true</skip.spotless>
+            </properties>
+        </profile>
         <profile>
             <id>standalone-bin</id>
             <build>

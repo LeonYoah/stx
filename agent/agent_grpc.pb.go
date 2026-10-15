@@ -27,6 +27,7 @@ const (
 	AgentService_CommandStream_FullMethodName            = "/seatunnel.agent.v1.AgentService/CommandStream"
 	AgentService_LogStream_FullMethodName                = "/seatunnel.agent.v1.AgentService/LogStream"
 	AgentService_GetDiagnosticsLogCursors_FullMethodName = "/seatunnel.agent.v1.AgentService/GetDiagnosticsLogCursors"
+	AgentService_DownloadPackage_FullMethodName          = "/seatunnel.agent.v1.AgentService/DownloadPackage"
 )
 
 // AgentServiceClient is the client API for AgentService service.
@@ -46,6 +47,9 @@ type AgentServiceClient interface {
 	LogStream(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[LogEntry, LogStreamResponse], error)
 	// 诊断日志游标查询 - Agent 启动时从 Control Plane 拉取历史游标，避免重复采集尾部错误
 	GetDiagnosticsLogCursors(ctx context.Context, in *DiagnosticsCursorRequest, opts ...grpc.CallOption) (*DiagnosticsCursorResponse, error)
+	// 安装包下载流 - Agent 按 transfer_id 从 Control Plane 拉取安装包（原生字节流，支持断点续传）
+	// Package download stream - Agent pulls a package by transfer_id (raw bytes, resumable via offset)
+	DownloadPackage(ctx context.Context, in *DownloadPackageRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[PackageChunk], error)
 }
 
 type agentServiceClient struct {
@@ -112,6 +116,25 @@ func (c *agentServiceClient) GetDiagnosticsLogCursors(ctx context.Context, in *D
 	return out, nil
 }
 
+func (c *agentServiceClient) DownloadPackage(ctx context.Context, in *DownloadPackageRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[PackageChunk], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &AgentService_ServiceDesc.Streams[2], AgentService_DownloadPackage_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[DownloadPackageRequest, PackageChunk]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type AgentService_DownloadPackageClient = grpc.ServerStreamingClient[PackageChunk]
+
 // AgentServiceServer is the server API for AgentService service.
 // All implementations must embed UnimplementedAgentServiceServer
 // for forward compatibility.
@@ -129,6 +152,9 @@ type AgentServiceServer interface {
 	LogStream(grpc.ClientStreamingServer[LogEntry, LogStreamResponse]) error
 	// 诊断日志游标查询 - Agent 启动时从 Control Plane 拉取历史游标，避免重复采集尾部错误
 	GetDiagnosticsLogCursors(context.Context, *DiagnosticsCursorRequest) (*DiagnosticsCursorResponse, error)
+	// 安装包下载流 - Agent 按 transfer_id 从 Control Plane 拉取安装包（原生字节流，支持断点续传）
+	// Package download stream - Agent pulls a package by transfer_id (raw bytes, resumable via offset)
+	DownloadPackage(*DownloadPackageRequest, grpc.ServerStreamingServer[PackageChunk]) error
 	mustEmbedUnimplementedAgentServiceServer()
 }
 
@@ -153,6 +179,9 @@ func (UnimplementedAgentServiceServer) LogStream(grpc.ClientStreamingServer[LogE
 }
 func (UnimplementedAgentServiceServer) GetDiagnosticsLogCursors(context.Context, *DiagnosticsCursorRequest) (*DiagnosticsCursorResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetDiagnosticsLogCursors not implemented")
+}
+func (UnimplementedAgentServiceServer) DownloadPackage(*DownloadPackageRequest, grpc.ServerStreamingServer[PackageChunk]) error {
+	return status.Error(codes.Unimplemented, "method DownloadPackage not implemented")
 }
 func (UnimplementedAgentServiceServer) mustEmbedUnimplementedAgentServiceServer() {}
 func (UnimplementedAgentServiceServer) testEmbeddedByValue()                      {}
@@ -243,6 +272,17 @@ func _AgentService_GetDiagnosticsLogCursors_Handler(srv interface{}, ctx context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AgentService_DownloadPackage_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(DownloadPackageRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(AgentServiceServer).DownloadPackage(m, &grpc.GenericServerStream[DownloadPackageRequest, PackageChunk]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type AgentService_DownloadPackageServer = grpc.ServerStreamingServer[PackageChunk]
+
 // AgentService_ServiceDesc is the grpc.ServiceDesc for AgentService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -274,6 +314,11 @@ var AgentService_ServiceDesc = grpc.ServiceDesc{
 			StreamName:    "LogStream",
 			Handler:       _AgentService_LogStream_Handler,
 			ClientStreams: true,
+		},
+		{
+			StreamName:    "DownloadPackage",
+			Handler:       _AgentService_DownloadPackage_Handler,
+			ServerStreams: true,
 		},
 	},
 	Metadata: "agent/agent.proto",

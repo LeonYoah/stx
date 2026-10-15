@@ -71,6 +71,7 @@ import {
   TroubleshootingMemoryCard,
   SaveMemoryDialog,
 } from '@/components/common/troubleshooting';
+import {formatDateTimeTz} from '@/lib/timezone';
 
 type DiagnosticsErrorCenterProps = {
   clusterId?: number;
@@ -91,7 +92,7 @@ function formatDateTime(value?: string | null): string {
   if (Number.isNaN(parsed.getTime())) {
     return value;
   }
-  return parsed.toLocaleString();
+  return formatDateTimeTz(parsed);
 }
 
 // 获取错误频次热度样式（高频突出警示，中频预警，低频常规）

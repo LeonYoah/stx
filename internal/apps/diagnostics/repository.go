@@ -24,6 +24,8 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+
+	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
 
 // Repository provides persistence for diagnostics domain models.
@@ -572,10 +574,10 @@ func applyInspectionReportFilters(query *gorm.DB, filter *ClusterInspectionRepor
 		query = query.Where("id IN (?)", findingQuery)
 	}
 	if filter.StartTime != nil {
-		query = query.Where("created_at >= ?", *filter.StartTime)
+		query = query.Where("created_at >= ?", timex.Bound(*filter.StartTime))
 	}
 	if filter.EndTime != nil {
-		query = query.Where("created_at <= ?", *filter.EndTime)
+		query = query.Where("created_at <= ?", timex.Bound(*filter.EndTime))
 	}
 	return query
 }

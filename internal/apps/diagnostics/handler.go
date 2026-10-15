@@ -30,11 +30,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gin-gonic/gin"
+
 	"github.com/LeonYoah/stx/internal/apps/audit"
 	"github.com/LeonYoah/stx/internal/apps/auth"
 	clusterapp "github.com/LeonYoah/stx/internal/apps/cluster"
 	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
-	"github.com/gin-gonic/gin"
+	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
 
 // Handler handles diagnostics workspace HTTP requests.
@@ -802,11 +804,11 @@ func parseErrorGroupFilter(c *gin.Context) (*SeatunnelErrorGroupFilter, error) {
 	if err != nil {
 		return nil, err
 	}
-	startTime, err := parseOptionalTime(c.Query("start_time"))
+	startTime, err := parseOptionalTime(c.Query("start_time"), c.Query("tz"))
 	if err != nil {
 		return nil, err
 	}
-	endTime, err := parseOptionalTime(c.Query("end_time"))
+	endTime, err := parseOptionalTime(c.Query("end_time"), c.Query("tz"))
 	if err != nil {
 		return nil, err
 	}
@@ -851,11 +853,11 @@ func parseErrorEventFilter(c *gin.Context) (*SeatunnelErrorEventFilter, error) {
 	if err != nil {
 		return nil, err
 	}
-	startTime, err := parseOptionalTime(c.Query("start_time"))
+	startTime, err := parseOptionalTime(c.Query("start_time"), c.Query("tz"))
 	if err != nil {
 		return nil, err
 	}
-	endTime, err := parseOptionalTime(c.Query("end_time"))
+	endTime, err := parseOptionalTime(c.Query("end_time"), c.Query("tz"))
 	if err != nil {
 		return nil, err
 	}
@@ -889,11 +891,11 @@ func parseInspectionReportFilter(c *gin.Context) (*ClusterInspectionReportFilter
 	if err != nil {
 		return nil, err
 	}
-	startTime, err := parseOptionalTime(c.Query("start_time"))
+	startTime, err := parseOptionalTime(c.Query("start_time"), c.Query("tz"))
 	if err != nil {
 		return nil, err
 	}
-	endTime, err := parseOptionalTime(c.Query("end_time"))
+	endTime, err := parseOptionalTime(c.Query("end_time"), c.Query("tz"))
 	if err != nil {
 		return nil, err
 	}
@@ -994,18 +996,18 @@ func parseOptionalInt(raw string, defaultValue int) (int, error) {
 	return parsed, nil
 }
 
-func parseOptionalTime(raw string) (*time.Time, error) {
+// parseOptionalTime 解析时间查询参数：要求 RFC3339 带偏移；无偏移值必须同时提供 tz（IANA）参数。
+// parseOptionalTime parses a time query value: RFC3339 with offset, or a naive value plus an explicit tz parameter.
+func parseOptionalTime(raw, tz string) (*time.Time, error) {
 	value := strings.TrimSpace(raw)
 	if value == "" {
 		return nil, nil
 	}
-	layouts := []string{time.RFC3339, "2006-01-02 15:04:05", "2006-01-02"}
-	for _, layout := range layouts {
-		if ts, err := time.ParseInLocation(layout, value, time.Local); err == nil {
-			return &ts, nil
-		}
+	ts, err := timex.ParseAPITime(value, tz)
+	if err != nil {
+		return nil, fmt.Errorf("invalid time query value: %w", err)
 	}
-	return nil, errors.New("invalid time query value")
+	return &ts, nil
 }
 
 func getDiagnosticsStatusCode(err error) int {

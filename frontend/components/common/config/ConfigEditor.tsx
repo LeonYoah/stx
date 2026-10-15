@@ -38,6 +38,7 @@ import {
 } from '@/components/ui/dialog';
 import { Edit, Save, X, History, Upload, Download } from 'lucide-react';
 import type { ConfigInfo } from '@/lib/services/config';
+import {formatDateTimeTz} from '@/lib/timezone';
 
 interface ConfigEditorProps {
   config: ConfigInfo;
@@ -96,7 +97,7 @@ export function ConfigEditor({
           </span>
           <span className="text-sm text-muted-foreground">|</span>
           <span className="text-sm text-muted-foreground">
-            {t('config.updatedAt')}: {new Date(config.updated_at).toLocaleString()}
+            {t('config.updatedAt')}: {formatDateTimeTz(config.updated_at)}
           </span>
         </div>
         <div className="flex items-center gap-2">

@@ -30,6 +30,7 @@ import {
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import {cn} from '@/lib/utils';
 import type {SyncTaskVersion} from '@/lib/services/sync';
+import {formatDateTimeTz} from '@/lib/timezone';
 
 export function VersionSidebarPanel({
   taskId,
@@ -140,7 +141,7 @@ export function VersionSidebarPanel({
                 </div>
 
                 <div className='text-[10px] text-muted-foreground'>
-                  {new Date(version.created_at).toLocaleString()}
+                  {formatDateTimeTz(version.created_at)}
                 </div>
 
                 {/* 操作按键组 */}

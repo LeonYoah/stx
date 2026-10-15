@@ -28,6 +28,7 @@ import (
 	"github.com/LeonYoah/stx/internal/apps/cluster"
 	"github.com/LeonYoah/stx/internal/apps/monitor"
 	monitoringapp "github.com/LeonYoah/stx/internal/apps/monitoring"
+	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
 
 const (
@@ -108,7 +109,7 @@ func (s *Service) EvaluateInspectionFindings(ctx context.Context, clusterID uint
 
 	result := &InspectionEvaluationResult{
 		ClusterID:   clusterID,
-		GeneratedAt: time.Now().UTC(),
+		GeneratedAt: timex.Now(),
 		Findings:    findings,
 	}
 	for _, finding := range findings {
@@ -158,7 +159,7 @@ func (s *Service) evaluateProcessEventFindings(ctx context.Context, clusterID ui
 		return nil, err
 	}
 
-	cutoff := time.Now().UTC().Add(-lookbackWindow)
+	cutoff := timex.Now().Add(-lookbackWindow)
 	findings := make([]*ClusterInspectionFinding, 0)
 	seen := make(map[string]struct{})
 	for _, event := range events {
@@ -190,7 +191,7 @@ func (s *Service) evaluateProcessEventFindings(ctx context.Context, clusterID ui
 }
 
 func (s *Service) evaluateRecentErrorFindings(ctx context.Context, clusterID uint, lookbackWindow time.Duration, errorThreshold int) ([]*ClusterInspectionFinding, error) {
-	since := time.Now().UTC().Add(-lookbackWindow)
+	since := timex.Now().Add(-lookbackWindow)
 	bursts, err := s.repo.ListRecentErrorGroupBursts(ctx, clusterID, since, 20)
 	if err != nil {
 		return nil, err

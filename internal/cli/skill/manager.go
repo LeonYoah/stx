@@ -29,9 +29,10 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
 
 //go:embed assets/*/SKILL.md
@@ -103,7 +104,7 @@ func NewManager(home string) *Manager {
 		home:       home,
 		backupRoot: filepath.Join(home, ".stx", "skill-backups"),
 		newBackupID: func() string {
-			return time.Now().UTC().Format("20060102T150405.000000000Z") + "-" + uuid.NewString()[:8]
+			return timex.Now().Format("20060102T150405.000000000Z") + "-" + uuid.NewString()[:8]
 		},
 	}
 }

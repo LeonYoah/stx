@@ -30,6 +30,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -161,6 +162,47 @@ type SeaTunnelConfig struct {
 	// by Control Plane commands when installing SeaTunnel
 	// 这只是作为后备使用；实际的 install_dir 在安装 SeaTunnel 时由 Control Plane 命令指定
 	InstallDir string `mapstructure:"install_dir"`
+
+	// PackageDir is the Agent-side directory for SeaTunnel packages: packages pulled from the
+	// Control Plane land here, and it is searched as the offline fallback when transfer fails.
+	// Empty means <agent install dir>/packages (see DefaultPackageDir).
+	// PackageDir 是 Agent 侧 SeaTunnel 安装包目录：从 Control Plane 拉取的安装包存放于此，
+	// 传输失败时也会在此查找本地兜底安装包。为空时使用 <Agent 安装目录>/packages（见 DefaultPackageDir）。
+	PackageDir string `mapstructure:"package_dir"`
+}
+
+// EffectivePackageDir returns the configured package dir or the default.
+// EffectivePackageDir 返回配置的安装包目录或默认目录。
+func (c SeaTunnelConfig) EffectivePackageDir() string {
+	if strings.TrimSpace(c.PackageDir) != "" {
+		return c.PackageDir
+	}
+	return DefaultPackageDir()
+}
+
+// DefaultPackageDir returns <agent install dir>/packages. The agent install dir is derived from
+// the executable like the install script layout (<install>/bin/stx-agent): the parent of a "bin"
+// directory, otherwise the executable's own directory. Falls back to <os.TempDir()>/seatunnel-packages.
+// DefaultPackageDir 返回 <Agent 安装目录>/packages。安装目录按安装脚本布局（<install>/bin/stx-agent）
+// 从可执行文件推导：位于 bin 目录时取其上级，否则取可执行文件所在目录；无法获取时回退到
+// <os.TempDir()>/seatunnel-packages。
+func DefaultPackageDir() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return filepath.Join(os.TempDir(), "seatunnel-packages")
+	}
+	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = resolved
+	}
+	return packageDirForExecutable(exe)
+}
+
+func packageDirForExecutable(exe string) string {
+	dir := filepath.Dir(exe)
+	if filepath.Base(dir) == "bin" {
+		dir = filepath.Dir(dir)
+	}
+	return filepath.Join(dir, "packages")
 }
 
 // Load loads configuration from file and environment variables
@@ -237,6 +279,7 @@ func setDefaults(v *viper.Viper) {
 	// Note: config_dir and log_dir are automatically derived from install_dir
 	// 注意：config_dir 和 log_dir 自动基于 install_dir 计算
 	v.SetDefault("seatunnel.install_dir", DefaultSeaTunnelInstallDir)
+	v.SetDefault("seatunnel.package_dir", "")
 }
 
 // Validate validates the configuration
@@ -317,7 +360,12 @@ seatunnel:
   # Note: config_dir and log_dir are automatically derived from install_dir
   # 注意：config_dir 和 log_dir 自动基于 install_dir 计算
   install_dir: "%s"
-`,
+  # Agent-local SeaTunnel package dir: packages pulled from the Control Plane land here, and it is
+  # searched as the offline fallback when transfer fails (no internet download). Env override:
+  # AGENT_SEATUNNEL_PACKAGE_DIR. Default: <agent install dir>/packages
+  # Agent 本地 SeaTunnel 安装包目录：从 Control Plane 拉取的安装包存放于此，传输失败时作为离线兜底查找目录
+  # （不会从互联网下载）。可用环境变量 AGENT_SEATUNNEL_PACKAGE_DIR 覆盖，默认 <Agent 安装目录>/packages
+%s`,
 		c.Agent.ID,
 		formatAddresses(c.ControlPlane.Addresses),
 		c.ControlPlane.TLS.Enabled,
@@ -332,8 +380,18 @@ seatunnel:
 		c.Log.MaxBackups,
 		c.Log.MaxAge,
 		c.SeaTunnel.InstallDir,
+		packageDirYAML(c.SeaTunnel.PackageDir),
 	)
 	return []byte(yamlContent), nil
+}
+
+// packageDirYAML renders seatunnel.package_dir, or a commented example when unset.
+// packageDirYAML 渲染 seatunnel.package_dir，未设置时输出注释示例。
+func packageDirYAML(dir string) string {
+	if strings.TrimSpace(dir) == "" {
+		return "  # package_dir: \"/path/to/stx-agent/packages\"\n"
+	}
+	return fmt.Sprintf("  package_dir: %q\n", dir)
 }
 
 // formatAddresses formats addresses slice for YAML output

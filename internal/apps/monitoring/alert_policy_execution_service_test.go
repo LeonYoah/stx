@@ -204,7 +204,7 @@ func TestBuildLocalAlertPolicyMessage_formatsNodeStopEvent(t *testing.T) {
 	if !strings.Contains(text, "主机：host-4") {
 		t.Fatalf("expected host information in text, got %s", text)
 	}
-	if !strings.Contains(text, "2026-03-10 17:40:00 +08:00 (server local)") {
+	if !strings.Contains(text, "2026-03-10 17:40:00 +08:00 (Asia/Shanghai)") {
 		t.Fatalf("expected server-local timestamp in text, got %s", text)
 	}
 	if !strings.Contains(text, "2026-03-10T09:40:00Z (UTC)") {

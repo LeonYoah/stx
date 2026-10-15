@@ -50,6 +50,7 @@ import {TableLoadingBar, TableSkeletonRows} from '@/components/common/layout';
 import {animateTableRows} from '@/lib/animations/gsap-motion';
 import {AuditLogInfo} from '@/lib/services/audit/types';
 import {lookupAuditLabel, type AuditTranslator} from './audit-i18n';
+import {formatDateTimeTz} from '@/lib/timezone';
 
 interface AuditLogTableProps {
   logs: AuditLogInfo[];
@@ -377,7 +378,7 @@ export function AuditLogTable({
                       </div>
                     </TableCell>
                     <TableCell>
-                      {new Date(log.created_at).toLocaleString()}
+                      {formatDateTimeTz(log.created_at)}
                     </TableCell>
                   </TableRow>
                 ))

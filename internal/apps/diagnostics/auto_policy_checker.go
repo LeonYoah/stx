@@ -28,6 +28,7 @@ import (
 	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
 	monitoringapp "github.com/LeonYoah/stx/internal/apps/monitoring"
 	"github.com/LeonYoah/stx/internal/pkg/schedulex"
+	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
 
 const autoPolicyRequestedByPrefix = "auto-policy:"
@@ -229,7 +230,7 @@ func (c *AutoPolicyChecker) CheckErrorSpikePolicies(ctx context.Context, cluster
 
 	now = now.UTC()
 	if now.IsZero() {
-		now = time.Now().UTC()
+		now = timex.Now()
 	}
 
 	for _, policy := range policies {
@@ -354,7 +355,7 @@ func (c *AutoPolicyChecker) matchScheduledCondition(policy *InspectionAutoPolicy
 	if err != nil {
 		return false, "", err
 	}
-	matched, _, _, err := schedulex.MatchMinuteWindow(expr, now.UTC(), schedulex.DefaultTimezone)
+	matched, _, _, err := schedulex.MatchMinuteWindow(expr, now.UTC(), schedulex.NormalizeTimezone(""))
 	if err != nil {
 		return false, "", err
 	}
@@ -434,7 +435,7 @@ func (c *AutoPolicyChecker) isInCooldown(ctx context.Context, clusterID uint, po
 		}
 		return true
 	}
-	cooldownDeadline := time.Now().UTC().Add(-time.Duration(cooldownMinutes) * time.Minute)
+	cooldownDeadline := timex.Now().Add(-time.Duration(cooldownMinutes) * time.Minute)
 	return lastReport.CreatedAt.After(cooldownDeadline)
 }
 

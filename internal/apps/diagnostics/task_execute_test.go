@@ -30,12 +30,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/glebarez/sqlite"
+	"gorm.io/gorm"
+
 	"github.com/LeonYoah/stx/internal/apps/cluster"
 	appconfig "github.com/LeonYoah/stx/internal/apps/config"
 	"github.com/LeonYoah/stx/internal/apps/monitor"
 	monitoringapp "github.com/LeonYoah/stx/internal/apps/monitoring"
-	"github.com/glebarez/sqlite"
-	"gorm.io/gorm"
+	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
 
 type fakeDiagnosticProcessEventReader struct {
@@ -472,7 +474,7 @@ func TestBuildDiagnosticBundleHTMLCategoryCards_countsPrimarySignals(t *testing.
 }
 
 func TestExtractDiagnosticLogWindowContent_filtersByTimeWindow(t *testing.T) {
-	start := time.Date(2026, 3, 15, 10, 0, 0, 0, time.Local)
+	start := time.Date(2026, 3, 15, 10, 0, 0, 0, timex.SeatunnelLocation())
 	end := start.Add(5 * time.Minute)
 	content := strings.Join([]string{
 		"[] 2026-03-15 09:58:00,000 ERROR [x] [main] - before",

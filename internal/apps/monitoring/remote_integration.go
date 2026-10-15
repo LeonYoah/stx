@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/LeonYoah/stx/internal/apps/cluster"
+	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
 
 // BuildPrometheusSDTargets builds Prometheus HTTP SD target groups from managed clusters.
@@ -114,7 +115,7 @@ func (s *Service) HandleAlertmanagerWebhook(ctx context.Context, payload *Alertm
 		Stored:   0,
 		Errors:   make([]string, 0, 2),
 	}
-	now := time.Now().UTC()
+	now := timex.Now()
 	for idx, alert := range payload.Alerts {
 		if alert == nil {
 			continue
@@ -316,7 +317,7 @@ func (s *Service) ListRemoteAlerts(ctx context.Context, filter *RemoteAlertFilte
 	}
 
 	return &RemoteAlertListData{
-		GeneratedAt: time.Now().UTC(),
+		GeneratedAt: timex.Now(),
 		Page:        filter.Page,
 		PageSize:    filter.PageSize,
 		Total:       total,
@@ -393,7 +394,7 @@ func (s *Service) GetClustersHealth(ctx context.Context) (*ClusterHealthData, er
 		return items[i].ClusterID < items[j].ClusterID
 	})
 	return &ClusterHealthData{
-		GeneratedAt: time.Now().UTC(),
+		GeneratedAt: timex.Now(),
 		Total:       len(items),
 		Clusters:    items,
 	}, nil
@@ -408,7 +409,7 @@ func (s *Service) GetPlatformHealth(ctx context.Context) (*PlatformHealthData, e
 	}
 
 	result := &PlatformHealthData{
-		GeneratedAt:   time.Now().UTC(),
+		GeneratedAt:   timex.Now(),
 		HealthStatus:  "unknown",
 		TotalClusters: clusterHealth.Total,
 	}

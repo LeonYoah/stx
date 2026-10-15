@@ -90,62 +90,15 @@ func MigrateWithDB(database *gorm.DB, dbType string) error {
 	// 注意：auth.User 是统一的用户表，同时支持密码登录和 OAuth 登录
 	// Execute database table migration, including user table
 	// Note: auth.User is the unified user table, supporting both password and OAuth login
-	if err := database.AutoMigrate(
-		&auth.User{},                            // 统一用户表（支持密码认证和 OAuth 认证）/ Unified user table
-		&auth.CLIToken{},                        // CLI 令牌表 / CLI token table
-		&host.Host{},                            // 主机管理表 / Host management table
-		&cluster.Cluster{},                      // 集群表 / Cluster table
-		&cluster.ClusterNode{},                  // 集群节点表 / Cluster node table
-		&audit.CommandLog{},                     // 命令日志表 / Command log table
-		&audit.AuditLog{},                       // 审计日志表 / Audit log table
-		&execution.Execution{},                  // 公共执行记录表 / Shared execution record table
-		&execution.Confirmation{},               // 一次性操作确认表 / One-time operation confirmation table
-		&plugin.InstalledPlugin{},               // 已安装插件表 / Installed plugin table
-		&plugin.PluginDependencyConfig{},        // 插件依赖配置表 / Plugin dependency config table
-		&plugin.PluginDependencyDisable{},       // 插件官方依赖禁用表 / Plugin official dependency disable table
-		&plugin.PluginCatalogEntry{},            // 插件目录表 / Plugin catalog table
-		&plugin.PluginDependencyProfile{},       // 插件官方依赖画像表 / Plugin official dependency profile table
-		&plugin.PluginDependencyProfileItem{},   // 插件官方依赖画像子项表 / Plugin official dependency profile item table
-		&appconfig.Config{},                     // 配置文件表 / Config file table
-		&appconfig.ConfigVersion{},              // 配置版本表 / Config version table
-		&monitor.MonitorConfig{},                // 监控配置表 / Monitor config table (Requirements: 5.2)
-		&monitor.ProcessEvent{},                 // 进程事件表 / Process event table (Requirements: 6.1)
-		&monitoringapp.AlertRule{},              // 监控告警规则表 / Monitoring alert rule table
-		&monitoringapp.AlertPolicy{},            // 统一告警策略表 / Unified alert policy table
-		&monitoringapp.AlertEventState{},        // 告警事件状态表 / Alert event state table
-		&monitoringapp.AlertState{},             // 统一告警状态表 / Unified alert state table
-		&monitoringapp.NotificationChannel{},    // 通知渠道表 / Notification channel table
-		&monitoringapp.NotificationRoute{},      // 通知路由表 / Notification route table
-		&monitoringapp.NotificationDelivery{},   // 通知投递记录表 / Notification delivery table
-		&monitoringapp.RemoteAlertRecord{},      // 远程告警记录表 / Remote alert record table
-		&diagnostics.SeatunnelErrorGroup{},      // 诊断错误组表 / Diagnostics error group table
-		&diagnostics.SeatunnelErrorEvent{},      // 诊断错误事件表 / Diagnostics error event table
-		&diagnostics.SeatunnelLogCursor{},       // 诊断日志游标表 / Diagnostics log cursor table
-		&diagnostics.ClusterInspectionReport{},  // 诊断巡检报告表 / Diagnostics inspection report table
-		&diagnostics.ClusterInspectionFinding{}, // 诊断巡检发现项表 / Diagnostics inspection finding table
-		&diagnostics.DiagnosticTask{},           // 诊断任务表 / Diagnostics task table
-		&diagnostics.DiagnosticTaskStep{},       // 诊断任务步骤表 / Diagnostics task step table
-		&diagnostics.DiagnosticNodeExecution{},  // 诊断任务节点执行表 / Diagnostics node execution table
-		&diagnostics.DiagnosticStepLog{},        // 诊断任务日志表 / Diagnostics task log table
-		&diagnostics.InspectionAutoPolicy{},     // 诊断自动巡检策略表 / Diagnostics auto-inspection policy table
-		&diagnostics.TroubleshootingMemory{},    // 诊断排障经验记忆库表 / Diagnostics troubleshooting memory table
-		&stupgrade.UpgradePlanRecord{},          // SeaTunnel 升级计划表 / SeaTunnel upgrade plan table
-		&stupgrade.UpgradeTask{},                // SeaTunnel 升级任务表 / SeaTunnel upgrade task table
-		&stupgrade.UpgradeTaskStep{},            // SeaTunnel 升级步骤表 / SeaTunnel upgrade step table
-		&stupgrade.UpgradeNodeExecution{},       // SeaTunnel 升级节点执行表 / SeaTunnel upgrade node execution table
-		&stupgrade.UpgradeStepLog{},             // SeaTunnel 升级日志表 / SeaTunnel upgrade log table
-		&syncapp.Task{},                         // 数据同步任务表 / Sync task table
-		&syncapp.TaskVersion{},                  // 数据同步任务版本表 / Sync task version table
-		&syncapp.JobInstance{},                  // 数据同步作业实例表 / Sync job instance table
-		&syncapp.GlobalVariable{},               // 数据同步全局变量表 / Sync global variable table
-		&syncapp.CuratedTemplate{},              // 数据同步精选模板表 / Sync curated template table
-		&syncapp.PreviewSession{},               // 数据同步预览会话表 / Sync preview session table
-		&syncapp.PreviewTable{},                 // 数据同步预览表分组表 / Sync preview table table
-		&syncapp.PreviewRow{},                   // 数据同步预览数据行表 / Sync preview row table
-	); err != nil {
+	if err := database.AutoMigrate(managedModels()...); err != nil {
 		return fmt.Errorf("auto migrate failed: %w", err)
 	}
 	log.Printf("[Database] auto migrate success\n")
+
+	// 一次性把历史本地时区时间迁移为 UTC / One-time migration of legacy local-time columns to UTC
+	if err := MigrateTimeColumnsToUTC(database, dbType, managedModels(), config.GetDatabaseLegacyTimezone()); err != nil {
+		return fmt.Errorf("migrate time columns to utc failed: %w", err)
+	}
 
 	// 将已有 MySQL 脚本列从 TEXT 升到 MEDIUMTEXT（新装已由 ScriptText 分流）。
 	// Widen existing MySQL script columns from TEXT to MEDIUMTEXT (new installs already use ScriptText).
@@ -340,4 +293,61 @@ func ensureMySQLScriptTextColumns(database *gorm.DB) error {
 // createStoredProcedures creates stored procedures using the global database
 func createStoredProcedures() error {
 	return createStoredProceduresWithDB(db.GetDB(context.Background()))
+}
+
+// managedModels 返回所有由 AutoMigrate 管理的模型。/ managedModels returns every model managed by AutoMigrate.
+func managedModels() []interface{} {
+	return []interface{}{
+		&auth.User{},                            // 统一用户表（支持密码认证和 OAuth 认证）/ Unified user table
+		&auth.CLIToken{},                        // CLI 令牌表 / CLI token table
+		&host.Host{},                            // 主机管理表 / Host management table
+		&cluster.Cluster{},                      // 集群表 / Cluster table
+		&cluster.ClusterNode{},                  // 集群节点表 / Cluster node table
+		&audit.CommandLog{},                     // 命令日志表 / Command log table
+		&audit.AuditLog{},                       // 审计日志表 / Audit log table
+		&execution.Execution{},                  // 公共执行记录表 / Shared execution record table
+		&execution.Confirmation{},               // 一次性操作确认表 / One-time operation confirmation table
+		&plugin.InstalledPlugin{},               // 已安装插件表 / Installed plugin table
+		&plugin.PluginDependencyConfig{},        // 插件依赖配置表 / Plugin dependency config table
+		&plugin.PluginDependencyDisable{},       // 插件官方依赖禁用表 / Plugin official dependency disable table
+		&plugin.PluginCatalogEntry{},            // 插件目录表 / Plugin catalog table
+		&plugin.PluginDependencyProfile{},       // 插件官方依赖画像表 / Plugin official dependency profile table
+		&plugin.PluginDependencyProfileItem{},   // 插件官方依赖画像子项表 / Plugin official dependency profile item table
+		&appconfig.Config{},                     // 配置文件表 / Config file table
+		&appconfig.ConfigVersion{},              // 配置版本表 / Config version table
+		&monitor.MonitorConfig{},                // 监控配置表 / Monitor config table (Requirements: 5.2)
+		&monitor.ProcessEvent{},                 // 进程事件表 / Process event table (Requirements: 6.1)
+		&monitoringapp.AlertRule{},              // 监控告警规则表 / Monitoring alert rule table
+		&monitoringapp.AlertPolicy{},            // 统一告警策略表 / Unified alert policy table
+		&monitoringapp.AlertEventState{},        // 告警事件状态表 / Alert event state table
+		&monitoringapp.AlertState{},             // 统一告警状态表 / Unified alert state table
+		&monitoringapp.NotificationChannel{},    // 通知渠道表 / Notification channel table
+		&monitoringapp.NotificationRoute{},      // 通知路由表 / Notification route table
+		&monitoringapp.NotificationDelivery{},   // 通知投递记录表 / Notification delivery table
+		&monitoringapp.RemoteAlertRecord{},      // 远程告警记录表 / Remote alert record table
+		&diagnostics.SeatunnelErrorGroup{},      // 诊断错误组表 / Diagnostics error group table
+		&diagnostics.SeatunnelErrorEvent{},      // 诊断错误事件表 / Diagnostics error event table
+		&diagnostics.SeatunnelLogCursor{},       // 诊断日志游标表 / Diagnostics log cursor table
+		&diagnostics.ClusterInspectionReport{},  // 诊断巡检报告表 / Diagnostics inspection report table
+		&diagnostics.ClusterInspectionFinding{}, // 诊断巡检发现项表 / Diagnostics inspection finding table
+		&diagnostics.DiagnosticTask{},           // 诊断任务表 / Diagnostics task table
+		&diagnostics.DiagnosticTaskStep{},       // 诊断任务步骤表 / Diagnostics task step table
+		&diagnostics.DiagnosticNodeExecution{},  // 诊断任务节点执行表 / Diagnostics node execution table
+		&diagnostics.DiagnosticStepLog{},        // 诊断任务日志表 / Diagnostics task log table
+		&diagnostics.InspectionAutoPolicy{},     // 诊断自动巡检策略表 / Diagnostics auto-inspection policy table
+		&diagnostics.TroubleshootingMemory{},    // 诊断排障经验记忆库表 / Diagnostics troubleshooting memory table
+		&stupgrade.UpgradePlanRecord{},          // SeaTunnel 升级计划表 / SeaTunnel upgrade plan table
+		&stupgrade.UpgradeTask{},                // SeaTunnel 升级任务表 / SeaTunnel upgrade task table
+		&stupgrade.UpgradeTaskStep{},            // SeaTunnel 升级步骤表 / SeaTunnel upgrade step table
+		&stupgrade.UpgradeNodeExecution{},       // SeaTunnel 升级节点执行表 / SeaTunnel upgrade node execution table
+		&stupgrade.UpgradeStepLog{},             // SeaTunnel 升级日志表 / SeaTunnel upgrade log table
+		&syncapp.Task{},                         // 数据同步任务表 / Sync task table
+		&syncapp.TaskVersion{},                  // 数据同步任务版本表 / Sync task version table
+		&syncapp.JobInstance{},                  // 数据同步作业实例表 / Sync job instance table
+		&syncapp.GlobalVariable{},               // 数据同步全局变量表 / Sync global variable table
+		&syncapp.CuratedTemplate{},              // 数据同步精选模板表 / Sync curated template table
+		&syncapp.PreviewSession{},               // 数据同步预览会话表 / Sync preview session table
+		&syncapp.PreviewTable{},                 // 数据同步预览表分组表 / Sync preview table table
+		&syncapp.PreviewRow{},                   // 数据同步预览数据行表 / Sync preview row table
+	}
 }

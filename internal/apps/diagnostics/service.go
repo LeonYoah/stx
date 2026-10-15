@@ -32,6 +32,7 @@ import (
 	"github.com/LeonYoah/stx/internal/apps/monitor"
 	monitoringapp "github.com/LeonYoah/stx/internal/apps/monitoring"
 	"github.com/LeonYoah/stx/internal/db"
+	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
 
 const (
@@ -166,7 +167,7 @@ func (s *Service) SetAgentCommandSender(sender diagnosticAgentCommandSender) {
 // GetWorkspaceBootstrap 返回诊断中心工作台骨架及上下文集群筛选项。
 func (s *Service) GetWorkspaceBootstrap(ctx context.Context, req *WorkspaceBootstrapRequest) (*WorkspaceBootstrapData, error) {
 	result := &WorkspaceBootstrapData{
-		GeneratedAt: time.Now().UTC(),
+		GeneratedAt: timex.Now(),
 		DefaultTab:  WorkspaceTabErrors,
 		Tabs: []*WorkspaceTab{
 			{

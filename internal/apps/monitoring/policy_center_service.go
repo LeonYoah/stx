@@ -21,9 +21,9 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/LeonYoah/stx/internal/config"
+	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
 
 // GetAlertPolicyCenterBootstrap returns unified policy-center bootstrap payload.
@@ -117,7 +117,7 @@ func (s *Service) GetAlertPolicyCenterBootstrap(ctx context.Context) (*AlertPoli
 	}
 
 	return &AlertPolicyCenterBootstrapData{
-		GeneratedAt:            time.Now().UTC(),
+		GeneratedAt:            timex.Now(),
 		CapabilityMode:         "unified_capability_aware",
 		Capabilities:           capabilities,
 		Builders:               builders,

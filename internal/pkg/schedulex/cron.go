@@ -22,17 +22,20 @@ import (
 	"strings"
 	"time"
 
+	"github.com/LeonYoah/stx/internal/pkg/timex"
 	"github.com/robfig/cron/v3"
 )
 
-const DefaultTimezone = "Asia/Shanghai"
+// DefaultTimezone 保留以兼容旧引用；运行时回退请使用 NormalizeTimezone("")（跟随 app.display_timezone）。
+// DefaultTimezone is kept for compatibility; runtime fallback uses NormalizeTimezone("") which follows app.display_timezone.
+const DefaultTimezone = timex.DefaultDisplayTimezone
 
 var Parser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 
 func NormalizeTimezone(value string) string {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
-		return DefaultTimezone
+		return timex.DisplayTimezone()
 	}
 	return trimmed
 }

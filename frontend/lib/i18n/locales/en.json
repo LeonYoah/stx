@@ -376,7 +376,15 @@
       "member": "Member",
       "activeUser": "Active User",
       "leader": "Leader"
-    }
+    },
+    "timezoneSettings": "Timezone",
+    "timezoneFollowBrowser": "Follow browser ({timezone})",
+    "timezoneHint": "Current display timezone: {current}; system default: {system}. Data is stored in UTC.",
+    "saveTimezone": "Save timezone",
+    "savingTimezone": "Saving...",
+    "timezoneSaved": "Timezone saved",
+    "timezoneSaveFailed": "Failed to save timezone",
+    "timezoneInvalid": "Invalid timezone"
   },
   "dock": {
     "dashboard": "Dashboard",

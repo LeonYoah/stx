@@ -181,6 +181,11 @@ async function main() {
             repoRoot,
             'tmp/e2e/installer-real/logs/stx-agent.log',
           ),
+          // `go run` executes from a throwaway build dir, so pin the Agent package dir.
+          // `go run` 的可执行文件位于临时构建目录，因此显式指定 Agent 安装包目录。
+          AGENT_SEATUNNEL_PACKAGE_DIR:
+            process.env.AGENT_SEATUNNEL_PACKAGE_DIR ??
+            path.join(repoRoot, 'tmp/e2e/installer-real/agent-packages'),
         },
         stdio: 'inherit',
       },

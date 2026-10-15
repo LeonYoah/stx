@@ -67,6 +67,7 @@ import {
   InspectionFindingCard,
   InspectionZeroState,
 } from './InspectionEvidenceView';
+import {formatDateTimeTz} from '@/lib/timezone';
 
 interface InspectionDetailPageProps {
   inspectionId: number;
@@ -80,7 +81,7 @@ function formatDateTime(value?: string | null): string {
   if (Number.isNaN(parsed.getTime())) {
     return value;
   }
-  return parsed.toLocaleString();
+  return formatDateTimeTz(parsed);
 }
 
 function getStatusVariant(

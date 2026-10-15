@@ -32,6 +32,7 @@ import (
 
 	"github.com/LeonYoah/stx/internal/config"
 	"github.com/LeonYoah/stx/internal/logger"
+	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
 
 const (
@@ -63,18 +64,18 @@ type OfflineBundleCreateRequest struct {
 // OfflineBundleManifest 描述离线资产包内容。
 // OfflineBundleManifest describes offline asset bundle contents.
 type OfflineBundleManifest struct {
-	Format            string                     `json:"format"`
-	SeatunnelVersion  string                     `json:"seatunnel_version"`
-	CreatedAt         time.Time                  `json:"created_at"`
-	PackageFileName   string                     `json:"package_file_name"`
-	PackageSize       int64                      `json:"package_size"`
-	PackageSHA256     string                     `json:"package_sha256,omitempty"`
-	SourceFileName    string                     `json:"source_file_name,omitempty"`
-	SourceSize        int64                      `json:"source_size,omitempty"`
-	IncludePlugins    bool                       `json:"include_plugins"`
-	PluginCount       int                        `json:"plugin_count"`
-	PluginFiles       []OfflineBundlePluginEntry `json:"plugin_files,omitempty"`
-	Notes             string                     `json:"notes,omitempty"`
+	Format           string                     `json:"format"`
+	SeatunnelVersion string                     `json:"seatunnel_version"`
+	CreatedAt        time.Time                  `json:"created_at"`
+	PackageFileName  string                     `json:"package_file_name"`
+	PackageSize      int64                      `json:"package_size"`
+	PackageSHA256    string                     `json:"package_sha256,omitempty"`
+	SourceFileName   string                     `json:"source_file_name,omitempty"`
+	SourceSize       int64                      `json:"source_size,omitempty"`
+	IncludePlugins   bool                       `json:"include_plugins"`
+	PluginCount      int                        `json:"plugin_count"`
+	PluginFiles      []OfflineBundlePluginEntry `json:"plugin_files,omitempty"`
+	Notes            string                     `json:"notes,omitempty"`
 }
 
 // OfflineBundlePluginEntry 记录打包进离线包的插件文件。
@@ -167,7 +168,7 @@ func (s *Service) CreateOfflineBundle(ctx context.Context, req *OfflineBundleCre
 	manifest := &OfflineBundleManifest{
 		Format:           OfflineBundleFormatV1,
 		SeatunnelVersion: version,
-		CreatedAt:        time.Now().UTC(),
+		CreatedAt:        timex.Now(),
 		PackageFileName:  pkgName,
 		PackageSize:      pkgStat.Size(),
 		PackageSHA256:    checksum,

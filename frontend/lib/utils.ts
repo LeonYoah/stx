@@ -17,6 +17,7 @@
 
 import {clsx, type ClassValue} from 'clsx';
 import {twMerge} from 'tailwind-merge';
+import {formatDateTimeMinuteTz, formatDateTimeTz, formatDateTz} from './timezone';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -28,16 +29,7 @@ export function cn(...inputs: ClassValue[]) {
  * @returns 格式化后的日期字符串
  */
 export function formatDate(dateString: string): string {
-  try {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('zh-CN', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    });
-  } catch {
-    return dateString;
-  }
+  return formatDateTz(dateString, {fallback: dateString});
 }
 
 /**
@@ -46,18 +38,7 @@ export function formatDate(dateString: string): string {
  * @returns 格式化后的日期时间字符串
  */
 export function formatDateTime(dateString: string): string {
-  try {
-    const date = new Date(dateString);
-    return date.toLocaleString('zh-CN', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  } catch {
-    return dateString;
-  }
+  return formatDateTimeMinuteTz(dateString, {fallback: dateString});
 }
 
 /**
@@ -66,19 +47,7 @@ export function formatDateTime(dateString: string): string {
  * @returns 格式化后的日期时间字符串（精确到秒）
  */
 export function formatDateTimeWithSeconds(dateString: string): string {
-  try {
-    const date = new Date(dateString);
-    return date.toLocaleString('zh-CN', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-    });
-  } catch {
-    return dateString;
-  }
+  return formatDateTimeTz(dateString, {fallback: dateString});
 }
 
 /**

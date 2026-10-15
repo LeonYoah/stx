@@ -31,6 +31,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
 
 // emailNotificationPayload represents one normalized email message.
@@ -78,7 +80,7 @@ func sendEmailNotification(ctx context.Context, channel *NotificationChannel, pa
 		return &notificationSendAttempt{RequestPayload: string(requestPayloadBytes)}, err
 	}
 
-	now := time.Now().UTC()
+	now := timex.Now()
 	return &notificationSendAttempt{
 		RequestPayload: string(requestPayloadBytes),
 		StatusCode:     250,
@@ -156,7 +158,7 @@ func buildSMTPMessage(config *NotificationChannelEmailConfig, payload *emailNoti
 	if err != nil {
 		return nil, err
 	}
-	boundary := fmt.Sprintf("=_STX_%d", time.Now().UTC().UnixNano())
+	boundary := fmt.Sprintf("=_STX_%d", timex.Now().UnixNano())
 	headers = append(headers, fmt.Sprintf("Content-Type: multipart/alternative; boundary=%q", boundary))
 
 	var message strings.Builder

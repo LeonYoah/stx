@@ -23,6 +23,8 @@ import (
 	"strings"
 
 	"gorm.io/gorm"
+
+	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
 
 // Repository provides data access operations for CommandLog and AuditLog entities.
@@ -163,10 +165,10 @@ func (r *Repository) ListCommandLogs(ctx context.Context, filter *CommandLogFilt
 			query = query.Where("status = ?", filter.Status)
 		}
 		if filter.StartTime != nil {
-			query = query.Where("created_at >= ?", *filter.StartTime)
+			query = query.Where("created_at >= ?", timex.Bound(*filter.StartTime))
 		}
 		if filter.EndTime != nil {
-			query = query.Where("created_at <= ?", *filter.EndTime)
+			query = query.Where("created_at <= ?", timex.Bound(*filter.EndTime))
 		}
 		if filter.CreatedBy != nil {
 			query = query.Where("created_by = ?", *filter.CreatedBy)
@@ -446,10 +448,10 @@ func (r *Repository) ListAuditLogs(ctx context.Context, filter *AuditLogFilter) 
 		}
 		// Filter by time range - 按时间范围过滤
 		if filter.StartTime != nil {
-			query = query.Where("created_at >= ?", *filter.StartTime)
+			query = query.Where("created_at >= ?", timex.Bound(*filter.StartTime))
 		}
 		if filter.EndTime != nil {
-			query = query.Where("created_at <= ?", *filter.EndTime)
+			query = query.Where("created_at <= ?", timex.Bound(*filter.EndTime))
 		}
 	}
 
@@ -498,7 +500,7 @@ func (r *Repository) DeleteAuditLog(ctx context.Context, id uint) error {
 // 这对于实现日志保留策略很有用。
 // Requirements: 10.5
 func (r *Repository) DeleteAuditLogsBefore(ctx context.Context, before interface{}) (int64, error) {
-	result := r.db.WithContext(ctx).Where("created_at < ?", before).Delete(&AuditLog{})
+	result := r.db.WithContext(ctx).Where("created_at < ?", timex.BoundAny(before)).Delete(&AuditLog{})
 	return result.RowsAffected, result.Error
 }
 
@@ -507,7 +509,7 @@ func (r *Repository) DeleteAuditLogsBefore(ctx context.Context, before interface
 // This is useful for implementing log retention policies.
 // 这对于实现日志保留策略很有用。
 func (r *Repository) DeleteCommandLogsBefore(ctx context.Context, before interface{}) (int64, error) {
-	result := r.db.WithContext(ctx).Where("created_at < ?", before).Delete(&CommandLog{})
+	result := r.db.WithContext(ctx).Where("created_at < ?", timex.BoundAny(before)).Delete(&CommandLog{})
 	return result.RowsAffected, result.Error
 }
 

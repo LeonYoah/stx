@@ -26,10 +26,12 @@ import (
 	"testing"
 	"time"
 
-	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
-	"github.com/LeonYoah/stx/internal/db"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
+
+	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
+	"github.com/LeonYoah/stx/internal/db"
+	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
 
 type stubConfigToolClient struct {
@@ -1652,7 +1654,7 @@ func TestRefreshJobInstanceUsesEngineFinishedTime(t *testing.T) {
 	if refreshed.FinishedAt == nil {
 		t.Fatalf("expected finished_at to be populated")
 	}
-	if got := refreshed.FinishedAt.Format(time.DateTime); got != "2026-03-29 15:50:44" {
+	if got := refreshed.FinishedAt.In(timex.SeatunnelLocation()).Format(time.DateTime); got != "2026-03-29 15:50:44" {
 		t.Fatalf("expected engine finished time, got %s", got)
 	}
 }

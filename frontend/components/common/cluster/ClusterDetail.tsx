@@ -160,6 +160,7 @@ import {ClusterActions} from './ClusterActions';
 import {ClusterDetailSkeleton} from './ClusterDetailSkeleton';
 import {ClusterNodeLogDialog} from './ClusterNodeLogDialog';
 import {isSeatunnelVersionAtLeast} from '@/lib/seatunnel-version';
+import {formatDateTimeTz} from '@/lib/timezone';
 
 interface ClusterDetailProps {
   clusterId: number;
@@ -1050,7 +1051,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
    * Switch cluster job log output mode (per_job vs mixed)
    */
   const handleSwitchJobLogMode = async (targetMode: 'per_job' | 'mixed') => {
-    if (logModeSwitching) return;
+    if (logModeSwitching) {return;}
     setLogModeSwitching(true);
     try {
       const res = await services.cluster.switchJobLogModeSafe(clusterId, targetMode);
@@ -2298,7 +2299,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                       {t('cluster.createdAt')}
                     </span>
                     <p className='font-mono text-xs text-muted-foreground'>
-                      {new Date(cluster.created_at).toLocaleString()}
+                      {formatDateTimeTz(cluster.created_at)}
                     </p>
                   </div>
 
@@ -2308,7 +2309,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                       {t('cluster.updatedAt')}
                     </span>
                     <p className='font-mono text-xs text-muted-foreground'>
-                      {new Date(cluster.updated_at).toLocaleString()}
+                      {formatDateTimeTz(cluster.updated_at)}
                     </p>
                   </div>
                 </div>
@@ -3351,9 +3352,9 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                               {upgradeTask.current_step || '-'}
                             </TableCell>
                             <TableCell className='text-muted-foreground'>
-                              {new Date(
+                              {formatDateTimeTz(
                                 upgradeTask.created_at,
-                              ).toLocaleString()}
+                              )}
                             </TableCell>
                             <TableCell className='text-right'>
                               <Button

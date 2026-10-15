@@ -122,6 +122,18 @@ type AgentConnection struct {
 	// mu protects concurrent access to the connection.
 	// mu 保护对连接的并发访问。
 	mu sync.RWMutex
+
+	// sendMu serializes Send calls on Stream; gRPC streams are not safe for concurrent SendMsg.
+	// sendMu 串行化 Stream 上的 Send 调用；gRPC 流不支持并发 SendMsg。
+	sendMu sync.Mutex
+}
+
+// sendCommand sends a command on the stream while holding sendMu.
+// sendCommand 持有 sendMu 在流上发送命令。
+func (c *AgentConnection) sendCommand(stream grpc.BidiStreamingServer[pb.CommandResponse, pb.CommandRequest], req *pb.CommandRequest) error {
+	c.sendMu.Lock()
+	defer c.sendMu.Unlock()
+	return stream.Send(req)
 }
 
 // IsOnline checks if the Agent is online based on heartbeat timeout.
@@ -318,6 +330,10 @@ type Manager struct {
 	// commands stores pending commands by command ID.
 	// commands 按命令 ID 存储待处理的命令。
 	commands sync.Map // map[string]*CommandContext
+
+	// packageServes stores package files the Agent may pull via DownloadPackage.
+	// packageServes 存储允许 Agent 通过 DownloadPackage 拉取的安装包文件。
+	packageServes sync.Map // map[string]*PackageServe
 
 	// hostUpdater is used to update host status.
 	// hostUpdater 用于更新主机状态。
@@ -636,7 +652,7 @@ func (m *Manager) SendCommandWithID(ctx context.Context, commandID, agentID stri
 
 	// Send command through stream
 	// 通过流发送命令
-	if err := stream.Send(cmdReq); err != nil {
+	if err := conn.sendCommand(stream, cmdReq); err != nil {
 		return nil, err
 	}
 
@@ -704,7 +720,7 @@ func (m *Manager) SendCommandAsync(agentID string, cmdType pb.CommandType, param
 
 	// Send command through stream
 	// 通过流发送命令
-	if err := stream.Send(cmdReq); err != nil {
+	if err := conn.sendCommand(stream, cmdReq); err != nil {
 		m.commands.Delete(commandID)
 		return "", err
 	}

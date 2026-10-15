@@ -895,3 +895,22 @@ func TestService_CancelDownloadStopsRequestAndRemovesPartialFile(t *testing.T) {
 		t.Fatalf("取消状态发生倒退 / cancelled status regressed: task=%#v err=%v", latest, err)
 	}
 }
+
+// TestBuildInstallParamsAgentLocalFallback 验证安装参数携带 Agent 本地兜底所需信息，且无传输路径时不设置 package_path。
+// TestBuildInstallParamsAgentLocalFallback verifies params carry Agent-local fallback info and omit package_path when untransferred.
+func TestBuildInstallParamsAgentLocalFallback(t *testing.T) {
+	params := buildInstallParams(&InstallationRequest{
+		Version:          "2.3.13",
+		InstallMode:      InstallModeOnline,
+		AgentPackagePath: " /data/pkgs ",
+	})
+	if _, ok := params["package_path"]; ok {
+		t.Fatalf("package_path must be omitted when nothing was transferred, got %q", params["package_path"])
+	}
+	if params["package_file_name"] != "apache-seatunnel-2.3.13-bin.tar.gz" {
+		t.Fatalf("package_file_name=%q", params["package_file_name"])
+	}
+	if params["agent_package_path"] != "/data/pkgs" {
+		t.Fatalf("agent_package_path=%q", params["agent_package_path"])
+	}
+}

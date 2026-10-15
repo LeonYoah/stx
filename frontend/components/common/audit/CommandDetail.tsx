@@ -49,6 +49,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import {CommandLogInfo, CommandStatus} from '@/lib/services/audit/types';
+import {formatDateTimeTz} from '@/lib/timezone';
 
 interface CommandDetailProps {
   open: boolean;
@@ -107,7 +108,7 @@ function getStatusBadgeVariant(
  */
 function formatDateTime(dateStr: string | null): string {
   if (!dateStr) {return '-';}
-  return new Date(dateStr).toLocaleString();
+  return formatDateTimeTz(dateStr);
 }
 
 /**

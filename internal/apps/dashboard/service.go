@@ -25,6 +25,7 @@ import (
 	"github.com/LeonYoah/stx/internal/apps/audit"
 	"github.com/LeonYoah/stx/internal/apps/cluster"
 	"github.com/LeonYoah/stx/internal/apps/host"
+	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
 
 // OverviewService provides dashboard overview statistics.
@@ -252,7 +253,7 @@ func (s *OverviewService) GetRecentActivities(ctx context.Context, limit int) ([
 			Source:    source,
 			Action:    action,
 			Message:   operator + " · " + source + " · " + action,
-			Timestamp: log.CreatedAt.Format("2006-01-02 15:04:05"),
+			Timestamp: timex.FormatAPI(log.CreatedAt),
 		})
 	}
 

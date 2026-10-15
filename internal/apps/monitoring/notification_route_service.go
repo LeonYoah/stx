@@ -25,6 +25,8 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+
+	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
 
 type notificationSendAttempt struct {
@@ -52,7 +54,7 @@ func (s *Service) ListNotificationRoutes(ctx context.Context) (*NotificationRout
 	}
 
 	return &NotificationRouteListData{
-		GeneratedAt: time.Now().UTC(),
+		GeneratedAt: timex.Now(),
 		Total:       len(items),
 		Routes:      items,
 	}, nil
@@ -196,7 +198,7 @@ func (s *Service) TestNotificationChannel(ctx context.Context, id uint, req *Not
 	delivery := &NotificationDelivery{
 		AlertID:      fmt.Sprintf("test-channel-%d", channel.ID),
 		SourceType:   "system_test",
-		SourceKey:    fmt.Sprintf("test:channel:%d:%d", channel.ID, time.Now().UTC().UnixNano()),
+		SourceKey:    fmt.Sprintf("test:channel:%d:%d", channel.ID, timex.Now().UnixNano()),
 		AlertName:    "STX notification test",
 		ChannelID:    channel.ID,
 		ChannelName:  strings.TrimSpace(channel.Name),
@@ -310,7 +312,7 @@ func (s *Service) TestNotificationChannelConnection(ctx context.Context, req *Up
 	}
 
 	result := &NotificationChannelConnectionTestResult{}
-	checkedAt := time.Now().UTC()
+	checkedAt := timex.Now()
 	result.CheckedAt = &checkedAt
 
 	emailConfig := req.Config.Email.Normalize()
@@ -369,7 +371,7 @@ func buildTestPayload(channel *NotificationChannel, recipients []string) (interf
 			"message":      message,
 			"channel_name": channel.Name,
 			"channel_type": channel.Type,
-			"sent_at":      time.Now().UTC().Format(time.RFC3339),
+			"sent_at":      timex.Now().Format(time.RFC3339),
 		}, nil
 	case NotificationChannelTypeWeCom, NotificationChannelTypeDingTalk:
 		return map[string]interface{}{

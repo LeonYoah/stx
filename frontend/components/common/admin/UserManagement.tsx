@@ -78,6 +78,7 @@ import type {
   CreateUserRequest,
   UpdateUserRequest,
 } from '@/lib/services/admin/user.service';
+import {formatDateTz} from '@/lib/timezone';
 
 function isValidEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
@@ -394,7 +395,7 @@ export function UserManagement() {
                       />
                     </TableCell>
                     <TableCell>
-                      {new Date(user.created_at).toLocaleDateString()}
+                      {formatDateTz(user.created_at)}
                     </TableCell>
                     <TableCell>
                       <div className='flex gap-2'>

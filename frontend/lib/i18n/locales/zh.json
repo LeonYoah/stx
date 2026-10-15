@@ -376,7 +376,15 @@
       "member": "成员",
       "activeUser": "活跃用户",
       "leader": "领导者"
-    }
+    },
+    "timezoneSettings": "时区设置",
+    "timezoneFollowBrowser": "跟随浏览器（{timezone}）",
+    "timezoneHint": "当前展示时区：{current}；系统默认：{system}。数据统一以 UTC 存储。",
+    "saveTimezone": "保存时区",
+    "savingTimezone": "保存中...",
+    "timezoneSaved": "时区已保存",
+    "timezoneSaveFailed": "保存时区失败",
+    "timezoneInvalid": "时区不合法"
   },
   "dock": {
     "dashboard": "控制台",

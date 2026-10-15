@@ -48,7 +48,17 @@ func (h *Handler) UpdateProfile(c *gin.Context) {
 	language := auth.NormalizeLanguage(req.Language)
 	hasEmail := email != ""
 	hasLanguage := strings.TrimSpace(req.Language) != ""
-	if !hasEmail && !hasLanguage {
+	hasTimezone := req.Timezone != nil
+	timezone := ""
+	if hasTimezone {
+		normalized, ok := auth.NormalizeTimezone(*req.Timezone)
+		if !ok {
+			c.JSON(http.StatusBadRequest, auth.UpdateProfileResponse{ErrorMsg: "时区不合法 / Invalid timezone"})
+			return
+		}
+		timezone = normalized
+	}
+	if !hasEmail && !hasLanguage && !hasTimezone {
 		c.JSON(http.StatusBadRequest, auth.UpdateProfileResponse{ErrorMsg: "至少提供一个可更新字段 / At least one field is required"})
 		return
 	}
@@ -63,15 +73,16 @@ func (h *Handler) UpdateProfile(c *gin.Context) {
 		return
 	}
 	requestHash, err := executionapp.HashRequest(struct {
-		Email    string `json:"email,omitempty"`
-		Language string `json:"language,omitempty"`
-	}{Email: email, Language: language})
+		Email    string  `json:"email,omitempty"`
+		Language string  `json:"language,omitempty"`
+		Timezone *string `json:"timezone,omitempty"`
+	}{Email: email, Language: language, Timezone: timezonePtr(hasTimezone, timezone)})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, auth.UpdateProfileResponse{ErrorMsg: auth.ErrMsgInternalError})
 		return
 	}
 	item, existing, beginErr := h.begin(c, "auth.profile.update", "auth", strconv.FormatUint(userID, 10), executionapp.RiskLevelR1,
-		"修改当前用户的邮箱或语言偏好，可再次修改恢复。", requestHash)
+		"修改当前用户的邮箱、语言或时区偏好，可再次修改恢复。", requestHash)
 	if beginErr != nil {
 		executionapp.WriteError(c, beginErr)
 		return
@@ -100,12 +111,15 @@ func (h *Handler) UpdateProfile(c *gin.Context) {
 		c.JSON(http.StatusNotFound, auth.UpdateProfileResponse{ErrorMsg: "用户不存在"})
 		return
 	}
-	updates := make(map[string]interface{}, 2)
+	updates := make(map[string]interface{}, 3)
 	if hasEmail {
 		updates["email"] = email
 	}
 	if hasLanguage {
 		updates["language"] = language
+	}
+	if hasTimezone {
+		updates["timezone"] = timezone
 	}
 	if err := db.GetDB(c.Request.Context()).Model(user).Updates(updates).Error; err != nil {
 		h.finish(c, item, "", err)
@@ -119,7 +133,17 @@ func (h *Handler) UpdateProfile(c *gin.Context) {
 	if hasLanguage {
 		user.Language = language
 	}
+	if hasTimezone {
+		user.Timezone = timezone
+	}
 	h.finish(c, item, strconv.FormatUint(userID, 10), nil)
-	logger.InfoF(c.Request.Context(), "[Auth] 更新个人信息成功: user_id=%d email_updated=%t language_updated=%t", userID, hasEmail, hasLanguage)
+	logger.InfoF(c.Request.Context(), "[Auth] 更新个人信息成功: user_id=%d email_updated=%t language_updated=%t timezone_updated=%t", userID, hasEmail, hasLanguage, hasTimezone)
 	c.JSON(http.StatusOK, auth.UpdateProfileResponse{Data: user.ToUserInfo()})
+}
+
+func timezonePtr(set bool, value string) *string {
+	if !set {
+		return nil
+	}
+	return &value
 }

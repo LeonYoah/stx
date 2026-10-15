@@ -21,6 +21,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strconv"
@@ -1303,5 +1304,24 @@ func (s *Server) updateProcessStatusFromHeartbeat(ctx context.Context, hostID ui
 	// 根据节点状态刷新集群 status，使集群状态随心跳持续更新。
 	for cid := range clusterIDsSeen {
 		clusterNodeProvider.RefreshClusterStatusFromNodes(ctx, cid)
+	}
+}
+
+// DownloadPackage streams a registered installation package to the Agent (raw bytes, resumable).
+// DownloadPackage 向 Agent 流式发送已登记的安装包（原始字节，支持断点续传）。
+func (s *Server) DownloadPackage(req *pb.DownloadPackageRequest, stream grpc.ServerStreamingServer[pb.PackageChunk]) error {
+	if req.GetAgentId() == "" || req.GetTransferId() == "" {
+		return status.Error(codes.InvalidArgument, "agent_id and transfer_id are required / agent_id 和 transfer_id 为必填")
+	}
+	err := s.agentManager.StreamPackage(stream.Context(), req, stream.Send)
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, agent.ErrPackageServeNotFound):
+		return status.Error(codes.NotFound, err.Error())
+	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		return status.FromContextError(err).Err()
+	default:
+		return status.Error(codes.Internal, err.Error())
 	}
 }

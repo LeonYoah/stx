@@ -152,6 +152,28 @@ func TestUpdateProfileRequiresR1ConfirmationAndIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestUpdateProfileTimezone(t *testing.T) {
+	database, adminUser, handler := newUserWriteTestHandler(t)
+	router := newUserWriteTestRouter(handler, adminUser)
+
+	invalid := performUserWriteRequest(router, http.MethodPut, "/auth/profile", `{"timezone":"Mars/Base"}`, "tz-bad", "", true)
+	if invalid.Code != http.StatusBadRequest {
+		t.Fatalf("非法时区应被拒绝: status=%d body=%s", invalid.Code, invalid.Body.String())
+	}
+	set := performUserWriteRequest(router, http.MethodPut, "/auth/profile", `{"timezone":"America/New_York"}`, "tz-set", "", true)
+	if set.Code != http.StatusOK || !strings.Contains(set.Body.String(), `"timezone":"America/New_York"`) {
+		t.Fatalf("设置时区失败: status=%d body=%s", set.Code, set.Body.String())
+	}
+	clear := performUserWriteRequest(router, http.MethodPut, "/auth/profile", `{"timezone":""}`, "tz-clear", "", true)
+	if clear.Code != http.StatusOK {
+		t.Fatalf("清空时区失败: status=%d body=%s", clear.Code, clear.Body.String())
+	}
+	stored, err := auth.FindByID(database, adminUser.ID)
+	if err != nil || stored.Timezone != "" {
+		t.Fatalf("时区应恢复为跟随浏览器: user=%+v err=%v", stored, err)
+	}
+}
+
 func newUserWriteTestHandler(t *testing.T) (*gorm.DB, *auth.User, *Handler) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)

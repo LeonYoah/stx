@@ -335,7 +335,12 @@ seatunnel:
   # Note: config_dir and log_dir are automatically derived from install_dir
   # 注意：config_dir 和 log_dir 自动基于 install_dir 计算
   install_dir: "%s"
-`,
+  # Agent-local SeaTunnel package dir: packages pulled from the Control Plane land here, and it is
+  # searched as the offline fallback when transfer fails (no internet download). Env override:
+  # AGENT_SEATUNNEL_PACKAGE_DIR. Default: <os.TempDir()>/seatunnel-packages
+  # Agent 本地 SeaTunnel 安装包目录：从 Control Plane 拉取的安装包存放于此，传输失败时作为离线兜底查找目录
+  # （不会从互联网下载）。可用环境变量 AGENT_SEATUNNEL_PACKAGE_DIR 覆盖，默认 <os.TempDir()>/seatunnel-packages
+%s`,
 		c.Agent.ID,
 		formatAddresses(c.ControlPlane.Addresses),
 		c.ControlPlane.TLS.Enabled,
@@ -350,8 +355,18 @@ seatunnel:
 		c.Log.MaxBackups,
 		c.Log.MaxAge,
 		c.SeaTunnel.InstallDir,
+		packageDirYAML(c.SeaTunnel.PackageDir),
 	)
 	return []byte(yamlContent), nil
+}
+
+// packageDirYAML renders seatunnel.package_dir, or a commented example when unset.
+// packageDirYAML 渲染 seatunnel.package_dir，未设置时输出注释示例。
+func packageDirYAML(dir string) string {
+	if strings.TrimSpace(dir) == "" {
+		return "  # package_dir: \"/opt/seatunnel-packages\"\n"
+	}
+	return fmt.Sprintf("  package_dir: %q\n", dir)
 }
 
 // formatAddresses formats addresses slice for YAML output

@@ -20,6 +20,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -311,4 +312,32 @@ control_plane:
 	// Environment variable should override default
 	// 环境变量应该覆盖默认值
 	assert.Equal(t, "debug", cfg.Log.Level)
+}
+
+// TestToYAMLPackageDir 验证 package_dir 未设置时输出注释示例，设置后可往返解析。
+// TestToYAMLPackageDir verifies a commented example when unset and round-trip when set.
+func TestToYAMLPackageDir(t *testing.T) {
+	cfg := &Config{}
+	cfg.ControlPlane.Addresses = []string{"127.0.0.1:50051"}
+	out, err := cfg.ToYAML()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), "# package_dir:") || !strings.Contains(string(out), "AGENT_SEATUNNEL_PACKAGE_DIR") {
+		t.Fatalf("missing commented package_dir example:\n%s", out)
+	}
+
+	cfg.SeaTunnel.PackageDir = "/data/pkgs"
+	out, _ = cfg.ToYAML()
+	p := filepath.Join(t.TempDir(), "c.yaml")
+	if err := os.WriteFile(p, out, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.SeaTunnel.PackageDir != "/data/pkgs" {
+		t.Fatalf("package_dir=%q", loaded.SeaTunnel.PackageDir)
+	}
 }

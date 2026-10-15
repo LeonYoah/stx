@@ -322,6 +322,7 @@ type InstallationRequest struct {
 	InstallMode             InstallMode            `json:"install_mode"`
 	Mirror                  MirrorSource           `json:"mirror,omitempty"`
 	PackagePath             string                 `json:"package_path,omitempty"`
+	PackageChecksum         string                 `json:"-"`                            // SHA256 of the package transferred to the Agent (internal) / 已传给 Agent 的安装包 SHA256（内部字段）
 	AgentPackagePath        string                 `json:"agent_package_path,omitempty"` // Agent-side file/dir used when CP transfer fails (no internet fallback) / CP 传输失败时使用的 Agent 侧文件或目录（不回退互联网下载）
 	DeploymentMode          DeploymentMode         `json:"deployment_mode"`
 	NodeRole                NodeRole               `json:"node_role"`

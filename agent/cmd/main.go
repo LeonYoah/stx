@@ -1273,6 +1273,9 @@ func (a *Agent) handleInstallCommand(ctx context.Context, cmd *pb.CommandRequest
 	if packagePath != "" {
 		params.PackagePath = packagePath
 		params.Mode = installer.InstallModeOffline // Use offline mode when package path is provided
+		// Expected SHA256 of the transferred package, verified before extraction.
+		// 已传输安装包的期望 SHA256，解压前校验。
+		params.ExpectedChecksum = getParamString(cmd.Parameters, "package_checksum", "")
 	}
 
 	// Agent-local fallback package (no internet download) / Agent 本地兜底安装包（不从互联网下载）

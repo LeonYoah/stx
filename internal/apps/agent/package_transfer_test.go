@@ -165,15 +165,15 @@ func TestTransferPackageEndToEnd(t *testing.T) {
 	path, data := writeTempPackage(t, 2*PackageStreamChunkSize+5)
 
 	var lastSent int64
-	remote, err := m.TransferPackage(context.Background(), "agent-1", "9.9.9", path, "sum", PackagePullOptions{
+	res, err := m.TransferPackage(context.Background(), "agent-1", "9.9.9", path, "sum", PackagePullOptions{
 		PollInterval: 10 * time.Millisecond,
 		OnProgress:   func(sent, total int64) { lastSent = sent },
 	})
 	if err != nil {
 		t.Fatalf("TransferPackage: %v", err)
 	}
-	if remote != "/agent/pkgs/apache-seatunnel-9.9.9-bin.tar.gz" {
-		t.Fatalf("remote=%s", remote)
+	if res.LocalPath != "/agent/pkgs/apache-seatunnel-9.9.9-bin.tar.gz" || res.Reused {
+		t.Fatalf("result=%+v", res)
 	}
 	if got := <-s.got; !bytes.Equal(got, data) {
 		t.Fatal("agent received different bytes")

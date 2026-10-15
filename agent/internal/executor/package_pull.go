@@ -28,6 +28,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -296,7 +297,19 @@ func handlePullTransfer(ctx context.Context, cmd *pb.CommandRequest, reporter Pr
 		reporter.Report(pct, fmt.Sprintf("Package received: %d/%d bytes / 安装包已接收：%d/%d 字节", received, total, received, total))
 	}
 
-	path, err := GetPackageTransferManager().Pull(ctx, getPackageStreamOpener(), req, defaultPullOptions, progress)
+	mgr := GetPackageTransferManager()
+	if path, ok := mgr.FindMatchingPackage(req, p["cached_path"]); ok {
+		out, _ := json.Marshal(map[string]any{
+			"success":        true,
+			"message":        "Package already present with matching checksum, download skipped / 安装包已存在且校验和一致，跳过下载",
+			"received_bytes": req.TotalSize,
+			"local_path":     path,
+			"reused":         true,
+		})
+		return &pb.CommandResponse{CommandId: cmd.CommandId, Status: pb.CommandStatus_SUCCESS, Progress: 100, Output: string(out)}, nil
+	}
+
+	path, err := mgr.Pull(ctx, getPackageStreamOpener(), req, defaultPullOptions, progress)
 	if err != nil {
 		return &pb.CommandResponse{
 			CommandId: cmd.CommandId,
@@ -316,4 +329,70 @@ func handlePullTransfer(ctx context.Context, cmd *pb.CommandRequest, reporter Pr
 		Progress:  100,
 		Output:    string(out),
 	}, nil
+}
+
+// checksumCacheEntry caches a file SHA256 keyed by size+mtime.
+// checksumCacheEntry 以大小+修改时间为键缓存文件 SHA256。
+type checksumCacheEntry struct {
+	size    int64
+	modTime time.Time
+	sum     string
+}
+
+var (
+	fileSumMu    sync.Mutex
+	fileSumCache = map[string]checksumCacheEntry{}
+)
+
+// cachedFileChecksum returns the SHA256 of path, rehashing only when size or mtime changed.
+// cachedFileChecksum 返回文件 SHA256，仅在大小或修改时间变化时重新计算。
+func cachedFileChecksum(path string, info os.FileInfo) (string, error) {
+	fileSumMu.Lock()
+	e, ok := fileSumCache[path]
+	fileSumMu.Unlock()
+	if ok && e.size == info.Size() && e.modTime.Equal(info.ModTime()) {
+		return e.sum, nil
+	}
+	sum, err := calculateFileChecksum(path)
+	if err != nil {
+		return "", err
+	}
+	fileSumMu.Lock()
+	fileSumCache[path] = checksumCacheEntry{size: info.Size(), modTime: info.ModTime(), sum: sum}
+	fileSumMu.Unlock()
+	return sum, nil
+}
+
+// FindMatchingPackage returns an existing local file (cachedPath first, then packageDir/FileName)
+// whose size and SHA256 match req. Without an expected checksum nothing is reused.
+// A mismatching file is left in place; Pull later overwrites packageDir/FileName atomically.
+// FindMatchingPackage 返回大小与 SHA256 都与 req 一致的本地文件（先 cachedPath，再 packageDir/FileName）；
+// 未提供期望校验和时不复用。不一致的文件保留原样，随后由 Pull 原子覆盖 packageDir/FileName。
+func (m *PackageTransferManager) FindMatchingPackage(req PullRequest, cachedPath string) (string, bool) {
+	if req.Checksum == "" || req.FileName == "" || filepath.Base(req.FileName) != req.FileName {
+		return "", false
+	}
+	m.mu.RLock()
+	packageDir := m.packageDir
+	m.mu.RUnlock()
+
+	candidates := []string{}
+	if cachedPath != "" && filepath.Base(cachedPath) == req.FileName {
+		candidates = append(candidates, filepath.Clean(cachedPath))
+	}
+	candidates = append(candidates, filepath.Join(packageDir, req.FileName))
+	for _, c := range candidates {
+		info, err := os.Stat(c)
+		if err != nil || !info.Mode().IsRegular() {
+			continue
+		}
+		if req.TotalSize > 0 && info.Size() != req.TotalSize {
+			continue
+		}
+		sum, err := cachedFileChecksum(c, info)
+		if err == nil && strings.EqualFold(sum, req.Checksum) {
+			return c, true
+		}
+	}
+	return "", false
 }

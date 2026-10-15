@@ -92,7 +92,9 @@ type AgentManager interface {
 	// and returns the package path on the Agent. onProgress reports bytes streamed so far.
 	// TransferPackageFile 让 Agent 通过专用 DownloadPackage gRPC 流拉取 localPath，
 	// 返回安装包在 Agent 上的路径；onProgress 上报已传输字节数。
-	TransferPackageFile(ctx context.Context, agentID string, version string, localPath string, checksum string, onProgress func(sent, total int64)) (remotePath string, err error)
+	// cachedRemotePath is a reuse hint; the Agent reuses it (or its package_dir copy) only when size+SHA256 match.
+	// cachedRemotePath 为复用提示；仅当大小与 SHA256 一致时 Agent 才复用该文件（或其 package_dir 中的副本）。
+	TransferPackageFile(ctx context.Context, agentID string, version string, localPath string, checksum string, cachedRemotePath string, onProgress func(sent, total int64)) (remotePath string, reused bool, err error)
 }
 
 // PluginTransferer is the interface for transferring plugins to agents
@@ -277,6 +279,10 @@ type Service struct {
 	// preparedPackages stores remote package paths already transferred to an Agent.
 	// preparedPackages 保存已传输到 Agent 的安装包远程路径。
 	preparedPackages map[string]preparedPackageCacheEntry
+
+	// packageChecksums caches CP package SHA256 by path (validated by size+mtime).
+	// packageChecksums 按路径缓存 CP 安装包 SHA256（以大小+修改时间校验）。
+	packageChecksums map[string]fileChecksumEntry
 	// preparedPlugins stores plugin bundles already transferred and installed on an Agent.
 	// preparedPlugins 保存已传输并安装到 Agent 的插件包标记。
 	preparedPlugins map[string]time.Time
@@ -288,7 +294,17 @@ type Service struct {
 
 type preparedPackageCacheEntry struct {
 	RemotePath string
+	Checksum   string // SHA256 of the CP package that was transferred / 传输时 CP 安装包的 SHA256
+	Size       int64
 	UpdatedAt  time.Time
+}
+
+// fileChecksumEntry caches a file SHA256 keyed by size+mtime to avoid rehashing.
+// fileChecksumEntry 以大小+修改时间为键缓存文件 SHA256，避免重复计算。
+type fileChecksumEntry struct {
+	Size    int64
+	ModTime time.Time
+	Sum     string
 }
 
 const preparedAssetCacheTTL = 30 * time.Minute
@@ -352,6 +368,7 @@ func NewService(packageDir string, agentManager AgentManager) *Service {
 		agentManager:     agentManager,
 		heartbeatTimeout: 2 * time.Minute, // Default 2 minutes / 默认 2 分钟
 		preparedPackages: make(map[string]preparedPackageCacheEntry),
+		packageChecksums: make(map[string]fileChecksumEntry),
 		preparedPlugins:  make(map[string]time.Time),
 	}
 }
@@ -2558,27 +2575,17 @@ func (s *Service) runInstallation(ctx context.Context, req *InstallationRequest,
 	}
 
 	if localPackagePath != "" {
-		if cachedRemotePath, ok := s.getPreparedPackageRemotePath(agentID, req.Version, localPackagePath); ok {
-			logger.InfoF(
-				ctx,
-				"[Installer] 复用已传输安装包 / Reusing previously transferred package: agent=%s, version=%s, remote_path=%s",
-				agentID,
-				req.Version,
-				cachedRemotePath,
-			)
-			s.installMu.Lock()
-			status.Message = "Reusing package already transferred to Agent... / 复用已传输到 Agent 的安装包..."
-			s.installMu.Unlock()
-			req.PackagePath = cachedRemotePath
-		} else {
-			// Transfer package to Agent via gRPC
-			// 通过 gRPC 传输安装包到 Agent
+		{
+			// Always go through the pull handshake: the Agent reuses its copy only when size+SHA256
+			// match the current CP package, otherwise it (re)downloads and overwrites.
+			// 始终走拉取握手：仅当 Agent 上文件的大小+SHA256 与当前 CP 安装包一致时才复用，否则重新下载并覆盖。
 			s.installMu.Lock()
 			status.Message = "Transferring package to Agent... / 正在传输安装包到 Agent..."
 			s.installMu.Unlock()
 
-			remotePath, err := s.transferPackageFileToAgent(ctx, agentID, req.Version, localPackagePath, status)
+			remotePath, checksum, err := s.transferPackageFileToAgent(ctx, agentID, req.Version, localPackagePath, status)
 			if err != nil {
+				s.forgetPreparedPackage(agentID, req.Version, localPackagePath)
 				if req.InstallMode == InstallModeOnline {
 					// Transfer failed: fall back to a package already on the Agent host (agent_package_path
 					// or the Agent's seatunnel.package_dir). Never download from the internet here;
@@ -2604,7 +2611,7 @@ func (s *Service) runInstallation(ctx context.Context, req *InstallationRequest,
 				// 传输成功，更新参数使用 Agent 本地安装包
 				logger.InfoF(ctx, "[Installer] 安装包传输成功 / Package transfer succeeded: remote_path=%s", remotePath)
 				req.PackagePath = remotePath
-				s.rememberPreparedPackage(agentID, req.Version, localPackagePath, remotePath)
+				req.PackageChecksum = checksum
 			}
 		}
 	}
@@ -3096,6 +3103,9 @@ func buildInstallParams(req *InstallationRequest) map[string]string {
 
 	if req.PackagePath != "" {
 		params["package_path"] = req.PackagePath
+		if req.PackageChecksum != "" {
+			params["package_checksum"] = req.PackageChecksum
+		}
 	}
 	if req.Version != "" {
 		params["package_file_name"] = packageFileName(req.Version)
@@ -3368,21 +3378,29 @@ func (s *Service) prunePreparedAssetCacheLocked(now time.Time) {
 	}
 }
 
-func (s *Service) getPreparedPackageRemotePath(agentID, version, localPath string) (string, bool) {
+// getPreparedPackageRemotePath returns the cached Agent path only if it was recorded for the same
+// CP package content (checksum+size). A stale entry is dropped.
+// getPreparedPackageRemotePath 仅当缓存记录对应相同的 CP 安装包内容（校验和+大小）时返回 Agent 路径，过期条目会被删除。
+func (s *Service) getPreparedPackageRemotePath(agentID, version, localPath, checksum string, size int64) (string, bool) {
 	s.preparedAssetMu.Lock()
 	defer s.preparedAssetMu.Unlock()
 
 	now := time.Now()
 	s.prunePreparedAssetCacheLocked(now)
 
-	entry, ok := s.preparedPackages[preparedPackageCacheKey(agentID, version, localPath)]
+	key := preparedPackageCacheKey(agentID, version, localPath)
+	entry, ok := s.preparedPackages[key]
 	if !ok {
+		return "", false
+	}
+	if entry.Checksum == "" || entry.Checksum != checksum || entry.Size != size {
+		delete(s.preparedPackages, key)
 		return "", false
 	}
 	return entry.RemotePath, true
 }
 
-func (s *Service) rememberPreparedPackage(agentID, version, localPath, remotePath string) {
+func (s *Service) rememberPreparedPackage(agentID, version, localPath, remotePath, checksum string, size int64) {
 	s.preparedAssetMu.Lock()
 	defer s.preparedAssetMu.Unlock()
 
@@ -3390,8 +3408,43 @@ func (s *Service) rememberPreparedPackage(agentID, version, localPath, remotePat
 	s.prunePreparedAssetCacheLocked(now)
 	s.preparedPackages[preparedPackageCacheKey(agentID, version, localPath)] = preparedPackageCacheEntry{
 		RemotePath: remotePath,
+		Checksum:   checksum,
+		Size:       size,
 		UpdatedAt:  now,
 	}
+}
+
+func (s *Service) forgetPreparedPackage(agentID, version, localPath string) {
+	s.preparedAssetMu.Lock()
+	defer s.preparedAssetMu.Unlock()
+	delete(s.preparedPackages, preparedPackageCacheKey(agentID, version, localPath))
+}
+
+// cachedPackageChecksum returns the SHA256 and size of path, rehashing only when size or mtime changed.
+// cachedPackageChecksum 返回文件的 SHA256 与大小，仅在大小或修改时间变化时重新计算。
+func (s *Service) cachedPackageChecksum(path string) (string, int64, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", 0, err
+	}
+	s.preparedAssetMu.Lock()
+	if s.packageChecksums == nil {
+		s.packageChecksums = make(map[string]fileChecksumEntry)
+	}
+	if e, ok := s.packageChecksums[path]; ok && e.Size == info.Size() && e.ModTime.Equal(info.ModTime()) {
+		s.preparedAssetMu.Unlock()
+		return e.Sum, e.Size, nil
+	}
+	s.preparedAssetMu.Unlock()
+
+	sum, err := calculateChecksum(path)
+	if err != nil {
+		return "", 0, err
+	}
+	s.preparedAssetMu.Lock()
+	s.packageChecksums[path] = fileChecksumEntry{Size: info.Size(), ModTime: info.ModTime(), Sum: sum}
+	s.preparedAssetMu.Unlock()
+	return sum, info.Size(), nil
 }
 
 func (s *Service) hasPreparedPlugin(agentID, pluginName, version, installDir string, profileKeys []string, dependencyFingerprint string) bool {
@@ -3527,24 +3580,28 @@ func calculateChecksum(filePath string) (string, error) {
 // TransferPackageToAgent 通过 gRPC 将安装包传输到 Agent
 func (s *Service) TransferPackageToAgent(ctx context.Context, agentID string, version string, status *InstallationStatus) (remotePath string, err error) {
 	localPath := filepath.Join(s.packageDir, packageFileName(version))
-	return s.transferPackageFileToAgent(ctx, agentID, version, localPath, status)
+	remotePath, _, err = s.transferPackageFileToAgent(ctx, agentID, version, localPath, status)
+	return remotePath, err
 }
 
 // transferPackageFileToAgent streams localPath to the Agent over the dedicated DownloadPackage RPC
 // (raw bytes, gRPC flow control, Agent-side resume/retry and streaming SHA256 verification).
-// transferPackageFileToAgent 通过专用 DownloadPackage RPC 将 localPath 传给 Agent
-// （原始字节、gRPC 流控、Agent 侧断点续传/重试与流式 SHA256 校验）。
-func (s *Service) transferPackageFileToAgent(ctx context.Context, agentID string, version string, localPath string, status *InstallationStatus) (remotePath string, err error) {
+// Reuse is checksum-based: a cached Agent path is offered as a hint only when it was recorded for
+// the same CP content, and the Agent skips the download only if its file matches size+SHA256.
+// transferPackageFileToAgent 通过专用 DownloadPackage RPC 将 localPath 传给 Agent。
+// 复用基于校验和：仅当缓存记录对应相同 CP 内容时才提供 Agent 路径提示，且仅当 Agent 文件大小+SHA256 一致时才跳过下载。
+func (s *Service) transferPackageFileToAgent(ctx context.Context, agentID string, version string, localPath string, status *InstallationStatus) (remotePath string, checksum string, err error) {
 	logger.InfoF(ctx, "[Installer] 开始传输安装包到 Agent / Start transferring package to Agent: agent=%s, version=%s", agentID, version)
 
 	if _, err := os.Stat(localPath); err != nil {
-		return "", fmt.Errorf("package not found: %s / 安装包未找到: %s", localPath, localPath)
+		return "", "", fmt.Errorf("package not found: %s / 安装包未找到: %s", localPath, localPath)
 	}
 
-	checksum, err := calculateChecksum(localPath)
+	checksum, size, err := s.cachedPackageChecksum(localPath)
 	if err != nil {
-		return "", fmt.Errorf("failed to calculate checksum: %w / 计算校验和失败: %w", err, err)
+		return "", "", fmt.Errorf("failed to calculate checksum: %w / 计算校验和失败: %w", err, err)
 	}
+	hint, _ := s.getPreparedPackageRemotePath(agentID, version, localPath, checksum, size)
 
 	lastProgress := -1
 	onProgress := func(sent, total int64) {
@@ -3561,13 +3618,25 @@ func (s *Service) transferPackageFileToAgent(ctx context.Context, agentID string
 		s.installMu.Unlock()
 	}
 
-	remotePath, err = s.agentManager.TransferPackageFile(ctx, agentID, version, localPath, checksum, onProgress)
+	remotePath, reused, err := s.agentManager.TransferPackageFile(ctx, agentID, version, localPath, checksum, hint, onProgress)
 	if err != nil {
-		return "", err
+		s.forgetPreparedPackage(agentID, version, localPath)
+		return "", "", err
+	}
+	s.rememberPreparedPackage(agentID, version, localPath, remotePath, checksum, size)
+
+	if reused {
+		logger.InfoF(ctx, "[Installer] Agent 已有校验一致的安装包，跳过传输 / Agent already has a matching package, transfer skipped: agent=%s, version=%s, remote_path=%s",
+			agentID, version, remotePath)
+		if status != nil {
+			s.installMu.Lock()
+			status.Message = "Reusing package already on Agent (checksum verified)... / 复用 Agent 上已有安装包（校验和已验证）..."
+			s.installMu.Unlock()
+		}
+	} else {
+		logger.InfoF(ctx, "[Installer] 安装包传输完成 / Package transfer completed: agent=%s, version=%s, remote_path=%s",
+			agentID, version, remotePath)
 	}
 
-	logger.InfoF(ctx, "[Installer] 安装包传输完成 / Package transfer completed: agent=%s, version=%s, remote_path=%s",
-		agentID, version, remotePath)
-
-	return remotePath, nil
+	return remotePath, checksum, nil
 }

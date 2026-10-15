@@ -178,13 +178,24 @@ type PackagePullOptions struct {
 	MaxDuration  time.Duration
 	PollInterval time.Duration
 	OnProgress   func(sent, total int64)
+	// CachedRemotePath is where the Control Plane believes the Agent already holds this package;
+	// the Agent reuses it only if size and SHA256 match.
+	// CachedRemotePath 是 CP 认为 Agent 已持有该安装包的路径；仅当大小与 SHA256 一致时 Agent 才复用。
+	CachedRemotePath string
+}
+
+// PackagePullResult is the outcome of TransferPackage.
+// PackagePullResult 是 TransferPackage 的结果。
+type PackagePullResult struct {
+	LocalPath string // path on the Agent / Agent 上的路径
+	Reused    bool   // Agent already had an identical file / Agent 已有相同文件，未重新下载
 }
 
 // TransferPackage asks the Agent to pull localPath over the dedicated DownloadPackage stream
 // and waits until the Agent reports completion. Returns the package path on the Agent.
 // TransferPackage 让 Agent 通过专用 DownloadPackage 流拉取 localPath，并等待 Agent 报告完成，
 // 返回安装包在 Agent 上的路径。
-func (m *Manager) TransferPackage(ctx context.Context, agentID, version, localPath, checksum string, opts PackagePullOptions) (string, error) {
+func (m *Manager) TransferPackage(ctx context.Context, agentID, version, localPath, checksum string, opts PackagePullOptions) (PackagePullResult, error) {
 	if opts.StallTimeout <= 0 {
 		opts.StallTimeout = DefaultPackageStallTimeout
 	}
@@ -197,7 +208,7 @@ func (m *Manager) TransferPackage(ctx context.Context, agentID, version, localPa
 
 	ps, err := m.RegisterPackageServe(agentID, localPath, checksum)
 	if err != nil {
-		return "", err
+		return PackagePullResult{}, err
 	}
 	defer m.ReleasePackageServe(ps.ID)
 
@@ -209,9 +220,12 @@ func (m *Manager) TransferPackage(ctx context.Context, agentID, version, localPa
 		"total_size":  strconv.FormatInt(ps.Size, 10),
 		"checksum":    checksum,
 	}
+	if opts.CachedRemotePath != "" {
+		params["cached_path"] = opts.CachedRemotePath
+	}
 	commandID, err := m.SendCommandAsync(agentID, pb.CommandType_TRANSFER_PACKAGE, params, opts.MaxDuration)
 	if err != nil {
-		return "", err
+		return PackagePullResult{}, err
 	}
 	defer m.commands.Delete(commandID)
 
@@ -221,7 +235,7 @@ func (m *Manager) TransferPackage(ctx context.Context, agentID, version, localPa
 	for {
 		select {
 		case <-ctx.Done():
-			return "", ctx.Err()
+			return PackagePullResult{}, ctx.Err()
 		case <-ticker.C:
 		}
 
@@ -231,7 +245,7 @@ func (m *Manager) TransferPackage(ctx context.Context, agentID, version, localPa
 
 		cmdCtx, ok := m.GetCommand(commandID)
 		if !ok {
-			return "", fmt.Errorf("transfer command lost / 传输命令丢失")
+			return PackagePullResult{}, fmt.Errorf("transfer command lost / 传输命令丢失")
 		}
 		cmdCtx.mu.RLock()
 		status, output, cmdErr := cmdCtx.LastStatus, cmdCtx.LastOutput, cmdCtx.LastError
@@ -243,24 +257,25 @@ func (m *Manager) TransferPackage(ctx context.Context, agentID, version, localPa
 				Success   bool   `json:"success"`
 				Message   string `json:"message"`
 				LocalPath string `json:"local_path"`
+				Reused    bool   `json:"reused"`
 			}
 			if err := json.Unmarshal([]byte(output), &out); err != nil || !out.Success || out.LocalPath == "" {
-				return "", fmt.Errorf("invalid transfer result: %s / 传输结果无效: %s", output, output)
+				return PackagePullResult{}, fmt.Errorf("invalid transfer result: %s / 传输结果无效: %s", output, output)
 			}
-			return out.LocalPath, nil
+			return PackagePullResult{LocalPath: out.LocalPath, Reused: out.Reused}, nil
 		case pb.CommandStatus_FAILED, pb.CommandStatus_CANCELLED:
 			if cmdErr == "" {
 				cmdErr = output
 			}
-			return "", fmt.Errorf("agent failed to pull package: %s / Agent 拉取安装包失败: %s", cmdErr, cmdErr)
+			return PackagePullResult{}, fmt.Errorf("agent failed to pull package: %s / Agent 拉取安装包失败: %s", cmdErr, cmdErr)
 		}
 
 		if ps.IdleFor() > opts.StallTimeout {
-			return "", fmt.Errorf("%w: no data pulled for %s (served %d/%d bytes) / %s 内无数据拉取（已发送 %d/%d 字节）",
+			return PackagePullResult{}, fmt.Errorf("%w: no data pulled for %s (served %d/%d bytes) / %s 内无数据拉取（已发送 %d/%d 字节）",
 				ErrPackageTransferStalled, opts.StallTimeout, ps.Served(), ps.Size, opts.StallTimeout, ps.Served(), ps.Size)
 		}
 		if time.Now().After(deadline) {
-			return "", ErrCommandTimeout
+			return PackagePullResult{}, ErrCommandTimeout
 		}
 	}
 }

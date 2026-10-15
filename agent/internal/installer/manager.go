@@ -1603,6 +1603,11 @@ func (m *InstallerManager) executeStepDownload(ctx context.Context, params *Inst
 		if err != nil {
 			return err
 		}
+		if localPath != params.PackagePath {
+			// A different Agent-local file is not the CP-transferred one; skip its CP checksum.
+			// 改用的 Agent 本地文件并非 CP 传输的文件，不再套用 CP 校验和。
+			params.ExpectedChecksum = ""
+		}
 		params.PackagePath = localPath
 		reporter.Report(InstallStepDownload, 100, fmt.Sprintf("Using Agent-local package: %s / 使用 Agent 本地安装包: %s", localPath, localPath))
 		return nil

@@ -1681,8 +1681,9 @@ func (a *installerAgentManagerAdapter) stringToCommandType(cmdType string) pb.Co
 
 // TransferPackageFile lets the Agent pull a package over the dedicated DownloadPackage stream.
 // TransferPackageFile 让 Agent 通过专用 DownloadPackage 流拉取安装包。
-func (a *installerAgentManagerAdapter) TransferPackageFile(ctx context.Context, agentID string, version string, localPath string, checksum string, onProgress func(sent, total int64)) (string, error) {
-	return a.manager.TransferPackage(ctx, agentID, version, localPath, checksum, agent.PackagePullOptions{OnProgress: onProgress})
+func (a *installerAgentManagerAdapter) TransferPackageFile(ctx context.Context, agentID string, version string, localPath string, checksum string, cachedRemotePath string, onProgress func(sent, total int64)) (string, bool, error) {
+	res, err := a.manager.TransferPackage(ctx, agentID, version, localPath, checksum, agent.PackagePullOptions{OnProgress: onProgress, CachedRemotePath: cachedRemotePath})
+	return res.LocalPath, res.Reused, err
 }
 
 // ==================== Config Service Adapters 配置服务适配器 ====================

@@ -59,3 +59,21 @@ func TestLoadConfigPreservesExplicitObservabilityDisabled(t *testing.T) {
 		t.Fatalf("显式关闭可观测性时不应被默认值覆盖 / explicit observability disablement must be preserved")
 	}
 }
+
+func TestSetDefaultsScheduleMisfireCatchup(t *testing.T) {
+	c := &configModel{}
+	setDefaults(c, false)
+	if c.Sync.ScheduleMisfireCatchupEnabled == nil || !*c.Sync.ScheduleMisfireCatchupEnabled {
+		t.Fatalf("expected misfire catch-up enabled by default, got %v", c.Sync.ScheduleMisfireCatchupEnabled)
+	}
+	if c.Sync.ScheduleMisfireGraceMinutes != 10 {
+		t.Fatalf("expected default grace 10, got %d", c.Sync.ScheduleMisfireGraceMinutes)
+	}
+
+	disabled := false
+	c = &configModel{Sync: SyncConfig{ScheduleMisfireCatchupEnabled: &disabled, ScheduleMisfireGraceMinutes: 3}}
+	setDefaults(c, false)
+	if *c.Sync.ScheduleMisfireCatchupEnabled || c.Sync.ScheduleMisfireGraceMinutes != 3 {
+		t.Fatalf("explicit values must be preserved, got %v/%d", *c.Sync.ScheduleMisfireCatchupEnabled, c.Sync.ScheduleMisfireGraceMinutes)
+	}
+}

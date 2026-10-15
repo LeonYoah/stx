@@ -131,6 +131,7 @@ jobs:
               - 'internal/apps/config/**'
               - 'internal/apps/diagnostics/**'
               - 'internal/pkg/schedulex/**'
+              - 'agent/internal/installer/**'
               - 'tools/stx-java-proxy/**'
               - 'scripts/stx-java-proxy.sh'
               - 'scripts/restart.sh'
@@ -316,7 +317,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.E2E_INSTALLER_REAL_PACKAGE_CACHE_DIR }}
-          key: e2e-seatunnel-bin-${{ runner.os }}-2.3.12-2.3.13
+          key: e2e-seatunnel-bin-${{ runner.os }}-2.3.12-2.3.13-3.0.0
           restore-keys: |
             e2e-seatunnel-bin-${{ runner.os }}-
 
@@ -325,6 +326,7 @@ jobs:
           E2E_INSTALLER_REAL_PRELOAD_MIRROR: apache
           E2E_UPGRADE_REAL_SOURCE_VERSION: 2.3.12
           E2E_UPGRADE_REAL_TARGET_VERSION: 2.3.13
+          E2E_INSTALLER_REAL_EXTRA_VERSIONS: 3.0.0
         run: |
           bash frontend/scripts/e2e/run-real-installer.sh --prepare-package-only
 
@@ -332,6 +334,7 @@ jobs:
         run: |
           test -f "${E2E_INSTALLER_REAL_PACKAGE_CACHE_DIR}/apache-seatunnel-2.3.13-bin.tar.gz"
           test -f "${E2E_INSTALLER_REAL_PACKAGE_CACHE_DIR}/apache-seatunnel-2.3.12-bin.tar.gz"
+          test -f "${E2E_INSTALLER_REAL_PACKAGE_CACHE_DIR}/apache-seatunnel-3.0.0-bin.tar.gz"
 
       - name: Upload SeaTunnel package artifact
         uses: actions/upload-artifact@v4
@@ -571,11 +574,19 @@ jobs:
 
 
   workbench-real:
-    name: E2E Real Workbench
+    name: E2E Real Workbench (${{ matrix.seatunnel_version }})
     runs-on: ubuntu-24.04
     needs: [changes, prepare-package]
     if: needs.changes.outputs.run_workbench_real == 'true'
     timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - seatunnel_version: '2.3.13'
+            java_version: '8'
+          - seatunnel_version: '3.0.0'
+            java_version: '21'
 
     steps:
       - name: Checkout
@@ -591,7 +602,11 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '8'
+          java-version: ${{ matrix.java_version }}
+          # 3.x 套件要现场编译 v3 proxy jar，setup-java 的 maven 缓存会把 mvn 装上。
+          # The 3.x suite builds the v3 proxy jar in place; the maven cache option installs mvn.
+          cache: maven
+          cache-dependency-path: tools/stx-java-proxy/pom.xml
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -619,7 +634,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.E2E_INSTALLER_REAL_PACKAGE_CACHE_DIR }}
-          key: e2e-seatunnel-bin-${{ runner.os }}-${{ hashFiles('frontend/scripts/e2e/run-real-installer.sh') }}-2.3.13
+          key: e2e-seatunnel-bin-${{ runner.os }}-${{ hashFiles('frontend/scripts/e2e/run-real-installer.sh') }}-${{ matrix.seatunnel_version }}
 
       - name: Download SeaTunnel package artifact
         uses: actions/download-artifact@v4
@@ -628,6 +643,8 @@ jobs:
           path: ${{ env.E2E_INSTALLER_REAL_PACKAGE_CACHE_DIR }}
 
       - name: Run real workbench E2E
+        env:
+          E2E_INSTALLER_REAL_VERSION: ${{ matrix.seatunnel_version }}
         run: |
           cd frontend
           pnpm run test:e2e:workbench-real
@@ -636,7 +653,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report-workbench-real
+          name: playwright-report-workbench-real-${{ matrix.seatunnel_version }}
           path: |
             frontend/playwright-report
             frontend/test-results

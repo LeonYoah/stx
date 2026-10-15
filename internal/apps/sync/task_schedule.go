@@ -22,8 +22,10 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	stdsync "sync"
 	"time"
 
+	"github.com/LeonYoah/stx/internal/config"
 	"github.com/LeonYoah/stx/internal/pkg/schedulex"
 )
 
@@ -144,11 +146,59 @@ func taskFromVersionSnapshot(task *Task, version *TaskVersion) *Task {
 	}
 }
 
+const defaultScheduleMisfireGrace = 10 * time.Minute
+
+// scheduleRuntimeState 记录调度器上次检查到的分钟，用于补跑错过的触发。
+// scheduleRuntimeState tracks the last evaluated minute so missed fires can be caught up.
+type scheduleRuntimeState struct {
+	mu        stdsync.Mutex
+	lastCheck time.Time
+	// 测试覆盖项；nil/0 时读取全局配置。/ Test overrides; nil/0 falls back to global config.
+	catchupOverride *bool
+	graceOverride   time.Duration
+}
+
+func (s *Service) scheduleMisfireCatchupEnabled() bool {
+	if s.schedule.catchupOverride != nil {
+		return *s.schedule.catchupOverride
+	}
+	if config.Config != nil && config.Config.Sync.ScheduleMisfireCatchupEnabled != nil {
+		return *config.Config.Sync.ScheduleMisfireCatchupEnabled
+	}
+	return true
+}
+
+func (s *Service) scheduleMisfireGrace() time.Duration {
+	if s.schedule.graceOverride > 0 {
+		return s.schedule.graceOverride
+	}
+	if config.Config != nil && config.Config.Sync.ScheduleMisfireGraceMinutes > 0 {
+		return time.Duration(config.Config.Sync.ScheduleMisfireGraceMinutes) * time.Minute
+	}
+	return defaultScheduleMisfireGrace
+}
+
 func (s *Service) StartTaskScheduleRuntime(ctx context.Context) {
 	if s == nil || s.repo == nil {
 		return
 	}
+	s.schedule.mu.Lock()
+	s.schedule.lastCheck = time.Now().Truncate(time.Minute)
+	s.schedule.mu.Unlock()
 	go func() {
+		// 对齐到整分钟 +1s，让 tick 落在 cron 分钟内的固定位置。
+		// Align to minute boundary + 1s so ticks land at a stable spot inside each cron minute.
+		now := time.Now()
+		align := time.NewTimer(now.Truncate(time.Minute).Add(time.Minute + time.Second).Sub(now))
+		select {
+		case <-ctx.Done():
+			align.Stop()
+			return
+		case first := <-align.C:
+			if err := s.triggerScheduledTasks(ctx, first); err != nil {
+				log.Printf("[SyncSchedule] tick failed: %v", err)
+			}
+		}
 		ticker := time.NewTicker(time.Minute)
 		defer ticker.Stop()
 		for {
@@ -164,7 +214,39 @@ func (s *Service) StartTaskScheduleRuntime(ctx context.Context) {
 	}()
 }
 
+// scheduleMinutesToEvaluate 返回本次 tick 需要检查的分钟（升序）。开启补跑时覆盖 (last, now]，
+// 并截断到宽限期内；关闭时只检查当前分钟（旧行为）。
+// scheduleMinutesToEvaluate returns minutes to evaluate (ascending). With catch-up it covers
+// (last, now] capped by the grace window; without it only the current minute (legacy behavior).
+func (s *Service) scheduleMinutesToEvaluate(now time.Time) []time.Time {
+	current := now.Truncate(time.Minute)
+	s.schedule.mu.Lock()
+	last := s.schedule.lastCheck
+	if current.After(last) {
+		s.schedule.lastCheck = current
+	}
+	s.schedule.mu.Unlock()
+
+	if !s.scheduleMisfireCatchupEnabled() || last.IsZero() || !current.After(last) {
+		return []time.Time{current}
+	}
+	from := last.Add(time.Minute)
+	if earliest := current.Add(-s.scheduleMisfireGrace()); from.Before(earliest) {
+		skipped := int(earliest.Sub(from) / time.Minute)
+		log.Printf("[SyncSchedule] scheduler stalled from %s to %s; %d missed minute(s) beyond grace %s are skipped",
+			last.Format(time.RFC3339), current.Format(time.RFC3339), skipped, s.scheduleMisfireGrace())
+		from = earliest
+	}
+	minutes := make([]time.Time, 0, int(current.Sub(from)/time.Minute)+1)
+	for m := from; !m.After(current); m = m.Add(time.Minute) {
+		minutes = append(minutes, m)
+	}
+	return minutes
+}
+
 func (s *Service) triggerScheduledTasks(ctx context.Context, now time.Time) error {
+	minutes := s.scheduleMinutesToEvaluate(now)
+	current := minutes[len(minutes)-1]
 	tasks, err := s.repo.ListAllTasks(ctx)
 	if err != nil {
 		return err
@@ -182,20 +264,35 @@ func (s *Service) triggerScheduledTasks(ctx context.Context, now time.Time) erro
 			log.Printf("[SyncSchedule] task %d schedule ignored: %v", item.ID, err)
 			continue
 		}
-		matched, windowStart, windowEnd, err := cfg.matches(now)
-		if err != nil {
-			log.Printf("[SyncSchedule] task %d schedule invalid: %v", item.ID, err)
+		// 多个错过分钟都命中时只补跑最近的一次，避免停顿恢复后集中触发。
+		// When several missed minutes match, fire only the latest to avoid a burst after a stall.
+		var fireAt time.Time
+		for i := len(minutes) - 1; i >= 0; i-- {
+			matched, windowStart, _, matchErr := cfg.matches(minutes[i])
+			if matchErr != nil {
+				log.Printf("[SyncSchedule] task %d schedule invalid: %v", item.ID, matchErr)
+				break
+			}
+			if matched {
+				fireAt = windowStart
+				break
+			}
+		}
+		if fireAt.IsZero() {
 			continue
 		}
-		if !matched {
-			continue
-		}
-		exists, err := s.repo.HasScheduledJobInstanceInWindow(ctx, item.ID, windowStart.UTC(), windowEnd.UTC())
+		// 去重窗口从命中分钟一直到当前分钟结束：迟到补跑的实例创建于当前分钟。
+		// Dedup window spans the matched minute through the end of the current minute,
+		// because a late catch-up instance is created in the current minute.
+		exists, err := s.repo.HasScheduledJobInstanceInWindow(ctx, item.ID, fireAt, current.Add(time.Minute))
 		if err != nil {
 			return err
 		}
 		if exists {
 			continue
+		}
+		if !fireAt.Equal(current) {
+			log.Printf("[SyncSchedule] task %d catching up missed fire at %s", item.ID, fireAt.Format(time.RFC3339))
 		}
 		if err := s.submitScheduledTask(ctx, item); err != nil {
 			log.Printf("[SyncSchedule] task %d submit failed: %v", item.ID, err)

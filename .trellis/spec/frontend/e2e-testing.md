@@ -171,6 +171,7 @@
     - 登录 / Dashboard
 - 真实环境 E2E（例如 installer-real / config-real / upgrade-real / plugin-real）不进入 smoke 选择器，改由统一 `E2E` workflow 的 suite 级 path filter 决定是否运行
 - 工作台真实套件使用 `frontend/e2e/workbench-real.spec.ts` 与 `frontend/e2e/helpers/workbench-real.ts`，通过 `pnpm run test:e2e:workbench-real` 启动。
+- 同一套工作台用例按 `E2E_INSTALLER_REAL_VERSION` 跑在 2.3.13 和 3.0.0 上。CI 的 `workbench-real` job 用矩阵区分版本：2.3.13 使用 Java 8，3.0.0 使用 Java 21。3.x 使用静态 slot。官方 3.0.0 单节点 Hybrid 默认 `backup-count: 1` 可以启动（无 HA），安装器不改这个值。恢复断言：3.x 失败后是 `restoreMode=CHECKPOINT` 和新 jobId；3.x Savepoint 停止后状态是 `savepoint_done`、`restoreMode=SAVEPOINT`、复用 jobId；2.x 只带 `isStartWithSavePoint`。3.0 的 `restore with SAVEPOINT/CHECKPOINT` 和 jobId 经常分属相邻两行，日志匹配按相邻行窗口判断。
 - 下列共享变更会退化为全量 E2E smoke：
     - `frontend/playwright.config.ts`
     - `frontend/package.json`

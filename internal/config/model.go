@@ -87,6 +87,12 @@ type SyncConfig struct {
 	// PreviewDataTTLHours is kept for backward compatibility and will be used when minute-level config is absent.
 	// PreviewDataTTLHours 仅用于兼容旧配置；未设置分钟级配置时才会使用。
 	PreviewDataTTLHours int `mapstructure:"preview_data_ttl_hours"`
+	// ScheduleMisfireCatchupEnabled 控制调度错过触发分钟（进程停顿、tick 丢失）后是否自动补跑；未设置时默认开启。
+	// ScheduleMisfireCatchupEnabled controls whether cron minutes missed by the scheduler are fired late; defaults to true when unset.
+	ScheduleMisfireCatchupEnabled *bool `mapstructure:"schedule_misfire_catchup_enabled"`
+	// ScheduleMisfireGraceMinutes 是补跑的最长回溯窗口（分钟），超过的错过触发只告警不补跑；<=0 时取默认 10。
+	// ScheduleMisfireGraceMinutes caps how far back missed minutes are caught up; older misfires are logged and skipped. Defaults to 10 when <= 0.
+	ScheduleMisfireGraceMinutes int `mapstructure:"schedule_misfire_grace_minutes"`
 }
 
 // authConfig 认证配置

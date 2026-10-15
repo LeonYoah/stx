@@ -15,17 +15,22 @@
  * limitations under the License.
  */
 
-import {expect, test, type Browser, type Page} from '@playwright/test';
+import {expect, test, type Page} from '@playwright/test';
 
 import {
+  buildCheckpointRestoreTaskContent,
+  checkpointRestoreRowNum,
   buildMysqlHundredTablesTaskContent,
   buildMysqlMultiSourceMultiSinkContent,
   buildMysqlMultiTransformContent,
   buildMysqlUsersTaskContent,
   buildScheduleDefinition,
   buildStreamingFakeTaskContent,
+  checkpointJobDirectory,
   cleanupWorkbenchRealMySQLFixture,
   createSyncTask,
+  engineSupportsRestoreMode,
+  findEngineLogLine,
   getJobCheckpointSnapshot,
   getSyncDAG,
   getSyncJob,
@@ -37,9 +42,11 @@ import {
   prepareWorkbenchRealCluster,
   previewSyncTask,
   publishSyncTask,
+  readEngineSourceReceivedCount,
   recoverSyncJob,
   runSyncTask,
   seedWorkbenchRealMySQLFixture,
+  setCheckpointDirectoryMode,
   ensureWorkbenchRealMySQLFixture,
   testSyncConnections,
   validateSyncTask,
@@ -52,26 +59,43 @@ import {
 } from './helpers/workbench-real';
 
 const seatunnelVersion = process.env.E2E_INSTALLER_REAL_VERSION ?? '2.3.13';
+const reuseCluster = process.env.E2E_WORKBENCH_REUSE_CLUSTER === '1';
+// 复用集群时 beforeAll 不会启动 MySQL fixture，因此依赖 MySQL 的用例也必须跳过。
+// When reusing a cluster, beforeAll never starts the MySQL fixture, so MySQL cases must be skipped too.
+const skipMysql = process.env.E2E_WORKBENCH_SKIP_MYSQL === '1' || reuseCluster;
+const restoreOnSeaTunnel3 = engineSupportsRestoreMode(seatunnelVersion);
 
 test.describe.serial('workbench real flows', () => {
   test.setTimeout(30 * 60 * 1000);
 
   let clusterId = 0;
   let clusterHttpPort = 0;
+  let installDir = process.env.E2E_WORKBENCH_INSTALL_DIR ?? '';
   let preparedPage: Page | null = null;
-  let usersTask: SyncTaskFixture;
-  let hundredTask: SyncTaskFixture;
-  let multiSourceTask: SyncTaskFixture;
-  let multiTransformTask: SyncTaskFixture;
-  let streamingTask: SyncTaskFixture;
-  let scheduledTask: SyncTaskFixture;
+  let usersTask: SyncTaskFixture | undefined;
+  let hundredTask: SyncTaskFixture | undefined;
+  let multiSourceTask: SyncTaskFixture | undefined;
+  let multiTransformTask: SyncTaskFixture | undefined;
+  let streamingTask: SyncTaskFixture | undefined;
+  let scheduledTask: SyncTaskFixture | undefined;
 
   test.beforeAll(async ({browser}) => {
     preparedPage = await browser.newPage();
     await preparedPage.goto('/dashboard');
+    if (reuseCluster) {
+      // 本机没有 Docker 时，复用已经注册好的集群，只跑不依赖 MySQL 的恢复用例。
+      // Without Docker, reuse a registered cluster and run only the restore cases that do not need MySQL.
+      clusterId = Number(process.env.E2E_WORKBENCH_CLUSTER_ID ?? '0');
+      clusterHttpPort = Number(process.env.E2E_WORKBENCH_HTTP_PORT ?? '0');
+      expect(clusterId).toBeGreaterThan(0);
+      expect(clusterHttpPort).toBeGreaterThan(0);
+      expect(installDir).toBeTruthy();
+      return;
+    }
     const cluster = await prepareWorkbenchRealCluster(preparedPage);
     clusterId = cluster.clusterId;
     clusterHttpPort = cluster.httpPort;
+    installDir = cluster.installDir;
     await ensureWorkbenchRealMySQLFixture();
     await seedWorkbenchRealMySQLFixture();
   });
@@ -80,10 +104,13 @@ test.describe.serial('workbench real flows', () => {
     if (preparedPage) {
       await preparedPage.close();
     }
-    await cleanupWorkbenchRealMySQLFixture();
+    if (!reuseCluster) {
+      await cleanupWorkbenchRealMySQLFixture();
+    }
   });
 
   test('covers workbench batch, preview, dag, metrics, heavy graph and preview ttl cleanup', async ({page}) => {
+    test.skip(skipMysql, 'MySQL fixture is skipped for this run');
     const request = page.context().request;
 
     await page.goto('/workbench');
@@ -193,7 +220,7 @@ test.describe.serial('workbench real flows', () => {
     streamingTask = await createSyncTask(request, {
       clusterId,
       engineVersion: seatunnelVersion,
-      parentId: usersTask.folderId,
+      parentId: usersTask?.folderId,
       name: `real-ci-stream-${Date.now()}`,
       content: buildStreamingFakeTaskContent(),
     });
@@ -251,32 +278,207 @@ test.describe.serial('workbench real flows', () => {
       240000,
     );
     expect((recoveredRunningJob.status ?? '').toLowerCase()).toBe('running');
+    const recoveredDetails = await getSyncJob(request, recoveredJob.id);
+    assertRecoverSubmit(
+      recoveredDetails,
+      restoreOnSeaTunnel3 ? 'savepoint' : 'legacy',
+      String(stoppedJob.platform_job_id),
+    );
+    await expect
+      .poll(async () => {
+        if (restoreOnSeaTunnel3) {
+          return findEngineLogLine(
+            installDir,
+            `restore with SAVEPOINT.*${stoppedJob.platform_job_id}|${stoppedJob.platform_job_id}.*restore with SAVEPOINT`,
+          );
+        }
+        return findEngineLogLine(
+          installDir,
+          `${stoppedJob.platform_job_id}.*SAVEPOINT_TYPE|SAVEPOINT_TYPE.*${stoppedJob.platform_job_id}`,
+        );
+      }, {timeout: 60000, intervals: [2000, 5000]})
+      .not.toBe('');
 
     await cancelSyncJob(request, recoveredJob.id, false);
     await waitForJobStatus(request, recoveredJob.id, (job) => Boolean(job.finished_at), 240000);
 
-    scheduledTask = await createSyncTask(request, {
-      clusterId,
-      engineVersion: seatunnelVersion,
-      parentId: usersTask.folderId,
-      name: `real-ci-schedule-${Date.now()}`,
-      content: buildMysqlUsersTaskContent(),
-      definition: buildScheduleDefinition(nextMinuteCronExpression()),
-    });
-    await publishSyncTask(request, scheduledTask.taskId);
+    if (!skipMysql) {
+      expect(usersTask?.folderId).toBeTruthy();
+      scheduledTask = await createSyncTask(request, {
+        clusterId,
+        engineVersion: seatunnelVersion,
+        parentId: usersTask?.folderId,
+        name: `real-ci-schedule-${Date.now()}`,
+        content: buildMysqlUsersTaskContent(),
+        definition: buildScheduleDefinition(nextMinuteCronExpression()),
+      });
+      await publishSyncTask(request, scheduledTask.taskId);
 
-    const scheduledJob = await waitForScheduledJob(request, scheduledTask.taskId, 240000);
-    expect(scheduledJob.run_type).toBe('schedule');
-    const finishedScheduledJob = await waitForJobStatus(
-      request,
-      scheduledJob.id,
-      (job) => ['success', 'failed', 'canceled'].includes((job.status ?? '').toLowerCase()),
-      240000,
-    );
-    expect((finishedScheduledJob.status ?? '').toLowerCase()).toBe('success');
+      const scheduledJob = await waitForScheduledJob(request, scheduledTask.taskId, 240000);
+      expect(scheduledJob.run_type).toBe('schedule');
+      const finishedScheduledJob = await waitForJobStatus(
+        request,
+        scheduledJob.id,
+        (job) => ['success', 'failed', 'canceled'].includes((job.status ?? '').toLowerCase()),
+        240000,
+      );
+      expect((finishedScheduledJob.status ?? '').toLowerCase()).toBe('success');
+    }
 
     await page.goto('/workbench');
     await expect(page.getByLabel(/任务|Jobs/i)).toBeVisible({timeout: 120000});
     expect(clusterHttpPort).toBeGreaterThan(0);
   });
+
+  test('recovers a failed SeaTunnel 3 job from checkpoint without replaying rows', async ({page}) => {
+    test.skip(!restoreOnSeaTunnel3, 'checkpoint restoreMode applies to SeaTunnel 3.x');
+    const request = page.context().request;
+    const folderId = streamingTask?.folderId;
+
+    const task = await createSyncTask(request, {
+      clusterId,
+      engineVersion: seatunnelVersion,
+      parentId: folderId,
+      name: `real-ci-ckpt-restore-${Date.now()}`,
+      content: buildCheckpointRestoreTaskContent(),
+    });
+    await publishSyncTask(request, task.taskId);
+
+    const failedSource = await runSyncTask(request, task.taskId);
+    await waitForJobStatus(
+      request,
+      failedSource.id,
+      (job) => (job.status ?? '').toLowerCase() === 'running',
+      240000,
+    );
+    let checkpointBefore = 0;
+    await expect
+      .poll(async () => {
+        const snapshot = await getJobCheckpointSnapshot(request, failedSource.id);
+        checkpointBefore = Number(
+          snapshot.overview?.pipelines?.[0]?.latestCompleted?.checkpointId ??
+            snapshot.history?.[0]?.checkpoint?.checkpointId ??
+            0,
+        );
+        return checkpointBefore > 0;
+      }, {timeout: 240000, intervals: [2000, 5000, 10000]})
+      .toBeTruthy();
+
+    const sourceDetails = await getSyncJob(request, failedSource.id);
+    const checkpointDir = await checkpointJobDirectory(
+      request,
+      clusterId,
+      String(sourceDetails.platform_job_id),
+    );
+    const sourceReceivedBefore = await readEngineSourceReceivedCount(
+      request,
+      clusterHttpPort,
+      String(sourceDetails.platform_job_id),
+    );
+    expect(sourceReceivedBefore).toBeGreaterThan(0);
+    await setCheckpointDirectoryMode(checkpointDir, 0o555);
+    try {
+      const failedJob = await waitForJobStatus(
+        request,
+        failedSource.id,
+        (job) => (job.status ?? '').toLowerCase() === 'failed',
+        240000,
+      );
+      expect((failedJob.status ?? '').toLowerCase()).toBe('failed');
+    } finally {
+      await setCheckpointDirectoryMode(checkpointDir, 0o755);
+    }
+
+    const recoveredJob = await recoverSyncJob(request, failedSource.id);
+    const recoveredDetails = await getSyncJob(request, recoveredJob.id);
+    assertRecoverSubmit(
+      recoveredDetails,
+      'checkpoint',
+      String(sourceDetails.platform_job_id),
+    );
+    await waitForJobStatus(
+      request,
+      recoveredJob.id,
+      (job) => (job.status ?? '').toLowerCase() === 'running',
+      240000,
+    );
+    await expect
+      .poll(async () => {
+        const snapshot = await getJobCheckpointSnapshot(request, recoveredJob.id);
+        const checkpointId = Number(
+          snapshot.overview?.pipelines?.[0]?.latestCompleted?.checkpointId ?? 0,
+        );
+        return checkpointId > checkpointBefore;
+      }, {timeout: 180000, intervals: [2000, 5000, 10000]})
+      .toBeTruthy();
+    // FakeSource 的 split 状态记录剩余行数：从 checkpoint 恢复只会补发剩余行，
+    // 从零重启则会把 checkpointRestoreRowNum 行全部重发。等计数稳定后再断言，避免只是“还没发完”。
+    // FakeSource split state stores the remaining rows: a checkpoint restore only emits the rest,
+    // while a restart from zero re-emits all checkpointRestoreRowNum rows. Wait until the count settles
+    // so a slow restart-from-zero cannot pass just because it has not finished yet.
+    const received = await waitForStableSourceReceivedCount(
+      request,
+      clusterHttpPort,
+      String(recoveredDetails.platform_job_id),
+    );
+    expect(received).toBeLessThan(checkpointRestoreRowNum);
+    await expect
+      .poll(
+        () =>
+          findEngineLogLine(
+            installDir,
+            `${recoveredDetails.platform_job_id}.*restore with CHECKPOINT|restore with CHECKPOINT.*${recoveredDetails.platform_job_id}`,
+          ),
+        {timeout: 60000, intervals: [2000, 5000]},
+      )
+      .not.toBe('');
+
+    await cancelSyncJob(request, recoveredJob.id, false);
+    await waitForJobStatus(request, recoveredJob.id, (job) => Boolean(job.finished_at), 240000);
+  });
 });
+
+function assertRecoverSubmit(
+  job: {platform_job_id?: string; submit_spec?: Record<string, unknown>},
+  mode: 'checkpoint' | 'savepoint' | 'legacy',
+  sourcePlatformJobId: string,
+) {
+  const url = String(job.submit_spec?.engine_url ?? '');
+  const platformJobId = String(job.platform_job_id ?? '');
+  expect(url).toBeTruthy();
+  if (mode === 'legacy') {
+    expect(url).toContain('isStartWithSavePoint=true');
+    expect(url).not.toContain('restoreMode=');
+    expect(platformJobId).toBe(sourcePlatformJobId);
+    return;
+  }
+  expect(url).toContain(
+    `restoreMode=${mode === 'checkpoint' ? 'CHECKPOINT' : 'SAVEPOINT'}`,
+  );
+  expect(url).toContain(`restoreSourceJobId=${sourcePlatformJobId}`);
+  expect(url).not.toContain('isStartWithSavePoint=');
+  if (mode === 'savepoint') {
+    expect(platformJobId).toBe(sourcePlatformJobId);
+    return;
+  }
+  expect(platformJobId).not.toBe(sourcePlatformJobId);
+}
+
+// waitForStableSourceReceivedCount 轮询引擎指标，直到两次读取相同（作业不再产出）为止。
+// waitForStableSourceReceivedCount polls engine metrics until two consecutive reads match.
+async function waitForStableSourceReceivedCount(
+  request: Parameters<typeof readEngineSourceReceivedCount>[0],
+  httpPort: number,
+  platformJobId: string,
+): Promise<number> {
+  let previous = -1;
+  let current = -1;
+  await expect
+    .poll(async () => {
+      previous = current;
+      current = await readEngineSourceReceivedCount(request, httpPort, platformJobId);
+      return previous === current;
+    }, {timeout: 240000, intervals: [10000]})
+    .toBeTruthy();
+  return current;
+}

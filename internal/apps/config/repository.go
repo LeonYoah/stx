@@ -116,11 +116,13 @@ func (r *Repository) ListByCluster(ctx context.Context, clusterID uint) ([]*Conf
 func (r *Repository) ListUpdatedByClusterBetween(ctx context.Context, clusterID uint, start, end time.Time) ([]*Config, error) {
 	var configs []*Config
 	query := r.db.WithContext(ctx).Model(&Config{}).Where("cluster_id = ?", clusterID)
+	// SQLite 按字符串比较带偏移的时间，autoUpdateTime 写本地时区，边界必须同为本地时区。
+	// SQLite compares offset timestamps as text and autoUpdateTime writes local time, so bounds must be local.
 	if !start.IsZero() {
-		query = query.Where("updated_at >= ?", start.UTC())
+		query = query.Where("updated_at >= ?", start.In(time.Local))
 	}
 	if !end.IsZero() {
-		query = query.Where("updated_at <= ?", end.UTC())
+		query = query.Where("updated_at <= ?", end.In(time.Local))
 	}
 	err := query.Order("updated_at DESC").Order("config_type").Find(&configs).Error
 	return configs, err

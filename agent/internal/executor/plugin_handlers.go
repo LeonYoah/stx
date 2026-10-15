@@ -153,7 +153,12 @@ func HandleTransferPluginCommand(ctx context.Context, cmd *pb.CommandRequest, re
 		reporter.Report(progress, fmt.Sprintf("Receiving %s: %d/%d bytes", fileName, receivedBytes, totalSize))
 	}
 
-	return CreateProgressResponse(cmd.CommandId, progress, fmt.Sprintf("Received %d/%d bytes", receivedBytes, totalSize)), nil
+	// Each chunk is its own command, so the reply must be terminal: the Control Plane treats
+	// RUNNING as intermediate progress and would keep waiting until the command timeout.
+	// 每个数据块是独立命令，回复必须为终态：Control Plane 将 RUNNING 视为中间进度，会一直等到命令超时。
+	resp := CreateSuccessResponse(cmd.CommandId, fmt.Sprintf("Received %d/%d bytes / 已接收 %d/%d 字节", receivedBytes, totalSize, receivedBytes, totalSize))
+	resp.Progress = progress
+	return resp, nil
 }
 
 // HandleInstallPluginCommand handles the INSTALL_PLUGIN command type.

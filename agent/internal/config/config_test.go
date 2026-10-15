@@ -341,3 +341,20 @@ func TestToYAMLPackageDir(t *testing.T) {
 		t.Fatalf("package_dir=%q", loaded.SeaTunnel.PackageDir)
 	}
 }
+
+// TestPackageDirForExecutable 验证默认安装包目录按 <安装目录>/bin/stx-agent 布局推导。
+// TestPackageDirForExecutable verifies the default package dir follows the <install>/bin/stx-agent layout.
+func TestPackageDirForExecutable(t *testing.T) {
+	if got := packageDirForExecutable("/opt/stx-agent/bin/stx-agent"); got != filepath.Join("/opt/stx-agent", "packages") {
+		t.Fatalf("bin layout: %s", got)
+	}
+	if got := packageDirForExecutable("/srv/agent/stx-agent"); got != filepath.Join("/srv/agent", "packages") {
+		t.Fatalf("flat layout: %s", got)
+	}
+	if (SeaTunnelConfig{PackageDir: "/x"}).EffectivePackageDir() != "/x" {
+		t.Fatal("explicit package_dir must win")
+	}
+	if !strings.HasSuffix(DefaultPackageDir(), "packages") {
+		t.Fatalf("default=%s", DefaultPackageDir())
+	}
+}

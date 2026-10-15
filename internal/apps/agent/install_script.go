@@ -949,7 +949,7 @@ install_agent() {
     log_step "Installing Agent binary..."
     log_step "正在安装 Agent 二进制文件..."
 
-    mkdir -p "${BIN_DIR}" "${CONFIG_DIR}" "${LOG_DIR}"
+    mkdir -p "${BIN_DIR}" "${CONFIG_DIR}" "${LOG_DIR}" "${INSTALL_DIR}/packages"
     mv "${temp_file}" "${BIN_DIR}/${AGENT_BINARY}"
     chmod +x "${BIN_DIR}/${AGENT_BINARY}"
 
@@ -1011,10 +1011,10 @@ seatunnel:
   install_dir: /opt/seatunnel
   # Agent-local SeaTunnel package dir: packages pulled from the Control Plane land here, and it is
   # searched as the offline fallback when transfer fails (no internet download). Env override:
-  # AGENT_SEATUNNEL_PACKAGE_DIR. Default: <os.TempDir()>/seatunnel-packages
+  # AGENT_SEATUNNEL_PACKAGE_DIR. Default: <agent install dir>/packages
   # Agent 本地 SeaTunnel 安装包目录：从 Control Plane 拉取的安装包存放于此，传输失败时作为离线兜底查找目录
-  # （不会从互联网下载）。可用环境变量 AGENT_SEATUNNEL_PACKAGE_DIR 覆盖，默认 <os.TempDir()>/seatunnel-packages
-  # package_dir: /opt/seatunnel-packages
+  # （不会从互联网下载）。可用环境变量 AGENT_SEATUNNEL_PACKAGE_DIR 覆盖，默认 <Agent 安装目录>/packages
+  # package_dir: ${INSTALL_DIR}/packages
 EOF
 
     log_info "Configuration file created at ${CONFIG_DIR}/config.yaml"

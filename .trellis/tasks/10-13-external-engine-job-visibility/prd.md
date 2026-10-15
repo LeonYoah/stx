@@ -1,20 +1,23 @@
-# 外部 SeaTunnel 作业可见性与治理 PRD
+# 集群作业纳管：工作台调试 vs 调度生产 PRD
 
 ## 1. 目标与用户价值
 
-**问题**：运维与开发同学确认——经 STX 工作台 / CLI / API 提交的作业可以完整管理；但有人直接调用 SeaTunnel Engine REST（`submit-job`、官方脚本、Airflow 等外部调度）提交到同一集群的作业，**不会进入 STX 的 `JobInstance` 台账**，导致：
+**真实产品形态（2026-10-15 对齐）**：
 
-- 工作台「运行作业」列表不完整，排障文档里「运行作业列表排查悬挂任务」对外部作业无效；
-- 无法通过 `stx sync job cancel` / 统一 Execution 审计治理外部作业；
-- Slot 被占、Grafana `job_count` 升高时，难以在 STX 内对应到「是谁提交的、能否安全取消」。
+- STX 工作台 **终归只负责脚本编写、单次提交与调试**。
+- **生产触发**交给外部 **调度引擎**（Airflow / DolphinScheduler / 内部调度等）按计划提交到 **同一 SeaTunnel 集群**。
+- 调度提交后，作业 **不再经过** `POST /api/v1/sync/tasks/:id/submit`，因此 **不会** 产生 `JobInstance`。
+- 现有「运行 / 停止 / Savepoint / Checkpoint / 恢复」UI 都挂在 **工作台当前任务的实例列表**（`listJobs?task_id=`）上；调度作业进不了这张表，这些能力看起来就「没有意义」。
 
-**目标**：在 **不强制所有提交必须走 STX** 的前提下，让 STX 对「已纳管集群上 Engine 真实在跑/近期结束的作业」具备 **可观测 + 有限治理** 能力，并与现有 STX 登记作业 **可区分、不混淆**。
+**问题本质**：不是 Engine 做不了 stop / savepoint / CK，而是 STX **把运行面能力绑死在「自己提交时记账」上**。`EngineClient` 的 `StopJob` / `GetJobInfo` / Checkpoint 接口 **只认 `engine_job_id`**，与谁提交无关；缺的是 **集群级作业真相面** 和（可选的）**调度提交契约**。
 
-**用户价值**：
+**目标**：让 STX 成为纳管集群上 **所有 Engine 作业的控制面**，即使触发权在调度引擎：
 
-- 集群管理员：一眼看到 **STX 管理 vs 外部提交** 的作业占用，减少 Slot 挤兑误判；
-- 值班运维：对外部悬挂作业有 **受控取消**（若产品允许），不必 SSH 或手工调 Engine API；
-- 平台一致性：监控指标（Engine 级）与控制面列表语义对齐，降低「指标有作业、列表没有」的认知 gap。
+1. **看见**：集群上正在跑 / 近期结束的作业（含调度提交、脚本直连、STX 调试）。
+2. **管控**：对任意已知 `engine_job_id` 做停止、Savepoint 停止、CK 查询、日志/指标（权限 + Execution 审计）。
+3. **可选溯源**：调度若走 STX 提交网关或约定 jobId，则能回挂 Task 版本，恢复/脚本才完整。
+
+**非目标（本阶段）**：用 STX 内置 cron **替代** 企业调度引擎；把多任务运行史塞进「某一个脚本任务」的工作台列表。
 
 ---
 
@@ -22,92 +25,159 @@
 
 | 事实 | 依据 |
 |------|------|
-| STX 作业生命周期绑定 DB 中的 `JobInstance`，列表 API `GET /api/v1/sync/jobs` 查的是平台实例，不是 Engine 全量 | `internal/apps/sync/repository.go`、`handler.go` |
-| 提交集群作业时经 `EngineClient.Submit` 写 `EngineJobID`，后续 `GetJobInfo` / `StopJob` / 日志与 Checkpoint 均 **按已知 jobId** | `internal/apps/sync/engine_client.go` |
-| `EngineClient` **无**「列出集群全部作业」接口封装 | `EngineClient` interface |
-| 集群删除前的「运行中任务」检查看的是 **集群部署状态**（deploying/running），**不是** Engine 作业数 | `internal/apps/cluster/service.go` `Delete` |
-| 可观测性侧 Grafana 使用 Prometheus `job_count{...}`，反映 **Engine HTTP 暴露的作业统计**，含外部作业 | `install/observability/grafana_config/dashboards/seatunnel-overview-*.json` |
-| CLI 作业能力（`stx sync job *`）均基于 **平台 job id**（`JobInstance.ID`） | `internal/operation/registry_sync.go`、`internal/cmd/sync.go` |
-| 产品 PRD 已明确「绕过 STX 直接访问 SeaTunnel 节点」不在 Agent/CLI 安全模型内；本需求是 **控制面只读/写 Engine REST（经 STX 代理）**，不是 SSH | `09-13-stx-cli-agent-entry` 暂不纳入 |
+| 工作台运行列表按 **当前 `task_id`** 拉 `JobInstance`，不是集群全量 | `DataSyncStudio.loadJobs` → `listJobs({ task_id })` |
+| `JobInstance.task_id` **NOT NULL**，模型假设「每次运行都属于一个 STX 任务」 | `internal/apps/sync/model.go` |
+| Engine 运行态操作（`GetJobInfo` / `StopJob` / CK / logs）只依赖 endpoint + `jobId` | `engine_client.go` |
+| 提交时 STX 可指定 `jobId`（`platform_job_id` 写入 Engine） | `Submit` query `jobId` |
+| STX 已有任务内 cron（`task_schedule.go`），这是 **工作台定时**，不是企业调度对接 | 与 Airflow 等无关 |
+| `EngineClient` **无** running/finished 作业列表 | 接口未封装 |
+| 集群已能代理 SeaTunnel WebUI（Engine 自己的作业页），但无 STX 权限/审计/与 Task 关联 | `cluster/webui_proxy_rewrite.go` |
+| Grafana `job_count` 已是 Engine 维度，含调度作业 | observability dashboards |
+
+**能力拆分（不要混为一谈）**：
+
+| 能力 | 真正依赖 | 调度直连 Engine 后 |
+|------|----------|-------------------|
+| 停止 / Savepoint 停止 | `engine_job_id` + Engine REST | **可纳管**（需发现或传入 jobId） |
+| 作业状态 / 指标 / job-info | 同上 | **可纳管** |
+| CK overview / history（REST V2） | 同上 | **可纳管** |
+| 作业日志 | Engine logs API 或集群日志模式 | **大部可纳管** |
+| 工作台「本任务运行史」 | `JobInstance.task_id` | **不应混入** 调度作业 |
+| 按 Task 版本恢复（rebuild 脚本再 submit） | Task + version + savepoint | **仅当能关联 Task** 或调度走网关 |
+| DAG / 提交脚本回看 | `submit_spec` / `result_preview` | 无台账则 **弱**（Engine 或有 jobDag） |
+| Execution 审计「谁点的运行」 | STX submit 当时的 actor | 调度直连则 **无**；STX 上的 stop 仍可审计 |
 
 ---
 
-## 3. 范围边界（草案）
+## 3. 产品分层（已收敛）
 
-### 3.1 建议纳入（待 MVP 决策细化）
+```
+┌─────────────────────────────────────────────────────────┐
+│  工作台（定义面）                                          │
+│  写脚本 / 校验 / 预览 / 单次调试提交                         │
+│  底部列表 = 本 Task 的 JobInstance 历史                     │
+│  不展示、不合并「别的任务」或「调度作业」                      │
+└─────────────────────────────────────────────────────────┘
+                         │ 调试通过后，定义交给调度引用
+                         ▼
+┌─────────────────────────────────────────────────────────┐
+│  调度引擎（触发面）                                        │
+│  按 DAG/cron 决定「何时跑」                                 │
+│  提交目标：Engine 直连  或  STX 提交网关（见 D0）            │
+└─────────────────────────────────────────────────────────┘
+                         ▼
+┌─────────────────────────────────────────────────────────┐
+│  集群作业控制面（运行面）← 本任务要建的                      │
+│  入口：集群详情「运行作业」                                  │
+│  数据：Engine 列表 ⊕ STX JobInstance 按 engine_job_id 关联 │
+│  操作：停 / SP / CK / 日志 / 指标（对任意 Engine 作业）      │
+└─────────────────────────────────────────────────────────┘
+```
 
-- **Engine 作业镜像视图**（按集群）：展示 Engine 侧作业 id、名称、状态、创建/结束时间等（字段以 Engine API 为准）。
-- **来源标注**：与 STX `JobInstance` 按 `cluster_id + engine_job_id`（及必要时 job name / platform job id）关联；无法关联的标为 **外部 / 未登记**。
-- **只读详情**：对外部作业可查看 Engine 返回的 status、metrics 摘要、错误信息（复用现有 `GetJobInfo` 能力，**不**伪造 Task 版本链路）。
-- **可选治理**：对外部作业提供 **Stop/Cancel**（R2，Execution + 审计），调用现有 `StopJob`；**不**默认提供 Savepoint/Recover/与工作台 Task 绑定的 Checkpoint UI，除非二期明确。
-- **CLI**：补充只读查询（及若确认的写操作）并登记 `operation` registry。
-- **版本适配**：2.x legacy URL 与 3.x REST 路径差异沿用 `EngineEndpoint.APIMode` 现有逻辑。
-
-### 3.2 建议暂不纳入（首版）
-
-- 将外部作业 **导入** 为 STX Task / 自动生成 `JobInstance` 全链路（审计 retroactive、配置回溯）。
-- 在 Engine 或网络层 **拦截** 非 STX 提交（强管控多租户场景另立项目）。
-- 周期性 **持久化同步** 全量 Engine 作业历史到 STX DB（首版可用实时查询 + 短 TTL 缓存）。
-- 诊断包自动 attach 外部作业配置（无 Task 则无 `submitted_content`）。
+先前 Canvas「一张表混进工作台」**作废**；合并只发生在 **集群运行面**。
 
 ---
 
-## 4. 非功能与规范约束
+## 4. 纳管路径（D0，待确认）
 
-- 改动前遵循 `.trellis/spec/backend/index.md`、`.trellis/spec/frontend/index.md`、`cross-layer-thinking-guide.md`。
-- 新增 HTTP 路由必须登记 `internal/operation/registry*.go`，并补 CLI（AGENTS.md CLI 约定）。
-- 写操作（取消外部作业）走 Execution 安全契约（R2、`--confirm`、幂等键）。
-- 注释：新增/修改代码 **中英双语**，中文在前。
-- Engine 列表/详情 API 需在 `design.md` 阶段 **实测** 各 SeaTunnel 版本（2.3.x / 3.x）路径与响应结构。
+### 路径 A — Engine 真相面（发现 + 管控）
+
+调度 / 脚本仍 `submit-job` 到 Engine。STX **列出** 集群作业并代理运行态 API。
+
+- **立刻保住**：停、Savepoint 停、CK、日志、指标。
+- **保不住**：每次调度运行自动进某 Task 的历史、完整「按版本恢复」除非能匹配 jobName/jobId。
+- **工作量**：Engine 列表适配 + 集群 UI + 按 `engine_job_id` 的写操作 + CLI。
+
+### 路径 B — 提交网关（调度必须走 STX）
+
+调度调 `POST /sync/tasks/:id/submit`（或专用 runtime submit），**禁止**（或弱约束）直连 Engine。
+
+- **立刻保住**：每次生产运行都是 `JobInstance`，现有恢复/脚本/审计全套可用。
+- **保不住**：无法强制已存在的「直连 Master」提交，除非再做网络拦截。
+- **工作量**：调度侧改造 + 稳定 API/CLI 契约 + 幂等 jobId；对接每个调度产品。
+
+### 路径 C — 分阶段（建议）
+
+1. **先做 A**：运行面不依赖调度改代码，值班能管集群上所有作业。
+2. **再提供 B 作为官方契约**：调度「发布到生产」时走 STX，换完整溯源；A 继续兜底漏网直连。
 
 ---
 
-## 5. 开放决策（规划阶段逐项收敛）
+## 5. 范围边界
+
+### 5.1 建议纳入（A / C 第一期）
+
+- 集群维度 Engine 作业列表 + 与 STX 实例关联（`source=stx|external|scheduled_unlinked`）。
+- 对 **任意** Engine 作业：详情、指标、日志、CK（V2）、停止、Savepoint 停止（R2 + Execution）。
+- 工作台保持单任务列表；可选横幅：「本任务目标集群另有 N 个未登记作业 → 集群运行面」。
+- CLI：`stx cluster jobs …`（或等价），登记 operation。
+- 2.x / 3.x Engine API 适配（design 阶段实测 running-jobs / overview）。
+
+### 5.2 建议二期（B）
+
+- 对外稳定「调度提交」API：task 发布版本 + 变量覆盖 + 指定 jobId + 返回 engine_job_id。
+- 文档：Airflow HTTP / 通用 curl 示例；不绑定单一调度品牌（除非产品指定）。
+- 可选 jobId / jobName 约定，便于 A 面自动挂回 Task。
+
+### 5.3 明确不做
+
+- 把调度作业行塞进工作台「当前脚本」运行列表。
+- 用 STX cron 替换企业调度。
+- 首期在网关/防火墙层拦截 Engine REST（另立强管控项目）。
+- 无 Task 关联时伪造完整版本恢复。
+
+---
+
+## 6. 非功能与规范约束
+
+- `.trellis/spec/backend/index.md`、`frontend/index.md`、`cross-layer-thinking-guide.md`。
+- 新路由登记 + CLI；写操作 R2、`--confirm`、幂等键。
+- 注释中英双语，中文在前。
+- Engine 列表 API 版本差异必须在 design 实测后再锁字段。
+
+---
+
+## 7. 开放决策
 
 | # | 决策 | 状态 |
 |---|------|------|
-| D1 | **MVP 能力边界**：仅只读列表+详情 vs 含 R2 取消 | **待确认** |
-| D2 | **入口位置**：集群详情页「Engine 作业」vs 同步工作台并列 Tab vs 仅 CLI | 待确认 |
-| D3 | **权限模型**：是否仅管理员 / 集群维护者可取消外部作业 | 待确认 |
-| D4 | **刷新策略**：纯按需拉取 vs 后台轮询（间隔、对 Master 压力） | 待确认 |
-| D5 | **与 STX 作业 UI 关系**：合并一张表（带来源列）vs 分开展示 | 待确认（[方案 C 概念 Canvas](https://cursor.com/canvas/store-54b05534-483d-47b3-9a10-0a4f746873dd/3afba018-87bb-49b9-acfa-bf4fbb8a007a)） |
+| **D0** | 纳管路径：**A** 发现面 / **B** 提交网关 / **C** 先 A 后 B | **待确认（当前最高优先级）** |
+| D1 | 第一期运行面是否含 停止 + Savepoint 停止 + CK（建议：含，否则与「管控」不符） | 待 D0 |
+| D2 | 运行面入口：集群详情 Tab（建议） | 倾向确认 |
+| D3 | 未关联 Task 的作业：谁可停（建议：管理员 / 集群运维，R2） | 待确认 |
+| D4 | 列表刷新：按需拉取 + 短 TTL（建议）；不做常驻全量落库 | 待确认 |
+| D5 | UI：工作台不合并；集群页 Engine 视角表 | **已收敛** |
 
 ---
 
-## 6. 验收标准（随 D1–D5 调整后定稿）
+## 8. 验收标准（草案，随 D0 定稿）
 
-### 6.1 只读 MVP（若 D1 选只读）
+### 8.1 运行面（路径 A / C-1）
 
-- [ ] 对已纳管且 Running 的集群，API/CLI 可返回 Engine 侧 **当前运行中** 作业列表（含 STX 已登记与未登记条目，来源字段可区分）。
-- [ ] 未登记作业在 UI/CLI 中 **不会** 出现在现有 `sync/jobs` 平台实例语义中（避免 id 混淆）；使用独立资源或明确 `source=external`。
-- [ ] STX 已登记作业与 Engine 列表 **去重展示** 或 **双向链接**（平台 job id ↔ engine job id）至少一种行为在 PRD/设计中文档化且实现一致。
-- [ ] Engine 不可用 / 版本不支持列表 API 时，返回稳定错误码与文案，不拖垮集群列表页。
-- [ ] 操作登记 + CLI help 覆盖新增只读命令；无未登记路由缺口（contract-report）。
+- [ ] 集群详情可列出 Engine 当前运行（及约定范围内的结束）作业；STX 调试实例与未登记作业可区分。
+- [ ] 对未登记作业可：查看 job-info、CK（V2 可用时）、日志、停止、Savepoint 停止；操作进 Execution/审计（cluster_id + engine_job_id）。
+- [ ] 工作台 `JobRunsPanel` 仍仅 `task_id` 过滤，不出现其他任务或裸 Engine 行。
+- [ ] Engine 列表 API 不可用时稳定错误，不拖垮集群页。
+- [ ] CLI + operation 登记完整。
 
-### 6.2 治理扩展（若 D1 含取消）
+### 8.2 提交网关（路径 B / C-2）
 
-- [ ] 对外部作业 cancel 走 Execution（R2），审计记录含 cluster_id、engine_job_id、操作者。
-- [ ] 取消成功后 Engine 状态可在合理超时内反映为终态；失败原因可观测。
-- [ ] 文档说明：外部作业 **无** Task 级 Savepoint/Recover，除非二期。
-
----
-
-## 7. 风险与依赖
-
-- **Engine API 差异**：列表接口在 2.3 legacy 与 3.x 可能不同，需 adapter 层（与现有 `engine_client` 一致）。
-- **身份关联歧义**：仅 job name 匹配可能碰撞；优先 `engine_job_id` + `platform_job_id`（STX submit 时写入 Engine 的 job id）。
-- **运维预期**：只读 MVP 仍无法回答「谁在外部提交的」——除非 Engine 暴露 submitter 或后续接审计旁路。
+- [ ] 调度可用文档化 HTTP/CLI 提交已发布 Task 版本，产生 `JobInstance` 且工作台该任务历史可见。
+- [ ] 同一 jobId 幂等；失败原因可回传调度。
 
 ---
 
-## 8. 相关任务与参考
+## 9. 风险
 
-- `09-20-cli-workbench-sync`：STX 登记作业 CLI 体系。
-- `09-13-stx-cli-agent-entry`：Execution、操作登记、风险分级。
-- 对话上下文：用户确认「非 STX 提交的作业目前基本无法在同一套平台能力里管理」。
+- Engine 列表路径在 2.3 / 3.x 不一致，需 adapter。
+- 仅 jobName 关联会碰撞；优先 STX 写入的 `jobId`。
+- 调度直连时「谁触发的」在 Engine 侧通常没有，STX 只能审计 **自己发出的管控动作**。
+- WebUI 代理 ≠ 纳管：无权限模型、无与 Task 的官方契约。
 
 ---
 
-## 9. 规划记录
+## 10. 相关与记录
 
-- 2026-10-13：创建任务 `10-13-external-engine-job-visibility`，种子 PRD；待 brainstorm 收敛 D1–D5。
+- `09-20-cli-workbench-sync`、`09-13-stx-cli-agent-entry`。
+- 2026-10-13：按「外部作业可见性」立项。
+- 2026-10-15：目标改为 **调度接管生产后的集群作业全面纳管**；否定工作台混表。

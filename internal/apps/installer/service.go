@@ -88,9 +88,11 @@ type AgentManager interface {
 	// SendCommand 向 Agent 发送命令并返回结果
 	SendCommand(ctx context.Context, agentID string, commandType string, params map[string]string) (success bool, output string, err error)
 
-	// SendTransferPackageCommand sends a package transfer chunk to an agent
-	// SendTransferPackageCommand 向 Agent 发送安装包传输块
-	SendTransferPackageCommand(ctx context.Context, agentID string, version string, fileName string, chunk []byte, offset int64, totalSize int64, isLast bool, checksum string) (success bool, receivedBytes int64, localPath string, err error)
+	// TransferPackageFile lets the Agent pull localPath over the dedicated DownloadPackage gRPC stream
+	// and returns the package path on the Agent. onProgress reports bytes streamed so far.
+	// TransferPackageFile 让 Agent 通过专用 DownloadPackage gRPC 流拉取 localPath，
+	// 返回安装包在 Agent 上的路径；onProgress 上报已传输字节数。
+	TransferPackageFile(ctx context.Context, agentID string, version string, localPath string, checksum string, onProgress func(sent, total int64)) (remotePath string, err error)
 }
 
 // PluginTransferer is the interface for transferring plugins to agents
@@ -2578,11 +2580,16 @@ func (s *Service) runInstallation(ctx context.Context, req *InstallationRequest,
 			remotePath, err := s.transferPackageFileToAgent(ctx, agentID, req.Version, localPackagePath, status)
 			if err != nil {
 				if req.InstallMode == InstallModeOnline {
-					// Transfer failed, fallback to mirror download
-					// 传输失败，回退到镜像源下载
-					logger.WarnF(ctx, "[Installer] 安装包传输失败，回退到镜像源下载 / Package transfer failed, fallback to mirror download: %v", err)
-					// Continue with mirror download mode
-					// 继续使用镜像源下载模式
+					// Transfer failed: fall back to a package already on the Agent host (agent_package_path
+					// or the Agent's seatunnel.package_dir). Never download from the internet here;
+					// the Agent fails with a clear error naming the paths it tried.
+					// 传输失败：回退到 Agent 主机上已有的安装包（agent_package_path 或 Agent 的 seatunnel.package_dir）。
+					// 此处绝不从互联网下载；若未找到，Agent 会返回包含已尝试路径的明确错误。
+					logger.WarnF(ctx, "[Installer] 安装包传输失败，回退到 Agent 本地安装包 / Package transfer failed, falling back to Agent-local package: %v", err)
+					s.installMu.Lock()
+					status.Message = fmt.Sprintf("Package transfer failed (%v), using Agent-local package... / 安装包传输失败（%v），改用 Agent 本地安装包...", err, err)
+					s.installMu.Unlock()
+					req.PackagePath = ""
 				} else {
 					s.installMu.Lock()
 					now := time.Now()
@@ -3090,6 +3097,12 @@ func buildInstallParams(req *InstallationRequest) map[string]string {
 	if req.PackagePath != "" {
 		params["package_path"] = req.PackagePath
 	}
+	if req.Version != "" {
+		params["package_file_name"] = packageFileName(req.Version)
+	}
+	if strings.TrimSpace(req.AgentPackagePath) != "" {
+		params["agent_package_path"] = strings.TrimSpace(req.AgentPackagePath)
+	}
 
 	// Add cluster configuration / 添加集群配置
 	if len(req.MasterAddresses) > 0 {
@@ -3510,10 +3523,6 @@ func calculateChecksum(filePath string) (string, error) {
 
 // ==================== Package Transfer 安装包传输 ====================
 
-// PackageTransferChunkSize is the size of each chunk for package transfer (1MB)
-// PackageTransferChunkSize 是安装包传输每个块的大小（1MB）
-const PackageTransferChunkSize = 1024 * 1024
-
 // TransferPackageToAgent transfers a package to an Agent via gRPC
 // TransferPackageToAgent 通过 gRPC 将安装包传输到 Agent
 func (s *Service) TransferPackageToAgent(ctx context.Context, agentID string, version string, status *InstallationStatus) (remotePath string, err error) {
@@ -3521,92 +3530,44 @@ func (s *Service) TransferPackageToAgent(ctx context.Context, agentID string, ve
 	return s.transferPackageFileToAgent(ctx, agentID, version, localPath, status)
 }
 
+// transferPackageFileToAgent streams localPath to the Agent over the dedicated DownloadPackage RPC
+// (raw bytes, gRPC flow control, Agent-side resume/retry and streaming SHA256 verification).
+// transferPackageFileToAgent 通过专用 DownloadPackage RPC 将 localPath 传给 Agent
+// （原始字节、gRPC 流控、Agent 侧断点续传/重试与流式 SHA256 校验）。
 func (s *Service) transferPackageFileToAgent(ctx context.Context, agentID string, version string, localPath string, status *InstallationStatus) (remotePath string, err error) {
 	logger.InfoF(ctx, "[Installer] 开始传输安装包到 Agent / Start transferring package to Agent: agent=%s, version=%s", agentID, version)
 
-	// Get file name / 获取文件名
-	fileName := filepath.Base(localPath)
-
-	// Check if package exists / 检查安装包是否存在
-	fileInfo, err := os.Stat(localPath)
-	if err != nil {
+	if _, err := os.Stat(localPath); err != nil {
 		return "", fmt.Errorf("package not found: %s / 安装包未找到: %s", localPath, localPath)
 	}
-	totalSize := fileInfo.Size()
 
-	// Calculate checksum / 计算校验和
 	checksum, err := calculateChecksum(localPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to calculate checksum: %w / 计算校验和失败: %w", err, err)
 	}
 
-	// Open file / 打开文件
-	file, err := os.Open(localPath)
+	lastProgress := -1
+	onProgress := func(sent, total int64) {
+		if status == nil || total <= 0 {
+			return
+		}
+		progress := int(float64(sent) / float64(total) * 100)
+		if progress == lastProgress {
+			return
+		}
+		lastProgress = progress
+		s.installMu.Lock()
+		status.Message = fmt.Sprintf("Transferring package... %d%% / 正在传输安装包... %d%%", progress, progress)
+		s.installMu.Unlock()
+	}
+
+	remotePath, err = s.agentManager.TransferPackageFile(ctx, agentID, version, localPath, checksum, onProgress)
 	if err != nil {
-		return "", fmt.Errorf("failed to open package: %w / 打开安装包失败: %w", err, err)
-	}
-	defer file.Close()
-
-	// Transfer in chunks / 分块传输
-	buf := make([]byte, PackageTransferChunkSize)
-	var offset int64
-	var lastReceivedBytes int64
-
-	for {
-		select {
-		case <-ctx.Done():
-			return "", ctx.Err()
-		default:
-		}
-
-		// Read chunk / 读取数据块
-		n, readErr := file.Read(buf)
-		if n == 0 && readErr == io.EOF {
-			break
-		}
-		if readErr != nil && readErr != io.EOF {
-			return "", fmt.Errorf("failed to read package: %w / 读取安装包失败: %w", readErr, readErr)
-		}
-
-		chunk := buf[:n]
-		isLast := readErr == io.EOF || offset+int64(n) >= totalSize
-
-		// Send chunk to Agent / 发送数据块到 Agent
-		chunkChecksum := ""
-		if isLast {
-			chunkChecksum = checksum
-		}
-
-		success, receivedBytes, path, err := s.agentManager.SendTransferPackageCommand(
-			ctx, agentID, version, fileName, chunk, offset, totalSize, isLast, chunkChecksum,
-		)
-		if err != nil {
-			return "", fmt.Errorf("failed to send chunk: %w / 发送数据块失败: %w", err, err)
-		}
-		if !success {
-			return "", fmt.Errorf("chunk transfer failed at offset %d / 数据块传输失败，偏移量 %d", offset, offset)
-		}
-
-		offset += int64(n)
-		lastReceivedBytes = receivedBytes
-
-		// Update status / 更新状态
-		if status != nil {
-			s.installMu.Lock()
-			progress := int(float64(offset) / float64(totalSize) * 100)
-			status.Message = fmt.Sprintf("Transferring package... %d%% / 正在传输安装包... %d%%", progress, progress)
-			s.installMu.Unlock()
-		}
-
-		// If last chunk, get the remote path / 如果是最后一块，获取远程路径
-		if isLast {
-			remotePath = path
-			break
-		}
+		return "", err
 	}
 
-	logger.InfoF(ctx, "[Installer] 安装包传输完成 / Package transfer completed: agent=%s, version=%s, received=%d, remote_path=%s",
-		agentID, version, lastReceivedBytes, remotePath)
+	logger.InfoF(ctx, "[Installer] 安装包传输完成 / Package transfer completed: agent=%s, version=%s, remote_path=%s",
+		agentID, version, remotePath)
 
 	return remotePath, nil
 }

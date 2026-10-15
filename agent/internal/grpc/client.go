@@ -469,6 +469,19 @@ func (c *Client) GetClient() pb.AgentServiceClient {
 	return c.client
 }
 
+// OpenPackageStream opens a DownloadPackage stream for transferID starting at offset.
+// OpenPackageStream 从 offset 开始为 transferID 打开 DownloadPackage 流。
+func (c *Client) OpenPackageStream(ctx context.Context, transferID string, offset int64) (pb.AgentService_DownloadPackageClient, error) {
+	c.mu.RLock()
+	client := c.client
+	agentID := c.agentID
+	c.mu.RUnlock()
+	if client == nil {
+		return nil, errors.New("client not connected / 客户端未连接")
+	}
+	return client.DownloadPackage(ctx, &pb.DownloadPackageRequest{AgentId: agentID, TransferId: transferID, Offset: offset})
+}
+
 // GetAgentID returns the Agent ID
 // GetAgentID 返回 Agent ID
 func (c *Client) GetAgentID() string {
@@ -722,7 +735,12 @@ func (c *Client) StartCommandStream(ctx context.Context, handler CommandHandler)
 
 			// Send response back to Control Plane
 			// 将响应发送回 Control Plane
-			if sendErr := stream.Send(resp); sendErr != nil {
+			// gRPC streams are not safe for concurrent Send; share the lock with ReportCommandResult.
+			// gRPC 流不支持并发 Send；与 ReportCommandResult 共用同一把锁。
+			c.cmdStreamMu.Lock()
+			sendErr := stream.Send(resp)
+			c.cmdStreamMu.Unlock()
+			if sendErr != nil {
 				logger.ErrorF(ctx, "Failed to send command response: %v", sendErr)
 			}
 		}(cmd)

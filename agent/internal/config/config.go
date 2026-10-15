@@ -30,6 +30,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -161,6 +162,22 @@ type SeaTunnelConfig struct {
 	// by Control Plane commands when installing SeaTunnel
 	// 这只是作为后备使用；实际的 install_dir 在安装 SeaTunnel 时由 Control Plane 命令指定
 	InstallDir string `mapstructure:"install_dir"`
+
+	// PackageDir is the Agent-side directory for SeaTunnel packages: packages pulled from the
+	// Control Plane land here, and it is searched as the offline fallback when transfer fails.
+	// Empty means <os.TempDir()>/seatunnel-packages.
+	// PackageDir 是 Agent 侧 SeaTunnel 安装包目录：从 Control Plane 拉取的安装包存放于此，
+	// 传输失败时也会在此查找本地兜底安装包。为空时使用 <os.TempDir()>/seatunnel-packages。
+	PackageDir string `mapstructure:"package_dir"`
+}
+
+// EffectivePackageDir returns the configured package dir or the default.
+// EffectivePackageDir 返回配置的安装包目录或默认目录。
+func (c SeaTunnelConfig) EffectivePackageDir() string {
+	if strings.TrimSpace(c.PackageDir) != "" {
+		return c.PackageDir
+	}
+	return filepath.Join(os.TempDir(), "seatunnel-packages")
 }
 
 // Load loads configuration from file and environment variables
@@ -237,6 +254,7 @@ func setDefaults(v *viper.Viper) {
 	// Note: config_dir and log_dir are automatically derived from install_dir
 	// 注意：config_dir 和 log_dir 自动基于 install_dir 计算
 	v.SetDefault("seatunnel.install_dir", DefaultSeaTunnelInstallDir)
+	v.SetDefault("seatunnel.package_dir", "")
 }
 
 // Validate validates the configuration

@@ -900,6 +900,16 @@ type InstallParams struct {
 	// PackagePath 是本地安装包路径（传输后设置或用于本地源）
 	PackagePath string `json:"package_path,omitempty"`
 
+	// PackageFileName is the expected package file name, used to locate an Agent-local package.
+	// PackageFileName 是预期的安装包文件名，用于定位 Agent 本地安装包。
+	PackageFileName string `json:"package_file_name,omitempty"`
+
+	// AgentLocalPackagePath is an Agent-side file or directory used as fallback when the
+	// Control Plane transfer is unavailable. No internet download is attempted.
+	// AgentLocalPackagePath 是 Agent 侧的文件或目录，在 Control Plane 传输不可用时作为兜底；
+	// 不会尝试从互联网下载。
+	AgentLocalPackagePath string `json:"agent_package_path,omitempty"`
+
 	// ExpectedChecksum is the expected SHA256 checksum of the package
 	// ExpectedChecksum 是安装包的预期 SHA256 校验和
 	ExpectedChecksum string `json:"expected_checksum,omitempty"`
@@ -1354,6 +1364,58 @@ type InstallerManager struct {
 	// tempDir is the temporary directory for downloads
 	// tempDir 是下载的临时目录
 	tempDir string
+
+	// localPackageDir is the Agent-side directory searched for fallback packages.
+	// localPackageDir 是 Agent 侧兜底安装包的查找目录。
+	localPackageDir string
+}
+
+// SetLocalPackageDir sets the Agent-side fallback package directory.
+// SetLocalPackageDir 设置 Agent 侧兜底安装包目录。
+func (m *InstallerManager) SetLocalPackageDir(dir string) {
+	m.localPackageDir = dir
+}
+
+// resolveAgentLocalPackage locates a package on the Agent host without any network access.
+// Order: params.AgentLocalPackagePath (file, or dir + file name), then localPackageDir + file name.
+// resolveAgentLocalPackage 在不访问网络的前提下定位 Agent 主机上的安装包。
+// 顺序：params.AgentLocalPackagePath（文件，或目录 + 文件名），然后 localPackageDir + 文件名。
+func (m *InstallerManager) resolveAgentLocalPackage(params *InstallParams) (string, error) {
+	fileName := params.PackageFileName
+	if fileName == "" && params.Version != "" {
+		fileName = fmt.Sprintf("apache-seatunnel-%s-bin.tar.gz", params.Version)
+	}
+
+	var candidates []string
+	if p := strings.TrimSpace(params.AgentLocalPackagePath); p != "" {
+		if info, err := os.Stat(p); err == nil && info.IsDir() {
+			if fileName != "" {
+				candidates = append(candidates, filepath.Join(p, fileName))
+			}
+		} else {
+			candidates = append(candidates, p)
+		}
+	}
+	if m.localPackageDir != "" && fileName != "" {
+		candidates = append(candidates, filepath.Join(m.localPackageDir, fileName))
+	}
+	if params.PackagePath != "" {
+		candidates = append([]string{params.PackagePath}, candidates...)
+	}
+
+	for _, c := range candidates {
+		if info, err := os.Stat(c); err == nil && !info.IsDir() {
+			return c, nil
+		}
+	}
+
+	tried := strings.Join(candidates, ", ")
+	if tried == "" {
+		tried = "(none configured)"
+	}
+	return "", fmt.Errorf("%w: package was not transferred from Control Plane and no local package found on Agent, tried: %s; place %s there or set seatunnel.package_dir / agent_package_path / "+
+		"安装包未能从 Control Plane 传输，且 Agent 本地未找到安装包，已尝试路径：%s；请将 %s 放到上述位置，或配置 seatunnel.package_dir / agent_package_path",
+		ErrPackageNotFound, tried, fileName, tried, fileName)
 }
 
 // NewInstallerManager creates a new InstallerManager instance
@@ -1532,10 +1594,18 @@ func (m *InstallerManager) executeStepDownload(ctx context.Context, params *Inst
 		}
 	}
 
-	// Handle package transfer based on source
-	// 根据来源处理安装包传输
+	// Handle package transfer based on source; without transfer info, fall back to an
+	// Agent-local package (never download from the internet here).
+	// 根据来源处理安装包传输；没有传输信息时回退到 Agent 本地安装包（此处绝不从互联网下载）。
 	if params.PackageTransfer == nil {
-		return fmt.Errorf("package transfer info is required / 需要安装包传输信息")
+		reporter.Report(InstallStepDownload, 0, "Looking for Agent-local package... / 查找 Agent 本地安装包...")
+		localPath, err := m.resolveAgentLocalPackage(params)
+		if err != nil {
+			return err
+		}
+		params.PackagePath = localPath
+		reporter.Report(InstallStepDownload, 100, fmt.Sprintf("Using Agent-local package: %s / 使用 Agent 本地安装包: %s", localPath, localPath))
+		return nil
 	}
 
 	transfer := params.PackageTransfer

@@ -1679,56 +1679,10 @@ func (a *installerAgentManagerAdapter) stringToCommandType(cmdType string) pb.Co
 	}
 }
 
-// SendTransferPackageCommand sends a package transfer chunk to an agent.
-// SendTransferPackageCommand 向 Agent 发送安装包传输块。
-func (a *installerAgentManagerAdapter) SendTransferPackageCommand(ctx context.Context, agentID string, version string, fileName string, chunk []byte, offset int64, totalSize int64, isLast bool, checksum string) (success bool, receivedBytes int64, localPath string, err error) {
-	// Build parameters / 构建参数
-	params := map[string]string{
-		"version":    version,
-		"file_name":  fileName,
-		"chunk":      base64.StdEncoding.EncodeToString(chunk),
-		"offset":     fmt.Sprintf("%d", offset),
-		"total_size": fmt.Sprintf("%d", totalSize),
-		"is_last":    fmt.Sprintf("%t", isLast),
-	}
-	if checksum != "" {
-		params["checksum"] = checksum
-	}
-
-	// Use longer timeout for package transfer (5 minutes per chunk)
-	// 安装包传输使用更长的超时时间（每块 5 分钟）
-	resp, err := a.manager.SendCommand(ctx, agentID, pb.CommandType_TRANSFER_PACKAGE, params, 5*time.Minute)
-	if err != nil {
-		return false, 0, "", err
-	}
-
-	// Accept both SUCCESS and RUNNING as success for chunk transfer
-	// 对于块传输，接受 SUCCESS 和 RUNNING 作为成功
-	success = resp.Status == pb.CommandStatus_SUCCESS || resp.Status == pb.CommandStatus_RUNNING
-
-	// Parse response to get received bytes and local path
-	// 解析响应获取已接收字节数和本地路径
-	if resp.Output != "" {
-		var transferResp struct {
-			Success       bool   `json:"success"`
-			Message       string `json:"message"`
-			ReceivedBytes int64  `json:"received_bytes"`
-			LocalPath     string `json:"local_path"`
-		}
-		if jsonErr := json.Unmarshal([]byte(resp.Output), &transferResp); jsonErr == nil {
-			receivedBytes = transferResp.ReceivedBytes
-			localPath = transferResp.LocalPath
-			if !transferResp.Success {
-				success = false
-			}
-		}
-	}
-
-	if resp.Error != "" {
-		return false, receivedBytes, localPath, fmt.Errorf("%s", resp.Error)
-	}
-
-	return success, receivedBytes, localPath, nil
+// TransferPackageFile lets the Agent pull a package over the dedicated DownloadPackage stream.
+// TransferPackageFile 让 Agent 通过专用 DownloadPackage 流拉取安装包。
+func (a *installerAgentManagerAdapter) TransferPackageFile(ctx context.Context, agentID string, version string, localPath string, checksum string, onProgress func(sent, total int64)) (string, error) {
+	return a.manager.TransferPackage(ctx, agentID, version, localPath, checksum, agent.PackagePullOptions{OnProgress: onProgress})
 }
 
 // ==================== Config Service Adapters 配置服务适配器 ====================

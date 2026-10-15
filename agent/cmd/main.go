@@ -164,6 +164,15 @@ func NewAgent(cfg *config.Config) *Agent {
 	// Create installer manager / 创建安装管理器
 	im := installer.NewInstallerManager()
 
+	// Agent-side package dir: pulled packages land here and it is the offline fallback source.
+	// Agent 侧安装包目录：拉取的安装包存放于此，同时作为离线兜底来源。
+	packageDir := cfg.SeaTunnel.EffectivePackageDir()
+	im.SetLocalPackageDir(packageDir)
+	executor.GetPackageTransferManager().SetDirectories("", packageDir)
+	executor.SetPackageStreamOpener(func(ctx context.Context, transferID string, offset int64) (executor.PackageChunkStream, error) {
+		return grpcClient.OpenPackageStream(ctx, transferID, offset)
+	})
+
 	// Create process monitor / 创建进程监控器
 	pmon := monitor.NewProcessMonitor()
 
@@ -1265,6 +1274,10 @@ func (a *Agent) handleInstallCommand(ctx context.Context, cmd *pb.CommandRequest
 		params.PackagePath = packagePath
 		params.Mode = installer.InstallModeOffline // Use offline mode when package path is provided
 	}
+
+	// Agent-local fallback package (no internet download) / Agent 本地兜底安装包（不从互联网下载）
+	params.PackageFileName = getParamString(cmd.Parameters, "package_file_name", "")
+	params.AgentLocalPackagePath = getParamString(cmd.Parameters, "agent_package_path", "")
 
 	// Parse mirror source / 解析镜像源
 	mirror := getParamString(cmd.Parameters, "mirror", "")

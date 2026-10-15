@@ -24,6 +24,25 @@ service AgentService {
 
   // 诊断日志游标查询 - Agent 启动时从 Control Plane 拉取历史游标，避免重复采集尾部错误
   rpc GetDiagnosticsLogCursors(DiagnosticsCursorRequest) returns (DiagnosticsCursorResponse);
+
+  // 安装包下载流 - Agent 按 transfer_id 从 Control Plane 拉取安装包（原生字节流，支持断点续传）
+  // Package download stream - Agent pulls a package by transfer_id (raw bytes, resumable via offset)
+  rpc DownloadPackage(DownloadPackageRequest) returns (stream PackageChunk);
+}
+
+// DownloadPackageRequest - 安装包下载请求
+message DownloadPackageRequest {
+  string agent_id    = 1; // Agent 唯一标识
+  string transfer_id = 2; // Control Plane 下发的一次性传输标识
+  int64  offset      = 3; // 起始偏移量（断点续传）
+}
+
+// PackageChunk - 安装包数据块
+message PackageChunk {
+  bytes  data       = 1; // 原始字节（不做 base64）
+  int64  offset     = 2; // 本块在文件中的偏移量
+  int64  total_size = 3; // 文件总大小
+  string checksum   = 4; // 文件 SHA256（每块都携带，便于校验）
 }
 
 // DiagnosticsCursorRequest - 诊断日志游标查询请求

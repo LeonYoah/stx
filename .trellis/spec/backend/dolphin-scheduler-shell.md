@@ -97,7 +97,11 @@ DolphinScheduler **只支持 3.x**：
 | 3.0 / 3.1 / 3.2 | `process` | `/projects/{code}/process-definition` | `processDefinition` | `processTaskRelationList` | `processDefinitionCode` |
 | 3.3+ | `workflow` | `/projects/{code}/workflow-definition` | `workflowDefinition` | `workflowTaskRelationList` | `workflowDefinitionCode` |
 
-连接可填 `dolphin_version`（如 `3.2.2` / `3.3.1`）直接选定 API 族；留空则先探 3.3 路径再回退 3.1/3.2。项目列表若只有 `id` 没有 `code`（2.x）返回 `ErrDolphinUnsupportedVersion`。解码必须同时识别两套 JSON 字段，否则 3.3 复用/更新会把连线读成空。
+连接可填 `dolphin_version`（如 `3.2.2` / `3.3.1`）直接选定 API 族；留空则先探 3.3 路径再回退 3.1/3.2。探测必须要求响应是 JSON；3.2 单机对 `workflow-definition` 常返回 200 HTML 控制台页，不能当成 3.3。项目列表若只有 `id` 没有 `code`（2.x）返回 `ErrDolphinUnsupportedVersion`。解码必须同时识别两套 JSON 字段，否则 3.3 复用/更新会把连线读成空。
+
+SHELL 节点 JSON 必须带 `isCache=NO`、`taskExecuteType=BATCH`；3.2.x 缺 `isCache` 时 `transformTask` NPE，接口只回 `request parameter {0} is not valid`。默认 worker group 是 Dolphin 自带的 `default`，不要默认 `stx-workers`（真实单机没有这个组）。
+
+控制台链接：3.0/3.1 用 `#/projects/{code}/process-definition/list/{wf}`；3.2 起 UI 已是 `/projects/{code}/workflow-definition/{wf}`（3.2.2 的 hash process-definition 会落到首页）。API 族仍按 3.2=`process`、3.3+=`workflow` 划分。
 
 ### 4. Validation & Error Matrix
 

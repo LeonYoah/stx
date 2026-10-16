@@ -573,7 +573,7 @@ func (s *Service) saveBindingAfterPush(ctx context.Context, taskID uint, conn *S
 		WorkflowCode: workflowCode,
 		TaskCode:     taskCode,
 		WorkflowName: workflowName,
-		ConsoleURL:   dolphinConsoleURL(conn.BaseURL, projectCode, workflowCode, apiStyle),
+		ConsoleURL:   dolphinConsoleURL(conn.BaseURL, projectCode, workflowCode, apiStyle, conn.DolphinVersion),
 		PushedAt:     &now,
 		PushedBy:     pushedBy,
 	}

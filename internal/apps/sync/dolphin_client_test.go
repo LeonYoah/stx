@@ -215,6 +215,24 @@ func TestDolphinClientAutoProbePrefers33ThenFallsBackTo32(t *testing.T) {
 	}
 }
 
+func TestDolphinClientAutoProbe32IgnoresHtmlWorkflowPath(t *testing.T) {
+	server, fake := newDolphinFakeServer(t, dolphinFakeProcess)
+	client := newDolphinClient(&SchedulerConnection{BaseURL: server.URL, Token: "t", APIStyle: SchedulerAPIStyleAuto}, server.Client())
+	items, err := client.ListWorkflows(context.Background(), 7)
+	if err != nil {
+		t.Fatalf("auto 3.2 after HTML fallback: %v", err)
+	}
+	if client.style != SchedulerAPIStyleProcess {
+		t.Fatalf("HTML 200 must not select workflow family, style=%s", client.style)
+	}
+	if len(items) != 1 || items[0].Code != 9 {
+		t.Fatalf("workflows = %+v", items)
+	}
+	if !fake.saw("workflow-definition") || !fake.saw("process-definition") {
+		t.Fatalf("expected workflow HTML probe then process: %v", fake.paths)
+	}
+}
+
 func TestDolphinClientRejectsV2ProjectList(t *testing.T) {
 	server, _ := newDolphinFakeServer(t, dolphinFakeV2)
 	client := newDolphinClient(&SchedulerConnection{BaseURL: server.URL, Token: "t", APIStyle: SchedulerAPIStyleAuto}, server.Client())
@@ -252,13 +270,35 @@ func TestNormalizeSchedulerConnectionRejectsNon3xVersion(t *testing.T) {
 }
 
 func TestDolphinConsoleURLByFamily(t *testing.T) {
-	processURL := dolphinConsoleURL("http://ds:12345/dolphinscheduler", 7, 9, SchedulerAPIStyleProcess)
-	if !strings.Contains(processURL, "/#/projects/7/process-definition/list/9") {
-		t.Fatalf("process console url = %s", processURL)
+	hashURL := dolphinConsoleURL("http://ds:12345/dolphinscheduler", 7, 9, SchedulerAPIStyleProcess, "3.1.9")
+	if !strings.Contains(hashURL, "/#/projects/7/process-definition/list/9") {
+		t.Fatalf("3.1 console url = %s", hashURL)
 	}
-	workflowURL := dolphinConsoleURL("http://ds:12345/dolphinscheduler", 7, 9, SchedulerAPIStyleWorkflow)
+	process32URL := dolphinConsoleURL("http://ds:12345/dolphinscheduler", 7, 9, SchedulerAPIStyleProcess, "3.2.2")
+	if !strings.Contains(process32URL, "/projects/7/workflow-definition/9") {
+		t.Fatalf("3.2 console url = %s", process32URL)
+	}
+	workflowURL := dolphinConsoleURL("http://ds:12345/dolphinscheduler", 7, 9, SchedulerAPIStyleWorkflow, "3.3.1")
 	if !strings.Contains(workflowURL, "/projects/7/workflow-definition/9") {
 		t.Fatalf("workflow console url = %s", workflowURL)
+	}
+}
+
+func TestBuildShellTaskIncludes32CacheFields(t *testing.T) {
+	task := buildShellTask(88, "orders", "echo hi", "", 10)
+	if task.IsCache != "NO" || task.TaskExecuteType != "BATCH" {
+		t.Fatalf("3.2 cache fields missing: %+v", task)
+	}
+	if task.WorkerGroup != "default" {
+		t.Fatalf("default worker group = %s", task.WorkerGroup)
+	}
+	raw, err := json.Marshal(task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded := string(raw)
+	if !strings.Contains(encoded, `"isCache":"NO"`) || !strings.Contains(encoded, `"taskExecuteType":"BATCH"`) {
+		t.Fatalf("encoded task missing 3.2 fields: %s", encoded)
 	}
 }
 

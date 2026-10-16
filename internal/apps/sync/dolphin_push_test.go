@@ -230,8 +230,11 @@ func TestPushDolphinNewWorkflowOn31And32UsesProcessPaths(t *testing.T) {
 			if !fake.saw("POST /projects/7/process-definition") {
 				t.Fatalf("%s push missed create: %v", version, fake.paths)
 			}
-			if !strings.Contains(result.Binding.ConsoleURL, "process-definition") {
-				t.Fatalf("console url = %s", result.Binding.ConsoleURL)
+			if version == "3.1.9" && !strings.Contains(result.Binding.ConsoleURL, "process-definition") {
+				t.Fatalf("3.1 console url = %s", result.Binding.ConsoleURL)
+			}
+			if version == "3.2.2" && !strings.Contains(result.Binding.ConsoleURL, "workflow-definition") {
+				t.Fatalf("3.2 console url = %s", result.Binding.ConsoleURL)
 			}
 		})
 	}

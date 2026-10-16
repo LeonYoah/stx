@@ -84,6 +84,8 @@ type dolphinTaskDef struct {
 	DelayTime             int                    `json:"delayTime"`
 	CpuQuota              int                    `json:"cpuQuota"`
 	MemoryMax             int                    `json:"memoryMax"`
+	IsCache               string                 `json:"isCache"`
+	TaskExecuteType       string                 `json:"taskExecuteType"`
 }
 
 type dolphinRelation struct {
@@ -364,10 +366,17 @@ func (c *DolphinClient) doForm(ctx context.Context, method, path string, form ur
 func decodeDolphinEnvelope(status int, content []byte) (json.RawMessage, error) {
 	var envelope dolphinEnvelope
 	if err := json.Unmarshal(content, &envelope); err != nil {
-		if status >= 200 && status < 300 {
+		// 3.2 对不存在的 workflow-definition 常返回 200 HTML 控制台页，不能当成探测成功。
+		// 3.2 often returns the 200 HTML console for missing workflow-definition; that is not a probe hit.
+		trimmed := strings.TrimSpace(string(content))
+		if status >= 200 && status < 300 && looksLikeJSON(trimmed) {
 			return content, nil
 		}
-		return nil, fmt.Errorf("sync: dolphin http %d: %s", status, strings.TrimSpace(string(content)))
+		snippet := trimmed
+		if len(snippet) > 180 {
+			snippet = snippet[:180]
+		}
+		return nil, fmt.Errorf("sync: dolphin http %d: %s", status, snippet)
 	}
 	if envelope.Code != 0 {
 		msg := strings.TrimSpace(envelope.Msg)
@@ -377,6 +386,15 @@ func decodeDolphinEnvelope(status int, content []byte) (json.RawMessage, error) 
 		return nil, fmt.Errorf("sync: %s", msg)
 	}
 	return envelope.Data, nil
+}
+
+// looksLikeJSON 判断响应是不是 JSON 对象/数组，用来挡住 3.2 的 HTML 回退页。
+// looksLikeJSON reports whether the body is a JSON object or array so 3.2 HTML fallback pages are rejected.
+func looksLikeJSON(raw string) bool {
+	if raw == "" {
+		return false
+	}
+	return raw[0] == '{' || raw[0] == '['
 }
 
 func looksLikeDolphinV2Projects(raw json.RawMessage) bool {
@@ -601,6 +619,10 @@ func buildShellTask(code int64, name, script, workerGroup string, timeoutMinutes
 		DelayTime:             0,
 		CpuQuota:              -1,
 		MemoryMax:             -1,
+		// 3.2.x 缺 isCache / taskExecuteType 时 transformTask 会 NPE，创建工作流失败。
+		// 3.2.x NPEs in transformTask when isCache / taskExecuteType are omitted, so create fails.
+		IsCache:         "NO",
+		TaskExecuteType: "BATCH",
 	}
 }
 
@@ -629,13 +651,15 @@ func edgeRelation(fromCode int64, fromVersion int, to dolphinTaskDef) dolphinRel
 	}
 }
 
-func dolphinConsoleURL(baseURL string, projectCode, workflowCode int64, style string) string {
+func dolphinConsoleURL(baseURL string, projectCode, workflowCode int64, style, version string) string {
 	trimmed := strings.TrimRight(baseURL, "/")
 	trimmed = strings.TrimSuffix(trimmed, "/dolphinscheduler")
 	origin := trimmed + "/dolphinscheduler/ui"
-	if style == SchedulerAPIStyleProcess {
-		// 3.1/3.2 控制台仍是 hash 路由的 process-definition。
-		// 3.1/3.2 console still uses the hash-routed process-definition page.
+	major, minor, _, _ := parseDolphinVersion(version)
+	// 3.0/3.1 控制台仍是 hash 的 process-definition；3.2 起 UI 已改成 history 的 workflow-definition，尽管 API 在 3.3 前仍是 process-definition。
+	// 3.0/3.1 console still uses hash process-definition; from 3.2 the UI is history workflow-definition even while the API stays process-definition until 3.3.
+	useHashProcess := style == SchedulerAPIStyleProcess && major == 3 && minor < 2
+	if useHashProcess {
 		return fmt.Sprintf("%s/#/projects/%d/process-definition/list/%d", origin, projectCode, workflowCode)
 	}
 	return fmt.Sprintf("%s/projects/%d/workflow-definition/%d", origin, projectCode, workflowCode)

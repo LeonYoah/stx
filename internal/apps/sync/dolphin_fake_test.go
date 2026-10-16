@@ -74,7 +74,9 @@ func (f *dolphinFake) serve(writer http.ResponseWriter, request *http.Request) {
 	}
 	path := request.URL.Path
 	if strings.Contains(path, "workflow-definition") && f.family != dolphinFakeWorkflow {
-		writeDolphinBizError(writer, "workflow-definition is not available before 3.3")
+		// 3.1/3.2 真实单机对未知路径返回 200 HTML 控制台，而不是 JSON 业务错误。
+		// Real 3.1/3.2 standalone serves the 200 HTML console for unknown paths, not a JSON biz error.
+		writeDolphinHTMLFallback(writer)
 		return
 	}
 	if strings.Contains(path, "process-definition") && f.family != dolphinFakeProcess {
@@ -171,6 +173,12 @@ func (f *dolphinFake) count(substr string) int {
 		}
 	}
 	return n
+}
+
+func writeDolphinHTMLFallback(writer http.ResponseWriter) {
+	writer.Header().Set("Content-Type", "text/html")
+	writer.WriteHeader(http.StatusOK)
+	_, _ = writer.Write([]byte("<!DOCTYPE html><html><body>DolphinScheduler UI</body></html>"))
 }
 
 func writeDolphinBizError(writer http.ResponseWriter, msg string) {

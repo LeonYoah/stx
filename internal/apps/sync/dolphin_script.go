@@ -25,8 +25,10 @@ import (
 )
 
 const (
-	defaultDolphinCLITimeout  = "6h"
-	defaultDolphinWorkerGroup = "stx-workers"
+	defaultDolphinCLITimeout = "6h"
+	// defaultDolphinWorkerGroup 必须是 Dolphin 自带的 default；真实单机没有 stx-workers。
+	// defaultDolphinWorkerGroup must be Dolphin's built-in default; a real standalone has no stx-workers group.
+	defaultDolphinWorkerGroup = "default"
 	defaultDolphinEnvironment = "stx-cli-prod"
 	// dolphinScheduleTimePlaceholder 必须保持为 Dolphin 原样占位符，不能在 Go 里插值。
 	// dolphinScheduleTimePlaceholder must stay a Dolphin placeholder and must not be interpolated by Go.

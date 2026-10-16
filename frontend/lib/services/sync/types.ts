@@ -409,6 +409,7 @@ export interface SchedulerConnection {
   token_set?: boolean;
   default_project_code?: number;
   api_style?: string;
+  dolphin_version?: string;
 }
 
 export interface SchedulerConnectionRequest {
@@ -418,6 +419,7 @@ export interface SchedulerConnectionRequest {
   token?: string;
   default_project_code?: number;
   api_style?: string;
+  dolphin_version?: string;
 }
 
 export interface DolphinProject {

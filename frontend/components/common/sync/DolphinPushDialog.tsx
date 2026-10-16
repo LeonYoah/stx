@@ -85,6 +85,7 @@ export function DolphinPushDialog({
   const [connName, setConnName] = useState('');
   const [connURL, setConnURL] = useState('');
   const [connToken, setConnToken] = useState('');
+  const [connVersion, setConnVersion] = useState('');
   const [busy, setBusy] = useState(false);
   const [cycle, setCycle] = useState(false);
 
@@ -284,6 +285,7 @@ export function DolphinPushDialog({
         name: connName.trim(),
         base_url: connURL.trim(),
         token: connToken.trim(),
+        dolphin_version: connVersion.trim() || undefined,
       });
       setConnections((items) => [...items, created]);
       setConnectionId(String(created.id));
@@ -345,7 +347,7 @@ export function DolphinPushDialog({
               <summary className='cursor-pointer text-xs font-medium'>
                 {t('dolphinNewConnection')}
               </summary>
-              <div className='mt-3 grid gap-2 sm:grid-cols-3'>
+              <div className='mt-3 grid gap-2 sm:grid-cols-2'>
                 <Input
                   value={connName}
                   onChange={(event) => setConnName(event.target.value)}
@@ -363,7 +365,15 @@ export function DolphinPushDialog({
                   placeholder={t('dolphinTokenPlaceholder')}
                   autoComplete='new-password'
                 />
+                <Input
+                  value={connVersion}
+                  onChange={(event) => setConnVersion(event.target.value)}
+                  placeholder={t('dolphinVersionPlaceholder')}
+                />
               </div>
+              <p className='mt-2 text-[11px] leading-relaxed text-muted-foreground'>
+                {t('dolphinVersionHint')}
+              </p>
               <Button
                 type='button'
                 size='sm'

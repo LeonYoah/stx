@@ -32,17 +32,20 @@ const (
 // SchedulerConnection 保存访问外部调度器的 API 地址和令牌。
 // SchedulerConnection stores the API endpoint and token for an external scheduler.
 type SchedulerConnection struct {
-	ID                 uint      `json:"id" gorm:"primaryKey;autoIncrement"`
-	Name               string    `json:"name" gorm:"size:120;not null"`
-	Kind               string    `json:"kind" gorm:"size:32;not null;index;default:dolphin"`
-	BaseURL            string    `json:"base_url" gorm:"size:512;not null"`
-	Token              string    `json:"-" gorm:"type:text"`
-	TokenSet           bool      `json:"token_set" gorm:"-"`
-	DefaultProjectCode int64     `json:"default_project_code"`
-	APIStyle           string    `json:"api_style" gorm:"size:32;not null;default:auto"`
-	CreatedBy          uint      `json:"created_by"`
-	CreatedAt          time.Time `json:"created_at" gorm:"autoCreateTime"`
-	UpdatedAt          time.Time `json:"updated_at" gorm:"autoUpdateTime"`
+	ID                 uint   `json:"id" gorm:"primaryKey;autoIncrement"`
+	Name               string `json:"name" gorm:"size:120;not null"`
+	Kind               string `json:"kind" gorm:"size:32;not null;index;default:dolphin"`
+	BaseURL            string `json:"base_url" gorm:"size:512;not null"`
+	Token              string `json:"-" gorm:"type:text"`
+	TokenSet           bool   `json:"token_set" gorm:"-"`
+	DefaultProjectCode int64  `json:"default_project_code"`
+	APIStyle           string `json:"api_style" gorm:"size:32;not null;default:auto"`
+	// DolphinVersion 可选，例如 3.2.2 / 3.3.1；空则运行时探测 3.1/3.2 与 3.3+ 路径。
+	// DolphinVersion is optional, e.g. 3.2.2 / 3.3.1; empty means probe 3.1/3.2 vs 3.3+ paths at runtime.
+	DolphinVersion string    `json:"dolphin_version,omitempty" gorm:"size:32"`
+	CreatedBy      uint      `json:"created_by"`
+	CreatedAt      time.Time `json:"created_at" gorm:"autoCreateTime"`
+	UpdatedAt      time.Time `json:"updated_at" gorm:"autoUpdateTime"`
 }
 
 // TableName 指定调度器连接表名。
@@ -94,6 +97,7 @@ type SchedulerConnectionRequest struct {
 	Token              string `json:"token"`
 	DefaultProjectCode int64  `json:"default_project_code"`
 	APIStyle           string `json:"api_style"`
+	DolphinVersion     string `json:"dolphin_version"`
 }
 
 // DolphinPushRequest 描述一次推送到 Dolphin 的请求。

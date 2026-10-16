@@ -86,4 +86,5 @@ var (
 	ErrDolphinVersionConflict          = errors.New("sync: DolphinScheduler workflow version changed")
 	ErrDolphinNodeMissing              = errors.New("sync: bound DolphinScheduler task node is missing; use first-time push")
 	ErrDolphinPushInvalid              = errors.New("sync: invalid DolphinScheduler push request")
+	ErrDolphinUnsupportedVersion       = errors.New("sync: only DolphinScheduler 3.x is supported")
 )

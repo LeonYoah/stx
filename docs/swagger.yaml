@@ -3214,6 +3214,8 @@ definitions:
         type: integer
       default_project_code:
         type: integer
+      dolphin_version:
+        type: string
       id:
         type: integer
       kind:
@@ -3247,6 +3249,8 @@ definitions:
         type: string
       default_project_code:
         type: integer
+      dolphin_version:
+        type: string
       kind:
         type: string
       name:

@@ -340,7 +340,7 @@ func (s *Service) pushNewWorkflow(ctx context.Context, actor executionapp.Actor,
 	} else if err := client.OnlineSchedules(ctx, projectCode, graph.Code); err != nil {
 		result.Warning = joinWarning(result.Warning, err.Error())
 	}
-	saved, err := s.saveBindingAfterPush(ctx, task.ID, conn, projectCode, graph.Code, shell.Code, name, uint(actor.UserID))
+	saved, err := s.saveBindingAfterPush(ctx, task.ID, conn, projectCode, graph.Code, shell.Code, name, uint(actor.UserID), client.style)
 	if err != nil {
 		return nil, err
 	}
@@ -453,7 +453,7 @@ func (s *Service) pushReuseWorkflow(ctx context.Context, actor executionapp.Acto
 			result.Warning = err.Error()
 		}
 	}
-	saved, err := s.saveBindingAfterPush(ctx, task.ID, conn, projectCode, graph.Code, shell.Code, graph.Name, uint(actor.UserID))
+	saved, err := s.saveBindingAfterPush(ctx, task.ID, conn, projectCode, graph.Code, shell.Code, graph.Name, uint(actor.UserID), client.style)
 	if err != nil {
 		return nil, err
 	}
@@ -549,7 +549,7 @@ func (s *Service) pushUpdateNode(ctx context.Context, actor executionapp.Actor, 
 			result.Warning = err.Error()
 		}
 	}
-	saved, err := s.saveBindingAfterPush(ctx, task.ID, conn, binding.ProjectCode, graph.Code, binding.TaskCode, graph.Name, uint(actor.UserID))
+	saved, err := s.saveBindingAfterPush(ctx, task.ID, conn, binding.ProjectCode, graph.Code, binding.TaskCode, graph.Name, uint(actor.UserID), client.style)
 	if err != nil {
 		return nil, err
 	}
@@ -561,7 +561,9 @@ func (s *Service) pushUpdateNode(ctx context.Context, actor executionapp.Actor, 
 	return result, nil
 }
 
-func (s *Service) saveBindingAfterPush(ctx context.Context, taskID uint, conn *SchedulerConnection, projectCode, workflowCode, taskCode int64, workflowName string, pushedBy uint) (*TaskSchedulerBinding, error) {
+// saveBindingAfterPush 写入绑定，并用探测到的 API 族生成控制台链接。
+// saveBindingAfterPush stores the binding and builds the console URL from the probed API family.
+func (s *Service) saveBindingAfterPush(ctx context.Context, taskID uint, conn *SchedulerConnection, projectCode, workflowCode, taskCode int64, workflowName string, pushedBy uint, apiStyle string) (*TaskSchedulerBinding, error) {
 	now := time.Now()
 	item := &TaskSchedulerBinding{
 		TaskID:       taskID,
@@ -571,7 +573,7 @@ func (s *Service) saveBindingAfterPush(ctx context.Context, taskID uint, conn *S
 		WorkflowCode: workflowCode,
 		TaskCode:     taskCode,
 		WorkflowName: workflowName,
-		ConsoleURL:   dolphinConsoleURL(conn.BaseURL, projectCode, workflowCode),
+		ConsoleURL:   dolphinConsoleURL(conn.BaseURL, projectCode, workflowCode, apiStyle),
 		PushedAt:     &now,
 		PushedBy:     pushedBy,
 	}
@@ -644,6 +646,18 @@ func normalizeSchedulerConnection(existing *SchedulerConnection, req *SchedulerC
 		item.APIStyle = style
 	default:
 		return nil, fmt.Errorf("%w: unsupported api_style", ErrSchedulerConnectionInvalid)
+	}
+	if req.DolphinVersion != "" || existing == nil {
+		item.DolphinVersion = strings.TrimSpace(req.DolphinVersion)
+	}
+	if item.DolphinVersion != "" {
+		family, err := dolphinAPIFamilyFromVersion(item.DolphinVersion)
+		if err != nil {
+			return nil, err
+		}
+		if item.APIStyle == SchedulerAPIStyleAuto {
+			item.APIStyle = family
+		}
 	}
 	return item, nil
 }

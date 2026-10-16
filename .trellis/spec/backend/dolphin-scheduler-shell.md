@@ -90,6 +90,15 @@ CLI 环境变量优先级：`--server`/`--token` → `STX_SERVER`/`STX_TOKEN` �
 
 数组字段（`items`/`tasks`/`relations`/`recent_jobs`）在 API 与前端 service 边界都必须是 `[]`，不能是 `null`。
 
+DolphinScheduler **只支持 3.x**：
+
+| 版本 | API 族 | 定义路径 | 定义 JSON | 关系 JSON | 定时字段 |
+| --- | --- | --- | --- | --- | --- |
+| 3.0 / 3.1 / 3.2 | `process` | `/projects/{code}/process-definition` | `processDefinition` | `processTaskRelationList` | `processDefinitionCode` |
+| 3.3+ | `workflow` | `/projects/{code}/workflow-definition` | `workflowDefinition` | `workflowTaskRelationList` | `workflowDefinitionCode` |
+
+连接可填 `dolphin_version`（如 `3.2.2` / `3.3.1`）直接选定 API 族；留空则先探 3.3 路径再回退 3.1/3.2。项目列表若只有 `id` 没有 `code`（2.x）返回 `ErrDolphinUnsupportedVersion`。解码必须同时识别两套 JSON 字段，否则 3.3 复用/更新会把连线读成空。
+
 ### 4. Validation & Error Matrix
 
 | 条件 | HTTP | CLI 退出码 |
@@ -105,6 +114,7 @@ CLI 环境变量优先级：`--server`/`--token` → `STX_SERVER`/`STX_TOKEN` �
 | `--wait` 超时并已请求 cancel | — | 8 |
 | 作业 `failed` / `canceled` | — | 10 |
 | 绑定期间打开内置定时 | 400 `ErrScheduleLockedByDolphin` | 2 |
+| Dolphin 不是 3.x / 2.x 项目列表 / 高低版本路径都不存在 | 400 `ErrDolphinUnsupportedVersion` | 2 |
 
 ### 5. Good / Base / Bad
 
@@ -116,6 +126,8 @@ CLI 环境变量优先级：`--server`/`--token` → `STX_SERVER`/`STX_TOKEN` �
 
 - `go test ./internal/cmd/ ./internal/cli/... ./internal/apps/sync/ ./internal/apps/auth/ ./internal/operation/`
 - 断言：变量未替换拒绝；同一 `external_ref` 接管；旧 generation 停止被忽略；update 不改边；成环不写 Dolphin；version 冲突 409；流式脚本含 `--close-job=false`；调度令牌不能提交未绑定任务。
+- Dolphin httptest：3.1/3.2 只打 `process-definition` 且定时带 `processDefinitionCode`；3.3+ 只打 `workflow-definition` 且解码 `workflowTaskRelationList`；更新 3.3 节点必须把原 `workflowTaskRelationList` 写回 `taskRelationJson`；2.x / 非 3.x 版本被拒绝。
+- CLI：`stx sync scheduler connection create --dolphin-version 3.2.2` 把版本写入连接请求体。
 - 前端：中英文 i18n 键齐全；service 对 `tasks`/`relations`/`recent_jobs` 做 `?? []`。
 
 ### 7. Wrong vs Correct

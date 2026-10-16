@@ -9285,6 +9285,9 @@ const docTemplate = `{
                 "default_project_code": {
                     "type": "integer"
                 },
+                "dolphin_version": {
+                    "type": "string"
+                },
                 "id": {
                     "type": "integer"
                 },
@@ -9335,6 +9338,9 @@ const docTemplate = `{
                 },
                 "default_project_code": {
                     "type": "integer"
+                },
+                "dolphin_version": {
+                    "type": "string"
                 },
                 "kind": {
                     "type": "string"

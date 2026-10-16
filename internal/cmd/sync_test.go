@@ -332,6 +332,46 @@ func TestSyncCuratedListCommand(t *testing.T) {
 	}
 }
 
+func TestSyncSchedulerConnectionCreateSendsDolphinVersion(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		if request.URL.Path == "/api/v1/capabilities" {
+			writeSyncCapabilities(t, writer, "sync.scheduler.connection.create", "R1")
+			return
+		}
+		if request.Method != http.MethodPost || request.URL.Path != "/api/v1/sync/scheduler-connections" {
+			t.Fatalf("创建调度器连接请求错误: %s %s", request.Method, request.URL.Path)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Fatalf("读取请求体失败: %v", err)
+		}
+		if body["name"] != "ds" || body["dolphin_version"] != "3.2.2" || body["api_style"] != "auto" {
+			t.Fatalf("连接请求体错误: %#v", body)
+		}
+		_ = json.NewEncoder(writer).Encode(map[string]any{
+			"data": map[string]any{"id": 1, "name": "ds", "dolphin_version": "3.2.2", "api_style": "process"},
+		})
+	}))
+	defer server.Close()
+
+	store := newExecutionTestStore(t, server.URL, "test-token")
+	stdout, stderr, exitCode := runSyncCommand(t, store,
+		"sync", "scheduler", "connection", "create",
+		"--name", "ds",
+		"--base-url", "http://dolphin:12345/dolphinscheduler",
+		"--token", "ds-token",
+		"--dolphin-version", "3.2.2",
+		"--confirm",
+	)
+	if exitCode != int(clioutput.ExitSuccess) {
+		t.Fatalf("创建调度器连接失败: code=%d stdout=%s stderr=%s", exitCode, stdout, stderr)
+	}
+	if !strings.Contains(stdout, "3.2.2") {
+		t.Fatalf("stdout 未包含版本: %s", stdout)
+	}
+}
+
 func TestSyncCuratedCreateRequiresConfirm(t *testing.T) {
 	var calls int
 	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { calls++ }))

@@ -4418,6 +4418,8 @@
     "dolphinNewConnection": "新建连接",
     "dolphinConnectionName": "连接名称",
     "dolphinTokenPlaceholder": "Dolphin Token",
+    "dolphinVersionPlaceholder": "3.2.2 或 3.3.1，可空则自动探测",
+    "dolphinVersionHint": "仅支持 DolphinScheduler 3.x。3.1/3.2 走 process-definition，3.3+ 走 workflow-definition。",
     "dolphinSaveConnection": "保存连接",
     "dolphinConnectionSaved": "连接已保存",
     "dolphinConnectionRequired": "请先填写连接",

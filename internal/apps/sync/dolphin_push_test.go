@@ -210,6 +210,109 @@ func TestDolphinClientSwitchesProcessAndWorkflowPaths(t *testing.T) {
 	}
 }
 
+func TestPushDolphinNewWorkflowOn31And32UsesProcessPaths(t *testing.T) {
+	for _, version := range []string{"3.1.9", "3.2.2"} {
+		t.Run(version, func(t *testing.T) {
+			server, fake := newDolphinFakeServer(t, dolphinFakeProcess)
+			service, task, connID := newPushServiceWithDolphin(t, server, version, SchedulerAPIStyleAuto)
+			result, err := service.PushDolphin(context.Background(), executionapp.Actor{UserID: 1, IsAdmin: true}, task.ID, &DolphinPushRequest{
+				Mode: "new", ConnectionID: connID, ProjectCode: 7, WorkflowName: "orders",
+			})
+			if err != nil {
+				t.Fatalf("push %s: %v", version, err)
+			}
+			if result.TaskCode == 0 || result.Binding == nil {
+				t.Fatalf("result = %+v", result)
+			}
+			if fake.saw("workflow-definition") {
+				t.Fatalf("%s push used 3.3 paths: %v", version, fake.paths)
+			}
+			if !fake.saw("POST /projects/7/process-definition") {
+				t.Fatalf("%s push missed create: %v", version, fake.paths)
+			}
+			if !strings.Contains(result.Binding.ConsoleURL, "process-definition") {
+				t.Fatalf("console url = %s", result.Binding.ConsoleURL)
+			}
+		})
+	}
+}
+
+func TestPushDolphinNewWorkflowOn33UsesWorkflowPaths(t *testing.T) {
+	server, fake := newDolphinFakeServer(t, dolphinFakeWorkflow)
+	service, task, connID := newPushServiceWithDolphin(t, server, "3.3.1", SchedulerAPIStyleAuto)
+	result, err := service.PushDolphin(context.Background(), executionapp.Actor{UserID: 1, IsAdmin: true}, task.ID, &DolphinPushRequest{
+		Mode: "new", ConnectionID: connID, ProjectCode: 7, WorkflowName: "orders",
+	})
+	if err != nil {
+		t.Fatalf("push 3.3: %v", err)
+	}
+	if fake.saw("process-definition") {
+		t.Fatalf("3.3 push used 3.2 paths: %v", fake.paths)
+	}
+	if !fake.saw("POST /projects/7/workflow-definition") {
+		t.Fatalf("3.3 push missed create: %v", fake.paths)
+	}
+	if !strings.Contains(result.Binding.ConsoleURL, "workflow-definition") {
+		t.Fatalf("console url = %s", result.Binding.ConsoleURL)
+	}
+}
+
+func TestPushDolphinUpdateOn33KeepsWorkflowRelations(t *testing.T) {
+	server, fake := newDolphinFakeServer(t, dolphinFakeWorkflow)
+	service, task, connID := newPushServiceWithDolphin(t, server, "3.3.1", SchedulerAPIStyleAuto)
+	if err := service.repo.SaveSchedulerBinding(context.Background(), &TaskSchedulerBinding{
+		TaskID: task.ID, Kind: SchedulerKindDolphin, ConnectionID: connID, ProjectCode: 7, WorkflowCode: 9, TaskCode: 88,
+	}); err != nil {
+		t.Fatalf("save binding: %v", err)
+	}
+	result, err := service.PushDolphin(context.Background(), executionapp.Actor{UserID: 1, IsAdmin: true}, task.ID, &DolphinPushRequest{
+		Mode: "update", ConnectionID: connID,
+	})
+	if err != nil {
+		t.Fatalf("update 3.3: %v", err)
+	}
+	if result.TaskCode != 88 {
+		t.Fatalf("task code = %d", result.TaskCode)
+	}
+	if fake.saw("process-definition") {
+		t.Fatalf("3.3 update used 3.2 paths: %v", fake.paths)
+	}
+	if !fake.saw("PUT /projects/7/workflow-definition/9") {
+		t.Fatalf("3.3 update missed PUT definition: %v", fake.paths)
+	}
+	var relations []dolphinRelation
+	if err := json.Unmarshal([]byte(fake.lastForm.Get("taskRelationJson")), &relations); err != nil {
+		t.Fatalf("decode taskRelationJson: %v form=%v", err, fake.lastForm)
+	}
+	if len(relations) != 1 || relations[0].PreTaskCode != 1 || relations[0].PostTaskCode != 88 {
+		t.Fatalf("3.3 update dropped workflowTaskRelationList: %+v", relations)
+	}
+}
+
+func newPushServiceWithDolphin(t *testing.T, server *httptest.Server, version, style string) (*Service, *Task, uint) {
+	t.Helper()
+	service := newTestSyncService(t)
+	service.SetDolphinHTTPClient(server.Client())
+	ctx := context.Background()
+	conn := &SchedulerConnection{
+		Name: "ds", Kind: SchedulerKindDolphin, BaseURL: server.URL, Token: "secret", APIStyle: style, DolphinVersion: version,
+	}
+	if err := service.repo.CreateSchedulerConnection(ctx, conn); err != nil {
+		t.Fatalf("create connection: %v", err)
+	}
+	folder, err := service.CreateTask(ctx, &CreateTaskRequest{NodeType: string(TaskNodeTypeFolder), Name: "root", ContentFormat: string(ContentFormatHOCON)}, 1)
+	if err != nil {
+		t.Fatalf("create folder: %v", err)
+	}
+	task, err := service.CreateTask(ctx, &CreateTaskRequest{
+		ParentID: uintPtr(folder.ID), NodeType: string(TaskNodeTypeFile), Name: "orders", Mode: string(TaskModeBatch), ContentFormat: string(ContentFormatHOCON), Content: "env {}",
+	}, 1)
+	if err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+	return service, task, conn.ID
+}
+
 func newBoundPushService(t *testing.T, server *httptest.Server) (*Service, *Task, uint) {
 	t.Helper()
 	service := newTestSyncService(t)

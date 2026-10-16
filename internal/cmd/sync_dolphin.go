@@ -146,7 +146,7 @@ func newSyncJobCancelByRefCommand(storeProvider authStoreProvider) *cobra.Comman
 
 func newSchedulerConnectionCreateCommand(storeProvider authStoreProvider) *cobra.Command {
 	var options secureWriteOptions
-	var name, baseURL, token, apiStyle string
+	var name, baseURL, token, apiStyle, dolphinVersion string
 	var defaultProjectCode int64
 
 	command := &cobra.Command{
@@ -168,6 +168,7 @@ func newSchedulerConnectionCreateCommand(storeProvider authStoreProvider) *cobra
 				"base_url":             baseURL,
 				"token":                token,
 				"api_style":            apiStyle,
+				"dolphin_version":      dolphinVersion,
 				"default_project_code": defaultProjectCode,
 			}
 			var data any
@@ -182,14 +183,15 @@ func newSchedulerConnectionCreateCommand(storeProvider authStoreProvider) *cobra
 	command.Flags().StringVar(&name, "name", "", "Connection name")
 	command.Flags().StringVar(&baseURL, "base-url", "", "DolphinScheduler API base URL")
 	command.Flags().StringVar(&token, "token", "", "DolphinScheduler API token")
-	command.Flags().StringVar(&apiStyle, "api-style", "auto", "API style: auto, process, or workflow")
+	command.Flags().StringVar(&apiStyle, "api-style", "auto", "API style: auto, process (3.1/3.2), or workflow (3.3+)")
+	command.Flags().StringVar(&dolphinVersion, "dolphin-version", "", "DolphinScheduler 3.x version such as 3.2.2 or 3.3.1")
 	command.Flags().Int64Var(&defaultProjectCode, "default-project-code", 0, "Default project code")
 	return command
 }
 
 func newSchedulerConnectionUpdateCommand(storeProvider authStoreProvider) *cobra.Command {
 	var options secureWriteOptions
-	var name, baseURL, token, apiStyle string
+	var name, baseURL, token, apiStyle, dolphinVersion string
 	var defaultProjectCode int64
 
 	command := &cobra.Command{
@@ -212,6 +214,7 @@ func newSchedulerConnectionUpdateCommand(storeProvider authStoreProvider) *cobra
 				"base_url":             baseURL,
 				"token":                token,
 				"api_style":            apiStyle,
+				"dolphin_version":      dolphinVersion,
 				"default_project_code": defaultProjectCode,
 			}
 			var data any
@@ -226,7 +229,8 @@ func newSchedulerConnectionUpdateCommand(storeProvider authStoreProvider) *cobra
 	command.Flags().StringVar(&name, "name", "", "Connection name")
 	command.Flags().StringVar(&baseURL, "base-url", "", "DolphinScheduler API base URL")
 	command.Flags().StringVar(&token, "token", "", "DolphinScheduler API token; empty keeps the current token")
-	command.Flags().StringVar(&apiStyle, "api-style", "", "API style: auto, process, or workflow")
+	command.Flags().StringVar(&apiStyle, "api-style", "", "API style: auto, process (3.1/3.2), or workflow (3.3+)")
+	command.Flags().StringVar(&dolphinVersion, "dolphin-version", "", "DolphinScheduler 3.x version such as 3.2.2 or 3.3.1; empty keeps the current value")
 	command.Flags().Int64Var(&defaultProjectCode, "default-project-code", 0, "Default project code")
 	return command
 }

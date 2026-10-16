@@ -9276,6 +9276,9 @@
                 "default_project_code": {
                     "type": "integer"
                 },
+                "dolphin_version": {
+                    "type": "string"
+                },
                 "id": {
                     "type": "integer"
                 },
@@ -9326,6 +9329,9 @@
                 },
                 "default_project_code": {
                     "type": "integer"
+                },
+                "dolphin_version": {
+                    "type": "string"
                 },
                 "kind": {
                     "type": "string"

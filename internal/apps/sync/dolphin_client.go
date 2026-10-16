@@ -40,6 +40,7 @@ type DolphinClient struct {
 	baseURL    string
 	token      string
 	style      string
+	version    string
 	httpClient *http.Client
 }
 
@@ -103,10 +104,17 @@ func newDolphinClient(conn *SchedulerConnection, httpClient *http.Client) *Dolph
 	if style == "" {
 		style = SchedulerAPIStyleAuto
 	}
+	version := strings.TrimSpace(conn.DolphinVersion)
+	if style == SchedulerAPIStyleAuto {
+		if family, err := dolphinAPIFamilyFromVersion(version); err == nil && family != "" {
+			style = family
+		}
+	}
 	return &DolphinClient{
 		baseURL:    strings.TrimRight(strings.TrimSpace(conn.BaseURL), "/"),
 		token:      strings.TrimSpace(conn.Token),
 		style:      style,
+		version:    version,
 		httpClient: httpClient,
 	}
 }
@@ -122,23 +130,34 @@ func (c *DolphinClient) ensureStyle(ctx context.Context, projectCode int64) erro
 	if c.style == SchedulerAPIStyleProcess || c.style == SchedulerAPIStyleWorkflow {
 		return nil
 	}
-	_, err := c.do(ctx, http.MethodGet, fmt.Sprintf("/projects/%d/workflow-definition?pageNo=1&pageSize=1", projectCode), nil)
-	if err == nil {
+	if family, err := dolphinAPIFamilyFromVersion(c.version); err != nil {
+		return err
+	} else if family != "" {
+		c.style = family
+		return nil
+	}
+	// 先探 3.3+ 的 workflow-definition，再回退 3.1/3.2 的 process-definition。
+	// Probe 3.3+ workflow-definition first, then fall back to 3.1/3.2 process-definition.
+	_, workflowErr := c.do(ctx, http.MethodGet, fmt.Sprintf("/projects/%d/workflow-definition?pageNo=1&pageSize=1", projectCode), nil)
+	if workflowErr == nil {
 		c.style = SchedulerAPIStyleWorkflow
 		return nil
 	}
-	_, err = c.do(ctx, http.MethodGet, fmt.Sprintf("/projects/%d/process-definition?pageNo=1&pageSize=1", projectCode), nil)
-	if err == nil {
+	_, processErr := c.do(ctx, http.MethodGet, fmt.Sprintf("/projects/%d/process-definition?pageNo=1&pageSize=1", projectCode), nil)
+	if processErr == nil {
 		c.style = SchedulerAPIStyleProcess
 		return nil
 	}
-	return err
+	return fmt.Errorf("%w: neither workflow-definition (3.3+) nor process-definition (3.1/3.2) is available", ErrDolphinUnsupportedVersion)
 }
 
 func (c *DolphinClient) ListProjects(ctx context.Context) ([]DolphinProject, error) {
 	raw, err := c.do(ctx, http.MethodGet, "/projects?pageNo=1&pageSize=100", nil)
 	if err != nil {
 		return nil, err
+	}
+	if looksLikeDolphinV2Projects(raw) {
+		return nil, fmt.Errorf("%w: project list uses id instead of code", ErrDolphinUnsupportedVersion)
 	}
 	return decodeNamedCodeList(raw), nil
 }
@@ -257,17 +276,32 @@ func (c *DolphinClient) Release(ctx context.Context, projectCode, workflowCode i
 }
 
 func (c *DolphinClient) CreateSchedule(ctx context.Context, projectCode, workflowCode int64, crontab, timezone string) error {
+	if err := c.ensureStyle(ctx, projectCode); err != nil {
+		return err
+	}
 	form := url.Values{}
 	code := strconv.FormatInt(workflowCode, 10)
-	form.Set("processDefinitionCode", code)
-	form.Set("workflowDefinitionCode", code)
+	// 3.1/3.2 必填 processDefinitionCode；3.3+ 必填 workflowDefinitionCode。
+	// 3.1/3.2 require processDefinitionCode; 3.3+ require workflowDefinitionCode.
+	if c.style == SchedulerAPIStyleWorkflow {
+		form.Set("workflowDefinitionCode", code)
+	} else {
+		form.Set("processDefinitionCode", code)
+	}
 	form.Set("schedule", fmt.Sprintf(`{"startTime":"2000-01-01 00:00:00","endTime":"2099-12-31 23:59:59","crontab":%q,"timezoneId":%q}`, crontab, timezone))
 	_, err := c.doForm(ctx, http.MethodPost, fmt.Sprintf("/projects/%d/schedules", projectCode), form)
 	return err
 }
 
 func (c *DolphinClient) OnlineSchedules(ctx context.Context, projectCode, workflowCode int64) error {
-	query := fmt.Sprintf("/projects/%d/schedules?processDefinitionCode=%d&workflowDefinitionCode=%d&pageNo=1&pageSize=20", projectCode, workflowCode, workflowCode)
+	if err := c.ensureStyle(ctx, projectCode); err != nil {
+		return err
+	}
+	codeField := "processDefinitionCode"
+	if c.style == SchedulerAPIStyleWorkflow {
+		codeField = "workflowDefinitionCode"
+	}
+	query := fmt.Sprintf("/projects/%d/schedules?%s=%d&pageNo=1&pageSize=20", projectCode, codeField, workflowCode)
 	raw, err := c.do(ctx, http.MethodGet, query, nil)
 	if err != nil {
 		return err
@@ -345,6 +379,33 @@ func decodeDolphinEnvelope(status int, content []byte) (json.RawMessage, error) 
 	return envelope.Data, nil
 }
 
+func looksLikeDolphinV2Projects(raw json.RawMessage) bool {
+	type legacyItem struct {
+		ID   int64  `json:"id"`
+		Code int64  `json:"code"`
+		Name string `json:"name"`
+	}
+	hasLegacyID := func(items []legacyItem) bool {
+		if len(items) == 0 {
+			return false
+		}
+		for _, item := range items {
+			if item.ID != 0 && item.Code == 0 {
+				return true
+			}
+		}
+		return false
+	}
+	var page struct {
+		TotalList []legacyItem `json:"totalList"`
+	}
+	if json.Unmarshal(raw, &page) == nil && hasLegacyID(page.TotalList) {
+		return true
+	}
+	var list []legacyItem
+	return json.Unmarshal(raw, &list) == nil && hasLegacyID(list)
+}
+
 func decodeNamedCodeList(raw json.RawMessage) []DolphinProject {
 	var page struct {
 		TotalList []struct {
@@ -397,9 +458,10 @@ func decodeDolphinGraph(raw json.RawMessage) (*dolphinGraph, error) {
 			GlobalParams  string `json:"globalParams"`
 			Timeout       int    `json:"timeout"`
 		} `json:"workflowDefinition"`
-		ProcessTaskRelationList []dolphinRelation `json:"processTaskRelationList"`
-		TaskDefinitionList      []dolphinTaskDef  `json:"taskDefinitionList"`
-		Locations               json.RawMessage   `json:"locations"`
+		ProcessTaskRelationList  []dolphinRelation `json:"processTaskRelationList"`
+		WorkflowTaskRelationList []dolphinRelation `json:"workflowTaskRelationList"`
+		TaskDefinitionList       []dolphinTaskDef  `json:"taskDefinitionList"`
+		Locations                json.RawMessage   `json:"locations"`
 	}
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		return nil, err
@@ -408,7 +470,11 @@ func decodeDolphinGraph(raw json.RawMessage) (*dolphinGraph, error) {
 	if def == nil {
 		def = payload.WorkflowDefinition
 	}
-	graph := &dolphinGraph{Tasks: payload.TaskDefinitionList, Relations: payload.ProcessTaskRelationList}
+	relations := payload.ProcessTaskRelationList
+	if len(payload.WorkflowTaskRelationList) > 0 {
+		relations = payload.WorkflowTaskRelationList
+	}
+	graph := &dolphinGraph{Tasks: payload.TaskDefinitionList, Relations: relations}
 	if graph.Tasks == nil {
 		graph.Tasks = []dolphinTaskDef{}
 	}
@@ -563,10 +629,16 @@ func edgeRelation(fromCode int64, fromVersion int, to dolphinTaskDef) dolphinRel
 	}
 }
 
-func dolphinConsoleURL(baseURL string, projectCode, workflowCode int64) string {
+func dolphinConsoleURL(baseURL string, projectCode, workflowCode int64, style string) string {
 	trimmed := strings.TrimRight(baseURL, "/")
 	trimmed = strings.TrimSuffix(trimmed, "/dolphinscheduler")
-	return fmt.Sprintf("%s/dolphinscheduler/ui/projects/%d/workflow/definitions/%d", trimmed, projectCode, workflowCode)
+	origin := trimmed + "/dolphinscheduler/ui"
+	if style == SchedulerAPIStyleProcess {
+		// 3.1/3.2 控制台仍是 hash 路由的 process-definition。
+		// 3.1/3.2 console still uses the hash-routed process-definition page.
+		return fmt.Sprintf("%s/#/projects/%d/process-definition/list/%d", origin, projectCode, workflowCode)
+	}
+	return fmt.Sprintf("%s/projects/%d/workflow-definition/%d", origin, projectCode, workflowCode)
 }
 
 func taskVersionByCode(tasks []dolphinTaskDef, code int64) int {

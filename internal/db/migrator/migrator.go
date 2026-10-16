@@ -132,6 +132,38 @@ func MigrateWithDB(database *gorm.DB, dbType string) error {
 		log.Printf("[Database] failed to create plugin dependency disable index: %v\n", err)
 	}
 
+	// 确保 diagnostics_error_events 包含 (cluster_id, error_group_id) 复合索引，消除海量事件子查询全表扫描
+	// Ensure diagnostics_error_events has the composite index (cluster_id, error_group_id) to eliminate full table scans in error group subqueries
+	if upgradeMigrator.HasTable(&diagnostics.SeatunnelErrorEvent{}) && !upgradeMigrator.HasIndex(&diagnostics.SeatunnelErrorEvent{}, "idx_diagnostics_error_events_cluster_error_group") {
+		if err := upgradeMigrator.CreateIndex(&diagnostics.SeatunnelErrorEvent{}, "idx_diagnostics_error_events_cluster_error_group"); err != nil {
+			log.Printf("[Database] failed to create idx_diagnostics_error_events_cluster_error_group: %v\n", err)
+		}
+	}
+
+	// 确保 process_events 包含 (node_id, event_type, created_at) 复合索引，优化监控后台高频轮询查询
+	// Ensure process_events has the composite index (node_id, event_type, created_at) to optimize high-frequency monitoring polling queries
+	if upgradeMigrator.HasTable(&monitor.ProcessEvent{}) && !upgradeMigrator.HasIndex(&monitor.ProcessEvent{}, "idx_process_events_node_type_created") {
+		if err := upgradeMigrator.CreateIndex(&monitor.ProcessEvent{}, "idx_process_events_node_type_created"); err != nil {
+			log.Printf("[Database] failed to create idx_process_events_node_type_created: %v\n", err)
+		}
+	}
+
+	// 确保 diagnostics_task_logs 包含 (task_id, created_at) 复合索引，加速诊断任务日志分页读取
+	// Ensure diagnostics_task_logs has the composite index (task_id, created_at) to accelerate diagnostic task log pagination
+	if upgradeMigrator.HasTable(&diagnostics.DiagnosticStepLog{}) && !upgradeMigrator.HasIndex(&diagnostics.DiagnosticStepLog{}, "idx_diag_task_logs_task_created") {
+		if err := upgradeMigrator.CreateIndex(&diagnostics.DiagnosticStepLog{}, "idx_diag_task_logs_task_created"); err != nil {
+			log.Printf("[Database] failed to create idx_diag_task_logs_task_created: %v\n", err)
+		}
+	}
+
+	// 确保 st_upgrade_step_logs 包含 (task_id, created_at) 复合索引，加速升级步骤日志读取
+	// Ensure st_upgrade_step_logs has the composite index (task_id, created_at) to accelerate upgrade step log queries
+	if upgradeMigrator.HasTable(&stupgrade.UpgradeStepLog{}) && !upgradeMigrator.HasIndex(&stupgrade.UpgradeStepLog{}, "idx_upgrade_step_logs_task_created") {
+		if err := upgradeMigrator.CreateIndex(&stupgrade.UpgradeStepLog{}, "idx_upgrade_step_logs_task_created"); err != nil {
+			log.Printf("[Database] failed to create idx_upgrade_step_logs_task_created: %v\n", err)
+		}
+	}
+
 	// 初始化默认管理员用户 / Initialize default admin user
 	if err := InitDefaultAdminUserWithDB(database); err != nil {
 		log.Printf("[Database] 初始化默认管理员用户失败: %v\n", err)

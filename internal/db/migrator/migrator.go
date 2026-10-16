@@ -142,6 +142,8 @@ func MigrateWithDB(database *gorm.DB, dbType string) error {
 		&syncapp.PreviewSession{},               // 数据同步预览会话表 / Sync preview session table
 		&syncapp.PreviewTable{},                 // 数据同步预览表分组表 / Sync preview table table
 		&syncapp.PreviewRow{},                   // 数据同步预览数据行表 / Sync preview row table
+		&syncapp.SchedulerConnection{},          // 外部调度器连接表 / External scheduler connection table
+		&syncapp.TaskSchedulerBinding{},         // 任务与 Dolphin 绑定表 / Task-to-Dolphin binding table
 	); err != nil {
 		return fmt.Errorf("auto migrate failed: %w", err)
 	}

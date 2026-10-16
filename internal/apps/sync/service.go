@@ -25,6 +25,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"regexp"
 	"sort"
@@ -54,6 +55,7 @@ type Service struct {
 	clusterLogProvider      ClusterLogProvider
 	clusterVersionProvider  ClusterVersionProvider
 	executionService        *executionapp.Service
+	dolphinHTTPClient       *http.Client
 }
 
 // ClusterVersionProvider provides SeaTunnel cluster version lookup.
@@ -71,6 +73,12 @@ const (
 // NewService creates a new sync service.
 func NewService(repo *Repository) *Service {
 	return &Service{repo: repo, jobIDGenerator: NewJobIDGenerator()}
+}
+
+// SetDolphinHTTPClient 覆盖访问 Dolphin API 的 HTTP 客户端，测试可注入 httptest。
+// SetDolphinHTTPClient overrides the HTTP client used for Dolphin API calls so tests can inject httptest.
+func (s *Service) SetDolphinHTTPClient(client *http.Client) {
+	s.dolphinHTTPClient = client
 }
 
 // SetEngineClient sets the SeaTunnel engine client used by submit/get/cancel flows.
@@ -344,6 +352,9 @@ func (s *Service) GetTask(ctx context.Context, id uint) (*Task, error) {
 
 // GetTaskForActor returns one workspace node decorated with actor permissions.
 func (s *Service) GetTaskForActor(ctx context.Context, actor executionapp.Actor, id uint) (*Task, error) {
+	if err := s.enforceSchedulerScope(ctx, id, 0); err != nil {
+		return nil, err
+	}
 	task, err := s.repo.GetTaskByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -583,6 +594,9 @@ func (s *Service) UpdateTaskForActor(ctx context.Context, actor executionapp.Act
 	// 任务正文更新不得修改共享字段；共享字段必须通过独立的权限接口修改。
 	// Task content updates must never change sharing fields; use the dedicated permissions API instead.
 	definition = preserveTaskPermissionFields(task.Definition, definition)
+	if err := s.rejectEnabledScheduleWhenBound(ctx, task.ID, definition); err != nil {
+		return nil, err
+	}
 	jobName := strings.TrimSpace(req.JobName)
 	if nodeType == TaskNodeTypeFolder {
 		content = ""
@@ -1098,7 +1112,7 @@ func (s *Service) PreviewTask(ctx context.Context, id uint, createdBy uint, opts
 		if len(previewPayload) == 0 {
 			return nil, ErrPreviewHTTPSinkEmpty
 		}
-		instance, err := s.submitLocalTaskInstance(ctx, task, createdBy, RunTypePreview, previewPlatformJobID, previewPayload, previewFormat, s.previewJobName(task))
+		instance, err := s.submitLocalTaskInstance(ctx, task, createdBy, RunTypePreview, previewPlatformJobID, previewPayload, previewFormat, s.previewJobName(task), nil)
 		if err != nil {
 			return nil, err
 		}
@@ -1421,7 +1435,28 @@ func (s *Service) stopTimedOutPreviewSessions(ctx context.Context) error {
 
 // SubmitTask creates one formal run instance with platform-managed job id.
 func (s *Service) SubmitTask(ctx context.Context, id uint, createdBy uint, draft *TaskDraftPayload) (*JobInstance, error) {
-	task, err := s.getTaskForExecution(ctx, id, draft)
+	return s.SubmitTaskWithOptions(ctx, id, createdBy, &SubmitOptions{Draft: draft})
+}
+
+// SubmitTaskWithOptions 按本次覆盖项提交作业；同一 external_ref 运行中则接管。
+// SubmitTaskWithOptions submits a job with per-run overrides and attaches when the same external_ref is still running.
+func (s *Service) SubmitTaskWithOptions(ctx context.Context, id uint, createdBy uint, opts *SubmitOptions) (*JobInstance, error) {
+	if err := s.enforceSchedulerScope(ctx, id, 0); err != nil {
+		return nil, err
+	}
+	if attached, err := s.attachExternalRef(ctx, opts.externalRef()); err != nil {
+		return nil, err
+	} else if attached != nil {
+		return attached, nil
+	}
+	return s.submitNewTask(ctx, id, createdBy, opts)
+}
+
+func (s *Service) submitNewTask(ctx context.Context, id uint, createdBy uint, opts *SubmitOptions) (*JobInstance, error) {
+	if opts == nil {
+		opts = &SubmitOptions{}
+	}
+	task, err := s.getTaskForExecution(ctx, id, opts.Draft)
 	if err != nil {
 		return nil, err
 	}
@@ -1431,15 +1466,20 @@ func (s *Service) SubmitTask(ctx context.Context, id uint, createdBy uint, draft
 	if task.CurrentVersion == 0 {
 		return nil, ErrTaskNotPublished
 	}
+	binding, err := s.repo.GetSchedulerBindingByTaskID(ctx, task.ID)
+	if err != nil {
+		return nil, err
+	}
+	jobID := s.nextJobID()
+	runtime := buildTaskVariableRuntimeWithOptions(task, jobID, opts, binding)
 	if taskExecutionMode(task) == "local" {
-		jobID := s.nextJobID()
-		body, format, jobName, buildErr := s.buildSubmitPayload(ctx, task, buildTaskVariableRuntime(task, jobID))
+		body, format, jobName, buildErr := s.buildSubmitPayload(ctx, task, runtime)
 		if buildErr != nil {
 			return nil, buildErr
 		}
-		return s.submitLocalTaskInstance(ctx, task, createdBy, RunTypeRun, jobID, body, format, jobName)
+		return s.submitLocalTaskInstance(ctx, task, createdBy, RunTypeRun, jobID, body, format, jobName, opts)
 	}
-	return s.submitTaskInstance(ctx, task, createdBy, RunTypeRun, s.nextJobID(), false, nil)
+	return s.submitTaskInstance(ctx, task, createdBy, RunTypeRun, jobID, false, nil, opts, runtime)
 }
 
 // RecoverJob recreates a run using the original platform job id as savepoint recovery source.
@@ -1485,14 +1525,18 @@ func (s *Service) RecoverJob(ctx context.Context, sourceJobID uint, createdBy ui
 				[]byte(submittedContent),
 				normalizeSubmitFormat(stringValue(source.SubmitSpec, "submitted_format", "format")),
 				strings.TrimSpace(stringValue(source.SubmitSpec, "job_name")),
+				nil,
 			)
 		}
 	}
-	return s.submitTaskInstance(ctx, task, createdBy, RunTypeRecover, strings.TrimSpace(source.PlatformJobID), true, &source.ID)
+	return s.submitTaskInstance(ctx, task, createdBy, RunTypeRecover, strings.TrimSpace(source.PlatformJobID), true, &source.ID, nil, nil)
 }
 
-func (s *Service) submitTaskInstance(ctx context.Context, task *Task, createdBy uint, runType RunType, platformJobID string, startWithSavepoint bool, recoveredFrom *uint) (*JobInstance, error) {
-	submitBody, submitFormat, jobName, err := s.buildSubmitPayload(ctx, task, buildTaskVariableRuntime(task, platformJobID))
+func (s *Service) submitTaskInstance(ctx context.Context, task *Task, createdBy uint, runType RunType, platformJobID string, startWithSavepoint bool, recoveredFrom *uint, opts *SubmitOptions, runtime *taskVariableRuntime) (*JobInstance, error) {
+	if runtime == nil {
+		runtime = buildTaskVariableRuntimeWithOptions(task, platformJobID, opts, nil)
+	}
+	submitBody, submitFormat, jobName, err := s.buildSubmitPayload(ctx, task, runtime)
 	if err != nil {
 		return nil, err
 	}
@@ -1507,10 +1551,11 @@ func (s *Service) submitTaskInstance(ctx context.Context, task *Task, createdBy 
 		submitBody,
 		submitFormat,
 		jobName,
+		opts,
 	)
 }
 
-func (s *Service) submitTaskInstanceWithPayload(ctx context.Context, task *Task, createdBy uint, runType RunType, platformJobID string, startWithSavepoint bool, recoveredFrom *uint, submitBody []byte, submitFormat string, jobName string) (*JobInstance, error) {
+func (s *Service) submitTaskInstanceWithPayload(ctx context.Context, task *Task, createdBy uint, runType RunType, platformJobID string, startWithSavepoint bool, recoveredFrom *uint, submitBody []byte, submitFormat string, jobName string, opts *SubmitOptions) (*JobInstance, error) {
 	now := time.Now()
 	instance := &JobInstance{
 		TaskID:                  task.ID,
@@ -1534,6 +1579,7 @@ func (s *Service) submitTaskInstanceWithPayload(ctx context.Context, task *Task,
 		StartedAt: &now,
 		CreatedBy: createdBy,
 	}
+	applySubmitOptionsToInstance(instance, opts)
 	if s.engineClient != nil && s.runtimeResolver != nil {
 		endpoint, err := s.runtimeResolver.ResolveEngineEndpoint(ctx, task.ClusterID, task.Definition)
 		if err != nil {
@@ -2712,7 +2758,7 @@ func (s *Service) resolveTaskContent(ctx context.Context, task *Task, runtime *t
 	if strings.TrimSpace(content) == "" {
 		return "", nil
 	}
-	variables, err := s.resolveTaskVariables(ctx, task)
+	variables, err := s.resolveTaskVariables(ctx, task, runtime)
 	if err != nil {
 		return "", err
 	}
@@ -2720,24 +2766,41 @@ func (s *Service) resolveTaskContent(ctx context.Context, task *Task, runtime *t
 }
 
 func buildTaskVariableRuntime(task *Task, platformJobID string) *taskVariableRuntime {
-	if task == nil {
-		return &taskVariableRuntime{ReferenceTime: time.Now()}
-	}
-	return &taskVariableRuntime{
-		ReferenceTime:          time.Now(),
-		PlatformJobID:          strings.TrimSpace(platformJobID),
-		TaskDefinitionName:     strings.TrimSpace(task.Name),
-		TaskDefinitionCode:     strconv.FormatUint(uint64(task.ID), 10),
-		WorkflowInstanceID:     strings.TrimSpace(platformJobID),
-		WorkflowDefinitionName: strings.TrimSpace(task.Name),
-		WorkflowDefinitionCode: strconv.FormatUint(uint64(task.ID), 10),
-		ProjectName:            "STX",
-		ProjectCode:            "stx",
-		TaskExecutePath:        strings.TrimSpace(stringValue(task.Definition, "file_path", "config_file_path")),
-	}
+	return buildTaskVariableRuntimeWithOptions(task, platformJobID, nil, nil)
 }
 
-func (s *Service) resolveTaskVariables(ctx context.Context, task *Task) (map[string]string, error) {
+func buildTaskVariableRuntimeWithOptions(task *Task, platformJobID string, opts *SubmitOptions, binding *TaskSchedulerBinding) *taskVariableRuntime {
+	runtime := &taskVariableRuntime{ReferenceTime: time.Now()}
+	if task != nil {
+		runtime.PlatformJobID = strings.TrimSpace(platformJobID)
+		runtime.TaskDefinitionName = strings.TrimSpace(task.Name)
+		runtime.TaskDefinitionCode = strconv.FormatUint(uint64(task.ID), 10)
+		runtime.WorkflowInstanceID = strings.TrimSpace(platformJobID)
+		runtime.WorkflowDefinitionName = strings.TrimSpace(task.Name)
+		runtime.WorkflowDefinitionCode = strconv.FormatUint(uint64(task.ID), 10)
+		runtime.ProjectName = "STX"
+		runtime.ProjectCode = "stx"
+		runtime.TaskExecutePath = strings.TrimSpace(stringValue(task.Definition, "file_path", "config_file_path"))
+	}
+	if opts != nil {
+		runtime.ReferenceTime = opts.scheduleTimeOrNow()
+		runtime.VariableOverrides = opts.Variables
+		if instanceID, _, ok := parseDolphinExternalRef(opts.externalRef()); ok {
+			runtime.WorkflowInstanceID = instanceID
+		}
+	}
+	if binding != nil {
+		runtime.ProjectCode = strconv.FormatInt(binding.ProjectCode, 10)
+		runtime.WorkflowDefinitionCode = strconv.FormatInt(binding.WorkflowCode, 10)
+		runtime.TaskDefinitionCode = strconv.FormatInt(binding.TaskCode, 10)
+		if strings.TrimSpace(binding.WorkflowName) != "" {
+			runtime.WorkflowDefinitionName = strings.TrimSpace(binding.WorkflowName)
+		}
+	}
+	return runtime
+}
+
+func (s *Service) resolveTaskVariables(ctx context.Context, task *Task, runtime *taskVariableRuntime) (map[string]string, error) {
 	result := map[string]string{}
 	items, err := s.repo.ListGlobalVariables(ctx)
 	if err != nil {
@@ -2750,6 +2813,15 @@ func (s *Service) resolveTaskVariables(ctx context.Context, task *Task) (map[str
 	}
 	for key, value := range extractDefinitionVariables(task.Definition, "custom_variables") {
 		result[key] = value
+	}
+	if runtime != nil {
+		for key, value := range runtime.VariableOverrides {
+			name := strings.TrimSpace(key)
+			if name == "" {
+				continue
+			}
+			result[name] = value
+		}
 	}
 	if err := validateVariableKeyConflicts(result); err != nil {
 		return nil, err

@@ -23,6 +23,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -227,5 +228,37 @@ func TestCLILoginRequiresCLIHeaderAndLogoutRevokesToken(t *testing.T) {
 	router.ServeHTTP(afterLogout, whoamiRequest)
 	if afterLogout.Code != http.StatusUnauthorized {
 		t.Fatalf("登出后的 whoami 状态码 = %d", afterLogout.Code)
+	}
+}
+
+func TestIssueSchedulerTokenNeverExpiresAndRevokesPrevious(t *testing.T) {
+	database := newCLITokenTestDB(t)
+	user := newCLITokenTestUser(t, database, true)
+	now := time.Date(2026, 10, 16, 10, 0, 0, 0, time.UTC)
+
+	first, err := IssueSchedulerToken(database, user, 42, now)
+	if err != nil {
+		t.Fatalf("签发调度令牌失败: %v", err)
+	}
+	if !strings.HasPrefix(first.Token, schedulerCLITokenPrefix) {
+		t.Fatalf("调度令牌前缀错误: %s", first.Token)
+	}
+	if !first.ExpiresAt.IsZero() {
+		t.Fatalf("调度令牌不应设置过期时间: %v", first.ExpiresAt)
+	}
+
+	second, err := IssueSchedulerToken(database, user, 42, now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("再次签发失败: %v", err)
+	}
+	if _, _, err := AuthenticateCLIToken(database, first.Token, now.Add(time.Hour)); !errors.Is(err, ErrCLITokenRevoked) {
+		t.Fatalf("旧调度令牌应被吊销, err=%v", err)
+	}
+	token, _, err := AuthenticateCLIToken(database, second.Token, now.Add(365*24*time.Hour))
+	if err != nil {
+		t.Fatalf("不过期调度令牌校验失败: %v", err)
+	}
+	if !token.IsScheduler() || token.BoundTaskID == nil || *token.BoundTaskID != 42 {
+		t.Fatalf("调度令牌元数据错误: %+v", token)
 	}
 }

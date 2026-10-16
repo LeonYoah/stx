@@ -17,7 +17,7 @@
 
 'use client';
 
-import {useMemo} from 'react';
+import {useEffect, useMemo, useState} from 'react';
 
 import {cn} from '@/lib/utils';
 import {useTranslations} from 'next-intl';
@@ -27,7 +27,22 @@ import {Button} from '@/components/ui/button';
 import {Label} from '@/components/ui/label';
 import {Switch} from '@/components/ui/switch';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
-import {CalendarClock, Clock3, History, Info, Maximize2} from 'lucide-react';
+import {
+  CalendarClock,
+  Clock3,
+  Copy,
+  ExternalLink,
+  History,
+  Info,
+  Maximize2,
+  Unplug,
+  Upload,
+} from 'lucide-react';
+import {toast} from 'sonner';
+
+import {DolphinPushDialog} from '@/components/common/sync/DolphinPushDialog';
+import {SyncService} from '@/lib/services/sync/sync.service';
+import type {DolphinTaskStatus} from '@/lib/services/sync/types';
 
 import {
   CronExpressionEditor,
@@ -47,6 +62,8 @@ export function TaskScheduleSidebarPanel({
   onChange,
   onOpenAdvanced,
   className,
+  taskId,
+  canEdit = true,
 }: {
   value: TaskScheduleValue;
   lastTriggeredAt?: string;
@@ -54,8 +71,28 @@ export function TaskScheduleSidebarPanel({
   onChange: (value: TaskScheduleValue) => void;
   onOpenAdvanced?: () => void;
   className?: string;
+  taskId?: number;
+  canEdit?: boolean;
 }) {
   const t = useTranslations('workbenchStudio');
+  const [dolphin, setDolphin] = useState<DolphinTaskStatus | null>(null);
+  const [pushOpen, setPushOpen] = useState(false);
+
+  const reloadDolphin = async () => {
+    if (!taskId) {
+      setDolphin(null);
+      return;
+    }
+    try {
+      setDolphin(await SyncService.getDolphinTaskStatus(taskId));
+    } catch {
+      setDolphin(null);
+    }
+  };
+
+  useEffect(() => {
+    void reloadDolphin();
+  }, [taskId]);
   const presets = useMemo<CronPresetOption[]>(
     () => [
       {key: 'cronPresetEveryDayMidnight', expr: '0 0 * * *'},
@@ -168,6 +205,7 @@ export function TaskScheduleSidebarPanel({
             ) : null}
             <Switch
               checked={value.enabled}
+              disabled={Boolean(dolphin?.builtin_locked)}
               onCheckedChange={(checked) =>
                 onChange({
                   ...value,
@@ -255,7 +293,167 @@ export function TaskScheduleSidebarPanel({
             </Tooltip>
           }
         />
+        {dolphin?.builtin_locked ? (
+          <p className='text-[11px] text-muted-foreground'>{t('dolphinBuiltinLocked')}</p>
+        ) : null}
       </div>
+
+      {taskId ? (
+        <div className='rounded-lg border border-border/50 bg-muted/10 p-3.5 space-y-3'>
+          <div className='flex items-center justify-between gap-2'>
+            <div className='text-xs font-semibold'>{t('dolphinExternalSchedule')}</div>
+            {dolphin?.binding ? (
+              <Badge variant='outline' className='h-4 px-1.5 text-[10px]'>
+                {t('dolphinBound')}
+              </Badge>
+            ) : null}
+          </div>
+          {dolphin?.binding ? (
+            <div className='space-y-2 text-[11px] text-muted-foreground'>
+              <div className='overflow-x-auto whitespace-nowrap font-mono'>
+                {dolphin.binding.workflow_name || dolphin.binding.workflow_code} / {dolphin.binding.task_code}
+              </div>
+              {(dolphin.recent_jobs ?? []).slice(0, 3).map((job) => (
+                <div key={job.id} className='flex items-center justify-between gap-2'>
+                  <span className='font-mono'>#{job.id}</span>
+                  <span>{job.status}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className='text-[11px] text-muted-foreground'>{t('dolphinUnboundHint')}</p>
+          )}
+          <div className='flex flex-wrap gap-1.5'>
+            <Button
+              type='button'
+              size='sm'
+              variant='outline'
+              className='h-7 px-2 text-[11px]'
+              onClick={async () => {
+                try {
+                  const script = await SyncService.getDolphinScript(taskId);
+                  await navigator.clipboard.writeText(
+                    `${script.script}\n${script.env_notes}`,
+                  );
+                  toast.success(t('dolphinScriptCopied'));
+                } catch (error) {
+                  toast.error(
+                    error instanceof Error ? error.message : t('dolphinPushFailed'),
+                  );
+                }
+              }}
+            >
+              <Copy className='size-3' />
+              {t('dolphinCopyScript')}
+            </Button>
+            {canEdit ? (
+              <Button
+                type='button'
+                size='sm'
+                className='h-7 px-2 text-[11px]'
+                onClick={() => setPushOpen(true)}
+              >
+                <Upload className='size-3' />
+                {dolphin?.binding ? t('dolphinUpdateNode') : t('dolphinPushTo')}
+              </Button>
+            ) : null}
+            {dolphin?.binding?.console_url ? (
+              <Button
+                type='button'
+                size='sm'
+                variant='ghost'
+                className='h-7 px-2 text-[11px]'
+                onClick={() => window.open(dolphin.binding?.console_url, '_blank')}
+              >
+                <ExternalLink className='size-3' />
+                {t('dolphinOpen')}
+              </Button>
+            ) : null}
+            {canEdit && dolphin?.binding ? (
+              <Button
+                type='button'
+                size='sm'
+                variant='ghost'
+                className='h-7 px-2 text-[11px] text-destructive'
+                onClick={async () => {
+                  try {
+                    await SyncService.unbindDolphin(taskId);
+                    toast.success(t('dolphinUnbound'));
+                    await reloadDolphin();
+                  } catch (error) {
+                    toast.error(
+                      error instanceof Error ? error.message : t('dolphinPushFailed'),
+                    );
+                  }
+                }}
+              >
+                <Unplug className='size-3' />
+                {t('dolphinUnbind')}
+              </Button>
+            ) : null}
+          </div>
+          {dolphin?.scheduler_token?.issued ? (
+            <div className='text-[11px] text-muted-foreground'>
+              {t('dolphinTokenIssued')} {dolphin.scheduler_token.prefix}******
+            </div>
+          ) : null}
+          {canEdit && dolphin?.binding ? (
+            <div className='flex flex-wrap gap-1.5'>
+              <Button
+                type='button'
+                size='sm'
+                variant='outline'
+                className='h-7 px-2 text-[11px]'
+                onClick={async () => {
+                  try {
+                    const issued = await SyncService.issueSchedulerToken(taskId);
+                    await navigator.clipboard.writeText(issued.token);
+                    toast.success(t('dolphinTokenCopied'));
+                    await reloadDolphin();
+                  } catch (error) {
+                    toast.error(
+                      error instanceof Error ? error.message : t('dolphinPushFailed'),
+                    );
+                  }
+                }}
+              >
+                {t('dolphinIssueToken')}
+              </Button>
+              {dolphin.scheduler_token?.issued ? (
+                <Button
+                  type='button'
+                  size='sm'
+                  variant='ghost'
+                  className='h-7 px-2 text-[11px] text-destructive'
+                  onClick={async () => {
+                    try {
+                      await SyncService.revokeSchedulerToken(taskId);
+                      toast.success(t('dolphinTokenRevoked'));
+                      await reloadDolphin();
+                    } catch (error) {
+                      toast.error(
+                        error instanceof Error ? error.message : t('dolphinPushFailed'),
+                      );
+                    }
+                  }}
+                >
+                  {t('dolphinRevokeToken')}
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {taskId ? (
+        <DolphinPushDialog
+          open={pushOpen}
+          onOpenChange={setPushOpen}
+          taskId={taskId}
+          status={dolphin}
+          onPushed={() => void reloadDolphin()}
+        />
+      ) : null}
     </div>
   );
 }

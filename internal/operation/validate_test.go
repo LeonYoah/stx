@@ -98,7 +98,7 @@ func TestValidateRejectsRepeatedNonQueryInput(t *testing.T) {
 }
 
 func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
-	require.Len(t, Registry(), 231)
+	require.Len(t, Registry(), 244)
 
 	expected := map[string]struct{}{
 		"auth.user-info.get": {}, "auth.profile.update": {}, "admin.user.list": {}, "admin.user.get": {},
@@ -121,7 +121,7 @@ func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
 		"host.install.status.get": {}, "cluster.plugin.list": {}, "cluster.plugin.progress.get": {},
 		"package.list": {}, "package.get": {}, "package.version.refresh": {}, "package.download.list": {}, "package.download.get": {},
 		"package.offline-bundle.list": {},
-		"plugin.list": {}, "plugin.get": {}, "plugin.local.list": {}, "plugin.download.list": {},
+		"plugin.list":                 {}, "plugin.get": {}, "plugin.local.list": {}, "plugin.download.list": {},
 		"plugin.download.status.get": {}, "plugin.dependency.list": {}, "plugin.official-dependency.list": {},
 		"stupgrade.plan.get": {}, "stupgrade.task.list": {}, "stupgrade.task.get": {},
 		"stupgrade.task.steps": {}, "stupgrade.task.logs": {},
@@ -141,10 +141,13 @@ func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
 		"diagnostics.auto-policy.template.list": {}, "diagnostics.auto-policy.list": {}, "diagnostics.auto-policy.get": {},
 		"diagnostics.troubleshooting-memory.list": {}, "diagnostics.troubleshooting-memory.get": {},
 		"sync.tree": {}, "sync.task.list": {}, "sync.task.get": {},
-		"sync.task.version.list": {},
-		"sync.job.list":          {}, "sync.job.get": {}, "sync.job.logs": {},
+		"sync.task.version.list":   {},
+		"sync.task.dolphin.status": {}, "sync.task.dolphin.script": {},
+		"sync.job.list": {}, "sync.job.get": {}, "sync.job.logs": {},
 		"sync.job.checkpoint": {}, "sync.job.preview": {},
-		"sync.variable.list": {},
+		"sync.variable.list":             {},
+		"sync.scheduler.connection.list": {}, "sync.scheduler.connection.projects": {},
+		"sync.scheduler.connection.workflows": {}, "sync.scheduler.connection.workflow.get": {},
 		"audit.command.list": {}, "audit.command.get": {}, "audit.log.list": {}, "audit.log.get": {},
 	}
 	actual := make(map[string]struct{})

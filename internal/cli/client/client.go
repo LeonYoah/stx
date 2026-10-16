@@ -111,6 +111,15 @@ func (c *Client) Server() string {
 	return c.server
 }
 
+// Token 返回当前客户端令牌，仅供守护进程继承，调用方不得打印。
+// Token returns the current client token for guard inheritance; callers must not print it.
+func (c *Client) Token() string {
+	if c == nil {
+		return ""
+	}
+	return c.token
+}
+
 // WithTimeout returns an isolated client copy for one long-running command.
 // WithTimeout 返回仅供单个长耗时命令使用的独立客户端副本。
 func (c *Client) WithTimeout(timeout time.Duration) *Client {

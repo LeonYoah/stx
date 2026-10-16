@@ -43,8 +43,16 @@ const (
 	// MaxCLITokenTTL is the maximum lifetime accepted for a CLI token.
 	MaxCLITokenTTL = 30 * 24 * time.Hour
 
-	cliTokenPrefix = "stx_"
-	cliTokenBytes  = 32
+	// CLITokenKindLogin 是交互登录签发的普通 CLI 令牌。
+	// CLITokenKindLogin is a regular CLI token issued by interactive login.
+	CLITokenKindLogin = "login"
+	// CLITokenKindScheduler 是绑定单个同步任务的不过期调度令牌。
+	// CLITokenKindScheduler is a non-expiring token bound to one sync task.
+	CLITokenKindScheduler = "scheduler"
+
+	cliTokenPrefix          = "stx_"
+	schedulerCLITokenPrefix = "stxs_"
+	cliTokenBytes           = 32
 )
 
 var (
@@ -69,11 +77,19 @@ type CLIToken struct {
 	UserID      uint64     `json:"user_id" gorm:"index;not null"`
 	TokenPrefix string     `json:"token_prefix" gorm:"size:16;index;not null"`
 	TokenHash   string     `json:"-" gorm:"column:token_hash;size:64;unique;not null"`
-	ExpiresAt   time.Time  `json:"expires_at" gorm:"index;not null"`
+	Kind        string     `json:"kind" gorm:"size:32;not null;index;default:login"`
+	BoundTaskID *uint      `json:"bound_task_id,omitempty" gorm:"index"`
+	ExpiresAt   *time.Time `json:"expires_at,omitempty" gorm:"index"`
 	RevokedAt   *time.Time `json:"revoked_at,omitempty" gorm:"index"`
 	LastUsedAt  *time.Time `json:"last_used_at,omitempty"`
 	CreatedAt   time.Time  `json:"created_at" gorm:"autoCreateTime"`
 	UpdatedAt   time.Time  `json:"updated_at" gorm:"autoUpdateTime"`
+}
+
+// IsScheduler 判断令牌是否为调度器专用令牌。
+// IsScheduler reports whether the token is a scheduler token.
+func (t *CLIToken) IsScheduler() bool {
+	return t != nil && strings.EqualFold(strings.TrimSpace(t.Kind), CLITokenKindScheduler)
 }
 
 // TableName 指定 CLI 令牌表名。
@@ -136,13 +152,89 @@ func IssueCLIToken(database *gorm.DB, user *User, expiresIn string, now time.Tim
 		UserID:      user.ID,
 		TokenPrefix: plaintext[:12],
 		TokenHash:   fmt.Sprintf("%x", digest[:]),
-		ExpiresAt:   expiresAt,
+		Kind:        CLITokenKindLogin,
+		ExpiresAt:   &expiresAt,
 	}
 	if err := database.Create(token).Error; err != nil {
 		return nil, fmt.Errorf("auth: 保存 CLI 令牌失败: %w", err)
 	}
 
 	return &CLITokenIssue{Token: plaintext, ExpiresAt: expiresAt}, nil
+}
+
+// IssueSchedulerToken 签发绑定单个任务、默认不过期的调度令牌。
+// IssueSchedulerToken issues a task-bound scheduler token that does not expire by default.
+func IssueSchedulerToken(database *gorm.DB, user *User, taskID uint, now time.Time) (*CLITokenIssue, error) {
+	if database == nil {
+		return nil, errors.New("auth: 数据库连接未初始化")
+	}
+	if user == nil || user.ID == 0 || !user.IsActive {
+		return nil, ErrUserInactive
+	}
+	if taskID == 0 {
+		return nil, errors.New("auth: scheduler token requires a bound task id")
+	}
+	if now.IsZero() {
+		now = time.Now()
+	}
+	if err := RevokeSchedulerTokensForTask(database, taskID, now); err != nil {
+		return nil, err
+	}
+
+	secret := make([]byte, cliTokenBytes)
+	if _, err := rand.Read(secret); err != nil {
+		return nil, fmt.Errorf("auth: 生成调度令牌失败: %w", err)
+	}
+	plaintext := schedulerCLITokenPrefix + base64.RawURLEncoding.EncodeToString(secret)
+	digest := sha256.Sum256([]byte(plaintext))
+	boundTaskID := taskID
+	token := &CLIToken{
+		UserID:      user.ID,
+		TokenPrefix: plaintext[:12],
+		TokenHash:   fmt.Sprintf("%x", digest[:]),
+		Kind:        CLITokenKindScheduler,
+		BoundTaskID: &boundTaskID,
+	}
+	if err := database.Create(token).Error; err != nil {
+		return nil, fmt.Errorf("auth: 保存调度令牌失败: %w", err)
+	}
+	return &CLITokenIssue{Token: plaintext}, nil
+}
+
+// LatestSchedulerTokenForTask 返回任务当前未撤销的调度令牌元数据。
+// LatestSchedulerTokenForTask returns metadata for the task's current unrevoked scheduler token.
+func LatestSchedulerTokenForTask(database *gorm.DB, taskID uint) (*CLIToken, error) {
+	if database == nil {
+		return nil, errors.New("auth: 数据库连接未初始化")
+	}
+	var token CLIToken
+	err := database.Where("kind = ? AND bound_task_id = ? AND revoked_at IS NULL", CLITokenKindScheduler, taskID).
+		Order("id DESC").
+		First(&token).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &token, nil
+}
+
+// RevokeSchedulerTokensForTask 撤销绑定到指定任务的全部调度令牌。
+// RevokeSchedulerTokensForTask revokes every scheduler token bound to the given task.
+func RevokeSchedulerTokensForTask(database *gorm.DB, taskID uint, now time.Time) error {
+	if database == nil {
+		return errors.New("auth: 数据库连接未初始化")
+	}
+	if taskID == 0 {
+		return nil
+	}
+	if now.IsZero() {
+		now = time.Now()
+	}
+	return database.Model(&CLIToken{}).
+		Where("kind = ? AND bound_task_id = ? AND revoked_at IS NULL", CLITokenKindScheduler, taskID).
+		Update("revoked_at", now).Error
 }
 
 // AuthenticateCLIToken 校验令牌、用户状态，并更新最近使用时间。
@@ -169,7 +261,7 @@ func AuthenticateCLIToken(database *gorm.DB, plaintext string, now time.Time) (*
 	if token.RevokedAt != nil {
 		return nil, nil, ErrCLITokenRevoked
 	}
-	if !token.ExpiresAt.After(now) {
+	if token.ExpiresAt != nil && !token.ExpiresAt.After(now) {
 		return nil, nil, ErrCLITokenExpired
 	}
 

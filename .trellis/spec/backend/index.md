@@ -22,6 +22,7 @@
 | [受管 SeaTunnel 进程身份](./managed-process-identity.md) | 同机多集群的进程命名、PID 校验、停止、监控和心跳约定 | 已填写 |
 | [质量规范](./quality-guidelines.md) | 代码标准、注释规范、License 头、语言输出约定、禁止模式 | 已填写 |
 | [日志规范](./logging-guidelines.md) | 结构化日志与日志级别 | 已填写 |
+| [DolphinScheduler SHELL 接入](./dolphin-scheduler-shell.md) | 提交等待、守护进程、调度令牌、推送绑定与 CLI 退出码 | 已填写 |
 
 ---
 
@@ -31,6 +32,7 @@
 - 涉及数据库、HTTP 错误或日志时，分别阅读数据库、错误处理和日志规范。
 - 涉及异步任务、CLI 写操作、任务正文、Agent 输出或诊断资源时，阅读[公共执行与安全输出](./execution-security-guidelines.md)。
 - 涉及 SeaTunnel 进程查找、启停、监控或心跳时，阅读[受管 SeaTunnel 进程身份](./managed-process-identity.md)。
+- 涉及 DolphinScheduler SHELL 节点、`--wait`/`--close-job`、调度令牌或工作流推送时，阅读[DolphinScheduler SHELL 接入](./dolphin-scheduler-shell.md)。
 - 新增源文件、方法或用户可见文案时，按[质量规范](./quality-guidelines.md)检查注释、License 头和语言输出。
 
 ## 质量检查

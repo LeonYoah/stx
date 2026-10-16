@@ -164,32 +164,35 @@ func TestSyncTaskPermissionsUpdateSendsOnlyPermissionChanges(t *testing.T) {
 	}
 }
 
-func TestSyncTaskSubmitSendsWaitAndPollsExecution(t *testing.T) {
+func TestSyncTaskSubmitSendsWaitAndPollsJob(t *testing.T) {
+	var gotBody map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Content-Type", "application/json")
 		switch {
 		case request.URL.Path == "/api/v1/capabilities":
 			writeSyncCapabilities(t, writer, "sync.task.submit", "R2")
+		case request.URL.Path == "/api/v1/sync/tasks/42":
+			_ = json.NewEncoder(writer).Encode(map[string]any{"data": map[string]any{"id": 42, "mode": "batch"}})
 		case request.URL.Path == "/api/v1/sync/tasks/42/submit":
 			if request.Method != http.MethodPost {
 				t.Fatalf("提交方法错误: %s", request.Method)
 			}
+			if err := json.NewDecoder(request.Body).Decode(&gotBody); err != nil {
+				t.Fatalf("解析提交正文失败: %v", err)
+			}
 			_ = json.NewEncoder(writer).Encode(map[string]any{
 				"data": map[string]any{
-					"job_id":       99,
-					"execution_id": "exec-sync-42",
-					"status":       "submitted",
+					"id":                99,
+					"task_id":           42,
+					"status":            "running",
+					"attach_generation": 1,
 				},
 			})
-		case request.URL.Path == "/api/v1/executions/exec-sync-42/wait":
+		case request.URL.Path == "/api/v1/sync/jobs/99":
 			_ = json.NewEncoder(writer).Encode(map[string]any{
 				"data": map[string]any{
-					"execution": map[string]any{
-						"execution_id": "exec-sync-42",
-						"status":       "succeeded",
-						"message":      "Execution succeeded",
-					},
-					"terminal": true,
+					"id":     99,
+					"status": "success",
 				},
 			})
 		default:
@@ -203,9 +206,30 @@ func TestSyncTaskSubmitSendsWaitAndPollsExecution(t *testing.T) {
 		"sync", "task", "submit", "42",
 		"--confirm",
 		"--wait",
+		"--schedule-time", "20260102150405",
+		"--var", "dt=20260102",
 	)
 	if exitCode != int(clioutput.ExitSuccess) {
 		t.Fatalf("提交并等待任务失败: code=%d stdout=%s stderr=%s", exitCode, stdout, stderr)
+	}
+	if gotBody["schedule_time"] != "20260102150405" {
+		t.Fatalf("未发送 schedule_time: %#v", gotBody)
+	}
+	vars, _ := gotBody["variables"].(map[string]any)
+	if vars["dt"] != "20260102" {
+		t.Fatalf("未发送 variables: %#v", gotBody)
+	}
+}
+
+func TestSyncTaskSubmitRejectsUnreplacedVariable(t *testing.T) {
+	store := newExecutionTestStore(t, "http://127.0.0.1:1", "test-token")
+	_, stderr, exitCode := runSyncCommand(t, store,
+		"sync", "task", "submit", "42",
+		"--confirm",
+		"--var", "dt=${system.datetime}",
+	)
+	if exitCode != int(clioutput.ExitUsage) {
+		t.Fatalf("未替换变量应退出 2: code=%d stderr=%s", exitCode, stderr)
 	}
 }
 

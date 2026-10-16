@@ -252,7 +252,7 @@ func submitSpecExecutionMode(spec JSONMap) string {
 	return "cluster"
 }
 
-func (s *Service) submitLocalTaskInstance(ctx context.Context, task *Task, createdBy uint, runType RunType, platformJobID string, body []byte, format, jobName string) (*JobInstance, error) {
+func (s *Service) submitLocalTaskInstance(ctx context.Context, task *Task, createdBy uint, runType RunType, platformJobID string, body []byte, format, jobName string, opts *SubmitOptions) (*JobInstance, error) {
 	if s.agentSender == nil || s.executionTargetResolver == nil {
 		return nil, ErrLocalExecutionUnavailable
 	}
@@ -317,6 +317,7 @@ func (s *Service) submitLocalTaskInstance(ctx context.Context, task *Task, creat
 		StartedAt: &now,
 		CreatedBy: createdBy,
 	}
+	applySubmitOptionsToInstance(instance, opts)
 	if err := s.repo.CreateJobInstance(ctx, instance); err != nil {
 		return nil, err
 	}

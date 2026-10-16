@@ -141,7 +141,7 @@ func newTestSyncService(t *testing.T) *Service {
 	if err != nil {
 		t.Fatalf("failed to open sqlite: %v", err)
 	}
-	if err := database.AutoMigrate(&Task{}, &TaskVersion{}, &JobInstance{}, &GlobalVariable{}, &PreviewSession{}, &PreviewTable{}, &PreviewRow{}); err != nil {
+	if err := database.AutoMigrate(&Task{}, &TaskVersion{}, &JobInstance{}, &GlobalVariable{}, &PreviewSession{}, &PreviewTable{}, &PreviewRow{}, &SchedulerConnection{}, &TaskSchedulerBinding{}); err != nil {
 		t.Fatalf("failed to migrate sync models: %v", err)
 	}
 

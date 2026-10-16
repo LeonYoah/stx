@@ -334,6 +334,10 @@ definitions:
     properties:
       api_version:
         type: string
+      build_time:
+        type: string
+      git_commit:
+        type: string
       min_cli_version:
         type: string
       operations:
@@ -366,6 +370,24 @@ definitions:
     properties:
       data:
         $ref: '#/definitions/capability.Data'
+      error_msg:
+        type: string
+    type: object
+  capability.VersionData:
+    properties:
+      build_time:
+        type: string
+      git_commit:
+        type: string
+      min_cli_version:
+        type: string
+      version:
+        type: string
+    type: object
+  capability.VersionResponse:
+    properties:
+      data:
+        $ref: '#/definitions/capability.VersionData'
       error_msg:
         type: string
     type: object
@@ -533,6 +555,9 @@ definitions:
       install_dir:
         description: SeaTunnel installation directory / SeaTunnel 安装目录
         type: string
+      pid:
+        description: Process ID / 进程 ID
+        type: integer
       role:
         description: 'Node role: master, worker, hybrid / 节点角色'
         type: string
@@ -1009,6 +1034,9 @@ definitions:
       id:
         type: integer
       message:
+        description: |-
+          Message is kept for backward compatibility; prefer Operator/Source/Action.
+          Message 保留兼容旧客户端；优先使用 Operator/Source/Action。
         type: string
       operator:
         type: string
@@ -2870,6 +2898,396 @@ definitions:
       supports_slot_num:
         type: boolean
     type: object
+  sync.BasicResponse:
+    properties:
+      data: {}
+      error_msg:
+        type: string
+    type: object
+  sync.CancelByRefRequest:
+    properties:
+      attach_generation:
+        type: integer
+      external_ref:
+        type: string
+    type: object
+  sync.DolphinProject:
+    properties:
+      code:
+        type: integer
+      name:
+        type: string
+    type: object
+  sync.DolphinProjectListResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/sync.DolphinProject'
+        type: array
+      error_msg:
+        type: string
+    type: object
+  sync.DolphinPushRequest:
+    properties:
+      connection_id:
+        type: integer
+      downstreams:
+        items:
+          type: integer
+        type: array
+      dry_run:
+        type: boolean
+      environment:
+        type: string
+      expected_version:
+        type: integer
+      mode:
+        type: string
+      project_code:
+        type: integer
+      timeout:
+        type: string
+      upstreams:
+        items:
+          type: integer
+        type: array
+      use_builtin_schedule:
+        type: boolean
+      variables:
+        additionalProperties:
+          type: string
+        type: object
+      worker_group:
+        type: string
+      workflow_code:
+        type: integer
+      workflow_name:
+        type: string
+    type: object
+  sync.DolphinPushResponse:
+    properties:
+      data:
+        $ref: '#/definitions/sync.DolphinPushResult'
+      error_msg:
+        type: string
+    type: object
+  sync.DolphinPushResult:
+    properties:
+      binding:
+        $ref: '#/definitions/sync.TaskSchedulerBinding'
+      cycle:
+        type: boolean
+      dry_run:
+        type: boolean
+      message:
+        type: string
+      mode:
+        type: string
+      release_state:
+        type: string
+      script:
+        $ref: '#/definitions/sync.DolphinScriptResult'
+      task_code:
+        type: integer
+      version:
+        type: integer
+      warning:
+        type: string
+      workflow_code:
+        type: integer
+      would_offline:
+        type: boolean
+    type: object
+  sync.DolphinScriptResponse:
+    properties:
+      data:
+        $ref: '#/definitions/sync.DolphinScriptResult'
+      error_msg:
+        type: string
+    type: object
+  sync.DolphinScriptResult:
+    properties:
+      env_notes:
+        type: string
+      environment:
+        type: string
+      script:
+        type: string
+      timeout:
+        type: string
+      variables:
+        additionalProperties:
+          type: string
+        type: object
+      worker_group:
+        type: string
+    type: object
+  sync.DolphinTaskStatus:
+    properties:
+      binding:
+        $ref: '#/definitions/sync.TaskSchedulerBinding'
+      builtin_locked:
+        type: boolean
+      connection:
+        $ref: '#/definitions/sync.SchedulerConnection'
+      recent_jobs:
+        items:
+          $ref: '#/definitions/sync.JobInstance'
+        type: array
+      scheduler_token:
+        $ref: '#/definitions/sync.SchedulerTokenView'
+      script:
+        $ref: '#/definitions/sync.DolphinScriptResult'
+    type: object
+  sync.DolphinTaskStatusResponse:
+    properties:
+      data:
+        $ref: '#/definitions/sync.DolphinTaskStatus'
+      error_msg:
+        type: string
+    type: object
+  sync.DolphinWorkflowDetail:
+    properties:
+      code:
+        type: integer
+      name:
+        type: string
+      relations:
+        items:
+          $ref: '#/definitions/sync.DolphinWorkflowRelation'
+        type: array
+      release_state:
+        type: string
+      tasks:
+        items:
+          $ref: '#/definitions/sync.DolphinWorkflowTask'
+        type: array
+      version:
+        type: integer
+    type: object
+  sync.DolphinWorkflowDetailResponse:
+    properties:
+      data:
+        $ref: '#/definitions/sync.DolphinWorkflowDetail'
+      error_msg:
+        type: string
+    type: object
+  sync.DolphinWorkflowListResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/sync.DolphinWorkflowSummary'
+        type: array
+      error_msg:
+        type: string
+    type: object
+  sync.DolphinWorkflowRelation:
+    properties:
+      post_task_code:
+        type: integer
+      pre_task_code:
+        type: integer
+    type: object
+  sync.DolphinWorkflowSummary:
+    properties:
+      code:
+        type: integer
+      name:
+        type: string
+      release_state:
+        type: string
+      version:
+        type: integer
+    type: object
+  sync.DolphinWorkflowTask:
+    properties:
+      code:
+        type: integer
+      name:
+        type: string
+      raw_script:
+        type: string
+      task_type:
+        type: string
+    type: object
+  sync.JSONMap:
+    additionalProperties: true
+    type: object
+  sync.JobInstance:
+    properties:
+      attach_generation:
+        description: |-
+          AttachGeneration 在同一 external_ref 被 CLI 接管时递增，用来忽略过期停止请求。
+          AttachGeneration increments when another CLI attaches to the same external_ref so stale cancel requests are ignored.
+        type: integer
+      created_at:
+        type: string
+      created_by:
+        type: integer
+      engine_job_id:
+        type: string
+      error_message:
+        type: string
+      execution_id:
+        type: string
+      external_ref:
+        description: |-
+          ExternalRef 记录外部调度器这次运行的引用，例如 ds:{工作流实例}:{节点 code}。
+          ExternalRef stores the external scheduler run identity such as ds:{workflowInstance}:{taskCode}.
+        type: string
+      finished_at:
+        type: string
+      id:
+        type: integer
+      mode:
+        description: |-
+          Mode 从提交快照回填，供 CLI --wait 区分批任务和实时任务，不落库。
+          Mode is copied from the submit snapshot so CLI --wait can tell batch from streaming; it is not persisted.
+        type: string
+      platform_job_id:
+        type: string
+      recovered_from_instance_id:
+        type: integer
+      result_preview:
+        $ref: '#/definitions/sync.JSONMap'
+      run_type:
+        $ref: '#/definitions/sync.RunType'
+      started_at:
+        type: string
+      status:
+        $ref: '#/definitions/sync.JobStatus'
+      submit_spec:
+        $ref: '#/definitions/sync.JSONMap'
+      task_id:
+        type: integer
+      task_version:
+        type: integer
+      updated_at:
+        type: string
+    type: object
+  sync.JobResponse:
+    properties:
+      data:
+        $ref: '#/definitions/sync.JobInstance'
+      error_msg:
+        type: string
+    type: object
+  sync.JobStatus:
+    enum:
+    - pending
+    - running
+    - cancel_requested
+    - cancelling
+    - success
+    - failed
+    - canceled
+    type: string
+    x-enum-varnames:
+    - JobStatusPending
+    - JobStatusRunning
+    - JobStatusCancelRequested
+    - JobStatusCancelling
+    - JobStatusSuccess
+    - JobStatusFailed
+    - JobStatusCanceled
+  sync.RunType:
+    enum:
+    - preview
+    - run
+    - recover
+    - schedule
+    type: string
+    x-enum-varnames:
+    - RunTypePreview
+    - RunTypeRun
+    - RunTypeRecover
+    - RunTypeSchedule
+  sync.SchedulerConnection:
+    properties:
+      api_style:
+        type: string
+      base_url:
+        type: string
+      created_at:
+        type: string
+      created_by:
+        type: integer
+      default_project_code:
+        type: integer
+      id:
+        type: integer
+      kind:
+        type: string
+      name:
+        type: string
+      token_set:
+        type: boolean
+      updated_at:
+        type: string
+    type: object
+  sync.SchedulerConnectionListData:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/sync.SchedulerConnection'
+        type: array
+    type: object
+  sync.SchedulerConnectionListResponse:
+    properties:
+      data:
+        $ref: '#/definitions/sync.SchedulerConnectionListData'
+      error_msg:
+        type: string
+    type: object
+  sync.SchedulerConnectionRequest:
+    properties:
+      api_style:
+        type: string
+      base_url:
+        type: string
+      default_project_code:
+        type: integer
+      kind:
+        type: string
+      name:
+        type: string
+      token:
+        type: string
+    type: object
+  sync.SchedulerConnectionResponse:
+    properties:
+      data:
+        $ref: '#/definitions/sync.SchedulerConnection'
+      error_msg:
+        type: string
+    type: object
+  sync.SchedulerTokenIssueResponse:
+    properties:
+      data:
+        $ref: '#/definitions/sync.SchedulerTokenIssueResult'
+      error_msg:
+        type: string
+    type: object
+  sync.SchedulerTokenIssueResult:
+    properties:
+      expires_at:
+        type: string
+      kind:
+        type: string
+      prefix:
+        type: string
+      token:
+        type: string
+    type: object
+  sync.SchedulerTokenView:
+    properties:
+      issued:
+        type: boolean
+      last_used_at:
+        type: string
+      prefix:
+        type: string
+    type: object
   sync.TaskPermissions:
     properties:
       can_edit:
@@ -2894,6 +3312,35 @@ definitions:
       data:
         $ref: '#/definitions/sync.TaskPermissions'
       error_msg:
+        type: string
+    type: object
+  sync.TaskSchedulerBinding:
+    properties:
+      connection_id:
+        type: integer
+      console_url:
+        type: string
+      created_at:
+        type: string
+      id:
+        type: integer
+      kind:
+        type: string
+      project_code:
+        type: integer
+      pushed_at:
+        type: string
+      pushed_by:
+        type: integer
+      task_code:
+        type: integer
+      task_id:
+        type: integer
+      updated_at:
+        type: string
+      workflow_code:
+        type: integer
+      workflow_name:
         type: string
     type: object
   sync.UpdateTaskPermissionsRequest:
@@ -5453,6 +5900,350 @@ paths:
             $ref: '#/definitions/plugin.ListPluginsResponse'
       tags:
       - plugins
+  /api/v1/sync/jobs/cancel-by-ref:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: 外部引用与接管序号
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/sync.CancelByRefRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sync.JobResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/sync.JobResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/sync.JobResponse'
+      summary: 按外部调度引用停止作业
+      tags:
+      - Sync
+  /api/v1/sync/scheduler-connections:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sync.SchedulerConnectionListResponse'
+      summary: 列出调度器连接
+      tags:
+      - Sync
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: 连接信息
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/sync.SchedulerConnectionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sync.SchedulerConnectionResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/sync.SchedulerConnectionResponse'
+      summary: 创建调度器连接
+      tags:
+      - Sync
+  /api/v1/sync/scheduler-connections/{id}:
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: 连接 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 连接信息，空 token 表示保留原值
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/sync.SchedulerConnectionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sync.SchedulerConnectionResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/sync.SchedulerConnectionResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/sync.SchedulerConnectionResponse'
+      summary: 更新调度器连接
+      tags:
+      - Sync
+  /api/v1/sync/scheduler-connections/{id}/projects:
+    get:
+      parameters:
+      - description: 连接 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sync.DolphinProjectListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/sync.DolphinProjectListResponse'
+      summary: 列出 Dolphin 项目
+      tags:
+      - Sync
+  /api/v1/sync/scheduler-connections/{id}/projects/{projectCode}/workflows:
+    get:
+      parameters:
+      - description: 连接 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 项目 code
+        in: path
+        name: projectCode
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sync.DolphinWorkflowListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/sync.DolphinWorkflowListResponse'
+      summary: 列出 Dolphin 工作流
+      tags:
+      - Sync
+  /api/v1/sync/scheduler-connections/{id}/projects/{projectCode}/workflows/{workflowCode}:
+    get:
+      parameters:
+      - description: 连接 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 项目 code
+        in: path
+        name: projectCode
+        required: true
+        type: integer
+      - description: 工作流 code
+        in: path
+        name: workflowCode
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sync.DolphinWorkflowDetailResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/sync.DolphinWorkflowDetailResponse'
+      summary: 读取 Dolphin 工作流定义
+      tags:
+      - Sync
+  /api/v1/sync/tasks/{id}/dolphin:
+    get:
+      parameters:
+      - description: 任务 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sync.DolphinTaskStatusResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/sync.DolphinTaskStatusResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/sync.DolphinTaskStatusResponse'
+      summary: 获取任务的 Dolphin 绑定状态
+      tags:
+      - Sync
+  /api/v1/sync/tasks/{id}/dolphin/push:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: 任务 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 推送请求
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/sync.DolphinPushRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sync.DolphinPushResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/sync.DolphinPushResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/sync.DolphinPushResponse'
+      summary: 把同步任务推送到 DolphinScheduler
+      tags:
+      - Sync
+  /api/v1/sync/tasks/{id}/dolphin/script:
+    get:
+      parameters:
+      - description: 任务 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: CLI 等待超时
+        in: query
+        name: timeout
+        type: string
+      - description: Dolphin worker group
+        in: query
+        name: worker_group
+        type: string
+      - description: Dolphin worker environment
+        in: query
+        name: environment
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sync.DolphinScriptResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/sync.DolphinScriptResponse'
+      summary: 生成 Dolphin SHELL 节点脚本
+      tags:
+      - Sync
+  /api/v1/sync/tasks/{id}/dolphin/token:
+    post:
+      parameters:
+      - description: 任务 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sync.SchedulerTokenIssueResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/sync.SchedulerTokenIssueResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/sync.SchedulerTokenIssueResponse'
+      summary: 签发绑定任务的调度令牌
+      tags:
+      - Sync
+  /api/v1/sync/tasks/{id}/dolphin/token/revoke:
+    post:
+      parameters:
+      - description: 任务 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sync.BasicResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/sync.BasicResponse'
+      summary: 吊销任务上的调度令牌
+      tags:
+      - Sync
+  /api/v1/sync/tasks/{id}/dolphin/unbind:
+    post:
+      parameters:
+      - description: 任务 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sync.BasicResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/sync.BasicResponse'
+      summary: 解除任务与 Dolphin 的绑定
+      tags:
+      - Sync
   /api/v1/sync/tasks/{id}/permissions:
     get:
       parameters:
@@ -5520,4 +6311,15 @@ paths:
       summary: 更新同步任务共享权限
       tags:
       - Sync
+  /api/v1/version:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/capability.VersionResponse'
+      tags:
+      - capability
 swagger: "2.0"

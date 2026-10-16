@@ -31,7 +31,7 @@ Accept: application/json
 
 `X-STX-Client` 只用于区分调用来源，不能替代身份认证或权限判断。令牌属于用户，服务端每次请求都根据用户当前状态和权限判断，不把长期令牌转交给 Agent。
 
-服务端配置路径使用 `CONFIG_PATH`，数据库测试路径可使用 `STX_DATABASE_TYPE` 和 `STX_DATABASE_SQLITE_PATH` 覆盖。CLI 本地配置使用 `XDG_CONFIG_HOME`，文件权限必须为 `0600`。
+服务端配置路径使用 `CONFIG_PATH`，数据库测试路径可使用 `STX_DATABASE_TYPE` 和 `STX_DATABASE_SQLITE_PATH` 覆盖。CLI 本地配置使用 `XDG_CONFIG_HOME`，文件权限必须为 `0600`。远端地址和令牌按 `--server`/`--token`、`STX_SERVER`/`STX_TOKEN`、本地 namespace 文件的顺序读取；Dolphin Worker 应使用 `STX_SERVER` 加上页面签发的 `stxs_` 调度令牌，不要把登录令牌写进节点环境。
 
 普通命令成功时，完整结果只写 stdout，且为单个 JSON 值。stderr 只写结构化事件，每行必须是一个 JSON 值。登录结果只能返回 `token_set: true`、令牌类型、过期时间和用户信息，不能返回令牌正文。
 
@@ -637,3 +637,13 @@ os.WriteFile(target, source, 0o644)
 ```
 
 正确：更新时先保存当前文件，再在目标目录写临时文件并通过 `os.Rename` 替换。
+
+## 14. 场景：Dolphin SHELL 节点使用的 CLI 等待、停作业和调度令牌
+
+完整契约见 [DolphinScheduler SHELL 接入](./dolphin-scheduler-shell.md)。这里只固定 CLI 边界：
+
+- `stx sync task submit --wait` 必须轮询 `GET /api/v1/sync/jobs/:id`，不能把公共执行 wait 超时当成成功。
+- `--close-job` 在 `--wait` 时默认开启；实时任务脚本必须带 `--close-job=false`。
+- 守护进程是 unix `setsid` 子进程，不是 Server lease；409/404 的 `cancel-by-ref` 必须停止重试。
+- `unbind` / `token` / `token/revoke` 不生成 CLI（无 `CommandPath`）；取消作业继续用 `cancel` / `cancel-by-ref`。
+- 调度令牌 `kind=scheduler`，前缀 `stxs_`，能力只覆盖 submit / job get / cancel / cancel-by-ref / capabilities。

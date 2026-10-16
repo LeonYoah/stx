@@ -3984,6 +3984,534 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/sync/jobs/cancel-by-ref": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sync"
+                ],
+                "summary": "按外部调度引用停止作业",
+                "parameters": [
+                    {
+                        "description": "外部引用与接管序号",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/sync.CancelByRefRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sync.JobResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/sync.JobResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/sync.JobResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sync/scheduler-connections": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sync"
+                ],
+                "summary": "列出调度器连接",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sync.SchedulerConnectionListResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sync"
+                ],
+                "summary": "创建调度器连接",
+                "parameters": [
+                    {
+                        "description": "连接信息",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/sync.SchedulerConnectionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sync.SchedulerConnectionResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/sync.SchedulerConnectionResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sync/scheduler-connections/{id}": {
+            "put": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sync"
+                ],
+                "summary": "更新调度器连接",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "连接 ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "连接信息，空 token 表示保留原值",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/sync.SchedulerConnectionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sync.SchedulerConnectionResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/sync.SchedulerConnectionResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/sync.SchedulerConnectionResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sync/scheduler-connections/{id}/projects": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sync"
+                ],
+                "summary": "列出 Dolphin 项目",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "连接 ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sync.DolphinProjectListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/sync.DolphinProjectListResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sync/scheduler-connections/{id}/projects/{projectCode}/workflows": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sync"
+                ],
+                "summary": "列出 Dolphin 工作流",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "连接 ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "项目 code",
+                        "name": "projectCode",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sync.DolphinWorkflowListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/sync.DolphinWorkflowListResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sync/scheduler-connections/{id}/projects/{projectCode}/workflows/{workflowCode}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sync"
+                ],
+                "summary": "读取 Dolphin 工作流定义",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "连接 ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "项目 code",
+                        "name": "projectCode",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "工作流 code",
+                        "name": "workflowCode",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sync.DolphinWorkflowDetailResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/sync.DolphinWorkflowDetailResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sync/tasks/{id}/dolphin": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sync"
+                ],
+                "summary": "获取任务的 Dolphin 绑定状态",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "任务 ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sync.DolphinTaskStatusResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/sync.DolphinTaskStatusResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/sync.DolphinTaskStatusResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sync/tasks/{id}/dolphin/push": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sync"
+                ],
+                "summary": "把同步任务推送到 DolphinScheduler",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "任务 ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "推送请求",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/sync.DolphinPushRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sync.DolphinPushResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/sync.DolphinPushResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/sync.DolphinPushResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sync/tasks/{id}/dolphin/script": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sync"
+                ],
+                "summary": "生成 Dolphin SHELL 节点脚本",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "任务 ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "CLI 等待超时",
+                        "name": "timeout",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Dolphin worker group",
+                        "name": "worker_group",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Dolphin worker environment",
+                        "name": "environment",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sync.DolphinScriptResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/sync.DolphinScriptResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sync/tasks/{id}/dolphin/token": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sync"
+                ],
+                "summary": "签发绑定任务的调度令牌",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "任务 ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sync.SchedulerTokenIssueResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/sync.SchedulerTokenIssueResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/sync.SchedulerTokenIssueResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sync/tasks/{id}/dolphin/token/revoke": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sync"
+                ],
+                "summary": "吊销任务上的调度令牌",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "任务 ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sync.BasicResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/sync.BasicResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sync/tasks/{id}/dolphin/unbind": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sync"
+                ],
+                "summary": "解除任务与 Dolphin 的绑定",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "任务 ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sync.BasicResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/sync.BasicResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sync/tasks/{id}/permissions": {
             "get": {
                 "produces": [
@@ -4081,6 +4609,24 @@ const docTemplate = `{
                         "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/sync.TaskPermissionsResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/version": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "capability"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/capability.VersionResponse"
                         }
                     }
                 }
@@ -4586,6 +5132,12 @@ const docTemplate = `{
                 "api_version": {
                     "type": "string"
                 },
+                "build_time": {
+                    "type": "string"
+                },
+                "git_commit": {
+                    "type": "string"
+                },
                 "min_cli_version": {
                     "type": "string"
                 },
@@ -4634,6 +5186,34 @@ const docTemplate = `{
             "properties": {
                 "data": {
                     "$ref": "#/definitions/capability.Data"
+                },
+                "error_msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "capability.VersionData": {
+            "type": "object",
+            "properties": {
+                "build_time": {
+                    "type": "string"
+                },
+                "git_commit": {
+                    "type": "string"
+                },
+                "min_cli_version": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "string"
+                }
+            }
+        },
+        "capability.VersionResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/capability.VersionData"
                 },
                 "error_msg": {
                     "type": "string"
@@ -4869,6 +5449,10 @@ const docTemplate = `{
                 "install_dir": {
                     "description": "SeaTunnel installation directory / SeaTunnel 安装目录",
                     "type": "string"
+                },
+                "pid": {
+                    "description": "Process ID / 进程 ID",
+                    "type": "integer"
                 },
                 "role": {
                     "description": "Node role: master, worker, hybrid / 节点角色",
@@ -5570,10 +6154,20 @@ const docTemplate = `{
         "dashboard.RecentActivity": {
             "type": "object",
             "properties": {
+                "action": {
+                    "type": "string"
+                },
                 "id": {
                     "type": "integer"
                 },
                 "message": {
+                    "description": "Message is kept for backward compatibility; prefer Operator/Source/Action.\nMessage 保留兼容旧客户端；优先使用 Operator/Source/Action。",
+                    "type": "string"
+                },
+                "operator": {
+                    "type": "string"
+                },
+                "source": {
                     "type": "string"
                 },
                 "timestamp": {
@@ -8228,6 +8822,584 @@ const docTemplate = `{
                 }
             }
         },
+        "sync.BasicResponse": {
+            "type": "object",
+            "properties": {
+                "data": {},
+                "error_msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "sync.CancelByRefRequest": {
+            "type": "object",
+            "properties": {
+                "attach_generation": {
+                    "type": "integer"
+                },
+                "external_ref": {
+                    "type": "string"
+                }
+            }
+        },
+        "sync.DolphinProject": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "sync.DolphinProjectListResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/sync.DolphinProject"
+                    }
+                },
+                "error_msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "sync.DolphinPushRequest": {
+            "type": "object",
+            "properties": {
+                "connection_id": {
+                    "type": "integer"
+                },
+                "downstreams": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "dry_run": {
+                    "type": "boolean"
+                },
+                "environment": {
+                    "type": "string"
+                },
+                "expected_version": {
+                    "type": "integer"
+                },
+                "mode": {
+                    "type": "string"
+                },
+                "project_code": {
+                    "type": "integer"
+                },
+                "timeout": {
+                    "type": "string"
+                },
+                "upstreams": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "use_builtin_schedule": {
+                    "type": "boolean"
+                },
+                "variables": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "worker_group": {
+                    "type": "string"
+                },
+                "workflow_code": {
+                    "type": "integer"
+                },
+                "workflow_name": {
+                    "type": "string"
+                }
+            }
+        },
+        "sync.DolphinPushResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/sync.DolphinPushResult"
+                },
+                "error_msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "sync.DolphinPushResult": {
+            "type": "object",
+            "properties": {
+                "binding": {
+                    "$ref": "#/definitions/sync.TaskSchedulerBinding"
+                },
+                "cycle": {
+                    "type": "boolean"
+                },
+                "dry_run": {
+                    "type": "boolean"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "mode": {
+                    "type": "string"
+                },
+                "release_state": {
+                    "type": "string"
+                },
+                "script": {
+                    "$ref": "#/definitions/sync.DolphinScriptResult"
+                },
+                "task_code": {
+                    "type": "integer"
+                },
+                "version": {
+                    "type": "integer"
+                },
+                "warning": {
+                    "type": "string"
+                },
+                "workflow_code": {
+                    "type": "integer"
+                },
+                "would_offline": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "sync.DolphinScriptResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/sync.DolphinScriptResult"
+                },
+                "error_msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "sync.DolphinScriptResult": {
+            "type": "object",
+            "properties": {
+                "env_notes": {
+                    "type": "string"
+                },
+                "environment": {
+                    "type": "string"
+                },
+                "script": {
+                    "type": "string"
+                },
+                "timeout": {
+                    "type": "string"
+                },
+                "variables": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "worker_group": {
+                    "type": "string"
+                }
+            }
+        },
+        "sync.DolphinTaskStatus": {
+            "type": "object",
+            "properties": {
+                "binding": {
+                    "$ref": "#/definitions/sync.TaskSchedulerBinding"
+                },
+                "builtin_locked": {
+                    "type": "boolean"
+                },
+                "connection": {
+                    "$ref": "#/definitions/sync.SchedulerConnection"
+                },
+                "recent_jobs": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/sync.JobInstance"
+                    }
+                },
+                "scheduler_token": {
+                    "$ref": "#/definitions/sync.SchedulerTokenView"
+                },
+                "script": {
+                    "$ref": "#/definitions/sync.DolphinScriptResult"
+                }
+            }
+        },
+        "sync.DolphinTaskStatusResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/sync.DolphinTaskStatus"
+                },
+                "error_msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "sync.DolphinWorkflowDetail": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "relations": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/sync.DolphinWorkflowRelation"
+                    }
+                },
+                "release_state": {
+                    "type": "string"
+                },
+                "tasks": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/sync.DolphinWorkflowTask"
+                    }
+                },
+                "version": {
+                    "type": "integer"
+                }
+            }
+        },
+        "sync.DolphinWorkflowDetailResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/sync.DolphinWorkflowDetail"
+                },
+                "error_msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "sync.DolphinWorkflowListResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/sync.DolphinWorkflowSummary"
+                    }
+                },
+                "error_msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "sync.DolphinWorkflowRelation": {
+            "type": "object",
+            "properties": {
+                "post_task_code": {
+                    "type": "integer"
+                },
+                "pre_task_code": {
+                    "type": "integer"
+                }
+            }
+        },
+        "sync.DolphinWorkflowSummary": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "release_state": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "integer"
+                }
+            }
+        },
+        "sync.DolphinWorkflowTask": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "raw_script": {
+                    "type": "string"
+                },
+                "task_type": {
+                    "type": "string"
+                }
+            }
+        },
+        "sync.JSONMap": {
+            "type": "object",
+            "additionalProperties": true
+        },
+        "sync.JobInstance": {
+            "type": "object",
+            "properties": {
+                "attach_generation": {
+                    "description": "AttachGeneration 在同一 external_ref 被 CLI 接管时递增，用来忽略过期停止请求。\nAttachGeneration increments when another CLI attaches to the same external_ref so stale cancel requests are ignored.",
+                    "type": "integer"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "type": "integer"
+                },
+                "engine_job_id": {
+                    "type": "string"
+                },
+                "error_message": {
+                    "type": "string"
+                },
+                "execution_id": {
+                    "type": "string"
+                },
+                "external_ref": {
+                    "description": "ExternalRef 记录外部调度器这次运行的引用，例如 ds:{工作流实例}:{节点 code}。\nExternalRef stores the external scheduler run identity such as ds:{workflowInstance}:{taskCode}.",
+                    "type": "string"
+                },
+                "finished_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "mode": {
+                    "description": "Mode 从提交快照回填，供 CLI --wait 区分批任务和实时任务，不落库。\nMode is copied from the submit snapshot so CLI --wait can tell batch from streaming; it is not persisted.",
+                    "type": "string"
+                },
+                "platform_job_id": {
+                    "type": "string"
+                },
+                "recovered_from_instance_id": {
+                    "type": "integer"
+                },
+                "result_preview": {
+                    "$ref": "#/definitions/sync.JSONMap"
+                },
+                "run_type": {
+                    "$ref": "#/definitions/sync.RunType"
+                },
+                "started_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/sync.JobStatus"
+                },
+                "submit_spec": {
+                    "$ref": "#/definitions/sync.JSONMap"
+                },
+                "task_id": {
+                    "type": "integer"
+                },
+                "task_version": {
+                    "type": "integer"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "sync.JobResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/sync.JobInstance"
+                },
+                "error_msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "sync.JobStatus": {
+            "type": "string",
+            "enum": [
+                "pending",
+                "running",
+                "cancel_requested",
+                "cancelling",
+                "success",
+                "failed",
+                "canceled"
+            ],
+            "x-enum-varnames": [
+                "JobStatusPending",
+                "JobStatusRunning",
+                "JobStatusCancelRequested",
+                "JobStatusCancelling",
+                "JobStatusSuccess",
+                "JobStatusFailed",
+                "JobStatusCanceled"
+            ]
+        },
+        "sync.RunType": {
+            "type": "string",
+            "enum": [
+                "preview",
+                "run",
+                "recover",
+                "schedule"
+            ],
+            "x-enum-varnames": [
+                "RunTypePreview",
+                "RunTypeRun",
+                "RunTypeRecover",
+                "RunTypeSchedule"
+            ]
+        },
+        "sync.SchedulerConnection": {
+            "type": "object",
+            "properties": {
+                "api_style": {
+                    "type": "string"
+                },
+                "base_url": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "type": "integer"
+                },
+                "default_project_code": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "token_set": {
+                    "type": "boolean"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "sync.SchedulerConnectionListData": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/sync.SchedulerConnection"
+                    }
+                }
+            }
+        },
+        "sync.SchedulerConnectionListResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/sync.SchedulerConnectionListData"
+                },
+                "error_msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "sync.SchedulerConnectionRequest": {
+            "type": "object",
+            "properties": {
+                "api_style": {
+                    "type": "string"
+                },
+                "base_url": {
+                    "type": "string"
+                },
+                "default_project_code": {
+                    "type": "integer"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "token": {
+                    "type": "string"
+                }
+            }
+        },
+        "sync.SchedulerConnectionResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/sync.SchedulerConnection"
+                },
+                "error_msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "sync.SchedulerTokenIssueResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/sync.SchedulerTokenIssueResult"
+                },
+                "error_msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "sync.SchedulerTokenIssueResult": {
+            "type": "object",
+            "properties": {
+                "expires_at": {
+                    "type": "string"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "prefix": {
+                    "type": "string"
+                },
+                "token": {
+                    "type": "string"
+                }
+            }
+        },
+        "sync.SchedulerTokenView": {
+            "type": "object",
+            "properties": {
+                "issued": {
+                    "type": "boolean"
+                },
+                "last_used_at": {
+                    "type": "string"
+                },
+                "prefix": {
+                    "type": "string"
+                }
+            }
+        },
         "sync.TaskPermissions": {
             "type": "object",
             "properties": {
@@ -8264,6 +9436,50 @@ const docTemplate = `{
                     "$ref": "#/definitions/sync.TaskPermissions"
                 },
                 "error_msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "sync.TaskSchedulerBinding": {
+            "type": "object",
+            "properties": {
+                "connection_id": {
+                    "type": "integer"
+                },
+                "console_url": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "project_code": {
+                    "type": "integer"
+                },
+                "pushed_at": {
+                    "type": "string"
+                },
+                "pushed_by": {
+                    "type": "integer"
+                },
+                "task_code": {
+                    "type": "integer"
+                },
+                "task_id": {
+                    "type": "integer"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "workflow_code": {
+                    "type": "integer"
+                },
+                "workflow_name": {
                     "type": "string"
                 }
             }

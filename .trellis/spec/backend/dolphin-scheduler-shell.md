@@ -1,0 +1,183 @@
+# DolphinScheduler SHELL 接入契约
+
+> 适用于根 Go 模块中的同步任务提交、CLI `--wait`/`--close-job`、调度令牌，以及向 DolphinScheduler 推送 SHELL 节点。
+
+---
+
+## Scenario: STX 通过 SHELL 节点接入 DolphinScheduler
+
+### 1. Scope / Trigger
+
+- Trigger: 同步任务需要被 DolphinScheduler 调度，且停作业必须可靠；不实现 Dolphin 插件。
+- 涉及：`POST /api/v1/sync/tasks/:id/submit`、作业查询/停止、调度令牌、Dolphin 推送/绑定、CLI `stx sync task submit|dolphin|job cancel-by-ref`。
+- 不在范围：调用 Dolphin 停止工作流实例、lease/heartbeat、CLI 删除/解绑/吊销。
+
+### 2. Signatures
+
+```text
+POST /api/v1/sync/tasks/:id/submit
+GET  /api/v1/sync/jobs/:id
+POST /api/v1/sync/jobs/:id/cancel
+POST /api/v1/sync/jobs/cancel-by-ref
+GET  /api/v1/sync/tasks/:id/dolphin
+GET  /api/v1/sync/tasks/:id/dolphin/script
+POST /api/v1/sync/tasks/:id/dolphin/push
+POST /api/v1/sync/tasks/:id/dolphin/unbind          # 仅页面
+POST /api/v1/sync/tasks/:id/dolphin/token           # 仅页面
+POST /api/v1/sync/tasks/:id/dolphin/token/revoke    # 仅页面
+```
+
+```text
+stx sync task submit <id> --confirm [--wait] [--timeout 6h]
+  [--close-job | --close-job=false] [--external-ref ds:${wf_inst}:${task_code}]
+  [--schedule-time "${system.datetime}"] [--var k=v]...
+stx sync task dolphin script <id>
+stx sync task dolphin push <id> --confirm [--new-workflow|--workflow] [--dry-run]
+stx sync job cancel-by-ref --external-ref <ref> --attach-generation <n> --confirm
+```
+
+数据库：
+
+- `sync_job_instances.external_ref`、`attach_generation`
+- `JobInstance.Mode` 是 JSON 虚拟字段（`gorm:"-"`），从 `submit_spec.mode` 回填，不落库
+- `scheduler_connections`、`task_scheduler_bindings`
+- `auth_cli_tokens.kind` / `bound_task_id`；调度令牌 `ExpiresAt` 可空
+
+### 3. Contracts
+
+提交正文（空则行为与旧版一致）：
+
+| 字段 | 约束 |
+| --- | --- |
+| `variables` | 只覆盖本次 `custom_variables`，不写回任务 |
+| `external_ref` | 写入作业；同一 ref 运行中则接管并递增 `attach_generation` |
+| `schedule_time` | RFC3339 或 `yyyyMMddHHmmss`，作为内置时间变量 `ReferenceTime` |
+| `close_job` | 仅文档/审计；真正 close 在 CLI |
+
+CLI 环境变量优先级：`--server`/`--token` → `STX_SERVER`/`STX_TOKEN` → 本地 namespace 文件。
+
+调度令牌：
+
+- 前缀 `stxs_`，`kind=scheduler`，默认不过期，绑定 `bound_task_id`
+- 能力只允许 `sync.task.submit`、`sync.job.get`、`sync.job.cancel`、`sync.job.cancel-by-ref`、`capability.list`
+- 未绑定或解绑后访问该任务返回 403
+- 签发时旧令牌立即失效；原文只返回一次
+
+`--wait`：
+
+- 必须轮询 `GET /api/v1/sync/jobs/{id}`（`GetJob` 会 `refreshJobInstance`）
+- 禁止把 `GET /api/v1/executions/:id/wait` 的超时当成成功
+- 批任务等 `success|failed|canceled`；实时任务等 `running` 后退出 0
+- 成功 0，参数 2，认证 3，无权限 4，超时先 cancel 再 8，失败/被停 10
+- 作业 JSON 的 `mode` 必须能从 `submit_spec` 回填，否则调度令牌查询会把实时任务当成批任务死等
+
+`--close-job`：
+
+- 与 `--wait` 联用时默认 true；实时任务必须关闭（脚本生成 `--close-job=false`）
+- SIGINT/SIGTERM：发 cancel 后写 `done`
+- SIGKILL：提交前 unix `setsid` 守护进程；管道 `generation N` / `done`；EOF 且无 `done` 则 `cancel-by-ref` 重试最多 30 分钟
+- 守护进程遇到 409（旧 generation）或 404 必须停止重试
+
+推送：
+
+- `new`：单 SHELL 节点工作流；可选把 STX cron 转成 Dolphin 定时并上线
+- `reuse`：挂到勾选上下游；成环 400 且不改图；`from==0` 的起点边不参与成环
+- `update`：已绑定任务强制走此模式；可省略 `connection_id`/`project_code`，从绑定回填；只改该节点脚本/设置
+- 已上线工作流：OFFLINE → PUT → ONLINE；PUT 后上线失败必须带 “workflow is OFFLINE”
+- `expected_version` 变化 → 409，不覆盖
+- 推送成功关闭 STX 内置定时；绑定期间不能再打开
+- 解绑只删 STX 记录并吊销令牌，不动 Dolphin 节点
+
+数组字段（`items`/`tasks`/`relations`/`recent_jobs`）在 API 与前端 service 边界都必须是 `[]`，不能是 `null`。
+
+### 4. Validation & Error Matrix
+
+| 条件 | HTTP | CLI 退出码 |
+| --- | --- | --- |
+| `--var` / `variables` 值匹配 `^\$\{.+\}$` | 400 `ErrUnreplacedVariable` | 2 |
+| `schedule_time` 非法 | 400 | 2 |
+| 调度令牌访问未绑定/其他任务 | 403 | 4 |
+| 调度令牌已吊销 | 401 | 3 |
+| `attach_generation` 不匹配 | 409（CLI 守护进程忽略） | — |
+| 复用成环 | 400 `ErrDolphinCycle` | 2 |
+| Dolphin 版本变化 | 409 | 6 |
+| 已绑定节点被删 | 400 `ErrDolphinNodeMissing` | 2 |
+| `--wait` 超时并已请求 cancel | — | 8 |
+| 作业 `failed` / `canceled` | — | 10 |
+| 绑定期间打开内置定时 | 400 `ErrScheduleLockedByDolphin` | 2 |
+
+### 5. Good / Base / Bad
+
+- Good：Dolphin SHELL 使用生成脚本，`--wait` 轮询作业接口；Worker 环境只有 `STX_SERVER` 与 `stxs_` 调度令牌。
+- Base：未绑定任务仍可复制脚本，ref 里保留 Dolphin `${system.*}` 占位符，由 Worker 替换。
+- Bad：`--wait` 打公共执行 wait；把 `JobInstance.Mode` 当成库字段；update 推送还强制前端传 `project_code`；守护进程把 409 重试 30 分钟。
+
+### 6. Tests Required
+
+- `go test ./internal/cmd/ ./internal/cli/... ./internal/apps/sync/ ./internal/apps/auth/ ./internal/operation/`
+- 断言：变量未替换拒绝；同一 `external_ref` 接管；旧 generation 停止被忽略；update 不改边；成环不写 Dolphin；version 冲突 409；流式脚本含 `--close-job=false`；调度令牌不能提交未绑定任务。
+- 前端：中英文 i18n 键齐全；service 对 `tasks`/`relations`/`recent_jobs` 做 `?? []`。
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```go
+_, err := client.Request(ctx, "GET", "/api/v1/executions/"+executionID+"/wait", ...)
+// 把 30 秒上限超时当成提交成功
+```
+
+```go
+type JobInstance struct {
+    Mode string `json:"mode"` // 落库或查询时为空，CLI --wait 无法识别 streaming
+}
+```
+
+```go
+if req.ProjectCode == 0 {
+    return nil, fmt.Errorf("%w: project_code is required", ErrDolphinPushInvalid)
+}
+```
+
+#### Correct
+
+```go
+_, err := client.Request(ctx, "GET", "/api/v1/sync/jobs/"+strconv.FormatUint(uint64(job.ID), 10), ...)
+```
+
+```go
+Mode string `json:"mode,omitempty" gorm:"-"`
+clone.Mode = strings.ToLower(strings.TrimSpace(stringValue(job.SubmitSpec, "mode")))
+```
+
+```go
+if projectCode == 0 && binding != nil {
+    projectCode = binding.ProjectCode
+}
+if projectCode == 0 && mode != "update" {
+    return nil, fmt.Errorf("%w: project_code is required", ErrDolphinPushInvalid)
+}
+```
+
+---
+
+## Design Decision: 守护进程 + attach_generation，而不是 lease
+
+**Context**：Dolphin 3.1/3.2 对进程树 `kill -9`，JVM `-cj` 钩子不会跑。
+
+**Options Considered**：
+
+1. 作业 lease/heartbeat，超时由 Server 杀作业
+2. CLI 提交前 `setsid` 守护进程，管道感知 CLI 死亡后再 `cancel-by-ref`
+
+**Decision**：选 2。避免 Server 侧租约复杂度；取消以 STX 作业为第一公民，不回调 Dolphin。接管序号保证新 CLI 启动后旧守护进程的停止请求被 409 忽略。
+
+---
+
+## Common Mistake: GetJob 响应没有 mode
+
+**Symptom**：实时任务 `--wait` 一直等到超时。
+
+**Cause**：`JobInstance` 没有持久化 `mode`，调度令牌路径只返回作业行。
+
+**Fix**：`gorm:"-"` 的 `Mode` + `sanitizeJobForResponse` 从 `SubmitSpec` 回填；CLI 提交成功后优先用响应里的 `mode`。

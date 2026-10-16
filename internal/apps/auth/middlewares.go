@@ -33,8 +33,50 @@ import (
 
 // 上下文键常量
 const (
-	ContextKeyUser = "auth_user"
+	ContextKeyUser     = "auth_user"
+	ContextKeyCLIToken = "auth_cli_token"
 )
+
+type cliTokenContextKey struct{}
+
+var cliTokenCtxKey = cliTokenContextKey{}
+
+// CLITokenFromContext 从请求上下文读取 CLI 令牌。
+// CLITokenFromContext reads the CLI token from the request context.
+func CLITokenFromContext(ctx context.Context) *CLIToken {
+	if ctx == nil {
+		return nil
+	}
+	token, _ := ctx.Value(cliTokenCtxKey).(*CLIToken)
+	return token
+}
+
+// GetCLITokenFromGin 从 Gin 上下文读取 CLI 令牌。
+// GetCLITokenFromGin reads the CLI token from the Gin context.
+func GetCLITokenFromGin(c *gin.Context) *CLIToken {
+	if c == nil {
+		return nil
+	}
+	if value, exists := c.Get(ContextKeyCLIToken); exists {
+		if token, ok := value.(*CLIToken); ok {
+			return token
+		}
+	}
+	if c.Request != nil {
+		return CLITokenFromContext(c.Request.Context())
+	}
+	return nil
+}
+
+func setCLIToken(c *gin.Context, token *CLIToken) {
+	if c == nil || token == nil {
+		return
+	}
+	c.Set(ContextKeyCLIToken, token)
+	if c.Request != nil {
+		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), cliTokenCtxKey, token))
+	}
+}
 
 // CLIClientRequired 只允许带有 CLI 请求标识的调用进入 CLI 接口。
 // CLIClientRequired allows requests with the CLI marker to enter CLI endpoints.
@@ -106,6 +148,7 @@ func authenticateCLIRequest(c *gin.Context, ctx context.Context) bool {
 		return false
 	}
 	SetUserToContext(c, user)
+	setCLIToken(c, token)
 	return true
 }
 

@@ -43,22 +43,27 @@ var jobLogFollowInterval = 3 * time.Second
 
 const jobLogFollowChunkBytes = 64 * 1024
 
+// jobMetricsLogInterval 是 --wait 向日志流打印指标快照的默认间隔。
+// jobMetricsLogInterval is how often --wait prints metrics snapshots into the log stream.
+var jobMetricsLogInterval = 30 * time.Second
+
 // defaultJobObservationTimeout 是 sync_state=stale 时 --wait 默认失败前的观察窗口。
 // defaultJobObservationTimeout is the default --wait window before failing when sync_state stays stale.
 const defaultJobObservationTimeout = 3 * time.Minute
 
 type syncJobWaitResult struct {
-	ID               uint   `json:"id"`
-	TaskID           uint   `json:"task_id"`
-	Status           string `json:"status"`
-	Mode             string `json:"mode,omitempty"`
-	RunType          string `json:"run_type,omitempty"`
-	ExecutionID      string `json:"execution_id,omitempty"`
-	ExternalRef      string `json:"external_ref,omitempty"`
-	AttachGeneration int    `json:"attach_generation"`
-	ErrorMessage     string `json:"error_message,omitempty"`
-	SyncState        string `json:"sync_state,omitempty"`
-	SyncLagMs        *int64 `json:"sync_lag_ms,omitempty"`
+	ID               uint                   `json:"id"`
+	TaskID           uint                   `json:"task_id"`
+	Status           string                 `json:"status"`
+	Mode             string                 `json:"mode,omitempty"`
+	RunType          string                 `json:"run_type,omitempty"`
+	ExecutionID      string                 `json:"execution_id,omitempty"`
+	ExternalRef      string                 `json:"external_ref,omitempty"`
+	AttachGeneration int                    `json:"attach_generation"`
+	ErrorMessage     string                 `json:"error_message,omitempty"`
+	SyncState        string                 `json:"sync_state,omitempty"`
+	SyncLagMs        *int64                 `json:"sync_lag_ms,omitempty"`
+	ResultPreview    map[string]interface{} `json:"result_preview,omitempty"`
 }
 
 // syncJobWaitConfig 汇总 --wait 轮询、日志跟随、观察超时和 Dolphin 守护管道。
@@ -106,6 +111,7 @@ func waitSyncJob(command *cobra.Command, client *cliClient.Client, operationID s
 	events := clioutput.NewEventWriter(command.ErrOrStderr())
 	logState := newJobLogFollowState()
 	var staleSince time.Time
+	var lastMetricsAt time.Time
 	writeGuardGeneration(cfg.Pipe, job.AttachGeneration)
 
 	for {
@@ -136,6 +142,7 @@ func waitSyncJob(command *cobra.Command, client *cliClient.Client, operationID s
 		if cfg.FollowLogs {
 			_ = followJobLogsOnce(signalCtx, client, events, operationID, job.ID, logState)
 		}
+		lastMetricsAt = maybeEmitJobMetricsLog(events, operationID, requestID, job, lastMetricsAt, false)
 
 		status := strings.ToLower(strings.TrimSpace(job.Status))
 		if !isSyncJobTerminal(status) && staleObservationExceeded(job, cfg.ObservationTimeout, &staleSince) {
@@ -162,6 +169,7 @@ func waitSyncJob(command *cobra.Command, client *cliClient.Client, operationID s
 			if cfg.FollowLogs {
 				drainJobLogs(signalCtx, client, events, operationID, job.ID, logState, 2)
 			}
+			_ = maybeEmitJobMetricsLog(events, operationID, requestID, job, lastMetricsAt, false)
 			writeGuardDone(cfg.Pipe)
 			if err := renderCommandResultWithRequestID(command, operationID, requestID, job); err != nil {
 				return err
@@ -172,6 +180,7 @@ func waitSyncJob(command *cobra.Command, client *cliClient.Client, operationID s
 			if cfg.FollowLogs {
 				drainJobLogs(signalCtx, client, events, operationID, job.ID, logState, 2)
 			}
+			_ = maybeEmitJobMetricsLog(events, operationID, requestID, job, time.Time{}, true)
 			writeGuardDone(cfg.Pipe)
 			if err := renderCommandResultWithRequestID(command, operationID, requestID, job); err != nil {
 				return err
@@ -330,4 +339,102 @@ func itoaUint(value uint) string {
 		digits[i], digits[j] = digits[j], digits[i]
 	}
 	return string(digits)
+}
+
+func maybeEmitJobMetricsLog(events *clioutput.EventWriter, operationID, requestID string, job syncJobWaitResult, lastEmit time.Time, force bool) time.Time {
+	if events == nil || job.ID == 0 {
+		return lastEmit
+	}
+	now := time.Now()
+	if !force && !lastEmit.IsZero() && now.Sub(lastEmit) < jobMetricsLogInterval {
+		return lastEmit
+	}
+	block := formatCLIJobMetricsBlock(job.ResultPreview, now, force || isSyncJobTerminal(strings.ToLower(strings.TrimSpace(job.Status))))
+	if strings.TrimSpace(block) == "" {
+		return lastEmit
+	}
+	emitNormalizedLogChunk(events, operationID, requestID, job.ID, "", block)
+	_ = events.Emit(clioutput.Event{
+		Event:       "job_metrics",
+		OperationID: operationID,
+		RequestID:   requestID,
+		Level:       "info",
+		JobID:       job.ID,
+		Status:      strings.TrimSpace(job.Status),
+		Message:     "metrics snapshot",
+	})
+	return now
+}
+
+func formatCLIJobMetricsBlock(preview map[string]interface{}, at time.Time, final bool) string {
+	if preview == nil {
+		return ""
+	}
+	if raw, ok := preview["stx_metrics_log"].(string); ok {
+		trimmed := strings.TrimSpace(raw)
+		if trimmed != "" {
+			const marker = "---------- STX metrics"
+			if idx := strings.LastIndex(trimmed, marker); idx >= 0 {
+				return strings.TrimSpace(trimmed[idx:])
+			}
+			return trimmed
+		}
+	}
+	metrics, _ := preview["metrics"].(map[string]interface{})
+	if len(metrics) == 0 {
+		return ""
+	}
+	title := "STX metrics snapshot / 任务指标快照"
+	if final {
+		title = "STX metrics final / 任务终态指标"
+	}
+	read := cliMetricString(metrics, "SourceReceivedCount")
+	write := cliMetricString(metrics, "SinkWriteCount")
+	if write == "-" {
+		write = cliMetricString(metrics, "SinkCommittedCount")
+	}
+	lines := []string{
+		"---------- " + title + " ----------",
+		"time / 时间          : " + at.UTC().Format(time.RFC3339),
+		"read count / 读取行  : " + read,
+		"write count / 写入行 : " + write,
+		"read QPS / 读取速率  : " + cliMetricString(metrics, "SourceReceivedQPS"),
+		"write QPS / 写入速率 : " + cliMetricString(metrics, "SinkWriteQPS"),
+		"----------------------------------------------",
+	}
+	return strings.Join(lines, "\n")
+}
+
+func cliMetricString(metrics map[string]interface{}, key string) string {
+	if metrics == nil {
+		return "-"
+	}
+	raw, ok := metrics[key]
+	if !ok || raw == nil {
+		return "-"
+	}
+	switch typed := raw.(type) {
+	case float64:
+		if typed == float64(int64(typed)) {
+			return fmt.Sprintf("%d", int64(typed))
+		}
+		return fmt.Sprintf("%.3f", typed)
+	case float32:
+		return fmt.Sprintf("%.3f", typed)
+	case int:
+		return fmt.Sprintf("%d", typed)
+	case int64:
+		return fmt.Sprintf("%d", typed)
+	case string:
+		if strings.TrimSpace(typed) == "" {
+			return "-"
+		}
+		return strings.TrimSpace(typed)
+	default:
+		text := strings.TrimSpace(fmt.Sprintf("%v", raw))
+		if text == "" || text == "<nil>" {
+			return "-"
+		}
+		return text
+	}
 }

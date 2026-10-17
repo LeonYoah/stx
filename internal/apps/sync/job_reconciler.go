@@ -74,6 +74,12 @@ func (s *Service) reconcileActiveJobs(ctx context.Context) error {
 		}
 		clusterID := clusterIDForJob(ctx, s, job, taskCluster)
 		if clusterID == 0 {
+			// 无 cluster_id 但 submit_spec 带引擎地址时仍对账（直连/外部_ref 兜底）。
+			// Still reconcile when cluster_id is missing but submit_spec has an engine endpoint.
+			if endpointFromSubmitSpec(job.SubmitSpec) == nil {
+				continue
+			}
+			s.reconcileClusterJobs(ctx, 0, []*JobInstance{job})
 			continue
 		}
 		grouped[clusterID] = append(grouped[clusterID], job)
@@ -204,8 +210,40 @@ func (s *Service) reconcileClusterJobs(ctx context.Context, clusterID uint, jobs
 			s.recordJobSyncFailure(ctx, job)
 			continue
 		}
+		if engineJobInfoLooksOrphaned(detail) {
+			// Cluster is up but the job vanished (restart / history expiry): end the zombie running state.
+			// 集群可达但作业已消失（重启/历史过期）：结束僵死的 running。
+			if time.Since(job.CreatedAt) < 30*time.Second {
+				continue
+			}
+			orphaned := &EngineJobInfo{
+				JobID:     engineJobID,
+				JobStatus: "FAILED",
+				ErrorMsg:  "engine no longer has this job (cluster restart or history expired) / 引擎已无此作业（集群重启或历史过期）",
+				FinishedTime: time.Now().In(time.Local).Format("2006-01-02 15:04:05"),
+			}
+			if _, err := s.applyEngineJobInfoUpdate(ctx, job, orphaned); err != nil {
+				s.recordJobSyncFailure(ctx, job)
+			}
+			continue
+		}
 		if _, err := s.applyEngineJobInfoUpdate(ctx, job, detail); err != nil {
 			s.recordJobSyncFailure(ctx, job)
 		}
 	}
+}
+
+// engineJobInfoLooksOrphaned 识别 SeaTunnel 在作业不存在时返回的仅含 jobId 的空壳响应。
+// engineJobInfoLooksOrphaned detects the empty {jobId} shell SeaTunnel returns for unknown jobs.
+func engineJobInfoLooksOrphaned(info *EngineJobInfo) bool {
+	if info == nil {
+		return true
+	}
+	if strings.TrimSpace(info.JobStatus) != "" {
+		return false
+	}
+	return strings.TrimSpace(info.CreateTime) == "" &&
+		strings.TrimSpace(info.FinishedTime) == "" &&
+		info.Metrics == nil &&
+		info.JobDag == nil
 }

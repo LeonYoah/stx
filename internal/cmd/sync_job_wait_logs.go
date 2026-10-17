@@ -29,6 +29,7 @@ import (
 
 type syncJobLogsPayload struct {
 	Logs              string `json:"logs"`
+	MetricsLog        string `json:"metrics_log"`
 	NextOffset        string `json:"next_offset"`
 	EmptyReason       string `json:"empty_reason"`
 	ClusterJobLogMode string `json:"cluster_job_log_mode"`
@@ -99,18 +100,65 @@ func pullAndEmitJobLogs(ctx context.Context, client *cliClient.Client, events *c
 
 	emitLogNotices(events, operationID, requestID, jobID, state, payload)
 
-	if chunk := payload.Logs; strings.TrimSpace(chunk) != "" {
+	emitNormalizedLogChunk(events, operationID, requestID, jobID, state.offset, payload.Logs)
+	if metrics := strings.TrimSpace(payload.MetricsLog); metrics != "" {
+		emitNormalizedLogChunk(events, operationID, requestID, jobID, state.offset, metrics)
+	}
+	return nil
+}
+
+func emitNormalizedLogChunk(events *clioutput.EventWriter, operationID, requestID string, jobID uint, nextOffset, raw string) {
+	if events == nil {
+		return
+	}
+	chunk := normalizeCLILogNewlines(raw)
+	if strings.TrimSpace(chunk) == "" {
+		return
+	}
+	lines := splitCLILogLines(chunk)
+	_ = events.Emit(clioutput.Event{
+		Event:       "log_chunk",
+		OperationID: operationID,
+		RequestID:   requestID,
+		Level:       "info",
+		JobID:       jobID,
+		NextOffset:  nextOffset,
+		Logs:        chunk,
+		Lines:       lines,
+	})
+	// One NDJSON event per line keeps transferred task logs readable without embedded escapes.
+	// 按行发 NDJSON，避免传输后的任务日志里只剩转义换行。
+	for _, line := range lines {
 		_ = events.Emit(clioutput.Event{
-			Event:       "log_chunk",
+			Event:       "log_line",
 			OperationID: operationID,
 			RequestID:   requestID,
 			Level:       "info",
 			JobID:       jobID,
-			NextOffset:  state.offset,
-			Logs:        chunk,
+			Message:     line,
 		})
 	}
-	return nil
+}
+
+func normalizeCLILogNewlines(raw string) string {
+	normalized := strings.ReplaceAll(raw, "\r\n", "\n")
+	normalized = strings.ReplaceAll(normalized, "\r", "\n")
+	if !strings.Contains(normalized, "\n") && strings.Contains(normalized, `\n`) {
+		normalized = strings.ReplaceAll(normalized, `\n`, "\n")
+	}
+	return normalized
+}
+
+func splitCLILogLines(chunk string) []string {
+	parts := strings.Split(chunk, "\n")
+	out := make([]string, 0, len(parts))
+	for _, line := range parts {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		out = append(out, strings.TrimRight(line, "\r"))
+	}
+	return out
 }
 
 func emitLogNotices(events *clioutput.EventWriter, operationID, requestID string, jobID uint, state *jobLogFollowState, payload syncJobLogsPayload) {

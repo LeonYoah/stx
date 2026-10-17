@@ -53,9 +53,12 @@ type Event struct {
 	// NextOffset 为日志增量读偏移令牌。
 	// NextOffset is the incremental log read offset token.
 	NextOffset string `json:"next_offset,omitempty"`
-	// Logs 为 log_chunk 事件的增量正文。
-	// Logs carries incremental text for log_chunk events.
+	// Logs 为 log_chunk 事件的增量正文（含真实换行，JSON 中转义）。
+	// Logs carries incremental text for log_chunk events (real newlines, JSON-escaped).
 	Logs string `json:"logs,omitempty"`
+	// Lines 为按行拆分的日志，便于传输后仍可按行阅读。
+	// Lines is the line-split form so transferred logs stay readable per line.
+	Lines []string `json:"lines,omitempty"`
 	// EmptyReason 说明日志暂不可用（如 logs_not_ready）。
 	// EmptyReason explains missing logs (e.g. logs_not_ready).
 	EmptyReason string `json:"empty_reason,omitempty"`

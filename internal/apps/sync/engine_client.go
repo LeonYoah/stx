@@ -793,12 +793,31 @@ func formatLogPayload(body []byte) string {
 	}
 	var pretty interface{}
 	if json.Unmarshal(body, &pretty) == nil {
+		// JSON string payloads must keep real newlines; MarshalIndent would re-escape them.
+		// JSON 字符串载荷必须保留真实换行，MarshalIndent 会再次转义。
+		if asString, ok := pretty.(string); ok {
+			return normalizeLogNewlines(asString)
+		}
 		formatted, err := json.MarshalIndent(pretty, "", "  ")
 		if err == nil {
 			return string(formatted)
 		}
 	}
-	return trimmed
+	return normalizeLogNewlines(trimmed)
+}
+
+// normalizeLogNewlines 统一 CRLF/CR，并在整段没有真实换行但含字面 \n 时还原换行。
+// normalizeLogNewlines normalizes CRLF/CR and unescapes literal \n when no real newlines exist.
+func normalizeLogNewlines(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	normalized := strings.ReplaceAll(raw, "\r\n", "\n")
+	normalized = strings.ReplaceAll(normalized, "\r", "\n")
+	if !strings.Contains(normalized, "\n") && strings.Contains(normalized, `\n`) {
+		normalized = strings.ReplaceAll(normalized, `\n`, "\n")
+	}
+	return normalized
 }
 
 func buildLegacyEngineURL(endpoint *EngineEndpoint, path string, params map[string]string) (string, error) {

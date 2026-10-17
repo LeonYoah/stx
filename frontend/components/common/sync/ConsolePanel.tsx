@@ -178,7 +178,10 @@ export function ConsolePanel({
     return <div className='text-sm text-muted-foreground'>{t('noLogs')}</div>;
   }
   const displayStatus = getDisplayJobLifecycleStatus(job);
-  const renderedLines = buildDisplayLogLines(logsResult?.logs || '', 800);
+  const combinedLogs = [logsResult?.logs || '', logsResult?.metrics_log || '']
+    .filter((part) => part.trim() !== '')
+    .join("\n");
+  const renderedLines = buildDisplayLogLines(combinedLogs, 800);
   const isMixedLogMode =
     logsResult?.empty_reason === 'mixed_log_mode' ||
     logsResult?.cluster_job_log_mode === 'mixed';

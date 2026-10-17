@@ -2921,7 +2921,11 @@ export function buildDisplayLogLines(logs: string, maxLines: number): string[] {
 }
 
 export function splitLogLines(logs: string): string[] {
-  return logs.split('\n').filter((line) => line.trim() !== '');
+  let normalized = String(logs || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  if (!normalized.includes('\n') && normalized.includes('\\n')) {
+    normalized = normalized.split('\\n').join('\n');
+  }
+  return normalized.split('\n').filter((line) => line.trim() !== '');
 }
 
 export function getLogLineClass(line: string): string {

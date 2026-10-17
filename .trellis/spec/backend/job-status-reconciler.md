@@ -30,3 +30,6 @@
 - stderr NDJSON 事件：`job_wait`、`job_status`（含 `sync_state`/`sync_lag_ms`）、`log_chunk`、`log_notice`、`job_observation_lost`；stdout 仍为终态 JSON。可用 `--no-follow-logs` 关闭日志跟随。
 - **`--observation-timeout`**（默认 **3m**）：非终态且 `sync_state=stale` 持续超过该窗口（以 `sync_lag_ms` 或本地 stale 起始时间为准）时，`--wait` 以 timeout 退出并发出 `job_observation_lost`；设为 `0` 关闭。
 - **集群不可用**：对账器抬高 `sync_fail_count` 并将 `sync_state` 置为 `degraded`/`stale`，**不**擅自把 `status` 改为 failed；Dolphin 应结合本参数与 DS `--timeout` 判定失败。
+- **作业从引擎消失**：集群 API 可达，但 running/finished 列表都没有该 `engine_job_id`，且 `/job-info` 仅返回空壳 `{jobId}`（常见于集群重启或历史过期）时，对账器将作业置为 `failed`，避免永久 `running` 僵尸。手动提交、内置 schedule、Dolphin `external_ref` 只要落了 `engine_job_id` 都走同一条路径。
+- **日志换行**：Agent/REST/CLI 传输路径必须保留真实换行；`log_chunk` 同时带 `lines`，并额外发 `log_line` 便于调度器任务日志按行阅读。
+- **指标入日志流**：对账写入 `result_preview.metrics` 后，每约 30s（及终态）追加可读指标块；`GET .../logs` 返回 `metrics_log`；CLI `--wait` 同步打印。

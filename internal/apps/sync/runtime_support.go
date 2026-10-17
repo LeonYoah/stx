@@ -195,6 +195,9 @@ type JobLogsResult struct {
 	Mode              string `json:"mode"`
 	Source            string `json:"source"`
 	Logs              string `json:"logs"`
+	// MetricsLog 为基于 result_preview.metrics 的最新可读快照，不计入 offset。
+	// MetricsLog is the latest human-readable metrics snapshot from result_preview; not covered by offset.
+	MetricsLog        string `json:"metrics_log,omitempty"`
 	EmptyReason       string `json:"empty_reason,omitempty"`
 	ClusterJobLogMode string `json:"cluster_job_log_mode,omitempty"`
 	ClusterID         uint   `json:"cluster_id,omitempty"`
@@ -446,9 +449,9 @@ func (s *Service) GetJobLogs(ctx context.Context, id uint, offset string, limitB
 		if errors.Is(err, ErrJobLogsUnavailable) {
 			emptyResult.Mode = "local"
 			emptyResult.Source = "agent-file"
-			return emptyResult, nil
+			return attachJobMetricsLog(emptyResult, instance), nil
 		}
-		return result, err
+		return attachJobMetricsLog(result, instance), err
 	}
 	result, err := s.getClusterJobLogs(ctx, instance, offset, limitBytes, keyword, level)
 	clusterID := uintValue(instance.SubmitSpec, "cluster_id")
@@ -464,13 +467,13 @@ func (s *Service) GetJobLogs(ctx context.Context, id uint, offset string, limitB
 				}
 			}
 		}
-		return emptyResult, nil
+		return attachJobMetricsLog(emptyResult, instance), nil
 	}
 	if result != nil {
 		result.ClusterID = clusterID
 		result.ClusterJobLogMode = "per_job"
 	}
-	return result, err
+	return attachJobMetricsLog(result, instance), err
 }
 
 func (s *Service) getLocalJobLogs(ctx context.Context, instance *JobInstance, offset string, limitBytes int, keyword string, level string) (*JobLogsResult, error) {
@@ -654,15 +657,34 @@ func parseInt64OrZero(raw string) int64 {
 	return value
 }
 
+
+func attachJobMetricsLog(result *JobLogsResult, instance *JobInstance) *JobLogsResult {
+	if result == nil || instance == nil {
+		return result
+	}
+	result.MetricsLog = latestMetricsBlockFromPreview(instance.ResultPreview)
+	if result.MetricsLog == "" && instance.ResultPreview != nil {
+		if raw, ok := instance.ResultPreview["metrics"].(map[string]interface{}); ok {
+			result.MetricsLog = FormatJobMetricsLogBlock(raw, time.Now().UTC(), isFinalNormalizedJobStatus(instance.Status))
+		}
+	}
+	if result.Logs != "" {
+		result.Logs = normalizeLogNewlines(result.Logs)
+	}
+	return result
+}
+
 func mergeLogChunks(chunks []string) string {
 	merged := make([]string, 0, 256)
 	for _, chunk := range chunks {
-		for _, line := range strings.Split(strings.TrimSpace(chunk), "\n") {
-			trimmed := strings.TrimSpace(line)
-			if trimmed == "" {
+		chunk = normalizeLogNewlines(chunk)
+		for _, line := range strings.Split(chunk, "\n") {
+			// Keep indentation; only drop completely empty lines between nodes.
+			// 保留缩进；仅丢掉节点之间的空行。
+			if strings.TrimSpace(line) == "" {
 				continue
 			}
-			merged = append(merged, trimmed)
+			merged = append(merged, strings.TrimRight(line, "\r"))
 		}
 	}
 	if len(merged) == 0 {

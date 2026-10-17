@@ -89,6 +89,14 @@ func (s *Service) applyEngineJobInfoUpdate(ctx context.Context, instance *JobIns
 	}
 	instance.Status = observedStatus
 	instance.ResultPreview = mergeJobRuntimeInfo(instance.ResultPreview, info)
+	if info.Metrics != nil {
+		instance.ResultPreview = maybeRecordMetricsLog(
+			instance.ResultPreview,
+			info.Metrics,
+			time.Now().UTC(),
+			isFinalNormalizedJobStatus(observedStatus),
+		)
+	}
 	if isFinalNormalizedJobStatus(instance.Status) {
 		if parsedFinishedAt := parseEngineJobTime(info.FinishedTime); parsedFinishedAt != nil {
 			instance.FinishedAt = parsedFinishedAt

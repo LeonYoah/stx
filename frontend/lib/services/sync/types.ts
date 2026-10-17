@@ -123,6 +123,8 @@ export interface SyncJobLogsResult {
   mode: string;
   source: string;
   logs: string;
+  /** Latest metrics snapshot from STX result_preview; not covered by log offset. */
+  metrics_log?: string;
   empty_reason?: string;
   cluster_job_log_mode?: string;
   cluster_id?: number;

@@ -499,7 +499,7 @@ func readSyncLogChunk(path string, rawOffset string, limitBytes int, keyword str
 		consumed = readBytes
 		buffer = buffer[:consumed]
 	}
-	content := filterLogContent(stripANSI(strings.TrimSpace(string(buffer))), keyword, level)
+	content := filterLogContent(stripANSI(string(buffer)), keyword, level)
 	return content, offset + int64(consumed), fileSize, nil
 }
 
@@ -539,11 +539,21 @@ func filterLogContent(content string, keyword string, level string) string {
 	if strings.TrimSpace(content) == "" {
 		return ""
 	}
+	content = strings.ReplaceAll(content, "\r\n", "\n")
+	content = strings.ReplaceAll(content, "\r", "\n")
+	// Restore literal backslash-n when the chunk has no real newlines (double-encoded transfer).
+	// 若整段没有真实换行却含字面 \n，则还原（双重编码传输场景）。
+	if !strings.Contains(content, "\n") && strings.Contains(content, `\n`) {
+		content = strings.ReplaceAll(content, `\n`, "\n")
+	}
 	level = strings.ToUpper(strings.TrimSpace(level))
 	keyword = strings.ToLower(strings.TrimSpace(keyword))
 	lines := strings.Split(content, "\n")
 	filtered := make([]string, 0, len(lines))
 	for _, line := range lines {
+		// Preserve leading indentation; trim only CR remnants.
+		// 保留行首缩进，仅去掉残留 CR。
+		line = strings.TrimRight(line, "\r")
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
 			continue
@@ -558,7 +568,7 @@ func filterLogContent(content string, keyword string, level string) string {
 		if keyword != "" && !strings.Contains(strings.ToLower(trimmed), keyword) {
 			continue
 		}
-		filtered = append(filtered, trimmed)
+		filtered = append(filtered, line)
 	}
 	return strings.Join(filtered, "\n")
 }

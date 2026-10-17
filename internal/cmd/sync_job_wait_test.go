@@ -18,6 +18,7 @@
 package cmd
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -59,5 +60,31 @@ func TestStaleObservationExceededResetsWhenHealthy(t *testing.T) {
 	}
 	if !since.IsZero() {
 		t.Fatal("staleSince should reset when sync_state is not stale")
+	}
+}
+
+func TestNormalizeCLILogNewlines(t *testing.T) {
+	got := normalizeCLILogNewlines(`a\nb`)
+	if got != "a\nb" {
+		t.Fatalf("got %q", got)
+	}
+	lines := splitCLILogLines("a\nb\n")
+	if len(lines) != 2 || lines[0] != "a" || lines[1] != "b" {
+		t.Fatalf("lines=%v", lines)
+	}
+}
+
+func TestFormatCLIJobMetricsBlock(t *testing.T) {
+	block := formatCLIJobMetricsBlock(map[string]interface{}{
+		"metrics": map[string]interface{}{
+			"SourceReceivedCount": float64(9),
+			"SinkWriteCount":      float64(9),
+		},
+	}, time.Unix(0, 0).UTC(), true)
+	if !strings.Contains(block, "STX metrics final") {
+		t.Fatalf("missing final title: %s", block)
+	}
+	if !strings.Contains(block, "\n") {
+		t.Fatal("metrics block must include real newlines")
 	}
 }

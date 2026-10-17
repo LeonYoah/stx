@@ -76,7 +76,7 @@ func TestBuildDolphinShellScriptAppendsOverrides(t *testing.T) {
 
 func TestPatchShellTaskRawPreservesExistingTimeout(t *testing.T) {
 	raw := json.RawMessage(`{"code":88,"name":"stx","taskType":"SHELL","version":1,"timeoutFlag":"OPEN","timeoutNotifyStrategy":"FAILED","timeout":120,"taskParams":{"rawScript":"old"}}`)
-	patched, version, err := patchShellTaskRaw(raw, "stx", "exec stx sync task submit 1 --wait --confirm", "default")
+	patched, version, err := patchShellTaskRaw(raw, "stx", "exec stx sync task submit 1 --wait --confirm", "default", -1)
 	if err != nil {
 		t.Fatalf("patch: %v", err)
 	}

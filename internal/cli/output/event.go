@@ -18,7 +18,9 @@ package output
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
+	"strings"
 	"sync"
 )
 
@@ -38,27 +40,180 @@ type Event struct {
 	Level          string   `json:"level,omitempty"`
 	Progress       *int     `json:"progress,omitempty"`
 	MissingFields  []string `json:"missing_fields,omitempty"`
+	// JobID 关联 sync 作业实例，供 --wait 进度/日志事件使用。
+	// JobID links a sync job instance for --wait progress/log events.
+	JobID uint `json:"job_id,omitempty"`
+	// Status 为作业或执行状态快照。
+	// Status is a job or execution status snapshot.
+	Status string `json:"status,omitempty"`
+	// SyncState 反映 STX 与引擎对账观察面（读库字段）。
+	// SyncState reflects STX engine reconciler observability (DB read path).
+	SyncState string `json:"sync_state,omitempty"`
+	// SyncLagMs 为 API 派生的同步滞后毫秒数（可选）。
+	// SyncLagMs is optional derived sync lag in milliseconds from the API.
+	SyncLagMs *int64 `json:"sync_lag_ms,omitempty"`
+	// NextOffset 为日志增量读偏移令牌。
+	// NextOffset is the incremental log read offset token.
+	NextOffset string `json:"next_offset,omitempty"`
+	// Logs 为 log_chunk 事件的增量正文（含真实换行，JSON 中转义）。
+	// Logs carries incremental text for log_chunk events (real newlines, JSON-escaped).
+	Logs string `json:"logs,omitempty"`
+	// Lines 为按行拆分的日志，便于传输后仍可按行阅读。
+	// Lines is the line-split form so transferred logs stay readable per line.
+	Lines []string `json:"lines,omitempty"`
+	// EmptyReason 说明日志暂不可用（如 logs_not_ready）。
+	// EmptyReason explains missing logs (e.g. logs_not_ready).
+	EmptyReason string `json:"empty_reason,omitempty"`
 }
 
-// EventWriter 以并发安全方式写入 NDJSON 事件。
-// EventWriter writes NDJSON events safely across concurrent callers.
+// EventFormat controls how EventWriter serializes events to the sink.
+// EventFormat 控制 EventWriter 如何把事件写到输出。
+type EventFormat string
+
+const (
+	// EventFormatJSON writes one NDJSON object per event (machine-oriented).
+	// EventFormatJSON 每个事件写一行 NDJSON（机器可读）。
+	EventFormatJSON EventFormat = "json"
+	// EventFormatText writes plain human-readable lines (DolphinScheduler / terminal friendly).
+	// EventFormatText 写纯文本行（适合 DS / 终端阅读）。
+	EventFormatText EventFormat = "text"
+)
+
+// EventWriter 以并发安全方式写入事件（NDJSON 或纯文本）。
+// EventWriter writes events safely as NDJSON or plain text.
 type EventWriter struct {
 	writer io.Writer
+	format EventFormat
 	mu     sync.Mutex
 }
 
-// NewEventWriter 创建 stderr 事件写入器。
-// NewEventWriter creates a stderr event writer.
+// NewEventWriter 创建默认 NDJSON 事件写入器。
+// NewEventWriter creates a stderr event writer in NDJSON mode.
 func NewEventWriter(writer io.Writer) *EventWriter {
-	return &EventWriter{writer: writer}
+	return &EventWriter{writer: writer, format: EventFormatJSON}
 }
 
-// Emit 写入一个完整 JSON 对象并追加换行。
-// Emit writes one complete JSON object followed by a newline.
+// NewTextEventWriter 创建纯文本事件写入器（人类可读，供 --wait 默认使用）。
+// NewTextEventWriter creates a plain-text event writer (human-readable; default for --wait).
+func NewTextEventWriter(writer io.Writer) *EventWriter {
+	return &EventWriter{writer: writer, format: EventFormatText}
+}
+
+// SetFormat switches serialization format; empty keeps current.
+// SetFormat 切换序列化格式；空值保持不变。
+func (w *EventWriter) SetFormat(format EventFormat) {
+	if w == nil {
+		return
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	switch format {
+	case EventFormatJSON, EventFormatText:
+		w.format = format
+	}
+}
+
+// Emit 按当前格式写入一个事件。
+// Emit writes one event using the configured format.
 func (w *EventWriter) Emit(event Event) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	if w.format == EventFormatText {
+		return w.emitTextLocked(event)
+	}
 	return json.NewEncoder(w.writer).Encode(event)
+}
+
+func (w *EventWriter) emitTextLocked(event Event) error {
+	name := strings.TrimSpace(event.Event)
+	switch name {
+	case "log_line":
+		return writePlainLine(w.writer, event.Message)
+	case "log_chunk":
+		if len(event.Lines) > 0 {
+			for _, line := range event.Lines {
+				if err := writePlainLine(w.writer, line); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+		return writePlainBlock(w.writer, event.Logs)
+	case "job_metrics":
+		// Metrics body is already emitted as log_line / plain lines; skip envelope noise.
+		// 指标正文已按行写出；跳过事件外壳以免 DS 日志出现 JSON。
+		return nil
+	case "idempotency_key":
+		return nil
+	case "job_wait":
+		msg := strings.TrimSpace(event.Message)
+		if msg == "" {
+			msg = fmt.Sprintf("waiting for job %d", event.JobID)
+		}
+		return writePlainLine(w.writer, "[stx] "+msg)
+	case "job_status":
+		status := strings.TrimSpace(event.Status)
+		if status == "" {
+			status = strings.TrimSpace(event.Message)
+		}
+		if status == "" {
+			return nil
+		}
+		return writePlainLine(w.writer, "[stx] job_status="+status)
+	case "log_notice", "warning":
+		msg := strings.TrimSpace(event.Message)
+		if msg == "" {
+			return nil
+		}
+		return writePlainLine(w.writer, "[stx] warn: "+msg)
+	case "error":
+		msg := strings.TrimSpace(event.Message)
+		if event.Code != "" {
+			msg = strings.TrimSpace(event.Code + ": " + msg)
+		}
+		if msg == "" {
+			msg = "error"
+		}
+		return writePlainLine(w.writer, "[stx] error: "+msg)
+	case "job_observation_lost":
+		msg := strings.TrimSpace(event.Message)
+		if msg == "" {
+			msg = "engine observation lost"
+		}
+		return writePlainLine(w.writer, "[stx] error: "+msg)
+	default:
+		msg := strings.TrimSpace(event.Message)
+		if msg == "" {
+			return nil
+		}
+		if name != "" {
+			return writePlainLine(w.writer, "[stx] "+name+": "+msg)
+		}
+		return writePlainLine(w.writer, msg)
+	}
+}
+
+func writePlainLine(w io.Writer, line string) error {
+	line = strings.TrimRight(line, "\r\n")
+	_, err := io.WriteString(w, line+"\n")
+	return err
+}
+
+func writePlainBlock(w io.Writer, block string) error {
+	block = strings.ReplaceAll(block, "\r\n", "\n")
+	block = strings.ReplaceAll(block, "\r", "\n")
+	if strings.TrimSpace(block) == "" {
+		return nil
+	}
+	for _, line := range strings.Split(block, "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		if err := writePlainLine(w, line); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // EmitError 写入最终错误事件。

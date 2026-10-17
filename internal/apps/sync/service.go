@@ -1209,7 +1209,7 @@ func (s *Service) ensurePreviewSession(ctx context.Context, task *Task, instance
 		Status:         "collecting",
 		StartedAt:      &now,
 	}
-	if instance.Status == JobStatusSuccess || instance.Status == JobStatusFailed || instance.Status == JobStatusCanceled {
+	if isFinalNormalizedJobStatus(instance.Status) {
 		session.Status = string(instance.Status)
 		session.FinishedAt = instance.FinishedAt
 	}
@@ -1635,23 +1635,21 @@ func (s *Service) submitTaskInstanceWithPayload(ctx context.Context, task *Task,
 	return instance, nil
 }
 
-// ListJobs returns paginated job instances.
+// ListJobs returns paginated job instances from the database without hitting the engine.
+// ListJobs 只读数据库返回分页作业，不再同步刷新 SeaTunnel。
 func (s *Service) ListJobs(ctx context.Context, filter *JobFilter) ([]*JobInstance, int64, error) {
-	items, total, err := s.repo.ListJobInstances(ctx, filter)
-	if err != nil {
-		return nil, 0, err
-	}
-	for i, item := range items {
-		refreshed, refreshErr := s.refreshJobInstance(ctx, item)
-		if refreshErr == nil && refreshed != nil {
-			items[i] = refreshed
-		}
-	}
-	return items, total, nil
+	return s.repo.ListJobInstances(ctx, filter)
 }
 
-// GetJob returns one job instance and refreshes live runtime state when possible.
+// GetJob returns one job instance from the database without hitting the engine.
+// GetJob 只读数据库返回单个作业，不再同步刷新 SeaTunnel。
 func (s *Service) GetJob(ctx context.Context, id uint) (*JobInstance, error) {
+	return s.repo.GetJobInstanceByID(ctx, id)
+}
+
+// RefreshJobByID 主动从引擎刷新一条作业（?fresh=1 或对账器补详情时使用）。
+// RefreshJobByID actively refreshes one job from the engine (?fresh=1 or reconciler detail fetch).
+func (s *Service) RefreshJobByID(ctx context.Context, id uint) (*JobInstance, error) {
 	instance, err := s.repo.GetJobInstanceByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -1666,10 +1664,10 @@ func (s *Service) CancelJob(ctx context.Context, id uint, stopWithSavepoint bool
 	if err != nil {
 		return nil, err
 	}
-	if instance.Status == JobStatusSuccess || instance.Status == JobStatusFailed || instance.Status == JobStatusCanceled {
+	if isFinalNormalizedJobStatus(instance.Status) {
 		return nil, ErrJobAlreadyFinished
 	}
-	if instance.Status == JobStatusCancelRequested || instance.Status == JobStatusCancelling {
+	if instance.Status == JobStatusCancelRequested || instance.Status == JobStatusCancelling || instance.Status == JobStatusDoingSavepoint {
 		// 如果此前处于带 Savepoint 的停止中（如 DOING_SAVEPOINT），而当前请求普通停止（!stopWithSavepoint），
 		// 则用户意图放弃 Savepoint 强制停止，予以打破死锁并强制结束。
 		isDoingSavepoint := strings.EqualFold(strings.TrimSpace(stringValue(instance.ResultPreview, "job_status")), "DOING_SAVEPOINT")
@@ -1688,7 +1686,7 @@ func (s *Service) CancelJob(ctx context.Context, id uint, stopWithSavepoint bool
 				instance.ResultPreview = JSONMap{}
 			}
 			instance.ResultPreview["job_status"] = "CANCELED"
-			_ = s.repo.UpdateJobStatus(ctx, instance.ID, []JobStatus{JobStatusCancelRequested, JobStatusCancelling}, map[string]any{
+			_ = s.repo.UpdateJobStatus(ctx, instance.ID, []JobStatus{JobStatusCancelRequested, JobStatusCancelling, JobStatusDoingSavepoint}, map[string]any{
 				"status":         instance.Status,
 				"finished_at":    instance.FinishedAt,
 				"result_preview": instance.ResultPreview,
@@ -2552,9 +2550,11 @@ func (s *Service) refreshJobInstance(ctx context.Context, instance *JobInstance)
 	if s.engineClient == nil || strings.TrimSpace(instance.EngineJobID) == "" {
 		return instance, nil
 	}
-	if instance.Status == JobStatusSuccess || instance.Status == JobStatusFailed || instance.Status == JobStatusCanceled {
+	if isFinalNormalizedJobStatus(instance.Status) {
 		jobStatus := strings.ToUpper(strings.TrimSpace(stringValue(instance.ResultPreview, "job_status")))
-		if jobStatus == "" || isFinalEngineJobStatus(jobStatus) {
+		// Skip only after a true final metrics block exists. Mid-run snapshot/metrics alone must not freeze refresh.
+		// 仅在已有终态指标块时跳过；只有中途 snapshot/metrics 时继续补拉 job-info。
+		if (jobStatus == "" || isFinalEngineJobStatus(jobStatus)) && hasFinalMetricsLog(instance.ResultPreview) {
 			return instance, nil
 		}
 	}
@@ -2562,89 +2562,12 @@ func (s *Service) refreshJobInstance(ctx context.Context, instance *JobInstance)
 	if endpoint == nil {
 		return instance, nil
 	}
-	previousStatus := instance.Status
 	info, err := s.engineClient.GetJobInfo(ctx, endpoint, instance.EngineJobID)
 	if err != nil {
-		if previousStatus == JobStatusCancelRequested || previousStatus == JobStatusCancelling {
-			now := time.Now()
-			instance.Status = JobStatusCanceled
-			instance.FinishedAt = &now
-			if instance.ResultPreview == nil {
-				instance.ResultPreview = JSONMap{}
-			}
-			instance.ResultPreview["job_status"] = "CANCELED"
-			_ = s.repo.UpdateJobStatus(ctx, instance.ID, []JobStatus{previousStatus}, map[string]any{
-				"status":         instance.Status,
-				"result_preview": instance.ResultPreview,
-				"finished_at":    instance.FinishedAt,
-			})
-		}
+		s.recordJobSyncFailure(ctx, instance)
 		return instance, nil
 	}
-	if info == nil {
-		return instance, nil
-	}
-	rawEngineStatus := strings.TrimSpace(info.JobStatus)
-	var observedStatus JobStatus
-	if rawEngineStatus == "" {
-		if previousStatus == JobStatusCancelRequested || previousStatus == JobStatusCancelling {
-			observedStatus = JobStatusCanceled
-		} else {
-			observedStatus = previousStatus
-		}
-	} else {
-		observedStatus = normalizeJobStatus(rawEngineStatus)
-		if previousStatus == JobStatusCancelRequested || previousStatus == JobStatusCancelling {
-			if observedStatus == JobStatusPending || observedStatus == JobStatusRunning {
-				observedStatus = previousStatus
-			} else if observedStatus == JobStatusSuccess {
-				observedStatus = JobStatusCanceled
-			}
-		}
-	}
-	// 引擎启动阶段可能短暂返回 CREATED，不能把已经运行的任务改回 pending。
-	// Engines may briefly report CREATED during startup; do not move a running job back to pending.
-	if previousStatus == JobStatusRunning && observedStatus == JobStatusPending {
-		observedStatus = previousStatus
-	}
-	// 作业终态不可被迟到或过期的引擎状态改回运行态。
-	// A late or stale engine status must not move a terminal job back to a running state.
-	if isFinalNormalizedJobStatus(previousStatus) {
-		observedStatus = previousStatus
-	}
-	instance.Status = observedStatus
-	instance.ResultPreview = mergeJobRuntimeInfo(instance.ResultPreview, info)
-	if isFinalNormalizedJobStatus(instance.Status) {
-		if parsedFinishedAt := parseEngineJobTime(info.FinishedTime); parsedFinishedAt != nil {
-			instance.FinishedAt = parsedFinishedAt
-		} else if instance.FinishedAt == nil {
-			now := time.Now()
-			instance.FinishedAt = &now
-		}
-		if info.ErrorMsg != nil {
-			instance.ErrorMessage = strings.TrimSpace(fmt.Sprintf("%v", info.ErrorMsg))
-		}
-	} else {
-		instance.FinishedAt = nil
-	}
-	if err := s.repo.UpdateJobStatus(ctx, instance.ID, []JobStatus{previousStatus}, map[string]any{
-		"status":         instance.Status,
-		"result_preview": instance.ResultPreview,
-		"error_message":  instance.ErrorMessage,
-		"finished_at":    instance.FinishedAt,
-	}); err != nil {
-		if errors.Is(err, ErrJobStatusChanged) {
-			return s.repo.GetJobInstanceByID(ctx, instance.ID)
-		}
-		return nil, err
-	}
-	if err := s.syncPreviewSessionTerminalState(ctx, instance); err != nil {
-		return nil, err
-	}
-	if err := s.syncExecutionFromJob(ctx, instance); err != nil {
-		return nil, err
-	}
-	return instance, nil
+	return s.applyEngineJobInfoUpdate(ctx, instance, info)
 }
 
 func (s *Service) syncPreviewSessionTerminalState(ctx context.Context, instance *JobInstance) error {
@@ -2678,7 +2601,7 @@ func (s *Service) syncPreviewSessionTerminalState(ctx context.Context, instance 
 }
 
 func isFinalNormalizedJobStatus(status JobStatus) bool {
-	return status == JobStatusSuccess || status == JobStatusFailed || status == JobStatusCanceled
+	return status == JobStatusSuccess || status == JobStatusFailed || status == JobStatusCanceled || status == JobStatusSavepointDone
 }
 
 func isFinalEngineJobStatus(status string) bool {

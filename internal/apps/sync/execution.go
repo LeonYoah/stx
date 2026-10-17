@@ -81,7 +81,7 @@ func (s *Service) getJobInstanceForActor(ctx context.Context, actor executionapp
 
 // GetJobForActor 按当前用户归属或任务可见性读取一个作业。
 // GetJobForActor loads one job under the current user's ownership or task view scope.
-func (s *Service) GetJobForActor(ctx context.Context, actor executionapp.Actor, id uint) (*JobInstance, error) {
+func (s *Service) GetJobForActor(ctx context.Context, actor executionapp.Actor, id uint, fresh bool) (*JobInstance, error) {
 	if err := s.enforceSchedulerScope(ctx, 0, id); err != nil {
 		return nil, err
 	}
@@ -89,7 +89,10 @@ func (s *Service) GetJobForActor(ctx context.Context, actor executionapp.Actor, 
 	if err != nil {
 		return nil, err
 	}
-	return s.refreshJobInstance(ctx, instance)
+	if fresh {
+		return s.refreshJobInstance(ctx, instance)
+	}
+	return instance, nil
 }
 
 // GetJobLogsForActor 在权限检查后读取作业日志。

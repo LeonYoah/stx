@@ -93,6 +93,9 @@ type SyncConfig struct {
 	// PreviewDataTTLHours is kept for backward compatibility and will be used when minute-level config is absent.
 	// PreviewDataTTLHours 仅用于兼容旧配置；未设置分钟级配置时才会使用。
 	PreviewDataTTLHours int `mapstructure:"preview_data_ttl_hours"`
+	// JobReconcilerIntervalSeconds 对账 tick 间隔；0 表示默认 10 秒，小于 0 表示关闭对账器。
+	// JobReconcilerIntervalSeconds is the reconciler tick interval; 0 means default 10s, negative disables it.
+	JobReconcilerIntervalSeconds int `mapstructure:"job_reconciler_interval_seconds"`
 }
 
 // authConfig 认证配置

@@ -41,6 +41,7 @@ const smokeExcludedSpecs = new Set([
   'e2e/config-real.spec.ts',
   'e2e/upgrade-real.spec.ts',
   'e2e/plugin-real.spec.ts',
+  'e2e/scheduler-real.spec.ts',
 ]);
 
 const globalPatterns = [

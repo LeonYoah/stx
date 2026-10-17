@@ -145,9 +145,29 @@ const (
 	JobStatusRunning         JobStatus = "running"
 	JobStatusCancelRequested JobStatus = "cancel_requested"
 	JobStatusCancelling      JobStatus = "cancelling"
-	JobStatusSuccess         JobStatus = "success"
-	JobStatusFailed          JobStatus = "failed"
-	JobStatusCanceled        JobStatus = "canceled"
+	// JobStatusDoingSavepoint mirrors SeaTunnel DOING_SAVEPOINT (stop-with-savepoint in progress).
+	// JobStatusDoingSavepoint 对应引擎 DOING_SAVEPOINT（带 Savepoint 停止进行中）。
+	JobStatusDoingSavepoint JobStatus = "doing_savepoint"
+	// JobStatusFailing mirrors SeaTunnel FAILING (transitioning to FAILED).
+	// JobStatusFailing 对应引擎 FAILING（正在失败、尚未 FAILED）。
+	JobStatusFailing JobStatus = "failing"
+	JobStatusSuccess JobStatus = "success"
+	JobStatusFailed  JobStatus = "failed"
+	JobStatusCanceled JobStatus = "canceled"
+	// JobStatusSavepointDone mirrors SeaTunnel SAVEPOINT_DONE (terminal after savepoint stop).
+	// JobStatusSavepointDone 对应引擎 SAVEPOINT_DONE（Savepoint 停止完成的终态）。
+	JobStatusSavepointDone JobStatus = "savepoint_done"
+)
+
+// JobSyncState 描述 STX 与 SeaTunnel 引擎状态对齐的新鲜度，不等同于作业生命周期 status。
+// JobSyncState describes how fresh STX's cached engine view is; it is not the job lifecycle status.
+type JobSyncState string
+
+const (
+	JobSyncStateOK       JobSyncState = "ok"
+	JobSyncStateDegraded JobSyncState = "degraded"
+	JobSyncStateStale    JobSyncState = "stale"
+	JobSyncStateUnknown  JobSyncState = "unknown"
 )
 
 // Task represents one sync studio workspace node.
@@ -376,6 +396,18 @@ type JobInstance struct {
 	EngineJobID             string    `json:"engine_job_id" gorm:"size:255;index"`
 	RecoveredFromInstanceID *uint     `json:"recovered_from_instance_id,omitempty" gorm:"index"`
 	Status                  JobStatus `json:"status" gorm:"size:20;default:pending;index"`
+	// LastSyncedAt 记录最近一次成功向 SeaTunnel 对齐状态的时间（UTC）。
+	// LastSyncedAt is when STX last successfully synced runtime state from SeaTunnel (UTC).
+	LastSyncedAt *time.Time `json:"last_synced_at,omitempty"`
+	// SyncState 表示观察面新鲜度：ok / degraded / stale / unknown。
+	// SyncState indicates observation freshness: ok / degraded / stale / unknown.
+	SyncState JobSyncState `json:"sync_state" gorm:"size:20;default:unknown;index"`
+	// SyncFailCount 连续问引擎失败次数，成功对齐后归零。
+	// SyncFailCount counts consecutive engine sync failures; reset after a successful sync.
+	SyncFailCount int `json:"sync_fail_count" gorm:"not null;default:0"`
+	// SyncLagMs 由 API 根据 last_synced_at 派生，不落库。
+	// SyncLagMs is derived from last_synced_at at read time and is not persisted.
+	SyncLagMs int64 `json:"sync_lag_ms,omitempty" gorm:"-"`
 	// Mode 从提交快照回填，供 CLI --wait 区分批任务和实时任务，不落库。
 	// Mode is copied from the submit snapshot so CLI --wait can tell batch from streaming; it is not persisted.
 	Mode          string     `json:"mode,omitempty" gorm:"-"`

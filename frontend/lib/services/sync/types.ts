@@ -24,9 +24,14 @@ export type SyncRunType = 'preview' | 'run' | 'recover' | 'schedule';
 export type SyncJobStatus =
   | 'pending'
   | 'running'
+  | 'cancel_requested'
+  | 'cancelling'
+  | 'doing_savepoint'
+  | 'failing'
   | 'success'
   | 'failed'
-  | 'canceled';
+  | 'canceled'
+  | 'savepoint_done';
 export type SyncFormat = 'hocon' | 'json';
 
 export interface SyncTask {
@@ -123,6 +128,8 @@ export interface SyncJobLogsResult {
   mode: string;
   source: string;
   logs: string;
+  /** Latest metrics snapshot from STX result_preview; not covered by log offset. */
+  metrics_log?: string;
   empty_reason?: string;
   cluster_job_log_mode?: string;
   cluster_id?: number;
@@ -224,6 +231,10 @@ export interface SyncJobInstance {
   engine_job_id: string;
   recovered_from_instance_id?: number;
   status: SyncJobStatus;
+  last_synced_at?: string;
+  sync_state?: 'ok' | 'degraded' | 'stale' | 'unknown';
+  sync_fail_count?: number;
+  sync_lag_ms?: number;
   mode?: SyncTaskMode;
   submit_spec: SyncJSON;
   result_preview: SyncJSON;

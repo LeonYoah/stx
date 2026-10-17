@@ -610,7 +610,9 @@ func newSyncTaskDAGCommand(storeProvider authStoreProvider) *cobra.Command {
 func newSyncTaskPreviewCommand(storeProvider authStoreProvider) *cobra.Command {
 	var options secureWriteOptions
 	var rowLimit, timeoutMinutes int
-	var wait bool
+	var wait, noFollowLogs, eventsJSON bool
+	var timeoutRaw string
+	var observationTimeout time.Duration
 
 	command := &cobra.Command{
 		Use:     "preview <id>",
@@ -635,25 +637,39 @@ func newSyncTaskPreviewCommand(storeProvider authStoreProvider) *cobra.Command {
 				return err
 			}
 
-			var data struct {
-				ID          uint   `json:"id"`
-				ExecutionID string `json:"execution_id"`
-				Status      string `json:"status"`
-			}
+			var data syncJobWaitResult
 			requestID, err := client.RequestWithHeaders(command.Context(), http.MethodPost, fmt.Sprintf("/api/v1/sync/tasks/%d/preview", taskID), body, headers, &data)
 			if err != nil {
 				return handleSecureWriteError(command, operationID, err)
 			}
 
-			if wait {
-				_ = clioutput.NewEventWriter(command.ErrOrStderr()).Emit(clioutput.Event{
+			if wait && data.ID != 0 {
+				timeout, parseErr := parseCLIWaitTimeout(timeoutRaw)
+				if parseErr != nil {
+					return parseErr
+				}
+				if timeout == 0 {
+					timeout = 10 * time.Minute
+				}
+				waitEvents := clioutput.NewTextEventWriter(command.ErrOrStderr())
+				if eventsJSON {
+					waitEvents = clioutput.NewEventWriter(command.ErrOrStderr())
+				}
+				_ = waitEvents.Emit(clioutput.Event{
 					Event:       "job_wait",
 					OperationID: operationID,
 					RequestID:   requestID,
 					Level:       "info",
 					Message:     fmt.Sprintf("waiting for preview job %d", data.ID),
 				})
-				return waitSyncJob(command, client, operationID, syncJobWaitResult{ID: data.ID, Status: data.Status, ExecutionID: data.ExecutionID}, "batch", 10*time.Minute, false, nil)
+				return waitSyncJob(command, client, operationID, data, syncJobWaitConfig{
+					Mode:               "batch",
+					Timeout:            timeout,
+					ObservationTimeout: observationTimeout,
+					CloseJob:           false,
+					FollowLogs:         !noFollowLogs,
+					EventsJSON:         eventsJSON,
+				})
 			}
 
 			return renderCommandResultWithRequestID(command, operationID, requestID, data)
@@ -662,7 +678,11 @@ func newSyncTaskPreviewCommand(storeProvider authStoreProvider) *cobra.Command {
 	addSecureWriteFlags(command, &options)
 	command.Flags().IntVar(&rowLimit, "row-limit", 10, "Maximum number of rows to sample")
 	command.Flags().IntVar(&timeoutMinutes, "timeout-minutes", 2, "Preview session timeout in minutes")
-	command.Flags().BoolVar(&wait, "wait", false, "Wait for the preview session execution to complete")
+	command.Flags().BoolVar(&wait, "wait", false, "Poll GET /api/v1/sync/jobs/{id} until the preview job finishes")
+	command.Flags().StringVar(&timeoutRaw, "timeout", "", "Optional --wait ceiling such as 30m; omit to use preview defaults")
+	command.Flags().DurationVar(&observationTimeout, "observation-timeout", defaultJobObservationTimeout, "Fail --wait when sync_state stays stale longer than this; 0 disables")
+	command.Flags().BoolVar(&noFollowLogs, "no-follow-logs", false, "Disable incremental job log streaming on stderr while --wait is active")
+	command.Flags().BoolVar(&eventsJSON, "events-json", false, "Emit --wait progress/logs as NDJSON events on stderr (default: plain human-readable text)")
 	return command
 }
 
@@ -721,8 +741,9 @@ func newSyncTaskPreviewSaveModeCommand(storeProvider authStoreProvider) *cobra.C
 
 func newSyncTaskSubmitCommand(storeProvider authStoreProvider) *cobra.Command {
 	var options secureWriteOptions
-	var wait, closeJobFlag bool
+	var wait, closeJobFlag, noFollowLogs, eventsJSON bool
 	var timeoutRaw, externalRef, scheduleTime string
+	var observationTimeout time.Duration
 	var varFlags []string
 
 	command := &cobra.Command{
@@ -781,7 +802,7 @@ func newSyncTaskSubmitCommand(storeProvider authStoreProvider) *cobra.Command {
 			if closeJob && strings.TrimSpace(externalRef) != "" {
 				pipe, err = startJobGuard(client, externalRef)
 				if err != nil {
-					return clioutput.WrapError(err, clioutput.CodeServer, "start job guard", clioutput.ExitServer, false)
+					return clioutput.WrapError(err, clioutput.CodeServer, "start job guard: "+err.Error(), clioutput.ExitServer, false)
 				}
 				defer writeGuardDone(pipe)
 			}
@@ -799,15 +820,28 @@ func newSyncTaskSubmitCommand(storeProvider authStoreProvider) *cobra.Command {
 				writeGuardDone(pipe)
 				pipe = nil
 			}
-			if wait {
-				_ = clioutput.NewEventWriter(command.ErrOrStderr()).Emit(clioutput.Event{
+
+			if wait && data.ID != 0 {
+				waitEvents := clioutput.NewTextEventWriter(command.ErrOrStderr())
+				if eventsJSON {
+					waitEvents = clioutput.NewEventWriter(command.ErrOrStderr())
+				}
+				_ = waitEvents.Emit(clioutput.Event{
 					Event:       "job_wait",
 					OperationID: operationID,
 					RequestID:   requestID,
 					Level:       "info",
 					Message:     fmt.Sprintf("waiting for job %d", data.ID),
 				})
-				return waitSyncJob(command, client, operationID, data, mode, timeout, closeJob, pipe)
+				return waitSyncJob(command, client, operationID, data, syncJobWaitConfig{
+					Mode:               mode,
+					Timeout:            timeout,
+					ObservationTimeout: observationTimeout,
+					CloseJob:           closeJob,
+					FollowLogs:         !noFollowLogs,
+					EventsJSON:         eventsJSON,
+					Pipe:               pipe,
+				})
 			}
 			writeGuardDone(pipe)
 			return renderCommandResultWithRequestID(command, operationID, requestID, data)
@@ -817,6 +851,9 @@ func newSyncTaskSubmitCommand(storeProvider authStoreProvider) *cobra.Command {
 	command.Flags().BoolVar(&wait, "wait", false, "Poll GET /api/v1/sync/jobs/{id} until the job reaches the expected state")
 	command.Flags().BoolVar(&closeJobFlag, "close-job", false, "Cancel the job when this CLI exits; defaults to true with --wait")
 	command.Flags().StringVar(&timeoutRaw, "timeout", "", "Optional --wait ceiling such as 6h; omit to wait until the job ends")
+	command.Flags().DurationVar(&observationTimeout, "observation-timeout", defaultJobObservationTimeout, "Fail --wait when sync_state stays stale longer than this; 0 disables")
+	command.Flags().BoolVar(&noFollowLogs, "no-follow-logs", false, "Disable incremental job log streaming on stderr while --wait is active")
+	command.Flags().BoolVar(&eventsJSON, "events-json", false, "Emit --wait progress/logs as NDJSON events on stderr (default: plain human-readable text)")
 	command.Flags().StringVar(&externalRef, "external-ref", "", "External scheduler reference such as ds:{workflowInstance}:{taskCode}")
 	command.Flags().StringVar(&scheduleTime, "schedule-time", "", "Reference time as RFC3339 or yyyyMMddHHmmss")
 	command.Flags().StringArrayVar(&varFlags, "var", nil, "Per-run variable override as key=value")
@@ -906,7 +943,9 @@ func newSyncJobCancelCommand(storeProvider authStoreProvider) *cobra.Command {
 
 func newSyncJobRecoverCommand(storeProvider authStoreProvider) *cobra.Command {
 	var options secureWriteOptions
-	var wait bool
+	var wait, noFollowLogs, eventsJSON bool
+	var timeoutRaw string
+	var observationTimeout time.Duration
 
 	command := &cobra.Command{
 		Use:     "recover <id>",
@@ -926,32 +965,51 @@ func newSyncJobRecoverCommand(storeProvider authStoreProvider) *cobra.Command {
 				return err
 			}
 
-			var data struct {
-				ID          uint   `json:"id"`
-				ExecutionID string `json:"execution_id"`
-				Status      string `json:"status"`
+			timeout, err := parseCLIWaitTimeout(timeoutRaw)
+			if err != nil {
+				return err
 			}
+			if wait && timeout == 0 {
+				timeout = 6 * time.Hour
+			}
+
+			var data syncJobWaitResult
 			requestID, err := client.RequestWithHeaders(command.Context(), http.MethodPost, fmt.Sprintf("/api/v1/sync/jobs/%d/recover", jobID), map[string]any{}, headers, &data)
 			if err != nil {
 				return handleSecureWriteError(command, operationID, err)
 			}
 
-			if wait {
-				_ = clioutput.NewEventWriter(command.ErrOrStderr()).Emit(clioutput.Event{
+			if wait && data.ID != 0 {
+				waitEvents := clioutput.NewTextEventWriter(command.ErrOrStderr())
+				if eventsJSON {
+					waitEvents = clioutput.NewEventWriter(command.ErrOrStderr())
+				}
+				_ = waitEvents.Emit(clioutput.Event{
 					Event:       "job_wait",
 					OperationID: operationID,
 					RequestID:   requestID,
 					Level:       "info",
 					Message:     fmt.Sprintf("waiting for recovered job %d", data.ID),
 				})
-				return waitSyncJob(command, client, operationID, syncJobWaitResult{ID: data.ID, Status: data.Status, ExecutionID: data.ExecutionID}, "batch", 6*time.Hour, false, nil)
+				return waitSyncJob(command, client, operationID, data, syncJobWaitConfig{
+					Mode:               "batch",
+					Timeout:            timeout,
+					ObservationTimeout: observationTimeout,
+					CloseJob:           false,
+					FollowLogs:         !noFollowLogs,
+					EventsJSON:         eventsJSON,
+				})
 			}
 
 			return renderCommandResultWithRequestID(command, operationID, requestID, data)
 		},
 	}
 	addSecureWriteFlags(command, &options)
-	command.Flags().BoolVar(&wait, "wait", false, "Wait for the recovery execution to complete")
+	command.Flags().BoolVar(&wait, "wait", false, "Poll GET /api/v1/sync/jobs/{id} until the recovery job finishes")
+	command.Flags().StringVar(&timeoutRaw, "timeout", "", "Optional --wait ceiling such as 6h; omit to use recovery defaults")
+	command.Flags().DurationVar(&observationTimeout, "observation-timeout", defaultJobObservationTimeout, "Fail --wait when sync_state stays stale longer than this; 0 disables")
+	command.Flags().BoolVar(&noFollowLogs, "no-follow-logs", false, "Disable incremental job log streaming on stderr while --wait is active")
+	command.Flags().BoolVar(&eventsJSON, "events-json", false, "Emit --wait progress/logs as NDJSON events on stderr (default: plain human-readable text)")
 	return command
 }
 

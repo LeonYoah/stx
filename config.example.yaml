@@ -96,6 +96,9 @@ sync:
   preview_data_ttl_minutes: 1440
   # 兼容旧配置；未设置分钟级配置时才会使用
   preview_data_ttl_hours: 24
+  # 后台对账器：按集群拉取 SeaTunnel running/finished 列表，写入作业状态（读接口不再同步打 /job-info）
+  # 设为 -1 可关闭；0 表示默认 10 秒
+  job_reconciler_interval_seconds: 10
 
 # 数据库配置
 database:

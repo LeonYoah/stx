@@ -383,6 +383,68 @@ func (r *Repository) ListJobInstances(ctx context.Context, filter *JobFilter) ([
 	return instances, total, nil
 }
 
+// ListNonTerminalJobInstances 返回仍需与引擎对齐的作业实例。
+// ListNonTerminalJobInstances returns job instances that still need engine reconciliation.
+func (r *Repository) ListNonTerminalJobInstances(ctx context.Context, limit int) ([]*JobInstance, error) {
+	if limit <= 0 {
+		limit = 500
+	}
+	active := []JobStatus{
+		JobStatusPending,
+		JobStatusRunning,
+		JobStatusCancelRequested,
+		JobStatusCancelling,
+		JobStatusDoingSavepoint,
+		JobStatusFailing,
+	}
+	var instances []*JobInstance
+	err := r.db.WithContext(ctx).
+		Where("status IN ?", active).
+		Where("engine_job_id <> ''").
+		Order("updated_at ASC").
+		Limit(limit).
+		Find(&instances).Error
+	if err != nil {
+		return nil, err
+	}
+	return instances, nil
+}
+
+// ListRecentTerminalJobInstances 返回近期已终态且仍带引擎作业 ID 的实例（用于补拉终态指标）。
+// ListRecentTerminalJobInstances returns recently finished job instances that still have an engine job id (for final metrics backfill).
+func (r *Repository) ListRecentTerminalJobInstances(ctx context.Context, limit int, since time.Time) ([]*JobInstance, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	terminal := []JobStatus{
+		JobStatusSuccess,
+		JobStatusFailed,
+		JobStatusCanceled,
+		JobStatusSavepointDone,
+	}
+	var instances []*JobInstance
+	q := r.db.WithContext(ctx).
+		Where("status IN ?", terminal).
+		Where("engine_job_id <> ''")
+	if !since.IsZero() {
+		q = q.Where("updated_at >= ?", since)
+	}
+	err := q.Order("updated_at DESC").Limit(limit).Find(&instances).Error
+	if err != nil {
+		return nil, err
+	}
+	return instances, nil
+}
+
+// UpdateJobSyncMetadata 更新作业观察字段，不参与 status 条件竞争。
+// UpdateJobSyncMetadata updates observation metadata without status CAS.
+func (r *Repository) UpdateJobSyncMetadata(ctx context.Context, id uint, updates map[string]any) error {
+	if len(updates) == 0 {
+		return nil
+	}
+	return r.db.WithContext(ctx).Model(&JobInstance{}).Where("id = ?", id).Updates(updates).Error
+}
+
 // UpdateJobStatus 使用旧状态条件更新作业，防止完成回调覆盖取消状态。
 // UpdateJobStatus updates a job under an expected-status condition so completion callbacks cannot overwrite cancellation state.
 func (r *Repository) UpdateJobStatus(ctx context.Context, id uint, expected []JobStatus, updates map[string]any) error {

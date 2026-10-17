@@ -316,7 +316,11 @@ func (s *Service) pushNewWorkflow(ctx context.Context, actor executionapp.Actor,
 	if len(codes) == 0 || codes[0] == 0 {
 		return nil, fmt.Errorf("%w: gen-task-codes returned empty", ErrDolphinPushInvalid)
 	}
-	shell := buildShellTask(codes[0], task.Name, script.Script, script.WorkerGroup)
+	envCode, err := client.ResolveEnvironmentCode(ctx, script.Environment)
+	if err != nil {
+		return nil, err
+	}
+	shell := buildShellTask(codes[0], task.Name, script.Script, script.WorkerGroup, envCode)
 	graph := &dolphinGraph{
 		Name:          name,
 		Description:   strings.TrimSpace(task.Description),
@@ -432,7 +436,11 @@ func (s *Service) pushReuseWorkflow(ctx context.Context, actor executionapp.Acto
 	if len(codes) == 0 || codes[0] == 0 {
 		return nil, wrapOfflineWarning(offlineWarning, fmt.Errorf("%w: gen-task-codes returned empty", ErrDolphinPushInvalid))
 	}
-	shell := buildShellTask(codes[0], task.Name, script.Script, script.WorkerGroup)
+	envCode, err := client.ResolveEnvironmentCode(ctx, script.Environment)
+	if err != nil {
+		return nil, wrapOfflineWarning(offlineWarning, err)
+	}
+	shell := buildShellTask(codes[0], task.Name, script.Script, script.WorkerGroup, envCode)
 	graph.Tasks = append(graph.Tasks, marshalRaw(shell))
 	graph.Locations = mergeDolphinLocation(graph.Locations, shell.Code)
 	if len(upstreams) == 0 {
@@ -522,7 +530,11 @@ func (s *Service) pushUpdateNode(ctx context.Context, actor executionapp.Actor, 
 	}
 	baseline := snapshotDolphinGraph(graph)
 
-	patched, version, err := patchShellTaskRaw(graph.Tasks[index], defaultString(strings.TrimSpace(task.Name), currentPeek.Name), script.Script, defaultString(script.WorkerGroup, ""))
+	envCode, err := client.ResolveEnvironmentCode(ctx, script.Environment)
+	if err != nil {
+		return nil, wrapOfflineWarning(offlineWarning, err)
+	}
+	patched, version, err := patchShellTaskRaw(graph.Tasks[index], defaultString(strings.TrimSpace(task.Name), currentPeek.Name), script.Script, defaultString(script.WorkerGroup, ""), envCode)
 	if err != nil {
 		return nil, wrapOfflineWarning(offlineWarning, err)
 	}

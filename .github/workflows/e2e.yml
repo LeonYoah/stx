@@ -35,6 +35,7 @@ on:
           - upgrade-real
           - plugin-real
           - scheduler-contract
+          - scheduler-real
       database:
         description: Target database for E2E (sqlite, postgres, mysql)
         required: false
@@ -80,6 +81,7 @@ jobs:
       run_upgrade_real: ${{ steps.scope.outputs.run_upgrade_real }}
       run_plugin_real: ${{ steps.scope.outputs.run_plugin_real }}
       run_scheduler_contract: ${{ steps.scope.outputs.run_scheduler_contract }}
+      run_scheduler_real: ${{ steps.scope.outputs.run_scheduler_real }}
 
     steps:
       - name: Checkout
@@ -218,6 +220,23 @@ jobs:
               - 'scripts/e2e/README-scheduler-contract.md'
               - '.github/workflows/e2e.yml'
 
+            scheduler_real:
+              - 'frontend/e2e/scheduler-real.spec.ts'
+              - 'frontend/e2e/helpers/scheduler-real.ts'
+              - 'frontend/scripts/e2e/run-real-scheduler.sh'
+              - 'frontend/scripts/e2e/run-real-installer.sh'
+              - 'frontend/scripts/e2e/real-agent-supervisor.mjs'
+              - 'scripts/e2e/ds-standalone.sh'
+              - 'scripts/e2e/README-scheduler-real.md'
+              - 'internal/cmd/sync*.go'
+              - 'internal/cli/output/**'
+              - 'internal/apps/sync/**'
+              - 'internal/apps/installer/**'
+              - 'agent/internal/installer/**'
+              - 'config.e2e.installer-real.yaml'
+              - 'config.e2e.agent-real.yaml'
+              - '.github/workflows/e2e.yml'
+
       - name: Resolve E2E scope
         id: scope
         env:
@@ -231,6 +250,7 @@ jobs:
           FILTER_UPGRADE_REAL: ${{ steps.filter.outputs.upgrade_real }}
           FILTER_PLUGIN_REAL: ${{ steps.filter.outputs.plugin_real }}
           FILTER_SCHEDULER_CONTRACT: ${{ steps.filter.outputs.scheduler_contract }}
+          FILTER_SCHEDULER_REAL: ${{ steps.filter.outputs.scheduler_real }}
         run: |
           frontend=false
           backend=false
@@ -241,6 +261,7 @@ jobs:
           run_upgrade_real=false
           run_plugin_real=false
           run_scheduler_contract=false
+          run_scheduler_real=false
 
           if [ "${EVENT_NAME}" = "pull_request" ]; then
             frontend="${FILTER_FRONTEND}"
@@ -265,6 +286,9 @@ jobs:
             fi
             if [ "${FILTER_SCHEDULER_CONTRACT}" = "true" ]; then
               run_scheduler_contract=true
+            fi
+            if [ "${FILTER_SCHEDULER_REAL}" = "true" ]; then
+              run_scheduler_real=true
             fi
           else
             frontend=true
@@ -291,6 +315,9 @@ jobs:
               scheduler-contract)
                 run_scheduler_contract=true
                 ;;
+              scheduler-real)
+                run_scheduler_real=true
+                ;;
               *)
                 run_smoke=true
                 run_installer_real=true
@@ -299,6 +326,7 @@ jobs:
                 run_upgrade_real=true
                 run_plugin_real=true
                 run_scheduler_contract=true
+                run_scheduler_real=true
                 ;;
             esac
           fi
@@ -312,6 +340,7 @@ jobs:
           echo "run_upgrade_real=${run_upgrade_real}" >> "$GITHUB_OUTPUT"
           echo "run_plugin_real=${run_plugin_real}" >> "$GITHUB_OUTPUT"
           echo "run_scheduler_contract=${run_scheduler_contract}" >> "$GITHUB_OUTPUT"
+          echo "run_scheduler_real=${run_scheduler_real}" >> "$GITHUB_OUTPUT"
 
       - name: Print E2E scope
         run: |
@@ -324,6 +353,7 @@ jobs:
           echo "run_upgrade_real=${{ steps.scope.outputs.run_upgrade_real }}"
           echo "run_plugin_real=${{ steps.scope.outputs.run_plugin_real }}"
           echo "run_scheduler_contract=${{ steps.scope.outputs.run_scheduler_contract }}"
+          echo "run_scheduler_real=${{ steps.scope.outputs.run_scheduler_real }}"
 
   prepare-package:
     name: Prepare SeaTunnel Package
@@ -334,7 +364,8 @@ jobs:
       needs.changes.outputs.run_workbench_real == 'true' ||
       needs.changes.outputs.run_config_real == 'true' ||
       needs.changes.outputs.run_upgrade_real == 'true' ||
-      needs.changes.outputs.run_plugin_real == 'true'
+      needs.changes.outputs.run_plugin_real == 'true' ||
+      needs.changes.outputs.run_scheduler_real == 'true'
     outputs:
       cache-hit: ${{ steps.cache-seatunnel.outputs.cache-hit }}
 
@@ -893,10 +924,73 @@ jobs:
       - name: Run scheduler contract suite
         run: ./scripts/e2e/run-scheduler-contract.sh
 
+
+  scheduler-real:
+    name: E2E Real Scheduler
+    runs-on: ubuntu-24.04
+    needs: [changes, prepare-package]
+    if: needs.changes.outputs.run_scheduler_real == 'true'
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.2
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browser
+        working-directory: frontend
+        run: pnpm exec playwright install chromium --with-deps
+
+      - name: Download SeaTunnel package artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: seatunnel-bin-cache
+          path: ${{ env.E2E_INSTALLER_REAL_PACKAGE_CACHE_DIR }}
+
+      - name: Run real scheduler E2E
+        run: bash frontend/scripts/e2e/run-real-scheduler.sh
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-scheduler-real
+          path: |
+            frontend/playwright-report
+            frontend/test-results
+          if-no-files-found: ignore
+
   gate:
     name: E2E Gate
     runs-on: ubuntu-latest
-    needs: [changes, smoke-select, smoke, installer-real, workbench-real, config-real, upgrade-real, plugin-real, scheduler-contract]
+    needs: [changes, smoke-select, smoke, installer-real, workbench-real, config-real, upgrade-real, plugin-real, scheduler-contract, scheduler-real]
     if: always()
 
     steps:
@@ -917,6 +1011,8 @@ jobs:
           echo "plugin_real_result=${{ needs.plugin-real.result }}"
           echo "run_scheduler_contract=${{ needs.changes.outputs.run_scheduler_contract }}"
           echo "scheduler_contract_result=${{ needs.scheduler-contract.result }}"
+          echo "run_scheduler_real=${{ needs.changes.outputs.run_scheduler_real }}"
+          echo "scheduler_real_result=${{ needs.scheduler-real.result }}"
 
           if [ "${{ needs.changes.outputs.run_smoke }}" = "true" ] &&
              [ "${{ needs.smoke-select.outputs.has_specs }}" = "true" ] &&
@@ -958,6 +1054,12 @@ jobs:
           if [ "${{ needs.changes.outputs.run_scheduler_contract }}" = "true" ] &&
              [ "${{ needs.scheduler-contract.result }}" != "success" ]; then
             echo "::error::Scheduler contract E2E did not succeed."
+            exit 1
+          fi
+
+          if [ "${{ needs.changes.outputs.run_scheduler_real }}" = "true" ] &&
+             [ "${{ needs.scheduler-real.result }}" != "success" ]; then
+            echo "::error::Real scheduler E2E did not succeed."
             exit 1
           fi
 

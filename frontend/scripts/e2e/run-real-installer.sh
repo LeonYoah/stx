@@ -211,6 +211,9 @@ download_package_if_missing() {
 }
 
 cleanup() {
+  if [[ "${E2E_SCHEDULER_REAL:-}" == "1" ]]; then
+    bash "${ROOT_DIR}/scripts/e2e/ds-standalone.sh" stop >/dev/null 2>&1 || true
+  fi
   docker rm -f "${MINIO_NAME}" >/dev/null 2>&1 || true
   if [[ -n "${TMP_DIR}" && "${KEEP_ARTIFACTS}" != "1" && "${SKIP_LOCAL_CLEANUP}" != "1" ]]; then
     rm -rf "${TMP_DIR}" || true
@@ -407,6 +410,16 @@ docker run --rm --network host --entrypoint /bin/sh "${MINIO_MC_IMAGE}" -c "\
   mc alias set e2e ${E2E_INSTALLER_REAL_MINIO_ENDPOINT} ${E2E_INSTALLER_REAL_MINIO_ACCESS_KEY} ${E2E_INSTALLER_REAL_MINIO_SECRET_KEY} && \
   mc mb -p e2e/${CHECKPOINT_BUCKET_NAME} && \
   mc mb -p e2e/${IMAP_BUCKET_NAME}" >/dev/null
+
+
+# Real scheduler E2E: start DolphinScheduler AFTER stx is built (fresh bind-mount inode).
+# 真实调度 E2E：在 stx 编译完成后启动 DS，避免 bind-mount 指向旧 inode。
+if [[ "${E2E_SCHEDULER_REAL:-}" == "1" ]]; then
+  export E2E_STX_CLI_BIN="${E2E_STX_CLI_BIN:-${ROOT_DIR}/dist/stx}"
+  bash "${ROOT_DIR}/scripts/e2e/ds-standalone.sh" start
+  export E2E_DS_BASE_URL="${E2E_DS_BASE_URL:-http://127.0.0.1:${E2E_DS_PORT:-12345}/dolphinscheduler}"
+  echo "[e2e-real] DolphinScheduler ready at ${E2E_DS_BASE_URL}"
+fi
 
 cd "${FRONTEND_DIR}"
 playwright_args=("${PLAYWRIGHT_SPECS[@]}")

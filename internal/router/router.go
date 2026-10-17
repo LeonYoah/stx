@@ -185,6 +185,12 @@ func Serve() {
 					userAdminRouter.PUT("/:id", userWriteHandler.UpdateUser)
 					userAdminRouter.DELETE("/:id", userWriteHandler.DeleteUser)
 				}
+				tokenAdminRouter := adminRouter.Group("/cli-tokens")
+				{
+					tokenAdminRouter.GET("", admin.ListCLITokensHandler)
+					tokenAdminRouter.POST("", userWriteHandler.CreateCLIToken)
+					tokenAdminRouter.POST("/:id/revoke", userWriteHandler.RevokeCLIToken)
+				}
 			}
 
 			// Host 主机管理

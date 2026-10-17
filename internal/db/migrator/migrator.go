@@ -95,6 +95,12 @@ func MigrateWithDB(database *gorm.DB, dbType string) error {
 	}
 	log.Printf("[Database] auto migrate success\n")
 
+	// 永久令牌用 expires_at = NULL 表示不过期；历史表该列是 NOT NULL，需要放开空值。
+	// Permanent tokens store expires_at as NULL; legacy tables were NOT NULL and must allow nulls.
+	if err := ensureCLITokenExpiresAtNullable(database); err != nil {
+		log.Printf("[Database] failed to allow null CLI token expires_at: %v\n", err)
+	}
+
 	// 一次性把历史本地时区时间迁移为 UTC / One-time migration of legacy local-time columns to UTC
 	if err := MigrateTimeColumnsToUTC(database, dbType, managedModels(), config.GetDatabaseLegacyTimezone()); err != nil {
 		return fmt.Errorf("migrate time columns to utc failed: %w", err)
@@ -325,6 +331,29 @@ func ensureMySQLScriptTextColumns(database *gorm.DB) error {
 // createStoredProcedures creates stored procedures using the global database
 func createStoredProcedures() error {
 	return createStoredProceduresWithDB(db.GetDB(context.Background()))
+}
+
+// ensureCLITokenExpiresAtNullable 让 expires_at 可为空，永久令牌用 NULL 表示不过期。
+// ensureCLITokenExpiresAtNullable makes expires_at nullable so permanent tokens store NULL.
+func ensureCLITokenExpiresAtNullable(database *gorm.DB) error {
+	if database == nil || !database.Migrator().HasTable(&auth.CLIToken{}) {
+		return nil
+	}
+	columnTypes, err := database.Migrator().ColumnTypes(&auth.CLIToken{})
+	if err != nil {
+		return err
+	}
+	for _, column := range columnTypes {
+		if !strings.EqualFold(column.Name(), "expires_at") {
+			continue
+		}
+		nullable, ok := column.Nullable()
+		if ok && nullable {
+			return nil
+		}
+		break
+	}
+	return database.Migrator().AlterColumn(&auth.CLIToken{}, "ExpiresAt")
 }
 
 // managedModels 返回所有由 AutoMigrate 管理的模型。/ managedModels returns every model managed by AutoMigrate.

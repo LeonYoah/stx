@@ -46,7 +46,8 @@ type loginResult struct {
 	Namespace string             `json:"namespace" yaml:"namespace"`
 	TokenSet  bool               `json:"token_set" yaml:"token_set"`
 	TokenType string             `json:"token_type" yaml:"token_type"`
-	ExpiresAt time.Time          `json:"expires_at" yaml:"expires_at"`
+	ExpiresAt *time.Time         `json:"expires_at,omitempty" yaml:"expires_at,omitempty"`
+	Permanent bool               `json:"permanent" yaml:"permanent"`
 	User      cliClient.UserInfo `json:"user" yaml:"user"`
 }
 
@@ -79,8 +80,8 @@ func newLoginCommand(options authCommandOptions) *cobra.Command {
 	if options.readTerminalPassword == nil {
 		options.readTerminalPassword = readTerminalPassword
 	}
-	var server, namespace, username, expiresIn string
-	var passwordStdin bool
+	var server, namespace, username, expiresIn, tokenFlag string
+	var passwordStdin, tokenStdin bool
 	command := &cobra.Command{
 		Use:   "login",
 		Short: "Log in to a remote STX server",
@@ -101,6 +102,20 @@ func newLoginCommand(options authCommandOptions) *cobra.Command {
 			if resolved.Server == "" {
 				return clioutput.NewError(clioutput.CodeUsage, "--server or an existing namespace is required", clioutput.ExitUsage, false)
 			}
+			if tokenStdin && passwordStdin {
+				return clioutput.NewError(clioutput.CodeUsage, "--token-stdin cannot be combined with --password-stdin", clioutput.ExitUsage, false)
+			}
+			boundToken, err := readLoginToken(command, options.stdin, tokenFlag, tokenStdin)
+			if err != nil {
+				return err
+			}
+			if boundToken != "" && (strings.TrimSpace(username) != "" || passwordStdin) {
+				return clioutput.NewError(clioutput.CodeUsage, "token login cannot be combined with username or password", clioutput.ExitUsage, false)
+			}
+			if boundToken != "" {
+				return bindExistingCLIToken(command, store, resolved, namespace, boundToken)
+			}
+
 			username, err = readLoginUsername(command, options.stdin, username, options.isTerminal)
 			if err != nil {
 				return err
@@ -118,46 +133,16 @@ func newLoginCommand(options authCommandOptions) *cobra.Command {
 			if err != nil {
 				return err
 			}
-
-			name := strings.TrimSpace(namespace)
-			if name == "" {
-				name = resolved.Name
-			}
-			if name == "" {
-				name = "default"
-			}
-			file, err := store.Load()
-			if err != nil {
-				return classifyAuthCommandError(err)
-			}
-			stored := file.Namespaces[name]
-			stored.Server = resolved.Server
-			stored.Token = data.Token
-			stored.TokenExpiresAt = data.ExpiresAt.Format(time.RFC3339)
-			if stored.Output == "" {
-				stored.Output = resolved.Output
-			}
-			if stored.Timeout == "" {
-				stored.Timeout = resolved.Timeout.String()
-			}
-			if err := store.Upsert(name, stored, true); err != nil {
-				return classifyAuthCommandError(err)
-			}
-			return renderCommandResultWithRequestID(command, "auth.cli.login", requestID, loginResult{
-				Server:    resolved.Server,
-				Namespace: name,
-				TokenSet:  true,
-				TokenType: data.TokenType,
-				ExpiresAt: data.ExpiresAt,
-				User:      data.User,
-			})
+			return storeLoginResult(command, store, resolved, namespace, requestID, data.Token, data.TokenType, data.ExpiresAt, data.Permanent, data.User)
 		},
 	}
 	command.Flags().StringVar(&server, "server", "", "Remote STX server URL")
 	command.Flags().StringVar(&namespace, "namespace", "", "Local namespace to update")
 	command.Flags().StringVar(&username, "username", "", "STX username")
-	command.Flags().StringVar(&expiresIn, "expires-in", "7d", "Token lifetime from 7d to 30d")
+	command.Flags().StringVar(&expiresIn, "expires-in", "7d", "Token lifetime: 7d, 30d, 90d, never, or Nd (1-3650)")
 	command.Flags().BoolVar(&passwordStdin, "password-stdin", false, "Read the password from stdin")
+	command.Flags().StringVar(&tokenFlag, "token", "", "Bind an existing CLI token instead of username and password")
+	command.Flags().BoolVar(&tokenStdin, "token-stdin", false, "Read an existing CLI token from stdin")
 	return command
 }
 
@@ -235,6 +220,81 @@ func newWhoAmICommand(options authCommandOptions) *cobra.Command {
 	}
 	command.Flags().StringVar(&namespace, "namespace", "", "Local namespace to use")
 	return command
+}
+
+func bindExistingCLIToken(command *cobra.Command, store *cliConfig.Store, resolved cliConfig.Resolved, namespace, token string) error {
+	resolved.Token = token
+	client, err := cliClient.New(resolved, nil)
+	if err != nil {
+		return err
+	}
+	requestID, data, err := client.WhoAmI(command.Context())
+	if err != nil {
+		return err
+	}
+	return storeLoginResult(command, store, resolved, namespace, requestID, token, "Bearer", data.TokenExpiresAt, data.Permanent, data.UserInfo)
+}
+
+func storeLoginResult(command *cobra.Command, store *cliConfig.Store, resolved cliConfig.Resolved, namespace, requestID, token, tokenType string, expiresAt *time.Time, permanent bool, user cliClient.UserInfo) error {
+	name := strings.TrimSpace(namespace)
+	if name == "" {
+		name = resolved.Name
+	}
+	if name == "" {
+		name = "default"
+	}
+	file, err := store.Load()
+	if err != nil {
+		return classifyAuthCommandError(err)
+	}
+	stored := file.Namespaces[name]
+	stored.Server = resolved.Server
+	stored.Token = token
+	stored.TokenExpiresAt = formatStoredTokenExpiry(expiresAt)
+	if stored.Output == "" {
+		stored.Output = resolved.Output
+	}
+	if stored.Timeout == "" {
+		stored.Timeout = resolved.Timeout.String()
+	}
+	if err := store.Upsert(name, stored, true); err != nil {
+		return classifyAuthCommandError(err)
+	}
+	return renderCommandResultWithRequestID(command, "auth.cli.login", requestID, loginResult{
+		Server:    resolved.Server,
+		Namespace: name,
+		TokenSet:  true,
+		TokenType: tokenType,
+		ExpiresAt: expiresAt,
+		Permanent: permanent,
+		User:      user,
+	})
+}
+
+func formatStoredTokenExpiry(expiresAt *time.Time) string {
+	if expiresAt == nil || expiresAt.IsZero() {
+		return ""
+	}
+	return expiresAt.UTC().Format(time.RFC3339)
+}
+
+func readLoginToken(command *cobra.Command, stdin io.Reader, provided string, fromStdin bool) (string, error) {
+	token := strings.TrimSpace(provided)
+	if fromStdin {
+		content, err := io.ReadAll(stdin)
+		if err != nil {
+			return "", clioutput.WrapError(err, clioutput.CodeUsage, "read token from stdin", clioutput.ExitUsage, false)
+		}
+		token = strings.TrimSpace(strings.TrimRight(string(content), "\r\n"))
+		if token == "" {
+			return "", clioutput.NewError(clioutput.CodeUsage, "token-stdin is empty", clioutput.ExitUsage, false)
+		}
+	}
+	if token == "" {
+		return "", nil
+	}
+	_ = command
+	return token, nil
 }
 
 // readLoginUsername 按参数、环境变量、终端交互的顺序读取用户名。

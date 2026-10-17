@@ -12,9 +12,11 @@ STX 使用同一个二进制提供两种入口：`stx server` 启动 API 服务�
 | --- | --- | --- |
 | 启动服务 | `stx server` | 只在此路径加载服务端配置、迁移数据库并监听 HTTP |
 | 兼容入口 | `stx api` | 隐藏命令，暂时等同于 `stx server` |
-| 登录 | `POST /api/v1/auth/cli/login` | 请求带 `X-STX-Client: cli`，响应不能返回令牌原文 |
+| 登录 | `POST /api/v1/auth/cli/login` | 请求带 `X-STX-Client: cli`；CLI  stdout 不能打印令牌原文 |
+| 令牌绑定 | `stx login --token` / `--token-stdin` | 用 whoami 校验已有令牌后写入本地 namespace，不签发新令牌 |
 | 当前用户 | `GET /api/v1/auth/cli/whoami` | 需要 Bearer 令牌和 CLI Header |
 | 退出登录 | `POST /api/v1/auth/cli/logout` | 撤销令牌后本地删除令牌，重复撤销保持幂等 |
+| 管理员令牌 | `GET/POST /api/v1/admin/cli-tokens`、`POST /api/v1/admin/cli-tokens/:id/revoke` | 仅管理员；签发原文只返回一次；列表不回显原文 |
 | 能力查询 | `GET /api/v1/capabilities` | 返回服务端版本、登记表摘要、操作权限和拒绝原因 |
 
 ## 3. 请求、响应和环境变量
@@ -35,7 +37,7 @@ Accept: application/json
 
 普通命令成功时，完整结果只写 stdout，且为单个 JSON 值。stderr 只写结构化事件，每行必须是一个 JSON 值。登录结果只能返回 `token_set: true`、令牌类型、过期时间和用户信息，不能返回令牌正文。
 
-登录用户名按 `--username`、`STX_USERNAME`、TTY 交互输入的顺序读取。真实终端缺少用户名时，在 stderr 显示 `Username: ` 并读取一行；非交互环境不能等待输入。密码交互必须先关闭终端回显，再在 stderr 显示 `Password: `；脚本仍使用 `--password-stdin`。交互提示是 stderr NDJSON 约定的特例，最终成功结果仍只能写 stdout。
+登录用户名按 `--username`、`STX_USERNAME`、TTY 交互输入的顺序读取。真实终端缺少用户名时，在 stderr 显示 `Username: ` 并读取一行；非交互环境不能等待输入。密码交互必须先关闭终端回显，再在 stderr 显示 `Password: `；脚本仍使用 `--password-stdin`。也可用 `--token` 或 `--token-stdin` 绑定管理员签发的已有令牌，此时不要求用户名密码，且不能与 `--password-stdin` 混用。`--expires-in` 支持 `7d`、`30d`、`90d`、`never` 或自定义 `Nd`（1–3650）；密码登录默认 `7d`，管理员签发默认 `never`。交互提示是 stderr NDJSON 约定的特例，最终成功结果仍只能写 stdout。`stx admin token create` 是签发仪式，CLI JSON 可以包含一次性原文；`stx login` 仍然只能返回 `token_set: true`。
 
 ## 4. 校验与错误矩阵
 
@@ -47,7 +49,8 @@ Accept: application/json
 | 服务端不可达 | 无 HTTP 响应 | stderr 输出 `network_error`，标记可重试 |
 | 请求超时 | 无 HTTP 响应 | stderr 输出 `timeout`，标记可重试 |
 | 命名空间未配置 | 不发起请求 | stderr 输出本地配置错误 |
-| 非交互登录缺少用户名 | 不发起请求 | stderr 输出 `usage_error`，要求 `--username` 或 `STX_USERNAME` |
+| 非交互登录缺少用户名 | 不发起请求 | stderr 输出 `usage_error`，要求 `--username` 或 `STX_USERNAME`；`--token` / `--token-stdin` 除外 |
+| `--token-stdin` 与 `--password-stdin` 同时使用 | 不发起请求 | stderr 输出用法错误 |
 | TTY 登录缺少用户名 | 不发起请求 | 显示 `Username: ` 并读取输入 |
 | `--password-stdin` 为空 | 不发起请求 | stderr 输出用法错误，不能回退到明文参数 |
 | 非交互登录未使用 `--password-stdin` | 不发起请求 | stderr 输出 `usage_error`，不能等待输入 |

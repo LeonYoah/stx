@@ -15,6 +15,116 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
+        "/api/v1/admin/cli-tokens": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "parameters": [
+                    {
+                        "minimum": 1,
+                        "type": "integer",
+                        "name": "current",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "name": "name",
+                        "in": "query"
+                    },
+                    {
+                        "maximum": 100,
+                        "minimum": 1,
+                        "type": "integer",
+                        "name": "size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "name": "user_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "name": "username",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/admin.ListCLITokensResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "parameters": [
+                    {
+                        "description": "签发 CLI 令牌请求",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/admin.CreateCLITokenRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/admin.CreateCLITokenResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/cli-tokens/{id}/revoke": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Token ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/admin.RevokeCLITokenResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/users": {
             "get": {
                 "produces": [
@@ -481,7 +591,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/auth.UserInfoResponse"
+                            "$ref": "#/definitions/auth.CLIWhoAmIResponse"
                         }
                     }
                 }
@@ -4085,9 +4195,98 @@ const docTemplate = `{
                     }
                 }
             }
+        },
+        "/api/v1/version": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "capability"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/capability.VersionResponse"
+                        }
+                    }
+                }
+            }
         }
     },
     "definitions": {
+        "admin.CreateCLITokenRequest": {
+            "type": "object",
+            "required": [
+                "name",
+                "user_id"
+            ],
+            "properties": {
+                "expires_in": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string",
+                    "maxLength": 100
+                },
+                "user_id": {
+                    "type": "integer"
+                }
+            }
+        },
+        "admin.CreateCLITokenResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/admin.CreateCLITokenResult"
+                },
+                "error_msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "admin.CreateCLITokenResult": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "expires_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "last_used_at": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "permanent": {
+                    "type": "boolean"
+                },
+                "revoked_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "token": {
+                    "type": "string"
+                },
+                "token_prefix": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "integer"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
         "admin.CreateUserRequest": {
             "type": "object",
             "required": [
@@ -4149,6 +4348,40 @@ const docTemplate = `{
                 }
             }
         },
+        "admin.ListCLITokensData": {
+            "type": "object",
+            "properties": {
+                "active": {
+                    "type": "integer"
+                },
+                "expired": {
+                    "type": "integer"
+                },
+                "revoked": {
+                    "type": "integer"
+                },
+                "tokens": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/auth.CLITokenInfo"
+                    }
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "admin.ListCLITokensResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/admin.ListCLITokensData"
+                },
+                "error_msg": {
+                    "type": "string"
+                }
+            }
+        },
         "admin.ListUsersResponse": {
             "type": "object",
             "properties": {
@@ -4165,6 +4398,17 @@ const docTemplate = `{
                             }
                         }
                     }
+                },
+                "error_msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "admin.RevokeCLITokenResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/auth.CLITokenInfo"
                 },
                 "error_msg": {
                     "type": "string"
@@ -4265,6 +4509,15 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "risk_level": {
+                    "type": "string"
+                },
+                "token_id": {
+                    "type": "integer"
+                },
+                "token_name": {
+                    "type": "string"
+                },
+                "token_prefix": {
                     "type": "string"
                 },
                 "trigger": {
@@ -4434,6 +4687,9 @@ const docTemplate = `{
                 "expires_at": {
                     "type": "string"
                 },
+                "permanent": {
+                    "type": "boolean"
+                },
                 "token": {
                     "type": "string"
                 },
@@ -4468,6 +4724,112 @@ const docTemplate = `{
             "properties": {
                 "data": {
                     "$ref": "#/definitions/auth.CLILoginData"
+                },
+                "error_msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "auth.CLITokenInfo": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "expires_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "last_used_at": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "permanent": {
+                    "type": "boolean"
+                },
+                "revoked_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "token_prefix": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "integer"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
+        "auth.CLIWhoAmIData": {
+            "type": "object",
+            "properties": {
+                "avatar_url": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "is_active": {
+                    "type": "boolean"
+                },
+                "is_admin": {
+                    "type": "boolean"
+                },
+                "language": {
+                    "type": "string"
+                },
+                "last_login_at": {
+                    "type": "string"
+                },
+                "nickname": {
+                    "type": "string"
+                },
+                "permanent": {
+                    "type": "boolean"
+                },
+                "system_timezone": {
+                    "description": "SystemTimezone 系统默认展示时区（app.display_timezone）。/ System default display timezone.",
+                    "type": "string"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "token_expires_at": {
+                    "type": "string"
+                },
+                "token_id": {
+                    "type": "integer"
+                },
+                "token_name": {
+                    "type": "string"
+                },
+                "token_prefix": {
+                    "type": "string"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
+        "auth.CLIWhoAmIResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/auth.CLIWhoAmIData"
                 },
                 "error_msg": {
                     "type": "string"
@@ -4520,6 +4882,10 @@ const docTemplate = `{
                         "zh",
                         "en"
                     ]
+                },
+                "timezone": {
+                    "description": "Timezone 为 nil 表示不修改；空串表示跟随浏览器；否则必须为 IANA 时区。\nTimezone nil = unchanged; \"\" = follow browser; otherwise an IANA timezone name.",
+                    "type": "string"
                 }
             }
         },
@@ -4564,6 +4930,13 @@ const docTemplate = `{
                 "nickname": {
                     "type": "string"
                 },
+                "system_timezone": {
+                    "description": "SystemTimezone 系统默认展示时区（app.display_timezone）。/ System default display timezone.",
+                    "type": "string"
+                },
+                "timezone": {
+                    "type": "string"
+                },
                 "username": {
                     "type": "string"
                 }
@@ -4584,6 +4957,12 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "api_version": {
+                    "type": "string"
+                },
+                "build_time": {
+                    "type": "string"
+                },
+                "git_commit": {
                     "type": "string"
                 },
                 "min_cli_version": {
@@ -4634,6 +5013,34 @@ const docTemplate = `{
             "properties": {
                 "data": {
                     "$ref": "#/definitions/capability.Data"
+                },
+                "error_msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "capability.VersionData": {
+            "type": "object",
+            "properties": {
+                "build_time": {
+                    "type": "string"
+                },
+                "git_commit": {
+                    "type": "string"
+                },
+                "min_cli_version": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "string"
+                }
+            }
+        },
+        "capability.VersionResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/capability.VersionData"
                 },
                 "error_msg": {
                     "type": "string"
@@ -4869,6 +5276,10 @@ const docTemplate = `{
                 "install_dir": {
                     "description": "SeaTunnel installation directory / SeaTunnel 安装目录",
                     "type": "string"
+                },
+                "pid": {
+                    "description": "Process ID / 进程 ID",
+                    "type": "integer"
                 },
                 "role": {
                     "description": "Node role: master, worker, hybrid / 节点角色",
@@ -5570,10 +5981,20 @@ const docTemplate = `{
         "dashboard.RecentActivity": {
             "type": "object",
             "properties": {
+                "action": {
+                    "type": "string"
+                },
                 "id": {
                     "type": "integer"
                 },
                 "message": {
+                    "description": "Message is kept for backward compatibility; prefer Operator/Source/Action.\nMessage 保留兼容旧客户端；优先使用 Operator/Source/Action。",
+                    "type": "string"
+                },
+                "operator": {
+                    "type": "string"
+                },
+                "source": {
                     "type": "string"
                 },
                 "timestamp": {
@@ -6120,6 +6541,10 @@ const docTemplate = `{
                 "version"
             ],
             "properties": {
+                "agent_package_path": {
+                    "description": "Agent-side file/dir used when CP transfer fails (no internet fallback) / CP 传输失败时使用的 Agent 侧文件或目录（不回退互联网下载）",
+                    "type": "string"
+                },
                 "checkpoint": {
                     "$ref": "#/definitions/github_com_LeonYoah_stx_internal_apps_installer.CheckpointConfig"
                 },

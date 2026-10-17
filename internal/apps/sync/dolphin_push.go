@@ -19,7 +19,9 @@ package sync
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -397,6 +399,9 @@ func (s *Service) pushReuseWorkflow(ctx context.Context, actor executionapp.Acto
 	result.Version = graph.Version
 	result.WorkflowCode = graph.Code
 	result.ReleaseState = graph.ReleaseState
+	// 下线再读定义时 3.2 可能丢掉 locations，先留一份用来合并新节点坐标。
+	// 3.2 may drop locations after OFFLINE reload; keep a copy so the new node can be merged in.
+	savedLocations := graph.Locations
 	if req.DryRun {
 		result.Message = "add a SHELL node and selected edges"
 		return result, nil
@@ -416,6 +421,9 @@ func (s *Service) pushReuseWorkflow(ctx context.Context, actor executionapp.Acto
 			return nil, ErrDolphinVersionConflict
 		}
 		graph = refreshed
+		if strings.TrimSpace(graph.Locations) == "" || graph.Locations == "{}" {
+			graph.Locations = savedLocations
+		}
 	}
 
 	codes, err := client.GenTaskCodes(ctx, projectCode, 1)
@@ -748,19 +756,28 @@ func stripStartRelation(relations []dolphinRelation, postCode int64) []dolphinRe
 	return filtered
 }
 
+// mergeDolphinLocation 把新节点坐标并进已有 locations JSON，而不是整份覆盖。
+// mergeDolphinLocation merges the new node into the existing locations JSON instead of replacing it.
 func mergeDolphinLocation(raw string, code int64) string {
+	locs := map[string]map[string]int{}
 	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" || trimmed == "{}" {
+	if trimmed != "" && trimmed != "{}" {
+		if err := json.Unmarshal([]byte(trimmed), &locs); err != nil || locs == nil {
+			locs = map[string]map[string]int{}
+		}
+	}
+	key := strconv.FormatInt(code, 10)
+	if _, exists := locs[key]; !exists {
+		locs[key] = map[string]int{
+			"x": 240 + 80*len(locs),
+			"y": 160 + 40*(len(locs)%4),
+		}
+	}
+	encoded, err := json.Marshal(locs)
+	if err != nil {
 		return fmt.Sprintf(`{"%d":{"x":320,"y":200}}`, code)
 	}
-	if strings.HasSuffix(trimmed, "}") {
-		insert := fmt.Sprintf(`"%d":{"x":360,"y":240}`, code)
-		if strings.TrimSpace(trimmed) == "{}" {
-			return "{" + insert + "}"
-		}
-		return strings.TrimSuffix(strings.TrimSpace(trimmed), "}") + "," + insert + "}"
-	}
-	return trimmed
+	return string(encoded)
 }
 
 func joinWarning(current, next string) string {

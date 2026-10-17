@@ -78,6 +78,11 @@ CLI 环境变量优先级：`--server`/`--token` → `STX_SERVER`/`STX_TOKEN` �
 - SIGKILL：提交前 unix `setsid` 守护进程；管道 `generation N` / `done`；EOF 且无 `done` 则 `cancel-by-ref` 重试最多 30 分钟
 - 守护进程遇到 409（旧 generation）或 404 必须停止重试
 
+连接：
+
+- 创建调度器连接必须提交 Dolphin Open API Token（请求头 `token`）；列表/详情只返回 `token_set`，不回显原文。
+- 页面无连接时必须直接展开带标签的 Token 表单；已有连接时 Token 仍可从「新建连接」填写。不要把它和 Worker `STX_TOKEN`（`stxs_` 调度令牌）混成一个字段。
+
 推送：
 
 - `new`：单 SHELL 节点工作流；可选把 STX cron 转成 Dolphin 定时并上线

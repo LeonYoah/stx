@@ -82,19 +82,25 @@ export function DolphinPushDialog({
   const [downstreams, setDownstreams] = useState<number[]>([]);
   const [useBuiltinSchedule, setUseBuiltinSchedule] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [connectionsLoaded, setConnectionsLoaded] = useState(false);
   const [connName, setConnName] = useState('');
   const [connURL, setConnURL] = useState('');
   const [connToken, setConnToken] = useState('');
   const [connVersion, setConnVersion] = useState('');
   const [busy, setBusy] = useState(false);
   const [cycle, setCycle] = useState(false);
+  const selectedConnection = connections.find(
+    (item) => String(item.id) === connectionId,
+  );
 
   useEffect(() => {
     if (!open) {
+      setConnectionsLoaded(false);
       return;
     }
     setMode('new');
     setCycle(false);
+    setConnectionsLoaded(false);
     void SyncService.listSchedulerConnections()
       .then((result) => {
         const items = result.items ?? [];
@@ -105,9 +111,16 @@ export function DolphinPushDialog({
           items[0]?.id;
         if (initial) {
           setConnectionId(String(initial));
+        } else {
+          setConnectionId('');
         }
+        setConnectionsLoaded(true);
       })
-      .catch(() => setConnections([]));
+      .catch(() => {
+        setConnections([]);
+        setConnectionId('');
+        setConnectionsLoaded(true);
+      });
   }, [open, status?.binding?.connection_id, status?.connection?.id]);
 
   useEffect(() => {
@@ -275,8 +288,12 @@ export function DolphinPushDialog({
   };
 
   const createConnection = async () => {
-    if (!connName.trim() || !connURL.trim() || !connToken.trim()) {
+    if (!connName.trim() || !connURL.trim()) {
       toast.error(t('dolphinConnectionRequired'));
+      return;
+    }
+    if (!connToken.trim()) {
+      toast.error(t('dolphinTokenMissing'));
       return;
     }
     setCreating(true);
@@ -310,80 +327,95 @@ export function DolphinPushDialog({
         </DialogHeader>
         <ScrollArea className='min-h-0 flex-1 px-6 py-4'>
           <div className='space-y-4'>
-            <div className='grid gap-3 sm:grid-cols-2'>
-              <div className='space-y-1.5 min-w-0'>
-                <Label>{t('dolphinConnection')}</Label>
-                <Select value={connectionId} onValueChange={setConnectionId}>
-                  <SelectTrigger className='w-full'>
-                    <SelectValue placeholder={t('dolphinSelectConnection')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {connections.map((item) => (
-                      <SelectItem key={item.id} value={String(item.id)}>
-                        {item.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className='space-y-1.5 min-w-0'>
-                <Label>{t('dolphinProject')}</Label>
-                <Select value={projectCode} onValueChange={setProjectCode}>
-                  <SelectTrigger className='w-full'>
-                    <SelectValue placeholder={t('dolphinSelectProject')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {projects.map((item) => (
-                      <SelectItem key={item.code} value={String(item.code)}>
-                        {item.name} ({item.code})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <details className='rounded-lg border border-border/50 bg-muted/10 p-3'>
-              <summary className='cursor-pointer text-xs font-medium'>
-                {t('dolphinNewConnection')}
-              </summary>
-              <div className='mt-3 grid gap-2 sm:grid-cols-2'>
-                <Input
-                  value={connName}
-                  onChange={(event) => setConnName(event.target.value)}
-                  placeholder={t('dolphinConnectionName')}
-                />
-                <Input
-                  value={connURL}
-                  onChange={(event) => setConnURL(event.target.value)}
-                  placeholder='http://dolphin:12345/dolphinscheduler'
-                />
-                <Input
-                  type='password'
-                  value={connToken}
-                  onChange={(event) => setConnToken(event.target.value)}
-                  placeholder={t('dolphinTokenPlaceholder')}
-                  autoComplete='new-password'
-                />
-                <Input
-                  value={connVersion}
-                  onChange={(event) => setConnVersion(event.target.value)}
-                  placeholder={t('dolphinVersionPlaceholder')}
-                />
-              </div>
-              <p className='mt-2 text-[11px] leading-relaxed text-muted-foreground'>
-                {t('dolphinVersionHint')}
-              </p>
-              <Button
-                type='button'
-                size='sm'
-                className='mt-2'
-                disabled={creating}
-                onClick={() => void createConnection()}
+            {!connectionsLoaded ? null : connections.length === 0 ? (
+              <div
+                className='space-y-3 rounded-lg border border-border/50 bg-muted/10 p-3'
+                data-testid='dolphin-new-connection-form'
               >
-                {creating ? <Loader2 className='size-3.5 animate-spin' /> : t('dolphinSaveConnection')}
-              </Button>
-            </details>
+                <p className='text-xs leading-relaxed text-muted-foreground'>
+                  {t('dolphinNoConnectionHint')}
+                </p>
+                <ConnectionCreateFields
+                  connName={connName}
+                  connURL={connURL}
+                  connToken={connToken}
+                  connVersion={connVersion}
+                  creating={creating}
+                  onNameChange={setConnName}
+                  onURLChange={setConnURL}
+                  onTokenChange={setConnToken}
+                  onVersionChange={setConnVersion}
+                  onSave={() => void createConnection()}
+                />
+              </div>
+            ) : (
+              <>
+                <div className='grid gap-3 sm:grid-cols-2'>
+                  <div className='space-y-1.5 min-w-0'>
+                    <Label>{t('dolphinConnection')}</Label>
+                    <Select value={connectionId} onValueChange={setConnectionId}>
+                      <SelectTrigger className='w-full'>
+                        <SelectValue placeholder={t('dolphinSelectConnection')} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {connections.map((item) => (
+                          <SelectItem key={item.id} value={String(item.id)}>
+                            {item.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {selectedConnection?.token_set ? (
+                      <p className='text-[11px] text-muted-foreground'>
+                        {t('dolphinConnectionTokenSet')}
+                      </p>
+                    ) : selectedConnection ? (
+                      <p className='text-[11px] text-destructive'>
+                        {t('dolphinConnectionTokenMissing')}
+                      </p>
+                    ) : null}
+                  </div>
+                  <div className='space-y-1.5 min-w-0'>
+                    <Label>{t('dolphinProject')}</Label>
+                    <Select value={projectCode} onValueChange={setProjectCode}>
+                      <SelectTrigger className='w-full'>
+                        <SelectValue placeholder={t('dolphinSelectProject')} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {projects.map((item) => (
+                          <SelectItem key={item.code} value={String(item.code)}>
+                            {item.name} ({item.code})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <details
+                  className='rounded-lg border border-border/50 bg-muted/10 p-3'
+                  data-testid='dolphin-new-connection-details'
+                >
+                  <summary className='cursor-pointer text-xs font-medium'>
+                    {t('dolphinNewConnection')}
+                  </summary>
+                  <div className='mt-3' data-testid='dolphin-new-connection-form'>
+                    <ConnectionCreateFields
+                      connName={connName}
+                      connURL={connURL}
+                      connToken={connToken}
+                      connVersion={connVersion}
+                      creating={creating}
+                      onNameChange={setConnName}
+                      onURLChange={setConnURL}
+                      onTokenChange={setConnToken}
+                      onVersionChange={setConnVersion}
+                      onSave={() => void createConnection()}
+                    />
+                  </div>
+                </details>
+              </>
+            )}
 
             {bound ? (
               <div className='space-y-3 rounded-lg border border-border/50 bg-muted/10 p-3 text-xs'>
@@ -505,6 +537,97 @@ export function DolphinPushDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// 新建连接表单：Open API Token 必须带标签且可见，不能只靠 placeholder。
+// New-connection form: the Open API token is a labeled required field, not a placeholder-only input.
+function ConnectionCreateFields({
+  connName,
+  connURL,
+  connToken,
+  connVersion,
+  creating,
+  onNameChange,
+  onURLChange,
+  onTokenChange,
+  onVersionChange,
+  onSave,
+}: {
+  connName: string;
+  connURL: string;
+  connToken: string;
+  connVersion: string;
+  creating: boolean;
+  onNameChange: (value: string) => void;
+  onURLChange: (value: string) => void;
+  onTokenChange: (value: string) => void;
+  onVersionChange: (value: string) => void;
+  onSave: () => void;
+}) {
+  const t = useTranslations('workbenchStudio');
+  return (
+    <div className='space-y-3'>
+      <div className='grid gap-3 sm:grid-cols-2'>
+        <div className='space-y-1.5 min-w-0'>
+          <Label htmlFor='dolphin-connection-name'>{t('dolphinConnectionName')}</Label>
+          <Input
+            id='dolphin-connection-name'
+            value={connName}
+            onChange={(event) => onNameChange(event.target.value)}
+            placeholder={t('dolphinConnectionName')}
+          />
+        </div>
+        <div className='space-y-1.5 min-w-0'>
+          <Label htmlFor='dolphin-connection-url'>
+            {t('dolphinBaseURL')}
+            <span className='text-destructive'>*</span>
+          </Label>
+          <Input
+            id='dolphin-connection-url'
+            value={connURL}
+            onChange={(event) => onURLChange(event.target.value)}
+            placeholder='http://dolphin:12345/dolphinscheduler'
+            autoComplete='off'
+          />
+        </div>
+        <div className='space-y-1.5 min-w-0 sm:col-span-2'>
+          <Label htmlFor='dolphin-open-api-token'>
+            {t('dolphinOpenApiToken')}
+            <span className='text-destructive'>*</span>
+          </Label>
+          <Input
+            id='dolphin-open-api-token'
+            data-testid='dolphin-open-api-token'
+            type='password'
+            value={connToken}
+            onChange={(event) => onTokenChange(event.target.value)}
+            placeholder={t('dolphinTokenPlaceholder')}
+            autoComplete='new-password'
+            required
+            aria-required='true'
+          />
+          <p className='text-[11px] leading-relaxed text-muted-foreground'>
+            {t('dolphinOpenApiTokenHint')}
+          </p>
+        </div>
+        <div className='space-y-1.5 min-w-0 sm:col-span-2'>
+          <Label htmlFor='dolphin-connection-version'>{t('dolphinVersion')}</Label>
+          <Input
+            id='dolphin-connection-version'
+            value={connVersion}
+            onChange={(event) => onVersionChange(event.target.value)}
+            placeholder={t('dolphinVersionPlaceholder')}
+          />
+        </div>
+      </div>
+      <p className='text-[11px] leading-relaxed text-muted-foreground'>
+        {t('dolphinVersionHint')}
+      </p>
+      <Button type='button' size='sm' disabled={creating} onClick={onSave}>
+        {creating ? <Loader2 className='size-3.5 animate-spin' /> : t('dolphinSaveConnection')}
+      </Button>
+    </div>
   );
 }
 

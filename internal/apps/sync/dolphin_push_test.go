@@ -340,6 +340,21 @@ func newBoundPushService(t *testing.T, server *httptest.Server) (*Service, *Task
 	return service, task, conn.ID
 }
 
+func TestMergeDolphinLocationKeepsExistingNodes(t *testing.T) {
+	merged := mergeDolphinLocation(`{"11":{"x":240,"y":160}}`, 22)
+	var locs map[string]map[string]int
+	if err := json.Unmarshal([]byte(merged), &locs); err != nil {
+		t.Fatalf("unmarshal locations: %v", err)
+	}
+	if locs["11"]["x"] != 240 || locs["22"] == nil {
+		t.Fatalf("expected both nodes, got %s", merged)
+	}
+	empty := mergeDolphinLocation("{}", 33)
+	if !strings.Contains(empty, `"33"`) {
+		t.Fatalf("empty locations should still place the new node: %s", empty)
+	}
+}
+
 func writeDolphinOK(writer http.ResponseWriter, data any) {
 	writer.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(writer).Encode(map[string]any{"code": 0, "msg": "success", "data": data})

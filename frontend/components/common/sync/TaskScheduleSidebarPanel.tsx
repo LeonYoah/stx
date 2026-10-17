@@ -399,26 +399,33 @@ export function TaskScheduleSidebarPanel({
           ) : null}
           {canEdit && dolphin?.binding ? (
             <div className='flex flex-wrap gap-1.5'>
-              <Button
-                type='button'
-                size='sm'
-                variant='outline'
-                className='h-7 px-2 text-[11px]'
-                onClick={async () => {
-                  try {
-                    const issued = await SyncService.issueSchedulerToken(taskId);
-                    await navigator.clipboard.writeText(issued.token);
-                    toast.success(t('dolphinTokenCopied'));
-                    await reloadDolphin();
-                  } catch (error) {
-                    toast.error(
-                      error instanceof Error ? error.message : t('dolphinPushFailed'),
-                    );
-                  }
-                }}
-              >
-                {t('dolphinIssueToken')}
-              </Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type='button'
+                    size='sm'
+                    variant='outline'
+                    className='h-7 px-2 text-[11px]'
+                    onClick={async () => {
+                      try {
+                        const issued = await SyncService.issueSchedulerToken(taskId);
+                        await navigator.clipboard.writeText(issued.token);
+                        toast.success(t('dolphinTokenCopied'));
+                        await reloadDolphin();
+                      } catch (error) {
+                        toast.error(
+                          error instanceof Error ? error.message : t('dolphinPushFailed'),
+                        );
+                      }
+                    }}
+                  >
+                    {t('dolphinIssueToken')}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent className='max-w-[320px] text-xs leading-5'>
+                  {t('dolphinSchedulerTokenHint')}
+                </TooltipContent>
+              </Tooltip>
               {dolphin.scheduler_token?.issued ? (
                 <Button
                   type='button'

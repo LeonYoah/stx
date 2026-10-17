@@ -203,7 +203,14 @@ export async function bootstrapDolphinScheduler(
   }
 
   // EnvironmentConfig must be shell exports (not JSON) — Worker sources this file.
-  const envConfig = `export STX_SERVER=${stxServerURL}\nexport STX_TOKEN=${stxToken}\n`;
+  // PATH: DS image already has /usr/local/bin; keep explicit for bind-mounted stx.
+  // STX_* must be shell exports (Worker sources this file) — not JSON.
+  const envConfig = [
+    'export PATH="/usr/local/bin:${PATH}"',
+    `export STX_SERVER=${stxServerURL}`,
+    `export STX_TOKEN=${stxToken}`,
+    '',
+  ].join('\n');
   const environmentCode = Number(
     await dsForm(token, '/environment/create', {
       name: envName,

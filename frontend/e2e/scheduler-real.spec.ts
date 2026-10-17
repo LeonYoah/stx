@@ -99,8 +99,20 @@ test.describe.serial('scheduler real DolphinScheduler flows', () => {
     const failLog = logs.find((l) => l.state === 'FAILURE')
       || logs.find((l) => /fail|assert/i.test(l.name));
 
-    expect(successLog, `success task log missing: ${JSON.stringify(logs.map(l => ({n:l.name,s:l.state})))}`).toBeTruthy();
-    expect(failLog, `fail task log missing: ${JSON.stringify(logs.map(l => ({n:l.name,s:l.state})))}`).toBeTruthy();
+    const logDigest = logs.map((l) => ({
+      n: l.name,
+      s: l.state,
+      path: l.logPath,
+      tail: (l.log || '').slice(-1200),
+    }));
+    expect(
+      successLog,
+      `success task log missing: ${JSON.stringify(logDigest)}`,
+    ).toBeTruthy();
+    expect(
+      failLog,
+      `fail task log missing: ${JSON.stringify(logDigest)}`,
+    ).toBeTruthy();
 
     assertHumanReadableDSLog(successLog!.log, 'success DS log');
     expect(successLog!.log).toContain('[stx] job_status=success');

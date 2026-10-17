@@ -306,7 +306,7 @@ mkdir -p "${ROOT_DIR}/dist"
 # Compile backend binary with automatic retries to handle transient Go proxy network glitches
 build_ok=false
 for attempt in 1 2 3; do
-  if (cd "${ROOT_DIR}" && go build -o dist/stx .); then
+  if (cd "${ROOT_DIR}" && CGO_ENABLED=0 go build -o dist/stx .); then
     build_ok=true
     break
   fi

@@ -15,6 +15,8 @@ GitHub Actions job **E2E Real Scheduler** boots:
 | paths-filter skip | Explicit `scheduler_real:` key with concrete paths (not only shared globs) |
 | DS H2 wipe on restart | Fresh container each run; bootstrap token/project/env every time |
 | Bind-mount stale inode | Start DS **after** `go build -o dist/stx` |
+| glibc mismatch (CI 24.04 → DS 22.04) | `CGO_ENABLED=0 go build` so `stx` is static; `docker exec … stx version` before Playwright |
+| smoke picks up `*-real` specs | `scheduler-real.spec.ts` in `smokeExcludedSpecs` |
 | EnvironmentCode | Create env with `export STX_SERVER=...` / `export STX_TOKEN=...`; push `--environment stx-cli-prod` |
 | Fail stuck RUNNING_EXECUTION | Long wait; still read task logPath from container |
 | SeaTunnel package | Reuse `prepare-package` artifact / cache |

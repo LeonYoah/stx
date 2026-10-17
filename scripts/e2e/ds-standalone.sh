@@ -50,6 +50,13 @@ start_ds() {
     -v "${STX_BIN}:/usr/local/bin/stx:ro" \
     "${IMAGE}" >/dev/null
   echo "started ${NAME} image=${IMAGE} stx=${STX_BIN}"
+  # Static CLI must run inside DS (Ubuntu 22.04). Catch glibc/PATH issues before Playwright.
+  if ! docker exec "${NAME}" /usr/local/bin/stx version >/dev/null 2>&1; then
+    echo "stx binary not runnable inside DS container:" >&2
+    docker exec "${NAME}" ls -la /usr/local/bin/stx >&2 || true
+    docker exec "${NAME}" /usr/local/bin/stx version >&2 || true
+    exit 1
+  fi
 }
 
 wait_ds() {

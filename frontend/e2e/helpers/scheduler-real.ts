@@ -51,6 +51,8 @@ export type DSBootstrap = {
 };
 
 export function buildFakeConsoleBatchContent(): string {
+  // Multi-line schema: single-line `fields { a = "x" b = "y" }` trips HOCON
+  // ("Expecting close brace } or a comma, got '='") on SeaTunnel submit.
   return `
 env {
   parallelism = 1
@@ -60,11 +62,18 @@ source {
   FakeSource {
     plugin_output = "fake"
     row.num = 20
-    schema = { fields { name = "string" age = "int" } }
+    schema = {
+      fields {
+        name = "string"
+        age = "int"
+      }
+    }
   }
 }
 sink {
-  Console { plugin_input = "fake" }
+  Console {
+    plugin_input = "fake"
+  }
 }
 `.trim();
 }
@@ -81,7 +90,12 @@ source {
     row.num = 10
     split.num = 2
     split.read-interval = 1000
-    schema = { fields { name = "string" age = "int" } }
+    schema = {
+      fields {
+        name = "string"
+        age = "int"
+      }
+    }
   }
 }
 transform {
@@ -92,7 +106,9 @@ transform {
   }
 }
 sink {
-  Console { plugin_input = "bad" }
+  Console {
+    plugin_input = "bad"
+  }
 }
 `.trim();
 }

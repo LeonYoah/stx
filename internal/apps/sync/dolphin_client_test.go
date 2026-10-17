@@ -18,6 +18,7 @@
 package sync
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -80,12 +81,50 @@ func TestDecodeDolphinGraphReadsProcessAndWorkflowJSON(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if graph.Code != 9 || graph.Version != 2 || len(graph.Relations) != 1 || graph.Relations[0].PostTaskCode != 88 {
-			t.Fatalf("decoded graph = %+v", graph)
+		if graph.Code != 9 || graph.Version != 2 || len(graph.Relations) != 1 || peekRelation(graph.Relations[0]).PostTaskCode != 88 {
+			t.Fatalf("decoded graph = %+v relations=%s", graph, graph.Relations)
 		}
 		if dolphinTaskRawScript(graph.Tasks[0]) != "echo" {
 			t.Fatalf("raw script = %q", dolphinTaskRawScript(graph.Tasks[0]))
 		}
+	}
+}
+
+func TestDecodeDolphinGraphReadsNestedLocationsAndUnknownTaskFields(t *testing.T) {
+	t.Parallel()
+	spark := `{"code":11,"name":"spark_job","taskType":"SPARK","version":3,"taskGroupId":7,"taskGroupPriority":2,"taskParams":{"rawScript":"keep-me","sparkVersion":"3.3","mainClass":"com.acme.Job"}}`
+	raw, _ := json.Marshal(map[string]any{
+		"processDefinition": map[string]any{
+			"code":         9,
+			"name":         "wf",
+			"version":      4,
+			"releaseState": "ONLINE",
+			"locations":    `[{"taskCode":11,"x":12.5,"y":80,"extra":"pin"}]`,
+		},
+		"processTaskRelationList": []map[string]any{
+			{"preTaskCode": 0, "postTaskCode": 11, "id": 55, "conditionType": "NONE"},
+		},
+		"taskDefinitionList": []json.RawMessage{json.RawMessage(spark)},
+	})
+	graph, err := decodeDolphinGraph(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if graph.Locations == "" || !strings.Contains(graph.Locations, `"extra":"pin"`) {
+		t.Fatalf("nested locations missing: %s", graph.Locations)
+	}
+	if len(graph.Tasks) != 1 || !bytes.Contains(graph.Tasks[0], []byte(`"taskGroupId":7`)) {
+		t.Fatalf("unknown task fields were stripped: %s", graph.Tasks[0])
+	}
+	form := encodeDefinitionForm(graph)
+	if form.Get("locations") != graph.Locations {
+		t.Fatalf("encode dropped nested locations: %s", form.Get("locations"))
+	}
+	if !strings.Contains(form.Get("taskDefinitionJson"), `"taskGroupId":7`) || !strings.Contains(form.Get("taskDefinitionJson"), `"sparkVersion":"3.3"`) {
+		t.Fatalf("encode dropped sibling task fields: %s", form.Get("taskDefinitionJson"))
+	}
+	if !strings.Contains(form.Get("taskRelationJson"), `"id":55`) {
+		t.Fatalf("encode dropped relation extras: %s", form.Get("taskRelationJson"))
 	}
 }
 
@@ -111,7 +150,7 @@ func TestDolphinClientProcessFamily31And32RoundTrip(t *testing.T) {
 			if err != nil {
 				t.Fatalf("get definition: %v", err)
 			}
-			if len(graph.Relations) != 1 || graph.Relations[0].PreTaskCode != 1 {
+			if len(graph.Relations) != 1 || peekRelation(graph.Relations[0]).PreTaskCode != 1 {
 				t.Fatalf("%s relations were not decoded: %+v", version, graph.Relations)
 			}
 			codes, err := client.GenTaskCodes(ctx, 7, 1)

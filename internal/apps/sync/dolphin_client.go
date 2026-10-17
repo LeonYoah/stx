@@ -61,8 +61,10 @@ type dolphinGraph struct {
 	GlobalParams  string
 	Locations     string
 	Timeout       int
-	Tasks         []dolphinTaskDef
-	Relations     []dolphinRelation
+	// Tasks/Relations 用原始 JSON 回写：PUT 会整图覆盖，类型化结构会丢掉未知字段。
+	// Tasks/Relations stay raw JSON because PUT replaces the whole graph and typed structs drop unknown fields.
+	Tasks     []json.RawMessage
+	Relations []json.RawMessage
 }
 
 type dolphinTaskDef struct {
@@ -454,70 +456,51 @@ func decodeNamedCodeList(raw json.RawMessage) []DolphinProject {
 
 func decodeDolphinGraph(raw json.RawMessage) (*dolphinGraph, error) {
 	var payload struct {
-		ProcessDefinition *struct {
-			Code          int64  `json:"code"`
-			Name          string `json:"name"`
-			Version       int    `json:"version"`
-			ReleaseState  string `json:"releaseState"`
-			TenantCode    string `json:"tenantCode"`
-			ExecutionType string `json:"executionType"`
-			Description   string `json:"description"`
-			GlobalParams  string `json:"globalParams"`
-			Timeout       int    `json:"timeout"`
-		} `json:"processDefinition"`
-		WorkflowDefinition *struct {
-			Code          int64  `json:"code"`
-			Name          string `json:"name"`
-			Version       int    `json:"version"`
-			ReleaseState  string `json:"releaseState"`
-			TenantCode    string `json:"tenantCode"`
-			ExecutionType string `json:"executionType"`
-			Description   string `json:"description"`
-			GlobalParams  string `json:"globalParams"`
-			Timeout       int    `json:"timeout"`
-		} `json:"workflowDefinition"`
-		ProcessTaskRelationList  []dolphinRelation `json:"processTaskRelationList"`
-		WorkflowTaskRelationList []dolphinRelation `json:"workflowTaskRelationList"`
-		TaskDefinitionList       []dolphinTaskDef  `json:"taskDefinitionList"`
-		Locations                json.RawMessage   `json:"locations"`
+		ProcessDefinition        json.RawMessage `json:"processDefinition"`
+		WorkflowDefinition       json.RawMessage `json:"workflowDefinition"`
+		ProcessTaskRelationList  json.RawMessage `json:"processTaskRelationList"`
+		WorkflowTaskRelationList json.RawMessage `json:"workflowTaskRelationList"`
+		TaskDefinitionList       json.RawMessage `json:"taskDefinitionList"`
+		Locations                json.RawMessage `json:"locations"`
 	}
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		return nil, err
 	}
-	def := payload.ProcessDefinition
-	if def == nil {
-		def = payload.WorkflowDefinition
-	}
-	relations := payload.ProcessTaskRelationList
-	if len(payload.WorkflowTaskRelationList) > 0 {
-		relations = payload.WorkflowTaskRelationList
-	}
-	graph := &dolphinGraph{Tasks: payload.TaskDefinitionList, Relations: relations}
-	if graph.Tasks == nil {
-		graph.Tasks = []dolphinTaskDef{}
-	}
-	if graph.Relations == nil {
-		graph.Relations = []dolphinRelation{}
-	}
-	if def != nil {
-		graph.Code = def.Code
-		graph.Name = def.Name
-		graph.Version = def.Version
-		graph.ReleaseState = def.ReleaseState
-		graph.TenantCode = def.TenantCode
-		graph.ExecutionType = def.ExecutionType
-		graph.Description = def.Description
-		graph.GlobalParams = def.GlobalParams
-		graph.Timeout = def.Timeout
-	}
-	if len(payload.Locations) > 0 {
-		graph.Locations = strings.TrimSpace(string(payload.Locations))
-		if strings.HasPrefix(graph.Locations, `"`) {
-			var asString string
-			if json.Unmarshal(payload.Locations, &asString) == nil {
-				graph.Locations = asString
-			}
+	processMeta := decodeDefinitionMeta(payload.ProcessDefinition)
+	workflowMeta := decodeDefinitionMeta(payload.WorkflowDefinition)
+	meta := processMeta
+	if meta.Code == 0 && workflowMeta.Code != 0 {
+		meta = workflowMeta
+	} else if meta.Code == 0 {
+		// 3.3 只有 workflowDefinition；若 process 解码为空对象，仍用 workflow 元数据。
+		// 3.3 only has workflowDefinition; use that metadata when process is empty.
+		if workflowMeta.Name != "" || workflowMeta.Version != 0 || workflowMeta.ReleaseState != "" {
+			meta = workflowMeta
 		}
+	}
+	relations := decodeRawArray(payload.ProcessTaskRelationList)
+	if len(relations) == 0 {
+		relations = decodeRawArray(payload.WorkflowTaskRelationList)
+	}
+	graph := &dolphinGraph{
+		Code:          meta.Code,
+		Name:          meta.Name,
+		Version:       meta.Version,
+		ReleaseState:  meta.ReleaseState,
+		TenantCode:    meta.TenantCode,
+		ExecutionType: meta.ExecutionType,
+		Description:   meta.Description,
+		GlobalParams:  decodeFlexibleJSONString(meta.GlobalParams),
+		Timeout:       meta.Timeout,
+		Tasks:         decodeRawArray(payload.TaskDefinitionList),
+		Relations:     relations,
+		// 3.2 GET 把 locations 放在 processDefinition 里，根上经常没有。
+		// 3.2 GET stores locations on processDefinition; the root payload often omits them.
+		Locations: firstNonEmptyLocations(
+			decodeFlexibleJSONString(payload.Locations),
+			decodeFlexibleJSONString(processMeta.Locations),
+			decodeFlexibleJSONString(workflowMeta.Locations),
+		),
 	}
 	return graph, nil
 }
@@ -527,65 +510,25 @@ func encodeDefinitionForm(graph *dolphinGraph) url.Values {
 	form.Set("name", graph.Name)
 	form.Set("description", graph.Description)
 	form.Set("globalParams", defaultString(graph.GlobalParams, "[]"))
-	form.Set("locations", defaultString(graph.Locations, "{}"))
+	// 3.2 UI 使用 locations 数组；已有工作流必须原样带回，不能默认成 {} 清空画布。
+	// 3.2 UI uses a locations array; existing workflows must round-trip it, never default to {}.
+	form.Set("locations", graph.Locations)
 	form.Set("timeout", strconv.Itoa(graph.Timeout))
 	form.Set("tenantCode", defaultString(graph.TenantCode, "default"))
 	form.Set("executionType", defaultString(graph.ExecutionType, "PARALLEL"))
-	taskJSON, _ := json.Marshal(graph.Tasks)
-	relJSON, _ := json.Marshal(graph.Relations)
+	tasks := graph.Tasks
+	if tasks == nil {
+		tasks = []json.RawMessage{}
+	}
+	relations := graph.Relations
+	if relations == nil {
+		relations = []json.RawMessage{}
+	}
+	taskJSON, _ := json.Marshal(tasks)
+	relJSON, _ := json.Marshal(relations)
 	form.Set("taskDefinitionJson", string(taskJSON))
 	form.Set("taskRelationJson", string(relJSON))
 	return form
-}
-
-func dolphinHasCycle(relations []dolphinRelation, extra [][2]int64) bool {
-	edges := map[int64][]int64{}
-	nodes := map[int64]struct{}{}
-	add := func(from, to int64) {
-		if to == 0 {
-			return
-		}
-		nodes[to] = struct{}{}
-		if from == 0 {
-			return
-		}
-		nodes[from] = struct{}{}
-		edges[from] = append(edges[from], to)
-	}
-	for _, rel := range relations {
-		add(rel.PreTaskCode, rel.PostTaskCode)
-	}
-	for _, edge := range extra {
-		add(edge[0], edge[1])
-	}
-	const (
-		white = 0
-		gray  = 1
-		black = 2
-	)
-	color := map[int64]int{}
-	var visit func(int64) bool
-	visit = func(node int64) bool {
-		color[node] = gray
-		for _, next := range edges[node] {
-			switch color[next] {
-			case gray:
-				return true
-			case white:
-				if visit(next) {
-					return true
-				}
-			}
-		}
-		color[node] = black
-		return false
-	}
-	for node := range nodes {
-		if color[node] == white && visit(node) {
-			return true
-		}
-	}
-	return false
 }
 
 func buildShellTask(code int64, name, script, workerGroup string, timeoutMinutes int) dolphinTaskDef {
@@ -663,16 +606,4 @@ func dolphinConsoleURL(baseURL string, projectCode, workflowCode int64, style, v
 		return fmt.Sprintf("%s/#/projects/%d/process-definition/list/%d", origin, projectCode, workflowCode)
 	}
 	return fmt.Sprintf("%s/projects/%d/workflow-definition/%d", origin, projectCode, workflowCode)
-}
-
-func taskVersionByCode(tasks []dolphinTaskDef, code int64) int {
-	for _, task := range tasks {
-		if task.Code == code {
-			if task.Version > 0 {
-				return task.Version
-			}
-			return 1
-		}
-	}
-	return 1
 }

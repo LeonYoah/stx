@@ -18,6 +18,7 @@
 package sync
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -78,9 +79,9 @@ func TestParseScheduleTimeAndUnreplacedVariables(t *testing.T) {
 }
 
 func TestDolphinHasCycle(t *testing.T) {
-	relations := []dolphinRelation{
-		{PreTaskCode: 1, PostTaskCode: 2},
-		{PreTaskCode: 2, PostTaskCode: 3},
+	relations := []json.RawMessage{
+		marshalRaw(dolphinRelation{PreTaskCode: 1, PostTaskCode: 2}),
+		marshalRaw(dolphinRelation{PreTaskCode: 2, PostTaskCode: 3}),
 	}
 	if dolphinHasCycle(relations, nil) {
 		t.Fatal("acyclic graph reported a cycle")

@@ -21,8 +21,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -292,6 +294,170 @@ func TestPushDolphinUpdateOn33KeepsWorkflowRelations(t *testing.T) {
 	}
 }
 
+func TestPushDolphinUpdatePreservesSiblingNodesAfterOffline(t *testing.T) {
+	sparkNode := json.RawMessage(`{"code":11,"name":"spark_job","taskType":"SPARK","version":3,"taskGroupId":7,"taskGroupPriority":2,"cpuQuota":2,"taskParams":{"sparkVersion":"3.3","mainClass":"com.acme.Job","deployMode":"cluster"}}`)
+	shellNode := json.RawMessage(`{"code":88,"name":"stx","taskType":"SHELL","version":1,"isCache":"NO","taskExecuteType":"BATCH","taskParams":{"rawScript":"old","localParams":[{"prop":"dt","direct":"IN","type":"VARCHAR","value":"x"}]}}`)
+	conditionNode := json.RawMessage(`{"code":99,"name":"gate","taskType":"CONDITIONS","version":4,"flag":"YES","taskParams":{"conditionResult":{"successNode":["a"],"failedNode":["b"]}}}`)
+	locations := `[{"taskCode":11,"x":12.5,"y":80,"extra":"pin"},{"taskCode":88,"x":240,"y":160},{"taskCode":99,"x":400,"y":80}]`
+	relationJSON := json.RawMessage(`[{"id":55,"name":"e1","preTaskCode":11,"preTaskVersion":3,"postTaskCode":88,"postTaskVersion":1,"conditionType":"NONE","operator":1},{"preTaskCode":88,"preTaskVersion":1,"postTaskCode":99,"postTaskVersion":4,"conditionType":"NONE"}]`)
+	gets := 0
+	var putForm url.Values
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if strings.Contains(request.URL.Path, "workflow-definition") {
+			http.NotFound(writer, request)
+			return
+		}
+		if strings.HasSuffix(request.URL.Path, "/process-definition") && request.Method == http.MethodGet {
+			writeDolphinOK(writer, map[string]any{"totalList": []any{}})
+			return
+		}
+		if strings.Contains(request.URL.Path, "/process-definition/9") && request.Method == http.MethodGet {
+			gets++
+			payload := map[string]any{
+				"processDefinition": map[string]any{
+					"code": 9, "name": "wf", "version": 6, "releaseState": "ONLINE", "executionType": "SERIAL",
+					"locations": locations, "globalParams": `[{"prop":"biz","value":"keep"}]`,
+				},
+				"taskDefinitionList": []json.RawMessage{sparkNode, shellNode, conditionNode},
+			}
+			var relations any
+			_ = json.Unmarshal(relationJSON, &relations)
+			payload["processTaskRelationList"] = relations
+			if gets > 1 {
+				payload["processDefinition"] = map[string]any{
+					"code": 9, "name": "wf", "version": 6, "releaseState": "OFFLINE", "executionType": "SERIAL",
+					"locations": "", "globalParams": `[{"prop":"biz","value":"keep"}]`,
+				}
+			}
+			writeDolphinOK(writer, payload)
+			return
+		}
+		if strings.Contains(request.URL.Path, "/process-definition/9") && request.Method == http.MethodPut {
+			body, _ := io.ReadAll(request.Body)
+			putForm, _ = url.ParseQuery(string(body))
+			writeDolphinOK(writer, map[string]any{})
+			return
+		}
+		if strings.Contains(request.URL.Path, "/release") {
+			writeDolphinOK(writer, true)
+			return
+		}
+		if strings.Contains(request.URL.Path, "/schedules") {
+			writeDolphinOK(writer, map[string]any{"totalList": []any{}})
+			return
+		}
+		writeDolphinOK(writer, map[string]any{})
+	}))
+	defer server.Close()
+
+	service, task, connID := newBoundPushService(t, server)
+	if err := service.repo.SaveSchedulerBinding(context.Background(), &TaskSchedulerBinding{
+		TaskID: task.ID, Kind: SchedulerKindDolphin, ConnectionID: connID, ProjectCode: 7, WorkflowCode: 9, TaskCode: 88,
+	}); err != nil {
+		t.Fatalf("save binding: %v", err)
+	}
+	if _, err := service.PushDolphin(context.Background(), executionapp.Actor{UserID: 1, IsAdmin: true}, task.ID, &DolphinPushRequest{
+		Mode: "update", ConnectionID: connID,
+	}); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if putForm == nil {
+		t.Fatal("expected PUT definition")
+	}
+	var tasks []json.RawMessage
+	if err := json.Unmarshal([]byte(putForm.Get("taskDefinitionJson")), &tasks); err != nil {
+		t.Fatalf("tasks: %v", err)
+	}
+	if len(tasks) != 3 {
+		t.Fatalf("update dropped sibling nodes: %s", putForm.Get("taskDefinitionJson"))
+	}
+	if string(tasks[0]) != string(sparkNode) {
+		t.Fatalf("SPARK node was rewritten: %s", tasks[0])
+	}
+	if string(tasks[2]) != string(conditionNode) {
+		t.Fatalf("CONDITIONS node was rewritten: %s", tasks[2])
+	}
+	if !strings.Contains(string(tasks[1]), `"rawScript"`) || strings.Contains(string(tasks[1]), `"rawScript":"old"`) {
+		t.Fatalf("bound SHELL script was not updated: %s", tasks[1])
+	}
+	if !strings.Contains(string(tasks[1]), `"localParams"`) {
+		t.Fatalf("bound SHELL lost taskParams extras: %s", tasks[1])
+	}
+	if !strings.Contains(putForm.Get("taskRelationJson"), `"id":55`) || !strings.Contains(putForm.Get("taskRelationJson"), `"operator":1`) {
+		t.Fatalf("relation extras dropped: %s", putForm.Get("taskRelationJson"))
+	}
+	if !strings.Contains(putForm.Get("taskRelationJson"), `"postTaskVersion":2`) {
+		t.Fatalf("bound relation version was not bumped: %s", putForm.Get("taskRelationJson"))
+	}
+	if !strings.Contains(putForm.Get("locations"), `"extra":"pin"`) || !strings.Contains(putForm.Get("locations"), `"taskCode":11`) {
+		t.Fatalf("OFFLINE empty locations wiped canvas: %s", putForm.Get("locations"))
+	}
+	if putForm.Get("executionType") != "SERIAL" {
+		t.Fatalf("executionType overwritten: %s", putForm.Get("executionType"))
+	}
+	if !strings.Contains(putForm.Get("globalParams"), `"biz"`) {
+		t.Fatalf("globalParams dropped: %s", putForm.Get("globalParams"))
+	}
+}
+
+func TestPushDolphinReusePreservesExistingGraph(t *testing.T) {
+	existingTask := json.RawMessage(`{"code":11,"name":"up","taskType":"SPARK","version":2,"taskGroupId":9,"taskParams":{"mainClass":"Keep"}}`)
+	var putForm url.Values
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if strings.Contains(request.URL.Path, "workflow-definition") {
+			http.NotFound(writer, request)
+			return
+		}
+		if strings.Contains(request.URL.Path, "gen-task-codes") {
+			writeDolphinOK(writer, []int64{88001})
+			return
+		}
+		if strings.HasSuffix(request.URL.Path, "/process-definition") && request.Method == http.MethodGet {
+			writeDolphinOK(writer, map[string]any{"totalList": []any{}})
+			return
+		}
+		if strings.Contains(request.URL.Path, "/process-definition/9") && request.Method == http.MethodGet {
+			writeDolphinOK(writer, map[string]any{
+				"processDefinition": map[string]any{
+					"code": 9, "name": "wf", "version": 3, "releaseState": "OFFLINE",
+					"locations": `[{"taskCode":11,"x":10,"y":20,"name":"up"}]`,
+				},
+				"taskDefinitionList":      []json.RawMessage{existingTask},
+				"processTaskRelationList": []map[string]any{{"preTaskCode": 0, "postTaskCode": 11, "id": 7}},
+			})
+			return
+		}
+		if request.Method == http.MethodPut {
+			body, _ := io.ReadAll(request.Body)
+			putForm, _ = url.ParseQuery(string(body))
+			writeDolphinOK(writer, map[string]any{})
+			return
+		}
+		writeDolphinOK(writer, map[string]any{})
+	}))
+	defer server.Close()
+
+	service, task, connID := newBoundPushService(t, server)
+	if _, err := service.PushDolphin(context.Background(), executionapp.Actor{UserID: 1, IsAdmin: true}, task.ID, &DolphinPushRequest{
+		Mode: "reuse", ConnectionID: connID, ProjectCode: 7, WorkflowCode: 9, Upstreams: []int64{11},
+	}); err != nil {
+		t.Fatalf("reuse: %v", err)
+	}
+	var tasks []json.RawMessage
+	if err := json.Unmarshal([]byte(putForm.Get("taskDefinitionJson")), &tasks); err != nil {
+		t.Fatalf("tasks: %v", err)
+	}
+	if len(tasks) != 2 || string(tasks[0]) != string(existingTask) {
+		t.Fatalf("reuse rewrote existing node: %s", putForm.Get("taskDefinitionJson"))
+	}
+	if !strings.Contains(putForm.Get("locations"), `"name":"up"`) || !strings.Contains(putForm.Get("locations"), `"taskCode":88001`) {
+		t.Fatalf("reuse locations = %s", putForm.Get("locations"))
+	}
+	if !strings.Contains(putForm.Get("taskRelationJson"), `"id":7`) {
+		t.Fatalf("reuse dropped relation extras: %s", putForm.Get("taskRelationJson"))
+	}
+}
+
 func newPushServiceWithDolphin(t *testing.T, server *httptest.Server, version, style string) (*Service, *Task, uint) {
 	t.Helper()
 	service := newTestSyncService(t)
@@ -341,17 +507,25 @@ func newBoundPushService(t *testing.T, server *httptest.Server) (*Service, *Task
 }
 
 func TestMergeDolphinLocationKeepsExistingNodes(t *testing.T) {
-	merged := mergeDolphinLocation(`{"11":{"x":240,"y":160}}`, 22)
-	var locs map[string]map[string]int
+	merged := mergeDolphinLocation(`{"11":{"x":240,"y":160,"targetarr":"","name":"up"}}`, 22)
+	var locs map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(merged), &locs); err != nil {
 		t.Fatalf("unmarshal locations: %v", err)
 	}
-	if locs["11"]["x"] != 240 || locs["22"] == nil {
-		t.Fatalf("expected both nodes, got %s", merged)
+	if !strings.Contains(string(locs["11"]), `"targetarr"`) || locs["22"] == nil {
+		t.Fatalf("expected extra keys and both nodes, got %s", merged)
+	}
+	arrayMerged := mergeDolphinLocation(`[{"taskCode":11,"x":240.5,"y":160,"extra":"keep"}]`, 22)
+	if !strings.Contains(arrayMerged, `"extra":"keep"`) || !strings.Contains(arrayMerged, `"taskCode":22`) {
+		t.Fatalf("array merge dropped fields: %s", arrayMerged)
 	}
 	empty := mergeDolphinLocation("{}", 33)
-	if !strings.Contains(empty, `"33"`) {
+	if !strings.Contains(empty, `"taskCode":33`) {
 		t.Fatalf("empty locations should still place the new node: %s", empty)
+	}
+	invalid := mergeDolphinLocation(`not-json`, 44)
+	if invalid != "not-json" {
+		t.Fatalf("invalid locations must not be rewritten: %s", invalid)
 	}
 }
 

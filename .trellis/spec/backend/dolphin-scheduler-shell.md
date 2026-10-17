@@ -93,6 +93,15 @@ CLI 环境变量优先级：`--server`/`--token` → `STX_SERVER`/`STX_TOKEN` �
 - 推送成功关闭 STX 内置定时；绑定期间不能再打开
 - 解绑只删 STX 记录并吊销令牌，不动 Dolphin 节点
 
+Dolphin 定义接口是**整图覆盖**（`taskDefinitionJson` + `taskRelationJson` + `locations` 一次 PUT 全部节点/边/坐标）。回写契约：
+
+- GET 后任务/边必须按原始 JSON 数组保存；未改动的节点（SPARK/SQL/CONDITION 等）字节级带回，禁止类型化结构丢掉 `taskGroupId` 等未知字段。
+- `locations` 同时读根字段和 `processDefinition` / `workflowDefinition` 内嵌字段；3.2 数组 `[{taskCode,x,y,...}]` 与旧版 map 都要认。
+- 上线工作流 OFFLINE 后再 GET，3.2 可能清空 `locations`；update 与 reuse 都必须用下线前的副本回填，禁止把 `{}` / `[]` 写回去把画布抹掉。
+- 合并新节点坐标时保留已有节点的 extra 字段（如 `targetarr`、`name`、浮点 x/y）；解析失败时保持原串。
+- 绑定 SHELL 升 version 时，必须同步该 code 在边上的 `preTaskVersion` / `postTaskVersion`。
+- 绑定节点若已不是 SHELL，拒绝 update，避免把 `rawScript` 写进 SPARK/SQL 参数。
+
 数组字段（`items`/`tasks`/`relations`/`recent_jobs`）在 API 与前端 service 边界都必须是 `[]`，不能是 `null`。
 
 DolphinScheduler **只支持 3.x**：
@@ -136,6 +145,7 @@ SHELL 节点 JSON 必须带 `isCache=NO`、`taskExecuteType=BATCH`；3.2.x 缺 `
 - `go test ./internal/cmd/ ./internal/cli/... ./internal/apps/sync/ ./internal/apps/auth/ ./internal/operation/`
 - 断言：变量未替换拒绝；同一 `external_ref` 接管；旧 generation 停止被忽略；update 不改边；成环不写 Dolphin；version 冲突 409；流式脚本含 `--close-job=false`；调度令牌不能提交未绑定任务。
 - Dolphin httptest：3.1/3.2 只打 `process-definition` 且定时带 `processDefinitionCode`；3.3+ 只打 `workflow-definition` 且解码 `workflowTaskRelationList`；更新 3.3 节点必须把原 `workflowTaskRelationList` 写回 `taskRelationJson`；2.x / 非 3.x 版本被拒绝。
+- 整图回写：update 在 OFFLINE 后 GET 丢掉 locations 时仍要把兄弟 SPARK/CONDITION 节点、边 extra 字段和坐标 extra 写回；reuse 不得改写已有节点 JSON。
 - CLI：`stx sync scheduler connection create --dolphin-version 3.2.2` 把版本写入连接请求体。
 - 前端：中英文 i18n 键齐全；service 对 `tasks`/`relations`/`recent_jobs` 做 `?? []`。
 

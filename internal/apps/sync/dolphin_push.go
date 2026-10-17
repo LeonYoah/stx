@@ -21,7 +21,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -132,17 +131,19 @@ func (s *Service) GetDolphinWorkflow(ctx context.Context, connectionID uint, pro
 		Relations:    make([]DolphinWorkflowRelation, 0, len(graph.Relations)),
 	}
 	for _, task := range graph.Tasks {
+		peek := peekTask(task)
 		detail.Tasks = append(detail.Tasks, DolphinWorkflowTask{
-			Code:      task.Code,
-			Name:      task.Name,
-			TaskType:  task.TaskType,
+			Code:      peek.Code,
+			Name:      peek.Name,
+			TaskType:  peek.TaskType,
 			RawScript: dolphinTaskRawScript(task),
 		})
 	}
 	for _, rel := range graph.Relations {
+		peek := peekRelation(rel)
 		detail.Relations = append(detail.Relations, DolphinWorkflowRelation{
-			PreTaskCode:  rel.PreTaskCode,
-			PostTaskCode: rel.PostTaskCode,
+			PreTaskCode:  peek.PreTaskCode,
+			PostTaskCode: peek.PostTaskCode,
 		})
 	}
 	return detail, nil
@@ -315,9 +316,11 @@ func (s *Service) pushNewWorkflow(ctx context.Context, actor executionapp.Actor,
 		ExecutionType: "PARALLEL",
 		TenantCode:    "default",
 		GlobalParams:  "[]",
-		Locations:     fmt.Sprintf(`{"%d":{"x":240,"y":160}}`, shell.Code),
-		Tasks:         []dolphinTaskDef{shell},
-		Relations:     []dolphinRelation{startRelation(shell)},
+		// 3.2+ 画布坐标是 [{taskCode,x,y}]，不能再写旧版 {"code":{"x","y"}}。
+		// 3.2+ canvas coordinates are [{taskCode,x,y}], not the legacy {"code":{"x","y"}} map.
+		Locations: fmt.Sprintf(`[{"taskCode":%d,"x":240,"y":160}]`, shell.Code),
+		Tasks:     []json.RawMessage{marshalRaw(shell)},
+		Relations: []json.RawMessage{marshalRaw(startRelation(shell))},
 	}
 	created, err := client.CreateDefinition(ctx, projectCode, graph)
 	if err != nil {
@@ -402,6 +405,8 @@ func (s *Service) pushReuseWorkflow(ctx context.Context, actor executionapp.Acto
 	// 下线再读定义时 3.2 可能丢掉 locations，先留一份用来合并新节点坐标。
 	// 3.2 may drop locations after OFFLINE reload; keep a copy so the new node can be merged in.
 	savedLocations := graph.Locations
+	savedTasks := append([]json.RawMessage(nil), graph.Tasks...)
+	savedRelations := append([]json.RawMessage(nil), graph.Relations...)
 	if req.DryRun {
 		result.Message = "add a SHELL node and selected edges"
 		return result, nil
@@ -421,8 +426,12 @@ func (s *Service) pushReuseWorkflow(ctx context.Context, actor executionapp.Acto
 			return nil, ErrDolphinVersionConflict
 		}
 		graph = refreshed
-		if strings.TrimSpace(graph.Locations) == "" || graph.Locations == "{}" {
-			graph.Locations = savedLocations
+		graph.Locations = firstNonEmptyLocations(graph.Locations, savedLocations)
+		if len(graph.Tasks) == 0 {
+			graph.Tasks = savedTasks
+		}
+		if len(graph.Relations) == 0 {
+			graph.Relations = savedRelations
 		}
 	}
 
@@ -434,21 +443,21 @@ func (s *Service) pushReuseWorkflow(ctx context.Context, actor executionapp.Acto
 		return nil, wrapOfflineWarning(offlineWarning, fmt.Errorf("%w: gen-task-codes returned empty", ErrDolphinPushInvalid))
 	}
 	shell := buildShellTask(codes[0], task.Name, script.Script, script.WorkerGroup, dolphinNodeTimeoutMinutes(script.Timeout))
-	graph.Tasks = append(graph.Tasks, shell)
+	graph.Tasks = append(graph.Tasks, marshalRaw(shell))
 	graph.Locations = mergeDolphinLocation(graph.Locations, shell.Code)
 	if len(upstreams) == 0 {
-		graph.Relations = append(graph.Relations, startRelation(shell))
+		graph.Relations = append(graph.Relations, marshalRaw(startRelation(shell)))
 	}
 	for _, code := range upstreams {
-		graph.Relations = append(graph.Relations, edgeRelation(code, taskVersionByCode(graph.Tasks, code), shell))
+		graph.Relations = append(graph.Relations, marshalRaw(edgeRelation(code, taskVersionByCode(graph.Tasks, code), shell)))
 	}
 	for _, code := range downstreams {
 		graph.Relations = stripStartRelation(graph.Relations, code)
-		downstream := findTask(graph, code)
-		if downstream == nil {
+		downstream, _, ok := peekTaskByCode(graph, code)
+		if !ok {
 			return nil, wrapOfflineWarning(offlineWarning, fmt.Errorf("%w: downstream %d is missing", ErrDolphinPushInvalid, code))
 		}
-		graph.Relations = append(graph.Relations, edgeRelation(shell.Code, shell.Version, *downstream))
+		graph.Relations = append(graph.Relations, marshalRaw(edgeRelation(shell.Code, shell.Version, dolphinTaskDef{Code: downstream.Code, Version: downstream.Version})))
 	}
 	if err := client.UpdateDefinition(ctx, projectCode, graph); err != nil {
 		return nil, wrapOfflineWarning(offlineWarning, err)
@@ -483,15 +492,12 @@ func (s *Service) pushUpdateNode(ctx context.Context, actor executionapp.Actor, 
 	if req.ExpectedVersion > 0 && graph.Version != req.ExpectedVersion {
 		return nil, ErrDolphinVersionConflict
 	}
-	index := -1
-	for i, item := range graph.Tasks {
-		if item.Code == binding.TaskCode {
-			index = i
-			break
-		}
-	}
-	if index < 0 {
+	currentPeek, index, ok := peekTaskByCode(graph, binding.TaskCode)
+	if !ok {
 		return nil, ErrDolphinNodeMissing
+	}
+	if currentPeek.TaskType != "" && !shellTaskType(currentPeek.TaskType) {
+		return nil, boundNodeNotShellError(binding.TaskCode, currentPeek.TaskType)
 	}
 	wasOnline := strings.EqualFold(graph.ReleaseState, dolphinReleaseOnline)
 	result.WouldOffline = wasOnline
@@ -499,6 +505,11 @@ func (s *Service) pushUpdateNode(ctx context.Context, actor executionapp.Actor, 
 	result.WorkflowCode = graph.Code
 	result.TaskCode = binding.TaskCode
 	result.ReleaseState = graph.ReleaseState
+	// update 同样是整图 PUT：下线后若 locations/兄弟节点丢失，必须用下线前的副本回填。
+	// update is also a full-graph PUT: restore pre-OFFLINE locations/siblings if the reload drops them.
+	savedLocations := graph.Locations
+	savedTasks := append([]json.RawMessage(nil), graph.Tasks...)
+	savedRelations := append([]json.RawMessage(nil), graph.Relations...)
 	if req.DryRun {
 		result.Message = "overwrite the bound SHELL node without changing edges"
 		return result, nil
@@ -518,34 +529,28 @@ func (s *Service) pushUpdateNode(ctx context.Context, actor executionapp.Actor, 
 			return nil, ErrDolphinVersionConflict
 		}
 		graph = refreshed
-		index = -1
-		for i, item := range graph.Tasks {
-			if item.Code == binding.TaskCode {
-				index = i
-				break
-			}
+		graph.Locations = firstNonEmptyLocations(graph.Locations, savedLocations)
+		if len(graph.Tasks) == 0 {
+			graph.Tasks = savedTasks
 		}
-		if index < 0 {
+		if len(graph.Relations) == 0 {
+			graph.Relations = savedRelations
+		}
+		currentPeek, index, ok = peekTaskByCode(graph, binding.TaskCode)
+		if !ok {
 			return nil, wrapOfflineWarning(offlineWarning, ErrDolphinNodeMissing)
+		}
+		if currentPeek.TaskType != "" && !shellTaskType(currentPeek.TaskType) {
+			return nil, wrapOfflineWarning(offlineWarning, boundNodeNotShellError(binding.TaskCode, currentPeek.TaskType))
 		}
 	}
 
-	current := graph.Tasks[index]
-	if current.TaskParams == nil {
-		current.TaskParams = map[string]interface{}{}
+	patched, version, err := patchShellTaskRaw(graph.Tasks[index], defaultString(strings.TrimSpace(task.Name), currentPeek.Name), script.Script, defaultString(script.WorkerGroup, ""), dolphinNodeTimeoutMinutes(script.Timeout))
+	if err != nil {
+		return nil, wrapOfflineWarning(offlineWarning, err)
 	}
-	current.TaskParams["rawScript"] = script.Script
-	current.WorkerGroup = defaultString(script.WorkerGroup, current.WorkerGroup)
-	current.Timeout = dolphinNodeTimeoutMinutes(script.Timeout)
-	current.TimeoutFlag = "OPEN"
-	current.TimeoutNotifyStrategy = "FAILED"
-	current.Name = defaultString(strings.TrimSpace(task.Name), current.Name)
-	if current.Version > 0 {
-		current.Version++
-	} else {
-		current.Version = 1
-	}
-	graph.Tasks[index] = current
+	graph.Tasks[index] = patched
+	graph.Relations = bumpRelationTaskVersion(graph.Relations, binding.TaskCode, version)
 	if err := client.UpdateDefinition(ctx, binding.ProjectCode, graph); err != nil {
 		return nil, wrapOfflineWarning(offlineWarning, err)
 	}
@@ -692,34 +697,6 @@ func dolphinCrontab(cronExpr string) string {
 	}
 }
 
-func graphHasTask(graph *dolphinGraph, code int64) bool {
-	return findTask(graph, code) != nil
-}
-
-func dolphinTaskRawScript(task dolphinTaskDef) string {
-	if task.TaskParams == nil {
-		return ""
-	}
-	for _, key := range []string{"rawScript", "raw_script"} {
-		if value, ok := task.TaskParams[key].(string); ok {
-			return value
-		}
-	}
-	return ""
-}
-
-func findTask(graph *dolphinGraph, code int64) *dolphinTaskDef {
-	if graph == nil {
-		return nil
-	}
-	for i := range graph.Tasks {
-		if graph.Tasks[i].Code == code {
-			return &graph.Tasks[i]
-		}
-	}
-	return nil
-}
-
 func uniqueInt64(values []int64) []int64 {
 	if len(values) == 0 {
 		return []int64{}
@@ -743,41 +720,6 @@ func containsInt64(values []int64, target int64) bool {
 		}
 	}
 	return false
-}
-
-func stripStartRelation(relations []dolphinRelation, postCode int64) []dolphinRelation {
-	filtered := make([]dolphinRelation, 0, len(relations))
-	for _, rel := range relations {
-		if rel.PostTaskCode == postCode && rel.PreTaskCode == 0 {
-			continue
-		}
-		filtered = append(filtered, rel)
-	}
-	return filtered
-}
-
-// mergeDolphinLocation 把新节点坐标并进已有 locations JSON，而不是整份覆盖。
-// mergeDolphinLocation merges the new node into the existing locations JSON instead of replacing it.
-func mergeDolphinLocation(raw string, code int64) string {
-	locs := map[string]map[string]int{}
-	trimmed := strings.TrimSpace(raw)
-	if trimmed != "" && trimmed != "{}" {
-		if err := json.Unmarshal([]byte(trimmed), &locs); err != nil || locs == nil {
-			locs = map[string]map[string]int{}
-		}
-	}
-	key := strconv.FormatInt(code, 10)
-	if _, exists := locs[key]; !exists {
-		locs[key] = map[string]int{
-			"x": 240 + 80*len(locs),
-			"y": 160 + 40*(len(locs)%4),
-		}
-	}
-	encoded, err := json.Marshal(locs)
-	if err != nil {
-		return fmt.Sprintf(`{"%d":{"x":320,"y":200}}`, code)
-	}
-	return string(encoded)
 }
 
 func joinWarning(current, next string) string {

@@ -373,9 +373,11 @@ func formatCLIJobMetricsBlock(preview map[string]interface{}, at time.Time, fina
 	if raw, ok := preview["stx_metrics_log"].(string); ok {
 		trimmed := strings.TrimSpace(raw)
 		if trimmed != "" {
-			const marker = "---------- STX metrics"
-			if idx := strings.LastIndex(trimmed, marker); idx >= 0 {
-				return strings.TrimSpace(trimmed[idx:])
+			// Prefer last snapshot block (new ========== or legacy ---------- titles).
+			for _, marker := range []string{"========== STX metrics", "---------- STX metrics"} {
+				if idx := strings.LastIndex(trimmed, marker); idx >= 0 {
+					return strings.TrimSpace(trimmed[idx:])
+				}
 			}
 			return trimmed
 		}
@@ -394,13 +396,15 @@ func formatCLIJobMetricsBlock(preview map[string]interface{}, at time.Time, fina
 		write = cliMetricString(metrics, "SinkCommittedCount")
 	}
 	lines := []string{
-		"---------- " + title + " ----------",
-		"time / 时间          : " + at.UTC().Format(time.RFC3339),
-		"read count / 读取行  : " + read,
-		"write count / 写入行 : " + write,
-		"read QPS / 读取速率  : " + cliMetricString(metrics, "SourceReceivedQPS"),
-		"write QPS / 写入速率 : " + cliMetricString(metrics, "SinkWriteQPS"),
-		"----------------------------------------------",
+		"",
+		"========== " + title + " ==========",
+		fmt.Sprintf("%-22s %s", "time:", at.UTC().Format(time.RFC3339)),
+		fmt.Sprintf("%-22s %s", "read_count:", read),
+		fmt.Sprintf("%-22s %s", "write_count:", write),
+		fmt.Sprintf("%-22s %s", "read_qps:", cliMetricString(metrics, "SourceReceivedQPS")),
+		fmt.Sprintf("%-22s %s", "write_qps:", cliMetricString(metrics, "SinkWriteQPS")),
+		"==============================================",
+		"",
 	}
 	return strings.Join(lines, "\n")
 }

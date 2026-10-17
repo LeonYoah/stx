@@ -30,7 +30,7 @@ func TestFormatJobMetricsLogBlockIncludesBilingualLabels(t *testing.T) {
 		"SinkWriteCount":      float64(20),
 		"SourceReceivedQPS":   1.5,
 	}, time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC), false)
-	if !strings.Contains(block, "read count / 读取行") {
+	if !strings.Contains(block, "read_count:") {
 		t.Fatalf("missing bilingual read label: %s", block)
 	}
 	if !strings.Contains(block, "20") {

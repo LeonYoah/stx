@@ -116,18 +116,13 @@ func emitNormalizedLogChunk(events *clioutput.EventWriter, operationID, requestI
 		return
 	}
 	lines := splitCLILogLines(chunk)
-	_ = events.Emit(clioutput.Event{
-		Event:       "log_chunk",
-		OperationID: operationID,
-		RequestID:   requestID,
-		Level:       "info",
-		JobID:       jobID,
-		NextOffset:  nextOffset,
-		Logs:        chunk,
-		Lines:       lines,
-	})
-	// One NDJSON event per line keeps transferred task logs readable without embedded escapes.
-	// 按行发 NDJSON，避免传输后的任务日志里只剩转义换行。
+	// Do not emit log_chunk with a multi-line "logs" payload. json.Encoder escapes
+	// embedded newlines as \n, so DolphinScheduler stores one mega physical line and
+	// the DS UI shows no visual breaks. One NDJSON log_line per row keeps each SeaTunnel
+	// / metrics line as its own DS log row.
+	// 不要发带多行 logs 的 log_chunk：JSON 会把换行编成 \\n，DS 落成超长单行，UI 看不到换行。
+	// 按行发 log_line，使每条 SeaTunnel/指标日志成为 DS 日志里的独立物理行。
+	_ = nextOffset // retained for call-site compatibility / 保留参数以兼容调用方
 	for _, line := range lines {
 		_ = events.Emit(clioutput.Event{
 			Event:       "log_line",

@@ -57,26 +57,27 @@ func FormatJobMetricsLogBlock(metrics map[string]interface{}, at time.Time, fina
 	}
 
 	lines := []string{
-		"---------- " + title + " ----------",
-		fmt.Sprintf("time / 时间          : %s", at.UTC().Format(time.RFC3339)),
-		fmt.Sprintf("read count / 读取行  : %s", formatMetricField(readCount)),
-		fmt.Sprintf("write count / 写入行 : %s", formatMetricField(writeCount)),
-		fmt.Sprintf("read QPS / 读取速率  : %s", formatMetricField(readQPS)),
-		fmt.Sprintf("write QPS / 写入速率 : %s", formatMetricField(writeQPS)),
+		"",
+		"========== " + title + " ==========",
+		fmt.Sprintf("%-22s %s", "time:", at.UTC().Format(time.RFC3339)),
+		fmt.Sprintf("%-22s %s", "read_count:", formatMetricField(readCount)),
+		fmt.Sprintf("%-22s %s", "write_count:", formatMetricField(writeCount)),
+		fmt.Sprintf("%-22s %s", "read_qps:", formatMetricField(readQPS)),
+		fmt.Sprintf("%-22s %s", "write_qps:", formatMetricField(writeQPS)),
 	}
 
 	tableKeys := collectTableMetricKeys(metrics)
 	if len(tableKeys) > 0 {
-		lines = append(lines, fmt.Sprintf("tables / 表数量      : %d", len(tableKeys)))
+		lines = append(lines, fmt.Sprintf("%-22s %d", "tables:", len(tableKeys)))
 		for _, key := range tableKeys {
-			lines = append(lines, fmt.Sprintf("  - %-40s read=%s write=%s",
+			lines = append(lines, fmt.Sprintf("  - %-36s read=%-12s write=%s",
 				key,
 				formatMetricField(tableMetricNumber(metrics, "TableSourceReceivedCount", key)),
 				formatMetricField(firstTableMetricNumber(metrics, key, "TableSinkWriteCount", "TableSinkCommittedCount")),
 			))
 		}
 	}
-	lines = append(lines, "----------------------------------------------")
+	lines = append(lines, "==============================================", "")
 	return strings.Join(lines, "\n")
 }
 

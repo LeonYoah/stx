@@ -246,8 +246,8 @@ func TestSyncTaskSubmitSendsWaitAndPollsJob(t *testing.T) {
 	if jobPolls < 2 {
 		t.Fatalf("应轮询作业状态至少两次: polls=%d", jobPolls)
 	}
-	if !strings.Contains(stderr, `"event":"log_chunk"`) {
-		t.Fatalf("stderr 应包含 log_chunk 事件: %s", stderr)
+	if !strings.Contains(stderr, `"event":"log_line"`) {
+		t.Fatalf("stderr 应包含 log_line 事件: %s", stderr)
 	}
 	if !strings.Contains(stderr, `"event":"job_status"`) {
 		t.Fatalf("stderr 应包含 job_status 事件: %s", stderr)

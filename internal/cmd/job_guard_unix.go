@@ -32,6 +32,11 @@ func startJobGuard(client *cliClient.Client, externalRef string) (*os.File, erro
 	if client == nil || strings.TrimSpace(externalRef) == "" {
 		return nil, nil
 	}
+	// E2E / restricted sandboxes: skip guard when setsid is unavailable.
+	// SIGKILL orphan-cancel is best-effort without the guard.
+	if os.Getenv("STX_DISABLE_JOB_GUARD") == "1" {
+		return nil, nil
+	}
 	reader, writer, err := os.Pipe()
 	if err != nil {
 		return nil, err

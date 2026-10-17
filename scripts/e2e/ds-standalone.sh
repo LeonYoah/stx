@@ -50,6 +50,7 @@ start_ds() {
     --network host \
     --security-opt seccomp=unconfined \
     -e TZ=Asia/Shanghai \
+    -e STX_DISABLE_JOB_GUARD=1 \
     -v "${STX_BIN}:/usr/local/bin/stx:ro" \
     "${IMAGE}" >/dev/null
   echo "started ${NAME} image=${IMAGE} stx=${STX_BIN}"

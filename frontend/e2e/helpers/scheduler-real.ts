@@ -208,6 +208,9 @@ export async function bootstrapDolphinScheduler(
     'export PATH="/usr/local/bin:${PATH}"',
     `export STX_SERVER=${JSON.stringify(stxServerURL)}`,
     `export STX_TOKEN=${JSON.stringify(stxToken)}`,
+    // Job-guard setsid fails under some Docker seccomp profiles → CLI exit 9
+    // before submit. E2E skips the guard; production Workers leave this unset.
+    'export STX_DISABLE_JOB_GUARD=1',
     '',
   ].join('\n');
   const environmentCode = Number(

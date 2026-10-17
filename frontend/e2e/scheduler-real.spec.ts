@@ -99,12 +99,30 @@ test.describe.serial('scheduler real DolphinScheduler flows', () => {
     const failLog = logs.find((l) => l.state === 'FAILURE')
       || logs.find((l) => /fail|assert/i.test(l.name));
 
+    const snippet = (log: string) => {
+      const markers = [
+        /start job guard/i,
+        /\[stx\]/,
+        /exitStatusCode/,
+        /STX_DISABLE_JOB_GUARD/,
+        /Error:/,
+        /GLIBC/,
+        /not found/i,
+        /permission/i,
+      ];
+      for (const re of markers) {
+        const idx = log.search(re);
+        if (idx >= 0) {
+          return log.slice(Math.max(0, idx - 240), idx + 900);
+        }
+      }
+      return `${log.slice(0, 400)}\n...\n${log.slice(-400)}`;
+    };
     const logDigest = logs.map((l) => ({
       n: l.name,
       s: l.state,
       path: l.logPath,
-      head: (l.log || '').slice(0, 1500),
-      tail: (l.log || '').slice(-800),
+      snippet: snippet(l.log || ''),
     }));
     expect(
       successLog,

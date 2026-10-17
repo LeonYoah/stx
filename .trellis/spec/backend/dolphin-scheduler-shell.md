@@ -78,7 +78,7 @@ Worker 令牌：
 
 - 与 `--wait` 联用时默认 true；实时任务必须关闭（脚本生成 `--close-job=false`）
 - SIGINT/SIGTERM：发 cancel 后写 `done`
-- SIGKILL：提交前 unix `setsid` 守护进程；管道 `generation N` / `done`；EOF 且无 `done` 则 `cancel-by-ref` 重试最多 30 分钟
+- SIGKILL：提交前 unix `setsid` 守护进程（不要同时 `Setpgid`，否则 `Start` 返回 operation not permitted，任务在提交前失败）；管道 `generation N` / `done`；EOF 且无 `done` 则 `cancel-by-ref` 重试最多 30 分钟
 - 守护进程遇到 409（旧 generation）或 404 必须停止重试
 
 连接：

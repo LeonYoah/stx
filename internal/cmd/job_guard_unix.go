@@ -43,7 +43,7 @@ func startJobGuard(client *cliClient.Client, externalRef string) (*os.File, erro
 		"STX_GUARD_REF="+strings.TrimSpace(externalRef),
 	)
 	cmd.ExtraFiles = []*os.File{reader}
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setpgid: true}
+	cmd.SysProcAttr = jobGuardSysProcAttr()
 	cmd.Stdout = nil
 	cmd.Stderr = nil
 	if err := cmd.Start(); err != nil {
@@ -54,4 +54,10 @@ func startJobGuard(client *cliClient.Client, externalRef string) (*os.File, erro
 	_ = reader.Close()
 	_ = cmd.Process.Release()
 	return writer, nil
+}
+
+// jobGuardSysProcAttr 只做 setsid。setsid 已经脱离控制终端并新建进程组；再 Setpgid 时 Start 会返回 operation not permitted，Dolphin 任务在提交前失败。
+// jobGuardSysProcAttr only sets setsid. setsid already detaches the terminal and creates a process group; adding Setpgid makes Start return operation not permitted, so the Dolphin task fails before submit.
+func jobGuardSysProcAttr() *syscall.SysProcAttr {
+	return &syscall.SysProcAttr{Setsid: true}
 }

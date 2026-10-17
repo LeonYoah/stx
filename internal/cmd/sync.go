@@ -796,7 +796,7 @@ func newSyncTaskSubmitCommand(storeProvider authStoreProvider) *cobra.Command {
 			if closeJob && strings.TrimSpace(externalRef) != "" {
 				pipe, err = startJobGuard(client, externalRef)
 				if err != nil {
-					return clioutput.WrapError(err, clioutput.CodeServer, "start job guard", clioutput.ExitServer, false)
+					return clioutput.WrapError(err, clioutput.CodeServer, "start job guard: "+err.Error(), clioutput.ExitServer, false)
 				}
 				defer writeGuardDone(pipe)
 			}

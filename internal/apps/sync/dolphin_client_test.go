@@ -324,12 +324,15 @@ func TestDolphinConsoleURLByFamily(t *testing.T) {
 }
 
 func TestBuildShellTaskIncludes32CacheFields(t *testing.T) {
-	task := buildShellTask(88, "orders", "echo hi", "", 10)
+	task := buildShellTask(88, "orders", "echo hi", "")
 	if task.IsCache != "NO" || task.TaskExecuteType != "BATCH" {
 		t.Fatalf("3.2 cache fields missing: %+v", task)
 	}
 	if task.WorkerGroup != "default" {
 		t.Fatalf("default worker group = %s", task.WorkerGroup)
+	}
+	if task.TimeoutFlag != "CLOSE" || task.Timeout != 0 {
+		t.Fatalf("new SHELL nodes must leave Dolphin timeout off: %+v", task)
 	}
 	raw, err := json.Marshal(task)
 	if err != nil {

@@ -26,7 +26,7 @@ POST /api/v1/sync/tasks/:id/dolphin/unbind          # 仅页面
 ```
 
 ```text
-stx sync task submit <id> --confirm [--wait] [--timeout 6h]
+stx sync task submit <id> --confirm [--wait] [--timeout <duration>]
   [--close-job | --close-job=false] [--external-ref ds:${wf_inst}:${task_code}]
   [--schedule-time "${system.datetime}"] [--var k=v]...
 stx sync task dolphin script <id>
@@ -68,7 +68,9 @@ Worker 令牌：
 - 必须轮询 `GET /api/v1/sync/jobs/{id}`（`GetJob` 会 `refreshJobInstance`）
 - 禁止把 `GET /api/v1/executions/:id/wait` 的超时当成成功
 - 批任务等 `success|failed|canceled`；实时任务等 `running` 后退出 0
-- 成功 0，参数 2，认证 3，无权限 4，超时先 cancel 再 8，失败/被停 10
+- 成功 0，参数 2，认证 3，无权限 4，显式 `--timeout` 到期先 cancel 再 8，失败/被停 10
+- 不传 `--timeout` 则一直等到作业终态；时长由作业本身和 Dolphin 节点超时决定，STX 不定默认上限
+- 生成的 Dolphin SHELL 脚本不得写入 `--timeout`
 - 作业 JSON 的 `mode` 必须能从 `submit_spec` 回填，否则 CLI `--wait` 会把实时任务当成批任务死等
 
 `--close-job`：
@@ -87,7 +89,8 @@ Worker 令牌：
 
 - `new`：单 SHELL 节点工作流；可选把 STX cron 转成 Dolphin 定时并上线
 - `reuse`：挂到勾选上下游；成环 400 且不改图；`from==0` 的起点边不参与成环
-- `update`：已绑定任务强制走此模式；可省略 `connection_id`/`project_code`，从绑定回填；只改该节点脚本/设置
+- `update`：已绑定任务强制走此模式；可省略 `connection_id`/`project_code`，从绑定回填；只改该节点脚本/设置，不覆盖已有 `timeoutFlag`/`timeout`
+- 新建 SHELL 节点 `timeoutFlag=CLOSE`，不设分钟数；用户在 Dolphin 里打开的超时，再推送不得改掉
 - 已上线工作流：OFFLINE → PUT → ONLINE；PUT 后上线失败必须带 “workflow is OFFLINE”
 - `expected_version` 变化 → 409，不覆盖
 - 推送成功关闭 STX 内置定时；绑定期间不能再打开
@@ -154,7 +157,7 @@ SHELL 节点 JSON 必须带 `isCache=NO`、`taskExecuteType=BATCH`；3.2.x 缺 `
 ### 6. Tests Required
 
 - `go test ./internal/cmd/ ./internal/cli/... ./internal/apps/sync/ ./internal/apps/auth/ ./internal/operation/`
-- 断言：变量未替换拒绝；同一 `external_ref` 接管；旧 generation 停止被忽略；update 不改边；成环不写 Dolphin；version 冲突 409；流式脚本含 `--close-job=false`。
+- 断言：变量未替换拒绝；同一 `external_ref` 接管；旧 generation 停止被忽略；update 不改边；成环不写 Dolphin；version 冲突 409；流式脚本含 `--close-job=false`；生成脚本不含 `--timeout`；新建节点 `timeoutFlag=CLOSE`；update 保留原超时。
 - 未发布推送失败；同一发布版本再次 update 409；发布新版本后才允许更新。Dolphin `external_ref` 提交使用发布快照，`trigger_source=dolphin`；引擎不可用时仍写入 failed 作业。
 - Dolphin httptest：3.1/3.2 只打 `process-definition` 且定时带 `processDefinitionCode`；3.3+ 只打 `workflow-definition` 且解码 `workflowTaskRelationList`；更新 3.3 节点必须把原 `workflowTaskRelationList` 写回 `taskRelationJson`；2.x / 非 3.x 版本被拒绝。
 - 整图回写：update 在 OFFLINE 后 GET 丢掉 locations 时仍要把兄弟 SPARK/CONDITION 节点、边 extra 字段和坐标 extra 写回；reuse 不得改写已有节点 JSON。OFFLINE 后再 GET 若只返回部分节点或空数组，必须用下线前副本回写，禁止把残缺图 PUT 回去。

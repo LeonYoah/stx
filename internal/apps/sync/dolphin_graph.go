@@ -326,9 +326,9 @@ func patchJSONObject(raw json.RawMessage, mutate func(map[string]any)) (json.Raw
 	return encoded, nil
 }
 
-// patchShellTaskRaw 只改绑定 SHELL 节点的脚本/名称/超时/worker，其余顶层字段原样带回。
-// patchShellTaskRaw updates the bound SHELL script/name/timeout/worker and keeps other top-level fields.
-func patchShellTaskRaw(raw json.RawMessage, name, script, workerGroup string, timeoutMinutes int) (json.RawMessage, int, error) {
+// patchShellTaskRaw 只改绑定 SHELL 节点的脚本/名称/worker，超时字段原样带回。
+// patchShellTaskRaw updates the bound SHELL script/name/worker and leaves timeout fields untouched.
+func patchShellTaskRaw(raw json.RawMessage, name, script, workerGroup string) (json.RawMessage, int, error) {
 	var version int
 	encoded, err := patchJSONObject(raw, func(obj map[string]any) {
 		if strings.TrimSpace(name) != "" {
@@ -337,9 +337,6 @@ func patchShellTaskRaw(raw json.RawMessage, name, script, workerGroup string, ti
 		if strings.TrimSpace(workerGroup) != "" {
 			obj["workerGroup"] = strings.TrimSpace(workerGroup)
 		}
-		obj["timeout"] = timeoutMinutes
-		obj["timeoutFlag"] = "OPEN"
-		obj["timeoutNotifyStrategy"] = "FAILED"
 		if _, ok := obj["isCache"]; !ok {
 			obj["isCache"] = "NO"
 		}

@@ -253,7 +253,6 @@ func (h *Handler) GetDolphinTaskStatus(c *gin.Context) {
 // @Tags Sync
 // @Produce json
 // @Param id path int true "任务 ID"
-// @Param timeout query string false "CLI 等待超时"
 // @Param worker_group query string false "Dolphin worker group"
 // @Param environment query string false "Dolphin worker environment"
 // @Success 200 {object} DolphinScriptResponse
@@ -277,7 +276,6 @@ func (h *Handler) GetDolphinScript(c *gin.Context) {
 		c.Request.Context(),
 		currentExecutionActor(c),
 		id,
-		c.Query("timeout"),
 		variables,
 		c.Query("worker_group"),
 		c.Query("environment"),

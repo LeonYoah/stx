@@ -46,6 +46,20 @@ type syncJobWaitResult struct {
 	ErrorMessage     string `json:"error_message,omitempty"`
 }
 
+// parseCLIWaitTimeout 解析 --wait 的可选上限；空值表示一直等到作业终态。
+// parseCLIWaitTimeout parses the optional --wait ceiling; empty means wait until the job ends.
+func parseCLIWaitTimeout(raw string) (time.Duration, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return 0, nil
+	}
+	timeout, err := time.ParseDuration(value)
+	if err != nil || timeout <= 0 {
+		return 0, clioutput.NewError(clioutput.CodeUsage, "--timeout must be a duration such as 6h", clioutput.ExitUsage, false)
+	}
+	return timeout, nil
+}
+
 func waitSyncJob(command *cobra.Command, client *cliClient.Client, operationID string, job syncJobWaitResult, mode string, timeout time.Duration, closeJob bool, pipe *os.File) error {
 	if job.ID == 0 {
 		return clioutput.NewError(clioutput.CodeServer, "submit succeeded without a job id", clioutput.ExitServer, false)

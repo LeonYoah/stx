@@ -151,7 +151,7 @@ func (s *Service) GetDolphinWorkflow(ctx context.Context, connectionID uint, pro
 
 // GetDolphinScript 生成当前任务的 SHELL 节点脚本。
 // GetDolphinScript builds the SHELL node script for the current task.
-func (s *Service) GetDolphinScript(ctx context.Context, actor executionapp.Actor, taskID uint, timeout string, variables map[string]string, workerGroup, environment string) (*DolphinScriptResult, error) {
+func (s *Service) GetDolphinScript(ctx context.Context, actor executionapp.Actor, taskID uint, variables map[string]string, workerGroup, environment string) (*DolphinScriptResult, error) {
 	task, err := s.GetTaskForActor(ctx, actor, taskID)
 	if err != nil {
 		return nil, err
@@ -159,7 +159,7 @@ func (s *Service) GetDolphinScript(ctx context.Context, actor executionapp.Actor
 	if task.NodeType != TaskNodeTypeFile {
 		return nil, ErrTaskNotFile
 	}
-	return BuildDolphinShellScript(task, timeout, variables, workerGroup, environment), nil
+	return BuildDolphinShellScript(task, variables, workerGroup, environment), nil
 }
 
 // GetDolphinTaskStatus 返回侧边栏需要的绑定、脚本和最近作业摘要。
@@ -177,7 +177,7 @@ func (s *Service) GetDolphinTaskStatus(ctx context.Context, actor executionapp.A
 		Binding:          binding,
 		BuiltinLocked:    binding != nil,
 		RecentJobs:       []*JobInstance{},
-		Script:           BuildDolphinShellScript(task, "", nil, "", ""),
+		Script:           BuildDolphinShellScript(task, nil, "", ""),
 		PublishedVersion: task.CurrentVersion,
 	}
 	if binding != nil {
@@ -186,7 +186,7 @@ func (s *Service) GetDolphinTaskStatus(ctx context.Context, actor executionapp.A
 	// 侧栏展示即将推送的脚本时优先用已发布快照，避免把未发布草稿当成调度内容。
 	// Prefer the published snapshot for the sidebar script so unpublished drafts are not shown as the scheduled payload.
 	if published, err := s.taskFromCurrentPublishedVersion(ctx, task); err == nil {
-		status.Script = BuildDolphinShellScript(published, "", nil, "", "")
+		status.Script = BuildDolphinShellScript(published, nil, "", "")
 	}
 	if binding != nil {
 		if conn, err := s.repo.GetSchedulerConnectionByID(ctx, binding.ConnectionID); err == nil {
@@ -246,7 +246,7 @@ func (s *Service) PushDolphin(ctx context.Context, actor executionapp.Actor, tas
 		return nil, fmt.Errorf("%w: mode must be new or reuse", ErrDolphinPushInvalid)
 	}
 
-	script := BuildDolphinShellScript(task, req.Timeout, req.Variables, req.WorkerGroup, req.Environment)
+	script := BuildDolphinShellScript(task, req.Variables, req.WorkerGroup, req.Environment)
 	result := &DolphinPushResult{DryRun: req.DryRun, Mode: mode, Script: script, Cycle: false}
 
 	// 已绑定的更新请求可以省略 connection_id / project_code，改从绑定回填。
@@ -316,7 +316,7 @@ func (s *Service) pushNewWorkflow(ctx context.Context, actor executionapp.Actor,
 	if len(codes) == 0 || codes[0] == 0 {
 		return nil, fmt.Errorf("%w: gen-task-codes returned empty", ErrDolphinPushInvalid)
 	}
-	shell := buildShellTask(codes[0], task.Name, script.Script, script.WorkerGroup, dolphinNodeTimeoutMinutes(script.Timeout))
+	shell := buildShellTask(codes[0], task.Name, script.Script, script.WorkerGroup)
 	graph := &dolphinGraph{
 		Name:          name,
 		Description:   strings.TrimSpace(task.Description),
@@ -432,7 +432,7 @@ func (s *Service) pushReuseWorkflow(ctx context.Context, actor executionapp.Acto
 	if len(codes) == 0 || codes[0] == 0 {
 		return nil, wrapOfflineWarning(offlineWarning, fmt.Errorf("%w: gen-task-codes returned empty", ErrDolphinPushInvalid))
 	}
-	shell := buildShellTask(codes[0], task.Name, script.Script, script.WorkerGroup, dolphinNodeTimeoutMinutes(script.Timeout))
+	shell := buildShellTask(codes[0], task.Name, script.Script, script.WorkerGroup)
 	graph.Tasks = append(graph.Tasks, marshalRaw(shell))
 	graph.Locations = mergeDolphinLocation(graph.Locations, shell.Code)
 	if len(upstreams) == 0 {
@@ -522,7 +522,7 @@ func (s *Service) pushUpdateNode(ctx context.Context, actor executionapp.Actor, 
 	}
 	baseline := snapshotDolphinGraph(graph)
 
-	patched, version, err := patchShellTaskRaw(graph.Tasks[index], defaultString(strings.TrimSpace(task.Name), currentPeek.Name), script.Script, defaultString(script.WorkerGroup, ""), dolphinNodeTimeoutMinutes(script.Timeout))
+	patched, version, err := patchShellTaskRaw(graph.Tasks[index], defaultString(strings.TrimSpace(task.Name), currentPeek.Name), script.Script, defaultString(script.WorkerGroup, ""))
 	if err != nil {
 		return nil, wrapOfflineWarning(offlineWarning, err)
 	}

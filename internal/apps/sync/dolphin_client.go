@@ -531,7 +531,7 @@ func encodeDefinitionForm(graph *dolphinGraph) url.Values {
 	return form
 }
 
-func buildShellTask(code int64, name, script, workerGroup string, timeoutMinutes int) dolphinTaskDef {
+func buildShellTask(code int64, name, script, workerGroup string) dolphinTaskDef {
 	return dolphinTaskDef{
 		Code:        code,
 		Name:        name,
@@ -550,15 +550,17 @@ func buildShellTask(code int64, name, script, workerGroup string, timeoutMinutes
 			"waitStartTimeout": map[string]any{},
 			"switchResult":     map[string]any{},
 		},
-		Flag:                  "YES",
-		TaskPriority:          "MEDIUM",
-		WorkerGroup:           defaultString(workerGroup, defaultDolphinWorkerGroup),
-		EnvironmentCode:       -1,
-		FailRetryTimes:        1,
-		FailRetryInterval:     5,
-		TimeoutFlag:           "OPEN",
-		TimeoutNotifyStrategy: "FAILED",
-		Timeout:               timeoutMinutes,
+		Flag:              "YES",
+		TaskPriority:      "MEDIUM",
+		WorkerGroup:       defaultString(workerGroup, defaultDolphinWorkerGroup),
+		EnvironmentCode:   -1,
+		FailRetryTimes:    1,
+		FailRetryInterval: 5,
+		// 新建节点关闭 Dolphin 超时，时长由作业自己结束或调度侧手动停。
+		// New nodes leave Dolphin timeout off; duration is the job itself or an operator stop.
+		TimeoutFlag:           "CLOSE",
+		TimeoutNotifyStrategy: "",
+		Timeout:               0,
 		DelayTime:             0,
 		CpuQuota:              -1,
 		MemoryMax:             -1,

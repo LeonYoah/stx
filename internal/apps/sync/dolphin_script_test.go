@@ -24,7 +24,7 @@ import (
 )
 
 func TestBuildDolphinShellScriptLeavesLoginTokenToOperator(t *testing.T) {
-	script := BuildDolphinShellScript(&Task{ID: 42, Name: "orders_sync"}, "6h", nil, "", "")
+	script := BuildDolphinShellScript(&Task{ID: 42, Name: "orders_sync"}, nil, "", "")
 	if strings.Contains(script.Script, "STX_TOKEN") {
 		t.Fatalf("pushed SHELL script must not bind STX_TOKEN: %s", script.Script)
 	}
@@ -37,7 +37,7 @@ func TestBuildDolphinShellScriptLeavesLoginTokenToOperator(t *testing.T) {
 }
 
 func TestBuildDolphinShellScriptOmitsVarWithoutOverrides(t *testing.T) {
-	script := BuildDolphinShellScript(&Task{ID: 42, Name: "orders_sync"}, "6h", nil, "", "")
+	script := BuildDolphinShellScript(&Task{ID: 42, Name: "orders_sync"}, nil, "", "")
 	if !strings.Contains(script.Script, "exec stx sync task submit 42 --wait --confirm") {
 		t.Fatalf("missing exec submit: %s", script.Script)
 	}
@@ -50,13 +50,16 @@ func TestBuildDolphinShellScriptOmitsVarWithoutOverrides(t *testing.T) {
 	if !strings.Contains(script.Script, `--schedule-time "${system.datetime}"`) {
 		t.Fatalf("missing schedule-time placeholder: %s", script.Script)
 	}
+	if strings.Contains(script.Script, "--timeout") {
+		t.Fatalf("script must omit --timeout so STX does not cap job duration: %s", script.Script)
+	}
 	if strings.Contains(script.Script, "--var ") {
 		t.Fatalf("script should omit --var when there are no overrides: %s", script.Script)
 	}
 }
 
 func TestBuildDolphinShellScriptAppendsOverrides(t *testing.T) {
-	script := BuildDolphinShellScript(&Task{ID: 7, Name: "demo"}, "", map[string]string{"dt": "20260101", "skip": "${unreplaced}"}, "workers", "prod")
+	script := BuildDolphinShellScript(&Task{ID: 7, Name: "demo"}, map[string]string{"dt": "20260101", "skip": "${unreplaced}"}, "workers", "prod")
 	if !strings.Contains(script.Script, "--var dt=20260101") {
 		t.Fatalf("missing override: %s", script.Script)
 	}
@@ -66,10 +69,37 @@ func TestBuildDolphinShellScriptAppendsOverrides(t *testing.T) {
 	if script.WorkerGroup != "workers" || script.Environment != "prod" {
 		t.Fatalf("unexpected worker/env: %+v", script)
 	}
+	if strings.Contains(script.Script, "--timeout") {
+		t.Fatalf("override script must still omit --timeout: %s", script.Script)
+	}
+}
+
+func TestPatchShellTaskRawPreservesExistingTimeout(t *testing.T) {
+	raw := json.RawMessage(`{"code":88,"name":"stx","taskType":"SHELL","version":1,"timeoutFlag":"OPEN","timeoutNotifyStrategy":"FAILED","timeout":120,"taskParams":{"rawScript":"old"}}`)
+	patched, version, err := patchShellTaskRaw(raw, "stx", "exec stx sync task submit 1 --wait --confirm", "default")
+	if err != nil {
+		t.Fatalf("patch: %v", err)
+	}
+	if version != 2 {
+		t.Fatalf("version = %d", version)
+	}
+	var obj map[string]any
+	if err := json.Unmarshal(patched, &obj); err != nil {
+		t.Fatal(err)
+	}
+	if obj["timeoutFlag"] != "OPEN" {
+		t.Fatalf("update must keep timeoutFlag: %+v", obj)
+	}
+	if jsonNumberInt(obj["timeout"]) != 120 {
+		t.Fatalf("update must keep timeout minutes: %+v", obj)
+	}
+	if obj["timeoutNotifyStrategy"] != "FAILED" {
+		t.Fatalf("update must keep timeoutNotifyStrategy: %+v", obj)
+	}
 }
 
 func TestBuildDolphinShellScriptDisablesCloseJobForStreaming(t *testing.T) {
-	script := BuildDolphinShellScript(&Task{ID: 9, Name: "stream", Mode: TaskModeStreaming}, "6h", nil, "", "")
+	script := BuildDolphinShellScript(&Task{ID: 9, Name: "stream", Mode: TaskModeStreaming}, nil, "", "")
 	if !strings.Contains(script.Script, "--wait --close-job=false --confirm") {
 		t.Fatalf("streaming script should disable close-job: %s", script.Script)
 	}

@@ -646,6 +646,7 @@ os.WriteFile(target, source, 0o644)
 完整契约见 [DolphinScheduler SHELL 接入](./dolphin-scheduler-shell.md)。这里只固定 CLI 边界：
 
 - `stx sync task submit --wait` 必须轮询 `GET /api/v1/sync/jobs/:id`，不能把公共执行 wait 超时当成成功。
+- `--timeout` 可选；不传则一直等到作业终态。Dolphin SHELL 脚本不得写入 `--timeout`。
 - `--close-job` 在 `--wait` 时默认开启；实时任务脚本必须带 `--close-job=false`。
 - 守护进程是 unix `setsid` 子进程，不是 Server lease；409/404 的 `cancel-by-ref` 必须停止重试。
 - `unbind` 不生成 CLI（无 `CommandPath`）；取消作业继续用 `cancel` / `cancel-by-ref`。

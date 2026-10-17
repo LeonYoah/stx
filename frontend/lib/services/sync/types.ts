@@ -460,7 +460,7 @@ export interface DolphinWorkflowDetail {
 export interface DolphinScriptResult {
   script: string;
   env_notes: string;
-  timeout: string;
+  timeout?: string;
   worker_group: string;
   environment: string;
   variables?: Record<string, string>;

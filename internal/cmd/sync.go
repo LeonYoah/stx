@@ -758,12 +758,9 @@ func newSyncTaskSubmitCommand(storeProvider authStoreProvider) *cobra.Command {
 			if strings.EqualFold(mode, "streaming") {
 				closeJob = false
 			}
-			timeout := 6 * time.Hour
-			if strings.TrimSpace(timeoutRaw) != "" {
-				timeout, err = time.ParseDuration(strings.TrimSpace(timeoutRaw))
-				if err != nil || timeout <= 0 {
-					return clioutput.NewError(clioutput.CodeUsage, "--timeout must be a duration such as 6h", clioutput.ExitUsage, false)
-				}
+			timeout, err := parseCLIWaitTimeout(timeoutRaw)
+			if err != nil {
+				return err
 			}
 
 			body := map[string]any{}
@@ -819,7 +816,7 @@ func newSyncTaskSubmitCommand(storeProvider authStoreProvider) *cobra.Command {
 	addSecureWriteFlags(command, &options)
 	command.Flags().BoolVar(&wait, "wait", false, "Poll GET /api/v1/sync/jobs/{id} until the job reaches the expected state")
 	command.Flags().BoolVar(&closeJobFlag, "close-job", false, "Cancel the job when this CLI exits; defaults to true with --wait")
-	command.Flags().StringVar(&timeoutRaw, "timeout", "6h", "How long --wait may poll before cancelling the job")
+	command.Flags().StringVar(&timeoutRaw, "timeout", "", "Optional --wait ceiling such as 6h; omit to wait until the job ends")
 	command.Flags().StringVar(&externalRef, "external-ref", "", "External scheduler reference such as ds:{workflowInstance}:{taskCode}")
 	command.Flags().StringVar(&scheduleTime, "schedule-time", "", "Reference time as RFC3339 or yyyyMMddHHmmss")
 	command.Flags().StringArrayVar(&varFlags, "var", nil, "Per-run variable override as key=value")

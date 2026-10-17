@@ -36,7 +36,7 @@ func newSyncTaskDolphinPushCommand(storeProvider authStoreProvider) *cobra.Comma
 	var newWorkflow, dryRun, useBuiltinSchedule bool
 	var connectionID, projectCode, workflowCode uint64
 	var expectedVersion int
-	var workflowName, timeout, workerGroup, environment string
+	var workflowName, workerGroup, environment string
 	var upstreams, downstreams, varFlags []string
 
 	command := &cobra.Command{
@@ -73,7 +73,6 @@ func newSyncTaskDolphinPushCommand(storeProvider authStoreProvider) *cobra.Comma
 				"upstreams":            parseInt64Flags(upstreams),
 				"downstreams":          parseInt64Flags(downstreams),
 				"use_builtin_schedule": useBuiltinSchedule,
-				"timeout":              timeout,
 				"worker_group":         workerGroup,
 				"environment":          environment,
 				"dry_run":              dryRun,
@@ -101,7 +100,6 @@ func newSyncTaskDolphinPushCommand(storeProvider authStoreProvider) *cobra.Comma
 	command.Flags().StringArrayVar(&upstreams, "upstream", nil, "Upstream task codes when reusing a workflow")
 	command.Flags().StringArrayVar(&downstreams, "downstream", nil, "Downstream task codes when reusing a workflow")
 	command.Flags().BoolVar(&useBuiltinSchedule, "use-builtin-schedule", false, "Copy the STX built-in cron onto a new workflow")
-	command.Flags().StringVar(&timeout, "timeout", "6h", "CLI wait timeout written into the SHELL script")
 	command.Flags().StringVar(&workerGroup, "worker-group", "", "DolphinScheduler worker group")
 	command.Flags().StringVar(&environment, "environment", "", "DolphinScheduler worker environment name")
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "Validate the push without writing DolphinScheduler")

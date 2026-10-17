@@ -6365,10 +6365,6 @@ paths:
         name: id
         required: true
         type: integer
-      - description: CLI 等待超时
-        in: query
-        name: timeout
-        type: string
       - description: Dolphin worker group
         in: query
         name: worker_group

@@ -106,20 +106,22 @@ type SchedulerConnectionRequest struct {
 // DolphinPushRequest 描述一次推送到 Dolphin 的请求。
 // DolphinPushRequest describes one push into DolphinScheduler.
 type DolphinPushRequest struct {
-	Mode               string            `json:"mode"`
-	ConnectionID       uint              `json:"connection_id"`
-	ProjectCode        int64             `json:"project_code"`
-	WorkflowName       string            `json:"workflow_name"`
-	WorkflowCode       int64             `json:"workflow_code"`
-	Upstreams          []int64           `json:"upstreams"`
-	Downstreams        []int64           `json:"downstreams"`
-	UseBuiltinSchedule bool              `json:"use_builtin_schedule"`
-	Timeout            string            `json:"timeout"`
-	Variables          map[string]string `json:"variables"`
-	WorkerGroup        string            `json:"worker_group"`
-	Environment        string            `json:"environment"`
-	DryRun             bool              `json:"dry_run"`
-	ExpectedVersion    int               `json:"expected_version"`
+	Mode               string  `json:"mode"`
+	ConnectionID       uint    `json:"connection_id"`
+	ProjectCode        int64   `json:"project_code"`
+	WorkflowName       string  `json:"workflow_name"`
+	WorkflowCode       int64   `json:"workflow_code"`
+	Upstreams          []int64 `json:"upstreams"`
+	Downstreams        []int64 `json:"downstreams"`
+	UseBuiltinSchedule bool    `json:"use_builtin_schedule"`
+	// Timeout 已忽略：生成脚本不再写入 --timeout，保留字段只为兼容旧请求体。
+	// Timeout is ignored: generated scripts omit --timeout; kept only for old request bodies.
+	Timeout         string            `json:"timeout"`
+	Variables       map[string]string `json:"variables"`
+	WorkerGroup     string            `json:"worker_group"`
+	Environment     string            `json:"environment"`
+	DryRun          bool              `json:"dry_run"`
+	ExpectedVersion int               `json:"expected_version"`
 }
 
 // DolphinScriptResult 是给 Dolphin SHELL 节点使用的脚本和环境说明。
@@ -127,7 +129,7 @@ type DolphinPushRequest struct {
 type DolphinScriptResult struct {
 	Script      string            `json:"script"`
 	EnvNotes    string            `json:"env_notes"`
-	Timeout     string            `json:"timeout"`
+	Timeout     string            `json:"timeout,omitempty"`
 	WorkerGroup string            `json:"worker_group"`
 	Environment string            `json:"environment"`
 	Variables   map[string]string `json:"variables,omitempty"`

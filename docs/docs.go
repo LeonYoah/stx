@@ -4481,12 +4481,6 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "CLI 等待超时",
-                        "name": "timeout",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
                         "description": "Dolphin worker group",
                         "name": "worker_group",
                         "in": "query"

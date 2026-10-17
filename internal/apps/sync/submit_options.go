@@ -99,7 +99,7 @@ func isUnreplacedPlaceholder(value string) bool {
 
 func isActiveJobStatus(status JobStatus) bool {
 	switch status {
-	case JobStatusPending, JobStatusRunning, JobStatusCancelRequested, JobStatusCancelling:
+	case JobStatusPending, JobStatusRunning, JobStatusCancelRequested, JobStatusCancelling, JobStatusDoingSavepoint, JobStatusFailing:
 		return true
 	default:
 		return false
@@ -107,7 +107,7 @@ func isActiveJobStatus(status JobStatus) bool {
 }
 
 func isCancellingJobStatus(status JobStatus) bool {
-	return status == JobStatusCancelRequested || status == JobStatusCancelling
+	return status == JobStatusCancelRequested || status == JobStatusCancelling || status == JobStatusDoingSavepoint
 }
 
 // parseDolphinExternalRef 解析 ds:{workflowInstanceId}:{taskCode}。

@@ -1209,7 +1209,7 @@ func (s *Service) ensurePreviewSession(ctx context.Context, task *Task, instance
 		Status:         "collecting",
 		StartedAt:      &now,
 	}
-	if instance.Status == JobStatusSuccess || instance.Status == JobStatusFailed || instance.Status == JobStatusCanceled {
+	if isFinalNormalizedJobStatus(instance.Status) {
 		session.Status = string(instance.Status)
 		session.FinishedAt = instance.FinishedAt
 	}
@@ -1664,10 +1664,10 @@ func (s *Service) CancelJob(ctx context.Context, id uint, stopWithSavepoint bool
 	if err != nil {
 		return nil, err
 	}
-	if instance.Status == JobStatusSuccess || instance.Status == JobStatusFailed || instance.Status == JobStatusCanceled {
+	if isFinalNormalizedJobStatus(instance.Status) {
 		return nil, ErrJobAlreadyFinished
 	}
-	if instance.Status == JobStatusCancelRequested || instance.Status == JobStatusCancelling {
+	if instance.Status == JobStatusCancelRequested || instance.Status == JobStatusCancelling || instance.Status == JobStatusDoingSavepoint {
 		// 如果此前处于带 Savepoint 的停止中（如 DOING_SAVEPOINT），而当前请求普通停止（!stopWithSavepoint），
 		// 则用户意图放弃 Savepoint 强制停止，予以打破死锁并强制结束。
 		isDoingSavepoint := strings.EqualFold(strings.TrimSpace(stringValue(instance.ResultPreview, "job_status")), "DOING_SAVEPOINT")
@@ -1686,7 +1686,7 @@ func (s *Service) CancelJob(ctx context.Context, id uint, stopWithSavepoint bool
 				instance.ResultPreview = JSONMap{}
 			}
 			instance.ResultPreview["job_status"] = "CANCELED"
-			_ = s.repo.UpdateJobStatus(ctx, instance.ID, []JobStatus{JobStatusCancelRequested, JobStatusCancelling}, map[string]any{
+			_ = s.repo.UpdateJobStatus(ctx, instance.ID, []JobStatus{JobStatusCancelRequested, JobStatusCancelling, JobStatusDoingSavepoint}, map[string]any{
 				"status":         instance.Status,
 				"finished_at":    instance.FinishedAt,
 				"result_preview": instance.ResultPreview,
@@ -2550,7 +2550,7 @@ func (s *Service) refreshJobInstance(ctx context.Context, instance *JobInstance)
 	if s.engineClient == nil || strings.TrimSpace(instance.EngineJobID) == "" {
 		return instance, nil
 	}
-	if instance.Status == JobStatusSuccess || instance.Status == JobStatusFailed || instance.Status == JobStatusCanceled {
+	if isFinalNormalizedJobStatus(instance.Status) {
 		jobStatus := strings.ToUpper(strings.TrimSpace(stringValue(instance.ResultPreview, "job_status")))
 		// Skip only after a true final metrics block exists. Mid-run snapshot/metrics alone must not freeze refresh.
 		// 仅在已有终态指标块时跳过；只有中途 snapshot/metrics 时继续补拉 job-info。
@@ -2601,7 +2601,7 @@ func (s *Service) syncPreviewSessionTerminalState(ctx context.Context, instance 
 }
 
 func isFinalNormalizedJobStatus(status JobStatus) bool {
-	return status == JobStatusSuccess || status == JobStatusFailed || status == JobStatusCanceled
+	return status == JobStatusSuccess || status == JobStatusFailed || status == JobStatusCanceled || status == JobStatusSavepointDone
 }
 
 func isFinalEngineJobStatus(status string) bool {

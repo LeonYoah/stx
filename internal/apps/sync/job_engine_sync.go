@@ -73,10 +73,12 @@ func (s *Service) applyEngineJobInfoUpdate(ctx context.Context, instance *JobIns
 		}
 	} else {
 		observedStatus = normalizeJobStatus(rawEngineStatus)
-		if previousStatus == JobStatusCancelRequested || previousStatus == JobStatusCancelling {
+		if previousStatus == JobStatusCancelRequested || previousStatus == JobStatusCancelling || previousStatus == JobStatusDoingSavepoint {
 			if observedStatus == JobStatusPending || observedStatus == JobStatusRunning {
 				observedStatus = previousStatus
 			} else if observedStatus == JobStatusSuccess {
+				// Stop-with-savepoint completion is SAVEPOINT_DONE; plain FINISHED while cancelling → canceled.
+				// 带 Savepoint 停完是 SAVEPOINT_DONE；取消过程中若报 FINISHED 则记为 canceled。
 				observedStatus = JobStatusCanceled
 			}
 		}

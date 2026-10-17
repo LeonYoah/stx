@@ -263,7 +263,7 @@ func jobLogsPath(id uint, offset string, limitBytes int) string {
 
 func isSyncJobTerminal(status string) bool {
 	switch strings.ToLower(strings.TrimSpace(status)) {
-	case "success", "failed", "canceled", "cancelled":
+	case "success", "failed", "canceled", "cancelled", "savepoint_done":
 		return true
 	default:
 		return false

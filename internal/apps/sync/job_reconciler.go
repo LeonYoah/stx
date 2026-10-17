@@ -164,7 +164,7 @@ func (s *Service) reconcileClusterJobs(ctx context.Context, clusterID uint, jobs
 	}
 
 	finishedMap := map[string]*EngineJobListItem{}
-	for _, state := range []string{"", "FINISHED", "FAILED", "CANCELED", "CANCELLED"} {
+	for _, state := range []string{"", "FINISHED", "FAILED", "CANCELED", "CANCELLED", "SAVEPOINT_DONE"} {
 		items, err := s.engineClient.ListFinishedJobs(ctx, endpoint, state)
 		if err != nil {
 			continue

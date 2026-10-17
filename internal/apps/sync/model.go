@@ -145,9 +145,18 @@ const (
 	JobStatusRunning         JobStatus = "running"
 	JobStatusCancelRequested JobStatus = "cancel_requested"
 	JobStatusCancelling      JobStatus = "cancelling"
-	JobStatusSuccess         JobStatus = "success"
-	JobStatusFailed          JobStatus = "failed"
-	JobStatusCanceled        JobStatus = "canceled"
+	// JobStatusDoingSavepoint mirrors SeaTunnel DOING_SAVEPOINT (stop-with-savepoint in progress).
+	// JobStatusDoingSavepoint 对应引擎 DOING_SAVEPOINT（带 Savepoint 停止进行中）。
+	JobStatusDoingSavepoint JobStatus = "doing_savepoint"
+	// JobStatusFailing mirrors SeaTunnel FAILING (transitioning to FAILED).
+	// JobStatusFailing 对应引擎 FAILING（正在失败、尚未 FAILED）。
+	JobStatusFailing JobStatus = "failing"
+	JobStatusSuccess JobStatus = "success"
+	JobStatusFailed  JobStatus = "failed"
+	JobStatusCanceled JobStatus = "canceled"
+	// JobStatusSavepointDone mirrors SeaTunnel SAVEPOINT_DONE (terminal after savepoint stop).
+	// JobStatusSavepointDone 对应引擎 SAVEPOINT_DONE（Savepoint 停止完成的终态）。
+	JobStatusSavepointDone JobStatus = "savepoint_done"
 )
 
 // JobSyncState 描述 STX 与 SeaTunnel 引擎状态对齐的新鲜度，不等同于作业生命周期 status。

@@ -24,9 +24,14 @@ export type SyncRunType = 'preview' | 'run' | 'recover' | 'schedule';
 export type SyncJobStatus =
   | 'pending'
   | 'running'
+  | 'cancel_requested'
+  | 'cancelling'
+  | 'doing_savepoint'
+  | 'failing'
   | 'success'
   | 'failed'
-  | 'canceled';
+  | 'canceled'
+  | 'savepoint_done';
 export type SyncFormat = 'hocon' | 'json';
 
 export interface SyncTask {

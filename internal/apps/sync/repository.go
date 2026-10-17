@@ -394,6 +394,8 @@ func (r *Repository) ListNonTerminalJobInstances(ctx context.Context, limit int)
 		JobStatusRunning,
 		JobStatusCancelRequested,
 		JobStatusCancelling,
+		JobStatusDoingSavepoint,
+		JobStatusFailing,
 	}
 	var instances []*JobInstance
 	err := r.db.WithContext(ctx).
@@ -418,6 +420,7 @@ func (r *Repository) ListRecentTerminalJobInstances(ctx context.Context, limit i
 		JobStatusSuccess,
 		JobStatusFailed,
 		JobStatusCanceled,
+		JobStatusSavepointDone,
 	}
 	var instances []*JobInstance
 	q := r.db.WithContext(ctx).

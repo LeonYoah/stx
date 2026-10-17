@@ -882,12 +882,18 @@ func normalizeJobStatus(status string) JobStatus {
 	case "RUNNING":
 		return JobStatusRunning
 	case "DOING_SAVEPOINT":
-		return JobStatusRunning
+		// Keep engine-aligned: do not collapse into running.
+		// 与引擎对齐：不要折叠成 running。
+		return JobStatusDoingSavepoint
 	case "SAVEPOINT_DONE":
-		return JobStatusCanceled
+		return JobStatusSavepointDone
 	case "FINISHED", "SUCCESS":
 		return JobStatusSuccess
-	case "FAILING", "FAILED":
+	case "FAILING":
+		// FAILING is transitional; stay non-terminal so reconciler keeps polling until FAILED.
+		// FAILING 为过渡态；保持非终态以便对账器继续拉到 FAILED。
+		return JobStatusFailing
+	case "FAILED":
 		return JobStatusFailed
 	case "CANCELED", "CANCELLED":
 		return JobStatusCanceled

@@ -53,6 +53,15 @@ import type {
   SyncCuratedTemplateListResult,
   SyncCuratedTemplateView,
   SyncCuratedComboParseResult,
+  SchedulerConnection,
+  SchedulerConnectionRequest,
+  DolphinProject,
+  DolphinWorkflowSummary,
+  DolphinWorkflowDetail,
+  DolphinScriptResult,
+  DolphinPushRequest,
+  DolphinPushResult,
+  DolphinTaskStatus,
 } from './types';
 
 export class SyncService extends BaseService {
@@ -407,5 +416,119 @@ export class SyncService extends BaseService {
     cluster_id?: number;
   }): Promise<{content: string}> {
     return this.post<{content: string}>('/curated-templates/render', request);
+  }
+
+  // 列出脱敏后的调度器连接。
+  // List scheduler connections with tokens masked.
+  static async listSchedulerConnections(): Promise<{
+    items: SchedulerConnection[];
+  }> {
+    const data = await this.get<{items?: SchedulerConnection[]} | SchedulerConnection[]>(
+      '/scheduler-connections',
+    );
+    if (Array.isArray(data)) {
+      return {items: data ?? []};
+    }
+    return {items: data?.items ?? []};
+  }
+
+  // 保存一条 Dolphin 连接；token 只在创建时提交。
+  // Create a Dolphin connection; the token is submitted only at create time.
+  static async createSchedulerConnection(
+    request: SchedulerConnectionRequest,
+  ): Promise<SchedulerConnection> {
+    const executionHeaders = createWebExecutionHeaders(
+      'sync-scheduler-connection-create',
+    );
+    return this.postWithConfig<SchedulerConnection>(
+      '/scheduler-connections',
+      request,
+      {headers: executionHeaders.headers},
+    );
+  }
+
+  // 列出连接上的 Dolphin 项目，空结果归一成 []。
+  // List Dolphin projects on a connection and normalize a missing list to [].
+  static async listDolphinProjects(
+    connectionId: number,
+  ): Promise<DolphinProject[]> {
+    const data = await this.get<DolphinProject[]>(
+      `/scheduler-connections/${connectionId}/projects`,
+    );
+    return data ?? [];
+  }
+
+  // 列出项目下的工作流定义，空结果归一成 []。
+  // List workflow definitions in a project and normalize a missing list to [].
+  static async listDolphinWorkflows(
+    connectionId: number,
+    projectCode: number,
+  ): Promise<DolphinWorkflowSummary[]> {
+    const data = await this.get<DolphinWorkflowSummary[]>(
+      `/scheduler-connections/${connectionId}/projects/${projectCode}/workflows`,
+    );
+    return data ?? [];
+  }
+
+  // 读取工作流定义，并把 tasks/relations 的 null 归一成 []。
+  // Load a workflow definition and normalize null tasks/relations to [].
+  static async getDolphinWorkflow(
+    connectionId: number,
+    projectCode: number,
+    workflowCode: number,
+  ): Promise<DolphinWorkflowDetail> {
+    const data = await this.get<DolphinWorkflowDetail>(
+      `/scheduler-connections/${connectionId}/projects/${projectCode}/workflows/${workflowCode}`,
+    );
+    return {
+      ...data,
+      tasks: data?.tasks ?? [],
+      relations: data?.relations ?? [],
+    };
+  }
+
+  // 读取任务的 Dolphin 绑定状态；recent_jobs 兜底为空数组。
+  // Load Dolphin binding status for a task; recent_jobs falls back to [].
+  static async getDolphinTaskStatus(
+    taskId: number,
+  ): Promise<DolphinTaskStatus> {
+    const data = await this.get<DolphinTaskStatus>(`/tasks/${taskId}/dolphin`);
+    return {
+      ...data,
+      recent_jobs: data?.recent_jobs ?? [],
+    };
+  }
+
+  // 生成可粘贴到 Dolphin SHELL 节点的脚本和环境说明。
+  // Generate the SHELL script and worker env notes for a Dolphin node.
+  static async getDolphinScript(taskId: number): Promise<DolphinScriptResult> {
+    return this.get<DolphinScriptResult>(`/tasks/${taskId}/dolphin/script`);
+  }
+
+  // 把任务推送到 Dolphin；写操作走公共执行确认头。
+  // Push a task into Dolphin; writes use the shared execution confirmation headers.
+  static async pushDolphin(
+    taskId: number,
+    request: DolphinPushRequest,
+  ): Promise<DolphinPushResult> {
+    const executionHeaders = createWebExecutionHeaders('sync-task-dolphin-push');
+    return this.postWithConfig<DolphinPushResult>(
+      `/tasks/${taskId}/dolphin/push`,
+      request,
+      {headers: executionHeaders.headers},
+    );
+  }
+
+  // 只删除 STX 侧绑定，不改 Dolphin 节点，也不吊销管理员签发的登录令牌。
+  // Remove the STX binding without changing Dolphin nodes or revoking admin-issued login tokens.
+  static async unbindDolphin(taskId: number): Promise<{unbound: boolean}> {
+    const executionHeaders = createWebExecutionHeaders(
+      'sync-task-dolphin-unbind',
+    );
+    return this.postWithConfig<{unbound: boolean}>(
+      `/tasks/${taskId}/dolphin/unbind`,
+      {},
+      {headers: executionHeaders.headers},
+    );
   }
 }

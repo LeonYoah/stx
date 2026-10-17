@@ -91,6 +91,55 @@ func TestAdminUserUpdatePreservesExplicitFalseFlags(t *testing.T) {
 	}
 }
 
+func TestAdminTokenCreateAndRevoke(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/api/v1/capabilities" {
+			_ = json.NewEncoder(writer).Encode(map[string]any{"data": map[string]any{
+				"operations": []map[string]any{
+					{"operation_id": "admin.token.create", "revision": 1, "allowed": true, "mode": "normal", "risk": "R1"},
+					{"operation_id": "admin.token.revoke", "revision": 1, "allowed": true, "mode": "normal", "risk": "R1"},
+				},
+			}})
+			return
+		}
+		if request.URL.Path == "/api/v1/admin/cli-tokens" && request.Method == http.MethodPost {
+			var body map[string]any
+			if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+				t.Fatalf("读取签发令牌请求失败: %v", err)
+			}
+			if body["user_id"] != float64(1) || body["name"] != "worker" || body["expires_in"] != "never" {
+				t.Fatalf("签发令牌请求内容错误: %#v", body)
+			}
+			_ = json.NewEncoder(writer).Encode(map[string]any{"data": map[string]any{
+				"id": 9, "name": "worker", "token": "stx_once", "permanent": true, "status": "active",
+			}})
+			return
+		}
+		if request.URL.Path == "/api/v1/admin/cli-tokens/9/revoke" {
+			_ = json.NewEncoder(writer).Encode(map[string]any{"data": map[string]any{"id": 9, "status": "revoked"}})
+			return
+		}
+		t.Fatalf("未预期的请求: %s %s", request.Method, request.URL.Path)
+	}))
+	defer server.Close()
+
+	store := newExecutionTestStore(t, server.URL, "test-token")
+	stdout, stderr, exitCode := runUserWriteCommand(t, store, strings.NewReader(""),
+		"admin", "token", "create", "--user-id", "1", "--name", "worker", "--expires-in", "never", "--confirm")
+	if exitCode != int(clioutput.ExitSuccess) {
+		t.Fatalf("签发令牌命令失败: code=%d stdout=%s stderr=%s", exitCode, stdout, stderr)
+	}
+	if !strings.Contains(stdout, "stx_once") {
+		t.Fatalf("签发结果应包含一次性原文: stdout=%s", stdout)
+	}
+
+	_, stderr, exitCode = runUserWriteCommand(t, store, strings.NewReader(""),
+		"admin", "token", "revoke", "9", "--confirm")
+	if exitCode != int(clioutput.ExitSuccess) {
+		t.Fatalf("吊销令牌命令失败: code=%d stderr=%s", exitCode, stderr)
+	}
+}
+
 func TestAdminUserDeleteIsNotExposed(t *testing.T) {
 	store := newExecutionTestStore(t, "http://127.0.0.1:1", "test-token")
 	root := &cobra.Command{Use: "stx"}

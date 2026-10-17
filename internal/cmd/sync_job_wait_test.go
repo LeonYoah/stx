@@ -52,8 +52,7 @@ func TestStaleObservationExceededUsesSyncLagMs(t *testing.T) {
 }
 
 func TestStaleObservationExceededResetsWhenHealthy(t *testing.T) {
-	var since time.Time
-	since = time.Now().Add(-10 * time.Minute)
+	since := time.Now().Add(-10 * time.Minute)
 	job := syncJobWaitResult{SyncState: "ok"}
 	if staleObservationExceeded(job, 3*time.Minute, &since) {
 		t.Fatal("ok sync_state should not trigger observation timeout")

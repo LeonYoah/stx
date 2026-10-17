@@ -411,9 +411,18 @@ export function JobRunsPanel({
                 {/* 模式与通道合并 */}
                 <TableCell className='py-1.5 px-2.5 whitespace-nowrap'>
                   <div className='flex items-center gap-1'>
-                    <Badge variant='outline' className='rounded-sm text-[10px] px-1 py-0'>
+                    <Badge
+                      variant='outline'
+                      className='rounded-sm text-[10px] px-1 py-0'
+                      title={job.external_ref || undefined}
+                    >
                       {getRunModeLabel(job, t)}
                     </Badge>
+                    {job.task_version > 0 ? (
+                      <span className='font-mono text-[10px] text-muted-foreground'>
+                        v{job.task_version}
+                      </span>
+                    ) : null}
                     <span className='text-[10px] text-muted-foreground font-mono'>
                       {submitSpecExecutionMode(job.submit_spec) === 'local'
                         ? 'Local'

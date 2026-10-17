@@ -5120,6 +5120,8 @@ export function DataSyncStudio() {
                 selectedScheduleNode?.schedule_next_triggered_at
               }
               onChange={handleScheduleChange}
+              taskId={editor.id}
+              canEdit={editor.canEdit ?? true}
               onOpenAdvanced={() => {
                 setScheduleDraft(
                   extractTaskScheduleValue(editor.definition || {}),
@@ -5424,6 +5426,8 @@ export function DataSyncStudio() {
                 selectedScheduleNode?.schedule_next_triggered_at
               }
               onChange={handleScheduleDraftChange}
+              taskId={editor.id}
+              canEdit={editor.canEdit ?? true}
               className='mx-auto w-full max-w-6xl'
             />
           </div>

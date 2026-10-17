@@ -98,10 +98,10 @@ func TestValidateRejectsRepeatedNonQueryInput(t *testing.T) {
 }
 
 func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
-	require.Len(t, Registry(), 231)
+	require.Len(t, Registry(), 245)
 
 	expected := map[string]struct{}{
-		"auth.user-info.get": {}, "auth.profile.update": {}, "admin.user.list": {}, "admin.user.get": {},
+		"auth.user-info.get": {}, "auth.profile.update": {}, "admin.user.list": {}, "admin.user.get": {}, "admin.token.list": {},
 		"dashboard.overview.get": {}, "dashboard.stats.get": {},
 		"dashboard.cluster.list": {}, "dashboard.host.list": {}, "dashboard.activity.list": {},
 		"host.list": {}, "host.get": {}, "host.agent.install-command.get": {}, "cluster.list": {}, "cluster.get": {},
@@ -121,7 +121,7 @@ func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
 		"host.install.status.get": {}, "cluster.plugin.list": {}, "cluster.plugin.progress.get": {},
 		"package.list": {}, "package.get": {}, "package.version.refresh": {}, "package.download.list": {}, "package.download.get": {},
 		"package.offline-bundle.list": {},
-		"plugin.list": {}, "plugin.get": {}, "plugin.local.list": {}, "plugin.download.list": {},
+		"plugin.list":                 {}, "plugin.get": {}, "plugin.local.list": {}, "plugin.download.list": {},
 		"plugin.download.status.get": {}, "plugin.dependency.list": {}, "plugin.official-dependency.list": {},
 		"stupgrade.plan.get": {}, "stupgrade.task.list": {}, "stupgrade.task.get": {},
 		"stupgrade.task.steps": {}, "stupgrade.task.logs": {},
@@ -141,10 +141,13 @@ func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
 		"diagnostics.auto-policy.template.list": {}, "diagnostics.auto-policy.list": {}, "diagnostics.auto-policy.get": {},
 		"diagnostics.troubleshooting-memory.list": {}, "diagnostics.troubleshooting-memory.get": {},
 		"sync.tree": {}, "sync.task.list": {}, "sync.task.get": {},
-		"sync.task.version.list": {},
-		"sync.job.list":          {}, "sync.job.get": {}, "sync.job.logs": {},
+		"sync.task.version.list":   {},
+		"sync.task.dolphin.status": {}, "sync.task.dolphin.script": {},
+		"sync.job.list": {}, "sync.job.get": {}, "sync.job.logs": {},
 		"sync.job.checkpoint": {}, "sync.job.preview": {},
-		"sync.variable.list": {},
+		"sync.variable.list":             {},
+		"sync.scheduler.connection.list": {}, "sync.scheduler.connection.projects": {},
+		"sync.scheduler.connection.workflows": {}, "sync.scheduler.connection.workflow.get": {},
 		"audit.command.list": {}, "audit.command.get": {}, "audit.log.list": {}, "audit.log.get": {},
 	}
 	actual := make(map[string]struct{})
@@ -398,6 +401,15 @@ func TestRegistryAdminUserOperations(t *testing.T) {
 	require.Equal(t, RiskR1, byID["admin.user.create"].Risk)
 	require.Equal(t, RiskR1, byID["admin.user.update"].Risk)
 	require.Equal(t, RiskR2, byID["admin.user.delete"].Risk)
+
+	listTokens := byID["admin.token.list"]
+	require.True(t, listTokens.AdminOnly)
+	require.True(t, listTokens.GeneratedCLI)
+	require.Equal(t, "/api/v1/admin/cli-tokens", listTokens.Route)
+	require.False(t, byID["admin.token.create"].GeneratedCLI)
+	require.False(t, byID["admin.token.revoke"].GeneratedCLI)
+	require.Equal(t, RiskR1, byID["admin.token.create"].Risk)
+	require.Equal(t, RiskR1, byID["admin.token.revoke"].Risk)
 }
 
 func TestValidateRejectsInvalidHelpExample(t *testing.T) {

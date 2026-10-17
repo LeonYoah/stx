@@ -56,6 +56,12 @@ func addUserWriteCommands(root *cobra.Command, options userWriteCommandOptions) 
 		panic("generated admin user command is missing")
 	}
 	userCommand.AddCommand(newAdminUserCreateCommand(options), newAdminUserUpdateCommand(options))
+
+	tokenCommand := childCommand(adminCommand, "token")
+	if tokenCommand == nil {
+		panic("generated admin token command is missing")
+	}
+	tokenCommand.AddCommand(newAdminTokenCreateCommand(options.storeProvider), newAdminTokenRevokeCommand(options.storeProvider))
 }
 
 func defaultUserWriteCommandOptions() userWriteCommandOptions {
@@ -203,5 +209,74 @@ func newAdminUserUpdateCommand(options userWriteCommandOptions) *cobra.Command {
 	command.Flags().BoolVar(&active, "active", true, "Whether the user is active")
 	command.Flags().BoolVar(&isAdmin, "admin", false, "Whether the user is an administrator")
 	command.Flags().BoolVar(&passwordStdin, "password-stdin", false, "Read a new password from stdin")
+	return command
+}
+
+func newAdminTokenCreateCommand(storeProvider authStoreProvider) *cobra.Command {
+	var writeOptions secureWriteOptions
+	var name, expiresIn string
+	var userID uint64
+	command := &cobra.Command{
+		Use:     "create",
+		Short:   "Create a CLI token",
+		Example: "stx admin token create --user-id 1 --name worker --expires-in never --confirm",
+		Args:    usageArgs(cobra.NoArgs),
+		RunE: func(command *cobra.Command, _ []string) error {
+			if userID == 0 {
+				return clioutput.NewError(clioutput.CodeUsage, "--user-id is required", clioutput.ExitUsage, false)
+			}
+			if strings.TrimSpace(name) == "" {
+				return clioutput.NewError(clioutput.CodeUsage, "--name is required", clioutput.ExitUsage, false)
+			}
+			if strings.TrimSpace(expiresIn) == "" {
+				expiresIn = "never"
+			}
+			body := map[string]any{
+				"user_id":    userID,
+				"name":       strings.TrimSpace(name),
+				"expires_in": strings.TrimSpace(expiresIn),
+			}
+			client, headers, err := prepareSecureWrite(command, storeProvider, "admin.token.create", &writeOptions,
+				"issuing a CLI token lets the holder call STX APIs as that user; the plaintext is shown only once")
+			if err != nil {
+				return err
+			}
+			var data any
+			requestID, err := client.RequestWithHeaders(command.Context(), http.MethodPost, "/api/v1/admin/cli-tokens", body, headers, &data)
+			if err != nil {
+				return handleSecureWriteError(command, "admin.token.create", err)
+			}
+			return renderWriteResult(command, "admin.token.create", requestID, data, "")
+		},
+	}
+	addSecureWriteFlags(command, &writeOptions)
+	command.Flags().Uint64Var(&userID, "user-id", 0, "Owning user ID")
+	command.Flags().StringVar(&name, "name", "", "Token display name")
+	command.Flags().StringVar(&expiresIn, "expires-in", "never", "Lifetime: 7d, 30d, 90d, never, or Nd (1-3650)")
+	return command
+}
+
+func newAdminTokenRevokeCommand(storeProvider authStoreProvider) *cobra.Command {
+	var writeOptions secureWriteOptions
+	command := &cobra.Command{
+		Use:     "revoke <id>",
+		Short:   "Revoke a CLI token",
+		Example: "stx admin token revoke 1 --confirm",
+		Args:    usageArgs(cobra.ExactArgs(1)),
+		RunE: func(command *cobra.Command, args []string) error {
+			client, headers, err := prepareSecureWrite(command, storeProvider, "admin.token.revoke", &writeOptions,
+				"revoking a CLI token immediately invalidates logins and scripts that use it")
+			if err != nil {
+				return err
+			}
+			var data any
+			requestID, err := client.RequestWithHeaders(command.Context(), http.MethodPost, "/api/v1/admin/cli-tokens/"+url.PathEscape(args[0])+"/revoke", map[string]any{}, headers, &data)
+			if err != nil {
+				return handleSecureWriteError(command, "admin.token.revoke", err)
+			}
+			return renderWriteResult(command, "admin.token.revoke", requestID, data, "")
+		},
+	}
+	addSecureWriteFlags(command, &writeOptions)
 	return command
 }

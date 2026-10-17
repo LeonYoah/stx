@@ -55,6 +55,30 @@ func addSyncWriteCommands(root *cobra.Command, storeProvider authStoreProvider) 
 		newSyncTaskSubmitCommand(storeProvider),
 	)
 
+	dolphinCommand := childCommand(taskCommand, "dolphin")
+	if dolphinCommand == nil {
+		dolphinCommand = &cobra.Command{Use: "dolphin", Short: "STX DolphinScheduler commands"}
+		taskCommand.AddCommand(dolphinCommand)
+	}
+	dolphinCommand.AddCommand(newSyncTaskDolphinPushCommand(storeProvider))
+
+	schedulerCommand := childCommand(syncCommand, "scheduler")
+	if schedulerCommand == nil {
+		schedulerCommand = &cobra.Command{Use: "scheduler", Short: "STX scheduler connection commands"}
+		syncCommand.AddCommand(schedulerCommand)
+	}
+	connectionCommand := childCommand(schedulerCommand, "connection")
+	if connectionCommand == nil {
+		connectionCommand = &cobra.Command{Use: "connection", Short: "STX scheduler connection commands"}
+		schedulerCommand.AddCommand(connectionCommand)
+	}
+	connectionCommand.AddCommand(
+		newSchedulerConnectionCreateCommand(storeProvider),
+		newSchedulerConnectionUpdateCommand(storeProvider),
+	)
+
+	root.AddCommand(newJobGuardCommand())
+
 	versionCommand := childCommand(taskCommand, "version")
 	if versionCommand == nil {
 		panic("generated sync task version command is missing")
@@ -69,6 +93,7 @@ func addSyncWriteCommands(root *cobra.Command, storeProvider authStoreProvider) 
 	}
 	jobCommand.AddCommand(
 		newSyncJobCancelCommand(storeProvider),
+		newSyncJobCancelByRefCommand(storeProvider),
 		newSyncJobRecoverCommand(storeProvider),
 	)
 
@@ -711,8 +736,9 @@ func newSyncTaskPreviewSaveModeCommand(storeProvider authStoreProvider) *cobra.C
 func newSyncTaskSubmitCommand(storeProvider authStoreProvider) *cobra.Command {
 	var options secureWriteOptions
 	var wait, closeJobFlag, noFollowLogs bool
-	var timeoutRaw string
+	var timeoutRaw, externalRef, scheduleTime string
 	var observationTimeout time.Duration
+	var varFlags []string
 
 	command := &cobra.Command{
 		Use:     "submit <id>",
@@ -723,6 +749,13 @@ func newSyncTaskSubmitCommand(storeProvider authStoreProvider) *cobra.Command {
 		RunE: func(command *cobra.Command, args []string) error {
 			taskID, err := parseTaskID(args[0])
 			if err != nil {
+				return err
+			}
+			variables, err := parseVarFlags(varFlags)
+			if err != nil {
+				return err
+			}
+			if _, err := parseCLIScheduleTime(scheduleTime); err != nil {
 				return err
 			}
 
@@ -745,8 +778,31 @@ func newSyncTaskSubmitCommand(storeProvider authStoreProvider) *cobra.Command {
 				return err
 			}
 
+			body := map[string]any{}
+			if len(variables) > 0 {
+				body["variables"] = variables
+			}
+			if strings.TrimSpace(externalRef) != "" {
+				body["external_ref"] = strings.TrimSpace(externalRef)
+			}
+			if strings.TrimSpace(scheduleTime) != "" {
+				body["schedule_time"] = strings.TrimSpace(scheduleTime)
+			}
+			if closeJob {
+				body["close_job"] = true
+			}
+
+			var pipe *os.File
+			if closeJob && strings.TrimSpace(externalRef) != "" {
+				pipe, err = startJobGuard(client, externalRef)
+				if err != nil {
+					return clioutput.WrapError(err, clioutput.CodeServer, "start job guard", clioutput.ExitServer, false)
+				}
+				defer writeGuardDone(pipe)
+			}
+
 			var data syncJobWaitResult
-			requestID, err := client.RequestWithHeaders(command.Context(), http.MethodPost, fmt.Sprintf("/api/v1/sync/tasks/%d/submit", taskID), map[string]any{}, headers, &data)
+			requestID, err := client.RequestWithHeaders(command.Context(), http.MethodPost, fmt.Sprintf("/api/v1/sync/tasks/%d/submit", taskID), body, headers, &data)
 			if err != nil {
 				return handleSecureWriteError(command, operationID, err)
 			}
@@ -755,6 +811,8 @@ func newSyncTaskSubmitCommand(storeProvider authStoreProvider) *cobra.Command {
 			}
 			if strings.EqualFold(mode, "streaming") {
 				closeJob = false
+				writeGuardDone(pipe)
+				pipe = nil
 			}
 
 			if wait && data.ID != 0 {
@@ -771,9 +829,10 @@ func newSyncTaskSubmitCommand(storeProvider authStoreProvider) *cobra.Command {
 					ObservationTimeout: observationTimeout,
 					CloseJob:           closeJob,
 					FollowLogs:         !noFollowLogs,
+					Pipe:               pipe,
 				})
 			}
-
+			writeGuardDone(pipe)
 			return renderCommandResultWithRequestID(command, operationID, requestID, data)
 		},
 	}
@@ -783,6 +842,9 @@ func newSyncTaskSubmitCommand(storeProvider authStoreProvider) *cobra.Command {
 	command.Flags().StringVar(&timeoutRaw, "timeout", "", "Optional --wait ceiling such as 6h; omit to wait until the job ends")
 	command.Flags().DurationVar(&observationTimeout, "observation-timeout", defaultJobObservationTimeout, "Fail --wait when sync_state stays stale longer than this; 0 disables")
 	command.Flags().BoolVar(&noFollowLogs, "no-follow-logs", false, "Disable incremental job log events on stderr while --wait is active")
+	command.Flags().StringVar(&externalRef, "external-ref", "", "External scheduler reference such as ds:{workflowInstance}:{taskCode}")
+	command.Flags().StringVar(&scheduleTime, "schedule-time", "", "Reference time as RFC3339 or yyyyMMddHHmmss")
+	command.Flags().StringArrayVar(&varFlags, "var", nil, "Per-run variable override as key=value")
 	return command
 }
 

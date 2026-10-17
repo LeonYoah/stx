@@ -23,12 +23,19 @@
  */
 
 import {Suspense} from 'react';
+import {useSearchParams} from 'next/navigation';
 import {UserManagement} from '@/components/common/admin/UserManagement';
+import {TokenManagement} from '@/components/common/admin/TokenManagement';
+
+function AccountsPageInner() {
+  const tab = useSearchParams().get('tab');
+  return tab === 'tokens' ? <TokenManagement /> : <UserManagement />;
+}
 
 export default function UsersPage() {
   return (
     <Suspense>
-      <UserManagement />
+      <AccountsPageInner />
     </Suspense>
   );
 }

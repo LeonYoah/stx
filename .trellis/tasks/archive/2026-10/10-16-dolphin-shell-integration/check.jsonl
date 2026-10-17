@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/cli-guidelines.md", "reason": "新增接口必须有 CLI；禁止删除类 CLI"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "注释语言与 License"}
+{"file": ".trellis/spec/frontend/ui-conventions.md", "reason": "推送对话框与侧边栏 UI 契约"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "跨层字段与空值兜底"}

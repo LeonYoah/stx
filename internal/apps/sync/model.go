@@ -155,10 +155,10 @@ const (
 type JobSyncState string
 
 const (
-	JobSyncStateOK        JobSyncState = "ok"
-	JobSyncStateDegraded  JobSyncState = "degraded"
-	JobSyncStateStale     JobSyncState = "stale"
-	JobSyncStateUnknown   JobSyncState = "unknown"
+	JobSyncStateOK       JobSyncState = "ok"
+	JobSyncStateDegraded JobSyncState = "degraded"
+	JobSyncStateStale    JobSyncState = "stale"
+	JobSyncStateUnknown  JobSyncState = "unknown"
 )
 
 // Task represents one sync studio workspace node.
@@ -178,22 +178,22 @@ type Task struct {
 	// Content stores task definition (HOCON/JSON); MySQL uses MEDIUMTEXT, PG/SQLite use TEXT.
 	Content                 db.ScriptText `json:"content"`
 	JobName                 string        `json:"job_name" gorm:"size:255"`
-	Definition              JSONMap    `json:"definition" gorm:"type:json"`
-	SortOrder               int        `json:"sort_order" gorm:"default:0;index"`
-	CurrentVersion          int        `json:"current_version" gorm:"default:0"`
-	ScheduleEnabled         bool       `json:"schedule_enabled" gorm:"-"`
-	ScheduleCronExpr        string     `json:"schedule_cron_expr,omitempty" gorm:"-"`
-	ScheduleTimezone        string     `json:"schedule_timezone,omitempty" gorm:"-"`
-	ScheduleLastTriggeredAt *time.Time `json:"schedule_last_triggered_at,omitempty" gorm:"-"`
-	ScheduleNextTriggeredAt *time.Time `json:"schedule_next_triggered_at,omitempty" gorm:"-"`
-	CanEdit                 bool       `json:"can_edit" gorm:"-"`
-	CanRun                  bool       `json:"can_run" gorm:"-"`
-	IsOwner                 bool       `json:"is_owner" gorm:"-"`
-	IsCollaborator          bool       `json:"is_collaborator" gorm:"-"`
-	IsPublicTask            bool       `json:"is_public" gorm:"-"`
-	CreatedBy               uint       `json:"created_by"`
-	CreatedAt               time.Time  `json:"created_at" gorm:"autoCreateTime"`
-	UpdatedAt               time.Time  `json:"updated_at" gorm:"autoUpdateTime"`
+	Definition              JSONMap       `json:"definition" gorm:"type:json"`
+	SortOrder               int           `json:"sort_order" gorm:"default:0;index"`
+	CurrentVersion          int           `json:"current_version" gorm:"default:0"`
+	ScheduleEnabled         bool          `json:"schedule_enabled" gorm:"-"`
+	ScheduleCronExpr        string        `json:"schedule_cron_expr,omitempty" gorm:"-"`
+	ScheduleTimezone        string        `json:"schedule_timezone,omitempty" gorm:"-"`
+	ScheduleLastTriggeredAt *time.Time    `json:"schedule_last_triggered_at,omitempty" gorm:"-"`
+	ScheduleNextTriggeredAt *time.Time    `json:"schedule_next_triggered_at,omitempty" gorm:"-"`
+	CanEdit                 bool          `json:"can_edit" gorm:"-"`
+	CanRun                  bool          `json:"can_run" gorm:"-"`
+	IsOwner                 bool          `json:"is_owner" gorm:"-"`
+	IsCollaborator          bool          `json:"is_collaborator" gorm:"-"`
+	IsPublicTask            bool          `json:"is_public" gorm:"-"`
+	CreatedBy               uint          `json:"created_by"`
+	CreatedAt               time.Time     `json:"created_at" gorm:"autoCreateTime"`
+	UpdatedAt               time.Time     `json:"updated_at" gorm:"autoUpdateTime"`
 }
 
 // TableName returns the sync task table name.
@@ -363,10 +363,10 @@ type TaskVersion struct {
 	// ContentSnapshot stores version snapshot (HOCON/JSON); MySQL uses MEDIUMTEXT, PG/SQLite use TEXT.
 	ContentSnapshot    db.ScriptText `json:"content_snapshot"`
 	JobNameSnapshot    string        `json:"job_name_snapshot" gorm:"size:255"`
-	DefinitionSnapshot JSONMap   `json:"definition_snapshot" gorm:"type:json"`
-	Comment            string    `json:"comment" gorm:"size:255"`
-	CreatedBy          uint      `json:"created_by"`
-	CreatedAt          time.Time `json:"created_at" gorm:"autoCreateTime"`
+	DefinitionSnapshot JSONMap       `json:"definition_snapshot" gorm:"type:json"`
+	Comment            string        `json:"comment" gorm:"size:255"`
+	CreatedBy          uint          `json:"created_by"`
+	CreatedAt          time.Time     `json:"created_at" gorm:"autoCreateTime"`
 }
 
 // TableName returns the sync task version table name.
@@ -378,15 +378,15 @@ func (TaskVersion) TableName() string {
 // JobInstance stores one preview/run/recover execution instance.
 // JobInstance 存储一次预览/运行/恢复执行实例。
 type JobInstance struct {
-	ID                      uint       `json:"id" gorm:"primaryKey;autoIncrement"`
-	ExecutionID             string     `json:"execution_id" gorm:"size:36;index"`
-	TaskID                  uint       `json:"task_id" gorm:"index;not null"`
-	TaskVersion             int        `json:"task_version" gorm:"not null"`
-	RunType                 RunType    `json:"run_type" gorm:"size:20;not null;index"`
-	PlatformJobID           string     `json:"platform_job_id" gorm:"size:32;index"`
-	EngineJobID             string     `json:"engine_job_id" gorm:"size:255;index"`
-	RecoveredFromInstanceID *uint      `json:"recovered_from_instance_id,omitempty" gorm:"index"`
-	Status                  JobStatus  `json:"status" gorm:"size:20;default:pending;index"`
+	ID                      uint      `json:"id" gorm:"primaryKey;autoIncrement"`
+	ExecutionID             string    `json:"execution_id" gorm:"size:36;index"`
+	TaskID                  uint      `json:"task_id" gorm:"index;not null"`
+	TaskVersion             int       `json:"task_version" gorm:"not null"`
+	RunType                 RunType   `json:"run_type" gorm:"size:20;not null;index"`
+	PlatformJobID           string    `json:"platform_job_id" gorm:"size:32;index"`
+	EngineJobID             string    `json:"engine_job_id" gorm:"size:255;index"`
+	RecoveredFromInstanceID *uint     `json:"recovered_from_instance_id,omitempty" gorm:"index"`
+	Status                  JobStatus `json:"status" gorm:"size:20;default:pending;index"`
 	// LastSyncedAt 记录最近一次成功向 SeaTunnel 对齐状态的时间（UTC）。
 	// LastSyncedAt is when STX last successfully synced runtime state from SeaTunnel (UTC).
 	LastSyncedAt *time.Time `json:"last_synced_at,omitempty"`
@@ -399,14 +399,23 @@ type JobInstance struct {
 	// SyncLagMs 由 API 根据 last_synced_at 派生，不落库。
 	// SyncLagMs is derived from last_synced_at at read time and is not persisted.
 	SyncLagMs int64 `json:"sync_lag_ms,omitempty" gorm:"-"`
-	SubmitSpec              JSONMap    `json:"submit_spec" gorm:"type:json"`
-	ResultPreview           JSONMap    `json:"result_preview" gorm:"type:json"`
-	ErrorMessage            string     `json:"error_message" gorm:"type:text"`
-	StartedAt               *time.Time `json:"started_at"`
-	FinishedAt              *time.Time `json:"finished_at"`
-	CreatedBy               uint       `json:"created_by"`
-	CreatedAt               time.Time  `json:"created_at" gorm:"autoCreateTime"`
-	UpdatedAt               time.Time  `json:"updated_at" gorm:"autoUpdateTime"`
+	// Mode 从提交快照回填，供 CLI --wait 区分批任务和实时任务，不落库。
+	// Mode is copied from the submit snapshot so CLI --wait can tell batch from streaming; it is not persisted.
+	Mode          string     `json:"mode,omitempty" gorm:"-"`
+	SubmitSpec    JSONMap    `json:"submit_spec" gorm:"type:json"`
+	ResultPreview JSONMap    `json:"result_preview" gorm:"type:json"`
+	ErrorMessage  string     `json:"error_message" gorm:"type:text"`
+	StartedAt     *time.Time `json:"started_at"`
+	FinishedAt    *time.Time `json:"finished_at"`
+	CreatedBy     uint       `json:"created_by"`
+	CreatedAt     time.Time  `json:"created_at" gorm:"autoCreateTime"`
+	UpdatedAt     time.Time  `json:"updated_at" gorm:"autoUpdateTime"`
+	// ExternalRef 记录外部调度器这次运行的引用，例如 ds:{工作流实例}:{节点 code}。
+	// ExternalRef stores the external scheduler run identity such as ds:{workflowInstance}:{taskCode}.
+	ExternalRef string `json:"external_ref,omitempty" gorm:"size:255;index"`
+	// AttachGeneration 在同一 external_ref 被 CLI 接管时递增，用来忽略过期停止请求。
+	// AttachGeneration increments when another CLI attaches to the same external_ref so stale cancel requests are ignored.
+	AttachGeneration int `json:"attach_generation" gorm:"not null;default:0"`
 }
 
 // TableName returns the sync job instance table name.
@@ -554,8 +563,8 @@ type CuratedTemplate struct {
 	// Content is curated template script body; MySQL uses MEDIUMTEXT, PG/SQLite use TEXT.
 	Content   db.ScriptText `json:"content" gorm:"not null"`
 	Enabled   bool          `json:"enabled" gorm:"not null;default:true"`
-	CreatedAt   time.Time       `json:"created_at" gorm:"autoCreateTime"`
-	UpdatedAt   time.Time       `json:"updated_at" gorm:"autoUpdateTime"`
+	CreatedAt time.Time     `json:"created_at" gorm:"autoCreateTime"`
+	UpdatedAt time.Time     `json:"updated_at" gorm:"autoUpdateTime"`
 }
 
 // TableName returns the curated template table name.

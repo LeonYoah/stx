@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/LeonYoah/stx/internal/apps/auth"
 	"github.com/gin-gonic/gin"
 )
 
@@ -63,6 +64,7 @@ func RecordFromGin(c *gin.Context, repo *Repository, userID uint64, username, ac
 		IPAddress:    ip,
 		UserAgent:    ua,
 	}
+	bindCLIToken(log, auth.GetCLITokenFromGin(c))
 	if details != nil {
 		if v, ok := details["trigger"]; ok {
 			if s, ok := v.(string); ok && (s == "auto" || s == "manual") {
@@ -112,6 +114,7 @@ func RecordFromGinNoUser(repo *Repository, req *http.Request, userID uint64, use
 		IPAddress:    ip,
 		UserAgent:    ua,
 	}
+	bindCLIToken(log, auth.CLITokenFromContext(req.Context()))
 	if details != nil {
 		if v, ok := details["trigger"]; ok {
 			if s, ok := v.(string); ok && (s == "auto" || s == "manual") {
@@ -121,6 +124,16 @@ func RecordFromGinNoUser(repo *Repository, req *http.Request, userID uint64, use
 		applyAuditDetailLinks(log, details)
 	}
 	return repo.CreateAuditLog(req.Context(), log)
+}
+
+func bindCLIToken(log *AuditLog, token *auth.CLIToken) {
+	if log == nil || token == nil || token.ID == 0 {
+		return
+	}
+	id := token.ID
+	log.TokenID = &id
+	log.TokenPrefix = token.TokenPrefix
+	log.TokenName = token.Name
 }
 
 // UintID formats a uint as string for ResourceID.

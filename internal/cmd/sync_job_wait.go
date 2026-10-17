@@ -54,18 +54,24 @@ type syncJobWaitResult struct {
 	Mode             string `json:"mode,omitempty"`
 	RunType          string `json:"run_type,omitempty"`
 	ExecutionID      string `json:"execution_id,omitempty"`
+	ExternalRef      string `json:"external_ref,omitempty"`
 	AttachGeneration int    `json:"attach_generation"`
 	ErrorMessage     string `json:"error_message,omitempty"`
 	SyncState        string `json:"sync_state,omitempty"`
 	SyncLagMs        *int64 `json:"sync_lag_ms,omitempty"`
 }
 
+// syncJobWaitConfig 汇总 --wait 轮询、日志跟随、观察超时和 Dolphin 守护管道。
+// syncJobWaitConfig collects --wait polling, log follow, observation timeout, and the Dolphin guard pipe.
 type syncJobWaitConfig struct {
-	Mode                string
-	Timeout             time.Duration
-	ObservationTimeout  time.Duration
-	CloseJob            bool
-	FollowLogs          bool
+	Mode               string
+	Timeout            time.Duration
+	ObservationTimeout time.Duration
+	CloseJob           bool
+	FollowLogs         bool
+	// Pipe 向 job-guard 写入 generation / done；非 Dolphin 提交时为 nil。
+	// Pipe writes generation / done to job-guard; nil for non-Dolphin submits.
+	Pipe *os.File
 }
 
 // parseCLIWaitTimeout 解析 --wait 的可选上限；空值表示一直等到作业终态。
@@ -100,6 +106,7 @@ func waitSyncJob(command *cobra.Command, client *cliClient.Client, operationID s
 	events := clioutput.NewEventWriter(command.ErrOrStderr())
 	logState := newJobLogFollowState()
 	var staleSince time.Time
+	writeGuardGeneration(cfg.Pipe, job.AttachGeneration)
 
 	for {
 		var latest syncJobWaitResult
@@ -107,11 +114,13 @@ func waitSyncJob(command *cobra.Command, client *cliClient.Client, operationID s
 		if err != nil {
 			if signalCtx.Err() != nil && cfg.CloseJob {
 				_ = cancelSyncJob(command.Context(), client, job.ID)
+				writeGuardDone(cfg.Pipe)
 				_ = renderCommandResultWithRequestID(command, operationID, requestID, job)
 				return clioutput.NewError(clioutput.CodeExecution, "job cancelled", clioutput.ExitExecution, false)
 			}
 			if isWaitTimeout(signalCtx, cfg.Timeout) && cfg.CloseJob {
 				_ = cancelSyncJob(command.Context(), client, job.ID)
+				writeGuardDone(cfg.Pipe)
 				_ = renderCommandResultWithRequestID(command, operationID, requestID, job)
 				return clioutput.NewError(clioutput.CodeTimeout, "wait timeout; job cancel requested", clioutput.ExitTimeout, false)
 			}
@@ -122,6 +131,7 @@ func waitSyncJob(command *cobra.Command, client *cliClient.Client, operationID s
 		}
 		emitJobStatusEvent(events, operationID, requestID, job, latest)
 		job = latest
+		writeGuardGeneration(cfg.Pipe, job.AttachGeneration)
 
 		if cfg.FollowLogs {
 			_ = followJobLogsOnce(signalCtx, client, events, operationID, job.ID, logState)
@@ -144,6 +154,7 @@ func waitSyncJob(command *cobra.Command, client *cliClient.Client, operationID s
 			if cfg.CloseJob {
 				_ = cancelSyncJob(command.Context(), client, job.ID)
 			}
+			writeGuardDone(cfg.Pipe)
 			_ = renderCommandResultWithRequestID(command, operationID, requestID, job)
 			return clioutput.NewError(clioutput.CodeTimeout, message, clioutput.ExitTimeout, true)
 		}
@@ -151,6 +162,7 @@ func waitSyncJob(command *cobra.Command, client *cliClient.Client, operationID s
 			if cfg.FollowLogs {
 				drainJobLogs(signalCtx, client, events, operationID, job.ID, logState, 2)
 			}
+			writeGuardDone(cfg.Pipe)
 			if err := renderCommandResultWithRequestID(command, operationID, requestID, job); err != nil {
 				return err
 			}
@@ -160,6 +172,7 @@ func waitSyncJob(command *cobra.Command, client *cliClient.Client, operationID s
 			if cfg.FollowLogs {
 				drainJobLogs(signalCtx, client, events, operationID, job.ID, logState, 2)
 			}
+			writeGuardDone(cfg.Pipe)
 			if err := renderCommandResultWithRequestID(command, operationID, requestID, job); err != nil {
 				return err
 			}
@@ -180,6 +193,7 @@ func waitSyncJob(command *cobra.Command, client *cliClient.Client, operationID s
 			if cfg.CloseJob {
 				_ = cancelSyncJob(command.Context(), client, job.ID)
 			}
+			writeGuardDone(cfg.Pipe)
 			_ = renderCommandResultWithRequestID(command, operationID, requestID, job)
 			if isWaitTimeout(signalCtx, cfg.Timeout) {
 				return clioutput.NewError(clioutput.CodeTimeout, "wait timeout; job cancel requested", clioutput.ExitTimeout, false)

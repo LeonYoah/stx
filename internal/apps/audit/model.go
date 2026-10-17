@@ -140,19 +140,22 @@ func (CommandLog) TableName() string {
 // AuditLog 表示系统操作的审计追踪条目。
 // Requirements: 10.3, 10.4
 type AuditLog struct {
-	ID           uint   `json:"id" gorm:"primaryKey;autoIncrement"`
-	UserID       *uint  `json:"user_id" gorm:"index"`
-	Username     string `json:"username" gorm:"size:100"`
-	Action       string `json:"action" gorm:"size:50;not null;index"`
-	ResourceType string `json:"resource_type" gorm:"size:50;not null;index:idx_resource"`
-	ResourceID   string `json:"resource_id" gorm:"size:100;index:idx_resource"`
-	ResourceName string `json:"resource_name" gorm:"size:200"`
-	RequestID    string `json:"request_id,omitempty" gorm:"size:64;index"`
-	ExecutionID  string `json:"execution_id,omitempty" gorm:"size:36;index"`
-	CommandID    string `json:"command_id,omitempty" gorm:"size:50;index"`
-	ClientType   string `json:"client_type,omitempty" gorm:"size:20;index"`
-	RiskLevel    string `json:"risk_level,omitempty" gorm:"size:4;index"`
-	ResultStatus string `json:"result_status,omitempty" gorm:"size:32;index"`
+	ID           uint    `json:"id" gorm:"primaryKey;autoIncrement"`
+	UserID       *uint   `json:"user_id" gorm:"index"`
+	Username     string  `json:"username" gorm:"size:100"`
+	TokenID      *uint64 `json:"token_id,omitempty" gorm:"index"`
+	TokenPrefix  string  `json:"token_prefix,omitempty" gorm:"size:16;index"`
+	TokenName    string  `json:"token_name,omitempty" gorm:"size:100"`
+	Action       string  `json:"action" gorm:"size:50;not null;index"`
+	ResourceType string  `json:"resource_type" gorm:"size:50;not null;index:idx_resource"`
+	ResourceID   string  `json:"resource_id" gorm:"size:100;index:idx_resource"`
+	ResourceName string  `json:"resource_name" gorm:"size:200"`
+	RequestID    string  `json:"request_id,omitempty" gorm:"size:64;index"`
+	ExecutionID  string  `json:"execution_id,omitempty" gorm:"size:36;index"`
+	CommandID    string  `json:"command_id,omitempty" gorm:"size:50;index"`
+	ClientType   string  `json:"client_type,omitempty" gorm:"size:20;index"`
+	RiskLevel    string  `json:"risk_level,omitempty" gorm:"size:4;index"`
+	ResultStatus string  `json:"result_status,omitempty" gorm:"size:32;index"`
 	// Trigger: "auto" (Agent) or "manual" (user), empty for legacy records.
 	// Trigger：自动（Agent）或手动（用户），空表示旧数据。
 	Trigger   string       `json:"trigger" gorm:"size:20;index"`
@@ -265,6 +268,9 @@ type AuditLogInfo struct {
 	ID           uint         `json:"id"`
 	UserID       *uint        `json:"user_id"`
 	Username     string       `json:"username"`
+	TokenID      *uint64      `json:"token_id,omitempty"`
+	TokenPrefix  string       `json:"token_prefix,omitempty"`
+	TokenName    string       `json:"token_name,omitempty"`
 	Action       string       `json:"action"`
 	ResourceType string       `json:"resource_type"`
 	ResourceID   string       `json:"resource_id"`
@@ -292,6 +298,9 @@ func (a *AuditLog) ToAuditLogInfo() *AuditLogInfo {
 		ID:           a.ID,
 		UserID:       a.UserID,
 		Username:     a.Username,
+		TokenID:      a.TokenID,
+		TokenPrefix:  a.TokenPrefix,
+		TokenName:    a.TokenName,
 		Action:       a.Action,
 		ResourceType: a.ResourceType,
 		ResourceID:   a.ResourceID,

@@ -111,6 +111,15 @@ func (c *Client) Server() string {
 	return c.server
 }
 
+// Token 返回当前客户端令牌，仅供守护进程继承，调用方不得打印。
+// Token returns the current client token for guard inheritance; callers must not print it.
+func (c *Client) Token() string {
+	if c == nil {
+		return ""
+	}
+	return c.token
+}
+
 // WithTimeout returns an isolated client copy for one long-running command.
 // WithTimeout 返回仅供单个长耗时命令使用的独立客户端副本。
 func (c *Client) WithTimeout(timeout time.Duration) *Client {
@@ -369,8 +378,8 @@ func (c *Client) Logout(ctx context.Context) (string, error) {
 
 // WhoAmI 查询当前令牌对应的用户。
 // WhoAmI returns the user associated with the current token.
-func (c *Client) WhoAmI(ctx context.Context) (string, UserInfo, error) {
-	var data UserInfo
+func (c *Client) WhoAmI(ctx context.Context) (string, WhoAmIData, error) {
+	var data WhoAmIData
 	requestID, err := c.Request(ctx, http.MethodGet, "/api/v1/auth/cli/whoami", nil, &data)
 	return requestID, data, err
 }
@@ -378,10 +387,22 @@ func (c *Client) WhoAmI(ctx context.Context) (string, UserInfo, error) {
 // LoginData 是 CLI 登录接口返回的数据。
 // LoginData is returned by the CLI login endpoint.
 type LoginData struct {
-	Token     string    `json:"token"`
-	TokenType string    `json:"token_type"`
-	ExpiresAt time.Time `json:"expires_at"`
-	User      UserInfo  `json:"user"`
+	Token     string     `json:"token"`
+	TokenType string     `json:"token_type"`
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	Permanent bool       `json:"permanent"`
+	User      UserInfo   `json:"user"`
+}
+
+// WhoAmIData 是 whoami 返回的用户和当前令牌元数据。
+// WhoAmIData is the whoami payload with current token metadata.
+type WhoAmIData struct {
+	UserInfo
+	TokenID        uint64     `json:"token_id,omitempty"`
+	TokenPrefix    string     `json:"token_prefix,omitempty"`
+	TokenName      string     `json:"token_name,omitempty"`
+	TokenExpiresAt *time.Time `json:"token_expires_at,omitempty"`
+	Permanent      bool       `json:"permanent"`
 }
 
 // UserInfo 是 CLI 所需的用户信息子集。

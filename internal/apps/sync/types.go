@@ -106,7 +106,11 @@ type TaskDraftPayload struct {
 
 // TaskActionRequest represents an action request with an optional unsaved draft.
 type TaskActionRequest struct {
-	Draft *TaskDraftPayload `json:"draft,omitempty"`
+	Draft        *TaskDraftPayload `json:"draft,omitempty"`
+	Variables    map[string]string `json:"variables,omitempty"`
+	ExternalRef  string            `json:"external_ref,omitempty"`
+	ScheduleTime string            `json:"schedule_time,omitempty"`
+	CloseJob     *bool             `json:"close_job,omitempty"`
 }
 
 // PreviewTaskRequest represents optional preview execution parameters.

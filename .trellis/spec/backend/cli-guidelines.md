@@ -12,9 +12,11 @@ STX 使用同一个二进制提供两种入口：`stx server` 启动 API 服务�
 | --- | --- | --- |
 | 启动服务 | `stx server` | 只在此路径加载服务端配置、迁移数据库并监听 HTTP |
 | 兼容入口 | `stx api` | 隐藏命令，暂时等同于 `stx server` |
-| 登录 | `POST /api/v1/auth/cli/login` | 请求带 `X-STX-Client: cli`，响应不能返回令牌原文 |
+| 登录 | `POST /api/v1/auth/cli/login` | 请求带 `X-STX-Client: cli`；CLI  stdout 不能打印令牌原文 |
+| 令牌绑定 | `stx login --token` / `--token-stdin` | 用 whoami 校验已有令牌后写入本地 namespace，不签发新令牌 |
 | 当前用户 | `GET /api/v1/auth/cli/whoami` | 需要 Bearer 令牌和 CLI Header |
 | 退出登录 | `POST /api/v1/auth/cli/logout` | 撤销令牌后本地删除令牌，重复撤销保持幂等 |
+| 管理员令牌 | `GET/POST /api/v1/admin/cli-tokens`、`POST /api/v1/admin/cli-tokens/:id/revoke` | 仅管理员；签发原文只返回一次；列表不回显原文 |
 | 能力查询 | `GET /api/v1/capabilities` | 返回服务端版本、登记表摘要、操作权限和拒绝原因 |
 
 ## 3. 请求、响应和环境变量
@@ -31,11 +33,11 @@ Accept: application/json
 
 `X-STX-Client` 只用于区分调用来源，不能替代身份认证或权限判断。令牌属于用户，服务端每次请求都根据用户当前状态和权限判断，不把长期令牌转交给 Agent。
 
-服务端配置路径使用 `CONFIG_PATH`，数据库测试路径可使用 `STX_DATABASE_TYPE` 和 `STX_DATABASE_SQLITE_PATH` 覆盖。CLI 本地配置使用 `XDG_CONFIG_HOME`，文件权限必须为 `0600`。
+服务端配置路径使用 `CONFIG_PATH`，数据库测试路径可使用 `STX_DATABASE_TYPE` 和 `STX_DATABASE_SQLITE_PATH` 覆盖。CLI 本地配置使用 `XDG_CONFIG_HOME`，文件权限必须为 `0600`。远端地址和令牌按 `--server`/`--token`、`STX_SERVER`/`STX_TOKEN`、本地 namespace 文件的顺序读取；Dolphin Worker 应使用 `STX_SERVER` 加上管理员签发的 `stx_` 登录令牌，不要把 Dolphin Open API Token 写进 Worker 环境。
 
 普通命令成功时，完整结果只写 stdout，且为单个 JSON 值。stderr 只写结构化事件，每行必须是一个 JSON 值。登录结果只能返回 `token_set: true`、令牌类型、过期时间和用户信息，不能返回令牌正文。
 
-登录用户名按 `--username`、`STX_USERNAME`、TTY 交互输入的顺序读取。真实终端缺少用户名时，在 stderr 显示 `Username: ` 并读取一行；非交互环境不能等待输入。密码交互必须先关闭终端回显，再在 stderr 显示 `Password: `；脚本仍使用 `--password-stdin`。交互提示是 stderr NDJSON 约定的特例，最终成功结果仍只能写 stdout。
+登录用户名按 `--username`、`STX_USERNAME`、TTY 交互输入的顺序读取。真实终端缺少用户名时，在 stderr 显示 `Username: ` 并读取一行；非交互环境不能等待输入。密码交互必须先关闭终端回显，再在 stderr 显示 `Password: `；脚本仍使用 `--password-stdin`。也可用 `--token` 或 `--token-stdin` 绑定管理员签发的已有令牌，此时不要求用户名密码，且不能与 `--password-stdin` 混用。`--expires-in` 支持 `7d`、`30d`、`90d`、`never` 或自定义 `Nd`（1–3650）；密码登录默认 `7d`，管理员签发默认 `never`。交互提示是 stderr NDJSON 约定的特例，最终成功结果仍只能写 stdout。`stx admin token create` 是签发仪式，CLI JSON 可以包含一次性原文；`stx login` 仍然只能返回 `token_set: true`。
 
 ## 4. 校验与错误矩阵
 
@@ -47,7 +49,8 @@ Accept: application/json
 | 服务端不可达 | 无 HTTP 响应 | stderr 输出 `network_error`，标记可重试 |
 | 请求超时 | 无 HTTP 响应 | stderr 输出 `timeout`，标记可重试 |
 | 命名空间未配置 | 不发起请求 | stderr 输出本地配置错误 |
-| 非交互登录缺少用户名 | 不发起请求 | stderr 输出 `usage_error`，要求 `--username` 或 `STX_USERNAME` |
+| 非交互登录缺少用户名 | 不发起请求 | stderr 输出 `usage_error`，要求 `--username` 或 `STX_USERNAME`；`--token` / `--token-stdin` 除外 |
+| `--token-stdin` 与 `--password-stdin` 同时使用 | 不发起请求 | stderr 输出用法错误 |
 | TTY 登录缺少用户名 | 不发起请求 | 显示 `Username: ` 并读取输入 |
 | `--password-stdin` 为空 | 不发起请求 | stderr 输出用法错误，不能回退到明文参数 |
 | 非交互登录未使用 `--password-stdin` | 不发起请求 | stderr 输出 `usage_error`，不能等待输入 |
@@ -637,3 +640,16 @@ os.WriteFile(target, source, 0o644)
 ```
 
 正确：更新时先保存当前文件，再在目标目录写临时文件并通过 `os.Rename` 替换。
+
+## 14. 场景：Dolphin SHELL 节点使用的 CLI 等待、停作业和登录令牌
+
+完整契约见 [DolphinScheduler SHELL 接入](./dolphin-scheduler-shell.md)。这里只固定 CLI 边界：
+
+- `stx sync task submit --wait` 必须轮询 `GET /api/v1/sync/jobs/:id`（默认读库，禁止 `fresh=1`），不能把公共执行 wait 超时当成成功。
+- `--timeout` 可选；不传则一直等到作业终态。Dolphin SHELL 脚本不得写入 `--timeout`。
+- `--observation-timeout` 默认 3m：非终态且 `sync_state=stale` 超过该窗口时以 timeout 退出；`--wait` 默认跟随作业日志。
+- `--close-job` 在 `--wait` 时默认开启；实时任务脚本必须带 `--close-job=false`。
+- 守护进程是 unix `setsid` 子进程，不是 Server lease；409/404 的 `cancel-by-ref` 必须停止重试。
+- `unbind` 不生成 CLI（无 `CommandPath`）；取消作业继续用 `cancel` / `cancel-by-ref`。
+- Worker `STX_TOKEN` 是管理员签发的 `stx_` 登录令牌；用 `stx admin token create` 签发、`stx login --token` 绑定，不再单独设计 `stxs_` 调度令牌。`stx sync task dolphin push` 只推 SHELL 节点，不签发、不绑定该登录令牌。
+- `stx sync task submit`（无草稿）和 `stx sync task dolphin push` 都只使用当前已发布版本；未发布返回 400。同一发布版本再次 `push` 返回 409，必须先发布新版本。`--external-ref ds:{wf_inst}:{task_code}` 写入的作业 `trigger_source` 为 `dolphin`。

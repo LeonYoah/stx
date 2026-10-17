@@ -23,6 +23,7 @@
 | [质量规范](./quality-guidelines.md) | 代码标准、注释规范、License 头、语言输出约定、禁止模式 | 已填写 |
 | [日志规范](./logging-guidelines.md) | 结构化日志与日志级别 | 已填写 |
 | [作业状态对账器](./job-status-reconciler.md) | GetJob/ListJobs 读库、集群对账与 sync 观察字段 | 已填写 |
+| [DolphinScheduler SHELL 接入](./dolphin-scheduler-shell.md) | 提交等待、守护进程、登录令牌、推送绑定与 CLI 退出码 | 已填写 |
 
 ---
 
@@ -33,6 +34,7 @@
 - 涉及异步任务、CLI 写操作、任务正文、Agent 输出或诊断资源时，阅读[公共执行与安全输出](./execution-security-guidelines.md)。
 - 涉及 SeaTunnel 进程查找、启停、监控或心跳时，阅读[受管 SeaTunnel 进程身份](./managed-process-identity.md)。
 - 涉及作业列表/GetJob 观察面、CLI `--wait` 轮询或 SeaTunnel 引擎对账时，阅读[作业状态对账器](./job-status-reconciler.md)。
+- 涉及 DolphinScheduler SHELL 节点、`--wait`/`--close-job`、登录令牌或工作流推送时，阅读[DolphinScheduler SHELL 接入](./dolphin-scheduler-shell.md)。
 - 新增源文件、方法或用户可见文案时，按[质量规范](./quality-guidelines.md)检查注释、License 头和语言输出。
 
 ## 质量检查

@@ -44,7 +44,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import {User, Globe} from 'lucide-react';
+import {User, Globe, KeyRound} from 'lucide-react';
 import {useGSAP} from '@gsap/react';
 import {TableLoadingBar, TableSkeletonRows} from '@/components/common/layout';
 import {animateTableRows} from '@/lib/animations/gsap-motion';
@@ -184,6 +184,27 @@ function getActorLabel(
 /** 来源只回答从哪发起：Web、CLI，或没有登录用户的系统事件。
  * Source only answers where it came from: Web, CLI, or a system event with no logged-in user.
  */
+function getTokenLabel(
+  log: Pick<AuditLogInfo, 'token_id' | 'token_prefix' | 'token_name' | 'client_type'>,
+  t: (key: string) => string,
+): string {
+  const name = log.token_name?.trim();
+  const prefix = log.token_prefix?.trim();
+  if (name && prefix) {
+    return `${name} (${prefix}****)`;
+  }
+  if (name) {
+    return name;
+  }
+  if (prefix) {
+    return `${prefix}****`;
+  }
+  if ((log.client_type || '').toLowerCase() === 'web') {
+    return t('audit.tokenSession');
+  }
+  return '-';
+}
+
 function getSourceLabel(
   log: Pick<
     AuditLogInfo,
@@ -273,6 +294,7 @@ export function AuditLogTable({
               <TableRow>
                 <TableHead className='w-[50px]'>ID</TableHead>
                 <TableHead>{t('audit.user')}</TableHead>
+                <TableHead>{t('audit.token')}</TableHead>
                 <TableHead>{t('audit.source')}</TableHead>
                 <TableHead>{t('audit.action')}</TableHead>
                 <TableHead>{t('audit.resourceType')}</TableHead>
@@ -286,11 +308,11 @@ export function AuditLogTable({
             </TableHeader>
             <TableBody>
               {loading && logs.length === 0 ? (
-                <TableSkeletonRows columns={9} rows={15} />
+                <TableSkeletonRows columns={10} rows={15} />
               ) : logs.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={9}
+                    colSpan={10}
                     className='text-center py-12 text-muted-foreground'
                   >
                     {t('audit.noAuditLogs')}
@@ -310,6 +332,14 @@ export function AuditLogTable({
                         <User className='h-4 w-4 shrink-0 text-muted-foreground' />
                         <span className='truncate'>
                           {getActorLabel(log, t)}
+                        </span>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className='flex items-center gap-2 min-w-0'>
+                        <KeyRound className='h-4 w-4 shrink-0 text-muted-foreground' />
+                        <span className='truncate font-mono text-xs whitespace-nowrap'>
+                          {getTokenLabel(log, t)}
                         </span>
                       </div>
                     </TableCell>

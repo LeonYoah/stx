@@ -107,6 +107,10 @@ func syncOperationSpecs() []OperationSpec {
 		syncOp("sync.task.preview", []string{"sync", "task", "preview"}, "Start a preview sampling session for a sync task", "POST", "/api/v1/sync/tasks/:id/preview", RiskR1, "启动一次轻量数据抽样预览会话，消耗短暂的引擎计算资源。", syncWriteInputs(false, taskIDInput), "stx sync task preview 1 --confirm", false, true),
 		syncOp("sync.task.preview-savemode", []string{"sync", "task", "preview-savemode"}, "Preview sink SaveMode SQL and actions for a sync task", "POST", "/api/v1/sync/tasks/:id/preview/sink-savemode", RiskR0, "", taskIDInput, "stx sync task preview-savemode 1", false, false),
 		syncOp("sync.task.submit", []string{"sync", "task", "submit"}, "Submit a sync task to execute on the cluster", "POST", "/api/v1/sync/tasks/:id/submit", RiskR2, "提交分布式 SeaTunnel 作业运行，占用集群 Worker 槽位与资源。", syncWriteInputs(false, taskIDInput), "stx sync task submit 1 --confirm", false, true),
+		syncOp("sync.task.dolphin.status", []string{"sync", "task", "dolphin", "status"}, "Get DolphinScheduler binding status for a sync task", "GET", "/api/v1/sync/tasks/:id/dolphin", RiskR0, "", taskIDInput, "stx sync task dolphin status 1", true, false),
+		syncOp("sync.task.dolphin.script", []string{"sync", "task", "dolphin", "script"}, "Generate a DolphinScheduler SHELL node script for a sync task", "GET", "/api/v1/sync/tasks/:id/dolphin/script", RiskR0, "", append(append([]InputSpec{}, taskIDInput...), InputSpec{Name: "worker_group", Location: InputQuery, Required: false, Description: "Dolphin worker group"}, InputSpec{Name: "environment", Location: InputQuery, Required: false, Description: "Dolphin worker environment name"}), "stx sync task dolphin script 1", true, false),
+		syncOp("sync.task.dolphin.push", []string{"sync", "task", "dolphin", "push"}, "Push a sync task into DolphinScheduler", "POST", "/api/v1/sync/tasks/:id/dolphin/push", RiskR2, "向 DolphinScheduler 创建或更新 SHELL 节点，已上线工作流会先下线再写入。", syncWriteInputs(true, taskIDInput), "stx sync task dolphin push 1 --confirm", false, false),
+		syncOp("sync.task.dolphin.unbind", nil, "Unbind a sync task from DolphinScheduler", "POST", "/api/v1/sync/tasks/:id/dolphin/unbind", RiskR1, "仅删除 STX 侧绑定，不会修改 Dolphin 节点，也不会吊销管理员签发的登录令牌。", syncWriteInputs(false, taskIDInput), "", false, false),
 	)
 
 	// 4. Job Management & Checkpoint / Savepoint
@@ -117,6 +121,7 @@ func syncOperationSpecs() []OperationSpec {
 		syncOp("sync.job.checkpoint", []string{"sync", "job", "checkpoint"}, "Get checkpoint snapshot and metrics for a SeaTunnel job", "GET", "/api/v1/sync/jobs/:id/checkpoint", RiskR0, "", checkpointInputs, "stx sync job checkpoint 1", true, false),
 		syncOp("sync.job.preview", []string{"sync", "job", "preview"}, "Get preview data snapshot for a SeaTunnel job", "GET", "/api/v1/sync/jobs/:id/preview", RiskR0, "", previewSnapshotInputs, "stx sync job preview 1", true, false),
 		syncOp("sync.job.cancel", []string{"sync", "job", "cancel"}, "Cancel a running SeaTunnel job", "POST", "/api/v1/sync/jobs/:id/cancel", RiskR2, "终止集群中正在运行的作业，可指定 --savepoint 保存当前状态。", syncWriteInputs(false, jobIDInput), "stx sync job cancel 1 --confirm", false, false),
+		syncOp("sync.job.cancel-by-ref", []string{"sync", "job", "cancel-by-ref"}, "Cancel a SeaTunnel job by external scheduler reference", "POST", "/api/v1/sync/jobs/cancel-by-ref", RiskR2, "按外部调度引用停止作业；接管序号不匹配时忽略。", syncWriteInputs(true, nil), "stx sync job cancel-by-ref --confirm", false, false),
 		syncOp("sync.job.recover", []string{"sync", "job", "recover"}, "Recover a stopped or failed job from checkpoint or savepoint", "POST", "/api/v1/sync/jobs/:id/recover", RiskR2, "从最后 Checkpoint 或 Savepoint 恢复作业，重新提交至集群运行。", syncWriteInputs(false, jobIDInput), "stx sync job recover 1 --confirm", false, true),
 	)
 
@@ -126,6 +131,26 @@ func syncOperationSpecs() []OperationSpec {
 		syncOp("sync.variable.create", []string{"sync", "variable", "create"}, "Create a global sync variable", "POST", "/api/v1/sync/global-variables", RiskR1, "创建全局变量，供所有同步任务引用。", syncWriteInputs(false, nil), "stx sync variable create --confirm", false, false),
 		syncOp("sync.variable.update", []string{"sync", "variable", "update"}, "Update a global sync variable", "PUT", "/api/v1/sync/global-variables/:id", RiskR1, "更新全局变量值，会影响后续引用该变量的任务运行。", syncWriteInputs(false, variableIDInput), "stx sync variable update 1 --confirm", false, false),
 		syncOp("sync.variable.delete", nil, "Delete a global sync variable", "DELETE", "/api/v1/sync/global-variables/:id", RiskR1, "删除全局变量，引用该变量的任务可能解析失败。", syncWriteInputs(false, variableIDInput), "", false, false),
+	)
+
+	connectionIDInput := []InputSpec{{Name: "id", Location: InputPath, Required: true, Description: "Scheduler connection ID"}}
+	connectionProjectInputs := []InputSpec{
+		{Name: "id", Location: InputPath, Required: true, Description: "Scheduler connection ID"},
+		{Name: "projectCode", Location: InputPath, Required: true, Description: "DolphinScheduler project code"},
+	}
+	connectionWorkflowInputs := []InputSpec{
+		{Name: "id", Location: InputPath, Required: true, Description: "Scheduler connection ID"},
+		{Name: "projectCode", Location: InputPath, Required: true, Description: "DolphinScheduler project code"},
+		{Name: "workflowCode", Location: InputPath, Required: true, Description: "DolphinScheduler workflow code"},
+	}
+
+	specs = append(specs,
+		syncOp("sync.scheduler.connection.list", []string{"sync", "scheduler", "connection", "list"}, "List scheduler connections", "GET", "/api/v1/sync/scheduler-connections", RiskR0, "", nil, "stx sync scheduler connection list", true, false),
+		syncOp("sync.scheduler.connection.create", []string{"sync", "scheduler", "connection", "create"}, "Create a scheduler connection", "POST", "/api/v1/sync/scheduler-connections", RiskR1, "保存 DolphinScheduler API 地址和令牌，供后续推送使用。", syncWriteInputs(true, nil), "stx sync scheduler connection create --confirm", false, false),
+		syncOp("sync.scheduler.connection.update", []string{"sync", "scheduler", "connection", "update"}, "Update a scheduler connection", "PUT", "/api/v1/sync/scheduler-connections/:id", RiskR1, "更新调度器连接；空令牌表示保留原值。", syncWriteInputs(true, connectionIDInput), "stx sync scheduler connection update 1 --confirm", false, false),
+		syncOp("sync.scheduler.connection.projects", []string{"sync", "scheduler", "connection", "projects"}, "List DolphinScheduler projects on a connection", "GET", "/api/v1/sync/scheduler-connections/:id/projects", RiskR0, "", connectionIDInput, "stx sync scheduler connection projects 1", true, false),
+		syncOp("sync.scheduler.connection.workflows", []string{"sync", "scheduler", "connection", "workflows"}, "List DolphinScheduler workflows in a project", "GET", "/api/v1/sync/scheduler-connections/:id/projects/:projectCode/workflows", RiskR0, "", connectionProjectInputs, "stx sync scheduler connection workflows 1 100", true, false),
+		syncOp("sync.scheduler.connection.workflow.get", []string{"sync", "scheduler", "connection", "workflow"}, "Get a DolphinScheduler workflow definition", "GET", "/api/v1/sync/scheduler-connections/:id/projects/:projectCode/workflows/:workflowCode", RiskR0, "", connectionWorkflowInputs, "stx sync scheduler connection workflow 1 100 200", true, false),
 	)
 
 	// 6. Plugins & Template Metadata

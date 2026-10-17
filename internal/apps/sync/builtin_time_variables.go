@@ -60,6 +60,7 @@ type taskVariableRuntime struct {
 	ProjectName            string
 	ProjectCode            string
 	TaskExecutePath        string
+	VariableOverrides      map[string]string
 }
 
 func detectTemplateVariables(content string) []string {

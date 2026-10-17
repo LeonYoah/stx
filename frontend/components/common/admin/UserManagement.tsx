@@ -70,6 +70,7 @@ import {Badge} from '@/components/ui/badge';
 import {toast} from 'sonner';
 import {Plus, Pencil, Trash2, Search, Users, RefreshCw} from 'lucide-react';
 import {WorkspaceHeader, TableLoadingBar, TableSkeletonRows} from '@/components/common/layout';
+import {AccountsNavTabs} from './AccountsNavTabs';
 import {useGSAP} from '@gsap/react';
 import {animateTableRows} from '@/lib/animations/gsap-motion';
 import services from '@/lib/services';
@@ -308,6 +309,7 @@ export function UserManagement() {
       <WorkspaceHeader
         icon={<Users />}
         title={t('admin.userManagement.title')}
+        tabs={<AccountsNavTabs activeKey='users' />}
         actions={
           <div className='flex gap-2'>
             <Button variant='outline' onClick={loadUsers} disabled={loading}>

@@ -25,6 +25,8 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
+
+	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
 
 // 错误定义
@@ -56,19 +58,21 @@ func NormalizeLanguage(value string) string {
 // User 用户模型
 // 用于存储系统用户信息，支持用户名密码认证和 OAuth 认证
 type User struct {
-	ID           uint64    `json:"id" gorm:"primaryKey;autoIncrement"`
-	Username     string    `json:"username" gorm:"size:255;unique;not null"`
-	PasswordHash string    `json:"-" gorm:"column:password_hash;size:255"` // 密码哈希，OAuth 用户可为空
-	Nickname     string    `json:"nickname" gorm:"size:255"`
-	Email        string    `json:"email" gorm:"size:255;index"`
-	Language     string    `json:"language" gorm:"size:8;default:zh"`
-	AvatarURL    string    `json:"avatar_url" gorm:"column:avatar_url;size:255"` // 头像 URL
-	OAuthID      string    `json:"oauth_id" gorm:"column:oauth_id;size:255;index"`               // OAuth 提供商 ID，格式: provider:id
-	IsActive     bool       `json:"is_active" gorm:"default:true"`
-	IsAdmin      bool       `json:"is_admin" gorm:"default:false"`
-	LastLoginAt  *time.Time `json:"last_login_at"`
-	CreatedAt    time.Time  `json:"created_at" gorm:"autoCreateTime"`
-	UpdatedAt    time.Time  `json:"updated_at" gorm:"autoUpdateTime"`
+	ID           uint64 `json:"id" gorm:"primaryKey;autoIncrement"`
+	Username     string `json:"username" gorm:"size:255;unique;not null"`
+	PasswordHash string `json:"-" gorm:"column:password_hash;size:255"` // 密码哈希，OAuth 用户可为空
+	Nickname     string `json:"nickname" gorm:"size:255"`
+	Email        string `json:"email" gorm:"size:255;index"`
+	Language     string `json:"language" gorm:"size:8;default:zh"`
+	// Timezone 用户展示时区（IANA）；空串表示跟随浏览器。/ User display timezone (IANA); empty means follow the browser.
+	Timezone    string     `json:"timezone" gorm:"size:64;default:''"`
+	AvatarURL   string     `json:"avatar_url" gorm:"column:avatar_url;size:255"`   // 头像 URL
+	OAuthID     string     `json:"oauth_id" gorm:"column:oauth_id;size:255;index"` // OAuth 提供商 ID，格式: provider:id
+	IsActive    bool       `json:"is_active" gorm:"default:true"`
+	IsAdmin     bool       `json:"is_admin" gorm:"default:false"`
+	LastLoginAt *time.Time `json:"last_login_at"`
+	CreatedAt   time.Time  `json:"created_at" gorm:"autoCreateTime"`
+	UpdatedAt   time.Time  `json:"updated_at" gorm:"autoUpdateTime"`
 }
 
 // TableName 指定表名
@@ -163,31 +167,36 @@ func (u *User) UpdateLastLogin(db *gorm.DB) error {
 
 // UserInfo 用户信息（用于 API 响应，不包含敏感信息）
 type UserInfo struct {
-	ID          uint64     `json:"id"`
-	Username    string     `json:"username"`
-	Nickname    string     `json:"nickname"`
-	Email       string     `json:"email"`
-	Language    string     `json:"language"`
-	AvatarURL   string     `json:"avatar_url"`
-	IsActive    bool       `json:"is_active"`
-	IsAdmin     bool       `json:"is_admin"`
-	LastLoginAt *time.Time `json:"last_login_at"`
-	CreatedAt   time.Time  `json:"created_at"`
+	ID       uint64 `json:"id"`
+	Username string `json:"username"`
+	Nickname string `json:"nickname"`
+	Email    string `json:"email"`
+	Language string `json:"language"`
+	Timezone string `json:"timezone"`
+	// SystemTimezone 系统默认展示时区（app.display_timezone）。/ System default display timezone.
+	SystemTimezone string     `json:"system_timezone"`
+	AvatarURL      string     `json:"avatar_url"`
+	IsActive       bool       `json:"is_active"`
+	IsAdmin        bool       `json:"is_admin"`
+	LastLoginAt    *time.Time `json:"last_login_at"`
+	CreatedAt      time.Time  `json:"created_at"`
 }
 
 // ToUserInfo 将 User 转换为 UserInfo
 func (u *User) ToUserInfo() *UserInfo {
 	return &UserInfo{
-		ID:          u.ID,
-		Username:    u.Username,
-		Nickname:    u.Nickname,
-		Email:       u.Email,
-		Language:    NormalizeLanguage(u.Language),
-		AvatarURL:   u.AvatarURL,
-		IsActive:    u.IsActive,
-		IsAdmin:     u.IsAdmin,
-		LastLoginAt: u.LastLoginAt,
-		CreatedAt:   u.CreatedAt,
+		ID:             u.ID,
+		Username:       u.Username,
+		Nickname:       u.Nickname,
+		Email:          u.Email,
+		Language:       NormalizeLanguage(u.Language),
+		Timezone:       u.Timezone,
+		SystemTimezone: timex.DisplayTimezone(),
+		AvatarURL:      u.AvatarURL,
+		IsActive:       u.IsActive,
+		IsAdmin:        u.IsAdmin,
+		LastLoginAt:    u.LastLoginAt,
+		CreatedAt:      u.CreatedAt,
 	}
 }
 
@@ -205,4 +214,20 @@ func FindByOAuthID(db *gorm.DB, oauthID string) (*User, error) {
 		return nil, err
 	}
 	return &user, nil
+}
+
+// NormalizeTimezone 校验用户时区：空串（跟随浏览器）或合法 IANA 名称；非法返回 false。
+// NormalizeTimezone validates a user timezone: "" (follow browser) or a valid IANA name.
+func NormalizeTimezone(value string) (string, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", true
+	}
+	if len(value) > 64 || strings.EqualFold(value, "local") {
+		return "", false
+	}
+	if _, err := time.LoadLocation(value); err != nil {
+		return "", false
+	}
+	return value, true
 }

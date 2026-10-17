@@ -22,7 +22,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/LeonYoah/stx/internal/apps/auth"
 	"github.com/gin-gonic/gin"
 )
 
@@ -64,11 +63,6 @@ type DolphinPushResponse struct {
 type DolphinTaskStatusResponse struct {
 	ErrorMsg string             `json:"error_msg"`
 	Data     *DolphinTaskStatus `json:"data"`
-}
-
-type SchedulerTokenIssueResponse struct {
-	ErrorMsg string                     `json:"error_msg"`
-	Data     *SchedulerTokenIssueResult `json:"data"`
 }
 
 // ListSchedulerConnections 处理 GET /api/v1/sync/scheduler-connections。
@@ -346,57 +340,6 @@ func (h *Handler) UnbindDolphin(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, BasicResponse{Data: gin.H{"unbound": true}})
-}
-
-// IssueSchedulerToken 处理 POST /api/v1/sync/tasks/:id/dolphin/token。
-// IssueSchedulerToken handles POST /api/v1/sync/tasks/:id/dolphin/token.
-// @Summary 签发绑定任务的调度令牌
-// @Tags Sync
-// @Produce json
-// @Param id path int true "任务 ID"
-// @Success 200 {object} SchedulerTokenIssueResponse
-// @Failure 400 {object} SchedulerTokenIssueResponse
-// @Failure 403 {object} SchedulerTokenIssueResponse
-// @Router /api/v1/sync/tasks/{id}/dolphin/token [post]
-func (h *Handler) IssueSchedulerToken(c *gin.Context) {
-	id, ok := parseUintParam(c, "id")
-	if !ok {
-		c.JSON(http.StatusBadRequest, SchedulerTokenIssueResponse{ErrorMsg: "invalid task id"})
-		return
-	}
-	user := auth.GetUserFromContext(c)
-	if user == nil {
-		c.JSON(http.StatusUnauthorized, SchedulerTokenIssueResponse{ErrorMsg: "unauthorized"})
-		return
-	}
-	item, err := h.service.IssueSchedulerTokenForTask(c.Request.Context(), currentExecutionActor(c), id, user)
-	if err != nil {
-		c.JSON(h.getStatusCodeForError(err), SchedulerTokenIssueResponse{ErrorMsg: err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, SchedulerTokenIssueResponse{Data: item})
-}
-
-// RevokeSchedulerToken 处理 POST /api/v1/sync/tasks/:id/dolphin/token/revoke。
-// RevokeSchedulerToken handles POST /api/v1/sync/tasks/:id/dolphin/token/revoke.
-// @Summary 吊销任务上的调度令牌
-// @Tags Sync
-// @Produce json
-// @Param id path int true "任务 ID"
-// @Success 200 {object} BasicResponse
-// @Failure 400 {object} BasicResponse
-// @Router /api/v1/sync/tasks/{id}/dolphin/token/revoke [post]
-func (h *Handler) RevokeSchedulerToken(c *gin.Context) {
-	id, ok := parseUintParam(c, "id")
-	if !ok {
-		c.JSON(http.StatusBadRequest, BasicResponse{ErrorMsg: "invalid task id"})
-		return
-	}
-	if err := h.service.RevokeSchedulerTokenForTask(c.Request.Context(), currentExecutionActor(c), id); err != nil {
-		c.JSON(h.getStatusCodeForError(err), BasicResponse{ErrorMsg: err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, BasicResponse{Data: gin.H{"revoked": true}})
 }
 
 func parseInt64Param(c *gin.Context, name string) (int64, bool) {

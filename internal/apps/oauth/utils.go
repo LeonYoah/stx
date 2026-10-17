@@ -29,15 +29,16 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"time"
 
-	"github.com/LeonYoah/stx/internal/config"
-	"github.com/LeonYoah/stx/internal/db"
-	"github.com/LeonYoah/stx/internal/otel_trace"
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
 	"go.opentelemetry.io/otel/codes"
 	"gorm.io/gorm"
+
+	"github.com/LeonYoah/stx/internal/config"
+	"github.com/LeonYoah/stx/internal/db"
+	"github.com/LeonYoah/stx/internal/otel_trace"
+	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
 
 func GetUserIDFromSession(s sessions.Session) uint64 {
@@ -114,7 +115,7 @@ func doOAuth(ctx context.Context, code string) (*User, error) {
 				AvatarUrl:   userInfo.AvatarUrl,
 				IsActive:    userInfo.Active,
 				TrustLevel:  userInfo.TrustLevel,
-				LastLoginAt: time.Now().UTC(),
+				LastLoginAt: timex.Now(),
 			}
 			tx = db.DB(ctx).Create(&user)
 			if tx.Error != nil {
@@ -136,7 +137,7 @@ func doOAuth(ctx context.Context, code string) (*User, error) {
 		user.AvatarUrl = userInfo.AvatarUrl
 		user.IsActive = userInfo.Active
 		user.TrustLevel = userInfo.TrustLevel
-		user.LastLoginAt = time.Now().UTC()
+		user.LastLoginAt = timex.Now()
 		tx = db.DB(ctx).Save(&user)
 		if tx.Error != nil {
 			span.SetStatus(codes.Error, tx.Error.Error())

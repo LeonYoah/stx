@@ -106,6 +106,12 @@ export interface AuditLogInfo {
   user_id: number | null;
   /** Username / 用户名 */
   username: string;
+  /** CLI token ID when the action used a token / 使用 CLI 令牌时的令牌编号 */
+  token_id?: number | null;
+  /** CLI token prefix / CLI 令牌前缀 */
+  token_prefix?: string;
+  /** CLI token display name / CLI 令牌名称 */
+  token_name?: string;
   /** Action performed / 执行的操作 */
   action: string;
   /** Resource type / 资源类型 */

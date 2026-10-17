@@ -54,6 +54,7 @@ import {
   type StatPillItem,
 } from '@/components/common/layout';
 import {cn} from '@/lib/utils';
+import {formatDateTimeTz} from '@/lib/timezone';
 
 // 四宫格面板固定高度，避免条目增减导致版面跳动；内容区内滚
 // Fixed quad-panel height so list length does not shift layout; body scrolls
@@ -810,7 +811,7 @@ export default function DashboardPage() {
                       {formatActivityLine(activity)}
                     </span>
                     <span className='shrink-0 font-mono text-[11px] text-muted-foreground'>
-                      {activity.timestamp}
+                      {formatDateTimeTz(activity.timestamp)}
                     </span>
                   </li>
                 ))}

@@ -28,8 +28,7 @@ import (
 )
 
 const (
-	defaultTaskScheduleTimezone = schedulex.DefaultTimezone
-	scheduleTriggerSource       = "schedule"
+	scheduleTriggerSource = "schedule"
 )
 
 type taskScheduleConfig struct {
@@ -39,7 +38,7 @@ type taskScheduleConfig struct {
 }
 
 func parseTaskSchedule(definition JSONMap) (*taskScheduleConfig, error) {
-	cfg := &taskScheduleConfig{Enabled: false, Timezone: defaultTaskScheduleTimezone}
+	cfg := &taskScheduleConfig{Enabled: false, Timezone: schedulex.NormalizeTimezone("")}
 	if len(definition) == 0 {
 		return cfg, nil
 	}
@@ -71,7 +70,7 @@ func validateTaskScheduleConfig(cfg *taskScheduleConfig) error {
 		return nil
 	}
 	if strings.TrimSpace(cfg.Timezone) == "" {
-		cfg.Timezone = defaultTaskScheduleTimezone
+		cfg.Timezone = schedulex.NormalizeTimezone("")
 	}
 	if _, err := time.LoadLocation(cfg.Timezone); err != nil {
 		return fmt.Errorf("%w: invalid timezone %q", ErrInvalidTaskSchedule, cfg.Timezone)

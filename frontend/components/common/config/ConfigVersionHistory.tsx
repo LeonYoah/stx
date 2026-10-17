@@ -47,6 +47,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { History, RotateCcw, Eye } from 'lucide-react';
 import type { ConfigInfo, ConfigVersionInfo } from '@/lib/services/config';
+import {formatDateTimeTz} from '@/lib/timezone';
 
 interface ConfigVersionHistoryProps {
   config: ConfigInfo;
@@ -131,7 +132,7 @@ export function ConfigVersionHistory({
                           {version.comment || t('config.noComment')}
                         </p>
                         <p className="text-xs text-muted-foreground">
-                          {new Date(version.created_at).toLocaleString()}
+                          {formatDateTimeTz(version.created_at)}
                         </p>
                       </div>
                     </div>

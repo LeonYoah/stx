@@ -103,9 +103,15 @@ func (h *Handler) writeExistingUser(c *gin.Context, item *executionapp.Execution
 }
 
 func (h *Handler) recordAudit(c *gin.Context, action, resourceID, resourceName string) {
+	h.recordAuditResource(c, action, "user", resourceID, resourceName)
+}
+
+// recordAuditResource 写入一条带资源类型的审计日志。
+// recordAuditResource writes an audit row with an explicit resource type.
+func (h *Handler) recordAuditResource(c *gin.Context, action, resourceType, resourceID, resourceName string) {
 	if h.auditRepo == nil {
 		return
 	}
 	_ = audit.RecordFromGin(c, h.auditRepo, auth.GetUserIDFromContext(c), auth.GetUsernameFromContext(c),
-		action, "user", resourceID, resourceName, audit.AuditDetails{"trigger": "manual"})
+		action, resourceType, resourceID, resourceName, audit.AuditDetails{"trigger": "manual"})
 }

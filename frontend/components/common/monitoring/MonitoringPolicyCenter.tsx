@@ -116,6 +116,7 @@ import {
 } from '@/components/ui/table';
 import {Tabs, TabsList, TabsTrigger} from '@/components/ui/tabs';
 import {Textarea} from '@/components/ui/textarea';
+import {formatDateTimeTz} from '@/lib/timezone';
 
 // 规则与通知三级分段：告警规则 | 通知通道 | 投递记录
 // Tertiary sections for Rules & Notifications: rules | channels | history
@@ -277,7 +278,7 @@ function formatDateTime(value?: string | null): string {
   if (Number.isNaN(parsed.getTime())) {
     return value;
   }
-  return parsed.toLocaleString();
+  return formatDateTimeTz(parsed);
 }
 
 function resolveSeverityVariant(

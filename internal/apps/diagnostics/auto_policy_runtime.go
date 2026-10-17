@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/LeonYoah/stx/internal/apps/cluster"
+	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
 
 const autoPolicyEvaluationInterval = time.Minute
@@ -40,7 +41,7 @@ func (s *Service) StartAutoPolicyRuntime(ctx context.Context) {
 			defer ticker.Stop()
 
 			for {
-				s.runAutoPolicyEvaluationRound(ctx, time.Now().UTC())
+				s.runAutoPolicyEvaluationRound(ctx, timex.Now())
 
 				select {
 				case <-ctx.Done():

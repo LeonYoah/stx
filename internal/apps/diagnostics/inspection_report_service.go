@@ -22,6 +22,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
 
 const maxInspectionErrorMessageLength = 2048
@@ -53,7 +55,7 @@ func (s *Service) StartInspection(ctx context.Context, req *StartClusterInspecti
 		return nil, err
 	}
 
-	startedAt := time.Now().UTC()
+	startedAt := timex.Now()
 	report := &ClusterInspectionReport{
 		ClusterID:         req.ClusterID,
 		Status:            InspectionReportStatusRunning,
@@ -95,7 +97,7 @@ func (s *Service) StartInspection(ctx context.Context, req *StartClusterInspecti
 		})
 	}
 
-	finishedAt := time.Now().UTC()
+	finishedAt := timex.Now()
 	report.Status = InspectionReportStatusCompleted
 	report.Summary = result.Summary
 	report.ErrorMessage = ""
@@ -220,7 +222,7 @@ func (s *Service) failInspectionReport(ctx context.Context, report *ClusterInspe
 	if report == nil {
 		return nil, cause
 	}
-	finishedAt := time.Now().UTC()
+	finishedAt := timex.Now()
 	report.Status = InspectionReportStatusFailed
 	report.ErrorMessage = truncateString(strings.TrimSpace(cause.Error()), maxInspectionErrorMessageLength)
 	report.Summary = bilingualText(

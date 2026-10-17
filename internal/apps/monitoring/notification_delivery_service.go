@@ -27,6 +27,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
 
 // ListNotificationDeliveries returns notification delivery history.
@@ -80,7 +82,7 @@ func (s *Service) ListNotificationDeliveries(ctx context.Context, filter *Notifi
 	}
 
 	return &NotificationDeliveryListData{
-		GeneratedAt: time.Now().UTC(),
+		GeneratedAt: timex.Now(),
 		Page:        filter.Page,
 		PageSize:    filter.PageSize,
 		Total:       total,
@@ -118,7 +120,7 @@ func (s *Service) deliverRemoteAlertNotifications(ctx context.Context, record *R
 	if err != nil {
 		return err
 	}
-	currentHandlingStatus := resolveAlertHandlingStatus(state, time.Now().UTC())
+	currentHandlingStatus := resolveAlertHandlingStatus(state, timex.Now())
 	eventType := resolveNotificationDeliveryEventType(record.Status)
 	processedChannels := make(map[uint]struct{})
 
@@ -266,7 +268,7 @@ func sendNotification(ctx context.Context, channel *NotificationChannel, payload
 	if len(body) > 1000 {
 		body = body[:1000]
 	}
-	now := time.Now().UTC()
+	now := timex.Now()
 	attempt := &notificationSendAttempt{
 		RequestPayload: string(payloadBytes),
 		StatusCode:     resp.StatusCode,
@@ -317,7 +319,7 @@ func buildRemoteAlertPayload(channel *NotificationChannel, record *RemoteAlertRe
 				"starts_at":    startsAt,
 				"resolved_at":  resolvedAt,
 			},
-			"sent_at": time.Now().UTC().Format(time.RFC3339),
+			"sent_at": timex.Now().Format(time.RFC3339),
 		}, nil
 	case NotificationChannelTypeWeCom, NotificationChannelTypeDingTalk:
 		return map[string]interface{}{

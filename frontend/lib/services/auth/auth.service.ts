@@ -24,10 +24,19 @@ import {
   UpdateProfileRequest,
   UserInfoResponse,
 } from './types';
+import {setSystemTimezone, setUserTimezonePreference} from '@/lib/timezone';
 
-function syncUserLocale(user?: {language?: string} | null): void {
+function syncUserLocale(
+  user?: {language?: string; timezone?: string; system_timezone?: string} | null,
+): void {
   if (user?.language && isLocale(user.language)) {
     saveLocale(user.language);
+  }
+  if (user && typeof user.timezone === 'string') {
+    setUserTimezonePreference(user.timezone);
+  }
+  if (user?.system_timezone) {
+    setSystemTimezone(user.system_timezone);
   }
 }
 

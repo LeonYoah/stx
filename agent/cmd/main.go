@@ -44,6 +44,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/spf13/cobra"
+
 	pb "github.com/LeonYoah/stx/agent"
 	"github.com/LeonYoah/stx/agent/internal/collector"
 	"github.com/LeonYoah/stx/agent/internal/config"
@@ -53,13 +55,13 @@ import (
 	agentgrpc "github.com/LeonYoah/stx/agent/internal/grpc"
 	"github.com/LeonYoah/stx/agent/internal/installer"
 	"github.com/LeonYoah/stx/agent/internal/logger"
+	"github.com/LeonYoah/stx/agent/internal/logtime"
 	"github.com/LeonYoah/stx/agent/internal/monitor"
 	"github.com/LeonYoah/stx/agent/internal/process"
 	"github.com/LeonYoah/stx/agent/internal/restart"
 	"github.com/LeonYoah/stx/internal/processidentity"
 	"github.com/LeonYoah/stx/internal/seatunnel"
 	stxversion "github.com/LeonYoah/stx/internal/version"
-	"github.com/spf13/cobra"
 )
 
 var agentLogTimestampPattern = regexp.MustCompile(`\b(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:,\d{3})?)\b`)
@@ -161,6 +163,15 @@ func NewAgent(cfg *config.Config) *Agent {
 
 	// Create installer manager / 创建安装管理器
 	im := installer.NewInstallerManager()
+
+	// Agent-side package dir: pulled packages land here and it is the offline fallback source.
+	// Agent 侧安装包目录：拉取的安装包存放于此，同时作为离线兜底来源。
+	packageDir := cfg.SeaTunnel.EffectivePackageDir()
+	im.SetLocalPackageDir(packageDir)
+	executor.GetPackageTransferManager().SetDirectories("", packageDir)
+	executor.SetPackageStreamOpener(func(ctx context.Context, transferID string, offset int64) (executor.PackageChunkStream, error) {
+		return grpcClient.OpenPackageStream(ctx, transferID, offset)
+	})
 
 	// Create process monitor / 创建进程监控器
 	pmon := monitor.NewProcessMonitor()
@@ -1262,7 +1273,14 @@ func (a *Agent) handleInstallCommand(ctx context.Context, cmd *pb.CommandRequest
 	if packagePath != "" {
 		params.PackagePath = packagePath
 		params.Mode = installer.InstallModeOffline // Use offline mode when package path is provided
+		// Expected SHA256 of the transferred package, verified before extraction.
+		// 已传输安装包的期望 SHA256，解压前校验。
+		params.ExpectedChecksum = getParamString(cmd.Parameters, "package_checksum", "")
 	}
+
+	// Agent-local fallback package (no internet download) / Agent 本地兜底安装包（不从互联网下载）
+	params.PackageFileName = getParamString(cmd.Parameters, "package_file_name", "")
+	params.AgentLocalPackagePath = getParamString(cmd.Parameters, "agent_package_path", "")
 
 	// Parse mirror source / 解析镜像源
 	mirror := getParamString(cmd.Parameters, "mirror", "")
@@ -1821,13 +1839,7 @@ func parseAgentLogTimestamp(line string) (time.Time, bool) {
 		return time.Time{}, false
 	}
 	value := strings.TrimSpace(matches[1])
-	layouts := []string{"2006-01-02 15:04:05,000", "2006-01-02 15:04:05"}
-	for _, layout := range layouts {
-		if parsed, err := time.ParseInLocation(layout, value, time.Local); err == nil {
-			return parsed, true
-		}
-	}
-	return time.Time{}, false
+	return logtime.Parse(value, "2006-01-02 15:04:05,000", "2006-01-02 15:04:05")
 }
 
 func (a *Agent) handleJVMDumpCommand(ctx context.Context, cmd *pb.CommandRequest, reporter executor.ProgressReporter) (*pb.CommandResponse, error) {

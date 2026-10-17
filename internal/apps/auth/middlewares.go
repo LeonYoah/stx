@@ -37,46 +37,9 @@ const (
 	ContextKeyCLIToken = "auth_cli_token"
 )
 
+// cliTokenContextKey 把已校验的 CLI 令牌挂到 request.Context，供审计等非 Gin 路径读取。
+// cliTokenContextKey stores the authenticated CLI token on request.Context for non-Gin readers such as audit.
 type cliTokenContextKey struct{}
-
-var cliTokenCtxKey = cliTokenContextKey{}
-
-// CLITokenFromContext 从请求上下文读取 CLI 令牌。
-// CLITokenFromContext reads the CLI token from the request context.
-func CLITokenFromContext(ctx context.Context) *CLIToken {
-	if ctx == nil {
-		return nil
-	}
-	token, _ := ctx.Value(cliTokenCtxKey).(*CLIToken)
-	return token
-}
-
-// GetCLITokenFromGin 从 Gin 上下文读取 CLI 令牌。
-// GetCLITokenFromGin reads the CLI token from the Gin context.
-func GetCLITokenFromGin(c *gin.Context) *CLIToken {
-	if c == nil {
-		return nil
-	}
-	if value, exists := c.Get(ContextKeyCLIToken); exists {
-		if token, ok := value.(*CLIToken); ok {
-			return token
-		}
-	}
-	if c.Request != nil {
-		return CLITokenFromContext(c.Request.Context())
-	}
-	return nil
-}
-
-func setCLIToken(c *gin.Context, token *CLIToken) {
-	if c == nil || token == nil {
-		return
-	}
-	c.Set(ContextKeyCLIToken, token)
-	if c.Request != nil {
-		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), cliTokenCtxKey, token))
-	}
-}
 
 // CLIClientRequired 只允许带有 CLI 请求标识的调用进入 CLI 接口。
 // CLIClientRequired allows requests with the CLI marker to enter CLI endpoints.
@@ -114,8 +77,8 @@ func CLIAuthRequired() gin.HandlerFunc {
 	}
 }
 
-// authenticateCLIRequest 完成 Bearer 令牌校验并注入当前用户。
-// authenticateCLIRequest validates a Bearer token and injects the current user.
+// authenticateCLIRequest 完成 Bearer 令牌校验并注入当前用户与令牌。
+// authenticateCLIRequest validates a Bearer token and injects the current user and token.
 func authenticateCLIRequest(c *gin.Context, ctx context.Context) bool {
 	rawToken, ok := bearerToken(c.GetHeader("Authorization"))
 	if !ok {
@@ -323,4 +286,43 @@ func GetUserFromContext(c *gin.Context) *User {
 		return nil
 	}
 	return user
+}
+
+// setCLIToken 把当前请求使用的 CLI 令牌写入 Gin 和 request.Context。
+// setCLIToken stores the CLI token used by this request on Gin and request.Context.
+func setCLIToken(c *gin.Context, token *CLIToken) {
+	if c == nil || token == nil {
+		return
+	}
+	c.Set(ContextKeyCLIToken, token)
+	if c.Request != nil {
+		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), cliTokenContextKey{}, token))
+	}
+}
+
+// GetCLITokenFromGin 读取当前 HTTP 请求绑定的 CLI 令牌。
+// GetCLITokenFromGin returns the CLI token bound to the current HTTP request.
+func GetCLITokenFromGin(c *gin.Context) *CLIToken {
+	if c == nil {
+		return nil
+	}
+	if value, exists := c.Get(ContextKeyCLIToken); exists {
+		if token, ok := value.(*CLIToken); ok {
+			return token
+		}
+	}
+	if c.Request == nil {
+		return nil
+	}
+	return CLITokenFromContext(c.Request.Context())
+}
+
+// CLITokenFromContext 从普通 context 读取已校验的 CLI 令牌。
+// CLITokenFromContext reads the authenticated CLI token from a plain context.
+func CLITokenFromContext(ctx context.Context) *CLIToken {
+	if ctx == nil {
+		return nil
+	}
+	token, _ := ctx.Value(cliTokenContextKey{}).(*CLIToken)
+	return token
 }

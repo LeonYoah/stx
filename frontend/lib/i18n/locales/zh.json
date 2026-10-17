@@ -376,7 +376,15 @@
       "member": "成员",
       "activeUser": "活跃用户",
       "leader": "领导者"
-    }
+    },
+    "timezoneSettings": "时区设置",
+    "timezoneFollowBrowser": "跟随浏览器（{timezone}）",
+    "timezoneHint": "当前展示时区：{current}；系统默认：{system}。数据统一以 UTC 存储。",
+    "saveTimezone": "保存时区",
+    "savingTimezone": "保存中...",
+    "timezoneSaved": "时区已保存",
+    "timezoneSaveFailed": "保存时区失败",
+    "timezoneInvalid": "时区不合法"
   },
   "dock": {
     "dashboard": "控制台",
@@ -1096,6 +1104,8 @@
     "allTypes": "所有类型",
     "loadCommandsError": "加载命令记录失败",
     "user": "操作人",
+    "token": "令牌",
+    "tokenSession": "会话",
     "action": "操作",
     "resourceType": "资源类型",
     "resourceName": "资源名称",
@@ -1128,6 +1138,7 @@
       "create": "创建",
       "update": "更新",
       "delete": "删除",
+      "revoke": "吊销",
       "start": "启动",
       "stop": "停止",
       "restart": "重启",
@@ -1201,7 +1212,8 @@
       "stupgrade": "升级",
       "installer": "安装",
       "auth": "账号",
-      "admin_user": "用户管理"
+      "admin_user": "用户管理",
+      "cli_token": "CLI 令牌"
     },
     "clusterNodeResourceName": "集群编号 {clusterId} 下的节点 {nodeId}",
     "clusterNodeWithName": "{clusterName}（节点 {nodeId}）"
@@ -2033,6 +2045,48 @@
         "invalidEmail": "请输入有效的邮箱地址",
         "usernameExists": "用户名已存在",
         "cannotDeleteSelf": "不能删除当前登录用户"
+      }
+    },
+    "tokenManagement": {
+      "title": "令牌管理",
+      "subtitle": "为 CLI、脚本和调度 Worker 签发令牌",
+      "createToken": "签发令牌",
+      "revokeToken": "吊销令牌",
+      "revokeConfirm": "确定要吊销令牌 {name} 吗？使用该令牌的登录和脚本会立即失效。",
+      "name": "名称",
+      "namePlaceholder": "例如 dolphin-worker",
+      "owner": "所属用户",
+      "ownerPlaceholder": "选择用户",
+      "prefix": "前缀",
+      "expires": "有效期",
+      "expires7d": "7 天",
+      "expires30d": "30 天",
+      "expires90d": "90 天",
+      "expiresNever": "永久",
+      "expiresCustom": "自定义",
+      "customDaysHint": "1 到 3650 天",
+      "permanent": "永久",
+      "lastUsedAt": "最近使用",
+      "status": "状态",
+      "statusActive": "有效",
+      "statusExpired": "已过期",
+      "statusRevoked": "已吊销",
+      "filterAll": "全部",
+      "searchName": "搜索令牌名称",
+      "noTokens": "暂无令牌",
+      "createSuccess": "令牌已签发，请立即复制",
+      "createError": "签发令牌失败",
+      "revokeSuccess": "令牌已吊销",
+      "revokeError": "吊销令牌失败",
+      "loadError": "加载令牌列表失败",
+      "plaintextTitle": "复制令牌",
+      "plaintextOnce": "令牌原文只显示一次，关闭后无法再查看。",
+      "copied": "已复制令牌",
+      "copyFailed": "复制失败",
+      "errors": {
+        "nameRequired": "请填写令牌名称",
+        "userRequired": "请选择所属用户",
+        "invalidCustomDays": "自定义天数必须是 1 到 3650 的整数"
       }
     }
   },
@@ -4448,12 +4502,8 @@
     "dolphinBoundHint": "再次推送只覆盖该 SHELL 节点脚本，不改连线。",
     "dolphinRemoteScript": "Dolphin 当前脚本",
     "dolphinGeneratedScript": "即将写入的脚本",
-    "dolphinIssueToken": "签发调度令牌",
-    "dolphinSchedulerTokenHint": "这是 Worker 调用 STX 的调度令牌（STX_TOKEN），不是上面连接里的 Dolphin Open API Token。",
-    "dolphinTokenCopied": "调度令牌已复制，请放入 Worker 环境 STX_TOKEN。",
-    "dolphinTokenIssued": "已签发",
-    "dolphinRevokeToken": "吊销调度令牌",
-    "dolphinTokenRevoked": "调度令牌已吊销"
+    "dolphinOpenTokenManagement": "打开令牌管理",
+    "dolphinSchedulerTokenHint": "Worker 的 STX_TOKEN 请到「用户管理 → 令牌管理」签发 stx_ 登录令牌（可永久），不要和连接里的 Dolphin Open API Token 搞混。"
   },
   "troubleshooting": {
     "title": "经验库",

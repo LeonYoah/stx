@@ -33,6 +33,7 @@ import {
   parseExpressionToParts,
   type CronTranslator,
 } from '@/components/common/sync/task-schedule-cron';
+import {formatDateTimeTz, resolveCronTimezone} from '@/lib/timezone';
 
 export interface CronPresetOption {
   key: string;
@@ -55,9 +56,8 @@ export interface CronExpressionEditorLabels {
   invalidCronExpression: string;
 }
 
-function formatDate(date: Date) {
-  const pad = (value: number) => String(value).padStart(2, '0');
-  return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+function formatDate(date: Date, timeZone?: string) {
+  return formatDateTimeTz(date, {timeZone: resolveCronTimezone(timeZone)});
 }
 
 function BuilderFields({
@@ -140,7 +140,12 @@ export function CronExpressionEditor({
       return {
         ok: true,
         text: cronToText(expression || derivedExpression, translator),
-        nextRuns: getNextRuns(expression || derivedExpression, 5),
+        nextRuns: getNextRuns(
+          expression || derivedExpression,
+          5,
+          new Date(),
+          resolveCronTimezone(timezone),
+        ),
       } as const;
     } catch (error) {
       return {
@@ -148,7 +153,7 @@ export function CronExpressionEditor({
         error: error instanceof Error ? error.message : labels.invalidCronExpression,
       } as const;
     }
-  }, [derivedExpression, expression, labels.invalidCronExpression, translator]);
+  }, [derivedExpression, expression, labels.invalidCronExpression, timezone, translator]);
 
   return (
     <div className='space-y-3'>
@@ -256,7 +261,7 @@ export function CronExpressionEditor({
                     key={`${run.toISOString()}-${index}`}
                     className='flex items-center justify-between rounded-md border border-border/50 bg-background/60 px-2.5 py-1 font-mono text-[11px] text-foreground/90'
                   >
-                    <span>{formatDate(run)}</span>
+                    <span>{formatDate(run, timezone)}</span>
                   </div>
                 ))}
               </div>

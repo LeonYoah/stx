@@ -101,6 +101,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
+import {formatDateTimeLocalInput, formatDateTimeTz, wallTimeToRFC3339} from '@/lib/timezone';
 
 type ClusterOption = {
   id: string;
@@ -123,32 +124,21 @@ function formatDateTime(value?: string | null): string {
   if (Number.isNaN(parsed.getTime())) {
     return value;
   }
-  return parsed.toLocaleString();
+  return formatDateTimeTz(parsed);
 }
 
-// 转换为 RFC3339 字符串
-// Convert date string to standard RFC3339 ISO string
+// 把 datetime-local 输入值（用户有效时区的墙上时间）转换为 RFC3339 UTC。
+// Convert a datetime-local value (wall time in the effective user timezone) to RFC3339 UTC.
 function toRFC3339(value: string): string | undefined {
   if (!value) {
     return undefined;
   }
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return undefined;
-  }
-  return parsed.toISOString();
+  return wallTimeToRFC3339(value);
 }
 
-// 格式化为 datetime-local 所需的 YYYY-MM-DDTHH:mm 本地时间字符串
-// Format Date object into YYYY-MM-DDTHH:mm string required by HTML5 datetime-local input
+// 绝对时刻转 datetime-local 输入值（用户有效时区）/ Instant to datetime-local value in the effective user timezone.
 function formatToDateTimeLocal(date: Date): string {
-  const pad = (num: number) => String(num).padStart(2, '0');
-  const year = date.getFullYear();
-  const month = pad(date.getMonth() + 1);
-  const day = pad(date.getDate());
-  const hours = pad(date.getHours());
-  const minutes = pad(date.getMinutes());
-  return `${year}-${month}-${day}T${hours}:${minutes}`;
+  return formatDateTimeLocalInput(date);
 }
 
 // 检查静音是否处于活跃生效状态

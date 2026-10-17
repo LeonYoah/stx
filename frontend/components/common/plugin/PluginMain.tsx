@@ -111,6 +111,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import {formatDateTimeTz} from '@/lib/timezone';
 
 
 interface InstallDialogContext {
@@ -1255,7 +1256,7 @@ export function PluginMain() {
     if (Number.isNaN(date.getTime())) {
       return value;
     }
-    return date.toLocaleString();
+    return formatDateTimeTz(date);
   }, []);
 
   // 胶囊状态栏数据项 / Stat pills items data model

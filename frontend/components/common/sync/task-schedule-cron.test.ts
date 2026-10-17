@@ -109,3 +109,15 @@ describe('task schedule cron', () => {
     expect(() => parseCron('0 0 1 * * *')).toThrow(/5-field/);
   });
 });
+
+describe('getNextRuns timezone', () => {
+  it('evaluates cron in the task timezone, independent of the browser zone', () => {
+    const from = new Date('2026-10-14T07:00:00Z');
+    const shanghai = getNextRuns('30 15 * * *', 2, from, 'Asia/Shanghai');
+    expect(shanghai.map((d) => d.toISOString())).toEqual(['2026-10-14T07:30:00.000Z', '2026-10-15T07:30:00.000Z']);
+    const newYork = getNextRuns('30 3 * * *', 1, from, 'America/New_York');
+    expect(newYork[0].toISOString()).toBe('2026-10-14T07:30:00.000Z');
+    const utc = getNextRuns('0 0 * * MON', 1, from, 'UTC');
+    expect(utc[0].toISOString()).toBe('2026-10-19T00:00:00.000Z');
+  });
+});

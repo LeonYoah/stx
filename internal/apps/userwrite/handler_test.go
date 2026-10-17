@@ -36,6 +36,58 @@ import (
 	"gorm.io/gorm/logger"
 )
 
+func TestCreateAndRevokeCLIToken(t *testing.T) {
+	_, adminUser, handler := newUserWriteTestHandler(t)
+	router := newUserWriteTestRouter(handler, adminUser)
+
+	create := performUserWriteRequest(router, http.MethodPost, "/admin/cli-tokens",
+		`{"user_id":1,"name":"worker","expires_in":"never"}`, "token-create", "", true)
+	if create.Code != http.StatusOK {
+		t.Fatalf("签发令牌失败: status=%d body=%s", create.Code, create.Body.String())
+	}
+	var created struct {
+		Data struct {
+			ID        uint64 `json:"id"`
+			Token     string `json:"token"`
+			Permanent bool   `json:"permanent"`
+			Name      string `json:"name"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(create.Body.Bytes(), &created); err != nil || created.Data.ID == 0 || created.Data.Token == "" || !created.Data.Permanent || created.Data.Name != "worker" {
+		t.Fatalf("签发响应错误: err=%v body=%s", err, create.Body.String())
+	}
+
+	retry := performUserWriteRequest(router, http.MethodPost, "/admin/cli-tokens",
+		`{"user_id":1,"name":"worker","expires_in":"never"}`, "token-create", "", true)
+	if retry.Code != http.StatusOK {
+		t.Fatalf("签发幂等重试失败: status=%d body=%s", retry.Code, retry.Body.String())
+	}
+	if strings.Contains(retry.Body.String(), created.Data.Token) {
+		t.Fatalf("幂等重试不应再次返回令牌原文: %s", retry.Body.String())
+	}
+
+	custom := performUserWriteRequest(router, http.MethodPost, "/admin/cli-tokens",
+		`{"user_id":1,"name":"ci","expires_in":"90d"}`, "token-create-90d", "", true)
+	if custom.Code != http.StatusOK {
+		t.Fatalf("签发 90 天令牌失败: status=%d body=%s", custom.Code, custom.Body.String())
+	}
+	var customCreated struct {
+		Data struct {
+			Permanent bool    `json:"permanent"`
+			ExpiresAt *string `json:"expires_at"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(custom.Body.Bytes(), &customCreated); err != nil || customCreated.Data.Permanent || customCreated.Data.ExpiresAt == nil {
+		t.Fatalf("90 天令牌响应错误: err=%v body=%s", err, custom.Body.String())
+	}
+
+	revokePath := fmt.Sprintf("/admin/cli-tokens/%d/revoke", created.Data.ID)
+	revoked := performUserWriteRequest(router, http.MethodPost, revokePath, "", "token-revoke", "", true)
+	if revoked.Code != http.StatusOK {
+		t.Fatalf("吊销令牌失败: status=%d body=%s", revoked.Code, revoked.Body.String())
+	}
+}
+
 func TestCreateAndUpdateUserUseSharedExecutionWithoutLeakingPassword(t *testing.T) {
 	database, adminUser, handler := newUserWriteTestHandler(t)
 	router := newUserWriteTestRouter(handler, adminUser)
@@ -152,6 +204,28 @@ func TestUpdateProfileRequiresR1ConfirmationAndIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestUpdateProfileTimezone(t *testing.T) {
+	database, adminUser, handler := newUserWriteTestHandler(t)
+	router := newUserWriteTestRouter(handler, adminUser)
+
+	invalid := performUserWriteRequest(router, http.MethodPut, "/auth/profile", `{"timezone":"Mars/Base"}`, "tz-bad", "", true)
+	if invalid.Code != http.StatusBadRequest {
+		t.Fatalf("非法时区应被拒绝: status=%d body=%s", invalid.Code, invalid.Body.String())
+	}
+	set := performUserWriteRequest(router, http.MethodPut, "/auth/profile", `{"timezone":"America/New_York"}`, "tz-set", "", true)
+	if set.Code != http.StatusOK || !strings.Contains(set.Body.String(), `"timezone":"America/New_York"`) {
+		t.Fatalf("设置时区失败: status=%d body=%s", set.Code, set.Body.String())
+	}
+	clear := performUserWriteRequest(router, http.MethodPut, "/auth/profile", `{"timezone":""}`, "tz-clear", "", true)
+	if clear.Code != http.StatusOK {
+		t.Fatalf("清空时区失败: status=%d body=%s", clear.Code, clear.Body.String())
+	}
+	stored, err := auth.FindByID(database, adminUser.ID)
+	if err != nil || stored.Timezone != "" {
+		t.Fatalf("时区应恢复为跟随浏览器: user=%+v err=%v", stored, err)
+	}
+}
+
 func newUserWriteTestHandler(t *testing.T) (*gorm.DB, *auth.User, *Handler) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
@@ -160,7 +234,7 @@ func newUserWriteTestHandler(t *testing.T) (*gorm.DB, *auth.User, *Handler) {
 	if err != nil {
 		t.Fatalf("创建测试数据库失败: %v", err)
 	}
-	if err := database.AutoMigrate(&auth.User{}, &executionapp.Execution{}, &executionapp.Confirmation{}, &audit.AuditLog{}); err != nil {
+	if err := database.AutoMigrate(&auth.User{}, &auth.CLIToken{}, &executionapp.Execution{}, &executionapp.Confirmation{}, &audit.AuditLog{}); err != nil {
 		t.Fatalf("迁移测试表失败: %v", err)
 	}
 	previous := appdb.GetGlobalDB()
@@ -188,6 +262,8 @@ func newUserWriteTestRouter(handler *Handler, currentUser *auth.User) *gin.Engin
 	router.POST("/admin/users", handler.CreateUser)
 	router.PUT("/admin/users/:id", handler.UpdateUser)
 	router.DELETE("/admin/users/:id", handler.DeleteUser)
+	router.POST("/admin/cli-tokens", handler.CreateCLIToken)
+	router.POST("/admin/cli-tokens/:id/revoke", handler.RevokeCLIToken)
 	router.PUT("/auth/profile", handler.UpdateProfile)
 	return router
 }

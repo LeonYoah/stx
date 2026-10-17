@@ -22,7 +22,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/LeonYoah/stx/internal/apps/auth"
 	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
 )
 
@@ -110,27 +109,8 @@ func (s *Service) CancelJobByRef(ctx context.Context, actor executionapp.Actor, 
 	return s.CancelJobForActor(ctx, actor, existing.ID, false)
 }
 
-func (s *Service) enforceSchedulerScope(ctx context.Context, taskID, jobID uint) error {
-	token := auth.CLITokenFromContext(ctx)
-	if token == nil || !token.IsScheduler() {
-		return nil
-	}
-	if taskID == 0 && jobID > 0 {
-		job, err := s.repo.GetJobInstanceByID(ctx, jobID)
-		if err != nil {
-			return err
-		}
-		taskID = job.TaskID
-	}
-	if token.BoundTaskID == nil || *token.BoundTaskID != taskID {
-		return ErrSchedulerTokenRestricted
-	}
-	binding, err := s.repo.GetSchedulerBindingByTaskID(ctx, taskID)
-	if err != nil {
-		return err
-	}
-	if binding == nil {
-		return ErrSchedulerTaskNotBound
-	}
+func (s *Service) enforceSchedulerScope(context.Context, uint, uint) error {
+	// Worker 使用管理员签发的 stx_ 登录令牌，权限与对应用户一致，不再按任务收窄。
+	// Workers use admin-issued stx_ login tokens with the same user permissions; no per-task narrowing.
 	return nil
 }

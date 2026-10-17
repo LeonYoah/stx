@@ -90,11 +90,11 @@ func BuildDolphinShellScript(task *Task, timeout string, variables map[string]st
 	}
 
 	envNotes := strings.Join([]string{
-		"# Worker 环境 stx-cli-prod 需要提供：",
-		"# The stx-cli-prod worker environment must provide:",
+		"# Worker 环境 stx-cli-prod 需要提供管理员签发的 stx_ 登录令牌：",
+		"# The stx-cli-prod worker environment must provide an admin-issued stx_ login token:",
 		"export PATH=/opt/stx/bin:$PATH",
 		"export STX_SERVER=https://stx.internal",
-		"export STX_TOKEN=stxs_••••",
+		"export STX_TOKEN=stx_••••",
 	}, "\n")
 
 	return &DolphinScriptResult{

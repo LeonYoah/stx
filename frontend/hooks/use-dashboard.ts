@@ -17,6 +17,7 @@
 
 import {useState, useEffect, useCallback, useMemo} from 'react';
 import {DashboardService, DashboardResponse} from '@/lib/services/dashboard';
+import {formatTimeTz} from '@/lib/timezone';
 
 /**
  * 缓存数据结构
@@ -147,7 +148,7 @@ export function useDashboard(days: number): UseDashboardReturn {
 
       try {
         const newData = await DashboardService.getAllDashboardData(days);
-        const updateTime = new Date().toLocaleTimeString();
+        const updateTime = formatTimeTz(new Date());
 
         setCachedData(days, newData, updateTime);
 

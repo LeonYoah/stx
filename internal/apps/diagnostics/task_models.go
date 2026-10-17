@@ -381,7 +381,7 @@ func (DiagnosticNodeExecution) TableName() string {
 // DiagnosticStepLog 存储一条任务执行日志。
 type DiagnosticStepLog struct {
 	ID              uint                   `json:"id" gorm:"primaryKey;autoIncrement"`
-	TaskID          uint                   `json:"task_id" gorm:"index;not null"`
+	TaskID          uint                   `json:"task_id" gorm:"index;index:idx_diag_task_logs_task_created,priority:1;not null"`
 	TaskStepID      *uint                  `json:"task_step_id" gorm:"index"`
 	NodeExecutionID *uint                  `json:"node_execution_id" gorm:"index"`
 	StepCode        DiagnosticStepCode     `json:"step_code" gorm:"size:64;index"`
@@ -390,7 +390,7 @@ type DiagnosticStepLog struct {
 	Message         string                 `json:"message" gorm:"type:text"`
 	CommandSummary  string                 `json:"command_summary" gorm:"type:text"`
 	Metadata        DiagnosticLogMetadata  `json:"metadata" gorm:"type:json"`
-	CreatedAt       time.Time              `json:"created_at" gorm:"autoCreateTime;index"`
+	CreatedAt       time.Time              `json:"created_at" gorm:"autoCreateTime;index;index:idx_diag_task_logs_task_created,priority:2"`
 }
 
 // TableName specifies the diagnostic step log table name.

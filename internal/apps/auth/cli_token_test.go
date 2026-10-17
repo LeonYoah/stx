@@ -23,7 +23,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -64,16 +63,22 @@ func newCLITokenTestUser(t *testing.T, database *gorm.DB, active bool) *User {
 
 func TestParseCLITokenTTL(t *testing.T) {
 	tests := []struct {
-		name    string
-		input   string
-		want    time.Duration
-		wantErr bool
+		name      string
+		input     string
+		wantTTL   time.Duration
+		permanent bool
+		wantErr   bool
 	}{
-		{name: "default", input: "", want: DefaultCLITokenTTL},
-		{name: "minimum", input: "7d", want: 7 * 24 * time.Hour},
-		{name: "maximum", input: "30D", want: 30 * 24 * time.Hour},
-		{name: "too short", input: "6d", wantErr: true},
-		{name: "too long", input: "31d", wantErr: true},
+		{name: "default", input: "", wantTTL: DefaultCLITokenTTL},
+		{name: "seven days", input: "7d", wantTTL: 7 * 24 * time.Hour},
+		{name: "thirty days", input: "30D", wantTTL: 30 * 24 * time.Hour},
+		{name: "ninety days", input: "90d", wantTTL: 90 * 24 * time.Hour},
+		{name: "custom one day", input: "1d", wantTTL: 24 * time.Hour},
+		{name: "custom forty five days", input: "45d", wantTTL: 45 * 24 * time.Hour},
+		{name: "never", input: "never", permanent: true},
+		{name: "permanent alias", input: "permanent", permanent: true},
+		{name: "zero days", input: "0d", wantErr: true},
+		{name: "too long", input: "3651d", wantErr: true},
 		{name: "duration is not accepted", input: "168h", wantErr: true},
 	}
 
@@ -89,8 +94,8 @@ func TestParseCLITokenTTL(t *testing.T) {
 			if err != nil {
 				t.Fatalf("解析有效期失败: %v", err)
 			}
-			if got != tt.want {
-				t.Fatalf("有效期 = %s, want %s", got, tt.want)
+			if got.Permanent != tt.permanent || got.TTL != tt.wantTTL {
+				t.Fatalf("有效期 = %+v, want ttl=%s permanent=%v", got, tt.wantTTL, tt.permanent)
 			}
 		})
 	}
@@ -105,7 +110,7 @@ func TestIssueAndAuthenticateCLITokenStoresOnlyHash(t *testing.T) {
 	if err != nil {
 		t.Fatalf("签发令牌失败: %v", err)
 	}
-	if issue.Token == "" || issue.ExpiresAt.Equal(now) {
+	if issue.Token == "" || issue.ExpiresAt == nil || issue.ExpiresAt.Equal(now) || issue.Permanent {
 		t.Fatalf("签发结果不完整: %+v", issue)
 	}
 
@@ -214,6 +219,13 @@ func TestCLILoginRequiresCLIHeaderAndLogoutRevokesToken(t *testing.T) {
 	if whoamiResponse.Code != http.StatusOK {
 		t.Fatalf("whoami 状态码 = %d, body=%s", whoamiResponse.Code, whoamiResponse.Body.String())
 	}
+	var whoami CLIWhoAmIResponse
+	if err := json.Unmarshal(whoamiResponse.Body.Bytes(), &whoami); err != nil {
+		t.Fatalf("解析 whoami 响应失败: %v", err)
+	}
+	if whoami.Data == nil || whoami.Data.TokenID == 0 || whoami.Data.TokenPrefix == "" || whoami.Data.Permanent || whoami.Data.TokenExpiresAt == nil {
+		t.Fatalf("whoami 应返回当前令牌元数据: %+v", whoami)
+	}
 
 	logoutRequest := httptest.NewRequest(http.MethodPost, "/logout", nil)
 	logoutRequest.Header.Set("X-STX-Client", "cli")
@@ -231,34 +243,79 @@ func TestCLILoginRequiresCLIHeaderAndLogoutRevokesToken(t *testing.T) {
 	}
 }
 
-func TestIssueSchedulerTokenNeverExpiresAndRevokesPrevious(t *testing.T) {
+func TestCLILoginIssuesPermanentToken(t *testing.T) {
+	database := newCLITokenTestDB(t)
+	newCLITokenTestUser(t, database, true)
+	appdb.SetGlobalDB(database)
+	t.Cleanup(func() { appdb.SetGlobalDB(nil) })
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.POST("/login", CLIClientRequired(), CLILogin)
+
+	loginBody, _ := json.Marshal(CLILoginRequest{Username: "cli-user", Password: "secret123", ExpiresIn: "never"})
+	request := httptest.NewRequest(http.MethodPost, "/login", bytes.NewReader(loginBody))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-STX-Client", "cli")
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("永久登录状态码 = %d, body=%s", response.Code, response.Body.String())
+	}
+
+	var login CLILoginResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &login); err != nil {
+		t.Fatalf("解析永久登录响应失败: %v", err)
+	}
+	if login.Data == nil || !login.Data.Permanent || login.Data.ExpiresAt != nil || login.Data.Token == "" {
+		t.Fatalf("永久登录响应错误: %+v", login)
+	}
+}
+
+func TestIssueNamedPermanentTokenAndListRevoke(t *testing.T) {
 	database := newCLITokenTestDB(t)
 	user := newCLITokenTestUser(t, database, true)
-	now := time.Date(2026, 10, 16, 10, 0, 0, 0, time.UTC)
+	now := time.Date(2026, 10, 17, 10, 0, 0, 0, time.UTC)
 
-	first, err := IssueSchedulerToken(database, user, 42, now)
+	issue, err := IssueNamedCLIToken(database, user, "dolphin-worker", "never", now)
 	if err != nil {
-		t.Fatalf("签发调度令牌失败: %v", err)
+		t.Fatalf("签发永久令牌失败: %v", err)
 	}
-	if !strings.HasPrefix(first.Token, schedulerCLITokenPrefix) {
-		t.Fatalf("调度令牌前缀错误: %s", first.Token)
-	}
-	if !first.ExpiresAt.IsZero() {
-		t.Fatalf("调度令牌不应设置过期时间: %v", first.ExpiresAt)
+	if !issue.Permanent || issue.ExpiresAt != nil || issue.Name != "dolphin-worker" || issue.Token == "" {
+		t.Fatalf("永久令牌签发结果错误: %+v", issue)
 	}
 
-	second, err := IssueSchedulerToken(database, user, 42, now.Add(time.Minute))
+	got, _, err := AuthenticateCLIToken(database, issue.Token, now.Add(400*24*time.Hour))
 	if err != nil {
-		t.Fatalf("再次签发失败: %v", err)
+		t.Fatalf("永久令牌一年后仍应有效: %v", err)
 	}
-	if _, _, err := AuthenticateCLIToken(database, first.Token, now.Add(time.Hour)); !errors.Is(err, ErrCLITokenRevoked) {
-		t.Fatalf("旧调度令牌应被吊销, err=%v", err)
+	if got.Name != "dolphin-worker" || got.ExpiresAt != nil {
+		t.Fatalf("永久令牌元数据错误: %+v", got)
 	}
-	token, _, err := AuthenticateCLIToken(database, second.Token, now.Add(365*24*time.Hour))
+
+	custom, err := IssueNamedCLIToken(database, user, "ci", "90d", now)
+	if err != nil || custom.Permanent || custom.ExpiresAt == nil {
+		t.Fatalf("90 天令牌签发失败: issue=%+v err=%v", custom, err)
+	}
+
+	items, total, counts, err := ListCLITokens(database, CLITokenFilter{Page: 1, PageSize: 20}, now)
 	if err != nil {
-		t.Fatalf("不过期调度令牌校验失败: %v", err)
+		t.Fatalf("列出令牌失败: %v", err)
 	}
-	if !token.IsScheduler() || token.BoundTaskID == nil || *token.BoundTaskID != 42 {
-		t.Fatalf("调度令牌元数据错误: %+v", token)
+	if total != 2 || counts.Active != 2 || len(items) != 2 {
+		t.Fatalf("令牌列表统计错误: total=%d counts=%+v items=%d", total, counts, len(items))
+	}
+
+	revoked, err := RevokeCLITokenByID(database, issue.ID, now)
+	if err != nil || revoked.RevokedAt == nil {
+		t.Fatalf("按编号吊销失败: token=%+v err=%v", revoked, err)
+	}
+	if _, _, err := AuthenticateCLIToken(database, issue.Token, now); !errors.Is(err, ErrCLITokenRevoked) {
+		t.Fatalf("吊销后仍可认证: %v", err)
+	}
+
+	_, _, counts, err = ListCLITokens(database, CLITokenFilter{Page: 1, PageSize: 20, Status: CLITokenStatusRevoked}, now)
+	if err != nil || counts.Revoked != 1 || counts.Active != 1 {
+		t.Fatalf("吊销后统计错误: counts=%+v err=%v", counts, err)
 	}
 }

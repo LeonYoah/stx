@@ -118,6 +118,88 @@ func firstNonEmptyLocations(candidates ...string) string {
 	return ""
 }
 
+func firstNonEmptyText(candidates ...string) string {
+	for _, candidate := range candidates {
+		if strings.TrimSpace(candidate) != "" {
+			return candidate
+		}
+	}
+	return ""
+}
+
+func globalParamsEmpty(raw string) bool {
+	trimmed := strings.TrimSpace(raw)
+	return trimmed == "" || trimmed == "null" || trimmed == "[]"
+}
+
+// snapshotDolphinGraph 复制整图正文，后续 PUT 以下线前副本为准。
+// snapshotDolphinGraph copies the graph payload so later PUTs keep the pre-OFFLINE body.
+func snapshotDolphinGraph(graph *dolphinGraph) *dolphinGraph {
+	if graph == nil {
+		return nil
+	}
+	cloned := *graph
+	cloned.Tasks = append([]json.RawMessage(nil), graph.Tasks...)
+	cloned.Relations = append([]json.RawMessage(nil), graph.Relations...)
+	return &cloned
+}
+
+// restoreGraphForWriteBack 把下线前的节点/边/坐标写回刷新结果。
+// Dolphin 3.2 OFFLINE 后再 GET 可能清空 locations，甚至只返回部分节点；
+// PUT 是整图覆盖，所以正文必须用下线前那份，刷新结果只保留 version / releaseState。
+// restoreGraphForWriteBack writes the pre-OFFLINE nodes/edges/coordinates onto the refreshed graph.
+// A 3.2 GET after OFFLINE may empty locations or drop siblings; PUT replaces the whole graph,
+// so the body must come from the snapshot while version/releaseState stay on the refresh.
+func restoreGraphForWriteBack(graph, saved *dolphinGraph) {
+	if graph == nil || saved == nil {
+		return
+	}
+	if graph.Code == 0 {
+		graph.Code = saved.Code
+	}
+	graph.Name = firstNonEmptyText(graph.Name, saved.Name)
+	graph.Description = firstNonEmptyText(graph.Description, saved.Description)
+	graph.TenantCode = firstNonEmptyText(graph.TenantCode, saved.TenantCode)
+	graph.ExecutionType = firstNonEmptyText(graph.ExecutionType, saved.ExecutionType)
+	graph.Locations = firstNonEmptyLocations(graph.Locations, saved.Locations)
+	if globalParamsEmpty(graph.GlobalParams) && !globalParamsEmpty(saved.GlobalParams) {
+		graph.GlobalParams = saved.GlobalParams
+	}
+	if graph.Timeout == 0 && saved.Timeout != 0 {
+		graph.Timeout = saved.Timeout
+	}
+	if len(saved.Tasks) > 0 {
+		graph.Tasks = append([]json.RawMessage(nil), saved.Tasks...)
+	}
+	if len(saved.Relations) > 0 {
+		graph.Relations = append([]json.RawMessage(nil), saved.Relations...)
+	}
+}
+
+// assertGraphSafeToWrite 拒绝用空节点/边/坐标覆盖已有工作流。
+// assertGraphSafeToWrite refuses to overwrite an existing workflow with an empty graph.
+func assertGraphSafeToWrite(graph, saved *dolphinGraph) error {
+	if graph == nil || saved == nil {
+		return nil
+	}
+	if len(saved.Tasks) > 0 && len(graph.Tasks) == 0 {
+		return fmt.Errorf("%w: refusing to overwrite workflow with empty task list", ErrDolphinPushInvalid)
+	}
+	if len(saved.Relations) > 0 && len(graph.Relations) == 0 {
+		return fmt.Errorf("%w: refusing to overwrite workflow with empty relations", ErrDolphinPushInvalid)
+	}
+	if !locationsEmpty(saved.Locations) && locationsEmpty(graph.Locations) {
+		return fmt.Errorf("%w: refusing to overwrite workflow with empty locations", ErrDolphinPushInvalid)
+	}
+	for _, raw := range saved.Tasks {
+		code := peekTask(raw).Code
+		if code != 0 && !graphHasTask(graph, code) {
+			return fmt.Errorf("%w: refusing to drop existing task %d on full-graph PUT", ErrDolphinPushInvalid, code)
+		}
+	}
+	return nil
+}
+
 func peekTask(raw json.RawMessage) dolphinTaskPeek {
 	var peek dolphinTaskPeek
 	_ = json.Unmarshal(raw, &peek)

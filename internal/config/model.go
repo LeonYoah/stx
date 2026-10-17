@@ -76,6 +76,12 @@ type AppConfig struct {
 	// Example: "http://192.168.1.100:17800" or "https://stx.example.com"
 	// 示例: "http://192.168.1.100:17800" 或 "https://stx.example.com"
 	ExternalURL string `mapstructure:"external_url"`
+
+	// DisplayTimezone 系统默认展示时区（IANA 名称，默认 Asia/Shanghai）；用于报告渲染、默认 cron 时区与前端默认展示。
+	// 数据库存储始终为 UTC，与此配置无关。环境变量 STX_DISPLAY_TIMEZONE（兼容 STX_REPORT_TIMEZONE）可覆盖。
+	// DisplayTimezone is the system default display timezone (IANA, default Asia/Shanghai) used for reports,
+	// default cron timezone and frontend default display. Storage is always UTC regardless of this setting.
+	DisplayTimezone string `mapstructure:"display_timezone"`
 }
 
 // SyncConfig 同步工作台相关配置。
@@ -109,7 +115,12 @@ type DatabaseConfig struct {
 	MaxIdleConn     int    `mapstructure:"max_idle_conn"`
 	MaxOpenConn     int    `mapstructure:"max_open_conn"`
 	ConnMaxLifetime int    `mapstructure:"conn_max_lifetime"`
-	LogLevel        string `mapstructure:"log_level"`
+	// LegacyTimezone 升级前 MySQL DATETIME 列写入时使用的时区（旧 DSN 为 loc=Local），用于一次性迁移到 UTC；
+	// 为空时使用当前进程 time.Local。SQLite 自带偏移、PostgreSQL 为 timestamptz，均无需此项。
+	// LegacyTimezone is the zone legacy MySQL DATETIME values were written in (old DSN used loc=Local), used once to
+	// migrate them to UTC; empty means the process time.Local. SQLite stores offsets and PostgreSQL uses timestamptz.
+	LegacyTimezone string `mapstructure:"legacy_timezone"`
+	LogLevel       string `mapstructure:"log_level"`
 }
 
 // GRPCConfig gRPC 服务器配置

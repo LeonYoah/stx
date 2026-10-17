@@ -24,8 +24,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/LeonYoah/stx/internal/apps/auth"
 	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
+	"github.com/LeonYoah/stx/internal/pkg/schedulex"
 )
 
 // ListSchedulerConnections 返回脱敏后的调度器连接列表。
@@ -162,8 +162,8 @@ func (s *Service) GetDolphinScript(ctx context.Context, actor executionapp.Actor
 	return BuildDolphinShellScript(task, timeout, variables, workerGroup, environment), nil
 }
 
-// GetDolphinTaskStatus 返回侧边栏需要的绑定、脚本、最近作业和调度令牌摘要。
-// GetDolphinTaskStatus returns the sidebar summary of binding, script, recent jobs, and scheduler token.
+// GetDolphinTaskStatus 返回侧边栏需要的绑定、脚本和最近作业摘要。
+// GetDolphinTaskStatus returns the sidebar summary of binding, script, and recent jobs.
 func (s *Service) GetDolphinTaskStatus(ctx context.Context, actor executionapp.Actor, taskID uint) (*DolphinTaskStatus, error) {
 	task, err := s.GetTaskForActor(ctx, actor, taskID)
 	if err != nil {
@@ -189,13 +189,6 @@ func (s *Service) GetDolphinTaskStatus(ctx context.Context, actor executionapp.A
 			return nil, err
 		}
 		status.RecentJobs = jobs
-	}
-	if token, err := auth.LatestSchedulerTokenForTask(s.repo.db, task.ID); err == nil && token != nil {
-		status.SchedulerToken = &SchedulerTokenView{
-			Issued:     true,
-			Prefix:     token.TokenPrefix,
-			LastUsedAt: token.LastUsedAt,
-		}
 	}
 	return status, nil
 }
@@ -274,8 +267,8 @@ func (s *Service) PushDolphin(ctx context.Context, actor executionapp.Actor, tas
 	}
 }
 
-// UnbindDolphin 只删除 STX 侧绑定并吊销调度令牌，不改 Dolphin 节点。
-// UnbindDolphin removes the STX binding and revokes scheduler tokens without changing the Dolphin node.
+// UnbindDolphin 只删除 STX 侧绑定，不改 Dolphin 节点，也不吊销管理员签发的登录令牌。
+// UnbindDolphin removes the STX binding without changing Dolphin nodes or revoking admin-issued login tokens.
 func (s *Service) UnbindDolphin(ctx context.Context, actor executionapp.Actor, taskID uint) error {
 	task, err := s.GetTaskForActor(ctx, actor, taskID)
 	if err != nil {
@@ -284,10 +277,7 @@ func (s *Service) UnbindDolphin(ctx context.Context, actor executionapp.Actor, t
 	if !task.CanUserEdit(uint(actor.UserID), actor.IsAdmin) {
 		return ErrTaskReadOnly
 	}
-	if err := s.repo.DeleteSchedulerBindingByTaskID(ctx, task.ID); err != nil {
-		return err
-	}
-	return auth.RevokeSchedulerTokensForTask(s.repo.db, task.ID, time.Now())
+	return s.repo.DeleteSchedulerBindingByTaskID(ctx, task.ID)
 }
 
 func (s *Service) pushNewWorkflow(ctx context.Context, actor executionapp.Actor, client *DolphinClient, conn *SchedulerConnection, task *Task, binding *TaskSchedulerBinding, req *DolphinPushRequest, script *DolphinScriptResult, result *DolphinPushResult, projectCode int64) (*DolphinPushResult, error) {
@@ -402,11 +392,6 @@ func (s *Service) pushReuseWorkflow(ctx context.Context, actor executionapp.Acto
 	result.Version = graph.Version
 	result.WorkflowCode = graph.Code
 	result.ReleaseState = graph.ReleaseState
-	// 下线再读定义时 3.2 可能丢掉 locations，先留一份用来合并新节点坐标。
-	// 3.2 may drop locations after OFFLINE reload; keep a copy so the new node can be merged in.
-	savedLocations := graph.Locations
-	savedTasks := append([]json.RawMessage(nil), graph.Tasks...)
-	savedRelations := append([]json.RawMessage(nil), graph.Relations...)
 	if req.DryRun {
 		result.Message = "add a SHELL node and selected edges"
 		return result, nil
@@ -414,26 +399,14 @@ func (s *Service) pushReuseWorkflow(ctx context.Context, actor executionapp.Acto
 
 	offlineWarning := ""
 	if wasOnline {
-		if err := client.Release(ctx, projectCode, graph.Code, dolphinReleaseOffline); err != nil {
+		reloaded, warning, err := offlineAndReloadGraph(ctx, client, projectCode, graph, req.ExpectedVersion)
+		if err != nil {
 			return nil, err
 		}
-		offlineWarning = "DolphinScheduler workflow is OFFLINE; a later write failure needs a manual re-online"
-		refreshed, err := client.GetDefinition(ctx, projectCode, graph.Code)
-		if err != nil {
-			return nil, fmt.Errorf("%s: %w", offlineWarning, err)
-		}
-		if req.ExpectedVersion > 0 && refreshed.Version != req.ExpectedVersion && refreshed.Version != graph.Version {
-			return nil, ErrDolphinVersionConflict
-		}
-		graph = refreshed
-		graph.Locations = firstNonEmptyLocations(graph.Locations, savedLocations)
-		if len(graph.Tasks) == 0 {
-			graph.Tasks = savedTasks
-		}
-		if len(graph.Relations) == 0 {
-			graph.Relations = savedRelations
-		}
+		graph = reloaded
+		offlineWarning = warning
 	}
+	baseline := snapshotDolphinGraph(graph)
 
 	codes, err := client.GenTaskCodes(ctx, projectCode, 1)
 	if err != nil {
@@ -459,6 +432,9 @@ func (s *Service) pushReuseWorkflow(ctx context.Context, actor executionapp.Acto
 		}
 		graph.Relations = append(graph.Relations, marshalRaw(edgeRelation(shell.Code, shell.Version, dolphinTaskDef{Code: downstream.Code, Version: downstream.Version})))
 	}
+	if err := assertGraphSafeToWrite(graph, baseline); err != nil {
+		return nil, wrapOfflineWarning(offlineWarning, err)
+	}
 	if err := client.UpdateDefinition(ctx, projectCode, graph); err != nil {
 		return nil, wrapOfflineWarning(offlineWarning, err)
 	}
@@ -469,6 +445,7 @@ func (s *Service) pushReuseWorkflow(ctx context.Context, actor executionapp.Acto
 		if err := client.OnlineSchedules(ctx, projectCode, graph.Code); err != nil {
 			result.Warning = err.Error()
 		}
+		graph.ReleaseState = dolphinReleaseOnline
 	}
 	saved, err := s.saveBindingAfterPush(ctx, task.ID, conn, projectCode, graph.Code, shell.Code, graph.Name, uint(actor.UserID), client.style)
 	if err != nil {
@@ -505,11 +482,6 @@ func (s *Service) pushUpdateNode(ctx context.Context, actor executionapp.Actor, 
 	result.WorkflowCode = graph.Code
 	result.TaskCode = binding.TaskCode
 	result.ReleaseState = graph.ReleaseState
-	// update 同样是整图 PUT：下线后若 locations/兄弟节点丢失，必须用下线前的副本回填。
-	// update is also a full-graph PUT: restore pre-OFFLINE locations/siblings if the reload drops them.
-	savedLocations := graph.Locations
-	savedTasks := append([]json.RawMessage(nil), graph.Tasks...)
-	savedRelations := append([]json.RawMessage(nil), graph.Relations...)
 	if req.DryRun {
 		result.Message = "overwrite the bound SHELL node without changing edges"
 		return result, nil
@@ -517,25 +489,12 @@ func (s *Service) pushUpdateNode(ctx context.Context, actor executionapp.Actor, 
 
 	offlineWarning := ""
 	if wasOnline {
-		if err := client.Release(ctx, binding.ProjectCode, graph.Code, dolphinReleaseOffline); err != nil {
+		reloaded, warning, err := offlineAndReloadGraph(ctx, client, binding.ProjectCode, graph, req.ExpectedVersion)
+		if err != nil {
 			return nil, err
 		}
-		offlineWarning = "DolphinScheduler workflow is OFFLINE; a later write failure needs a manual re-online"
-		refreshed, err := client.GetDefinition(ctx, binding.ProjectCode, graph.Code)
-		if err != nil {
-			return nil, fmt.Errorf("%s: %w", offlineWarning, err)
-		}
-		if req.ExpectedVersion > 0 && refreshed.Version != req.ExpectedVersion && refreshed.Version != graph.Version {
-			return nil, ErrDolphinVersionConflict
-		}
-		graph = refreshed
-		graph.Locations = firstNonEmptyLocations(graph.Locations, savedLocations)
-		if len(graph.Tasks) == 0 {
-			graph.Tasks = savedTasks
-		}
-		if len(graph.Relations) == 0 {
-			graph.Relations = savedRelations
-		}
+		graph = reloaded
+		offlineWarning = warning
 		currentPeek, index, ok = peekTaskByCode(graph, binding.TaskCode)
 		if !ok {
 			return nil, wrapOfflineWarning(offlineWarning, ErrDolphinNodeMissing)
@@ -544,6 +503,7 @@ func (s *Service) pushUpdateNode(ctx context.Context, actor executionapp.Actor, 
 			return nil, wrapOfflineWarning(offlineWarning, boundNodeNotShellError(binding.TaskCode, currentPeek.TaskType))
 		}
 	}
+	baseline := snapshotDolphinGraph(graph)
 
 	patched, version, err := patchShellTaskRaw(graph.Tasks[index], defaultString(strings.TrimSpace(task.Name), currentPeek.Name), script.Script, defaultString(script.WorkerGroup, ""), dolphinNodeTimeoutMinutes(script.Timeout))
 	if err != nil {
@@ -551,6 +511,9 @@ func (s *Service) pushUpdateNode(ctx context.Context, actor executionapp.Actor, 
 	}
 	graph.Tasks[index] = patched
 	graph.Relations = bumpRelationTaskVersion(graph.Relations, binding.TaskCode, version)
+	if err := assertGraphSafeToWrite(graph, baseline); err != nil {
+		return nil, wrapOfflineWarning(offlineWarning, err)
+	}
 	if err := client.UpdateDefinition(ctx, binding.ProjectCode, graph); err != nil {
 		return nil, wrapOfflineWarning(offlineWarning, err)
 	}
@@ -561,6 +524,8 @@ func (s *Service) pushUpdateNode(ctx context.Context, actor executionapp.Actor, 
 		if err := client.OnlineSchedules(ctx, binding.ProjectCode, graph.Code); err != nil {
 			result.Warning = err.Error()
 		}
+		graph.ReleaseState = dolphinReleaseOnline
+		result.ReleaseState = dolphinReleaseOnline
 	}
 	saved, err := s.saveBindingAfterPush(ctx, task.ID, conn, binding.ProjectCode, graph.Code, binding.TaskCode, graph.Name, uint(actor.UserID), client.style)
 	if err != nil {
@@ -678,11 +643,11 @@ func normalizeSchedulerConnection(existing *SchedulerConnection, req *SchedulerC
 func builtinScheduleForDolphin(task *Task) (cronExpr, timezone string) {
 	cfg, err := parseTaskSchedule(task.Definition)
 	if err != nil || cfg == nil || strings.TrimSpace(cfg.CronExpr) == "" {
-		return "", defaultTaskScheduleTimezone
+		return "", schedulex.NormalizeTimezone("")
 	}
 	timezone = cfg.Timezone
 	if timezone == "" {
-		timezone = defaultTaskScheduleTimezone
+		timezone = schedulex.NormalizeTimezone("")
 	}
 	return cfg.CronExpr, timezone
 }
@@ -744,47 +709,26 @@ func wrapOfflineWarning(warning string, err error) error {
 	return fmt.Errorf("%s: %w", warning, err)
 }
 
-// IssueSchedulerTokenForTask 为已绑定任务签发调度令牌，旧令牌会被吊销。
-// IssueSchedulerTokenForTask issues a scheduler token for a bound task and revokes previous ones.
-func (s *Service) IssueSchedulerTokenForTask(ctx context.Context, actor executionapp.Actor, taskID uint, user *auth.User) (*SchedulerTokenIssueResult, error) {
-	task, err := s.GetTaskForActor(ctx, actor, taskID)
+// offlineAndReloadGraph 先 OFFLINE 再 GET，但整图正文以下线前副本回写。
+// 3.2 下线后 GET 可能清空 locations 或丢掉兄弟节点；PUT 会整图覆盖，绝不能用残缺结果去保存。
+// offlineAndReloadGraph takes the workflow OFFLINE then GETs it, but writes back the pre-OFFLINE graph body.
+// A 3.2 GET after OFFLINE may empty locations or drop siblings; PUT replaces the whole graph, so a partial result must not be saved.
+func offlineAndReloadGraph(ctx context.Context, client *DolphinClient, projectCode int64, graph *dolphinGraph, expectedVersion int) (*dolphinGraph, string, error) {
+	saved := snapshotDolphinGraph(graph)
+	if err := client.Release(ctx, projectCode, graph.Code, dolphinReleaseOffline); err != nil {
+		return nil, "", err
+	}
+	offlineWarning := "DolphinScheduler workflow is OFFLINE; a later write failure needs a manual re-online"
+	refreshed, err := client.GetDefinition(ctx, projectCode, graph.Code)
 	if err != nil {
-		return nil, err
+		return nil, offlineWarning, fmt.Errorf("%s: %w", offlineWarning, err)
 	}
-	if !task.CanUserEdit(uint(actor.UserID), actor.IsAdmin) {
-		return nil, ErrTaskReadOnly
+	if expectedVersion > 0 && refreshed.Version != expectedVersion && refreshed.Version != saved.Version {
+		return nil, offlineWarning, ErrDolphinVersionConflict
 	}
-	binding, err := s.repo.GetSchedulerBindingByTaskID(ctx, task.ID)
-	if err != nil {
-		return nil, err
+	restoreGraphForWriteBack(refreshed, saved)
+	if err := assertGraphSafeToWrite(refreshed, saved); err != nil {
+		return nil, offlineWarning, wrapOfflineWarning(offlineWarning, err)
 	}
-	if binding == nil {
-		return nil, ErrSchedulerTaskNotBound
-	}
-	issued, err := auth.IssueSchedulerToken(s.repo.db, user, task.ID, time.Now())
-	if err != nil {
-		return nil, err
-	}
-	result := &SchedulerTokenIssueResult{Token: issued.Token, Prefix: issued.Token, Kind: auth.CLITokenKindScheduler}
-	if len(issued.Token) >= 12 {
-		result.Prefix = issued.Token[:12]
-	}
-	if !issued.ExpiresAt.IsZero() {
-		expires := issued.ExpiresAt
-		result.ExpiresAt = &expires
-	}
-	return result, nil
-}
-
-// RevokeSchedulerTokenForTask 吊销任务上的调度令牌。
-// RevokeSchedulerTokenForTask revokes scheduler tokens bound to the task.
-func (s *Service) RevokeSchedulerTokenForTask(ctx context.Context, actor executionapp.Actor, taskID uint) error {
-	task, err := s.GetTaskForActor(ctx, actor, taskID)
-	if err != nil {
-		return err
-	}
-	if !task.CanUserEdit(uint(actor.UserID), actor.IsAdmin) {
-		return ErrTaskReadOnly
-	}
-	return auth.RevokeSchedulerTokensForTask(s.repo.db, task.ID, time.Now())
+	return refreshed, offlineWarning, nil
 }

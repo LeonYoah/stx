@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/LeonYoah/stx/internal/apps/monitor"
+	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
 
 // AlertPolicyExecutionStateUpdate describes aggregate execution changes for one policy.
@@ -499,7 +500,7 @@ func (s *Service) dispatchLocalAlertPolicyDelivery(
 	if err != nil {
 		return nil, err
 	}
-	handlingStatus := resolveAlertHandlingStatus(alertState, time.Now().UTC())
+	handlingStatus := resolveAlertHandlingStatus(alertState, timex.Now())
 	if handlingStatus == AlertHandlingStatusClosed {
 		return nil, nil
 	}
@@ -690,7 +691,7 @@ func buildLocalAlertPolicyPayload(
 			"title":   title,
 			"message": message,
 			"alert":   alert,
-			"sent_at": time.Now().UTC().Format(time.RFC3339),
+			"sent_at": timex.Now().Format(time.RFC3339),
 		}, nil
 	case NotificationChannelTypeWeCom, NotificationChannelTypeDingTalk:
 		return map[string]interface{}{
@@ -978,15 +979,16 @@ func formatAlertNotificationTime(value time.Time) string {
 	}
 
 	utcValue := value.UTC()
-	localValue := utcValue.In(time.Local)
+	localValue := utcValue.In(timex.DisplayLocation())
 	localLine := fmt.Sprintf(
-		"%s (server local)",
+		"%s (%s)",
 		localValue.Format("2006-01-02 15:04:05 -07:00"),
+		timex.DisplayTimezone(),
 	)
 	utcLine := fmt.Sprintf("%s (UTC)", utcValue.Format(time.RFC3339))
 
-	// Always include UTC for cross-region consistency, and include server-local time
-	// to match what operators usually see on the deployment host.
+	// Always include UTC for cross-region consistency, and include the configured display timezone
+	// (app.display_timezone) instead of the process-local zone.
 	// 始终保留 UTC 以便跨时区排障，同时补充服务器本地时间，减少运维侧阅读歧义。
 	return localLine + "\n" + utcLine
 }

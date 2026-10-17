@@ -458,6 +458,201 @@ func TestPushDolphinReusePreservesExistingGraph(t *testing.T) {
 	}
 }
 
+func TestPushDolphinUpdateRestoresSiblingsWhenOfflineGetDropsThem(t *testing.T) {
+	sparkNode := json.RawMessage(`{"code":11,"name":"spark_job","taskType":"SPARK","version":3,"taskGroupId":7,"taskParams":{"sparkVersion":"3.3"}}`)
+	shellNode := json.RawMessage(`{"code":88,"name":"stx","taskType":"SHELL","version":1,"isCache":"NO","taskExecuteType":"BATCH","taskParams":{"rawScript":"old"}}`)
+	conditionNode := json.RawMessage(`{"code":99,"name":"gate","taskType":"CONDITIONS","version":4,"taskParams":{}}`)
+	locations := `[{"taskCode":11,"x":12.5,"y":80,"extra":"pin"},{"taskCode":88,"x":240,"y":160},{"taskCode":99,"x":400,"y":80}]`
+	gets := 0
+	var putForm url.Values
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if strings.Contains(request.URL.Path, "workflow-definition") {
+			http.NotFound(writer, request)
+			return
+		}
+		if strings.HasSuffix(request.URL.Path, "/process-definition") && request.Method == http.MethodGet {
+			writeDolphinOK(writer, map[string]any{"totalList": []any{}})
+			return
+		}
+		if strings.Contains(request.URL.Path, "/process-definition/9") && request.Method == http.MethodGet {
+			gets++
+			payload := map[string]any{
+				"processDefinition": map[string]any{
+					"code": 9, "name": "wf", "version": 6, "releaseState": "ONLINE", "executionType": "SERIAL",
+					"locations": locations, "globalParams": `[{"prop":"biz","value":"keep"}]`,
+				},
+				"taskDefinitionList":      []json.RawMessage{sparkNode, shellNode, conditionNode},
+				"processTaskRelationList": []map[string]any{{"preTaskCode": 11, "preTaskVersion": 3, "postTaskCode": 88, "postTaskVersion": 1, "id": 55}},
+			}
+			if gets > 1 {
+				// 模拟 3.2 OFFLINE 后再 GET：locations 被清空，兄弟节点也丢了。
+				// Simulate 3.2 GET after OFFLINE: locations emptied and sibling nodes dropped.
+				payload["processDefinition"] = map[string]any{
+					"code": 9, "name": "wf", "version": 6, "releaseState": "OFFLINE",
+					"locations": "", "globalParams": "[]",
+				}
+				payload["taskDefinitionList"] = []json.RawMessage{shellNode}
+				payload["processTaskRelationList"] = []any{}
+			}
+			writeDolphinOK(writer, payload)
+			return
+		}
+		if strings.Contains(request.URL.Path, "/process-definition/9") && request.Method == http.MethodPut {
+			body, _ := io.ReadAll(request.Body)
+			putForm, _ = url.ParseQuery(string(body))
+			writeDolphinOK(writer, map[string]any{})
+			return
+		}
+		if strings.Contains(request.URL.Path, "/release") || strings.Contains(request.URL.Path, "/schedules") {
+			writeDolphinOK(writer, true)
+			return
+		}
+		writeDolphinOK(writer, map[string]any{})
+	}))
+	defer server.Close()
+
+	service, task, connID := newBoundPushService(t, server)
+	if err := service.repo.SaveSchedulerBinding(context.Background(), &TaskSchedulerBinding{
+		TaskID: task.ID, Kind: SchedulerKindDolphin, ConnectionID: connID, ProjectCode: 7, WorkflowCode: 9, TaskCode: 88,
+	}); err != nil {
+		t.Fatalf("save binding: %v", err)
+	}
+	if _, err := service.PushDolphin(context.Background(), executionapp.Actor{UserID: 1, IsAdmin: true}, task.ID, &DolphinPushRequest{
+		Mode: "update", ConnectionID: connID,
+	}); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	var tasks []json.RawMessage
+	if err := json.Unmarshal([]byte(putForm.Get("taskDefinitionJson")), &tasks); err != nil {
+		t.Fatalf("tasks: %v", err)
+	}
+	if len(tasks) != 3 || string(tasks[0]) != string(sparkNode) || string(tasks[2]) != string(conditionNode) {
+		t.Fatalf("incomplete OFFLINE GET dropped siblings on PUT: %s", putForm.Get("taskDefinitionJson"))
+	}
+	if !strings.Contains(putForm.Get("locations"), `"extra":"pin"`) {
+		t.Fatalf("incomplete OFFLINE GET wiped locations: %s", putForm.Get("locations"))
+	}
+	if !strings.Contains(putForm.Get("globalParams"), `"biz"`) {
+		t.Fatalf("incomplete OFFLINE GET wiped globalParams: %s", putForm.Get("globalParams"))
+	}
+	if !strings.Contains(putForm.Get("taskRelationJson"), `"id":55`) {
+		t.Fatalf("incomplete OFFLINE GET wiped relations: %s", putForm.Get("taskRelationJson"))
+	}
+}
+
+func TestPushDolphinReuseRestoresGraphAfterOnlineOffline(t *testing.T) {
+	existingTask := json.RawMessage(`{"code":11,"name":"up","taskType":"SPARK","version":2,"taskGroupId":9,"taskParams":{"mainClass":"Keep"}}`)
+	locations := `[{"taskCode":11,"x":10,"y":20,"name":"up"}]`
+	gets := 0
+	var putForm url.Values
+	wrotePut := false
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if strings.Contains(request.URL.Path, "workflow-definition") {
+			http.NotFound(writer, request)
+			return
+		}
+		if strings.Contains(request.URL.Path, "gen-task-codes") {
+			writeDolphinOK(writer, []int64{88001})
+			return
+		}
+		if strings.HasSuffix(request.URL.Path, "/process-definition") && request.Method == http.MethodGet {
+			writeDolphinOK(writer, map[string]any{"totalList": []any{}})
+			return
+		}
+		if strings.Contains(request.URL.Path, "/process-definition/9") && request.Method == http.MethodGet {
+			gets++
+			payload := map[string]any{
+				"processDefinition": map[string]any{
+					"code": 9, "name": "wf", "version": 3, "releaseState": "ONLINE",
+					"locations": locations, "globalParams": `[{"prop":"k","value":"v"}]`,
+				},
+				"taskDefinitionList":      []json.RawMessage{existingTask},
+				"processTaskRelationList": []map[string]any{{"preTaskCode": 0, "postTaskCode": 11, "id": 7}},
+			}
+			if gets > 1 {
+				payload["processDefinition"] = map[string]any{
+					"code": 9, "name": "wf", "version": 3, "releaseState": "OFFLINE", "locations": "[]",
+				}
+				payload["taskDefinitionList"] = []json.RawMessage{}
+				payload["processTaskRelationList"] = []any{}
+			}
+			writeDolphinOK(writer, payload)
+			return
+		}
+		if request.Method == http.MethodPut {
+			wrotePut = true
+			body, _ := io.ReadAll(request.Body)
+			putForm, _ = url.ParseQuery(string(body))
+			writeDolphinOK(writer, map[string]any{})
+			return
+		}
+		if strings.Contains(request.URL.Path, "/release") || strings.Contains(request.URL.Path, "/schedules") {
+			writeDolphinOK(writer, true)
+			return
+		}
+		writeDolphinOK(writer, map[string]any{})
+	}))
+	defer server.Close()
+
+	service, task, connID := newBoundPushService(t, server)
+	if _, err := service.PushDolphin(context.Background(), executionapp.Actor{UserID: 1, IsAdmin: true}, task.ID, &DolphinPushRequest{
+		Mode: "reuse", ConnectionID: connID, ProjectCode: 7, WorkflowCode: 9, Upstreams: []int64{11},
+	}); err != nil {
+		t.Fatalf("reuse: %v", err)
+	}
+	if !wrotePut {
+		t.Fatal("expected PUT definition")
+	}
+	var tasks []json.RawMessage
+	if err := json.Unmarshal([]byte(putForm.Get("taskDefinitionJson")), &tasks); err != nil {
+		t.Fatalf("tasks: %v", err)
+	}
+	if len(tasks) != 2 || string(tasks[0]) != string(existingTask) {
+		t.Fatalf("reuse after OFFLINE dropped existing node: %s", putForm.Get("taskDefinitionJson"))
+	}
+	if !strings.Contains(putForm.Get("locations"), `"name":"up"`) || !strings.Contains(putForm.Get("locations"), `"taskCode":88001`) {
+		t.Fatalf("reuse after OFFLINE locations = %s", putForm.Get("locations"))
+	}
+	if !strings.Contains(putForm.Get("taskRelationJson"), `"id":7`) {
+		t.Fatalf("reuse after OFFLINE dropped relation extras: %s", putForm.Get("taskRelationJson"))
+	}
+	if !strings.Contains(putForm.Get("globalParams"), `"k"`) {
+		t.Fatalf("reuse after OFFLINE dropped globalParams: %s", putForm.Get("globalParams"))
+	}
+}
+
+func TestRestoreGraphForWriteBackKeepsSavedPayload(t *testing.T) {
+	saved := &dolphinGraph{
+		Code: 9, Name: "wf", TenantCode: "default", ExecutionType: "SERIAL", Timeout: 30,
+		GlobalParams: `[{"prop":"biz","value":"keep"}]`,
+		Locations:    `[{"taskCode":11,"x":1,"y":2,"extra":"pin"}]`,
+		Tasks:        []json.RawMessage{json.RawMessage(`{"code":11,"taskGroupId":7}`), json.RawMessage(`{"code":88}`)},
+		Relations:    []json.RawMessage{json.RawMessage(`{"id":55,"preTaskCode":11,"postTaskCode":88}`)},
+	}
+	refreshed := &dolphinGraph{
+		Code: 9, Version: 8, ReleaseState: dolphinReleaseOffline, Name: "wf",
+		GlobalParams: "[]", Locations: "[]",
+		Tasks:     []json.RawMessage{json.RawMessage(`{"code":88}`)},
+		Relations: []json.RawMessage{},
+	}
+	restoreGraphForWriteBack(refreshed, saved)
+	if err := assertGraphSafeToWrite(refreshed, saved); err != nil {
+		t.Fatalf("restored graph rejected: %v", err)
+	}
+	if len(refreshed.Tasks) != 2 || string(refreshed.Tasks[0]) != `{"code":11,"taskGroupId":7}` {
+		t.Fatalf("tasks not restored: %s", refreshed.Tasks)
+	}
+	if !strings.Contains(refreshed.Locations, `"extra":"pin"`) {
+		t.Fatalf("locations not restored: %s", refreshed.Locations)
+	}
+	if refreshed.ExecutionType != "SERIAL" || !strings.Contains(refreshed.GlobalParams, `"biz"`) {
+		t.Fatalf("metadata not restored: %+v", refreshed)
+	}
+	if err := assertGraphSafeToWrite(&dolphinGraph{Tasks: []json.RawMessage{json.RawMessage(`{"code":88}`)}}, saved); err == nil {
+		t.Fatal("expected refusal when PUT would drop a sibling node")
+	}
+}
+
 func newPushServiceWithDolphin(t *testing.T, server *httptest.Server, version, style string) (*Service, *Task, uint) {
 	t.Helper()
 	service := newTestSyncService(t)

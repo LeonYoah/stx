@@ -60,6 +60,7 @@ import {useGSAP} from '@gsap/react';
 import {TableLoadingBar, TableSkeletonRows} from '@/components/common/layout';
 import {animateTableRows} from '@/lib/animations/gsap-motion';
 import {HostInfo, HostType, HostStatus} from '@/lib/services/host/types';
+import {formatDateTz} from '@/lib/timezone';
 
 interface HostTableProps {
   hosts: HostInfo[];
@@ -295,7 +296,7 @@ export function HostTable({
                     </div>
                   </TableCell>
                   <TableCell>
-                    {new Date(host.created_at).toLocaleDateString()}
+                    {formatDateTz(host.created_at)}
                   </TableCell>
                   <TableCell>
                     <div className='flex items-center gap-1'>

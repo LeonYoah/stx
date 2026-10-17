@@ -149,12 +149,48 @@ function isWildcardField(value: string) {
   return value.trim() === '*';
 }
 
-export function matchDate(parsed: ReturnType<typeof parseCron>, date: Date) {
-  const minuteMatched = parsed.expanded.minute.includes(date.getMinutes());
-  const hourMatched = parsed.expanded.hour.includes(date.getHours());
-  const monthMatched = parsed.expanded.month.includes(date.getMonth() + 1);
-  const domMatched = parsed.expanded.dayOfMonth.includes(date.getDate());
-  const dowMatched = parsed.expanded.dayOfWeek.includes(date.getDay());
+const WEEKDAY_INDEX: Record<string, number> = {Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6};
+
+/**
+ * 取指定时区下的墙上时间字段；未指定时区时使用浏览器本地时区。
+ * Wall-clock fields in the given IANA timezone (browser-local when omitted).
+ */
+export function wallClock(date: Date, timeZone?: string) {
+  if (!timeZone) {
+    return {
+      minute: date.getMinutes(),
+      hour: date.getHours(),
+      month: date.getMonth() + 1,
+      day: date.getDate(),
+      weekday: date.getDay(),
+    };
+  }
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hourCycle: 'h23',
+    minute: 'numeric',
+    hour: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+    weekday: 'short',
+  }).formatToParts(date);
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? '';
+  return {
+    minute: Number(get('minute')),
+    hour: Number(get('hour')) % 24,
+    month: Number(get('month')),
+    day: Number(get('day')),
+    weekday: WEEKDAY_INDEX[get('weekday')] ?? 0,
+  };
+}
+
+export function matchDate(parsed: ReturnType<typeof parseCron>, date: Date, timeZone?: string) {
+  const clock = wallClock(date, timeZone);
+  const minuteMatched = parsed.expanded.minute.includes(clock.minute);
+  const hourMatched = parsed.expanded.hour.includes(clock.hour);
+  const monthMatched = parsed.expanded.month.includes(clock.month);
+  const domMatched = parsed.expanded.dayOfMonth.includes(clock.day);
+  const dowMatched = parsed.expanded.dayOfWeek.includes(clock.weekday);
 
   const domWildcard = isWildcardField(parsed.fields.dayOfMonth);
   const dowWildcard = isWildcardField(parsed.fields.dayOfWeek);
@@ -173,21 +209,24 @@ export function matchDate(parsed: ReturnType<typeof parseCron>, date: Date) {
   return minuteMatched && hourMatched && monthMatched && dayMatched;
 }
 
-export function getNextRuns(expr: string, count = 5, from = new Date()) {
+/**
+ * 计算下几次触发时间；timeZone 为任务时区（与后端调度一致），省略时使用浏览器时区。
+ * Next fire times; timeZone is the task timezone (matching the backend scheduler), browser-local when omitted.
+ */
+export function getNextRuns(expr: string, count = 5, from = new Date(), timeZone?: string) {
   const parsed = parseCron(expr);
   const results: Date[] = [];
-  const cursor = new Date(from);
-  cursor.setSeconds(0, 0);
-  cursor.setMinutes(cursor.getMinutes() + 1);
+  // 按绝对分钟步进（所有现行时区偏移都是整分钟）/ step absolute minutes (all real offsets are whole minutes)
+  const cursor = new Date(Math.floor(from.getTime() / 60000) * 60000 + 60000);
 
   let attempts = 0;
   const maxAttempts = 60 * 24 * 366;
 
   while (results.length < count && attempts < maxAttempts) {
-    if (matchDate(parsed, cursor)) {
+    if (matchDate(parsed, cursor, timeZone)) {
       results.push(new Date(cursor));
     }
-    cursor.setMinutes(cursor.getMinutes() + 1);
+    cursor.setTime(cursor.getTime() + 60000);
     attempts += 1;
   }
 

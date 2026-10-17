@@ -62,6 +62,7 @@ import {Puzzle, RefreshCw, Trash2, Loader2, Plus, Eye, Layers3, Package} from 'l
 import {useRouter} from 'next/navigation';
 import services from '@/lib/services';
 import {InstalledPlugin, PluginDependency} from '@/lib/services/plugin/types';
+import {formatDateTimeTz} from '@/lib/timezone';
 
 interface ClusterPluginsProps {
   clusterId: number;
@@ -215,7 +216,7 @@ export function ClusterPlugins({clusterId}: ClusterPluginsProps) {
                       </TableCell>
                       <TableCell>{plugin.version}</TableCell>
                       <TableCell>
-                        {new Date(plugin.installed_at).toLocaleString()}
+                        {formatDateTimeTz(plugin.installed_at)}
                       </TableCell>
                       <TableCell className="w-[260px]">
                         <div className="flex items-center justify-end gap-2">
@@ -341,7 +342,7 @@ function InstalledPluginDetailDialog({
             {plugin
               ? t('plugin.clusterPluginDetailDesc', {
                   version: plugin.version,
-                  installedAt: new Date(plugin.installed_at).toLocaleString(),
+                  installedAt: formatDateTimeTz(plugin.installed_at),
                 })
               : ''}
           </DialogDescription>

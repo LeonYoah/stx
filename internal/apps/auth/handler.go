@@ -23,10 +23,11 @@ import (
 	"net/mail"
 	"strings"
 
-	"github.com/LeonYoah/stx/internal/db"
-	"github.com/LeonYoah/stx/internal/logger"
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
+
+	"github.com/LeonYoah/stx/internal/db"
+	"github.com/LeonYoah/stx/internal/logger"
 )
 
 // 会话键常量
@@ -74,6 +75,9 @@ type LogoutResponse struct {
 type UpdateProfileRequest struct {
 	Email    string `json:"email" binding:"omitempty,max=255"`
 	Language string `json:"language" binding:"omitempty,oneof=zh en"`
+	// Timezone 为 nil 表示不修改；空串表示跟随浏览器；否则必须为 IANA 时区。
+	// Timezone nil = unchanged; "" = follow browser; otherwise an IANA timezone name.
+	Timezone *string `json:"timezone"`
 }
 
 // UpdateProfileResponse 更新当前登录用户的个人信息响应。
@@ -222,7 +226,17 @@ func UpdateProfile(c *gin.Context) {
 	language := NormalizeLanguage(req.Language)
 	hasEmail := email != ""
 	hasLanguage := strings.TrimSpace(req.Language) != ""
-	if !hasEmail && !hasLanguage {
+	hasTimezone := req.Timezone != nil
+	timezone := ""
+	if hasTimezone {
+		normalized, ok := NormalizeTimezone(*req.Timezone)
+		if !ok {
+			c.JSON(http.StatusBadRequest, UpdateProfileResponse{ErrorMsg: "时区不合法 / Invalid timezone"})
+			return
+		}
+		timezone = normalized
+	}
+	if !hasEmail && !hasLanguage && !hasTimezone {
 		c.JSON(http.StatusBadRequest, UpdateProfileResponse{ErrorMsg: "至少提供一个可更新字段 / At least one field is required"})
 		return
 	}
@@ -244,12 +258,15 @@ func UpdateProfile(c *gin.Context) {
 		return
 	}
 
-	updates := make(map[string]interface{}, 2)
+	updates := make(map[string]interface{}, 3)
 	if hasEmail {
 		updates["email"] = email
 	}
 	if hasLanguage {
 		updates["language"] = language
+	}
+	if hasTimezone {
+		updates["timezone"] = timezone
 	}
 
 	if err := db.GetDB(c.Request.Context()).
@@ -266,7 +283,10 @@ func UpdateProfile(c *gin.Context) {
 	if hasLanguage {
 		user.Language = language
 	}
-	logger.InfoF(c.Request.Context(), "[Auth] 更新个人信息成功: user_id=%d email_updated=%t language_updated=%t", userID, hasEmail, hasLanguage)
+	if hasTimezone {
+		user.Timezone = timezone
+	}
+	logger.InfoF(c.Request.Context(), "[Auth] 更新个人信息成功: user_id=%d email_updated=%t language_updated=%t timezone_updated=%t", userID, hasEmail, hasLanguage, hasTimezone)
 	c.JSON(http.StatusOK, UpdateProfileResponse{Data: user.ToUserInfo()})
 }
 

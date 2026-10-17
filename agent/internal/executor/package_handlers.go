@@ -126,6 +126,12 @@ type TransferPackageResponse struct {
 // HandleTransferPackageCommand handles the TRANSFER_PACKAGE command
 // HandleTransferPackageCommand 处理 TRANSFER_PACKAGE 命令
 func HandleTransferPackageCommand(ctx context.Context, cmd *pb.CommandRequest, reporter ProgressReporter) (*pb.CommandResponse, error) {
+	// Pull mode: fetch raw bytes over the dedicated DownloadPackage stream.
+	// Pull 模式：通过专用 DownloadPackage 流拉取原始字节。
+	if cmd.Parameters["mode"] == "pull" {
+		return handlePullTransfer(ctx, cmd, reporter)
+	}
+
 	// Parse request from parameters / 从参数解析请求
 	req, err := parseTransferPackageRequest(cmd.Parameters)
 	if err != nil {
@@ -150,11 +156,14 @@ func HandleTransferPackageCommand(ctx context.Context, cmd *pb.CommandRequest, r
 	// Build response / 构建响应
 	respJSON, _ := json.Marshal(resp)
 
-	// Use RUNNING status for intermediate chunks, SUCCESS for last chunk
-	// 中间块使用 RUNNING 状态，最后一块使用 SUCCESS 状态
-	status := pb.CommandStatus_RUNNING
-	if req.IsLast && resp.Success {
-		status = pb.CommandStatus_SUCCESS
+	// Legacy push mode: every chunk is its own command, so each reply must be terminal.
+	// (RUNNING is treated as intermediate progress by the Control Plane and would never
+	// wake the waiting caller, which stalled every chunk until its timeout.)
+	// 旧版推送模式：每个数据块是独立命令，因此每次回复都必须是终态。
+	// （Control Plane 将 RUNNING 视为中间进度，不会唤醒等待方，导致每块都卡到超时。）
+	status := pb.CommandStatus_SUCCESS
+	if !resp.Success {
+		status = pb.CommandStatus_FAILED
 	}
 
 	progress := int32(0)

@@ -23,9 +23,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/LeonYoah/stx/internal/apps/monitor"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
+
+	"github.com/LeonYoah/stx/internal/apps/monitor"
+	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
 
 // AlertEventQueryFilter defines query options for alert events.
@@ -94,10 +96,10 @@ func (r *Repository) ListCriticalEvents(ctx context.Context, filter *AlertEventQ
 		countQuery = countQuery.Where("process_events.cluster_id = ?", filter.ClusterID)
 	}
 	if filter.StartTime != nil {
-		countQuery = countQuery.Where("process_events.created_at >= ?", filter.StartTime)
+		countQuery = countQuery.Where("process_events.created_at >= ?", timex.BoundPtr(filter.StartTime))
 	}
 	if filter.EndTime != nil {
-		countQuery = countQuery.Where("process_events.created_at <= ?", filter.EndTime)
+		countQuery = countQuery.Where("process_events.created_at <= ?", timex.BoundPtr(filter.EndTime))
 	}
 
 	var total int64
@@ -116,10 +118,10 @@ func (r *Repository) ListCriticalEvents(ctx context.Context, filter *AlertEventQ
 		query = query.Where("process_events.cluster_id = ?", filter.ClusterID)
 	}
 	if filter.StartTime != nil {
-		query = query.Where("process_events.created_at >= ?", filter.StartTime)
+		query = query.Where("process_events.created_at >= ?", timex.BoundPtr(filter.StartTime))
 	}
 	if filter.EndTime != nil {
-		query = query.Where("process_events.created_at <= ?", filter.EndTime)
+		query = query.Where("process_events.created_at <= ?", timex.BoundPtr(filter.EndTime))
 	}
 
 	if filter.Page > 0 && filter.PageSize > 0 {
@@ -217,7 +219,7 @@ func (r *Repository) SaveEventState(ctx context.Context, state *AlertEventState)
 			"silenced_by":     state.SilencedBy,
 			"silenced_until":  state.SilencedUntil,
 			"note":            state.Note,
-			"updated_at":      time.Now().UTC(),
+			"updated_at":      timex.Now(),
 		}).
 		FirstOrCreate(&AlertEventState{EventID: state.EventID}).Error
 }
@@ -311,7 +313,7 @@ func (r *Repository) UpsertRemoteAlert(ctx context.Context, record *RemoteAlertR
 				"ends_at":          record.EndsAt,
 				"resolved_at":      record.ResolvedAt,
 				"last_received_at": record.LastReceivedAt,
-				"updated_at":       time.Now().UTC(),
+				"updated_at":       timex.Now(),
 			}),
 		}).
 		Create(record).Error

@@ -75,8 +75,6 @@ var (
 	ErrInvalidScheduleTime             = errors.New("sync: schedule_time must be RFC3339 or yyyyMMddHHmmss")
 	ErrAttachGenerationMismatch        = errors.New("sync: attach_generation does not match the current job")
 	ErrJobCancellingTimeout            = errors.New("sync: timed out waiting for the previous job on this external_ref to finish cancelling")
-	ErrSchedulerTokenRestricted        = errors.New("sync: scheduler token cannot access this task")
-	ErrSchedulerTaskNotBound           = errors.New("sync: scheduler token requires a DolphinScheduler binding")
 	ErrScheduleLockedByDolphin         = errors.New("sync: built-in schedule cannot be enabled while the task is bound to DolphinScheduler")
 	ErrSchedulerConnectionNotFound     = errors.New("sync: scheduler connection not found")
 	ErrSchedulerConnectionInvalid      = errors.New("sync: scheduler connection is invalid")

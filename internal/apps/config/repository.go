@@ -23,6 +23,8 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+
+	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
 
 var (
@@ -117,10 +119,10 @@ func (r *Repository) ListUpdatedByClusterBetween(ctx context.Context, clusterID 
 	var configs []*Config
 	query := r.db.WithContext(ctx).Model(&Config{}).Where("cluster_id = ?", clusterID)
 	if !start.IsZero() {
-		query = query.Where("updated_at >= ?", start.UTC())
+		query = query.Where("updated_at >= ?", timex.Bound(start))
 	}
 	if !end.IsZero() {
-		query = query.Where("updated_at <= ?", end.UTC())
+		query = query.Where("updated_at <= ?", timex.Bound(end))
 	}
 	err := query.Order("updated_at DESC").Order("config_type").Find(&configs).Error
 	return configs, err

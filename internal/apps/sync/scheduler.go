@@ -150,29 +150,11 @@ type DolphinPushResult struct {
 // DolphinTaskStatus 是任务侧边栏需要的绑定、脚本和最近作业摘要。
 // DolphinTaskStatus is the sidebar summary of binding, script, and recent Dolphin-triggered jobs.
 type DolphinTaskStatus struct {
-	Binding        *TaskSchedulerBinding `json:"binding"`
-	Connection     *SchedulerConnection  `json:"connection,omitempty"`
-	Script         *DolphinScriptResult  `json:"script,omitempty"`
-	RecentJobs     []*JobInstance        `json:"recent_jobs"`
-	SchedulerToken *SchedulerTokenView   `json:"scheduler_token,omitempty"`
-	BuiltinLocked  bool                  `json:"builtin_locked"`
-}
-
-// SchedulerTokenView 只展示调度令牌的脱敏信息，不回传原文。
-// SchedulerTokenView exposes masked scheduler-token metadata and never the plaintext.
-type SchedulerTokenView struct {
-	Issued     bool       `json:"issued"`
-	Prefix     string     `json:"prefix,omitempty"`
-	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
-}
-
-// SchedulerTokenIssueResult 只在签发时返回一次令牌原文。
-// SchedulerTokenIssueResult returns the plaintext token only at issue time.
-type SchedulerTokenIssueResult struct {
-	Token     string     `json:"token"`
-	Prefix    string     `json:"prefix"`
-	ExpiresAt *time.Time `json:"expires_at"`
-	Kind      string     `json:"kind"`
+	Binding       *TaskSchedulerBinding `json:"binding"`
+	Connection    *SchedulerConnection  `json:"connection,omitempty"`
+	Script        *DolphinScriptResult  `json:"script,omitempty"`
+	RecentJobs    []*JobInstance        `json:"recent_jobs"`
+	BuiltinLocked bool                  `json:"builtin_locked"`
 }
 
 // DolphinProject 是连接上可选的 Dolphin 项目。

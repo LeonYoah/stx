@@ -37,6 +37,7 @@ import (
 	"github.com/LeonYoah/stx/internal/config"
 	"github.com/LeonYoah/stx/internal/db"
 	"github.com/LeonYoah/stx/internal/pkg/schedulex"
+	"github.com/LeonYoah/stx/internal/pkg/timex"
 	"github.com/LeonYoah/stx/internal/seatunnel"
 )
 
@@ -2511,13 +2512,9 @@ func parseEngineJobTime(value string) *time.Time {
 		"2006/01/02 15:04:05",
 	}
 	for _, layout := range layouts {
-		if parsed, err := time.ParseInLocation(layout, trimmed, time.Local); err == nil {
-			return &parsed
-		}
-	}
-	for _, layout := range layouts {
-		if parsed, err := time.Parse(layout, trimmed); err == nil {
-			resolved := parsed.In(time.Local)
+		// 引擎返回的无偏移时间按 SeaTunnel 时区解释，统一转为 UTC。/ Naive engine times use the SeaTunnel zone, stored as UTC.
+		if parsed, err := time.ParseInLocation(layout, trimmed, timex.SeatunnelLocation()); err == nil {
+			resolved := parsed.UTC()
 			return &resolved
 		}
 	}

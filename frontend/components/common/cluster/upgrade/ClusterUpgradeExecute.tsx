@@ -102,6 +102,7 @@ import {
   getStatusBadgeVariant,
   getStepNodeCount,
 } from './utils';
+import {formatDateTimeTz} from '@/lib/timezone';
 
 interface ClusterUpgradeExecuteProps {
   clusterId: number;
@@ -1064,7 +1065,7 @@ export function ClusterUpgradeExecute({clusterId}: ClusterUpgradeExecuteProps) {
                         <span>{log.step_code}</span>
                         <span className='inline-flex items-center gap-1'>
                           <Clock3 className='h-3 w-3' />
-                          {new Date(log.created_at).toLocaleString()}
+                          {formatDateTimeTz(log.created_at)}
                         </span>
                       </div>
                       <div className='mt-2 text-sm'>{log.message}</div>

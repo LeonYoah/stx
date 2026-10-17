@@ -72,14 +72,10 @@ func List(c *gin.Context) {
 		return
 	}
 
-	token := auth.GetCLITokenFromGin(c)
 	specs := operation.Registry()
 	operations := make([]Operation, 0, len(specs))
 	for _, spec := range specs {
 		allowed, denialCode := permissionForOperation(spec, user)
-		if allowed {
-			allowed, denialCode = permissionForSchedulerToken(spec, token)
-		}
 		item := Operation{
 			OperationID: spec.ID,
 			Revision:    spec.Revision,
@@ -109,26 +105,6 @@ func List(c *gin.Context) {
 func permissionForOperation(spec operation.OperationSpec, user *auth.User) (bool, string) {
 	if spec.AdminOnly && (user == nil || !user.IsAdmin) {
 		return false, "admin_required"
-	}
-	return true, ""
-}
-
-var schedulerAllowedOperations = map[string]struct{}{
-	"sync.task.submit":       {},
-	"sync.job.get":           {},
-	"sync.job.cancel":        {},
-	"sync.job.cancel-by-ref": {},
-	"capability.list":        {},
-}
-
-// permissionForSchedulerToken 把调度令牌收窄到提交、查询和停止已绑定任务。
-// permissionForSchedulerToken restricts scheduler tokens to submit, get, and cancel for the bound task.
-func permissionForSchedulerToken(spec operation.OperationSpec, token *auth.CLIToken) (bool, string) {
-	if token == nil || !token.IsScheduler() {
-		return true, ""
-	}
-	if _, ok := schedulerAllowedOperations[spec.ID]; !ok {
-		return false, "scheduler_token_restricted"
 	}
 	return true, ""
 }

@@ -181,7 +181,7 @@ func (UpgradeNodeExecution) TableName() string {
 // UpgradeStepLog persists step and node logs.
 type UpgradeStepLog struct {
 	ID              uint         `json:"id" gorm:"primaryKey;autoIncrement"`
-	TaskID          uint         `json:"task_id" gorm:"index;not null"`
+	TaskID          uint         `json:"task_id" gorm:"index;index:idx_upgrade_step_logs_task_created,priority:1;not null"`
 	TaskStepID      *uint        `json:"task_step_id" gorm:"index"`
 	NodeExecutionID *uint        `json:"node_execution_id" gorm:"index"`
 	StepCode        StepCode     `json:"step_code" gorm:"size:64;index"`
@@ -191,7 +191,7 @@ type UpgradeStepLog struct {
 	CommandSummary  string       `json:"command_summary" gorm:"type:text"`
 	ExitCode        *int         `json:"exit_code"`
 	Metadata        LogMetadata  `json:"metadata" gorm:"type:json"`
-	CreatedAt       time.Time    `json:"created_at" gorm:"autoCreateTime;index"`
+	CreatedAt       time.Time    `json:"created_at" gorm:"autoCreateTime;index;index:idx_upgrade_step_logs_task_created,priority:2"`
 }
 
 // TableName 指定升级日志表名。

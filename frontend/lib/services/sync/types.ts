@@ -509,25 +509,11 @@ export interface DolphinPushResult {
   warning?: string;
 }
 
-export interface SchedulerTokenView {
-  issued: boolean;
-  prefix?: string;
-  last_used_at?: string;
-}
-
-export interface SchedulerTokenIssueResult {
-  token: string;
-  prefix: string;
-  expires_at?: string | null;
-  kind: string;
-}
-
 export interface DolphinTaskStatus {
   binding?: TaskSchedulerBinding | null;
   connection?: SchedulerConnection;
   script?: DolphinScriptResult;
   recent_jobs?: SyncJobInstance[];
-  scheduler_token?: SchedulerTokenView;
   builtin_locked?: boolean;
 }
 

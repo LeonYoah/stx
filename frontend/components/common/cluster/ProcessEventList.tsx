@@ -53,6 +53,7 @@ import {
   ProcessEventFilter,
   listProcessEvents,
 } from '@/lib/services/monitor';
+import {formatDateTimeTz} from '@/lib/timezone';
 
 interface ProcessEventListProps {
   clusterId: number;
@@ -132,7 +133,7 @@ export function ProcessEventList({ clusterId, nodeId }: ProcessEventListProps) {
 
   // Format time / 格式化时间
   const formatTime = (timeStr: string) => {
-    return new Date(timeStr).toLocaleString();
+    return formatDateTimeTz(timeStr);
   };
 
   return (

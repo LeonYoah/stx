@@ -34,6 +34,7 @@ import type {
 export type { SyncTaskTreeNode, SyncTask };
 import type {CustomVariableItem} from './CustomVariableDialog';
 import type {TaskScheduleValue} from './TaskScheduleSidebarPanel';
+import {formatDateTimeTz} from '@/lib/timezone';
 
 // ==========================================
 // 状态与类型定义
@@ -481,7 +482,7 @@ export function resolveVariableSuggestions(
   // 1. 任务自定义变量（最高优先级：前缀 0_，确保模糊搜索与一键回显首选）
   for (const row of customVariables || []) {
     const key = row.key?.trim();
-    if (!key || seenKeys.has(key)) continue;
+    if (!key || seenKeys.has(key)) {continue;}
     seenKeys.add(key);
 
     const valType = row.type || 'string';
@@ -504,7 +505,7 @@ export function resolveVariableSuggestions(
   // 2. 全局变量（次高优先级：前缀 1_）
   for (const gv of globalVariables || []) {
     const key = gv.key?.trim();
-    if (!key || seenKeys.has(key)) continue;
+    if (!key || seenKeys.has(key)) {continue;}
     seenKeys.add(key);
 
     const isSecret = gv.value_type === 'secret' || gv.value === '******';
@@ -526,7 +527,7 @@ export function resolveVariableSuggestions(
   // 3. 平台内置系统变量（优先级：前缀 2_）
   for (const sys of BUILTIN_VARIABLE_SUGGESTIONS) {
     const key = sys.key;
-    if (seenKeys.has(key)) continue;
+    if (seenKeys.has(key)) {continue;}
     seenKeys.add(key);
 
     suggestions.push({
@@ -564,7 +565,7 @@ export function resolveValueRegionVariableSuggestions(
 
   for (const row of customVariables || []) {
     const key = row.key?.trim();
-    if (!key || seenKeys.has(key)) continue;
+    if (!key || seenKeys.has(key)) {continue;}
     seenKeys.add(key);
 
     const valType = row.type || 'string';
@@ -586,7 +587,7 @@ export function resolveValueRegionVariableSuggestions(
 
   for (const gv of globalVariables || []) {
     const key = gv.key?.trim();
-    if (!key || seenKeys.has(key)) continue;
+    if (!key || seenKeys.has(key)) {continue;}
     seenKeys.add(key);
 
     const isSecret = gv.value_type === 'secret' || gv.value === '******';
@@ -607,7 +608,7 @@ export function resolveValueRegionVariableSuggestions(
 
   for (const sys of BUILTIN_VARIABLE_SUGGESTIONS) {
     const key = sys.key;
-    if (seenKeys.has(key)) continue;
+    if (seenKeys.has(key)) {continue;}
     seenKeys.add(key);
 
     suggestions.push({
@@ -1195,7 +1196,7 @@ export function formatCheckpointFieldValue(
   }
   if (typeof value === 'number') {
     if (/timestamp/i.test(key)) {
-      return value > 0 ? new Date(value).toLocaleString() : '-';
+      return value > 0 ? formatDateTimeTz(value) : '-';
     }
     if (/state(size|bytes)/i.test(key)) {
       return formatSizeBytes(value);
@@ -2078,7 +2079,7 @@ export function formatJobDateTime(value: string | null | undefined): string {
   if (Number.isNaN(date.getTime())) {
     return '-';
   }
-  return date.toLocaleString();
+  return formatDateTimeTz(date);
 }
 
 export function formatJobDuration(
@@ -3219,7 +3220,7 @@ export function buildPairedMetricRows(metrics: Record<string, unknown>) {
         const sink = sinkRows[0];
         // 解析数值以计算条数差额与对等性 / Parse numbers to compute count disparity
         const parseMetricNum = (v: string): number | null => {
-          if (!v || v === '-') return null;
+          if (!v || v === '-') {return null;}
           const num = Number(v.replace(/,/g, ''));
           return isNaN(num) ? null : num;
         };

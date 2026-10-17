@@ -33,10 +33,12 @@ import (
 	"sync"
 	"time"
 
+	"gorm.io/gorm"
+
 	"github.com/LeonYoah/stx/internal/apps/cluster"
 	"github.com/LeonYoah/stx/internal/apps/monitor"
 	"github.com/LeonYoah/stx/internal/config"
-	"gorm.io/gorm"
+	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
 
 const (
@@ -72,7 +74,7 @@ func NewService(clusterService *cluster.Service, monitorService *monitor.Service
 // GetOverview returns global monitoring overview data.
 // GetOverview 返回全局监控总览数据。
 func (s *Service) GetOverview(ctx context.Context) (*OverviewData, error) {
-	now := time.Now().UTC()
+	now := timex.Now()
 	since24h := now.Add(-24 * time.Hour)
 	since1h := now.Add(-1 * time.Hour)
 
@@ -180,7 +182,7 @@ func (s *Service) GetOverview(ctx context.Context) (*OverviewData, error) {
 // GetClusterOverview returns monitoring detail data for one cluster.
 // GetClusterOverview 返回单集群监控详情数据。
 func (s *Service) GetClusterOverview(ctx context.Context, clusterID uint) (*ClusterOverviewData, error) {
-	now := time.Now().UTC()
+	now := timex.Now()
 	since24h := now.Add(-24 * time.Hour)
 	since1h := now.Add(-1 * time.Hour)
 
@@ -316,7 +318,7 @@ func (s *Service) ListAlerts(ctx context.Context, filter *AlertFilter) (*AlertLi
 	}
 
 	result := &AlertListData{
-		GeneratedAt: time.Now().UTC(),
+		GeneratedAt: timex.Now(),
 		Page:        filter.Page,
 		PageSize:    filter.PageSize,
 		Total:       total,
@@ -454,7 +456,7 @@ func (s *Service) SilenceAlert(ctx context.Context, eventID uint, operator strin
 		return nil, fmt.Errorf("event is not alertable")
 	}
 
-	now := time.Now().UTC()
+	now := timex.Now()
 	silencedUntil := now.Add(time.Duration(durationMinutes) * time.Minute)
 	_, state, err := s.persistLocalAlertHandlingState(
 		ctx,
@@ -498,7 +500,7 @@ func (s *Service) ListClusterRules(ctx context.Context, clusterID uint) (*AlertR
 	}
 
 	return &AlertRuleListData{
-		GeneratedAt: time.Now().UTC(),
+		GeneratedAt: timex.Now(),
 		ClusterID:   clusterID,
 		Rules:       items,
 	}, nil
@@ -583,7 +585,7 @@ func (s *Service) GetIntegrationStatus(ctx context.Context) (*IntegrationStatusD
 		})
 
 		return &IntegrationStatusData{
-			GeneratedAt: time.Now().UTC(),
+			GeneratedAt: timex.Now(),
 			Components:  components,
 		}, nil
 	}
@@ -639,7 +641,7 @@ func (s *Service) GetIntegrationStatus(ctx context.Context) (*IntegrationStatusD
 	components = append(components, metricsComponent)
 
 	return &IntegrationStatusData{
-		GeneratedAt: time.Now().UTC(),
+		GeneratedAt: timex.Now(),
 		Components:  components,
 	}, nil
 }
@@ -998,7 +1000,7 @@ func (s *Service) ListNotificationChannels(ctx context.Context) (*NotificationCh
 	}
 
 	return &NotificationChannelListData{
-		GeneratedAt: time.Now().UTC(),
+		GeneratedAt: timex.Now(),
 		Total:       len(items),
 		Channels:    items,
 	}, nil

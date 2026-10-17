@@ -62,7 +62,6 @@ import type {
   DolphinPushRequest,
   DolphinPushResult,
   DolphinTaskStatus,
-  SchedulerTokenIssueResult,
 } from './types';
 
 export class SyncService extends BaseService {
@@ -520,44 +519,14 @@ export class SyncService extends BaseService {
     );
   }
 
-  // 只删除 STX 侧绑定并吊销调度令牌，不改 Dolphin 节点。
-  // Remove the STX binding and revoke scheduler tokens without changing the Dolphin node.
+  // 只删除 STX 侧绑定，不改 Dolphin 节点，也不吊销管理员签发的登录令牌。
+  // Remove the STX binding without changing Dolphin nodes or revoking admin-issued login tokens.
   static async unbindDolphin(taskId: number): Promise<{unbound: boolean}> {
     const executionHeaders = createWebExecutionHeaders(
       'sync-task-dolphin-unbind',
     );
     return this.postWithConfig<{unbound: boolean}>(
       `/tasks/${taskId}/dolphin/unbind`,
-      {},
-      {headers: executionHeaders.headers},
-    );
-  }
-
-  // 签发绑定该任务的不过期调度令牌；原文只返回一次。
-  // Issue a non-expiring scheduler token for this task; plaintext is returned once.
-  static async issueSchedulerToken(
-    taskId: number,
-  ): Promise<SchedulerTokenIssueResult> {
-    const executionHeaders = createWebExecutionHeaders(
-      'sync-task-dolphin-token-issue',
-    );
-    return this.postWithConfig<SchedulerTokenIssueResult>(
-      `/tasks/${taskId}/dolphin/token`,
-      {},
-      {headers: executionHeaders.headers},
-    );
-  }
-
-  // 吊销该任务上已签发的调度令牌。页面专用，不提供 CLI。
-  // Revoke scheduler tokens for this task. Page-only; CLI has no delete/revoke command.
-  static async revokeSchedulerToken(
-    taskId: number,
-  ): Promise<{revoked: boolean}> {
-    const executionHeaders = createWebExecutionHeaders(
-      'sync-task-dolphin-token-revoke',
-    );
-    return this.postWithConfig<{revoked: boolean}>(
-      `/tasks/${taskId}/dolphin/token/revoke`,
       {},
       {headers: executionHeaders.headers},
     );

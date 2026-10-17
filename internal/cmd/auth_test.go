@@ -183,6 +183,82 @@ func TestReadRawPasswordHandlesBackspace(t *testing.T) {
 	}
 }
 
+func TestLoginCommandBindsExistingTokenWithoutPrintingIt(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/api/v1/auth/cli/whoami" {
+			t.Fatalf("令牌绑定应调用 whoami: %s", request.URL.Path)
+		}
+		if request.Header.Get("Authorization") != "Bearer stx_bound_token" {
+			t.Fatalf("缺少绑定令牌: %q", request.Header.Get("Authorization"))
+		}
+		if err := json.NewEncoder(writer).Encode(map[string]any{"data": map[string]any{
+			"id": 1, "username": "admin", "is_active": true, "is_admin": true,
+			"token_prefix": "stx_bound", "token_name": "worker", "permanent": true,
+		}}); err != nil {
+			t.Fatalf("写入 whoami 响应失败: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	store := cliConfig.NewStore(t.TempDir() + "/config.yaml")
+	command := newLoginCommand(authCommandOptions{storeProvider: func() (*cliConfig.Store, error) { return store, nil }})
+	root := &cobra.Command{Use: "stx", SilenceUsage: true, SilenceErrors: true}
+	root.AddCommand(command)
+	root.PersistentFlags().String("output", "json", "output")
+	stdout := &bytes.Buffer{}
+	root.SetOut(stdout)
+	root.SetErr(&bytes.Buffer{})
+	root.SetArgs([]string{"login", "--server", server.URL, "--token", "stx_bound_token"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("令牌绑定失败: %v", err)
+	}
+
+	resolved, err := store.Resolve(cliConfig.Overrides{Namespace: "default"})
+	if err != nil {
+		t.Fatalf("读取绑定配置失败: %v", err)
+	}
+	if resolved.Token != "stx_bound_token" {
+		t.Fatalf("配置没有保存绑定令牌: %q", resolved.Token)
+	}
+	if strings.Contains(stdout.String(), "stx_bound_token") {
+		t.Fatalf("登录结果不应把令牌原文写入 stdout: %s", stdout.String())
+	}
+}
+
+func TestLoginCommandSendsCustomExpiresIn(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		var body map[string]string
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Fatalf("读取登录请求失败: %v", err)
+		}
+		if body["expires_in"] != "90d" {
+			t.Fatalf("自定义有效期未传到服务端: %#v", body)
+		}
+		if err := json.NewEncoder(writer).Encode(map[string]any{"data": map[string]any{
+			"token":      "stx_secret_token",
+			"token_type": "Bearer",
+			"permanent":  false,
+			"expires_at": "2026-12-16T10:00:00Z",
+			"user":       map[string]any{"id": 1, "username": "admin", "is_active": true},
+		}}); err != nil {
+			t.Fatalf("写入登录响应失败: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	store := cliConfig.NewStore(t.TempDir() + "/config.yaml")
+	command := newLoginCommand(authCommandOptions{storeProvider: func() (*cliConfig.Store, error) { return store, nil }, stdin: strings.NewReader("secret\n")})
+	root := &cobra.Command{Use: "stx", SilenceUsage: true, SilenceErrors: true}
+	root.AddCommand(command)
+	root.PersistentFlags().String("output", "json", "output")
+	root.SetOut(&bytes.Buffer{})
+	root.SetErr(&bytes.Buffer{})
+	root.SetArgs([]string{"login", "--server", server.URL, "--username", "admin", "--password-stdin", "--expires-in", "90d"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("自定义有效期登录失败: %v", err)
+	}
+}
+
 func TestReadRawPasswordCanBeCancelled(t *testing.T) {
 	_, err := readRawPassword(strings.NewReader("\x03"))
 	if err == nil || !strings.Contains(err.Error(), "cancelled") {

@@ -56,9 +56,9 @@ func (SeatunnelErrorGroup) TableName() string {
 // SeatunnelErrorEvent 存储一条结构化 Seatunnel ERROR 事件。
 type SeatunnelErrorEvent struct {
 	ID             uint      `json:"id" gorm:"primaryKey;autoIncrement"`
-	ErrorGroupID   uint      `json:"error_group_id" gorm:"index;not null"`
+	ErrorGroupID   uint      `json:"error_group_id" gorm:"index;index:idx_diagnostics_error_events_cluster_error_group,priority:2;not null"`
 	Fingerprint    string    `json:"fingerprint" gorm:"size:64;index;not null"`
-	ClusterID      uint      `json:"cluster_id" gorm:"index"`
+	ClusterID      uint      `json:"cluster_id" gorm:"index;index:idx_diagnostics_error_events_cluster_error_group,priority:1"`
 	NodeID         uint      `json:"node_id" gorm:"index"`
 	HostID         uint      `json:"host_id" gorm:"index"`
 	AgentID        string    `json:"agent_id" gorm:"size:100;index;not null"`

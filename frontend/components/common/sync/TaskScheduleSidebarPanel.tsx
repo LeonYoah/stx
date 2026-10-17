@@ -392,13 +392,8 @@ export function TaskScheduleSidebarPanel({
               </Button>
             ) : null}
           </div>
-          {dolphin?.scheduler_token?.issued ? (
-            <div className='text-[11px] text-muted-foreground'>
-              {t('dolphinTokenIssued')} {dolphin.scheduler_token.prefix}******
-            </div>
-          ) : null}
           {canEdit && dolphin?.binding ? (
-            <div className='flex flex-wrap gap-1.5'>
+            <div className='flex flex-wrap items-center gap-1.5'>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -406,47 +401,15 @@ export function TaskScheduleSidebarPanel({
                     size='sm'
                     variant='outline'
                     className='h-7 px-2 text-[11px]'
-                    onClick={async () => {
-                      try {
-                        const issued = await SyncService.issueSchedulerToken(taskId);
-                        await navigator.clipboard.writeText(issued.token);
-                        toast.success(t('dolphinTokenCopied'));
-                        await reloadDolphin();
-                      } catch (error) {
-                        toast.error(
-                          error instanceof Error ? error.message : t('dolphinPushFailed'),
-                        );
-                      }
-                    }}
+                    onClick={() => window.open('/admin/users?tab=tokens', '_blank')}
                   >
-                    {t('dolphinIssueToken')}
+                    {t('dolphinOpenTokenManagement')}
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent className='max-w-[320px] text-xs leading-5'>
                   {t('dolphinSchedulerTokenHint')}
                 </TooltipContent>
               </Tooltip>
-              {dolphin.scheduler_token?.issued ? (
-                <Button
-                  type='button'
-                  size='sm'
-                  variant='ghost'
-                  className='h-7 px-2 text-[11px] text-destructive'
-                  onClick={async () => {
-                    try {
-                      await SyncService.revokeSchedulerToken(taskId);
-                      toast.success(t('dolphinTokenRevoked'));
-                      await reloadDolphin();
-                    } catch (error) {
-                      toast.error(
-                        error instanceof Error ? error.message : t('dolphinPushFailed'),
-                      );
-                    }
-                  }}
-                >
-                  {t('dolphinRevokeToken')}
-                </Button>
-              ) : null}
             </div>
           ) : null}
         </div>

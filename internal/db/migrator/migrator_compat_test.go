@@ -26,6 +26,9 @@ import (
 	"time"
 
 	"github.com/LeonYoah/stx/internal/apps/auth"
+	"github.com/LeonYoah/stx/internal/apps/diagnostics"
+	"github.com/LeonYoah/stx/internal/apps/monitor"
+	"github.com/LeonYoah/stx/internal/apps/stupgrade"
 	"github.com/LeonYoah/stx/internal/config"
 	"github.com/LeonYoah/stx/internal/db"
 	"gorm.io/gorm"
@@ -176,3 +179,37 @@ func TestMultiDatabaseMigration(t *testing.T) {
 		})
 	}
 }
+
+// TestHighFrequencyCompositeIndexes 验证高频大表复合索引在多数据库上的创建
+// TestHighFrequencyCompositeIndexes validates creation of high-frequency composite indexes across all databases
+func TestHighFrequencyCompositeIndexes(t *testing.T) {
+	dbs := getTestDatabaseDialectors(t)
+	if len(dbs) == 0 {
+		t.Fatal("未发现任何可用的数据库进行测试 / No available database found for testing")
+	}
+
+	for dbType, targetDB := range dbs {
+		t.Run(fmt.Sprintf("Indexes_%s", dbType), func(t *testing.T) {
+			if err := MigrateWithDB(targetDB, dbType); err != nil {
+				t.Fatalf("[%s] 迁移失败 / Migration failed: %v", dbType, err)
+			}
+			// 1. diagnostics_error_events (cluster_id, error_group_id)
+			if !targetDB.Migrator().HasIndex(&diagnostics.SeatunnelErrorEvent{}, "idx_diagnostics_error_events_cluster_error_group") {
+				t.Fatalf("[%s] 缺少复合索引 idx_diagnostics_error_events_cluster_error_group / Missing composite index", dbType)
+			}
+			// 2. process_events (node_id, event_type, created_at)
+			if !targetDB.Migrator().HasIndex(&monitor.ProcessEvent{}, "idx_process_events_node_type_created") {
+				t.Fatalf("[%s] 缺少复合索引 idx_process_events_node_type_created / Missing composite index", dbType)
+			}
+			// 3. diagnostics_task_logs (task_id, created_at)
+			if !targetDB.Migrator().HasIndex(&diagnostics.DiagnosticStepLog{}, "idx_diag_task_logs_task_created") {
+				t.Fatalf("[%s] 缺少复合索引 idx_diag_task_logs_task_created / Missing composite index", dbType)
+			}
+			// 4. st_upgrade_step_logs (task_id, created_at)
+			if !targetDB.Migrator().HasIndex(&stupgrade.UpgradeStepLog{}, "idx_upgrade_step_logs_task_created") {
+				t.Fatalf("[%s] 缺少复合索引 idx_upgrade_step_logs_task_created / Missing composite index", dbType)
+			}
+		})
+	}
+}
+

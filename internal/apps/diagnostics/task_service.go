@@ -21,7 +21,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
+
+	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
 
 func (s *Service) CreateDiagnosticTask(ctx context.Context, req *CreateDiagnosticTaskRequest, createdBy uint, createdByName string) (*DiagnosticTask, error) {
@@ -115,7 +116,7 @@ func (s *Service) CreateDiagnosticTask(ctx context.Context, req *CreateDiagnosti
 		return nil, err
 	}
 
-	now := time.Now().UTC()
+	now := timex.Now()
 	planSteps := DefaultDiagnosticTaskSteps()
 	initialStepCode := resolveInitialDiagnosticTaskStep(planSteps, options)
 	lookbackMinutes := req.LookbackMinutes
@@ -276,7 +277,7 @@ func (s *Service) UpdateDiagnosticTask(ctx context.Context, task *DiagnosticTask
 	if s == nil || s.repo == nil {
 		return ErrDiagnosticsRepositoryUnavailable
 	}
-	task.UpdatedAt = time.Now().UTC()
+	task.UpdatedAt = timex.Now()
 	if err := s.repo.UpdateDiagnosticTask(ctx, task); err != nil {
 		return err
 	}
@@ -290,7 +291,7 @@ func (s *Service) UpdateDiagnosticTaskStep(ctx context.Context, step *Diagnostic
 	if s == nil || s.repo == nil {
 		return ErrDiagnosticsRepositoryUnavailable
 	}
-	step.UpdatedAt = time.Now().UTC()
+	step.UpdatedAt = timex.Now()
 	if err := s.repo.UpdateDiagnosticTaskStep(ctx, step); err != nil {
 		return err
 	}
@@ -304,7 +305,7 @@ func (s *Service) UpdateDiagnosticNodeExecution(ctx context.Context, node *Diagn
 	if s == nil || s.repo == nil {
 		return ErrDiagnosticsRepositoryUnavailable
 	}
-	node.UpdatedAt = time.Now().UTC()
+	node.UpdatedAt = timex.Now()
 	if err := s.repo.UpdateDiagnosticNodeExecution(ctx, node); err != nil {
 		return err
 	}

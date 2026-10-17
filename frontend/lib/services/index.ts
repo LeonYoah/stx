@@ -18,7 +18,7 @@
 import {AuthService} from './auth/index';
 import {ProjectService} from './project/index';
 import {DashboardService} from './dashboard/index';
-import {AdminUserService} from './admin/index';
+import {AdminUserService, AdminTokenService} from './admin/index';
 import {HostService} from './host/index';
 import {ClusterService} from './cluster/index';
 import {AuditService} from './audit/index';
@@ -128,6 +128,12 @@ const services = {
    * 管理员用户管理服务
    */
   adminUser: AdminUserService,
+
+  /**
+   * 管理员 CLI 令牌服务
+   * Administrator CLI token service
+   */
+  adminToken: AdminTokenService,
 
   /**
    * 主机管理服务

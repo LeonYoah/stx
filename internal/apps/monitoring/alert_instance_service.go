@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/LeonYoah/stx/internal/apps/monitor"
+	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
 
 type parsedAlertSourceKey struct {
@@ -56,7 +57,7 @@ func (s *Service) ListAlertInstances(ctx context.Context, filter *AlertInstanceF
 		filter.PageSize = 200
 	}
 
-	now := time.Now().UTC()
+	now := timex.Now()
 	items := make([]*AlertInstance, 0, 32)
 
 	includeLocal := filter.SourceType == "" || filter.SourceType == AlertSourceTypeLocalProcessEvent
@@ -164,11 +165,11 @@ func (s *Service) AcknowledgeAlertInstance(ctx context.Context, alertID, operato
 	if err != nil {
 		return nil, err
 	}
-	if isAlertStateClosed(existingState, time.Now().UTC()) {
+	if isAlertStateClosed(existingState, timex.Now()) {
 		return nil, ErrAlertInstanceAlreadyClosed
 	}
 
-	now := time.Now().UTC()
+	now := timex.Now()
 	switch parsed.SourceType {
 	case AlertSourceTypeLocalProcessEvent:
 		event, err := s.monitorService.GetEvent(ctx, parsed.EventID)
@@ -245,11 +246,11 @@ func (s *Service) SilenceAlertInstance(ctx context.Context, alertID, operator st
 	if err != nil {
 		return nil, err
 	}
-	if isAlertStateClosed(existingState, time.Now().UTC()) {
+	if isAlertStateClosed(existingState, timex.Now()) {
 		return nil, ErrAlertInstanceAlreadyClosed
 	}
 
-	silencedUntil := time.Now().UTC().Add(time.Duration(durationMinutes) * time.Minute)
+	silencedUntil := timex.Now().Add(time.Duration(durationMinutes) * time.Minute)
 	switch parsed.SourceType {
 	case AlertSourceTypeLocalProcessEvent:
 		event, err := s.monitorService.GetEvent(ctx, parsed.EventID)
@@ -322,11 +323,11 @@ func (s *Service) CloseAlertInstance(ctx context.Context, alertID, operator, not
 	if err != nil {
 		return nil, err
 	}
-	if isAlertStateClosed(existingState, time.Now().UTC()) {
+	if isAlertStateClosed(existingState, timex.Now()) {
 		return toAlertInstanceActionResult(existingState), nil
 	}
 
-	now := time.Now().UTC()
+	now := timex.Now()
 	switch parsed.SourceType {
 	case AlertSourceTypeLocalProcessEvent:
 		if s.monitorService == nil {
@@ -659,7 +660,7 @@ func (s *Service) persistLocalAlertHandlingState(
 		legacyState = &AlertEventState{EventID: event.ID}
 	}
 
-	now := time.Now().UTC()
+	now := timex.Now()
 	legacyState.ClusterID = event.ClusterID
 	legacyState.Note = note
 	switch handlingStatus {
@@ -843,7 +844,7 @@ func toAlertInstanceActionResult(state *AlertState) *AlertInstanceActionResult {
 	return &AlertInstanceActionResult{
 		AlertID:        state.SourceKey,
 		Status:         resolveActionDisplayStatus(state),
-		HandlingStatus: resolveAlertHandlingStatus(state, time.Now().UTC()),
+		HandlingStatus: resolveAlertHandlingStatus(state, timex.Now()),
 		AcknowledgedBy: state.AcknowledgedBy,
 		AcknowledgedAt: toUTCTimePointer(state.AcknowledgedAt),
 		SilencedBy:     state.SilencedBy,
@@ -865,7 +866,7 @@ func resolveAlertDisplayStatus(lifecycleStatus AlertLifecycleStatus, handlingSta
 }
 
 func resolveActionDisplayStatus(state *AlertState) AlertDisplayStatus {
-	if isAlertStateClosed(state, time.Now().UTC()) {
+	if isAlertStateClosed(state, timex.Now()) {
 		return AlertDisplayStatusClosed
 	}
 	return ""

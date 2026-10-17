@@ -1,6 +1,6 @@
 # DolphinScheduler SHELL 接入契约
 
-> 适用于根 Go 模块中的同步任务提交、CLI `--wait`/`--close-job`、调度令牌，以及向 DolphinScheduler 推送 SHELL 节点。
+> 适用于根 Go 模块中的同步任务提交、CLI `--wait`/`--close-job`、管理员签发的 CLI 登录令牌，以及向 DolphinScheduler 推送 SHELL 节点。
 
 ---
 
@@ -9,8 +9,8 @@
 ### 1. Scope / Trigger
 
 - Trigger: 同步任务需要被 DolphinScheduler 调度，且停作业必须可靠；不实现 Dolphin 插件。
-- 涉及：`POST /api/v1/sync/tasks/:id/submit`、作业查询/停止、调度令牌、Dolphin 推送/绑定、CLI `stx sync task submit|dolphin|job cancel-by-ref`。
-- 不在范围：调用 Dolphin 停止工作流实例、lease/heartbeat、CLI 删除/解绑/吊销。
+- 涉及：`POST /api/v1/sync/tasks/:id/submit`、作业查询/停止、Dolphin 推送/绑定、CLI `stx sync task submit|dolphin|job cancel-by-ref`，以及管理员签发的 `stx_` 登录令牌。
+- 不在范围：调用 Dolphin 停止工作流实例、lease/heartbeat、CLI 删除/解绑、单独的调度令牌。
 
 ### 2. Signatures
 
@@ -23,8 +23,6 @@ GET  /api/v1/sync/tasks/:id/dolphin
 GET  /api/v1/sync/tasks/:id/dolphin/script
 POST /api/v1/sync/tasks/:id/dolphin/push
 POST /api/v1/sync/tasks/:id/dolphin/unbind          # 仅页面
-POST /api/v1/sync/tasks/:id/dolphin/token           # 仅页面
-POST /api/v1/sync/tasks/:id/dolphin/token/revoke    # 仅页面
 ```
 
 ```text
@@ -41,7 +39,7 @@ stx sync job cancel-by-ref --external-ref <ref> --attach-generation <n> --confir
 - `sync_job_instances.external_ref`、`attach_generation`
 - `JobInstance.Mode` 是 JSON 虚拟字段（`gorm:"-"`），从 `submit_spec.mode` 回填，不落库
 - `scheduler_connections`、`task_scheduler_bindings`
-- `auth_cli_tokens.kind` / `bound_task_id`；调度令牌 `ExpiresAt` 可空
+- Worker 使用 `auth_cli_tokens` 里管理员签发的登录令牌（`stx_`，`ExpiresAt` 可空表示永久）
 
 ### 3. Contracts
 
@@ -56,12 +54,13 @@ stx sync job cancel-by-ref --external-ref <ref> --attach-generation <n> --confir
 
 CLI 环境变量优先级：`--server`/`--token` → `STX_SERVER`/`STX_TOKEN` → 本地 namespace 文件。
 
-调度令牌：
+Worker 令牌：
 
-- 前缀 `stxs_`，`kind=scheduler`，默认不过期，绑定 `bound_task_id`
-- 能力只允许 `sync.task.submit`、`sync.job.get`、`sync.job.cancel`、`sync.job.cancel-by-ref`、`capability.list`
-- 未绑定或解绑后访问该任务返回 403
-- 签发时旧令牌立即失效；原文只返回一次
+- 使用管理员在「用户管理 → 令牌管理」签发的 `stx_` 登录令牌，不要再签发 `stxs_` 调度令牌
+- 预设有效期 7d / 30d / 90d / never（永久），也可自定义 1–3650 天
+- 原文只在签发时返回一次；Worker 环境变量是 `STX_SERVER` + `STX_TOKEN`
+- 权限与令牌所属用户一致；解绑 Dolphin 节点不吊销该登录令牌
+- CLI：`stx admin token create` 签发，`stx login --token` 绑定已有令牌
 
 `--wait`：
 
@@ -69,7 +68,7 @@ CLI 环境变量优先级：`--server`/`--token` → `STX_SERVER`/`STX_TOKEN` �
 - 禁止把 `GET /api/v1/executions/:id/wait` 的超时当成成功
 - 批任务等 `success|failed|canceled`；实时任务等 `running` 后退出 0
 - 成功 0，参数 2，认证 3，无权限 4，超时先 cancel 再 8，失败/被停 10
-- 作业 JSON 的 `mode` 必须能从 `submit_spec` 回填，否则调度令牌查询会把实时任务当成批任务死等
+- 作业 JSON 的 `mode` 必须能从 `submit_spec` 回填，否则 CLI `--wait` 会把实时任务当成批任务死等
 
 `--close-job`：
 
@@ -81,7 +80,7 @@ CLI 环境变量优先级：`--server`/`--token` → `STX_SERVER`/`STX_TOKEN` �
 连接：
 
 - 创建调度器连接必须提交 Dolphin Open API Token（请求头 `token`）；列表/详情只返回 `token_set`，不回显原文。
-- 页面无连接时必须直接展开带标签的 Token 表单；已有连接时 Token 仍可从「新建连接」填写。不要把它和 Worker `STX_TOKEN`（`stxs_` 调度令牌）混成一个字段。
+- 页面无连接时必须直接展开带标签的 Token 表单；已有连接时 Token 仍可从「新建连接」填写。不要把它和 Worker `STX_TOKEN`（管理员签发的 `stx_` 登录令牌）混成一个字段。
 
 推送：
 
@@ -91,7 +90,7 @@ CLI 环境变量优先级：`--server`/`--token` → `STX_SERVER`/`STX_TOKEN` �
 - 已上线工作流：OFFLINE → PUT → ONLINE；PUT 后上线失败必须带 “workflow is OFFLINE”
 - `expected_version` 变化 → 409，不覆盖
 - 推送成功关闭 STX 内置定时；绑定期间不能再打开
-- 解绑只删 STX 记录并吊销令牌，不动 Dolphin 节点
+- 解绑只删 STX 记录，不动 Dolphin 节点，也不吊销管理员签发的登录令牌
 
 Dolphin 定义接口是**整图覆盖**（`taskDefinitionJson` + `taskRelationJson` + `locations` 一次 PUT 全部节点/边/坐标）。回写契约：
 
@@ -123,8 +122,7 @@ SHELL 节点 JSON 必须带 `isCache=NO`、`taskExecuteType=BATCH`；3.2.x 缺 `
 | --- | --- | --- |
 | `--var` / `variables` 值匹配 `^\$\{.+\}$` | 400 `ErrUnreplacedVariable` | 2 |
 | `schedule_time` 非法 | 400 | 2 |
-| 调度令牌访问未绑定/其他任务 | 403 | 4 |
-| 调度令牌已吊销 | 401 | 3 |
+| CLI 令牌已吊销 | 401 | 3 |
 | `attach_generation` 不匹配 | 409（CLI 守护进程忽略） | — |
 | 复用成环 | 400 `ErrDolphinCycle` | 2 |
 | Dolphin 版本变化 | 409 | 6 |
@@ -136,16 +134,16 @@ SHELL 节点 JSON 必须带 `isCache=NO`、`taskExecuteType=BATCH`；3.2.x 缺 `
 
 ### 5. Good / Base / Bad
 
-- Good：Dolphin SHELL 使用生成脚本，`--wait` 轮询作业接口；Worker 环境只有 `STX_SERVER` 与 `stxs_` 调度令牌。
+- Good：Dolphin SHELL 使用生成脚本，`--wait` 轮询作业接口；Worker 环境只有 `STX_SERVER` 与管理员签发的 `stx_` 登录令牌。
 - Base：未绑定任务仍可复制脚本，ref 里保留 Dolphin `${system.*}` 占位符，由 Worker 替换。
 - Bad：`--wait` 打公共执行 wait；把 `JobInstance.Mode` 当成库字段；update 推送还强制前端传 `project_code`；守护进程把 409 重试 30 分钟。
 
 ### 6. Tests Required
 
 - `go test ./internal/cmd/ ./internal/cli/... ./internal/apps/sync/ ./internal/apps/auth/ ./internal/operation/`
-- 断言：变量未替换拒绝；同一 `external_ref` 接管；旧 generation 停止被忽略；update 不改边；成环不写 Dolphin；version 冲突 409；流式脚本含 `--close-job=false`；调度令牌不能提交未绑定任务。
+- 断言：变量未替换拒绝；同一 `external_ref` 接管；旧 generation 停止被忽略；update 不改边；成环不写 Dolphin；version 冲突 409；流式脚本含 `--close-job=false`。
 - Dolphin httptest：3.1/3.2 只打 `process-definition` 且定时带 `processDefinitionCode`；3.3+ 只打 `workflow-definition` 且解码 `workflowTaskRelationList`；更新 3.3 节点必须把原 `workflowTaskRelationList` 写回 `taskRelationJson`；2.x / 非 3.x 版本被拒绝。
-- 整图回写：update 在 OFFLINE 后 GET 丢掉 locations 时仍要把兄弟 SPARK/CONDITION 节点、边 extra 字段和坐标 extra 写回；reuse 不得改写已有节点 JSON。
+- 整图回写：update 在 OFFLINE 后 GET 丢掉 locations 时仍要把兄弟 SPARK/CONDITION 节点、边 extra 字段和坐标 extra 写回；reuse 不得改写已有节点 JSON。OFFLINE 后再 GET 若只返回部分节点或空数组，必须用下线前副本回写，禁止把残缺图 PUT 回去。
 - CLI：`stx sync scheduler connection create --dolphin-version 3.2.2` 把版本写入连接请求体。
 - 前端：中英文 i18n 键齐全；service 对 `tasks`/`relations`/`recent_jobs` 做 `?? []`。
 

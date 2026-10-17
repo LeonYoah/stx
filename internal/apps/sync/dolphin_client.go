@@ -531,7 +531,38 @@ func encodeDefinitionForm(graph *dolphinGraph) url.Values {
 	return form
 }
 
-func buildShellTask(code int64, name, script, workerGroup string) dolphinTaskDef {
+// ResolveEnvironmentCode 按环境名查找 Dolphin environment code；找不到时返回 -1。
+// ResolveEnvironmentCode looks up a Dolphin environment code by name; missing names return -1.
+func (c *DolphinClient) ResolveEnvironmentCode(ctx context.Context, name string) (int64, error) {
+	name = strings.TrimSpace(name)
+	if c == nil || name == "" {
+		return -1, nil
+	}
+	// Soft-fail: missing/unsupported environment APIs keep EnvironmentCode=-1 so push still works.
+	// 软失败：环境列表不可用时保持 -1，推送本身仍可继续。
+	raw, err := c.do(ctx, http.MethodGet, "/environment/query-environment-list", nil)
+	if err != nil {
+		return -1, nil
+	}
+	var items []struct {
+		Code int64  `json:"code"`
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(raw, &items); err != nil {
+		return -1, nil
+	}
+	for _, item := range items {
+		if strings.EqualFold(strings.TrimSpace(item.Name), name) && item.Code != 0 {
+			return item.Code, nil
+		}
+	}
+	return -1, nil
+}
+
+func buildShellTask(code int64, name, script, workerGroup string, environmentCode int64) dolphinTaskDef {
+	if environmentCode == 0 {
+		environmentCode = -1
+	}
 	return dolphinTaskDef{
 		Code:        code,
 		Name:        name,
@@ -553,7 +584,7 @@ func buildShellTask(code int64, name, script, workerGroup string) dolphinTaskDef
 		Flag:              "YES",
 		TaskPriority:      "MEDIUM",
 		WorkerGroup:       defaultString(workerGroup, defaultDolphinWorkerGroup),
-		EnvironmentCode:   -1,
+		EnvironmentCode:   environmentCode,
 		FailRetryTimes:    1,
 		FailRetryInterval: 5,
 		// 新建节点关闭 Dolphin 超时，时长由作业自己结束或调度侧手动停。

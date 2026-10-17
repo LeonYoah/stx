@@ -324,7 +324,7 @@ func TestDolphinConsoleURLByFamily(t *testing.T) {
 }
 
 func TestBuildShellTaskIncludes32CacheFields(t *testing.T) {
-	task := buildShellTask(88, "orders", "echo hi", "")
+	task := buildShellTask(88, "orders", "echo hi", "", -1)
 	if task.IsCache != "NO" || task.TaskExecuteType != "BATCH" {
 		t.Fatalf("3.2 cache fields missing: %+v", task)
 	}

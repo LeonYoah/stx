@@ -175,19 +175,24 @@ func (s *Service) reconcileClusterJobs(ctx context.Context, clusterID uint, jobs
 			continue
 		}
 		if item, ok := runningMap[engineJobID]; ok {
-			if _, err := s.applyEngineJobInfoUpdate(ctx, job, engineListItemToInfo(item)); err != nil {
+			// Prefer job-info so running metrics (and 30s metrics_log) are captured, not only list status.
+			// 优先拉 job-info，才能写入运行中指标与 30s metrics_log，而不是只同步列表状态。
+			detail, detailErr := s.engineClient.GetJobInfo(ctx, endpoint, engineJobID)
+			if detailErr != nil {
+				if _, err := s.applyEngineJobInfoUpdate(ctx, job, engineListItemToInfo(item)); err != nil {
+					s.recordJobSyncFailure(ctx, job)
+				}
+				continue
+			}
+			if _, err := s.applyEngineJobInfoUpdate(ctx, job, detail); err != nil {
 				s.recordJobSyncFailure(ctx, job)
 			}
 			continue
 		}
 		if item, ok := finishedMap[engineJobID]; ok {
+			// Always fetch job-info for finished jobs: finished list omits metrics, which would skip end metrics_log.
+			// 终态必须拉 job-info：finished 列表无 metrics，否则会漏掉终态 metrics_log。
 			info := engineListItemToInfo(item)
-			if isFinalEngineJobStatus(strings.TrimSpace(item.JobStatus)) && strings.TrimSpace(item.FinishedTime) != "" {
-				if _, err := s.applyEngineJobInfoUpdate(ctx, job, info); err != nil {
-					s.recordJobSyncFailure(ctx, job)
-				}
-				continue
-			}
 			detail, detailErr := s.engineClient.GetJobInfo(ctx, endpoint, engineJobID)
 			if detailErr != nil {
 				if _, err := s.applyEngineJobInfoUpdate(ctx, job, info); err != nil {

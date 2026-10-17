@@ -223,9 +223,9 @@ func TestPushDolphinNewWorkflowOn31And32UsesProcessPaths(t *testing.T) {
 			if err != nil {
 				t.Fatalf("push %s: %v", version, err)
 			}
-			if result.TaskCode == 0 || result.Binding == nil {
-				t.Fatalf("result = %+v", result)
-			}
+	if result.TaskCode == 0 || result.Binding == nil || result.Binding.TaskVersion != task.CurrentVersion {
+		t.Fatalf("result = %+v", result)
+	}
 			if fake.saw("workflow-definition") {
 				t.Fatalf("%s push used 3.3 paths: %v", version, fake.paths)
 			}
@@ -674,7 +674,11 @@ func newPushServiceWithDolphin(t *testing.T, server *httptest.Server, version, s
 	if err != nil {
 		t.Fatalf("create task: %v", err)
 	}
-	return service, task, conn.ID
+	published, _, err := service.PublishTask(ctx, task.ID, "dolphin", 1)
+	if err != nil {
+		t.Fatalf("publish task: %v", err)
+	}
+	return service, published, conn.ID
 }
 
 func newBoundPushService(t *testing.T, server *httptest.Server) (*Service, *Task, uint) {
@@ -698,7 +702,11 @@ func newBoundPushService(t *testing.T, server *httptest.Server) (*Service, *Task
 	if err != nil {
 		t.Fatalf("create task: %v", err)
 	}
-	return service, task, conn.ID
+	published, _, err := service.PublishTask(ctx, task.ID, "dolphin", 1)
+	if err != nil {
+		t.Fatalf("publish task: %v", err)
+	}
+	return service, published, conn.ID
 }
 
 func TestMergeDolphinLocationKeepsExistingNodes(t *testing.T) {
@@ -721,6 +729,67 @@ func TestMergeDolphinLocationKeepsExistingNodes(t *testing.T) {
 	invalid := mergeDolphinLocation(`not-json`, 44)
 	if invalid != "not-json" {
 		t.Fatalf("invalid locations must not be rewritten: %s", invalid)
+	}
+}
+
+func TestPushDolphinRejectsUnpublishedTask(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		t.Fatalf("unpublished push must not call Dolphin: %s %s", request.Method, request.URL.Path)
+	}))
+	defer server.Close()
+
+	service := newTestSyncService(t)
+	service.SetDolphinHTTPClient(server.Client())
+	ctx := context.Background()
+	conn := &SchedulerConnection{
+		Name: "ds", Kind: SchedulerKindDolphin, BaseURL: server.URL, Token: "secret", APIStyle: SchedulerAPIStyleProcess,
+	}
+	if err := service.repo.CreateSchedulerConnection(ctx, conn); err != nil {
+		t.Fatalf("create connection: %v", err)
+	}
+	folder, err := service.CreateTask(ctx, &CreateTaskRequest{NodeType: string(TaskNodeTypeFolder), Name: "root", ContentFormat: string(ContentFormatHOCON)}, 1)
+	if err != nil {
+		t.Fatalf("create folder: %v", err)
+	}
+	task, err := service.CreateTask(ctx, &CreateTaskRequest{
+		ParentID: uintPtr(folder.ID), NodeType: string(TaskNodeTypeFile), Name: "draft", Mode: string(TaskModeBatch), ContentFormat: string(ContentFormatHOCON), Content: "env {}",
+	}, 1)
+	if err != nil {
+		t.Fatalf("create task: %v", err)
+	}
+	_, err = service.PushDolphin(ctx, executionapp.Actor{UserID: 1, IsAdmin: true}, task.ID, &DolphinPushRequest{
+		Mode: "new", ConnectionID: conn.ID, ProjectCode: 7, WorkflowName: "draft", DryRun: true,
+	})
+	if !errors.Is(err, ErrTaskNotPublished) {
+		t.Fatalf("expected unpublished, got %v", err)
+	}
+}
+
+func TestPushDolphinRejectsSamePublishedVersion(t *testing.T) {
+	server, _ := newDolphinFakeServer(t, dolphinFakeProcess)
+	service, task, connID := newPushServiceWithDolphin(t, server, "3.2.2", SchedulerAPIStyleAuto)
+	if err := service.repo.SaveSchedulerBinding(context.Background(), &TaskSchedulerBinding{
+		TaskID: task.ID, Kind: SchedulerKindDolphin, ConnectionID: connID, ProjectCode: 7, WorkflowCode: 9, TaskCode: 88, TaskVersion: task.CurrentVersion,
+	}); err != nil {
+		t.Fatalf("save binding: %v", err)
+	}
+	_, err := service.PushDolphin(context.Background(), executionapp.Actor{UserID: 1, IsAdmin: true}, task.ID, &DolphinPushRequest{
+		Mode: "update", DryRun: true,
+	})
+	if !errors.Is(err, ErrDolphinPushNoNewVersion) {
+		t.Fatalf("expected no-new-version, got %v", err)
+	}
+	if _, _, err := service.PublishTask(context.Background(), task.ID, "v2", 1); err != nil {
+		t.Fatalf("publish v2: %v", err)
+	}
+	preview, err := service.PushDolphin(context.Background(), executionapp.Actor{UserID: 1, IsAdmin: true}, task.ID, &DolphinPushRequest{
+		Mode: "update", DryRun: true,
+	})
+	if err != nil {
+		t.Fatalf("new version dry-run: %v", err)
+	}
+	if !preview.DryRun {
+		t.Fatal("expected dry-run preview")
 	}
 }
 

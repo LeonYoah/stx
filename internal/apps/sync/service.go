@@ -1464,23 +1464,35 @@ func (s *Service) submitNewTask(ctx context.Context, id uint, createdBy uint, op
 	if task.NodeType != TaskNodeTypeFile {
 		return nil, ErrTaskNotFile
 	}
-	if task.CurrentVersion == 0 {
-		return nil, ErrTaskNotPublished
-	}
 	binding, err := s.repo.GetSchedulerBindingByTaskID(ctx, task.ID)
 	if err != nil {
 		return nil, err
 	}
 	jobID := s.nextJobID()
+	runType := RunTypeRun
+	dolphinTriggered := false
+	if _, _, ok := parseDolphinExternalRef(opts.externalRef()); ok {
+		runType = RunTypeSchedule
+		dolphinTriggered = true
+	}
+	// Dolphin / CLI 不带草稿时必须跑已发布快照；UI 带草稿的手动运行仍可用编辑器内容。
+	// Dolphin / CLI submits without a draft must run the published snapshot; UI draft runs may still use editor content.
+	if dolphinTriggered || opts.Draft == nil {
+		published, err := s.taskFromCurrentPublishedVersion(ctx, task)
+		if err != nil {
+			return nil, err
+		}
+		task = published
+	}
 	runtime := buildTaskVariableRuntimeWithOptions(task, jobID, opts, binding)
 	if taskExecutionMode(task) == "local" {
 		body, format, jobName, buildErr := s.buildSubmitPayload(ctx, task, runtime)
 		if buildErr != nil {
 			return nil, buildErr
 		}
-		return s.submitLocalTaskInstance(ctx, task, createdBy, RunTypeRun, jobID, body, format, jobName, opts)
+		return s.submitLocalTaskInstance(ctx, task, createdBy, runType, jobID, body, format, jobName, opts)
 	}
-	return s.submitTaskInstance(ctx, task, createdBy, RunTypeRun, jobID, false, nil, opts, runtime)
+	return s.submitTaskInstance(ctx, task, createdBy, runType, jobID, false, nil, opts, runtime)
 }
 
 // RecoverJob recreates a run using the original platform job id as savepoint recovery source.
@@ -1573,7 +1585,7 @@ func (s *Service) submitTaskInstanceWithPayload(ctx context.Context, task *Task,
 			"submitted_content":    string(submitBody),
 			"submitted_format":     submitFormat,
 			"job_name":             jobName,
-			"trigger_source":       triggerSourceForRunType(runType),
+			"trigger_source":       triggerSourceForSubmit(runType, opts),
 			"platform_job_id":      platformJobID,
 			"start_with_savepoint": startWithSavepoint,
 		},
@@ -1584,6 +1596,7 @@ func (s *Service) submitTaskInstanceWithPayload(ctx context.Context, task *Task,
 	if s.engineClient != nil && s.runtimeResolver != nil {
 		endpoint, err := s.runtimeResolver.ResolveEngineEndpoint(ctx, task.ClusterID, task.Definition)
 		if err != nil {
+			s.recordFailedDolphinSubmit(ctx, instance, err)
 			return nil, err
 		}
 		if s.executionTargetResolver != nil {
@@ -1596,6 +1609,7 @@ func (s *Service) submitTaskInstanceWithPayload(ctx context.Context, task *Task,
 		}
 		resp, err := s.engineClient.Submit(ctx, &EngineSubmitRequest{Endpoint: endpoint, Format: submitFormat, JobID: platformJobID, JobName: jobName, StartWithSavepoint: startWithSavepoint, Body: submitBody})
 		if err != nil {
+			s.recordFailedDolphinSubmit(ctx, instance, err)
 			return nil, err
 		}
 		instance.EngineJobID = strings.TrimSpace(resp.JobID)

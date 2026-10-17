@@ -650,3 +650,4 @@ os.WriteFile(target, source, 0o644)
 - 守护进程是 unix `setsid` 子进程，不是 Server lease；409/404 的 `cancel-by-ref` 必须停止重试。
 - `unbind` 不生成 CLI（无 `CommandPath`）；取消作业继续用 `cancel` / `cancel-by-ref`。
 - Worker `STX_TOKEN` 是管理员签发的 `stx_` 登录令牌；用 `stx admin token create` 签发、`stx login --token` 绑定，不再单独设计 `stxs_` 调度令牌。`stx sync task dolphin push` 只推 SHELL 节点，不签发、不绑定该登录令牌。
+- `stx sync task submit`（无草稿）和 `stx sync task dolphin push` 都只使用当前已发布版本；未发布返回 400。同一发布版本再次 `push` 返回 409，必须先发布新版本。`--external-ref ds:{wf_inst}:{task_code}` 写入的作业 `trigger_source` 为 `dolphin`。

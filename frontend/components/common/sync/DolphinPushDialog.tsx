@@ -51,6 +51,7 @@ import type {
   DolphinWorkflowSummary,
   SchedulerConnection,
 } from '@/lib/services/sync/types';
+import {dolphinPushBlockedReason} from '@/components/common/sync/sync-studio-utils';
 
 // 任务侧边栏里的推送弹窗：新建工作流、复用已有工作流，或只更新已绑定节点。
 // Sidebar dialog that creates, reuses, or updates a DolphinScheduler SHELL node.
@@ -69,6 +70,7 @@ export function DolphinPushDialog({
 }) {
   const t = useTranslations('workbenchStudio');
   const bound = Boolean(status?.binding);
+  const pushBlocked = dolphinPushBlockedReason(status);
   const [mode, setMode] = useState<'new' | 'reuse'>('new');
   const [connections, setConnections] = useState<SchedulerConnection[]>([]);
   const [connectionId, setConnectionId] = useState<string>('');
@@ -517,6 +519,22 @@ export function DolphinPushDialog({
                 <span>{t('dolphinCycleBlocked')}</span>
               </div>
             ) : null}
+            {pushBlocked === 'unpublished' ? (
+              <div className='flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-400'>
+                <AlertTriangle className='mt-0.5 size-3.5 shrink-0' />
+                <span>{t('dolphinNeedPublish')}</span>
+              </div>
+            ) : null}
+            {pushBlocked === 'no_new_version' ? (
+              <div className='flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-400'>
+                <AlertTriangle className='mt-0.5 size-3.5 shrink-0' />
+                <span>
+                  {t('dolphinNeedNewVersion', {
+                    pushed: status?.pushed_version || 0,
+                  })}
+                </span>
+              </div>
+            ) : null}
           </div>
         </ScrollArea>
         <DialogFooter className='border-t border-border/60 bg-muted/20 px-6 py-3'>
@@ -526,12 +544,16 @@ export function DolphinPushDialog({
           <Button
             type='button'
             variant='secondary'
-            disabled={busy || cycle}
+            disabled={busy || cycle || Boolean(pushBlocked)}
             onClick={() => void submit(true)}
           >
             {t('dolphinDryRun')}
           </Button>
-          <Button type='button' disabled={busy || cycle} onClick={() => void submit(false)}>
+          <Button
+            type='button'
+            disabled={busy || cycle || Boolean(pushBlocked)}
+            onClick={() => void submit(false)}
+          >
             {busy ? <Loader2 className='size-3.5 animate-spin' /> : t('dolphinConfirmPush')}
           </Button>
         </DialogFooter>

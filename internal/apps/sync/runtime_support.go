@@ -305,7 +305,7 @@ func (s *Service) submitLocalTaskInstance(ctx context.Context, task *Task, creat
 			"submitted_content": string(body),
 			"submitted_format":  normalizeSubmitFormat(format),
 			"job_name":          jobName,
-			"trigger_source":    triggerSourceForRunType(runType),
+			"trigger_source":    triggerSourceForSubmit(runType, opts),
 			"platform_job_id":   platformJobID,
 			"config_file":       localRun.ConfigFile,
 			"pid":               localRun.PID,

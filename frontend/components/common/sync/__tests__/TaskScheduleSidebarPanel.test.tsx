@@ -64,7 +64,26 @@ describe('TaskScheduleSidebarPanel', () => {
         workflow_name: 'orders',
         console_url: 'http://127.0.0.1:12345/dolphinscheduler/ui/projects/11/workflow-definition/22',
       },
-      recent_jobs: [],
+      published_version: 1,
+      pushed_version: 1,
+      recent_jobs: [
+        {
+          id: 7,
+          task_id: 42,
+          task_version: 1,
+          run_type: 'schedule',
+          platform_job_id: 'p7',
+          engine_job_id: '',
+          status: 'failed',
+          submit_spec: {trigger_source: 'dolphin'},
+          result_preview: {},
+          error_message: 'cluster missing',
+          created_by: 1,
+          created_at: '',
+          updated_at: '',
+          external_ref: 'ds:1001:88',
+        },
+      ],
       builtin_locked: true,
     });
   });
@@ -85,6 +104,10 @@ describe('TaskScheduleSidebarPanel', () => {
       expect(screen.getByRole('button', {name: /更新节点/})).toBeTruthy();
     });
     expect(screen.getByRole('button', {name: /复制节点脚本/})).toBeTruthy();
+    expect(screen.getByText(/已发布 v1 · 已推送 v1/)).toBeTruthy();
+    expect(screen.getByText(/ds:1001:88/)).toBeTruthy();
+    expect(screen.getByText(/Dolphin 调度/)).toBeTruthy();
+    expect(screen.getByText(/请先发布新版本再更新节点/)).toBeTruthy();
     expect(screen.queryByRole('button', {name: /打开令牌管理/})).toBeNull();
     expect(screen.queryByText('打开令牌管理')).toBeNull();
     expect(

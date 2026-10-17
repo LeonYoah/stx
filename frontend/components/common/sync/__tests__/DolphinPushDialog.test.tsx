@@ -48,10 +48,19 @@ vi.mock('sonner', () => ({
   },
 }));
 
-function renderDialog() {
+function renderDialog(status?: {
+  published_version?: number;
+  pushed_version?: number;
+  binding?: {id: number} | null;
+}) {
   return render(
     <NextIntlClientProvider locale='zh' messages={zh}>
-      <DolphinPushDialog open taskId={2} onOpenChange={vi.fn()} />
+      <DolphinPushDialog
+        open
+        taskId={2}
+        onOpenChange={vi.fn()}
+        status={status as never}
+      />
     </NextIntlClientProvider>,
   );
 }
@@ -128,5 +137,20 @@ describe('DolphinPushDialog', () => {
         dolphin_version: undefined,
       });
     });
+  });
+
+  it('disables push until a new published version exists', async () => {
+    listSchedulerConnections.mockResolvedValue({items: []});
+    renderDialog({
+      published_version: 1,
+      pushed_version: 1,
+      binding: {id: 4},
+    });
+
+    expect(
+      await screen.findByText(/已推送 v1，请先发布新版本再更新节点/),
+    ).toBeTruthy();
+    expect(screen.getByRole('button', {name: '预演'})).toBeDisabled();
+    expect(screen.getByRole('button', {name: '确认推送'})).toBeDisabled();
   });
 });

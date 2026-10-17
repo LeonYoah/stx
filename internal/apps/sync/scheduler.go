@@ -78,8 +78,11 @@ type TaskSchedulerBinding struct {
 	ConsoleURL   string     `json:"console_url" gorm:"size:1024"`
 	PushedAt     *time.Time `json:"pushed_at"`
 	PushedBy     uint       `json:"pushed_by"`
-	CreatedAt    time.Time  `json:"created_at" gorm:"autoCreateTime"`
-	UpdatedAt    time.Time  `json:"updated_at" gorm:"autoUpdateTime"`
+	// TaskVersion 记录这次推送对应的 STX 已发布版本；同一版本不能再更新推送。
+	// TaskVersion is the STX published version this push deployed; the same version cannot be pushed again.
+	TaskVersion int       `json:"task_version"`
+	CreatedAt   time.Time `json:"created_at" gorm:"autoCreateTime"`
+	UpdatedAt   time.Time `json:"updated_at" gorm:"autoUpdateTime"`
 }
 
 // TableName 指定任务调度绑定表名。
@@ -155,6 +158,10 @@ type DolphinTaskStatus struct {
 	Script        *DolphinScriptResult  `json:"script,omitempty"`
 	RecentJobs    []*JobInstance        `json:"recent_jobs"`
 	BuiltinLocked bool                  `json:"builtin_locked"`
+	// PublishedVersion 是任务当前已发布版本；PushedVersion 是上次推到 Dolphin 的版本。
+	// PublishedVersion is the task's current published version; PushedVersion is the last version pushed to Dolphin.
+	PublishedVersion int `json:"published_version"`
+	PushedVersion    int `json:"pushed_version"`
 }
 
 // DolphinProject 是连接上可选的 Dolphin 项目。

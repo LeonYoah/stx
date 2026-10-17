@@ -233,6 +233,8 @@ export interface SyncJobInstance {
   created_by: number;
   created_at: string;
   updated_at: string;
+  external_ref?: string;
+  attach_generation?: number;
 }
 
 export interface SyncTaskListData {
@@ -475,6 +477,7 @@ export interface TaskSchedulerBinding {
   workflow_name?: string;
   console_url?: string;
   pushed_at?: string;
+  task_version?: number;
 }
 
 export interface DolphinPushRequest {
@@ -515,6 +518,8 @@ export interface DolphinTaskStatus {
   script?: DolphinScriptResult;
   recent_jobs?: SyncJobInstance[];
   builtin_locked?: boolean;
+  published_version?: number;
+  pushed_version?: number;
 }
 
 export interface SyncRecoverJobRequest {

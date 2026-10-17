@@ -92,6 +92,16 @@ Worker 令牌：
 - `expected_version` 变化 → 409，不覆盖
 - 推送成功关闭 STX 内置定时；绑定期间不能再打开
 - 解绑只删 STX 记录，不动 Dolphin 节点，也不吊销管理员签发的登录令牌
+- 推送与内置定时一样只绑已发布版本：未发布 → 400 `ErrTaskNotPublished`；脚本取当前发布快照，不用编辑器草稿
+- 同一 STX 发布版本不能再更新推送。绑定记录 `task_version`；`CurrentVersion <= binding.TaskVersion`（且已记录过版本）→ 409 `ErrDolphinPushNoNewVersion`
+- 旧绑定 `task_version=0` 允许再推一次，把当前发布版本写回绑定
+
+Dolphin 触发的提交：
+
+- `external_ref` 形如 `ds:{wf_inst}:{task_code}` 时 `run_type=schedule`、`submit_spec.trigger_source=dolphin`
+- 必须跑当前已发布快照；未发布 → 400 `ErrTaskNotPublished`
+- 作业记录带 `task_version`、`external_ref`、`trigger_source=dolphin`，与手动运行、内置定时区分
+- 没有 SeaTunnel 集群或引擎提交失败时，仍要留下一条 `failed` 作业，不能假装调度没调过
 
 Dolphin 定义接口是**整图覆盖**（`taskDefinitionJson` + `taskRelationJson` + `locations` 一次 PUT 全部节点/边/坐标）。回写契约：
 
@@ -132,6 +142,8 @@ SHELL 节点 JSON 必须带 `isCache=NO`、`taskExecuteType=BATCH`；3.2.x 缺 `
 | 作业 `failed` / `canceled` | — | 10 |
 | 绑定期间打开内置定时 | 400 `ErrScheduleLockedByDolphin` | 2 |
 | Dolphin 不是 3.x / 2.x 项目列表 / 高低版本路径都不存在 | 400 `ErrDolphinUnsupportedVersion` | 2 |
+| 未发布就推送或 Dolphin/CLI 提交 | 400 `ErrTaskNotPublished` | 2 |
+| 同一已发布版本再次更新推送 | 409 `ErrDolphinPushNoNewVersion` | 6 |
 
 ### 5. Good / Base / Bad
 
@@ -143,6 +155,7 @@ SHELL 节点 JSON 必须带 `isCache=NO`、`taskExecuteType=BATCH`；3.2.x 缺 `
 
 - `go test ./internal/cmd/ ./internal/cli/... ./internal/apps/sync/ ./internal/apps/auth/ ./internal/operation/`
 - 断言：变量未替换拒绝；同一 `external_ref` 接管；旧 generation 停止被忽略；update 不改边；成环不写 Dolphin；version 冲突 409；流式脚本含 `--close-job=false`。
+- 未发布推送失败；同一发布版本再次 update 409；发布新版本后才允许更新。Dolphin `external_ref` 提交使用发布快照，`trigger_source=dolphin`；引擎不可用时仍写入 failed 作业。
 - Dolphin httptest：3.1/3.2 只打 `process-definition` 且定时带 `processDefinitionCode`；3.3+ 只打 `workflow-definition` 且解码 `workflowTaskRelationList`；更新 3.3 节点必须把原 `workflowTaskRelationList` 写回 `taskRelationJson`；2.x / 非 3.x 版本被拒绝。
 - 整图回写：update 在 OFFLINE 后 GET 丢掉 locations 时仍要把兄弟 SPARK/CONDITION 节点、边 extra 字段和坐标 extra 写回；reuse 不得改写已有节点 JSON。OFFLINE 后再 GET 若只返回部分节点或空数组，必须用下线前副本回写，禁止把残缺图 PUT 回去。
 - CLI：`stx sync scheduler connection create --dolphin-version 3.2.2` 把版本写入连接请求体。

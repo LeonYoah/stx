@@ -174,10 +174,19 @@ func (s *Service) GetDolphinTaskStatus(ctx context.Context, actor executionapp.A
 		return nil, err
 	}
 	status := &DolphinTaskStatus{
-		Binding:       binding,
-		BuiltinLocked: binding != nil,
-		RecentJobs:    []*JobInstance{},
-		Script:        BuildDolphinShellScript(task, "", nil, "", ""),
+		Binding:          binding,
+		BuiltinLocked:    binding != nil,
+		RecentJobs:       []*JobInstance{},
+		Script:           BuildDolphinShellScript(task, "", nil, "", ""),
+		PublishedVersion: task.CurrentVersion,
+	}
+	if binding != nil {
+		status.PushedVersion = binding.TaskVersion
+	}
+	// 侧栏展示即将推送的脚本时优先用已发布快照，避免把未发布草稿当成调度内容。
+	// Prefer the published snapshot for the sidebar script so unpublished drafts are not shown as the scheduled payload.
+	if published, err := s.taskFromCurrentPublishedVersion(ctx, task); err == nil {
+		status.Script = BuildDolphinShellScript(published, "", nil, "", "")
 	}
 	if binding != nil {
 		if conn, err := s.repo.GetSchedulerConnectionByID(ctx, binding.ConnectionID); err == nil {
@@ -214,6 +223,14 @@ func (s *Service) PushDolphin(ctx context.Context, actor executionapp.Actor, tas
 	if err != nil {
 		return nil, err
 	}
+	if err := requirePublishedVersionForPush(task, binding); err != nil {
+		return nil, err
+	}
+	published, err := s.taskFromCurrentPublishedVersion(ctx, task)
+	if err != nil {
+		return nil, err
+	}
+	task = published
 	mode := strings.ToLower(strings.TrimSpace(req.Mode))
 	if binding != nil {
 		mode = "update"
@@ -335,7 +352,7 @@ func (s *Service) pushNewWorkflow(ctx context.Context, actor executionapp.Actor,
 	} else if err := client.OnlineSchedules(ctx, projectCode, graph.Code); err != nil {
 		result.Warning = joinWarning(result.Warning, err.Error())
 	}
-	saved, err := s.saveBindingAfterPush(ctx, task.ID, conn, projectCode, graph.Code, shell.Code, name, uint(actor.UserID), client.style)
+	saved, err := s.saveBindingAfterPush(ctx, task.ID, conn, projectCode, graph.Code, shell.Code, name, uint(actor.UserID), client.style, task.CurrentVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -447,7 +464,7 @@ func (s *Service) pushReuseWorkflow(ctx context.Context, actor executionapp.Acto
 		}
 		graph.ReleaseState = dolphinReleaseOnline
 	}
-	saved, err := s.saveBindingAfterPush(ctx, task.ID, conn, projectCode, graph.Code, shell.Code, graph.Name, uint(actor.UserID), client.style)
+	saved, err := s.saveBindingAfterPush(ctx, task.ID, conn, projectCode, graph.Code, shell.Code, graph.Name, uint(actor.UserID), client.style, task.CurrentVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -527,7 +544,7 @@ func (s *Service) pushUpdateNode(ctx context.Context, actor executionapp.Actor, 
 		graph.ReleaseState = dolphinReleaseOnline
 		result.ReleaseState = dolphinReleaseOnline
 	}
-	saved, err := s.saveBindingAfterPush(ctx, task.ID, conn, binding.ProjectCode, graph.Code, binding.TaskCode, graph.Name, uint(actor.UserID), client.style)
+	saved, err := s.saveBindingAfterPush(ctx, task.ID, conn, binding.ProjectCode, graph.Code, binding.TaskCode, graph.Name, uint(actor.UserID), client.style, task.CurrentVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -539,9 +556,24 @@ func (s *Service) pushUpdateNode(ctx context.Context, actor executionapp.Actor, 
 	return result, nil
 }
 
+// requirePublishedVersionForPush 推送必须绑到已发布版本：未发布拒绝；同一版本不能再更新。
+// requirePublishedVersionForPush binds push to a published version: unpublished tasks are rejected; the same version cannot be pushed again.
+func requirePublishedVersionForPush(task *Task, binding *TaskSchedulerBinding) error {
+	if task == nil || task.CurrentVersion <= 0 {
+		return ErrTaskNotPublished
+	}
+	if binding == nil {
+		return nil
+	}
+	if binding.TaskVersion > 0 && task.CurrentVersion <= binding.TaskVersion {
+		return ErrDolphinPushNoNewVersion
+	}
+	return nil
+}
+
 // saveBindingAfterPush 写入绑定，并用探测到的 API 族生成控制台链接。
 // saveBindingAfterPush stores the binding and builds the console URL from the probed API family.
-func (s *Service) saveBindingAfterPush(ctx context.Context, taskID uint, conn *SchedulerConnection, projectCode, workflowCode, taskCode int64, workflowName string, pushedBy uint, apiStyle string) (*TaskSchedulerBinding, error) {
+func (s *Service) saveBindingAfterPush(ctx context.Context, taskID uint, conn *SchedulerConnection, projectCode, workflowCode, taskCode int64, workflowName string, pushedBy uint, apiStyle string, taskVersion int) (*TaskSchedulerBinding, error) {
 	now := time.Now()
 	item := &TaskSchedulerBinding{
 		TaskID:       taskID,
@@ -554,6 +586,7 @@ func (s *Service) saveBindingAfterPush(ctx context.Context, taskID uint, conn *S
 		ConsoleURL:   dolphinConsoleURL(conn.BaseURL, projectCode, workflowCode, apiStyle, conn.DolphinVersion),
 		PushedAt:     &now,
 		PushedBy:     pushedBy,
+		TaskVersion:  taskVersion,
 	}
 	if err := s.repo.SaveSchedulerBinding(ctx, item); err != nil {
 		return nil, err

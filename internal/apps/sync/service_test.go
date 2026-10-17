@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -1591,6 +1592,156 @@ func TestSubmitScheduledTaskUsesPublishedVersionSnapshot(t *testing.T) {
 	}
 	if strings.Contains(submitted, "row.num = 999") {
 		t.Fatalf("unexpected draft content used for schedule: %s", submitted)
+	}
+}
+
+const fakeBatchHOCON = `# env · BATCH
+# curated-section: env | batch
+
+env {
+  parallelism = 1
+  job.mode = "BATCH"
+  job.retry.times = 0
+}
+
+source {
+  FakeSource {
+    plugin_output = "fake"
+    row.num = 16
+    schema = {
+      fields {
+        id = "bigint"
+        name = "string"
+        score = "int"
+      }
+    }
+  }
+}
+
+sink {
+  Console {
+    plugin_input = ["fake"]
+  }
+}
+`
+
+func TestSubmitWithDolphinExternalRefUsesPublishedSnapshot(t *testing.T) {
+	service := newTestSyncService(t)
+	ctx := context.Background()
+	folder, err := service.CreateTask(ctx, &CreateTaskRequest{
+		NodeType: string(TaskNodeTypeFolder), Name: "workspace", ContentFormat: string(ContentFormatHOCON),
+	}, 1)
+	if err != nil {
+		t.Fatalf("create folder: %v", err)
+	}
+	file, err := service.CreateTask(ctx, &CreateTaskRequest{
+		ParentID: uintPtr(folder.ID), NodeType: string(TaskNodeTypeFile), Name: "demo",
+		Mode: string(TaskModeBatch), ContentFormat: string(ContentFormatHOCON), Content: fakeBatchHOCON,
+	}, 1)
+	if err != nil {
+		t.Fatalf("create file: %v", err)
+	}
+	_, version, err := service.PublishTask(ctx, file.ID, "v1", 1)
+	if err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+	_, err = service.UpdateTask(ctx, file.ID, &UpdateTaskRequest{
+		ParentID: file.ParentID, NodeType: string(TaskNodeTypeFile), Name: file.Name,
+		ClusterID: file.ClusterID, EngineVersion: file.EngineVersion, Mode: string(file.Mode),
+		ContentFormat: string(file.ContentFormat), Content: strings.Replace(fakeBatchHOCON, "row.num = 16", "row.num = 999", 1),
+		JobName: file.JobName, Definition: file.Definition, SortOrder: file.SortOrder,
+	})
+	if err != nil {
+		t.Fatalf("update draft: %v", err)
+	}
+	job, err := service.SubmitTaskWithOptions(ctx, file.ID, 1, &SubmitOptions{ExternalRef: "ds:1001:88"})
+	if err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	if job.RunType != RunTypeSchedule {
+		t.Fatalf("run_type = %s", job.RunType)
+	}
+	if job.ExternalRef != "ds:1001:88" {
+		t.Fatalf("external_ref = %s", job.ExternalRef)
+	}
+	if got := stringValue(job.SubmitSpec, "trigger_source"); got != dolphinTriggerSource {
+		t.Fatalf("trigger_source = %q", got)
+	}
+	if job.TaskVersion != version.Version {
+		t.Fatalf("task_version = %d, want %d", job.TaskVersion, version.Version)
+	}
+	submitted := stringValue(job.SubmitSpec, "submitted_content")
+	if !strings.Contains(submitted, "row.num = 16") || strings.Contains(submitted, "row.num = 999") {
+		t.Fatalf("expected published snapshot, got %s", submitted)
+	}
+}
+
+func TestSubmitWithDolphinExternalRefRejectsUnpublished(t *testing.T) {
+	service := newTestSyncService(t)
+	ctx := context.Background()
+	folder, err := service.CreateTask(ctx, &CreateTaskRequest{
+		NodeType: string(TaskNodeTypeFolder), Name: "workspace", ContentFormat: string(ContentFormatHOCON),
+	}, 1)
+	if err != nil {
+		t.Fatalf("create folder: %v", err)
+	}
+	file, err := service.CreateTask(ctx, &CreateTaskRequest{
+		ParentID: uintPtr(folder.ID), NodeType: string(TaskNodeTypeFile), Name: "draft",
+		Mode: string(TaskModeBatch), ContentFormat: string(ContentFormatHOCON), Content: fakeBatchHOCON,
+	}, 1)
+	if err != nil {
+		t.Fatalf("create file: %v", err)
+	}
+	_, err = service.SubmitTaskWithOptions(ctx, file.ID, 1, &SubmitOptions{ExternalRef: "ds:1:2"})
+	if !errors.Is(err, ErrTaskNotPublished) {
+		t.Fatalf("expected unpublished, got %v", err)
+	}
+}
+
+type failRuntimeResolver struct{ err error }
+
+func (f failRuntimeResolver) ResolveEngineEndpoint(context.Context, uint, JSONMap) (*EngineEndpoint, error) {
+	return nil, f.err
+}
+
+func TestSubmitWithDolphinExternalRefRecordsFailedJobWhenEngineMissing(t *testing.T) {
+	service := newTestSyncService(t)
+	service.engineClient = &stubEngineClient{}
+	service.runtimeResolver = failRuntimeResolver{err: fmt.Errorf("sync: execution target is unavailable")}
+	ctx := context.Background()
+	folder, err := service.CreateTask(ctx, &CreateTaskRequest{
+		NodeType: string(TaskNodeTypeFolder), Name: "workspace", ContentFormat: string(ContentFormatHOCON),
+	}, 1)
+	if err != nil {
+		t.Fatalf("create folder: %v", err)
+	}
+	file, err := service.CreateTask(ctx, &CreateTaskRequest{
+		ParentID: uintPtr(folder.ID), NodeType: string(TaskNodeTypeFile), Name: "demo",
+		Mode: string(TaskModeBatch), ContentFormat: string(ContentFormatHOCON), Content: fakeBatchHOCON,
+	}, 1)
+	if err != nil {
+		t.Fatalf("create file: %v", err)
+	}
+	if _, _, err := service.PublishTask(ctx, file.ID, "v1", 1); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+	_, err = service.SubmitTaskWithOptions(ctx, file.ID, 1, &SubmitOptions{ExternalRef: "ds:9:8"})
+	if err == nil {
+		t.Fatal("expected engine error")
+	}
+	jobs, total, listErr := service.repo.ListJobInstances(ctx, &JobFilter{TaskID: file.ID, IncludeAll: true, Page: 1, Size: 10})
+	if listErr != nil {
+		t.Fatalf("list jobs: %v", listErr)
+	}
+	if total != 1 || len(jobs) != 1 {
+		t.Fatalf("expected one failed job, got total=%d len=%d", total, len(jobs))
+	}
+	job := jobs[0]
+	if job.Status != JobStatusFailed {
+		t.Fatalf("status = %s", job.Status)
+	}
+	if job.ExternalRef != "ds:9:8" || stringValue(job.SubmitSpec, "trigger_source") != dolphinTriggerSource {
+		t.Fatalf("job identifiers = ref=%s trigger=%s", job.ExternalRef, stringValue(job.SubmitSpec, "trigger_source"))
 	}
 }
 

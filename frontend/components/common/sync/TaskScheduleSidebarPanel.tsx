@@ -48,6 +48,10 @@ import {
   CronExpressionEditor,
   type CronPresetOption,
 } from '@/components/common/schedule/CronExpressionEditor';
+import {
+  dolphinPushBlockedReason,
+  getRunModeLabel,
+} from '@/components/common/sync/sync-studio-utils';
 
 export interface TaskScheduleValue {
   enabled: boolean;
@@ -109,6 +113,7 @@ export function TaskScheduleSidebarPanel({
   );
 
   const timezoneValue = value.timezone || 'Asia/Shanghai';
+  const pushBlocked = dolphin == null ? null : dolphinPushBlockedReason(dolphin);
 
   // 格式化时间展示
   // Format schedule datetime display
@@ -313,16 +318,44 @@ export function TaskScheduleSidebarPanel({
               <div className='overflow-x-auto whitespace-nowrap font-mono'>
                 {dolphin.binding.workflow_name || dolphin.binding.workflow_code} / {dolphin.binding.task_code}
               </div>
+              <div className='overflow-x-auto whitespace-nowrap'>
+                {t('dolphinPublishedPushed', {
+                  published: dolphin.published_version || 0,
+                  pushed: dolphin.pushed_version || 0,
+                })}
+              </div>
               {(dolphin.recent_jobs ?? []).slice(0, 3).map((job) => (
-                <div key={job.id} className='flex items-center justify-between gap-2'>
-                  <span className='font-mono'>#{job.id}</span>
-                  <span>{job.status}</span>
+                <div
+                  key={job.id}
+                  className='flex items-center justify-between gap-2 overflow-x-auto whitespace-nowrap'
+                  title={job.external_ref || undefined}
+                >
+                  <span className='font-mono'>
+                    #{job.id}
+                    {job.task_version > 0 ? ` v${job.task_version}` : ''}
+                    {job.external_ref ? ` ${job.external_ref}` : ''}
+                  </span>
+                  <span>
+                    {getRunModeLabel(job, t)} · {job.status}
+                  </span>
                 </div>
               ))}
             </div>
           ) : (
             <p className='text-[11px] text-muted-foreground'>{t('dolphinUnboundHint')}</p>
           )}
+          {pushBlocked === 'unpublished' ? (
+            <p className='text-[11px] text-amber-600 dark:text-amber-400'>
+              {t('dolphinNeedPublish')}
+            </p>
+          ) : null}
+          {pushBlocked === 'no_new_version' ? (
+            <p className='text-[11px] text-amber-600 dark:text-amber-400'>
+              {t('dolphinNeedNewVersion', {
+                pushed: dolphin?.pushed_version || 0,
+              })}
+            </p>
+          ) : null}
           {/* 推送只写 SHELL 节点；Worker stx_ 登录令牌由用户自行绑定，侧栏不开放令牌管理。 */}
           {/* Push only writes the SHELL node; the worker stx_ login token is bound by the user, not from this sidebar. */}
           <div className='flex flex-wrap gap-1.5'>

@@ -242,6 +242,54 @@ func TestSyncTaskSubmitSendsWaitAndPollsExecution(t *testing.T) {
 	}
 }
 
+func TestSyncTaskSubmitWaitFailsWhenObservationStale(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		switch {
+		case request.URL.Path == "/api/v1/capabilities":
+			writeSyncCapabilities(t, writer, "sync.task.submit", "R2")
+		case request.URL.Path == "/api/v1/sync/tasks/42":
+			_ = json.NewEncoder(writer).Encode(map[string]any{"data": map[string]any{"mode": "batch"}})
+		case request.URL.Path == "/api/v1/sync/tasks/42/submit":
+			_ = json.NewEncoder(writer).Encode(map[string]any{"data": map[string]any{"id": 99, "status": "running"}})
+		case request.URL.Path == "/api/v1/sync/jobs/99":
+			lag := int64(5 * 60 * 1000)
+			_ = json.NewEncoder(writer).Encode(map[string]any{
+				"data": map[string]any{
+					"id":           99,
+					"status":       "running",
+					"sync_state":   "stale",
+					"sync_lag_ms":  lag,
+				},
+			})
+		case request.URL.Path == "/api/v1/sync/jobs/99/logs":
+			_ = json.NewEncoder(writer).Encode(map[string]any{"data": map[string]any{}})
+		default:
+			t.Fatalf("意外的请求路径: %s", request.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	oldPoll := jobWaitPollInterval
+	jobWaitPollInterval = 2 * time.Millisecond
+	t.Cleanup(func() { jobWaitPollInterval = oldPoll })
+
+	store := newExecutionTestStore(t, server.URL, "test-token")
+	_, stderr, exitCode := runSyncCommand(t, store,
+		"sync", "task", "submit", "42",
+		"--confirm",
+		"--wait",
+		"--close-job=false",
+		"--observation-timeout", "3m",
+	)
+	if exitCode != int(clioutput.ExitTimeout) {
+		t.Fatalf("stale 观察超时应返回 timeout 退出码: code=%d stderr=%s", exitCode, stderr)
+	}
+	if !strings.Contains(stderr, `"event":"job_observation_lost"`) {
+		t.Fatalf("stderr 应包含 job_observation_lost: %s", stderr)
+	}
+}
+
 func TestSyncJobCancelWithSavepointSendsFlag(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Content-Type", "application/json")

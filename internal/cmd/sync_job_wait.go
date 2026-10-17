@@ -19,6 +19,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/url"
 	"os"
@@ -42,6 +43,10 @@ var jobLogFollowInterval = 3 * time.Second
 
 const jobLogFollowChunkBytes = 64 * 1024
 
+// defaultJobObservationTimeout 是 sync_state=stale 时 --wait 默认失败前的观察窗口。
+// defaultJobObservationTimeout is the default --wait window before failing when sync_state stays stale.
+const defaultJobObservationTimeout = 3 * time.Minute
+
 type syncJobWaitResult struct {
 	ID               uint   `json:"id"`
 	TaskID           uint   `json:"task_id"`
@@ -56,10 +61,11 @@ type syncJobWaitResult struct {
 }
 
 type syncJobWaitConfig struct {
-	Mode       string
-	Timeout    time.Duration
-	CloseJob   bool
-	FollowLogs bool
+	Mode                string
+	Timeout             time.Duration
+	ObservationTimeout  time.Duration
+	CloseJob            bool
+	FollowLogs          bool
 }
 
 // parseCLIWaitTimeout 解析 --wait 的可选上限；空值表示一直等到作业终态。
@@ -93,6 +99,7 @@ func waitSyncJob(command *cobra.Command, client *cliClient.Client, operationID s
 
 	events := clioutput.NewEventWriter(command.ErrOrStderr())
 	logState := newJobLogFollowState()
+	var staleSince time.Time
 
 	for {
 		var latest syncJobWaitResult
@@ -121,6 +128,25 @@ func waitSyncJob(command *cobra.Command, client *cliClient.Client, operationID s
 		}
 
 		status := strings.ToLower(strings.TrimSpace(job.Status))
+		if !isSyncJobTerminal(status) && staleObservationExceeded(job, cfg.ObservationTimeout, &staleSince) {
+			message := fmt.Sprintf("engine observation stale for at least %s while job status is %s", formatCLIDuration(cfg.ObservationTimeout), status)
+			_ = events.Emit(clioutput.Event{
+				Event:       "job_observation_lost",
+				OperationID: operationID,
+				RequestID:   requestID,
+				Level:       "error",
+				JobID:       job.ID,
+				Status:      status,
+				SyncState:   strings.TrimSpace(job.SyncState),
+				SyncLagMs:   job.SyncLagMs,
+				Message:     message,
+			})
+			if cfg.CloseJob {
+				_ = cancelSyncJob(command.Context(), client, job.ID)
+			}
+			_ = renderCommandResultWithRequestID(command, operationID, requestID, job)
+			return clioutput.NewError(clioutput.CodeTimeout, message, clioutput.ExitTimeout, true)
+		}
 		if streaming && status == "running" {
 			if cfg.FollowLogs {
 				drainJobLogs(signalCtx, client, events, operationID, job.ID, logState, 2)
@@ -226,6 +252,41 @@ func isWaitTimeout(ctx context.Context, timeout time.Duration) bool {
 		return false
 	}
 	return ctx.Err() == context.DeadlineExceeded
+}
+
+// staleObservationExceeded 判断非终态作业是否在 stale 观察窗内已超过上限。
+// staleObservationExceeded reports whether a non-terminal job exceeded the stale observation window.
+func staleObservationExceeded(job syncJobWaitResult, limit time.Duration, staleSince *time.Time) bool {
+	if limit <= 0 {
+		if staleSince != nil {
+			*staleSince = time.Time{}
+		}
+		return false
+	}
+	if !strings.EqualFold(strings.TrimSpace(job.SyncState), "stale") {
+		if staleSince != nil {
+			*staleSince = time.Time{}
+		}
+		return false
+	}
+	if job.SyncLagMs != nil && *job.SyncLagMs >= limit.Milliseconds() {
+		return true
+	}
+	if staleSince == nil {
+		return false
+	}
+	if staleSince.IsZero() {
+		*staleSince = time.Now()
+		return false
+	}
+	return time.Since(*staleSince) >= limit
+}
+
+func formatCLIDuration(value time.Duration) string {
+	if value <= 0 {
+		return "0s"
+	}
+	return value.String()
 }
 
 func loadTaskMode(ctx context.Context, client *cliClient.Client, taskID uint) string {

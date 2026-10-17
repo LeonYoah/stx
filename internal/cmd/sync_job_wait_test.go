@@ -42,3 +42,23 @@ func TestParseCLIWaitTimeout(t *testing.T) {
 		t.Fatal("invalid duration must be rejected")
 	}
 }
+
+func TestStaleObservationExceededUsesSyncLagMs(t *testing.T) {
+	lag := int64(4 * 60 * 1000)
+	job := syncJobWaitResult{SyncState: "stale", SyncLagMs: &lag}
+	if !staleObservationExceeded(job, 3*time.Minute, nil) {
+		t.Fatal("expected stale observation to exceed 3m when sync_lag_ms is 4m")
+	}
+}
+
+func TestStaleObservationExceededResetsWhenHealthy(t *testing.T) {
+	var since time.Time
+	since = time.Now().Add(-10 * time.Minute)
+	job := syncJobWaitResult{SyncState: "ok"}
+	if staleObservationExceeded(job, 3*time.Minute, &since) {
+		t.Fatal("ok sync_state should not trigger observation timeout")
+	}
+	if !since.IsZero() {
+		t.Fatal("staleSince should reset when sync_state is not stale")
+	}
+}

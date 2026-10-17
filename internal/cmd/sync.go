@@ -587,6 +587,7 @@ func newSyncTaskPreviewCommand(storeProvider authStoreProvider) *cobra.Command {
 	var rowLimit, timeoutMinutes int
 	var wait, noFollowLogs bool
 	var timeoutRaw string
+	var observationTimeout time.Duration
 
 	command := &cobra.Command{
 		Use:     "preview <id>",
@@ -633,10 +634,11 @@ func newSyncTaskPreviewCommand(storeProvider authStoreProvider) *cobra.Command {
 					Message:     fmt.Sprintf("waiting for preview job %d", data.ID),
 				})
 				return waitSyncJob(command, client, operationID, data, syncJobWaitConfig{
-					Mode:       "batch",
-					Timeout:    timeout,
-					CloseJob:   false,
-					FollowLogs: !noFollowLogs,
+					Mode:               "batch",
+					Timeout:            timeout,
+					ObservationTimeout: observationTimeout,
+					CloseJob:           false,
+					FollowLogs:         !noFollowLogs,
 				})
 			}
 
@@ -648,6 +650,7 @@ func newSyncTaskPreviewCommand(storeProvider authStoreProvider) *cobra.Command {
 	command.Flags().IntVar(&timeoutMinutes, "timeout-minutes", 2, "Preview session timeout in minutes")
 	command.Flags().BoolVar(&wait, "wait", false, "Poll GET /api/v1/sync/jobs/{id} until the preview job finishes")
 	command.Flags().StringVar(&timeoutRaw, "timeout", "", "Optional --wait ceiling such as 30m; omit to use preview defaults")
+	command.Flags().DurationVar(&observationTimeout, "observation-timeout", defaultJobObservationTimeout, "Fail --wait when sync_state stays stale longer than this; 0 disables")
 	command.Flags().BoolVar(&noFollowLogs, "no-follow-logs", false, "Disable incremental job log events on stderr while --wait is active")
 	return command
 }
@@ -709,6 +712,7 @@ func newSyncTaskSubmitCommand(storeProvider authStoreProvider) *cobra.Command {
 	var options secureWriteOptions
 	var wait, closeJobFlag, noFollowLogs bool
 	var timeoutRaw string
+	var observationTimeout time.Duration
 
 	command := &cobra.Command{
 		Use:     "submit <id>",
@@ -762,10 +766,11 @@ func newSyncTaskSubmitCommand(storeProvider authStoreProvider) *cobra.Command {
 					Message:     fmt.Sprintf("waiting for job %d", data.ID),
 				})
 				return waitSyncJob(command, client, operationID, data, syncJobWaitConfig{
-					Mode:       mode,
-					Timeout:    timeout,
-					CloseJob:   closeJob,
-					FollowLogs: !noFollowLogs,
+					Mode:               mode,
+					Timeout:            timeout,
+					ObservationTimeout: observationTimeout,
+					CloseJob:           closeJob,
+					FollowLogs:         !noFollowLogs,
 				})
 			}
 
@@ -776,6 +781,7 @@ func newSyncTaskSubmitCommand(storeProvider authStoreProvider) *cobra.Command {
 	command.Flags().BoolVar(&wait, "wait", false, "Poll GET /api/v1/sync/jobs/{id} until the job reaches the expected state")
 	command.Flags().BoolVar(&closeJobFlag, "close-job", false, "Cancel the job when this CLI exits; defaults to true with --wait")
 	command.Flags().StringVar(&timeoutRaw, "timeout", "", "Optional --wait ceiling such as 6h; omit to wait until the job ends")
+	command.Flags().DurationVar(&observationTimeout, "observation-timeout", defaultJobObservationTimeout, "Fail --wait when sync_state stays stale longer than this; 0 disables")
 	command.Flags().BoolVar(&noFollowLogs, "no-follow-logs", false, "Disable incremental job log events on stderr while --wait is active")
 	return command
 }
@@ -865,6 +871,7 @@ func newSyncJobRecoverCommand(storeProvider authStoreProvider) *cobra.Command {
 	var options secureWriteOptions
 	var wait, noFollowLogs bool
 	var timeoutRaw string
+	var observationTimeout time.Duration
 
 	command := &cobra.Command{
 		Use:     "recover <id>",
@@ -907,10 +914,11 @@ func newSyncJobRecoverCommand(storeProvider authStoreProvider) *cobra.Command {
 					Message:     fmt.Sprintf("waiting for recovered job %d", data.ID),
 				})
 				return waitSyncJob(command, client, operationID, data, syncJobWaitConfig{
-					Mode:       "batch",
-					Timeout:    timeout,
-					CloseJob:   false,
-					FollowLogs: !noFollowLogs,
+					Mode:               "batch",
+					Timeout:            timeout,
+					ObservationTimeout: observationTimeout,
+					CloseJob:           false,
+					FollowLogs:         !noFollowLogs,
 				})
 			}
 
@@ -920,6 +928,7 @@ func newSyncJobRecoverCommand(storeProvider authStoreProvider) *cobra.Command {
 	addSecureWriteFlags(command, &options)
 	command.Flags().BoolVar(&wait, "wait", false, "Poll GET /api/v1/sync/jobs/{id} until the recovery job finishes")
 	command.Flags().StringVar(&timeoutRaw, "timeout", "", "Optional --wait ceiling such as 6h; omit to use recovery defaults")
+	command.Flags().DurationVar(&observationTimeout, "observation-timeout", defaultJobObservationTimeout, "Fail --wait when sync_state stays stale longer than this; 0 disables")
 	command.Flags().BoolVar(&noFollowLogs, "no-follow-logs", false, "Disable incremental job log events on stderr while --wait is active")
 	return command
 }

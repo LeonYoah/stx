@@ -58,7 +58,7 @@ func handleSecureWriteError(command *cobra.Command, operationID string, err erro
 	if decodeErr := json.Unmarshal(apiErr.Data, &data); decodeErr != nil || strings.TrimSpace(data.ConfirmationID) == "" {
 		return err
 	}
-	_ = clioutput.NewEventWriter(command.ErrOrStderr()).Emit(clioutput.Event{
+	_ = stderrEventWriter(command).Emit(clioutput.Event{
 		Event:          "confirmation_required",
 		OperationID:    operationID,
 		RequestID:      apiErr.RequestID,
@@ -80,6 +80,23 @@ func addSecureWriteFlags(command *cobra.Command, options *secureWriteOptions) {
 	command.Flags().StringVar(&options.confirmationID, "confirmation-id", "", "One-time confirmation ID returned by STX")
 }
 
+// stderrEventWriter returns a text writer for --wait (human/DS logs) unless --events-json is set.
+// stderrEventWriter 在 --wait 时写纯文本（人类/DS 日志），除非显式 --events-json。
+func stderrEventWriter(command *cobra.Command) *clioutput.EventWriter {
+	eventsJSON := false
+	if command != nil && command.Flags().Lookup("events-json") != nil {
+		eventsJSON, _ = command.Flags().GetBool("events-json")
+	}
+	wait := false
+	if command != nil && command.Flags().Lookup("wait") != nil {
+		wait, _ = command.Flags().GetBool("wait")
+	}
+	if wait && !eventsJSON {
+		return clioutput.NewTextEventWriter(command.ErrOrStderr())
+	}
+	return clioutput.NewEventWriter(command.ErrOrStderr())
+}
+
 // prepareSecureWrite 完成写命令的本地确认、能力检查和请求头构造。
 // prepareSecureWrite performs local confirmation, capability checks, and request-header construction for a write command.
 func prepareSecureWrite(command *cobra.Command, storeProvider authStoreProvider, operationID string, options *secureWriteOptions, impact string) (*cliClient.Client, map[string]string, error) {
@@ -95,11 +112,11 @@ func prepareSecureWrite(command *cobra.Command, storeProvider authStoreProvider,
 	}
 	if strings.TrimSpace(options.idempotencyKey) == "" {
 		options.idempotencyKey = uuid.NewString()
-		_ = clioutput.NewEventWriter(command.ErrOrStderr()).Emit(clioutput.Event{
+		_ = stderrEventWriter(command).Emit(clioutput.Event{
 			Event: "idempotency_key", OperationID: operationID, Level: "info", Message: options.idempotencyKey,
 		})
 	}
-	_ = clioutput.NewEventWriter(command.ErrOrStderr()).Emit(clioutput.Event{
+	_ = stderrEventWriter(command).Emit(clioutput.Event{
 		Event: "warning", OperationID: operationID, Level: "warning", Message: impact,
 	})
 	headers := map[string]string{

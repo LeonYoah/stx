@@ -28,6 +28,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	cliConfig "github.com/LeonYoah/stx/internal/cli/config"
 	clioutput "github.com/LeonYoah/stx/internal/cli/output"
@@ -115,18 +116,42 @@ func ExecuteCommand(args []string, stdout, stderr io.Writer) int {
 	return executeCommand(newRootCommand(runServer), args, stdout, stderr)
 }
 
+func emitRootError(stderr io.Writer, args []string, err error) {
+	if preferTextStderrEvents(args) {
+		_ = clioutput.NewTextEventWriter(stderr).EmitError(err)
+		return
+	}
+	_ = clioutput.NewEventWriter(stderr).EmitError(err)
+}
+
+func preferTextStderrEvents(args []string) bool {
+	wait := false
+	eventsJSON := false
+	for _, arg := range args {
+		switch {
+		case arg == "--wait", strings.HasPrefix(arg, "--wait="):
+			wait = true
+		case arg == "--events-json", strings.HasPrefix(arg, "--events-json="):
+			eventsJSON = true
+		case arg == "--events-json=false":
+			eventsJSON = false
+		}
+	}
+	return wait && !eventsJSON
+}
+
 func executeCommand(rootCommand *cobra.Command, args []string, stdout, stderr io.Writer) int {
 	rootCommand.SetArgs(args)
 	rootCommand.SetOut(stdout)
 	rootCommand.SetErr(stderr)
 	if _, _, err := rootCommand.Find(args); err != nil {
 		classified := clioutput.WrapError(err, clioutput.CodeUsage, err.Error(), clioutput.ExitUsage, false)
-		_ = clioutput.NewEventWriter(stderr).EmitError(classified)
+		emitRootError(stderr, args, classified)
 		return int(classified.ExitCode)
 	}
 	if err := rootCommand.Execute(); err != nil {
 		classified := clioutput.ClassifyError(err)
-		_ = clioutput.NewEventWriter(stderr).EmitError(classified)
+		emitRootError(stderr, args, classified)
 		return int(classified.ExitCode)
 	}
 	return int(clioutput.ExitSuccess)

@@ -246,11 +246,15 @@ func TestSyncTaskSubmitSendsWaitAndPollsJob(t *testing.T) {
 	if jobPolls < 2 {
 		t.Fatalf("应轮询作业状态至少两次: polls=%d", jobPolls)
 	}
-	if !strings.Contains(stderr, `"event":"log_line"`) {
-		t.Fatalf("stderr 应包含 log_line 事件: %s", stderr)
+	// Default --wait uses plain-text stderr (no NDJSON) for DolphinScheduler readability.
+	if strings.Contains(stderr, `"event":`) {
+		t.Fatalf("默认 --wait stderr 应为纯文本，不应含 NDJSON: %s", stderr)
 	}
-	if !strings.Contains(stderr, `"event":"job_status"`) {
-		t.Fatalf("stderr 应包含 job_status 事件: %s", stderr)
+	if !strings.Contains(stderr, "line-1") {
+		t.Fatalf("stderr 应包含可读日志行: %s", stderr)
+	}
+	if !strings.Contains(stderr, "[stx] job_status=success") {
+		t.Fatalf("stderr 应包含可读 job_status: %s", stderr)
 	}
 	if gotBody["schedule_time"] != "20260102150405" {
 		t.Fatalf("未发送 schedule_time: %#v", gotBody)
@@ -304,8 +308,11 @@ func TestSyncTaskSubmitWaitFailsWhenObservationStale(t *testing.T) {
 	if exitCode != int(clioutput.ExitTimeout) {
 		t.Fatalf("stale 观察超时应返回 timeout 退出码: code=%d stderr=%s", exitCode, stderr)
 	}
-	if !strings.Contains(stderr, `"event":"job_observation_lost"`) {
-		t.Fatalf("stderr 应包含 job_observation_lost: %s", stderr)
+	if strings.Contains(stderr, `"event":`) {
+		t.Fatalf("默认 --wait stderr 应为纯文本，不应含 NDJSON: %s", stderr)
+	}
+	if !strings.Contains(stderr, "engine observation stale") && !strings.Contains(stderr, "job_observation_lost") {
+		t.Fatalf("stderr 应包含可读观察超时信息: %s", stderr)
 	}
 }
 

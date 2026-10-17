@@ -610,7 +610,7 @@ func newSyncTaskDAGCommand(storeProvider authStoreProvider) *cobra.Command {
 func newSyncTaskPreviewCommand(storeProvider authStoreProvider) *cobra.Command {
 	var options secureWriteOptions
 	var rowLimit, timeoutMinutes int
-	var wait, noFollowLogs bool
+	var wait, noFollowLogs, eventsJSON bool
 	var timeoutRaw string
 	var observationTimeout time.Duration
 
@@ -651,7 +651,11 @@ func newSyncTaskPreviewCommand(storeProvider authStoreProvider) *cobra.Command {
 				if timeout == 0 {
 					timeout = 10 * time.Minute
 				}
-				_ = clioutput.NewEventWriter(command.ErrOrStderr()).Emit(clioutput.Event{
+				waitEvents := clioutput.NewTextEventWriter(command.ErrOrStderr())
+				if eventsJSON {
+					waitEvents = clioutput.NewEventWriter(command.ErrOrStderr())
+				}
+				_ = waitEvents.Emit(clioutput.Event{
 					Event:       "job_wait",
 					OperationID: operationID,
 					RequestID:   requestID,
@@ -664,6 +668,7 @@ func newSyncTaskPreviewCommand(storeProvider authStoreProvider) *cobra.Command {
 					ObservationTimeout: observationTimeout,
 					CloseJob:           false,
 					FollowLogs:         !noFollowLogs,
+					EventsJSON:         eventsJSON,
 				})
 			}
 
@@ -676,7 +681,8 @@ func newSyncTaskPreviewCommand(storeProvider authStoreProvider) *cobra.Command {
 	command.Flags().BoolVar(&wait, "wait", false, "Poll GET /api/v1/sync/jobs/{id} until the preview job finishes")
 	command.Flags().StringVar(&timeoutRaw, "timeout", "", "Optional --wait ceiling such as 30m; omit to use preview defaults")
 	command.Flags().DurationVar(&observationTimeout, "observation-timeout", defaultJobObservationTimeout, "Fail --wait when sync_state stays stale longer than this; 0 disables")
-	command.Flags().BoolVar(&noFollowLogs, "no-follow-logs", false, "Disable incremental job log events on stderr while --wait is active")
+	command.Flags().BoolVar(&noFollowLogs, "no-follow-logs", false, "Disable incremental job log streaming on stderr while --wait is active")
+	command.Flags().BoolVar(&eventsJSON, "events-json", false, "Emit --wait progress/logs as NDJSON events on stderr (default: plain human-readable text)")
 	return command
 }
 
@@ -735,7 +741,7 @@ func newSyncTaskPreviewSaveModeCommand(storeProvider authStoreProvider) *cobra.C
 
 func newSyncTaskSubmitCommand(storeProvider authStoreProvider) *cobra.Command {
 	var options secureWriteOptions
-	var wait, closeJobFlag, noFollowLogs bool
+	var wait, closeJobFlag, noFollowLogs, eventsJSON bool
 	var timeoutRaw, externalRef, scheduleTime string
 	var observationTimeout time.Duration
 	var varFlags []string
@@ -816,7 +822,11 @@ func newSyncTaskSubmitCommand(storeProvider authStoreProvider) *cobra.Command {
 			}
 
 			if wait && data.ID != 0 {
-				_ = clioutput.NewEventWriter(command.ErrOrStderr()).Emit(clioutput.Event{
+				waitEvents := clioutput.NewTextEventWriter(command.ErrOrStderr())
+				if eventsJSON {
+					waitEvents = clioutput.NewEventWriter(command.ErrOrStderr())
+				}
+				_ = waitEvents.Emit(clioutput.Event{
 					Event:       "job_wait",
 					OperationID: operationID,
 					RequestID:   requestID,
@@ -829,6 +839,7 @@ func newSyncTaskSubmitCommand(storeProvider authStoreProvider) *cobra.Command {
 					ObservationTimeout: observationTimeout,
 					CloseJob:           closeJob,
 					FollowLogs:         !noFollowLogs,
+					EventsJSON:         eventsJSON,
 					Pipe:               pipe,
 				})
 			}
@@ -841,7 +852,8 @@ func newSyncTaskSubmitCommand(storeProvider authStoreProvider) *cobra.Command {
 	command.Flags().BoolVar(&closeJobFlag, "close-job", false, "Cancel the job when this CLI exits; defaults to true with --wait")
 	command.Flags().StringVar(&timeoutRaw, "timeout", "", "Optional --wait ceiling such as 6h; omit to wait until the job ends")
 	command.Flags().DurationVar(&observationTimeout, "observation-timeout", defaultJobObservationTimeout, "Fail --wait when sync_state stays stale longer than this; 0 disables")
-	command.Flags().BoolVar(&noFollowLogs, "no-follow-logs", false, "Disable incremental job log events on stderr while --wait is active")
+	command.Flags().BoolVar(&noFollowLogs, "no-follow-logs", false, "Disable incremental job log streaming on stderr while --wait is active")
+	command.Flags().BoolVar(&eventsJSON, "events-json", false, "Emit --wait progress/logs as NDJSON events on stderr (default: plain human-readable text)")
 	command.Flags().StringVar(&externalRef, "external-ref", "", "External scheduler reference such as ds:{workflowInstance}:{taskCode}")
 	command.Flags().StringVar(&scheduleTime, "schedule-time", "", "Reference time as RFC3339 or yyyyMMddHHmmss")
 	command.Flags().StringArrayVar(&varFlags, "var", nil, "Per-run variable override as key=value")
@@ -931,7 +943,7 @@ func newSyncJobCancelCommand(storeProvider authStoreProvider) *cobra.Command {
 
 func newSyncJobRecoverCommand(storeProvider authStoreProvider) *cobra.Command {
 	var options secureWriteOptions
-	var wait, noFollowLogs bool
+	var wait, noFollowLogs, eventsJSON bool
 	var timeoutRaw string
 	var observationTimeout time.Duration
 
@@ -968,7 +980,11 @@ func newSyncJobRecoverCommand(storeProvider authStoreProvider) *cobra.Command {
 			}
 
 			if wait && data.ID != 0 {
-				_ = clioutput.NewEventWriter(command.ErrOrStderr()).Emit(clioutput.Event{
+				waitEvents := clioutput.NewTextEventWriter(command.ErrOrStderr())
+				if eventsJSON {
+					waitEvents = clioutput.NewEventWriter(command.ErrOrStderr())
+				}
+				_ = waitEvents.Emit(clioutput.Event{
 					Event:       "job_wait",
 					OperationID: operationID,
 					RequestID:   requestID,
@@ -981,6 +997,7 @@ func newSyncJobRecoverCommand(storeProvider authStoreProvider) *cobra.Command {
 					ObservationTimeout: observationTimeout,
 					CloseJob:           false,
 					FollowLogs:         !noFollowLogs,
+					EventsJSON:         eventsJSON,
 				})
 			}
 
@@ -991,7 +1008,8 @@ func newSyncJobRecoverCommand(storeProvider authStoreProvider) *cobra.Command {
 	command.Flags().BoolVar(&wait, "wait", false, "Poll GET /api/v1/sync/jobs/{id} until the recovery job finishes")
 	command.Flags().StringVar(&timeoutRaw, "timeout", "", "Optional --wait ceiling such as 6h; omit to use recovery defaults")
 	command.Flags().DurationVar(&observationTimeout, "observation-timeout", defaultJobObservationTimeout, "Fail --wait when sync_state stays stale longer than this; 0 disables")
-	command.Flags().BoolVar(&noFollowLogs, "no-follow-logs", false, "Disable incremental job log events on stderr while --wait is active")
+	command.Flags().BoolVar(&noFollowLogs, "no-follow-logs", false, "Disable incremental job log streaming on stderr while --wait is active")
+	command.Flags().BoolVar(&eventsJSON, "events-json", false, "Emit --wait progress/logs as NDJSON events on stderr (default: plain human-readable text)")
 	return command
 }
 

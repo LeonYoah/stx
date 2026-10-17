@@ -74,6 +74,9 @@ type syncJobWaitConfig struct {
 	ObservationTimeout time.Duration
 	CloseJob           bool
 	FollowLogs         bool
+	// EventsJSON 为 true 时 --wait 向 stderr 写 NDJSON；默认 false 写纯文本（DS/终端友好）。
+	// EventsJSON true writes NDJSON on stderr during --wait; default false writes plain text (DS/terminal friendly).
+	EventsJSON bool
 	// Pipe 向 job-guard 写入 generation / done；非 Dolphin 提交时为 nil。
 	// Pipe writes generation / done to job-guard; nil for non-Dolphin submits.
 	Pipe *os.File
@@ -93,6 +96,21 @@ func parseCLIWaitTimeout(raw string) (time.Duration, error) {
 	return timeout, nil
 }
 
+// renderWaitJobResult writes the final job snapshot. Text --wait mode skips the bulky JSON
+// payload (already covered by streamed logs/metrics) and prints a one-line summary instead.
+// renderWaitJobResult 写出终态作业快照；纯文本 --wait 跳过冗长 JSON（日志/指标已流式输出），改打一行摘要。
+func renderWaitJobResult(command *cobra.Command, operationID, requestID string, job syncJobWaitResult, eventsJSON bool) error {
+	if !eventsJSON {
+		line := fmt.Sprintf("[stx] done job_id=%d status=%s", job.ID, strings.TrimSpace(job.Status))
+		if ref := strings.TrimSpace(job.ExternalRef); ref != "" {
+			line += " external_ref=" + ref
+		}
+		_, _ = fmt.Fprintln(command.OutOrStdout(), line)
+		return nil
+	}
+	return renderCommandResultWithRequestID(command, operationID, requestID, job)
+}
+
 func waitSyncJob(command *cobra.Command, client *cliClient.Client, operationID string, job syncJobWaitResult, cfg syncJobWaitConfig) error {
 	if job.ID == 0 {
 		return clioutput.NewError(clioutput.CodeServer, "submit succeeded without a job id", clioutput.ExitServer, false)
@@ -108,7 +126,12 @@ func waitSyncJob(command *cobra.Command, client *cliClient.Client, operationID s
 	signalCtx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	events := clioutput.NewEventWriter(command.ErrOrStderr())
+	var events *clioutput.EventWriter
+	if cfg.EventsJSON {
+		events = clioutput.NewEventWriter(command.ErrOrStderr())
+	} else {
+		events = clioutput.NewTextEventWriter(command.ErrOrStderr())
+	}
 	logState := newJobLogFollowState()
 	var staleSince time.Time
 	var lastMetricsAt time.Time
@@ -121,13 +144,13 @@ func waitSyncJob(command *cobra.Command, client *cliClient.Client, operationID s
 			if signalCtx.Err() != nil && cfg.CloseJob {
 				_ = cancelSyncJob(command.Context(), client, job.ID)
 				writeGuardDone(cfg.Pipe)
-				_ = renderCommandResultWithRequestID(command, operationID, requestID, job)
+				_ = renderWaitJobResult(command, operationID, requestID, job, cfg.EventsJSON)
 				return clioutput.NewError(clioutput.CodeExecution, "job cancelled", clioutput.ExitExecution, false)
 			}
 			if isWaitTimeout(signalCtx, cfg.Timeout) && cfg.CloseJob {
 				_ = cancelSyncJob(command.Context(), client, job.ID)
 				writeGuardDone(cfg.Pipe)
-				_ = renderCommandResultWithRequestID(command, operationID, requestID, job)
+				_ = renderWaitJobResult(command, operationID, requestID, job, cfg.EventsJSON)
 				return clioutput.NewError(clioutput.CodeTimeout, "wait timeout; job cancel requested", clioutput.ExitTimeout, false)
 			}
 			return err
@@ -162,7 +185,7 @@ func waitSyncJob(command *cobra.Command, client *cliClient.Client, operationID s
 				_ = cancelSyncJob(command.Context(), client, job.ID)
 			}
 			writeGuardDone(cfg.Pipe)
-			_ = renderCommandResultWithRequestID(command, operationID, requestID, job)
+			_ = renderWaitJobResult(command, operationID, requestID, job, cfg.EventsJSON)
 			return clioutput.NewError(clioutput.CodeTimeout, message, clioutput.ExitTimeout, true)
 		}
 		if streaming && status == "running" {
@@ -171,7 +194,7 @@ func waitSyncJob(command *cobra.Command, client *cliClient.Client, operationID s
 			}
 			_ = maybeEmitJobMetricsLog(events, operationID, requestID, job, lastMetricsAt, false)
 			writeGuardDone(cfg.Pipe)
-			if err := renderCommandResultWithRequestID(command, operationID, requestID, job); err != nil {
+			if err := renderWaitJobResult(command, operationID, requestID, job, cfg.EventsJSON); err != nil {
 				return err
 			}
 			return nil
@@ -182,7 +205,7 @@ func waitSyncJob(command *cobra.Command, client *cliClient.Client, operationID s
 			}
 			_ = maybeEmitJobMetricsLog(events, operationID, requestID, job, time.Time{}, true)
 			writeGuardDone(cfg.Pipe)
-			if err := renderCommandResultWithRequestID(command, operationID, requestID, job); err != nil {
+			if err := renderWaitJobResult(command, operationID, requestID, job, cfg.EventsJSON); err != nil {
 				return err
 			}
 			if status == "success" {
@@ -203,7 +226,7 @@ func waitSyncJob(command *cobra.Command, client *cliClient.Client, operationID s
 				_ = cancelSyncJob(command.Context(), client, job.ID)
 			}
 			writeGuardDone(cfg.Pipe)
-			_ = renderCommandResultWithRequestID(command, operationID, requestID, job)
+			_ = renderWaitJobResult(command, operationID, requestID, job, cfg.EventsJSON)
 			if isWaitTimeout(signalCtx, cfg.Timeout) {
 				return clioutput.NewError(clioutput.CodeTimeout, "wait timeout; job cancel requested", clioutput.ExitTimeout, false)
 			}

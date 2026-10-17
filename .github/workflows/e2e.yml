@@ -210,6 +210,14 @@ jobs:
               - 'config.e2e.agent-real.yaml'
               - '.github/workflows/e2e.yml'
 
+            scheduler_contract:
+              - 'internal/cmd/**'
+              - 'internal/cli/output/**'
+              - 'internal/apps/sync/**'
+              - 'scripts/e2e/run-scheduler-contract.sh'
+              - 'scripts/e2e/README-scheduler-contract.md'
+              - '.github/workflows/e2e.yml'
+
       - name: Resolve E2E scope
         id: scope
         env:

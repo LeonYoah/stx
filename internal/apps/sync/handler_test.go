@@ -72,7 +72,7 @@ func TestTaskPermissionHandlersKeepContentAndPermissionChangesSeparate(t *testin
 	if err != nil {
 		t.Fatalf("open sqlite failed: %v", err)
 	}
-	if err := database.AutoMigrate(&Task{}, &TaskVersion{}, &JobInstance{}, &GlobalVariable{}, &PreviewSession{}, &PreviewTable{}, &PreviewRow{}, &audit.AuditLog{}); err != nil {
+	if err := database.AutoMigrate(&Task{}, &TaskVersion{}, &JobInstance{}, &GlobalVariable{}, &PreviewSession{}, &PreviewTable{}, &PreviewRow{}, &SchedulerConnection{}, &TaskSchedulerBinding{}, &audit.AuditLog{}); err != nil {
 		t.Fatalf("migrate test models failed: %v", err)
 	}
 

@@ -24,6 +24,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	clioutput "github.com/LeonYoah/stx/internal/cli/output"
 	"github.com/spf13/cobra"
@@ -54,6 +55,30 @@ func addSyncWriteCommands(root *cobra.Command, storeProvider authStoreProvider) 
 		newSyncTaskSubmitCommand(storeProvider),
 	)
 
+	dolphinCommand := childCommand(taskCommand, "dolphin")
+	if dolphinCommand == nil {
+		dolphinCommand = &cobra.Command{Use: "dolphin", Short: "STX DolphinScheduler commands"}
+		taskCommand.AddCommand(dolphinCommand)
+	}
+	dolphinCommand.AddCommand(newSyncTaskDolphinPushCommand(storeProvider))
+
+	schedulerCommand := childCommand(syncCommand, "scheduler")
+	if schedulerCommand == nil {
+		schedulerCommand = &cobra.Command{Use: "scheduler", Short: "STX scheduler connection commands"}
+		syncCommand.AddCommand(schedulerCommand)
+	}
+	connectionCommand := childCommand(schedulerCommand, "connection")
+	if connectionCommand == nil {
+		connectionCommand = &cobra.Command{Use: "connection", Short: "STX scheduler connection commands"}
+		schedulerCommand.AddCommand(connectionCommand)
+	}
+	connectionCommand.AddCommand(
+		newSchedulerConnectionCreateCommand(storeProvider),
+		newSchedulerConnectionUpdateCommand(storeProvider),
+	)
+
+	root.AddCommand(newJobGuardCommand())
+
 	versionCommand := childCommand(taskCommand, "version")
 	if versionCommand == nil {
 		panic("generated sync task version command is missing")
@@ -68,6 +93,7 @@ func addSyncWriteCommands(root *cobra.Command, storeProvider authStoreProvider) 
 	}
 	jobCommand.AddCommand(
 		newSyncJobCancelCommand(storeProvider),
+		newSyncJobCancelByRefCommand(storeProvider),
 		newSyncJobRecoverCommand(storeProvider),
 	)
 
@@ -619,18 +645,15 @@ func newSyncTaskPreviewCommand(storeProvider authStoreProvider) *cobra.Command {
 				return handleSecureWriteError(command, operationID, err)
 			}
 
-			if wait && strings.TrimSpace(data.ExecutionID) != "" {
+			if wait {
 				_ = clioutput.NewEventWriter(command.ErrOrStderr()).Emit(clioutput.Event{
-					Event:       "execution_wait",
+					Event:       "job_wait",
 					OperationID: operationID,
 					RequestID:   requestID,
 					Level:       "info",
-					Message:     fmt.Sprintf("waiting for preview execution %s", data.ExecutionID),
+					Message:     fmt.Sprintf("waiting for preview job %d", data.ID),
 				})
-				waitRequestID, waitData, waitErr := client.WaitExecution(command.Context(), data.ExecutionID, 60)
-				if waitErr == nil {
-					return renderCommandResultWithRequestID(command, operationID, waitRequestID, waitData)
-				}
+				return waitSyncJob(command, client, operationID, syncJobWaitResult{ID: data.ID, Status: data.Status, ExecutionID: data.ExecutionID}, "batch", 10*time.Minute, false, nil)
 			}
 
 			return renderCommandResultWithRequestID(command, operationID, requestID, data)
@@ -698,7 +721,9 @@ func newSyncTaskPreviewSaveModeCommand(storeProvider authStoreProvider) *cobra.C
 
 func newSyncTaskSubmitCommand(storeProvider authStoreProvider) *cobra.Command {
 	var options secureWriteOptions
-	var wait bool
+	var wait, closeJobFlag bool
+	var timeoutRaw, externalRef, scheduleTime string
+	var varFlags []string
 
 	command := &cobra.Command{
 		Use:     "submit <id>",
@@ -711,6 +736,13 @@ func newSyncTaskSubmitCommand(storeProvider authStoreProvider) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			variables, err := parseVarFlags(varFlags)
+			if err != nil {
+				return err
+			}
+			if _, err := parseCLIScheduleTime(scheduleTime); err != nil {
+				return err
+			}
 
 			operationID := "sync.task.submit"
 			client, headers, err := prepareSecureWrite(command, storeProvider, operationID, &options, "提交分布式 SeaTunnel 作业运行，占用集群 Worker 槽位与资源。")
@@ -718,38 +750,76 @@ func newSyncTaskSubmitCommand(storeProvider authStoreProvider) *cobra.Command {
 				return err
 			}
 
-			var data struct {
-				ID            uint   `json:"id"`
-				TaskID        uint   `json:"task_id"`
-				PlatformJobID string `json:"platform_job_id"`
-				EngineJobID   string `json:"engine_job_id"`
-				Status        string `json:"status"`
-				ExecutionID   string `json:"execution_id"`
+			mode := loadTaskMode(command.Context(), client, taskID)
+			closeJob := wait
+			if command.Flags().Changed("close-job") {
+				closeJob = closeJobFlag
 			}
-			requestID, err := client.RequestWithHeaders(command.Context(), http.MethodPost, fmt.Sprintf("/api/v1/sync/tasks/%d/submit", taskID), map[string]any{}, headers, &data)
+			if strings.EqualFold(mode, "streaming") {
+				closeJob = false
+			}
+			timeout, err := parseCLIWaitTimeout(timeoutRaw)
+			if err != nil {
+				return err
+			}
+
+			body := map[string]any{}
+			if len(variables) > 0 {
+				body["variables"] = variables
+			}
+			if strings.TrimSpace(externalRef) != "" {
+				body["external_ref"] = strings.TrimSpace(externalRef)
+			}
+			if strings.TrimSpace(scheduleTime) != "" {
+				body["schedule_time"] = strings.TrimSpace(scheduleTime)
+			}
+			if closeJob {
+				body["close_job"] = true
+			}
+
+			var pipe *os.File
+			if closeJob && strings.TrimSpace(externalRef) != "" {
+				pipe, err = startJobGuard(client, externalRef)
+				if err != nil {
+					return clioutput.WrapError(err, clioutput.CodeServer, "start job guard", clioutput.ExitServer, false)
+				}
+				defer writeGuardDone(pipe)
+			}
+
+			var data syncJobWaitResult
+			requestID, err := client.RequestWithHeaders(command.Context(), http.MethodPost, fmt.Sprintf("/api/v1/sync/tasks/%d/submit", taskID), body, headers, &data)
 			if err != nil {
 				return handleSecureWriteError(command, operationID, err)
 			}
-
-			if wait && strings.TrimSpace(data.ExecutionID) != "" {
+			if strings.TrimSpace(data.Mode) != "" {
+				mode = data.Mode
+			}
+			if strings.EqualFold(mode, "streaming") {
+				closeJob = false
+				writeGuardDone(pipe)
+				pipe = nil
+			}
+			if wait {
 				_ = clioutput.NewEventWriter(command.ErrOrStderr()).Emit(clioutput.Event{
-					Event:       "execution_wait",
+					Event:       "job_wait",
 					OperationID: operationID,
 					RequestID:   requestID,
 					Level:       "info",
-					Message:     fmt.Sprintf("waiting for job execution %s", data.ExecutionID),
+					Message:     fmt.Sprintf("waiting for job %d", data.ID),
 				})
-				waitRequestID, waitData, waitErr := client.WaitExecution(command.Context(), data.ExecutionID, 300)
-				if waitErr == nil {
-					return renderCommandResultWithRequestID(command, operationID, waitRequestID, waitData)
-				}
+				return waitSyncJob(command, client, operationID, data, mode, timeout, closeJob, pipe)
 			}
-
+			writeGuardDone(pipe)
 			return renderCommandResultWithRequestID(command, operationID, requestID, data)
 		},
 	}
 	addSecureWriteFlags(command, &options)
-	command.Flags().BoolVar(&wait, "wait", false, "Wait for the execution lifecycle to complete or reach terminal state")
+	command.Flags().BoolVar(&wait, "wait", false, "Poll GET /api/v1/sync/jobs/{id} until the job reaches the expected state")
+	command.Flags().BoolVar(&closeJobFlag, "close-job", false, "Cancel the job when this CLI exits; defaults to true with --wait")
+	command.Flags().StringVar(&timeoutRaw, "timeout", "", "Optional --wait ceiling such as 6h; omit to wait until the job ends")
+	command.Flags().StringVar(&externalRef, "external-ref", "", "External scheduler reference such as ds:{workflowInstance}:{taskCode}")
+	command.Flags().StringVar(&scheduleTime, "schedule-time", "", "Reference time as RFC3339 or yyyyMMddHHmmss")
+	command.Flags().StringArrayVar(&varFlags, "var", nil, "Per-run variable override as key=value")
 	return command
 }
 
@@ -866,18 +936,15 @@ func newSyncJobRecoverCommand(storeProvider authStoreProvider) *cobra.Command {
 				return handleSecureWriteError(command, operationID, err)
 			}
 
-			if wait && strings.TrimSpace(data.ExecutionID) != "" {
+			if wait {
 				_ = clioutput.NewEventWriter(command.ErrOrStderr()).Emit(clioutput.Event{
-					Event:       "execution_wait",
+					Event:       "job_wait",
 					OperationID: operationID,
 					RequestID:   requestID,
 					Level:       "info",
-					Message:     fmt.Sprintf("waiting for recovery execution %s", data.ExecutionID),
+					Message:     fmt.Sprintf("waiting for recovered job %d", data.ID),
 				})
-				waitRequestID, waitData, waitErr := client.WaitExecution(command.Context(), data.ExecutionID, 300)
-				if waitErr == nil {
-					return renderCommandResultWithRequestID(command, operationID, waitRequestID, waitData)
-				}
+				return waitSyncJob(command, client, operationID, syncJobWaitResult{ID: data.ID, Status: data.Status, ExecutionID: data.ExecutionID}, "batch", 6*time.Hour, false, nil)
 			}
 
 			return renderCommandResultWithRequestID(command, operationID, requestID, data)

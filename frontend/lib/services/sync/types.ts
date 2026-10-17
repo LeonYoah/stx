@@ -224,6 +224,7 @@ export interface SyncJobInstance {
   engine_job_id: string;
   recovered_from_instance_id?: number;
   status: SyncJobStatus;
+  mode?: SyncTaskMode;
   submit_spec: SyncJSON;
   result_preview: SyncJSON;
   error_message: string;
@@ -232,6 +233,8 @@ export interface SyncJobInstance {
   created_by: number;
   created_at: string;
   updated_at: string;
+  external_ref?: string;
+  attach_generation?: number;
 }
 
 export interface SyncTaskListData {
@@ -394,6 +397,129 @@ export interface PreviewSyncTaskRequest {
 
 export interface SyncTaskActionRequest {
   draft?: UpdateSyncTaskRequest;
+  variables?: Record<string, string>;
+  external_ref?: string;
+  schedule_time?: string;
+  close_job?: boolean;
+}
+
+export interface SchedulerConnection {
+  id: number;
+  name: string;
+  kind: string;
+  base_url: string;
+  token_set?: boolean;
+  default_project_code?: number;
+  api_style?: string;
+  dolphin_version?: string;
+}
+
+export interface SchedulerConnectionRequest {
+  name?: string;
+  kind?: string;
+  base_url?: string;
+  token?: string;
+  default_project_code?: number;
+  api_style?: string;
+  dolphin_version?: string;
+}
+
+export interface DolphinProject {
+  code: number;
+  name: string;
+}
+
+export interface DolphinWorkflowSummary {
+  code: number;
+  name: string;
+  release_state?: string;
+  version?: number;
+}
+
+export interface DolphinWorkflowTask {
+  code: number;
+  name: string;
+  task_type?: string;
+  raw_script?: string;
+}
+
+export interface DolphinWorkflowRelation {
+  pre_task_code: number;
+  post_task_code: number;
+}
+
+export interface DolphinWorkflowDetail {
+  code: number;
+  name: string;
+  version: number;
+  release_state?: string;
+  tasks: DolphinWorkflowTask[];
+  relations?: DolphinWorkflowRelation[];
+}
+
+export interface DolphinScriptResult {
+  script: string;
+  env_notes: string;
+  timeout?: string;
+  worker_group: string;
+  environment: string;
+  variables?: Record<string, string>;
+}
+
+export interface TaskSchedulerBinding {
+  id: number;
+  task_id: number;
+  kind: string;
+  connection_id: number;
+  project_code: number;
+  workflow_code: number;
+  task_code: number;
+  workflow_name?: string;
+  console_url?: string;
+  pushed_at?: string;
+  task_version?: number;
+}
+
+export interface DolphinPushRequest {
+  mode: 'new' | 'reuse' | 'update';
+  connection_id: number;
+  project_code?: number;
+  workflow_name?: string;
+  workflow_code?: number;
+  upstreams?: number[];
+  downstreams?: number[];
+  use_builtin_schedule?: boolean;
+  timeout?: string;
+  variables?: Record<string, string>;
+  worker_group?: string;
+  environment?: string;
+  dry_run?: boolean;
+  expected_version?: number;
+}
+
+export interface DolphinPushResult {
+  dry_run: boolean;
+  mode: string;
+  script?: DolphinScriptResult;
+  binding?: TaskSchedulerBinding;
+  workflow_code?: number;
+  task_code?: number;
+  version?: number;
+  release_state?: string;
+  would_offline?: boolean;
+  cycle: boolean;
+  message?: string;
+  warning?: string;
+}
+
+export interface DolphinTaskStatus {
+  binding?: TaskSchedulerBinding | null;
+  connection?: SchedulerConnection;
+  script?: DolphinScriptResult;
+  recent_jobs?: SyncJobInstance[];
+  builtin_locked?: boolean;
+  published_version?: number;
+  pushed_version?: number;
 }
 
 export interface SyncRecoverJobRequest {

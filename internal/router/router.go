@@ -185,6 +185,12 @@ func Serve() {
 					userAdminRouter.PUT("/:id", userWriteHandler.UpdateUser)
 					userAdminRouter.DELETE("/:id", userWriteHandler.DeleteUser)
 				}
+				tokenAdminRouter := adminRouter.Group("/cli-tokens")
+				{
+					tokenAdminRouter.GET("", admin.ListCLITokensHandler)
+					tokenAdminRouter.POST("", userWriteHandler.CreateCLIToken)
+					tokenAdminRouter.POST("/:id/revoke", userWriteHandler.RevokeCLIToken)
+				}
 			}
 
 			// Host 主机管理
@@ -742,6 +748,20 @@ func Serve() {
 					syncTaskRouter.POST("/:id/preview", syncHandler.PreviewTask)
 					syncTaskRouter.POST("/:id/preview/sink-savemode", syncHandler.PreviewSinkSaveMode)
 					syncTaskRouter.POST("/:id/submit", syncHandler.SubmitTask)
+					syncTaskRouter.GET("/:id/dolphin", syncHandler.GetDolphinTaskStatus)
+					syncTaskRouter.GET("/:id/dolphin/script", syncHandler.GetDolphinScript)
+					syncTaskRouter.POST("/:id/dolphin/push", syncHandler.PushDolphin)
+					syncTaskRouter.POST("/:id/dolphin/unbind", syncHandler.UnbindDolphin)
+				}
+
+				syncSchedulerRouter := syncRouter.Group("/scheduler-connections")
+				{
+					syncSchedulerRouter.GET("", syncHandler.ListSchedulerConnections)
+					syncSchedulerRouter.POST("", syncHandler.CreateSchedulerConnection)
+					syncSchedulerRouter.PUT("/:id", syncHandler.UpdateSchedulerConnection)
+					syncSchedulerRouter.GET("/:id/projects", syncHandler.ListDolphinProjects)
+					syncSchedulerRouter.GET("/:id/projects/:projectCode/workflows", syncHandler.ListDolphinWorkflows)
+					syncSchedulerRouter.GET("/:id/projects/:projectCode/workflows/:workflowCode", syncHandler.GetDolphinWorkflow)
 				}
 
 				syncGlobalVarRouter := syncRouter.Group("/global-variables")
@@ -774,6 +794,7 @@ func Serve() {
 
 				syncJobRouter := syncRouter.Group("/jobs")
 				{
+					syncJobRouter.POST("/cancel-by-ref", syncHandler.CancelJobByRef)
 					syncJobRouter.GET("", syncHandler.ListJobs)
 					syncJobRouter.GET("/:id", syncHandler.GetJob)
 					syncJobRouter.GET("/:id/preview", syncHandler.GetPreviewSnapshot)

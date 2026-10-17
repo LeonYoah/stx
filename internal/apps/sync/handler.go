@@ -519,7 +519,18 @@ func (h *Handler) SubmitTask(c *gin.Context) {
 			return
 		}
 	}
-	job, err := h.service.SubmitTaskForActor(c.Request.Context(), currentExecutionActor(c), id, req.Draft, syncExecutionRequest(c, map[string]any{"task_id": id, "draft": req.Draft}))
+	opts, err := parseSubmitOptions(req)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, JobResponse{ErrorMsg: err.Error()})
+		return
+	}
+	job, err := h.service.SubmitTaskForActorWithOptions(c.Request.Context(), currentExecutionActor(c), id, opts, syncExecutionRequest(c, map[string]any{
+		"task_id":       id,
+		"draft":         req.Draft,
+		"variables":     req.Variables,
+		"external_ref":  req.ExternalRef,
+		"schedule_time": req.ScheduleTime,
+	}))
 	if err != nil {
 		c.JSON(h.getStatusCodeForError(err), JobResponse{ErrorMsg: err.Error()})
 		return
@@ -749,15 +760,40 @@ func (h *Handler) CancelJob(c *gin.Context) {
 	c.JSON(http.StatusOK, JobResponse{Data: sanitizeJobForResponse(job)})
 }
 
+// CancelJobByRef 处理 POST /api/v1/sync/jobs/cancel-by-ref。
+// CancelJobByRef handles POST /api/v1/sync/jobs/cancel-by-ref.
+// @Summary 按外部调度引用停止作业
+// @Tags Sync
+// @Accept json
+// @Produce json
+// @Param request body CancelByRefRequest true "外部引用与接管序号"
+// @Success 200 {object} JobResponse
+// @Failure 400 {object} JobResponse
+// @Failure 409 {object} JobResponse
+// @Router /api/v1/sync/jobs/cancel-by-ref [post]
+func (h *Handler) CancelJobByRef(c *gin.Context) {
+	var req CancelByRefRequest
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		c.JSON(http.StatusBadRequest, JobResponse{ErrorMsg: err.Error()})
+		return
+	}
+	job, err := h.service.CancelJobByRef(c.Request.Context(), currentExecutionActor(c), req.ExternalRef, req.AttachGeneration)
+	if err != nil {
+		c.JSON(h.getStatusCodeForError(err), JobResponse{ErrorMsg: err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, JobResponse{Data: sanitizeJobForResponse(job)})
+}
+
 func (h *Handler) getStatusCodeForError(err error) int {
 	switch {
-	case errors.Is(err, ErrTaskNotFound), errors.Is(err, ErrTaskVersionNotFound), errors.Is(err, ErrJobInstanceNotFound), errors.Is(err, ErrGlobalVariableNotFound), errors.Is(err, ErrCuratedTemplateNotFound):
+	case errors.Is(err, ErrTaskNotFound), errors.Is(err, ErrTaskVersionNotFound), errors.Is(err, ErrJobInstanceNotFound), errors.Is(err, ErrGlobalVariableNotFound), errors.Is(err, ErrCuratedTemplateNotFound), errors.Is(err, ErrSchedulerConnectionNotFound), errors.Is(err, ErrSchedulerBindingNotFound):
 		return http.StatusNotFound
 	case errors.Is(err, ErrTaskReadOnly), errors.Is(err, ErrTaskPermissionDenied), errors.Is(err, ErrGlobalVariablePermissionDenied), errors.Is(err, ErrCuratedTemplatePermissionDenied), errors.Is(err, ErrCuratedTemplateBuiltinReadonly):
 		return http.StatusForbidden
-	case errors.Is(err, ErrTaskNameRequired), errors.Is(err, ErrTaskNameInvalid), errors.Is(err, ErrTaskParentCycle), errors.Is(err, ErrRootFileNotAllowed), errors.Is(err, ErrInvalidTaskMode), errors.Is(err, ErrInvalidTaskStatus), errors.Is(err, ErrInvalidRunType), errors.Is(err, ErrInvalidPreviewMode), errors.Is(err, ErrTaskDefinitionEmpty), errors.Is(err, ErrPreviewHTTPSinkEmpty), errors.Is(err, ErrTaskNotPublished), errors.Is(err, ErrInvalidNodeType), errors.Is(err, ErrParentTaskNotFolder), errors.Is(err, ErrFolderContentUnsupported), errors.Is(err, ErrTaskNotFile), errors.Is(err, ErrInvalidContentFormat), errors.Is(err, ErrRecoverSourceRequired), errors.Is(err, ErrLocalClusterRequired), errors.Is(err, ErrLocalSavepointUnsupported), errors.Is(err, ErrPreviewPayloadInvalid), errors.Is(err, ErrGlobalVariableKeyRequired), errors.Is(err, ErrGlobalVariableKeyInvalid), errors.Is(err, ErrReservedBuiltinVariableKey), errors.Is(err, ErrExecutionTargetClusterMismatch), errors.Is(err, ErrMaskedSecretCannotBeRestored), errors.Is(err, ErrInvalidTaskCollaborator), errors.Is(err, ErrCuratedTemplateNameRequired), errors.Is(err, ErrCuratedTemplateContentRequired), errors.Is(err, ErrCuratedTemplateSectionInvalid), errors.Is(err, ErrCuratedBuiltinIDRequired):
+	case errors.Is(err, ErrTaskNameRequired), errors.Is(err, ErrTaskNameInvalid), errors.Is(err, ErrTaskParentCycle), errors.Is(err, ErrRootFileNotAllowed), errors.Is(err, ErrInvalidTaskMode), errors.Is(err, ErrInvalidTaskStatus), errors.Is(err, ErrInvalidRunType), errors.Is(err, ErrInvalidPreviewMode), errors.Is(err, ErrTaskDefinitionEmpty), errors.Is(err, ErrPreviewHTTPSinkEmpty), errors.Is(err, ErrTaskNotPublished), errors.Is(err, ErrInvalidNodeType), errors.Is(err, ErrParentTaskNotFolder), errors.Is(err, ErrFolderContentUnsupported), errors.Is(err, ErrTaskNotFile), errors.Is(err, ErrInvalidContentFormat), errors.Is(err, ErrRecoverSourceRequired), errors.Is(err, ErrLocalClusterRequired), errors.Is(err, ErrLocalSavepointUnsupported), errors.Is(err, ErrPreviewPayloadInvalid), errors.Is(err, ErrGlobalVariableKeyRequired), errors.Is(err, ErrGlobalVariableKeyInvalid), errors.Is(err, ErrReservedBuiltinVariableKey), errors.Is(err, ErrExecutionTargetClusterMismatch), errors.Is(err, ErrMaskedSecretCannotBeRestored), errors.Is(err, ErrInvalidTaskCollaborator), errors.Is(err, ErrCuratedTemplateNameRequired), errors.Is(err, ErrCuratedTemplateContentRequired), errors.Is(err, ErrCuratedTemplateSectionInvalid), errors.Is(err, ErrCuratedBuiltinIDRequired), errors.Is(err, ErrUnreplacedVariable), errors.Is(err, ErrInvalidScheduleTime), errors.Is(err, ErrSchedulerConnectionInvalid), errors.Is(err, ErrDolphinPushInvalid), errors.Is(err, ErrDolphinCycle), errors.Is(err, ErrScheduleLockedByDolphin), errors.Is(err, ErrDolphinNodeMissing), errors.Is(err, ErrDolphinUnsupportedVersion):
 		return http.StatusBadRequest
-	case errors.Is(err, ErrTaskArchived), errors.Is(err, ErrJobAlreadyFinished), errors.Is(err, ErrJobStatusChanged), errors.Is(err, ErrGlobalVariableKeyDuplicate), errors.Is(err, ErrTaskNameDuplicate), errors.Is(err, executionapp.ErrIdempotencyConflict):
+	case errors.Is(err, ErrTaskArchived), errors.Is(err, ErrJobAlreadyFinished), errors.Is(err, ErrJobStatusChanged), errors.Is(err, ErrGlobalVariableKeyDuplicate), errors.Is(err, ErrTaskNameDuplicate), errors.Is(err, executionapp.ErrIdempotencyConflict), errors.Is(err, ErrAttachGenerationMismatch), errors.Is(err, ErrJobCancellingTimeout), errors.Is(err, ErrDolphinVersionConflict), errors.Is(err, ErrSchedulerBindingExists), errors.Is(err, ErrDolphinPushNoNewVersion):
 		return http.StatusConflict
 	default:
 		return http.StatusInternalServerError

@@ -29,6 +29,7 @@ import (
 
 const (
 	scheduleTriggerSource = "schedule"
+	dolphinTriggerSource  = "dolphin"
 )
 
 type taskScheduleConfig struct {
@@ -100,6 +101,46 @@ func (cfg *taskScheduleConfig) matches(now time.Time) (bool, time.Time, time.Tim
 	return schedulex.MatchMinuteWindow(cfg.CronExpr, now, cfg.Timezone)
 }
 
+func (s *Service) rejectEnabledScheduleWhenBound(ctx context.Context, taskID uint, definition JSONMap) error {
+	binding, err := s.repo.GetSchedulerBindingByTaskID(ctx, taskID)
+	if err != nil {
+		return err
+	}
+	if binding == nil {
+		return nil
+	}
+	cfg, err := parseTaskSchedule(definition)
+	if err != nil {
+		return err
+	}
+	if cfg != nil && cfg.Enabled {
+		return ErrScheduleLockedByDolphin
+	}
+	return nil
+}
+
+func (s *Service) disableTaskBuiltinSchedule(ctx context.Context, taskID uint) error {
+	task, err := s.repo.GetTaskByID(ctx, taskID)
+	if err != nil {
+		return err
+	}
+	definition := cloneJSONMap(task.Definition)
+	if definition == nil {
+		definition = JSONMap{}
+	}
+	raw := map[string]interface{}{}
+	switch value := definition["schedule"].(type) {
+	case JSONMap:
+		raw = map[string]interface{}(value)
+	case map[string]interface{}:
+		raw = value
+	}
+	raw["enabled"] = false
+	definition["schedule"] = raw
+	task.Definition = definition
+	return s.repo.UpdateTask(ctx, task)
+}
+
 func validateTaskDefinition(definition JSONMap) error {
 	if err := validateVariableKeyConflicts(extractDefinitionVariables(definition, "custom_variables")); err != nil {
 		return err
@@ -115,6 +156,52 @@ func triggerSourceForRunType(runType RunType) string {
 	default:
 		return "manual"
 	}
+}
+
+// triggerSourceForSubmit 区分手动、内置定时和 Dolphin 外部调度。
+// triggerSourceForSubmit tells manual, built-in cron, and Dolphin external triggers apart.
+func triggerSourceForSubmit(runType RunType, opts *SubmitOptions) string {
+	if _, _, ok := parseDolphinExternalRef(opts.externalRef()); ok {
+		return dolphinTriggerSource
+	}
+	return triggerSourceForRunType(runType)
+}
+
+// recordFailedDolphinSubmit 在引擎提交失败时仍留下 Dolphin 触发的失败作业，方便运行记录区分来源。
+// recordFailedDolphinSubmit still writes a failed job when a Dolphin-triggered engine submit fails, so run history keeps the source.
+func (s *Service) recordFailedDolphinSubmit(ctx context.Context, instance *JobInstance, submitErr error) {
+	if s == nil || s.repo == nil || instance == nil || submitErr == nil {
+		return
+	}
+	if _, _, ok := parseDolphinExternalRef(instance.ExternalRef); !ok {
+		return
+	}
+	now := time.Now()
+	instance.Status = JobStatusFailed
+	instance.FinishedAt = &now
+	instance.ErrorMessage = submitErr.Error()
+	if instance.SubmitSpec == nil {
+		instance.SubmitSpec = JSONMap{}
+	}
+	instance.SubmitSpec["engine_error"] = submitErr.Error()
+	_ = s.repo.CreateJobInstance(ctx, instance)
+}
+
+// taskFromCurrentPublishedVersion 取出当前已发布快照；没有发布版本则拒绝运行。
+// taskFromCurrentPublishedVersion loads the current published snapshot and rejects unpublished tasks.
+func (s *Service) taskFromCurrentPublishedVersion(ctx context.Context, task *Task) (*Task, error) {
+	if task == nil || task.CurrentVersion <= 0 {
+		return nil, ErrTaskNotPublished
+	}
+	version, err := s.repo.GetTaskVersionByVersion(ctx, task.ID, task.CurrentVersion)
+	if err != nil {
+		return nil, err
+	}
+	snapshot := taskFromVersionSnapshot(task, version)
+	if snapshot == nil {
+		return nil, ErrTaskNotPublished
+	}
+	return snapshot, nil
 }
 
 func taskFromVersionSnapshot(task *Task, version *TaskVersion) *Task {
@@ -176,6 +263,16 @@ func (s *Service) triggerScheduledTasks(ctx context.Context, now time.Time) erro
 		if item.NodeType != TaskNodeTypeFile || item.CurrentVersion <= 0 || item.Status != TaskStatusPublished {
 			continue
 		}
+		// 已绑定 Dolphin 的任务由外部调度触发，内置分钟扫描不再提交。
+		// Bound Dolphin tasks are triggered externally; the built-in minute scanner must not submit them.
+		binding, bindErr := s.repo.GetSchedulerBindingByTaskID(ctx, item.ID)
+		if bindErr != nil {
+			log.Printf("[SyncSchedule] task %d binding lookup failed: %v", item.ID, bindErr)
+			continue
+		}
+		if binding != nil {
+			continue
+		}
 		cfg, err := parseTaskSchedule(item.Definition)
 		if err != nil {
 			log.Printf("[SyncSchedule] task %d schedule ignored: %v", item.ID, err)
@@ -204,13 +301,9 @@ func (s *Service) triggerScheduledTasks(ctx context.Context, now time.Time) erro
 }
 
 func (s *Service) submitScheduledTask(ctx context.Context, task *Task) error {
-	version, err := s.repo.GetTaskVersionByVersion(ctx, task.ID, task.CurrentVersion)
+	scheduledTask, err := s.taskFromCurrentPublishedVersion(ctx, task)
 	if err != nil {
 		return err
-	}
-	scheduledTask := taskFromVersionSnapshot(task, version)
-	if scheduledTask == nil {
-		return ErrTaskNotPublished
 	}
 	if err := validateTaskDefinition(scheduledTask.Definition); err != nil {
 		return err
@@ -221,9 +314,9 @@ func (s *Service) submitScheduledTask(ctx context.Context, task *Task) error {
 		if buildErr != nil {
 			return buildErr
 		}
-		_, err = s.submitLocalTaskInstance(ctx, scheduledTask, 0, RunTypeSchedule, platformJobID, body, format, jobName)
+		_, err = s.submitLocalTaskInstance(ctx, scheduledTask, 0, RunTypeSchedule, platformJobID, body, format, jobName, nil)
 		return err
 	}
-	_, err = s.submitTaskInstance(ctx, scheduledTask, 0, RunTypeSchedule, platformJobID, false, nil)
+	_, err = s.submitTaskInstance(ctx, scheduledTask, 0, RunTypeSchedule, platformJobID, false, nil, nil, nil)
 	return err
 }

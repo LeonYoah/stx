@@ -91,6 +91,9 @@ func sanitizeJobForResponse(job *JobInstance) *JobInstance {
 	clone.SubmitSpec = redactSyncJSONMap(job.SubmitSpec)
 	clone.ResultPreview = redactSyncJSONMap(job.ResultPreview)
 	clone.ErrorMessage = audit.RedactText(job.ErrorMessage)
+	if strings.TrimSpace(clone.Mode) == "" {
+		clone.Mode = strings.ToLower(strings.TrimSpace(stringValue(job.SubmitSpec, "mode")))
+	}
 	return &clone
 }
 

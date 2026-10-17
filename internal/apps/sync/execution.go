@@ -82,6 +82,9 @@ func (s *Service) getJobInstanceForActor(ctx context.Context, actor executionapp
 // GetJobForActor 按当前用户归属或任务可见性读取一个作业。
 // GetJobForActor loads one job under the current user's ownership or task view scope.
 func (s *Service) GetJobForActor(ctx context.Context, actor executionapp.Actor, id uint) (*JobInstance, error) {
+	if err := s.enforceSchedulerScope(ctx, 0, id); err != nil {
+		return nil, err
+	}
 	instance, err := s.getJobInstanceForActor(ctx, actor, id)
 	if err != nil {
 		return nil, err
@@ -119,6 +122,9 @@ func (s *Service) GetJobCheckpointSnapshotForActor(ctx context.Context, actor ex
 // CancelJobForActor 在权限检查后请求取消作业。仅管理员、发起人或任务所有者可取消。
 // CancelJobForActor requests cancellation after enforcing ownership. Only administrators, the job submitter, or task owner may cancel.
 func (s *Service) CancelJobForActor(ctx context.Context, actor executionapp.Actor, id uint, stopWithSavepoint bool) (*JobInstance, error) {
+	if err := s.enforceSchedulerScope(ctx, 0, id); err != nil {
+		return nil, err
+	}
 	instance, err := s.getJobInstanceForActor(ctx, actor, id)
 	if err != nil {
 		return nil, err
@@ -152,6 +158,12 @@ func (s *Service) PreviewTaskForActor(ctx context.Context, actor executionapp.Ac
 
 // SubmitTaskForActor 检查运行权限后提交运行任务。
 func (s *Service) SubmitTaskForActor(ctx context.Context, actor executionapp.Actor, id uint, draft *TaskDraftPayload, request ExecutionRequest) (*JobInstance, error) {
+	return s.SubmitTaskForActorWithOptions(ctx, actor, id, &SubmitOptions{Draft: draft}, request)
+}
+
+// SubmitTaskForActorWithOptions 在权限和调度令牌校验后提交或接管作业。
+// SubmitTaskForActorWithOptions submits or attaches after permission and scheduler-token checks.
+func (s *Service) SubmitTaskForActorWithOptions(ctx context.Context, actor executionapp.Actor, id uint, opts *SubmitOptions, request ExecutionRequest) (*JobInstance, error) {
 	task, err := s.repo.GetTaskByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -159,7 +171,10 @@ func (s *Service) SubmitTaskForActor(ctx context.Context, actor executionapp.Act
 	if !task.CanUserRun(uint(actor.UserID), actor.IsAdmin) {
 		return nil, ErrTaskReadOnly
 	}
-	return s.SubmitTaskWithExecution(ctx, id, uint(actor.UserID), draft, request)
+	if opts == nil {
+		opts = &SubmitOptions{}
+	}
+	return s.SubmitTaskWithExecutionOptions(ctx, id, uint(actor.UserID), opts, request)
 }
 
 // PreviewTaskWithExecution 创建公共执行记录后启动预览任务。
@@ -173,8 +188,22 @@ func (s *Service) PreviewTaskWithExecution(ctx context.Context, id, createdBy ui
 // SubmitTaskWithExecution 创建公共执行记录后提交运行任务。
 // SubmitTaskWithExecution submits a run task after creating its shared execution record.
 func (s *Service) SubmitTaskWithExecution(ctx context.Context, id, createdBy uint, draft *TaskDraftPayload, request ExecutionRequest) (*JobInstance, error) {
+	return s.SubmitTaskWithExecutionOptions(ctx, id, createdBy, &SubmitOptions{Draft: draft}, request)
+}
+
+// SubmitTaskWithExecutionOptions 先尝试按 external_ref 接管，未命中再创建公共执行记录并提交。
+// SubmitTaskWithExecutionOptions attaches by external_ref when possible, otherwise creates a shared execution and submits.
+func (s *Service) SubmitTaskWithExecutionOptions(ctx context.Context, id, createdBy uint, opts *SubmitOptions, request ExecutionRequest) (*JobInstance, error) {
+	if err := s.enforceSchedulerScope(ctx, id, 0); err != nil {
+		return nil, err
+	}
+	if attached, err := s.attachExternalRef(ctx, opts.externalRef()); err != nil {
+		return nil, err
+	} else if attached != nil {
+		return attached, nil
+	}
 	return s.runWithExecution(ctx, createdBy, "sync.task.submit", executionapp.RiskLevelR1, request, func(runCtx context.Context) (*JobInstance, error) {
-		return s.SubmitTask(runCtx, id, createdBy, draft)
+		return s.submitNewTask(runCtx, id, createdBy, opts)
 	})
 }
 

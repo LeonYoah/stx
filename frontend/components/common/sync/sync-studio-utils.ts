@@ -2122,19 +2122,49 @@ export function getRunModeLabel(
   if (runType === 'preview') {
     return t('runModePreview');
   }
-  if (runType === 'schedule' || runType === 'scheduled') {
-    return t('runModeSchedule');
-  }
   const submitSpec = toObject(job.submit_spec);
   const triggerSource = String(
     submitSpec.trigger_source || submitSpec.trigger_mode || '',
   )
     .trim()
     .toLowerCase();
-  if (triggerSource === 'schedule' || triggerSource === 'scheduled') {
+  const externalRef = String(job.external_ref || '')
+    .trim()
+    .toLowerCase();
+  // Dolphin 触发必须排在内置 schedule 之前，因为外部调度同样把 run_type 写成 schedule。
+  // Dolphin triggers must win over built-in schedule because both persist run_type=schedule.
+  if (triggerSource === 'dolphin' || externalRef.startsWith('ds:')) {
+    return t('runModeDolphin');
+  }
+  if (
+    runType === 'schedule' ||
+    runType === 'scheduled' ||
+    triggerSource === 'schedule' ||
+    triggerSource === 'scheduled'
+  ) {
     return t('runModeSchedule');
   }
   return t('runModeManual');
+}
+
+// dolphinPushBlockedReason 未发布或没有新版本时禁止更新推送，与后端闸门一致。
+// dolphinPushBlockedReason blocks push when unpublished or when no newer version exists, matching the server gate.
+export function dolphinPushBlockedReason(
+  status?: {
+    published_version?: number;
+    pushed_version?: number;
+    binding?: unknown;
+  } | null,
+): 'unpublished' | 'no_new_version' | null {
+  const published = Number(status?.published_version || 0);
+  if (published <= 0) {
+    return 'unpublished';
+  }
+  const pushed = Number(status?.pushed_version || 0);
+  if (status?.binding && pushed > 0 && published <= pushed) {
+    return 'no_new_version';
+  }
+  return null;
 }
 
 export function normalizeJobLifecycleStatus(

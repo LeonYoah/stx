@@ -57,7 +57,7 @@ const AUDIT_ACTION_GROUPS = ['create', 'update', 'delete', 'lifecycle', 'install
 /** 对象只保留控制层资源。命令、任务模块不做成筛选项。
  * Object filters keep control-plane resources. Commands and task modules are not filters.
  */
-const AUDIT_RESOURCE_TYPES = ['host', 'cluster', 'cluster_node', 'user', 'plugin'] as const;
+const AUDIT_RESOURCE_TYPES = ['host', 'cluster', 'cluster_node', 'user', 'plugin', 'cli_token'] as const;
 
 const AUDIT_SOURCES = ['web', 'cli', 'system'] as const;
 

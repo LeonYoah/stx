@@ -1,0 +1,10 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "后端改动前索引与开发前检查"}
+{"file": ".trellis/spec/backend/cli-guidelines.md", "reason": "CLI 输出、退出码、环境变量、写命令确认与幂等"}
+{"file": ".trellis/spec/backend/execution-security-guidelines.md", "reason": "确认、幂等、取消、审计"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "HTTP 错误到 CLI 退出码"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "作业字段、绑定表、调度令牌迁移"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "中英双语注释、License"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "前端改动前索引"}
+{"file": ".trellis/spec/frontend/ui-conventions.md", "reason": "弹窗、侧边栏、密钥脱敏、渐进披露"}
+{"file": ".trellis/spec/frontend/api-and-services.md", "reason": "services 层与响应兜底"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "提交、等待、绑定跨层字段一致"}

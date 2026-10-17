@@ -19,10 +19,12 @@ import {describe, expect, it} from 'vitest';
 import {
   buildInsertedCuratedContent,
   detectVariables,
+  dolphinPushBlockedReason,
   filterTree,
   extractJobMetricSummary,
   countLogicalTables,
   formatMetricDisplayValue,
+  getRunModeLabel,
   isCursorInsideValueRegion,
   isNodeMatchingScope,
   formatValueConstraintHints,
@@ -611,6 +613,74 @@ describe('formatMetricDisplayValue', () => {
 
   it('formats nested objects via JSON', () => {
     expect(formatMetricDisplayValue({a: {b: 1}})).toBe('{"a":{"b":1}}');
+  });
+});
+
+describe('getRunModeLabel', () => {
+  const t = ((key: string) => key) as Parameters<typeof getRunModeLabel>[1];
+
+  it('labels Dolphin-triggered schedule jobs separately from built-in cron', () => {
+    expect(
+      getRunModeLabel(
+        {
+          id: 1,
+          task_id: 2,
+          task_version: 1,
+          run_type: 'schedule',
+          platform_job_id: 'p',
+          engine_job_id: '',
+          status: 'failed',
+          submit_spec: {trigger_source: 'dolphin'},
+          result_preview: {},
+          error_message: '',
+          created_by: 1,
+          created_at: '',
+          updated_at: '',
+          external_ref: 'ds:1001:88',
+        },
+        t,
+      ),
+    ).toBe('runModeDolphin');
+    expect(
+      getRunModeLabel(
+        {
+          id: 2,
+          task_id: 2,
+          task_version: 1,
+          run_type: 'schedule',
+          platform_job_id: 'p',
+          engine_job_id: '',
+          status: 'success',
+          submit_spec: {trigger_source: 'schedule'},
+          result_preview: {},
+          error_message: '',
+          created_by: 0,
+          created_at: '',
+          updated_at: '',
+        },
+        t,
+      ),
+    ).toBe('runModeSchedule');
+  });
+});
+
+describe('dolphinPushBlockedReason', () => {
+  it('requires a published version and a newer version before update', () => {
+    expect(dolphinPushBlockedReason({published_version: 0})).toBe('unpublished');
+    expect(
+      dolphinPushBlockedReason({
+        published_version: 1,
+        pushed_version: 1,
+        binding: {id: 1},
+      }),
+    ).toBe('no_new_version');
+    expect(
+      dolphinPushBlockedReason({
+        published_version: 2,
+        pushed_version: 1,
+        binding: {id: 1},
+      }),
+    ).toBeNull();
   });
 });
 

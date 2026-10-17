@@ -26,3 +26,5 @@
 
 - 读作业：`stx sync job get <id>`（走默认读路径）
 - 强制刷新：`GET ...?fresh=1`（codegen 路由可带 query）
+- **`--wait`（submit/preview/recover）**：轮询 `GET /api/v1/sync/jobs/{id}`（读库，禁止 `fresh=1`）；默认 **follow 日志**，按 `offset`/`limit_bytes` 调 `GET .../logs`（Agent 读文件，不打 SeaTunnel REST）。
+- stderr NDJSON 事件：`job_wait`、`job_status`（含 `sync_state`/`sync_lag_ms`）、`log_chunk`、`log_notice`；stdout 仍为终态 JSON。可用 `--no-follow-logs` 关闭日志跟随。

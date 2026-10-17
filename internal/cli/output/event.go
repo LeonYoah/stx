@@ -38,6 +38,27 @@ type Event struct {
 	Level          string   `json:"level,omitempty"`
 	Progress       *int     `json:"progress,omitempty"`
 	MissingFields  []string `json:"missing_fields,omitempty"`
+	// JobID 关联 sync 作业实例，供 --wait 进度/日志事件使用。
+	// JobID links a sync job instance for --wait progress/log events.
+	JobID uint `json:"job_id,omitempty"`
+	// Status 为作业或执行状态快照。
+	// Status is a job or execution status snapshot.
+	Status string `json:"status,omitempty"`
+	// SyncState 反映 STX 与引擎对账观察面（读库字段）。
+	// SyncState reflects STX engine reconciler observability (DB read path).
+	SyncState string `json:"sync_state,omitempty"`
+	// SyncLagMs 为 API 派生的同步滞后毫秒数（可选）。
+	// SyncLagMs is optional derived sync lag in milliseconds from the API.
+	SyncLagMs *int64 `json:"sync_lag_ms,omitempty"`
+	// NextOffset 为日志增量读偏移令牌。
+	// NextOffset is the incremental log read offset token.
+	NextOffset string `json:"next_offset,omitempty"`
+	// Logs 为 log_chunk 事件的增量正文。
+	// Logs carries incremental text for log_chunk events.
+	Logs string `json:"logs,omitempty"`
+	// EmptyReason 说明日志暂不可用（如 logs_not_ready）。
+	// EmptyReason explains missing logs (e.g. logs_not_ready).
+	EmptyReason string `json:"empty_reason,omitempty"`
 }
 
 // EventWriter 以并发安全方式写入 NDJSON 事件。

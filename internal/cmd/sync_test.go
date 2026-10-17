@@ -24,6 +24,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	cliConfig "github.com/LeonYoah/stx/internal/cli/config"
 	clioutput "github.com/LeonYoah/stx/internal/cli/output"
@@ -165,31 +166,45 @@ func TestSyncTaskPermissionsUpdateSendsOnlyPermissionChanges(t *testing.T) {
 }
 
 func TestSyncTaskSubmitSendsWaitAndPollsExecution(t *testing.T) {
+	jobPolls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Content-Type", "application/json")
 		switch {
 		case request.URL.Path == "/api/v1/capabilities":
 			writeSyncCapabilities(t, writer, "sync.task.submit", "R2")
+		case request.URL.Path == "/api/v1/sync/tasks/42":
+			if request.Method != http.MethodGet {
+				t.Fatalf("读取任务模式方法错误: %s", request.Method)
+			}
+			_ = json.NewEncoder(writer).Encode(map[string]any{"data": map[string]any{"mode": "batch"}})
 		case request.URL.Path == "/api/v1/sync/tasks/42/submit":
 			if request.Method != http.MethodPost {
 				t.Fatalf("提交方法错误: %s", request.Method)
 			}
 			_ = json.NewEncoder(writer).Encode(map[string]any{
 				"data": map[string]any{
-					"job_id":       99,
-					"execution_id": "exec-sync-42",
-					"status":       "submitted",
+					"id":     99,
+					"status": "running",
 				},
 			})
-		case request.URL.Path == "/api/v1/executions/exec-sync-42/wait":
+		case request.URL.Path == "/api/v1/sync/jobs/99":
+			jobPolls++
+			status := "running"
+			if jobPolls >= 2 {
+				status = "success"
+			}
 			_ = json.NewEncoder(writer).Encode(map[string]any{
 				"data": map[string]any{
-					"execution": map[string]any{
-						"execution_id": "exec-sync-42",
-						"status":       "succeeded",
-						"message":      "Execution succeeded",
-					},
-					"terminal": true,
+					"id":         99,
+					"status":     status,
+					"sync_state": "ok",
+				},
+			})
+		case request.URL.Path == "/api/v1/sync/jobs/99/logs":
+			_ = json.NewEncoder(writer).Encode(map[string]any{
+				"data": map[string]any{
+					"logs":        "line-1\n",
+					"next_offset": "128",
 				},
 			})
 		default:
@@ -197,6 +212,15 @@ func TestSyncTaskSubmitSendsWaitAndPollsExecution(t *testing.T) {
 		}
 	}))
 	defer server.Close()
+
+	oldPoll := jobWaitPollInterval
+	oldLog := jobLogFollowInterval
+	jobWaitPollInterval = 5 * time.Millisecond
+	jobLogFollowInterval = 1 * time.Millisecond
+	t.Cleanup(func() {
+		jobWaitPollInterval = oldPoll
+		jobLogFollowInterval = oldLog
+	})
 
 	store := newExecutionTestStore(t, server.URL, "test-token")
 	stdout, stderr, exitCode := runSyncCommand(t, store,
@@ -206,6 +230,15 @@ func TestSyncTaskSubmitSendsWaitAndPollsExecution(t *testing.T) {
 	)
 	if exitCode != int(clioutput.ExitSuccess) {
 		t.Fatalf("提交并等待任务失败: code=%d stdout=%s stderr=%s", exitCode, stdout, stderr)
+	}
+	if jobPolls < 2 {
+		t.Fatalf("应轮询作业状态至少两次: polls=%d", jobPolls)
+	}
+	if !strings.Contains(stderr, `"event":"log_chunk"`) {
+		t.Fatalf("stderr 应包含 log_chunk 事件: %s", stderr)
+	}
+	if !strings.Contains(stderr, `"event":"job_status"`) {
+		t.Fatalf("stderr 应包含 job_status 事件: %s", stderr)
 	}
 }
 

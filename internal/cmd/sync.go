@@ -24,6 +24,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	clioutput "github.com/LeonYoah/stx/internal/cli/output"
 	"github.com/spf13/cobra"
@@ -584,7 +585,8 @@ func newSyncTaskDAGCommand(storeProvider authStoreProvider) *cobra.Command {
 func newSyncTaskPreviewCommand(storeProvider authStoreProvider) *cobra.Command {
 	var options secureWriteOptions
 	var rowLimit, timeoutMinutes int
-	var wait bool
+	var wait, noFollowLogs bool
+	var timeoutRaw string
 
 	command := &cobra.Command{
 		Use:     "preview <id>",
@@ -609,28 +611,33 @@ func newSyncTaskPreviewCommand(storeProvider authStoreProvider) *cobra.Command {
 				return err
 			}
 
-			var data struct {
-				ID          uint   `json:"id"`
-				ExecutionID string `json:"execution_id"`
-				Status      string `json:"status"`
-			}
+			var data syncJobWaitResult
 			requestID, err := client.RequestWithHeaders(command.Context(), http.MethodPost, fmt.Sprintf("/api/v1/sync/tasks/%d/preview", taskID), body, headers, &data)
 			if err != nil {
 				return handleSecureWriteError(command, operationID, err)
 			}
 
-			if wait && strings.TrimSpace(data.ExecutionID) != "" {
+			if wait && data.ID != 0 {
+				timeout, parseErr := parseCLIWaitTimeout(timeoutRaw)
+				if parseErr != nil {
+					return parseErr
+				}
+				if timeout == 0 {
+					timeout = 10 * time.Minute
+				}
 				_ = clioutput.NewEventWriter(command.ErrOrStderr()).Emit(clioutput.Event{
-					Event:       "execution_wait",
+					Event:       "job_wait",
 					OperationID: operationID,
 					RequestID:   requestID,
 					Level:       "info",
-					Message:     fmt.Sprintf("waiting for preview execution %s", data.ExecutionID),
+					Message:     fmt.Sprintf("waiting for preview job %d", data.ID),
 				})
-				waitRequestID, waitData, waitErr := client.WaitExecution(command.Context(), data.ExecutionID, 60)
-				if waitErr == nil {
-					return renderCommandResultWithRequestID(command, operationID, waitRequestID, waitData)
-				}
+				return waitSyncJob(command, client, operationID, data, syncJobWaitConfig{
+					Mode:       "batch",
+					Timeout:    timeout,
+					CloseJob:   false,
+					FollowLogs: !noFollowLogs,
+				})
 			}
 
 			return renderCommandResultWithRequestID(command, operationID, requestID, data)
@@ -639,7 +646,9 @@ func newSyncTaskPreviewCommand(storeProvider authStoreProvider) *cobra.Command {
 	addSecureWriteFlags(command, &options)
 	command.Flags().IntVar(&rowLimit, "row-limit", 10, "Maximum number of rows to sample")
 	command.Flags().IntVar(&timeoutMinutes, "timeout-minutes", 2, "Preview session timeout in minutes")
-	command.Flags().BoolVar(&wait, "wait", false, "Wait for the preview session execution to complete")
+	command.Flags().BoolVar(&wait, "wait", false, "Poll GET /api/v1/sync/jobs/{id} until the preview job finishes")
+	command.Flags().StringVar(&timeoutRaw, "timeout", "", "Optional --wait ceiling such as 30m; omit to use preview defaults")
+	command.Flags().BoolVar(&noFollowLogs, "no-follow-logs", false, "Disable incremental job log events on stderr while --wait is active")
 	return command
 }
 
@@ -698,7 +707,8 @@ func newSyncTaskPreviewSaveModeCommand(storeProvider authStoreProvider) *cobra.C
 
 func newSyncTaskSubmitCommand(storeProvider authStoreProvider) *cobra.Command {
 	var options secureWriteOptions
-	var wait bool
+	var wait, closeJobFlag, noFollowLogs bool
+	var timeoutRaw string
 
 	command := &cobra.Command{
 		Use:     "submit <id>",
@@ -718,38 +728,55 @@ func newSyncTaskSubmitCommand(storeProvider authStoreProvider) *cobra.Command {
 				return err
 			}
 
-			var data struct {
-				ID            uint   `json:"id"`
-				TaskID        uint   `json:"task_id"`
-				PlatformJobID string `json:"platform_job_id"`
-				EngineJobID   string `json:"engine_job_id"`
-				Status        string `json:"status"`
-				ExecutionID   string `json:"execution_id"`
+			mode := loadTaskMode(command.Context(), client, taskID)
+			closeJob := wait
+			if command.Flags().Changed("close-job") {
+				closeJob = closeJobFlag
 			}
+			if strings.EqualFold(mode, "streaming") {
+				closeJob = false
+			}
+			timeout, err := parseCLIWaitTimeout(timeoutRaw)
+			if err != nil {
+				return err
+			}
+
+			var data syncJobWaitResult
 			requestID, err := client.RequestWithHeaders(command.Context(), http.MethodPost, fmt.Sprintf("/api/v1/sync/tasks/%d/submit", taskID), map[string]any{}, headers, &data)
 			if err != nil {
 				return handleSecureWriteError(command, operationID, err)
 			}
+			if strings.TrimSpace(data.Mode) != "" {
+				mode = data.Mode
+			}
+			if strings.EqualFold(mode, "streaming") {
+				closeJob = false
+			}
 
-			if wait && strings.TrimSpace(data.ExecutionID) != "" {
+			if wait && data.ID != 0 {
 				_ = clioutput.NewEventWriter(command.ErrOrStderr()).Emit(clioutput.Event{
-					Event:       "execution_wait",
+					Event:       "job_wait",
 					OperationID: operationID,
 					RequestID:   requestID,
 					Level:       "info",
-					Message:     fmt.Sprintf("waiting for job execution %s", data.ExecutionID),
+					Message:     fmt.Sprintf("waiting for job %d", data.ID),
 				})
-				waitRequestID, waitData, waitErr := client.WaitExecution(command.Context(), data.ExecutionID, 300)
-				if waitErr == nil {
-					return renderCommandResultWithRequestID(command, operationID, waitRequestID, waitData)
-				}
+				return waitSyncJob(command, client, operationID, data, syncJobWaitConfig{
+					Mode:       mode,
+					Timeout:    timeout,
+					CloseJob:   closeJob,
+					FollowLogs: !noFollowLogs,
+				})
 			}
 
 			return renderCommandResultWithRequestID(command, operationID, requestID, data)
 		},
 	}
 	addSecureWriteFlags(command, &options)
-	command.Flags().BoolVar(&wait, "wait", false, "Wait for the execution lifecycle to complete or reach terminal state")
+	command.Flags().BoolVar(&wait, "wait", false, "Poll GET /api/v1/sync/jobs/{id} until the job reaches the expected state")
+	command.Flags().BoolVar(&closeJobFlag, "close-job", false, "Cancel the job when this CLI exits; defaults to true with --wait")
+	command.Flags().StringVar(&timeoutRaw, "timeout", "", "Optional --wait ceiling such as 6h; omit to wait until the job ends")
+	command.Flags().BoolVar(&noFollowLogs, "no-follow-logs", false, "Disable incremental job log events on stderr while --wait is active")
 	return command
 }
 
@@ -836,7 +863,8 @@ func newSyncJobCancelCommand(storeProvider authStoreProvider) *cobra.Command {
 
 func newSyncJobRecoverCommand(storeProvider authStoreProvider) *cobra.Command {
 	var options secureWriteOptions
-	var wait bool
+	var wait, noFollowLogs bool
+	var timeoutRaw string
 
 	command := &cobra.Command{
 		Use:     "recover <id>",
@@ -856,35 +884,43 @@ func newSyncJobRecoverCommand(storeProvider authStoreProvider) *cobra.Command {
 				return err
 			}
 
-			var data struct {
-				ID          uint   `json:"id"`
-				ExecutionID string `json:"execution_id"`
-				Status      string `json:"status"`
+			timeout, err := parseCLIWaitTimeout(timeoutRaw)
+			if err != nil {
+				return err
 			}
+			if wait && timeout == 0 {
+				timeout = 6 * time.Hour
+			}
+
+			var data syncJobWaitResult
 			requestID, err := client.RequestWithHeaders(command.Context(), http.MethodPost, fmt.Sprintf("/api/v1/sync/jobs/%d/recover", jobID), map[string]any{}, headers, &data)
 			if err != nil {
 				return handleSecureWriteError(command, operationID, err)
 			}
 
-			if wait && strings.TrimSpace(data.ExecutionID) != "" {
+			if wait && data.ID != 0 {
 				_ = clioutput.NewEventWriter(command.ErrOrStderr()).Emit(clioutput.Event{
-					Event:       "execution_wait",
+					Event:       "job_wait",
 					OperationID: operationID,
 					RequestID:   requestID,
 					Level:       "info",
-					Message:     fmt.Sprintf("waiting for recovery execution %s", data.ExecutionID),
+					Message:     fmt.Sprintf("waiting for recovered job %d", data.ID),
 				})
-				waitRequestID, waitData, waitErr := client.WaitExecution(command.Context(), data.ExecutionID, 300)
-				if waitErr == nil {
-					return renderCommandResultWithRequestID(command, operationID, waitRequestID, waitData)
-				}
+				return waitSyncJob(command, client, operationID, data, syncJobWaitConfig{
+					Mode:       "batch",
+					Timeout:    timeout,
+					CloseJob:   false,
+					FollowLogs: !noFollowLogs,
+				})
 			}
 
 			return renderCommandResultWithRequestID(command, operationID, requestID, data)
 		},
 	}
 	addSecureWriteFlags(command, &options)
-	command.Flags().BoolVar(&wait, "wait", false, "Wait for the recovery execution to complete")
+	command.Flags().BoolVar(&wait, "wait", false, "Poll GET /api/v1/sync/jobs/{id} until the recovery job finishes")
+	command.Flags().StringVar(&timeoutRaw, "timeout", "", "Optional --wait ceiling such as 6h; omit to use recovery defaults")
+	command.Flags().BoolVar(&noFollowLogs, "no-follow-logs", false, "Disable incremental job log events on stderr while --wait is active")
 	return command
 }
 

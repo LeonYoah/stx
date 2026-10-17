@@ -36,23 +36,34 @@ func startJobGuard(client *cliClient.Client, externalRef string) (*os.File, erro
 	if err != nil {
 		return nil, err
 	}
-	cmd := exec.Command(os.Args[0], jobGuardCommandName)
-	cmd.Env = append(os.Environ(),
+	env := append(os.Environ(),
 		"STX_SERVER="+client.Server(),
 		"STX_TOKEN="+client.Token(),
 		"STX_GUARD_REF="+strings.TrimSpace(externalRef),
 	)
-	cmd.ExtraFiles = []*os.File{reader}
-	cmd.SysProcAttr = jobGuardSysProcAttr()
-	cmd.Stdout = nil
-	cmd.Stderr = nil
-	if err := cmd.Start(); err != nil {
-		_ = reader.Close()
-		_ = writer.Close()
-		return nil, err
+	start := func(attr *syscall.SysProcAttr) error {
+		cmd := exec.Command(os.Args[0], jobGuardCommandName)
+		cmd.Env = env
+		cmd.ExtraFiles = []*os.File{reader}
+		cmd.SysProcAttr = attr
+		cmd.Stdout = nil
+		cmd.Stderr = nil
+		if err := cmd.Start(); err != nil {
+			return err
+		}
+		_ = cmd.Process.Release()
+		return nil
+	}
+	// Prefer setsid (detach from Dolphin worker terminal). Some sandboxes reject it;
+	// fall back so SHELL submit still proceeds (SIGKILL cancel becomes best-effort).
+	if err := start(jobGuardSysProcAttr()); err != nil {
+		if retryErr := start(&syscall.SysProcAttr{}); retryErr != nil {
+			_ = reader.Close()
+			_ = writer.Close()
+			return nil, err
+		}
 	}
 	_ = reader.Close()
-	_ = cmd.Process.Release()
 	return writer, nil
 }
 

@@ -43,9 +43,12 @@ start_ds() {
   fi
   stop_ds
   # Host network: DS Worker and STX share loopback (CI Linux). Avoid 172.17.0.1 guesswork.
+  # seccomp=unconfined: stx --wait job-guard needs setsid; default seccomp can
+  # return operation not permitted → CLI exit 9 before submit.
   docker run -d \
     --name "${NAME}" \
     --network host \
+    --security-opt seccomp=unconfined \
     -e TZ=Asia/Shanghai \
     -v "${STX_BIN}:/usr/local/bin/stx:ro" \
     "${IMAGE}" >/dev/null

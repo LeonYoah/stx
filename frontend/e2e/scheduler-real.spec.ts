@@ -103,7 +103,8 @@ test.describe.serial('scheduler real DolphinScheduler flows', () => {
       n: l.name,
       s: l.state,
       path: l.logPath,
-      tail: (l.log || '').slice(-1200),
+      head: (l.log || '').slice(0, 1500),
+      tail: (l.log || '').slice(-800),
     }));
     expect(
       successLog,

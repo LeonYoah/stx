@@ -89,13 +89,21 @@ func (s *Service) applyEngineJobInfoUpdate(ctx context.Context, instance *JobIns
 	}
 	instance.Status = observedStatus
 	instance.ResultPreview = mergeJobRuntimeInfo(instance.ResultPreview, info)
+	terminal := isFinalNormalizedJobStatus(observedStatus)
+	nowUTC := time.Now().UTC()
 	if info.Metrics != nil {
 		instance.ResultPreview = maybeRecordMetricsLog(
 			instance.ResultPreview,
 			info.Metrics,
-			time.Now().UTC(),
-			isFinalNormalizedJobStatus(observedStatus),
+			nowUTC,
+			terminal,
 		)
+	} else if terminal && !hasFinalMetricsLog(instance.ResultPreview) {
+		// Engine omitted metrics on this tick: still force a final block from last known structured metrics.
+		// 本轮 job-info 无 metrics 时，用已存结构化指标补写终态块，避免停在中途 snapshot。
+		if existing := mapValue(instance.ResultPreview, "metrics"); len(existing) > 0 {
+			instance.ResultPreview = maybeRecordMetricsLog(instance.ResultPreview, existing, nowUTC, true)
+		}
 	}
 	if isFinalNormalizedJobStatus(instance.Status) {
 		if parsedFinishedAt := parseEngineJobTime(info.FinishedTime); parsedFinishedAt != nil {

@@ -408,6 +408,31 @@ func (r *Repository) ListNonTerminalJobInstances(ctx context.Context, limit int)
 	return instances, nil
 }
 
+// ListRecentTerminalJobInstances 返回近期已终态且仍带引擎作业 ID 的实例（用于补拉终态指标）。
+// ListRecentTerminalJobInstances returns recently finished job instances that still have an engine job id (for final metrics backfill).
+func (r *Repository) ListRecentTerminalJobInstances(ctx context.Context, limit int, since time.Time) ([]*JobInstance, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	terminal := []JobStatus{
+		JobStatusSuccess,
+		JobStatusFailed,
+		JobStatusCanceled,
+	}
+	var instances []*JobInstance
+	q := r.db.WithContext(ctx).
+		Where("status IN ?", terminal).
+		Where("engine_job_id <> ''")
+	if !since.IsZero() {
+		q = q.Where("updated_at >= ?", since)
+	}
+	err := q.Order("updated_at DESC").Limit(limit).Find(&instances).Error
+	if err != nil {
+		return nil, err
+	}
+	return instances, nil
+}
+
 // UpdateJobSyncMetadata 更新作业观察字段，不参与 status 条件竞争。
 // UpdateJobSyncMetadata updates observation metadata without status CAS.
 func (r *Repository) UpdateJobSyncMetadata(ctx context.Context, id uint, updates map[string]any) error {

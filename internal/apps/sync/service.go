@@ -2552,10 +2552,9 @@ func (s *Service) refreshJobInstance(ctx context.Context, instance *JobInstance)
 	}
 	if instance.Status == JobStatusSuccess || instance.Status == JobStatusFailed || instance.Status == JobStatusCanceled {
 		jobStatus := strings.ToUpper(strings.TrimSpace(stringValue(instance.ResultPreview, "job_status")))
-		// Skip re-fetch only when terminal AND metrics already recorded; otherwise backfill end metrics_log.
-		// 终态且已有指标时才跳过；否则补拉 job-info 写入终态 metrics_log。
-		hasMetrics := mapValue(instance.ResultPreview, "metrics") != nil || metricsLogFromPreview(instance.ResultPreview) != ""
-		if (jobStatus == "" || isFinalEngineJobStatus(jobStatus)) && hasMetrics {
+		// Skip only after a true final metrics block exists. Mid-run snapshot/metrics alone must not freeze refresh.
+		// 仅在已有终态指标块时跳过；只有中途 snapshot/metrics 时继续补拉 job-info。
+		if (jobStatus == "" || isFinalEngineJobStatus(jobStatus)) && hasFinalMetricsLog(instance.ResultPreview) {
 			return instance, nil
 		}
 	}

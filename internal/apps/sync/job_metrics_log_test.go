@@ -181,3 +181,152 @@ func TestJobReconcilerUsesSubmitSpecEndpointWithoutClusterID(t *testing.T) {
 		t.Fatalf("expected failed via submit_spec endpoint, got %s", stored.Status)
 	}
 }
+
+func TestHasFinalMetricsLogAndLatestBlockMarker(t *testing.T) {
+	preview := maybeRecordMetricsLog(nil, map[string]interface{}{"SourceReceivedCount": float64(1)}, time.Now().UTC(), false)
+	if hasFinalMetricsLog(preview) {
+		t.Fatal("snapshot must not count as final")
+	}
+	preview = maybeRecordMetricsLog(preview, map[string]interface{}{"SourceReceivedCount": float64(9)}, time.Now().UTC().Add(time.Minute), true)
+	if !hasFinalMetricsLog(preview) {
+		t.Fatalf("expected final block: %s", metricsLogFromPreview(preview))
+	}
+	latest := latestMetricsBlockFromPreview(preview)
+	if !strings.Contains(latest, "STX metrics final") {
+		t.Fatalf("latest block should prefer final: %s", latest)
+	}
+}
+
+func TestRefreshJobInstanceBackfillsFinalMetricsWhenOnlySnapshotExists(t *testing.T) {
+	service := newTestSyncService(t)
+	service.engineClient = &stubEngineClient{info: &EngineJobInfo{
+		JobID:     "engine-final-metrics",
+		JobStatus: "FINISHED",
+		Metrics: map[string]interface{}{
+			"SourceReceivedCount": float64(50),
+			"SinkWriteCount":      float64(50),
+		},
+	}}
+	ctx := context.Background()
+	now := time.Now().UTC()
+	preview := maybeRecordMetricsLog(nil, map[string]interface{}{"SourceReceivedCount": float64(10)}, now, false)
+	job := &JobInstance{
+		TaskID:        1,
+		TaskVersion:   1,
+		RunType:       RunTypeRun,
+		Status:        JobStatusSuccess,
+		PlatformJobID: "platform-final-metrics",
+		EngineJobID:   "engine-final-metrics",
+		SubmitSpec:    JSONMap{"engine_base_url": "http://127.0.0.1:8080"},
+		ResultPreview: preview,
+		FinishedAt:    &now,
+		CreatedBy:     1,
+	}
+	if err := service.repo.CreateJobInstance(ctx, job); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+	if hasFinalMetricsLog(job.ResultPreview) {
+		t.Fatal("precondition: only snapshot")
+	}
+	refreshed, err := service.RefreshJobByID(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+	if !hasFinalMetricsLog(refreshed.ResultPreview) {
+		t.Fatalf("expected final metrics after refresh: %s", metricsLogFromPreview(refreshed.ResultPreview))
+	}
+	metrics := mapValue(refreshed.ResultPreview, "metrics")
+	if metrics == nil || metrics["SourceReceivedCount"] != float64(50) {
+		t.Fatalf("structured metrics not updated: %#v", metrics)
+	}
+}
+
+func TestReconcileFinishedWaitsForJobInfoBeforeSettling(t *testing.T) {
+	service := newTestSyncService(t)
+	client := &flakyFinishedEngineClient{failInfoTimes: 2, info: &EngineJobInfo{
+		JobID:     "engine-flaky-finish",
+		JobStatus: "FINISHED",
+		Metrics:   map[string]interface{}{"SourceReceivedCount": float64(7), "SinkWriteCount": float64(7)},
+	}}
+	service.engineClient = client
+	ctx := context.Background()
+	job := &JobInstance{
+		TaskID:        1,
+		TaskVersion:   1,
+		RunType:       RunTypeRun,
+		Status:        JobStatusRunning,
+		PlatformJobID: "platform-flaky-finish",
+		EngineJobID:   "engine-flaky-finish",
+		SubmitSpec:    JSONMap{"engine_base_url": "http://127.0.0.1:8080", "cluster_id": 1},
+		ResultPreview: maybeRecordMetricsLog(nil, map[string]interface{}{"SourceReceivedCount": float64(1)}, time.Now().UTC(), false),
+		CreatedBy:     1,
+		UpdatedAt:     time.Now().UTC(),
+	}
+	if err := service.repo.CreateJobInstance(ctx, job); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+	if err := service.reconcileActiveJobs(ctx); err != nil {
+		t.Fatalf("reconcile 1: %v", err)
+	}
+	stored, err := service.repo.GetJobInstanceByID(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if stored.Status != JobStatusRunning {
+		t.Fatalf("first GetJobInfo failure must not settle terminal, got %s", stored.Status)
+	}
+	if err := service.reconcileActiveJobs(ctx); err != nil {
+		t.Fatalf("reconcile 2: %v", err)
+	}
+	if err := service.reconcileActiveJobs(ctx); err != nil {
+		t.Fatalf("reconcile 3: %v", err)
+	}
+	stored, err = service.repo.GetJobInstanceByID(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("get final: %v", err)
+	}
+	if stored.Status != JobStatusSuccess {
+		t.Fatalf("expected success after job-info succeeds, got %s", stored.Status)
+	}
+	if !hasFinalMetricsLog(stored.ResultPreview) {
+		t.Fatalf("expected final metrics log: %s", metricsLogFromPreview(stored.ResultPreview))
+	}
+}
+
+type flakyFinishedEngineClient struct {
+	failInfoTimes int
+	infoCalls     int
+	info          *EngineJobInfo
+}
+
+func (f *flakyFinishedEngineClient) Submit(ctx context.Context, req *EngineSubmitRequest) (*EngineSubmitResponse, error) {
+	return nil, nil
+}
+func (f *flakyFinishedEngineClient) GetJobInfo(ctx context.Context, endpoint *EngineEndpoint, jobID string) (*EngineJobInfo, error) {
+	f.infoCalls++
+	if f.infoCalls <= f.failInfoTimes {
+		return nil, context.DeadlineExceeded
+	}
+	return f.info, nil
+}
+func (f *flakyFinishedEngineClient) GetJobCheckpointOverview(ctx context.Context, endpoint *EngineEndpoint, jobID string) (*EngineCheckpointOverview, error) {
+	return nil, nil
+}
+func (f *flakyFinishedEngineClient) GetJobCheckpointHistory(ctx context.Context, endpoint *EngineEndpoint, jobID string, pipelineID *int, limit int, status string) ([]*EngineCheckpointRecord, error) {
+	return nil, nil
+}
+func (f *flakyFinishedEngineClient) StopJob(ctx context.Context, endpoint *EngineEndpoint, jobID string, stopWithSavepoint bool) error {
+	return nil
+}
+func (f *flakyFinishedEngineClient) GetJobLogs(ctx context.Context, endpoint *EngineEndpoint, jobID string) (string, error) {
+	return "", nil
+}
+func (f *flakyFinishedEngineClient) ListRunningJobs(ctx context.Context, endpoint *EngineEndpoint) ([]*EngineJobListItem, error) {
+	return nil, nil
+}
+func (f *flakyFinishedEngineClient) ListFinishedJobs(ctx context.Context, endpoint *EngineEndpoint, state string) ([]*EngineJobListItem, error) {
+	if f.info == nil {
+		return nil, nil
+	}
+	return []*EngineJobListItem{{JobID: f.info.JobID, JobStatus: f.info.JobStatus}}, nil
+}

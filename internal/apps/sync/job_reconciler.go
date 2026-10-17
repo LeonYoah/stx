@@ -25,6 +25,16 @@ import (
 	"github.com/LeonYoah/stx/internal/config"
 )
 
+const (
+	// jobFinalMetricsGiveUpFails: after this many GetJobInfo failures on a finished list hit, settle status anyway.
+	// 终态列表命中但 GetJobInfo 连续失败达到该次数后，放弃等指标并落状态。
+	jobFinalMetricsGiveUpFails = 3
+	// jobFinalMetricsGiveUpAge: alternate give-up when the job row is older than this without final metrics.
+	jobFinalMetricsGiveUpAge = 2 * time.Minute
+	// jobTerminalMetricsBackfillWindow: how far back to re-check terminal jobs missing a final metrics block.
+	jobTerminalMetricsBackfillWindow = 24 * time.Hour
+)
+
 // StartJobReconciler 启动按集群对账 SeaTunnel 作业状态的后台任务。
 // StartJobReconciler starts the per-cluster SeaTunnel job status reconciler.
 func (s *Service) StartJobReconciler(ctx context.Context) {
@@ -87,6 +97,7 @@ func (s *Service) reconcileActiveJobs(ctx context.Context) error {
 	for clusterID, items := range grouped {
 		s.reconcileClusterJobs(ctx, clusterID, items)
 	}
+	s.backfillTerminalJobFinalMetrics(ctx)
 	return nil
 }
 
@@ -195,8 +206,16 @@ func (s *Service) reconcileClusterJobs(ctx context.Context, clusterID uint, jobs
 			info := engineListItemToInfo(item)
 			detail, detailErr := s.engineClient.GetJobInfo(ctx, endpoint, engineJobID)
 			if detailErr != nil {
-				if _, err := s.applyEngineJobInfoUpdate(ctx, job, info); err != nil {
-					s.recordJobSyncFailure(ctx, job)
+				s.recordJobSyncFailure(ctx, job)
+				// Do not permanently settle from list-only mid-run metrics; retry GetJobInfo on later ticks.
+				// 不要仅凭列表落终态并冻住中途指标；后续 tick 继续补拉 job-info。
+				giveUp := hasFinalMetricsLog(job.ResultPreview) ||
+					job.SyncFailCount >= jobFinalMetricsGiveUpFails ||
+					time.Since(job.UpdatedAt) >= jobFinalMetricsGiveUpAge
+				if giveUp {
+					if _, err := s.applyEngineJobInfoUpdate(ctx, job, info); err != nil {
+						s.recordJobSyncFailure(ctx, job)
+					}
 				}
 				continue
 			}
@@ -234,6 +253,45 @@ func (s *Service) reconcileClusterJobs(ctx context.Context, clusterID uint, jobs
 		}
 		if _, err := s.applyEngineJobInfoUpdate(ctx, job, detail); err != nil {
 			s.recordJobSyncFailure(ctx, job)
+		}
+	}
+}
+
+// backfillTerminalJobFinalMetrics 对近期已终态但缺少终态指标块的作业再拉一次 job-info。
+// backfillTerminalJobFinalMetrics re-fetches job-info for recent terminal jobs that still lack a final metrics block.
+func (s *Service) backfillTerminalJobFinalMetrics(ctx context.Context) {
+	if s == nil || s.repo == nil || s.engineClient == nil {
+		return
+	}
+	jobs, err := s.repo.ListRecentTerminalJobInstances(ctx, 100, time.Now().UTC().Add(-jobTerminalMetricsBackfillWindow))
+	if err != nil || len(jobs) == 0 {
+		return
+	}
+	for _, job := range jobs {
+		if job == nil || hasFinalMetricsLog(job.ResultPreview) {
+			continue
+		}
+		if strings.TrimSpace(job.EngineJobID) == "" {
+			continue
+		}
+		endpoint := endpointFromSubmitSpec(job.SubmitSpec)
+		if endpoint == nil && s.runtimeResolver != nil {
+			clusterID := uintValue(job.SubmitSpec, "cluster_id")
+			if clusterID > 0 {
+				if resolved, resolveErr := s.runtimeResolver.ResolveEngineEndpoint(ctx, clusterID, nil); resolveErr == nil {
+					endpoint = resolved
+				}
+			}
+		}
+		if endpoint == nil {
+			continue
+		}
+		detail, detailErr := s.engineClient.GetJobInfo(ctx, endpoint, strings.TrimSpace(job.EngineJobID))
+		if detailErr != nil || detail == nil {
+			continue
+		}
+		if _, applyErr := s.applyEngineJobInfoUpdate(ctx, job, detail); applyErr != nil {
+			_ = applyErr
 		}
 	}
 }

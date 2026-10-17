@@ -130,12 +130,19 @@ func latestMetricsBlockFromPreview(preview JSONMap) string {
 	if full == "" {
 		return ""
 	}
-	const marker = "---------- STX metrics"
-	idx := strings.LastIndex(full, marker)
-	if idx < 0 {
-		return full
+	// Prefer last snapshot/final block (new ========== or legacy ---------- titles).
+	for _, marker := range []string{"========== STX metrics", "---------- STX metrics"} {
+		if idx := strings.LastIndex(full, marker); idx >= 0 {
+			return strings.TrimSpace(full[idx:])
+		}
 	}
-	return strings.TrimSpace(full[idx:])
+	return full
+}
+
+// hasFinalMetricsLog 判断 result_preview 是否已写入终态指标块（避免仅有中途 snapshot 就停止补拉）。
+// hasFinalMetricsLog reports whether result_preview already has a forced terminal metrics block.
+func hasFinalMetricsLog(preview JSONMap) bool {
+	return strings.Contains(metricsLogFromPreview(preview), "STX metrics final")
 }
 
 func parseMetricsLogAt(raw interface{}) time.Time {

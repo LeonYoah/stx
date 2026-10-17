@@ -61,7 +61,9 @@ func (r *Repository) ListRecentJobsByExternalRefPrefix(ctx context.Context, task
 	}
 	query := r.db.WithContext(ctx).Where("task_id = ?", taskID)
 	if strings.TrimSpace(prefix) != "" {
-		query = query.Where("external_ref LIKE ?", strings.TrimSpace(prefix)+"%")
+		// PostgreSQL 默认 LIKE 大小写敏感，必须用 LOWER 包一层。
+		// PostgreSQL LIKE is case-sensitive by default, so wrap both sides with LOWER.
+		query = query.Where("LOWER(external_ref) LIKE LOWER(?)", strings.TrimSpace(prefix)+"%")
 	} else {
 		query = query.Where("external_ref <> ''")
 	}

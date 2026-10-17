@@ -66,7 +66,8 @@ export default defineConfig({
     ['list'],
     ['html', {open: 'never', outputFolder: 'playwright-report'}],
   ],
-  retries: process.env.CI ? 1 : 0,
+  // Scheduler-real is already long; a CI retry doubles wall clock. Other real suites keep 1.
+  retries: process.env.E2E_SCHEDULER_REAL === '1' ? 0 : process.env.CI ? 1 : 0,
   workers: installerRealMode ? 1 : process.env.CI ? 1 : undefined,
   use: {
     baseURL: frontendBaseURL,

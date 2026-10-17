@@ -347,6 +347,12 @@ sed \
   -e "s|tmp/e2e/installer-real/install/default|${TMP_DIR_ESCAPED}/install/default|g" \
   "${AGENT_TEMPLATE}" > "${AGENT_CONFIG_PATH}"
 
+# Scheduler FakeSource/Console uses LOCAL_FILE checkpoint — skip MinIO (~30–60s).
+if [[ "${E2E_SCHEDULER_REAL:-}" == "1" ]]; then
+  MINIO_API_PORT="0"
+  MINIO_CONSOLE_PORT="0"
+  echo "[e2e-real] skip MinIO for scheduler-real (LOCAL_FILE checkpoint)"
+else
 MINIO_CONTAINER_ID="$(
 docker run -d \
   --name "${MINIO_NAME}" \
@@ -372,6 +378,7 @@ for _ in $(seq 1 30); do
   fi
   sleep 1
 done
+fi
 
 export E2E_INSTALLER_REAL=1
 export E2E_API_MODE=real
@@ -403,6 +410,7 @@ export E2E_INSTALLER_REAL_CHECKPOINT_BUCKET="${E2E_INSTALLER_REAL_CHECKPOINT_BUC
 export E2E_INSTALLER_REAL_IMAP_BUCKET="${E2E_INSTALLER_REAL_IMAP_BUCKET:-s3a://seatunnel-imap}"
 export E2E_INSTALLER_REAL_TMP_DIR="${TMP_DIR}"
 
+if [[ "${E2E_SCHEDULER_REAL:-}" != "1" ]]; then
 CHECKPOINT_BUCKET_NAME="${E2E_INSTALLER_REAL_CHECKPOINT_BUCKET#s3a://}"
 IMAP_BUCKET_NAME="${E2E_INSTALLER_REAL_IMAP_BUCKET#s3a://}"
 
@@ -410,6 +418,7 @@ docker run --rm --network host --entrypoint /bin/sh "${MINIO_MC_IMAGE}" -c "\
   mc alias set e2e ${E2E_INSTALLER_REAL_MINIO_ENDPOINT} ${E2E_INSTALLER_REAL_MINIO_ACCESS_KEY} ${E2E_INSTALLER_REAL_MINIO_SECRET_KEY} && \
   mc mb -p e2e/${CHECKPOINT_BUCKET_NAME} && \
   mc mb -p e2e/${IMAP_BUCKET_NAME}" >/dev/null
+fi
 
 
 # Real scheduler E2E: start DolphinScheduler AFTER stx is built (fresh bind-mount inode).

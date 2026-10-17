@@ -930,7 +930,8 @@ jobs:
     runs-on: ubuntu-24.04
     needs: [changes, prepare-package]
     if: needs.changes.outputs.run_scheduler_real == 'true'
-    timeout-minutes: 90
+    # Target ≤10m wall once warm (DS image + SeaTunnel cache). 20m hard cap fails loud.
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -960,6 +961,14 @@ jobs:
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
 
+      # Restore DS image tarball in parallel with pnpm install (see next steps).
+      - name: Restore DolphinScheduler image cache
+        id: cache-ds-image
+        uses: actions/cache/restore@v4
+        with:
+          path: /tmp/ds-standalone-3.2.2.tar
+          key: ds-standalone-image-3.2.2-v1
+
       - name: Install frontend dependencies
         working-directory: frontend
         run: pnpm install --frozen-lockfile
@@ -974,7 +983,31 @@ jobs:
           name: seatunnel-bin-cache
           path: ${{ env.E2E_INSTALLER_REAL_PACKAGE_CACHE_DIR }}
 
+      - name: Load or pull DolphinScheduler image
+        env:
+          E2E_DS_IMAGE: apache/dolphinscheduler-standalone-server:3.2.2
+        run: |
+          set -euo pipefail
+          if [[ -f /tmp/ds-standalone-3.2.2.tar ]]; then
+            docker load -i /tmp/ds-standalone-3.2.2.tar
+            echo "loaded DS image from cache"
+          else
+            docker pull "${E2E_DS_IMAGE}"
+            docker save -o /tmp/ds-standalone-3.2.2.tar "${E2E_DS_IMAGE}"
+            echo "pulled+saved DS image for cache"
+          fi
+
+      - name: Save DolphinScheduler image cache
+        if: steps.cache-ds-image.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: /tmp/ds-standalone-3.2.2.tar
+          key: ds-standalone-image-3.2.2-v1
+
       - name: Run real scheduler E2E
+        env:
+          # Image already local; run script skip-pulls when present.
+          E2E_DS_SKIP_PULL: '1'
         run: bash frontend/scripts/e2e/run-real-scheduler.sh
 
       - name: Upload Playwright report

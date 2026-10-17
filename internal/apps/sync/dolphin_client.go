@@ -585,8 +585,11 @@ func buildShellTask(code int64, name, script, workerGroup string, environmentCod
 		TaskPriority:      "MEDIUM",
 		WorkerGroup:       defaultString(workerGroup, defaultDolphinWorkerGroup),
 		EnvironmentCode:   environmentCode,
-		FailRetryTimes:    1,
-		FailRetryInterval: 5,
+		// SHELL runs `stx … --wait`; a DS-level retry re-runs a long CLI and
+		// costs ~5m of wall clock on every intentional engine failure. Leave
+		// retries to the operator in Dolphin UI if they want them.
+		FailRetryTimes:    0,
+		FailRetryInterval: 1,
 		// 新建节点关闭 Dolphin 超时，时长由作业自己结束或调度侧手动停。
 		// New nodes leave Dolphin timeout off; duration is the job itself or an operator stop.
 		TimeoutFlag:           "CLOSE",

@@ -35,7 +35,9 @@ cleanup_ds() {
 }
 trap cleanup_ds EXIT
 
-# Pre-pull DS image early (parallel with installer package work inside child).
-docker pull "${E2E_DS_IMAGE}" >/dev/null 2>&1 || docker pull "${E2E_DS_IMAGE}"
+# Pre-pull DS image unless CI already loaded it from cache.
+if [[ "${E2E_DS_SKIP_PULL:-}" != "1" ]]; then
+  docker pull "${E2E_DS_IMAGE}" >/dev/null 2>&1 || docker pull "${E2E_DS_IMAGE}"
+fi
 
 exec bash "${SCRIPT_DIR}/run-real-installer.sh"

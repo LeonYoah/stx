@@ -31,3 +31,16 @@ E2E_INSTALLER_REAL_PACKAGE_CACHE_DIR=$PWD/tmp/e2e-package-cache \
 ```
 
 Contract suite (`run-scheduler-contract.sh`) remains the fast gate; this job is the fidelity check.
+
+## Wall-clock target
+
+| Segment | Budget (warm CI) |
+|---------|------------------|
+| Setup (Go/Node/pnpm/Playwright/ST package) | ~3–4 min |
+| STX+Agent boot (no MinIO) + static `stx` + DS start | ~2 min |
+| Cluster install + FakeSource success/fail via DS | ~2–3 min |
+| **Job total** | **≤8–10 min** (hard cap 20 min) |
+
+Why not merge into Workbench: Workbench already ~7 min of UI flows; bolting DS onto it would couple failures and still serialize. Separate job + SeaTunnel artifact reuse is the compromise.
+
+Speed levers already applied: `CGO_ENABLED=0` stx, DS image GHA cache, skip MinIO, `FailRetryTimes=0` on pushed SHELL nodes, no Playwright retry, 3 min DS wait cap.

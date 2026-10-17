@@ -32,7 +32,7 @@ import {
 } from './helpers/scheduler-real';
 
 test.describe.serial('scheduler real DolphinScheduler flows', () => {
-  test.setTimeout(45 * 60 * 1000);
+  test.setTimeout(12 * 60 * 1000);
 
   let preparedPage: Page | null = null;
   let clusterId = 0;
@@ -88,7 +88,7 @@ test.describe.serial('scheduler real DolphinScheduler flows', () => {
     await startDSWorkflow(ds, failPush.workflowCode);
 
     // Success should finish quickly; fail may linger RUNNING_EXECUTION while stacks flush.
-    const processes = await waitForDSProcessTerminal(ds, 420000);
+    const processes = await waitForDSProcessTerminal(ds, 180000);
     expect(processes.length).toBeGreaterThanOrEqual(2);
 
     const logs = await fetchLatestDSTaskLogs(ds);

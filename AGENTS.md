@@ -47,3 +47,11 @@ If you're using Codex or another agent-capable tool, additional project-scoped h
 Managed by Trellis. Edits outside this block are preserved; edits inside may be overwritten by a future `trellis update`.
 
 <!-- TRELLIS:END -->
+
+## Cursor Cloud specific instructions
+
+- 需要 Go 1.24。基础镜像自带的 `/usr/bin/go` 是 1.22；环境把 Go 1.24.13 装到 `/usr/local/go` 并链接到 `/usr/local/bin/go`。确认 `go version` 输出 `go1.24.13`。
+- 没有 `config.yaml` 时，从 `config.example.yaml` 复制后再启动。默认数据库是 SQLite，文件在 `data/stx.db`。在仓库根目录执行 `go run main.go server`（`api` 只是隐藏兼容别名）。健康检查是 `GET http://127.0.0.1:17800/api/v1/health`。默认登录 `admin` / `admin123`。
+- Web UI 开发端口是 3000，不是安装包用的 17880：`cd frontend && pnpm dev --hostname 0.0.0.0 --port 3000`。前端包管理器钉在 pnpm 10.10.0。单测命令是 `pnpm test`。
+- 同环境里的文档站在 sibling 仓库 `stx-website`，用 `pnpm start --host 0.0.0.0 --port 3001`，避免占用 Web UI 的 3000。
+- `go test ./...` 和 `cd agent && go test ./...` 在本机没有 MySQL / PostgreSQL 时可以通过；连不上的多库用例会跳过。

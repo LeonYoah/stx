@@ -224,6 +224,10 @@ export interface SyncJobInstance {
   engine_job_id: string;
   recovered_from_instance_id?: number;
   status: SyncJobStatus;
+  last_synced_at?: string;
+  sync_state?: 'ok' | 'degraded' | 'stale' | 'unknown';
+  sync_fail_count?: number;
+  sync_lag_ms?: number;
   submit_spec: SyncJSON;
   result_preview: SyncJSON;
   error_message: string;

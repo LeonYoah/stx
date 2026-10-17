@@ -150,6 +150,17 @@ const (
 	JobStatusCanceled        JobStatus = "canceled"
 )
 
+// JobSyncState 描述 STX 与 SeaTunnel 引擎状态对齐的新鲜度，不等同于作业生命周期 status。
+// JobSyncState describes how fresh STX's cached engine view is; it is not the job lifecycle status.
+type JobSyncState string
+
+const (
+	JobSyncStateOK        JobSyncState = "ok"
+	JobSyncStateDegraded  JobSyncState = "degraded"
+	JobSyncStateStale     JobSyncState = "stale"
+	JobSyncStateUnknown   JobSyncState = "unknown"
+)
+
 // Task represents one sync studio workspace node.
 // Task 表示一个数据同步工作台节点。
 type Task struct {
@@ -376,6 +387,18 @@ type JobInstance struct {
 	EngineJobID             string     `json:"engine_job_id" gorm:"size:255;index"`
 	RecoveredFromInstanceID *uint      `json:"recovered_from_instance_id,omitempty" gorm:"index"`
 	Status                  JobStatus  `json:"status" gorm:"size:20;default:pending;index"`
+	// LastSyncedAt 记录最近一次成功向 SeaTunnel 对齐状态的时间（UTC）。
+	// LastSyncedAt is when STX last successfully synced runtime state from SeaTunnel (UTC).
+	LastSyncedAt *time.Time `json:"last_synced_at,omitempty"`
+	// SyncState 表示观察面新鲜度：ok / degraded / stale / unknown。
+	// SyncState indicates observation freshness: ok / degraded / stale / unknown.
+	SyncState JobSyncState `json:"sync_state" gorm:"size:20;default:unknown;index"`
+	// SyncFailCount 连续问引擎失败次数，成功对齐后归零。
+	// SyncFailCount counts consecutive engine sync failures; reset after a successful sync.
+	SyncFailCount int `json:"sync_fail_count" gorm:"not null;default:0"`
+	// SyncLagMs 由 API 根据 last_synced_at 派生，不落库。
+	// SyncLagMs is derived from last_synced_at at read time and is not persisted.
+	SyncLagMs int64 `json:"sync_lag_ms,omitempty" gorm:"-"`
 	SubmitSpec              JSONMap    `json:"submit_spec" gorm:"type:json"`
 	ResultPreview           JSONMap    `json:"result_preview" gorm:"type:json"`
 	ErrorMessage            string     `json:"error_message" gorm:"type:text"`

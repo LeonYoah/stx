@@ -1983,6 +1983,32 @@ export function getEngineEndpointLabel(job: SyncJobInstance | null): string {
   return '-';
 }
 
+export function formatJobSyncLagHint(job: {
+  sync_lag_ms?: number;
+  sync_state?: string;
+} | null): string | null {
+  if (!job) {
+    return null;
+  }
+  const state = String(job.sync_state || '').toLowerCase();
+  const lagMs = Number(job.sync_lag_ms || 0);
+  if (state !== 'degraded' && state !== 'stale' && lagMs < 20_000) {
+    return null;
+  }
+  if (lagMs <= 0) {
+    return state === 'stale' || state === 'degraded' ? 'sync delayed' : null;
+  }
+  if (lagMs < 1000) {
+    return `${lagMs}ms ago`;
+  }
+  const seconds = Math.round(lagMs / 1000);
+  if (seconds < 120) {
+    return `${seconds}s ago`;
+  }
+  const minutes = Math.round(seconds / 60);
+  return `${minutes}m ago`;
+}
+
 export function getJobStatusBadgeClass(status: string): string {
   switch (
     String(status || '')

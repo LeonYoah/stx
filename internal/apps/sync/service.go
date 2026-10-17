@@ -1575,23 +1575,21 @@ func (s *Service) submitTaskInstanceWithPayload(ctx context.Context, task *Task,
 	return instance, nil
 }
 
-// ListJobs returns paginated job instances.
+// ListJobs returns paginated job instances from the database without hitting the engine.
+// ListJobs 只读数据库返回分页作业，不再同步刷新 SeaTunnel。
 func (s *Service) ListJobs(ctx context.Context, filter *JobFilter) ([]*JobInstance, int64, error) {
-	items, total, err := s.repo.ListJobInstances(ctx, filter)
-	if err != nil {
-		return nil, 0, err
-	}
-	for i, item := range items {
-		refreshed, refreshErr := s.refreshJobInstance(ctx, item)
-		if refreshErr == nil && refreshed != nil {
-			items[i] = refreshed
-		}
-	}
-	return items, total, nil
+	return s.repo.ListJobInstances(ctx, filter)
 }
 
-// GetJob returns one job instance and refreshes live runtime state when possible.
+// GetJob returns one job instance from the database without hitting the engine.
+// GetJob 只读数据库返回单个作业，不再同步刷新 SeaTunnel。
 func (s *Service) GetJob(ctx context.Context, id uint) (*JobInstance, error) {
+	return s.repo.GetJobInstanceByID(ctx, id)
+}
+
+// RefreshJobByID 主动从引擎刷新一条作业（?fresh=1 或对账器补详情时使用）。
+// RefreshJobByID actively refreshes one job from the engine (?fresh=1 or reconciler detail fetch).
+func (s *Service) RefreshJobByID(ctx context.Context, id uint) (*JobInstance, error) {
 	instance, err := s.repo.GetJobInstanceByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -2502,89 +2500,12 @@ func (s *Service) refreshJobInstance(ctx context.Context, instance *JobInstance)
 	if endpoint == nil {
 		return instance, nil
 	}
-	previousStatus := instance.Status
 	info, err := s.engineClient.GetJobInfo(ctx, endpoint, instance.EngineJobID)
 	if err != nil {
-		if previousStatus == JobStatusCancelRequested || previousStatus == JobStatusCancelling {
-			now := time.Now()
-			instance.Status = JobStatusCanceled
-			instance.FinishedAt = &now
-			if instance.ResultPreview == nil {
-				instance.ResultPreview = JSONMap{}
-			}
-			instance.ResultPreview["job_status"] = "CANCELED"
-			_ = s.repo.UpdateJobStatus(ctx, instance.ID, []JobStatus{previousStatus}, map[string]any{
-				"status":         instance.Status,
-				"result_preview": instance.ResultPreview,
-				"finished_at":    instance.FinishedAt,
-			})
-		}
+		s.recordJobSyncFailure(ctx, instance)
 		return instance, nil
 	}
-	if info == nil {
-		return instance, nil
-	}
-	rawEngineStatus := strings.TrimSpace(info.JobStatus)
-	var observedStatus JobStatus
-	if rawEngineStatus == "" {
-		if previousStatus == JobStatusCancelRequested || previousStatus == JobStatusCancelling {
-			observedStatus = JobStatusCanceled
-		} else {
-			observedStatus = previousStatus
-		}
-	} else {
-		observedStatus = normalizeJobStatus(rawEngineStatus)
-		if previousStatus == JobStatusCancelRequested || previousStatus == JobStatusCancelling {
-			if observedStatus == JobStatusPending || observedStatus == JobStatusRunning {
-				observedStatus = previousStatus
-			} else if observedStatus == JobStatusSuccess {
-				observedStatus = JobStatusCanceled
-			}
-		}
-	}
-	// 引擎启动阶段可能短暂返回 CREATED，不能把已经运行的任务改回 pending。
-	// Engines may briefly report CREATED during startup; do not move a running job back to pending.
-	if previousStatus == JobStatusRunning && observedStatus == JobStatusPending {
-		observedStatus = previousStatus
-	}
-	// 作业终态不可被迟到或过期的引擎状态改回运行态。
-	// A late or stale engine status must not move a terminal job back to a running state.
-	if isFinalNormalizedJobStatus(previousStatus) {
-		observedStatus = previousStatus
-	}
-	instance.Status = observedStatus
-	instance.ResultPreview = mergeJobRuntimeInfo(instance.ResultPreview, info)
-	if isFinalNormalizedJobStatus(instance.Status) {
-		if parsedFinishedAt := parseEngineJobTime(info.FinishedTime); parsedFinishedAt != nil {
-			instance.FinishedAt = parsedFinishedAt
-		} else if instance.FinishedAt == nil {
-			now := time.Now()
-			instance.FinishedAt = &now
-		}
-		if info.ErrorMsg != nil {
-			instance.ErrorMessage = strings.TrimSpace(fmt.Sprintf("%v", info.ErrorMsg))
-		}
-	} else {
-		instance.FinishedAt = nil
-	}
-	if err := s.repo.UpdateJobStatus(ctx, instance.ID, []JobStatus{previousStatus}, map[string]any{
-		"status":         instance.Status,
-		"result_preview": instance.ResultPreview,
-		"error_message":  instance.ErrorMessage,
-		"finished_at":    instance.FinishedAt,
-	}); err != nil {
-		if errors.Is(err, ErrJobStatusChanged) {
-			return s.repo.GetJobInstanceByID(ctx, instance.ID)
-		}
-		return nil, err
-	}
-	if err := s.syncPreviewSessionTerminalState(ctx, instance); err != nil {
-		return nil, err
-	}
-	if err := s.syncExecutionFromJob(ctx, instance); err != nil {
-		return nil, err
-	}
-	return instance, nil
+	return s.applyEngineJobInfoUpdate(ctx, instance, info)
 }
 
 func (s *Service) syncPreviewSessionTerminalState(ctx context.Context, instance *JobInstance) error {

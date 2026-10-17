@@ -51,6 +51,7 @@ import {
   getDisplayJobLifecycleStatus,
   getEngineAPIMode,
   getEngineEndpointLabel,
+  formatJobSyncLagHint,
   getJobStatusBadgeClass,
   getJobStatusLabel,
   getLogLineClass,
@@ -197,6 +198,11 @@ export function ConsolePanel({
         >
           {getJobStatusLabel(displayStatus)}
         </Badge>
+        {formatJobSyncLagHint(job) ? (
+          <Badge variant='outline' className='text-amber-600 dark:text-amber-400'>
+            {formatJobSyncLagHint(job)}
+          </Badge>
+        ) : null}
         <Badge variant='outline'>
           {getEngineAPIMode(job) === 'v1'
             ? 'Legacy REST V1'

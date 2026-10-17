@@ -40,6 +40,8 @@ const engineEndpointHeartbeatTimeout = 30 * time.Second
 type EngineClient interface {
 	Submit(ctx context.Context, req *EngineSubmitRequest) (*EngineSubmitResponse, error)
 	GetJobInfo(ctx context.Context, endpoint *EngineEndpoint, jobID string) (*EngineJobInfo, error)
+	ListRunningJobs(ctx context.Context, endpoint *EngineEndpoint) ([]*EngineJobListItem, error)
+	ListFinishedJobs(ctx context.Context, endpoint *EngineEndpoint, state string) ([]*EngineJobListItem, error)
 	GetJobCheckpointOverview(ctx context.Context, endpoint *EngineEndpoint, jobID string) (*EngineCheckpointOverview, error)
 	GetJobCheckpointHistory(ctx context.Context, endpoint *EngineEndpoint, jobID string, pipelineID *int, limit int, status string) ([]*EngineCheckpointRecord, error)
 	StopJob(ctx context.Context, endpoint *EngineEndpoint, jobID string, stopWithSavepoint bool) error
@@ -72,6 +74,17 @@ type EngineSubmitResponse struct {
 	EndpointBaseURL string `json:"endpointBaseUrl,omitempty"`
 	EngineURL       string `json:"engineUrl,omitempty"`
 	EngineMethod    string `json:"engineMethod,omitempty"`
+}
+
+// EngineJobListItem 是 running/finished 列表接口返回的单条作业摘要。
+// EngineJobListItem is one job row from running/finished list APIs.
+type EngineJobListItem struct {
+	JobID        string      `json:"jobId"`
+	JobName      string      `json:"jobName"`
+	JobStatus    string      `json:"jobStatus"`
+	CreateTime   string      `json:"createTime"`
+	FinishedTime string      `json:"finishTime"`
+	ErrorMsg     interface{} `json:"errorMsg"`
 }
 
 // EngineJobInfo describes job-info response subset used by sync studio.
@@ -220,6 +233,83 @@ func (c *SeaTunnelEngineClient) Submit(ctx context.Context, req *EngineSubmitReq
 	result.EngineURL = targetURL
 	result.EngineMethod = http.MethodPost
 	return &result, nil
+}
+
+// ListRunningJobs 拉取当前运行中的作业列表。
+// ListRunningJobs fetches all currently running jobs from the engine.
+func (c *SeaTunnelEngineClient) ListRunningJobs(ctx context.Context, endpoint *EngineEndpoint) ([]*EngineJobListItem, error) {
+	return c.listEngineJobs(ctx, endpoint, []string{
+		"/running-jobs",
+		"/hazelcast/rest/maps/running-jobs",
+	})
+}
+
+// ListFinishedJobs 拉取已完成作业列表，state 为空时尝试不带状态的路径。
+// ListFinishedJobs fetches finished jobs; when state is empty a path without state is tried first.
+func (c *SeaTunnelEngineClient) ListFinishedJobs(ctx context.Context, endpoint *EngineEndpoint, state string) ([]*EngineJobListItem, error) {
+	trimmedState := strings.TrimSpace(state)
+	if trimmedState == "" {
+		return c.listEngineJobs(ctx, endpoint, []string{
+			"/finished-jobs",
+			"/hazelcast/rest/maps/finished-jobs",
+		})
+	}
+	escaped := neturl.PathEscape(trimmedState)
+	return c.listEngineJobs(ctx, endpoint, []string{
+		"/finished-jobs/" + escaped,
+		"/hazelcast/rest/maps/finished-jobs/" + escaped,
+	})
+}
+
+func (c *SeaTunnelEngineClient) listEngineJobs(ctx context.Context, endpoint *EngineEndpoint, paths []string) ([]*EngineJobListItem, error) {
+	var lastErr error
+	for _, path := range paths {
+		items, err := c.getEngineJobListOnce(ctx, endpoint, path)
+		if err == nil {
+			return items, nil
+		}
+		lastErr = err
+	}
+	if lastErr == nil {
+		return nil, fmt.Errorf("sync: list engine jobs failed")
+	}
+	return nil, lastErr
+}
+
+func (c *SeaTunnelEngineClient) getEngineJobListOnce(ctx context.Context, endpoint *EngineEndpoint, path string) ([]*EngineJobListItem, error) {
+	var targetURL string
+	var err error
+	if strings.HasPrefix(path, "/hazelcast/") {
+		targetURL, err = buildLegacyEngineURL(endpoint, path, nil)
+	} else if endpoint != nil && strings.EqualFold(strings.TrimSpace(endpoint.APIMode), "v1") {
+		targetURL, err = buildLegacyEngineURL(endpoint, "/hazelcast/rest/maps"+path, nil)
+	} else {
+		targetURL, err = buildEngineURL(endpoint, path, nil)
+	}
+	if err != nil {
+		return nil, err
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("sync: list engine jobs failed: status=%d body=%s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	var items []*EngineJobListItem
+	if err := json.Unmarshal(body, &items); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 // GetJobInfo fetches one job info.

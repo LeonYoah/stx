@@ -1331,13 +1331,102 @@ func TestCollectPreviewStopsAtRowLimit(t *testing.T) {
 	if snapshot.TotalRows != 1 {
 		t.Fatalf("expected total rows 1, got %d", snapshot.TotalRows)
 	}
-	job, err := service.GetJob(ctx, instance.ID)
+	job, err := service.RefreshJobByID(ctx, instance.ID)
 	if err != nil {
-		t.Fatalf("get job failed: %v", err)
+		t.Fatalf("refresh job failed: %v", err)
 	}
 	if job.Status != JobStatusCanceled {
 		t.Fatalf("expected preview job canceled after reaching row limit, got %s", job.Status)
 	}
+}
+
+func TestGetJobDoesNotCallEngineByDefault(t *testing.T) {
+	service := newTestSyncService(t)
+	service.engineClient = &panicEngineClient{}
+	ctx := context.Background()
+	job := &JobInstance{
+		TaskID:        1,
+		TaskVersion:   1,
+		RunType:       RunTypeRun,
+		Status:        JobStatusRunning,
+		EngineJobID:   "engine-1",
+		SubmitSpec:    JSONMap{"engine_base_url": "http://127.0.0.1:8080"},
+		ResultPreview: JSONMap{},
+		CreatedBy:     1,
+	}
+	if err := service.repo.CreateJobInstance(ctx, job); err != nil {
+		t.Fatalf("create job failed: %v", err)
+	}
+	read, err := service.GetJob(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("get job failed: %v", err)
+	}
+	if read.Status != JobStatusRunning {
+		t.Fatalf("expected running from db, got %s", read.Status)
+	}
+}
+
+func TestJobReconcilerUpdatesFromRunningList(t *testing.T) {
+	service := newTestSyncService(t)
+	service.engineClient = &stubEngineClient{info: &EngineJobInfo{
+		JobID:     "recon-1",
+		JobStatus: "FINISHED",
+		FinishedTime: "2026-03-29 15:50:44",
+	}}
+	ctx := context.Background()
+	job := &JobInstance{
+		TaskID:        1,
+		TaskVersion:   1,
+		RunType:       RunTypeRun,
+		Status:        JobStatusRunning,
+		EngineJobID:   "recon-1",
+		SubmitSpec:    JSONMap{"engine_base_url": "http://127.0.0.1:8080", "cluster_id": 1},
+		ResultPreview: JSONMap{},
+		CreatedBy:     1,
+	}
+	if err := service.repo.CreateJobInstance(ctx, job); err != nil {
+		t.Fatalf("create job failed: %v", err)
+	}
+	if err := service.reconcileActiveJobs(ctx); err != nil {
+		t.Fatalf("reconcile failed: %v", err)
+	}
+	stored, err := service.GetJob(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("get job failed: %v", err)
+	}
+	if stored.Status != JobStatusSuccess {
+		t.Fatalf("expected success after reconcile, got %s", stored.Status)
+	}
+	if stored.SyncState != JobSyncStateOK {
+		t.Fatalf("expected sync_state ok, got %s", stored.SyncState)
+	}
+}
+
+type panicEngineClient struct{}
+
+func (p *panicEngineClient) Submit(ctx context.Context, req *EngineSubmitRequest) (*EngineSubmitResponse, error) {
+	panic("engine submit should not be called")
+}
+func (p *panicEngineClient) GetJobInfo(ctx context.Context, endpoint *EngineEndpoint, jobID string) (*EngineJobInfo, error) {
+	panic("engine get job info should not be called")
+}
+func (p *panicEngineClient) GetJobCheckpointOverview(ctx context.Context, endpoint *EngineEndpoint, jobID string) (*EngineCheckpointOverview, error) {
+	panic("engine checkpoint should not be called")
+}
+func (p *panicEngineClient) GetJobCheckpointHistory(ctx context.Context, endpoint *EngineEndpoint, jobID string, pipelineID *int, limit int, status string) ([]*EngineCheckpointRecord, error) {
+	panic("engine checkpoint history should not be called")
+}
+func (p *panicEngineClient) StopJob(ctx context.Context, endpoint *EngineEndpoint, jobID string, stopWithSavepoint bool) error {
+	panic("engine stop should not be called")
+}
+func (p *panicEngineClient) GetJobLogs(ctx context.Context, endpoint *EngineEndpoint, jobID string) (string, error) {
+	panic("engine logs should not be called")
+}
+func (p *panicEngineClient) ListRunningJobs(ctx context.Context, endpoint *EngineEndpoint) ([]*EngineJobListItem, error) {
+	panic("engine list running should not be called")
+}
+func (p *panicEngineClient) ListFinishedJobs(ctx context.Context, endpoint *EngineEndpoint, state string) ([]*EngineJobListItem, error) {
+	panic("engine list finished should not be called")
 }
 
 func TestGetPreviewSnapshotReturnsEmptySnapshotWhenSessionNotReady(t *testing.T) {
@@ -1619,6 +1708,28 @@ func (s *stubEngineClient) StopJob(ctx context.Context, endpoint *EngineEndpoint
 func (s *stubEngineClient) GetJobLogs(ctx context.Context, endpoint *EngineEndpoint, jobID string) (string, error) {
 	return "", nil
 }
+func (s *stubEngineClient) ListRunningJobs(ctx context.Context, endpoint *EngineEndpoint) ([]*EngineJobListItem, error) {
+	if s.info == nil {
+		return nil, nil
+	}
+	return []*EngineJobListItem{{
+		JobID:     s.info.JobID,
+		JobName:   s.info.JobName,
+		JobStatus: s.info.JobStatus,
+	}}, nil
+}
+func (s *stubEngineClient) ListFinishedJobs(ctx context.Context, endpoint *EngineEndpoint, state string) ([]*EngineJobListItem, error) {
+	if s.info == nil || !isFinalEngineJobStatus(s.info.JobStatus) {
+		return nil, nil
+	}
+	return []*EngineJobListItem{{
+		JobID:        s.info.JobID,
+		JobName:      s.info.JobName,
+		JobStatus:    s.info.JobStatus,
+		FinishedTime: s.info.FinishedTime,
+		ErrorMsg:     s.info.ErrorMsg,
+	}}, nil
+}
 
 func TestRefreshJobInstanceUsesEngineFinishedTime(t *testing.T) {
 	service := newTestSyncService(t)
@@ -1644,7 +1755,7 @@ func TestRefreshJobInstanceUsesEngineFinishedTime(t *testing.T) {
 	if err := service.repo.CreateJobInstance(ctx, job); err != nil {
 		t.Fatalf("create job instance failed: %v", err)
 	}
-	refreshed, err := service.GetJob(ctx, job.ID)
+	refreshed, err := service.RefreshJobByID(ctx, job.ID)
 	if err != nil {
 		t.Fatalf("refresh job failed: %v", err)
 	}
@@ -1882,7 +1993,7 @@ func TestCancelJobWaitsForEngineConfirmation(t *testing.T) {
 		t.Fatalf("重复取消不应再次调用停止接口: %d", engine.stopCalls)
 	}
 
-	refreshed, err := service.GetJob(ctx, job.ID)
+	refreshed, err := service.RefreshJobByID(ctx, job.ID)
 	if err != nil {
 		t.Fatalf("刷新取消中作业失败: %v", err)
 	}
@@ -1891,7 +2002,7 @@ func TestCancelJobWaitsForEngineConfirmation(t *testing.T) {
 	}
 
 	engine.info = &EngineJobInfo{JobID: "engine-cancel-1", JobStatus: "CANCELED"}
-	refreshed, err = service.GetJob(ctx, job.ID)
+	refreshed, err = service.RefreshJobByID(ctx, job.ID)
 	if err != nil {
 		t.Fatalf("读取引擎取消结果失败: %v", err)
 	}
@@ -1957,7 +2068,7 @@ func TestJobOwnershipFiltersListAndDetail(t *testing.T) {
 	if total != 1 || len(items) != 1 || items[0].CreatedBy != 1 {
 		t.Fatalf("普通用户看到了其他用户作业: total=%d items=%+v", total, items)
 	}
-	if _, err := service.GetJobForActor(ctx, executionapp.Actor{UserID: 1}, items[0].ID+1); !errors.Is(err, ErrJobInstanceNotFound) {
+	if _, err := service.GetJobForActor(ctx, executionapp.Actor{UserID: 1}, items[0].ID+1, false); !errors.Is(err, ErrJobInstanceNotFound) {
 		t.Fatalf("普通用户读取他人作业应返回未找到: %v", err)
 	}
 	adminItems, adminTotal, err := service.ListJobsForActor(ctx, executionapp.Actor{UserID: 9, IsAdmin: true}, &JobFilter{Page: 1, Size: 10})

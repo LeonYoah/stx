@@ -89,12 +89,13 @@ func BuildDolphinShellScript(task *Task, timeout string, variables map[string]st
 		}
 	}
 
+	// env_notes 只提醒 Worker 由用户自行绑定登录令牌；推送不会签发或写入 STX_TOKEN。
+	// env_notes only remind the operator to bind the login token; push never issues or writes STX_TOKEN.
 	envNotes := strings.Join([]string{
-		"# Worker 环境 stx-cli-prod 需要提供管理员签发的 stx_ 登录令牌：",
-		"# The stx-cli-prod worker environment must provide an admin-issued stx_ login token:",
-		"export PATH=/opt/stx/bin:$PATH",
-		"export STX_SERVER=https://stx.internal",
-		"export STX_TOKEN=stx_••••",
+		"# Worker 环境 stx-cli-prod 由用户自行绑定 STX 登录令牌；推送只写 SHELL 脚本，不签发、不写入 STX_TOKEN。",
+		"# The stx-cli-prod worker binds the STX login token itself; push only writes the SHELL script and does not issue or set STX_TOKEN.",
+		"# 用户侧：管理员签发 stx_ 后，在 Worker 上执行 stx login --token，或自行设置 STX_SERVER / STX_TOKEN。",
+		"# Operator side: after an admin issues stx_, bind it on the worker with stx login --token or STX_SERVER / STX_TOKEN.",
 	}, "\n")
 
 	return &DolphinScriptResult{

@@ -4501,9 +4501,7 @@
     "dolphinPushFailed": "Push failed",
     "dolphinBoundHint": "A later push overwrites this SHELL node only and leaves edges unchanged.",
     "dolphinRemoteScript": "Current Dolphin script",
-    "dolphinGeneratedScript": "Script that will be written",
-    "dolphinOpenTokenManagement": "Open token management",
-    "dolphinSchedulerTokenHint": "Set the worker STX_TOKEN to an admin-issued stx_ login token from User Management → Tokens (permanent is allowed). Do not mix it with the Dolphin Open API token on the connection."
+    "dolphinGeneratedScript": "Script that will be written"
   },
   "troubleshooting": {
     "title": "Playbooks",

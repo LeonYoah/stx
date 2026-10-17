@@ -23,6 +23,19 @@ import (
 	"testing"
 )
 
+func TestBuildDolphinShellScriptLeavesLoginTokenToOperator(t *testing.T) {
+	script := BuildDolphinShellScript(&Task{ID: 42, Name: "orders_sync"}, "6h", nil, "", "")
+	if strings.Contains(script.Script, "STX_TOKEN") {
+		t.Fatalf("pushed SHELL script must not bind STX_TOKEN: %s", script.Script)
+	}
+	if strings.Contains(script.EnvNotes, "export STX_TOKEN=") {
+		t.Fatalf("env notes must not assign STX_TOKEN: %s", script.EnvNotes)
+	}
+	if !strings.Contains(script.EnvNotes, "不签发") || !strings.Contains(script.EnvNotes, "does not issue") {
+		t.Fatalf("env notes should say push does not issue the login token: %s", script.EnvNotes)
+	}
+}
+
 func TestBuildDolphinShellScriptOmitsVarWithoutOverrides(t *testing.T) {
 	script := BuildDolphinShellScript(&Task{ID: 42, Name: "orders_sync"}, "6h", nil, "", "")
 	if !strings.Contains(script.Script, "exec stx sync task submit 42 --wait --confirm") {

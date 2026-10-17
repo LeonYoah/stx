@@ -4501,9 +4501,7 @@
     "dolphinPushFailed": "推送失败",
     "dolphinBoundHint": "再次推送只覆盖该 SHELL 节点脚本，不改连线。",
     "dolphinRemoteScript": "Dolphin 当前脚本",
-    "dolphinGeneratedScript": "即将写入的脚本",
-    "dolphinOpenTokenManagement": "打开令牌管理",
-    "dolphinSchedulerTokenHint": "Worker 的 STX_TOKEN 请到「用户管理 → 令牌管理」签发 stx_ 登录令牌（可永久），不要和连接里的 Dolphin Open API Token 搞混。"
+    "dolphinGeneratedScript": "即将写入的脚本"
   },
   "troubleshooting": {
     "title": "经验库",

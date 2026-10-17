@@ -323,6 +323,8 @@ export function TaskScheduleSidebarPanel({
           ) : (
             <p className='text-[11px] text-muted-foreground'>{t('dolphinUnboundHint')}</p>
           )}
+          {/* 推送只写 SHELL 节点；Worker stx_ 登录令牌由用户自行绑定，侧栏不开放令牌管理。 */}
+          {/* Push only writes the SHELL node; the worker stx_ login token is bound by the user, not from this sidebar. */}
           <div className='flex flex-wrap gap-1.5'>
             <Button
               type='button'
@@ -392,26 +394,6 @@ export function TaskScheduleSidebarPanel({
               </Button>
             ) : null}
           </div>
-          {canEdit && dolphin?.binding ? (
-            <div className='flex flex-wrap items-center gap-1.5'>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type='button'
-                    size='sm'
-                    variant='outline'
-                    className='h-7 px-2 text-[11px]'
-                    onClick={() => window.open('/admin/users?tab=tokens', '_blank')}
-                  >
-                    {t('dolphinOpenTokenManagement')}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent className='max-w-[320px] text-xs leading-5'>
-                  {t('dolphinSchedulerTokenHint')}
-                </TooltipContent>
-              </Tooltip>
-            </div>
-          ) : null}
         </div>
       ) : null}
 

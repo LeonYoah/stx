@@ -61,6 +61,7 @@ Worker 令牌：
 - 原文只在签发时返回一次；Worker 环境变量是 `STX_SERVER` + `STX_TOKEN`
 - 权限与令牌所属用户一致；解绑 Dolphin 节点不吊销该登录令牌
 - CLI：`stx admin token create` 签发，`stx login --token` 绑定已有令牌
+- 推送不签发、不绑定、不把 `STX_TOKEN` 写入 SHELL 节点；`env_notes` 只提醒用户自行绑定。任务侧栏不得放令牌管理入口
 
 `--wait`：
 
@@ -134,9 +135,9 @@ SHELL 节点 JSON 必须带 `isCache=NO`、`taskExecuteType=BATCH`；3.2.x 缺 `
 
 ### 5. Good / Base / Bad
 
-- Good：Dolphin SHELL 使用生成脚本，`--wait` 轮询作业接口；Worker 环境只有 `STX_SERVER` 与管理员签发的 `stx_` 登录令牌。
+- Good：Dolphin SHELL 使用生成脚本，`--wait` 轮询作业接口；Worker 环境只有用户自行绑定的 `STX_SERVER` 与管理员签发的 `stx_` 登录令牌；推送不写 `STX_TOKEN`。
 - Base：未绑定任务仍可复制脚本，ref 里保留 Dolphin `${system.*}` 占位符，由 Worker 替换。
-- Bad：`--wait` 打公共执行 wait；把 `JobInstance.Mode` 当成库字段；update 推送还强制前端传 `project_code`；守护进程把 409 重试 30 分钟。
+- Bad：`--wait` 打公共执行 wait；把 `JobInstance.Mode` 当成库字段；update 推送还强制前端传 `project_code`；守护进程把 409 重试 30 分钟；推送侧栏放「打开令牌管理」。
 
 ### 6. Tests Required
 
@@ -145,7 +146,8 @@ SHELL 节点 JSON 必须带 `isCache=NO`、`taskExecuteType=BATCH`；3.2.x 缺 `
 - Dolphin httptest：3.1/3.2 只打 `process-definition` 且定时带 `processDefinitionCode`；3.3+ 只打 `workflow-definition` 且解码 `workflowTaskRelationList`；更新 3.3 节点必须把原 `workflowTaskRelationList` 写回 `taskRelationJson`；2.x / 非 3.x 版本被拒绝。
 - 整图回写：update 在 OFFLINE 后 GET 丢掉 locations 时仍要把兄弟 SPARK/CONDITION 节点、边 extra 字段和坐标 extra 写回；reuse 不得改写已有节点 JSON。OFFLINE 后再 GET 若只返回部分节点或空数组，必须用下线前副本回写，禁止把残缺图 PUT 回去。
 - CLI：`stx sync scheduler connection create --dolphin-version 3.2.2` 把版本写入连接请求体。
-- 前端：中英文 i18n 键齐全；service 对 `tasks`/`relations`/`recent_jobs` 做 `?? []`。
+- 前端：中英文 i18n 键齐全；service 对 `tasks`/`relations`/`recent_jobs` 做 `?? []`。任务侧栏在已绑定状态下不得出现令牌管理入口。
+- 脚本：`rawScript` 不含 `STX_TOKEN`；`env_notes` 不含 `export STX_TOKEN=`，并说明推送不签发登录令牌。
 
 ### 7. Wrong vs Correct
 

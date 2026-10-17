@@ -649,4 +649,4 @@ os.WriteFile(target, source, 0o644)
 - `--close-job` 在 `--wait` 时默认开启；实时任务脚本必须带 `--close-job=false`。
 - 守护进程是 unix `setsid` 子进程，不是 Server lease；409/404 的 `cancel-by-ref` 必须停止重试。
 - `unbind` 不生成 CLI（无 `CommandPath`）；取消作业继续用 `cancel` / `cancel-by-ref`。
-- Worker `STX_TOKEN` 是管理员签发的 `stx_` 登录令牌；用 `stx admin token create` 签发、`stx login --token` 绑定，不再单独设计 `stxs_` 调度令牌。
+- Worker `STX_TOKEN` 是管理员签发的 `stx_` 登录令牌；用 `stx admin token create` 签发、`stx login --token` 绑定，不再单独设计 `stxs_` 调度令牌。`stx sync task dolphin push` 只推 SHELL 节点，不签发、不绑定该登录令牌。

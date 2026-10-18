@@ -136,6 +136,15 @@ type StatusResponse struct {
 	ActiveTask      *TaskState   `json:"active_task,omitempty"`
 	LastCheck       *CheckResult `json:"last_check,omitempty"`
 	MockMode        bool         `json:"mock_mode"`
+	// DeploymentType distinguishes container vs host deployments ("docker" | "host").
+	// DeploymentType 区分容器化与物理宿主机部署 ("docker" | "host")。
+	DeploymentType string `json:"deployment_type"`
+	// DockerComposeUpgradeCmd provides the suggested container upgrade command.
+	// DockerComposeUpgradeCmd 提供推荐的容器升级命令。
+	DockerComposeUpgradeCmd string `json:"docker_compose_upgrade_cmd,omitempty"`
+	// Architecture reflects the host operating system and CPU architecture.
+	// Architecture 反映当前宿主机操作系统与架构 (如 linux/arm64)。
+	Architecture string `json:"architecture"`
 }
 
 // CheckRequest optionally injects a failure for local smoke tests.

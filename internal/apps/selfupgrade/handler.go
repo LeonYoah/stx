@@ -148,7 +148,7 @@ func statusFor(err error) int {
 		return http.StatusConflict
 	case errors.Is(err, ErrAlreadyLatest):
 		return http.StatusOK
-	case errors.Is(err, ErrCheckFail):
+	case errors.Is(err, ErrCheckFail), errors.Is(err, ErrNetworkUnreachable):
 		return http.StatusBadGateway
 	case errors.Is(err, ErrDiskFull):
 		return http.StatusInsufficientStorage

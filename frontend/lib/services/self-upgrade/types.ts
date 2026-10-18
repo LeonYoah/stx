@@ -98,6 +98,9 @@ export interface StatusResponse {
   active_task?: TaskState | null;
   last_check?: CheckResult | null;
   mock_mode: boolean;
+  deployment_type?: 'docker' | 'host' | string;
+  docker_compose_upgrade_cmd?: string;
+  architecture?: string;
 }
 
 export class SelfUpgradeApiError extends Error {

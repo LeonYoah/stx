@@ -4631,6 +4631,23 @@
     "simStepFailAgent": "Agent 步骤失败",
     "simVerifyFail": "校验失败",
     "checkUpdate": "检查更新",
-    "adminOnlyTooltip": "仅管理员可升级"
+    "adminOnlyTooltip": "仅管理员可升级",
+    "dockerMode": "Docker 容器部署",
+    "hostMode": "物理宿主机部署",
+    "dockerNoticeTitle": "检测到 STX Server 运行于 Docker 容器中",
+    "dockerNoticeDesc": "控制面 Server 为不可变容器镜像。要升级控制面，请在宿主机执行以下命令拉取新镜像并重启容器；容器内置最新的 Agent 与 Proxy 资产，重启后可直接对齐 Worker 节点组件：",
+    "dockerNoticeCopy": "复制命令",
+    "dockerNoticeCopied": "已复制",
+    "architecture": "宿主机架构",
+    "errNetworkUnreachable": "直连 GitHub 及 gh-proxy 镜像均不可达，已为您切换至「离线导入」模式",
+    "reconnecting": "系统正在应用新版本并平滑重启，正在等待重新连接...",
+    "reconnectingHint": "服务重启通常需要 3~5 秒，请勿刷新页面",
+    "step1Check": "1. 检查版本",
+    "step2Stage": "2. 预置资产",
+    "step3Execute": "3. 部署升级",
+    "step4Verify": "4. 校验就绪",
+    "selectedFile": "已选离线包",
+    "dropHint": "支持将 .tar.gz / .tgz / .zip 离线发布包拖拽至此处，或点击选择文件",
+    "devToolsTitle": "开发测试注入工具 (Mock Mode)"
   }
 }

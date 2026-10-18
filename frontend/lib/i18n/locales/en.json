@@ -4631,6 +4631,23 @@
     "simStepFailAgent": "Agent step fail",
     "simVerifyFail": "Verify fail",
     "checkUpdate": "Check for updates",
-    "adminOnlyTooltip": "Only administrators can upgrade"
+    "adminOnlyTooltip": "Only administrators can upgrade",
+    "dockerMode": "Docker container deployment",
+    "hostMode": "Bare-metal host deployment",
+    "dockerNoticeTitle": "STX Server is running inside a Docker container",
+    "dockerNoticeDesc": "The control plane server is an immutable container image. To upgrade the control plane, pull the new image and restart the container on the host machine. The container includes the latest Agent and Proxy assets, which can then align Worker nodes:",
+    "dockerNoticeCopy": "Copy command",
+    "dockerNoticeCopied": "Copied",
+    "architecture": "Host architecture",
+    "errNetworkUnreachable": "Direct GitHub and gh-proxy mirrors are unreachable; switched to offline import",
+    "reconnecting": "The system is applying updates and restarting; reconnecting...",
+    "reconnectingHint": "Service restart typically takes 3–5 seconds; please do not refresh",
+    "step1Check": "1. Check version",
+    "step2Stage": "2. Stage assets",
+    "step3Execute": "3. Deploy upgrade",
+    "step4Verify": "4. Verify ready",
+    "selectedFile": "Selected package",
+    "dropHint": "Drop .tar.gz / .tgz / .zip release packages here, or click to browse",
+    "devToolsTitle": "Developer test simulators (Mock Mode)"
   }
 }

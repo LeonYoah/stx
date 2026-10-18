@@ -21,7 +21,10 @@ import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {
   ArrowUpCircle,
+  Check,
   CheckCircle2,
+  ChevronDown,
+  Copy,
   Loader2,
   Package,
   RefreshCw,
@@ -87,6 +90,7 @@ export function SystemUpgradeMain() {
   const [busy, setBusy] = useState(false);
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
   const [stageTab, setStageTab] = useState<'online' | 'offline'>('online');
+  const [reconnecting, setReconnecting] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -98,14 +102,21 @@ export function SystemUpgradeMain() {
       const data = await services.selfUpgrade.getStatus();
       setStatus(data);
       setErrorBanner(null);
+      setReconnecting(false);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : t('loadFailed');
-      setErrorBanner(msg);
+      if (status?.overall_status === 'upgrading' || busy) {
+        // 升级重启期间网络中断属正常现象，展示优雅重连等待，不误刷红色全局错误
+        // Disconnection during restart is expected; display graceful reconnecting overlay
+        setReconnecting(true);
+      } else {
+        const msg = err instanceof Error ? err.message : t('loadFailed');
+        setErrorBanner(msg);
+      }
     } finally {
       setInitialLoading(false);
       setRefreshing(false);
     }
-  }, [t]);
+  }, [busy, status?.overall_status, t]);
 
   useEffect(() => {
     void loadStatus();
@@ -172,7 +183,10 @@ export function SystemUpgradeMain() {
       const result = await services.selfUpgrade.check(
         simulate ? {simulate_failure: simulate} : {},
       );
-      if (result.error_code === 'check_fail') {
+      if (result.error_code === 'network_unreachable') {
+        setErrorBanner(t('errNetworkUnreachable'));
+        setStageTab('offline');
+      } else if (result.error_code === 'check_fail') {
         setErrorBanner(t('errCheckFail'));
       } else if (!result.update_available) {
         toast.success(t('alreadyLatest'));
@@ -182,7 +196,10 @@ export function SystemUpgradeMain() {
       await loadStatus({background: true});
     } catch (err) {
       const apiErr = err as SelfUpgradeApiError;
-      if (apiErr.errorCode === 'check_fail') {
+      if (apiErr.errorCode === 'network_unreachable') {
+        setErrorBanner(t('errNetworkUnreachable'));
+        setStageTab('offline');
+      } else if (apiErr.errorCode === 'check_fail') {
         setErrorBanner(t('errCheckFail'));
       } else if (apiErr.errorCode === 'forbidden_non_admin') {
         setErrorBanner(t('errForbidden'));
@@ -207,7 +224,10 @@ export function SystemUpgradeMain() {
     } catch (err) {
       const apiErr = err as SelfUpgradeApiError;
       const code = apiErr.errorCode;
-      if (code === 'disk_full') setErrorBanner(t('errDiskFull'));
+      if (code === 'network_unreachable') {
+        setErrorBanner(t('errNetworkUnreachable'));
+        setStageTab('offline');
+      } else if (code === 'disk_full') setErrorBanner(t('errDiskFull'));
       else if (code === 'concurrent_upgrade') setErrorBanner(t('errConcurrent'));
       else if (code === 'already_latest') setErrorBanner(t('alreadyLatest'));
       else setErrorBanner(apiErr.message || t('errDownload'));
@@ -285,7 +305,7 @@ export function SystemUpgradeMain() {
 
   return (
     <div className='space-y-4 relative'>
-      {(refreshing || busy) && <TableLoadingBar />}
+      <TableLoadingBar loading={Boolean(refreshing || busy)} />
 
       <WorkspaceHeader
         icon={<ArrowUpCircle className='h-5 w-5' />}
@@ -312,6 +332,75 @@ export function SystemUpgradeMain() {
         }
       />
 
+      {/* 阶段向导指示条 / Step Wizard Indicator */}
+      <div className='grid grid-cols-2 md:grid-cols-4 gap-2'>
+        {[
+          {
+            key: 'check',
+            label: t('step1Check'),
+            active: true,
+            done: !!status?.checked,
+          },
+          {
+            key: 'stage',
+            label: t('step2Stage'),
+            active: !!status?.checked && !!status?.update_available,
+            done:
+              status?.stage?.status === 'staged' ||
+              status?.overall_status === 'upgrading' ||
+              status?.overall_status === 'succeeded',
+            running: status?.stage?.status === 'staging',
+          },
+          {
+            key: 'execute',
+            label: t('step3Execute'),
+            active: status?.stage?.status === 'staged' || status?.overall_status === 'upgrading',
+            done: status?.overall_status === 'succeeded',
+            running: status?.overall_status === 'upgrading',
+          },
+          {
+            key: 'verify',
+            label: t('step4Verify'),
+            active: status?.overall_status === 'succeeded',
+            done: status?.overall_status === 'succeeded',
+          },
+        ].map((step) => (
+          <div
+            key={step.key}
+            className={cn(
+              'rounded-md border px-3 py-2 text-xs flex items-center justify-between transition-colors',
+              step.done
+                ? 'border-emerald-500/30 bg-emerald-500/5 text-foreground'
+                : step.running
+                  ? 'border-amber-500/30 bg-amber-500/5 text-amber-700 dark:text-amber-300 font-medium'
+                  : step.active
+                    ? 'border-primary/30 bg-primary/5 text-foreground font-medium'
+                    : 'border-border/50 bg-muted/20 text-muted-foreground opacity-75',
+            )}
+          >
+            <span className='truncate'>{step.label}</span>
+            {step.done ? (
+              <Check className='h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400 shrink-0' />
+            ) : step.running ? (
+              <Loader2 className='h-3.5 w-3.5 animate-spin text-amber-600 dark:text-amber-400 shrink-0' />
+            ) : null}
+          </div>
+        ))}
+      </div>
+
+      {/* 服务平滑重启等待遮罩 / Graceful Reconnection Banner */}
+      {reconnecting ? (
+        <div className='rounded-md border border-amber-500/30 bg-amber-500/10 px-4 py-3 flex items-center gap-3 animate-pulse'>
+          <Loader2 className='h-5 w-5 animate-spin text-amber-600 shrink-0' />
+          <div>
+            <div className='font-medium text-sm text-amber-900 dark:text-amber-200'>
+              {t('reconnecting')}
+            </div>
+            <div className='text-xs text-muted-foreground'>{t('reconnectingHint')}</div>
+          </div>
+        </div>
+      ) : null}
+
       {errorBanner ? (
         <div className='flex gap-3 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2.5 text-sm'>
           <XCircle className='h-4 w-4 text-destructive shrink-0 mt-0.5' />
@@ -331,13 +420,48 @@ export function SystemUpgradeMain() {
         </div>
       ) : null}
 
+      {/* Docker 容器环境引导卡片 / Docker Container Mode Guidance */}
+      {status?.deployment_type === 'docker' ? (
+        <Card className='border border-blue-500/30 bg-blue-500/5 shadow-sm'>
+          <CardContent className='p-4 space-y-2.5'>
+            <div className='flex items-center gap-2'>
+              <Badge variant='outline' className='bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30 font-medium'>
+                {t('dockerMode')}
+              </Badge>
+              <span className='font-semibold text-sm text-foreground'>{t('dockerNoticeTitle')}</span>
+            </div>
+            <p className='text-xs text-muted-foreground leading-relaxed'>
+              {t('dockerNoticeDesc')}
+            </p>
+            <div className='flex items-center justify-between gap-2 rounded-md bg-muted/80 px-3 py-2 font-mono text-xs border border-border/50'>
+              <code className='truncate text-foreground select-all'>
+                {status.docker_compose_upgrade_cmd || 'docker compose pull && docker compose up -d'}
+              </code>
+              <Button
+                type='button'
+                size='sm'
+                variant='ghost'
+                className='h-7 shrink-0 text-xs gap-1 hover:bg-background'
+                onClick={() => {
+                  navigator.clipboard.writeText(status.docker_compose_upgrade_cmd || 'docker compose pull && docker compose up -d');
+                  toast.success(t('dockerNoticeCopied'));
+                }}
+              >
+                <Copy className='h-3.5 w-3.5' />
+                {t('dockerNoticeCopy')}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
       {/* Version status */}
       <Card className='border shadow-sm'>
         <CardHeader className='py-3 px-4 border-b'>
           <CardTitle className='text-sm font-semibold'>{t('versionCard')}</CardTitle>
         </CardHeader>
         <CardContent className='p-4'>
-          <div className='flex flex-wrap items-center gap-4'>
+          <div className='flex flex-wrap items-center gap-6'>
             <div>
               <div className='text-xs text-muted-foreground'>{t('currentVersion')}</div>
               <div className='font-mono text-lg font-semibold tabular-nums'>
@@ -350,12 +474,25 @@ export function SystemUpgradeMain() {
                 {status?.latest_version ? `v${status.latest_version}` : '—'}
               </div>
             </div>
-            <Badge
-              variant='outline'
-              className={cn('ml-auto', statusPillClass(status?.overall_status || 'idle'))}
-            >
-              {overallLabel}
-            </Badge>
+            {status?.architecture ? (
+              <div>
+                <div className='text-xs text-muted-foreground'>{t('architecture')}</div>
+                <div className='font-mono text-xs font-medium tabular-nums mt-1 text-muted-foreground'>
+                  {status.architecture}
+                </div>
+              </div>
+            ) : null}
+            <div className='ml-auto flex items-center gap-2'>
+              <Badge variant='outline' className='text-xs font-normal'>
+                {status?.deployment_type === 'docker' ? t('dockerMode') : t('hostMode')}
+              </Badge>
+              <Badge
+                variant='outline'
+                className={cn(statusPillClass(status?.overall_status || 'idle'))}
+              >
+                {overallLabel}
+              </Badge>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -413,16 +550,31 @@ export function SystemUpgradeMain() {
                   e.target.value = '';
                 }}
               />
-              <Button
-                size='sm'
-                variant='secondary'
-                className='active:scale-[0.98]'
-                disabled={!canStage || busy}
+              <div
+                className='border-2 border-dashed border-border/70 hover:border-primary/50 hover:bg-muted/20 rounded-lg p-5 flex flex-col items-center justify-center gap-2 cursor-pointer transition-colors text-center'
                 onClick={() => fileRef.current?.click()}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const f = e.dataTransfer.files?.[0];
+                  if (f) void handleImport(f);
+                }}
               >
-                <Upload className='h-4 w-4 mr-1.5' />
-                {t('import')}
-              </Button>
+                <Upload className='h-6 w-6 text-muted-foreground' />
+                <div className='text-xs font-medium text-foreground'>{t('dropHint')}</div>
+                <Button
+                  size='sm'
+                  variant='secondary'
+                  className='active:scale-[0.98] mt-1'
+                  disabled={!canStage || busy}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    fileRef.current?.click();
+                  }}
+                >
+                  {t('import')}
+                </Button>
+              </div>
               <p className='text-xs text-muted-foreground'>{t('stageHintOffline')}</p>
             </TabsContent>
           </Tabs>
@@ -537,9 +689,12 @@ export function SystemUpgradeMain() {
 
           {/* Dev failure injectors for local smoke — only in mock mode */}
           {status?.mock_mode ? (
-            <div className='pt-2 border-t space-y-2'>
-              <div className='text-xs text-muted-foreground'>{t('simTitle')}</div>
-              <div className='flex flex-wrap gap-1.5'>
+            <details className='pt-2 border-t space-y-2 group'>
+              <summary className='cursor-pointer text-xs font-medium text-muted-foreground hover:text-foreground flex items-center justify-between select-none py-1'>
+                <span>{t('devToolsTitle')}</span>
+                <ChevronDown className='h-3.5 w-3.5 transition-transform group-open:rotate-180' />
+              </summary>
+              <div className='flex flex-wrap gap-1.5 pt-1.5'>
                 <Button size='sm' variant='outline' onClick={() => void handleCheck('check_fail')}>
                   {t('simCheckFail')}
                 </Button>
@@ -587,7 +742,7 @@ export function SystemUpgradeMain() {
                   {t('simVerifyFail')}
                 </Button>
               </div>
-            </div>
+            </details>
           ) : null}
         </CardContent>
       </Card>

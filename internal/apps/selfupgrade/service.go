@@ -62,6 +62,35 @@ func runtimeGOARCH() string {
 	return runtime.GOARCH
 }
 
+// defaultGHProxyNodes defines GitHub reverse proxy mirrors for environments with restricted direct GitHub access.
+// defaultGHProxyNodes 定义在中国内网等无法直连 GitHub 时使用的 gh-proxy 镜像节点池。
+var defaultGHProxyNodes = []string{
+	"https://v4.gh-proxy.org",
+	"https://gh-proxy.org",
+	"https://v6.gh-proxy.org",
+	"https://cdn.gh-proxy.org",
+	"https://axisnow.gh-proxy.org",
+	"https://gh-proxy.com",
+}
+
+// IsRunningInDocker detects if the current process is running inside a Docker/container environment.
+// IsRunningInDocker 检测当前进程是否运行在 Docker/容器环境中。
+func IsRunningInDocker() bool {
+	if _, err := os.Stat("/.dockerenv"); err == nil {
+		return true
+	}
+	if os.Getenv("STX_RUNTIME_MODE") == "docker" || os.Getenv("DOCKER_CONTAINER") == "true" {
+		return true
+	}
+	if data, err := os.ReadFile("/proc/1/cgroup"); err == nil {
+		content := string(data)
+		if strings.Contains(content, "docker") || strings.Contains(content, "containerd") || strings.Contains(content, "kubepods") {
+			return true
+		}
+	}
+	return false
+}
+
 // Service orchestrates STX console self-upgrade. / Service 编排 STX 控制台自升级。
 type Service struct {
 	mu sync.Mutex
@@ -140,17 +169,27 @@ func (s *Service) Status() StatusResponse {
 			overall = StatusUpToDate
 		}
 	}
+	deploymentType := "host"
+	dockerCmd := ""
+	if IsRunningInDocker() {
+		deploymentType = "docker"
+		dockerCmd = "docker compose pull && docker compose up -d"
+	}
+	arch := fmt.Sprintf("%s/%s", runtimeGOOS(), runtimeGOARCH())
 	resp := StatusResponse{
-		CurrentVersion:  info.Version,
-		GitCommit:       info.GitCommit,
-		BuildTime:       info.BuildTime,
-		LatestVersion:   s.latestVersion,
-		UpdateAvailable: s.updateAvailable,
-		Checked:         s.checked,
-		OverallStatus:   overall,
-		Stage:           cloneStage(s.stage),
-		LastCheck:       s.lastCheck,
-		MockMode:        s.mockMode,
+		CurrentVersion:          info.Version,
+		GitCommit:               info.GitCommit,
+		BuildTime:               info.BuildTime,
+		LatestVersion:           s.latestVersion,
+		UpdateAvailable:         s.updateAvailable,
+		Checked:                 s.checked,
+		OverallStatus:           overall,
+		Stage:                   cloneStage(s.stage),
+		LastCheck:               s.lastCheck,
+		MockMode:                s.mockMode,
+		DeploymentType:          deploymentType,
+		DockerComposeUpgradeCmd: dockerCmd,
+		Architecture:            arch,
 	}
 	if s.task != nil {
 		cp := *s.task
@@ -266,29 +305,61 @@ func (s *Service) resolveLatest(ctx context.Context, force string) (string, stri
 	owner := envOr("STX_GITHUB_OWNER", "LeonYoah")
 	repo := envOr("STX_GITHUB_REPO", "stx")
 	api := fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest", owner, repo)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, api, nil)
-	if err != nil {
-		return "", "", err
+
+	// 1. 直连 GitHub API（带超时限制）/ 1. Direct GitHub API with timeout
+	directCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(directCtx, http.MethodGet, api, nil)
+	if err == nil {
+		req.Header.Set("Accept", "application/vnd.github+json")
+		req.Header.Set("User-Agent", "stx-self-upgrade")
+		resp, doErr := s.httpClient.Do(req)
+		if doErr == nil && resp.StatusCode < 300 {
+			defer resp.Body.Close()
+			var payload struct {
+				TagName string `json:"tag_name"`
+				HTMLURL string `json:"html_url"`
+			}
+			if decErr := json.NewDecoder(resp.Body).Decode(&payload); decErr == nil && payload.TagName != "" {
+				return stxversion.Normalize(payload.TagName), payload.HTMLURL, nil
+			}
+		} else if resp != nil {
+			resp.Body.Close()
+		}
 	}
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "stx-self-upgrade")
-	resp, err := s.httpClient.Do(req)
-	if err != nil {
-		return "", "", err
+
+	// 2. 直连超时或失败时，依次探测 gh-proxy 镜像节点 / 2. Fallback to probe gh-proxy mirror nodes
+	for _, node := range defaultGHProxyNodes {
+		mirrorURL := fmt.Sprintf("%s/https://github.com/%s/%s/releases/latest", strings.TrimRight(node, "/"), owner, repo)
+		proxyCtx, pCancel := context.WithTimeout(ctx, 4*time.Second)
+		pReq, pErr := http.NewRequestWithContext(proxyCtx, http.MethodHead, mirrorURL, nil)
+		if pErr == nil {
+			pClient := &http.Client{
+				Timeout: 4 * time.Second,
+				CheckRedirect: func(req *http.Request, via []*http.Request) error {
+					return http.ErrUseLastResponse
+				},
+			}
+			pResp, pDoErr := pClient.Do(pReq)
+			if pDoErr == nil {
+				loc := pResp.Header.Get("Location")
+				pResp.Body.Close()
+				pCancel()
+				if loc != "" && strings.Contains(loc, "/tag/") {
+					parts := strings.Split(loc, "/tag/")
+					tag := parts[len(parts)-1]
+					return stxversion.Normalize(tag), fmt.Sprintf("https://github.com/%s/%s/releases/tag/%s", owner, repo, tag), nil
+				}
+			} else {
+				pCancel()
+			}
+		} else {
+			pCancel()
+		}
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return "", "", fmt.Errorf("github releases: HTTP %d: %s", resp.StatusCode, string(body))
-	}
-	var payload struct {
-		TagName string `json:"tag_name"`
-		HTMLURL string `json:"html_url"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return "", "", err
-	}
-	return stxversion.Normalize(payload.TagName), payload.HTMLURL, nil
+
+	return "", "", fmt.Errorf("%w: direct GitHub and gh-proxy mirrors are all unreachable", ErrNetworkUnreachable)
 }
 
 func envOr(k, def string) string {
@@ -704,6 +775,11 @@ func (s *Service) applyStep(target, code string, apply bool) error {
 	dir := filepath.Join(s.stagingDir, "v"+stxversion.Normalize(target))
 	switch code {
 	case StepControlPlane:
+		if IsRunningInDocker() {
+			// In Docker container, control plane upgrade is handled via container image pull & restart.
+			// 在 Docker 容器环境中，控制面升级由拉取新镜像并重启容器负责，跳过容器内写二进制。
+			return nil
+		}
 		matches, _ := filepath.Glob(filepath.Join(dir, "stx-*"))
 		if len(matches) == 0 {
 			return fmt.Errorf("%w: control plane package missing", ErrStepFailControlPlane)

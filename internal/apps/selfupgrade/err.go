@@ -34,11 +34,13 @@ const (
 	CodeDiskFull            = "disk_full"
 	CodeCancelled           = "cancelled"
 	CodeNotStaged           = "not_staged"
+	CodeNetworkUnreachable  = "network_unreachable"
 	CodeInvalidRequest      = "invalid_request"
 )
 
 var (
 	ErrCheckFail            = errors.New(CodeCheckFail)
+	ErrNetworkUnreachable   = errors.New(CodeNetworkUnreachable)
 	ErrAlreadyLatest        = errors.New(CodeAlreadyLatest)
 	ErrDownloadPartial      = errors.New(CodeDownloadPartial)
 	ErrBadOfflineImport     = errors.New(CodeBadOfflineImport)
@@ -61,6 +63,8 @@ func ErrorCode(err error) string {
 	switch {
 	case errors.Is(err, ErrCheckFail):
 		return CodeCheckFail
+	case errors.Is(err, ErrNetworkUnreachable):
+		return CodeNetworkUnreachable
 	case errors.Is(err, ErrAlreadyLatest):
 		return CodeAlreadyLatest
 	case errors.Is(err, ErrDownloadPartial):

@@ -145,6 +145,19 @@ func TestExecuteRequiresStage(t *testing.T) {
 	}
 }
 
+// TestStatusDeploymentType 验证自升级状态包含有效的部署环境类型及系统架构。
+// TestStatusDeploymentType verifies self-upgrade status reports valid deployment type and architecture.
+func TestStatusDeploymentType(t *testing.T) {
+	s := newTestService(t)
+	status := s.Status()
+	if status.DeploymentType != "host" && status.DeploymentType != "docker" {
+		t.Fatalf("expected host or docker, got %s", status.DeploymentType)
+	}
+	if status.Architecture == "" {
+		t.Fatalf("expected non-empty architecture")
+	}
+}
+
 func waitTask(t *testing.T, s *Service, id, want string, timeout time.Duration) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)

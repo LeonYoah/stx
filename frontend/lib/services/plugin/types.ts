@@ -208,7 +208,7 @@ export interface ListInstalledPluginsResponse {
  */
 export interface InstallPluginResponse {
   error_msg: string;
-  data: InstalledPlugin | null;
+  data: PluginInstallStatus | null;
 }
 
 /**
@@ -234,11 +234,15 @@ export interface EnableDisablePluginResponse {
  * 插件安装状态
  */
 export interface PluginInstallStatus {
+  task_id?: string;
+  cluster_id?: number;
   plugin_name: string;
-  status: string;
+  version?: string;
+  status: string; // pending|downloading|installing|completed|failed
   progress: number;
   message?: string;
   error?: string;
+  started_at?: string;
 }
 
 // ==================== Plugin Download Types 插件下载类型 ====================

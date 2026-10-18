@@ -34,6 +34,10 @@ const nextConfig: NextConfig = {
     // Allow larger request body for Next rewrite proxy (/api/*), needed by package upload.
     // 允许 Next rewrite 代理处理更大的请求体（/api/*），用于安装包上传。
     middlewareClientMaxBodySize: '1024mb',
+    // Belt-and-suspenders for other long-running proxied routes. Plugin install is async
+    // and no longer depends on this; keep a higher ceiling for uploads/diagnostics.
+    // 其它长耗时代理路由的兜底超时。插件安装已异步，不再依赖该值；仍提高上限覆盖上传/诊断等。
+    proxyTimeout: 300_000,
   },
   eslint: {
     // 只在构建时跳过 ESLint，开发时照常在编辑器里提示

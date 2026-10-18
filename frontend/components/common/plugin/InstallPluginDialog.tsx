@@ -334,7 +334,7 @@ export function InstallPluginDialog({
 
     setOperatingClusterId(clusterId);
     try {
-      await PluginService.installPlugin(
+      await PluginService.installPluginAndWait(
         clusterId,
         plugin.name,
         version,

@@ -1280,3 +1280,113 @@ func TestBundledSeedCoversV30NewConnectors(t *testing.T) {
 		})
 	}
 }
+
+func TestStartInstallPluginAsyncLifecycle(t *testing.T) {
+	tempDir := t.TempDir()
+	// Async worker uses another goroutine/DB connection; :memory: SQLite is per-connection.
+	// 异步 worker 在另一 goroutine/连接上跑；:memory: SQLite 按连接隔离，需用文件库共享 schema。
+	dbPath := filepath.Join(tempDir, "plugin-async.db")
+	database, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open sqlite: %v", err)
+	}
+	if err := database.AutoMigrate(
+		&InstalledPlugin{},
+		&PluginDependencyConfig{},
+		&PluginDependencyDisable{},
+		&PluginCatalogEntry{},
+		&PluginDependencyProfile{},
+		&PluginDependencyProfileItem{},
+	); err != nil {
+		t.Fatalf("failed to migrate plugin models: %v", err)
+	}
+	repo := NewRepository(database)
+	service := NewServiceWithDownloader(repo, tempDir)
+	service.SetClusterGetter(&stubClusterVersionGetter{version: "2.3.13"})
+	ctx := context.Background()
+	version := "2.3.13"
+
+	service.SetPluginFetcher(func(ctx context.Context, version string, mirror MirrorSource) ([]Plugin, MirrorSource, error) {
+		return []Plugin{{
+			Name:        "activemq",
+			DisplayName: "Activemq",
+			Category:    PluginCategoryConnector,
+			Version:     version,
+			GroupID:     "org.apache.seatunnel",
+			ArtifactID:  "connector-activemq",
+		}}, MirrorSourceApache, nil
+	})
+
+	connectorPath := service.downloader.GetConnectorPath("connector-activemq", version)
+	if err := os.MkdirAll(filepath.Dir(connectorPath), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(connectorPath, []byte("jar-bytes"), 0o644); err != nil {
+		t.Fatalf("write connector: %v", err)
+	}
+
+	progress, err := service.StartInstallPluginAsync(ctx, 7, &InstallPluginRequest{
+		PluginName: "activemq",
+		Version:    version,
+	})
+	if err != nil {
+		t.Fatalf("StartInstallPluginAsync: %v", err)
+	}
+	if progress == nil || progress.TaskID == "" {
+		t.Fatalf("expected task id in progress, got %+v", progress)
+	}
+	if progress.Status != "pending" {
+		t.Fatalf("expected pending status, got %q", progress.Status)
+	}
+
+	// Second call while in-flight should be idempotent / 进行中再次调用应幂等返回同一任务
+	again, err := service.StartInstallPluginAsync(ctx, 7, &InstallPluginRequest{
+		PluginName: "activemq",
+		Version:    version,
+	})
+	if err != nil {
+		t.Fatalf("idempotent StartInstallPluginAsync: %v", err)
+	}
+	if again.TaskID != progress.TaskID {
+		t.Fatalf("expected same task id, got %q vs %q", again.TaskID, progress.TaskID)
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	var final *PluginInstallStatus
+	for time.Now().Before(deadline) {
+		final = service.GetInstallProgress(7, "activemq")
+		if final != nil && (final.Status == "completed" || final.Status == "failed") {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if final == nil || final.Status != "completed" {
+		t.Fatalf("expected completed progress, got %+v", final)
+	}
+	if final.Progress != 100 {
+		t.Fatalf("expected progress 100, got %d", final.Progress)
+	}
+
+	plugins, err := repo.ListByCluster(ctx, 7)
+	if err != nil {
+		t.Fatalf("ListByCluster: %v", err)
+	}
+	if len(plugins) != 1 || plugins[0].PluginName != "activemq" {
+		t.Fatalf("expected activemq installed, got %+v", plugins)
+	}
+}
+
+func TestStartInstallPluginAsyncRejectsVersionMismatch(t *testing.T) {
+	service, _ := newTestPluginService(t)
+	service.SetClusterGetter(&stubClusterVersionGetter{version: "3.0.0"})
+	_, err := service.StartInstallPluginAsync(context.Background(), 1, &InstallPluginRequest{
+		PluginName: "activemq",
+		Version:    "2.3.13",
+	})
+	if err == nil {
+		t.Fatal("expected version mismatch error")
+	}
+	if !errors.Is(err, ErrVersionMismatch) {
+		t.Fatalf("expected ErrVersionMismatch, got %v", err)
+	}
+}

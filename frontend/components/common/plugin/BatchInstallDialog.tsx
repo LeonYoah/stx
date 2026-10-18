@@ -164,7 +164,7 @@ export function BatchInstallDialog({
       );
 
       try {
-        await services.plugin.installPlugin(clusterId, plugin.name, version);
+        await services.plugin.installPluginAndWait(clusterId, plugin.name, version);
         successCount++;
 
         // Update status to success / 更新状态为成功

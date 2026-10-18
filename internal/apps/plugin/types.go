@@ -89,12 +89,12 @@ const (
 // PluginDependencyConfig 表示用户为插件配置的依赖项（GORM 模型）。
 type PluginDependencyConfig struct {
 	ID               uint                   `gorm:"primaryKey" json:"id"`
-	PluginName       string                 `gorm:"size:80;not null;index:idx_plugin_dep,unique" json:"plugin_name"`                 // 插件名称 / Plugin name
+	PluginName       string                 `gorm:"size:80;not null;index:idx_plugin_dep,unique" json:"plugin_name"`                  // 插件名称 / Plugin name
 	SeatunnelVersion string                 `gorm:"size:50;not null;default:'';index:idx_plugin_dep,unique" json:"seatunnel_version"` // SeaTunnel 版本 / SeaTunnel version
 	GroupID          string                 `gorm:"size:128;not null;index:idx_plugin_dep,unique" json:"group_id"`                    // Maven groupId / 分组标识
 	ArtifactID       string                 `gorm:"size:128;not null;index:idx_plugin_dep,unique" json:"artifact_id"`                 // Maven artifactId
 	Version          string                 `gorm:"size:64;not null;index:idx_plugin_dep,unique" json:"version"`                      // 版本号 / Version
-	TargetDir        string                 `gorm:"size:64;not null;default:lib;index:idx_plugin_dep,unique" json:"target_dir"`      // 目标目录 / Target directory
+	TargetDir        string                 `gorm:"size:64;not null;default:lib;index:idx_plugin_dep,unique" json:"target_dir"`       // 目标目录 / Target directory
 	SourceType       PluginDependencySource `gorm:"size:20;not null;default:maven;index:idx_plugin_dep,unique" json:"source_type"`    // 来源类型 / Source type
 	OriginalFileName string                 `gorm:"size:255" json:"original_file_name,omitempty"`                                     // 原始文件名 / Original uploaded file name
 	StoredPath       string                 `gorm:"size:1024" json:"-"`                                                               // 控制面存储路径 / Stored path
@@ -199,11 +199,15 @@ type InstallPluginRequest struct {
 // PluginInstallStatus represents the installation status of a plugin.
 // PluginInstallStatus 表示插件的安装状态。
 type PluginInstallStatus struct {
-	PluginName string `json:"plugin_name"`       // 插件名称 / Plugin name
-	Status     string `json:"status"`            // 状态 / Status
-	Progress   int    `json:"progress"`          // 进度 (0-100) / Progress
-	Message    string `json:"message,omitempty"` // 消息 / Message
-	Error      string `json:"error,omitempty"`   // 错误信息 / Error message
+	TaskID     string     `json:"task_id,omitempty"`    // 异步任务 ID / Async task ID
+	ClusterID  uint       `json:"cluster_id,omitempty"` // 集群 ID / Cluster ID
+	PluginName string     `json:"plugin_name"`          // 插件名称 / Plugin name
+	Version    string     `json:"version,omitempty"`    // 插件版本 / Plugin version
+	Status     string     `json:"status"`               // 状态 / Status: pending|downloading|installing|completed|failed
+	Progress   int        `json:"progress"`             // 进度 (0-100) / Progress
+	Message    string     `json:"message,omitempty"`    // 消息 / Message
+	Error      string     `json:"error,omitempty"`      // 错误信息 / Error message
+	StartedAt  *time.Time `json:"started_at,omitempty"` // 开始时间 / Started at
 }
 
 // AvailablePluginsResponse represents the response for listing available plugins.

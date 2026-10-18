@@ -182,11 +182,13 @@ func (h *Handler) ListInstalledPlugins(c *gin.Context) {
 
 // ==================== Plugin Installation APIs 插件安装 API ====================
 
-// InstallPluginResponse represents the response for installing a plugin.
-// InstallPluginResponse 表示安装插件的响应。
+// InstallPluginResponse represents the response for starting an async plugin install task.
+// Data is the initial PluginInstallStatus (task_id, pending/progress); poll GET .../progress for updates.
+// InstallPluginResponse 表示启动异步插件安装任务的响应。
+// Data 为初始 PluginInstallStatus（含 task_id、pending/进度）；后续通过 GET .../progress 轮询。
 type InstallPluginResponse struct {
-	ErrorMsg string           `json:"error_msg"`
-	Data     *InstalledPlugin `json:"data"`
+	ErrorMsg string               `json:"error_msg"`
+	Data     *PluginInstallStatus `json:"data"`
 }
 
 // InstallPlugin handles POST /api/v1/clusters/:id/plugins - installs a plugin on a cluster.
@@ -211,7 +213,9 @@ func (h *Handler) InstallPlugin(c *gin.Context) {
 		return
 	}
 
-	installed, err := h.service.InstallPlugin(c.Request.Context(), uint(clusterID), &req)
+	// Async install: POST creates a task and returns immediately; clients poll /progress.
+	// 异步安装：POST 创建任务并立即返回；客户端轮询 /progress。
+	progress, err := h.service.StartInstallPluginAsync(c.Request.Context(), uint(clusterID), &req)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, InstallPluginResponse{ErrorMsg: err.Error()})
 		return
@@ -219,9 +223,9 @@ func (h *Handler) InstallPlugin(c *gin.Context) {
 
 	resID := audit.UintID(uint(clusterID)) + "/" + req.PluginName
 	_ = audit.RecordFromGin(c, h.auditRepo, auth.GetUserIDFromContext(c), auth.GetUsernameFromContext(c),
-		"install", "plugin", resID, req.PluginName, audit.AuditDetails{"trigger": "manual"})
-	logger.InfoF(c.Request.Context(), "[Plugin] 安装插件成功: cluster=%d, plugin=%s", clusterID, req.PluginName)
-	c.JSON(http.StatusOK, InstallPluginResponse{Data: installed})
+		"install", "plugin", resID, req.PluginName, audit.AuditDetails{"trigger": "manual", "async": true, "task_id": progress.TaskID})
+	logger.InfoF(c.Request.Context(), "[Plugin] 已创建异步安装任务: cluster=%d, plugin=%s, task=%s", clusterID, req.PluginName, progress.TaskID)
+	c.JSON(http.StatusOK, InstallPluginResponse{Data: progress})
 }
 
 // UninstallPluginResponse represents the response for uninstalling a plugin.

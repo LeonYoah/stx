@@ -1111,8 +1111,22 @@ func (s *Service) ListActiveDownloads() []*DownloadProgress {
 
 // ==================== Plugin Installation Progress Methods 插件安装进度方法 ====================
 
-// GetInstallProgress returns the installation progress for a plugin on a cluster.
-// GetInstallProgress 返回集群上插件的安装进度。
+// cloneInstallProgress returns a deep copy so HTTP pollers never share mutable state with workers.
+// cloneInstallProgress 返回深拷贝，避免 HTTP 轮询与 worker 原地写同一块进度对象产生 data race。
+func cloneInstallProgress(src *PluginInstallStatus) *PluginInstallStatus {
+	if src == nil {
+		return nil
+	}
+	cp := *src
+	if src.StartedAt != nil {
+		t := *src.StartedAt
+		cp.StartedAt = &t
+	}
+	return &cp
+}
+
+// GetInstallProgress returns a snapshot of the installation progress for a plugin on a cluster.
+// GetInstallProgress 返回集群上插件安装进度的快照（拷贝）。
 func (s *Service) GetInstallProgress(clusterID uint, pluginName string) *PluginInstallStatus {
 	key := fmt.Sprintf("%d:%s", clusterID, pluginName)
 
@@ -1120,21 +1134,22 @@ func (s *Service) GetInstallProgress(clusterID uint, pluginName string) *PluginI
 	defer s.installProgressMu.RUnlock()
 
 	if progress, exists := s.installProgress[key]; exists {
-		return progress
+		return cloneInstallProgress(progress)
 	}
 
 	return nil
 }
 
-// setInstallProgress sets the installation progress for a plugin on a cluster.
-// setInstallProgress 设置集群上插件的安装进度。
+// setInstallProgress stores a snapshot of installation progress for a plugin on a cluster.
+// Callers may keep mutating their local status pointer; the map always holds an independent copy.
+// setInstallProgress 写入安装进度快照。调用方可继续修改本地 status 指针；map 中始终是独立拷贝。
 func (s *Service) setInstallProgress(clusterID uint, pluginName string, status *PluginInstallStatus) {
 	key := fmt.Sprintf("%d:%s", clusterID, pluginName)
 
 	s.installProgressMu.Lock()
 	defer s.installProgressMu.Unlock()
 
-	s.installProgress[key] = status
+	s.installProgress[key] = cloneInstallProgress(status)
 }
 
 // clearInstallProgress clears the installation progress for a plugin on a cluster.

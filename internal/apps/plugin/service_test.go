@@ -1283,7 +1283,25 @@ func TestBundledSeedCoversV30NewConnectors(t *testing.T) {
 
 func TestStartInstallPluginAsyncLifecycle(t *testing.T) {
 	tempDir := t.TempDir()
-	service, repo := newTestPluginServiceWithDownloader(t, tempDir)
+	// Async worker uses another goroutine/DB connection; :memory: SQLite is per-connection.
+	// 异步 worker 在另一 goroutine/连接上跑；:memory: SQLite 按连接隔离，需用文件库共享 schema。
+	dbPath := filepath.Join(tempDir, "plugin-async.db")
+	database, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open sqlite: %v", err)
+	}
+	if err := database.AutoMigrate(
+		&InstalledPlugin{},
+		&PluginDependencyConfig{},
+		&PluginDependencyDisable{},
+		&PluginCatalogEntry{},
+		&PluginDependencyProfile{},
+		&PluginDependencyProfileItem{},
+	); err != nil {
+		t.Fatalf("failed to migrate plugin models: %v", err)
+	}
+	repo := NewRepository(database)
+	service := NewServiceWithDownloader(repo, tempDir)
 	service.SetClusterGetter(&stubClusterVersionGetter{version: "2.3.13"})
 	ctx := context.Background()
 	version := "2.3.13"

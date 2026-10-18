@@ -182,8 +182,10 @@ func (h *Handler) ListInstalledPlugins(c *gin.Context) {
 
 // ==================== Plugin Installation APIs 插件安装 API ====================
 
-// InstallPluginResponse represents the response for installing a plugin.
-// InstallPluginResponse 表示安装插件的响应。
+// InstallPluginResponse represents the response for starting an async plugin install task.
+// Data is the initial PluginInstallStatus (task_id, pending/progress); poll GET .../progress for updates.
+// InstallPluginResponse 表示启动异步插件安装任务的响应。
+// Data 为初始 PluginInstallStatus（含 task_id、pending/进度）；后续通过 GET .../progress 轮询。
 type InstallPluginResponse struct {
 	ErrorMsg string               `json:"error_msg"`
 	Data     *PluginInstallStatus `json:"data"`

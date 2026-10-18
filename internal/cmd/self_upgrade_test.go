@@ -67,6 +67,20 @@ func TestSelfUpgradeStatusAndCheckCLI(t *testing.T) {
 					"update_available": true,
 				},
 			})
+		case "/api/v1/self-upgrade/history":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"error_code": "",
+				"error_msg":  "",
+				"data": []map[string]any{
+					{
+						"id":             "task-123",
+						"from_version":   "1.0.0",
+						"target_version": "1.1.0",
+						"status":         "succeeded",
+						"duration_ms":    1500,
+					},
+				},
+			})
 		default:
 			http.NotFound(w, r)
 		}
@@ -93,5 +107,16 @@ func TestSelfUpgradeStatusAndCheckCLI(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "self_upgrade.check") {
 		t.Fatalf("expected operation self_upgrade.check in %s", stdout.String())
+	}
+
+	// 3. 测试 self-upgrade history / Test self-upgrade history
+	stdout.Reset()
+	stderr.Reset()
+	exitCode = executeCommand(NewRootCommand(), []string{"self-upgrade", "history", "--server", server.URL}, stdout, stderr)
+	if exitCode != 0 {
+		t.Fatalf("stx self-upgrade history exit = %d, stderr=%s", exitCode, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "self_upgrade.history") {
+		t.Fatalf("expected operation self_upgrade.history in %s", stdout.String())
 	}
 }

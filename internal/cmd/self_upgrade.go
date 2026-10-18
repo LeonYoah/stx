@@ -83,6 +83,7 @@ func newSelfUpgradeCommand(storeProvider authStoreProvider) *cobra.Command {
 	checkCmd.Flags().StringVar(&force, "force-latest", "", "Force a target version tag for verification")
 
 	var targetVersion string
+	var stageSim string
 	stageCmd := &cobra.Command{
 		Use:   "stage",
 		Short: "Stage and download release assets from network",
@@ -96,6 +97,9 @@ func newSelfUpgradeCommand(storeProvider authStoreProvider) *cobra.Command {
 			if targetVersion != "" {
 				body["target_version"] = targetVersion
 			}
+			if stageSim != "" {
+				body["simulate_failure"] = stageSim
+			}
 			var data any
 			requestID, err := client.Request(command.Context(), http.MethodPost, "/api/v1/self-upgrade/stage/download", body, &data)
 			if err != nil {
@@ -105,7 +109,9 @@ func newSelfUpgradeCommand(storeProvider authStoreProvider) *cobra.Command {
 		},
 	}
 	stageCmd.Flags().StringVar(&targetVersion, "target-version", "", "Target release version to stage")
+	stageCmd.Flags().StringVar(&stageSim, "simulate-failure", "", "Simulate failure code for staging tests (download_partial, disk_full)")
 
+	var execSim string
 	executeCmd := &cobra.Command{
 		Use:   "execute",
 		Short: "Execute STX upgrade from local staged assets",
@@ -116,6 +122,9 @@ func newSelfUpgradeCommand(storeProvider authStoreProvider) *cobra.Command {
 				return err
 			}
 			body := map[string]any{"apply": true}
+			if execSim != "" {
+				body["simulate_failure"] = execSim
+			}
 			var data any
 			requestID, err := client.Request(command.Context(), http.MethodPost, "/api/v1/self-upgrade/execute", body, &data)
 			if err != nil {
@@ -124,11 +133,30 @@ func newSelfUpgradeCommand(storeProvider authStoreProvider) *cobra.Command {
 			return renderCommandResultWithRequestID(command, "self_upgrade.execute", requestID, data)
 		},
 	}
+	executeCmd.Flags().StringVar(&execSim, "simulate-failure", "", "Simulate failure code during execution (step_fail_control_plane, step_fail_agent, step_fail_proxy, verify_fail)")
+
+	historyCmd := &cobra.Command{
+		Use:   "history",
+		Short: "List STX self-upgrade execution history",
+		Args:  usageArgs(cobra.NoArgs),
+		RunE: func(command *cobra.Command, _ []string) error {
+			client, err := resolveSelfUpgradeClient(command, storeProvider, server, namespace)
+			if err != nil {
+				return err
+			}
+			var data any
+			requestID, err := client.Request(command.Context(), http.MethodGet, "/api/v1/self-upgrade/history", nil, &data)
+			if err != nil {
+				return err
+			}
+			return renderCommandResultWithRequestID(command, "self_upgrade.history", requestID, data)
+		},
+	}
 
 	cmd.PersistentFlags().StringVar(&server, "server", "", "Remote STX server URL")
 	cmd.PersistentFlags().StringVar(&namespace, "namespace", "", "Local namespace to use")
 
-	cmd.AddCommand(statusCmd, checkCmd, stageCmd, executeCmd)
+	cmd.AddCommand(statusCmd, checkCmd, stageCmd, executeCmd, historyCmd)
 	return cmd
 }
 

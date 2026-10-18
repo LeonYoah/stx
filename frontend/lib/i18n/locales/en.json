@@ -4648,6 +4648,21 @@
     "step4Verify": "4. Verify ready",
     "selectedFile": "Selected package",
     "dropHint": "Drop .tar.gz / .tgz / .zip release packages here, or click to browse",
-    "devToolsTitle": "Developer test simulators (Mock Mode)"
+    "devToolsTitle": "Developer test simulators (Mock Mode)",
+    "historyCard": "Upgrade History",
+    "historyEmpty": "No upgrade history records yet",
+    "historyFromTo": "Path",
+    "historyMode": "Mode",
+    "historyDeployment": "Environment",
+    "historyStatus": "Status",
+    "historyDuration": "Duration",
+    "historyFinishedAt": "Completed At",
+    "historyDetails": "Step Details",
+    "historyFailedStep": "Failed Step",
+    "historyFailureReason": "Failure Reason",
+    "historyRolledBack": "Rolled Back",
+    "dockerStageDisabled": "Managed via Docker image; host bundle download not required",
+    "dockerExecuteDisabled": "Control plane is an immutable image; upgrade by pulling the new image",
+    "stepRolledBack": "Rolled back"
   }
 }

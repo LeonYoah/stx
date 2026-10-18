@@ -23,5 +23,6 @@ export type {
   StatusResponse,
   StepState,
   TaskState,
+  UpgradeHistoryRecord,
 } from './types';
 export {SelfUpgradeApiError} from './types';

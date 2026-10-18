@@ -23,6 +23,7 @@ import type {
   StageState,
   StatusResponse,
   TaskState,
+  UpgradeHistoryRecord,
 } from './types';
 import {SelfUpgradeApiError} from './types';
 
@@ -165,5 +166,13 @@ export class SelfUpgradeService extends BaseService {
 
   static async cancelTask(id: string): Promise<void> {
     await apiClient.post(this.getFullPath(`/tasks/${id}/cancel`));
+  }
+
+  // 获取自升级历史记录 / Get self-upgrade execution history
+  static async getHistory(): Promise<UpgradeHistoryRecord[]> {
+    const response = await apiClient.get<ApiResponse<UpgradeHistoryRecord[]>>(
+      this.getFullPath('/history'),
+    );
+    return this.unwrap(response) ?? [];
   }
 }

@@ -22,6 +22,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -105,6 +106,16 @@ func TestExecuteStepFailAndHappy(t *testing.T) {
 		t.Fatalf("failure_step=%s", got.FailureStep)
 	}
 
+	// 验证失败历史记录已持久化并标记为 rolled_back 或 failed
+	// Verify failed history record is persisted and marked rolled_back or failed
+	failHistory := s.ListHistory()
+	if len(failHistory) == 0 {
+		t.Fatalf("expected non-empty history after failure")
+	}
+	if failHistory[0].FailureStep != StepAgent || (failHistory[0].Status != "rolled_back" && failHistory[0].Status != StatusFailed) {
+		t.Fatalf("unexpected fail history: %+v", failHistory[0])
+	}
+
 	// Restage and succeed.
 	s2 := newTestService(t)
 	if _, err := s2.Check(context.Background(), CheckRequest{}); err != nil {
@@ -120,6 +131,16 @@ func TestExecuteStepFailAndHappy(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitTask(t, s2, ok.ID, StatusSucceeded, 5*time.Second)
+
+	// 验证成功历史记录已持久化
+	// Verify success history record is persisted
+	successHistory := s2.ListHistory()
+	if len(successHistory) == 0 {
+		t.Fatalf("expected non-empty history after success")
+	}
+	if successHistory[0].Status != StatusSucceeded {
+		t.Fatalf("expected status succeeded, got %s", successHistory[0].Status)
+	}
 }
 
 func TestConcurrentAndDiskFull(t *testing.T) {
@@ -155,6 +176,34 @@ func TestStatusDeploymentType(t *testing.T) {
 	}
 	if status.Architecture == "" {
 		t.Fatalf("expected non-empty architecture")
+	}
+}
+
+// TestDockerModeHandling 验证在 Docker 容器环境下正确识别并阻止不必要的宿主机包下载。
+// TestDockerModeHandling verifies Docker container mode detection and graceful guidance.
+func TestDockerModeHandling(t *testing.T) {
+	t.Setenv("STX_RUNTIME_MODE", "docker")
+	dir := t.TempDir()
+	s := NewService(filepath.Join(dir, "data"))
+	s.mockMode = false // Real mode checks Docker environment
+
+	status := s.Status()
+	if status.DeploymentType != "docker" {
+		t.Fatalf("expected deployment_type=docker, got %s", status.DeploymentType)
+	}
+	if !strings.Contains(status.DockerComposeUpgradeCmd, "docker compose pull") {
+		t.Fatalf("expected docker compose upgrade cmd, got %s", status.DockerComposeUpgradeCmd)
+	}
+
+	// 检查更新依然有效 / Version check still works
+	s.checked = true
+	s.updateAvailable = true
+	s.latestVersion = "1.2.0"
+
+	// Docker 模式下阻止宿主机下载并返回清晰指引 / Prevent host package download in Docker mode with clear guidance
+	_, err := s.StartDownload(context.Background(), StageDownloadRequest{})
+	if err == nil || !strings.Contains(err.Error(), "docker compose pull") {
+		t.Fatalf("expected docker compose guidance error, got %v", err)
 	}
 }
 

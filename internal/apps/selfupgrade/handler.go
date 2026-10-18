@@ -140,6 +140,12 @@ func (h *Handler) CancelTask(c *gin.Context) {
 	c.JSON(http.StatusOK, Response{Data: gin.H{"ok": true}})
 }
 
+// GetHistory returns self-upgrade execution history.
+// GetHistory 返回自升级执行历史列表。
+func (h *Handler) GetHistory(c *gin.Context) {
+	c.JSON(http.StatusOK, Response{Data: h.service.ListHistory()})
+}
+
 func statusFor(err error) int {
 	switch {
 	case errors.Is(err, ErrForbiddenNonAdmin):

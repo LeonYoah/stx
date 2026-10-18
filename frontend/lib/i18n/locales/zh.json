@@ -4648,6 +4648,21 @@
     "step4Verify": "4. 校验就绪",
     "selectedFile": "已选离线包",
     "dropHint": "支持将 .tar.gz / .tgz / .zip 离线发布包拖拽至此处，或点击选择文件",
-    "devToolsTitle": "开发测试注入工具 (Mock Mode)"
+    "devToolsTitle": "开发测试注入工具 (Mock Mode)",
+    "historyCard": "升级历史记录",
+    "historyEmpty": "暂无升级执行记录",
+    "historyFromTo": "升级路径",
+    "historyMode": "模式",
+    "historyDeployment": "环境",
+    "historyStatus": "状态",
+    "historyDuration": "耗时",
+    "historyFinishedAt": "完成时间",
+    "historyDetails": "步骤明细",
+    "historyFailedStep": "失败步骤",
+    "historyFailureReason": "失败原因",
+    "historyRolledBack": "已自动回滚",
+    "dockerStageDisabled": "Docker 容器环境由镜像管理，无需在容器内下载整合包",
+    "dockerExecuteDisabled": "控制面为不可变容器镜像，升级请直接拉取并重启镜像",
+    "stepRolledBack": "已回滚"
   }
 }

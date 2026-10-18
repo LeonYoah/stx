@@ -24,7 +24,9 @@ import {
   Check,
   CheckCircle2,
   ChevronDown,
+  Clock,
   Copy,
+  History,
   Loader2,
   Package,
   RefreshCw,
@@ -43,6 +45,7 @@ import services from '@/lib/services';
 import {
   SelfUpgradeApiError,
   type StatusResponse,
+  type UpgradeHistoryRecord,
 } from '@/lib/services/self-upgrade';
 import {cn} from '@/lib/utils';
 import {toast} from 'sonner';
@@ -91,8 +94,19 @@ export function SystemUpgradeMain() {
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
   const [stageTab, setStageTab] = useState<'online' | 'offline'>('online');
   const [reconnecting, setReconnecting] = useState(false);
+  const [history, setHistory] = useState<UpgradeHistoryRecord[]>([]);
+  const [expandedRecordId, setExpandedRecordId] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const loadHistory = useCallback(async () => {
+    try {
+      const list = await services.selfUpgrade.getHistory();
+      setHistory(list ?? []);
+    } catch {
+      // ignore
+    }
+  }, []);
 
   const loadStatus = useCallback(async (opts?: {background?: boolean}) => {
     if (!opts?.background) {
@@ -103,6 +117,9 @@ export function SystemUpgradeMain() {
       setStatus(data);
       setErrorBanner(null);
       setReconnecting(false);
+      if (data.overall_status === 'succeeded' || data.overall_status === 'failed') {
+        void loadHistory();
+      }
     } catch (err) {
       if (status?.overall_status === 'upgrading' || busy) {
         // 升级重启期间网络中断属正常现象，展示优雅重连等待，不误刷红色全局错误
@@ -116,11 +133,12 @@ export function SystemUpgradeMain() {
       setInitialLoading(false);
       setRefreshing(false);
     }
-  }, [busy, status?.overall_status, t]);
+  }, [busy, status?.overall_status, t, loadHistory]);
 
   useEffect(() => {
     void loadStatus();
-  }, [loadStatus]);
+    void loadHistory();
+  }, [loadStatus, loadHistory]);
 
   // Poll while staging / upgrading
   useEffect(() => {
@@ -163,7 +181,10 @@ export function SystemUpgradeMain() {
     return map[status.overall_status] || status.overall_status;
   }, [status, t]);
 
+  const isDocker = status?.deployment_type === 'docker';
+
   const canStage =
+    !isDocker &&
     !!status?.checked &&
     !!status?.update_available &&
     status.stage.status !== 'staging' &&
@@ -172,6 +193,7 @@ export function SystemUpgradeMain() {
     status.overall_status !== 'succeeded';
 
   const canUpgrade =
+    !isDocker &&
     status?.stage.status === 'staged' &&
     status.overall_status !== 'upgrading' &&
     status.overall_status !== 'succeeded';
@@ -532,7 +554,9 @@ export function SystemUpgradeMain() {
                   </Button>
                 ) : null}
               </div>
-              {!canStage ? (
+              {isDocker ? (
+                <p className='text-xs text-blue-600 dark:text-blue-400 font-medium'>{t('dockerStageDisabled')}</p>
+              ) : !canStage ? (
                 <p className='text-xs text-muted-foreground'>{t('stageHintDisabled')}</p>
               ) : (
                 <p className='text-xs text-muted-foreground'>{t('stageHintOnline')}</p>
@@ -575,7 +599,11 @@ export function SystemUpgradeMain() {
                   {t('import')}
                 </Button>
               </div>
-              <p className='text-xs text-muted-foreground'>{t('stageHintOffline')}</p>
+              {isDocker ? (
+                <p className='text-xs text-blue-600 dark:text-blue-400 font-medium'>{t('dockerStageDisabled')}</p>
+              ) : (
+                <p className='text-xs text-muted-foreground'>{t('stageHintOffline')}</p>
+              )}
             </TabsContent>
           </Tabs>
 
@@ -645,7 +673,11 @@ export function SystemUpgradeMain() {
         </CardHeader>
         <CardContent className='p-4 space-y-3'>
           <p className='text-xs text-muted-foreground'>
-            {canUpgrade ? t('executeHintReady') : t('executeHintBlocked')}
+            {isDocker
+              ? t('dockerExecuteDisabled')
+              : canUpgrade
+                ? t('executeHintReady')
+                : t('executeHintBlocked')}
           </p>
           <div className='grid gap-2 sm:grid-cols-2'>
             {(steps.length
@@ -744,6 +776,137 @@ export function SystemUpgradeMain() {
               </div>
             </details>
           ) : null}
+        </CardContent>
+      </Card>
+
+      {/* 升级历史记录 / Upgrade History */}
+      <Card className='border shadow-sm'>
+        <CardHeader className='py-3 px-4 border-b flex-row items-center justify-between space-y-0'>
+          <div className='flex items-center gap-2'>
+            <History className='h-4 w-4 text-muted-foreground' />
+            <CardTitle className='text-sm font-semibold'>{t('historyCard')}</CardTitle>
+          </div>
+          {history.length > 0 ? (
+            <Badge variant='outline' className='text-xs font-normal tabular-nums'>
+              {history.length}
+            </Badge>
+          ) : null}
+        </CardHeader>
+        <CardContent className='p-0'>
+          {history.length === 0 ? (
+            <div className='py-8 text-center text-xs text-muted-foreground'>
+              {t('historyEmpty')}
+            </div>
+          ) : (
+            <div className='divide-y divide-border/60'>
+              {history.map((record) => {
+                const isExpanded = expandedRecordId === record.id;
+                const isSuccess = record.status === 'succeeded';
+                const isRolledBack = record.status === 'rolled_back';
+                const durationSec = (record.duration_ms / 1000).toFixed(1);
+
+                return (
+                  <div key={record.id} className='p-3 sm:p-4 hover:bg-muted/10 transition-colors space-y-2'>
+                    <div className='flex flex-wrap items-center justify-between gap-2'>
+                      <div className='flex items-center gap-2 flex-wrap'>
+                        <span className='font-mono text-xs font-semibold px-2 py-0.5 rounded border bg-muted/30'>
+                          v{record.from_version || '1.0.0'} → v{record.target_version}
+                        </span>
+                        <Badge variant='outline' className='text-[10px] uppercase'>
+                          {record.mode || 'online'}
+                        </Badge>
+                        <Badge variant='outline' className='text-[10px] uppercase'>
+                          {record.deployment_type || 'host'}
+                        </Badge>
+                      </div>
+
+                      <div className='flex items-center gap-2 ml-auto'>
+                        <span className='text-xs text-muted-foreground flex items-center gap-1 tabular-nums'>
+                          <Clock className='h-3 w-3' />
+                          {durationSec}s
+                        </span>
+                        <span className='text-xs text-muted-foreground hidden sm:inline tabular-nums'>
+                          {record.completed_at ? new Date(record.completed_at).toLocaleString() : '—'}
+                        </span>
+                        <Badge
+                          variant='outline'
+                          className={cn(
+                            'text-xs font-medium',
+                            isSuccess && 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20',
+                            isRolledBack && 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20',
+                            !isSuccess && !isRolledBack && 'bg-destructive/10 text-destructive border-destructive/20',
+                          )}
+                        >
+                          {isSuccess
+                            ? t('statusSucceeded')
+                            : isRolledBack
+                              ? t('historyRolledBack')
+                              : t('statusFailed')}
+                        </Badge>
+                        <Button
+                          type='button'
+                          variant='ghost'
+                          size='sm'
+                          className='h-7 w-7 p-0'
+                          onClick={() => setExpandedRecordId(isExpanded ? null : record.id)}
+                        >
+                          <ChevronDown
+                            className={cn('h-3.5 w-3.5 transition-transform duration-200', isExpanded && 'rotate-180')}
+                          />
+                        </Button>
+                      </div>
+                    </div>
+
+                    {/* 失败与回滚信息提示 / Failure & Rollback hint */}
+                    {(record.failure_step || record.failure_reason) ? (
+                      <div className='rounded bg-destructive/10 border border-destructive/20 px-2.5 py-1.5 text-xs text-destructive flex items-start gap-1.5'>
+                        <XCircle className='h-3.5 w-3.5 shrink-0 mt-0.5' />
+                        <div>
+                          <span className='font-semibold'>
+                            {t('historyFailedStep')}: {record.failure_step}
+                          </span>
+                          {record.failure_reason ? (
+                            <span className='ml-1.5 opacity-90'>{record.failure_reason}</span>
+                          ) : null}
+                          {isRolledBack ? (
+                            <span className='ml-2 font-medium text-amber-700 dark:text-amber-400'>
+                              ({t('historyRolledBack')})
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {/* 展开的步骤明细 / Expanded Steps Breakdown */}
+                    {isExpanded && record.steps && record.steps.length > 0 ? (
+                      <div className='pt-2 mt-2 border-t border-border/50 grid gap-1.5 sm:grid-cols-2 text-xs'>
+                        {record.steps.map((st) => (
+                          <div
+                            key={st.code}
+                            className={cn(
+                              'rounded border px-2.5 py-1.5 flex items-center justify-between gap-1.5',
+                              st.status === 'succeeded' && 'bg-emerald-500/5 border-emerald-500/20',
+                              st.status === 'failed' && 'bg-destructive/5 border-destructive/20',
+                              st.status === 'pending' && 'bg-muted/10 border-border/40 text-muted-foreground',
+                            )}
+                          >
+                            <span className='font-medium truncate'>{st.label || st.code}</span>
+                            <Badge variant='outline' className='text-[10px] shrink-0'>
+                              {st.status === 'succeeded'
+                                ? t('stepDone')
+                                : st.status === 'failed'
+                                  ? t('stepFailed')
+                                  : t('stepPending')}
+                            </Badge>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

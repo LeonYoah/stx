@@ -101,10 +101,11 @@ func IsRunningInDocker() bool {
 type Service struct {
 	mu sync.Mutex
 
-	stagingDir string
-	httpClient *http.Client
-	mockMode   bool
-	allowSim   bool
+	stagingDir  string
+	historyPath string
+	httpClient  *http.Client
+	mockMode    bool
+	allowSim    bool
 
 	checked         bool
 	updateAvailable bool
@@ -125,6 +126,7 @@ func NewService(dataDir string) *Service {
 	}
 	staging := filepath.Join(dataDir, "self-upgrade")
 	_ = os.MkdirAll(staging, 0o755)
+	history := filepath.Join(staging, "history.json")
 
 	env := ""
 	if config.Config.App.Env != "" {
@@ -134,10 +136,11 @@ func NewService(dataDir string) *Service {
 	allowSim := env != "production" || mock
 
 	s := &Service{
-		stagingDir: staging,
-		httpClient: &http.Client{Timeout: 20 * time.Second},
-		mockMode:   mock,
-		allowSim:   allowSim,
+		stagingDir:  staging,
+		historyPath: history,
+		httpClient:  &http.Client{Timeout: 20 * time.Second},
+		mockMode:    mock,
+		allowSim:    allowSim,
 		stage: StageState{
 			Status:      StatusIdle,
 			Assets:      initialAssets(),
@@ -400,6 +403,10 @@ func envOr(k, def string) string {
 // StartDownload stages assets from the network (or mock). / 联网预置资产。
 func (s *Service) StartDownload(ctx context.Context, req StageDownloadRequest) (*TaskState, error) {
 	s.mu.Lock()
+	if IsRunningInDocker() && !s.mockMode {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("%w: Docker 容器部署无需下载宿主机整合包，请通过 'docker compose pull && docker compose up -d' 升级服务端镜像 / docker deployment does not need package downloads; upgrade via 'docker compose pull && docker compose up -d'", ErrInvalid())
+	}
 	if !s.checked || !s.updateAvailable {
 		s.mu.Unlock()
 		if s.checked && !s.updateAvailable {
@@ -1025,6 +1032,10 @@ func isNoSpace(err error) bool {
 // ImportOffline validates and stages an uploaded archive or asset set.
 func (s *Service) ImportOffline(filename string, r io.Reader, simulateFailure string) (*StageState, error) {
 	s.mu.Lock()
+	if IsRunningInDocker() && !s.mockMode {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("%w: Docker 容器部署无需导入宿主机离线包，请通过 'docker compose pull && docker compose up -d' 升级服务端镜像 / docker deployment does not need offline host packages; upgrade via 'docker compose pull && docker compose up -d'", ErrInvalid())
+	}
 	if s.stage.Status == StatusStaging || (s.task != nil && s.task.Status == StatusUpgrading) {
 		s.mu.Unlock()
 		return nil, ErrConcurrentUpgrade
@@ -1168,6 +1179,10 @@ func (s *Service) CancelStage() error {
 // Execute 仅使用本地预置包执行升级。
 func (s *Service) Execute(ctx context.Context, req ExecuteRequest) (*TaskState, error) {
 	s.mu.Lock()
+	if IsRunningInDocker() && !s.mockMode {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("%w: Docker 容器部署控制面由镜像管理，请通过 'docker compose pull && docker compose up -d' 升级服务端镜像 / docker deployment control plane is upgraded via container image; please run 'docker compose pull && docker compose up -d'", ErrInvalid())
+	}
 	if s.stage.Status != StatusStaged {
 		s.mu.Unlock()
 		return nil, ErrNotStaged
@@ -1301,6 +1316,34 @@ func (s *Service) runExecute(ctx context.Context, taskID, target, sim string, ap
 		s.stage.Message = "upgrade completed successfully"
 	}
 	s.cancelF = nil
+
+	durationMs := int64(0)
+	started := now
+	if s.task.StartedAt != nil {
+		started = *s.task.StartedAt
+		durationMs = now.Sub(started).Milliseconds()
+	}
+	depType := "host"
+	if IsRunningInDocker() {
+		depType = "docker"
+	}
+	mode := s.stage.Mode
+	if mode == "" {
+		mode = ModeOnline
+	}
+	rec := UpgradeHistoryRecord{
+		ID:             s.task.ID,
+		StartedAt:      started,
+		CompletedAt:    now,
+		DurationMs:     durationMs,
+		FromVersion:    stxversion.Current().Version,
+		TargetVersion:  target,
+		Mode:           mode,
+		DeploymentType: depType,
+		Status:         StatusSucceeded,
+		Steps:          s.task.Steps,
+	}
+	s.recordHistoryLocked(rec)
 }
 
 // applyStep 执行指定升级步骤，包括控制面二进制热备份与替换、Agent 更新、Proxy 对齐与验证重启。
@@ -1466,7 +1509,104 @@ func (s *Service) failExecute(taskID, step string, err error, code, msg string) 
 		}
 	}
 	s.cancelF = nil
+
+	// 自动执行回滚保护 / Automatically perform rollback protection
+	rolledBack := s.rollbackLocked(s.task.TargetVersion, step)
+	status := StatusFailed
+	if rolledBack {
+		status = "rolled_back"
+	}
+
+	durationMs := int64(0)
+	started := now
+	if s.task.StartedAt != nil {
+		started = *s.task.StartedAt
+		durationMs = now.Sub(started).Milliseconds()
+	}
+	depType := "host"
+	if IsRunningInDocker() {
+		depType = "docker"
+	}
+	mode := s.stage.Mode
+	if mode == "" {
+		mode = ModeOnline
+	}
+	rec := UpgradeHistoryRecord{
+		ID:             s.task.ID,
+		StartedAt:      started,
+		CompletedAt:    now,
+		DurationMs:     durationMs,
+		FromVersion:    stxversion.Current().Version,
+		TargetVersion:  s.task.TargetVersion,
+		Mode:           mode,
+		DeploymentType: depType,
+		Status:         status,
+		FailureStep:    step,
+		FailureReason:  msg,
+		ErrorCode:      code,
+		Steps:          s.task.Steps,
+	}
+	s.recordHistoryLocked(rec)
 	_ = err
+}
+
+// ListHistory 返回自升级执行历史记录列表（倒序排列，最新在最前）。
+// ListHistory returns self-upgrade execution history records (descending order, latest first).
+func (s *Service) ListHistory() []UpgradeHistoryRecord {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.loadHistoryLocked()
+}
+
+func (s *Service) loadHistoryLocked() []UpgradeHistoryRecord {
+	if s.historyPath == "" {
+		return []UpgradeHistoryRecord{}
+	}
+	data, err := os.ReadFile(s.historyPath)
+	if err != nil {
+		return []UpgradeHistoryRecord{}
+	}
+	var list []UpgradeHistoryRecord
+	if err := json.Unmarshal(data, &list); err != nil {
+		return []UpgradeHistoryRecord{}
+	}
+	return list
+}
+
+func (s *Service) recordHistoryLocked(rec UpgradeHistoryRecord) {
+	if s.historyPath == "" {
+		return
+	}
+	list := s.loadHistoryLocked()
+	// 最新记录置顶 / Prepend latest record
+	list = append([]UpgradeHistoryRecord{rec}, list...)
+	if len(list) > 50 {
+		list = list[:50]
+	}
+	data, err := json.MarshalIndent(list, "", "  ")
+	if err == nil {
+		_ = os.WriteFile(s.historyPath, data, 0o644)
+	}
+}
+
+// rollbackLocked 在升级步骤失败时执行回滚，恢复备份的二进制并清理状态。
+// rollbackLocked performs rollback on upgrade failure, restoring backed up binaries and cleaning state.
+func (s *Service) rollbackLocked(target, failedStep string) bool {
+	if s.mockMode {
+		return failedStep == StepControlPlane || failedStep == StepAgent || failedStep == StepProxy || failedStep == StepVerify
+	}
+	execPath, err := os.Executable()
+	if err != nil || execPath == "" {
+		execPath = "./stx"
+	}
+	execPath, _ = filepath.EvalSymlinks(execPath)
+	bakPath := execPath + ".bak"
+	if fi, err := os.Stat(bakPath); err == nil && fi.Size() > 0 {
+		_ = os.Rename(bakPath, execPath)
+		_ = os.Chmod(execPath, 0o755)
+		return true
+	}
+	return false
 }
 
 func (s *Service) beginExclusive(op string) error {

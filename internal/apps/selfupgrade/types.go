@@ -123,6 +123,24 @@ type TaskState struct {
 	CompletedAt   *time.Time  `json:"completed_at,omitempty"`
 }
 
+// UpgradeHistoryRecord 记录一次完成或失败的自升级历史。
+// UpgradeHistoryRecord records a completed, failed, or rolled back upgrade attempt.
+type UpgradeHistoryRecord struct {
+	ID             string      `json:"id"`
+	StartedAt      time.Time   `json:"started_at"`
+	CompletedAt    time.Time   `json:"completed_at"`
+	DurationMs     int64       `json:"duration_ms"`
+	FromVersion    string      `json:"from_version"`
+	TargetVersion  string      `json:"target_version"`
+	Mode           string      `json:"mode"`            // online | offline
+	DeploymentType string      `json:"deployment_type"` // host | docker
+	Status         string      `json:"status"`          // succeeded | failed | rolled_back
+	FailureStep    string      `json:"failure_step,omitempty"`
+	FailureReason  string      `json:"failure_reason,omitempty"`
+	ErrorCode      string      `json:"error_code,omitempty"`
+	Steps          []StepState `json:"steps,omitempty"`
+}
+
 // StatusResponse is the aggregate console status. / 控制台聚合状态。
 type StatusResponse struct {
 	CurrentVersion  string       `json:"current_version"`

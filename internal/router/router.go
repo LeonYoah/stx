@@ -1009,6 +1009,7 @@ func Serve() {
 				selfUpgradeRouter.POST("/execute", selfUpgradeHandler.Execute)
 				selfUpgradeRouter.GET("/tasks/:id", selfUpgradeHandler.GetTask)
 				selfUpgradeRouter.POST("/tasks/:id/cancel", selfUpgradeHandler.CancelTask)
+				selfUpgradeRouter.GET("/history", selfUpgradeHandler.GetHistory)
 			}
 
 			// Installation routes on hosts 主机安装路由

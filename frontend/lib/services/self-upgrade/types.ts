@@ -86,6 +86,24 @@ export interface TaskState {
   completed_at?: string;
 }
 
+// UpgradeHistoryRecord 记录一次完成或失败的自升级历史。
+// UpgradeHistoryRecord records a completed, failed, or rolled back upgrade attempt.
+export interface UpgradeHistoryRecord {
+  id: string;
+  started_at: string;
+  completed_at: string;
+  duration_ms: number;
+  from_version: string;
+  target_version: string;
+  mode: string;
+  deployment_type: string;
+  status: 'succeeded' | 'failed' | 'rolled_back' | string;
+  failure_step?: string;
+  failure_reason?: string;
+  error_code?: string;
+  steps?: StepState[];
+}
+
 export interface StatusResponse {
   current_version: string;
   git_commit?: string;

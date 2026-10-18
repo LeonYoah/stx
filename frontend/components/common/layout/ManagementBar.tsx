@@ -38,11 +38,19 @@ import {
   Puzzle,
   BugPlay,
   ScanSearch,
+  ArrowUpCircle,
 } from 'lucide-react';
 import {useThemeUtils} from '@/hooks/use-theme-utils';
 import {useAuth} from '@/hooks/use-auth';
 import {CountingNumber} from '@/components/animate-ui/text/counting-number';
 import {Button} from '@/components/ui/button';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import {useRouter} from 'next/navigation';
 import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';
 import Link from 'next/link';
@@ -104,6 +112,7 @@ const StaticIcons = {
 // 个人信息按钮 - 独立组件
 const ProfileButton = memo(() => {
   const themeUtils = useThemeUtils();
+  const router = useRouter();
   const {user, isLoading, logout, checkAuthStatus} = useAuth();
   const {locale, syncLocale} = useLocale();
   const [mounted, setMounted] = useState(false);
@@ -604,6 +613,39 @@ const ProfileButton = memo(() => {
               </div>
             </div>
           </div>
+
+          {/* 系统升级入口：管理员可检查更新 / System upgrade entry for admins */}
+          {!isLoading && user && (
+            <div className='pt-1'>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className='w-full'>
+                      <Button
+                        type='button'
+                        className='w-full active:scale-[0.98]'
+                        disabled={!user.is_admin}
+                        onClick={() => {
+                          if (!user.is_admin) {
+                            return;
+                          }
+                          router.push('/system-upgrade');
+                        }}
+                      >
+                        <ArrowUpCircle className='h-4 w-4 mr-1.5' />
+                        {t('checkUpdate')}
+                      </Button>
+                    </div>
+                  </TooltipTrigger>
+                  {!user.is_admin ? (
+                    <TooltipContent>
+                      <p>{t('adminOnlyTooltip')}</p>
+                    </TooltipContent>
+                  ) : null}
+                </Tooltip>
+              </TooltipProvider>
+            </div>
+          )}
 
           {!isLoading && !user && (
             <div className='text-center text-muted-foreground'>

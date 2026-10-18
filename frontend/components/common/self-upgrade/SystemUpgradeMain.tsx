@@ -1,0 +1,596 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+'use client';
+
+import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {useTranslations} from 'next-intl';
+import {
+  ArrowUpCircle,
+  CheckCircle2,
+  Loader2,
+  Package,
+  RefreshCw,
+  Upload,
+  XCircle,
+} from 'lucide-react';
+import {WorkspaceHeader} from '@/components/common/layout/WorkspaceHeader';
+import {TableLoadingBar} from '@/components/common/layout/TableLoadingBar';
+import {Button} from '@/components/ui/button';
+import {Card, CardContent, CardHeader, CardTitle} from '@/components/ui/card';
+import {Badge} from '@/components/ui/badge';
+import {Progress} from '@/components/ui/progress';
+import {Tabs, TabsContent, TabsList, TabsTrigger} from '@/components/ui/tabs';
+import {Skeleton} from '@/components/ui/skeleton';
+import services from '@/lib/services';
+import {
+  SelfUpgradeApiError,
+  type StatusResponse,
+} from '@/lib/services/self-upgrade';
+import {cn} from '@/lib/utils';
+import {toast} from 'sonner';
+
+function statusPillClass(status: string): string {
+  switch (status) {
+    case 'available':
+    case 'staged':
+      return 'bg-primary/10 text-primary border-primary/20';
+    case 'up_to_date':
+    case 'succeeded':
+      return 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20';
+    case 'staging':
+    case 'upgrading':
+    case 'checking':
+      return 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20';
+    case 'failed':
+      return 'bg-destructive/10 text-destructive border-destructive/20';
+    default:
+      return 'bg-muted text-muted-foreground border-border';
+  }
+}
+
+function assetStatusLabel(
+  status: string,
+  t: ReturnType<typeof useTranslations>,
+): string {
+  switch (status) {
+    case 'ready':
+      return t('assetReady');
+    case 'loading':
+      return t('assetLoading');
+    case 'failed':
+      return t('assetFailed');
+    default:
+      return t('assetPending');
+  }
+}
+
+export function SystemUpgradeMain() {
+  const t = useTranslations('selfUpgrade');
+  const [status, setStatus] = useState<StatusResponse | null>(null);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [errorBanner, setErrorBanner] = useState<string | null>(null);
+  const [stageTab, setStageTab] = useState<'online' | 'offline'>('online');
+  const fileRef = useRef<HTMLInputElement>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const loadStatus = useCallback(async (opts?: {background?: boolean}) => {
+    if (!opts?.background) {
+      setRefreshing(true);
+    }
+    try {
+      const data = await services.selfUpgrade.getStatus();
+      setStatus(data);
+      setErrorBanner(null);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : t('loadFailed');
+      setErrorBanner(msg);
+    } finally {
+      setInitialLoading(false);
+      setRefreshing(false);
+    }
+  }, [t]);
+
+  useEffect(() => {
+    void loadStatus();
+  }, [loadStatus]);
+
+  // Poll while staging / upgrading
+  useEffect(() => {
+    const active =
+      status?.overall_status === 'staging' ||
+      status?.overall_status === 'upgrading' ||
+      status?.stage?.status === 'staging' ||
+      status?.active_task?.status === 'staging' ||
+      status?.active_task?.status === 'upgrading';
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+    if (active) {
+      pollRef.current = setInterval(() => {
+        void loadStatus({background: true});
+      }, 800);
+    }
+    return () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+      }
+    };
+  }, [status?.overall_status, status?.stage?.status, status?.active_task?.status, loadStatus]);
+
+  const overallLabel = useMemo(() => {
+    if (!status) return t('statusIdle');
+    const map: Record<string, string> = {
+      idle: t('statusIdle'),
+      checking: t('statusChecking'),
+      available: t('statusAvailable'),
+      up_to_date: t('statusUpToDate'),
+      staging: t('statusStaging'),
+      staged: t('statusStaged'),
+      upgrading: t('statusUpgrading'),
+      succeeded: t('statusSucceeded'),
+      failed: t('statusFailed'),
+      cancelled: t('statusCancelled'),
+    };
+    return map[status.overall_status] || status.overall_status;
+  }, [status, t]);
+
+  const canStage =
+    !!status?.checked &&
+    !!status?.update_available &&
+    status.stage.status !== 'staging' &&
+    status.stage.status !== 'staged' &&
+    status.overall_status !== 'upgrading' &&
+    status.overall_status !== 'succeeded';
+
+  const canUpgrade =
+    status?.stage.status === 'staged' &&
+    status.overall_status !== 'upgrading' &&
+    status.overall_status !== 'succeeded';
+
+  const handleCheck = async (simulate?: string) => {
+    setBusy(true);
+    setErrorBanner(null);
+    try {
+      const result = await services.selfUpgrade.check(
+        simulate ? {simulate_failure: simulate} : {},
+      );
+      if (result.error_code === 'check_fail') {
+        setErrorBanner(t('errCheckFail'));
+      } else if (!result.update_available) {
+        toast.success(t('alreadyLatest'));
+      } else {
+        toast.success(t('updateFound', {version: result.latest_version}));
+      }
+      await loadStatus({background: true});
+    } catch (err) {
+      const apiErr = err as SelfUpgradeApiError;
+      if (apiErr.errorCode === 'check_fail') {
+        setErrorBanner(t('errCheckFail'));
+      } else if (apiErr.errorCode === 'forbidden_non_admin') {
+        setErrorBanner(t('errForbidden'));
+      } else {
+        setErrorBanner(apiErr.message || t('errCheckFail'));
+      }
+      await loadStatus({background: true});
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleDownload = async (simulate?: string) => {
+    setBusy(true);
+    setErrorBanner(null);
+    try {
+      await services.selfUpgrade.startDownload(
+        simulate ? {simulate_failure: simulate} : {},
+      );
+      toast.message(t('downloadStarted'));
+      await loadStatus({background: true});
+    } catch (err) {
+      const apiErr = err as SelfUpgradeApiError;
+      const code = apiErr.errorCode;
+      if (code === 'disk_full') setErrorBanner(t('errDiskFull'));
+      else if (code === 'concurrent_upgrade') setErrorBanner(t('errConcurrent'));
+      else if (code === 'already_latest') setErrorBanner(t('alreadyLatest'));
+      else setErrorBanner(apiErr.message || t('errDownload'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleImport = async (file: File, simulate?: string) => {
+    setBusy(true);
+    setErrorBanner(null);
+    try {
+      await services.selfUpgrade.importOffline(file, simulate);
+      toast.success(t('importDone'));
+      await loadStatus({background: true});
+    } catch (err) {
+      const apiErr = err as SelfUpgradeApiError;
+      if (apiErr.errorCode === 'bad_offline_import') {
+        setErrorBanner(t('errBadImport'));
+      } else if (apiErr.errorCode === 'disk_full') {
+        setErrorBanner(t('errDiskFull'));
+      } else if (apiErr.errorCode === 'concurrent_upgrade') {
+        setErrorBanner(t('errConcurrent'));
+      } else {
+        setErrorBanner(apiErr.message || t('errBadImport'));
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleExecute = async (simulate?: string) => {
+    setBusy(true);
+    setErrorBanner(null);
+    try {
+      await services.selfUpgrade.execute(
+        simulate ? {simulate_failure: simulate} : {},
+      );
+      toast.message(t('upgradeStarted'));
+      await loadStatus({background: true});
+    } catch (err) {
+      const apiErr = err as SelfUpgradeApiError;
+      if (apiErr.errorCode === 'not_staged') setErrorBanner(t('errNotStaged'));
+      else if (apiErr.errorCode === 'concurrent_upgrade')
+        setErrorBanner(t('errConcurrent'));
+      else setErrorBanner(apiErr.message || t('errExecute'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleCancelStage = async () => {
+    try {
+      await services.selfUpgrade.cancelStage();
+      toast.message(t('cancelled'));
+      await loadStatus({background: true});
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t('cancelFailed'));
+    }
+  };
+
+  if (initialLoading && !status) {
+    return (
+      <div className='space-y-4'>
+        <Skeleton className='h-12 w-full max-w-md' />
+        <Skeleton className='h-40 w-full' />
+        <Skeleton className='h-56 w-full' />
+      </div>
+    );
+  }
+
+  const steps = status?.active_task?.steps || [];
+  const failureCode =
+    status?.active_task?.error_code || status?.stage?.error_code || null;
+
+  return (
+    <div className='space-y-4 relative'>
+      {(refreshing || busy) && <TableLoadingBar />}
+
+      <WorkspaceHeader
+        icon={<ArrowUpCircle className='h-5 w-5' />}
+        title={t('title')}
+        subtitle={t('subtitle')}
+        actions={
+          <div className='flex flex-wrap items-center gap-2'>
+            <Button
+              variant='outline'
+              size='sm'
+              className='active:scale-[0.98]'
+              disabled={busy || status?.overall_status === 'upgrading'}
+              onClick={() => void handleCheck()}
+            >
+              <RefreshCw className={cn('h-4 w-4 mr-1.5', busy && 'animate-spin')} />
+              {t('refresh')}
+            </Button>
+            {status?.mock_mode ? (
+              <Badge variant='outline' className='text-xs font-normal'>
+                {t('mockMode')}
+              </Badge>
+            ) : null}
+          </div>
+        }
+      />
+
+      {errorBanner ? (
+        <div className='flex gap-3 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2.5 text-sm'>
+          <XCircle className='h-4 w-4 text-destructive shrink-0 mt-0.5' />
+          <div>
+            <div className='font-medium text-destructive'>{t('errorTitle')}</div>
+            <div className='text-muted-foreground'>{errorBanner}</div>
+          </div>
+        </div>
+      ) : null}
+
+      {failureCode ? (
+        <div className='rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-sm space-y-1'>
+          <div className='font-medium'>{t('failureCode', {code: failureCode})}</div>
+          <div className='text-muted-foreground'>
+            {status?.active_task?.failure_reason || status?.stage?.message}
+          </div>
+        </div>
+      ) : null}
+
+      {/* Version status */}
+      <Card className='border shadow-sm'>
+        <CardHeader className='py-3 px-4 border-b'>
+          <CardTitle className='text-sm font-semibold'>{t('versionCard')}</CardTitle>
+        </CardHeader>
+        <CardContent className='p-4'>
+          <div className='flex flex-wrap items-center gap-4'>
+            <div>
+              <div className='text-xs text-muted-foreground'>{t('currentVersion')}</div>
+              <div className='font-mono text-lg font-semibold tabular-nums'>
+                v{status?.current_version || '—'}
+              </div>
+            </div>
+            <div>
+              <div className='text-xs text-muted-foreground'>{t('latestVersion')}</div>
+              <div className='font-mono text-lg font-semibold tabular-nums'>
+                {status?.latest_version ? `v${status.latest_version}` : '—'}
+              </div>
+            </div>
+            <Badge
+              variant='outline'
+              className={cn('ml-auto', statusPillClass(status?.overall_status || 'idle'))}
+            >
+              {overallLabel}
+            </Badge>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Stage assets */}
+      <Card className='border shadow-sm'>
+        <CardHeader className='py-3 px-4 border-b'>
+          <CardTitle className='text-sm font-semibold'>{t('stageCard')}</CardTitle>
+        </CardHeader>
+        <CardContent className='p-4 space-y-4'>
+          <Tabs
+            value={stageTab}
+            onValueChange={(v) => setStageTab(v as 'online' | 'offline')}
+          >
+            <TabsList>
+              <TabsTrigger value='online'>{t('tabOnline')}</TabsTrigger>
+              <TabsTrigger value='offline'>{t('tabOffline')}</TabsTrigger>
+            </TabsList>
+            <TabsContent value='online' className='space-y-3 mt-3'>
+              <div className='flex flex-wrap gap-2'>
+                <Button
+                  size='sm'
+                  className='active:scale-[0.98]'
+                  disabled={!canStage || busy}
+                  onClick={() => void handleDownload()}
+                >
+                  <Package className='h-4 w-4 mr-1.5' />
+                  {t('download')}
+                </Button>
+                {status?.stage.cancellable ? (
+                  <Button
+                    size='sm'
+                    variant='outline'
+                    onClick={() => void handleCancelStage()}
+                  >
+                    {t('cancel')}
+                  </Button>
+                ) : null}
+              </div>
+              {!canStage ? (
+                <p className='text-xs text-muted-foreground'>{t('stageHintDisabled')}</p>
+              ) : (
+                <p className='text-xs text-muted-foreground'>{t('stageHintOnline')}</p>
+              )}
+            </TabsContent>
+            <TabsContent value='offline' className='space-y-3 mt-3'>
+              <input
+                ref={fileRef}
+                type='file'
+                accept='.tar.gz,.tgz,.zip'
+                className='hidden'
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) void handleImport(f);
+                  e.target.value = '';
+                }}
+              />
+              <Button
+                size='sm'
+                variant='secondary'
+                className='active:scale-[0.98]'
+                disabled={!canStage || busy}
+                onClick={() => fileRef.current?.click()}
+              >
+                <Upload className='h-4 w-4 mr-1.5' />
+                {t('import')}
+              </Button>
+              <p className='text-xs text-muted-foreground'>{t('stageHintOffline')}</p>
+            </TabsContent>
+          </Tabs>
+
+          {(status?.stage.progress ?? 0) > 0 && status?.stage.status !== 'idle' ? (
+            <div className='space-y-1.5'>
+              <div className='flex justify-between text-xs text-muted-foreground'>
+                <span>{status?.stage.message || t('staging')}</span>
+                <span className='font-mono tabular-nums'>{status?.stage.progress}%</span>
+              </div>
+              <Progress value={status?.stage.progress || 0} />
+            </div>
+          ) : null}
+
+          <div className='divide-y rounded-md border'>
+            {(status?.stage.assets || []).map((asset) => (
+              <div
+                key={asset.id}
+                className='flex items-center gap-3 px-3 py-2.5 text-sm'
+              >
+                <div
+                  className={cn(
+                    'flex h-8 w-8 items-center justify-center rounded-md border',
+                    asset.status === 'ready' && 'bg-emerald-500/10 border-emerald-500/30',
+                    asset.status === 'loading' && 'bg-amber-500/10 border-amber-500/30',
+                    asset.status === 'failed' && 'bg-destructive/10 border-destructive/30',
+                  )}
+                >
+                  {asset.status === 'ready' ? (
+                    <CheckCircle2 className='h-4 w-4 text-emerald-600' />
+                  ) : asset.status === 'loading' ? (
+                    <Loader2 className='h-4 w-4 animate-spin text-amber-600' />
+                  ) : asset.status === 'failed' ? (
+                    <XCircle className='h-4 w-4 text-destructive' />
+                  ) : (
+                    <Package className='h-4 w-4 text-muted-foreground' />
+                  )}
+                </div>
+                <div className='min-w-0 flex-1'>
+                  <div className='font-mono text-xs font-medium truncate'>{asset.name}</div>
+                  <div className='text-xs text-muted-foreground truncate'>
+                    {asset.description}
+                    {asset.message ? ` · ${asset.message}` : ''}
+                  </div>
+                </div>
+                <div className='text-xs text-muted-foreground shrink-0'>
+                  {assetStatusLabel(asset.status, t)}
+                </div>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Execute */}
+      <Card className='border shadow-sm'>
+        <CardHeader className='py-3 px-4 border-b flex-row items-center justify-between space-y-0'>
+          <CardTitle className='text-sm font-semibold'>{t('executeCard')}</CardTitle>
+          <Button
+            size='sm'
+            className='active:scale-[0.98]'
+            disabled={!canUpgrade || busy}
+            onClick={() => void handleExecute()}
+          >
+            <ArrowUpCircle className='h-4 w-4 mr-1.5' />
+            {t('startUpgrade')}
+          </Button>
+        </CardHeader>
+        <CardContent className='p-4 space-y-3'>
+          <p className='text-xs text-muted-foreground'>
+            {canUpgrade ? t('executeHintReady') : t('executeHintBlocked')}
+          </p>
+          <div className='grid gap-2 sm:grid-cols-2'>
+            {(steps.length
+              ? steps
+              : [
+                  {code: 'control_plane', label: t('stepControlPlane'), status: 'pending'},
+                  {code: 'agent', label: t('stepAgent'), status: 'pending'},
+                  {code: 'proxy', label: t('stepProxy'), status: 'pending'},
+                  {code: 'verify', label: t('stepVerify'), status: 'pending'},
+                ]
+            ).map((step) => (
+              <div
+                key={step.code}
+                className={cn(
+                  'rounded-md border px-3 py-2.5 flex items-center justify-between gap-2',
+                  step.status === 'succeeded' && 'border-emerald-500/30 bg-emerald-500/5',
+                  step.status === 'running' && 'border-amber-500/30 bg-amber-500/5',
+                  step.status === 'failed' && 'border-destructive/30 bg-destructive/5',
+                )}
+              >
+                <div className='min-w-0'>
+                  <div className='text-sm font-medium truncate'>{step.label}</div>
+                  {step.error || step.message ? (
+                    <div className='text-xs text-muted-foreground truncate'>
+                      {step.error || step.message}
+                    </div>
+                  ) : null}
+                </div>
+                <Badge variant='outline' className='shrink-0 text-[10px]'>
+                  {step.status === 'succeeded'
+                    ? t('stepDone')
+                    : step.status === 'running'
+                      ? t('stepRunning')
+                      : step.status === 'failed'
+                        ? t('stepFailed')
+                        : t('stepPending')}
+                </Badge>
+              </div>
+            ))}
+          </div>
+
+          {/* Dev failure injectors for local smoke — only in mock mode */}
+          {status?.mock_mode ? (
+            <div className='pt-2 border-t space-y-2'>
+              <div className='text-xs text-muted-foreground'>{t('simTitle')}</div>
+              <div className='flex flex-wrap gap-1.5'>
+                <Button size='sm' variant='outline' onClick={() => void handleCheck('check_fail')}>
+                  {t('simCheckFail')}
+                </Button>
+                <Button
+                  size='sm'
+                  variant='outline'
+                  onClick={() => void handleCheck('already_latest')}
+                >
+                  {t('simAlreadyLatest')}
+                </Button>
+                <Button
+                  size='sm'
+                  variant='outline'
+                  disabled={!canStage}
+                  onClick={() => void handleDownload('download_partial')}
+                >
+                  {t('simDownloadPartial')}
+                </Button>
+                <Button
+                  size='sm'
+                  variant='outline'
+                  disabled={!canStage}
+                  onClick={() => {
+                    const blob = new Blob(['x'], {type: 'application/gzip'});
+                    const file = new File([blob], 'bad.bin', {type: 'application/gzip'});
+                    void handleImport(file, 'bad_offline_import');
+                  }}
+                >
+                  {t('simBadImport')}
+                </Button>
+                <Button
+                  size='sm'
+                  variant='outline'
+                  disabled={!canUpgrade}
+                  onClick={() => void handleExecute('step_fail_agent')}
+                >
+                  {t('simStepFailAgent')}
+                </Button>
+                <Button
+                  size='sm'
+                  variant='outline'
+                  disabled={!canUpgrade}
+                  onClick={() => void handleExecute('verify_fail')}
+                >
+                  {t('simVerifyFail')}
+                </Button>
+              </div>
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

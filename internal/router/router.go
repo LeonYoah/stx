@@ -50,6 +50,7 @@ import (
 	monitoringapp "github.com/LeonYoah/stx/internal/apps/monitoring"
 	"github.com/LeonYoah/stx/internal/apps/oauth"
 	"github.com/LeonYoah/stx/internal/apps/plugin"
+	"github.com/LeonYoah/stx/internal/apps/selfupgrade"
 	"github.com/LeonYoah/stx/internal/apps/stupgrade"
 	syncapp "github.com/LeonYoah/stx/internal/apps/sync"
 	"github.com/LeonYoah/stx/internal/apps/userwrite"
@@ -991,6 +992,23 @@ func Serve() {
 				stUpgradeRouter.GET("/tasks/:id/steps", stUpgradeHandler.ListTaskSteps)
 				stUpgradeRouter.GET("/tasks/:id/logs", stUpgradeHandler.ListTaskLogs)
 				stUpgradeRouter.GET("/tasks/:id/events/stream", stUpgradeHandler.StreamTaskEvents)
+			}
+
+			// STX console self-upgrade (admin only) / STX 控制台自升级（仅管理员）
+			selfUpgradeService := selfupgrade.NewService("./data")
+			selfUpgradeHandler := selfupgrade.NewHandler(selfUpgradeService)
+			selfUpgradeRouter := apiV1Router.Group("/self-upgrade")
+			selfUpgradeRouter.Use(auth.LoginRequired(), admin.LoginAdminRequired())
+			{
+				selfUpgradeRouter.GET("/status", selfUpgradeHandler.GetStatus)
+				selfUpgradeRouter.POST("/check", selfUpgradeHandler.Check)
+				selfUpgradeRouter.POST("/stage/download", selfUpgradeHandler.StartDownload)
+				selfUpgradeRouter.POST("/stage/import", selfUpgradeHandler.ImportOffline)
+				selfUpgradeRouter.GET("/stage", selfUpgradeHandler.GetStage)
+				selfUpgradeRouter.POST("/stage/cancel", selfUpgradeHandler.CancelStage)
+				selfUpgradeRouter.POST("/execute", selfUpgradeHandler.Execute)
+				selfUpgradeRouter.GET("/tasks/:id", selfUpgradeHandler.GetTask)
+				selfUpgradeRouter.POST("/tasks/:id/cancel", selfUpgradeHandler.CancelTask)
 			}
 
 			// Installation routes on hosts 主机安装路由

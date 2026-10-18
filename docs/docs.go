@@ -8507,7 +8507,7 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "data": {
-                    "$ref": "#/definitions/plugin.InstalledPlugin"
+                    "$ref": "#/definitions/plugin.PluginInstallStatus"
                 },
                 "error_msg": {
                     "type": "string"
@@ -8966,6 +8966,10 @@ const docTemplate = `{
         "plugin.PluginInstallStatus": {
             "type": "object",
             "properties": {
+                "cluster_id": {
+                    "description": "集群 ID / Cluster ID",
+                    "type": "integer"
+                },
                 "error": {
                     "description": "错误信息 / Error message",
                     "type": "string"
@@ -8982,8 +8986,20 @@ const docTemplate = `{
                     "description": "进度 (0-100) / Progress",
                     "type": "integer"
                 },
+                "started_at": {
+                    "description": "开始时间 / Started at",
+                    "type": "string"
+                },
                 "status": {
-                    "description": "状态 / Status",
+                    "description": "状态 / Status: pending|downloading|installing|completed|failed",
+                    "type": "string"
+                },
+                "task_id": {
+                    "description": "异步任务 ID / Async task ID",
+                    "type": "string"
+                },
+                "version": {
+                    "description": "插件版本 / Plugin version",
                     "type": "string"
                 }
             }
@@ -9174,6 +9190,7 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "timeout": {
+                    "description": "Timeout 已忽略：生成脚本不再写入 --timeout，保留字段只为兼容旧请求体。\nTimeout is ignored: generated scripts omit --timeout; kept only for old request bodies.",
                     "type": "string"
                 },
                 "upstreams": {
@@ -9302,6 +9319,13 @@ const docTemplate = `{
                 },
                 "connection": {
                     "$ref": "#/definitions/sync.SchedulerConnection"
+                },
+                "published_version": {
+                    "description": "PublishedVersion 是任务当前已发布版本；PushedVersion 是上次推到 Dolphin 的版本。\nPublishedVersion is the task's current published version; PushedVersion is the last version pushed to Dolphin.",
+                    "type": "integer"
+                },
+                "pushed_version": {
+                    "type": "integer"
                 },
                 "recent_jobs": {
                     "type": "array",
@@ -9460,6 +9484,10 @@ const docTemplate = `{
                 "id": {
                     "type": "integer"
                 },
+                "last_synced_at": {
+                    "description": "LastSyncedAt 记录最近一次成功向 SeaTunnel 对齐状态的时间（UTC）。\nLastSyncedAt is when STX last successfully synced runtime state from SeaTunnel (UTC).",
+                    "type": "string"
+                },
                 "mode": {
                     "description": "Mode 从提交快照回填，供 CLI --wait 区分批任务和实时任务，不落库。\nMode is copied from the submit snapshot so CLI --wait can tell batch from streaming; it is not persisted.",
                     "type": "string"
@@ -9484,6 +9512,22 @@ const docTemplate = `{
                 },
                 "submit_spec": {
                     "$ref": "#/definitions/sync.JSONMap"
+                },
+                "sync_fail_count": {
+                    "description": "SyncFailCount 连续问引擎失败次数，成功对齐后归零。\nSyncFailCount counts consecutive engine sync failures; reset after a successful sync.",
+                    "type": "integer"
+                },
+                "sync_lag_ms": {
+                    "description": "SyncLagMs 由 API 根据 last_synced_at 派生，不落库。\nSyncLagMs is derived from last_synced_at at read time and is not persisted.",
+                    "type": "integer"
+                },
+                "sync_state": {
+                    "description": "SyncState 表示观察面新鲜度：ok / degraded / stale / unknown。\nSyncState indicates observation freshness: ok / degraded / stale / unknown.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/sync.JobSyncState"
+                        }
+                    ]
                 },
                 "task_id": {
                     "type": "integer"
@@ -9514,18 +9558,39 @@ const docTemplate = `{
                 "running",
                 "cancel_requested",
                 "cancelling",
+                "doing_savepoint",
+                "failing",
                 "success",
                 "failed",
-                "canceled"
+                "canceled",
+                "savepoint_done"
             ],
             "x-enum-varnames": [
                 "JobStatusPending",
                 "JobStatusRunning",
                 "JobStatusCancelRequested",
                 "JobStatusCancelling",
+                "JobStatusDoingSavepoint",
+                "JobStatusFailing",
                 "JobStatusSuccess",
                 "JobStatusFailed",
-                "JobStatusCanceled"
+                "JobStatusCanceled",
+                "JobStatusSavepointDone"
+            ]
+        },
+        "sync.JobSyncState": {
+            "type": "string",
+            "enum": [
+                "ok",
+                "degraded",
+                "stale",
+                "unknown"
+            ],
+            "x-enum-varnames": [
+                "JobSyncStateOK",
+                "JobSyncStateDegraded",
+                "JobSyncStateStale",
+                "JobSyncStateUnknown"
             ]
         },
         "sync.RunType": {
@@ -9712,6 +9777,10 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "task_id": {
+                    "type": "integer"
+                },
+                "task_version": {
+                    "description": "TaskVersion 记录这次推送对应的 STX 已发布版本；同一版本不能再更新推送。\nTaskVersion is the STX published version this push deployed; the same version cannot be pushed again.",
                     "type": "integer"
                 },
                 "updated_at": {

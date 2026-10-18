@@ -309,18 +309,40 @@ func (s *Service) resolveLatest(ctx context.Context, force string) (string, stri
 
 	owner := envOr("STX_GITHUB_OWNER", "LeonYoah")
 	repo := envOr("STX_GITHUB_REPO", "stx")
-	api := fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest", owner, repo)
 
-	// 1. 直连 GitHub API（带超时限制）/ 1. Direct GitHub API with timeout
+	// 1. 直连 GitHub API（优先读取 releases 列表以支持 beta/预发布版本，超时限制 4s）
+	// 1. Direct GitHub API (prefer releases list to support beta/prerelease tags, with 4s timeout)
 	directCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(directCtx, http.MethodGet, api, nil)
-	if err == nil {
+	listAPI := fmt.Sprintf("https://api.github.com/repos/%s/%s/releases?per_page=5", owner, repo)
+	if req, err := http.NewRequestWithContext(directCtx, http.MethodGet, listAPI, nil); err == nil {
 		req.Header.Set("Accept", "application/vnd.github+json")
 		req.Header.Set("User-Agent", "stx-self-upgrade")
-		resp, doErr := s.httpClient.Do(req)
-		if doErr == nil && resp.StatusCode < 300 {
+		if resp, doErr := s.httpClient.Do(req); doErr == nil && resp.StatusCode < 300 {
+			defer resp.Body.Close()
+			var releases []struct {
+				TagName string `json:"tag_name"`
+				HTMLURL string `json:"html_url"`
+			}
+			if decErr := json.NewDecoder(resp.Body).Decode(&releases); decErr == nil {
+				for _, r := range releases {
+					norm := stxversion.Normalize(r.TagName)
+					if len(norm) > 0 && norm[0] >= '0' && norm[0] <= '9' {
+						return norm, r.HTMLURL, nil
+					}
+				}
+			}
+		} else if resp != nil {
+			resp.Body.Close()
+		}
+	}
+
+	latestAPI := fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest", owner, repo)
+	if req, err := http.NewRequestWithContext(directCtx, http.MethodGet, latestAPI, nil); err == nil {
+		req.Header.Set("Accept", "application/vnd.github+json")
+		req.Header.Set("User-Agent", "stx-self-upgrade")
+		if resp, doErr := s.httpClient.Do(req); doErr == nil && resp.StatusCode < 300 {
 			defer resp.Body.Close()
 			var payload struct {
 				TagName string `json:"tag_name"`

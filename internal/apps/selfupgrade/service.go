@@ -34,6 +34,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/LeonYoah/stx/internal/config"
@@ -962,17 +963,18 @@ func copyDir(src, dst string) error {
 	})
 }
 
-// scheduleRestart 异步平滑重启 STX 前后端服务。
-// scheduleRestart asynchronously and gracefully restarts STX frontend and backend services.
+// scheduleRestart 异步平滑重启 STX 前后端服务（在独立会话中脱机执行，防止父进程退出时被级联终止）。
+// scheduleRestart asynchronously and gracefully restarts STX services in a detached session to prevent cascade kill.
 func (s *Service) scheduleRestart() {
 	time.Sleep(1500 * time.Millisecond)
+	var cmd *exec.Cmd
 	if _, err := os.Stat("./scripts/restart.sh"); err == nil {
-		cmd := exec.Command("./scripts/restart.sh", "--restart-only")
-		_ = cmd.Run()
-		return
+		cmd = exec.Command("./scripts/restart.sh", "--restart-only")
+	} else {
+		cmd = exec.Command("pm2", "restart", "stx-api", "stx-ui")
 	}
-	cmd := exec.Command("pm2", "restart", "stx-api", "stx-ui")
-	_ = cmd.Run()
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	_ = cmd.Start()
 }
 
 func (s *Service) materializeAsset(target string, spec AssetSpec) (string, int64, error) {

@@ -82,10 +82,53 @@ func newSelfUpgradeCommand(storeProvider authStoreProvider) *cobra.Command {
 	checkCmd.Flags().StringVar(&sim, "simulate-failure", "", "Simulate failure code for testing (check_fail, already_latest, etc.)")
 	checkCmd.Flags().StringVar(&force, "force-latest", "", "Force a target version tag for verification")
 
+	var targetVersion string
+	stageCmd := &cobra.Command{
+		Use:   "stage",
+		Short: "Stage and download release assets from network",
+		Args:  usageArgs(cobra.NoArgs),
+		RunE: func(command *cobra.Command, _ []string) error {
+			client, err := resolveSelfUpgradeClient(command, storeProvider, server, namespace)
+			if err != nil {
+				return err
+			}
+			body := map[string]string{}
+			if targetVersion != "" {
+				body["target_version"] = targetVersion
+			}
+			var data any
+			requestID, err := client.Request(command.Context(), http.MethodPost, "/api/v1/self-upgrade/stage/download", body, &data)
+			if err != nil {
+				return err
+			}
+			return renderCommandResultWithRequestID(command, "self_upgrade.stage", requestID, data)
+		},
+	}
+	stageCmd.Flags().StringVar(&targetVersion, "target-version", "", "Target release version to stage")
+
+	executeCmd := &cobra.Command{
+		Use:   "execute",
+		Short: "Execute STX upgrade from local staged assets",
+		Args:  usageArgs(cobra.NoArgs),
+		RunE: func(command *cobra.Command, _ []string) error {
+			client, err := resolveSelfUpgradeClient(command, storeProvider, server, namespace)
+			if err != nil {
+				return err
+			}
+			body := map[string]any{"apply": true}
+			var data any
+			requestID, err := client.Request(command.Context(), http.MethodPost, "/api/v1/self-upgrade/execute", body, &data)
+			if err != nil {
+				return err
+			}
+			return renderCommandResultWithRequestID(command, "self_upgrade.execute", requestID, data)
+		},
+	}
+
 	cmd.PersistentFlags().StringVar(&server, "server", "", "Remote STX server URL")
 	cmd.PersistentFlags().StringVar(&namespace, "namespace", "", "Local namespace to use")
 
-	cmd.AddCommand(statusCmd, checkCmd)
+	cmd.AddCommand(statusCmd, checkCmd, stageCmd, executeCmd)
 	return cmd
 }
 

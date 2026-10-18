@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/LeonYoah/stx/internal/apps/audit"
 	"github.com/LeonYoah/stx/internal/db"
@@ -91,10 +92,22 @@ func sanitizeJobForResponse(job *JobInstance) *JobInstance {
 	clone.SubmitSpec = redactSyncJSONMap(job.SubmitSpec)
 	clone.ResultPreview = redactSyncJSONMap(job.ResultPreview)
 	clone.ErrorMessage = audit.RedactText(job.ErrorMessage)
+	clone.SyncLagMs = computeJobSyncLagMs(&clone)
 	if strings.TrimSpace(clone.Mode) == "" {
 		clone.Mode = strings.ToLower(strings.TrimSpace(stringValue(job.SubmitSpec, "mode")))
 	}
 	return &clone
+}
+
+func computeJobSyncLagMs(job *JobInstance) int64 {
+	if job == nil || job.LastSyncedAt == nil {
+		return 0
+	}
+	lag := time.Since(*job.LastSyncedAt).Milliseconds()
+	if lag < 0 {
+		return 0
+	}
+	return lag
 }
 
 func sanitizeJobsForResponse(jobs []*JobInstance) []*JobInstance {

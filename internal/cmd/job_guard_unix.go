@@ -32,26 +32,48 @@ func startJobGuard(client *cliClient.Client, externalRef string) (*os.File, erro
 	if client == nil || strings.TrimSpace(externalRef) == "" {
 		return nil, nil
 	}
+	// E2E / restricted sandboxes: skip guard when setsid is unavailable.
+	// SIGKILL orphan-cancel is best-effort without the guard.
+	if os.Getenv("STX_DISABLE_JOB_GUARD") == "1" {
+		return nil, nil
+	}
 	reader, writer, err := os.Pipe()
 	if err != nil {
 		return nil, err
 	}
-	cmd := exec.Command(os.Args[0], jobGuardCommandName)
-	cmd.Env = append(os.Environ(),
+	env := append(os.Environ(),
 		"STX_SERVER="+client.Server(),
 		"STX_TOKEN="+client.Token(),
 		"STX_GUARD_REF="+strings.TrimSpace(externalRef),
 	)
-	cmd.ExtraFiles = []*os.File{reader}
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setpgid: true}
-	cmd.Stdout = nil
-	cmd.Stderr = nil
-	if err := cmd.Start(); err != nil {
-		_ = reader.Close()
-		_ = writer.Close()
-		return nil, err
+	start := func(attr *syscall.SysProcAttr) error {
+		cmd := exec.Command(os.Args[0], jobGuardCommandName)
+		cmd.Env = env
+		cmd.ExtraFiles = []*os.File{reader}
+		cmd.SysProcAttr = attr
+		cmd.Stdout = nil
+		cmd.Stderr = nil
+		if err := cmd.Start(); err != nil {
+			return err
+		}
+		_ = cmd.Process.Release()
+		return nil
+	}
+	// Prefer setsid (detach from Dolphin worker terminal). Some sandboxes reject it;
+	// fall back so SHELL submit still proceeds (SIGKILL cancel becomes best-effort).
+	if err := start(jobGuardSysProcAttr()); err != nil {
+		if retryErr := start(&syscall.SysProcAttr{}); retryErr != nil {
+			_ = reader.Close()
+			_ = writer.Close()
+			return nil, err
+		}
 	}
 	_ = reader.Close()
-	_ = cmd.Process.Release()
 	return writer, nil
+}
+
+// jobGuardSysProcAttr 只做 setsid。setsid 已经脱离控制终端并新建进程组；再 Setpgid 时 Start 会返回 operation not permitted，Dolphin 任务在提交前失败。
+// jobGuardSysProcAttr only sets setsid. setsid already detaches the terminal and creates a process group; adding Setpgid makes Start return operation not permitted, so the Dolphin task fails before submit.
+func jobGuardSysProcAttr() *syscall.SysProcAttr {
+	return &syscall.SysProcAttr{Setsid: true}
 }

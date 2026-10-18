@@ -65,19 +65,20 @@ Worker 令牌：
 
 `--wait`：
 
-- 必须轮询 `GET /api/v1/sync/jobs/{id}`（`GetJob` 会 `refreshJobInstance`）
+- 必须轮询 `GET /api/v1/sync/jobs/{id}`（默认读库，禁止 `fresh=1`；引擎状态由作业对账器刷新）
 - 禁止把 `GET /api/v1/executions/:id/wait` 的超时当成成功
 - 批任务等 `success|failed|canceled`；实时任务等 `running` 后退出 0
-- 成功 0，参数 2，认证 3，无权限 4，显式 `--timeout` 到期先 cancel 再 8，失败/被停 10
+- 成功 0，参数 2，认证 3，无权限 4，显式 `--timeout` 到期先 cancel 再 8，失败/被停 10；`sync_state=stale` 超过 `--observation-timeout`（默认 3m）时同样以 timeout 退出并发出 `job_observation_lost`
 - 不传 `--timeout` 则一直等到作业终态；时长由作业本身和 Dolphin 节点超时决定，STX 不定默认上限
 - 生成的 Dolphin SHELL 脚本不得写入 `--timeout`
+- 默认跟随作业日志（`--no-follow-logs` 可关）
 - 作业 JSON 的 `mode` 必须能从 `submit_spec` 回填，否则 CLI `--wait` 会把实时任务当成批任务死等
 
 `--close-job`：
 
 - 与 `--wait` 联用时默认 true；实时任务必须关闭（脚本生成 `--close-job=false`）
 - SIGINT/SIGTERM：发 cancel 后写 `done`
-- SIGKILL：提交前 unix `setsid` 守护进程；管道 `generation N` / `done`；EOF 且无 `done` 则 `cancel-by-ref` 重试最多 30 分钟
+- SIGKILL：提交前 unix `setsid` 守护进程（不要同时 `Setpgid`，否则 `Start` 返回 operation not permitted，任务在提交前失败）；管道 `generation N` / `done`；EOF 且无 `done` 则 `cancel-by-ref` 重试最多 30 分钟
 - 守护进程遇到 409（旧 generation）或 404 必须停止重试
 
 连接：

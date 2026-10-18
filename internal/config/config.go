@@ -160,6 +160,9 @@ func setDefaults(c *configModel, observabilityEnabledSet bool) {
 	if c.Sync.PreviewDataTTLMinutes <= 0 && c.Sync.PreviewDataTTLHours <= 0 {
 		c.Sync.PreviewDataTTLMinutes = 24 * 60
 	}
+	if c.Sync.JobReconcilerIntervalSeconds == 0 {
+		c.Sync.JobReconcilerIntervalSeconds = 10
+	}
 
 	// 认证默认配置
 	if c.Auth.DefaultAdminUsername == "" {

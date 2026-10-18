@@ -30,6 +30,8 @@ var activeJobStatuses = []JobStatus{
 	JobStatusRunning,
 	JobStatusCancelRequested,
 	JobStatusCancelling,
+	JobStatusDoingSavepoint,
+	JobStatusFailing,
 }
 
 // GetActiveJobByExternalRef 返回同一外部引用上仍在运行或停止中的作业。

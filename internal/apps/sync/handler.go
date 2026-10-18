@@ -572,7 +572,9 @@ func (h *Handler) GetJob(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, JobResponse{ErrorMsg: "invalid job id"})
 		return
 	}
-	job, err := h.service.GetJobForActor(c.Request.Context(), currentExecutionActor(c), id)
+	fresh := strings.EqualFold(strings.TrimSpace(c.Query("fresh")), "1") ||
+		strings.EqualFold(strings.TrimSpace(c.Query("fresh")), "true")
+	job, err := h.service.GetJobForActor(c.Request.Context(), currentExecutionActor(c), id, fresh)
 	if err != nil {
 		c.JSON(h.getStatusCodeForError(err), JobResponse{ErrorMsg: err.Error()})
 		return
@@ -716,7 +718,7 @@ func (h *Handler) RecoverJob(c *gin.Context) {
 		}
 	}
 	actor := currentExecutionActor(c)
-	sourceJob, err := h.service.GetJobForActor(c.Request.Context(), actor, id)
+	sourceJob, err := h.service.GetJobForActor(c.Request.Context(), actor, id, false)
 	if err != nil {
 		c.JSON(h.getStatusCodeForError(err), JobResponse{ErrorMsg: err.Error()})
 		return

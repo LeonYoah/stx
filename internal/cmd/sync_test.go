@@ -24,6 +24,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	cliConfig "github.com/LeonYoah/stx/internal/cli/config"
 	clioutput "github.com/LeonYoah/stx/internal/cli/output"
@@ -165,6 +166,7 @@ func TestSyncTaskPermissionsUpdateSendsOnlyPermissionChanges(t *testing.T) {
 }
 
 func TestSyncTaskSubmitSendsWaitAndPollsJob(t *testing.T) {
+	jobPolls := 0
 	var gotBody map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Content-Type", "application/json")
@@ -172,6 +174,9 @@ func TestSyncTaskSubmitSendsWaitAndPollsJob(t *testing.T) {
 		case request.URL.Path == "/api/v1/capabilities":
 			writeSyncCapabilities(t, writer, "sync.task.submit", "R2")
 		case request.URL.Path == "/api/v1/sync/tasks/42":
+			if request.Method != http.MethodGet {
+				t.Fatalf("读取任务模式方法错误: %s", request.Method)
+			}
 			_ = json.NewEncoder(writer).Encode(map[string]any{"data": map[string]any{"id": 42, "mode": "batch"}})
 		case request.URL.Path == "/api/v1/sync/tasks/42/submit":
 			if request.Method != http.MethodPost {
@@ -186,31 +191,70 @@ func TestSyncTaskSubmitSendsWaitAndPollsJob(t *testing.T) {
 					"task_id":           42,
 					"status":            "running",
 					"attach_generation": 1,
+					"sync_state":        "ok",
 				},
 			})
 		case request.URL.Path == "/api/v1/sync/jobs/99":
+			jobPolls++
+			status := "running"
+			if jobPolls >= 2 {
+				status = "success"
+			}
 			_ = json.NewEncoder(writer).Encode(map[string]any{
 				"data": map[string]any{
-					"id":     99,
-					"status": "success",
+					"id":         99,
+					"status":     status,
+					"sync_state": "ok",
 				},
 			})
+		case request.URL.Path == "/api/v1/sync/jobs/99/logs":
+			_ = json.NewEncoder(writer).Encode(map[string]any{
+				"data": map[string]any{
+					"logs":        "line-1\n",
+					"next_offset": "128",
+				},
+			})
+		case strings.HasSuffix(request.URL.Path, "/cancel"):
+			_ = json.NewEncoder(writer).Encode(map[string]any{"data": map[string]any{"id": 99, "status": "canceled"}})
 		default:
 			t.Fatalf("意外的请求路径: %s", request.URL.Path)
 		}
 	}))
 	defer server.Close()
 
+	oldPoll := jobWaitPollInterval
+	oldLog := jobLogFollowInterval
+	jobWaitPollInterval = 5 * time.Millisecond
+	jobLogFollowInterval = 1 * time.Millisecond
+	t.Cleanup(func() {
+		jobWaitPollInterval = oldPoll
+		jobLogFollowInterval = oldLog
+	})
+
 	store := newExecutionTestStore(t, server.URL, "test-token")
 	stdout, stderr, exitCode := runSyncCommand(t, store,
 		"sync", "task", "submit", "42",
 		"--confirm",
 		"--wait",
+		"--close-job=false",
 		"--schedule-time", "20260102150405",
 		"--var", "dt=20260102",
 	)
 	if exitCode != int(clioutput.ExitSuccess) {
 		t.Fatalf("提交并等待任务失败: code=%d stdout=%s stderr=%s", exitCode, stdout, stderr)
+	}
+	if jobPolls < 2 {
+		t.Fatalf("应轮询作业状态至少两次: polls=%d", jobPolls)
+	}
+	// Default --wait uses plain-text stderr (no NDJSON) for DolphinScheduler readability.
+	if strings.Contains(stderr, `"event":`) {
+		t.Fatalf("默认 --wait stderr 应为纯文本，不应含 NDJSON: %s", stderr)
+	}
+	if !strings.Contains(stderr, "line-1") {
+		t.Fatalf("stderr 应包含可读日志行: %s", stderr)
+	}
+	if !strings.Contains(stderr, "[stx] job_status=success") {
+		t.Fatalf("stderr 应包含可读 job_status: %s", stderr)
 	}
 	if gotBody["schedule_time"] != "20260102150405" {
 		t.Fatalf("未发送 schedule_time: %#v", gotBody)
@@ -218,6 +262,57 @@ func TestSyncTaskSubmitSendsWaitAndPollsJob(t *testing.T) {
 	vars, _ := gotBody["variables"].(map[string]any)
 	if vars["dt"] != "20260102" {
 		t.Fatalf("未发送 variables: %#v", gotBody)
+	}
+}
+
+func TestSyncTaskSubmitWaitFailsWhenObservationStale(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		switch {
+		case request.URL.Path == "/api/v1/capabilities":
+			writeSyncCapabilities(t, writer, "sync.task.submit", "R2")
+		case request.URL.Path == "/api/v1/sync/tasks/42":
+			_ = json.NewEncoder(writer).Encode(map[string]any{"data": map[string]any{"mode": "batch"}})
+		case request.URL.Path == "/api/v1/sync/tasks/42/submit":
+			_ = json.NewEncoder(writer).Encode(map[string]any{"data": map[string]any{"id": 99, "status": "running"}})
+		case request.URL.Path == "/api/v1/sync/jobs/99":
+			lag := int64(5 * 60 * 1000)
+			_ = json.NewEncoder(writer).Encode(map[string]any{
+				"data": map[string]any{
+					"id":          99,
+					"status":      "running",
+					"sync_state":  "stale",
+					"sync_lag_ms": lag,
+				},
+			})
+		case request.URL.Path == "/api/v1/sync/jobs/99/logs":
+			_ = json.NewEncoder(writer).Encode(map[string]any{"data": map[string]any{}})
+		default:
+			t.Fatalf("意外的请求路径: %s", request.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	oldPoll := jobWaitPollInterval
+	jobWaitPollInterval = 2 * time.Millisecond
+	t.Cleanup(func() { jobWaitPollInterval = oldPoll })
+
+	store := newExecutionTestStore(t, server.URL, "test-token")
+	_, stderr, exitCode := runSyncCommand(t, store,
+		"sync", "task", "submit", "42",
+		"--confirm",
+		"--wait",
+		"--close-job=false",
+		"--observation-timeout", "3m",
+	)
+	if exitCode != int(clioutput.ExitTimeout) {
+		t.Fatalf("stale 观察超时应返回 timeout 退出码: code=%d stderr=%s", exitCode, stderr)
+	}
+	if strings.Contains(stderr, `"event":`) {
+		t.Fatalf("默认 --wait stderr 应为纯文本，不应含 NDJSON: %s", stderr)
+	}
+	if !strings.Contains(stderr, "engine observation stale") && !strings.Contains(stderr, "job_observation_lost") {
+		t.Fatalf("stderr 应包含可读观察超时信息: %s", stderr)
 	}
 }
 

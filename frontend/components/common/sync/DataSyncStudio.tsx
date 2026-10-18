@@ -533,6 +533,7 @@ export function DataSyncStudio() {
   const jobLogsAbortRef = useRef<AbortController | null>(null);
   const expandedJobLogsAbortRef = useRef<AbortController | null>(null);
   const jobLogsRequestVersionRef = useRef(0);
+  const activeJobsPollInFlightRef = useRef(false);
   const [logsLoading, setLogsLoading] = useState(false);
   const [expandedLogsLoading, setExpandedLogsLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -1682,6 +1683,10 @@ export function DataSyncStudio() {
       return;
     }
     const timer = window.setInterval(() => {
+      if (activeJobsPollInFlightRef.current) {
+        return;
+      }
+      activeJobsPollInFlightRef.current = true;
       void (async () => {
         try {
           const refreshed = await Promise.all(
@@ -1695,6 +1700,8 @@ export function DataSyncStudio() {
         } catch {
           // 忽略瞬时轮询抖动，保持 Studio 可继续操作。
           // Ignore transient polling errors to keep the studio usable.
+        } finally {
+          activeJobsPollInFlightRef.current = false;
         }
       })();
     }, 3000);

@@ -265,7 +265,7 @@ export function usePluginInstall(
           message: 'Starting installation...',
         });
 
-        const result = await PluginService.installPlugin(
+        const status = await PluginService.installPluginAndWait(
           clusterId,
           pluginName,
           version,
@@ -274,13 +274,29 @@ export function usePluginInstall(
 
         setInstallStatus({
           plugin_name: pluginName,
-          status: 'completed',
-          progress: 100,
-          message: 'Installation completed',
+          status: status.status || 'completed',
+          progress: status.progress ?? 100,
+          message: status.message || 'Installation completed',
+          error: status.error,
+          task_id: status.task_id,
+          version: status.version,
         });
 
         onSuccess?.();
-        return result;
+        // Async API returns progress; callers that need InstalledPlugin should refresh list.
+        // 异步 API 返回进度；需要 InstalledPlugin 的调用方应刷新列表。
+        return {
+          id: 0,
+          cluster_id: clusterId,
+          plugin_name: pluginName,
+          artifact_id: '',
+          category: 'connector',
+          version,
+          status: 'installed',
+          install_path: '',
+          installed_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        } as InstalledPlugin;
       } catch (err) {
         const message =
           err instanceof Error ? err.message : 'Installation failed';

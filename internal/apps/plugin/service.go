@@ -30,6 +30,7 @@ import (
 	"os"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -48,6 +49,7 @@ var (
 	ErrPluginAlreadyExists = errors.New("plugin already installed / 插件已安装")
 	ErrVersionMismatch     = errors.New("plugin version does not match cluster version / 插件版本与集群版本不匹配")
 	ErrClusterVersionEmpty = errors.New("cluster version is not set / 集群版本未设置")
+	ErrInstallInProgress   = errors.New("plugin install already in progress / 插件安装已在进行中")
 )
 
 // SeaTunnel Maven repository and documentation URLs
@@ -1180,6 +1182,96 @@ func (s *Service) SetHostInfoGetter(getter HostInfoGetter) {
 // 3. Transfers plugin files to each node's Agent
 // 4. Sends install command to each Agent
 // 5. Updates database record
+// StartInstallPluginAsync starts cluster plugin installation in a background worker.
+// The HTTP request returns immediately with task progress; transfer continues even if the
+// client disconnects (e.g. Next.js default proxyTimeout ~30s). Worker uses a detached context.
+// StartInstallPluginAsync 在后台启动集群插件安装。
+// HTTP 请求立即返回任务进度；即使客户端断开（例如 Next.js 默认 proxyTimeout ~30s）传输仍继续。
+// Worker 使用与请求分离的 context，避免客户端取消导致安装中断。
+func (s *Service) StartInstallPluginAsync(ctx context.Context, clusterID uint, req *InstallPluginRequest) (*PluginInstallStatus, error) {
+	if req == nil {
+		return nil, fmt.Errorf("install request is required / 安装请求不能为空")
+	}
+
+	// Fast-fail validation that should not start a worker / 启动 worker 前的快速失败校验
+	if s.clusterGetter != nil {
+		clusterVersion, err := s.clusterGetter.GetClusterVersion(ctx, clusterID)
+		if err != nil {
+			return nil, err
+		}
+		if clusterVersion == "" {
+			return nil, ErrClusterVersionEmpty
+		}
+		if req.Version != clusterVersion {
+			return nil, fmt.Errorf("%w: plugin version %s, cluster version %s", ErrVersionMismatch, req.Version, clusterVersion)
+		}
+	}
+
+	exists, err := s.repo.ExistsByClusterAndName(ctx, clusterID, req.PluginName)
+	if err != nil {
+		return nil, err
+	}
+	if exists {
+		return nil, ErrPluginAlreadyExists
+	}
+
+	// Idempotent: return in-flight task instead of starting a duplicate worker.
+	// 幂等：若已有进行中任务则直接返回，避免重复启动 worker。
+	if existing := s.GetInstallProgress(clusterID, req.PluginName); existing != nil {
+		switch existing.Status {
+		case "pending", "downloading", "installing":
+			return existing, nil
+		}
+	}
+
+	startedAt := time.Now()
+	taskID := fmt.Sprintf("install-%d-%s-%d", clusterID, req.PluginName, startedAt.UnixNano())
+	progress := &PluginInstallStatus{
+		TaskID:     taskID,
+		ClusterID:  clusterID,
+		PluginName: req.PluginName,
+		Version:    req.Version,
+		Status:     "pending",
+		Progress:   0,
+		Message:    "Install task accepted / 安装任务已受理",
+		StartedAt:  &startedAt,
+	}
+	s.setInstallProgress(clusterID, req.PluginName, progress)
+
+	reqCopy := *req
+	if req.ProfileKeys != nil {
+		reqCopy.ProfileKeys = append([]string(nil), req.ProfileKeys...)
+	}
+
+	go func(clusterID uint, req *InstallPluginRequest, taskID string, startedAt time.Time) {
+		// Detach from HTTP request cancellation / 与 HTTP 请求取消解耦
+		workerCtx := context.Background()
+		_, installErr := s.InstallPluginToCluster(workerCtx, clusterID, req)
+		if installErr != nil {
+			// InstallPluginToCluster usually sets failed progress; ensure terminal state.
+			// InstallPluginToCluster 通常已写入 failed；此处兜底保证终态。
+			if cur := s.GetInstallProgress(clusterID, req.PluginName); cur == nil || (cur.Status != "failed" && cur.Status != "completed") {
+				s.setInstallProgress(clusterID, req.PluginName, &PluginInstallStatus{
+					TaskID:     taskID,
+					ClusterID:  clusterID,
+					PluginName: req.PluginName,
+					Version:    req.Version,
+					Status:     "failed",
+					Progress:   0,
+					Message:    "Install failed / 安装失败",
+					Error:      installErr.Error(),
+					StartedAt:  &startedAt,
+				})
+			}
+			logger.ErrorF(workerCtx, "[Plugin] async install failed: cluster=%d plugin=%s err=%v", clusterID, req.PluginName, installErr)
+			return
+		}
+		logger.InfoF(workerCtx, "[Plugin] async install completed: cluster=%d plugin=%s task=%s", clusterID, req.PluginName, taskID)
+	}(clusterID, &reqCopy, taskID, startedAt)
+
+	return progress, nil
+}
+
 func (s *Service) InstallPluginToCluster(ctx context.Context, clusterID uint, req *InstallPluginRequest) (*InstalledPlugin, error) {
 	// Validate plugin version matches cluster version / 校验插件版本与集群版本是否匹配
 	if s.clusterGetter != nil {
@@ -1210,12 +1302,18 @@ func (s *Service) InstallPluginToCluster(ctx context.Context, clusterID uint, re
 		return nil, err
 	}
 
-	// Initialize progress / 初始化进度
+	// Initialize progress (preserve async task metadata when present) / 初始化进度（保留异步任务元数据）
 	progress := &PluginInstallStatus{
 		PluginName: req.PluginName,
+		ClusterID:  clusterID,
+		Version:    req.Version,
 		Status:     "downloading",
 		Progress:   0,
 		Message:    "Checking local plugin files / 检查本地插件文件",
+	}
+	if existing := s.GetInstallProgress(clusterID, req.PluginName); existing != nil {
+		progress.TaskID = existing.TaskID
+		progress.StartedAt = existing.StartedAt
 	}
 	s.setInstallProgress(clusterID, req.PluginName, progress)
 
@@ -1584,6 +1682,13 @@ func (s *Service) transferFileToAgent(ctx context.Context, agentID, pluginName, 
 			"install_path": installDir,
 		}
 
+		// Optional per-chunk delay for local repro of long transfers (e.g. Next proxyTimeout).
+		// 可选分块延迟，便于本地复现长传输（例如 Next proxyTimeout）。
+		if delayMS := os.Getenv("STX_PLUGIN_TRANSFER_CHUNK_DELAY_MS"); delayMS != "" {
+			if ms, convErr := strconv.Atoi(delayMS); convErr == nil && ms > 0 {
+				time.Sleep(time.Duration(ms) * time.Millisecond)
+			}
+		}
 		success, message, err := s.agentCommandSender.SendCommand(ctx, agentID, "transfer_plugin", params)
 		if err != nil {
 			return fmt.Errorf("failed to transfer chunk at offset %d: %w / 传输偏移 %d 处的块失败: %w", offset, err, offset, err)

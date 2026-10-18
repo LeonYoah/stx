@@ -132,14 +132,64 @@ export class PluginService extends BaseService {
     version: string,
     mirror?: MirrorSource,
     profileKeys?: string[],
-  ): Promise<InstalledPlugin> {
+  ): Promise<PluginInstallStatus> {
     const request: InstallPluginRequest = {
       plugin_name: pluginName,
       version,
       mirror,
       profile_keys: profileKeys,
     };
-    return this.post<InstalledPlugin>(`/clusters/${clusterId}/plugins`, request);
+    // POST creates an async install task and returns immediately.
+    // POST 创建异步安装任务并立即返回。
+    return this.post<PluginInstallStatus>(`/clusters/${clusterId}/plugins`, request);
+  }
+
+  /**
+   * Poll install progress until completed or failed.
+   * 轮询安装进度直到成功或失败。
+   */
+  static async waitForInstall(
+    clusterId: number,
+    pluginName: string,
+    options?: {intervalMs?: number; timeoutMs?: number},
+  ): Promise<PluginInstallStatus> {
+    const intervalMs = options?.intervalMs ?? 1000;
+    const timeoutMs = options?.timeoutMs ?? 30 * 60 * 1000;
+    const started = Date.now();
+    let last: PluginInstallStatus | null = null;
+
+    while (Date.now() - started < timeoutMs) {
+      last = await this.getInstallProgress(clusterId, pluginName);
+      if (last?.status === 'completed') {
+        return last;
+      }
+      if (last?.status === 'failed') {
+        throw new Error(last.error || last.message || 'Plugin installation failed');
+      }
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    }
+
+    throw new Error(
+      last?.message
+        ? `Plugin installation timed out: ${last.message}`
+        : 'Plugin installation timed out',
+    );
+  }
+
+  /**
+   * Start async install and wait for terminal status (for UI flows).
+   * 启动异步安装并等待终态（供 UI 流程使用）。
+   */
+  static async installPluginAndWait(
+    clusterId: number,
+    pluginName: string,
+    version: string,
+    mirror?: MirrorSource,
+    profileKeys?: string[],
+    options?: {intervalMs?: number; timeoutMs?: number},
+  ): Promise<PluginInstallStatus> {
+    await this.installPlugin(clusterId, pluginName, version, mirror, profileKeys);
+    return this.waitForInstall(clusterId, pluginName, options);
   }
 
   /**

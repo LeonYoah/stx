@@ -17,7 +17,7 @@
 
 'use client';
 
-import {useState, useEffect, useMemo, memo} from 'react';
+import {useState, useEffect, useMemo, useCallback, memo} from 'react';
 import {useTranslations} from 'next-intl';
 import {usePathname} from 'next/navigation';
 import {FloatingDock} from '@/components/ui/floating-dock';
@@ -110,11 +110,17 @@ const StaticIcons = {
 };
 
 // 个人信息按钮 - 独立组件
-const ProfileButton = memo(() => {
+// Profile only opens this Dialog; navigation to /system-upgrade is exclusively via 「检查更新」.
+export const ProfileButton = memo(() => {
   const themeUtils = useThemeUtils();
   const router = useRouter();
   const {user, isLoading, logout, checkAuthStatus} = useAuth();
   const {locale, syncLocale} = useLocale();
+  const [open, setOpen] = useState(false);
+  // Arm upgrade CTA after open so the same click that opened the dialog
+  // cannot click-through onto 「检查更新」 when the tall card overlaps the dock.
+  // 打开后短暂延迟再允许点击「检查更新」，避免 Dialog 展开时同一指针事件点穿到底部主按钮。
+  const [upgradeArmed, setUpgradeArmed] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [emailDraft, setEmailDraft] = useState('');
   const [savingEmail, setSavingEmail] = useState(false);
@@ -137,6 +143,15 @@ const ProfileButton = memo(() => {
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  useEffect(() => {
+    if (!open) {
+      setUpgradeArmed(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setUpgradeArmed(true), 350);
+    return () => window.clearTimeout(timer);
+  }, [open]);
 
   // 拉取服务端真实产品版本，供个人资料 / 关于展示
   // Fetch real product version for profile / About
@@ -219,6 +234,14 @@ const ProfileButton = memo(() => {
       console.error('登出失败:', error);
     });
   };
+
+  const handleCheckUpdate = useCallback(() => {
+    if (!user?.is_admin || !upgradeArmed) {
+      return;
+    }
+    setOpen(false);
+    router.push('/system-upgrade');
+  }, [router, upgradeArmed, user?.is_admin]);
 
   const handleSaveEmail = async () => {
     if (!user) {
@@ -305,13 +328,30 @@ const ProfileButton = memo(() => {
   };
 
   return (
-    <Dialog>
+    <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <div className='w-full h-full flex items-center justify-center cursor-pointer rounded transition-colors'>
+        <button
+          type='button'
+          data-testid='profile-dock-trigger'
+          aria-label={t('title')}
+          className='w-full h-full flex items-center justify-center cursor-pointer rounded transition-colors bg-transparent border-0 p-0'
+          onClick={(event) => {
+            // Keep Dock icon chrome from treating this as a nav item click-through.
+            event.stopPropagation();
+          }}
+        >
           <User className='h-4 w-4' />
-        </div>
+        </button>
       </DialogTrigger>
-      <DialogContent className='max-w-md'>
+      <DialogContent
+        className='max-w-md max-h-[min(85vh,720px)] overflow-y-auto'
+        data-testid='profile-dialog'
+        onOpenAutoFocus={(event) => {
+          // Do not autofocus Logout / 检查更新; Enter/Space that opened the dialog
+          // must not activate an action button.
+          event.preventDefault();
+        }}
+      >
         <DialogHeader>
           <DialogTitle>{t('title')}</DialogTitle>
           <DialogDescription className='text-xs font-mono tabular-nums'>
@@ -402,6 +442,7 @@ const ProfileButton = memo(() => {
                       disabled={savingEmail}
                     />
                     <Button
+                      type='button'
                       size='sm'
                       onClick={handleSaveEmail}
                       disabled={
@@ -434,6 +475,7 @@ const ProfileButton = memo(() => {
               </h4>
               <div className='flex items-center justify-between'>
                 <button
+                  type='button'
                   onClick={themeUtils.toggle}
                   className='flex items-center gap-2 px-3 py-2 rounded-md bg-muted/50 hover:bg-muted/80 transition-colors'
                 >
@@ -453,6 +495,7 @@ const ProfileButton = memo(() => {
               <div className='flex items-center gap-2'>
                 {locales.map((loc) => (
                   <button
+                    type='button'
                     key={loc}
                     onClick={() => {
                       setLanguageDraft(loc as Locale);
@@ -476,6 +519,7 @@ const ProfileButton = memo(() => {
               </div>
               <div className='mt-3 flex items-center gap-2'>
                 <Button
+                  type='button'
                   size='sm'
                   onClick={handleSaveLanguage}
                   disabled={
@@ -533,6 +577,7 @@ const ProfileButton = memo(() => {
               </p>
               <div className='mt-3 flex items-center gap-2'>
                 <Button
+                  type='button'
                   size='sm'
                   onClick={handleSaveTimezone}
                   disabled={
@@ -612,40 +657,41 @@ const ProfileButton = memo(() => {
                 </span>
               </div>
             </div>
-          </div>
 
-          {/* 系统升级入口：管理员可检查更新 / System upgrade entry for admins */}
-          {!isLoading && user && (
-            <div className='pt-1'>
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <div className='w-full'>
-                      <Button
-                        type='button'
-                        className='w-full active:scale-[0.98]'
-                        disabled={!user.is_admin}
-                        onClick={() => {
-                          if (!user.is_admin) {
-                            return;
-                          }
-                          router.push('/system-upgrade');
-                        }}
-                      >
-                        <ArrowUpCircle className='h-4 w-4 mr-1.5' />
-                        {t('checkUpdate')}
-                      </Button>
-                    </div>
-                  </TooltipTrigger>
-                  {!user.is_admin ? (
-                    <TooltipContent>
-                      <p>{t('adminOnlyTooltip')}</p>
-                    </TooltipContent>
-                  ) : null}
-                </Tooltip>
-              </TooltipProvider>
-            </div>
-          )}
+            {/* 系统升级入口：次要 outline，置于关于卡片下方，仅显式点击才跳转 */}
+            {/* System upgrade: secondary outline under About; navigate only on explicit click */}
+            {!isLoading && user ? (
+              <div className='mt-3 pt-3 border-t border-border/50'>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className='w-full'>
+                        <Button
+                          type='button'
+                          variant='outline'
+                          size='sm'
+                          data-testid='profile-check-update'
+                          className={`w-full justify-start text-muted-foreground hover:text-foreground ${
+                            upgradeArmed ? '' : 'pointer-events-none'
+                          }`}
+                          disabled={!user.is_admin}
+                          onClick={handleCheckUpdate}
+                        >
+                          <ArrowUpCircle className='h-4 w-4 mr-1.5' />
+                          {t('checkUpdate')}
+                        </Button>
+                      </div>
+                    </TooltipTrigger>
+                    {!user.is_admin ? (
+                      <TooltipContent>
+                        <p>{t('adminOnlyTooltip')}</p>
+                      </TooltipContent>
+                    ) : null}
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
+            ) : null}
+          </div>
 
           {!isLoading && !user && (
             <div className='text-center text-muted-foreground'>

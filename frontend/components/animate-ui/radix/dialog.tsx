@@ -124,6 +124,13 @@ function DialogContent({
   children,
   from = 'top',
   transition = {type: 'spring', stiffness: 200, damping: 30},
+  // Radix focus / dismiss callbacks must stay on Content — not the motion DOM node.
+  // Radix 的开合焦点回调只能挂在 Content 上，不可透传到 motion DOM，否则会被 React 忽略。
+  onOpenAutoFocus,
+  onCloseAutoFocus,
+  onEscapeKeyDown,
+  onPointerDownOutside,
+  onInteractOutside,
   ...props
 }: DialogContentProps) {
   const {isOpen} = useDialog();
@@ -146,7 +153,15 @@ function DialogContent({
               transition={{duration: 0.15, ease: easeOut}}
             />
           </DialogOverlay>
-          <DialogPrimitive.Content asChild forceMount {...props}>
+          <DialogPrimitive.Content
+            asChild
+            forceMount
+            onOpenAutoFocus={onOpenAutoFocus}
+            onCloseAutoFocus={onCloseAutoFocus}
+            onEscapeKeyDown={onEscapeKeyDown}
+            onPointerDownOutside={onPointerDownOutside}
+            onInteractOutside={onInteractOutside}
+          >
             <motion.div
               key='dialog-content'
               data-slot='dialog-content'

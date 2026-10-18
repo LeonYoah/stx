@@ -681,12 +681,42 @@ if [[ "$LAYOUT" == "split" ]]; then
     write_sha256 "$OUTPUT_DIR/stx-docker-compose.tar.gz"
   fi
 
+  # 发布自升级整合包（单架构独立全量包，不含重型外部运行时）。
+  # Publish unified self-upgrade bundles (architecture-specific bundle excluding heavy external runtimes).
+  for arch in "${ARCHES[@]}"; do
+    upgrade_stage="$STAGE_DIR/upgrade-${arch}"
+    rm -rf "$upgrade_stage"
+    mkdir -p "$upgrade_stage/lib/agent" "$upgrade_stage/scripts" "$upgrade_stage/frontend"
+    cp "$BUILD_DIR/stx-linux-${arch}" "$upgrade_stage/stx"
+    chmod +x "$upgrade_stage/stx"
+    cp "$BUILD_DIR/stx-agent-linux-${arch}" "$upgrade_stage/lib/agent/stx-agent-linux-${arch}"
+    chmod +x "$upgrade_stage/lib/agent/stx-agent-linux-${arch}"
+    stage_stx_java_proxy_jars "$upgrade_stage/lib"
+    if [[ -f "$ROOT_DIR/scripts/stx-java-proxy.sh" ]]; then
+      cp "$ROOT_DIR/scripts/stx-java-proxy.sh" "$upgrade_stage/scripts/stx-java-proxy.sh"
+      chmod +x "$upgrade_stage/scripts/stx-java-proxy.sh"
+    fi
+    cp -a "$FRONTEND_DIST"/. "$upgrade_stage/frontend/"
+    cat >"$upgrade_stage/BUILD_INFO" <<EOF
+version=$APP_VERSION_SAFE
+arch=$arch
+created_at=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+EOF
+    upgrade_name="stx-upgrade-${APP_VERSION_SAFE}-linux-${arch}.tar.gz"
+    upgrade_alias="stx-upgrade-linux-${arch}.tar.gz"
+    echo "creating $upgrade_name"
+    tar -C "$upgrade_stage" -czf "$OUTPUT_DIR/$upgrade_name" .
+    write_sha256 "$OUTPUT_DIR/$upgrade_name"
+    cp "$OUTPUT_DIR/$upgrade_name" "$OUTPUT_DIR/$upgrade_alias"
+    cp "$OUTPUT_DIR/${upgrade_name}.sha256" "$OUTPUT_DIR/${upgrade_alias}.sha256"
+  done
+
   (
     cd "$OUTPUT_DIR"
     if command -v sha256sum >/dev/null 2>&1; then
-      sha256sum stx-linux-* stx-agent-linux-* frontend-standalone-*.tar.gz stx-java-proxy-*.jar stx-java-proxy.sh 2>/dev/null >SHA256SUMS || true
+      sha256sum stx-linux-* stx-agent-linux-* frontend-standalone-*.tar.gz stx-upgrade-*.tar.gz stx-java-proxy-*.jar stx-java-proxy.sh 2>/dev/null >SHA256SUMS || true
     else
-      shasum -a 256 stx-linux-* stx-agent-linux-* frontend-standalone-*.tar.gz stx-java-proxy-*.jar stx-java-proxy.sh 2>/dev/null >SHA256SUMS || true
+      shasum -a 256 stx-linux-* stx-agent-linux-* frontend-standalone-*.tar.gz stx-upgrade-*.tar.gz stx-java-proxy-*.jar stx-java-proxy.sh 2>/dev/null >SHA256SUMS || true
     fi
   )
 

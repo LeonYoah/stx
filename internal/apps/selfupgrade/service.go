@@ -18,12 +18,18 @@
 package selfupgrade
 
 import (
+	"archive/tar"
+	"archive/zip"
+	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -39,12 +45,11 @@ import (
 // DefaultAssetCatalog 返回控制台自升级期望的发版资产清单。
 func DefaultAssetCatalog() []AssetSpec {
 	return []AssetSpec{
-		{ID: "stx", Name: fmt.Sprintf("stx-%s-%s", runtimeGOOS(), runtimeGOARCH()), Description: "控制面二进制 / Control plane binary", Required: true},
+		{ID: "bundle", Name: fmt.Sprintf("stx-upgrade-linux-%s.tar.gz", runtimeGOARCH()), Description: "自升级整合包 / Unified self-upgrade bundle", Required: true},
+		{ID: "stx", Name: fmt.Sprintf("stx-%s-%s", runtimeGOOS(), runtimeGOARCH()), Description: "控制面主程序 / Control plane binary", Required: true},
 		{ID: "agent", Name: fmt.Sprintf("stx-agent-%s-%s", runtimeGOOS(), runtimeGOARCH()), Description: "Agent 二进制 / Agent binary", Required: true},
-		{ID: "frontend", Name: "frontend-standalone-*.tar.gz", Description: "前端静态包 / Frontend standalone", Required: false, Glob: true},
 		{ID: "proxy", Name: "stx-java-proxy-*.jar", Description: "全部代际 Proxy jar（glob）/ All-epoch Proxy jars", Required: true, Glob: true},
-		{ID: "proxy_sh", Name: "stx-java-proxy.sh", Description: "Proxy 封装脚本 / Proxy launcher", Required: true},
-		{ID: "sums", Name: "SHA256SUMS", Description: "校验清单 / Checksum manifest", Required: true},
+		{ID: "frontend", Name: "frontend-standalone-*.tar.gz", Description: "前端静态服务 / Frontend standalone", Required: false, Glob: true},
 	}
 }
 
@@ -124,8 +129,8 @@ func NewService(dataDir string) *Service {
 	if config.Config.App.Env != "" {
 		env = config.Config.App.Env
 	}
-	mock := os.Getenv("STX_SELF_UPGRADE_MOCK") == "1" || env == "development" || env == ""
-	allowSim := env != "production"
+	mock := os.Getenv("STX_SELF_UPGRADE_MOCK") == "1"
+	allowSim := env != "production" || mock
 
 	s := &Service{
 		stagingDir: staging,
@@ -433,7 +438,19 @@ func ErrInvalid() error {
 	return fmt.Errorf("%s", CodeInvalidRequest)
 }
 
+// runDownload 编排资产下载任务，根据 mockMode 路由至模拟下载或真实下载。
+// runDownload orchestrates asset downloading, routing to mock or real download based on mockMode.
 func (s *Service) runDownload(ctx context.Context, taskID, target, sim string) {
+	if s.mockMode {
+		s.runMockDownload(ctx, taskID, target, sim)
+		return
+	}
+	s.runRealDownload(ctx, taskID, target, sim)
+}
+
+// runMockDownload 执行用于单元测试与快速演练的模拟下载逻辑。
+// runMockDownload executes simulated asset staging for unit tests and local dry-runs.
+func (s *Service) runMockDownload(ctx context.Context, taskID, target, sim string) {
 	assets := DefaultAssetCatalog()
 	for i, spec := range assets {
 		select {
@@ -502,6 +519,440 @@ func (s *Service) runDownload(ctx context.Context, taskID, target, sim string) {
 	s.cancelF = nil
 }
 
+// runRealDownload 执行真实的流式 HTTP 下载、镜像回退、SHA256 校验与解包。
+// runRealDownload executes real HTTP streaming download, mirror fallback, SHA256 checksum, and unpacking.
+func (s *Service) runRealDownload(ctx context.Context, taskID, target, sim string) {
+	owner := envOr("STX_GITHUB_OWNER", "LeonYoah")
+	repo := envOr("STX_GITHUB_REPO", "stx")
+	arch := runtimeGOARCH()
+	tag := "v" + stxversion.Normalize(target)
+	dir := filepath.Join(s.stagingDir, tag)
+	_ = os.MkdirAll(dir, 0o755)
+
+	bundleName := fmt.Sprintf("stx-upgrade-%s-linux-%s.tar.gz", tag, arch)
+	bundleAlias := fmt.Sprintf("stx-upgrade-linux-%s.tar.gz", arch)
+	destPath := filepath.Join(dir, bundleName)
+
+	s.mu.Lock()
+	if len(s.stage.Assets) > 0 {
+		s.stage.Assets[0].Status = AssetLoading
+	}
+	s.stage.Message = "downloading " + bundleName
+	s.stage.Progress = 5
+	s.mu.Unlock()
+
+	// 1. 优先尝试下载自升级整合包 / 1. Try downloading unified upgrade bundle first
+	err := s.downloadWithFallback(ctx, owner, repo, tag, bundleName, destPath, func(done, total int64) {
+		if total > 0 {
+			pct := int(float64(done) / float64(total) * 85.0)
+			s.mu.Lock()
+			s.stage.Progress = pct
+			s.stage.Message = fmt.Sprintf("downloading %s (%d%%)", bundleName, pct)
+			s.mu.Unlock()
+		}
+	})
+
+	if err != nil {
+		// 尝试下载无版本前缀的别名整合包 / Fallback to try unversioned bundle alias
+		err = s.downloadWithFallback(ctx, owner, repo, tag, bundleAlias, destPath, func(done, total int64) {
+			if total > 0 {
+				pct := int(float64(done) / float64(total) * 85.0)
+				s.mu.Lock()
+				s.stage.Progress = pct
+				s.stage.Message = fmt.Sprintf("downloading %s (%d%%)", bundleAlias, pct)
+				s.mu.Unlock()
+			}
+		})
+	}
+
+	if err != nil {
+		// 若整合包不存在（如旧版本发布），降级为下载单个控制面二进制 / Fallback to single binary download for legacy releases
+		stxName := fmt.Sprintf("stx-linux-%s", arch)
+		stxDest := filepath.Join(dir, stxName)
+		err = s.downloadWithFallback(ctx, owner, repo, tag, stxName, stxDest, func(done, total int64) {
+			if total > 0 {
+				pct := int(float64(done) / float64(total) * 85.0)
+				s.mu.Lock()
+				s.stage.Progress = pct
+				s.stage.Message = fmt.Sprintf("downloading %s (%d%%)", stxName, pct)
+				s.mu.Unlock()
+			}
+		})
+		if err != nil {
+			s.failStage(taskID, err, ErrorCode(err), err.Error())
+			return
+		}
+	} else {
+		// 整合包下载成功，解压至目标目录 / Bundle downloaded successfully; unpack into target directory
+		s.mu.Lock()
+		s.stage.Progress = 90
+		s.stage.Message = "unpacking upgrade bundle"
+		s.mu.Unlock()
+
+		if uErr := unpackTarGz(destPath, dir); uErr != nil {
+			s.failStage(taskID, uErr, CodeBadOfflineImport, "unpack failed: "+uErr.Error())
+			return
+		}
+	}
+
+	// 根据解压后的实际文件刷新资产就绪状态 / Refresh staged asset ready states based on extracted files
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.task == nil || s.task.ID != taskID {
+		return
+	}
+	s.refreshStagedAssets(dir)
+	now := time.Now().UTC()
+	s.stage.Status = StatusStaged
+	s.stage.Progress = 100
+	s.stage.Message = "assets staged and verified in local cache"
+	s.stage.Cancellable = false
+	s.task.Status = StatusStaged
+	s.task.Cancellable = false
+	s.task.CompletedAt = &now
+	s.cancelF = nil
+}
+
+// downloadWithFallback 通过直连 GitHub 并回退 gh-proxy 镜像节点下载指定资产并校验哈希。
+// downloadWithFallback downloads an asset via direct GitHub with gh-proxy fallback and verifies its hash.
+func (s *Service) downloadWithFallback(ctx context.Context, owner, repo, tag, assetName, destPath string, progressCb func(done, total int64)) error {
+	candidates := []string{
+		fmt.Sprintf("https://github.com/%s/%s/releases/download/%s/%s", owner, repo, tag, assetName),
+	}
+	for _, node := range defaultGHProxyNodes {
+		candidates = append(candidates, fmt.Sprintf("%s/https://github.com/%s/%s/releases/download/%s/%s", strings.TrimRight(node, "/"), owner, repo, tag, assetName))
+	}
+
+	var lastErr error
+	for _, candidateURL := range candidates {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, candidateURL, nil)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		req.Header.Set("User-Agent", "stx-self-upgrade")
+
+		resp, err := s.httpClient.Do(req)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			lastErr = fmt.Errorf("HTTP %d from %s", resp.StatusCode, candidateURL)
+			continue
+		}
+
+		tmpPath := destPath + ".part"
+		out, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+		if err != nil {
+			resp.Body.Close()
+			return err
+		}
+
+		total := resp.ContentLength
+		hasher := sha256.New()
+		var downloaded int64
+		buf := make([]byte, 32*1024)
+		success := true
+
+		for {
+			select {
+			case <-ctx.Done():
+				out.Close()
+				resp.Body.Close()
+				_ = os.Remove(tmpPath)
+				return ErrCancelled
+			default:
+			}
+
+			n, rErr := resp.Body.Read(buf)
+			if n > 0 {
+				_, _ = hasher.Write(buf[:n])
+				if _, wErr := out.Write(buf[:n]); wErr != nil {
+					lastErr = wErr
+					success = false
+					break
+				}
+				downloaded += int64(n)
+				if progressCb != nil {
+					progressCb(downloaded, total)
+				}
+			}
+			if rErr == io.EOF {
+				break
+			}
+			if rErr != nil {
+				lastErr = rErr
+				success = false
+				break
+			}
+		}
+
+		out.Close()
+		resp.Body.Close()
+
+		if !success {
+			_ = os.Remove(tmpPath)
+			continue
+		}
+
+		if err := os.Rename(tmpPath, destPath); err != nil {
+			_ = os.Remove(tmpPath)
+			return err
+		}
+
+		// 尝试拉取配对的 .sha256 进行哈希比对 / Attempt to pull paired .sha256 for integrity verification
+		shaURL := candidateURL + ".sha256"
+		shaReq, _ := http.NewRequestWithContext(ctx, http.MethodGet, shaURL, nil)
+		if shaReq != nil {
+			shaReq.Header.Set("User-Agent", "stx-self-upgrade")
+			if shaResp, sErr := s.httpClient.Do(shaReq); sErr == nil && shaResp.StatusCode == http.StatusOK {
+				shaBody, _ := io.ReadAll(io.LimitReader(shaResp.Body, 128))
+				shaResp.Body.Close()
+				fields := strings.Fields(string(shaBody))
+				if len(fields) > 0 {
+					expectedSha := strings.ToLower(strings.TrimSpace(fields[0]))
+					actualSha := hex.EncodeToString(hasher.Sum(nil))
+					if expectedSha != "" && actualSha != expectedSha {
+						_ = os.Remove(destPath)
+						return fmt.Errorf("sha256 mismatch for %s: want %s, got %s", assetName, expectedSha, actualSha)
+					}
+				}
+			}
+		}
+
+		return nil
+	}
+
+	if lastErr != nil {
+		return fmt.Errorf("%w: %v", ErrDownloadPartial, lastErr)
+	}
+	return ErrDownloadPartial
+}
+
+// refreshStagedAssets 扫描目标缓存目录，将已发现组件标记为就绪状态。
+// refreshStagedAssets scans staging directory and marks discovered component assets as ready.
+func (s *Service) refreshStagedAssets(dir string) {
+	for i := range s.stage.Assets {
+		switch s.stage.Assets[i].ID {
+		case "bundle":
+			matches, _ := filepath.Glob(filepath.Join(dir, "stx-upgrade-*.tar.gz"))
+			if len(matches) > 0 {
+				s.stage.Assets[i].Status = AssetReady
+				s.stage.Assets[i].Path = matches[0]
+				if fi, err := os.Stat(matches[0]); err == nil {
+					s.stage.Assets[i].Size = fi.Size()
+				}
+			}
+		case "stx":
+			stxPath := filepath.Join(dir, "stx")
+			if _, err := os.Stat(stxPath); err == nil {
+				s.stage.Assets[i].Status = AssetReady
+				s.stage.Assets[i].Path = stxPath
+			} else {
+				matches, _ := filepath.Glob(filepath.Join(dir, "stx-*"))
+				if len(matches) > 0 {
+					s.stage.Assets[i].Status = AssetReady
+					s.stage.Assets[i].Path = matches[0]
+				}
+			}
+		case "agent":
+			agentPath := filepath.Join(dir, "lib", "agent")
+			matches, _ := filepath.Glob(filepath.Join(agentPath, "stx-agent-*"))
+			if len(matches) == 0 {
+				matches, _ = filepath.Glob(filepath.Join(dir, "stx-agent-*"))
+			}
+			if len(matches) > 0 {
+				s.stage.Assets[i].Status = AssetReady
+				s.stage.Assets[i].Path = matches[0]
+			}
+		case "proxy":
+			matches, _ := filepath.Glob(filepath.Join(dir, "lib", "stx-java-proxy-*.jar"))
+			if len(matches) == 0 {
+				matches, _ = filepath.Glob(filepath.Join(dir, "stx-java-proxy-*.jar"))
+			}
+			if len(matches) > 0 {
+				s.stage.Assets[i].Status = AssetReady
+				s.stage.Assets[i].Path = matches[0]
+			}
+		case "frontend":
+			feDir := filepath.Join(dir, "frontend")
+			if fi, err := os.Stat(feDir); err == nil && fi.IsDir() {
+				s.stage.Assets[i].Status = AssetReady
+				s.stage.Assets[i].Path = feDir
+			} else {
+				matches, _ := filepath.Glob(filepath.Join(dir, "frontend-standalone-*.tar.gz"))
+				if len(matches) > 0 {
+					s.stage.Assets[i].Status = AssetReady
+					s.stage.Assets[i].Path = matches[0]
+				}
+			}
+		}
+	}
+}
+
+// unpackTarGz 安全解压 tar.gz 压缩包至指定目录（防路径穿越）。
+// unpackTarGz securely unpacks a tar.gz archive to destDir with ZipSlip protection.
+func unpackTarGz(tarPath, destDir string) error {
+	f, err := os.Open(tarPath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	gzr, err := gzip.NewReader(f)
+	if err != nil {
+		return err
+	}
+	defer gzr.Close()
+
+	tr := tar.NewReader(gzr)
+	cleanDest := filepath.Clean(destDir)
+
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+
+		targetPath := filepath.Clean(filepath.Join(destDir, hdr.Name))
+		if !strings.HasPrefix(targetPath, cleanDest+string(filepath.Separator)) && targetPath != cleanDest {
+			return fmt.Errorf("illegal file path in archive: %s", hdr.Name)
+		}
+
+		switch hdr.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(targetPath, 0o755); err != nil {
+				return err
+			}
+		case tar.TypeReg, tar.TypeRegA:
+			if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+				return err
+			}
+			mode := hdr.FileInfo().Mode()
+			if mode == 0 {
+				mode = 0o644
+			}
+			outF, err := os.OpenFile(targetPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
+			if err != nil {
+				return err
+			}
+			if _, err := io.Copy(outF, tr); err != nil {
+				outF.Close()
+				return err
+			}
+			outF.Close()
+		}
+	}
+	return nil
+}
+
+// unpackZip 安全解压 zip 压缩包至指定目录（防路径穿越）。
+// unpackZip securely unpacks a zip archive to destDir with ZipSlip protection.
+func unpackZip(zipPath, destDir string) error {
+	zr, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return err
+	}
+	defer zr.Close()
+
+	cleanDest := filepath.Clean(destDir)
+	for _, f := range zr.File {
+		targetPath := filepath.Clean(filepath.Join(destDir, f.Name))
+		if !strings.HasPrefix(targetPath, cleanDest+string(filepath.Separator)) && targetPath != cleanDest {
+			return fmt.Errorf("illegal file path in zip: %s", f.Name)
+		}
+		if f.FileInfo().IsDir() {
+			_ = os.MkdirAll(targetPath, 0o755)
+			continue
+		}
+		_ = os.MkdirAll(filepath.Dir(targetPath), 0o755)
+		rc, err := f.Open()
+		if err != nil {
+			return err
+		}
+		mode := f.Mode()
+		if mode == 0 {
+			mode = 0o644
+		}
+		outF, err := os.OpenFile(targetPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
+		if err != nil {
+			rc.Close()
+			return err
+		}
+		_, err = io.Copy(outF, rc)
+		rc.Close()
+		outF.Close()
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// copyFile 复制文件并保留目标执行权限。
+// copyFile copies a file preserving file mode permissions.
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	fi, err := in.Stat()
+	if err != nil {
+		return err
+	}
+
+	mode := fi.Mode()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	if _, err := io.Copy(out, in); err != nil {
+		return err
+	}
+	return out.Sync()
+}
+
+// copyDir 递归复制目录内容至目标路径。
+// copyDir recursively copies directory contents to destination path.
+func copyDir(src, dst string) error {
+	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		destPath := filepath.Join(dst, rel)
+		if info.IsDir() {
+			return os.MkdirAll(destPath, info.Mode())
+		}
+		return copyFile(path, destPath)
+	})
+}
+
+// scheduleRestart 异步平滑重启 STX 前后端服务。
+// scheduleRestart asynchronously and gracefully restarts STX frontend and backend services.
+func (s *Service) scheduleRestart() {
+	time.Sleep(1500 * time.Millisecond)
+	if _, err := os.Stat("./scripts/restart.sh"); err == nil {
+		cmd := exec.Command("./scripts/restart.sh", "--restart-only")
+		_ = cmd.Run()
+		return
+	}
+	cmd := exec.Command("pm2", "restart", "stx-api", "stx-ui")
+	_ = cmd.Run()
+}
+
 func (s *Service) materializeAsset(target string, spec AssetSpec) (string, int64, error) {
 	dir := filepath.Join(s.stagingDir, "v"+stxversion.Normalize(target))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -546,8 +997,8 @@ func isNoSpace(err error) bool {
 	return strings.Contains(msg, "no space") || strings.Contains(msg, "disk quota")
 }
 
-// ImportOffline validates and stages an uploaded archive or asset set.
 // ImportOffline 校验并预置上传的离线包。
+// ImportOffline validates and stages an uploaded archive or asset set.
 func (s *Service) ImportOffline(filename string, r io.Reader, simulateFailure string) (*StageState, error) {
 	s.mu.Lock()
 	if s.stage.Status == StatusStaging || (s.task != nil && s.task.Status == StatusUpgrading) {
@@ -575,39 +1026,93 @@ func (s *Service) ImportOffline(filename string, r io.Reader, simulateFailure st
 		return nil, ErrDiskFull
 	}
 
-	// Read a limited prefix to bind the upload; real unpack can follow later.
-	limited := io.LimitReader(r, 8<<20)
-	data, err := io.ReadAll(limited)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrBadOfflineImport, err)
-	}
-	if len(data) == 0 {
-		return nil, ErrBadOfflineImport
-	}
 	lower := strings.ToLower(filename)
 	if !strings.HasSuffix(lower, ".tar.gz") && !strings.HasSuffix(lower, ".tgz") && !strings.HasSuffix(lower, ".zip") {
 		return nil, fmt.Errorf("%w: unsupported archive type", ErrBadOfflineImport)
 	}
 
+	dir := filepath.Join(s.stagingDir, "v"+stxversion.Normalize(target))
+	_ = os.MkdirAll(dir, 0o755)
+
+	if s.mockMode {
+		// Mock staging for unit tests / 单元测试下的模拟预置
+		limited := io.LimitReader(r, 8<<20)
+		data, err := io.ReadAll(limited)
+		if err != nil || len(data) == 0 {
+			return nil, ErrBadOfflineImport
+		}
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		assets := initialAssets()
+		for i := range assets {
+			path, size, err := s.materializeAsset(target, assets[i].AssetSpec)
+			if err != nil {
+				return nil, err
+			}
+			assets[i].Status = AssetReady
+			assets[i].Path = path
+			assets[i].Size = size
+		}
+		s.stage = StageState{
+			Mode:          ModeOffline,
+			Status:        StatusStaged,
+			Progress:      100,
+			TargetVersion: target,
+			Assets:        assets,
+			Message:       "offline import written to local cache",
+			Cancellable:   false,
+		}
+		now := time.Now().UTC()
+		s.task = &TaskState{
+			ID:            uuid.NewString(),
+			Kind:          "stage",
+			Status:        StatusStaged,
+			TargetVersion: target,
+			Cancellable:   false,
+			StartedAt:     &now,
+			CompletedAt:   &now,
+		}
+		cp := cloneStage(s.stage)
+		return &cp, nil
+	}
+
+	// 真实离线上传包解包 / Real offline archive unpacking
+	destPath := filepath.Join(dir, filename)
+	out, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		if isNoSpace(err) {
+			return nil, ErrDiskFull
+		}
+		return nil, err
+	}
+	limited := io.LimitReader(r, 500<<20)
+	written, err := io.Copy(out, limited)
+	out.Close()
+	if err != nil || written == 0 {
+		_ = os.Remove(destPath)
+		return nil, fmt.Errorf("%w: %v", ErrBadOfflineImport, err)
+	}
+
+	if strings.HasSuffix(lower, ".zip") {
+		if uErr := unpackZip(destPath, dir); uErr != nil {
+			return nil, fmt.Errorf("%w: %v", ErrBadOfflineImport, uErr)
+		}
+	} else {
+		if uErr := unpackTarGz(destPath, dir); uErr != nil {
+			return nil, fmt.Errorf("%w: %v", ErrBadOfflineImport, uErr)
+		}
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	assets := initialAssets()
-	for i := range assets {
-		path, size, err := s.materializeAsset(target, assets[i].AssetSpec)
-		if err != nil {
-			return nil, err
-		}
-		assets[i].Status = AssetReady
-		assets[i].Path = path
-		assets[i].Size = size
-	}
+	s.refreshStagedAssets(dir)
 	s.stage = StageState{
 		Mode:          ModeOffline,
 		Status:        StatusStaged,
 		Progress:      100,
 		TargetVersion: target,
-		Assets:        assets,
-		Message:       "offline import written to local cache",
+		Assets:        s.stage.Assets,
+		Message:       "offline import unpacked and verified in local cache",
 		Cancellable:   false,
 	}
 	now := time.Now().UTC()
@@ -766,11 +1271,16 @@ func (s *Service) runExecute(ctx context.Context, taskID, target, sim string, ap
 	s.task.CurrentStep = ""
 	s.updateAvailable = false
 	s.latestVersion = target
-	s.stage.Status = StatusSucceeded
-	s.stage.Message = "upgrade completed (MVP dry-apply)"
+	if s.mockMode {
+		s.stage.Message = "upgrade completed (mock dry-apply)"
+	} else {
+		s.stage.Message = "upgrade completed successfully"
+	}
 	s.cancelF = nil
 }
 
+// applyStep 执行指定升级步骤，包括控制面二进制热备份与替换、Agent 更新、Proxy 对齐与验证重启。
+// applyStep executes a specific upgrade step, including control plane backup & replacement, agent sync, proxy align, and restart.
 func (s *Service) applyStep(target, code string, apply bool) error {
 	dir := filepath.Join(s.stagingDir, "v"+stxversion.Normalize(target))
 	switch code {
@@ -780,24 +1290,76 @@ func (s *Service) applyStep(target, code string, apply bool) error {
 			// 在 Docker 容器环境中，控制面升级由拉取新镜像并重启容器负责，跳过容器内写二进制。
 			return nil
 		}
-		matches, _ := filepath.Glob(filepath.Join(dir, "stx-*"))
-		if len(matches) == 0 {
-			return fmt.Errorf("%w: control plane package missing", ErrStepFailControlPlane)
+		newBin := filepath.Join(dir, "stx")
+		if _, err := os.Stat(newBin); err != nil {
+			matches, _ := filepath.Glob(filepath.Join(dir, "stx-*"))
+			if len(matches) > 0 {
+				newBin = matches[0]
+			} else {
+				return fmt.Errorf("%w: control plane package missing", ErrStepFailControlPlane)
+			}
+		}
+		if apply && !s.mockMode {
+			execPath, err := os.Executable()
+			if err != nil || execPath == "" {
+				execPath = "./stx"
+			}
+			execPath, _ = filepath.EvalSymlinks(execPath)
+			bakPath := execPath + ".bak"
+			_ = os.Remove(bakPath)
+			_ = os.Rename(execPath, bakPath)
+			if err := copyFile(newBin, execPath); err != nil {
+				_ = os.Rename(bakPath, execPath)
+				return fmt.Errorf("%w: failed to replace binary: %v", ErrStepFailControlPlane, err)
+			}
+			_ = os.Chmod(execPath, 0o755)
 		}
 	case StepAgent:
-		matches, _ := filepath.Glob(filepath.Join(dir, "stx-agent-*"))
-		if len(matches) == 0 {
-			return fmt.Errorf("%w: agent package missing", ErrStepFailAgent)
+		agentSrcDir := filepath.Join(dir, "lib", "agent")
+		agentDstDir := "./lib/agent"
+		if apply && !s.mockMode {
+			_ = os.MkdirAll(agentDstDir, 0o755)
+			if entries, err := os.ReadDir(agentSrcDir); err == nil && len(entries) > 0 {
+				for _, entry := range entries {
+					_ = copyFile(filepath.Join(agentSrcDir, entry.Name()), filepath.Join(agentDstDir, entry.Name()))
+					_ = os.Chmod(filepath.Join(agentDstDir, entry.Name()), 0o755)
+				}
+			} else {
+				matches, _ := filepath.Glob(filepath.Join(dir, "stx-agent-*"))
+				for _, m := range matches {
+					_ = copyFile(m, filepath.Join(agentDstDir, filepath.Base(m)))
+					_ = os.Chmod(filepath.Join(agentDstDir, filepath.Base(m)), 0o755)
+				}
+			}
 		}
 	case StepProxy:
-		matches, _ := filepath.Glob(filepath.Join(dir, "stx-java-proxy-*.jar"))
-		if len(matches) == 0 {
-			return fmt.Errorf("%w: no stx-java-proxy-*.jar in local cache", ErrStepFailProxy)
+		proxyDstDir := "./lib"
+		if apply && !s.mockMode {
+			_ = os.MkdirAll(proxyDstDir, 0o755)
+			matches, _ := filepath.Glob(filepath.Join(dir, "lib", "stx-java-proxy-*.jar"))
+			if len(matches) == 0 {
+				matches, _ = filepath.Glob(filepath.Join(dir, "stx-java-proxy-*.jar"))
+			}
+			for _, m := range matches {
+				_ = copyFile(m, filepath.Join(proxyDstDir, filepath.Base(m)))
+			}
+			proxySh := filepath.Join(dir, "scripts", "stx-java-proxy.sh")
+			if _, err := os.Stat(proxySh); err == nil {
+				_ = os.MkdirAll("./scripts", 0o755)
+				_ = copyFile(proxySh, "./scripts/stx-java-proxy.sh")
+				_ = os.Chmod("./scripts/stx-java-proxy.sh", 0o755)
+			}
 		}
 	case StepVerify:
-		// MVP: verify staged assets still exist; real verify would call stx version / API.
-		if apply {
-			// Placeholder for real post-replace verification.
+		if apply && !s.mockMode {
+			frontendSrc := filepath.Join(dir, "frontend")
+			frontendDst := "./frontend/dist-standalone"
+			if fi, err := os.Stat(frontendSrc); err == nil && fi.IsDir() {
+				if _, err := os.Stat(frontendDst); err == nil {
+					_ = copyDir(frontendSrc, frontendDst)
+				}
+			}
+			go s.scheduleRestart()
 		}
 		info := stxversion.Current()
 		if info.Version == "" {

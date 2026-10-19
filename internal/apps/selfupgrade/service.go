@@ -249,8 +249,17 @@ func (s *Service) Check(ctx context.Context, req CheckRequest) (*CheckResult, er
 		}
 	}
 
+	if req.ForceLatest != "" {
+		if err := validateTargetVersion(req.ForceLatest); err != nil {
+			return nil, err
+		}
+	}
 	cur := stxversion.Current().Version
 	latest, url, err := s.resolveLatest(ctx, req.ForceLatest)
+	if err == nil {
+		// 远端返回的 tag 同样用于构造本地路径，必须校验 / remote tags also build local paths and must be validated
+		err = validateTargetVersion(latest)
+	}
 	if err != nil {
 		result := &CheckResult{
 			CurrentVersion: cur,
@@ -422,6 +431,10 @@ func (s *Service) StartDownload(ctx context.Context, req StageDownloadRequest) (
 	if target == "" {
 		target = s.latestVersion
 	}
+	if err := validateTargetVersion(target); err != nil {
+		s.mu.Unlock()
+		return nil, err
+	}
 	sim := ""
 	if s.allowSim {
 		sim = req.SimulateFailure
@@ -556,7 +569,11 @@ func (s *Service) runRealDownload(ctx context.Context, taskID, target, sim strin
 	repo := envOr("STX_GITHUB_REPO", "stx")
 	arch := runtimeGOARCH()
 	tag := "v" + stxversion.Normalize(target)
-	dir := filepath.Join(s.stagingDir, tag)
+	dir, dirErr := s.versionStagingDir(target)
+	if dirErr != nil {
+		s.failStage(taskID, dirErr, CodeInvalidRequest, dirErr.Error())
+		return
+	}
 	_ = os.MkdirAll(dir, 0o755)
 
 	bundleName := fmt.Sprintf("stx-upgrade-%s-linux-%s.tar.gz", tag, arch)
@@ -985,7 +1002,10 @@ func (s *Service) scheduleRestart() {
 }
 
 func (s *Service) materializeAsset(target string, spec AssetSpec) (string, int64, error) {
-	dir := filepath.Join(s.stagingDir, "v"+stxversion.Normalize(target))
+	dir, err := s.versionStagingDir(target)
+	if err != nil {
+		return "", 0, err
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		if isNoSpace(err) {
 			return "", 0, ErrDiskFull
@@ -1053,6 +1073,9 @@ func (s *Service) ImportOffline(filename string, r io.Reader, simulateFailure st
 		sim = simulateFailure
 	}
 	s.mu.Unlock()
+	if err := validateTargetVersion(target); err != nil {
+		return nil, err
+	}
 
 	if sim == CodeBadOfflineImport || filename == "" {
 		return nil, ErrBadOfflineImport
@@ -1066,7 +1089,10 @@ func (s *Service) ImportOffline(filename string, r io.Reader, simulateFailure st
 		return nil, fmt.Errorf("%w: unsupported archive type", ErrBadOfflineImport)
 	}
 
-	dir := filepath.Join(s.stagingDir, "v"+stxversion.Normalize(target))
+	dir, err := s.versionStagingDir(target)
+	if err != nil {
+		return nil, err
+	}
 	_ = os.MkdirAll(dir, 0o755)
 
 	if s.mockMode {
@@ -1201,6 +1227,10 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) (*TaskState, 
 	}
 
 	target := s.stage.TargetVersion
+	if err := validateTargetVersion(target); err != nil {
+		s.mu.Unlock()
+		return nil, err
+	}
 	now := time.Now().UTC()
 	taskID := uuid.NewString()
 	steps := []StepState{
@@ -1349,7 +1379,10 @@ func (s *Service) runExecute(ctx context.Context, taskID, target, sim string, ap
 // applyStep 执行指定升级步骤，包括控制面二进制热备份与替换、Agent 更新、Proxy 对齐与验证重启。
 // applyStep executes a specific upgrade step, including control plane backup & replacement, agent sync, proxy align, and restart.
 func (s *Service) applyStep(target, code string, apply bool) error {
-	dir := filepath.Join(s.stagingDir, "v"+stxversion.Normalize(target))
+	dir, err := s.versionStagingDir(target)
+	if err != nil {
+		return err
+	}
 	switch code {
 	case StepControlPlane:
 		if IsRunningInDocker() {
@@ -1627,4 +1660,28 @@ func cloneStage(in StageState) StageState {
 		out.Assets = append([]AssetState(nil), in.Assets...)
 	}
 	return out
+}
+
+// validateTargetVersion 校验 target_version，防止通过版本号构造越界路径。
+// validateTargetVersion validates target_version so it cannot be used for path traversal.
+func validateTargetVersion(v string) error {
+	if err := stxversion.ValidateReleaseVersion(v); err != nil {
+		return fmt.Errorf("%w: invalid target_version: %v", ErrInvalidRequest, err)
+	}
+	return nil
+}
+
+// versionStagingDir 返回指定版本的暂存目录，并确保其位于 stagingDir 之内。
+// versionStagingDir returns the staging directory of a version and guarantees it stays under stagingDir.
+func (s *Service) versionStagingDir(target string) (string, error) {
+	if err := validateTargetVersion(target); err != nil {
+		return "", err
+	}
+	base := filepath.Clean(s.stagingDir)
+	dir := filepath.Join(base, "v"+stxversion.Normalize(target))
+	rel, err := filepath.Rel(base, dir)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || strings.ContainsRune(rel, filepath.Separator) {
+		return "", fmt.Errorf("%w: invalid target_version: staging path escapes staging directory", ErrInvalidRequest)
+	}
+	return dir, nil
 }

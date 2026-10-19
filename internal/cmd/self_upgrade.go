@@ -22,6 +22,8 @@ import (
 
 	cliClient "github.com/LeonYoah/stx/internal/cli/client"
 	cliConfig "github.com/LeonYoah/stx/internal/cli/config"
+	clioutput "github.com/LeonYoah/stx/internal/cli/output"
+	stxversion "github.com/LeonYoah/stx/internal/version"
 	"github.com/spf13/cobra"
 )
 
@@ -60,6 +62,11 @@ func newSelfUpgradeCommand(storeProvider authStoreProvider) *cobra.Command {
 		Short: "Check for new STX releases",
 		Args:  usageArgs(cobra.NoArgs),
 		RunE: func(command *cobra.Command, _ []string) error {
+			if force != "" {
+				if err := validateSelfUpgradeVersionFlag("--force-latest", force); err != nil {
+					return err
+				}
+			}
 			client, err := resolveSelfUpgradeClient(command, storeProvider, server, namespace)
 			if err != nil {
 				return err
@@ -89,6 +96,11 @@ func newSelfUpgradeCommand(storeProvider authStoreProvider) *cobra.Command {
 		Short: "Stage and download release assets from network",
 		Args:  usageArgs(cobra.NoArgs),
 		RunE: func(command *cobra.Command, _ []string) error {
+			if targetVersion != "" {
+				if err := validateSelfUpgradeVersionFlag("--target-version", targetVersion); err != nil {
+					return err
+				}
+			}
 			client, err := resolveSelfUpgradeClient(command, storeProvider, server, namespace)
 			if err != nil {
 				return err
@@ -172,4 +184,13 @@ func resolveSelfUpgradeClient(command *cobra.Command, storeProvider authStorePro
 		return nil, classifyAuthCommandError(err)
 	}
 	return cliClient.New(resolved, nil)
+}
+
+// validateSelfUpgradeVersionFlag 在发送请求前拒绝非法版本号（如路径穿越）。
+// validateSelfUpgradeVersionFlag rejects invalid versions (such as path traversal) before sending requests.
+func validateSelfUpgradeVersionFlag(flag, value string) error {
+	if err := stxversion.ValidateReleaseVersion(value); err != nil {
+		return clioutput.NewError(clioutput.CodeUsage, "invalid "+flag+": "+err.Error(), clioutput.ExitUsage, false)
+	}
+	return nil
 }

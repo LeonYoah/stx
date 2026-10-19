@@ -21,21 +21,21 @@ import "errors"
 
 // Typed error codes returned to API clients. / 返回给 API 客户端的错误码。
 const (
-	CodeCheckFail           = "check_fail"
-	CodeAlreadyLatest       = "already_latest"
-	CodeDownloadPartial     = "download_partial"
-	CodeBadOfflineImport    = "bad_offline_import"
-	CodeForbiddenNonAdmin   = "forbidden_non_admin"
+	CodeCheckFail            = "check_fail"
+	CodeAlreadyLatest        = "already_latest"
+	CodeDownloadPartial      = "download_partial"
+	CodeBadOfflineImport     = "bad_offline_import"
+	CodeForbiddenNonAdmin    = "forbidden_non_admin"
 	CodeStepFailControlPlane = "step_fail_control_plane"
-	CodeStepFailAgent       = "step_fail_agent"
-	CodeStepFailProxy       = "step_fail_proxy"
-	CodeVerifyFail          = "verify_fail"
-	CodeConcurrentUpgrade   = "concurrent_upgrade"
-	CodeDiskFull            = "disk_full"
-	CodeCancelled           = "cancelled"
-	CodeNotStaged           = "not_staged"
-	CodeNetworkUnreachable  = "network_unreachable"
-	CodeInvalidRequest      = "invalid_request"
+	CodeStepFailAgent        = "step_fail_agent"
+	CodeStepFailProxy        = "step_fail_proxy"
+	CodeVerifyFail           = "verify_fail"
+	CodeConcurrentUpgrade    = "concurrent_upgrade"
+	CodeDiskFull             = "disk_full"
+	CodeCancelled            = "cancelled"
+	CodeNotStaged            = "not_staged"
+	CodeNetworkUnreachable   = "network_unreachable"
+	CodeInvalidRequest       = "invalid_request"
 )
 
 var (
@@ -53,6 +53,9 @@ var (
 	ErrDiskFull             = errors.New(CodeDiskFull)
 	ErrCancelled            = errors.New(CodeCancelled)
 	ErrNotStaged            = errors.New(CodeNotStaged)
+	// ErrInvalidRequest 表示请求参数非法（如 target_version 不是合法版本）。
+	// ErrInvalidRequest marks malformed request input such as an invalid target_version.
+	ErrInvalidRequest = errors.New(CodeInvalidRequest)
 )
 
 // ErrorCode extracts a stable code from an error. / 从错误中提取稳定错误码。

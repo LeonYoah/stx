@@ -120,3 +120,36 @@ func TestSelfUpgradeStatusAndCheckCLI(t *testing.T) {
 		t.Fatalf("expected operation self_upgrade.history in %s", stdout.String())
 	}
 }
+
+// TestSelfUpgradeRejectsInvalidVersionFlags 验证 CLI 在请求前拒绝路径穿越等非法版本号。
+// TestSelfUpgradeRejectsInvalidVersionFlags verifies that the CLI rejects invalid versions such as path traversal before any request.
+func TestSelfUpgradeRejectsInvalidVersionFlags(t *testing.T) {
+	called := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	cases := [][]string{
+		{"self-upgrade", "stage", "--target-version", "../../etc", "--server", server.URL},
+		{"self-upgrade", "stage", "--target-version", "/tmp/evil", "--server", server.URL},
+		{"self-upgrade", "stage", "--target-version", `..\evil`, "--server", server.URL},
+		{"self-upgrade", "stage", "--target-version", "latest", "--server", server.URL},
+		{"self-upgrade", "check", "--force-latest", "v1.2.3/../../x", "--server", server.URL},
+	}
+	for _, args := range cases {
+		stdout := &bytes.Buffer{}
+		stderr := &bytes.Buffer{}
+		exitCode := executeCommand(NewRootCommand(), args, stdout, stderr)
+		if exitCode == 0 {
+			t.Fatalf("%v exit = 0, want usage error; stdout=%s", args, stdout.String())
+		}
+		if !strings.Contains(stderr.String()+stdout.String(), "invalid --") {
+			t.Fatalf("%v missing validation message: stdout=%s stderr=%s", args, stdout.String(), stderr.String())
+		}
+	}
+	if called {
+		t.Fatalf("server must not be called for invalid versions")
+	}
+}

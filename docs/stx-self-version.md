@@ -14,7 +14,7 @@
 
 ### 非目标（明确不做）
 
-- **不做** STX 产品内一键升级器（对比 `stupgrade`）；升级仍走 `install-online.sh --version` / 重装。
+- ~~**不做** STX 产品内一键升级器~~ → 已由控制台「系统升级」承接（见 `.trellis/tasks/10-18-stx-self-upgrade`）；与 `stupgrade`（集群）分离。脚本重装路径仍保留。
 - **不**把前端 `package.json` 的 npm 包版本当产品版本源（仅保留私有包元数据，可与产品版本同步脚本对齐）。
 - **不**引入独立 VERSION 文件与 tag 双写冲突；tag 为发布权威，源码默认值为开发兜底。
 

@@ -26,7 +26,7 @@ import (
 
 // RegistryRevision 是操作登记表的兼容修订号。
 // RegistryRevision is the compatibility revision of the operation registry.
-const RegistryRevision = 25
+const RegistryRevision = 26
 
 var registry = append([]OperationSpec{
 	{
@@ -1603,6 +1603,7 @@ var registry = append([]OperationSpec{
 func additionalOperationSpecs() []OperationSpec {
 	specs := clusterAdditionalOperationSpecs()
 	specs = append(specs, stUpgradeOperationSpecs()...)
+	specs = append(specs, selfUpgradeOperationSpecs()...)
 	specs = append(specs, additionalReadOperationSpecs()...)
 	specs = append(specs, auditOperationSpecs()...)
 	specs = append(specs, configWriteOperationSpecs()...)

@@ -33,6 +33,7 @@ import {DiagnosticsService} from './diagnostics/index';
 import {SyncService} from './sync/index';
 import {troubleshootingService} from './troubleshooting/index';
 import {CapabilityService} from './capability/index';
+import {SelfUpgradeService} from './self-upgrade/index';
 
 /**
  * 服务层架构说明：
@@ -211,6 +212,12 @@ const services = {
    * Troubleshooting memory bank service
    */
   troubleshooting: troubleshootingService,
+
+  /**
+   * STX 控制台自升级服务
+   * STX console self-upgrade service
+   */
+  selfUpgrade: SelfUpgradeService,
 };
 
 export default services;

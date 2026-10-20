@@ -140,10 +140,12 @@ const FloatingDockMobile = memo(
                   >
                     {item.customComponent ? (
                       <div
+                        data-dock-custom='true'
                         className={cn(
                           'flex h-9 w-9 items-center justify-center rounded-full bg-gray-50 dark:bg-neutral-900',
                           buttonClassName,
                         )}
+                        onClick={(event) => event.stopPropagation()}
                       >
                         {item.customComponent}
                       </div>
@@ -444,8 +446,18 @@ const IconContainer = memo(
       </motion.div>
     );
 
+    // customComponent owns its own interaction (e.g. Profile DialogTrigger).
+    // Do not wrap in Link/button — that caused accidental nav / click-through.
     if (customComponent) {
-      return <div className='outline-none'>{content}</div>;
+      return (
+        <div
+          className='outline-none'
+          data-dock-custom='true'
+          onClick={(event) => event.stopPropagation()}
+        >
+          {content}
+        </div>
+      );
     }
 
     if (href) {

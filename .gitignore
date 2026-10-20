@@ -61,6 +61,7 @@ app.pid
 frontend-next.pid
 frontend/dist-standalone/
 /stx
+*.bak
 /github.com/
 frontend/playwright-report/
 frontend/test-results/

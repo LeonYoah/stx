@@ -50,6 +50,13 @@ import {
 import {cn} from '@/lib/utils';
 import {toast} from 'sonner';
 
+// 去掉可选的 v 前缀，便于比较与展示版本号
+// Strip an optional leading v so versions compare and render consistently
+function normalizeVersion(version: string): string {
+  const trimmed = version.trim();
+  return /^[vV]\d/.test(trimmed) ? trimmed.slice(1) : trimmed;
+}
+
 function statusPillClass(status: string): string {
   switch (status) {
     case 'available':
@@ -183,12 +190,22 @@ export function SystemUpgradeMain() {
 
   const isDocker = status?.deployment_type === 'docker';
 
+  // 已预置版本与最新可用版本不一致（例如已离线导入 X，远端已有 Y）
+  // The staged version differs from the latest available one (e.g. staged X, available Y)
+  const stagedVersion = status?.stage?.status === 'staged' ? status.stage.target_version : undefined;
+  const newerThanStaged =
+    !!stagedVersion &&
+    !!status?.latest_version &&
+    normalizeVersion(stagedVersion) !== normalizeVersion(status.latest_version);
+
+  // 已预置包会在重新检查后保留；只有存在不同的新版本时才允许显式重新预置替换
+  // A staged package survives re-checks; re-staging is allowed only to explicitly replace it with a different version
   const canStage =
     !isDocker &&
     !!status?.checked &&
     !!status?.update_available &&
     status.stage.status !== 'staging' &&
-    status.stage.status !== 'staged' &&
+    (status.stage.status !== 'staged' || newerThanStaged) &&
     status.overall_status !== 'upgrading' &&
     status.overall_status !== 'succeeded';
 
@@ -210,6 +227,17 @@ export function SystemUpgradeMain() {
         setStageTab('offline');
       } else if (result.error_code === 'check_fail') {
         setErrorBanner(t('errCheckFail'));
+      } else if (result.stage_preserved && result.staged_version) {
+        if (normalizeVersion(result.staged_version) === normalizeVersion(result.latest_version)) {
+          toast.success(t('stagedKept', {version: normalizeVersion(result.staged_version)}));
+        } else {
+          toast.success(
+            t('stagedKeptNewerAvailable', {
+              staged: normalizeVersion(result.staged_version),
+              latest: normalizeVersion(result.latest_version),
+            }),
+          );
+        }
       } else if (!result.update_available) {
         toast.success(t('alreadyLatest'));
       } else {
@@ -679,6 +707,14 @@ export function SystemUpgradeMain() {
                 ? t('executeHintReady')
                 : t('executeHintBlocked')}
           </p>
+          {!isDocker && newerThanStaged && stagedVersion && status?.latest_version ? (
+            <p className='text-xs text-amber-700 dark:text-amber-300'>
+              {t('stagedOlderThanLatest', {
+                staged: normalizeVersion(stagedVersion),
+                latest: normalizeVersion(status.latest_version),
+              })}
+            </p>
+          ) : null}
           <div className='grid gap-2 sm:grid-cols-2'>
             {(steps.length
               ? steps

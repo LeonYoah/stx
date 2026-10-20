@@ -293,13 +293,70 @@ func (s *Service) Check(ctx context.Context, req CheckRequest) (*CheckResult, er
 	s.updateAvailable = available
 	s.latestVersion = latest
 	s.releaseURL = url
-	s.lastCheck = result
-	// Reset stage when a new check finds a different target.
-	if available {
-		s.stage = StageState{Status: StatusIdle, Assets: initialAssets(), TargetVersion: latest}
+	if s.reconcileStageAfterCheckLocked(cur, latest, available) && s.stage.Status == StatusStaged {
+		result.StagedVersion = s.stage.TargetVersion
+		result.StagePreserved = true
 	}
+	s.lastCheck = result
 	s.mu.Unlock()
 	return result, nil
+}
+
+// reconcileStageAfterCheckLocked 在版本检查后决定是否保留预置状态，返回 true 表示保留。
+// 规则：进行中的预置/升级从不清理；仍可用的已预置包（联网或离线导入）始终保留，
+// 即使远端最新版本不同，也只在显式重新预置或取消时替换；仅当已预置包缺失或已不高于当前版本时才重置。
+// reconcileStageAfterCheckLocked decides whether to keep the stage after a version check and
+// returns true when it is preserved. In-flight staging/upgrades are never touched; a still-usable
+// staged package (online or offline) is always kept even if the remote latest differs, and is only
+// replaced by an explicit new stage. The stage is reset only when the staged package is missing or obsolete.
+func (s *Service) reconcileStageAfterCheckLocked(cur, latest string, available bool) bool {
+	if s.stage.Status == StatusStaging || (s.task != nil && (s.task.Status == StatusStaging || s.task.Status == StatusUpgrading)) {
+		return true
+	}
+	if s.stage.Status == StatusStaged {
+		if s.stagedPackageUsableLocked(cur) {
+			return true
+		}
+		// 已预置包缺失或过期：清掉对应的预置任务，避免总体状态仍显示 staged。
+		// The staged package is missing or obsolete: drop its stage task so overall status no longer reports staged.
+		if s.task != nil && s.task.Kind == "stage" && s.task.Status == StatusStaged {
+			s.task = nil
+		}
+		s.stage = StageState{Status: StatusIdle, Assets: initialAssets(), Message: "previously staged package is missing or no longer newer than the current version"}
+	}
+	if available {
+		msg := s.stage.Message
+		s.stage = StageState{Status: StatusIdle, Assets: initialAssets(), TargetVersion: latest, Message: msg}
+	}
+	return false
+}
+
+// stagedPackageUsableLocked 判断已预置包是否仍可直接用于执行：版本合法且高于当前版本、就绪资产文件仍存在且大小未变。
+// stagedPackageUsableLocked reports whether the staged package can still be executed: the version is valid
+// and newer than the current one, and every ready asset still exists on disk with an unchanged size.
+func (s *Service) stagedPackageUsableLocked(cur string) bool {
+	target := s.stage.TargetVersion
+	if validateTargetVersion(target) != nil || stxversion.Compare(cur, target) >= 0 {
+		return false
+	}
+	ready := 0
+	for _, asset := range s.stage.Assets {
+		if asset.Status != AssetReady {
+			continue
+		}
+		if asset.Path == "" {
+			return false
+		}
+		fi, err := os.Stat(asset.Path)
+		if err != nil {
+			return false
+		}
+		if fi.Mode().IsRegular() && asset.Size > 0 && fi.Size() != asset.Size {
+			return false
+		}
+		ready++
+	}
+	return ready > 0
 }
 
 func (s *Service) resolveLatest(ctx context.Context, force string) (string, string, error) {
@@ -470,10 +527,11 @@ func (s *Service) StartDownload(ctx context.Context, req StageDownloadRequest) (
 	}
 	runCtx, cancel := context.WithCancel(context.Background())
 	s.cancelF = cancel
+	// 在释放锁前复制快照，避免与后台 goroutine 数据竞争 / snapshot before unlocking to avoid racing the worker
+	cp := *task
 	s.mu.Unlock()
 
 	go s.runDownload(runCtx, taskID, target, sim)
-	cp := *task
 	return &cp, nil
 }
 
@@ -1252,10 +1310,12 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) (*TaskState, 
 	s.task = task
 	runCtx, cancel := context.WithCancel(context.Background())
 	s.cancelF = cancel
+	// 在释放锁前复制快照，避免与后台 goroutine 数据竞争 / snapshot before unlocking to avoid racing the worker
+	cp := *task
+	cp.Steps = append([]StepState(nil), task.Steps...)
 	s.mu.Unlock()
 
 	go s.runExecute(runCtx, taskID, target, sim, req.Apply)
-	cp := *task
 	return &cp, nil
 }
 

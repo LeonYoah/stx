@@ -58,6 +58,10 @@ export interface CheckResult {
   checked_at: string;
   message?: string;
   error_code?: string;
+  // 检查后仍保留的已预置版本 / staged version kept after the check
+  staged_version?: string;
+  // 本次检查保留了已预置包 / the check kept the staged package
+  stage_preserved?: boolean;
 }
 
 export interface StageState {

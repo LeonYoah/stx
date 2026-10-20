@@ -21,22 +21,22 @@ import "time"
 
 // Phase / Status enums.
 const (
-	StatusIdle       = "idle"
-	StatusChecking   = "checking"
-	StatusAvailable  = "available"
-	StatusUpToDate   = "up_to_date"
-	StatusStaging    = "staging"
-	StatusStaged     = "staged"
-	StatusUpgrading  = "upgrading"
-	StatusSucceeded  = "succeeded"
-	StatusFailed     = "failed"
-	StatusCancelled  = "cancelled"
+	StatusIdle      = "idle"
+	StatusChecking  = "checking"
+	StatusAvailable = "available"
+	StatusUpToDate  = "up_to_date"
+	StatusStaging   = "staging"
+	StatusStaged    = "staged"
+	StatusUpgrading = "upgrading"
+	StatusSucceeded = "succeeded"
+	StatusFailed    = "failed"
+	StatusCancelled = "cancelled"
 
-	AssetPending  = "pending"
-	AssetLoading  = "loading"
-	AssetReady    = "ready"
-	AssetFailed   = "failed"
-	AssetSkipped  = "skipped"
+	AssetPending = "pending"
+	AssetLoading = "loading"
+	AssetReady   = "ready"
+	AssetFailed  = "failed"
+	AssetSkipped = "skipped"
 
 	StepPending   = "pending"
 	StepRunning   = "running"
@@ -93,18 +93,24 @@ type CheckResult struct {
 	CheckedAt       string `json:"checked_at"`
 	Message         string `json:"message,omitempty"`
 	ErrorCode       string `json:"error_code,omitempty"`
+	// StagedVersion 是检查后仍保留的已预置版本（可能与 LatestVersion 不同）。
+	// StagedVersion is the staged version kept after the check (may differ from LatestVersion).
+	StagedVersion string `json:"staged_version,omitempty"`
+	// StagePreserved 表示本次检查保留了已预置包，可直接执行升级。
+	// StagePreserved reports that this check kept the staged package, so execution can proceed.
+	StagePreserved bool `json:"stage_preserved,omitempty"`
 }
 
 // StageState tracks asset staging. / 预置进度。
 type StageState struct {
-	Mode       string       `json:"mode,omitempty"`
-	Status     string       `json:"status"`
-	Progress   int          `json:"progress"`
-	TargetVersion string    `json:"target_version,omitempty"`
-	Assets     []AssetState `json:"assets"`
-	Message    string       `json:"message,omitempty"`
-	ErrorCode  string       `json:"error_code,omitempty"`
-	Cancellable bool        `json:"cancellable"`
+	Mode          string       `json:"mode,omitempty"`
+	Status        string       `json:"status"`
+	Progress      int          `json:"progress"`
+	TargetVersion string       `json:"target_version,omitempty"`
+	Assets        []AssetState `json:"assets"`
+	Message       string       `json:"message,omitempty"`
+	ErrorCode     string       `json:"error_code,omitempty"`
+	Cancellable   bool         `json:"cancellable"`
 }
 
 // TaskState is an execute/stage task snapshot. / 执行或预置任务快照。

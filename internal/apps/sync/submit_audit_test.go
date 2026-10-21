@@ -44,7 +44,8 @@ func newSubmitAuditFixture(t *testing.T) (*Handler, *audit.Repository, *Service,
 		t.Fatalf("open db: %v", err)
 	}
 	if err := database.AutoMigrate(
-		&Task{}, &TaskVersion{}, &JobInstance{},
+		&Task{}, &TaskVersion{}, &JobInstance{}, &GlobalVariable{}, &PreviewSession{}, &PreviewTable{}, &PreviewRow{},
+		&SchedulerConnection{}, &TaskSchedulerBinding{},
 		&auth.User{}, &audit.AuditLog{},
 		&executionapp.Execution{}, &executionapp.Confirmation{},
 	); err != nil {

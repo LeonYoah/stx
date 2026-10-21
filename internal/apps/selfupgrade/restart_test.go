@@ -319,9 +319,9 @@ func newWatchdogFixture(t *testing.T, newBody string) *watchdogFixture {
 		TaskID: "task-1", TargetVersion: "1.0.1", FromVersion: "1.0.0",
 		Strategy:   restartStrategy{Kind: RestartStrategyStandalone},
 		Executable: f.exe, Backup: f.exe + ".bak",
-		Argv:       []string{f.exe, "server"},
-		Env:        append(os.Environ(), "STX_TEST_READY="+f.ready),
-		Dir:        dir, StdoutPath: filepath.Join(dir, "cp.log"), StderrPath: filepath.Join(dir, "cp.log"),
+		Argv: []string{f.exe, "server"},
+		Env:  append(os.Environ(), "STX_TEST_READY="+f.ready),
+		Dir:  dir, StdoutPath: filepath.Join(dir, "cp.log"), StderrPath: filepath.Join(dir, "cp.log"),
 		OldPID: oldPID, BackendPIDFile: filepath.Join(dir, "backend.pid"),
 		ReadyPath: f.ready, ResultPath: filepath.Join(dir, "result.json"), TimeoutSeconds: 3,
 	}

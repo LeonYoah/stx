@@ -117,3 +117,102 @@ func TestApplyManualFollowupAttributionLeavesCrashRestartAsSystem(t *testing.T) 
 		t.Fatalf("crash restart should stay system/auto: %+v", log)
 	}
 }
+
+func TestManualFollowupAttributionPersistsAuditRow(t *testing.T) {
+	dsn := fmt.Sprintf("file:process-followup-db-%s?mode=memory&cache=shared", t.Name())
+	database, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := database.AutoMigrate(&auth.User{}, &audit.CommandLog{}, &audit.AuditLog{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	user := &auth.User{Username: "restart-ops", PasswordHash: "x", IsActive: true}
+	if err := database.Create(user).Error; err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	uid := uint(user.ID)
+	repo := audit.NewRepository(database)
+	if err := repo.CreateCommandLog(context.Background(), &audit.CommandLog{
+		CommandID:   "cmd-persist-1",
+		RequestID:   "req-persist-1",
+		AgentID:     "agent-persist",
+		CommandType: "restart",
+		ClientType:  "cli",
+		Status:      audit.CommandStatusSuccess,
+		CreatedBy:   &uid,
+	}); err != nil {
+		t.Fatalf("create command log: %v", err)
+	}
+
+	manualLog := &audit.AuditLog{
+		Username:     "agent",
+		Action:       "restart",
+		ResourceType: "cluster_node",
+		ResourceID:   "1/2",
+		Trigger:      "auto",
+		ClientType:   "system",
+		Details:      audit.AuditDetails{"event_type": "restarted"},
+		UserAgent:    "stx-agent",
+	}
+	applyManualFollowupAttribution(context.Background(), repo, manualLog, &pb.ProcessEventReport{
+		Details: map[string]string{
+			"trigger":    "manual_followup",
+			"command_id": "cmd-persist-1",
+			"request_id": "req-persist-1",
+		},
+	})
+	if err := repo.CreateAuditLog(context.Background(), manualLog); err != nil {
+		t.Fatalf("create manual audit: %v", err)
+	}
+
+	crashLog := &audit.AuditLog{
+		Username:     "agent",
+		Action:       "restart",
+		ResourceType: "cluster_node",
+		ResourceID:   "1/2",
+		Trigger:      "auto",
+		ClientType:   "system",
+		Details:      audit.AuditDetails{"event_type": "restarted", "install_dir": "/opt/st"},
+		UserAgent:    "stx-agent",
+	}
+	applyManualFollowupAttribution(context.Background(), repo, crashLog, &pb.ProcessEventReport{
+		Details: map[string]string{"install_dir": "/opt/st"},
+	})
+	if err := repo.CreateAuditLog(context.Background(), crashLog); err != nil {
+		t.Fatalf("create crash audit: %v", err)
+	}
+
+	logs, total, err := repo.ListAuditLogs(context.Background(), &audit.AuditLogFilter{
+		Action: "restart", ResourceType: "cluster_node", IncludeAll: true,
+	})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if total != 2 {
+		t.Fatalf("expected 2 restart audits, got %d", total)
+	}
+	var sawManual, sawCrash bool
+	for _, item := range logs {
+		switch item.Trigger {
+		case "manual_followup":
+			sawManual = true
+			if item.UserID == nil || *item.UserID != uid || item.Username != "restart-ops" {
+				t.Fatalf("manual followup actor wrong: %+v", item)
+			}
+			if item.CommandID != "cmd-persist-1" || item.RequestID != "req-persist-1" || item.ClientType != "cli" {
+				t.Fatalf("manual followup linkage wrong: %+v", item)
+			}
+		case "auto":
+			sawCrash = true
+			if item.UserID != nil || item.Username != "agent" || item.ClientType != "system" {
+				t.Fatalf("crash restart should stay 系统/auto: %+v", item)
+			}
+		default:
+			t.Fatalf("unexpected trigger %q", item.Trigger)
+		}
+	}
+	if !sawManual || !sawCrash {
+		t.Fatalf("missing rows manual=%v crash=%v", sawManual, sawCrash)
+	}
+}

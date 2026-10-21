@@ -132,6 +132,37 @@ type Config struct {
 	UpdatedAt  time.Time  `json:"updated_at" gorm:"autoUpdateTime"`
 	UpdatedBy  uint       `json:"updated_by"`
 	CreatedAt  time.Time  `json:"created_at" gorm:"autoCreateTime"`
+
+	// 节点同步状态：节点配置只有在推送到节点成功后才会提交为新版本；推送失败时新内容暂存为待推送，
+	// 版本号与当前内容保持节点上的真实值，Agent 重连后自动重推。
+	// Node sync state: a node config is committed as a new version only after it was pushed to the node.
+	// When the push fails the new content is parked as pending, version/content keep the node's real value,
+	// and the push is retried automatically once the Agent reconnects.
+	SyncStatus     ConfigSyncStatus `json:"sync_status" gorm:"size:20"`
+	SyncError      string           `json:"sync_error" gorm:"size:1024"`
+	PendingContent db.ScriptText    `json:"-"`
+	PendingComment string           `json:"-" gorm:"size:255"`
+	PendingBy      uint             `json:"-"`
+	PendingSince   *time.Time       `json:"pending_since"`
+}
+
+// ConfigSyncStatus 节点配置与节点文件的同步状态。
+// ConfigSyncStatus is the sync state between a node config record and the file on the node.
+type ConfigSyncStatus string
+
+const (
+	// ConfigSyncStatusSynced 记录与节点文件一致（空值等同于 synced，兼容历史数据）。
+	// ConfigSyncStatusSynced means the record matches the node file (empty means synced for legacy rows).
+	ConfigSyncStatusSynced ConfigSyncStatus = "synced"
+	// ConfigSyncStatusPendingPush 有新内容尚未成功推送到节点。
+	// ConfigSyncStatusPendingPush means newer content has not been pushed to the node yet.
+	ConfigSyncStatusPendingPush ConfigSyncStatus = "pending_push"
+)
+
+// HasPendingPush 判断是否存在待推送内容。
+// HasPendingPush reports whether pending content is waiting to be pushed.
+func (c *Config) HasPendingPush() bool {
+	return c != nil && c.SyncStatus == ConfigSyncStatusPendingPush
 }
 
 // TableName 指定表名
@@ -176,6 +207,18 @@ type ConfigInfo struct {
 	UpdatedAt     time.Time  `json:"updated_at"`
 	UpdatedBy     uint       `json:"updated_by"`
 	PushError     string     `json:"push_error,omitempty"` // 推送到节点的错误信息
+	// SyncStatus 节点同步状态：synced / pending_push。
+	// SyncStatus is the node sync state: synced / pending_push.
+	SyncStatus ConfigSyncStatus `json:"sync_status,omitempty"`
+	// SyncError 最近一次推送失败原因。
+	// SyncError is the reason of the last failed push.
+	SyncError string `json:"sync_error,omitempty"`
+	// PendingContent 待推送的新内容（仅 pending_push 时返回）。
+	// PendingContent is the new content waiting to be pushed (only when pending_push).
+	PendingContent string `json:"pending_content,omitempty"`
+	// PendingSince 开始待推送的时间。
+	// PendingSince is when the content became pending.
+	PendingSince *time.Time `json:"pending_since,omitempty"`
 }
 
 // ConfigVersionInfo 版本信息（用于 API 响应）
@@ -236,9 +279,28 @@ type ConfigFilter struct {
 
 // SyncAllResult 批量同步结果
 type SyncAllResult struct {
-	SyncedCount int          `json:"synced_count"` // 同步成功的数量
-	PushErrors  []*PushError `json:"push_errors"`  // 推送失败的节点列表
+	SyncedCount    int               `json:"synced_count"`    // 已推送到节点并提交新版本的数量 / pushed and committed
+	PendingCount   int               `json:"pending_count"`   // 推送失败、已标记待推送的数量 / push failed, marked pending
+	UnchangedCount int               `json:"unchanged_count"` // 内容已一致无需变更的数量 / already up to date
+	NodeResults    []*NodeSyncResult `json:"node_results"`    // 逐节点结果 / per-node results
+	PushErrors     []*PushError      `json:"push_errors"`     // 推送失败的节点列表（兼容字段）/ failed pushes (compat)
 }
+
+// NodeSyncResult 单个节点的同步结果。
+// NodeSyncResult is the sync result of one node.
+type NodeSyncResult struct {
+	ConfigID uint             `json:"config_id"`
+	HostID   uint             `json:"host_id"`
+	HostName string           `json:"host_name,omitempty"`
+	HostIP   string           `json:"host_ip,omitempty"`
+	Status   ConfigSyncStatus `json:"status"` // synced / pending_push / unchanged
+	Version  int              `json:"version"`
+	Message  string           `json:"message,omitempty"`
+}
+
+// ConfigSyncStatusUnchanged 仅用于同步结果：节点内容已与目标一致。
+// ConfigSyncStatusUnchanged is used only in sync results: node content already matches the target.
+const ConfigSyncStatusUnchanged ConfigSyncStatus = "unchanged"
 
 // PushError 推送错误信息
 type PushError struct {

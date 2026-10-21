@@ -149,6 +149,7 @@ func (s *Server) Register(ctx context.Context, req *pb.RegisterRequest) (*pb.Reg
 	// 使用后台 context，因为 gRPC 请求 context 可能会被取消
 	if conn.HostID > 0 {
 		go s.pushMonitorConfigToAgent(context.Background(), req.AgentId, conn.HostID)
+		go s.runAgentReadyHooks(context.Background(), req.AgentId, conn.HostID)
 	}
 
 	return response, nil

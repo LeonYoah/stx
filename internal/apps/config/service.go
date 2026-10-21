@@ -171,7 +171,11 @@ func (s *Service) Create(ctx context.Context, req *CreateConfigRequest, userID u
 	return s.toConfigInfo(ctx, config)
 }
 
-// Update 更新配置
+// Update 更新配置。节点配置先推送到节点，推送成功才提交新版本；推送失败时新内容标记为待推送，
+// 版本与当前内容保持节点上的真实值，Agent 重连后自动重推。
+// Update updates a config. Node configs are pushed first and committed as a new version only on success;
+// on push failure the new content is marked pending, version/content keep the node's real value, and the
+// push is retried when the Agent reconnects.
 func (s *Service) Update(ctx context.Context, id uint, req *UpdateConfigRequest, userID uint) (*ConfigInfo, error) {
 	config, err := s.repo.GetByID(ctx, id)
 	if err != nil {
@@ -182,31 +186,19 @@ func (s *Service) Update(ctx context.Context, id uint, req *UpdateConfigRequest,
 		return nil, err
 	}
 
-	// 内容没变化则不更新
+	// 内容没变化则不更新；若存在待推送内容，说明用户放弃了未下发的变更，清除待推送标记。
+	// Unchanged content: nothing to commit; a pending change is discarded since the user reverted it.
 	if config.Content.String() == req.Content {
+		if config.HasPendingPush() {
+			clearPendingPush(config)
+			if err := s.repo.Update(ctx, config); err != nil {
+				return nil, err
+			}
+		}
 		return s.toConfigInfo(ctx, config)
 	}
 
-	oldVersion := config.Version
-	config.Content = db.ScriptText(req.Content)
-	config.Version = oldVersion + 1
-	config.UpdatedBy = userID
-	config.UpdatedAt = time.Now()
-
-	err = s.repo.Transaction(ctx, func(tx *Repository) error {
-		if err := tx.Update(ctx, config); err != nil {
-			return err
-		}
-		// 创建新版本
-		version := &ConfigVersion{
-			ConfigID:  config.ID,
-			Version:   config.Version,
-			Content:   db.ScriptText(req.Content),
-			Comment:   req.Comment,
-			CreatedBy: userID,
-		}
-		return tx.CreateVersion(ctx, version)
-	})
+	outcome, err := s.applyNodeConfigContent(ctx, config, req.Content, req.Comment, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -215,22 +207,8 @@ func (s *Service) Update(ctx context.Context, id uint, req *UpdateConfigRequest,
 	if err != nil {
 		return nil, err
 	}
-
-	// 如果是节点配置（非模板），推送到节点
-	if config.HostID != nil && s.nodeInfoProvider != nil && s.agentClient != nil {
-		installDir, dirErr := s.nodeInfoProvider.GetNodeInstallDir(ctx, config.ClusterID, *config.HostID)
-		if dirErr != nil {
-			info.PushError = "获取节点安装目录失败: " + dirErr.Error()
-		} else if installDir != "" {
-			pushErr := s.agentClient.PushConfig(ctx, *config.HostID, installDir, config.ConfigType, config.Content.String())
-			if pushErr != nil {
-				info.PushError = "推送配置到节点失败: " + pushErr.Error()
-			} else {
-				s.syncDerivedRuntimeMetadata(ctx, config.ClusterID, config.HostID, config.ConfigType, config.Content.String())
-			}
-		}
-	}
-	if config.ConfigType == ConfigTypeLog4j2 {
+	info.PushError = outcome.PushError
+	if config.ConfigType == ConfigTypeLog4j2 && outcome.Applied {
 		s.syncDerivedRuntimeMetadata(ctx, config.ClusterID, config.HostID, config.ConfigType, config.Content.String())
 	}
 
@@ -259,7 +237,8 @@ func (s *Service) GetVersions(ctx context.Context, configID uint) ([]*ConfigVers
 	return result, nil
 }
 
-// Rollback 回滚到指定版本
+// Rollback 回滚到指定版本（节点配置先推送后提交）
+// Rollback rolls back to a version (node configs: push first, then commit).
 func (s *Service) Rollback(ctx context.Context, id uint, req *RollbackConfigRequest, userID uint) (*ConfigInfo, error) {
 	config, err := s.repo.GetByID(ctx, id)
 	if err != nil {
@@ -276,30 +255,12 @@ func (s *Service) Rollback(ctx context.Context, id uint, req *RollbackConfigRequ
 		return nil, err
 	}
 
-	// 更新配置
-	config.Content = targetVersion.Content
-	config.Version = config.Version + 1
-	config.UpdatedBy = userID
-	config.UpdatedAt = time.Now()
-
 	comment := req.Comment
 	if comment == "" {
-		comment = "Rollback to version " + string(rune(req.Version))
+		comment = fmt.Sprintf("Rollback to version %d", req.Version)
 	}
 
-	err = s.repo.Transaction(ctx, func(tx *Repository) error {
-		if err := tx.Update(ctx, config); err != nil {
-			return err
-		}
-		version := &ConfigVersion{
-			ConfigID:  config.ID,
-			Version:   config.Version,
-			Content:   targetVersion.Content,
-			Comment:   comment,
-			CreatedBy: userID,
-		}
-		return tx.CreateVersion(ctx, version)
-	})
+	outcome, err := s.applyNodeConfigContent(ctx, config, targetVersion.Content.String(), comment, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -308,40 +269,30 @@ func (s *Service) Rollback(ctx context.Context, id uint, req *RollbackConfigRequ
 	if err != nil {
 		return nil, err
 	}
-
-	// 如果是节点配置（非模板），推送到节点
-	if config.HostID != nil && s.nodeInfoProvider != nil && s.agentClient != nil {
-		installDir, dirErr := s.nodeInfoProvider.GetNodeInstallDir(ctx, config.ClusterID, *config.HostID)
-		if dirErr != nil {
-			info.PushError = "获取节点安装目录失败: " + dirErr.Error()
-		} else if installDir != "" {
-			pushErr := s.agentClient.PushConfig(ctx, *config.HostID, installDir, config.ConfigType, config.Content.String())
-			if pushErr != nil {
-				info.PushError = "推送配置到节点失败: " + pushErr.Error()
-			}
-		}
-	}
-
+	info.PushError = outcome.PushError
 	return info, nil
 }
 
-// Promote 推广配置到集群（节点配置 → 集群模板 → 所有节点）
-func (s *Service) Promote(ctx context.Context, id uint, req *PromoteConfigRequest, userID uint) error {
+// Promote 推广配置到集群（节点配置 → 集群模板 → 所有节点）。
+// 模板在事务内更新；各节点按“先推送后提交”同步，推送失败的节点标记待推送。
+// Promote promotes a node config to the cluster (node config → template → all nodes). The template is
+// updated in a transaction; nodes are synced push-then-commit, and nodes whose push fails are marked pending.
+func (s *Service) Promote(ctx context.Context, id uint, req *PromoteConfigRequest, userID uint) (*SyncAllResult, error) {
 	config, err := s.repo.GetByID(ctx, id)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// 不能推广模板配置
 	if config.IsTemplate() {
-		return ErrCannotPromoteTemplate
+		return nil, ErrCannotPromoteTemplate
 	}
 
 	if err := validateConfigContent(config.ConfigType, config.Content.String()); err != nil {
-		return err
+		return nil, err
 	}
 
-	return s.repo.Transaction(ctx, func(tx *Repository) error {
+	err = s.repo.Transaction(ctx, func(tx *Repository) error {
 		// 1. 更新或创建集群模板
 		template, err := tx.GetTemplate(ctx, config.ClusterID, config.ConfigType)
 		if errors.Is(err, ErrConfigNotFound) {
@@ -379,45 +330,22 @@ func (s *Service) Promote(ctx context.Context, id uint, req *PromoteConfigReques
 			Comment:   req.Comment,
 			CreatedBy: userID,
 		}
-		if err := tx.CreateVersion(ctx, templateVersion); err != nil {
-			return err
-		}
-
-		// 2. 同步到所有节点配置
-		nodeConfigs, err := tx.ListNodeConfigs(ctx, config.ClusterID, config.ConfigType)
-		if err != nil {
-			return err
-		}
-
-		for _, nc := range nodeConfigs {
-			if nc.Content == config.Content {
-				continue // 内容相同跳过
-			}
-			nc.Content = config.Content
-			nc.Version = nc.Version + 1
-			nc.UpdatedBy = userID
-			nc.UpdatedAt = time.Now()
-			if err := tx.Update(ctx, nc); err != nil {
-				return err
-			}
-			// 创建节点版本
-			nodeVersion := &ConfigVersion{
-				ConfigID:  nc.ID,
-				Version:   nc.Version,
-				Content:   config.Content,
-				Comment:   "Synced from cluster template",
-				CreatedBy: userID,
-			}
-			if err := tx.CreateVersion(ctx, nodeVersion); err != nil {
-				return err
-			}
-		}
-
-		return nil
+		return tx.CreateVersion(ctx, templateVersion)
 	})
+	if err != nil {
+		return nil, err
+	}
+
+	// 2. 同步到所有节点配置（先推送后提交）
+	nodeConfigs, err := s.repo.ListNodeConfigs(ctx, config.ClusterID, config.ConfigType)
+	if err != nil {
+		return nil, err
+	}
+	return s.syncNodesToContent(ctx, nodeConfigs, config.Content.String(), "Synced from cluster template", userID)
 }
 
-// SyncFromTemplate 从集群模板同步到节点
+// SyncFromTemplate 从集群模板同步到节点（先推送后提交）
+// SyncFromTemplate syncs a node config from the cluster template (push first, then commit).
 func (s *Service) SyncFromTemplate(ctx context.Context, id uint, req *SyncConfigRequest, userID uint) (*ConfigInfo, error) {
 	config, err := s.repo.GetByID(ctx, id)
 	if err != nil {
@@ -439,56 +367,22 @@ func (s *Service) SyncFromTemplate(ctx context.Context, id uint, req *SyncConfig
 		return nil, err
 	}
 
-	// 内容相同则不更新
-	if config.Content == template.Content {
-		return s.toConfigInfo(ctx, config)
-	}
-
-	config.Content = template.Content
-	config.Version = config.Version + 1
-	config.UpdatedBy = userID
-	config.UpdatedAt = time.Now()
-
 	comment := req.Comment
 	if comment == "" {
 		comment = "Synced from cluster template"
 	}
 
-	err = s.repo.Transaction(ctx, func(tx *Repository) error {
-		if err := tx.Update(ctx, config); err != nil {
-			return err
-		}
-		version := &ConfigVersion{
-			ConfigID:  config.ID,
-			Version:   config.Version,
-			Content:   template.Content,
-			Comment:   comment,
-			CreatedBy: userID,
-		}
-		return tx.CreateVersion(ctx, version)
-	})
+	result, err := s.syncNodesToContent(ctx, []*Config{config}, template.Content.String(), comment, userID)
 	if err != nil {
 		return nil, err
 	}
-
 	info, err := s.toConfigInfo(ctx, config)
 	if err != nil {
 		return nil, err
 	}
-
-	// 推送配置到节点
-	if config.HostID != nil && s.nodeInfoProvider != nil && s.agentClient != nil {
-		installDir, dirErr := s.nodeInfoProvider.GetNodeInstallDir(ctx, config.ClusterID, *config.HostID)
-		if dirErr != nil {
-			info.PushError = "获取节点安装目录失败: " + dirErr.Error()
-		} else if installDir != "" {
-			pushErr := s.agentClient.PushConfig(ctx, *config.HostID, installDir, config.ConfigType, config.Content.String())
-			if pushErr != nil {
-				info.PushError = "推送配置到节点失败: " + pushErr.Error()
-			}
-		}
+	if result.PendingCount > 0 && len(result.PushErrors) > 0 {
+		info.PushError = result.PushErrors[0].Message
 	}
-
 	return info, nil
 }
 
@@ -616,7 +510,9 @@ func (s *Service) InitClusterConfigs(ctx context.Context, clusterID uint, hostID
 	return nil
 }
 
-// SyncTemplateToAllNodes 将集群模板同步到所有节点配置
+// SyncTemplateToAllNodes 将集群模板同步到所有节点配置：逐节点先推送后提交，推送失败的节点标记待推送且版本不变。
+// SyncTemplateToAllNodes syncs the cluster template to every node config: push-then-commit per node; nodes
+// whose push fails are marked pending and keep their version.
 func (s *Service) SyncTemplateToAllNodes(ctx context.Context, clusterID uint, configType ConfigType, userID uint) (*SyncAllResult, error) {
 	// 获取模板
 	template, err := s.repo.GetTemplate(ctx, clusterID, configType)
@@ -634,84 +530,12 @@ func (s *Service) SyncTemplateToAllNodes(ctx context.Context, clusterID uint, co
 		return nil, err
 	}
 
-	result := &SyncAllResult{
-		SyncedCount: 0,
-		PushErrors:  make([]*PushError, 0),
-	}
-
-	err = s.repo.Transaction(ctx, func(tx *Repository) error {
-		for _, nc := range nodeConfigs {
-			if nc.Content == template.Content {
-				continue // 内容相同跳过
-			}
-			nc.Content = template.Content
-			nc.Version = nc.Version + 1
-			nc.UpdatedBy = userID
-			nc.UpdatedAt = time.Now()
-			if err := tx.Update(ctx, nc); err != nil {
-				return err
-			}
-			// 创建节点版本
-			nodeVersion := &ConfigVersion{
-				ConfigID:  nc.ID,
-				Version:   nc.Version,
-				Content:   template.Content,
-				Comment:   "Synced from cluster template (batch)",
-				CreatedBy: userID,
-			}
-			if err := tx.CreateVersion(ctx, nodeVersion); err != nil {
-				return err
-			}
-			result.SyncedCount++
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	// 推送配置到所有节点
-	if s.nodeInfoProvider != nil && s.agentClient != nil {
-		for _, nc := range nodeConfigs {
-			if nc.HostID != nil {
-				installDir, dirErr := s.nodeInfoProvider.GetNodeInstallDir(ctx, clusterID, *nc.HostID)
-				if dirErr != nil {
-					pushErr := &PushError{
-						HostID:  *nc.HostID,
-						Message: "获取节点安装目录失败: " + dirErr.Error(),
-					}
-					// 尝试获取主机 IP
-					if s.hostProvider != nil {
-						if host, err := s.hostProvider.GetHostByID(ctx, *nc.HostID); err == nil {
-							pushErr.HostIP = host.IPAddress
-						}
-					}
-					result.PushErrors = append(result.PushErrors, pushErr)
-				} else if installDir != "" {
-					if pushErr := s.agentClient.PushConfig(ctx, *nc.HostID, installDir, configType, template.Content.String()); pushErr != nil {
-						errInfo := &PushError{
-							HostID:  *nc.HostID,
-							Message: "推送配置失败: " + pushErr.Error(),
-						}
-						// 尝试获取主机 IP
-						if s.hostProvider != nil {
-							if host, err := s.hostProvider.GetHostByID(ctx, *nc.HostID); err == nil {
-								errInfo.HostIP = host.IPAddress
-							}
-						}
-						result.PushErrors = append(result.PushErrors, errInfo)
-					} else {
-						s.syncDerivedRuntimeMetadata(ctx, clusterID, nc.HostID, configType, template.Content.String())
-					}
-				}
-			}
-		}
-	}
-
-	return result, nil
+	return s.syncNodesToContent(ctx, nodeConfigs, template.Content.String(), "Synced from cluster template (batch)", userID)
 }
 
-// PushConfigToNode 推送配置到节点
+// PushConfigToNode 推送配置到节点；若存在待推送内容则推送待推送内容，成功后提交为新版本。
+// PushConfigToNode pushes the config to its node; when a pending change exists it pushes that change and
+// commits it as a new version on success.
 func (s *Service) PushConfigToNode(ctx context.Context, id uint, installDir string) error {
 	config, err := s.repo.GetByID(ctx, id)
 	if err != nil {
@@ -722,11 +546,37 @@ func (s *Service) PushConfigToNode(ctx context.Context, id uint, installDir stri
 		return errors.New("cannot push template config directly")
 	}
 
-	if err := validateConfigContent(config.ConfigType, config.Content.String()); err != nil {
+	content := config.Content.String()
+	if config.HasPendingPush() {
+		content = config.PendingContent.String()
+	}
+	if err := validateConfigContent(config.ConfigType, content); err != nil {
 		return err
 	}
 
-	return s.agentClient.PushConfig(ctx, *config.HostID, installDir, config.ConfigType, config.Content.String())
+	if err := s.agentClient.PushConfig(ctx, *config.HostID, installDir, config.ConfigType, content); err != nil {
+		if config.HasPendingPush() {
+			config.SyncError = truncateSyncError("推送配置到节点失败 / failed to push config to node: " + err.Error())
+			_ = s.repo.Update(ctx, config)
+		}
+		return err
+	}
+	if config.HasPendingPush() {
+		comment := config.PendingComment
+		if comment == "" {
+			comment = "Re-pushed pending change / 重推待推送变更"
+		}
+		if content == config.Content.String() {
+			clearPendingPush(config)
+			if err := s.repo.Update(ctx, config); err != nil {
+				return err
+			}
+		} else if err := s.commitConfigVersion(ctx, config, content, comment, config.PendingBy); err != nil {
+			return err
+		}
+		s.syncDerivedRuntimeMetadata(ctx, config.ClusterID, config.HostID, config.ConfigType, content)
+	}
+	return nil
 }
 
 // toConfigInfo 转换为 ConfigInfo
@@ -742,6 +592,15 @@ func (s *Service) toConfigInfo(ctx context.Context, config *Config) (*ConfigInfo
 		IsTemplate: config.IsTemplate(),
 		UpdatedAt:  config.UpdatedAt,
 		UpdatedBy:  config.UpdatedBy,
+	}
+	if !config.IsTemplate() {
+		info.SyncStatus = ConfigSyncStatusSynced
+		if config.HasPendingPush() {
+			info.SyncStatus = ConfigSyncStatusPendingPush
+			info.SyncError = config.SyncError
+			info.PendingContent = config.PendingContent.String()
+			info.PendingSince = config.PendingSince
+		}
 	}
 
 	// 获取主机信息

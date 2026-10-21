@@ -949,6 +949,15 @@ func Serve() {
 			configService := appconfig.NewService(configRepo, &configHostProviderAdapter{hostService: hostService}, configNodeInfoProvider, configAgentClient)
 			configService.SetPortMetadataUpdater(&configPortMetadataUpdaterAdapter{clusterRepo: clusterRepo})
 			clusterService.SetRuntimeConfigStore(configService)
+			// Agent 重连后重推离线期间未下发的节点配置
+			// Re-push node configs that could not be delivered while the Agent was offline
+			grpcServer.RegisterAgentReadyHook(func(ctx context.Context, hostID uint) {
+				if committed, err := configService.RetryPendingPushes(ctx, hostID); err != nil {
+					log.Printf("[Config] retry pending pushes for host %d failed: %v", hostID, err)
+				} else if committed > 0 {
+					log.Printf("[Config] re-pushed %d pending config(s) to host %d after agent reconnect", committed, hostID)
+				}
+			})
 			configHandler := appconfig.NewHandler(configService)
 			configHandler.SetExecutionService(executionService)
 
@@ -1441,7 +1450,7 @@ func commandStatusFromAgentResponse(status pb.CommandStatus) audit.CommandStatus
 // stringToCommandType 将命令类型字符串转换为 pb.CommandType。
 func (a *agentCommandSenderAdapter) stringToCommandType(cmdType string) pb.CommandType {
 	switch cmdType {
-	case "check_port", "check_directory", "check_http", "check_process", "check_java", "check_tcp", "check_path_ready", "stat_path", "cleanup_path", "stx_java_proxy_probe", "stx_java_proxy_stat", "stx_java_proxy_list", "stx_java_proxy_preview", "stx_java_proxy_inspect_checkpoint", "stx_java_proxy_inspect_checkpoint_source_state", "stx_java_proxy_inspect_imap_wal", "sync_local_run", "sync_local_status", "sync_local_stop", "sync_local_logs", "sync_job_logs", "full":
+	case "check_port", "check_directory", "check_http", "check_process", "check_cluster_members", "check_java", "check_tcp", "check_path_ready", "stat_path", "cleanup_path", "stx_java_proxy_probe", "stx_java_proxy_stat", "stx_java_proxy_list", "stx_java_proxy_preview", "stx_java_proxy_inspect_checkpoint", "stx_java_proxy_inspect_checkpoint_source_state", "stx_java_proxy_inspect_imap_wal", "sync_local_run", "sync_local_status", "sync_local_stop", "sync_local_logs", "sync_job_logs", "full":
 		return pb.CommandType_PRECHECK
 	case "install":
 		return pb.CommandType_INSTALL
@@ -1695,7 +1704,7 @@ func (a *installerAgentManagerAdapter) SendCommand(ctx context.Context, agentID 
 // stringToCommandType 将命令类型字符串转换为 pb.CommandType。
 func (a *installerAgentManagerAdapter) stringToCommandType(cmdType string) pb.CommandType {
 	switch cmdType {
-	case "check_port", "check_directory", "check_http", "check_process", "check_java", "check_tcp", "check_path_ready", "stat_path", "cleanup_path", "stx_java_proxy_probe", "stx_java_proxy_stat", "stx_java_proxy_list", "stx_java_proxy_preview", "stx_java_proxy_inspect_checkpoint", "stx_java_proxy_inspect_checkpoint_source_state", "stx_java_proxy_inspect_imap_wal", "sync_local_run", "sync_local_status", "sync_local_stop", "full":
+	case "check_port", "check_directory", "check_http", "check_process", "check_cluster_members", "check_java", "check_tcp", "check_path_ready", "stat_path", "cleanup_path", "stx_java_proxy_probe", "stx_java_proxy_stat", "stx_java_proxy_list", "stx_java_proxy_preview", "stx_java_proxy_inspect_checkpoint", "stx_java_proxy_inspect_checkpoint_source_state", "stx_java_proxy_inspect_imap_wal", "sync_local_run", "sync_local_status", "sync_local_stop", "full":
 		return pb.CommandType_PRECHECK
 	case "install":
 		return pb.CommandType_INSTALL

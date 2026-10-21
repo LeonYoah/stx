@@ -1121,15 +1121,21 @@ func (s *Service) executeClusterLifecycleStep(ctx context.Context, task *Upgrade
 		return err
 	}
 	if result == nil {
-		return fmt.Errorf("cluster %s returned empty result", operation)
+		emptyErr := fmt.Errorf("cluster %s returned empty result", operation)
+		for _, node := range nodesByClusterNodeID {
+			_ = s.failNodeStep(ctx, step, node, deriveFailureStatus(nodeSuccessStatus), emptyErr, commandSummary)
+		}
+		return emptyErr
 	}
 
 	var firstErr error
+	reported := make(map[uint]bool, len(result.NodeResults))
 	for _, nodeResult := range result.NodeResults {
 		node := nodesByClusterNodeID[nodeResult.NodeID]
 		if node == nil {
 			continue
 		}
+		reported[nodeResult.NodeID] = true
 		if nodeResult.Success {
 			if err := s.finishNodeStep(ctx, step, node, nodeSuccessStatus, nodeResult.Message, commandSummary); err != nil {
 				return err
@@ -1143,10 +1149,19 @@ func (s *Service) executeClusterLifecycleStep(ctx context.Context, task *Upgrade
 		_ = s.failNodeStep(ctx, step, node, deriveFailureStatus(nodeSuccessStatus), err, commandSummary)
 	}
 	if !result.Success {
-		if firstErr != nil {
-			return firstErr
+		stepErr := firstErr
+		if stepErr == nil {
+			stepErr = fmt.Errorf("%s", result.Message)
 		}
-		return fmt.Errorf("%s", result.Message)
+		// 集群操作整体失败时，未回报结果的节点不能停留在 running / rollback_running。
+		// When the operation failed overall, nodes without a result must not stay running.
+		for clusterNodeID, node := range nodesByClusterNodeID {
+			if reported[clusterNodeID] {
+				continue
+			}
+			_ = s.failNodeStep(ctx, step, node, deriveFailureStatus(nodeSuccessStatus), stepErr, commandSummary)
+		}
+		return stepErr
 	}
 	return nil
 }
@@ -1190,6 +1205,10 @@ func (s *Service) finalizeNodeExecutionsRollbackFailed(ctx context.Context, task
 	for i := range task.NodeExecutions {
 		node := &task.NodeExecutions[i]
 		if node.Status == ExecutionStatusRollbackSucceeded {
+			continue
+		}
+		if node.Status == ExecutionStatusRollbackFailed && node.CompletedAt != nil {
+			// 已带具体失败原因的节点保持原样。Keep the node-specific failure as-is.
 			continue
 		}
 		node.Status = ExecutionStatusRollbackFailed
@@ -1294,6 +1313,14 @@ func (s *Service) failStep(ctx context.Context, task *UpgradeTask, step *Upgrade
 	if IsRollbackStep(step.Code) {
 		task.RollbackStatus = ExecutionStatusRollbackFailed
 		task.RollbackReason = normalizeUserVisibleText(err.Error())
+		// 回滚失败是终态：必须先把节点收敛为终态，再持久化任务的 rollback_failed，
+		// 否则轮询方可能读到“任务已终态、节点仍 rollback_running”的中间态后停止刷新。
+		// A failed rollback is terminal: settle node executions before persisting the
+		// task's rollback_failed so pollers never observe a terminal task with nodes
+		// still rollback_running and stop refreshing on that snapshot.
+		if finalizeErr := s.finalizeNodeExecutionsRollbackFailed(ctx, task, err.Error()); finalizeErr != nil {
+			return finalizeErr
+		}
 	} else {
 		task.Status = ExecutionStatusFailed
 		task.FailureReason = normalizeUserVisibleText(err.Error())

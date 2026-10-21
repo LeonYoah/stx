@@ -148,7 +148,9 @@ func startControlPlane(plan *restartPlan, rollback bool) (int, error) {
 	if len(argv) == 0 {
 		argv = []string{plan.Executable, "server"}
 	}
-	cmd := exec.Command(plan.Executable, argv[1:]...)
+	cmd := exec.Command(plan.Executable)
+	// 保留原始 argv（含 argv[0]），与原进程的命令行完全一致。/ keep the original argv (incl. argv[0]) verbatim.
+	cmd.Args = append([]string(nil), argv...)
 	cmd.Env = plan.Env
 	cmd.Dir = plan.Dir
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}

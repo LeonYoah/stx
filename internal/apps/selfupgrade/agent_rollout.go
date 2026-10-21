@@ -574,11 +574,11 @@ func summarizeProxyRestarts(list []proxyRestartEntry) (string, string) {
 		if r.Port > 0 {
 			part = fmt.Sprintf("port %d: %s", r.Port, r.Status)
 		}
-		if r.OldPID > 0 || r.NewPID > 0 {
+		switch {
+		case r.Message != "":
+			part += ": " + r.Message
+		case r.OldPID > 0 || r.NewPID > 0:
 			part += fmt.Sprintf(" (pid %d → %d)", r.OldPID, r.NewPID)
-		}
-		if r.Message != "" {
-			part += " " + r.Message
 		}
 		parts = append(parts, part)
 	}

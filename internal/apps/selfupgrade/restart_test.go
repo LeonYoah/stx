@@ -697,6 +697,38 @@ func TestApplyRollbackAfterFailedRestartRestoresAgentsAndProxies(t *testing.T) {
 		t.Fatalf("rollback order proxy=%d agent=%d", proxyIdx, agentIdx)
 	}
 	assertSeaTunnelSafe(t, h.fleet)
+	if n := nodeByHost(s2.taskAgentNodes(task.ID), 1); !strings.Contains(n.ProxyRestartMessage, "restored jars") {
+		t.Fatalf("rollback proxy restart message = %q", n.ProxyRestartMessage)
+	}
+}
+
+// watchdog 已恢复备份并以其启动本进程时，收尾不得再替换正在运行的二进制。
+// When the watchdog already restored the backup and started this process from it, finishing must not replace the
+// running binary again.
+func TestApplyRollbackKeepsBinaryRestoredByWatchdog(t *testing.T) {
+	h := newApplyHarness(t)
+	task := h.runApply(t)
+	// 模拟 watchdog 的 restoreBinary：新文件写回旧内容。/ simulate the watchdog's restoreBinary.
+	_ = os.Rename(h.exe, h.exe+".failed")
+	if err := os.WriteFile(h.exe, []byte("old-binary-1.0.0"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.Stat(h.exe)
+
+	stxversion.Version = "1.0.0"
+	s2 := NewService(h.dataDir)
+	s2.SetAgentFleet(h.fleet)
+	s2.SetRolloutOptions(RolloutOptions{Concurrency: 2, CommandTimeout: time.Second, ReconnectTimeout: 300 * time.Millisecond, PollInterval: 5 * time.Millisecond})
+	_ = writeJSONFile(h.plan.ResultPath, restartResult{Status: restartOutcomeRolledBack, Reason: "new control plane exited",
+		ControlPlane: ProcessRestart{Component: "control_plane", Status: RestartRolledBack}})
+	_ = waitTaskDone(t, s2, task.ID)
+	after, err := os.Stat(h.exe)
+	if err != nil || !os.SameFile(before, after) {
+		t.Fatal("the running (restored) binary must not be replaced again")
+	}
+	if hist := s2.ListHistory(); len(hist) == 0 || hist[0].Status != "rolled_back" {
+		t.Fatalf("history = %+v", hist)
+	}
 }
 
 func TestApplyRefusesRestartWithoutBackup(t *testing.T) {

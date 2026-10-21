@@ -535,8 +535,20 @@ func (s *Service) rollbackProxyJarsOnNode(ctx context.Context, taskID string, st
 		}
 		n.ProxyStatus = ProxyRolledBack
 		n.ProxyMessage = "proxy jars restored from backup / proxy jar 已从备份恢复"
-		n.ProxyRestart, n.ProxyRestartMessage = summarizeProxyRestarts(parseProxyRestarts(out))
+		n.ProxyRestart, n.ProxyRestartMessage = summarizeProxyRollbackRestarts(parseProxyRestarts(out))
 	})
+}
+
+// summarizeProxyRollbackRestarts 汇总回滚时的 proxy 重启结果；Agent 的说明针对“新 jar”，这里改写为“恢复的 jar”。
+// summarizeProxyRollbackRestarts summarizes proxy restarts during a rollback; the Agent's wording refers to the new
+// jars, so successful restarts are described as running on the restored jars instead.
+func summarizeProxyRollbackRestarts(list []proxyRestartEntry) (string, string) {
+	for i := range list {
+		if list[i].Status == ProxyRestartRestarted {
+			list[i].Message = fmt.Sprintf("restarted on the restored jars (pid %d → %d) / 已以恢复的 jar 重启", list[i].OldPID, list[i].NewPID)
+		}
+	}
+	return summarizeProxyRestarts(list)
 }
 
 // proxyRestartEntry 对应 Agent 返回的单个 proxy 重启结果。/ proxyRestartEntry mirrors one proxy restart result from the Agent.

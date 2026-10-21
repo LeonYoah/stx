@@ -297,7 +297,11 @@ func (s *Service) finishRestart(taskID string, plan *restartPlan, res *restartRe
 			status = "rolled_back"
 		}
 	}
-	if s.rollbackLocked(plan.TargetVersion, StepRestart) {
+	if binaryAlreadyRestored(restartExecutable()) {
+		// watchdog 已把备份恢复为可执行文件并以其启动本进程；不要再覆盖正在运行的二进制。
+		// The watchdog already restored the backup and started this process from it; do not replace the running binary again.
+		status = "rolled_back"
+	} else if s.rollbackLocked(plan.TargetVersion, StepRestart) {
 		status = "rolled_back"
 	}
 	now := time.Now().UTC()
@@ -382,4 +386,15 @@ func (s *Service) historyRecordLocked(from, status, failureStep, reason, code st
 		Steps:          append([]StepState(nil), s.task.Steps...),
 		AgentNodes:     append([]AgentNodeUpgrade(nil), s.task.AgentNodes...),
 	}
+}
+
+// binaryAlreadyRestored 判断可执行文件是否已与其 .bak 内容一致（即 watchdog 已完成恢复）。
+// binaryAlreadyRestored reports whether the executable already matches its .bak (the watchdog restored it).
+func binaryAlreadyRestored(exe string) bool {
+	a, err := sha256File(exe)
+	if err != nil {
+		return false
+	}
+	b, err := sha256File(exe + ".bak")
+	return err == nil && a == b
 }

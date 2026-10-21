@@ -70,6 +70,18 @@ type Execution struct {
 	// ClientType 记录发起端（cli/web/api/system），后续 start/result 审计沿用，避免被改写成 system。
 	// ClientType records the originating client so later start/result audits keep it instead of rewriting system.
 	ClientType         string     `json:"client_type,omitempty" gorm:"size:20"`
+	// ActorTokenID / TokenPrefix / TokenName 保存创建时的 CLI 令牌，供异步 start/result 审计复用。
+	// ActorTokenID / TokenPrefix / TokenName keep the creating CLI token for async start/result audits.
+	ActorTokenID       *uint64    `json:"actor_token_id,omitempty" gorm:"index"`
+	TokenPrefix        string     `json:"token_prefix,omitempty" gorm:"size:16"`
+	TokenName          string     `json:"token_name,omitempty" gorm:"size:100"`
+	// ClientIP / UserAgent 保存创建时的请求归因，供异步审计复用。
+	// ClientIP / UserAgent keep create-time request attribution for async audits.
+	ClientIP           string     `json:"client_ip,omitempty" gorm:"size:45"`
+	UserAgent          string     `json:"user_agent,omitempty" gorm:"size:500"`
+	// TriggerSource 区分写入方：request / reconciler / scheduler / dolphin_worker / agent_callback。
+	// TriggerSource identifies the writer: request / reconciler / scheduler / dolphin_worker / agent_callback.
+	TriggerSource      string     `json:"trigger_source,omitempty" gorm:"size:32"`
 	IdempotencyKeyHash *string    `json:"-" gorm:"size:64;uniqueIndex:idx_execution_idempotency"`
 	RequestHash        string     `json:"-" gorm:"size:64"`
 	RiskLevel          RiskLevel  `json:"risk_level" gorm:"size:4;not null"`

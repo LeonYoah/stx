@@ -524,17 +524,42 @@ func (h *Handler) SubmitTask(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, JobResponse{ErrorMsg: err.Error()})
 		return
 	}
-	job, err := h.service.SubmitTaskForActorWithOptions(c.Request.Context(), currentExecutionActor(c), id, opts, syncExecutionRequest(c, map[string]any{
+	execReq := syncExecutionRequest(c, map[string]any{
 		"task_id":       id,
 		"draft":         req.Draft,
 		"variables":     req.Variables,
 		"external_ref":  req.ExternalRef,
 		"schedule_time": req.ScheduleTime,
-	}))
+	})
+	job, err := h.service.SubmitTaskForActorWithOptions(c.Request.Context(), currentExecutionActor(c), id, opts, execReq)
+	details := audit.AuditDetails{
+		"operation_id": "sync.task.submit",
+		"request_id":   execReq.RequestID,
+	}
+	if strings.TrimSpace(req.ExternalRef) != "" {
+		details["external_ref"] = strings.TrimSpace(req.ExternalRef)
+	}
 	if err != nil {
+		details["result_status"] = "failed"
+		details["error"] = err.Error()
+		_ = audit.RecordFromGin(c, h.auditRepo, auth.GetUserIDFromContext(c), auth.GetUsernameFromContext(c),
+			"submit", "sync_task", strconv.FormatUint(uint64(id), 10), "", details)
 		c.JSON(h.getStatusCodeForError(err), JobResponse{ErrorMsg: err.Error()})
 		return
 	}
+	details["result_status"] = "success"
+	if job != nil {
+		details["execution_id"] = job.ExecutionID
+		details["job_id"] = job.ID
+		if job.EngineJobID != "" {
+			details["engine_job_id"] = job.EngineJobID
+		}
+		if job.PlatformJobID != "" {
+			details["platform_job_id"] = job.PlatformJobID
+		}
+	}
+	_ = audit.RecordFromGin(c, h.auditRepo, auth.GetUserIDFromContext(c), auth.GetUsernameFromContext(c),
+		"submit", "sync_task", strconv.FormatUint(uint64(id), 10), "", details)
 	c.JSON(http.StatusOK, JobResponse{Data: sanitizeJobForResponse(job)})
 }
 

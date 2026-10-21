@@ -1181,7 +1181,11 @@
       "cli": "CLI",
       "web": "Web",
       "api": "API",
-      "system": "System"
+      "system": "System",
+      "reconciler": "Reconciler",
+      "scheduler": "Scheduler",
+      "dolphin_worker": "Worker",
+      "agent_callback": "Internal callback"
     },
     "loadAuditLogsError": "Failed to load audit logs",
     "statuses": {
@@ -1218,7 +1222,8 @@
       "cli_token": "CLI Token"
     },
     "clusterNodeResourceName": "Node {nodeId} in cluster {clusterId}",
-    "clusterNodeWithName": "{clusterName} (Node {nodeId})"
+    "clusterNodeWithName": "{clusterName} (Node {nodeId})",
+    "triggerManualFollowup": "Manual follow-up"
   },
   "config": {
     "title": "Config Management",

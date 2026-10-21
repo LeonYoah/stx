@@ -40,11 +40,16 @@ func BindOperator(c *gin.Context) {
 		requestID = uuid.NewString()
 		c.Request.Header.Set("X-Request-ID", requestID)
 	}
+	ua := c.GetHeader("User-Agent")
 	ctx := WithCommandMetadata(c.Request.Context(), CommandMetadata{
 		RequestID:     requestID,
 		OwnerUserID:   uint(user.ID),
 		OwnerUsername: user.Username,
-		ClientType:    auditClientType(c.GetHeader("X-STX-Client"), c.GetHeader("User-Agent")),
+		ClientType:    auditClientType(c.GetHeader("X-STX-Client"), ua),
+	})
+	ctx = WithRequestAttribution(ctx, RequestAttribution{
+		ClientIP:  c.ClientIP(),
+		UserAgent: ua,
 	})
 	c.Request = c.Request.WithContext(ctx)
 }

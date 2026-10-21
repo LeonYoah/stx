@@ -367,15 +367,25 @@ func (a *Agent) setupProcessMonitor() {
 		}
 
 		// Report restarted event with new PID / 上报带有新 PID 的重启事件
+		details := map[string]interface{}{
+			"install_dir": installDir,
+			"role":        role,
+		}
+		if commandID, requestID, ok := a.processMonitor.ConsumeManualFollowupAttribution(processName); ok {
+			details["trigger"] = "manual_followup"
+			if commandID != "" {
+				details["command_id"] = commandID
+			}
+			if requestID != "" {
+				details["request_id"] = requestID
+			}
+		}
 		event := &monitor.ProcessEvent{
 			Type:      monitor.EventRestarted,
 			PID:       info.PID,
 			Name:      processName,
 			Timestamp: time.Now(),
-			Details: map[string]interface{}{
-				"install_dir": installDir,
-				"role":        role,
-			},
+			Details:   details,
 		}
 		go a.reportProcessEvent(event)
 
@@ -1375,6 +1385,7 @@ func (a *Agent) handleStartCommand(ctx context.Context, cmd *pb.CommandRequest, 
 		// 自动重启已启用：用 PID=0 注册进程，让自动重启器处理实际的启动
 		a.processMonitor.TrackProcessSilent(processName, 0, installDir, role, params)
 		a.processMonitor.SetProcessClusterID(processName, clusterID)
+		a.processMonitor.SetProcessOriginAttribution(processName, cmd.CommandId, getParamString(cmd.Parameters, "request_id", ""))
 		a.autoRestarter.ResetRestartCount(processName)
 		logger.InfoF(ctx, "[Agent] Process registered for auto-start: %s (auto-restart will handle startup) / 进程已注册等待自动启动：%s（自动重启将处理启动）",
 			processName, processName)
@@ -1394,6 +1405,7 @@ func (a *Agent) handleStartCommand(ctx context.Context, cmd *pb.CommandRequest, 
 	if info, err := a.processManager.GetStatus(ctx, processName); err == nil && info.PID > 0 {
 		a.processMonitor.TrackProcess(processName, info.PID, installDir, role, params)
 		a.processMonitor.SetProcessClusterID(processName, clusterID)
+		a.processMonitor.SetProcessOriginAttribution(processName, cmd.CommandId, getParamString(cmd.Parameters, "request_id", ""))
 		logger.InfoF(ctx, "[Agent] Process started and tracked: %s (PID: %d) / 进程已启动并跟踪：%s（PID：%d）",
 			processName, info.PID, processName, info.PID)
 	}
@@ -1508,6 +1520,7 @@ func (a *Agent) handleRestartCommand(ctx context.Context, cmd *pb.CommandRequest
 		// 用 PID=0 注册进程，自动重启器会启动它
 		a.processMonitor.TrackProcessSilent(processName, 0, installDir, role, startParams)
 		a.processMonitor.SetProcessClusterID(processName, clusterID)
+		a.processMonitor.SetProcessOriginAttribution(processName, cmd.CommandId, getParamString(cmd.Parameters, "request_id", ""))
 		a.autoRestarter.ResetRestartCount(processName)
 		logger.InfoF(ctx, "[Agent] Process stopped, registered for auto-restart: %s / 进程已停止，已注册等待自动重启：%s",
 			processName, processName)
@@ -1526,6 +1539,7 @@ func (a *Agent) handleRestartCommand(ctx context.Context, cmd *pb.CommandRequest
 	if info, err := a.processManager.GetStatus(ctx, processName); err == nil && info.PID > 0 {
 		a.processMonitor.TrackProcess(processName, info.PID, installDir, role, startParams)
 		a.processMonitor.SetProcessClusterID(processName, clusterID)
+		a.processMonitor.SetProcessOriginAttribution(processName, cmd.CommandId, getParamString(cmd.Parameters, "request_id", ""))
 		logger.InfoF(ctx, "[Agent] Process restarted and tracked: %s (PID: %d) / 进程已重启并跟踪：%s（PID：%d）",
 			processName, info.PID, processName, info.PID)
 	}

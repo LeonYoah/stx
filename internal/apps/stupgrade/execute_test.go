@@ -161,6 +161,14 @@ type stubAgentCommandSender struct {
 	failSmokeTestOnce    bool
 	smokeTestFailures    []string
 	smokeFailureHostID   uint
+	// unwritableDirs 中的目录在 check_path_ready 中返回不可写。
+	// Directories in unwritableDirs report not writable from check_path_ready.
+	unwritableDirs map[string]bool
+	// processDownChecks 记录各安装目录 check_process 先返回“未运行”的次数。
+	// processDownChecks is how many check_process probes per install dir report "not running" first.
+	processDownChecks map[string]int
+	// failSubCommand 指定的子命令总是失败。failSubCommand always fails.
+	failSubCommand string
 }
 
 func (s *stubAgentCommandSender) GetAgentByHostID(hostID uint) (string, bool) {
@@ -182,7 +190,23 @@ func (s *stubAgentCommandSender) SendCommand(ctx context.Context, agentID string
 	}
 
 	subCommand := copied["sub_command"]
+	if s.failSubCommand != "" && subCommand == s.failSubCommand {
+		return false, fmt.Sprintf("%s failed", subCommand), nil
+	}
 	switch subCommand {
+	case "check_path_ready":
+		if s.unwritableDirs[copied["path"]] {
+			return false, `{"success":false,"message":"parent directory is not writable"}`, nil
+		}
+		return true, `{"success":true,"message":"path ready"}`, nil
+	case "check_process":
+		if remaining := s.processDownChecks[copied["install_dir"]]; remaining != 0 {
+			if remaining > 0 {
+				s.processDownChecks[copied["install_dir"]] = remaining - 1
+			}
+			return false, `{"success":false,"message":"SeaTunnel process not found"}`, nil
+		}
+		return true, `{"success":true,"message":"SeaTunnel process found: PID=4242"}`, nil
 	case "backup_install_dir":
 		return true, fmt.Sprintf("backup_path=%s", copied["backup_dir"]), nil
 	case "extract_package_to_dir":
@@ -289,6 +313,11 @@ func TestService_ExecutePlan_success(t *testing.T) {
 	for _, command := range agentSender.commands {
 		if command.commandType == "stop" &&
 			(command.params["service"] == "stx_java_proxy" || command.params["target"] == "stx_java_proxy") {
+			continue
+		}
+		if command.commandType == "check_process" || command.commandType == "check_path_ready" {
+			// 运行时进程探测与目标目录可写预检走 PRECHECK。
+			// Runtime process probes and the target-dir writability precheck use PRECHECK.
 			continue
 		}
 		if command.commandType != "upgrade" {
@@ -891,6 +920,7 @@ func newExecutionService(t *testing.T, repo *Repository, clusterOperator *stubCl
 	service.SetClusterOperator(clusterOperator)
 	service.SetPackageTransferer(&stubPackageTransferer{})
 	service.SetAgentCommandSender(agentSender)
+	service.SetRuntimeHealthWait(20*time.Millisecond, time.Millisecond)
 	return service
 }
 

@@ -297,6 +297,15 @@ func (s *Service) rollbackTask(ctx context.Context, task *UpgradeTask, plan Upgr
 		return fmt.Errorf("回滚步骤未完整初始化")
 	}
 
+	// 失败发生在切换窗口（STOP_CLUSTER）之前且源目录未被原地修改时，旧集群从未被停止，
+	// 回滚只需确认源目录完好，不应停集群再拉起（否则会造成无谓的全集群停机）。
+	// When the failure happened before the cutover window (STOP_CLUSTER) and the source dir was not
+	// modified in place, the old cluster was never stopped: rollback only needs to confirm the source dir
+	// is intact and must not stop/restart the cluster (which would cause needless full-cluster downtime).
+	if !cutoverWindowEntered(task.Steps) && !sourceDirModified(backupPaths) {
+		return s.rollbackBeforeCutover(ctx, task, plan, nodesByKey, prepareStep, restoreStep, restartStep, verifyStep)
+	}
+
 	if err := s.startStep(ctx, task, prepareStep); err != nil {
 		return err
 	}
@@ -400,9 +409,22 @@ func (s *Service) rollbackTask(ctx context.Context, task *UpgradeTask, plan Upgr
 			}
 			return err
 		}
+		if err := s.waitForNodeProcessRunning(ctx, target.HostID, target.SourceInstallDir, target.Role); err != nil {
+			_ = s.failNodeStep(ctx, verifyStep, node, ExecutionStatusRollbackFailed, err, commandSummary)
+			if failErr := s.failStep(ctx, task, verifyStep, err); failErr != nil {
+				return failErr
+			}
+			return err
+		}
 		if err := s.finishNodeStep(ctx, verifyStep, node, ExecutionStatusRollbackSucceeded, fmt.Sprintf("rollback health check passed for %s / %s 回滚健康检查通过", target.SourceInstallDir, target.SourceInstallDir), commandSummary); err != nil {
 			return err
 		}
+	}
+	if err := s.waitForClusterHealthy(ctx, task.ClusterID); err != nil {
+		if failErr := s.failStep(ctx, task, verifyStep, err); failErr != nil {
+			return failErr
+		}
+		return err
 	}
 	if err := s.finishStep(ctx, task, verifyStep, "rollback verification completed / 回滚校验完成"); err != nil {
 		return err
@@ -694,9 +716,20 @@ func (s *Service) executeHealthCheckStep(ctx context.Context, task *UpgradeTask,
 			_ = s.failNodeStep(ctx, step, node, ExecutionStatusFailed, err, commandSummary)
 			return err
 		}
-		if err := s.finishNodeStep(ctx, step, node, ExecutionStatusRunning, fmt.Sprintf("health verified for %s / %s 健康状态校验通过", target.TargetInstallDir, target.TargetInstallDir), commandSummary); err != nil {
+		// 目录结构正确不代表服务可用：必须确认目标目录下的 SeaTunnel 进程真正运行。
+		// A valid layout does not mean the service is up: the SeaTunnel process of the target dir must run.
+		if err := s.waitForNodeProcessRunning(ctx, target.HostID, target.TargetInstallDir, target.Role); err != nil {
+			_ = s.failNodeStep(ctx, step, node, ExecutionStatusFailed, err, commandSummary)
 			return err
 		}
+		if err := s.finishNodeStep(ctx, step, node, ExecutionStatusRunning, fmt.Sprintf("health verified for %s (process running) / %s 健康状态校验通过（进程运行中）", target.TargetInstallDir, target.TargetInstallDir), commandSummary); err != nil {
+			return err
+		}
+	}
+	// 所有节点进程就绪后，再确认集群聚合健康（含成员一致性）。
+	// After every node process is up, confirm the aggregated cluster health (including member agreement).
+	if err := s.waitForClusterHealthy(ctx, task.ClusterID); err != nil {
+		return err
 	}
 	return nil
 }
@@ -1469,4 +1502,90 @@ func canRollbackTask(steps []UpgradeTaskStep) bool {
 		}
 	}
 	return false
+}
+
+// cutoverWindowEntered 判断升级是否已进入切换窗口（STOP_CLUSTER 已开始执行）。
+// cutoverWindowEntered reports whether the upgrade has entered the cutover window (STOP_CLUSTER started).
+func cutoverWindowEntered(steps []UpgradeTaskStep) bool {
+	for _, step := range steps {
+		if step.Code != StepCodeStopCluster {
+			continue
+		}
+		return step.Status != ExecutionStatusPending && step.Status != ""
+	}
+	return false
+}
+
+// sourceDirModified 判断是否存在原地升级（源目录已备份，可能已被改写）。
+// sourceDirModified reports whether any node is upgraded in place (source dir backed up and possibly rewritten).
+func sourceDirModified(backupPaths map[string]string) bool {
+	for _, backupDir := range backupPaths {
+		if strings.TrimSpace(backupDir) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// rollbackBeforeCutover 处理切换窗口前的失败：不停集群、不恢复快照，只校验源目录仍完好。
+// rollbackBeforeCutover handles failures before the cutover window: it neither stops the cluster nor
+// restores snapshots; it only verifies that the source dirs are still intact.
+func (s *Service) rollbackBeforeCutover(ctx context.Context, task *UpgradeTask, plan UpgradePlanSnapshot, nodesByKey map[string]*UpgradeNodeExecution, prepareStep, restoreStep, restartStep, verifyStep *UpgradeTaskStep) error {
+	if err := s.startStep(ctx, task, prepareStep); err != nil {
+		return err
+	}
+	if err := s.appendTaskLog(ctx, task.ID, uintPtr(prepareStep.ID), nil, prepareStep.Code, LogLevelWarn, LogEventTypeRollback, fmt.Sprintf("rollback triggered because %s failed before the cutover window: %s; the running cluster was not stopped / 因 %s 在切换窗口前失败触发回滚：%s；运行中的集群未被停止", task.FailureStep, task.FailureReason, task.FailureStep, task.FailureReason), ""); err != nil {
+		return err
+	}
+	if err := s.finishStep(ctx, task, prepareStep, "failure happened before cutover; cluster left running, no stop needed / 失败发生在切换窗口之前，集群保持运行，无需停止"); err != nil {
+		return err
+	}
+	if err := s.skipStep(ctx, task, restoreStep, "source install dirs were never modified; nothing to restore / 源安装目录未被修改，无需恢复"); err != nil {
+		return err
+	}
+	if err := s.skipStep(ctx, task, restartStep, "cluster was never stopped; restart skipped / 集群未被停止，跳过重启"); err != nil {
+		return err
+	}
+
+	if err := s.startStep(ctx, task, verifyStep); err != nil {
+		return err
+	}
+	for _, target := range plan.NodeTargets {
+		node := nodesByKey[nodeExecutionKey(target.HostID, target.Role)]
+		commandSummary := fmt.Sprintf("upgrade verify_cluster_health install_dir=%s", target.SourceInstallDir)
+		if err := s.beginNodeStep(ctx, verifyStep, node, ExecutionStatusRollbackRunning, fmt.Sprintf("verifying source install dir %s is intact / 正在确认源目录 %s 完好", target.SourceInstallDir, target.SourceInstallDir), commandSummary); err != nil {
+			return err
+		}
+		if _, err := s.runManagedCommand(ctx, target.HostID, map[string]string{
+			"sub_command": "verify_cluster_health",
+			"install_dir": target.SourceInstallDir,
+		}); err != nil {
+			_ = s.failNodeStep(ctx, verifyStep, node, ExecutionStatusRollbackFailed, err, commandSummary)
+			if failErr := s.failStep(ctx, task, verifyStep, err); failErr != nil {
+				return failErr
+			}
+			return err
+		}
+		if err := s.finishNodeStep(ctx, verifyStep, node, ExecutionStatusRollbackSucceeded, fmt.Sprintf("source dir %s intact, cluster kept running / 源目录 %s 完好，集群保持运行", target.SourceInstallDir, target.SourceInstallDir), commandSummary); err != nil {
+			return err
+		}
+	}
+	return s.finishStep(ctx, task, verifyStep, "rollback verification completed; cluster was not interrupted / 回滚校验完成，集群未被中断")
+}
+
+// skipStep 将步骤标记为跳过并记录原因。
+// skipStep marks a step as skipped and records the reason.
+func (s *Service) skipStep(ctx context.Context, task *UpgradeTask, step *UpgradeTaskStep, message string) error {
+	now := time.Now()
+	step.Status = ExecutionStatusSkipped
+	if step.StartedAt == nil {
+		step.StartedAt = &now
+	}
+	step.CompletedAt = &now
+	step.Error = ""
+	step.Message = normalizeUserVisibleText(message)
+	if err := s.UpdateTaskStep(ctx, step); err != nil {
+		return err
+	}
+	return s.appendTaskLog(ctx, task.ID, uintPtr(step.ID), nil, step.Code, LogLevelInfo, LogEventTypeNote, normalizeUserVisibleText(message), "")
 }

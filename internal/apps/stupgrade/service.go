@@ -41,6 +41,8 @@ type Service struct {
 	executionService   *executionapp.Service
 	smokeRetryDelays   []time.Duration
 	waitForRetry       func(context.Context, time.Duration) error
+	healthTimeout      time.Duration
+	healthInterval     time.Duration
 }
 
 // SetExecutionService 设置升级任务使用的公共执行服务。

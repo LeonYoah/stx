@@ -1791,3 +1791,9 @@ func ExecuteIMAPWALInspectFromBase64(
 func EncodeRuntimeStorageContentBase64(content []byte) string {
 	return base64.StdEncoding.EncodeToString(content)
 }
+
+// STXJavaProxyLibDirs 返回本机查找 stx-java-proxy jar 的候选目录（按优先级）。
+// STXJavaProxyLibDirs returns the candidate directories (by priority) where this host looks for stx-java-proxy jars.
+func STXJavaProxyLibDirs() []string {
+	return stxJavaProxyLibDirCandidates("")
+}

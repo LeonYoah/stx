@@ -61,7 +61,7 @@ import {toast} from 'sonner';
 import {Puzzle, RefreshCw, Trash2, Loader2, Plus, Eye, Layers3, Package} from 'lucide-react';
 import {useRouter} from 'next/navigation';
 import services from '@/lib/services';
-import {InstalledPlugin, PluginDependency} from '@/lib/services/plugin/types';
+import {InstalledPlugin, PluginDependency, formatPluginNodeStatuses} from '@/lib/services/plugin/types';
 import {formatDateTimeTz} from '@/lib/timezone';
 
 interface ClusterPluginsProps {
@@ -204,7 +204,20 @@ export function ClusterPlugins({clusterId}: ClusterPluginsProps) {
                       key={plugin.id}
                       data-testid={`cluster-plugin-row-${plugin.plugin_name}-${plugin.version}`}
                     >
-                      <TableCell className="font-medium">{plugin.plugin_name}</TableCell>
+                      <TableCell className="font-medium">
+                        <div className="flex items-center gap-2">
+                          <span>{plugin.plugin_name}</span>
+                          {plugin.status === 'partial' && (
+                            <Badge
+                              variant="destructive"
+                              title={`${t('plugin.partialInstallTip')} ${formatPluginNodeStatuses(plugin, t)}`}
+                              data-testid={`cluster-plugin-partial-${plugin.plugin_name}`}
+                            >
+                              {t('plugin.partialInstalled')}
+                            </Badge>
+                          )}
+                        </div>
+                      </TableCell>
                       <TableCell>
                         {plugin.category ? (
                           <Badge variant="outline">

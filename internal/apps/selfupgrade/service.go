@@ -29,12 +29,10 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/LeonYoah/stx/internal/config"
@@ -154,6 +152,7 @@ func NewService(dataDir string) *Service {
 			Cancellable: false,
 		},
 	}
+	s.resumeAfterRestart()
 	return s
 }
 
@@ -170,11 +169,16 @@ func initialAssets() []AssetState {
 func (s *Service) Status() StatusResponse {
 	info := stxversion.Current()
 	agents, outdated := s.agentVersions(context.Background(), info.Version)
+	restartPlanInfo := s.RestartPlanPreview()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	overall := StatusIdle
 	if s.task != nil {
 		overall = s.task.Status
+		// 演练结束后包仍处于已预置状态，可以继续真实应用。/ after a dry-run the package stays staged and can be applied.
+		if s.task.DryRun && s.task.Status != StatusUpgrading && s.stage.Status == StatusStaged {
+			overall = StatusStaged
+		}
 	} else if s.stage.Status == StatusStaged {
 		overall = StatusStaged
 	} else if s.stage.Status == StatusStaging || s.stage.Status == StatusFailed {
@@ -209,9 +213,12 @@ func (s *Service) Status() StatusResponse {
 		Architecture:            arch,
 		Agents:                  agents,
 		AgentsOutdated:          outdated,
+		RestartPlan:             restartPlanInfo,
 	}
 	if s.task != nil {
 		cp := *s.task
+		cp.Steps = append([]StepState(nil), s.task.Steps...)
+		cp.Restarts = append([]ProcessRestart(nil), s.task.Restarts...)
 		cp.AgentNodes = append([]AgentNodeUpgrade(nil), s.task.AgentNodes...)
 		resp.ActiveTask = &cp
 	}
@@ -1056,20 +1063,6 @@ func copyDir(src, dst string) error {
 	})
 }
 
-// scheduleRestart 异步平滑重启 STX 前后端服务（在独立会话中脱机执行，防止父进程退出时被级联终止）。
-// scheduleRestart asynchronously and gracefully restarts STX services in a detached session to prevent cascade kill.
-func (s *Service) scheduleRestart() {
-	time.Sleep(1500 * time.Millisecond)
-	var cmd *exec.Cmd
-	if _, err := os.Stat("./scripts/restart.sh"); err == nil {
-		cmd = exec.Command("./scripts/restart.sh", "--restart-only")
-	} else {
-		cmd = exec.Command("pm2", "restart", "stx-api", "stx-ui")
-	}
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	_ = cmd.Start()
-}
-
 func (s *Service) materializeAsset(target string, spec AssetSpec) (string, int64, error) {
 	dir, err := s.versionStagingDir(target)
 	if err != nil {
@@ -1274,6 +1267,11 @@ func (s *Service) CancelStage() error {
 // Execute 仅使用本地预置包执行升级。
 func (s *Service) Execute(ctx context.Context, req ExecuteRequest) (*TaskState, error) {
 	s.mu.Lock()
+	mode, err := req.ResolveMode()
+	if err != nil {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("%w: %v", ErrInvalidRequest, err)
+	}
 	if IsRunningInDocker() && !s.mockMode {
 		s.mu.Unlock()
 		return nil, fmt.Errorf("%w: Docker 容器部署控制面由镜像管理，请通过 'docker compose pull && docker compose up -d' 升级服务端镜像 / docker deployment control plane is upgraded via container image; please run 'docker compose pull && docker compose up -d'", ErrInvalid())
@@ -1306,11 +1304,14 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) (*TaskState, 
 		{Code: StepControlPlane, Label: "控制面 / Control plane", Status: StepPending},
 		{Code: StepAgent, Label: "Agent", Status: StepPending},
 		{Code: StepProxy, Label: "Proxy (stx-java-proxy-*.jar)", Status: StepPending},
+		{Code: StepRestart, Label: "重启 STX 进程 / Restart STX processes", Status: StepPending},
 		{Code: StepVerify, Label: "版本校验 / Verify", Status: StepPending},
 	}
 	task := &TaskState{
 		ID:            taskID,
 		Kind:          "execute",
+		ExecutionMode: mode,
+		DryRun:        mode == ExecModeDryRun,
 		Status:        StatusUpgrading,
 		TargetVersion: target,
 		CurrentStep:   StepControlPlane,
@@ -1326,12 +1327,12 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) (*TaskState, 
 	cp.Steps = append([]StepState(nil), task.Steps...)
 	s.mu.Unlock()
 
-	go s.runExecute(runCtx, taskID, target, sim, req.Apply)
+	go s.runExecute(runCtx, taskID, target, sim, mode == ExecModeApply)
 	return &cp, nil
 }
 
 func (s *Service) runExecute(ctx context.Context, taskID, target, sim string, apply bool) {
-	order := []string{StepControlPlane, StepAgent, StepProxy, StepVerify}
+	order := []string{StepControlPlane, StepAgent, StepProxy, StepRestart, StepVerify}
 	failMap := map[string]error{
 		CodeStepFailControlPlane: ErrStepFailControlPlane,
 		CodeStepFailAgent:        ErrStepFailAgent,
@@ -1400,9 +1401,25 @@ func (s *Service) runExecute(ctx context.Context, taskID, target, sim string, ap
 		switch {
 		case !apply:
 			stepMsg = "dry-run: nothing applied / 演练模式：未实际应用"
-			if code == StepAgent {
+			switch code {
+			case StepAgent:
 				stepMsg = s.planAgentsDryRun(ctx, taskID, target)
+			case StepRestart:
+				stepMsg = s.planRestartDryRun(taskID)
 			}
+		case code == StepRestart && s.mockMode:
+			stepMsg = "mock mode: no process restarted / 模拟模式：未重启任何进程"
+		case code == StepRestart:
+			// 真实应用：交给 watchdog 重启控制面（及随包前端），由新进程完成校验与收尾。
+			// Real apply: hand over to the watchdog to restart the control plane (and bundled frontend);
+			// the new process finishes verification and bookkeeping.
+			if err := s.beginControlPlaneRestart(taskID, target); err != nil {
+				fail(code, fmt.Errorf("%w: %v", ErrVerifyFail, err), CodeVerifyFail, "control plane restart could not start: "+err.Error()+" / 无法开始重启控制面")
+				return
+			}
+			return
+		case code == StepVerify && applying:
+			// 不应到达：真实应用在 restart 步骤交棒。/ unreachable: a real apply hands over at the restart step.
 		case code == StepAgent && !s.mockMode:
 			fleet, opts := s.fleetAndOptions()
 			if fleet == nil {
@@ -1457,8 +1474,11 @@ func (s *Service) runExecute(ctx context.Context, taskID, target, sim string, ap
 	s.task.Cancellable = false
 	s.task.CompletedAt = &now
 	s.task.CurrentStep = ""
-	s.updateAvailable = false
-	s.latestVersion = target
+	if apply {
+		// 演练不改变"可升级"状态，之后仍可真实应用。/ a dry-run keeps the update available so it can still be applied.
+		s.updateAvailable = false
+		s.latestVersion = target
+	}
 	switch {
 	case s.mockMode:
 		s.stage.Message = "upgrade completed (mock dry-apply)"
@@ -1496,6 +1516,9 @@ func (s *Service) runExecute(ctx context.Context, taskID, target, sim string, ap
 		Mode:           mode,
 		DeploymentType: depType,
 		Status:         StatusSucceeded,
+		ExecutionMode:  s.task.ExecutionMode,
+		DryRun:         s.task.DryRun,
+		Restarts:       s.task.Restarts,
 		Steps:          s.task.Steps,
 		AgentNodes:     s.task.AgentNodes,
 	}
@@ -1526,11 +1549,7 @@ func (s *Service) applyStep(target, code string, apply bool) error {
 			}
 		}
 		if apply && !s.mockMode {
-			execPath, err := os.Executable()
-			if err != nil || execPath == "" {
-				execPath = "./stx"
-			}
-			execPath, _ = filepath.EvalSymlinks(execPath)
+			execPath := restartExecutable()
 			bakPath := execPath + ".bak"
 			_ = os.Remove(bakPath)
 			_ = os.Rename(execPath, bakPath)
@@ -1594,16 +1613,8 @@ func (s *Service) applyStep(target, code string, apply bool) error {
 			}
 		}
 	case StepVerify:
-		if apply && !s.mockMode {
-			frontendSrc := filepath.Join(dir, "frontend")
-			frontendDst := "./frontend/dist-standalone"
-			if fi, err := os.Stat(frontendSrc); err == nil && fi.IsDir() {
-				if _, err := os.Stat(frontendDst); err == nil {
-					_ = copyDir(frontendSrc, frontendDst)
-				}
-			}
-			go s.scheduleRestart()
-		}
+		// 真实应用的校验由重启后的新进程完成（见 finishRestart）；这里只做演练/模拟校验。
+		// Verification of a real apply is done by the restarted process (see finishRestart); this covers dry-run/mock.
 		info := stxversion.Current()
 		if info.Version == "" {
 			return ErrVerifyFail
@@ -1722,6 +1733,9 @@ func (s *Service) failExecute(taskID, step string, err error, code, msg string) 
 		FailureStep:    step,
 		FailureReason:  msg,
 		ErrorCode:      code,
+		ExecutionMode:  s.task.ExecutionMode,
+		DryRun:         s.task.DryRun,
+		Restarts:       s.task.Restarts,
 		Steps:          s.task.Steps,
 		AgentNodes:     s.task.AgentNodes,
 	}
@@ -1781,11 +1795,7 @@ func (s *Service) rollbackLocked(target, failedStep string) bool {
 	if s.mockMode {
 		return failedStep == StepControlPlane || failedStep == StepAgent || failedStep == StepProxy || failedStep == StepVerify
 	}
-	execPath, err := os.Executable()
-	if err != nil || execPath == "" {
-		execPath = "./stx"
-	}
-	execPath, _ = filepath.EvalSymlinks(execPath)
+	execPath := restartExecutable()
 	bakPath := execPath + ".bak"
 	if fi, err := os.Stat(bakPath); err == nil && fi.Size() > 0 {
 		_ = os.Rename(bakPath, execPath)

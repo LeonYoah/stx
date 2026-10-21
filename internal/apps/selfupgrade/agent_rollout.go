@@ -47,10 +47,21 @@ const (
 	ProxyUpdated = "updated"
 	ProxySkipped = "skipped"
 	ProxyFailed  = "failed"
+	// ProxyRolledBack 表示 jar 已随控制面回滚恢复为备份。/ ProxyRolledBack means jars were restored with the control plane rollback.
+	ProxyRolledBack = "rolled_back"
+
+	ProxyRestartRestarted  = "restarted"
+	ProxyRestartNotRunning = "not_running"
+	ProxyRestartRolledBack = "rolled_back"
+	ProxyRestartFailed     = "failed"
+	ProxyRestartSkipped    = "skipped"
 
 	subCommandAgentSelfUpdate      = "agent_self_update"
 	subCommandAgentSelfRollback    = "agent_self_rollback"
 	subCommandAgentUpdateProxyJars = "agent_update_proxy_jars"
+	// subCommandAgentRollbackProxyJars 用 .bak 恢复 proxy jar 并重启运行中的 proxy（仅 STX 自身进程）。
+	// subCommandAgentRollbackProxyJars restores proxy jars from .bak and restarts running proxies (STX processes only).
+	subCommandAgentRollbackProxyJars = "agent_rollback_proxy_jars"
 
 	agentPendingFile = "agent-pending.json"
 )
@@ -66,6 +77,9 @@ type FleetNode struct {
 	Arch        string
 	Online      bool
 	ConnectedAt time.Time
+	// InstallDirs 是该节点上 SeaTunnel 集群节点的安装目录，用于定位运行中的 stx-java-proxy 状态目录。
+	// InstallDirs are the SeaTunnel install dirs of cluster nodes on this host, used to find running stx-java-proxy state.
+	InstallDirs []string
 }
 
 // AgentFleet 抽象 CP 对已连接 Agent 的访问（由 router 适配 agent.Manager 与 host.Service）。
@@ -84,18 +98,22 @@ type AgentFleet interface {
 
 // AgentNodeUpgrade 是单节点 Agent/Proxy 升级状态。/ AgentNodeUpgrade is the Agent/Proxy upgrade status of one node.
 type AgentNodeUpgrade struct {
-	HostID         uint       `json:"host_id"`
-	HostName       string     `json:"host_name"`
-	IPAddress      string     `json:"ip_address,omitempty"`
-	AgentID        string     `json:"agent_id,omitempty"`
-	FromVersion    string     `json:"from_version,omitempty"`
-	TargetVersion  string     `json:"target_version"`
-	CurrentVersion string     `json:"current_version,omitempty"`
-	Status         string     `json:"status"`
-	Message        string     `json:"message,omitempty"`
-	ProxyStatus    string     `json:"proxy_status,omitempty"`
-	ProxyMessage   string     `json:"proxy_message,omitempty"`
-	UpdatedAt      *time.Time `json:"updated_at,omitempty"`
+	HostID         uint   `json:"host_id"`
+	HostName       string `json:"host_name"`
+	IPAddress      string `json:"ip_address,omitempty"`
+	AgentID        string `json:"agent_id,omitempty"`
+	FromVersion    string `json:"from_version,omitempty"`
+	TargetVersion  string `json:"target_version"`
+	CurrentVersion string `json:"current_version,omitempty"`
+	Status         string `json:"status"`
+	Message        string `json:"message,omitempty"`
+	ProxyStatus    string `json:"proxy_status,omitempty"`
+	ProxyMessage   string `json:"proxy_message,omitempty"`
+	// ProxyRestart 是该节点运行中 stx-java-proxy 的重启结果：restarted | not_running | rolled_back | failed | skipped。
+	// ProxyRestart is the restart result of the node's running stx-java-proxy.
+	ProxyRestart        string     `json:"proxy_restart,omitempty"`
+	ProxyRestartMessage string     `json:"proxy_restart_message,omitempty"`
+	UpdatedAt           *time.Time `json:"updated_at,omitempty"`
 }
 
 // AgentVersionInfo 是状态页展示的节点 Agent 版本。/ AgentVersionInfo is a node's Agent version shown on the status page.
@@ -451,6 +469,15 @@ func (s *Service) rollbackUpgradedAgents(ctx context.Context, taskID, target str
 		wg.Add(1)
 		go func(st AgentNodeUpgrade) {
 			defer wg.Done()
+			// 控制面可能刚重启，先等 Agent 重新连上。/ the control plane may have just restarted; wait for the Agent first.
+			if fn, ok := waitNodeOnline(ctx, fleet, st.HostID, opts); ok {
+				st.AgentID = fn.AgentID
+			}
+			// 先由新 Agent 恢复 proxy jar 并重启运行中的 proxy（旧 Agent 不认识该子命令）。
+			// Restore proxy jars first while the new Agent still runs (the old Agent does not know this sub-command).
+			if st.ProxyStatus == ProxyUpdated {
+				s.rollbackProxyJarsOnNode(ctx, taskID, st, fleet, opts)
+			}
 			sentAt := time.Now()
 			if _, err := fleet.SendUpgradeCommand(ctx, st.AgentID, map[string]string{"sub_command": subCommandAgentSelfRollback}, opts.CommandTimeout); err != nil {
 				s.updateAgentNode(taskID, st.HostID, func(n *AgentNodeUpgrade) {
@@ -478,8 +505,91 @@ func (s *Service) rollbackUpgradedAgents(ctx context.Context, taskID, target str
 	s.removePendingAgentsForTask(taskID)
 }
 
-// rolloutProxyJars 把 stx-java-proxy jar 下发到已升级的节点（仅替换文件并备份，不重启运行中的 proxy）。
-// rolloutProxyJars pushes stx-java-proxy jars to upgraded nodes (file replace with backup; running proxies are not restarted).
+// waitNodeOnline 等待节点在线（最多 ReconnectTimeout）。/ waitNodeOnline waits until the node is online (up to ReconnectTimeout).
+func waitNodeOnline(ctx context.Context, fleet AgentFleet, hostID uint, opts RolloutOptions) (FleetNode, bool) {
+	deadline := time.Now().Add(opts.ReconnectTimeout)
+	for {
+		if n, ok := fleet.Node(ctx, hostID); ok && n.Online {
+			return n, true
+		}
+		if time.Now().After(deadline) || ctx.Err() != nil {
+			return FleetNode{}, false
+		}
+		time.Sleep(opts.PollInterval)
+	}
+}
+
+// rollbackProxyJarsOnNode 恢复节点上的 proxy jar 备份并重启运行中的 proxy，结果写入节点状态。
+// rollbackProxyJarsOnNode restores the node's proxy jar backups, restarts running proxies and records the result.
+func (s *Service) rollbackProxyJarsOnNode(ctx context.Context, taskID string, st AgentNodeUpgrade, fleet AgentFleet, opts RolloutOptions) {
+	params := map[string]string{"sub_command": subCommandAgentRollbackProxyJars}
+	if fn, ok := fleet.Node(ctx, st.HostID); ok && len(fn.InstallDirs) > 0 {
+		params["install_dirs"] = strings.Join(fn.InstallDirs, ",")
+	}
+	out, err := fleet.SendUpgradeCommand(ctx, st.AgentID, params, opts.CommandTimeout)
+	s.updateAgentNode(taskID, st.HostID, func(n *AgentNodeUpgrade) {
+		if err != nil {
+			n.ProxyStatus = ProxyFailed
+			n.ProxyMessage = "proxy jar rollback failed: " + err.Error() + " / proxy jar 回滚失败"
+			return
+		}
+		n.ProxyStatus = ProxyRolledBack
+		n.ProxyMessage = "proxy jars restored from backup / proxy jar 已从备份恢复"
+		n.ProxyRestart, n.ProxyRestartMessage = summarizeProxyRestarts(parseProxyRestarts(out))
+	})
+}
+
+// proxyRestartEntry 对应 Agent 返回的单个 proxy 重启结果。/ proxyRestartEntry mirrors one proxy restart result from the Agent.
+type proxyRestartEntry struct {
+	StateDir string `json:"state_dir"`
+	Status   string `json:"status"`
+	OldPID   int    `json:"old_pid"`
+	NewPID   int    `json:"new_pid"`
+	Port     int    `json:"port"`
+	Message  string `json:"message"`
+}
+
+func parseProxyRestarts(out string) []proxyRestartEntry {
+	var res struct {
+		Restarts []proxyRestartEntry `json:"restarts"`
+	}
+	_ = json.Unmarshal([]byte(out), &res)
+	return res.Restarts
+}
+
+// summarizeProxyRestarts 把节点上多个 proxy 的重启结果汇总为一个状态（最差优先）。
+// summarizeProxyRestarts folds several proxy restart results of a node into one status (worst wins).
+func summarizeProxyRestarts(list []proxyRestartEntry) (string, string) {
+	if len(list) == 0 {
+		return ProxyRestartNotRunning, "no running stx-java-proxy on this node / 该节点没有运行中的 stx-java-proxy"
+	}
+	rank := map[string]int{ProxyRestartFailed: 4, ProxyRestartRolledBack: 3, ProxyRestartRestarted: 2, ProxyRestartSkipped: 1, ProxyRestartNotRunning: 0}
+	worst := ""
+	parts := make([]string, 0, len(list))
+	for _, r := range list {
+		if worst == "" || rank[r.Status] > rank[worst] {
+			worst = r.Status
+		}
+		part := r.Status
+		if r.Port > 0 {
+			part = fmt.Sprintf("port %d: %s", r.Port, r.Status)
+		}
+		if r.OldPID > 0 || r.NewPID > 0 {
+			part += fmt.Sprintf(" (pid %d → %d)", r.OldPID, r.NewPID)
+		}
+		if r.Message != "" {
+			part += " " + r.Message
+		}
+		parts = append(parts, part)
+	}
+	return worst, strings.Join(parts, "; ")
+}
+
+// rolloutProxyJars 把 stx-java-proxy jar 下发到已升级的节点（替换并备份），并重启该节点上运行中的 proxy；
+// 重启失败时 Agent 会恢复备份 jar 再拉起。只涉及 STX 自身的 proxy 进程，不触碰 SeaTunnel。
+// rolloutProxyJars pushes stx-java-proxy jars to upgraded nodes (replace with backup) and restarts the node's running
+// proxies; if a restart fails the Agent restores the backup jars and starts it again. Only STX's own proxy processes
+// are touched, never SeaTunnel.
 func (s *Service) rolloutProxyJars(ctx context.Context, taskID, target string, fleet AgentFleet, opts RolloutOptions) (string, bool) {
 	dir, err := s.versionStagingDir(target)
 	if err != nil {
@@ -498,7 +608,7 @@ func (s *Service) rolloutProxyJars(ctx context.Context, taskID, target string, f
 		}
 		return "no proxy jar in upgrade package", false
 	}
-	updated, failed, skipped := 0, 0, 0
+	updated, failed, skipped, restarted, restartIssues := 0, 0, 0, 0, 0
 	for _, n := range nodes {
 		if n.Status != NodeUpgradeSucceeded {
 			skipped++
@@ -507,8 +617,8 @@ func (s *Service) rolloutProxyJars(ctx context.Context, taskID, target string, f
 			})
 			continue
 		}
-		status, msg := s.pushProxyJars(ctx, n, target, jars, fleet, opts)
-		switch status {
+		r := s.pushProxyJars(ctx, n, target, jars, fleet, opts)
+		switch r.status {
 		case ProxyUpdated:
 			updated++
 		case ProxyFailed:
@@ -516,31 +626,57 @@ func (s *Service) rolloutProxyJars(ctx context.Context, taskID, target string, f
 		default:
 			skipped++
 		}
-		s.updateAgentNode(taskID, n.HostID, func(st *AgentNodeUpgrade) { st.ProxyStatus, st.ProxyMessage = status, msg })
+		switch r.restart {
+		case ProxyRestartRestarted:
+			restarted++
+		case ProxyRestartFailed, ProxyRestartRolledBack:
+			restartIssues++
+		}
+		s.updateAgentNode(taskID, n.HostID, func(st *AgentNodeUpgrade) { r.apply(st) })
 	}
-	return fmt.Sprintf("proxy jars: %d node(s) updated, %d skipped, %d failed", updated, skipped, failed), failed > 0
+	return fmt.Sprintf("proxy jars: %d node(s) updated, %d skipped, %d failed; running proxies: %d node(s) restarted, %d with restart issues",
+		updated, skipped, failed, restarted, restartIssues), failed > 0 || restartIssues > 0
 }
 
-func (s *Service) pushProxyJars(ctx context.Context, n AgentNodeUpgrade, target string, jars []string, fleet AgentFleet, opts RolloutOptions) (string, string) {
+type proxyPushResult struct {
+	status, msg, restart, restartMsg string
+}
+
+func (r proxyPushResult) apply(st *AgentNodeUpgrade) {
+	st.ProxyStatus, st.ProxyMessage = r.status, r.msg
+	st.ProxyRestart, st.ProxyRestartMessage = r.restart, r.restartMsg
+}
+
+func (s *Service) pushProxyJars(ctx context.Context, n AgentNodeUpgrade, target string, jars []string, fleet AgentFleet, opts RolloutOptions) proxyPushResult {
+	fail := func(msg string) proxyPushResult {
+		return proxyPushResult{status: ProxyFailed, msg: msg, restart: ProxyRestartSkipped, restartMsg: "jars not updated / jar 未更新"}
+	}
 	remotes := make([]string, 0, len(jars))
 	for _, jar := range jars {
 		sum, err := sha256File(jar)
 		if err != nil {
-			return ProxyFailed, err.Error()
+			return fail(err.Error())
 		}
 		remote, err := fleet.TransferFile(ctx, n.AgentID, fmt.Sprintf("%s-%s-%s", strings.TrimSuffix(filepath.Base(jar), ".jar"), stxversion.Normalize(target), sum[:12]), jar, sum)
 		if err != nil {
-			return ProxyFailed, "transfer failed: " + err.Error()
+			return fail("transfer failed: " + err.Error())
 		}
 		// Agent 按文件名识别 jar；拉取结果沿用源文件名。/ the Agent identifies jars by file name, which the pull keeps.
 		remotes = append(remotes, remote)
 	}
-	out, err := fleet.SendUpgradeCommand(ctx, n.AgentID, map[string]string{
+	params := map[string]string{
 		"sub_command": subCommandAgentUpdateProxyJars,
 		"jar_paths":   strings.Join(remotes, ","),
-	}, opts.CommandTimeout)
+		// 让 Agent 重启该节点上运行中的 stx-java-proxy（失败时恢复备份 jar）。
+		// Ask the Agent to restart running stx-java-proxy processes on the node (restoring backup jars on failure).
+		"restart_running": "true",
+	}
+	if fn, ok := fleet.Node(ctx, n.HostID); ok && len(fn.InstallDirs) > 0 {
+		params["install_dirs"] = strings.Join(fn.InstallDirs, ",")
+	}
+	out, err := fleet.SendUpgradeCommand(ctx, n.AgentID, params, opts.CommandTimeout)
 	if err != nil {
-		return ProxyFailed, err.Error()
+		return fail(err.Error())
 	}
 	var res struct {
 		TargetDir string   `json:"target_dir"`
@@ -549,10 +685,12 @@ func (s *Service) pushProxyJars(ctx context.Context, n AgentNodeUpgrade, target 
 		Reason    string   `json:"reason"`
 	}
 	_ = json.Unmarshal([]byte(out), &res)
+	restart, restartMsg := summarizeProxyRestarts(parseProxyRestarts(out))
 	if res.Skipped {
-		return ProxySkipped, res.Reason
+		return proxyPushResult{status: ProxySkipped, msg: res.Reason, restart: restart, restartMsg: restartMsg}
 	}
-	return ProxyUpdated, fmt.Sprintf("%d jar(s) updated in %s (backups kept as .bak); running proxies pick them up on next restart / 已更新 %d 个 jar，运行中的 proxy 在下次重启后生效", len(res.Updated), res.TargetDir, len(res.Updated))
+	msg := fmt.Sprintf("%d jar(s) updated in %s (backups kept as .bak) / 已更新 %d 个 jar（备份为 .bak）", len(res.Updated), res.TargetDir, len(res.Updated))
+	return proxyPushResult{status: ProxyUpdated, msg: msg, restart: restart, restartMsg: restartMsg}
 }
 
 // ---- 离线节点补升级 / catch-up for offline nodes ----
@@ -682,8 +820,8 @@ func (s *Service) HandleAgentReady(ctx context.Context, hostID uint) {
 			return
 		}
 		st := AgentNodeUpgrade{HostID: hostID, AgentID: n.AgentID}
-		status, msg := s.pushProxyJars(runCtx, st, entry.TargetVersion, jars, fleet, opts)
-		s.updateAgentNode(entry.TaskID, hostID, func(st *AgentNodeUpgrade) { st.ProxyStatus, st.ProxyMessage = status, msg })
+		r := s.pushProxyJars(runCtx, st, entry.TargetVersion, jars, fleet, opts)
+		s.updateAgentNode(entry.TaskID, hostID, func(st *AgentNodeUpgrade) { r.apply(st) })
 	}()
 }
 

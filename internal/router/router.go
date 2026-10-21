@@ -1008,7 +1008,7 @@ func Serve() {
 			if agentManager != nil {
 				// 自升级通过 gRPC 通道把新 Agent/Proxy 下发到各节点；离线节点重连后补升级。
 				// Self-upgrade pushes the new Agent/Proxy over gRPC; offline nodes catch up after reconnecting.
-				selfUpgradeService.SetAgentFleet(&selfUpgradeFleetAdapter{manager: agentManager, hostService: hostService})
+				selfUpgradeService.SetAgentFleet(&selfUpgradeFleetAdapter{manager: agentManager, hostService: hostService, installDirs: clusterInstallDirsLookup(clusterService)})
 				grpcServer.RegisterAgentReadyHook(selfUpgradeService.HandleAgentReady)
 			}
 			selfUpgradeHandler := selfupgrade.NewHandler(selfUpgradeService)

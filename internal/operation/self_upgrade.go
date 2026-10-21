@@ -44,8 +44,11 @@ func selfUpgradeOperationSpecs() []OperationSpec {
 			"POST", "/api/v1/self-upgrade/stage/cancel", RiskR1, "Stops the running staging task and leaves partially downloaded assets unused.",
 			nil, "", false),
 		selfUpgradeOp("self_upgrade.execute", []string{"self-upgrade", "execute"}, "Execute an STX upgrade from staged assets",
-			"POST", "/api/v1/self-upgrade/execute", RiskR3, "Replaces the STX control plane, Agent, and Java Proxy binaries with staged assets and restarts the STX service.",
-			[]InputSpec{{Name: "apply", Location: InputBody, Description: "Apply the staged upgrade"}},
+			"POST", "/api/v1/self-upgrade/execute", RiskR3, "mode=apply replaces the STX control plane, Agent and Java Proxy with staged assets and restarts the STX processes involved (control plane, bundled frontend, Agents, running stx-java-proxy); SeaTunnel processes and jobs are not touched. mode=dry_run applies nothing.",
+			[]InputSpec{
+				{Name: "mode", Location: InputBody, Description: "Execution mode: apply (real upgrade) or dry_run (rehearsal, nothing applied); defaults to dry_run when omitted"},
+				{Name: "apply", Location: InputBody, Description: "Deprecated: legacy flag, equivalent to mode=apply when mode is omitted"},
+			},
 			"stx self-upgrade execute", true),
 		selfUpgradeOp("self_upgrade.task.get", nil, "Get an STX self-upgrade task",
 			"GET", "/api/v1/self-upgrade/tasks/:id", RiskR0, "", taskIDInput, "", false),

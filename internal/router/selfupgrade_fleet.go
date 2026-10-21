@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/LeonYoah/stx/internal/apps/agent"
+	"github.com/LeonYoah/stx/internal/apps/cluster"
 	"github.com/LeonYoah/stx/internal/apps/host"
 	"github.com/LeonYoah/stx/internal/apps/selfupgrade"
 	pb "github.com/LeonYoah/stx/internal/proto/agent"
@@ -34,6 +35,9 @@ import (
 type selfUpgradeFleetAdapter struct {
 	manager     *agent.Manager
 	hostService *host.Service
+	// installDirs 返回该主机上 SeaTunnel 集群节点的安装目录（用于定位运行中的 stx-java-proxy）。
+	// installDirs returns the SeaTunnel install dirs of cluster nodes on the host (to locate running stx-java-proxy).
+	installDirs func(ctx context.Context, hostID uint) []string
 }
 
 func (a *selfUpgradeFleetAdapter) liveConn(hostID uint, agentID string) (agent.AgentConnectionSnapshot, bool) {
@@ -94,7 +98,35 @@ func (a *selfUpgradeFleetAdapter) Node(ctx context.Context, hostID uint) (selfup
 	if err != nil || h == nil {
 		return selfupgrade.FleetNode{}, false
 	}
-	return a.toNode(h), true
+	n := a.toNode(h)
+	if a.installDirs != nil {
+		n.InstallDirs = a.installDirs(ctx, hostID)
+	}
+	return n, true
+}
+
+// clusterInstallDirsLookup 从集群节点表查出主机上的 SeaTunnel 安装目录（去重、去空）。
+// clusterInstallDirsLookup looks up a host's SeaTunnel install dirs from cluster nodes (deduplicated, non-empty).
+func clusterInstallDirsLookup(svc *cluster.Service) func(ctx context.Context, hostID uint) []string {
+	if svc == nil {
+		return nil
+	}
+	return func(ctx context.Context, hostID uint) []string {
+		nodes, err := svc.GetNodesByHostID(ctx, hostID)
+		if err != nil {
+			return nil
+		}
+		seen := map[string]bool{}
+		var out []string
+		for _, n := range nodes {
+			if n == nil || n.InstallDir == "" || seen[n.InstallDir] {
+				continue
+			}
+			seen[n.InstallDir] = true
+			out = append(out, n.InstallDir)
+		}
+		return out
+	}
 }
 
 // TransferFile 复用 TRANSFER_PACKAGE 的 pull 模式传输文件。/ TransferFile reuses TRANSFER_PACKAGE pull mode.

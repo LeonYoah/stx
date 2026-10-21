@@ -17,7 +17,10 @@
 
 package selfupgrade
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // Phase / Status enums.
 const (
@@ -52,6 +55,24 @@ const (
 	StepAgent        = "agent"
 	StepProxy        = "proxy"
 	StepVerify       = "verify"
+	// StepRestart 重启 STX 自身进程（控制面、随包前端）；不触碰 SeaTunnel。
+	// StepRestart restarts STX's own processes (control plane, bundled frontend); SeaTunnel is never touched.
+	StepRestart = "restart"
+
+	// ExecModeApply 真实应用升级；ExecModeDryRun 仅演练、不做任何变更。
+	// ExecModeApply really applies the upgrade; ExecModeDryRun only rehearses and changes nothing.
+	ExecModeApply  = "apply"
+	ExecModeDryRun = "dry_run"
+
+	// 进程重启状态 / process restart status
+	RestartPending     = "pending"
+	RestartRunning     = "restarting"
+	RestartSucceeded   = "restarted"
+	RestartRolledBack  = "rolled_back"
+	RestartFailed      = "failed"
+	RestartSkipped     = "skipped"
+	RestartNotRunning  = "not_running"
+	RestartWouldDoThis = "planned"
 
 	ModeOnline  = "online"
 	ModeOffline = "offline"
@@ -129,10 +150,16 @@ type TaskState struct {
 	Steps         []StepState `json:"steps,omitempty"`
 	// AgentNodes 是各 Worker 节点 Agent/Proxy 的升级状态。
 	// AgentNodes is the per-node Agent/Proxy upgrade status.
-	AgentNodes  []AgentNodeUpgrade `json:"agent_nodes,omitempty"`
-	Cancellable bool               `json:"cancellable"`
-	StartedAt   *time.Time         `json:"started_at,omitempty"`
-	CompletedAt *time.Time         `json:"completed_at,omitempty"`
+	AgentNodes []AgentNodeUpgrade `json:"agent_nodes,omitempty"`
+	// ExecutionMode 是 apply 或 dry_run；DryRun 便于直接判断。
+	// ExecutionMode is apply or dry_run; DryRun is a convenience flag.
+	ExecutionMode string `json:"execution_mode,omitempty"`
+	DryRun        bool   `json:"dry_run"`
+	// Restarts 是控制面与随包前端的重启结果。/ Restarts holds control plane and bundled frontend restart results.
+	Restarts    []ProcessRestart `json:"restarts,omitempty"`
+	Cancellable bool             `json:"cancellable"`
+	StartedAt   *time.Time       `json:"started_at,omitempty"`
+	CompletedAt *time.Time       `json:"completed_at,omitempty"`
 }
 
 // UpgradeHistoryRecord 记录一次完成或失败的自升级历史。
@@ -154,6 +181,10 @@ type UpgradeHistoryRecord struct {
 	// AgentNodes 是各节点 Agent/Proxy 的升级结果（离线节点重连后补升级会回写）。
 	// AgentNodes is the per-node Agent/Proxy result (updated when offline nodes catch up after reconnecting).
 	AgentNodes []AgentNodeUpgrade `json:"agent_nodes,omitempty"`
+	// ExecutionMode 是 apply 或 dry_run（旧记录为空）。/ ExecutionMode is apply or dry_run (empty for older records).
+	ExecutionMode string           `json:"execution_mode,omitempty"`
+	DryRun        bool             `json:"dry_run"`
+	Restarts      []ProcessRestart `json:"restarts,omitempty"`
 }
 
 // StatusResponse is the aggregate console status. / 控制台聚合状态。
@@ -184,6 +215,9 @@ type StatusResponse struct {
 	// AgentsOutdated 是版本与控制面不一致的 Agent 数量。
 	// AgentsOutdated counts Agents whose version differs from the control plane.
 	AgentsOutdated int `json:"agents_outdated"`
+	// RestartPlan 描述真实应用时会重启的 STX 进程（SeaTunnel 不受影响）。
+	// RestartPlan describes the STX processes an apply restarts (SeaTunnel is unaffected).
+	RestartPlan *RestartPlanInfo `json:"restart_plan,omitempty"`
 }
 
 // CheckRequest optionally injects a failure for local smoke tests.
@@ -203,7 +237,63 @@ type StageDownloadRequest struct {
 // ExecuteRequest 仅从本地预置包开升。
 type ExecuteRequest struct {
 	SimulateFailure string `json:"simulate_failure,omitempty"`
-	// Apply=true attempts real replace hooks; MVP defaults to dry-run apply.
-	// Apply=true 尝试真实替换钩子；MVP 默认 dry-run。
+	// Mode 显式选择 "apply"（真实应用：替换并重启控制面、Agent、proxy、随包前端）或 "dry_run"（演练，不做任何变更）。
+	// 省略时回退到旧字段 apply；两者都省略时为 dry_run（安全默认）。
+	// Mode explicitly selects "apply" (really replace and restart the control plane, Agents, proxies and bundled
+	// frontend) or "dry_run" (rehearse, change nothing). When omitted the legacy apply flag decides; when both are
+	// omitted the request is a dry run (safe default).
+	Mode string `json:"mode,omitempty"`
+	// Apply 是旧字段，等价于 mode=apply；与 mode 冲突时报错。
+	// Apply is the legacy flag, equivalent to mode=apply; conflicting with mode is rejected.
 	Apply bool `json:"apply,omitempty"`
+}
+
+// ResolveMode 返回本次执行的显式模式。/ ResolveMode returns the explicit execution mode of the request.
+func (r ExecuteRequest) ResolveMode() (string, error) {
+	switch r.Mode {
+	case ExecModeApply:
+		return ExecModeApply, nil
+	case ExecModeDryRun:
+		if r.Apply {
+			return "", fmt.Errorf("mode=dry_run conflicts with apply=true / mode=dry_run 与 apply=true 冲突")
+		}
+		return ExecModeDryRun, nil
+	case "":
+		if r.Apply {
+			return ExecModeApply, nil
+		}
+		return ExecModeDryRun, nil
+	default:
+		return "", fmt.Errorf("invalid mode %q: must be %q or %q / mode 只能是 %q 或 %q", r.Mode, ExecModeApply, ExecModeDryRun, ExecModeApply, ExecModeDryRun)
+	}
+}
+
+// ProcessRestart 是一个 STX 自身进程的重启结果。/ ProcessRestart is the restart result of one STX-owned process.
+type ProcessRestart struct {
+	// Component: control_plane | frontend
+	Component string `json:"component"`
+	// Strategy: standalone | systemd | supervisor | pm2 | hook | none
+	Strategy string     `json:"strategy,omitempty"`
+	Status   string     `json:"status"`
+	Message  string     `json:"message,omitempty"`
+	OldPID   int        `json:"old_pid,omitempty"`
+	NewPID   int        `json:"new_pid,omitempty"`
+	At       *time.Time `json:"at,omitempty"`
+}
+
+// RestartPlanInfo 告诉确认框真实应用时会重启哪些进程。/ RestartPlanInfo tells the confirm dialog which processes an apply restarts.
+type RestartPlanInfo struct {
+	ControlPlaneStrategy string `json:"control_plane_strategy"`
+	ControlPlaneDetail   string `json:"control_plane_detail,omitempty"`
+	// FrontendDetected 表示检测到随包的 Next standalone 前端进程，会一并重启。
+	// FrontendDetected reports a bundled Next standalone frontend process that is restarted too.
+	FrontendDetected bool   `json:"frontend_detected"`
+	FrontendStrategy string `json:"frontend_strategy,omitempty"`
+	// RestartsAgents / RestartsProxies 恒为 true：Agent 换二进制后原地重启，运行中的 stx-java-proxy 换 jar 后重启。
+	// RestartsAgents / RestartsProxies are always true: Agents restart in place after the swap, running proxies after the jar swap.
+	RestartsAgents  bool `json:"restarts_agents"`
+	RestartsProxies bool `json:"restarts_proxies"`
+	// SeaTunnelAffected 恒为 false：自升级从不停止、重启或改动 SeaTunnel/Hazelcast 进程与作业。
+	// SeaTunnelAffected is always false: self-upgrade never stops, restarts or modifies SeaTunnel/Hazelcast processes or jobs.
+	SeaTunnelAffected bool `json:"seatunnel_affected"`
 }

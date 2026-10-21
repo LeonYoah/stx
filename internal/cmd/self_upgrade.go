@@ -20,6 +20,7 @@ package cmd
 import (
 	"net/http"
 
+	"github.com/LeonYoah/stx/internal/apps/selfupgrade"
 	cliClient "github.com/LeonYoah/stx/internal/cli/client"
 	cliConfig "github.com/LeonYoah/stx/internal/cli/config"
 	clioutput "github.com/LeonYoah/stx/internal/cli/output"
@@ -124,16 +125,34 @@ func newSelfUpgradeCommand(storeProvider authStoreProvider) *cobra.Command {
 	stageCmd.Flags().StringVar(&stageSim, "simulate-failure", "", "Simulate failure code for staging tests (download_partial, disk_full)")
 
 	var execSim string
+	var execDryRun bool
 	executeCmd := &cobra.Command{
 		Use:   "execute",
-		Short: "Execute STX upgrade from local staged assets",
-		Args:  usageArgs(cobra.NoArgs),
+		Short: "Execute STX upgrade from local staged assets (applies by default; --dry-run to rehearse)",
+		Long: `Execute the STX self-upgrade from the locally staged package.
+
+By default this APPLIES the upgrade for real (mode=apply): it replaces the control
+plane binary, rolls the Agent out to every node (offline nodes upgrade when they
+reconnect), replaces stx-java-proxy jars, and restarts the STX processes involved:
+the control plane, the bundled frontend, each Agent and every running
+stx-java-proxy. SeaTunnel/Hazelcast processes and jobs are never stopped or
+restarted. If the new control plane fails to start it is rolled back to the backup.
+
+Use --dry-run (mode=dry_run) to rehearse: every step is planned and reported but
+nothing is applied and no process is restarted.
+
+执行自升级：默认真实应用（mode=apply），会替换控制面、下发 Agent、替换 proxy jar，
+并重启涉及的 STX 进程（控制面、随包前端、Agent、运行中的 stx-java-proxy）；
+SeaTunnel/Hazelcast 进程与作业不受影响。--dry-run（mode=dry_run）只演练，不做任何变更。`,
+		Example: `  stx self-upgrade execute            # apply the staged upgrade for real
+  stx self-upgrade execute --dry-run  # rehearse only; nothing is applied`,
+		Args: usageArgs(cobra.NoArgs),
 		RunE: func(command *cobra.Command, _ []string) error {
 			client, err := resolveSelfUpgradeClient(command, storeProvider, server, namespace)
 			if err != nil {
 				return err
 			}
-			body := map[string]any{"apply": true}
+			body := map[string]any{"mode": selfUpgradeExecuteMode(execDryRun)}
 			if execSim != "" {
 				body["simulate_failure"] = execSim
 			}
@@ -145,6 +164,7 @@ func newSelfUpgradeCommand(storeProvider authStoreProvider) *cobra.Command {
 			return renderCommandResultWithRequestID(command, "self_upgrade.execute", requestID, data)
 		},
 	}
+	executeCmd.Flags().BoolVar(&execDryRun, "dry-run", false, "Rehearse only (mode=dry_run): plan every step but apply nothing and restart nothing. Without it the upgrade is APPLIED (mode=apply)")
 	executeCmd.Flags().StringVar(&execSim, "simulate-failure", "", "Simulate failure code during execution (step_fail_control_plane, step_fail_agent, step_fail_proxy, verify_fail)")
 
 	historyCmd := &cobra.Command{
@@ -193,4 +213,31 @@ func validateSelfUpgradeVersionFlag(flag, value string) error {
 		return clioutput.NewError(clioutput.CodeUsage, "invalid "+flag+": "+err.Error(), clioutput.ExitUsage, false)
 	}
 	return nil
+}
+
+// selfUpgradeExecuteMode 把 --dry-run 映射为显式的执行模式（默认 apply）。
+// selfUpgradeExecuteMode maps --dry-run to the explicit execution mode (apply by default).
+func selfUpgradeExecuteMode(dryRun bool) string {
+	if dryRun {
+		return selfupgrade.ExecModeDryRun
+	}
+	return selfupgrade.ExecModeApply
+}
+
+// newSelfUpgradeWatchdogCommand 是自升级重启 watchdog 的隐藏入口，由旧控制面在独立会话中启动。
+// newSelfUpgradeWatchdogCommand is the hidden entry of the self-upgrade restart watchdog, started detached by the
+// old control plane.
+func newSelfUpgradeWatchdogCommand() *cobra.Command {
+	var planPath string
+	command := &cobra.Command{
+		Use:    selfupgrade.WatchdogCommand,
+		Hidden: true,
+		Args:   cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return selfupgrade.RunRestartWatchdog(planPath)
+		},
+	}
+	command.Flags().StringVar(&planPath, "plan", "", "restart plan path")
+	_ = command.MarkFlagRequired("plan")
+	return command
 }

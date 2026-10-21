@@ -144,11 +144,7 @@ func (s *OverviewService) GetClusterSummaries(ctx context.Context, limit int) ([
 		}
 
 		for _, n := range clusterWithNodes.Nodes {
-			if n.Role == cluster.NodeRoleMaster {
-				summary.MasterNodes++
-			} else {
-				summary.WorkerNodes++
-			}
+			countNodeRole(summary, n.Role)
 			h, err := s.hostRepo.GetByID(ctx, n.HostID)
 			online := err == nil && h.IsOnlineWithSince(s.heartbeatTimeout, s.processStartedAt)
 			if online {
@@ -288,4 +284,20 @@ func (s *OverviewService) GetOverviewData(ctx context.Context) (*OverviewData, e
 		HostSummaries:    hostSummaries,
 		RecentActivities: recentActivities,
 	}, nil
+}
+
+// countNodeRole 按角色计数；混合部署的 master/worker 节点同时计入 master 与 worker，
+// 因此 master_nodes + worker_nodes 可能大于 total_nodes。
+// countNodeRole counts a node by role; a hybrid master/worker node counts as both master and worker,
+// so master_nodes + worker_nodes can exceed total_nodes.
+func countNodeRole(summary *ClusterSummary, role cluster.NodeRole) {
+	switch role {
+	case cluster.NodeRoleMaster:
+		summary.MasterNodes++
+	case cluster.NodeRoleMasterWorker:
+		summary.MasterNodes++
+		summary.WorkerNodes++
+	default:
+		summary.WorkerNodes++
+	}
 }

@@ -506,17 +506,37 @@ func (s *Service) ListWithInfo(ctx context.Context, filter *ClusterFilter) ([]*C
 
 	infos := make([]*ClusterInfo, len(clusters))
 	for i, c := range clusters {
-		infos[i] = c.ToClusterInfo()
-		// Populate online_nodes and health_status so list UI can show "异常" when running but 0 online
-		status, err := s.GetStatus(ctx, c.ID)
-		if err == nil {
-			infos[i].Status = status.Status
-			infos[i].OnlineNodes = status.OnlineNodes
-			infos[i].HealthStatus = string(status.HealthStatus)
-		}
+		infos[i] = s.clusterInfoWithStatus(ctx, c)
 	}
 
 	return infos, total, nil
+}
+
+// GetWithInfo 获取单个集群并填充 online_nodes 与 health_status，与列表接口口径一致。
+// GetWithInfo returns one cluster with online_nodes and health_status populated, consistent with the list API.
+func (s *Service) GetWithInfo(ctx context.Context, id uint) (*ClusterInfo, error) {
+	c, err := s.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return s.clusterInfoWithStatus(ctx, c), nil
+}
+
+// clusterInfoWithStatus 转换为 ClusterInfo 并用实时状态填充 online_nodes/health_status，
+// 使列表与详情在“运行中但 0 在线”时都能显示为异常。
+// clusterInfoWithStatus converts to ClusterInfo and fills online_nodes/health_status from the live status,
+// so both list and detail can show "unhealthy" when running with 0 nodes online.
+func (s *Service) clusterInfoWithStatus(ctx context.Context, c *Cluster) *ClusterInfo {
+	info := c.ToClusterInfo()
+	status, err := s.GetStatus(ctx, c.ID)
+	if err == nil {
+		info.Status = status.Status
+		info.OnlineNodes = status.OnlineNodes
+		info.HealthStatus = string(status.HealthStatus)
+	} else {
+		info.HealthStatus = string(HealthStatusUnknown)
+	}
+	return info
 }
 
 // Update updates an existing cluster with validation.

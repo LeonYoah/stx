@@ -462,14 +462,14 @@ func (h *Handler) GetCluster(c *gin.Context) {
 		return
 	}
 
-	cluster, err := h.service.Get(c.Request.Context(), uint(clusterID))
+	info, err := h.service.GetWithInfo(c.Request.Context(), uint(clusterID))
 	if err != nil {
 		statusCode := h.getStatusCodeForError(err)
 		c.JSON(statusCode, GetClusterResponse{ErrorMsg: err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, GetClusterResponse{Data: cluster.ToClusterInfo()})
+	c.JSON(http.StatusOK, GetClusterResponse{Data: info})
 }
 
 // UpdateCluster handles PUT /api/v1/clusters/:id - updates an existing cluster.

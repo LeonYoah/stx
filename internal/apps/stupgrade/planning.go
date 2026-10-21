@@ -19,6 +19,7 @@ package stupgrade
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -330,6 +331,9 @@ func (s *Service) buildNodeTargets(ctx context.Context, nodes []*clusterapp.Node
 				fmt.Sprintf("package arch %s does not match node %s arch %s / 安装包架构 %s 与节点 %s 架构 %s 不匹配", packageArch, node.HostName, hostInfo.Arch, packageArch, node.HostName, hostInfo.Arch),
 				map[string]string{"package_arch": packageArch, "host_arch": hostInfo.Arch, "host_id": fmt.Sprintf("%d", node.HostID)},
 			))
+		}
+		if issue := s.checkTargetInstallDirWritable(ctx, node, target); issue != nil {
+			issues = append(issues, *issue)
 		}
 		if isDiskInsufficient(hostInfo, packageSize) {
 			issues = append(issues, blockingIssue(
@@ -681,8 +685,21 @@ func filterNodeScope(nodes []*clusterapp.NodeInfo, requestedNodeIDs []uint) ([]*
 }
 
 func buildTargetInstallDir(currentInstallDir, sourceVersion, targetVersion string) string {
+	currentInstallDir = strings.TrimSpace(currentInstallDir)
 	if currentInstallDir != "" && sourceVersion != "" && strings.Contains(currentInstallDir, sourceVersion) {
 		return strings.Replace(currentInstallDir, sourceVersion, targetVersion, 1)
+	}
+	// 源目录不含版本号时，默认放在源目录的同级目录（<父目录>/<目录名>-<目标版本>），
+	// 避免落到与源目录无关、可能不可写的 /opt/seatunnel-<version>。
+	// When the source dir has no version in it, default to a sibling of the source dir
+	// (<parent>/<base>-<target>) instead of an unrelated and possibly unwritable /opt/seatunnel-<version>.
+	if currentInstallDir != "" && strings.TrimSpace(targetVersion) != "" {
+		cleaned := filepath.Clean(currentInstallDir)
+		base := filepath.Base(cleaned)
+		parent := filepath.Dir(cleaned)
+		if base != "" && base != "." && base != string(filepath.Separator) && filepath.IsAbs(cleaned) {
+			return filepath.Join(parent, fmt.Sprintf("%s-%s", base, strings.TrimSpace(targetVersion)))
+		}
 	}
 	return seatunnel.DefaultInstallDir(targetVersion)
 }
@@ -784,4 +801,63 @@ func fileNameFromPath(path string) string {
 	}
 	parts := strings.Split(path, "/")
 	return parts[len(parts)-1]
+}
+
+// checkTargetInstallDirWritable 通过节点 Agent 校验目标安装目录可写（已存在时可写、不存在时父目录可写）。
+// Agent 不在线或未配置命令发送器时跳过（离线已由 node_offline 拦截）。
+// checkTargetInstallDirWritable verifies via the node Agent that the target install dir is writable
+// (writable when it exists, or its parent is writable when it does not). Skipped when the Agent is not
+// connected or no command sender is configured (offline nodes are already blocked by node_offline).
+func (s *Service) checkTargetInstallDirWritable(ctx context.Context, node *clusterapp.NodeInfo, target NodeTarget) *BlockingIssue {
+	if s.agentCommandSender == nil || node == nil || !node.IsOnline {
+		return nil
+	}
+	targetDir := strings.TrimSpace(target.TargetInstallDir)
+	if targetDir == "" {
+		return nil
+	}
+	agentID, connected := s.agentCommandSender.GetAgentByHostID(target.HostID)
+	if !connected || agentID == "" {
+		return nil
+	}
+	success, output, err := s.agentCommandSender.SendCommand(ctx, agentID, "check_path_ready", map[string]string{
+		"sub_command": "check_path_ready",
+		"path":        targetDir,
+	})
+	if err == nil && success {
+		return nil
+	}
+	reason := extractAgentResultMessage(output)
+	if err != nil {
+		reason = err.Error()
+	}
+	issue := blockingIssue(
+		CheckCategoryNode,
+		"target_dir_not_writable",
+		fmt.Sprintf("target install dir %s on node %s is not writable: %s / 节点 %s 上的目标安装目录 %s 不可写：%s", targetDir, target.HostName, reason, target.HostName, targetDir, reason),
+		map[string]string{
+			"host_id":            fmt.Sprintf("%d", target.HostID),
+			"target_install_dir": targetDir,
+		},
+	)
+	return &issue
+}
+
+// extractAgentResultMessage 从 Agent 预检 JSON 输出中提取 message，非 JSON 时原样返回。
+// extractAgentResultMessage extracts "message" from an Agent precheck JSON output, returning raw text otherwise.
+func extractAgentResultMessage(output string) string {
+	trimmed := strings.TrimSpace(output)
+	var payload struct {
+		Message string `json:"message"`
+		Error   string `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(trimmed), &payload); err == nil {
+		if strings.TrimSpace(payload.Message) != "" {
+			return strings.TrimSpace(payload.Message)
+		}
+		if strings.TrimSpace(payload.Error) != "" {
+			return strings.TrimSpace(payload.Error)
+		}
+	}
+	return trimmed
 }

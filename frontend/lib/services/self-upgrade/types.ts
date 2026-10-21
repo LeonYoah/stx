@@ -85,6 +85,8 @@ export interface TaskState {
   failure_reason?: string;
   error_code?: string;
   steps?: StepState[];
+  // 各节点 Agent/Proxy 升级状态 / per-node Agent/Proxy upgrade status
+  agent_nodes?: AgentNodeUpgrade[];
   cancellable: boolean;
   started_at?: string;
   completed_at?: string;
@@ -106,6 +108,34 @@ export interface UpgradeHistoryRecord {
   failure_reason?: string;
   error_code?: string;
   steps?: StepState[];
+  agent_nodes?: AgentNodeUpgrade[];
+}
+
+// AgentNodeUpgrade 是单节点 Agent/Proxy 升级状态。
+// AgentNodeUpgrade is the Agent/Proxy upgrade status of one node.
+export interface AgentNodeUpgrade {
+  host_id: number;
+  host_name: string;
+  ip_address?: string;
+  agent_id?: string;
+  from_version?: string;
+  target_version: string;
+  current_version?: string;
+  status: 'pending' | 'upgrading' | 'succeeded' | 'failed' | 'rolled_back' | 'offline' | 'skipped' | string;
+  message?: string;
+  proxy_status?: 'updated' | 'skipped' | 'failed' | string;
+  proxy_message?: string;
+  updated_at?: string;
+}
+
+// AgentVersionInfo 是节点当前 Agent 版本。/ AgentVersionInfo is a node's current Agent version.
+export interface AgentVersionInfo {
+  host_id: number;
+  host_name: string;
+  ip_address?: string;
+  version: string;
+  online: boolean;
+  up_to_date: boolean;
 }
 
 export interface StatusResponse {
@@ -123,6 +153,8 @@ export interface StatusResponse {
   deployment_type?: 'docker' | 'host' | string;
   docker_compose_upgrade_cmd?: string;
   architecture?: string;
+  agents?: AgentVersionInfo[];
+  agents_outdated?: number;
 }
 
 export class SelfUpgradeApiError extends Error {

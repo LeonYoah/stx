@@ -136,6 +136,35 @@ func (c *AgentConnection) sendCommand(stream grpc.BidiStreamingServer[pb.Command
 	return stream.Send(req)
 }
 
+// AgentConnectionSnapshot 是连接元数据的并发安全副本。
+// AgentConnectionSnapshot is a concurrency-safe copy of connection metadata.
+type AgentConnectionSnapshot struct {
+	AgentID       string
+	HostID        uint
+	IPAddress     string
+	Hostname      string
+	Version       string
+	Status        AgentStatus
+	ConnectedAt   time.Time
+	LastHeartbeat time.Time
+}
+
+// Snapshot 返回连接元数据副本。/ Snapshot returns a copy of the connection metadata.
+func (c *AgentConnection) Snapshot() AgentConnectionSnapshot {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return AgentConnectionSnapshot{
+		AgentID:       c.AgentID,
+		HostID:        c.HostID,
+		IPAddress:     c.IPAddress,
+		Hostname:      c.Hostname,
+		Version:       c.Version,
+		Status:        c.Status,
+		ConnectedAt:   c.ConnectedAt,
+		LastHeartbeat: c.LastHeartbeat,
+	}
+}
+
 // IsOnline checks if the Agent is online based on heartbeat timeout.
 // IsOnline 根据心跳超时检查 Agent 是否在线。
 func (c *AgentConnection) IsOnline(timeout time.Duration) bool {

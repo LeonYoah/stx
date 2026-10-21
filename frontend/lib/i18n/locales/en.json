@@ -4680,6 +4680,19 @@
     "historyRolledBack": "Rolled Back",
     "dockerStageDisabled": "Managed via Docker image; host bundle download not required",
     "dockerExecuteDisabled": "Control plane is an immutable image; upgrade by pulling the new image",
-    "stepRolledBack": "Rolled back"
+    "stepRolledBack": "Rolled back",
+    "stepPartial": "Partial",
+    "nodePending": "Pending",
+    "nodeUpgrading": "Upgrading",
+    "nodeSucceeded": "Upgraded",
+    "nodeFailed": "Failed",
+    "nodeRolledBack": "Rolled back",
+    "nodeOffline": "Offline",
+    "nodeSkipped": "Skipped",
+    "proxyUpdated": "Updated",
+    "agentNodesSummary": "Node agents: {succeeded}/{total} on target version, {failed} failed/rolled back, {offline} offline (offline nodes catch up when they reconnect)",
+    "agentVersionsTitle": "Agent version per node",
+    "agentsOutdated": "{count} node(s) run an Agent that differs from control plane {version}",
+    "agentsAllCurrent": "All Agents match the control plane version"
   }
 }

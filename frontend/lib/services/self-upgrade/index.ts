@@ -17,6 +17,8 @@
 
 export {SelfUpgradeService} from './self-upgrade.service';
 export type {
+  AgentNodeUpgrade,
+  AgentVersionInfo,
   AssetState,
   CheckResult,
   StageState,
@@ -26,3 +28,5 @@ export type {
   UpgradeHistoryRecord,
 } from './types';
 export {SelfUpgradeApiError} from './types';
+export {summarizeAgentNodes, agentNodeTone} from './agent-nodes';
+export type {AgentNodeSummary, AgentNodeTone} from './agent-nodes';

@@ -1005,6 +1005,12 @@ func Serve() {
 
 			// STX console self-upgrade (admin only) / STX 控制台自升级（仅管理员）
 			selfUpgradeService := selfupgrade.NewService("./data")
+			if agentManager != nil {
+				// 自升级通过 gRPC 通道把新 Agent/Proxy 下发到各节点；离线节点重连后补升级。
+				// Self-upgrade pushes the new Agent/Proxy over gRPC; offline nodes catch up after reconnecting.
+				selfUpgradeService.SetAgentFleet(&selfUpgradeFleetAdapter{manager: agentManager, hostService: hostService})
+				grpcServer.RegisterAgentReadyHook(selfUpgradeService.HandleAgentReady)
+			}
 			selfUpgradeHandler := selfupgrade.NewHandler(selfUpgradeService)
 			selfUpgradeRouter := apiV1Router.Group("/self-upgrade")
 			selfUpgradeRouter.Use(auth.LoginRequired(), admin.LoginAdminRequired())

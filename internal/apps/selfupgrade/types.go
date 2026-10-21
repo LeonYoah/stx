@@ -44,6 +44,9 @@ const (
 	StepFailed    = "failed"
 	StepCancelled = "cancelled"
 	StepSkipped   = "skipped"
+	// StepPartial 表示步骤完成但部分节点未成功（见 agent_nodes）。
+	// StepPartial means the step finished but some nodes did not succeed (see agent_nodes).
+	StepPartial = "partial"
 
 	StepControlPlane = "control_plane"
 	StepAgent        = "agent"
@@ -124,9 +127,12 @@ type TaskState struct {
 	FailureReason string      `json:"failure_reason,omitempty"`
 	ErrorCode     string      `json:"error_code,omitempty"`
 	Steps         []StepState `json:"steps,omitempty"`
-	Cancellable   bool        `json:"cancellable"`
-	StartedAt     *time.Time  `json:"started_at,omitempty"`
-	CompletedAt   *time.Time  `json:"completed_at,omitempty"`
+	// AgentNodes 是各 Worker 节点 Agent/Proxy 的升级状态。
+	// AgentNodes is the per-node Agent/Proxy upgrade status.
+	AgentNodes  []AgentNodeUpgrade `json:"agent_nodes,omitempty"`
+	Cancellable bool               `json:"cancellable"`
+	StartedAt   *time.Time         `json:"started_at,omitempty"`
+	CompletedAt *time.Time         `json:"completed_at,omitempty"`
 }
 
 // UpgradeHistoryRecord 记录一次完成或失败的自升级历史。
@@ -145,6 +151,9 @@ type UpgradeHistoryRecord struct {
 	FailureReason  string      `json:"failure_reason,omitempty"`
 	ErrorCode      string      `json:"error_code,omitempty"`
 	Steps          []StepState `json:"steps,omitempty"`
+	// AgentNodes 是各节点 Agent/Proxy 的升级结果（离线节点重连后补升级会回写）。
+	// AgentNodes is the per-node Agent/Proxy result (updated when offline nodes catch up after reconnecting).
+	AgentNodes []AgentNodeUpgrade `json:"agent_nodes,omitempty"`
 }
 
 // StatusResponse is the aggregate console status. / 控制台聚合状态。
@@ -169,6 +178,12 @@ type StatusResponse struct {
 	// Architecture reflects the host operating system and CPU architecture.
 	// Architecture 反映当前宿主机操作系统与架构 (如 linux/arm64)。
 	Architecture string `json:"architecture"`
+	// Agents 列出各节点当前 Agent 版本及是否与控制面一致。
+	// Agents lists each node's current Agent version and whether it matches the control plane.
+	Agents []AgentVersionInfo `json:"agents,omitempty"`
+	// AgentsOutdated 是版本与控制面不一致的 Agent 数量。
+	// AgentsOutdated counts Agents whose version differs from the control plane.
+	AgentsOutdated int `json:"agents_outdated"`
 }
 
 // CheckRequest optionally injects a failure for local smoke tests.

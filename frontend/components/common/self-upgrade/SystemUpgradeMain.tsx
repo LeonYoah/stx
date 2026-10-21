@@ -48,6 +48,7 @@ import {
   type UpgradeHistoryRecord,
 } from '@/lib/services/self-upgrade';
 import {cn} from '@/lib/utils';
+import {AgentNodeList, AgentVersionsPanel} from './AgentNodesPanel';
 import {toast} from 'sonner';
 
 // 去掉可选的 v 前缀，便于比较与展示版本号
@@ -732,6 +733,7 @@ export function SystemUpgradeMain() {
                   step.status === 'succeeded' && 'border-emerald-500/30 bg-emerald-500/5',
                   step.status === 'running' && 'border-amber-500/30 bg-amber-500/5',
                   step.status === 'failed' && 'border-destructive/30 bg-destructive/5',
+                  step.status === 'partial' && 'border-amber-500/30 bg-amber-500/5',
                 )}
               >
                 <div className='min-w-0'>
@@ -749,11 +751,22 @@ export function SystemUpgradeMain() {
                       ? t('stepRunning')
                       : step.status === 'failed'
                         ? t('stepFailed')
-                        : t('stepPending')}
+                        : step.status === 'partial'
+                          ? t('stepPartial')
+                          : t('stepPending')}
                 </Badge>
               </div>
             ))}
           </div>
+
+          {status?.active_task?.agent_nodes?.length ? (
+            <AgentNodeList nodes={status.active_task.agent_nodes} />
+          ) : null}
+          <AgentVersionsPanel
+            agents={status?.agents ?? []}
+            outdated={status?.agents_outdated ?? 0}
+            controlPlaneVersion={status?.current_version ?? ''}
+          />
 
           {/* Dev failure injectors for local smoke — only in mock mode */}
           {status?.mock_mode ? (
@@ -932,11 +945,16 @@ export function SystemUpgradeMain() {
                                 ? t('stepDone')
                                 : st.status === 'failed'
                                   ? t('stepFailed')
-                                  : t('stepPending')}
+                                  : st.status === 'partial'
+                                    ? t('stepPartial')
+                                    : t('stepPending')}
                             </Badge>
                           </div>
                         ))}
                       </div>
+                    ) : null}
+                    {isExpanded && record.agent_nodes && record.agent_nodes.length > 0 ? (
+                      <AgentNodeList nodes={record.agent_nodes} />
                     ) : null}
                   </div>
                 );

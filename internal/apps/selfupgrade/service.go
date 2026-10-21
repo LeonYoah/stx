@@ -116,6 +116,13 @@ type Service struct {
 	stage   StageState
 	task    *TaskState
 	cancelF context.CancelFunc
+
+	// fleet 用于把 Agent/Proxy 下发到各节点；rollout 调整下发节奏。
+	// fleet pushes Agent/Proxy to nodes; rollout tunes the rollout.
+	fleet       AgentFleet
+	rollout     RolloutOptions
+	agentLibDir string
+	catchingUp  map[uint]bool
 }
 
 // NewService creates a self-upgrade service rooted at dataDir/self-upgrade.
@@ -161,9 +168,10 @@ func initialAssets() []AssetState {
 
 // Status returns the aggregate console status. / 返回聚合状态。
 func (s *Service) Status() StatusResponse {
+	info := stxversion.Current()
+	agents, outdated := s.agentVersions(context.Background(), info.Version)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	info := stxversion.Current()
 	overall := StatusIdle
 	if s.task != nil {
 		overall = s.task.Status
@@ -199,9 +207,12 @@ func (s *Service) Status() StatusResponse {
 		DeploymentType:          deploymentType,
 		DockerComposeUpgradeCmd: dockerCmd,
 		Architecture:            arch,
+		Agents:                  agents,
+		AgentsOutdated:          outdated,
 	}
 	if s.task != nil {
 		cp := *s.task
+		cp.AgentNodes = append([]AgentNodeUpgrade(nil), s.task.AgentNodes...)
 		resp.ActiveTask = &cp
 	}
 	return resp
@@ -1334,10 +1345,21 @@ func (s *Service) runExecute(ctx context.Context, taskID, target, sim string, ap
 		CodeVerifyFail:           StepVerify,
 	}
 
+	applying := apply && !s.mockMode
+	agentsTouched := false
+	// 控制面回滚前先让已升级的 Agent 回到备份版本，保持一致。
+	// Before the control plane rolls back, return upgraded Agents to their backups to stay in step.
+	fail := func(code string, err error, errCode, msg string) {
+		if applying && agentsTouched {
+			s.rollbackUpgradedAgents(context.Background(), taskID, target)
+		}
+		s.failExecute(taskID, code, err, errCode, msg)
+	}
+
 	for _, code := range order {
 		select {
 		case <-ctx.Done():
-			s.failExecute(taskID, code, ErrCancelled, CodeCancelled, "upgrade cancelled")
+			fail(code, ErrCancelled, CodeCancelled, "upgrade cancelled")
 			return
 		default:
 		}
@@ -1365,13 +1387,50 @@ func (s *Service) runExecute(ctx context.Context, taskID, target, sim string, ap
 		time.Sleep(220 * time.Millisecond)
 
 		if want, ok := failStep[sim]; ok && want == code {
-			s.failExecute(taskID, code, failMap[sim], sim, "simulated failure on "+code)
+			fail(code, failMap[sim], sim, "simulated failure on "+code)
 			return
 		}
 
 		if err := s.applyStep(target, code, apply); err != nil {
-			s.failExecute(taskID, code, err, ErrorCode(err), err.Error())
+			fail(code, err, ErrorCode(err), err.Error())
 			return
+		}
+
+		stepStatus, stepMsg := StepSucceeded, "ok"
+		switch {
+		case !apply:
+			stepMsg = "dry-run: nothing applied / 演练模式：未实际应用"
+			if code == StepAgent {
+				stepMsg = s.planAgentsDryRun(ctx, taskID, target)
+			}
+		case code == StepAgent && !s.mockMode:
+			fleet, opts := s.fleetAndOptions()
+			if fleet == nil {
+				stepStatus = StepPartial
+				stepMsg = "control plane lib/agent refreshed only; no agent channel, worker agents were NOT upgraded / 仅更新了控制面 lib/agent，Worker Agent 未升级"
+				break
+			}
+			agentsTouched = true
+			msg, partial, err := s.rolloutAgents(ctx, taskID, target, fleet, opts)
+			if err != nil {
+				fail(code, err, ErrorCode(err), err.Error())
+				return
+			}
+			stepMsg = msg
+			if partial {
+				stepStatus = StepPartial
+			}
+		case code == StepProxy && !s.mockMode:
+			fleet, opts := s.fleetAndOptions()
+			if fleet == nil {
+				stepMsg = "control plane lib refreshed only / 仅更新了控制面 lib"
+				break
+			}
+			msg, partial := s.rolloutProxyJars(ctx, taskID, target, fleet, opts)
+			stepMsg = msg
+			if partial {
+				stepStatus = StepPartial
+			}
 		}
 
 		s.mu.Lock()
@@ -1379,9 +1438,9 @@ func (s *Service) runExecute(ctx context.Context, taskID, target, sim string, ap
 		if s.task != nil && s.task.ID == taskID {
 			for i := range s.task.Steps {
 				if s.task.Steps[i].Code == code {
-					s.task.Steps[i].Status = StepSucceeded
+					s.task.Steps[i].Status = stepStatus
 					s.task.Steps[i].EndedAt = &end
-					s.task.Steps[i].Message = "ok"
+					s.task.Steps[i].Message = stepMsg
 				}
 			}
 		}
@@ -1400,10 +1459,16 @@ func (s *Service) runExecute(ctx context.Context, taskID, target, sim string, ap
 	s.task.CurrentStep = ""
 	s.updateAvailable = false
 	s.latestVersion = target
-	if s.mockMode {
+	switch {
+	case s.mockMode:
 		s.stage.Message = "upgrade completed (mock dry-apply)"
-	} else {
+	case !apply:
+		s.stage.Message = "dry-run completed: nothing was applied / 演练完成：未实际应用任何变更"
+	default:
 		s.stage.Message = "upgrade completed successfully"
+		if _, partial := summarizeAgentNodes(s.task.AgentNodes); partial && len(s.task.AgentNodes) > 0 {
+			s.stage.Message = "control plane upgraded; some agents are not on the target version yet, see agent_nodes / 控制面已升级，部分 Agent 尚未到达目标版本"
+		}
 	}
 	s.cancelF = nil
 
@@ -1432,6 +1497,7 @@ func (s *Service) runExecute(ctx context.Context, taskID, target, sim string, ap
 		DeploymentType: depType,
 		Status:         StatusSucceeded,
 		Steps:          s.task.Steps,
+		AgentNodes:     s.task.AgentNodes,
 	}
 	s.recordHistoryLocked(rec)
 }
@@ -1478,17 +1544,34 @@ func (s *Service) applyStep(target, code string, apply bool) error {
 		agentSrcDir := filepath.Join(dir, "lib", "agent")
 		agentDstDir := "./lib/agent"
 		if apply && !s.mockMode {
-			_ = os.MkdirAll(agentDstDir, 0o755)
+			// 刷新控制面 lib/agent（供 install.sh/download 新装节点使用）；复制失败必须暴露，不能静默忽略。
+			// Refresh the control plane's lib/agent (used by install.sh/download for new nodes); copy failures must surface.
+			agentDstDir = s.cpAgentLibDir()
+			if err := os.MkdirAll(agentDstDir, 0o755); err != nil {
+				return fmt.Errorf("%w: create %s: %v", ErrStepFailAgent, agentDstDir, err)
+			}
+			var sources []string
 			if entries, err := os.ReadDir(agentSrcDir); err == nil && len(entries) > 0 {
 				for _, entry := range entries {
-					_ = copyFile(filepath.Join(agentSrcDir, entry.Name()), filepath.Join(agentDstDir, entry.Name()))
-					_ = os.Chmod(filepath.Join(agentDstDir, entry.Name()), 0o755)
+					if !entry.IsDir() {
+						sources = append(sources, filepath.Join(agentSrcDir, entry.Name()))
+					}
 				}
 			} else {
-				matches, _ := filepath.Glob(filepath.Join(dir, "stx-agent-*"))
-				for _, m := range matches {
-					_ = copyFile(m, filepath.Join(agentDstDir, filepath.Base(m)))
-					_ = os.Chmod(filepath.Join(agentDstDir, filepath.Base(m)), 0o755)
+				sources, _ = filepath.Glob(filepath.Join(dir, "stx-agent-*"))
+			}
+			if len(sources) == 0 {
+				return fmt.Errorf("%w: upgrade package contains no agent binary", ErrStepFailAgent)
+			}
+			for _, src := range sources {
+				dst := filepath.Join(agentDstDir, filepath.Base(src))
+				if err := copyFile(src, dst+".new"); err != nil {
+					_ = os.Remove(dst + ".new")
+					return fmt.Errorf("%w: copy %s: %v", ErrStepFailAgent, filepath.Base(src), err)
+				}
+				_ = os.Chmod(dst+".new", 0o755)
+				if err := os.Rename(dst+".new", dst); err != nil {
+					return fmt.Errorf("%w: install %s: %v", ErrStepFailAgent, filepath.Base(src), err)
 				}
 			}
 		}
@@ -1551,6 +1634,8 @@ func (s *Service) GetTask(taskID string) (*TaskState, error) {
 		return nil, fmt.Errorf("%w: task not found", ErrInvalid())
 	}
 	cp := *s.task
+	cp.Steps = append([]StepState(nil), s.task.Steps...)
+	cp.AgentNodes = append([]AgentNodeUpgrade(nil), s.task.AgentNodes...)
 	return &cp, nil
 }
 
@@ -1638,6 +1723,7 @@ func (s *Service) failExecute(taskID, step string, err error, code, msg string) 
 		FailureReason:  msg,
 		ErrorCode:      code,
 		Steps:          s.task.Steps,
+		AgentNodes:     s.task.AgentNodes,
 	}
 	s.recordHistoryLocked(rec)
 	_ = err
@@ -1675,6 +1761,13 @@ func (s *Service) recordHistoryLocked(rec UpgradeHistoryRecord) {
 	list = append([]UpgradeHistoryRecord{rec}, list...)
 	if len(list) > 50 {
 		list = list[:50]
+	}
+	s.saveHistoryLocked(list)
+}
+
+func (s *Service) saveHistoryLocked(list []UpgradeHistoryRecord) {
+	if s.historyPath == "" {
+		return
 	}
 	data, err := json.MarshalIndent(list, "", "  ")
 	if err == nil {

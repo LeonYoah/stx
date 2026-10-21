@@ -4680,6 +4680,19 @@
     "historyRolledBack": "已自动回滚",
     "dockerStageDisabled": "Docker 容器环境由镜像管理，无需在容器内下载整合包",
     "dockerExecuteDisabled": "控制面为不可变容器镜像，升级请直接拉取并重启镜像",
-    "stepRolledBack": "已回滚"
+    "stepRolledBack": "已回滚",
+    "stepPartial": "部分完成",
+    "nodePending": "待升级",
+    "nodeUpgrading": "升级中",
+    "nodeSucceeded": "已升级",
+    "nodeFailed": "失败",
+    "nodeRolledBack": "已回滚",
+    "nodeOffline": "离线",
+    "nodeSkipped": "跳过",
+    "proxyUpdated": "已更新",
+    "agentNodesSummary": "节点 Agent：{succeeded}/{total} 已到达目标版本，失败/回滚 {failed}，离线 {offline}（离线节点重连后自动补升级）",
+    "agentVersionsTitle": "各节点 Agent 版本",
+    "agentsOutdated": "{count} 个节点的 Agent 与控制面 {version} 不一致",
+    "agentsAllCurrent": "所有 Agent 与控制面版本一致"
   }
 }

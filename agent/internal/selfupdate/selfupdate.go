@@ -356,3 +356,17 @@ func ReplaceFileWithBackup(src, dst string, mode os.FileMode) (bool, error) {
 	}
 	return backedUp, nil
 }
+
+// OverwriteFile 原子地用 src 覆盖 dst，不生成新的备份（用于从 .bak 恢复）。
+// OverwriteFile atomically overwrites dst with src without creating a new backup (used to restore from .bak).
+func OverwriteFile(src, dst string, mode os.FileMode) error {
+	tmp := dst + stagingSuffix
+	if err := copyFile(src, tmp, mode); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, dst); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
+}

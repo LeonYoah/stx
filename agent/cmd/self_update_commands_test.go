@@ -28,6 +28,7 @@ import (
 	"time"
 
 	pb "github.com/LeonYoah/stx/agent"
+	"github.com/LeonYoah/stx/agent/internal/installer"
 	"github.com/LeonYoah/stx/agent/internal/selfupdate"
 )
 
@@ -46,6 +47,12 @@ func installSelfUpdateHooks(t *testing.T) *selfUpdateHooks {
 	t.Helper()
 	h := &selfUpdateHooks{hasBackup: true}
 	oApply, oRestart, oRollback, oRestore, oHas, oSched, oDirs := selfUpdateApply, selfUpdateRestart, selfUpdateRollback, selfUpdateRestore, selfUpdateHasBak, scheduleAfter, proxyLibDirs
+	oProxyRestart, oRunningJars := proxyRestartFn, proxyRunningJarsFn
+	proxyRunningJarsFn = func(context.Context, []string) []string { return nil }
+	proxyRestartFn = func(context.Context, []string, func() error) []installer.ProxyRestartResult {
+		t.Fatal("proxy restart must only run when restart_running=true")
+		return nil
+	}
 	selfUpdateApply = func(ctx context.Context, req selfupdate.ApplyRequest, cur string) (*selfupdate.ApplyResult, error) {
 		h.applied = &req
 		if h.applyErr != nil {
@@ -60,6 +67,7 @@ func installSelfUpdateHooks(t *testing.T) *selfUpdateHooks {
 	scheduleAfter = func(d time.Duration, fn func()) { h.scheduled = append(h.scheduled, fn) }
 	t.Cleanup(func() {
 		selfUpdateApply, selfUpdateRestart, selfUpdateRollback, selfUpdateRestore, selfUpdateHasBak, scheduleAfter, proxyLibDirs = oApply, oRestart, oRollback, oRestore, oHas, oSched, oDirs
+		proxyRestartFn, proxyRunningJarsFn = oProxyRestart, oRunningJars
 	})
 	return h
 }
@@ -195,6 +203,87 @@ func TestAgentUpdateProxyJars(t *testing.T) {
 	_ = os.WriteFile(bad, []byte("x"), 0o644)
 	if resp, _ := a.handleManagedUpgradeCommand(context.Background(), upgradeCmd(subCommandAgentUpdateProxyJars, map[string]string{"jar_paths": bad}), nil); resp.Status != pb.CommandStatus_FAILED {
 		t.Fatal("non proxy jar must be rejected")
+	}
+}
+
+// 更新 jar 并重启运行中的 proxy：运行中 proxy 实际加载的 jar 也会被替换；重启失败时的回滚回调能恢复原 jar。
+// Updating jars with restart_running also replaces the jar a running proxy loads, and the rollback callback handed
+// to the restart restores the original jars.
+func TestAgentUpdateProxyJarsRestartsRunningProxy(t *testing.T) {
+	installSelfUpdateHooks(t)
+	a := &Agent{}
+	srcDir := t.TempDir()
+	src := filepath.Join(srcDir, "stx-java-proxy-v2.jar")
+	_ = os.WriteFile(src, []byte("new"), 0o644)
+	installed := t.TempDir()
+	defaultJar := filepath.Join(installed, "stx-java-proxy-v2.jar")
+	_ = os.WriteFile(defaultJar, []byte("old"), 0o644)
+	runningDir := t.TempDir()
+	runningJar := filepath.Join(runningDir, "stx-java-proxy-v2.jar")
+	_ = os.WriteFile(runningJar, []byte("old-running"), 0o644)
+	proxyLibDirs = func() []string { return []string{installed} }
+	proxyRunningJarsFn = func(context.Context, []string) []string { return []string{runningJar} }
+	var gotDirs []string
+	proxyRestartFn = func(ctx context.Context, dirs []string, rollback func() error) []installer.ProxyRestartResult {
+		gotDirs = dirs
+		for _, p := range []string{defaultJar, runningJar} {
+			if b, _ := os.ReadFile(p); string(b) != "new" {
+				t.Fatalf("%s must hold the new jar before the restart, got %q", p, b)
+			}
+		}
+		if err := rollback(); err != nil {
+			t.Fatalf("rollback: %v", err)
+		}
+		return []installer.ProxyRestartResult{{Status: installer.ProxyRestartRolledBack, OldPID: 10, NewPID: 11}}
+	}
+	resp, err := a.handleManagedUpgradeCommand(context.Background(), upgradeCmd(subCommandAgentUpdateProxyJars, map[string]string{
+		"jar_paths": src, "restart_running": "true", "install_dirs": "/opt/st-a,/opt/st-b",
+	}), nil)
+	if err != nil || resp.Status != pb.CommandStatus_SUCCESS {
+		t.Fatalf("resp=%+v err=%v", resp, err)
+	}
+	if !strings.Contains(resp.Output, `"status":"rolled_back"`) {
+		t.Fatalf("restart result missing from output: %s", resp.Output)
+	}
+	if strings.Join(gotDirs, ",") != "/opt/st-a,/opt/st-b" {
+		t.Fatalf("install dirs = %v", gotDirs)
+	}
+	if b, _ := os.ReadFile(defaultJar); string(b) != "old" {
+		t.Fatalf("rollback must restore the default jar, got %q", b)
+	}
+	if b, _ := os.ReadFile(runningJar); string(b) != "old-running" {
+		t.Fatalf("rollback must restore the running jar, got %q", b)
+	}
+}
+
+// 回滚 proxy jar：用 .bak 恢复并重启运行中的 proxy；没有备份时跳过且不重启。
+// Rolling back proxy jars restores .bak and restarts running proxies; without backups it is skipped with no restart.
+func TestAgentRollbackProxyJars(t *testing.T) {
+	installSelfUpdateHooks(t)
+	a := &Agent{}
+	installed := t.TempDir()
+	jar := filepath.Join(installed, "stx-java-proxy-v3.jar")
+	_ = os.WriteFile(jar, []byte("new"), 0o644)
+	proxyLibDirs = func() []string { return []string{installed} }
+	resp, err := a.handleManagedUpgradeCommand(context.Background(), upgradeCmd(subCommandAgentRollbackProxyJars, nil), nil)
+	if err != nil || !strings.Contains(resp.Output, `"skipped":true`) {
+		t.Fatalf("without backups the rollback must be skipped: resp=%+v err=%v", resp, err)
+	}
+	_ = os.WriteFile(jar+".bak", []byte("old"), 0o644)
+	restarted := false
+	proxyRestartFn = func(ctx context.Context, dirs []string, rollback func() error) []installer.ProxyRestartResult {
+		restarted = true
+		if b, _ := os.ReadFile(jar); string(b) != "old" {
+			t.Fatalf("jar must be restored before restarting, got %q", b)
+		}
+		return []installer.ProxyRestartResult{{Status: installer.ProxyRestartRestarted}}
+	}
+	resp, err = a.handleManagedUpgradeCommand(context.Background(), upgradeCmd(subCommandAgentRollbackProxyJars, nil), nil)
+	if err != nil || resp.Status != pb.CommandStatus_SUCCESS || !restarted {
+		t.Fatalf("resp=%+v err=%v restarted=%v", resp, err, restarted)
+	}
+	if !strings.Contains(resp.Output, jar) {
+		t.Fatalf("restored jar missing from output: %s", resp.Output)
 	}
 }
 

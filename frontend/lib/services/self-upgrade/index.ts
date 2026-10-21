@@ -17,8 +17,13 @@
 
 export {SelfUpgradeService} from './self-upgrade.service';
 export type {
+  AgentNodeUpgrade,
+  AgentVersionInfo,
   AssetState,
   CheckResult,
+  ExecutionMode,
+  ProcessRestart,
+  RestartPlanInfo,
   StageState,
   StatusResponse,
   StepState,
@@ -26,3 +31,15 @@ export type {
   UpgradeHistoryRecord,
 } from './types';
 export {SelfUpgradeApiError} from './types';
+export {summarizeAgentNodes, agentNodeTone} from './agent-nodes';
+export type {AgentNodeSummary, AgentNodeTone} from './agent-nodes';
+export {
+  buildExecutePayload,
+  countUpgradeNodes,
+  restartingProcesses,
+} from './execute';
+export type {
+  ExecutePayload,
+  RestartingProcess,
+  UpgradeNodeCounts,
+} from './execute';

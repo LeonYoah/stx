@@ -40,7 +40,7 @@ import {toast} from 'sonner';
 import {Settings, RefreshCw, FileText, Server, Check, AlertTriangle, Edit, History, Upload, Download, Loader2, FolderSync, Eye, GitCompareArrows, WandSparkles, CircleHelp, Search, MoreHorizontal} from 'lucide-react';
 import {ConfigService} from '@/lib/services/config';
 import type {ConfigInfo, ConfigVersionInfo} from '@/lib/services/config';
-import {ConfigType, ConfigTypeNames, getConfigTypesForMode} from '@/lib/services/config';
+import {ConfigType, ConfigTypeNames, getConfigTypesForMode, summarizeSyncResult} from '@/lib/services/config';
 import services from '@/lib/services';
 import type {NodeInfo} from '@/lib/services/cluster/types';
 import {EmptyState, StatPillsBar, TableLoadingBar, TableSkeletonRows} from '@/components/common/layout';
@@ -307,13 +307,11 @@ export function ClusterConfigs({clusterId, deploymentMode, onConfigChanged}: Clu
       const result = await ConfigService.updateConfig(editingConfig.id, {content: editContent, comment: editComment || undefined});
       if (syncAfterSave && editingConfig.is_template) {
         const syncResult = await ConfigService.syncTemplateToAllNodes(clusterId, editingConfig.config_type);
-        if (syncResult.synced_count > 0) {
-          if (syncResult.push_errors && syncResult.push_errors.length > 0) {
-            const errorNodes = syncResult.push_errors.map((e) => e.host_ip || `Host ${e.host_id}`).join(', ');
-            toast.warning(t('config.saveAndSyncSuccessWithPushErrors', {count: syncResult.synced_count, nodes: errorNodes}));
-          } else {
-            toast.success(t('config.saveAndSyncSuccess', {count: syncResult.synced_count}));
-          }
+        const summary = summarizeSyncResult(syncResult);
+        if (summary.kind === 'partial') {
+          toast.warning(t('config.saveAndSyncSuccessWithPushErrors', {count: summary.count, nodes: summary.nodes}));
+        } else if (summary.kind === 'success') {
+          toast.success(t('config.saveAndSyncSuccess', {count: summary.count}));
         } else {
           toast.success(t('config.saveAndSyncSuccessNoChanges'));
         }
@@ -408,8 +406,13 @@ export function ClusterConfigs({clusterId, deploymentMode, onConfigChanged}: Clu
 
   const handlePromote = async (config: ConfigInfo) => {
     try {
-      await ConfigService.promoteConfig(config.id, {comment: t('config.promoteComment')});
-      toast.success(t('config.promoteSuccess'));
+      const promoteResult = await ConfigService.promoteConfig(config.id, {comment: t('config.promoteComment')});
+      const summary = summarizeSyncResult(promoteResult);
+      if (summary.kind === 'partial') {
+        toast.warning(t('config.promoteSuccessWithPushErrors', {count: summary.count, nodes: summary.nodes}));
+      } else {
+        toast.success(t('config.promoteSuccess'));
+      }
       await loadData();
       notifyConfigChanged();
     } catch (err) {
@@ -468,13 +471,11 @@ export function ClusterConfigs({clusterId, deploymentMode, onConfigChanged}: Clu
     setSyncAllLoading(true);
     try {
       const result = await ConfigService.syncTemplateToAllNodes(clusterId, selectedConfigType);
-      if (result.synced_count > 0) {
-        if (result.push_errors && result.push_errors.length > 0) {
-          const errorNodes = result.push_errors.map(e => e.host_ip || `Host ${e.host_id}`).join(', ');
-          toast.warning(t('config.syncAllSuccessWithPushErrors', {count: result.synced_count, nodes: errorNodes}));
-        } else {
-          toast.success(t('config.syncAllSuccess', {count: result.synced_count}));
-        }
+      const summary = summarizeSyncResult(result);
+      if (summary.kind === 'partial') {
+        toast.warning(t('config.syncAllSuccessWithPushErrors', {count: summary.count, nodes: summary.nodes}));
+      } else if (summary.kind === 'success') {
+        toast.success(t('config.syncAllSuccess', {count: summary.count}));
       } else {
         toast.info(t('config.syncAllNoChanges'));
       }
@@ -678,6 +679,16 @@ export function ClusterConfigs({clusterId, deploymentMode, onConfigChanged}: Clu
                             <div className="flex min-w-0 items-center gap-2">
                               <span className="truncate font-medium">{config.host_name || `Node ${config.host_id}`}</span>
                               {config.host_ip && <span className="truncate font-mono text-xs text-muted-foreground">{config.host_ip}</span>}
+                              {config.sync_status === 'pending_push' && (
+                                <Badge
+                                  variant="outline"
+                                  className="text-orange-600"
+                                  title={t('config.pendingPushTip', {error: config.sync_error || '-'})}
+                                  data-testid={`cluster-configs-node-pending-${config.id}`}
+                                >
+                                  <AlertTriangle className="h-3 w-3 mr-1" />{t('config.pendingPush')}
+                                </Badge>
+                              )}
                               {config.match_template ? (
                                 <Badge variant="outline" className="text-green-600"><Check className="h-3 w-3 mr-1" />{t('config.matchTemplate')}</Badge>
                               ) : (

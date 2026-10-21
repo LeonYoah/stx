@@ -59,6 +59,7 @@ import (
 	"github.com/LeonYoah/stx/agent/internal/monitor"
 	"github.com/LeonYoah/stx/agent/internal/process"
 	"github.com/LeonYoah/stx/agent/internal/restart"
+	"github.com/LeonYoah/stx/agent/internal/selfupdate"
 	"github.com/LeonYoah/stx/internal/processidentity"
 	"github.com/LeonYoah/stx/internal/seatunnel"
 	stxversion "github.com/LeonYoah/stx/internal/version"
@@ -135,6 +136,14 @@ type Agent struct {
 	// registerMu serializes Control Plane registration to avoid races between NotFound re-register and post-reconnect register.
 	registerMu sync.Mutex
 
+	// registeredCh 在首次成功注册后关闭，用于确认自升级试运行。
+	// registeredCh is closed after the first successful registration; it confirms a self-upgrade trial.
+	registeredCh   chan struct{}
+	registeredOnce sync.Once
+
+	// selfUpdateMu 防止并发自升级/回滚。/ selfUpdateMu prevents concurrent self-update or rollback.
+	selfUpdateMu sync.Mutex
+
 	// running indicates if the agent is running
 	// running 表示 Agent 是否正在运行
 	running bool
@@ -200,6 +209,7 @@ func NewAgent(cfg *config.Config) *Agent {
 		autoRestarter:         ar,
 		eventReporter:         er,
 		errorCollector:        ec,
+		registeredCh:          make(chan struct{}),
 	}
 }
 
@@ -517,6 +527,7 @@ func (a *Agent) registerWithControlPlane() error {
 
 	// Save the assigned agent ID / 保存分配的 Agent ID
 	a.grpcClient.SetAgentID(resp.AssignedId)
+	a.markRegistered()
 
 	logger.InfoF(ctx, "Registered successfully with ID: %s / 注册成功，ID：%s", resp.AssignedId, resp.AssignedId)
 
@@ -2175,9 +2186,36 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	// Run agent in goroutine
 	// 在 goroutine 中运行 Agent
 	errChan := make(chan error, 1)
+	startFailed := make(chan struct{})
 	go func() {
-		errChan <- agent.Run()
+		err := agent.Run()
+		if err != nil {
+			close(startFailed)
+		}
+		errChan <- err
 	}()
+
+	// 自升级后的试运行：注册超时或启动失败则恢复备份并以旧版本重启。
+	// Trial after a self-upgrade: restore the backup and restart as the old version when
+	// registration times out or startup fails.
+	if trial := selfupdate.TrialFromEnv(); trial != nil {
+		logger.InfoF(context.Background(), "[SelfUpdate] Trial run after upgrade from %s (timeout %s) / 自升级试运行（原版本 %s，超时 %s）", trial.FromVersion, trial.Timeout, trial.FromVersion, trial.Timeout)
+		trialDone := make(chan bool, 1)
+		go func() {
+			trialDone <- trial.Watch(agent.registeredCh, startFailed, func(reason string, err error) {
+				logger.ErrorF(context.Background(), "[SelfUpdate] Rolling back to previous binary: %s, rollback error: %v / 回滚到旧版本：%s，错误：%v", reason, err, reason, err)
+			})
+		}()
+		// 启动失败时等待回滚 exec 完成（成功 exec 不会返回）。
+		// On startup failure wait for the rollback exec (a successful exec never returns).
+		defer func() {
+			select {
+			case <-startFailed:
+				<-trialDone
+			default:
+			}
+		}()
+	}
 
 	// Wait for signal or error
 	// 等待信号或错误

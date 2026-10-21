@@ -1739,3 +1739,81 @@ func TestService_CreateFromDiscovery_SynchronizesAndAutoStartsSTXJavaProxy(t *te
 }
 
 
+
+// TestService_GetWithInfo_populatesOnlineNodesAndHealth 确保详情接口与列表口径一致地返回 online_nodes/health_status。
+// TestService_GetWithInfo_populatesOnlineNodesAndHealth ensures the detail API fills online_nodes/health_status like the list API.
+func TestService_GetWithInfo_populatesOnlineNodesAndHealth(t *testing.T) {
+	db, cleanup := setupServiceTestDB(t)
+	defer cleanup()
+
+	repo := NewRepository(db)
+	mockHostProvider := NewMockHostProvider()
+	now := time.Now()
+	mockHostProvider.AddHost(&HostInfo{
+		ID:            1,
+		Name:          "detail-host",
+		HostType:      "bare_metal",
+		IPAddress:     "127.0.0.3",
+		AgentStatus:   "installed",
+		AgentID:       "agent-detail",
+		LastHeartbeat: &now,
+	})
+	svc := NewService(repo, mockHostProvider, nil)
+	svc.SetAgentCommandSender(&scriptedAgentSender{
+		send: func(ctx context.Context, agentID string, commandType string, params map[string]string) (bool, string, error) {
+			return true, "ok", nil
+		},
+	})
+	ctx := context.Background()
+
+	cluster, err := svc.Create(ctx, &CreateClusterRequest{Name: "detail-info", DeploymentMode: DeploymentModeHybrid})
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+	node, err := svc.AddNode(ctx, cluster.ID, &AddNodeRequest{
+		HostID: 1, Role: NodeRoleMasterWorker, InstallDir: "/opt/seatunnel",
+		HazelcastPort: 5801, APIPort: 8080, WorkerPort: 5802, SkipPrecheck: true,
+	})
+	if err != nil {
+		t.Fatalf("AddNode returned error: %v", err)
+	}
+	if err := repo.UpdateNodeProcess(ctx, node.ID, 4321, "running"); err != nil {
+		t.Fatalf("UpdateNodeProcess returned error: %v", err)
+	}
+	if err := repo.UpdateStatus(ctx, cluster.ID, ClusterStatusRunning); err != nil {
+		t.Fatalf("UpdateStatus returned error: %v", err)
+	}
+
+	info, err := svc.GetWithInfo(ctx, cluster.ID)
+	if err != nil {
+		t.Fatalf("GetWithInfo returned error: %v", err)
+	}
+	if info.NodeCount != 1 || info.OnlineNodes != 1 {
+		t.Fatalf("expected node_count=1 online_nodes=1, got %d/%d", info.NodeCount, info.OnlineNodes)
+	}
+	if info.HealthStatus == "" {
+		t.Fatal("health_status must be populated on the detail API")
+	}
+	list, _, err := svc.ListWithInfo(ctx, &ClusterFilter{Page: 1, PageSize: 10})
+	if err != nil || len(list) != 1 {
+		t.Fatalf("ListWithInfo: %v (%d)", err, len(list))
+	}
+	if list[0].OnlineNodes != info.OnlineNodes || list[0].HealthStatus != info.HealthStatus || list[0].Status != info.Status {
+		t.Fatalf("detail %+v differs from list %+v", info, list[0])
+	}
+
+	// 主机离线：详情显示 0 在线且不健康 / host offline: detail shows 0 online and not healthy
+	old := now.Add(-time.Hour)
+	mockHostProvider.AddHost(&HostInfo{ID: 1, Name: "detail-host", HostType: "bare_metal", IPAddress: "127.0.0.3", AgentStatus: "offline", AgentID: "agent-detail", LastHeartbeat: &old})
+	info, err = svc.GetWithInfo(ctx, cluster.ID)
+	if err != nil {
+		t.Fatalf("GetWithInfo returned error: %v", err)
+	}
+	if info.OnlineNodes != 0 || info.HealthStatus == string(HealthStatusHealthy) {
+		t.Fatalf("offline host: got online=%d health=%s", info.OnlineNodes, info.HealthStatus)
+	}
+
+	if _, err := svc.GetWithInfo(ctx, 9999); err == nil {
+		t.Fatal("expected error for missing cluster")
+	}
+}

@@ -44,10 +44,15 @@ import {Skeleton} from '@/components/ui/skeleton';
 import services from '@/lib/services';
 import {
   SelfUpgradeApiError,
+  buildExecutePayload,
+  type ExecutionMode,
+  type ProcessRestart,
   type StatusResponse,
   type UpgradeHistoryRecord,
 } from '@/lib/services/self-upgrade';
 import {cn} from '@/lib/utils';
+import {AgentNodeList, AgentVersionsPanel} from './AgentNodesPanel';
+import {ExecuteActions} from './ExecuteActions';
 import {toast} from 'sonner';
 
 // 去掉可选的 v 前缀，便于比较与展示版本号
@@ -74,6 +79,101 @@ function statusPillClass(status: string): string {
     default:
       return 'bg-muted text-muted-foreground border-border';
   }
+}
+
+// ExecutionModeBadge 标出一次执行是真实应用还是演练。/ ExecutionModeBadge marks a run as a real apply or a dry run.
+function ExecutionModeBadge({
+  mode,
+  dryRun,
+  t,
+}: {
+  mode?: string;
+  dryRun?: boolean;
+  t: ReturnType<typeof useTranslations>;
+}) {
+  if (!mode && !dryRun) {
+    return null;
+  }
+  const isDryRun = dryRun || mode === 'dry_run';
+  return (
+    <Badge
+      variant='outline'
+      data-testid='execution-mode-badge'
+      className={cn(
+        'text-[10px]',
+        isDryRun
+          ? 'bg-sky-500/10 text-sky-700 dark:text-sky-400 border-sky-500/20'
+          : 'bg-primary/10 text-primary border-primary/20',
+      )}
+    >
+      {isDryRun ? t('modeDryRun') : t('modeApply')}
+    </Badge>
+  );
+}
+
+// ProcessRestartList 展示控制面/前端的重启结果。/ ProcessRestartList shows control plane / frontend restart results.
+function ProcessRestartList({
+  restarts,
+  t,
+}: {
+  restarts?: ProcessRestart[];
+  t: ReturnType<typeof useTranslations>;
+}) {
+  if (!restarts?.length) {
+    return null;
+  }
+  const statusLabel: Record<string, string> = {
+    planned: t('restartPlanned'),
+    pending: t('restartPending'),
+    restarting: t('restartRestarting'),
+    restarted: t('restartRestarted'),
+    rolled_back: t('restartRolledBack'),
+    failed: t('restartFailed'),
+    skipped: t('restartSkipped'),
+  };
+  return (
+    <div className='space-y-1.5' data-testid='process-restarts'>
+      <div className='text-xs font-medium'>{t('restartsTitle')}</div>
+      <div className='divide-y rounded-md border text-xs'>
+        {restarts.map((r) => (
+          <div key={r.component} className='flex flex-wrap items-center gap-2 px-3 py-2'>
+            <div className='min-w-0 flex-1'>
+              <div className='font-medium'>
+                {r.component === 'frontend'
+                  ? t('componentFrontend')
+                  : t('componentControlPlane')}
+                {r.strategy ? (
+                  <span className='ml-1.5 text-muted-foreground'>({r.strategy})</span>
+                ) : null}
+              </div>
+              {r.message ? (
+                <div className='text-muted-foreground break-words'>{r.message}</div>
+              ) : null}
+            </div>
+            {r.old_pid || r.new_pid ? (
+              <span className='font-mono tabular-nums text-muted-foreground shrink-0'>
+                PID {r.old_pid || '—'} → {r.new_pid || '—'}
+              </span>
+            ) : null}
+            <Badge
+              variant='outline'
+              className={cn(
+                'text-[10px] shrink-0',
+                r.status === 'restarted' &&
+                  'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20',
+                (r.status === 'rolled_back' || r.status === 'restarting') &&
+                  'bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20',
+                r.status === 'failed' &&
+                  'bg-destructive/10 text-destructive border-destructive/20',
+              )}
+            >
+              {statusLabel[r.status] ?? r.status}
+            </Badge>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function assetStatusLabel(
@@ -309,14 +409,14 @@ export function SystemUpgradeMain() {
     }
   };
 
-  const handleExecute = async (simulate?: string) => {
+  // handleExecute 发送显式 mode：apply 真实应用，dry_run 只演练。
+  // handleExecute sends an explicit mode: apply really upgrades, dry_run only rehearses.
+  const handleExecute = async (mode: ExecutionMode, simulate?: string) => {
     setBusy(true);
     setErrorBanner(null);
     try {
-      await services.selfUpgrade.execute(
-        simulate ? {simulate_failure: simulate} : {},
-      );
-      toast.message(t('upgradeStarted'));
+      await services.selfUpgrade.execute(buildExecutePayload(mode, simulate));
+      toast.message(mode === 'dry_run' ? t('dryRunStarted') : t('upgradeStarted'));
       await loadStatus({background: true});
     } catch (err) {
       const apiErr = err as SelfUpgradeApiError;
@@ -444,7 +544,9 @@ export function SystemUpgradeMain() {
           <Loader2 className='h-5 w-5 animate-spin text-amber-600 shrink-0' />
           <div>
             <div className='font-medium text-sm text-amber-900 dark:text-amber-200'>
-              {t('reconnecting')}
+              {status?.active_task?.current_step === 'restart'
+                ? t('reconnectingRestart')
+                : t('reconnecting')}
             </div>
             <div className='text-xs text-muted-foreground'>{t('reconnectingHint')}</div>
           </div>
@@ -689,17 +791,37 @@ export function SystemUpgradeMain() {
       <Card className='border shadow-sm'>
         <CardHeader className='py-3 px-4 border-b flex-row items-center justify-between space-y-0'>
           <CardTitle className='text-sm font-semibold'>{t('executeCard')}</CardTitle>
-          <Button
-            size='sm'
-            className='active:scale-[0.98]'
-            disabled={!canUpgrade || busy}
-            onClick={() => void handleExecute()}
-          >
-            <ArrowUpCircle className='h-4 w-4 mr-1.5' />
-            {t('startUpgrade')}
-          </Button>
+          <ExecuteActions
+            targetVersion={stagedVersion}
+            canUpgrade={canUpgrade}
+            busy={busy}
+            restartPlan={status?.restart_plan}
+            agents={status?.agents}
+            onExecute={(mode) => handleExecute(mode)}
+          />
         </CardHeader>
         <CardContent className='p-4 space-y-3'>
+          {status?.active_task?.kind === 'execute' ? (
+            <div className='flex flex-wrap items-center gap-2 text-xs text-muted-foreground'>
+              <span>{t('lastRunMode')}</span>
+              <ExecutionModeBadge
+                mode={status.active_task.execution_mode}
+                dryRun={status.active_task.dry_run}
+                t={t}
+              />
+            </div>
+          ) : null}
+          {status?.active_task?.dry_run && status.active_task.status === 'succeeded' ? (
+            <div
+              className='rounded-md border border-sky-500/30 bg-sky-500/5 px-3 py-2.5 text-sm space-y-0.5'
+              data-testid='dry-run-result'
+            >
+              <div className='font-medium text-sky-800 dark:text-sky-300'>
+                {t('dryRunDoneTitle')}
+              </div>
+              <div className='text-xs text-muted-foreground'>{t('dryRunDoneDesc')}</div>
+            </div>
+          ) : null}
           <p className='text-xs text-muted-foreground'>
             {isDocker
               ? t('dockerExecuteDisabled')
@@ -722,6 +844,7 @@ export function SystemUpgradeMain() {
                   {code: 'control_plane', label: t('stepControlPlane'), status: 'pending'},
                   {code: 'agent', label: t('stepAgent'), status: 'pending'},
                   {code: 'proxy', label: t('stepProxy'), status: 'pending'},
+                  {code: 'restart', label: t('stepRestart'), status: 'pending'},
                   {code: 'verify', label: t('stepVerify'), status: 'pending'},
                 ]
             ).map((step) => (
@@ -732,6 +855,7 @@ export function SystemUpgradeMain() {
                   step.status === 'succeeded' && 'border-emerald-500/30 bg-emerald-500/5',
                   step.status === 'running' && 'border-amber-500/30 bg-amber-500/5',
                   step.status === 'failed' && 'border-destructive/30 bg-destructive/5',
+                  step.status === 'partial' && 'border-amber-500/30 bg-amber-500/5',
                 )}
               >
                 <div className='min-w-0'>
@@ -749,11 +873,23 @@ export function SystemUpgradeMain() {
                       ? t('stepRunning')
                       : step.status === 'failed'
                         ? t('stepFailed')
-                        : t('stepPending')}
+                        : step.status === 'partial'
+                          ? t('stepPartial')
+                          : t('stepPending')}
                 </Badge>
               </div>
             ))}
           </div>
+
+          <ProcessRestartList restarts={status?.active_task?.restarts} t={t} />
+          {status?.active_task?.agent_nodes?.length ? (
+            <AgentNodeList nodes={status.active_task.agent_nodes} />
+          ) : null}
+          <AgentVersionsPanel
+            agents={status?.agents ?? []}
+            outdated={status?.agents_outdated ?? 0}
+            controlPlaneVersion={status?.current_version ?? ''}
+          />
 
           {/* Dev failure injectors for local smoke — only in mock mode */}
           {status?.mock_mode ? (
@@ -797,7 +933,7 @@ export function SystemUpgradeMain() {
                   size='sm'
                   variant='outline'
                   disabled={!canUpgrade}
-                  onClick={() => void handleExecute('step_fail_agent')}
+                  onClick={() => void handleExecute('apply', 'step_fail_agent')}
                 >
                   {t('simStepFailAgent')}
                 </Button>
@@ -805,7 +941,7 @@ export function SystemUpgradeMain() {
                   size='sm'
                   variant='outline'
                   disabled={!canUpgrade}
-                  onClick={() => void handleExecute('verify_fail')}
+                  onClick={() => void handleExecute('apply', 'verify_fail')}
                 >
                   {t('simVerifyFail')}
                 </Button>
@@ -848,6 +984,11 @@ export function SystemUpgradeMain() {
                         <span className='font-mono text-xs font-semibold px-2 py-0.5 rounded border bg-muted/30'>
                           v{record.from_version || '1.0.0'} → v{record.target_version}
                         </span>
+                        <ExecutionModeBadge
+                          mode={record.execution_mode}
+                          dryRun={record.dry_run}
+                          t={t}
+                        />
                         <Badge variant='outline' className='text-[10px] uppercase'>
                           {record.mode || 'online'}
                         </Badge>
@@ -873,7 +1014,9 @@ export function SystemUpgradeMain() {
                             !isSuccess && !isRolledBack && 'bg-destructive/10 text-destructive border-destructive/20',
                           )}
                         >
-                          {isSuccess
+                          {isSuccess && record.dry_run
+                            ? t('historyDryRunDone')
+                            : isSuccess
                             ? t('statusSucceeded')
                             : isRolledBack
                               ? t('historyRolledBack')
@@ -932,11 +1075,17 @@ export function SystemUpgradeMain() {
                                 ? t('stepDone')
                                 : st.status === 'failed'
                                   ? t('stepFailed')
-                                  : t('stepPending')}
+                                  : st.status === 'partial'
+                                    ? t('stepPartial')
+                                    : t('stepPending')}
                             </Badge>
                           </div>
                         ))}
                       </div>
+                    ) : null}
+                    {isExpanded ? <ProcessRestartList restarts={record.restarts} t={t} /> : null}
+                    {isExpanded && record.agent_nodes && record.agent_nodes.length > 0 ? (
+                      <AgentNodeList nodes={record.agent_nodes} />
                     ) : null}
                   </div>
                 );

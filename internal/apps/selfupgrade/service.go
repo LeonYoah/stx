@@ -29,12 +29,10 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/LeonYoah/stx/internal/config"
@@ -116,6 +114,13 @@ type Service struct {
 	stage   StageState
 	task    *TaskState
 	cancelF context.CancelFunc
+
+	// fleet 用于把 Agent/Proxy 下发到各节点；rollout 调整下发节奏。
+	// fleet pushes Agent/Proxy to nodes; rollout tunes the rollout.
+	fleet       AgentFleet
+	rollout     RolloutOptions
+	agentLibDir string
+	catchingUp  map[uint]bool
 }
 
 // NewService creates a self-upgrade service rooted at dataDir/self-upgrade.
@@ -147,6 +152,7 @@ func NewService(dataDir string) *Service {
 			Cancellable: false,
 		},
 	}
+	s.resumeAfterRestart()
 	return s
 }
 
@@ -161,12 +167,18 @@ func initialAssets() []AssetState {
 
 // Status returns the aggregate console status. / 返回聚合状态。
 func (s *Service) Status() StatusResponse {
+	info := stxversion.Current()
+	agents, outdated := s.agentVersions(context.Background(), info.Version)
+	restartPlanInfo := s.RestartPlanPreview()
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	info := stxversion.Current()
 	overall := StatusIdle
 	if s.task != nil {
 		overall = s.task.Status
+		// 演练结束后包仍处于已预置状态，可以继续真实应用。/ after a dry-run the package stays staged and can be applied.
+		if s.task.DryRun && s.task.Status != StatusUpgrading && s.stage.Status == StatusStaged {
+			overall = StatusStaged
+		}
 	} else if s.stage.Status == StatusStaged {
 		overall = StatusStaged
 	} else if s.stage.Status == StatusStaging || s.stage.Status == StatusFailed {
@@ -199,9 +211,15 @@ func (s *Service) Status() StatusResponse {
 		DeploymentType:          deploymentType,
 		DockerComposeUpgradeCmd: dockerCmd,
 		Architecture:            arch,
+		Agents:                  agents,
+		AgentsOutdated:          outdated,
+		RestartPlan:             restartPlanInfo,
 	}
 	if s.task != nil {
 		cp := *s.task
+		cp.Steps = append([]StepState(nil), s.task.Steps...)
+		cp.Restarts = append([]ProcessRestart(nil), s.task.Restarts...)
+		cp.AgentNodes = append([]AgentNodeUpgrade(nil), s.task.AgentNodes...)
 		resp.ActiveTask = &cp
 	}
 	return resp
@@ -1045,20 +1063,6 @@ func copyDir(src, dst string) error {
 	})
 }
 
-// scheduleRestart 异步平滑重启 STX 前后端服务（在独立会话中脱机执行，防止父进程退出时被级联终止）。
-// scheduleRestart asynchronously and gracefully restarts STX services in a detached session to prevent cascade kill.
-func (s *Service) scheduleRestart() {
-	time.Sleep(1500 * time.Millisecond)
-	var cmd *exec.Cmd
-	if _, err := os.Stat("./scripts/restart.sh"); err == nil {
-		cmd = exec.Command("./scripts/restart.sh", "--restart-only")
-	} else {
-		cmd = exec.Command("pm2", "restart", "stx-api", "stx-ui")
-	}
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	_ = cmd.Start()
-}
-
 func (s *Service) materializeAsset(target string, spec AssetSpec) (string, int64, error) {
 	dir, err := s.versionStagingDir(target)
 	if err != nil {
@@ -1263,6 +1267,11 @@ func (s *Service) CancelStage() error {
 // Execute 仅使用本地预置包执行升级。
 func (s *Service) Execute(ctx context.Context, req ExecuteRequest) (*TaskState, error) {
 	s.mu.Lock()
+	mode, err := req.ResolveMode()
+	if err != nil {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("%w: %v", ErrInvalidRequest, err)
+	}
 	if IsRunningInDocker() && !s.mockMode {
 		s.mu.Unlock()
 		return nil, fmt.Errorf("%w: Docker 容器部署控制面由镜像管理，请通过 'docker compose pull && docker compose up -d' 升级服务端镜像 / docker deployment control plane is upgraded via container image; please run 'docker compose pull && docker compose up -d'", ErrInvalid())
@@ -1295,11 +1304,14 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) (*TaskState, 
 		{Code: StepControlPlane, Label: "控制面 / Control plane", Status: StepPending},
 		{Code: StepAgent, Label: "Agent", Status: StepPending},
 		{Code: StepProxy, Label: "Proxy (stx-java-proxy-*.jar)", Status: StepPending},
+		{Code: StepRestart, Label: "重启 STX 进程 / Restart STX processes", Status: StepPending},
 		{Code: StepVerify, Label: "版本校验 / Verify", Status: StepPending},
 	}
 	task := &TaskState{
 		ID:            taskID,
 		Kind:          "execute",
+		ExecutionMode: mode,
+		DryRun:        mode == ExecModeDryRun,
 		Status:        StatusUpgrading,
 		TargetVersion: target,
 		CurrentStep:   StepControlPlane,
@@ -1315,12 +1327,12 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) (*TaskState, 
 	cp.Steps = append([]StepState(nil), task.Steps...)
 	s.mu.Unlock()
 
-	go s.runExecute(runCtx, taskID, target, sim, req.Apply)
+	go s.runExecute(runCtx, taskID, target, sim, mode == ExecModeApply)
 	return &cp, nil
 }
 
 func (s *Service) runExecute(ctx context.Context, taskID, target, sim string, apply bool) {
-	order := []string{StepControlPlane, StepAgent, StepProxy, StepVerify}
+	order := []string{StepControlPlane, StepAgent, StepProxy, StepRestart, StepVerify}
 	failMap := map[string]error{
 		CodeStepFailControlPlane: ErrStepFailControlPlane,
 		CodeStepFailAgent:        ErrStepFailAgent,
@@ -1334,10 +1346,21 @@ func (s *Service) runExecute(ctx context.Context, taskID, target, sim string, ap
 		CodeVerifyFail:           StepVerify,
 	}
 
+	applying := apply && !s.mockMode
+	agentsTouched := false
+	// 控制面回滚前先让已升级的 Agent 回到备份版本，保持一致。
+	// Before the control plane rolls back, return upgraded Agents to their backups to stay in step.
+	fail := func(code string, err error, errCode, msg string) {
+		if applying && agentsTouched {
+			s.rollbackUpgradedAgents(context.Background(), taskID, target)
+		}
+		s.failExecute(taskID, code, err, errCode, msg)
+	}
+
 	for _, code := range order {
 		select {
 		case <-ctx.Done():
-			s.failExecute(taskID, code, ErrCancelled, CodeCancelled, "upgrade cancelled")
+			fail(code, ErrCancelled, CodeCancelled, "upgrade cancelled")
 			return
 		default:
 		}
@@ -1365,13 +1388,66 @@ func (s *Service) runExecute(ctx context.Context, taskID, target, sim string, ap
 		time.Sleep(220 * time.Millisecond)
 
 		if want, ok := failStep[sim]; ok && want == code {
-			s.failExecute(taskID, code, failMap[sim], sim, "simulated failure on "+code)
+			fail(code, failMap[sim], sim, "simulated failure on "+code)
 			return
 		}
 
 		if err := s.applyStep(target, code, apply); err != nil {
-			s.failExecute(taskID, code, err, ErrorCode(err), err.Error())
+			fail(code, err, ErrorCode(err), err.Error())
 			return
+		}
+
+		stepStatus, stepMsg := StepSucceeded, "ok"
+		switch {
+		case !apply:
+			stepMsg = "dry-run: nothing applied / 演练模式：未实际应用"
+			switch code {
+			case StepAgent:
+				stepMsg = s.planAgentsDryRun(ctx, taskID, target)
+			case StepRestart:
+				stepMsg = s.planRestartDryRun(taskID)
+			}
+		case code == StepRestart && s.mockMode:
+			stepMsg = "mock mode: no process restarted / 模拟模式：未重启任何进程"
+		case code == StepRestart:
+			// 真实应用：交给 watchdog 重启控制面（及随包前端），由新进程完成校验与收尾。
+			// Real apply: hand over to the watchdog to restart the control plane (and bundled frontend);
+			// the new process finishes verification and bookkeeping.
+			if err := s.beginControlPlaneRestart(taskID, target); err != nil {
+				fail(code, fmt.Errorf("%w: %v", ErrVerifyFail, err), CodeVerifyFail, "control plane restart could not start: "+err.Error()+" / 无法开始重启控制面")
+				return
+			}
+			return
+		case code == StepVerify && applying:
+			// 不应到达：真实应用在 restart 步骤交棒。/ unreachable: a real apply hands over at the restart step.
+		case code == StepAgent && !s.mockMode:
+			fleet, opts := s.fleetAndOptions()
+			if fleet == nil {
+				stepStatus = StepPartial
+				stepMsg = "control plane lib/agent refreshed only; no agent channel, worker agents were NOT upgraded / 仅更新了控制面 lib/agent，Worker Agent 未升级"
+				break
+			}
+			agentsTouched = true
+			msg, partial, err := s.rolloutAgents(ctx, taskID, target, fleet, opts)
+			if err != nil {
+				fail(code, err, ErrorCode(err), err.Error())
+				return
+			}
+			stepMsg = msg
+			if partial {
+				stepStatus = StepPartial
+			}
+		case code == StepProxy && !s.mockMode:
+			fleet, opts := s.fleetAndOptions()
+			if fleet == nil {
+				stepMsg = "control plane lib refreshed only / 仅更新了控制面 lib"
+				break
+			}
+			msg, partial := s.rolloutProxyJars(ctx, taskID, target, fleet, opts)
+			stepMsg = msg
+			if partial {
+				stepStatus = StepPartial
+			}
 		}
 
 		s.mu.Lock()
@@ -1379,9 +1455,9 @@ func (s *Service) runExecute(ctx context.Context, taskID, target, sim string, ap
 		if s.task != nil && s.task.ID == taskID {
 			for i := range s.task.Steps {
 				if s.task.Steps[i].Code == code {
-					s.task.Steps[i].Status = StepSucceeded
+					s.task.Steps[i].Status = stepStatus
 					s.task.Steps[i].EndedAt = &end
-					s.task.Steps[i].Message = "ok"
+					s.task.Steps[i].Message = stepMsg
 				}
 			}
 		}
@@ -1398,12 +1474,21 @@ func (s *Service) runExecute(ctx context.Context, taskID, target, sim string, ap
 	s.task.Cancellable = false
 	s.task.CompletedAt = &now
 	s.task.CurrentStep = ""
-	s.updateAvailable = false
-	s.latestVersion = target
-	if s.mockMode {
+	if apply {
+		// 演练不改变"可升级"状态，之后仍可真实应用。/ a dry-run keeps the update available so it can still be applied.
+		s.updateAvailable = false
+		s.latestVersion = target
+	}
+	switch {
+	case !apply:
+		s.stage.Message = "dry-run completed: nothing was applied / 演练完成：未实际应用任何变更"
+	case s.mockMode:
 		s.stage.Message = "upgrade completed (mock dry-apply)"
-	} else {
+	default:
 		s.stage.Message = "upgrade completed successfully"
+		if _, partial := summarizeAgentNodes(s.task.AgentNodes); partial && len(s.task.AgentNodes) > 0 {
+			s.stage.Message = "control plane upgraded; some agents are not on the target version yet, see agent_nodes / 控制面已升级，部分 Agent 尚未到达目标版本"
+		}
 	}
 	s.cancelF = nil
 
@@ -1431,7 +1516,11 @@ func (s *Service) runExecute(ctx context.Context, taskID, target, sim string, ap
 		Mode:           mode,
 		DeploymentType: depType,
 		Status:         StatusSucceeded,
+		ExecutionMode:  s.task.ExecutionMode,
+		DryRun:         s.task.DryRun,
+		Restarts:       s.task.Restarts,
 		Steps:          s.task.Steps,
+		AgentNodes:     s.task.AgentNodes,
 	}
 	s.recordHistoryLocked(rec)
 }
@@ -1460,11 +1549,7 @@ func (s *Service) applyStep(target, code string, apply bool) error {
 			}
 		}
 		if apply && !s.mockMode {
-			execPath, err := os.Executable()
-			if err != nil || execPath == "" {
-				execPath = "./stx"
-			}
-			execPath, _ = filepath.EvalSymlinks(execPath)
+			execPath := restartExecutable()
 			bakPath := execPath + ".bak"
 			_ = os.Remove(bakPath)
 			_ = os.Rename(execPath, bakPath)
@@ -1478,17 +1563,34 @@ func (s *Service) applyStep(target, code string, apply bool) error {
 		agentSrcDir := filepath.Join(dir, "lib", "agent")
 		agentDstDir := "./lib/agent"
 		if apply && !s.mockMode {
-			_ = os.MkdirAll(agentDstDir, 0o755)
+			// 刷新控制面 lib/agent（供 install.sh/download 新装节点使用）；复制失败必须暴露，不能静默忽略。
+			// Refresh the control plane's lib/agent (used by install.sh/download for new nodes); copy failures must surface.
+			agentDstDir = s.cpAgentLibDir()
+			if err := os.MkdirAll(agentDstDir, 0o755); err != nil {
+				return fmt.Errorf("%w: create %s: %v", ErrStepFailAgent, agentDstDir, err)
+			}
+			var sources []string
 			if entries, err := os.ReadDir(agentSrcDir); err == nil && len(entries) > 0 {
 				for _, entry := range entries {
-					_ = copyFile(filepath.Join(agentSrcDir, entry.Name()), filepath.Join(agentDstDir, entry.Name()))
-					_ = os.Chmod(filepath.Join(agentDstDir, entry.Name()), 0o755)
+					if !entry.IsDir() {
+						sources = append(sources, filepath.Join(agentSrcDir, entry.Name()))
+					}
 				}
 			} else {
-				matches, _ := filepath.Glob(filepath.Join(dir, "stx-agent-*"))
-				for _, m := range matches {
-					_ = copyFile(m, filepath.Join(agentDstDir, filepath.Base(m)))
-					_ = os.Chmod(filepath.Join(agentDstDir, filepath.Base(m)), 0o755)
+				sources, _ = filepath.Glob(filepath.Join(dir, "stx-agent-*"))
+			}
+			if len(sources) == 0 {
+				return fmt.Errorf("%w: upgrade package contains no agent binary", ErrStepFailAgent)
+			}
+			for _, src := range sources {
+				dst := filepath.Join(agentDstDir, filepath.Base(src))
+				if err := copyFile(src, dst+".new"); err != nil {
+					_ = os.Remove(dst + ".new")
+					return fmt.Errorf("%w: copy %s: %v", ErrStepFailAgent, filepath.Base(src), err)
+				}
+				_ = os.Chmod(dst+".new", 0o755)
+				if err := os.Rename(dst+".new", dst); err != nil {
+					return fmt.Errorf("%w: install %s: %v", ErrStepFailAgent, filepath.Base(src), err)
 				}
 			}
 		}
@@ -1511,16 +1613,8 @@ func (s *Service) applyStep(target, code string, apply bool) error {
 			}
 		}
 	case StepVerify:
-		if apply && !s.mockMode {
-			frontendSrc := filepath.Join(dir, "frontend")
-			frontendDst := "./frontend/dist-standalone"
-			if fi, err := os.Stat(frontendSrc); err == nil && fi.IsDir() {
-				if _, err := os.Stat(frontendDst); err == nil {
-					_ = copyDir(frontendSrc, frontendDst)
-				}
-			}
-			go s.scheduleRestart()
-		}
+		// 真实应用的校验由重启后的新进程完成（见 finishRestart）；这里只做演练/模拟校验。
+		// Verification of a real apply is done by the restarted process (see finishRestart); this covers dry-run/mock.
 		info := stxversion.Current()
 		if info.Version == "" {
 			return ErrVerifyFail
@@ -1551,6 +1645,8 @@ func (s *Service) GetTask(taskID string) (*TaskState, error) {
 		return nil, fmt.Errorf("%w: task not found", ErrInvalid())
 	}
 	cp := *s.task
+	cp.Steps = append([]StepState(nil), s.task.Steps...)
+	cp.AgentNodes = append([]AgentNodeUpgrade(nil), s.task.AgentNodes...)
 	return &cp, nil
 }
 
@@ -1637,7 +1733,11 @@ func (s *Service) failExecute(taskID, step string, err error, code, msg string) 
 		FailureStep:    step,
 		FailureReason:  msg,
 		ErrorCode:      code,
+		ExecutionMode:  s.task.ExecutionMode,
+		DryRun:         s.task.DryRun,
+		Restarts:       s.task.Restarts,
 		Steps:          s.task.Steps,
+		AgentNodes:     s.task.AgentNodes,
 	}
 	s.recordHistoryLocked(rec)
 	_ = err
@@ -1676,6 +1776,13 @@ func (s *Service) recordHistoryLocked(rec UpgradeHistoryRecord) {
 	if len(list) > 50 {
 		list = list[:50]
 	}
+	s.saveHistoryLocked(list)
+}
+
+func (s *Service) saveHistoryLocked(list []UpgradeHistoryRecord) {
+	if s.historyPath == "" {
+		return
+	}
 	data, err := json.MarshalIndent(list, "", "  ")
 	if err == nil {
 		_ = os.WriteFile(s.historyPath, data, 0o644)
@@ -1688,11 +1795,7 @@ func (s *Service) rollbackLocked(target, failedStep string) bool {
 	if s.mockMode {
 		return failedStep == StepControlPlane || failedStep == StepAgent || failedStep == StepProxy || failedStep == StepVerify
 	}
-	execPath, err := os.Executable()
-	if err != nil || execPath == "" {
-		execPath = "./stx"
-	}
-	execPath, _ = filepath.EvalSymlinks(execPath)
+	execPath := restartExecutable()
 	bakPath := execPath + ".bak"
 	if fi, err := os.Stat(bakPath); err == nil && fi.Size() > 0 {
 		_ = os.Rename(bakPath, execPath)

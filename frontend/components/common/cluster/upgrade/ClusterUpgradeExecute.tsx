@@ -102,6 +102,7 @@ import {
   getStatusBadgeVariant,
   getStepNodeCount,
 } from './utils';
+import {useRefreshOnSettle} from './useRefreshOnSettle';
 import {formatDateTimeTz} from '@/lib/timezone';
 
 interface ClusterUpgradeExecuteProps {
@@ -269,6 +270,14 @@ export function ClusterUpgradeExecute({clusterId}: ClusterUpgradeExecuteProps) {
       clearInterval(timer);
     };
   }, [hasActiveTask, loadTaskState, logsQuery, task?.id]);
+
+  // 任务从活跃转为终态时再拉取一次，避免停在最后一次轮询的中间态（例如节点仍显示回滚中）。
+  // Refresh once more when the task settles so the page never freezes on an intermediate snapshot.
+  useRefreshOnSettle(hasActiveTask, () => {
+    if (task?.id) {
+      void loadTaskState(task.id, logsQuery).catch(() => undefined);
+    }
+  });
 
   const handleStartExecution = async () => {
     if (!plan) {

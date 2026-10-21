@@ -20,7 +20,10 @@
 package plugin
 
 import (
+	"encoding/json"
 	"time"
+
+	"gorm.io/gorm"
 )
 
 // PluginCategory represents the category of a plugin.
@@ -43,7 +46,35 @@ const (
 	PluginStatusInstalled PluginStatus = "installed" // 已安装 / Installed
 	PluginStatusEnabled   PluginStatus = "enabled"   // 已启用 / Enabled
 	PluginStatusDisabled  PluginStatus = "disabled"  // 已禁用 / Disabled
+	// PluginStatusPartial 部分节点已安装且回滚未能完全清理，需要重试安装或卸载。
+	// PluginStatusPartial means some nodes still have the plugin because rollback could not
+	// fully clean up; retry the install or uninstall it.
+	PluginStatusPartial PluginStatus = "partial"
 )
+
+// Per-node plugin install states / 单节点插件安装状态
+const (
+	PluginNodeStatusInstalled      = "installed"       // 已安装 / installed
+	PluginNodeStatusFailed         = "failed"          // 安装失败 / install failed
+	PluginNodeStatusSkipped        = "skipped"         // 未执行（前序节点失败）/ not attempted
+	PluginNodeStatusRolledBack     = "rolled_back"     // 已回滚 / rolled back
+	PluginNodeStatusRollbackFailed = "rollback_failed" // 回滚失败，插件仍在节点上 / rollback failed, plugin remains
+)
+
+// PluginNodeInstallResult 单节点插件安装结果。
+// PluginNodeInstallResult is the plugin install result of one node.
+type PluginNodeInstallResult struct {
+	NodeID  uint   `json:"node_id"`
+	HostID  uint   `json:"host_id"`
+	Status  string `json:"status"`
+	Message string `json:"message,omitempty"`
+}
+
+// pluginPresentOnNode 判断该节点状态下插件文件是否仍在节点上。
+// pluginPresentOnNode reports whether the plugin is still present on the node for a status.
+func pluginPresentOnNode(status string) bool {
+	return status == PluginNodeStatusInstalled || status == PluginNodeStatusRollbackFailed
+}
 
 // MirrorSource represents the Maven repository mirror source.
 // MirrorSource 表示 Maven 仓库镜像源。
@@ -168,6 +199,38 @@ type InstalledPlugin struct {
 	SelectedProfileKeys []string           `gorm:"-" json:"selected_profile_keys,omitempty"`         // 选中的画像 / Selected profiles
 	AttachedConnectors  []string           `gorm:"-" json:"attached_connectors,omitempty"`           // 自动附带的连接器 / Attached connectors
 	Dependencies        []PluginDependency `gorm:"-" json:"dependencies,omitempty"`                  // 自动附带的依赖 / Attached dependencies
+	// NodeStatuses 部分安装时各节点的状态（持久化为 JSON）。
+	// NodeStatuses holds per-node states for partial installs (persisted as JSON).
+	NodeStatuses     []PluginNodeInstallResult `gorm:"-" json:"node_statuses,omitempty"`
+	NodeStatusesJSON string                    `gorm:"column:node_statuses;type:text" json:"-"`
+}
+
+// BeforeSave 序列化节点状态。
+// BeforeSave serializes node states.
+func (p *InstalledPlugin) BeforeSave(_ *gorm.DB) error {
+	if len(p.NodeStatuses) == 0 {
+		p.NodeStatusesJSON = ""
+		return nil
+	}
+	data, err := json.Marshal(p.NodeStatuses)
+	if err != nil {
+		return err
+	}
+	p.NodeStatusesJSON = string(data)
+	return nil
+}
+
+// AfterFind 反序列化节点状态（损坏的数据忽略）。
+// AfterFind deserializes node states (corrupt data is ignored).
+func (p *InstalledPlugin) AfterFind(_ *gorm.DB) error {
+	p.NodeStatuses = nil
+	if p.NodeStatusesJSON != "" {
+		var statuses []PluginNodeInstallResult
+		if err := json.Unmarshal([]byte(p.NodeStatusesJSON), &statuses); err == nil {
+			p.NodeStatuses = statuses
+		}
+	}
+	return nil
 }
 
 // TableName returns the table name for InstalledPlugin.
@@ -208,6 +271,12 @@ type PluginInstallStatus struct {
 	Message    string     `json:"message,omitempty"`    // 消息 / Message
 	Error      string     `json:"error,omitempty"`      // 错误信息 / Error message
 	StartedAt  *time.Time `json:"started_at,omitempty"` // 开始时间 / Started at
+	// Partial 安装失败且部分节点仍保留插件（回滚未完全成功）。
+	// Partial means the install failed and some nodes still have the plugin (rollback incomplete).
+	Partial bool `json:"partial,omitempty"`
+	// NodeResults 逐节点结果。
+	// NodeResults are the per-node results.
+	NodeResults []PluginNodeInstallResult `json:"node_results,omitempty"`
 }
 
 // AvailablePluginsResponse represents the response for listing available plugins.

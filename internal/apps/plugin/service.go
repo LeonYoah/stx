@@ -348,7 +348,7 @@ func (s *Service) fetchPluginsFromDocs(ctx context.Context, version string, mirr
 	// Fetch connectors from Maven repo / 从 Maven 仓库获取连接器
 	connectors, usedMirror, err := s.fetchConnectorsFromMaven(ctx, version, mirror)
 	if err != nil {
-		return nil, mirror, fmt.Errorf("failed to fetch connectors from Maven: %w / 从 Maven 获取连接器失败: %w", err, err)
+		return nil, mirror, fmt.Errorf("failed to fetch connectors from Maven / 从 Maven 获取连接器失败: %w", err)
 	}
 
 	if len(connectors) == 0 {
@@ -776,7 +776,7 @@ func (s *Service) UninstallPlugin(ctx context.Context, clusterID uint, pluginNam
 	if s.agentCommandSender != nil && s.clusterNodeGetter != nil && s.hostInfoGetter != nil {
 		nodes, err := s.clusterNodeGetter.GetClusterNodes(ctx, clusterID)
 		if err != nil {
-			logger.WarnF(ctx, "[Plugin] Uninstall: failed to get cluster nodes: %v / 卸载：获取集群节点失败: %v", err, err)
+			logger.WarnF(ctx, "[Plugin] Uninstall: failed to get cluster nodes / 卸载：获取集群节点失败: %v", err)
 		} else {
 			for _, node := range nodes {
 				agentID, err := s.hostInfoGetter.GetHostAgentID(ctx, node.HostID)
@@ -784,8 +784,14 @@ func (s *Service) UninstallPlugin(ctx context.Context, clusterID uint, pluginNam
 					logger.WarnF(ctx, "[Plugin] Uninstall: skip node %d (host %d), no agent / 卸载：跳过节点 %d（主机 %d），无 Agent", node.NodeID, node.HostID, node.NodeID, node.HostID)
 					continue
 				}
+				// Agent 按 connector-<plugin_name>-<version>.jar 删除，需用 artifact ID 推导文件名（如 mysql-cdc → cdc-mysql）。
+				// The Agent deletes connector-<plugin_name>-<version>.jar, so derive the name from the artifact ID.
+				agentPluginName := pluginName
+				if artifact := strings.TrimSpace(plugin.ArtifactID); artifact != "" {
+					agentPluginName = strings.TrimPrefix(artifact, "connector-")
+				}
 				params := map[string]string{
-					"plugin_name":         pluginName,
+					"plugin_name":         agentPluginName,
 					"version":             plugin.Version,
 					"install_path":        node.InstallDir,
 					"remove_dependencies": "true",
@@ -1122,6 +1128,9 @@ func cloneInstallProgress(src *PluginInstallStatus) *PluginInstallStatus {
 		t := *src.StartedAt
 		cp.StartedAt = &t
 	}
+	if src.NodeResults != nil {
+		cp.NodeResults = append([]PluginNodeInstallResult(nil), src.NodeResults...)
+	}
 	return &cp
 }
 
@@ -1222,12 +1231,8 @@ func (s *Service) StartInstallPluginAsync(ctx context.Context, clusterID uint, r
 		}
 	}
 
-	exists, err := s.repo.ExistsByClusterAndName(ctx, clusterID, req.PluginName)
-	if err != nil {
+	if _, err := s.existingRecordForInstall(ctx, clusterID, req.PluginName); err != nil {
 		return nil, err
-	}
-	if exists {
-		return nil, ErrPluginAlreadyExists
 	}
 
 	// Idempotent: return in-flight task instead of starting a duplicate worker.
@@ -1302,13 +1307,10 @@ func (s *Service) InstallPluginToCluster(ctx context.Context, clusterID uint, re
 		}
 	}
 
-	// Check if plugin already installed / 检查插件是否已安装
-	exists, err := s.repo.ExistsByClusterAndName(ctx, clusterID, req.PluginName)
+	// Check if plugin already installed (partial installs may be retried) / 检查插件是否已安装（部分安装允许重试）
+	existingRecord, err := s.existingRecordForInstall(ctx, clusterID, req.PluginName)
 	if err != nil {
 		return nil, err
-	}
-	if exists {
-		return nil, ErrPluginAlreadyExists
 	}
 
 	// Get plugin info / 获取插件信息
@@ -1398,9 +1400,9 @@ func (s *Service) InstallPluginToCluster(ctx context.Context, clusterID uint, re
 		nodes, err := s.clusterNodeGetter.GetClusterNodes(ctx, clusterID)
 		if err != nil {
 			progress.Status = "failed"
-			progress.Error = fmt.Sprintf("Failed to get cluster nodes: %v / 获取集群节点失败: %v", err, err)
+			progress.Error = fmt.Sprintf("failed to get cluster nodes / 获取集群节点失败: %v", err)
 			s.setInstallProgress(clusterID, req.PluginName, progress)
-			return nil, fmt.Errorf("failed to get cluster nodes: %w", err)
+			return nil, fmt.Errorf("failed to get cluster nodes / 获取集群节点失败: %w", err)
 		}
 
 		fmt.Printf("[Plugin Install] Found %d nodes in cluster %d\n", len(nodes), clusterID)
@@ -1409,48 +1411,18 @@ func (s *Service) InstallPluginToCluster(ctx context.Context, clusterID uint, re
 			progress.Status = "failed"
 			progress.Error = "No nodes found in cluster / 集群中没有节点"
 			s.setInstallProgress(clusterID, req.PluginName, progress)
-			return nil, fmt.Errorf("no nodes found in cluster")
+			return nil, fmt.Errorf("no nodes found in cluster / 集群中没有节点")
 		}
 
-		// Transfer and install plugin to each node / 将插件传输并安装到每个节点
-		totalNodes := len(nodes)
-		for i, node := range nodes {
-			// Update progress / 更新进度
-			nodeProgress := 50 + (i * 50 / totalNodes)
-			progress.Progress = nodeProgress
-			progress.Message = fmt.Sprintf("Installing to node %d/%d / 正在安装到节点 %d/%d", i+1, totalNodes, i+1, totalNodes)
-			s.setInstallProgress(clusterID, req.PluginName, progress)
-
-			// Get agent ID for this host / 获取此主机的 Agent ID
-			agentID, err := s.hostInfoGetter.GetHostAgentID(ctx, node.HostID)
-			if err != nil {
-				progress.Status = "failed"
-				progress.Error = fmt.Sprintf("Failed to get agent ID for host %d: %v / 获取主机 %d 的 Agent ID 失败: %v", node.HostID, err, node.HostID, err)
-				s.setInstallProgress(clusterID, req.PluginName, progress)
-				return nil, fmt.Errorf("failed to get agent ID for host %d: %w", node.HostID, err)
-			}
-
-			fmt.Printf("[Plugin Install] Node %d: HostID=%d, AgentID=%s, InstallDir=%s\n", node.NodeID, node.HostID, agentID, node.InstallDir)
-
-			if agentID == "" {
-				progress.Status = "failed"
-				progress.Error = fmt.Sprintf("Agent not installed on host %d / 主机 %d 未安装 Agent", node.HostID, node.HostID)
-				s.setInstallProgress(clusterID, req.PluginName, progress)
-				return nil, fmt.Errorf("agent not installed on host %d", node.HostID)
-			}
-
-			// Transfer plugin file to agent using artifact ID / 使用 artifact ID 传输插件文件到 Agent
-			fmt.Printf("[Plugin Install] Transferring plugin %s (artifact: %s) to agent %s...\n", req.PluginName, artifactID, agentID)
-			if err := s.transferPluginToAgent(ctx, agentID, artifactID, req.PluginName, req.Version, node.InstallDir, effectiveDeps); err != nil {
-				progress.Status = "failed"
-				progress.Error = fmt.Sprintf("Failed to transfer plugin to node %d: %v / 传输插件到节点 %d 失败: %v", node.NodeID, err, node.NodeID, err)
-				s.setInstallProgress(clusterID, req.PluginName, progress)
-				return nil, fmt.Errorf("failed to transfer plugin to node %d: %w", node.NodeID, err)
-			}
+		results, installErr := s.installPluginOnNodes(ctx, clusterID, req, artifactID, effectiveDeps, nodes, progress)
+		progress.NodeResults = results
+		if installErr != nil {
+			return nil, s.finishFailedInstall(ctx, clusterID, req, pluginInfo, artifactID, existingRecord, results, installErr, progress)
 		}
 	}
 
-	// Create database record / 创建数据库记录
+	// Create (or complete a previous partial) database record / 创建数据库记录（或补全此前的部分安装记录）
+	now := time.Now()
 	installed := &InstalledPlugin{
 		ClusterID:   clusterID,
 		PluginName:  req.PluginName,
@@ -1459,15 +1431,22 @@ func (s *Service) InstallPluginToCluster(ctx context.Context, clusterID uint, re
 		Version:     req.Version,
 		Status:      PluginStatusInstalled,
 		InstallPath: fmt.Sprintf("connectors/%s-%s.jar", artifactID, req.Version),
-		InstalledAt: time.Now(),
-		UpdatedAt:   time.Now(),
+		InstalledAt: now,
+		UpdatedAt:   now,
 	}
-
-	if err := s.repo.Create(ctx, installed); err != nil {
+	var saveErr error
+	if existingRecord != nil {
+		installed.ID = existingRecord.ID
+		installed.InstalledBy = existingRecord.InstalledBy
+		saveErr = s.repo.Update(ctx, installed)
+	} else {
+		saveErr = s.repo.Create(ctx, installed)
+	}
+	if saveErr != nil {
 		progress.Status = "failed"
-		progress.Error = err.Error()
+		progress.Error = saveErr.Error()
 		s.setInstallProgress(clusterID, req.PluginName, progress)
-		return nil, err
+		return nil, saveErr
 	}
 	if err := s.recordAttachedConnectorPlugins(ctx, clusterID, req.Version, artifactID, effectiveDeps); err != nil {
 		progress.Status = "failed"
@@ -1603,12 +1582,12 @@ func (s *Service) transferPluginToAgent(ctx context.Context, agentID, artifactID
 	// Read plugin file using artifact ID / 使用 artifact ID 读取插件文件
 	fileData, err := s.downloader.ReadPluginFileByArtifactID(artifactID, version)
 	if err != nil {
-		return fmt.Errorf("failed to read plugin file: %w / 读取插件文件失败: %w", err, err)
+		return fmt.Errorf("failed to read plugin file / 读取插件文件失败: %w", err)
 	}
 
 	// Transfer connector file in chunks / 分块传输连接器文件
 	if err := s.transferFileToAgent(ctx, agentID, pluginName, version, "connector", "connectors", connectorFileName, fileData, installDir); err != nil {
-		return fmt.Errorf("failed to transfer connector: %w / 传输连接器失败: %w", err, err)
+		return fmt.Errorf("failed to transfer connector / 传输连接器失败: %w", err)
 	}
 
 	// 2. Transfer dependencies / 传输依赖
@@ -1653,10 +1632,10 @@ func (s *Service) transferPluginToAgent(ctx context.Context, agentID, artifactID
 
 	success, message, err := s.agentCommandSender.SendCommand(ctx, agentID, "install_plugin", installParams)
 	if err != nil {
-		return fmt.Errorf("failed to send install command: %w / 发送安装命令失败: %w", err, err)
+		return fmt.Errorf("failed to send install command / 发送安装命令失败: %w", err)
 	}
 	if !success {
-		return fmt.Errorf("plugin installation failed: %s / 插件安装失败: %s", message, message)
+		return fmt.Errorf("plugin installation failed / 插件安装失败: %s", message)
 	}
 
 	return nil
@@ -1706,10 +1685,10 @@ func (s *Service) transferFileToAgent(ctx context.Context, agentID, pluginName, 
 		}
 		success, message, err := s.agentCommandSender.SendCommand(ctx, agentID, "transfer_plugin", params)
 		if err != nil {
-			return fmt.Errorf("failed to transfer chunk at offset %d: %w / 传输偏移 %d 处的块失败: %w", offset, err, offset, err)
+			return fmt.Errorf("failed to transfer chunk at offset %d / 传输偏移 %d 处的块失败: %w", offset, offset, err)
 		}
 		if !success {
-			return fmt.Errorf("transfer chunk failed: %s / 传输块失败: %s", message, message)
+			return fmt.Errorf("transfer chunk failed / 传输块失败: %s", message)
 		}
 
 		offset = end

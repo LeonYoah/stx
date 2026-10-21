@@ -42,6 +42,7 @@ import type {
   PromoteConfigResponse,
   SyncConfigResponse,
   NormalizeConfigResponse,
+  SyncAllResult,
 } from './types';
 
 /**
@@ -179,7 +180,7 @@ export class ConfigService extends BaseService {
   static async promoteConfig(
     configId: number,
     request?: PromoteConfigRequest
-  ): Promise<{ message: string }> {
+  ): Promise<SyncAllResult> {
     const response = await apiClient.post<PromoteConfigResponse>(
       `${this.basePath}/configs/${configId}/promote`,
       request || {}
@@ -187,7 +188,7 @@ export class ConfigService extends BaseService {
     if (response.data.error_msg) {
       throw new Error(localizeBackendText(response.data.error_msg));
     }
-    return response.data.data as unknown as { message: string };
+    return response.data.data as unknown as SyncAllResult;
   }
 
   /**
@@ -365,7 +366,7 @@ export class ConfigService extends BaseService {
     request?: PromoteConfigRequest
   ): Promise<{
     success: boolean;
-    data?: { message: string };
+    data?: SyncAllResult;
     error?: string;
   }> {
     try {
@@ -452,8 +453,8 @@ export class ConfigService extends BaseService {
   static async syncTemplateToAllNodes(
     clusterId: number,
     configType: string
-  ): Promise<{ message: string; synced_count: number; push_errors: Array<{ host_id: number; host_ip?: string; message: string }> }> {
-    const response = await apiClient.post<{ error_msg: string; data: { message: string; synced_count: number; push_errors: Array<{ host_id: number; host_ip?: string; message: string }> } }>(
+  ): Promise<SyncAllResult> {
+    const response = await apiClient.post<{ error_msg: string; data: SyncAllResult }>(
       `${this.basePath}/clusters/${clusterId}/configs/sync-all`,
       { config_type: configType }
     );

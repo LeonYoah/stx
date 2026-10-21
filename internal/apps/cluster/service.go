@@ -98,7 +98,13 @@ type ClusterStatusInfo struct {
 	TotalNodes   int               `json:"total_nodes"`
 	OnlineNodes  int               `json:"online_nodes"`
 	OfflineNodes int               `json:"offline_nodes"`
-	Nodes        []*NodeStatusInfo `json:"nodes"`
+	// RunningNodes 是主机在线且 SeaTunnel 进程运行中的节点数。
+	// RunningNodes counts nodes whose host is online and whose SeaTunnel process is running.
+	RunningNodes int `json:"running_nodes"`
+	// HealthReasons 解释 health_status 不健康的原因（离线、进程未运行、成员分裂）。
+	// HealthReasons explains why health_status is not healthy (offline, process down, split members).
+	HealthReasons []string          `json:"health_reasons,omitempty"`
+	Nodes         []*NodeStatusInfo `json:"nodes"`
 }
 
 // NodeStatusInfo represents detailed node status information.
@@ -112,6 +118,9 @@ type NodeStatusInfo struct {
 	Status     NodeStatus `json:"status"`      // Unified status: pending, installing, running, stopped, error / 统一状态
 	IsOnline   bool       `json:"is_online"`   // Whether host is online / 主机是否在线
 	ProcessPID int        `json:"process_pid"` // SeaTunnel process PID / SeaTunnel 进程 PID
+	// MemberCount 是该节点看到的 Hazelcast 成员数；未知（Agent 不支持或 REST 不可达）时为空。
+	// MemberCount is the number of Hazelcast members seen by this node; nil when unknown.
+	MemberCount *int `json:"member_count,omitempty"`
 }
 
 // OperationType represents the type of cluster operation.
@@ -178,6 +187,7 @@ type Service struct {
 	runtimeConfigStore       runtimeConfigStore
 	onBeforeClusterDelete    func(context.Context, uint) // optional hook for monitor cleanup etc.
 	onClusterTopologyChanged func(context.Context, uint) // optional hook for observability sync etc.
+	memberProbes             memberProbeCache
 }
 
 // ServiceConfig holds configuration for the Cluster Service.
@@ -496,17 +506,37 @@ func (s *Service) ListWithInfo(ctx context.Context, filter *ClusterFilter) ([]*C
 
 	infos := make([]*ClusterInfo, len(clusters))
 	for i, c := range clusters {
-		infos[i] = c.ToClusterInfo()
-		// Populate online_nodes and health_status so list UI can show "异常" when running but 0 online
-		status, err := s.GetStatus(ctx, c.ID)
-		if err == nil {
-			infos[i].Status = status.Status
-			infos[i].OnlineNodes = status.OnlineNodes
-			infos[i].HealthStatus = string(status.HealthStatus)
-		}
+		infos[i] = s.clusterInfoWithStatus(ctx, c)
 	}
 
 	return infos, total, nil
+}
+
+// GetWithInfo 获取单个集群并填充 online_nodes 与 health_status，与列表接口口径一致。
+// GetWithInfo returns one cluster with online_nodes and health_status populated, consistent with the list API.
+func (s *Service) GetWithInfo(ctx context.Context, id uint) (*ClusterInfo, error) {
+	c, err := s.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return s.clusterInfoWithStatus(ctx, c), nil
+}
+
+// clusterInfoWithStatus 转换为 ClusterInfo 并用实时状态填充 online_nodes/health_status，
+// 使列表与详情在“运行中但 0 在线”时都能显示为异常。
+// clusterInfoWithStatus converts to ClusterInfo and fills online_nodes/health_status from the live status,
+// so both list and detail can show "unhealthy" when running with 0 nodes online.
+func (s *Service) clusterInfoWithStatus(ctx context.Context, c *Cluster) *ClusterInfo {
+	info := c.ToClusterInfo()
+	status, err := s.GetStatus(ctx, c.ID)
+	if err == nil {
+		info.Status = status.Status
+		info.OnlineNodes = status.OnlineNodes
+		info.HealthStatus = string(status.HealthStatus)
+	} else {
+		info.HealthStatus = string(HealthStatusUnknown)
+	}
+	return info
 }
 
 // Update updates an existing cluster with validation.
@@ -1729,14 +1759,11 @@ func (s *Service) GetStatus(ctx context.Context, clusterID uint) (*ClusterStatus
 
 	// Determine health status
 	// 确定健康状态
-	// Requirements: 7.6 - If any node is offline, cluster health is "unhealthy"
-	if statusInfo.TotalNodes == 0 {
-		statusInfo.HealthStatus = HealthStatusUnknown
-	} else if offlineCount > 0 {
-		statusInfo.HealthStatus = HealthStatusUnhealthy
-	} else {
-		statusInfo.HealthStatus = HealthStatusHealthy
-	}
+	// Requirements: 7.6 - If any node is offline, cluster health is "unhealthy".
+	// 主机在线之外，集群期望运行时还要求每个节点的 SeaTunnel 进程运行、且各节点看到的成员数一致。
+	// Besides host liveness, when the cluster is expected to run every node's SeaTunnel process must be
+	// running and every node must see all running members (no split brain).
+	s.evaluateClusterHealth(ctx, cluster, statusInfo)
 
 	return statusInfo, nil
 }

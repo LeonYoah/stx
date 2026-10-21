@@ -200,3 +200,14 @@ func (r *Repository) Transaction(ctx context.Context, fn func(tx *Repository) er
 		return fn(&Repository{db: tx})
 	})
 }
+
+// ListPendingPushByHost 获取某主机上所有待推送的节点配置。
+// ListPendingPushByHost lists every node config of a host that has a pending push.
+func (r *Repository) ListPendingPushByHost(ctx context.Context, hostID uint) ([]*Config, error) {
+	var configs []*Config
+	err := r.db.WithContext(ctx).
+		Where("host_id = ? AND sync_status = ?", hostID, ConfigSyncStatusPendingPush).
+		Order("id").
+		Find(&configs).Error
+	return configs, err
+}

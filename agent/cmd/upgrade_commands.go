@@ -35,6 +35,8 @@ func (a *Agent) handleManagedUpgradeCommand(ctx context.Context, cmd *pb.Command
 	}
 
 	switch subCommand {
+	case subCommandAgentSelfUpdate, subCommandAgentSelfRollback, subCommandAgentUpdateProxyJars, subCommandAgentRollbackProxyJars:
+		return a.handleAgentSelfUpgradeCommand(ctx, subCommand, cmd, reporter)
 	case "backup_install_dir":
 		installDir := getParamString(cmd.Parameters, "install_dir", "")
 		backupDir := getParamString(cmd.Parameters, "backup_dir", "")

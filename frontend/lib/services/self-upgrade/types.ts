@@ -75,10 +75,49 @@ export interface StageState {
   cancellable: boolean;
 }
 
+// ExecutionMode 显式区分真实应用与演练。/ ExecutionMode explicitly separates a real apply from a dry run.
+export type ExecutionMode = 'apply' | 'dry_run';
+
+// ProcessRestart 是一个 STX 自身进程（控制面/随包前端）的重启结果。
+// ProcessRestart is the restart result of one STX-owned process (control plane / bundled frontend).
+export interface ProcessRestart {
+  component: 'control_plane' | 'frontend' | string;
+  strategy?: string;
+  status:
+    | 'pending'
+    | 'restarting'
+    | 'restarted'
+    | 'rolled_back'
+    | 'failed'
+    | 'skipped'
+    | 'planned'
+    | string;
+  message?: string;
+  old_pid?: number;
+  new_pid?: number;
+  at?: string;
+}
+
+// RestartPlanInfo 描述真实应用时会重启哪些进程（SeaTunnel 不受影响）。
+// RestartPlanInfo describes which processes an apply restarts (SeaTunnel is unaffected).
+export interface RestartPlanInfo {
+  control_plane_strategy: string;
+  control_plane_detail?: string;
+  frontend_detected: boolean;
+  frontend_strategy?: string;
+  restarts_agents: boolean;
+  restarts_proxies: boolean;
+  seatunnel_affected: boolean;
+}
+
 export interface TaskState {
   id: string;
   kind: string;
   status: string;
+  // 执行模式（apply / dry_run）/ execution mode (apply / dry_run)
+  execution_mode?: ExecutionMode | string;
+  dry_run?: boolean;
+  restarts?: ProcessRestart[];
   target_version?: string;
   current_step?: string;
   failure_step?: string;
@@ -102,6 +141,10 @@ export interface UpgradeHistoryRecord {
   from_version: string;
   target_version: string;
   mode: string;
+  // 执行模式；旧记录为空 / execution mode; empty for older records
+  execution_mode?: ExecutionMode | string;
+  dry_run?: boolean;
+  restarts?: ProcessRestart[];
   deployment_type: string;
   status: 'succeeded' | 'failed' | 'rolled_back' | string;
   failure_step?: string;
@@ -125,6 +168,9 @@ export interface AgentNodeUpgrade {
   message?: string;
   proxy_status?: 'updated' | 'skipped' | 'failed' | string;
   proxy_message?: string;
+  // 运行中 stx-java-proxy 的重启结果 / restart result of the running stx-java-proxy
+  proxy_restart?: 'restarted' | 'not_running' | 'rolled_back' | 'failed' | 'skipped' | string;
+  proxy_restart_message?: string;
   updated_at?: string;
 }
 
@@ -155,6 +201,7 @@ export interface StatusResponse {
   architecture?: string;
   agents?: AgentVersionInfo[];
   agents_outdated?: number;
+  restart_plan?: RestartPlanInfo | null;
 }
 
 export class SelfUpgradeApiError extends Error {

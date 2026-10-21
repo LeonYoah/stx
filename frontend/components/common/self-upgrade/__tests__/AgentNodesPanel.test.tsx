@@ -108,3 +108,36 @@ describe('AgentVersionsPanel', () => {
     expect(container.innerHTML).toBe('');
   });
 });
+
+describe('AgentNodeList proxy restart', () => {
+  it('shows the per-node stx-java-proxy restart result', () => {
+    render(
+      <AgentNodeList
+        nodes={[
+          {
+            host_id: 1,
+            host_name: 'worker-1',
+            target_version: '1.0.1',
+            status: 'succeeded',
+            proxy_status: 'updated',
+            proxy_restart: 'restarted',
+            proxy_restart_message: 'port 18081: restarted (pid 100 → 101)',
+          },
+          {
+            host_id: 2,
+            host_name: 'worker-2',
+            target_version: '1.0.1',
+            status: 'succeeded',
+            proxy_status: 'updated',
+            proxy_restart: 'rolled_back',
+          },
+        ]}
+      />,
+    );
+    const badges = screen.getAllByTestId('proxy-restart-badge').map((b) => b.textContent);
+    expect(badges).toEqual(['proxyRestartRestarted', 'proxyRestartRolledBack']);
+    expect(
+      screen.getByText('proxyRestartPrefix: port 18081: restarted (pid 100 → 101)'),
+    ).toBeTruthy();
+  });
+});

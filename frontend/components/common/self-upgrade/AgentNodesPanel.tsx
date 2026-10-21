@@ -62,6 +62,16 @@ export function AgentNodeList({nodes}: {nodes: AgentNodeUpgrade[]}) {
   const t = useTranslations('selfUpgrade');
   const label = useNodeStatusLabel();
   const summary = summarizeAgentNodes(nodes);
+  const proxyRestartLabel = (status: string): string => {
+    const map: Record<string, string> = {
+      restarted: t('proxyRestartRestarted'),
+      not_running: t('proxyRestartNotRunning'),
+      rolled_back: t('proxyRestartRolledBack'),
+      failed: t('proxyRestartFailed'),
+      skipped: t('proxyRestartSkipped'),
+    };
+    return map[status] ?? status;
+  };
   return (
     <div className='space-y-2' data-testid='agent-node-list'>
       <div className='text-xs text-muted-foreground'>
@@ -97,6 +107,11 @@ export function AgentNodeList({nodes}: {nodes: AgentNodeUpgrade[]}) {
                   Proxy: {node.proxy_message}
                 </div>
               ) : null}
+              {node.proxy_restart_message ? (
+                <div className='text-muted-foreground break-words'>
+                  {t('proxyRestartPrefix')}: {node.proxy_restart_message}
+                </div>
+              ) : null}
             </div>
             <span className='font-mono tabular-nums text-muted-foreground shrink-0'>
               {node.from_version || '—'} → {node.current_version || '—'}
@@ -110,6 +125,18 @@ export function AgentNodeList({nodes}: {nodes: AgentNodeUpgrade[]}) {
                 )}
               >
                 Proxy {label(node.proxy_status)}
+              </Badge>
+            ) : null}
+            {node.proxy_restart ? (
+              <Badge
+                variant='outline'
+                data-testid='proxy-restart-badge'
+                className={cn(
+                  'text-[10px] shrink-0',
+                  toneClass[agentNodeTone(node.proxy_restart)],
+                )}
+              >
+                {proxyRestartLabel(node.proxy_restart)}
               </Badge>
             ) : null}
             <Badge

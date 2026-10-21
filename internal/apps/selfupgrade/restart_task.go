@@ -116,10 +116,6 @@ func (s *Service) beginControlPlaneRestart(taskID, target string) error {
 	}
 	log.Printf("[self-upgrade] task %s: restarting control plane onto %s via %s (watchdog started)", taskID, target, plan.Strategy.Kind)
 
-	// 若本进程一直存活（进程管理器未重启、watchdog 判定失败），在这里收尾。
-	// If this process survives (manager did not restart it, watchdog reported failure), finish here.
-	go s.awaitRestartOutcome(taskID, plan)
-
 	if plan.Strategy.Kind == RestartStrategyStandalone {
 		go func() {
 			time.Sleep(restartHandoverDelay)
@@ -127,6 +123,10 @@ func (s *Service) beginControlPlaneRestart(taskID, target string) error {
 		}()
 		return nil
 	}
+	// 进程管理器可能没有重启本进程：此时 watchdog 会报告失败，由仍存活的本进程收尾。
+	// The process manager may not restart this process; the watchdog then reports failure and this surviving
+	// process finishes the task.
+	go s.awaitRestartOutcome(taskID, plan, true)
 	go func() {
 		time.Sleep(restartHandoverDelay)
 		if err := runManagerCommandFn(plan.Strategy.Command, plan.Env, plan.Dir); err != nil {
@@ -192,20 +192,23 @@ func (s *Service) resumeAfterRestart() {
 	s.mu.Unlock()
 	_ = writeJSONFile(plan.ReadyPath, readyMarker{PID: os.Getpid(), Version: stxversion.Current().Version, TaskID: task.ID})
 	log.Printf("[self-upgrade] resumed task %s after restart (running %s, target %s)", task.ID, stxversion.Current().Version, plan.TargetVersion)
-	go s.awaitRestartOutcome(task.ID, &plan)
+	go s.awaitRestartOutcome(task.ID, &plan, false)
 }
 
 // awaitRestartOutcome 等待 watchdog 结果并收尾；只有一个进程会真正收尾（任务文件被删除后其余调用无效）。
 // awaitRestartOutcome waits for the watchdog result and finishes; only one process finishes (later calls are no-ops
 // once the task file is gone).
-func (s *Service) awaitRestartOutcome(taskID string, plan *restartPlan) {
+//
+// handover 为 true 表示调用方是交棒的旧进程：成功结果属于新进程，旧进程不处理。
+// handover is true for the old, handing-over process: a success result belongs to the new process.
+func (s *Service) awaitRestartOutcome(taskID string, plan *restartPlan, handover bool) {
 	deadline := time.Now().Add(time.Duration(plan.TimeoutSeconds)*time.Second*2 + oldProcessExitTimeout + restartResultGrace)
 	for time.Now().Before(deadline) {
 		var res restartResult
 		if err := readJSONFile(plan.ResultPath, &res); err == nil && res.Status != "" {
 			// 结果为成功但本进程是旧版本：说明本进程即将被替换，交给新进程。
 			// A success result while this process is the old version means this process is about to be replaced.
-			if res.Status == restartOutcomeSucceeded && !sameVersion(stxversion.Current().Version, plan.TargetVersion) {
+			if res.Status == restartOutcomeSucceeded && (handover || !sameVersion(stxversion.Current().Version, plan.TargetVersion)) {
 				return
 			}
 			s.finishRestart(taskID, plan, &res)

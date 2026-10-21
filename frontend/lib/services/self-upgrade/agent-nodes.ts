@@ -58,6 +58,7 @@ export function agentNodeTone(status: string): AgentNodeTone {
   switch (status) {
     case 'succeeded':
     case 'updated':
+    case 'restarted':
       return 'success';
     case 'rolled_back':
     case 'offline':

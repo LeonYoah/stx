@@ -119,6 +119,8 @@ func (f *fakeFleet) SendUpgradeCommand(ctx context.Context, agentID string, para
 		n.Version = "1.0.0"
 		n.ConnectedAt = time.Now().Add(10 * time.Millisecond)
 		return `{"rolling_back":true}`, nil
+	case subCommandAgentRollbackProxyJars:
+		return `{"restored":["stx-java-proxy-v3.jar"],"restarts":[{"status":"restarted","old_pid":20,"new_pid":21,"port":18081}]}`, nil
 	case subCommandAgentUpdateProxyJars:
 		if out, ok := f.proxyOut[n.HostID]; ok {
 			return out, nil

@@ -1480,10 +1480,10 @@ func (s *Service) runExecute(ctx context.Context, taskID, target, sim string, ap
 		s.latestVersion = target
 	}
 	switch {
-	case s.mockMode:
-		s.stage.Message = "upgrade completed (mock dry-apply)"
 	case !apply:
 		s.stage.Message = "dry-run completed: nothing was applied / 演练完成：未实际应用任何变更"
+	case s.mockMode:
+		s.stage.Message = "upgrade completed (mock dry-apply)"
 	default:
 		s.stage.Message = "upgrade completed successfully"
 		if _, partial := summarizeAgentNodes(s.task.AgentNodes); partial && len(s.task.AgentNodes) > 0 {

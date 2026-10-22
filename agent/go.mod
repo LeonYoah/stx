@@ -2,7 +2,7 @@
 // Agent 模块 - 部署在物理机/VM 节点上的守护进程
 module github.com/LeonYoah/stx/agent
 
-go 1.24.0
+go 1.26.10
 
 require (
 	github.com/spf13/cobra v1.9.1
@@ -17,6 +17,7 @@ require (
 )
 
 require (
+	github.com/LeonYoah/stx v0.0.0
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/fsnotify/fsnotify v1.8.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.2.1 // indirect
@@ -24,7 +25,6 @@ require (
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/sagikazarmark/locafero v0.7.0 // indirect
-	github.com/LeonYoah/stx v0.0.0
 	github.com/sourcegraph/conc v0.3.0 // indirect
 	github.com/spf13/afero v1.12.0 // indirect
 	github.com/spf13/cast v1.9.2 // indirect

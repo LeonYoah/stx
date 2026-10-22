@@ -1,6 +1,6 @@
 module github.com/LeonYoah/stx
 
-go 1.24.0
+go 1.26.10
 
 require (
 	github.com/gin-contrib/sessions v1.0.4

@@ -24,4 +24,11 @@
  */
 
 export {ClusterService} from './cluster.service';
+export {
+  ClusterScaleService,
+  getScaleInProgressDetail,
+  normalizeScaleOperation,
+  normalizeScalePlan,
+} from './scale.service';
 export * from './types';
+export * from './scale.types';

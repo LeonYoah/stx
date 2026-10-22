@@ -386,128 +386,14 @@ func (s *Service) SyncFromTemplate(ctx context.Context, id uint, req *SyncConfig
 	return info, nil
 }
 
-// InitClusterConfigs 初始化集群配置（安装完成后调用）
+// InitClusterConfigs 从节点初始化集群配置：以节点内容创建或覆盖集群模板，并建立/刷新该主机的配置记录。
+// 这是配置管理页“从节点初始化”的显式语义；安装器路径请使用 EnsureClusterConfigsForHost（不覆盖已有模板）。
+// InitClusterConfigs initializes cluster configs from a node: templates are created or overwritten with the
+// node content and this host's records are created/refreshed. This is the explicit "init from node" semantics
+// of the config page; the installer path uses EnsureClusterConfigsForHost, which never overwrites templates.
 func (s *Service) InitClusterConfigs(ctx context.Context, clusterID uint, hostID uint, installDir string, userID uint) error {
-	for _, configType := range SupportedConfigTypes {
-		// 从节点拉取配置
-		content, err := s.agentClient.PullConfig(ctx, hostID, installDir, configType)
-		if err != nil {
-			continue // 某些配置文件可能不存在，跳过
-		}
-
-		if content == "" {
-			continue // 空内容跳过
-		}
-
-		if err := validateConfigContent(configType, content); err != nil {
-			return err
-		}
-
-		// 检查模板是否已存在
-		existingTemplate, err := s.repo.GetTemplate(ctx, clusterID, configType)
-		if err == nil && existingTemplate != nil {
-			// 模板已存在，更新内容
-			if existingTemplate.Content.String() != content {
-				existingTemplate.Content = db.ScriptText(content)
-				existingTemplate.Version = existingTemplate.Version + 1
-				existingTemplate.UpdatedBy = userID
-				existingTemplate.UpdatedAt = time.Now()
-				if err := s.repo.Update(ctx, existingTemplate); err != nil {
-					return err
-				}
-				// 创建新版本
-				templateVersion := &ConfigVersion{
-					ConfigID:  existingTemplate.ID,
-					Version:   existingTemplate.Version,
-					Content:   db.ScriptText(content),
-					Comment:   "Updated from node sync",
-					CreatedBy: userID,
-				}
-				if err := s.repo.CreateVersion(ctx, templateVersion); err != nil {
-					return err
-				}
-			}
-		} else {
-			// 创建集群模板
-			template := &Config{
-				ClusterID:  clusterID,
-				HostID:     nil,
-				ConfigType: configType,
-				FilePath:   GetConfigFilePath(configType),
-				Content:    db.ScriptText(content),
-				Version:    1,
-				UpdatedBy:  userID,
-			}
-			if err := s.repo.Create(ctx, template); err != nil {
-				return err
-			}
-
-			// 创建模板版本
-			templateVersion := &ConfigVersion{
-				ConfigID:  template.ID,
-				Version:   1,
-				Content:   db.ScriptText(content),
-				Comment:   "Initial config from installation",
-				CreatedBy: userID,
-			}
-			if err := s.repo.CreateVersion(ctx, templateVersion); err != nil {
-				return err
-			}
-		}
-
-		// 检查节点配置是否已存在
-		existingNodeConfig, err := s.repo.GetNodeConfig(ctx, clusterID, hostID, configType)
-		if err == nil && existingNodeConfig != nil {
-			// 节点配置已存在，更新内容
-			if existingNodeConfig.Content.String() != content {
-				existingNodeConfig.Content = db.ScriptText(content)
-				existingNodeConfig.Version = existingNodeConfig.Version + 1
-				existingNodeConfig.UpdatedBy = userID
-				existingNodeConfig.UpdatedAt = time.Now()
-				if err := s.repo.Update(ctx, existingNodeConfig); err != nil {
-					return err
-				}
-				// 创建新版本
-				nodeVersion := &ConfigVersion{
-					ConfigID:  existingNodeConfig.ID,
-					Version:   existingNodeConfig.Version,
-					Content:   db.ScriptText(content),
-					Comment:   "Updated from node sync",
-					CreatedBy: userID,
-				}
-				if err := s.repo.CreateVersion(ctx, nodeVersion); err != nil {
-					return err
-				}
-			}
-		} else {
-			// 创建节点配置
-			nodeConfig := &Config{
-				ClusterID:  clusterID,
-				HostID:     &hostID,
-				ConfigType: configType,
-				FilePath:   GetConfigFilePath(configType),
-				Content:    db.ScriptText(content),
-				Version:    1,
-				UpdatedBy:  userID,
-			}
-			if err := s.repo.Create(ctx, nodeConfig); err != nil {
-				return err
-			}
-
-			// 创建节点版本
-			nodeVersion := &ConfigVersion{
-				ConfigID:  nodeConfig.ID,
-				Version:   1,
-				Content:   db.ScriptText(content),
-				Comment:   "Initial config from installation",
-				CreatedBy: userID,
-			}
-			if err := s.repo.CreateVersion(ctx, nodeVersion); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
+	_, err := s.importConfigsFromNode(ctx, clusterID, hostID, installDir, userID, templateOverwrite)
+	return err
 }
 
 // SyncTemplateToAllNodes 将集群模板同步到所有节点配置：逐节点先推送后提交，推送失败的节点标记待推送且版本不变。

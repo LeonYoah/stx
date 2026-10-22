@@ -658,6 +658,13 @@ definitions:
         type: integer
       cluster_name:
         type: string
+      health_reasons:
+        description: |-
+          HealthReasons 解释 health_status 不健康的原因（离线、进程未运行、成员分裂）。
+          HealthReasons explains why health_status is not healthy (offline, process down, split members).
+        items:
+          type: string
+        type: array
       health_status:
         $ref: '#/definitions/cluster.HealthStatus'
       nodes:
@@ -667,6 +674,11 @@ definitions:
       offline_nodes:
         type: integer
       online_nodes:
+        type: integer
+      running_nodes:
+        description: |-
+          RunningNodes 是主机在线且 SeaTunnel 进程运行中的节点数。
+          RunningNodes counts nodes whose host is online and whose SeaTunnel process is running.
         type: integer
       status:
         $ref: '#/definitions/cluster.ClusterStatus'
@@ -900,6 +912,11 @@ definitions:
       is_online:
         description: Whether host is online / 主机是否在线
         type: boolean
+      member_count:
+        description: |-
+          MemberCount 是该节点看到的 Hazelcast 成员数；未知（Agent 不支持或 REST 不可达）时为空。
+          MemberCount is the number of Hazelcast members seen by this node; nil when unknown.
+        type: integer
       node_id:
         type: integer
       process_pid:
@@ -992,6 +1009,455 @@ definitions:
       data: {}
       error_msg:
         type: string
+    type: object
+  cluster.ScaleCheck:
+    properties:
+      blocking:
+        type: boolean
+      message:
+        type: string
+      name:
+        type: string
+      status:
+        $ref: '#/definitions/cluster.ScaleCheckStatus'
+      target:
+        type: string
+    type: object
+  cluster.ScaleCheckStatus:
+    enum:
+    - passed
+    - failed
+    - warning
+    - skipped
+    type: string
+    x-enum-varnames:
+    - ScaleCheckPassed
+    - ScaleCheckFailed
+    - ScaleCheckWarning
+    - ScaleCheckSkipped
+  cluster.ScaleCheckpointStorage:
+    properties:
+      local:
+        type: boolean
+      location:
+        type: string
+      type:
+        type: string
+    type: object
+  cluster.ScaleInSubmitRequest:
+    properties:
+      jobs_risk_ack:
+        type: boolean
+      plan_fingerprint:
+        type: string
+    required:
+    - plan_fingerprint
+    type: object
+  cluster.ScaleJavaProxyFollow:
+    properties:
+      from_host_id:
+        type: integer
+      from_host_name:
+        type: string
+      from_install_dir:
+        type: string
+      from_node_id:
+        type: integer
+      to_host_id:
+        type: integer
+      to_host_name:
+        type: string
+      to_node_id:
+        type: integer
+    type: object
+  cluster.ScaleKind:
+    enum:
+    - scale_out
+    - scale_in
+    type: string
+    x-enum-varnames:
+    - ScaleKindOut
+    - ScaleKindIn
+  cluster.ScaleLoopbackNode:
+    properties:
+      address:
+        type: string
+      host_id:
+        type: integer
+      host_name:
+        type: string
+      node_id:
+        type: integer
+      source:
+        description: |-
+          Source 为 config（节点配置）或 runtime（Hazelcast 运行时成员）。
+          Source is config (node config) or runtime (Hazelcast runtime members).
+        type: string
+    type: object
+  cluster.ScaleMode:
+    enum:
+    - install
+    - register
+    type: string
+    x-enum-varnames:
+    - ScaleModeInstall
+    - ScaleModeRegister
+  cluster.ScaleNodePorts:
+    properties:
+      api_port:
+        type: integer
+      hazelcast_port:
+        type: integer
+      worker_port:
+        type: integer
+    type: object
+  cluster.ScaleOperationInfo:
+    properties:
+      cluster_id:
+        type: integer
+      created_at:
+        type: string
+      created_by:
+        type: integer
+      current_step:
+        $ref: '#/definitions/cluster.ScaleStepName'
+      error:
+        type: string
+      execution_id:
+        type: string
+      finished_at:
+        type: string
+      host_id:
+        type: integer
+      id:
+        type: integer
+      jobs_risk_ack:
+        type: boolean
+      kind:
+        $ref: '#/definitions/cluster.ScaleKind'
+      loopback_restart_ack:
+        type: boolean
+      mode:
+        $ref: '#/definitions/cluster.ScaleMode'
+      node_ids:
+        items:
+          type: integer
+        type: array
+      plan:
+        $ref: '#/definitions/cluster.ScalePlan'
+      retryable:
+        type: boolean
+      status:
+        $ref: '#/definitions/cluster.ScaleOperationStatus'
+      steps:
+        items:
+          $ref: '#/definitions/cluster.ScaleStepState'
+        type: array
+      updated_at:
+        type: string
+      warnings:
+        description: |-
+          Warnings 汇总 partial 步骤的说明，操作仍按成功结束。
+          Warnings summarizes partial steps; the operation still finishes as succeeded.
+        items:
+          type: string
+        type: array
+    type: object
+  cluster.ScaleOperationListData:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/cluster.ScaleOperationInfo'
+        type: array
+    type: object
+  cluster.ScaleOperationListResponse:
+    properties:
+      data:
+        $ref: '#/definitions/cluster.ScaleOperationListData'
+      error_code:
+        type: string
+      error_msg:
+        type: string
+    type: object
+  cluster.ScaleOperationResponse:
+    properties:
+      data:
+        $ref: '#/definitions/cluster.ScaleOperationInfo'
+      error_code:
+        type: string
+      error_msg:
+        type: string
+    type: object
+  cluster.ScaleOperationStatus:
+    enum:
+    - running
+    - succeeded
+    - failed
+    type: string
+    x-enum-varnames:
+    - ScaleOperationRunning
+    - ScaleOperationSucceeded
+    - ScaleOperationFailed
+  cluster.ScaleOutRequest:
+    properties:
+      host_id:
+        type: integer
+      install_dir:
+        type: string
+      mode:
+        allOf:
+        - $ref: '#/definitions/cluster.ScaleMode'
+        description: |-
+          Mode 为 install / register；为空时使用自动识别结果。
+          Mode is install / register; empty uses the detected mode.
+      ports:
+        $ref: '#/definitions/cluster.ScaleNodePorts'
+      role:
+        allOf:
+        - $ref: '#/definitions/cluster.NodeRole'
+        description: |-
+          Role 仅分离模式需要（master / worker）；混合模式固定为 master/worker。
+          Role is only required in separated mode (master / worker); hybrid always uses master/worker.
+    required:
+    - host_id
+    type: object
+  cluster.ScaleOutSubmitRequest:
+    properties:
+      host_id:
+        type: integer
+      install_dir:
+        type: string
+      loopback_restart_ack:
+        type: boolean
+      mode:
+        allOf:
+        - $ref: '#/definitions/cluster.ScaleMode'
+        description: |-
+          Mode 为 install / register；为空时使用自动识别结果。
+          Mode is install / register; empty uses the detected mode.
+      plan_fingerprint:
+        type: string
+      ports:
+        $ref: '#/definitions/cluster.ScaleNodePorts'
+      role:
+        allOf:
+        - $ref: '#/definitions/cluster.NodeRole'
+        description: |-
+          Role 仅分离模式需要（master / worker）；混合模式固定为 master/worker。
+          Role is only required in separated mode (master / worker); hybrid always uses master/worker.
+    required:
+    - host_id
+    - plan_fingerprint
+    type: object
+  cluster.ScalePlan:
+    properties:
+      blocking_reasons:
+        items:
+          type: string
+        type: array
+      can_submit:
+        type: boolean
+      checkpoint_storage:
+        $ref: '#/definitions/cluster.ScaleCheckpointStorage'
+      checks:
+        items:
+          $ref: '#/definitions/cluster.ScaleCheck'
+        type: array
+      cluster_id:
+        type: integer
+      cluster_version:
+        type: string
+      deployment_mode:
+        $ref: '#/definitions/cluster.DeploymentMode'
+      detected_mode:
+        $ref: '#/definitions/cluster.ScaleMode'
+      fingerprint:
+        type: string
+      java_proxy_follow:
+        $ref: '#/definitions/cluster.ScaleJavaProxyFollow'
+      kind:
+        $ref: '#/definitions/cluster.ScaleKind'
+      loopback_nodes:
+        items:
+          $ref: '#/definitions/cluster.ScaleLoopbackNode'
+        type: array
+      members_after:
+        items:
+          type: string
+        type: array
+      members_before:
+        items:
+          type: string
+        type: array
+      mode:
+        $ref: '#/definitions/cluster.ScaleMode'
+      plugins_to_replay:
+        items:
+          $ref: '#/definitions/cluster.ScalePluginItem'
+        type: array
+      requires_jobs_ack:
+        type: boolean
+      requires_restart_ack:
+        type: boolean
+      running_jobs:
+        items:
+          $ref: '#/definitions/cluster.ScaleRunningJob'
+        type: array
+      running_jobs_known:
+        type: boolean
+      steps:
+        items:
+          $ref: '#/definitions/cluster.ScaleStepName'
+        type: array
+      target:
+        $ref: '#/definitions/cluster.ScaleTarget'
+      warnings:
+        items:
+          type: string
+        type: array
+    type: object
+  cluster.ScalePlanResponse:
+    properties:
+      data:
+        $ref: '#/definitions/cluster.ScalePlan'
+      error_code:
+        type: string
+      error_msg:
+        type: string
+    type: object
+  cluster.ScalePluginItem:
+    properties:
+      artifact_id:
+        type: string
+      name:
+        type: string
+      profile_keys:
+        items:
+          type: string
+        type: array
+      profile_unknown:
+        type: boolean
+      status:
+        type: string
+      version:
+        type: string
+    type: object
+  cluster.ScaleRunningJob:
+    properties:
+      job_id:
+        type: string
+      job_name:
+        type: string
+    type: object
+  cluster.ScaleStepName:
+    enum:
+    - validate_plan
+    - fix_loopback
+    - install_files
+    - register_node
+    - apply_configs
+    - replay_plugins
+    - start_node
+    - patch_members
+    - verify_membership
+    - stop_node
+    - cleanup_records
+    - refresh_monitor
+    - follow_java_proxy
+    - verify
+    type: string
+    x-enum-varnames:
+    - ScaleStepValidatePlan
+    - ScaleStepFixLoopback
+    - ScaleStepInstallFiles
+    - ScaleStepRegisterNode
+    - ScaleStepApplyConfigs
+    - ScaleStepReplayPlugins
+    - ScaleStepStartNode
+    - ScaleStepPatchMembers
+    - ScaleStepVerifyMembership
+    - ScaleStepStopNode
+    - ScaleStepCleanupRecords
+    - ScaleStepRefreshMonitor
+    - ScaleStepFollowJavaProxy
+    - ScaleStepVerify
+  cluster.ScaleStepState:
+    properties:
+      attempts:
+        type: integer
+      error:
+        type: string
+      finished_at:
+        type: string
+      message:
+        type: string
+      name:
+        $ref: '#/definitions/cluster.ScaleStepName'
+      result:
+        items:
+          type: integer
+        type: array
+      started_at:
+        type: string
+      status:
+        $ref: '#/definitions/cluster.ScaleStepStatus'
+    type: object
+  cluster.ScaleStepStatus:
+    enum:
+    - pending
+    - running
+    - succeeded
+    - partial
+    - failed
+    - skipped
+    type: string
+    x-enum-varnames:
+    - ScaleStepPending
+    - ScaleStepRunning
+    - ScaleStepSucceeded
+    - ScaleStepPartial
+    - ScaleStepFailed
+    - ScaleStepSkipped
+  cluster.ScaleSubmitResponse:
+    properties:
+      data:
+        $ref: '#/definitions/cluster.ScaleSubmitResult'
+      error_code:
+        type: string
+      error_msg:
+        type: string
+    type: object
+  cluster.ScaleSubmitResult:
+    properties:
+      execution_id:
+        type: string
+      operation:
+        $ref: '#/definitions/cluster.ScaleOperationInfo'
+      operation_id:
+        type: integer
+    type: object
+  cluster.ScaleTarget:
+    properties:
+      address:
+        type: string
+      api_port:
+        type: integer
+      hazelcast_port:
+        type: integer
+      host_id:
+        type: integer
+      host_ip:
+        type: string
+      host_name:
+        type: string
+      install_dir:
+        type: string
+      node_id:
+        type: integer
+      role:
+        $ref: '#/definitions/cluster.NodeRole'
+      worker_port:
+        type: integer
     type: object
   cluster.UpdateClusterRequest:
     properties:
@@ -2689,6 +3155,13 @@ definitions:
       installed_by:
         description: 安装者 ID / Installed by
         type: integer
+      node_statuses:
+        description: |-
+          NodeStatuses 部分安装时各节点的状态（持久化为 JSON）。
+          NodeStatuses holds per-node states for partial installs (persisted as JSON).
+        items:
+          $ref: '#/definitions/plugin.PluginNodeInstallResult'
+        type: array
       plugin_name:
         description: 插件名称 / Plugin name
         type: string
@@ -2981,6 +3454,18 @@ definitions:
       message:
         description: 消息 / Message
         type: string
+      node_results:
+        description: |-
+          NodeResults 逐节点结果。
+          NodeResults are the per-node results.
+        items:
+          $ref: '#/definitions/plugin.PluginNodeInstallResult'
+        type: array
+      partial:
+        description: |-
+          Partial 安装失败且部分节点仍保留插件（回滚未完全成功）。
+          Partial means the install failed and some nodes still have the plugin (rollback incomplete).
+        type: boolean
       plugin_name:
         description: 插件名称 / Plugin name
         type: string
@@ -3010,12 +3495,24 @@ definitions:
     - PluginListSourceDatabase
     - PluginListSourceRemote
     - PluginListSourceSeed
+  plugin.PluginNodeInstallResult:
+    properties:
+      host_id:
+        type: integer
+      message:
+        type: string
+      node_id:
+        type: integer
+      status:
+        type: string
+    type: object
   plugin.PluginStatus:
     enum:
     - available
     - installed
     - enabled
     - disabled
+    - partial
     type: string
     x-enum-comments:
       PluginStatusAvailable: 可用 / Available
@@ -3032,6 +3529,7 @@ definitions:
     - PluginStatusInstalled
     - PluginStatusEnabled
     - PluginStatusDisabled
+    - PluginStatusPartial
   plugin.RefreshAvailablePluginsRequest:
     properties:
       mirror:
@@ -4466,6 +4964,77 @@ paths:
             $ref: '#/definitions/cluster.AddNodeResponse'
       tags:
       - clusters
+  /api/v1/clusters/{id}/nodes/{nodeId}/scale-in:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: 集群ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 节点ID
+        in: path
+        name: nodeId
+        required: true
+        type: integer
+      - description: zh / en
+        in: query
+        name: lang
+        type: string
+      - description: 幂等键
+        in: header
+        name: Idempotency-Key
+        required: true
+        type: string
+      - description: 一次性确认编号
+        in: header
+        name: X-STX-Confirmation-ID
+        type: string
+      - description: 缩容提交请求
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/cluster.ScaleInSubmitRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/cluster.ScaleSubmitResponse'
+      summary: 提交缩容 / Submit a scale-in
+      tags:
+      - clusters
+  /api/v1/clusters/{id}/nodes/{nodeId}/scale-in/plan:
+    post:
+      parameters:
+      - description: 集群ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 节点ID
+        in: path
+        name: nodeId
+        required: true
+        type: integer
+      - description: zh / en
+        in: query
+        name: lang
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/cluster.ScalePlanResponse'
+      summary: 计算缩容计划 / Compute a scale-in plan
+      tags:
+      - clusters
   /api/v1/clusters/{id}/nodes/precheck:
     post:
       consumes:
@@ -4635,6 +5204,161 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/cluster.ClusterOperationResponse'
+      tags:
+      - clusters
+  /api/v1/clusters/{id}/scale-operations:
+    get:
+      parameters:
+      - description: 集群ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: running / succeeded / failed
+        in: query
+        name: status
+        type: string
+      - description: 最多返回条数（默认 20，最大 100）
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/cluster.ScaleOperationListResponse'
+      summary: 列出伸缩操作 / List scaling operations
+      tags:
+      - clusters
+  /api/v1/clusters/{id}/scale-operations/{opId}:
+    get:
+      parameters:
+      - description: 集群ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 伸缩操作ID
+        in: path
+        name: opId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/cluster.ScaleOperationResponse'
+      summary: 查询伸缩操作 / Get a scaling operation
+      tags:
+      - clusters
+  /api/v1/clusters/{id}/scale-operations/{opId}/retry:
+    post:
+      parameters:
+      - description: 集群ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 伸缩操作ID
+        in: path
+        name: opId
+        required: true
+        type: integer
+      - description: zh / en
+        in: query
+        name: lang
+        type: string
+      - description: 幂等键
+        in: header
+        name: Idempotency-Key
+        required: true
+        type: string
+      - description: 显式确认（true）
+        in: header
+        name: X-STX-Confirm
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/cluster.ScaleSubmitResponse'
+      summary: 重试伸缩操作 / Retry a scaling operation
+      tags:
+      - clusters
+  /api/v1/clusters/{id}/scale-out:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: 集群ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: zh / en
+        in: query
+        name: lang
+        type: string
+      - description: 幂等键
+        in: header
+        name: Idempotency-Key
+        required: true
+        type: string
+      - description: 一次性确认编号
+        in: header
+        name: X-STX-Confirmation-ID
+        type: string
+      - description: 扩容提交请求
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/cluster.ScaleOutSubmitRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/cluster.ScaleSubmitResponse'
+      summary: 提交扩容 / Submit a scale-out
+      tags:
+      - clusters
+  /api/v1/clusters/{id}/scale-out/plan:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: 集群ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: zh / en
+        in: query
+        name: lang
+        type: string
+      - description: 扩容计划请求
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/cluster.ScaleOutRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/cluster.ScalePlanResponse'
+      summary: 计算扩容计划 / Compute a scale-out plan
       tags:
       - clusters
   /api/v1/clusters/{id}/start:

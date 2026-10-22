@@ -272,6 +272,13 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ steps.images.outputs.list }}
+          # 关闭 metadata-action 默认的 latest=auto：否则 type=ref,event=tag 对任何 tag（含 beta）都会自动追加 latest。
+          # latest 只由下面带条件的 raw 规则产生（GHCR 与 SWR 共用这组 tag）。
+          # Disable the default latest=auto (type=ref,event=tag would add latest for every tag, including betas);
+          # latest comes only from the conditional raw rule below (shared by GHCR and SWR).
+          # 由 scripts/check-release-image-tags.sh 在 Docker Build Check 中守护。/ Guarded by scripts/check-release-image-tags.sh.
+          flavor: |
+            latest=false
           tags: |
             type=ref,event=tag
             type=semver,pattern={{version}}

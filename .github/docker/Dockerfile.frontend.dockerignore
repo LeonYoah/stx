@@ -1,0 +1,22 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# 白名单构建上下文：镜像只消费 dist/releases/ 中的发版产物，源码与 node_modules 不进入上下文。
+# Allow-list build context: images only consume release artifacts in dist/releases/;
+# source trees and node_modules never enter the context.
+*
+!.github/docker/stage-release-artifacts.sh
+!dist/releases/frontend-standalone-linux-amd64.tar.gz
+!dist/releases/frontend-standalone-linux-arm64.tar.gz

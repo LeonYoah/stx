@@ -22,7 +22,7 @@ readonly BLUE='\033[0;34m'
 readonly NC='\033[0m' # No Color
 
 # 定义常量
-readonly GO_VERSION=${1:-"1.23.4"}  # 默认版本为 1.23.4
+readonly GO_VERSION=${1:-"1.26.10"}  # 默认版本为 1.26.10（需与 go.mod 中的 go 指令保持一致）
 readonly GO_ROOT="/usr/local/go"
 readonly GO_WORKSPACE="/usr/local/go_workspace"
 readonly GO_URL="https://dl.google.com/go"
@@ -82,7 +82,7 @@ check_version() {
     
     if ! echo "$GO_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
         log_error "无效的版本格式: $GO_VERSION"
-        echo "正确的格式例如: 1.23.4, 1.22.0"
+        echo "正确的格式例如: 1.26.10, 1.26.0"
         exit 1
     fi
 }

@@ -1440,6 +1440,113 @@
                 }
             }
         },
+        "/api/v1/clusters/{id}/nodes/{nodeId}/scale-in": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "clusters"
+                ],
+                "summary": "提交缩容 / Submit a scale-in",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "集群ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "节点ID",
+                        "name": "nodeId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "zh / en",
+                        "name": "lang",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "幂等键",
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "一次性确认编号",
+                        "name": "X-STX-Confirmation-ID",
+                        "in": "header"
+                    },
+                    {
+                        "description": "缩容提交请求",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/cluster.ScaleInSubmitRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/cluster.ScaleSubmitResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/clusters/{id}/nodes/{nodeId}/scale-in/plan": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "clusters"
+                ],
+                "summary": "计算缩容计划 / Compute a scale-in plan",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "集群ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "节点ID",
+                        "name": "nodeId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "zh / en",
+                        "name": "lang",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/cluster.ScalePlanResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/clusters/{id}/plugins": {
             "get": {
                 "produces": [
@@ -1662,6 +1769,241 @@
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/cluster.ClusterOperationResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/clusters/{id}/scale-operations": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "clusters"
+                ],
+                "summary": "列出伸缩操作 / List scaling operations",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "集群ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "running / succeeded / failed",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "最多返回条数（默认 20，最大 100）",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/cluster.ScaleOperationListResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/clusters/{id}/scale-operations/{opId}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "clusters"
+                ],
+                "summary": "查询伸缩操作 / Get a scaling operation",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "集群ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "伸缩操作ID",
+                        "name": "opId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/cluster.ScaleOperationResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/clusters/{id}/scale-operations/{opId}/retry": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "clusters"
+                ],
+                "summary": "重试伸缩操作 / Retry a scaling operation",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "集群ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "伸缩操作ID",
+                        "name": "opId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "zh / en",
+                        "name": "lang",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "幂等键",
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "显式确认（true）",
+                        "name": "X-STX-Confirm",
+                        "in": "header",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/cluster.ScaleSubmitResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/clusters/{id}/scale-out": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "clusters"
+                ],
+                "summary": "提交扩容 / Submit a scale-out",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "集群ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "zh / en",
+                        "name": "lang",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "幂等键",
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "一次性确认编号",
+                        "name": "X-STX-Confirmation-ID",
+                        "in": "header"
+                    },
+                    {
+                        "description": "扩容提交请求",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/cluster.ScaleOutSubmitRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/cluster.ScaleSubmitResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/clusters/{id}/scale-out/plan": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "clusters"
+                ],
+                "summary": "计算扩容计划 / Compute a scale-out plan",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "集群ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "zh / en",
+                        "name": "lang",
+                        "in": "query"
+                    },
+                    {
+                        "description": "扩容计划请求",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/cluster.ScaleOutRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/cluster.ScalePlanResponse"
                         }
                     }
                 }
@@ -5627,6 +5969,13 @@
                 "cluster_name": {
                     "type": "string"
                 },
+                "health_reasons": {
+                    "description": "HealthReasons 解释 health_status 不健康的原因（离线、进程未运行、成员分裂）。\nHealthReasons explains why health_status is not healthy (offline, process down, split members).",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "health_status": {
                     "$ref": "#/definitions/cluster.HealthStatus"
                 },
@@ -5640,6 +5989,10 @@
                     "type": "integer"
                 },
                 "online_nodes": {
+                    "type": "integer"
+                },
+                "running_nodes": {
+                    "description": "RunningNodes 是主机在线且 SeaTunnel 进程运行中的节点数。\nRunningNodes counts nodes whose host is online and whose SeaTunnel process is running.",
                     "type": "integer"
                 },
                 "status": {
@@ -5976,6 +6329,10 @@
                     "description": "Whether host is online / 主机是否在线",
                     "type": "boolean"
                 },
+                "member_count": {
+                    "description": "MemberCount 是该节点看到的 Hazelcast 成员数；未知（Agent 不支持或 REST 不可达）时为空。\nMemberCount is the number of Hazelcast members seen by this node; nil when unknown.",
+                    "type": "integer"
+                },
                 "node_id": {
                     "type": "integer"
                 },
@@ -6111,6 +6468,653 @@
                 "data": {},
                 "error_msg": {
                     "type": "string"
+                }
+            }
+        },
+        "cluster.ScaleCheck": {
+            "type": "object",
+            "properties": {
+                "blocking": {
+                    "type": "boolean"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/cluster.ScaleCheckStatus"
+                },
+                "target": {
+                    "type": "string"
+                }
+            }
+        },
+        "cluster.ScaleCheckStatus": {
+            "type": "string",
+            "enum": [
+                "passed",
+                "failed",
+                "warning",
+                "skipped"
+            ],
+            "x-enum-varnames": [
+                "ScaleCheckPassed",
+                "ScaleCheckFailed",
+                "ScaleCheckWarning",
+                "ScaleCheckSkipped"
+            ]
+        },
+        "cluster.ScaleCheckpointStorage": {
+            "type": "object",
+            "properties": {
+                "local": {
+                    "type": "boolean"
+                },
+                "location": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "cluster.ScaleInSubmitRequest": {
+            "type": "object",
+            "required": [
+                "plan_fingerprint"
+            ],
+            "properties": {
+                "jobs_risk_ack": {
+                    "type": "boolean"
+                },
+                "plan_fingerprint": {
+                    "type": "string"
+                }
+            }
+        },
+        "cluster.ScaleJavaProxyFollow": {
+            "type": "object",
+            "properties": {
+                "from_host_id": {
+                    "type": "integer"
+                },
+                "from_host_name": {
+                    "type": "string"
+                },
+                "from_install_dir": {
+                    "type": "string"
+                },
+                "from_node_id": {
+                    "type": "integer"
+                },
+                "to_host_id": {
+                    "type": "integer"
+                },
+                "to_host_name": {
+                    "type": "string"
+                },
+                "to_node_id": {
+                    "type": "integer"
+                }
+            }
+        },
+        "cluster.ScaleKind": {
+            "type": "string",
+            "enum": [
+                "scale_out",
+                "scale_in"
+            ],
+            "x-enum-varnames": [
+                "ScaleKindOut",
+                "ScaleKindIn"
+            ]
+        },
+        "cluster.ScaleLoopbackNode": {
+            "type": "object",
+            "properties": {
+                "address": {
+                    "type": "string"
+                },
+                "host_id": {
+                    "type": "integer"
+                },
+                "host_name": {
+                    "type": "string"
+                },
+                "node_id": {
+                    "type": "integer"
+                },
+                "source": {
+                    "description": "Source 为 config（节点配置）或 runtime（Hazelcast 运行时成员）。\nSource is config (node config) or runtime (Hazelcast runtime members).",
+                    "type": "string"
+                }
+            }
+        },
+        "cluster.ScaleMode": {
+            "type": "string",
+            "enum": [
+                "install",
+                "register"
+            ],
+            "x-enum-varnames": [
+                "ScaleModeInstall",
+                "ScaleModeRegister"
+            ]
+        },
+        "cluster.ScaleNodePorts": {
+            "type": "object",
+            "properties": {
+                "api_port": {
+                    "type": "integer"
+                },
+                "hazelcast_port": {
+                    "type": "integer"
+                },
+                "worker_port": {
+                    "type": "integer"
+                }
+            }
+        },
+        "cluster.ScaleOperationInfo": {
+            "type": "object",
+            "properties": {
+                "cluster_id": {
+                    "type": "integer"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "type": "integer"
+                },
+                "current_step": {
+                    "$ref": "#/definitions/cluster.ScaleStepName"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "execution_id": {
+                    "type": "string"
+                },
+                "finished_at": {
+                    "type": "string"
+                },
+                "host_id": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "jobs_risk_ack": {
+                    "type": "boolean"
+                },
+                "kind": {
+                    "$ref": "#/definitions/cluster.ScaleKind"
+                },
+                "loopback_restart_ack": {
+                    "type": "boolean"
+                },
+                "mode": {
+                    "$ref": "#/definitions/cluster.ScaleMode"
+                },
+                "node_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "plan": {
+                    "$ref": "#/definitions/cluster.ScalePlan"
+                },
+                "retryable": {
+                    "type": "boolean"
+                },
+                "status": {
+                    "$ref": "#/definitions/cluster.ScaleOperationStatus"
+                },
+                "steps": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/cluster.ScaleStepState"
+                    }
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "warnings": {
+                    "description": "Warnings 汇总 partial 步骤的说明，操作仍按成功结束。\nWarnings summarizes partial steps; the operation still finishes as succeeded.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "cluster.ScaleOperationListData": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/cluster.ScaleOperationInfo"
+                    }
+                }
+            }
+        },
+        "cluster.ScaleOperationListResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/cluster.ScaleOperationListData"
+                },
+                "error_code": {
+                    "type": "string"
+                },
+                "error_msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "cluster.ScaleOperationResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/cluster.ScaleOperationInfo"
+                },
+                "error_code": {
+                    "type": "string"
+                },
+                "error_msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "cluster.ScaleOperationStatus": {
+            "type": "string",
+            "enum": [
+                "running",
+                "succeeded",
+                "failed"
+            ],
+            "x-enum-varnames": [
+                "ScaleOperationRunning",
+                "ScaleOperationSucceeded",
+                "ScaleOperationFailed"
+            ]
+        },
+        "cluster.ScaleOutRequest": {
+            "type": "object",
+            "required": [
+                "host_id"
+            ],
+            "properties": {
+                "host_id": {
+                    "type": "integer"
+                },
+                "install_dir": {
+                    "type": "string"
+                },
+                "mode": {
+                    "description": "Mode 为 install / register；为空时使用自动识别结果。\nMode is install / register; empty uses the detected mode.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/cluster.ScaleMode"
+                        }
+                    ]
+                },
+                "ports": {
+                    "$ref": "#/definitions/cluster.ScaleNodePorts"
+                },
+                "role": {
+                    "description": "Role 仅分离模式需要（master / worker）；混合模式固定为 master/worker。\nRole is only required in separated mode (master / worker); hybrid always uses master/worker.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/cluster.NodeRole"
+                        }
+                    ]
+                }
+            }
+        },
+        "cluster.ScaleOutSubmitRequest": {
+            "type": "object",
+            "required": [
+                "host_id",
+                "plan_fingerprint"
+            ],
+            "properties": {
+                "host_id": {
+                    "type": "integer"
+                },
+                "install_dir": {
+                    "type": "string"
+                },
+                "loopback_restart_ack": {
+                    "type": "boolean"
+                },
+                "mode": {
+                    "description": "Mode 为 install / register；为空时使用自动识别结果。\nMode is install / register; empty uses the detected mode.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/cluster.ScaleMode"
+                        }
+                    ]
+                },
+                "plan_fingerprint": {
+                    "type": "string"
+                },
+                "ports": {
+                    "$ref": "#/definitions/cluster.ScaleNodePorts"
+                },
+                "role": {
+                    "description": "Role 仅分离模式需要（master / worker）；混合模式固定为 master/worker。\nRole is only required in separated mode (master / worker); hybrid always uses master/worker.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/cluster.NodeRole"
+                        }
+                    ]
+                }
+            }
+        },
+        "cluster.ScalePlan": {
+            "type": "object",
+            "properties": {
+                "blocking_reasons": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "can_submit": {
+                    "type": "boolean"
+                },
+                "checkpoint_storage": {
+                    "$ref": "#/definitions/cluster.ScaleCheckpointStorage"
+                },
+                "checks": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/cluster.ScaleCheck"
+                    }
+                },
+                "cluster_id": {
+                    "type": "integer"
+                },
+                "cluster_version": {
+                    "type": "string"
+                },
+                "deployment_mode": {
+                    "$ref": "#/definitions/cluster.DeploymentMode"
+                },
+                "detected_mode": {
+                    "$ref": "#/definitions/cluster.ScaleMode"
+                },
+                "fingerprint": {
+                    "type": "string"
+                },
+                "java_proxy_follow": {
+                    "$ref": "#/definitions/cluster.ScaleJavaProxyFollow"
+                },
+                "kind": {
+                    "$ref": "#/definitions/cluster.ScaleKind"
+                },
+                "loopback_nodes": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/cluster.ScaleLoopbackNode"
+                    }
+                },
+                "members_after": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "members_before": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "mode": {
+                    "$ref": "#/definitions/cluster.ScaleMode"
+                },
+                "plugins_to_replay": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/cluster.ScalePluginItem"
+                    }
+                },
+                "requires_jobs_ack": {
+                    "type": "boolean"
+                },
+                "requires_restart_ack": {
+                    "type": "boolean"
+                },
+                "running_jobs": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/cluster.ScaleRunningJob"
+                    }
+                },
+                "running_jobs_known": {
+                    "type": "boolean"
+                },
+                "steps": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/cluster.ScaleStepName"
+                    }
+                },
+                "target": {
+                    "$ref": "#/definitions/cluster.ScaleTarget"
+                },
+                "warnings": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "cluster.ScalePlanResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/cluster.ScalePlan"
+                },
+                "error_code": {
+                    "type": "string"
+                },
+                "error_msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "cluster.ScalePluginItem": {
+            "type": "object",
+            "properties": {
+                "artifact_id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "profile_keys": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "profile_unknown": {
+                    "type": "boolean"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "string"
+                }
+            }
+        },
+        "cluster.ScaleRunningJob": {
+            "type": "object",
+            "properties": {
+                "job_id": {
+                    "type": "string"
+                },
+                "job_name": {
+                    "type": "string"
+                }
+            }
+        },
+        "cluster.ScaleStepName": {
+            "type": "string",
+            "enum": [
+                "validate_plan",
+                "fix_loopback",
+                "install_files",
+                "register_node",
+                "apply_configs",
+                "replay_plugins",
+                "start_node",
+                "patch_members",
+                "verify_membership",
+                "stop_node",
+                "cleanup_records",
+                "refresh_monitor",
+                "follow_java_proxy",
+                "verify"
+            ],
+            "x-enum-varnames": [
+                "ScaleStepValidatePlan",
+                "ScaleStepFixLoopback",
+                "ScaleStepInstallFiles",
+                "ScaleStepRegisterNode",
+                "ScaleStepApplyConfigs",
+                "ScaleStepReplayPlugins",
+                "ScaleStepStartNode",
+                "ScaleStepPatchMembers",
+                "ScaleStepVerifyMembership",
+                "ScaleStepStopNode",
+                "ScaleStepCleanupRecords",
+                "ScaleStepRefreshMonitor",
+                "ScaleStepFollowJavaProxy",
+                "ScaleStepVerify"
+            ]
+        },
+        "cluster.ScaleStepState": {
+            "type": "object",
+            "properties": {
+                "attempts": {
+                    "type": "integer"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "finished_at": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "name": {
+                    "$ref": "#/definitions/cluster.ScaleStepName"
+                },
+                "result": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "started_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/cluster.ScaleStepStatus"
+                }
+            }
+        },
+        "cluster.ScaleStepStatus": {
+            "type": "string",
+            "enum": [
+                "pending",
+                "running",
+                "succeeded",
+                "partial",
+                "failed",
+                "skipped"
+            ],
+            "x-enum-varnames": [
+                "ScaleStepPending",
+                "ScaleStepRunning",
+                "ScaleStepSucceeded",
+                "ScaleStepPartial",
+                "ScaleStepFailed",
+                "ScaleStepSkipped"
+            ]
+        },
+        "cluster.ScaleSubmitResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/cluster.ScaleSubmitResult"
+                },
+                "error_code": {
+                    "type": "string"
+                },
+                "error_msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "cluster.ScaleSubmitResult": {
+            "type": "object",
+            "properties": {
+                "execution_id": {
+                    "type": "string"
+                },
+                "operation": {
+                    "$ref": "#/definitions/cluster.ScaleOperationInfo"
+                },
+                "operation_id": {
+                    "type": "integer"
+                }
+            }
+        },
+        "cluster.ScaleTarget": {
+            "type": "object",
+            "properties": {
+                "address": {
+                    "type": "string"
+                },
+                "api_port": {
+                    "type": "integer"
+                },
+                "hazelcast_port": {
+                    "type": "integer"
+                },
+                "host_id": {
+                    "type": "integer"
+                },
+                "host_ip": {
+                    "type": "string"
+                },
+                "host_name": {
+                    "type": "string"
+                },
+                "install_dir": {
+                    "type": "string"
+                },
+                "node_id": {
+                    "type": "integer"
+                },
+                "role": {
+                    "$ref": "#/definitions/cluster.NodeRole"
+                },
+                "worker_port": {
+                    "type": "integer"
                 }
             }
         },
@@ -8553,6 +9557,13 @@
                     "description": "安装者 ID / Installed by",
                     "type": "integer"
                 },
+                "node_statuses": {
+                    "description": "NodeStatuses 部分安装时各节点的状态（持久化为 JSON）。\nNodeStatuses holds per-node states for partial installs (persisted as JSON).",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/plugin.PluginNodeInstallResult"
+                    }
+                },
                 "plugin_name": {
                     "description": "插件名称 / Plugin name",
                     "type": "string"
@@ -8969,6 +9980,17 @@
                     "description": "消息 / Message",
                     "type": "string"
                 },
+                "node_results": {
+                    "description": "NodeResults 逐节点结果。\nNodeResults are the per-node results.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/plugin.PluginNodeInstallResult"
+                    }
+                },
+                "partial": {
+                    "description": "Partial 安装失败且部分节点仍保留插件（回滚未完全成功）。\nPartial means the install failed and some nodes still have the plugin (rollback incomplete).",
+                    "type": "boolean"
+                },
                 "plugin_name": {
                     "description": "插件名称 / Plugin name",
                     "type": "string"
@@ -9008,13 +10030,31 @@
                 "PluginListSourceSeed"
             ]
         },
+        "plugin.PluginNodeInstallResult": {
+            "type": "object",
+            "properties": {
+                "host_id": {
+                    "type": "integer"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "node_id": {
+                    "type": "integer"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
         "plugin.PluginStatus": {
             "type": "string",
             "enum": [
                 "available",
                 "installed",
                 "enabled",
-                "disabled"
+                "disabled",
+                "partial"
             ],
             "x-enum-comments": {
                 "PluginStatusAvailable": "可用 / Available",
@@ -9032,7 +10072,8 @@
                 "PluginStatusAvailable",
                 "PluginStatusInstalled",
                 "PluginStatusEnabled",
-                "PluginStatusDisabled"
+                "PluginStatusDisabled",
+                "PluginStatusPartial"
             ]
         },
         "plugin.RefreshAvailablePluginsRequest": {

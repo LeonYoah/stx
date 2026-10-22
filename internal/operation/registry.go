@@ -2062,6 +2062,48 @@ func clusterAdditionalOperationSpecs() []OperationSpec {
 			"停止节点会终止目标 SeaTunnel 进程，可能影响集群任务。", "stx cluster node stop 6 1 --confirm", clusterNodeIDInputs()),
 		clusterGeneratedOperation("cluster.node.restart", []string{"cluster", "node", "restart"}, "Restart a cluster node", "POST", "/api/v1/clusters/:id/nodes/:nodeId/restart", RiskR2,
 			"重启节点会短暂终止并重新创建目标 SeaTunnel 进程。", "stx cluster node restart 6 1 --confirm", clusterNodeIDInputs()),
+		// 集群扩缩容：只登记 API（本任务不提供 CLI 命令）。
+		// Cluster scaling: API-only registrations (no CLI commands in this task).
+		clusterScaleOperationSpec("cluster.scale-out.plan", "Compute a cluster scale-out plan", "POST", "/api/v1/clusters/:id/scale-out/plan", RiskR0, "",
+			[]InputSpec{
+				{Name: "id", Location: InputPath, Required: true, Description: "Cluster ID"},
+				{Name: "lang", Location: InputQuery, Required: false, Description: "Message language: zh or en"},
+				{Name: "request", Location: InputBody, Required: true, Description: "host_id, mode (install/register), role, install_dir and ports"},
+			}, true, false),
+		clusterScaleOperationSpec("cluster.scale-out.execute", "Scale out a cluster", "POST", "/api/v1/clusters/:id/scale-out", RiskR2,
+			"扩容会在目标主机安装或纳管 SeaTunnel，修改集群成员配置并推送到所有节点；存在回环成员地址时会逐个重启现有节点。",
+			[]InputSpec{
+				{Name: "id", Location: InputPath, Required: true, Description: "Cluster ID"},
+				{Name: "lang", Location: InputQuery, Required: false, Description: "Message language: zh or en"},
+				{Name: "request", Location: InputBody, Required: true, Description: "Plan request plus plan_fingerprint and loopback_restart_ack"},
+				{Name: "Idempotency-Key", Location: InputHeader, Required: true, Description: "Stable retry key"},
+				{Name: "X-STX-Confirmation-ID", Location: InputHeader, Required: false, Description: "One-time confirmation ID returned by the first request"},
+			}, true, true),
+		clusterScaleOperationSpec("cluster.scale-in.plan", "Compute a cluster scale-in plan", "POST", "/api/v1/clusters/:id/nodes/:nodeId/scale-in/plan", RiskR0, "",
+			append(clusterNodeIDInputs(), InputSpec{Name: "lang", Location: InputQuery, Required: false, Description: "Message language: zh or en"}), true, false),
+		clusterScaleOperationSpec("cluster.scale-in.execute", "Scale in a cluster", "POST", "/api/v1/clusters/:id/nodes/:nodeId/scale-in", RiskR2,
+			"缩容会停止目标节点进程、修改剩余节点的成员配置并删除节点记录；运行中的作业可能 failover 到其他节点。",
+			append(clusterNodeIDInputs(),
+				InputSpec{Name: "lang", Location: InputQuery, Required: false, Description: "Message language: zh or en"},
+				InputSpec{Name: "request", Location: InputBody, Required: true, Description: "plan_fingerprint and jobs_risk_ack"},
+				InputSpec{Name: "Idempotency-Key", Location: InputHeader, Required: true, Description: "Stable retry key"},
+				InputSpec{Name: "X-STX-Confirmation-ID", Location: InputHeader, Required: false, Description: "One-time confirmation ID returned by the first request"},
+			), true, true),
+		clusterScaleOperationSpec("cluster.scale-operation.list", "List cluster scaling operations", "GET", "/api/v1/clusters/:id/scale-operations", RiskR0, "",
+			append(clusterIDInputs(),
+				InputSpec{Name: "status", Location: InputQuery, Required: false, Description: "running, succeeded or failed"},
+				InputSpec{Name: "limit", Location: InputQuery, Required: false, Description: "Maximum items (default 20, max 100)"},
+			), false, false),
+		clusterScaleOperationSpec("cluster.scale-operation.get", "Get a cluster scaling operation", "GET", "/api/v1/clusters/:id/scale-operations/:opId", RiskR0, "",
+			append(clusterIDInputs(), InputSpec{Name: "opId", Location: InputPath, Required: true, Description: "Scaling operation ID"}), false, false),
+		clusterScaleOperationSpec("cluster.scale-operation.retry", "Retry a failed cluster scaling operation", "POST", "/api/v1/clusters/:id/scale-operations/:opId/retry", RiskR1,
+			"重试会从失败步骤继续执行伸缩操作，可能再次修改节点配置、启动或停止进程。",
+			append(clusterIDInputs(),
+				InputSpec{Name: "opId", Location: InputPath, Required: true, Description: "Scaling operation ID"},
+				InputSpec{Name: "lang", Location: InputQuery, Required: false, Description: "Message language: zh or en"},
+				InputSpec{Name: "Idempotency-Key", Location: InputHeader, Required: true, Description: "Stable retry key"},
+				InputSpec{Name: "X-STX-Confirm", Location: InputHeader, Required: true, Description: "Explicit confirmation"},
+			), true, true),
 		clusterGeneratedOperation("cluster.java-proxy.status", []string{"cluster", "java-proxy", "status"}, "Get STX Java Proxy status", "GET", "/api/v1/clusters/:id/stx-java-proxy/status", RiskR0,
 			"状态查询会向集群主节点 Agent 发起一次轻量检查。", "stx cluster java-proxy status 6", clusterIDInputs()),
 		clusterGeneratedOperation("cluster.java-proxy.logs", []string{"cluster", "java-proxy", "logs"}, "Get STX Java Proxy logs", "GET", "/api/v1/clusters/:id/stx-java-proxy/logs", RiskR0,
@@ -2196,6 +2238,16 @@ func clusterGeneratedOperation(id string, commandPath []string, summary, method,
 // clusterNonCLIWriteOperation registers a server-side cluster write operation that the CLI must not expose.
 func clusterNonCLIWriteOperation(id, summary, method, route string, risk RiskLevel, impact string, inputs []InputSpec) OperationSpec {
 	return clusterOperation(id, nil, summary, method, route, risk, impact, inputs, "", false)
+}
+
+// clusterScaleOperationSpec 登记集群扩缩容 API（不暴露 CLI），并标注是否经过 Agent 与是否异步执行。
+// clusterScaleOperationSpec registers a cluster scaling API (not exposed through CLI) and marks Agent usage and async
+// execution.
+func clusterScaleOperationSpec(id, summary, method, route string, risk RiskLevel, impact string, inputs []InputSpec, usesAgent, async bool) OperationSpec {
+	spec := clusterNonCLIWriteOperation(id, summary, method, route, risk, impact, inputs)
+	spec.UsesAgent = usesAgent
+	spec.Async = async
+	return spec
 }
 
 func clusterOperation(id string, commandPath []string, summary, method, route string, risk RiskLevel, impact string, inputs []InputSpec, example string, generated bool) OperationSpec {

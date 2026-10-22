@@ -341,9 +341,52 @@ build_frontend_standalone() {
     export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
     corepack enable >/dev/null 2>&1 || true
     corepack prepare pnpm@10.10.0 --activate >/dev/null 2>&1 || true
+
+    # 前端只在宿主机构建一次，但同一份 standalone 包要同时服务 linux x64 与 arm64（裸机与镜像）。
+    # 仅在发版构建期间临时声明 supportedArchitectures，让 pnpm 同时安装 x64/arm64 的 sharp 原生包
+    # （@img/sharp-linux-* 与 @img/sharp-libvips-linux-*），Next 输出追踪会把它们一并带入 standalone。
+    # The frontend is built once on the host, yet the same standalone package serves linux x64 and arm64
+    # (bare metal and images). Declare supportedArchitectures only for the release build so pnpm installs
+    # sharp native packages for both arches; Next output tracing then copies them into the standalone.
+    local workspace_file="$ROOT_DIR/frontend/pnpm-workspace.yaml"
+    if [[ -e "$workspace_file" ]]; then
+      echo "refusing to overwrite existing $workspace_file (release build writes a temporary one)"
+      exit 1
+    fi
+    trap 'rm -f "$workspace_file"' EXIT
+    cat >"$workspace_file" <<'YAML'
+# Temporary file written by install/package-release.sh; removed after the frontend build.
+supportedArchitectures:
+  os: [current, linux]
+  cpu: [current, x64, arm64]
+  libc: [current, glibc]
+YAML
+
     pnpm install --no-frozen-lockfile
     pnpm run pack:standalone
   )
+  verify_frontend_sharp_binaries
+}
+
+# 校验 standalone 包内同时带有 linux x64 与 arm64 的 sharp 原生模块和 libvips。
+# Verify the standalone package ships sharp native modules and libvips for both linux x64 and arm64.
+verify_frontend_sharp_binaries() {
+  local dist="$ROOT_DIR/frontend/dist-standalone"
+  local missing=()
+  local cpu
+  for cpu in x64 arm64; do
+    if [[ -z "$(find "$dist/node_modules" -path "*/@img/sharp-linux-${cpu}/lib/sharp-linux-${cpu}.node" -print -quit 2>/dev/null)" ]]; then
+      missing+=("@img/sharp-linux-${cpu}")
+    fi
+    if [[ -z "$(find "$dist/node_modules" -path "*/@img/sharp-libvips-linux-${cpu}/lib/libvips-cpp.so*" -print -quit 2>/dev/null)" ]]; then
+      missing+=("@img/sharp-libvips-linux-${cpu}")
+    fi
+  done
+  if [[ "${#missing[@]}" -gt 0 ]]; then
+    echo "frontend standalone is missing sharp native packages: ${missing[*]}"
+    exit 1
+  fi
+  echo "frontend standalone ships sharp for linux x64 and arm64"
 }
 
 FRONTEND_DIST="$ROOT_DIR/frontend/dist-standalone"

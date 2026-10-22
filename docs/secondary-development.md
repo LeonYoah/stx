@@ -6,7 +6,7 @@ Chinese short version: [二次开发.md](./二次开发.md).
 
 ## Stack
 
-- Backend: Go 1.24, Gin, GORM, OpenTelemetry, Swagger
+- Backend: Go 1.26.10, Gin, GORM, OpenTelemetry, Swagger
 - Frontend: Next.js 15, React 19, TypeScript, Tailwind CSS, Shadcn UI
 - Agent: Go process on target hosts, talks to the control plane over gRPC
 - Database: SQLite (default) / MySQL / PostgreSQL

@@ -69,7 +69,7 @@ macOS / Windows are for local development, not the one-click installer. Default 
 
 ### Requirements (local development)
 
-- Go >= 1.24
+- Go >= 1.26.10
 - Node.js >= 18
 - pnpm >= 8 (recommended)
 

@@ -141,6 +141,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # 镜像只消费 package-release 的产物（与 GitHub Release 资产同一次编译），Dockerfile 内不再编译 Go / Java / 前端；
+      # 缺少任何产物时 Dockerfile 会直接失败并列出缺失文件。
+      # Images only consume package-release artifacts (the same build as the GitHub Release assets); Dockerfiles
+      # never compile Go / Java / frontend and fail listing any missing file.
       - name: Download package artifacts
         uses: actions/download-artifact@v4
         with:

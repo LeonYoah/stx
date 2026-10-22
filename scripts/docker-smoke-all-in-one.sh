@@ -107,4 +107,23 @@ wait_for_200 "frontend home" "http://127.0.0.1:${FRONTEND_PORT}/" -L
 final_url="$(curl -sS -o /dev/null -L -w '%{url_effective}' --max-time 10 "http://127.0.0.1:${FRONTEND_PORT}/")"
 first_hop="$(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}' --max-time 10 "http://127.0.0.1:${FRONTEND_PORT}/")"
 echo "[smoke] frontend / first hop: ${first_hop}; final: ${final_url}"
+# sharp 必须在当前架构可加载，且 next/image 返回经过优化（明显小于原图）的图片。
+# sharp must load on this arch and next/image must return an optimized (clearly smaller) image.
+sharp_info="$($DOCKER exec -w /opt/stx/frontend "$container" node -e "
+const sharp = require(require.resolve('sharp', {paths: [require.resolve('next/package.json')]}));
+console.log(process.arch + ' sharp=' + sharp.versions.sharp + ' libvips=' + sharp.versions.vips);
+")" || { echo "[smoke] sharp failed to load inside the image" >&2; exit 1; }
+echo "[smoke] $sharp_info"
+
+logo="/brand/stx-logo.png"
+original_bytes="$(curl -sS -o /dev/null -w '%{size_download}' --max-time 10 "http://127.0.0.1:${FRONTEND_PORT}${logo}")"
+read -r image_code image_bytes image_type < <(curl -sS -o /dev/null -H 'Accept: image/webp,image/png' \
+  -w '%{http_code} %{size_download} %{content_type}\n' --max-time 60 \
+  "http://127.0.0.1:${FRONTEND_PORT}/_next/image?url=%2Fbrand%2Fstx-logo.png&w=256&q=75")
+echo "[smoke] next/image ${logo} w=256: status=${image_code} bytes=${image_bytes} type=${image_type} (original ${original_bytes} bytes)"
+if [[ "$image_code" != "200" ]] || (( image_bytes <= 0 || image_bytes * 2 > original_bytes )); then
+  echo "[smoke] next/image did not return an optimized image (sharp not working?)" >&2
+  exit 1
+fi
+
 echo "[smoke] all-in-one smoke passed"

@@ -220,6 +220,14 @@ jobs:
           scripts/docker-verify-release-artifacts.sh \
             "${{ matrix.image_name }}:ci-${{ matrix.arch }}" "${{ matrix.image }}" "${{ matrix.arch }}" dist/releases
 
+      - name: Check sharp loads in frontend image
+        if: matrix.image == 'frontend'
+        run: |
+          docker run --rm --entrypoint node "${{ matrix.image_name }}:ci-${{ matrix.arch }}" -e "
+          const sharp = require(require.resolve('sharp', {paths: [require.resolve('next/package.json')]}));
+          console.log(process.arch + ' sharp=' + sharp.versions.sharp + ' libvips=' + sharp.versions.vips);
+          "
+
       - name: Smoke test all-in-one
         if: matrix.image == 'all-in-one'
         run: scripts/docker-smoke-all-in-one.sh "${{ matrix.image_name }}:ci-${{ matrix.arch }}" --timeout 180

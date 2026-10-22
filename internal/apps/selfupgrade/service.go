@@ -293,6 +293,15 @@ func (s *Service) Check(ctx context.Context, req CheckRequest) (*CheckResult, er
 		return result, fmt.Errorf("%w: %v", ErrCheckFail, err)
 	}
 
+	// 在线升级只跟随正式版：releases/latest 本身不含预发版本，但若某个预发版本被误标为 Latest，
+	// 这里同样视为“无可用更新”（不报错）。显式 ForceLatest 不受影响。
+	// Online upgrades follow stable releases only: releases/latest already excludes pre-releases, and if a
+	// pre-release is ever mis-marked as Latest it is treated as "no update available" (no error).
+	// An explicit ForceLatest is not affected.
+	prereleaseIgnored := req.ForceLatest == "" && isPrereleaseVersion(latest)
+	if prereleaseIgnored {
+		latest, url = cur, ""
+	}
 	available := stxversion.Compare(cur, latest) < 0
 	result := &CheckResult{
 		CurrentVersion:  cur,
@@ -303,6 +312,9 @@ func (s *Service) Check(ctx context.Context, req CheckRequest) (*CheckResult, er
 	}
 	if !available {
 		result.Message = "already latest"
+		if prereleaseIgnored {
+			result.Message = "already latest (latest release is a pre-release and is ignored)"
+		}
 		result.ErrorCode = CodeAlreadyLatest
 	}
 
@@ -398,33 +410,10 @@ func (s *Service) resolveLatest(ctx context.Context, force string) (string, stri
 	owner := envOr("STX_GITHUB_OWNER", "LeonYoah")
 	repo := envOr("STX_GITHUB_REPO", "stx")
 
-	// 1. 直连 GitHub API（优先读取 releases 列表以支持 beta/预发布版本，超时限制 4s）
-	// 1. Direct GitHub API (prefer releases list to support beta/prerelease tags, with 4s timeout)
+	// 1. 直连 GitHub API 的 releases/latest（GitHub 在此排除预发与草稿版本，超时限制 4s）
+	// 1. Direct GitHub API releases/latest (GitHub excludes pre-releases and drafts here; 4s timeout)
 	directCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
 	defer cancel()
-
-	listAPI := fmt.Sprintf("https://api.github.com/repos/%s/%s/releases?per_page=5", owner, repo)
-	if req, err := http.NewRequestWithContext(directCtx, http.MethodGet, listAPI, nil); err == nil {
-		req.Header.Set("Accept", "application/vnd.github+json")
-		req.Header.Set("User-Agent", "stx-self-upgrade")
-		if resp, doErr := s.httpClient.Do(req); doErr == nil && resp.StatusCode < 300 {
-			defer resp.Body.Close()
-			var releases []struct {
-				TagName string `json:"tag_name"`
-				HTMLURL string `json:"html_url"`
-			}
-			if decErr := json.NewDecoder(resp.Body).Decode(&releases); decErr == nil {
-				for _, r := range releases {
-					norm := stxversion.Normalize(r.TagName)
-					if len(norm) > 0 && norm[0] >= '0' && norm[0] <= '9' {
-						return norm, r.HTMLURL, nil
-					}
-				}
-			}
-		} else if resp != nil {
-			resp.Body.Close()
-		}
-	}
 
 	latestAPI := fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest", owner, repo)
 	if req, err := http.NewRequestWithContext(directCtx, http.MethodGet, latestAPI, nil); err == nil {
@@ -444,7 +433,8 @@ func (s *Service) resolveLatest(ctx context.Context, force string) (string, stri
 		}
 	}
 
-	// 2. 直连超时或失败时，依次探测 gh-proxy 镜像节点 / 2. Fallback to probe gh-proxy mirror nodes
+	// 2. 直连超时或失败时，依次探测 gh-proxy 镜像节点的 releases/latest 跳转（与直连同一语义：仅正式版）
+	// 2. Fallback: probe gh-proxy mirror nodes for the releases/latest redirect (same stable-only semantics)
 	for _, node := range defaultGHProxyNodes {
 		mirrorURL := fmt.Sprintf("%s/https://github.com/%s/%s/releases/latest", strings.TrimRight(node, "/"), owner, repo)
 		proxyCtx, pCancel := context.WithTimeout(ctx, 4*time.Second)
@@ -475,6 +465,12 @@ func (s *Service) resolveLatest(ctx context.Context, force string) (string, stri
 	}
 
 	return "", "", fmt.Errorf("%w: direct GitHub and gh-proxy mirrors are all unreachable", ErrNetworkUnreachable)
+}
+
+// isPrereleaseVersion 判断版本是否带预发后缀（如 1.2.0-beta.1、1.2.0-rc.1）。
+// isPrereleaseVersion reports whether a version carries a pre-release suffix (e.g. 1.2.0-beta.1, 1.2.0-rc.1).
+func isPrereleaseVersion(v string) bool {
+	return strings.Contains(stxversion.Normalize(v), "-")
 }
 
 func envOr(k, def string) string {

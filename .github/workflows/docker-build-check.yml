@@ -27,13 +27,22 @@ on:
     paths:
       - '.github/docker/**'
       - 'go.mod'
+      - 'go.sum'
       - 'agent/go.mod'
+      - 'agent/go.sum'
+      - 'tools/stx-java-proxy/**'
       - 'frontend/package.json'
       - 'frontend/pnpm-lock.yaml'
+      - 'frontend/next.config.*'
       - 'install/package-release.sh'
+      # 镜像内直接 COPY 的源码文件 / Source files COPY'd straight into images
+      - 'install/bin/**'
+      - 'config.example.yaml'
+      - 'scripts/stx-java-proxy.sh'
       - 'scripts/docker-build-images.sh'
       - 'scripts/docker-smoke-all-in-one.sh'
       - 'scripts/docker-verify-release-artifacts.sh'
+      - 'scripts/check-frontend-sharp-arch.sh'
       - '.github/workflows/docker-build-check.yml'
       - '.github/workflows/release-on-tag.yml'
   push:
@@ -42,13 +51,22 @@ on:
     paths:
       - '.github/docker/**'
       - 'go.mod'
+      - 'go.sum'
       - 'agent/go.mod'
+      - 'agent/go.sum'
+      - 'tools/stx-java-proxy/**'
       - 'frontend/package.json'
       - 'frontend/pnpm-lock.yaml'
+      - 'frontend/next.config.*'
       - 'install/package-release.sh'
+      # 镜像内直接 COPY 的源码文件 / Source files COPY'd straight into images
+      - 'install/bin/**'
+      - 'config.example.yaml'
+      - 'scripts/stx-java-proxy.sh'
       - 'scripts/docker-build-images.sh'
       - 'scripts/docker-smoke-all-in-one.sh'
       - 'scripts/docker-verify-release-artifacts.sh'
+      - 'scripts/check-frontend-sharp-arch.sh'
       - '.github/workflows/docker-build-check.yml'
       - '.github/workflows/release-on-tag.yml'
   workflow_dispatch:
@@ -67,8 +85,16 @@ jobs:
   # 没有 dist/releases/ 时三个 Dockerfile 都必须失败，并报出缺失的文件名（不允许偷偷回退到源码编译）。
   # Without dist/releases/ every Dockerfile must fail and name the missing files (no silent source build fallback).
   missing-artifacts:
-    name: Dockerfiles fail without release artifacts
-    runs-on: ubuntu-latest
+    name: Dockerfiles fail without release artifacts (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
 
     steps:
       - name: Checkout
@@ -78,30 +104,38 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Build each image without dist/releases and expect a clear failure
+        env:
+          ARCH: ${{ matrix.arch }}
         run: |
           set -u
           test ! -e dist/releases
+          backend_files="stx-linux-${ARCH} stx-agent-linux-amd64 stx-agent-linux-arm64 stx-java-proxy-v2.jar stx-java-proxy-v3.jar"
+          frontend_files="frontend-standalone-linux-${ARCH}.tar.gz"
           declare -A expected=(
-            [backend]="stx-linux-amd64 stx-agent-linux-amd64 stx-agent-linux-arm64 stx-java-proxy-v2.jar stx-java-proxy-v3.jar"
-            [frontend]="frontend-standalone-linux-amd64.tar.gz"
-            [all-in-one]="stx-linux-amd64 stx-agent-linux-amd64 stx-agent-linux-arm64 stx-java-proxy-v2.jar stx-java-proxy-v3.jar frontend-standalone-linux-amd64.tar.gz"
+            [backend]="$backend_files"
+            [frontend]="$frontend_files"
+            [all-in-one]="$backend_files $frontend_files"
           )
           failed=0
           for image in backend frontend all-in-one; do
             log="/tmp/missing-${image}.log"
-            if docker buildx build --progress=plain --platform linux/amd64 \
+            if docker buildx build --progress=plain --platform "linux/${ARCH}" \
                  -f ".github/docker/Dockerfile.${image}" . >"$log" 2>&1; then
-              echo "::error::Dockerfile.${image} built without dist/releases; it must fail"
+              echo "::error::Dockerfile.${image} (linux/${ARCH}) built without dist/releases; it must fail"
               failed=1
               continue
             fi
+            if ! grep -q -- "target arch: ${ARCH}" "$log"; then
+              echo "::error::Dockerfile.${image} (linux/${ARCH}) failed, but not with the missing-artifacts check"
+              failed=1
+            fi
             for name in ${expected[$image]}; do
               if ! grep -q -- "- dist/releases/${name}" "$log"; then
-                echo "::error::Dockerfile.${image} failure did not name missing file dist/releases/${name}"
+                echo "::error::Dockerfile.${image} (linux/${ARCH}) failure did not name missing file dist/releases/${name}"
                 failed=1
               fi
             done
-            echo "::group::Dockerfile.${image} (expected failure)"
+            echo "::group::Dockerfile.${image} linux/${ARCH} (expected failure)"
             grep -- '\[stage-release-artifacts\]\|- dist/releases/' "$log" | sed -E 's/^#[0-9]+ //; s/^[0-9]+\.[0-9]+ +//; s/^ +//' | sort -u
             echo "::endgroup::"
           done
@@ -142,6 +176,11 @@ jobs:
             --layout split \
             --build-frontend \
             --version "${APP_VERSION}"
+
+      - name: Assert per-arch frontend sharp packages
+        run: |
+          scripts/check-frontend-sharp-arch.sh amd64 dist/releases/frontend-standalone-linux-amd64.tar.gz
+          scripts/check-frontend-sharp-arch.sh arm64 dist/releases/frontend-standalone-linux-arm64.tar.gz
 
       - name: Upload image input artifacts
         uses: actions/upload-artifact@v4

@@ -264,6 +264,18 @@ func Serve() {
 
 			clusterHandler := cluster.NewHandler(clusterService, auditRepo)
 
+			// 集群扩缩容编排：只读计划 + 异步分步执行，接入公共执行（提交 R2、重试 R1）；其余依赖在对应服务创建后注入。
+			// Cluster scaling orchestrator: read-only plans plus async step execution on the shared execution contract
+			// (submit R2, retry R1); remaining dependencies are injected once their services exist.
+			scaleService := cluster.NewScaleService(clusterService, cluster.NewScaleRepository(db.DB(context.Background())))
+			scaleService.SetExecutionService(executionService)
+			if recovered, err := scaleService.RecoverInterruptedOperations(ctx); err != nil {
+				log.Printf("[API] 标记被打断的伸缩操作失败 / Failed to mark interrupted scaling operations: %v\n", err)
+			} else if recovered > 0 {
+				log.Printf("[API] 已将 %d 个被重启打断的伸缩操作标记为失败 / Marked %d scaling operation(s) interrupted by restart as failed\n", recovered, recovered)
+			}
+			scaleHandler := cluster.NewScaleHandler(scaleService, auditRepo)
+
 			clusterRouter := apiV1Router.Group("/clusters")
 			clusterRouter.Use(auth.LoginRequired())
 			{
@@ -281,6 +293,15 @@ func Serve() {
 				clusterRouter.PUT("/:id/nodes/:nodeId", clusterHandler.UpdateNode)
 				clusterRouter.DELETE("/:id/nodes/:nodeId", clusterHandler.RemoveNode)
 				clusterRouter.POST("/:id/nodes/precheck", clusterHandler.PrecheckNode)
+
+				// Cluster scaling 集群扩缩容（计划 R0、提交 R2、重试 R1）
+				clusterRouter.POST("/:id/scale-out/plan", scaleHandler.PlanScaleOut)
+				clusterRouter.POST("/:id/scale-out", scaleHandler.ScaleOut)
+				clusterRouter.POST("/:id/nodes/:nodeId/scale-in/plan", scaleHandler.PlanScaleIn)
+				clusterRouter.POST("/:id/nodes/:nodeId/scale-in", scaleHandler.ScaleIn)
+				clusterRouter.GET("/:id/scale-operations", scaleHandler.ListScaleOperations)
+				clusterRouter.GET("/:id/scale-operations/:opId", scaleHandler.GetScaleOperation)
+				clusterRouter.POST("/:id/scale-operations/:opId/retry", scaleHandler.RetryScaleOperation)
 
 				// Node operations 节点操作
 				clusterRouter.POST("/:id/nodes/:nodeId/start", clusterHandler.StartNode)
@@ -960,6 +981,18 @@ func Serve() {
 			})
 			configHandler := appconfig.NewHandler(configService)
 			configHandler.SetExecutionService(executionService)
+
+			// 注入扩缩容编排依赖：配置、安装器、插件补齐、运行中作业、进程发现与按集群监控下发。
+			// Inject scaling orchestrator dependencies: config, installer, plugin replay, running jobs, process discovery
+			// and cluster-scoped monitor push.
+			scaleService.SetConfigManager(configService)
+			scaleService.SetInstaller(installerService)
+			scaleService.SetPluginReplayer(pluginService)
+			scaleService.SetRunningJobsProvider(&clusterRunningJobsAdapter{syncService: syncService})
+			scaleService.SetProcessDiscoverer(&clusterProcessDiscovererAdapter{discoveryService: discoveryService})
+			if grpcSrv != nil {
+				scaleService.SetMonitorPusher(grpcSrv)
+			}
 
 			// Inject config initializer into installer service for initializing configs after installation
 			// 将配置初始化器注入安装服务，用于安装后初始化配置
@@ -2332,4 +2365,67 @@ func normalizeAPIV1RoutePath(rawPath, fallback string) string {
 		}
 	}
 	return path
+}
+
+// clusterRunningJobsAdapter 把 sync 服务的运行中作业查询适配给集群扩缩容护栏，避免 cluster 包依赖 sync。
+// clusterRunningJobsAdapter adapts the sync service's running job query to the cluster scaling guardrails so the
+// cluster package never imports sync.
+type clusterRunningJobsAdapter struct {
+	syncService *syncapp.Service
+}
+
+// ListClusterRunningJobs 返回集群运行中作业。
+// ListClusterRunningJobs returns the cluster's running jobs.
+func (a *clusterRunningJobsAdapter) ListClusterRunningJobs(ctx context.Context, clusterID uint) ([]cluster.ScaleRunningJob, error) {
+	jobs := make([]cluster.ScaleRunningJob, 0)
+	if a == nil || a.syncService == nil {
+		return jobs, syncapp.ErrClusterEngineUnavailable
+	}
+	items, err := a.syncService.ListClusterRunningJobs(ctx, clusterID)
+	if err != nil {
+		return jobs, err
+	}
+	for _, item := range items {
+		if item == nil {
+			continue
+		}
+		jobs = append(jobs, cluster.ScaleRunningJob{JobID: item.JobID, JobName: item.JobName})
+	}
+	return jobs, nil
+}
+
+// clusterProcessDiscovererAdapter 把发现服务的进程发现适配给扩容模式自动识别。
+// clusterProcessDiscovererAdapter adapts the discovery service's process discovery to scale-out mode detection.
+type clusterProcessDiscovererAdapter struct {
+	discoveryService *discovery.Service
+}
+
+// DiscoverSeaTunnelProcesses 返回主机上运行中的 SeaTunnel 进程。
+// DiscoverSeaTunnelProcesses returns the SeaTunnel processes running on a host.
+func (a *clusterProcessDiscovererAdapter) DiscoverSeaTunnelProcesses(ctx context.Context, hostID uint) ([]cluster.ScaleDiscoveredProcess, error) {
+	processes := make([]cluster.ScaleDiscoveredProcess, 0)
+	if a == nil || a.discoveryService == nil {
+		return processes, nil
+	}
+	result, err := a.discoveryService.DiscoverProcesses(ctx, hostID)
+	if err != nil {
+		return processes, err
+	}
+	if result == nil {
+		return processes, nil
+	}
+	for _, process := range result.Processes {
+		if process == nil {
+			continue
+		}
+		processes = append(processes, cluster.ScaleDiscoveredProcess{
+			PID:           process.PID,
+			Role:          process.Role,
+			InstallDir:    process.InstallDir,
+			Version:       process.Version,
+			HazelcastPort: process.HazelcastPort,
+			APIPort:       process.APIPort,
+		})
+	}
+	return processes, nil
 }

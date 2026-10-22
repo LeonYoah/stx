@@ -344,6 +344,12 @@ type InstallationRequest struct {
 	Checkpoint              *CheckpointConfig      `json:"checkpoint,omitempty"`
 	IMAP                    *IMAPConfig            `json:"imap,omitempty"`
 	Connector               *ConnectorConfig       `json:"connector,omitempty"`
+	// DeferNodeStart 仅供控制面内部（扩容编排器）使用，不出现在公开 JSON：为 true 时安装成功并登记节点后
+	// 不启动节点、不登记配置，任务以 complete 成功结束，后续由调用方编排。
+	// DeferNodeStart is internal to the Control Plane (scale-out orchestrator) and never part of the public
+	// JSON: when true, after a successful install and node registration the node is not started and configs are
+	// not registered; the task finishes as complete/success and the caller orchestrates the rest.
+	DeferNodeStart bool `json:"-"`
 }
 
 // StepInfo contains information about an installation step

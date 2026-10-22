@@ -98,6 +98,18 @@ Copy-Item stx-agent ../lib/agent/stx-agent-linux-amd64 -Force
 Copy-Item stx-agent-arm64 ../lib/agent/stx-agent-linux-arm64 -Force
 ```
 
+## Build Docker images locally
+
+Images only consume the `dist/releases/` artifacts produced by `install/package-release.sh`; the Dockerfiles never compile Go, Java, or the frontend. Package first, then build:
+
+```bash
+make docker-images            # package artifacts + build all three images for the host arch + sha256 check
+make docker-smoke             # reuse existing dist/releases/, rebuild images and smoke-test all-in-one
+make docker-images DOCKER_PLATFORMS=linux/arm64 DOCKER_IMAGES=all-in-one   # non-host arch needs QEMU binfmt
+```
+
+A missing artifact fails the build and lists every missing file. See [Packaging & release 5.3 (CN)](./打包发布说明.md#53-本地构建镜像先打包再构建).
+
 ## Related docs
 
 - [Quick start (users, CN)](./00-快速开始.md)

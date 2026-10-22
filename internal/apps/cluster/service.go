@@ -64,6 +64,10 @@ type HostInfo struct {
 	AgentStatus      string
 	LastHeartbeat    *time.Time
 	ProcessStartedAt *time.Time // when set, online requires heartbeat after this (e.g. API process start)
+	// DiskUsage 是 Agent 心跳上报的磁盘使用率（百分比，0 表示未知），扩容预检据此给出磁盘空间警告。
+	// DiskUsage is the disk usage percentage reported by Agent heartbeats (0 means unknown); scale-out prechecks use
+	// it for the disk space warning.
+	DiskUsage float64
 }
 
 // IsOnline checks if the host is online based on heartbeat timeout.

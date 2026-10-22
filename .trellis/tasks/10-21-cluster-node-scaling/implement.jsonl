@@ -1,0 +1,13 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "后端规范索引与质量检查命令"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "新增 cluster/scale_* 与 internal/clustermembers 的落位"}
+{"file": ".trellis/spec/backend/execution-security-guidelines.md", "reason": "R0-R2 确认、幂等、公共执行、§10 安装后节点登记、新路由登记"}
+{"file": ".trellis/spec/backend/managed-process-identity.md", "reason": "缩容停止进程、ManuallyStopped、按 cluster_id 的监控下发"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "ClusterScaleOperation 新表、AutoMigrate、三库兼容"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "409/428 等错误映射"}
+{"file": ".trellis/spec/backend/logging-guidelines.md", "reason": "编排步骤结构化日志"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "中英双语注释、License 头"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Plan JSON 跨层契约、空数组、执行终态"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "前端规范索引"}
+{"file": ".trellis/spec/frontend/ui-conventions.md", "reason": "向导弹窗、渐进式披露、强确认、零塌陷"}
+{"file": ".trellis/spec/frontend/api-and-services.md", "reason": "cluster.service 新 API 与 Safe 包装"}
+{"file": ".trellis/tasks/10-21-cluster-node-scaling/research/t2-scale-out-evidence.md", "reason": "现场缺口与代码证据"}

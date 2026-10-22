@@ -1,15 +1,36 @@
-FROM node:22.23.4-bookworm AS builder
+# ------------------------------------------------------------------------------
+# STX 前端镜像：只消费 dist/releases/ 中的前端 standalone 包，不在 Docker 内执行 pnpm 构建。
+# STX frontend image: consumes the frontend standalone package from dist/releases/ only; no pnpm build in Docker.
+#
+# 先打包产物再构建 / Package first, then build:
+#   install/package-release.sh --arch all --layout split --build-frontend
+#   docker buildx build -f .github/docker/Dockerfile.frontend --platform linux/amd64 .
+# 或 / or: make docker-images
+# ------------------------------------------------------------------------------
 
-WORKDIR /src/frontend
+# ------------------------------------------------------------------------------
+# 阶段 1: 校验并解压 frontend-standalone-linux-<arch>.tar.gz，缺失即失败并列出文件名
+# Stage 1: Verify and unpack frontend-standalone-linux-<arch>.tar.gz; fail listing missing files
+# ------------------------------------------------------------------------------
+FROM --platform=$BUILDPLATFORM debian:bookworm-slim AS artifacts
 
-COPY frontend/package.json frontend/pnpm-lock.yaml ./
-RUN corepack enable && corepack prepare pnpm@10.10.0 --activate
-RUN pnpm install --frozen-lockfile
+ARG TARGETARCH
 
-COPY frontend/ .
-RUN pnpm run pack:standalone
+RUN --mount=type=bind,target=/ctx \
+    sh /ctx/.github/docker/stage-release-artifacts.sh /ctx/dist/releases /out "${TARGETARCH}" frontend
 
+# ------------------------------------------------------------------------------
+# 阶段 2: 运行环境
+# Stage 2: Runtime environment
+# ------------------------------------------------------------------------------
 FROM node:22.23.4-bookworm-slim
+
+ARG APP_VERSION
+ARG GIT_COMMIT
+
+LABEL org.opencontainers.image.source="https://github.com/LeonYoah/stx" \
+      org.opencontainers.image.version="${APP_VERSION}" \
+      org.opencontainers.image.revision="${GIT_COMMIT}"
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates tzdata && \
@@ -17,7 +38,7 @@ RUN apt-get update && \
 
 WORKDIR /opt/stx/frontend
 
-COPY --from=builder /src/frontend/dist-standalone ./
+COPY --from=artifacts /out/frontend ./
 
 ENV NODE_ENV=production \
     PORT=17880 \

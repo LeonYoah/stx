@@ -342,12 +342,12 @@ build_frontend_standalone() {
     corepack enable >/dev/null 2>&1 || true
     corepack prepare pnpm@10.10.0 --activate >/dev/null 2>&1 || true
 
-    # 前端只在宿主机构建一次，但同一份 standalone 包要同时服务 linux x64 与 arm64（裸机与镜像）。
-    # 仅在发版构建期间临时声明 supportedArchitectures，让 pnpm 同时安装 x64/arm64 的 sharp 原生包
-    # （@img/sharp-linux-* 与 @img/sharp-libvips-linux-*），Next 输出追踪会把它们一并带入 standalone。
-    # The frontend is built once on the host, yet the same standalone package serves linux x64 and arm64
-    # (bare metal and images). Declare supportedArchitectures only for the release build so pnpm installs
-    # sharp native packages for both arches; Next output tracing then copies them into the standalone.
+    # 前端只在宿主机构建一次（同一份 .next 输出），但要按架构分别打包 linux x64 / arm64。
+    # 仅在发版构建期间临时声明 supportedArchitectures，让 pnpm 同时安装 x64/arm64 的 sharp 原生包；
+    # 打包时再按架构裁剪，每个 tarball 只保留本架构 glibc 版 sharp 与 libvips（见 prepare_frontend_dist_for_arch）。
+    # The frontend is built once on the host (one .next output) but packaged per arch for linux x64 / arm64.
+    # Declare supportedArchitectures only for the release build so pnpm installs sharp for both arches;
+    # packaging then prunes each tarball to its own glibc sharp + libvips (see prepare_frontend_dist_for_arch).
     local workspace_file="$ROOT_DIR/frontend/pnpm-workspace.yaml"
     if [[ -e "$workspace_file" ]]; then
       echo "refusing to overwrite existing $workspace_file (release build writes a temporary one)"
@@ -365,28 +365,69 @@ YAML
     pnpm install --no-frozen-lockfile
     pnpm run pack:standalone
   )
-  verify_frontend_sharp_binaries
 }
 
-# 校验 standalone 包内同时带有 linux x64 与 arm64 的 sharp 原生模块和 libvips。
-# Verify the standalone package ships sharp native modules and libvips for both linux x64 and arm64.
-verify_frontend_sharp_binaries() {
-  local dist="$ROOT_DIR/frontend/dist-standalone"
-  local missing=()
+# 为指定架构准备前端 standalone 目录：复制同一份构建输出，只保留 linux-<cpu> glibc 版 sharp 与 libvips，
+# 删除其它架构 / musl / 非 linux 的 sharp 原生包。输出目录路径打印到 stdout。
+# Prepare the frontend standalone dir for one arch: copy the single build output and keep only the
+# linux-<cpu> glibc sharp + libvips, pruning other arch / musl / non-linux sharp native packages.
+# Prints the output directory on stdout.
+prepare_frontend_dist_for_arch() {
+  local arch="$1"
   local cpu
-  for cpu in x64 arm64; do
-    if [[ -z "$(find "$dist/node_modules" -path "*/@img/sharp-linux-${cpu}/lib/sharp-linux-${cpu}.node" -print -quit 2>/dev/null)" ]]; then
-      missing+=("@img/sharp-linux-${cpu}")
-    fi
-    if [[ -z "$(find "$dist/node_modules" -path "*/@img/sharp-libvips-linux-${cpu}/lib/libvips-cpp.so*" -print -quit 2>/dev/null)" ]]; then
-      missing+=("@img/sharp-libvips-linux-${cpu}")
-    fi
-  done
-  if [[ "${#missing[@]}" -gt 0 ]]; then
-    echo "frontend standalone is missing sharp native packages: ${missing[*]}"
-    exit 1
+  cpu="$(node_arch "$arch")"
+  local out="$STAGE_DIR/frontend-linux-${arch}"
+  local keep_sharp="sharp-linux-${cpu}"
+  local keep_vips="sharp-libvips-linux-${cpu}"
+
+  rm -rf "$out"
+  mkdir -p "$out"
+  cp -a "$FRONTEND_DIST"/. "$out/"
+
+  if [[ -d "$out/node_modules" ]]; then
+    local entry name stem
+    local -a entries=()
+    # pnpm 布局：.pnpm/@img+sharp-*@<ver> 实体目录，以及各处 @img/sharp-* 符号链接或目录；先收集再删除。
+    # pnpm layout: .pnpm/@img+sharp-*@<ver> package dirs plus @img/sharp-* symlinks or dirs; collect, then delete.
+    while IFS= read -r -d '' entry; do
+      entries+=("$entry")
+    done < <(find "$out/node_modules" \( -name '@img+sharp-*' -o \( -path '*/@img/sharp-*' -a ! -path '*/@img/sharp-*/*' \) \) \
+      \( -type d -o -type l \) -prune -print0)
+    for entry in ${entries[@]+"${entries[@]}"}; do
+      name="$(basename "$entry")"
+      if [[ "$name" == @img+* ]]; then
+        stem="${name#@img+}"
+        stem="${stem%@*}"
+      else
+        stem="$name"
+      fi
+      if [[ "$stem" != "$keep_sharp" && "$stem" != "$keep_vips" ]]; then
+        rm -rf "$entry"
+      fi
+    done
   fi
-  echo "frontend standalone ships sharp for linux x64 and arm64"
+
+  local sharp_node vips_lib
+  sharp_node="$(find "$out/node_modules" -path "*/@img/${keep_sharp}/lib/${keep_sharp}.node" -print -quit 2>/dev/null || true)"
+  vips_lib="$(find "$out/node_modules" -path "*/@img/${keep_vips}/lib/libvips-cpp.so*" -print -quit 2>/dev/null || true)"
+  if [[ -z "$sharp_node" || -z "$vips_lib" ]]; then
+    local msg="frontend standalone for linux/${arch} lacks @img/${keep_sharp} or @img/${keep_vips}"
+    if [[ "$BUILD_FRONTEND" == "true" ]]; then
+      echo "$msg" >&2
+      exit 1
+    fi
+    # 复用外部预构建的 dist-standalone 时只告警：next/image 会退化为返回原图。
+    # With an externally prebuilt dist-standalone only warn: next/image falls back to serving originals.
+    echo "warning: $msg; next/image optimization will fall back to original images" >&2
+  fi
+  local link
+  while IFS= read -r -d '' link; do
+    if [[ ! -e "$link" ]]; then
+      echo "frontend standalone for linux/${arch} has a dangling symlink after pruning: ${link#"$out"/}" >&2
+      exit 1
+    fi
+  done < <(find "$out/node_modules" -type l -path '*/@img/*' -print0 2>/dev/null)
+  echo "$out"
 }
 
 FRONTEND_DIST="$ROOT_DIR/frontend/dist-standalone"
@@ -663,7 +704,8 @@ if [[ "$LAYOUT" == "split" ]]; then
     frontend_name="frontend-standalone-${APP_VERSION_SAFE}-linux-${arch}.tar.gz"
     frontend_alias="frontend-standalone-linux-${arch}.tar.gz"
     echo "creating $frontend_name"
-    tar -C "$FRONTEND_DIST" -czf "$OUTPUT_DIR/$frontend_name" .
+    frontend_arch_dist="$(prepare_frontend_dist_for_arch "$arch")"
+    tar -C "$frontend_arch_dist" -czf "$OUTPUT_DIR/$frontend_name" .
     write_sha256 "$OUTPUT_DIR/$frontend_name"
     # latest/download 稳定文件名，方便 README 直链。/ Stable name for releases/latest/download links.
     cp "$OUTPUT_DIR/$frontend_name" "$OUTPUT_DIR/$frontend_alias"
@@ -739,7 +781,8 @@ if [[ "$LAYOUT" == "split" ]]; then
       cp "$ROOT_DIR/scripts/stx-java-proxy.sh" "$upgrade_stage/scripts/stx-java-proxy.sh"
       chmod +x "$upgrade_stage/scripts/stx-java-proxy.sh"
     fi
-    cp -a "$FRONTEND_DIST"/. "$upgrade_stage/frontend/"
+    upgrade_frontend_dist="$(prepare_frontend_dist_for_arch "$arch")"
+    cp -a "$upgrade_frontend_dist"/. "$upgrade_stage/frontend/"
     cat >"$upgrade_stage/BUILD_INFO" <<EOF
 version=$APP_VERSION_SAFE
 arch=$arch
@@ -799,7 +842,8 @@ for arch in "${ARCHES[@]}"; do
     chmod +x "$pkg_dir/scripts/stx-java-proxy.sh"
 
     mkdir -p "$pkg_dir/frontend"
-    cp -a "$FRONTEND_DIST"/. "$pkg_dir/frontend/"
+    legacy_frontend_dist="$(prepare_frontend_dist_for_arch "$arch")"
+    cp -a "$legacy_frontend_dist"/. "$pkg_dir/frontend/"
 
     local_node_runtime="$(prepare_node_runtime "$arch")"
     mkdir -p "$pkg_dir/runtime"

@@ -695,6 +695,7 @@ func (s *Service) GetHostByID(ctx context.Context, id uint) (*cluster.HostInfo, 
 		AgentStatus:      string(host.AgentStatus),
 		LastHeartbeat:    host.LastHeartbeat,
 		ProcessStartedAt: &startedAt,
+		DiskUsage:        host.DiskUsage,
 	}, nil
 }
 

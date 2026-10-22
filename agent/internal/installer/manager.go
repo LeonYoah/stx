@@ -45,6 +45,7 @@ import (
 	"time"
 
 	"github.com/LeonYoah/stx/agent/internal/logger"
+	"github.com/LeonYoah/stx/internal/clustermembers"
 	seatunnelmeta "github.com/LeonYoah/stx/internal/seatunnel"
 	"gopkg.in/yaml.v3"
 )
@@ -2774,56 +2775,7 @@ func (m *InstallerManager) modifyHazelcastConfig(filePath string, params *Instal
 
 	// Determine port and member list based on file type and deployment mode
 	// 根据文件类型和部署模式确定端口和成员列表
-	var memberList []string
-	var port int
-	fileName := filepath.Base(filePath)
-
-	if params.DeploymentMode == DeploymentModeHybrid {
-		// Hybrid mode: all nodes use the same port (ClusterPort)
-		// 混合模式：所有节点使用相同端口（ClusterPort）
-		port = params.ClusterPort
-		if port == 0 {
-			port = 5801
-		}
-		for _, addr := range params.MasterAddresses {
-			memberList = append(memberList, fmt.Sprintf("%s:%d", addr, port))
-		}
-	} else {
-		// Separated mode: master and worker use different ports
-		// 分离模式：master 和 worker 使用不同端口
-		masterPort := params.ClusterPort
-		if masterPort == 0 {
-			masterPort = 5801
-		}
-		workerPort := params.WorkerPort
-		if workerPort == 0 {
-			workerPort = 5802
-		}
-
-		// Build member list with all nodes (master + worker)
-		// 构建包含所有节点的成员列表（master + worker）
-		for _, addr := range params.MasterAddresses {
-			memberList = append(memberList, fmt.Sprintf("%s:%d", addr, masterPort))
-		}
-		for _, addr := range params.WorkerAddresses {
-			memberList = append(memberList, fmt.Sprintf("%s:%d", addr, workerPort))
-		}
-
-		// Set port based on file type
-		// 根据文件类型设置端口
-		if strings.Contains(fileName, "master") {
-			port = masterPort
-		} else if strings.Contains(fileName, "worker") {
-			port = workerPort
-		} else {
-			port = masterPort // Default to master port / 默认使用 master 端口
-		}
-	}
-
-	// If no addresses, use localhost / 如果没有地址，使用 localhost
-	if len(memberList) == 0 {
-		memberList = append(memberList, fmt.Sprintf("127.0.0.1:%d", port))
-	}
+	memberList, port := hazelcastMemberListAndPort(params, filepath.Base(filePath))
 
 	// Modify YAML using yaml.v3 / 使用 yaml.v3 修改 YAML
 	if err := setYAMLValue(&root, []string{"hazelcast", "network", "join", "tcp-ip", "member-list"}, memberList); err != nil {
@@ -2852,6 +2804,59 @@ func (m *InstallerManager) modifyHazelcastConfig(filePath string, params *Instal
 	return nil
 }
 
+// hazelcastMemberListAndPort 按部署模式与文件类型计算 member-list 与本文件监听端口；成员规则来自共享包
+// clustermembers，与控制面一致。没有任何地址时回退为 127.0.0.1:<端口>（保留历史行为）。
+// hazelcastMemberListAndPort computes the member-list and this file's listen port from the deployment mode
+// and file type; the member rule comes from the shared clustermembers package so it matches the Control
+// Plane. Without any address it falls back to 127.0.0.1:<port> (historical behavior).
+func hazelcastMemberListAndPort(params *InstallParams, fileName string) ([]string, int) {
+	masterPort := params.ClusterPort
+	if masterPort == 0 {
+		masterPort = clustermembers.DefaultMasterPort
+	}
+	workerPort := params.WorkerPort
+	if workerPort == 0 {
+		workerPort = clustermembers.DefaultWorkerPort
+	}
+
+	var memberList []string
+	port := masterPort
+	if params.DeploymentMode == DeploymentModeHybrid {
+		// 混合模式：所有节点使用同一端口（ClusterPort），忽略 worker 地址。
+		// Hybrid mode: every node uses the same port (ClusterPort); worker addresses are ignored.
+		memberList = clustermembers.InstallerMemberList(clustermembers.ModeHybrid, params.MasterAddresses, nil, masterPort, 0)
+	} else {
+		// 分离模式：成员列表包含 master（masterPort）与 worker（workerPort）；本文件端口按文件类型选择。
+		// Separated mode: the list holds masters (masterPort) and workers (workerPort); this file's port
+		// depends on the file type.
+		memberList = clustermembers.InstallerMemberList(clustermembers.ModeSeparated, params.MasterAddresses, params.WorkerAddresses, masterPort, workerPort)
+		if strings.Contains(fileName, "worker") && !strings.Contains(fileName, "master") {
+			port = workerPort
+		}
+	}
+
+	if len(memberList) == 0 {
+		memberList = []string{clustermembers.FormatAddress("127.0.0.1", port)}
+	}
+	return memberList, port
+}
+
+// hazelcastClientMembers 计算 hazelcast-client.yaml 的 cluster-members：所有 master 地址使用 ClusterPort，
+// 无地址时回退为 127.0.0.1:<端口>（保留历史行为）。
+// hazelcastClientMembers computes hazelcast-client.yaml cluster-members: every master address uses
+// ClusterPort, falling back to 127.0.0.1:<port> when empty (historical behavior).
+func hazelcastClientMembers(params *InstallParams) []string {
+	port := params.ClusterPort
+	if port == 0 {
+		port = clustermembers.DefaultMasterPort
+	}
+	memberList := clustermembers.FormatAddresses(params.MasterAddresses, port)
+	if len(memberList) == 0 {
+		memberList = []string{clustermembers.FormatAddress("127.0.0.1", port)}
+	}
+	return memberList
+}
+
 // modifyHazelcastClientConfig modifies hazelcast-client.yaml
 // modifyHazelcastClientConfig 修改 hazelcast-client.yaml
 func (m *InstallerManager) modifyHazelcastClientConfig(filePath string, params *InstallParams) error {
@@ -2873,19 +2878,7 @@ func (m *InstallerManager) modifyHazelcastClientConfig(filePath string, params *
 	}
 
 	// Build cluster members list / 构建集群成员列表
-	var memberList []string
-	port := params.ClusterPort
-	if port == 0 {
-		port = 5801
-	}
-
-	for _, addr := range params.MasterAddresses {
-		memberList = append(memberList, fmt.Sprintf("%s:%d", addr, port))
-	}
-
-	if len(memberList) == 0 {
-		memberList = append(memberList, fmt.Sprintf("127.0.0.1:%d", port))
-	}
+	memberList := hazelcastClientMembers(params)
 
 	// Modify YAML using yaml.v3 / 使用 yaml.v3 修改 YAML
 	if err := setYAMLValue(&root, []string{"hazelcast-client", "network", "cluster-members"}, memberList); err != nil {

@@ -150,6 +150,9 @@ import {
 } from './upgrade/utils';
 import {EditClusterDialog} from './EditClusterDialog';
 import {AddNodeDialog} from './AddNodeDialog';
+import {RemoveNodeDialog} from './RemoveNodeDialog';
+import {ScaleOperationProgress} from './scale/ScaleOperationProgress';
+import type {ScaleOperationInfo} from '@/lib/services/cluster/scale.types';
 import {EditNodeDialog} from './EditNodeDialog';
 import {ClusterPlugins} from './ClusterPlugins';
 import {ClusterConfigs} from './ClusterConfigs';
@@ -497,6 +500,43 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
     },
     [clusterId, t],
   );
+
+  // 进行中的伸缩操作（页面刷新后恢复）/ Scaling operation in progress (restored after a page refresh)
+  const [runningScaleOperation, setRunningScaleOperation] =
+    useState<ScaleOperationInfo | null>(null);
+  const [scaleProgressOpen, setScaleProgressOpen] = useState(false);
+
+  /**
+   * 查询当前集群进行中的伸缩操作；失败时静默（横幅只是辅助入口）。
+   * Load the scaling operation running on this cluster; failures are silent (the banner is only a shortcut).
+   */
+  const loadRunningScaleOperation = useCallback(async () => {
+    try {
+      const running = await services.clusterScale.listOperations(
+        clusterId,
+        'running',
+        1,
+      );
+      setRunningScaleOperation(running[0] ?? null);
+    } catch {
+      setRunningScaleOperation(null);
+    }
+  }, [clusterId]);
+
+  useEffect(() => {
+    void loadRunningScaleOperation();
+  }, [loadRunningScaleOperation]);
+
+  /**
+   * 横幅中的操作结束：刷新集群数据并收起横幅。
+   * The banner's operation finished: refresh cluster data and hide the banner.
+   */
+  const handleRunningScaleFinished = (operation: ScaleOperationInfo) => {
+    loadClusterData(true);
+    if (operation.status !== 'running') {
+      setRunningScaleOperation(operation.status === 'failed' ? operation : null);
+    }
+  };
 
   const loadDiagnosticsSummary = useCallback(async () => {
     setDiagnosticsLoading(true);
@@ -994,25 +1034,12 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
   };
 
   /**
-   * Handle remove node
-   * 处理移除节点
+   * 节点移除（缩容成功或强制移除记录）后刷新集群数据。
+   * Refresh cluster data after a node is removed (scale-in or forced record removal).
    */
-  const handleRemoveNode = async () => {
-    if (!nodeToRemove) {
-      return;
-    }
-
-    const result = await services.cluster.removeNodeSafe(
-      clusterId,
-      nodeToRemove.id,
-    );
-    if (result.success) {
-      toast.success(t('cluster.removeNodeSuccess'));
-      loadClusterData();
-    } else {
-      toast.error(result.error || t('cluster.removeNodeError'));
-    }
-    setNodeToRemove(null);
+  const handleNodeRemoved = () => {
+    loadClusterData();
+    void loadRunningScaleOperation();
   };
 
   /**
@@ -1030,8 +1057,10 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
    * 处理节点添加完成
    */
   const handleNodeAdded = () => {
-    setIsAddNodeDialogOpen(false);
+    // 扩容向导在执行完成后仍保持打开以展示结果，这里只刷新数据。
+    // The scale-out wizard stays open after completion to show the result; only refresh data here.
     loadClusterData();
+    void loadRunningScaleOperation();
     toast.success(t('cluster.addNodeSuccess'));
   };
 
@@ -2985,6 +3014,32 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                   </Button>
                 </div>
               </CardHeader>
+              {runningScaleOperation && (
+                <div className='mx-4 mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm'>
+                  <span className='flex items-center gap-2'>
+                    {runningScaleOperation.status === 'running' ? (
+                      <Loader2 className='h-4 w-4 animate-spin text-primary' />
+                    ) : (
+                      <AlertTriangle className='h-4 w-4 text-red-600' />
+                    )}
+                    {runningScaleOperation.status === 'running'
+                      ? t('cluster.scale.inProgressBanner', {
+                          kind: t(`cluster.scale.kind.${runningScaleOperation.kind}`),
+                          step: t(`cluster.scale.steps.${runningScaleOperation.current_step}`),
+                        })
+                      : t('cluster.scale.operationFailed', {
+                          error: runningScaleOperation.error || '-',
+                        })}
+                  </span>
+                  <Button
+                    size='sm'
+                    variant='outline'
+                    onClick={() => setScaleProgressOpen(true)}
+                  >
+                    {t('cluster.scale.viewProgress')}
+                  </Button>
+                </div>
+              )}
               <CardContent className='p-0 flex-1'>
                 <Table>
                   <TableHeader>
@@ -3401,7 +3456,13 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
       {/* Add Node Dialog / 添加节点对话框 */}
       <AddNodeDialog
         open={isAddNodeDialogOpen}
-        onOpenChange={setIsAddNodeDialogOpen}
+        onOpenChange={(next) => {
+          setIsAddNodeDialogOpen(next);
+          // 执行中关闭弹窗时由横幅接管进度 / The banner takes over progress when closed mid-run
+          if (!next) {
+            void loadRunningScaleOperation();
+          }
+        }}
         clusterId={clusterId}
         deploymentMode={cluster.deployment_mode}
         clusterConfig={cluster.config}
@@ -3461,28 +3522,44 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Remove Node Dialog / 移除节点对话框 */}
-      <AlertDialog
-        open={!!nodeToRemove}
-        onOpenChange={() => setNodeToRemove(null)}
+      {/* Remove Node (scale-in) Dialog / 移除节点（缩容）对话框 */}
+      <RemoveNodeDialog
+        clusterId={clusterId}
+        node={nodeToRemove}
+        onOpenChange={(next) => {
+          if (!next) {
+            setNodeToRemove(null);
+            void loadRunningScaleOperation();
+          }
+        }}
+        onRemoved={handleNodeRemoved}
+      />
+
+      {/* Running scaling operation progress / 进行中的伸缩操作进度 */}
+      <Dialog
+        open={scaleProgressOpen && runningScaleOperation !== null}
+        onOpenChange={setScaleProgressOpen}
       >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t('cluster.removeNode')}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t('cluster.removeNodeConfirm', {
-                name: nodeToRemove?.host_name || String(nodeToRemove?.id || ''),
-              })}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction onClick={handleRemoveNode}>
-              {t('common.delete')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        <DialogContent className='sm:max-w-2xl'>
+          <DialogHeader>
+            <DialogTitle>
+              {runningScaleOperation
+                ? t(`cluster.scale.kind.${runningScaleOperation.kind}`)
+                : ''}
+            </DialogTitle>
+          </DialogHeader>
+          {runningScaleOperation && (
+            <div className='max-h-[64vh] overflow-y-auto pr-1'>
+              <ScaleOperationProgress
+                clusterId={clusterId}
+                operationId={runningScaleOperation.id}
+                initial={runningScaleOperation}
+                onFinished={handleRunningScaleFinished}
+              />
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Batch start/stop/restart confirmation / 批量启动/停止/重启二次确认 */}
       <AlertDialog

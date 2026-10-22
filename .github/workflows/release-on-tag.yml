@@ -111,6 +111,10 @@ jobs:
             release-assets/stx-docker-compose.tar.gz.sha256
           generate_release_notes: true
           fail_on_unmatched_files: false
+          # 带 '-' 的 tag（如 v1.2.0-beta.1）是预发：标记为 pre-release，且不抢 Latest。
+          # Tags containing '-' (e.g. v1.2.0-beta.1) are pre-releases: mark prerelease and never make them Latest.
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          make_latest: ${{ contains(github.ref_name, '-') && 'false' || 'true' }}
 
   # 原生并发构建镜像（Native Matrix）：在原生硬件 Runner 上完全无仿真并行构建
   # Native matrix image build: compile natively on dedicated hardware runners without QEMU emulation
@@ -272,7 +276,8 @@ jobs:
             type=ref,event=tag
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest
+            # 预发 tag 不更新 latest。/ Pre-release tags never move latest.
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
 
       - name: Create and push multi-arch manifest
         env:

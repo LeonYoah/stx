@@ -1236,6 +1236,20 @@ func (a *agentCommandSenderAdapter) SendCommand(ctx context.Context, agentID str
 	// 使用命令级超时发送命令
 	startedAt := time.Now()
 	commandID := uuid.NewString()
+	if params == nil {
+		params = map[string]string{}
+	} else {
+		clone := make(map[string]string, len(params)+1)
+		for k, v := range params {
+			clone[k] = v
+		}
+		params = clone
+	}
+	if strings.TrimSpace(params["request_id"]) == "" {
+		if requestID := strings.TrimSpace(audit.CommandMetadataFromContext(ctx).RequestID); requestID != "" {
+			params["request_id"] = requestID
+		}
+	}
 	a.recordPendingCommandLog(ctx, commandID, agentID, commandType, params, startedAt)
 	resp, err := a.manager.SendCommandWithID(ctx, commandID, agentID, cmdType, params, timeout)
 	if err != nil {

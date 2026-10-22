@@ -1181,7 +1181,11 @@
       "cli": "CLI",
       "web": "Web",
       "api": "API",
-      "system": "系统"
+      "system": "系统",
+      "reconciler": "对账",
+      "scheduler": "调度",
+      "dolphin_worker": "Worker",
+      "agent_callback": "内部回调"
     },
     "loadAuditLogsError": "加载审计日志失败",
     "statuses": {
@@ -1218,7 +1222,8 @@
       "cli_token": "CLI 令牌"
     },
     "clusterNodeResourceName": "集群编号 {clusterId} 下的节点 {nodeId}",
-    "clusterNodeWithName": "{clusterName}（节点 {nodeId}）"
+    "clusterNodeWithName": "{clusterName}（节点 {nodeId}）",
+    "triggerManualFollowup": "手动跟进"
   },
   "config": {
     "title": "配置管理",

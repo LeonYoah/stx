@@ -23,6 +23,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
 )
 
 func engineListItemToInfo(item *EngineJobListItem) *EngineJobInfo {
@@ -142,7 +144,8 @@ func (s *Service) applyEngineJobInfoUpdate(ctx context.Context, instance *JobIns
 	if err := s.syncPreviewSessionTerminalState(ctx, instance); err != nil {
 		return nil, err
 	}
-	if err := s.syncExecutionFromJob(ctx, instance); err != nil {
+	reconcileCtx := executionapp.WithTriggerSource(ctx, executionapp.TriggerSourceReconciler)
+	if err := s.syncExecutionFromJob(reconcileCtx, instance); err != nil {
 		return nil, err
 	}
 	return instance, nil

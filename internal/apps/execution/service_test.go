@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/LeonYoah/stx/internal/apps/audit"
+	"github.com/LeonYoah/stx/internal/apps/auth"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -300,5 +301,111 @@ func TestAuthorizeRequiresAdminForR3(t *testing.T) {
 	})
 	if !errors.Is(err, ErrAdminRequired) {
 		t.Fatalf("R3 应要求管理员权限，得到: %v", err)
+	}
+}
+
+func TestRecordAuditPersistsTokenAndIPAcrossCreateTransition(t *testing.T) {
+	dsn := fmt.Sprintf("file:execution-attr-%s?mode=memory&cache=shared", t.Name())
+	database, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	if err != nil {
+		t.Fatalf("创建测试数据库失败: %v", err)
+	}
+	if err := database.AutoMigrate(&Execution{}, &Confirmation{}, &audit.AuditLog{}); err != nil {
+		t.Fatalf("迁移失败: %v", err)
+	}
+	auditRepo := audit.NewRepository(database)
+	service := NewService(NewRepository(database), NewProviderRegistry())
+	service.SetAuditRepository(auditRepo)
+
+	tokenID := uint64(42)
+	item, created, err := service.Create(context.Background(), CreateInput{
+		OperationID:  "sync.task.submit",
+		OwnerUserID:  9,
+		Module:       "sync",
+		RequestID:    "req-token-1",
+		ClientType:   "cli",
+		ActorTokenID: &tokenID,
+		TokenPrefix:  "stx_abcd",
+		TokenName:    "ci-bot",
+		ClientIP:     "203.0.113.10",
+		UserAgent:    "stx-cli/1.0",
+		RiskLevel:    RiskLevelR1,
+		Cancellable:  true,
+	})
+	if err != nil || !created {
+		t.Fatalf("创建失败: created=%t err=%v", created, err)
+	}
+	if item.ActorTokenID == nil || *item.ActorTokenID != tokenID || item.ClientIP != "203.0.113.10" {
+		t.Fatalf("执行记录未持久化令牌/IP: %+v", item)
+	}
+
+	if err := service.Transition(context.Background(), item.ExecutionID, StatusPending, StatusRunning, nil); err != nil {
+		t.Fatalf("启动失败: %v", err)
+	}
+	reconcileCtx := WithTriggerSource(context.Background(), TriggerSourceReconciler)
+	if err := service.Transition(reconcileCtx, item.ExecutionID, StatusRunning, StatusSucceeded, map[string]any{"cancellable": false}); err != nil {
+		t.Fatalf("对账完成失败: %v", err)
+	}
+
+	logs, total, err := auditRepo.ListAuditLogs(context.Background(), &audit.AuditLogFilter{ExecutionID: item.ExecutionID, IncludeAll: true})
+	if err != nil {
+		t.Fatalf("查询审计失败: %v", err)
+	}
+	if total != 3 {
+		t.Fatalf("期望 3 条审计，得到 %d", total)
+	}
+	byAction := map[string]*audit.AuditLog{}
+	for _, logItem := range logs {
+		byAction[logItem.Action] = logItem
+		if logItem.TokenID == nil || *logItem.TokenID != tokenID {
+			t.Fatalf("审计未带上 TokenID: action=%s log=%+v", logItem.Action, logItem)
+		}
+		if logItem.TokenPrefix != "stx_abcd" || logItem.IPAddress != "203.0.113.10" {
+			t.Fatalf("审计未带上 token_prefix/IP: %+v", logItem)
+		}
+	}
+	if byAction["execution.result"].ClientType != TriggerSourceReconciler {
+		t.Fatalf("对账结果 ClientType 应为 reconciler，得到 %q", byAction["execution.result"].ClientType)
+	}
+	if byAction["execution.result"].Trigger != "auto" {
+		t.Fatalf("对账结果 Trigger 应为 auto，得到 %q", byAction["execution.result"].Trigger)
+	}
+	if byAction["execution.result"].UserID == nil || *byAction["execution.result"].UserID != 9 {
+		t.Fatalf("对账结果应保留发起人: %+v", byAction["execution.result"])
+	}
+	if byAction["execution.result"].Details["initiator_client_type"] != "cli" {
+		t.Fatalf("应记录发起端 cli: %+v", byAction["execution.result"].Details)
+	}
+}
+
+func TestCreateReadsCLITokenAndIPFromContext(t *testing.T) {
+	dsn := fmt.Sprintf("file:execution-ctx-%s?mode=memory&cache=shared", t.Name())
+	database, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	if err != nil {
+		t.Fatalf("创建测试数据库失败: %v", err)
+	}
+	if err := database.AutoMigrate(&Execution{}, &Confirmation{}, &audit.AuditLog{}); err != nil {
+		t.Fatalf("迁移失败: %v", err)
+	}
+	service := NewService(NewRepository(database), NewProviderRegistry())
+	service.SetAuditRepository(audit.NewRepository(database))
+
+	token := &auth.CLIToken{ID: 77, TokenPrefix: "stx_ctx1", Name: "ctx-token"}
+	ctx := auth.ContextWithCLITokenForTest(context.Background(), token)
+	ctx = audit.WithRequestAttribution(ctx, audit.RequestAttribution{ClientIP: "198.51.100.9", UserAgent: "vitest"})
+	item, created, err := service.Create(ctx, CreateInput{
+		OperationID: "sync.task.submit",
+		OwnerUserID: 3,
+		Module:      "sync",
+		ClientType:  "cli",
+	})
+	if err != nil || !created {
+		t.Fatalf("创建失败: created=%t err=%v", created, err)
+	}
+	if item.ActorTokenID == nil || *item.ActorTokenID != 77 || item.TokenPrefix != "stx_ctx1" {
+		t.Fatalf("未从 context 读取 CLI 令牌: %+v", item)
+	}
+	if item.ClientIP != "198.51.100.9" || item.UserAgent != "vitest" {
+		t.Fatalf("未从 context 读取 IP/UA: %+v", item)
 	}
 }

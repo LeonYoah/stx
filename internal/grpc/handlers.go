@@ -1005,7 +1005,8 @@ func (s *Server) HandleProcessEventReport(ctx context.Context, agentID string, r
 		zap.String("event_type", string(eventType)),
 	)
 
-	// 写入审计日志，区分自动（Agent 上报）与手动（UI 操作）；资源名称与手动操作一致：集群名（主机名 - 角色）
+	// 写入审计日志：崩溃自动重启保持系统/自动；手动启停的跟进重启归因到原操作人。
+	// Audit: crash auto-restarts stay system/auto; manual start/restart follow-ups keep the original actor.
 	if s.auditRepo != nil {
 		action := eventTypeToAuditAction(eventType)
 		if action != "" {
@@ -1027,6 +1028,12 @@ func (s *Server) HandleProcessEventReport(ctx context.Context, agentID string, r
 				"pid":          report.Pid,
 				"agent_id":     agentID,
 			}
+			for key, value := range report.GetDetails() {
+				if strings.TrimSpace(key) == "" || strings.TrimSpace(value) == "" {
+					continue
+				}
+				details[key] = value
+			}
 			auditLog := &audit.AuditLog{
 				Username:     "agent",
 				Action:       action,
@@ -1034,10 +1041,12 @@ func (s *Server) HandleProcessEventReport(ctx context.Context, agentID string, r
 				ResourceID:   resourceID,
 				ResourceName: resourceName,
 				Trigger:      "auto",
+				ClientType:   "system",
 				Details:      details,
 				IPAddress:    "",
 				UserAgent:    "stx-agent",
 			}
+			applyManualFollowupAttribution(ctx, s.auditRepo, auditLog, report)
 			if err := s.auditRepo.CreateAuditLog(ctx, auditLog); err != nil {
 				s.logger.Warn("Failed to create audit log for process event / 进程事件写审计失败", zap.Error(err))
 			}
@@ -1045,6 +1054,55 @@ func (s *Server) HandleProcessEventReport(ctx context.Context, agentID string, r
 	}
 
 	return nil
+}
+
+
+// applyManualFollowupAttribution 把手动启停后的跟进重启归因到原命令操作人。
+// applyManualFollowupAttribution attributes a manual start/restart follow-up to the original command actor.
+func applyManualFollowupAttribution(ctx context.Context, repo *audit.Repository, log *audit.AuditLog, report *pb.ProcessEventReport) {
+	if log == nil || report == nil || repo == nil {
+		return
+	}
+	details := report.GetDetails()
+	if details == nil {
+		return
+	}
+	trigger := strings.TrimSpace(details["trigger"])
+	commandID := strings.TrimSpace(details["command_id"])
+	requestID := strings.TrimSpace(details["request_id"])
+	if trigger != "manual_followup" && commandID == "" && requestID == "" {
+		return
+	}
+	if commandID == "" {
+		return
+	}
+	cmdLog, err := repo.GetCommandLogByCommandID(ctx, commandID)
+	if err != nil || cmdLog == nil {
+		return
+	}
+	log.CommandID = commandID
+	if requestID == "" {
+		requestID = strings.TrimSpace(cmdLog.RequestID)
+	}
+	log.RequestID = requestID
+	log.Trigger = "manual_followup"
+	log.ClientType = strings.TrimSpace(cmdLog.ClientType)
+	if log.ClientType == "" {
+		log.ClientType = "system"
+	}
+	if cmdLog.CreatedBy != nil && *cmdLog.CreatedBy > 0 {
+		uid := *cmdLog.CreatedBy
+		log.UserID = &uid
+		log.Username = repo.LookupUsername(ctx, uid)
+	}
+	if log.Details == nil {
+		log.Details = audit.AuditDetails{}
+	}
+	log.Details["trigger"] = "manual_followup"
+	log.Details["origin_command_id"] = commandID
+	if requestID != "" {
+		log.Details["request_id"] = requestID
+	}
 }
 
 // eventTypeToAuditAction maps monitor event type to audit action string.

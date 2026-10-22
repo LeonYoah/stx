@@ -220,6 +220,34 @@ function getSourceLabel(
   t: AuditTranslator,
 ): string {
   const clientType = log.client_type?.trim().toLowerCase() ?? '';
+  const writerSources = new Set([
+    'reconciler',
+    'scheduler',
+    'dolphin_worker',
+    'agent_callback',
+  ]);
+  if (writerSources.has(clientType)) {
+    const writerLabel = lookupAuditLabel(
+      'clientTypes',
+      clientType,
+      clientType,
+      t,
+    );
+    const initiator =
+      typeof log.details?.initiator_client_type === 'string'
+        ? log.details.initiator_client_type.trim().toLowerCase()
+        : '';
+    if (initiator && (initiator === 'cli' || initiator === 'web' || initiator === 'api')) {
+      const initiatorLabel = lookupAuditLabel(
+        'clientTypes',
+        initiator,
+        initiator,
+        t,
+      );
+      return `${initiatorLabel} → ${writerLabel}`;
+    }
+    return writerLabel;
+  }
   if (clientType === 'cli' || clientType === 'web') {
     return lookupAuditLabel('clientTypes', clientType, clientType, t);
   }

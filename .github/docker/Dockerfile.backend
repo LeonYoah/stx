@@ -55,12 +55,12 @@ RUN set -e; \
     if [ -f "dist/releases/stx-agent-linux-amd64" ]; then \
         cp dist/releases/stx-agent-linux-amd64 /out/lib/agent/ ; \
     else \
-        CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "$ldflags" -o /out/lib/agent/stx-agent-linux-amd64 ./agent/cmd ; \
+        (cd agent && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "$ldflags" -o /out/lib/agent/stx-agent-linux-amd64 ./cmd) ; \
     fi ; \
     if [ -f "dist/releases/stx-agent-linux-arm64" ]; then \
         cp dist/releases/stx-agent-linux-arm64 /out/lib/agent/ ; \
     else \
-        CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags "$ldflags" -o /out/lib/agent/stx-agent-linux-arm64 ./agent/cmd ; \
+        (cd agent && CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags "$ldflags" -o /out/lib/agent/stx-agent-linux-arm64 ./cmd) ; \
     fi
 
 # ------------------------------------------------------------------------------

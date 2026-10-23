@@ -89,9 +89,29 @@ check_eq "manifest obs missing arch" "$(printf '%s' "$manifest" | stx_manifest_o
 for v in v18.18.0 v18.20.8 v20.0.0 v22.11.0 v100.1.1; do
   if stx_node_version_ok "$v"; then echo "OK node ok $v"; else echo "FAIL node should be ok: $v"; fail=1; fi
 done
-for v in v18.17.1 v16.20.2 v8.9.0 garbage ""; do
+# 无小版本号按 minor=0：v18 => 18.0 < 18.18 拒绝，v20/v22 接受。/ No minor => minor=0.
+for v in v20 v22; do
+  if stx_node_version_ok "$v"; then echo "OK node ok (no minor) $v"; else echo "FAIL node should be ok: $v"; fail=1; fi
+done
+for v in v18.17.1 v16.20.2 v8.9.0 v18 v16 garbage ""; do
   if stx_node_version_ok "$v"; then echo "FAIL node should be rejected: $v"; fail=1; else echo "OK node rejected [$v]"; fi
 done
+
+# Node 变体自动选择：glibc < 2.27 => glibc217（仅 amd64）；arm64 总是 official。
+# Node variant auto-pick: glibc < 2.27 => glibc217 (amd64 only); arm64 always official.
+check_variant() {
+  local glibc="$1" arch="$2" want="$3"
+  check_eq "node variant glibc=${glibc:-none} arch=${arch:-unset}" \
+    "$(stx_detect_glibc_version() { echo "$glibc"; }; stx_recommend_node_variant "$arch")" "$want"
+}
+check_variant 2.17 amd64 glibc217
+check_variant 2.26 amd64 glibc217
+check_variant 2.27 amd64 official
+check_variant 2.35 amd64 official
+check_variant 2.17 "" glibc217
+check_variant 2.17 arm64 official
+check_variant 2.26 arm64 official
+check_variant "" amd64 official
 
 ms="$(stx_now_ms)"
 if [[ "$ms" =~ ^[0-9]{13,}$ ]]; then echo "OK now_ms"; else echo "FAIL now_ms: $ms"; fail=1; fi

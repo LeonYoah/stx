@@ -129,6 +129,14 @@ func (s *Service) GetDolphinWorkflow(ctx context.Context, connectionID uint, pro
 		ReleaseState: graph.ReleaseState,
 		Tasks:        make([]DolphinWorkflowTask, 0, len(graph.Tasks)),
 		Relations:    make([]DolphinWorkflowRelation, 0, len(graph.Relations)),
+		Schedules:    []DolphinScheduleInfo{},
+	}
+	// 定时读取失败不影响查看工作流，只把原因带给前端。
+	// A failed schedule read does not block viewing the workflow; the reason is passed to the UI.
+	if schedules, scheduleErr := client.ListSchedules(ctx, projectCode, workflowCode); scheduleErr != nil {
+		detail.ScheduleError = scheduleErr.Error()
+	} else {
+		detail.Schedules = schedules
 	}
 	for _, task := range graph.Tasks {
 		peek := peekTask(task)
@@ -182,6 +190,12 @@ func (s *Service) GetDolphinTaskStatus(ctx context.Context, actor executionapp.A
 	}
 	if binding != nil {
 		status.PushedVersion = binding.TaskVersion
+	}
+	// 带上任务配置的 STX 内置定时，推送弹窗据此告知 cron 是否被沿用（推到已有工作流时不沿用）。
+	// Include the task's STX built-in schedule so the push dialog can tell whether the cron carries over (it does
+	// not when pushing into an existing workflow).
+	if cfg, err := parseTaskSchedule(task.Definition); err == nil && cfg != nil && strings.TrimSpace(cfg.CronExpr) != "" {
+		status.BuiltinSchedule = &DolphinBuiltinSchedule{CronExpr: strings.TrimSpace(cfg.CronExpr), Timezone: cfg.Timezone, Enabled: cfg.Enabled}
 	}
 	// 侧栏展示即将推送的脚本时优先用已发布快照，避免把未发布草稿当成调度内容。
 	// Prefer the published snapshot for the sidebar script so unpublished drafts are not shown as the scheduled payload.
@@ -247,7 +261,7 @@ func (s *Service) PushDolphin(ctx context.Context, actor executionapp.Actor, tas
 	}
 
 	script := BuildDolphinShellScript(task, req.Variables, req.WorkerGroup, req.Environment)
-	result := &DolphinPushResult{DryRun: req.DryRun, Mode: mode, Script: script, Cycle: false}
+	result := &DolphinPushResult{DryRun: req.DryRun, Mode: mode, Script: script, Cycle: false, Schedules: []DolphinScheduleInfo{}, SchedulesRestored: []int64{}}
 
 	// 已绑定的更新请求可以省略 connection_id / project_code，改从绑定回填。
 	// Bound update requests may omit connection_id / project_code; fall back to the saved binding.
@@ -269,6 +283,12 @@ func (s *Service) PushDolphin(ctx context.Context, actor executionapp.Actor, tas
 		return nil, fmt.Errorf("%w: project_code is required", ErrDolphinPushInvalid)
 	}
 
+	// 沿用 STX cron 只对新建工作流生效：已有工作流的定时是工作流级别的，覆盖会改变其他节点的运行时间。
+	// Carrying over the STX cron only applies to new workflows: an existing workflow's schedule is workflow-wide and
+	// overwriting it would change when every other node runs.
+	if req.UseBuiltinSchedule && mode != "new" {
+		result.Warning = joinWarning(result.Warning, "use_builtin_schedule 仅对新建工作流生效；已有工作流沿用其自身定时，STX 内置定时将关闭 / use_builtin_schedule only applies to new workflows; an existing workflow keeps its own schedule and the STX built-in schedule is turned off")
+	}
 	switch mode {
 	case "new":
 		return s.pushNewWorkflow(ctx, actor, client, conn, task, binding, req, script, result, projectCode)
@@ -413,6 +433,10 @@ func (s *Service) pushReuseWorkflow(ctx context.Context, actor executionapp.Acto
 	result.Version = graph.Version
 	result.WorkflowCode = graph.Code
 	result.ReleaseState = graph.ReleaseState
+	schedules, err := readSchedulesForPush(ctx, client, projectCode, graph.Code, wasOnline, req.DryRun, result)
+	if err != nil {
+		return nil, err
+	}
 	if req.DryRun {
 		result.Message = "add a SHELL node and selected edges"
 		return result, nil
@@ -467,8 +491,10 @@ func (s *Service) pushReuseWorkflow(ctx context.Context, actor executionapp.Acto
 		if err := client.Release(ctx, projectCode, graph.Code, dolphinReleaseOnline); err != nil {
 			return nil, fmt.Errorf("DolphinScheduler workflow is OFFLINE after a failed re-online: %w", err)
 		}
-		if err := client.OnlineSchedules(ctx, projectCode, graph.Code); err != nil {
-			result.Warning = err.Error()
+		restored, err := restoreOnlineSchedules(ctx, client, projectCode, graph.Code, onlineScheduleIDs(schedules))
+		result.SchedulesRestored = restored
+		if err != nil {
+			result.Warning = joinWarning(result.Warning, err.Error())
 		}
 		graph.ReleaseState = dolphinReleaseOnline
 	}
@@ -507,6 +533,10 @@ func (s *Service) pushUpdateNode(ctx context.Context, actor executionapp.Actor, 
 	result.WorkflowCode = graph.Code
 	result.TaskCode = binding.TaskCode
 	result.ReleaseState = graph.ReleaseState
+	schedules, err := readSchedulesForPush(ctx, client, binding.ProjectCode, graph.Code, wasOnline, req.DryRun, result)
+	if err != nil {
+		return nil, err
+	}
 	if req.DryRun {
 		result.Message = "overwrite the bound SHELL node without changing edges"
 		return result, nil
@@ -550,8 +580,10 @@ func (s *Service) pushUpdateNode(ctx context.Context, actor executionapp.Actor, 
 		if err := client.Release(ctx, binding.ProjectCode, graph.Code, dolphinReleaseOnline); err != nil {
 			return nil, fmt.Errorf("DolphinScheduler workflow is OFFLINE after a failed re-online: %w", err)
 		}
-		if err := client.OnlineSchedules(ctx, binding.ProjectCode, graph.Code); err != nil {
-			result.Warning = err.Error()
+		restored, err := restoreOnlineSchedules(ctx, client, binding.ProjectCode, graph.Code, onlineScheduleIDs(schedules))
+		result.SchedulesRestored = restored
+		if err != nil {
+			result.Warning = joinWarning(result.Warning, err.Error())
 		}
 		graph.ReleaseState = dolphinReleaseOnline
 		result.ReleaseState = dolphinReleaseOnline
@@ -566,6 +598,69 @@ func (s *Service) pushUpdateNode(ctx context.Context, actor executionapp.Actor, 
 	result.Binding = saved
 	result.Version = graph.Version
 	return result, nil
+}
+
+// readSchedulesForPush 在改动已有工作流之前读取其定时并写入结果。工作流在线时下线会连带下线定时，必须先记下谁原本在线，
+// 读不到就中止推送（不下线、不改图），避免事后无法恢复或把暂停的定时误开；工作流本就下线或只是预览时只记警告。
+// readSchedulesForPush reads an existing workflow's schedules into the result before anything is changed. Offlining
+// an online workflow also offlines its schedules, so which ones were online must be known first; when they cannot be
+// read the push aborts (no offline, no graph change) rather than being unable to restore them or re-enabling paused
+// ones. For workflows already offline, or a dry run, a read failure is only a warning.
+func readSchedulesForPush(ctx context.Context, client *DolphinClient, projectCode, workflowCode int64, wasOnline, dryRun bool, result *DolphinPushResult) ([]DolphinScheduleInfo, error) {
+	schedules, err := client.ListSchedules(ctx, projectCode, workflowCode)
+	if err != nil {
+		if wasOnline && !dryRun {
+			return nil, fmt.Errorf("读取工作流定时失败，未做任何修改 / failed to read the workflow schedules, nothing was changed: %w", err)
+		}
+		result.Warning = joinWarning(result.Warning, "读取工作流定时失败 / failed to read the workflow schedules: "+err.Error())
+		return []DolphinScheduleInfo{}, nil
+	}
+	result.Schedules = schedules
+	return schedules, nil
+}
+
+// onlineScheduleIDs 返回处于在线状态的定时 ID。
+// onlineScheduleIDs returns the IDs of schedules that are online.
+func onlineScheduleIDs(schedules []DolphinScheduleInfo) []int64 {
+	ids := make([]int64, 0, len(schedules))
+	for _, item := range schedules {
+		if strings.EqualFold(item.ReleaseState, dolphinReleaseOnline) {
+			ids = append(ids, item.ID)
+		}
+	}
+	return ids
+}
+
+// restoreOnlineSchedules 在工作流重新上线后，只把推送前在线的定时恢复在线（Dolphin 下线工作流时会连带下线定时）；
+// 推送前已暂停的定时保持暂停。返回推送后确认在线的原在线定时 ID。
+// restoreOnlineSchedules brings back online only the schedules that were online before the push, after the
+// workflow is re-onlined (Dolphin offlines schedules together with their workflow); schedules paused before the push
+// stay paused. Returns the previously online schedule IDs confirmed online afterwards.
+func restoreOnlineSchedules(ctx context.Context, client *DolphinClient, projectCode, workflowCode int64, wasOnline []int64) ([]int64, error) {
+	restored := make([]int64, 0, len(wasOnline))
+	if len(wasOnline) == 0 {
+		return restored, nil
+	}
+	want := make(map[int64]struct{}, len(wasOnline))
+	for _, id := range wasOnline {
+		want[id] = struct{}{}
+	}
+	current, err := client.ListSchedules(ctx, projectCode, workflowCode)
+	if err != nil {
+		return restored, fmt.Errorf("工作流已重新上线，但恢复定时失败，请在 DolphinScheduler 中手动上线 / the workflow is back online but its schedules could not be restored; bring them online in DolphinScheduler: %w", err)
+	}
+	for _, item := range current {
+		if _, ok := want[item.ID]; !ok {
+			continue
+		}
+		if !strings.EqualFold(item.ReleaseState, dolphinReleaseOnline) {
+			if err := client.OnlineSchedule(ctx, projectCode, item.ID); err != nil {
+				return restored, fmt.Errorf("工作流已重新上线，但定时 %d 上线失败，请在 DolphinScheduler 中手动上线 / the workflow is back online but schedule %d could not be brought online; do it in DolphinScheduler: %w", item.ID, item.ID, err)
+			}
+		}
+		restored = append(restored, item.ID)
+	}
+	return restored, nil
 }
 
 // requirePublishedVersionForPush 推送必须绑到已发布版本：未发布拒绝；同一版本不能再更新。

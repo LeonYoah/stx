@@ -4658,7 +4658,19 @@
     "dolphinPublishedPushed": "Published v{published} · pushed v{pushed}",
     "dolphinBoundHint": "A later push overwrites this SHELL node only and leaves edges unchanged. The same published version cannot be pushed again.",
     "dolphinRemoteScript": "Current Dolphin script",
-    "dolphinGeneratedScript": "Script that will be written"
+    "dolphinGeneratedScript": "Script that will be written",
+    "dolphinScheduleNoticeTitle": "Schedules and release state",
+    "dolphinWorkflowOnlineCycle": "This workflow is online: the push takes it offline, writes the node and brings it back online. Its schedules do not fire meanwhile, and paused schedules stay paused.",
+    "dolphinWorkflowOfflineKept": "This workflow is offline: it stays offline after the push and is not brought online.",
+    "dolphinWorkflowSchedules": "Workflow schedules",
+    "dolphinScheduleOnline": "Enabled",
+    "dolphinSchedulePaused": "Paused",
+    "dolphinScheduleReadFailed": "Could not read the workflow schedules: {error}",
+    "dolphinNoWorkflowSchedule": "This workflow has no schedule",
+    "dolphinBuiltinCronNotCarried": "Schedules belong to the whole workflow, so the STX built-in schedule ({cron}) is not carried over; it is turned off after the push and the workflow's own schedule drives the task.",
+    "dolphinWorkflowScheduleDrives": "Schedules belong to the whole workflow; the workflow's own schedule drives the task.",
+    "dolphinNoScheduleNeverRuns": "This workflow has no schedule, so the task will not run automatically after the push. Configure one for the workflow in DolphinScheduler.",
+    "dolphinNoBuiltinCron": "(no schedule configured on the task)"
   },
   "troubleshooting": {
     "title": "Playbooks",

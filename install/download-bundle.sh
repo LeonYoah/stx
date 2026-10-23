@@ -97,8 +97,11 @@ Usage:
 Options:
   --version <tag>                 Release tag, e.g. v1.2.0 (default: latest; env STX_VERSION)
   --arch <amd64|arm64>            Default: auto-detect
-  --node-variant <official|glibc217>  Default: auto by glibc
-  --without-node                  Skip Node package (local Node ≥ 18.18, or target has it)
+  --node-variant <official|glibc217>  Default: auto by packaging host glibc (<2.27 => glibc217,
+                                  amd64 only; arm64 always official)
+  --without-node                  Do NOT bundle the Node runtime (default: always bundled).
+                                  Only use when the OFFLINE TARGET already has Node ≥ 18.18;
+                                  the packaging host's own Node is irrelevant.
   --without-observability         Skip observability deps package
   --with-agent                    Include stx-agent binary (default: true)
   --without-agent                 Skip stx-agent
@@ -147,7 +150,7 @@ if [[ -z "$VERSION" ]]; then
   exit 1
 fi
 [[ -z "$ARCH" ]] && ARCH="$(stx_detect_arch)"
-[[ -z "$NODE_VARIANT" ]] && NODE_VARIANT="$(stx_recommend_node_variant)"
+[[ -z "$NODE_VARIANT" ]] && NODE_VARIANT="$(stx_recommend_node_variant "$ARCH")"
 [[ -n "$REGION" ]] && export STX_DOWNLOAD_REGION="$REGION"
 
 region="$(stx_detect_download_region)"
@@ -202,28 +205,31 @@ if [[ "$WITH_AGENT" == "true" ]]; then
     echo "[WARN] stx-agent missing on release $VERSION"
 fi
 
-node_ok=false
-need_node=true
+# 离线目标机的 Node 与打包机无关：默认总是组装 Node，仅 --without-node 时跳过。
+# The offline target's Node has nothing to do with the packaging host: always bundle Node
+# unless --without-node is given explicitly.
+WITH_NODE=true
 if [[ "$WITHOUT_NODE" == "true" ]]; then
-  echo "[INFO] --without-node: skip node package"
-  need_node=false
-elif command -v node >/dev/null 2>&1; then
-  if stx_node_version_ok "$(node -v 2>/dev/null || true)"; then
-    echo "[INFO] local node $(node -v) is usable; skip node package in bundle"
-    need_node=false
-  fi
-fi
-
-if [[ "$need_node" == "true" ]]; then
+  WITH_NODE=false
+  echo "[INFO] --without-node: skip node package (offline target must provide Node >= 18.18)"
+else
+  node_ok=false
   for major in 22 18; do
     asset="node-${major}-${NODE_VARIANT}-linux-${ARCH}.tar.gz"
     if stx_download_release_asset "$DEPS_TAG" "$asset" "$BUNDLE_DIR/packages/$asset" 2>/dev/null; then
-      stx_download_release_asset "$DEPS_TAG" "${asset}.sha256" "$BUNDLE_DIR/packages/${asset}.sha256" 2>/dev/null || true
+      if stx_download_release_asset "$DEPS_TAG" "${asset}.sha256" "$BUNDLE_DIR/packages/${asset}.sha256" 2>/dev/null; then
+        stx_verify_sha256 "$BUNDLE_DIR/packages/$asset" "$BUNDLE_DIR/packages/${asset}.sha256"
+      fi
+      echo "[INFO] bundled node runtime: $asset"
       node_ok=true
       break
     fi
   done
-  [[ "$node_ok" == "true" ]] || echo "[WARN] node package not found on deps tag=$DEPS_TAG"
+  if [[ "$node_ok" != "true" ]]; then
+    stx_node_package_missing_error "$NODE_VARIANT" "$ARCH" "$DEPS_TAG" \
+      "or pass --without-node if the offline target already has Node >= 18.18 (otherwise it fails with 'node runtime not found')."
+    exit 1
+  fi
 fi
 
 if [[ "$WITH_OBS" == "true" ]]; then
@@ -257,6 +263,7 @@ cat >"$BUNDLE_DIR/MANIFEST.json" <<EOF
   "version": "$VERSION",
   "arch": "$ARCH",
   "node_variant": "$NODE_VARIANT",
+  "with_node": $WITH_NODE,
   "deps_tag": "$DEPS_TAG",
   "with_observability": $WITH_OBS,
   "with_agent": $WITH_AGENT,
@@ -284,6 +291,9 @@ cat >"$BUNDLE_DIR/README-OFFLINE.md" <<EOF
 \`\`\`
 
 Optional: \`--without-observability\` \`--no-start\` \`--no-systemd\`
+
+Node runtime bundled: $WITH_NODE (when false, the bundle was built with \`--without-node\`
+and the offline host must already provide Node >= 18.18 in PATH).
 
 This bundle must not require network access during install.
 EOF

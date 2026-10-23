@@ -83,6 +83,8 @@ services:
     command:
       - --config.file=/etc/alertmanager/alertmanager.yml
       - --storage.path=/alertmanager
+      # 单机部署：置空关闭 gossip 集群。/ Single-node: empty value disables HA clustering.
+      - --cluster.listen-address=
     volumes:
       - ./observability/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
       - ./data/alertmanager:/alertmanager

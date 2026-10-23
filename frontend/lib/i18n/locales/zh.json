@@ -4658,7 +4658,19 @@
     "dolphinPublishedPushed": "已发布 v{published} · 已推送 v{pushed}",
     "dolphinBoundHint": "再次推送只覆盖该 SHELL 节点脚本，不改连线。已推送版本必须先发布新版本才能更新。",
     "dolphinRemoteScript": "Dolphin 当前脚本",
-    "dolphinGeneratedScript": "即将写入的脚本"
+    "dolphinGeneratedScript": "即将写入的脚本",
+    "dolphinScheduleNoticeTitle": "定时与上下线",
+    "dolphinWorkflowOnlineCycle": "该工作流在线：推送时会先下线、写入后再上线，期间其定时不会触发；原本暂停的定时保持暂停。",
+    "dolphinWorkflowOfflineKept": "该工作流处于下线状态：推送后保持下线，不会自动上线。",
+    "dolphinWorkflowSchedules": "工作流定时",
+    "dolphinScheduleOnline": "启用",
+    "dolphinSchedulePaused": "已暂停",
+    "dolphinScheduleReadFailed": "无法读取工作流定时：{error}",
+    "dolphinNoWorkflowSchedule": "该工作流没有配置定时",
+    "dolphinBuiltinCronNotCarried": "定时属于整个工作流，STX 内置定时（{cron}）不会沿用，推送后将关闭，任务改由该工作流的定时驱动。",
+    "dolphinWorkflowScheduleDrives": "定时属于整个工作流，任务将由该工作流的定时驱动。",
+    "dolphinNoScheduleNeverRuns": "该工作流没有定时，推送后任务不会自动运行，请在 DolphinScheduler 中为工作流配置定时。",
+    "dolphinNoBuiltinCron": "（任务未配置定时）"
   },
   "troubleshooting": {
     "title": "经验库",

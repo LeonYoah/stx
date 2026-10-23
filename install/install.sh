@@ -274,18 +274,15 @@ if [[ -n "$PACKAGES_DIR" ]]; then
     # 并建立符号链接，保证 systemd 等无 NVM 环境下亦可直接执行；否则立即报错，避免启动时才 'node runtime not found'。
     # No node package (bundle built with --without-node, or online --without-node): reuse local Node only when
     # it is >= 18.18 (symlinked so systemd without NVM in PATH works); otherwise fail now instead of at start.
-    local_node="$(command -v node 2>/dev/null || true)"
-    local_node_ver=""
-    [[ -n "$local_node" ]] && local_node_ver="$("$local_node" -v 2>/dev/null || true)"
-    if [[ -z "$local_node" ]] || ! stx_node_version_ok "$local_node_ver"; then
-      echo "[ERROR] no node-*-linux-${arch}.tar.gz in $PACKAGES_DIR and no usable system Node (need >= 18.18, found: ${local_node_ver:-none})" >&2
-      echo "        this package was likely built with --without-node. Either install Node >= 18.18 on this host" >&2
-      echo "        (and make sure it is in PATH), or rebuild the offline bundle WITHOUT --without-node." >&2
+    if ! stx_probe_system_node; then
+      stx_system_node_error "no node-*-linux-${arch}.tar.gz in $PACKAGES_DIR" \
+        "this package was likely built with --without-node. Either install Node >= 18.18 on this host" \
+        "(and make sure it is in PATH), or rebuild the offline bundle WITHOUT --without-node."
       exit 1
     fi
-    echo "[INFO] no bundled node package; using system node $local_node ($local_node_ver)"
+    echo "[INFO] no bundled node package; using system node $STX_SYSTEM_NODE ($STX_SYSTEM_NODE_VER)"
     mkdir -p "$STAGE_DIR/runtime/node/bin"
-    ln -sf "$local_node" "$STAGE_DIR/runtime/node/bin/node"
+    ln -sf "$STX_SYSTEM_NODE" "$STAGE_DIR/runtime/node/bin/node"
   fi
 
   obs_tar="$(ls "$PACKAGES_DIR"/observability-*-linux-${arch}.tar.gz 2>/dev/null | head -n1 || true)"

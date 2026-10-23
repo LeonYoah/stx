@@ -44,6 +44,7 @@ on:
       - 'scripts/docker-verify-release-artifacts.sh'
       - 'scripts/check-frontend-sharp-arch.sh'
       - 'scripts/check-release-image-tags.sh'
+      - 'scripts/check-release-asset-globs.sh'
       - '.github/workflows/docker-build-check.yml'
       - '.github/workflows/release-on-tag.yml'
   push:
@@ -69,6 +70,7 @@ on:
       - 'scripts/docker-verify-release-artifacts.sh'
       - 'scripts/check-frontend-sharp-arch.sh'
       - 'scripts/check-release-image-tags.sh'
+      - 'scripts/check-release-asset-globs.sh'
       - '.github/workflows/docker-build-check.yml'
       - '.github/workflows/release-on-tag.yml'
   workflow_dispatch:
@@ -211,6 +213,11 @@ jobs:
         run: |
           scripts/check-frontend-sharp-arch.sh amd64 dist/releases/frontend-standalone-linux-amd64.tar.gz
           scripts/check-frontend-sharp-arch.sh arm64 dist/releases/frontend-standalone-linux-arm64.tar.gz
+
+      # 与 release-on-tag.yml 发布步骤同一校验：每个产物恰好被一个上传通配命中，SHA256SUMS 所列文件都会上传。
+      # Same guard as the publish step: every packaged file matched by exactly one upload glob; SHA256SUMS fully uploaded.
+      - name: Verify release upload globs cover every packaged asset
+        run: scripts/check-release-asset-globs.sh dist/releases .github/workflows/release-on-tag.yml
 
       - name: Upload image input artifacts
         uses: actions/upload-artifact@v4

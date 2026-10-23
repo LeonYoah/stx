@@ -106,8 +106,10 @@ curl -fsSL https://github.com/LeonYoah/stx/releases/latest/download/install-onli
 curl -fsSL https://v4.gh-proxy.org/https://github.com/LeonYoah/stx/releases/latest/download/install-online.sh | bash
 ```
 
-Useful flags: `--install-dir /opt/stx`, `--arch amd64|arm64`, `--without-node`, `--without-observability`, `--no-systemd`, `--no-start`.  
-Scripts pick Node variant from glibc (&lt;2.27 → glibc217); skip Node when local ≥ 18.18, or pass `--without-node`.
+Useful flags: `--version v1.2.0` (or env `STX_VERSION=v1.2.0`; default `latest`), `--install-dir /opt/stx`, `--arch amd64|arm64`, `--without-node`, `--without-observability`, `--no-systemd`, `--no-start`.  
+Pin a version: `curl -fsSL .../install-online.sh | bash -s -- --version v1.2.0`.  
+Scripts pick Node variant from glibc (&lt;2.27 → glibc217); skip Node when local ≥ 18.18, or pass `--without-node`.  
+Requirements: `bash`, `curl`, `tar`, `gzip`, `awk`/`sed`/`grep`, `find` — **python3 is not required**. With systemd, the installer enables and starts `stx.service`, so `systemctl status|restart stx` works right away.
 
 ### Offline install (script-built bundle)
 
@@ -122,11 +124,12 @@ curl -fsSL https://github.com/LeonYoah/stx/releases/latest/download/download-bun
 | glibc > 2.17 and local Node ≥ 18.18 | **No** (or `--without-node`) |
 | glibc > 2.17 without usable Node | Yes — `node-22-official` |
 
-CentOS 7: `bash -s -- --node-variant glibc217 --arch amd64`. Output: `dist/offline/stx-offline-bundle-*.tar.gz`.
+CentOS 7: `bash -s -- --node-variant glibc217 --arch amd64`. Pin a version with `bash -s -- --version v1.2.0` (or `STX_VERSION=v1.2.0`). Output: `dist/offline/stx-offline-bundle-*.tar.gz`.
 
 ```bash
-tar -xzf dist/offline/stx-offline-bundle-*-linux-*.tar.gz
-cd stx-offline-bundle-*-linux-*
+tar -xzf stx-offline-bundle-*-linux-*.tar.gz
+# trailing "/" matches the extracted directory only, not the .tar.gz next to it
+cd stx-offline-bundle-*-linux-*/
 sudo ./install.sh --install-dir /opt/stx --offline
 ```
 

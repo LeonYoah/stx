@@ -110,6 +110,48 @@ if [[ -z "$INSTALL_DIR" ]]; then
   exit 1
 fi
 
+# 前置依赖检查：缺命令时直接给出清晰错误，而不是在中途静默失败（不需要 python3）。
+# Upfront dependency check: fail early with a clear message instead of failing silently midway (no python3 needed).
+stx_require_cmds tar gzip find awk sed grep mktemp cp mv || exit 1
+
+# 返回目录下第一个子目录（按名称排序，含隐藏目录；不跟随软链接）。/ Print the first subdirectory (sorted, incl. dot dirs; symlinks skipped).
+stx_first_subdir() {
+  local parent="$1" d
+  local -a cands=()
+  shopt -s nullglob dotglob
+  cands=("$parent"/*/)
+  shopt -u nullglob dotglob
+  for d in "${cands[@]}"; do
+    d="${d%/}"
+    if [[ -d "$d" && ! -L "$d" ]]; then
+      echo "$d"
+      return 0
+    fi
+  done
+  echo ""
+}
+
+# 把指向构建机 .../frontend/.next/standalone/<x> 的绝对软链接改写为相对链接。
+# Rewrite absolute symlinks pointing at the build host's .../frontend/.next/standalone/<x> into relative links.
+stx_normalize_standalone_symlinks() {
+  local root="$1" link target suffix dir rel up
+  local marker="/frontend/.next/standalone/"
+  [[ -d "$root" ]] || return 0
+  while IFS= read -r -d '' link; do
+    target="$(readlink "$link" 2>/dev/null)" || continue
+    [[ "$target" == *"$marker"* ]] || continue
+    suffix="${target#*"$marker"}"
+    dir="$(dirname "$link")"
+    rel="${dir#"$root"}"
+    rel="${rel#/}"
+    up=""
+    if [[ -n "$rel" ]]; then
+      up="$(printf '%s\n' "$rel" | awk -F/ '{ s = ""; for (i = 1; i <= NF; i++) s = s "../"; print s }')"
+    fi
+    rm -f "$link" && ln -s "${up}${suffix}" "$link" || true
+  done < <(find "$root" -type l -print0 2>/dev/null)
+}
+
 # Resolve package root: classic layout, offline bundle, or bin/.
 # 解析安装包根：经典布局、离线 bundle、或 bin/。
 SOURCE_DIR=""
@@ -173,7 +215,7 @@ if [[ -n "$PACKAGES_DIR" ]]; then
   tar -xzf "$frontend_tar" -C "$STAGE_DIR/frontend"
   # Support tarball with a single top-level directory. / 支持单层顶栏目录的 tar。
   if [[ ! -f "$STAGE_DIR/frontend/server.js" ]]; then
-    nested="$(find "$STAGE_DIR/frontend" -mindepth 1 -maxdepth 1 -type d | head -n1 || true)"
+    nested="$(stx_first_subdir "$STAGE_DIR/frontend")"
     if [[ -n "$nested" && -f "$nested/server.js" ]]; then
       shopt -s dotglob
       mv "$nested"/* "$STAGE_DIR/frontend/"
@@ -182,28 +224,9 @@ if [[ -n "$PACKAGES_DIR" ]]; then
     fi
   fi
 
-  # 规范化 pnpm/Next.js standalone 解压后可能包含的构建机绝对路径软链接。
-  # Normalize potential build-machine absolute symlinks after extracting Next.js standalone.
-  if command -v python3 >/dev/null 2>&1; then
-    python3 -c "
-import os
-root = '$STAGE_DIR/frontend'
-for dirpath, dirnames, filenames in os.walk(root):
-    for f in filenames + dirnames:
-        p = os.path.join(dirpath, f)
-        if os.path.islink(p):
-            target = os.readlink(p)
-            if '/frontend/.next/standalone/' in target:
-                rel_suffix = target.split('/frontend/.next/standalone/')[1]
-                real_target = os.path.join(root, rel_suffix)
-                rel_target = os.path.relpath(real_target, dirpath)
-                try:
-                    os.unlink(p)
-                    os.symlink(rel_target, p)
-                except OSError:
-                    pass
-" 2>/dev/null || true
-  fi
+  # 规范化 pnpm/Next.js standalone 解压后可能包含的构建机绝对路径软链接（纯 shell，不依赖 python3）。
+  # Normalize potential build-machine absolute symlinks after extracting Next.js standalone (pure shell, no python3).
+  stx_normalize_standalone_symlinks "$STAGE_DIR/frontend"
 
   mkdir -p "$STAGE_DIR/bin/lib" "$STAGE_DIR/lib" "$STAGE_DIR/scripts" "$STAGE_DIR/lib/agent"
   for f in start.sh stop.sh status.sh; do
@@ -236,7 +259,7 @@ for dirpath, dirnames, filenames in os.walk(root):
     mkdir -p "$STAGE_DIR/runtime"
     tar -xzf "$node_tar" -C "$STAGE_DIR/runtime"
     if [[ ! -x "$STAGE_DIR/runtime/node/bin/node" ]]; then
-      nested="$(find "$STAGE_DIR/runtime" -mindepth 1 -maxdepth 1 -type d | head -n1 || true)"
+      nested="$(stx_first_subdir "$STAGE_DIR/runtime")"
       if [[ -n "$nested" ]]; then
         rm -rf "$STAGE_DIR/runtime/node"
         mv "$nested" "$STAGE_DIR/runtime/node"
@@ -361,6 +384,7 @@ fi
 
 stx_configure_defaults "$INSTALL_DIR" "$STX_HTTP_PORT" "$STX_GRPC_PORT" "$STX_FRONTEND_PORT" "$obs_flag"
 
+STX_SYSTEMD_MODE=""
 if [[ "$SKIP_SYSTEMD" != "true" ]]; then
   stx_install_systemd "$INSTALL_DIR"
 fi
@@ -369,13 +393,44 @@ stx_print_finish_tips "$INSTALL_DIR"
 
 if [[ "$AUTO_START" == "true" ]]; then
   echo "[INFO] auto starting ..."
-  (
-    cd "$INSTALL_DIR"
-    FRONTEND_PORT="$STX_FRONTEND_PORT" \
-    NEXT_PUBLIC_BACKEND_BASE_URL="http://127.0.0.1:${STX_HTTP_PORT}" \
-    CONFIG_PATH="$INSTALL_DIR/config.yaml" \
-    ./bin/start.sh
-  )
+  # 已安装 systemd unit 时经 systemctl 启动（并 enable），这样首次安装后 systemctl status/restart stx 即可用；
+  # --no-systemd 或无 systemd 时仍直接调用 start.sh。
+  # unit 是 Type=oneshot + RemainAfterExit=yes：重装时若进程已被 stop.sh 停掉而 unit 仍是 active(exited)，
+  # `systemctl start` 是空操作，所以用 restart，并用 status.sh 核实 backend 确实在跑。
+  # When the systemd unit is installed, start through systemctl (enabled) so `systemctl status/restart stx`
+  # works right after install; fall back to start.sh for --no-systemd or hosts without systemd.
+  # The unit is Type=oneshot + RemainAfterExit=yes: on reinstall it may still be active(exited) while the
+  # processes were stopped via stop.sh, making `systemctl start` a no-op. Use restart and verify via status.sh.
+  if [[ -n "$STX_SYSTEMD_MODE" ]]; then
+    sysctl_cmd=(systemctl)
+    journal_hint="journalctl -u stx -n 200"
+    if [[ "$STX_SYSTEMD_MODE" == "user" ]]; then
+      sysctl_cmd=(systemctl --user)
+      journal_hint="journalctl --user -u stx -n 200"
+    fi
+    "${sysctl_cmd[@]}" enable stx.service >/dev/null 2>&1 || true
+    if ! "${sysctl_cmd[@]}" restart stx.service; then
+      echo "[ERROR] ${sysctl_cmd[*]} restart stx failed; inspect: ${sysctl_cmd[*]} status stx / $journal_hint" >&2
+      exit 1
+    fi
+    # 先取完整输出再匹配：pipefail 下 `status.sh | grep -q` 可能因 SIGPIPE 误判失败。
+    # Capture first: with pipefail, `status.sh | grep -q` can fail spuriously on SIGPIPE.
+    status_out="$(cd "$INSTALL_DIR" && ./bin/status.sh 2>/dev/null || true)"
+    if grep -q 'backend: running' <<<"$status_out"; then
+      echo "[OK] started via systemd: ${sysctl_cmd[*]} status stx"
+    else
+      echo "[ERROR] ${sysctl_cmd[*]} restart stx returned but backend is not running; inspect: $INSTALL_DIR/bin/status.sh / $journal_hint" >&2
+      exit 1
+    fi
+  else
+    (
+      cd "$INSTALL_DIR"
+      FRONTEND_PORT="$STX_FRONTEND_PORT" \
+      NEXT_PUBLIC_BACKEND_BASE_URL="http://127.0.0.1:${STX_HTTP_PORT}" \
+      CONFIG_PATH="$INSTALL_DIR/config.yaml" \
+      ./bin/start.sh
+    )
+  fi
 else
   echo "[INFO] skip auto start (--no-start)"
 fi

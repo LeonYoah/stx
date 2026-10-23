@@ -114,8 +114,10 @@ curl -fsSL https://github.com/LeonYoah/stx/releases/latest/download/install-onli
 curl -fsSL https://v4.gh-proxy.org/https://github.com/LeonYoah/stx/releases/latest/download/install-online.sh | bash
 ```
 
-常用参数：`--install-dir /opt/stx`、`--arch amd64|arm64`、`--without-node`、`--without-observability`、`--no-systemd`、`--no-start`。  
-脚本按 glibc 选 Node 变体（&lt;2.27 → glibc217）；本机 Node ≥ 18.18 自动跳过；也可用 `--without-node`。
+常用参数：`--version v1.2.0`（或环境变量 `STX_VERSION=v1.2.0`，默认 `latest`）、`--install-dir /opt/stx`、`--arch amd64|arm64`、`--without-node`、`--without-observability`、`--no-systemd`、`--no-start`。  
+指定版本：`curl -fsSL .../install-online.sh | bash -s -- --version v1.2.0`。  
+脚本按 glibc 选 Node 变体（&lt;2.27 → glibc217）；本机 Node ≥ 18.18 自动跳过；也可用 `--without-node`。  
+依赖：`bash`、`curl`、`tar`、`gzip`、`awk`/`sed`/`grep`、`find`，**不再需要 python3**。有 systemd 时安装器会 enable 并通过 `systemctl start stx` 启动，装完即可 `systemctl status|restart stx`。
 
 ### 离线安装（脚本生成 bundle）
 
@@ -132,11 +134,12 @@ curl -fsSL https://v4.gh-proxy.org/https://github.com/LeonYoah/stx/releases/late
 | glibc > 2.17 且本机 Node ≥ 18.18 | **不**组装（或 `--without-node`） |
 | glibc > 2.17 且无合格 Node | 会下 `node-22-official` |
 
-CentOS 7：`bash -s -- --node-variant glibc217 --arch amd64`。产出 `dist/offline/stx-offline-bundle-*.tar.gz`。
+CentOS 7：`bash -s -- --node-variant glibc217 --arch amd64`。指定版本：`bash -s -- --version v1.2.0`（或 `STX_VERSION=v1.2.0`）。产出 `dist/offline/stx-offline-bundle-*.tar.gz`。
 
 ```bash
-tar -xzf dist/offline/stx-offline-bundle-*-linux-*.tar.gz
-cd stx-offline-bundle-*-linux-*
+tar -xzf stx-offline-bundle-*-linux-*.tar.gz
+# 末尾的 "/" 只匹配解压出的目录，不会同时匹配旁边的 .tar.gz
+cd stx-offline-bundle-*-linux-*/
 sudo ./install.sh --install-dir /opt/stx --offline
 ```
 

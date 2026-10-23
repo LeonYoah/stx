@@ -16,9 +16,24 @@
 name: Release deps
 
 # 手动发布可复用 deps。版本 tag 不跑这个。Node / 三件套版本不变就不要重跑。
+# 安全约束：绝不删除整个 deps Release / tag；只替换本次重建的资产（临时名上传后切换），MANIFEST.json 合并保留未重建条目。
+# 由 scripts/test-release-deps.sh 守护（Install Scripts Tests）。合并到 main 后再从 main 运行，例如只重打三件套：
+#   gh workflow run release-deps.yml -R LeonYoah/stx --ref main -f components=observability
 # Manual reusable-deps release. Version tags do not run this. Skip when Node / observability versions are unchanged.
+# Safety: never delete the whole deps release/tag; only rebuilt assets are replaced (temp upload + swap) and
+# MANIFEST.json is merged so entries that were not rebuilt are preserved. Guarded by scripts/test-release-deps.sh.
 on:
   workflow_dispatch:
+    inputs:
+      components:
+        description: '重建哪些 deps / What to rebuild: all = Node + 三件套; observability = 仅 Prometheus/Alertmanager/Grafana (amd64+arm64); node = 仅 Node 包'
+        type: choice
+        options:
+          - all
+          - observability
+          - node
+        default: all
+        required: true
 
 permissions:
   contents: write
@@ -29,7 +44,7 @@ concurrency:
 
 jobs:
   package-deps:
-    name: Package and publish deps
+    name: Package and publish deps (${{ inputs.components }})
     runs-on: ubuntu-latest
 
     steps:
@@ -37,41 +52,50 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Build deps packages
+        env:
+          COMPONENTS: ${{ inputs.components }}
         run: |
+          set -euo pipefail
           chmod +x install/package-release.sh
-          # Node 22 官方包覆盖 amd64/arm64，并带上三件套。
-          # Official Node 22 covers amd64/arm64 and includes the observability bundle.
-          install/package-release.sh \
-            --deps-only \
-            --arch all \
-            --node-major 22 \
-            --node-variant official
-          # glibc217 非官方构建只有 x64，不再重打三件套。
-          # glibc217 unofficial builds are x64-only; do not rebuild observability.
-          install/package-release.sh \
-            --deps-only \
-            --no-observability \
-            --arch amd64 \
-            --node-major 18 \
-            --node-variant glibc217
+          mkdir -p dist/manifest-parts
+          # 每次 package-release 都会覆盖 dist/releases/MANIFEST.json，按顺序保存为片段，发布时与 deps 上已有的合并。
+          # Each package-release run overwrites dist/releases/MANIFEST.json; keep ordered fragments for the merge.
+          save_part() { mv dist/releases/MANIFEST.json "dist/manifest-parts/$1.json"; }
+          case "$COMPONENTS" in
+            all)
+              # Node 22 官方包覆盖 amd64/arm64，并带上三件套。
+              # Official Node 22 covers amd64/arm64 and includes the observability bundle.
+              install/package-release.sh --deps-only --arch all --node-major 22 --node-variant official
+              save_part 1-node22-official-obs
+              ;;
+            node)
+              install/package-release.sh --deps-only --no-observability --arch all --node-major 22 --node-variant official
+              save_part 1-node22-official
+              ;;
+            observability)
+              # 只重打三件套，不碰 Node 包。/ Rebuild observability only; Node packages stay untouched.
+              install/package-release.sh --deps-only --no-node --arch all
+              save_part 1-observability
+              ;;
+            *)
+              echo "unknown components: $COMPONENTS" >&2
+              exit 1
+              ;;
+          esac
+          if [[ "$COMPONENTS" == "all" || "$COMPONENTS" == "node" ]]; then
+            # glibc217 非官方构建只有 x64，不再重打三件套。
+            # glibc217 unofficial builds are x64-only; do not rebuild observability.
+            install/package-release.sh --deps-only --no-observability --arch amd64 --node-major 18 --node-variant glibc217
+            save_part 2-node18-glibc217
+          fi
+          ls -alh dist/releases dist/manifest-parts
 
-      - name: Publish deps release
+      - name: Publish deps release (in place, never delete)
         env:
           GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ github.sha }}
         run: |
-          # --latest=false：deps 不能抢走版本 Release 的 latest，否则在线安装会去 deps 上找 stx。
-          # --latest=false: deps must not become the latest release, or online install looks for stx there.
-          notes="可复用依赖，不随版本 tag 重打。Reusable deps. Not rebuilt on version tags."
-          if gh release view deps >/dev/null 2>&1; then
-            gh release delete deps --yes --cleanup-tag
-          fi
-          gh release create deps \
-            --target "${GITHUB_SHA}" \
-            --latest=false \
-            --title "deps" \
-            --notes "$notes" \
-            dist/releases/node-*.tar.gz \
-            dist/releases/node-*.tar.gz.sha256 \
-            dist/releases/observability-*.tar.gz \
-            dist/releases/observability-*.tar.gz.sha256 \
-            dist/releases/MANIFEST.json
+          set -euo pipefail
+          # --latest=false（仅首次创建时）：deps 不能抢走版本 Release 的 latest。
+          # --latest=false (create only): deps must not become the latest release.
+          bash scripts/release-deps-publish.sh deps dist/releases dist/manifest-parts/*.json

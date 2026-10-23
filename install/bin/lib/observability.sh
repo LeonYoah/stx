@@ -145,7 +145,13 @@ stx_obs_copy_tree() {
 # otherwise hosts with only a loopback interface exit with 'no private IP found'.
 stx_obs_alertmanager_args() {
   local alert_dir="$1"
-  printf '%s' "--config.file=$alert_dir/alertmanager.yml --storage.path=$alert_dir/data --web.listen-address=:9093 --cluster.listen-address="
+  # 以数组返回，路径含空格时也能正确传参。/ Returned as an array so paths with spaces stay intact.
+  STX_OBS_ALERTMANAGER_ARGS=(
+    "--config.file=$alert_dir/alertmanager.yml"
+    "--storage.path=$alert_dir/data"
+    "--web.listen-address=:9093"
+    "--cluster.listen-address="
+  )
 }
 
 # Generate default configs from templates into component dirs.
@@ -300,16 +306,22 @@ stx_obs_start_stack() {
     fi
   done
 
-  setsid sh -c "exec $ALERT_DIR/alertmanager $(stx_obs_alertmanager_args "$ALERT_DIR") >> $ALERT_DIR/logs/alertmanager.log 2>&1" < /dev/null &
+  # 直接 exec 带引号的参数数组（不经 sh -c 拼接），安装目录含空格时也能启动。
+  # Exec quoted argv directly (no sh -c string splicing) so install dirs with spaces work.
+  stx_obs_alertmanager_args "$ALERT_DIR"
+  setsid "$ALERT_DIR/alertmanager" "${STX_OBS_ALERTMANAGER_ARGS[@]}" >>"$ALERT_DIR/logs/alertmanager.log" 2>&1 </dev/null &
   echo $! >"$ALERT_DIR/alertmanager.pid"
 
-  setsid sh -c "exec $PROM_DIR/prometheus --config.file=$PROM_DIR/prometheus.yml --storage.tsdb.path=$PROM_DIR/data --web.listen-address=:9090 --web.enable-lifecycle >> $PROM_DIR/logs/prometheus.log 2>&1" < /dev/null &
+  setsid "$PROM_DIR/prometheus" "--config.file=$PROM_DIR/prometheus.yml" "--storage.tsdb.path=$PROM_DIR/data" \
+    --web.listen-address=:9090 --web.enable-lifecycle >>"$PROM_DIR/logs/prometheus.log" 2>&1 </dev/null &
   echo $! >"$PROM_DIR/prometheus.pid"
 
   if [[ "$(basename "$grafana_bin")" == "grafana" ]]; then
-    setsid sh -c "exec $grafana_bin server --homepath=$GRAFANA_DIR --config=$GRAFANA_DIR/conf/grafana.ini >> $GRAFANA_DIR/logs/grafana.log 2>&1" < /dev/null &
+    setsid "$grafana_bin" server "--homepath=$GRAFANA_DIR" "--config=$GRAFANA_DIR/conf/grafana.ini" \
+      >>"$GRAFANA_DIR/logs/grafana.log" 2>&1 </dev/null &
   else
-    setsid sh -c "exec $grafana_bin --homepath=$GRAFANA_DIR --config=$GRAFANA_DIR/conf/grafana.ini >> $GRAFANA_DIR/logs/grafana.log 2>&1" < /dev/null &
+    setsid "$grafana_bin" "--homepath=$GRAFANA_DIR" "--config=$GRAFANA_DIR/conf/grafana.ini" \
+      >>"$GRAFANA_DIR/logs/grafana.log" 2>&1 </dev/null &
   fi
   echo $! >"$GRAFANA_DIR/grafana.pid"
 

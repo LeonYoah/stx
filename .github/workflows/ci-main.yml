@@ -79,7 +79,7 @@ jobs:
         run: |
           scripts=(install/*.sh install/bin/*.sh install/bin/lib/*.sh scripts/check-release-asset-globs.sh
             scripts/test-release-download-lib.sh scripts/test-yaml-set-differential.sh scripts/release-deps-publish.sh
-            scripts/test-release-deps.sh scripts/ci-install-smoke.sh)
+            scripts/test-release-deps.sh scripts/ci-install-smoke.sh scripts/test-offline-bundle.sh)
           for f in "${scripts[@]}"; do
             bash -n "$f"
           done
@@ -103,6 +103,13 @@ jobs:
 
       - name: download-lib / install-core tests
         run: bash scripts/test-release-download-lib.sh
+
+      # 离线 bundle 默认组装 Node / --without-node、install.sh 的 Node 选择与报错、alertmanager 单机参数、
+      # init 不再出现 cp 'same file' 告警（桩掉 Release 下载，无需外网）。
+      # Offline bundle always-bundles-Node / --without-node, install.sh Node selection & errors, alertmanager
+      # single-node args, no cp 'same file' warnings on init (release downloads stubbed, no network).
+      - name: offline bundle / observability tests
+        run: bash scripts/test-offline-bundle.sh
 
       # 纯 awk 的 stx_yaml_set 与 v1.2.0 python3 参考实现逐字节差分（~1400 组）。
       # Byte-for-byte differential of the pure-awk stx_yaml_set vs the v1.2.0 python3 reference (~1400 cases).

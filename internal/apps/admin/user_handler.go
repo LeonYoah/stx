@@ -19,6 +19,7 @@
 package admin
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -185,6 +186,33 @@ type UpdateUserRequest struct {
 	IsAdmin  *bool   `json:"is_admin"`
 }
 
+var (
+	// ErrCannotDeactivateSelf 当前登录用户不能停用自己。/ The current user cannot deactivate themselves.
+	ErrCannotDeactivateSelf = errors.New("不能停用当前登录用户")
+	// ErrCannotRevokeOwnAdmin 当前登录用户不能取消自己的管理员权限。/ The current user cannot revoke their own admin permission.
+	ErrCannotRevokeOwnAdmin = errors.New("不能取消当前登录用户的管理员权限")
+)
+
+// ValidateSelfUpdate 拒绝当前登录用户停用自己或取消自己的管理员权限。
+// 用户管理接口要求调用者是已启用的管理员，因此只要拦住改自己，系统里就始终至少保留一个可登录的管理员；
+// 否则唯一的管理员一旦停用自己，网页会话与 CLI 令牌都会被拒绝，只能改库恢复（2026-10-23 现场误点状态开关）。
+// ValidateSelfUpdate rejects the current user deactivating themselves or revoking their own admin permission.
+// User management requires the caller to be an active admin, so blocking self-changes always leaves at least one
+// admin who can sign in; otherwise a sole admin who deactivates themselves is rejected on both web sessions and CLI
+// tokens and can only be recovered by editing the database (a mis-clicked status switch on 2026-10-23).
+func ValidateSelfUpdate(actorID, targetID uint64, req *UpdateUserRequest) error {
+	if req == nil || actorID == 0 || actorID != targetID {
+		return nil
+	}
+	if req.IsActive != nil && !*req.IsActive {
+		return ErrCannotDeactivateSelf
+	}
+	if req.IsAdmin != nil && !*req.IsAdmin {
+		return ErrCannotRevokeOwnAdmin
+	}
+	return nil
+}
+
 // UpdateUserResponse 更新用户响应
 type UpdateUserResponse struct {
 	ErrorMsg string         `json:"error_msg"`
@@ -209,6 +237,11 @@ func UpdateUserHandler(c *gin.Context) {
 
 	var req UpdateUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, UpdateUserResponse{ErrorMsg: err.Error()})
+		return
+	}
+	// 不允许停用自己或取消自己的管理员权限 / Refuse to deactivate or demote the current user
+	if err := ValidateSelfUpdate(auth.GetUserIDFromContext(c), userID, &req); err != nil {
 		c.JSON(http.StatusBadRequest, UpdateUserResponse{ErrorMsg: err.Error()})
 		return
 	}

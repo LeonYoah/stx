@@ -67,6 +67,12 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import {Badge} from '@/components/ui/badge';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import {toast} from 'sonner';
 import {Plus, Pencil, Trash2, Search, Users, RefreshCw} from 'lucide-react';
 import {WorkspaceHeader, TableLoadingBar, TableSkeletonRows} from '@/components/common/layout';
@@ -74,6 +80,7 @@ import {AccountsNavTabs} from './AccountsNavTabs';
 import {useGSAP} from '@gsap/react';
 import {animateTableRows} from '@/lib/animations/gsap-motion';
 import services from '@/lib/services';
+import {useAuth} from '@/hooks/use-auth';
 import type {
   UserInfo,
   CreateUserRequest,
@@ -90,6 +97,12 @@ function isValidEmail(value: string): boolean {
  */
 export function UserManagement() {
   const t = useTranslations();
+  // 当前登录用户：不能停用自己或取消自己的管理员权限（后端同样拒绝），避免唯一管理员把自己锁在门外。
+  // Current user: cannot deactivate themselves or revoke their own admin permission (the backend rejects it too),
+  // so a sole admin cannot lock themselves out.
+  const {user: currentUser} = useAuth();
+  const isSelf = (user: UserInfo | null) =>
+    Boolean(user && currentUser && user.id === currentUser.id);
   const [users, setUsers] = useState<UserInfo[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -102,6 +115,10 @@ export function UserManagement() {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<UserInfo | null>(null);
+  // 待确认停用的用户 / User awaiting deactivation confirmation
+  const [deactivateTarget, setDeactivateTarget] = useState<UserInfo | null>(
+    null,
+  );
 
   // 表单状态
   const [formData, setFormData] = useState<CreateUserRequest & {id?: number}>({
@@ -266,17 +283,42 @@ export function UserManagement() {
   };
 
   /**
-   * 切换用户状态
+   * 更新用户启用状态 / Update a user's active state
    */
-  const handleToggleActive = async (user: UserInfo) => {
+  const updateActive = async (user: UserInfo, active: boolean) => {
     try {
-      await services.adminUser.updateUser(user.id, {
-        is_active: !user.is_active,
-      });
+      await services.adminUser.updateUser(user.id, {is_active: active});
       toast.success(t('admin.userManagement.updateSuccess'));
       loadUsers();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '更新用户状态失败');
+    }
+  };
+
+  /**
+   * 切换用户状态：启用立即生效；停用需先确认（停用后该用户的会话与 CLI 令牌都会被拒绝）；当前用户不可切换。
+   * Toggle a user's state: enabling applies at once; disabling needs confirmation (the user's sessions and CLI
+   * tokens are rejected afterwards); the current user cannot be toggled.
+   */
+  const handleToggleActive = (user: UserInfo) => {
+    if (isSelf(user)) {
+      return;
+    }
+    if (user.is_active) {
+      setDeactivateTarget(user);
+      return;
+    }
+    void updateActive(user, true);
+  };
+
+  /**
+   * 确认停用 / Confirm deactivation
+   */
+  const handleConfirmDeactivate = async () => {
+    const target = deactivateTarget;
+    setDeactivateTarget(null);
+    if (target) {
+      await updateActive(target, false);
     }
   };
 
@@ -391,10 +433,32 @@ export function UserManagement() {
                       )}
                     </TableCell>
                     <TableCell>
-                      <Switch
-                        checked={user.is_active}
-                        onCheckedChange={() => handleToggleActive(user)}
-                      />
+                      {isSelf(user) ? (
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className='inline-flex'>
+                                <Switch
+                                  checked={user.is_active}
+                                  disabled
+                                  aria-label={`${t('admin.userManagement.isActive')} ${user.username}`}
+                                />
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p>
+                                {t('admin.userManagement.cannotDeactivateSelf')}
+                              </p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      ) : (
+                        <Switch
+                          checked={user.is_active}
+                          aria-label={`${t('admin.userManagement.isActive')} ${user.username}`}
+                          onCheckedChange={() => handleToggleActive(user)}
+                        />
+                      )}
                     </TableCell>
                     <TableCell>
                       {formatDateTz(user.created_at)}
@@ -573,17 +637,25 @@ export function UserManagement() {
                 }
               />
             </div>
-            <div className='flex items-center space-x-2'>
-              <Switch
-                id='edit-is_admin'
-                checked={formData.is_admin}
-                onCheckedChange={(checked) =>
-                  setFormData({...formData, is_admin: checked})
-                }
-              />
-              <Label htmlFor='edit-is_admin'>
-                {t('admin.userManagement.isAdmin')}
-              </Label>
+            <div className='space-y-1'>
+              <div className='flex items-center space-x-2'>
+                <Switch
+                  id='edit-is_admin'
+                  checked={formData.is_admin}
+                  disabled={isSelf(selectedUser) && Boolean(formData.is_admin)}
+                  onCheckedChange={(checked) =>
+                    setFormData({...formData, is_admin: checked})
+                  }
+                />
+                <Label htmlFor='edit-is_admin'>
+                  {t('admin.userManagement.isAdmin')}
+                </Label>
+              </div>
+              {isSelf(selectedUser) && formData.is_admin ? (
+                <p className='text-xs text-muted-foreground'>
+                  {t('admin.userManagement.cannotRevokeOwnAdmin')}
+                </p>
+              ) : null}
             </div>
           </div>
           <DialogFooter>
@@ -597,6 +669,35 @@ export function UserManagement() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* 停用确认对话框 / Deactivation confirmation dialog */}
+      <AlertDialog
+        open={deactivateTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeactivateTarget(null);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t('admin.userManagement.deactivateUser')}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('admin.userManagement.deactivateConfirm', {
+                username: deactivateTarget?.username || '',
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmDeactivate}>
+              {t('admin.userManagement.deactivate')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* 删除确认对话框 */}
       <AlertDialog

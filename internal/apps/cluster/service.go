@@ -95,13 +95,13 @@ type HostProvider interface {
 // ClusterStatusInfo represents detailed cluster status information.
 // ClusterStatusInfo 表示详细的集群状态信息。
 type ClusterStatusInfo struct {
-	ClusterID    uint              `json:"cluster_id"`
-	ClusterName  string            `json:"cluster_name"`
-	Status       ClusterStatus     `json:"status"`
-	HealthStatus HealthStatus      `json:"health_status"`
-	TotalNodes   int               `json:"total_nodes"`
-	OnlineNodes  int               `json:"online_nodes"`
-	OfflineNodes int               `json:"offline_nodes"`
+	ClusterID    uint          `json:"cluster_id"`
+	ClusterName  string        `json:"cluster_name"`
+	Status       ClusterStatus `json:"status"`
+	HealthStatus HealthStatus  `json:"health_status"`
+	TotalNodes   int           `json:"total_nodes"`
+	OnlineNodes  int           `json:"online_nodes"`
+	OfflineNodes int           `json:"offline_nodes"`
 	// RunningNodes 是主机在线且 SeaTunnel 进程运行中的节点数。
 	// RunningNodes counts nodes whose host is online and whose SeaTunnel process is running.
 	RunningNodes int `json:"running_nodes"`
@@ -191,7 +191,10 @@ type Service struct {
 	runtimeConfigStore       runtimeConfigStore
 	onBeforeClusterDelete    func(context.Context, uint) // optional hook for monitor cleanup etc.
 	onClusterTopologyChanged func(context.Context, uint) // optional hook for observability sync etc.
-	memberProbes             memberProbeCache
+	// onNodeRecordRemoved 「仅移除记录」删除节点记录后的清理钩子（修补成员列表、删主机配置、刷新监控），尽力而为。
+	// onNodeRecordRemoved cleans up after "remove record only" deleted a node record (members, host configs, monitor); best effort.
+	onNodeRecordRemoved func(context.Context, uint, *ClusterNode)
+	memberProbes        memberProbeCache
 }
 
 // ServiceConfig holds configuration for the Cluster Service.
@@ -231,6 +234,11 @@ func (s *Service) SetConfigAgentClient(client ConfigAgentClient) {
 // SetOnBeforeClusterDelete 设置删除集群前可选钩子（如清理监控配置）。
 func (s *Service) SetOnBeforeClusterDelete(fn func(context.Context, uint)) {
 	s.onBeforeClusterDelete = fn
+}
+
+// SetOnNodeRecordRemoved 设置「仅移除记录」后的清理钩子。/ SetOnNodeRecordRemoved sets the cleanup hook run after "remove record only".
+func (s *Service) SetOnNodeRecordRemoved(fn func(context.Context, uint, *ClusterNode)) {
+	s.onNodeRecordRemoved = fn
 }
 
 // SetOnClusterTopologyChanged sets an optional hook called when cluster topology changes
@@ -1308,6 +1316,11 @@ func (s *Service) RemoveNode(ctx context.Context, clusterID uint, nodeID uint) e
 		return err
 	}
 
+	// 仍然不停止进程；只补齐成员列表、主机配置与监控等记录层面的清理。
+	// Still no process stop; only record-level cleanup of member lists, host configs and monitoring.
+	if s.onNodeRecordRemoved != nil {
+		s.onNodeRecordRemoved(ctx, clusterID, node)
+	}
 	s.notifyClusterTopologyChanged(ctx, clusterID)
 	return nil
 }

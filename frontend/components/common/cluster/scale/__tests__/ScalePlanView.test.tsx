@@ -162,4 +162,11 @@ describe('ScalePlanView', () => {
     fireEvent.click(screen.getByRole('checkbox'));
     expect(onJobsAck).toHaveBeenCalledWith(true);
   });
+
+  it('追加用户选择的步骤到预览 / appends user-chosen steps to the preview', () => {
+    renderView(
+      <ScalePlanView plan={basePlan()} extraSteps={['rolling_restart']} />,
+    );
+    expect(screen.getByText('滚动重启现有节点')).toBeInTheDocument();
+  });
 });

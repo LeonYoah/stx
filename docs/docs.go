@@ -6684,6 +6684,9 @@ const docTemplate = `{
                 "retryable": {
                     "type": "boolean"
                 },
+                "rolling_restart": {
+                    "type": "boolean"
+                },
                 "status": {
                     "$ref": "#/definitions/cluster.ScaleOperationStatus"
                 },
@@ -6827,6 +6830,10 @@ const docTemplate = `{
                             "$ref": "#/definitions/cluster.NodeRole"
                         }
                     ]
+                },
+                "rolling_restart": {
+                    "description": "RollingRestart 入群后滚动重启现有节点（可选，见 ScalePlan.RollingRestart）。\nRollingRestart restarts existing nodes one by one after the join (optional, see ScalePlan.RollingRestart).",
+                    "type": "boolean"
                 }
             }
         },
@@ -6905,6 +6912,14 @@ const docTemplate = `{
                 "requires_restart_ack": {
                     "type": "boolean"
                 },
+                "rolling_restart": {
+                    "description": "RollingRestart 只用于扩容：入群后可选的滚动重启。/ Scale-out only: the optional rolling restart after the join.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/cluster.ScaleRollingRestart"
+                        }
+                    ]
+                },
                 "running_jobs": {
                     "type": "array",
                     "items": {
@@ -6975,6 +6990,47 @@ const docTemplate = `{
                 }
             }
         },
+        "cluster.ScaleRestartNode": {
+            "type": "object",
+            "properties": {
+                "address": {
+                    "type": "string"
+                },
+                "host_id": {
+                    "type": "integer"
+                },
+                "host_name": {
+                    "type": "string"
+                },
+                "node_id": {
+                    "type": "integer"
+                }
+            }
+        },
+        "cluster.ScaleRollingRestart": {
+            "type": "object",
+            "properties": {
+                "available": {
+                    "type": "boolean"
+                },
+                "blocked_reason": {
+                    "description": "BlockedReason 不可选的原因；Note 是可选但需留意的说明（如作业状态未知）。\nBlockedReason explains why it cannot be chosen; Note is a caveat when it can (e.g. jobs unknown).",
+                    "type": "string"
+                },
+                "nodes": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/cluster.ScaleRestartNode"
+                    }
+                },
+                "note": {
+                    "type": "string"
+                },
+                "recommended": {
+                    "type": "boolean"
+                }
+            }
+        },
         "cluster.ScaleRunningJob": {
             "type": "object",
             "properties": {
@@ -7002,7 +7058,8 @@ const docTemplate = `{
                 "cleanup_records",
                 "refresh_monitor",
                 "follow_java_proxy",
-                "verify"
+                "verify",
+                "rolling_restart"
             ],
             "x-enum-varnames": [
                 "ScaleStepValidatePlan",
@@ -7018,7 +7075,8 @@ const docTemplate = `{
                 "ScaleStepCleanupRecords",
                 "ScaleStepRefreshMonitor",
                 "ScaleStepFollowJavaProxy",
-                "ScaleStepVerify"
+                "ScaleStepVerify",
+                "ScaleStepRollingRestart"
             ]
         },
         "cluster.ScaleStepState": {

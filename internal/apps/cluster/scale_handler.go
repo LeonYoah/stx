@@ -448,6 +448,8 @@ func scaleErrorStatus(err error) (int, string) {
 		return http.StatusBadRequest, ErrorCodeScaleRestartAckRequired
 	case errors.Is(err, ErrScaleJobsRiskAckRequired):
 		return http.StatusBadRequest, ErrorCodeScaleJobsAckRequired
+	case errors.Is(err, ErrScaleRollingRestartUnavailable):
+		return http.StatusBadRequest, ErrorCodeScaleRollingRestartUnavailable
 	case errors.Is(err, ErrScaleInvalidRequest),
 		errors.Is(err, ErrInvalidNodeRole),
 		errors.Is(err, ErrInvalidHazelcastPort),

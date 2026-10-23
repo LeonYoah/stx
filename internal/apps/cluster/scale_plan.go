@@ -63,6 +63,9 @@ type ScaleOutSubmitRequest struct {
 	ScaleOutRequest
 	PlanFingerprint    string `json:"plan_fingerprint" binding:"required"`
 	LoopbackRestartAck bool   `json:"loopback_restart_ack"`
+	// RollingRestart 入群后滚动重启现有节点（可选，见 ScalePlan.RollingRestart）。
+	// RollingRestart restarts existing nodes one by one after the join (optional, see ScalePlan.RollingRestart).
+	RollingRestart bool `json:"rolling_restart"`
 }
 
 // ScaleInSubmitRequest 是缩容提交请求：计划指纹 + 运行中作业风险确认。
@@ -118,6 +121,31 @@ type ScaleLoopbackNode struct {
 	// Source 为 config（节点配置）或 runtime（Hazelcast 运行时成员）。
 	// Source is config (node config) or runtime (Hazelcast runtime members).
 	Source string `json:"source"`
+}
+
+// ScaleRestartNode 是滚动重启的候选节点。/ ScaleRestartNode is a rolling-restart candidate node.
+type ScaleRestartNode struct {
+	NodeID   uint   `json:"node_id"`
+	HostID   uint   `json:"host_id"`
+	HostName string `json:"host_name"`
+	Address  string `json:"address"`
+}
+
+// ScaleRollingRestart 描述扩容后可选的滚动重启。Hazelcast 只在启动时读取 tcp-ip member-list，且分裂后的合并只探测
+// 启动时的列表；扩容只改写现有节点的文件、不重启，因此这些节点直到下次重启前都无法在分裂后主动找回新节点。
+// 回环修正已重启的节点会直接写入扩容后的完整列表，不在候选之内。
+// ScaleRollingRestart describes the optional rolling restart after scaling out. Hazelcast reads the tcp-ip member
+// list only at startup, and split-brain merging only probes that list; scaling out rewrites existing nodes' files
+// without restarting them, so until their next restart they cannot find the new node again after a split.
+// Nodes already restarted by the loopback fix get the full post-scale list and are not candidates.
+type ScaleRollingRestart struct {
+	Nodes       []ScaleRestartNode `json:"nodes"`
+	Available   bool               `json:"available"`
+	Recommended bool               `json:"recommended"`
+	// BlockedReason 不可选的原因；Note 是可选但需留意的说明（如作业状态未知）。
+	// BlockedReason explains why it cannot be chosen; Note is a caveat when it can (e.g. jobs unknown).
+	BlockedReason string `json:"blocked_reason,omitempty"`
+	Note          string `json:"note,omitempty"`
 }
 
 // ScalePluginItem 是新节点需要补齐的集群插件。
@@ -177,10 +205,12 @@ type ScalePlan struct {
 	RequiresJobsAck    bool                    `json:"requires_jobs_ack"`
 	CheckpointStorage  *ScaleCheckpointStorage `json:"checkpoint_storage"`
 	JavaProxyFollow    *ScaleJavaProxyFollow   `json:"java_proxy_follow"`
-	Steps              []ScaleStepName         `json:"steps"`
-	CanSubmit          bool                    `json:"can_submit"`
-	BlockingReasons    []string                `json:"blocking_reasons"`
-	Warnings           []string                `json:"warnings"`
+	// RollingRestart 只用于扩容：入群后可选的滚动重启。/ Scale-out only: the optional rolling restart after the join.
+	RollingRestart  *ScaleRollingRestart `json:"rolling_restart"`
+	Steps           []ScaleStepName      `json:"steps"`
+	CanSubmit       bool                 `json:"can_submit"`
+	BlockingReasons []string             `json:"blocking_reasons"`
+	Warnings        []string             `json:"warnings"`
 	// Lang 是生成本计划文案所用的语言，不参与序列化。
 	// Lang is the language used for this plan's texts and is not serialized.
 	Lang string `json:"-"`
@@ -220,6 +250,9 @@ func (p *ScalePlan) normalize() {
 	}
 	if p.Warnings == nil {
 		p.Warnings = []string{}
+	}
+	if p.RollingRestart != nil && p.RollingRestart.Nodes == nil {
+		p.RollingRestart.Nodes = []ScaleRestartNode{}
 	}
 }
 
@@ -541,12 +574,55 @@ func (s *ScaleService) PlanScaleOut(ctx context.Context, clusterID uint, req *Sc
 		}
 	}
 	s.fillPluginsToReplay(ctx, plan, lang)
+	plan.RollingRestart = s.planRollingRestart(plan, view, lang)
 
 	plan.Steps = scaleOutSteps(plan.Mode, len(plan.LoopbackNodes) > 0)
 	plan.CanSubmit = len(plan.BlockingReasons) == 0
 	plan.normalize()
 	plan.Fingerprint = scalePlanFingerprint(plan)
 	return plan, nil
+}
+
+// planRollingRestart 计算滚动重启候选：主机在线、进程运行中、且不会被回环修正重启的现有节点。集群有运行中作业时不可选；
+// 作业状态未知时可选但给出说明。
+// planRollingRestart computes rolling-restart candidates: existing nodes on online hosts with running processes that
+// the loopback fix will not restart. It cannot be chosen while jobs are running; with unknown jobs it can, with a note.
+func (s *ScaleService) planRollingRestart(plan *ScalePlan, view *scaleView, lang string) *ScaleRollingRestart {
+	loopback := make(map[uint]struct{}, len(plan.LoopbackNodes))
+	for _, node := range plan.LoopbackNodes {
+		loopback[node.NodeID] = struct{}{}
+	}
+	restart := &ScaleRollingRestart{Nodes: []ScaleRestartNode{}}
+	for _, node := range view.nodes {
+		if _, fixed := loopback[node.ID]; fixed || node.Status != NodeStatusRunning {
+			continue
+		}
+		host := view.hosts[node.HostID]
+		if !s.hostReady(host) {
+			continue
+		}
+		restart.Nodes = append(restart.Nodes, ScaleRestartNode{
+			NodeID:   node.ID,
+			HostID:   node.HostID,
+			HostName: hostLabel(host, node.HostID),
+			Address:  nodeAddress(node, host),
+		})
+	}
+	switch {
+	case len(restart.Nodes) == 0:
+		restart.BlockedReason = scaleText(lang, "没有需要重启的现有节点", "no existing node needs a restart")
+	case len(plan.RunningJobs) > 0:
+		restart.BlockedReason = scaleText(lang,
+			fmt.Sprintf("集群有 %d 个运行中作业，不能滚动重启；可在空闲时手动重启这些节点", len(plan.RunningJobs)),
+			fmt.Sprintf("the cluster has %d running job(s), so a rolling restart is not allowed; restart these nodes manually when idle", len(plan.RunningJobs)))
+	default:
+		restart.Available = true
+		restart.Recommended = true
+		if !plan.RunningJobsKnown {
+			restart.Note = scaleText(lang, "无法确认是否有运行中作业，重启期间作业可能中断", "running jobs cannot be confirmed; jobs may be interrupted during the restart")
+		}
+	}
+	return restart
 }
 
 // scaleOutRole 混合模式忽略请求角色，分离模式必须显式选择 master 或 worker。
@@ -1302,14 +1378,36 @@ func (s *ScaleService) PlanScaleIn(ctx context.Context, clusterID uint, nodeID u
 // would take the node away from the other cluster, so scale-in is blocked; to only unregister it from this cluster,
 // use "remove record only".
 func (s *ScaleService) addSharedProcessCheck(ctx context.Context, plan *ScalePlan, node *ClusterNode, lang string) {
+	shared := s.sharedProcessClusters(ctx, node)
+	if len(shared) == 0 {
+		return
+	}
+	plan.addCheck(ScaleCheck{
+		Name:     "shared_process",
+		Status:   ScaleCheckFailed,
+		Blocking: true,
+		Target:   strings.Join(shared, ","),
+		Message: scaleText(lang,
+			fmt.Sprintf("该节点进程（%s）同时登记在集群 %s，缩容会停止该进程并影响这些集群；若只想从本集群注销，请使用“仅移除记录”", node.InstallDir, strings.Join(shared, "、")),
+			fmt.Sprintf("this node's process (%s) is also registered in cluster(s) %s; scaling in would stop it and affect them. To only unregister it from this cluster, use \"remove record only\"", node.InstallDir, strings.Join(shared, ", "))),
+	})
+}
+
+// sharedProcessClusters 返回同一主机上与该节点为同一受管进程（cleanInstallDir + 角色 → ManagedName）的其他集群名，已排序。
+// sharedProcessClusters returns the names of other clusters on the same host that register the same managed process as
+// the node (cleanInstallDir + role → ManagedName), sorted.
+func (s *ScaleService) sharedProcessClusters(ctx context.Context, node *ClusterNode) []string {
+	shared := make([]string, 0)
+	if node == nil {
+		return shared
+	}
 	hostNodes, err := s.svc.repo.GetNodesByHostID(ctx, node.HostID)
 	if err != nil {
-		return
+		return shared
 	}
 	// 目录先规范化（去掉结尾斜杠等），同一物理目录的不同写法视为同一进程。
 	// Normalize directories first (trailing slashes etc.) so different spellings of one directory are one process.
 	identity := processidentity.ManagedName(cleanInstallDir(node.InstallDir), string(node.Role))
-	shared := make([]string, 0)
 	for _, other := range hostNodes {
 		if other == nil || other.ID == node.ID || other.ClusterID == node.ClusterID {
 			continue
@@ -1323,19 +1421,8 @@ func (s *ScaleService) addSharedProcessCheck(ctx context.Context, plan *ScalePla
 		}
 		shared = append(shared, label)
 	}
-	if len(shared) == 0 {
-		return
-	}
 	sort.Strings(shared)
-	plan.addCheck(ScaleCheck{
-		Name:     "shared_process",
-		Status:   ScaleCheckFailed,
-		Blocking: true,
-		Target:   strings.Join(shared, ","),
-		Message: scaleText(lang,
-			fmt.Sprintf("该节点进程（%s）同时登记在集群 %s，缩容会停止该进程并影响这些集群；若只想从本集群注销，请使用“仅移除记录”", node.InstallDir, strings.Join(shared, "、")),
-			fmt.Sprintf("this node's process (%s) is also registered in cluster(s) %s; scaling in would stop it and affect them. To only unregister it from this cluster, use \"remove record only\"", node.InstallDir, strings.Join(shared, ", "))),
-	})
+	return shared
 }
 
 // planJavaProxyFollow 判断被移除节点是否为当前 java-proxy 承载节点（与 pickSTXJavaProxyNode 规则一致），是则选出下一个承载节点。

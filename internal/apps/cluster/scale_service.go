@@ -276,12 +276,13 @@ func (s *ScaleService) SubmitScaleOut(ctx context.Context, actor executionapp.Ac
 	lang := normalizeScaleLang(meta.Lang)
 	return s.submit(ctx, actor, clusterID, meta, scaleSubmitSpec{
 		operationID: scaleOutOperationID,
-		impact:      "扩容会在目标主机安装或纳管 SeaTunnel，修改集群成员配置并推送到所有节点；存在回环成员地址时会逐个重启现有节点。",
+		impact:      "扩容会在目标主机安装或纳管 SeaTunnel，修改集群成员配置并推送到所有节点；存在回环成员地址或选择滚动重启时会逐个重启现有节点。",
 		buildPlan: func(ctx context.Context) (*ScalePlan, error) {
 			return s.PlanScaleOut(ctx, clusterID, &req.ScaleOutRequest, lang)
 		},
 		fingerprint:        req.PlanFingerprint,
 		loopbackRestartAck: req.LoopbackRestartAck,
+		rollingRestart:     req.RollingRestart,
 	})
 }
 
@@ -358,6 +359,7 @@ type scaleSubmitSpec struct {
 	fingerprint        string
 	loopbackRestartAck bool
 	jobsRiskAck        bool
+	rollingRestart     bool
 }
 
 func (s *ScaleService) submit(ctx context.Context, actor executionapp.Actor, clusterID uint, meta ScaleExecutionRequest, spec scaleSubmitSpec) (*ScaleSubmitResult, error) {
@@ -396,7 +398,7 @@ func (s *ScaleService) submit(ctx context.Context, actor executionapp.Actor, clu
 	if err != nil {
 		return nil, err
 	}
-	if err := validateSubmittedPlan(plan, spec.fingerprint, spec.loopbackRestartAck, spec.jobsRiskAck); err != nil {
+	if err := validateSubmittedPlan(plan, spec.fingerprint, spec.loopbackRestartAck, spec.jobsRiskAck, spec.rollingRestart); err != nil {
 		return nil, err
 	}
 
@@ -431,6 +433,7 @@ func (s *ScaleService) submit(ctx context.Context, actor executionapp.Actor, clu
 		CurrentStep:        ScaleStepValidatePlan,
 		LoopbackRestartAck: spec.loopbackRestartAck,
 		JobsRiskAck:        spec.jobsRiskAck,
+		RollingRestart:     spec.rollingRestart,
 		Lang:               plan.Lang,
 		CreatedBy:          uint(actor.UserID),
 		CreatedByName:      strings.TrimSpace(meta.Username),
@@ -452,6 +455,11 @@ func (s *ScaleService) submit(ctx context.Context, actor executionapp.Actor, clu
 	for _, name := range plan.Steps {
 		steps = append(steps, ScaleStepState{Name: name, Status: ScaleStepPending})
 	}
+	// 滚动重启放在入群校验之后：新节点已确认入群，再逐个重启现有节点。
+	// The rolling restart runs after the join is verified: the new node is in, then existing nodes restart one by one.
+	if spec.rollingRestart && plan.Kind == ScaleKindOut {
+		steps = append(steps, ScaleStepState{Name: ScaleStepRollingRestart, Status: ScaleStepPending})
+	}
 	op.setSteps(steps)
 	if err := s.repo.Create(ctx, op); err != nil {
 		s.failExecution(ctx, item, "scale_operation_create_failed", err)
@@ -469,7 +477,7 @@ func (s *ScaleService) submit(ctx context.Context, actor executionapp.Actor, clu
 
 // validateSubmittedPlan 对比客户端指纹并复核阻断项与显式确认。
 // validateSubmittedPlan compares the client fingerprint and re-checks blocking items and acknowledgements.
-func validateSubmittedPlan(plan *ScalePlan, fingerprint string, loopbackRestartAck, jobsRiskAck bool) error {
+func validateSubmittedPlan(plan *ScalePlan, fingerprint string, loopbackRestartAck, jobsRiskAck, rollingRestart bool) error {
 	if plan == nil {
 		return ErrScaleInvalidRequest
 	}
@@ -484,6 +492,13 @@ func validateSubmittedPlan(plan *ScalePlan, fingerprint string, loopbackRestartA
 	}
 	if plan.RequiresJobsAck && !jobsRiskAck {
 		return ErrScaleJobsRiskAckRequired
+	}
+	if rollingRestart && (plan.RollingRestart == nil || !plan.RollingRestart.Available) {
+		reason := ""
+		if plan.RollingRestart != nil {
+			reason = plan.RollingRestart.BlockedReason
+		}
+		return fmt.Errorf("%w: %s", ErrScaleRollingRestartUnavailable, reason)
 	}
 	return nil
 }

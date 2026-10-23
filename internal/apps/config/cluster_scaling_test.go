@@ -534,3 +534,47 @@ func TestDeleteHostConfigsRemovesOnlyThatHostAndVersions(t *testing.T) {
 		t.Fatalf("second delete should be a no-op, got %d %v", again, err)
 	}
 }
+
+// TestDeleteConfigsByHostRemovesAcrossClusters 主机被删除时清理其在所有集群的配置记录与版本，模板与其他主机保持不变。
+// TestDeleteConfigsByHostRemovesAcrossClusters removes a deleted host's config records and versions in every
+// cluster while templates and other hosts stay untouched.
+func TestDeleteConfigsByHostRemovesAcrossClusters(t *testing.T) {
+	service, database, agent := newScalingTestService(t)
+	ctx := context.Background()
+	for _, hostID := range []uint{11, 12} {
+		agent.setFile(hostID, ConfigTypeHazelcast, hazelcastWithMembers("10.0.0.11:5801", "10.0.0.12:5801"))
+		agent.setFile(hostID, ConfigTypeLog4j2, scalingLog4j2PerJob)
+	}
+	for _, clusterID := range []uint{1, 2} {
+		for _, hostID := range []uint{11, 12} {
+			if err := service.EnsureClusterConfigsForHost(ctx, clusterID, hostID, "/opt/seatunnel", 1); err != nil {
+				t.Fatalf("EnsureClusterConfigsForHost(%d,%d): %v", clusterID, hostID, err)
+			}
+		}
+	}
+	removed := mustNodeConfig(t, database, 2, 12, ConfigTypeHazelcast)
+
+	deleted, err := service.DeleteConfigsByHost(ctx, 12)
+	if err != nil {
+		t.Fatalf("DeleteConfigsByHost: %v", err)
+	}
+	if deleted != 4 {
+		t.Fatalf("expected 4 records across 2 clusters, got %d", deleted)
+	}
+	var remaining int64
+	database.Model(&Config{}).Where("host_id = ?", 12).Count(&remaining)
+	if remaining != 0 {
+		t.Fatalf("host 12 records should be gone in every cluster, %d left", remaining)
+	}
+	if countVersions(t, database, removed.ID) != 0 {
+		t.Fatal("versions of deleted host records must be removed too")
+	}
+	mustNodeConfig(t, database, 1, 11, ConfigTypeHazelcast)
+	mustNodeConfig(t, database, 2, 11, ConfigTypeHazelcast)
+	mustTemplate(t, database, 1, ConfigTypeHazelcast)
+	mustTemplate(t, database, 2, ConfigTypeHazelcast)
+
+	if _, err := service.DeleteConfigsByHost(ctx, 0); err == nil {
+		t.Fatal("host id 0 must be rejected instead of matching every host")
+	}
+}

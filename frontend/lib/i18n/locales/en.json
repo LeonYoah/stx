@@ -1132,8 +1132,8 @@
       "removeTitle": "Remove node {name}",
       "removeDescription": "Stops the node process, removes it from the remaining nodes' member lists and deletes the node record. The install directory is kept.",
       "forceRemove": "Remove record only (force)",
-      "forceRemoveHint": "The host is offline so the process cannot be stopped; forcing only deletes the node record and the process may keep running in the cluster.",
-      "forceRemoveSharedHint": "This node's process also belongs to other cluster(s); scaling in would stop it and affect them. Removing the record only unregisters the node from this cluster and keeps the process running.",
+      "forceRemoveHint": "The host is offline so the process cannot be stopped. Forcing deletes the node record, drops it from the remaining nodes' member lists (written to files, effective on next restart) and cleans this host's config records in this cluster. The process may keep running; stop it manually once the host is back.",
+      "forceRemoveSharedHint": "This node's process also belongs to other cluster(s); scaling in would stop it and affect them. Removing the record only unregisters the node from this cluster and cleans this cluster's config records for the host, keeping the process running; member lists are not changed because the config files are shared.",
       "forceRemoveConfirm": "Delete only the node record?",
       "steps": {
         "validate_plan": "Validate plan",
@@ -1149,7 +1149,8 @@
         "cleanup_records": "Clean up records",
         "refresh_monitor": "Refresh process monitor",
         "follow_java_proxy": "Move java-proxy",
-        "verify": "Verify cluster"
+        "verify": "Verify cluster",
+        "rolling_restart": "Rolling-restart existing nodes"
       },
       "stepStatus": {
         "pending": "Pending",
@@ -1185,7 +1186,9 @@
         "java_proxy_follow": "java-proxy",
         "target_joined_cluster": "Membership",
         "shared_process": "Shared process"
-      }
+      },
+      "rollingRestartLabel": "Rolling-restart existing nodes after scaling out ({count}: {names})",
+      "rollingRestartDesc": "Hazelcast reads the member list only at startup and, after a split, only looks for peers in that list; existing nodes can find the new node again after a split only once restarted. Nodes restart one at a time, each continuing only after it recovers and sees every member."
     }
   },
   "audit": {

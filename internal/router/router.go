@@ -993,6 +993,19 @@ func Serve() {
 			if grpcSrv != nil {
 				scaleService.SetMonitorPusher(grpcSrv)
 			}
+			// 「仅移除记录」与删除主机后补齐清理：修补剩余成员列表、删除主机配置记录，避免 sync-all 永远报待推送。
+			// Cleanup after "remove record only" and host deletion: patch remaining member lists and delete the host's
+			// config records so sync-all no longer reports them as pending forever.
+			clusterService.SetOnNodeRecordRemoved(func(ctx context.Context, clusterID uint, node *cluster.ClusterNode) {
+				scaleService.CleanupAfterRecordRemoval(ctx, clusterID, node)
+			})
+			hostService.SetOnHostDeleted(func(ctx context.Context, hostID uint) {
+				if deleted, err := configService.DeleteConfigsByHost(ctx, hostID); err != nil {
+					log.Printf("[API] Delete configs of deleted host %d failed / 删除已删主机的配置记录失败: %v", hostID, err)
+				} else if deleted > 0 {
+					log.Printf("[API] Deleted %d config records of deleted host %d / 已删除已删主机的 %d 条配置记录", deleted, hostID, deleted)
+				}
+			})
 
 			// Inject config initializer into installer service for initializing configs after installation
 			// 将配置初始化器注入安装服务，用于安装后初始化配置

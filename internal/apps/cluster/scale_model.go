@@ -83,6 +83,11 @@ const (
 	ScaleStepRefreshMonitor   ScaleStepName = "refresh_monitor"
 	ScaleStepFollowJavaProxy  ScaleStepName = "follow_java_proxy"
 	ScaleStepVerify           ScaleStepName = "verify"
+	// ScaleStepRollingRestart 扩容入群后可选的滚动重启：让现有节点加载含新节点的 member-list（Hazelcast 只在启动时读取，
+	// 分裂后的合并只探测启动时的列表）。
+	// ScaleStepRollingRestart is the optional rolling restart after the join: existing nodes load the member list that
+	// includes the new node (Hazelcast reads it only at startup, and split-brain merging only probes that list).
+	ScaleStepRollingRestart ScaleStepName = "rolling_restart"
 )
 
 // ScaleStepStatus 是单个步骤的状态；partial 表示完成但有可重试的局部失败（不阻断后续步骤）。
@@ -139,6 +144,8 @@ type ClusterScaleOperation struct {
 	// the plan guardrails during execution and retry.
 	LoopbackRestartAck bool `json:"loopback_restart_ack" gorm:"not null"`
 	JobsRiskAck        bool `json:"jobs_risk_ack" gorm:"not null"`
+	// RollingRestart 记录用户是否选择了扩容后的滚动重启。/ RollingRestart records whether the user chose the rolling restart.
+	RollingRestart bool `json:"rolling_restart" gorm:"not null;default:false"`
 	// Lang 是提交时的界面语言（zh/en），执行器据此输出单语言步骤说明。
 	// Lang is the UI language at submission (zh/en); the executor writes single-language step messages with it.
 	Lang      string        `json:"lang" gorm:"size:8"`
@@ -241,6 +248,7 @@ type ScaleOperationInfo struct {
 	CurrentStep        ScaleStepName        `json:"current_step"`
 	LoopbackRestartAck bool                 `json:"loopback_restart_ack"`
 	JobsRiskAck        bool                 `json:"jobs_risk_ack"`
+	RollingRestart     bool                 `json:"rolling_restart"`
 	Error              string               `json:"error,omitempty"`
 	// Warnings 汇总 partial 步骤的说明，操作仍按成功结束。
 	// Warnings summarizes partial steps; the operation still finishes as succeeded.
@@ -281,6 +289,7 @@ func (op *ClusterScaleOperation) toInfo() *ScaleOperationInfo {
 		CurrentStep:        op.CurrentStep,
 		LoopbackRestartAck: op.LoopbackRestartAck,
 		JobsRiskAck:        op.JobsRiskAck,
+		RollingRestart:     op.RollingRestart,
 		Error:              op.Error,
 		Warnings:           warnings,
 		Retryable:          op.Status == ScaleOperationFailed,

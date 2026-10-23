@@ -1132,8 +1132,8 @@
       "removeTitle": "移除节点 {name}",
       "removeDescription": "将停止该节点进程、从其余节点的成员列表中移除并删除节点记录，安装目录会保留。",
       "forceRemove": "仅移除记录（强制）",
-      "forceRemoveHint": "主机离线时无法停止进程；强制移除只删除节点记录，进程可能仍在运行并留在集群中。",
-      "forceRemoveSharedHint": "该节点进程同时属于其他集群，缩容会停止进程并影响那些集群。仅移除记录只会把节点从本集群注销，进程保持运行。",
+      "forceRemoveHint": "主机离线时无法停止进程；强制移除会删除节点记录，并把其余节点的成员列表改为不含该节点（写入文件，下次重启生效）、清理该主机在本集群的配置记录。进程可能仍在运行，主机恢复后请手动停止。",
+      "forceRemoveSharedHint": "该节点进程同时属于其他集群，缩容会停止进程并影响那些集群。仅移除记录只会把节点从本集群注销并清理本集群对该主机的配置记录，进程保持运行；配置文件为多个集群共用，不会修改成员列表。",
       "forceRemoveConfirm": "确认仅删除节点记录？",
       "steps": {
         "validate_plan": "校验计划",
@@ -1149,7 +1149,8 @@
         "cleanup_records": "清理节点记录",
         "refresh_monitor": "刷新进程监控",
         "follow_java_proxy": "迁移 java-proxy",
-        "verify": "校验集群"
+        "verify": "校验集群",
+        "rolling_restart": "滚动重启现有节点"
       },
       "stepStatus": {
         "pending": "等待",
@@ -1185,7 +1186,9 @@
         "java_proxy_follow": "java-proxy",
         "target_joined_cluster": "组网状态",
         "shared_process": "共享进程"
-      }
+      },
+      "rollingRestartLabel": "扩容完成后滚动重启现有节点（{count} 个：{names}）",
+      "rollingRestartDesc": "Hazelcast 只在启动时读取成员列表，集群分裂后也只按启动时的列表寻找对方；现有节点重启后才能在分裂后主动找回新节点。每次只重启一个节点，恢复并看到全部成员后再继续。"
     }
   },
   "audit": {

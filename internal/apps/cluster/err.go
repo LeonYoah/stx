@@ -65,6 +65,10 @@ var (
 	// ErrClusterScaleInProgress 集群已有进行中的伸缩操作（409 cluster_scale_in_progress）。
 	// ErrClusterScaleInProgress means the cluster already has a running scaling operation (409 cluster_scale_in_progress).
 	ErrClusterScaleInProgress = errors.New("cluster: another scaling operation is running on this cluster")
+	// ErrScaleRollingRestartUnavailable 选择了滚动重启但计划不允许（无可重启节点或有运行中作业）。
+	// ErrScaleRollingRestartUnavailable means a rolling restart was requested but the plan does not allow it (no node
+	// to restart, or running jobs).
+	ErrScaleRollingRestartUnavailable = errors.New("cluster: rolling restart is not available for this plan")
 	// ErrScaleOperationNotFound 伸缩操作不存在或无权查看。
 	// ErrScaleOperationNotFound means the scaling operation does not exist or is not visible to the caller.
 	ErrScaleOperationNotFound = errors.New("cluster: scaling operation not found")
@@ -97,14 +101,15 @@ var (
 // 伸缩操作对外错误编码，前端据此本地化。
 // Public error codes of scaling operations, localized by the frontend.
 const (
-	ErrorCodeClusterScaleInProgress  = "cluster_scale_in_progress"
-	ErrorCodeScaleOperationNotFound  = "scale_operation_not_found"
-	ErrorCodeScaleNotRetryable       = "scale_operation_not_retryable"
-	ErrorCodeScaleInvalidRequest     = "scale_invalid_request"
-	ErrorCodeScalePlanBlocked        = "scale_plan_blocked"
-	ErrorCodeScalePlanChanged        = "scale_plan_changed"
-	ErrorCodeScaleRestartAckRequired = "scale_restart_ack_required"
-	ErrorCodeScaleJobsAckRequired    = "scale_jobs_risk_ack_required"
+	ErrorCodeClusterScaleInProgress         = "cluster_scale_in_progress"
+	ErrorCodeScaleRollingRestartUnavailable = "scale_rolling_restart_unavailable"
+	ErrorCodeScaleOperationNotFound         = "scale_operation_not_found"
+	ErrorCodeScaleNotRetryable              = "scale_operation_not_retryable"
+	ErrorCodeScaleInvalidRequest            = "scale_invalid_request"
+	ErrorCodeScalePlanBlocked               = "scale_plan_blocked"
+	ErrorCodeScalePlanChanged               = "scale_plan_changed"
+	ErrorCodeScaleRestartAckRequired        = "scale_restart_ack_required"
+	ErrorCodeScaleJobsAckRequired           = "scale_jobs_risk_ack_required"
 )
 
 // Error codes for cluster management operations.

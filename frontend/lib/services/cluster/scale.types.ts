@@ -47,7 +47,8 @@ export type ScaleStepName =
   | 'cleanup_records'
   | 'refresh_monitor'
   | 'follow_java_proxy'
-  | 'verify';
+  | 'verify'
+  | 'rolling_restart';
 
 /** 步骤状态 / Step status */
 export type ScaleStepStatus =
@@ -82,6 +83,8 @@ export interface ScaleOutRequest {
 export interface ScaleOutSubmitRequest extends ScaleOutRequest {
   plan_fingerprint: string;
   loopback_restart_ack: boolean;
+  /** 入群后滚动重启现有节点（可选）/ Rolling-restart existing nodes after the join (optional) */
+  rolling_restart?: boolean;
 }
 
 /** 缩容提交请求 / Scale-in submit request */
@@ -159,6 +162,28 @@ export interface ScaleJavaProxyFollow {
   to_host_name: string;
 }
 
+/** 滚动重启候选节点 / Rolling-restart candidate node */
+export interface ScaleRestartNode {
+  node_id: number;
+  host_id: number;
+  host_name: string;
+  address: string;
+}
+
+/**
+ * 扩容后可选的滚动重启：Hazelcast 只在启动时读取 member-list，分裂后的合并只探测启动时的列表，
+ * 现有节点重启后才能在分裂后主动找回新节点。
+ * Optional rolling restart after scaling out: Hazelcast reads the member list only at startup and split-brain
+ * merging only probes that list, so existing nodes can find the new node again after a split only once restarted.
+ */
+export interface ScaleRollingRestart {
+  nodes: ScaleRestartNode[];
+  available: boolean;
+  recommended: boolean;
+  blocked_reason?: string;
+  note?: string;
+}
+
 /** 伸缩计划 / Scaling plan */
 export interface ScalePlan {
   kind: ScaleKind;
@@ -180,6 +205,8 @@ export interface ScalePlan {
   requires_jobs_ack: boolean;
   checkpoint_storage: ScaleCheckpointStorage | null;
   java_proxy_follow: ScaleJavaProxyFollow | null;
+  /** 仅扩容 / scale-out only */
+  rolling_restart?: ScaleRollingRestart | null;
   steps: ScaleStepName[];
   can_submit: boolean;
   blocking_reasons: string[];
@@ -211,6 +238,7 @@ export interface ScaleOperationInfo {
   current_step: ScaleStepName;
   loopback_restart_ack: boolean;
   jobs_risk_ack: boolean;
+  rolling_restart?: boolean;
   error?: string;
   warnings: string[];
   retryable: boolean;

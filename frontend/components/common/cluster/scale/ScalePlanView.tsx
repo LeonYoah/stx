@@ -29,7 +29,11 @@ import {
 
 import {Badge} from '@/components/ui/badge';
 import {Checkbox} from '@/components/ui/checkbox';
-import type {ScaleCheck, ScalePlan} from '@/lib/services/cluster';
+import type {
+  ScaleCheck,
+  ScalePlan,
+  ScaleStepName,
+} from '@/lib/services/cluster';
 
 /**
  * 伸缩计划展示：阻断 / 提醒 / 通过分级、成员变化、插件、作业风险与确认勾选。
@@ -46,6 +50,8 @@ export interface ScalePlanViewProps {
   /** 作业风险确认（缩容）/ Job risk acknowledgement (scale-in) */
   jobsAck?: boolean;
   onJobsAckChange?: (value: boolean) => void;
+  /** 计划外、由用户选择追加的步骤（如滚动重启）/ Extra user-chosen steps appended to the preview (e.g. rolling restart) */
+  extraSteps?: ScaleStepName[];
 }
 
 /**
@@ -98,6 +104,7 @@ export function ScalePlanView({
   onRestartAckChange,
   jobsAck = false,
   onJobsAckChange,
+  extraSteps,
 }: ScalePlanViewProps) {
   const t = useTranslations('cluster.scale');
 
@@ -118,6 +125,7 @@ export function ScalePlanView({
   const membersChanged =
     plan.members_before.join(',') !== plan.members_after.join(',');
   const localCheckpoint = plan.checkpoint_storage?.local ?? false;
+  const previewSteps = [...plan.steps, ...(extraSteps ?? [])];
 
   const renderCheck = (check: ScaleCheck, index: number) => (
     <li
@@ -333,13 +341,13 @@ export function ScalePlanView({
         </p>
       )}
 
-      {plan.steps.length > 0 && (
+      {previewSteps.length > 0 && (
         <section className='space-y-1.5'>
           <h4 className='text-xs font-medium text-muted-foreground'>
             {t('stepsPreview')}
           </h4>
           <ol className='flex flex-wrap items-center gap-1 text-xs'>
-            {plan.steps.map((step, index) => (
+            {previewSteps.map((step, index) => (
               <li key={step} className='flex items-center gap-1'>
                 {index > 0 && (
                   <ArrowRight className='h-3 w-3 text-muted-foreground' />

@@ -32,6 +32,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {Checkbox} from '@/components/ui/checkbox';
 import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';
 import {
@@ -125,6 +126,8 @@ export function AddNodeDialog({
   const [ports, setPorts] = useState<ScaleNodePorts>(EMPTY_PORTS);
   const [dirty, setDirty] = useState(false);
   const [restartAck, setRestartAck] = useState(false);
+  // 入群后滚动重启现有节点，默认取计划推荐值。/ Rolling-restart existing nodes after the join; defaults to the plan's recommendation.
+  const [rollingRestart, setRollingRestart] = useState(false);
 
   // 执行 / Execution
   const [submitting, setSubmitting] = useState(false);
@@ -145,6 +148,7 @@ export function AddNodeDialog({
     setPorts(EMPTY_PORTS);
     setDirty(false);
     setRestartAck(false);
+    setRollingRestart(false);
     setSubmitting(false);
     setOperationId(null);
     setInitialOperation(null);
@@ -220,6 +224,7 @@ export function AddNodeDialog({
       });
       setDirty(false);
       setRestartAck(false);
+      setRollingRestart(Boolean(next.rolling_restart?.recommended));
       setStep('plan');
     } catch (error) {
       setPlanError(error instanceof Error ? error.message : String(error));
@@ -243,6 +248,8 @@ export function AddNodeDialog({
         mode: plan.mode,
         plan_fingerprint: plan.fingerprint,
         loopback_restart_ack: restartAck,
+        rolling_restart:
+          rollingRestart && Boolean(plan.rolling_restart?.available),
       });
       setOperationId(result.operation_id);
       setInitialOperation(result.operation);
@@ -421,6 +428,47 @@ export function AddNodeDialog({
     </div>
   );
 
+  /**
+   * 滚动重启选项：现有节点不会热加载 member-list，重启后才能在集群分裂后主动找回新节点。
+   * Rolling-restart option: existing nodes do not hot-reload the member list; only after a restart can they find the
+   * new node again after a split.
+   */
+  const renderRollingRestart = () => {
+    const restart = plan?.rolling_restart;
+    if (!restart || restart.nodes.length === 0) {
+      return null;
+    }
+    const names = restart.nodes.map((node) => node.host_name).join(', ');
+    return (
+      <section className='mt-4 space-y-1.5 rounded-lg border p-3'>
+        <label className='flex items-start gap-2 text-sm font-medium'>
+          <Checkbox
+            className='mt-0.5'
+            checked={rollingRestart && restart.available}
+            disabled={!restart.available}
+            onCheckedChange={(checked) => setRollingRestart(checked === true)}
+          />
+          <span>
+            {ts('rollingRestartLabel', {count: restart.nodes.length, names})}
+          </span>
+        </label>
+        <p className='pl-6 text-xs text-muted-foreground'>
+          {ts('rollingRestartDesc')}
+        </p>
+        {!restart.available && restart.blocked_reason && (
+          <p className='pl-6 text-xs text-amber-700 dark:text-amber-400'>
+            {restart.blocked_reason}
+          </p>
+        )}
+        {restart.available && restart.note && (
+          <p className='pl-6 text-xs text-amber-700 dark:text-amber-400'>
+            {restart.note}
+          </p>
+        )}
+      </section>
+    );
+  };
+
   const renderPlanStep = () =>
     plan && (
       <div className='space-y-4'>
@@ -536,7 +584,13 @@ export function AddNodeDialog({
             plan={plan}
             restartAck={restartAck}
             onRestartAckChange={setRestartAck}
+            extraSteps={
+              rollingRestart && plan.rolling_restart?.available
+                ? ['rolling_restart']
+                : []
+            }
           />
+          {renderRollingRestart()}
         </div>
       </div>
     );

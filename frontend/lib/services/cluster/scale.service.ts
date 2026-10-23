@@ -72,6 +72,9 @@ export function normalizeScalePlan(plan: ScalePlan): ScalePlan {
     warnings: asArray(plan.warnings),
     checkpoint_storage: plan.checkpoint_storage ?? null,
     java_proxy_follow: plan.java_proxy_follow ?? null,
+    rolling_restart: plan.rolling_restart
+      ? {...plan.rolling_restart, nodes: asArray(plan.rolling_restart.nodes)}
+      : null,
   };
 }
 

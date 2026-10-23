@@ -103,7 +103,7 @@ cluster.ScaleService（新，internal/apps/cluster/scale_*.go）
 | # | 步骤 | 安装模式 | 纳管模式 | 可重试 |
 |---|---|---|---|---|
 | 1 | `validate_plan`：重算 Plan，与提交时指纹比对，变化则失败并要求重新预检 | ✓ | ✓ | ✓ |
-| 2 | `fix_loopback`（仅 Plan 含回环节点）：修补模板与回环节点 member-list → 逐个 `RestartNode` → `check_cluster_members` 等待健康且非回环（超时 180s/节点） | ✓ | ✓ | ✓ |
+| 2 | `fix_loopback`（仅 Plan 含回环节点）：修补模板与回环节点 member-list 为**扩容后的完整列表 `members_after`（含尚未启动的新节点）** → 逐个 `RestartNode` → `check_cluster_members` 等待健康且非回环（超时 180s/节点） | ✓ | ✓ | ✓ |
 | 3 | `install_files`：`StartInstallation(cluster_id, defer_node_start=true, master_addresses=完整成员 IP)`，轮询安装状态 | ✓ | — | ✓ |
 | 4 | `register_node`：`EnsureNodeForInstallation`（安装模式由安装器完成，此处校验） / 纳管模式创建节点记录（等价 `AddNodes`） | ✓ | ✓ | ✓ |
 | 5 | `apply_configs`：安装 → `ApplyTemplatesToHost`；纳管 → `RegisterHostConfigsFromNode` | ✓ | ✓ | ✓ |
@@ -111,6 +111,7 @@ cluster.ScaleService（新，internal/apps/cluster/scale_*.go）
 | 7 | `start_node`：`StartNode` | ✓ | — | ✓ |
 | 8 | `patch_members`：对全部节点（含新节点）`PatchMemberList` | ✓ | ✓ | ✓ |
 | 9 | `verify_membership`：新节点成员须包含自身与 `validate_plan` 记录的基线（操作开始时、任何重启前运行中的现有节点），成员数 ≥ 基线 + 1；不以校验时 DB 状态计数（实测：刚重启的节点被漏算，新节点自成集群却判成功）；刷新集群状态 | ✓ | ✓ | ✓ |
+| 10 | `rolling_restart`（**可选**，提交时 `rolling_restart=true`）：入群后逐个重启现有节点（不含回环节点与新节点），每个节点重启后须看到全部运行中成员再继续；每次重启前复核运行中作业，出现即停止。原因：Hazelcast 只在启动时读取 tcp-ip member-list，分裂后的合并只探测启动时的列表；扩容只改文件不重启，现有节点在下次重启前无法在分裂后找回新节点（2026-10-22 实测分裂不自愈）。计划返回 `rolling_restart{nodes, available, recommended, blocked_reason, note}`：有运行中作业不可选，作业未知可选但提示；不进指纹，提交与 `validate_plan` 复核 | ✓ | ✓ | ✓ |
 
 ### 4.2 缩容步骤（`kind=scale_in`）
 

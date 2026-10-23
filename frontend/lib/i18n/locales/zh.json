@@ -1149,7 +1149,8 @@
         "cleanup_records": "清理节点记录",
         "refresh_monitor": "刷新进程监控",
         "follow_java_proxy": "迁移 java-proxy",
-        "verify": "校验集群"
+        "verify": "校验集群",
+        "rolling_restart": "滚动重启现有节点"
       },
       "stepStatus": {
         "pending": "等待",
@@ -1185,7 +1186,9 @@
         "java_proxy_follow": "java-proxy",
         "target_joined_cluster": "组网状态",
         "shared_process": "共享进程"
-      }
+      },
+      "rollingRestartLabel": "扩容完成后滚动重启现有节点（{count} 个：{names}）",
+      "rollingRestartDesc": "Hazelcast 只在启动时读取成员列表，集群分裂后也只按启动时的列表寻找对方；现有节点重启后才能在分裂后主动找回新节点。每次只重启一个节点，恢复并看到全部成员后再继续。"
     }
   },
   "audit": {

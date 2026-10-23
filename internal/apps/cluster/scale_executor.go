@@ -180,6 +180,8 @@ func (s *ScaleService) runStep(ctx context.Context, op *ClusterScaleOperation, p
 		return s.stepPatchMembers(ctx, op, plan, lang)
 	case ScaleStepVerifyMembership:
 		return s.stepVerifyMembership(ctx, op, plan, lang)
+	case ScaleStepRollingRestart:
+		return s.stepRollingRestart(ctx, op, plan, lang)
 	case ScaleStepStopNode:
 		return s.stepStopNode(ctx, op, plan, lang)
 	case ScaleStepCleanupRecords:
@@ -246,7 +248,7 @@ func (s *ScaleService) stepValidatePlan(ctx context.Context, op *ClusterScaleOpe
 	if err != nil {
 		return stepFailed(err, nil)
 	}
-	if err := validateSubmittedPlan(fresh, plan.Fingerprint, op.LoopbackRestartAck, op.JobsRiskAck); err != nil {
+	if err := validateSubmittedPlan(fresh, plan.Fingerprint, op.LoopbackRestartAck, op.JobsRiskAck, op.RollingRestart); err != nil {
 		return stepFailed(err, map[string]any{"fingerprint": fresh.Fingerprint, "blocking_reasons": fresh.BlockingReasons})
 	}
 	result := map[string]any{"fingerprint": fresh.Fingerprint}
@@ -365,7 +367,15 @@ func (s *ScaleService) stepFixLoopback(ctx context.Context, op *ClusterScaleOper
 		}
 	}
 
-	members := clusterMemberList(view, 0)
+	// 直接写入扩容后的完整列表（含尚未启动的新节点）：回环节点这次重启就加载到新节点地址，无需在滚动重启中再重启一次；
+	// 新节点未启动前连不上只会被 Hazelcast 跳过。
+	// Write the full post-scale list (including the not-yet-started new node): loopback nodes pick up the new node's
+	// address in this restart and need no second restart in the rolling restart; Hazelcast just skips the new node
+	// until it starts.
+	members := append([]string{}, plan.MembersAfter...)
+	if len(members) == 0 {
+		members = clusterMemberList(view, 0)
+	}
 	patch, err := s.config.PatchMemberList(ctx, op.ClusterID, string(view.cluster.DeploymentMode), members, scaleOpRef(op), op.CreatedBy)
 	if err != nil {
 		return stepFailed(err, patch)
@@ -403,6 +413,92 @@ func (s *ScaleService) stepFixLoopback(ctx context.Context, op *ClusterScaleOper
 		fmt.Sprintf("已修正 %d 个回环成员节点并恢复", len(plan.LoopbackNodes)),
 		fmt.Sprintf("fixed and recovered %d loopback member node(s)", len(plan.LoopbackNodes))),
 		map[string]any{"patch": patch, "restarted": restarted})
+}
+
+// stepRollingRestart 入群后逐个重启现有节点，让其加载含新节点的 member-list：每个节点重启后须看到全部运行中节点
+// （含新节点）才继续下一个；每次重启前复核运行中作业，出现作业即停止（已重启的节点不回滚）。
+// stepRollingRestart restarts existing nodes one by one after the join so they load the member list that includes
+// the new node: each restarted node must see every running node (new node included) before the next one; running
+// jobs are re-checked before each restart and their appearance stops the step (restarted nodes are not rolled back).
+func (s *ScaleService) stepRollingRestart(ctx context.Context, op *ClusterScaleOperation, plan *ScalePlan, lang string) scaleStepOutcome {
+	if plan.RollingRestart == nil || len(plan.RollingRestart.Nodes) == 0 {
+		return stepSkipped(scaleText(lang, "没有需要重启的现有节点", "no existing node to restart"))
+	}
+	view, err := s.refreshNodeStatuses(ctx, op.ClusterID)
+	if err != nil {
+		return stepFailed(err, nil)
+	}
+	nodesByID := make(map[uint]*ClusterNode, len(view.nodes))
+	for _, node := range view.nodes {
+		nodesByID[node.ID] = node
+	}
+	// 期望成员：此刻全部运行中节点（新节点已入群）。/ Expected members: every node running now (the new node has joined).
+	expected := baselineRunningAddresses(view)
+	results := make([]map[string]any, 0, len(plan.RollingRestart.Nodes))
+	restartedCount := 0
+	skipped := 0
+	for _, candidate := range plan.RollingRestart.Nodes {
+		node := nodesByID[candidate.NodeID]
+		if node == nil {
+			skipped++
+			results = append(results, map[string]any{"node_id": candidate.NodeID, "restarted": false, "reason": "node removed"})
+			continue
+		}
+		host := view.hosts[node.HostID]
+		if !s.hostReady(host) {
+			skipped++
+			results = append(results, map[string]any{"node_id": node.ID, "restarted": false, "reason": "host offline"})
+			continue
+		}
+		if s.jobs != nil {
+			if jobs, jobsErr := s.jobs.ListClusterRunningJobs(ctx, op.ClusterID); jobsErr == nil && len(jobs) > 0 {
+				return stepFailed(fmt.Errorf("集群出现 %d 个运行中作业，已停止滚动重启（已重启 %d 个节点） / %d running job(s) appeared; rolling restart stopped after %d node(s)",
+					len(jobs), restartedCount, len(jobs), restartedCount), map[string]any{"nodes": results})
+			}
+		}
+		result, err := s.svc.RestartNode(ctx, op.ClusterID, node.ID)
+		if err != nil {
+			return stepFailed(fmt.Errorf("restart node %d: %w", node.ID, err), map[string]any{"nodes": results})
+		}
+		if result != nil && !result.Success {
+			return stepFailed(fmt.Errorf("restart node %d: %s", node.ID, result.Message), map[string]any{"nodes": results})
+		}
+		probe, ok := s.waitForAllMembers(ctx, node, host, expected, s.timing.loopbackNodeTimeout)
+		if !ok {
+			return stepFailed(fmt.Errorf("node %d did not rejoin with all %d member(s) within %s (members: %s)", node.ID, len(expected), s.timing.loopbackNodeTimeout, strings.Join(probe.members, ",")),
+				map[string]any{"nodes": results})
+		}
+		restartedCount++
+		results = append(results, map[string]any{"node_id": node.ID, "restarted": true, "members": probe.members})
+	}
+	message := scaleText(lang,
+		fmt.Sprintf("已滚动重启 %d 个现有节点，均已加载新成员列表", restartedCount),
+		fmt.Sprintf("rolling-restarted %d existing node(s); all loaded the new member list", restartedCount))
+	if skipped > 0 {
+		return stepPartial(message+scaleText(lang, fmt.Sprintf("；%d 个节点跳过（已移除或主机离线）", skipped), fmt.Sprintf("; %d node(s) skipped (removed or host offline)", skipped)),
+			map[string]any{"nodes": results})
+	}
+	return stepSucceeded(message, map[string]any{"nodes": results})
+}
+
+// waitForAllMembers 轮询节点运行时成员，直到包含 expected 中的全部地址（主机名无法与 IP 比较时只要求可读）。
+// waitForAllMembers polls a node's runtime members until they contain every expected address (only readability is
+// required when a host name cannot be compared with IPs).
+func (s *ScaleService) waitForAllMembers(ctx context.Context, node *ClusterNode, host *HostInfo, expected []string, timeout time.Duration) (memberProbe, bool) {
+	deadline := s.now().Add(timeout)
+	var probe memberProbe
+	for {
+		probe = s.probeMembers(ctx, node, host)
+		if probe.known && (host == nil || !isIPAddress(host.IPAddress) || allAddressesIn(probe.members, expected)) {
+			return probe, true
+		}
+		if !s.now().Before(deadline) {
+			return probe, false
+		}
+		if err := s.sleep(ctx, s.timing.pollInterval); err != nil {
+			return probe, false
+		}
+	}
 }
 
 // memberHealthy 判断节点运行时成员不含回环地址且包含自身可路由地址（主机名无法与 IP 比较时只看前者）。

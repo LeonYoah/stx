@@ -1119,6 +1119,9 @@ definitions:
         type: string
       created_by:
         type: integer
+      created_by_name:
+        description: CreatedByName 发起人登录名快照 / initiator login name snapshot
+        type: string
       current_step:
         $ref: '#/definitions/cluster.ScaleStepName'
       error:
@@ -1146,6 +1149,8 @@ definitions:
       plan:
         $ref: '#/definitions/cluster.ScalePlan'
       retryable:
+        type: boolean
+      rolling_restart:
         type: boolean
       status:
         $ref: '#/definitions/cluster.ScaleOperationStatus'
@@ -1245,6 +1250,11 @@ definitions:
         description: |-
           Role 仅分离模式需要（master / worker）；混合模式固定为 master/worker。
           Role is only required in separated mode (master / worker); hybrid always uses master/worker.
+      rolling_restart:
+        description: |-
+          RollingRestart 入群后滚动重启现有节点（可选，见 ScalePlan.RollingRestart）。
+          RollingRestart restarts existing nodes one by one after the join (optional, see ScalePlan.RollingRestart).
+        type: boolean
     required:
     - host_id
     - plan_fingerprint
@@ -1299,6 +1309,11 @@ definitions:
         type: boolean
       requires_restart_ack:
         type: boolean
+      rolling_restart:
+        allOf:
+        - $ref: '#/definitions/cluster.ScaleRollingRestart'
+        description: 'RollingRestart 只用于扩容：入群后可选的滚动重启。/ Scale-out only: the optional
+          rolling restart after the join.'
       running_jobs:
         items:
           $ref: '#/definitions/cluster.ScaleRunningJob'
@@ -1331,6 +1346,10 @@ definitions:
         type: string
       name:
         type: string
+      profile_inferred:
+        description: ProfileInferred 画像由控制面缓存中的依赖反推 / profile inferred from dependencies
+          cached on the Control Plane
+        type: boolean
       profile_keys:
         items:
           type: string
@@ -1341,6 +1360,35 @@ definitions:
         type: string
       version:
         type: string
+    type: object
+  cluster.ScaleRestartNode:
+    properties:
+      address:
+        type: string
+      host_id:
+        type: integer
+      host_name:
+        type: string
+      node_id:
+        type: integer
+    type: object
+  cluster.ScaleRollingRestart:
+    properties:
+      available:
+        type: boolean
+      blocked_reason:
+        description: |-
+          BlockedReason 不可选的原因；Note 是可选但需留意的说明（如作业状态未知）。
+          BlockedReason explains why it cannot be chosen; Note is a caveat when it can (e.g. jobs unknown).
+        type: string
+      nodes:
+        items:
+          $ref: '#/definitions/cluster.ScaleRestartNode'
+        type: array
+      note:
+        type: string
+      recommended:
+        type: boolean
     type: object
   cluster.ScaleRunningJob:
     properties:
@@ -1365,6 +1413,7 @@ definitions:
     - refresh_monitor
     - follow_java_proxy
     - verify
+    - rolling_restart
     type: string
     x-enum-varnames:
     - ScaleStepValidatePlan
@@ -1381,6 +1430,7 @@ definitions:
     - ScaleStepRefreshMonitor
     - ScaleStepFollowJavaProxy
     - ScaleStepVerify
+    - ScaleStepRollingRestart
   cluster.ScaleStepState:
     properties:
       attempts:

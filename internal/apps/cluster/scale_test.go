@@ -938,8 +938,11 @@ func TestScaleOutFixLoopbackRestartsLoopbackNodes(t *testing.T) {
 	if env.agent.count("agent-1", "restart") != 1 {
 		t.Fatalf("loopback node must be restarted once, got %d", env.agent.count("agent-1", "restart"))
 	}
-	if env.config.calls[0] != "register_configs" || env.config.calls[1] != "patch_members" || strings.Join(env.config.patchMembers[0], ",") != "10.0.0.1:5801" {
-		t.Fatalf("loopback fix must register missing node configs and patch routable members first: calls=%v members=%v", env.config.calls, env.config.patchMembers)
+	// 回环修正直接写入扩容后的完整列表（含新节点），这次重启后回环节点无需再为新节点重启一次。
+	// The loopback fix writes the full post-scale list (including the new node), so the loopback node needs no second
+	// restart for the new node.
+	if env.config.calls[0] != "register_configs" || env.config.calls[1] != "patch_members" || strings.Join(env.config.patchMembers[0], ",") != "10.0.0.1:5801,10.0.0.2:5801" {
+		t.Fatalf("loopback fix must register missing node configs and patch the full post-scale members first: calls=%v members=%v", env.config.calls, env.config.patchMembers)
 	}
 
 	// 幂等：节点已以可路由地址运行时重跑不再重启。

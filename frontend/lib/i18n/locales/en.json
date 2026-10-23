@@ -1149,7 +1149,8 @@
         "cleanup_records": "Clean up records",
         "refresh_monitor": "Refresh process monitor",
         "follow_java_proxy": "Move java-proxy",
-        "verify": "Verify cluster"
+        "verify": "Verify cluster",
+        "rolling_restart": "Rolling-restart existing nodes"
       },
       "stepStatus": {
         "pending": "Pending",
@@ -1185,7 +1186,9 @@
         "java_proxy_follow": "java-proxy",
         "target_joined_cluster": "Membership",
         "shared_process": "Shared process"
-      }
+      },
+      "rollingRestartLabel": "Rolling-restart existing nodes after scaling out ({count}: {names})",
+      "rollingRestartDesc": "Hazelcast reads the member list only at startup and, after a split, only looks for peers in that list; existing nodes can find the new node again after a split only once restarted. Nodes restart one at a time, each continuing only after it recovers and sees every member."
     }
   },
   "audit": {

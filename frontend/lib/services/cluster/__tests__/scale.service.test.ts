@@ -96,6 +96,20 @@ describe('normalizeScalePlan / normalizeScaleOperation', () => {
   });
 });
 
+describe('normalizeScalePlan rolling_restart', () => {
+  it('滚动重启节点为 null 时兜底为 [] / coerces null rolling-restart nodes to []', () => {
+    const plan = normalizeScalePlan({
+      ...nullArraysPlan(),
+      rolling_restart: {nodes: null, available: false, recommended: false},
+    } as unknown as ScalePlan);
+    expect(plan.rolling_restart?.nodes).toEqual([]);
+  });
+
+  it('缺少滚动重启时为 null / missing rolling restart becomes null', () => {
+    expect(normalizeScalePlan(nullArraysPlan()).rolling_restart).toBeNull();
+  });
+});
+
 describe('ClusterScaleService', () => {
   afterEach(() => {
     vi.restoreAllMocks();

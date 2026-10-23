@@ -118,11 +118,13 @@ curl -fsSL https://github.com/LeonYoah/stx/releases/latest/download/download-bun
 # China: https://v4.gh-proxy.org/https://github.com/LeonYoah/stx/releases/latest/download/download-bundle.sh
 ```
 
-| Environment | Bundle includes Node? |
+The bundle **always** includes a Node runtime by default (whether the packaging host has Node is irrelevant). The variant follows the packaging host's glibc unless `--node-variant` is given:
+
+| Variant | Bundled Node |
 | --- | --- |
-| glibc ≤ 2.17 (CentOS 7) | Yes — `node-18-glibc217` (**amd64 only**) |
-| glibc > 2.17 and local Node ≥ 18.18 | **No** (or `--without-node`) |
-| glibc > 2.17 without usable Node | Yes — `node-22-official` |
+| glibc ≤ 2.17 (CentOS 7) | `node-18-glibc217` (**amd64 only**) |
+| glibc > 2.17 | `node-22-official` |
+| `--without-node` | **None** — only when the offline target already has Node ≥ 18.18 in `PATH`; otherwise `install.sh` stops with a clear error |
 
 CentOS 7: `bash -s -- --node-variant glibc217 --arch amd64`. Pin a version with `bash -s -- --version v1.2.0` (or `STX_VERSION=v1.2.0`). Output: `dist/offline/stx-offline-bundle-*.tar.gz`.
 

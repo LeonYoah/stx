@@ -128,11 +128,13 @@ curl -fsSL https://github.com/LeonYoah/stx/releases/latest/download/download-bun
 curl -fsSL https://v4.gh-proxy.org/https://github.com/LeonYoah/stx/releases/latest/download/download-bundle.sh | bash
 ```
 
-| 环境 | 是否组装 Node |
+bundle 默认**总是**组装 Node 运行时（与打包机是否装了 Node 无关）；变体按打包机 glibc 自动选择，可用 `--node-variant` 指定：
+
+| 情况 | 组装的 Node |
 |------|----------------|
-| glibc ≤ 2.17（CentOS 7） | 会下 `node-18-glibc217`（**仅 amd64**） |
-| glibc > 2.17 且本机 Node ≥ 18.18 | **不**组装（或 `--without-node`） |
-| glibc > 2.17 且无合格 Node | 会下 `node-22-official` |
+| glibc ≤ 2.17（CentOS 7） | `node-18-glibc217`（**仅 amd64**） |
+| glibc > 2.17 | `node-22-official` |
+| `--without-node` | **不**组装——仅当离线目标机 `PATH` 中已有 Node ≥ 18.18 时使用，否则 `install.sh` 会明确报错退出 |
 
 CentOS 7：`bash -s -- --node-variant glibc217 --arch amd64`。指定版本：`bash -s -- --version v1.2.0`（或 `STX_VERSION=v1.2.0`）。产出 `dist/offline/stx-offline-bundle-*.tar.gz`。
 

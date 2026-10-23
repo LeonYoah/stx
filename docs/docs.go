@@ -6638,6 +6638,10 @@ const docTemplate = `{
                 "created_by": {
                     "type": "integer"
                 },
+                "created_by_name": {
+                    "description": "CreatedByName 发起人登录名快照 / initiator login name snapshot",
+                    "type": "string"
+                },
                 "current_step": {
                     "$ref": "#/definitions/cluster.ScaleStepName"
                 },
@@ -6949,6 +6953,10 @@ const docTemplate = `{
                 },
                 "name": {
                     "type": "string"
+                },
+                "profile_inferred": {
+                    "description": "ProfileInferred 画像由控制面缓存中的依赖反推 / profile inferred from dependencies cached on the Control Plane",
+                    "type": "boolean"
                 },
                 "profile_keys": {
                     "type": "array",
@@ -10178,6 +10186,20 @@ const docTemplate = `{
                 }
             }
         },
+        "sync.DolphinBuiltinSchedule": {
+            "type": "object",
+            "properties": {
+                "cron_expr": {
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "timezone": {
+                    "type": "string"
+                }
+            }
+        },
         "sync.DolphinProject": {
             "type": "object",
             "properties": {
@@ -10292,6 +10314,20 @@ const docTemplate = `{
                 "release_state": {
                     "type": "string"
                 },
+                "schedules": {
+                    "description": "Schedules 是推送前目标工作流的定时（复用 / 更新模式），供告知用户「沿用工作流定时」与上下线影响。\nSchedules are the target workflow's schedules before the push (reuse / update), so users learn the\nworkflow's own schedule takes over and how re-onlining affects it.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/sync.DolphinScheduleInfo"
+                    }
+                },
+                "schedules_restored": {
+                    "description": "SchedulesRestored 是重新上线后恢复为在线的定时 ID；推送前已暂停的定时保持暂停，不在此列。\nSchedulesRestored lists schedule IDs brought back online after re-onlining; schedules paused before the\npush stay paused and are not listed.",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
                 "script": {
                     "$ref": "#/definitions/sync.DolphinScriptResult"
                 },
@@ -10309,6 +10345,23 @@ const docTemplate = `{
                 },
                 "would_offline": {
                     "type": "boolean"
+                }
+            }
+        },
+        "sync.DolphinScheduleInfo": {
+            "type": "object",
+            "properties": {
+                "crontab": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "release_state": {
+                    "type": "string"
+                },
+                "timezone": {
+                    "type": "string"
                 }
             }
         },
@@ -10357,6 +10410,14 @@ const docTemplate = `{
                 },
                 "builtin_locked": {
                     "type": "boolean"
+                },
+                "builtin_schedule": {
+                    "description": "BuiltinSchedule 是任务配置的 STX 内置定时（未配置 cron 时为空）。\nBuiltinSchedule is the task's configured STX built-in schedule (nil when no cron is configured).",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/sync.DolphinBuiltinSchedule"
+                        }
+                    ]
                 },
                 "connection": {
                     "$ref": "#/definitions/sync.SchedulerConnection"
@@ -10407,6 +10468,16 @@ const docTemplate = `{
                 },
                 "release_state": {
                     "type": "string"
+                },
+                "schedule_error": {
+                    "type": "string"
+                },
+                "schedules": {
+                    "description": "Schedules 是工作流的定时；ScheduleError 非空表示读取失败（不阻断查看工作流）。\nSchedules are the workflow's schedules; a non-empty ScheduleError means they could not be read (viewing the\nworkflow still works).",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/sync.DolphinScheduleInfo"
+                    }
                 },
                 "tasks": {
                     "type": "array",

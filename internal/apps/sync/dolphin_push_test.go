@@ -138,6 +138,14 @@ func TestPushDolphinUpdateDryRunKeepsEdges(t *testing.T) {
 			writeDolphinOK(writer, map[string]any{"totalList": []any{}})
 			return
 		}
+		// 预览只读取定时，供告知「沿用工作流定时」；任何写请求仍然失败。
+		// The preview only reads schedules to tell the user the workflow's schedule takes over; any write still fails.
+		if strings.HasSuffix(request.URL.Path, "/schedules") && request.Method == http.MethodGet {
+			writeDolphinOK(writer, map[string]any{"totalList": []any{
+				map[string]any{"id": 11, "crontab": "0 0 2 * * ? *", "timezoneId": "Asia/Shanghai", "releaseState": "ONLINE"},
+			}})
+			return
+		}
 		t.Fatalf("dry-run should not write: %s %s", request.Method, request.URL.Path)
 	}))
 	defer server.Close()
@@ -156,6 +164,9 @@ func TestPushDolphinUpdateDryRunKeepsEdges(t *testing.T) {
 	}
 	if !result.WouldOffline || result.TaskCode != 88 {
 		t.Fatalf("unexpected dry-run result: %+v", result)
+	}
+	if len(result.Schedules) != 1 || result.Schedules[0].Crontab != "0 0 2 * * ? *" || result.Schedules[0].ReleaseState != "ONLINE" {
+		t.Fatalf("dry-run should report the workflow schedules: %+v", result.Schedules)
 	}
 }
 

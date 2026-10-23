@@ -93,6 +93,12 @@ Worker 令牌：
 - `update`：已绑定任务强制走此模式；可省略 `connection_id`/`project_code`，从绑定回填；只改该节点脚本/设置，不覆盖已有 `timeoutFlag`/`timeout`
 - 新建 SHELL 节点 `timeoutFlag=CLOSE`，不设分钟数；用户在 Dolphin 里打开的超时，再推送不得改掉
 - 已上线工作流：OFFLINE → PUT → ONLINE；PUT 后上线失败必须带 “workflow is OFFLINE”
+- 定时是独立资源（`/projects/{code}/schedules`，按工作流 code 关联，有自己的上下线状态），Dolphin 下线工作流会连带下线其定时：
+  - reuse / update 在**下线前**读取定时并记下原本在线的集合；读取失败时中止推送（不下线、不改图），返回 “nothing was changed”
+  - 重新上线后**只恢复原本在线的定时**，推送前已暂停的定时保持暂停；禁止对已有工作流调用「全部上线」（`OnlineSchedules` 只给 STX 新建的工作流用）
+  - 原本下线的工作流：推送后保持下线，不上线、不碰定时（读取失败只记警告）
+  - 推送结果与工作流详情返回 `schedules`（推送前状态），结果另含 `schedules_restored`；数组为 `[]` 不为 `null`
+- 定时属于整个工作流：`use_builtin_schedule` 只对 `new` 生效；reuse / update 不创建、不覆盖已有定时，带该参数时返回 warning。推送弹窗必须告知上下线行为、工作流定时（含暂停）、STX cron 不沿用，以及工作流无定时时任务不会自动运行
 - `expected_version` 变化 → 409，不覆盖
 - 推送成功关闭 STX 内置定时；绑定期间不能再打开
 - 解绑只删 STX 记录，不动 Dolphin 节点，也不吊销管理员签发的登录令牌
@@ -162,6 +168,7 @@ SHELL 节点 JSON 必须带 `isCache=NO`、`taskExecuteType=BATCH`；3.2.x 缺 `
 - 未发布推送失败；同一发布版本再次 update 409；发布新版本后才允许更新。Dolphin `external_ref` 提交使用发布快照，`trigger_source=dolphin`；引擎不可用时仍写入 failed 作业。
 - Dolphin httptest：3.1/3.2 只打 `process-definition` 且定时带 `processDefinitionCode`；3.3+ 只打 `workflow-definition` 且解码 `workflowTaskRelationList`；更新 3.3 节点必须把原 `workflowTaskRelationList` 写回 `taskRelationJson`；2.x / 非 3.x 版本被拒绝。
 - 整图回写：update 在 OFFLINE 后 GET 丢掉 locations 时仍要把兄弟 SPARK/CONDITION 节点、边 extra 字段和坐标 extra 写回；reuse 不得改写已有节点 JSON。OFFLINE 后再 GET 若只返回部分节点或空数组，必须用下线前副本回写，禁止把残缺图 PUT 回去。
+- 定时恢复：在线工作流含「在线 + 暂停」两条定时时，update / reuse 推送后只有原在线的被上线、暂停的保持暂停；下线工作流不触发任何上线；在线工作流读不到定时则不下线（有状态 fake：下线工作流连带下线定时）。
 - CLI：`stx sync scheduler connection create --dolphin-version 3.2.2` 把版本写入连接请求体。
 - 前端：中英文 i18n 键齐全；service 对 `tasks`/`relations`/`recent_jobs` 做 `?? []`。任务侧栏在已绑定状态下不得出现令牌管理入口。
 - 脚本：`rawScript` 不含 `STX_TOKEN`；`env_notes` 不含 `export STX_TOKEN=`，并说明推送不签发登录令牌。

@@ -297,29 +297,64 @@ func (c *DolphinClient) CreateSchedule(ctx context.Context, projectCode, workflo
 	return err
 }
 
-func (c *DolphinClient) OnlineSchedules(ctx context.Context, projectCode, workflowCode int64) error {
+// ListSchedules 列出工作流的定时及其上下线状态。成功响应但无法解析时视为没有定时（与旧行为一致）；请求失败返回错误。
+// ListSchedules lists a workflow's schedules with their release states. A successful but unparsable response counts
+// as no schedules (as before); a failed request returns an error.
+func (c *DolphinClient) ListSchedules(ctx context.Context, projectCode, workflowCode int64) ([]DolphinScheduleInfo, error) {
 	if err := c.ensureStyle(ctx, projectCode); err != nil {
-		return err
+		return nil, err
 	}
 	codeField := "processDefinitionCode"
 	if c.style == SchedulerAPIStyleWorkflow {
 		codeField = "workflowDefinitionCode"
 	}
-	query := fmt.Sprintf("/projects/%d/schedules?%s=%d&pageNo=1&pageSize=20", projectCode, codeField, workflowCode)
+	query := fmt.Sprintf("/projects/%d/schedules?%s=%d&pageNo=1&pageSize=50", projectCode, codeField, workflowCode)
 	raw, err := c.do(ctx, http.MethodGet, query, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	var page struct {
 		TotalList []struct {
-			ID int64 `json:"id"`
+			ID           int64  `json:"id"`
+			Crontab      string `json:"crontab"`
+			TimezoneID   string `json:"timezoneId"`
+			ReleaseState string `json:"releaseState"`
 		} `json:"totalList"`
 	}
+	schedules := make([]DolphinScheduleInfo, 0)
 	if json.Unmarshal(raw, &page) != nil {
-		return nil
+		return schedules, nil
 	}
 	for _, item := range page.TotalList {
-		if _, err := c.doForm(ctx, http.MethodPost, fmt.Sprintf("/projects/%d/schedules/%d/online", projectCode, item.ID), url.Values{}); err != nil {
+		schedules = append(schedules, DolphinScheduleInfo{
+			ID:           item.ID,
+			Crontab:      strings.TrimSpace(item.Crontab),
+			Timezone:     strings.TrimSpace(item.TimezoneID),
+			ReleaseState: strings.ToUpper(strings.TrimSpace(item.ReleaseState)),
+		})
+	}
+	return schedules, nil
+}
+
+// OnlineSchedule 上线一条定时。
+// OnlineSchedule brings one schedule online.
+func (c *DolphinClient) OnlineSchedule(ctx context.Context, projectCode, scheduleID int64) error {
+	_, err := c.doForm(ctx, http.MethodPost, fmt.Sprintf("/projects/%d/schedules/%d/online", projectCode, scheduleID), url.Values{})
+	return err
+}
+
+// OnlineSchedules 上线工作流的全部定时；只用于 STX 新建的工作流（其定时都由本次推送创建）。复用 / 更新已有工作流时
+// 必须按推送前状态恢复（见 restoreOnlineSchedules），不能调用本方法，否则会把用户暂停的定时重新打开。
+// OnlineSchedules brings every schedule of a workflow online; only for workflows created by STX (all their schedules
+// come from this push). Reuse / update of an existing workflow must restore the pre-push states instead (see
+// restoreOnlineSchedules); calling this there would re-enable schedules the user had paused.
+func (c *DolphinClient) OnlineSchedules(ctx context.Context, projectCode, workflowCode int64) error {
+	schedules, err := c.ListSchedules(ctx, projectCode, workflowCode)
+	if err != nil {
+		return err
+	}
+	for _, item := range schedules {
+		if err := c.OnlineSchedule(ctx, projectCode, item.ID); err != nil {
 			return err
 		}
 	}
@@ -581,10 +616,10 @@ func buildShellTask(code int64, name, script, workerGroup string, environmentCod
 			"waitStartTimeout": map[string]any{},
 			"switchResult":     map[string]any{},
 		},
-		Flag:              "YES",
-		TaskPriority:      "MEDIUM",
-		WorkerGroup:       defaultString(workerGroup, defaultDolphinWorkerGroup),
-		EnvironmentCode:   environmentCode,
+		Flag:            "YES",
+		TaskPriority:    "MEDIUM",
+		WorkerGroup:     defaultString(workerGroup, defaultDolphinWorkerGroup),
+		EnvironmentCode: environmentCode,
 		// SHELL runs `stx … --wait`; a DS-level retry re-runs a long CLI and
 		// costs ~5m of wall clock on every intentional engine failure. Leave
 		// retries to the operator in Dolphin UI if they want them.

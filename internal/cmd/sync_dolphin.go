@@ -54,7 +54,7 @@ func newSyncTaskDolphinPushCommand(storeProvider authStoreProvider) *cobra.Comma
 				return err
 			}
 			operationID := "sync.task.dolphin.push"
-			client, headers, err := prepareSecureWrite(command, storeProvider, operationID, &options, "向 DolphinScheduler 创建或更新 SHELL 节点，已上线工作流会先下线再写入。")
+			client, headers, err := prepareSecureWrite(command, storeProvider, operationID, &options, "向 DolphinScheduler 创建或更新 SHELL 节点；已上线工作流会先下线、写入后再上线，期间其定时不触发，原本暂停的定时保持暂停。")
 			if err != nil {
 				return err
 			}
@@ -99,7 +99,7 @@ func newSyncTaskDolphinPushCommand(storeProvider authStoreProvider) *cobra.Comma
 	command.Flags().StringVar(&workflowName, "workflow-name", "", "Name for a newly created workflow")
 	command.Flags().StringArrayVar(&upstreams, "upstream", nil, "Upstream task codes when reusing a workflow")
 	command.Flags().StringArrayVar(&downstreams, "downstream", nil, "Downstream task codes when reusing a workflow")
-	command.Flags().BoolVar(&useBuiltinSchedule, "use-builtin-schedule", false, "Copy the STX built-in cron onto a new workflow")
+	command.Flags().BoolVar(&useBuiltinSchedule, "use-builtin-schedule", false, "Copy the STX built-in cron onto a new workflow (ignored for existing workflows, which keep their own schedule)")
 	command.Flags().StringVar(&workerGroup, "worker-group", "", "DolphinScheduler worker group")
 	command.Flags().StringVar(&environment, "environment", "", "DolphinScheduler worker environment name")
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "Validate the push without writing DolphinScheduler")

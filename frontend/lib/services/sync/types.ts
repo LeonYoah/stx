@@ -459,6 +459,22 @@ export interface DolphinWorkflowRelation {
   post_task_code: number;
 }
 
+// Dolphin 工作流的一条定时（独立资源，按工作流关联，有自己的上下线状态）。
+// One schedule of a Dolphin workflow (a separate resource linked to the workflow, with its own release state).
+export interface DolphinScheduleInfo {
+  id: number;
+  crontab: string;
+  timezone: string;
+  release_state: string;
+}
+
+// 任务配置的 STX 内置定时摘要。/ Summary of the task's configured STX built-in schedule.
+export interface DolphinBuiltinSchedule {
+  cron_expr: string;
+  timezone: string;
+  enabled: boolean;
+}
+
 export interface DolphinWorkflowDetail {
   code: number;
   name: string;
@@ -466,6 +482,9 @@ export interface DolphinWorkflowDetail {
   release_state?: string;
   tasks: DolphinWorkflowTask[];
   relations?: DolphinWorkflowRelation[];
+  // 工作流定时；schedule_error 非空表示读取失败。/ Workflow schedules; schedule_error is set when they could not be read.
+  schedules: DolphinScheduleInfo[];
+  schedule_error?: string;
 }
 
 export interface DolphinScriptResult {
@@ -521,6 +540,9 @@ export interface DolphinPushResult {
   cycle: boolean;
   message?: string;
   warning?: string;
+  // 推送前的工作流定时与重新上线后恢复的定时 ID。/ Workflow schedules before the push and IDs restored afterwards.
+  schedules?: DolphinScheduleInfo[];
+  schedules_restored?: number[];
 }
 
 export interface DolphinTaskStatus {
@@ -531,6 +553,7 @@ export interface DolphinTaskStatus {
   builtin_locked?: boolean;
   published_version?: number;
   pushed_version?: number;
+  builtin_schedule?: DolphinBuiltinSchedule | null;
 }
 
 export interface SyncRecoverJobRequest {

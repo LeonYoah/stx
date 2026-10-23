@@ -127,6 +127,27 @@ stx_obs_should_start() {
   esac
 }
 
+# 复制目录内容 src/. -> dst/；src 不存在或与 dst 为同一目录（-ef）时跳过。
+# Copy src/. into dst/; skip when src is missing or resolves to the same dir as dst (-ef).
+stx_obs_copy_tree() {
+  local src="$1" dst="$2"
+  [[ -d "$src" ]] || return 0
+  mkdir -p "$dst"
+  if [[ "$src" -ef "$dst" ]]; then
+    return 0
+  fi
+  cp -a "$src/." "$dst/"
+}
+
+# Alertmanager 启动参数。--cluster.listen-address= 置空以关闭 gossip 集群（单机部署）：
+# 否则仅有 loopback 网卡的主机会因 'no private IP found' 直接退出。
+# Alertmanager args. Empty --cluster.listen-address= disables HA gossip (single-node deploy);
+# otherwise hosts with only a loopback interface exit with 'no private IP found'.
+stx_obs_alertmanager_args() {
+  local alert_dir="$1"
+  printf '%s' "--config.file=$alert_dir/alertmanager.yml --storage.path=$alert_dir/data --web.listen-address=:9093 --cluster.listen-address="
+}
+
 # Generate default configs from templates into component dirs.
 # 从模板生成默认配置到组件目录。
 stx_obs_init_defaults() {
@@ -187,12 +208,10 @@ stx_obs_init_defaults() {
   fi
 
   # Copy grafana provisioning from render output into grafana runtime tree.
-  if [[ -d "$obs_root/grafana/provisioning" ]]; then
-    cp -a "$obs_root/grafana/provisioning/." "$grafana_dir/provisioning/"
-  fi
-  if [[ -d "$obs_root/grafana/dashboards" ]]; then
-    cp -a "$obs_root/grafana/dashboards/." "$grafana_dir/dashboards/"
-  fi
+  # 源与目标为同一目录时（render 直接写入 grafana_dir）跳过，避免 cp 'are the same file' 告警。
+  # Skip when src and dest are the same dir (render already wrote into grafana_dir) to avoid cp 'are the same file'.
+  stx_obs_copy_tree "$obs_root/grafana/provisioning" "$grafana_dir/provisioning"
+  stx_obs_copy_tree "$obs_root/grafana/dashboards" "$grafana_dir/dashboards"
 
   if [[ -f "$obs_root/grafana_config/grafana.ini.tpl" ]]; then
     sed \
@@ -281,7 +300,7 @@ stx_obs_start_stack() {
     fi
   done
 
-  setsid sh -c "exec $ALERT_DIR/alertmanager --config.file=$ALERT_DIR/alertmanager.yml --storage.path=$ALERT_DIR/data --web.listen-address=:9093 >> $ALERT_DIR/logs/alertmanager.log 2>&1" < /dev/null &
+  setsid sh -c "exec $ALERT_DIR/alertmanager $(stx_obs_alertmanager_args "$ALERT_DIR") >> $ALERT_DIR/logs/alertmanager.log 2>&1" < /dev/null &
   echo $! >"$ALERT_DIR/alertmanager.pid"
 
   setsid sh -c "exec $PROM_DIR/prometheus --config.file=$PROM_DIR/prometheus.yml --storage.tsdb.path=$PROM_DIR/data --web.listen-address=:9090 --web.enable-lifecycle >> $PROM_DIR/logs/prometheus.log 2>&1" < /dev/null &

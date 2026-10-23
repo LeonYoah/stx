@@ -73,7 +73,7 @@ start() {
     echo "Alertmanager 已在运行 / Alertmanager is already running (pid=$(cat "$ALERT_DIR/alertmanager.pid"))"
   else
     echo "启动 / Starting Alertmanager on :9093..."
-    setsid sh -c "exec $ALERT_DIR/alertmanager --config.file=$ALERT_DIR/alertmanager.yml --storage.path=$ALERT_DIR/data --web.listen-address=:9093 >> $ALERT_DIR/logs/alertmanager.log 2>&1" < /dev/null &
+    setsid sh -c "exec $ALERT_DIR/alertmanager --config.file=$ALERT_DIR/alertmanager.yml --storage.path=$ALERT_DIR/data --web.listen-address=:9093 --cluster.listen-address= >> $ALERT_DIR/logs/alertmanager.log 2>&1" < /dev/null &
     echo $! >"$ALERT_DIR/alertmanager.pid"
   fi
 

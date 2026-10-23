@@ -112,7 +112,14 @@ stx_build_github_release_url() {
   local tag="$1"
   local asset="$2"
   local prefix="${3:-}"
-  local raw="https://github.com/${STX_GITHUB_OWNER}/${STX_GITHUB_REPO}/releases/download/${tag}/${asset}"
+  local raw
+  # GitHub 的 latest 是特殊路径 releases/latest/download/<asset>；releases/download/latest/... 会 404。
+  # "latest" is a special GitHub path (releases/latest/download/<asset>); releases/download/latest/... 404s.
+  if [[ "$tag" == "latest" ]]; then
+    raw="https://github.com/${STX_GITHUB_OWNER}/${STX_GITHUB_REPO}/releases/latest/download/${asset}"
+  else
+    raw="https://github.com/${STX_GITHUB_OWNER}/${STX_GITHUB_REPO}/releases/download/${tag}/${asset}"
+  fi
   if [[ -n "$prefix" ]]; then
     prefix="${prefix%/}"
     echo "${prefix}/${raw}"
@@ -131,6 +138,61 @@ stx_gh_proxy_nodes() {
     return 0
   fi
   printf '%s\n' "${STX_GH_PROXY_DEFAULT_NODES[@]}"
+}
+
+# 当前毫秒时间戳；不支持 %N 的 date（如 busybox/BSD）退化为秒*1000，不依赖 python3。
+# Current epoch milliseconds; falls back to seconds*1000 when date lacks %N (busybox/BSD). No python3 needed.
+stx_now_ms() {
+  local ms
+  ms="$(date +%s%3N 2>/dev/null || true)"
+  if [[ "$ms" =~ ^[0-9]{13,}$ ]]; then
+    echo "$ms"
+  else
+    echo "$(( $(date +%s) * 1000 ))"
+  fi
+}
+
+# 从 GitHub releases API JSON（stdin）提取 tag_name，仅用 grep/sed，不依赖 python3。
+# Extract tag_name from GitHub releases API JSON on stdin using grep/sed only (no python3).
+stx_json_tag_name() {
+  tr -d '\r\n' | grep -o '"tag_name"[[:space:]]*:[[:space:]]*"[^"]*"' | head -n1 \
+    | sed 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)"/\1/'
+}
+
+# 从 deps MANIFEST.json（stdin）读取 observability.<arch> 资产名，仅用 tr/grep/sed。
+# Read observability.<arch> asset name from deps MANIFEST.json on stdin using tr/grep/sed only.
+stx_manifest_obs_asset() {
+  local arch="$1"
+  tr -d '\r\n' | grep -o '"observability"[[:space:]]*:[[:space:]]*{[^}]*}' | head -n1 \
+    | grep -o "\"${arch}\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" | head -n1 \
+    | sed 's/.*:[[:space:]]*"\([^"]*\)"/\1/'
+}
+
+# 版本号 >= 18.18（node -v 形如 v20.11.1）。/ True when a node version string is >= 18.18.
+stx_node_version_ok() {
+  local v="${1#v}" major minor
+  major="${v%%.*}"
+  minor="${v#*.}"
+  minor="${minor%%.*}"
+  [[ "$major" =~ ^[0-9]+$ ]] || return 1
+  [[ "$minor" =~ ^[0-9]+$ ]] || minor=0
+  if (( major > 18 )) || { (( major == 18 )) && (( minor >= 18 )); }; then
+    return 0
+  fi
+  return 1
+}
+
+# 检查必需命令是否存在，缺失时给出清晰错误。/ Fail with a clear message when required commands are missing.
+stx_require_cmds() {
+  local missing=() c
+  for c in "$@"; do
+    command -v "$c" >/dev/null 2>&1 || missing+=("$c")
+  done
+  if [[ ${#missing[@]} -gt 0 ]]; then
+    echo "[ERROR] missing required command(s): ${missing[*]}" >&2
+    echo "        please install them first, e.g. apt-get install -y ${missing[*]}  /  yum install -y ${missing[*]}" >&2
+    return 1
+  fi
 }
 
 # 对国内节点测速，回写最快前缀到 STX_SELECTED_MIRROR_PREFIX。/ Speed-test CN nodes; set STX_SELECTED_MIRROR_PREFIX.
@@ -157,12 +219,12 @@ stx_select_mirror_prefix() {
     [[ -z "$node" ]] && continue
     node="${node%/}"
     probe_url="$(stx_build_github_release_url "$probe_tag" "$probe_asset" "$node")"
-    start="$(date +%s%3N 2>/dev/null || python3 -c 'import time;print(int(time.time()*1000))')"
+    start="$(stx_now_ms)"
     code="$(curl -o /dev/null -s -w '%{http_code}' --connect-timeout "$STX_DOWNLOAD_CONNECT_TIMEOUT" \
       --max-time "$STX_DOWNLOAD_MAX_TIME" -I "$probe_url" 2>/dev/null || echo "000")"
-    end="$(date +%s%3N 2>/dev/null || python3 -c 'import time;print(int(time.time()*1000))')"
+    end="$(stx_now_ms)"
     elapsed=$((end - start))
-    if [[ "$code" =~ ^2|3 ]]; then
+    if [[ "$code" =~ ^[23] ]]; then
       echo "[INFO] mirror ok: $node (${elapsed}ms, http=$code)" >&2
       if [[ "$elapsed" -lt "$best_ms" ]]; then
         best_ms="$elapsed"
@@ -236,6 +298,55 @@ stx_download_release_asset() {
       return 1
     fi
   fi
+}
+
+# 从仓库 raw 拉取单个文件（可带镜像前缀）。/ Fetch one repo file from GitHub raw (optional mirror prefix).
+stx_fetch_repo_file() {
+  local ref="$1"
+  local path="$2"
+  local dest="$3"
+  local prefix="${STX_SELECTED_MIRROR_PREFIX:-${STX_DOWNLOAD_MIRROR_PREFIX:-}}"
+  local raw="https://raw.githubusercontent.com/${STX_GITHUB_OWNER}/${STX_GITHUB_REPO}/${ref}/${path}"
+  mkdir -p "$(dirname "$dest")"
+  if [[ -n "$prefix" ]] && curl -fsSL --retry 2 --retry-delay 1 --connect-timeout 10 --max-time 120 \
+    -o "$dest" "${prefix%/}/${raw}" 2>/dev/null; then
+    return 0
+  fi
+  curl -fsSL --retry 2 --retry-delay 1 --connect-timeout 10 --max-time 120 -o "$dest" "$raw" 2>/dev/null || {
+    rm -f "$dest"
+    return 1
+  }
+}
+
+# 准备 Agent 启动脚本 stx-java-proxy.sh：Release 资产 → 本地仓库/bootstrap 副本 → 按 tag 从 raw 拉取。
+# 保证安装目录 scripts/stx-java-proxy.sh 始终存在（控制面经 /api/v1/agent/assets/stx-java-proxy.sh 下发给 Agent）。
+# Stage the agent launcher stx-java-proxy.sh: release asset -> local repo/bootstrap copy -> raw file at the tag.
+# Keeps <install>/scripts/stx-java-proxy.sh populated (served to agents via /api/v1/agent/assets/stx-java-proxy.sh).
+stx_stage_java_proxy_script() {
+  local tag="$1"
+  local dest="$2"
+  local root_dir="${3:-}"
+  local from_release=false
+  mkdir -p "$(dirname "$dest")"
+  if stx_download_release_asset "$tag" "stx-java-proxy.sh" "$dest" 2>/dev/null; then
+    from_release=true
+    if stx_download_release_asset "$tag" "stx-java-proxy.sh.sha256" "${dest}.sha256" 2>/dev/null; then
+      stx_verify_sha256 "$dest" "${dest}.sha256" || { from_release=false; rm -f "$dest"; }
+    fi
+    rm -f "${dest}.sha256"
+  fi
+  if [[ "$from_release" == "true" ]]; then
+    echo "[INFO] stx-java-proxy.sh: from release $tag" >&2
+  elif [[ -n "$root_dir" && -f "$root_dir/scripts/stx-java-proxy.sh" ]]; then
+    cp "$root_dir/scripts/stx-java-proxy.sh" "$dest"
+    echo "[WARN] stx-java-proxy.sh not on release $tag; using bundled copy from $root_dir" >&2
+  elif stx_fetch_repo_file "$tag" "scripts/stx-java-proxy.sh" "$dest"; then
+    echo "[WARN] stx-java-proxy.sh not on release $tag; fetched scripts/stx-java-proxy.sh@$tag" >&2
+  else
+    echo "[WARN] stx-java-proxy.sh unavailable (release asset and repo fallback failed); agents cannot fetch it" >&2
+    return 1
+  fi
+  chmod +x "$dest"
 }
 
 # 离线模式禁止外网：检测后直接失败。/ Fail fast when offline mode would hit the network.

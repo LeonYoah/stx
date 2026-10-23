@@ -71,49 +71,80 @@ stx_yaml_set() {
   local file="$1"
   local key_path="$2" # e.g. app.addr or grpc.port
   local value="$3"
-  python3 - "$file" "$key_path" "$value" <<'PY'
-import pathlib
-import re
-import sys
-
-path = pathlib.Path(sys.argv[1])
-key_path = sys.argv[2].split(".")
-value = sys.argv[3]
-text = path.read_text(encoding="utf-8")
-lines = text.splitlines(keepends=True)
-
-def matches_key(line, key, indent):
-    return re.match(rf"^{re.escape(' ' * indent)}{re.escape(key)}\s*:", line) is not None
-
-idx = 0
-indent = 0
-for depth, key in enumerate(key_path):
-    found = False
-    while idx < len(lines):
-        line = lines[idx]
-        if line.strip() and not line.strip().startswith("#"):
-            cur_indent = len(line) - len(line.lstrip(" "))
-            if cur_indent < indent and depth > 0:
-                break
-            if matches_key(line, key, indent):
-                found = True
-                if depth == len(key_path) - 1:
-                    nl = "\n" if line.endswith("\n") else ""
-                    quote = '"' if not (value.startswith('"') or value.startswith("'") or value.startswith(":") or value.isdigit() or value in ("true", "false")) else ""
-                    if value.startswith(":") or value.isdigit() or value in ("true", "false"):
-                        lines[idx] = f"{' ' * indent}{key}: {value}{nl}"
-                    else:
-                        lines[idx] = f"{' ' * indent}{key}: {quote}{value}{quote}{nl}"
-                    path.write_text("".join(lines), encoding="utf-8")
-                    sys.exit(0)
+  local tmp noeol=0 rc=0
+  if [[ ! -f "$file" ]]; then
+    echo "yaml file not found: $file" >&2
+    return 1
+  fi
+  # 纯 awk 实现（不依赖 python3）：按缩进逐级定位 key，仅替换命中行，其余行原样保留。
+  # Pure awk (no python3): walk keys level by level by indent, rewrite only the matched line, keep the rest.
+  if [[ -s "$file" && -n "$(tail -c1 "$file")" ]]; then
+    noeol=1
+  fi
+  tmp="$(mktemp "${TMPDIR:-/tmp}/stx-yaml.XXXXXX")"
+  STX_YAML_KEY="$key_path" STX_YAML_VALUE="$value" awk -v noeol="$noeol" '
+    BEGIN {
+      depth_n = split(ENVIRON["STX_YAML_KEY"], keys, ".")
+      value = ENVIRON["STX_YAML_VALUE"]
+      depth = 1; indent = 0; done = 0; failed = 0
+    }
+    { lines[NR] = $0 }
+    function spaces(n,   s) { s = ""; while (n-- > 0) s = s " "; return s }
+    function is_digits(v) { return v != "" && v ~ /^[0-9]+$/ }
+    function render(key,   q) {
+      if (substr(value, 1, 1) == ":" || is_digits(value) || value == "true" || value == "false") {
+        return spaces(indent) key ": " value
+      }
+      q = "\""
+      if (substr(value, 1, 1) == "\"" || substr(value, 1, 1) == "\047") q = ""
+      return spaces(indent) key ": " q value q
+    }
+    END {
+      n = NR
+      idx = 1
+      for (depth = 1; depth <= depth_n && !failed && !done; depth++) {
+        key = keys[depth]
+        found = 0
+        while (idx <= n) {
+          line = lines[idx]
+          if (line !~ /^[ \t\r\f\v]*$/ && line !~ /^[ \t\r\f\v]*#/) {
+            match(line, /^ */); cur = RLENGTH
+            if (cur < indent && depth > 1) break
+            if (substr(line, 1, indent) == spaces(indent) && substr(line, indent + 1, length(key)) == key \
+                && substr(line, indent + length(key) + 1) ~ /^[ \t\r\f\v]*:/) {
+              found = 1
+              if (depth == depth_n) {
+                # 保留原行的 CRLF 行尾。/ Keep CRLF line ending of the original line.
+                lines[idx] = render(key) (line ~ /\r$/ ? "\r" : "")
+                done = 1
+              } else {
                 indent += 2
-                idx += 1
-                break
-        idx += 1
-    if not found:
-        sys.exit(f"yaml key not found: {'.'.join(key_path)}")
-sys.exit(f"yaml key not found: {'.'.join(key_path)}")
-PY
+                idx++
+              }
+              break
+            }
+          }
+          idx++
+        }
+        if (!found) failed = 1
+      }
+      if (!done) {
+        printf "yaml key not found: %s\n", ENVIRON["STX_YAML_KEY"] > "/dev/stderr"
+        exit 1
+      }
+      for (i = 1; i <= n; i++) {
+        if (i == n && noeol) printf "%s", lines[i]
+        else printf "%s\n", lines[i]
+      }
+    }
+  ' "$file" >"$tmp" || rc=$?
+  if [[ "$rc" -ne 0 ]]; then
+    rm -f "$tmp"
+    return "$rc"
+  fi
+  # 原地覆盖（保留权限/属主）。/ Overwrite in place to keep mode/owner.
+  cat "$tmp" >"$file"
+  rm -f "$tmp"
 }
 
 # 写入/更新安装目录的默认配置端口与 external_url。/ Write default ports and external_url into install config.
@@ -173,6 +204,9 @@ stx_configure_defaults() {
 # 安装 systemd unit（root system / 非 root user）。/ Install systemd unit (system or user).
 stx_install_systemd() {
   local install_dir="$1"
+  # 安装成功后回写 system|user，供 install.sh 决定用 systemctl 还是 start.sh 启动。
+  # Set to system|user on success so install.sh can start via systemctl instead of start.sh.
+  STX_SYSTEMD_MODE=""
   if [[ "${STX_SKIP_SYSTEMD:-false}" == "true" ]]; then
     echo "[INFO] skip systemd (STX_SKIP_SYSTEMD=true)"
     return 0
@@ -184,6 +218,12 @@ stx_install_systemd() {
 
   local unit_path service_user_lines wanted_by use_user=0
   if [[ "$(id -u)" -eq 0 ]]; then
+    # 有 systemctl 但 systemd 未运行（容器、chroot 等）时跳过，避免 daemon-reload 失败中断安装。
+    # systemctl present but systemd not running (containers, chroot): skip so daemon-reload does not abort install.
+    if [[ ! -d /run/systemd/system ]]; then
+      echo "[WARN] systemd is not running (no /run/systemd/system); skip systemd"
+      return 0
+    fi
     unit_path="/etc/systemd/system/stx.service"
     wanted_by="multi-user.target"
     service_user_lines="User=root
@@ -220,14 +260,19 @@ WantedBy=${wanted_by}
 EOF
 
   if [[ "$use_user" -eq 1 ]]; then
-    systemctl --user daemon-reload
+    if ! systemctl --user daemon-reload; then
+      echo "[WARN] systemctl --user unavailable (no user session?); unit written to $unit_path but not enabled"
+      return 0
+    fi
     systemctl --user enable stx.service >/dev/null 2>&1 || true
+    STX_SYSTEMD_MODE="user"
     echo "[OK] systemd user unit: $unit_path"
     echo "     start: systemctl --user start stx"
     echo "     stop : systemctl --user stop stx"
   else
     systemctl daemon-reload
     systemctl enable stx.service >/dev/null 2>&1 || true
+    STX_SYSTEMD_MODE="system"
     echo "[OK] systemd unit: $unit_path"
     echo "     start: systemctl start stx"
     echo "     stop : systemctl stop stx"
@@ -237,20 +282,26 @@ EOF
 # 打印安装完成提示。/ Print post-install tips.
 stx_print_finish_tips() {
   local install_dir="$1"
+  local start_cmd="$install_dir/bin/start.sh" stop_cmd="$install_dir/bin/stop.sh" restart_cmd
+  restart_cmd="$install_dir/bin/stop.sh && $install_dir/bin/start.sh"
+  case "${STX_SYSTEMD_MODE:-}" in
+    system) start_cmd="systemctl start stx"; stop_cmd="systemctl stop stx"; restart_cmd="systemctl restart stx" ;;
+    user) start_cmd="systemctl --user start stx"; stop_cmd="systemctl --user stop stx"; restart_cmd="systemctl --user restart stx" ;;
+  esac
   cat <<EOF
 
 [OK] STX installed at: $install_dir
      UI (default) : http://127.0.0.1:${STX_FRONTEND_PORT:-17880}
      API          : ${STX_EXTERNAL_URL:-http://127.0.0.1:17800}
      Config       : $install_dir/config.yaml
-     Start        : $install_dir/bin/start.sh
-     Stop         : $install_dir/bin/stop.sh
+     Start        : $start_cmd
+     Stop         : $stop_cmd
      Status       : $install_dir/bin/status.sh
      Observability: bundled stack starts with start.sh (default --observability auto)
 
 To change settings:
   1) edit $install_dir/config.yaml
-  2) restart: systemctl restart stx   # or: $install_dir/bin/stop.sh && $install_dir/bin/start.sh
+  2) restart: $restart_cmd
   Optional: $install_dir/bin/start.sh --observability off
 
 Note: stx-all-in-one Docker image does NOT include Prometheus/Grafana/Alertmanager.

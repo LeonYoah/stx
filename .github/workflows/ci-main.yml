@@ -64,6 +64,36 @@ jobs:
       - name: Check database dialect compatibility
         run: python3 scripts/check_db_compatibility.py
 
+  # 安装脚本轻量门禁：语法 / shellcheck、安装链路不依赖 python3、download-lib / install-core 单测。
+  # Lightweight installer gate: syntax / shellcheck, no python3 in the install path, download-lib / install-core tests.
+  install-scripts-test:
+    name: Install Scripts Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Syntax and shellcheck
+        run: |
+          for f in install/*.sh install/bin/*.sh install/bin/lib/*.sh scripts/check-release-asset-globs.sh scripts/test-release-download-lib.sh; do
+            bash -n "$f"
+          done
+          shellcheck -x -S error install/*.sh install/bin/*.sh install/bin/lib/*.sh \
+            scripts/check-release-asset-globs.sh scripts/test-release-download-lib.sh
+
+      - name: Install path must not depend on python3
+        run: |
+          if grep -nE '^\s*[^#]*\bpython3\b' install/install.sh install/install-core.sh install/download-lib.sh \
+            install/install-online.sh install/download-bundle.sh; then
+            echo "[ERROR] installer scripts must not call python3 (target hosts may not have it)" >&2
+            exit 1
+          fi
+
+      - name: download-lib / install-core tests
+        run: bash scripts/test-release-download-lib.sh
+
   changes:
     name: Detect Changed Areas
     runs-on: ubuntu-latest

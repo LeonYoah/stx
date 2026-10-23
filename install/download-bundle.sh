@@ -59,9 +59,28 @@ stx_bootstrap_root_if_needed() {
     mkdir -p "$(dirname "$boot/$path")"
     curl -fsSL --retry 3 --retry-delay 1 -o "$boot/$path" "$url"
   done
+  # Agent 启动脚本：Release 资产缺失时（如 v1.2.0）作为兜底来源，失败不致命。
+  # Agent launcher: fallback source when the release asset is missing (e.g. v1.2.0); non-fatal.
+  path="scripts/stx-java-proxy.sh"
+  url="${base}/${path}"
+  [[ -n "$prefix" ]] && url="${prefix}/${base}/${path}"
+  mkdir -p "$boot/scripts"
+  if ! curl -fsSL --retry 3 --retry-delay 1 -o "$boot/$path" "$url"; then
+    rm -f "$boot/$path"
+    echo "[WARN] cannot bootstrap ${path} from ${ref}" >&2
+  fi
   ROOT_DIR="$boot"
   export STX_BOOTSTRAP_ROOT="$boot"
 }
+
+# 前置依赖检查（不再需要 python3）。/ Upfront dependency check (python3 is no longer required).
+for _stx_cmd in curl tar gzip awk sed grep; do
+  if ! command -v "$_stx_cmd" >/dev/null 2>&1; then
+    echo "[ERROR] missing required command: $_stx_cmd (please install it first, e.g. apt-get install -y $_stx_cmd)" >&2
+    exit 1
+  fi
+done
+unset _stx_cmd
 
 stx_bootstrap_root_if_needed
 # shellcheck source=../install/download-lib.sh
@@ -76,7 +95,7 @@ Usage:
   install/download-bundle.sh [options]
 
 Options:
-  --version <tag>                 Release tag (default: latest)
+  --version <tag>                 Release tag, e.g. v1.2.0 (default: latest; env STX_VERSION)
   --arch <amd64|arm64>            Default: auto-detect
   --node-variant <official|glibc217>  Default: auto by glibc
   --without-node                  Skip Node package (local Node ≥ 18.18, or target has it)
@@ -141,7 +160,7 @@ if [[ "$VERSION" == "latest" ]]; then
   if [[ -n "${STX_SELECTED_MIRROR_PREFIX:-}" ]]; then
     url="${STX_SELECTED_MIRROR_PREFIX%/}/https://api.github.com/repos/${STX_GITHUB_OWNER}/${STX_GITHUB_REPO}/releases/latest"
   fi
-  VERSION="$(curl -fsSL "$url" 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("tag_name",""))' || true)"
+  VERSION="$(curl -fsSL "$url" 2>/dev/null | stx_json_tag_name || true)"
   if [[ -z "$VERSION" ]]; then
     echo "[ERROR] cannot resolve latest release tag; pass --version explicitly" >&2
     exit 1
@@ -189,14 +208,7 @@ if [[ "$WITHOUT_NODE" == "true" ]]; then
   echo "[INFO] --without-node: skip node package"
   need_node=false
 elif command -v node >/dev/null 2>&1; then
-  if python3 - <<'PY'
-import re, subprocess, sys
-out = subprocess.check_output(["node", "-v"], text=True).strip().lstrip("v")
-parts = [int(x) for x in re.split(r"[^\d]+", out) if x.isdigit()]
-major, minor, patch = (parts + [0, 0, 0])[:3]
-sys.exit(0 if (major > 18 or (major == 18 and minor >= 18)) else 1)
-PY
-  then
+  if stx_node_version_ok "$(node -v 2>/dev/null || true)"; then
     echo "[INFO] local node $(node -v) is usable; skip node package in bundle"
     need_node=false
   fi
@@ -229,12 +241,7 @@ for epoch in v2 v3; do
 done
 
 mkdir -p "$BUNDLE_DIR/bin/lib" "$BUNDLE_DIR/scripts"
-if stx_download_release_asset "$VERSION" "stx-java-proxy.sh" "$BUNDLE_DIR/scripts/stx-java-proxy.sh" 2>/dev/null; then
-  chmod +x "$BUNDLE_DIR/scripts/stx-java-proxy.sh"
-elif [[ -f "$ROOT_DIR/scripts/stx-java-proxy.sh" ]]; then
-  cp "$ROOT_DIR/scripts/stx-java-proxy.sh" "$BUNDLE_DIR/scripts/stx-java-proxy.sh"
-  chmod +x "$BUNDLE_DIR/scripts/stx-java-proxy.sh"
-fi
+stx_stage_java_proxy_script "$VERSION" "$BUNDLE_DIR/scripts/stx-java-proxy.sh" "$ROOT_DIR" || true
 cp "$ROOT_DIR/install/install.sh" "$BUNDLE_DIR/install.sh"
 cp "$ROOT_DIR/install/download-lib.sh" "$BUNDLE_DIR/download-lib.sh"
 cp "$ROOT_DIR/install/install-core.sh" "$BUNDLE_DIR/install-core.sh"
@@ -289,4 +296,5 @@ fi
 echo "[OK] offline bundle ready:"
 echo "     dir:  $BUNDLE_DIR"
 echo "     tar:  ${BUNDLE_DIR}.tar.gz"
-echo "     transfer to the offline host, then: tar -xzf ... && ./install.sh --offline"
+echo "     transfer to the offline host, then:"
+echo "       tar -xzf ${BUNDLE_NAME}.tar.gz && cd ${BUNDLE_NAME} && ./install.sh --offline"

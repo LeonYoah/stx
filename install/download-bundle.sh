@@ -97,7 +97,8 @@ Usage:
 Options:
   --version <tag>                 Release tag, e.g. v1.2.0 (default: latest; env STX_VERSION)
   --arch <amd64|arm64>            Default: auto-detect
-  --node-variant <official|glibc217>  Default: auto by glibc
+  --node-variant <official|glibc217>  Default: auto by packaging host glibc (<2.27 => glibc217,
+                                  amd64 only; arm64 always official)
   --without-node                  Do NOT bundle the Node runtime (default: always bundled).
                                   Only use when the OFFLINE TARGET already has Node ≥ 18.18;
                                   the packaging host's own Node is irrelevant.
@@ -149,7 +150,7 @@ if [[ -z "$VERSION" ]]; then
   exit 1
 fi
 [[ -z "$ARCH" ]] && ARCH="$(stx_detect_arch)"
-[[ -z "$NODE_VARIANT" ]] && NODE_VARIANT="$(stx_recommend_node_variant)"
+[[ -z "$NODE_VARIANT" ]] && NODE_VARIANT="$(stx_recommend_node_variant "$ARCH")"
 [[ -n "$REGION" ]] && export STX_DOWNLOAD_REGION="$REGION"
 
 region="$(stx_detect_download_region)"
@@ -225,9 +226,8 @@ else
     fi
   done
   if [[ "$node_ok" != "true" ]]; then
-    echo "[ERROR] node package node-{22,18}-${NODE_VARIANT}-linux-${ARCH}.tar.gz not found on deps tag=$DEPS_TAG" >&2
-    echo "        the offline target would fail with 'node runtime not found'." >&2
-    echo "        fix --deps-tag/--node-variant/--arch, or pass --without-node if the target already has Node >= 18.18." >&2
+    stx_node_package_missing_error "$NODE_VARIANT" "$ARCH" "$DEPS_TAG" \
+      "or pass --without-node if the offline target already has Node >= 18.18 (otherwise it fails with 'node runtime not found')."
     exit 1
   fi
 fi

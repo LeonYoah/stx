@@ -108,7 +108,7 @@ curl -fsSL https://v4.gh-proxy.org/https://github.com/LeonYoah/stx/releases/late
 
 Useful flags: `--version v1.2.0` (or env `STX_VERSION=v1.2.0`; default `latest`), `--install-dir /opt/stx`, `--arch amd64|arm64`, `--without-node`, `--without-observability`, `--no-systemd`, `--no-start`.  
 Pin a version: `curl -fsSL .../install-online.sh | bash -s -- --version v1.2.0`.  
-Scripts pick Node variant from glibc (&lt;2.27 → glibc217); skip Node when local ≥ 18.18, or pass `--without-node`.  
+Scripts pick Node variant from glibc (&lt;2.27 → glibc217, amd64 only; arm64 always official); skip Node when local ≥ 18.18, or pass `--without-node` (fails fast if local Node is missing or &lt; 18.18).  
 Requirements: `bash`, `curl`, `tar`, `gzip`, `awk`/`sed`/`grep`, `find` — **python3 is not required**. With systemd, the installer enables and starts `stx.service`, so `systemctl status|restart stx` works right away.
 
 ### Offline install (script-built bundle)
@@ -118,13 +118,16 @@ curl -fsSL https://github.com/LeonYoah/stx/releases/latest/download/download-bun
 # China: https://v4.gh-proxy.org/https://github.com/LeonYoah/stx/releases/latest/download/download-bundle.sh
 ```
 
-The bundle **always** includes a Node runtime by default (whether the packaging host has Node is irrelevant). The variant follows the packaging host's glibc unless `--node-variant` is given:
+The bundle **always** includes a Node runtime by default (whether the packaging host has Node is irrelevant), so it is larger than before (one Node tarball, tens of MB). The variant follows the packaging host's glibc unless `--node-variant` is given:
 
-| Variant | Bundled Node |
+| Packaging host | Bundled Node |
 | --- | --- |
-| glibc ≤ 2.17 (CentOS 7) | `node-18-glibc217` (**amd64 only**) |
-| glibc > 2.17 | `node-22-official` |
+| amd64, glibc &lt; 2.27 (e.g. CentOS 7) | `node-18-glibc217` |
+| amd64, glibc ≥ 2.27 | `node-22-official` |
+| arm64 (any glibc) | `node-22-official` (no arm64 glibc217 build; target needs glibc ≥ 2.28) |
 | `--without-node` | **None** — only when the offline target already has Node ≥ 18.18 in `PATH`; otherwise `install.sh` stops with a clear error |
+
+If the selected Node package is missing on the `deps` release the bundle script fails (hinting `--node-variant official`) instead of producing a Node-less bundle.
 
 CentOS 7: `bash -s -- --node-variant glibc217 --arch amd64`. Pin a version with `bash -s -- --version v1.2.0` (or `STX_VERSION=v1.2.0`). Output: `dist/offline/stx-offline-bundle-*.tar.gz`.
 
@@ -157,8 +160,8 @@ node -v
 
 | Environment | amd64 | arm64 |
 | --- | --- | --- |
-| glibc ≤ 2.17 (CentOS 7) | [node-18-glibc217](https://github.com/LeonYoah/stx/releases/download/deps/node-18-glibc217-linux-amd64.tar.gz) | unsupported |
-| glibc > 2.17, no Node ≥ 18.18 | [node-22-official](https://github.com/LeonYoah/stx/releases/download/deps/node-22-official-linux-amd64.tar.gz) | [node-22-official](https://github.com/LeonYoah/stx/releases/download/deps/node-22-official-linux-arm64.tar.gz) |
+| glibc &lt; 2.27 (e.g. CentOS 7) | [node-18-glibc217](https://github.com/LeonYoah/stx/releases/download/deps/node-18-glibc217-linux-amd64.tar.gz) | unsupported |
+| glibc ≥ 2.27, no Node ≥ 18.18 | [node-22-official](https://github.com/LeonYoah/stx/releases/download/deps/node-22-official-linux-amd64.tar.gz) | [node-22-official](https://github.com/LeonYoah/stx/releases/download/deps/node-22-official-linux-arm64.tar.gz) |
 | Node ≥ 18.18 already | skip | skip |
 
 ### Docker full stack

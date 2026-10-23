@@ -100,8 +100,9 @@ Options:
   --version <tag>              Release tag, e.g. v1.2.0 (default: latest; env STX_VERSION)
   --install-dir <path>         Install dir (default: /opt/stx)
   --arch <amd64|arm64>         Target arch (default: auto)
-  --node-variant <official|glibc217>  Node runtime variant (default: auto by glibc)
-  --without-node               Do not download Node package (use system Node ≥ 18.18)
+  --node-variant <official|glibc217>  Node runtime variant (default: auto by glibc <2.27 => glibc217,
+                               amd64 only; arm64 always official)
+  --without-node               Do not download Node package (requires system Node ≥ 18.18; fails otherwise)
   --without-observability      Skip bundled Prometheus/Alertmanager/Grafana
   --region <cn|global>         Force download region
   --no-start                   Pass through to install.sh
@@ -146,10 +147,18 @@ if [[ -z "$ARCH" ]]; then
   ARCH="$(stx_detect_arch)"
 fi
 if [[ -z "$NODE_VARIANT" ]]; then
-  NODE_VARIANT="$(stx_recommend_node_variant)"
+  NODE_VARIANT="$(stx_recommend_node_variant "$ARCH")"
 fi
 if [[ -n "$REGION" ]]; then
   export STX_DOWNLOAD_REGION="$REGION"
+fi
+
+# --without-node 需要本机 Node >= 18.18：下载前就失败，与 install.sh 报错一致。
+# --without-node needs a system Node >= 18.18: fail before downloading, consistent with install.sh.
+if [[ "$WITHOUT_NODE" == "true" ]] && ! stx_probe_system_node; then
+  stx_system_node_error "--without-node was given" \
+    "install Node >= 18.18 on this host (and make sure it is in PATH), or drop --without-node to download the Node package."
+  exit 1
 fi
 
 region="$(stx_detect_download_region)"
@@ -266,9 +275,15 @@ if [[ "$need_node" == "true" ]]; then
     fi
   done
   if [[ -z "$node_asset" ]]; then
-    echo "[WARN] node deps package not found on tag=$DEPS_TAG; install may require system node"
-  else
-    stx_download_release_asset "$DEPS_TAG" "${node_asset}.sha256" "$WORK_DIR/packages/${node_asset}.sha256" 2>/dev/null || true
+    # 本机无合格 Node 才会走到这里（否则上面已跳过下载），继续安装必然失败：直接报错。
+    # Only reached when the host has no usable Node (otherwise download was skipped), so install would fail: stop now.
+    stx_probe_system_node || true
+    stx_node_package_missing_error "$NODE_VARIANT" "$ARCH" "$DEPS_TAG" \
+      "or install Node >= 18.18 on this host (found: ${STX_SYSTEM_NODE_VER:-none}) and re-run (optionally with --without-node)."
+    exit 1
+  fi
+  if stx_download_release_asset "$DEPS_TAG" "${node_asset}.sha256" "$WORK_DIR/packages/${node_asset}.sha256" 2>/dev/null; then
+    stx_verify_sha256 "$WORK_DIR/packages/$node_asset" "$WORK_DIR/packages/${node_asset}.sha256"
   fi
 fi
 

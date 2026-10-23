@@ -125,7 +125,13 @@ cluster.ScaleService（新，internal/apps/cluster/scale_*.go）
 | 6 | `follow_java_proxy` | 若被移除节点是当前 proxy 承载节点：对新选出的 master 执行 `StartSTXJavaProxy` 并校验健康 |
 | 7 | `verify` | 在线节点 `check_cluster_members` 成员数 = 期望值；刷新集群状态 |
 
-- 主机离线导致无法 `stop_node`：步骤失败并提示；UI 提供「仅移除记录（强制）」降级入口，即现有 `DELETE /clusters/:id/nodes/:nodeId`（保留原语义，确认文案注明进程可能仍在运行）。
+- 主机离线导致无法 `stop_node`：步骤失败并提示；UI 提供「仅移除记录（强制）」降级入口，即现有 `DELETE /clusters/:id/nodes/:nodeId`（仍不停进程，确认文案注明进程可能仍在运行）。
+- 「仅移除记录」补齐记录层清理（2026-10-23，PR #65；t2 被删后残留 member-list 与配置行导致 `sync-all` 永远报待推送）：`Service.RemoveNode` 删除记录后经 `onNodeRecordRemoved` 钩子调用 `ScaleService.CleanupAfterRecordRemoval`，尽力而为、失败只记日志不影响移除结果：
+  - 修补模板 + 剩余节点 member-list（只写文件不重启，下次重启生效）；被移除节点或任一剩余节点进程登记在其他集群（`sharedProcessClusters`）时跳过——节点上的 hazelcast 文件为多个集群共用，修补会改到其他集群；
+  - 该 host 在本集群已无节点时 `DeleteHostConfigs`；
+  - host 在线时下发本集群监控配置；刷新集群状态。
+  - 缩容流程的 `cleanup_records` 直接调用 `repo.RemoveNode`，不会重复触发该钩子。
+- 删除主机（要求已不属于任何集群）后经 `host.Service` 的 `onHostDeleted` 钩子调用 `config.DeleteConfigsByHost`，清理该主机在所有集群残留的配置记录与版本（模板不动）。
 
 ### 4.3 状态与失败处理
 

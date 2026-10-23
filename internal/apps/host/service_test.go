@@ -1045,3 +1045,45 @@ func TestUpdateAgentStatusWithHostnameFallback(t *testing.T) {
 		t.Errorf("Expected loopback host IP corrected to 10.0.0.211, got %s", updatedHost.IPAddress)
 	}
 }
+
+// TestDeleteRunsOnHostDeletedHook 删除成功后才调用清理钩子；主机仍关联集群被拒绝时不调用。
+// TestDeleteRunsOnHostDeletedHook calls the cleanup hook only after a successful delete, not when the host is still
+// associated with a cluster.
+func TestDeleteRunsOnHostDeletedHook(t *testing.T) {
+	db, cleanup := setupServiceTestDB(t)
+	defer cleanup()
+	clusterRepo := cluster.NewRepository(db)
+	svc := NewService(NewRepository(db), clusterRepo, nil)
+	ctx := context.Background()
+	var deletedHosts []uint
+	svc.SetOnHostDeleted(func(_ context.Context, hostID uint) { deletedHosts = append(deletedHosts, hostID) })
+
+	busy, err := svc.Create(ctx, &CreateHostRequest{Name: "busy", IPAddress: "10.0.0.1"})
+	if err != nil {
+		t.Fatalf("create busy host: %v", err)
+	}
+	clusterObj := &cluster.Cluster{Name: "c1", DeploymentMode: cluster.DeploymentModeHybrid}
+	if err := clusterRepo.Create(ctx, clusterObj); err != nil {
+		t.Fatalf("create cluster: %v", err)
+	}
+	if err := clusterRepo.AddNode(ctx, &cluster.ClusterNode{ClusterID: clusterObj.ID, HostID: busy.ID, Role: cluster.NodeRoleMaster}); err != nil {
+		t.Fatalf("add node: %v", err)
+	}
+	if err := svc.Delete(ctx, busy.ID); err != ErrHostHasCluster {
+		t.Fatalf("expected ErrHostHasCluster, got %v", err)
+	}
+	if len(deletedHosts) != 0 {
+		t.Fatalf("hook must not run when deletion is rejected: %v", deletedHosts)
+	}
+
+	idle, err := svc.Create(ctx, &CreateHostRequest{Name: "idle", IPAddress: "10.0.0.2"})
+	if err != nil {
+		t.Fatalf("create idle host: %v", err)
+	}
+	if err := svc.Delete(ctx, idle.ID); err != nil {
+		t.Fatalf("delete idle host: %v", err)
+	}
+	if len(deletedHosts) != 1 || deletedHosts[0] != idle.ID {
+		t.Fatalf("hook must run once with the deleted host id, got %v", deletedHosts)
+	}
+}

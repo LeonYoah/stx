@@ -1132,8 +1132,8 @@
       "removeTitle": "Remove node {name}",
       "removeDescription": "Stops the node process, removes it from the remaining nodes' member lists and deletes the node record. The install directory is kept.",
       "forceRemove": "Remove record only (force)",
-      "forceRemoveHint": "The host is offline so the process cannot be stopped; forcing only deletes the node record and the process may keep running in the cluster.",
-      "forceRemoveSharedHint": "This node's process also belongs to other cluster(s); scaling in would stop it and affect them. Removing the record only unregisters the node from this cluster and keeps the process running.",
+      "forceRemoveHint": "The host is offline so the process cannot be stopped. Forcing deletes the node record, drops it from the remaining nodes' member lists (written to files, effective on next restart) and cleans this host's config records in this cluster. The process may keep running; stop it manually once the host is back.",
+      "forceRemoveSharedHint": "This node's process also belongs to other cluster(s); scaling in would stop it and affect them. Removing the record only unregisters the node from this cluster and cleans this cluster's config records for the host, keeping the process running; member lists are not changed because the config files are shared.",
       "forceRemoveConfirm": "Delete only the node record?",
       "steps": {
         "validate_plan": "Validate plan",

@@ -568,7 +568,27 @@ func (s *Service) DeleteHostConfigs(ctx context.Context, clusterID uint, hostID 
 		return 0, fmt.Errorf("cluster id and host id are required / 集群 ID 与主机 ID 必填")
 	}
 	hostRef := hostID
-	configs, err := s.repo.List(ctx, &ConfigFilter{ClusterID: clusterID, HostID: &hostRef})
+	return s.deleteHostRecords(ctx, &ConfigFilter{ClusterID: clusterID, HostID: &hostRef})
+}
+
+// DeleteConfigsByHost 删除某主机在所有集群中的配置记录及其版本（主机被删除时调用：只有不再属于任何集群的主机才允许删除，
+// 其配置记录均为孤儿，否则 sync-all 会永远把它们标记为待推送）。模板不受影响。
+// DeleteConfigsByHost deletes a host's config records and versions across all clusters (called when the host is
+// deleted: only hosts that no longer belong to any cluster can be deleted, so these records are orphans that sync-all
+// would otherwise keep marking as pending push). Templates are untouched.
+func (s *Service) DeleteConfigsByHost(ctx context.Context, hostID uint) (int, error) {
+	if hostID == 0 {
+		return 0, fmt.Errorf("host id is required / 主机 ID 必填")
+	}
+	hostRef := hostID
+	return s.deleteHostRecords(ctx, &ConfigFilter{HostID: &hostRef})
+}
+
+// deleteHostRecords 在一个事务中删除过滤到的主机配置记录及其版本，跳过模板；返回删除的记录数。
+// deleteHostRecords deletes the filtered host config records and their versions in one transaction, skipping
+// templates; returns how many records were deleted.
+func (s *Service) deleteHostRecords(ctx context.Context, filter *ConfigFilter) (int, error) {
+	configs, err := s.repo.List(ctx, filter)
 	if err != nil {
 		return 0, err
 	}

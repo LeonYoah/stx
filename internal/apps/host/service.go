@@ -41,6 +41,15 @@ type Service struct {
 	heartbeatTimeout time.Duration
 	controlPlaneAddr string
 	processStartedAt time.Time // process start time; online requires heartbeat after this
+	// onHostDeleted 主机删除成功后的可选钩子（如清理该主机的孤儿配置记录）；失败只记日志，不影响删除结果。
+	// onHostDeleted is an optional hook after a host is deleted (e.g. cleaning its orphan config records); failures
+	// are only logged and do not affect the deletion.
+	onHostDeleted func(ctx context.Context, hostID uint)
+}
+
+// SetOnHostDeleted 设置主机删除后的钩子。/ SetOnHostDeleted sets the hook run after a host is deleted.
+func (s *Service) SetOnHostDeleted(fn func(ctx context.Context, hostID uint)) {
+	s.onHostDeleted = fn
 }
 
 // ServiceConfig holds configuration for the Host Service.
@@ -373,7 +382,13 @@ func (s *Service) Delete(ctx context.Context, id uint) error {
 		}
 	}
 
-	return s.repo.Delete(ctx, id)
+	if err := s.repo.Delete(ctx, id); err != nil {
+		return err
+	}
+	if s.onHostDeleted != nil {
+		s.onHostDeleted(ctx, id)
+	}
+	return nil
 }
 
 // GetAssociatedClusters returns the list of clusters associated with a host.

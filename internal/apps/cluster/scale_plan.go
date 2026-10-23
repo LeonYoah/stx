@@ -1378,14 +1378,36 @@ func (s *ScaleService) PlanScaleIn(ctx context.Context, clusterID uint, nodeID u
 // would take the node away from the other cluster, so scale-in is blocked; to only unregister it from this cluster,
 // use "remove record only".
 func (s *ScaleService) addSharedProcessCheck(ctx context.Context, plan *ScalePlan, node *ClusterNode, lang string) {
+	shared := s.sharedProcessClusters(ctx, node)
+	if len(shared) == 0 {
+		return
+	}
+	plan.addCheck(ScaleCheck{
+		Name:     "shared_process",
+		Status:   ScaleCheckFailed,
+		Blocking: true,
+		Target:   strings.Join(shared, ","),
+		Message: scaleText(lang,
+			fmt.Sprintf("该节点进程（%s）同时登记在集群 %s，缩容会停止该进程并影响这些集群；若只想从本集群注销，请使用“仅移除记录”", node.InstallDir, strings.Join(shared, "、")),
+			fmt.Sprintf("this node's process (%s) is also registered in cluster(s) %s; scaling in would stop it and affect them. To only unregister it from this cluster, use \"remove record only\"", node.InstallDir, strings.Join(shared, ", "))),
+	})
+}
+
+// sharedProcessClusters 返回同一主机上与该节点为同一受管进程（cleanInstallDir + 角色 → ManagedName）的其他集群名，已排序。
+// sharedProcessClusters returns the names of other clusters on the same host that register the same managed process as
+// the node (cleanInstallDir + role → ManagedName), sorted.
+func (s *ScaleService) sharedProcessClusters(ctx context.Context, node *ClusterNode) []string {
+	shared := make([]string, 0)
+	if node == nil {
+		return shared
+	}
 	hostNodes, err := s.svc.repo.GetNodesByHostID(ctx, node.HostID)
 	if err != nil {
-		return
+		return shared
 	}
 	// 目录先规范化（去掉结尾斜杠等），同一物理目录的不同写法视为同一进程。
 	// Normalize directories first (trailing slashes etc.) so different spellings of one directory are one process.
 	identity := processidentity.ManagedName(cleanInstallDir(node.InstallDir), string(node.Role))
-	shared := make([]string, 0)
 	for _, other := range hostNodes {
 		if other == nil || other.ID == node.ID || other.ClusterID == node.ClusterID {
 			continue
@@ -1399,19 +1421,8 @@ func (s *ScaleService) addSharedProcessCheck(ctx context.Context, plan *ScalePla
 		}
 		shared = append(shared, label)
 	}
-	if len(shared) == 0 {
-		return
-	}
 	sort.Strings(shared)
-	plan.addCheck(ScaleCheck{
-		Name:     "shared_process",
-		Status:   ScaleCheckFailed,
-		Blocking: true,
-		Target:   strings.Join(shared, ","),
-		Message: scaleText(lang,
-			fmt.Sprintf("该节点进程（%s）同时登记在集群 %s，缩容会停止该进程并影响这些集群；若只想从本集群注销，请使用“仅移除记录”", node.InstallDir, strings.Join(shared, "、")),
-			fmt.Sprintf("this node's process (%s) is also registered in cluster(s) %s; scaling in would stop it and affect them. To only unregister it from this cluster, use \"remove record only\"", node.InstallDir, strings.Join(shared, ", "))),
-	})
+	return shared
 }
 
 // planJavaProxyFollow 判断被移除节点是否为当前 java-proxy 承载节点（与 pickSTXJavaProxyNode 规则一致），是则选出下一个承载节点。

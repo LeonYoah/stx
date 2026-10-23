@@ -32,6 +32,7 @@ LAYOUT="split" # split | legacy
 EMIT_DEPS=false
 DEPS_ONLY=false
 EMIT_OBSERVABILITY=true
+EMIT_NODE=true
 
 PROMETHEUS_VERSION="${PROMETHEUS_VERSION:-3.9.1}"
 ALERTMANAGER_VERSION="${ALERTMANAGER_VERSION:-0.31.1}"
@@ -50,6 +51,7 @@ Options:
   --emit-deps                       Also emit reusable node/observability deps tarballs (split layout)
   --deps-only                       Emit only node/observability deps; skip stx, agent, and frontend
   --no-observability                With --emit-deps/--deps-only, skip the observability tarball
+  --no-node                         With --deps-only, skip the Node runtime tarball (observability only)
   --bundle-observability <with|without|both>
                                      Legacy layout only (default: without)
   --node-major <18|22>               Node major for bundled/emitted runtime (default: 18)
@@ -63,6 +65,7 @@ Options:
 Examples:
   install/package-release.sh --arch all --layout split --build-frontend
   install/package-release.sh --deps-only --arch all --node-major 22 --node-variant official
+  install/package-release.sh --deps-only --no-node --arch all
   install/package-release.sh --arch amd64 --layout legacy --bundle-observability both --build-frontend
 EOF
 }
@@ -93,6 +96,12 @@ while [[ $# -gt 0 ]]; do
       ;;
     --no-observability)
       EMIT_OBSERVABILITY=false
+      shift
+      ;;
+    --no-node)
+      # 只重打三件套，不碰 Node 包（release-deps components=observability）。
+      # Rebuild observability only, leave Node packages alone (release-deps components=observability).
+      EMIT_NODE=false
       shift
       ;;
     --node-major)
@@ -180,6 +189,17 @@ if [[ "$NODE_VARIANT" == "glibc217" ]]; then
       exit 1
     fi
   done
+fi
+
+if [[ "$EMIT_NODE" != "true" ]]; then
+  if [[ "$DEPS_ONLY" != "true" ]]; then
+    echo "--no-node requires --deps-only (control plane packaging always needs Node)"
+    exit 1
+  fi
+  if [[ "$EMIT_OBSERVABILITY" != "true" ]]; then
+    echo "--no-node together with --no-observability leaves nothing to emit"
+    exit 1
+  fi
 fi
 
 if [[ "$DEPS_ONLY" == "true" && "$LAYOUT" != "split" ]]; then
@@ -279,8 +299,13 @@ else:
 PY
 }
 
-NODE_VERSION="$(resolve_latest_node_version)"
-echo "resolved Node runtime version: v$NODE_VERSION (major=$NODE_MAJOR, variant=$NODE_VARIANT)"
+NODE_VERSION=""
+if [[ "$EMIT_NODE" == "true" ]]; then
+  NODE_VERSION="$(resolve_latest_node_version)"
+  echo "resolved Node runtime version: v$NODE_VERSION (major=$NODE_MAJOR, variant=$NODE_VARIANT)"
+else
+  echo "skip Node runtime (--no-node)"
+fi
 
 prepare_node_runtime() {
   local arch="$1"
@@ -640,15 +665,17 @@ write_sha256() {
 # Emit reusable deps tarballs (node + optional observability). / 产出可复用 deps 包。
 emit_deps_packages() {
   local arch="$1"
-  local runtime_dir
-  runtime_dir="$(prepare_node_runtime "$arch")"
-  local node_name="node-${NODE_MAJOR}-${NODE_VARIANT}-linux-${arch}.tar.gz"
-  local node_out="$OUTPUT_DIR/$node_name"
-  echo "creating deps node package: $node_out"
-  tar -C "$(dirname "$runtime_dir")" -czf "$node_out" "$(basename "$runtime_dir")"
-  # Normalize inner folder name to node/ when extracted by installers that expect runtime/node.
-  # 安装器期望 runtime/node；这里保持解压后可再命名。
-  write_sha256 "$node_out"
+  if [[ "$EMIT_NODE" == "true" ]]; then
+    local runtime_dir
+    runtime_dir="$(prepare_node_runtime "$arch")"
+    local node_name="node-${NODE_MAJOR}-${NODE_VARIANT}-linux-${arch}.tar.gz"
+    local node_out="$OUTPUT_DIR/$node_name"
+    echo "creating deps node package: $node_out"
+    tar -C "$(dirname "$runtime_dir")" -czf "$node_out" "$(basename "$runtime_dir")"
+    # Normalize inner folder name to node/ when extracted by installers that expect runtime/node.
+    # 安装器期望 runtime/node；这里保持解压后可再命名。
+    write_sha256 "$node_out"
+  fi
 
   if [[ "$EMIT_OBSERVABILITY" == "true" ]]; then
     local obs_name="observability-prom${PROMETHEUS_VERSION}-am${ALERTMANAGER_VERSION}-gf${GRAFANA_VERSION}-linux-${arch}.tar.gz"

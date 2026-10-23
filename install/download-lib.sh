@@ -52,9 +52,15 @@ stx_detect_glibc_version() {
   echo ""
 }
 
-# 根据 glibc 选择 node variant：<2.27 用 glibc217。/ Pick node variant from glibc (<2.27 => glibc217).
+# 根据 glibc 选择 node variant：<2.27 用 glibc217；glibc217 只有 amd64 构建，arm64 总是 official。
+# Pick node variant from glibc (<2.27 => glibc217). glibc217 builds are amd64-only, so arm64 is always official.
+# 用法 / Usage: stx_recommend_node_variant [arch]
 stx_recommend_node_variant() {
-  local ver
+  local arch="${1:-}" ver
+  if [[ "$arch" == "arm64" ]]; then
+    echo "official"
+    return 0
+  fi
   ver="$(stx_detect_glibc_version)"
   if [[ -z "$ver" ]]; then
     echo "official"
@@ -172,14 +178,52 @@ stx_manifest_obs_asset() {
 stx_node_version_ok() {
   local v="${1#v}" major minor
   major="${v%%.*}"
-  minor="${v#*.}"
-  minor="${minor%%.*}"
+  # 无小版本号（如 v18）按 minor=0 处理。/ No minor part (e.g. v18) => minor=0.
+  if [[ "$v" == *.* ]]; then
+    minor="${v#*.}"
+    minor="${minor%%.*}"
+  else
+    minor=0
+  fi
   [[ "$major" =~ ^[0-9]+$ ]] || return 1
   [[ "$minor" =~ ^[0-9]+$ ]] || minor=0
   if (( major > 18 )) || { (( major == 18 )) && (( minor >= 18 )); }; then
     return 0
   fi
   return 1
+}
+
+# 探测可用的系统 Node（>= 18.18）：设置 STX_SYSTEM_NODE / STX_SYSTEM_NODE_VER，不合格返回 1。
+# Probe a usable system Node (>= 18.18): sets STX_SYSTEM_NODE / STX_SYSTEM_NODE_VER; returns 1 when unusable.
+stx_probe_system_node() {
+  STX_SYSTEM_NODE="$(command -v node 2>/dev/null || true)"
+  STX_SYSTEM_NODE_VER=""
+  [[ -n "$STX_SYSTEM_NODE" ]] && STX_SYSTEM_NODE_VER="$("$STX_SYSTEM_NODE" -v 2>/dev/null || true)"
+  [[ -n "$STX_SYSTEM_NODE" ]] && stx_node_version_ok "$STX_SYSTEM_NODE_VER"
+}
+
+# 系统 Node 缺失/过旧时的统一报错（install.sh 与 install-online.sh 共用）。
+# Shared error when the system Node is missing/too old (used by install.sh and install-online.sh).
+# 用法 / Usage: stx_system_node_error <context line> [hint line...]
+stx_system_node_error() {
+  local context="$1" line
+  shift
+  echo "[ERROR] ${context}, and no usable system Node (need >= 18.18, found: ${STX_SYSTEM_NODE_VER:-none})" >&2
+  for line in "$@"; do
+    echo "        $line" >&2
+  done
+}
+
+# Node deps 包缺失时的提示（glibc217 只有 amd64；非 official 时提示 --node-variant official）。
+# Hint when the Node deps package is missing (glibc217 is amd64-only; suggest --node-variant official).
+# 用法 / Usage: stx_node_package_missing_error <variant> <arch> <deps_tag> <without-node hint>
+stx_node_package_missing_error() {
+  local variant="$1" arch="$2" tag="$3" hint="$4"
+  echo "[ERROR] node package node-{22,18}-${variant}-linux-${arch}.tar.gz not found on deps tag=${tag}" >&2
+  if [[ "$variant" != "official" ]]; then
+    echo "        variant '${variant}' may not exist for ${arch} (glibc217 is amd64-only); retry with --node-variant official" >&2
+  fi
+  echo "        or check --deps-tag/--arch; ${hint}" >&2
 }
 
 # 检查必需命令是否存在，缺失时给出清晰错误。/ Fail with a clear message when required commands are missing.

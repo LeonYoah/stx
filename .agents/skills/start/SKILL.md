@@ -227,6 +227,8 @@ Use this output format:
 
 **Step 6: Configure Context** `[AI]`
 
+Skip by default: implement/check run inline on every platform in this project, so jsonl manifests are not needed.
+
 Initialize default context:
 
 ```bash
@@ -256,15 +258,15 @@ This sets `.current-task` so hooks can inject context.
 
 **Step 8: Implement** `[AI]`
 
-Implement the task described in `prd.md`.
+Implement the task described in `prd.md` in the main session (do not dispatch an implement sub-agent).
 
-- Follow all specs injected into implement context
+- Load the `trellis-before-dev` skill to read the relevant specs first
 - Keep changes scoped to requirements
 - Run lint and typecheck before finishing
 
 **Step 9: Check Quality** `[AI]`
 
-Run a quality pass against check context:
+Run a quality pass in the main session with the `trellis-check` skill (do not dispatch a check sub-agent):
 
 - Review all code changes against the specs
 - Fix issues directly

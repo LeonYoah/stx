@@ -26,10 +26,10 @@ Shows the Phase Index (Plan / Execute / Finish) with routing + skill mapping.
 
 - `status=planning` + no `prd.md` → **1.1** (load `trellis-brainstorm`)
 - `status=planning` + `prd.md` only → decide whether the task is lightweight or complex. Lightweight can move to **1.4** review; complex returns to **1.1** to add `design.md` + `implement.md`.
-- `status=planning` + complex artifacts complete + sub-agent jsonl not curated (only the seed `_example` row) → **1.3**
+- `status=planning` + complex artifacts complete → skip **1.3** (all platforms run implement/check inline in this project; no jsonl curation)
 - `status=planning` + required artifacts complete + required jsonl curated or inline mode → **1.4** (ask for start review; only run `task.py start` after user confirms)
-- `status=in_progress` + implementation not started → **2.1**
-- `status=in_progress` + implementation done, not yet checked → **2.2**
+- `status=in_progress` + implementation not started → **2.1** (inline: `trellis-before-dev` → edit in the main session; do not dispatch `trellis-implement`)
+- `status=in_progress` + implementation done, not yet checked → **2.2** (inline: load the `trellis-check` skill in the main session; do not dispatch the `trellis-check` sub-agent)
 - `status=in_progress` + check passed → **3.3** (spec update) → **3.4** (commit)
 - `status=completed` (rare; usually archived immediately) → archive flow
 
@@ -44,7 +44,7 @@ Phase rules (full detail in `.trellis/workflow.md`):
 Once you know which step to resume at:
 
 ```bash
-python3 ./.trellis/scripts/get_context.py --mode phase --step <X.X> --platform claude
+python3 ./.trellis/scripts/get_context.py --mode phase --step <X.X> --platform claude-code
 ```
 
 Follow the loaded instructions. After each `[required]` step completes, move to the next.

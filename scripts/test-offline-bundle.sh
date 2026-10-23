@@ -37,8 +37,8 @@ ok() { echo "OK $*"; }
 bad() { echo "FAIL $*"; fail=1; }
 assert_file() { if [[ -e "$2" ]]; then ok "$1"; else bad "$1: missing $2"; fi; }
 assert_no_file() { if [[ ! -e "$2" ]]; then ok "$1"; else bad "$1: unexpected $2"; fi; }
-assert_grep() { if grep -qF -- "$2" "$3"; then ok "$1"; else bad "$1: [$2] not in $3"; sed 's/^/    | /' "$3"; fi; }
-assert_no_grep() { if ! grep -qF -- "$2" "$3"; then ok "$1"; else bad "$1: [$2] unexpectedly in $3"; sed 's/^/    | /' "$3"; fi; }
+assert_grep() { if grep -qF -- "$2" "$3" 2>/dev/null; then ok "$1"; else bad "$1: [$2] not in $3"; sed 's/^/    | /' "$3" 2>/dev/null || true; fi; }
+assert_no_grep() { if ! grep -qF -- "$2" "$3" 2>/dev/null; then ok "$1"; else bad "$1: [$2] unexpectedly in $3"; sed 's/^/    | /' "$3" 2>/dev/null || true; fi; }
 
 # 一个不含 node 的 PATH：把现有 PATH 中除 node 以外的可执行文件软链到 $T/nonode。
 # A PATH without node: symlink every executable from the current PATH except node into $T/nonode.
@@ -71,18 +71,22 @@ echo 'console.log("fe")' >"$T/build/frontend/server.js"
 tar -C "$T/build/frontend" -czf "$REL/$VER/frontend-standalone-${VER}-linux-amd64.tar.gz" .
 make_fake_node "$T/build/node-v22.0.0-linux-x64/bin" v22.0.0
 tar -C "$T/build" -czf "$REL/deps/node-22-official-linux-amd64.tar.gz" node-v22.0.0-linux-x64
+cp "$REL/$VER/stx-linux-amd64" "$REL/$VER/stx-linux-arm64"
+cp "$REL/$VER/frontend-standalone-${VER}-linux-amd64.tar.gz" "$REL/$VER/frontend-standalone-${VER}-linux-arm64.tar.gz"
+cp "$REL/deps/node-22-official-linux-amd64.tar.gz" "$REL/deps/node-22-official-linux-arm64.tar.gz"
 
 # ---------- fake repo root with stubbed download-lib / 桩化 download-lib 的伪仓库 ----------
 FAKE="$T/root"
 mkdir -p "$FAKE/install/bin/lib"
-cp "$ROOT_DIR/install/download-bundle.sh" "$ROOT_DIR/install/install.sh" "$ROOT_DIR/install/install-core.sh" "$FAKE/install/"
+cp "$ROOT_DIR/install/download-bundle.sh" "$ROOT_DIR/install/install-online.sh" "$ROOT_DIR/install/install.sh" "$ROOT_DIR/install/install-core.sh" "$FAKE/install/"
 cp "$ROOT_DIR/install/download-lib.sh" "$FAKE/install/download-lib.real.sh"
 cp "$ROOT_DIR/install/bin/start.sh" "$ROOT_DIR/install/bin/stop.sh" "$ROOT_DIR/install/bin/status.sh" "$FAKE/install/bin/"
 cp "$ROOT_DIR/install/bin/lib/observability.sh" "$FAKE/install/bin/lib/"
 cp "$ROOT_DIR/config.example.yaml" "$FAKE/config.example.yaml"
 cat >"$FAKE/install/download-lib.sh" <<STUB
 # shellcheck shell=bash
-source "\$(dirname "\${BASH_SOURCE[0]}")/download-lib.real.sh"
+source "$FAKE/install/download-lib.real.sh"  # absolute: the stub also gets copied into work dirs
+stx_detect_glibc_version() { echo "\${FAKE_GLIBC:-2.35}"; }
 stx_detect_download_region() { echo global; }
 stx_select_mirror_prefix() { STX_SELECTED_MIRROR_PREFIX=""; }
 stx_stage_java_proxy_script() { return 0; }
@@ -134,6 +138,40 @@ else
   ok "bundle fails when node package is missing"
 fi
 assert_grep "bundle missing-node error mentions --without-node" "--without-node" "$T/bundle-missing.log"
+assert_grep "bundle missing glibc217 hints --node-variant official" "--node-variant official" "$T/bundle-missing.log"
+
+# ---------- 1c2. node sha256 mismatch is fatal ----------
+echo "0000000000000000000000000000000000000000000000000000000000000000  node-22-official-linux-amd64.tar.gz" \
+  >"$REL/deps/node-22-official-linux-amd64.tar.gz.sha256"
+if PATH="$NONODE" run_bundle "$T/out-badsha" >"$T/bundle-badsha.log" 2>&1; then
+  bad "bundle must fail on node sha256 mismatch"
+else
+  ok "bundle fails on node sha256 mismatch"
+fi
+# 正确的 sha256 通过校验。/ A correct sha256 passes.
+if command -v sha256sum >/dev/null 2>&1; then
+  (cd "$REL/deps" && sha256sum node-22-official-linux-amd64.tar.gz >node-22-official-linux-amd64.tar.gz.sha256)
+else
+  (cd "$REL/deps" && shasum -a 256 node-22-official-linux-amd64.tar.gz >node-22-official-linux-amd64.tar.gz.sha256)
+fi
+if PATH="$NONODE" run_bundle "$T/out-goodsha" >"$T/bundle-goodsha.log" 2>&1; then
+  ok "bundle passes with correct node sha256"
+else
+  bad "bundle failed with correct node sha256"; sed 's/^/    | /' "$T/bundle-goodsha.log"
+fi
+rm -f "$REL/deps/node-22-official-linux-amd64.tar.gz.sha256"
+
+# ---------- 1c3. arm64 + old glibc auto-picks official (no glibc217 for arm64) ----------
+out="$T/out-arm64"
+if PATH="$NONODE" FAKE_GLIBC=2.17 OUTPUT_DIR="$out" bash "$FAKE/install/download-bundle.sh" --version "$VER" \
+  --arch arm64 --without-observability --deps-tag deps >"$T/bundle-arm64.log" 2>&1; then
+  ok "bundle arm64 + glibc 2.17 exits 0"
+else
+  bad "bundle arm64 + glibc 2.17 failed"; sed 's/^/    | /' "$T/bundle-arm64.log"
+fi
+assert_file "bundle arm64 uses node-22-official" "$out/stx-offline-bundle-${VER}-linux-arm64/packages/node-22-official-linux-arm64.tar.gz"
+assert_grep "bundle arm64 MANIFEST node_variant=official" '"node_variant": "official"' \
+  "$out/stx-offline-bundle-${VER}-linux-arm64/MANIFEST.json"
 
 # ---------- 1d. help documents --without-node ----------
 bash "$FAKE/install/download-bundle.sh" --help >"$T/help.log" 2>&1 || true
@@ -204,8 +242,50 @@ else
   bad "install did not link host node"
 fi
 
+# ---------- 2f. install-online.sh: consistent Node errors ----------
+run_online() {
+  STX_DOWNLOAD_WORK_DIR="$T/online-work-$1" bash "$FAKE/install/install-online.sh" --version "$VER" --arch amd64 \
+    --install-dir "$T/online-$1" --no-start --no-systemd --without-observability --deps-tag deps "${@:2}"
+}
+if PATH="$NONODE" run_online nonode --node-variant official --without-node >"$T/online-nonode.log" 2>&1; then
+  bad "install-online --without-node on node-less host must fail"
+else
+  ok "install-online --without-node on node-less host fails"
+fi
+assert_grep "install-online --without-node error text" "no usable system Node (need >= 18.18, found: none)" "$T/online-nonode.log"
+assert_no_grep "install-online --without-node fails before downloading" "using release tag" "$T/online-nonode.log"
+if PATH="$T/oldnode:$NONODE" run_online old --node-variant official --without-node >"$T/online-old.log" 2>&1; then
+  bad "install-online --without-node with node v16 must fail"
+else
+  ok "install-online --without-node with node v16 fails"
+fi
+assert_grep "install-online shows found v16" "found: v16.20.2" "$T/online-old.log"
+if PATH="$NONODE" run_online missing --node-variant glibc217 >"$T/online-missing.log" 2>&1; then
+  bad "install-online must fail when node package is missing"
+else
+  ok "install-online fails when node package is missing"
+fi
+assert_grep "install-online missing node hints --node-variant official" "--node-variant official" "$T/online-missing.log"
+assert_no_grep "install-online no longer just warns" "install may require system node" "$T/online-missing.log"
+if PATH="$NONODE" run_online ok --node-variant official >"$T/online-ok.log" 2>&1; then
+  ok "install-online downloads node on node-less host"
+else
+  bad "install-online on node-less host failed"; sed 's/^/    | /' "$T/online-ok.log"
+fi
+if [[ -x "$T/online-ok/runtime/node/bin/node" && "$("$T/online-ok/runtime/node/bin/node" -v)" == "v22.0.0" ]]; then
+  ok "install-online staged downloaded node"
+else
+  bad "install-online did not stage downloaded node"
+fi
+if PATH="$T/hostnode:$NONODE" run_online host --node-variant official --without-node >"$T/online-host.log" 2>&1; then
+  ok "install-online --without-node with host node v20 exits 0"
+else
+  bad "install-online --without-node with host node v20 failed"; sed 's/^/    | /' "$T/online-host.log"
+fi
+
 # ---------- 3. alertmanager launched with --cluster.listen-address= ----------
-OBS_BASE="$T/obs"
+# 目录含空格，验证参数已正确加引号。/ Path with spaces verifies the args are quoted.
+OBS_BASE="$T/obs dir"
 mkdir -p "$OBS_BASE/observability/"{prometheus,alertmanager/data,grafana/bin,grafana/conf}
 for b in prometheus/prometheus alertmanager/alertmanager grafana/bin/grafana; do
   printf '#!/bin/sh\nfor a in "$@"; do echo "$a"; done > "%s.args"\nexit 0\n' "$OBS_BASE/observability/$b" \
@@ -233,6 +313,19 @@ if [[ -f "$am_args" ]] && grep -qx -- "--web.listen-address=:9093" "$am_args"; t
 else
   bad "alertmanager lost --web.listen-address"
 fi
+if [[ -f "$am_args" ]] && grep -qxF -- "--config.file=$OBS_BASE/observability/alertmanager/alertmanager.yml" "$am_args"; then
+  ok "alertmanager --config.file survives a path with spaces"
+else
+  bad "alertmanager --config.file broken by spaces"
+fi
+for comp in prometheus/prometheus grafana/bin/grafana; do
+  for _ in 1 2 3 4 5; do [[ -s "$OBS_BASE/observability/$comp.args" ]] && break; sleep 1; done
+  if grep -qF -- "$OBS_BASE/observability/" "$OBS_BASE/observability/$comp.args" 2>/dev/null; then
+    ok "$comp started with quoted paths"
+  else
+    bad "$comp not started with quoted paths"
+  fi
+done
 if grep -qF -- "--cluster.listen-address=" "$ROOT_DIR/scripts/manage-deps-obs.sh"; then
   ok "manage-deps-obs.sh alertmanager has --cluster.listen-address="
 else

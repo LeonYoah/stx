@@ -150,6 +150,33 @@ type DolphinPushResult struct {
 	Cycle        bool                  `json:"cycle"`
 	Message      string                `json:"message,omitempty"`
 	Warning      string                `json:"warning,omitempty"`
+	// Schedules 是推送前目标工作流的定时（复用 / 更新模式），供告知用户「沿用工作流定时」与上下线影响。
+	// Schedules are the target workflow's schedules before the push (reuse / update), so users learn the
+	// workflow's own schedule takes over and how re-onlining affects it.
+	Schedules []DolphinScheduleInfo `json:"schedules"`
+	// SchedulesRestored 是重新上线后恢复为在线的定时 ID；推送前已暂停的定时保持暂停，不在此列。
+	// SchedulesRestored lists schedule IDs brought back online after re-onlining; schedules paused before the
+	// push stay paused and are not listed.
+	SchedulesRestored []int64 `json:"schedules_restored"`
+}
+
+// DolphinScheduleInfo 是 Dolphin 工作流的一条定时（定时是独立资源，按工作流 code 关联，有自己的上下线状态）。
+// DolphinScheduleInfo is one schedule of a Dolphin workflow (schedules are separate resources linked by workflow
+// code, with their own release state).
+type DolphinScheduleInfo struct {
+	ID           int64  `json:"id"`
+	Crontab      string `json:"crontab"`
+	Timezone     string `json:"timezone"`
+	ReleaseState string `json:"release_state"`
+}
+
+// DolphinBuiltinSchedule 是任务的 STX 内置定时摘要，用于推送时告知 cron 是否被沿用。
+// DolphinBuiltinSchedule summarizes the task's STX built-in schedule so the push dialog can tell whether the cron
+// carries over.
+type DolphinBuiltinSchedule struct {
+	CronExpr string `json:"cron_expr"`
+	Timezone string `json:"timezone"`
+	Enabled  bool   `json:"enabled"`
 }
 
 // DolphinTaskStatus 是任务侧边栏需要的绑定、脚本和最近作业摘要。
@@ -164,6 +191,9 @@ type DolphinTaskStatus struct {
 	// PublishedVersion is the task's current published version; PushedVersion is the last version pushed to Dolphin.
 	PublishedVersion int `json:"published_version"`
 	PushedVersion    int `json:"pushed_version"`
+	// BuiltinSchedule 是任务配置的 STX 内置定时（未配置 cron 时为空）。
+	// BuiltinSchedule is the task's configured STX built-in schedule (nil when no cron is configured).
+	BuiltinSchedule *DolphinBuiltinSchedule `json:"builtin_schedule,omitempty"`
 }
 
 // DolphinProject 是连接上可选的 Dolphin 项目。
@@ -207,6 +237,11 @@ type DolphinWorkflowDetail struct {
 	ReleaseState string                    `json:"release_state"`
 	Tasks        []DolphinWorkflowTask     `json:"tasks"`
 	Relations    []DolphinWorkflowRelation `json:"relations"`
+	// Schedules 是工作流的定时；ScheduleError 非空表示读取失败（不阻断查看工作流）。
+	// Schedules are the workflow's schedules; a non-empty ScheduleError means they could not be read (viewing the
+	// workflow still works).
+	Schedules     []DolphinScheduleInfo `json:"schedules"`
+	ScheduleError string                `json:"schedule_error,omitempty"`
 }
 
 // SchedulerConnectionListData 是调度器连接列表。

@@ -1119,6 +1119,9 @@ definitions:
         type: string
       created_by:
         type: integer
+      created_by_name:
+        description: CreatedByName 发起人登录名快照 / initiator login name snapshot
+        type: string
       current_step:
         $ref: '#/definitions/cluster.ScaleStepName'
       error:
@@ -1331,6 +1334,10 @@ definitions:
         type: string
       name:
         type: string
+      profile_inferred:
+        description: ProfileInferred 画像由控制面缓存中的依赖反推 / profile inferred from dependencies
+          cached on the Control Plane
+        type: boolean
       profile_keys:
         items:
           type: string
@@ -3591,6 +3598,15 @@ definitions:
       external_ref:
         type: string
     type: object
+  sync.DolphinBuiltinSchedule:
+    properties:
+      cron_expr:
+        type: string
+      enabled:
+        type: boolean
+      timezone:
+        type: string
+    type: object
   sync.DolphinProject:
     properties:
       code:
@@ -3668,6 +3684,22 @@ definitions:
         type: string
       release_state:
         type: string
+      schedules:
+        description: |-
+          Schedules 是推送前目标工作流的定时（复用 / 更新模式），供告知用户「沿用工作流定时」与上下线影响。
+          Schedules are the target workflow's schedules before the push (reuse / update), so users learn the
+          workflow's own schedule takes over and how re-onlining affects it.
+        items:
+          $ref: '#/definitions/sync.DolphinScheduleInfo'
+        type: array
+      schedules_restored:
+        description: |-
+          SchedulesRestored 是重新上线后恢复为在线的定时 ID；推送前已暂停的定时保持暂停，不在此列。
+          SchedulesRestored lists schedule IDs brought back online after re-onlining; schedules paused before the
+          push stay paused and are not listed.
+        items:
+          type: integer
+        type: array
       script:
         $ref: '#/definitions/sync.DolphinScriptResult'
       task_code:
@@ -3680,6 +3712,17 @@ definitions:
         type: integer
       would_offline:
         type: boolean
+    type: object
+  sync.DolphinScheduleInfo:
+    properties:
+      crontab:
+        type: string
+      id:
+        type: integer
+      release_state:
+        type: string
+      timezone:
+        type: string
     type: object
   sync.DolphinScriptResponse:
     properties:
@@ -3711,6 +3754,12 @@ definitions:
         $ref: '#/definitions/sync.TaskSchedulerBinding'
       builtin_locked:
         type: boolean
+      builtin_schedule:
+        allOf:
+        - $ref: '#/definitions/sync.DolphinBuiltinSchedule'
+        description: |-
+          BuiltinSchedule 是任务配置的 STX 内置定时（未配置 cron 时为空）。
+          BuiltinSchedule is the task's configured STX built-in schedule (nil when no cron is configured).
       connection:
         $ref: '#/definitions/sync.SchedulerConnection'
       published_version:
@@ -3746,6 +3795,16 @@ definitions:
         type: array
       release_state:
         type: string
+      schedule_error:
+        type: string
+      schedules:
+        description: |-
+          Schedules 是工作流的定时；ScheduleError 非空表示读取失败（不阻断查看工作流）。
+          Schedules are the workflow's schedules; a non-empty ScheduleError means they could not be read (viewing the
+          workflow still works).
+        items:
+          $ref: '#/definitions/sync.DolphinScheduleInfo'
+        type: array
       tasks:
         items:
           $ref: '#/definitions/sync.DolphinWorkflowTask'

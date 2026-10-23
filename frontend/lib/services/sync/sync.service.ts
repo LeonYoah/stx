@@ -484,6 +484,7 @@ export class SyncService extends BaseService {
       ...data,
       tasks: data?.tasks ?? [],
       relations: data?.relations ?? [],
+      schedules: data?.schedules ?? [],
     };
   }
 
@@ -512,11 +513,16 @@ export class SyncService extends BaseService {
     request: DolphinPushRequest,
   ): Promise<DolphinPushResult> {
     const executionHeaders = createWebExecutionHeaders('sync-task-dolphin-push');
-    return this.postWithConfig<DolphinPushResult>(
+    const result = await this.postWithConfig<DolphinPushResult>(
       `/tasks/${taskId}/dolphin/push`,
       request,
       {headers: executionHeaders.headers},
     );
+    return {
+      ...result,
+      schedules: result?.schedules ?? [],
+      schedules_restored: result?.schedules_restored ?? [],
+    };
   }
 
   // 只删除 STX 侧绑定，不改 Dolphin 节点，也不吊销管理员签发的登录令牌。

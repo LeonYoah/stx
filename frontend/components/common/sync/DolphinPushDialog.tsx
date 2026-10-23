@@ -52,6 +52,7 @@ import type {
   SchedulerConnection,
 } from '@/lib/services/sync/types';
 import {dolphinPushBlockedReason} from '@/components/common/sync/sync-studio-utils';
+import {DolphinScheduleNotice} from '@/components/common/sync/DolphinScheduleNotice';
 
 // 任务侧边栏里的推送弹窗：新建工作流、复用已有工作流，或只更新已绑定节点。
 // Sidebar dialog that creates, reuses, or updates a DolphinScheduler SHELL node.
@@ -272,6 +273,9 @@ export function DolphinPushDialog({
         return;
       }
       toast.success(t('dolphinPushOk'));
+      if (result.warning) {
+        toast.warning(result.warning);
+      }
       onPushed?.();
       onOpenChange(false);
     } catch (error) {
@@ -475,6 +479,15 @@ export function DolphinPushDialog({
                         onCheckedChange={setUseBuiltinSchedule}
                       />
                       {t('dolphinUseBuiltinSchedule')}
+                      {status?.builtin_schedule?.cron_expr ? (
+                        <code className='whitespace-nowrap font-mono text-[11px] text-muted-foreground'>
+                          {status.builtin_schedule.cron_expr}
+                        </code>
+                      ) : (
+                        <span className='text-muted-foreground'>
+                          {t('dolphinNoBuiltinCron')}
+                        </span>
+                      )}
                     </label>
                   </div>
                 ) : (
@@ -513,6 +526,14 @@ export function DolphinPushDialog({
               </>
             )}
 
+            {/* 已有工作流：说明上下线与定时（新建工作流由 STX 创建，无此影响）。 */}
+            {/* Existing workflow: explain offline/online and schedules (a new workflow is created by STX, so no impact). */}
+            {workflow && (bound || mode === 'reuse') ? (
+              <DolphinScheduleNotice
+                workflow={workflow}
+                builtinSchedule={status?.builtin_schedule}
+              />
+            ) : null}
             {cycle ? (
               <div className='flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive'>
                 <AlertTriangle className='mt-0.5 size-3.5 shrink-0' />

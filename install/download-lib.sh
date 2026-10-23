@@ -318,9 +318,11 @@ stx_fetch_repo_file() {
   }
 }
 
-# 准备 Agent 启动脚本 stx-java-proxy.sh：Release 资产 → 本地仓库/bootstrap 副本 → 按 tag 从 raw 拉取。
+# 准备 Agent 启动脚本 stx-java-proxy.sh：Release 资产 → 仓库同 tag 的 raw 文件 → 本地仓库/bootstrap 副本
+# （bootstrap 默认取 main，放最后，保证旧版本安装拿到与版本匹配的脚本）。
 # 保证安装目录 scripts/stx-java-proxy.sh 始终存在（控制面经 /api/v1/agent/assets/stx-java-proxy.sh 下发给 Agent）。
-# Stage the agent launcher stx-java-proxy.sh: release asset -> local repo/bootstrap copy -> raw file at the tag.
+# Stage the agent launcher stx-java-proxy.sh: release asset -> raw file at the same tag -> local repo/bootstrap copy
+# (bootstrap defaults to main, so it goes last to keep older-version installs on the matching script).
 # Keeps <install>/scripts/stx-java-proxy.sh populated (served to agents via /api/v1/agent/assets/stx-java-proxy.sh).
 stx_stage_java_proxy_script() {
   local tag="$1"
@@ -337,11 +339,11 @@ stx_stage_java_proxy_script() {
   fi
   if [[ "$from_release" == "true" ]]; then
     echo "[INFO] stx-java-proxy.sh: from release $tag" >&2
-  elif [[ -n "$root_dir" && -f "$root_dir/scripts/stx-java-proxy.sh" ]]; then
-    cp "$root_dir/scripts/stx-java-proxy.sh" "$dest"
-    echo "[WARN] stx-java-proxy.sh not on release $tag; using bundled copy from $root_dir" >&2
   elif stx_fetch_repo_file "$tag" "scripts/stx-java-proxy.sh" "$dest"; then
     echo "[WARN] stx-java-proxy.sh not on release $tag; fetched scripts/stx-java-proxy.sh@$tag" >&2
+  elif [[ -n "$root_dir" && -f "$root_dir/scripts/stx-java-proxy.sh" ]]; then
+    cp "$root_dir/scripts/stx-java-proxy.sh" "$dest"
+    echo "[WARN] stx-java-proxy.sh not on release $tag nor at raw @$tag; using bundled copy from $root_dir" >&2
   else
     echo "[WARN] stx-java-proxy.sh unavailable (release asset and repo fallback failed); agents cannot fetch it" >&2
     return 1

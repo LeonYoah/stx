@@ -395,22 +395,33 @@ if [[ "$AUTO_START" == "true" ]]; then
   echo "[INFO] auto starting ..."
   # 已安装 systemd unit 时经 systemctl 启动（并 enable），这样首次安装后 systemctl status/restart stx 即可用；
   # --no-systemd 或无 systemd 时仍直接调用 start.sh。
+  # unit 是 Type=oneshot + RemainAfterExit=yes：重装时若进程已被 stop.sh 停掉而 unit 仍是 active(exited)，
+  # `systemctl start` 是空操作，所以用 restart，并用 status.sh 核实 backend 确实在跑。
   # When the systemd unit is installed, start through systemctl (enabled) so `systemctl status/restart stx`
   # works right after install; fall back to start.sh for --no-systemd or hosts without systemd.
-  if [[ "$STX_SYSTEMD_MODE" == "system" ]]; then
-    systemctl enable stx.service >/dev/null 2>&1 || true
-    if ! systemctl start stx.service; then
-      echo "[ERROR] systemctl start stx failed; inspect: systemctl status stx / journalctl -u stx -n 200" >&2
+  # The unit is Type=oneshot + RemainAfterExit=yes: on reinstall it may still be active(exited) while the
+  # processes were stopped via stop.sh, making `systemctl start` a no-op. Use restart and verify via status.sh.
+  if [[ -n "$STX_SYSTEMD_MODE" ]]; then
+    sysctl_cmd=(systemctl)
+    journal_hint="journalctl -u stx -n 200"
+    if [[ "$STX_SYSTEMD_MODE" == "user" ]]; then
+      sysctl_cmd=(systemctl --user)
+      journal_hint="journalctl --user -u stx -n 200"
+    fi
+    "${sysctl_cmd[@]}" enable stx.service >/dev/null 2>&1 || true
+    if ! "${sysctl_cmd[@]}" restart stx.service; then
+      echo "[ERROR] ${sysctl_cmd[*]} restart stx failed; inspect: ${sysctl_cmd[*]} status stx / $journal_hint" >&2
       exit 1
     fi
-    echo "[OK] started via systemd: systemctl status stx"
-  elif [[ "$STX_SYSTEMD_MODE" == "user" ]]; then
-    systemctl --user enable stx.service >/dev/null 2>&1 || true
-    if ! systemctl --user start stx.service; then
-      echo "[ERROR] systemctl --user start stx failed; inspect: systemctl --user status stx / journalctl --user -u stx -n 200" >&2
+    # 先取完整输出再匹配：pipefail 下 `status.sh | grep -q` 可能因 SIGPIPE 误判失败。
+    # Capture first: with pipefail, `status.sh | grep -q` can fail spuriously on SIGPIPE.
+    status_out="$(cd "$INSTALL_DIR" && ./bin/status.sh 2>/dev/null || true)"
+    if grep -q 'backend: running' <<<"$status_out"; then
+      echo "[OK] started via systemd: ${sysctl_cmd[*]} status stx"
+    else
+      echo "[ERROR] ${sysctl_cmd[*]} restart stx returned but backend is not running; inspect: $INSTALL_DIR/bin/status.sh / $journal_hint" >&2
       exit 1
     fi
-    echo "[OK] started via systemd (user): systemctl --user status stx"
   else
     (
       cd "$INSTALL_DIR"

@@ -77,11 +77,21 @@ jobs:
 
       - name: Syntax and shellcheck
         run: |
-          for f in install/*.sh install/bin/*.sh install/bin/lib/*.sh scripts/check-release-asset-globs.sh scripts/test-release-download-lib.sh; do
+          scripts=(install/*.sh install/bin/*.sh install/bin/lib/*.sh scripts/check-release-asset-globs.sh
+            scripts/test-release-download-lib.sh scripts/test-yaml-set-differential.sh scripts/release-deps-publish.sh
+            scripts/test-release-deps.sh scripts/ci-install-smoke.sh)
+          for f in "${scripts[@]}"; do
             bash -n "$f"
           done
-          shellcheck -x -S error install/*.sh install/bin/*.sh install/bin/lib/*.sh \
-            scripts/check-release-asset-globs.sh scripts/test-release-download-lib.sh
+          shellcheck -x -S error "${scripts[@]}"
+
+      - name: actionlint (workflows)
+        run: |
+          bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.7/scripts/download-actionlint.bash) 1.7.7
+          # 仅检查发版/安装相关工作流（e2e.yml 等已有 shellcheck 风格告警，不在本门禁范围）。
+          # Release/install workflows only (e2e.yml etc. carry pre-existing shellcheck style findings).
+          ./actionlint -color .github/workflows/release-deps.yml .github/workflows/release-on-tag.yml \
+            .github/workflows/ci-main.yml .github/workflows/docker-build-check.yml
 
       - name: Install path must not depend on python3
         run: |
@@ -94,6 +104,36 @@ jobs:
       - name: download-lib / install-core tests
         run: bash scripts/test-release-download-lib.sh
 
+      # 纯 awk 的 stx_yaml_set 与 v1.2.0 python3 参考实现逐字节差分（~1400 组）。
+      # Byte-for-byte differential of the pure-awk stx_yaml_set vs the v1.2.0 python3 reference (~1400 cases).
+      - name: stx_yaml_set differential vs python3 reference
+        run: bash scripts/test-yaml-set-differential.sh
+
+      # release-deps 安全发布：工作流不删 Release、MANIFEST 合并保留未重建条目、桩 gh 验证上传/切换顺序。
+      # Safe deps publishing: no release delete, manifest merge keeps untouched entries, stub-gh upload/swap order.
+      - name: release-deps publisher tests
+        run: bash scripts/test-release-deps.sh
+
+  # 真实安装冒烟（无 python3 的 debian:bookworm，安装 v1.2.0 Release 资产）；依赖外网，不进 CI Gate。
+  # Real install smoke (python3-free debian:bookworm, installs v1.2.0 release assets); network-bound, not gated.
+  install-smoke:
+    name: Install Smoke no-python3 (${{ matrix.mode }})
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.install == 'true'
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [plain, systemd]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install smoke (${{ matrix.mode }})
+        run: bash scripts/ci-install-smoke.sh "${{ matrix.mode }}" v1.2.0
+
   changes:
     name: Detect Changed Areas
     runs-on: ubuntu-latest
@@ -101,6 +141,7 @@ jobs:
       frontend: ${{ steps.filter.outputs.frontend }}
       backend: ${{ steps.filter.outputs.backend }}
       proxy: ${{ steps.filter.outputs.proxy }}
+      install: ${{ steps.filter.outputs.install }}
 
     steps:
       - name: Checkout
@@ -129,6 +170,12 @@ jobs:
               - 'tools/stx-java-proxy/**'
               - '.github/workflows/ci-main.yml'
               - 'scripts/restart.sh'
+            install:
+              - 'install/**'
+              - 'config.example.yaml'
+              - 'scripts/stx-java-proxy.sh'
+              - 'scripts/ci-install-smoke.sh'
+              - '.github/workflows/ci-main.yml'
 
   backend-core-test:
     name: Backend Core & Multi-DB Tests
@@ -299,12 +346,13 @@ jobs:
   ci-gate:
     name: CI Gate
     runs-on: ubuntu-latest
-    needs: [changes, backend-core-test, agent-test, proxy-test, frontend-unit, frontend-build]
+    needs: [changes, install-scripts-test, backend-core-test, agent-test, proxy-test, frontend-unit, frontend-build]
     if: always()
 
     steps:
       - name: Evaluate CI gate
         run: |
+          echo "install_scripts_result=${{ needs.install-scripts-test.result }}"
           echo "backend=${{ needs.changes.outputs.backend }}"
           echo "backend_core_result=${{ needs.backend-core-test.result }}"
           echo "agent_result=${{ needs.agent-test.result }}"
@@ -313,6 +361,11 @@ jobs:
           echo "frontend=${{ needs.changes.outputs.frontend }}"
           echo "frontend_unit_result=${{ needs.frontend-unit.result }}"
           echo "frontend_build_result=${{ needs.frontend-build.result }}"
+
+          if [ "${{ needs.install-scripts-test.result }}" != "success" ]; then
+            echo "::error::Install Scripts Tests did not succeed."
+            exit 1
+          fi
 
           if [ "${{ needs.changes.outputs.backend }}" = "true" ] &&
              [ "${{ needs.backend-core-test.result }}" != "success" ]; then

@@ -270,7 +270,10 @@ EOF
     echo "     start: systemctl --user start stx"
     echo "     stop : systemctl --user stop stx"
   else
-    systemctl daemon-reload
+    if ! systemctl daemon-reload; then
+      echo "[WARN] systemctl daemon-reload failed; unit written to $unit_path but not enabled"
+      return 0
+    fi
     systemctl enable stx.service >/dev/null 2>&1 || true
     STX_SYSTEMD_MODE="system"
     echo "[OK] systemd unit: $unit_path"

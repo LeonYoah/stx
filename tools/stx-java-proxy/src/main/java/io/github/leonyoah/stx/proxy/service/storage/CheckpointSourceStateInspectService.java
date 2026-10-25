@@ -1311,6 +1311,16 @@ public class CheckpointSourceStateInspectService {
                         }
                         Map<String, Object> item = new LinkedHashMap<>();
                         item.put("subtaskIndex", subtaskIndex);
+                        // 提取分片唯一标识，供前端表格渲染及 Key 去重
+                        // Extract unique split ID for frontend table rendering and Key
+                        // deduplication
+                        Object splitId = split.get("splitId");
+                        if (splitId == null) {
+                            splitId = split.get("id");
+                        }
+                        if (splitId != null) {
+                            item.put("splitId", String.valueOf(splitId));
+                        }
                         item.put("target", String.join(", ", tables));
                         item.put(
                                 "currentOffset",

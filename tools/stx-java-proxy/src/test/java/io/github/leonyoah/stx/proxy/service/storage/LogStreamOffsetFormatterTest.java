@@ -174,6 +174,51 @@ class LogStreamOffsetFormatterTest {
     }
 
     @Test
+    void shouldFormatDirectMillisecondTimestamp() {
+        long millis = 1729500000000L;
+        LogStreamOffsetFormatter.Summary summary =
+                LogStreamOffsetFormatter.summarize(
+                        values("timestamp", String.valueOf(millis)), "Custom-CDC");
+
+        assertEquals("时间戳位点", summary.getLabel());
+        assertEquals(millis, summary.getEventTimeMillis());
+    }
+
+    @Test
+    void shouldRecognizeOpenGaussAndKingbaseLsnLabel() {
+        LogStreamOffsetFormatter.Summary opengauss =
+                LogStreamOffsetFormatter.empty("OpenGauss-CDC");
+        assertEquals("LSN 位点", opengauss.getLabel());
+
+        LogStreamOffsetFormatter.Summary kingbase = LogStreamOffsetFormatter.empty("Kingbase-CDC");
+        assertEquals("LSN 位点", kingbase.getLabel());
+    }
+
+    @Test
+    void shouldFormatCamelCaseLsnAndChangeLsn() {
+        LogStreamOffsetFormatter.Summary summary =
+                LogStreamOffsetFormatter.summarize(
+                        values(
+                                "commitLsn", "0000:0001",
+                                "changeLsn", "0000:0002",
+                                "eventSerialNo", "5"),
+                        "SQLServer-CDC");
+
+        assertEquals("LSN 位点", summary.getLabel());
+        assertEquals("LSN 0000:0001 / changeLsn 0000:0002 / seq 5", summary.getValue());
+    }
+
+    @Test
+    void shouldFormatTidbTsoOffset() {
+        LogStreamOffsetFormatter.Summary summary =
+                LogStreamOffsetFormatter.summarize(
+                        values("commit_ts", "438271928371928"), "TiDB-CDC");
+
+        assertEquals("TSO 位点", summary.getLabel());
+        assertEquals("TSO 438271928371928", summary.getValue());
+    }
+
+    @Test
     void shouldUseConnectorSpecificLabelWhenOffsetIsEmpty() {
         LogStreamOffsetFormatter.Summary postgres = LogStreamOffsetFormatter.empty("Postgres-CDC");
         assertEquals("LSN 位点", postgres.getLabel());

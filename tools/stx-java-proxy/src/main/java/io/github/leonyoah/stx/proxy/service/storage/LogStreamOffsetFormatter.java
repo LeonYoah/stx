@@ -46,18 +46,21 @@ final class LogStreamOffsetFormatter {
      * MySQL-specific label for Postgres/Oracle/MongoDB.
      */
     static Summary summarize(Map<String, ?> values, String pluginName) {
-        String lsn = firstNonBlank(values, "lsn", "lsn_commit", "last_commit_lsn", "commit_lsn");
-        String changeLsn = firstNonBlank(values, "change_lsn");
-        String txId = firstNonBlank(values, "txId");
-        String eventSerialNo = firstNonBlank(values, "event_serial_no");
+        String lsn =
+                firstNonBlank(
+                        values, "lsn", "lsn_commit", "last_commit_lsn", "commit_lsn", "commitLsn");
+        String changeLsn = firstNonBlank(values, "change_lsn", "changeLsn");
+        String txId = firstNonBlank(values, "txId", "tx_id");
+        String eventSerialNo = firstNonBlank(values, "event_serial_no", "eventSerialNo");
         String xmin = firstNonBlank(values, "xmin");
-        String scn = firstNonBlank(values, "commit_scn", "scn");
-        String lcrPosition = firstNonBlank(values, "lcr_position");
-        String resumeToken = firstNonBlank(values, "resumeToken");
+        String scn = firstNonBlank(values, "commit_scn", "scn", "commitScn");
+        String lcrPosition = firstNonBlank(values, "lcr_position", "lcrPosition");
+        String resumeToken = firstNonBlank(values, "resumeToken", "resume_token");
         String timestamp = firstNonBlank(values, "timestamp");
         String file = firstNonBlank(values, "file");
         String pos = firstNonBlank(values, "pos");
         String gtids = firstNonBlank(values, "gtids", "gtid");
+        String tso = firstNonBlank(values, "commit_ts", "start_ts", "resolved_ts", "tso");
         String tsSec = firstNonBlank(values, "ts_sec");
         String tsUsec = firstNonBlank(values, "ts_usec");
 
@@ -113,6 +116,10 @@ final class LogStreamOffsetFormatter {
             return new Summary("Binlog 位点", value.toString(), eventTimeMillis);
         }
 
+        if (tso != null) {
+            return new Summary("TSO 位点", "TSO " + tso, eventTimeMillis);
+        }
+
         if (timestamp != null) {
             return new Summary("时间戳位点", "ts " + timestamp, eventTimeMillis);
         }
@@ -128,7 +135,10 @@ final class LogStreamOffsetFormatter {
         String normalized = pluginName == null ? "" : pluginName.toLowerCase(Locale.ROOT);
         if (normalized.contains("postgres")
                 || normalized.contains("sqlserver")
-                || normalized.contains("db2")) {
+                || normalized.contains("db2")
+                || normalized.contains("opengauss")
+                || normalized.contains("kingbase")
+                || normalized.contains("gauss")) {
             return "LSN 位点";
         }
         if (normalized.contains("oracle")) {
@@ -157,15 +167,32 @@ final class LogStreamOffsetFormatter {
             }
         }
         if (timestamp != null) {
-            Long bsonTimestamp = parseLong(timestamp);
-            if (bsonTimestamp != null && bsonTimestamp > 0) {
-                // MongoDB stores a BsonTimestamp as (seconds << 32) | increment.
-                // MongoDB 的 BsonTimestamp 把秒放在高 32 位，低 32 位是自增序号。
-                long seconds = bsonTimestamp >>> 32;
+            Long rawTimestamp = parseLong(timestamp);
+            if (rawTimestamp != null && rawTimestamp > 0) {
+                // MongoDB 的 BsonTimestamp 把秒放在高 32 位，低 32 位是自增序号（秒数通常落在 2001~2065 年之间，约 1e9 ~ 3e9）。
+                // MongoDB BsonTimestamp packs epoch seconds into the upper 32 bits (typically
+                // between 1e9 and 3e9).
+                long seconds = rawTimestamp >>> 32;
+                if (seconds >= 1_000_000_000L && seconds < 3_000_000_000L) {
+                    return seconds * 1000L;
+                }
+                // 若本身为 13 位毫秒级时间戳（如 1729500000000L）。
+                // Direct 13-digit millisecond epoch timestamp.
+                if (rawTimestamp >= 1_000_000_000_000L && rawTimestamp < 10_000_000_000_000L) {
+                    return rawTimestamp;
+                }
+                // 若为 10 位秒级时间戳（如 1729500000L）。
+                // Direct 10-digit second epoch timestamp.
+                if (rawTimestamp >= 1_000_000_000L && rawTimestamp < 10_000_000_000L) {
+                    return rawTimestamp * 1000L;
+                }
+                // 其他情况兜底：若高 32 位有正数值则尝试按秒折算，否则直接返回原数值。
+                // Fallback: if upper bits have positive value, treat as seconds; otherwise return
+                // as-is.
                 if (seconds > 0) {
                     return seconds * 1000L;
                 }
-                return bsonTimestamp * 1000L;
+                return rawTimestamp;
             }
         }
         return null;

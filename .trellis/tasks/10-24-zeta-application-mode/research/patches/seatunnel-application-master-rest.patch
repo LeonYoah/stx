@@ -1,0 +1,399 @@
+diff --git a/docs/en/getting-started/application/kubernetes/configuration.md b/docs/en/getting-started/application/kubernetes/configuration.md
+index 17277e76..66014a71 100644
+--- a/docs/en/getting-started/application/kubernetes/configuration.md
++++ b/docs/en/getting-started/application/kubernetes/configuration.md
+@@ -81,6 +81,8 @@ Command-line overrides (`-Dkey=value`) may be visible to other users on the subm
+ | `application.master.memory-mb` | int | no | `1024` | Master memory request and limit in MiB. |
+ | `application.master.cpu-cores` | int | no | `1` | Master CPU request and limit. |
+ | `application.master.port` | int | no | `5801` | Master Hazelcast TCP port. |
++| `application.master.rest.enabled` | boolean | no | `true` | Serves the [REST API v2](../../../engines/zeta/rest-api-v2.md) on the master so job details, metrics and checkpoints can be read while the application runs. Workers never serve REST. Basic auth and the context path follow the engine `http` settings in `seatunnel.yaml`; HTTPS is not supported. Set `false` to disable it. |
++| `application.master.rest.port` | int | no | `8080` | Master REST API v2 port, exposed as the `rest` port of the master Service. Must differ from `application.master.port`. |
+ | `application.startup-timeout-millis` | long | no | `120000` | Applied to worker creation and registration on the master and to client connection setup; submission does not wait for master startup. |
+ 
+ :::note
+diff --git a/docs/zh/getting-started/application/kubernetes/configuration.md b/docs/zh/getting-started/application/kubernetes/configuration.md
+index 8706844d..3c196744 100644
+--- a/docs/zh/getting-started/application/kubernetes/configuration.md
++++ b/docs/zh/getting-started/application/kubernetes/configuration.md
+@@ -80,6 +80,8 @@ Application Mode 在提交机上读取部署文件（`-a`，包含 `application.
+ | `application.master.memory-mb` | int | no | `1024` | Master memory request 和 limit，单位 MiB。 |
+ | `application.master.cpu-cores` | int | no | `1` | Master CPU request 和 limit。 |
+ | `application.master.port` | int | no | `5801` | Master Hazelcast TCP 端口。 |
++| `application.master.rest.enabled` | boolean | no | `true` | 在 Master 上提供 [REST API v2](../../../engines/zeta/rest-api-v2.md)，用于在运行期间读取作业详情、指标和 checkpoint。Worker 不提供 REST。Basic auth 和 context path 沿用 `seatunnel.yaml` 中引擎的 `http` 配置；不支持 HTTPS。设为 `false` 可关闭。 |
++| `application.master.rest.port` | int | no | `8080` | Master REST API v2 端口，作为 Master Service 的 `rest` 端口暴露。必须与 `application.master.port` 不同。 |
+ | `application.startup-timeout-millis` | long | no | `120000` | 用于 Master 等待 Worker 创建和注册，以及客户端连接建立；提交本身不等待 Master 启动。 |
+ 
+ :::note
+diff --git a/seatunnel-engine/seatunnel-engine-common/src/main/java/org/apache/seatunnel/engine/common/config/SeatunnelApplicationConfig.java b/seatunnel-engine/seatunnel-engine-common/src/main/java/org/apache/seatunnel/engine/common/config/SeatunnelApplicationConfig.java
+index 8c500221..db5c6b84 100644
+--- a/seatunnel-engine/seatunnel-engine-common/src/main/java/org/apache/seatunnel/engine/common/config/SeatunnelApplicationConfig.java
++++ b/seatunnel-engine/seatunnel-engine-common/src/main/java/org/apache/seatunnel/engine/common/config/SeatunnelApplicationConfig.java
+@@ -172,7 +172,9 @@ public final class SeatunnelApplicationConfig {
+                 config.get(ApplicationOptions.MASTER_MEMORY_MB),
+                 config.get(ApplicationOptions.MASTER_CPU_CORES),
+                 config.get(ApplicationOptions.MASTER_PORT),
+-                config.get(ApplicationOptions.STARTUP_TIMEOUT_MILLIS));
++                config.get(ApplicationOptions.STARTUP_TIMEOUT_MILLIS),
++                config.get(ApplicationOptions.MASTER_REST_ENABLED),
++                config.get(ApplicationOptions.MASTER_REST_PORT));
+     }
+ 
+     /**
+@@ -217,6 +219,12 @@ public final class SeatunnelApplicationConfig {
+         properties.setProperty(
+                 ApplicationOptions.STARTUP_TIMEOUT_MILLIS.key(),
+                 Long.toString(specification.getStartupTimeoutMillis()));
++        properties.setProperty(
++                ApplicationOptions.MASTER_REST_ENABLED.key(),
++                Boolean.toString(specification.isMasterRestEnabled()));
++        properties.setProperty(
++                ApplicationOptions.MASTER_REST_PORT.key(),
++                Integer.toString(specification.getMasterRestPort()));
+         return properties;
+     }
+ 
+@@ -270,6 +278,26 @@ public final class SeatunnelApplicationConfig {
+      */
+     public static void configure(
+             SeaTunnelConfig config, String clusterName, String masterAddress, int slots) {
++        configure(config, clusterName, masterAddress, slots, null);
++    }
++
++    /**
++     * Same as {@link #configure(SeaTunnelConfig, String, String, int)}, optionally keeping REST API
++     * v2 on the master.
++     *
++     * <p>Workers never serve REST. When {@code masterRestPort} is set for the master, the engine's
++     * own HTTP settings (context path, basic auth, upload limits) are kept and only the switch, the
++     * fixed port and plain HTTP are enforced, so platforms can read job details, metrics and
++     * checkpoints while the application runs.
++     *
++     * @param masterRestPort REST API v2 port for the master, or null to disable REST
++     */
++    public static void configure(
++            SeaTunnelConfig config,
++            String clusterName,
++            String masterAddress,
++            int slots,
++            Integer masterRestPort) {
+         if (clusterName == null || clusterName.trim().isEmpty()) {
+             throw new IllegalArgumentException("An application cluster name is required");
+         }
+@@ -306,9 +334,14 @@ public final class SeatunnelApplicationConfig {
+         ConnectorJarStorageConfig jars = new ConnectorJarStorageConfig();
+         jars.setEnable(false);
+         config.getEngineConfig().setConnectorJarStorageConfig(jars);
+-        HttpConfig http = new HttpConfig();
+-        http.setEnabled(false);
++        boolean masterRest = !worker && masterRestPort != null;
++        HttpConfig http = masterRest ? config.getEngineConfig().getHttpConfig() : new HttpConfig();
++        http.setEnabled(masterRest);
+         http.setEnableHttps(false);
++        if (masterRest) {
++            http.setPort(masterRestPort);
++            http.setEnableDynamicPort(false);
++        }
+         config.getEngineConfig().setHttpConfig(http);
+         SlotServiceConfig slotConfig = new SlotServiceConfig();
+         slotConfig.setDynamicSlot(false);
+diff --git a/seatunnel-engine/seatunnel-engine-common/src/main/java/org/apache/seatunnel/engine/common/config/server/ApplicationOptions.java b/seatunnel-engine/seatunnel-engine-common/src/main/java/org/apache/seatunnel/engine/common/config/server/ApplicationOptions.java
+index 326440cd..2e8b8129 100644
+--- a/seatunnel-engine/seatunnel-engine-common/src/main/java/org/apache/seatunnel/engine/common/config/server/ApplicationOptions.java
++++ b/seatunnel-engine/seatunnel-engine-common/src/main/java/org/apache/seatunnel/engine/common/config/server/ApplicationOptions.java
+@@ -87,6 +87,26 @@ public final class ApplicationOptions {
+                     .defaultValue(1)
+                     .withDescription("CPU cores requested for the application master.");
+ 
++    public static final Option<Boolean> MASTER_REST_ENABLED =
++            Options.key("application.master.rest.enabled")
++                    .booleanType()
++                    .defaultValue(true)
++                    .withDescription(
++                            "Serves the REST API v2 on the application master (enabled by default) so"
++                                    + " platforms can read job details, metrics and checkpoints while"
++                                    + " the application runs. Workers never serve REST. The API"
++                                    + " inherits basic-auth settings from the engine configuration and"
++                                    + " must only be reachable from trusted networks; set false to"
++                                    + " disable it.");
++
++    public static final Option<Integer> MASTER_REST_PORT =
++            Options.key("application.master.rest.port")
++                    .intType()
++                    .defaultValue(8080)
++                    .withDescription(
++                            "REST API v2 port of the application master; used only when"
++                                    + " application.master.rest.enabled is true.");
++
+     public static final Option<Integer> MASTER_PORT =
+             Options.key("application.master.port")
+                     .intType()
+diff --git a/seatunnel-engine/seatunnel-engine-common/src/main/java/org/apache/seatunnel/engine/common/config/spec/ApplicationSpecification.java b/seatunnel-engine/seatunnel-engine-common/src/main/java/org/apache/seatunnel/engine/common/config/spec/ApplicationSpecification.java
+index dd61072a..e8859869 100644
+--- a/seatunnel-engine/seatunnel-engine-common/src/main/java/org/apache/seatunnel/engine/common/config/spec/ApplicationSpecification.java
++++ b/seatunnel-engine/seatunnel-engine-common/src/main/java/org/apache/seatunnel/engine/common/config/spec/ApplicationSpecification.java
+@@ -51,6 +51,10 @@ public final class ApplicationSpecification {
+     private final int masterCpuCores;
+     private final int masterPort;
+     private final long startupTimeoutMillis;
++    /** Whether the master serves REST API v2; workers never do. */
++    private final boolean masterRestEnabled;
++    /** REST API v2 port of the master, meaningful only when {@link #masterRestEnabled}. */
++    private final int masterRestPort;
+ 
+     /**
+      * Validates resolved application settings without reading configuration or allocating
+@@ -67,7 +71,9 @@ public final class ApplicationSpecification {
+             int masterMemoryMb,
+             int masterCpuCores,
+             int masterPort,
+-            long startupTimeoutMillis) {
++            long startupTimeoutMillis,
++            boolean masterRestEnabled,
++            int masterRestPort) {
+         if (name == null || name.trim().isEmpty()) {
+             throw new IllegalArgumentException("Application name must not be empty");
+         }
+@@ -92,6 +98,15 @@ public final class ApplicationSpecification {
+             throw new IllegalArgumentException(
+                     "application.master.port must be between 1 and 65535");
+         }
++        if (masterRestEnabled && (masterRestPort < 1 || masterRestPort > 65535)) {
++            throw new IllegalArgumentException(
++                    "application.master.rest.port must be between 1 and 65535");
++        }
++        if (masterRestEnabled && masterRestPort == masterPort) {
++            throw new IllegalArgumentException(
++                    "application.master.rest.port must differ from application.master.port;"
++                            + " change one of them or set application.master.rest.enabled=false");
++        }
+         this.name = name;
+         this.jobConfig = jobConfig;
+         this.jobId = jobId;
+@@ -103,5 +118,7 @@ public final class ApplicationSpecification {
+         this.masterCpuCores = masterCpuCores;
+         this.masterPort = masterPort;
+         this.startupTimeoutMillis = startupTimeoutMillis;
++        this.masterRestEnabled = masterRestEnabled;
++        this.masterRestPort = masterRestPort;
+     }
+ }
+diff --git a/seatunnel-engine/seatunnel-engine-common/src/test/java/org/apache/seatunnel/engine/common/config/SeatunnelApplicationConfigTest.java b/seatunnel-engine/seatunnel-engine-common/src/test/java/org/apache/seatunnel/engine/common/config/SeatunnelApplicationConfigTest.java
+index 0108b20c..696c9773 100644
+--- a/seatunnel-engine/seatunnel-engine-common/src/test/java/org/apache/seatunnel/engine/common/config/SeatunnelApplicationConfigTest.java
++++ b/seatunnel-engine/seatunnel-engine-common/src/test/java/org/apache/seatunnel/engine/common/config/SeatunnelApplicationConfigTest.java
+@@ -21,6 +21,7 @@ import org.apache.seatunnel.shade.com.typesafe.config.ConfigException;
+ 
+ import org.apache.seatunnel.engine.common.config.server.CheckpointConfig;
+ import org.apache.seatunnel.engine.common.config.server.CheckpointStorageConfig;
++import org.apache.seatunnel.engine.common.config.server.HttpConfig;
+ import org.apache.seatunnel.engine.common.config.spec.ApplicationSpecification;
+ 
+ import org.junit.jupiter.api.Test;
+@@ -206,4 +207,36 @@ class SeatunnelApplicationConfigTest {
+                 IllegalArgumentException.class,
+                 () -> SeatunnelApplicationConfig.configure(config, "app", "", 1));
+     }
++
++    @Test
++    void disablesRestByDefaultOnBothRoles() {
++        SeaTunnelConfig master = new SeaTunnelConfig();
++        master.getEngineConfig().getHttpConfig().setEnabled(true);
++        SeatunnelApplicationConfig.configure(master, "unique-application", null, 2);
++        assertFalse(master.getEngineConfig().getHttpConfig().isEnabled());
++        assertFalse(master.getEngineConfig().getHttpConfig().isEnableHttps());
++    }
++
++    @Test
++    void keepsEngineHttpSettingsOnlyForTheMasterWhenRestIsRequested() {
++        SeaTunnelConfig master = new SeaTunnelConfig();
++        master.getEngineConfig().getHttpConfig().setEnabled(false);
++        master.getEngineConfig().getHttpConfig().setEnableHttps(true);
++        master.getEngineConfig().getHttpConfig().setEnableDynamicPort(true);
++        master.getEngineConfig().getHttpConfig().setEnableBasicAuth(true);
++        master.getEngineConfig().getHttpConfig().setContextPath("/seatunnel");
++        SeatunnelApplicationConfig.configure(master, "unique-application", null, 2, 18080);
++        HttpConfig http = master.getEngineConfig().getHttpConfig();
++        assertTrue(http.isEnabled());
++        assertFalse(http.isEnableHttps());
++        assertFalse(http.isEnableDynamicPort());
++        assertEquals(18080, http.getPort());
++        assertTrue(http.isEnableBasicAuth());
++        assertEquals("/seatunnel", http.getContextPath());
++
++        SeaTunnelConfig worker = new SeaTunnelConfig();
++        worker.getEngineConfig().getHttpConfig().setEnabled(true);
++        SeatunnelApplicationConfig.configure(worker, "unique-application", "master:5801", 2, 18080);
++        assertFalse(worker.getEngineConfig().getHttpConfig().isEnabled());
++    }
+ }
+diff --git a/seatunnel-engine/seatunnel-engine-common/src/test/java/org/apache/seatunnel/engine/common/spec/ApplicationSpecificationTest.java b/seatunnel-engine/seatunnel-engine-common/src/test/java/org/apache/seatunnel/engine/common/spec/ApplicationSpecificationTest.java
+index 51b76ab6..cffd4e6d 100644
+--- a/seatunnel-engine/seatunnel-engine-common/src/test/java/org/apache/seatunnel/engine/common/spec/ApplicationSpecificationTest.java
++++ b/seatunnel-engine/seatunnel-engine-common/src/test/java/org/apache/seatunnel/engine/common/spec/ApplicationSpecificationTest.java
+@@ -147,6 +147,48 @@ class ApplicationSpecificationTest {
+         assertEquals("sync-job", original.getName());
+     }
+ 
++    @Test
++    void carriesMasterRestSwitchAndEnablesItByDefault() throws Exception {
++        String job = "env { job.mode=BATCH }\nsource { FakeSource { row.num=5 } }\n";
++        ApplicationSpecification defaults =
++                SeatunnelApplicationConfig.parse(job, Collections.emptyMap());
++        assertTrue(defaults.isMasterRestEnabled());
++        assertEquals(8080, defaults.getMasterRestPort());
++        ApplicationSpecification defaultsCopy =
++                SeatunnelApplicationConfig.fromProperties(
++                        SeatunnelApplicationConfig.toProperties(defaults));
++        assertTrue(defaultsCopy.isMasterRestEnabled());
++        assertEquals(8080, defaultsCopy.getMasterRestPort());
++
++        Map<String, String> disabled = new HashMap<>();
++        disabled.put("application.master.rest.enabled", "false");
++        // A disabled REST API never conflicts with the Hazelcast port.
++        disabled.put("application.master.rest.port", "5801");
++        assertFalse(
++                SeatunnelApplicationConfig.fromProperties(
++                                SeatunnelApplicationConfig.toProperties(
++                                        SeatunnelApplicationConfig.parse(job, disabled)))
++                        .isMasterRestEnabled());
++
++        Map<String, String> options = new HashMap<>();
++        options.put("application.master.rest.port", "18080");
++        ApplicationSpecification copy =
++                SeatunnelApplicationConfig.fromProperties(
++                        SeatunnelApplicationConfig.toProperties(
++                                SeatunnelApplicationConfig.parse(job, options)));
++        assertTrue(copy.isMasterRestEnabled());
++        assertEquals(18080, copy.getMasterRestPort());
++
++        options.put("application.master.rest.port", "5801");
++        assertThrows(
++                IllegalArgumentException.class,
++                () -> SeatunnelApplicationConfig.parse(job, options));
++        options.put("application.master.rest.port", "0");
++        assertThrows(
++                IllegalArgumentException.class,
++                () -> SeatunnelApplicationConfig.parse(job, options));
++    }
++
+     @Test
+     void rejectsInvalidResourcesBeforeSubmittingToPlatform() {
+         for (String key :
+diff --git a/seatunnel-resource-managers/kubernetes/src/main/java/org/apache/seatunnel/resource/kubernetes/cli/SeatunnelKubernetesApplicationCli.java b/seatunnel-resource-managers/kubernetes/src/main/java/org/apache/seatunnel/resource/kubernetes/cli/SeatunnelKubernetesApplicationCli.java
+index 3af7b403..5d6c2ec2 100644
+--- a/seatunnel-resource-managers/kubernetes/src/main/java/org/apache/seatunnel/resource/kubernetes/cli/SeatunnelKubernetesApplicationCli.java
++++ b/seatunnel-resource-managers/kubernetes/src/main/java/org/apache/seatunnel/resource/kubernetes/cli/SeatunnelKubernetesApplicationCli.java
+@@ -108,7 +108,8 @@ public final class SeatunnelKubernetesApplicationCli {
+                 engineConfiguration,
+                 clusterName(id),
+                 null,
+-                specification.getWorkerSpecification().getSlots());
++                specification.getWorkerSpecification().getSlots(),
++                specification.isMasterRestEnabled() ? specification.getMasterRestPort() : null);
+         SeatunnelApplicationConfig.configureCheckpointRetention(engineConfiguration);
+         engineConfiguration
+                 .getHazelcastConfig()
+diff --git a/seatunnel-resource-managers/kubernetes/src/main/java/org/apache/seatunnel/resource/kubernetes/kubeclient/KubernetesConstants.java b/seatunnel-resource-managers/kubernetes/src/main/java/org/apache/seatunnel/resource/kubernetes/kubeclient/KubernetesConstants.java
+index 32d42ec3..85e64227 100644
+--- a/seatunnel-resource-managers/kubernetes/src/main/java/org/apache/seatunnel/resource/kubernetes/kubeclient/KubernetesConstants.java
++++ b/seatunnel-resource-managers/kubernetes/src/main/java/org/apache/seatunnel/resource/kubernetes/kubeclient/KubernetesConstants.java
+@@ -188,6 +188,7 @@ public final class KubernetesConstants {
+ 
+     public static final String POD_IP_FIELD_PATH = "status.podIP";
+     public static final String HAZELCAST_PORT_NAME = "hazelcast";
++    public static final String REST_PORT_NAME = "rest";
+     /** Cluster IP of a headless Service: Kubernetes publishes the Pod addresses directly. */
+     public static final String HEADLESS_CLUSTER_IP = "None";
+ 
+diff --git a/seatunnel-resource-managers/kubernetes/src/main/java/org/apache/seatunnel/resource/kubernetes/kubeclient/decorators/HeadlessServiceDecorator.java b/seatunnel-resource-managers/kubernetes/src/main/java/org/apache/seatunnel/resource/kubernetes/kubeclient/decorators/HeadlessServiceDecorator.java
+index 89b7fdf7..28f22987 100644
+--- a/seatunnel-resource-managers/kubernetes/src/main/java/org/apache/seatunnel/resource/kubernetes/kubeclient/decorators/HeadlessServiceDecorator.java
++++ b/seatunnel-resource-managers/kubernetes/src/main/java/org/apache/seatunnel/resource/kubernetes/kubeclient/decorators/HeadlessServiceDecorator.java
+@@ -53,24 +53,31 @@ public final class HeadlessServiceDecorator extends AbstractKubernetesStepDecora
+                 KubernetesResourceIdentity.metadata(
+                         applicationId, applicationId, KubernetesConstants.MASTER_ROLE);
+         int port = parameters.getSpecification().getMasterPort();
++        V1ServiceSpec spec =
++                new V1ServiceSpec()
++                        .clusterIP(KubernetesConstants.HEADLESS_CLUSTER_IP)
++                        .publishNotReadyAddresses(true)
++                        .selector(metadata.getLabels())
++                        .addPortsItem(
++                                new V1ServicePort()
++                                        .name(KubernetesConstants.HAZELCAST_PORT_NAME)
++                                        .port(port)
++                                        .targetPort(new IntOrString(port)));
++        if (parameters.getSpecification().isMasterRestEnabled()) {
++            // Platforms reach the master REST API through this Service, e.g. the API server proxy.
++            int restPort = parameters.getSpecification().getMasterRestPort();
++            spec.addPortsItem(
++                    new V1ServicePort()
++                            .name(KubernetesConstants.REST_PORT_NAME)
++                            .port(restPort)
++                            .targetPort(new IntOrString(restPort)));
++        }
+         return Collections.singletonList(
+                 new KubernetesService(
+                         new V1Service()
+                                 .apiVersion(KubernetesConstants.CORE_API_VERSION)
+                                 .kind(KubernetesConstants.SERVICE_KIND)
+                                 .metadata(metadata)
+-                                .spec(
+-                                        new V1ServiceSpec()
+-                                                .clusterIP(KubernetesConstants.HEADLESS_CLUSTER_IP)
+-                                                .publishNotReadyAddresses(true)
+-                                                .selector(metadata.getLabels())
+-                                                .addPortsItem(
+-                                                        new V1ServicePort()
+-                                                                .name(
+-                                                                        KubernetesConstants
+-                                                                                .HAZELCAST_PORT_NAME)
+-                                                                .port(port)
+-                                                                .targetPort(
+-                                                                        new IntOrString(port))))));
++                                .spec(spec)));
+     }
+ }
+diff --git a/seatunnel-resource-managers/kubernetes/src/test/java/org/apache/seatunnel/resource/kubernetes/KubernetesApplicationResourcesTest.java b/seatunnel-resource-managers/kubernetes/src/test/java/org/apache/seatunnel/resource/kubernetes/KubernetesApplicationResourcesTest.java
+index f07410d5..a4454af3 100644
+--- a/seatunnel-resource-managers/kubernetes/src/test/java/org/apache/seatunnel/resource/kubernetes/KubernetesApplicationResourcesTest.java
++++ b/seatunnel-resource-managers/kubernetes/src/test/java/org/apache/seatunnel/resource/kubernetes/KubernetesApplicationResourcesTest.java
+@@ -1620,6 +1620,38 @@ class KubernetesApplicationResourcesTest {
+         assertEquals(KubernetesConstants.HAZELCAST_PORT_NAME, port.getName());
+         assertEquals(masterPort, port.getPort());
+         assertEquals(masterPort, port.getTargetPort().getIntValue());
++        // The master REST API v2 is enabled by default and published next to Hazelcast.
++        int restPort = specification().getMasterRestPort();
++        assertEquals(2, model.getSpec().getPorts().size());
++        V1ServicePort rest = model.getSpec().getPorts().get(1);
++        assertEquals(KubernetesConstants.REST_PORT_NAME, rest.getName());
++        assertEquals(restPort, rest.getPort());
++        assertEquals(restPort, rest.getTargetPort().getIntValue());
++    }
++
++    @Test
++    void publishesOnlyTheHazelcastPortWhenMasterRestIsDisabled() throws Exception {
++        Map<String, String> options = options();
++        options.put("application.master.rest.enabled", "false");
++        KubernetesApplicationConfig parameters =
++                KubernetesApplicationConfig.from(
++                        SeatunnelApplicationConfig.parse("env { job.mode = BATCH }", options),
++                        ReadonlyConfig.fromMap(new HashMap<>(options)));
++        V1Service model =
++                ((KubernetesService)
++                                accompanyingResources(
++                                                KubernetesApplicationClusterDescriptor
++                                                        .assembleApplication(
++                                                                "app", mainClass, parameters))
++                                        .stream()
++                                        .filter(KubernetesService.class::isInstance)
++                                        .findFirst()
++                                        .orElseThrow(() -> new AssertionError("Missing Service")))
++                        .getInternalResource();
++        assertEquals(1, model.getSpec().getPorts().size());
++        assertEquals(
++                KubernetesConstants.HAZELCAST_PORT_NAME,
++                model.getSpec().getPorts().get(0).getName());
+     }
+ 
+     @Test

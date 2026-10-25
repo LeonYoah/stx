@@ -43,6 +43,9 @@ type Handler struct {
 	service             *Service
 	auditRepo           *audit.Repository
 	onOperationExecuted func(context.Context, *OperationEvent) error
+	// webUIMaster 为 Web UI 代理挑选 active master，零值可用。
+	// webUIMaster picks the active master for the Web UI proxy; its zero value is ready to use.
+	webUIMaster webUIMasterSelector
 }
 
 // OperationEvent represents one cluster operation notification hook payload.
@@ -1033,21 +1036,9 @@ func (h *Handler) ProxyWebUI(c *gin.Context) {
 		return
 	}
 
-	var targetNode *NodeInfo
-	for _, node := range nodes {
-		if node == nil || node.APIPort <= 0 {
-			continue
-		}
-		if node.Role != NodeRoleMaster && node.Role != NodeRoleMasterWorker {
-			continue
-		}
-		if targetNode == nil || node.IsOnline {
-			targetNode = node
-		}
-		if node.IsOnline {
-			break
-		}
-	}
+	// 多个在线 master 时优先代理到 active master，否则引擎 UI 的实时背压接口会返回 404。
+	// With several online masters prefer the active master; otherwise the engine UI realtime backpressure API returns 404.
+	targetNode := h.webUIMaster.pick(c.Request.Context(), uint(clusterID), nodes)
 
 	if targetNode == nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error_msg": "当前集群未找到可用的 SeaTunnel Web UI 节点 / No available SeaTunnel Web UI node found"})

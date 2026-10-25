@@ -406,6 +406,8 @@ func managedModels() []interface{} {
 		&syncapp.Task{},                         // 数据同步任务表 / Sync task table
 		&syncapp.TaskVersion{},                  // 数据同步任务版本表 / Sync task version table
 		&syncapp.JobInstance{},                  // 数据同步作业实例表 / Sync job instance table
+		&syncapp.EngineEventChannel{},           // SeaTunnel 事件上报通道表 / SeaTunnel event report channel table
+		&syncapp.EngineEvent{},                  // SeaTunnel 引擎事件表 / SeaTunnel engine event table
 		&syncapp.GlobalVariable{},               // 数据同步全局变量表 / Sync global variable table
 		&syncapp.CuratedTemplate{},              // 数据同步精选模板表 / Sync curated template table
 		&syncapp.PreviewSession{},               // 数据同步预览会话表 / Sync preview session table

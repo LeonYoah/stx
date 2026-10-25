@@ -62,6 +62,13 @@ func addSyncWriteCommands(root *cobra.Command, storeProvider authStoreProvider) 
 	}
 	dolphinCommand.AddCommand(newSyncTaskDolphinPushCommand(storeProvider))
 
+	eventChannelCommand := childCommand(syncCommand, "event-channel")
+	if eventChannelCommand == nil {
+		eventChannelCommand = &cobra.Command{Use: "event-channel", Short: "SeaTunnel event report channel commands"}
+		syncCommand.AddCommand(eventChannelCommand)
+	}
+	eventChannelCommand.AddCommand(newSyncEventChannelUpdateCommand(storeProvider))
+
 	schedulerCommand := childCommand(syncCommand, "scheduler")
 	if schedulerCommand == nil {
 		schedulerCommand = &cobra.Command{Use: "scheduler", Short: "STX scheduler connection commands"}

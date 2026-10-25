@@ -86,4 +86,12 @@ var (
 	ErrDolphinPushInvalid              = errors.New("sync: invalid DolphinScheduler push request")
 	ErrDolphinPushNoNewVersion         = errors.New("sync: dolphin push requires a new published version")
 	ErrDolphinUnsupportedVersion       = errors.New("sync: only DolphinScheduler 3.x is supported")
+	// 事件通道错误 / Event channel errors.
+	ErrEventChannelNotFound            = errors.New("sync: engine event channel not found")
+	ErrEventChannelVersionUnsupported  = errors.New("sync: engine event reporting requires SeaTunnel 2.3.12 or later")
+	ErrEventChannelExternalURLMissing  = errors.New("sync: app.external_url must be configured so SeaTunnel can reach STX")
+	ErrEventChannelSecretMissing       = errors.New("sync: app.session_secret must be configured to sign engine event tokens")
+	ErrEventChannelApplierMissing      = errors.New("sync: seatunnel.yaml config applier is not configured")
+	ErrEventChannelUnauthorized        = errors.New("sync: invalid engine event token")
+	ErrEventChannelPermissionDenied    = errors.New("sync: only administrators can change the engine event channel")
 )

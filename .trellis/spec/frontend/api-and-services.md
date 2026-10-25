@@ -83,6 +83,18 @@ export interface ApiError {
 - 在全局请求拦截器里无条件给全部写请求添加确认头。这样会把公共执行语义错误地扩散到登录、查询型 POST 和普通配置接口。
 - R2/R3 第二次确认请求重新生成幂等键。确认编号与原幂等键、请求摘要绑定，换键会导致确认失败。
 
+## Scenario: 实时诊断与事件入口（3.x）
+
+- **入口判定只看后端记录**：`getRealtimeEntry(job)` 读取 `submit_spec.observability.supported / injected` 和作业状态，**不在前端比较 SeaTunnel 版本**。
+- **背压 DAG 不自建，统一用"跳转到 SeaTunnel 集群观测"**：`SeaTunnelObserveMenu`（`components/common/cluster/`）是唯一入口，作业行、实时诊断面板和集群详情都复用它。
+  - 可选代理地址或原生地址，地址取自 `GET /api/v1/clusters/:id/webui-endpoints`。前端**不自己拼直连地址**，也不判断版本或 `enable_http`，这些都由后端返回的 `available/reason` 决定。
+  - 带作业时追加 `job_path_template`（引擎 UI 是 hash 路由）。
+  - 实时和离线作业都显示。`RealtimeInsightPanel` 只显示瓶颈提示、速览和不可用原因。
+- **轮询**：实时面板每 5 秒一次（和引擎采集桶对齐），页面不可见时暂停，作业到终态时停止；事件时间线每 10 秒一次（和引擎上报批次对齐）。
+- **数组兜底**：`getJobRealtime` 在 service 层把 `vertices/edges/hints/points` 归一成 `[]`，`listJobEvents` 把 `events` 归一成 `[]`。
+- **CDC 延迟**：只在 `job.cdc_delay?.fresh` 为真时显示徽标。引擎只在延迟 ≥1 秒时上报，60 秒内没有样本就视为已恢复。
+- **事件通道开关**：网页端直接 PUT，不带执行请求头，后端对 web 客户端跳过执行协议（和 config 写接口一致）；确认交互用 AlertDialog，并提示需要滚动重启。
+
 ## Scenario: Sync 工作台 Config DAG 兼容 WebUI `jobDag`
 
 ### 1. Scope / Trigger

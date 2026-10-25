@@ -508,6 +508,20 @@ export interface StxJavaProxyJvmMemory {
   maxMemoryMb?: number;
 }
 
+/**
+ * SeaTunnel 集群观测（引擎自带 Web UI）的访问地址：经 STX 代理或直连原生地址。
+ * Addresses of the SeaTunnel cluster observation UI (the engine's own Web UI): via the STX proxy or native.
+ */
+export interface ClusterWebUIEndpoints {
+  available: boolean;
+  reason?: 'version_unsupported' | 'http_disabled' | 'no_webui_node' | 'node_address_missing' | string;
+  proxy_base_url: string;
+  native_base_url: string;
+  node_id?: number;
+  host_name?: string;
+  job_path_template: string;
+}
+
 export interface StxJavaProxyStatus {
   cluster_id: number;
   cluster_name?: string;

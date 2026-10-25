@@ -1853,6 +1853,54 @@ export function getExecutionMode(definition: SyncJSON | undefined): ExecutionMod
   return 'cluster';
 }
 
+/** 任务的实时可观测性设置 / Task realtime observability setting. */
+export type ObservabilityMode = 'auto' | 'on' | 'off';
+
+/**
+ * 读取任务定义里的实时可观测性设置，缺省或非法值按 auto。
+ * Read the realtime observability setting from the task definition; missing or invalid values mean auto.
+ */
+export function getObservabilityMode(definition: SyncJSON | undefined): ObservabilityMode {
+  const value = String(definition?.observability ?? '').toLowerCase();
+  if (value === 'on' || value === 'off') {
+    return value;
+  }
+  return 'auto';
+}
+
+const REALTIME_ENGINE_RUNNING_STATUSES = new Set([
+  'running',
+  'cancel_requested',
+  'cancelling',
+  'doing_savepoint',
+]);
+
+/**
+ * 作业的实时诊断入口信息。supported 由后端按集群版本判定后写入 submit_spec.observability，前端不比较版本。
+ * Realtime insight entry info for a job. `supported` is decided by the backend from the cluster version and stored
+ * in submit_spec.observability; the frontend never compares versions itself.
+ */
+export function getRealtimeEntry(job?: SyncJobInstance | null): {
+  supported: boolean;
+  injected: boolean;
+  running: boolean;
+  webuiPath: string;
+} {
+  const spec = (job?.submit_spec ?? {}) as Record<string, unknown>;
+  const record = (spec.observability ?? {}) as Record<string, unknown>;
+  const clusterId = Number(spec.cluster_id ?? 0);
+  const engineJobId = String(job?.engine_job_id ?? '').trim();
+  return {
+    supported: record.supported === true,
+    injected: record.injected === true,
+    running: REALTIME_ENGINE_RUNNING_STATUSES.has(String(job?.status ?? '')),
+    webuiPath:
+      clusterId > 0 && engineJobId
+        ? `/api/v1/clusters/${clusterId}/webui/#/jobs/${encodeURIComponent(engineJobId)}`
+        : '',
+  };
+}
+
 // ==========================================
 // 预览与作业状态工具函数
 // Preview and Job State Utilities

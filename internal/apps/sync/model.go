@@ -425,6 +425,9 @@ type JobInstance struct {
 	// AttachGeneration 在同一 external_ref 被 CLI 接管时递增，用来忽略过期停止请求。
 	// AttachGeneration increments when another CLI attaches to the same external_ref so stale cancel requests are ignored.
 	AttachGeneration int `json:"attach_generation" gorm:"not null;default:0"`
+	// CDCDelay 是事件通道聚合的 CDC 延迟摘要（内存态，响应时补充，不落库）。
+	// CDCDelay is the CDC delay summary aggregated from the event channel (in memory, filled at response time).
+	CDCDelay *JobCDCDelay `json:"cdc_delay,omitempty" gorm:"-"`
 }
 
 // TableName returns the sync job instance table name.

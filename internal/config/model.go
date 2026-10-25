@@ -96,6 +96,10 @@ type SyncConfig struct {
 	// JobReconcilerIntervalSeconds 对账 tick 间隔；0 表示默认 10 秒，小于 0 表示关闭对账器。
 	// JobReconcilerIntervalSeconds is the reconciler tick interval; 0 means default 10s, negative disables it.
 	JobReconcilerIntervalSeconds int `mapstructure:"job_reconciler_interval_seconds"`
+	// JobReconcilerEventModeIntervalSeconds 是事件通道健康时完整对账（拉 running/finished 列表）的最长间隔；0 表示默认 60 秒，小于 0 表示关闭自适应。
+	// JobReconcilerEventModeIntervalSeconds is the longest interval between full reconciles (running/finished lists)
+	// while the event channel is healthy; 0 means default 60s, negative disables adaptive polling.
+	JobReconcilerEventModeIntervalSeconds int `mapstructure:"job_reconciler_event_mode_interval_seconds"`
 }
 
 // authConfig 认证配置

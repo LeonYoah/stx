@@ -329,6 +329,7 @@ func Serve() {
 				clusterRouter.POST("/:id/runtime-storage/checkpoint/inspect", clusterHandler.InspectCheckpointRuntimeStorage)
 				clusterRouter.POST("/:id/runtime-storage/imap/inspect", clusterHandler.InspectIMAPRuntimeStorage)
 				clusterRouter.POST("/:id/runtime-storage/imap/cleanup", clusterHandler.CleanupIMAPStorage)
+				clusterRouter.GET("/:id/webui-endpoints", clusterHandler.GetWebUIEndpoints)
 				clusterRouter.Any("/:id/webui", clusterHandler.ProxyWebUI)
 				clusterRouter.Any("/:id/webui/*proxyPath", clusterHandler.ProxyWebUI)
 			}
@@ -742,10 +743,14 @@ func Serve() {
 			syncService.StartPreviewRuntime(ctx)
 			syncService.StartTaskScheduleRuntime(ctx)
 			syncService.StartJobReconciler(ctx)
+			syncService.StartEngineEventRuntime(ctx)
 			syncHandler := syncapp.NewHandler(syncService)
 			syncHandler.SetAuditRepository(auditRepo)
 
 			apiV1Router.POST("/sync/preview/collect", syncHandler.CollectPreview)
+			// SeaTunnel event-report-http 回调：不走登录，靠集群 token 鉴权。
+			// SeaTunnel event-report-http callback: no login, authenticated by the per-cluster token.
+			apiV1Router.POST("/sync/engine-events/:cluster_id", syncHandler.IngestEngineEvents)
 
 			syncRouter := apiV1Router.Group("/sync")
 			syncRouter.Use(auth.LoginRequired())
@@ -815,6 +820,12 @@ func Serve() {
 					syncPluginRouter.POST("/enum-catalog", syncHandler.ListPluginEnumCatalog)
 				}
 
+				syncEventChannelRouter := syncRouter.Group("/event-channels")
+				{
+					syncEventChannelRouter.GET("/:cluster_id", syncHandler.GetEventChannel)
+					syncEventChannelRouter.PUT("/:cluster_id", syncHandler.UpdateEventChannel)
+				}
+
 				syncJobRouter := syncRouter.Group("/jobs")
 				{
 					syncJobRouter.POST("/cancel-by-ref", syncHandler.CancelJobByRef)
@@ -823,6 +834,8 @@ func Serve() {
 					syncJobRouter.GET("/:id/preview", syncHandler.GetPreviewSnapshot)
 					syncJobRouter.GET("/:id/checkpoint", syncHandler.GetJobCheckpointSnapshot)
 					syncJobRouter.GET("/:id/logs", syncHandler.GetJobLogs)
+					syncJobRouter.GET("/:id/realtime", syncHandler.GetJobRealtime)
+					syncJobRouter.GET("/:id/events", syncHandler.ListJobEvents)
 					syncJobRouter.POST("/:id/recover", syncHandler.RecoverJob)
 					syncJobRouter.POST("/:id/cancel", syncHandler.CancelJob)
 				}
@@ -981,6 +994,9 @@ func Serve() {
 			})
 			configHandler := appconfig.NewHandler(configService)
 			configHandler.SetExecutionService(executionService)
+			// 事件通道开关通过 config 应用改写 seatunnel.yaml。
+			// The event channel switch rewrites seatunnel.yaml through the config app.
+			syncService.SetEventReportConfigApplier(&syncEventReportConfigAdapter{configService: configService})
 
 			// 注入扩缩容编排依赖：配置、安装器、插件补齐、运行中作业、进程发现与按集群监控下发。
 			// Inject scaling orchestrator dependencies: config, installer, plugin replay, running jobs, process discovery
@@ -2441,4 +2457,37 @@ func (a *clusterProcessDiscovererAdapter) DiscoverSeaTunnelProcesses(ctx context
 		})
 	}
 	return processes, nil
+}
+
+// syncEventReportConfigAdapter 把 sync 的事件上报配置写入请求适配到 config 应用。
+// syncEventReportConfigAdapter adapts sync event-report config writes to the config app.
+type syncEventReportConfigAdapter struct {
+	configService *appconfig.Service
+}
+
+func (a *syncEventReportConfigAdapter) ApplyEventReportConfig(ctx context.Context, clusterID uint, settings *syncapp.EngineEventReportSettings, userID uint) ([]syncapp.EngineEventReportNodeResult, error) {
+	if a == nil || a.configService == nil {
+		return nil, syncapp.ErrEventChannelApplierMissing
+	}
+	var converted *appconfig.EventReportSettings
+	if settings != nil {
+		converted = &appconfig.EventReportSettings{URL: settings.URL, Headers: settings.Headers, ReportNonTerminal: settings.ReportNonTerminal}
+	}
+	result, err := a.configService.ApplyEventReportConfig(ctx, clusterID, converted, userID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]syncapp.EngineEventReportNodeResult, 0, len(result.Configs))
+	for _, item := range result.Configs {
+		out = append(out, syncapp.EngineEventReportNodeResult{
+			ConfigID: item.ConfigID,
+			HostID:   item.HostID,
+			Template: item.Template,
+			Changed:  item.Changed,
+			Pushed:   item.Pushed,
+			Pending:  item.Pending,
+			Error:    item.Error,
+		})
+	}
+	return out, nil
 }

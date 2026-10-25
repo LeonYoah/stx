@@ -61,6 +61,19 @@ func syncOperationSpecs() []OperationSpec {
 		{Name: "limit_bytes", Location: InputQuery, Required: false, Description: "Maximum bytes to return"},
 	}
 
+	realtimeInputs := []InputSpec{
+		{Name: "id", Location: InputPath, Required: true, Description: "Job instance ID"},
+		{Name: "window_ms", Location: InputQuery, Required: false, Description: "Realtime window in milliseconds (default 180000, max 600000)"},
+	}
+
+	jobEventInputs := []InputSpec{
+		{Name: "id", Location: InputPath, Required: true, Description: "Job instance ID"},
+		{Name: "types", Location: InputQuery, Required: false, Description: "Comma-separated event types, e.g. JOB_STATUS,SCHEMA_CHANGE_ADD_COLUMN"},
+		{Name: "page", Location: InputQuery, Required: false, Description: "Page number starting from 1"},
+		{Name: "page_size", Location: InputQuery, Required: false, Description: "Number of items per page (max 200)"},
+	}
+	eventChannelInputs := []InputSpec{{Name: "cluster_id", Location: InputPath, Required: true, Description: "Cluster ID"}}
+
 	checkpointInputs := []InputSpec{
 		{Name: "id", Location: InputPath, Required: true, Description: "Job instance ID"},
 		{Name: "pipeline_id", Location: InputQuery, Required: false, Description: "Filter by pipeline ID"},
@@ -118,11 +131,19 @@ func syncOperationSpecs() []OperationSpec {
 		syncOp("sync.job.list", []string{"sync", "job", "list"}, "List SeaTunnel job instances", "GET", "/api/v1/sync/jobs", RiskR0, "", jobPaginationInputs, "stx sync job list --status RUNNING", true, false),
 		syncOp("sync.job.get", []string{"sync", "job", "get"}, "Get one SeaTunnel job instance", "GET", "/api/v1/sync/jobs/:id", RiskR0, "", jobIDInput, "stx sync job get 1", true, false),
 		syncOp("sync.job.logs", []string{"sync", "job", "logs"}, "Get SeaTunnel job execution logs", "GET", "/api/v1/sync/jobs/:id/logs", RiskR0, "", jobLogsInputs, "stx sync job logs 1 --lines 200", true, false),
+		syncOp("sync.job.events", []string{"sync", "job", "events"}, "List engine events (status, schema change, CDC delay) of a SeaTunnel job", "GET", "/api/v1/sync/jobs/:id/events", RiskR0, "", jobEventInputs, "stx sync job events 1 --types JOB_STATUS", true, false),
+		syncOp("sync.job.realtime", []string{"sync", "job", "realtime"}, "Get realtime busyness, backpressure and bottleneck hints for a running SeaTunnel 3.x job", "GET", "/api/v1/sync/jobs/:id/realtime", RiskR0, "", realtimeInputs, "stx sync job realtime 1 --window_ms 180000", true, false),
 		syncOp("sync.job.checkpoint", []string{"sync", "job", "checkpoint"}, "Get checkpoint snapshot and metrics for a SeaTunnel job", "GET", "/api/v1/sync/jobs/:id/checkpoint", RiskR0, "", checkpointInputs, "stx sync job checkpoint 1", true, false),
 		syncOp("sync.job.preview", []string{"sync", "job", "preview"}, "Get preview data snapshot for a SeaTunnel job", "GET", "/api/v1/sync/jobs/:id/preview", RiskR0, "", previewSnapshotInputs, "stx sync job preview 1", true, false),
 		syncOp("sync.job.cancel", []string{"sync", "job", "cancel"}, "Cancel a running SeaTunnel job", "POST", "/api/v1/sync/jobs/:id/cancel", RiskR2, "终止集群中正在运行的作业，可指定 --savepoint 保存当前状态。", syncWriteInputs(false, jobIDInput), "stx sync job cancel 1 --confirm", false, false),
 		syncOp("sync.job.cancel-by-ref", []string{"sync", "job", "cancel-by-ref"}, "Cancel a SeaTunnel job by external scheduler reference", "POST", "/api/v1/sync/jobs/cancel-by-ref", RiskR2, "按外部调度引用停止作业；接管序号不匹配时忽略。", syncWriteInputs(true, nil), "stx sync job cancel-by-ref --confirm", false, false),
 		syncOp("sync.job.recover", []string{"sync", "job", "recover"}, "Recover a stopped or failed job from checkpoint or savepoint", "POST", "/api/v1/sync/jobs/:id/recover", RiskR2, "从最后 Checkpoint 或 Savepoint 恢复作业，重新提交至集群运行。", syncWriteInputs(false, jobIDInput), "stx sync job recover 1 --confirm", false, true),
+	)
+
+	// 4.1 SeaTunnel event report channel
+	specs = append(specs,
+		syncOp("sync.event-channel.get", []string{"sync", "event-channel", "get"}, "Get the SeaTunnel event report channel status of a cluster", "GET", "/api/v1/sync/event-channels/:cluster_id", RiskR0, "", eventChannelInputs, "stx sync event-channel get 1", true, false),
+		syncOp("sync.event-channel.update", []string{"sync", "event-channel", "update"}, "Enable, disable or rotate the SeaTunnel event report channel of a cluster", "PUT", "/api/v1/sync/event-channels/:cluster_id", RiskR2, "会修改该集群全部节点的 seatunnel.yaml（event-report-http），需滚动重启集群后生效。", syncWriteInputs(true, eventChannelInputs), "stx sync event-channel update 1 --enabled=true --confirm", false, false),
 	)
 
 	// 5. Global Variables

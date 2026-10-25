@@ -22,6 +22,16 @@
 
 `config.yaml` → `sync.job_reconciler_interval_seconds`：默认 10；设为 `-1` 关闭对账器。
 
+`config.yaml` → `sync.job_reconciler_event_mode_interval_seconds`：事件模式下完整对账的最长间隔，0 表示默认 60 秒，`-1` 关闭自适应。
+
+## 事件模式（自适应轮询）
+
+- 条件：集群事件通道为 `healthy`、`report_non_terminal=true`，并且集群版本 ≥3.0.0（见 [实时可观测性与事件上报](./engine-events-and-realtime.md)）。
+- 满足时，在完整对账间隔内每轮只做 `reconcileClusterJobsLight`：**不拉 running/finished 列表**，只给 `running` 作业中"30 秒内被读过"（`GetJob`/`GetJobLogs`/`/realtime` 会打标记）或 `last_synced_at` 超过 30 秒的作业拉 `/job-info`。
+- 状态变化靠事件触发 `RefreshJobByID`（防抖 1 秒）；非 running 的非终态作业最多等一个完整对账间隔，由完整对账兜底。
+- 通道降级、未开启、2.3.x、或配置为 `-1` 时，每轮都是完整对账，行为和原来一致。作业从引擎消失时置为 failed、终态补拉终态指标等语义**只在完整对账里发生**。
+- `lastFull` 只存在内存里：STX 重启后第一轮必然是完整对账。CLI `--wait` 轮询 `GetJob` 会让作业保持高频拉取。
+
 ## CLI
 
 - 读作业：`stx sync job get <id>`（走默认读路径）

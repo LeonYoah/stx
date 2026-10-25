@@ -72,6 +72,7 @@ import {
   StxJavaProxyLogPreviewResult,
   StxJavaProxyResponse,
   StxJavaProxyStatus,
+  ClusterWebUIEndpoints,
   UpdateStxJavaProxyConfigRequest,
 } from './types';
 
@@ -579,6 +580,20 @@ export class ClusterService extends BaseService {
           }))
         : [],
     };
+  }
+
+  /**
+   * 读取 SeaTunnel 集群观测的代理地址与原生地址（原生地址优先指向 active master）。
+   * Get the proxy and native addresses of the SeaTunnel cluster observation UI (native prefers the active master).
+   */
+  static async getWebUIEndpoints(clusterId: number): Promise<ClusterWebUIEndpoints> {
+    const response = await apiClient.get<{error_msg: string; data: ClusterWebUIEndpoints}>(
+      `${this.basePath}/${clusterId}/webui-endpoints`,
+    );
+    if (response.data.error_msg) {
+      throw new Error(localizeBackendText(response.data.error_msg));
+    }
+    return response.data.data;
   }
 
   static async getStxJavaProxyStatus(

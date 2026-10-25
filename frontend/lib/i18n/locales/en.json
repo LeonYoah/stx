@@ -682,9 +682,6 @@
     "webUiTitle": "SeaTunnel Web UI",
     "webUiDescription": "Access the built-in SeaTunnel Web UI through master node {host}:{port}.",
     "webUiHint": "The Web UI is embedded through the control plane proxy. In a new window you can choose the STX proxy URL or the direct master URL.",
-    "openWebUiInNewWindow": "Open in new window",
-    "openWebUiViaProxy": "Use STX proxy URL",
-    "openWebUiDirect": "Use direct URL",
     "apiPort": "API Port",
     "workerPort": "Worker Port",
     "portConfigDescription": "Ports will be validated via Agent when adding the node",
@@ -1189,6 +1186,63 @@
       },
       "rollingRestartLabel": "Rolling-restart existing nodes after scaling out ({count}: {names})",
       "rollingRestartDesc": "Hazelcast reads the member list only at startup and, after a split, only looks for peers in that list; existing nodes can find the new node again after a split only once restarted. Nodes restart one at a time, each continuing only after it recovers and sees every member."
+    },
+    "eventChannel": {
+      "title": "SeaTunnel event reporting",
+      "refresh": "Refresh",
+      "enable": "Enable",
+      "disable": "Disable",
+      "rotate": "Rotate token",
+      "cancel": "Cancel",
+      "confirmAction": "Confirm",
+      "never": "never",
+      "description": "When enabled, the engine pushes job status, schema changes and CDC delay to STX: status refreshes immediately and reconciliation slows down automatically.",
+      "unsupported": "Cluster version {version} does not emit job status events (requires 2.3.12+; 3.x adds non-terminal states).",
+      "lastEvent": "Last event: {time}",
+      "counters": "received {received} · duplicates {duplicates} · dropped {dropped}",
+      "authFails": "{count} token failures",
+      "modeFull": "All states",
+      "modeTerminal": "Terminal states only",
+      "url": "Callback URL: {url}",
+      "restartHint": "The config was written to seatunnel.yaml; reporting starts after a rolling restart of the cluster.",
+      "degradedHint": "A recently submitted job did not produce a status event in time, so polling fell back to every 10 seconds. Check that the cluster can reach the callback URL and that the token matches.",
+      "applied": "seatunnel.yaml updated; takes effect after a rolling restart",
+      "appliedWithErrors": "Some node configs failed: {errors}",
+      "state": {
+        "disabled": "Disabled",
+        "pending_restart": "Restart pending",
+        "healthy": "Healthy",
+        "degraded": "Degraded"
+      },
+      "confirm": {
+        "enable": {
+          "title": "Enable event reporting?",
+          "body": "This rewrites seatunnel.yaml (event-report-http) on every node of the cluster and takes effect after a rolling restart. The cluster must reach STX's external URL."
+        },
+        "disable": {
+          "title": "Disable event reporting?",
+          "body": "This removes event-report-http from seatunnel.yaml on every node; after a restart reporting stops and job status falls back to polling only."
+        },
+        "rotate": {
+          "title": "Rotate the event token?",
+          "body": "A new token is written to seatunnel.yaml. Until the restart the engine keeps the old token, so reports are rejected and status falls back to polling."
+        }
+      }
+    },
+    "observe": {
+      "open": "Open SeaTunnel cluster observation",
+      "jobTitle": "Job {id}",
+      "clusterTitle": "Cluster observation home",
+      "loading": "Loading addresses…",
+      "viaProxy": "Open via STX proxy",
+      "native": "Open native address",
+      "hint": "The proxy goes through STX and needs no direct access to the cluster; the native address needs the browser to reach the engine HTTP port. The SeaTunnel Web UI provides the backpressure DAG and live metrics; live backpressure needs realtime observability enabled for the job.",
+      "reason": {
+        "version_unsupported": "This cluster version has no built-in Web UI (requires 2.3.9+).",
+        "http_disabled": "The cluster HTTP service (enable-http) is disabled, so the Web UI is unavailable.",
+        "no_webui_node": "No master node is available to serve the Web UI.",
+        "node_address_missing": "The master node has no host address."
+      }
     }
   },
   "audit": {
@@ -4675,7 +4729,70 @@
     "dolphinBuiltinCronNotCarried": "Schedules belong to the whole workflow, so the STX built-in schedule ({cron}) is not carried over; it is turned off after the push and the workflow's own schedule drives the task.",
     "dolphinWorkflowScheduleDrives": "Schedules belong to the whole workflow; the workflow's own schedule drives the task.",
     "dolphinNoScheduleNeverRuns": "This workflow has no schedule, so the task will not run automatically after the push. Configure one for the workflow in DolphinScheduler.",
-    "dolphinNoBuiltinCron": "(no schedule configured on the task)"
+    "dolphinNoBuiltinCron": "(no schedule configured on the task)",
+    "observabilitySetting": "Realtime observability",
+    "observabilityAuto": "Auto (on for streaming)",
+    "observabilityOn": "On",
+    "observabilityOff": "Off",
+    "observabilityHint": "Applies to SeaTunnel 3.x clusters only. Enables busyness, backpressure and bottleneck hints at a small cost.",
+    "realtimeInsight": {
+      "title": "Realtime insight",
+      "live": "Live",
+      "updatedAt": "Updated {time}",
+      "noBottleneck": "No clear bottleneck in the last 3 collection buckets.",
+      "busy": "busy {value}",
+      "backpressure": "bp {value}",
+      "queueFill": "queue {value}",
+      "severity": {
+        "critical": "Critical",
+        "warning": "Warning",
+        "info": "Info"
+      },
+      "hint": {
+        "sink_slow": "{target} cannot keep up writing: busy {value} with a persistently full input queue. Check target write performance, batching and parallelism.",
+        "transform_busy": "{target} cannot keep up processing: busy {value} with a persistently full input queue. Split the transform chain or raise parallelism.",
+        "downstream_backpressure": "The queue into {target} is backpressured at {value} while the target is not busy; it may be waiting on an external system, GC or commits.",
+        "source_idle": "{target} is mostly waiting for data (idle {value}) and downstream queues are empty; upstream may have no new data.",
+        "source_busy": "{target} spends {value} reading with no downstream backpressure; reading or deserialization may be slow."
+      },
+      "reason": {
+        "version_unsupported": "Needs 3.x",
+        "not_cluster_mode": "Local run",
+        "not_running": "Not running",
+        "not_enabled": "Disabled",
+        "master_unreachable": "Engine unreachable",
+        "no_engine_job": "No engine job",
+        "collecting": "Collecting",
+        "client_unsupported": "Unsupported"
+      },
+      "reasonDetail": {
+        "version_unsupported": "Realtime observability requires a SeaTunnel 3.0.0+ cluster.",
+        "not_cluster_mode": "Locally executed jobs have no engine realtime metrics.",
+        "not_running": "The job is no longer running; realtime data is only kept while it runs.",
+        "not_enabled": "Realtime observability is not enabled for this job. Set \"Realtime observability\" to Auto or On in task settings and resubmit.",
+        "master_unreachable": "The cluster's active master is unreachable right now; it will be retried automatically.",
+        "no_engine_job": "The job has no engine job ID yet.",
+        "collecting": "The engine is collecting the first bucket (about 5 seconds). Please wait.",
+        "client_unsupported": "This server does not support the realtime metrics proxy."
+      }
+    },
+    "jobEvents": {
+      "open": "Event timeline",
+      "title": "Job #{id} event timeline",
+      "description": "Engine-reported status changes, schema changes and CDC delay: {total} events (kept for 7 days).",
+      "empty": "No engine events yet. Make sure event reporting is enabled for the cluster and a rolling restart was done.",
+      "delayValue": "delay {value}",
+      "lifecycleGroup": "{count} lifecycle events (click to expand)",
+      "family": {
+        "status": "Status",
+        "schema": "Schema change",
+        "delay": "CDC delay",
+        "lifecycle": "Lifecycle",
+        "other": "Other"
+      }
+    },
+    "cdcDelayBadge": "CDC delay {value}",
+    "cdcDelayTooltip": "Max {max} in the last minute, updated {time} (the engine only reports delays ≥ 1s)"
   },
   "troubleshooting": {
     "title": "Playbooks",

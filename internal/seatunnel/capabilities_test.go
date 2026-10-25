@@ -114,3 +114,35 @@ func TestCompareVersions(t *testing.T) {
 		})
 	}
 }
+
+// TestRealtimeAndEventCapabilities 校验实时可观测性与作业状态事件的版本门槛。
+// TestRealtimeAndEventCapabilities verifies version gates for realtime observability and job state events.
+func TestRealtimeAndEventCapabilities(t *testing.T) {
+	cases := []struct {
+		version     string
+		realtime    bool
+		stateEvents bool
+		nonTerminal bool
+	}{
+		{version: "", realtime: false, stateEvents: false, nonTerminal: false},
+		{version: "2.3.11", realtime: false, stateEvents: false, nonTerminal: false},
+		{version: "2.3.12", realtime: false, stateEvents: true, nonTerminal: false},
+		{version: "3.0.0-SNAPSHOT", realtime: false, stateEvents: true, nonTerminal: false},
+		{version: "3.0.0", realtime: true, stateEvents: true, nonTerminal: true},
+		{version: "3.0.1-SNAPSHOT", realtime: true, stateEvents: true, nonTerminal: true},
+		{version: "3.1.0", realtime: true, stateEvents: true, nonTerminal: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.version, func(t *testing.T) {
+			if got := SupportsRealtimeObservability(tc.version); got != tc.realtime {
+				t.Fatalf("SupportsRealtimeObservability(%q)=%v, want %v", tc.version, got, tc.realtime)
+			}
+			if got := SupportsJobStateEvents(tc.version); got != tc.stateEvents {
+				t.Fatalf("SupportsJobStateEvents(%q)=%v, want %v", tc.version, got, tc.stateEvents)
+			}
+			if got := SupportsNonTerminalJobStateEvents(tc.version); got != tc.nonTerminal {
+				t.Fatalf("SupportsNonTerminalJobStateEvents(%q)=%v, want %v", tc.version, got, tc.nonTerminal)
+			}
+		})
+	}
+}

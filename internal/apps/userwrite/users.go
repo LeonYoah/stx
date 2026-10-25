@@ -101,6 +101,12 @@ func (h *Handler) UpdateUser(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, admin.UpdateUserResponse{ErrorMsg: err.Error()})
 		return
 	}
+	// 在登记执行记录前拒绝停用自己或取消自己的管理员权限，与「不能删除当前登录用户」一致。
+	// Refuse to deactivate or demote the current user before recording an execution, like the self-delete guard.
+	if err := admin.ValidateSelfUpdate(auth.GetUserIDFromContext(c), userID, &req); err != nil {
+		c.JSON(http.StatusBadRequest, admin.UpdateUserResponse{ErrorMsg: err.Error()})
+		return
+	}
 	passwordSHA256 := ""
 	if req.Password != "" {
 		passwordSHA256 = executionapp.HashString(req.Password)

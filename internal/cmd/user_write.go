@@ -206,8 +206,8 @@ func newAdminUserUpdateCommand(options userWriteCommandOptions) *cobra.Command {
 	addSecureWriteFlags(command, &writeOptions)
 	command.Flags().StringVar(&nickname, "nickname", "", "Display name")
 	command.Flags().StringVar(&email, "email", "", "Email address")
-	command.Flags().BoolVar(&active, "active", true, "Whether the user is active")
-	command.Flags().BoolVar(&isAdmin, "admin", false, "Whether the user is an administrator")
+	command.Flags().BoolVar(&active, "active", true, "Whether the user is active; you cannot deactivate yourself")
+	command.Flags().BoolVar(&isAdmin, "admin", false, "Whether the user is an administrator; you cannot revoke your own")
 	command.Flags().BoolVar(&passwordStdin, "password-stdin", false, "Read a new password from stdin")
 	return command
 }

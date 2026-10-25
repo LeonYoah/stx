@@ -305,7 +305,7 @@ func (h *Handler) PromoteConfig(c *gin.Context) {
 	}
 
 	userID := getUserID(c)
-	err = h.service.Promote(c.Request.Context(), uint(id), &req, userID)
+	promoteResult, err := h.service.Promote(c.Request.Context(), uint(id), &req, userID)
 	h.finishConfigWrite(c, executionItem, strconv.FormatUint(id, 10), err)
 	if err != nil {
 		if err == ErrConfigNotFound {
@@ -325,7 +325,13 @@ func (h *Handler) PromoteConfig(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, Response{ErrorMsg: "", Data: map[string]string{"message": "config promoted to cluster successfully"}})
+	payload := syncResultPayload(promoteResult)
+	if promoteResult == nil || promoteResult.PendingCount == 0 {
+		payload["message"] = "config promoted to cluster successfully"
+	} else {
+		payload["message"] = "config promoted to cluster template; " + SyncResultMessage(promoteResult)
+	}
+	c.JSON(http.StatusOK, Response{ErrorMsg: "", Data: payload})
 }
 
 // SyncFromTemplate 从集群模板同步
@@ -568,11 +574,24 @@ func (h *Handler) SyncTemplateToAllNodes(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, Response{ErrorMsg: "", Data: map[string]interface{}{
-		"message":      "template synced to all nodes",
-		"synced_count": result.SyncedCount,
-		"push_errors":  result.PushErrors,
-	}})
+	c.JSON(http.StatusOK, Response{ErrorMsg: "", Data: syncResultPayload(result)})
+}
+
+// syncResultPayload 构建与逐节点结果一致的同步响应。
+// syncResultPayload builds a sync response consistent with the per-node results.
+func syncResultPayload(result *SyncAllResult) map[string]interface{} {
+	if result == nil {
+		result = &SyncAllResult{}
+	}
+	return map[string]interface{}{
+		"message":         SyncResultMessage(result),
+		"partial":         result.PendingCount > 0,
+		"synced_count":    result.SyncedCount,
+		"pending_count":   result.PendingCount,
+		"unchanged_count": result.UnchangedCount,
+		"node_results":    result.NodeResults,
+		"push_errors":     result.PushErrors,
+	}
 }
 
 // getUserID 从统一认证上下文获取用户 ID。

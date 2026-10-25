@@ -77,7 +77,7 @@ macOS / Windows 可作本地开发，不是当前一键安装目标。默认端�
 
 ### 环境要求（本地开发）
 
-- Go >= 1.24
+- Go >= 1.26.10
 - Node.js >= 18
 - pnpm >= 8（推荐）
 
@@ -114,8 +114,10 @@ curl -fsSL https://github.com/LeonYoah/stx/releases/latest/download/install-onli
 curl -fsSL https://v4.gh-proxy.org/https://github.com/LeonYoah/stx/releases/latest/download/install-online.sh | bash
 ```
 
-常用参数：`--install-dir /opt/stx`、`--arch amd64|arm64`、`--without-node`、`--without-observability`、`--no-systemd`、`--no-start`。  
-脚本按 glibc 选 Node 变体（&lt;2.27 → glibc217）；本机 Node ≥ 18.18 自动跳过；也可用 `--without-node`。
+常用参数：`--version v1.2.0`（或环境变量 `STX_VERSION=v1.2.0`，默认 `latest`）、`--install-dir /opt/stx`、`--arch amd64|arm64`、`--without-node`、`--without-observability`、`--no-systemd`、`--no-start`。  
+指定版本：`curl -fsSL .../install-online.sh | bash -s -- --version v1.2.0`。  
+脚本按 glibc 选 Node 变体（&lt;2.27 → glibc217，仅 amd64；arm64 总是 official）；本机 Node ≥ 18.18 自动跳过；也可用 `--without-node`（本机无 Node 或 &lt; 18.18 时直接报错）。  
+依赖：`bash`、`curl`、`tar`、`gzip`、`awk`/`sed`/`grep`、`find`，**不再需要 python3**。有 systemd 时安装器会 enable 并通过 `systemctl start stx` 启动，装完即可 `systemctl status|restart stx`。
 
 ### 离线安装（脚本生成 bundle）
 
@@ -126,17 +128,23 @@ curl -fsSL https://github.com/LeonYoah/stx/releases/latest/download/download-bun
 curl -fsSL https://v4.gh-proxy.org/https://github.com/LeonYoah/stx/releases/latest/download/download-bundle.sh | bash
 ```
 
-| 环境 | 是否组装 Node |
-|------|----------------|
-| glibc ≤ 2.17（CentOS 7） | 会下 `node-18-glibc217`（**仅 amd64**） |
-| glibc > 2.17 且本机 Node ≥ 18.18 | **不**组装（或 `--without-node`） |
-| glibc > 2.17 且无合格 Node | 会下 `node-22-official` |
+bundle 默认**总是**组装 Node 运行时（与打包机是否装了 Node 无关），因此体积比以前大（多一个几十 MB 的 Node 包）；变体按打包机 glibc 自动选择，可用 `--node-variant` 指定：
 
-CentOS 7：`bash -s -- --node-variant glibc217 --arch amd64`。产出 `dist/offline/stx-offline-bundle-*.tar.gz`。
+| 打包机 | 组装的 Node |
+|------|----------------|
+| amd64，glibc &lt; 2.27（如 CentOS 7） | `node-18-glibc217` |
+| amd64，glibc ≥ 2.27 | `node-22-official` |
+| arm64（任意 glibc） | `node-22-official`（无 arm64 glibc217 构建；目标机需 glibc ≥ 2.28） |
+| `--without-node` | **不**组装——仅当离线目标机 `PATH` 中已有 Node ≥ 18.18 时使用，否则 `install.sh` 会明确报错退出 |
+
+deps 上缺少所选 Node 包时 bundle 脚本直接失败（并提示 `--node-variant official`），不会产出缺 Node 的包。
+
+CentOS 7：`bash -s -- --node-variant glibc217 --arch amd64`。指定版本：`bash -s -- --version v1.2.0`（或 `STX_VERSION=v1.2.0`）。产出 `dist/offline/stx-offline-bundle-*.tar.gz`。
 
 ```bash
-tar -xzf dist/offline/stx-offline-bundle-*-linux-*.tar.gz
-cd stx-offline-bundle-*-linux-*
+tar -xzf stx-offline-bundle-*-linux-*.tar.gz
+# 末尾的 "/" 只匹配解压出的目录，不会同时匹配旁边的 .tar.gz
+cd stx-offline-bundle-*-linux-*/
 sudo ./install.sh --install-dir /opt/stx --offline
 ```
 
@@ -162,8 +170,8 @@ node -v
 
 | 环境 | amd64 | arm64 |
 | --- | --- | --- |
-| glibc ≤ 2.17（CentOS 7）必下 | [node-18-glibc217](https://github.com/LeonYoah/stx/releases/download/deps/node-18-glibc217-linux-amd64.tar.gz) | 不支持 |
-| glibc > 2.17 且无 Node ≥ 18.18 | [node-22-official](https://github.com/LeonYoah/stx/releases/download/deps/node-22-official-linux-amd64.tar.gz) | [node-22-official](https://github.com/LeonYoah/stx/releases/download/deps/node-22-official-linux-arm64.tar.gz) |
+| glibc &lt; 2.27（如 CentOS 7）必下 | [node-18-glibc217](https://github.com/LeonYoah/stx/releases/download/deps/node-18-glibc217-linux-amd64.tar.gz) | 不支持 |
+| glibc ≥ 2.27 且无 Node ≥ 18.18 | [node-22-official](https://github.com/LeonYoah/stx/releases/download/deps/node-22-official-linux-amd64.tar.gz) | [node-22-official](https://github.com/LeonYoah/stx/releases/download/deps/node-22-official-linux-arm64.tar.gz) |
 | 已有 Node ≥ 18.18 | 不用下 | 不用下 |
 
 ### Docker 全量启动

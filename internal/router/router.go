@@ -264,6 +264,18 @@ func Serve() {
 
 			clusterHandler := cluster.NewHandler(clusterService, auditRepo)
 
+			// 集群扩缩容编排：只读计划 + 异步分步执行，接入公共执行（提交 R2、重试 R1）；其余依赖在对应服务创建后注入。
+			// Cluster scaling orchestrator: read-only plans plus async step execution on the shared execution contract
+			// (submit R2, retry R1); remaining dependencies are injected once their services exist.
+			scaleService := cluster.NewScaleService(clusterService, cluster.NewScaleRepository(db.DB(context.Background())))
+			scaleService.SetExecutionService(executionService)
+			if recovered, err := scaleService.RecoverInterruptedOperations(ctx); err != nil {
+				log.Printf("[API] 标记被打断的伸缩操作失败 / Failed to mark interrupted scaling operations: %v\n", err)
+			} else if recovered > 0 {
+				log.Printf("[API] 已将 %d 个被重启打断的伸缩操作标记为失败 / Marked %d scaling operation(s) interrupted by restart as failed\n", recovered, recovered)
+			}
+			scaleHandler := cluster.NewScaleHandler(scaleService, auditRepo)
+
 			clusterRouter := apiV1Router.Group("/clusters")
 			clusterRouter.Use(auth.LoginRequired())
 			{
@@ -281,6 +293,15 @@ func Serve() {
 				clusterRouter.PUT("/:id/nodes/:nodeId", clusterHandler.UpdateNode)
 				clusterRouter.DELETE("/:id/nodes/:nodeId", clusterHandler.RemoveNode)
 				clusterRouter.POST("/:id/nodes/precheck", clusterHandler.PrecheckNode)
+
+				// Cluster scaling 集群扩缩容（计划 R0、提交 R2、重试 R1）
+				clusterRouter.POST("/:id/scale-out/plan", scaleHandler.PlanScaleOut)
+				clusterRouter.POST("/:id/scale-out", scaleHandler.ScaleOut)
+				clusterRouter.POST("/:id/nodes/:nodeId/scale-in/plan", scaleHandler.PlanScaleIn)
+				clusterRouter.POST("/:id/nodes/:nodeId/scale-in", scaleHandler.ScaleIn)
+				clusterRouter.GET("/:id/scale-operations", scaleHandler.ListScaleOperations)
+				clusterRouter.GET("/:id/scale-operations/:opId", scaleHandler.GetScaleOperation)
+				clusterRouter.POST("/:id/scale-operations/:opId/retry", scaleHandler.RetryScaleOperation)
 
 				// Node operations 节点操作
 				clusterRouter.POST("/:id/nodes/:nodeId/start", clusterHandler.StartNode)
@@ -949,8 +970,42 @@ func Serve() {
 			configService := appconfig.NewService(configRepo, &configHostProviderAdapter{hostService: hostService}, configNodeInfoProvider, configAgentClient)
 			configService.SetPortMetadataUpdater(&configPortMetadataUpdaterAdapter{clusterRepo: clusterRepo})
 			clusterService.SetRuntimeConfigStore(configService)
+			// Agent 重连后重推离线期间未下发的节点配置
+			// Re-push node configs that could not be delivered while the Agent was offline
+			grpcServer.RegisterAgentReadyHook(func(ctx context.Context, hostID uint) {
+				if committed, err := configService.RetryPendingPushes(ctx, hostID); err != nil {
+					log.Printf("[Config] retry pending pushes for host %d failed: %v", hostID, err)
+				} else if committed > 0 {
+					log.Printf("[Config] re-pushed %d pending config(s) to host %d after agent reconnect", committed, hostID)
+				}
+			})
 			configHandler := appconfig.NewHandler(configService)
 			configHandler.SetExecutionService(executionService)
+
+			// 注入扩缩容编排依赖：配置、安装器、插件补齐、运行中作业、进程发现与按集群监控下发。
+			// Inject scaling orchestrator dependencies: config, installer, plugin replay, running jobs, process discovery
+			// and cluster-scoped monitor push.
+			scaleService.SetConfigManager(configService)
+			scaleService.SetInstaller(installerService)
+			scaleService.SetPluginReplayer(pluginService)
+			scaleService.SetRunningJobsProvider(&clusterRunningJobsAdapter{syncService: syncService})
+			scaleService.SetProcessDiscoverer(&clusterProcessDiscovererAdapter{discoveryService: discoveryService})
+			if grpcSrv != nil {
+				scaleService.SetMonitorPusher(grpcSrv)
+			}
+			// 「仅移除记录」与删除主机后补齐清理：修补剩余成员列表、删除主机配置记录，避免 sync-all 永远报待推送。
+			// Cleanup after "remove record only" and host deletion: patch remaining member lists and delete the host's
+			// config records so sync-all no longer reports them as pending forever.
+			clusterService.SetOnNodeRecordRemoved(func(ctx context.Context, clusterID uint, node *cluster.ClusterNode) {
+				scaleService.CleanupAfterRecordRemoval(ctx, clusterID, node)
+			})
+			hostService.SetOnHostDeleted(func(ctx context.Context, hostID uint) {
+				if deleted, err := configService.DeleteConfigsByHost(ctx, hostID); err != nil {
+					log.Printf("[API] Delete configs of deleted host %d failed / 删除已删主机的配置记录失败: %v", hostID, err)
+				} else if deleted > 0 {
+					log.Printf("[API] Deleted %d config records of deleted host %d / 已删除已删主机的 %d 条配置记录", deleted, hostID, deleted)
+				}
+			})
 
 			// Inject config initializer into installer service for initializing configs after installation
 			// 将配置初始化器注入安装服务，用于安装后初始化配置
@@ -996,6 +1051,12 @@ func Serve() {
 
 			// STX console self-upgrade (admin only) / STX 控制台自升级（仅管理员）
 			selfUpgradeService := selfupgrade.NewService("./data")
+			if agentManager != nil {
+				// 自升级通过 gRPC 通道把新 Agent/Proxy 下发到各节点；离线节点重连后补升级。
+				// Self-upgrade pushes the new Agent/Proxy over gRPC; offline nodes catch up after reconnecting.
+				selfUpgradeService.SetAgentFleet(&selfUpgradeFleetAdapter{manager: agentManager, hostService: hostService, installDirs: clusterInstallDirsLookup(clusterService)})
+				grpcServer.RegisterAgentReadyHook(selfUpgradeService.HandleAgentReady)
+			}
 			selfUpgradeHandler := selfupgrade.NewHandler(selfUpgradeService)
 			selfUpgradeRouter := apiV1Router.Group("/self-upgrade")
 			selfUpgradeRouter.Use(auth.LoginRequired(), admin.LoginAdminRequired())
@@ -1221,6 +1282,20 @@ func (a *agentCommandSenderAdapter) SendCommand(ctx context.Context, agentID str
 	// 使用命令级超时发送命令
 	startedAt := time.Now()
 	commandID := uuid.NewString()
+	if params == nil {
+		params = map[string]string{}
+	} else {
+		clone := make(map[string]string, len(params)+1)
+		for k, v := range params {
+			clone[k] = v
+		}
+		params = clone
+	}
+	if strings.TrimSpace(params["request_id"]) == "" {
+		if requestID := strings.TrimSpace(audit.CommandMetadataFromContext(ctx).RequestID); requestID != "" {
+			params["request_id"] = requestID
+		}
+	}
 	a.recordPendingCommandLog(ctx, commandID, agentID, commandType, params, startedAt)
 	resp, err := a.manager.SendCommandWithID(ctx, commandID, agentID, cmdType, params, timeout)
 	if err != nil {
@@ -1441,7 +1516,7 @@ func commandStatusFromAgentResponse(status pb.CommandStatus) audit.CommandStatus
 // stringToCommandType 将命令类型字符串转换为 pb.CommandType。
 func (a *agentCommandSenderAdapter) stringToCommandType(cmdType string) pb.CommandType {
 	switch cmdType {
-	case "check_port", "check_directory", "check_http", "check_process", "check_java", "check_tcp", "check_path_ready", "stat_path", "cleanup_path", "stx_java_proxy_probe", "stx_java_proxy_stat", "stx_java_proxy_list", "stx_java_proxy_preview", "stx_java_proxy_inspect_checkpoint", "stx_java_proxy_inspect_checkpoint_source_state", "stx_java_proxy_inspect_imap_wal", "sync_local_run", "sync_local_status", "sync_local_stop", "sync_local_logs", "sync_job_logs", "full":
+	case "check_port", "check_directory", "check_http", "check_process", "check_cluster_members", "check_java", "check_tcp", "check_path_ready", "stat_path", "cleanup_path", "stx_java_proxy_probe", "stx_java_proxy_stat", "stx_java_proxy_list", "stx_java_proxy_preview", "stx_java_proxy_inspect_checkpoint", "stx_java_proxy_inspect_checkpoint_source_state", "stx_java_proxy_inspect_imap_wal", "sync_local_run", "sync_local_status", "sync_local_stop", "sync_local_logs", "sync_job_logs", "full":
 		return pb.CommandType_PRECHECK
 	case "install":
 		return pb.CommandType_INSTALL
@@ -1695,7 +1770,7 @@ func (a *installerAgentManagerAdapter) SendCommand(ctx context.Context, agentID 
 // stringToCommandType 将命令类型字符串转换为 pb.CommandType。
 func (a *installerAgentManagerAdapter) stringToCommandType(cmdType string) pb.CommandType {
 	switch cmdType {
-	case "check_port", "check_directory", "check_http", "check_process", "check_java", "check_tcp", "check_path_ready", "stat_path", "cleanup_path", "stx_java_proxy_probe", "stx_java_proxy_stat", "stx_java_proxy_list", "stx_java_proxy_preview", "stx_java_proxy_inspect_checkpoint", "stx_java_proxy_inspect_checkpoint_source_state", "stx_java_proxy_inspect_imap_wal", "sync_local_run", "sync_local_status", "sync_local_stop", "full":
+	case "check_port", "check_directory", "check_http", "check_process", "check_cluster_members", "check_java", "check_tcp", "check_path_ready", "stat_path", "cleanup_path", "stx_java_proxy_probe", "stx_java_proxy_stat", "stx_java_proxy_list", "stx_java_proxy_preview", "stx_java_proxy_inspect_checkpoint", "stx_java_proxy_inspect_checkpoint_source_state", "stx_java_proxy_inspect_imap_wal", "sync_local_run", "sync_local_status", "sync_local_stop", "full":
 		return pb.CommandType_PRECHECK
 	case "install":
 		return pb.CommandType_INSTALL
@@ -2303,4 +2378,67 @@ func normalizeAPIV1RoutePath(rawPath, fallback string) string {
 		}
 	}
 	return path
+}
+
+// clusterRunningJobsAdapter 把 sync 服务的运行中作业查询适配给集群扩缩容护栏，避免 cluster 包依赖 sync。
+// clusterRunningJobsAdapter adapts the sync service's running job query to the cluster scaling guardrails so the
+// cluster package never imports sync.
+type clusterRunningJobsAdapter struct {
+	syncService *syncapp.Service
+}
+
+// ListClusterRunningJobs 返回集群运行中作业。
+// ListClusterRunningJobs returns the cluster's running jobs.
+func (a *clusterRunningJobsAdapter) ListClusterRunningJobs(ctx context.Context, clusterID uint) ([]cluster.ScaleRunningJob, error) {
+	jobs := make([]cluster.ScaleRunningJob, 0)
+	if a == nil || a.syncService == nil {
+		return jobs, syncapp.ErrClusterEngineUnavailable
+	}
+	items, err := a.syncService.ListClusterRunningJobs(ctx, clusterID)
+	if err != nil {
+		return jobs, err
+	}
+	for _, item := range items {
+		if item == nil {
+			continue
+		}
+		jobs = append(jobs, cluster.ScaleRunningJob{JobID: item.JobID, JobName: item.JobName})
+	}
+	return jobs, nil
+}
+
+// clusterProcessDiscovererAdapter 把发现服务的进程发现适配给扩容模式自动识别。
+// clusterProcessDiscovererAdapter adapts the discovery service's process discovery to scale-out mode detection.
+type clusterProcessDiscovererAdapter struct {
+	discoveryService *discovery.Service
+}
+
+// DiscoverSeaTunnelProcesses 返回主机上运行中的 SeaTunnel 进程。
+// DiscoverSeaTunnelProcesses returns the SeaTunnel processes running on a host.
+func (a *clusterProcessDiscovererAdapter) DiscoverSeaTunnelProcesses(ctx context.Context, hostID uint) ([]cluster.ScaleDiscoveredProcess, error) {
+	processes := make([]cluster.ScaleDiscoveredProcess, 0)
+	if a == nil || a.discoveryService == nil {
+		return processes, nil
+	}
+	result, err := a.discoveryService.DiscoverProcesses(ctx, hostID)
+	if err != nil {
+		return processes, err
+	}
+	if result == nil {
+		return processes, nil
+	}
+	for _, process := range result.Processes {
+		if process == nil {
+			continue
+		}
+		processes = append(processes, cluster.ScaleDiscoveredProcess{
+			PID:           process.PID,
+			Role:          process.Role,
+			InstallDir:    process.InstallDir,
+			Version:       process.Version,
+			HazelcastPort: process.HazelcastPort,
+			APIPort:       process.APIPort,
+		})
+	}
+	return processes, nil
 }

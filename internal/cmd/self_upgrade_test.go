@@ -153,3 +153,63 @@ func TestSelfUpgradeRejectsInvalidVersionFlags(t *testing.T) {
 		t.Fatalf("server must not be called for invalid versions")
 	}
 }
+
+// TestSelfUpgradeExecuteSendsExplicitMode 验证 execute 默认发送 mode=apply，--dry-run 发送 mode=dry_run，且帮助说明默认行为。
+// TestSelfUpgradeExecuteSendsExplicitMode verifies execute sends mode=apply by default, mode=dry_run with --dry-run,
+// and that the help text documents the default.
+func TestSelfUpgradeExecuteSendsExplicitMode(t *testing.T) {
+	var bodies []map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/self-upgrade/execute" {
+			http.NotFound(w, r)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		bodies = append(bodies, body)
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"id": "t1", "execution_mode": body["mode"]}})
+	}))
+	defer server.Close()
+
+	for _, args := range [][]string{
+		{"self-upgrade", "execute", "--server", server.URL},
+		{"self-upgrade", "execute", "--dry-run", "--server", server.URL},
+	} {
+		stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+		if code := executeCommand(NewRootCommand(), args, stdout, stderr); code != 0 {
+			t.Fatalf("%v exit = %d stderr=%s", args, code, stderr.String())
+		}
+	}
+	if len(bodies) != 2 || bodies[0]["mode"] != "apply" || bodies[1]["mode"] != "dry_run" {
+		t.Fatalf("request bodies = %+v", bodies)
+	}
+	if _, legacy := bodies[0]["apply"]; legacy {
+		t.Fatalf("execute should send the explicit mode field, got %+v", bodies[0])
+	}
+
+	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+	if code := executeCommand(NewRootCommand(), []string{"self-upgrade", "execute", "--help"}, stdout, stderr); code != 0 {
+		t.Fatalf("help exit = %d", code)
+	}
+	help := stdout.String()
+	for _, want := range []string{"--dry-run", "APPLIES the upgrade for real", "mode=apply", "SeaTunnel"} {
+		if !strings.Contains(help, want) {
+			t.Fatalf("execute help missing %q:\n%s", want, help)
+		}
+	}
+}
+
+// TestSelfUpgradeWatchdogCommandIsHidden 验证重启 watchdog 子命令已注册但隐藏。
+// TestSelfUpgradeWatchdogCommandIsHidden verifies the restart watchdog sub-command is registered but hidden.
+func TestSelfUpgradeWatchdogCommandIsHidden(t *testing.T) {
+	for _, c := range NewRootCommand().Commands() {
+		if c.Name() == "__self-upgrade-restart" {
+			if !c.Hidden {
+				t.Fatal("watchdog command must be hidden")
+			}
+			return
+		}
+	}
+	t.Fatal("watchdog command not registered")
+}

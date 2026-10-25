@@ -364,6 +364,7 @@ func managedModels() []interface{} {
 		&host.Host{},                            // 主机管理表 / Host management table
 		&cluster.Cluster{},                      // 集群表 / Cluster table
 		&cluster.ClusterNode{},                  // 集群节点表 / Cluster node table
+		&cluster.ClusterScaleOperation{},        // 集群伸缩操作表 / Cluster scaling operation table
 		&audit.CommandLog{},                     // 命令日志表 / Command log table
 		&audit.AuditLog{},                       // 审计日志表 / Audit log table
 		&execution.Execution{},                  // 公共执行记录表 / Shared execution record table

@@ -166,9 +166,10 @@ type NodeJVMResolver interface {
 // ConfigInitializer is the interface for initializing cluster configs after installation
 // ConfigInitializer 是安装完成后初始化集群配置的接口
 type ConfigInitializer interface {
-	// InitClusterConfigs initializes cluster configs by pulling from a host
-	// InitClusterConfigs 通过从主机拉取来初始化集群配置
-	InitClusterConfigs(ctx context.Context, clusterID uint, hostID uint, installDir string, userID uint) error
+	// EnsureClusterConfigsForHost 登记安装节点的配置：模板不存在才由节点文件创建，已存在时只建/刷该主机配置，不覆盖模板。
+	// EnsureClusterConfigsForHost registers the installed node's configs: a template is created from the node
+	// file only when missing; otherwise only this host's configs are created/refreshed and the template is kept.
+	EnsureClusterConfigsForHost(ctx context.Context, clusterID uint, hostID uint, installDir string, userID uint) error
 }
 
 // HostInfo contains host information for precheck
@@ -2368,6 +2369,27 @@ func (s *Service) GetInstallationStatus(ctx context.Context, hostID uint) (*Inst
 	return status, nil
 }
 
+// GetInstallationStatusSnapshot 在锁内深拷贝主机的安装状态，供后台编排器轮询时读取，避免与安装协程并发读写同一对象。
+// GetInstallationStatusSnapshot deep-copies a host's installation status under the lock so background
+// orchestrators can poll it without racing the installation goroutine on the shared object.
+func (s *Service) GetInstallationStatusSnapshot(ctx context.Context, hostID uint) (*InstallationStatus, error) {
+	s.installMu.RLock()
+	defer s.installMu.RUnlock()
+
+	status, ok := s.installations[fmt.Sprintf("%d", hostID)]
+	if !ok || status == nil {
+		return nil, ErrInstallationNotFound
+	}
+	snapshot := *status
+	snapshot.Steps = append([]StepInfo(nil), status.Steps...)
+	snapshot.Warnings = append([]string(nil), status.Warnings...)
+	if status.EndTime != nil {
+		endTime := *status.EndTime
+		snapshot.EndTime = &endTime
+	}
+	return &snapshot, nil
+}
+
 // RetryStep retries a failed installation step.
 // RetryStep 重试失败的安装步骤。
 func (s *Service) RetryStep(ctx context.Context, hostID uint, step string) (*InstallationStatus, error) {
@@ -2900,6 +2922,16 @@ func (s *Service) startClusterAfterInstall(ctx context.Context, agentID string, 
 		return
 	}
 
+	// 扩容编排器接管后续步骤：节点已登记，但不启动、不登记配置，由编排器先下发模板配置与插件再启动。
+	// The scale-out orchestrator owns the remaining steps: the node is registered but neither started nor
+	// config-registered, so the orchestrator can apply template configs and plugins before starting it.
+	if req.DeferNodeStart {
+		s.markDeferredStartComplete(status, nodeRole)
+		logger.InfoF(ctx, "[Installer] 节点已登记，启动交由调用方编排 / Node registered; startup deferred to caller: cluster=%d, host=%d, role=%s",
+			clusterID, hostID, nodeRole)
+		return
+	}
+
 	// Use role to start the specific node; same host may have both master and worker (separated mode)
 	// 按角色启动对应节点；同一主机可能同时有 master 与 worker（分离模式）
 	success, message, err := s.nodeStarter.StartNodeByClusterAndHostAndRole(ctx, clusterID, hostID, nodeRole)
@@ -2939,12 +2971,12 @@ func (s *Service) startClusterAfterInstall(ctx context.Context, agentID string, 
 		}
 	}
 
-	// Initialize cluster configs after successful installation
-	// 安装成功后初始化集群配置
+	// Register node configs after successful installation without overwriting existing cluster templates
+	// 安装成功后登记节点配置；集群模板已存在时不被新节点的默认配置覆盖
 	if s.configInitializer != nil {
 		logger.InfoF(ctx, "[Installer] 初始化集群配置 / Initializing cluster configs: cluster=%d, host=%d",
 			clusterID, hostID)
-		if err := s.configInitializer.InitClusterConfigs(ctx, clusterID, hostID, req.InstallDir, 0); err != nil {
+		if err := s.configInitializer.EnsureClusterConfigsForHost(ctx, clusterID, hostID, req.InstallDir, 0); err != nil {
 			// Only log warning, don't fail the installation
 			// 只记录警告，不要让安装失败
 			logger.WarnF(ctx, "[Installer] 初始化集群配置失败（不影响安装）/ Failed to initialize cluster configs (non-fatal): cluster=%d, host=%d, error=%v",
@@ -2972,6 +3004,25 @@ func (s *Service) startClusterAfterInstall(ctx context.Context, agentID string, 
 		status.Message = fmt.Sprintf("Installation and node (%s) startup completed / 安装和节点 (%s) 启动完成", nodeRole, nodeRole)
 	}
 	s.installMu.Unlock()
+}
+
+// markDeferredStartComplete 将“安装并登记完成、启动交由调用方”的任务标记为成功终态。
+// markDeferredStartComplete marks an "installed and registered, startup deferred to caller" task as succeeded.
+func (s *Service) markDeferredStartComplete(status *InstallationStatus, nodeRole string) {
+	if status == nil {
+		return
+	}
+	now := time.Now()
+	s.installMu.Lock()
+	defer s.installMu.Unlock()
+	status.Status = StepStatusSuccess
+	status.CurrentStep = InstallStepComplete
+	status.EndTime = &now
+	if len(status.Warnings) > 0 {
+		status.Message = fmt.Sprintf("Installation completed with warnings and node (%s) registered; startup deferred to the caller / 安装完成但存在警告，节点 (%s) 已登记，启动由调用方编排", nodeRole, nodeRole)
+	} else {
+		status.Message = fmt.Sprintf("Installation completed and node (%s) registered; startup deferred to the caller / 安装完成，节点 (%s) 已登记，启动由调用方编排", nodeRole, nodeRole)
+	}
 }
 
 // markPostInstallFailure 将登记或启动失败反映到安装任务终态，避免成功状态掩盖真实失败。

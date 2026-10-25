@@ -59,6 +59,7 @@ import (
 	"github.com/LeonYoah/stx/agent/internal/monitor"
 	"github.com/LeonYoah/stx/agent/internal/process"
 	"github.com/LeonYoah/stx/agent/internal/restart"
+	"github.com/LeonYoah/stx/agent/internal/selfupdate"
 	"github.com/LeonYoah/stx/internal/processidentity"
 	"github.com/LeonYoah/stx/internal/seatunnel"
 	stxversion "github.com/LeonYoah/stx/internal/version"
@@ -135,6 +136,14 @@ type Agent struct {
 	// registerMu serializes Control Plane registration to avoid races between NotFound re-register and post-reconnect register.
 	registerMu sync.Mutex
 
+	// registeredCh 在首次成功注册后关闭，用于确认自升级试运行。
+	// registeredCh is closed after the first successful registration; it confirms a self-upgrade trial.
+	registeredCh   chan struct{}
+	registeredOnce sync.Once
+
+	// selfUpdateMu 防止并发自升级/回滚。/ selfUpdateMu prevents concurrent self-update or rollback.
+	selfUpdateMu sync.Mutex
+
 	// running indicates if the agent is running
 	// running 表示 Agent 是否正在运行
 	running bool
@@ -200,6 +209,7 @@ func NewAgent(cfg *config.Config) *Agent {
 		autoRestarter:         ar,
 		eventReporter:         er,
 		errorCollector:        ec,
+		registeredCh:          make(chan struct{}),
 	}
 }
 
@@ -357,15 +367,25 @@ func (a *Agent) setupProcessMonitor() {
 		}
 
 		// Report restarted event with new PID / 上报带有新 PID 的重启事件
+		details := map[string]interface{}{
+			"install_dir": installDir,
+			"role":        role,
+		}
+		if commandID, requestID, ok := a.processMonitor.ConsumeManualFollowupAttribution(processName); ok {
+			details["trigger"] = "manual_followup"
+			if commandID != "" {
+				details["command_id"] = commandID
+			}
+			if requestID != "" {
+				details["request_id"] = requestID
+			}
+		}
 		event := &monitor.ProcessEvent{
 			Type:      monitor.EventRestarted,
 			PID:       info.PID,
 			Name:      processName,
 			Timestamp: time.Now(),
-			Details: map[string]interface{}{
-				"install_dir": installDir,
-				"role":        role,
-			},
+			Details:   details,
 		}
 		go a.reportProcessEvent(event)
 
@@ -517,6 +537,7 @@ func (a *Agent) registerWithControlPlane() error {
 
 	// Save the assigned agent ID / 保存分配的 Agent ID
 	a.grpcClient.SetAgentID(resp.AssignedId)
+	a.markRegistered()
 
 	logger.InfoF(ctx, "Registered successfully with ID: %s / 注册成功，ID：%s", resp.AssignedId, resp.AssignedId)
 
@@ -1364,6 +1385,7 @@ func (a *Agent) handleStartCommand(ctx context.Context, cmd *pb.CommandRequest, 
 		// 自动重启已启用：用 PID=0 注册进程，让自动重启器处理实际的启动
 		a.processMonitor.TrackProcessSilent(processName, 0, installDir, role, params)
 		a.processMonitor.SetProcessClusterID(processName, clusterID)
+		a.processMonitor.SetProcessOriginAttribution(processName, cmd.CommandId, getParamString(cmd.Parameters, "request_id", ""))
 		a.autoRestarter.ResetRestartCount(processName)
 		logger.InfoF(ctx, "[Agent] Process registered for auto-start: %s (auto-restart will handle startup) / 进程已注册等待自动启动：%s（自动重启将处理启动）",
 			processName, processName)
@@ -1383,6 +1405,7 @@ func (a *Agent) handleStartCommand(ctx context.Context, cmd *pb.CommandRequest, 
 	if info, err := a.processManager.GetStatus(ctx, processName); err == nil && info.PID > 0 {
 		a.processMonitor.TrackProcess(processName, info.PID, installDir, role, params)
 		a.processMonitor.SetProcessClusterID(processName, clusterID)
+		a.processMonitor.SetProcessOriginAttribution(processName, cmd.CommandId, getParamString(cmd.Parameters, "request_id", ""))
 		logger.InfoF(ctx, "[Agent] Process started and tracked: %s (PID: %d) / 进程已启动并跟踪：%s（PID：%d）",
 			processName, info.PID, processName, info.PID)
 	}
@@ -1497,6 +1520,7 @@ func (a *Agent) handleRestartCommand(ctx context.Context, cmd *pb.CommandRequest
 		// 用 PID=0 注册进程，自动重启器会启动它
 		a.processMonitor.TrackProcessSilent(processName, 0, installDir, role, startParams)
 		a.processMonitor.SetProcessClusterID(processName, clusterID)
+		a.processMonitor.SetProcessOriginAttribution(processName, cmd.CommandId, getParamString(cmd.Parameters, "request_id", ""))
 		a.autoRestarter.ResetRestartCount(processName)
 		logger.InfoF(ctx, "[Agent] Process stopped, registered for auto-restart: %s / 进程已停止，已注册等待自动重启：%s",
 			processName, processName)
@@ -1515,6 +1539,7 @@ func (a *Agent) handleRestartCommand(ctx context.Context, cmd *pb.CommandRequest
 	if info, err := a.processManager.GetStatus(ctx, processName); err == nil && info.PID > 0 {
 		a.processMonitor.TrackProcess(processName, info.PID, installDir, role, startParams)
 		a.processMonitor.SetProcessClusterID(processName, clusterID)
+		a.processMonitor.SetProcessOriginAttribution(processName, cmd.CommandId, getParamString(cmd.Parameters, "request_id", ""))
 		logger.InfoF(ctx, "[Agent] Process restarted and tracked: %s (PID: %d) / 进程已重启并跟踪：%s（PID：%d）",
 			processName, info.PID, processName, info.PID)
 	}
@@ -2175,9 +2200,36 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	// Run agent in goroutine
 	// 在 goroutine 中运行 Agent
 	errChan := make(chan error, 1)
+	startFailed := make(chan struct{})
 	go func() {
-		errChan <- agent.Run()
+		err := agent.Run()
+		if err != nil {
+			close(startFailed)
+		}
+		errChan <- err
 	}()
+
+	// 自升级后的试运行：注册超时或启动失败则恢复备份并以旧版本重启。
+	// Trial after a self-upgrade: restore the backup and restart as the old version when
+	// registration times out or startup fails.
+	if trial := selfupdate.TrialFromEnv(); trial != nil {
+		logger.InfoF(context.Background(), "[SelfUpdate] Trial run after upgrade from %s (timeout %s) / 自升级试运行（原版本 %s，超时 %s）", trial.FromVersion, trial.Timeout, trial.FromVersion, trial.Timeout)
+		trialDone := make(chan bool, 1)
+		go func() {
+			trialDone <- trial.Watch(agent.registeredCh, startFailed, func(reason string, err error) {
+				logger.ErrorF(context.Background(), "[SelfUpdate] Rolling back to previous binary: %s, rollback error: %v / 回滚到旧版本：%s，错误：%v", reason, err, reason, err)
+			})
+		}()
+		// 启动失败时等待回滚 exec 完成（成功 exec 不会返回）。
+		// On startup failure wait for the rollback exec (a successful exec never returns).
+		defer func() {
+			select {
+			case <-startFailed:
+				<-trialDone
+			default:
+			}
+		}()
+	}
 
 	// Wait for signal or error
 	// 等待信号或错误

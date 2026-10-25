@@ -26,6 +26,7 @@ import type {
   UpgradeHistoryRecord,
 } from './types';
 import {SelfUpgradeApiError} from './types';
+import type {ExecutePayload} from './execute';
 
 export class SelfUpgradeService extends BaseService {
   protected static readonly basePath = '/self-upgrade';
@@ -138,10 +139,9 @@ export class SelfUpgradeService extends BaseService {
     await apiClient.post(this.getFullPath('/stage/cancel'));
   }
 
-  static async execute(payload: {
-    simulate_failure?: string;
-    apply?: boolean;
-  } = {}): Promise<TaskState> {
+  // execute 必须显式给出 mode：apply 真实应用（替换并重启 STX 进程），dry_run 只演练。
+  // execute requires an explicit mode: apply really upgrades (replacing and restarting STX processes), dry_run rehearses.
+  static async execute(payload: ExecutePayload): Promise<TaskState> {
     const response = await apiClient.post<ApiResponse<TaskState>>(
       this.getFullPath('/execute'),
       payload,

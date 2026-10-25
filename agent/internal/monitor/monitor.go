@@ -30,6 +30,7 @@ import (
 	"context"
 	"os"
 	"runtime"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -72,6 +73,13 @@ type TrackedProcess struct {
 	ConsecutiveFails int                  `json:"consecutive_fails"` // 连续检查失败次数 / Consecutive check failures
 	LastCheck        time.Time            `json:"last_check"`
 	StartParams      *process.StartParams `json:"start_params"`
+	// OriginCommandID / OriginRequestID 记录触发本次跟踪的手动启停命令，供自动跟进重启上报归因。
+	// OriginCommandID / OriginRequestID record the manual start/restart command for follow-up restart attribution.
+	OriginCommandID string `json:"origin_command_id,omitempty"`
+	OriginRequestID string `json:"origin_request_id,omitempty"`
+	// ManualFollowup 表示下一次 restarted 事件应归因到手动命令，而不是崩溃自动重启。
+	// ManualFollowup marks the next restarted event as a manual-command follow-up, not a crash restart.
+	ManualFollowup bool `json:"manual_followup,omitempty"`
 }
 
 // SetProcessClusterID 记录受监控进程所属的集群，用于按集群更新监控配置。
@@ -83,6 +91,35 @@ func (m *ProcessMonitor) SetProcessClusterID(name, clusterID string) {
 	if proc, exists := m.trackedProcesses[name]; exists {
 		proc.ClusterID = clusterID
 	}
+}
+
+// SetProcessOriginAttribution 记录手动启停命令编号，供自动跟进重启上报。
+// SetProcessOriginAttribution stores the manual command IDs for follow-up restart reports.
+func (m *ProcessMonitor) SetProcessOriginAttribution(name, commandID, requestID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if proc, exists := m.trackedProcesses[name]; exists {
+		proc.OriginCommandID = strings.TrimSpace(commandID)
+		proc.OriginRequestID = strings.TrimSpace(requestID)
+		proc.ManualFollowup = proc.OriginCommandID != "" || proc.OriginRequestID != ""
+	}
+}
+
+// ConsumeManualFollowupAttribution 取出并清除手动跟进标记，避免崩溃重启误归因。
+// ConsumeManualFollowupAttribution returns and clears the manual follow-up markers so crash restarts stay system/auto.
+func (m *ProcessMonitor) ConsumeManualFollowupAttribution(name string) (commandID, requestID string, ok bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	proc, exists := m.trackedProcesses[name]
+	if !exists || !proc.ManualFollowup {
+		return "", "", false
+	}
+	commandID = proc.OriginCommandID
+	requestID = proc.OriginRequestID
+	proc.ManualFollowup = false
+	return commandID, requestID, true
 }
 
 // ProcessEventType represents the type of process event

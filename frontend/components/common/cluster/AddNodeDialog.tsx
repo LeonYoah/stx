@@ -17,14 +17,13 @@
 
 'use client';
 
-import {useEffect, useMemo, useState} from 'react';
+import {useEffect, useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {toast} from 'sonner';
-import {Cpu, Loader2, Search, Server} from 'lucide-react';
+import {Loader2, RefreshCw, Server} from 'lucide-react';
 
 import services from '@/lib/services';
 import {Button} from '@/components/ui/button';
-import {Checkbox} from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -33,6 +32,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {Checkbox} from '@/components/ui/checkbox';
 import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';
 import {
@@ -42,813 +42,638 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {Switch} from '@/components/ui/switch';
+import {ToggleGroup, ToggleGroupItem} from '@/components/ui/toggle-group';
 import {AgentStatus, HostInfo} from '@/lib/services/host/types';
-import {DiscoveredProcess} from '@/lib/services/discovery/discovery.service';
 import {
-  AddNodeEntryRequest,
   ClusterConfig,
-  DefaultPorts,
   DeploymentMode,
   NodeInfo,
   NodeRole,
-  PrecheckCheckItem,
-  PrecheckResult,
-  buildNodeJVMOverride,
-  getClusterPortDefaultsForRole,
-  getClusterJVMConfig,
-  getClusterJVMValueForRole,
-} from '@/lib/services/cluster/types';
-import {buildResolvedClusterConfigFromConfigs} from './nodeConfigDefaults';
+  ScaleMode,
+  ScaleNodePorts,
+  ScaleOperationInfo,
+  ScaleOutRequest,
+  ScalePlan,
+  getScaleInProgressDetail,
+} from '@/lib/services/cluster';
+import {ScalePlanView} from './scale/ScalePlanView';
+import {ScaleOperationProgress} from './scale/ScaleOperationProgress';
 
 interface AddNodeDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   clusterId: number;
   deploymentMode: DeploymentMode;
+  /** 兼容旧调用方，扩容计划由后端计算 / Kept for existing callers; the backend computes the plan */
   clusterConfig?: ClusterConfig;
   clusterInstallDir?: string;
   existingNodes?: NodeInfo[];
+  /** 扩容成功后回调（刷新集群数据）/ Called after a successful scale-out (refresh cluster data) */
   onSuccess: () => void;
 }
 
-interface RoleFormState {
-  hazelcastPort: number;
-  apiPort: number;
-  workerPort: number;
-  jvmOverrideEnabled: boolean;
-  jvmHeapSize: number;
-}
+/** 向导步骤 / Wizard steps */
+type WizardStep = 'host' | 'plan' | 'execute';
 
-interface RolePrecheckResult {
-  role: NodeRole;
-  result: PrecheckResult;
-}
+const WIZARD_STEPS: WizardStep[] = ['host', 'plan', 'execute'];
 
-const FALLBACK_JVM_HEAP: Record<NodeRole, number> = {
-  [NodeRole.MASTER]: 2,
-  [NodeRole.WORKER]: 2,
-  [NodeRole.MASTER_WORKER]: 2,
+const EMPTY_PORTS: ScaleNodePorts = {
+  hazelcast_port: 0,
+  api_port: 0,
+  worker_port: 0,
 };
 
-function getRoleTranslationKey(role: NodeRole): 'master' | 'worker' | 'masterWorker' {
-  if (role === NodeRole.MASTER) {
-    return 'master';
-  }
-  if (role === NodeRole.WORKER) {
-    return 'worker';
-  }
-  return 'masterWorker';
+/**
+ * 解析端口输入，非法或空值返回 0（交由后端取默认值）。
+ * Parse a port input; invalid or empty values become 0 (the backend picks the default).
+ */
+function parsePort(value: string): number {
+  const port = Number.parseInt(value, 10);
+  return Number.isFinite(port) && port > 0 ? port : 0;
 }
 
-function getRoleConfigTitleKey(
-  role: NodeRole,
-): 'masterNodeConfig' | 'workerNodeConfig' | 'masterWorkerNodeConfig' {
-  if (role === NodeRole.MASTER) {
-    return 'masterNodeConfig';
-  }
-  if (role === NodeRole.WORKER) {
-    return 'workerNodeConfig';
-  }
-  return 'masterWorkerNodeConfig';
-}
-
-function getPrimaryPortLabelKey(
-  role: NodeRole,
-): 'hazelcastMasterPort' | 'hazelcastWorkerPort' {
-  return role === NodeRole.WORKER ? 'hazelcastWorkerPort' : 'hazelcastMasterPort';
-}
-
-function getPrimaryPortRequiredMessageKey(
-  role: NodeRole,
-): 'cluster.hazelcastPortRequired' | 'cluster.workerPortRequired' {
-  return role === NodeRole.WORKER ? 'cluster.workerPortRequired' : 'cluster.hazelcastPortRequired';
-}
-
-function resolveDefaultInstallDir(
-  clusterInstallDir?: string,
-  existingNodes?: NodeInfo[],
-): string {
-  if (clusterInstallDir?.trim()) {
-    return clusterInstallDir.trim();
-  }
-  const existingInstallDir = existingNodes?.find((node) => node.install_dir?.trim())?.install_dir;
-  if (existingInstallDir?.trim()) {
-    return existingInstallDir.trim();
-  }
-  return '/opt/seatunnel';
-}
-
-function getValidPortOrUndefined(value?: number): number | undefined {
-  return value && value > 0 ? value : undefined;
-}
-
-function buildDefaultRoleForm(
-  role: NodeRole,
-  clusterConfig?: ClusterConfig,
-  existingNodes?: NodeInfo[],
-): RoleFormState {
-  const clusterPortDefaults = getClusterPortDefaultsForRole(role, clusterConfig);
-  const existingRoleNode = existingNodes?.find((node) => node.role === role);
-
-  return {
-    hazelcastPort:
-      clusterPortDefaults.hazelcastPort ??
-      getValidPortOrUndefined(existingRoleNode?.hazelcast_port) ??
-      (role === NodeRole.WORKER
-        ? DefaultPorts.WORKER_HAZELCAST
-        : DefaultPorts.MASTER_HAZELCAST),
-    apiPort:
-      role === NodeRole.WORKER
-        ? 0
-        : clusterPortDefaults.apiPort ??
-          getValidPortOrUndefined(existingRoleNode?.api_port) ??
-          DefaultPorts.MASTER_API,
-    workerPort:
-      role === NodeRole.MASTER_WORKER
-        ? clusterPortDefaults.workerPort ??
-          getValidPortOrUndefined(existingRoleNode?.worker_port) ??
-          DefaultPorts.WORKER_HAZELCAST
-        : 0,
-    jvmOverrideEnabled: false,
-    jvmHeapSize:
-      getClusterJVMValueForRole(role, clusterConfig) ?? FALLBACK_JVM_HEAP[role],
-  };
-}
-
+/**
+ * 添加节点（扩容）向导：选择主机 → 自动识别安装/纳管并预检 → 执行进度。
+ * 计划由后端计算（成员地址、回环修正、插件补齐、预检），前端只负责展示、收集确认与提交。
+ * Add-node (scale-out) wizard: choose a host → auto-detect install/register and precheck → execution progress.
+ * The backend computes the plan (members, loopback fix, plugin replay, prechecks); the UI only shows it,
+ * collects acknowledgements and submits.
+ */
 export function AddNodeDialog({
   open,
   onOpenChange,
   clusterId,
   deploymentMode,
-  clusterConfig,
-  clusterInstallDir,
-  existingNodes = [],
   onSuccess,
 }: AddNodeDialogProps) {
   const t = useTranslations();
+  const ts = useTranslations('cluster.scale');
   const isHybrid = deploymentMode === DeploymentMode.HYBRID;
-  const [resolvedClusterConfig, setResolvedClusterConfig] = useState<ClusterConfig | undefined>(
-    clusterConfig,
-  );
-  const defaultInstallDir = useMemo(
-    () => resolveDefaultInstallDir(clusterInstallDir, existingNodes),
-    [clusterInstallDir, existingNodes],
-  );
 
-  const [loading, setLoading] = useState(false);
+  const [step, setStep] = useState<WizardStep>('host');
+  const [hosts, setHosts] = useState<HostInfo[]>([]);
   const [loadingHosts, setLoadingHosts] = useState(false);
-  const [precheckLoading, setPrecheckLoading] = useState(false);
-  const [discoveryLoading, setDiscoveryLoading] = useState(false);
-
   const [hostId, setHostId] = useState('');
-  const [installDir, setInstallDir] = useState(defaultInstallDir);
-  const [selectedMaster, setSelectedMaster] = useState(false);
-  const [selectedWorker, setSelectedWorker] = useState(false);
-  const [availableHosts, setAvailableHosts] = useState<HostInfo[]>([]);
-  const [discoveredProcesses, setDiscoveredProcesses] = useState<DiscoveredProcess[]>([]);
-  const [selectedProcess, setSelectedProcess] = useState('');
-  const [precheckResults, setPrecheckResults] = useState<RolePrecheckResult[]>([]);
+  const [role, setRole] = useState<NodeRole | ''>('');
 
-  const [hybridForm, setHybridForm] = useState<RoleFormState>(
-    buildDefaultRoleForm(NodeRole.MASTER_WORKER, clusterConfig, existingNodes),
-  );
-  const [masterForm, setMasterForm] = useState<RoleFormState>(
-    buildDefaultRoleForm(NodeRole.MASTER, clusterConfig, existingNodes),
-  );
-  const [workerForm, setWorkerForm] = useState<RoleFormState>(
-    buildDefaultRoleForm(NodeRole.WORKER, clusterConfig, existingNodes),
-  );
+  // 计划与配置 / Plan and configuration
+  const [plan, setPlan] = useState<ScalePlan | null>(null);
+  const [planLoading, setPlanLoading] = useState(false);
+  const [planError, setPlanError] = useState('');
+  const [mode, setMode] = useState<ScaleMode | ''>('');
+  const [modeTouched, setModeTouched] = useState(false);
+  const [installDir, setInstallDir] = useState('');
+  const [ports, setPorts] = useState<ScaleNodePorts>(EMPTY_PORTS);
+  const [dirty, setDirty] = useState(false);
+  const [restartAck, setRestartAck] = useState(false);
+  // 入群后滚动重启现有节点，默认取计划推荐值。/ Rolling-restart existing nodes after the join; defaults to the plan's recommendation.
+  const [rollingRestart, setRollingRestart] = useState(false);
 
-  const selectedRoles = useMemo(() => {
-    if (isHybrid) {
-      return [NodeRole.MASTER_WORKER];
-    }
-    return [
-      ...(selectedMaster ? [NodeRole.MASTER] : []),
-      ...(selectedWorker ? [NodeRole.WORKER] : []),
-    ];
-  }, [isHybrid, selectedMaster, selectedWorker]);
+  // 执行 / Execution
+  const [submitting, setSubmitting] = useState(false);
+  const [operationId, setOperationId] = useState<number | null>(null);
+  const [initialOperation, setInitialOperation] =
+    useState<ScaleOperationInfo | null>(null);
 
-  const resetForm = (effectiveClusterConfig?: ClusterConfig) => {
+  const resetState = () => {
+    setStep('host');
     setHostId('');
-    setInstallDir(defaultInstallDir);
-    setSelectedMaster(false);
-    setSelectedWorker(false);
-    setPrecheckResults([]);
-    setDiscoveredProcesses([]);
-    setSelectedProcess('');
-    setHybridForm(
-      buildDefaultRoleForm(NodeRole.MASTER_WORKER, effectiveClusterConfig, existingNodes),
-    );
-    setMasterForm(buildDefaultRoleForm(NodeRole.MASTER, effectiveClusterConfig, existingNodes));
-    setWorkerForm(buildDefaultRoleForm(NodeRole.WORKER, effectiveClusterConfig, existingNodes));
+    setRole('');
+    setPlan(null);
+    setPlanLoading(false);
+    setPlanError('');
+    setMode('');
+    setModeTouched(false);
+    setInstallDir('');
+    setPorts(EMPTY_PORTS);
+    setDirty(false);
+    setRestartAck(false);
+    setRollingRestart(false);
+    setSubmitting(false);
+    setOperationId(null);
+    setInitialOperation(null);
   };
 
   useEffect(() => {
     if (!open) {
       return;
     }
+    resetState();
     let cancelled = false;
-
-    const initialize = async () => {
-      let effectiveClusterConfig = clusterConfig;
-      if (!getClusterJVMConfig(clusterConfig)) {
-        const configsResult = await services.config.getClusterConfigsSafe(clusterId);
-        if (configsResult.success && configsResult.data) {
-          effectiveClusterConfig = buildResolvedClusterConfigFromConfigs(
-            clusterConfig,
-            deploymentMode,
-            configsResult.data,
-          );
-        }
-      }
-
-      if (cancelled) {
-        return;
-      }
-
-      setResolvedClusterConfig(effectiveClusterConfig);
-      resetForm(effectiveClusterConfig);
-      await loadAvailableHosts();
-    };
-
-    void initialize();
-
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, clusterId, clusterConfig, deploymentMode, defaultInstallDir, existingNodes]);
-
-  const loadAvailableHosts = async () => {
-    setLoadingHosts(true);
-    try {
+    const loadHosts = async () => {
+      setLoadingHosts(true);
       const result = await services.host.getHostsSafe({
         current: 1,
         size: 100,
         agent_status: AgentStatus.INSTALLED,
       });
-
-      if (result.success && result.data) {
-        setAvailableHosts(result.data.hosts || []);
-      } else {
-        toast.error(result.error || t('host.loadError'));
-        setAvailableHosts([]);
-      }
-    } finally {
-      setLoadingHosts(false);
-    }
-  };
-
-  const getRoleForm = (role: NodeRole) => {
-    switch (role) {
-      case NodeRole.MASTER:
-        return masterForm;
-      case NodeRole.WORKER:
-        return workerForm;
-      default:
-        return hybridForm;
-    }
-  };
-
-  const updateRoleForm = (role: NodeRole, patch: Partial<RoleFormState>) => {
-    if (role === NodeRole.MASTER) {
-      setMasterForm((prev) => ({...prev, ...patch}));
-      return;
-    }
-    if (role === NodeRole.WORKER) {
-      setWorkerForm((prev) => ({...prev, ...patch}));
-      return;
-    }
-    setHybridForm((prev) => ({...prev, ...patch}));
-  };
-
-  const handleDiscoverProcesses = async () => {
-    if (!hostId) {
-      toast.error(t('cluster.hostRequired'));
-      return;
-    }
-
-    setDiscoveryLoading(true);
-    setDiscoveredProcesses([]);
-    setSelectedProcess('');
-    try {
-      const result = await services.discovery.discoverProcesses(parseInt(hostId, 10));
-      if (result.success && result.processes) {
-        setDiscoveredProcesses(result.processes);
-        if (result.processes.length === 0) {
-          toast.info(t('discovery.noProcessesFound'));
-        } else {
-          toast.success(t('discovery.processesFound', {count: result.processes.length}));
-        }
-      } else {
-        toast.error(result.message || t('discovery.discoverError'));
-      }
-    } catch {
-      toast.error(t('discovery.discoverError'));
-    } finally {
-      setDiscoveryLoading(false);
-    }
-  };
-
-  const handleProcessSelect = (processKey: string) => {
-    setSelectedProcess(processKey);
-    const process = discoveredProcesses.find(
-      (item) => `${item.pid}-${item.install_dir}` === processKey,
-    );
-    if (!process) {
-      return;
-    }
-
-    setInstallDir(process.install_dir);
-    if (!isHybrid) {
-      if (process.role === 'master') {
-        setSelectedMaster(true);
-      }
-      if (process.role === 'worker') {
-        setSelectedWorker(true);
-      }
-    }
-    toast.success(t('discovery.processSelected'));
-  };
-
-  const validateBeforeSubmit = () => {
-    if (!hostId) {
-      toast.error(t('cluster.hostRequired'));
-      return false;
-    }
-    if (!installDir.trim()) {
-      toast.error(t('cluster.installDirRequired'));
-      return false;
-    }
-    if (selectedRoles.length === 0) {
-      toast.error(t('cluster.selectAtLeastOneRole'));
-      return false;
-    }
-
-    for (const role of selectedRoles) {
-      const form = getRoleForm(role);
-      if (!form.hazelcastPort || form.hazelcastPort <= 0) {
-        toast.error(t(getPrimaryPortRequiredMessageKey(role)));
-        return false;
-      }
-      if (form.jvmOverrideEnabled && (!form.jvmHeapSize || form.jvmHeapSize <= 0)) {
-        toast.error(t('cluster.jvmHeapSizeRequired'));
-        return false;
-      }
-    }
-    return true;
-  };
-
-  const buildEntries = (): AddNodeEntryRequest[] => {
-    return selectedRoles.map((role) => {
-      const form = getRoleForm(role);
-      return {
-        role,
-        hazelcast_port: form.hazelcastPort,
-        api_port: role === NodeRole.WORKER ? undefined : form.apiPort || undefined,
-        overrides: form.jvmOverrideEnabled
-          ? buildNodeJVMOverride(role, form.jvmHeapSize)
-          : undefined,
-      };
-    });
-  };
-
-  const handlePrecheck = async () => {
-    if (!validateBeforeSubmit()) {
-      return;
-    }
-
-    const parsedHostId = parseInt(hostId, 10);
-    const entries = buildEntries();
-
-    setPrecheckLoading(true);
-    setPrecheckResults([]);
-    try {
-      const results = await Promise.all(
-        entries.map(async (entry) => {
-          const response = await services.cluster.precheckNodeSafe(clusterId, {
-            host_id: parsedHostId,
-            role: entry.role,
-            install_dir: installDir.trim(),
-            hazelcast_port: entry.hazelcast_port || 0,
-            api_port: entry.api_port,
-            worker_port: entry.worker_port,
-          });
-          if (!response.success || !response.data) {
-            throw new Error(response.error || t('cluster.precheckError'));
-          }
-          return {role: entry.role, result: response.data};
-        }),
-      );
-
-      setPrecheckResults(results);
-      if (results.every((item) => item.result.success)) {
-        toast.success(t('cluster.precheckPassed'));
-      } else {
-        toast.warning(t('cluster.precheckFailed'));
-      }
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : t('cluster.precheckError'),
-      );
-    } finally {
-      setPrecheckLoading(false);
-    }
-  };
-
-  const handleSubmit = async () => {
-    if (!validateBeforeSubmit()) {
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const result = await services.cluster.addNodesSafe(clusterId, {
-        host_id: parseInt(hostId, 10),
-        install_dir: installDir.trim(),
-        entries: buildEntries(),
-      });
-
-      if (!result.success) {
-        toast.error(result.error || t('cluster.addNodeError'));
+      if (cancelled) {
         return;
       }
+      if (result.success && result.data) {
+        setHosts(result.data.hosts || []);
+      } else {
+        setHosts([]);
+        toast.error(result.error || t('host.loadError'));
+      }
+      setLoadingHosts(false);
+    };
+    void loadHosts();
+    return () => {
+      cancelled = true;
+    };
+    // 仅在打开时初始化 / Initialize only when the dialog opens
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
-      resetForm();
-      onSuccess();
+  /**
+   * 组装扩容请求；full=false 时只带主机与角色，让后端自动识别模式并给出默认目录与端口。
+   * Build the scale-out request; with full=false only host and role are sent so the backend detects the mode
+   * and fills default directory and ports.
+   */
+  const buildRequest = (full: boolean): ScaleOutRequest => {
+    const request: ScaleOutRequest = {host_id: Number(hostId)};
+    if (!isHybrid && role) {
+      request.role = role;
+    }
+    if (full) {
+      if (modeTouched && mode) {
+        request.mode = mode;
+      }
+      request.install_dir = installDir.trim() || undefined;
+      request.ports = ports;
+    }
+    return request;
+  };
+
+  const runPlan = async (full: boolean) => {
+    setPlanLoading(true);
+    setPlanError('');
+    try {
+      const next = await services.clusterScale.planScaleOut(
+        clusterId,
+        buildRequest(full),
+      );
+      setPlan(next);
+      setMode(next.mode ?? next.detected_mode ?? 'install');
+      setInstallDir(next.target.install_dir);
+      setPorts({
+        hazelcast_port: next.target.hazelcast_port,
+        api_port: next.target.api_port,
+        worker_port: next.target.worker_port,
+      });
+      setDirty(false);
+      setRestartAck(false);
+      setRollingRestart(Boolean(next.rolling_restart?.recommended));
+      setStep('plan');
+    } catch (error) {
+      setPlanError(error instanceof Error ? error.message : String(error));
     } finally {
-      setLoading(false);
+      setPlanLoading(false);
     }
   };
 
-  const handleClose = (nextOpen: boolean) => {
-    if (!nextOpen) {
-      resetForm();
+  const markDirty = () => setDirty(true);
+
+  const handleSubmit = async () => {
+    if (!plan) {
+      return;
     }
-    onOpenChange(nextOpen);
+    setSubmitting(true);
+    try {
+      const result = await services.clusterScale.submitScaleOut(clusterId, {
+        ...buildRequest(true),
+        // 显式提交计划中的模式，保证与用户看到的计划一致。
+        // Submit the plan's mode explicitly so it matches what the user saw.
+        mode: plan.mode,
+        plan_fingerprint: plan.fingerprint,
+        loopback_restart_ack: restartAck,
+        rolling_restart:
+          rollingRestart && Boolean(plan.rolling_restart?.available),
+      });
+      setOperationId(result.operation_id);
+      setInitialOperation(result.operation);
+      setStep('execute');
+    } catch (error) {
+      const conflict = getScaleInProgressDetail(error);
+      if (conflict) {
+        toast.error(
+          ts('inProgressConflict', {
+            id: conflict.operation_id,
+            kind: ts(`kind.${conflict.kind}`),
+            user: conflict.created_by_name || `#${conflict.created_by}`,
+          }),
+        );
+      } else {
+        toast.error(error instanceof Error ? error.message : String(error));
+        // 计划已变化时自动重新预检。/ Re-run the precheck automatically when the plan changed.
+        const code = (error as {status?: number}).status;
+        if (code === 409) {
+          void runPlan(true);
+        }
+      }
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-  const renderStatusIcon = (status: string) => {
-    switch (status) {
-      case 'passed':
-        return <span className='text-green-600'>●</span>;
-      case 'failed':
-        return <span className='text-red-600'>●</span>;
-      default:
-        return <span className='text-amber-500'>●</span>;
+  const handleFinished = (operation: ScaleOperationInfo) => {
+    if (operation.status === 'succeeded') {
+      onSuccess();
     }
   };
 
-  const renderRoleConfig = (role: NodeRole) => {
-    const form = getRoleForm(role);
-    const roleLabel = t(`cluster.roles.${getRoleTranslationKey(role)}`);
-    const defaultHeap = getClusterJVMValueForRole(role, resolvedClusterConfig);
+  const handleOpenChange = (next: boolean) => {
+    if (!next) {
+      resetState();
+    }
+    onOpenChange(next);
+  };
 
-    return (
-      <div key={role} className='rounded-lg border p-4 space-y-4'>
-        <div className='space-y-1'>
-          <h4 className='font-medium'>{t(`cluster.${getRoleConfigTitleKey(role)}`)}</h4>
-          <p className='text-xs text-muted-foreground'>
-            {role === NodeRole.MASTER_WORKER
-              ? t('cluster.hybridRoleFixedDescription')
-              : t('cluster.roleConfigDescription', {role: roleLabel})}
+  const canGoNext =
+    !!hostId && (isHybrid || !!role) && !planLoading && hosts.length > 0;
+  const canSubmit =
+    !!plan &&
+    plan.can_submit &&
+    !dirty &&
+    !planLoading &&
+    !submitting &&
+    (!plan.requires_restart_ack || restartAck);
+
+  const detectionText = () => {
+    if (!plan) {
+      return '';
+    }
+    if (plan.detected_mode === 'register') {
+      return ts('detectedRunning', {
+        dir: plan.target.install_dir,
+        role: plan.target.role,
+      });
+    }
+    return ts('detectedNone');
+  };
+
+  const renderStepIndicator = () => (
+    <ol className='flex flex-wrap items-center gap-2 text-xs'>
+      {WIZARD_STEPS.map((item, index) => {
+        const active = item === step;
+        const done = WIZARD_STEPS.indexOf(step) > index;
+        return (
+          <li key={item} className='flex items-center gap-2'>
+            {index > 0 && <span className='h-px w-6 bg-border' />}
+            <span
+              className={`flex h-5 w-5 items-center justify-center rounded-full border text-[11px] ${
+                active
+                  ? 'border-primary bg-primary text-primary-foreground'
+                  : done
+                    ? 'border-primary text-primary'
+                    : 'text-muted-foreground'
+              }`}
+            >
+              {index + 1}
+            </span>
+            <span className={active ? 'font-medium' : 'text-muted-foreground'}>
+              {ts(`wizardSteps.${item}`)}
+            </span>
+          </li>
+        );
+      })}
+    </ol>
+  );
+
+  const renderHostStep = () => (
+    <div className='space-y-4'>
+      <div className='space-y-2'>
+        <Label>
+          {t('cluster.selectHost')} <span className='text-destructive'>*</span>
+        </Label>
+        {loadingHosts ? (
+          <div className='flex h-9 items-center gap-2 text-sm text-muted-foreground'>
+            <Loader2 className='h-4 w-4 animate-spin' />
+            {t('common.loading')}
+          </div>
+        ) : hosts.length === 0 ? (
+          <div className='rounded-md border p-4 text-sm text-muted-foreground'>
+            {t('cluster.noAvailableHosts')}
+          </div>
+        ) : (
+          <Select value={hostId} onValueChange={setHostId}>
+            <SelectTrigger>
+              <SelectValue placeholder={t('cluster.selectHostPlaceholder')} />
+            </SelectTrigger>
+            <SelectContent>
+              {hosts.map((host) => (
+                <SelectItem key={host.id} value={host.id.toString()}>
+                  <div className='flex items-center gap-2'>
+                    <Server className='h-4 w-4' />
+                    <span>{host.name}</span>
+                    {host.ip_address && (
+                      <code className='font-mono text-xs text-muted-foreground'>
+                        {host.ip_address}
+                      </code>
+                    )}
+                  </div>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+        <p className='text-xs text-muted-foreground'>
+          {t('cluster.onlyAgentInstalledHosts')}
+        </p>
+      </div>
+
+      <div className='space-y-2'>
+        <Label>{ts('roleLabel')}</Label>
+        {isHybrid ? (
+          <p className='rounded-md bg-muted/50 px-3 py-2 text-sm'>
+            {ts('roleHybridFixed')}
           </p>
-        </div>
+        ) : (
+          <>
+            <Select
+              value={role}
+              onValueChange={(value) => setRole(value as NodeRole)}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder={ts('roleSeparatedHint')} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NodeRole.MASTER}>
+                  {t('cluster.roles.master')}
+                </SelectItem>
+                <SelectItem value={NodeRole.WORKER}>
+                  {t('cluster.roles.worker')}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            <p className='text-xs text-muted-foreground'>
+              {ts('roleSeparatedHint')}
+            </p>
+          </>
+        )}
+      </div>
 
-        <div className='grid gap-4 md:grid-cols-3'>
-          <div className='space-y-1'>
-            <Label className='text-xs'>
-              {t(`cluster.${getPrimaryPortLabelKey(role)}`)}{' '}
-              <span className='text-destructive'>*</span>
+      {planLoading && (
+        <p className='flex items-center gap-2 text-sm text-muted-foreground'>
+          <Loader2 className='h-4 w-4 animate-spin' />
+          {ts('planLoading')}
+        </p>
+      )}
+      {planError && (
+        <p className='break-words text-sm text-red-600'>
+          {ts('planFailed')}: {planError}
+        </p>
+      )}
+    </div>
+  );
+
+  /**
+   * 滚动重启选项：现有节点不会热加载 member-list，重启后才能在集群分裂后主动找回新节点。
+   * Rolling-restart option: existing nodes do not hot-reload the member list; only after a restart can they find the
+   * new node again after a split.
+   */
+  const renderRollingRestart = () => {
+    const restart = plan?.rolling_restart;
+    if (!restart || restart.nodes.length === 0) {
+      return null;
+    }
+    const names = restart.nodes.map((node) => node.host_name).join(', ');
+    return (
+      <section className='mt-4 space-y-1.5 rounded-lg border p-3'>
+        <label className='flex items-start gap-2 text-sm font-medium'>
+          <Checkbox
+            className='mt-0.5'
+            checked={rollingRestart && restart.available}
+            disabled={!restart.available}
+            onCheckedChange={(checked) => setRollingRestart(checked === true)}
+          />
+          <span>
+            {ts('rollingRestartLabel', {count: restart.nodes.length, names})}
+          </span>
+        </label>
+        <p className='pl-6 text-xs text-muted-foreground'>
+          {ts('rollingRestartDesc')}
+        </p>
+        {!restart.available && restart.blocked_reason && (
+          <p className='pl-6 text-xs text-amber-700 dark:text-amber-400'>
+            {restart.blocked_reason}
+          </p>
+        )}
+        {restart.available && restart.note && (
+          <p className='pl-6 text-xs text-amber-700 dark:text-amber-400'>
+            {restart.note}
+          </p>
+        )}
+      </section>
+    );
+  };
+
+  const renderPlanStep = () =>
+    plan && (
+      <div className='space-y-4'>
+        <section className='space-y-3 rounded-lg border p-3'>
+          <p className='text-sm'>{detectionText()}</p>
+          <div className='flex flex-wrap items-center gap-3'>
+            <Label className='text-xs text-muted-foreground'>
+              {ts('modeLabel')}
             </Label>
-            <Input
-              type='number'
-              value={form.hazelcastPort}
-              onChange={(e) =>
-                updateRoleForm(role, {
-                  hazelcastPort: parseInt(e.target.value, 10) || 0,
-                })
-              }
-            />
-          </div>
-
-          {role !== NodeRole.WORKER && (
-            <div className='space-y-1'>
-              <Label className='text-xs'>
-                {t('cluster.apiPort')} <span className='text-muted-foreground'>({t('common.optional')})</span>
-              </Label>
-              <Input
-                type='number'
-                value={form.apiPort || ''}
-                onChange={(e) =>
-                  updateRoleForm(role, {
-                    apiPort: parseInt(e.target.value, 10) || 0,
-                  })
+            <ToggleGroup
+              type='single'
+              variant='outline'
+              size='sm'
+              value={mode}
+              onValueChange={(value) => {
+                if (value) {
+                  setMode(value as ScaleMode);
+                  setModeTouched(true);
+                  markDirty();
                 }
-              />
-            </div>
-          )}
-        </div>
-
-        <div className='space-y-3 rounded-md bg-muted/40 p-3'>
-          <div className='flex items-center justify-between gap-4'>
-            <div className='space-y-1'>
-              <Label>{t('cluster.jvmOverrideTitle')}</Label>
-              <p className='text-xs text-muted-foreground'>
-                {form.jvmOverrideEnabled
-                  ? t('cluster.jvmOverrideEnabledHint')
-                  : defaultHeap
-                    ? t('cluster.jvmInheritDefault', {value: defaultHeap})
-                    : t('cluster.jvmNoClusterDefault')}
-              </p>
-            </div>
-            <Switch
-              checked={form.jvmOverrideEnabled}
-              onCheckedChange={(checked) => {
-                updateRoleForm(role, {
-                  jvmOverrideEnabled: checked,
-                  jvmHeapSize:
-                    checked && form.jvmHeapSize <= 0
-                      ? defaultHeap ?? FALLBACK_JVM_HEAP[role]
-                      : form.jvmHeapSize,
-                });
               }}
-            />
+            >
+              <ToggleGroupItem value='install'>
+                {ts('modeInstall')}
+              </ToggleGroupItem>
+              <ToggleGroupItem value='register'>
+                {ts('modeRegister')}
+              </ToggleGroupItem>
+            </ToggleGroup>
+            {modeTouched && mode !== plan.detected_mode && (
+              <span className='text-xs text-amber-600'>{ts('modeManual')}</span>
+            )}
           </div>
 
-          {form.jvmOverrideEnabled && (
-            <div className='grid gap-2 md:max-w-xs'>
-              <Label className='text-xs'>
-                {t('cluster.jvmHeapSize')} <span className='text-destructive'>*</span>
-              </Label>
+          <div className='grid gap-3 md:grid-cols-[2fr_1fr_1fr_1fr]'>
+            <div className='space-y-1'>
+              <Label className='text-xs'>{ts('installDir')}</Label>
+              <Input
+                className='font-mono'
+                value={installDir}
+                onChange={(e) => {
+                  setInstallDir(e.target.value);
+                  markDirty();
+                }}
+              />
+            </div>
+            <div className='space-y-1'>
+              <Label className='text-xs'>{ts('hazelcastPort')}</Label>
               <Input
                 type='number'
-                min={1}
-                value={form.jvmHeapSize || ''}
-                onChange={(e) =>
-                  updateRoleForm(role, {
-                    jvmHeapSize: parseInt(e.target.value, 10) || 0,
-                  })
-                }
+                value={ports.hazelcast_port || ''}
+                onChange={(e) => {
+                  setPorts((prev) => ({
+                    ...prev,
+                    hazelcast_port: parsePort(e.target.value),
+                  }));
+                  markDirty();
+                }}
               />
-              <p className='text-xs text-muted-foreground'>
-                {t('cluster.jvmHeapSizeHint')}
-              </p>
             </div>
-          )}
+            {plan.target.role !== NodeRole.WORKER && (
+              <div className='space-y-1'>
+                <Label className='text-xs'>{ts('apiPort')}</Label>
+                <Input
+                  type='number'
+                  value={ports.api_port || ''}
+                  onChange={(e) => {
+                    setPorts((prev) => ({
+                      ...prev,
+                      api_port: parsePort(e.target.value),
+                    }));
+                    markDirty();
+                  }}
+                />
+              </div>
+            )}
+            {plan.target.role === NodeRole.MASTER_WORKER && (
+              <div className='space-y-1'>
+                <Label className='text-xs'>{ts('workerPort')}</Label>
+                <Input
+                  type='number'
+                  value={ports.worker_port || ''}
+                  onChange={(e) => {
+                    setPorts((prev) => ({
+                      ...prev,
+                      worker_port: parsePort(e.target.value),
+                    }));
+                    markDirty();
+                  }}
+                />
+              </div>
+            )}
+          </div>
+          <div className='space-y-0.5 text-xs text-muted-foreground'>
+            <p>{ts('installDirHint')}</p>
+            <p>{ts('portsHint')}</p>
+          </div>
+        </section>
+
+        {planError && (
+          <p className='break-words text-sm text-red-600'>
+            {ts('planFailed')}: {planError}
+          </p>
+        )}
+
+        {/* 配置变更或重新预检期间半透明保留旧结果，避免高度塌陷 / Keep the old result dimmed while stale or reloading */}
+        <div
+          className={
+            dirty || planLoading ? 'pointer-events-none opacity-60' : ''
+          }
+        >
+          <ScalePlanView
+            plan={plan}
+            restartAck={restartAck}
+            onRestartAckChange={setRestartAck}
+            extraSteps={
+              rollingRestart && plan.rolling_restart?.available
+                ? ['rolling_restart']
+                : []
+            }
+          />
+          {renderRollingRestart()}
         </div>
       </div>
     );
-  };
 
   return (
-    <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className='sm:max-w-[980px]'>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent className='sm:max-w-4xl'>
         <DialogHeader>
           <DialogTitle>{t('cluster.addNode')}</DialogTitle>
-          <DialogDescription>{t('cluster.addNodeDescription')}</DialogDescription>
+          <DialogDescription>
+            {t('cluster.addNodeDescription')}
+          </DialogDescription>
         </DialogHeader>
 
-        <div className='max-h-[72vh] overflow-y-auto pr-1'>
-          <div className='space-y-5 py-1'>
-            <div className='grid gap-4 md:grid-cols-[1.1fr_0.9fr]'>
-              <div className='space-y-2'>
-                <Label>
-                  {t('cluster.selectHost')} <span className='text-destructive'>*</span>
-                </Label>
-                {loadingHosts ? (
-                  <div className='flex items-center gap-2 text-muted-foreground'>
-                    <Loader2 className='h-4 w-4 animate-spin' />
-                    {t('common.loading')}
-                  </div>
-                ) : availableHosts.length === 0 ? (
-                  <div className='rounded-md border p-4 text-sm text-muted-foreground'>
-                    {t('cluster.noAvailableHosts')}
-                  </div>
-                ) : (
-                  <div className='flex gap-2'>
-                    <Select
-                      value={hostId}
-                      onValueChange={(value) => {
-                        setHostId(value);
-                        setDiscoveredProcesses([]);
-                        setSelectedProcess('');
-                        setPrecheckResults([]);
-                      }}
-                    >
-                      <SelectTrigger className='flex-1'>
-                        <SelectValue placeholder={t('cluster.selectHostPlaceholder')} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {availableHosts.map((host) => (
-                          <SelectItem key={host.id} value={host.id.toString()}>
-                            <div className='flex items-center gap-2'>
-                              <Server className='h-4 w-4' />
-                              <span>{host.name}</span>
-                              {host.ip_address && (
-                                <span className='text-muted-foreground'>({host.ip_address})</span>
-                              )}
-                            </div>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Button
-                      variant='outline'
-                      size='icon'
-                      onClick={handleDiscoverProcesses}
-                      disabled={!hostId || discoveryLoading}
-                      title={t('discovery.discoverProcesses')}
-                    >
-                      {discoveryLoading ? (
-                        <Loader2 className='h-4 w-4 animate-spin' />
-                      ) : (
-                        <Search className='h-4 w-4' />
-                      )}
-                    </Button>
-                  </div>
-                )}
-                <p className='text-xs text-muted-foreground'>
-                  {t('cluster.onlyAgentInstalledHosts')}
-                </p>
-              </div>
+        {renderStepIndicator()}
 
-              <div className='space-y-2'>
-                <Label>
-                  {t('cluster.installDir')} <span className='text-destructive'>*</span>
-                </Label>
-                <Input
-                  value={installDir}
-                  onChange={(e) => setInstallDir(e.target.value)}
-                  placeholder={t('cluster.installDirPlaceholder')}
-                />
-                <p className='text-xs text-muted-foreground'>
-                  {t('cluster.nodeInstallDirDescription')}
-                </p>
-              </div>
-            </div>
-
-            {discoveredProcesses.length > 0 && (
-              <div className='space-y-2 rounded-lg border p-4'>
-                <Label>{t('discovery.discoveredProcesses')}</Label>
-                <Select value={selectedProcess} onValueChange={handleProcessSelect}>
-                  <SelectTrigger>
-                    <SelectValue placeholder={t('discovery.selectProcess')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {discoveredProcesses.map((process) => (
-                      <SelectItem
-                        key={`${process.pid}-${process.install_dir}`}
-                        value={`${process.pid}-${process.install_dir}`}
-                      >
-                        <div className='flex items-center gap-2'>
-                          <Cpu className='h-4 w-4' />
-                          <span>PID: {process.pid}</span>
-                          <span className='text-muted-foreground'>|</span>
-                          <span className='capitalize'>{process.role}</span>
-                          <span className='text-muted-foreground'>|</span>
-                          <span className='max-w-[260px] truncate text-xs text-muted-foreground'>
-                            {process.install_dir}
-                          </span>
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className='text-xs text-muted-foreground'>
-                  {t('discovery.selectProcessHint')}
-                </p>
-              </div>
-            )}
-
-            <div className='space-y-3 rounded-lg border p-4'>
-              <div className='space-y-1'>
-                <Label>{t('cluster.nodeRole')}</Label>
-                <p className='text-xs text-muted-foreground'>
-                  {isHybrid
-                    ? t('cluster.hybridRoleFixedDescription')
-                    : t('cluster.separatedRoleSelectionDescription')}
-                </p>
-              </div>
-
-              {isHybrid ? (
-                <div className='rounded-md bg-muted/50 px-3 py-2 text-sm font-medium'>
-                  {t('cluster.roles.masterWorker')}
-                </div>
-              ) : (
-                <div className='space-y-3'>
-                  <div className='flex flex-wrap gap-6'>
-                    <label className='flex items-center gap-2 text-sm'>
-                      <Checkbox
-                        checked={selectedMaster}
-                        onCheckedChange={(checked) => {
-                          setSelectedMaster(checked === true);
-                          setPrecheckResults([]);
-                        }}
-                      />
-                      <span>{t('cluster.roles.master')}</span>
-                    </label>
-                    <label className='flex items-center gap-2 text-sm'>
-                      <Checkbox
-                        checked={selectedWorker}
-                        onCheckedChange={(checked) => {
-                          setSelectedWorker(checked === true);
-                          setPrecheckResults([]);
-                        }}
-                      />
-                      <span>{t('cluster.roles.worker')}</span>
-                    </label>
-                  </div>
-                  {selectedMaster && selectedWorker && (
-                    <p className='text-xs text-muted-foreground'>
-                      {t('cluster.sameHostCreatesTwoNodes')}
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
-
-            <div className='space-y-4'>
-              {selectedRoles.map((role) => renderRoleConfig(role))}
-            </div>
-
-            {precheckResults.length > 0 && (
-              <div className='space-y-3 rounded-lg border p-4'>
-                <div className='space-y-1'>
-                  <h4 className='font-medium'>{t('cluster.precheck')}</h4>
-                  <p className='text-xs text-muted-foreground'>
-                    {precheckResults.every((item) => item.result.success)
-                      ? t('cluster.precheckPassed')
-                      : t('cluster.precheckFailed')}
-                  </p>
-                </div>
-                {precheckResults.map(({role, result}) => (
-                  <div key={role} className='rounded-md bg-muted/40 p-3 space-y-2'>
-                    <div className='font-medium text-sm'>
-                      {t('cluster.precheckResultForRole', {
-                        role: t(`cluster.roles.${getRoleTranslationKey(role)}`),
-                      })}
-                    </div>
-                    <div className='space-y-1'>
-                      {result.checks.map((check: PrecheckCheckItem, index: number) => (
-                        <div key={`${role}-${index}`} className='flex items-start gap-2 text-xs'>
-                          {renderStatusIcon(check.status)}
-                          <div>
-                            <span className='font-medium'>
-                              {t(`cluster.precheckItems.${check.name}`, {
-                                defaultValue: check.name,
-                              })}
-                              :{' '}
-                            </span>
-                            <span className='text-muted-foreground'>{check.message}</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+        <div className='max-h-[64vh] overflow-y-auto pr-1'>
+          {step === 'host' && renderHostStep()}
+          {step === 'plan' && renderPlanStep()}
+          {step === 'execute' && operationId !== null && (
+            <ScaleOperationProgress
+              clusterId={clusterId}
+              operationId={operationId}
+              initial={initialOperation}
+              onFinished={handleFinished}
+            />
+          )}
         </div>
 
         <DialogFooter className='gap-2 sm:gap-0'>
-          <Button
-            variant='outline'
-            onClick={() => handleClose(false)}
-            disabled={loading || precheckLoading}
-          >
-            {t('common.cancel')}
-          </Button>
-          <Button
-            variant='secondary'
-            onClick={handlePrecheck}
-            disabled={
-              loading ||
-              precheckLoading ||
-              !hostId ||
-              selectedRoles.length === 0 ||
-              availableHosts.length === 0
-            }
-          >
-            {precheckLoading && <Loader2 className='mr-2 h-4 w-4 animate-spin' />}
-            {t('cluster.precheck')}
-          </Button>
-          <Button
-            onClick={handleSubmit}
-            disabled={
-              loading ||
-              precheckLoading ||
-              !hostId ||
-              selectedRoles.length === 0 ||
-              availableHosts.length === 0
-            }
-          >
-            {loading && <Loader2 className='mr-2 h-4 w-4 animate-spin' />}
-            {t('cluster.addNode')}
-          </Button>
+          {step === 'host' && (
+            <>
+              <Button variant='outline' onClick={() => handleOpenChange(false)}>
+                {t('common.cancel')}
+              </Button>
+              <Button onClick={() => void runPlan(false)} disabled={!canGoNext}>
+                {planLoading && (
+                  <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                )}
+                {ts('next')}
+              </Button>
+            </>
+          )}
+          {step === 'plan' && (
+            <>
+              <Button
+                variant='outline'
+                onClick={() => setStep('host')}
+                disabled={planLoading || submitting}
+              >
+                {ts('back')}
+              </Button>
+              <Button
+                variant='secondary'
+                onClick={() => void runPlan(true)}
+                disabled={planLoading || submitting}
+              >
+                {planLoading ? (
+                  <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                ) : (
+                  <RefreshCw className='mr-2 h-4 w-4' />
+                )}
+                {ts('recheck')}
+              </Button>
+              <Button
+                onClick={handleSubmit}
+                disabled={!canSubmit}
+                title={
+                  plan && !plan.can_submit ? ts('cannotSubmit') : undefined
+                }
+              >
+                {submitting && (
+                  <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                )}
+                {ts('submitScaleOut')}
+              </Button>
+            </>
+          )}
+          {step === 'execute' && (
+            <Button variant='outline' onClick={() => handleOpenChange(false)}>
+              {ts('close')}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

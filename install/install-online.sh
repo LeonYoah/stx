@@ -59,9 +59,28 @@ stx_bootstrap_root_if_needed() {
     mkdir -p "$(dirname "$boot/$path")"
     curl -fsSL --retry 3 --retry-delay 1 -o "$boot/$path" "$url"
   done
+  # Agent 启动脚本：Release 资产缺失时（如 v1.2.0）作为兜底来源，失败不致命。
+  # Agent launcher: fallback source when the release asset is missing (e.g. v1.2.0); non-fatal.
+  path="scripts/stx-java-proxy.sh"
+  url="${base}/${path}"
+  [[ -n "$prefix" ]] && url="${prefix}/${base}/${path}"
+  mkdir -p "$boot/scripts"
+  if ! curl -fsSL --retry 3 --retry-delay 1 -o "$boot/$path" "$url"; then
+    rm -f "$boot/$path"
+    echo "[WARN] cannot bootstrap ${path} from ${ref}" >&2
+  fi
   ROOT_DIR="$boot"
   export STX_BOOTSTRAP_ROOT="$boot"
 }
+
+# 前置依赖检查（不再需要 python3）。/ Upfront dependency check (python3 is no longer required).
+for _stx_cmd in curl tar gzip awk sed grep; do
+  if ! command -v "$_stx_cmd" >/dev/null 2>&1; then
+    echo "[ERROR] missing required command: $_stx_cmd (please install it first, e.g. apt-get install -y $_stx_cmd)" >&2
+    exit 1
+  fi
+done
+unset _stx_cmd
 
 stx_bootstrap_root_if_needed
 # shellcheck source=../install/download-lib.sh
@@ -78,11 +97,12 @@ Usage:
   install/install-online.sh [options]
 
 Options:
-  --version <tag>              Release tag (default: latest)
+  --version <tag>              Release tag, e.g. v1.2.0 (default: latest; env STX_VERSION)
   --install-dir <path>         Install dir (default: /opt/stx)
   --arch <amd64|arm64>         Target arch (default: auto)
-  --node-variant <official|glibc217>  Node runtime variant (default: auto by glibc)
-  --without-node               Do not download Node package (use system Node ≥ 18.18)
+  --node-variant <official|glibc217>  Node runtime variant (default: auto by glibc <2.27 => glibc217,
+                               amd64 only; arm64 always official)
+  --without-node               Do not download Node package (requires system Node ≥ 18.18; fails otherwise)
   --without-observability      Skip bundled Prometheus/Alertmanager/Grafana
   --region <cn|global>         Force download region
   --no-start                   Pass through to install.sh
@@ -127,10 +147,18 @@ if [[ -z "$ARCH" ]]; then
   ARCH="$(stx_detect_arch)"
 fi
 if [[ -z "$NODE_VARIANT" ]]; then
-  NODE_VARIANT="$(stx_recommend_node_variant)"
+  NODE_VARIANT="$(stx_recommend_node_variant "$ARCH")"
 fi
 if [[ -n "$REGION" ]]; then
   export STX_DOWNLOAD_REGION="$REGION"
+fi
+
+# --without-node 需要本机 Node >= 18.18：下载前就失败，与 install.sh 报错一致。
+# --without-node needs a system Node >= 18.18: fail before downloading, consistent with install.sh.
+if [[ "$WITHOUT_NODE" == "true" ]] && ! stx_probe_system_node; then
+  stx_system_node_error "--without-node was given" \
+    "install Node >= 18.18 on this host (and make sure it is in PATH), or drop --without-node to download the Node package."
+  exit 1
 fi
 
 region="$(stx_detect_download_region)"
@@ -160,7 +188,7 @@ resolve_version() {
     url="${prefix%/}/https://api.github.com/repos/${STX_GITHUB_OWNER}/${STX_GITHUB_REPO}/releases/latest"
   fi
   local tag
-  tag="$(curl -fsSL "$url" 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("tag_name",""))' || true)"
+  tag="$(curl -fsSL "$url" 2>/dev/null | stx_json_tag_name || true)"
   if [[ -z "$tag" ]]; then
     echo "[ERROR] cannot resolve latest release tag; pass --version explicitly" >&2
     exit 1
@@ -222,12 +250,7 @@ for epoch in v2 v3; do
 done
 
 mkdir -p "$WORK_DIR/scripts"
-if stx_download_release_asset "$VERSION" "stx-java-proxy.sh" "$WORK_DIR/scripts/stx-java-proxy.sh" 2>/dev/null; then
-  chmod +x "$WORK_DIR/scripts/stx-java-proxy.sh"
-elif [[ -f "$ROOT_DIR/scripts/stx-java-proxy.sh" ]]; then
-  cp "$ROOT_DIR/scripts/stx-java-proxy.sh" "$WORK_DIR/scripts/stx-java-proxy.sh"
-  chmod +x "$WORK_DIR/scripts/stx-java-proxy.sh"
-fi
+stx_stage_java_proxy_script "$VERSION" "$WORK_DIR/scripts/stx-java-proxy.sh" "$ROOT_DIR" || true
 
 # Node: skip when asked, or when local node is good enough. / 显式跳过，或本机 node 足够则跳过。
 need_node=true
@@ -235,14 +258,7 @@ if [[ "$WITHOUT_NODE" == "true" ]]; then
   echo "[INFO] --without-node: skip node package"
   need_node=false
 elif command -v node >/dev/null 2>&1; then
-  if python3 - <<'PY'
-import re, subprocess, sys
-out = subprocess.check_output(["node", "-v"], text=True).strip().lstrip("v")
-parts = [int(x) for x in re.split(r"[^\d]+", out) if x.isdigit()]
-major, minor, patch = (parts + [0, 0, 0])[:3]
-sys.exit(0 if (major > 18 or (major == 18 and minor >= 18)) else 1)
-PY
-  then
+  if stx_node_version_ok "$(node -v 2>/dev/null || true)"; then
     echo "[INFO] local node $(node -v) is usable; skip node package"
     need_node=false
   fi
@@ -259,15 +275,21 @@ if [[ "$need_node" == "true" ]]; then
     fi
   done
   if [[ -z "$node_asset" ]]; then
-    echo "[WARN] node deps package not found on tag=$DEPS_TAG; install may require system node"
-  else
-    stx_download_release_asset "$DEPS_TAG" "${node_asset}.sha256" "$WORK_DIR/packages/${node_asset}.sha256" 2>/dev/null || true
+    # 本机无合格 Node 才会走到这里（否则上面已跳过下载），继续安装必然失败：直接报错。
+    # Only reached when the host has no usable Node (otherwise download was skipped), so install would fail: stop now.
+    stx_probe_system_node || true
+    stx_node_package_missing_error "$NODE_VARIANT" "$ARCH" "$DEPS_TAG" \
+      "or install Node >= 18.18 on this host (found: ${STX_SYSTEM_NODE_VER:-none}) and re-run (optionally with --without-node)."
+    exit 1
+  fi
+  if stx_download_release_asset "$DEPS_TAG" "${node_asset}.sha256" "$WORK_DIR/packages/${node_asset}.sha256" 2>/dev/null; then
+    stx_verify_sha256 "$WORK_DIR/packages/$node_asset" "$WORK_DIR/packages/${node_asset}.sha256"
   fi
 fi
 
 if [[ "$WITH_OBS" == "true" && "$WITHOUT_OBS" != "true" ]]; then
   obs_asset="$(curl -fsSL "$(stx_build_github_release_url "$DEPS_TAG" "MANIFEST.json" "${STX_SELECTED_MIRROR_PREFIX:-}")" 2>/dev/null \
-    | python3 -c "import json,sys; m=json.load(sys.stdin); print(m.get('observability',{}).get('${ARCH}',''))" 2>/dev/null || true)"
+    | stx_manifest_obs_asset "$ARCH" || true)"
   if [[ -z "$obs_asset" ]]; then
     # fallback glob-like name from known versions in package-release defaults
     obs_asset="observability-prom3.9.1-am0.31.1-gf12.3.3-linux-${ARCH}.tar.gz"

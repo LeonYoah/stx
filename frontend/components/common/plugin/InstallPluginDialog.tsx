@@ -66,7 +66,7 @@ import type {
   PluginDependency,
   PluginDownloadProgress,
 } from '@/lib/services/plugin';
-import {PluginService} from '@/lib/services/plugin';
+import {PluginService, formatPluginNodeStatuses} from '@/lib/services/plugin';
 import {ClusterService} from '@/lib/services/cluster';
 import {ClusterStatus} from '@/lib/services/cluster';
 import type {ClusterInfo} from '@/lib/services/cluster';
@@ -480,6 +480,16 @@ export function InstallPluginDialog({
         </Badge>
       );
     }
+    if (installedPlugin.status === 'partial') {
+      return (
+        <Badge
+          variant='destructive'
+          title={formatPluginNodeStatuses(installedPlugin, t)}
+        >
+          {t('plugin.partialInstalled')}
+        </Badge>
+      );
+    }
     return <Badge variant='default'>{t('plugin.installedLabel')}</Badge>;
   };
 
@@ -760,7 +770,10 @@ export function InstallPluginDialog({
                           loading,
                         }) => {
                           const isOperating = operatingClusterId === cluster.id;
-                          const installed = Boolean(installedPlugin);
+                          const partialInstall =
+                            installedPlugin?.status === 'partial';
+                          const installed =
+                            Boolean(installedPlugin) && !partialInstall;
                           const clusterRuntimeAvailable =
                             isClusterRuntimeAvailable(cluster);
                           const clusterDisplayState =
@@ -828,23 +841,41 @@ export function InstallPluginDialog({
                                     {t('plugin.install')}
                                   </Button>
                                 ) : !installed ? (
-                                  <Button
-                                    size='sm'
-                                    variant='outline'
-                                    onClick={() => handleInstall(cluster.id)}
-                                    disabled={
-                                      !isDownloaded ||
-                                      isOperating ||
-                                      !clusterRuntimeAvailable
-                                    }
-                                  >
-                                    {isOperating ? (
-                                      <Loader2 className='h-4 w-4 mr-1 animate-spin' />
-                                    ) : (
-                                      <Download className='h-4 w-4 mr-1' />
+                                  <div className='flex items-center justify-end gap-2'>
+                                    <Button
+                                      size='sm'
+                                      variant='outline'
+                                      onClick={() => handleInstall(cluster.id)}
+                                      disabled={
+                                        !isDownloaded ||
+                                        isOperating ||
+                                        !clusterRuntimeAvailable
+                                      }
+                                    >
+                                      {isOperating ? (
+                                        <Loader2 className='h-4 w-4 mr-1 animate-spin' />
+                                      ) : (
+                                        <Download className='h-4 w-4 mr-1' />
+                                      )}
+                                      {partialInstall
+                                        ? t('plugin.retryInstall')
+                                        : t('plugin.install')}
+                                    </Button>
+                                    {partialInstall && (
+                                      <Button
+                                        size='sm'
+                                        variant='outline'
+                                        onClick={() => handleUninstall(cluster.id)}
+                                        disabled={
+                                          isOperating || !clusterRuntimeAvailable
+                                        }
+                                        className='text-destructive hover:text-destructive'
+                                      >
+                                        <Trash2 className='h-4 w-4 mr-1' />
+                                        {t('plugin.uninstall')}
+                                      </Button>
                                     )}
-                                    {t('plugin.install')}
-                                  </Button>
+                                  </div>
                                 ) : (
                                   <Button
                                     size='sm'

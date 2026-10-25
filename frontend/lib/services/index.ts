@@ -20,7 +20,7 @@ import {ProjectService} from './project/index';
 import {DashboardService} from './dashboard/index';
 import {AdminUserService, AdminTokenService} from './admin/index';
 import {HostService} from './host/index';
-import {ClusterService} from './cluster/index';
+import {ClusterService, ClusterScaleService} from './cluster/index';
 import {AuditService} from './audit/index';
 import {installerService} from './installer/index';
 import {pluginService} from './plugin/index';
@@ -145,6 +145,12 @@ const services = {
    * 集群管理服务
    */
   cluster: ClusterService,
+
+  /**
+   * 集群伸缩（扩容 / 缩容）服务
+   * Cluster scaling (scale-out / scale-in) service
+   */
+  clusterScale: ClusterScaleService,
 
   /**
    * 审计日志服务

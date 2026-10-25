@@ -32,6 +32,7 @@ LAYOUT="split" # split | legacy
 EMIT_DEPS=false
 DEPS_ONLY=false
 EMIT_OBSERVABILITY=true
+EMIT_NODE=true
 
 PROMETHEUS_VERSION="${PROMETHEUS_VERSION:-3.9.1}"
 ALERTMANAGER_VERSION="${ALERTMANAGER_VERSION:-0.31.1}"
@@ -50,6 +51,7 @@ Options:
   --emit-deps                       Also emit reusable node/observability deps tarballs (split layout)
   --deps-only                       Emit only node/observability deps; skip stx, agent, and frontend
   --no-observability                With --emit-deps/--deps-only, skip the observability tarball
+  --no-node                         With --deps-only, skip the Node runtime tarball (observability only)
   --bundle-observability <with|without|both>
                                      Legacy layout only (default: without)
   --node-major <18|22>               Node major for bundled/emitted runtime (default: 18)
@@ -63,6 +65,7 @@ Options:
 Examples:
   install/package-release.sh --arch all --layout split --build-frontend
   install/package-release.sh --deps-only --arch all --node-major 22 --node-variant official
+  install/package-release.sh --deps-only --no-node --arch all
   install/package-release.sh --arch amd64 --layout legacy --bundle-observability both --build-frontend
 EOF
 }
@@ -93,6 +96,12 @@ while [[ $# -gt 0 ]]; do
       ;;
     --no-observability)
       EMIT_OBSERVABILITY=false
+      shift
+      ;;
+    --no-node)
+      # 只重打三件套，不碰 Node 包（release-deps components=observability）。
+      # Rebuild observability only, leave Node packages alone (release-deps components=observability).
+      EMIT_NODE=false
       shift
       ;;
     --node-major)
@@ -180,6 +189,17 @@ if [[ "$NODE_VARIANT" == "glibc217" ]]; then
       exit 1
     fi
   done
+fi
+
+if [[ "$EMIT_NODE" != "true" ]]; then
+  if [[ "$DEPS_ONLY" != "true" ]]; then
+    echo "--no-node requires --deps-only (control plane packaging always needs Node)"
+    exit 1
+  fi
+  if [[ "$EMIT_OBSERVABILITY" != "true" ]]; then
+    echo "--no-node together with --no-observability leaves nothing to emit"
+    exit 1
+  fi
 fi
 
 if [[ "$DEPS_ONLY" == "true" && "$LAYOUT" != "split" ]]; then
@@ -279,8 +299,13 @@ else:
 PY
 }
 
-NODE_VERSION="$(resolve_latest_node_version)"
-echo "resolved Node runtime version: v$NODE_VERSION (major=$NODE_MAJOR, variant=$NODE_VARIANT)"
+NODE_VERSION=""
+if [[ "$EMIT_NODE" == "true" ]]; then
+  NODE_VERSION="$(resolve_latest_node_version)"
+  echo "resolved Node runtime version: v$NODE_VERSION (major=$NODE_MAJOR, variant=$NODE_VARIANT)"
+else
+  echo "skip Node runtime (--no-node)"
+fi
 
 prepare_node_runtime() {
   local arch="$1"
@@ -341,9 +366,93 @@ build_frontend_standalone() {
     export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
     corepack enable >/dev/null 2>&1 || true
     corepack prepare pnpm@10.10.0 --activate >/dev/null 2>&1 || true
+
+    # 前端只在宿主机构建一次（同一份 .next 输出），但要按架构分别打包 linux x64 / arm64。
+    # 仅在发版构建期间临时声明 supportedArchitectures，让 pnpm 同时安装 x64/arm64 的 sharp 原生包；
+    # 打包时再按架构裁剪，每个 tarball 只保留本架构 glibc 版 sharp 与 libvips（见 prepare_frontend_dist_for_arch）。
+    # The frontend is built once on the host (one .next output) but packaged per arch for linux x64 / arm64.
+    # Declare supportedArchitectures only for the release build so pnpm installs sharp for both arches;
+    # packaging then prunes each tarball to its own glibc sharp + libvips (see prepare_frontend_dist_for_arch).
+    local workspace_file="$ROOT_DIR/frontend/pnpm-workspace.yaml"
+    if [[ -e "$workspace_file" ]]; then
+      echo "refusing to overwrite existing $workspace_file (release build writes a temporary one)"
+      exit 1
+    fi
+    trap 'rm -f "$workspace_file"' EXIT
+    cat >"$workspace_file" <<'YAML'
+# Temporary file written by install/package-release.sh; removed after the frontend build.
+supportedArchitectures:
+  os: [current, linux]
+  cpu: [current, x64, arm64]
+  libc: [current, glibc]
+YAML
+
     pnpm install --no-frozen-lockfile
     pnpm run pack:standalone
   )
+}
+
+# 为指定架构准备前端 standalone 目录：复制同一份构建输出，只保留 linux-<cpu> glibc 版 sharp 与 libvips，
+# 删除其它架构 / musl / 非 linux 的 sharp 原生包。输出目录路径打印到 stdout。
+# Prepare the frontend standalone dir for one arch: copy the single build output and keep only the
+# linux-<cpu> glibc sharp + libvips, pruning other arch / musl / non-linux sharp native packages.
+# Prints the output directory on stdout.
+prepare_frontend_dist_for_arch() {
+  local arch="$1"
+  local cpu
+  cpu="$(node_arch "$arch")"
+  local out="$STAGE_DIR/frontend-linux-${arch}"
+  local keep_sharp="sharp-linux-${cpu}"
+  local keep_vips="sharp-libvips-linux-${cpu}"
+
+  rm -rf "$out"
+  mkdir -p "$out"
+  cp -a "$FRONTEND_DIST"/. "$out/"
+
+  if [[ -d "$out/node_modules" ]]; then
+    local entry name stem
+    local -a entries=()
+    # pnpm 布局：.pnpm/@img+sharp-*@<ver> 实体目录，以及各处 @img/sharp-* 符号链接或目录；先收集再删除。
+    # pnpm layout: .pnpm/@img+sharp-*@<ver> package dirs plus @img/sharp-* symlinks or dirs; collect, then delete.
+    while IFS= read -r -d '' entry; do
+      entries+=("$entry")
+    done < <(find "$out/node_modules" \( -name '@img+sharp-*' -o \( -path '*/@img/sharp-*' -a ! -path '*/@img/sharp-*/*' \) \) \
+      \( -type d -o -type l \) -prune -print0)
+    for entry in ${entries[@]+"${entries[@]}"}; do
+      name="$(basename "$entry")"
+      if [[ "$name" == @img+* ]]; then
+        stem="${name#@img+}"
+        stem="${stem%@*}"
+      else
+        stem="$name"
+      fi
+      if [[ "$stem" != "$keep_sharp" && "$stem" != "$keep_vips" ]]; then
+        rm -rf "$entry"
+      fi
+    done
+  fi
+
+  local sharp_node vips_lib
+  sharp_node="$(find "$out/node_modules" -path "*/@img/${keep_sharp}/lib/${keep_sharp}.node" -print -quit 2>/dev/null || true)"
+  vips_lib="$(find "$out/node_modules" -path "*/@img/${keep_vips}/lib/libvips-cpp.so*" -print -quit 2>/dev/null || true)"
+  if [[ -z "$sharp_node" || -z "$vips_lib" ]]; then
+    local msg="frontend standalone for linux/${arch} lacks @img/${keep_sharp} or @img/${keep_vips}"
+    if [[ "$BUILD_FRONTEND" == "true" ]]; then
+      echo "$msg" >&2
+      exit 1
+    fi
+    # 复用外部预构建的 dist-standalone 时只告警：next/image 会退化为返回原图。
+    # With an externally prebuilt dist-standalone only warn: next/image falls back to serving originals.
+    echo "warning: $msg; next/image optimization will fall back to original images" >&2
+  fi
+  local link
+  while IFS= read -r -d '' link; do
+    if [[ ! -e "$link" ]]; then
+      echo "frontend standalone for linux/${arch} has a dangling symlink after pruning: ${link#"$out"/}" >&2
+      exit 1
+    fi
+  done < <(find "$out/node_modules" -type l -path '*/@img/*' -print0 2>/dev/null)
+  echo "$out"
 }
 
 FRONTEND_DIST="$ROOT_DIR/frontend/dist-standalone"
@@ -556,15 +665,17 @@ write_sha256() {
 # Emit reusable deps tarballs (node + optional observability). / 产出可复用 deps 包。
 emit_deps_packages() {
   local arch="$1"
-  local runtime_dir
-  runtime_dir="$(prepare_node_runtime "$arch")"
-  local node_name="node-${NODE_MAJOR}-${NODE_VARIANT}-linux-${arch}.tar.gz"
-  local node_out="$OUTPUT_DIR/$node_name"
-  echo "creating deps node package: $node_out"
-  tar -C "$(dirname "$runtime_dir")" -czf "$node_out" "$(basename "$runtime_dir")"
-  # Normalize inner folder name to node/ when extracted by installers that expect runtime/node.
-  # 安装器期望 runtime/node；这里保持解压后可再命名。
-  write_sha256 "$node_out"
+  if [[ "$EMIT_NODE" == "true" ]]; then
+    local runtime_dir
+    runtime_dir="$(prepare_node_runtime "$arch")"
+    local node_name="node-${NODE_MAJOR}-${NODE_VARIANT}-linux-${arch}.tar.gz"
+    local node_out="$OUTPUT_DIR/$node_name"
+    echo "creating deps node package: $node_out"
+    tar -C "$(dirname "$runtime_dir")" -czf "$node_out" "$(basename "$runtime_dir")"
+    # Normalize inner folder name to node/ when extracted by installers that expect runtime/node.
+    # 安装器期望 runtime/node；这里保持解压后可再命名。
+    write_sha256 "$node_out"
+  fi
 
   if [[ "$EMIT_OBSERVABILITY" == "true" ]]; then
     local obs_name="observability-prom${PROMETHEUS_VERSION}-am${ALERTMANAGER_VERSION}-gf${GRAFANA_VERSION}-linux-${arch}.tar.gz"
@@ -620,7 +731,8 @@ if [[ "$LAYOUT" == "split" ]]; then
     frontend_name="frontend-standalone-${APP_VERSION_SAFE}-linux-${arch}.tar.gz"
     frontend_alias="frontend-standalone-linux-${arch}.tar.gz"
     echo "creating $frontend_name"
-    tar -C "$FRONTEND_DIST" -czf "$OUTPUT_DIR/$frontend_name" .
+    frontend_arch_dist="$(prepare_frontend_dist_for_arch "$arch")"
+    tar -C "$frontend_arch_dist" -czf "$OUTPUT_DIR/$frontend_name" .
     write_sha256 "$OUTPUT_DIR/$frontend_name"
     # latest/download 稳定文件名，方便 README 直链。/ Stable name for releases/latest/download links.
     cp "$OUTPUT_DIR/$frontend_name" "$OUTPUT_DIR/$frontend_alias"
@@ -696,7 +808,8 @@ if [[ "$LAYOUT" == "split" ]]; then
       cp "$ROOT_DIR/scripts/stx-java-proxy.sh" "$upgrade_stage/scripts/stx-java-proxy.sh"
       chmod +x "$upgrade_stage/scripts/stx-java-proxy.sh"
     fi
-    cp -a "$FRONTEND_DIST"/. "$upgrade_stage/frontend/"
+    upgrade_frontend_dist="$(prepare_frontend_dist_for_arch "$arch")"
+    cp -a "$upgrade_frontend_dist"/. "$upgrade_stage/frontend/"
     cat >"$upgrade_stage/BUILD_INFO" <<EOF
 version=$APP_VERSION_SAFE
 arch=$arch
@@ -756,7 +869,8 @@ for arch in "${ARCHES[@]}"; do
     chmod +x "$pkg_dir/scripts/stx-java-proxy.sh"
 
     mkdir -p "$pkg_dir/frontend"
-    cp -a "$FRONTEND_DIST"/. "$pkg_dir/frontend/"
+    legacy_frontend_dist="$(prepare_frontend_dist_for_arch "$arch")"
+    cp -a "$legacy_frontend_dist"/. "$pkg_dir/frontend/"
 
     local_node_runtime="$(prepare_node_runtime "$arch")"
     mkdir -p "$pkg_dir/runtime"

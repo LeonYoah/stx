@@ -131,7 +131,21 @@ export interface ConfigInfo {
   updated_by: number;
   /** Push error message / 推送到节点的错误信息 */
   push_error?: string;
+  /** Node sync state / 节点同步状态 */
+  sync_status?: ConfigSyncStatus;
+  /** Last push failure reason / 最近一次推送失败原因 */
+  sync_error?: string;
+  /** Content waiting to be pushed / 待推送内容 */
+  pending_content?: string;
+  /** Pending since / 开始待推送时间 */
+  pending_since?: string;
 }
+
+/**
+ * Node config sync state
+ * 节点配置同步状态
+ */
+export type ConfigSyncStatus = 'synced' | 'pending_push';
 
 /**
  * Config version information
@@ -242,7 +256,7 @@ export type GetConfigVersionsResponse = ApiResponse<ConfigVersionInfo[]>;
 export type RollbackConfigResponse = ApiResponse<ConfigInfo>;
 
 /** Promote config response type / 推广配置响应类型 */
-export type PromoteConfigResponse = ApiResponse<{ message: string }>;
+export type PromoteConfigResponse = ApiResponse<SyncAllResult>;
 
 /** Sync config response type / 同步配置响应类型 */
 export type SyncConfigResponse = ApiResponse<ConfigInfo>;
@@ -271,15 +285,57 @@ export interface PushError {
  * 批量同步结果
  */
 export interface SyncAllResult {
-  /** Number of configs synced / 同步成功的数量 */
+  /** Summary message / 汇总说明 */
+  message?: string;
+  /** Whether some nodes are pending push / 是否存在待推送节点 */
+  partial?: boolean;
+  /** Pushed and committed / 已推送并提交的数量 */
   synced_count: number;
+  /** Push failed, marked pending / 推送失败已标记待推送的数量 */
+  pending_count?: number;
+  /** Already up to date / 已一致无需变更的数量 */
+  unchanged_count?: number;
+  /** Per-node results / 逐节点结果 */
+  node_results?: NodeSyncResult[];
   /** Push errors / 推送失败的节点列表 */
   push_errors: PushError[];
 }
 
+/**
+ * Per-node sync result
+ * 单节点同步结果
+ */
+export interface NodeSyncResult {
+  config_id: number;
+  host_id: number;
+  host_name?: string;
+  host_ip?: string;
+  status: 'synced' | 'pending_push' | 'unchanged';
+  version: number;
+  message?: string;
+}
+
 /** Sync all response type / 批量同步响应类型 */
-export type SyncAllResponse = ApiResponse<{
-  message: string;
-  synced_count: number;
-  push_errors: PushError[];
-}>;
+export type SyncAllResponse = ApiResponse<SyncAllResult>;
+
+/**
+ * Summarize a sync result into a toast decision.
+ * 将同步结果归纳为提示类型。
+ */
+export function summarizeSyncResult(result: SyncAllResult | null | undefined): {
+  kind: 'partial' | 'success' | 'noChanges';
+  count: number;
+  nodes: string;
+} {
+  const pushErrors = result?.push_errors ?? [];
+  const pendingCount = result?.pending_count ?? pushErrors.length;
+  const count = result?.synced_count ?? 0;
+  if (pendingCount > 0 || pushErrors.length > 0) {
+    const pendingNodes = (result?.node_results ?? [])
+      .filter((item) => item.status === 'pending_push')
+      .map((item) => item.host_ip || item.host_name || `Host ${item.host_id}`);
+    const nodes = (pendingNodes.length > 0 ? pendingNodes : pushErrors.map((e) => e.host_ip || `Host ${e.host_id}`)).join(', ');
+    return {kind: 'partial', count, nodes};
+  }
+  return {kind: count > 0 ? 'success' : 'noChanges', count, nodes: ''};
+}

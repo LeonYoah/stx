@@ -27,6 +27,7 @@ import (
 	clusterapp "github.com/LeonYoah/stx/internal/apps/cluster"
 	installerapp "github.com/LeonYoah/stx/internal/apps/installer"
 	pluginapp "github.com/LeonYoah/stx/internal/apps/plugin"
+	"gorm.io/gorm"
 )
 
 type stubClusterOperator struct {
@@ -39,6 +40,9 @@ type stubClusterOperator struct {
 	clusterVersions   []string
 	clusterInstallDir []string
 	nodeInstallDirs   map[uint][]string
+	// stopErrOnCall 让第 N 次 Stop 返回错误（1 起计）。stopErrOnCall makes the Nth Stop call fail (1-based).
+	stopErrOnCall            int
+	stopUnreportedFailOnCall int
 }
 
 func (s *stubClusterOperator) Start(ctx context.Context, clusterID uint) (*clusterapp.OperationResult, error) {
@@ -60,6 +64,19 @@ func (s *stubClusterOperator) Start(ctx context.Context, clusterID uint) (*clust
 
 func (s *stubClusterOperator) Stop(ctx context.Context, clusterID uint) (*clusterapp.OperationResult, error) {
 	s.stopCalls++
+	if s.stopErrOnCall > 0 && s.stopCalls == s.stopErrOnCall {
+		return nil, fmt.Errorf("stop cluster failed: agent unreachable")
+	}
+	if s.stopUnreportedFailOnCall > 0 && s.stopCalls == s.stopUnreportedFailOnCall {
+		// 多节点集群常见形态：整体失败且部分节点未回报结果。
+		// Typical multi-node shape: overall failure with some nodes never reporting.
+		return &clusterapp.OperationResult{
+			ClusterID: clusterID,
+			Operation: clusterapp.OperationStop,
+			Success:   false,
+			Message:   "stop aborted: first node failed",
+		}, nil
+	}
 	return &clusterapp.OperationResult{
 		ClusterID: clusterID,
 		Operation: clusterapp.OperationStop,
@@ -161,6 +178,14 @@ type stubAgentCommandSender struct {
 	failSmokeTestOnce    bool
 	smokeTestFailures    []string
 	smokeFailureHostID   uint
+	// unwritableDirs 中的目录在 check_path_ready 中返回不可写。
+	// Directories in unwritableDirs report not writable from check_path_ready.
+	unwritableDirs map[string]bool
+	// processDownChecks 记录各安装目录 check_process 先返回“未运行”的次数。
+	// processDownChecks is how many check_process probes per install dir report "not running" first.
+	processDownChecks map[string]int
+	// failSubCommand 指定的子命令总是失败。failSubCommand always fails.
+	failSubCommand string
 }
 
 func (s *stubAgentCommandSender) GetAgentByHostID(hostID uint) (string, bool) {
@@ -182,7 +207,23 @@ func (s *stubAgentCommandSender) SendCommand(ctx context.Context, agentID string
 	}
 
 	subCommand := copied["sub_command"]
+	if s.failSubCommand != "" && subCommand == s.failSubCommand {
+		return false, fmt.Sprintf("%s failed", subCommand), nil
+	}
 	switch subCommand {
+	case "check_path_ready":
+		if s.unwritableDirs[copied["path"]] {
+			return false, `{"success":false,"message":"parent directory is not writable"}`, nil
+		}
+		return true, `{"success":true,"message":"path ready"}`, nil
+	case "check_process":
+		if remaining := s.processDownChecks[copied["install_dir"]]; remaining != 0 {
+			if remaining > 0 {
+				s.processDownChecks[copied["install_dir"]] = remaining - 1
+			}
+			return false, `{"success":false,"message":"SeaTunnel process not found"}`, nil
+		}
+		return true, `{"success":true,"message":"SeaTunnel process found: PID=4242"}`, nil
 	case "backup_install_dir":
 		return true, fmt.Sprintf("backup_path=%s", copied["backup_dir"]), nil
 	case "extract_package_to_dir":
@@ -289,6 +330,11 @@ func TestService_ExecutePlan_success(t *testing.T) {
 	for _, command := range agentSender.commands {
 		if command.commandType == "stop" &&
 			(command.params["service"] == "stx_java_proxy" || command.params["target"] == "stx_java_proxy") {
+			continue
+		}
+		if command.commandType == "check_process" || command.commandType == "check_path_ready" {
+			// 运行时进程探测与目标目录可写预检走 PRECHECK。
+			// Runtime process probes and the target-dir writability precheck use PRECHECK.
 			continue
 		}
 		if command.commandType != "upgrade" {
@@ -891,6 +937,7 @@ func newExecutionService(t *testing.T, repo *Repository, clusterOperator *stubCl
 	service.SetClusterOperator(clusterOperator)
 	service.SetPackageTransferer(&stubPackageTransferer{})
 	service.SetAgentCommandSender(agentSender)
+	service.SetRuntimeHealthWait(20*time.Millisecond, time.Millisecond)
 	return service
 }
 
@@ -960,4 +1007,118 @@ func copiedHostID(agentID string, agents map[uint]string) uint {
 		}
 	}
 	return 0
+}
+
+// TestService_ExecutePlan_rollbackFailingAtFirstStepFinalizesNodes 回滚在第一步（停集群）失败时，
+// 节点不能停留在 rollback_running，必须收敛为 rollback_failed。
+// TestService_ExecutePlan_rollbackFailingAtFirstStepFinalizesNodes: when rollback fails at its first step
+// (stopping the cluster) nodes must not stay rollback_running and must end as rollback_failed.
+func TestService_ExecutePlan_rollbackFailingAtFirstStepFinalizesNodes(t *testing.T) {
+	database := openTestDB(t)
+	repo := NewRepository(database)
+	clusterOperator := &stubClusterOperator{stopErrOnCall: 2}
+	agentSender := &stubAgentCommandSender{
+		agents:               map[uint]string{101: "agent-node-a"},
+		failTargetHealthOnce: true,
+		failedInstallDir:     "/opt/seatunnel-2.3.12",
+	}
+	service := newExecutionService(t, repo, clusterOperator, agentSender)
+
+	planID := mustCreateReadyPlan(t, service)
+	task, err := service.ExecutePlan(context.Background(), planID, 7)
+	if err != nil {
+		t.Fatalf("ExecutePlan returned error: %v", err)
+	}
+	if task.Status != ExecutionStatusFailed || task.RollbackStatus != ExecutionStatusRollbackFailed {
+		t.Fatalf("expected failed/rollback_failed, got %s/%s", task.Status, task.RollbackStatus)
+	}
+	if len(task.NodeExecutions) == 0 {
+		t.Fatal("expected node executions")
+	}
+	for _, node := range task.NodeExecutions {
+		if node.Status != ExecutionStatusRollbackFailed {
+			t.Fatalf("node %d stuck at %s, want rollback_failed (%+v)", node.ID, node.Status, node)
+		}
+		if node.CompletedAt == nil || node.Error == "" {
+			t.Fatalf("node %d must carry completion time and error, got %+v", node.ID, node)
+		}
+	}
+	// 重新从库中读取，确认持久化状态也已收敛 / reload from the DB to confirm the persisted state converged too
+	reloaded, err := service.GetTaskDetail(context.Background(), task.ID)
+	if err != nil {
+		t.Fatalf("GetTaskDetail: %v", err)
+	}
+	for _, node := range reloaded.NodeExecutions {
+		if node.Status != ExecutionStatusRollbackFailed {
+			t.Fatalf("persisted node %d stuck at %s", node.ID, node.Status)
+		}
+	}
+	prepare := findTaskStep(reloaded.Steps, StepCodeRollbackPrepare)
+	if prepare == nil || prepare.Status != ExecutionStatusFailed {
+		t.Fatalf("expected rollback prepare step failed, got %+v", prepare)
+	}
+	for _, code := range []StepCode{StepCodeRollbackRestore, StepCodeRollbackRestart, StepCodeRollbackVerify} {
+		step := findTaskStep(reloaded.Steps, code)
+		if step != nil && step.Status == ExecutionStatusRunning {
+			t.Fatalf("rollback step %s left running", code)
+		}
+	}
+}
+
+// TestService_ExecutePlan_rollbackFailedNeverPersistedBeforeNodesSettle 回滚首步失败且部分节点未回报时，
+// 任务以 rollback_failed 落库的那一刻，节点必须已经是终态（不能是 rollback_running）。
+// TestService_ExecutePlan_rollbackFailedNeverPersistedBeforeNodesSettle: when the first rollback step fails and
+// some nodes never report, by the time the task is persisted as rollback_failed every node must already be terminal.
+func TestService_ExecutePlan_rollbackFailedNeverPersistedBeforeNodesSettle(t *testing.T) {
+	database := openTestDB(t)
+	repo := NewRepository(database)
+	clusterOperator := &stubClusterOperator{stopUnreportedFailOnCall: 2}
+	agentSender := &stubAgentCommandSender{
+		agents:               map[uint]string{101: "agent-node-a"},
+		failTargetHealthOnce: true,
+		failedInstallDir:     "/opt/seatunnel-2.3.12",
+	}
+	service := newExecutionService(t, repo, clusterOperator, agentSender)
+	planID := mustCreateReadyPlan(t, service)
+
+	var violations []string
+	callbackName := "test:rollback_failed_node_snapshot"
+	if err := database.Callback().Update().Before("gorm:update").Register(callbackName, func(tx *gorm.DB) {
+		task, ok := tx.Statement.Dest.(*UpgradeTask)
+		if !ok || task.RollbackStatus != ExecutionStatusRollbackFailed {
+			return
+		}
+		var nodes []UpgradeNodeExecution
+		if err := tx.Session(&gorm.Session{NewDB: true}).Where("task_id = ?", task.ID).Find(&nodes).Error; err != nil {
+			violations = append(violations, "query nodes: "+err.Error())
+			return
+		}
+		for _, node := range nodes {
+			if node.Status == ExecutionStatusRollbackRunning || node.Status == ExecutionStatusRunning {
+				violations = append(violations, fmt.Sprintf("node %d persisted as %s while task is rollback_failed", node.ID, node.Status))
+			}
+		}
+	}); err != nil {
+		t.Fatalf("register callback: %v", err)
+	}
+	t.Cleanup(func() { _ = database.Callback().Update().Remove(callbackName) })
+
+	task, err := service.ExecutePlan(context.Background(), planID, 7)
+	if err != nil {
+		t.Fatalf("ExecutePlan returned error: %v", err)
+	}
+	if task.Status != ExecutionStatusFailed || task.RollbackStatus != ExecutionStatusRollbackFailed {
+		t.Fatalf("expected failed/rollback_failed, got %s/%s", task.Status, task.RollbackStatus)
+	}
+	if len(violations) > 0 {
+		t.Fatalf("task reached rollback_failed before nodes settled: %v", violations)
+	}
+	for _, node := range task.NodeExecutions {
+		if node.Status != ExecutionStatusRollbackFailed || node.CompletedAt == nil {
+			t.Fatalf("node %d not finalized: %+v", node.ID, node)
+		}
+		if !strings.Contains(node.Error, "stop aborted") {
+			t.Fatalf("node %d should keep the specific stop error, got %q", node.ID, node.Error)
+		}
+	}
 }

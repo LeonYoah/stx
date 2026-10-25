@@ -1,0 +1,8 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "注释、License、禁止模式"}
+{"file": ".trellis/spec/backend/execution-security-guidelines.md", "reason": "确认/幂等/审计/路由契约检查项"}
+{"file": ".trellis/spec/backend/managed-process-identity.md", "reason": "进程身份与监控必需测试"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "三库兼容检查"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "跨层功能检查项"}
+{"file": ".trellis/spec/frontend/ui-conventions.md", "reason": "UI Checklist"}
+{"file": ".trellis/spec/frontend/api-and-services.md", "reason": "服务层与错误处理检查"}
+{"file": ".trellis/tasks/10-21-cluster-node-scaling/research/t2-scale-out-evidence.md", "reason": "验收场景来源"}

@@ -19,6 +19,7 @@ package sync
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -250,10 +251,11 @@ func (s *Service) runWithExecution(ctx context.Context, ownerUserID uint, operat
 	})
 	job, runErr := run(runCtx)
 	if runErr != nil {
+		errorCode, errorMessage := syncExecutionFailureFields(runErr)
 		_ = s.executionService.Transition(ctx, item.ExecutionID, executionapp.StatusPending, executionapp.StatusFailed, map[string]any{
 			"cancellable":   false,
-			"error_code":    "sync_operation_failed",
-			"error_message": "sync operation failed",
+			"error_code":    errorCode,
+			"error_message": errorMessage,
 		})
 		return nil, runErr
 	}
@@ -317,6 +319,7 @@ func (s *Service) syncExecutionFromJob(ctx context.Context, job *JobInstance) er
 	if s.executionService == nil || job == nil || strings.TrimSpace(job.ExecutionID) == "" {
 		return nil
 	}
+	ctx = withSyncTransitionSource(ctx, job)
 	actor := executionapp.Actor{UserID: uint64(job.CreatedBy), IsAdmin: job.CreatedBy == 0}
 	item, err := s.executionService.Get(ctx, actor, job.ExecutionID)
 	if err != nil {
@@ -456,4 +459,41 @@ func (s *Service) RequestCancel(ctx context.Context, item *executionapp.Executio
 		Cancellable:       !isFinalNormalizedJobStatus(job.Status),
 		CancellableReason: "",
 	}, nil
+}
+
+func withSyncTransitionSource(ctx context.Context, job *JobInstance) context.Context {
+	source := executionapp.TriggerSourceFromContext(ctx)
+	if source == "" {
+		source = executionapp.TriggerSourceRequest
+	}
+	// 仅在对账写入时把 ds: 作业标成 Dolphin Worker；用户请求路径保持 request。
+	// Only mark ds: jobs as Dolphin Worker on reconciler writes; user request paths stay request.
+	if source == executionapp.TriggerSourceReconciler && job != nil {
+		if _, _, ok := parseDolphinExternalRef(job.ExternalRef); ok {
+			source = executionapp.TriggerSourceDolphinWorker
+		}
+	}
+	return executionapp.WithTriggerSource(ctx, source)
+}
+
+func syncExecutionFailureFields(err error) (code, message string) {
+	if err == nil {
+		return "sync_operation_failed", "sync operation failed"
+	}
+	message = strings.TrimSpace(err.Error())
+	if message == "" {
+		message = "sync operation failed"
+	}
+	switch {
+	case errors.Is(err, ErrTaskNotPublished):
+		return "task_not_published", message
+	case errors.Is(err, ErrTaskNotFound):
+		return "task_not_found", message
+	case errors.Is(err, ErrTaskArchived):
+		return "task_archived", message
+	case errors.Is(err, ErrTaskPermissionDenied), errors.Is(err, ErrTaskReadOnly):
+		return "task_permission_denied", message
+	default:
+		return "sync_operation_failed", message
+	}
 }

@@ -32,7 +32,31 @@ export type PluginCategory = 'source' | 'sink' | 'connector' | 'transform';
  * Plugin status
  * 插件状态
  */
-export type PluginStatus = 'available' | 'installed' | 'enabled' | 'disabled';
+export type PluginStatus = 'available' | 'installed' | 'enabled' | 'disabled' | 'partial';
+
+/**
+ * Per-node plugin install result
+ * 单节点插件安装结果
+ */
+export interface PluginNodeInstallResult {
+  node_id: number;
+  host_id: number;
+  status: 'installed' | 'failed' | 'skipped' | 'rolled_back' | 'rollback_failed' | string;
+  message?: string;
+}
+
+/**
+ * Format per-node statuses into a short human readable line.
+ * 将逐节点状态格式化为简短说明。
+ */
+export function formatPluginNodeStatuses(
+  plugin: {node_statuses?: PluginNodeInstallResult[]} | null | undefined,
+  t: (key: string, params?: Record<string, string | number>) => string,
+): string {
+  return (plugin?.node_statuses ?? [])
+    .map((item) => `${t('plugin.nodeLabel', {id: item.node_id})}: ${t(`plugin.nodeStatus.${item.status}`)}`)
+    .join('; ');
+}
 
 /**
  * Mirror source for downloading plugins
@@ -130,6 +154,8 @@ export interface InstalledPlugin {
   selected_profile_keys?: string[];
   attached_connectors?: string[];
   dependencies?: PluginDependency[];
+  /** Per-node states for partial installs / 部分安装时的逐节点状态 */
+  node_statuses?: PluginNodeInstallResult[];
 }
 
 // ==================== Request Types 请求类型 ====================
@@ -243,6 +269,10 @@ export interface PluginInstallStatus {
   message?: string;
   error?: string;
   started_at?: string;
+  /** Some nodes still have the plugin / 部分节点仍保留插件 */
+  partial?: boolean;
+  /** Per-node results / 逐节点结果 */
+  node_results?: PluginNodeInstallResult[];
 }
 
 // ==================== Plugin Download Types 插件下载类型 ====================

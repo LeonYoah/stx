@@ -138,9 +138,8 @@ See `/trellis:brainstorm` for the full process. Summary:
 
 **Why this workflow?**
 - Research Agent analyzes what code-spec files are needed
-- Code-spec files are configured in jsonl files
-- Implement Agent receives code-spec context via Hook injection
-- Check Agent verifies against code-spec requirements
+- Implement runs inline in the main session after loading code-specs via `trellis-before-dev`
+- Check runs inline in the main session via the `trellis-check` skill
 - Result: Code that follows project conventions automatically
 
 ### Overview: Two Entry Points
@@ -254,7 +253,7 @@ Task(
 
 **Step 6: Configure Context** `[AI]`
 
-Initialize default context:
+Skip by default: implement/check run inline on every platform in this project, so jsonl manifests are not needed. Only if a jsonl manifest is explicitly wanted, initialize it:
 
 ```bash
 python3 ./.trellis/scripts/task.py init-context "$TASK_DIR" <type>
@@ -283,33 +282,15 @@ This sets `.current-task` so hooks can inject context.
 
 **Step 8: Implement** `[AI]`
 
-Call Implement Agent (code-spec context is auto-injected by hook):
+Implement in the main session (do NOT dispatch an implement sub-agent):
 
-```
-Task(
-  subagent_type: "implement",
-  prompt: "Implement the task described in prd.md.
-
-  Follow all code-spec files that have been injected into your context.
-  Run lint and typecheck before finishing.",
-  model: "opus"
-)
-```
+1. Load the `trellis-before-dev` skill to read the relevant code-specs
+2. Read `prd.md`, then `design.md` / `implement.md` if present
+3. Implement the task and run lint and typecheck before finishing
 
 **Step 9: Check Quality** `[AI]`
 
-Call Check Agent (code-spec context is auto-injected by hook):
-
-```
-Task(
-  subagent_type: "check",
-  prompt: "Review all code changes against the code-spec requirements.
-
-  Fix any issues you find directly.
-  Ensure lint and typecheck pass.",
-  model: "opus"
-)
-```
+Check in the main session (do NOT dispatch a check sub-agent): load the `trellis-check` skill, review all changes against the code-specs, fix issues directly, and ensure lint and typecheck pass.
 
 **Step 10: Complete** `[AI]`
 
@@ -363,8 +344,8 @@ If yes, resume from the appropriate step (usually Step 7 or 8).
 | Agent | Purpose | Hook Injection |
 |-------|---------|----------------|
 | research | Analyze codebase | No (reads directly) |
-| implement | Write code | Yes (implement.jsonl) |
-| check | Review & fix | Yes (check.jsonl) |
+| implement | Write code | Not dispatched — runs inline in the main session |
+| check | Review & fix | Not dispatched — runs inline via the `trellis-check` skill |
 | debug | Fix specific issues | Yes (debug.jsonl) |
 
 ---

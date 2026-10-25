@@ -29,11 +29,56 @@ import (
 	"time"
 
 	"github.com/LeonYoah/stx/internal/apps/audit"
+	"github.com/LeonYoah/stx/internal/apps/auth"
 	"github.com/LeonYoah/stx/internal/logger"
 	"github.com/google/uuid"
 )
 
 const defaultConfirmationTTL = 5 * time.Minute
+
+// TriggerSource 取值：谁写入了这次状态迁移。
+// TriggerSource values identify who wrote the state transition.
+const (
+	TriggerSourceRequest       = "request"
+	TriggerSourceReconciler    = "reconciler"
+	TriggerSourceScheduler     = "scheduler"
+	TriggerSourceDolphinWorker = "dolphin_worker"
+	TriggerSourceAgentCallback = "agent_callback"
+)
+
+type triggerSourceContextKey struct{}
+
+// WithTriggerSource 标记本次 Transition 的写入来源。
+// WithTriggerSource marks the writer for this Transition.
+func WithTriggerSource(ctx context.Context, source string) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	source = strings.TrimSpace(source)
+	if source == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, triggerSourceContextKey{}, source)
+}
+
+// TriggerSourceFromContext 读取 Transition 写入来源。
+// TriggerSourceFromContext reads the Transition writer source.
+func TriggerSourceFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	source, _ := ctx.Value(triggerSourceContextKey{}).(string)
+	return strings.TrimSpace(source)
+}
+
+func normalizeTriggerSource(source string) string {
+	switch strings.TrimSpace(source) {
+	case TriggerSourceRequest, TriggerSourceReconciler, TriggerSourceScheduler, TriggerSourceDolphinWorker, TriggerSourceAgentCallback:
+		return strings.TrimSpace(source)
+	default:
+		return ""
+	}
+}
 
 // CreateInput 保存创建公共执行记录所需的非敏感字段。
 // CreateInput stores the non-sensitive fields needed to create a shared execution record.
@@ -51,6 +96,12 @@ type CreateInput struct {
 	Cancellable       bool
 	CancellableReason string
 	ClientType        string
+	ActorTokenID      *uint64
+	TokenPrefix       string
+	TokenName         string
+	ClientIP          string
+	UserAgent         string
+	TriggerSource     string
 }
 
 // AuthorizationInput 保存风险确认校验参数。
@@ -176,6 +227,7 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*Execution, bo
 		hash := HashString(input.IdempotencyKey)
 		keyHash = &hash
 	}
+	input = fillCreateAttribution(ctx, input)
 	item := &Execution{
 		ExecutionID:        uuid.NewString(),
 		OperationID:        input.OperationID,
@@ -185,12 +237,21 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*Execution, bo
 		ModuleRef:          strings.TrimSpace(input.ModuleRef),
 		RequestID:          strings.TrimSpace(input.RequestID),
 		ClientType:         strings.TrimSpace(input.ClientType),
+		ActorTokenID:       input.ActorTokenID,
+		TokenPrefix:        strings.TrimSpace(input.TokenPrefix),
+		TokenName:          strings.TrimSpace(input.TokenName),
+		ClientIP:           strings.TrimSpace(input.ClientIP),
+		UserAgent:          strings.TrimSpace(input.UserAgent),
+		TriggerSource:      normalizeTriggerSource(input.TriggerSource),
 		IdempotencyKeyHash: keyHash,
 		RequestHash:        strings.TrimSpace(input.RequestHash),
 		RiskLevel:          input.RiskLevel,
 		Status:             input.Status,
 		Cancellable:        input.Cancellable,
 		CancellableReason:  strings.TrimSpace(input.CancellableReason),
+	}
+	if item.TriggerSource == "" {
+		item.TriggerSource = TriggerSourceRequest
 	}
 	result, created, err := s.repo.CreateOrGet(ctx, item)
 	if err != nil || !created {
@@ -516,8 +577,15 @@ func (s *Service) recordAudit(ctx context.Context, item *Execution, actorUserID 
 		value := uint(actorUserID)
 		userID = &value
 	}
+	triggerSource := normalizeTriggerSource(TriggerSourceFromContext(ctx))
+	if triggerSource == "" {
+		triggerSource = normalizeTriggerSource(item.TriggerSource)
+	}
+	if triggerSource == "" {
+		triggerSource = TriggerSourceRequest
+	}
 	trigger := "manual"
-	if item.ActorType == ActorTypeSystem {
+	if item.ActorType == ActorTypeSystem || isSystemWriterSource(triggerSource) {
 		trigger = "auto"
 	}
 	username := ""
@@ -528,6 +596,10 @@ func (s *Service) recordAudit(ctx context.Context, item *Execution, actorUserID 
 		"operation_id":       item.OperationID,
 		"cancellable":        item.Cancellable,
 		"cancellable_reason": strings.TrimSpace(reason),
+		"trigger_source":     triggerSource,
+	}
+	if initiator := strings.TrimSpace(item.ClientType); initiator != "" && isSystemWriterSource(triggerSource) {
+		details["initiator_client_type"] = initiator
 	}
 	if val, ok := s.executionDetails.Load(item.ExecutionID); ok {
 		if extra, ok := val.(map[string]any); ok {
@@ -536,7 +608,16 @@ func (s *Service) recordAudit(ctx context.Context, item *Execution, actorUserID 
 			}
 		}
 	}
-	if err := s.auditRepo.CreateAuditLog(ctx, &audit.AuditLog{
+	auditClient := strings.TrimSpace(clientType)
+	if isSystemWriterSource(triggerSource) {
+		// 对账 / 调度写入时 ClientType 记为写入方，发起人仍保留在 UserID 与 initiator_client_type。
+		// Reconciler/scheduler writes use the writer as ClientType; initiator stays on UserID + initiator_client_type.
+		auditClient = triggerSource
+	}
+	if auditClient == "" {
+		auditClient = auditClientType(item)
+	}
+	log := &audit.AuditLog{
 		UserID:       userID,
 		Username:     username,
 		Action:       action,
@@ -545,14 +626,78 @@ func (s *Service) recordAudit(ctx context.Context, item *Execution, actorUserID 
 		ResourceName: item.OperationID,
 		RequestID:    item.RequestID,
 		ExecutionID:  item.ExecutionID,
-		ClientType:   strings.TrimSpace(clientType),
+		ClientType:   auditClient,
 		RiskLevel:    string(item.RiskLevel),
 		ResultStatus: strings.TrimSpace(resultStatus),
 		Trigger:      trigger,
 		Details:      details,
-	}); err != nil {
+		IPAddress:    strings.TrimSpace(item.ClientIP),
+		UserAgent:    strings.TrimSpace(item.UserAgent),
+	}
+	if item.ActorTokenID != nil && *item.ActorTokenID > 0 {
+		id := *item.ActorTokenID
+		log.TokenID = &id
+		log.TokenPrefix = strings.TrimSpace(item.TokenPrefix)
+		log.TokenName = strings.TrimSpace(item.TokenName)
+	} else if token := auth.CLITokenFromContext(ctx); token != nil && token.ID > 0 {
+		id := token.ID
+		log.TokenID = &id
+		log.TokenPrefix = token.TokenPrefix
+		log.TokenName = token.Name
+	}
+	if log.IPAddress == "" || log.UserAgent == "" {
+		attr := audit.RequestAttributionFromContext(ctx)
+		if log.IPAddress == "" {
+			log.IPAddress = strings.TrimSpace(attr.ClientIP)
+		}
+		if log.UserAgent == "" {
+			log.UserAgent = strings.TrimSpace(attr.UserAgent)
+		}
+	}
+	if err := s.auditRepo.CreateAuditLog(ctx, log); err != nil {
 		logger.WarnF(ctx, "[Execution] 保存审计记录失败: execution_id=%s action=%s err=%v", item.ExecutionID, action, err)
 	}
+}
+
+func isSystemWriterSource(source string) bool {
+	switch normalizeTriggerSource(source) {
+	case TriggerSourceReconciler, TriggerSourceScheduler, TriggerSourceDolphinWorker, TriggerSourceAgentCallback:
+		return true
+	default:
+		return false
+	}
+}
+
+func fillCreateAttribution(ctx context.Context, input CreateInput) CreateInput {
+	if input.RequestID == "" {
+		input.RequestID = strings.TrimSpace(audit.CommandMetadataFromContext(ctx).RequestID)
+	}
+	if input.ClientType == "" {
+		input.ClientType = strings.TrimSpace(audit.CommandMetadataFromContext(ctx).ClientType)
+	}
+	if input.ActorTokenID == nil {
+		if token := auth.CLITokenFromContext(ctx); token != nil && token.ID > 0 {
+			id := token.ID
+			input.ActorTokenID = &id
+			if input.TokenPrefix == "" {
+				input.TokenPrefix = token.TokenPrefix
+			}
+			if input.TokenName == "" {
+				input.TokenName = token.Name
+			}
+		}
+	}
+	attr := audit.RequestAttributionFromContext(ctx)
+	if input.ClientIP == "" {
+		input.ClientIP = strings.TrimSpace(attr.ClientIP)
+	}
+	if input.UserAgent == "" {
+		input.UserAgent = strings.TrimSpace(attr.UserAgent)
+	}
+	if input.TriggerSource == "" {
+		input.TriggerSource = TriggerSourceRequest
+	}
+	return input
 }
 
 func authorizeActor(actor Actor, item *Execution) error {

@@ -152,6 +152,8 @@ func HandlePrecheckCommand(ctx context.Context, cmd *pb.CommandRequest, reporter
 		result, err = handleCheckHTTP(ctx, cmd.Parameters)
 	case PrecheckSubCommandCheckProcess:
 		result, err = handleCheckProcess(ctx, cmd.Parameters)
+	case PrecheckSubCommandCheckClusterMembers:
+		result, err = handleCheckClusterMembers(ctx, cmd.Parameters)
 	case PrecheckSubCommandCheckJava:
 		result, err = handleCheckJava(ctx, cmd.Parameters)
 	case PrecheckSubCommandCheckTCP:

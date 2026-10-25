@@ -285,3 +285,53 @@ func performUserWriteRequest(router http.Handler, method, path, body, idempotenc
 	router.ServeHTTP(response, request)
 	return response
 }
+
+// TestUpdateUserRejectsDeactivatingOrDemotingSelf 当前用户不能停用自己或取消自己的管理员权限，且不留执行记录；
+// 对其他用户的同样操作照常生效。
+// TestUpdateUserRejectsDeactivatingOrDemotingSelf: the current user cannot deactivate or demote themselves and no
+// execution is recorded; the same changes on another user still apply.
+func TestUpdateUserRejectsDeactivatingOrDemotingSelf(t *testing.T) {
+	database, adminUser, handler := newUserWriteTestHandler(t)
+	router := newUserWriteTestRouter(handler, adminUser)
+	selfPath := fmt.Sprintf("/admin/users/%d", adminUser.ID)
+
+	for name, body := range map[string]string{
+		"deactivate": `{"is_active":false}`,
+		"demote":     `{"is_admin":false}`,
+	} {
+		response := performUserWriteRequest(router, http.MethodPut, selfPath, body, "self-"+name, "", true)
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("%s self should be rejected: status=%d body=%s", name, response.Code, response.Body.String())
+		}
+	}
+	stored, err := auth.FindByID(database, adminUser.ID)
+	if err != nil || !stored.IsActive || !stored.IsAdmin {
+		t.Fatalf("current admin must stay active admin: user=%+v err=%v", stored, err)
+	}
+	var executionCount int64
+	if err := database.Model(&executionapp.Execution{}).Count(&executionCount).Error; err != nil || executionCount != 0 {
+		t.Fatalf("rejected self updates must not record executions: count=%d err=%v", executionCount, err)
+	}
+
+	// 改自己的昵称、显式保持启用仍然允许。/ Changing one's own nickname or keeping it active is still allowed.
+	keep := performUserWriteRequest(router, http.MethodPut, selfPath, `{"nickname":"boss","is_active":true,"is_admin":true}`, "self-keep", "", true)
+	if keep.Code != http.StatusOK {
+		t.Fatalf("non-destructive self update failed: status=%d body=%s", keep.Code, keep.Body.String())
+	}
+
+	other := &auth.User{Username: "other-admin", IsActive: true, IsAdmin: true}
+	if err := other.SetPassword("secret-value", 4); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Create(other).Error; err != nil {
+		t.Fatal(err)
+	}
+	response := performUserWriteRequest(router, http.MethodPut, fmt.Sprintf("/admin/users/%d", other.ID),
+		`{"is_active":false,"is_admin":false}`, "other", "", true)
+	if response.Code != http.StatusOK {
+		t.Fatalf("deactivating another user failed: status=%d body=%s", response.Code, response.Body.String())
+	}
+	if stored, err := auth.FindByID(database, other.ID); err != nil || stored.IsActive || stored.IsAdmin {
+		t.Fatalf("other user should be deactivated and demoted: user=%+v err=%v", stored, err)
+	}
+}

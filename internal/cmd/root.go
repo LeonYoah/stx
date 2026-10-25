@@ -87,6 +87,7 @@ func newRootCommand(serverRunner func() error) *cobra.Command {
 	addDiagnosticsWriteCommands(rootCmd, cliConfig.NewDefaultStore)
 	addSyncWriteCommands(rootCmd, cliConfig.NewDefaultStore)
 	rootCmd.AddCommand(newSelfUpgradeCommand(cliConfig.NewDefaultStore))
+	rootCmd.AddCommand(newSelfUpgradeWatchdogCommand())
 	return rootCmd
 }
 

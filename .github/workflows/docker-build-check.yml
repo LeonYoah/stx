@@ -1,0 +1,312 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Docker 镜像构建检查：镜像只消费 package-release.sh 打出的发版产物（dist/releases/），
+# 这里在 PR 上用与发版相同的方式先打包、再在原生 runner 上构建三个镜像（不推送），最后跑 all-in-one smoke。
+# Docker image build check: images only consume release artifacts produced by package-release.sh
+# (dist/releases/). On PRs we package exactly like the release, build all three images on native
+# runners (no push), verify the in-image binaries match the artifacts, and smoke-test all-in-one.
+name: Docker Build Check
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/docker/**'
+      - 'go.mod'
+      - 'go.sum'
+      - 'agent/go.mod'
+      - 'agent/go.sum'
+      - 'tools/stx-java-proxy/**'
+      - 'frontend/package.json'
+      - 'frontend/pnpm-lock.yaml'
+      - 'frontend/next.config.*'
+      - 'install/package-release.sh'
+      # 镜像内直接 COPY 的源码文件 / Source files COPY'd straight into images
+      - 'install/bin/**'
+      - 'config.example.yaml'
+      - 'scripts/stx-java-proxy.sh'
+      - 'scripts/docker-build-images.sh'
+      - 'scripts/docker-smoke-all-in-one.sh'
+      - 'scripts/docker-verify-release-artifacts.sh'
+      - 'scripts/check-frontend-sharp-arch.sh'
+      - 'scripts/check-release-image-tags.sh'
+      - 'scripts/check-release-asset-globs.sh'
+      - '.github/workflows/docker-build-check.yml'
+      - '.github/workflows/release-on-tag.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/docker/**'
+      - 'go.mod'
+      - 'go.sum'
+      - 'agent/go.mod'
+      - 'agent/go.sum'
+      - 'tools/stx-java-proxy/**'
+      - 'frontend/package.json'
+      - 'frontend/pnpm-lock.yaml'
+      - 'frontend/next.config.*'
+      - 'install/package-release.sh'
+      # 镜像内直接 COPY 的源码文件 / Source files COPY'd straight into images
+      - 'install/bin/**'
+      - 'config.example.yaml'
+      - 'scripts/stx-java-proxy.sh'
+      - 'scripts/docker-build-images.sh'
+      - 'scripts/docker-smoke-all-in-one.sh'
+      - 'scripts/docker-verify-release-artifacts.sh'
+      - 'scripts/check-frontend-sharp-arch.sh'
+      - 'scripts/check-release-image-tags.sh'
+      - 'scripts/check-release-asset-globs.sh'
+      - '.github/workflows/docker-build-check.yml'
+      - '.github/workflows/release-on-tag.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+concurrency:
+  group: docker-build-check-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release-image-tags:
+    # 用真实 docker/metadata-action@v5 代码模拟 tag 推送，守护 release-on-tag.yml 的镜像 tag 策略：
+    # 预发 tag（含 '-'）不得生成 latest，正式 tag 必须生成 latest（GHCR 与 SWR 同一组 tag）。不登录、不推送。
+    # Guard the release image tag policy by running the real docker/metadata-action@v5 code against simulated
+    # tag refs: pre-release tags (containing '-') never publish latest, stable tags do (GHCR + SWR). No login/push.
+    name: Release image tags (no latest for pre-release)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Checkout docker/metadata-action@v5 (same major as release-on-tag.yml)
+        uses: actions/checkout@v4
+        with:
+          repository: docker/metadata-action
+          ref: v5
+          path: .tmp/metadata-action
+          persist-credentials: false
+
+      - name: Setup Node.js 20 (metadata-action runtime)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Assert generated tags for beta / rc / stable refs
+        run: scripts/check-release-image-tags.sh .tmp/metadata-action .github/workflows/release-on-tag.yml
+
+  # 没有 dist/releases/ 时三个 Dockerfile 都必须失败，并报出缺失的文件名（不允许偷偷回退到源码编译）。
+  # Without dist/releases/ every Dockerfile must fail and name the missing files (no silent source build fallback).
+  missing-artifacts:
+    name: Dockerfiles fail without release artifacts (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build each image without dist/releases and expect a clear failure
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -u
+          test ! -e dist/releases
+          backend_files="stx-linux-${ARCH} stx-agent-linux-amd64 stx-agent-linux-arm64 stx-java-proxy-v2.jar stx-java-proxy-v3.jar"
+          frontend_files="frontend-standalone-linux-${ARCH}.tar.gz"
+          declare -A expected=(
+            [backend]="$backend_files"
+            [frontend]="$frontend_files"
+            [all-in-one]="$backend_files $frontend_files"
+          )
+          failed=0
+          for image in backend frontend all-in-one; do
+            log="/tmp/missing-${image}.log"
+            if docker buildx build --progress=plain --platform "linux/${ARCH}" \
+                 -f ".github/docker/Dockerfile.${image}" . >"$log" 2>&1; then
+              echo "::error::Dockerfile.${image} (linux/${ARCH}) built without dist/releases; it must fail"
+              failed=1
+              continue
+            fi
+            if ! grep -q -- "target arch: ${ARCH}" "$log"; then
+              echo "::error::Dockerfile.${image} (linux/${ARCH}) failed, but not with the missing-artifacts check"
+              failed=1
+            fi
+            for name in ${expected[$image]}; do
+              if ! grep -q -- "- dist/releases/${name}" "$log"; then
+                echo "::error::Dockerfile.${image} (linux/${ARCH}) failure did not name missing file dist/releases/${name}"
+                failed=1
+              fi
+            done
+            echo "::group::Dockerfile.${image} linux/${ARCH} (expected failure)"
+            grep -- '\[stage-release-artifacts\]\|- dist/releases/' "$log" | sed -E 's/^#[0-9]+ //; s/^[0-9]+\.[0-9]+ +//; s/^ +//' | sort -u
+            echo "::endgroup::"
+          done
+          exit "$failed"
+
+  # 与 release-on-tag.yml 的 package-release 相同的打包命令，产物只在本次运行内复用。
+  # Same packaging command as package-release in release-on-tag.yml; artifacts live only for this run.
+  package-release:
+    name: Package release artifacts
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '11'
+          cache: maven
+
+      - name: Build split release assets
+        env:
+          APP_VERSION: v0.0.0-ci.${{ github.run_number }}
+        run: |
+          chmod +x install/package-release.sh install/install-online.sh install/download-bundle.sh
+          install/package-release.sh \
+            --arch all \
+            --layout split \
+            --build-frontend \
+            --version "${APP_VERSION}"
+
+      - name: Assert per-arch frontend sharp packages
+        run: |
+          scripts/check-frontend-sharp-arch.sh amd64 dist/releases/frontend-standalone-linux-amd64.tar.gz
+          scripts/check-frontend-sharp-arch.sh arm64 dist/releases/frontend-standalone-linux-arm64.tar.gz
+
+      # 与 release-on-tag.yml 发布步骤同一校验：每个产物恰好被一个上传通配命中，SHA256SUMS 所列文件都会上传。
+      # Same guard as the publish step: every packaged file matched by exactly one upload glob; SHA256SUMS fully uploaded.
+      - name: Verify release upload globs cover every packaged asset
+        run: scripts/check-release-asset-globs.sh dist/releases .github/workflows/release-on-tag.yml
+
+      - name: Upload image input artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: stx-docker-inputs-${{ github.run_id }}
+          # 只上传镜像需要的产物，避免每个矩阵 job 下载完整发版包。
+          # Upload only what the images consume so each matrix job downloads less.
+          path: |
+            dist/releases/stx-linux-*
+            dist/releases/stx-agent-linux-*
+            dist/releases/stx-java-proxy-v2.jar*
+            dist/releases/stx-java-proxy-v3.jar*
+            dist/releases/frontend-standalone-linux-*.tar.gz*
+            dist/releases/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 1
+
+  # 原生 runner 构建（与发版一致）：amd64 用 ubuntu-latest，arm64 用 ubuntu-24.04-arm，不推送。
+  # Native runners (same as release): amd64 on ubuntu-latest, arm64 on ubuntu-24.04-arm; no push.
+  build-images:
+    name: Build ${{ matrix.image_name }} (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    needs: package-release
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [backend, frontend, all-in-one]
+        arch: [amd64, arm64]
+        include:
+          - image: backend
+            image_name: stx-backend
+          - image: frontend
+            image_name: stx-frontend
+          - image: all-in-one
+            image_name: stx-all-in-one
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download image input artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: stx-docker-inputs-${{ github.run_id }}
+          path: dist/releases
+
+      - name: Show artifacts
+        run: ls -alh dist/releases
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build ${{ matrix.image_name }} (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: .github/docker/Dockerfile.${{ matrix.image }}
+          platforms: ${{ matrix.platform }}
+          build-args: |
+            APP_VERSION=v0.0.0-ci.${{ github.run_number }}
+            GIT_COMMIT=${{ github.sha }}
+          provenance: false
+          sbom: false
+          push: false
+          load: true
+          tags: ${{ matrix.image_name }}:ci-${{ matrix.arch }}
+
+      - name: Verify image contents match release artifacts (sha256)
+        run: |
+          scripts/docker-verify-release-artifacts.sh \
+            "${{ matrix.image_name }}:ci-${{ matrix.arch }}" "${{ matrix.image }}" "${{ matrix.arch }}" dist/releases
+
+      - name: Check sharp loads in frontend image
+        if: matrix.image == 'frontend'
+        run: |
+          docker run --rm --entrypoint node "${{ matrix.image_name }}:ci-${{ matrix.arch }}" -e "
+          const sharp = require(require.resolve('sharp', {paths: [require.resolve('next/package.json')]}));
+          console.log(process.arch + ' sharp=' + sharp.versions.sharp + ' libvips=' + sharp.versions.vips);
+          "
+
+      - name: Smoke test all-in-one
+        if: matrix.image == 'all-in-one'
+        run: scripts/docker-smoke-all-in-one.sh "${{ matrix.image_name }}:ci-${{ matrix.arch }}" --timeout 180
+
+      - name: Image size
+        run: docker image ls "${{ matrix.image_name }}:ci-${{ matrix.arch }}"

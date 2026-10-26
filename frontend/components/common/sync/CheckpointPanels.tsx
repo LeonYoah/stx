@@ -660,12 +660,41 @@ export function CheckpointWorkspacePanel({
                         item.checkpoint?.durationMillis !== undefined
                           ? `${item.checkpoint.durationMillis}ms`
                           : '-';
+                      // 优先展示落盘文件的真实物理体积，兜底使用内存指标中的 stateSize
+                      // Prefer actual on-disk file size; fallback to stateSize in memory metrics
                       const sizeStr =
-                        typeof item.checkpoint?.stateSize === 'number'
-                          ? formatSizeBytes(item.checkpoint.stateSize)
-                          : item.checkpoint?.stateSize !== undefined
-                            ? String(item.checkpoint.stateSize)
-                            : '-';
+                        typeof matchedFile?.size_bytes === 'number' &&
+                        matchedFile.size_bytes > 0
+                          ? formatSizeBytes(matchedFile.size_bytes)
+                          : typeof item.checkpoint?.stateSize === 'number'
+                            ? formatSizeBytes(item.checkpoint.stateSize)
+                            : item.checkpoint?.stateSize !== undefined
+                              ? String(item.checkpoint.stateSize)
+                              : '-';
+
+                      const isViewDisabled =
+                        !matchedFile?.path ||
+                        inspectLoadingPath === matchedFile.path;
+
+                      const actionButton = (
+                        <Button
+                          size='sm'
+                          variant='ghost'
+                          className='h-6 px-2 text-xs hover:bg-muted font-normal'
+                          disabled={isViewDisabled}
+                          onClick={() =>
+                            matchedFile?.path &&
+                            onInspectCheckpointFile(matchedFile.path)
+                          }
+                        >
+                          {inspectLoadingPath === matchedFile?.path ? (
+                            <Loader2 className='mr-1 size-3 animate-spin' />
+                          ) : (
+                            <Eye className='mr-1 size-3 text-muted-foreground' />
+                          )}
+                          {t('viewDetails')}
+                        </Button>
+                      );
 
                       return (
                         <TableRow
@@ -692,26 +721,20 @@ export function CheckpointWorkspacePanel({
                             {sizeStr}
                           </TableCell>
                           <TableCell className='py-1 px-2.5 text-right'>
-                            <Button
-                              size='sm'
-                              variant='ghost'
-                              className='h-6 px-2 text-xs hover:bg-muted font-normal'
-                              disabled={
-                                !matchedFile?.path ||
-                                inspectLoadingPath === matchedFile.path
-                              }
-                              onClick={() =>
-                                matchedFile?.path &&
-                                onInspectCheckpointFile(matchedFile.path)
-                              }
-                            >
-                              {inspectLoadingPath === matchedFile?.path ? (
-                                <Loader2 className='mr-1 size-3 animate-spin' />
-                              ) : (
-                                <Eye className='mr-1 size-3 text-muted-foreground' />
-                              )}
-                              {t('viewDetails')}
-                            </Button>
+                            {!matchedFile?.path ? (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span className='inline-block cursor-not-allowed'>
+                                    {actionButton}
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent side='left' className='text-xs'>
+                                  {t('checkpointFileNotFound')}
+                                </TooltipContent>
+                              </Tooltip>
+                            ) : (
+                              actionButton
+                            )}
                           </TableCell>
                         </TableRow>
                       );

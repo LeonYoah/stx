@@ -4495,6 +4495,7 @@
     "builtinWeekFirstDayDesc": "Return Monday of the current or offset week.",
     "builtinWeekLastDayDesc": "Return Sunday of the current or offset week.",
     "checkpointFiles": "CK Files",
+    "checkpointFileNotFound": "Persistent checkpoint file not found",
     "checkpointFilesEmpty": "No CK files are available for this job yet.",
     "checkpointFileDetails": "CK File Detail",
     "tabOverviewAndSources": "Overview & Business Offsets",

@@ -4495,6 +4495,7 @@
     "builtinWeekFirstDayDesc": "返回当前周或偏移周的周一。",
     "builtinWeekLastDayDesc": "返回当前周或偏移周的周日。",
     "checkpointFiles": "CK 文件",
+    "checkpointFileNotFound": "未找到对应的持久化快照文件",
     "checkpointFilesEmpty": "当前作业暂无可查看的 CK 文件。",
     "checkpointFileDetails": "CK 文件详情",
     "tabOverviewAndSources": "概览与业务位点",

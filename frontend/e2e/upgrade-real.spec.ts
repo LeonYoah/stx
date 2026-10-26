@@ -23,6 +23,12 @@ import {
   resolveInstalledConfigPaths,
 } from './helpers/install-wizard-real';
 import {
+  downloadPluginApi,
+  installPluginToClusterApi,
+  waitForInstalledPlugin,
+  waitForPluginDownloadCompleted,
+} from './helpers/plugin-real';
+import {
   ensureLocalPackage,
   installSourceCluster,
   waitForClusterVersion,
@@ -76,6 +82,34 @@ test.describe.serial('upgrade real e2e', () => {
     await ensureLocalPackage(page, targetVersion, 'apache');
     console.log(
       `[upgrade-real] target package ${targetVersion} confirmed local`,
+    );
+
+    const request = page.context().request;
+    // AC2 setup: jdbc+mysql on source, and target jdbc+mysql local for SYNC_CONNECTORS.
+    await downloadPluginApi(request, 'jdbc', sourceVersion, ['mysql']);
+    await waitForPluginDownloadCompleted(request, 'jdbc', sourceVersion, [
+      'mysql',
+    ]);
+    await installPluginToClusterApi(
+      request,
+      cluster.clusterId,
+      'jdbc',
+      sourceVersion,
+      ['mysql'],
+    );
+    await waitForInstalledPlugin(
+      request,
+      cluster.clusterId,
+      'jdbc',
+      sourceVersion,
+      (p) => (p.selected_profile_keys || []).includes('mysql'),
+    );
+    await downloadPluginApi(request, 'jdbc', targetVersion, ['mysql']);
+    await waitForPluginDownloadCompleted(request, 'jdbc', targetVersion, [
+      'mysql',
+    ]);
+    console.log(
+      '[upgrade-real] jdbc mysql prepared on source and target local package',
     );
 
     console.log(
@@ -189,6 +223,17 @@ test.describe.serial('upgrade real e2e', () => {
     await assertFileContains(files.log4j2, [
       'rootLogger.appenderRef.file.ref = routingAppender',
     ]);
+
+    await waitForInstalledPlugin(
+      page.context().request,
+      cluster.clusterId,
+      'jdbc',
+      targetVersion,
+      (p) => (p.selected_profile_keys || []).includes('mysql'),
+    );
+    console.log(
+      '[upgrade-real] target jdbc retained selected_profile_keys including mysql',
+    );
 
     console.log(
       `[upgrade-real] upgrade finished successfully clusterId=${cluster.clusterId} target=${targetVersion}`,

@@ -1269,12 +1269,11 @@ public class CheckpointSourceStateInspectService {
                         || (snapshotPhase != null
                                 && Boolean.TRUE.equals(snapshotPhase.get("assignerCompleted")));
 
-        String binlogFile = null;
-        String binlogPos = null;
-        String gtid = null;
+        LogStreamOffsetFormatter.Summary primarySummary = null;
         Long eventTime = null;
         List<String> targetTables = new ArrayList<>();
         List<Map<String, Object>> subtaskProgressList = new ArrayList<>();
+        String pluginName = target.getPluginName();
 
         if (subtasks != null) {
             for (Map<String, Object> subtask : subtasks) {
@@ -1292,43 +1291,40 @@ public class CheckpointSourceStateInspectService {
                                 targetTables.add(t);
                             }
                         }
+                        LogStreamOffsetFormatter.Summary offsetSummary =
+                                LogStreamOffsetFormatter.empty(pluginName);
                         Map<String, Object> startupOffset =
                                 asStringObjectMap(split.get("startupOffset"));
                         if (startupOffset != null) {
                             Map<String, Object> values =
                                     asStringObjectMap(startupOffset.get("values"));
                             if (values != null) {
-                                if (binlogFile == null
-                                        && values.get("file") != null
-                                        && !String.valueOf(values.get("file")).isEmpty()) {
-                                    binlogFile = String.valueOf(values.get("file"));
-                                }
-                                if (binlogPos == null && values.get("pos") != null) {
-                                    binlogPos = String.valueOf(values.get("pos"));
-                                }
-                                if (gtid == null && values.get("gtid") != null) {
-                                    gtid = String.valueOf(values.get("gtid"));
-                                }
-                                if (eventTime == null && values.get("ts_sec") != null) {
-                                    try {
-                                        long sec =
-                                                Long.parseLong(
-                                                        String.valueOf(values.get("ts_sec")));
-                                        if (sec > 0) {
-                                            eventTime = sec * 1000L;
-                                        }
-                                    } catch (Exception ignored) {
-                                    }
-                                }
+                                offsetSummary =
+                                        LogStreamOffsetFormatter.summarize(values, pluginName);
                             }
+                        }
+                        if (primarySummary == null && offsetSummary.hasOffset()) {
+                            primarySummary = offsetSummary;
+                        }
+                        if (eventTime == null && offsetSummary.getEventTimeMillis() != null) {
+                            eventTime = offsetSummary.getEventTimeMillis();
                         }
                         Map<String, Object> item = new LinkedHashMap<>();
                         item.put("subtaskIndex", subtaskIndex);
+                        // 提取分片唯一标识，供前端表格渲染及 Key 去重
+                        // Extract unique split ID for frontend table rendering and Key
+                        // deduplication
+                        Object splitId = split.get("splitId");
+                        if (splitId == null) {
+                            splitId = split.get("id");
+                        }
+                        if (splitId != null) {
+                            item.put("splitId", String.valueOf(splitId));
+                        }
                         item.put("target", String.join(", ", tables));
-                        String offsetStr =
-                                (binlogFile != null ? binlogFile : "")
-                                        + (binlogPos != null ? ":" + binlogPos : "");
-                        item.put("currentOffset", offsetStr.isEmpty() ? "-" : offsetStr);
+                        item.put(
+                                "currentOffset",
+                                offsetSummary.hasOffset() ? offsetSummary.getValue() : "-");
                         item.put("status", "NORMAL");
                         subtaskProgressList.add(item);
                     }
@@ -1336,12 +1332,13 @@ public class CheckpointSourceStateInspectService {
             }
         }
 
-        if (isIncremental || binlogFile != null) {
-            normalized.put("primaryLabel", "Binlog 位点");
-            String posDisplay =
-                    (binlogFile != null ? binlogFile : "")
-                            + (binlogPos != null ? " : " + binlogPos : "");
-            normalized.put("primaryValue", posDisplay.isEmpty() ? "-" : posDisplay);
+        if (isIncremental || (primarySummary != null && primarySummary.hasOffset())) {
+            LogStreamOffsetFormatter.Summary display =
+                    primarySummary != null
+                            ? primarySummary
+                            : LogStreamOffsetFormatter.empty(pluginName);
+            normalized.put("primaryLabel", display.getLabel());
+            normalized.put("primaryValue", display.hasOffset() ? display.getValue() : "-");
             normalized.put("secondaryLabel", "同步阶段");
             normalized.put("secondaryValue", "增量实时 (Incremental)");
             normalized.put("phaseBadge", "INCREMENTAL");
@@ -1358,7 +1355,11 @@ public class CheckpointSourceStateInspectService {
             normalized.put("phaseBadge", "SNAPSHOT");
         } else {
             normalized.put("primaryLabel", "位点");
-            normalized.put("primaryValue", binlogFile != null ? binlogFile : "-");
+            normalized.put(
+                    "primaryValue",
+                    primarySummary != null && primarySummary.hasOffset()
+                            ? primarySummary.getValue()
+                            : "-");
             normalized.put("secondaryLabel", "阶段");
             normalized.put("secondaryValue", "运行中");
             normalized.put("phaseBadge", "RUNNING");

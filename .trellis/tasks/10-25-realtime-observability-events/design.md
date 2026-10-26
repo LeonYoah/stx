@@ -254,7 +254,13 @@ else:
             不处理，靠事件刷新；最长 60 秒后由完整对账兜底
 ```
 
-- 新增配置项 `sync.job_reconciler_event_mode_interval_seconds`：0 表示默认 60 秒，小于 0 关闭自适应（与 `job_reconciler_interval_seconds` 的取值规则一致）。
+- 新增配置项 `sync.job_reconciler_event_mode_interval_seconds`。
+- **调整（2026-10-26）**：改为默认 0 表示关闭，配置正数才开启。原因：
+  - 事件平均晚到约 8 秒，不比 10 秒轮询快，"状态即时刷新"不成立；
+  - 放宽轮询只换来更少的引擎调用，代价是事件悄悄丢失时状态最长滞后一个完整对账间隔；
+  - 通道健康只在提交后验证，长期不提交的集群发现不了通道失效；
+  - 通道按集群开启，离线作业也会受影响。
+  默认情况下状态事件只额外触发一次刷新；事件通道的主要价值是 DDL 时间线和 CDC 延迟。
 - `backfillTerminalJobFinalMetrics` 不变。
 - `lastFull` 存在内存里，STX 重启后第一轮必然是完整对账。
 - 所有原有语义（作业从引擎消失时置为 failed、终态补指标、`recordJobSyncFailure`）都只在完整对账里发生，与现在一致。

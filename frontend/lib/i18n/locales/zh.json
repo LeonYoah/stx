@@ -1196,7 +1196,7 @@
       "cancel": "取消",
       "confirmAction": "确认",
       "never": "从未",
-      "description": "开启后引擎把作业状态、表结构变更和 CDC 延迟推送给 STX，状态即时刷新，对账频率自动降低。",
+      "description": "开启后引擎把作业状态、表结构变更和 CDC 延迟推送给 STX：作业时间线能看到 DDL 和 CDC 延迟，状态变化会额外触发一次刷新。作业状态仍以轮询结果为准。",
       "unsupported": "当前集群版本 {version} 不支持作业状态事件（需要 2.3.12 及以上，3.x 支持非终态）。",
       "lastEvent": "最近事件：{time}",
       "counters": "已接收 {received} · 重复 {duplicates} · 丢弃 {dropped}",
@@ -1205,7 +1205,7 @@
       "modeTerminal": "仅上报终态",
       "url": "回调地址：{url}",
       "restartHint": "配置已写入 seatunnel.yaml，需要对集群执行滚动重启后才会开始上报。",
-      "degradedHint": "最近提交的作业没有在预期时间内收到状态事件，已自动退回 10 秒轮询。请检查集群能否访问回调地址，以及令牌是否与配置一致。",
+      "degradedHint": "最近提交的作业没有在预期时间内收到状态事件，时间线和 CDC 延迟可能缺数据，作业状态照常按轮询更新。请检查集群能否访问回调地址，以及令牌是否与配置一致。",
       "applied": "已更新 seatunnel.yaml，滚动重启集群后生效",
       "appliedWithErrors": "部分节点配置写入失败：{errors}",
       "state": {
@@ -1221,11 +1221,11 @@
         },
         "disable": {
           "title": "关闭事件上报？",
-          "body": "将从全部节点的 seatunnel.yaml 中移除 event-report-http，重启后停止上报，作业状态回到纯轮询。"
+          "body": "将从全部节点的 seatunnel.yaml 中移除 event-report-http，重启后停止上报，时间线和 CDC 延迟不再更新；作业状态照常按轮询更新。"
         },
         "rotate": {
           "title": "轮换事件令牌？",
-          "body": "会生成新令牌并写入 seatunnel.yaml。重启前引擎仍使用旧令牌，期间上报会被拒绝，状态回到轮询兜底。"
+          "body": "会生成新令牌并写入 seatunnel.yaml。重启前引擎仍使用旧令牌，期间上报会被拒绝；作业状态照常按轮询更新。"
         }
       }
     },
@@ -4137,9 +4137,19 @@
     "curatedSaveDescriptionPlaceholder": "可选描述",
     "curatedSaveSection": "分区",
     "curatedManage": "模板管理",
-    "curatedManageHint": "查看全部精选；可新建、复制。系统模板只读，复制后才能编辑；只能修改和删除自己的。",
+    "curatedManageHint": "查看全部精选；可预览脚本、复制脚本或创建副本。系统模板只读，创建副本后可编辑；只能修改和删除自己的。",
     "curatedCreate": "新建精选",
     "curatedCopy": "复制",
+    "curatedCreateCopyHint": "基于此模板创建可编辑的副本",
+    "curatedCopyScript": "复制脚本",
+    "curatedScriptCopied": "HOCON 脚本已复制到剪贴板",
+    "curatedCopyScriptFailed": "复制脚本失败",
+    "curatedPreviewTitle": "模板脚本预览",
+    "curatedPreviewDialogDesc": "查看当前精选模板的 HOCON 定义脚本，支持一键复制代码或创建副本。",
+    "curatedPreviewScriptHeading": "HOCON 脚本内容",
+    "curatedToggleInlinePreview": "展开脚本",
+    "curatedHideInlinePreview": "收起脚本",
+    "curatedEditContentHint": "支持完整 HOCON 语法，敏感凭据建议使用 '{{vars}}' 占位符。",
     "curatedBuiltinReadonly": "系统只读",
     "curatedHasOverrideHint": "已有副本，请编辑我的副本。",
     "curatedOriginAll": "全部来源",

@@ -1196,7 +1196,7 @@
       "cancel": "Cancel",
       "confirmAction": "Confirm",
       "never": "never",
-      "description": "When enabled, the engine pushes job status, schema changes and CDC delay to STX: status refreshes immediately and reconciliation slows down automatically.",
+      "description": "When enabled, the engine pushes job status, schema changes and CDC delay to STX: the job timeline shows DDL and CDC delay, and status changes trigger an extra refresh. Job status still follows the polling results.",
       "unsupported": "Cluster version {version} does not emit job status events (requires 2.3.12+; 3.x adds non-terminal states).",
       "lastEvent": "Last event: {time}",
       "counters": "received {received} · duplicates {duplicates} · dropped {dropped}",
@@ -1205,7 +1205,7 @@
       "modeTerminal": "Terminal states only",
       "url": "Callback URL: {url}",
       "restartHint": "The config was written to seatunnel.yaml; reporting starts after a rolling restart of the cluster.",
-      "degradedHint": "A recently submitted job did not produce a status event in time, so polling fell back to every 10 seconds. Check that the cluster can reach the callback URL and that the token matches.",
+      "degradedHint": "A recently submitted job did not produce a status event in time, so the timeline and CDC delay may be missing data; job status keeps updating through polling. Check that the cluster can reach the callback URL and that the token matches.",
       "applied": "seatunnel.yaml updated; takes effect after a rolling restart",
       "appliedWithErrors": "Some node configs failed: {errors}",
       "state": {
@@ -1221,11 +1221,11 @@
         },
         "disable": {
           "title": "Disable event reporting?",
-          "body": "This removes event-report-http from seatunnel.yaml on every node; after a restart reporting stops and job status falls back to polling only."
+          "body": "This removes event-report-http from seatunnel.yaml on every node; after a restart reporting stops and the timeline and CDC delay stop updating, while job status keeps updating through polling."
         },
         "rotate": {
           "title": "Rotate the event token?",
-          "body": "A new token is written to seatunnel.yaml. Until the restart the engine keeps the old token, so reports are rejected and status falls back to polling."
+          "body": "A new token is written to seatunnel.yaml. Until the restart the engine keeps the old token, so reports are rejected; job status keeps updating through polling."
         }
       }
     },
@@ -4137,9 +4137,19 @@
     "curatedSaveDescriptionPlaceholder": "Optional description",
     "curatedSaveSection": "Section",
     "curatedManage": "Template Manage",
-    "curatedManageHint": "Browse all curated templates; create or copy. System templates are read-only—copy first to edit. You can only modify and delete your own.",
+    "curatedManageHint": "Browse all curated templates; preview scripts, copy HOCON scripts, or create copies. System templates are read-only—create a copy first to edit. You can only modify and delete your own.",
     "curatedCreate": "New curated",
     "curatedCopy": "Copy",
+    "curatedCreateCopyHint": "Create an editable copy from this template",
+    "curatedCopyScript": "Copy Script",
+    "curatedScriptCopied": "HOCON script copied to clipboard",
+    "curatedCopyScriptFailed": "Failed to copy script",
+    "curatedPreviewTitle": "Template Script Preview",
+    "curatedPreviewDialogDesc": "Preview the HOCON definition script for this curated template. Support copying code or creating a copy.",
+    "curatedPreviewScriptHeading": "HOCON Script Content",
+    "curatedToggleInlinePreview": "Show script",
+    "curatedHideInlinePreview": "Hide script",
+    "curatedEditContentHint": "Supports full HOCON syntax; credential fields should prefer '{{vars}}' placeholders.",
     "curatedBuiltinReadonly": "System read-only",
     "curatedHasOverrideHint": "A copy already exists—edit your copy.",
     "curatedOriginAll": "All origins",

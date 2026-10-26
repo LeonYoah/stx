@@ -19,7 +19,8 @@
 
 import {useEffect, useMemo, useState} from 'react';
 import {useTranslations} from 'next-intl';
-import {Eye, Loader2, Plus, Sparkles} from 'lucide-react';
+import {Copy, Eye, Loader2, Plus, Sparkles} from 'lucide-react';
+import {toast} from 'sonner';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
@@ -30,7 +31,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {cn} from '@/lib/utils';
+import {cn, copyToClipboard} from '@/lib/utils';
 import type {
   SyncCuratedSection,
   SyncCuratedTemplateView,
@@ -264,20 +265,44 @@ export function CuratedTemplatesPanel({
               <Loader2 className='size-3 animate-spin' />
             ) : null}
           </div>
-          <Button
-            type='button'
-            size='sm'
-            className='h-6 px-2 text-[11px]'
-            disabled={!selected}
-            onClick={() => {
-              if (selected) {
-                onInsert(selected);
-              }
-            }}
-          >
-            <Plus className='size-3 mr-1' />
-            {t('curatedInsert')}
-          </Button>
+          {/* 预览操作区：复制脚本与插入编辑器 */}
+          {/* Preview action toolbar: copy script and insert into editor */}
+          <div className='flex items-center gap-1'>
+            <Button
+              type='button'
+              size='sm'
+              variant='ghost'
+              className='h-6 px-1.5 text-[11px]'
+              disabled={!selected || !preview}
+              onClick={async () => {
+                if (!preview) return;
+                try {
+                  await copyToClipboard(preview);
+                  toast.success(t('curatedScriptCopied'));
+                } catch {
+                  toast.error(t('curatedCopyScriptFailed'));
+                }
+              }}
+              title={t('curatedCopyScript')}
+            >
+              <Copy className='size-3 mr-1' />
+              {t('curatedCopyScript')}
+            </Button>
+            <Button
+              type='button'
+              size='sm'
+              className='h-6 px-2 text-[11px]'
+              disabled={!selected}
+              onClick={() => {
+                if (selected) {
+                  onInsert(selected);
+                }
+              }}
+            >
+              <Plus className='size-3 mr-1' />
+              {t('curatedInsert')}
+            </Button>
+          </div>
         </div>
         {selected ? (
           <pre className='max-h-40 overflow-auto px-2.5 py-2 text-[10px] leading-4 font-mono text-foreground/90 whitespace-pre-wrap break-all'>

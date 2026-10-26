@@ -99,9 +99,10 @@ sync:
   # 后台对账器：按集群拉取 SeaTunnel running/finished 列表，写入作业状态（读接口不再同步打 /job-info）
   # 设为 -1 可关闭；0 表示默认 10 秒
   job_reconciler_interval_seconds: 10
-  # SeaTunnel 事件通道健康时（3.x），完整对账的最长间隔；状态变化由事件即时触发刷新
-  # 设为 -1 可关闭自适应（始终按上面的间隔完整对账）；0 表示默认 60 秒
-  job_reconciler_event_mode_interval_seconds: 60
+  # 自适应轮询（3.x 且事件通道健康时生效）：完整对账放宽到这个间隔，状态变化靠事件触发刷新
+  # 默认 0 表示关闭，始终按上面的间隔完整对账；需要减轻引擎压力的大集群可设为 60 等正数
+  # 开启后事件丢失时，状态最长滞后一个这样的间隔
+  job_reconciler_event_mode_interval_seconds: 0
 
 # 数据库配置
 database:

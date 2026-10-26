@@ -5131,6 +5131,7 @@ export function DataSyncStudio() {
           ) : rightSidebarTab === 'templates' ? (
             <CuratedTemplatesManagePanel
               refreshToken={curatedRefreshToken}
+              clusterId={editor.clusterId}
               onChanged={() => setCuratedRefreshToken((n) => n + 1)}
             />
           ) : rightSidebarTab === 'schedule' ? (

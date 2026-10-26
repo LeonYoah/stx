@@ -37,7 +37,10 @@ PLAYWRIGHT_PROJECT="${PLAYWRIGHT_PROJECT:-}"
 PLAYWRIGHT_GREP="${PLAYWRIGHT_GREP:-}"
 declare -a PLAYWRIGHT_SPECS=()
 if [[ -n "${E2E_REAL_PLAYWRIGHT_SPEC:-}" ]]; then
-  PLAYWRIGHT_SPECS+=("${E2E_REAL_PLAYWRIGHT_SPEC}")
+  # Space-separated list allowed (upgrade-real runs Case A + Case B).
+  # 允许空格分隔多 spec（upgrade-real 同时跑 Case A + Case B）。
+  read -r -a _e2e_real_specs <<< "${E2E_REAL_PLAYWRIGHT_SPEC}"
+  PLAYWRIGHT_SPECS+=("${_e2e_real_specs[@]}")
 else
   PLAYWRIGHT_SPECS+=(
     "e2e/install-wizard-real.spec.ts"

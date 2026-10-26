@@ -20,6 +20,7 @@ limitations under the License.
 Spec：
 
 - `frontend/e2e/upgrade-real.spec.ts`
+- `frontend/e2e/upgrade-real-profiles-missing.spec.ts`
 
 ## 入口命令
 

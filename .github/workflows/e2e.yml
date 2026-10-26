@@ -172,6 +172,7 @@ jobs:
               - '.github/workflows/e2e.yml'
             upgrade_real:
               - 'frontend/e2e/upgrade-real.spec.ts'
+              - 'frontend/e2e/upgrade-real-profiles-missing.spec.ts'
               - 'frontend/e2e/helpers/upgrade-real.ts'
               - 'frontend/e2e/helpers/install-wizard-real.ts'
               - 'frontend/scripts/e2e/run-real-upgrade.sh'

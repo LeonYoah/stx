@@ -492,10 +492,28 @@ func NewDefaultClusterRuntimeResolver(clusterRepo *clusterapp.Repository, hostRe
 	return &DefaultClusterRuntimeResolver{clusterRepo: clusterRepo, hostRepo: hostRepo}
 }
 
+// ClusterEngineEndpointLister 是可选能力：列出集群全部在线节点的引擎地址，供只能访问 active master 的接口（/metrics/realtime）逐个探测。
+// ClusterEngineEndpointLister is an optional capability listing every online node endpoint so master-only APIs
+// (such as /metrics/realtime) can probe them one by one.
+type ClusterEngineEndpointLister interface {
+	ListEngineEndpoints(ctx context.Context, clusterID uint, taskDefinition JSONMap) ([]*EngineEndpoint, error)
+}
+
 // ResolveEngineEndpoint resolves one endpoint from cluster metadata.
 func (r *DefaultClusterRuntimeResolver) ResolveEngineEndpoint(ctx context.Context, clusterID uint, taskDefinition JSONMap) (*EngineEndpoint, error) {
+	endpoints, err := r.ListEngineEndpoints(ctx, clusterID, taskDefinition)
+	if err != nil {
+		return nil, err
+	}
+	return endpoints[0], nil
+}
+
+// ListEngineEndpoints 按节点顺序返回全部在线节点的引擎地址；任务定义显式指定地址时只返回该地址。
+// ListEngineEndpoints returns endpoints of all online nodes in node order; an explicit task definition endpoint is
+// returned alone.
+func (r *DefaultClusterRuntimeResolver) ListEngineEndpoints(ctx context.Context, clusterID uint, taskDefinition JSONMap) ([]*EngineEndpoint, error) {
 	if endpoint := endpointFromTaskDefinition(taskDefinition); endpoint != nil {
-		return endpoint, nil
+		return []*EngineEndpoint{endpoint}, nil
 	}
 	if r == nil || r.clusterRepo == nil || r.hostRepo == nil {
 		return nil, fmt.Errorf("sync: runtime resolver is not configured")
@@ -504,6 +522,7 @@ func (r *DefaultClusterRuntimeResolver) ResolveEngineEndpoint(ctx context.Contex
 	if err != nil {
 		return nil, err
 	}
+	endpoints := make([]*EngineEndpoint, 0, len(clusterObj.Nodes))
 	for _, node := range clusterObj.Nodes {
 		if node.APIPort <= 0 {
 			continue
@@ -523,9 +542,12 @@ func (r *DefaultClusterRuntimeResolver) ResolveEngineEndpoint(ctx context.Contex
 		if node.HazelcastPort > 0 {
 			endpoint.LegacyURL = fmt.Sprintf("http://%s:%d", hostIP, node.HazelcastPort)
 		}
-		return endpoint, nil
+		endpoints = append(endpoints, endpoint)
 	}
-	return nil, fmt.Errorf("sync: no cluster node with api_port configured for cluster %d", clusterID)
+	if len(endpoints) == 0 {
+		return nil, fmt.Errorf("sync: no cluster node with api_port configured for cluster %d", clusterID)
+	}
+	return endpoints, nil
 }
 
 func endpointFromTaskDefinition(definition JSONMap) *EngineEndpoint {

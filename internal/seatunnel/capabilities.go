@@ -112,6 +112,24 @@ func CapabilitiesForVersion(version string) VersionCapabilities {
 	return capabilities
 }
 
+// SupportsRealtimeObservability 判断版本是否提供作业级 env.engine.observability 与 /metrics/realtime 接口（3.0.0 起）。
+// SupportsRealtimeObservability reports whether the version provides job-level env.engine.observability and the /metrics/realtime API (since 3.0.0).
+func SupportsRealtimeObservability(version string) bool {
+	return strings.TrimSpace(version) != "" && CompareVersions(version, "3.0.0") >= 0
+}
+
+// SupportsJobStateEvents 判断版本的 event-report-http 是否会上报 JOB_STATUS 事件（2.3.12 起，2.3.12 只报终态）。
+// SupportsJobStateEvents reports whether event-report-http emits JOB_STATUS events (since 2.3.12; 2.3.12 reports terminal states only).
+func SupportsJobStateEvents(version string) bool {
+	return strings.TrimSpace(version) != "" && CompareVersions(version, "2.3.12") >= 0
+}
+
+// SupportsNonTerminalJobStateEvents 判断版本是否支持 report-non-terminal-job-state 上报非终态（3.0.0 起）。
+// SupportsNonTerminalJobStateEvents reports whether report-non-terminal-job-state is supported for non-terminal states (since 3.0.0).
+func SupportsNonTerminalJobStateEvents(version string) bool {
+	return strings.TrimSpace(version) != "" && CompareVersions(version, "3.0.0") >= 0
+}
+
 // CompareVersions compares two SeaTunnel version strings.
 // CompareVersions 比较两个 SeaTunnel 版本字符串。
 func CompareVersions(v1, v2 string) int {

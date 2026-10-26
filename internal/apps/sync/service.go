@@ -57,6 +57,15 @@ type Service struct {
 	clusterVersionProvider  ClusterVersionProvider
 	executionService        *executionapp.Service
 	dolphinHTTPClient       *http.Client
+	// realtime 保存实时指标代理的 master 缓存、请求合并与作业查看标记。
+	// realtime holds the realtime proxy master cache, request coalescing and job watch marks.
+	realtime realtimeState
+	// eventConfigApplier 把 event-report-http 写入集群 seatunnel.yaml。
+	// eventConfigApplier writes event-report-http into the cluster seatunnel.yaml.
+	eventConfigApplier EventReportConfigApplier
+	// events 保存事件运行时的防抖、预期与 CDC 延迟内存状态。
+	// events holds in-memory debounce, expectation and CDC delay state for the event runtime.
+	events engineEventState
 }
 
 // ClusterVersionProvider provides SeaTunnel cluster version lookup.
@@ -1569,6 +1578,9 @@ func (s *Service) submitTaskInstance(ctx context.Context, task *Task, createdBy 
 }
 
 func (s *Service) submitTaskInstanceWithPayload(ctx context.Context, task *Task, createdBy uint, runType RunType, platformJobID string, startWithSavepoint bool, recoveredFrom *uint, submitBody []byte, submitFormat string, jobName string, opts *SubmitOptions) (*JobInstance, error) {
+	// 集群提交统一在这里注入实时可观测性（运行/恢复/定时都会经过），本地执行不走这条路径。
+	// Cluster submits inject realtime observability here (run/recover/schedule all pass through); local runs do not.
+	submitBody, observability := s.applyObservabilityInjection(ctx, task, submitBody, submitFormat)
 	now := time.Now()
 	instance := &JobInstance{
 		TaskID:                  task.ID,
@@ -1588,6 +1600,7 @@ func (s *Service) submitTaskInstanceWithPayload(ctx context.Context, task *Task,
 			"trigger_source":       triggerSourceForSubmit(runType, opts),
 			"platform_job_id":      platformJobID,
 			"start_with_savepoint": startWithSavepoint,
+			"observability":        observability.toMap(),
 		},
 		StartedAt: &now,
 		CreatedBy: createdBy,
@@ -1632,13 +1645,23 @@ func (s *Service) submitTaskInstanceWithPayload(ctx context.Context, task *Task,
 	if err := s.repo.CreateJobInstance(ctx, instance); err != nil {
 		return nil, err
 	}
+	// 事件通道健康时登记"应在 45 秒内收到状态事件"的预期，用来发现通道失效。
+	// With a healthy event channel, expect a status event within 45s so a broken channel is detected.
+	s.registerEventExpectation(ctx, instance, task.ClusterID)
 	return instance, nil
 }
 
 // ListJobs returns paginated job instances from the database without hitting the engine.
 // ListJobs 只读数据库返回分页作业，不再同步刷新 SeaTunnel。
 func (s *Service) ListJobs(ctx context.Context, filter *JobFilter) ([]*JobInstance, int64, error) {
-	return s.repo.ListJobInstances(ctx, filter)
+	jobs, total, err := s.repo.ListJobInstances(ctx, filter)
+	if err != nil {
+		return nil, 0, err
+	}
+	for _, job := range jobs {
+		s.decorateJobRuntime(job)
+	}
+	return jobs, total, nil
 }
 
 // GetJob returns one job instance from the database without hitting the engine.

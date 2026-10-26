@@ -90,9 +90,15 @@ func (s *Service) GetJobForActor(ctx context.Context, actor executionapp.Actor, 
 	if err != nil {
 		return nil, err
 	}
+	// 有人在读这条作业（网页轮询或 CLI --wait），自适应轮询对它保持高频。
+	// Someone is reading this job (web polling or CLI --wait); adaptive polling keeps it at full frequency.
+	s.markJobWatched(instance.ID)
 	if fresh {
-		return s.refreshJobInstance(ctx, instance)
+		refreshed, err := s.refreshJobInstance(ctx, instance)
+		s.decorateJobRuntime(refreshed)
+		return refreshed, err
 	}
+	s.decorateJobRuntime(instance)
 	return instance, nil
 }
 
@@ -102,6 +108,7 @@ func (s *Service) GetJobLogsForActor(ctx context.Context, actor executionapp.Act
 	if _, err := s.getJobInstanceForActor(ctx, actor, id); err != nil {
 		return nil, err
 	}
+	s.markJobWatched(id)
 	return s.GetJobLogs(ctx, id, offset, limitBytes, keyword, level)
 }
 

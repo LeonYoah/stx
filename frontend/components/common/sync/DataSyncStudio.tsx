@@ -177,6 +177,8 @@ import {
 } from '@/components/ui/table';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import {WebUiDagPreview} from '@/components/common/sync/WebUiDagPreview';
+import {RealtimeInsightPanel} from '@/components/common/sync/RealtimeInsightPanel';
+import {JobEventTimelineDialog} from '@/components/common/sync/JobEventTimelineDialog';
 import {
   TaskScheduleSidebarPanel,
   type TaskScheduleValue,
@@ -325,6 +327,9 @@ import {
   getEngineAPIMode,
   getEngineEndpointLabel,
   getExecutionMode,
+  getObservabilityMode,
+  getRealtimeEntry,
+  type ObservabilityMode,
   getJobStatusBadgeClass,
   getJobStatusLabel,
   getJobSubmittedScript,
@@ -480,6 +485,12 @@ export function DataSyncStudio() {
   // 查看运行中/已结束作业的实时执行拓扑
   // View execution DAG of running or finished jobs
   const [viewingJobDag, setViewingJobDag] = useState<SyncWebUIDagPreviewJob | null>(null);
+  // 正在查看 DAG 的作业实例，用于挂载实时诊断面板
+  // Job instance whose DAG is being viewed, used to mount the realtime insight panel
+  const [viewingJobInstance, setViewingJobInstance] = useState<SyncJobInstance | null>(null);
+  // 正在查看事件时间线的作业
+  // Job whose event timeline is open
+  const [eventsJob, setEventsJob] = useState<SyncJobInstance | null>(null);
   const [validationOpen, setValidationOpen] = useState(false);
   const [validationTitle, setValidationTitle] = useState('');
   const [validationResult, setValidationResult] =
@@ -2689,6 +2700,7 @@ export function DataSyncStudio() {
         custom_variables: fromVariableRows(customVariableRows),
         custom_variable_types: fromVariableTypes(customVariableRows),
         execution_mode: getExecutionMode(editor.definition),
+        observability: getObservabilityMode(editor.definition),
         preview_mode: 'source',
         preview_output_format: 'hocon',
         preview_row_limit:
@@ -3717,6 +3729,15 @@ export function DataSyncStudio() {
     updateEditor('definition', {
       ...editor.definition,
       execution_mode: value,
+    });
+  };
+
+  // 实时可观测性设置写入任务定义，下次提交生效
+  // The realtime observability setting is stored in the task definition and applies on the next submit
+  const handleObservabilityModeChange = (value: ObservabilityMode) => {
+    updateEditor('definition', {
+      ...editor.definition,
+      observability: value,
     });
   };
 
@@ -5067,6 +5088,8 @@ export function DataSyncStudio() {
           {rightSidebarTab === 'settings' ? (
             <SettingsSidebarPanel
               executionMode={executionMode}
+              observabilityMode={getObservabilityMode(editor.definition)}
+              onObservabilityModeChange={handleObservabilityModeChange}
               clusterId={editor.clusterId}
               clusters={clusters}
               detectedVariables={detectedVariables}
@@ -5310,9 +5333,11 @@ export function DataSyncStudio() {
                     setJobScriptTarget(job);
                     setJobScriptOpen(true);
                   }}
+                  onViewJobEvents={(job) => setEventsJob(job)}
                   onViewJobDag={(job) => {
                     const rawJobDag = job.result_preview?.job_dag as SyncWebUIJobDag | undefined;
                     if (rawJobDag) {
+                      setViewingJobInstance(job);
                       setViewingJobDag({
                         jobId: String(job.platform_job_id || job.engine_job_id || job.id),
                         jobName: String(job.result_preview?.job_name || `Job #${job.id}`),
@@ -5719,6 +5744,16 @@ export function DataSyncStudio() {
         </DialogContent>
       </Dialog>
 
+      <JobEventTimelineDialog
+        job={eventsJob}
+        open={eventsJob !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEventsJob(null);
+          }
+        }}
+      />
+
       <Dialog
         open={dagOpen}
         onOpenChange={(open) => {
@@ -5726,6 +5761,7 @@ export function DataSyncStudio() {
           if (!open) {
             setDagError(null);
             setViewingJobDag(null);
+            setViewingJobInstance(null);
           }
         }}
       >
@@ -5778,7 +5814,14 @@ export function DataSyncStudio() {
                   </div>
                 ) : null}
                 {viewingJobDag ? (
-                  <WebUiDagPreview job={viewingJobDag} />
+                  <>
+                    {viewingJobInstance &&
+                    getRealtimeEntry(viewingJobInstance).supported &&
+                    getRealtimeEntry(viewingJobInstance).running ? (
+                      <RealtimeInsightPanel jobId={viewingJobInstance.id} running />
+                    ) : null}
+                    <WebUiDagPreview job={viewingJobDag} />
+                  </>
                 ) : dagWebUIJob ? (
                   <WebUiDagPreview job={dagWebUIJob} />
                 ) : (

@@ -60,6 +60,7 @@ import {
 } from './builtin-time-variables';
 import type {
   ExecutionMode,
+  ObservabilityMode,
   TemplatePluginItem,
   VariableRow,
 } from './sync-studio-utils';
@@ -134,6 +135,8 @@ export function TemplatePluginSelect({
 
 export function SettingsSidebarPanel({
   executionMode,
+  observabilityMode = 'auto',
+  onObservabilityModeChange,
   clusterId,
   clusters,
   pluginPanelLoading,
@@ -157,6 +160,8 @@ export function SettingsSidebarPanel({
   onOpenTimeVariables,
 }: {
   executionMode: ExecutionMode;
+  observabilityMode?: ObservabilityMode;
+  onObservabilityModeChange?: (value: ObservabilityMode) => void;
   clusterId: string;
   clusters: ClusterInfo[];
   pluginPanelLoading: boolean;
@@ -232,6 +237,41 @@ export function SettingsSidebarPanel({
                       : ''}
                   </SelectItem>
                 ))}
+              </SelectContent>
+            </Select>
+          </div>
+        ) : null}
+
+        {/* 实时可观测性：仅集群模式有意义，下次提交生效 */}
+        {/* Realtime observability: meaningful in cluster mode only, applies on the next submit */}
+        {executionMode === 'cluster' && onObservabilityModeChange ? (
+          <div className='space-y-1.5 pt-2 border-t border-border/40'>
+            <div className='flex items-center gap-1'>
+              <Label className='text-[11px] text-muted-foreground'>
+                {t('observabilitySetting')}
+              </Label>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <HelpCircle className='size-3 cursor-help text-muted-foreground/70' />
+                </TooltipTrigger>
+                <TooltipContent side='top' className='max-w-[260px] text-xs'>
+                  {t('observabilityHint')}
+                </TooltipContent>
+              </Tooltip>
+            </div>
+            <Select
+              value={observabilityMode}
+              onValueChange={(value) =>
+                onObservabilityModeChange(value as ObservabilityMode)
+              }
+            >
+              <SelectTrigger className='h-8 w-full text-xs' data-testid='sync-observability-mode'>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className='w-[var(--radix-select-trigger-width)] min-w-0'>
+                <SelectItem value='auto'>{t('observabilityAuto')}</SelectItem>
+                <SelectItem value='on'>{t('observabilityOn')}</SelectItem>
+                <SelectItem value='off'>{t('observabilityOff')}</SelectItem>
               </SelectContent>
             </Select>
           </div>

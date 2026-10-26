@@ -682,9 +682,6 @@
     "webUiTitle": "SeaTunnel Web UI",
     "webUiDescription": "通过主节点 {host}:{port} 访问集群内置 Web UI。",
     "webUiHint": "当前通过控制平面代理嵌入 SeaTunnel Web UI。新窗口可选择代理地址或直连主节点原始地址。",
-    "openWebUiInNewWindow": "新窗口打开",
-    "openWebUiViaProxy": "使用 STX 代理地址",
-    "openWebUiDirect": "使用原始地址",
     "apiPort": "API 端口",
     "workerPort": "Worker 端口",
     "portConfigDescription": "端口将在添加节点时通过 Agent 进行可用性校验",
@@ -1189,6 +1186,63 @@
       },
       "rollingRestartLabel": "扩容完成后滚动重启现有节点（{count} 个：{names}）",
       "rollingRestartDesc": "Hazelcast 只在启动时读取成员列表，集群分裂后也只按启动时的列表寻找对方；现有节点重启后才能在分裂后主动找回新节点。每次只重启一个节点，恢复并看到全部成员后再继续。"
+    },
+    "eventChannel": {
+      "title": "SeaTunnel 事件上报",
+      "refresh": "刷新",
+      "enable": "开启",
+      "disable": "关闭",
+      "rotate": "轮换令牌",
+      "cancel": "取消",
+      "confirmAction": "确认",
+      "never": "从未",
+      "description": "开启后引擎把作业状态、表结构变更和 CDC 延迟推送给 STX，状态即时刷新，对账频率自动降低。",
+      "unsupported": "当前集群版本 {version} 不支持作业状态事件（需要 2.3.12 及以上，3.x 支持非终态）。",
+      "lastEvent": "最近事件：{time}",
+      "counters": "已接收 {received} · 重复 {duplicates} · 丢弃 {dropped}",
+      "authFails": "令牌校验失败 {count} 次",
+      "modeFull": "上报全部状态",
+      "modeTerminal": "仅上报终态",
+      "url": "回调地址：{url}",
+      "restartHint": "配置已写入 seatunnel.yaml，需要对集群执行滚动重启后才会开始上报。",
+      "degradedHint": "最近提交的作业没有在预期时间内收到状态事件，已自动退回 10 秒轮询。请检查集群能否访问回调地址，以及令牌是否与配置一致。",
+      "applied": "已更新 seatunnel.yaml，滚动重启集群后生效",
+      "appliedWithErrors": "部分节点配置写入失败：{errors}",
+      "state": {
+        "disabled": "未开启",
+        "pending_restart": "待重启",
+        "healthy": "正常",
+        "degraded": "降级"
+      },
+      "confirm": {
+        "enable": {
+          "title": "开启事件上报？",
+          "body": "将修改该集群全部节点的 seatunnel.yaml（event-report-http），需要滚动重启集群后生效。集群需能访问 STX 的外部地址。"
+        },
+        "disable": {
+          "title": "关闭事件上报？",
+          "body": "将从全部节点的 seatunnel.yaml 中移除 event-report-http，重启后停止上报，作业状态回到纯轮询。"
+        },
+        "rotate": {
+          "title": "轮换事件令牌？",
+          "body": "会生成新令牌并写入 seatunnel.yaml。重启前引擎仍使用旧令牌，期间上报会被拒绝，状态回到轮询兜底。"
+        }
+      }
+    },
+    "observe": {
+      "open": "跳转到 SeaTunnel 集群观测",
+      "jobTitle": "作业 {id}",
+      "clusterTitle": "集群观测首页",
+      "loading": "正在获取地址…",
+      "viaProxy": "通过 STX 代理打开",
+      "native": "直连原生地址打开",
+      "hint": "代理地址经 STX 转发，无需能直连集群；原生地址需要浏览器能访问引擎 HTTP 端口。背压 DAG、实时指标由 SeaTunnel Web UI 提供，实时背压需作业开启实时可观测性。",
+      "reason": {
+        "version_unsupported": "当前集群版本没有内置 Web UI（需要 2.3.9 及以上）。",
+        "http_disabled": "集群未开启 HTTP 服务（enable-http），无法打开 Web UI。",
+        "no_webui_node": "没有可用的主节点提供 Web UI。",
+        "node_address_missing": "主节点缺少主机地址。"
+      }
     }
   },
   "audit": {
@@ -4675,7 +4729,70 @@
     "dolphinBuiltinCronNotCarried": "定时属于整个工作流，STX 内置定时（{cron}）不会沿用，推送后将关闭，任务改由该工作流的定时驱动。",
     "dolphinWorkflowScheduleDrives": "定时属于整个工作流，任务将由该工作流的定时驱动。",
     "dolphinNoScheduleNeverRuns": "该工作流没有定时，推送后任务不会自动运行，请在 DolphinScheduler 中为工作流配置定时。",
-    "dolphinNoBuiltinCron": "（任务未配置定时）"
+    "dolphinNoBuiltinCron": "（任务未配置定时）",
+    "observabilitySetting": "实时可观测性",
+    "observabilityAuto": "自动（流式开启）",
+    "observabilityOn": "开启",
+    "observabilityOff": "关闭",
+    "observabilityHint": "仅 SeaTunnel 3.x 集群生效。开启后可查看忙碌度、背压与瓶颈提示，开销很小。",
+    "realtimeInsight": {
+      "title": "实时诊断",
+      "live": "实时",
+      "updatedAt": "更新于 {time}",
+      "noBottleneck": "最近 3 个采集周期未发现明显瓶颈。",
+      "busy": "忙碌 {value}",
+      "backpressure": "背压 {value}",
+      "queueFill": "队列 {value}",
+      "severity": {
+        "critical": "严重",
+        "warning": "注意",
+        "info": "提示"
+      },
+      "hint": {
+        "sink_slow": "{target} 写入跟不上：忙碌度 {value}，输入队列持续积压，优先排查目标库写入性能、批量与并行度。",
+        "transform_busy": "{target} 处理跟不上：忙碌度 {value}，输入队列持续积压，可拆分转换链或提高并行度。",
+        "downstream_backpressure": "流向 {target} 的队列背压 {value}，但下游并不忙，可能卡在外部系统、GC 或提交阶段。",
+        "source_idle": "{target} 大部分时间在等待数据（空闲 {value}），下游队列为空，上游可能没有新数据。",
+        "source_busy": "{target} 读取占用 {value} 且下游无背压，读取或反序列化可能偏慢。"
+      },
+      "reason": {
+        "version_unsupported": "需要 3.x",
+        "not_cluster_mode": "本地执行",
+        "not_running": "未运行",
+        "not_enabled": "未开启",
+        "master_unreachable": "引擎不可达",
+        "no_engine_job": "无引擎作业",
+        "collecting": "采集中",
+        "client_unsupported": "不支持"
+      },
+      "reasonDetail": {
+        "version_unsupported": "实时可观测性需要 SeaTunnel 3.0.0 及以上的集群。",
+        "not_cluster_mode": "本地执行的作业没有引擎实时指标。",
+        "not_running": "作业已不在运行，实时数据只在运行期间保留。",
+        "not_enabled": "该作业未开启实时可观测性。可在任务设置中将「实时可观测性」设为自动或开启，重新提交后生效。",
+        "master_unreachable": "暂时连不上集群的 active master，稍后会自动重试。",
+        "no_engine_job": "作业还没有拿到引擎作业 ID。",
+        "collecting": "引擎正在采集第一个周期的数据（约 5 秒），请稍候。",
+        "client_unsupported": "当前服务端不支持实时指标代理。"
+      }
+    },
+    "jobEvents": {
+      "open": "事件时间线",
+      "title": "作业 #{id} 事件时间线",
+      "description": "引擎上报的状态变化、表结构变更与 CDC 延迟，共 {total} 条（保留 7 天）。",
+      "empty": "还没有收到引擎事件。请确认集群已开启事件上报并完成滚动重启。",
+      "delayValue": "延迟 {value}",
+      "lifecycleGroup": "{count} 条生命周期事件（点击展开）",
+      "family": {
+        "status": "状态",
+        "schema": "表结构变更",
+        "delay": "CDC 延迟",
+        "lifecycle": "生命周期",
+        "other": "其他"
+      }
+    },
+    "cdcDelayBadge": "CDC 延迟 {value}",
+    "cdcDelayTooltip": "近 1 分钟最大 {max}，更新于 {time}（延迟 ≥1 秒时引擎才上报）"
   },
   "troubleshooting": {
     "title": "经验库",

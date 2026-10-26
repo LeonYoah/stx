@@ -94,6 +94,13 @@ type JobResponse struct {
 	ErrorMsg string       `json:"error_msg"`
 	Data     *JobInstance `json:"data"`
 }
+
+// JobRealtimeResponse 包装作业实时指标结果。
+// JobRealtimeResponse wraps the job realtime metrics result.
+type JobRealtimeResponse struct {
+	ErrorMsg string             `json:"error_msg"`
+	Data     *JobRealtimeResult `json:"data"`
+}
 type JobListResponse struct {
 	ErrorMsg string       `json:"error_msg"`
 	Data     *JobListData `json:"data"`
@@ -607,6 +614,34 @@ func (h *Handler) GetJob(c *gin.Context) {
 	c.JSON(http.StatusOK, JobResponse{Data: sanitizeJobForResponse(job)})
 }
 
+// GetJobRealtime 处理 GET /api/v1/sync/jobs/:id/realtime：返回引擎实时指标与瓶颈提示，引擎不可用时以 available=false 表达。
+// GetJobRealtime handles GET /api/v1/sync/jobs/:id/realtime: it returns engine realtime metrics and bottleneck
+// hints, expressing engine unavailability as available=false.
+// @Summary 获取作业实时指标与瓶颈提示
+// @Tags Sync
+// @Produce json
+// @Param id path int true "作业 ID"
+// @Param window_ms query int false "时间窗口（毫秒），超出引擎上限时截断"
+// @Success 200 {object} JobRealtimeResponse
+// @Failure 400 {object} JobRealtimeResponse
+// @Failure 403 {object} JobRealtimeResponse
+// @Failure 404 {object} JobRealtimeResponse
+// @Router /api/v1/sync/jobs/{id}/realtime [get]
+func (h *Handler) GetJobRealtime(c *gin.Context) {
+	id, ok := parseUintParam(c, "id")
+	if !ok {
+		c.JSON(http.StatusBadRequest, JobRealtimeResponse{ErrorMsg: "invalid job id"})
+		return
+	}
+	windowMs := int64(parseNonNegativeInt(c.Query("window_ms"), 0))
+	result, err := h.service.GetJobRealtimeForActor(c.Request.Context(), currentExecutionActor(c), id, windowMs)
+	if err != nil {
+		c.JSON(h.getStatusCodeForError(err), JobRealtimeResponse{ErrorMsg: err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, JobRealtimeResponse{Data: result})
+}
+
 // GetJobLogs handles GET /api/v1/sync/jobs/:id/logs.
 func (h *Handler) GetJobLogs(c *gin.Context) {
 	id, ok := parseUintParam(c, "id")
@@ -814,11 +849,13 @@ func (h *Handler) CancelJobByRef(c *gin.Context) {
 
 func (h *Handler) getStatusCodeForError(err error) int {
 	switch {
-	case errors.Is(err, ErrTaskNotFound), errors.Is(err, ErrTaskVersionNotFound), errors.Is(err, ErrJobInstanceNotFound), errors.Is(err, ErrGlobalVariableNotFound), errors.Is(err, ErrCuratedTemplateNotFound), errors.Is(err, ErrSchedulerConnectionNotFound), errors.Is(err, ErrSchedulerBindingNotFound):
+	case errors.Is(err, ErrTaskNotFound), errors.Is(err, ErrTaskVersionNotFound), errors.Is(err, ErrJobInstanceNotFound), errors.Is(err, ErrGlobalVariableNotFound), errors.Is(err, ErrCuratedTemplateNotFound), errors.Is(err, ErrSchedulerConnectionNotFound), errors.Is(err, ErrSchedulerBindingNotFound), errors.Is(err, ErrEventChannelNotFound):
 		return http.StatusNotFound
-	case errors.Is(err, ErrTaskReadOnly), errors.Is(err, ErrTaskPermissionDenied), errors.Is(err, ErrGlobalVariablePermissionDenied), errors.Is(err, ErrCuratedTemplatePermissionDenied), errors.Is(err, ErrCuratedTemplateBuiltinReadonly):
+	case errors.Is(err, ErrEventChannelUnauthorized):
+		return http.StatusUnauthorized
+	case errors.Is(err, ErrTaskReadOnly), errors.Is(err, ErrTaskPermissionDenied), errors.Is(err, ErrEventChannelPermissionDenied), errors.Is(err, ErrGlobalVariablePermissionDenied), errors.Is(err, ErrCuratedTemplatePermissionDenied), errors.Is(err, ErrCuratedTemplateBuiltinReadonly):
 		return http.StatusForbidden
-	case errors.Is(err, ErrTaskNameRequired), errors.Is(err, ErrTaskNameInvalid), errors.Is(err, ErrTaskParentCycle), errors.Is(err, ErrRootFileNotAllowed), errors.Is(err, ErrInvalidTaskMode), errors.Is(err, ErrInvalidTaskStatus), errors.Is(err, ErrInvalidRunType), errors.Is(err, ErrInvalidPreviewMode), errors.Is(err, ErrTaskDefinitionEmpty), errors.Is(err, ErrPreviewHTTPSinkEmpty), errors.Is(err, ErrTaskNotPublished), errors.Is(err, ErrInvalidNodeType), errors.Is(err, ErrParentTaskNotFolder), errors.Is(err, ErrFolderContentUnsupported), errors.Is(err, ErrTaskNotFile), errors.Is(err, ErrInvalidContentFormat), errors.Is(err, ErrRecoverSourceRequired), errors.Is(err, ErrLocalClusterRequired), errors.Is(err, ErrLocalSavepointUnsupported), errors.Is(err, ErrPreviewPayloadInvalid), errors.Is(err, ErrGlobalVariableKeyRequired), errors.Is(err, ErrGlobalVariableKeyInvalid), errors.Is(err, ErrReservedBuiltinVariableKey), errors.Is(err, ErrExecutionTargetClusterMismatch), errors.Is(err, ErrMaskedSecretCannotBeRestored), errors.Is(err, ErrInvalidTaskCollaborator), errors.Is(err, ErrCuratedTemplateNameRequired), errors.Is(err, ErrCuratedTemplateContentRequired), errors.Is(err, ErrCuratedTemplateSectionInvalid), errors.Is(err, ErrCuratedBuiltinIDRequired), errors.Is(err, ErrUnreplacedVariable), errors.Is(err, ErrInvalidScheduleTime), errors.Is(err, ErrSchedulerConnectionInvalid), errors.Is(err, ErrDolphinPushInvalid), errors.Is(err, ErrDolphinCycle), errors.Is(err, ErrScheduleLockedByDolphin), errors.Is(err, ErrDolphinNodeMissing), errors.Is(err, ErrDolphinUnsupportedVersion):
+	case errors.Is(err, ErrTaskNameRequired), errors.Is(err, ErrTaskNameInvalid), errors.Is(err, ErrTaskParentCycle), errors.Is(err, ErrRootFileNotAllowed), errors.Is(err, ErrInvalidTaskMode), errors.Is(err, ErrInvalidTaskStatus), errors.Is(err, ErrInvalidRunType), errors.Is(err, ErrInvalidPreviewMode), errors.Is(err, ErrTaskDefinitionEmpty), errors.Is(err, ErrPreviewHTTPSinkEmpty), errors.Is(err, ErrTaskNotPublished), errors.Is(err, ErrInvalidNodeType), errors.Is(err, ErrParentTaskNotFolder), errors.Is(err, ErrFolderContentUnsupported), errors.Is(err, ErrTaskNotFile), errors.Is(err, ErrInvalidContentFormat), errors.Is(err, ErrRecoverSourceRequired), errors.Is(err, ErrLocalClusterRequired), errors.Is(err, ErrLocalSavepointUnsupported), errors.Is(err, ErrPreviewPayloadInvalid), errors.Is(err, ErrGlobalVariableKeyRequired), errors.Is(err, ErrGlobalVariableKeyInvalid), errors.Is(err, ErrReservedBuiltinVariableKey), errors.Is(err, ErrExecutionTargetClusterMismatch), errors.Is(err, ErrMaskedSecretCannotBeRestored), errors.Is(err, ErrInvalidTaskCollaborator), errors.Is(err, ErrCuratedTemplateNameRequired), errors.Is(err, ErrCuratedTemplateContentRequired), errors.Is(err, ErrCuratedTemplateSectionInvalid), errors.Is(err, ErrCuratedBuiltinIDRequired), errors.Is(err, ErrUnreplacedVariable), errors.Is(err, ErrInvalidScheduleTime), errors.Is(err, ErrSchedulerConnectionInvalid), errors.Is(err, ErrDolphinPushInvalid), errors.Is(err, ErrDolphinCycle), errors.Is(err, ErrScheduleLockedByDolphin), errors.Is(err, ErrDolphinNodeMissing), errors.Is(err, ErrDolphinUnsupportedVersion), errors.Is(err, ErrEventChannelVersionUnsupported), errors.Is(err, ErrEventChannelExternalURLMissing), errors.Is(err, ErrEventChannelSecretMissing):
 		return http.StatusBadRequest
 	case errors.Is(err, ErrTaskArchived), errors.Is(err, ErrJobAlreadyFinished), errors.Is(err, ErrJobStatusChanged), errors.Is(err, ErrGlobalVariableKeyDuplicate), errors.Is(err, ErrTaskNameDuplicate), errors.Is(err, executionapp.ErrIdempotencyConflict), errors.Is(err, ErrAttachGenerationMismatch), errors.Is(err, ErrJobCancellingTimeout), errors.Is(err, ErrDolphinVersionConflict), errors.Is(err, ErrSchedulerBindingExists), errors.Is(err, ErrDolphinPushNoNewVersion):
 		return http.StatusConflict

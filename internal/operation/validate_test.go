@@ -98,7 +98,7 @@ func TestValidateRejectsRepeatedNonQueryInput(t *testing.T) {
 }
 
 func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
-	require.Len(t, Registry(), 262)
+	require.Len(t, Registry(), 267)
 
 	expected := map[string]struct{}{
 		"auth.user-info.get": {}, "auth.profile.update": {}, "admin.user.list": {}, "admin.user.get": {}, "admin.token.list": {},
@@ -107,7 +107,7 @@ func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
 		"host.list": {}, "host.get": {}, "host.agent.install-command.get": {}, "cluster.list": {}, "cluster.get": {},
 		"host.discovery.process.list": {},
 		"cluster.node.list":           {}, "cluster.status.get": {}, "config.cluster.list": {},
-		"cluster.java-proxy.config": {},
+		"cluster.java-proxy.config": {}, "cluster.webui.endpoints": {},
 		"cluster.health.list":       {}, "cluster.runtime-storage.get": {},
 		"cluster.runtime-storage.validate": {}, "cluster.runtime-storage.list": {},
 		"cluster.runtime-storage.preview": {}, "cluster.runtime-storage.checkpoint.inspect": {},
@@ -144,7 +144,8 @@ func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
 		"sync.task.version.list":   {},
 		"sync.task.dolphin.status": {}, "sync.task.dolphin.script": {},
 		"sync.job.list": {}, "sync.job.get": {}, "sync.job.logs": {},
-		"sync.job.checkpoint": {}, "sync.job.preview": {},
+		"sync.job.checkpoint": {}, "sync.job.preview": {}, "sync.job.realtime": {}, "sync.job.events": {},
+		"sync.event-channel.get": {},
 		"sync.variable.list":             {},
 		"sync.scheduler.connection.list": {}, "sync.scheduler.connection.projects": {},
 		"sync.scheduler.connection.workflows": {}, "sync.scheduler.connection.workflow.get": {},
@@ -326,8 +327,9 @@ func TestRegistryContainsDiscoveryOperationAndLegacyExceptions(t *testing.T) {
 	for _, exception := range RouteExceptions() {
 		exceptions[exception.Method+" "+exception.Route] = exception
 	}
-	require.Len(t, RouteExceptions(), 33)
+	require.Len(t, RouteExceptions(), 34)
 	require.Contains(t, exceptions, "GET /api/v1/version")
+	require.Contains(t, exceptions, "POST /api/v1/sync/engine-events/:cluster_id")
 	require.Contains(t, exceptions, "POST /api/v1/auth/login")
 	require.Contains(t, exceptions, "POST /api/v1/auth/logout")
 	require.Contains(t, exceptions, "GET /api/v1/oauth/login")

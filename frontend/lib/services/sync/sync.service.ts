@@ -30,6 +30,9 @@ import type {
   SyncJobInstance,
   SyncJobListData,
   SyncJobLogsResult,
+  SyncJobRealtime,
+  SyncJobEventList,
+  SyncEventChannelStatus,
   SyncCheckpointSnapshot,
   SyncPreviewSnapshot,
   SyncTask,
@@ -277,6 +280,60 @@ export class SyncService extends BaseService {
       {params: query, signal},
     );
     return response.data.data;
+  }
+
+  /**
+   * 读取作业实时指标与瓶颈提示；数组字段在这里兜底为 []。
+   * Fetch realtime metrics and bottleneck hints for a job; array fields are normalized to [] here.
+   */
+  static async getJobRealtime(
+    jobId: number,
+    params?: {window_ms?: number; signal?: AbortSignal},
+  ): Promise<SyncJobRealtime> {
+    const {signal, ...query} = params || {};
+    const response = await apiClient.get<ApiResponse<SyncJobRealtime>>(
+      `${this.basePath}/jobs/${jobId}/realtime`,
+      {params: query, signal},
+    );
+    const data = response.data.data;
+    return {
+      ...data,
+      observability: data?.observability ?? {},
+      vertices: (data?.vertices ?? []).map((vertex) => ({...vertex, points: vertex.points ?? []})),
+      edges: (data?.edges ?? []).map((edge) => ({...edge, points: edge.points ?? []})),
+      hints: data?.hints ?? [],
+    };
+  }
+
+  /**
+   * 读取作业事件时间线（状态、schema change、CDC 延迟），events 兜底为 []。
+   * Fetch a job's event timeline (status, schema change, CDC delay); events default to [].
+   */
+  static async listJobEvents(
+    jobId: number,
+    params?: {types?: string; page?: number; page_size?: number},
+  ): Promise<SyncJobEventList> {
+    const data = await this.get<SyncJobEventList>(`/jobs/${jobId}/events`, params);
+    return {total: data?.total ?? 0, events: data?.events ?? []};
+  }
+
+  /**
+   * 读取集群的 SeaTunnel 事件上报通道状态。
+   * Fetch the cluster's SeaTunnel event report channel status.
+   */
+  static async getEventChannel(clusterId: number): Promise<SyncEventChannelStatus> {
+    return this.get<SyncEventChannelStatus>(`/event-channels/${clusterId}`);
+  }
+
+  /**
+   * 开启、关闭或轮换事件通道（会改写 seatunnel.yaml，需滚动重启生效）。
+   * Enable, disable or rotate the event channel (rewrites seatunnel.yaml; needs a rolling restart).
+   */
+  static async updateEventChannel(
+    clusterId: number,
+    request: {enabled?: boolean; rotate_token?: boolean},
+  ): Promise<SyncEventChannelStatus> {
+    return this.put<SyncEventChannelStatus>(`/event-channels/${clusterId}`, request);
   }
 
   static async recoverJob(

@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/LeonYoah/stx/internal/config"
+	"github.com/LeonYoah/stx/internal/seatunnel"
 )
 
 const (
@@ -94,11 +95,146 @@ func (s *Service) reconcileActiveJobs(ctx context.Context) error {
 		}
 		grouped[clusterID] = append(grouped[clusterID], job)
 	}
+	channels := s.eventChannelSnapshot(ctx)
 	for clusterID, items := range grouped {
+		// 事件通道健康时只做轻量拉取，完整对账（running/finished 列表）降到每 60 秒一次兜底。
+		// With a healthy event channel only light pulls run; full reconciles (running/finished lists) drop to a
+		// 60-second safety net.
+		if s.useEventModeReconcile(ctx, clusterID, channels) && !s.fullReconcileDue(clusterID) {
+			s.reconcileClusterJobsLight(ctx, clusterID, items)
+			continue
+		}
 		s.reconcileClusterJobs(ctx, clusterID, items)
+		s.markFullReconcile(clusterID)
 	}
 	s.backfillTerminalJobFinalMetrics(ctx)
 	return nil
+}
+
+const (
+	// defaultEventModeFullReconcileInterval 是事件模式下完整对账的默认最长间隔。
+	// defaultEventModeFullReconcileInterval is the default longest interval between full reconciles in event mode.
+	defaultEventModeFullReconcileInterval = 60 * time.Second
+	// eventModeUnwatchedRefreshInterval 是事件模式下无人查看的运行中作业拉 job-info 的间隔（与 metrics_log 对齐）。
+	// eventModeUnwatchedRefreshInterval is how often unwatched running jobs pull job-info in event mode (aligned with metrics_log).
+	eventModeUnwatchedRefreshInterval = 30 * time.Second
+)
+
+// eventModeFullReconcileInterval 读取配置；返回 0 表示关闭自适应。
+// eventModeFullReconcileInterval reads the configuration; 0 means adaptive polling is disabled.
+func eventModeFullReconcileInterval() time.Duration {
+	if config.Config == nil {
+		return defaultEventModeFullReconcileInterval
+	}
+	seconds := config.Config.Sync.JobReconcilerEventModeIntervalSeconds
+	switch {
+	case seconds < 0:
+		return 0
+	case seconds == 0:
+		return defaultEventModeFullReconcileInterval
+	default:
+		return time.Duration(seconds) * time.Second
+	}
+}
+
+// eventChannelSnapshot 读取全部事件通道，失败时返回空表（等同于没有事件通道，保持原有轮询）。
+// eventChannelSnapshot loads all event channels; on failure it returns an empty map (no channels, original polling).
+func (s *Service) eventChannelSnapshot(ctx context.Context) map[uint]*EngineEventChannel {
+	snapshot := map[uint]*EngineEventChannel{}
+	if s == nil || s.repo == nil || eventModeFullReconcileInterval() <= 0 {
+		return snapshot
+	}
+	channels, err := s.repo.ListEngineEventChannels(ctx)
+	if err != nil {
+		return snapshot
+	}
+	for _, channel := range channels {
+		if channel != nil {
+			snapshot[channel.ClusterID] = channel
+		}
+	}
+	return snapshot
+}
+
+// useEventModeReconcile 判断集群能否走事件模式：通道健康、已开启非终态上报且集群版本支持。
+// useEventModeReconcile reports whether a cluster can use event mode: healthy channel, non-terminal reporting on,
+// and a supporting cluster version.
+func (s *Service) useEventModeReconcile(ctx context.Context, clusterID uint, channels map[uint]*EngineEventChannel) bool {
+	channel := channels[clusterID]
+	if clusterID == 0 || channel == nil || !channel.ReportNonTerminal || eventChannelState(channel) != EventChannelStateHealthy {
+		return false
+	}
+	return seatunnel.SupportsNonTerminalJobStateEvents(s.clusterVersion(ctx, clusterID))
+}
+
+// fullReconcileDue 判断距离上次完整对账是否已超过事件模式间隔。
+// fullReconcileDue reports whether the event-mode interval has passed since the last full reconcile.
+func (s *Service) fullReconcileDue(clusterID uint) bool {
+	interval := eventModeFullReconcileInterval()
+	if interval <= 0 {
+		return true
+	}
+	state := &s.events
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	last, ok := state.lastFullReconcile[clusterID]
+	return !ok || state.clock().Sub(last) >= interval
+}
+
+func (s *Service) markFullReconcile(clusterID uint) {
+	state := &s.events
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if state.lastFullReconcile == nil {
+		state.lastFullReconcile = map[uint]time.Time{}
+	}
+	state.lastFullReconcile[clusterID] = state.clock()
+}
+
+// reconcileClusterJobsLight 是事件模式下的轻量对账：不拉列表，只给有人查看或超过 30 秒未同步的运行中作业拉 job-info。
+// 状态变化由事件触发刷新；其余情况由周期性的完整对账兜底。
+// reconcileClusterJobsLight is the event-mode light pass: no list calls, only job-info for running jobs that are
+// watched or unsynced for 30s. Status changes are refreshed by events; everything else is covered by the periodic
+// full reconcile.
+func (s *Service) reconcileClusterJobsLight(ctx context.Context, clusterID uint, jobs []*JobInstance) {
+	now := s.events.clock()
+	var due []*JobInstance
+	for _, job := range jobs {
+		if job == nil || job.Status != JobStatusRunning || strings.TrimSpace(job.EngineJobID) == "" {
+			continue
+		}
+		stale := job.LastSyncedAt == nil || now.Sub(*job.LastSyncedAt) >= eventModeUnwatchedRefreshInterval
+		if s.jobWatchedRecently(job.ID) || stale {
+			due = append(due, job)
+		}
+	}
+	if len(due) == 0 {
+		return
+	}
+	var endpoint *EngineEndpoint
+	if s.runtimeResolver != nil {
+		if resolved, err := s.runtimeResolver.ResolveEngineEndpoint(ctx, clusterID, nil); err == nil {
+			endpoint = resolved
+		}
+	}
+	for _, job := range due {
+		target := endpoint
+		if target == nil {
+			target = endpointFromSubmitSpec(job.SubmitSpec)
+		}
+		if target == nil {
+			s.recordJobSyncFailure(ctx, job)
+			continue
+		}
+		detail, err := s.engineClient.GetJobInfo(ctx, target, strings.TrimSpace(job.EngineJobID))
+		if err != nil {
+			s.recordJobSyncFailure(ctx, job)
+			continue
+		}
+		if _, err := s.applyEngineJobInfoUpdate(ctx, job, detail); err != nil {
+			s.recordJobSyncFailure(ctx, job)
+		}
+	}
 }
 
 func clusterIDForJob(ctx context.Context, s *Service, job *JobInstance, cache map[uint]uint) uint {

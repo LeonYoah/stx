@@ -2099,6 +2099,46 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/clusters/{id}/webui-endpoints": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "clusters"
+                ],
+                "summary": "获取 SeaTunnel 集群观测地址",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "集群ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/cluster.WebUIEndpointsResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/cluster.WebUIEndpointsResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/cluster.WebUIEndpointsResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/commands": {
             "get": {
                 "produces": [
@@ -4436,6 +4476,170 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/sync/engine-events/{cluster_id}": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sync"
+                ],
+                "summary": "接收 SeaTunnel 引擎事件上报",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "集群 ID",
+                        "name": "cluster_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Bearer \u003c事件通道 token\u003e",
+                        "name": "Authorization",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "description": "引擎事件批次",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "object"
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sync.EngineEventIngestResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/sync.EngineEventIngestResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sync/event-channels/{cluster_id}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sync"
+                ],
+                "summary": "获取集群事件通道状态",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "集群 ID",
+                        "name": "cluster_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sync.EventChannelResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/sync.EventChannelResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/sync.EventChannelResponse"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sync"
+                ],
+                "summary": "开关集群事件通道或轮换 token（改写 seatunnel.yaml，需滚动重启生效）",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "集群 ID",
+                        "name": "cluster_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "事件通道设置",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/sync.UpdateEventChannelRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sync.EventChannelResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/sync.EventChannelResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/sync.EventChannelResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/sync.EventChannelResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/sync.EventChannelResponse"
+                        }
+                    },
+                    "428": {
+                        "description": "Precondition Required",
+                        "schema": {
+                            "$ref": "#/definitions/sync.EventChannelResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sync/jobs/cancel-by-ref": {
             "post": {
                 "consumes": [
@@ -4476,6 +4680,122 @@ const docTemplate = `{
                         "description": "Conflict",
                         "schema": {
                             "$ref": "#/definitions/sync.JobResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sync/jobs/{id}/events": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sync"
+                ],
+                "summary": "获取作业事件时间线",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "作业 ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "按事件类型过滤，逗号分隔",
+                        "name": "types",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "页码，从 1 开始",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "每页条数",
+                        "name": "page_size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sync.JobEventListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/sync.JobEventListResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/sync.JobEventListResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/sync.JobEventListResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sync/jobs/{id}/realtime": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sync"
+                ],
+                "summary": "获取作业实时指标与瓶颈提示",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "作业 ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "时间窗口（毫秒），超出引擎上限时截断",
+                        "name": "window_ms",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sync.JobRealtimeResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/sync.JobRealtimeResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/sync.JobRealtimeResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/sync.JobRealtimeResponse"
                         }
                     }
                 }
@@ -7250,6 +7570,44 @@ const docTemplate = `{
                 "worker_port": {
                     "description": "Worker hazelcast port (Hybrid only) / Worker Hazelcast 端口（仅混合模式）",
                     "type": "integer"
+                }
+            }
+        },
+        "cluster.WebUIEndpoints": {
+            "type": "object",
+            "properties": {
+                "available": {
+                    "type": "boolean"
+                },
+                "host_name": {
+                    "type": "string"
+                },
+                "job_path_template": {
+                    "description": "JobPathTemplate 是作业详情页的 hash 路由，前端把 {job_id} 替换为引擎作业 ID 后拼在基础地址后面。\nJobPathTemplate is the job detail hash route; the frontend substitutes {job_id} and appends it to a base URL.",
+                    "type": "string"
+                },
+                "native_base_url": {
+                    "type": "string"
+                },
+                "node_id": {
+                    "type": "integer"
+                },
+                "proxy_base_url": {
+                    "type": "string"
+                },
+                "reason": {
+                    "type": "string"
+                }
+            }
+        },
+        "cluster.WebUIEndpointsResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/cluster.WebUIEndpoints"
+                },
+                "error_msg": {
+                    "type": "string"
                 }
             }
         },
@@ -10618,9 +10976,219 @@ const docTemplate = `{
                 }
             }
         },
+        "sync.EngineEvent": {
+            "type": "object",
+            "properties": {
+                "cluster_id": {
+                    "type": "integer"
+                },
+                "engine_job_id": {
+                    "type": "string"
+                },
+                "event_time_ms": {
+                    "type": "integer"
+                },
+                "event_type": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "job_instance_id": {
+                    "type": "integer"
+                },
+                "job_status": {
+                    "type": "string"
+                },
+                "payload": {
+                    "$ref": "#/definitions/sync.JSONMap"
+                },
+                "received_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "sync.EngineEventIngestResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/sync.EngineEventIngestResult"
+                },
+                "error_msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "sync.EngineEventIngestResult": {
+            "type": "object",
+            "properties": {
+                "accepted": {
+                    "type": "integer"
+                },
+                "dropped": {
+                    "type": "integer"
+                },
+                "duplicates": {
+                    "type": "integer"
+                },
+                "ignored": {
+                    "type": "string"
+                }
+            }
+        },
+        "sync.EngineEventReportNodeResult": {
+            "type": "object",
+            "properties": {
+                "changed": {
+                    "type": "boolean"
+                },
+                "config_id": {
+                    "type": "integer"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "host_id": {
+                    "type": "integer"
+                },
+                "pending": {
+                    "type": "boolean"
+                },
+                "pushed": {
+                    "type": "boolean"
+                },
+                "template": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "sync.EventChannelResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/sync.EventChannelStatus"
+                },
+                "error_msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "sync.EventChannelStatus": {
+            "type": "object",
+            "properties": {
+                "auth_fail_count": {
+                    "type": "integer"
+                },
+                "cluster_id": {
+                    "type": "integer"
+                },
+                "config_applied_at": {
+                    "type": "string"
+                },
+                "config_apply_error": {
+                    "type": "string"
+                },
+                "configs": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/sync.EngineEventReportNodeResult"
+                    }
+                },
+                "dropped_count": {
+                    "type": "integer"
+                },
+                "duplicate_count": {
+                    "type": "integer"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "expect_missed_at": {
+                    "type": "string"
+                },
+                "expect_satisfied_at": {
+                    "type": "string"
+                },
+                "last_batch_at": {
+                    "type": "string"
+                },
+                "last_event_at": {
+                    "type": "string"
+                },
+                "parse_error_count": {
+                    "type": "integer"
+                },
+                "received_count": {
+                    "type": "integer"
+                },
+                "report_non_terminal": {
+                    "type": "boolean"
+                },
+                "restart_required": {
+                    "type": "boolean"
+                },
+                "state": {
+                    "type": "string"
+                },
+                "supported": {
+                    "type": "boolean"
+                },
+                "token_set": {
+                    "type": "boolean"
+                },
+                "url": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "string"
+                }
+            }
+        },
         "sync.JSONMap": {
             "type": "object",
             "additionalProperties": true
+        },
+        "sync.JobCDCDelay": {
+            "type": "object",
+            "properties": {
+                "at": {
+                    "type": "string"
+                },
+                "fresh": {
+                    "type": "boolean"
+                },
+                "latest_ms": {
+                    "type": "integer"
+                },
+                "max_1m_ms": {
+                    "type": "integer"
+                }
+            }
+        },
+        "sync.JobEventListResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/sync.JobEventListResult"
+                },
+                "error_msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "sync.JobEventListResult": {
+            "type": "object",
+            "properties": {
+                "events": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/sync.EngineEvent"
+                    }
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
         },
         "sync.JobInstance": {
             "type": "object",
@@ -10628,6 +11196,14 @@ const docTemplate = `{
                 "attach_generation": {
                     "description": "AttachGeneration 在同一 external_ref 被 CLI 接管时递增，用来忽略过期停止请求。\nAttachGeneration increments when another CLI attaches to the same external_ref so stale cancel requests are ignored.",
                     "type": "integer"
+                },
+                "cdc_delay": {
+                    "description": "CDCDelay 是事件通道聚合的 CDC 延迟摘要（内存态，响应时补充，不落库）。\nCDCDelay is the CDC delay summary aggregated from the event channel (in memory, filled at response time).",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/sync.JobCDCDelay"
+                        }
+                    ]
                 },
                 "created_at": {
                     "type": "string"
@@ -10710,6 +11286,76 @@ const docTemplate = `{
                 }
             }
         },
+        "sync.JobRealtimeResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/sync.JobRealtimeResult"
+                },
+                "error_msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "sync.JobRealtimeResult": {
+            "type": "object",
+            "properties": {
+                "available": {
+                    "type": "boolean"
+                },
+                "bucket_ms": {
+                    "type": "integer"
+                },
+                "cluster_id": {
+                    "type": "integer"
+                },
+                "edges": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/sync.RealtimeEdge"
+                    }
+                },
+                "engine_job_id": {
+                    "type": "string"
+                },
+                "fetched_at_ms": {
+                    "type": "integer"
+                },
+                "from_ms": {
+                    "type": "integer"
+                },
+                "hints": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/sync.RealtimeHint"
+                    }
+                },
+                "job_id": {
+                    "type": "integer"
+                },
+                "observability": {
+                    "$ref": "#/definitions/sync.JSONMap"
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "to_ms": {
+                    "type": "integer"
+                },
+                "vertices": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/sync.RealtimeVertex"
+                    }
+                },
+                "webui_path": {
+                    "type": "string"
+                },
+                "window_ms": {
+                    "type": "integer"
+                }
+            }
+        },
         "sync.JobResponse": {
             "type": "object",
             "properties": {
@@ -10762,6 +11408,68 @@ const docTemplate = `{
                 "JobSyncStateStale",
                 "JobSyncStateUnknown"
             ]
+        },
+        "sync.RealtimeEdge": {
+            "type": "object",
+            "properties": {
+                "points": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                },
+                "queue_id": {
+                    "type": "integer"
+                },
+                "target_vertex_id": {
+                    "type": "integer"
+                }
+            }
+        },
+        "sync.RealtimeHint": {
+            "type": "object",
+            "properties": {
+                "buckets": {
+                    "type": "integer"
+                },
+                "code": {
+                    "type": "string"
+                },
+                "queue_id": {
+                    "type": "integer"
+                },
+                "severity": {
+                    "type": "string"
+                },
+                "value": {
+                    "type": "number"
+                },
+                "vertex_id": {
+                    "type": "integer"
+                }
+            }
+        },
+        "sync.RealtimeVertex": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "points": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                },
+                "type": {
+                    "type": "string"
+                },
+                "vertex_id": {
+                    "type": "integer"
+                }
+            }
         },
         "sync.RunType": {
             "type": "string",
@@ -10961,6 +11669,17 @@ const docTemplate = `{
                 },
                 "workflow_name": {
                     "type": "string"
+                }
+            }
+        },
+        "sync.UpdateEventChannelRequest": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "rotate_token": {
+                    "type": "boolean"
                 }
             }
         },

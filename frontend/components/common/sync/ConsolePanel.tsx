@@ -21,6 +21,7 @@ import {useTranslations} from 'next-intl';
 import {
   AlertTriangle,
   BarChart3,
+  History,
   ExternalLink,
   FileCode2,
   FileText,
@@ -41,6 +42,7 @@ import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import type {NotificationRecipientUser} from '@/lib/services/monitoring';
 import type {SyncJobInstance, SyncJobLogsResult} from '@/lib/services/sync';
 import {cn} from '@/lib/utils';
+import {SeaTunnelObserveMenu} from '@/components/common/cluster/SeaTunnelObserveMenu';
 import {
   buildDisplayLogLines,
   canRecoverFromJob,
@@ -55,6 +57,7 @@ import {
   getJobStatusBadgeClass,
   getJobStatusLabel,
   getLogLineClass,
+  getRealtimeEntry,
   getRunModeLabel,
   getSyncJobClusterId,
   isJobLifecycleActive,
@@ -325,6 +328,7 @@ export function JobRunsPanel({
   onViewMetrics,
   onViewScript,
   onViewJobDag,
+  onViewJobEvents,
   disableRecover,
 }: {
   jobs: SyncJobInstance[];
@@ -342,6 +346,7 @@ export function JobRunsPanel({
   onViewMetrics: (job: SyncJobInstance) => void;
   onViewScript: (job: SyncJobInstance) => void;
   onViewJobDag?: (job: SyncJobInstance) => void;
+  onViewJobEvents?: (job: SyncJobInstance) => void;
   disableRecover: boolean;
 }) {
   const t = useTranslations('workbenchStudio');
@@ -501,6 +506,31 @@ export function JobRunsPanel({
                         <span>{formatMetricValue(summary.averageSpeed, 1)}/s</span>
                       </>
                     ) : null}
+                    {/* CDC 延迟徽标：只在近 1 分钟收到过延迟事件时显示 / CDC delay badge: only when a delay event arrived within 1 minute */}
+                    {job.cdc_delay?.fresh ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Badge
+                            variant='outline'
+                            className={cn(
+                              'rounded-sm px-1 py-0 font-sans text-[10px]',
+                              job.cdc_delay.latest_ms >= 60000
+                                ? 'border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300'
+                                : 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300',
+                            )}
+                            data-testid='sync-job-cdc-delay'
+                          >
+                            {t('cdcDelayBadge', {value: `${(job.cdc_delay.latest_ms / 1000).toFixed(1)}s`})}
+                          </Badge>
+                        </TooltipTrigger>
+                        <TooltipContent side='top' className='text-xs'>
+                          {t('cdcDelayTooltip', {
+                            max: `${(job.cdc_delay.max_1m_ms / 1000).toFixed(1)}s`,
+                            time: formatTimeTz(job.cdc_delay.at),
+                          })}
+                        </TooltipContent>
+                      </Tooltip>
+                    ) : null}
                     {summary.tableCount > 1 ? (
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -527,6 +557,38 @@ export function JobRunsPanel({
                 {/* Action buttons */}
                 <TableCell className='py-1.5 px-2.5 text-right whitespace-nowrap'>
                   <div className='flex justify-end items-center gap-1.5'>
+                    {/* 通用入口：跳转到 SeaTunnel 集群观测（实时、离线作业都可用），可选代理或原生地址 */}
+                    {/* Shared entry: open SeaTunnel cluster observation (streaming and batch), via proxy or native address */}
+                    {(() => {
+                      const clusterId = getSyncJobClusterId(job);
+                      const engineJobId = String(job.engine_job_id || '').trim();
+                      if (!clusterId || !engineJobId || submitSpecExecutionMode(job.submit_spec) === 'local') {
+                        return null;
+                      }
+                      return <SeaTunnelObserveMenu clusterId={clusterId} engineJobId={engineJobId} />;
+                    })()}
+                    {onViewJobEvents && getRealtimeEntry(job).supported ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            size='icon'
+                            variant='ghost'
+                            className='size-7 text-muted-foreground hover:text-foreground'
+                            aria-label={t('jobEvents.open')}
+                            data-testid='sync-job-events-button'
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onViewJobEvents(job);
+                            }}
+                          >
+                            <History className='size-3.5' />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side='top' className='text-xs'>
+                          {t('jobEvents.open')}
+                        </TooltipContent>
+                      </Tooltip>
+                    ) : null}
                     {Boolean(job.result_preview?.job_dag) ? (
                       <Tooltip>
                         <TooltipTrigger asChild>

@@ -72,6 +72,16 @@ type stubPluginProvider struct {
 	dependencies map[string][]pluginapp.PluginDependency
 	requested    map[string][]string
 	recorded     map[string]string
+	transferred  []stubTransferredCall
+	missingDeps  map[string]bool
+}
+
+type stubTransferredCall struct {
+	AgentID     string
+	PluginName  string
+	Version     string
+	InstallDir  string
+	ProfileKeys []string
 }
 
 func (s *stubPluginProvider) ListInstalledPlugins(ctx context.Context, clusterID uint) ([]pluginapp.InstalledPlugin, error) {
@@ -90,11 +100,41 @@ func (s *stubPluginProvider) GetPluginDependenciesForVersion(ctx context.Context
 	return s.dependencies[pluginName], nil
 }
 
+func (s *stubPluginProvider) GetPluginDependenciesForVersionAndProfiles(ctx context.Context, pluginName, version string, profileKeys []string) ([]pluginapp.PluginDependency, error) {
+	if s.requested == nil {
+		s.requested = make(map[string][]string)
+	}
+	s.requested[pluginName] = append(s.requested[pluginName], version)
+	return s.dependencies[pluginName], nil
+}
+
+func (s *stubPluginProvider) ResolvePluginProfiles(ctx context.Context, pluginName, targetVersion string, candidateProfiles ...[]string) []string {
+	var merged []string
+	for _, list := range candidateProfiles {
+		merged = append(merged, list...)
+	}
+	return dedupeSortedStrings(merged)
+}
+
+func (s *stubPluginProvider) IsDependencyDownloaded(artifactID, depVersion, pluginVersion, targetDir string) bool {
+	if s.missingDeps != nil && s.missingDeps[artifactID] {
+		return false
+	}
+	return true
+}
+
 func (s *stubPluginProvider) GetPluginArtifactID(pluginName string) string {
 	return "connector-" + pluginName
 }
 
 func (s *stubPluginProvider) TransferPluginToAgent(ctx context.Context, agentID, pluginName, version, installDir string, profileKeys []string) error {
+	s.transferred = append(s.transferred, stubTransferredCall{
+		AgentID:     agentID,
+		PluginName:  pluginName,
+		Version:     version,
+		InstallDir:  installDir,
+		ProfileKeys: profileKeys,
+	})
 	return nil
 }
 
@@ -343,6 +383,9 @@ func TestService_CreatePlanFromRequest_persistsReadyPlan(t *testing.T) {
 		t.Fatalf("CreatePlanFromRequest returned error: %v", err)
 	}
 	if result == nil || result.Plan == nil {
+		if result != nil && result.Precheck != nil {
+			t.Fatalf("expected plan to be created, issues: %+v", result.Precheck.Issues)
+		}
 		t.Fatalf("expected plan to be created")
 	}
 	if result.Precheck == nil || !result.Precheck.Ready {
@@ -416,6 +459,9 @@ func TestService_CreatePlanFromRequest_splitsPluginDependencyManifest(t *testing
 		t.Fatalf("CreatePlanFromRequest returned error: %v", err)
 	}
 	if result == nil || result.Plan == nil {
+		if result != nil && result.Precheck != nil {
+			t.Fatalf("expected plan to be created, issues: %+v", result.Precheck.Issues)
+		}
 		t.Fatalf("expected plan to be created")
 	}
 	if got := len(result.Plan.Snapshot.ConnectorManifest.Libraries); got != 1 {
@@ -484,6 +530,9 @@ func TestService_CreatePlanFromRequest_usesTargetPluginVersionForDependencies(t 
 		t.Fatalf("CreatePlanFromRequest returned error: %v", err)
 	}
 	if result == nil || result.Plan == nil {
+		if result != nil && result.Precheck != nil {
+			t.Fatalf("expected plan to be created, issues: %+v", result.Precheck.Issues)
+		}
 		t.Fatalf("expected plan to be created")
 	}
 	gotVersions := pluginProvider.requested["jdbc"]
@@ -493,6 +542,139 @@ func TestService_CreatePlanFromRequest_usesTargetPluginVersionForDependencies(t 
 	if gotVersions[len(gotVersions)-1] != "2.3.12" {
 		t.Fatalf("expected dependency lookup to use target plugin version 2.3.12, got %+v", gotVersions)
 	}
+}
+
+func TestService_CreatePlanFromRequest_inheritsProfilesFromInstalledPlugins(t *testing.T) {
+	database := openTestDB(t)
+	repo := NewRepository(database)
+	service := newPlanningService(t, repo)
+	packagePath := createTestPackage(t, map[string]string{
+		"config/seatunnel.yaml": "seatunnel: default",
+	})
+
+	service.SetPackageProvider(&stubPackageProvider{info: &installerapp.PackageInfo{
+		Version:   "3.0.0",
+		FileName:  "apache-seatunnel-3.0.0-bin.tar.gz",
+		IsLocal:   true,
+		LocalPath: packagePath,
+		FileSize:  4096,
+		Checksum:  "abc123",
+	}})
+	service.SetPluginProvider(&stubPluginProvider{
+		installed: []pluginapp.InstalledPlugin{{
+			ClusterID:           1,
+			PluginName:          "jdbc",
+			Version:             "2.3.13",
+			SelectedProfileKeys: []string{"mysql"},
+		}},
+		local: []pluginapp.LocalPlugin{{
+			Name:          "jdbc",
+			Version:       "3.0.0",
+			Category:      pluginapp.PluginCategoryConnector,
+			ConnectorPath: "/tmp/connector-jdbc-3.0.0.jar",
+			DownloadedAt:  time.Now(),
+		}},
+		dependencies: map[string][]pluginapp.PluginDependency{
+			"jdbc": {
+				{
+					GroupID:    "mysql",
+					ArtifactID: "mysql-connector-java",
+					Version:    "8.0.27",
+					TargetDir:  "plugins/connector-jdbc",
+				},
+			},
+		},
+	})
+
+	result, err := service.CreatePlanFromRequest(context.Background(), &CreatePlanRequest{
+		PrecheckRequest: PrecheckRequest{
+			ClusterID:      1,
+			TargetVersion:  "3.0.0",
+			ConnectorNames: []string{"jdbc"},
+		},
+	}, 7)
+	if err != nil {
+		t.Fatalf("CreatePlanFromRequest returned error: %v", err)
+	}
+	if result == nil || result.Plan == nil {
+		if result != nil && result.Precheck != nil {
+			t.Fatalf("expected plan to be created, issues: %+v", result.Precheck.Issues)
+		}
+		t.Fatalf("expected plan to be created")
+	}
+	if len(result.Plan.Snapshot.ConnectorManifest.Connectors) != 1 {
+		t.Fatalf("expected 1 connector, got %d", len(result.Plan.Snapshot.ConnectorManifest.Connectors))
+	}
+	conn := result.Plan.Snapshot.ConnectorManifest.Connectors[0]
+	if len(conn.ProfileKeys) != 1 || conn.ProfileKeys[0] != "mysql" {
+		t.Fatalf("expected inherited profile 'mysql', got %+v", conn.ProfileKeys)
+	}
+	if len(result.Plan.Snapshot.ConnectorManifest.PluginDeps) != 1 {
+		t.Fatalf("expected 1 plugin dependency, got %d", len(result.Plan.Snapshot.ConnectorManifest.PluginDeps))
+	}
+	dep := result.Plan.Snapshot.ConnectorManifest.PluginDeps[0]
+	if dep.ArtifactID != "mysql-connector-java" || dep.TargetDir != "plugins/connector-jdbc" {
+		t.Fatalf("unexpected dependency: %+v", dep)
+	}
+}
+
+func TestService_RunPrecheck_blocksMissingDependency(t *testing.T) {
+	database := openTestDB(t)
+	repo := NewRepository(database)
+	service := newPlanningService(t, repo)
+	packagePath := createTestPackage(t, map[string]string{
+		"config/seatunnel.yaml": "seatunnel: default",
+	})
+
+	service.SetPackageProvider(&stubPackageProvider{info: &installerapp.PackageInfo{
+		Version:   "3.0.0",
+		FileName:  "apache-seatunnel-3.0.0-bin.tar.gz",
+		IsLocal:   true,
+		LocalPath: packagePath,
+		FileSize:  4096,
+		Checksum:  "abc123",
+	}})
+	service.SetPluginProvider(&stubPluginProvider{
+		installed: []pluginapp.InstalledPlugin{{
+			ClusterID:           1,
+			PluginName:          "jdbc",
+			Version:             "2.3.13",
+			SelectedProfileKeys: []string{"mysql"},
+		}},
+		local: []pluginapp.LocalPlugin{{
+			Name:          "jdbc",
+			Version:       "3.0.0",
+			Category:      pluginapp.PluginCategoryConnector,
+			ConnectorPath: "/tmp/connector-jdbc-3.0.0.jar",
+			DownloadedAt:  time.Now(),
+		}},
+		dependencies: map[string][]pluginapp.PluginDependency{
+			"jdbc": {
+				{
+					GroupID:    "mysql",
+					ArtifactID: "mysql-connector-java",
+					Version:    "8.0.27",
+					TargetDir:  "plugins/connector-jdbc",
+				},
+			},
+		},
+		missingDeps: map[string]bool{
+			"mysql-connector-java": true,
+		},
+	})
+
+	result, err := service.RunPrecheck(context.Background(), &PrecheckRequest{
+		ClusterID:      1,
+		TargetVersion:  "3.0.0",
+		ConnectorNames: []string{"jdbc"},
+	})
+	if err != nil {
+		t.Fatalf("RunPrecheck returned error: %v", err)
+	}
+	if result.Ready {
+		t.Fatalf("expected precheck to be blocked by missing dependency")
+	}
+	assertIssueCode(t, result.Issues, "dependency_missing")
 }
 
 func newPlanningService(t *testing.T, repo *Repository) *Service {

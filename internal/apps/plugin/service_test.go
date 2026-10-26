@@ -1390,3 +1390,78 @@ func TestStartInstallPluginAsyncRejectsVersionMismatch(t *testing.T) {
 		t.Fatalf("expected ErrVersionMismatch, got %v", err)
 	}
 }
+
+func TestResolvePluginProfiles_mergesCandidatesAndValidates(t *testing.T) {
+	service, repo := newTestPluginServiceWithDownloader(t, t.TempDir())
+	ctx := context.Background()
+
+	// Seed profile for jdbc
+	_ = repo.UpsertDependencyProfile(ctx, &PluginDependencyProfile{
+		SeatunnelVersion: "3.0.0",
+		PluginName:       "jdbc",
+		ArtifactID:       "connector-jdbc",
+		ProfileKey:       "mysql",
+		ProfileName:      "MySQL",
+		TargetDir:        "plugins/connector-jdbc",
+		ResolutionMode:   DependencyResolutionModeExact,
+		SourceKind:       PluginDependencyProfileSourceOfficialSeed,
+	})
+	_ = repo.UpsertDependencyProfile(ctx, &PluginDependencyProfile{
+		SeatunnelVersion: "3.0.0",
+		PluginName:       "jdbc",
+		ArtifactID:       "connector-jdbc",
+		ProfileKey:       "dameng",
+		ProfileName:      "Dameng",
+		TargetDir:        "plugins/connector-jdbc",
+		ResolutionMode:   DependencyResolutionModeExact,
+		SourceKind:       PluginDependencyProfileSourceOfficialSeed,
+	})
+
+	// Case 1: Candidate profiles provided
+	resolved := service.ResolvePluginProfiles(ctx, "jdbc", "3.0.0", []string{"mysql"})
+	if len(resolved) != 1 || resolved[0] != "mysql" {
+		t.Fatalf("expected [mysql], got %+v", resolved)
+	}
+
+	// Case 2: Metadata file on disk
+	_ = service.downloader.writePluginMetadata(&Plugin{
+		Name:    "jdbc",
+		Version: "3.0.0",
+	}, []string{"dameng", "mysql"})
+
+	resolvedFromMeta := service.ResolvePluginProfiles(ctx, "jdbc", "3.0.0")
+	if len(resolvedFromMeta) != 2 || resolvedFromMeta[0] != "dameng" || resolvedFromMeta[1] != "mysql" {
+		t.Fatalf("expected [dameng, mysql], got %+v", resolvedFromMeta)
+	}
+}
+
+func TestRecordInstalledPlugin_updatesAndEnsuresMetadata(t *testing.T) {
+	service, repo := newTestPluginService(t)
+	ctx := context.Background()
+
+	// 1. Initial record
+	if err := service.RecordInstalledPlugin(ctx, 1, "testconn", "2.3.13"); err != nil {
+		t.Fatalf("RecordInstalledPlugin returned error: %v", err)
+	}
+
+	existing, err := repo.GetByClusterAndName(ctx, 1, "testconn")
+	if err != nil || existing == nil {
+		t.Fatalf("expected installed plugin record, err: %v", err)
+	}
+	if existing.Version != "2.3.13" {
+		t.Fatalf("expected version 2.3.13, got %s", existing.Version)
+	}
+
+	// 2. Switch version to 3.0.0
+	if err := service.RecordInstalledPlugin(ctx, 1, "testconn", "3.0.0"); err != nil {
+		t.Fatalf("RecordInstalledPlugin version update failed: %v", err)
+	}
+
+	reloaded, err := repo.GetByClusterAndName(ctx, 1, "testconn")
+	if err != nil || reloaded == nil {
+		t.Fatalf("expected reloaded record, err: %v", err)
+	}
+	if reloaded.Version != "3.0.0" {
+		t.Fatalf("expected version 3.0.0, got %s", reloaded.Version)
+	}
+}

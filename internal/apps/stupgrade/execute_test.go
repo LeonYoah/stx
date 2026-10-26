@@ -20,6 +20,7 @@ package stupgrade
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -645,6 +646,100 @@ func TestService_ExecutePlan_syncsPluginsManifestWhenPresent(t *testing.T) {
 	}
 	if !hasSubCommand(agentSender.commands, "sync_plugins_manifest") {
 		t.Fatalf("expected sync_plugins_manifest command, got %+v", agentSender.commands)
+	}
+}
+
+func TestService_ExecutePlan_transfersPluginWithConnectorProfileKeys(t *testing.T) {
+	database := openTestDB(t)
+	repo := NewRepository(database)
+	clusterOperator := &stubClusterOperator{}
+	agentSender := &stubAgentCommandSender{
+		agents: map[uint]string{101: "agent-node-a"},
+	}
+	service := newExecutionService(t, repo, clusterOperator, agentSender)
+	pluginProvider := &stubPluginProvider{
+		installed: []pluginapp.InstalledPlugin{{
+			ClusterID:  1,
+			PluginName: "jdbc",
+			Version:    "2.3.11",
+		}},
+		local: []pluginapp.LocalPlugin{{
+			Name:       "jdbc",
+			ArtifactID: "connector-jdbc",
+			Version:    "2.3.12",
+		}},
+	}
+	service.SetPluginProvider(pluginProvider)
+
+	plan, err := service.CreatePlan(context.Background(), UpgradePlanSnapshot{
+		ClusterID:      1,
+		DeploymentMode: string(clusterapp.DeploymentModeHybrid),
+		SourceVersion:  "2.3.11",
+		TargetVersion:  "2.3.12",
+		PackageManifest: PackageManifest{
+			Version:   "2.3.12",
+			FileName:  "apache-seatunnel-2.3.12-bin.tar.gz",
+			LocalPath: "/tmp/apache-seatunnel-2.3.12-bin.tar.gz",
+			Checksum:  "abc123456",
+			Arch:      "amd64",
+			SizeBytes: 4096,
+			Source:    AssetSourceLocalPackage,
+		},
+		ConnectorManifest: ConnectorManifest{
+			Version:         "2.3.12",
+			ReplacementMode: "package_overlay",
+			Connectors: []ConnectorArtifact{{
+				PluginName:  "jdbc",
+				ArtifactID:  "connector-jdbc",
+				Version:     "2.3.12",
+				ProfileKeys: []string{"mysql", "postgresql"},
+				Category:    "connector",
+				FileName:    "connector-jdbc-2.3.12.jar",
+				Source:      AssetSourceLocalPlugin,
+				Required:    true,
+			}},
+			Libraries:  []LibraryArtifact{},
+			PluginDeps: []PluginDependencyArtifact{},
+		},
+		ConfigMergePlan: ConfigMergePlan{
+			Ready:       true,
+			Files:       []ConfigMergeFile{},
+			GeneratedAt: time.Now(),
+		},
+		NodeTargets: []NodeTarget{{
+			ClusterNodeID:    11,
+			HostID:           101,
+			HostName:         "node-a",
+			HostIP:           "10.0.0.1",
+			Role:             string(clusterapp.NodeRoleMasterWorker),
+			Arch:             "amd64",
+			SourceVersion:    "2.3.11",
+			TargetVersion:    "2.3.12",
+			SourceInstallDir: "/opt/seatunnel-2.3.11",
+			TargetInstallDir: "/opt/seatunnel-2.3.12",
+		}},
+		Steps: DefaultExecutionSteps(),
+	}, 7, PlanStatusReady, 0)
+	if err != nil {
+		t.Fatalf("CreatePlan returned error: %v", err)
+	}
+
+	task, err := service.ExecutePlan(context.Background(), plan.ID, 7)
+	if err != nil {
+		t.Fatalf("ExecutePlan returned error: %v", err)
+	}
+	if task.Status != ExecutionStatusSucceeded {
+		t.Fatalf("expected task status succeeded, got %s", task.Status)
+	}
+	if len(pluginProvider.transferred) != 1 {
+		t.Fatalf("expected 1 transferred plugin call, got %d", len(pluginProvider.transferred))
+	}
+	call := pluginProvider.transferred[0]
+	if call.PluginName != "jdbc" || call.Version != "2.3.12" {
+		t.Fatalf("unexpected transferred call: %+v", call)
+	}
+	if !reflect.DeepEqual(call.ProfileKeys, []string{"mysql", "postgresql"}) {
+		t.Fatalf("expected transferred profile keys [mysql postgresql], got %+v", call.ProfileKeys)
 	}
 }
 

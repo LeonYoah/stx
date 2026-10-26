@@ -62,6 +62,9 @@ type PluginProvider interface {
 	ListInstalledPlugins(ctx context.Context, clusterID uint) ([]pluginapp.InstalledPlugin, error)
 	ListLocalPlugins() ([]pluginapp.LocalPlugin, error)
 	GetPluginDependenciesForVersion(ctx context.Context, pluginName, version string) ([]pluginapp.PluginDependency, error)
+	GetPluginDependenciesForVersionAndProfiles(ctx context.Context, pluginName, version string, profileKeys []string) ([]pluginapp.PluginDependency, error)
+	ResolvePluginProfiles(ctx context.Context, pluginName, targetVersion string, candidateProfiles ...[]string) []string
+	IsDependencyDownloaded(artifactID, depVersion, pluginVersion, targetDir string) bool
 	GetPluginArtifactID(pluginName string) string
 	TransferPluginToAgent(ctx context.Context, agentID, pluginName, version, installDir string, profileKeys []string) error
 	RecordInstalledPlugin(ctx context.Context, clusterID uint, pluginName, version string) error
@@ -127,7 +130,7 @@ func (s *Service) RunPrecheck(ctx context.Context, req *PrecheckRequest) (*Prech
 	result.NodeTargets = nodeTargets
 	result.Issues = append(result.Issues, nodeIssues...)
 
-	connectorManifest, connectorIssues, err := s.buildConnectorManifest(ctx, req.ClusterID, targetVersion, req.ConnectorNames)
+	connectorManifest, connectorIssues, err := s.buildConnectorManifest(ctx, req.ClusterID, targetVersion, req.ConnectorNames, req.ConnectorProfiles)
 	if err != nil {
 		return nil, err
 	}
@@ -351,7 +354,7 @@ func (s *Service) buildNodeTargets(ctx context.Context, nodes []*clusterapp.Node
 	return targets, issues, nil
 }
 
-func (s *Service) buildConnectorManifest(ctx context.Context, clusterID uint, targetVersion string, connectorNames []string) (ConnectorManifest, []BlockingIssue, error) {
+func (s *Service) buildConnectorManifest(ctx context.Context, clusterID uint, targetVersion string, connectorNames []string, requestedProfiles map[string][]string) (ConnectorManifest, []BlockingIssue, error) {
 	manifest := ConnectorManifest{
 		Version:         targetVersion,
 		ReplacementMode: "package_overlay",
@@ -365,6 +368,11 @@ func (s *Service) buildConnectorManifest(ctx context.Context, clusterID uint, ta
 	if err != nil {
 		return manifest, nil, err
 	}
+	installedByName := make(map[string]pluginapp.InstalledPlugin, len(installedPlugins))
+	for _, p := range installedPlugins {
+		installedByName[p.PluginName] = p
+	}
+
 	requiredConnectors := resolveRequiredConnectors(installedPlugins, connectorNames)
 	localPlugins, err := s.pluginProvider.ListLocalPlugins()
 	if err != nil {
@@ -388,18 +396,37 @@ func (s *Service) buildConnectorManifest(ctx context.Context, clusterID uint, ta
 			continue
 		}
 
+		// 解析目标版本生效画像：1) 显式请求画像 2) 当前集群已安装画像 3) 目标版本本地元数据画像
+		// Resolve profiles to use on targetVersion:
+		// 1) explicitly requested profiles (if any)
+		// 2) installed profiles on cluster's current version
+		// 3) local target plugin metadata profiles
+		var candidateLists [][]string
+		if len(requestedProfiles) > 0 && len(requestedProfiles[connectorName]) > 0 {
+			candidateLists = append(candidateLists, requestedProfiles[connectorName])
+		}
+		if installed, exists := installedByName[connectorName]; exists && len(installed.SelectedProfileKeys) > 0 {
+			candidateLists = append(candidateLists, installed.SelectedProfileKeys)
+		}
+		if len(localPlugin.SelectedProfileKeys) > 0 {
+			candidateLists = append(candidateLists, localPlugin.SelectedProfileKeys)
+		}
+
+		profileKeys := s.pluginProvider.ResolvePluginProfiles(ctx, connectorName, targetVersion, candidateLists...)
+
 		manifest.Connectors = append(manifest.Connectors, ConnectorArtifact{
-			PluginName: connectorName,
-			ArtifactID: s.pluginProvider.GetPluginArtifactID(connectorName),
-			Version:    targetVersion,
-			Category:   string(localPlugin.Category),
-			FileName:   fileNameFromPath(localPlugin.ConnectorPath),
-			LocalPath:  localPlugin.ConnectorPath,
-			Source:     AssetSourceLocalPlugin,
-			Required:   true,
+			PluginName:  connectorName,
+			ArtifactID:  s.pluginProvider.GetPluginArtifactID(connectorName),
+			Version:     targetVersion,
+			ProfileKeys: profileKeys,
+			Category:    string(localPlugin.Category),
+			FileName:    fileNameFromPath(localPlugin.ConnectorPath),
+			LocalPath:   localPlugin.ConnectorPath,
+			Source:      AssetSourceLocalPlugin,
+			Required:    true,
 		})
 
-		dependencies, err := s.pluginProvider.GetPluginDependenciesForVersion(ctx, connectorName, targetVersion)
+		dependencies, err := s.pluginProvider.GetPluginDependenciesForVersionAndProfiles(ctx, connectorName, targetVersion, profileKeys)
 		if err != nil {
 			return manifest, nil, err
 		}
@@ -410,6 +437,18 @@ func (s *Service) buildConnectorManifest(ctx context.Context, clusterID uint, ta
 			}
 			fileName := fmt.Sprintf("%s-%s.jar", dependency.ArtifactID, version)
 			targetDir := strings.TrimSpace(dependency.TargetDir)
+
+			// Check if dependency is downloaded locally on control plane
+			// 校验依赖是否已下载到控制面本地
+			if !s.pluginProvider.IsDependencyDownloaded(dependency.ArtifactID, version, targetVersion, targetDir) {
+				issues = append(issues, blockingIssue(
+					CheckCategoryConnector,
+					"dependency_missing",
+					fmt.Sprintf("dependency %s-%s for connector %s (%s) is not downloaded locally / 连接器 %s (%s) 的依赖 %s-%s 尚未下载到本地", dependency.ArtifactID, version, connectorName, targetVersion, connectorName, targetVersion, dependency.ArtifactID, version),
+					map[string]string{"connector": connectorName, "dependency": dependency.ArtifactID, "version": version, "target_dir": targetDir},
+				))
+			}
+
 			if strings.HasPrefix(targetDir, "plugins/") {
 				relativePath := strings.TrimPrefix(targetDir, "plugins/")
 				relativePath = strings.TrimPrefix(relativePath, "/")
@@ -423,6 +462,7 @@ func (s *Service) buildConnectorManifest(ctx context.Context, clusterID uint, ta
 					ArtifactID:   dependency.ArtifactID,
 					Version:      version,
 					FileName:     fileName,
+					LocalPath:    dependency.StoredPath,
 					Source:       AssetSourceLocalPlugin,
 					TargetDir:    targetDir,
 					RelativePath: relativePath,
@@ -434,6 +474,7 @@ func (s *Service) buildConnectorManifest(ctx context.Context, clusterID uint, ta
 				ArtifactID: dependency.ArtifactID,
 				Version:    version,
 				FileName:   fileName,
+				LocalPath:  dependency.StoredPath,
 				Source:     AssetSourceLocalPlugin,
 				Scope:      dependency.TargetDir,
 			})

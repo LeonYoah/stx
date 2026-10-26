@@ -1595,25 +1595,26 @@ func (s *Service) transferPluginToAgent(ctx context.Context, agentID, artifactID
 		fmt.Printf("[Plugin Transfer] Transferring %d dependencies for plugin %s\n", len(deps), pluginName)
 
 		for _, dep := range deps {
-			// Check if dependency is downloaded / 检查依赖是否已下载
+			// Check if dependency is downloaded; attempt download if missing
+			// 检查依赖是否已下载；若缺失则尝试同步下载
 			if !s.downloader.IsDependencyDownloaded(dep.ArtifactID, dep.Version, version, dep.TargetDir) {
-				fmt.Printf("[Plugin Transfer] Warning: dependency %s-%s not downloaded, skipping\n", dep.ArtifactID, dep.Version)
-				continue
+				_ = s.DownloadPluginSync(ctx, pluginName, version, "", []string{})
+			}
+			if !s.downloader.IsDependencyDownloaded(dep.ArtifactID, dep.Version, version, dep.TargetDir) {
+				return fmt.Errorf("dependency %s-%s is not cached / 依赖 %s-%s 未缓存", dep.ArtifactID, dep.Version, dep.ArtifactID, dep.Version)
 			}
 
 			// Read dependency file / 读取依赖文件
 			depPath := s.downloader.GetDependencyPath(dep.ArtifactID, dep.Version, version, dep.TargetDir)
 			depData, err := s.readFile(depPath)
 			if err != nil {
-				fmt.Printf("[Plugin Transfer] Warning: failed to read dependency %s: %v, skipping\n", dep.ArtifactID, err)
-				continue
+				return fmt.Errorf("failed to read dependency %s / 读取依赖 %s 失败: %w", dep.ArtifactID, dep.ArtifactID, err)
 			}
 
 			// Transfer dependency file / 传输依赖文件
 			depFileName := fmt.Sprintf("%s-%s.jar", dep.ArtifactID, dep.Version)
 			if err := s.transferFileToAgent(ctx, agentID, pluginName, version, "dependency", dep.TargetDir, depFileName, depData, installDir); err != nil {
-				fmt.Printf("[Plugin Transfer] Warning: failed to transfer dependency %s: %v, skipping\n", dep.ArtifactID, err)
-				continue
+				return fmt.Errorf("failed to transfer dependency %s / 传输依赖 %s 失败: %w", dep.ArtifactID, dep.ArtifactID, err)
 			}
 
 			fmt.Printf("[Plugin Transfer] Dependency transferred: %s\n", depFileName)
@@ -1740,6 +1741,119 @@ func (s *Service) GetPluginDependenciesForVersionAndProfiles(ctx context.Context
 		version = seatunnel.DefaultVersion()
 	}
 	return s.GetEffectiveDependencies(ctx, pluginName, version, normalizeProfileKeys(profileKeys))
+}
+
+// ResolvePluginProfiles 解析插件在目标版本下的生效画像标识集合。
+// ResolvePluginProfiles resolves the effective profile keys for a plugin on the target version.
+// 它合并显式候选画像，检查目标版本及其他版本的本地元数据，并在元数据缺失时根据缓存依赖进行反推。
+// It combines explicit candidate profiles, examines local metadata for target and other versions,
+// and falls back to cache inference when metadata is absent.
+func (s *Service) ResolvePluginProfiles(ctx context.Context, pluginName, targetVersion string, candidateProfiles ...[]string) []string {
+	if strings.TrimSpace(targetVersion) == "" {
+		targetVersion = seatunnel.DefaultVersion()
+	}
+
+	merged := make(map[string]struct{})
+	for _, candidates := range candidateProfiles {
+		for _, key := range candidates {
+			trimmed := canonicalProfileKey(key)
+			if trimmed != "" {
+				merged[trimmed] = struct{}{}
+			}
+		}
+	}
+
+	// 1. Check target version metadata / 检查目标版本的元数据
+	if s.downloader != nil {
+		if meta, err := s.downloader.readPluginMetadata(pluginName, targetVersion); err == nil && meta != nil {
+			for _, key := range meta.SelectedProfileKeys {
+				trimmed := canonicalProfileKey(key)
+				if trimmed != "" {
+					merged[trimmed] = struct{}{}
+				}
+			}
+		}
+	}
+
+	// 2. If candidates are still empty, check local cache inference on target version
+	// 若候选仍为空，在目标版本上尝试缓存反推
+	if len(merged) == 0 {
+		inferred := s.inferProfileKeysFromCache(ctx, pluginName, targetVersion)
+		for _, key := range inferred {
+			trimmed := canonicalProfileKey(key)
+			if trimmed != "" {
+				merged[trimmed] = struct{}{}
+			}
+		}
+	}
+
+	// 3. If still empty, check other versions' metadata (e.g. source version)
+	// 若仍为空，尝试扫描本地所有其他版本的元数据
+	if len(merged) == 0 && s.downloader != nil {
+		if localPlugins, err := s.downloader.ListLocalPlugins(); err == nil {
+			for _, lp := range localPlugins {
+				if lp.Name == pluginName && len(lp.SelectedProfileKeys) > 0 {
+					for _, key := range lp.SelectedProfileKeys {
+						trimmed := canonicalProfileKey(key)
+						if trimmed != "" {
+							merged[trimmed] = struct{}{}
+						}
+					}
+					if len(merged) > 0 {
+						break
+					}
+				}
+			}
+		}
+	}
+
+	// 4. Validate and filter against targetVersion's profile definitions if available
+	// 校验并过滤出目标版本支持的画像
+	var result []string
+	if s.repo != nil {
+		profiles, err := s.repo.ListDependencyProfilesByPlugin(ctx, pluginName)
+		if err == nil && len(profiles) > 0 {
+			validProfiles := make(map[string]struct{})
+			var defaultProfile string
+			for _, p := range profiles {
+				key := canonicalProfileKey(p.ProfileKey)
+				if profileAppliesToVersion(p, targetVersion) {
+					validProfiles[key] = struct{}{}
+					if p.IsDefault && defaultProfile == "" {
+						defaultProfile = key
+					}
+				}
+			}
+			for key := range merged {
+				if _, ok := validProfiles[key]; ok {
+					result = append(result, key)
+				}
+			}
+			if len(result) == 0 && defaultProfile != "" && len(merged) == 0 {
+				result = append(result, defaultProfile)
+			}
+		}
+	}
+
+	// If no profile definitions in repo, preserve whatever was merged
+	// 如果仓库中无画像定义，则保留合并出的画像
+	if len(result) == 0 && len(merged) > 0 {
+		for key := range merged {
+			result = append(result, key)
+		}
+	}
+
+	sort.Strings(result)
+	return normalizeProfileKeys(result)
+}
+
+// IsDependencyDownloaded 检查插件依赖是否已下载到本地。
+// IsDependencyDownloaded checks if a plugin dependency is downloaded locally.
+func (s *Service) IsDependencyDownloaded(artifactID, depVersion, pluginVersion, targetDir string) bool {
+	if s.downloader == nil {
+		return false
+	}
+	return s.downloader.IsDependencyDownloaded(artifactID, depVersion, pluginVersion, targetDir)
 }
 
 // ==================== PluginTransferer Interface Implementation 插件传输器接口实现 ====================
@@ -1895,21 +2009,56 @@ func (s *Service) RecordInstalledPlugin(ctx context.Context, clusterID uint, plu
 			updated = true
 		}
 		if updated {
-			return s.repo.Update(ctx, existing)
+			if err := s.repo.Update(ctx, existing); err != nil {
+				return err
+			}
 		}
-		return nil
+	} else {
+		// Create new record / 创建新记录
+		installed := &InstalledPlugin{
+			ClusterID:   clusterID,
+			PluginName:  pluginName,
+			ArtifactID:  artifactID,
+			Category:    category,
+			Version:     version,
+			Status:      PluginStatusInstalled,
+			InstalledAt: time.Now(),
+		}
+
+		if err := s.repo.Create(ctx, installed); err != nil {
+			return err
+		}
 	}
 
-	// Create new record / 创建新记录
-	installed := &InstalledPlugin{
-		ClusterID:   clusterID,
-		PluginName:  pluginName,
-		ArtifactID:  artifactID,
-		Category:    category,
-		Version:     version,
-		Status:      PluginStatusInstalled,
-		InstalledAt: time.Now(),
-	}
+	// Ensure target version has metadata persisted if missing
+	// 确保目标版本本地元数据已持久化（若缺失）
+	s.ensureTargetVersionMetadata(ctx, pluginName, version)
+	return nil
+}
 
-	return s.repo.Create(ctx, installed)
+// ensureTargetVersionMetadata 在本地缺少目标版本的元数据文件时予以补齐。
+// ensureTargetVersionMetadata persists local metadata for a plugin version when missing.
+func (s *Service) ensureTargetVersionMetadata(ctx context.Context, pluginName, version string) {
+	if s.downloader == nil {
+		return
+	}
+	if meta, err := s.downloader.readPluginMetadata(pluginName, version); err == nil && meta != nil && len(meta.SelectedProfileKeys) > 0 {
+		return
+	}
+	profiles := s.ResolvePluginProfiles(ctx, pluginName, version)
+	if len(profiles) == 0 {
+		return
+	}
+	deps, err := s.GetPluginDependenciesForVersionAndProfiles(ctx, pluginName, version, profiles)
+	if err != nil {
+		deps = nil
+	}
+	plugin := &Plugin{
+		Name:         pluginName,
+		ArtifactID:   getArtifactID(pluginName),
+		Version:      version,
+		GroupID:      "org.apache.seatunnel",
+		Dependencies: deps,
+	}
+	_ = s.downloader.writePluginMetadata(plugin, profiles)
 }

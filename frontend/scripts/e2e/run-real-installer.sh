@@ -434,11 +434,36 @@ if [[ "${E2E_SCHEDULER_REAL:-}" == "1" ]]; then
 fi
 
 cd "${FRONTEND_DIR}"
-playwright_args=("${PLAYWRIGHT_SPECS[@]}")
+playwright_extra_args=()
 if [[ -n "${PLAYWRIGHT_PROJECT}" ]]; then
-  playwright_args+=(--project "${PLAYWRIGHT_PROJECT}")
+  playwright_extra_args+=(--project "${PLAYWRIGHT_PROJECT}")
 fi
 if [[ -n "${PLAYWRIGHT_GREP}" ]]; then
-  playwright_args+=(--grep "${PLAYWRIGHT_GREP}")
+  playwright_extra_args+=(--grep "${PLAYWRIGHT_GREP}")
 fi
+
+# Optional sequential isolation: one Playwright process per spec (fresh
+# webServer/backend/agent). Used by upgrade-real so Case A/B do not share a
+# dirty SeaTunnel / port / plugin-metadata harness.
+if [[ "${E2E_REAL_PLAYWRIGHT_SEQUENTIAL:-}" == "1" && "${#PLAYWRIGHT_SPECS[@]}" -gt 1 ]]; then
+  status=0
+  for spec in "${PLAYWRIGHT_SPECS[@]}"; do
+    echo "[e2e-real] sequential isolated playwright run: ${spec}"
+    # Free SeaTunnel/java-proxy orphans left when the previous Playwright
+    # webServer (agent supervisor) exited without a clean cluster stop.
+    pkill -f 'org.apache.seatunnel' >/dev/null 2>&1 || true
+    pkill -f 'seatunnel-starter' >/dev/null 2>&1 || true
+    pkill -f 'stx-java-proxy' >/dev/null 2>&1 || true
+    sleep 2
+    if ! pnpm exec playwright test "${spec}" "${playwright_extra_args[@]}"; then
+      status=$?
+      echo "[e2e-real] sequential run failed for ${spec} (exit ${status})"
+      # Continue remaining specs so Case A still reports when Case B failed.
+    fi
+  done
+  exit "${status}"
+fi
+
+playwright_args=("${PLAYWRIGHT_SPECS[@]}")
+playwright_args+=("${playwright_extra_args[@]}")
 pnpm exec playwright test "${playwright_args[@]}"

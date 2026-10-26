@@ -21,6 +21,7 @@ import {chooseSelectOption} from './helpers/install-wizard-real';
 import {
   ensureLocalPackage,
   installSourceCluster,
+  stopSourceCluster,
 } from './helpers/upgrade-real';
 import {
   downloadPluginApi,
@@ -44,11 +45,22 @@ const targetInstallDir = path.join(
   'install',
   `upgrade-profiles-missing-target-${targetVersion}`,
 );
+// Isolate from upgrade-real.spec.ts happy-path: that suite keeps PRIMARY
+// ports (and historically worker 5802). Case A must not leave a live SeaTunnel
+// on those binds or Case B Ready wait fails with PROCESS_RESTART_FAILED.
+// Use the CLI port trio already allocated by run-real-installer.sh.
 const clusterPort = Number(
-  process.env.E2E_INSTALLER_REAL_CLUSTER_PORT_PRIMARY || '38181',
+  process.env.E2E_INSTALLER_REAL_CLI_CLUSTER_PORT ||
+    process.env.E2E_INSTALLER_REAL_CLUSTER_PORT_SECONDARY ||
+    '39181',
+);
+const workerPort = Number(
+  process.env.E2E_INSTALLER_REAL_CLI_WORKER_PORT || '39481',
 );
 const httpPort = Number(
-  process.env.E2E_INSTALLER_REAL_HTTP_PORT_PRIMARY || '38080',
+  process.env.E2E_INSTALLER_REAL_CLI_HTTP_PORT ||
+    process.env.E2E_INSTALLER_REAL_HTTP_PORT_SECONDARY ||
+    '39780',
 );
 
 /**
@@ -70,71 +82,85 @@ test.describe.serial('upgrade real profiles_missing fail-closed', () => {
     test.slow();
     const request = page.context().request;
     console.log(
-      `[upgrade-profiles-missing] installing source cluster ${sourceVersion} at ${sourceInstallDir}`,
+      `[upgrade-profiles-missing] installing source cluster ${sourceVersion} at ${sourceInstallDir} (ports cluster=${clusterPort} worker=${workerPort} http=${httpPort})`,
     );
 
-    const cluster = await installSourceCluster(page, {
-      sourceVersion,
-      installDir: sourceInstallDir,
-      clusterPort,
-      httpPort,
-    });
-    await ensureLocalPackage(page, targetVersion, 'apache');
+    let clusterId: number | undefined;
+    try {
+      const cluster = await installSourceCluster(page, {
+        sourceVersion,
+        installDir: sourceInstallDir,
+        clusterPort,
+        httpPort,
+        workerPort,
+      });
+      clusterId = cluster.clusterId;
+      await ensureLocalPackage(page, targetVersion, 'apache');
 
-    // Source: install jdbc without selecting a profile → empty SelectedProfileKeys.
-    await downloadPluginApi(request, 'jdbc', sourceVersion, []);
-    await waitForPluginDownloadCompleted(request, 'jdbc', sourceVersion, []);
-    await installPluginToClusterApi(
-      request,
-      cluster.clusterId,
-      'jdbc',
-      sourceVersion,
-      [],
-    );
-    await waitForInstalledPlugin(
-      request,
-      cluster.clusterId,
-      'jdbc',
-      sourceVersion,
-      (p) => !(p.selected_profile_keys || []).length,
-    );
-    console.log(
-      '[upgrade-profiles-missing] source jdbc installed with empty selected_profile_keys',
-    );
+      // Source: install jdbc without selecting a profile → empty SelectedProfileKeys.
+      await downloadPluginApi(request, 'jdbc', sourceVersion, []);
+      await waitForPluginDownloadCompleted(request, 'jdbc', sourceVersion, []);
+      await installPluginToClusterApi(
+        request,
+        cluster.clusterId,
+        'jdbc',
+        sourceVersion,
+        [],
+      );
+      await waitForInstalledPlugin(
+        request,
+        cluster.clusterId,
+        'jdbc',
+        sourceVersion,
+        (p) => !(p.selected_profile_keys || []).length,
+      );
+      console.log(
+        '[upgrade-profiles-missing] source jdbc installed with empty selected_profile_keys',
+      );
 
-    // Target local package must exist WITHOUT selected_profile_keys metadata.
-    await downloadPluginApi(request, 'jdbc', targetVersion, []);
-    await waitForPluginDownloadCompleted(request, 'jdbc', targetVersion, []);
-    console.log(
-      `[upgrade-profiles-missing] target jdbc ${targetVersion} downloaded with empty profiles`,
-    );
+      // Target local package must exist WITHOUT selected_profile_keys metadata.
+      await downloadPluginApi(request, 'jdbc', targetVersion, []);
+      await waitForPluginDownloadCompleted(request, 'jdbc', targetVersion, []);
+      console.log(
+        `[upgrade-profiles-missing] target jdbc ${targetVersion} downloaded with empty profiles`,
+      );
 
-    await page.goto(`/clusters/${cluster.clusterId}/upgrade/prepare`);
-    await expect(page.getByTestId('upgrade-prepare-page')).toBeVisible();
-    await chooseSelectOption(
-      page,
-      'upgrade-prepare-target-version',
-      new RegExp(targetVersion.replace(/\./g, '\\.')),
-    );
-    await page
-      .getByTestId('upgrade-prepare-target-install-dir')
-      .fill(targetInstallDir);
-    await page.getByTestId('upgrade-prepare-run-precheck').click();
-    console.log('[upgrade-profiles-missing] precheck requested');
+      await page.goto(`/clusters/${cluster.clusterId}/upgrade/prepare`);
+      await expect(page.getByTestId('upgrade-prepare-page')).toBeVisible();
+      await chooseSelectOption(
+        page,
+        'upgrade-prepare-target-version',
+        new RegExp(targetVersion.replace(/\./g, '\\.')),
+      );
+      await page
+        .getByTestId('upgrade-prepare-target-install-dir')
+        .fill(targetInstallDir);
+      await page.getByTestId('upgrade-prepare-run-precheck').click();
+      console.log('[upgrade-profiles-missing] precheck requested');
 
-    await expect(page.getByTestId('upgrade-prepare-ready-badge')).toContainText(
-      /存在阻断|Blocked/i,
-      {timeout: 180000},
-    );
-    await expect(page.getByTestId('upgrade-prepare-continue')).toBeDisabled();
-    await expect(page.getByTestId('upgrade-prepare-issues')).toContainText(
-      /profiles_missing/,
-    );
-    await expect(page.getByTestId('upgrade-prepare-issues')).toContainText(
-      /jdbc/i,
-    );
-    console.log(
-      '[upgrade-profiles-missing] precheck blocked with profiles_missing for jdbc',
-    );
+      await expect(page.getByTestId('upgrade-prepare-ready-badge')).toContainText(
+        /存在阻断|Blocked/i,
+        {timeout: 180000},
+      );
+      await expect(page.getByTestId('upgrade-prepare-continue')).toBeDisabled();
+      await expect(page.getByTestId('upgrade-prepare-issues')).toContainText(
+        /profiles_missing/,
+      );
+      await expect(page.getByTestId('upgrade-prepare-issues')).toContainText(
+        /jdbc/i,
+      );
+      console.log(
+        '[upgrade-profiles-missing] precheck blocked with profiles_missing for jdbc',
+      );
+    } finally {
+      // Free host ports / agent process so later upgrade-real.spec.ts (or retries)
+      // can bind PRIMARY ports for its own source cluster.
+      if (clusterId) {
+        console.log(
+          `[upgrade-profiles-missing] stopping source cluster ${clusterId} before suite exit`,
+        );
+        await stopSourceCluster(page, clusterId);
+      }
+    }
   });
 });

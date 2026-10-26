@@ -73,6 +73,7 @@ test.describe.serial('upgrade real e2e', () => {
       installDir: sourceInstallDir,
       clusterPort,
       httpPort,
+      workerPort: clusterPort + 1,
     });
 
     console.log(

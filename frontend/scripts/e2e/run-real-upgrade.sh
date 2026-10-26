@@ -18,7 +18,13 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Case B (happy-path) then Case A (profiles_missing). Alphabetical discovery would
+# run profiles-missing first ('-' < '.') and leave a live SeaTunnel on shared host
+# ports, so Case B Ready wait fails with PROCESS_RESTART_FAILED. Sequential
+# Playwright processes (E2E_REAL_PLAYWRIGHT_SEQUENTIAL=1) also reset backend/agent
+# between specs for a full harness reset on top of Case A CLI-port isolation.
 export E2E_REAL_PLAYWRIGHT_SPEC="${E2E_REAL_PLAYWRIGHT_SPEC:-e2e/upgrade-real.spec.ts e2e/upgrade-real-profiles-missing.spec.ts}"
+export E2E_REAL_PLAYWRIGHT_SEQUENTIAL="${E2E_REAL_PLAYWRIGHT_SEQUENTIAL:-1}"
 export E2E_UPGRADE_REAL_SOURCE_VERSION="${E2E_UPGRADE_REAL_SOURCE_VERSION:-2.3.13}"
 export E2E_UPGRADE_REAL_TARGET_VERSION="${E2E_UPGRADE_REAL_TARGET_VERSION:-3.0.0}"
 

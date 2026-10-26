@@ -443,8 +443,8 @@ if [[ -n "${PLAYWRIGHT_GREP}" ]]; then
 fi
 
 # Optional sequential isolation: one Playwright process per spec (fresh
-# webServer/backend/agent). Used by upgrade-real so Case A/B do not share a
-# dirty SeaTunnel / port / plugin-metadata harness.
+# webServer/backend/agent). Prefer separate runner scripts / CI jobs when specs
+# also need isolated TMP_DIR/plugin storage (upgrade Case A vs Case B).
 if [[ "${E2E_REAL_PLAYWRIGHT_SEQUENTIAL:-}" == "1" && "${#PLAYWRIGHT_SPECS[@]}" -gt 1 ]]; then
   status=0
   for spec in "${PLAYWRIGHT_SPECS[@]}"; do

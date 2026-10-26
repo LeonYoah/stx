@@ -24,6 +24,7 @@
     "test:e2e:plugin-real": "bash ./scripts/e2e/run-real-plugin.sh",
     "test:e2e:config-real": "bash ./scripts/e2e/run-real-config.sh",
     "test:e2e:upgrade-real": "bash ./scripts/e2e/run-real-upgrade.sh",
+    "test:e2e:upgrade-real-profiles-missing": "bash ./scripts/e2e/run-real-upgrade-profiles-missing.sh",
     "test:e2e:install-wizard-template": "playwright test e2e/install-wizard-template.spec.ts",
     "test:e2e:plugin-template": "playwright test e2e/plugin-dependency-template.spec.ts",
     "test:e2e:real": "E2E_API_MODE=real playwright test",

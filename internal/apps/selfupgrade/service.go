@@ -47,7 +47,7 @@ func DefaultAssetCatalog() []AssetSpec {
 		{ID: "bundle", Name: fmt.Sprintf("stx-upgrade-linux-%s.tar.gz", runtimeGOARCH()), Description: "自升级整合包 / Unified self-upgrade bundle", Required: true},
 		{ID: "stx", Name: fmt.Sprintf("stx-%s-%s", runtimeGOOS(), runtimeGOARCH()), Description: "控制面主程序 / Control plane binary", Required: true},
 		{ID: "agent", Name: fmt.Sprintf("stx-agent-%s-%s", runtimeGOOS(), runtimeGOARCH()), Description: "Agent 二进制 / Agent binary", Required: true},
-		{ID: "proxy", Name: "stx-java-proxy-*.jar", Description: "全部代际 Proxy jar（glob）/ All-epoch Proxy jars", Required: true, Glob: true},
+		{ID: "proxy", Name: "stx-java-proxy-*.jar", Description: "全部代理 Java Proxy jar / All Java Proxy jars", Required: true, Glob: true},
 		{ID: "frontend", Name: "frontend-standalone-*.tar.gz", Description: "前端静态服务 / Frontend standalone", Required: false, Glob: true},
 	}
 }

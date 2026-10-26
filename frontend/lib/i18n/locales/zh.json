@@ -4732,7 +4732,6 @@
   "selfUpgrade": {
     "title": "系统升级",
     "subtitle": "预置本地资产后升级 STX 控制面、Agent 与 Proxy",
-    "refresh": "刷新",
     "mockMode": "本地模拟",
     "loadFailed": "加载状态失败",
     "errorTitle": "操作失败",

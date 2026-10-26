@@ -119,6 +119,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import services from '@/lib/services';
@@ -1834,6 +1835,15 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
       {/* 标准化页面头部 / Standardized Workspace Header */}
       <motion.div variants={itemVariants}>
         <WorkspaceHeader
+          breadcrumbs={[
+            {
+              label: t('cluster.title'),
+              href: '/clusters',
+            },
+            {
+              label: cluster.name,
+            },
+          ]}
           icon={<Layers />}
           title={cluster.name}
           badge={
@@ -1876,24 +1886,9 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
             </div>
           }
           subtitle={
-            <div className='flex items-center gap-1.5 text-xs text-muted-foreground flex-wrap'>
-              <button
-                type='button'
-                onClick={() => router.push('/clusters')}
-                className='hover:text-foreground transition-colors inline-flex items-center gap-1 hover:underline cursor-pointer'
-              >
-                <ArrowLeft className='size-3' />
-                <span>{t('cluster.title')}</span>
-              </button>
-              <span>/</span>
-              <span className='text-foreground font-medium'>{cluster.name}</span>
-              {cluster.description && (
-                <>
-                  <span>·</span>
-                  <span className='truncate max-w-sm'>{cluster.description}</span>
-                </>
-              )}
-            </div>
+            cluster.description ? (
+              <span className='truncate max-w-lg'>{cluster.description}</span>
+            ) : null
           }
           actions={
             <div className='flex items-center gap-2 flex-wrap'>
@@ -1908,55 +1903,62 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                 onClick={handleRefresh}
                 disabled={refreshing}
                 className='h-8'
+                title={t('common.refresh')}
               >
                 <RefreshCw
                   className={`h-3.5 w-3.5 mr-1.5 ${refreshing ? 'animate-spin' : ''}`}
                 />
                 {t('common.refresh')}
               </Button>
-              <Button
-                variant='outline'
-                size='sm'
-                onClick={() =>
-                  router.push(
-                    `/diagnostics?tab=errors&cluster_id=${clusterId}&source=cluster-detail`,
-                  )
-                }
-                className='h-8'
-              >
-                <Bug className='h-3.5 w-3.5 mr-1.5' />
-                {t('cluster.openDiagnostics')}
-              </Button>
-              <Button
-                variant='outline'
-                size='sm'
-                onClick={() =>
-                  router.push(`/clusters/${clusterId}/upgrade/prepare`)
-                }
-                className='h-8'
-              >
-                <Activity className='h-3.5 w-3.5 mr-1.5' />
-                {t('stUpgrade.entry')}
-              </Button>
-              <Button
-                variant='outline'
-                size='sm'
-                onClick={() => setIsEditDialogOpen(true)}
-                className='h-8'
-              >
-                <Pencil className='h-3.5 w-3.5 mr-1.5' />
-                {t('common.edit')}
-              </Button>
-              <Button
-                variant='destructive'
-                size='sm'
-                onClick={() => setIsDeleteDialogOpen(true)}
-                disabled={!canDelete}
-                className='h-8'
-              >
-                <Trash2 className='h-3.5 w-3.5 mr-1.5' />
-                {t('common.delete')}
-              </Button>
+
+              {/* 更多辅助与低频/高危操作收纳进下拉菜单 */}
+              {/* Secondary, low-frequency, and dangerous actions grouped into more dropdown */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant='outline'
+                    size='sm'
+                    className='h-8 px-2.5'
+                    aria-label={t('common.moreActions')}
+                  >
+                    <MoreHorizontal className='h-4 w-4 mr-1' />
+                    <span className='text-xs'>{t('common.more')}</span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align='end' className='w-44'>
+                  <DropdownMenuItem
+                    onClick={() =>
+                      router.push(
+                        `/diagnostics?tab=errors&cluster_id=${clusterId}&source=cluster-detail`,
+                      )
+                    }
+                  >
+                    <Bug className='h-3.5 w-3.5 mr-2 text-muted-foreground' />
+                    {t('cluster.openDiagnostics')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() =>
+                      router.push(`/clusters/${clusterId}/upgrade/prepare`)
+                    }
+                  >
+                    <Activity className='h-3.5 w-3.5 mr-2 text-muted-foreground' />
+                    {t('stUpgrade.entry')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setIsEditDialogOpen(true)}>
+                    <Pencil className='h-3.5 w-3.5 mr-2 text-muted-foreground' />
+                    {t('common.edit')}
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    disabled={!canDelete}
+                    onClick={() => setIsDeleteDialogOpen(true)}
+                    className='text-destructive focus:text-destructive'
+                  >
+                    <Trash2 className='h-3.5 w-3.5 mr-2' />
+                    {t('common.delete')}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           }
         />

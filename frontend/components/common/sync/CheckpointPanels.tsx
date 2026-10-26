@@ -1400,20 +1400,60 @@ export function CheckpointInspectOverviewSection({
 }) {
   const summary = buildCheckpointInspectSummary(result);
   const completed = result?.completed_checkpoint;
+  const pipeline = result?.pipeline_state;
   const checkpointId =
     completed?.checkpointId !== undefined && completed?.checkpointId !== null
       ? String(completed.checkpointId)
-      : '-';
+      : pipeline?.checkpointId !== undefined
+        ? String(pipeline.checkpointId)
+        : '-';
   const status =
-    typeof completed?.status === 'string' ? completed.status : 'UNKNOWN';
-  const duration =
-    completed?.durationMillis !== undefined ? `${completed.durationMillis} ms` : '-';
-  const stateSizeFormatted =
+    typeof completed?.status === 'string'
+      ? completed.status
+      : typeof pipeline?.status === 'string'
+        ? pipeline.status
+        : 'COMPLETED';
+
+  // 优先取精确耗时，若无则由完成时间戳与触发时间戳相减推导
+  // Prefer exact durationMillis; fallback to completedTimestamp - triggerTimestamp
+  const triggerTs =
+    typeof completed?.triggerTimestamp === 'number'
+      ? completed.triggerTimestamp
+      : typeof completed?.triggerTimestamp === 'string'
+        ? Number(completed.triggerTimestamp)
+        : undefined;
+  const completedTs =
+    typeof completed?.completedTimestamp === 'number'
+      ? completed.completedTimestamp
+      : typeof completed?.completedTimestamp === 'string'
+        ? Number(completed.completedTimestamp)
+        : undefined;
+  const durationMs =
+    typeof completed?.durationMillis === 'number'
+      ? completed.durationMillis
+      : triggerTs !== undefined &&
+          completedTs !== undefined &&
+          !Number.isNaN(triggerTs) &&
+          !Number.isNaN(completedTs)
+        ? Math.max(0, completedTs - triggerTs)
+        : undefined;
+  const duration = durationMs !== undefined ? `${durationMs} ms` : '-';
+
+  // 优先取快照大小，若无则从 pipeline_state.stateBytes 补充
+  // Prefer completed.stateSize; fallback to pipeline_state.stateBytes
+  const stateSizeBytes =
     typeof completed?.stateSize === 'number'
-      ? formatSizeBytes(completed.stateSize)
+      ? completed.stateSize
+      : typeof pipeline?.stateBytes === 'number'
+        ? pipeline.stateBytes
+        : undefined;
+  const stateSizeFormatted =
+    stateSizeBytes !== undefined
+      ? formatSizeBytes(stateSizeBytes)
       : completed?.stateSize !== undefined && completed?.stateSize !== null
         ? String(completed.stateSize)
         : '-';
+
   const checkpointType =
     typeof completed?.checkpointType === 'string'
       ? completed.checkpointType
@@ -1820,19 +1860,56 @@ export function CheckpointInspectDialog({
   const [activeTab, setActiveTab] = useState('overview');
 
   const completed = result?.completed_checkpoint;
+  const pipeline = result?.pipeline_state;
   const checkpointId =
     completed?.checkpointId !== undefined && completed?.checkpointId !== null
       ? String(completed.checkpointId)
-      : '-';
+      : pipeline?.checkpointId !== undefined
+        ? String(pipeline.checkpointId)
+        : '-';
   const status =
-    typeof completed?.status === 'string' ? completed.status : 'UNKNOWN';
-  const duration =
-    completed?.durationMillis !== undefined
-      ? `${completed.durationMillis} ms`
-      : '-';
-  const stateSizeFormatted =
+    typeof completed?.status === 'string'
+      ? completed.status
+      : typeof pipeline?.status === 'string'
+        ? pipeline.status
+        : 'COMPLETED';
+
+  // 计算耗时：优先 durationMillis，次选 completedTimestamp - triggerTimestamp
+  // Calculate duration: durationMillis first, fallback to completedTimestamp - triggerTimestamp
+  const triggerTs =
+    typeof completed?.triggerTimestamp === 'number'
+      ? completed.triggerTimestamp
+      : typeof completed?.triggerTimestamp === 'string'
+        ? Number(completed.triggerTimestamp)
+        : undefined;
+  const completedTs =
+    typeof completed?.completedTimestamp === 'number'
+      ? completed.completedTimestamp
+      : typeof completed?.completedTimestamp === 'string'
+        ? Number(completed.completedTimestamp)
+        : undefined;
+  const durationMs =
+    typeof completed?.durationMillis === 'number'
+      ? completed.durationMillis
+      : triggerTs !== undefined &&
+          completedTs !== undefined &&
+          !Number.isNaN(triggerTs) &&
+          !Number.isNaN(completedTs)
+        ? Math.max(0, completedTs - triggerTs)
+        : undefined;
+  const duration = durationMs !== undefined ? `${durationMs} ms` : '-';
+
+  // 计算快照大小：优先 completed.stateSize，次选 pipeline.stateBytes
+  // Calculate state size: completed.stateSize first, fallback to pipeline.stateBytes
+  const stateSizeBytes =
     typeof completed?.stateSize === 'number'
-      ? formatSizeBytes(completed.stateSize)
+      ? completed.stateSize
+      : typeof pipeline?.stateBytes === 'number'
+        ? pipeline.stateBytes
+        : undefined;
+  const stateSizeFormatted =
+    stateSizeBytes !== undefined
+      ? formatSizeBytes(stateSizeBytes)
       : completed?.stateSize !== undefined && completed?.stateSize !== null
         ? String(completed.stateSize)
         : '-';
@@ -1857,7 +1934,7 @@ export function CheckpointInspectDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className='flex h-[86vh] w-[92vw] max-w-[92vw] flex-col overflow-hidden p-0 sm:max-w-[1240px]'>
+      <DialogContent className='flex max-h-[88vh] h-auto min-h-[460px] w-[92vw] max-w-[92vw] flex-col overflow-hidden p-0 sm:max-w-[1240px]'>
         {/* 顶部现代化标题与状态栏 */}
         <div className='border-b border-border/60 bg-muted/15 px-6 py-4'>
           <div className='flex flex-wrap items-center justify-between gap-3'>
@@ -2011,7 +2088,7 @@ export function CheckpointInspectDialog({
                 className='mt-0 space-y-5 outline-hidden'
               >
                 <CheckpointInspectPrimaryTableSection
-                  title={t('actions')}
+                  title={t('operatorActions') || t('actions')}
                   result={result}
                   sourceStateTitle={t('checkpointSourceState')}
                   decodeStrategyLabel={t('decodeStrategy')}

@@ -240,3 +240,46 @@ describe('SystemUpgradeMain execute buttons', () => {
     expect(screen.getByText('historyDryRunDone')).toBeTruthy();
   });
 });
+
+describe('SystemUpgradeMain check for updates', () => {
+  // 服务重启后尚未检查：最新版本处应就地给出“检查更新”入口，而非只显示“—”
+  // Not yet checked after a restart: the latest-version slot offers an in-place "check for updates" entry instead of a bare "—"
+  it('shows an inline check entry while unchecked and both entries call check', async () => {
+    selfUpgrade.getStatus.mockResolvedValue(
+      stagedStatus({
+        checked: false,
+        latest_version: '',
+        update_available: false,
+        overall_status: 'idle',
+        stage: {status: 'idle', progress: 0, assets: [], cancellable: false},
+      }),
+    );
+    selfUpgrade.check.mockResolvedValue({
+      current_version: '1.0.0',
+      latest_version: '1.0.1',
+      update_available: true,
+      checked_at: '2026-10-26T00:00:00Z',
+    });
+    render(<SystemUpgradeMain />);
+    const inline = await screen.findByTestId('self-upgrade-check-inline');
+    expect(inline.textContent).toBe('checkUpdate');
+    fireEvent.click(inline);
+    await waitFor(() => expect(selfUpgrade.check).toHaveBeenCalledTimes(1));
+
+    const header = screen.getByTestId('self-upgrade-check');
+    expect(header.textContent).toBe('checkUpdate');
+    await waitFor(() =>
+      expect((header as HTMLButtonElement).disabled).toBe(false),
+    );
+    fireEvent.click(header);
+    await waitFor(() => expect(selfUpgrade.check).toHaveBeenCalledTimes(2));
+  });
+
+  // 已检查后最新版本处显示版本号，不再出现就地检查入口
+  // Once checked, the latest-version slot shows the version and the inline entry is gone
+  it('shows the latest version once checked', async () => {
+    render(<SystemUpgradeMain />);
+    await screen.findByText('v1.0.1');
+    expect(screen.queryByTestId('self-upgrade-check-inline')).toBeNull();
+  });
+});

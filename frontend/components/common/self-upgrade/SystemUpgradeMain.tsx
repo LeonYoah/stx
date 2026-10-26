@@ -463,15 +463,17 @@ export function SystemUpgradeMain() {
         subtitle={t('subtitle')}
         actions={
           <div className='flex flex-wrap items-center gap-2'>
+            {/* 检查更新是整页第一步，用主色实心按钮突出，避免被误认为普通刷新而漏点 */}
+            {/* Checking for updates is the first step of the page; a solid primary button keeps it from being mistaken for a plain refresh */}
             <Button
-              variant='outline'
               size='sm'
               className='active:scale-[0.98]'
+              data-testid='self-upgrade-check'
               disabled={busy || status?.overall_status === 'upgrading'}
               onClick={() => void handleCheck()}
             >
               <RefreshCw className={cn('h-4 w-4 mr-1.5', busy && 'animate-spin')} />
-              {t('refresh')}
+              {t('checkUpdate')}
             </Button>
             {status?.mock_mode ? (
               <Badge variant='outline' className='text-xs font-normal'>
@@ -622,9 +624,24 @@ export function SystemUpgradeMain() {
             </div>
             <div>
               <div className='text-xs text-muted-foreground'>{t('latestVersion')}</div>
-              <div className='font-mono text-lg font-semibold tabular-nums'>
-                {status?.latest_version ? `v${status.latest_version}` : '—'}
-              </div>
+              {/* 最新版本只在检查后才有值（服务重启即清空）；未检查时就地给出检查入口，而不是只显示一个“—” */}
+              {/* The latest version only exists after a check (cleared on restart); when unchecked, offer the check in place instead of a bare "—" */}
+              {status && !status.checked && !status.latest_version ? (
+                <Button
+                  variant='link'
+                  size='sm'
+                  className='h-7 px-0 text-sm'
+                  data-testid='self-upgrade-check-inline'
+                  disabled={busy || status.overall_status === 'upgrading'}
+                  onClick={() => void handleCheck()}
+                >
+                  {t('checkUpdate')}
+                </Button>
+              ) : (
+                <div className='font-mono text-lg font-semibold tabular-nums'>
+                  {status?.latest_version ? `v${status.latest_version}` : '—'}
+                </div>
+              )}
             </div>
             {status?.architecture ? (
               <div>

@@ -85,7 +85,7 @@ func healthyChannel() *EngineEventChannel {
 }
 
 func TestReconcileEventMode_skipsListsAndPullsOnlyWatchedJobs(t *testing.T) {
-	withEventModeInterval(t, 0)
+	withEventModeInterval(t, 60)
 	service, engine, jobs := setupEventModeReconcile(t, "3.0.0", healthyChannel())
 	ctx := context.Background()
 
@@ -110,7 +110,7 @@ func TestReconcileEventMode_skipsListsAndPullsOnlyWatchedJobs(t *testing.T) {
 
 	// 超过完整对账间隔后恢复一次完整对账。
 	// Once the full-reconcile interval passes, a full reconcile runs again.
-	service.events.now = func() time.Time { return time.Now().Add(2 * defaultEventModeFullReconcileInterval) }
+	service.events.now = func() time.Time { return time.Now().Add(2 * time.Minute) }
 	if err := service.reconcileActiveJobs(ctx); err != nil {
 		t.Fatalf("third reconcile: %v", err)
 	}
@@ -132,6 +132,7 @@ func TestReconcileEventMode_fallsBackToFullReconcile(t *testing.T) {
 		{name: "no channel", version: "3.0.0", channel: nil},
 		{name: "degraded channel", version: "3.0.0", channel: degraded},
 		{name: "terminal-only cluster", version: "2.3.12", channel: healthyChannel()},
+		{name: "adaptive off by default", version: "3.0.0", channel: healthyChannel(), interval: 0},
 		{name: "adaptive disabled", version: "3.0.0", channel: healthyChannel(), interval: -1},
 	}
 	for _, tc := range cases {
@@ -154,7 +155,7 @@ func TestReconcileEventMode_fallsBackToFullReconcile(t *testing.T) {
 }
 
 func TestReconcileEventMode_staleUnwatchedJobIsRefreshed(t *testing.T) {
-	withEventModeInterval(t, 0)
+	withEventModeInterval(t, 60)
 	service, engine, jobs := setupEventModeReconcile(t, "3.0.0", healthyChannel())
 	ctx := context.Background()
 	service.markFullReconcile(5)

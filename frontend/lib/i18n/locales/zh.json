@@ -1196,7 +1196,7 @@
       "cancel": "取消",
       "confirmAction": "确认",
       "never": "从未",
-      "description": "开启后引擎把作业状态、表结构变更和 CDC 延迟推送给 STX，状态即时刷新，对账频率自动降低。",
+      "description": "开启后引擎把作业状态、表结构变更和 CDC 延迟推送给 STX：作业时间线能看到 DDL 和 CDC 延迟，状态变化会额外触发一次刷新。作业状态仍以轮询结果为准。",
       "unsupported": "当前集群版本 {version} 不支持作业状态事件（需要 2.3.12 及以上，3.x 支持非终态）。",
       "lastEvent": "最近事件：{time}",
       "counters": "已接收 {received} · 重复 {duplicates} · 丢弃 {dropped}",
@@ -1205,7 +1205,7 @@
       "modeTerminal": "仅上报终态",
       "url": "回调地址：{url}",
       "restartHint": "配置已写入 seatunnel.yaml，需要对集群执行滚动重启后才会开始上报。",
-      "degradedHint": "最近提交的作业没有在预期时间内收到状态事件，已自动退回 10 秒轮询。请检查集群能否访问回调地址，以及令牌是否与配置一致。",
+      "degradedHint": "最近提交的作业没有在预期时间内收到状态事件，时间线和 CDC 延迟可能缺数据，作业状态照常按轮询更新。请检查集群能否访问回调地址，以及令牌是否与配置一致。",
       "applied": "已更新 seatunnel.yaml，滚动重启集群后生效",
       "appliedWithErrors": "部分节点配置写入失败：{errors}",
       "state": {
@@ -1221,11 +1221,11 @@
         },
         "disable": {
           "title": "关闭事件上报？",
-          "body": "将从全部节点的 seatunnel.yaml 中移除 event-report-http，重启后停止上报，作业状态回到纯轮询。"
+          "body": "将从全部节点的 seatunnel.yaml 中移除 event-report-http，重启后停止上报，时间线和 CDC 延迟不再更新；作业状态照常按轮询更新。"
         },
         "rotate": {
           "title": "轮换事件令牌？",
-          "body": "会生成新令牌并写入 seatunnel.yaml。重启前引擎仍使用旧令牌，期间上报会被拒绝，状态回到轮询兜底。"
+          "body": "会生成新令牌并写入 seatunnel.yaml。重启前引擎仍使用旧令牌，期间上报会被拒绝；作业状态照常按轮询更新。"
         }
       }
     },

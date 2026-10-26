@@ -1922,11 +1922,14 @@ func (s *Service) DownloadPluginSync(ctx context.Context, pluginName, version, m
 	selectedProfiles := normalizeProfileKeys(profileKeys)
 
 	// Load effective dependencies using selected profiles / 使用选中的画像加载生效依赖
+	// Surface resolve errors (do not silently continue with empty deps).
+	// 解析失败直接返回，禁止静默空依赖继续。
 	deps, err := s.GetPluginDependenciesForVersionAndProfiles(ctx, pluginName, version, selectedProfiles)
-	if err == nil {
-		plugin.Dependencies = deps
-		fmt.Printf("[DownloadPluginSync] Loaded %d dependencies for %s (profiles=%v)\n", len(deps), pluginName, selectedProfiles)
+	if err != nil {
+		return fmt.Errorf("failed to resolve plugin dependencies for %s@%s / 解析插件依赖失败 %s@%s: %w", pluginName, version, pluginName, version, err)
 	}
+	plugin.Dependencies = deps
+	fmt.Printf("[DownloadPluginSync] Loaded %d dependencies for %s (profiles=%v)\n", len(deps), pluginName, selectedProfiles)
 
 	downloadMirror := MirrorSourceApache
 	switch MirrorSource(strings.TrimSpace(mirror)) {

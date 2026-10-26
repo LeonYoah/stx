@@ -17,15 +17,29 @@
 
 'use client';
 
+import dynamic from 'next/dynamic';
 import {useEffect, useMemo, useState} from 'react';
 import {useTranslations} from 'next-intl';
-import {Copy, Loader2, Pencil, Plus, Trash2, Wrench} from 'lucide-react';
+import {useTheme} from 'next-themes';
+import {
+  ChevronDown,
+  ChevronUp,
+  Copy,
+  CopyPlus,
+  Eye,
+  FileCode,
+  Loader2,
+  Maximize2,
+  Pencil,
+  Plus,
+  Trash2,
+  Wrench,
+} from 'lucide-react';
 import {toast} from 'sonner';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';
-import {Textarea} from '@/components/ui/textarea';
 import {
   Dialog,
   DialogContent,
@@ -51,12 +65,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {cn} from '@/lib/utils';
+import {cn, copyToClipboard} from '@/lib/utils';
 import type {
   SyncCuratedSection,
   SyncCuratedTemplateView,
 } from '@/lib/services/sync';
 import services from '@/lib/services';
+
+const MonacoEditor = dynamic(() => import('@monaco-editor/react'), {
+  ssr: false,
+});
 
 type EditorMode = 'create' | 'edit' | 'copy';
 
@@ -71,17 +89,22 @@ function isOwned(item: SyncCuratedTemplateView) {
 }
 
 /**
- * 模板管理：全量列表 + 检索/类型过滤；自建/改/删/复制；系统只读需复制后改。
- * Template manage: full list + filters; create/edit/delete/copy; builtins read-only (copy to edit).
+ * 模板管理：全量列表 + 检索/类型过滤；自建/改/删/创建副本/脚本预览/脚本复制；宽屏 Monaco 代码编辑与脚本预览。
+ * Template manage: full list + filters; create/edit/delete/fork/preview/copy; wide Monaco editor and preview.
  */
 export function CuratedTemplatesManagePanel({
   refreshToken = 0,
   onChanged,
+  clusterId,
 }: {
   refreshToken?: number;
   onChanged?: () => void;
+  clusterId?: string;
 }) {
   const t = useTranslations('workbenchStudio');
+  const {resolvedTheme} = useTheme();
+  const monacoTheme = resolvedTheme === 'light' ? 'vs' : 'vs-dark';
+
   const [loading, setLoading] = useState(false);
   const [items, setItems] = useState<SyncCuratedTemplateView[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -92,6 +115,20 @@ export function CuratedTemplatesManagePanel({
   const [pendingDelete, setPendingDelete] =
     useState<SyncCuratedTemplateView | null>(null);
 
+  // 展开速览脚本的模板 Key 集合
+  // Set of template keys with expanded inline script preview
+  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
+
+  // 预览弹窗状态
+  // Preview modal dialog state
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewItem, setPreviewItem] =
+    useState<SyncCuratedTemplateView | null>(null);
+  const [previewContent, setPreviewContent] = useState('');
+  const [previewLoading, setPreviewLoading] = useState(false);
+
+  // 编辑 / 新建 / 副本弹窗状态
+  // Edit / create / copy draft modal dialog state
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorMode, setEditorMode] = useState<EditorMode>('create');
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -132,6 +169,78 @@ export function CuratedTemplatesManagePanel({
     return items.filter((item) => item.origin === origin);
   }, [items, origin]);
 
+  /**
+   * 复制 HOCON 脚本到剪贴板
+   * Copy HOCON script to clipboard
+   */
+  const handleCopyScript = async (content: string) => {
+    if (!content) {
+      toast.info(t('curatedPreviewEmpty'));
+      return;
+    }
+    try {
+      await copyToClipboard(content);
+      toast.success(t('curatedScriptCopied'));
+    } catch {
+      toast.error(t('curatedCopyScriptFailed'));
+    }
+  };
+
+  /**
+   * 切换卡片内联脚本速览的展开/收起
+   * Toggle inline script preview expand/collapse for a card
+   */
+  const toggleExpanded = (key: string) => {
+    setExpandedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  };
+
+  /**
+   * 打开模板完整预览弹窗
+   * Open full template preview modal dialog
+   */
+  const openPreview = (item: SyncCuratedTemplateView) => {
+    setPreviewItem(item);
+    const fallback = (item.content || '').trim();
+    setPreviewContent(fallback);
+    setPreviewOpen(true);
+
+    const clusterNum = clusterId ? Number(clusterId) : 0;
+    if (Number.isFinite(clusterNum) && clusterNum > 0) {
+      setPreviewLoading(true);
+      const renderPromise = services.sync.renderCuratedTemplate?.({
+        builtin_id: item.builtin_id,
+        id: item.id,
+        cluster_id: clusterNum,
+      });
+      if (renderPromise && typeof renderPromise.then === 'function') {
+        void renderPromise
+          .then((res) => {
+            if (res?.content) {
+              setPreviewContent(res.content.trim());
+            }
+          })
+          .catch(() => {
+            // 降级使用原始模板 content
+            // Fallback to raw template content
+            setPreviewContent(fallback);
+          })
+          .finally(() => {
+            setPreviewLoading(false);
+          });
+      } else {
+        setPreviewLoading(false);
+      }
+    }
+  };
+
   const openCreate = () => {
     setEditorMode('create');
     setEditingId(null);
@@ -156,6 +265,10 @@ export function CuratedTemplatesManagePanel({
     setEditorOpen(true);
   };
 
+  /**
+   * 基于现有模板创建副本（系统模板 fork，自建模板生成副本草稿）
+   * Create copy from existing template (fork builtin, or create draft for user templates)
+   */
   const openCopy = async (item: SyncCuratedTemplateView) => {
     const key = itemKey(item);
     setBusyKey(key);
@@ -260,8 +373,15 @@ export function CuratedTemplatesManagePanel({
     editorMode === 'edit'
       ? t('curatedEdit')
       : editorMode === 'copy'
-        ? t('curatedCopy')
+        ? t('curatedCreateCopy')
         : t('curatedCreate');
+
+  const getOriginLabel = (orig: string) => {
+    if (orig === 'builtin') return t('curatedOriginBuiltin');
+    if (orig === 'user') return t('curatedOriginUser');
+    if (orig === 'override') return t('curatedOriginOverride');
+    return orig;
+  };
 
   return (
     <div className='flex h-full min-h-0 w-full min-w-0 flex-col gap-3.5'>
@@ -347,34 +467,35 @@ export function CuratedTemplatesManagePanel({
             const key = itemKey(item);
             const owned = isOwned(item);
             const busy = busyKey === key;
+            const isExpanded = expandedKeys.has(key);
             return (
               <div
                 key={key}
                 className={cn(
-                  'rounded-md border border-border/50 bg-background/60 px-2.5 py-2',
+                  'rounded-md border border-border/50 bg-background/60 px-2.5 py-2 transition-colors',
                   !owned && 'opacity-95',
                 )}
               >
                 <div className='flex items-center gap-1.5 min-w-0'>
-                  <span className='text-xs font-medium truncate'>
+                  <span className='text-xs font-medium truncate' title={item.name}>
                     {item.name}
                   </span>
                   <Badge
                     variant='secondary'
                     className='text-[9px] px-1 py-0 shrink-0'
                   >
-                    {item.origin}
+                    {getOriginLabel(item.origin)}
                   </Badge>
                   <Badge
                     variant='outline'
-                    className='text-[9px] px-1 py-0 shrink-0'
+                    className='text-[9px] px-1 py-0 shrink-0 font-mono'
                   >
                     {item.section}
                   </Badge>
                   {item.has_override && item.origin === 'builtin' ? (
                     <Badge
                       variant='outline'
-                      className='text-[9px] px-1 py-0 shrink-0'
+                      className='text-[9px] px-1 py-0 shrink-0 text-primary border-primary/40'
                     >
                       {t('curatedHasOverride')}
                     </Badge>
@@ -385,7 +506,48 @@ export function CuratedTemplatesManagePanel({
                     {item.description}
                   </p>
                 ) : null}
+
+                {/* 操作栏：预览、复制脚本、创建副本、编辑、删除、展开速览 */}
+                {/* Action toolbar: preview, copy script, create copy, edit, delete, toggle inline preview */}
                 <div className='mt-1.5 flex flex-wrap items-center gap-1'>
+                  <Button
+                    type='button'
+                    size='sm'
+                    variant='ghost'
+                    className='h-6 px-1.5 text-[10px] text-foreground hover:text-primary'
+                    onClick={() => openPreview(item)}
+                    title={t('curatedPreviewTitle')}
+                  >
+                    <Eye className='size-3 mr-1 text-primary' />
+                    {t('curatedPreview')}
+                  </Button>
+                  <Button
+                    type='button'
+                    size='sm'
+                    variant='ghost'
+                    className='h-6 px-1.5 text-[10px]'
+                    onClick={() => void handleCopyScript(item.content || '')}
+                    title={t('curatedCopyScript')}
+                  >
+                    <Copy className='size-3 mr-1' />
+                    {t('curatedCopyScript')}
+                  </Button>
+                  <Button
+                    type='button'
+                    size='sm'
+                    variant='ghost'
+                    className='h-6 px-1.5 text-[10px]'
+                    disabled={busy}
+                    onClick={() => void openCopy(item)}
+                    title={t('curatedCreateCopyHint')}
+                  >
+                    {busy ? (
+                      <Loader2 className='size-3 mr-1 animate-spin' />
+                    ) : (
+                      <CopyPlus className='size-3 mr-1' />
+                    )}
+                    {t('curatedCreateCopy')}
+                  </Button>
                   {owned ? (
                     <Button
                       type='button'
@@ -399,25 +561,10 @@ export function CuratedTemplatesManagePanel({
                       {t('curatedEdit')}
                     </Button>
                   ) : (
-                    <span className='text-[10px] text-muted-foreground px-1'>
+                    <span className='text-[10px] text-muted-foreground px-1 hidden sm:inline'>
                       {t('curatedBuiltinReadonly')}
                     </span>
                   )}
-                  <Button
-                    type='button'
-                    size='sm'
-                    variant='ghost'
-                    className='h-6 px-1.5 text-[10px]'
-                    disabled={busy}
-                    onClick={() => void openCopy(item)}
-                  >
-                    {busy ? (
-                      <Loader2 className='size-3 mr-1 animate-spin' />
-                    ) : (
-                      <Copy className='size-3 mr-1' />
-                    )}
-                    {t('curatedCopy')}
-                  </Button>
                   {owned ? (
                     <Button
                       type='button'
@@ -431,13 +578,223 @@ export function CuratedTemplatesManagePanel({
                       {t('delete')}
                     </Button>
                   ) : null}
+                  <Button
+                    type='button'
+                    size='sm'
+                    variant='ghost'
+                    className='h-6 px-1.5 text-[10px] text-muted-foreground ml-auto'
+                    onClick={() => toggleExpanded(key)}
+                    title={
+                      isExpanded
+                        ? t('curatedHideInlinePreview')
+                        : t('curatedToggleInlinePreview')
+                    }
+                  >
+                    {isExpanded ? (
+                      <>
+                        <ChevronUp className='size-3 mr-0.5' />
+                        <span>{t('curatedHideInlinePreview')}</span>
+                      </>
+                    ) : (
+                      <>
+                        <ChevronDown className='size-3 mr-0.5' />
+                        <span>{t('curatedToggleInlinePreview')}</span>
+                      </>
+                    )}
+                  </Button>
                 </div>
+
+                {/* 卡片内联速览区 */}
+                {/* Inline script preview card */}
+                {isExpanded ? (
+                  <div className='mt-2 rounded-md border border-border/50 bg-muted/20 overflow-hidden'>
+                    <div className='flex items-center justify-between border-b border-border/40 bg-muted/30 px-2.5 py-1 text-[10px] text-muted-foreground'>
+                      <span className='font-mono font-medium'>
+                        HOCON ({item.section})
+                      </span>
+                      <div className='flex items-center gap-1'>
+                        <Button
+                          type='button'
+                          variant='ghost'
+                          size='sm'
+                          className='h-5 px-1.5 text-[10px]'
+                          onClick={() => void handleCopyScript(item.content || '')}
+                        >
+                          <Copy className='size-2.5 mr-1' />
+                          {t('curatedCopyScript')}
+                        </Button>
+                        <Button
+                          type='button'
+                          variant='ghost'
+                          size='sm'
+                          className='h-5 px-1.5 text-[10px]'
+                          onClick={() => openPreview(item)}
+                        >
+                          <Maximize2 className='size-2.5 mr-1' />
+                          {t('curatedPreview')}
+                        </Button>
+                      </div>
+                    </div>
+                    <pre className='max-h-36 overflow-auto p-2.5 font-mono text-[10px] leading-4 text-foreground/90 whitespace-pre-wrap break-all'>
+                      {item.content || t('curatedPreviewEmpty')}
+                    </pre>
+                  </div>
+                ) : null}
               </div>
             );
           })}
         </div>
       )}
 
+      {/* 完整脚本预览弹窗（遵循重内容 4xl/5xl 规范，Monaco 只读高亮） */}
+      {/* Full script preview modal dialog (following 4xl/5xl heavy content spec, Monaco read-only) */}
+      <Dialog
+        open={previewOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPreviewOpen(false);
+            setPreviewItem(null);
+          }
+        }}
+      >
+        <DialogContent className='w-full sm:max-w-4xl lg:max-w-5xl h-[85vh] max-h-[85vh] flex flex-col p-0 gap-0 overflow-hidden border border-border/80 shadow-2xl'>
+          <DialogHeader className='p-6 pb-4 border-b border-border/60 shrink-0 bg-background'>
+            <div className='flex flex-wrap items-center justify-between gap-2 pr-6'>
+              <div className='flex items-center gap-2 min-w-0'>
+                <DialogTitle className='text-base sm:text-lg font-semibold flex items-center gap-2 truncate'>
+                  <Eye className='size-4 text-primary shrink-0' />
+                  <span className='truncate'>
+                    {previewItem?.name || t('curatedPreviewTitle')}
+                  </span>
+                </DialogTitle>
+                {previewItem ? (
+                  <div className='flex items-center gap-1.5 shrink-0'>
+                    <Badge variant='secondary' className='text-xs'>
+                      {getOriginLabel(previewItem.origin)}
+                    </Badge>
+                    <Badge variant='outline' className='text-xs font-mono'>
+                      {previewItem.section}
+                    </Badge>
+                    {previewItem.has_override &&
+                    previewItem.origin === 'builtin' ? (
+                      <Badge
+                        variant='outline'
+                        className='text-xs text-primary border-primary/40'
+                      >
+                        {t('curatedHasOverride')}
+                      </Badge>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+            <DialogDescription className='text-xs text-muted-foreground mt-1'>
+              {previewItem?.description || t('curatedPreviewDialogDesc')}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className='flex-1 min-h-0 p-6 flex flex-col gap-2 overflow-hidden bg-muted/5'>
+            <div className='flex items-center justify-between gap-2 shrink-0'>
+              <span className='text-xs font-medium text-foreground flex items-center gap-1.5'>
+                <FileCode className='size-3.5 text-muted-foreground' />
+                <span>{t('curatedPreviewScriptHeading')}</span>
+                {previewLoading ? (
+                  <Loader2 className='size-3 animate-spin text-muted-foreground ml-1' />
+                ) : null}
+              </span>
+              <Button
+                type='button'
+                variant='outline'
+                size='sm'
+                className='h-7 px-2.5 text-xs'
+                onClick={() => void handleCopyScript(previewContent)}
+              >
+                <Copy className='size-3 mr-1.5' />
+                {t('curatedCopyScript')}
+              </Button>
+            </div>
+            <div className='flex-1 min-h-0 rounded-lg border border-border/60 overflow-hidden bg-background shadow-xs'>
+              <MonacoEditor
+                height='100%'
+                theme={monacoTheme}
+                language='shell'
+                value={previewContent || ''}
+                options={{
+                  readOnly: true,
+                  minimap: {enabled: false},
+                  automaticLayout: true,
+                  fontSize: 13,
+                  lineNumbers: 'on',
+                  scrollBeyondLastLine: false,
+                  wordWrap: 'on',
+                  renderWhitespace: 'selection',
+                }}
+              />
+            </div>
+          </div>
+
+          <DialogFooter className='p-4 border-t border-border/60 bg-muted/15 flex items-center justify-between sm:justify-between shrink-0'>
+            <div className='flex items-center gap-2'>
+              <Button
+                type='button'
+                variant='outline'
+                size='sm'
+                className='text-xs'
+                onClick={() => void handleCopyScript(previewContent)}
+              >
+                <Copy className='size-3.5 mr-1.5' />
+                {t('curatedCopyScript')}
+              </Button>
+            </div>
+            <div className='flex items-center gap-2'>
+              {previewItem && isOwned(previewItem) ? (
+                <Button
+                  type='button'
+                  variant='outline'
+                  size='sm'
+                  className='text-xs'
+                  onClick={() => {
+                    const item = previewItem;
+                    setPreviewOpen(false);
+                    openEdit(item);
+                  }}
+                >
+                  <Pencil className='size-3.5 mr-1.5' />
+                  {t('curatedEdit')}
+                </Button>
+              ) : null}
+              {previewItem ? (
+                <Button
+                  type='button'
+                  variant='secondary'
+                  size='sm'
+                  className='text-xs'
+                  onClick={() => {
+                    const item = previewItem;
+                    setPreviewOpen(false);
+                    void openCopy(item);
+                  }}
+                >
+                  <CopyPlus className='size-3.5 mr-1.5' />
+                  {t('curatedCreateCopy')}
+                </Button>
+              ) : null}
+              <Button
+                type='button'
+                variant='outline'
+                size='sm'
+                className='text-xs'
+                onClick={() => setPreviewOpen(false)}
+              >
+                {t('close')}
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 编辑 / 新建 / 副本弹窗（放宽至 4xl/5xl，Monaco 专业编辑器支持） */}
+      {/* Edit / create / copy draft dialog (widened to 4xl/5xl with Monaco editor) */}
       <Dialog
         open={editorOpen}
         onOpenChange={(open) => {
@@ -446,23 +803,77 @@ export function CuratedTemplatesManagePanel({
           }
         }}
       >
-        <DialogContent className='max-w-xl'>
-          <DialogHeader>
-            <DialogTitle>{editorTitle}</DialogTitle>
-            <DialogDescription>{t('curatedEditDialogDesc')}</DialogDescription>
-          </DialogHeader>
-          <div className='grid gap-3 py-1'>
-            <div className='grid gap-1.5'>
-              <Label htmlFor='curated-mgmt-name'>{t('curatedSaveName')}</Label>
-              <Input
-                id='curated-mgmt-name'
-                value={editName}
-                onChange={(e) => setEditName(e.target.value)}
-                disabled={saving}
-              />
+        <DialogContent className='w-full sm:max-w-4xl lg:max-w-5xl h-[85vh] max-h-[85vh] flex flex-col p-0 gap-0 overflow-hidden border border-border/80 shadow-2xl'>
+          <DialogHeader className='p-6 pb-4 border-b border-border/60 shrink-0 bg-background'>
+            <div className='flex items-center justify-between gap-2 pr-6'>
+              <DialogTitle className='text-base sm:text-lg font-semibold flex items-center gap-2'>
+                <Pencil className='size-4 text-primary shrink-0' />
+                <span>{editorTitle}</span>
+              </DialogTitle>
+              {editorMode === 'copy' ? (
+                <Badge variant='secondary' className='text-xs'>
+                  {t('curatedCreateCopy')}
+                </Badge>
+              ) : null}
             </div>
-            <div className='grid gap-1.5'>
-              <Label htmlFor='curated-mgmt-desc'>
+            <DialogDescription className='text-xs text-muted-foreground mt-1'>
+              {t('curatedEditDialogDesc')}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className='flex-1 min-h-0 p-6 flex flex-col gap-3.5 overflow-hidden bg-muted/5'>
+            <div className='grid grid-cols-1 sm:grid-cols-3 gap-3.5 shrink-0'>
+              <div className='grid gap-1.5 sm:col-span-2'>
+                <Label
+                  htmlFor='curated-mgmt-name'
+                  className='text-xs font-medium'
+                >
+                  {t('curatedSaveName')}
+                </Label>
+                <Input
+                  id='curated-mgmt-name'
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  disabled={saving}
+                  className='h-8 text-xs'
+                />
+              </div>
+              <div className='grid gap-1.5 sm:col-span-1'>
+                <Label
+                  htmlFor='curated-mgmt-section'
+                  className='text-xs font-medium'
+                >
+                  {t('curatedSaveSection')}
+                </Label>
+                <Select
+                  value={editSection}
+                  onValueChange={(value) =>
+                    setEditSection(value as SyncCuratedSection)
+                  }
+                  disabled={saving}
+                >
+                  <SelectTrigger
+                    id='curated-mgmt-section'
+                    className='h-8 w-full text-xs'
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value='env'>env</SelectItem>
+                    <SelectItem value='source'>source</SelectItem>
+                    <SelectItem value='transform'>transform</SelectItem>
+                    <SelectItem value='sink'>sink</SelectItem>
+                    <SelectItem value='combo'>combo</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className='grid gap-1.5 shrink-0'>
+              <Label
+                htmlFor='curated-mgmt-desc'
+                className='text-xs font-medium'
+              >
                 {t('curatedSaveDescription')}
               </Label>
               <Input
@@ -471,43 +882,58 @@ export function CuratedTemplatesManagePanel({
                 onChange={(e) => setEditDescription(e.target.value)}
                 disabled={saving}
                 placeholder={t('curatedSaveDescriptionPlaceholder')}
+                className='h-8 text-xs'
               />
             </div>
-            <div className='grid gap-1.5'>
-              <Label>{t('curatedSaveSection')}</Label>
-              <Select
-                value={editSection}
-                onValueChange={(value) =>
-                  setEditSection(value as SyncCuratedSection)
-                }
-                disabled={saving}
-              >
-                <SelectTrigger className='h-9 w-full text-sm'>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value='env'>env</SelectItem>
-                  <SelectItem value='source'>source</SelectItem>
-                  <SelectItem value='transform'>transform</SelectItem>
-                  <SelectItem value='sink'>sink</SelectItem>
-                  <SelectItem value='combo'>combo</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className='grid gap-1.5'>
-              <Label htmlFor='curated-mgmt-content'>
-                {t('curatedEditContent')}
-              </Label>
-              <Textarea
-                id='curated-mgmt-content'
-                value={editContent}
-                onChange={(e) => setEditContent(e.target.value)}
-                disabled={saving}
-                className='min-h-48 font-mono text-xs'
-              />
+
+            <div className='flex-1 min-h-0 flex flex-col gap-2'>
+              <div className='flex items-center justify-between gap-2 shrink-0'>
+                <Label
+                  htmlFor='curated-mgmt-content'
+                  className='text-xs font-medium flex items-center gap-1.5'
+                >
+                  <FileCode className='size-3.5 text-muted-foreground' />
+                  <span>{t('curatedEditContent')}</span>
+                </Label>
+                <div className='flex items-center gap-2'>
+                  <span className='text-[11px] text-muted-foreground hidden sm:inline'>
+                    {t('curatedEditContentHint')}
+                  </span>
+                  <Button
+                    type='button'
+                    variant='outline'
+                    size='sm'
+                    className='h-6 px-2 text-[11px]'
+                    disabled={!editContent.trim()}
+                    onClick={() => void handleCopyScript(editContent)}
+                  >
+                    <Copy className='size-3 mr-1' />
+                    {t('curatedCopyScript')}
+                  </Button>
+                </div>
+              </div>
+              <div className='flex-1 min-h-[280px] rounded-lg border border-border/60 overflow-hidden bg-background shadow-xs'>
+                <MonacoEditor
+                  height='100%'
+                  theme={monacoTheme}
+                  language='shell'
+                  value={editContent}
+                  onChange={(val) => setEditContent(val ?? '')}
+                  options={{
+                    readOnly: saving,
+                    minimap: {enabled: false},
+                    automaticLayout: true,
+                    fontSize: 13,
+                    lineNumbers: 'on',
+                    scrollBeyondLastLine: false,
+                    wordWrap: 'on',
+                  }}
+                />
+              </div>
             </div>
           </div>
-          <DialogFooter>
+
+          <DialogFooter className='p-4 border-t border-border/60 bg-muted/15 flex items-center justify-end gap-2 shrink-0'>
             <Button
               type='button'
               variant='outline'
@@ -521,7 +947,9 @@ export function CuratedTemplatesManagePanel({
               disabled={saving || !editName.trim() || !editContent.trim()}
               onClick={() => void handleSave()}
             >
-              {saving ? <Loader2 className='size-3.5 animate-spin' /> : null}
+              {saving ? (
+                <Loader2 className='size-3.5 mr-1.5 animate-spin' />
+              ) : null}
               <span>{t('confirm')}</span>
             </Button>
           </DialogFooter>

@@ -185,49 +185,65 @@ type Plugin struct {
 // Note: Plugins are managed at cluster level, not host level.
 // 注意：插件在集群级别管理，而非主机级别。
 type InstalledPlugin struct {
-	ID                  uint               `gorm:"primaryKey" json:"id"`
-	ClusterID           uint               `gorm:"index;not null" json:"cluster_id"`                 // 集群 ID / Cluster ID
-	PluginName          string             `gorm:"size:100;not null;index" json:"plugin_name"`       // 插件名称 / Plugin name
-	ArtifactID          string             `gorm:"size:100" json:"artifact_id"`                      // Maven artifact ID (e.g., connector-cdc-mysql)
-	Category            PluginCategory     `gorm:"size:20;not null" json:"category"`                 // 分类 / Category
-	Version             string             `gorm:"size:20;not null" json:"version"`                  // 版本号 / Version
-	Status              PluginStatus       `gorm:"size:20;not null;default:installed" json:"status"` // 状态 / Status
-	InstallPath         string             `gorm:"size:255" json:"install_path"`                     // 安装路径 / Install path
-	InstalledAt         time.Time          `gorm:"not null" json:"installed_at"`                     // 安装时间 / Installed at
-	UpdatedAt           time.Time          `json:"updated_at"`                                       // 更新时间 / Updated at
-	InstalledBy         uint               `json:"installed_by,omitempty"`                           // 安装者 ID / Installed by
-	SelectedProfileKeys []string           `gorm:"-" json:"selected_profile_keys,omitempty"`         // 选中的画像 / Selected profiles
-	AttachedConnectors  []string           `gorm:"-" json:"attached_connectors,omitempty"`           // 自动附带的连接器 / Attached connectors
-	Dependencies        []PluginDependency `gorm:"-" json:"dependencies,omitempty"`                  // 自动附带的依赖 / Attached dependencies
+	ID                      uint               `gorm:"primaryKey" json:"id"`
+	ClusterID               uint               `gorm:"index;not null" json:"cluster_id"`                 // 集群 ID / Cluster ID
+	PluginName              string             `gorm:"size:100;not null;index" json:"plugin_name"`       // 插件名称 / Plugin name
+	ArtifactID              string             `gorm:"size:100" json:"artifact_id"`                      // Maven artifact ID (e.g., connector-cdc-mysql)
+	Category                PluginCategory     `gorm:"size:20;not null" json:"category"`                 // 分类 / Category
+	Version                 string             `gorm:"size:20;not null" json:"version"`                  // 版本号 / Version
+	Status                  PluginStatus       `gorm:"size:20;not null;default:installed" json:"status"` // 状态 / Status
+	InstallPath             string             `gorm:"size:255" json:"install_path"`                     // 安装路径 / Install path
+	InstalledAt             time.Time          `gorm:"not null" json:"installed_at"`                     // 安装时间 / Installed at
+	UpdatedAt               time.Time          `json:"updated_at"`                                       // 更新时间 / Updated at
+	InstalledBy             uint               `json:"installed_by,omitempty"`                           // 安装者 ID / Installed by
+	SelectedProfileKeys     []string           `gorm:"-" json:"selected_profile_keys,omitempty"`         // 选中的画像 / Selected profiles
+	SelectedProfileKeysJSON string             `gorm:"column:selected_profile_keys;type:text" json:"-"`
+	AttachedConnectors      []string           `gorm:"-" json:"attached_connectors,omitempty"` // 自动附带的连接器 / Attached connectors
+	Dependencies            []PluginDependency `gorm:"-" json:"dependencies,omitempty"`        // 自动附带的依赖 / Attached dependencies
 	// NodeStatuses 部分安装时各节点的状态（持久化为 JSON）。
 	// NodeStatuses holds per-node states for partial installs (persisted as JSON).
 	NodeStatuses     []PluginNodeInstallResult `gorm:"-" json:"node_statuses,omitempty"`
 	NodeStatusesJSON string                    `gorm:"column:node_statuses;type:text" json:"-"`
 }
 
-// BeforeSave 序列化节点状态。
-// BeforeSave serializes node states.
+// BeforeSave 序列化节点状态与选中画像。
+// BeforeSave serializes node states and selected profiles.
 func (p *InstalledPlugin) BeforeSave(_ *gorm.DB) error {
 	if len(p.NodeStatuses) == 0 {
 		p.NodeStatusesJSON = ""
-		return nil
+	} else {
+		data, err := json.Marshal(p.NodeStatuses)
+		if err != nil {
+			return err
+		}
+		p.NodeStatusesJSON = string(data)
 	}
-	data, err := json.Marshal(p.NodeStatuses)
-	if err != nil {
-		return err
+	if len(p.SelectedProfileKeys) == 0 {
+		p.SelectedProfileKeysJSON = ""
+	} else {
+		data, err := json.Marshal(p.SelectedProfileKeys)
+		if err != nil {
+			return err
+		}
+		p.SelectedProfileKeysJSON = string(data)
 	}
-	p.NodeStatusesJSON = string(data)
 	return nil
 }
 
-// AfterFind 反序列化节点状态（损坏的数据忽略）。
-// AfterFind deserializes node states (corrupt data is ignored).
+// AfterFind 反序列化节点状态与选中画像（损坏的数据忽略）。
+// AfterFind deserializes node states and selected profiles (corrupt data is ignored).
 func (p *InstalledPlugin) AfterFind(_ *gorm.DB) error {
 	p.NodeStatuses = nil
 	if p.NodeStatusesJSON != "" {
 		var statuses []PluginNodeInstallResult
 		if err := json.Unmarshal([]byte(p.NodeStatusesJSON), &statuses); err == nil {
 			p.NodeStatuses = statuses
+		}
+	}
+	if len(p.SelectedProfileKeys) == 0 && p.SelectedProfileKeysJSON != "" {
+		var keys []string
+		if err := json.Unmarshal([]byte(p.SelectedProfileKeysJSON), &keys); err == nil {
+			p.SelectedProfileKeys = keys
 		}
 	}
 	return nil

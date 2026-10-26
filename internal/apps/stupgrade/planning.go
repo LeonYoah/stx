@@ -64,10 +64,11 @@ type PluginProvider interface {
 	GetPluginDependenciesForVersion(ctx context.Context, pluginName, version string) ([]pluginapp.PluginDependency, error)
 	GetPluginDependenciesForVersionAndProfiles(ctx context.Context, pluginName, version string, profileKeys []string) ([]pluginapp.PluginDependency, error)
 	ResolvePluginProfiles(ctx context.Context, pluginName, targetVersion string, candidateProfiles ...[]string) []string
+	HasApplicableDependencyProfiles(ctx context.Context, pluginName, version string) bool
 	IsDependencyDownloaded(artifactID, depVersion, pluginVersion, targetDir string) bool
 	GetPluginArtifactID(pluginName string) string
 	TransferPluginToAgent(ctx context.Context, agentID, pluginName, version, installDir string, profileKeys []string) error
-	RecordInstalledPlugin(ctx context.Context, clusterID uint, pluginName, version string) error
+	RecordInstalledPlugin(ctx context.Context, clusterID uint, pluginName, version string, profileKeys []string) error
 }
 
 // ConfigProvider 定义升级预检查所需的配置读取能力。
@@ -413,6 +414,19 @@ func (s *Service) buildConnectorManifest(ctx context.Context, clusterID uint, ta
 		}
 
 		profileKeys := s.pluginProvider.ResolvePluginProfiles(ctx, connectorName, targetVersion, candidateLists...)
+
+		// Fail closed: plugins with dependency profiles must resolve at least one profile.
+		// Otherwise empty deps look "Ready" while agents miss drivers (e.g. jdbc multi-profile, no IsDefault).
+		// 失败关闭：存在依赖画像的插件必须解析出至少一个画像，否则空依赖会显示 Ready 但 Agent 缺少驱动。
+		if len(profileKeys) == 0 && s.pluginProvider.HasApplicableDependencyProfiles(ctx, connectorName, targetVersion) {
+			issues = append(issues, blockingIssue(
+				CheckCategoryConnector,
+				"profiles_missing",
+				fmt.Sprintf("connector %s (%s) requires dependency profiles but none were resolved; set connector_profiles / 连接器 %s (%s) 需要依赖画像但未能解析，请设置 connector_profiles", connectorName, targetVersion, connectorName, targetVersion),
+				map[string]string{"connector": connectorName, "version": targetVersion},
+			))
+			continue
+		}
 
 		manifest.Connectors = append(manifest.Connectors, ConnectorArtifact{
 			PluginName:  connectorName,

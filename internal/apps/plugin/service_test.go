@@ -27,6 +27,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -1435,12 +1436,92 @@ func TestResolvePluginProfiles_mergesCandidatesAndValidates(t *testing.T) {
 	}
 }
 
+func TestResolvePluginProfiles_fallsBackToDefaultWhenMergedFiltered(t *testing.T) {
+	service, repo := newTestPluginServiceWithDownloader(t, t.TempDir())
+	ctx := context.Background()
+	disableSeedAutoLoad(service, "3.0.0")
+
+	if err := repo.UpsertDependencyProfile(ctx, &PluginDependencyProfile{
+		SeatunnelVersion: "3.0.0",
+		PluginName:       "jdbc",
+		ArtifactID:       "connector-jdbc",
+		ProfileKey:       "mysql",
+		ProfileName:      "MySQL",
+		EngineScope:      "zeta",
+		TargetDir:        "plugins/connector-jdbc",
+		ResolutionMode:   DependencyResolutionModeExact,
+		SourceKind:       PluginDependencyProfileSourceOfficialSeed,
+		IsDefault:        true,
+		Items: []PluginDependencyProfileItem{{
+			GroupID:    "mysql",
+			ArtifactID: "mysql-connector-java",
+			Version:    "8.0.27",
+			TargetDir:  "plugins/connector-jdbc",
+		}},
+	}); err != nil {
+		t.Fatalf("upsert mysql profile: %v", err)
+	}
+	if err := repo.UpsertDependencyProfile(ctx, &PluginDependencyProfile{
+		SeatunnelVersion: "3.0.0",
+		PluginName:       "jdbc",
+		ArtifactID:       "connector-jdbc",
+		ProfileKey:       "oracle",
+		ProfileName:      "Oracle",
+		EngineScope:      "zeta",
+		TargetDir:        "plugins/connector-jdbc",
+		ResolutionMode:   DependencyResolutionModeExact,
+		SourceKind:       PluginDependencyProfileSourceOfficialSeed,
+		Items: []PluginDependencyProfileItem{{
+			GroupID:    "com.oracle",
+			ArtifactID: "ojdbc",
+			Version:    "21.0.0",
+			TargetDir:  "plugins/connector-jdbc",
+		}},
+	}); err != nil {
+		t.Fatalf("upsert oracle profile: %v", err)
+	}
+
+	profiles, err := repo.ListDependencyProfilesByPlugin(ctx, "jdbc")
+	if err != nil {
+		t.Fatalf("list profiles: %v", err)
+	}
+	if len(profiles) == 0 {
+		t.Fatal("expected dependency profiles to be persisted")
+	}
+
+	resolved := service.ResolvePluginProfiles(ctx, "jdbc", "3.0.0", []string{"legacy-only"})
+	if len(resolved) != 1 || resolved[0] != "mysql" {
+		t.Fatalf("expected default fallback [mysql], got %+v", resolved)
+	}
+}
+
+func TestTransferPluginToAgent_returnsDependencyResolveError(t *testing.T) {
+	service, _ := newTestPluginService(t)
+	ctx := context.Background()
+
+	sqlDB, err := service.repo.db.DB()
+	if err != nil {
+		t.Fatalf("failed to get sql db: %v", err)
+	}
+	if err := sqlDB.Close(); err != nil {
+		t.Fatalf("failed to close sql db: %v", err)
+	}
+
+	err = service.TransferPluginToAgent(ctx, "agent-1", "jdbc", "3.0.0", "/opt/st", []string{"mysql"})
+	if err == nil {
+		t.Fatal("expected TransferPluginToAgent to return dependency resolve error")
+	}
+	if !strings.Contains(err.Error(), "dependencies") && !strings.Contains(err.Error(), "依赖") {
+		t.Fatalf("expected dependency resolve error, got: %v", err)
+	}
+}
+
 func TestRecordInstalledPlugin_updatesAndEnsuresMetadata(t *testing.T) {
 	service, repo := newTestPluginService(t)
 	ctx := context.Background()
 
 	// 1. Initial record
-	if err := service.RecordInstalledPlugin(ctx, 1, "testconn", "2.3.13"); err != nil {
+	if err := service.RecordInstalledPlugin(ctx, 1, "testconn", "2.3.13", nil); err != nil {
 		t.Fatalf("RecordInstalledPlugin returned error: %v", err)
 	}
 
@@ -1453,7 +1534,7 @@ func TestRecordInstalledPlugin_updatesAndEnsuresMetadata(t *testing.T) {
 	}
 
 	// 2. Switch version to 3.0.0
-	if err := service.RecordInstalledPlugin(ctx, 1, "testconn", "3.0.0"); err != nil {
+	if err := service.RecordInstalledPlugin(ctx, 1, "testconn", "3.0.0", []string{"mysql"}); err != nil {
 		t.Fatalf("RecordInstalledPlugin version update failed: %v", err)
 	}
 

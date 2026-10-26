@@ -75,7 +75,7 @@ func (s *Service) installPluginOnNodes(ctx context.Context, clusterID uint, req 
 		progress.NodeResults = append([]PluginNodeInstallResult(nil), results...)
 		s.setInstallProgress(clusterID, req.PluginName, progress)
 
-		if err := s.transferPluginToAgent(ctx, agentIDs[i], artifactID, req.PluginName, req.Version, node.InstallDir, deps); err != nil {
+		if err := s.transferPluginToAgent(ctx, agentIDs[i], artifactID, req.PluginName, req.Version, node.InstallDir, deps, req.ProfileKeys); err != nil {
 			results[i].Status = PluginNodeStatusFailed
 			results[i].Message = err.Error()
 			installErr := fmt.Errorf("node %d (host %d): %w", node.NodeID, node.HostID, err)

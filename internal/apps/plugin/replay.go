@@ -342,7 +342,7 @@ func (s *Service) replayOnePlugin(ctx context.Context, agentID, installDir strin
 		}
 	}
 
-	if err := s.transferPluginToAgent(ctx, agentID, artifactID, installed.PluginName, version, installDir, deps); err != nil {
+	if err := s.transferPluginToAgent(ctx, agentID, artifactID, installed.PluginName, version, installDir, deps, result.ProfileKeys); err != nil {
 		result.Status = PluginReplayFailed
 		result.Message = err.Error()
 		logger.WarnF(ctx, "[Plugin] 插件补齐失败 / Plugin replay failed: plugin=%s, version=%s, err=%v", installed.PluginName, version, err)

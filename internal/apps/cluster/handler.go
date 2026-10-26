@@ -981,11 +981,15 @@ func (h *Handler) InspectCheckpointRuntimeStorage(c *gin.Context) {
 		return
 	}
 	var req struct {
-		Path      string                                    `json:"path"`
-		JobConfig *RuntimeStorageCheckpointInspectJobConfig `json:"job_config"`
+		Path            string                                    `json:"path"`
+		JobConfig       *RuntimeStorageCheckpointInspectJobConfig `json:"job_config"`
+		SourceConnector string                                    `json:"source_connector"`
 	}
 	if c.Request.Body != nil {
 		_ = c.ShouldBindJSON(&req)
+	}
+	if req.JobConfig == nil && strings.TrimSpace(req.SourceConnector) != "" {
+		req.JobConfig = buildMinimalHoconJobConfig(req.SourceConnector)
 	}
 	result, err := h.service.InspectCheckpointRuntimeStorage(
 		c.Request.Context(),

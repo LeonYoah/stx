@@ -531,6 +531,7 @@ export class ClusterService extends BaseService {
     params: {
       path: string;
       job_config?: RuntimeStorageCheckpointInspectJobConfig;
+      source_connector?: string;
     },
   ): Promise<RuntimeStorageCheckpointInspectResult> {
     const response =
@@ -1086,6 +1087,7 @@ export class ClusterService extends BaseService {
     params: {
       path: string;
       job_config?: RuntimeStorageCheckpointInspectJobConfig;
+      source_connector?: string;
     },
   ): Promise<{
     success: boolean;

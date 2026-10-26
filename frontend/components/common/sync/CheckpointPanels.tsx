@@ -18,7 +18,7 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import {useCallback, useMemo, useState, type ReactNode} from 'react';
+import {useCallback, useEffect, useMemo, useState, type ReactNode} from 'react';
 import {useTranslations} from 'next-intl';
 import {
   Activity,
@@ -37,11 +37,23 @@ import {
   Minus,
   Plus,
   RefreshCw,
+  RotateCcw,
+  Sparkles,
   Terminal,
   Zap,
 } from 'lucide-react';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
+import {Input} from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {toast} from 'sonner';
+import services from '@/lib/services';
 import {
   Dialog,
   DialogContent,
@@ -783,16 +795,33 @@ export function CheckpointDetailsSummary({
   );
 }
 
+/**
+ * 预设常用流式与 CDC 连接器选项
+ * Preset commonly used streaming and CDC connectors
+ */
+export const PRESET_STREAMING_CONNECTORS = [
+  { value: 'MySQL-CDC', label: 'MySQL-CDC (MySQL CDC 实时捕获)' },
+  { value: 'PostgreSQL-CDC', label: 'PostgreSQL-CDC (PostgreSQL CDC 逻辑复制)' },
+  { value: 'Oracle-CDC', label: 'Oracle-CDC (Oracle CDC 实时捕获)' },
+  { value: 'SqlServer-CDC', label: 'SqlServer-CDC (SQL Server CDC)' },
+  { value: 'MongoDB-CDC', label: 'MongoDB-CDC (MongoDB Change Streams)' },
+  { value: 'TiDB-CDC', label: 'TiDB-CDC (TiDB CDC 实时捕获)' },
+  { value: 'Kafka', label: 'Kafka (Kafka 流式消息消费)' },
+  { value: 'custom', label: '其他自定义连接器 / Custom' },
+] as const;
+
 function CheckpointInspectSectionShell({
   title,
   children,
   collapsible = false,
   defaultOpen = true,
+  action,
 }: {
   title: string;
   children: ReactNode;
   collapsible?: boolean;
   defaultOpen?: boolean;
+  action?: ReactNode;
 }) {
   if (collapsible) {
     return (
@@ -802,6 +831,14 @@ function CheckpointInspectSectionShell({
       >
         <CheckpointDetailsSummary className='border-b border-border/50 text-sm font-medium'>
           <span>{title}</span>
+          {action ? (
+            <div
+              className='ml-auto pr-2'
+              onClick={(e) => e.stopPropagation()}
+            >
+              {action}
+            </div>
+          ) : null}
         </CheckpointDetailsSummary>
         <div className='p-3'>{children}</div>
       </details>
@@ -809,8 +846,9 @@ function CheckpointInspectSectionShell({
   }
   return (
     <div className='rounded-lg border border-border/50 bg-background/80'>
-      <div className='border-b border-border/50 px-3 py-2 text-sm font-medium'>
-        {title}
+      <div className='flex items-center justify-between border-b border-border/50 px-3 py-2 text-sm font-medium'>
+        <span>{title}</span>
+        {action}
       </div>
       <div className='p-3'>{children}</div>
     </div>
@@ -934,6 +972,9 @@ export function CheckpointInspectSourceHighlightsSection({
   currentOffsetLabel,
   targetLabel,
   progressLabel,
+  onToggleManual,
+  isManualOpen,
+  reSpecifyLabel,
 }: {
   title: string;
   result: RuntimeStorageCheckpointInspectResult | null;
@@ -944,6 +985,9 @@ export function CheckpointInspectSourceHighlightsSection({
   currentOffsetLabel: string;
   targetLabel: string;
   progressLabel: string;
+  onToggleManual?: () => void;
+  isManualOpen?: boolean;
+  reSpecifyLabel?: string;
 }) {
   const sourceStates = Array.isArray(result?.source_state_inspect?.sources)
     ? result.source_state_inspect.sources
@@ -971,7 +1015,25 @@ export function CheckpointInspectSourceHighlightsSection({
   }
 
   return (
-    <CheckpointInspectSectionShell title={title}>
+    <CheckpointInspectSectionShell
+      title={title}
+      action={
+        onToggleManual ? (
+          <Button
+            variant='ghost'
+            size='sm'
+            className='h-6.5 gap-1 px-2 text-[11px] text-muted-foreground hover:text-foreground'
+            onClick={onToggleManual}
+          >
+            <RotateCcw className='size-3 text-muted-foreground' />
+            <span>
+              {reSpecifyLabel ||
+                (isManualOpen ? '收起配置' : '重新指定连接器')}
+            </span>
+          </Button>
+        ) : null
+      }
+    >
       <div className='space-y-4'>
         {errorMessage ? (() => {
           const friendly = formatFriendlyInspectError(errorMessage);
@@ -1796,18 +1858,37 @@ export function CheckpointInspectDialog({
   onOpenChange,
   result,
   t,
+  onResultUpdate,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   result: RuntimeStorageCheckpointInspectResult | null;
   t: (key: string) => string;
+  onResultUpdate?: (newResult: RuntimeStorageCheckpointInspectResult) => void;
 }) {
   const [copiedPath, setCopiedPath] = useState(false);
   const [copiedJson, setCopiedJson] = useState(false);
   const [activeTab, setActiveTab] = useState('overview');
 
-  const completed = result?.completed_checkpoint;
-  const pipeline = result?.pipeline_state;
+  // 本地快照解析结果状态（支持手动指定连接器后就地局部刷新）
+  // Local inspect result state (supports in-place re-decoding when connector is manually specified)
+  const [activeResult, setActiveResult] =
+    useState<RuntimeStorageCheckpointInspectResult | null>(result);
+  useEffect(() => {
+    setActiveResult(result);
+  }, [result]);
+
+  // 手动指定源端所属连接器状态
+  // Manual source connector selection state
+  const [selectedConnector, setSelectedConnector] =
+    useState<string>('MySQL-CDC');
+  const [customConnector, setCustomConnector] = useState<string>('');
+  const [isDecoding, setIsDecoding] = useState<boolean>(false);
+  const [showManualConnector, setShowManualConnector] =
+    useState<boolean>(false);
+
+  const completed = activeResult?.completed_checkpoint;
+  const pipeline = activeResult?.pipeline_state;
   const checkpointId =
     completed?.checkpointId !== undefined && completed?.checkpointId !== null
       ? String(completed.checkpointId)
@@ -1820,6 +1901,72 @@ export function CheckpointInspectDialog({
       : typeof pipeline?.status === 'string'
         ? pipeline.status
         : 'COMPLETED';
+
+  // 检查是否已有成功解码的数据源位点
+  // Check if any source states have been decoded
+  const hasSourceStates =
+    Array.isArray(activeResult?.source_state_inspect?.sources) &&
+    activeResult.source_state_inspect.sources.length > 0;
+
+  // 手动指定连接器并重新发起位点解析
+  // Manually decode checkpoint source offsets with the chosen connector
+  const handleManualDecode = useCallback(async () => {
+    const clusterId = activeResult?.cluster_id;
+    const path = activeResult?.path;
+    if (!clusterId || !path) {
+      toast.error(t('checkpointInspectUnavailable') || '当前快照路径不可用');
+      return;
+    }
+    const targetConnector =
+      selectedConnector === 'custom'
+        ? customConnector.trim()
+        : selectedConnector.trim();
+    if (!targetConnector) {
+      toast.error(t('selectOrInputConnector') || '请选择或输入源端连接器');
+      return;
+    }
+    setIsDecoding(true);
+    try {
+      const res = await services.cluster.inspectCheckpointRuntimeStorageSafe(
+        clusterId,
+        {
+          path,
+          source_connector: targetConnector,
+        },
+      );
+      if (!res.success || !res.data) {
+        toast.error(
+          res.error || t('checkpointInspectFailed') || '位点解析失败',
+        );
+        return;
+      }
+      setActiveResult(res.data);
+      onResultUpdate?.(res.data);
+      const decodedCount = res.data.source_state_inspect?.sources?.length ?? 0;
+      if (decodedCount > 0) {
+        toast.success(
+          t('checkpointSourceStateDecoded') || '源端位点解析成功',
+        );
+        setShowManualConnector(false);
+      } else {
+        const warning = res.data.source_state_inspect?.warnings?.[0];
+        toast.warning(
+          warning ||
+            t('checkpointSourceStateEmpty') ||
+            '未能通过所选连接器匹配到快照算子',
+        );
+      }
+    } finally {
+      setIsDecoding(false);
+    }
+  }, [
+    activeResult?.cluster_id,
+    activeResult?.path,
+    customConnector,
+    onResultUpdate,
+    selectedConnector,
+    t,
+  ]);
 
   // 计算耗时：优先 durationMillis，次选 completedTimestamp - triggerTimestamp
   // Calculate duration: durationMillis first, fallback to completedTimestamp - triggerTimestamp
@@ -1862,22 +2009,22 @@ export function CheckpointInspectDialog({
         : '-';
 
   const handleCopyPath = useCallback(() => {
-    if (!result?.path) {
+    if (!activeResult?.path) {
       return;
     }
-    void navigator.clipboard.writeText(result.path);
+    void navigator.clipboard.writeText(activeResult.path);
     setCopiedPath(true);
     setTimeout(() => setCopiedPath(false), 2000);
-  }, [result?.path]);
+  }, [activeResult?.path]);
 
   const handleCopyJson = useCallback(() => {
-    if (!result) {
+    if (!activeResult) {
       return;
     }
-    void navigator.clipboard.writeText(JSON.stringify(result, null, 2));
+    void navigator.clipboard.writeText(JSON.stringify(activeResult, null, 2));
     setCopiedJson(true);
     setTimeout(() => setCopiedJson(false), 2000);
-  }, [result]);
+  }, [activeResult]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -1906,7 +2053,7 @@ export function CheckpointInspectDialog({
                   {renderCheckpointFieldValue('status', status)}
                 </div>
                 <DialogDescription className='sr-only'>
-                  {result?.path || '-'}
+                  {activeResult?.path || '-'}
                 </DialogDescription>
               </div>
             </div>
@@ -1936,9 +2083,9 @@ export function CheckpointInspectDialog({
               <FileCode className='size-3.5 shrink-0 text-muted-foreground' />
               <span
                 className='truncate font-mono text-[11px] text-muted-foreground'
-                title={result?.path}
+                title={activeResult?.path}
               >
-                {result?.path || '-'}
+                {activeResult?.path || '-'}
               </span>
             </div>
             <div className='flex shrink-0 items-center gap-1'>
@@ -2023,10 +2170,100 @@ export function CheckpointInspectDialog({
               value='overview'
               className='mt-0 space-y-4 outline-hidden'
             >
-              <CheckpointInspectOverviewSection result={result} t={t} />
+              <CheckpointInspectOverviewSection result={activeResult} t={t} />
+
+              {/* 手动指定源端所属连接器卡片（若快照未匹配到作业配置，或用户点击主动展开） */}
+              {/* Manual source connector specification card (shown if no sources decoded, or user opened it) */}
+              {(!hasSourceStates || showManualConnector) && (
+                <div className='rounded-xl border border-primary/20 bg-primary/5 p-4 shadow-2xs space-y-3 dark:border-primary/25 dark:bg-primary/10'>
+                  <div className='flex items-start gap-2.5'>
+                    <div className='mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-md bg-primary/15 text-primary'>
+                      <Sparkles className='size-3.5' />
+                    </div>
+                    <div className='min-w-0 flex-1 space-y-1'>
+                      <div className='flex items-center justify-between gap-2'>
+                        <span className='text-xs font-semibold text-foreground'>
+                          {t('manualSpecifyConnector') || '手动指定源端连接器'}
+                        </span>
+                        {hasSourceStates && (
+                          <Button
+                            variant='ghost'
+                            size='sm'
+                            className='h-6 px-2 text-[11px] text-muted-foreground hover:text-foreground'
+                            onClick={() => setShowManualConnector(false)}
+                          >
+                            收起 / Close
+                          </Button>
+                        )}
+                      </div>
+                      <div className='text-[11px] leading-relaxed text-muted-foreground'>
+                        {t('manualSpecifyConnectorDesc') ||
+                          '当前快照未自动关联作业配置。您可以手动指定源端所属连接器，系统将基于对应驱动反序列化增量位点（如 MySQL Binlog、Kafka Offset）：'}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className='flex flex-wrap items-center gap-2 pt-1'>
+                    <Select
+                      value={selectedConnector}
+                      onValueChange={setSelectedConnector}
+                    >
+                      <SelectTrigger className='h-8.5 w-[280px] bg-background text-xs'>
+                        <SelectValue
+                          placeholder={
+                            t('selectOrInputConnector') || '选择源端连接器'
+                          }
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {PRESET_STREAMING_CONNECTORS.map((c) => (
+                          <SelectItem
+                            key={c.value}
+                            value={c.value}
+                            className='text-xs'
+                          >
+                            {c.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+
+                    {selectedConnector === 'custom' && (
+                      <Input
+                        value={customConnector}
+                        onChange={(e) => setCustomConnector(e.target.value)}
+                        placeholder={
+                          t('customConnectorPlaceholder') ||
+                          '例如: MySQL-CDC 或 Kafka'
+                        }
+                        className='h-8.5 w-[200px] bg-background text-xs font-mono'
+                      />
+                    )}
+
+                    <Button
+                      size='sm'
+                      className='h-8.5 gap-1.5 px-3 text-xs shadow-xs'
+                      onClick={handleManualDecode}
+                      disabled={isDecoding}
+                    >
+                      {isDecoding ? (
+                        <Loader2 className='size-3.5 animate-spin' />
+                      ) : (
+                        <Zap className='size-3.5' />
+                      )}
+                      <span>
+                        {isDecoding
+                          ? t('decodingOffset') || '正在解析...'
+                          : t('decodeOffsetAction') || '解析位点'}
+                      </span>
+                    </Button>
+                  </div>
+                </div>
+              )}
+
               <CheckpointInspectSourceHighlightsSection
                 title={t('checkpointSourceState')}
-                result={result}
+                result={activeResult}
                 decodeStrategyLabel={t('decodeStrategy')}
                 splitCountLabel={t('splitCount')}
                 warningsLabel={t('warnings')}
@@ -2034,6 +2271,9 @@ export function CheckpointInspectDialog({
                 currentOffsetLabel={t('currentOffset')}
                 targetLabel={t('sourceTarget')}
                 progressLabel={t('sourceProgress')}
+                onToggleManual={() => setShowManualConnector((prev) => !prev)}
+                isManualOpen={showManualConnector}
+                reSpecifyLabel={t('reSpecifyConnector')}
               />
             </TabsContent>
 
@@ -2045,7 +2285,7 @@ export function CheckpointInspectDialog({
             >
               <CheckpointInspectPrimaryTableSection
                 title={t('operatorActions') || t('actions')}
-                result={result}
+                result={activeResult}
                 sourceStateTitle={t('checkpointSourceState')}
                 decodeStrategyLabel={t('decodeStrategy')}
                 coordinatorLabel={t('coordinator')}

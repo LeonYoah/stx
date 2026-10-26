@@ -3870,13 +3870,14 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
         </DialogContent>
       </Dialog>
 
-      {/* 与工作台共用 Checkpoint 双看板；存储侧不传 job_config，位点区无数据时自动隐藏。
-          Reuse workbench Checkpoint dual-pane dialog; without job_config, source highlights stay hidden. */}
+      {/* 与工作台共用 Checkpoint 双看板；支持自动关联作业或手动指定连接器解析位点。
+          Reuse workbench Checkpoint dual-pane dialog; supports auto job config association and manual connector decode. */}
       <CheckpointInspectDialog
         open={checkpointInspectOpen}
         onOpenChange={setCheckpointInspectOpen}
         result={checkpointInspectResult}
         t={tCheckpoint}
+        onResultUpdate={setCheckpointInspectResult}
       />
 
       <Dialog open={imapInspectOpen} onOpenChange={setImapInspectOpen}>

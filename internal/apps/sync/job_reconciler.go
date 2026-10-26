@@ -112,29 +112,27 @@ func (s *Service) reconcileActiveJobs(ctx context.Context) error {
 }
 
 const (
-	// defaultEventModeFullReconcileInterval 是事件模式下完整对账的默认最长间隔。
-	// defaultEventModeFullReconcileInterval is the default longest interval between full reconciles in event mode.
-	defaultEventModeFullReconcileInterval = 60 * time.Second
 	// eventModeUnwatchedRefreshInterval 是事件模式下无人查看的运行中作业拉 job-info 的间隔（与 metrics_log 对齐）。
 	// eventModeUnwatchedRefreshInterval is how often unwatched running jobs pull job-info in event mode (aligned with metrics_log).
 	eventModeUnwatchedRefreshInterval = 30 * time.Second
 )
 
-// eventModeFullReconcileInterval 读取配置；返回 0 表示关闭自适应。
-// eventModeFullReconcileInterval reads the configuration; 0 means adaptive polling is disabled.
+// eventModeFullReconcileInterval 读取配置；返回 0 表示关闭自适应（默认）。
+// 自适应轮询默认关闭：事件平均晚到约 8 秒，不比 10 秒轮询快；放宽轮询只换来更少的引擎调用，
+// 代价是事件悄悄丢失时状态最长滞后一个完整对账间隔。只有需要减轻引擎压力的大集群才配置正数开启。
+// eventModeFullReconcileInterval reads the configuration; 0 means adaptive polling is disabled (the default).
+// Adaptive polling is off by default: events arrive about 8s late on average, no faster than the 10s poll, so
+// relaxing the poll only saves engine calls while a silently lost event can leave status stale for a whole full
+// reconcile interval. Only large clusters that need to shed engine load should enable it with a positive value.
 func eventModeFullReconcileInterval() time.Duration {
 	if config.Config == nil {
-		return defaultEventModeFullReconcileInterval
+		return 0
 	}
 	seconds := config.Config.Sync.JobReconcilerEventModeIntervalSeconds
-	switch {
-	case seconds < 0:
+	if seconds <= 0 {
 		return 0
-	case seconds == 0:
-		return defaultEventModeFullReconcileInterval
-	default:
-		return time.Duration(seconds) * time.Second
 	}
+	return time.Duration(seconds) * time.Second
 }
 
 // eventChannelSnapshot 读取全部事件通道，失败时返回空表（等同于没有事件通道，保持原有轮询）。

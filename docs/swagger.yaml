@@ -1548,6 +1548,33 @@ definitions:
         description: Worker hazelcast port (Hybrid only) / Worker Hazelcast 端口（仅混合模式）
         type: integer
     type: object
+  cluster.WebUIEndpoints:
+    properties:
+      available:
+        type: boolean
+      host_name:
+        type: string
+      job_path_template:
+        description: |-
+          JobPathTemplate 是作业详情页的 hash 路由，前端把 {job_id} 替换为引擎作业 ID 后拼在基础地址后面。
+          JobPathTemplate is the job detail hash route; the frontend substitutes {job_id} and appends it to a base URL.
+        type: string
+      native_base_url:
+        type: string
+      node_id:
+        type: integer
+      proxy_base_url:
+        type: string
+      reason:
+        type: string
+    type: object
+  cluster.WebUIEndpointsResponse:
+    properties:
+      data:
+        $ref: '#/definitions/cluster.WebUIEndpoints'
+      error_msg:
+        type: string
+    type: object
   config.InitClusterConfigsRequest:
     properties:
       host_id:
@@ -3900,8 +3927,145 @@ definitions:
       task_type:
         type: string
     type: object
+  sync.EngineEvent:
+    properties:
+      cluster_id:
+        type: integer
+      engine_job_id:
+        type: string
+      event_time_ms:
+        type: integer
+      event_type:
+        type: string
+      id:
+        type: integer
+      job_instance_id:
+        type: integer
+      job_status:
+        type: string
+      payload:
+        $ref: '#/definitions/sync.JSONMap'
+      received_at:
+        type: string
+    type: object
+  sync.EngineEventIngestResponse:
+    properties:
+      data:
+        $ref: '#/definitions/sync.EngineEventIngestResult'
+      error_msg:
+        type: string
+    type: object
+  sync.EngineEventIngestResult:
+    properties:
+      accepted:
+        type: integer
+      dropped:
+        type: integer
+      duplicates:
+        type: integer
+      ignored:
+        type: string
+    type: object
+  sync.EngineEventReportNodeResult:
+    properties:
+      changed:
+        type: boolean
+      config_id:
+        type: integer
+      error:
+        type: string
+      host_id:
+        type: integer
+      pending:
+        type: boolean
+      pushed:
+        type: boolean
+      template:
+        type: boolean
+    type: object
+  sync.EventChannelResponse:
+    properties:
+      data:
+        $ref: '#/definitions/sync.EventChannelStatus'
+      error_msg:
+        type: string
+    type: object
+  sync.EventChannelStatus:
+    properties:
+      auth_fail_count:
+        type: integer
+      cluster_id:
+        type: integer
+      config_applied_at:
+        type: string
+      config_apply_error:
+        type: string
+      configs:
+        items:
+          $ref: '#/definitions/sync.EngineEventReportNodeResult'
+        type: array
+      dropped_count:
+        type: integer
+      duplicate_count:
+        type: integer
+      enabled:
+        type: boolean
+      expect_missed_at:
+        type: string
+      expect_satisfied_at:
+        type: string
+      last_batch_at:
+        type: string
+      last_event_at:
+        type: string
+      parse_error_count:
+        type: integer
+      received_count:
+        type: integer
+      report_non_terminal:
+        type: boolean
+      restart_required:
+        type: boolean
+      state:
+        type: string
+      supported:
+        type: boolean
+      token_set:
+        type: boolean
+      url:
+        type: string
+      version:
+        type: string
+    type: object
   sync.JSONMap:
     additionalProperties: true
+    type: object
+  sync.JobCDCDelay:
+    properties:
+      at:
+        type: string
+      fresh:
+        type: boolean
+      latest_ms:
+        type: integer
+      max_1m_ms:
+        type: integer
+    type: object
+  sync.JobEventListResponse:
+    properties:
+      data:
+        $ref: '#/definitions/sync.JobEventListResult'
+      error_msg:
+        type: string
+    type: object
+  sync.JobEventListResult:
+    properties:
+      events:
+        items:
+          $ref: '#/definitions/sync.EngineEvent'
+        type: array
+      total:
+        type: integer
     type: object
   sync.JobInstance:
     properties:
@@ -3910,6 +4074,12 @@ definitions:
           AttachGeneration 在同一 external_ref 被 CLI 接管时递增，用来忽略过期停止请求。
           AttachGeneration increments when another CLI attaches to the same external_ref so stale cancel requests are ignored.
         type: integer
+      cdc_delay:
+        allOf:
+        - $ref: '#/definitions/sync.JobCDCDelay'
+        description: |-
+          CDCDelay 是事件通道聚合的 CDC 延迟摘要（内存态，响应时补充，不落库）。
+          CDCDelay is the CDC delay summary aggregated from the event channel (in memory, filled at response time).
       created_at:
         type: string
       created_by:
@@ -3976,6 +4146,52 @@ definitions:
       updated_at:
         type: string
     type: object
+  sync.JobRealtimeResponse:
+    properties:
+      data:
+        $ref: '#/definitions/sync.JobRealtimeResult'
+      error_msg:
+        type: string
+    type: object
+  sync.JobRealtimeResult:
+    properties:
+      available:
+        type: boolean
+      bucket_ms:
+        type: integer
+      cluster_id:
+        type: integer
+      edges:
+        items:
+          $ref: '#/definitions/sync.RealtimeEdge'
+        type: array
+      engine_job_id:
+        type: string
+      fetched_at_ms:
+        type: integer
+      from_ms:
+        type: integer
+      hints:
+        items:
+          $ref: '#/definitions/sync.RealtimeHint'
+        type: array
+      job_id:
+        type: integer
+      observability:
+        $ref: '#/definitions/sync.JSONMap'
+      reason:
+        type: string
+      to_ms:
+        type: integer
+      vertices:
+        items:
+          $ref: '#/definitions/sync.RealtimeVertex'
+        type: array
+      webui_path:
+        type: string
+      window_ms:
+        type: integer
+    type: object
   sync.JobResponse:
     properties:
       data:
@@ -4019,6 +4235,47 @@ definitions:
     - JobSyncStateDegraded
     - JobSyncStateStale
     - JobSyncStateUnknown
+  sync.RealtimeEdge:
+    properties:
+      points:
+        items:
+          additionalProperties: {}
+          type: object
+        type: array
+      queue_id:
+        type: integer
+      target_vertex_id:
+        type: integer
+    type: object
+  sync.RealtimeHint:
+    properties:
+      buckets:
+        type: integer
+      code:
+        type: string
+      queue_id:
+        type: integer
+      severity:
+        type: string
+      value:
+        type: number
+      vertex_id:
+        type: integer
+    type: object
+  sync.RealtimeVertex:
+    properties:
+      name:
+        type: string
+      points:
+        items:
+          additionalProperties: {}
+          type: object
+        type: array
+      type:
+        type: string
+      vertex_id:
+        type: integer
+    type: object
   sync.RunType:
     enum:
     - preview
@@ -4156,6 +4413,13 @@ definitions:
         type: integer
       workflow_name:
         type: string
+    type: object
+  sync.UpdateEventChannelRequest:
+    properties:
+      enabled:
+        type: boolean
+      rotate_token:
+        type: boolean
     type: object
   sync.UpdateTaskPermissionsRequest:
     properties:
@@ -5512,6 +5776,32 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/cluster.ClusterOperationResponse'
+      tags:
+      - clusters
+  /api/v1/clusters/{id}/webui-endpoints:
+    get:
+      parameters:
+      - description: 集群ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/cluster.WebUIEndpointsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/cluster.WebUIEndpointsResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/cluster.WebUIEndpointsResponse'
+      summary: 获取 SeaTunnel 集群观测地址
       tags:
       - clusters
   /api/v1/commands:
@@ -7009,6 +7299,190 @@ paths:
             $ref: '#/definitions/plugin.ListPluginsResponse'
       tags:
       - plugins
+  /api/v1/sync/engine-events/{cluster_id}:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: 集群 ID
+        in: path
+        name: cluster_id
+        required: true
+        type: integer
+      - description: Bearer <事件通道 token>
+        in: header
+        name: Authorization
+        required: true
+        type: string
+      - description: 引擎事件批次
+        in: body
+        name: request
+        required: true
+        schema:
+          items:
+            type: object
+          type: array
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sync.EngineEventIngestResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/sync.EngineEventIngestResponse'
+      summary: 接收 SeaTunnel 引擎事件上报
+      tags:
+      - Sync
+  /api/v1/sync/event-channels/{cluster_id}:
+    get:
+      parameters:
+      - description: 集群 ID
+        in: path
+        name: cluster_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sync.EventChannelResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/sync.EventChannelResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/sync.EventChannelResponse'
+      summary: 获取集群事件通道状态
+      tags:
+      - Sync
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: 集群 ID
+        in: path
+        name: cluster_id
+        required: true
+        type: integer
+      - description: 事件通道设置
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/sync.UpdateEventChannelRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sync.EventChannelResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/sync.EventChannelResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/sync.EventChannelResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/sync.EventChannelResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/sync.EventChannelResponse'
+        "428":
+          description: Precondition Required
+          schema:
+            $ref: '#/definitions/sync.EventChannelResponse'
+      summary: 开关集群事件通道或轮换 token（改写 seatunnel.yaml，需滚动重启生效）
+      tags:
+      - Sync
+  /api/v1/sync/jobs/{id}/events:
+    get:
+      parameters:
+      - description: 作业 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 按事件类型过滤，逗号分隔
+        in: query
+        name: types
+        type: string
+      - description: 页码，从 1 开始
+        in: query
+        name: page
+        type: integer
+      - description: 每页条数
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sync.JobEventListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/sync.JobEventListResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/sync.JobEventListResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/sync.JobEventListResponse'
+      summary: 获取作业事件时间线
+      tags:
+      - Sync
+  /api/v1/sync/jobs/{id}/realtime:
+    get:
+      parameters:
+      - description: 作业 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 时间窗口（毫秒），超出引擎上限时截断
+        in: query
+        name: window_ms
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sync.JobRealtimeResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/sync.JobRealtimeResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/sync.JobRealtimeResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/sync.JobRealtimeResponse'
+      summary: 获取作业实时指标与瓶颈提示
+      tags:
+      - Sync
   /api/v1/sync/jobs/cancel-by-ref:
     post:
       consumes:

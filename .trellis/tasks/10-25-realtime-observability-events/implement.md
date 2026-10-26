@@ -159,6 +159,7 @@
   - realtime 只能找 master 的约定
   - 前端实时面板约定
 - [x] 用中文写提交信息，末尾带上 Co-Authored-By。
+- [x] 按 `execution-security-guidelines.md` 的要求，给 6 个新增路由补 Swagger 注解，重新生成 `docs/` 并更新 `route_baseline.json`（开 PR 前补做）。
 
 ## 执行结果（2026-10-25）
 

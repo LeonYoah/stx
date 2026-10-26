@@ -1,11 +1,11 @@
 {
   "version": 1,
-  "baseline_date": "2026-10-25",
+  "baseline_date": "2026-10-26",
   "summary": {
     "route_count": 301,
-    "swagger_path_count": 116,
-    "swagger_operation_count": 135,
-    "swagger_documented_routes": 135,
+    "swagger_path_count": 121,
+    "swagger_operation_count": 141,
+    "swagger_documented_routes": 141,
     "registered_operations": 267,
     "route_exceptions": 34,
     "historical_gaps": 0
@@ -718,7 +718,7 @@
       "status": "operation",
       "operation_id": "cluster.webui.endpoints",
       "mode": "normal",
-      "swagger": false
+      "swagger": true
     },
     {
       "method": "ANY",
@@ -2227,7 +2227,7 @@
       "source": "internal/router/router.go:753",
       "status": "exception",
       "mode": "server_only",
-      "swagger": false
+      "swagger": true
     },
     {
       "method": "GET",
@@ -2236,7 +2236,7 @@
       "status": "operation",
       "operation_id": "sync.event-channel.get",
       "mode": "normal",
-      "swagger": false
+      "swagger": true
     },
     {
       "method": "PUT",
@@ -2245,7 +2245,7 @@
       "status": "operation",
       "operation_id": "sync.event-channel.update",
       "mode": "normal",
-      "swagger": false
+      "swagger": true
     },
     {
       "method": "GET",
@@ -2326,7 +2326,7 @@
       "status": "operation",
       "operation_id": "sync.job.events",
       "mode": "normal",
-      "swagger": false
+      "swagger": true
     },
     {
       "method": "GET",
@@ -2353,7 +2353,7 @@
       "status": "operation",
       "operation_id": "sync.job.realtime",
       "mode": "normal",
-      "swagger": false
+      "swagger": true
     },
     {
       "method": "POST",

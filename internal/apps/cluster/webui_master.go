@@ -181,23 +181,38 @@ type WebUIEndpoints struct {
 	JobPathTemplate string `json:"job_path_template"`
 }
 
+// WebUIEndpointsResponse 包装 SeaTunnel 集群观测地址。
+// WebUIEndpointsResponse wraps the SeaTunnel cluster observation addresses.
+type WebUIEndpointsResponse struct {
+	ErrorMsg string          `json:"error_msg"`
+	Data     *WebUIEndpoints `json:"data"`
+}
+
 // GetWebUIEndpoints 处理 GET /api/v1/clusters/:id/webui-endpoints：返回代理地址与原生地址（与代理选择同一个节点，优先 active master）。
 // GetWebUIEndpoints handles GET /api/v1/clusters/:id/webui-endpoints: it returns the proxy and native addresses
 // (the same node the proxy uses, preferring the active master).
+// @Summary 获取 SeaTunnel 集群观测地址
+// @Tags clusters
+// @Produce json
+// @Param id path int true "集群ID"
+// @Success 200 {object} WebUIEndpointsResponse
+// @Failure 400 {object} WebUIEndpointsResponse
+// @Failure 404 {object} WebUIEndpointsResponse
+// @Router /api/v1/clusters/{id}/webui-endpoints [get]
 func (h *Handler) GetWebUIEndpoints(c *gin.Context) {
 	clusterID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error_msg": "无效的集群 ID / Invalid cluster ID"})
+		c.JSON(http.StatusBadRequest, WebUIEndpointsResponse{ErrorMsg: "无效的集群 ID / Invalid cluster ID"})
 		return
 	}
 	clusterInfo, err := h.service.Get(c.Request.Context(), uint(clusterID))
 	if err != nil {
-		c.JSON(h.getStatusCodeForError(err), gin.H{"error_msg": err.Error()})
+		c.JSON(h.getStatusCodeForError(err), WebUIEndpointsResponse{ErrorMsg: err.Error()})
 		return
 	}
 	nodes, err := h.service.GetNodes(c.Request.Context(), uint(clusterID))
 	if err != nil {
-		c.JSON(h.getStatusCodeForError(err), gin.H{"error_msg": err.Error()})
+		c.JSON(h.getStatusCodeForError(err), WebUIEndpointsResponse{ErrorMsg: err.Error()})
 		return
 	}
 	result := &WebUIEndpoints{
@@ -208,13 +223,13 @@ func (h *Handler) GetWebUIEndpoints(c *gin.Context) {
 	// Same rule as the cluster detail page: the Web UI needs 2.3.9+ and enable_http not turned off.
 	if !seatunnel.CapabilitiesForVersion(clusterInfo.Version).SupportsHTTPService {
 		result.Reason = "version_unsupported"
-		c.JSON(http.StatusOK, gin.H{"error_msg": "", "data": result})
+		c.JSON(http.StatusOK, WebUIEndpointsResponse{Data: result})
 		return
 	}
 	if runtime, ok := clusterInfo.Config["runtime"].(map[string]interface{}); ok {
 		if enabled, isBool := runtime["enable_http"].(bool); isBool && !enabled {
 			result.Reason = "http_disabled"
-			c.JSON(http.StatusOK, gin.H{"error_msg": "", "data": result})
+			c.JSON(http.StatusOK, WebUIEndpointsResponse{Data: result})
 			return
 		}
 	}
@@ -230,5 +245,5 @@ func (h *Handler) GetWebUIEndpoints(c *gin.Context) {
 		result.NodeID = target.ID
 		result.HostName = target.HostName
 	}
-	c.JSON(http.StatusOK, gin.H{"error_msg": "", "data": result})
+	c.JSON(http.StatusOK, WebUIEndpointsResponse{Data: result})
 }

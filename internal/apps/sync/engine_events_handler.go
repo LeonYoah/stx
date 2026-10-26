@@ -62,6 +62,16 @@ type JobEventListResponse struct {
 // 只有 token 错误返回 401；其余情况都返回 200，避免引擎反复重试同一批而堵住后续事件。
 // IngestEngineEvents handles POST /api/v1/sync/engine-events/:cluster_id (SeaTunnel event-report-http callback,
 // no login). Only a bad token returns 401; everything else returns 200 so the engine never retries one batch forever.
+// @Summary 接收 SeaTunnel 引擎事件上报
+// @Tags Sync
+// @Accept json
+// @Produce json
+// @Param cluster_id path int true "集群 ID"
+// @Param Authorization header string true "Bearer <事件通道 token>"
+// @Param request body []object true "引擎事件批次"
+// @Success 200 {object} EngineEventIngestResponse
+// @Failure 401 {object} EngineEventIngestResponse
+// @Router /api/v1/sync/engine-events/{cluster_id} [post]
 func (h *Handler) IngestEngineEvents(c *gin.Context) {
 	clusterID, ok := parseUintParam(c, "cluster_id")
 	if !ok || clusterID == 0 {
@@ -91,6 +101,14 @@ func (h *Handler) IngestEngineEvents(c *gin.Context) {
 
 // GetEventChannel 处理 GET /api/v1/sync/event-channels/:cluster_id。
 // GetEventChannel handles GET /api/v1/sync/event-channels/:cluster_id.
+// @Summary 获取集群事件通道状态
+// @Tags Sync
+// @Produce json
+// @Param cluster_id path int true "集群 ID"
+// @Success 200 {object} EventChannelResponse
+// @Failure 400 {object} EventChannelResponse
+// @Failure 404 {object} EventChannelResponse
+// @Router /api/v1/sync/event-channels/{cluster_id} [get]
 func (h *Handler) GetEventChannel(c *gin.Context) {
 	clusterID, ok := parseUintParam(c, "cluster_id")
 	if !ok {
@@ -108,6 +126,19 @@ func (h *Handler) GetEventChannel(c *gin.Context) {
 // UpdateEventChannel 处理 PUT /api/v1/sync/event-channels/:cluster_id；CLI 与直接 API 调用走 R2 确认与幂等，网页保持原有交互。
 // UpdateEventChannel handles PUT /api/v1/sync/event-channels/:cluster_id; CLI and direct API calls go through R2
 // confirmation and idempotency while web requests keep their dialog-based flow.
+// @Summary 开关集群事件通道或轮换 token（改写 seatunnel.yaml，需滚动重启生效）
+// @Tags Sync
+// @Accept json
+// @Produce json
+// @Param cluster_id path int true "集群 ID"
+// @Param request body UpdateEventChannelRequest true "事件通道设置"
+// @Success 200 {object} EventChannelResponse
+// @Failure 400 {object} EventChannelResponse
+// @Failure 403 {object} EventChannelResponse
+// @Failure 404 {object} EventChannelResponse
+// @Failure 409 {object} EventChannelResponse
+// @Failure 428 {object} EventChannelResponse
+// @Router /api/v1/sync/event-channels/{cluster_id} [put]
 func (h *Handler) UpdateEventChannel(c *gin.Context) {
 	clusterID, ok := parseUintParam(c, "cluster_id")
 	if !ok {
@@ -154,6 +185,18 @@ func (h *Handler) UpdateEventChannel(c *gin.Context) {
 
 // ListJobEvents 处理 GET /api/v1/sync/jobs/:id/events。
 // ListJobEvents handles GET /api/v1/sync/jobs/:id/events.
+// @Summary 获取作业事件时间线
+// @Tags Sync
+// @Produce json
+// @Param id path int true "作业 ID"
+// @Param types query string false "按事件类型过滤，逗号分隔"
+// @Param page query int false "页码，从 1 开始"
+// @Param page_size query int false "每页条数"
+// @Success 200 {object} JobEventListResponse
+// @Failure 400 {object} JobEventListResponse
+// @Failure 403 {object} JobEventListResponse
+// @Failure 404 {object} JobEventListResponse
+// @Router /api/v1/sync/jobs/{id}/events [get]
 func (h *Handler) ListJobEvents(c *gin.Context) {
 	id, ok := parseUintParam(c, "id")
 	if !ok {

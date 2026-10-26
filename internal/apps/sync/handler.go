@@ -617,6 +617,16 @@ func (h *Handler) GetJob(c *gin.Context) {
 // GetJobRealtime 处理 GET /api/v1/sync/jobs/:id/realtime：返回引擎实时指标与瓶颈提示，引擎不可用时以 available=false 表达。
 // GetJobRealtime handles GET /api/v1/sync/jobs/:id/realtime: it returns engine realtime metrics and bottleneck
 // hints, expressing engine unavailability as available=false.
+// @Summary 获取作业实时指标与瓶颈提示
+// @Tags Sync
+// @Produce json
+// @Param id path int true "作业 ID"
+// @Param window_ms query int false "时间窗口（毫秒），超出引擎上限时截断"
+// @Success 200 {object} JobRealtimeResponse
+// @Failure 400 {object} JobRealtimeResponse
+// @Failure 403 {object} JobRealtimeResponse
+// @Failure 404 {object} JobRealtimeResponse
+// @Router /api/v1/sync/jobs/{id}/realtime [get]
 func (h *Handler) GetJobRealtime(c *gin.Context) {
 	id, ok := parseUintParam(c, "id")
 	if !ok {

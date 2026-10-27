@@ -265,6 +265,8 @@ STX 控制台采用现代化控制台体验架构：
   3. **策略 C：单行截断 + 全量悬浮穿透**：
      - 适用：表格数据列、列表中的长名称、单行描述；
      - 样式：`truncate max-w-[...]` 配合 `title` 或 `Tooltip`，以优雅单行省略替代破相折行。
+     - **在 `ScrollArea` 或按内容定宽的容器里，只写 `truncate` 不够**：Radix `ScrollArea` 的内层是 `display: table; min-width: 100%`，会按子内容的最小宽度（min-content）撑开；`whitespace-nowrap` 的长文本即使 `truncate`，它的最小宽度仍是整行文字，会把整张卡片撑宽、挤出可视区（`min-w-0` 不能阻止这一点）。截断元素所在的弹性子项要用 `w-0 min-w-0 flex-1`（或固定的 `max-w-[...]`），让它不参与撑宽，只占剩余空间。
+     - 实例：工作台右侧设置栏的告警摘要（`TaskAlertSection`）最初只写了 `min-w-0 flex-1` + `truncate`，长摘要把"运行与集群"卡片撑出侧栏；改为 `w-0 min-w-0 flex-1` 后与改动前宽度一致。改动侧栏这类容器后，要在 1024～1920 几种窗口宽度下对比改动前后卡片的实际宽度。
 
 ---
 

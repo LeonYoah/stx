@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/LeonYoah/stx/internal/config"
+	"github.com/LeonYoah/stx/internal/logger"
 	"github.com/LeonYoah/stx/internal/seatunnel"
 )
 
@@ -73,10 +74,14 @@ func (s *Service) reconcileActiveJobs(ctx context.Context) error {
 	}
 	taskCluster := map[uint]uint{}
 	grouped := map[uint][]*JobInstance{}
+	now := time.Now()
 	for _, job := range jobs {
 		if job == nil {
 			continue
 		}
+		// 停止超时只看本地记录的截止时间，引擎不可达时也要能标记。
+		// Stop overdue only checks the locally recorded deadline, so it is flagged even when the engine is unreachable.
+		s.markCancelOverdue(ctx, job, now)
 		if submitSpecExecutionMode(job.SubmitSpec) == "local" {
 			if _, refreshErr := s.refreshLocalJob(ctx, job); refreshErr != nil {
 				s.recordJobSyncFailure(ctx, job)
@@ -369,6 +374,15 @@ func (s *Service) reconcileClusterJobs(ctx context.Context, clusterID uint, jobs
 			continue
 		}
 		if engineJobInfoLooksOrphaned(detail) {
+			// 提交结果未知：截止前引擎可能还在规划作业，继续等；过了截止时间才判失败。
+			// Unknown submit outcome: the engine may still be planning before the deadline; fail it only afterwards.
+			if submitOutcomeIsUnknown(job) {
+				if submitOutcomePending(job, time.Now()) {
+					continue
+				}
+				s.expireUnknownSubmit(ctx, job, engineJobID)
+				continue
+			}
 			// Cluster is up but the job vanished (restart / history expiry): end the zombie running state.
 			// 集群可达但作业已消失（重启/历史过期）：结束僵死的 running。
 			if time.Since(job.CreatedAt) < 30*time.Second {
@@ -389,6 +403,44 @@ func (s *Service) reconcileClusterJobs(ctx context.Context, clusterID uint, jobs
 			s.recordJobSyncFailure(ctx, job)
 		}
 	}
+}
+
+// expireUnknownSubmit 在引擎可达且确认没有该作业、并且已过提交截止时间时，把待确认作业判为失败。
+// expireUnknownSubmit fails a pending unknown-outcome job once the engine is reachable, confirms it has no such job,
+// and the submit deadline has passed.
+func (s *Service) expireUnknownSubmit(ctx context.Context, job *JobInstance, engineJobID string) {
+	now := time.Now()
+	markSubmitOutcome(job, submitOutcomeExpired, now)
+	if err := s.repo.UpdateJobSyncMetadata(ctx, job.ID, map[string]any{"submit_spec": job.SubmitSpec}); err != nil {
+		s.recordJobSyncFailure(ctx, job)
+		return
+	}
+	expired := &EngineJobInfo{
+		JobID:        engineJobID,
+		JobStatus:    "FAILED",
+		ErrorMsg:     submitOutcomeExpiredMessage(job),
+		FinishedTime: now.In(time.Local).Format("2006-01-02 15:04:05"),
+	}
+	if _, err := s.applyEngineJobInfoUpdate(ctx, job, expired); err != nil {
+		s.recordJobSyncFailure(ctx, job)
+		return
+	}
+	logger.WarnF(ctx, "[Sync] unknown submit outcome expired, job marked failed: job=%d task=%d engine_job_id=%s",
+		job.ID, job.TaskID, engineJobID)
+}
+
+// markCancelOverdue 在取消中作业越过停止截止时间时记录一次 cancel_overdue_at；状态保持不变。
+// markCancelOverdue records cancel_overdue_at once when a cancelling job passes its stop deadline; status is unchanged.
+func (s *Service) markCancelOverdue(ctx context.Context, job *JobInstance, now time.Time) {
+	if !isCancelOverdue(job, now) || strings.TrimSpace(stringValue(job.ResultPreview, cancelOverdueAtKey)) != "" {
+		return
+	}
+	job.ResultPreview[cancelOverdueAtKey] = now.UTC().Format(time.RFC3339)
+	if err := s.repo.UpdateJobStatus(ctx, job.ID, []JobStatus{job.Status}, map[string]any{"result_preview": job.ResultPreview}); err != nil {
+		return
+	}
+	logger.WarnF(ctx, "[Sync] job did not stop before its stop deadline: job=%d task=%d engine_job_id=%s deadline=%s",
+		job.ID, job.TaskID, strings.TrimSpace(job.EngineJobID), stringValue(job.ResultPreview, cancelDeadlineKey))
 }
 
 // backfillTerminalJobFinalMetrics 对近期已终态但缺少终态指标块的作业再拉一次 job-info。

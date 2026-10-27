@@ -163,6 +163,12 @@ func setDefaults(c *configModel, observabilityEnabledSet bool) {
 	if c.Sync.JobReconcilerIntervalSeconds == 0 {
 		c.Sync.JobReconcilerIntervalSeconds = 10
 	}
+	if c.Sync.SubmitTimeoutSeconds <= 0 {
+		c.Sync.SubmitTimeoutSeconds = 300
+	}
+	if c.Sync.StopTimeoutSeconds <= 0 {
+		c.Sync.StopTimeoutSeconds = 300
+	}
 
 	// 认证默认配置
 	if c.Auth.DefaultAdminUsername == "" {

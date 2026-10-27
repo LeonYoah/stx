@@ -42,6 +42,7 @@ import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import type {NotificationRecipientUser} from '@/lib/services/monitoring';
 import type {SyncJobInstance, SyncJobLogsResult} from '@/lib/services/sync';
 import {cn} from '@/lib/utils';
+import {JobOutcomeHints} from './JobOutcomeHints';
 import {SeaTunnelObserveMenu} from '@/components/common/cluster/SeaTunnelObserveMenu';
 import {
   buildDisplayLogLines,
@@ -204,6 +205,7 @@ export function ConsolePanel({
         >
           {getJobStatusLabel(displayStatus)}
         </Badge>
+        <JobOutcomeHints job={job} />
         {formatJobSyncLagHint(job) ? (
           <Badge variant='outline' className='text-amber-600 dark:text-amber-400'>
             {formatJobSyncLagHint(job)}
@@ -414,6 +416,7 @@ export function JobRunsPanel({
                   >
                     {getJobStatusLabel(displayStatus)}
                   </Badge>
+                  <JobOutcomeHints job={job} className='ml-1 align-middle' />
                 </TableCell>
 
                 {/* 模式与通道合并 */}

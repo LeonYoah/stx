@@ -1,0 +1,30 @@
+{
+  "id": "job-alerting-timeouts",
+  "name": "job-alerting-timeouts",
+  "title": "作业层级告警与引擎超时治理",
+  "description": "",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "claude",
+  "assignee": "claude",
+  "createdAt": "2026-10-27",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "10-26-submit-timeout-recovery",
+    "10-27-job-alerts",
+    "10-27-engine-query-resilience"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

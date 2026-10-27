@@ -64,6 +64,40 @@ type syncJobWaitResult struct {
 	SyncState        string                 `json:"sync_state,omitempty"`
 	SyncLagMs        *int64                 `json:"sync_lag_ms,omitempty"`
 	ResultPreview    map[string]interface{} `json:"result_preview,omitempty"`
+	// SubmitSpec 只用来读取 submit_outcome，判断提交结果是否还在确认中。
+	// SubmitSpec is only read for submit_outcome, to tell whether the submit is still being confirmed.
+	SubmitSpec map[string]interface{} `json:"submit_spec,omitempty"`
+}
+
+// writeOutcomeWarning 在提交/停止结果未知时返回给用户的提示；结果已确定时返回空串。
+// writeOutcomeWarning returns the user-facing warning when a submit/stop outcome is unknown, or "" when it is settled.
+func writeOutcomeWarning(jobID uint, submitSpec, resultPreview map[string]interface{}) string {
+	if outcome, _ := submitSpec["submit_outcome"].(string); strings.TrimSpace(outcome) == "unknown" {
+		deadline, _ := submitSpec["submit_deadline"].(string)
+		return fmt.Sprintf("submit request timed out; the engine may already have job %d. STX confirms it automatically before %s; do not resubmit",
+			jobID, strings.TrimSpace(deadline))
+	}
+	if outcome, _ := resultPreview["cancel_outcome"].(string); strings.TrimSpace(outcome) == "unknown" {
+		return fmt.Sprintf("stop request timed out; job %d stays cancelling while STX confirms that the engine stopped it", jobID)
+	}
+	return ""
+}
+
+// emitWriteOutcomeWarning 把结果未知的提示写到 stderr，业务结果仍写 stdout。
+// emitWriteOutcomeWarning writes the unknown-outcome warning to stderr; the business result still goes to stdout.
+func emitWriteOutcomeWarning(command *cobra.Command, operationID, requestID string, jobID uint, submitSpec, resultPreview map[string]interface{}) {
+	message := writeOutcomeWarning(jobID, submitSpec, resultPreview)
+	if message == "" {
+		return
+	}
+	_ = stderrEventWriter(command).Emit(clioutput.Event{
+		Event:       "warning",
+		Code:        "outcome_unknown",
+		OperationID: operationID,
+		RequestID:   requestID,
+		Level:       "warning",
+		Message:     message,
+	})
 }
 
 // syncJobWaitConfig 汇总 --wait 轮询、日志跟随、观察超时和 Dolphin 守护管道。

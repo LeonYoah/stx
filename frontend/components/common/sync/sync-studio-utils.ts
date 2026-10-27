@@ -1719,6 +1719,20 @@ export function formatSyncUserFacingError(
     };
   }
 
+  // 1.1 上一次提交结果还在确认中（409）：提示作业和截止时间，避免用户反复点运行
+  // 1.1 Previous submit still being confirmed (409): name the job and deadline so users stop clicking run again
+  const pendingSubmit = parseSubmitOutcomePendingError(rawMessage);
+  if (pendingSubmit) {
+    return {
+      title: t('submitOutcomePendingTitle'),
+      description: t('submitOutcomePendingDescription', {
+        jobId: pendingSubmit.jobId || '-',
+        deadline: pendingSubmit.deadline ? formatDateTimeTz(pendingSubmit.deadline) : '-',
+      }),
+      category: 'general',
+    };
+  }
+
   // 2. 库表未找到或 Schema 映射失败
   if (
     /table.*(?:doesn't exist|not found|resolution failed)/i.test(cleanMessage) ||
@@ -2029,6 +2043,106 @@ export function getEngineEndpointLabel(job: SyncJobInstance | null): string {
     return baseURL.trim();
   }
   return '-';
+}
+
+/** 任务级超时覆盖的取值范围（分钟），与后端一致 / Task timeout override range in minutes, matching the backend. */
+export const TASK_TIMEOUT_MIN_MINUTES = 1;
+export const TASK_TIMEOUT_MAX_MINUTES = 120;
+
+/** 任务定义里的超时覆盖键 / Timeout override keys in the task definition. */
+export type TaskTimeoutKey = 'submit_timeout_minutes' | 'stop_timeout_minutes';
+
+/**
+ * 读取任务定义里的超时覆盖值（分钟），未设置返回空串，供输入框回显。
+ * Read a timeout override (minutes) from the task definition; unset returns '' for the input.
+ */
+export function getTaskTimeoutMinutes(definition: SyncJSON | undefined, key: TaskTimeoutKey): string {
+  const value = definition?.[key];
+  if (value === undefined || value === null || String(value).trim() === '') {
+    return '';
+  }
+  return String(value).trim();
+}
+
+/**
+ * 解析超时输入：空串表示用全局默认（返回 null），合法整数返回分钟数，非法返回 undefined。
+ * Parse a timeout input: '' means the global default (null), a valid whole number returns minutes, otherwise undefined.
+ */
+export function parseTaskTimeoutInput(raw: string): number | null | undefined {
+  const trimmed = raw.trim();
+  if (trimmed === '') {
+    return null;
+  }
+  if (!/^\d+$/.test(trimmed)) {
+    return undefined;
+  }
+  const minutes = Number(trimmed);
+  if (minutes < TASK_TIMEOUT_MIN_MINUTES || minutes > TASK_TIMEOUT_MAX_MINUTES) {
+    return undefined;
+  }
+  return minutes;
+}
+
+/**
+ * 提交请求没拿到回复、仍在等引擎确认的作业。
+ * A job whose submit got no reply and is still waiting for the engine to confirm it.
+ */
+export function isSubmitOutcomeUnknown(job?: SyncJobInstance | null): boolean {
+  return (
+    String(job?.status || '').toLowerCase() === 'pending' &&
+    String(job?.submit_spec?.submit_outcome || '') === 'unknown'
+  );
+}
+
+/**
+ * 提交确认超时、已被判为失败的作业。
+ * A job whose submit confirmation expired and was marked failed.
+ */
+export function isSubmitOutcomeExpired(job?: SyncJobInstance | null): boolean {
+  return String(job?.submit_spec?.submit_outcome || '') === 'expired';
+}
+
+/** 提交确认截止时间（RFC3339）/ The submit confirmation deadline (RFC3339). */
+export function getSubmitOutcomeDeadline(job?: SyncJobInstance | null): string | undefined {
+  const value = String(job?.submit_spec?.submit_deadline || '').trim();
+  return value || undefined;
+}
+
+/** 提交超时时长（分钟），用于提示文案 / The submit timeout in minutes, for hint text. */
+export function getSubmitTimeoutMinutes(job?: SyncJobInstance | null): number {
+  const seconds = Number(job?.submit_spec?.submit_timeout_seconds || 0);
+  return seconds > 0 ? Math.max(1, Math.round(seconds / 60)) : 5;
+}
+
+/**
+ * 停止请求没拿到回复、仍在等引擎确认的作业。
+ * A job whose stop request got no reply and is still waiting for the engine to confirm it.
+ */
+export function isCancelOutcomeUnknown(job?: SyncJobInstance | null): boolean {
+  return String(job?.result_preview?.cancel_outcome || '') === 'unknown';
+}
+
+/** 停止已超时仍未停下（后端派生）/ The stop is overdue and the job has not stopped (derived by the backend). */
+export function isCancelOverdue(job?: SyncJobInstance | null): boolean {
+  return job?.cancel_overdue === true;
+}
+
+/** 停止超时时长（分钟），用于提示文案 / The stop timeout in minutes, for hint text. */
+export function getCancelTimeoutMinutes(job?: SyncJobInstance | null): number {
+  const seconds = Number(job?.result_preview?.cancel_timeout_seconds || 0);
+  return seconds > 0 ? Math.max(1, Math.round(seconds / 60)) : 5;
+}
+
+/**
+ * 解析"上一次提交还在确认中"的 409 文案，取出作业 ID 和截止时间。
+ * Parse the 409 "previous submit is still being confirmed" message for the job id and deadline.
+ */
+export function parseSubmitOutcomePendingError(message: string): { jobId: string; deadline: string } | null {
+  if (!message.includes('previous submit outcome is still being confirmed')) {
+    return null;
+  }
+  const matched = message.match(/job #(\d+) is still being confirmed until (\S+?);/);
+  return { jobId: matched?.[1] || '', deadline: matched?.[2] || '' };
 }
 
 export function formatJobSyncLagHint(job: {

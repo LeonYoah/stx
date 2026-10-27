@@ -130,6 +130,7 @@ GET  /api/v1/sync/jobs/:id/events?types=&page=&page_size= (R0, CLI: stx sync job
 - **健康**：
   - 状态取值 `disabled | pending_restart | healthy | degraded`。
   - 3.x 集群在通道已收到过事件的前提下，作业提交后 45 秒内没收到状态事件，就记 `expect_missed_at`，判定为降级。
+  - 提交**结果未知**（`submit_outcome=unknown`，见 [作业状态对账器 · 写操作结果未知](./job-status-reconciler.md)）的作业不登记这个预期：引擎可能根本没有这个作业，登记了会把健康的通道误判为降级。
 
 ### 4. 校验与错误对应表
 | 情况 | 行为 |

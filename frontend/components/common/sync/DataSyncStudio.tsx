@@ -116,6 +116,7 @@ import type {
   SyncPreviewDataset,
   SyncPreviewSnapshot,
   SyncTask,
+  SyncTaskTimeoutDefaults,
   SyncTaskTreeNode,
   SyncTaskVersion,
   SyncValidateResult,
@@ -329,7 +330,11 @@ import {
   getExecutionMode,
   getObservabilityMode,
   getRealtimeEntry,
+  getTaskTimeoutMinutes,
+  isCancelOutcomeUnknown,
+  isSubmitOutcomeUnknown,
   type ObservabilityMode,
+  type TaskTimeoutKey,
   getJobStatusBadgeClass,
   getJobStatusLabel,
   getJobSubmittedScript,
@@ -447,6 +452,9 @@ export function DataSyncStudio() {
     ) => Promise<Record<string, any>>
   >(async () => ({}));
   const [clusters, setClusters] = useState<ClusterInfo[]>([]);
+  // 任务详情带回的全局超时默认值，只用于任务设置的占位提示
+  // Global timeout defaults from the task detail, used only for the task settings placeholders
+  const [taskTimeoutDefaults, setTaskTimeoutDefaults] = useState<SyncTaskTimeoutDefaults | null>(null);
   const [tree, setTree] = useState<SyncTaskTreeNode[]>([]);
   const [keyword, setKeyword] = useState('');
   const [treeFilterScope, setTreeFilterScope] = useState<TreeFilterScope>(() => {
@@ -997,6 +1005,7 @@ export function DataSyncStudio() {
             syncOpenTabs(treeTask);
           }
           const task = await services.sync.getTask(nextSelected);
+          setTaskTimeoutDefaults(task.timeout_defaults ?? null);
           const loadedEditor = extractEditorState(task);
           const preferredClusterId = fillPreferredClusterId(
             loadedEditor.clusterId,
@@ -3661,9 +3670,19 @@ export function DataSyncStudio() {
         setRecoverSourceId('');
       }
       setBottomConsoleTab('jobs');
-      toast.success(
-        mode === 'recover' ? t('recoverSubmitted') : t('runSubmitted'),
-      );
+      // 结果未知时提示"确认中，勿重复提交"，不当作成功
+      // An unknown outcome warns "confirming, do not resubmit" instead of reporting success
+      if (isSubmitOutcomeUnknown(job)) {
+        toast.warning(
+          mode === 'recover'
+            ? t('recoverOutcomeUnknownToast')
+            : t('submitOutcomeUnknownToast'),
+        );
+      } else {
+        toast.success(
+          mode === 'recover' ? t('recoverSubmitted') : t('runSubmitted'),
+        );
+      }
     } catch (error) {
       const uiError = formatSyncUserFacingError(error, t('runFailed'), t);
       toast.error(uiError.description);
@@ -3674,13 +3693,17 @@ export function DataSyncStudio() {
 
   const handleCancelJob = async (jobId: number, stopWithSavepoint = false) => {
     try {
-      await services.sync.cancelJob(jobId, {
+      const cancelled = await services.sync.cancelJob(jobId, {
         stop_with_savepoint: stopWithSavepoint,
       });
       await loadJobs(editor.id || null);
-      toast.success(
-        stopWithSavepoint ? t('savepointStopTriggered') : t('taskStopped'),
-      );
+      if (isCancelOutcomeUnknown(cancelled)) {
+        toast.warning(t('cancelOutcomeUnknownToast'));
+      } else {
+        toast.success(
+          stopWithSavepoint ? t('savepointStopTriggered') : t('taskStopped'),
+        );
+      }
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : t('cancelTaskFailed'),
@@ -3739,6 +3762,18 @@ export function DataSyncStudio() {
       ...editor.definition,
       observability: value,
     });
+  };
+
+  // 提交/停止超时写入任务定义；清空时删除键，回到全局默认
+  // Submit/stop timeouts are stored in the task definition; clearing removes the key to fall back to the global default
+  const handleTaskTimeoutChange = (key: TaskTimeoutKey, minutes: number | null) => {
+    const next = {...editor.definition};
+    if (minutes === null) {
+      delete next[key];
+    } else {
+      next[key] = minutes;
+    }
+    updateEditor('definition', next);
   };
 
   const openScheduleDialog = () => {
@@ -5090,6 +5125,10 @@ export function DataSyncStudio() {
               executionMode={executionMode}
               observabilityMode={getObservabilityMode(editor.definition)}
               onObservabilityModeChange={handleObservabilityModeChange}
+              submitTimeoutMinutes={getTaskTimeoutMinutes(editor.definition, 'submit_timeout_minutes')}
+              stopTimeoutMinutes={getTaskTimeoutMinutes(editor.definition, 'stop_timeout_minutes')}
+              timeoutDefaults={taskTimeoutDefaults}
+              onTaskTimeoutChange={handleTaskTimeoutChange}
               clusterId={editor.clusterId}
               clusters={clusters}
               detectedVariables={detectedVariables}

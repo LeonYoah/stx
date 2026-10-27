@@ -33,9 +33,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/LeonYoah/stx/internal/apps/audit"
 	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
 	"github.com/LeonYoah/stx/internal/config"
 	"github.com/LeonYoah/stx/internal/db"
+	"github.com/LeonYoah/stx/internal/logger"
 	"github.com/LeonYoah/stx/internal/pkg/schedulex"
 	"github.com/LeonYoah/stx/internal/pkg/timex"
 	"github.com/LeonYoah/stx/internal/seatunnel"
@@ -1477,6 +1479,9 @@ func (s *Service) submitNewTask(ctx context.Context, id uint, createdBy uint, op
 	if err != nil {
 		return nil, err
 	}
+	if err := s.guardSubmitOutcomePending(ctx, task.ID); err != nil {
+		return nil, err
+	}
 	jobID := s.nextJobID()
 	runType := RunTypeRun
 	dolphinTriggered := false
@@ -1533,6 +1538,9 @@ func (s *Service) RecoverJob(ctx context.Context, sourceJobID uint, createdBy ui
 	if taskExecutionMode(task) == "local" {
 		return nil, ErrLocalSavepointUnsupported
 	}
+	if err := s.guardSubmitOutcomePending(ctx, task.ID); err != nil {
+		return nil, err
+	}
 	if draft == nil {
 		submittedContent := strings.TrimSpace(stringValue(source.SubmitSpec, "submitted_content"))
 		if submittedContent != "" {
@@ -1578,6 +1586,9 @@ func (s *Service) submitTaskInstance(ctx context.Context, task *Task, createdBy 
 }
 
 func (s *Service) submitTaskInstanceWithPayload(ctx context.Context, task *Task, createdBy uint, runType RunType, platformJobID string, startWithSavepoint bool, recoveredFrom *uint, submitBody []byte, submitFormat string, jobName string, opts *SubmitOptions) (*JobInstance, error) {
+	// 调用方断开（关页面、CLI 超时）不能打断已发出的提交：引擎可能已收到作业，必须留下记录。
+	// A caller disconnect must not abort an in-flight submit: the engine may already have the job, so it must be recorded.
+	ctx = context.WithoutCancel(ctx)
 	// 集群提交统一在这里注入实时可观测性（运行/恢复/定时都会经过），本地执行不走这条路径。
 	// Cluster submits inject realtime observability here (run/recover/schedule all pass through); local runs do not.
 	submitBody, observability := s.applyObservabilityInjection(ctx, task, submitBody, submitFormat)
@@ -1601,6 +1612,9 @@ func (s *Service) submitTaskInstanceWithPayload(ctx context.Context, task *Task,
 			"platform_job_id":      platformJobID,
 			"start_with_savepoint": startWithSavepoint,
 			"observability":        observability.toMap(),
+			// 停止超时随运行时的任务版本固定下来，之后停止时直接读取。
+			// The stop timeout is pinned to the task version of this run and read back when stopping.
+			submitStopTimeoutSecsKey: int(effectiveStopTimeout(task) / time.Second),
 		},
 		StartedAt: &now,
 		CreatedBy: createdBy,
@@ -1622,6 +1636,12 @@ func (s *Service) submitTaskInstanceWithPayload(ctx context.Context, task *Task,
 		}
 		resp, err := s.engineClient.Submit(ctx, &EngineSubmitRequest{Endpoint: endpoint, Format: submitFormat, JobID: platformJobID, JobName: jobName, StartWithSavepoint: startWithSavepoint, Body: submitBody})
 		if err != nil {
+			// 结果未知：先登记 pending 作业交给对账确认，不当作失败，也不登记事件通道预期。
+			// Unknown outcome: record a pending job for reconcile to confirm; not a failure, and no event expectation.
+			var unknownErr *EngineCallUnknownError
+			if errors.As(err, &unknownErr) && strings.TrimSpace(platformJobID) != "" {
+				return s.recordUnknownSubmitOutcome(ctx, task, instance, endpoint, unknownErr)
+			}
 			s.recordFailedDolphinSubmit(ctx, instance, err)
 			return nil, err
 		}
@@ -1683,6 +1703,9 @@ func (s *Service) RefreshJobByID(ctx context.Context, id uint) (*JobInstance, er
 // CancelJob 请求真实停止作业，并在确认停止前保留取消中间状态。
 // CancelJob requests a real stop and keeps intermediate cancellation states until the stop is confirmed.
 func (s *Service) CancelJob(ctx context.Context, id uint, stopWithSavepoint bool) (*JobInstance, error) {
+	// 停止请求发出后与调用方解绑，保证取消状态和截止时间一定落库。
+	// Detach from the caller once stopping so the cancellation state and deadline are always persisted.
+	ctx = context.WithoutCancel(ctx)
 	instance, err := s.repo.GetJobInstanceByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -1721,9 +1744,11 @@ func (s *Service) CancelJob(ctx context.Context, id uint, stopWithSavepoint bool
 		return instance, nil
 	}
 	previousStatus := instance.Status
+	s.applyCancelDeadline(ctx, instance, time.Now())
 	if err := s.repo.UpdateJobStatus(ctx, instance.ID, []JobStatus{JobStatusPending, JobStatusRunning}, map[string]any{
-		"status":        JobStatusCancelRequested,
-		"error_message": "",
+		"status":         JobStatusCancelRequested,
+		"error_message":  "",
+		"result_preview": instance.ResultPreview,
 	}); err != nil {
 		if errors.Is(err, ErrJobStatusChanged) {
 			return s.repo.GetJobInstanceByID(ctx, id)
@@ -1733,6 +1758,7 @@ func (s *Service) CancelJob(ctx context.Context, id uint, stopWithSavepoint bool
 	instance.Status = JobStatusCancelRequested
 
 	targetStatus := JobStatusCancelling
+	var stopUnknownErr error
 	if submitSpecExecutionMode(instance.SubmitSpec) == "local" {
 		if err := s.stopLocalJob(ctx, instance); err != nil {
 			s.restoreJobAfterCancelFailure(ctx, instance, previousStatus)
@@ -1750,8 +1776,15 @@ func (s *Service) CancelJob(ctx context.Context, id uint, stopWithSavepoint bool
 			return nil, ErrExecutionTargetUnavailable
 		}
 		if err := s.engineClient.StopJob(ctx, endpoint, instance.EngineJobID, stopWithSavepoint); err != nil {
-			s.restoreJobAfterCancelFailure(ctx, instance, previousStatus)
-			return nil, err
+			// 停止结果未知：引擎可能已经在停，保持停止中交给对账确认，不恢复成运行中。
+			// Unknown stop outcome: the engine may already be stopping, so stay cancelling for reconcile to confirm.
+			if !errors.Is(err, ErrEngineCallOutcomeUnknown) {
+				s.restoreJobAfterCancelFailure(ctx, instance, previousStatus)
+				return nil, err
+			}
+			stopUnknownErr = err
+			logger.WarnF(ctx, "[Sync] engine stop outcome unknown, keeping job cancelling: job=%d engine_job_id=%s err=%v",
+				instance.ID, instance.EngineJobID, err)
 		}
 	}
 
@@ -1772,6 +1805,10 @@ func (s *Service) CancelJob(ctx context.Context, id uint, stopWithSavepoint bool
 			JobStatus:    "CANCELED",
 			FinishedTime: now.Format(time.DateTime),
 		})
+	}
+	if stopUnknownErr != nil {
+		instance.ResultPreview[cancelOutcomeKey] = cancelOutcomeUnknown
+		instance.ResultPreview[cancelErrorKey] = audit.RedactText(stopUnknownErr.Error())
 	}
 	if err := s.repo.UpdateJobStatus(ctx, instance.ID, []JobStatus{JobStatusCancelRequested}, map[string]any{
 		"status":         instance.Status,

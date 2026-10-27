@@ -145,6 +145,9 @@ func validateTaskDefinition(definition JSONMap) error {
 	if err := validateVariableKeyConflicts(extractDefinitionVariables(definition, "custom_variables")); err != nil {
 		return err
 	}
+	if err := validateTaskTimeouts(definition); err != nil {
+		return err
+	}
 	_, err := parseTaskSchedule(definition)
 	return err
 }
@@ -306,6 +309,9 @@ func (s *Service) submitScheduledTask(ctx context.Context, task *Task) error {
 		return err
 	}
 	if err := validateTaskDefinition(scheduledTask.Definition); err != nil {
+		return err
+	}
+	if err := s.guardSubmitOutcomePending(ctx, scheduledTask.ID); err != nil {
 		return err
 	}
 	platformJobID := s.nextJobID()

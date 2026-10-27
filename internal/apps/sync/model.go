@@ -203,6 +203,10 @@ type Task struct {
 	CreatedBy               uint          `json:"created_by"`
 	CreatedAt               time.Time     `json:"created_at" gorm:"autoCreateTime"`
 	UpdatedAt               time.Time     `json:"updated_at" gorm:"autoUpdateTime"`
+
+	// TimeoutDefaults 只在任务详情里返回全局超时默认值，供任务设置的占位提示使用。
+	// TimeoutDefaults is returned on task detail only, carrying global timeout defaults for the settings placeholders.
+	TimeoutDefaults *TaskTimeoutDefaults `json:"timeout_defaults,omitempty" gorm:"-"`
 }
 
 // TableName returns the sync task table name.
@@ -408,6 +412,9 @@ type JobInstance struct {
 	// SyncLagMs 由 API 根据 last_synced_at 派生，不落库。
 	// SyncLagMs is derived from last_synced_at at read time and is not persisted.
 	SyncLagMs int64 `json:"sync_lag_ms,omitempty" gorm:"-"`
+	// CancelOverdue 表示取消中作业已越过停止截止时间，由 API 派生，不落库。
+	// CancelOverdue reports a cancelling job past its stop deadline; derived at read time and not persisted.
+	CancelOverdue bool `json:"cancel_overdue,omitempty" gorm:"-"`
 	// Mode 从提交快照回填，供 CLI --wait 区分批任务和实时任务，不落库。
 	// Mode is copied from the submit snapshot so CLI --wait can tell batch from streaming; it is not persisted.
 	Mode          string     `json:"mode,omitempty" gorm:"-"`

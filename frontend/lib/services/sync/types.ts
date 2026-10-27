@@ -60,9 +60,17 @@ export interface SyncTask {
   is_owner?: boolean;
   is_collaborator?: boolean;
   is_public?: boolean;
+  /** 全局超时默认值，只在任务详情里返回 / Global timeout defaults, returned on task detail only. */
+  timeout_defaults?: SyncTaskTimeoutDefaults;
   created_by: number;
   created_at: string;
   updated_at: string;
+}
+
+/** 任务设置占位提示用的全局超时默认值（秒）/ Global timeout defaults (seconds) for the task settings placeholders. */
+export interface SyncTaskTimeoutDefaults {
+  submit_timeout_seconds: number;
+  stop_timeout_seconds: number;
 }
 
 export interface SyncTaskTreeNode {
@@ -235,6 +243,8 @@ export interface SyncJobInstance {
   sync_state?: 'ok' | 'degraded' | 'stale' | 'unknown';
   sync_fail_count?: number;
   sync_lag_ms?: number;
+  /** 取消中作业已越过停止截止时间（后端派生）/ A cancelling job has passed its stop deadline (derived by the backend). */
+  cancel_overdue?: boolean;
   mode?: SyncTaskMode;
   submit_spec: SyncJSON;
   result_preview: SyncJSON;

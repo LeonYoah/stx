@@ -100,6 +100,14 @@ type SyncConfig struct {
 	// JobReconcilerEventModeIntervalSeconds is the longest interval between full reconciles (running/finished lists)
 	// while the event channel is healthy; the default 0 disables adaptive polling, a positive value enables it.
 	JobReconcilerEventModeIntervalSeconds int `mapstructure:"job_reconciler_event_mode_interval_seconds"`
+	// SubmitTimeoutSeconds 是提交结果未知时等待引擎出现作业的上限；0 或不填表示默认 300 秒，任务可单独覆盖。
+	// SubmitTimeoutSeconds caps how long an unknown submit waits for the engine to register the job; 0 or unset
+	// means the 300-second default, and tasks may override it.
+	SubmitTimeoutSeconds int `mapstructure:"submit_timeout_seconds"`
+	// StopTimeoutSeconds 是停止请求发出后等待作业真正停下的上限，超过只标记停止超时；0 或不填表示默认 300 秒。
+	// StopTimeoutSeconds caps how long a stop request waits for the job to actually stop before it is flagged as
+	// overdue; 0 or unset means the 300-second default.
+	StopTimeoutSeconds int `mapstructure:"stop_timeout_seconds"`
 }
 
 // authConfig 认证配置

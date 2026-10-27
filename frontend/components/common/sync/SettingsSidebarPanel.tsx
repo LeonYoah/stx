@@ -17,7 +17,7 @@
 
 'use client';
 
-import {useMemo, useState} from 'react';
+import {useEffect, useMemo, useState} from 'react';
 import {useTranslations} from 'next-intl';
 import {isSoleDefaultCluster} from '@/lib/cluster-preference';
 import {
@@ -40,6 +40,7 @@ import {
   CommandItem,
   CommandList,
 } from '@/components/ui/command';
+import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
 import {
@@ -52,18 +53,73 @@ import {
 import {Tabs, TabsContent, TabsList, TabsTrigger} from '@/components/ui/tabs';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import type {ClusterInfo} from '@/lib/services/cluster';
-import type {SyncCuratedTemplateView, SyncPluginType} from '@/lib/services/sync';
+import type {
+  SyncCuratedTemplateView,
+  SyncPluginType,
+  SyncTaskTimeoutDefaults,
+} from '@/lib/services/sync';
 import {CustomVariablesSection} from './CustomVariablesSection';
 import {CuratedTemplatesPanel} from './CuratedTemplatesPanel';
 import {
   resolveBuiltinPreviewExpression,
 } from './builtin-time-variables';
+import {parseTaskTimeoutInput} from './sync-studio-utils';
 import type {
   ExecutionMode,
   ObservabilityMode,
+  TaskTimeoutKey,
   TemplatePluginItem,
   VariableRow,
 } from './sync-studio-utils';
+
+/**
+ * 任务级超时输入框：本地保存输入，合法或清空时才写回任务定义，非法时就地提示。
+ * Task timeout input: keeps the raw text locally and writes back only valid or cleared values, flagging bad input inline.
+ */
+function TaskTimeoutInput({
+  label,
+  value,
+  defaultSeconds,
+  testId,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  defaultSeconds?: number;
+  testId: string;
+  onChange: (minutes: number | null) => void;
+}) {
+  const t = useTranslations('workbenchStudio');
+  const [draft, setDraft] = useState(value);
+  useEffect(() => {
+    setDraft(value);
+  }, [value]);
+  const parsed = parseTaskTimeoutInput(draft);
+  const invalid = parsed === undefined;
+  const defaultMinutes = defaultSeconds && defaultSeconds > 0 ? Math.max(1, Math.round(defaultSeconds / 60)) : 5;
+  return (
+    <div className='min-w-0 space-y-1'>
+      <Label className='whitespace-nowrap text-[11px] text-muted-foreground'>{label}</Label>
+      <Input
+        value={draft}
+        inputMode='numeric'
+        data-testid={testId}
+        aria-invalid={invalid}
+        placeholder={t('timeoutDefaultPlaceholder', {minutes: defaultMinutes})}
+        className={invalid ? 'h-8 text-xs border-destructive focus-visible:ring-destructive/40' : 'h-8 text-xs'}
+        onChange={(event) => {
+          const next = event.target.value;
+          setDraft(next);
+          const minutes = parseTaskTimeoutInput(next);
+          if (minutes !== undefined) {
+            onChange(minutes);
+          }
+        }}
+      />
+      {invalid ? <p className='text-[10px] text-destructive'>{t('timeoutInvalid')}</p> : null}
+    </div>
+  );
+}
 
 export function TemplatePluginSelect({
   label,
@@ -137,6 +193,10 @@ export function SettingsSidebarPanel({
   executionMode,
   observabilityMode = 'auto',
   onObservabilityModeChange,
+  submitTimeoutMinutes = '',
+  stopTimeoutMinutes = '',
+  timeoutDefaults,
+  onTaskTimeoutChange,
   clusterId,
   clusters,
   pluginPanelLoading,
@@ -162,6 +222,10 @@ export function SettingsSidebarPanel({
   executionMode: ExecutionMode;
   observabilityMode?: ObservabilityMode;
   onObservabilityModeChange?: (value: ObservabilityMode) => void;
+  submitTimeoutMinutes?: string;
+  stopTimeoutMinutes?: string;
+  timeoutDefaults?: SyncTaskTimeoutDefaults | null;
+  onTaskTimeoutChange?: (key: TaskTimeoutKey, minutes: number | null) => void;
   clusterId: string;
   clusters: ClusterInfo[];
   pluginPanelLoading: boolean;
@@ -274,6 +338,40 @@ export function SettingsSidebarPanel({
                 <SelectItem value='off'>{t('observabilityOff')}</SelectItem>
               </SelectContent>
             </Select>
+          </div>
+        ) : null}
+
+        {/* 提交/停止超时：留空用全局默认，跟随任务版本，重新发布后生效 */}
+        {/* Submit/stop timeouts: empty means the global default; versioned with the task and applied after republishing */}
+        {executionMode === 'cluster' && onTaskTimeoutChange ? (
+          <div className='space-y-1.5 pt-2 border-t border-border/40'>
+            <div className='flex items-center gap-1'>
+              <Label className='text-[11px] text-muted-foreground'>{t('timeoutSettings')}</Label>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <HelpCircle className='size-3 cursor-help text-muted-foreground/70' />
+                </TooltipTrigger>
+                <TooltipContent side='top' className='max-w-[260px] text-xs'>
+                  {t('timeoutSettingsHint')}
+                </TooltipContent>
+              </Tooltip>
+            </div>
+            <div className='grid grid-cols-2 gap-2'>
+              <TaskTimeoutInput
+                label={t('submitTimeoutSetting')}
+                value={submitTimeoutMinutes}
+                defaultSeconds={timeoutDefaults?.submit_timeout_seconds}
+                testId='sync-submit-timeout-minutes'
+                onChange={(minutes) => onTaskTimeoutChange('submit_timeout_minutes', minutes)}
+              />
+              <TaskTimeoutInput
+                label={t('stopTimeoutSetting')}
+                value={stopTimeoutMinutes}
+                defaultSeconds={timeoutDefaults?.stop_timeout_seconds}
+                testId='sync-stop-timeout-minutes'
+                onChange={(minutes) => onTaskTimeoutChange('stop_timeout_minutes', minutes)}
+              />
+            </div>
           </div>
         ) : null}
       </div>

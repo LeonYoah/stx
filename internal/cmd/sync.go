@@ -819,6 +819,7 @@ func newSyncTaskSubmitCommand(storeProvider authStoreProvider) *cobra.Command {
 			if err != nil {
 				return handleSecureWriteError(command, operationID, err)
 			}
+			emitWriteOutcomeWarning(command, operationID, requestID, data.ID, data.SubmitSpec, data.ResultPreview)
 			if strings.TrimSpace(data.Mode) != "" {
 				mode = data.Mode
 			}
@@ -940,6 +941,10 @@ func newSyncJobCancelCommand(storeProvider authStoreProvider) *cobra.Command {
 			if err != nil {
 				return handleSecureWriteError(command, operationID, err)
 			}
+			if job, ok := data.(map[string]any); ok {
+				resultPreview, _ := job["result_preview"].(map[string]any)
+				emitWriteOutcomeWarning(command, operationID, requestID, uint(jobID), nil, resultPreview)
+			}
 			return renderCommandResultWithRequestID(command, operationID, requestID, data)
 		},
 	}
@@ -985,6 +990,7 @@ func newSyncJobRecoverCommand(storeProvider authStoreProvider) *cobra.Command {
 			if err != nil {
 				return handleSecureWriteError(command, operationID, err)
 			}
+			emitWriteOutcomeWarning(command, operationID, requestID, data.ID, data.SubmitSpec, data.ResultPreview)
 
 			if wait && data.ID != 0 {
 				waitEvents := clioutput.NewTextEventWriter(command.ErrOrStderr())

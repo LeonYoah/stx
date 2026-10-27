@@ -417,6 +417,15 @@ func GetExternalURL() string {
 	return ""
 }
 
+// GetConsoleURL 返回控制台（前端）的访问地址，去掉末尾的斜杠；未配置时返回空字符串。
+// GetConsoleURL returns the console (frontend) address without a trailing slash; empty when not configured.
+func GetConsoleURL() string {
+	if Config == nil {
+		return ""
+	}
+	return strings.TrimRight(strings.TrimSpace(Config.App.ConsoleURL), "/")
+}
+
 // IsGRPCEnabled 检查 gRPC 是否启用
 // IsGRPCEnabled checks if gRPC server is enabled
 func IsGRPCEnabled() bool {

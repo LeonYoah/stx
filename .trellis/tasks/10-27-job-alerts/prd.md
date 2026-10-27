@@ -82,7 +82,8 @@
   - 错误摘要
   - 链接
 - 支持全部五类渠道。邮件有 HTML 版本，webhook 带结构化的 `alert` 对象。
-- 链接格式是 `{app.external_url}/sync?task=<id>&job=<id>`，`external_url` 为空时不带链接。
+- 链接格式是 `{app.console_url}/sync?task=<id>&job=<id>`，`console_url` 为空时不带链接。
+  - 2026-10-27 实测修正：原计划用 `external_url`，但它是 Agent、Alertmanager 回调的后端地址（默认 17800），前端在 17880，拼出来的链接在 t1 上 404。因此新增可选配置 `app.console_url`。
 
 ### R7 作业深链
 - 前端 `/sync` 页面支持 `?task=<id>&job=<id>`：打开对应任务，切到作业列表并选中该作业。

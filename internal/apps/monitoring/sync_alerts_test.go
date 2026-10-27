@@ -156,14 +156,14 @@ func (f *syncAlertFixture) episodes(t *testing.T) []*SyncAlertEpisode {
 	return episodes
 }
 
-func withExternalURL(t *testing.T, value string) {
+func withConsoleURL(t *testing.T, value string) {
 	t.Helper()
 	if config.Config == nil {
 		t.Skip("config not loaded")
 	}
-	previous := config.Config.App.ExternalURL
-	config.Config.App.ExternalURL = value
-	t.Cleanup(func() { config.Config.App.ExternalURL = previous })
+	previous := config.Config.App.ConsoleURL
+	config.Config.App.ConsoleURL = value
+	t.Cleanup(func() { config.Config.App.ConsoleURL = previous })
 }
 
 func TestSyncAlertHub_taskWithoutPolicyIsDropped(t *testing.T) {
@@ -186,7 +186,7 @@ func TestSyncAlertHub_taskWithoutPolicyIsDropped(t *testing.T) {
 }
 
 func TestSyncAlertHub_firesOnceCountsAndResolves(t *testing.T) {
-	withExternalURL(t, "https://stx.example.com/")
+	withConsoleURL(t, "https://stx.example.com/")
 	f := setupSyncAlertFixture(t)
 	f.configureTask(t, 7, []string{syncalert.RuleJobFailed}, 60)
 
@@ -390,6 +390,23 @@ func TestSyncAlertHub_clusterRules(t *testing.T) {
 	f.handle(t, degraded)
 	if len(f.episodes(t)) != before {
 		t.Fatalf("disabled rule must not open episodes")
+	}
+}
+
+func TestSyncAlertJobLinkUsesConsoleURL(t *testing.T) {
+	withConsoleURL(t, "")
+	previous := config.Config.App.ExternalURL
+	config.Config.App.ExternalURL = "http://backend:17800"
+	t.Cleanup(func() { config.Config.App.ExternalURL = previous })
+	if got := syncAlertJobLink(7, 9); got != "" {
+		t.Fatalf("without console_url there is no link (external_url is the backend), got %q", got)
+	}
+	config.Config.App.ConsoleURL = "http://console:17880/"
+	if got := syncAlertJobLink(7, 9); got != "http://console:17880/sync?job=9&task=7" {
+		t.Fatalf("unexpected link: %q", got)
+	}
+	if got := syncAlertJobLink(7, 0); got != "http://console:17880/sync?task=7" {
+		t.Fatalf("task-only link: %q", got)
 	}
 }
 

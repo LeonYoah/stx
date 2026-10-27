@@ -79,7 +79,7 @@ func (s *Service) SetTaskAlertPolicyStore(store syncalert.TaskPolicyStore)
 - 标题：`[STX][告警|恢复][级别] 任务 <名称> · <规则名>`（集群级为"集群 <名称>"）。
 - 正文：状态、规则、集群、任务、作业 `#id`、引擎作业 ID、触发来源、累计次数、首次 / 最近发生时间、恢复时间、错误摘要（500 字符）、策略、链接。
 - webhook 带结构化 `alert`：`source_type=sync`、`source_key`、`status`、`scope`、`rule_key`、`task_id`、`job_id`、`occurrence_count`、`link` 等。
-- 链接：`{app.external_url}/sync?task=<id>&job=<id>`，`external_url` 为空时不带；告警中心用相对链接 `/sync?task=&job=`。
+- 链接：`{app.console_url}/sync?task=<id>&job=<id>`，`console_url` 为空时不带链接；告警中心用相对链接 `/sync?task=&job=`。**不要用 `external_url`**：它是 Agent、Alertmanager 回调的后端地址（默认 17800），默认安装里前端在另一个端口（17880），拼出来的链接会 404。
 - 邮件收件人：策略接收人 + `notify_task_owner` 时的任务创建人邮箱（用户停用或没有邮箱时忽略，不让告警失败），按小写去重。
 
 ### 任务告警配置（TaskConfig）

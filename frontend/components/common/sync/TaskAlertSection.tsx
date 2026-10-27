@@ -206,7 +206,10 @@ export function TaskAlertSection({
         <p className='text-xs text-muted-foreground'>{t('unavailable')}</p>
       ) : (
         <div className='flex min-w-0 items-center gap-2 rounded-md border border-border/50 bg-background/60 px-2 py-1.5'>
-          <div className='min-w-0 flex-1'>
+          {/* w-0 + flex-1：摘要不参与撑宽，侧栏的 ScrollArea 会按内容最小宽度撑开，长摘要会把整张卡片挤出可视区。 */}
+          {/* w-0 + flex-1: the summary must not widen the row; the sidebar ScrollArea grows to the min-content width, so a
+              long summary would push the whole card out of view. */}
+          <div className='w-0 min-w-0 flex-1'>
             {summary ? (
               <Tooltip>
                 <TooltipTrigger asChild>

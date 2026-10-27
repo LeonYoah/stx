@@ -577,13 +577,16 @@ func (s *Service) resolveUserEmails(ctx context.Context, userID uint) []string {
 	return emails
 }
 
-// syncAlertJobLink 返回作业深链 {external_url}/sync?task=<id>&job=<id>；没有配置外部地址时返回空。
-// syncAlertJobLink returns the job deep link {external_url}/sync?task=<id>&job=<id>; empty without an external URL.
+// syncAlertJobLink 返回作业深链 {console_url}/sync?task=<id>&job=<id>；没有配置控制台地址时返回空。
+// 不用 external_url：它是 Agent、Alertmanager 回调的后端地址，默认安装里和前端不是同一个端口。
+// syncAlertJobLink returns the job deep link {console_url}/sync?task=<id>&job=<id>; empty without a console URL.
+// external_url is not used: it is the backend address agents and Alertmanager call back, and in default installs it
+// is not on the same port as the frontend.
 func syncAlertJobLink(taskID, jobID uint) string {
-	if taskID == 0 || config.Config == nil {
+	if taskID == 0 {
 		return ""
 	}
-	base := strings.TrimRight(strings.TrimSpace(config.GetExternalURL()), "/")
+	base := config.GetConsoleURL()
 	if base == "" {
 		return ""
 	}

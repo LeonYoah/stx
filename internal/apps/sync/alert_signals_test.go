@@ -191,6 +191,27 @@ func TestAlertSignalStreamingRecoversOnRunning(t *testing.T) {
 	}
 }
 
+// 回归：刚提交时 submit_spec.mode 是 TaskMode 而不是 string，批作业提交成功不能被当成实时作业而解除告警。
+// Regression: right after submit submit_spec.mode is a TaskMode, not a string; a successful batch submit must not be
+// mistaken for a streaming job and resolve the alerts.
+func TestAlertSignalBatchSubmitDoesNotResolve(t *testing.T) {
+	service, _, task := newOutcomeTestService(t, nil)
+	reporter := attachReporter(service)
+	job, err := service.SubmitTaskWithOptions(context.Background(), task.ID, 1, &SubmitOptions{})
+	if err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	if _, isTaskMode := job.SubmitSpec["mode"].(TaskMode); !isTaskMode {
+		t.Fatalf("test premise: submit_spec.mode should be a TaskMode right after submit, got %T", job.SubmitSpec["mode"])
+	}
+	if got := reporter.find(syncalert.KindResolve, "", syncalert.ResolveTaskRunHealthy); len(got) != 0 {
+		t.Fatalf("a batch submit must not resolve the task, got %+v", got)
+	}
+	if !jobIsBatch(job) {
+		t.Fatalf("jobIsBatch must read a TaskMode mode")
+	}
+}
+
 func TestAlertSignalExpiredSubmitReportsTimeoutOnly(t *testing.T) {
 	service, engine, task := newOutcomeTestService(t, nil)
 	reporter := attachReporter(service)

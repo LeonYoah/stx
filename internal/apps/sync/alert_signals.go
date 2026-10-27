@@ -105,7 +105,10 @@ func (s *Service) reportSubmitFailed(ctx context.Context, task *Task, instance *
 // reportSubmitSucceeded resolves the task's A1, A2 and B1 when a streaming job is submitted: streaming jobs recover
 // on running, while batch jobs wait for success.
 func (s *Service) reportSubmitSucceeded(ctx context.Context, task *Task, instance *JobInstance) {
-	if instance == nil || instance.Status != JobStatusRunning || jobIsBatch(instance) {
+	if instance == nil || instance.Status != JobStatusRunning {
+		return
+	}
+	if (task != nil && task.Mode == TaskModeBatch) || jobIsBatch(instance) {
 		return
 	}
 	if signal, ok := s.alertSignalForJob(ctx, syncalert.KindResolve, "", instance, task, ""); ok {
@@ -227,9 +230,23 @@ func jobIsBatch(job *JobInstance) bool {
 	}
 	mode := strings.TrimSpace(job.Mode)
 	if mode == "" {
-		mode = strings.TrimSpace(stringValue(job.SubmitSpec, "mode"))
+		mode = strings.TrimSpace(submitSpecMode(job.SubmitSpec))
 	}
 	return strings.EqualFold(mode, string(TaskModeBatch))
+}
+
+// submitSpecMode 读取 submit_spec.mode：刚提交时是 TaskMode，从库里读出来是 string，两种都要认。
+// submitSpecMode reads submit_spec.mode: it is a TaskMode right after submit and a string once loaded from the
+// database, so both must be accepted.
+func submitSpecMode(spec JSONMap) string {
+	switch value := spec["mode"].(type) {
+	case string:
+		return value
+	case TaskMode:
+		return string(value)
+	default:
+		return ""
+	}
 }
 
 // ResolveTaskNames 按 ID 批量查询任务名，供告警策略列表显示；实现 monitoring.SyncTaskNameResolver。

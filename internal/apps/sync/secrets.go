@@ -95,7 +95,7 @@ func sanitizeJobForResponse(job *JobInstance) *JobInstance {
 	clone.SyncLagMs = computeJobSyncLagMs(&clone)
 	clone.CancelOverdue = isCancelOverdue(&clone, time.Now())
 	if strings.TrimSpace(clone.Mode) == "" {
-		clone.Mode = strings.ToLower(strings.TrimSpace(stringValue(job.SubmitSpec, "mode")))
+		clone.Mode = strings.ToLower(strings.TrimSpace(submitSpecMode(job.SubmitSpec)))
 	}
 	return &clone
 }

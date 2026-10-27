@@ -76,6 +76,10 @@ type AppConfig struct {
 	// Example: "http://192.168.1.100:17800" or "https://stx.example.com"
 	// 示例: "http://192.168.1.100:17800" 或 "https://stx.example.com"
 	ExternalURL string `mapstructure:"external_url"`
+	// ConsoleURL 是用户在浏览器里打开控制台的地址（前端），告警通知里的作业链接用它拼；为空时通知不带链接。
+	// ConsoleURL is the address users open the console (frontend) at; job links in alert notifications are built
+	// from it, and notifications carry no link when it is empty.
+	ConsoleURL string `mapstructure:"console_url"`
 
 	// DisplayTimezone 系统默认展示时区（IANA 名称，默认 Asia/Shanghai）；用于报告渲染、默认 cron 时区与前端默认展示。
 	// 数据库存储始终为 UTC，与此配置无关。环境变量 STX_DISPLAY_TIMEZONE（兼容 STX_REPORT_TIMEZONE）可覆盖。

@@ -112,6 +112,7 @@ Dolphin 触发的提交：
 - 必须跑当前已发布快照；未发布 → 400 `ErrTaskNotPublished`
 - 作业记录带 `task_version`、`external_ref`、`trigger_source=dolphin`，与手动运行、内置定时区分
 - 没有 SeaTunnel 集群或引擎提交失败时，仍要留下一条 `failed` 作业，不能假装调度没调过
+- Dolphin 触发的作业失败、提交失败同样进入作业告警（任务配置了才发），通知里触发来源显示为 Dolphin 调度（`trigger_source=dolphin`），见[同步作业告警](./sync-alerts.md)。
 - 引擎提交**结果未知**（超时等，见 [作业状态对账器 · 写操作结果未知](./job-status-reconciler.md)）时不算失败：留下一条 `pending` + `submit_outcome=unknown` 的作业，CLI `--wait` 继续等待确认。DS 用同一个 `external_ref` 重试会接管这条作业；换了 `external_ref` 的新提交在截止前收到 409 `ErrSubmitOutcomePending`，CLI 退出码 6
 
 Dolphin 定义接口是**整图覆盖**（`taskDefinitionJson` + `taskRelationJson` + `locations` 一次 PUT 全部节点/边/坐标）。回写契约：

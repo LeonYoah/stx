@@ -23,6 +23,7 @@
 | [质量规范](./quality-guidelines.md) | 代码标准、注释规范、License 头、语言输出约定、禁止模式 | 已填写 |
 | [日志规范](./logging-guidelines.md) | 结构化日志与日志级别 | 已填写 |
 | [作业状态对账器](./job-status-reconciler.md) | GetJob/ListJobs 读库、集群对账与 sync 观察字段 | 已填写 |
+| [同步作业告警](./sync-alerts.md) | 作业级规则（任务上配置才生效）与集群级默认规则、信号契约、告警阶段（合并 / 提醒 / 恢复）、投递、任务告警接口与 CLI | 已填写 |
 | [实时可观测性与事件上报](./engine-events-and-realtime.md) | 提交时注入 observability、`/metrics/realtime` 代理（只找 active master）、`event-report-http` 事件通道（接收端只对 token 错误返回非 2xx） | 已填写 |
 | [DolphinScheduler SHELL 接入](./dolphin-scheduler-shell.md) | 提交等待、守护进程、登录令牌、推送绑定与 CLI 退出码 | 已填写 |
 
@@ -36,6 +37,7 @@
 - 涉及 SeaTunnel 进程查找、启停、监控或心跳时，阅读[受管 SeaTunnel 进程身份](./managed-process-identity.md)。
 - 涉及作业列表/GetJob 观察面、CLI `--wait` 轮询或 SeaTunnel 引擎对账时，阅读[作业状态对账器](./job-status-reconciler.md)。
 - 涉及 `/metrics/realtime`、作业提交内容注入、SeaTunnel 事件上报或 `sync_engine_events` 时，阅读[实时可观测性与事件上报](./engine-events-and-realtime.md)。
+- 涉及作业告警（提交失败、提交超时、作业失败、停止超时、作业状态获取失败、事件通道降级）、`monitoring_sync_alert_episodes`、任务告警配置或修改会发出告警信号的状态写入时，阅读[同步作业告警](./sync-alerts.md)。
 - 涉及 DolphinScheduler SHELL 节点、`--wait`/`--close-job`、登录令牌或工作流推送时，阅读[DolphinScheduler SHELL 接入](./dolphin-scheduler-shell.md)。
 - 新增源文件、方法或用户可见文案时，按[质量规范](./quality-guidelines.md)检查注释、License 头和语言输出。
 

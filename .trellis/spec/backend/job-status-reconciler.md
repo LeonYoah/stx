@@ -30,6 +30,8 @@
 
 ## 写操作结果未知（提交 / 停止）
 
+> 提交过期会触发作业告警 A2（不重复报 B1），停止越过截止时间会触发 C1，见[同步作业告警](./sync-alerts.md)。
+
 ### 1. 适用范围 / 触发条件
 
 - SeaTunnel 很忙时，`submit-job`、`stop-job` 可能超过 HTTP 超时（`engine_request_timeout_seconds`，默认 15 秒）；超时后引擎通常仍在处理。把它当普通失败会留下 STX 不知道的作业，重试还会换新 jobId，同一份数据被两个作业同时写。
@@ -148,6 +150,7 @@ func isEngineTransportError(err error) bool                                  // 
 - **刷新路径**：`refreshJobInstance`（`?fresh=1`、事件触发刷新、执行状态查询、`external_ref` 接管）在作业所在集群处于退避期时**不请求引擎**，直接返回库里的数据，也不另记同步失败。用户主动的写操作（提交、停止）不受退避影响。
 - **终态指标补拉**：`startTerminalMetricsBackfill` 在后台运行，上一次没结束时不再启动；跳过退避中的集群；某个地址遇到传输层失败后，本次不再请求这个地址。
 - **日志**：每个集群只在进入退避时打一条 warn（集群、原因、下一次时间），恢复时打一条 info（失败轮数、开始时间），不每轮都打。
+- **告警信号**：`finishClusterReconcile` 在提前结束时发 D1 `Observe`（`Since=firstFailureAt`），在恢复或进程启动后首次成功时发 `Resolve`；退避期内跳过的轮次不发信号、不刷新首次失败时间。见[同步作业告警](./sync-alerts.md)。
 - **HTTP 超时**：`NewSeaTunnelEngineClient` 在构造时读取 `engine_request_timeout_seconds`，运行中修改要重启生效；并发上限同理。
 
 ### 4. 校验与错误对应表

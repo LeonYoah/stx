@@ -130,6 +130,7 @@ GET  /api/v1/sync/jobs/:id/events?types=&page=&page_size= (R0, CLI: stx sync job
 - **健康**：
   - 状态取值 `disabled | pending_restart | healthy | degraded`。
   - 3.x 集群在通道已收到过事件的前提下，作业提交后 45 秒内没收到状态事件，就记 `expect_missed_at`，判定为降级。
+  - 状态从非降级变为 `degraded` 时发作业告警 D2（`sync_event_channel_degraded`，集群级默认规则），离开降级（恢复健康或关闭通道）时解除；写预期字段统一走 `updateEventChannelStatsWithAlert`，见[同步作业告警](./sync-alerts.md)。
   - 提交**结果未知**（`submit_outcome=unknown`，见 [作业状态对账器 · 写操作结果未知](./job-status-reconciler.md)）的作业不登记这个预期：引擎可能根本没有这个作业，登记了会把健康的通道误判为降级。
 
 ### 4. 校验与错误对应表

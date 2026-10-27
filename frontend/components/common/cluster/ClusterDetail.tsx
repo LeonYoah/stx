@@ -25,7 +25,7 @@
  * 显示集群的详细信息，包括节点和状态。
  */
 
-import {useState, useEffect, useCallback} from 'react';
+import {useState, useEffect, useCallback, useRef} from 'react';
 import {useRouter} from 'next/navigation';
 import {useTranslations} from 'next-intl';
 import {Button} from '@/components/ui/button';
@@ -389,6 +389,11 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
   const [runtimeStorageListing, setRuntimeStorageListing] = useState<
     Partial<Record<'checkpoint' | 'imap', RuntimeStorageListResult>>
   >({});
+  // 运行时存储目录列表轻量内存缓存，提升在各层级目录间前进/后退/点击面包屑时的瞬时感知。
+  // Lightweight in-memory directory listing cache to make back/forward navigation instant.
+  const runtimeStorageListCacheRef = useRef<Map<string, RuntimeStorageListResult>>(
+    new Map(),
+  );
   const [runtimeStorageBrowsePath, setRuntimeStorageBrowsePath] = useState<
     Partial<Record<'checkpoint' | 'imap', string>>
   >({});
@@ -571,7 +576,24 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
   }, [clusterId]);
 
   const loadRuntimeStorageList = useCallback(
-    async (kind: 'checkpoint' | 'imap', path?: string) => {
+    async (
+      kind: 'checkpoint' | 'imap',
+      path?: string,
+      forceRefresh = false,
+    ) => {
+      const cacheKey = `${clusterId}:${kind}:${path ?? ''}`;
+      if (!forceRefresh && runtimeStorageListCacheRef.current.has(cacheKey)) {
+        const cached = runtimeStorageListCacheRef.current.get(cacheKey);
+        if (cached) {
+          if (path !== undefined) {
+            setRuntimeStorageBrowsePath((prev) => ({...prev, [kind]: path}));
+          }
+          setRuntimeStoragePage((prev) => ({...prev, [kind]: 1}));
+          setRuntimeStorageListing((prev) => ({...prev, [kind]: cached}));
+          return;
+        }
+      }
+
       setRuntimeStorageListingLoading(kind);
       try {
         if (path !== undefined) {
@@ -590,6 +612,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
           setRuntimeStorageListing((prev) => ({...prev, [kind]: undefined}));
           return;
         }
+        runtimeStorageListCacheRef.current.set(cacheKey, result.data);
         setRuntimeStorageListing((prev) => ({...prev, [kind]: result.data}));
       } finally {
         setRuntimeStorageListingLoading(null);
@@ -598,32 +621,43 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
     [clusterId],
   );
 
-  const loadRuntimeStorage = useCallback(async () => {
-    setRuntimeStorageLoading(true);
-    try {
-      const result = await services.cluster.getRuntimeStorageSafe(clusterId);
-      if (!result.success || !result.data) {
-        setRuntimeStorage(null);
-        return;
+  const loadRuntimeStorage = useCallback(
+    async (forceRefresh = false) => {
+      if (forceRefresh) {
+        runtimeStorageListCacheRef.current.clear();
       }
-      setRuntimeStorage(result.data);
-      setRuntimeStorageBrowsePath({
-        checkpoint: result.data.checkpoint?.namespace || '',
-        imap: result.data.imap?.namespace || '',
-      });
-      if (result.data.checkpoint?.enabled) {
-        void loadRuntimeStorageList(
-          'checkpoint',
-          result.data.checkpoint.namespace,
-        );
+      setRuntimeStorageLoading(true);
+      try {
+        const result = await services.cluster.getRuntimeStorageSafe(clusterId);
+        if (!result.success || !result.data) {
+          setRuntimeStorage(null);
+          return;
+        }
+        setRuntimeStorage(result.data);
+        setRuntimeStorageBrowsePath({
+          checkpoint: result.data.checkpoint?.namespace || '',
+          imap: result.data.imap?.namespace || '',
+        });
+        if (result.data.checkpoint?.enabled) {
+          void loadRuntimeStorageList(
+            'checkpoint',
+            result.data.checkpoint.namespace,
+            forceRefresh,
+          );
+        }
+        if (result.data.imap?.enabled) {
+          void loadRuntimeStorageList(
+            'imap',
+            result.data.imap.namespace,
+            forceRefresh,
+          );
+        }
+      } finally {
+        setRuntimeStorageLoading(false);
       }
-      if (result.data.imap?.enabled) {
-        void loadRuntimeStorageList('imap', result.data.imap.namespace);
-      }
-    } finally {
-      setRuntimeStorageLoading(false);
-    }
-  }, [clusterId, loadRuntimeStorageList]);
+    },
+    [clusterId, loadRuntimeStorageList],
+  );
 
   const handlePreviewRuntimeStorage = useCallback(
     async (kind: 'checkpoint' | 'imap', path: string) => {
@@ -1561,6 +1595,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
               void loadRuntimeStorageList(
                 kind,
                 runtimeStorageBrowsePath[kind] || spec.namespace,
+                true,
               )
             }
             onPreviewFile={(path) => void handlePreviewRuntimeStorage(kind, path)}
@@ -2370,7 +2405,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                 <Button
                   variant='outline'
                   size='sm'
-                  onClick={() => void loadRuntimeStorage()}
+                  onClick={() => void loadRuntimeStorage(true)}
                   disabled={runtimeStorageLoading}
                 >
                   {runtimeStorageLoading ? (

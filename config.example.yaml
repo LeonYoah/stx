@@ -109,6 +109,12 @@ sync:
   # 停止超时：点停止后超过这么久作业仍未停下，标记为"停止超时"（状态保持停止中，不判失败）
   # 0 或不填表示默认 300 秒；任务设置里可以单独覆盖（1~120 分钟）
   stop_timeout_seconds: 300
+  # 同时对账的集群数上限：一个集群很慢时，其他集群照常按对账间隔更新；0 或不填表示默认 4
+  job_reconciler_cluster_concurrency: 4
+  # 集群查询超时或连不上时，下一轮对账按 10、20、40…秒推迟，最长推迟这么久；成功一次立即恢复；0 或不填表示默认 120 秒
+  job_reconciler_max_backoff_seconds: 120
+  # 请求 SeaTunnel REST 接口的超时（读写共用，实时指标接口固定 3 秒）；0 或不填表示默认 15 秒
+  engine_request_timeout_seconds: 15
 
 # 数据库配置
 database:

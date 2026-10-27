@@ -16,7 +16,7 @@
   "base_branch": "main",
   "worktree_path": null,
   "commit": null,
-  "pr_url": null,
+  "pr_url": "https://github.com/LeonYoah/stx/pull/75",
   "subtasks": [],
   "children": [],
   "parent": "10-27-job-alerting-timeouts",

@@ -32,6 +32,7 @@ import (
 
 	clusterapp "github.com/LeonYoah/stx/internal/apps/cluster"
 	hostapp "github.com/LeonYoah/stx/internal/apps/host"
+	"github.com/LeonYoah/stx/internal/config"
 )
 
 const engineEndpointHeartbeatTimeout = 30 * time.Second
@@ -154,11 +155,26 @@ type SeaTunnelEngineClient struct {
 	httpClient *http.Client
 }
 
-// NewSeaTunnelEngineClient creates a SeaTunnel engine client.
+// defaultEngineRequestTimeout 是未配置时请求引擎 REST 接口的 HTTP 超时。
+// defaultEngineRequestTimeout is the HTTP timeout for engine REST calls when nothing is configured.
+const defaultEngineRequestTimeout = 15 * time.Second
+
+// NewSeaTunnelEngineClient 创建引擎客户端，HTTP 超时取 sync.engine_request_timeout_seconds（读写请求共用）。
+// NewSeaTunnelEngineClient creates the engine client; its HTTP timeout comes from
+// sync.engine_request_timeout_seconds and is shared by read and write calls.
 func NewSeaTunnelEngineClient() *SeaTunnelEngineClient {
 	return &SeaTunnelEngineClient{
-		httpClient: &http.Client{Timeout: 15 * time.Second},
+		httpClient: &http.Client{Timeout: engineRequestTimeout()},
 	}
+}
+
+// engineRequestTimeout 读取配置的引擎请求超时；没有配置或配置不是正数时用 15 秒。
+// engineRequestTimeout reads the configured engine request timeout; it falls back to 15s when unset or not positive.
+func engineRequestTimeout() time.Duration {
+	if config.Config == nil || config.Config.Sync.EngineRequestTimeoutSeconds <= 0 {
+		return defaultEngineRequestTimeout
+	}
+	return time.Duration(config.Config.Sync.EngineRequestTimeoutSeconds) * time.Second
 }
 
 // Submit submits one SeaTunnel job.
@@ -280,12 +296,20 @@ func (c *SeaTunnelEngineClient) ListFinishedJobs(ctx context.Context, endpoint *
 	})
 }
 
+// listEngineJobs 依次尝试各个路径（v2，再 v1 兼容路径）。连接已建立后超时或中断说明引擎很忙，换路径只会再等一次，
+// 所以直接返回；连接被拒等拨号失败仍尝试下一个路径（例如没开 v2 REST）。
+// listEngineJobs tries each path in turn (v2, then the v1 compatibility path). A timeout or drop after the
+// connection is up means the engine is busy and another path would only wait again, so it returns at once;
+// dial failures such as a refused connection still move on (for example when v2 REST is not enabled).
 func (c *SeaTunnelEngineClient) listEngineJobs(ctx context.Context, endpoint *EngineEndpoint, paths []string) ([]*EngineJobListItem, error) {
 	var lastErr error
 	for _, path := range paths {
 		items, err := c.getEngineJobListOnce(ctx, endpoint, path)
 		if err == nil {
 			return items, nil
+		}
+		if engineTransportErrorIsAmbiguous(err) {
+			return nil, err
 		}
 		lastErr = err
 	}

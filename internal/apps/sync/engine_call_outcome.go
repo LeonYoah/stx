@@ -22,6 +22,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"net/url"
 	"strings"
 	"syscall"
 )
@@ -110,4 +111,28 @@ func engineTransportErrorIsAmbiguous(err error) bool {
 		return true
 	}
 	return false
+}
+
+// isEngineTransportError 判断引擎调用失败是否发生在传输层（超时、连不上、连接中断），用于对账止损。
+// 引擎返回的非 2xx 状态、响应解析失败不算：它说明引擎还能回话，只是这个接口不可用。
+// isEngineTransportError reports whether an engine call failed at the transport layer (timeout, unreachable,
+// dropped connection); reconcile uses it to stop early. A non-2xx status or an unparsable body does not count:
+// the engine still answers, only that endpoint is unusable.
+func isEngineTransportError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		return true
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return true
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return true
+	}
+	return errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) ||
+		errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.EPIPE)
 }

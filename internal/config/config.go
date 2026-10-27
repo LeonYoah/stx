@@ -169,6 +169,15 @@ func setDefaults(c *configModel, observabilityEnabledSet bool) {
 	if c.Sync.StopTimeoutSeconds <= 0 {
 		c.Sync.StopTimeoutSeconds = 300
 	}
+	if c.Sync.JobReconcilerClusterConcurrency <= 0 {
+		c.Sync.JobReconcilerClusterConcurrency = 4
+	}
+	if c.Sync.JobReconcilerMaxBackoffSeconds <= 0 {
+		c.Sync.JobReconcilerMaxBackoffSeconds = 120
+	}
+	if c.Sync.EngineRequestTimeoutSeconds <= 0 {
+		c.Sync.EngineRequestTimeoutSeconds = 15
+	}
 
 	// 认证默认配置
 	if c.Auth.DefaultAdminUsername == "" {

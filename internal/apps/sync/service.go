@@ -68,6 +68,9 @@ type Service struct {
 	// events 保存事件运行时的防抖、预期与 CDC 延迟内存状态。
 	// events holds in-memory debounce, expectation and CDC delay state for the event runtime.
 	events engineEventState
+	// reconcile 负责各集群并行对账、跳过进行中的集群与按集群退避。
+	// reconcile runs per-cluster reconciles in parallel, skips clusters still in flight and backs off per cluster.
+	reconcile clusterReconcileScheduler
 }
 
 // ClusterVersionProvider provides SeaTunnel cluster version lookup.
@@ -2626,6 +2629,12 @@ func (s *Service) refreshJobInstance(ctx context.Context, instance *JobInstance)
 	}
 	endpoint := endpointFromSubmitSpec(instance.SubmitSpec)
 	if endpoint == nil {
+		return instance, nil
+	}
+	// 集群正在退避（查询连续超时或连不上）时不再请求引擎，直接返回库里的数据；同步失败已由对账记录。
+	// While the cluster backs off (queries keep timing out or failing to connect) skip the engine and return the
+	// stored row; reconcile has already recorded the sync failure.
+	if s.clusterReconcileBackingOff(ctx, instance) {
 		return instance, nil
 	}
 	info, err := s.engineClient.GetJobInfo(ctx, endpoint, instance.EngineJobID)

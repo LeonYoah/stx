@@ -5,7 +5,7 @@
 ## 原则
 
 - **读路径**：`GET /api/v1/sync/jobs`、`GET /api/v1/sync/jobs/:id` 默认只读 `sync_job_instances`，禁止同步调用 SeaTunnel `/job-info`。
-- **刷路径**：`StartJobReconciler` 按 `cluster_id` 分组，调用 `ListRunningJobs` / `ListFinishedJobs`，仅在状态变迁或必要时调用 `/job-info`。
+- **刷路径**：`StartJobReconciler` 按 `cluster_id` 分组，**各集群在后台并行对账**（见下文"集群并行对账、止损与退避"），调用 `ListRunningJobs` / `ListFinishedJobs`，仅在状态变迁或必要时调用 `/job-info`。
 - **手动刷新**：`GET /api/v1/sync/jobs/:id?fresh=1` 仍可对单条作业调用 `RefreshJobByID`（同步 `/job-info`），供运维或调试；CLI `--wait` 仍只轮询默认读路径。
 - **失败语义**：问引擎失败只更新 `sync_state` / `sync_fail_count`，不得因一次 `/job-info` 失败把取消中作业写成 `canceled`。
 
@@ -24,13 +24,15 @@
 
 `config.yaml` → `sync.job_reconciler_event_mode_interval_seconds`：事件模式下完整对账的最长间隔。**默认 0，表示关闭自适应**；配置正数（例如 60）才开启。
 
+`config.yaml` → `sync.job_reconciler_cluster_concurrency`（默认 4）、`sync.job_reconciler_max_backoff_seconds`（默认 120）、`sync.engine_request_timeout_seconds`（默认 15，读写请求共用，实时指标接口固定 3 秒）：0 或不填都取默认值。见下文"集群并行对账、止损与退避"。
+
 `config.yaml` → `sync.submit_timeout_seconds` / `sync.stop_timeout_seconds`：提交确认、停止确认的截止时长，默认都是 300 秒（0 或不填也是 300）。任务可以在 `definition.submit_timeout_minutes` / `definition.stop_timeout_minutes` 里覆盖（1~120 的整数分钟，跟随任务版本，重新发布后生效）。见下文"写操作结果未知"。
 
 ## 写操作结果未知（提交 / 停止）
 
 ### 1. 适用范围 / 触发条件
 
-- SeaTunnel 很忙时，`submit-job`、`stop-job` 可能超过 15 秒 HTTP 超时；超时后引擎通常仍在处理。把它当普通失败会留下 STX 不知道的作业，重试还会换新 jobId，同一份数据被两个作业同时写。
+- SeaTunnel 很忙时，`submit-job`、`stop-job` 可能超过 HTTP 超时（`engine_request_timeout_seconds`，默认 15 秒）；超时后引擎通常仍在处理。把它当普通失败会留下 STX 不知道的作业，重试还会换新 jobId，同一份数据被两个作业同时写。
 - 凡是改动 `engine_client.go` 的写请求、`submitTaskInstanceWithPayload`、`CancelJob`、`applyEngineJobInfoUpdate` 或对账孤儿分支时，必须遵守本节。
 
 ### 2. 签名
@@ -113,6 +115,81 @@ if engineTransportErrorIsAmbiguous(err) {
 }
 ```
 
+## 集群并行对账、止损与退避
+
+### 1. 适用范围 / 触发条件
+- 改动 `reconcileActiveJobs`、`reconcileClusterJobs(Light)`、`job_reconciler_scheduler.go`、`refreshJobInstance` 的引擎调用，或引擎客户端的 HTTP 超时时。
+- 目标：一个 SeaTunnel 集群很慢或连不上时，其他集群照常按对账间隔更新；不再每轮对这个集群发十几次请求；恢复后立即追上。
+
+### 2. 签名
+```go
+func (s *Service) reconcileActiveJobs(ctx context.Context) error            // 只分派，不等集群对账结束
+func (s *Service) reconcileClusterJobs(ctx context.Context, clusterID uint, jobs []*JobInstance) error
+func (s *Service) reconcileClusterJobsLight(ctx context.Context, clusterID uint, jobs []*JobInstance) error
+func (r *clusterReconcileScheduler) tryDispatch(ctx context.Context, key uint, run func(context.Context) error, done func(error)) bool
+func (r *clusterReconcileScheduler) finish(key uint, err error, interval, maxBackoff time.Duration) clusterReconcileOutcome
+func (r *clusterReconcileScheduler) inBackoff(key uint) bool
+func isEngineTransportError(err error) bool                                  // engine_call_outcome.go
+```
+
+### 3. 契约
+- **分派**：tick 协程只做查库、停止超时标记、本地作业刷新，然后每个集群调用一次 `tryDispatch`。集群对账在后台协程里跑，最多 `job_reconciler_cluster_concurrency` 个同时执行（信号量，首次分派时按配置创建）。`reconcileActiveJobs` 不等它们结束。
+- **跳过**：集群上一轮还没结束（`inFlight`），或者还在退避期（`now < nextAttemptAt`）时，本轮直接跳过，不排队。
+- **直连作业**（没有 `cluster_id`、只有 `submit_spec.engine_base_url`）：共用调度键 `0`，作为一个单元在后台逐个对账，彼此不止损，**不退避**（可能分属不同地址）。
+- **止损**：`reconcileClusterJobs` 遇到以下情况立即返回非 nil 错误，本轮不再请求这个集群：
+  - 找不到端点：`errReconcileNoEndpoint`；
+  - running 列表失败（任何错误）；
+  - 任意一次 finished 列表或 `/job-info` 遇到传输层失败（`isEngineTransportError`）。
+
+  没处理到的作业各记一次同步失败（`recordRemainingSyncFailures`，跳过没有 `engine_job_id` 的）。已经处理完的作业保持不变；正在处理的 running 作业 `/job-info` 超时时，照旧先用列表里的状态更新它。
+- **不止损**：finished 列表或 `/job-info` 返回非 2xx、响应解析失败——引擎还能回话，只是这个接口不可用，保持原来的 `continue`。
+- **列表路径回退**：`listEngineJobs` 遇到连接已建立后的超时或中断（`engineTransportErrorIsAmbiguous`）直接返回，不再试 v1 兼容路径；连接被拒等拨号失败仍尝试下一个路径。
+- **退避**：`finish` 收到错误时 `consecutiveAborts++`，推迟 `min(interval × 2^(n-1), max_backoff)`，即 10、20、40、80、120、120 秒；`firstFailureAt` 记录这一段连续失败的开始时间。成功一次立即复位，并带回失败了几轮、从何时开始（`Recovered`）。
+- **刷新路径**：`refreshJobInstance`（`?fresh=1`、事件触发刷新、执行状态查询、`external_ref` 接管）在作业所在集群处于退避期时**不请求引擎**，直接返回库里的数据，也不另记同步失败。用户主动的写操作（提交、停止）不受退避影响。
+- **终态指标补拉**：`startTerminalMetricsBackfill` 在后台运行，上一次没结束时不再启动；跳过退避中的集群；某个地址遇到传输层失败后，本次不再请求这个地址。
+- **日志**：每个集群只在进入退避时打一条 warn（集群、原因、下一次时间），恢复时打一条 info（失败轮数、开始时间），不每轮都打。
+- **HTTP 超时**：`NewSeaTunnelEngineClient` 在构造时读取 `engine_request_timeout_seconds`，运行中修改要重启生效；并发上限同理。
+
+### 4. 校验与错误对应表
+| 情况 | 本轮 | 下一轮 | 作业 |
+|---|---|---|---|
+| 找不到端点 | 结束 | 退避 | 全部记一次同步失败 |
+| running 列表超时 / 500 | 结束 | 退避 | 全部记一次同步失败 |
+| finished 列表超时 | 结束，不再请求剩下的列表和 job-info | 退避 | 全部记一次同步失败 |
+| finished 某个状态 404 | 继续下一个状态 | 正常 | 不受影响 |
+| `/job-info` 超时 | 结束 | 退避 | 当前作业按原逻辑处理，后面的各记一次同步失败 |
+| `/job-info` 非 2xx | 继续下一个作业 | 正常 | 当前作业记一次同步失败 |
+| 退避期内 `?fresh=1` | 不请求引擎 | — | 返回库里的值 |
+
+### 5. Good / Base / Bad
+- Good：集群 A 的 running 列表卡 15 秒；集群 B 的作业仍每 10 秒更新；A 进入退避，10、20、40 秒后重试，期间页面上 A 的作业显示"同步延迟"。
+- Base：所有集群正常，每轮每个集群各跑一次完整对账，行为和串行时一致。
+- Bad：在 tick 协程里同步调用 `reconcileClusterJobs`，一个慢集群让所有集群停止更新。
+
+### 6. 必须有的测试
+- 慢集群不拖慢其他集群；上一轮没结束的集群本轮跳过（`TestReconcileSlowClusterDoesNotBlockOtherClusters`）。
+- 止损：job-info 超时后不再请求后面的作业、finished 列表超时后不再请求剩下的列表、非 2xx 不止损、没有端点返回 `errReconcileNoEndpoint`（断言调用次数和 `sync_fail_count`）。
+- 退避序列 10→20→40→80→120→120、成功复位、直连键不退避。
+- 退避期内对账跳过、刷新不调引擎；退避结束后重试并翻倍。
+- `isEngineTransportError` 分类；`engine_request_timeout_seconds` 生效；列表超时不回退 v1、连接被拒仍回退。
+- `go test -race ./internal/apps/sync/`。测试库用 `:memory:` 时必须 `SetMaxOpenConns(1)`，否则并发协程可能拿到另一个空库。
+
+### 7. 错误与正确示例
+#### 错误
+```go
+for clusterID, items := range grouped {
+    s.reconcileClusterJobs(ctx, clusterID, items) // 串行：一个集群卡 400 秒，所有集群都不更新
+}
+```
+#### 正确
+```go
+for clusterID, items := range grouped {
+    s.reconcile.tryDispatch(ctx, clusterID, func(ctx context.Context) error {
+        return s.reconcileClusterJobs(ctx, clusterID, items)
+    }, func(err error) { s.finishClusterReconcile(ctx, clusterID, err) })
+}
+```
+
 ## 事件模式（自适应轮询）
 
 > **默认关闭。** 事件平均晚到约 8 秒（t1 实测取消后 8.2 秒收到），不比 10 秒轮询快；开启只换来更少的引擎调用，代价是事件悄悄丢失时状态最长滞后一个完整对账间隔。通道健康只在提交后 45 秒内验证，长期不提交的集群发现不了通道失效。只有需要减轻引擎压力的大集群才配置正数开启。默认情况下状态事件只是额外触发一次 `RefreshJobByID`，轮询频率不变。
@@ -121,6 +198,7 @@ if engineTransportErrorIsAmbiguous(err) {
 - 满足时，在完整对账间隔内每轮只做 `reconcileClusterJobsLight`：**不拉 running/finished 列表**，只给 `running` 作业中"30 秒内被读过"（`GetJob`/`GetJobLogs`/`/realtime` 会打标记）或 `last_synced_at` 超过 30 秒的作业拉 `/job-info`。
 - 状态变化靠事件触发 `RefreshJobByID`（防抖 1 秒）；非 running 的非终态作业最多等一个完整对账间隔，由完整对账兜底。
 - 通道降级、未开启、2.3.x、或配置为 0 / 负数（默认）时，每轮都是完整对账，行为和原来一致。作业从引擎消失时置为 failed、终态补拉终态指标等语义**只在完整对账里发生**。
+- 完整对账提前结束（止损）时不更新 `lastFull`，下一轮仍然做完整对账。
 - `lastFull` 只存在内存里：STX 重启后第一轮必然是完整对账。CLI `--wait` 轮询 `GetJob` 会让作业保持高频拉取。
 
 ## CLI

@@ -3,7 +3,7 @@
   "name": "engine-query-resilience",
   "title": "引擎查询韧性：逐集群并行对账、退避与请求超时可配置",
   "description": "",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,

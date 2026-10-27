@@ -108,6 +108,17 @@ type SyncConfig struct {
 	// StopTimeoutSeconds caps how long a stop request waits for the job to actually stop before it is flagged as
 	// overdue; 0 or unset means the 300-second default.
 	StopTimeoutSeconds int `mapstructure:"stop_timeout_seconds"`
+	// JobReconcilerClusterConcurrency 是同时对账的集群数上限；0 或不填表示默认 4。
+	// JobReconcilerClusterConcurrency caps how many clusters reconcile at the same time; 0 or unset means 4.
+	JobReconcilerClusterConcurrency int `mapstructure:"job_reconciler_cluster_concurrency"`
+	// JobReconcilerMaxBackoffSeconds 是集群查询连续失败后推迟对账的上限；0 或不填表示默认 120 秒。
+	// JobReconcilerMaxBackoffSeconds caps how long a cluster's reconcile is pushed back after repeated query
+	// failures; 0 or unset means 120 seconds.
+	JobReconcilerMaxBackoffSeconds int `mapstructure:"job_reconciler_max_backoff_seconds"`
+	// EngineRequestTimeoutSeconds 是请求 SeaTunnel REST 接口的 HTTP 超时，读写请求共用；0 或不填表示默认 15 秒。
+	// EngineRequestTimeoutSeconds is the HTTP timeout for SeaTunnel REST calls, shared by reads and writes; 0 or
+	// unset means 15 seconds.
+	EngineRequestTimeoutSeconds int `mapstructure:"engine_request_timeout_seconds"`
 }
 
 // authConfig 认证配置

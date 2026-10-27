@@ -1881,8 +1881,12 @@ func monitoringReadOperationSpecs() []OperationSpec {
 	clusterID := []InputSpec{{Name: "id", Location: InputPath, Required: true, Description: "Cluster ID"}}
 	policyID := []InputSpec{{Name: "id", Location: InputPath, Required: true, Description: "Alert policy ID"}}
 	policyExecutionInputs := append(append([]InputSpec{}, policyID...), monitoringDeliveryFilterInputs(false)...)
+	alertPolicyListInputs := []InputSpec{
+		{Name: "policy_type", Location: InputQuery, Description: "Policy type: platform_health, metrics_template, custom_promql or sync_job"},
+		{Name: "task_id", Location: InputQuery, Description: "Sync task ID (job alert policies)"},
+	}
 	alertInstanceInputs := append([]InputSpec{
-		{Name: "source_type", Location: InputQuery, Description: "Alert source: local_process_event or remote_alertmanager"},
+		{Name: "source_type", Location: InputQuery, Description: "Alert source: local_process_event, remote_alertmanager or sync"},
 		{Name: "cluster_id", Location: InputQuery, Description: "Cluster ID or all"},
 		{Name: "severity", Location: InputQuery, Description: "Alert severity: warning or critical"},
 		{Name: "status", Location: InputQuery, Description: "Display status: firing, resolved, or closed"},
@@ -1900,7 +1904,7 @@ func monitoringReadOperationSpecs() []OperationSpec {
 	return []OperationSpec{
 		monitoringReadOperation("monitoring.overview.get", []string{"monitoring", "overview", "get"}, "Get monitoring overview", "/api/v1/monitoring/overview", nil),
 		monitoringReadOperation("monitoring.cluster.overview.get", []string{"monitoring", "cluster", "overview", "get"}, "Get cluster monitoring overview", "/api/v1/monitoring/clusters/:id/overview", clusterID),
-		monitoringReadOperation("monitoring.alert-policy.list", []string{"monitoring", "alert-policy", "list"}, "List alert policies", "/api/v1/monitoring/alert-policies", nil),
+		monitoringReadOperation("monitoring.alert-policy.list", []string{"monitoring", "alert-policy", "list"}, "List alert policies", "/api/v1/monitoring/alert-policies", alertPolicyListInputs),
 		monitoringReadOperation("monitoring.alert-policy.execution.list", []string{"monitoring", "alert-policy", "execution", "list"}, "List alert policy executions", "/api/v1/monitoring/alert-policies/:id/executions", policyExecutionInputs),
 		monitoringReadOperation("monitoring.alert-instance.list", []string{"monitoring", "alert-instance", "list"}, "List alert instances", "/api/v1/monitoring/alert-instances", alertInstanceInputs),
 		monitoringReadOperation("monitoring.alert.list", []string{"monitoring", "alert", "list"}, "List local alerts", "/api/v1/monitoring/alerts", alertInputs),

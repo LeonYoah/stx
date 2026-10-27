@@ -147,6 +147,7 @@ func (s *Service) reconcileActiveJobs(ctx context.Context) error {
 // recovery, never on every pass.
 func (s *Service) finishClusterReconcile(ctx context.Context, clusterID uint, err error) {
 	outcome := s.reconcile.finish(clusterID, err, reconcileInterval(), reconcileMaxBackoff())
+	s.reportClusterStatus(clusterID, outcome, err)
 	switch {
 	case outcome.EnteredBackoff:
 		logger.WarnF(ctx, "[Sync] cluster engine queries failed, backing off reconcile: cluster=%d reason=%v next_attempt_at=%s",
@@ -518,12 +519,16 @@ func (s *Service) expireUnknownSubmit(ctx context.Context, job *JobInstance, eng
 		ErrorMsg:     submitOutcomeExpiredMessage(job),
 		FinishedTime: now.In(time.Local).Format("2006-01-02 15:04:05"),
 	}
-	if _, err := s.applyEngineJobInfoUpdate(ctx, job, expired); err != nil {
+	updated, err := s.applyEngineJobInfoUpdate(ctx, job, expired)
+	if err != nil {
 		s.recordJobSyncFailure(ctx, job)
 		return
 	}
 	logger.WarnF(ctx, "[Sync] unknown submit outcome expired, job marked failed: job=%d task=%d engine_job_id=%s",
 		job.ID, job.TaskID, engineJobID)
+	if updated != nil && updated.Status == JobStatusFailed {
+		s.reportSubmitExpired(ctx, updated)
+	}
 }
 
 // markCancelOverdue 在取消中作业越过停止截止时间时记录一次 cancel_overdue_at；状态保持不变。
@@ -538,6 +543,7 @@ func (s *Service) markCancelOverdue(ctx context.Context, job *JobInstance, now t
 	}
 	logger.WarnF(ctx, "[Sync] job did not stop before its stop deadline: job=%d task=%d engine_job_id=%s deadline=%s",
 		job.ID, job.TaskID, strings.TrimSpace(job.EngineJobID), stringValue(job.ResultPreview, cancelDeadlineKey))
+	s.reportStopOverdue(ctx, job)
 }
 
 // startTerminalMetricsBackfill 在后台补拉终态指标，上一次没结束时不再启动，不占用对账 tick。

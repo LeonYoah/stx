@@ -320,6 +320,7 @@ func (s *Service) UpdateEventChannelForActor(ctx context.Context, actor executio
 	if channel == nil {
 		channel = &EngineEventChannel{ClusterID: clusterID}
 	}
+	previousState := eventChannelState(channel)
 	enable := channel.Enabled
 	if req.Enabled != nil {
 		enable = *req.Enabled
@@ -378,6 +379,9 @@ func (s *Service) UpdateEventChannelForActor(ctx context.Context, actor executio
 	if err := s.repo.SaveEngineEventChannel(ctx, channel); err != nil {
 		return nil, err
 	}
+	// 关闭或重配通道会离开降级状态，结束 D2 告警。
+	// Disabling or reconfiguring the channel leaves the degraded state and ends the D2 alert.
+	s.reportEventChannelState(clusterID, previousState, eventChannelState(channel))
 	if applyErr != nil {
 		return nil, applyErr
 	}
@@ -522,7 +526,7 @@ func (s *Service) IngestEngineEvents(ctx context.Context, clusterID uint, author
 	if satisfied {
 		fields["expect_satisfied_at"] = now
 	}
-	_ = s.repo.UpdateEngineEventChannelStats(ctx, clusterID, map[string]int64{
+	_ = s.updateEventChannelStatsWithAlert(ctx, clusterID, map[string]int64{
 		"received_count":  int64(result.Accepted),
 		"duplicate_count": int64(result.Duplicates),
 		"dropped_count":   int64(result.Dropped),
@@ -870,7 +874,7 @@ func (s *Service) StartEngineEventRuntime(ctx context.Context) {
 				now := s.events.clock()
 				for _, clusterID := range s.takeMissedEventExpectations() {
 					logger.WarnF(ctx, "[Sync] expected engine status event not received in time: cluster=%d", clusterID)
-					_ = s.repo.UpdateEngineEventChannelStats(ctx, clusterID, nil, map[string]any{"expect_missed_at": now})
+					_ = s.updateEventChannelStatsWithAlert(ctx, clusterID, nil, map[string]any{"expect_missed_at": now})
 				}
 			case <-purgeTicker.C:
 				if removed, err := s.repo.PurgeEngineEventsBefore(ctx, s.events.clock().Add(-engineEventRetention)); err != nil {

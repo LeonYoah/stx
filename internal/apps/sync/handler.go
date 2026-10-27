@@ -34,6 +34,7 @@ import (
 	"github.com/LeonYoah/stx/internal/apps/auth"
 	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
 	"github.com/LeonYoah/stx/internal/config"
+	"github.com/LeonYoah/stx/internal/pkg/syncalert"
 )
 
 // Handler 提供数据同步工作台 HTTP 处理器。
@@ -858,6 +859,12 @@ func (h *Handler) getStatusCodeForError(err error) int {
 		return http.StatusNotFound
 	case errors.Is(err, ErrEventChannelUnauthorized):
 		return http.StatusUnauthorized
+	case errors.Is(err, syncalert.ErrInvalidConfig):
+		return http.StatusBadRequest
+	case errors.Is(err, syncalert.ErrConflict):
+		return http.StatusConflict
+	case errors.Is(err, ErrTaskAlertUnavailable):
+		return http.StatusServiceUnavailable
 	case errors.Is(err, ErrTaskReadOnly), errors.Is(err, ErrTaskPermissionDenied), errors.Is(err, ErrEventChannelPermissionDenied), errors.Is(err, ErrGlobalVariablePermissionDenied), errors.Is(err, ErrCuratedTemplatePermissionDenied), errors.Is(err, ErrCuratedTemplateBuiltinReadonly):
 		return http.StatusForbidden
 	case errors.Is(err, ErrTaskNameRequired), errors.Is(err, ErrTaskNameInvalid), errors.Is(err, ErrTaskParentCycle), errors.Is(err, ErrRootFileNotAllowed), errors.Is(err, ErrInvalidTaskMode), errors.Is(err, ErrInvalidTaskStatus), errors.Is(err, ErrInvalidRunType), errors.Is(err, ErrInvalidPreviewMode), errors.Is(err, ErrTaskDefinitionEmpty), errors.Is(err, ErrPreviewHTTPSinkEmpty), errors.Is(err, ErrTaskNotPublished), errors.Is(err, ErrInvalidNodeType), errors.Is(err, ErrParentTaskNotFolder), errors.Is(err, ErrFolderContentUnsupported), errors.Is(err, ErrTaskNotFile), errors.Is(err, ErrInvalidContentFormat), errors.Is(err, ErrRecoverSourceRequired), errors.Is(err, ErrLocalClusterRequired), errors.Is(err, ErrLocalSavepointUnsupported), errors.Is(err, ErrPreviewPayloadInvalid), errors.Is(err, ErrGlobalVariableKeyRequired), errors.Is(err, ErrGlobalVariableKeyInvalid), errors.Is(err, ErrReservedBuiltinVariableKey), errors.Is(err, ErrExecutionTargetClusterMismatch), errors.Is(err, ErrMaskedSecretCannotBeRestored), errors.Is(err, ErrInvalidTaskCollaborator), errors.Is(err, ErrCuratedTemplateNameRequired), errors.Is(err, ErrCuratedTemplateContentRequired), errors.Is(err, ErrCuratedTemplateSectionInvalid), errors.Is(err, ErrCuratedBuiltinIDRequired), errors.Is(err, ErrUnreplacedVariable), errors.Is(err, ErrInvalidScheduleTime), errors.Is(err, ErrSchedulerConnectionInvalid), errors.Is(err, ErrDolphinPushInvalid), errors.Is(err, ErrDolphinCycle), errors.Is(err, ErrScheduleLockedByDolphin), errors.Is(err, ErrDolphinNodeMissing), errors.Is(err, ErrDolphinUnsupportedVersion), errors.Is(err, ErrEventChannelVersionUnsupported), errors.Is(err, ErrEventChannelExternalURLMissing), errors.Is(err, ErrEventChannelSecretMissing), errors.Is(err, ErrInvalidTaskTimeout):

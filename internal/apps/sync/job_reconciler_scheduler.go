@@ -51,6 +51,9 @@ type clusterReconcileState struct {
 	// firstFailureAt starts the current run of failures and is cleared on success; cluster alerts use it to tell
 	// how long the failure has lasted.
 	firstFailureAt time.Time
+	// succeededOnce 记录进程启动后是否成功过一次。
+	// succeededOnce records whether the cluster has succeeded once since process start.
+	succeededOnce bool
 }
 
 // clusterReconcileOutcome 描述一次集群对账结束后状态的变化，调用方据此打日志、发信号。
@@ -65,7 +68,11 @@ type clusterReconcileOutcome struct {
 	EnteredBackoff bool
 	// Recovered 表示连续失败之后的第一次成功。
 	// Recovered means the first success after a run of failures.
-	Recovered         bool
+	Recovered bool
+	// FirstSuccess 表示进程启动后这个集群第一次成功，用来结束重启前遗留的告警。
+	// FirstSuccess means the cluster's first success since process start, used to close alerts left over from
+	// before a restart.
+	FirstSuccess      bool
 	ConsecutiveAborts int
 	Delay             time.Duration
 	NextAttemptAt     time.Time
@@ -175,9 +182,11 @@ func (r *clusterReconcileScheduler) finish(key uint, err error, interval, maxBac
 		// On recovery report how many passes failed and since when, for logs and alert resolution.
 		outcome := clusterReconcileOutcome{
 			Recovered:         state.consecutiveAborts > 0,
+			FirstSuccess:      !state.succeededOnce,
 			ConsecutiveAborts: state.consecutiveAborts,
 			FirstFailureAt:    state.firstFailureAt,
 		}
+		state.succeededOnce = true
 		state.consecutiveAborts = 0
 		state.nextAttemptAt = time.Time{}
 		state.firstFailureAt = time.Time{}

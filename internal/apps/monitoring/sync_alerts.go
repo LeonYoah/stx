@@ -158,6 +158,13 @@ func (h *SyncAlertHub) handle(ctx context.Context, signal syncalert.Signal) erro
 		signal.OccurredAt = h.clock()
 	}
 	signal.OccurredAt = signal.OccurredAt.UTC()
+	// sync 不知道集群名，这里补上，供告警中心和通知显示。
+	// sync does not know cluster names, so fill it in here for the alert center and notifications.
+	if strings.TrimSpace(signal.ClusterName) == "" && signal.ClusterID > 0 && h.service.clusterService != nil {
+		if info, err := h.service.clusterService.Get(ctx, signal.ClusterID); err == nil && info != nil {
+			signal.ClusterName = strings.TrimSpace(info.Name)
+		}
+	}
 	switch signal.Kind {
 	case syncalert.KindFire:
 		switch {

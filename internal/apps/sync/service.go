@@ -39,6 +39,7 @@ import (
 	"github.com/LeonYoah/stx/internal/db"
 	"github.com/LeonYoah/stx/internal/logger"
 	"github.com/LeonYoah/stx/internal/pkg/schedulex"
+	"github.com/LeonYoah/stx/internal/pkg/syncalert"
 	"github.com/LeonYoah/stx/internal/pkg/timex"
 	"github.com/LeonYoah/stx/internal/seatunnel"
 )
@@ -71,6 +72,11 @@ type Service struct {
 	// reconcile 负责各集群并行对账、跳过进行中的集群与按集群退避。
 	// reconcile runs per-cluster reconciles in parallel, skips clusters still in flight and backs off per cluster.
 	reconcile clusterReconcileScheduler
+	// alertReporter 接收作业告警信号（由 monitoring 注入，非阻塞）；alertStore 读写任务告警配置。
+	// alertReporter receives job alert signals (injected by monitoring, non-blocking); alertStore reads and writes
+	// task alert configs.
+	alertReporter syncalert.Reporter
+	alertStore    syncalert.TaskPolicyStore
 }
 
 // ClusterVersionProvider provides SeaTunnel cluster version lookup.
@@ -1627,6 +1633,7 @@ func (s *Service) submitTaskInstanceWithPayload(ctx context.Context, task *Task,
 		endpoint, err := s.runtimeResolver.ResolveEngineEndpoint(ctx, task.ClusterID, task.Definition)
 		if err != nil {
 			s.recordFailedDolphinSubmit(ctx, instance, err)
+			s.reportSubmitFailed(ctx, task, instance, err)
 			return nil, err
 		}
 		if s.executionTargetResolver != nil {
@@ -1646,6 +1653,7 @@ func (s *Service) submitTaskInstanceWithPayload(ctx context.Context, task *Task,
 				return s.recordUnknownSubmitOutcome(ctx, task, instance, endpoint, unknownErr)
 			}
 			s.recordFailedDolphinSubmit(ctx, instance, err)
+			s.reportSubmitFailed(ctx, task, instance, err)
 			return nil, err
 		}
 		instance.EngineJobID = strings.TrimSpace(resp.JobID)
@@ -1671,6 +1679,7 @@ func (s *Service) submitTaskInstanceWithPayload(ctx context.Context, task *Task,
 	// 事件通道健康时登记"应在 45 秒内收到状态事件"的预期，用来发现通道失效。
 	// With a healthy event channel, expect a status event within 45s so a broken channel is detected.
 	s.registerEventExpectation(ctx, instance, task.ClusterID)
+	s.reportSubmitSucceeded(ctx, task, instance)
 	return instance, nil
 }
 

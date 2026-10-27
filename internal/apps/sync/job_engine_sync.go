@@ -166,6 +166,7 @@ func (s *Service) applyEngineJobInfoUpdate(ctx context.Context, instance *JobIns
 	instance.LastSyncedAt = &now
 	instance.SyncState = JobSyncStateOK
 	instance.SyncFailCount = 0
+	s.reportJobTransition(ctx, instance, previousStatus)
 	if err := s.syncPreviewSessionTerminalState(ctx, instance); err != nil {
 		return nil, err
 	}

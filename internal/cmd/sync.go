@@ -62,6 +62,15 @@ func addSyncWriteCommands(root *cobra.Command, storeProvider authStoreProvider) 
 	}
 	dolphinCommand.AddCommand(newSyncTaskDolphinPushCommand(storeProvider))
 
+	// 作业告警：get 由登记表生成，这里挂上手写的 set；不提供 delete。
+	// Job alerts: get is generated from the registry and the hand-written set is attached here; no delete.
+	alertCommand := childCommand(taskCommand, "alert")
+	if alertCommand == nil {
+		alertCommand = &cobra.Command{Use: "alert", Short: "Job alert configuration of a sync task"}
+		taskCommand.AddCommand(alertCommand)
+	}
+	alertCommand.AddCommand(newSyncTaskAlertSetCommand(storeProvider))
+
 	eventChannelCommand := childCommand(syncCommand, "event-channel")
 	if eventChannelCommand == nil {
 		eventChannelCommand = &cobra.Command{Use: "event-channel", Short: "SeaTunnel event report channel commands"}

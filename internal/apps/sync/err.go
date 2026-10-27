@@ -106,3 +106,11 @@ var (
 	// ErrInvalidTaskTimeout means a task's submit/stop timeout override is outside the allowed range.
 	ErrInvalidTaskTimeout = errors.New("sync: task timeout override must be between 1 and 120 minutes")
 )
+
+// 作业告警配置相关错误。
+// Errors for job alert configuration.
+var (
+	// ErrTaskAlertUnavailable 表示告警模块没有初始化，任务告警配置不可用。
+	// ErrTaskAlertUnavailable means the alert module is not initialized, so task alert config is unavailable.
+	ErrTaskAlertUnavailable = errors.New("sync: job alerts are unavailable because the monitoring module is not initialized")
+)

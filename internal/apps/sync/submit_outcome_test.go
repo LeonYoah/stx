@@ -534,3 +534,30 @@ func TestTaskTimeoutParsingAndEffectiveValues(t *testing.T) {
 		t.Fatalf("invalid timeout status = %d, want 400", status)
 	}
 }
+
+// cancelRaceEngineClient 在停止调用期间模拟事件刷新先把作业写成已取消，再返回结果未知。
+// cancelRaceEngineClient simulates an event refresh marking the job canceled during the stop call, then returns unknown.
+type cancelRaceEngineClient struct {
+	outcomeEngineClient
+	service *Service
+	jobID   uint
+}
+
+func (c *cancelRaceEngineClient) StopJob(ctx context.Context, endpoint *EngineEndpoint, jobID string, stopWithSavepoint bool) error {
+	_ = c.service.repo.UpdateJobStatus(ctx, c.jobID, []JobStatus{JobStatusCancelRequested}, map[string]any{"status": JobStatusCanceled})
+	return newEngineCallUnknownError(context.DeadlineExceeded, "v2", "http://engine:8080", "")
+}
+
+func TestCancelReturnsLatestWhenEngineFinishedFirst(t *testing.T) {
+	service, _, task := newOutcomeTestService(t, nil)
+	job := createRunningJob(t, service, task.ID, nil)
+	service.engineClient = &cancelRaceEngineClient{outcomeEngineClient: outcomeEngineClient{jobInfo: map[string]*EngineJobInfo{}}, service: service, jobID: job.ID}
+
+	result, err := service.CancelJob(context.Background(), job.ID, false)
+	if err != nil {
+		t.Fatalf("a stop that already took effect must not report a conflict: %v", err)
+	}
+	if result.Status != JobStatusCanceled {
+		t.Fatalf("expected the latest canceled row, got %s", result.Status)
+	}
+}

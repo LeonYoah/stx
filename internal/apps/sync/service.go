@@ -1816,6 +1816,12 @@ func (s *Service) CancelJob(ctx context.Context, id uint, stopWithSavepoint bool
 		"result_preview": instance.ResultPreview,
 		"error_message":  "",
 	}); err != nil {
+		// 停止请求回复慢时，事件刷新或对账可能已经先把作业推进到终态；这说明停止已生效，返回最新状态而不是报冲突。
+		// When the stop reply is slow, an event refresh or reconcile may already have moved the job to a terminal
+		// state; the stop took effect, so return the latest row instead of a conflict.
+		if errors.Is(err, ErrJobStatusChanged) {
+			return s.repo.GetJobInstanceByID(ctx, id)
+		}
 		return nil, err
 	}
 	if err := s.syncExecutionFromJob(ctx, instance); err != nil {

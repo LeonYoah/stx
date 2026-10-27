@@ -59,6 +59,7 @@ func setupMonitoringNotificationTestDB(t *testing.T) (*gorm.DB, func()) {
 		&NotificationRoute{},
 		&NotificationDelivery{},
 		&RemoteAlertRecord{},
+		&SyncAlertEpisode{},
 		&auth.User{},
 	); err != nil {
 		os.RemoveAll(tempDir)

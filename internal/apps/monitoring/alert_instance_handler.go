@@ -36,7 +36,7 @@ func (h *Handler) ListAlertInstances(c *gin.Context) {
 
 	if sourceType := strings.TrimSpace(c.Query("source_type")); sourceType != "" {
 		parsed := AlertSourceType(sourceType)
-		if parsed != AlertSourceTypeLocalProcessEvent && parsed != AlertSourceTypeRemoteAlertmanager {
+		if parsed != AlertSourceTypeLocalProcessEvent && parsed != AlertSourceTypeRemoteAlertmanager && parsed != AlertSourceTypeSync {
 			c.JSON(http.StatusBadRequest, Response{ErrorMsg: "invalid source_type"})
 			return
 		}

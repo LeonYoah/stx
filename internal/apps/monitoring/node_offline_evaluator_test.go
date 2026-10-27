@@ -79,6 +79,7 @@ func setupMonitoringNodeOfflineTestDB(t *testing.T) (*gorm.DB, func()) {
 		&AlertEventState{},
 		&AlertState{},
 		&RemoteAlertRecord{},
+		&SyncAlertEpisode{},
 	); err != nil {
 		_ = os.RemoveAll(tempDir)
 		t.Fatalf("failed to migrate node offline test tables: %v", err)

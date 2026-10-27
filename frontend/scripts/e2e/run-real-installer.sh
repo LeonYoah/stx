@@ -37,7 +37,10 @@ PLAYWRIGHT_PROJECT="${PLAYWRIGHT_PROJECT:-}"
 PLAYWRIGHT_GREP="${PLAYWRIGHT_GREP:-}"
 declare -a PLAYWRIGHT_SPECS=()
 if [[ -n "${E2E_REAL_PLAYWRIGHT_SPEC:-}" ]]; then
-  PLAYWRIGHT_SPECS+=("${E2E_REAL_PLAYWRIGHT_SPEC}")
+  # Space-separated list allowed (upgrade-real runs Case A + Case B).
+  # 允许空格分隔多 spec（upgrade-real 同时跑 Case A + Case B）。
+  read -r -a _e2e_real_specs <<< "${E2E_REAL_PLAYWRIGHT_SPEC}"
+  PLAYWRIGHT_SPECS+=("${_e2e_real_specs[@]}")
 else
   PLAYWRIGHT_SPECS+=(
     "e2e/install-wizard-real.spec.ts"
@@ -431,11 +434,36 @@ if [[ "${E2E_SCHEDULER_REAL:-}" == "1" ]]; then
 fi
 
 cd "${FRONTEND_DIR}"
-playwright_args=("${PLAYWRIGHT_SPECS[@]}")
+playwright_extra_args=()
 if [[ -n "${PLAYWRIGHT_PROJECT}" ]]; then
-  playwright_args+=(--project "${PLAYWRIGHT_PROJECT}")
+  playwright_extra_args+=(--project "${PLAYWRIGHT_PROJECT}")
 fi
 if [[ -n "${PLAYWRIGHT_GREP}" ]]; then
-  playwright_args+=(--grep "${PLAYWRIGHT_GREP}")
+  playwright_extra_args+=(--grep "${PLAYWRIGHT_GREP}")
 fi
+
+# Optional sequential isolation: one Playwright process per spec (fresh
+# webServer/backend/agent). Prefer separate runner scripts / CI jobs when specs
+# also need isolated TMP_DIR/plugin storage (upgrade Case A vs Case B).
+if [[ "${E2E_REAL_PLAYWRIGHT_SEQUENTIAL:-}" == "1" && "${#PLAYWRIGHT_SPECS[@]}" -gt 1 ]]; then
+  status=0
+  for spec in "${PLAYWRIGHT_SPECS[@]}"; do
+    echo "[e2e-real] sequential isolated playwright run: ${spec}"
+    # Free SeaTunnel/java-proxy orphans left when the previous Playwright
+    # webServer (agent supervisor) exited without a clean cluster stop.
+    pkill -f 'org.apache.seatunnel' >/dev/null 2>&1 || true
+    pkill -f 'seatunnel-starter' >/dev/null 2>&1 || true
+    pkill -f 'stx-java-proxy' >/dev/null 2>&1 || true
+    sleep 2
+    if ! pnpm exec playwright test "${spec}" "${playwright_extra_args[@]}"; then
+      status=$?
+      echo "[e2e-real] sequential run failed for ${spec} (exit ${status})"
+      # Continue remaining specs so Case A still reports when Case B failed.
+    fi
+  done
+  exit "${status}"
+fi
+
+playwright_args=("${PLAYWRIGHT_SPECS[@]}")
+playwright_args+=("${playwright_extra_args[@]}")
 pnpm exec playwright test "${playwright_args[@]}"

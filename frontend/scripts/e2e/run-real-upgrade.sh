@@ -18,6 +18,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Case B (happy-path upgrade). Case A (profiles_missing) runs in a separate
+# script/CI job — see run-real-upgrade-profiles-missing.sh — so the two specs
+# never share SeaTunnel ports, agent processes, or plugin storage metadata.
 export E2E_REAL_PLAYWRIGHT_SPEC="${E2E_REAL_PLAYWRIGHT_SPEC:-e2e/upgrade-real.spec.ts}"
 export E2E_UPGRADE_REAL_SOURCE_VERSION="${E2E_UPGRADE_REAL_SOURCE_VERSION:-2.3.13}"
 export E2E_UPGRADE_REAL_TARGET_VERSION="${E2E_UPGRADE_REAL_TARGET_VERSION:-3.0.0}"

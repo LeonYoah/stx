@@ -583,7 +583,13 @@ func (s *Service) executeSyncConnectorsStep(ctx context.Context, task *UpgradeTa
 			if err := s.appendNodeLog(ctx, step, node, LogLevelInfo, LogEventTypeProgress, fmt.Sprintf("transferring connector %s / 正在传输 connector %s", connector.PluginName, connector.PluginName), transferSummary); err != nil {
 				return err
 			}
-			if err := s.pluginProvider.TransferPluginToAgent(ctx, agentID, connector.PluginName, connector.Version, target.TargetInstallDir, nil); err != nil {
+			// 若计划中包含画像则直接使用；若为空则兜底解析，确保驱动依赖正常传输
+			// Use profiles from the plan when present; otherwise fallback to resolve profiles so driver dependencies are transferred
+			profileKeys := connector.ProfileKeys
+			if len(profileKeys) == 0 && s.pluginProvider != nil {
+				profileKeys = s.pluginProvider.ResolvePluginProfiles(ctx, connector.PluginName, connector.Version)
+			}
+			if err := s.pluginProvider.TransferPluginToAgent(ctx, agentID, connector.PluginName, connector.Version, target.TargetInstallDir, profileKeys); err != nil {
 				_ = s.failNodeStep(ctx, step, node, ExecutionStatusFailed, err, transferSummary)
 				return err
 			}
@@ -690,11 +696,24 @@ func (s *Service) executeSwitchVersionStep(ctx context.Context, task *UpgradeTas
 	if err != nil {
 		return err
 	}
+	profilesByPlugin := make(map[string][]string)
+	for _, connector := range plan.ConnectorManifest.Connectors {
+		if strings.TrimSpace(connector.PluginName) == "" {
+			continue
+		}
+		if len(connector.ProfileKeys) > 0 {
+			profilesByPlugin[connector.PluginName] = append([]string(nil), connector.ProfileKeys...)
+		}
+	}
 	for _, plugin := range installedPlugins {
 		if strings.TrimSpace(plugin.PluginName) == "" {
 			continue
 		}
-		if err := s.pluginProvider.RecordInstalledPlugin(ctx, task.ClusterID, plugin.PluginName, plan.TargetVersion); err != nil {
+		profileKeys := profilesByPlugin[plugin.PluginName]
+		if len(profileKeys) == 0 {
+			profileKeys = append([]string(nil), plugin.SelectedProfileKeys...)
+		}
+		if err := s.pluginProvider.RecordInstalledPlugin(ctx, task.ClusterID, plugin.PluginName, plan.TargetVersion, profileKeys); err != nil {
 			return err
 		}
 	}

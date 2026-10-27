@@ -33,6 +33,7 @@ on:
           - workbench-real
           - config-real
           - upgrade-real
+          - upgrade-real-profiles-missing
           - plugin-real
           - scheduler-contract
           - scheduler-real
@@ -172,9 +173,11 @@ jobs:
               - '.github/workflows/e2e.yml'
             upgrade_real:
               - 'frontend/e2e/upgrade-real.spec.ts'
+              - 'frontend/e2e/upgrade-real-profiles-missing.spec.ts'
               - 'frontend/e2e/helpers/upgrade-real.ts'
               - 'frontend/e2e/helpers/install-wizard-real.ts'
               - 'frontend/scripts/e2e/run-real-upgrade.sh'
+              - 'frontend/scripts/e2e/run-real-upgrade-profiles-missing.sh'
               - 'frontend/scripts/e2e/run-real-installer.sh'
               - 'frontend/playwright.config.ts'
               - 'frontend/components/common/cluster/upgrade/**'
@@ -306,7 +309,7 @@ jobs:
               config-real)
                 run_config_real=true
                 ;;
-              upgrade-real)
+              upgrade-real|upgrade-real-profiles-missing)
                 run_upgrade_real=true
                 ;;
               plugin-real)
@@ -838,6 +841,73 @@ jobs:
             frontend/test-results
           if-no-files-found: ignore
 
+  upgrade-real-profiles-missing:
+    name: E2E Real Upgrade Profiles Missing
+    runs-on: ubuntu-24.04
+    needs: [changes, prepare-package]
+    if: needs.changes.outputs.run_upgrade_real == 'true'
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '8'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.10.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install frontend dependencies
+        run: |
+          cd frontend
+          pnpm install --frozen-lockfile
+
+      - name: Install Playwright browser
+        run: |
+          cd frontend
+          pnpm exec playwright install --with-deps chromium
+
+      - name: Download SeaTunnel package artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: seatunnel-bin-cache
+          path: ${{ env.E2E_INSTALLER_REAL_PACKAGE_CACHE_DIR }}
+
+      - name: Run real upgrade profiles_missing E2E
+        run: |
+          cd frontend
+          pnpm run test:e2e:upgrade-real-profiles-missing
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-upgrade-real-profiles-missing
+          path: |
+            frontend/playwright-report
+            frontend/test-results
+          if-no-files-found: ignore
+
+
   plugin-real:
     name: E2E Real Plugin
     runs-on: ubuntu-24.04
@@ -1023,7 +1093,7 @@ jobs:
   gate:
     name: E2E Gate
     runs-on: ubuntu-latest
-    needs: [changes, smoke-select, smoke, installer-real, workbench-real, config-real, upgrade-real, plugin-real, scheduler-contract, scheduler-real]
+    needs: [changes, smoke-select, smoke, installer-real, workbench-real, config-real, upgrade-real, upgrade-real-profiles-missing, plugin-real, scheduler-contract, scheduler-real]
     if: always()
 
     steps:
@@ -1040,6 +1110,7 @@ jobs:
           echo "config_real_result=${{ needs.config-real.result }}"
           echo "run_upgrade_real=${{ needs.changes.outputs.run_upgrade_real }}"
           echo "upgrade_real_result=${{ needs.upgrade-real.result }}"
+          echo "upgrade_real_profiles_missing_result=${{ needs.upgrade-real-profiles-missing.result }}"
           echo "run_plugin_real=${{ needs.changes.outputs.run_plugin_real }}"
           echo "plugin_real_result=${{ needs.plugin-real.result }}"
           echo "run_scheduler_contract=${{ needs.changes.outputs.run_scheduler_contract }}"
@@ -1075,6 +1146,12 @@ jobs:
           if [ "${{ needs.changes.outputs.run_upgrade_real }}" = "true" ] &&
              [ "${{ needs.upgrade-real.result }}" != "success" ]; then
             echo "::error::Real upgrade E2E did not succeed."
+            exit 1
+          fi
+
+          if [ "${{ needs.changes.outputs.run_upgrade_real }}" = "true" ] &&
+             [ "${{ needs.upgrade-real-profiles-missing.result }}" != "success" ]; then
+            echo "::error::Real upgrade profiles_missing E2E did not succeed."
             exit 1
           fi
 

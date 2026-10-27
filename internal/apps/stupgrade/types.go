@@ -94,14 +94,14 @@ const (
 	// StepCodeRestartJavaProxy 在切到目标目录/版本后重启托管 stx-java-proxy，对齐代际与 classpath。
 	// StepCodeRestartJavaProxy restarts managed stx-java-proxy after switching to the target dir/version.
 	StepCodeRestartJavaProxy StepCode = "RESTART_JAVA_PROXY"
-	StepCodeHealthCheck       StepCode = "HEALTH_CHECK"
-	StepCodeSmokeTest         StepCode = "SMOKE_TEST"
-	StepCodeComplete          StepCode = "COMPLETE"
-	StepCodeRollbackPrepare   StepCode = "ROLLBACK_PREPARE"
-	StepCodeRollbackRestore   StepCode = "ROLLBACK_RESTORE"
-	StepCodeRollbackRestart   StepCode = "ROLLBACK_RESTART"
-	StepCodeRollbackVerify    StepCode = "ROLLBACK_VERIFY"
-	StepCodeFailed            StepCode = "FAILED"
+	StepCodeHealthCheck      StepCode = "HEALTH_CHECK"
+	StepCodeSmokeTest        StepCode = "SMOKE_TEST"
+	StepCodeComplete         StepCode = "COMPLETE"
+	StepCodeRollbackPrepare  StepCode = "ROLLBACK_PREPARE"
+	StepCodeRollbackRestore  StepCode = "ROLLBACK_RESTORE"
+	StepCodeRollbackRestart  StepCode = "ROLLBACK_RESTART"
+	StepCodeRollbackVerify   StepCode = "ROLLBACK_VERIFY"
+	StepCodeFailed           StepCode = "FAILED"
 )
 
 // LogLevel 表示升级日志级别。
@@ -163,15 +163,16 @@ type PackageManifest struct {
 // ConnectorArtifact 描述单个 connector 资产。
 // ConnectorArtifact describes a single connector asset.
 type ConnectorArtifact struct {
-	PluginName string      `json:"plugin_name"`
-	ArtifactID string      `json:"artifact_id"`
-	Version    string      `json:"version"`
-	Category   string      `json:"category,omitempty"`
-	FileName   string      `json:"file_name"`
-	LocalPath  string      `json:"local_path"`
-	Checksum   string      `json:"checksum,omitempty"`
-	Source     AssetSource `json:"source"`
-	Required   bool        `json:"required"`
+	PluginName  string      `json:"plugin_name"`
+	ArtifactID  string      `json:"artifact_id"`
+	Version     string      `json:"version"`
+	ProfileKeys []string    `json:"profile_keys,omitempty"` // 选中的画像标识 / Selected profile keys
+	Category    string      `json:"category,omitempty"`
+	FileName    string      `json:"file_name"`
+	LocalPath   string      `json:"local_path"`
+	Checksum    string      `json:"checksum,omitempty"`
+	Source      AssetSource `json:"source"`
+	Required    bool        `json:"required"`
 }
 
 // LibraryArtifact 描述升级中需同步的 lib 依赖。
@@ -315,13 +316,14 @@ type PrecheckResult struct {
 // PrecheckRequest 描述升级预检查输入。
 // PrecheckRequest describes the input of an upgrade precheck.
 type PrecheckRequest struct {
-	ClusterID        uint     `json:"cluster_id" binding:"required"`
-	TargetVersion    string   `json:"target_version" binding:"required"`
-	PackageChecksum  string   `json:"package_checksum,omitempty"`
-	PackageArch      string   `json:"package_arch,omitempty"`
-	ConnectorNames   []string `json:"connector_names,omitempty"`
-	NodeIDs          []uint   `json:"node_ids,omitempty"`
-	TargetInstallDir string   `json:"target_install_dir,omitempty"`
+	ClusterID         uint                `json:"cluster_id" binding:"required"`
+	TargetVersion     string              `json:"target_version" binding:"required"`
+	PackageChecksum   string              `json:"package_checksum,omitempty"`
+	PackageArch       string              `json:"package_arch,omitempty"`
+	ConnectorNames    []string            `json:"connector_names,omitempty"`
+	ConnectorProfiles map[string][]string `json:"connector_profiles,omitempty"` // 指定插件的画像选择 / Selected profiles for plugins
+	NodeIDs           []uint              `json:"node_ids,omitempty"`
+	TargetInstallDir  string              `json:"target_install_dir,omitempty"`
 }
 
 // CreatePlanRequest 描述升级计划生成输入。

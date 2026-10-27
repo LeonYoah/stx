@@ -61,7 +61,8 @@ func (s *Service) SetTaskAlertPolicyStore(store syncalert.TaskPolicyStore)
 `task_run_healthy`：批作业状态变为 `success`；实时作业状态变为 `running`，或实时作业提交成功（提交时就记为 running）。模式取 `job.Mode`，为空时取 `submit_spec.mode`，仍为空按实时作业处理。
 
 ### 信号
-- 作业级信号的快照字段：`TaskID`、`TaskName`、`TaskCreatorID`、`ClusterID`（`submit_spec.cluster_id`，没有时取任务）、`JobID`、`EngineJobID`、`TriggerSource`（`submit_spec.trigger_source`：manual / schedule / dolphin）、`Message`（`audit.RedactText` 脱敏后截断 2000 字符）。
+- 作业级信号的快照字段：`TaskID`、`TaskName`、`TaskCreatorID`、`ClusterID`（`submit_spec.cluster_id`，没有时取任务）、`JobID`、`EngineJobID`、`TriggerSource`（`submit_spec.trigger_source`：manual / schedule / dolphin，Dolphin 触发见 [DolphinScheduler SHELL 接入](./dolphin-scheduler-shell.md)）、`Message`（`audit.RedactText` 脱敏后截断 2000 字符）。
+- D2 的通道状态（`healthy` / `degraded` 等）定义见[实时可观测性与事件上报](./engine-events-and-realtime.md)。
 - 集群名由 hub 用 `clusterService.Get` 补齐，sync 不传。
 - `OccurredAt` 为空时按接收时间。
 

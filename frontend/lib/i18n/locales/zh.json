@@ -1002,7 +1002,18 @@
       "savedRestart": "已生成 {versions}。请到配置页核对，然后重启集群。",
       "inspectWal": "解析 IMAP WAL",
       "inspectWalFailed": "IMAP WAL 解析失败",
-      "entryCount": "记录数"
+      "entryCount": "记录数",
+      "rootDir": "根目录",
+      "copyPath": "复制路径",
+      "copyPathSuccess": "路径已复制到剪贴板",
+      "copyContent": "复制内容",
+      "copyContentSuccess": "内容已复制到剪贴板",
+      "copyName": "复制名称",
+      "summaryCount": "共 {total} 项 ({dirs} 个目录，{files} 个文件)",
+      "filteredCount": "已筛选出 {filtered} 项（全部共 {total} 项）",
+      "open": "打开",
+      "rawHexPreview": "查看十六进制",
+      "fileType": "类型"
     },
     "stxJavaProxy": {
       "title": "STX Java Proxy",

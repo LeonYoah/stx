@@ -1002,7 +1002,18 @@
       "savedRestart": "Created {versions}. Check the config tab, then restart the cluster.",
       "inspectWal": "Inspect IMAP WAL",
       "inspectWalFailed": "Failed to inspect IMAP WAL",
-      "entryCount": "Entry Count"
+      "entryCount": "Entry Count",
+      "rootDir": "Root",
+      "copyPath": "Copy Path",
+      "copyPathSuccess": "Path copied to clipboard",
+      "copyContent": "Copy Content",
+      "copyContentSuccess": "Content copied to clipboard",
+      "copyName": "Copy Name",
+      "summaryCount": "Total {total} items ({dirs} directories, {files} files)",
+      "filteredCount": "Filtered {filtered} items (total {total})",
+      "open": "Open",
+      "rawHexPreview": "View Hex",
+      "fileType": "Type"
     },
     "stxJavaProxy": {
       "title": "STX Java Proxy",

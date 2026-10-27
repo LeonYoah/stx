@@ -19,6 +19,7 @@
 
 import {useMonaco} from '@monaco-editor/react';
 import dynamic from 'next/dynamic';
+import {useSearchParams} from 'next/navigation';
 import {useTranslations} from 'next-intl';
 import {
   fillPreferredClusterId,
@@ -386,6 +387,7 @@ import {
   validateCustomVariableRows,
   validateWorkspaceName,
 } from './sync-studio-utils';
+import {parseJobDeepLink, type JobDeepLink} from './task-alert-utils';
 import {
   buildOptionRuleDiagnostics,
   extractPluginBlockSnapshots,
@@ -400,6 +402,11 @@ export function DataSyncStudio() {
   const t = useTranslations('workbenchStudio');
   const {resolvedTheme} = useTheme();
   const {user: currentUser} = useAuth();
+  const tAlert = useTranslations('syncAlert');
+  // 作业深链 ?task=&job=（来自告警通知）：只在首次加载工作区时使用一次。
+  // Job deep link ?task=&job= (from alert notifications): used once on the first workspace load.
+  const searchParams = useSearchParams();
+  const deepLinkRef = useRef<JobDeepLink | null>(parseJobDeepLink(searchParams));
   const [workspaceUsers, setWorkspaceUsers] = useState<
     NotificationRecipientUser[]
   >([]);
@@ -985,6 +992,13 @@ export function DataSyncStudio() {
                 allFiles.find((node) => node.id === restoredActiveId)?.id
               ? restoredActiveId
               : null;
+        // 深链指向的任务不存在或没有权限：提示一次，按原来的方式打开工作区。
+        // The deep-linked task is missing or not visible: warn once and open the workspace as usual.
+        const pendingLink = deepLinkRef.current;
+        if (pendingLink && pendingLink.taskId === preferredFileId && nextSelected !== preferredFileId) {
+          deepLinkRef.current = null;
+          toast.warning(tAlert('deepLinkTaskNotFound', {id: pendingLink.taskId}));
+        }
 
         setOpenTabs(restoredTabs);
         setSelectedNodeId(nextSelected);
@@ -1213,9 +1227,35 @@ export function DataSyncStudio() {
         size: 50,
         task_id: taskId,
       });
-      const items = data.items || [];
+      let items = data.items || [];
+      // 深链要选中的作业不在最近 50 条里时，单独读取并放到列表最前面。
+      // When the deep-linked job is not among the latest 50, fetch it and put it first.
+      const link = deepLinkRef.current;
+      let deepLinkedJobId: number | null = null;
+      if (link && link.taskId === taskId) {
+        deepLinkRef.current = null;
+        setBottomConsoleTab('jobs');
+        if (link.jobId) {
+          let found = items.some((item) => item.id === link.jobId);
+          if (!found) {
+            const job = await services.sync.getJob(link.jobId).catch(() => null);
+            if (job && job.task_id === taskId) {
+              items = [job, ...items];
+              found = true;
+            }
+          }
+          if (found) {
+            deepLinkedJobId = link.jobId;
+          } else {
+            toast.warning(tAlert('deepLinkJobNotFound', {id: link.jobId}));
+          }
+        }
+      }
       setJobs(items);
       setSelectedJobId((prev) => {
+        if (deepLinkedJobId) {
+          return deepLinkedJobId;
+        }
         if (prev && items.some((item) => item.id === prev)) {
           return prev;
         }
@@ -1427,7 +1467,7 @@ export function DataSyncStudio() {
   }, [globalVariablePage, t]);
 
   useEffect(() => {
-    void loadWorkspace();
+    void loadWorkspace(deepLinkRef.current?.taskId ?? null);
   }, [loadWorkspace]);
 
   useEffect(() => {
@@ -5129,6 +5169,10 @@ export function DataSyncStudio() {
               stopTimeoutMinutes={getTaskTimeoutMinutes(editor.definition, 'stop_timeout_minutes')}
               timeoutDefaults={taskTimeoutDefaults}
               onTaskTimeoutChange={handleTaskTimeoutChange}
+              alertTaskId={editor.id || null}
+              alertTaskName={editor.name}
+              alertCanEdit={editor.canEdit ?? true}
+              alertUsers={workspaceUsers}
               clusterId={editor.clusterId}
               clusters={clusters}
               detectedVariables={detectedVariables}

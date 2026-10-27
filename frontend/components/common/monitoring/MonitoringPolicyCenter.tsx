@@ -61,7 +61,9 @@ import type {
   UpsertAlertPolicyRequest,
   UpsertNotificationChannelRequest,
 } from '@/lib/services/monitoring';
+import type {SyncTaskAlertConfig} from '@/lib/services/sync';
 import {cn} from '@/lib/utils';
+import {TaskAlertDialog} from '@/components/common/sync/TaskAlertSection';
 import {
   resolvePreferredClusterId,
   rememberPreferredClusterId,
@@ -713,6 +715,7 @@ export function MonitoringPolicyCenter() {
   const rootT = useTranslations('monitoringCenter');
   const t = useTranslations('monitoringCenter.policyCenterV2');
   const legacyT = useTranslations('monitoringCenter.policyCenter');
+  const tAlert = useTranslations('syncAlert');
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
@@ -757,6 +760,14 @@ export function MonitoringPolicyCenter() {
   const [policyClusterFilter, setPolicyClusterFilter] =
     useState<string>('all');
   const [policyStatusFilter, setPolicyStatusFilter] = useState<string>('all');
+  // 策略类型筛选：全部 / 作业告警（在任务设置里配置的任务级策略）
+  // Policy type filter: all / job alerts (task-scoped policies configured in task settings)
+  const [policyTypeFilter, setPolicyTypeFilter] = useState<'all' | 'sync_job'>('all');
+  const [taskAlertEditing, setTaskAlertEditing] = useState<{
+    taskId: number;
+    taskName?: string;
+    config: SyncTaskAlertConfig | null;
+  } | null>(null);
   const [deletingPolicyId, setDeletingPolicyId] = useState<number | null>(null);
   const [historyPolicyIdFilter, setHistoryPolicyIdFilter] = useState<
     number | null
@@ -1359,6 +1370,20 @@ export function MonitoringPolicyCenter() {
   // Open the policy editing dialog
   const handleEditPolicy = useCallback(
     (policy: AlertPolicy) => {
+      // 作业告警策略用和任务设置里同一个表单编辑，保存走任务告警接口。
+      // Job alert policies are edited with the same form as task settings and saved through the task alert API.
+      if (policy.policy_type === 'sync_job' && policy.task_id) {
+        const taskId = policy.task_id;
+        setTaskAlertEditing({taskId, taskName: policy.task_name, config: null});
+        void services.sync
+          .getTaskAlert(taskId)
+          .then((config) => setTaskAlertEditing((current) => (current?.taskId === taskId ? {...current, config} : current)))
+          .catch((error) => {
+            toast.error(error instanceof Error ? error.message : String(error));
+            setTaskAlertEditing(null);
+          });
+        return;
+      }
       setEditingPolicyId(policy.id);
       setForm(createPolicyFormFromPolicy(policy, channels, allStaticTemplates));
       setPolicyDialogOpen(true);
@@ -1386,6 +1411,9 @@ export function MonitoringPolicyCenter() {
           conditions: policy.conditions || undefined,
           receiver_user_ids: policy.receiver_user_ids,
           notification_channel_ids: policy.notification_channel_ids,
+          ...(policy.policy_type === 'sync_job'
+            ? {task_id: policy.task_id, notify_task_owner: policy.notify_task_owner}
+            : {}),
         };
         const result = await services.monitoring.updateAlertPolicySafe(
           policy.id,
@@ -1893,6 +1921,9 @@ export function MonitoringPolicyCenter() {
   // Filtered rule rows based on keyword, cluster, and status
   const policyRows = useMemo(() => {
     return policies.filter((policy) => {
+      if (policyTypeFilter === 'sync_job' && policy.policy_type !== 'sync_job') {
+        return false;
+      }
       if (
         policyClusterFilter !== 'all' &&
         policy.cluster_id !== policyClusterFilter
@@ -1910,11 +1941,12 @@ export function MonitoringPolicyCenter() {
         const name = (policy.name || '').toLowerCase();
         const desc = (policy.description || '').toLowerCase();
         const tmpl = (policy.template_key || '').toLowerCase();
-        return name.includes(kw) || desc.includes(kw) || tmpl.includes(kw);
+        const task = (policy.task_name || '').toLowerCase();
+        return name.includes(kw) || desc.includes(kw) || tmpl.includes(kw) || task.includes(kw);
       }
       return true;
     });
-  }, [policies, policyClusterFilter, policySearchKeyword, policyStatusFilter]);
+  }, [policies, policyClusterFilter, policySearchKeyword, policyStatusFilter, policyTypeFilter]);
 
   // 规则段 StatPills：全部 / 已启用 / 已停用（客户端聚合）
   // Rules-section StatPills: all / enabled / disabled (client aggregated)
@@ -2153,6 +2185,19 @@ export function MonitoringPolicyCenter() {
               </div>
 
               <Select
+                value={policyTypeFilter}
+                onValueChange={(value) => setPolicyTypeFilter(value === 'sync_job' ? 'sync_job' : 'all')}
+              >
+                <SelectTrigger className='h-8 w-[130px] text-xs bg-background' data-testid='policy-type-filter'>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value='all'>{tAlert('policyFilterAll')}</SelectItem>
+                  <SelectItem value='sync_job'>{tAlert('policyFilterSyncJob')}</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Select
                 value={policyClusterFilter}
                 onValueChange={setPolicyClusterFilter}
               >
@@ -2243,6 +2288,23 @@ export function MonitoringPolicyCenter() {
                           </div>
                         </TableCell>
                         <TableCell className='py-2 px-3'>
+                          {policy.policy_type === 'sync_job' ? (
+                            <div className='flex min-w-0 items-center gap-1.5'>
+                              <span className='inline-flex shrink-0 items-center rounded-md bg-muted px-2 py-0.5 text-xs font-medium'>
+                                {tAlert('policyFilterSyncJob')}
+                              </span>
+                              {policy.task_id ? (
+                                <button
+                                  type='button'
+                                  className='truncate text-xs text-primary hover:underline'
+                                  title={tAlert('openTask')}
+                                  onClick={() => router.push(`/sync?task=${policy.task_id}`)}
+                                >
+                                  {policy.task_name || `#${policy.task_id}`}
+                                </button>
+                              ) : null}
+                            </div>
+                          ) : (
                           <span className='inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-xs font-medium'>
                             {policy.policy_type === 'custom_promql'
                               ? t('customPromql')
@@ -2256,6 +2318,7 @@ export function MonitoringPolicyCenter() {
                                   policy.template_key ||
                                   '-'}
                           </span>
+                          )}
                         </TableCell>
                         <TableCell className='py-2 px-3'>
                           <span className='text-xs font-medium'>
@@ -2688,6 +2751,24 @@ export function MonitoringPolicyCenter() {
       ) : null}
 
       {/* 策略创建/编辑独立弹窗 (分层模块化设计) / Policy Editor Modal Dialog */}
+      {/* 作业告警策略的编辑弹窗：与任务设置共用 / Job alert policy editor shared with task settings */}
+      {taskAlertEditing?.config ? (
+        <TaskAlertDialog
+          open
+          taskId={taskAlertEditing.taskId}
+          taskName={taskAlertEditing.taskName}
+          config={taskAlertEditing.config}
+          channels={channels}
+          users={notifiableUsers}
+          onOpenChange={(open) => {
+            if (!open) {
+              setTaskAlertEditing(null);
+            }
+          }}
+          onSaved={() => void loadResources()}
+        />
+      ) : null}
+
       <Dialog
         open={policyDialogOpen}
         onOpenChange={(open) => {

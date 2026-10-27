@@ -53,12 +53,14 @@ import {
 import {Tabs, TabsContent, TabsList, TabsTrigger} from '@/components/ui/tabs';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import type {ClusterInfo} from '@/lib/services/cluster';
+import type {NotificationRecipientUser} from '@/lib/services/monitoring';
 import type {
   SyncCuratedTemplateView,
   SyncPluginType,
   SyncTaskTimeoutDefaults,
 } from '@/lib/services/sync';
 import {CustomVariablesSection} from './CustomVariablesSection';
+import {TaskAlertSection} from './TaskAlertSection';
 import {CuratedTemplatesPanel} from './CuratedTemplatesPanel';
 import {
   resolveBuiltinPreviewExpression,
@@ -197,6 +199,10 @@ export function SettingsSidebarPanel({
   stopTimeoutMinutes = '',
   timeoutDefaults,
   onTaskTimeoutChange,
+  alertTaskId = null,
+  alertTaskName,
+  alertCanEdit = false,
+  alertUsers = [],
   clusterId,
   clusters,
   pluginPanelLoading,
@@ -226,6 +232,11 @@ export function SettingsSidebarPanel({
   stopTimeoutMinutes?: string;
   timeoutDefaults?: SyncTaskTimeoutDefaults | null;
   onTaskTimeoutChange?: (key: TaskTimeoutKey, minutes: number | null) => void;
+  /** 已保存任务的 ID；为空时（新建未保存）不显示告警分组。/ Saved task ID; the alerts group is hidden when empty. */
+  alertTaskId?: number | null;
+  alertTaskName?: string;
+  alertCanEdit?: boolean;
+  alertUsers?: NotificationRecipientUser[];
   clusterId: string;
   clusters: ClusterInfo[];
   pluginPanelLoading: boolean;
@@ -372,6 +383,12 @@ export function SettingsSidebarPanel({
                 onChange={(minutes) => onTaskTimeoutChange('stop_timeout_minutes', minutes)}
               />
             </div>
+          </div>
+        ) : null}
+        {/* 作业告警：不跟随任务版本，保存即生效 / Job alerts: not versioned with the task, effective on save */}
+        {alertTaskId ? (
+          <div className='space-y-1.5 border-t border-border/40 pt-2.5'>
+            <TaskAlertSection taskId={alertTaskId} taskName={alertTaskName} canEdit={alertCanEdit} users={alertUsers} />
           </div>
         ) : null}
       </div>

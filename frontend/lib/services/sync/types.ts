@@ -73,6 +73,44 @@ export interface SyncTaskTimeoutDefaults {
   stop_timeout_seconds: number;
 }
 
+/**
+ * 作业级告警规则键。/ Job-level alert rule keys.
+ * - sync_submit_failed：提交失败 / submit failed
+ * - sync_submit_timeout：提交超时 / submit timed out
+ * - sync_job_failed：作业失败 / job failed
+ * - sync_stop_timeout：停止超时 / stop timed out
+ */
+export type SyncTaskAlertRule =
+  | 'sync_submit_failed'
+  | 'sync_submit_timeout'
+  | 'sync_job_failed'
+  | 'sync_stop_timeout';
+
+/** 任务的作业告警配置（GET/PUT /sync/tasks/:id/alert）。/ A task's job alert config (GET/PUT /sync/tasks/:id/alert). */
+export interface SyncTaskAlertConfig {
+  configured: boolean;
+  policy_id?: number;
+  enabled: boolean;
+  rules: SyncTaskAlertRule[];
+  channel_ids: number[];
+  receiver_user_ids: number[];
+  notify_task_owner: boolean;
+  cooldown_minutes: number;
+  send_recovery: boolean;
+}
+
+/** 保存任务告警配置的请求体；enabled、send_recovery 默认 true，cooldown_minutes 默认 60。 */
+/** Request body to save a task alert config; enabled and send_recovery default to true, cooldown_minutes to 60. */
+export interface SyncTaskAlertRequest {
+  enabled?: boolean;
+  rules: SyncTaskAlertRule[];
+  channel_ids: number[];
+  receiver_user_ids?: number[];
+  notify_task_owner?: boolean;
+  cooldown_minutes?: number;
+  send_recovery?: boolean;
+}
+
 export interface SyncTaskTreeNode {
   id: number;
   parent_id?: number;

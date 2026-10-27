@@ -40,7 +40,10 @@ type alertPolicyLegacyBridgeRef struct {
 
 // ListAlertPolicies returns unified alert policy resources.
 // ListAlertPolicies 返回统一告警策略资源列表。
-func (s *Service) ListAlertPolicies(ctx context.Context) (*AlertPolicyListData, error) {
+// filter 为空时返回全部；policy_type、task_id 可选，用于在策略中心按"作业告警"和任务筛选。
+// A nil filter returns everything; policy_type and task_id are optional and let the policy center filter job
+// alerts by task.
+func (s *Service) ListAlertPolicies(ctx context.Context, filter *AlertPolicyListFilter) (*AlertPolicyListData, error) {
 	if s.repo == nil {
 		return nil, fmt.Errorf("monitoring repository is not configured")
 	}
@@ -51,8 +54,28 @@ func (s *Service) ListAlertPolicies(ctx context.Context) (*AlertPolicyListData, 
 	}
 
 	items := make([]*AlertPolicyDTO, 0, len(policies))
+	var taskIDs []uint
 	for _, policy := range policies {
+		if policy == nil {
+			continue
+		}
+		if filter != nil && filter.PolicyType != "" && policy.PolicyType != filter.PolicyType {
+			continue
+		}
+		if filter != nil && filter.TaskID > 0 && policy.TaskID != filter.TaskID {
+			continue
+		}
+		if policy.TaskID > 0 {
+			taskIDs = append(taskIDs, policy.TaskID)
+		}
 		items = append(items, toAlertPolicyDTO(policy))
+	}
+	if names := s.resolveSyncTaskNames(ctx, taskIDs); len(names) > 0 {
+		for _, item := range items {
+			if item.TaskID > 0 {
+				item.TaskName = names[item.TaskID]
+			}
+		}
 	}
 
 	return &AlertPolicyListData{
@@ -106,6 +129,11 @@ func (s *Service) CreateAlertPolicy(ctx context.Context, req *UpsertAlertPolicyR
 	if err := s.validateAlertPolicyLegacyBridge(ctx, 0, req.PolicyType, req.ClusterID, legacyRuleKey); err != nil {
 		return nil, err
 	}
+	if req.PolicyType == AlertPolicyBuilderKindSyncJob {
+		if err := s.validateSyncJobPolicy(ctx, s.repo, 0, req); err != nil {
+			return nil, err
+		}
+	}
 
 	conditionsJSON, err := marshalAlertPolicyConditions(req.Conditions)
 	if err != nil {
@@ -136,6 +164,10 @@ func (s *Service) CreateAlertPolicy(ctx context.Context, req *UpsertAlertPolicyR
 		NotificationChannelIDsJSON: channelIDsJSON,
 		ReceiverUserIDsJSON:        receiverUserIDsJSON,
 		LastExecutionStatus:        AlertPolicyExecutionStatusIdle,
+	}
+	if req.PolicyType == AlertPolicyBuilderKindSyncJob {
+		policy.TaskID = req.TaskID
+		policy.NotifyTaskOwner = req.NotifyTaskOwner != nil && *req.NotifyTaskOwner
 	}
 
 	if err := s.repo.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -209,6 +241,20 @@ func (s *Service) UpdateAlertPolicy(ctx context.Context, id uint, req *UpsertAle
 		previousBridgeRef, err := buildAlertPolicyLegacyBridgeRef(policy)
 		if err != nil {
 			return err
+		}
+		// 作业告警策略不能和其他类型互转；所属任务创建后不可改，以库里的为准。
+		// Job alert policies cannot switch type; the owning task is immutable and the stored one wins.
+		if (policy.PolicyType == AlertPolicyBuilderKindSyncJob) != (req.PolicyType == AlertPolicyBuilderKindSyncJob) {
+			return ErrAlertPolicySyncJobTypeChange
+		}
+		if policy.PolicyType == AlertPolicyBuilderKindSyncJob {
+			req.TaskID = policy.TaskID
+			if err := s.validateSyncJobPolicy(ctx, txRepo, policy.ID, req); err != nil {
+				return err
+			}
+			if req.NotifyTaskOwner != nil {
+				policy.NotifyTaskOwner = *req.NotifyTaskOwner
+			}
 		}
 
 		policy.Name = strings.TrimSpace(req.Name)
@@ -291,6 +337,13 @@ func (s *Service) DeleteAlertPolicy(ctx context.Context, id uint) error {
 
 		if err := txRepo.DeleteAlertPolicy(ctx, id); err != nil {
 			return err
+		}
+		// 删除作业告警策略后不再产生新告警，正在告警中的阶段一并结束，不发恢复通知。
+		// Deleting a job alert policy stops new alerts and ends its firing episodes without recovery notifications.
+		if policy.PolicyType == AlertPolicyBuilderKindSyncJob && policy.TaskID > 0 {
+			if err := closeSyncTaskEpisodes(ctx, txRepo, policy.TaskID, syncAlertResolvePolicyDeleted); err != nil {
+				return err
+			}
 		}
 		return s.syncManagedAlertingArtifactsWithRepo(ctx, txRepo)
 	})
@@ -546,6 +599,8 @@ func toAlertPolicyDTO(policy *AlertPolicy) *AlertPolicyDTO {
 		LastExecutionError:     strings.TrimSpace(policy.LastExecutionError),
 		CreatedAt:              policy.CreatedAt,
 		UpdatedAt:              policy.UpdatedAt,
+		TaskID:                 policy.TaskID,
+		NotifyTaskOwner:        policy.NotifyTaskOwner,
 	}
 }
 
@@ -561,7 +616,7 @@ func timeNowUTC() time.Time {
 }
 
 func resolveAlertPolicyTemplate(policyType AlertPolicyBuilderKind, templateKey string) (*AlertPolicyTemplateSummaryDTO, error) {
-	if policyType == AlertPolicyBuilderKindCustomPromQL {
+	if policyType == AlertPolicyBuilderKindCustomPromQL || policyType == AlertPolicyBuilderKindSyncJob {
 		return nil, nil
 	}
 
@@ -579,7 +634,7 @@ func resolveAlertPolicyTemplate(policyType AlertPolicyBuilderKind, templateKey s
 }
 
 func resolveAlertPolicyLegacyRuleKey(policyType AlertPolicyBuilderKind, template *AlertPolicyTemplateSummaryDTO, fallbackLegacyRuleKey string) string {
-	if policyType == AlertPolicyBuilderKindCustomPromQL {
+	if policyType == AlertPolicyBuilderKindCustomPromQL || policyType == AlertPolicyBuilderKindSyncJob {
 		return ""
 	}
 	if template != nil {

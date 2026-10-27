@@ -4074,6 +4074,11 @@ definitions:
           AttachGeneration 在同一 external_ref 被 CLI 接管时递增，用来忽略过期停止请求。
           AttachGeneration increments when another CLI attaches to the same external_ref so stale cancel requests are ignored.
         type: integer
+      cancel_overdue:
+        description: |-
+          CancelOverdue 表示取消中作业已越过停止截止时间，由 API 派生，不落库。
+          CancelOverdue reports a cancelling job past its stop deadline; derived at read time and not persisted.
+        type: boolean
       cdc_delay:
         allOf:
         - $ref: '#/definitions/sync.JobCDCDelay'
@@ -4354,6 +4359,36 @@ definitions:
       error_msg:
         type: string
     type: object
+  sync.TaskAlertRequest:
+    properties:
+      channel_ids:
+        items:
+          type: integer
+        type: array
+      cooldown_minutes:
+        type: integer
+      enabled:
+        type: boolean
+      notify_task_owner:
+        type: boolean
+      receiver_user_ids:
+        items:
+          type: integer
+        type: array
+      rules:
+        items:
+          type: string
+        type: array
+      send_recovery:
+        type: boolean
+    type: object
+  sync.TaskAlertResponse:
+    properties:
+      data:
+        $ref: '#/definitions/syncalert.TaskConfig'
+      error_msg:
+        type: string
+    type: object
   sync.TaskPermissions:
     properties:
       can_edit:
@@ -4428,6 +4463,33 @@ definitions:
           type: integer
         type: array
       is_public:
+        type: boolean
+    type: object
+  syncalert.TaskConfig:
+    properties:
+      channel_ids:
+        items:
+          type: integer
+        type: array
+      configured:
+        type: boolean
+      cooldown_minutes:
+        type: integer
+      enabled:
+        type: boolean
+      notify_task_owner:
+        type: boolean
+      policy_id:
+        type: integer
+      receiver_user_ids:
+        items:
+          type: integer
+        type: array
+      rules:
+        items:
+          type: string
+        type: array
+      send_recovery:
         type: boolean
     type: object
 info:
@@ -7661,6 +7723,126 @@ paths:
           schema:
             $ref: '#/definitions/sync.DolphinWorkflowDetailResponse'
       summary: 读取 Dolphin 工作流定义
+      tags:
+      - Sync
+  /api/v1/sync/tasks/{id}/alert:
+    delete:
+      parameters:
+      - description: 任务 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sync.TaskAlertResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/sync.TaskAlertResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/sync.TaskAlertResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/sync.TaskAlertResponse'
+        "428":
+          description: Precondition Required
+          schema:
+            $ref: '#/definitions/sync.TaskAlertResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/sync.TaskAlertResponse'
+      summary: 删除任务的作业告警配置
+      tags:
+      - Sync
+    get:
+      parameters:
+      - description: 任务 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sync.TaskAlertResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/sync.TaskAlertResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/sync.TaskAlertResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/sync.TaskAlertResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/sync.TaskAlertResponse'
+      summary: 获取任务的作业告警配置
+      tags:
+      - Sync
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: 任务 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 作业告警配置
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/sync.TaskAlertRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sync.TaskAlertResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/sync.TaskAlertResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/sync.TaskAlertResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/sync.TaskAlertResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/sync.TaskAlertResponse'
+        "428":
+          description: Precondition Required
+          schema:
+            $ref: '#/definitions/sync.TaskAlertResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/sync.TaskAlertResponse'
+      summary: 保存任务的作业告警配置（立即生效）
       tags:
       - Sync
   /api/v1/sync/tasks/{id}/dolphin:

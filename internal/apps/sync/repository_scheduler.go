@@ -55,6 +55,24 @@ func (r *Repository) GetActiveJobByExternalRef(ctx context.Context, ref string) 
 	return &instance, nil
 }
 
+// ListPendingJobInstancesByTaskID 列出任务下仍处于 pending 的作业，供"提交结果确认中"拦截使用。
+// ListPendingJobInstancesByTaskID lists a task's pending jobs for the "submit outcome still confirming" guard.
+func (r *Repository) ListPendingJobInstancesByTaskID(ctx context.Context, taskID uint, limit int) ([]*JobInstance, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	var instances []*JobInstance
+	err := r.db.WithContext(ctx).
+		Where("task_id = ? AND status = ?", taskID, JobStatusPending).
+		Order("id DESC").
+		Limit(limit).
+		Find(&instances).Error
+	if err != nil {
+		return nil, err
+	}
+	return instances, nil
+}
+
 // ListRecentJobsByExternalRefPrefix 列出任务上带外部引用的最近作业。
 // ListRecentJobsByExternalRefPrefix lists recent jobs for a task that carry an external reference.
 func (r *Repository) ListRecentJobsByExternalRefPrefix(ctx context.Context, taskID uint, prefix string, limit int) ([]*JobInstance, error) {

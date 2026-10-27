@@ -19,10 +19,12 @@ package sync
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
 	"github.com/LeonYoah/stx/internal/config"
+	"github.com/LeonYoah/stx/internal/logger"
 	"github.com/LeonYoah/stx/internal/seatunnel"
 )
 
@@ -66,6 +68,11 @@ func (s *Service) StartJobReconciler(ctx context.Context) {
 	}()
 }
 
+// reconcileActiveJobs 跑一轮对账：停止超时标记和本地作业在当前协程完成；各集群的引擎查询交给调度器在后台并行执行，
+// 不等它们结束，所以一个慢集群不会拖住其他集群。
+// reconcileActiveJobs runs one reconcile pass: stop-overdue marks and local jobs are handled inline, while each
+// cluster's engine queries are dispatched to the scheduler and run in the background in parallel without being
+// awaited, so one slow cluster cannot hold up the others.
 func (s *Service) reconcileActiveJobs(ctx context.Context) error {
 	jobs, err := s.repo.ListNonTerminalJobInstances(ctx, 500)
 	if err != nil || len(jobs) == 0 {
@@ -73,10 +80,15 @@ func (s *Service) reconcileActiveJobs(ctx context.Context) error {
 	}
 	taskCluster := map[uint]uint{}
 	grouped := map[uint][]*JobInstance{}
+	var direct []*JobInstance
+	now := time.Now()
 	for _, job := range jobs {
 		if job == nil {
 			continue
 		}
+		// 停止超时只看本地记录的截止时间，引擎不可达时也要能标记。
+		// Stop overdue only checks the locally recorded deadline, so it is flagged even when the engine is unreachable.
+		s.markCancelOverdue(ctx, job, now)
 		if submitSpecExecutionMode(job.SubmitSpec) == "local" {
 			if _, refreshErr := s.refreshLocalJob(ctx, job); refreshErr != nil {
 				s.recordJobSyncFailure(ctx, job)
@@ -90,25 +102,78 @@ func (s *Service) reconcileActiveJobs(ctx context.Context) error {
 			if endpointFromSubmitSpec(job.SubmitSpec) == nil {
 				continue
 			}
-			s.reconcileClusterJobs(ctx, 0, []*JobInstance{job})
+			direct = append(direct, job)
 			continue
 		}
 		grouped[clusterID] = append(grouped[clusterID], job)
 	}
+	if len(direct) > 0 {
+		// 直连作业可能分属不同地址，逐个对账、互不止损，整体作为一个调度单元，不占用 tick。
+		// Direct jobs may point at different addresses, so they reconcile one by one without stopping each other,
+		// as one scheduling unit that does not hold the tick.
+		s.reconcile.tryDispatch(ctx, directEndpointReconcileKey, func(ctx context.Context) error {
+			for _, job := range direct {
+				_ = s.reconcileClusterJobs(ctx, 0, []*JobInstance{job})
+			}
+			return nil
+		}, func(err error) {
+			s.reconcile.finish(directEndpointReconcileKey, err, reconcileInterval(), reconcileMaxBackoff())
+		})
+	}
 	channels := s.eventChannelSnapshot(ctx)
 	for clusterID, items := range grouped {
-		// 事件通道健康时只做轻量拉取，完整对账（running/finished 列表）降到每 60 秒一次兜底。
-		// With a healthy event channel only light pulls run; full reconciles (running/finished lists) drop to a
-		// 60-second safety net.
-		if s.useEventModeReconcile(ctx, clusterID, channels) && !s.fullReconcileDue(clusterID) {
-			s.reconcileClusterJobsLight(ctx, clusterID, items)
+		s.reconcile.tryDispatch(ctx, clusterID, func(ctx context.Context) error {
+			// 事件通道健康时只做轻量拉取，完整对账（running/finished 列表）降到每 60 秒一次兜底。
+			// With a healthy event channel only light pulls run; full reconciles (running/finished lists) drop to a
+			// 60-second safety net.
+			if s.useEventModeReconcile(ctx, clusterID, channels) && !s.fullReconcileDue(clusterID) {
+				return s.reconcileClusterJobsLight(ctx, clusterID, items)
+			}
+			if err := s.reconcileClusterJobs(ctx, clusterID, items); err != nil {
+				return err
+			}
+			s.markFullReconcile(clusterID)
+			return nil
+		}, func(err error) {
+			s.finishClusterReconcile(ctx, clusterID, err)
+		})
+	}
+	s.startTerminalMetricsBackfill(ctx)
+	return nil
+}
+
+// finishClusterReconcile 记录集群本轮的结果；只在进入退避和恢复时各打一条日志，不每轮都打。
+// finishClusterReconcile records the cluster's result for this pass; it logs once when backoff starts and once on
+// recovery, never on every pass.
+func (s *Service) finishClusterReconcile(ctx context.Context, clusterID uint, err error) {
+	outcome := s.reconcile.finish(clusterID, err, reconcileInterval(), reconcileMaxBackoff())
+	s.reportClusterStatus(clusterID, outcome, err)
+	switch {
+	case outcome.EnteredBackoff:
+		logger.WarnF(ctx, "[Sync] cluster engine queries failed, backing off reconcile: cluster=%d reason=%v next_attempt_at=%s",
+			clusterID, err, outcome.NextAttemptAt.UTC().Format(time.RFC3339))
+	case outcome.Recovered:
+		logger.InfoF(ctx, "[Sync] cluster engine queries recovered, reconcile back to normal: cluster=%d failed_passes=%d since=%s",
+			clusterID, outcome.ConsecutiveAborts, outcome.FirstFailureAt.UTC().Format(time.RFC3339))
+	}
+}
+
+// clusterReconcileBackingOff 判断作业所在集群是否处于退避期；处于退避时刷新路径不再请求引擎。
+// clusterReconcileBackingOff reports whether the job's cluster is backing off; refreshes skip the engine meanwhile.
+func (s *Service) clusterReconcileBackingOff(ctx context.Context, job *JobInstance) bool {
+	clusterID := clusterIDForJob(ctx, s, job, map[uint]uint{})
+	return clusterID != 0 && s.reconcile.inBackoff(clusterID)
+}
+
+// recordRemainingSyncFailures 在本轮止损时，给还没处理到的作业各记一次同步失败。
+// recordRemainingSyncFailures records one sync failure for every job not reached when the pass stops early.
+func (s *Service) recordRemainingSyncFailures(ctx context.Context, jobs []*JobInstance) {
+	for _, job := range jobs {
+		if job == nil || strings.TrimSpace(job.EngineJobID) == "" {
 			continue
 		}
-		s.reconcileClusterJobs(ctx, clusterID, items)
-		s.markFullReconcile(clusterID)
+		s.recordJobSyncFailure(ctx, job)
 	}
-	s.backfillTerminalJobFinalMetrics(ctx)
-	return nil
 }
 
 const (
@@ -194,7 +259,9 @@ func (s *Service) markFullReconcile(clusterID uint) {
 // reconcileClusterJobsLight is the event-mode light pass: no list calls, only job-info for running jobs that are
 // watched or unsynced for 30s. Status changes are refreshed by events; everything else is covered by the periodic
 // full reconcile.
-func (s *Service) reconcileClusterJobsLight(ctx context.Context, clusterID uint, jobs []*JobInstance) {
+// 遇到传输层失败时结束本轮并返回该错误，剩下的作业各记一次同步失败。
+// A transport failure ends the pass and is returned; the remaining jobs each record one sync failure.
+func (s *Service) reconcileClusterJobsLight(ctx context.Context, clusterID uint, jobs []*JobInstance) error {
 	now := s.events.clock()
 	var due []*JobInstance
 	for _, job := range jobs {
@@ -207,7 +274,7 @@ func (s *Service) reconcileClusterJobsLight(ctx context.Context, clusterID uint,
 		}
 	}
 	if len(due) == 0 {
-		return
+		return nil
 	}
 	var endpoint *EngineEndpoint
 	if s.runtimeResolver != nil {
@@ -215,7 +282,7 @@ func (s *Service) reconcileClusterJobsLight(ctx context.Context, clusterID uint,
 			endpoint = resolved
 		}
 	}
-	for _, job := range due {
+	for i, job := range due {
 		target := endpoint
 		if target == nil {
 			target = endpointFromSubmitSpec(job.SubmitSpec)
@@ -227,12 +294,17 @@ func (s *Service) reconcileClusterJobsLight(ctx context.Context, clusterID uint,
 		detail, err := s.engineClient.GetJobInfo(ctx, target, strings.TrimSpace(job.EngineJobID))
 		if err != nil {
 			s.recordJobSyncFailure(ctx, job)
+			if isEngineTransportError(err) {
+				s.recordRemainingSyncFailures(ctx, due[i+1:])
+				return err
+			}
 			continue
 		}
 		if _, err := s.applyEngineJobInfoUpdate(ctx, job, detail); err != nil {
 			s.recordJobSyncFailure(ctx, job)
 		}
 	}
+	return nil
 }
 
 func clusterIDForJob(ctx context.Context, s *Service, job *JobInstance, cache map[uint]uint) uint {
@@ -256,9 +328,20 @@ func clusterIDForJob(ctx context.Context, s *Service, job *JobInstance, cache ma
 	return task.ClusterID
 }
 
-func (s *Service) reconcileClusterJobs(ctx context.Context, clusterID uint, jobs []*JobInstance) {
+// errReconcileNoEndpoint 表示集群当前找不到可用的引擎端点，本轮对账无法进行。
+// errReconcileNoEndpoint means the cluster has no usable engine endpoint, so this pass cannot run.
+var errReconcileNoEndpoint = errors.New("sync: no usable engine endpoint")
+
+// reconcileClusterJobs 对一个集群做完整对账：running 列表、finished 列表，再按需拉 job-info。
+// 返回非 nil 表示本轮提前结束（没有端点、running 列表失败、或任意一次请求遇到传输层失败），调度器据此退避；
+// 引擎返回非 2xx 的 finished 列表或 job-info 不算，保持原来的逐个处理。
+// reconcileClusterJobs fully reconciles one cluster: the running list, the finished lists, then job-info as needed.
+// A non-nil result means the pass stopped early (no endpoint, running list failed, or any call hit a transport
+// failure) and the scheduler backs off; a non-2xx finished list or job-info does not count and keeps the
+// previous one-by-one handling.
+func (s *Service) reconcileClusterJobs(ctx context.Context, clusterID uint, jobs []*JobInstance) error {
 	if len(jobs) == 0 {
-		return
+		return nil
 	}
 	var endpoint *EngineEndpoint
 	if s.runtimeResolver != nil {
@@ -279,7 +362,7 @@ func (s *Service) reconcileClusterJobs(ctx context.Context, clusterID uint, jobs
 		for _, job := range jobs {
 			s.recordJobSyncFailure(ctx, job)
 		}
-		return
+		return errReconcileNoEndpoint
 	}
 
 	running, runErr := s.engineClient.ListRunningJobs(ctx, endpoint)
@@ -287,7 +370,7 @@ func (s *Service) reconcileClusterJobs(ctx context.Context, clusterID uint, jobs
 		for _, job := range jobs {
 			s.recordJobSyncFailure(ctx, job)
 		}
-		return
+		return runErr
 	}
 	runningMap := map[string]*EngineJobListItem{}
 	for _, item := range running {
@@ -301,6 +384,13 @@ func (s *Service) reconcileClusterJobs(ctx context.Context, clusterID uint, jobs
 	for _, state := range []string{"", "FINISHED", "FAILED", "CANCELED", "CANCELLED", "SAVEPOINT_DONE"} {
 		items, err := s.engineClient.ListFinishedJobs(ctx, endpoint, state)
 		if err != nil {
+			// 超时或连不上：剩下的列表和 job-info 本轮都不再请求。某个状态的接口不存在（非 2xx）照旧跳过。
+			// Timeout or unreachable: skip the remaining lists and job-info this pass. A missing state endpoint
+			// (non-2xx) is still just skipped.
+			if isEngineTransportError(err) {
+				s.recordRemainingSyncFailures(ctx, jobs)
+				return err
+			}
 			continue
 		}
 		for _, item := range items {
@@ -311,7 +401,7 @@ func (s *Service) reconcileClusterJobs(ctx context.Context, clusterID uint, jobs
 		}
 	}
 
-	for _, job := range jobs {
+	for i, job := range jobs {
 		if job == nil {
 			continue
 		}
@@ -326,6 +416,10 @@ func (s *Service) reconcileClusterJobs(ctx context.Context, clusterID uint, jobs
 			if detailErr != nil {
 				if _, err := s.applyEngineJobInfoUpdate(ctx, job, engineListItemToInfo(item)); err != nil {
 					s.recordJobSyncFailure(ctx, job)
+				}
+				if isEngineTransportError(detailErr) {
+					s.recordRemainingSyncFailures(ctx, jobs[i+1:])
+					return detailErr
 				}
 				continue
 			}
@@ -351,6 +445,10 @@ func (s *Service) reconcileClusterJobs(ctx context.Context, clusterID uint, jobs
 						s.recordJobSyncFailure(ctx, job)
 					}
 				}
+				if isEngineTransportError(detailErr) {
+					s.recordRemainingSyncFailures(ctx, jobs[i+1:])
+					return detailErr
+				}
 				continue
 			}
 			if _, err := s.applyEngineJobInfoUpdate(ctx, job, detail); err != nil {
@@ -366,9 +464,22 @@ func (s *Service) reconcileClusterJobs(ctx context.Context, clusterID uint, jobs
 		detail, detailErr := s.engineClient.GetJobInfo(ctx, endpoint, engineJobID)
 		if detailErr != nil {
 			s.recordJobSyncFailure(ctx, job)
+			if isEngineTransportError(detailErr) {
+				s.recordRemainingSyncFailures(ctx, jobs[i+1:])
+				return detailErr
+			}
 			continue
 		}
 		if engineJobInfoLooksOrphaned(detail) {
+			// 提交结果未知：截止前引擎可能还在规划作业，继续等；过了截止时间才判失败。
+			// Unknown submit outcome: the engine may still be planning before the deadline; fail it only afterwards.
+			if submitOutcomeIsUnknown(job) {
+				if submitOutcomePending(job, time.Now()) {
+					continue
+				}
+				s.expireUnknownSubmit(ctx, job, engineJobID)
+				continue
+			}
 			// Cluster is up but the job vanished (restart / history expiry): end the zombie running state.
 			// 集群可达但作业已消失（重启/历史过期）：结束僵死的 running。
 			if time.Since(job.CreatedAt) < 30*time.Second {
@@ -389,10 +500,69 @@ func (s *Service) reconcileClusterJobs(ctx context.Context, clusterID uint, jobs
 			s.recordJobSyncFailure(ctx, job)
 		}
 	}
+	return nil
+}
+
+// expireUnknownSubmit 在引擎可达且确认没有该作业、并且已过提交截止时间时，把待确认作业判为失败。
+// expireUnknownSubmit fails a pending unknown-outcome job once the engine is reachable, confirms it has no such job,
+// and the submit deadline has passed.
+func (s *Service) expireUnknownSubmit(ctx context.Context, job *JobInstance, engineJobID string) {
+	now := time.Now()
+	markSubmitOutcome(job, submitOutcomeExpired, now)
+	if err := s.repo.UpdateJobSyncMetadata(ctx, job.ID, map[string]any{"submit_spec": job.SubmitSpec}); err != nil {
+		s.recordJobSyncFailure(ctx, job)
+		return
+	}
+	expired := &EngineJobInfo{
+		JobID:        engineJobID,
+		JobStatus:    "FAILED",
+		ErrorMsg:     submitOutcomeExpiredMessage(job),
+		FinishedTime: now.In(time.Local).Format("2006-01-02 15:04:05"),
+	}
+	updated, err := s.applyEngineJobInfoUpdate(ctx, job, expired)
+	if err != nil {
+		s.recordJobSyncFailure(ctx, job)
+		return
+	}
+	logger.WarnF(ctx, "[Sync] unknown submit outcome expired, job marked failed: job=%d task=%d engine_job_id=%s",
+		job.ID, job.TaskID, engineJobID)
+	if updated != nil && updated.Status == JobStatusFailed {
+		s.reportSubmitExpired(ctx, updated)
+	}
+}
+
+// markCancelOverdue 在取消中作业越过停止截止时间时记录一次 cancel_overdue_at；状态保持不变。
+// markCancelOverdue records cancel_overdue_at once when a cancelling job passes its stop deadline; status is unchanged.
+func (s *Service) markCancelOverdue(ctx context.Context, job *JobInstance, now time.Time) {
+	if !isCancelOverdue(job, now) || strings.TrimSpace(stringValue(job.ResultPreview, cancelOverdueAtKey)) != "" {
+		return
+	}
+	job.ResultPreview[cancelOverdueAtKey] = now.UTC().Format(time.RFC3339)
+	if err := s.repo.UpdateJobStatus(ctx, job.ID, []JobStatus{job.Status}, map[string]any{"result_preview": job.ResultPreview}); err != nil {
+		return
+	}
+	logger.WarnF(ctx, "[Sync] job did not stop before its stop deadline: job=%d task=%d engine_job_id=%s deadline=%s",
+		job.ID, job.TaskID, strings.TrimSpace(job.EngineJobID), stringValue(job.ResultPreview, cancelDeadlineKey))
+	s.reportStopOverdue(ctx, job)
+}
+
+// startTerminalMetricsBackfill 在后台补拉终态指标，上一次没结束时不再启动，不占用对账 tick。
+// startTerminalMetricsBackfill backfills terminal metrics in the background; it does not start while the previous
+// run is still going and never holds the reconcile tick.
+func (s *Service) startTerminalMetricsBackfill(ctx context.Context) {
+	if s == nil || s.repo == nil || s.engineClient == nil || !s.reconcile.tryStartBackfill() {
+		return
+	}
+	go func() {
+		defer s.reconcile.finishBackfill()
+		s.backfillTerminalJobFinalMetrics(ctx)
+	}()
 }
 
 // backfillTerminalJobFinalMetrics 对近期已终态但缺少终态指标块的作业再拉一次 job-info。
+// 退避中的集群跳过；某个地址遇到传输层失败后，本次不再请求这个地址。
 // backfillTerminalJobFinalMetrics re-fetches job-info for recent terminal jobs that still lack a final metrics block.
+// Clusters in backoff are skipped, and an address that hits a transport failure is not called again this run.
 func (s *Service) backfillTerminalJobFinalMetrics(ctx context.Context) {
 	if s == nil || s.repo == nil || s.engineClient == nil {
 		return
@@ -401,6 +571,7 @@ func (s *Service) backfillTerminalJobFinalMetrics(ctx context.Context) {
 	if err != nil || len(jobs) == 0 {
 		return
 	}
+	unreachable := map[string]bool{}
 	for _, job := range jobs {
 		if job == nil || hasFinalMetricsLog(job.ResultPreview) {
 			continue
@@ -408,20 +579,24 @@ func (s *Service) backfillTerminalJobFinalMetrics(ctx context.Context) {
 		if strings.TrimSpace(job.EngineJobID) == "" {
 			continue
 		}
+		clusterID := uintValue(job.SubmitSpec, "cluster_id")
+		if clusterID > 0 && s.reconcile.inBackoff(clusterID) {
+			continue
+		}
 		endpoint := endpointFromSubmitSpec(job.SubmitSpec)
-		if endpoint == nil && s.runtimeResolver != nil {
-			clusterID := uintValue(job.SubmitSpec, "cluster_id")
-			if clusterID > 0 {
-				if resolved, resolveErr := s.runtimeResolver.ResolveEngineEndpoint(ctx, clusterID, nil); resolveErr == nil {
-					endpoint = resolved
-				}
+		if endpoint == nil && s.runtimeResolver != nil && clusterID > 0 {
+			if resolved, resolveErr := s.runtimeResolver.ResolveEngineEndpoint(ctx, clusterID, nil); resolveErr == nil {
+				endpoint = resolved
 			}
 		}
-		if endpoint == nil {
+		if endpoint == nil || unreachable[endpoint.BaseURL] {
 			continue
 		}
 		detail, detailErr := s.engineClient.GetJobInfo(ctx, endpoint, strings.TrimSpace(job.EngineJobID))
 		if detailErr != nil || detail == nil {
+			if isEngineTransportError(detailErr) {
+				unreachable[endpoint.BaseURL] = true
+			}
 			continue
 		}
 		if _, applyErr := s.applyEngineJobInfoUpdate(ctx, job, detail); applyErr != nil {

@@ -95,3 +95,22 @@ var (
 	ErrEventChannelUnauthorized        = errors.New("sync: invalid engine event token")
 	ErrEventChannelPermissionDenied    = errors.New("sync: only administrators can change the engine event channel")
 )
+
+// 写操作结果未知与超时配置相关错误。
+// Errors for unknown write outcomes and timeout settings.
+var (
+	// ErrSubmitOutcomePending 表示同一任务上一次提交结果还在确认中，确认前拒绝新的提交。
+	// ErrSubmitOutcomePending means the task's previous submit is still being confirmed, so new submits are refused.
+	ErrSubmitOutcomePending = errors.New("sync: previous submit outcome is still being confirmed")
+	// ErrInvalidTaskTimeout 表示任务设置里的提交/停止超时不在允许范围内。
+	// ErrInvalidTaskTimeout means a task's submit/stop timeout override is outside the allowed range.
+	ErrInvalidTaskTimeout = errors.New("sync: task timeout override must be between 1 and 120 minutes")
+)
+
+// 作业告警配置相关错误。
+// Errors for job alert configuration.
+var (
+	// ErrTaskAlertUnavailable 表示告警模块没有初始化，任务告警配置不可用。
+	// ErrTaskAlertUnavailable means the alert module is not initialized, so task alert config is unavailable.
+	ErrTaskAlertUnavailable = errors.New("sync: job alerts are unavailable because the monitoring module is not initialized")
+)

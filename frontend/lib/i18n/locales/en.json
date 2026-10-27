@@ -2480,7 +2480,8 @@
       "pageInfo": "Page {current} / {total}",
       "sourceTypes": {
         "local_process_event": "Local Process Event",
-        "remote_alertmanager": "Remote Alertmanager"
+        "remote_alertmanager": "Remote Alertmanager",
+        "sync": "Job alerts"
       },
       "lifecycleStatuses": {
         "firing": "Firing",
@@ -2669,7 +2670,8 @@
       },
       "categories": {
         "platform_health": "Platform Health Templates",
-        "metrics": "Metrics Templates"
+        "metrics": "Metrics Templates",
+        "sync_observability": "Job observability templates"
       },
       "capabilities": {
         "platform_health": {
@@ -2747,6 +2749,14 @@
         "node_stop_requested": {
           "name": "Node stop requested",
           "description": "Fire immediately when a user manually stops one node from the control plane so operators can track explicit stop actions."
+        },
+        "sync_status_unavailable": {
+          "name": "Job status unavailable",
+          "description": "Fires when job status (running list) of the cluster stays unreadable beyond the rule window; job states may be stale meanwhile."
+        },
+        "sync_event_channel_degraded": {
+          "name": "Event channel degraded",
+          "description": "Fires when the SeaTunnel event channel of the cluster turns from healthy to degraded; job states fall back to polling."
         },
         "cpu_usage_high": {
           "name": "CPU usage high",
@@ -4745,6 +4755,23 @@
     "observabilityOn": "On",
     "observabilityOff": "Off",
     "observabilityHint": "Applies to SeaTunnel 3.x clusters only. Enables busyness, backpressure and bottleneck hints at a small cost.",
+    "timeoutSettings": "Timeouts",
+    "timeoutSettingsHint": "How long an unanswered submit waits for the engine to show the job, and how long a stop may take before it is flagged overdue. Leave empty to use the global default; republish to apply changes.",
+    "submitTimeoutSetting": "Submit timeout (min)",
+    "stopTimeoutSetting": "Stop timeout (min)",
+    "timeoutDefaultPlaceholder": "Default {minutes}",
+    "timeoutInvalid": "Enter a whole number from 1 to 120",
+    "submitOutcomeUnknownToast": "The submit request timed out. The engine may already have the job; STX is confirming it. Do not resubmit.",
+    "recoverOutcomeUnknownToast": "The recovery request timed out. The engine may already have the job; STX is confirming it. Do not recover again.",
+    "cancelOutcomeUnknownToast": "The stop request timed out. The engine may already be stopping the job; STX is confirming it.",
+    "submitConfirmingBadge": "Confirming submit",
+    "submitConfirmingTooltip": "The submit got no reply from the engine and the job may already be running. STX confirms it automatically by {deadline}; do not resubmit meanwhile.",
+    "submitExpiredBadge": "Submit timed out",
+    "submitExpiredTooltip": "The engine never registered this job within {minutes} minutes; the submit may have been rejected or lost. Check the engine logs before resubmitting.",
+    "stopOverdueBadge": "Stop overdue",
+    "stopOverdueTooltip": "A stop was requested, but the job has not stopped after {minutes} minutes. STX keeps checking; inspect the engine if needed.",
+    "submitOutcomePendingTitle": "Previous submit is still being confirmed",
+    "submitOutcomePendingDescription": "The submit of job #{jobId} is still being confirmed until {deadline}. Try again afterwards.",
     "realtimeInsight": {
       "title": "Realtime insight",
       "live": "Live",
@@ -5018,5 +5045,61 @@
     "proxyRestartRolledBack": "Proxy rolled back",
     "proxyRestartFailed": "Proxy restart failed",
     "proxyRestartSkipped": "Proxy not restarted"
+  },
+  "syncAlert": {
+    "listSeparator": ", ",
+    "sectionTitle": "Alerts",
+    "sectionHint": "Notify when jobs run into problems. Saving takes effect immediately; it is not versioned with the task and needs no republish.",
+    "notConfigured": "No alerts configured",
+    "configure": "Configure",
+    "edit": "Edit",
+    "disabledBadge": "Disabled",
+    "summary": "{rules} · {channels} · remind every {cooldown} min",
+    "summaryNoReminder": "{rules} · {channels} · no reminders",
+    "loadFailed": "Failed to load the alert configuration",
+    "unavailable": "The alert module is not enabled",
+    "dialogTitle": "Job alerts",
+    "dialogDescription": "Choose what to alert on and where to send it. A problem that persists is only re-sent at the reminder interval, and a recovery notification follows when it clears.",
+    "rulesLabel": "Alert on",
+    "rule_sync_submit_failed": "Submit failed",
+    "rule_sync_submit_failed_hint": "The engine rejected the submit, or no engine is reachable",
+    "rule_sync_submit_timeout": "Submit timed out",
+    "rule_sync_submit_timeout_hint": "The submit got no reply and the engine still has no such job after the submit timeout",
+    "rule_sync_job_failed": "Job failed",
+    "rule_sync_job_failed_hint": "The job failed, including when the engine no longer has it",
+    "rule_sync_stop_timeout": "Stop timed out",
+    "rule_sync_stop_timeout_hint": "The job has not stopped after the stop timeout",
+    "channelsLabel": "Notification channels",
+    "noChannels": "No notification channel yet. Add one in the monitoring center first",
+    "receiversLabel": "Email receivers",
+    "receiversPlaceholder": "Choose receivers",
+    "notifyOwner": "Also notify the task creator",
+    "notifyOwnerHint": "Email channels only",
+    "cooldownLabel": "Reminder interval (minutes)",
+    "cooldownHint": "How often to re-send while the problem persists; 0 sends no reminders",
+    "sendRecovery": "Notify on recovery",
+    "enabled": "Enabled",
+    "save": "Save",
+    "saving": "Saving…",
+    "cancel": "Cancel",
+    "delete": "Delete configuration",
+    "deleteConfirm": "No new alerts will be raised and firing ones will be closed. Delete?",
+    "saved": "Alert configuration saved",
+    "deleted": "Alert configuration deleted",
+    "readOnly": "You cannot edit this task, so the alert configuration is read-only",
+    "errorNoRule": "Select at least one alert condition",
+    "errorNoChannel": "Select at least one notification channel",
+    "errorCooldown": "The reminder interval must be an integer from 0 to 1440",
+    "errorEmailRecipient": "An email channel is selected but nobody would receive it: pick receivers, notify the task creator, or set recipients on the channel",
+    "policyFilterAll": "All policies",
+    "policyFilterSyncJob": "Job alerts",
+    "policyTaskColumn": "Task",
+    "openTask": "Open task",
+    "openJob": "View job",
+    "occurrenceLabel": "Occurrences",
+    "jobLabel": "Job",
+    "occurrences": "{count} occurrences",
+    "deepLinkTaskNotFound": "Task #{id} does not exist or you cannot view it",
+    "deepLinkJobNotFound": "Job #{id} does not exist or does not belong to this task"
   }
 }

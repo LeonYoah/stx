@@ -149,7 +149,7 @@ export interface AlertListData {
   alerts: AlertEvent[];
 }
 
-export type AlertSourceType = 'local_process_event' | 'remote_alertmanager';
+export type AlertSourceType = 'local_process_event' | 'remote_alertmanager' | 'sync';
 export type AlertLifecycleStatus = 'firing' | 'resolved';
 export type AlertDisplayStatus = 'firing' | 'resolved' | 'closed';
 export type AlertHandlingStatus =
@@ -172,6 +172,14 @@ export interface AlertInstanceSourceRef {
   hostname?: string;
   receiver?: string;
   env?: string;
+  /** 以下字段只用于作业告警（source_type=sync）。 / The fields below are only set for job alerts (source_type=sync). */
+  task_id?: number;
+  task_name?: string;
+  job_id?: number;
+  engine_job_id?: string;
+  trigger_source?: string;
+  occurrence_count?: number;
+  link?: string;
 }
 
 export interface AlertInstance {
@@ -383,7 +391,8 @@ export type AlertPolicyCapabilityStatus =
 export type AlertPolicyBuilderKind =
   | 'platform_health'
   | 'metrics_template'
-  | 'custom_promql';
+  | 'custom_promql'
+  | 'sync_job';
 
 export type AlertPolicyExecutionStatus =
   | 'idle'
@@ -477,6 +486,16 @@ export interface AlertPolicy {
   last_execution_error?: string;
   created_at: string;
   updated_at: string;
+  /** 以下字段只用于作业告警策略（sync_job）。 / The fields below are only used by job alert policies (sync_job). */
+  task_id?: number;
+  task_name?: string;
+  notify_task_owner?: boolean;
+}
+
+/** 策略列表筛选条件。 / Policy list filters. */
+export interface AlertPolicyListFilter {
+  policy_type?: AlertPolicyBuilderKind;
+  task_id?: number;
 }
 
 export interface AlertPolicyListData {
@@ -500,6 +519,9 @@ export interface UpsertAlertPolicyRequest {
   conditions?: AlertPolicyCondition[];
   notification_channel_ids?: number[];
   receiver_user_ids?: number[];
+  /** 只用于作业告警策略（sync_job），创建后不可修改。/ Only for job alert policies (sync_job); immutable. */
+  task_id?: number;
+  notify_task_owner?: boolean;
 }
 
 export type NotificationChannelType =

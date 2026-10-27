@@ -30,7 +30,16 @@ import (
 // ListAlertPolicies handles GET /api/v1/monitoring/alert-policies.
 // ListAlertPolicies 处理统一告警策略列表接口。
 func (h *Handler) ListAlertPolicies(c *gin.Context) {
-	data, err := h.service.ListAlertPolicies(c.Request.Context())
+	filter := &AlertPolicyListFilter{PolicyType: AlertPolicyBuilderKind(strings.TrimSpace(c.Query("policy_type")))}
+	if raw := strings.TrimSpace(c.Query("task_id")); raw != "" {
+		taskID, err := strconv.ParseUint(raw, 10, 32)
+		if err != nil || taskID == 0 {
+			c.JSON(http.StatusBadRequest, Response{ErrorMsg: "invalid task_id"})
+			return
+		}
+		filter.TaskID = uint(taskID)
+	}
+	data, err := h.service.ListAlertPolicies(c.Request.Context(), filter)
 	if err != nil {
 		c.JSON(getAlertPolicyStatusCode(err), Response{ErrorMsg: err.Error()})
 		return
@@ -188,7 +197,8 @@ func getAlertPolicyStatusCode(err error) int {
 		return http.StatusOK
 	case errors.Is(err, ErrAlertPolicyNotFound):
 		return http.StatusNotFound
-	case errors.Is(err, ErrAlertPolicyLegacyBridgeConflict):
+	case errors.Is(err, ErrAlertPolicyLegacyBridgeConflict),
+		errors.Is(err, ErrAlertPolicySyncJobConflict):
 		return http.StatusConflict
 	case errors.Is(err, ErrAlertPolicyInvalidID),
 		errors.Is(err, ErrAlertPolicyInvalidClusterScope),
@@ -200,7 +210,13 @@ func getAlertPolicyStatusCode(err error) int {
 		errors.Is(err, ErrAlertPolicyUnsupportedTemplate),
 		errors.Is(err, ErrAlertPolicyTemplateTypeMismatch),
 		errors.Is(err, ErrAlertPolicyLegacyBridgeRequiresClusterScope),
-		errors.Is(err, ErrAlertPolicyLegacyRuleUnsupported):
+		errors.Is(err, ErrAlertPolicyLegacyRuleUnsupported),
+		errors.Is(err, ErrAlertPolicySyncJobTaskRequired),
+		errors.Is(err, ErrAlertPolicySyncJobInvalidRule),
+		errors.Is(err, ErrAlertPolicySyncJobChannelRequired),
+		errors.Is(err, ErrAlertPolicySyncJobChannelDisabled),
+		errors.Is(err, ErrAlertPolicySyncJobEmailRecipientMissing),
+		errors.Is(err, ErrAlertPolicySyncJobTypeChange):
 		return http.StatusBadRequest
 	default:
 		return http.StatusInternalServerError

@@ -387,6 +387,7 @@ func managedModels() []interface{} {
 		&monitoringapp.NotificationRoute{},      // 通知路由表 / Notification route table
 		&monitoringapp.NotificationDelivery{},   // 通知投递记录表 / Notification delivery table
 		&monitoringapp.RemoteAlertRecord{},      // 远程告警记录表 / Remote alert record table
+		&monitoringapp.SyncAlertEpisode{},       // 同步作业告警阶段表 / Sync job alert episode table
 		&diagnostics.SeatunnelErrorGroup{},      // 诊断错误组表 / Diagnostics error group table
 		&diagnostics.SeatunnelErrorEvent{},      // 诊断错误事件表 / Diagnostics error event table
 		&diagnostics.SeatunnelLogCursor{},       // 诊断日志游标表 / Diagnostics log cursor table

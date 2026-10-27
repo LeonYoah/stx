@@ -2480,7 +2480,8 @@
       "pageInfo": "第 {current} / {total} 页",
       "sourceTypes": {
         "local_process_event": "本地进程事件",
-        "remote_alertmanager": "远程 Alertmanager"
+        "remote_alertmanager": "远程 Alertmanager",
+        "sync": "作业告警"
       },
       "lifecycleStatuses": {
         "firing": "触发中",
@@ -2669,7 +2670,8 @@
       },
       "categories": {
         "platform_health": "平台健康模板",
-        "metrics": "指标模板"
+        "metrics": "指标模板",
+        "sync_observability": "作业观测模板"
       },
       "capabilities": {
         "platform_health": {
@@ -2747,6 +2749,14 @@
         "node_stop_requested": {
           "name": "节点停止请求",
           "description": "当用户在控制面手动停止某个节点时立即触发，便于运维跟踪显式停机动作。"
+        },
+        "sync_status_unavailable": {
+          "name": "作业状态获取失败",
+          "description": "集群的作业状态（running 列表）持续获取不到，超过规则窗口时触发；期间作业状态可能已经过时。"
+        },
+        "sync_event_channel_degraded": {
+          "name": "事件通道降级",
+          "description": "集群的 SeaTunnel 事件通道从健康变为降级时触发，作业状态退回定时对账。"
         },
         "cpu_usage_high": {
           "name": "CPU 使用率高",
@@ -4745,6 +4755,23 @@
     "observabilityOn": "开启",
     "observabilityOff": "关闭",
     "observabilityHint": "仅 SeaTunnel 3.x 集群生效。开启后可查看忙碌度、背压与瓶颈提示，开销很小。",
+    "timeoutSettings": "超时",
+    "timeoutSettingsHint": "提交没拿到引擎回复时，最多等多久确认作业是否已经启动；点停止后多久仍未停下算停止超时。留空使用全局默认，修改后需重新发布才生效。",
+    "submitTimeoutSetting": "提交超时（分钟）",
+    "stopTimeoutSetting": "停止超时（分钟）",
+    "timeoutDefaultPlaceholder": "默认 {minutes}",
+    "timeoutInvalid": "请输入 1~120 的整数",
+    "submitOutcomeUnknownToast": "提交请求超时，引擎可能已经收到作业，STX 正在确认，请勿重复提交",
+    "recoverOutcomeUnknownToast": "恢复请求超时，引擎可能已经收到作业，STX 正在确认，请勿重复恢复",
+    "cancelOutcomeUnknownToast": "停止请求超时，引擎可能已经在停，STX 正在确认",
+    "submitConfirmingBadge": "提交确认中",
+    "submitConfirmingTooltip": "提交请求没有拿到引擎回复，作业可能已经启动。STX 会自动向引擎确认，最晚 {deadline} 出结论，期间请勿重复提交。",
+    "submitExpiredBadge": "提交超时",
+    "submitExpiredTooltip": "引擎在 {minutes} 分钟内一直没有出现这个作业，提交可能已被拒绝或丢失。请查看引擎日志后再重新提交。",
+    "stopOverdueBadge": "停止超时",
+    "stopOverdueTooltip": "已请求停止，但超过 {minutes} 分钟作业仍未停下。STX 会继续确认，必要时请到引擎侧检查。",
+    "submitOutcomePendingTitle": "上一次提交还在确认中",
+    "submitOutcomePendingDescription": "作业 #{jobId} 的提交结果还在确认中，最晚 {deadline} 出结论，请稍后再提交。",
     "realtimeInsight": {
       "title": "实时诊断",
       "live": "实时",
@@ -5018,5 +5045,61 @@
     "proxyRestartRolledBack": "Proxy 已回滚",
     "proxyRestartFailed": "Proxy 重启失败",
     "proxyRestartSkipped": "Proxy 未重启"
+  },
+  "syncAlert": {
+    "listSeparator": "、",
+    "sectionTitle": "告警",
+    "sectionHint": "作业出问题时发通知。配置保存后立即生效，不跟随任务版本，不需要重新发布。",
+    "notConfigured": "未配置告警",
+    "configure": "配置",
+    "edit": "编辑",
+    "disabledBadge": "已停用",
+    "summary": "{rules} · {channels} · 每 {cooldown} 分钟提醒",
+    "summaryNoReminder": "{rules} · {channels} · 不重复提醒",
+    "loadFailed": "加载告警配置失败",
+    "unavailable": "告警模块未启用",
+    "dialogTitle": "作业告警",
+    "dialogDescription": "选择要告警的情况和通知渠道。同一个问题一直没解决时只按提醒间隔重发，恢复后发恢复通知。",
+    "rulesLabel": "告警情况",
+    "rule_sync_submit_failed": "提交失败",
+    "rule_sync_submit_failed_hint": "引擎明确拒绝提交，或者找不到可用的引擎",
+    "rule_sync_submit_timeout": "提交超时",
+    "rule_sync_submit_timeout_hint": "提交没拿到回复，过了提交超时引擎里仍没有这个作业",
+    "rule_sync_job_failed": "作业失败",
+    "rule_sync_job_failed_hint": "作业运行失败，包括引擎里已经没有这个作业",
+    "rule_sync_stop_timeout": "停止超时",
+    "rule_sync_stop_timeout_hint": "点停止后，过了停止超时作业仍没停下",
+    "channelsLabel": "通知渠道",
+    "noChannels": "还没有可用的通知渠道，请先在监控中心添加渠道",
+    "receiversLabel": "邮件接收人",
+    "receiversPlaceholder": "选择接收人",
+    "notifyOwner": "同时通知任务创建人",
+    "notifyOwnerHint": "只对邮件渠道生效",
+    "cooldownLabel": "提醒间隔（分钟）",
+    "cooldownHint": "问题一直没解决时多久重发一次提醒，0 表示不重发",
+    "sendRecovery": "恢复时发送通知",
+    "enabled": "启用",
+    "save": "保存",
+    "saving": "保存中…",
+    "cancel": "取消",
+    "delete": "删除配置",
+    "deleteConfirm": "删除后不再产生新告警，正在告警中的会被关闭。确定删除？",
+    "saved": "告警配置已保存",
+    "deleted": "告警配置已删除",
+    "readOnly": "你没有这个任务的编辑权限，只能查看告警配置",
+    "errorNoRule": "至少选择一种告警情况",
+    "errorNoChannel": "至少选择一个通知渠道",
+    "errorCooldown": "提醒间隔需要是 0 到 1440 之间的整数",
+    "errorEmailRecipient": "选了邮件渠道，但没有收件人：请选择接收人、勾选通知创建人，或在渠道里配置收件人",
+    "policyFilterAll": "全部策略",
+    "policyFilterSyncJob": "作业告警",
+    "policyTaskColumn": "任务",
+    "openTask": "打开任务",
+    "openJob": "查看作业",
+    "occurrenceLabel": "累计次数",
+    "jobLabel": "作业",
+    "occurrences": "累计 {count} 次",
+    "deepLinkTaskNotFound": "任务 #{id} 不存在，或者你没有查看权限",
+    "deepLinkJobNotFound": "作业 #{id} 不存在，或者不属于这个任务"
   }
 }

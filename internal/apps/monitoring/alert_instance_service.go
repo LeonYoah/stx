@@ -36,6 +36,7 @@ type parsedAlertSourceKey struct {
 	EventID     uint
 	Fingerprint string
 	StartsAt    int64
+	EpisodeID   uint
 }
 
 // ListAlertInstances returns unified alert instances merged from local and remote sources.
@@ -62,6 +63,7 @@ func (s *Service) ListAlertInstances(ctx context.Context, filter *AlertInstanceF
 
 	includeLocal := filter.SourceType == "" || filter.SourceType == AlertSourceTypeLocalProcessEvent
 	includeRemote := filter.SourceType == "" || filter.SourceType == AlertSourceTypeRemoteAlertmanager
+	includeSync := filter.SourceType == "" || filter.SourceType == AlertSourceTypeSync
 
 	if includeLocal {
 		localItems, err := s.buildLocalAlertInstances(ctx, filter, now)
@@ -76,6 +78,13 @@ func (s *Service) ListAlertInstances(ctx context.Context, filter *AlertInstanceF
 			return nil, err
 		}
 		items = append(items, remoteItems...)
+	}
+	if includeSync {
+		syncItems, err := s.buildSyncAlertInstances(ctx, filter, now)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, syncItems...)
 	}
 
 	sort.Slice(items, func(i, j int) bool {
@@ -217,6 +226,24 @@ func (s *Service) AcknowledgeAlertInstance(ctx context.Context, alertID, operato
 			return nil, err
 		}
 		return toAlertInstanceActionResult(state), nil
+	case AlertSourceTypeSync:
+		clusterID, err := s.syncAlertEpisodeClusterID(ctx, parsed.EpisodeID)
+		if err != nil {
+			return nil, err
+		}
+		state, err := s.upsertAlertState(ctx, &AlertState{
+			SourceType:     AlertSourceTypeSync,
+			SourceKey:      parsed.SourceKey,
+			ClusterID:      clusterID,
+			HandlingStatus: AlertHandlingStatusAcknowledged,
+			AcknowledgedBy: operator,
+			AcknowledgedAt: &now,
+			Note:           note,
+		})
+		if err != nil {
+			return nil, err
+		}
+		return toAlertInstanceActionResult(state), nil
 	default:
 		return nil, ErrAlertInstanceInvalidID
 	}
@@ -287,6 +314,24 @@ func (s *Service) SilenceAlertInstance(ctx context.Context, alertID, operator st
 			SourceType:     AlertSourceTypeRemoteAlertmanager,
 			SourceKey:      parsed.SourceKey,
 			ClusterID:      strings.TrimSpace(record.ClusterID),
+			HandlingStatus: AlertHandlingStatusSilenced,
+			SilencedBy:     operator,
+			SilencedUntil:  &silencedUntil,
+			Note:           note,
+		})
+		if err != nil {
+			return nil, err
+		}
+		return toAlertInstanceActionResult(state), nil
+	case AlertSourceTypeSync:
+		clusterID, err := s.syncAlertEpisodeClusterID(ctx, parsed.EpisodeID)
+		if err != nil {
+			return nil, err
+		}
+		state, err := s.upsertAlertState(ctx, &AlertState{
+			SourceType:     AlertSourceTypeSync,
+			SourceKey:      parsed.SourceKey,
+			ClusterID:      clusterID,
 			HandlingStatus: AlertHandlingStatusSilenced,
 			SilencedBy:     operator,
 			SilencedUntil:  &silencedUntil,
@@ -370,6 +415,26 @@ func (s *Service) CloseAlertInstance(ctx context.Context, alertID, operator, not
 			SourceType:     AlertSourceTypeRemoteAlertmanager,
 			SourceKey:      parsed.SourceKey,
 			ClusterID:      strings.TrimSpace(record.ClusterID),
+			HandlingStatus: AlertHandlingStatusClosed,
+			ClosedBy:       operator,
+			ClosedAt:       &now,
+			Note:           note,
+		})
+		if err != nil {
+			return nil, err
+		}
+		return toAlertInstanceActionResult(state), nil
+	case AlertSourceTypeSync:
+		// 关闭作用于整个阶段：之后不再提醒；同一个键再出问题时开新阶段。
+		// Closing applies to the whole episode: no more reminders, and the next problem on the key opens a new one.
+		clusterID, err := s.syncAlertEpisodeClusterID(ctx, parsed.EpisodeID)
+		if err != nil {
+			return nil, err
+		}
+		state, err := s.upsertAlertState(ctx, &AlertState{
+			SourceType:     AlertSourceTypeSync,
+			SourceKey:      parsed.SourceKey,
+			ClusterID:      clusterID,
 			HandlingStatus: AlertHandlingStatusClosed,
 			ClosedBy:       operator,
 			ClosedAt:       &now,
@@ -753,6 +818,14 @@ func parseAlertSourceKey(sourceKey string) (*parsedAlertSourceKey, error) {
 			SourceType: AlertSourceTypeLocalProcessEvent,
 			SourceKey:  sourceKey,
 			EventID:    uint(eventID),
+		}, nil
+	}
+
+	if episodeID, ok := parseSyncAlertSourceKey(parts); ok {
+		return &parsedAlertSourceKey{
+			SourceType: AlertSourceTypeSync,
+			SourceKey:  sourceKey,
+			EpisodeID:  episodeID,
 		}, nil
 	}
 

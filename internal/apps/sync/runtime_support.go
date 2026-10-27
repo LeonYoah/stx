@@ -255,7 +255,14 @@ func submitSpecExecutionMode(spec JSONMap) string {
 	return "cluster"
 }
 
-func (s *Service) submitLocalTaskInstance(ctx context.Context, task *Task, createdBy uint, runType RunType, platformJobID string, body []byte, format, jobName string, opts *SubmitOptions) (*JobInstance, error) {
+// submitLocalTaskInstance 在 Agent 本地启动作业；启动失败上报 A1（数据预览除外）。
+// submitLocalTaskInstance starts the job locally through the Agent; a start failure reports A1 (except previews).
+func (s *Service) submitLocalTaskInstance(ctx context.Context, task *Task, createdBy uint, runType RunType, platformJobID string, body []byte, format, jobName string, opts *SubmitOptions) (result *JobInstance, submitErr error) {
+	defer func() {
+		if submitErr != nil {
+			s.reportSubmitFailed(ctx, task, &JobInstance{RunType: runType, SubmitSpec: JSONMap{"cluster_id": task.ClusterID, "trigger_source": triggerSourceForSubmit(runType, opts)}}, submitErr)
+		}
+	}()
 	if s.agentSender == nil || s.executionTargetResolver == nil {
 		return nil, ErrLocalExecutionUnavailable
 	}

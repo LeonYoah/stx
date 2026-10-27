@@ -33,10 +33,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/LeonYoah/stx/internal/apps/audit"
 	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
 	"github.com/LeonYoah/stx/internal/config"
 	"github.com/LeonYoah/stx/internal/db"
+	"github.com/LeonYoah/stx/internal/logger"
 	"github.com/LeonYoah/stx/internal/pkg/schedulex"
+	"github.com/LeonYoah/stx/internal/pkg/syncalert"
 	"github.com/LeonYoah/stx/internal/pkg/timex"
 	"github.com/LeonYoah/stx/internal/seatunnel"
 )
@@ -66,6 +69,14 @@ type Service struct {
 	// events 保存事件运行时的防抖、预期与 CDC 延迟内存状态。
 	// events holds in-memory debounce, expectation and CDC delay state for the event runtime.
 	events engineEventState
+	// reconcile 负责各集群并行对账、跳过进行中的集群与按集群退避。
+	// reconcile runs per-cluster reconciles in parallel, skips clusters still in flight and backs off per cluster.
+	reconcile clusterReconcileScheduler
+	// alertReporter 接收作业告警信号（由 monitoring 注入，非阻塞）；alertStore 读写任务告警配置。
+	// alertReporter receives job alert signals (injected by monitoring, non-blocking); alertStore reads and writes
+	// task alert configs.
+	alertReporter syncalert.Reporter
+	alertStore    syncalert.TaskPolicyStore
 }
 
 // ClusterVersionProvider provides SeaTunnel cluster version lookup.
@@ -1477,6 +1488,9 @@ func (s *Service) submitNewTask(ctx context.Context, id uint, createdBy uint, op
 	if err != nil {
 		return nil, err
 	}
+	if err := s.guardSubmitOutcomePending(ctx, task.ID); err != nil {
+		return nil, err
+	}
 	jobID := s.nextJobID()
 	runType := RunTypeRun
 	dolphinTriggered := false
@@ -1533,6 +1547,9 @@ func (s *Service) RecoverJob(ctx context.Context, sourceJobID uint, createdBy ui
 	if taskExecutionMode(task) == "local" {
 		return nil, ErrLocalSavepointUnsupported
 	}
+	if err := s.guardSubmitOutcomePending(ctx, task.ID); err != nil {
+		return nil, err
+	}
 	if draft == nil {
 		submittedContent := strings.TrimSpace(stringValue(source.SubmitSpec, "submitted_content"))
 		if submittedContent != "" {
@@ -1578,6 +1595,9 @@ func (s *Service) submitTaskInstance(ctx context.Context, task *Task, createdBy 
 }
 
 func (s *Service) submitTaskInstanceWithPayload(ctx context.Context, task *Task, createdBy uint, runType RunType, platformJobID string, startWithSavepoint bool, recoveredFrom *uint, submitBody []byte, submitFormat string, jobName string, opts *SubmitOptions) (*JobInstance, error) {
+	// 调用方断开（关页面、CLI 超时）不能打断已发出的提交：引擎可能已收到作业，必须留下记录。
+	// A caller disconnect must not abort an in-flight submit: the engine may already have the job, so it must be recorded.
+	ctx = context.WithoutCancel(ctx)
 	// 集群提交统一在这里注入实时可观测性（运行/恢复/定时都会经过），本地执行不走这条路径。
 	// Cluster submits inject realtime observability here (run/recover/schedule all pass through); local runs do not.
 	submitBody, observability := s.applyObservabilityInjection(ctx, task, submitBody, submitFormat)
@@ -1601,6 +1621,9 @@ func (s *Service) submitTaskInstanceWithPayload(ctx context.Context, task *Task,
 			"platform_job_id":      platformJobID,
 			"start_with_savepoint": startWithSavepoint,
 			"observability":        observability.toMap(),
+			// 停止超时随运行时的任务版本固定下来，之后停止时直接读取。
+			// The stop timeout is pinned to the task version of this run and read back when stopping.
+			submitStopTimeoutSecsKey: int(effectiveStopTimeout(task) / time.Second),
 		},
 		StartedAt: &now,
 		CreatedBy: createdBy,
@@ -1610,6 +1633,7 @@ func (s *Service) submitTaskInstanceWithPayload(ctx context.Context, task *Task,
 		endpoint, err := s.runtimeResolver.ResolveEngineEndpoint(ctx, task.ClusterID, task.Definition)
 		if err != nil {
 			s.recordFailedDolphinSubmit(ctx, instance, err)
+			s.reportSubmitFailed(ctx, task, instance, err)
 			return nil, err
 		}
 		if s.executionTargetResolver != nil {
@@ -1622,7 +1646,14 @@ func (s *Service) submitTaskInstanceWithPayload(ctx context.Context, task *Task,
 		}
 		resp, err := s.engineClient.Submit(ctx, &EngineSubmitRequest{Endpoint: endpoint, Format: submitFormat, JobID: platformJobID, JobName: jobName, StartWithSavepoint: startWithSavepoint, Body: submitBody})
 		if err != nil {
+			// 结果未知：先登记 pending 作业交给对账确认，不当作失败，也不登记事件通道预期。
+			// Unknown outcome: record a pending job for reconcile to confirm; not a failure, and no event expectation.
+			var unknownErr *EngineCallUnknownError
+			if errors.As(err, &unknownErr) && strings.TrimSpace(platformJobID) != "" {
+				return s.recordUnknownSubmitOutcome(ctx, task, instance, endpoint, unknownErr)
+			}
 			s.recordFailedDolphinSubmit(ctx, instance, err)
+			s.reportSubmitFailed(ctx, task, instance, err)
 			return nil, err
 		}
 		instance.EngineJobID = strings.TrimSpace(resp.JobID)
@@ -1648,6 +1679,7 @@ func (s *Service) submitTaskInstanceWithPayload(ctx context.Context, task *Task,
 	// 事件通道健康时登记"应在 45 秒内收到状态事件"的预期，用来发现通道失效。
 	// With a healthy event channel, expect a status event within 45s so a broken channel is detected.
 	s.registerEventExpectation(ctx, instance, task.ClusterID)
+	s.reportSubmitSucceeded(ctx, task, instance)
 	return instance, nil
 }
 
@@ -1683,6 +1715,9 @@ func (s *Service) RefreshJobByID(ctx context.Context, id uint) (*JobInstance, er
 // CancelJob 请求真实停止作业，并在确认停止前保留取消中间状态。
 // CancelJob requests a real stop and keeps intermediate cancellation states until the stop is confirmed.
 func (s *Service) CancelJob(ctx context.Context, id uint, stopWithSavepoint bool) (*JobInstance, error) {
+	// 停止请求发出后与调用方解绑，保证取消状态和截止时间一定落库。
+	// Detach from the caller once stopping so the cancellation state and deadline are always persisted.
+	ctx = context.WithoutCancel(ctx)
 	instance, err := s.repo.GetJobInstanceByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -1721,9 +1756,11 @@ func (s *Service) CancelJob(ctx context.Context, id uint, stopWithSavepoint bool
 		return instance, nil
 	}
 	previousStatus := instance.Status
+	s.applyCancelDeadline(ctx, instance, time.Now())
 	if err := s.repo.UpdateJobStatus(ctx, instance.ID, []JobStatus{JobStatusPending, JobStatusRunning}, map[string]any{
-		"status":        JobStatusCancelRequested,
-		"error_message": "",
+		"status":         JobStatusCancelRequested,
+		"error_message":  "",
+		"result_preview": instance.ResultPreview,
 	}); err != nil {
 		if errors.Is(err, ErrJobStatusChanged) {
 			return s.repo.GetJobInstanceByID(ctx, id)
@@ -1733,6 +1770,7 @@ func (s *Service) CancelJob(ctx context.Context, id uint, stopWithSavepoint bool
 	instance.Status = JobStatusCancelRequested
 
 	targetStatus := JobStatusCancelling
+	var stopUnknownErr error
 	if submitSpecExecutionMode(instance.SubmitSpec) == "local" {
 		if err := s.stopLocalJob(ctx, instance); err != nil {
 			s.restoreJobAfterCancelFailure(ctx, instance, previousStatus)
@@ -1750,8 +1788,15 @@ func (s *Service) CancelJob(ctx context.Context, id uint, stopWithSavepoint bool
 			return nil, ErrExecutionTargetUnavailable
 		}
 		if err := s.engineClient.StopJob(ctx, endpoint, instance.EngineJobID, stopWithSavepoint); err != nil {
-			s.restoreJobAfterCancelFailure(ctx, instance, previousStatus)
-			return nil, err
+			// 停止结果未知：引擎可能已经在停，保持停止中交给对账确认，不恢复成运行中。
+			// Unknown stop outcome: the engine may already be stopping, so stay cancelling for reconcile to confirm.
+			if !errors.Is(err, ErrEngineCallOutcomeUnknown) {
+				s.restoreJobAfterCancelFailure(ctx, instance, previousStatus)
+				return nil, err
+			}
+			stopUnknownErr = err
+			logger.WarnF(ctx, "[Sync] engine stop outcome unknown, keeping job cancelling: job=%d engine_job_id=%s err=%v",
+				instance.ID, instance.EngineJobID, err)
 		}
 	}
 
@@ -1773,12 +1818,22 @@ func (s *Service) CancelJob(ctx context.Context, id uint, stopWithSavepoint bool
 			FinishedTime: now.Format(time.DateTime),
 		})
 	}
+	if stopUnknownErr != nil {
+		instance.ResultPreview[cancelOutcomeKey] = cancelOutcomeUnknown
+		instance.ResultPreview[cancelErrorKey] = audit.RedactText(stopUnknownErr.Error())
+	}
 	if err := s.repo.UpdateJobStatus(ctx, instance.ID, []JobStatus{JobStatusCancelRequested}, map[string]any{
 		"status":         instance.Status,
 		"finished_at":    instance.FinishedAt,
 		"result_preview": instance.ResultPreview,
 		"error_message":  "",
 	}); err != nil {
+		// 停止请求回复慢时，事件刷新或对账可能已经先把作业推进到终态；这说明停止已生效，返回最新状态而不是报冲突。
+		// When the stop reply is slow, an event refresh or reconcile may already have moved the job to a terminal
+		// state; the stop took effect, so return the latest row instead of a conflict.
+		if errors.Is(err, ErrJobStatusChanged) {
+			return s.repo.GetJobInstanceByID(ctx, id)
+		}
 		return nil, err
 	}
 	if err := s.syncExecutionFromJob(ctx, instance); err != nil {
@@ -2583,6 +2638,12 @@ func (s *Service) refreshJobInstance(ctx context.Context, instance *JobInstance)
 	}
 	endpoint := endpointFromSubmitSpec(instance.SubmitSpec)
 	if endpoint == nil {
+		return instance, nil
+	}
+	// 集群正在退避（查询连续超时或连不上）时不再请求引擎，直接返回库里的数据；同步失败已由对账记录。
+	// While the cluster backs off (queries keep timing out or failing to connect) skip the engine and return the
+	// stored row; reconcile has already recorded the sync failure.
+	if s.clusterReconcileBackingOff(ctx, instance) {
 		return instance, nil
 	}
 	info, err := s.engineClient.GetJobInfo(ctx, endpoint, instance.EngineJobID)

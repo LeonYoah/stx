@@ -79,7 +79,8 @@ jobs:
         run: |
           scripts=(install/*.sh install/bin/*.sh install/bin/lib/*.sh scripts/check-release-asset-globs.sh
             scripts/test-release-download-lib.sh scripts/test-yaml-set-differential.sh scripts/release-deps-publish.sh
-            scripts/test-release-deps.sh scripts/ci-install-smoke.sh scripts/test-offline-bundle.sh)
+            scripts/test-release-deps.sh scripts/ci-install-smoke.sh scripts/test-offline-bundle.sh
+            scripts/smoke-offline-bundle.sh)
           for f in "${scripts[@]}"; do
             bash -n "$f"
           done
@@ -104,10 +105,10 @@ jobs:
       - name: download-lib / install-core tests
         run: bash scripts/test-release-download-lib.sh
 
-      # 离线 bundle 默认组装 Node / --without-node、install.sh 的 Node 选择与报错、alertmanager 单机参数、
-      # init 不再出现 cp 'same file' 告警（桩掉 Release 下载，无需外网）。
-      # Offline bundle always-bundles-Node / --without-node, install.sh Node selection & errors, alertmanager
-      # single-node args, no cp 'same file' warnings on init (release downloads stubbed, no network).
+      # build-offline-bundle.sh 三个变体的布局 / sha256 / 别名、install.sh 的 Node 选择与 glibc 报错、
+      # install-online --bundle-file、alertmanager 单机参数（本地伪产物，无需外网）。
+      # build-offline-bundle.sh layout / sha256 / aliases for all variants, install.sh Node selection and glibc
+      # errors, install-online --bundle-file, alertmanager single-node args (local fake artifacts, no network).
       - name: offline bundle / observability tests
         run: bash scripts/test-offline-bundle.sh
 
@@ -121,8 +122,9 @@ jobs:
       - name: release-deps publisher tests
         run: bash scripts/test-release-deps.sh
 
-  # 真实安装冒烟（无 python3 的 debian:bookworm，安装 v1.2.0 Release 资产）；依赖外网，不进 CI Gate。
-  # Real install smoke (python3-free debian:bookworm, installs v1.2.0 release assets); network-bound, not gated.
+  # 真实安装冒烟（用 v1.2.0 Release 产物组装离线整包，在无 python3 的 debian:bookworm 中安装）；依赖外网，不进 CI Gate。
+  # Real install smoke (bundle assembled from v1.2.0 release assets, installed in python3-free debian:bookworm);
+  # network-bound, not gated.
   install-smoke:
     name: Install Smoke no-python3 (${{ matrix.mode }})
     runs-on: ubuntu-latest
@@ -132,7 +134,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mode: [plain, systemd]
+        mode: [plain, systemd, mysql, postgres]
 
     steps:
       - name: Checkout
@@ -182,6 +184,8 @@ jobs:
               - 'config.example.yaml'
               - 'scripts/stx-java-proxy.sh'
               - 'scripts/ci-install-smoke.sh'
+              - 'scripts/smoke-offline-bundle.sh'
+              - 'scripts/test-offline-bundle.sh'
               - '.github/workflows/ci-main.yml'
 
   backend-core-test:

@@ -58,7 +58,7 @@ jobs:
         env:
           APP_VERSION: ${{ github.ref_name }}
         run: |
-          chmod +x install/package-release.sh install/install-online.sh install/download-bundle.sh
+          chmod +x install/package-release.sh install/install-online.sh install/download-bundle.sh install/build-offline-bundle.sh
           # 版本发版只打 stx / agent / frontend。Node 与三件套走 release-deps.yml 的 deps tag。
           # Version tags ship stx / agent / frontend only. Node and observability live on the deps tag.
           install/package-release.sh \
@@ -75,10 +75,79 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  # 三个完整离线包：Linux x86_64、Linux arm64、CentOS 7 x86_64（Node 18 glibc217）。
+  # 只做组装（stx / agent 已是 CGO_ENABLED=0 静态二进制，前端已按架构裁剪 sharp），在原生 runner 上运行，
+  # Node / 三件套来自 Release tag `deps` 并校验 sha256。每个包 < 2 GiB（GitHub 单资产上限）。
+  # Three complete offline bundles: Linux x86_64, Linux arm64, CentOS 7 x86_64 (Node 18 glibc217).
+  # Assembly only (stx / agent are CGO_ENABLED=0 static binaries, the frontend is already trimmed per arch);
+  # runs on a native runner; Node / observability come from the `deps` tag with sha256 checks. Each < 2 GiB.
+  offline-bundles:
+    name: Offline bundle (${{ matrix.variant }})
+    runs-on: ${{ matrix.runner }}
+    needs: package-release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: amd64
+            runner: ubuntu-latest
+          - variant: arm64
+            runner: ubuntu-24.04-arm
+          - variant: centos7
+            runner: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download package artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: stx-packages-${{ github.ref_name }}
+          path: dist/releases
+
+      - name: Build offline bundle
+        env:
+          APP_VERSION: ${{ github.ref_name }}
+          STX_GIT_COMMIT: ${{ github.sha }}
+        run: |
+          bash install/build-offline-bundle.sh \
+            --variant "${{ matrix.variant }}" \
+            --version "${APP_VERSION}" \
+            --from-dir dist/releases \
+            --output-dir dist/offline \
+            --alias
+          ls -alh dist/offline
+
+      # 在目标系统容器里真实安装一遍（centos7 用 centos:7，其余用 ubuntu:22.04），失败则不发布。
+      # Real install inside a target-OS container (centos:7 for centos7, ubuntu:22.04 otherwise); blocks publishing.
+      - name: Smoke install offline bundle
+        env:
+          APP_VERSION: ${{ github.ref_name }}
+          VARIANT: ${{ matrix.variant }}
+        run: |
+          case "$VARIANT" in
+            amd64) plat=linux-amd64 ;;
+            arm64) plat=linux-arm64 ;;
+            centos7) plat=linux-amd64-centos7 ;;
+          esac
+          bash scripts/smoke-offline-bundle.sh "dist/offline/stx-${APP_VERSION}-${plat}-offline.tar.gz"
+
+      - name: Upload offline bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: stx-offline-${{ matrix.variant }}-${{ github.ref_name }}
+          path: |
+            dist/offline/*.tar.gz
+            dist/offline/*.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
   publish-github-release:
     name: Publish GitHub Release Assets
     runs-on: ubuntu-latest
-    needs: package-release
+    needs: [package-release, offline-bundles]
 
     steps:
       - name: Download package artifacts
@@ -86,6 +155,13 @@ jobs:
         with:
           name: stx-packages-${{ github.ref_name }}
           path: release-assets
+
+      - name: Download offline bundles
+        uses: actions/download-artifact@v4
+        with:
+          pattern: stx-offline-*-${{ github.ref_name }}
+          path: release-assets
+          merge-multiple: true
 
       - name: Show release assets
         run: ls -alh release-assets
@@ -127,6 +203,9 @@ jobs:
             release-assets/stx-docker-compose.tar.gz
             release-assets/stx-install-helpers.tar.gz.sha256
             release-assets/stx-docker-compose.tar.gz.sha256
+            release-assets/stx-*-offline.tar.gz
+            release-assets/stx-*-offline.tar.gz.sha256
+            release-assets/stx-offline-*
           generate_release_notes: true
           fail_on_unmatched_files: false
           # 带 '-' 的 tag（如 v1.2.0-beta.1）是预发：标记为 pre-release，且不抢 Latest。

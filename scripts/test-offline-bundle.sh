@@ -16,11 +16,14 @@
 
 # 离线 bundle 与本地三件套启动的无网回归测试（桩掉 Release 下载）。
 # Network-free regression tests for the offline bundle and local observability start (release downloads stubbed).
-#   1. download-bundle.sh 默认总是组装 Node（即便打包机已有 Node ≥ 18.18）；--without-node 才跳过；deps 缺 Node 包时失败。
-#      download-bundle.sh always bundles Node by default (even when the packaging host has Node >= 18.18);
-#      only --without-node skips it; a missing node package on deps is fatal.
-#   2. install.sh --offline 优先使用包内 Node；--without-node 包在目标机无合格 Node 时明确报错。
-#      install.sh --offline prefers the bundled Node; a --without-node bundle fails clearly without a usable host Node.
+#   1. build-offline-bundle.sh 组装 amd64 / arm64 / centos7 三个离线包（布局、sha256、latest 别名、Node 变体）；
+#      缺 Node 包、sha256 不符、动态链接二进制时失败。
+#      build-offline-bundle.sh assembles the amd64 / arm64 / centos7 bundles (layout, sha256, latest alias, Node
+#      variant); missing Node, bad sha256 or dynamically linked binaries are fatal.
+#   2. install.sh 优先使用包内 Node；--without-node 时只接受本机 Node ≥ 18.18；glibc < 2.28 拒绝官方 Node 包；
+#      install-online.sh --bundle-file 与 download-bundle.sh --print-urls。
+#      install.sh prefers the bundled Node; --without-node only accepts a host Node >= 18.18; glibc < 2.28 refuses
+#      the official-Node bundle; install-online.sh --bundle-file and download-bundle.sh --print-urls.
 #   3. alertmanager 启动参数含 --cluster.listen-address=（单机关闭 gossip）。
 #      alertmanager is launched with --cluster.listen-address= (gossip disabled for single node).
 #   4. stx_obs_init_defaults 不再输出 cp 'are the same file' 告警。
@@ -62,130 +65,101 @@ make_fake_node() {
   chmod +x "$dir/node"
 }
 
-# ---------- fake release assets / 伪 Release 资产 ----------
+# ---------- fake build outputs + deps / 伪构建产物与 deps ----------
 REL="$T/releases"
+DEPS="$T/deps"
 VER=v9.9.9
-mkdir -p "$REL/$VER" "$REL/deps" "$T/build/frontend" "$T/build/node-v22.0.0-linux-x64"
-printf '#!/bin/sh\necho stx\n' >"$REL/$VER/stx-linux-amd64"
+mkdir -p "$REL" "$DEPS" "$T/build/frontend" "$T/build/node-v22.0.0-linux-x64" "$T/build/node-v18.20.8-linux-x64-glibc217"
+printf '#!/bin/sh\necho stx\n' >"$REL/stx-linux-amd64"
 echo 'console.log("fe")' >"$T/build/frontend/server.js"
-tar -C "$T/build/frontend" -czf "$REL/$VER/frontend-standalone-${VER}-linux-amd64.tar.gz" .
+tar -C "$T/build/frontend" -czf "$REL/frontend-standalone-${VER}-linux-amd64.tar.gz" .
+cp "$REL/stx-linux-amd64" "$REL/stx-linux-arm64"
+cp "$REL/stx-linux-amd64" "$REL/stx-agent-linux-amd64"
+cp "$REL/stx-linux-amd64" "$REL/stx-agent-linux-arm64"
+cp "$REL/frontend-standalone-${VER}-linux-amd64.tar.gz" "$REL/frontend-standalone-${VER}-linux-arm64.tar.gz"
+echo jar >"$REL/stx-java-proxy-v2.jar"
+echo jar >"$REL/stx-java-proxy-v3.jar"
 make_fake_node "$T/build/node-v22.0.0-linux-x64/bin" v22.0.0
-tar -C "$T/build" -czf "$REL/deps/node-22-official-linux-amd64.tar.gz" node-v22.0.0-linux-x64
-cp "$REL/$VER/stx-linux-amd64" "$REL/$VER/stx-linux-arm64"
-cp "$REL/$VER/frontend-standalone-${VER}-linux-amd64.tar.gz" "$REL/$VER/frontend-standalone-${VER}-linux-arm64.tar.gz"
-cp "$REL/deps/node-22-official-linux-amd64.tar.gz" "$REL/deps/node-22-official-linux-arm64.tar.gz"
+make_fake_node "$T/build/node-v18.20.8-linux-x64-glibc217/bin" v18.20.8
+tar -C "$T/build" -czf "$DEPS/node-22-official-linux-amd64.tar.gz" node-v22.0.0-linux-x64
+tar -C "$T/build" -czf "$DEPS/node-22-official-linux-arm64.tar.gz" node-v22.0.0-linux-x64
+tar -C "$T/build" -czf "$DEPS/node-18-glibc217-linux-amd64.tar.gz" node-v18.20.8-linux-x64-glibc217
 
-# ---------- fake repo root with stubbed download-lib / 桩化 download-lib 的伪仓库 ----------
-FAKE="$T/root"
-mkdir -p "$FAKE/install/bin/lib"
-cp "$ROOT_DIR/install/download-bundle.sh" "$ROOT_DIR/install/install-online.sh" "$ROOT_DIR/install/install.sh" "$ROOT_DIR/install/install-core.sh" "$FAKE/install/"
-cp "$ROOT_DIR/install/download-lib.sh" "$FAKE/install/download-lib.real.sh"
-cp "$ROOT_DIR/install/bin/start.sh" "$ROOT_DIR/install/bin/stop.sh" "$ROOT_DIR/install/bin/status.sh" "$FAKE/install/bin/"
-cp "$ROOT_DIR/install/bin/lib/observability.sh" "$FAKE/install/bin/lib/"
-cp "$ROOT_DIR/config.example.yaml" "$FAKE/config.example.yaml"
-cat >"$FAKE/install/download-lib.sh" <<STUB
-# shellcheck shell=bash
-source "$FAKE/install/download-lib.real.sh"  # absolute: the stub also gets copied into work dirs
-stx_detect_glibc_version() { echo "\${FAKE_GLIBC:-2.35}"; }
-stx_detect_download_region() { echo global; }
-stx_select_mirror_prefix() { STX_SELECTED_MIRROR_PREFIX=""; }
-stx_stage_java_proxy_script() { return 0; }
-stx_download_release_asset() {
-  local src="$REL/\$1/\$2"
-  [[ -f "\$src" ]] || { echo "[stub] 404 \$1/\$2" >&2; return 1; }
-  mkdir -p "\$(dirname "\$3")" && cp "\$src" "\$3"
+run_build() {
+  bash "$ROOT_DIR/install/build-offline-bundle.sh" --version "$VER" --from-dir "$REL" --deps-dir "$DEPS" \
+    --without-observability --output-dir "$T/out" --cache-dir "$T/cache" --keep-dir "$@"
 }
-STUB
 
-run_bundle() {
-  local out="$1"; shift
-  OUTPUT_DIR="$out" bash "$FAKE/install/download-bundle.sh" --version "$VER" --arch amd64 \
-    --node-variant official --without-observability --deps-tag deps "$@"
-}
-BUNDLE_NAME="stx-offline-bundle-${VER}-linux-amd64"
-
-# ---------- 1a. default: packaging host HAS node >= 18.18, node is still bundled ----------
-make_fake_node "$T/hostnode" v20.11.1
-out="$T/out-default"
-if PATH="$T/hostnode:$NONODE" run_bundle "$out" >"$T/bundle-default.log" 2>&1; then
-  ok "bundle default exits 0"
+# ---------- 1a. build all three variants from local outputs ----------
+if run_build --variant all --alias >"$T/build.log" 2>&1; then
+  ok "build-offline-bundle all variants exits 0"
 else
-  bad "bundle default failed"; sed 's/^/    | /' "$T/bundle-default.log"
+  bad "build-offline-bundle failed"; sed 's/^/    | /' "$T/build.log"
 fi
-assert_file "bundle default includes node even when host has node v20" \
-  "$out/$BUNDLE_NAME/packages/node-22-official-linux-amd64.tar.gz"
-assert_grep "bundle MANIFEST with_node=true" '"with_node": true' "$out/$BUNDLE_NAME/MANIFEST.json"
-assert_no_grep "bundle default does not skip node" "skip node package" "$T/bundle-default.log"
-
-# ---------- 1b. --without-node skips node ----------
-out="$T/out-nonode"
-if PATH="$T/hostnode:$NONODE" run_bundle "$out" --without-node >"$T/bundle-nonode.log" 2>&1; then
-  ok "bundle --without-node exits 0"
-else
-  bad "bundle --without-node failed"; sed 's/^/    | /' "$T/bundle-nonode.log"
-fi
-if compgen -G "$out/$BUNDLE_NAME/packages/node-*" >/dev/null; then
-  bad "bundle --without-node must not include node"
-else
-  ok "bundle --without-node has no node package"
-fi
-assert_grep "bundle MANIFEST with_node=false" '"with_node": false' "$out/$BUNDLE_NAME/MANIFEST.json"
-
-# ---------- 1c. node asset missing on deps is fatal (no silent node-less bundle) ----------
-if PATH="$NONODE" run_bundle "$T/out-missing" --node-variant glibc217 >"$T/bundle-missing.log" 2>&1; then
-  bad "bundle must fail when node package is missing on deps"
-else
-  ok "bundle fails when node package is missing"
-fi
-assert_grep "bundle missing-node error mentions --without-node" "--without-node" "$T/bundle-missing.log"
-assert_grep "bundle missing glibc217 hints --node-variant official" "--node-variant official" "$T/bundle-missing.log"
-
-# ---------- 1c2. node sha256 mismatch is fatal ----------
-echo "0000000000000000000000000000000000000000000000000000000000000000  node-22-official-linux-amd64.tar.gz" \
-  >"$REL/deps/node-22-official-linux-amd64.tar.gz.sha256"
-if PATH="$NONODE" run_bundle "$T/out-badsha" >"$T/bundle-badsha.log" 2>&1; then
-  bad "bundle must fail on node sha256 mismatch"
-else
-  ok "bundle fails on node sha256 mismatch"
-fi
-# 正确的 sha256 通过校验。/ A correct sha256 passes.
-if command -v sha256sum >/dev/null 2>&1; then
-  (cd "$REL/deps" && sha256sum node-22-official-linux-amd64.tar.gz >node-22-official-linux-amd64.tar.gz.sha256)
-else
-  (cd "$REL/deps" && shasum -a 256 node-22-official-linux-amd64.tar.gz >node-22-official-linux-amd64.tar.gz.sha256)
-fi
-if PATH="$NONODE" run_bundle "$T/out-goodsha" >"$T/bundle-goodsha.log" 2>&1; then
-  ok "bundle passes with correct node sha256"
-else
-  bad "bundle failed with correct node sha256"; sed 's/^/    | /' "$T/bundle-goodsha.log"
-fi
-rm -f "$REL/deps/node-22-official-linux-amd64.tar.gz.sha256"
-
-# ---------- 1c3. arm64 + old glibc auto-picks official (no glibc217 for arm64) ----------
-out="$T/out-arm64"
-if PATH="$NONODE" FAKE_GLIBC=2.17 OUTPUT_DIR="$out" bash "$FAKE/install/download-bundle.sh" --version "$VER" \
-  --arch arm64 --without-observability --deps-tag deps >"$T/bundle-arm64.log" 2>&1; then
-  ok "bundle arm64 + glibc 2.17 exits 0"
-else
-  bad "bundle arm64 + glibc 2.17 failed"; sed 's/^/    | /' "$T/bundle-arm64.log"
-fi
-assert_file "bundle arm64 uses node-22-official" "$out/stx-offline-bundle-${VER}-linux-arm64/packages/node-22-official-linux-arm64.tar.gz"
-assert_grep "bundle arm64 MANIFEST node_variant=official" '"node_variant": "official"' \
-  "$out/stx-offline-bundle-${VER}-linux-arm64/MANIFEST.json"
-
-# ---------- 1d. help documents --without-node ----------
-bash "$FAKE/install/download-bundle.sh" --help >"$T/help.log" 2>&1 || true
-assert_grep "--help documents --without-node" "--without-node" "$T/help.log"
-assert_grep "--help says node is bundled by default" "default: always bundled" "$T/help.log"
-
-# 真实 bundle 携带的是未桩化的 download-lib.sh。/ A real bundle ships the un-stubbed download-lib.sh.
-for b in "$T/out-default/$BUNDLE_NAME" "$T/out-nonode/$BUNDLE_NAME"; do
-  cp "$ROOT_DIR/install/download-lib.sh" "$b/download-lib.sh"
+for plat in linux-amd64 linux-arm64 linux-amd64-centos7; do
+  assert_file "bundle $plat tarball" "$T/out/stx-${VER}-${plat}-offline.tar.gz"
+  assert_file "bundle $plat sha256" "$T/out/stx-${VER}-${plat}-offline.tar.gz.sha256"
+  assert_file "bundle $plat latest alias" "$T/out/stx-offline-${plat}.tar.gz"
+  assert_grep "alias $plat sha256 names the alias file" "stx-offline-${plat}.tar.gz" "$T/out/stx-offline-${plat}.tar.gz.sha256"
+  (cd "$T/out" && sha256sum -c "stx-${VER}-${plat}-offline.tar.gz.sha256" >/dev/null 2>&1) \
+    && ok "bundle $plat sha256 verifies" || bad "bundle $plat sha256 does not verify"
+  d="$T/out/stx-${VER}-${plat}-offline"
+  for f in install.sh install-core.sh download-lib.sh config.example.yaml MANIFEST.json README-OFFLINE.md SHA256SUMS \
+    bin/start.sh bin/stop.sh bin/status.sh bin/lib/observability.sh scripts/stx-java-proxy.sh; do
+    assert_file "bundle $plat has $f" "$d/$f"
+  done
 done
+C7="$T/out/stx-${VER}-linux-amd64-centos7-offline"
+A64="$T/out/stx-${VER}-linux-amd64-offline"
+assert_file "centos7 bundle uses node-18-glibc217" "$C7/packages/node-18-glibc217-linux-amd64.tar.gz"
+assert_grep "centos7 MANIFEST min_glibc 2.17" '"min_glibc": "2.17"' "$C7/MANIFEST.json"
+assert_grep "centos7 MANIFEST node_version" '"node_version": "v18.20.8"' "$C7/MANIFEST.json"
+assert_file "amd64 bundle uses node-22-official" "$A64/packages/node-22-official-linux-amd64.tar.gz"
+assert_grep "amd64 MANIFEST min_glibc 2.28" '"min_glibc": "2.28"' "$A64/MANIFEST.json"
+assert_file "arm64 bundle uses node-22-official arm64" \
+  "$T/out/stx-${VER}-linux-arm64-offline/packages/node-22-official-linux-arm64.tar.gz"
+
+# ---------- 1b. missing node package is fatal ----------
+mv "$DEPS/node-18-glibc217-linux-amd64.tar.gz" "$T/node18.bak"
+if run_build --variant centos7 >"$T/build-missing.log" 2>&1; then
+  bad "build must fail when the node package is missing"
+else
+  ok "build fails when the node package is missing"
+fi
+assert_grep "missing node error names the asset" "node-18-glibc217-linux-amd64.tar.gz" "$T/build-missing.log"
+mv "$T/node18.bak" "$DEPS/node-18-glibc217-linux-amd64.tar.gz"
+
+# ---------- 1c. node sha256 mismatch in deps dir is fatal ----------
+echo "0000000000000000000000000000000000000000000000000000000000000000  node-22-official-linux-amd64.tar.gz" \
+  >"$DEPS/node-22-official-linux-amd64.tar.gz.sha256"
+if run_build --variant amd64 >"$T/build-badsha.log" 2>&1; then
+  bad "build must fail on node sha256 mismatch"
+else
+  ok "build fails on node sha256 mismatch"
+fi
+rm -f "$DEPS/node-22-official-linux-amd64.tar.gz.sha256"
+
+# ---------- 1d. dynamically linked binary is rejected ----------
+cp "$REL/stx-linux-amd64" "$T/stx.bak"
+printf '#!/bin/sh\n# /lib64/ld-linux-x86-64.so.2\n' >"$REL/stx-linux-amd64"
+if PATH="$NONODE" bash -c 'command -v readelf >/dev/null' 2>/dev/null; then
+  ok "readelf present; dynamic check uses INTERP (skip grep heuristic test)"
+else
+  if run_build --variant centos7 >"$T/build-dyn.log" 2>&1; then
+    bad "build must reject a dynamically linked stx binary"
+  else
+    ok "build rejects a dynamically linked stx binary"
+  fi
+fi
+cp "$T/stx.bak" "$REL/stx-linux-amd64"
+
+# ---------- 1e. help documents variants ----------
+bash "$ROOT_DIR/install/build-offline-bundle.sh" --help >"$T/help.log" 2>&1 || true
+assert_grep "--help documents centos7" "centos7" "$T/help.log"
 
 # ---------- 2a. install bundled node on a host WITHOUT node ----------
 inst="$T/inst-bundled"
-if PATH="$NONODE" bash "$T/out-default/$BUNDLE_NAME/install.sh" --offline --install-dir "$inst" \
+if PATH="$NONODE" bash "$A64/install.sh" -y --install-dir "$inst" \
   --no-start --no-systemd --without-observability >"$T/install-bundled.log" 2>&1; then
   ok "install bundled-node offline exits 0"
 else
@@ -197,10 +171,16 @@ if [[ -x "$inst/runtime/node/bin/node" && ! -L "$inst/runtime/node/bin/node" ]] 
 else
   bad "install did not stage bundled node runtime"
 fi
+assert_grep "install logs numbered steps" "[1/7]" "$T/install-bundled.log"
+assert_grep "install prints summary" "STX 安装完成" "$T/install-bundled.log"
+assert_grep "install prints default password" "admin123" "$T/install-bundled.log"
+assert_grep "install prints next steps" "后续步骤" "$T/install-bundled.log"
+assert_file "install writes stx.env" "$inst/stx.env"
 
 # ---------- 2b. bundled node is preferred even if host has node ----------
+make_fake_node "$T/hostnode" v20.11.1
 inst="$T/inst-prefer"
-PATH="$T/hostnode:$NONODE" bash "$T/out-default/$BUNDLE_NAME/install.sh" --offline --install-dir "$inst" \
+PATH="$T/hostnode:$NONODE" bash "$A64/install.sh" -y --install-dir "$inst" \
   --no-start --no-systemd --without-observability >"$T/install-prefer.log" 2>&1 || true
 if [[ -x "$inst/runtime/node/bin/node" && "$("$inst/runtime/node/bin/node" -v)" == "v22.0.0" ]]; then
   ok "install prefers bundled node over host node"
@@ -208,19 +188,19 @@ else
   bad "install did not prefer bundled node"; sed 's/^/    | /' "$T/install-prefer.log"
 fi
 
-# ---------- 2c. --without-node bundle + host without node => clear error ----------
-inst="$T/inst-nonode"
-if PATH="$NONODE" bash "$T/out-nonode/$BUNDLE_NAME/install.sh" --offline --install-dir "$inst" \
+# ---------- 2c. --without-node + host without node => clear error ----------
+if PATH="$NONODE" bash "$A64/install.sh" -y --install-dir "$T/inst-nonode" --without-node \
   --no-start --no-systemd --without-observability >"$T/install-nonode.log" 2>&1; then
-  bad "install --without-node bundle on node-less host must fail"
+  bad "install --without-node on node-less host must fail"
 else
-  ok "install --without-node bundle on node-less host fails"
+  ok "install --without-node on node-less host fails"
 fi
-assert_grep "install error explains --without-node" "built with --without-node" "$T/install-nonode.log"
+assert_grep "install --without-node error explains Node >= 18.18" "need >= 18.18" "$T/install-nonode.log"
+assert_grep "failure names the failed step" "安装失败：第 3/7 步" "$T/install-nonode.log"
 
-# ---------- 2d. --without-node bundle + host node too old => clear error ----------
+# ---------- 2d. --without-node + host node too old => clear error ----------
 make_fake_node "$T/oldnode" v16.20.2
-if PATH="$T/oldnode:$NONODE" bash "$T/out-nonode/$BUNDLE_NAME/install.sh" --offline --install-dir "$T/inst-old" \
+if PATH="$T/oldnode:$NONODE" bash "$A64/install.sh" -y --install-dir "$T/inst-old" --without-node \
   --no-start --no-systemd --without-observability >"$T/install-old.log" 2>&1; then
   bad "install with old host node must fail"
 else
@@ -228,60 +208,54 @@ else
 fi
 assert_grep "install error shows found version" "found: v16.20.2" "$T/install-old.log"
 
-# ---------- 2e. --without-node bundle + host node >= 18.18 => symlinked ----------
+# ---------- 2e. --without-node + host node >= 18.18 => symlinked ----------
 inst="$T/inst-host"
-if PATH="$T/hostnode:$NONODE" bash "$T/out-nonode/$BUNDLE_NAME/install.sh" --offline --install-dir "$inst" \
+if PATH="$T/hostnode:$NONODE" bash "$A64/install.sh" -y --install-dir "$inst" --without-node \
   --no-start --no-systemd --without-observability >"$T/install-host.log" 2>&1; then
-  ok "install --without-node bundle with host node v20 exits 0"
+  ok "install --without-node with host node v20 exits 0"
 else
   bad "install with host node v20 failed"; sed 's/^/    | /' "$T/install-host.log"
 fi
 if [[ -L "$inst/runtime/node/bin/node" && "$(readlink "$inst/runtime/node/bin/node")" == "$T/hostnode/node" ]]; then
-  ok "install links host node when bundle has none"
+  ok "install links host node with --without-node"
 else
   bad "install did not link host node"
 fi
 
-# ---------- 2f. install-online.sh: consistent Node errors ----------
-run_online() {
-  STX_DOWNLOAD_WORK_DIR="$T/online-work-$1" bash "$FAKE/install/install-online.sh" --version "$VER" --arch amd64 \
-    --install-dir "$T/online-$1" --no-start --no-systemd --without-observability --deps-tag deps "${@:2}"
-}
-if PATH="$NONODE" run_online nonode --node-variant official --without-node >"$T/online-nonode.log" 2>&1; then
-  bad "install-online --without-node on node-less host must fail"
+# ---------- 2f. glibc < 2.28 host refuses the official-Node bundle ----------
+mkdir -p "$T/oldglibc"
+printf '#!/bin/sh\necho "ldd (GNU libc) 2.17"\n' >"$T/oldglibc/ldd"; chmod +x "$T/oldglibc/ldd"
+if PATH="$T/oldglibc:$NONODE" bash "$A64/install.sh" -y --install-dir "$T/inst-glibc" \
+  --no-start --no-systemd --without-observability >"$T/install-glibc.log" 2>&1; then
+  bad "official-Node bundle must be refused on glibc 2.17"
 else
-  ok "install-online --without-node on node-less host fails"
+  ok "official-Node bundle refused on glibc 2.17"
 fi
-assert_grep "install-online --without-node error text" "no usable system Node (need >= 18.18, found: none)" "$T/online-nonode.log"
-assert_no_grep "install-online --without-node fails before downloading" "using release tag" "$T/online-nonode.log"
-if PATH="$T/oldnode:$NONODE" run_online old --node-variant official --without-node >"$T/online-old.log" 2>&1; then
-  bad "install-online --without-node with node v16 must fail"
+assert_grep "glibc error points to the centos7 bundle" "centos7-offline" "$T/install-glibc.log"
+if PATH="$T/oldglibc:$NONODE" bash "$C7/install.sh" -y --install-dir "$T/inst-c7" \
+  --no-start --no-systemd --without-observability >"$T/install-c7.log" 2>&1; then
+  ok "centos7 bundle installs on glibc 2.17"
 else
-  ok "install-online --without-node with node v16 fails"
+  bad "centos7 bundle failed on glibc 2.17"; sed 's/^/    | /' "$T/install-c7.log"
 fi
-assert_grep "install-online shows found v16" "found: v16.20.2" "$T/online-old.log"
-if PATH="$NONODE" run_online missing --node-variant glibc217 >"$T/online-missing.log" 2>&1; then
-  bad "install-online must fail when node package is missing"
+
+# ---------- 2g. install-online.sh --bundle-file (no network) ----------
+if PATH="$NONODE" bash "$ROOT_DIR/install/install-online.sh" -y --bundle-file "$T/out/stx-${VER}-linux-amd64-offline.tar.gz" \
+  --install-dir "$T/online-inst" --no-start --no-systemd --without-observability --work-dir "$T" >"$T/online.log" 2>&1; then
+  ok "install-online --bundle-file exits 0"
 else
-  ok "install-online fails when node package is missing"
+  bad "install-online --bundle-file failed"; sed 's/^/    | /' "$T/online.log"
 fi
-assert_grep "install-online missing node hints --node-variant official" "--node-variant official" "$T/online-missing.log"
-assert_no_grep "install-online no longer just warns" "install may require system node" "$T/online-missing.log"
-if PATH="$NONODE" run_online ok --node-variant official >"$T/online-ok.log" 2>&1; then
-  ok "install-online downloads node on node-less host"
-else
-  bad "install-online on node-less host failed"; sed 's/^/    | /' "$T/online-ok.log"
-fi
-if [[ -x "$T/online-ok/runtime/node/bin/node" && "$("$T/online-ok/runtime/node/bin/node" -v)" == "v22.0.0" ]]; then
-  ok "install-online staged downloaded node"
-else
-  bad "install-online did not stage downloaded node"
-fi
-if PATH="$T/hostnode:$NONODE" run_online host --node-variant official --without-node >"$T/online-host.log" 2>&1; then
-  ok "install-online --without-node with host node v20 exits 0"
-else
-  bad "install-online --without-node with host node v20 failed"; sed 's/^/    | /' "$T/online-host.log"
-fi
+assert_file "install-online installed stx" "$T/online-inst/stx"
+assert_grep "install-online logs download steps" "下载 [1/2]" "$T/online.log"
+
+# ---------- 2h. download-bundle.sh --print-urls lists 6 lines with latest alias ----------
+bash "$ROOT_DIR/install/download-bundle.sh" --variant centos7 --print-urls >"$T/urls.log" 2>&1 || true
+assert_grep "print-urls v4 line" 'wget "https://v4.gh-proxy.org/https://github.com/LeonYoah/stx/releases/latest/download/stx-offline-linux-amd64-centos7.tar.gz"' "$T/urls.log"
+assert_grep "print-urls direct line" 'wget "https://github.com/LeonYoah/stx/releases/latest/download/stx-offline-linux-amd64-centos7.tar.gz"' "$T/urls.log"
+if [[ "$(grep -c '^wget ' "$T/urls.log")" -eq 6 ]]; then ok "print-urls prints 6 lines"; else bad "print-urls line count"; fi
+bash "$ROOT_DIR/install/download-bundle.sh" --variant arm64 --version v1.3.0 --print-urls >"$T/urls2.log" 2>&1 || true
+assert_grep "print-urls versioned name" "releases/download/v1.3.0/stx-v1.3.0-linux-arm64-offline.tar.gz" "$T/urls2.log"
 
 # ---------- 3. alertmanager launched with --cluster.listen-address= ----------
 # 目录含空格，验证参数已正确加引号。/ Path with spaces verifies the args are quoted.

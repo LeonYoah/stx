@@ -61,7 +61,7 @@ One-click control-plane install targets **Linux** on **amd64 / arm64**.
 | Ubuntu / Debian | Yes | Yes | Preferred; skip Node download if local Node ≥ 18.18 |
 | Rocky / Alma / CentOS Stream / RHEL 8+ | Yes | Yes | Official Node 22 |
 | CentOS 7 (glibc 2.17) | Yes | **No** | amd64 only via `node-18-glibc217`. No arm64 glibc217 Node build |
-| Other systemd Linux | Usually | Usually | Needs glibc ≥ 2.17; glibc &lt; 2.27 follows CentOS 7 Node rules |
+| Other systemd Linux | Usually | Usually | Needs glibc ≥ 2.17; glibc &lt; 2.28 uses the centos7 bundle |
 
 macOS / Windows are for local development, not the one-click installer. Default ports: API **17800**, frontend **17880**, gRPC **17890**.
 
@@ -96,49 +96,75 @@ Open `http://localhost:3000` and sign in with `admin` / `admin123` (or the value
 
 ### Online install (recommended)
 
-Installs the latest Release by default.
+One command: detects CPU arch and glibc, probes the download lines, downloads the **matching offline bundle**, verifies its sha256 and installs it.
 
 ```bash
+# China (recommended, gh-proxy v4 line)
+curl -fsSL https://v4.gh-proxy.org/https://github.com/LeonYoah/stx/releases/latest/download/install-online.sh | sudo bash
+
 # Global
-curl -fsSL https://github.com/LeonYoah/stx/releases/latest/download/install-online.sh | bash
-
-# China (URL already wrapped with gh-proxy)
-curl -fsSL https://v4.gh-proxy.org/https://github.com/LeonYoah/stx/releases/latest/download/install-online.sh | bash
+curl -fsSL https://github.com/LeonYoah/stx/releases/latest/download/install-online.sh | sudo bash
 ```
 
-Useful flags: `--version v1.2.0` (or env `STX_VERSION=v1.2.0`; default `latest`), `--install-dir /opt/stx`, `--arch amd64|arm64`, `--without-node`, `--without-observability`, `--no-systemd`, `--no-start`.  
-Pin a version: `curl -fsSL .../install-online.sh | bash -s -- --version v1.2.0`.  
-Scripts pick Node variant from glibc (&lt;2.27 → glibc217, amd64 only; arm64 always official); skip Node when local ≥ 18.18, or pass `--without-node` (fails fast if local Node is missing or &lt; 18.18).  
-Requirements: `bash`, `curl`, `tar`, `gzip`, `awk`/`sed`/`grep`, `find` — **python3 is not required**. With systemd, the installer enables and starts `stx.service`, so `systemctl status|restart stx` works right away.
+- Download lines: gh-proxy main, v4 (recommended), v6, cdn (Fastly), axisnow, GitHub direct. Each line is probed (latency / speed shown), the fastest is picked automatically, and interactive users can pick another by number; a failing line falls back to the next. Force one with `--mirror v4|2|https://custom-prefix` or `STX_MIRROR=...`.
+- Variant: `--variant amd64|arm64|centos7` (default auto: amd64 with glibc < 2.28 → centos7). Pin a version: `bash -s -- --version v1.3.0`.
+- Non-interactive (CI / fleets): `curl ... | sudo bash -s -- -y --admin-password 'xxx'`.
+- Requirements: `bash`, `curl`, `tar`, `gzip`, `awk`/`sed`/`grep`, `sha256sum` — **no python3**.
 
-### Offline install (script-built bundle)
+### Offline install (whole bundle)
+
+Every Release ships three complete offline bundles (backend, Agent, frontend, Node runtime, observability stack, Java proxy), each with a `.sha256`:
+
+| Bundle | Target OS | Node |
+| --- | --- | --- |
+| `stx-<ver>-linux-amd64-offline.tar.gz` | x86_64, glibc ≥ 2.28 (Ubuntu 20.04+, Debian 10+, Rocky/Alma/RHEL 8+, openEuler, Kylin V10, ...) | official Node 22 |
+| `stx-<ver>-linux-arm64-offline.tar.gz` | aarch64, glibc ≥ 2.28 | official Node 22 |
+| `stx-<ver>-linux-amd64-centos7-offline.tar.gz` | x86_64, glibc < 2.28 (**CentOS 7**, RHEL 7) | Node 18 glibc217 |
+
+Not sure which one: `uname -m` (x86_64 / aarch64) and `ldd --version | head -1` (glibc).
+
+`latest` also carries fixed names (`stx-offline-linux-amd64.tar.gz`, `stx-offline-linux-arm64.tar.gz`, `stx-offline-linux-amd64-centos7.tar.gz`) for direct wget. CentOS 7 example (pick whichever line is fastest):
 
 ```bash
-curl -fsSL https://github.com/LeonYoah/stx/releases/latest/download/download-bundle.sh | bash
-# China: https://v4.gh-proxy.org/https://github.com/LeonYoah/stx/releases/latest/download/download-bundle.sh
+F=stx-offline-linux-amd64-centos7.tar.gz   # or stx-offline-linux-amd64.tar.gz / stx-offline-linux-arm64.tar.gz
+U=https://github.com/LeonYoah/stx/releases/latest/download/$F
+wget "https://gh-proxy.org/$U"          # 1) gh-proxy main
+wget "https://v4.gh-proxy.org/$U"       # 2) v4 (recommended)
+wget "https://v6.gh-proxy.org/$U"       # 3) v6 (IPv6)
+wget "https://cdn.gh-proxy.org/$U"      # 4) Fastly CDN
+wget "https://axisnow.gh-proxy.org/$U"  # 5) AxisNow
+wget "$U"                               # 6) GitHub direct
+# fetch $F.sha256 the same way, then:
+sha256sum -c "$F.sha256"
+tar -xzf "$F" && cd stx-*-offline/
+sudo ./install.sh
 ```
 
-The bundle **always** includes a Node runtime by default (whether the packaging host has Node is irrelevant), so it is larger than before (one Node tarball, tens of MB). The variant follows the packaging host's glibc unless `--node-variant` is given:
+On a connected host you can also let the script probe and download: `curl -fsSL https://github.com/LeonYoah/stx/releases/latest/download/download-bundle.sh | bash` (`--variant centos7`; `--print-urls` only prints the 6 links above).
 
-| Packaging host | Bundled Node |
-| --- | --- |
-| amd64, glibc &lt; 2.27 (e.g. CentOS 7) | `node-18-glibc217` |
-| amd64, glibc ≥ 2.27 | `node-22-official` |
-| arm64 (any glibc) | `node-22-official` (no arm64 glibc217 build; target needs glibc ≥ 2.28) |
-| `--without-node` | **None** — only when the offline target already has Node ≥ 18.18 in `PATH`; otherwise `install.sh` stops with a clear error |
+### What the installer does
 
-If the selected Node package is missing on the `deps` release the bundle script fails (hinting `--node-variant official`) instead of producing a Node-less bundle.
+7 numbered steps, each with `[i/7]` and ✔ / ✘; on failure it names the failed step and the log (`/tmp/stx-install-*.log`, copied to `<install-dir>/logs/install.log`).
 
-CentOS 7: `bash -s -- --node-variant glibc217 --arch amd64`. Pin a version with `bash -s -- --version v1.2.0` (or `STX_VERSION=v1.2.0`). Output: `dist/offline/stx-offline-bundle-*.tar.gz`.
+1. **Pre-flight** (before any prompt): CPU / glibc, every port, disk space, systemd — one consolidated list.
+2. **Settings** — Enter = default, so most users just press Enter:
+   - initial password of `admin` (Enter keeps `admin123`; hidden, confirmed)
+   - web `17880`, API `17800`, gRPC `17890` (Agents connect back); ports that failed pre-flight must be changed
+   - advertised IP / host (auto-detected, written to `app.external_url`, used by Agents and alert links)
+   - database: `1) SQLite` (default, built-in) or `2) MySQL` (then host / port / user / password / name; create the database first with `CREATE DATABASE stx DEFAULT CHARACTER SET utf8mb4;`, tables are created on first start)
+3. unpack → 4. copy → 5. write config → 6. systemd → 7. start and wait until ready
 
-```bash
-tar -xzf stx-offline-bundle-*-linux-*.tar.gz
-# trailing "/" matches the extracted directory only, not the .tar.gz next to it
-cd stx-offline-bundle-*-linux-*/
-sudo ./install.sh --install-dir /opt/stx --offline
-```
+With `-y` or without a terminal (CI) nothing is asked and defaults / flags are used; port conflicts then fail with the flag to change.
 
-### Manual download (cannot run scripts)
+Flag-only settings: `--install-dir`, `--without-observability`, `--prometheus-port` / `--alertmanager-port` / `--grafana-port`, `--without-node`, `--mirror`, `--service-user`, `--no-autostart`, `--no-systemd`, `--no-start`; plus `--admin-password`, `--frontend-port`, `--http-port`, `--grpc-port`, `--external-ip`, `--db-type/--db-host/--db-port/--db-user/--db-password/--db-name`. See `./install.sh --help`.
+
+The final summary shows the URL `http://<IP>:17880`, account `admin` and the password state (a changed password is never echoed), API / gRPC addresses, database, observability ports and disk usage, directories and logs, service commands, and **next steps** (menu names as shown in the Chinese UI):
+
+- No SeaTunnel cluster yet: 「安装包与插件」(Packages & Plugins) → 「安装包管理」 download a SeaTunnel version → 「插件市场」 download connectors → 「主机与集群」 → 「主机管理」 add hosts and install the Agent → 「集群管理」 create the cluster.
+- Existing cluster: skip the first two; add hosts and install the Agent in 「主机管理」, use the host row action 「自动发现」 to import the running nodes, then manage them in 「集群管理」.
+- STX does not install a JDK: install one on SeaTunnel nodes as required by the chosen SeaTunnel version (2.3.x usually JDK 8 / 11).
+
+### Manual download (cannot run scripts, assemble by hand)
 
 1. Download helpers: [stx-install-helpers.tar.gz](https://github.com/LeonYoah/stx/releases/latest/download/stx-install-helpers.tar.gz)  
 2. Put assets below into `packages/`  
@@ -160,8 +186,8 @@ node -v
 
 | Environment | amd64 | arm64 |
 | --- | --- | --- |
-| glibc &lt; 2.27 (e.g. CentOS 7) | [node-18-glibc217](https://github.com/LeonYoah/stx/releases/download/deps/node-18-glibc217-linux-amd64.tar.gz) | unsupported |
-| glibc ≥ 2.27, no Node ≥ 18.18 | [node-22-official](https://github.com/LeonYoah/stx/releases/download/deps/node-22-official-linux-amd64.tar.gz) | [node-22-official](https://github.com/LeonYoah/stx/releases/download/deps/node-22-official-linux-arm64.tar.gz) |
+| glibc &lt; 2.28 (e.g. CentOS 7) | [node-18-glibc217](https://github.com/LeonYoah/stx/releases/download/deps/node-18-glibc217-linux-amd64.tar.gz) | unsupported |
+| glibc ≥ 2.28, no Node ≥ 18.18 | [node-22-official](https://github.com/LeonYoah/stx/releases/download/deps/node-22-official-linux-amd64.tar.gz) | [node-22-official](https://github.com/LeonYoah/stx/releases/download/deps/node-22-official-linux-arm64.tar.gz) |
 | Node ≥ 18.18 already | skip | skip |
 
 ### Docker full stack

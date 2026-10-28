@@ -210,4 +210,97 @@ else
   fail=1
 fi
 
+# ---------- 镜像线路解析 / mirror line resolution ----------
+expect_eq() { # <name> <want> <got>
+  if [[ "$2" == "$3" ]]; then echo "OK $1"; else echo "FAIL $1: want [$2] got [$3]"; fail=1; fi
+}
+expect_eq "mirror lines count" 6 "${#STX_MIRROR_LINES[@]}"
+expect_eq "resolve number 2 -> v4" "$(stx_mirror_field 1 2)" "https://v4.gh-proxy.org"
+expect_eq "resolve '2'" 1 "$(stx_mirror_resolve 2)"
+expect_eq "resolve cdn" 3 "$(stx_mirror_resolve cdn)"
+expect_eq "resolve prefix url" 4 "$(stx_mirror_resolve https://axisnow.gh-proxy.org/)"
+expect_eq "resolve github" 5 "$(stx_mirror_resolve https://github.com)"
+expect_eq "resolve direct" 5 "$(stx_mirror_resolve direct)"
+expect_eq "resolve auto" "" "$(stx_mirror_resolve auto)"
+expect_eq "resolve custom url" "custom:https://my.proxy" "$(stx_mirror_resolve https://my.proxy/)"
+if stx_mirror_resolve 9 >/dev/null 2>&1; then echo "FAIL resolve 9 must fail"; fail=1; else echo "OK resolve 9 rejected"; fi
+if stx_mirror_resolve bogus >/dev/null 2>&1; then echo "FAIL resolve bogus must fail"; fail=1; else echo "OK resolve bogus rejected"; fi
+
+# ---------- 测速选择（桩）/ probe + choose (stubbed) ----------
+export STX_NONINTERACTIVE=1
+unset STX_MIRROR STX_DOWNLOAD_MIRROR_PREFIX
+stx_mirror_probe_one() { # cdn fastest, v4 second, gh-proxy third, others down
+  case "$1" in
+    https://cdn.gh-proxy.org/*) echo "1 80 9000" ;;
+    https://v4.gh-proxy.org/*) echo "1 50 5000" ;;
+    https://gh-proxy.org/*) echo "1 90 100" ;;
+    *) echo "0 0 0" ;;
+  esac
+}
+stx_choose_mirror "https://github.com/LeonYoah/stx/releases/latest/download/x" >"$tmpdir.probe" 2>&1 || true
+expect_eq "fastest line chosen (cdn)" "https://cdn.gh-proxy.org" "$STX_SELECTED_MIRROR_PREFIX"
+expect_eq "order: chosen, then OK lines by speed, then failed" \
+  "https://cdn.gh-proxy.org https://v4.gh-proxy.org https://gh-proxy.org https://v6.gh-proxy.org https://axisnow.gh-proxy.org  " \
+  "$(printf '%s ' "${STX_MIRROR_ORDER[@]}")"
+if grep -q "不可用 / unreachable" "$tmpdir.probe" && grep -q "9000 KB/s" "$tmpdir.probe"; then
+  echo "OK probe table shows speed and unreachable lines"
+else
+  echo "FAIL probe table"; cat "$tmpdir.probe"; fail=1
+fi
+STX_MIRROR=github stx_choose_mirror "https://github.com/x" >/dev/null 2>&1
+expect_eq "STX_MIRROR=github forces direct" "" "$STX_SELECTED_MIRROR_PREFIX"
+stx_choose_mirror "https://github.com/x" 2 >/dev/null 2>&1
+expect_eq "--mirror 2 forces v4" "https://v4.gh-proxy.org" "$STX_SELECTED_MIRROR_PREFIX"
+stx_mirror_probe_one() { echo "0 0 0"; }
+stx_choose_mirror "https://github.com/x" >/dev/null 2>&1
+expect_eq "all lines down -> recommended v4 first" "https://v4.gh-proxy.org" "$STX_SELECTED_MIRROR_PREFIX"
+STX_MIRROR=https://my.proxy stx_choose_mirror "https://github.com/x" >/dev/null 2>&1
+expect_eq "custom STX_MIRROR first" "https://my.proxy" "${STX_MIRROR_ORDER[0]}"
+expect_eq "custom STX_MIRROR then all lines" 7 "${#STX_MIRROR_ORDER[@]}"
+rm -f "$tmpdir.probe"
+
+# ---------- 下载失败自动换线路（桩 curl）/ download fallback (stubbed curl) ----------
+mkdir -p "$tmpdir"
+CURL_CALLS="$tmpdir/calls"
+: >"$CURL_CALLS"
+curl() { # only the third line works
+  local out="" url="" a
+  while [[ $# -gt 0 ]]; do
+    a="$1"; shift
+    case "$a" in -o) out="$1"; shift ;; http*) url="$a" ;; esac
+  done
+  echo "$url" >>"$CURL_CALLS"
+  if [[ "$url" == https://gh-proxy.org/* ]]; then echo payload >"$out"; return 0; fi
+  return 22
+}
+STX_MIRROR_ORDER=("https://cdn.gh-proxy.org" "https://v4.gh-proxy.org" "https://gh-proxy.org" "")
+if stx_download_with_fallback "https://github.com/a/b" "$tmpdir/dl" >/dev/null 2>&1 && [[ "$(cat "$tmpdir/dl")" == payload ]]; then
+  echo "OK download falls back to the next line"
+else
+  echo "FAIL download fallback"; fail=1
+fi
+expect_eq "fallback tried 3 lines" 3 "$(wc -l <"$CURL_CALLS" | tr -d ' ')"
+expect_eq "successful line remembered" "https://gh-proxy.org" "$STX_SELECTED_MIRROR_PREFIX"
+STX_MIRROR_ORDER=("https://cdn.gh-proxy.org" "")
+if stx_download_with_fallback "https://github.com/a/b" "$tmpdir/dl2" q >/dev/null 2>&1; then
+  echo "FAIL download must fail when all lines fail"; fail=1
+else
+  echo "OK all lines failing returns error"
+fi
+[[ ! -e "$tmpdir/dl2" ]] && echo "OK no partial file left" || { echo "FAIL partial file left"; fail=1; }
+unset -f curl
+rm -rf "$tmpdir"
+
+# ---------- 离线包命名与变体 / bundle naming and variant ----------
+expect_eq "glibc 2.17 < 2.28" yes "$(stx_glibc_lt_228 2.17 && echo yes || echo no)"
+expect_eq "glibc 2.28 not < 2.28" no "$(stx_glibc_lt_228 2.28 && echo yes || echo no)"
+expect_eq "glibc 2.35 not < 2.28" no "$(stx_glibc_lt_228 2.35 && echo yes || echo no)"
+expect_eq "arm64 variant" arm64 "$(stx_detect_bundle_variant arm64)"
+expect_eq "asset name centos7" "stx-v1.3.0-linux-amd64-centos7-offline.tar.gz" "$(stx_bundle_asset_name v1.3.0 centos7)"
+expect_eq "alias name arm64" "stx-offline-linux-arm64.tar.gz" "$(stx_bundle_alias_name arm64)"
+expect_eq "latest url uses alias" "https://github.com/LeonYoah/stx/releases/latest/download/stx-offline-linux-amd64.tar.gz" \
+  "$(stx_bundle_release_url latest amd64)"
+expect_eq "tag url uses versioned name" "https://github.com/LeonYoah/stx/releases/download/v1.3.0/stx-v1.3.0-linux-amd64-offline.tar.gz" \
+  "$(stx_bundle_release_url v1.3.0 amd64)"
+
 exit "$fail"

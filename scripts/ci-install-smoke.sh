@@ -14,12 +14,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# 安装冒烟（CI 与本地通用）：在不含 python3 的 debian:bookworm 容器中，用本仓库的安装脚本安装真实 Release（默认 v1.2.0），
+# 安装冒烟（CI 与本地通用）：先用 install/build-offline-bundle.sh 把真实 Release（默认 v1.2.0）的产物组装成 amd64 离线整包，
+# 再在不含 python3 的 debian:bookworm 容器中用 install-online.sh --bundle-file 安装，
 # 校验 python3 不存在、安装成功、/opt/stx/scripts/stx-java-proxy.sh 存在且与 Release SHA256SUMS 一致、
 # Agent 资产接口 GET /api/v1/agent/assets/stx-java-proxy.sh 返回 200。
 #   mode=plain   : --no-systemd，start.sh 直接启动
 #   mode=systemd : systemd 作为 PID1（--privileged），安装 → stop.sh 停进程 → 重装，验证 systemctl restart 真正拉起进程
-# Install smoke (CI and local): install a real release (default v1.2.0) with this repo's installer inside a
+# Install smoke (CI and local): assemble an amd64 offline bundle from a real release (default v1.2.0) with
+# install/build-offline-bundle.sh, then install it with install-online.sh --bundle-file inside a
 # python3-free debian:bookworm container; assert no python3, install OK, scripts/stx-java-proxy.sh present and
 # matching the release SHA256SUMS, and the agent asset endpoint returns 200.
 #   mode=plain   : --no-systemd, started by start.sh
@@ -36,12 +38,19 @@ DOCKER="${DOCKER:-docker}"
 image="${STX_SMOKE_IMAGE:-debian:bookworm}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 name="stx-install-smoke-${mode}-$$"
-cleanup() { $DOCKER rm -f "$name" >/dev/null 2>&1 || true; }
+work="$(mktemp -d)"
+cleanup() { $DOCKER rm -f "$name" >/dev/null 2>&1 || true; rm -rf "$work"; }
 trap cleanup EXIT
 
 want_sha="$(curl -fsSL --retry 3 "https://github.com/LeonYoah/stx/releases/download/${tag}/SHA256SUMS" \
   | awk '$2 == "stx-java-proxy.sh" {print $1}')"
 echo "[smoke] release $tag SHA256SUMS stx-java-proxy.sh = ${want_sha:-<not listed>}"
+
+# 用仓库脚本从 Release 组装离线整包（与发版 CI 同一脚本）。/ Assemble the bundle with the same script as release CI.
+bash "$ROOT_DIR/install/build-offline-bundle.sh" --variant amd64 --from-release "$tag" --version "$tag" \
+  --without-observability --output-dir "$work/out" --cache-dir "$work/cache"
+bundle="stx-${tag}-linux-amd64-offline.tar.gz"
+[[ -f "$work/out/$bundle" ]] || { echo "[smoke] bundle $bundle was not built" >&2; exit 1; }
 
 # 容器内执行的检查脚本。/ Checks executed inside the container.
 # shellcheck disable=SC2016  # expanded inside the container
@@ -65,8 +74,7 @@ verify() {
 }
 '
 
-# shellcheck disable=SC2016  # $TAG is expanded inside the container
-install_cmd='bash /src/install/install-online.sh --version "$TAG" --without-observability'
+install_cmd="bash /src/install/install-online.sh -y --bundle-file /bundle/$bundle --without-observability"
 
 extra_pkgs=""
 if [[ "$mode" == systemd ]]; then
@@ -78,7 +86,7 @@ apt-get install -y -qq --no-install-recommends curl ca-certificates iproute2 pro
 
 case "$mode" in
   plain)
-    $DOCKER run --rm --name "$name" -e TAG="$tag" -e WANT_SHA="$want_sha" -v "$ROOT_DIR:/src:ro" "$image" bash -c "
+    $DOCKER run --rm --name "$name" -e TAG="$tag" -e WANT_SHA="$want_sha" -v "$ROOT_DIR:/src:ro" -v "$work/out:/bundle:ro" "$image" bash -c "
       $prep
       $inner
       check 'python3 is NOT installed' '! command -v python3 >/dev/null'
@@ -89,7 +97,7 @@ case "$mode" in
     ;;
   systemd)
     $DOCKER run -d --name "$name" --privileged --cgroupns=host -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
-      -e TAG="$tag" -e WANT_SHA="$want_sha" -v "$ROOT_DIR:/src:ro" "$image" \
+      -e TAG="$tag" -e WANT_SHA="$want_sha" -v "$ROOT_DIR:/src:ro" -v "$work/out:/bundle:ro" "$image" \
       bash -c "$prep; touch /tmp/prep-done; exec /sbin/init" >/dev/null
     for _ in $(seq 1 100); do
       $DOCKER exec "$name" test -d /run/systemd/system 2>/dev/null && break; sleep 3

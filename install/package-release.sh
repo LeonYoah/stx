@@ -762,6 +762,10 @@ if [[ "$LAYOUT" == "split" ]]; then
   cp "$ROOT_DIR/install/install-online.sh" "$OUTPUT_DIR/install-online.sh"
   cp "$ROOT_DIR/install/download-bundle.sh" "$OUTPUT_DIR/download-bundle.sh"
   chmod +x "$OUTPUT_DIR/install-online.sh" "$OUTPUT_DIR/download-bundle.sh"
+  # 写入所属 Release tag：curl | bash 时据此拉取同版本的 download-lib.sh。/ Bake the release tag for the lib bootstrap.
+  sed -i.bak "s|^STX_SCRIPT_RELEASE_TAG=\"\"\$|STX_SCRIPT_RELEASE_TAG=\"${APP_VERSION}\"|" \
+    "$OUTPUT_DIR/install-online.sh" "$OUTPUT_DIR/download-bundle.sh"
+  rm -f "$OUTPUT_DIR/install-online.sh.bak" "$OUTPUT_DIR/download-bundle.sh.bak"
 
   # 手动安装辅助包（无仓库时用）。/ Helpers tarball for manual install without a git clone.
   helpers_stage="$STAGE_DIR/install-helpers"

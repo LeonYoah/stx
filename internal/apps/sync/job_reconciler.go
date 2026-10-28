@@ -74,6 +74,8 @@ func (s *Service) StartJobReconciler(ctx context.Context) {
 // cluster's engine queries are dispatched to the scheduler and run in the background in parallel without being
 // awaited, so one slow cluster cannot hold up the others.
 func (s *Service) reconcileActiveJobs(ctx context.Context) error {
+	// 没有活跃作业时也要补拉刚失败作业的错误信息。/ Backfill late error messages even when no job is active.
+	s.backfillFailedJobErrors(ctx, time.Now())
 	jobs, err := s.repo.ListNonTerminalJobInstances(ctx, 500)
 	if err != nil || len(jobs) == 0 {
 		return err
@@ -489,7 +491,10 @@ func (s *Service) reconcileClusterJobs(ctx context.Context, clusterID uint, jobs
 				JobID:     engineJobID,
 				JobStatus: "FAILED",
 				ErrorMsg:  "engine no longer has this job (cluster restart or history expired) / 引擎已无此作业（集群重启或历史过期）",
-				FinishedTime: time.Now().In(time.Local).Format("2006-01-02 15:04:05"),
+				// 带时区偏移：无偏移字符串会被 parseEngineJobTime 按 SeaTunnel 时区解析，服务器时区不同就会偏移数小时。
+				// Include the offset: a naive string is parsed in the SeaTunnel zone by parseEngineJobTime and lands
+				// hours off whenever the server zone differs.
+				FinishedTime: time.Now().UTC().Format(time.RFC3339),
 			}
 			if _, err := s.applyEngineJobInfoUpdate(ctx, job, orphaned); err != nil {
 				s.recordJobSyncFailure(ctx, job)
@@ -517,7 +522,9 @@ func (s *Service) expireUnknownSubmit(ctx context.Context, job *JobInstance, eng
 		JobID:        engineJobID,
 		JobStatus:    "FAILED",
 		ErrorMsg:     submitOutcomeExpiredMessage(job),
-		FinishedTime: now.In(time.Local).Format("2006-01-02 15:04:05"),
+		// 带时区偏移，避免按 SeaTunnel 时区解析后偏移数小时（同上方孤儿作业）。
+		// Include the offset so parsing in the SeaTunnel zone does not shift it by hours (same as orphaned jobs above).
+		FinishedTime: now.UTC().Format(time.RFC3339),
 	}
 	updated, err := s.applyEngineJobInfoUpdate(ctx, job, expired)
 	if err != nil {

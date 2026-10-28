@@ -123,6 +123,12 @@ func TestJobReconcilerMarksOrphanedRunningJobFailed(t *testing.T) {
 	if !strings.Contains(stored.ErrorMessage, "engine no longer has this job") {
 		t.Fatalf("unexpected error message: %q", stored.ErrorMessage)
 	}
+	// 结束时间必须是当前时刻：以前按服务器本地时区格式化成无偏移字符串，再按 SeaTunnel 时区解析，偏了 8 小时。
+	// The finish time must be now: it used to be formatted naive in the server zone and parsed in the SeaTunnel zone,
+	// landing 8 hours off.
+	if stored.FinishedAt == nil || time.Since(*stored.FinishedAt).Abs() > time.Minute {
+		t.Fatalf("expected finished_at close to now, got %v", stored.FinishedAt)
+	}
 }
 
 type orphanEngineClient struct{}

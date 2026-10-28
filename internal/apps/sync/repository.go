@@ -385,6 +385,25 @@ func (r *Repository) ListJobInstances(ctx context.Context, filter *JobFilter) ([
 
 // ListNonTerminalJobInstances 返回仍需与引擎对齐的作业实例。
 // ListNonTerminalJobInstances returns job instances that still need engine reconciliation.
+// ListRecentFailedJobsWithoutError 返回 since 之后失败、错误信息仍为空且有引擎作业 ID 的作业，用于补拉引擎迟到的错误信息。
+// ListRecentFailedJobsWithoutError returns failed jobs finished after since with an empty error and an engine job id,
+// used to backfill the engine's late error message.
+func (r *Repository) ListRecentFailedJobsWithoutError(ctx context.Context, since time.Time, limit int) ([]*JobInstance, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	var instances []*JobInstance
+	err := r.db.WithContext(ctx).
+		Where("status = ?", JobStatusFailed).
+		Where("engine_job_id <> ''").
+		Where("(error_message IS NULL OR error_message = '')").
+		Where("finished_at IS NOT NULL AND finished_at >= ?", timex.Bound(since)).
+		Order("finished_at DESC").
+		Limit(limit).
+		Find(&instances).Error
+	return instances, err
+}
+
 func (r *Repository) ListNonTerminalJobInstances(ctx context.Context, limit int) ([]*JobInstance, error) {
 	if limit <= 0 {
 		limit = 500

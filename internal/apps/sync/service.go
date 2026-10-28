@@ -72,6 +72,9 @@ type Service struct {
 	// reconcile 负责各集群并行对账、跳过进行中的集群与按集群退避。
 	// reconcile runs per-cluster reconciles in parallel, skips clusters still in flight and backs off per cluster.
 	reconcile clusterReconcileScheduler
+	// errorBackfill 为刚失败、错误信息还没到的作业低频补拉 job-info。
+	// errorBackfill re-fetches job-info at a low rate for recently failed jobs whose error has not arrived yet.
+	errorBackfill failedErrorBackfill
 	// alertReporter 接收作业告警信号（由 monitoring 注入，非阻塞）；alertStore 读写任务告警配置。
 	// alertReporter receives job alert signals (injected by monitoring, non-blocking); alertStore reads and writes
 	// task alert configs.
@@ -2631,8 +2634,10 @@ func (s *Service) refreshJobInstance(ctx context.Context, instance *JobInstance)
 	if isFinalNormalizedJobStatus(instance.Status) {
 		jobStatus := strings.ToUpper(strings.TrimSpace(stringValue(instance.ResultPreview, "job_status")))
 		// Skip only after a true final metrics block exists. Mid-run snapshot/metrics alone must not freeze refresh.
-		// 仅在已有终态指标块时跳过；只有中途 snapshot/metrics 时继续补拉 job-info。
-		if (jobStatus == "" || isFinalEngineJobStatus(jobStatus)) && hasFinalMetricsLog(instance.ResultPreview) {
+		// Failed jobs still waiting for the engine's late errorMsg are not skipped.
+		// 仅在已有终态指标块时跳过；只有中途 snapshot/metrics 时继续补拉 job-info；还在等引擎补错误信息的失败作业也不跳过。
+		if (jobStatus == "" || isFinalEngineJobStatus(jobStatus)) && hasFinalMetricsLog(instance.ResultPreview) &&
+			!awaitingEngineErrorMessage(instance, time.Now()) {
 			return instance, nil
 		}
 	}

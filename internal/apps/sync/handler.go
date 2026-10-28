@@ -109,6 +109,13 @@ type JobPlanDAGResponse struct {
 	ErrorMsg string            `json:"error_msg"`
 	Data     *JobPlanDAGResult `json:"data"`
 }
+
+// JobTimeseriesResponse 包装作业时序查询结果。
+// JobTimeseriesResponse wraps the job timeseries query result.
+type JobTimeseriesResponse struct {
+	ErrorMsg string               `json:"error_msg"`
+	Data     *JobTimeseriesResult `json:"data"`
+}
 type JobListResponse struct {
 	ErrorMsg string       `json:"error_msg"`
 	Data     *JobListData `json:"data"`
@@ -653,6 +660,43 @@ func (h *Handler) GetJobRealtime(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, JobRealtimeResponse{Data: result})
+}
+
+// GetJobTimeseries 处理 GET /api/v1/sync/jobs/:id/timeseries：按 PromQL 模板查 Prometheus，无本地兜底。
+// GetJobTimeseries handles GET /api/v1/sync/jobs/:id/timeseries: queries Prometheus via PromQL templates with no local fallback.
+// @Summary 获取作业指标时序（Prometheus）
+// @Tags Sync
+// @Produce json
+// @Param id path int true "作业 ID"
+// @Param range query string false "时间范围：15m|1h|6h|24h|7d" default(1h)
+// @Param step query int false "步长（秒），0 表示按范围自动"
+// @Param metrics query string false "逗号分隔指标：throughput,rows,cdc_delay,checkpoint,busy,backpressure"
+// @Success 200 {object} JobTimeseriesResponse
+// @Failure 400 {object} JobTimeseriesResponse
+// @Failure 403 {object} JobTimeseriesResponse
+// @Failure 404 {object} JobTimeseriesResponse
+// @Router /api/v1/sync/jobs/{id}/timeseries [get]
+func (h *Handler) GetJobTimeseries(c *gin.Context) {
+	id, ok := parseUintParam(c, "id")
+	if !ok {
+		c.JSON(http.StatusBadRequest, JobTimeseriesResponse{ErrorMsg: "invalid job id"})
+		return
+	}
+	rangeKey := strings.TrimSpace(c.Query("range"))
+	step := parseNonNegativeInt(c.Query("step"), 0)
+	metrics := strings.TrimSpace(c.Query("metrics"))
+	result, err := h.service.GetJobTimeseriesForActor(c.Request.Context(), currentExecutionActor(c), id, rangeKey, metrics, step)
+	if err != nil {
+		c.JSON(h.getStatusCodeForError(err), JobTimeseriesResponse{ErrorMsg: err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, JobTimeseriesResponse{Data: result})
+}
+
+// GetJobPrometheusMetrics 处理 GET /api/v1/monitoring/prometheus/jobs/metrics（公开抓取，受 observability.enabled 控制）。
+// GetJobPrometheusMetrics handles GET /api/v1/monitoring/prometheus/jobs/metrics (public scrape, gated by observability.enabled).
+func (h *Handler) GetJobPrometheusMetrics(c *gin.Context) {
+	ServeJobPrometheusMetrics(c.Writer, c.Request)
 }
 
 // GetJobPlanDAG 处理 GET /api/v1/sync/jobs/:id/plan-dag：用提交时的配置推导表结构与建表计划，拿不到时以 available=false 表达。

@@ -875,3 +875,29 @@ export interface SyncCuratedComboParseResult {
   present: SyncCuratedSection[];
   combined: string;
 }
+
+
+/** GET /sync/jobs/:id/timeseries 返回 / Response of GET /sync/jobs/:id/timeseries. */
+export interface SyncJobTimeseries {
+  source: 'prometheus' | 'none' | string;
+  reason?: string;
+  range: string;
+  step_seconds: number;
+  engine_observability_enabled: boolean;
+  series: SyncJobTimeseriesSeries[];
+  annotations: SyncJobTimeseriesAnnotation[];
+}
+
+export interface SyncJobTimeseriesSeries {
+  key: string;
+  label: string;
+  unit: string;
+  points: [number, number][];
+}
+
+export interface SyncJobTimeseriesAnnotation {
+  ts_ms: number;
+  kind: string;
+  summary: string;
+  event_id?: number;
+}

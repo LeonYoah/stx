@@ -33,7 +33,8 @@ import {cn} from '@/lib/utils';
 import type {SyncJobInstance} from '@/lib/services/sync';
 import {JobEventTimelineContent} from '../JobEventTimelineDialog';
 import {JobOutcomeHints} from '../JobOutcomeHints';
-import {JobScriptDialogContent, MetricsDialogContent} from '../StudioDialogs';
+import {JobScriptDialogContent} from '../StudioDialogs';
+import {JobMetricsPanel} from './JobMetricsPanel';
 import {
   formatJobDateTime,
   formatJobDuration,
@@ -267,7 +268,7 @@ export function JobDetailDialog({
               )}
             </TabsContent>
             <TabsContent value='metrics' className='mt-0 flex h-full min-h-0 flex-col overflow-hidden'>
-              {tab === 'metrics' ? <MetricsDialogContent job={job} /> : null}
+              {tab === 'metrics' ? <JobMetricsPanel job={job} active={tab === 'metrics'} /> : null}
             </TabsContent>
             <TabsContent value='checkpoint' className='mt-0 h-full min-h-0 overflow-auto'>
               {tab === 'checkpoint' ? checkpointSlot : null}

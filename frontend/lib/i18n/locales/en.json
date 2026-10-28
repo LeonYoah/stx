@@ -4935,7 +4935,52 @@
       "planPreviewHint": "Save-mode plan derived from the current config against the current database state; it runs only when the job runs.",
       "sortByCount": "By records",
       "sortByQps": "By QPS",
-      "transformNoMetrics": "SeaTunnel does not report per-table metrics for transforms."
+      "transformNoMetrics": "SeaTunnel does not report per-table metrics for transforms.",
+      "metricsView": {
+        "snapshot": "Snapshot",
+        "trend": "Trend",
+        "snapshotHint": "Latest engine metrics",
+        "trendHint": "Historical trends from Prometheus",
+        "noJob": "No job data",
+        "emptyTitle": "Trends require observability and Prometheus",
+        "emptyBody": "Once enabled you can chart throughput, CDC delay, checkpoints, busyness and backpressure. STX does not collect or store any time series while it is off.",
+        "emptyEnable": "Enable",
+        "emptyHow": "How to connect",
+        "emptySnapshotHint": "Current values are still available in Snapshot",
+        "engineObsEmptyTitle": "Engine observability is off for this job",
+        "engineObsEmptyBody": "Busyness and backpressure need engine.observability enabled on the job",
+        "range": "Range",
+        "autoRefresh": "Auto refresh",
+        "lastRefresh": "Last refresh {time}",
+        "loading": "Loading",
+        "source": "Source",
+        "hero": {
+          "readQps": "Read QPS",
+          "writeQps": "Write QPS",
+          "lag": "Read−write lag",
+          "cdc": "CDC delay",
+          "checkpoint": "Latest checkpoint"
+        },
+        "heroFromSnapshot": "Current values from snapshot polling",
+        "charts": {
+          "throughput": "Throughput",
+          "rows": "Cumulative rows",
+          "cdc": "CDC delay",
+          "checkpoint": "Checkpoint duration",
+          "busy": "Vertex busy",
+          "backpressure": "Backpressure"
+        },
+        "series": {
+          "read": "Read",
+          "write": "Write",
+          "committed": "Committed"
+        },
+        "unit": {
+          "rows": "rows",
+          "seconds": "seconds"
+        },
+        "perTablePhase3": "Per-table trends (phase 3)"
+      }
     },
     "zeroMetricsCollapsed": "{count} metrics are all zero and collapsed (the related feature was not triggered or there is no backlog)"
   },

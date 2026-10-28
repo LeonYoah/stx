@@ -32,6 +32,7 @@ import type {
   SyncJobLogsResult,
   SyncJobPlanDag,
   SyncJobRealtime,
+  SyncJobTimeseries,
   SyncJobEventList,
   SyncEventChannelStatus,
   SyncCheckpointSnapshot,
@@ -361,6 +362,27 @@ export class SyncService extends BaseService {
    * Fetch the plan DAG derived from a job's submitted config (schemas, columns, save-mode plans) to enrich the
    * runtime DAG; warnings default to [].
    */
+    static async getJobTimeseries(
+    jobId: number,
+    params?: {range?: string; step?: number; metrics?: string; signal?: AbortSignal},
+  ): Promise<SyncJobTimeseries> {
+    const {signal, ...query} = params || {};
+    const response = await apiClient.get<ApiResponse<SyncJobTimeseries>>(
+      `${this.basePath}/jobs/${jobId}/timeseries`,
+      {params: query, signal},
+    );
+    const data = response.data.data;
+    return {
+      source: data?.source ?? 'none',
+      reason: data?.reason,
+      range: data?.range ?? '1h',
+      step_seconds: data?.step_seconds ?? 0,
+      engine_observability_enabled: Boolean(data?.engine_observability_enabled),
+      series: data?.series ?? [],
+      annotations: data?.annotations ?? [],
+    };
+  }
+
   static async getJobPlanDag(jobId: number, params?: {signal?: AbortSignal}): Promise<SyncJobPlanDag> {
     const response = await apiClient.get<ApiResponse<SyncJobPlanDag>>(
       `${this.basePath}/jobs/${jobId}/plan-dag`,

@@ -2300,6 +2300,7 @@ var routeExceptions = []RouteException{
 	{Method: "DELETE", Route: "/api/v1/plugins/:name/dependencies/disables/:disableId", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},
 	{Method: "DELETE", Route: "/api/v1/plugins/:name/local", Mode: ModeServerOnly, Reason: "CLI 明确不提供任何删除操作"},
 	{Method: "GET", Route: "/api/v1/monitoring/prometheus/discovery", Mode: ModeServerOnly, Reason: "Prometheus HTTP service discovery endpoint"},
+	{Method: "GET", Route: "/api/v1/monitoring/prometheus/jobs/metrics", Mode: ModeServerOnly, Reason: "Prometheus scrape endpoint for STX job-level metrics"},
 	{Method: "POST", Route: "/api/v1/monitoring/alertmanager/webhook", Mode: ModeServerOnly, Reason: "Alertmanager webhook receiver"},
 	{Method: "POST", Route: "/api/v1/sync/preview/collect", Mode: ModeServerOnly, Reason: "SeaTunnel preview result callback"},
 	{Method: "POST", Route: "/api/v1/sync/engine-events/:cluster_id", Mode: ModeServerOnly, Reason: "SeaTunnel event-report-http callback"},

@@ -4935,7 +4935,52 @@
       "planPreviewHint": "按当前配置对照数据库当前状态推导的建表计划，作业运行时才会执行。",
       "sortByCount": "按条数",
       "sortByQps": "按 QPS",
-      "transformNoMetrics": "SeaTunnel 不上报 Transform 的按表指标。"
+      "transformNoMetrics": "SeaTunnel 不上报 Transform 的按表指标。",
+      "metricsView": {
+        "snapshot": "快照",
+        "trend": "趋势",
+        "snapshotHint": "引擎最新指标",
+        "trendHint": "历史趋势 · 来自 Prometheus",
+        "noJob": "没有作业数据",
+        "emptyTitle": "趋势需要开启可观测性并接入 Prometheus",
+        "emptyBody": "开启后可查看吞吐、CDC 延迟、Checkpoint、算子忙碌度与背压的历史曲线。未开启时 STX 不采集、不保存任何时序数据。",
+        "emptyEnable": "去开启",
+        "emptyHow": "如何接入",
+        "emptySnapshotHint": "当前数值仍可在「快照」中查看",
+        "engineObsEmptyTitle": "该作业未开启引擎可观测性",
+        "engineObsEmptyBody": "忙碌度与背压需要作业开启 engine.observability",
+        "range": "时间范围",
+        "autoRefresh": "自动刷新",
+        "lastRefresh": "上次刷新 {time}",
+        "loading": "加载中",
+        "source": "数据来源",
+        "hero": {
+          "readQps": "读 QPS",
+          "writeQps": "写 QPS",
+          "lag": "读写差（积压）",
+          "cdc": "CDC 延迟",
+          "checkpoint": "最近 Checkpoint"
+        },
+        "heroFromSnapshot": "当前值来自快照轮询",
+        "charts": {
+          "throughput": "吞吐",
+          "rows": "累计条数",
+          "cdc": "CDC 延迟",
+          "checkpoint": "Checkpoint 耗时",
+          "busy": "算子忙碌度",
+          "backpressure": "背压"
+        },
+        "series": {
+          "read": "读",
+          "write": "写",
+          "committed": "已提交"
+        },
+        "unit": {
+          "rows": "条",
+          "seconds": "秒"
+        },
+        "perTablePhase3": "按表趋势（第三期）"
+      }
     },
     "zeroMetricsCollapsed": "{count} 项指标当前全为 0，已折叠（相关能力未触发或没有积压）"
   },

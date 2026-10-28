@@ -65,6 +65,12 @@ func syncOperationSpecs() []OperationSpec {
 		{Name: "id", Location: InputPath, Required: true, Description: "Job instance ID"},
 		{Name: "window_ms", Location: InputQuery, Required: false, Description: "Realtime window in milliseconds (default 180000, max 600000)"},
 	}
+	timeseriesInputs := []InputSpec{
+		{Name: "id", Location: InputPath, Required: true, Description: "Job instance ID"},
+		{Name: "range", Location: InputQuery, Required: false, Description: "Time range: 15m|1h|6h|24h|7d (default 1h)"},
+		{Name: "step", Location: InputQuery, Required: false, Description: "Step in seconds (0 = auto from range)"},
+		{Name: "metrics", Location: InputQuery, Required: false, Description: "Comma-separated metric keys: throughput,rows,cdc_delay,checkpoint,busy,backpressure"},
+	}
 
 	jobEventInputs := []InputSpec{
 		{Name: "id", Location: InputPath, Required: true, Description: "Job instance ID"},
@@ -140,6 +146,7 @@ func syncOperationSpecs() []OperationSpec {
 		syncOp("sync.job.events", []string{"sync", "job", "events"}, "List engine events (status, schema change, CDC delay) of a SeaTunnel job", "GET", "/api/v1/sync/jobs/:id/events", RiskR0, "", jobEventInputs, "stx sync job events 1 --types JOB_STATUS", true, false),
 		syncOp("sync.job.realtime", []string{"sync", "job", "realtime"}, "Get realtime busyness, backpressure and bottleneck hints for a running SeaTunnel 3.x job", "GET", "/api/v1/sync/jobs/:id/realtime", RiskR0, "", realtimeInputs, "stx sync job realtime 1 --window_ms 180000", true, false),
 		syncOp("sync.job.plan-dag", []string{"sync", "job", "plan-dag"}, "Get table schemas and save-mode plans derived from a job's submitted config", "GET", "/api/v1/sync/jobs/:id/plan-dag", RiskR0, "", jobIDInput, "stx sync job plan-dag 1", true, false),
+		syncOp("sync.job.timeseries", []string{"sync", "job", "timeseries"}, "Query Prometheus timeseries for a SeaTunnel job (throughput, rows, CDC delay, checkpoint, busy, backpressure)", "GET", "/api/v1/sync/jobs/:id/timeseries", RiskR0, "", timeseriesInputs, "stx sync job timeseries 1 --range 1h", true, false),
 		syncOp("sync.job.checkpoint", []string{"sync", "job", "checkpoint"}, "Get checkpoint snapshot and metrics for a SeaTunnel job", "GET", "/api/v1/sync/jobs/:id/checkpoint", RiskR0, "", checkpointInputs, "stx sync job checkpoint 1", true, false),
 		syncOp("sync.job.preview", []string{"sync", "job", "preview"}, "Get preview data snapshot for a SeaTunnel job", "GET", "/api/v1/sync/jobs/:id/preview", RiskR0, "", previewSnapshotInputs, "stx sync job preview 1", true, false),
 		syncOp("sync.job.cancel", []string{"sync", "job", "cancel"}, "Cancel a running SeaTunnel job", "POST", "/api/v1/sync/jobs/:id/cancel", RiskR2, "终止集群中正在运行的作业，可指定 --savepoint 保存当前状态。", syncWriteInputs(false, jobIDInput), "stx sync job cancel 1 --confirm", false, false),

@@ -22,6 +22,8 @@
 #   mode=systemd : systemd 作为 PID1（--privileged），安装 → stop.sh 停进程 → 重装，验证 systemctl restart 真正拉起进程
 #   mode=mysql   : 外部 MySQL 8 容器；首次安装设置密码 → 清空库后保留配置重装并设置新密码（必须生效）→ 库里已有管理员时
 #                  再设密码（必须不生效且提示沿用）
+#   mode=postgres: 外部 PostgreSQL 容器；首次安装在伪终端里走交互菜单选 3) PostgreSQL 并设置密码（必须生效）→
+#                  用 --db-type pg 参数重装并设新密码（库里已有管理员，必须不生效）；全程日志不含任何密码
 # Install smoke (CI and local): assemble an amd64 offline bundle from a real release (default v1.2.0) with
 # install/build-offline-bundle.sh, then install it with install-online.sh --bundle-file inside a
 # python3-free debian:bookworm container; assert no python3, install OK, scripts/stx-java-proxy.sh present and
@@ -30,20 +32,23 @@
 #   mode=systemd : systemd as PID1 (--privileged); install -> stop.sh -> reinstall, asserting restart really runs it
 #   mode=mysql   : external MySQL 8 container; first install sets a password -> empty the database and reinstall over
 #                  the preserved config with a new password (must apply) -> reinstall while the admin exists (must not)
+#   mode=postgres: external PostgreSQL container; first install answers the interactive menu with 3) PostgreSQL in a
+#                  pseudo-terminal and sets a password (must apply) -> reinstall via --db-type pg flags with a new
+#                  password while the admin exists (must not apply); no password ever shows up in logs
 #
-# 用法 / Usage: scripts/ci-install-smoke.sh <plain|systemd|mysql> [release-tag]
+# 用法 / Usage: scripts/ci-install-smoke.sh <plain|systemd|mysql|postgres> [release-tag]
 #   DOCKER (default: docker), STX_SMOKE_IMAGE (default: debian:bookworm)
 
 set -euo pipefail
 
-mode="${1:?usage: $0 <plain|systemd|mysql> [release-tag]}"
+mode="${1:?usage: $0 <plain|systemd|mysql|postgres> [release-tag]}"
 tag="${2:-v1.2.0}"
 DOCKER="${DOCKER:-docker}"
 image="${STX_SMOKE_IMAGE:-debian:bookworm}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 name="stx-install-smoke-${mode}-$$"
 work="$(mktemp -d)"
-db="stx-smoke-mysql-$$"
+db="stx-smoke-db-$$"
 cleanup() {
   $DOCKER rm -f "$name" "$db" >/dev/null 2>&1 || true
   rm -rf "$work"
@@ -205,6 +210,56 @@ case "$mode" in
     fi
     rc=0; wait "$inner_pid" || rc=$?
     [[ $rc -eq 0 ]] || { $DOCKER exec "$name" bash -c "tail -40 /tmp/i*.log" || true; exit "$rc"; }
+    ;;
+  postgres)
+    $DOCKER run -d --name "$db" -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=rootpw -e POSTGRES_DB=stx \
+      "${STX_SMOKE_POSTGRES_IMAGE:-postgres:16-alpine}" >/dev/null
+    for _ in $(seq 1 60); do
+      $DOCKER exec "$db" pg_isready -U postgres -d stx >/dev/null 2>&1 \
+        && $DOCKER exec "$db" psql -U postgres -d stx -c "SELECT 1" >/dev/null 2>&1 && break
+      sleep 3
+    done
+    db_ip="$($DOCKER inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$db")"
+    echo "[smoke] PostgreSQL at $db_ip:5432"
+    $DOCKER run -d --name "$name" -v "$ROOT_DIR:/src:ro" -v "$work/out:/bundle:ro" "$image" \
+      bash -c "$prep; touch /tmp/prep-done; sleep infinity" >/dev/null
+    for _ in $(seq 1 100); do $DOCKER exec "$name" test -f /tmp/prep-done 2>/dev/null && break; sleep 3; done
+    # shellcheck disable=SC2016  # expanded inside the container
+    pg_inner='
+      login_ok() { curl -s -m 10 -H "Content-Type: application/json" -d "{\"username\":\"admin\",\"password\":\"$1\"}" \
+        "http://127.0.0.1:$(api_port)/api/v1/auth/login" | grep -q "\"username\":\"admin\""; }
+      check "util-linux script (pseudo-terminal) available" "command -v script >/dev/null"
+      # 1) 交互安装（不带 -y）：数据库菜单选 3，依次回答 地址/端口(回车=5432)/用户/密码/库名(回车=stx)/管理员密码×2。
+      #    Interactive install (no -y): menu choice 3, then host / port (Enter=5432) / user / password / db (Enter=stx)
+      #    / admin password twice.
+      printf "3\n%s\n\npostgres\nrootpw\n\nPg-One-111\nPg-One-111\n" "'"$db_ip"'" >/tmp/pg-menu.in
+      script -qec "bash /src/install/install-online.sh --bundle-file /bundle/'"$bundle"' --without-observability --no-systemd \
+        --frontend-port 17880 --http-port 17800 --grpc-port 17890 --external-ip 127.0.0.1" /dev/null </tmp/pg-menu.in >/tmp/i1.log 2>&1; rc=$?
+      check "install #1 (interactive menu 3) exit 0 (rc=$rc)" "[[ $rc -eq 0 ]]"
+      check "install #1: menu offered 3) PostgreSQL" "grep -q \"3) PostgreSQL\" /tmp/i1.log"
+      check "install #1: postgres create-database hint" "grep -q \"CREATE DATABASE stx;\" /tmp/i1.log"
+      check "install #1: no MySQL utf8mb4 hint" "! grep -q utf8mb4 /tmp/i1.log"
+      check "install #1: config database.type postgres" "grep -q \"type: \\\"postgres\\\"\" /opt/stx/config.yaml"
+      check "install #1: config database.port 5432" "grep -q \"port: 5432\" /opt/stx/config.yaml"
+      check "install #1: login with Pg-One-111" "login_ok Pg-One-111"
+      check "install #1: summary says password changed" "grep -q 安装时已修改 /tmp/i1.log"
+      verify
+      # 2) 参数安装（-y，--db-type 别名 pg）：库里已有管理员，新密码不生效。/ Flags (-y, alias pg): admin exists, must not apply.
+      '"$install_cmd"' --no-systemd --db-type pg --db-host '"$db_ip"' --db-user postgres --db-password rootpw \
+        --admin-password Pg-Two-222 >/tmp/i2.log 2>&1; rc=$?
+      check "install #2 (--db-type pg) exit 0 (rc=$rc)" "[[ $rc -eq 0 ]]"
+      check "install #2: config database.type postgres" "grep -q \"type: \\\"postgres\\\"\" /opt/stx/config.yaml"
+      check "install #2: Pg-One-111 still works" "login_ok Pg-One-111"
+      check "install #2: Pg-Two-222 rejected" "! login_ok Pg-Two-222"
+      check "install #2: summary says existing password kept" "grep -q 沿用已有数据库中的密码 /tmp/i2.log"
+      check "install #2: unapplied Pg-Two-222 removed from config" "! grep -qF Pg-Two-222 /opt/stx/config.yaml"
+      verify
+      check "install #2: log has no password" "! grep -qE \"Pg-(One-111|Two-222)|rootpw\" /tmp/i2.log"
+      check "logs/install.log does not contain any password" "! grep -qE \"Pg-(One-111|Two-222)|rootpw\" /opt/stx/logs/install.log"
+      check "no /tmp/stx-install-*.log contains a password" "! grep -lE \"Pg-(One-111|Two-222)|rootpw\" /tmp/stx-install-*.log"
+      exit $fail'
+    rc=0; $DOCKER exec -e WANT_SHA="$want_sha" "$name" bash -c "$inner $pg_inner" || rc=$?
+    [[ $rc -eq 0 ]] || { $DOCKER exec "$name" bash -c "tail -60 /tmp/i*.log; tail -40 /opt/stx/logs/backend.log" || true; exit "$rc"; }
     ;;
   *)
     echo "unknown mode: $mode" >&2

@@ -323,6 +323,36 @@ nosug="$(STX_NONINTERACTIVE=1 STX_PORT_PROBE_LIMIT=0 timeout 20 bash -c 'source 
 expect_eq "forced port without tty and no suggestion fails (no loop)" 1 "$nosug"
 expect_eq "confirm port without tty keeps current" "17880" "$(STX_NONINTERACTIVE=1 stx_ask_port_confirm "p" 17880 "" x "" 2>/dev/null)"
 
+# ---------- 数据库菜单解析 / database menu parsing ----------
+for c in "1:sqlite" "sqlite:sqlite" "SQLite:sqlite" "2:mysql" "MySQL:mysql" "3:postgres" "postgres:postgres" \
+  "PostgreSQL:postgres" "postgresql:postgres" "pg:postgres" "PG:postgres"; do
+  expect_eq "db choice ${c%%:*}" "${c#*:}" "$(stx_parse_db_type "${c%%:*}")"
+done
+for c in "" 4 0 oracle "1 2" mariadb; do
+  if stx_parse_db_type "$c" >/dev/null; then echo "FAIL db choice [$c] must be rejected"; fail=1; else echo "OK db choice [$c] rejected"; fi
+done
+expect_eq "mysql create hint keeps utf8mb4" "CREATE DATABASE stx DEFAULT CHARACTER SET utf8mb4;" "$(stx_db_create_hint mysql stx root)"
+expect_eq "postgres create hint (superuser)" "CREATE DATABASE stx;" "$(stx_db_create_hint postgres stx postgres)"
+case "$(stx_db_create_hint postgres app appuser)" in
+  "CREATE DATABASE app OWNER appuser;"*) echo "OK postgres create hint with owner" ;;
+  *) echo "FAIL postgres create hint with owner: $(stx_db_create_hint postgres app appuser)"; fail=1 ;;
+esac
+
+# ---------- sudo 重跑命令与非 root 条件 / sudo re-run command and non-root rule ----------
+expect_eq "sudo re-run quotes args and hides passwords" \
+  "sudo ./install.sh -y --db-password ****** --admin-password=****** --install-dir /opt/my\ stx" \
+  "$(stx_sudo_rerun_cmd "sudo ./install.sh" -y --db-password 'p w' --admin-password=secret --install-dir '/opt/my stx')"
+expect_eq "sudo re-run without args" "sudo ./install.sh" "$(stx_sudo_rerun_cmd "sudo ./install.sh")"
+nr="$(mktemp -d)"
+if stx_nonroot_install_ok true "$nr/new/sub" true ""; then echo "OK non-root: writable explicit dir + --no-systemd"; else echo "FAIL non-root writable dir"; fail=1; fi
+if stx_nonroot_install_ok false "$nr" true ""; then echo "FAIL non-root needs an explicit --install-dir"; fail=1; else echo "OK non-root needs an explicit --install-dir"; fi
+if stx_nonroot_install_ok true "$nr" false ""; then echo "FAIL non-root needs --no-systemd"; fail=1; else echo "OK non-root needs --no-systemd"; fi
+if stx_nonroot_install_ok true "$nr" true stx; then echo "FAIL non-root cannot use --service-user"; fail=1; else echo "OK non-root cannot use --service-user"; fi
+if [[ "$(id -u)" -ne 0 ]]; then
+  if stx_nonroot_install_ok true /proc/stx-x true ""; then echo "FAIL non-root unwritable dir"; fail=1; else echo "OK non-root unwritable dir rejected"; fi
+fi
+rm -rf "$nr"
+
 # ---------- 管理员数据库状态 / admin database state ----------
 kd="$(mktemp -d)"
 printf 'database:\n  type: "sqlite"\n  sqlite_path: ./data/stx.db\n' >"$kd/config.yaml"

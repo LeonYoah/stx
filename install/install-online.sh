@@ -154,7 +154,7 @@ Usage:
   --http-port <port>       后端 API 端口（默认 17800）
   --grpc-port <port>       Agent gRPC 端口（默认 17890，Agent 回连）
   --external-ip <ip>       对外访问 IP/域名（默认自动探测）
-  --db-type <sqlite|mysql> 及 --db-host/--db-port/--db-user/--db-password/--db-name
+  --db-type <sqlite|mysql|postgres> 及 --db-host/--db-port/--db-user/--db-password/--db-name
   --prometheus-port / --alertmanager-port / --grafana-port   三件套端口（只能用参数）
   --without-node           不用包内 Node（本机需 Node ≥ 18.18）
   --service-user <user>    systemd 服务运行用户（默认 root）
@@ -173,6 +173,12 @@ BUNDLE_NAME=""
 WORK_PARENT="${STX_WORK_DIR:-${TMPDIR:-/tmp}}"
 KEEP_BUNDLE=false
 INSTALL_ARGS=()
+ORIG_ARGS=("$@")
+OPT_INSTALL_DIR="${STX_INSTALL_DIR:-/opt/stx}"
+OPT_DIR_EXPLICIT=false
+[[ -n "${STX_INSTALL_DIR:-}" ]] && OPT_DIR_EXPLICIT=true
+OPT_NO_SYSTEMD=false
+OPT_SERVICE_USER="${STX_SERVICE_USER:-}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -188,16 +194,31 @@ while [[ $# -gt 0 ]]; do
     # 密码经环境变量传给 install.sh，不出现在子进程参数里。/ Passwords reach install.sh via env, not child argv.
     --admin-password) STX_ADMIN_PASSWORD="${2:-}"; export STX_ADMIN_PASSWORD; shift 2 ;;
     --db-password) STX_DB_PASSWORD="${2:-}"; export STX_DB_PASSWORD; shift 2 ;;
-    --install-dir|--frontend-port|--http-port|--api-port|--grpc-port|--external-ip|--external-host|\
-    --db-type|--db-host|--db-port|--db-user|--db-name|--prometheus-port|--alertmanager-port|--grafana-port|\
-    --service-user)
+    --install-dir) OPT_INSTALL_DIR="${2:-}"; OPT_DIR_EXPLICIT=true; INSTALL_ARGS+=("$1" "${2:-}"); shift 2 ;;
+    --service-user) OPT_SERVICE_USER="${2:-}"; INSTALL_ARGS+=("$1" "${2:-}"); shift 2 ;;
+    --no-systemd) OPT_NO_SYSTEMD=true; INSTALL_ARGS+=("$1"); shift ;;
+    --frontend-port|--http-port|--api-port|--grpc-port|--external-ip|--external-host|\
+    --db-type|--db-host|--db-port|--db-user|--db-name|--prometheus-port|--alertmanager-port|--grafana-port)
       INSTALL_ARGS+=("$1" "${2:-}"); shift 2 ;;
-    --without-observability|--with-observability|--force|--no-preserve-config|--no-start|--no-systemd|--without-node|--no-autostart)
+    --without-observability|--with-observability|--force|--no-preserve-config|--no-start|--without-node|--no-autostart)
       INSTALL_ARGS+=("$1"); shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "[ERROR] unknown option: $1" >&2; usage; exit 1 ;;
   esac
 done
+
+# 下载之前先判断权限（install.sh 同样的规则），避免下载完才失败。curl | bash 时提示 | sudo bash -s --。
+# Check privileges before downloading (same rule as install.sh); under curl | bash suggest | sudo bash -s --.
+if declare -F stx_require_root >/dev/null; then
+  if [[ -f "${BASH_SOURCE[0]:-}" ]]; then
+    _stx_rerun="sudo bash $(printf '%q' "${BASH_SOURCE[0]}")"
+  else
+    _stx_rerun="curl -fsSL https://github.com/${STX_GITHUB_OWNER:-LeonYoah}/${STX_GITHUB_REPO:-stx}/releases/latest/download/install-online.sh | sudo bash -s --"
+  fi
+  stx_require_root "$_stx_rerun" "$OPT_DIR_EXPLICIT" "$OPT_INSTALL_DIR" "$OPT_NO_SYSTEMD" "$OPT_SERVICE_USER" \
+    ${ORIG_ARGS[@]+"${ORIG_ARGS[@]}"}
+  unset _stx_rerun
+fi
 
 stx_setup_log "${TMPDIR:-/tmp}/stx-install-$(date +%Y%m%d-%H%M%S).log"
 WORK_DIR=""

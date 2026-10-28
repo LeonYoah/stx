@@ -504,6 +504,35 @@ stx_yaml_quote() {
   printf '"%s"' "$v"
 }
 
+# 数据库选择（菜单编号或名称，不区分大小写）规范化为 sqlite|mysql|postgres；无法识别返回 1。
+# Normalize a database choice (menu number or name, case-insensitive) to sqlite|mysql|postgres; 1 if unknown.
+stx_parse_db_type() {
+  local v
+  v="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+  case "$v" in
+    1|sqlite|sqlite3) echo sqlite ;;
+    2|mysql) echo mysql ;;
+    3|postgres|postgresql|pg|pgsql) echo postgres ;;
+    *) return 1 ;;
+  esac
+}
+
+# 建库示例 SQL（按数据库类型）。/ Example CREATE DATABASE statement for the database type.
+# 用法 / Usage: stx_db_create_hint <mysql|postgres> <db-name> [db-user]
+stx_db_create_hint() {
+  local type="$1" name="$2" user="${3:-}"
+  case "$type" in
+    mysql) echo "CREATE DATABASE ${name} DEFAULT CHARACTER SET utf8mb4;" ;;
+    postgres)
+      if [[ -z "$user" || "$user" == postgres ]]; then
+        echo "CREATE DATABASE ${name};"
+      else
+        echo "CREATE DATABASE ${name} OWNER ${user};（用 postgres 超级用户执行，如 sudo -u postgres psql -c 'CREATE DATABASE ${name} OWNER ${user};'）"
+      fi ;;
+    *) echo "" ;;
+  esac
+}
+
 # 写入数据库配置。/ Write database settings.
 stx_set_database() {
   local file="$1" type="$2" host="$3" port="$4" user="$5" pw="$6" name="$7"

@@ -23,6 +23,8 @@ STX installer（离线包 / offline bundle）
 
 Usage:
   sudo ./install.sh [options]
+  需要 root；不用 root 时须同时指定可写的 --install-dir 与 --no-systemd
+  needs root; non-root only with a writable --install-dir plus --no-systemd
 
 Options:
   -y, --yes                非交互：不提问，全部使用默认值或参数值 / no prompts, use defaults/flags
@@ -32,7 +34,7 @@ Options:
   --http-port <port>       后端 API 端口 / backend API port (default: 17800, env STX_HTTP_PORT)
   --grpc-port <port>       Agent gRPC 端口（Agent 回连）/ agent gRPC port (default: 17890, env STX_GRPC_PORT)
   --external-ip <ip|host>  对外访问 IP/域名，写入 app.external_url（默认自动探测，env STX_EXTERNAL_IP）
-  --db-type <sqlite|mysql|postgres>  数据库类型（默认 sqlite，env STX_DB_TYPE）
+  --db-type <sqlite|mysql|postgres>  数据库类型（默认 sqlite；postgres 也可写 pg/postgresql，env STX_DB_TYPE）
   --db-host / --db-port / --db-user / --db-password / --db-name   外部数据库连接参数（env STX_DB_*）
 
 以下只能用参数指定（不提问）/ flags only (never prompted):
@@ -89,11 +91,14 @@ ARG_DB_NAME="${STX_DB_NAME:-}"
 WITHOUT_NODE=false
 SERVICE_USER="${STX_SERVICE_USER:-}"
 ENABLE_AUTOSTART=true
+INSTALL_DIR_EXPLICIT=false
+[[ -n "${STX_INSTALL_DIR:-}" ]] && INSTALL_DIR_EXPLICIT=true
+ORIG_ARGS=("$@")
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -y|--yes) STX_ASSUME_YES=true; export STX_ASSUME_YES; shift ;;
-    --install-dir) INSTALL_DIR="${2:-}"; shift 2 ;;
+    --install-dir) INSTALL_DIR="${2:-}"; INSTALL_DIR_EXPLICIT=true; shift 2 ;;
     --admin-password) ADMIN_PASSWORD="${2:-}"; shift 2 ;;
     --frontend-port) ARG_FRONTEND_PORT="${2:-}"; shift 2 ;;
     --http-port|--api-port) ARG_HTTP_PORT="${2:-}"; shift 2 ;;
@@ -131,6 +136,20 @@ if [[ -z "$INSTALL_DIR" ]]; then
   echo "[ERROR] --install-dir cannot be empty" >&2
   exit 1
 fi
+if [[ -n "$ARG_DB_TYPE" ]]; then
+  ARG_DB_TYPE="$(stx_parse_db_type "$ARG_DB_TYPE")" || {
+    echo "[ERROR] unsupported --db-type: ${STX_DB_TYPE:-$ARG_DB_TYPE} (sqlite|mysql|postgres)" >&2
+    exit 1
+  }
+fi
+
+# 先判断权限，再做任何检查或提问。/ Check privileges before any pre-flight check or prompt.
+_stx_self="$0"
+[[ "$_stx_self" == */* ]] || _stx_self="./$_stx_self"
+if [[ -x "$_stx_self" ]]; then _stx_self="$(printf '%q' "$_stx_self")"; else _stx_self="bash $(printf '%q' "$_stx_self")"; fi
+stx_require_root "sudo $_stx_self" "$INSTALL_DIR_EXPLICIT" "$INSTALL_DIR" "$SKIP_SYSTEMD" "$SERVICE_USER" \
+  ${ORIG_ARGS[@]+"${ORIG_ARGS[@]}"}
+unset _stx_self
 
 stx_setup_log "${TMPDIR:-/tmp}/stx-install-$(date +%Y%m%d-%H%M%S).log"
 
@@ -395,7 +414,8 @@ if [[ -z "$ARG_EXTERNAL_IP" ]] && stx_is_interactive; then
 fi
 export STX_EXTERNAL_HOST
 
-# 3) 数据库：SQLite（默认）或 MySQL；重装且保留配置时不改。/ Database: SQLite (default) or MySQL; kept on reinstall.
+# 3) 数据库：SQLite（默认）/ MySQL / PostgreSQL；重装且保留配置时不改。
+#    Database: SQLite (default) / MySQL / PostgreSQL; kept on reinstall.
 DB_STATE="keep"
 if [[ -n "$EXISTING_CONFIG" && -z "$ARG_DB_TYPE" ]]; then
   DB_TYPE="$(stx_yaml_get "$EXISTING_CONFIG" database.type)"
@@ -405,12 +425,10 @@ else
   DB_TYPE="${ARG_DB_TYPE:-sqlite}"
   if [[ -z "$ARG_DB_TYPE" ]] && stx_is_interactive; then
     while true; do
-      ans="$(stx_prompt "数据库 / database：1) SQLite（内置，无需安装） 2) MySQL [默认 1]:" "1")"
-      case "$ans" in
-        1|sqlite|SQLite) DB_TYPE=sqlite; break ;;
-        2|mysql|MySQL) DB_TYPE=mysql; break ;;
-        *) stx_is_interactive || break; echo "    请输入 1 或 2" >/dev/tty ;;
-      esac
+      ans="$(stx_prompt "数据库 / database：1) SQLite（内置，无需安装） 2) MySQL 3) PostgreSQL [默认 1]:" "1")"
+      if v="$(stx_parse_db_type "$ans")"; then DB_TYPE="$v"; break; fi
+      stx_is_interactive || break
+      echo "    请输入 1、2 或 3 / enter 1, 2 or 3" >/dev/tty
     done
   fi
   case "$DB_TYPE" in
@@ -435,7 +453,7 @@ else
       else
         stx_warn "${DB_TYPE} ${DB_HOST}:${DB_PORT} 当前连不上；请确认服务已启动，否则 STX 启动会失败"
       fi
-      stx_info "提示：请确保数据库「${DB_NAME}」已创建（表结构由 STX 首次启动自动创建），例如：CREATE DATABASE ${DB_NAME} DEFAULT CHARACTER SET utf8mb4;"
+      stx_info "提示：请确保数据库「${DB_NAME}」已创建（表结构由 STX 首次启动自动创建），例如：$(stx_db_create_hint "$DB_TYPE" "$DB_NAME" "$DB_USER")"
       ;;
     *) stx_err "unsupported --db-type: $DB_TYPE (sqlite|mysql|postgres)"; exit 1 ;;
   esac

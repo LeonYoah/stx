@@ -475,6 +475,59 @@ stx_report_failure() {
   fi
 }
 
+# 路径（或其最近的已存在上级目录）当前用户可写。/ The path, or its nearest existing parent, is writable by us.
+stx_path_writable() {
+  local p="$1"
+  [[ "$p" == /* ]] || p="$(pwd)/$p"
+  while [[ ! -e "$p" && "$p" != / ]]; do p="$(dirname "$p")"; done
+  [[ -d "$p" && -w "$p" && -x "$p" ]]
+}
+
+# 非 root 是否允许安装：必须显式指定可写的安装目录且 --no-systemd（注册 systemd 服务、默认 /opt/stx、
+# --service-user 的 chown 都需要 root）。
+# Non-root install is allowed only with an explicit writable install dir AND --no-systemd (the systemd unit,
+# the default /opt/stx and the --service-user chown all need root).
+# 用法 / Usage: stx_nonroot_install_ok <dir-explicit:true|false> <install-dir> <no-systemd:true|false> <service-user>
+stx_nonroot_install_ok() {
+  [[ "$1" == true && "$3" == true && -z "$4" ]] && stx_path_writable "$2"
+}
+
+# 打印带 sudo 的重跑命令：原参数逐个按 shell 规则加引号，密码值一律替换为 ******。
+# Print the sudo re-run command: original args are shell-quoted one by one, password values become ******.
+# 用法 / Usage: stx_sudo_rerun_cmd <command prefix, e.g. "sudo ./install.sh"> [original args...]
+stx_sudo_rerun_cmd() {
+  local out="$1" a mask=0
+  shift
+  for a in "$@"; do
+    if [[ "$mask" == 1 ]]; then out="$out ******"; mask=0; continue; fi
+    case "$a" in
+      --admin-password|--db-password) out="$out $a"; mask=1 ;;
+      --admin-password=*|--db-password=*) out="$out ${a%%=*}=******" ;;
+      *) out="$out $(printf '%q' "$a")" ;;
+    esac
+  done
+  printf '%s\n' "$out"
+}
+
+# 安装需要 root：不是 root 且不满足非 root 条件时，在任何提问 / 检查之前给出 sudo 命令并退出 1。
+# Installs need root: unless the non-root conditions hold, print the sudo command and exit 1 before any prompt.
+# 用法 / Usage: stx_require_root <command prefix> <dir-explicit> <install-dir> <no-systemd> <service-user> [args...]
+stx_require_root() {
+  local prefix="$1" explicit="$2" dir="$3" nosd="$4" svc="$5" cmd
+  shift 5
+  [[ "$(id -u)" -eq 0 ]] && return 0
+  stx_nonroot_install_ok "$explicit" "$dir" "$nosd" "$svc" && return 0
+  cmd="$(stx_sudo_rerun_cmd "$prefix" "$@")"
+  {
+    echo "${STX_C_RED}  [ERROR] 安装需要 root 权限 / installation requires root${STX_C_RESET}"
+    echo "  请用 sudo 执行：${cmd}"
+    [[ "$cmd" == *"******"* ]] && echo "  （命令中的密码已隐藏，请把 ****** 换成实际密码 / passwords are hidden: replace ******）"
+    echo "  不用 root 安装：同时指定当前用户可写的 --install-dir <目录> 与 --no-systemd（不注册系统服务）"
+    echo "  non-root: pass a writable --install-dir <dir> together with --no-systemd (no system service)"
+  } >&2
+  exit 1
+}
+
 # 是否可以交互：未设置 -y/STX_ASSUME_YES，且 /dev/tty 可读写。
 # Interactive only without -y/STX_ASSUME_YES and with a readable /dev/tty (works under curl | bash).
 # 终端读到 EOF 后的标记文件（$$ 在子 shell 中不变，命令替换里也能看到）。

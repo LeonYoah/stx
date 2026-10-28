@@ -300,6 +300,108 @@ grep -q '/main/install/download-lib.sh' "$T/pipe/calls" && ok "repo (unbaked) sc
 grep -q 'STX_SCRIPT_RELEASE_TAG=""' "$ROOT_DIR/install/install-online.sh" && grep -q 'STX_SCRIPT_RELEASE_TAG=""' "$ROOT_DIR/install/download-bundle.sh" \
   && ok "release-tag placeholder present for package-release.sh" || bad "release-tag placeholder missing"
 
+# ---------- 2j. 非 root：在任何检查 / 提问之前要求 sudo ----------
+# Non-root: ask for sudo before any pre-flight check or prompt. A fake `id` forces uid 1000 even when run as root.
+mkdir -p "$T/fakeid"
+printf '#!/bin/sh\nif [ "$1" = "-u" ]; then echo 1000; exit 0; fi\nexec %s "$@"\n' "$(command -v id)" >"$T/fakeid/id"
+chmod +x "$T/fakeid/id"
+if PATH="$T/fakeid:$NONODE" bash "$A64/install.sh" -y --db-type pg --db-password 'S3cr et!' --admin-password Adm-Pw-9 \
+  --external-ip 'a b' >"$T/nonroot.log" 2>&1; then
+  bad "non-root install without --install-dir must fail"
+else
+  ok "non-root install without --install-dir fails"
+fi
+assert_grep "non-root error asks for sudo" "请用 sudo 执行：sudo $A64/install.sh -y --db-type pg --db-password ****** --admin-password ****** --external-ip a\ b" "$T/nonroot.log"
+assert_no_grep "non-root error never prints the db password" "S3cr" "$T/nonroot.log"
+assert_no_grep "non-root error never prints the admin password" "Adm-Pw-9" "$T/nonroot.log"
+assert_no_grep "non-root error happens before pre-flight checks" "安装前检查" "$T/nonroot.log"
+if PATH="$T/fakeid:$NONODE" bash "$A64/install.sh" -y --install-dir "$T/inst-nosd" --no-start \
+  --without-observability >"$T/nonroot2.log" 2>&1; then
+  bad "non-root install without --no-systemd must fail"
+else
+  ok "non-root install with --install-dir but without --no-systemd fails"
+fi
+assert_grep "non-root hint names --no-systemd" "--no-systemd" "$T/nonroot2.log"
+if PATH="$T/fakeid:$NONODE" bash "$A64/install.sh" -y --install-dir /proc/stx-not-writable --no-systemd --no-start \
+  >"$T/nonroot3.log" 2>&1; then
+  bad "non-root install into an unwritable dir must fail"
+else
+  ok "non-root install into an unwritable --install-dir fails"
+fi
+assert_grep "unwritable dir asks for sudo" "请用 sudo 执行" "$T/nonroot3.log"
+if PATH="$T/fakeid:$NONODE" bash "$ROOT_DIR/install/install-online.sh" -y --bundle-file "$T/out/stx-${VER}-linux-amd64-offline.tar.gz" \
+  --work-dir "$T" >"$T/nonroot-online.log" 2>&1; then
+  bad "non-root install-online without --install-dir must fail"
+else
+  ok "non-root install-online fails before extracting"
+fi
+assert_grep "install-online asks for sudo" "请用 sudo 执行：sudo bash $ROOT_DIR/install/install-online.sh -y --bundle-file" "$T/nonroot-online.log"
+assert_no_grep "install-online fails before any download step" "下载 [1/" "$T/nonroot-online.log"
+
+# ---------- 2k. 交互菜单：伪终端里选 3) PostgreSQL ----------
+# Interactive menu in a pseudo-terminal (util-linux script): invalid choice, then 3) PostgreSQL.
+# 老版 util-linux（如 CentOS 7 的 2.23）在 stdin 读到 EOF 时立即退出，无法灌入按键：探测后跳过。
+# Old util-linux (e.g. 2.23 on CentOS 7) exits on stdin EOF before the child reads; probe and skip there.
+pty_ok=false
+if command -v script >/dev/null 2>&1; then
+  printf 'k\n' >"$T/pty-probe.in"
+  timeout 20 script -qec 'sleep 1; read -r a </dev/tty; echo "pty-probe=$a"' /dev/null <"$T/pty-probe.in" >"$T/pty-probe.log" 2>&1 || true
+  grep -q 'pty-probe=k' "$T/pty-probe.log" && pty_ok=true
+fi
+if [[ "$pty_ok" == true ]]; then
+  inst="$T/inst-pg-menu"
+  # 提问顺序：数据库 → 地址 → 端口 → 用户 → 密码 → 库名 → 管理员密码。/ Prompt order of this run.
+  printf '9\n3\n\n\nstxuser\nPg-Secret-77\n\n\n' >"$T/pg-menu.in"
+  (
+    unset CI STX_ASSUME_YES STX_NONINTERACTIVE
+    PATH="$NONODE" timeout 120 script -qec "bash '$A64/install.sh' --install-dir '$inst' --no-start --no-systemd \
+      --without-observability --frontend-port 47880 --http-port 47800 --grpc-port 47890 --external-ip 127.0.0.1" \
+      /dev/null <"$T/pg-menu.in" >"$T/pg-menu.log" 2>&1
+  ) || true
+  assert_grep "menu offers 3) PostgreSQL" "3) PostgreSQL" "$T/pg-menu.log"
+  assert_grep "menu rejects an invalid choice with 1、2 或 3" "请输入 1、2 或 3" "$T/pg-menu.log"
+  assert_grep "menu choice 3 asks the postgres port with default 5432" "postgres 端口 / port [默认 5432]" "$T/pg-menu.log"
+  assert_grep "postgres create-database hint (no utf8mb4)" "CREATE DATABASE stx OWNER stxuser;" "$T/pg-menu.log"
+  assert_no_grep "postgres hint has no MySQL charset" "utf8mb4" "$T/pg-menu.log"
+  # 伪终端转录里有预先灌入的按键回显，所以只检查安装日志。/ The pty transcript echoes the typed-ahead keys; check the log.
+  assert_file "interactive run wrote logs/install.log" "$inst/logs/install.log"
+  assert_grep "install log records the chosen database" "db=postgres" "$inst/logs/install.log"
+  assert_no_grep "install log never contains the db password" "Pg-Secret-77" "$inst/logs/install.log"
+  assert_grep "config database.type postgres" 'type: "postgres"' "$inst/config.yaml"
+  assert_grep "config database.port 5432" "port: 5432" "$inst/config.yaml"
+  assert_grep "config database.username" 'username: "stxuser"' "$inst/config.yaml"
+  assert_grep "config database.password" 'password: "Pg-Secret-77"' "$inst/config.yaml"
+  assert_grep "config database.database" 'database: "stx"' "$inst/config.yaml"
+else
+  echo "SKIP interactive menu test (no util-linux script that can feed a pseudo-terminal)"
+fi
+
+# --db-type 别名与建库提示（非交互）。/ --db-type aliases and the create-database hint (non-interactive).
+for alias in postgresql PG; do
+  inst="$T/inst-pg-$alias"
+  if PATH="$NONODE" STX_DB_PASSWORD=env-pw-1 bash "$A64/install.sh" -y --install-dir "$inst" --no-start --no-systemd \
+    --without-observability --db-type "$alias" --db-host 127.0.0.1 --db-port 1 >"$T/pg-$alias.log" 2>&1; then
+    ok "--db-type $alias installs"
+  else
+    bad "--db-type $alias failed"; sed 's/^/    | /' "$T/pg-$alias.log"
+  fi
+  assert_grep "--db-type $alias => type postgres" 'type: "postgres"' "$inst/config.yaml"
+  assert_grep "--db-type $alias => default user postgres" 'username: "postgres"' "$inst/config.yaml"
+  assert_grep "--db-type $alias => STX_DB_PASSWORD written" 'password: "env-pw-1"' "$inst/config.yaml"
+  assert_grep "--db-type $alias => CREATE DATABASE stx;" "CREATE DATABASE stx;" "$T/pg-$alias.log"
+  assert_no_grep "--db-type $alias log has no db password" "env-pw-1" "$T/pg-$alias.log"
+done
+inst="$T/inst-mysql"
+PATH="$NONODE" bash "$A64/install.sh" -y --install-dir "$inst" --no-start --no-systemd --without-observability \
+  --db-type mysql --db-host 127.0.0.1 --db-port 1 >"$T/mysql.log" 2>&1 || true
+assert_grep "mysql keeps the utf8mb4 hint" "CREATE DATABASE stx DEFAULT CHARACTER SET utf8mb4;" "$T/mysql.log"
+if PATH="$NONODE" bash "$A64/install.sh" -y --install-dir "$T/inst-bad" --no-systemd --db-type oracle >"$T/bad-db.log" 2>&1; then
+  bad "--db-type oracle must fail"
+else
+  ok "--db-type oracle fails"
+fi
+assert_grep "--db-type oracle error lists the types" "sqlite|mysql|postgres" "$T/bad-db.log"
+
 # ---------- 3. alertmanager launched with --cluster.listen-address= ----------
 # 目录含空格，验证参数已正确加引号。/ Path with spaces verifies the args are quoted.
 OBS_BASE="$T/obs dir"

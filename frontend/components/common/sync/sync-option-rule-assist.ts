@@ -445,14 +445,33 @@ export function rankOptionKeyCompletions(
     }
   }
 
+  const optionsByKey = new Map(
+    (schema.options || []).map((item) => [item.key, item]),
+  );
+
   const allKeys = new Set<string>([...baseKeys, ...matchedKeys]);
   const ranks: OptionKeyCompletionRank[] = [];
   for (const key of allKeys) {
     let sortBucket = 2;
     let active = true;
+    const opt = optionsByKey.get(key);
+    const isRequired =
+      String(opt?.required_mode || '').toUpperCase() === 'REQUIRED';
+    const isAdvanced = Boolean(opt?.advanced);
+
     if (matchedKeys.has(key) || conditionalBoost.has(key)) {
       sortBucket = 0;
       active = true;
+    } else if (isRequired) {
+      // 绝对必填字段提升至 bucket 1，排在条件命中之后、普通与高级字段之前。
+      // Absolutely required options are boosted to bucket 1, ahead of regular/advanced options.
+      sortBucket = 1;
+      active = true;
+    } else if (isAdvanced) {
+      // 引擎与基类扫描产生的高级内部字段降权排后，避免淹没核心连接器配置。
+      // Demote engine/base scanned advanced options so they do not drown core connector options.
+      sortBucket = 4;
+      active = false;
     } else if (anyMatched && unmatchedOnlyKeys.has(key)) {
       sortBucket = 5;
       active = false;
@@ -735,10 +754,14 @@ export function toOptionRuleAssistSchema(
       key: String(item.key || key),
       required_mode: item.required_mode
         ? String(item.required_mode)
-        : undefined,
+        : item.requiredMode
+          ? String(item.requiredMode)
+          : undefined,
       condition_expression: item.condition_expression
         ? String(item.condition_expression)
-        : undefined,
+        : item.conditionExpression
+          ? String(item.conditionExpression)
+          : undefined,
       description: item.description ? String(item.description) : undefined,
       advanced: Boolean(item.advanced),
     });

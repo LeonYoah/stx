@@ -176,7 +176,15 @@ public class ConfigValidationService {
                         StringUtils.capitalize(node.getKind().name().toLowerCase()),
                         node.getConfigIndex(),
                         pluginName));
-        result.put("target", StringUtils.defaultString(getString(config, "url")));
+        String target = getString(config, "url");
+        if (StringUtils.isBlank(target)) {
+            String host = getString(config, "hostname");
+            if (StringUtils.isNotBlank(host)) {
+                String port = getString(config, "port");
+                target = port != null ? host + ":" + port : host;
+            }
+        }
+        result.put("target", StringUtils.defaultString(target));
 
         if (doesNotRequireConnectionProbe(pluginName)) {
             result.put("status", "skipped");
@@ -185,23 +193,38 @@ public class ConfigValidationService {
             return result;
         }
 
-        if (!"Jdbc".equalsIgnoreCase(pluginName)) {
-            result.put("status", "skipped");
-            result.put("severity", "warning");
-            result.put("message", "该连接器暂不支持连接探测，请通过配置预览或实际运行进一步验证。");
-            return result;
+        if (isJdbcProbeableConnector(pluginName, config)) {
+            try {
+                probeJdbc(pluginName, config, classLoader);
+                result.put("status", "success");
+                result.put("message", "Connection succeeded.");
+                return result;
+            } catch (Exception e) {
+                result.put("status", "failed");
+                result.put("message", firstLine(e.getMessage()));
+                return result;
+            }
         }
 
-        try {
-            probeJdbc(config, classLoader);
-            result.put("status", "success");
-            result.put("message", "Connection succeeded.");
-            return result;
-        } catch (Exception e) {
-            result.put("status", "failed");
-            result.put("message", firstLine(e.getMessage()));
-            return result;
+        result.put("status", "skipped");
+        result.put("severity", "warning");
+        result.put("message", "该连接器暂不支持连接探测，请通过配置预览或实际运行进一步验证。");
+        return result;
+    }
+
+    /**
+     * 判断连接器是否可以通过 JDBC 驱动进行连接探测（包括标准 JDBC 以及支持 JDBC 探测的 CDC 连接器）。 Checks whether the connector can
+     * be probed via JDBC driver (including standard JDBC and CDC connectors with JDBC endpoints).
+     */
+    private boolean isJdbcProbeableConnector(String pluginName, Config config) {
+        if ("Jdbc".equalsIgnoreCase(pluginName) || "MySQL-CDC".equalsIgnoreCase(pluginName)) {
+            return true;
         }
+        String url = getString(config, "url");
+        if (StringUtils.isNotBlank(url) && url.toLowerCase().startsWith("jdbc:")) {
+            return true;
+        }
+        return false;
     }
 
     /**
@@ -227,11 +250,34 @@ public class ConfigValidationService {
         return "FakeSource".equalsIgnoreCase(pluginName) || "Console".equalsIgnoreCase(pluginName);
     }
 
-    private void probeJdbc(Config config, ClassLoader classLoader) throws Exception {
-        String url = getRequiredString(config, "url");
+    private void probeJdbc(String pluginName, Config config, ClassLoader classLoader)
+            throws Exception {
+        String url = getString(config, "url");
+        if (StringUtils.isBlank(url)) {
+            String hostname = getString(config, "hostname");
+            if (StringUtils.isNotBlank(hostname)) {
+                String port = getString(config, "port");
+                if (StringUtils.isBlank(port)) {
+                    port = "3306";
+                }
+                url = String.format("jdbc:mysql://%s:%s/", hostname, port);
+            }
+        }
+        if (StringUtils.isBlank(url)) {
+            throw new IllegalArgumentException(
+                    "Missing required connection option: url or hostname.");
+        }
+
         String username = getString(config, "username");
+        if (StringUtils.isBlank(username)) {
+            username = getString(config, "user");
+        }
         String password = getString(config, "password");
         String driverClassName = getString(config, "driver");
+        if (StringUtils.isBlank(driverClassName)) {
+            driverClassName = resolveDefaultJdbcDriver(pluginName, url);
+        }
+
         if (StringUtils.isNotBlank(driverClassName)) {
             Class<?> driverClass = Class.forName(driverClassName, true, classLoader);
             Driver driver = (Driver) driverClass.getDeclaredConstructor().newInstance();
@@ -250,6 +296,27 @@ public class ConfigValidationService {
             return;
         }
         throw new IllegalArgumentException("Missing jdbc driver option.");
+    }
+
+    private String resolveDefaultJdbcDriver(String pluginName, String url) {
+        String lowerUrl = StringUtils.defaultString(url).toLowerCase();
+        if (lowerUrl.startsWith("jdbc:mysql:") || "MySQL-CDC".equalsIgnoreCase(pluginName)) {
+            return "com.mysql.cj.jdbc.Driver";
+        }
+        if (lowerUrl.startsWith("jdbc:postgresql:")
+                || lowerUrl.startsWith("jdbc:postgres:")
+                || "PostgreSQL-CDC".equalsIgnoreCase(pluginName)
+                || "Postgres-CDC".equalsIgnoreCase(pluginName)) {
+            return "org.postgresql.Driver";
+        }
+        if (lowerUrl.startsWith("jdbc:oracle:") || "Oracle-CDC".equalsIgnoreCase(pluginName)) {
+            return "oracle.jdbc.OracleDriver";
+        }
+        if (lowerUrl.startsWith("jdbc:sqlserver:")
+                || "SqlServer-CDC".equalsIgnoreCase(pluginName)) {
+            return "com.microsoft.sqlserver.jdbc.SQLServerDriver";
+        }
+        return null;
     }
 
     private String getRequiredString(Config config, String path) {

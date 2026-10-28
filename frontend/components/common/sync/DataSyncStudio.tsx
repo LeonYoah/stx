@@ -2323,6 +2323,7 @@ export function DataSyncStudio() {
               keyCtx.snapshot.values,
             );
             const prefix = (keyCtx.prefix || '').toLowerCase();
+            const normalizedPrefix = prefix.replace(/[-_.]/g, '');
             const word = model.getWordUntilPosition(position);
             const range = {
               startLineNumber: position.lineNumber,
@@ -2331,12 +2332,19 @@ export function DataSyncStudio() {
               endColumn: word?.endColumn || position.column,
             };
             const suggestions = ranks
-              .filter((item) =>
-                prefix
-                  ? item.key.toLowerCase().startsWith(prefix) ||
-                    item.key.toLowerCase().includes(prefix)
-                  : true,
-              )
+              .filter((item) => {
+                if (!prefix) {
+                  return true;
+                }
+                const keyLower = item.key.toLowerCase();
+                const keyNormalized = keyLower.replace(/[-_.]/g, '');
+                return (
+                  keyLower.startsWith(prefix) ||
+                  keyLower.includes(prefix) ||
+                  (normalizedPrefix.length > 0 &&
+                    keyNormalized.includes(normalizedPrefix))
+                );
+              })
               .slice(0, 80)
               .map((item, index) => ({
                 label: item.key,
@@ -3549,9 +3557,11 @@ export function DataSyncStudio() {
       setValidationTitle(t('validateConfigTitle'));
       setValidationResult(result);
       setValidationOpen(true);
-      toast.success(
-        result.valid ? t('validatePassed') : t('validateCompleted'),
-      );
+      // 校验通过时轻提示成功，未通过时详情已在 ValidationDialog 内展示，避免双重弹窗。
+      // Toast success when passed; failure details are shown in ValidationDialog to avoid duplicate popups.
+      if (result.valid) {
+        toast.success(t('validatePassed'));
+      }
     } catch (error) {
       const uiError = formatSyncUserFacingError(
         error,
@@ -3566,7 +3576,8 @@ export function DataSyncStudio() {
         summary: uiError.title,
       });
       setValidationOpen(true);
-      toast.error(uiError.description);
+      // 错误已在 ValidationDialog 居中模态展示，不再重复弹出 toast 气泡，避免双重弹窗。
+      // Error is displayed in the modal ValidationDialog, omit duplicate toast to prevent double popups.
     }
   };
 
@@ -3587,9 +3598,11 @@ export function DataSyncStudio() {
       setValidationTitle(t('testConnections'));
       setValidationResult(result);
       setValidationOpen(true);
-      toast.success(
-        result.valid ? t('connectionsPassed') : t('connectionsCompleted'),
-      );
+      // 测试通过时轻提示成功，未通过时详情已在 ValidationDialog 内展示，避免双重弹窗。
+      // Toast success when passed; failure details are shown in ValidationDialog to avoid duplicate popups.
+      if (result.valid) {
+        toast.success(t('connectionsPassed'));
+      }
     } catch (error) {
       const uiError = formatSyncUserFacingError(
         error,
@@ -3604,7 +3617,8 @@ export function DataSyncStudio() {
         summary: uiError.title,
       });
       setValidationOpen(true);
-      toast.error(uiError.description);
+      // 错误已在 ValidationDialog 居中模态展示，不再重复弹出 toast 气泡，避免双重弹窗。
+      // Error is displayed in the modal ValidationDialog, omit duplicate toast to prevent double popups.
     } finally {
       setActionPending((current) =>
         current === 'test_connections' ? null : current,

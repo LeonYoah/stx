@@ -18,7 +18,7 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import {useEffect, useMemo, useState, type ReactNode} from 'react';
+import {useEffect, useMemo, useRef, useState, type ReactNode} from 'react';
 import {useTranslations} from 'next-intl';
 import {
   Activity,
@@ -1302,6 +1302,12 @@ export function JobScriptDialogContent({
   );
 }
 
+/**
+ * 虚拟滚动日志查看器。不传 height 时铺满父容器（父级需是有高度的 flex 子项），按实测高度计算可见行数，
+ * 避免固定高度在大屏弹窗里留下大片空白。
+ * Virtualized log viewer. Without height it fills its parent (which must be a sized flex child) and computes the
+ * visible rows from the measured height, so a fixed height no longer leaves a large blank area in tall dialogs.
+ */
 export function VirtualizedLogViewer({
   lines,
   height,
@@ -1309,15 +1315,28 @@ export function VirtualizedLogViewer({
   emptyNode,
 }: {
   lines: string[];
-  height: number;
+  height?: number;
   emptyText: string;
   emptyNode?: ReactNode;
 }) {
   const rowHeight = 20;
   const overscan = 24;
   const [scrollTop, setScrollTop] = useState(0);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [measuredHeight, setMeasuredHeight] = useState(600);
+  const hasLines = lines.length > 0;
+  useEffect(() => {
+    const element = containerRef.current;
+    if (height !== undefined || !element) {
+      return;
+    }
+    const observer = new ResizeObserver(([entry]) => setMeasuredHeight(entry.contentRect.height));
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [height, hasLines]);
+  const viewportHeight = height ?? measuredHeight;
   const startIndex = Math.max(Math.floor(scrollTop / rowHeight) - overscan, 0);
-  const visibleCount = Math.ceil(height / rowHeight) + overscan * 2;
+  const visibleCount = Math.ceil(viewportHeight / rowHeight) + overscan * 2;
   const endIndex = Math.min(startIndex + visibleCount, lines.length);
   const visibleLines = lines.slice(startIndex, endIndex);
   if (lines.length === 0) {
@@ -1332,8 +1351,12 @@ export function VirtualizedLogViewer({
   }
   return (
     <div
-      className='overflow-auto rounded-lg border border-border/60 bg-background/80 p-0 font-mono text-xs'
-      style={{height}}
+      ref={containerRef}
+      className={cn(
+        'overflow-auto rounded-lg border border-border/60 bg-background/80 p-0 font-mono text-xs',
+        height === undefined && 'h-full min-h-0',
+      )}
+      style={height !== undefined ? {height} : undefined}
       onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
     >
       <div style={{height: lines.length * rowHeight, position: 'relative'}}>

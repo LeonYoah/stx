@@ -6074,9 +6074,10 @@ export function DataSyncStudio() {
               </span>
             </div>
           </div>
+          {/* 日志区占满弹窗剩余高度，不再固定 620px 在大屏上留白。/ Fill the dialog's remaining height instead of a fixed 620px. */}
+          <div className='min-h-0 flex-1'>
           <VirtualizedLogViewer
             lines={splitLogLines(expandedJobLogs?.logs || jobLogs?.logs || '')}
-            height={620}
             emptyText={t('noLogs')}
             emptyNode={
               expandedJobLogs?.empty_reason === 'mixed_log_mode' ||
@@ -6093,6 +6094,7 @@ export function DataSyncStudio() {
               ) : undefined
             }
           />
+          </div>
         </DialogContent>
       </Dialog>
 

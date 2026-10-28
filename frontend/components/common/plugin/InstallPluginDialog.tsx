@@ -79,6 +79,8 @@ interface InstallPluginDialogProps {
   selectedProfileKeys?: string[];
   attachedConnectors?: string[];
   dependencies?: PluginDependency[];
+  /** 下载完成回调 / Callback invoked when plugin download is completed */
+  onDownloadComplete?: () => void;
 }
 
 interface ClusterPluginStatus {
@@ -140,6 +142,7 @@ export function InstallPluginDialog({
   selectedProfileKeys = [],
   attachedConnectors = [],
   dependencies = [],
+  onDownloadComplete,
 }: InstallPluginDialogProps) {
   const t = useTranslations();
   const [clusterStatuses, setClusterStatuses] = useState<ClusterPluginStatus[]>(
@@ -211,16 +214,38 @@ export function InstallPluginDialog({
       if (status.status === 'completed') {
         setIsDownloaded(true);
         setDownloading(false);
+        onDownloadComplete?.();
       } else if (status.status === 'downloading') {
         setDownloading(true);
       } else if (status.status === 'failed') {
         setDownloading(false);
         setError(status.error || t('plugin.downloadFailed'));
+      } else {
+        // 兜底校验本地插件：若下载完成并落盘，后端可能已清理活跃下载并返回 not_started。
+        // Fallback check local plugins: when download completes, active task is removed and status may show not_started.
+        const localPlugins = await PluginService.listLocalPlugins().catch(() => []);
+        const isLocal = (localPlugins || []).some(
+          (p) => p.name === plugin.name && p.version === version,
+        );
+        if (isLocal) {
+          setIsDownloaded(true);
+          setDownloading(false);
+          setDownloadProgress({
+            ...status,
+            status: 'completed',
+            progress: 100,
+          });
+          onDownloadComplete?.();
+        } else if (downloading) {
+          // 若既非 downloading 也非 completed 且本地尚未存在，退出下载中标记避免停留在 0%。
+          // If neither downloading nor completed and not local, clear downloading flag to avoid sticking at 0%.
+          setDownloading(false);
+        }
       }
     } catch {
       setIsDownloaded(false);
     }
-  }, [plugin.name, selectedProfileKeys, t, version]);
+  }, [downloading, onDownloadComplete, plugin.name, selectedProfileKeys, t, version]);
 
   const loadClusters = useCallback(async () => {
     setLoadingClusters(true);

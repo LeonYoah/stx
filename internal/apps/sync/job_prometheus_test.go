@@ -18,6 +18,7 @@
 package sync
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -149,4 +150,76 @@ func sumGauge(mf *dto.MetricFamily) float64 {
 		}
 	}
 	return sum
+}
+
+func TestJobPrometheusExporter_tableCapRollsIntoOther(t *testing.T) {
+	originalEnabled := config.Config.Observability.Enabled
+	t.Cleanup(func() { config.Config.Observability.Enabled = originalEnabled })
+	config.Config.Observability.Enabled = true
+	exp := newJobPrometheusExporter()
+
+	tableCounts := make(map[string]interface{}, jobMetricsTableCap+2)
+	for i := 0; i < jobMetricsTableCap+2; i++ {
+		// Descending counts so sort keeps t000.. as top; overflow tables have the smallest totals.
+		// 递减计数，保证排序后靠前的表保留，溢出表并入 other。
+		tableCounts[fmt.Sprintf("t%03d", i)] = float64(jobMetricsTableCap + 2 - i)
+	}
+	job := &JobInstance{
+		ID:         99,
+		TaskID:     1,
+		Status:     JobStatusRunning,
+		SubmitSpec: JSONMap{"cluster_id": float64(1)},
+	}
+	exp.observeJobMetrics(job, map[string]interface{}{
+		"SourceReceivedCount":      float64(1000),
+		"SinkWriteCount":           float64(1000),
+		"TableSourceReceivedCount": tableCounts,
+	})
+
+	mfs, err := exp.reg.Gather()
+	if err != nil {
+		t.Fatalf("gather: %v", err)
+	}
+	var tableSeries, otherSeries int
+	var otherValue float64
+	for _, mf := range mfs {
+		if mf.GetName() != "stx_job_table_rows_total" {
+			continue
+		}
+		for _, m := range mf.GetMetric() {
+			table := ""
+			direction := ""
+			for _, lp := range m.GetLabel() {
+				switch lp.GetName() {
+				case "table":
+					table = lp.GetValue()
+				case "direction":
+					direction = lp.GetValue()
+				}
+			}
+			if direction != "read" {
+				continue
+			}
+			tableSeries++
+			if table == "other" {
+				otherSeries++
+				if m.Counter != nil {
+					otherValue = m.Counter.GetValue()
+				}
+			}
+		}
+	}
+	// Cap named tables + one "other" bucket for the overflow.
+	// 上限内具名表 + 一个 other 桶。
+	if tableSeries != jobMetricsTableCap+1 {
+		t.Fatalf("read table series=%d want %d (cap+other)", tableSeries, jobMetricsTableCap+1)
+	}
+	if otherSeries != 1 {
+		t.Fatalf("other series=%d want 1", otherSeries)
+	}
+	// Overflow tables are the two smallest: 1 + 2 = 3.
+	// 溢出的两张最小表：1 + 2 = 3。
+	if otherValue != 3 {
+		t.Fatalf("other read value=%v want 3", otherValue)
+	}
 }

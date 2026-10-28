@@ -396,8 +396,46 @@ func runtimeStoragePluginValues(kind installerapp.RuntimeStorageValidationKind, 
 		// SeaTunnel FileMapStore 依赖 type 属性发现 IMapStorageFactory (默认为 hdfs)
 		// SeaTunnel FileMapStore relies on type property to discover IMapStorageFactory (defaults to hdfs)
 		values["type"] = "hdfs"
+		// SeaTunnel IMapFileStorage 要求 properties 必须包含 clusterName 作为存储路径隔离目录
+		// 采用静默默认继承策略：优先保留已有值，否则继承 hazelcast.cluster-name，不打扰用户
+		// SeaTunnel IMapFileStorage requires clusterName in properties as storage directory namespace.
+		// Silently inherits hazelcast.cluster-name or preserves existing value without disturbing the user.
+		values["clusterName"] = resolveIMAPClusterNameFromYAML(currentContent)
 	}
 	return values
+}
+
+// resolveIMAPClusterNameFromYAML 从当前 Hazelcast YAML 内容中静默解析 clusterName：
+// 优先保留原有 properties.clusterName；若无则自动继承 hazelcast.cluster-name；兜底为 "seatunnel"。
+// resolveIMAPClusterNameFromYAML silently resolves clusterName from Hazelcast YAML:
+// preserves existing properties.clusterName first; otherwise inherits hazelcast.cluster-name; falls back to "seatunnel".
+func resolveIMAPClusterNameFromYAML(content string) string {
+	var root map[string]interface{}
+	if err := yaml.Unmarshal([]byte(content), &root); err == nil && root != nil {
+		// 1. 若现有 map-store.properties 已显式配置 clusterName，则优先保留
+		// 1. If map-store.properties already defines clusterName, preserve it
+		for _, storePath := range [][]string{
+			{"map", "engine*", "map-store", "properties"},
+			{"hazelcast", "map", "engine*", "map-store", "properties"},
+		} {
+			props := nestedMap(root, storePath...)
+			if name := strings.TrimSpace(asString(props["clusterName"])); name != "" {
+				return name
+			}
+		}
+
+		// 2. 继承 hazelcast.cluster-name 或顶层 cluster-name
+		// 2. Inherit hazelcast.cluster-name or top-level cluster-name
+		if hz := nestedMap(root, "hazelcast"); len(hz) > 0 {
+			if name := strings.TrimSpace(asString(hz["cluster-name"])); name != "" {
+				return name
+			}
+		}
+		if name := strings.TrimSpace(asString(root["cluster-name"])); name != "" {
+			return name
+		}
+	}
+	return "seatunnel"
 }
 
 // checkpointPluginValues 按 SeaTunnel checkpoint plugin-config 生成差异化键。

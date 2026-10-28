@@ -158,4 +158,48 @@ hazelcast:
 	if !strings.Contains(next, "type: hdfs") {
 		t.Fatalf("expected type: hdfs in output:\n%s", next)
 	}
+	if !strings.Contains(next, "clusterName: seatunnel") {
+		t.Fatalf("expected fallback clusterName: seatunnel in output:\n%s", next)
+	}
+}
+
+// TestPatchIMAPYAMLInheritsClusterName 验证启用 IMAP 时自动静默继承当前 Hazelcast 的 cluster-name。
+// TestPatchIMAPYAMLInheritsClusterName verifies IMAP silently inherits cluster-name from current Hazelcast config.
+func TestPatchIMAPYAMLInheritsClusterName(t *testing.T) {
+	content := `
+hazelcast:
+  cluster-name: production-stx-01
+  map:
+    engine*:
+      map-store:
+        enabled: false
+`
+	next, err := patchRuntimeStorageYAML(content, installerapp.RuntimeStorageValidationIMAP, &ApplyRuntimeStorageRequest{
+		Enabled:     true,
+		StorageType: "HDFS",
+		Namespace:   "/tmp/imap/",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(next, "clusterName: production-stx-01") {
+		t.Fatalf("expected inherited clusterName: production-stx-01 in output:\n%s", next)
+	}
+
+	// 再次应用，验证已有自定义 clusterName 时优先保留原有值
+	// Re-apply to verify existing custom clusterName is preserved
+	reapply, err := patchRuntimeStorageYAML(next, installerapp.RuntimeStorageValidationIMAP, &ApplyRuntimeStorageRequest{
+		Enabled:     true,
+		StorageType: "HDFS",
+		Namespace:   "/tmp/imap-v2/",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(reapply, "clusterName: production-stx-01") {
+		t.Fatalf("expected preserved clusterName: production-stx-01 in output:\n%s", reapply)
+	}
+	if !strings.Contains(reapply, "namespace: /tmp/imap-v2/") {
+		t.Fatalf("expected updated namespace in output:\n%s", reapply)
+	}
 }

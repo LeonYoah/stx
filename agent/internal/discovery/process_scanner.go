@@ -57,12 +57,13 @@ func NewProcessScanner() *ProcessScanner {
 // Contains: PID, role, install_dir, version, hazelcast_port, api_port
 // 包含：PID、角色、安装目录、版本、hazelcast端口、api端口
 type DiscoveredProcess struct {
-	PID           int    `json:"pid"`            // Process ID / 进程 ID
-	InstallDir    string `json:"install_dir"`    // SeaTunnel installation directory / SeaTunnel 安装目录
-	Role          string `json:"role"`           // master, worker, or hybrid / 角色：master、worker 或 hybrid
-	Version       string `json:"version"`        // SeaTunnel version (e.g., 2.3.12) / SeaTunnel 版本
-	HazelcastPort int    `json:"hazelcast_port"` // Hazelcast cluster port / Hazelcast 集群端口
-	APIPort       int    `json:"api_port"`       // REST API port (from seatunnel.yaml) / REST API 端口
+	PID           int    `json:"pid"`                    // Process ID / 进程 ID
+	InstallDir    string `json:"install_dir"`            // SeaTunnel installation directory / SeaTunnel 安装目录
+	Role          string `json:"role"`                   // master, worker, or hybrid / 角色：master、worker 或 hybrid
+	Version       string `json:"version"`                // SeaTunnel version (e.g., 2.3.12) / SeaTunnel 版本
+	HazelcastPort int    `json:"hazelcast_port"`         // Hazelcast cluster port / Hazelcast 集群端口
+	APIPort       int    `json:"api_port"`               // REST API port (from seatunnel.yaml) / REST API 端口
+	ClusterName   string `json:"cluster_name,omitempty"` // Hazelcast cluster-name / Hazelcast 集群标识
 }
 
 // ScanProcesses scans all Java processes and identifies SeaTunnel processes
@@ -118,13 +119,16 @@ func (s *ProcessScanner) scanProcessesUnix() ([]*DiscoveredProcess, error) {
 				// Read hazelcast port from config / 从配置读取 hazelcast 端口
 				proc.HazelcastPort = configReader.ReadHazelcastPort(proc.InstallDir, proc.Role)
 
+				// Read hazelcast cluster-name from config / 从配置读取 hazelcast 集群标识
+				proc.ClusterName = configReader.ReadHazelcastClusterName(proc.InstallDir, proc.Role)
+
 				// Read API port from seatunnel.yaml / 从 seatunnel.yaml 读取 API 端口
 				proc.APIPort = configReader.ReadAPIPort(proc.InstallDir)
 			}
 
 			processes = append(processes, proc)
-			logger.InfoF(ctx, "[ProcessScanner] Found: PID=%d, Role=%s, InstallDir=%s, Version=%s, HazelcastPort=%d, APIPort=%d",
-				proc.PID, proc.Role, proc.InstallDir, proc.Version, proc.HazelcastPort, proc.APIPort)
+			logger.InfoF(ctx, "[ProcessScanner] Found: PID=%d, Role=%s, InstallDir=%s, Version=%s, HazelcastPort=%d, APIPort=%d, ClusterName=%s",
+				proc.PID, proc.Role, proc.InstallDir, proc.Version, proc.HazelcastPort, proc.APIPort, proc.ClusterName)
 		}
 	}
 
@@ -178,6 +182,7 @@ func (s *ProcessScanner) scanProcessesWindows() ([]*DiscoveredProcess, error) {
 		if installDir != "" {
 			proc.Version = versionDetector.DetectVersion(installDir)
 			proc.HazelcastPort = configReader.ReadHazelcastPort(installDir, role)
+			proc.ClusterName = configReader.ReadHazelcastClusterName(installDir, role)
 			proc.APIPort = configReader.ReadAPIPort(installDir)
 		}
 

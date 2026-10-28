@@ -351,10 +351,33 @@ func (s *Service) Create(ctx context.Context, req *CreateClusterRequest) (*Clust
 		}
 	}
 
+	clusterCode := strings.TrimSpace(req.ClusterCode)
+	// 若未显式传入集群标识，优先从纳管/发现节点或本地配置中提取真实的 cluster-name
+	// If cluster code is omitted, prefer extracting real cluster-name from discovered nodes or local config
+	if clusterCode == "" && len(req.Nodes) > 0 {
+		for _, n := range req.Nodes {
+			if strings.TrimSpace(n.ClusterName) != "" {
+				clusterCode = SanitizeClusterCode(n.ClusterName, 0)
+				break
+			}
+		}
+	}
+	if clusterCode == "" && installDir != "" {
+		if localName := TryExtractClusterNameFromLocalInstallDir(installDir); localName != "" {
+			clusterCode = SanitizeClusterCode(localName, 0)
+		}
+	}
+	if clusterCode != "" {
+		clusterCode = SanitizeClusterCode(clusterCode, 0)
+	} else {
+		clusterCode = SanitizeClusterCode(req.Name, 0)
+	}
+
 	// Create cluster
 	// 创建集群
 	cluster := &Cluster{
 		Name:           req.Name,
+		ClusterCode:    clusterCode,
 		Description:    req.Description,
 		DeploymentMode: req.DeploymentMode,
 		Version:        req.Version,
@@ -365,6 +388,13 @@ func (s *Service) Create(ctx context.Context, req *CreateClusterRequest) (*Clust
 
 	if err := s.repo.Create(ctx, cluster); err != nil {
 		return nil, err
+	}
+
+	// 若未指定且清洗后回退为默认无编号前缀 "stxcluster"，在入库后带上主键 ID 保证全局唯一
+	// If defaulted to unnumbered "stxcluster", append primary key ID after insert to ensure uniqueness
+	if cluster.ClusterCode == "stxcluster" && cluster.ID > 0 {
+		cluster.ClusterCode = fmt.Sprintf("stxcluster%d", cluster.ID)
+		_ = s.repo.Update(ctx, cluster)
 	}
 
 	// Auto-create nodes from discovery if provided

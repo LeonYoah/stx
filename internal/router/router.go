@@ -2160,9 +2160,10 @@ func parseDiscoveredProcessesJSON(output string) ([]*discovery.DiscoveredProcess
 		PID           int    `json:"pid"`
 		Role          string `json:"role"`
 		InstallDir    string `json:"install_dir"`
-		Version       string `json:"version"`        // SeaTunnel version / SeaTunnel 版本
-		HazelcastPort int    `json:"hazelcast_port"` // Hazelcast cluster port / Hazelcast 集群端口
-		APIPort       int    `json:"api_port"`       // REST API port / REST API 端口
+		Version       string `json:"version"`                  // SeaTunnel version / SeaTunnel 版本
+		HazelcastPort int    `json:"hazelcast_port"`           // Hazelcast cluster port / Hazelcast 集群端口
+		APIPort       int    `json:"api_port"`                 // REST API port / REST API 端口
+		ClusterName   string `json:"cluster_name,omitempty"`   // Hazelcast cluster-name / Hazelcast 集群标识
 	}
 	type DiscoveryResult struct {
 		Success   bool          `json:"success"`
@@ -2192,6 +2193,7 @@ func parseDiscoveredProcessesJSON(output string) ([]*discovery.DiscoveredProcess
 			Version:       p.Version,
 			HazelcastPort: p.HazelcastPort,
 			APIPort:       p.APIPort,
+			ClusterName:   p.ClusterName,
 		})
 	}
 
@@ -2465,6 +2467,7 @@ func (a *clusterProcessDiscovererAdapter) DiscoverSeaTunnelProcesses(ctx context
 			Version:       process.Version,
 			HazelcastPort: process.HazelcastPort,
 			APIPort:       process.APIPort,
+			ClusterName:   process.ClusterName,
 		})
 	}
 	return processes, nil

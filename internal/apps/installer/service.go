@@ -3152,6 +3152,10 @@ func buildInstallParams(req *InstallationRequest) map[string]string {
 		"node_role":       string(req.NodeRole),
 	}
 
+	if req.ClusterName != "" {
+		params["cluster_name"] = req.ClusterName
+	}
+
 	if req.Mirror != "" {
 		params["mirror"] = string(req.Mirror)
 	}

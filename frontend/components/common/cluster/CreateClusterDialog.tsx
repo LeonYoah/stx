@@ -361,6 +361,7 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
       installDir: string;
       hazelcastPort: number;
       apiPort: number;
+      clusterName?: string;
     }> = [];
 
     selectedProcesses.forEach((key) => {
@@ -376,6 +377,7 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
             installDir: proc.install_dir,
             hazelcastPort: proc.hazelcast_port || 0,
             apiPort: proc.api_port || 0,
+            clusterName: proc.cluster_name,
           });
         }
       }
@@ -433,6 +435,7 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
           pids: number[];
           hazelcastPort: number;
           apiPort: number;
+          clusterName?: string;
         }
       >();
 
@@ -450,6 +453,9 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
           if (proc.apiPort > 0) {
             existing.apiPort = proc.apiPort;
           }
+          if (!existing.clusterName && proc.clusterName) {
+            existing.clusterName = proc.clusterName;
+          }
         } else {
           nodeMap.set(nodeKey, {
             hostId: proc.hostId,
@@ -458,6 +464,7 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
             pids: [proc.pid],
             hazelcastPort: proc.hazelcastPort,
             apiPort: proc.apiPort,
+            clusterName: proc.clusterName,
           });
         }
       });
@@ -470,6 +477,7 @@ export function CreateClusterDialog({open, onOpenChange, onSuccess}: CreateClust
         pid: node.pids[0] || undefined,
         hazelcast_port: node.hazelcastPort > 0 ? node.hazelcastPort : undefined,
         api_port: node.apiPort > 0 ? node.apiPort : undefined,
+        cluster_name: node.clusterName,
       }));
 
       const effectivePort = Number(proxyPort) > 0 ? Number(proxyPort) : 18080;

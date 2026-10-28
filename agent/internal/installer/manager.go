@@ -2062,7 +2062,10 @@ func (m *InstallerManager) configureIMAPStorage(params *InstallParams) error {
 			return fmt.Errorf("%w: failed to prepare hazelcast map-store: %v", ErrConfigGenerationFailed, err)
 		}
 
-		clusterName := getMappingString(hazelcastNode, "cluster-name")
+		clusterName := strings.TrimSpace(params.ClusterName)
+		if clusterName == "" {
+			clusterName = getMappingString(hazelcastNode, "cluster-name")
+		}
 		if strings.TrimSpace(clusterName) == "" {
 			clusterName = "seatunnel-cluster"
 		}
@@ -2785,6 +2788,13 @@ func (m *InstallerManager) modifyHazelcastConfig(filePath string, params *Instal
 		return fmt.Errorf("%w: failed to set port: %v", ErrConfigGenerationFailed, err)
 	}
 
+	// 若指定了集群标识则设置 cluster-name / Set Hazelcast cluster-name if provided
+	if strings.TrimSpace(params.ClusterName) != "" {
+		if err := setYAMLValue(&root, []string{"hazelcast", "cluster-name"}, strings.TrimSpace(params.ClusterName)); err != nil {
+			return fmt.Errorf("%w: failed to set cluster-name: %v", ErrConfigGenerationFailed, err)
+		}
+	}
+
 	// Enable Hazelcast REST API with basic endpoints (best-effort). / 启用 Hazelcast REST API 以及基础端点（最佳努力）
 	// If the path does not exist, it will be created. / 如果路径不存在，则创建
 	_ = setYAMLValueCreate(&root, []string{"hazelcast", "network", "rest-api", "enabled"}, true)
@@ -2883,6 +2893,13 @@ func (m *InstallerManager) modifyHazelcastClientConfig(filePath string, params *
 	// Modify YAML using yaml.v3 / 使用 yaml.v3 修改 YAML
 	if err := setYAMLValue(&root, []string{"hazelcast-client", "network", "cluster-members"}, memberList); err != nil {
 		return fmt.Errorf("%w: failed to set cluster-members: %v", ErrConfigGenerationFailed, err)
+	}
+
+	// 若指定了集群标识则设置客户端 cluster-name / Set Hazelcast client cluster-name if provided
+	if strings.TrimSpace(params.ClusterName) != "" {
+		if err := setYAMLValue(&root, []string{"hazelcast-client", "cluster-name"}, strings.TrimSpace(params.ClusterName)); err != nil {
+			return fmt.Errorf("%w: failed to set client cluster-name: %v", ErrConfigGenerationFailed, err)
+		}
 	}
 
 	// Write modified content / 写入修改后的内容

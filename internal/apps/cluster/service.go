@@ -435,12 +435,7 @@ func (s *Service) Create(ctx context.Context, req *CreateClusterRequest) (*Clust
 
 		// Auto-start stx-java-proxy service in background if nodes exist and not explicitly disabled
 		// 如果存在发现节点且未显式禁用，在后台异步拉起 stx-java-proxy 辅助服务
-		shouldAutoStartProxy := len(req.Nodes) > 0
-		if rawProxy, ok := clusterConfig["stx_java_proxy"].(map[string]interface{}); ok {
-			if autoStart, exists := rawProxy["auto_start"].(bool); exists && !autoStart {
-				shouldAutoStartProxy = false
-			}
-		}
+		shouldAutoStartProxy := len(req.Nodes) > 0 && stxJavaProxyAutoStartEnabled(clusterConfig)
 		if shouldAutoStartProxy && s.agentSender != nil && s.hostProvider != nil {
 			go func(cid uint) {
 				bgCtx, cancel := context.WithTimeout(context.Background(), 45*time.Second)

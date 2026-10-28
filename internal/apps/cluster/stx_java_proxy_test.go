@@ -19,6 +19,7 @@ package cluster
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -316,4 +317,65 @@ func TestDeleteStopsSTXJavaProxy(t *testing.T) {
 	if proxyStops != 1 {
 		t.Fatalf("expected 1 stx-java-proxy stop command, got %d (commands=%#v)", proxyStops, agentSender.commands)
 	}
+}
+
+// recordingProxySender 记录每次发给 Agent 的命令，用于断言哪些集群被拉起。
+// recordingProxySender records every command sent to an Agent to assert which clusters were started.
+type recordingProxySender struct {
+	calls []string
+}
+
+func (r *recordingProxySender) SendCommand(_ context.Context, agentID string, commandType string, params map[string]string) (bool, string, error) {
+	r.calls = append(r.calls, agentID+":"+commandType+":"+params["cluster_id"])
+	return true, `{"service":"stx_java_proxy","managed":true,"running":true,"healthy":true,"endpoint":"http://127.0.0.1:18080"}`, nil
+}
+
+// 主机重启后 Agent 重新就绪：只为 java-proxy 选点在本机、且未关闭自动启动的集群补一次启动。
+// After a host reboot the Agent is ready again: start the proxy only for clusters whose proxy node is on this host
+// and whose auto-start is not disabled.
+func TestEnsureSTXJavaProxyOnHostStartsOnlyLocalAutoStartClusters(t *testing.T) {
+	db, cleanup := setupServiceTestDB(t)
+	defer cleanup()
+
+	repo := NewRepository(db)
+	hostProvider := NewMockHostProvider()
+	service := NewService(repo, hostProvider, nil)
+	now := time.Now()
+	for _, host := range []*HostInfo{
+		{ID: 1, Name: "t1", IPAddress: "10.0.0.1", AgentID: "agent-1", AgentStatus: "installed", LastHeartbeat: &now},
+		{ID: 2, Name: "t2", IPAddress: "10.0.0.2", AgentID: "agent-2", AgentStatus: "installed", LastHeartbeat: &now},
+	} {
+		hostProvider.AddHost(host)
+	}
+	sender := &recordingProxySender{}
+	service.SetAgentCommandSender(sender)
+
+	create := func(name string, hostID uint, config ClusterConfig) *Cluster {
+		clusterInfo, err := service.Create(context.Background(), &CreateClusterRequest{
+			Name: name, Version: "3.0.0", InstallDir: "/opt/seatunnel", DeploymentMode: DeploymentModeHybrid, Config: config,
+		})
+		if err != nil {
+			t.Fatalf("create %s: %v", name, err)
+		}
+		if _, err := service.AddNode(context.Background(), clusterInfo.ID, &AddNodeRequest{
+			HostID: hostID, Role: NodeRoleMasterWorker, InstallDir: "/opt/seatunnel",
+		}); err != nil {
+			t.Fatalf("add node to %s: %v", name, err)
+		}
+		return clusterInfo
+	}
+	local := create("local", 1, nil)
+	create("remote", 2, nil)
+	create("opted-out", 1, ClusterConfig{"stx_java_proxy": map[string]interface{}{"auto_start": false}})
+	sender.calls = nil
+
+	service.EnsureSTXJavaProxyOnHost(context.Background(), 1)
+
+	if len(sender.calls) != 1 || sender.calls[0] != "agent-1:start:"+uintString(local.ID) {
+		t.Fatalf("expected one start for the local cluster, got %v", sender.calls)
+	}
+}
+
+func uintString(value uint) string {
+	return fmt.Sprintf("%d", value)
 }

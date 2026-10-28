@@ -997,6 +997,9 @@ func Serve() {
 			clusterService.SetRuntimeConfigStore(configService)
 			// Agent 重连后重推离线期间未下发的节点配置
 			// Re-push node configs that could not be delivered while the Agent was offline
+			// Agent 重连（如主机重启）后确保 stx-java-proxy 运行，编辑器校验、DAG、表结构都依赖它。
+			// Ensure stx-java-proxy runs after an Agent reconnects (e.g. host reboot); editor validation, DAG and schemas need it.
+			grpcServer.RegisterAgentReadyHook(clusterService.EnsureSTXJavaProxyOnHost)
 			grpcServer.RegisterAgentReadyHook(func(ctx context.Context, hostID uint) {
 				if committed, err := configService.RetryPendingPushes(ctx, hostID); err != nil {
 					log.Printf("[Config] retry pending pushes for host %d failed: %v", hostID, err)

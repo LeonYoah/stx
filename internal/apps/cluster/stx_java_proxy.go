@@ -23,31 +23,32 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/LeonYoah/stx/internal/logger"
 	"github.com/LeonYoah/stx/internal/seatunnel"
 )
 
 // STXJavaProxyStatus represents the managed stx-java-proxy state for a cluster.
 type STXJavaProxyStatus struct {
-	ClusterID   uint   `json:"cluster_id"`
-	ClusterName string `json:"cluster_name,omitempty"`
-	NodeID      uint   `json:"node_id,omitempty"`
-	HostID      uint   `json:"host_id,omitempty"`
-	HostName    string `json:"host_name,omitempty"`
-	HostIP      string `json:"host_ip,omitempty"`
-	Role        string `json:"role,omitempty"`
-	InstallDir  string `json:"install_dir,omitempty"`
-	Version     string `json:"version,omitempty"`
-	Service     string `json:"service,omitempty"`
-	Managed     bool   `json:"managed"`
-	Running     bool   `json:"running"`
-	Healthy     bool   `json:"healthy"`
-	Endpoint    string `json:"endpoint,omitempty"`
-	Port        int    `json:"port,omitempty"`
-	PID         int    `json:"pid,omitempty"`
-	LogPath   string                 `json:"log_path,omitempty"`
-	Message   string                 `json:"message,omitempty"`
-	JvmOpts   string                 `json:"jvm_opts,omitempty"`
-	JvmMemory map[string]interface{} `json:"jvm_memory,omitempty"`
+	ClusterID   uint                   `json:"cluster_id"`
+	ClusterName string                 `json:"cluster_name,omitempty"`
+	NodeID      uint                   `json:"node_id,omitempty"`
+	HostID      uint                   `json:"host_id,omitempty"`
+	HostName    string                 `json:"host_name,omitempty"`
+	HostIP      string                 `json:"host_ip,omitempty"`
+	Role        string                 `json:"role,omitempty"`
+	InstallDir  string                 `json:"install_dir,omitempty"`
+	Version     string                 `json:"version,omitempty"`
+	Service     string                 `json:"service,omitempty"`
+	Managed     bool                   `json:"managed"`
+	Running     bool                   `json:"running"`
+	Healthy     bool                   `json:"healthy"`
+	Endpoint    string                 `json:"endpoint,omitempty"`
+	Port        int                    `json:"port,omitempty"`
+	PID         int                    `json:"pid,omitempty"`
+	LogPath     string                 `json:"log_path,omitempty"`
+	Message     string                 `json:"message,omitempty"`
+	JvmOpts     string                 `json:"jvm_opts,omitempty"`
+	JvmMemory   map[string]interface{} `json:"jvm_memory,omitempty"`
 }
 
 // UpdateSTXJavaProxyConfigRequest represents a request to update proxy parameters.
@@ -236,6 +237,49 @@ func (s *Service) UpdateSTXJavaProxyConfig(
 		return s.RestartSTXJavaProxy(ctx, clusterID)
 	}
 	return s.GetSTXJavaProxyStatus(ctx, clusterID)
+}
+
+// stxJavaProxyAutoStartEnabled 判断集群是否允许自动拉起 stx-java-proxy；只有显式配置 stx_java_proxy.auto_start=false 才关闭。
+// stxJavaProxyAutoStartEnabled reports whether the cluster allows auto-starting stx-java-proxy; only an explicit
+// stx_java_proxy.auto_start=false turns it off.
+func stxJavaProxyAutoStartEnabled(config ClusterConfig) bool {
+	rawProxy, ok := config["stx_java_proxy"].(map[string]interface{})
+	if !ok {
+		return true
+	}
+	autoStart, exists := rawProxy["auto_start"].(bool)
+	return !exists || autoStart
+}
+
+// EnsureSTXJavaProxyOnHost 在 Agent（重新）就绪后，对 stx-java-proxy 选点落在该主机上的集群补一次启动。
+// 以前只在注册集群时自动拉起一次，主机重启或进程退出后编辑器校验、DAG、表结构等依赖它的功能会一直不可用。
+// Agent 侧启动是幂等的，已在运行时只做健康检查。
+// EnsureSTXJavaProxyOnHost starts stx-java-proxy for clusters whose proxy node is on this host once its Agent is
+// (re)ready. It used to be auto-started only at cluster registration, so after a host reboot or a process exit the
+// features depending on it (editor validation, DAG, schemas) stayed unavailable. Starting is idempotent on the Agent.
+func (s *Service) EnsureSTXJavaProxyOnHost(ctx context.Context, hostID uint) {
+	if s == nil || s.repo == nil || s.agentSender == nil || s.hostProvider == nil || hostID == 0 {
+		return
+	}
+	clusters, err := s.repo.GetClustersWithHostID(ctx, hostID)
+	if err != nil {
+		logger.WarnF(ctx, "[Cluster] list clusters of host %d for stx-java-proxy failed: %v / 查询主机 %d 的集群失败: %v", hostID, err, hostID, err)
+		return
+	}
+	for _, clusterInfo := range clusters {
+		if clusterInfo == nil || !stxJavaProxyAutoStartEnabled(clusterInfo.Config) {
+			continue
+		}
+		_, hostInfo, err := s.pickSTXJavaProxyNode(ctx, clusterInfo.ID)
+		if err != nil || hostInfo == nil || hostInfo.ID != hostID {
+			continue
+		}
+		if _, err := s.StartSTXJavaProxy(ctx, clusterInfo.ID); err != nil {
+			logger.WarnF(ctx, "[Cluster] ensure stx-java-proxy for cluster %d on agent ready failed: %v / Agent 就绪后拉起集群 %d 的 stx-java-proxy 失败: %v", clusterInfo.ID, err, clusterInfo.ID, err)
+			continue
+		}
+		logger.InfoF(ctx, "[Cluster] ensured stx-java-proxy for cluster %d after agent ready / Agent 就绪后已确保集群 %d 的 stx-java-proxy 运行", clusterInfo.ID, clusterInfo.ID)
+	}
 }
 
 func (s *Service) pickSTXJavaProxyNode(ctx context.Context, clusterID uint) (*NodeInfo, *HostInfo, error) {

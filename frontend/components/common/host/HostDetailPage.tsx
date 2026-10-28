@@ -29,10 +29,11 @@ import {useState, useEffect, useCallback} from 'react';
 import {useRouter} from 'next/navigation';
 import {useTranslations} from 'next-intl';
 import {Button} from '@/components/ui/button';
-import {ArrowLeft, Loader2} from 'lucide-react';
+import {ArrowLeft, Loader2, Pencil, Server} from 'lucide-react';
 import Link from 'next/link';
 import services from '@/lib/services';
 import {HostInfo} from '@/lib/services/host/types';
+import {WorkspaceHeader} from '@/components/common/layout';
 import {HostDetail} from './HostDetail';
 import {EditHostDialog} from './EditHostDialog';
 
@@ -106,15 +107,27 @@ export function HostDetailPage({hostId}: HostDetailPageProps) {
   }
 
   return (
-    <div>
-      <div className='mb-6'>
-        <Link href='/hosts'>
-          <Button variant='ghost' size='sm'>
-            <ArrowLeft className='h-4 w-4 mr-2' />
-            {t('common.back')}
+    <div className='space-y-6'>
+      <WorkspaceHeader
+        breadcrumbs={[
+          {
+            label: t('host.title'),
+            href: '/hosts',
+          },
+          {
+            label: host.name,
+          },
+        ]}
+        icon={<Server />}
+        title={host.name}
+        subtitle={host.description || host.ip_address}
+        actions={
+          <Button variant='outline' size='sm' onClick={handleEdit}>
+            <Pencil className='h-4 w-4 mr-2' />
+            {t('common.edit')}
           </Button>
-        </Link>
-      </div>
+        }
+      />
       <HostDetail
         open={detailOpen}
         onOpenChange={handleDetailClose}

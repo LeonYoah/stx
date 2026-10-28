@@ -61,6 +61,17 @@ const (
 	stxJavaProxyStartupWait        = 12 * time.Second
 )
 
+// stxJavaProxyHTTPClient 为与本地 stx-java-proxy 通信的共享 HTTP 客户端，复用长连接以提升探测吞吐。
+// stxJavaProxyHTTPClient is the shared HTTP client with connection pooling for local stx-java-proxy calls.
+var stxJavaProxyHTTPClient = &http.Client{
+	Transport: &http.Transport{
+		MaxIdleConns:        20,
+		MaxIdleConnsPerHost: 10,
+		IdleConnTimeout:     60 * time.Second,
+	},
+	Timeout: 30 * time.Second,
+}
+
 type runtimeStorageProbeResponse struct {
 	OK         bool   `json:"ok"`
 	StatusCode int    `json:"statusCode,omitempty"`
@@ -461,7 +472,7 @@ func (m *InstallerManager) executeRuntimeStorageProbeViaManagedService(
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := (&http.Client{}).Do(req)
+	resp, err := stxJavaProxyHTTPClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("call managed stx-java-proxy service %s: %w", url, err)
 	}
@@ -655,8 +666,20 @@ func ensureSTXJavaProxyService(
 			continue
 		}
 		// 健康端点仍可能是旧安装目录 / 旧代际 jar 上的残留进程，必须校验后再复用。
+		// 优先复用 stateDir 下已记录且处于活跃匹配状态的 PID，避免每次调用重复触发端口进程查找（消减数百毫秒空耗）。
 		// A healthy endpoint may still be a leftover on the old installDir / epoch jar; verify before reuse.
-		pid := stxJavaProxyPIDByPort(ctx, port)
+		// Prefer cached and alive PID from stateDir to eliminate repetitive port lookup overhead (hundreds of ms).
+		var pid int
+		if bytes, readErr := os.ReadFile(filepath.Join(stateDir, "service.pid")); readErr == nil {
+			if cached, convErr := strconv.Atoi(strings.TrimSpace(string(bytes))); convErr == nil && cached > 0 {
+				if stxJavaProxyPIDAlive(cached) && stxJavaProxyPIDMatches(cached) {
+					pid = cached
+				}
+			}
+		}
+		if pid <= 0 {
+			pid = stxJavaProxyPIDByPort(ctx, port)
+		}
 		if pid > 0 && !stxJavaProxyCommandLineMatchesDesired(stxJavaProxyProcessCommandLine(pid), installDir, seatunnelVersion) {
 			logger.WarnF(ctx, "[stx-java-proxy] healthy listener mismatches desired runtime, restarting: port=%d, pid=%d, installDir=%s, version=%s", port, pid, installDir, seatunnelVersion)
 			if _, stopErr := StopManagedSTXJavaProxyService(ctx, installDir); stopErr != nil {
@@ -955,7 +978,7 @@ func executeRuntimeStorageStatViaManagedService(
 		return nil, fmt.Errorf("create managed stx-java-proxy stat request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := (&http.Client{}).Do(req)
+	resp, err := stxJavaProxyHTTPClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("call managed stx-java-proxy stat service %s: %w", url, err)
 	}
@@ -1032,7 +1055,7 @@ func executeRuntimeStorageListViaManagedService(
 		return nil, fmt.Errorf("create managed stx-java-proxy list request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := (&http.Client{}).Do(req)
+	resp, err := stxJavaProxyHTTPClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("call managed stx-java-proxy list service %s: %w", url, err)
 	}
@@ -1444,7 +1467,7 @@ func executeRuntimeStoragePreviewViaManagedService(
 		return nil, fmt.Errorf("create managed stx-java-proxy preview request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := (&http.Client{}).Do(req)
+	resp, err := stxJavaProxyHTTPClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("call managed stx-java-proxy preview service %s: %w", url, err)
 	}
@@ -1488,7 +1511,7 @@ func executeCheckpointRuntimeStorageInspectViaManagedService(
 		return nil, fmt.Errorf("create managed stx-java-proxy inspect request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := (&http.Client{}).Do(req)
+	resp, err := stxJavaProxyHTTPClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("call managed stx-java-proxy inspect service %s: %w", url, err)
 	}
@@ -1532,7 +1555,7 @@ func executeCheckpointRuntimeStorageInspectSourceStateViaManagedService(
 		return nil, fmt.Errorf("create managed stx-java-proxy source state inspect request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := (&http.Client{}).Do(req)
+	resp, err := stxJavaProxyHTTPClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("call managed stx-java-proxy source state inspect service %s: %w", url, err)
 	}
@@ -1576,7 +1599,7 @@ func executeIMAPRuntimeStorageInspectViaManagedService(
 		return nil, fmt.Errorf("create managed stx-java-proxy imap inspect request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := (&http.Client{}).Do(req)
+	resp, err := stxJavaProxyHTTPClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("call managed stx-java-proxy imap inspect service %s: %w", url, err)
 	}

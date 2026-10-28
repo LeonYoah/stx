@@ -50,3 +50,28 @@ func TestSTXJavaProxyCommandLineMatchesDesired(t *testing.T) {
 		t.Fatal("v3 jar must not match desired v2 epoch")
 	}
 }
+
+// TestSTXJavaProxyPIDsByPortInvalidPort 验证非法端口安全返回空切片。
+// TestSTXJavaProxyPIDsByPortInvalidPort verifies non-positive port safely returns nil.
+func TestSTXJavaProxyPIDsByPortInvalidPort(t *testing.T) {
+	t.Parallel()
+
+	if pids := stxJavaProxyPIDsByPort(nil, 0); pids != nil {
+		t.Fatalf("expected nil for port 0, got %v", pids)
+	}
+	if pids := stxJavaProxyPIDsByPort(nil, -1); pids != nil {
+		t.Fatalf("expected nil for port -1, got %v", pids)
+	}
+}
+
+// TestSSPIDRegexParsing 验证 ss 输出中的 pid 提取正则。
+// TestSSPIDRegexParsing verifies PID extraction regex against sample ss outputs.
+func TestSSPIDRegexParsing(t *testing.T) {
+	t.Parallel()
+
+	sample := `LISTEN 0 50 *:18055 *:* users:(("java",pid=3962321,fd=15))`
+	matches := ssPIDRegex.FindAllStringSubmatch(sample, -1)
+	if len(matches) != 1 || len(matches[0]) < 2 || matches[0][1] != "3962321" {
+		t.Fatalf("unexpected matches for sample ss line: %v", matches)
+	}
+}

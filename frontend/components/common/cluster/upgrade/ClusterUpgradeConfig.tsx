@@ -340,6 +340,19 @@ export function ClusterUpgradeConfig({clusterId}: ClusterUpgradeConfigProps) {
     return (
       <div className='space-y-6' data-testid='upgrade-config-page'>
         <WorkspaceHeader
+          breadcrumbs={[
+            {
+              label: t('clusterDetailBreadcrumb'),
+              href: `/clusters/${clusterId}`,
+            },
+            {
+              label: t('prepareTitle'),
+              href: `/clusters/${clusterId}/upgrade/prepare`,
+            },
+            {
+              label: t('configTitle'),
+            },
+          ]}
           icon={<FileDiff />}
           title={t('configTitle')}
           subtitle={<span>{t('configDescription')}</span>}
@@ -390,6 +403,19 @@ export function ClusterUpgradeConfig({clusterId}: ClusterUpgradeConfigProps) {
   return (
     <div className='space-y-6' data-testid='upgrade-config-page'>
       <WorkspaceHeader
+        breadcrumbs={[
+          {
+            label: t('clusterDetailBreadcrumb'),
+            href: `/clusters/${clusterId}`,
+          },
+          {
+            label: t('prepareTitle'),
+            href: `/clusters/${clusterId}/upgrade/prepare`,
+          },
+          {
+            label: t('configTitle'),
+          },
+        ]}
         icon={<FileDiff />}
         title={t('configTitle')}
         subtitle={

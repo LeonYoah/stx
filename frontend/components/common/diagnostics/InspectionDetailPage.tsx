@@ -391,37 +391,50 @@ export default function InspectionDetailPage({
   // 页面只强调本次有依据的发现，不把零发现解释为集群整体健康。
   // Focus on findings backed by this run; zero findings do not imply overall cluster health.
   return (
-    <div className='space-y-8 pb-28'>
+    <div className='space-y-6 pb-28'>
       <WorkspaceHeader
+        breadcrumbs={[
+          {
+            label: t('inspections.title'),
+            href: '/diagnostics?tab=inspections',
+          },
+          {
+            label: t('inspections.evidence.reportNumber', {id: report.id}),
+          },
+        ]}
         icon={<Activity aria-hidden='true' />}
         title={t('inspections.detailPage.title')}
-        actions={
-          <Button asChild variant='outline' size='sm'>
-            <Link href='/diagnostics?tab=inspections'>
-              <ArrowLeft aria-hidden='true' className='mr-2 h-4 w-4' />
-              {t('inspections.detailPage.backToList')}
-            </Link>
-          </Button>
+        badge={
+          <div className='flex items-center gap-2'>
+            <Badge variant={getStatusVariant(report.status)}>
+              {getStatusLabel(report.status)}
+            </Badge>
+            <span className='font-mono text-xs tabular-nums text-muted-foreground'>
+              STX / {t('inspections.evidence.reportNumber', {id: report.id})}
+            </span>
+          </div>
+        }
+        subtitle={
+          <span>
+            {report.cluster_name ||
+              t('inspections.detailPage.clusterFallback', {
+                clusterId: report.cluster_id,
+              })}
+          </span>
         }
       />
-      <header className='border-b border-border/70 pb-7'>
-        <div className='flex justify-end'>
-          <span className='font-mono text-xs tabular-nums text-muted-foreground'>
-            STX / {t('inspections.evidence.reportNumber', {id: report.id})}
-          </span>
-        </div>
-        <div className='mt-8 flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between'>
+      {/* 巡检结论与概览卡片（内收为内容区容器，避免外层双重 header） */}
+      {/* Inspection overview card (nested inside content area to prevent duplicate outer headers) */}
+      <div className='rounded-xl border border-border/70 bg-card/40 p-6 shadow-xs'>
+        <div className='flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between'>
           <div className='min-w-0'>
             <div className='mb-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground'>
-              <Badge variant={getStatusVariant(report.status)}>
-                {getStatusLabel(report.status)}
-              </Badge>
               <span>{getTriggerSourceLabel(report.trigger_source)}</span>
             </div>
-            <h2 className='font-serif text-4xl leading-tight tracking-tight text-foreground sm:text-5xl'>
+            <h2 className='font-serif text-3xl leading-tight tracking-tight text-foreground sm:text-4xl'>
               {t('inspections.evidence.runTitle')}
             </h2>
-            <p className='mt-3 break-words text-sm text-muted-foreground'>
+            <p className='mt-2 break-words text-sm text-muted-foreground'>
               {report.cluster_name ||
                 t('inspections.detailPage.clusterFallback', {
                   clusterId: report.cluster_id,
@@ -430,7 +443,7 @@ export default function InspectionDetailPage({
           </div>
           {isCompleted && findingCount > 0 && (
             <div className='flex shrink-0 items-baseline gap-2 sm:flex-col sm:items-end sm:gap-0'>
-              <span className='font-serif text-5xl leading-none tabular-nums text-foreground sm:text-6xl'>
+              <span className='font-serif text-4xl leading-none tabular-nums text-foreground sm:text-5xl'>
                 {findingCount}
               </span>
               <span className='text-xs text-muted-foreground'>
@@ -441,7 +454,7 @@ export default function InspectionDetailPage({
             </div>
           )}
         </div>
-        <div className='mt-8 flex flex-wrap gap-x-8 gap-y-2 border-t border-border/60 pt-4 text-xs text-muted-foreground'>
+        <div className='mt-6 flex flex-wrap gap-x-8 gap-y-2 border-t border-border/60 pt-4 text-xs text-muted-foreground'>
           {report.finished_at && (
             <span>
               {t('inspections.evidence.checkTime')} ·{' '}
@@ -499,7 +512,7 @@ export default function InspectionDetailPage({
             {report.error_message}
           </p>
         )}
-      </header>
+      </div>
 
       <section
         aria-label={t('inspections.evidence.attentionTitle')}

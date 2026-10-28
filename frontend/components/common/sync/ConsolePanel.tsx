@@ -362,7 +362,7 @@ export function JobRunsPanel({
   }
   return (
     <div className='h-full overflow-auto rounded-lg border border-border/50 bg-background/70'>
-      <Table className='min-w-[760px]'>
+      <Table className='min-w-[840px]'>
         <TableHeader>
           <TableRow className='hover:bg-transparent border-border/50'>
             <TableHead className='h-8 py-1 px-2.5 text-xs'>{t('task')}</TableHead>
@@ -381,8 +381,6 @@ export function JobRunsPanel({
             const startedStr = formatJobDateTime(job.started_at);
             const finishedStr = formatJobDateTime(job.finished_at);
             const durationStr = formatJobDuration(job.started_at, job.finished_at);
-            // 提取开始时间中的时间部分（当天仅显示时分秒）
-            const timeOnly = startedStr.includes(' ') ? startedStr.split(' ')[1] : startedStr;
 
             return (
               <TableRow
@@ -479,13 +477,14 @@ export function JobRunsPanel({
                   </div>
                 </TableCell>
 
-                {/* 时序与耗时合并 */}
+                {/* 时序与耗时合并，展示完整年月日时分秒以保障时间可追溯性 */}
+                {/* Combined timeline and duration, displaying full date and time for traceability */}
                 <TableCell className='py-1.5 px-2.5 whitespace-nowrap'>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <div className='flex items-center gap-1.5 cursor-default'>
                         <span className='font-mono text-[11px] text-foreground/90' title={startedStr}>
-                          {timeOnly}
+                          {startedStr}
                         </span>
                         <Badge
                           variant='secondary'

@@ -18,13 +18,14 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import {useCallback, useMemo, useState, type ReactNode} from 'react';
+import {useCallback, useEffect, useMemo, useState, type ReactNode} from 'react';
 import {useTranslations} from 'next-intl';
 import {
   Activity,
   AlertTriangle,
   Check,
   CheckCheck,
+  ChevronRight,
   Clock,
   Copy,
   Database,
@@ -36,11 +37,23 @@ import {
   Minus,
   Plus,
   RefreshCw,
+  RotateCcw,
+  Sparkles,
   Terminal,
   Zap,
 } from 'lucide-react';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
+import {Input} from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {toast} from 'sonner';
+import services from '@/lib/services';
 import {
   Dialog,
   DialogContent,
@@ -829,12 +842,41 @@ export function CheckpointWorkspacePanel({
                         item.checkpoint?.durationMillis !== undefined
                           ? `${item.checkpoint.durationMillis}ms`
                           : '-';
+                      // 优先展示落盘文件的真实物理体积，兜底使用内存指标中的 stateSize
+                      // Prefer actual on-disk file size; fallback to stateSize in memory metrics
                       const sizeStr =
-                        typeof item.checkpoint?.stateSize === 'number'
-                          ? formatSizeBytes(item.checkpoint.stateSize)
-                          : item.checkpoint?.stateSize !== undefined
-                            ? String(item.checkpoint.stateSize)
-                            : '-';
+                        typeof matchedFile?.size_bytes === 'number' &&
+                        matchedFile.size_bytes > 0
+                          ? formatSizeBytes(matchedFile.size_bytes)
+                          : typeof item.checkpoint?.stateSize === 'number'
+                            ? formatSizeBytes(item.checkpoint.stateSize)
+                            : item.checkpoint?.stateSize !== undefined
+                              ? String(item.checkpoint.stateSize)
+                              : '-';
+
+                      const isViewDisabled =
+                        !matchedFile?.path ||
+                        inspectLoadingPath === matchedFile.path;
+
+                      const actionButton = (
+                        <Button
+                          size='sm'
+                          variant='ghost'
+                          className='h-6 px-2 text-xs hover:bg-muted font-normal'
+                          disabled={isViewDisabled}
+                          onClick={() =>
+                            matchedFile?.path &&
+                            onInspectCheckpointFile(matchedFile.path)
+                          }
+                        >
+                          {inspectLoadingPath === matchedFile?.path ? (
+                            <Loader2 className='mr-1 size-3 animate-spin' />
+                          ) : (
+                            <Eye className='mr-1 size-3 text-muted-foreground' />
+                          )}
+                          {t('viewDetails')}
+                        </Button>
+                      );
 
                       return (
                         <TableRow
@@ -862,26 +904,20 @@ export function CheckpointWorkspacePanel({
                             {sizeStr}
                           </TableCell>
                           <TableCell className='py-1 px-2.5 text-right'>
-                            <Button
-                              size='sm'
-                              variant='ghost'
-                              className='h-6 px-2 text-xs hover:bg-muted font-normal'
-                              disabled={
-                                !matchedFile?.path ||
-                                inspectLoadingPath === matchedFile.path
-                              }
-                              onClick={() =>
-                                matchedFile?.path &&
-                                onInspectCheckpointFile(matchedFile.path)
-                              }
-                            >
-                              {inspectLoadingPath === matchedFile?.path ? (
-                                <Loader2 className='mr-1 size-3 animate-spin' />
-                              ) : (
-                                <Eye className='mr-1 size-3 text-muted-foreground' />
-                              )}
-                              {t('viewDetails')}
-                            </Button>
+                            {!matchedFile?.path ? (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span className='inline-block cursor-not-allowed'>
+                                    {actionButton}
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent side='left' className='text-xs'>
+                                  {t('checkpointFileNotFound')}
+                                </TooltipContent>
+                              </Tooltip>
+                            ) : (
+                              actionButton
+                            )}
                           </TableCell>
                         </TableRow>
                       );
@@ -931,16 +967,33 @@ export function CheckpointDetailsSummary({
   );
 }
 
+/**
+ * 预设常用流式与 CDC 连接器选项
+ * Preset commonly used streaming and CDC connectors
+ */
+export const PRESET_STREAMING_CONNECTORS = [
+  { value: 'MySQL-CDC', label: 'MySQL-CDC (MySQL CDC 实时捕获)' },
+  { value: 'PostgreSQL-CDC', label: 'PostgreSQL-CDC (PostgreSQL CDC 逻辑复制)' },
+  { value: 'Oracle-CDC', label: 'Oracle-CDC (Oracle CDC 实时捕获)' },
+  { value: 'SqlServer-CDC', label: 'SqlServer-CDC (SQL Server CDC)' },
+  { value: 'MongoDB-CDC', label: 'MongoDB-CDC (MongoDB Change Streams)' },
+  { value: 'TiDB-CDC', label: 'TiDB-CDC (TiDB CDC 实时捕获)' },
+  { value: 'Kafka', label: 'Kafka (Kafka 流式消息消费)' },
+  { value: 'custom', label: '其他自定义连接器 / Custom' },
+] as const;
+
 function CheckpointInspectSectionShell({
   title,
   children,
   collapsible = false,
   defaultOpen = true,
+  action,
 }: {
   title: string;
   children: ReactNode;
   collapsible?: boolean;
   defaultOpen?: boolean;
+  action?: ReactNode;
 }) {
   if (collapsible) {
     return (
@@ -950,6 +1003,14 @@ function CheckpointInspectSectionShell({
       >
         <CheckpointDetailsSummary className='border-b border-border/50 text-sm font-medium'>
           <span>{title}</span>
+          {action ? (
+            <div
+              className='ml-auto pr-2'
+              onClick={(e) => e.stopPropagation()}
+            >
+              {action}
+            </div>
+          ) : null}
         </CheckpointDetailsSummary>
         <div className='p-3'>{children}</div>
       </details>
@@ -957,8 +1018,9 @@ function CheckpointInspectSectionShell({
   }
   return (
     <div className='rounded-lg border border-border/50 bg-background/80'>
-      <div className='border-b border-border/50 px-3 py-2 text-sm font-medium'>
-        {title}
+      <div className='flex items-center justify-between border-b border-border/50 px-3 py-2 text-sm font-medium'>
+        <span>{title}</span>
+        {action}
       </div>
       <div className='p-3'>{children}</div>
     </div>
@@ -1082,6 +1144,9 @@ export function CheckpointInspectSourceHighlightsSection({
   currentOffsetLabel,
   targetLabel,
   progressLabel,
+  onToggleManual,
+  isManualOpen,
+  reSpecifyLabel,
 }: {
   title: string;
   result: RuntimeStorageCheckpointInspectResult | null;
@@ -1092,6 +1157,9 @@ export function CheckpointInspectSourceHighlightsSection({
   currentOffsetLabel: string;
   targetLabel: string;
   progressLabel: string;
+  onToggleManual?: () => void;
+  isManualOpen?: boolean;
+  reSpecifyLabel?: string;
 }) {
   const sourceStates = Array.isArray(result?.source_state_inspect?.sources)
     ? result.source_state_inspect.sources
@@ -1119,7 +1187,25 @@ export function CheckpointInspectSourceHighlightsSection({
   }
 
   return (
-    <CheckpointInspectSectionShell title={title}>
+    <CheckpointInspectSectionShell
+      title={title}
+      action={
+        onToggleManual ? (
+          <Button
+            variant='ghost'
+            size='sm'
+            className='h-6.5 gap-1 px-2 text-[11px] text-muted-foreground hover:text-foreground'
+            onClick={onToggleManual}
+          >
+            <RotateCcw className='size-3 text-muted-foreground' />
+            <span>
+              {reSpecifyLabel ||
+                (isManualOpen ? '收起配置' : '重新指定连接器')}
+            </span>
+          </Button>
+        ) : null
+      }
+    >
       <div className='space-y-4'>
         {errorMessage
           ? (() => {
@@ -1704,6 +1790,10 @@ export function CheckpointInspectSourceHighlightsSection({
   );
 }
 
+/**
+ * 紧凑型快照元数据摘要栏（消除与 Header 重复的 4 个巨型指标方框，提升业务位点首屏能见度）
+ * Compact checkpoint metadata strip (eliminates redundant metric boxes to prioritize source offsets in first screen)
+ */
 export function CheckpointInspectOverviewSection({
   result,
   t,
@@ -1713,103 +1803,54 @@ export function CheckpointInspectOverviewSection({
 }) {
   const summary = buildCheckpointInspectSummary(result);
   const completed = result?.completed_checkpoint;
-  const checkpointId =
-    completed?.checkpointId !== undefined && completed?.checkpointId !== null
-      ? String(completed.checkpointId)
-      : '-';
-  const status =
-    typeof completed?.status === 'string' ? completed.status : 'UNKNOWN';
-  const duration =
-    completed?.durationMillis !== undefined
-      ? `${completed.durationMillis} ms`
-      : '-';
-  const stateSizeFormatted =
-    typeof completed?.stateSize === 'number'
-      ? formatSizeBytes(completed.stateSize)
-      : completed?.stateSize !== undefined && completed?.stateSize !== null
-        ? String(completed.stateSize)
-        : '-';
-  const checkpointType =
-    typeof completed?.checkpointType === 'string'
-      ? completed.checkpointType
-      : 'CHECKPOINT';
+  const pipeline = result?.pipeline_state;
 
   return (
-    <CheckpointInspectSectionShell title={t('checkpointOverview')}>
-      <div className='space-y-3.5'>
-        {/* 四联现代度量指标卡片 */}
-        <div className='grid grid-cols-2 gap-3 sm:grid-cols-4'>
-          {/* 1. 检查点状态与 ID */}
-          <div className='rounded-lg border border-border/60 bg-background/80 p-3 shadow-xs'>
-            <div className='flex items-center justify-between text-xs text-muted-foreground'>
-              <span>检查点 ID</span>
-              <span className='text-[10px] font-mono'>#{checkpointId}</span>
-            </div>
-            <div className='mt-2 flex items-center gap-2'>
-              {renderCheckpointFieldValue('status', status)}
-            </div>
+    <div className='rounded-lg border border-border/50 bg-background/70 px-4 py-2.5 text-xs shadow-2xs'>
+      <div className='flex flex-wrap items-center justify-between gap-3'>
+        <div className='flex flex-wrap items-center gap-x-5 gap-y-1.5 text-muted-foreground'>
+          <div className='flex items-center gap-1.5'>
+            <span className='text-muted-foreground/80'>{t('pipeline')}:</span>
+            <span className='font-mono font-semibold text-foreground'>
+              #{String(completed?.pipelineId ?? pipeline?.pipelineId ?? 1)}
+            </span>
           </div>
-
-          {/* 2. 端到端耗时 */}
-          <div className='rounded-lg border border-border/60 bg-background/80 p-3 shadow-xs'>
-            <div className='flex items-center justify-between text-xs text-muted-foreground'>
-              <div className='flex items-center gap-1'>
-                <Clock className='size-3 text-primary' />
-                <span>端到端耗时</span>
-              </div>
-            </div>
-            <div className='mt-2 font-mono text-base font-bold text-foreground'>
-              {duration}
-            </div>
+          <span className='text-border/60'>·</span>
+          <div className='flex items-center gap-1.5'>
+            <span className='text-muted-foreground/80'>{t('jobId') || '作业 ID'}:</span>
+            <span className='font-mono font-medium text-foreground'>
+              {String(completed?.jobId || pipeline?.jobId || '-')}
+            </span>
           </div>
-
-          {/* 3. 状态快照体积 */}
-          <div className='rounded-lg border border-border/60 bg-background/80 p-3 shadow-xs'>
-            <div className='flex items-center justify-between text-xs text-muted-foreground'>
-              <div className='flex items-center gap-1'>
-                <HardDrive className='size-3 text-emerald-500' />
-                <span>快照体积</span>
-              </div>
-            </div>
-            <div className='mt-2 font-mono text-base font-bold text-foreground'>
-              {stateSizeFormatted}
-            </div>
+          <span className='text-border/60'>·</span>
+          <div className='flex items-center gap-1.5'>
+            <span className='text-muted-foreground/80'>{t('triggered') || '触发'}:</span>
+            <span className='font-mono text-foreground'>
+              {renderCheckpointFieldValue('triggerTimestamp', completed?.triggerTimestamp)}
+            </span>
           </div>
-
-          {/* 4. 触发模式 */}
-          <div className='rounded-lg border border-border/60 bg-background/80 p-3 shadow-xs'>
-            <div className='flex items-center justify-between text-xs text-muted-foreground'>
-              <div className='flex items-center gap-1'>
-                <Zap className='size-3 text-amber-500' />
-                <span>触发类型</span>
-              </div>
-            </div>
-            <div className='mt-2'>
-              {renderCheckpointFieldValue('checkpointType', checkpointType)}
-            </div>
+          <span className='text-border/60'>·</span>
+          <div className='flex items-center gap-1.5'>
+            <span className='text-muted-foreground/80'>{t('completed') || '完成'}:</span>
+            <span className='font-mono text-foreground'>
+              {renderCheckpointFieldValue('completedTimestamp', completed?.completedTimestamp)}
+            </span>
           </div>
         </div>
 
-        {/* 详细元数据汇总表格 */}
-        <div className='rounded-md border border-border/50 bg-background/70 overflow-hidden shadow-xs'>
-          <div className='border-b border-border/50 bg-muted/20 px-3 py-2 flex items-center justify-between text-xs'>
-            <span className='text-muted-foreground'>{t('fileName')}</span>
-            <span
-              className='break-all font-mono font-medium text-foreground max-w-[75%] truncate'
-              title={result?.file_name}
-            >
-              {result?.file_name || '-'}
-            </span>
-          </div>
-          <div className='overflow-x-auto'>
+        {/* 渐进式披露：完整底层字段折叠展示 */}
+        {/* Progressive disclosure: expandable full raw metadata table */}
+        <details className='group text-xs'>
+          <summary className='flex cursor-pointer list-none items-center gap-1 text-muted-foreground transition-colors hover:text-foreground'>
+            <span>{t('rawDetails') || '更多元数据'}</span>
+            <ChevronRight className='size-3 transition-transform duration-200 group-open:rotate-90' />
+          </summary>
+          <div className='mt-2.5 overflow-hidden rounded-md border border-border/50 bg-background'>
             <Table>
-              <TableHeader className='bg-muted/10'>
+              <TableHeader className='bg-muted/30'>
                 <TableRow>
                   {summary.map((item) => (
-                    <TableHead
-                      key={item.label}
-                      className='h-8 py-1 text-xs font-semibold'
-                    >
+                    <TableHead key={item.label} className='h-7 py-1 text-[11px] font-medium'>
                       {item.label}
                     </TableHead>
                   ))}
@@ -1818,10 +1859,7 @@ export function CheckpointInspectOverviewSection({
               <TableBody>
                 <TableRow className='hover:bg-transparent'>
                   {summary.map((item) => (
-                    <TableCell
-                      key={item.label}
-                      className='py-2 font-medium text-xs'
-                    >
+                    <TableCell key={item.label} className='py-1.5 font-mono text-[11px]'>
                       {renderCheckpointFieldValue(item.key, item.value)}
                     </TableCell>
                   ))}
@@ -1829,9 +1867,9 @@ export function CheckpointInspectOverviewSection({
               </TableBody>
             </Table>
           </div>
-        </div>
+        </details>
       </div>
-    </CheckpointInspectSectionShell>
+    </div>
   );
 }
 
@@ -2133,57 +2171,182 @@ export function CheckpointInspectDialog({
   onOpenChange,
   result,
   t,
+  onResultUpdate,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   result: RuntimeStorageCheckpointInspectResult | null;
   t: (key: string) => string;
+  onResultUpdate?: (newResult: RuntimeStorageCheckpointInspectResult) => void;
 }) {
   const [copiedPath, setCopiedPath] = useState(false);
   const [copiedJson, setCopiedJson] = useState(false);
   const [activeTab, setActiveTab] = useState('overview');
 
-  const completed = result?.completed_checkpoint;
+  // 本地快照解析结果状态（支持手动指定连接器后就地局部刷新）
+  // Local inspect result state (supports in-place re-decoding when connector is manually specified)
+  const [activeResult, setActiveResult] =
+    useState<RuntimeStorageCheckpointInspectResult | null>(result);
+  useEffect(() => {
+    setActiveResult(result);
+  }, [result]);
+
+  // 手动指定源端所属连接器状态
+  // Manual source connector selection state
+  const [selectedConnector, setSelectedConnector] =
+    useState<string>('MySQL-CDC');
+  const [customConnector, setCustomConnector] = useState<string>('');
+  const [isDecoding, setIsDecoding] = useState<boolean>(false);
+  const [showManualConnector, setShowManualConnector] =
+    useState<boolean>(false);
+
+  const completed = activeResult?.completed_checkpoint;
+  const pipeline = activeResult?.pipeline_state;
   const checkpointId =
     completed?.checkpointId !== undefined && completed?.checkpointId !== null
       ? String(completed.checkpointId)
-      : '-';
+      : pipeline?.checkpointId !== undefined
+        ? String(pipeline.checkpointId)
+        : '-';
   const status =
-    typeof completed?.status === 'string' ? completed.status : 'UNKNOWN';
-  const duration =
-    completed?.durationMillis !== undefined
-      ? `${completed.durationMillis} ms`
-      : '-';
-  const stateSizeFormatted =
+    typeof completed?.status === 'string'
+      ? completed.status
+      : typeof pipeline?.status === 'string'
+        ? pipeline.status
+        : 'COMPLETED';
+
+  // 检查是否已有成功解码的数据源位点
+  // Check if any source states have been decoded
+  const hasSourceStates =
+    Array.isArray(activeResult?.source_state_inspect?.sources) &&
+    activeResult.source_state_inspect.sources.length > 0;
+
+  // 手动指定连接器并重新发起位点解析
+  // Manually decode checkpoint source offsets with the chosen connector
+  const handleManualDecode = useCallback(async () => {
+    const clusterId = activeResult?.cluster_id;
+    const path = activeResult?.path;
+    if (!clusterId || !path) {
+      toast.error(t('checkpointInspectUnavailable') || '当前快照路径不可用');
+      return;
+    }
+    const targetConnector =
+      selectedConnector === 'custom'
+        ? customConnector.trim()
+        : selectedConnector.trim();
+    if (!targetConnector) {
+      toast.error(t('selectOrInputConnector') || '请选择或输入源端连接器');
+      return;
+    }
+    setIsDecoding(true);
+    try {
+      const res = await services.cluster.inspectCheckpointRuntimeStorageSafe(
+        clusterId,
+        {
+          path,
+          source_connector: targetConnector,
+        },
+      );
+      if (!res.success || !res.data) {
+        toast.error(
+          res.error || t('checkpointInspectFailed') || '位点解析失败',
+        );
+        return;
+      }
+      setActiveResult(res.data);
+      onResultUpdate?.(res.data);
+      const decodedCount = res.data.source_state_inspect?.sources?.length ?? 0;
+      if (decodedCount > 0) {
+        toast.success(
+          t('checkpointSourceStateDecoded') || '源端位点解析成功',
+        );
+        setShowManualConnector(false);
+      } else {
+        const warning = res.data.source_state_inspect?.warnings?.[0];
+        toast.warning(
+          warning ||
+            t('checkpointSourceStateEmpty') ||
+            '未能通过所选连接器匹配到快照算子',
+        );
+      }
+    } finally {
+      setIsDecoding(false);
+    }
+  }, [
+    activeResult?.cluster_id,
+    activeResult?.path,
+    customConnector,
+    onResultUpdate,
+    selectedConnector,
+    t,
+  ]);
+
+  // 计算耗时：优先 durationMillis，次选 completedTimestamp - triggerTimestamp
+  // Calculate duration: durationMillis first, fallback to completedTimestamp - triggerTimestamp
+  const triggerTs =
+    typeof completed?.triggerTimestamp === 'number'
+      ? completed.triggerTimestamp
+      : typeof completed?.triggerTimestamp === 'string'
+        ? Number(completed.triggerTimestamp)
+        : undefined;
+  const completedTs =
+    typeof completed?.completedTimestamp === 'number'
+      ? completed.completedTimestamp
+      : typeof completed?.completedTimestamp === 'string'
+        ? Number(completed.completedTimestamp)
+        : undefined;
+  const durationMs =
+    typeof completed?.durationMillis === 'number'
+      ? completed.durationMillis
+      : triggerTs !== undefined &&
+          completedTs !== undefined &&
+          !Number.isNaN(triggerTs) &&
+          !Number.isNaN(completedTs)
+        ? Math.max(0, completedTs - triggerTs)
+        : undefined;
+  const duration = durationMs !== undefined ? `${durationMs} ms` : '-';
+
+  // 计算快照大小：优先 completed.stateSize，次选 pipeline.stateBytes
+  // Calculate state size: completed.stateSize first, fallback to pipeline.stateBytes
+  const stateSizeBytes =
     typeof completed?.stateSize === 'number'
-      ? formatSizeBytes(completed.stateSize)
+      ? completed.stateSize
+      : typeof pipeline?.stateBytes === 'number'
+        ? pipeline.stateBytes
+        : undefined;
+  const stateSizeFormatted =
+    stateSizeBytes !== undefined
+      ? formatSizeBytes(stateSizeBytes)
       : completed?.stateSize !== undefined && completed?.stateSize !== null
         ? String(completed.stateSize)
         : '-';
 
   const handleCopyPath = useCallback(() => {
-    if (!result?.path) {
+    if (!activeResult?.path) {
       return;
     }
-    void navigator.clipboard.writeText(result.path);
+    void navigator.clipboard.writeText(activeResult.path);
     setCopiedPath(true);
     setTimeout(() => setCopiedPath(false), 2000);
-  }, [result?.path]);
+  }, [activeResult?.path]);
 
   const handleCopyJson = useCallback(() => {
-    if (!result) {
+    if (!activeResult) {
       return;
     }
-    void navigator.clipboard.writeText(JSON.stringify(result, null, 2));
+    void navigator.clipboard.writeText(JSON.stringify(activeResult, null, 2));
     setCopiedJson(true);
     setTimeout(() => setCopiedJson(false), 2000);
-  }, [result]);
+  }, [activeResult]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className='flex h-[86vh] w-[92vw] max-w-[92vw] flex-col overflow-hidden p-0 sm:max-w-[1240px]'>
+      {/* 弹窗高度固定为 85vh，使用 sm:max-w-[1200px] 覆盖 DialogContent 默认的 sm:max-w-lg 限制 */}
+      {/* Fixed 85vh dialog height and sm:max-w-[1200px] to override default sm:max-w-lg narrow constrain */}
+      <DialogContent className='flex h-[85vh] w-[94vw] sm:max-w-[1200px] flex-col overflow-hidden p-0'>
         {/* 顶部现代化标题与状态栏 */}
-        <div className='border-b border-border/60 bg-muted/15 px-6 py-4'>
+        {/* Modern header and status bar */}
+        <div className='border-b border-border/60 bg-muted/15 px-6 py-3.5 shrink-0'>
           <div className='flex flex-wrap items-center justify-between gap-3'>
             <div className='flex items-center gap-2.5'>
               <div className='flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary'>
@@ -2203,12 +2366,13 @@ export function CheckpointInspectDialog({
                   {renderCheckpointFieldValue('status', status)}
                 </div>
                 <DialogDescription className='sr-only'>
-                  {result?.path || '-'}
+                  {activeResult?.path || '-'}
                 </DialogDescription>
               </div>
             </div>
 
             {/* 右侧关键度量胶囊 */}
+            {/* Right key metric pills */}
             <div className='flex items-center gap-2'>
               <div className='inline-flex items-center gap-1.5 rounded-md border border-border/60 bg-background/80 px-2.5 py-1 text-xs text-muted-foreground shadow-xs'>
                 <Clock className='size-3 text-primary' />
@@ -2226,14 +2390,15 @@ export function CheckpointInspectDialog({
           </div>
 
           {/* 路径条与一键复制 */}
-          <div className='mt-3 flex items-center justify-between gap-2 rounded-md border border-border/50 bg-background/60 px-3 py-1.5 text-xs'>
+          {/* File path strip with quick copy */}
+          <div className='mt-2.5 flex items-center justify-between gap-2 rounded-md border border-border/50 bg-background/60 px-3 py-1.5 text-xs'>
             <div className='flex min-w-0 items-center gap-2'>
               <FileCode className='size-3.5 shrink-0 text-muted-foreground' />
               <span
                 className='truncate font-mono text-[11px] text-muted-foreground'
-                title={result?.path}
+                title={activeResult?.path}
               >
-                {result?.path || '-'}
+                {activeResult?.path || '-'}
               </span>
             </div>
             <div className='flex shrink-0 items-center gap-1'>
@@ -2284,12 +2449,13 @@ export function CheckpointInspectDialog({
         </div>
 
         {/* 主体选项卡布局 */}
+        {/* Main tabs layout */}
         <Tabs
           value={activeTab}
           onValueChange={setActiveTab}
           className='flex min-h-0 flex-1 flex-col'
         >
-          <div className='border-b border-border/60 bg-background px-6 pt-2 pb-0'>
+          <div className='border-b border-border/60 bg-background px-6 pt-2 pb-0 shrink-0'>
             <TabsList className='grid h-9 w-full max-w-[380px] grid-cols-2 bg-muted/40 p-0.5'>
               <TabsTrigger
                 value='overview'
@@ -2308,43 +2474,138 @@ export function CheckpointInspectDialog({
             </TabsList>
           </div>
 
-          <div className='min-h-0 flex-1 bg-muted/10 p-6'>
-            <ScrollArea className='h-full pr-3'>
-              {/* Tab 1: 概览与业务位点 */}
-              <TabsContent
-                value='overview'
-                className='mt-0 space-y-5 outline-hidden'
-              >
-                <CheckpointInspectOverviewSection result={result} t={t} />
-                <CheckpointInspectSourceHighlightsSection
-                  title={t('checkpointSourceState')}
-                  result={result}
-                  decodeStrategyLabel={t('decodeStrategy')}
-                  splitCountLabel={t('splitCount')}
-                  warningsLabel={t('warnings')}
-                  unsupportedLabel={t('unsupportedSources')}
-                  currentOffsetLabel={t('currentOffset')}
-                  targetLabel={t('sourceTarget')}
-                  progressLabel={t('sourceProgress')}
-                />
-              </TabsContent>
+          {/* 采用原生丝滑可滚动容器，彻底替代失效的嵌套 ScrollArea */}
+          {/* Native smooth scroll container replacing problematic nested ScrollArea */}
+          <div className='min-h-0 flex-1 overflow-y-auto bg-muted/10 p-6'>
+            {/* Tab 1: 概览与业务位点 */}
+            {/* Tab 1: Overview and business offsets */}
+            <TabsContent
+              value='overview'
+              className='mt-0 space-y-4 outline-hidden'
+            >
+              <CheckpointInspectOverviewSection result={activeResult} t={t} />
 
-              {/* Tab 2: 算子与分片拓扑 */}
-              <TabsContent
-                value='actions'
-                className='mt-0 space-y-5 outline-hidden'
-              >
-                <CheckpointInspectPrimaryTableSection
-                  title={t('actions')}
-                  result={result}
-                  sourceStateTitle={t('checkpointSourceState')}
-                  decodeStrategyLabel={t('decodeStrategy')}
-                  coordinatorLabel={t('coordinator')}
-                  unsupportedLabel={t('unsupportedSources')}
-                  rawDetailsLabel={t('rawDetails')}
-                />
-              </TabsContent>
-            </ScrollArea>
+              {/* 手动指定源端所属连接器卡片（若快照未匹配到作业配置，或用户点击主动展开） */}
+              {/* Manual source connector specification card (shown if no sources decoded, or user opened it) */}
+              {(!hasSourceStates || showManualConnector) && (
+                <div className='rounded-xl border border-primary/20 bg-primary/5 p-4 shadow-2xs space-y-3 dark:border-primary/25 dark:bg-primary/10'>
+                  <div className='flex items-start gap-2.5'>
+                    <div className='mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-md bg-primary/15 text-primary'>
+                      <Sparkles className='size-3.5' />
+                    </div>
+                    <div className='min-w-0 flex-1 space-y-1'>
+                      <div className='flex items-center justify-between gap-2'>
+                        <span className='text-xs font-semibold text-foreground'>
+                          {t('manualSpecifyConnector') || '手动指定源端连接器'}
+                        </span>
+                        {hasSourceStates && (
+                          <Button
+                            variant='ghost'
+                            size='sm'
+                            className='h-6 px-2 text-[11px] text-muted-foreground hover:text-foreground'
+                            onClick={() => setShowManualConnector(false)}
+                          >
+                            收起 / Close
+                          </Button>
+                        )}
+                      </div>
+                      <div className='text-[11px] leading-relaxed text-muted-foreground'>
+                        {t('manualSpecifyConnectorDesc') ||
+                          '当前快照未自动关联作业配置。您可以手动指定源端所属连接器，系统将基于对应驱动反序列化增量位点（如 MySQL Binlog、Kafka Offset）：'}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className='flex flex-wrap items-center gap-2 pt-1'>
+                    <Select
+                      value={selectedConnector}
+                      onValueChange={setSelectedConnector}
+                    >
+                      <SelectTrigger className='h-8.5 w-[280px] bg-background text-xs'>
+                        <SelectValue
+                          placeholder={
+                            t('selectOrInputConnector') || '选择源端连接器'
+                          }
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {PRESET_STREAMING_CONNECTORS.map((c) => (
+                          <SelectItem
+                            key={c.value}
+                            value={c.value}
+                            className='text-xs'
+                          >
+                            {c.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+
+                    {selectedConnector === 'custom' && (
+                      <Input
+                        value={customConnector}
+                        onChange={(e) => setCustomConnector(e.target.value)}
+                        placeholder={
+                          t('customConnectorPlaceholder') ||
+                          '例如: MySQL-CDC 或 Kafka'
+                        }
+                        className='h-8.5 w-[200px] bg-background text-xs font-mono'
+                      />
+                    )}
+
+                    <Button
+                      size='sm'
+                      className='h-8.5 gap-1.5 px-3 text-xs shadow-xs'
+                      onClick={handleManualDecode}
+                      disabled={isDecoding}
+                    >
+                      {isDecoding ? (
+                        <Loader2 className='size-3.5 animate-spin' />
+                      ) : (
+                        <Zap className='size-3.5' />
+                      )}
+                      <span>
+                        {isDecoding
+                          ? t('decodingOffset') || '正在解析...'
+                          : t('decodeOffsetAction') || '解析位点'}
+                      </span>
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              <CheckpointInspectSourceHighlightsSection
+                title={t('checkpointSourceState')}
+                result={activeResult}
+                decodeStrategyLabel={t('decodeStrategy')}
+                splitCountLabel={t('splitCount')}
+                warningsLabel={t('warnings')}
+                unsupportedLabel={t('unsupportedSources')}
+                currentOffsetLabel={t('currentOffset')}
+                targetLabel={t('sourceTarget')}
+                progressLabel={t('sourceProgress')}
+                onToggleManual={() => setShowManualConnector((prev) => !prev)}
+                isManualOpen={showManualConnector}
+                reSpecifyLabel={t('reSpecifyConnector')}
+              />
+            </TabsContent>
+
+            {/* Tab 2: 算子与分片拓扑 */}
+            {/* Tab 2: Operators and splits topology */}
+            <TabsContent
+              value='actions'
+              className='mt-0 space-y-4 outline-hidden'
+            >
+              <CheckpointInspectPrimaryTableSection
+                title={t('operatorActions') || t('actions')}
+                result={activeResult}
+                sourceStateTitle={t('checkpointSourceState')}
+                decodeStrategyLabel={t('decodeStrategy')}
+                coordinatorLabel={t('coordinator')}
+                unsupportedLabel={t('unsupportedSources')}
+                rawDetailsLabel={t('rawDetails')}
+              />
+            </TabsContent>
           </div>
         </Tabs>
       </DialogContent>

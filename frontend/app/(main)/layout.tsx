@@ -48,7 +48,7 @@ export default function ProjectLayout({children}: {children: React.ReactNode}) {
           {/* Unified page container with smooth entry fade-in animation */}
           <div
             key={pathname}
-            className='flex flex-col gap-4 mb-8 w-full max-w-none px-3 sm:px-4 lg:px-6 xl:px-8 2xl:px-10 py-6 md:gap-6 animate-in fade-in-50 duration-200'
+            className='flex flex-col gap-4 mb-8 pb-28 w-full max-w-none px-3 sm:px-4 lg:px-6 xl:px-8 2xl:px-10 py-6 md:gap-6 animate-in fade-in-50 duration-200'
           >
             {children}
           </div>

@@ -729,7 +729,7 @@ func (s *Service) CollectPreview(ctx context.Context, req *PreviewCollectRequest
 	}
 	session, err := s.repo.GetPreviewSessionByJobInstanceID(ctx, instance.ID)
 	if err != nil {
-		if !errors.Is(err, ErrJobInstanceNotFound) {
+		if !errors.Is(err, ErrPreviewSessionNotFound) && !errors.Is(err, ErrJobInstanceNotFound) {
 			return err
 		}
 		now := time.Now()
@@ -754,7 +754,31 @@ func (s *Service) CollectPreview(ctx context.Context, req *PreviewCollectRequest
 	if datasetName == "" {
 		datasetName = "preview_dataset"
 	}
+	// 提取 Schema 声明顺序并对齐预览列
+	// Extract schema declaration order and align preview columns
+	schemaOrder := extractPreviewSchemaOrderFromJob(instance, "")
+	if len(schemaOrder) == 0 && instance.TaskID > 0 {
+		if task, taskErr := s.repo.GetTaskByID(ctx, instance.TaskID); taskErr == nil && task != nil {
+			schemaOrder = extractPreviewSchemaOrderFromJob(instance, string(task.Content))
+		}
+	}
 	columns := interfaceSliceToStrings(req.Columns)
+	if len(columns) == 0 && len(req.Rows) > 0 {
+		seen := map[string]struct{}{}
+		for _, row := range req.Rows {
+			for k := range row {
+				trimmed := strings.TrimSpace(k)
+				if trimmed == "" {
+					continue
+				}
+				if _, ok := seen[trimmed]; !ok {
+					seen[trimmed] = struct{}{}
+					columns = append(columns, trimmed)
+				}
+			}
+		}
+	}
+	columns = alignPreviewColumnsOrder(columns, schemaOrder, nil)
 	rowLimit := normalizePreviewRowLimit(req.RowLimit)
 	if session.RowLimit > 0 {
 		rowLimit = normalizePreviewRowLimit(session.RowLimit)
@@ -785,6 +809,8 @@ func (s *Service) CollectPreview(ctx context.Context, req *PreviewCollectRequest
 	} else {
 		if len(columns) > 0 {
 			table.Columns = append(JSONStringSlice{}, columns...)
+		} else if len(table.Columns) > 0 && len(schemaOrder) > 0 {
+			table.Columns = alignPreviewColumnsOrder(table.Columns, schemaOrder, nil)
 		}
 		if req.Replace {
 			session.TotalRows -= table.RowCount

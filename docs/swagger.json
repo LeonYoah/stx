@@ -4740,6 +4740,52 @@
                 }
             }
         },
+        "/api/v1/sync/jobs/{id}/plan-dag": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sync"
+                ],
+                "summary": "获取作业提交配置推导的计划 DAG（表结构与建表计划）",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "作业 ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sync.JobPlanDAGResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/sync.JobPlanDAGResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/sync.JobPlanDAGResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/sync.JobPlanDAGResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sync/jobs/{id}/realtime": {
             "get": {
                 "produces": [
@@ -11460,6 +11506,50 @@
                 },
                 "updated_at": {
                     "type": "string"
+                }
+            }
+        },
+        "sync.JobPlanDAGResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/sync.JobPlanDAGResult"
+                },
+                "error_msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "sync.JobPlanDAGResult": {
+            "type": "object",
+            "properties": {
+                "available": {
+                    "type": "boolean"
+                },
+                "job_id": {
+                    "type": "integer"
+                },
+                "message": {
+                    "description": "Message 只在 inspect_failed 时出现，已脱敏并截断。\nMessage is only set for inspect_failed, already redacted and truncated.",
+                    "type": "string"
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "warnings": {
+                    "description": "Warnings 永远是数组，不为 null。\nWarnings is always an array, never null.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "webui_job": {
+                    "description": "WebUIJob 与 /tasks/:id/dag 的 webui_job 同构（WebUI 兼容 jobDag），前端用同一套解析。\nWebUIJob has the same shape as webui_job from /tasks/:id/dag (WebUI-compatible jobDag), parsed by the same code.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/sync.JSONMap"
+                        }
+                    ]
                 }
             }
         },

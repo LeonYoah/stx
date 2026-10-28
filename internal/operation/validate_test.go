@@ -98,7 +98,7 @@ func TestValidateRejectsRepeatedNonQueryInput(t *testing.T) {
 }
 
 func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
-	require.Len(t, Registry(), 270)
+	require.Len(t, Registry(), 271)
 
 	expected := map[string]struct{}{
 		"auth.user-info.get": {}, "auth.profile.update": {}, "admin.user.list": {}, "admin.user.get": {}, "admin.token.list": {},
@@ -144,7 +144,7 @@ func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
 		"sync.task.version.list":   {},
 		"sync.task.dolphin.status": {}, "sync.task.dolphin.script": {},
 		"sync.job.list": {}, "sync.job.get": {}, "sync.job.logs": {},
-		"sync.job.checkpoint": {}, "sync.job.preview": {}, "sync.job.realtime": {}, "sync.job.events": {},
+		"sync.job.checkpoint": {}, "sync.job.preview": {}, "sync.job.realtime": {}, "sync.job.plan-dag": {}, "sync.job.events": {},
 		"sync.event-channel.get": {}, "sync.task.alert.get": {},
 		"sync.variable.list":             {},
 		"sync.scheduler.connection.list": {}, "sync.scheduler.connection.projects": {},

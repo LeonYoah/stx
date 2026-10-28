@@ -102,6 +102,13 @@ type JobRealtimeResponse struct {
 	ErrorMsg string             `json:"error_msg"`
 	Data     *JobRealtimeResult `json:"data"`
 }
+
+// JobPlanDAGResponse 包装作业计划 DAG 结果。
+// JobPlanDAGResponse wraps the job plan DAG result.
+type JobPlanDAGResponse struct {
+	ErrorMsg string            `json:"error_msg"`
+	Data     *JobPlanDAGResult `json:"data"`
+}
 type JobListResponse struct {
 	ErrorMsg string       `json:"error_msg"`
 	Data     *JobListData `json:"data"`
@@ -646,6 +653,32 @@ func (h *Handler) GetJobRealtime(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, JobRealtimeResponse{Data: result})
+}
+
+// GetJobPlanDAG 处理 GET /api/v1/sync/jobs/:id/plan-dag：用提交时的配置推导表结构与建表计划，拿不到时以 available=false 表达。
+// GetJobPlanDAG handles GET /api/v1/sync/jobs/:id/plan-dag: it derives table schemas and save-mode plans from the
+// submitted config, expressing unavailability as available=false.
+// @Summary 获取作业提交配置推导的计划 DAG（表结构与建表计划）
+// @Tags Sync
+// @Produce json
+// @Param id path int true "作业 ID"
+// @Success 200 {object} JobPlanDAGResponse
+// @Failure 400 {object} JobPlanDAGResponse
+// @Failure 403 {object} JobPlanDAGResponse
+// @Failure 404 {object} JobPlanDAGResponse
+// @Router /api/v1/sync/jobs/{id}/plan-dag [get]
+func (h *Handler) GetJobPlanDAG(c *gin.Context) {
+	id, ok := parseUintParam(c, "id")
+	if !ok {
+		c.JSON(http.StatusBadRequest, JobPlanDAGResponse{ErrorMsg: "invalid job id"})
+		return
+	}
+	result, err := h.service.GetJobPlanDAGForActor(c.Request.Context(), currentExecutionActor(c), id)
+	if err != nil {
+		c.JSON(h.getStatusCodeForError(err), JobPlanDAGResponse{ErrorMsg: err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, JobPlanDAGResponse{Data: result})
 }
 
 // GetJobLogs handles GET /api/v1/sync/jobs/:id/logs.

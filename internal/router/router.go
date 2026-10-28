@@ -846,6 +846,7 @@ func Serve() {
 					syncJobRouter.GET("/:id/checkpoint", syncHandler.GetJobCheckpointSnapshot)
 					syncJobRouter.GET("/:id/logs", syncHandler.GetJobLogs)
 					syncJobRouter.GET("/:id/realtime", syncHandler.GetJobRealtime)
+					syncJobRouter.GET("/:id/plan-dag", syncHandler.GetJobPlanDAG)
 					syncJobRouter.GET("/:id/events", syncHandler.ListJobEvents)
 					syncJobRouter.POST("/:id/recover", syncHandler.RecoverJob)
 					syncJobRouter.POST("/:id/cancel", syncHandler.CancelJob)

@@ -323,6 +323,7 @@ stx_obs_start_stack() {
   echo $! >"$ALERT_DIR/alertmanager.pid"
 
   setsid "$PROM_DIR/prometheus" "--config.file=$PROM_DIR/prometheus.yml" "--storage.tsdb.path=$PROM_DIR/data" \
+    "--storage.tsdb.retention.size=30GB" \
     "--web.listen-address=:${STX_PROMETHEUS_PORT}" --web.enable-lifecycle >>"$PROM_DIR/logs/prometheus.log" 2>&1 </dev/null &
   echo $! >"$PROM_DIR/prometheus.pid"
 

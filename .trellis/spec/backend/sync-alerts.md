@@ -58,7 +58,7 @@ func (s *Service) SetTaskAlertPolicyStore(store syncalert.TaskPolicyStore)
 | `sync_status_unavailable` | D1 | 集群 | 规则配置（默认 warning） | 集群对账提前结束时发 `Observe`，持续时间 ≥ 规则 `WindowSeconds`（默认 300）才成立 | 恢复或进程启动后首次成功：`cluster_rule` |
 | `sync_event_channel_degraded` | D2 | 集群 | 规则配置（默认 warning） | 通道状态从非降级变为 `degraded` | 离开降级（healthy / disabled）：`cluster_rule` |
 
-`task_run_healthy`：批作业状态变为 `success`；实时作业状态变为 `running`，或实时作业提交成功（提交时就记为 running）。模式取 `job.Mode`，为空时取 `submit_spec.mode`，仍为空按实时作业处理。
+`task_run_healthy`：批作业状态变为 `success`；实时作业状态变为 `running`，或实时作业提交成功（提交时就记为 running）。模式由 `jobRunMode` 决定：优先取 `submit_spec.submitted_content` 里引擎实际使用的 `env.job.mode`，其次 `job.Mode`、`submit_spec.mode`，仍为空按实时作业处理（提交成功时再参考任务模式）。任务元数据可能与内容不一致（线上作业 #26：`submit_spec.mode=batch`、内容 `STREAMING`），以内容为准，否则实时作业的 B1 只会在“成功”时恢复。
 
 ### 信号
 - 作业级信号的快照字段：`TaskID`、`TaskName`、`TaskCreatorID`、`ClusterID`（`submit_spec.cluster_id`，没有时取任务）、`JobID`、`EngineJobID`、`TriggerSource`（`submit_spec.trigger_source`：manual / schedule / dolphin，Dolphin 触发见 [DolphinScheduler SHELL 接入](./dolphin-scheduler-shell.md)）、`Message`（`audit.RedactText` 脱敏后截断 2000 字符）。

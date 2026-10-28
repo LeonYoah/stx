@@ -108,7 +108,13 @@ func (s *Service) reportSubmitSucceeded(ctx context.Context, task *Task, instanc
 	if instance == nil || instance.Status != JobStatusRunning {
 		return
 	}
-	if (task != nil && task.Mode == TaskModeBatch) || jobIsBatch(instance) {
+	// 以作业实际模式为准；作业上取不到模式时才参考任务模式。
+	// The job's actual mode wins; the task mode is only consulted when the job carries none.
+	mode := jobRunMode(instance)
+	if mode == "" && task != nil {
+		mode = string(task.Mode)
+	}
+	if strings.EqualFold(mode, string(TaskModeBatch)) {
 		return
 	}
 	if signal, ok := s.alertSignalForJob(ctx, syncalert.KindResolve, "", instance, task, ""); ok {
@@ -222,17 +228,28 @@ func (s *Service) reportEventChannelState(clusterID uint, previous, current stri
 	}
 }
 
+// jobRunMode 返回作业实际的运行模式：优先取提交内容里引擎真正使用的 env.job.mode，其次是作业 / submit_spec 记录的
+// 任务模式。任务元数据可能与内容不一致（如 v1 版本元数据为 batch、内容是 STREAMING），以内容为准；取不到返回空。
+// jobRunMode returns the job's actual run mode: env.job.mode in the submitted content (what the engine uses) first,
+// then the task mode recorded on the job / submit_spec. Task metadata can disagree with the content (e.g. a v1
+// version recorded batch while its content is STREAMING), so the content wins; empty when unknown.
+func jobRunMode(job *JobInstance) string {
+	if job == nil {
+		return ""
+	}
+	if match := jobModePattern.FindStringSubmatch(stringValue(job.SubmitSpec, "submitted_content")); len(match) == 2 {
+		return strings.ToLower(match[1])
+	}
+	if mode := strings.TrimSpace(job.Mode); mode != "" {
+		return mode
+	}
+	return strings.TrimSpace(submitSpecMode(job.SubmitSpec))
+}
+
 // jobIsBatch 判断作业是否为批作业；取不到模式时按实时作业处理（与任务默认模式一致）。
 // jobIsBatch reports whether the job is a batch job; an unknown mode counts as streaming (the task default).
 func jobIsBatch(job *JobInstance) bool {
-	if job == nil {
-		return false
-	}
-	mode := strings.TrimSpace(job.Mode)
-	if mode == "" {
-		mode = strings.TrimSpace(submitSpecMode(job.SubmitSpec))
-	}
-	return strings.EqualFold(mode, string(TaskModeBatch))
+	return strings.EqualFold(jobRunMode(job), string(TaskModeBatch))
 }
 
 // submitSpecMode 读取 submit_spec.mode：刚提交时是 TaskMode，从库里读出来是 string，两种都要认。

@@ -2408,6 +2408,26 @@ export function canRecoverFromJob(job: SyncJobInstance | null): boolean {
   return isJobLifecycleTerminal(getDisplayJobLifecycleStatus(job));
 }
 
+/**
+ * 作业行与作业详情共用的操作可用性：恢复（非预览作业显示，终态且有权限时可用）、停止 / 保存点停止（活跃作业显示，
+ * 管理员、任务所有者或发起人可用）。两处必须一致，所以只在这里判断。
+ * Action availability shared by the job row and the job detail: recover (shown for non-preview jobs, enabled when
+ * terminal and permitted) and stop / savepoint stop (shown for active jobs, enabled for admins, task owners or the
+ * initiator). Both places must agree, so the rules live only here.
+ */
+export function getJobActionState(
+  job: SyncJobInstance,
+  ctx: {isAdmin: boolean; isOwner: boolean; canRun: boolean; currentUserId?: number; disableRecover: boolean},
+): {showRecover: boolean; canRecover: boolean; showStop: boolean; canStop: boolean} {
+  const showStop = isJobLifecycleActive(getDisplayJobLifecycleStatus(job));
+  return {
+    showRecover: job.run_type !== 'preview',
+    canRecover: !ctx.disableRecover && canRecoverFromJob(job) && ctx.canRun,
+    showStop,
+    canStop: ctx.isAdmin || ctx.isOwner || (ctx.currentUserId !== undefined && job.created_by === ctx.currentUserId),
+  };
+}
+
 export function getJobSubmittedScript(job: SyncJobInstance | null): {
   content: string;
   format: string;
@@ -3061,6 +3081,22 @@ export function formatMetricDisplayValue(value: unknown): string {
   return String(value);
 }
 
+/**
+ * 速率类指标的展示值：数值最多保留 2 位小数（引擎给的是 1.9704569255360194 这类原始浮点），非数值原样返回；完整值放在悬停提示里。
+ * Display value for rate metrics: numbers keep at most 2 decimals (the engine reports raw floats such as
+ * 1.9704569255360194); non-numeric values pass through. The full value stays in the tooltip.
+ */
+export function formatRateDisplay(value: string | number | null | undefined): string {
+  if (value === null || value === undefined || value === '') {
+    return '-';
+  }
+  const numeric = typeof value === 'number' ? value : Number(String(value).trim());
+  if (!Number.isFinite(numeric)) {
+    return String(value);
+  }
+  return String(Math.round(numeric * 100) / 100);
+}
+
 export function formatMetricCompactValue(value: number): string {
   if (value >= 1_000_000_000) {
     return `${(value / 1_000_000_000).toFixed(2)} B`;
@@ -3515,6 +3551,26 @@ export function classifyMetricGroup(key: string): MetricGroupKey {
     return 'status';
   }
   return 'other';
+}
+
+/**
+ * 判断一个引擎指标值是否为 0：数字 / 数字字符串为 0，或按算子 / 按表的 map 里全是 0。全 0 的扩展指标默认折叠，给有数据的指标让位。
+ * Whether an engine metric value is zero: a zero number / numeric string, or a per-vertex / per-table map of zeros.
+ * All-zero extended metrics are collapsed by default to leave room for metrics with data.
+ */
+export function isZeroMetricValue(value: unknown): boolean {
+  if (typeof value === 'number') {
+    return value === 0;
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed !== '' && Number(trimmed) === 0;
+  }
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const values = Object.values(value as Record<string, unknown>);
+    return values.length > 0 && values.every((item) => isZeroMetricValue(item));
+  }
+  return false;
 }
 
 export function buildMetricGroups(

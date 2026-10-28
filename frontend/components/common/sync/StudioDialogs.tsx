@@ -57,6 +57,8 @@ import {ExpandableTextPanel} from '@/components/common/layout';
 import type {SyncJobInstance, SyncValidateResult} from '@/lib/services/sync';
 import {
   buildMetricGroups,
+  formatRateDisplay,
+  isZeroMetricValue,
   buildMetricHighlights,
   buildPairedMetricRows,
   buildPerTableMetricRows,
@@ -365,9 +367,18 @@ export function ValidationResultPanel({result}: {result: SyncValidateResult | nu
 export function MetricsDialogContent({job}: {job: SyncJobInstance | null}) {
   const t = useTranslations('workbenchStudio');
   const rawMetrics = toObject(job?.result_preview?.metrics);
-  const metricGroups = buildMetricGroups(rawMetrics, t).filter(
+  const allMetricGroups = buildMetricGroups(rawMetrics, t).filter(
     (group) => group.key !== 'read' && group.key !== 'write',
   );
+  // 全为 0 的扩展指标折叠成一行，非零指标照常分组展示。
+  // All-zero extended metrics collapse into one row; non-zero metrics keep their groups.
+  const metricGroups = allMetricGroups
+    .map((group) => ({...group, items: group.items.filter((item) => !isZeroMetricValue(item.value))}))
+    .filter((group) => group.items.length > 0);
+  const zeroMetricItems = allMetricGroups.flatMap((group) =>
+    group.items.filter((item) => isZeroMetricValue(item.value)),
+  );
+  const [zeroMetricsExpanded, setZeroMetricsExpanded] = useState(false);
   const metricHighlights = buildMetricHighlights(rawMetrics, t);
   const perTableRows = buildPerTableMetricRows(rawMetrics);
   const pairedMetricRows = buildPairedMetricRows(rawMetrics);
@@ -419,7 +430,7 @@ export function MetricsDialogContent({job}: {job: SyncJobInstance | null}) {
       </div>
     );
   }
-  if (metricGroups.length === 0 && metricHighlights.length === 0) {
+  if (metricGroups.length === 0 && metricHighlights.length === 0 && zeroMetricItems.length === 0) {
     return (
       <div className='flex items-center justify-center p-8 text-sm text-muted-foreground'>
         {t('noMetricsOutput')}
@@ -932,7 +943,7 @@ export function MetricsDialogContent({job}: {job: SyncJobInstance | null}) {
                           <TableCell className='py-1.5 px-2.5 font-mono text-xs text-foreground'>
                             <Tooltip>
                               <TooltipTrigger asChild>
-                                <span>{row.sourceQps}</span>
+                                <span>{formatRateDisplay(row.sourceQps)}</span>
                               </TooltipTrigger>
                               <TooltipContent>{row.sourceQps}</TooltipContent>
                             </Tooltip>
@@ -956,7 +967,7 @@ export function MetricsDialogContent({job}: {job: SyncJobInstance | null}) {
                           <TableCell className='py-1.5 px-2.5 font-mono text-xs text-foreground'>
                             <Tooltip>
                               <TooltipTrigger asChild>
-                                <span>{row.sinkQps}</span>
+                                <span>{formatRateDisplay(row.sinkQps)}</span>
                               </TooltipTrigger>
                               <TooltipContent>{row.sinkQps}</TooltipContent>
                             </Tooltip>
@@ -1104,7 +1115,7 @@ export function MetricsDialogContent({job}: {job: SyncJobInstance | null}) {
                           <TableCell className='py-1.5 px-2.5 font-mono text-xs text-foreground'>
                             <Tooltip>
                               <TooltipTrigger asChild>
-                                <span>{row.sourceQps}</span>
+                                <span>{formatRateDisplay(row.sourceQps)}</span>
                               </TooltipTrigger>
                               <TooltipContent>{row.sourceQps}</TooltipContent>
                             </Tooltip>
@@ -1128,7 +1139,7 @@ export function MetricsDialogContent({job}: {job: SyncJobInstance | null}) {
                           <TableCell className='py-1.5 px-2.5 font-mono text-xs text-foreground'>
                             <Tooltip>
                               <TooltipTrigger asChild>
-                                <span>{row.sinkQps}</span>
+                                <span>{formatRateDisplay(row.sinkQps)}</span>
                               </TooltipTrigger>
                               <TooltipContent>{row.sinkQps}</TooltipContent>
                             </Tooltip>
@@ -1212,6 +1223,29 @@ export function MetricsDialogContent({job}: {job: SyncJobInstance | null}) {
               </div>
             </div>
           ))}
+        </div>
+      ) : null}
+
+      {zeroMetricItems.length > 0 ? (
+        <div className='overflow-hidden rounded-lg border border-border/60 bg-background/80'>
+          <button
+            type='button'
+            className='flex w-full items-center gap-1.5 px-3 py-2 text-left text-xs text-muted-foreground hover:bg-muted/30'
+            onClick={() => setZeroMetricsExpanded((value) => !value)}
+            aria-expanded={zeroMetricsExpanded}
+          >
+            {zeroMetricsExpanded ? <ChevronDown className='size-3.5' /> : <ChevronRight className='size-3.5' />}
+            <span>{t('zeroMetricsCollapsed', {count: zeroMetricItems.length})}</span>
+          </button>
+          {zeroMetricsExpanded ? (
+            <div className='flex flex-wrap gap-1.5 border-t border-border/50 px-3 py-2'>
+              {zeroMetricItems.map((item) => (
+                <span key={item.key} className='rounded border border-border/50 bg-muted/30 px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground'>
+                  {item.key}
+                </span>
+              ))}
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>

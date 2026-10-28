@@ -405,6 +405,30 @@ export interface SyncWebUIDagPreviewJob {
 }
 
 /**
+ * 计划 DAG 不可用原因码（后端稳定常量，前端负责本地化）。
+ * Plan DAG unavailability reason codes (stable backend constants, localized by the frontend).
+ */
+export type SyncPlanDagReason =
+  | ''
+  | 'no_submitted_content'
+  | 'local_mode'
+  | 'config_tool_unavailable'
+  | 'inspect_failed';
+
+/**
+ * 作业提交配置推导的计划 DAG；webui_job 与任务 DAG 的 webui_job 同构。
+ * Plan DAG derived from a job's submitted config; webui_job has the same shape as the task DAG's webui_job.
+ */
+export interface SyncJobPlanDag {
+  job_id: number;
+  available: boolean;
+  reason: SyncPlanDagReason;
+  message?: string;
+  webui_job?: SyncWebUIDagPreviewJob;
+  warnings: string[];
+}
+
+/**
  * 实时可观测性不可用原因码（后端稳定常量，前端负责本地化）。
  * Realtime observability unavailability reason codes (stable backend constants, localized by the frontend).
  */

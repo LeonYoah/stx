@@ -67,6 +67,7 @@
 - **推送绑定已发布版本**：未发布或已推送版本没有更新时，推送预演/确认按钮必须禁用并说明原因。作业列表要把 Dolphin 触发（`trigger_source=dolphin` / `external_ref=ds:...`）与内置定时、手动运行区分开，并展示任务版本。
 - **Dolphin Open API Token**：推送弹窗必须把该字段做成带标签的密码必填项（请求头 `token`），无连接时直接展开新建表单；不得只靠折叠面板里的 placeholder。它与 Worker 上的 `STX_TOKEN`（管理员签发的 `stx_` 登录令牌）不是同一张令牌。
 - **作业告警**：任务设置侧栏的"告警"分组未配置时只显示一行和"配置"按钮，编辑放在弹窗里；表单 `TaskAlertForm` 与策略中心共用，保存走 `services.sync.updateTaskAlert`（不跟随任务版本，不要放进任务定义或发布流程）。告警通知和告警中心的作业链接是 `/sync?task=<id>&job=<id>`，`/sync` 页面必须把这两个参数带到 `/workbench`，工作台据此打开任务并选中作业（不在最近 50 条时单独读取）。后端契约见 [同步作业告警](../backend/sync-alerts.md)。
+- **作业详情与拓扑**：运行记录行点击即打开作业详情，行内只留详情 / 恢复 / 保存点停止 / 停止，操作可用性只用 `getJobActionState`；拓扑（React Flow + dagre）只能在 `job-detail/JobTopology` 的动态 chunk 中加载，布局按结构签名缓存。契约见 [作业详情与 Flink 风格拓扑](./api-and-services.md#scenario-作业详情与-flink-风格拓扑)，后端见 [作业计划 DAG](../backend/job-plan-dag.md)。
 - **E2E 覆盖**：新增或修改功能代码时，涉及核心流程、多步骤向导、核心增删改动作需同步补充 Playwright 测试或夹具参考（参见 [E2E 测试](./e2e-testing.md)）。
 
 ---

@@ -20,15 +20,13 @@
 import {useTranslations} from 'next-intl';
 import {
   AlertTriangle,
-  BarChart3,
-  History,
   ExternalLink,
-  FileCode2,
   FileText,
-  GitBranch,
   Maximize2,
+  PanelRightOpen,
 } from 'lucide-react';
 import {Badge} from '@/components/ui/badge';
+import {Skeleton} from '@/components/ui/skeleton';
 import {Button} from '@/components/ui/button';
 import {
   Table,
@@ -42,11 +40,10 @@ import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import type {NotificationRecipientUser} from '@/lib/services/monitoring';
 import type {SyncJobInstance, SyncJobLogsResult} from '@/lib/services/sync';
 import {cn} from '@/lib/utils';
+import {TableLoadingBar} from '@/components/common/layout';
 import {JobOutcomeHints} from './JobOutcomeHints';
-import {SeaTunnelObserveMenu} from '@/components/common/cluster/SeaTunnelObserveMenu';
 import {
   buildDisplayLogLines,
-  canRecoverFromJob,
   extractJobMetricSummary,
   formatJobDateTime,
   formatJobDuration,
@@ -56,16 +53,16 @@ import {
   getEngineEndpointLabel,
   formatJobSyncLagHint,
   getJobStatusBadgeClass,
+  getJobActionState,
   getJobStatusLabel,
   getLogLineClass,
-  getRealtimeEntry,
   getRunModeLabel,
   getSyncJobClusterId,
-  isJobLifecycleActive,
   submitSpecExecutionMode,
   type LogFilterMode,
 } from './sync-studio-utils';
 import {formatTimeTz} from '@/lib/timezone';
+import type {JobDetailTab} from './job-detail/types';
 
 /**
  * 混合日志模式提示卡片
@@ -221,15 +218,18 @@ export function ConsolePanel({
         <span className='min-w-0 flex-1 truncate text-muted-foreground'>
           {getEngineEndpointLabel(job)}
         </span>
+        {/* 有结果后固定显示更新时间，自动刷新时不再在“加载中”和时间之间来回跳。 */}
+        {/* Once a result exists keep showing its update time instead of flipping to "loading" on every refresh. */}
         <span className='text-muted-foreground'>
-          {loading
-            ? t('loading')
-            : logsResult?.updated_at
-              ? formatTimeTz(logsResult.updated_at)
+          {logsResult?.updated_at
+            ? formatTimeTz(logsResult.updated_at)
+            : loading
+              ? t('loading')
               : '-'}
         </span>
       </div>
-      <div className='flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-border/50 bg-background/70'>
+      <div className='relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-border/50 bg-background/70'>
+        <TableLoadingBar loading={loading && logsResult !== null} />
         <div className='sticky top-0 z-10 shrink-0 border-b border-border/50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/85'>
           <div className='grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-3 py-2 text-xs text-muted-foreground'>
             <div className='flex min-w-0 items-center gap-2 overflow-hidden'>
@@ -303,6 +303,14 @@ export function ConsolePanel({
                 {line}
               </div>
             ))
+          ) : logsResult === null ? (
+            // 还没拿到第一份结果：显示骨架，不能先给出“暂无日志 / 切换日志模式”的结论。
+            // No result yet: show a skeleton rather than concluding "no logs / switch log mode" prematurely.
+            <div className='space-y-2' data-testid='sync-job-logs-skeleton'>
+              {Array.from({length: 8}).map((_, index) => (
+                <Skeleton key={index} className='h-3.5' style={{width: `${92 - ((index * 17) % 40)}%`}} />
+              ))}
+            </div>
           ) : isMixedLogMode ? (
             <MixedLogModeBanner clusterId={clusterId} />
           ) : (
@@ -327,10 +335,7 @@ export function JobRunsPanel({
   onRecover,
   onCancel,
   onSavepointStop,
-  onViewMetrics,
-  onViewScript,
-  onViewJobDag,
-  onViewJobEvents,
+  onOpenDetail,
   disableRecover,
 }: {
   jobs: SyncJobInstance[];
@@ -345,10 +350,8 @@ export function JobRunsPanel({
   onRecover: (jobId: number) => void;
   onCancel: (jobId: number) => void;
   onSavepointStop: (jobId: number) => void;
-  onViewMetrics: (job: SyncJobInstance) => void;
-  onViewScript: (job: SyncJobInstance) => void;
-  onViewJobDag?: (job: SyncJobInstance) => void;
-  onViewJobEvents?: (job: SyncJobInstance) => void;
+  /** 打开作业详情，可指定初始页签。/ Open the job detail, optionally on a given tab. */
+  onOpenDetail: (job: SyncJobInstance, tab?: JobDetailTab) => void;
   disableRecover: boolean;
 }) {
   const t = useTranslations('workbenchStudio');
@@ -388,7 +391,12 @@ export function JobRunsPanel({
                   'cursor-pointer transition-colors border-border/40 hover:bg-muted/40',
                   selectedJobId === job.id ? 'bg-primary/5 font-medium' : '',
                 )}
-                onClick={() => onSelectJob(job.id)}
+                onClick={() => {
+                  // 点击行任意处：选中作业（底部日志 / Checkpoint 跟随）并打开详情。
+                  // Clicking anywhere on the row selects the job (bottom logs / checkpoint follow) and opens its detail.
+                  onSelectJob(job.id);
+                  onOpenDetail(job);
+                }}
               >
                 {/* 任务 ID 与作业平台号紧凑行 */}
                 <TableCell className='py-1.5 px-2.5 whitespace-nowrap'>
@@ -542,7 +550,8 @@ export function JobRunsPanel({
                             className='cursor-pointer rounded-sm border-border/60 bg-muted/50 px-1 py-0 font-sans text-[10px] text-muted-foreground hover:bg-muted transition-colors'
                             onClick={(e) => {
                               e.stopPropagation();
-                              onViewMetrics(job);
+                              onSelectJob(job.id);
+                              onOpenDetail(job, 'metrics');
                             }}
                           >
                             {t('multiTableBadge', {count: summary.tableCount})}
@@ -556,142 +565,57 @@ export function JobRunsPanel({
                   </div>
                 </TableCell>
 
-                {/* 操作按钮 */}
-                {/* Action buttons */}
+                {/* 操作按钮：只留快捷操作，其余入口统一收进作业详情。 */}
+                {/* Action buttons: only quick actions stay inline; everything else lives in the job detail. */}
                 <TableCell className='py-1.5 px-2.5 text-right whitespace-nowrap'>
-                  <div className='flex justify-end items-center gap-1.5'>
-                    {/* 通用入口：跳转到 SeaTunnel 集群观测（实时、离线作业都可用），可选代理或原生地址 */}
-                    {/* Shared entry: open SeaTunnel cluster observation (streaming and batch), via proxy or native address */}
-                    {(() => {
-                      const clusterId = getSyncJobClusterId(job);
-                      const engineJobId = String(job.engine_job_id || '').trim();
-                      if (!clusterId || !engineJobId || submitSpecExecutionMode(job.submit_spec) === 'local') {
-                        return null;
-                      }
-                      return <SeaTunnelObserveMenu clusterId={clusterId} engineJobId={engineJobId} />;
-                    })()}
-                    {onViewJobEvents && getRealtimeEntry(job).supported ? (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            size='icon'
-                            variant='ghost'
-                            className='size-7 text-muted-foreground hover:text-foreground'
-                            aria-label={t('jobEvents.open')}
-                            data-testid='sync-job-events-button'
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              onViewJobEvents(job);
-                            }}
-                          >
-                            <History className='size-3.5' />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent side='top' className='text-xs'>
-                          {t('jobEvents.open')}
-                        </TooltipContent>
-                      </Tooltip>
-                    ) : null}
-                    {Boolean(job.result_preview?.job_dag) ? (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            size='icon'
-                            variant='ghost'
-                            className='size-7 text-muted-foreground hover:text-foreground'
-                            aria-label={t('viewExecutionDag')}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              onViewJobDag?.(job);
-                            }}
-                          >
-                            <GitBranch className='size-3.5' />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent side='top' className='text-xs'>
-                          {t('viewExecutionDag')}
-                        </TooltipContent>
-                      </Tooltip>
-                    ) : null}
-                    {/* 查看实际执行脚本按钮加 Tooltip / Wrap script button with Tooltip */}
-                    <Tooltip>
-                      <TooltipTrigger asChild>
+                  {(() => {
+                    const actions = getJobActionState(job, {
+                      isAdmin,
+                      isOwner,
+                      canRun,
+                      currentUserId,
+                      disableRecover,
+                    });
+                    return (
+                      <div className='flex justify-end items-center gap-1.5'>
                         <Button
-                          size='icon'
+                          size='sm'
                           variant='ghost'
-                          className='size-7 text-muted-foreground hover:text-foreground'
-                          aria-label={t('viewExecutedScript')}
+                          className='h-7 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground'
+                          aria-label={t('viewJobDetail')}
                           onClick={(event) => {
                             event.stopPropagation();
-                            onViewScript(job);
+                            onSelectJob(job.id);
+                            onOpenDetail(job);
                           }}
                         >
-                          <FileCode2 className='size-3.5' />
+                          <PanelRightOpen className='size-3.5' />
+                          {t('jobDetailShort')}
                         </Button>
-                      </TooltipTrigger>
-                      <TooltipContent side='top' className='text-xs'>
-                        {t('viewExecutedScript')}
-                      </TooltipContent>
-                    </Tooltip>
-                    {/* 查看运行指标按钮加 Tooltip / Wrap metrics button with Tooltip */}
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          size='icon'
-                          variant='ghost'
-                          className='size-7 text-muted-foreground hover:text-foreground'
-                          aria-label={t('viewMetrics')}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            onViewMetrics(job);
-                          }}
-                        >
-                          <BarChart3 className='size-3.5' />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent side='top' className='text-xs'>
-                        {t('viewMetrics')}
-                      </TooltipContent>
-                    </Tooltip>
-                    {job.run_type !== 'preview' ? (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span>
-                            <Button
-                              size='sm'
-                              variant='outline'
-                              className='h-7 px-2 text-xs'
-                              disabled={
-                                disableRecover ||
-                                !canRecoverFromJob(job) ||
-                                !canRun
-                              }
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                onRecover(job.id);
-                              }}
-                            >
-                              {t('recover')}
-                            </Button>
-                          </span>
-                        </TooltipTrigger>
-                        {!canRun ? (
-                          <TooltipContent>
-                            {t('readOnlyRecoverTooltip')}
-                          </TooltipContent>
+                        {actions.showRecover ? (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span>
+                                <Button
+                                  size='sm'
+                                  variant='outline'
+                                  className='h-7 px-2 text-xs'
+                                  disabled={!actions.canRecover}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    onRecover(job.id);
+                                  }}
+                                >
+                                  {t('recover')}
+                                </Button>
+                              </span>
+                            </TooltipTrigger>
+                            {!canRun ? (
+                              <TooltipContent>{t('readOnlyRecoverTooltip')}</TooltipContent>
+                            ) : null}
+                          </Tooltip>
                         ) : null}
-                      </Tooltip>
-                    ) : null}
-                    {isJobLifecycleActive(
-                      getDisplayJobLifecycleStatus(job),
-                    ) ? (
-                      (() => {
-                        const canCancel =
-                          isAdmin ||
-                          isOwner ||
-                          (currentUserId !== undefined &&
-                            job.created_by === currentUserId);
-                        return (
+                        {actions.showStop ? (
                           <>
                             <Tooltip>
                               <TooltipTrigger asChild>
@@ -699,8 +623,8 @@ export function JobRunsPanel({
                                   <Button
                                     size='sm'
                                     variant='outline'
-                                    className='h-8 text-xs'
-                                    disabled={!canCancel}
+                                    className='h-7 px-2 text-xs'
+                                    disabled={!actions.canStop}
                                     onClick={(event) => {
                                       event.stopPropagation();
                                       onSavepointStop(job.id);
@@ -710,10 +634,8 @@ export function JobRunsPanel({
                                   </Button>
                                 </span>
                               </TooltipTrigger>
-                              {!canCancel ? (
-                                <TooltipContent>
-                                  {t('readOnlyCancelTooltip')}
-                                </TooltipContent>
+                              {!actions.canStop ? (
+                                <TooltipContent>{t('readOnlyCancelTooltip')}</TooltipContent>
                               ) : null}
                             </Tooltip>
                             <Tooltip>
@@ -722,8 +644,8 @@ export function JobRunsPanel({
                                   <Button
                                     size='sm'
                                     variant='outline'
-                                    className='h-8 text-xs'
-                                    disabled={!canCancel}
+                                    className='h-7 px-2 text-xs'
+                                    disabled={!actions.canStop}
                                     onClick={(event) => {
                                       event.stopPropagation();
                                       onCancel(job.id);
@@ -733,17 +655,15 @@ export function JobRunsPanel({
                                   </Button>
                                 </span>
                               </TooltipTrigger>
-                              {!canCancel ? (
-                                <TooltipContent>
-                                  {t('readOnlyCancelTooltip')}
-                                </TooltipContent>
+                              {!actions.canStop ? (
+                                <TooltipContent>{t('readOnlyCancelTooltip')}</TooltipContent>
                               ) : null}
                             </Tooltip>
                           </>
-                        );
-                      })()
-                    ) : null}
-                  </div>
+                        ) : null}
+                      </div>
+                    );
+                  })()}
                 </TableCell>
               </TableRow>
             );

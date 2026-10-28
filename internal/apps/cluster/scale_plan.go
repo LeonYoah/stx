@@ -932,6 +932,20 @@ func (s *ScaleService) addRegisterChecks(ctx context.Context, plan *ScalePlan, c
 		versionCheck.Message = scaleText(lang, "节点版本与集群一致", "the node version matches the cluster")
 	}
 	plan.addCheck(versionCheck)
+
+	if process != nil && strings.TrimSpace(process.ClusterName) != "" && strings.TrimSpace(cluster.EffectiveClusterCode()) != "" {
+		clusterNameCheck := ScaleCheck{Name: "cluster_name", Blocking: false, Target: cluster.EffectiveClusterCode()}
+		if !strings.EqualFold(strings.TrimSpace(process.ClusterName), strings.TrimSpace(cluster.EffectiveClusterCode())) {
+			clusterNameCheck.Status = ScaleCheckWarning
+			clusterNameCheck.Message = scaleText(lang,
+				fmt.Sprintf("纳管节点的 cluster-name (%s) 与集群标识 (%s) 不一致，可能导致加入不同 Hazelcast 集群", process.ClusterName, cluster.EffectiveClusterCode()),
+				fmt.Sprintf("node cluster-name (%s) differs from cluster code (%s), which may cause joining a different Hazelcast cluster", process.ClusterName, cluster.EffectiveClusterCode()))
+		} else {
+			clusterNameCheck.Status = ScaleCheckPassed
+			clusterNameCheck.Message = scaleText(lang, "集群标识一致", "cluster name matches")
+		}
+		plan.addCheck(clusterNameCheck)
+	}
 }
 
 // addTargetJoinedCheck 纳管模式下读取目标节点的 Hazelcast 运行时成员，判断其是否已与现有集群组网。

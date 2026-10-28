@@ -135,6 +135,18 @@ export function EditClusterDialog({
           </div>
 
           <div className='space-y-2'>
+            <Label>{t('cluster.clusterCode')}</Label>
+            <Input
+              value={cluster.cluster_code || '-'}
+              disabled
+              className='bg-muted font-mono text-xs'
+            />
+            <p className='text-xs text-muted-foreground'>
+              {t('cluster.clusterCodeHint')}
+            </p>
+          </div>
+
+          <div className='space-y-2'>
             <Label htmlFor='edit-description'>{t('cluster.descriptionLabel')}</Label>
             <Textarea
               id='edit-description'

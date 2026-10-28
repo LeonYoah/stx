@@ -317,6 +317,7 @@ const (
 type InstallationRequest struct {
 	HostID                  string                 `json:"host_id"`
 	ClusterID               string                 `json:"cluster_id"`
+	ClusterName             string                 `json:"cluster_name,omitempty"` // Cluster identifier (cluster_code) / 集群底层标识
 	Version                 string                 `json:"version" binding:"required"`
 	InstallDir              string                 `json:"install_dir"`
 	InstallMode             InstallMode            `json:"install_mode"`

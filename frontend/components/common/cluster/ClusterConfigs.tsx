@@ -162,6 +162,70 @@ function shouldWarnSeatunnelPortSync(config: ConfigInfo | null, nextContent: str
   return nextPort !== null && currentPort !== nextPort;
 }
 
+// extractHazelcastClusterName 从 Hazelcast 配置文件内容中提取 cluster-name。
+// extractHazelcastClusterName extracts cluster-name from Hazelcast configuration text.
+function extractHazelcastClusterName(content: string): string | null {
+  const lines = content.split(/\r?\n/);
+  let topSectionIndent: number | null = null;
+  let inHazelcastSection = false;
+
+  for (const rawLine of lines) {
+    const trimmed = rawLine.trim();
+    if (!trimmed || trimmed.startsWith('#')) {
+      continue;
+    }
+    const indent = rawLine.length - rawLine.trimStart().length;
+    if (!trimmed.includes(':')) {
+      continue;
+    }
+    const key = trimmed.slice(0, trimmed.indexOf(':')).trim();
+    const value = trimmed.slice(trimmed.indexOf(':') + 1).trim();
+
+    if (topSectionIndent !== null && indent <= topSectionIndent) {
+      topSectionIndent = null;
+      inHazelcastSection = false;
+    }
+
+    if (key === 'hazelcast' || key === 'hazelcast-client') {
+      topSectionIndent = indent;
+      inHazelcastSection = true;
+      continue;
+    }
+
+    if (inHazelcastSection && key === 'cluster-name' && indent > (topSectionIndent ?? 0)) {
+      const parsed = value.replace(/^['"]|['"]$/g, '').trim();
+      return parsed || null;
+    }
+  }
+
+  return null;
+}
+
+// isHazelcastConfigType 判断配置类型是否为 Hazelcast 节点或客户端配置。
+// isHazelcastConfigType checks if config type is a Hazelcast node or client configuration.
+function isHazelcastConfigType(configType?: ConfigType | null): boolean {
+  switch (configType) {
+    case ConfigType.HAZELCAST:
+    case ConfigType.HAZELCAST_CLIENT:
+    case ConfigType.HAZELCAST_MASTER:
+    case ConfigType.HAZELCAST_WORKER:
+      return true;
+    default:
+      return false;
+  }
+}
+
+// shouldWarnHazelcastClusterNameChange 检查本次保存是否修改了 cluster-name 标识。
+// shouldWarnHazelcastClusterNameChange checks if this save modifies the cluster-name identifier.
+function shouldWarnHazelcastClusterNameChange(config: ConfigInfo | null, nextContent: string): boolean {
+  if (!config || !isHazelcastConfigType(config.config_type)) {
+    return false;
+  }
+  const currentName = extractHazelcastClusterName(config.content);
+  const nextName = extractHazelcastClusterName(nextContent);
+  return nextName !== null && currentName !== null && currentName !== nextName;
+}
+
 export function ClusterConfigs({clusterId, deploymentMode, onConfigChanged}: ClusterConfigsProps) {
   const t = useTranslations();
   const [configs, setConfigs] = useState<ConfigInfo[]>([]);
@@ -178,6 +242,7 @@ export function ClusterConfigs({clusterId, deploymentMode, onConfigChanged}: Clu
   const [saving, setSaving] = useState(false);
   const [saveMode, setSaveMode] = useState<'save' | 'save-and-sync'>('save');
   const [portChangeConfirmOpen, setPortChangeConfirmOpen] = useState(false);
+  const [clusterNameConfirmOpen, setClusterNameConfirmOpen] = useState(false);
   const [pendingSaveSync, setPendingSaveSync] = useState(false);
   const [repairing, setRepairing] = useState(false);
   const [versionDialogOpen, setVersionDialogOpen] = useState(false);
@@ -333,6 +398,11 @@ export function ClusterConfigs({clusterId, deploymentMode, onConfigChanged}: Clu
   };
 
   const handleSave = async (syncAfterSave = false) => {
+    if (shouldWarnHazelcastClusterNameChange(editingConfig, editContent)) {
+      setPendingSaveSync(syncAfterSave);
+      setClusterNameConfirmOpen(true);
+      return;
+    }
     if (shouldWarnSeatunnelPortSync(editingConfig, editContent, syncAfterSave)) {
       setPendingSaveSync(syncAfterSave);
       setPortChangeConfirmOpen(true);
@@ -906,6 +976,47 @@ export function ClusterConfigs({clusterId, deploymentMode, onConfigChanged}: Clu
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* 集群标识修改级联风险警示对话框 / Cluster Name Change Cascading Risk Warning Dialog */}
+      <AlertDialog
+        open={clusterNameConfirmOpen}
+        onOpenChange={(open) => {
+          setClusterNameConfirmOpen(open);
+          if (!open) {
+            setPendingSaveSync(false);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-amber-600 dark:text-amber-500">
+              <AlertTriangle className="h-5 w-5 shrink-0" />
+              {t('cluster.clusterNameChangeWarningTitle')}
+            </AlertDialogTitle>
+            <AlertDialogDescription className="whitespace-pre-line text-sm text-foreground/90 pt-2 leading-relaxed">
+              {t('cluster.clusterNameChangeWarningContent')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setClusterNameConfirmOpen(false)}>
+              {t('common.cancel')}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-amber-600 hover:bg-amber-700 text-white"
+              onClick={async () => {
+                setClusterNameConfirmOpen(false);
+                if (shouldWarnSeatunnelPortSync(editingConfig, editContent, pendingSaveSync)) {
+                  setPortChangeConfirmOpen(true);
+                  return;
+                }
+                await beginSave(pendingSaveSync);
+              }}
+            >
+              {t('common.confirm')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog
         open={portChangeConfirmOpen}

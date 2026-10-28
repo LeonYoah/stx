@@ -176,6 +176,7 @@ func TestBuildInstallParamsIncludesRuntimeConfig(t *testing.T) {
 
 	params := buildInstallParams(&InstallationRequest{
 		Version:                 "2.3.9",
+		ClusterName:             "productionstx01",
 		InstallMode:             InstallModeOnline,
 		DeploymentMode:          DeploymentModeSeparated,
 		NodeRole:                NodeRoleWorker,
@@ -204,6 +205,9 @@ func TestBuildInstallParamsIncludesRuntimeConfig(t *testing.T) {
 	}
 	if params["scheduled_deletion_enable"] != "false" {
 		t.Fatalf("expected scheduled_deletion_enable=false, got %q", params["scheduled_deletion_enable"])
+	}
+	if params["cluster_name"] != "productionstx01" {
+		t.Fatalf("expected cluster_name=productionstx01, got %q", params["cluster_name"])
 	}
 }
 

@@ -532,6 +532,7 @@ export function ClusterDeployWizard({
         setDeployProgress(10);
         const clusterResult = await services.cluster.createClusterSafe({
           name: config.name,
+          cluster_code: config.clusterCode ? config.clusterCode.trim() : undefined,
           description: config.description || undefined,
           deployment_mode: config.deploymentMode,
           version: config.version,

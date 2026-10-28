@@ -43,6 +43,7 @@ import {cn} from '@/lib/utils';
 import {DeploymentMode} from '@/lib/services/cluster/types';
 import {ClusterDeployConfig} from './types';
 import {buildSeatunnelInstallDir} from '@/lib/seatunnel-version';
+import {isValidClusterCode, recommendClusterCode} from '@/lib/cluster-code';
 import type {PackageInfo, AvailableVersions} from '@/lib/services/installer/types';
 
 interface ClusterBasicStepProps {
@@ -69,12 +70,13 @@ export function ClusterBasicStep({
   resolvedRecommendedVersion,
 }: ClusterBasicStepProps) {
   const t = useTranslations();
+  const [codeTouched, setCodeTouched] = React.useState(Boolean(config.clusterCode));
 
   return (
     <div className='h-full flex flex-col overflow-hidden'>
       <ScrollArea className='flex-1 min-h-0 pr-4'>
         <div className='space-y-5 max-w-3xl mx-auto py-2'>
-          {/* Cluster Name & Description / 集群名称与描述 */}
+          {/* Cluster Name & Code / 集群名称与集群标识 */}
           <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
             <div className='space-y-1.5'>
               <Label htmlFor='cluster-name' className='text-sm font-medium'>
@@ -83,7 +85,14 @@ export function ClusterBasicStep({
               <Input
                 id='cluster-name'
                 value={config.name}
-                onChange={(e) => updateConfig({name: e.target.value})}
+                onChange={(e) => {
+                  const newName = e.target.value;
+                  const updates: Partial<ClusterDeployConfig> = {name: newName};
+                  if (!codeTouched) {
+                    updates.clusterCode = recommendClusterCode(newName);
+                  }
+                  updateConfig(updates);
+                }}
                 placeholder={t('cluster.namePlaceholder')}
                 className='h-9'
                 autoFocus
@@ -91,17 +100,51 @@ export function ClusterBasicStep({
             </div>
 
             <div className='space-y-1.5'>
-              <Label htmlFor='cluster-desc' className='text-sm font-medium'>
-                {t('cluster.descriptionLabel')}
-              </Label>
+              <div className='flex items-center justify-between'>
+                <Label htmlFor='cluster-code' className='text-sm font-medium'>
+                  {t('cluster.clusterCode')}
+                </Label>
+                <span className='text-[11px] text-muted-foreground'>
+                  {t('common.optional')}
+                </span>
+              </div>
               <Input
-                id='cluster-desc'
-                value={config.description}
-                onChange={(e) => updateConfig({description: e.target.value})}
-                placeholder={t('cluster.descriptionPlaceholder')}
-                className='h-9'
+                id='cluster-code'
+                value={config.clusterCode}
+                onChange={(e) => {
+                  setCodeTouched(true);
+                  updateConfig({clusterCode: e.target.value.toLowerCase().trim()});
+                }}
+                placeholder={t('cluster.clusterCodePlaceholder')}
+                className={cn(
+                  'h-9 font-mono text-xs',
+                  config.clusterCode && !isValidClusterCode(config.clusterCode) && 'border-destructive focus-visible:ring-destructive'
+                )}
               />
+              {config.clusterCode && !isValidClusterCode(config.clusterCode) ? (
+                <p className='text-[11px] text-destructive'>
+                  {t('cluster.clusterCodeInvalid')}
+                </p>
+              ) : (
+                <p className='text-[11px] text-muted-foreground line-clamp-1' title={t('cluster.clusterCodeHint')}>
+                  {t('cluster.clusterCodeHint')}
+                </p>
+              )}
             </div>
+          </div>
+
+          {/* Description / 描述 */}
+          <div className='space-y-1.5'>
+            <Label htmlFor='cluster-desc' className='text-sm font-medium'>
+              {t('cluster.descriptionLabel')}
+            </Label>
+            <Input
+              id='cluster-desc'
+              value={config.description}
+              onChange={(e) => updateConfig({description: e.target.value})}
+              placeholder={t('cluster.descriptionPlaceholder')}
+              className='h-9'
+            />
           </div>
 
           {/* Deployment Mode Selection / 部署模式选择 */}

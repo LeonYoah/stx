@@ -1716,6 +1716,15 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                   v{cluster.version}
                 </Badge>
               )}
+              {cluster.cluster_code && (
+                <Badge
+                  variant='outline'
+                  className='font-mono text-xs bg-muted/40 text-muted-foreground'
+                  title={t('cluster.clusterCodeHint')}
+                >
+                  {cluster.cluster_code}
+                </Badge>
+              )}
             </div>
           }
           subtitle={

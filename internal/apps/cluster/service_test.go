@@ -845,6 +845,9 @@ func TestClusterServiceBasicOperations(t *testing.T) {
 	if updated.Name != newName {
 		t.Errorf("Expected updated name '%s', got '%s'", newName, updated.Name)
 	}
+	if updated.ClusterCode != "testcluster" {
+		t.Errorf("Expected ClusterCode to remain immutable 'testcluster', got '%s'", updated.ClusterCode)
+	}
 
 	// Test List
 	// 测试列表
@@ -871,6 +874,82 @@ func TestClusterServiceBasicOperations(t *testing.T) {
 	_, err = svc.Get(ctx, cluster.ID)
 	if err != ErrClusterNotFound {
 		t.Errorf("Expected ErrClusterNotFound after deletion, got: %v", err)
+	}
+}
+
+// TestClusterCode_LifecycleAndRenameImmutability 验证集群编码生命周期：
+// 1. 自定义编码支持合法字符；
+// 2. 纯中文名称自动回退带 ID 兜底；
+// 3. 后续重命名集群绝对不改变 ClusterCode。
+// TestClusterCode_LifecycleAndRenameImmutability verifies cluster code lifecycle:
+// 1. Custom code sanitized; 2. Chinese name falls back to stxcluster<ID>; 3. Rename keeps code immutable.
+func TestClusterCode_LifecycleAndRenameImmutability(t *testing.T) {
+	db, cleanup := setupServiceTestDB(t)
+	defer cleanup()
+
+	repo := NewRepository(db)
+	mockHostProvider := NewMockHostProvider()
+	svc := NewService(repo, mockHostProvider, nil)
+	ctx := context.Background()
+
+	// 1. 用户自定义合规编码
+	// 1. User specifies custom valid code
+	customCluster, err := svc.Create(ctx, &CreateClusterRequest{
+		Name:           "分析生产-01",
+		ClusterCode:    "myzeta01",
+		DeploymentMode: DeploymentModeHybrid,
+		Version:        "2.3.13",
+	})
+	if err != nil {
+		t.Fatalf("failed to create cluster: %v", err)
+	}
+	if customCluster.ClusterCode != "myzeta01" {
+		t.Fatalf("expected cluster_code 'myzeta01', got %q", customCluster.ClusterCode)
+	}
+
+	// 2. 纯中文名称且未指定编码，自动兜底为 stxcluster<ID>
+	// 2. Pure Chinese name without code defaults to stxcluster<ID>
+	chineseCluster, err := svc.Create(ctx, &CreateClusterRequest{
+		Name:           "实时计算平台",
+		DeploymentMode: DeploymentModeHybrid,
+		Version:        "2.3.13",
+	})
+	if err != nil {
+		t.Fatalf("failed to create cluster: %v", err)
+	}
+	expectedCode := fmt.Sprintf("stxcluster%d", chineseCluster.ID)
+	if chineseCluster.ClusterCode != expectedCode {
+		t.Fatalf("expected cluster_code %q, got %q", expectedCode, chineseCluster.ClusterCode)
+	}
+
+	// 3. 重命名两个集群，验证 ClusterCode 绝对不可变
+	// 3. Rename both clusters and verify ClusterCode remains strictly immutable
+	newCustomName := "分析生产-重命名"
+	updatedCustom, err := svc.Update(ctx, customCluster.ID, &UpdateClusterRequest{
+		Name: &newCustomName,
+	})
+	if err != nil {
+		t.Fatalf("failed to update custom cluster: %v", err)
+	}
+	if updatedCustom.Name != newCustomName {
+		t.Fatalf("expected updated name %q, got %q", newCustomName, updatedCustom.Name)
+	}
+	if updatedCustom.ClusterCode != "myzeta01" {
+		t.Fatalf("expected cluster_code to remain 'myzeta01', got %q", updatedCustom.ClusterCode)
+	}
+
+	newChineseName := "实时计算平台-改名"
+	updatedChinese, err := svc.Update(ctx, chineseCluster.ID, &UpdateClusterRequest{
+		Name: &newChineseName,
+	})
+	if err != nil {
+		t.Fatalf("failed to update chinese cluster: %v", err)
+	}
+	if updatedChinese.Name != newChineseName {
+		t.Fatalf("expected updated name %q, got %q", newChineseName, updatedChinese.Name)
+	}
+	if updatedChinese.ClusterCode != expectedCode {
+		t.Fatalf("expected cluster_code to remain %q, got %q", expectedCode, updatedChinese.ClusterCode)
 	}
 }
 
@@ -1815,5 +1894,44 @@ func TestService_GetWithInfo_populatesOnlineNodesAndHealth(t *testing.T) {
 
 	if _, err := svc.GetWithInfo(ctx, 9999); err == nil {
 		t.Fatal("expected error for missing cluster")
+	}
+}
+
+// TestService_CreateFromDiscovery_InheritsDiscoveredClusterNameAsClusterCode 验证从发现/纳管节点导入时自动继承其 cluster-name 作为 ClusterCode。
+// TestService_CreateFromDiscovery_InheritsDiscoveredClusterNameAsClusterCode verifies that importing discovered nodes inherits their cluster-name as ClusterCode.
+func TestService_CreateFromDiscovery_InheritsDiscoveredClusterNameAsClusterCode(t *testing.T) {
+	db, cleanup := setupServiceTestDB(t)
+	defer cleanup()
+
+	repo := NewRepository(db)
+	mockHostProvider := NewMockHostProvider()
+	now := time.Now()
+	mockHostProvider.AddHost(&HostInfo{ID: 1, Name: "host-1", IPAddress: "127.0.0.1", AgentID: "agent-1", AgentStatus: "installed", LastHeartbeat: &now})
+
+	svc := NewService(repo, mockHostProvider, nil)
+	ctx := context.Background()
+
+	// 未指定 ClusterCode，但发现节点带有 ClusterName "prod-zeta-engine"
+	// ClusterCode is omitted, but discovered node has ClusterName "prod-zeta-engine"
+	cluster, err := svc.Create(ctx, &CreateClusterRequest{
+		Name:           "生产实时计算集群",
+		DeploymentMode: DeploymentModeHybrid,
+		Nodes: []CreateNodeFromDiscovery{
+			{
+				HostID:        1,
+				Role:          "hybrid",
+				InstallDir:    "/opt/seatunnel",
+				HazelcastPort: 5801,
+				APIPort:       8080,
+				ClusterName:   "prod-zeta-engine",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to create cluster: %v", err)
+	}
+
+	if cluster.ClusterCode != "prodzetaengine" {
+		t.Fatalf("expected cluster code 'prodzetaengine', got %q", cluster.ClusterCode)
 	}
 }

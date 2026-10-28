@@ -33,6 +33,7 @@ export interface DiscoveredProcess {
   version: string; // SeaTunnel version (e.g., 2.3.12)
   hazelcast_port: number; // Hazelcast cluster port
   api_port: number; // REST API port
+  cluster_name?: string; // Hazelcast cluster-name / Hazelcast 集群标识
 }
 
 // ProcessDiscoveryResult represents the result of process discovery.

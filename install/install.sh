@@ -446,19 +446,32 @@ ADMIN_STATE="default"
 ADMIN_USER="admin"
 cfg_for_auth="${EXISTING_CONFIG:-$SOURCE_DIR/config.example.yaml}"
 v="$(stx_yaml_get "$cfg_for_auth" auth.default_admin_username)"; [[ -n "$v" ]] && ADMIN_USER="$v"
-DEFAULT_ADMIN_PASSWORD="$(stx_yaml_get "$cfg_for_auth" auth.default_admin_password)"
-DEFAULT_ADMIN_PASSWORD="${DEFAULT_ADMIN_PASSWORD:-admin123}"
+# 出厂默认密码只取自包内 config.example.yaml；保留的旧 config.yaml 里可能是用户自己的密码，只用于比较与回滚，
+# 绝不打印、不写日志。
+# The factory default comes only from the bundled config.example.yaml. A preserved config.yaml may hold the user's
+# own password: it is used only for comparison / rollback and is never printed or logged.
+FACTORY_ADMIN_PASSWORD="$(stx_yaml_get "$SOURCE_DIR/config.example.yaml" auth.default_admin_password)"
+FACTORY_ADMIN_PASSWORD="${FACTORY_ADMIN_PASSWORD:-admin123}"
+CFG_ADMIN_PASSWORD="$(stx_yaml_get "$cfg_for_auth" auth.default_admin_password)"
+CFG_ADMIN_PASSWORD="${CFG_ADMIN_PASSWORD:-$FACTORY_ADMIN_PASSWORD}"
+if [[ "$CFG_ADMIN_PASSWORD" == "$FACTORY_ADMIN_PASSWORD" ]]; then
+  ADMIN_KEEP_LABEL="回车保持默认 ${FACTORY_ADMIN_PASSWORD}"
+  SUMMARY_DEFAULT_PASSWORD="$FACTORY_ADMIN_PASSWORD"
+else
+  ADMIN_KEEP_LABEL="回车保持原配置中的密码"
+  SUMMARY_DEFAULT_PASSWORD=""   # 非出厂值：摘要里不显示。/ Not the factory value: never shown.
+fi
 ADMIN_DB_KIND="$(STX_DB_TYPE_OVERRIDE="$DB_TYPE" stx_admin_db_kind "$INSTALL_DIR" "$EXISTING_CONFIG")"
 if [[ "$ADMIN_DB_KIND" == external ]]; then
   # 外部 MySQL/PostgreSQL：安装器看不到库里有没有管理员，统一写入配置；STX 只在用户表为空时采用它，
-  # 启动后再用登录结果判定是否生效。
-  # External MySQL/PostgreSQL: the installer cannot see whether the admin exists, so the password is always
-  # written; STX only uses it when the users table is empty, and the result is checked by logging in after start.
+  # 启动后再用登录结果判定是否生效（未生效则把配置恢复原值）。
+  # External MySQL/PostgreSQL: the installer cannot see whether the admin exists, so the password is written;
+  # STX only uses it when the users table is empty. After start a login decides; if unapplied the config is restored.
   if [[ -z "$ADMIN_PASSWORD" ]] && stx_is_interactive; then
     stx_info "外部数据库：新密码只在库中还没有管理员（首次初始化）时生效 / applies only if the database has no admin yet"
-    ADMIN_PASSWORD="$(stx_ask_admin_password "$ADMIN_USER" "$DEFAULT_ADMIN_PASSWORD")"
+    ADMIN_PASSWORD="$(stx_ask_admin_password "$ADMIN_USER" "$ADMIN_KEEP_LABEL")"
   fi
-  if [[ -n "$ADMIN_PASSWORD" && "$ADMIN_PASSWORD" != "$DEFAULT_ADMIN_PASSWORD" ]]; then
+  if [[ -n "$ADMIN_PASSWORD" && "$ADMIN_PASSWORD" != "$CFG_ADMIN_PASSWORD" ]]; then
     ADMIN_STATE="pending"
   else
     ADMIN_PASSWORD=""
@@ -467,7 +480,7 @@ if [[ "$ADMIN_DB_KIND" == external ]]; then
 elif [[ "$ADMIN_DB_KIND" == existing ]]; then
   ADMIN_STATE="existing"
   stx_info "检测到已有数据库，管理员账号沿用原密码（安装器不修改）/ existing database: admin password unchanged"
-  if [[ -n "$ADMIN_PASSWORD" && "$ADMIN_PASSWORD" != "$DEFAULT_ADMIN_PASSWORD" ]]; then
+  if [[ -n "$ADMIN_PASSWORD" && "$ADMIN_PASSWORD" != "$CFG_ADMIN_PASSWORD" ]]; then
     # 仍写入配置：若库里其实还没有管理员，STX 启动时会采用它；启动后用登录结果确认。
     # Still written: if the database has no admin yet STX uses it on start; confirmed by logging in afterwards.
     stx_warn "--admin-password 只在库中还没有管理员时生效；已有管理员时请登录后在控制台修改密码"
@@ -477,12 +490,14 @@ elif [[ "$ADMIN_DB_KIND" == existing ]]; then
   fi
 else
   if [[ -z "$ADMIN_PASSWORD" ]] && stx_is_interactive; then
-    ADMIN_PASSWORD="$(stx_ask_admin_password "$ADMIN_USER" "$DEFAULT_ADMIN_PASSWORD")"
+    ADMIN_PASSWORD="$(stx_ask_admin_password "$ADMIN_USER" "$ADMIN_KEEP_LABEL")"
   fi
-  if [[ -n "$ADMIN_PASSWORD" && "$ADMIN_PASSWORD" != "$DEFAULT_ADMIN_PASSWORD" ]]; then
+  if [[ -n "$ADMIN_PASSWORD" && "$ADMIN_PASSWORD" != "$CFG_ADMIN_PASSWORD" ]]; then
     ADMIN_STATE="changed"
   else
     ADMIN_PASSWORD=""
+    # 沿用配置里的非出厂密码：摘要只说「沿用」。/ Keeping a non-factory config password: summary says "kept".
+    [[ -z "$SUMMARY_DEFAULT_PASSWORD" ]] && ADMIN_STATE="kept"
   fi
 fi
 
@@ -702,7 +717,10 @@ if [[ "$WITH_OBS" == "false" ]]; then
 fi
 
 stx_configure_defaults "$INSTALL_DIR" "$STX_HTTP_PORT" "$STX_GRPC_PORT" "$STX_FRONTEND_PORT" "$obs_flag"
+ADMIN_PW_RAW_BEFORE=""
 if [[ -n "$ADMIN_PASSWORD" ]]; then
+  # 记下原值（原样），新密码未生效时恢复。/ Remember the verbatim old value to restore if the new one is unapplied.
+  ADMIN_PW_RAW_BEFORE="$(stx_yaml_get_raw "$INSTALL_DIR/config.yaml" auth.default_admin_password)"
   stx_set_admin_password "$INSTALL_DIR/config.yaml" "$ADMIN_PASSWORD"
   stx_info "已写入新的初始管理员密码 / new initial admin password written"
 fi
@@ -771,11 +789,19 @@ if [[ "$AUTO_START" == "true" ]]; then
       ADMIN_STATE="changed"
     else
       ADMIN_STATE="existing"
-      stx_warn "数据库中已有管理员账号，新密码未生效（沿用原密码）/ the database already has an admin; password unchanged"
+      # 未生效的密码不留在配置里：恢复原值。/ Do not leave an unapplied password in the config: restore it.
+      if [[ -n "$ADMIN_PW_RAW_BEFORE" ]]; then
+        stx_yaml_set "$INSTALL_DIR/config.yaml" "auth.default_admin_password" "$ADMIN_PW_RAW_BEFORE" || true
+      else
+        stx_set_admin_password "$INSTALL_DIR/config.yaml" "$FACTORY_ADMIN_PASSWORD" || true
+      fi
+      stx_warn "数据库中已有管理员账号，新密码未生效（沿用原密码，配置已恢复原值）/ the database already has an admin; password unchanged, config restored"
     fi
   fi
   if [[ "$ADMIN_STATE" == unknown ]]; then
-    if stx_admin_login_ok "$STX_HTTP_PORT" "$ADMIN_USER" "$DEFAULT_ADMIN_PASSWORD"; then
+    # 只用出厂默认密码探测，且仅当配置里就是出厂值时才可能显示它。
+    # Probe with the factory default only; it can only be shown when the config holds the factory value.
+    if [[ -n "$SUMMARY_DEFAULT_PASSWORD" ]] && stx_admin_login_ok "$STX_HTTP_PORT" "$ADMIN_USER" "$FACTORY_ADMIN_PASSWORD"; then
       ADMIN_STATE="default"
     else
       ADMIN_STATE="existing"
@@ -790,4 +816,4 @@ fi
 STX_SUMMARY_DB="$DB_TYPE${DB_HOST:+ (${DB_HOST}:${DB_PORT}/${DB_NAME})}"
 [[ "$DB_TYPE" == sqlite ]] && STX_SUMMARY_DB="SQLite（$INSTALL_DIR/data/stx.db）"
 export STX_SUMMARY_DB
-stx_print_summary "$INSTALL_DIR" "$ADMIN_USER" "$ADMIN_STATE" "$DEFAULT_ADMIN_PASSWORD" "$STARTED" "$obs_flag"
+stx_print_summary "$INSTALL_DIR" "$ADMIN_USER" "$ADMIN_STATE" "$SUMMARY_DEFAULT_PASSWORD" "$STARTED" "$obs_flag"

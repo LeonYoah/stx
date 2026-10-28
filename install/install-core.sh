@@ -315,7 +315,18 @@ stx_yaml_get() {
         if (depth == n) {
           v = substr($0, indent + length(key) + 2)
           sub(/^[ \t]+/, "", v)
-          if (v ~ /^"/) { v = substr(v, 2); sub(/".*$/, "", v) }
+          if (ENVIRON["STX_YAML_RAW"] == "1") { sub(/[ \t\r]+$/, "", v); print v; exit }
+          if (v ~ /^"/) {
+            # 双引号：处理 \" 与 \\ 转义。/ Double-quoted: honor \" and \\ escapes.
+            out = ""; i = 2
+            while (i <= length(v)) {
+              c = substr(v, i, 1)
+              if (c == "\\" && i < length(v)) { out = out substr(v, i + 1, 1); i += 2; continue }
+              if (c == "\"") break
+              out = out c; i++
+            }
+            v = out
+          }
           else if (v ~ /^\047/) { v = substr(v, 2); sub(/\047.*$/, "", v) }
           else { sub(/[ \t]+#.*$/, "", v); sub(/[ \t\r]+$/, "", v) }
           print v
@@ -363,14 +374,18 @@ stx_existing_admin_db() {
   [[ "$(stx_admin_db_kind "$@")" == existing ]]
 }
 
+# 原样读取 YAML 值（含引号与转义），用于恢复。/ Read a YAML value verbatim (quotes/escapes kept) for restoring.
+stx_yaml_get_raw() { STX_YAML_RAW=1 stx_yaml_get "$@"; }
+
 # 用给定账号密码登录，判断初始密码是否生效。/ Log in with the given credentials to see whether the password applied.
 stx_admin_login_ok() {
   local port="$1" user="$2" pw="$3" body esc_u esc_p
   esc_u="${user//\\/\\\\}"; esc_u="${esc_u//\"/\\\"}"
   esc_p="${pw//\\/\\\\}"; esc_p="${esc_p//\"/\\\"}"
-  body="$(curl -s -m 10 -H "Content-Type: application/json" \
-    -d "{\"username\":\"${esc_u}\",\"password\":\"${esc_p}\"}" \
-    "http://127.0.0.1:${port}/api/v1/auth/login" 2>/dev/null || true)"
+  # 请求体经 stdin 传给 curl，密码不出现在进程参数里。/ Body goes via stdin so the password is not in argv.
+  body="$(printf '{"username":"%s","password":"%s"}' "$esc_u" "$esc_p" \
+    | curl -s -m 10 -H "Content-Type: application/json" --data-binary @- \
+      "http://127.0.0.1:${port}/api/v1/auth/login" 2>/dev/null || true)"
   grep -q "\"username\":\"${esc_u}\"" <<<"$body"
 }
 
@@ -513,10 +528,11 @@ stx_set_console_url() {
 }
 
 # 交互设置初始管理员密码；回车=保持默认（输出空串）。/ Interactive initial admin password; Enter keeps the default.
+# 用法 / Usage: stx_ask_admin_password <user> <keep-label，如「回车保持默认 admin123」；不得包含用户自己的密码>
 stx_ask_admin_password() {
-  local user="$1" def="$2" p1 p2 tries=0
+  local user="$1" keep_label="$2" p1 p2 tries=0
   while (( tries < 3 )); do
-    p1="$(stx_prompt_secret "管理员 ${user} 的初始密码 [回车保持默认 ${def}]:")"
+    p1="$(stx_prompt_secret "管理员 ${user} 的初始密码 [${keep_label}]:")"
     if [[ -z "$p1" ]] || ! stx_is_interactive; then
       return 0
     fi
@@ -527,7 +543,7 @@ stx_ask_admin_password() {
     else
       p2="$(stx_prompt_secret "再次输入确认 / confirm:")"
       if ! stx_is_interactive; then
-        stx_warn "终端已关闭，保持默认密码 / terminal closed, keeping the default password"
+        stx_warn "终端已关闭，保持原密码 / terminal closed, keeping the current password"
         return 0
       fi
       if [[ "$p1" == "$p2" ]]; then
@@ -538,7 +554,7 @@ stx_ask_admin_password() {
     fi
     tries=$((tries + 1))
   done
-  stx_warn "多次输入无效，保持默认密码 / keeping the default password"
+  stx_warn "多次输入无效，保持原密码 / keeping the current password"
 }
 
 # 写入 auth.default_admin_password（首次初始化数据库时生效）。/ Write auth.default_admin_password (used on first DB init).
@@ -607,7 +623,10 @@ stx_wait_ready() {
 }
 
 # 安装完成摘要与后续步骤。/ Final summary and next steps.
-# 用法 / Usage: stx_print_summary <install_dir> <admin_user> <default|changed|existing> <default_password> <started:true|false>
+# 用法 / Usage: stx_print_summary <install_dir> <admin_user> <default|changed|existing|pending|unknown|kept>
+#                <factory_default_password_or_empty> <started:true|false> <with_obs>
+# 第 4 个参数只能传出厂默认密码（config.example.yaml），非出厂值传空串，摘要永不显示用户自己的密码。
+# Argument 4 may only be the factory default (config.example.yaml); pass "" otherwise so user passwords never show.
 stx_print_summary() {
   local dir="$1" user="$2" state="$3" defpw="$4" started="${5:-true}" with_obs="${6:-false}" ip pw_line svc_start svc_stop svc_restart svc_status obs_line=""
   ip="${STX_EXTERNAL_HOST:-$(stx_guess_host_ip)}"
@@ -620,8 +639,19 @@ stx_print_summary() {
     changed) pw_line="（安装时已修改为你设置的密码，出于安全不在此显示）" ;;
     existing) pw_line="（沿用已有数据库中的密码，本次安装未修改）" ;;
     pending) pw_line="（已写入你设置的密码：外部数据库中还没有管理员时首次启动生效，否则沿用原密码）" ;;
-    unknown) pw_line="（外部数据库：沿用库中已有密码；全新的库使用 ${defpw}）" ;;
-    *) pw_line="${defpw}   ← 默认密码，请登录后尽快修改" ;;
+    unknown)
+      if [[ -n "$defpw" ]]; then
+        pw_line="（外部数据库：沿用库中已有密码；全新的库使用默认密码 ${defpw}）"
+      else
+        pw_line="（外部数据库：沿用库中已有密码；全新的库使用原配置中的密码，出于安全不在此显示）"
+      fi ;;
+    kept) pw_line="（沿用原配置中的密码，出于安全不在此显示）" ;;
+    *)
+      if [[ -n "$defpw" ]]; then
+        pw_line="${defpw}   ← 默认密码，请登录后尽快修改"
+      else
+        pw_line="（沿用原配置中的密码，出于安全不在此显示）"
+      fi ;;
   esac
   svc_start="$dir/bin/start.sh"; svc_stop="$dir/bin/stop.sh"
   svc_restart="$dir/bin/stop.sh && $dir/bin/start.sh"; svc_status="$dir/bin/status.sh"

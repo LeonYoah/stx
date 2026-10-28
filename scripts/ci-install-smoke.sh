@@ -179,6 +179,17 @@ case "$mode" in
       '"$install_cmd"' --no-systemd >/tmp/i4.log 2>&1; rc=$?
       check "install #4 exit 0 (rc=$rc)" "[[ $rc -eq 0 ]]"
       check "install #4: summary says existing password kept" "grep -q 沿用已有数据库中的密码 /tmp/i4.log"
+      # 密码不得出现在摘要、安装日志或配置以外的任何日志里。/ Passwords must never show up in summaries or logs.
+      check "install #3: unapplied Pw-Three-333 removed from config" "! grep -qF Pw-Three-333 /opt/stx/config.yaml"
+      check "install #3: config restored to the applied password" "grep -qF Pw-Two-222 /opt/stx/config.yaml"
+      check "install #4: summary/log does not contain Pw-Two-222" "! grep -qF Pw-Two-222 /tmp/i4.log"
+      check "logs/install.log does not contain any password" "! grep -qE \"Pw-(One-111|Two-222|Three-333)|rootpw\" /opt/stx/logs/install.log"
+      check "no /tmp/stx-install-*.log contains a password" "! grep -lE \"Pw-(One-111|Two-222|Three-333)\" /tmp/stx-install-*.log"
+      # 5) --no-start 且不传密码：unknown 摘要也不能显示原配置里的密码。/ --no-start + no password must not print it either.
+      '"$install_cmd"' --no-systemd --no-start >/tmp/i5.log 2>&1; rc=$?
+      check "install #5 (--no-start) exit 0 (rc=$rc)" "[[ $rc -eq 0 ]]"
+      check "install #5: summary does not contain Pw-Two-222" "! grep -qF Pw-Two-222 /tmp/i5.log"
+      check "install #5: summary says the password is not shown" "grep -q 出于安全不在此显示 /tmp/i5.log"
       exit $fail'
     $DOCKER exec "$name" bash -c "$inner $mysql_inner" &
     inner_pid=$!

@@ -68,8 +68,13 @@ stx_bootstrap_lib() {
   local -a refs=() prefixes=()
   [[ -n "${STX_BOOTSTRAP_REF:-}" ]] && refs+=("$STX_BOOTSTRAP_REF")
   [[ -n "$STX_BOOT_VERSION" && "$STX_BOOT_VERSION" != latest ]] && refs+=("$STX_BOOT_VERSION")
-  [[ -n "$STX_SCRIPT_RELEASE_TAG" ]] && refs+=("$STX_SCRIPT_RELEASE_TAG")
-  refs+=("main")
+  # 发版脚本（已写入所属 tag）不回退到 main，避免装到与该版本不符的脚本库；仓库里的脚本才用 main 兜底。
+  # Published scripts (tag baked in) never fall back to main; only the repo copy uses main as the last resort.
+  if [[ -n "$STX_SCRIPT_RELEASE_TAG" ]]; then
+    refs+=("$STX_SCRIPT_RELEASE_TAG")
+  else
+    refs+=("main")
+  fi
   case "$STX_BOOT_MIRROR" in
     http://*|https://*) prefixes+=("${STX_BOOT_MIRROR%/}") ;;
     gh-proxy|1) prefixes+=("https://gh-proxy.org") ;;

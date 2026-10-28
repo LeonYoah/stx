@@ -117,6 +117,8 @@ check "reinstall exit 0 (rc=$rc)" "[[ $rc -eq 0 ]]"
 check "reinstall keeps web port 18080" "grep -q \"http://.*:18080\" /tmp/install2.log"
 check "reinstall keeps api port 18000" "grep -q \"api=18000\" /tmp/install2.log"
 check "reinstall: admin password unchanged notice" "grep -q 沿用已有数据库中的密码 /tmp/install2.log"
+check "reinstall: summary/log never contains the custom password" "! grep -qF \"S3cret-pw!\" /tmp/install2.log && ! grep -qF \"S3cret-pw!\" /opt/stx/logs/install.log"
+check "first install log never contains the custom password" "! grep -qF \"S3cret-pw!\" /tmp/install1.log"
 /opt/stx/bin/stop.sh >/dev/null 2>&1 || true
 exit $fail
 '

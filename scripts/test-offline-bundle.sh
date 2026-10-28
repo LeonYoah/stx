@@ -285,6 +285,18 @@ else
   bad "lib fetch order wrong"; sed 's/^/    | /' "$T/pipe/calls"
 fi
 assert_grep "fallback warns about the version mismatch" "using v7.7.7" "$T/pipe/out.log"
+# 写入 tag 的发版脚本在该 tag 也没有 lib 时直接失败，不回退 main。/ A baked script never falls back to main.
+: >"$T/pipe/calls"
+sed 's/^STX_SCRIPT_RELEASE_TAG=""$/STX_SCRIPT_RELEASE_TAG="v5.5.5"/' "$ROOT_DIR/install/install-online.sh" >"$T/pipe/baked2.sh"
+if (cd "$T/pipe/cwd" && PATH="$T/pipe/bin:$PATH" bash -s -- --help <"$T/pipe/baked2.sh" >"$T/pipe/out2.log" 2>&1); then
+  bad "baked script without a lib for its tag must fail"
+else
+  ok "baked script without a lib for its tag fails"
+fi
+if grep -q '/main/' "$T/pipe/calls"; then bad "baked script must not fetch from main"; else ok "baked script never fetches from main"; fi
+: >"$T/pipe/calls"
+(cd "$T/pipe/cwd" && PATH="$T/pipe/bin:$PATH" bash -s -- --help <"$ROOT_DIR/install/install-online.sh" >/dev/null 2>&1) || true
+grep -q '/main/install/download-lib.sh' "$T/pipe/calls" && ok "repo (unbaked) script falls back to main" || bad "unbaked script should try main"
 grep -q 'STX_SCRIPT_RELEASE_TAG=""' "$ROOT_DIR/install/install-online.sh" && grep -q 'STX_SCRIPT_RELEASE_TAG=""' "$ROOT_DIR/install/download-bundle.sh" \
   && ok "release-tag placeholder present for package-release.sh" || bad "release-tag placeholder missing"
 

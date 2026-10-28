@@ -68,8 +68,13 @@ stx_bootstrap_lib() {
   local -a refs=() prefixes=()
   [[ -n "${STX_BOOTSTRAP_REF:-}" ]] && refs+=("$STX_BOOTSTRAP_REF")
   [[ -n "$STX_BOOT_VERSION" && "$STX_BOOT_VERSION" != latest ]] && refs+=("$STX_BOOT_VERSION")
-  [[ -n "$STX_SCRIPT_RELEASE_TAG" ]] && refs+=("$STX_SCRIPT_RELEASE_TAG")
-  refs+=("main")
+  # 发版脚本（已写入所属 tag）不回退到 main，避免装到与该版本不符的脚本库；仓库里的脚本才用 main 兜底。
+  # Published scripts (tag baked in) never fall back to main; only the repo copy uses main as the last resort.
+  if [[ -n "$STX_SCRIPT_RELEASE_TAG" ]]; then
+    refs+=("$STX_SCRIPT_RELEASE_TAG")
+  else
+    refs+=("main")
+  fi
   case "$STX_BOOT_MIRROR" in
     http://*|https://*) prefixes+=("${STX_BOOT_MIRROR%/}") ;;
     gh-proxy|1) prefixes+=("https://gh-proxy.org") ;;
@@ -180,8 +185,11 @@ while [[ $# -gt 0 ]]; do
     --work-dir) WORK_PARENT="${2:-}"; shift 2 ;;
     --keep-bundle) KEEP_BUNDLE=true; shift ;;
     -y|--yes) STX_ASSUME_YES=true; export STX_ASSUME_YES; INSTALL_ARGS+=("$1"); shift ;;
-    --install-dir|--admin-password|--frontend-port|--http-port|--api-port|--grpc-port|--external-ip|--external-host|\
-    --db-type|--db-host|--db-port|--db-user|--db-password|--db-name|--prometheus-port|--alertmanager-port|--grafana-port|\
+    # 密码经环境变量传给 install.sh，不出现在子进程参数里。/ Passwords reach install.sh via env, not child argv.
+    --admin-password) STX_ADMIN_PASSWORD="${2:-}"; export STX_ADMIN_PASSWORD; shift 2 ;;
+    --db-password) STX_DB_PASSWORD="${2:-}"; export STX_DB_PASSWORD; shift 2 ;;
+    --install-dir|--frontend-port|--http-port|--api-port|--grpc-port|--external-ip|--external-host|\
+    --db-type|--db-host|--db-port|--db-user|--db-name|--prometheus-port|--alertmanager-port|--grafana-port|\
     --service-user)
       INSTALL_ARGS+=("$1" "${2:-}"); shift 2 ;;
     --without-observability|--with-observability|--force|--no-preserve-config|--no-start|--no-systemd|--without-node|--no-autostart)

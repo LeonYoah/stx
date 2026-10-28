@@ -98,7 +98,7 @@ func TestValidateRejectsRepeatedNonQueryInput(t *testing.T) {
 }
 
 func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
-	require.Len(t, Registry(), 267)
+	require.Len(t, Registry(), 270)
 
 	expected := map[string]struct{}{
 		"auth.user-info.get": {}, "auth.profile.update": {}, "admin.user.list": {}, "admin.user.get": {}, "admin.token.list": {},
@@ -145,7 +145,7 @@ func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
 		"sync.task.dolphin.status": {}, "sync.task.dolphin.script": {},
 		"sync.job.list": {}, "sync.job.get": {}, "sync.job.logs": {},
 		"sync.job.checkpoint": {}, "sync.job.preview": {}, "sync.job.realtime": {}, "sync.job.events": {},
-		"sync.event-channel.get": {},
+		"sync.event-channel.get": {}, "sync.task.alert.get": {},
 		"sync.variable.list":             {},
 		"sync.scheduler.connection.list": {}, "sync.scheduler.connection.projects": {},
 		"sync.scheduler.connection.workflows": {}, "sync.scheduler.connection.workflow.get": {},
@@ -197,6 +197,7 @@ func TestMonitoringReadOperationsExposeSupportedFilters(t *testing.T) {
 	}
 
 	expectedQueries := map[string][]string{
+		"monitoring.alert-policy.list":           {"policy_type", "task_id"},
 		"monitoring.alert-policy.execution.list": {"status", "event_type", "start_time", "end_time", "page", "page_size"},
 		"monitoring.alert-instance.list":         {"source_type", "cluster_id", "severity", "status", "lifecycle_status", "handling_status", "start_time", "end_time", "page", "page_size"},
 		"monitoring.alert.list":                  {"cluster_id", "status", "start_time", "end_time", "page", "page_size"},

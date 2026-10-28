@@ -538,7 +538,7 @@
     "createCluster": "创建集群",
     "createClusterDescription": "注册一个已有的 SeaTunnel 集群",
     "editCluster": "编辑集群",
-    "editClusterDescription": "编辑集群信息",
+    "editClusterDescription": "修改集群的基础元数据信息。",
     "deleteCluster": "删除集群",
     "deleteConfirm": "确定要删除集群 {name} 吗？此操作不可撤销。",
     "deleteConfirmWarning": "删除后将从控制面移除该集群及节点记录，并会通知各主机上的 Agent 停止进程。若勾选「强制删除」，还会通知 Agent 删除主机上的安装目录（如 /opt/seatunnel-xxx），数据将无法恢复。",
@@ -645,7 +645,7 @@
     "clusterMode": "部署模式",
     "nodeList": "节点列表",
     "addNode": "添加节点",
-    "addNodeDescription": "将主机添加为此集群的节点",
+    "addNodeDescription": "在纳管主机上部署或关联新的 SeaTunnel 节点并加入集群拓扑。",
     "addNodeSuccess": "节点添加成功",
     "addNodeError": "添加节点失败",
     "editNode": "编辑节点",
@@ -772,7 +772,7 @@
     "logFilter": "过滤",
     "logDate": "日期后缀",
     "registerCluster": "注册集群",
-    "registerClusterDescription": "注册一个已有的 SeaTunnel 集群",
+    "registerClusterDescription": "输入已有 SeaTunnel 集群的节点与安装信息，纳入平台统一运维管理。",
     "selectHostFirst": "请先选择一个主机",
     "selectAtLeastOneNode": "请至少选择一个已发现的节点进行注册",
     "separatedRequiresMasterAndWorker": "分离模式集群必须至少包含一个 Master 节点和一个 Worker 节点",
@@ -1209,8 +1209,8 @@
       "cancel": "取消",
       "confirmAction": "确认",
       "never": "从未",
-      "description": "开启后引擎把作业状态、表结构变更和 CDC 延迟推送给 STX，状态即时刷新，对账频率自动降低。",
-      "unsupported": "当前集群版本 {version} 不支持作业状态事件（需要 2.3.12 及以上，3.x 支持非终态）。",
+      "description": "开启后引擎把表结构变更和 CDC 延迟推送给 STX，可在作业详情中查看 DDL 事件时间线与 CDC 延迟监控。",
+      "unsupported": "当前集群版本 {version} 不支持事件上报（需要 SeaTunnel 2.3.12 及以上）。",
       "lastEvent": "最近事件：{time}",
       "counters": "已接收 {received} · 重复 {duplicates} · 丢弃 {dropped}",
       "authFails": "令牌校验失败 {count} 次",
@@ -1218,7 +1218,7 @@
       "modeTerminal": "仅上报终态",
       "url": "回调地址：{url}",
       "restartHint": "配置已写入 seatunnel.yaml，需要对集群执行滚动重启后才会开始上报。",
-      "degradedHint": "最近提交的作业没有在预期时间内收到状态事件，已自动退回 10 秒轮询。请检查集群能否访问回调地址，以及令牌是否与配置一致。",
+      "degradedHint": "最近提交的作业未在预期时间内收到状态事件，时间线和 CDC 延迟可能缺失。请检查集群能否访问回调地址，以及令牌是否与配置一致。",
       "applied": "已更新 seatunnel.yaml，滚动重启集群后生效",
       "appliedWithErrors": "部分节点配置写入失败：{errors}",
       "state": {
@@ -1234,11 +1234,11 @@
         },
         "disable": {
           "title": "关闭事件上报？",
-          "body": "将从全部节点的 seatunnel.yaml 中移除 event-report-http，重启后停止上报，作业状态回到纯轮询。"
+          "body": "将从全部节点的 seatunnel.yaml 中移除 event-report-http，重启后停止上报，时间线和 CDC 延迟将不再更新。"
         },
         "rotate": {
           "title": "轮换事件令牌？",
-          "body": "会生成新令牌并写入 seatunnel.yaml。重启前引擎仍使用旧令牌，期间上报会被拒绝，状态回到轮询兜底。"
+          "body": "会生成新令牌并写入 seatunnel.yaml。重启前引擎仍使用旧令牌，期间上报将被拒绝。"
         }
       }
     },
@@ -1540,7 +1540,7 @@
     "portChangeConfirmTitle": "确认同步 REST API 端口变更？",
     "portChangeConfirmDesc": "检测到 seatunnel.yaml 中的 seatunnel.engine.http.port 已变更。继续保存后，平台会同步处理相关元数据。",
     "portChangeConfirmSyncConfig": "会把新的 seatunnel.yaml 下发到目标节点。",
-    "portChangeConfirmSyncMetadata": "会同步更新数据库中的 cluster_nodes.api_port。",
+    "portChangeConfirmSyncMetadata": "同步更新平台中节点的 API 端口元数据。",
     "portChangeConfirmImpact": "后续平台 API 调用、Web UI 访问和任务提交通道都会使用新端口。",
     "jobLogModeTitle": "作业日志输出模式",
     "jobLogModePerJobBadge": "单 Job 独立日志模式 (推荐)",
@@ -2222,7 +2222,7 @@
     },
     "javaProxy": {
       "title": "stx-java-proxy",
-      "description": "托管能力代理，用于运行时存储探测等工具能力。",
+      "description": "托管能力代理，用于运行时存储探测与元数据反射。",
       "port": "监听端口",
       "portHint": "默认 18080。服务状态与日志保存在 Agent 主目录下。"
     },
@@ -2493,7 +2493,8 @@
       "pageInfo": "第 {current} / {total} 页",
       "sourceTypes": {
         "local_process_event": "本地进程事件",
-        "remote_alertmanager": "远程 Alertmanager"
+        "remote_alertmanager": "远程 Alertmanager",
+        "sync": "作业告警"
       },
       "lifecycleStatuses": {
         "firing": "触发中",
@@ -2682,7 +2683,8 @@
       },
       "categories": {
         "platform_health": "平台健康模板",
-        "metrics": "指标模板"
+        "metrics": "指标模板",
+        "sync_observability": "作业观测模板"
       },
       "capabilities": {
         "platform_health": {
@@ -2760,6 +2762,14 @@
         "node_stop_requested": {
           "name": "节点停止请求",
           "description": "当用户在控制面手动停止某个节点时立即触发，便于运维跟踪显式停机动作。"
+        },
+        "sync_status_unavailable": {
+          "name": "作业状态获取失败",
+          "description": "集群的作业状态（running 列表）持续获取不到，超过规则窗口时触发；期间作业状态可能已经过时。"
+        },
+        "sync_event_channel_degraded": {
+          "name": "事件通道降级",
+          "description": "集群的 SeaTunnel 事件通道从健康变为降级时触发，期间作业时间线与 CDC 延迟可能缺失。"
         },
         "cpu_usage_high": {
           "name": "CPU 使用率高",
@@ -3497,6 +3507,8 @@
     },
     "inspections": {
       "title": "巡检",
+      "dialogDescription": "针对集群 {name} 评估节点状态、关键进程与配置健康度。",
+      "dialogDescriptionGlobal": "评估受管集群的节点状态、关键进程与配置健康度。",
       "globalHint": "请选择一个受管集群，先做一次轻量检查，再决定是否继续抓现场证据。",
       "clusterScopedHint": "当前已按集群 {name} 过滤检查记录。",
       "matchedReports": "匹配巡检报告 {count} 条",
@@ -3954,7 +3966,7 @@
     "streamDisconnected": "未连接",
     "streamFallbackActivated": "事件流连接失败，已自动切换为轮询刷新。",
     "executionProgress": "执行进度",
-    "executionProgressDescription": "根据固定步骤编码展示本次升级当前已完成的比例。",
+    "executionProgressDescription": "展示本次升级当前已完成的执行进度比例。",
     "completedPercent": "完成比例",
     "startExecution": "启动升级执行",
     "restartExecution": "重新执行",
@@ -3968,7 +3980,7 @@
     "missingPlan": "未找到升级计划，请先在配置合并页生成计划。",
     "notStarted": "未开始",
     "stepTree": "步骤树",
-    "stepTreeDescription": "展示固定步骤链路及每一步的执行结果。",
+    "stepTreeDescription": "展示升级步骤链路及每一步的执行结果。",
     "executionDetailTitle": "执行详情",
     "executionDetailDescription": "在步骤树与节点执行状态之间切换查看。",
     "stepNodeCount": "节点数",
@@ -3978,7 +3990,7 @@
     "noEarlierLogs": "已是最早一页日志",
     "logsPageIndicator": "第 {page} / {total} 页",
     "upgradeRecordsTitle": "升级记录",
-    "upgradeRecordsDescription": "查看这个集群的历史升级任务，并进入某次任务的执行详情页。",
+    "upgradeRecordsDescription": "展示集群的历史升级记录，支持追溯升级日志与执行明细。",
     "noUpgradeRecords": "当前还没有升级记录。",
     "viewUpgradeDetail": "查看详情",
     "createdAt": "创建时间",
@@ -4150,9 +4162,19 @@
     "curatedSaveDescriptionPlaceholder": "可选描述",
     "curatedSaveSection": "分区",
     "curatedManage": "模板管理",
-    "curatedManageHint": "查看全部精选；可新建、复制。系统模板只读，复制后才能编辑；只能修改和删除自己的。",
+    "curatedManageHint": "查看全部精选；可预览脚本、复制脚本或创建副本。系统模板只读，创建副本后可编辑；只能修改和删除自己的。",
     "curatedCreate": "新建精选",
     "curatedCopy": "复制",
+    "curatedCreateCopyHint": "基于此模板创建可编辑的副本",
+    "curatedCopyScript": "复制脚本",
+    "curatedScriptCopied": "HOCON 脚本已复制到剪贴板",
+    "curatedCopyScriptFailed": "复制脚本失败",
+    "curatedPreviewTitle": "模板脚本预览",
+    "curatedPreviewDialogDesc": "查看当前精选模板的 HOCON 定义脚本，支持一键复制代码或创建副本。",
+    "curatedPreviewScriptHeading": "HOCON 脚本内容",
+    "curatedToggleInlinePreview": "展开脚本",
+    "curatedHideInlinePreview": "收起脚本",
+    "curatedEditContentHint": "支持完整 HOCON 语法，敏感凭据建议使用 '{{vars}}' 占位符。",
     "curatedBuiltinReadonly": "系统只读",
     "curatedHasOverrideHint": "已有副本，请编辑我的副本。",
     "curatedOriginAll": "全部来源",
@@ -4760,7 +4782,24 @@
     "observabilityAuto": "自动（流式开启）",
     "observabilityOn": "开启",
     "observabilityOff": "关闭",
-    "observabilityHint": "仅 SeaTunnel 3.x 集群生效。开启后可查看忙碌度、背压与瓶颈提示，开销很小。",
+    "observabilityHint": "仅 SeaTunnel 3.x 集群生效。开启后可查看忙碌度、背压与瓶颈提示，对集群性能影响极小。",
+    "timeoutSettings": "超时",
+    "timeoutSettingsHint": "提交未收到引擎响应时，最多等待多久确认作业是否已启动；发起停止后多久未结束判定为停止超时。留空使用全局默认，修改后重新发布生效。",
+    "submitTimeoutSetting": "提交超时（分钟）",
+    "stopTimeoutSetting": "停止超时（分钟）",
+    "timeoutDefaultPlaceholder": "默认 {minutes}",
+    "timeoutInvalid": "请输入 1~120 的整数",
+    "submitOutcomeUnknownToast": "提交请求超时，引擎可能已经收到作业，STX 正在确认，请勿重复提交",
+    "recoverOutcomeUnknownToast": "恢复请求超时，引擎可能已经收到作业，STX 正在确认，请勿重复恢复",
+    "cancelOutcomeUnknownToast": "停止请求超时，引擎可能已经在停，STX 正在确认",
+    "submitConfirmingBadge": "提交确认中",
+    "submitConfirmingTooltip": "提交请求没有拿到引擎回复，作业可能已经启动。STX 会自动向引擎确认，最晚 {deadline} 出结论，期间请勿重复提交。",
+    "submitExpiredBadge": "提交超时",
+    "submitExpiredTooltip": "引擎在 {minutes} 分钟内一直没有出现这个作业，提交可能已被拒绝或丢失。请查看引擎日志后再重新提交。",
+    "stopOverdueBadge": "停止超时",
+    "stopOverdueTooltip": "已请求停止，但超过 {minutes} 分钟作业仍未停下。STX 会继续确认，必要时请到引擎侧检查。",
+    "submitOutcomePendingTitle": "上一次提交还在确认中",
+    "submitOutcomePendingDescription": "作业 #{jobId} 的提交结果还在确认中，最晚 {deadline} 出结论，请稍后再提交。",
     "realtimeInsight": {
       "title": "实时诊断",
       "live": "实时",
@@ -5034,5 +5073,61 @@
     "proxyRestartRolledBack": "Proxy 已回滚",
     "proxyRestartFailed": "Proxy 重启失败",
     "proxyRestartSkipped": "Proxy 未重启"
+  },
+  "syncAlert": {
+    "listSeparator": "、",
+    "sectionTitle": "告警",
+    "sectionHint": "作业出问题时发通知。配置保存后立即生效，不跟随任务版本，不需要重新发布。",
+    "notConfigured": "未配置告警",
+    "configure": "配置",
+    "edit": "编辑",
+    "disabledBadge": "已停用",
+    "summary": "{rules} · {channels} · 每 {cooldown} 分钟提醒",
+    "summaryNoReminder": "{rules} · {channels} · 不重复提醒",
+    "loadFailed": "加载告警配置失败",
+    "unavailable": "告警模块未启用",
+    "dialogTitle": "作业告警",
+    "dialogDescription": "选择要告警的情况和通知渠道。同一个问题一直没解决时只按提醒间隔重发，恢复后发恢复通知。",
+    "rulesLabel": "告警情况",
+    "rule_sync_submit_failed": "提交失败",
+    "rule_sync_submit_failed_hint": "引擎明确拒绝提交，或者找不到可用的引擎",
+    "rule_sync_submit_timeout": "提交超时",
+    "rule_sync_submit_timeout_hint": "提交没拿到回复，过了提交超时引擎里仍没有这个作业",
+    "rule_sync_job_failed": "作业失败",
+    "rule_sync_job_failed_hint": "作业运行失败，包括引擎里已经没有这个作业",
+    "rule_sync_stop_timeout": "停止超时",
+    "rule_sync_stop_timeout_hint": "点停止后，过了停止超时作业仍没停下",
+    "channelsLabel": "通知渠道",
+    "noChannels": "还没有可用的通知渠道，请先在监控中心添加渠道",
+    "receiversLabel": "邮件接收人",
+    "receiversPlaceholder": "选择接收人",
+    "notifyOwner": "同时通知任务创建人",
+    "notifyOwnerHint": "只对邮件渠道生效",
+    "cooldownLabel": "提醒间隔（分钟）",
+    "cooldownHint": "问题一直没解决时多久重发一次提醒，0 表示不重发",
+    "sendRecovery": "恢复时发送通知",
+    "enabled": "启用",
+    "save": "保存",
+    "saving": "保存中…",
+    "cancel": "取消",
+    "delete": "删除配置",
+    "deleteConfirm": "删除后不再产生新告警，正在告警中的会被关闭。确定删除？",
+    "saved": "告警配置已保存",
+    "deleted": "告警配置已删除",
+    "readOnly": "你没有这个任务的编辑权限，只能查看告警配置",
+    "errorNoRule": "至少选择一种告警情况",
+    "errorNoChannel": "至少选择一个通知渠道",
+    "errorCooldown": "提醒间隔需要是 0 到 1440 之间的整数",
+    "errorEmailRecipient": "选了邮件渠道，但没有收件人：请选择接收人、勾选通知创建人，或在渠道里配置收件人",
+    "policyFilterAll": "全部策略",
+    "policyFilterSyncJob": "作业告警",
+    "policyTaskColumn": "任务",
+    "openTask": "打开任务",
+    "openJob": "查看作业",
+    "occurrenceLabel": "累计次数",
+    "jobLabel": "作业",
+    "occurrences": "累计 {count} 次",
+    "deepLinkTaskNotFound": "任务 #{id} 不存在，或者你没有查看权限",
+    "deepLinkJobNotFound": "作业 #{id} 不存在，或者不属于这个任务"
   }
 }

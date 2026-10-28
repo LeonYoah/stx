@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/LeonYoah/stx/internal/apps/monitor"
+	"github.com/LeonYoah/stx/internal/pkg/syncalert"
 )
 
 // Response is the standard API response for monitoring endpoints.
@@ -183,6 +184,9 @@ const (
 	// AlertSourceTypeRemoteAlertmanager indicates a remote alert ingested from Alertmanager.
 	// AlertSourceTypeRemoteAlertmanager 表示从 Alertmanager 回流的远程告警。
 	AlertSourceTypeRemoteAlertmanager AlertSourceType = "remote_alertmanager"
+	// AlertSourceTypeSync 表示数据同步作业告警阶段（monitoring_sync_alert_episodes）。
+	// AlertSourceTypeSync indicates a sync job alert episode (monitoring_sync_alert_episodes).
+	AlertSourceTypeSync AlertSourceType = "sync"
 )
 
 // AlertLifecycleStatus represents the source alert lifecycle.
@@ -335,6 +339,15 @@ type AlertInstanceSourceRef struct {
 	Hostname    string `json:"hostname,omitempty"`
 	Receiver    string `json:"receiver,omitempty"`
 	Env         string `json:"env,omitempty"`
+	// 以下字段只用于 sync 来源：任务、作业、累计次数与跳转链接。
+	// The fields below are only set for the sync source: task, job, occurrence count and deep link.
+	TaskID          uint   `json:"task_id,omitempty"`
+	TaskName        string `json:"task_name,omitempty"`
+	JobID           uint   `json:"job_id,omitempty"`
+	EngineJobID     string `json:"engine_job_id,omitempty"`
+	TriggerSource   string `json:"trigger_source,omitempty"`
+	OccurrenceCount int    `json:"occurrence_count,omitempty"`
+	Link            string `json:"link,omitempty"`
 }
 
 // AlertInstanceListData represents unified alert list response payload.
@@ -562,6 +575,9 @@ const (
 	// AlertPolicyBuilderKindCustomPromQL represents custom PromQL policy builder.
 	// AlertPolicyBuilderKindCustomPromQL 表示自定义 PromQL 策略构建器。
 	AlertPolicyBuilderKindCustomPromQL AlertPolicyBuilderKind = "custom_promql"
+	// AlertPolicyBuilderKindSyncJob 表示以同步任务为范围的作业告警策略，在任务设置里配置。
+	// AlertPolicyBuilderKindSyncJob represents a task-scoped sync job alert policy configured in task settings.
+	AlertPolicyBuilderKindSyncJob AlertPolicyBuilderKind = "sync_job"
 )
 
 // AlertPolicyExecutionStatus represents the latest execution result of one unified alert policy.
@@ -810,6 +826,18 @@ type AlertPolicyDTO struct {
 	LastExecutionError     string                     `json:"last_execution_error,omitempty"`
 	CreatedAt              time.Time                  `json:"created_at"`
 	UpdatedAt              time.Time                  `json:"updated_at"`
+	// 以下字段只用于 sync_job 策略。
+	// The fields below are only used by sync_job policies.
+	TaskID          uint   `json:"task_id,omitempty"`
+	TaskName        string `json:"task_name,omitempty"`
+	NotifyTaskOwner bool   `json:"notify_task_owner"`
+}
+
+// AlertPolicyListFilter 是策略列表的筛选条件，全部可选。
+// AlertPolicyListFilter filters the policy list; every field is optional.
+type AlertPolicyListFilter struct {
+	PolicyType AlertPolicyBuilderKind
+	TaskID     uint
 }
 
 // AlertPolicyListData represents alert policy list payload.
@@ -837,6 +865,12 @@ type UpsertAlertPolicyRequest struct {
 	Conditions             []*AlertPolicyConditionDTO `json:"conditions"`
 	NotificationChannelIDs []uint                     `json:"notification_channel_ids"`
 	ReceiverUserIDs        []uint64                   `json:"receiver_user_ids"`
+	// TaskID 只用于 sync_job：所属同步任务，创建后不可修改。
+	// TaskID is only used by sync_job: the owning sync task, immutable after creation.
+	TaskID uint `json:"task_id"`
+	// NotifyTaskOwner 只用于 sync_job：邮件渠道是否同时发给任务创建人。
+	// NotifyTaskOwner is only used by sync_job: whether email channels also reach the task creator.
+	NotifyTaskOwner *bool `json:"notify_task_owner"`
 }
 
 // Validate validates alert policy request values.
@@ -849,7 +883,7 @@ func (r *UpsertAlertPolicyRequest) Validate() error {
 		return fmt.Errorf("name is required")
 	}
 	switch r.PolicyType {
-	case AlertPolicyBuilderKindPlatformHealth, AlertPolicyBuilderKindMetricsTemplate, AlertPolicyBuilderKindCustomPromQL:
+	case AlertPolicyBuilderKindPlatformHealth, AlertPolicyBuilderKindMetricsTemplate, AlertPolicyBuilderKindCustomPromQL, AlertPolicyBuilderKindSyncJob:
 	default:
 		return fmt.Errorf("invalid policy_type")
 	}
@@ -869,6 +903,23 @@ func (r *UpsertAlertPolicyRequest) Validate() error {
 	case AlertPolicyBuilderKindCustomPromQL:
 		if strings.TrimSpace(r.PromQL) == "" {
 			return fmt.Errorf("promql is required")
+		}
+	case AlertPolicyBuilderKindSyncJob:
+		// 作业告警策略：条件的 metric_key 就是勾选的作业级规则，至少一条，至少一个渠道。
+		// Job alert policies: each condition's metric_key is a selected job rule; at least one rule and one channel.
+		if r.TaskID == 0 {
+			return ErrAlertPolicySyncJobTaskRequired
+		}
+		if len(r.Conditions) == 0 {
+			return ErrAlertPolicySyncJobInvalidRule
+		}
+		for _, condition := range r.Conditions {
+			if condition == nil || !syncalert.IsTaskRule(strings.TrimSpace(condition.MetricKey)) {
+				return ErrAlertPolicySyncJobInvalidRule
+			}
+		}
+		if len(r.NotificationChannelIDs) == 0 {
+			return ErrAlertPolicySyncJobChannelRequired
 		}
 	}
 	for _, condition := range r.Conditions {

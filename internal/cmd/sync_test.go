@@ -508,3 +508,94 @@ func writeSyncCapabilities(t *testing.T, writer http.ResponseWriter, operationID
 		t.Fatalf("写入能力响应失败: %v", err)
 	}
 }
+
+func TestSyncTaskSubmitWarnsWhenOutcomeUnknown(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		switch request.URL.Path {
+		case "/api/v1/capabilities":
+			writeSyncCapabilities(t, writer, "sync.task.submit", "R2")
+		case "/api/v1/sync/tasks/42":
+			_ = json.NewEncoder(writer).Encode(map[string]any{"data": map[string]any{"mode": "streaming"}})
+		case "/api/v1/sync/tasks/42/submit":
+			_ = json.NewEncoder(writer).Encode(map[string]any{"data": map[string]any{
+				"id":     99,
+				"status": "pending",
+				"submit_spec": map[string]any{
+					"submit_outcome":  "unknown",
+					"submit_deadline": "2026-10-27T08:05:00Z",
+				},
+			}})
+		default:
+			t.Fatalf("unexpected path: %s", request.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	store := newExecutionTestStore(t, server.URL, "test-token")
+	stdout, stderr, exitCode := runSyncCommand(t, store, "sync", "task", "submit", "42", "--confirm")
+	if exitCode != 0 {
+		t.Fatalf("unknown outcome is not a failure: code=%d stderr=%s", exitCode, stderr)
+	}
+	if !strings.Contains(stderr, "outcome_unknown") || !strings.Contains(stderr, "do not resubmit") || !strings.Contains(stderr, "2026-10-27T08:05:00Z") {
+		t.Fatalf("stderr must warn about the unknown outcome: %s", stderr)
+	}
+	if !strings.Contains(stdout, `"status": "pending"`) && !strings.Contains(stdout, `"status":"pending"`) {
+		t.Fatalf("stdout must still carry the job: %s", stdout)
+	}
+}
+
+func TestSyncTaskSubmitConflictWhenOutcomePending(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		switch request.URL.Path {
+		case "/api/v1/capabilities":
+			writeSyncCapabilities(t, writer, "sync.task.submit", "R2")
+		case "/api/v1/sync/tasks/42":
+			_ = json.NewEncoder(writer).Encode(map[string]any{"data": map[string]any{"mode": "batch"}})
+		case "/api/v1/sync/tasks/42/submit":
+			writer.WriteHeader(http.StatusConflict)
+			_ = json.NewEncoder(writer).Encode(map[string]any{"error_msg": "sync: previous submit outcome is still being confirmed: job #99 is still being confirmed until 2026-10-27T08:05:00Z; do not resubmit"})
+		default:
+			t.Fatalf("unexpected path: %s", request.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	store := newExecutionTestStore(t, server.URL, "test-token")
+	_, stderr, exitCode := runSyncCommand(t, store, "sync", "task", "submit", "42", "--confirm")
+	if exitCode != int(clioutput.ExitConflict) {
+		t.Fatalf("pending outcome must exit with the conflict code: code=%d stderr=%s", exitCode, stderr)
+	}
+	if !strings.Contains(stderr, "job #99") {
+		t.Fatalf("stderr must pass the server message through: %s", stderr)
+	}
+}
+
+func TestSyncJobCancelWarnsWhenStopOutcomeUnknown(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		switch request.URL.Path {
+		case "/api/v1/capabilities":
+			writeSyncCapabilities(t, writer, "sync.job.cancel", "R2")
+		case "/api/v1/sync/jobs/99/cancel":
+			_ = json.NewEncoder(writer).Encode(map[string]any{"data": map[string]any{
+				"id":             99,
+				"status":         "cancelling",
+				"result_preview": map[string]any{"cancel_outcome": "unknown"},
+			}})
+		default:
+			t.Fatalf("unexpected path: %s", request.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	store := newExecutionTestStore(t, server.URL, "test-token")
+	_, stderr, exitCode := runSyncCommand(t, store, "sync", "job", "cancel", "99", "--confirm")
+	if exitCode != 0 {
+		t.Fatalf("unknown stop outcome is not a failure: code=%d stderr=%s", exitCode, stderr)
+	}
+	if !strings.Contains(stderr, "stop request timed out") {
+		t.Fatalf("stderr must warn about the unknown stop outcome: %s", stderr)
+	}
+}

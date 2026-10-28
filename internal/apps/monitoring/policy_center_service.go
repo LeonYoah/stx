@@ -23,6 +23,7 @@ import (
 	"strings"
 
 	"github.com/LeonYoah/stx/internal/config"
+	"github.com/LeonYoah/stx/internal/pkg/syncalert"
 	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
 
@@ -315,6 +316,26 @@ func allAlertPolicyTemplateSummaries() []*AlertPolicyTemplateSummaryDTO {
 			SourceKind:    string(AlertPolicyBuilderKindPlatformHealth),
 			CapabilityKey: AlertPolicyCapabilityKeyPlatformHealth,
 			LegacyRuleKey: AlertRuleKeyNodeStopRequested,
+			Recommended:   false,
+		},
+		{
+			Key:           syncalert.RuleStatusUnavailable,
+			Name:          "Job status unavailable",
+			Description:   "Alert when STX keeps failing to read job status (running list) from the cluster longer than the rule window.",
+			Category:      "sync_observability",
+			SourceKind:    string(AlertPolicyBuilderKindPlatformHealth),
+			CapabilityKey: AlertPolicyCapabilityKeyPlatformHealth,
+			LegacyRuleKey: syncalert.RuleStatusUnavailable,
+			Recommended:   true,
+		},
+		{
+			Key:           syncalert.RuleEventChannelDegraded,
+			Name:          "Event channel degraded",
+			Description:   "Alert when the SeaTunnel event report channel of the cluster turns from healthy to degraded.",
+			Category:      "sync_observability",
+			SourceKind:    string(AlertPolicyBuilderKindPlatformHealth),
+			CapabilityKey: AlertPolicyCapabilityKeyPlatformHealth,
+			LegacyRuleKey: syncalert.RuleEventChannelDegraded,
 			Recommended:   false,
 		},
 		{

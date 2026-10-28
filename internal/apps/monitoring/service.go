@@ -38,6 +38,7 @@ import (
 	"github.com/LeonYoah/stx/internal/apps/cluster"
 	"github.com/LeonYoah/stx/internal/apps/monitor"
 	"github.com/LeonYoah/stx/internal/config"
+	"github.com/LeonYoah/stx/internal/pkg/syncalert"
 	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
 
@@ -57,6 +58,10 @@ type Service struct {
 	nodeHealthStartupSuppression time.Duration
 	nodeHealthOfflineObservedAt  map[uint]time.Time
 	nodeHealthStateMu            sync.Mutex
+
+	// syncTaskNames 由 sync 注入，用于策略列表显示任务名；未注入时不显示。
+	// syncTaskNames is injected by sync so the policy list can show task names; nothing is shown without it.
+	syncTaskNames SyncTaskNameResolver
 }
 
 // NewService creates a monitoring service.
@@ -1665,6 +1670,28 @@ func defaultClusterRules(clusterID uint) []*AlertRule {
 			RuleName:      "节点离线告警",
 			Description:   "当节点在宽限窗口后仍不可用时触发告警，覆盖主机离线和进程持续不可见两类场景",
 			Severity:      AlertSeverityCritical,
+			Enabled:       true,
+			Threshold:     1,
+			WindowSeconds: 60,
+		},
+		// 同步作业的集群级规则默认开启；没有策略时只在告警中心显示，不发通知。
+		// Sync job cluster-level rules are on by default; without a policy they only show in the alert center.
+		{
+			ClusterID:     clusterID,
+			RuleKey:       syncalert.RuleStatusUnavailable,
+			RuleName:      "作业状态获取失败告警",
+			Description:   "当集群的作业状态（running 列表）持续获取不到超过窗口时间时触发告警，期间作业状态可能已经过时",
+			Severity:      AlertSeverityWarning,
+			Enabled:       true,
+			Threshold:     1,
+			WindowSeconds: 300,
+		},
+		{
+			ClusterID:     clusterID,
+			RuleKey:       syncalert.RuleEventChannelDegraded,
+			RuleName:      "事件通道降级告警",
+			Description:   "当集群的 SeaTunnel 事件通道从健康变为降级时触发告警，期间时间线与 CDC 延迟数据可能中断",
+			Severity:      AlertSeverityWarning,
 			Enabled:       true,
 			Threshold:     1,
 			WindowSeconds: 60,

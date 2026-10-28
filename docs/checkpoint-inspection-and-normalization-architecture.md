@@ -47,7 +47,7 @@
 |                                     │                                              |
 |  +------------------------------------------------------------------------------+  |
 |  |                      四大位点范式与 Sink 2PC 归一化引擎                      |  |
-|  |  - BINLOG_OFFSET (MySQL CDC, TiDB CDC, Postgres CDC)                         |  |
+|  |  - CDC_OFFSET (MySQL/TiDB binlog, Postgres LSN, Oracle SCN, SQL Server/DB2 LSN, MongoDB resumeToken) |  |
 |  |  - PARTITION_OFFSET (Kafka, Pulsar, RocketMQ)                                |  |
 |  |  - TIME_CURSOR (增量时间戳 / Watermark / 轮询游标)                           |  |
 |  |  - FILE_CHUNK_PROGRESS (分块文件, 对象存储分片)                              |  |
@@ -85,16 +85,28 @@
 
 | 归一化范式 (`paradigm`) | 典型代表连接器 | 核心属性与物理语义 | 计算与展示重点 |
 | :--- | :--- | :--- | :--- |
-| **`BINLOG_OFFSET`** | MySQL-CDC, Postgres-CDC, Oracle-CDC, TiDB | `binlogFile`, `binlogPosition`, `serverUuid`, `gtid`, `assignedSplit` | Binlog 文件与偏移量进度、Event Time、实时消费延迟 Lag |
+| **`CDC_OFFSET`** | MySQL-CDC, TiDB-CDC, Postgres-CDC, Oracle-CDC, SQL Server-CDC, DB2-CDC, MongoDB-CDC | 按连接器区分：MySQL `file`/`pos`/`gtids`；Postgres `lsn`/`lsn_commit`/`txId`/`ts_usec`；Oracle `scn`/`commit_scn`/`lcr_position`；SQL Server/DB2 `commit_lsn`/`change_lsn`/`event_serial_no`；MongoDB `resumeToken`/`timestamp` | Binlog / LSN / SCN / ResumeToken 位点、Event Time、实时消费延迟 Lag |
 | **`PARTITION_OFFSET`** | Kafka, Pulsar, RocketMQ | `topic`, `partition`, `committedOffset`, `latestOffset`, `lag` | 分区偏移量明细、总消费进度、各 Partition 积压状态 |
 | **`TIME_CURSOR`** | 轮询数据库, 日志流, 时序数据 | `currentTimestamp`, `cursorColumn`, `watermark` | 游标推进时间、业务时间差延迟监控 |
 | **`FILE_CHUNK_PROGRESS`** | LocalFile, S3, OSS, HDFS, Iceberg Batch | `filePath`, `currentByteOffset`, `totalBytes`, `chunkIndex` | 分片读取百分比、已处理分片数/总分片数 |
+
+`CDC_OFFSET` 会根据连接器实际写入 checkpoint 的 offset 字段自动选择展示类型，不能把所有 CDC 都标成 Binlog：
+
+| 连接器 | 优先字段 | 展示 |
+| :--- | :--- | :--- |
+| MySQL-CDC / TiDB-CDC | `file`, `pos`, `gtids`, `ts_sec` | `Binlog 位点`，`file:pos` |
+| Postgres-CDC | `lsn`（回退 `lsn_commit`），`txId`, `ts_usec` | `LSN 位点`，`LSN <lsn> / txId <txId>` |
+| Oracle-CDC | `commit_scn`（回退 `scn`），`lcr_position` | `SCN 位点` |
+| SQL Server-CDC / DB2-CDC | `commit_lsn`, `change_lsn`, `event_serial_no` | `LSN 位点` |
+| MongoDB-CDC | `resumeToken`, `timestamp` | `ResumeToken 位点` |
+
+其中 `ts_usec` 为 `Long.MIN_VALUE` 时表示连接器没有提供事件时间（SeaTunnel 的哨兵值），此时 Event Time / Lag 留空，不应被当成真实时间。
 
 ### 3.1 归一化状态模型结构
 
 ```json
 {
-  "paradigm": "BINLOG_OFFSET",
+  "paradigm": "CDC_OFFSET",
   "summary": "mysql-bin.000003 : 12584",
   "target": "stx_e2e.users_src",
   "lagMs": 1054,
@@ -142,7 +154,7 @@
 |  [Source 业务位点卡片]                                                             |
 |  +------------------------------------------------------------------------------+  |
 |  | MySQL-CDC (Source[0]-MySQL-CDC)                     状态: 正常消费            |  |
-|  | 范式: BINLOG_OFFSET | 目标表: stx_e2e.users_src                               |  |
+|  | 范式: CDC_OFFSET | 目标表: stx_e2e.users_src                                  |  |
 |  | 当前位点: mysql-bin.000003 : 12584                   延迟 (Lag): 1.05 秒       |  |
 |  | +--------------------------------------------------------------------------+ |  |
 |  | | Subtask #0 | mysql-bin.000003:12584 | Lag: 1.05s | 状态体积: 156 B        | |  |

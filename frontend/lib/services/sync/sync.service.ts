@@ -36,6 +36,8 @@ import type {
   SyncCheckpointSnapshot,
   SyncPreviewSnapshot,
   SyncTask,
+  SyncTaskAlertConfig,
+  SyncTaskAlertRequest,
   SyncTaskPermissions,
   SyncTaskListData,
   SyncTaskTreeData,
@@ -67,6 +69,24 @@ import type {
   DolphinTaskStatus,
 } from './types';
 
+/**
+ * 把任务告警配置的数组字段兜底为空数组。
+ * Default the array fields of a task alert config to empty arrays.
+ */
+function normalizeTaskAlertConfig(data: SyncTaskAlertConfig | null | undefined): SyncTaskAlertConfig {
+  return {
+    configured: Boolean(data?.configured),
+    policy_id: data?.policy_id,
+    enabled: data?.enabled ?? false,
+    rules: Array.isArray(data?.rules) ? data!.rules : [],
+    channel_ids: Array.isArray(data?.channel_ids) ? data!.channel_ids : [],
+    receiver_user_ids: Array.isArray(data?.receiver_user_ids) ? data!.receiver_user_ids : [],
+    notify_task_owner: Boolean(data?.notify_task_owner),
+    cooldown_minutes: typeof data?.cooldown_minutes === 'number' ? data.cooldown_minutes : 60,
+    send_recovery: data?.send_recovery ?? true,
+  };
+}
+
 export class SyncService extends BaseService {
   protected static readonly basePath = '/sync';
 
@@ -85,6 +105,36 @@ export class SyncService extends BaseService {
 
   static async getTask(taskId: number): Promise<SyncTask> {
     return this.get<SyncTask>(`/tasks/${taskId}`);
+  }
+
+  /**
+   * 读取任务的作业告警配置；未配置时 configured=false。
+   * Read a task's job alert config; configured=false when none exists.
+   */
+  static async getTaskAlert(taskId: number): Promise<SyncTaskAlertConfig> {
+    const data = await this.get<SyncTaskAlertConfig>(`/tasks/${taskId}/alert`);
+    return normalizeTaskAlertConfig(data);
+  }
+
+  /**
+   * 保存任务的作业告警配置，立即生效（不需要重新发布）。
+   * Save a task's job alert config; it takes effect immediately (no republish needed).
+   */
+  static async updateTaskAlert(
+    taskId: number,
+    request: SyncTaskAlertRequest,
+  ): Promise<SyncTaskAlertConfig> {
+    const data = await this.put<SyncTaskAlertConfig>(`/tasks/${taskId}/alert`, request);
+    return normalizeTaskAlertConfig(data);
+  }
+
+  /**
+   * 删除任务的作业告警配置，正在告警中的阶段会被关闭。
+   * Delete a task's job alert config; firing episodes are closed.
+   */
+  static async deleteTaskAlert(taskId: number): Promise<SyncTaskAlertConfig> {
+    const data = await this.delete<SyncTaskAlertConfig>(`/tasks/${taskId}/alert`);
+    return normalizeTaskAlertConfig(data);
   }
 
   static async createTask(request: CreateSyncTaskRequest): Promise<SyncTask> {

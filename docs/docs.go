@@ -5032,6 +5032,188 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/sync/tasks/{id}/alert": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sync"
+                ],
+                "summary": "获取任务的作业告警配置",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "任务 ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sync.TaskAlertResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/sync.TaskAlertResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/sync.TaskAlertResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/sync.TaskAlertResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/sync.TaskAlertResponse"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sync"
+                ],
+                "summary": "保存任务的作业告警配置（立即生效）",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "任务 ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "作业告警配置",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/sync.TaskAlertRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sync.TaskAlertResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/sync.TaskAlertResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/sync.TaskAlertResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/sync.TaskAlertResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/sync.TaskAlertResponse"
+                        }
+                    },
+                    "428": {
+                        "description": "Precondition Required",
+                        "schema": {
+                            "$ref": "#/definitions/sync.TaskAlertResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/sync.TaskAlertResponse"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sync"
+                ],
+                "summary": "删除任务的作业告警配置",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "任务 ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sync.TaskAlertResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/sync.TaskAlertResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/sync.TaskAlertResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/sync.TaskAlertResponse"
+                        }
+                    },
+                    "428": {
+                        "description": "Precondition Required",
+                        "schema": {
+                            "$ref": "#/definitions/sync.TaskAlertResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/sync.TaskAlertResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sync/tasks/{id}/dolphin": {
             "get": {
                 "produces": [
@@ -11197,6 +11379,10 @@ const docTemplate = `{
                     "description": "AttachGeneration 在同一 external_ref 被 CLI 接管时递增，用来忽略过期停止请求。\nAttachGeneration increments when another CLI attaches to the same external_ref so stale cancel requests are ignored.",
                     "type": "integer"
                 },
+                "cancel_overdue": {
+                    "description": "CancelOverdue 表示取消中作业已越过停止截止时间，由 API 派生，不落库。\nCancelOverdue reports a cancelling job past its stop deadline; derived at read time and not persisted.",
+                    "type": "boolean"
+                },
                 "cdc_delay": {
                     "description": "CDCDelay 是事件通道聚合的 CDC 延迟摘要（内存态，响应时补充，不落库）。\nCDCDelay is the CDC delay summary aggregated from the event channel (in memory, filled at response time).",
                     "allOf": [
@@ -11584,6 +11770,52 @@ const docTemplate = `{
                 }
             }
         },
+        "sync.TaskAlertRequest": {
+            "type": "object",
+            "properties": {
+                "channel_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "cooldown_minutes": {
+                    "type": "integer"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "notify_task_owner": {
+                    "type": "boolean"
+                },
+                "receiver_user_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "rules": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "send_recovery": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "sync.TaskAlertResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/syncalert.TaskConfig"
+                },
+                "error_msg": {
+                    "type": "string"
+                }
+            }
+        },
         "sync.TaskPermissions": {
             "type": "object",
             "properties": {
@@ -11693,6 +11925,47 @@ const docTemplate = `{
                     }
                 },
                 "is_public": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "syncalert.TaskConfig": {
+            "type": "object",
+            "properties": {
+                "channel_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "configured": {
+                    "type": "boolean"
+                },
+                "cooldown_minutes": {
+                    "type": "integer"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "notify_task_owner": {
+                    "type": "boolean"
+                },
+                "policy_id": {
+                    "type": "integer"
+                },
+                "receiver_user_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "rules": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "send_recovery": {
                     "type": "boolean"
                 }
             }

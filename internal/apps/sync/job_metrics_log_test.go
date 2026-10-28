@@ -19,6 +19,7 @@ package sync
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -109,7 +110,7 @@ func TestJobReconcilerMarksOrphanedRunningJobFailed(t *testing.T) {
 	if err := service.repo.CreateJobInstance(ctx, job); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
-	if err := service.reconcileActiveJobs(ctx); err != nil {
+	if err := service.reconcileActiveJobsAndWait(ctx); err != nil {
 		t.Fatalf("reconcile: %v", err)
 	}
 	stored, err := service.GetJob(ctx, job.ID)
@@ -170,7 +171,7 @@ func TestJobReconcilerUsesSubmitSpecEndpointWithoutClusterID(t *testing.T) {
 	if err := service.repo.CreateJobInstance(ctx, job); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
-	if err := service.reconcileActiveJobs(ctx); err != nil {
+	if err := service.reconcileActiveJobsAndWait(ctx); err != nil {
 		t.Fatalf("reconcile: %v", err)
 	}
 	stored, err := service.GetJob(ctx, job.ID)
@@ -265,7 +266,7 @@ func TestReconcileFinishedWaitsForJobInfoBeforeSettling(t *testing.T) {
 	if err := service.repo.CreateJobInstance(ctx, job); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
-	if err := service.reconcileActiveJobs(ctx); err != nil {
+	if err := service.reconcileActiveJobsAndWait(ctx); err != nil {
 		t.Fatalf("reconcile 1: %v", err)
 	}
 	stored, err := service.repo.GetJobInstanceByID(ctx, job.ID)
@@ -275,10 +276,10 @@ func TestReconcileFinishedWaitsForJobInfoBeforeSettling(t *testing.T) {
 	if stored.Status != JobStatusRunning {
 		t.Fatalf("first GetJobInfo failure must not settle terminal, got %s", stored.Status)
 	}
-	if err := service.reconcileActiveJobs(ctx); err != nil {
+	if err := service.reconcileActiveJobsAndWait(ctx); err != nil {
 		t.Fatalf("reconcile 2: %v", err)
 	}
-	if err := service.reconcileActiveJobs(ctx); err != nil {
+	if err := service.reconcileActiveJobsAndWait(ctx); err != nil {
 		t.Fatalf("reconcile 3: %v", err)
 	}
 	stored, err = service.repo.GetJobInstanceByID(ctx, job.ID)
@@ -305,7 +306,10 @@ func (f *flakyFinishedEngineClient) Submit(ctx context.Context, req *EngineSubmi
 func (f *flakyFinishedEngineClient) GetJobInfo(ctx context.Context, endpoint *EngineEndpoint, jobID string) (*EngineJobInfo, error) {
 	f.infoCalls++
 	if f.infoCalls <= f.failInfoTimes {
-		return nil, context.DeadlineExceeded
+		// 用非 2xx 失败：超时会让集群进入退避，下一轮被跳过，那是退避测试的范围。
+		// Fail with a non-2xx error: a timeout would put the cluster into backoff and skip the next pass, which the
+		// backoff tests cover.
+		return nil, errors.New("sync: get job info failed: status=500 body=busy")
 	}
 	return f.info, nil
 }

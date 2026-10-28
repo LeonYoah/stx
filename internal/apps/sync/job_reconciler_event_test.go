@@ -85,11 +85,11 @@ func healthyChannel() *EngineEventChannel {
 }
 
 func TestReconcileEventMode_skipsListsAndPullsOnlyWatchedJobs(t *testing.T) {
-	withEventModeInterval(t, 0)
+	withEventModeInterval(t, 60)
 	service, engine, jobs := setupEventModeReconcile(t, "3.0.0", healthyChannel())
 	ctx := context.Background()
 
-	if err := service.reconcileActiveJobs(ctx); err != nil {
+	if err := service.reconcileActiveJobsAndWait(ctx); err != nil {
 		t.Fatalf("first reconcile: %v", err)
 	}
 	if engine.listCalls.Load() == 0 {
@@ -98,7 +98,7 @@ func TestReconcileEventMode_skipsListsAndPullsOnlyWatchedJobs(t *testing.T) {
 	lists, infos := engine.listCalls.Load(), engine.infoCalls.Load()
 
 	service.markJobWatched(jobs[0].ID)
-	if err := service.reconcileActiveJobs(ctx); err != nil {
+	if err := service.reconcileActiveJobsAndWait(ctx); err != nil {
 		t.Fatalf("second reconcile: %v", err)
 	}
 	if engine.listCalls.Load() != lists {
@@ -110,8 +110,8 @@ func TestReconcileEventMode_skipsListsAndPullsOnlyWatchedJobs(t *testing.T) {
 
 	// 超过完整对账间隔后恢复一次完整对账。
 	// Once the full-reconcile interval passes, a full reconcile runs again.
-	service.events.now = func() time.Time { return time.Now().Add(2 * defaultEventModeFullReconcileInterval) }
-	if err := service.reconcileActiveJobs(ctx); err != nil {
+	service.events.now = func() time.Time { return time.Now().Add(2 * time.Minute) }
+	if err := service.reconcileActiveJobsAndWait(ctx); err != nil {
 		t.Fatalf("third reconcile: %v", err)
 	}
 	if engine.listCalls.Load() == lists {
@@ -132,6 +132,7 @@ func TestReconcileEventMode_fallsBackToFullReconcile(t *testing.T) {
 		{name: "no channel", version: "3.0.0", channel: nil},
 		{name: "degraded channel", version: "3.0.0", channel: degraded},
 		{name: "terminal-only cluster", version: "2.3.12", channel: healthyChannel()},
+		{name: "adaptive off by default", version: "3.0.0", channel: healthyChannel(), interval: 0},
 		{name: "adaptive disabled", version: "3.0.0", channel: healthyChannel(), interval: -1},
 	}
 	for _, tc := range cases {
@@ -139,11 +140,11 @@ func TestReconcileEventMode_fallsBackToFullReconcile(t *testing.T) {
 			withEventModeInterval(t, tc.interval)
 			service, engine, _ := setupEventModeReconcile(t, tc.version, tc.channel)
 			ctx := context.Background()
-			if err := service.reconcileActiveJobs(ctx); err != nil {
+			if err := service.reconcileActiveJobsAndWait(ctx); err != nil {
 				t.Fatalf("first reconcile: %v", err)
 			}
 			lists := engine.listCalls.Load()
-			if err := service.reconcileActiveJobs(ctx); err != nil {
+			if err := service.reconcileActiveJobsAndWait(ctx); err != nil {
 				t.Fatalf("second reconcile: %v", err)
 			}
 			if engine.listCalls.Load() <= lists {
@@ -154,7 +155,7 @@ func TestReconcileEventMode_fallsBackToFullReconcile(t *testing.T) {
 }
 
 func TestReconcileEventMode_staleUnwatchedJobIsRefreshed(t *testing.T) {
-	withEventModeInterval(t, 0)
+	withEventModeInterval(t, 60)
 	service, engine, jobs := setupEventModeReconcile(t, "3.0.0", healthyChannel())
 	ctx := context.Background()
 	service.markFullReconcile(5)
@@ -162,7 +163,7 @@ func TestReconcileEventMode_staleUnwatchedJobIsRefreshed(t *testing.T) {
 	if err := service.repo.UpdateJobSyncMetadata(ctx, jobs[1].ID, map[string]any{"last_synced_at": old}); err != nil {
 		t.Fatalf("age job: %v", err)
 	}
-	if err := service.reconcileActiveJobs(ctx); err != nil {
+	if err := service.reconcileActiveJobsAndWait(ctx); err != nil {
 		t.Fatalf("reconcile: %v", err)
 	}
 	if engine.listCalls.Load() != 0 || engine.infoCalls.Load() != 1 {

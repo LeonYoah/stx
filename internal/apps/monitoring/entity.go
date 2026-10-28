@@ -65,8 +65,14 @@ type AlertPolicy struct {
 	LastDeliveredAt            *time.Time                 `json:"last_delivered_at"`
 	LastExecutionStatus        AlertPolicyExecutionStatus `json:"last_execution_status" gorm:"size:20;default:idle"`
 	LastExecutionError         string                     `json:"last_execution_error" gorm:"type:text"`
-	CreatedAt                  time.Time                  `json:"created_at" gorm:"autoCreateTime"`
-	UpdatedAt                  time.Time                  `json:"updated_at" gorm:"autoUpdateTime"`
+	// TaskID 只用于 sync_job 策略：所属同步任务，0 表示不是任务策略。
+	// TaskID is only used by sync_job policies: the owning sync task; 0 means not a task policy.
+	TaskID uint `json:"task_id" gorm:"not null;default:0;index"`
+	// NotifyTaskOwner 只用于 sync_job 策略：邮件渠道是否同时发给任务创建人。
+	// NotifyTaskOwner is only used by sync_job policies: whether email channels also reach the task creator.
+	NotifyTaskOwner bool      `json:"notify_task_owner" gorm:"not null;default:false"`
+	CreatedAt       time.Time `json:"created_at" gorm:"autoCreateTime"`
+	UpdatedAt       time.Time `json:"updated_at" gorm:"autoUpdateTime"`
 }
 
 // TableName specifies the table name for AlertPolicy.

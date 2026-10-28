@@ -64,6 +64,23 @@ func (s *Service) applyEngineJobInfoUpdate(ctx context.Context, instance *JobIns
 	if info == nil {
 		return instance, nil
 	}
+	// 提交结果未知的作业：引擎给出真实状态才算确认；空壳交给对账判断是否过期。
+	// 恢复提交沿用旧 jobId，截止前不采信可能属于上一轮运行的终态。
+	// Unknown-outcome submits are confirmed only by a real engine status; empty shells are left to reconcile's expiry
+	// check. Recovery submits reuse the old jobId, so terminal states that may belong to the previous run are ignored
+	// until the deadline.
+	submitConfirmed := false
+	if submitOutcomeIsUnknown(instance) {
+		status := strings.TrimSpace(info.JobStatus)
+		if status == "" {
+			return instance, nil
+		}
+		if isRecoverRun(instance) && isFinalEngineJobStatus(status) && submitOutcomePending(instance, time.Now()) {
+			return instance, nil
+		}
+		markSubmitOutcome(instance, submitOutcomeConfirmed, time.Now())
+		submitConfirmed = true
+	}
 	previousStatus := instance.Status
 	rawEngineStatus := strings.TrimSpace(info.JobStatus)
 	var observedStatus JobStatus
@@ -122,6 +139,11 @@ func (s *Service) applyEngineJobInfoUpdate(ctx context.Context, instance *JobIns
 	} else {
 		instance.FinishedAt = nil
 	}
+	// 停止结果未知的作业到达终态即视为停止已确认。
+	// A stop with an unknown outcome is confirmed once the job reaches a terminal state.
+	if terminal && strings.TrimSpace(stringValue(instance.ResultPreview, cancelOutcomeKey)) == cancelOutcomeUnknown {
+		instance.ResultPreview[cancelOutcomeKey] = cancelOutcomeConfirmed
+	}
 	now := time.Now().UTC()
 	updates := map[string]any{
 		"status":          instance.Status,
@@ -132,6 +154,9 @@ func (s *Service) applyEngineJobInfoUpdate(ctx context.Context, instance *JobIns
 		"sync_state":      JobSyncStateOK,
 		"sync_fail_count": 0,
 	}
+	if submitConfirmed {
+		updates["submit_spec"] = instance.SubmitSpec
+	}
 	if err := s.repo.UpdateJobStatus(ctx, instance.ID, []JobStatus{previousStatus}, updates); err != nil {
 		if errors.Is(err, ErrJobStatusChanged) {
 			return s.repo.GetJobInstanceByID(ctx, instance.ID)
@@ -141,6 +166,7 @@ func (s *Service) applyEngineJobInfoUpdate(ctx context.Context, instance *JobIns
 	instance.LastSyncedAt = &now
 	instance.SyncState = JobSyncStateOK
 	instance.SyncFailCount = 0
+	s.reportJobTransition(ctx, instance, previousStatus)
 	if err := s.syncPreviewSessionTerminalState(ctx, instance); err != nil {
 		return nil, err
 	}

@@ -213,6 +213,10 @@ func (s *Service) SubmitTaskWithExecutionOptions(ctx context.Context, id, create
 	} else if attached != nil {
 		return attached, nil
 	}
+	// 接管等待（上面）仍可被调用方取消；进入提交后与请求解绑，保证引擎收到的提交一定落库并绑定执行记录。
+	// The attach wait above stays cancellable; once submitting, detach from the request so a submit the engine may
+	// have received is always persisted and bound to its execution record.
+	ctx = context.WithoutCancel(ctx)
 	return s.runWithExecution(ctx, createdBy, "sync.task.submit", executionapp.RiskLevelR1, request, func(runCtx context.Context) (*JobInstance, error) {
 		return s.submitNewTask(runCtx, id, createdBy, opts)
 	})
@@ -221,6 +225,9 @@ func (s *Service) SubmitTaskWithExecutionOptions(ctx context.Context, id, create
 // RecoverJobWithExecution 创建公共执行记录后恢复作业。
 // RecoverJobWithExecution recovers a job after creating its shared execution record.
 func (s *Service) RecoverJobWithExecution(ctx context.Context, sourceJobID, createdBy uint, draft *TaskDraftPayload, request ExecutionRequest) (*JobInstance, error) {
+	// 与提交相同：恢复提交与请求解绑。
+	// Same as submit: detach the recovery submit from the request.
+	ctx = context.WithoutCancel(ctx)
 	return s.runWithExecution(ctx, createdBy, "sync.job.recover", executionapp.RiskLevelR1, request, func(runCtx context.Context) (*JobInstance, error) {
 		return s.RecoverJob(runCtx, sourceJobID, createdBy, draft)
 	})

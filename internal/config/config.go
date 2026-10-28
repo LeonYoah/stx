@@ -163,6 +163,21 @@ func setDefaults(c *configModel, observabilityEnabledSet bool) {
 	if c.Sync.JobReconcilerIntervalSeconds == 0 {
 		c.Sync.JobReconcilerIntervalSeconds = 10
 	}
+	if c.Sync.SubmitTimeoutSeconds <= 0 {
+		c.Sync.SubmitTimeoutSeconds = 300
+	}
+	if c.Sync.StopTimeoutSeconds <= 0 {
+		c.Sync.StopTimeoutSeconds = 300
+	}
+	if c.Sync.JobReconcilerClusterConcurrency <= 0 {
+		c.Sync.JobReconcilerClusterConcurrency = 4
+	}
+	if c.Sync.JobReconcilerMaxBackoffSeconds <= 0 {
+		c.Sync.JobReconcilerMaxBackoffSeconds = 120
+	}
+	if c.Sync.EngineRequestTimeoutSeconds <= 0 {
+		c.Sync.EngineRequestTimeoutSeconds = 15
+	}
 
 	// 认证默认配置
 	if c.Auth.DefaultAdminUsername == "" {
@@ -400,6 +415,15 @@ func GetExternalURL() string {
 	// The caller should handle this case appropriately
 	// 调用者应适当处理这种情况
 	return ""
+}
+
+// GetConsoleURL 返回控制台（前端）的访问地址，去掉末尾的斜杠；未配置时返回空字符串。
+// GetConsoleURL returns the console (frontend) address without a trailing slash; empty when not configured.
+func GetConsoleURL() string {
+	if Config == nil {
+		return ""
+	}
+	return strings.TrimRight(strings.TrimSpace(Config.App.ConsoleURL), "/")
 }
 
 // IsGRPCEnabled 检查 gRPC 是否启用

@@ -28,6 +28,7 @@ import type {
   AlertPolicy,
   AlertPolicyCenterBootstrapData,
   AlertPolicyListData,
+  AlertPolicyListFilter,
   AlertFilterParams,
   AlertInstanceActionResult,
   AlertInstanceFilterParams,
@@ -308,8 +309,20 @@ export class MonitoringService extends BaseService {
    * List unified alert policy resources.
    * 获取统一告警策略资源列表。
    */
-  static async listAlertPolicies(): Promise<AlertPolicyListData> {
-    const data = await this.get<AlertPolicyListData>('/alert-policies');
+  static async listAlertPolicies(
+    filter?: AlertPolicyListFilter,
+  ): Promise<AlertPolicyListData> {
+    const params: Record<string, string> = {};
+    if (filter?.policy_type) {
+      params.policy_type = filter.policy_type;
+    }
+    if (filter?.task_id) {
+      params.task_id = String(filter.task_id);
+    }
+    const data = await this.get<AlertPolicyListData>(
+      '/alert-policies',
+      Object.keys(params).length > 0 ? params : undefined,
+    );
     return normalizeAlertPolicyListData(data);
   }
 

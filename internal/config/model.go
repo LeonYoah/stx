@@ -76,6 +76,10 @@ type AppConfig struct {
 	// Example: "http://192.168.1.100:17800" or "https://stx.example.com"
 	// 示例: "http://192.168.1.100:17800" 或 "https://stx.example.com"
 	ExternalURL string `mapstructure:"external_url"`
+	// ConsoleURL 是用户在浏览器里打开控制台的地址（前端），告警通知里的作业链接用它拼；为空时通知不带链接。
+	// ConsoleURL is the address users open the console (frontend) at; job links in alert notifications are built
+	// from it, and notifications carry no link when it is empty.
+	ConsoleURL string `mapstructure:"console_url"`
 
 	// DisplayTimezone 系统默认展示时区（IANA 名称，默认 Asia/Shanghai）；用于报告渲染、默认 cron 时区与前端默认展示。
 	// 数据库存储始终为 UTC，与此配置无关。环境变量 STX_DISPLAY_TIMEZONE（兼容 STX_REPORT_TIMEZONE）可覆盖。
@@ -96,10 +100,29 @@ type SyncConfig struct {
 	// JobReconcilerIntervalSeconds 对账 tick 间隔；0 表示默认 10 秒，小于 0 表示关闭对账器。
 	// JobReconcilerIntervalSeconds is the reconciler tick interval; 0 means default 10s, negative disables it.
 	JobReconcilerIntervalSeconds int `mapstructure:"job_reconciler_interval_seconds"`
-	// JobReconcilerEventModeIntervalSeconds 是事件通道健康时完整对账（拉 running/finished 列表）的最长间隔；0 表示默认 60 秒，小于 0 表示关闭自适应。
+	// JobReconcilerEventModeIntervalSeconds 是事件通道健康时完整对账（拉 running/finished 列表）的最长间隔；默认 0 表示关闭自适应，配置正数才开启。
 	// JobReconcilerEventModeIntervalSeconds is the longest interval between full reconciles (running/finished lists)
-	// while the event channel is healthy; 0 means default 60s, negative disables adaptive polling.
+	// while the event channel is healthy; the default 0 disables adaptive polling, a positive value enables it.
 	JobReconcilerEventModeIntervalSeconds int `mapstructure:"job_reconciler_event_mode_interval_seconds"`
+	// SubmitTimeoutSeconds 是提交结果未知时等待引擎出现作业的上限；0 或不填表示默认 300 秒，任务可单独覆盖。
+	// SubmitTimeoutSeconds caps how long an unknown submit waits for the engine to register the job; 0 or unset
+	// means the 300-second default, and tasks may override it.
+	SubmitTimeoutSeconds int `mapstructure:"submit_timeout_seconds"`
+	// StopTimeoutSeconds 是停止请求发出后等待作业真正停下的上限，超过只标记停止超时；0 或不填表示默认 300 秒。
+	// StopTimeoutSeconds caps how long a stop request waits for the job to actually stop before it is flagged as
+	// overdue; 0 or unset means the 300-second default.
+	StopTimeoutSeconds int `mapstructure:"stop_timeout_seconds"`
+	// JobReconcilerClusterConcurrency 是同时对账的集群数上限；0 或不填表示默认 4。
+	// JobReconcilerClusterConcurrency caps how many clusters reconcile at the same time; 0 or unset means 4.
+	JobReconcilerClusterConcurrency int `mapstructure:"job_reconciler_cluster_concurrency"`
+	// JobReconcilerMaxBackoffSeconds 是集群查询连续失败后推迟对账的上限；0 或不填表示默认 120 秒。
+	// JobReconcilerMaxBackoffSeconds caps how long a cluster's reconcile is pushed back after repeated query
+	// failures; 0 or unset means 120 seconds.
+	JobReconcilerMaxBackoffSeconds int `mapstructure:"job_reconciler_max_backoff_seconds"`
+	// EngineRequestTimeoutSeconds 是请求 SeaTunnel REST 接口的 HTTP 超时，读写请求共用；0 或不填表示默认 15 秒。
+	// EngineRequestTimeoutSeconds is the HTTP timeout for SeaTunnel REST calls, shared by reads and writes; 0 or
+	// unset means 15 seconds.
+	EngineRequestTimeoutSeconds int `mapstructure:"engine_request_timeout_seconds"`
 }
 
 // authConfig 认证配置

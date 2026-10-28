@@ -67,13 +67,16 @@ func (s *stubPackageProvider) GetPackageInfo(ctx context.Context, version string
 }
 
 type stubPluginProvider struct {
-	installed    []pluginapp.InstalledPlugin
-	local        []pluginapp.LocalPlugin
-	dependencies map[string][]pluginapp.PluginDependency
-	requested    map[string][]string
-	recorded     map[string]string
-	transferred  []stubTransferredCall
-	missingDeps  map[string]bool
+	installed        []pluginapp.InstalledPlugin
+	local            []pluginapp.LocalPlugin
+	dependencies     map[string][]pluginapp.PluginDependency
+	requested        map[string][]string
+	recorded         map[string]string
+	recordedProfiles map[string][]string
+	transferred      []stubTransferredCall
+	missingDeps      map[string]bool
+	hasProfiles      map[string]bool
+	resolveEmpty     bool
 }
 
 type stubTransferredCall struct {
@@ -109,11 +112,21 @@ func (s *stubPluginProvider) GetPluginDependenciesForVersionAndProfiles(ctx cont
 }
 
 func (s *stubPluginProvider) ResolvePluginProfiles(ctx context.Context, pluginName, targetVersion string, candidateProfiles ...[]string) []string {
+	if s.resolveEmpty {
+		return nil
+	}
 	var merged []string
 	for _, list := range candidateProfiles {
 		merged = append(merged, list...)
 	}
 	return dedupeSortedStrings(merged)
+}
+
+func (s *stubPluginProvider) HasApplicableDependencyProfiles(ctx context.Context, pluginName, version string) bool {
+	if s.hasProfiles != nil {
+		return s.hasProfiles[pluginName]
+	}
+	return false
 }
 
 func (s *stubPluginProvider) IsDependencyDownloaded(artifactID, depVersion, pluginVersion, targetDir string) bool {
@@ -138,11 +151,15 @@ func (s *stubPluginProvider) TransferPluginToAgent(ctx context.Context, agentID,
 	return nil
 }
 
-func (s *stubPluginProvider) RecordInstalledPlugin(ctx context.Context, clusterID uint, pluginName, version string) error {
+func (s *stubPluginProvider) RecordInstalledPlugin(ctx context.Context, clusterID uint, pluginName, version string, profileKeys []string) error {
 	if s.recorded == nil {
 		s.recorded = make(map[string]string)
 	}
+	if s.recordedProfiles == nil {
+		s.recordedProfiles = make(map[string][]string)
+	}
 	s.recorded[pluginName] = version
+	s.recordedProfiles[pluginName] = append([]string(nil), profileKeys...)
 	return nil
 }
 
@@ -675,6 +692,56 @@ func TestService_RunPrecheck_blocksMissingDependency(t *testing.T) {
 		t.Fatalf("expected precheck to be blocked by missing dependency")
 	}
 	assertIssueCode(t, result.Issues, "dependency_missing")
+}
+
+func TestService_RunPrecheck_blocksEmptyProfilesWhenRequired(t *testing.T) {
+	database := openTestDB(t)
+	repo := NewRepository(database)
+	service := newPlanningService(t, repo)
+	packagePath := createTestPackage(t, map[string]string{
+		"config/seatunnel.yaml": "seatunnel: default",
+	})
+
+	service.SetPackageProvider(&stubPackageProvider{info: &installerapp.PackageInfo{
+		Version:   "3.0.0",
+		FileName:  "apache-seatunnel-3.0.0-bin.tar.gz",
+		IsLocal:   true,
+		LocalPath: packagePath,
+		FileSize:  4096,
+		Checksum:  "abc123",
+	}})
+	service.SetPluginProvider(&stubPluginProvider{
+		installed: []pluginapp.InstalledPlugin{{
+			ClusterID:  1,
+			PluginName: "jdbc",
+			Version:    "2.3.13",
+			// SelectedProfileKeys intentionally empty: inheritance unavailable
+		}},
+		local: []pluginapp.LocalPlugin{{
+			Name:          "jdbc",
+			Version:       "3.0.0",
+			Category:      pluginapp.PluginCategoryConnector,
+			ConnectorPath: "/tmp/connector-jdbc-3.0.0.jar",
+			DownloadedAt:  time.Now(),
+		}},
+		resolveEmpty: true,
+		hasProfiles: map[string]bool{
+			"jdbc": true,
+		},
+	})
+
+	result, err := service.RunPrecheck(context.Background(), &PrecheckRequest{
+		ClusterID:      1,
+		TargetVersion:  "3.0.0",
+		ConnectorNames: []string{"jdbc"},
+	})
+	if err != nil {
+		t.Fatalf("RunPrecheck returned error: %v", err)
+	}
+	if result.Ready {
+		t.Fatalf("expected precheck to be blocked by missing profiles")
+	}
+	assertIssueCode(t, result.Issues, "profiles_missing")
 }
 
 func newPlanningService(t *testing.T, repo *Repository) *Service {

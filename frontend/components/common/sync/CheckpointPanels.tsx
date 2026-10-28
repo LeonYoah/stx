@@ -102,7 +102,10 @@ const MonacoEditor = dynamic(() => import('@monaco-editor/react'), {
   ssr: false,
 });
 
-export function renderCheckpointFieldValue(key: string, value: unknown): ReactNode {
+export function renderCheckpointFieldValue(
+  key: string,
+  value: unknown,
+): ReactNode {
   if (typeof value === 'string') {
     if (/status/i.test(key)) {
       const isCompleted = /completed/i.test(value);
@@ -123,7 +126,10 @@ export function renderCheckpointFieldValue(key: string, value: unknown): ReactNo
               isCompleted && 'bg-emerald-500 shadow-xs shadow-emerald-500/50',
               isFailed && 'bg-destructive shadow-xs shadow-destructive/50',
               isInProgress && 'bg-blue-500 animate-pulse',
-              !isCompleted && !isFailed && !isInProgress && 'bg-muted-foreground',
+              !isCompleted &&
+                !isFailed &&
+                !isInProgress &&
+                'bg-muted-foreground',
             )}
           />
           <span>{value}</span>
@@ -158,7 +164,9 @@ export function renderCheckpointFieldValue(key: string, value: unknown): ReactNo
     );
   }
   return (
-    <span className='break-all font-mono text-xs'>{formatCheckpointFieldValue(key, value)}</span>
+    <span className='break-all font-mono text-xs'>
+      {formatCheckpointFieldValue(key, value)}
+    </span>
   );
 }
 
@@ -435,7 +443,9 @@ export function CheckpointWorkspacePanel({
   onRefresh: () => void;
 }) {
   const t = useTranslations('workbenchStudio');
-  const [selectedPipelineId, setSelectedPipelineId] = useState<number | null>(null);
+  const [selectedPipelineId, setSelectedPipelineId] = useState<number | null>(
+    null,
+  );
 
   const checkpointFilesByID = useMemo(() => {
     const mapping = new Map<string, RuntimeStorageListItem>();
@@ -452,18 +462,59 @@ export function CheckpointWorkspacePanel({
     return mapping;
   }, [checkpointFiles]);
 
-  const pipelines = useMemo(() => checkpointSnapshot?.overview?.pipelines || [], [checkpointSnapshot?.overview?.pipelines]);
-  const history = useMemo(() => checkpointSnapshot?.history || [], [checkpointSnapshot?.history]);
+  const pipelines = useMemo(
+    () => checkpointSnapshot?.overview?.pipelines || [],
+    [checkpointSnapshot?.overview?.pipelines],
+  );
+  const history = useMemo(
+    () => checkpointSnapshot?.history || [],
+    [checkpointSnapshot?.history],
+  );
+
+  // 检查点历史状态过滤（全部 / 仅完成 / 仅失败）
+  // Checkpoint history status filter (All / Completed only / Failed only)
+  const [statusFilter, setStatusFilter] = useState<
+    'ALL' | 'COMPLETED' | 'FAILED'
+  >('ALL');
+
+  const filteredHistory = useMemo(() => {
+    if (statusFilter === 'ALL') {
+      return history;
+    }
+    return history.filter((item) => item.checkpoint?.status === statusFilter);
+  }, [history, statusFilter]);
+
+  const failedCount = useMemo(
+    () => history.filter((item) => item.checkpoint?.status === 'FAILED').length,
+    [history],
+  );
+  const completedCount = useMemo(
+    () =>
+      history.filter((item) => item.checkpoint?.status === 'COMPLETED').length,
+    [history],
+  );
 
   // 提取最近 24 次历史快照用于 Sparkline 脉冲波形
+  // Extract recent 24 history snapshots for sparkline pulse bar
   const recentHistory = useMemo(() => {
     const sorted = [...history].reverse().slice(-24);
-    const maxDur = Math.max(...sorted.map((h) => h.checkpoint?.durationMillis ?? 0), 10);
-    const validDurs = sorted.filter((h) => typeof h.checkpoint?.durationMillis === 'number');
-    const avgDur = validDurs.length > 0
-      ? Math.round(validDurs.reduce((acc, h) => acc + (h.checkpoint?.durationMillis || 0), 0) / validDurs.length)
-      : 0;
-    return { list: sorted, maxDur, avgDur };
+    const maxDur = Math.max(
+      ...sorted.map((h) => h.checkpoint?.durationMillis ?? 0),
+      10,
+    );
+    const validDurs = sorted.filter(
+      (h) => typeof h.checkpoint?.durationMillis === 'number',
+    );
+    const avgDur =
+      validDurs.length > 0
+        ? Math.round(
+            validDurs.reduce(
+              (acc, h) => acc + (h.checkpoint?.durationMillis || 0),
+              0,
+            ) / validDurs.length,
+          )
+        : 0;
+    return {list: sorted, maxDur, avgDur};
   }, [history]);
 
   if (!job) {
@@ -476,7 +527,8 @@ export function CheckpointWorkspacePanel({
 
   const activePipeline =
     selectedPipelineId !== null
-      ? pipelines.find((p) => p.pipelineId === selectedPipelineId) || pipelines[0]
+      ? pipelines.find((p) => p.pipelineId === selectedPipelineId) ||
+        pipelines[0]
       : pipelines[0];
 
   return (
@@ -486,7 +538,8 @@ export function CheckpointWorkspacePanel({
           <Loader2 className='mr-2 size-4 animate-spin' />
           {t('loadingCheckpoint')}
         </div>
-      ) : checkpointSnapshot?.empty_reason || (pipelines.length === 0 && history.length === 0) ? (
+      ) : checkpointSnapshot?.empty_reason ||
+        (pipelines.length === 0 && history.length === 0) ? (
         <div className='flex min-h-0 flex-1 flex-col items-center justify-center p-6 text-center'>
           <div className='max-w-md space-y-3 rounded-xl border border-dashed border-border/60 bg-muted/20 p-5 text-left'>
             <div className='flex items-center justify-between gap-2'>
@@ -525,7 +578,11 @@ export function CheckpointWorkspacePanel({
                     <Button
                       key={p.pipelineId}
                       size='sm'
-                      variant={activePipeline?.pipelineId === p.pipelineId ? 'secondary' : 'ghost'}
+                      variant={
+                        activePipeline?.pipelineId === p.pipelineId
+                          ? 'secondary'
+                          : 'ghost'
+                      }
                       className='h-6 px-2 text-xs font-mono font-medium'
                       onClick={() => setSelectedPipelineId(p.pipelineId)}
                     >
@@ -542,33 +599,56 @@ export function CheckpointWorkspacePanel({
               {/* 统计指标 Pills */}
               <div className='flex items-center gap-2 text-xs font-mono'>
                 <span className='text-muted-foreground'>
-                  {t('triggered')}: <strong className='font-medium text-foreground'>{activePipeline?.counts?.triggered ?? '-'}</strong>
+                  {t('triggered')}:{' '}
+                  <strong className='font-medium text-foreground'>
+                    {activePipeline?.counts?.triggered ?? '-'}
+                  </strong>
                 </span>
                 <span className='text-muted-foreground/40'>·</span>
                 <span className='flex items-center gap-1 text-emerald-600 dark:text-emerald-400'>
                   <span className='size-1.5 rounded-full bg-emerald-500 animate-pulse' />
-                  {t('completed')}: <strong className='font-semibold'>{activePipeline?.counts?.completed ?? 0}</strong>
+                  {t('completed')}:{' '}
+                  <strong className='font-semibold'>
+                    {activePipeline?.counts?.completed ?? 0}
+                  </strong>
                 </span>
                 <span className='text-muted-foreground/40'>·</span>
-                <span className={cn(
-                  'flex items-center gap-1',
-                  (activePipeline?.counts?.failed ?? 0) > 0 ? 'text-destructive font-semibold' : 'text-muted-foreground',
-                )}>
-                  {t('failed')}: <strong className='font-medium'>{activePipeline?.counts?.failed ?? 0}</strong>
+                <span
+                  className={cn(
+                    'flex items-center gap-1',
+                    (activePipeline?.counts?.failed ?? 0) > 0
+                      ? 'text-destructive font-semibold'
+                      : 'text-muted-foreground',
+                  )}
+                >
+                  {t('failed')}:{' '}
+                  <strong className='font-medium'>
+                    {activePipeline?.counts?.failed ?? 0}
+                  </strong>
                 </span>
                 <span className='text-muted-foreground/40'>·</span>
-                <span className={cn(
-                  'flex items-center gap-1',
-                  (activePipeline?.counts?.inProgress ?? 0) > 0 ? 'text-blue-500 font-semibold' : 'text-muted-foreground',
-                )}>
-                  {t('inProgress')}: <strong className='font-medium'>{activePipeline?.counts?.inProgress ?? 0}</strong>
+                <span
+                  className={cn(
+                    'flex items-center gap-1',
+                    (activePipeline?.counts?.inProgress ?? 0) > 0
+                      ? 'text-blue-500 font-semibold'
+                      : 'text-muted-foreground',
+                  )}
+                >
+                  {t('inProgress')}:{' '}
+                  <strong className='font-medium'>
+                    {activePipeline?.counts?.inProgress ?? 0}
+                  </strong>
                 </span>
                 {activePipeline?.latestCompleted?.checkpointId ? (
                   <>
                     <span className='text-muted-foreground/40'>·</span>
                     <span className='text-muted-foreground flex items-center gap-1'>
                       {t('latestCompleted')}:
-                      <Badge variant='outline' className='rounded-sm text-[10px] px-1.5 py-0 border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-mono font-medium'>
+                      <Badge
+                        variant='outline'
+                        className='rounded-sm text-[10px] px-1.5 py-0 border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-mono font-medium'
+                      >
                         #{activePipeline.latestCompleted.checkpointId}
                       </Badge>
                     </span>
@@ -593,7 +673,8 @@ export function CheckpointWorkspacePanel({
             </Button>
           </div>
 
-          {/* Sparkline 脉冲波形条 (当有历史记录时展示) */}
+          {/* Sparkline 脉冲波形条 (当有历史记录时展示，支持单击穿透至对应快照) */}
+          {/* Sparkline pulse bar (shown when history exists, supports click-to-inspect) */}
           {recentHistory.list.length > 0 ? (
             <div className='flex items-center justify-between gap-3 rounded-lg border border-border/40 bg-muted/15 px-3 py-1.5 shrink-0'>
               <div className='flex items-center gap-2'>
@@ -603,7 +684,10 @@ export function CheckpointWorkspacePanel({
                 <div className='flex items-end gap-1 h-5 pl-1'>
                   {recentHistory.list.map((item, idx) => {
                     const dur = item.checkpoint?.durationMillis ?? 0;
-                    const height = Math.max(Math.round((dur / recentHistory.maxDur) * 18), 4);
+                    const height = Math.max(
+                      Math.round((dur / recentHistory.maxDur) * 18),
+                      4,
+                    );
                     const isSuccess = item.checkpoint?.status === 'COMPLETED';
                     const isFailed = item.checkpoint?.status === 'FAILED';
                     const colorClass = isSuccess
@@ -611,16 +695,42 @@ export function CheckpointWorkspacePanel({
                       : isFailed
                         ? 'bg-rose-500 hover:bg-rose-400'
                         : 'bg-blue-500 hover:bg-blue-400';
+                    const checkpointId = item.checkpoint?.checkpointId;
+                    const checkpointKey =
+                      checkpointId !== undefined
+                        ? `${item.pipelineId}:${checkpointId}`
+                        : '';
+                    const matchedFile =
+                      checkpointKey !== ''
+                        ? checkpointFilesByID.get(checkpointKey)
+                        : undefined;
+                    const canInspect = Boolean(matchedFile?.path);
                     return (
                       <Tooltip key={idx}>
                         <TooltipTrigger asChild>
                           <div
-                            style={{ height: `${height}px` }}
-                            className={cn('w-1.5 rounded-t-xs transition-all cursor-pointer', colorClass)}
+                            style={{height: `${height}px`}}
+                            onClick={() => {
+                              if (matchedFile?.path) {
+                                onInspectCheckpointFile(matchedFile.path);
+                              }
+                            }}
+                            className={cn(
+                              'w-1.5 rounded-t-xs transition-all',
+                              colorClass,
+                              canInspect
+                                ? 'cursor-pointer hover:scale-y-115 hover:ring-1 hover:ring-primary/60 active:scale-95'
+                                : 'cursor-default',
+                            )}
                           />
                         </TooltipTrigger>
-                        <TooltipContent side='top' className='text-xs font-mono'>
-                          #{item.checkpoint?.checkpointId || '-'} · {dur}ms · {item.checkpoint?.status || 'UNKNOWN'}
+                        <TooltipContent
+                          side='top'
+                          className='text-xs font-mono'
+                        >
+                          #{item.checkpoint?.checkpointId || '-'} · {dur}ms ·{' '}
+                          {item.checkpoint?.status || 'UNKNOWN'}
+                          {canInspect && ' (点击查看 / Click to inspect)'}
                         </TooltipContent>
                       </Tooltip>
                     );
@@ -628,38 +738,97 @@ export function CheckpointWorkspacePanel({
                 </div>
               </div>
               <div className='flex items-center gap-2.5 text-[11px] font-mono text-muted-foreground'>
-                <span>avg: <strong className='font-medium text-foreground'>{recentHistory.avgDur}ms</strong></span>
+                <span>
+                  avg:{' '}
+                  <strong className='font-medium text-foreground'>
+                    {recentHistory.avgDur}ms
+                  </strong>
+                </span>
                 <span className='text-muted-foreground/40'>·</span>
-                <span>max: <strong className='font-medium text-foreground'>{recentHistory.maxDur}ms</strong></span>
+                <span>
+                  max:{' '}
+                  <strong className='font-medium text-foreground'>
+                    {recentHistory.maxDur}ms
+                  </strong>
+                </span>
               </div>
             </div>
           ) : null}
 
-          {/* 全宽 Checkpoint 历史列表 */}
+          {/* 全宽 Checkpoint 历史列表（带状态快速筛选胶囊） */}
+          {/* Full-width Checkpoint history table (with status quick filter pills) */}
           <div className='flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border/50 bg-background/70 shadow-xs'>
-            <div className='border-b border-border/50 px-3 py-1.5 text-xs font-semibold text-foreground/80 flex items-center justify-between'>
-              <span>{t('checkpointHistory')}</span>
-              <span className='font-mono text-[11px] text-muted-foreground font-normal'>
-                {history.length} {t('records') || '条快照'}
-              </span>
+            <div className='border-b border-border/50 px-3 py-1.5 text-xs font-semibold text-foreground/80 flex flex-wrap items-center justify-between gap-2'>
+              <div className='flex items-center gap-2'>
+                <span>{t('checkpointHistory')}</span>
+                <span className='font-mono text-[11px] text-muted-foreground font-normal'>
+                  {filteredHistory.length !== history.length
+                    ? `${filteredHistory.length} / ${history.length} ${t('records') || '条快照'}`
+                    : `${history.length} ${t('records') || '条快照'}`}
+                </span>
+              </div>
+              <div className='flex items-center gap-1'>
+                <Button
+                  size='sm'
+                  variant={statusFilter === 'ALL' ? 'secondary' : 'ghost'}
+                  className='h-5.5 px-2 text-[11px] font-medium'
+                  onClick={() => setStatusFilter('ALL')}
+                >
+                  全部
+                </Button>
+                <Button
+                  size='sm'
+                  variant={statusFilter === 'COMPLETED' ? 'secondary' : 'ghost'}
+                  className={cn(
+                    'h-5.5 px-2 text-[11px] font-medium',
+                    statusFilter === 'COMPLETED' &&
+                      'text-emerald-600 dark:text-emerald-400',
+                  )}
+                  onClick={() => setStatusFilter('COMPLETED')}
+                >
+                  已完成 ({completedCount})
+                </Button>
+                {failedCount > 0 && (
+                  <Button
+                    size='sm'
+                    variant={
+                      statusFilter === 'FAILED' ? 'destructive' : 'ghost'
+                    }
+                    className='h-5.5 px-2 text-[11px] font-medium text-rose-500'
+                    onClick={() => setStatusFilter('FAILED')}
+                  >
+                    失败 ({failedCount})
+                  </Button>
+                )}
+              </div>
             </div>
             <div className='min-h-0 flex-1 overflow-auto'>
               <Table>
                 <TableHeader className='sticky top-0 z-10 bg-background/95 backdrop-blur-xs'>
                   <TableRow className='hover:bg-transparent border-border/50'>
-                    <TableHead className='h-7.5 py-1 px-2.5 text-xs font-medium'>{t('pipeline')}</TableHead>
-                    <TableHead className='h-7.5 py-1 px-2.5 text-xs font-medium'>{t('checkpointId')}</TableHead>
-                    <TableHead className='h-7.5 py-1 px-2.5 text-xs font-medium'>{t('checkpointStatus')}</TableHead>
-                    <TableHead className='h-7.5 py-1 px-2.5 text-xs font-medium'>{t('durationMillis')}</TableHead>
-                    <TableHead className='h-7.5 py-1 px-2.5 text-xs font-medium'>{t('stateSize')}</TableHead>
+                    <TableHead className='h-7.5 py-1 px-2.5 text-xs font-medium'>
+                      {t('pipeline')}
+                    </TableHead>
+                    <TableHead className='h-7.5 py-1 px-2.5 text-xs font-medium'>
+                      {t('checkpointId')}
+                    </TableHead>
+                    <TableHead className='h-7.5 py-1 px-2.5 text-xs font-medium'>
+                      {t('checkpointStatus')}
+                    </TableHead>
+                    <TableHead className='h-7.5 py-1 px-2.5 text-xs font-medium'>
+                      {t('durationMillis')}
+                    </TableHead>
+                    <TableHead className='h-7.5 py-1 px-2.5 text-xs font-medium'>
+                      {t('stateSize')}
+                    </TableHead>
                     <TableHead className='h-7.5 py-1 px-2.5 text-right text-xs font-medium'>
                       {t('actions')}
                     </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {history.length > 0 ? (
-                    history.map((item, index) => {
+                  {filteredHistory.length > 0 ? (
+                    filteredHistory.map((item, index) => {
                       const checkpointId = item.checkpoint?.checkpointId;
                       const checkpointKey =
                         checkpointId !== undefined
@@ -721,11 +890,12 @@ export function CheckpointWorkspacePanel({
                             {checkpointId ? `#${checkpointId}` : '-'}
                           </TableCell>
                           <TableCell className='py-1 px-2.5'>
-                            {item.checkpoint?.status ? (
-                              renderCheckpointFieldValue('status', item.checkpoint.status)
-                            ) : (
-                              '-'
-                            )}
+                            {item.checkpoint?.status
+                              ? renderCheckpointFieldValue(
+                                  'status',
+                                  item.checkpoint.status,
+                                )
+                              : '-'}
                           </TableCell>
                           <TableCell className='py-1 px-2.5 font-mono text-xs text-muted-foreground'>
                             {durationStr}
@@ -758,7 +928,9 @@ export function CheckpointWorkspacePanel({
                         colSpan={6}
                         className='text-center text-muted-foreground py-8 text-xs'
                       >
-                        {t('checkpointHistoryEmpty')}
+                        {statusFilter === 'ALL'
+                          ? t('checkpointHistoryEmpty')
+                          : `无匹配状态为 ${statusFilter} 的检查点记录`}
                       </TableCell>
                     </TableRow>
                   )}
@@ -1035,31 +1207,33 @@ export function CheckpointInspectSourceHighlightsSection({
       }
     >
       <div className='space-y-4'>
-        {errorMessage ? (() => {
-          const friendly = formatFriendlyInspectError(errorMessage);
-          return (
-            <div className='rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300'>
-              <div className='flex items-start gap-2.5'>
-                <AlertTriangle className='mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400' />
-                <div className='min-w-0 flex-1 space-y-1.5'>
-                  <div className='text-xs font-medium leading-relaxed'>
-                    {friendly.summary}
+        {errorMessage
+          ? (() => {
+              const friendly = formatFriendlyInspectError(errorMessage);
+              return (
+                <div className='rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300'>
+                  <div className='flex items-start gap-2.5'>
+                    <AlertTriangle className='mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400' />
+                    <div className='min-w-0 flex-1 space-y-1.5'>
+                      <div className='text-xs font-medium leading-relaxed'>
+                        {friendly.summary}
+                      </div>
+                      {friendly.detail ? (
+                        <details className='text-[11px] text-muted-foreground'>
+                          <summary className='cursor-pointer text-amber-700/80 hover:underline dark:text-amber-300/80'>
+                            查看技术详情 / Technical Details
+                          </summary>
+                          <pre className='mt-1.5 max-h-28 overflow-auto rounded bg-background/60 p-2 font-mono text-[10px] whitespace-pre-wrap break-all text-foreground'>
+                            {friendly.detail}
+                          </pre>
+                        </details>
+                      ) : null}
+                    </div>
                   </div>
-                  {friendly.detail ? (
-                    <details className='text-[11px] text-muted-foreground'>
-                      <summary className='cursor-pointer text-amber-700/80 hover:underline dark:text-amber-300/80'>
-                        查看技术详情 / Technical Details
-                      </summary>
-                      <pre className='mt-1.5 max-h-28 overflow-auto rounded bg-background/60 p-2 font-mono text-[10px] whitespace-pre-wrap break-all text-foreground'>
-                        {friendly.detail}
-                      </pre>
-                    </details>
-                  ) : null}
                 </div>
-              </div>
-            </div>
-          );
-        })() : null}
+              );
+            })()
+          : null}
 
         {warnings.length > 0 ? (
           <div className='rounded-lg border border-border/60 bg-muted/20 p-3'>
@@ -1079,7 +1253,9 @@ export function CheckpointInspectSourceHighlightsSection({
           <div className='space-y-4'>
             <div className='flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground'>
               <Activity className='size-3.5 text-primary' />
-              <span>数据源位点 (Sources / Offsets) ({sourceStates.length})</span>
+              <span>
+                数据源位点 (Sources / Offsets) ({sourceStates.length})
+              </span>
             </div>
             {sourceStates.map((item, index) => {
               const norm = item.normalizedProgress;
@@ -1090,9 +1266,11 @@ export function CheckpointInspectSourceHighlightsSection({
                       return {
                         label: '增量日志流 (CDC / Log Stream)',
                         icon: Terminal,
-                        border: 'border-emerald-500/30 dark:border-emerald-500/20',
+                        border:
+                          'border-emerald-500/30 dark:border-emerald-500/20',
                         bg: 'bg-emerald-500/5',
-                        badge: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
+                        badge:
+                          'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
                       };
                     case 'PARTITION_QUEUE':
                       return {
@@ -1100,15 +1278,18 @@ export function CheckpointInspectSourceHighlightsSection({
                         icon: Layers,
                         border: 'border-blue-500/30 dark:border-blue-500/20',
                         bg: 'bg-blue-500/5',
-                        badge: 'border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-300',
+                        badge:
+                          'border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-300',
                       };
                     case 'LAKE_SPLIT':
                       return {
                         label: '湖仓分片 (Lakehouse Split)',
                         icon: Database,
-                        border: 'border-purple-500/30 dark:border-purple-500/20',
+                        border:
+                          'border-purple-500/30 dark:border-purple-500/20',
                         bg: 'bg-purple-500/5',
-                        badge: 'border-purple-500/30 bg-purple-500/10 text-purple-700 dark:text-purple-300',
+                        badge:
+                          'border-purple-500/30 bg-purple-500/10 text-purple-700 dark:text-purple-300',
                       };
                     default:
                       return {
@@ -1144,7 +1325,10 @@ export function CheckpointInspectSourceHighlightsSection({
                             </span>
                             <Badge
                               variant='outline'
-                              className={cn('font-mono text-[11px]', categoryStyle.badge)}
+                              className={cn(
+                                'font-mono text-[11px]',
+                                categoryStyle.badge,
+                              )}
                             >
                               {item.pluginName || 'Source'}
                             </Badge>
@@ -1180,14 +1364,20 @@ export function CheckpointInspectSourceHighlightsSection({
                     </div>
 
                     {/* 核心位点与指标高亮区 */}
+                    {/* Core offset and metric highlight area */}
                     <div className='grid grid-cols-1 gap-3 sm:grid-cols-3'>
                       {/* Hero: Primary Value */}
                       <div className='rounded-lg border border-border/60 bg-background/90 p-3 shadow-xs'>
                         <div className='flex items-center justify-between text-xs text-muted-foreground'>
-                          <span className='font-medium'>{norm.primaryLabel}</span>
+                          <span className='font-medium'>
+                            {norm.primaryLabel}
+                          </span>
                           <QuickCopyButton text={norm.primaryValue} />
                         </div>
-                        <div className='mt-1.5 break-all font-mono text-base font-bold text-foreground'>
+                        <div
+                          className='mt-1.5 font-mono text-base font-bold text-foreground break-all select-all leading-snug'
+                          title={norm.primaryValue}
+                        >
                           {norm.primaryValue}
                         </div>
                       </div>
@@ -1202,18 +1392,46 @@ export function CheckpointInspectSourceHighlightsSection({
                         </div>
                       </div>
 
-                      {/* Lag / Event Timestamp */}
+                      {/* Lag / Event Timestamp (多层级延迟阶梯状态色) */}
+                      {/* Lag / Event Timestamp (multi-tier gradient status indicators) */}
                       <div className='rounded-lg border border-border/60 bg-background/80 p-3 shadow-xs'>
                         <div className='flex items-center justify-between text-xs text-muted-foreground'>
                           <span>业务延迟 / 事件时间</span>
-                          {norm.lagSeconds !== undefined && norm.lagSeconds <= 5 && (
-                            <span className='inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400'>
-                              <span className='size-1.5 rounded-full bg-emerald-500 animate-pulse' />
-                              实时
-                            </span>
-                          )}
+                          {norm.lagSeconds !== undefined &&
+                            (norm.lagSeconds <= 5 ? (
+                              <span className='inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400'>
+                                <span className='size-1.5 rounded-full bg-emerald-500 animate-pulse' />
+                                实时
+                              </span>
+                            ) : norm.lagSeconds <= 60 ? (
+                              <span className='inline-flex items-center gap-1 text-[11px] font-medium text-sky-600 dark:text-sky-400'>
+                                <span className='size-1.5 rounded-full bg-sky-500' />
+                                微延迟
+                              </span>
+                            ) : norm.lagSeconds <= 300 ? (
+                              <span className='inline-flex items-center gap-1 text-[11px] font-medium text-amber-600 dark:text-amber-400'>
+                                <span className='size-1.5 rounded-full bg-amber-500' />
+                                轻度积压
+                              </span>
+                            ) : (
+                              <span className='inline-flex items-center gap-1 text-[11px] font-medium text-rose-600 dark:text-rose-400'>
+                                <span className='size-1.5 rounded-full bg-rose-500 animate-ping' />
+                                严重滞后
+                              </span>
+                            ))}
                         </div>
-                        <div className='mt-1.5 text-sm font-semibold text-foreground'>
+                        <div
+                          className={cn(
+                            'mt-1.5 text-sm font-semibold',
+                            norm.lagSeconds !== undefined &&
+                              norm.lagSeconds > 300
+                              ? 'text-rose-600 dark:text-rose-400'
+                              : norm.lagSeconds !== undefined &&
+                                  norm.lagSeconds > 60
+                                ? 'text-amber-600 dark:text-amber-400'
+                                : 'text-foreground',
+                          )}
+                        >
                           {norm.lagSeconds !== undefined
                             ? norm.lagSeconds <= 0
                               ? '0 秒 (实时无延迟)'
@@ -1223,7 +1441,10 @@ export function CheckpointInspectSourceHighlightsSection({
                             : '-'}
                         </div>
                         {norm.eventTime !== undefined && norm.eventTime > 0 && (
-                          <div className='mt-1 text-[11px] font-mono text-muted-foreground truncate' title={formatDateTimeTz(norm.eventTime)}>
+                          <div
+                            className='mt-1 text-[11px] font-mono text-muted-foreground truncate'
+                            title={formatDateTimeTz(norm.eventTime)}
+                          >
                             {formatDateTimeTz(norm.eventTime)}
                           </div>
                         )}
@@ -1231,75 +1452,117 @@ export function CheckpointInspectSourceHighlightsSection({
                     </div>
 
                     {/* 目标表 / 主题列表 */}
-                    {Array.isArray(norm.targetTables) && norm.targetTables.length > 0 && (
-                      <div className='flex flex-wrap items-center gap-1.5 text-xs pt-0.5'>
-                        <span className='text-muted-foreground font-medium'>同步目标:</span>
-                        {norm.targetTables.map((tbl) => (
-                          <Badge
-                            key={tbl}
-                            variant='secondary'
-                            className='font-mono text-[11px] bg-background/90 border border-border/50'
-                          >
-                            {tbl}
-                          </Badge>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Subtask 进度明细列表 */}
-                    {Array.isArray(norm.subtaskProgress) && norm.subtaskProgress.length > 0 && (() => {
-                      const subtaskItems = norm.subtaskProgress;
-                      const hasLag = subtaskItems.some((s) => s.lag !== undefined);
-                      return (
-                        <div className='overflow-hidden rounded-md border border-border/50 bg-background/70 shadow-xs'>
-                          <div className='border-b border-border/50 bg-muted/20 px-3 py-1.5 text-xs font-medium text-muted-foreground flex items-center justify-between'>
-                            <span>子任务位点明细 (Subtask Progress)</span>
-                            <span className='font-mono text-[11px]'>{subtaskItems.length} 个子任务</span>
-                          </div>
-                          <Table>
-                            <TableHeader className='bg-muted/10'>
-                              <TableRow>
-                                <TableHead className='h-7 py-1 text-xs'>Subtask</TableHead>
-                                <TableHead className='h-7 py-1 text-xs'>目标 / 分区</TableHead>
-                                <TableHead className='h-7 py-1 text-xs'>当前位点 (Current Offset)</TableHead>
-                                {hasLag && (
-                                  <TableHead className='h-7 py-1 text-xs'>延迟 (Lag)</TableHead>
-                                )}
-                                <TableHead className='h-7 py-1 text-xs'>状态</TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              {subtaskItems.map((sub) => (
-                                <TableRow key={sub.subtaskIndex} className='hover:bg-muted/20'>
-                                  <TableCell className='py-1.5 font-mono text-xs font-medium'>
-                                    Subtask #{sub.subtaskIndex}
-                                  </TableCell>
-                                  <TableCell className='py-1.5 font-mono text-xs text-muted-foreground'>
-                                    {sub.target || '-'}
-                                  </TableCell>
-                                  <TableCell className='py-1.5 font-mono text-xs font-semibold text-foreground'>
-                                    {sub.currentOffset || '-'}
-                                  </TableCell>
-                                  {hasLag && (
-                                    <TableCell className='py-1.5 font-mono text-xs'>
-                                      {sub.lag !== undefined ? `${sub.lag}` : '-'}
-                                    </TableCell>
-                                  )}
-                                  <TableCell className='py-1.5 text-xs'>
-                                    <Badge
-                                      variant='outline'
-                                      className='border-emerald-500/40 bg-emerald-500/10 px-1.5 py-0 text-[10px] text-emerald-700 dark:text-emerald-300'
-                                    >
-                                      {sub.status || 'NORMAL'}
-                                    </Badge>
-                                  </TableCell>
-                                </TableRow>
-                              ))}
-                            </TableBody>
-                          </Table>
+                    {Array.isArray(norm.targetTables) &&
+                      norm.targetTables.length > 0 && (
+                        <div className='flex flex-wrap items-center gap-1.5 text-xs pt-0.5'>
+                          <span className='text-muted-foreground font-medium'>
+                            同步目标:
+                          </span>
+                          {norm.targetTables.map((tbl) => (
+                            <Badge
+                              key={tbl}
+                              variant='secondary'
+                              className='font-mono text-[11px] bg-background/90 border border-border/50'
+                            >
+                              {tbl}
+                            </Badge>
+                          ))}
                         </div>
-                      );
-                    })()}
+                      )}
+
+                    {/* Subtask 进度明细列表（支持 splitId 去重与行内快捷复制） */}
+                    {/* Subtask progress detail list (splitId deduplication & inline copy) */}
+                    {Array.isArray(norm.subtaskProgress) &&
+                      norm.subtaskProgress.length > 0 &&
+                      (() => {
+                        const subtaskItems = norm.subtaskProgress;
+                        const hasLag = subtaskItems.some(
+                          (s) => s.lag !== undefined,
+                        );
+                        return (
+                          <div className='overflow-hidden rounded-md border border-border/50 bg-background/70 shadow-xs'>
+                            <div className='border-b border-border/50 bg-muted/20 px-3 py-1.5 text-xs font-medium text-muted-foreground flex items-center justify-between'>
+                              <span>子任务位点明细 (Subtask Progress)</span>
+                              <span className='font-mono text-[11px]'>
+                                {subtaskItems.length} 个子任务
+                              </span>
+                            </div>
+                            <Table>
+                              <TableHeader className='bg-muted/10'>
+                                <TableRow>
+                                  <TableHead className='h-7 py-1 text-xs'>
+                                    Subtask
+                                  </TableHead>
+                                  <TableHead className='h-7 py-1 text-xs'>
+                                    目标 / 分区
+                                  </TableHead>
+                                  <TableHead className='h-7 py-1 text-xs'>
+                                    当前位点 (Current Offset)
+                                  </TableHead>
+                                  {hasLag && (
+                                    <TableHead className='h-7 py-1 text-xs'>
+                                      延迟 (Lag)
+                                    </TableHead>
+                                  )}
+                                  <TableHead className='h-7 py-1 text-xs'>
+                                    状态
+                                  </TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {subtaskItems.map((sub, sIdx) => {
+                                  const splitKey =
+                                    (sub as {splitId?: string}).splitId || sIdx;
+                                  return (
+                                    <TableRow
+                                      key={`${sub.subtaskIndex}-${splitKey}`}
+                                      className='hover:bg-muted/20'
+                                    >
+                                      <TableCell className='py-1.5 font-mono text-xs font-medium whitespace-nowrap'>
+                                        Subtask #{sub.subtaskIndex}
+                                      </TableCell>
+                                      <TableCell className='py-1.5 font-mono text-xs text-muted-foreground'>
+                                        {sub.target || '-'}
+                                      </TableCell>
+                                      <TableCell className='py-1.5 font-mono text-xs font-semibold text-foreground'>
+                                        <div className='flex items-center gap-1.5'>
+                                          <span
+                                            className='break-all'
+                                            title={sub.currentOffset}
+                                          >
+                                            {sub.currentOffset || '-'}
+                                          </span>
+                                          {sub.currentOffset &&
+                                            sub.currentOffset !== '-' && (
+                                              <QuickCopyButton
+                                                text={sub.currentOffset}
+                                              />
+                                            )}
+                                        </div>
+                                      </TableCell>
+                                      {hasLag && (
+                                        <TableCell className='py-1.5 font-mono text-xs'>
+                                          {sub.lag !== undefined
+                                            ? `${sub.lag}`
+                                            : '-'}
+                                        </TableCell>
+                                      )}
+                                      <TableCell className='py-1.5 text-xs whitespace-nowrap'>
+                                        <Badge
+                                          variant='outline'
+                                          className='border-emerald-500/40 bg-emerald-500/10 px-1.5 py-0 text-[10px] text-emerald-700 dark:text-emerald-300'
+                                        >
+                                          {sub.status || 'NORMAL'}
+                                        </Badge>
+                                      </TableCell>
+                                    </TableRow>
+                                  );
+                                })}
+                              </TableBody>
+                            </Table>
+                          </div>
+                        );
+                      })()}
                   </div>
                 );
               }
@@ -1312,29 +1575,51 @@ export function CheckpointInspectSourceHighlightsSection({
                   className='rounded-md border border-border/50 bg-background/70 p-3'
                 >
                   <div className='flex items-center justify-between'>
-                    <span className='font-semibold text-sm'>{String(item.actionName || item.pluginName || '-')}</span>
-                    <Badge variant='outline'>{formatCellValue(item.pluginName)}</Badge>
+                    <span className='font-semibold text-sm'>
+                      {String(item.actionName || item.pluginName || '-')}
+                    </span>
+                    <Badge variant='outline'>
+                      {formatCellValue(item.pluginName)}
+                    </Badge>
                   </div>
                   <div className='mt-2 grid grid-cols-2 gap-2 text-xs sm:grid-cols-5'>
                     <div>
-                      <div className='text-muted-foreground'>{currentOffsetLabel}</div>
-                      <div className='mt-0.5 font-mono font-medium'>{summary.offset}</div>
+                      <div className='text-muted-foreground'>
+                        {currentOffsetLabel}
+                      </div>
+                      <div className='mt-0.5 font-mono font-medium'>
+                        {summary.offset}
+                      </div>
                     </div>
                     <div>
                       <div className='text-muted-foreground'>{targetLabel}</div>
-                      <div className='mt-0.5 font-mono font-medium'>{summary.target}</div>
+                      <div className='mt-0.5 font-mono font-medium'>
+                        {summary.target}
+                      </div>
                     </div>
                     <div>
-                      <div className='text-muted-foreground'>{splitCountLabel}</div>
-                      <div className='mt-0.5 font-mono font-medium'>{summary.splitCount}</div>
+                      <div className='text-muted-foreground'>
+                        {splitCountLabel}
+                      </div>
+                      <div className='mt-0.5 font-mono font-medium'>
+                        {summary.splitCount}
+                      </div>
                     </div>
                     <div>
-                      <div className='text-muted-foreground'>{progressLabel}</div>
-                      <div className='mt-0.5 font-mono font-medium'>{summary.progress}</div>
+                      <div className='text-muted-foreground'>
+                        {progressLabel}
+                      </div>
+                      <div className='mt-0.5 font-mono font-medium'>
+                        {summary.progress}
+                      </div>
                     </div>
                     <div>
-                      <div className='text-muted-foreground'>{decodeStrategyLabel}</div>
-                      <div className='mt-0.5 font-mono font-medium'>{formatCellValue(item.decodeStrategy)}</div>
+                      <div className='text-muted-foreground'>
+                        {decodeStrategyLabel}
+                      </div>
+                      <div className='mt-0.5 font-mono font-medium'>
+                        {formatCellValue(item.decodeStrategy)}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1367,7 +1652,10 @@ export function CheckpointInspectSourceHighlightsSection({
                           <span className='text-sm font-semibold text-foreground'>
                             {sink.actionName || `Sink[${sIdx}]`}
                           </span>
-                          <Badge variant='outline' className='font-mono text-[11px] border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'>
+                          <Badge
+                            variant='outline'
+                            className='font-mono text-[11px] border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                          >
                             {sink.pluginName || 'Sink'}
                           </Badge>
                         </div>
@@ -1387,66 +1675,89 @@ export function CheckpointInspectSourceHighlightsSection({
 
                   <div className='grid grid-cols-1 gap-3 sm:grid-cols-3'>
                     <div className='rounded-lg border border-border/60 bg-background/80 p-3 shadow-xs'>
-                      <div className='text-xs text-muted-foreground'>提交机制</div>
+                      <div className='text-xs text-muted-foreground'>
+                        提交机制
+                      </div>
                       <div className='mt-1 text-sm font-semibold text-foreground'>
-                        {sinkNorm?.primaryValue || '两阶段提交 (2PC / Checkpoint)'}
+                        {sinkNorm?.primaryValue ||
+                          '两阶段提交 (2PC / Checkpoint)'}
                       </div>
                     </div>
                     <div className='rounded-lg border border-border/60 bg-background/80 p-3 shadow-xs'>
-                      <div className='text-xs text-muted-foreground'>写入阶段</div>
+                      <div className='text-xs text-muted-foreground'>
+                        写入阶段
+                      </div>
                       <div className='mt-1 text-sm font-semibold text-foreground'>
                         {sinkNorm?.secondaryValue || '已完成预提交 (Prepared)'}
                       </div>
                     </div>
                     <div className='rounded-lg border border-border/60 bg-background/80 p-3 shadow-xs'>
-                      <div className='text-xs text-muted-foreground'>待提交数据分块</div>
+                      <div className='text-xs text-muted-foreground'>
+                        待提交数据分块
+                      </div>
                       <div className='mt-1 text-sm font-semibold text-foreground'>
-                        {sink.chunksTotal ?? 1} 个分块 ({formatSizeBytes(sink.stateBytesTotal ?? 0)})
+                        {sink.chunksTotal ?? 1} 个分块 (
+                        {formatSizeBytes(sink.stateBytesTotal ?? 0)})
                       </div>
                     </div>
                   </div>
 
-                  {Array.isArray(sinkNorm?.subtaskProgress) && sinkNorm.subtaskProgress.length > 0 && (
-                    <div className='overflow-hidden rounded-md border border-border/50 bg-background/70 shadow-xs'>
-                      <Table>
-                        <TableHeader className='bg-muted/10'>
-                          <TableRow>
-                            <TableHead className='h-7 py-1 text-xs'>Subtask</TableHead>
-                            <TableHead className='h-7 py-1 text-xs'>写入目标</TableHead>
-                            <TableHead className='h-7 py-1 text-xs'>Prepared 分块</TableHead>
-                            <TableHead className='h-7 py-1 text-xs'>状态大小</TableHead>
-                            <TableHead className='h-7 py-1 text-xs'>事务状态</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {sinkNorm.subtaskProgress.map((sub) => (
-                            <TableRow key={sub.subtaskIndex} className='hover:bg-muted/20'>
-                              <TableCell className='py-1.5 font-mono text-xs font-medium'>
-                                Subtask #{sub.subtaskIndex}
-                              </TableCell>
-                              <TableCell className='py-1.5 font-mono text-xs text-muted-foreground'>
-                                {sub.target || `${sink.pluginName}-${sub.subtaskIndex}`}
-                              </TableCell>
-                              <TableCell className='py-1.5 font-mono text-xs font-semibold text-foreground'>
-                                {sub.chunks ?? 1}
-                              </TableCell>
-                              <TableCell className='py-1.5 font-mono text-xs'>
-                                {formatSizeBytes(sub.bytes ?? 0)}
-                              </TableCell>
-                              <TableCell className='py-1.5 text-xs'>
-                                <Badge
-                                  variant='outline'
-                                  className='border-emerald-500/40 bg-emerald-500/10 px-1.5 py-0 text-[10px] text-emerald-700 dark:text-emerald-300'
-                                >
-                                  {sub.status || 'PREPARED'}
-                                </Badge>
-                              </TableCell>
+                  {Array.isArray(sinkNorm?.subtaskProgress) &&
+                    sinkNorm.subtaskProgress.length > 0 && (
+                      <div className='overflow-hidden rounded-md border border-border/50 bg-background/70 shadow-xs'>
+                        <Table>
+                          <TableHeader className='bg-muted/10'>
+                            <TableRow>
+                              <TableHead className='h-7 py-1 text-xs'>
+                                Subtask
+                              </TableHead>
+                              <TableHead className='h-7 py-1 text-xs'>
+                                写入目标
+                              </TableHead>
+                              <TableHead className='h-7 py-1 text-xs'>
+                                Prepared 分块
+                              </TableHead>
+                              <TableHead className='h-7 py-1 text-xs'>
+                                状态大小
+                              </TableHead>
+                              <TableHead className='h-7 py-1 text-xs'>
+                                事务状态
+                              </TableHead>
                             </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  )}
+                          </TableHeader>
+                          <TableBody>
+                            {sinkNorm.subtaskProgress.map((sub) => (
+                              <TableRow
+                                key={sub.subtaskIndex}
+                                className='hover:bg-muted/20'
+                              >
+                                <TableCell className='py-1.5 font-mono text-xs font-medium'>
+                                  Subtask #{sub.subtaskIndex}
+                                </TableCell>
+                                <TableCell className='py-1.5 font-mono text-xs text-muted-foreground'>
+                                  {sub.target ||
+                                    `${sink.pluginName}-${sub.subtaskIndex}`}
+                                </TableCell>
+                                <TableCell className='py-1.5 font-mono text-xs font-semibold text-foreground'>
+                                  {sub.chunks ?? 1}
+                                </TableCell>
+                                <TableCell className='py-1.5 font-mono text-xs'>
+                                  {formatSizeBytes(sub.bytes ?? 0)}
+                                </TableCell>
+                                <TableCell className='py-1.5 text-xs'>
+                                  <Badge
+                                    variant='outline'
+                                    className='border-emerald-500/40 bg-emerald-500/10 px-1.5 py-0 text-[10px] text-emerald-700 dark:text-emerald-300'
+                                  >
+                                    {sub.status || 'PREPARED'}
+                                  </Badge>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    )}
                 </div>
               );
             })}
@@ -1457,7 +1768,9 @@ export function CheckpointInspectSourceHighlightsSection({
         {unsupportedSources.length > 0 ? (
           <details className='group rounded-lg border border-border/60 bg-background/60'>
             <CheckpointDetailsSummary className='py-3 text-sm font-medium'>
-              <span>{unsupportedLabel} ({unsupportedSources.length})</span>
+              <span>
+                {unsupportedLabel} ({unsupportedSources.length})
+              </span>
             </CheckpointDetailsSummary>
             <div className='border-t border-border/50 p-3'>
               <div className='space-y-3'>
@@ -2299,5 +2612,3 @@ export function CheckpointInspectDialog({
     </Dialog>
   );
 }
-
-

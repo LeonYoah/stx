@@ -60,3 +60,29 @@ var (
 	// ErrAlertPolicyLegacyBridgeConflict 表示已有其他策略桥接到同一条旧规则。
 	ErrAlertPolicyLegacyBridgeConflict = errors.New("monitoring: duplicate legacy rule bridge policy")
 )
+
+// 作业告警（sync_job）策略的错误。
+// Errors of job alert (sync_job) policies.
+var (
+	// ErrAlertPolicySyncJobConflict 表示该任务已经有一条作业告警策略。
+	// ErrAlertPolicySyncJobConflict means the task already has a job alert policy.
+	ErrAlertPolicySyncJobConflict = errors.New("monitoring: the sync task already has a job alert policy")
+	// ErrAlertPolicySyncJobTaskRequired 表示作业告警策略缺少 task_id。
+	// ErrAlertPolicySyncJobTaskRequired means a job alert policy is missing task_id.
+	ErrAlertPolicySyncJobTaskRequired = errors.New("monitoring: task_id is required for sync_job policies")
+	// ErrAlertPolicySyncJobInvalidRule 表示规则为空或不是作业级规则。
+	// ErrAlertPolicySyncJobInvalidRule means the rules are empty or not job-level rules.
+	ErrAlertPolicySyncJobInvalidRule = errors.New("monitoring: sync_job policies need at least one job rule (sync_submit_failed, sync_submit_timeout, sync_job_failed, sync_stop_timeout)")
+	// ErrAlertPolicySyncJobChannelRequired 表示作业告警策略没有选择通知渠道。
+	// ErrAlertPolicySyncJobChannelRequired means a job alert policy selects no notification channel.
+	ErrAlertPolicySyncJobChannelRequired = errors.New("monitoring: sync_job policies need at least one notification channel")
+	// ErrAlertPolicySyncJobChannelDisabled 表示选择的通知渠道已停用。
+	// ErrAlertPolicySyncJobChannelDisabled means a selected notification channel is disabled.
+	ErrAlertPolicySyncJobChannelDisabled = errors.New("monitoring: selected notification channel is disabled")
+	// ErrAlertPolicySyncJobEmailRecipientMissing 表示选了邮件渠道却没有任何收件人。
+	// ErrAlertPolicySyncJobEmailRecipientMissing means an email channel is selected but nobody would receive it.
+	ErrAlertPolicySyncJobEmailRecipientMissing = errors.New("monitoring: email channel selected but no recipient: pick receivers, notify the task owner, or configure recipients on the channel")
+	// ErrAlertPolicySyncJobTypeChange 表示不能在 sync_job 与其他策略类型之间转换。
+	// ErrAlertPolicySyncJobTypeChange means a policy cannot switch between sync_job and other types.
+	ErrAlertPolicySyncJobTypeChange = errors.New("monitoring: cannot change a policy to or from sync_job")
+)

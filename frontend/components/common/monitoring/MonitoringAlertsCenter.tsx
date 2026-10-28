@@ -163,6 +163,7 @@ function resolveLastChangedAt(alert: AlertInstance): string | null {
 export function MonitoringAlertsCenter() {
   const t = useTranslations('monitoringCenter');
   const tsT = useTranslations('troubleshooting');
+  const tAlert = useTranslations('syncAlert');
   const searchParams = useSearchParams();
   const router = useRouter();
 
@@ -369,6 +370,9 @@ export function MonitoringAlertsCenter() {
       }
       if (sourceType === 'remote_alertmanager') {
         return t('alerts.sourceTypes.remote_alertmanager');
+      }
+      if (sourceType === 'sync') {
+        return t('alerts.sourceTypes.sync');
       }
       return sourceType;
     },
@@ -768,6 +772,9 @@ export function MonitoringAlertsCenter() {
                 <SelectItem value='remote_alertmanager'>
                   {t('alerts.sourceTypes.remote_alertmanager')}
                 </SelectItem>
+                <SelectItem value='sync'>
+                  {t('alerts.sourceTypes.sync')}
+                </SelectItem>
               </SelectContent>
             </Select>
 
@@ -881,6 +888,12 @@ export function MonitoringAlertsCenter() {
                               <span className='font-semibold text-xs text-foreground line-clamp-1 group-hover:text-primary transition-colors'>
                                 {alert.alert_name || '-'}
                               </span>
+                              {/* 作业告警：累计次数 / Job alerts: occurrence count */}
+                              {alert.source_type === 'sync' && (alert.source_ref?.occurrence_count ?? 0) > 1 ? (
+                                <Badge variant='outline' className='shrink-0 whitespace-nowrap px-1 py-0 text-[10px] font-normal'>
+                                  {tAlert('occurrences', {count: alert.source_ref?.occurrence_count ?? 0})}
+                                </Badge>
+                              ) : null}
                               {alertMemoryMap.get(alert.alert_id) && (
                                 <Badge
                                   variant='outline'
@@ -1146,6 +1159,46 @@ export function MonitoringAlertsCenter() {
                           <div className='flex items-center justify-between p-3'>
                             <span className='text-muted-foreground'>{t('alerts.associatedEventId')}</span>
                             <span className='font-mono font-medium'>#{selectedAlert.source_ref.event_id}</span>
+                          </div>
+                        ) : null}
+                        {/* 作业告警：任务、作业、累计次数与跳转 / Job alerts: task, job, count and jump link */}
+                        {selectedAlert.source_ref.task_id ? (
+                          <div className='flex items-center justify-between gap-3 p-3'>
+                            <span className='shrink-0 text-muted-foreground'>{tAlert('policyTaskColumn')}</span>
+                            <span className='min-w-0 truncate font-medium' title={selectedAlert.source_ref.task_name}>
+                              {selectedAlert.source_ref.task_name || `#${selectedAlert.source_ref.task_id}`}
+                            </span>
+                          </div>
+                        ) : null}
+                        {selectedAlert.source_ref.job_id ? (
+                          <div className='flex items-center justify-between gap-3 p-3'>
+                            <span className='shrink-0 text-muted-foreground'>{tAlert('jobLabel')}</span>
+                            <span className='font-mono font-medium whitespace-nowrap'>
+                              #{selectedAlert.source_ref.job_id}
+                              {selectedAlert.source_ref.engine_job_id ? ` · ${selectedAlert.source_ref.engine_job_id}` : ''}
+                            </span>
+                          </div>
+                        ) : null}
+                        {selectedAlert.source_type === 'sync' && selectedAlert.source_ref.occurrence_count ? (
+                          <div className='flex items-center justify-between p-3'>
+                            <span className='text-muted-foreground'>{tAlert('occurrenceLabel')}</span>
+                            <span className='whitespace-nowrap'>
+                              {tAlert('occurrences', {count: selectedAlert.source_ref.occurrence_count})}
+                            </span>
+                          </div>
+                        ) : null}
+                        {selectedAlert.source_ref.link ? (
+                          <div className='flex items-center justify-end p-3'>
+                            <Button
+                              variant='outline'
+                              size='sm'
+                              className='h-7 gap-1 text-xs'
+                              data-testid='alert-open-job'
+                              onClick={() => router.push(selectedAlert.source_ref?.link || '/workbench')}
+                            >
+                              <ExternalLink className='size-3' />
+                              {selectedAlert.source_ref.job_id ? tAlert('openJob') : tAlert('openTask')}
+                            </Button>
                           </div>
                         ) : null}
                       </>

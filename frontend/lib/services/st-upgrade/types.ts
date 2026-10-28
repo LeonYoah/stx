@@ -226,6 +226,7 @@ export interface PrecheckRequest {
   package_checksum?: string;
   package_arch?: string;
   connector_names?: string[];
+  connector_profiles?: Record<string, string[]>;
   node_ids?: number[];
   target_install_dir?: string;
 }

@@ -16,7 +16,17 @@
  */
 
 import {redirect} from 'next/navigation';
+import {buildWorkbenchDeepLinkQuery} from '@/components/common/sync/task-alert-utils';
 
-export default function SyncStudioPage() {
-  redirect('/workbench');
+/**
+ * /sync 跳转到工作台；告警通知里的作业深链 /sync?task=<id>&job=<id> 原样带过去。
+ * /sync redirects to the workbench and keeps the job deep link /sync?task=<id>&job=<id> used by alert notifications.
+ */
+export default async function SyncStudioPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const query = buildWorkbenchDeepLinkQuery(await searchParams);
+  redirect(query ? `/workbench?${query}` : '/workbench');
 }

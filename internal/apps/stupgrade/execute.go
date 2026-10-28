@@ -696,11 +696,24 @@ func (s *Service) executeSwitchVersionStep(ctx context.Context, task *UpgradeTas
 	if err != nil {
 		return err
 	}
+	profilesByPlugin := make(map[string][]string)
+	for _, connector := range plan.ConnectorManifest.Connectors {
+		if strings.TrimSpace(connector.PluginName) == "" {
+			continue
+		}
+		if len(connector.ProfileKeys) > 0 {
+			profilesByPlugin[connector.PluginName] = append([]string(nil), connector.ProfileKeys...)
+		}
+	}
 	for _, plugin := range installedPlugins {
 		if strings.TrimSpace(plugin.PluginName) == "" {
 			continue
 		}
-		if err := s.pluginProvider.RecordInstalledPlugin(ctx, task.ClusterID, plugin.PluginName, plan.TargetVersion); err != nil {
+		profileKeys := profilesByPlugin[plugin.PluginName]
+		if len(profileKeys) == 0 {
+			profileKeys = append([]string(nil), plugin.SelectedProfileKeys...)
+		}
+		if err := s.pluginProvider.RecordInstalledPlugin(ctx, task.ClusterID, plugin.PluginName, plan.TargetVersion, profileKeys); err != nil {
 			return err
 		}
 	}

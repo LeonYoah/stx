@@ -32,6 +32,7 @@ import (
 
 	clusterapp "github.com/LeonYoah/stx/internal/apps/cluster"
 	hostapp "github.com/LeonYoah/stx/internal/apps/host"
+	"github.com/LeonYoah/stx/internal/config"
 )
 
 const engineEndpointHeartbeatTimeout = 30 * time.Second
@@ -154,11 +155,26 @@ type SeaTunnelEngineClient struct {
 	httpClient *http.Client
 }
 
-// NewSeaTunnelEngineClient creates a SeaTunnel engine client.
+// defaultEngineRequestTimeout 是未配置时请求引擎 REST 接口的 HTTP 超时。
+// defaultEngineRequestTimeout is the HTTP timeout for engine REST calls when nothing is configured.
+const defaultEngineRequestTimeout = 15 * time.Second
+
+// NewSeaTunnelEngineClient 创建引擎客户端，HTTP 超时取 sync.engine_request_timeout_seconds（读写请求共用）。
+// NewSeaTunnelEngineClient creates the engine client; its HTTP timeout comes from
+// sync.engine_request_timeout_seconds and is shared by read and write calls.
 func NewSeaTunnelEngineClient() *SeaTunnelEngineClient {
 	return &SeaTunnelEngineClient{
-		httpClient: &http.Client{Timeout: 15 * time.Second},
+		httpClient: &http.Client{Timeout: engineRequestTimeout()},
 	}
+}
+
+// engineRequestTimeout 读取配置的引擎请求超时；没有配置或配置不是正数时用 15 秒。
+// engineRequestTimeout reads the configured engine request timeout; it falls back to 15s when unset or not positive.
+func engineRequestTimeout() time.Duration {
+	if config.Config == nil || config.Config.Sync.EngineRequestTimeoutSeconds <= 0 {
+		return defaultEngineRequestTimeout
+	}
+	return time.Duration(config.Config.Sync.EngineRequestTimeoutSeconds) * time.Second
 }
 
 // Submit submits one SeaTunnel job.
@@ -190,6 +206,11 @@ func (c *SeaTunnelEngineClient) Submit(ctx context.Context, req *EngineSubmitReq
 	httpReq.Header.Set("Content-Type", "text/plain; charset=utf-8")
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
+		// 请求可能已送达（超时、连接中断）时不能再走 v1 重提，否则同一 jobId 会被提交两次。
+		// When the request may have arrived (timeout, dropped connection), never resubmit through v1.
+		if engineTransportErrorIsAmbiguous(err) {
+			return nil, newEngineCallUnknownError(err, "v2", req.Endpoint.BaseURL, targetURL)
+		}
 		if req.Endpoint != nil && strings.TrimSpace(req.Endpoint.LegacyURL) != "" {
 			if normalizeSubmitFormat(req.Format) != "json" {
 				return nil, fmt.Errorf("sync: engine REST v2 is unavailable and legacy REST v1 fallback only supports json payloads")
@@ -202,7 +223,13 @@ func (c *SeaTunnelEngineClient) Submit(ctx context.Context, req *EngineSubmitReq
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return nil, newEngineCallUnknownError(err, "v2", req.Endpoint.BaseURL, targetURL)
+	}
+	if resp.StatusCode == http.StatusGatewayTimeout {
+		return nil, newEngineCallUnknownError(
+			fmt.Errorf("sync: submit job failed: status=%d body=%s", resp.StatusCode, strings.TrimSpace(string(body))),
+			"v2", req.Endpoint.BaseURL, targetURL,
+		)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		fallbackResp, fallbackErr := c.trySubmitLegacy(ctx, req, resp.StatusCode, body)
@@ -215,10 +242,7 @@ func (c *SeaTunnelEngineClient) Submit(ctx context.Context, req *EngineSubmitReq
 		return nil, fmt.Errorf("sync: submit job failed: status=%d body=%s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
-	var result EngineSubmitResponse
-	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, err
-	}
+	result := decodeAcceptedSubmitResponse(body)
 	if strings.TrimSpace(result.JobID) == "" {
 		result.JobID = strings.TrimSpace(req.JobID)
 	}
@@ -232,7 +256,18 @@ func (c *SeaTunnelEngineClient) Submit(ctx context.Context, req *EngineSubmitReq
 	result.EndpointBaseURL = strings.TrimSpace(req.Endpoint.BaseURL)
 	result.EngineURL = targetURL
 	result.EngineMethod = http.MethodPost
-	return &result, nil
+	return result, nil
+}
+
+// decodeAcceptedSubmitResponse 解析 2xx 提交响应；正文不是 JSON 时引擎也已受理，返回空结果由调用方补 jobId。
+// decodeAcceptedSubmitResponse parses a 2xx submit response; a non-JSON body still means the engine accepted the job,
+// so an empty result is returned and the caller fills in the requested jobId.
+func decodeAcceptedSubmitResponse(body []byte) *EngineSubmitResponse {
+	var result EngineSubmitResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		return &EngineSubmitResponse{}
+	}
+	return &result
 }
 
 // ListRunningJobs 拉取当前运行中的作业列表。
@@ -261,12 +296,20 @@ func (c *SeaTunnelEngineClient) ListFinishedJobs(ctx context.Context, endpoint *
 	})
 }
 
+// listEngineJobs 依次尝试各个路径（v2，再 v1 兼容路径）。连接已建立后超时或中断说明引擎很忙，换路径只会再等一次，
+// 所以直接返回；连接被拒等拨号失败仍尝试下一个路径（例如没开 v2 REST）。
+// listEngineJobs tries each path in turn (v2, then the v1 compatibility path). A timeout or drop after the
+// connection is up means the engine is busy and another path would only wait again, so it returns at once;
+// dial failures such as a refused connection still move on (for example when v2 REST is not enabled).
 func (c *SeaTunnelEngineClient) listEngineJobs(ctx context.Context, endpoint *EngineEndpoint, paths []string) ([]*EngineJobListItem, error) {
 	var lastErr error
 	for _, path := range paths {
 		items, err := c.getEngineJobListOnce(ctx, endpoint, path)
 		if err == nil {
 			return items, nil
+		}
+		if engineTransportErrorIsAmbiguous(err) {
+			return nil, err
 		}
 		lastErr = err
 	}
@@ -443,14 +486,28 @@ func (c *SeaTunnelEngineClient) StopJob(ctx context.Context, endpoint *EngineEnd
 	httpReq.Header.Set("Content-Type", "application/json")
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
+		if engineTransportErrorIsAmbiguous(err) {
+			return newEngineCallUnknownError(err, "v2", endpointBaseURL(endpoint), targetURL)
+		}
 		return err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("sync: stop job failed: status=%d body=%s", resp.StatusCode, strings.TrimSpace(string(body)))
+		stopErr := fmt.Errorf("sync: stop job failed: status=%d body=%s", resp.StatusCode, strings.TrimSpace(string(body)))
+		if resp.StatusCode == http.StatusGatewayTimeout {
+			return newEngineCallUnknownError(stopErr, "v2", endpointBaseURL(endpoint), targetURL)
+		}
+		return stopErr
 	}
 	return nil
+}
+
+func endpointLegacyURL(endpoint *EngineEndpoint) string {
+	if endpoint == nil {
+		return ""
+	}
+	return endpoint.LegacyURL
 }
 
 // GetJobLogs fetches one job log payload through SeaTunnel REST APIs.
@@ -584,7 +641,9 @@ func shouldFallbackToLegacy(statusCode int, responseBody string) bool {
 	if statusCode == http.StatusNotFound && (strings.Contains(body, "no context found") || strings.Contains(body, "404")) {
 		return true
 	}
-	if statusCode == http.StatusBadGateway || statusCode == http.StatusServiceUnavailable || statusCode == http.StatusGatewayTimeout {
+	// 504 表示请求可能已到达引擎，按结果未知处理，不能回退 v1 重提。
+	// 504 means the request may have reached the engine; it is handled as unknown and never resubmitted via v1.
+	if statusCode == http.StatusBadGateway || statusCode == http.StatusServiceUnavailable {
 		return true
 	}
 	return false
@@ -605,20 +664,24 @@ func (c *SeaTunnelEngineClient) submitV1(ctx context.Context, req *EngineSubmitR
 	httpReq.Header.Set("Content-Type", "application/json")
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
+		if engineTransportErrorIsAmbiguous(err) {
+			return nil, newEngineCallUnknownError(err, "v1", req.Endpoint.LegacyURL, targetURL)
+		}
 		return nil, err
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return nil, newEngineCallUnknownError(err, "v1", req.Endpoint.LegacyURL, targetURL)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("sync: legacy submit job failed: status=%d body=%s", resp.StatusCode, strings.TrimSpace(string(body)))
+		submitErr := fmt.Errorf("sync: legacy submit job failed: status=%d body=%s", resp.StatusCode, strings.TrimSpace(string(body)))
+		if resp.StatusCode == http.StatusGatewayTimeout {
+			return nil, newEngineCallUnknownError(submitErr, "v1", req.Endpoint.LegacyURL, targetURL)
+		}
+		return nil, submitErr
 	}
-	var result EngineSubmitResponse
-	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, err
-	}
+	result := decodeAcceptedSubmitResponse(body)
 	if strings.TrimSpace(result.JobID) == "" {
 		result.JobID = strings.TrimSpace(req.JobID)
 	}
@@ -629,7 +692,7 @@ func (c *SeaTunnelEngineClient) submitV1(ctx context.Context, req *EngineSubmitR
 	result.EndpointBaseURL = strings.TrimSpace(req.Endpoint.LegacyURL)
 	result.EngineURL = targetURL
 	result.EngineMethod = http.MethodPost
-	return &result, nil
+	return result, nil
 }
 
 func (c *SeaTunnelEngineClient) getJobInfoV1(ctx context.Context, endpoint *EngineEndpoint, jobID string) (*EngineJobInfo, error) {
@@ -675,12 +738,19 @@ func (c *SeaTunnelEngineClient) stopJobV1(ctx context.Context, endpoint *EngineE
 	}
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
+		if engineTransportErrorIsAmbiguous(err) {
+			return newEngineCallUnknownError(err, "v1", endpointLegacyURL(endpoint), targetURL)
+		}
 		return err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("sync: legacy stop job failed: status=%d body=%s", resp.StatusCode, strings.TrimSpace(string(body)))
+		stopErr := fmt.Errorf("sync: legacy stop job failed: status=%d body=%s", resp.StatusCode, strings.TrimSpace(string(body)))
+		if resp.StatusCode == http.StatusGatewayTimeout {
+			return newEngineCallUnknownError(stopErr, "v1", endpointLegacyURL(endpoint), targetURL)
+		}
+		return stopErr
 	}
 	return nil
 }

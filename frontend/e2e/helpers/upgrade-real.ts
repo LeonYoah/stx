@@ -139,11 +139,14 @@ export async function installSourceCluster(
     installDir: string;
     clusterPort: number;
     httpPort: number;
+    /** Hybrid worker port; defaults to clusterPort+1 (install-wizard-real pattern). */
+    workerPort?: number;
   },
 ): Promise<InstalledClusterFixture> {
   const host = await waitForOnlineHost(page);
   const request = page.context().request;
   const clusterName = `e2e-upgrade-${Date.now()}`;
+  const workerPort = options.workerPort ?? options.clusterPort + 1;
 
   const createResponse = await request.post(`${backendBaseURL}/api/v1/clusters`, {
     data: {
@@ -179,7 +182,7 @@ export async function installSourceCluster(
         ports: {
           master_hazelcast_port: options.clusterPort,
           master_api_port: options.httpPort,
-          worker_port: 5802,
+          worker_port: workerPort,
         },
       },
     },
@@ -202,7 +205,7 @@ export async function installSourceCluster(
         install_dir: options.installDir,
         hazelcast_port: options.clusterPort,
         api_port: options.httpPort,
-        worker_port: 5802,
+        worker_port: workerPort,
       },
     },
   );
@@ -227,7 +230,7 @@ export async function installSourceCluster(
         node_role: 'master/worker',
         master_addresses: [host.ipAddress],
         cluster_port: options.clusterPort,
-        worker_port: 5802,
+        worker_port: workerPort,
         http_port: options.httpPort,
         enable_http: true,
         dynamic_slot: true,
@@ -275,6 +278,52 @@ export async function installSourceCluster(
     clusterPort: options.clusterPort,
     httpPort: options.httpPort,
   };
+}
+
+
+export async function stopSourceCluster(
+  page: Page,
+  clusterId: number,
+  timeoutMs: number = 120000,
+): Promise<void> {
+  const request = page.context().request;
+  const stopResponse = await request.post(
+    `${backendBaseURL}/api/v1/clusters/${clusterId}/stop`,
+  );
+  if (!stopResponse.ok()) {
+    // Best-effort: cluster may already be stopped / crashed.
+    let body = '';
+    try {
+      body = await stopResponse.text();
+    } catch {
+      // ignore
+    }
+    console.warn(
+      `[upgrade-real] stop cluster ${clusterId} returned HTTP ${stopResponse.status()}${body ? ` ${body}` : ''}`,
+    );
+  }
+
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const statusResponse = await request.get(
+      `${backendBaseURL}/api/v1/clusters/${clusterId}/status`,
+    );
+    if (statusResponse.ok()) {
+      const statusPayload = (await statusResponse.json()) as ClusterStatusResponse;
+      const status = statusPayload?.data?.status;
+      if (
+        status === 'stopped' ||
+        status === 'unknown' ||
+        !(statusPayload?.data?.nodes || []).some((node) => node?.status === 'running')
+      ) {
+        return;
+      }
+    }
+    await page.waitForTimeout(2000);
+  }
+  console.warn(
+    `[upgrade-real] timed out waiting for cluster ${clusterId} to stop; continuing`,
+  );
 }
 
 export async function ensureLocalPackage(

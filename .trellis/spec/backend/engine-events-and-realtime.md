@@ -69,7 +69,7 @@ CLI：`stx sync job realtime <id> [--window_ms 180000]`
 - `window_ms` 取值范围是 (0, 600000]，0 或负数取默认值 180000。
 - 引擎侧的任何失败都返回 **HTTP 200 + `available=false` + `reason`**；只有作业不存在返回 404，权限沿用 `getJobInstanceForActor`。
 - 数组字段（`vertices`、`edges`、`hints`）必须是 `[]`，不能是 `null`。节点类型和名称从 `result_preview.job_dag` 取：STX 预览 DAG 用 `connectorType`，引擎 job-info 用 `vertexName`。
-- 调用这个接口、`GetJob`、`GetJobLogs` 都会给作业打"查看"标记（`jobWatchedRecently`，30 秒窗口），供自适应轮询使用。
+- 调用这个接口、`GetJob`、`GetJobLogs` 都会给作业打"查看"标记（`jobWatchedRecently`，30 秒窗口），供自适应轮询使用（自适应轮询默认关闭，见 [job-status-reconciler](./job-status-reconciler.md)）。
 
 ### 4. 原因对应表
 `version_unsupported`、`not_cluster_mode`、`not_running`、`not_enabled`（引擎返回 enabled=false）、`master_unreachable`、`no_engine_job`、`collecting`（作业未知，或还没有数据点）、`client_unsupported`。
@@ -130,6 +130,8 @@ GET  /api/v1/sync/jobs/:id/events?types=&page=&page_size= (R0, CLI: stx sync job
 - **健康**：
   - 状态取值 `disabled | pending_restart | healthy | degraded`。
   - 3.x 集群在通道已收到过事件的前提下，作业提交后 45 秒内没收到状态事件，就记 `expect_missed_at`，判定为降级。
+  - 状态从非降级变为 `degraded` 时发作业告警 D2（`sync_event_channel_degraded`，集群级默认规则），离开降级（恢复健康或关闭通道）时解除；写预期字段统一走 `updateEventChannelStatsWithAlert`，见[同步作业告警](./sync-alerts.md)。
+  - 提交**结果未知**（`submit_outcome=unknown`，见 [作业状态对账器 · 写操作结果未知](./job-status-reconciler.md)）的作业不登记这个预期：引擎可能根本没有这个作业，登记了会把健康的通道误判为降级。
 
 ### 4. 校验与错误对应表
 | 情况 | 行为 |

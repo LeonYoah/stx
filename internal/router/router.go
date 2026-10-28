@@ -740,6 +740,14 @@ func Serve() {
 			if agentManager != nil {
 				syncService.SetAgentCommandSender(&agentCommandSenderAdapter{manager: agentManager, auditRepo: auditRepo})
 			}
+			// 作业告警：sync 产生信号，monitoring 判定和投递，两边只通过 syncalert 包的接口连接；对账启动前注入。
+			// Job alerts: sync emits signals and monitoring evaluates and delivers them, connected only through the
+			// syncalert interfaces; injected before the reconciler starts.
+			syncAlertHub := monitoringService.NewSyncAlertHub()
+			syncAlertHub.Start(ctx)
+			syncService.SetAlertReporter(syncAlertHub)
+			syncService.SetTaskAlertPolicyStore(monitoringService)
+			monitoringService.SetSyncTaskNameResolver(syncService)
 			syncService.StartPreviewRuntime(ctx)
 			syncService.StartTaskScheduleRuntime(ctx)
 			syncService.StartJobReconciler(ctx)
@@ -764,6 +772,9 @@ func Serve() {
 					syncTaskRouter.GET("/:id", syncHandler.GetTask)
 					syncTaskRouter.GET("/:id/permissions", syncHandler.GetTaskPermissions)
 					syncTaskRouter.PUT("/:id/permissions", syncHandler.UpdateTaskPermissions)
+					syncTaskRouter.GET("/:id/alert", syncHandler.GetTaskAlert)
+					syncTaskRouter.PUT("/:id/alert", syncHandler.UpdateTaskAlert)
+					syncTaskRouter.DELETE("/:id/alert", syncHandler.DeleteTaskAlert)
 					syncTaskRouter.PUT("/:id", syncHandler.UpdateTask)
 					syncTaskRouter.DELETE("/:id", syncHandler.DeleteTask)
 					syncTaskRouter.POST("/:id/publish", syncHandler.PublishTask)

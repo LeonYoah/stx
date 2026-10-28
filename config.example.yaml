@@ -28,6 +28,9 @@ app:
   # 必须配置为目标主机可访问的地址，例如: "http://192.168.1.100:17800"
   # Must be configured as an address accessible from target hosts, e.g.: "http://192.168.1.100:17800"
   external_url: "http://your-server-ip:17800"
+  # 控制台（前端）的访问地址，告警通知里的作业链接用它拼（{console_url}/sync?task=&job=）；不填时通知不带链接
+  # Console (frontend) address used for job links in alert notifications; notifications carry no link when unset
+  # console_url: "http://your-server-ip:17880"
   # 系统默认展示时区（IANA）。数据库始终存 UTC；该值用于报告渲染、未指定时区的 cron、前端默认提示。
   # 环境变量 STX_DISPLAY_TIMEZONE 可覆盖（兼容旧的 STX_REPORT_TIMEZONE）。
   # System default display timezone (IANA). Storage is always UTC. Env STX_DISPLAY_TIMEZONE (legacy STX_REPORT_TIMEZONE).
@@ -99,9 +102,22 @@ sync:
   # 后台对账器：按集群拉取 SeaTunnel running/finished 列表，写入作业状态（读接口不再同步打 /job-info）
   # 设为 -1 可关闭；0 表示默认 10 秒
   job_reconciler_interval_seconds: 10
-  # SeaTunnel 事件通道健康时（3.x），完整对账的最长间隔；状态变化由事件即时触发刷新
-  # 设为 -1 可关闭自适应（始终按上面的间隔完整对账）；0 表示默认 60 秒
-  job_reconciler_event_mode_interval_seconds: 60
+  # 自适应轮询（3.x 且事件通道健康时生效）：完整对账放宽到这个间隔，状态变化靠事件触发刷新
+  # 默认 0 表示关闭，始终按上面的间隔完整对账；需要减轻引擎压力的大集群可设为 60 等正数
+  # 开启后事件丢失时，状态最长滞后一个这样的间隔
+  job_reconciler_event_mode_interval_seconds: 0
+  # 提交超时：提交请求没拿到回复（引擎很忙）时，作业先显示"提交确认中"，最多等这么久让引擎出现该作业，超时判为失败
+  # 0 或不填表示默认 300 秒；任务设置里可以单独覆盖（1~120 分钟）
+  submit_timeout_seconds: 300
+  # 停止超时：点停止后超过这么久作业仍未停下，标记为"停止超时"（状态保持停止中，不判失败）
+  # 0 或不填表示默认 300 秒；任务设置里可以单独覆盖（1~120 分钟）
+  stop_timeout_seconds: 300
+  # 同时对账的集群数上限：一个集群很慢时，其他集群照常按对账间隔更新；0 或不填表示默认 4
+  job_reconciler_cluster_concurrency: 4
+  # 集群查询超时或连不上时，下一轮对账按 10、20、40…秒推迟，最长推迟这么久；成功一次立即恢复；0 或不填表示默认 120 秒
+  job_reconciler_max_backoff_seconds: 120
+  # 请求 SeaTunnel REST 接口的超时（读写共用，实时指标接口固定 3 秒）；0 或不填表示默认 15 秒
+  engine_request_timeout_seconds: 15
 
 # 数据库配置
 database:

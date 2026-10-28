@@ -59,6 +59,7 @@ func setupMonitoringAlertPolicyTestDB(t *testing.T) (*gorm.DB, func()) {
 		&AlertState{},
 		&NotificationChannel{},
 		&NotificationDelivery{},
+		&SyncAlertEpisode{},
 	); err != nil {
 		_ = os.RemoveAll(tempDir)
 		t.Fatalf("failed to migrate alert policy test tables: %v", err)

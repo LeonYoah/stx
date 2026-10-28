@@ -147,6 +147,11 @@ func newTestSyncService(t *testing.T) *Service {
 	if err := database.AutoMigrate(&Task{}, &TaskVersion{}, &JobInstance{}, &GlobalVariable{}, &PreviewSession{}, &PreviewTable{}, &PreviewRow{}, &SchedulerConnection{}, &TaskSchedulerBinding{}); err != nil {
 		t.Fatalf("failed to migrate sync models: %v", err)
 	}
+	// 每个 :memory: 连接都是独立的空库；对账在后台协程并发访问时必须共用同一个连接。
+	// Every :memory: connection is a separate empty database; background reconciles must share one connection.
+	if sqlDB, err := database.DB(); err == nil {
+		sqlDB.SetMaxOpenConns(1)
+	}
 
 	return NewService(NewRepository(database))
 }
@@ -1388,7 +1393,7 @@ func TestJobReconcilerUpdatesFromRunningList(t *testing.T) {
 	if err := service.repo.CreateJobInstance(ctx, job); err != nil {
 		t.Fatalf("create job failed: %v", err)
 	}
-	if err := service.reconcileActiveJobs(ctx); err != nil {
+	if err := service.reconcileActiveJobsAndWait(ctx); err != nil {
 		t.Fatalf("reconcile failed: %v", err)
 	}
 	stored, err := service.GetJob(ctx, job.ID)

@@ -645,9 +645,23 @@ func (s *Service) ListInstalledPlugins(ctx context.Context, clusterID uint) ([]I
 	for index := range plugins {
 		key := fmt.Sprintf("%s:%s", plugins[index].PluginName, plugins[index].Version)
 		if metadata, ok := localByKey[key]; ok {
-			plugins[index].SelectedProfileKeys = metadata.selectedProfileKeys
+			// Prefer persisted DB profiles; fall back to exact-version local metadata.
+			// 优先使用数据库持久化的画像；否则回退到精确版本的本地元数据。
+			if len(plugins[index].SelectedProfileKeys) == 0 {
+				plugins[index].SelectedProfileKeys = metadata.selectedProfileKeys
+			}
 			plugins[index].AttachedConnectors = metadata.attachedConnectors
 			plugins[index].Dependencies = metadata.dependencies
+		}
+		// Fail-open inheritance: if still empty, reuse any local version's profiles for same plugin.
+		// 继承兜底：若仍为空，复用同名插件任一本地版本的画像。
+		if len(plugins[index].SelectedProfileKeys) == 0 {
+			for _, local := range localPlugins {
+				if local.Name == plugins[index].PluginName && len(local.SelectedProfileKeys) > 0 {
+					plugins[index].SelectedProfileKeys = append([]string(nil), local.SelectedProfileKeys...)
+					break
+				}
+			}
 		}
 	}
 
@@ -1570,7 +1584,7 @@ func (s *Service) UninstallPluginFromCluster(ctx context.Context, clusterID uint
 // Parameters:
 // - artifactID: Maven artifact ID (e.g., connector-cdc-mysql, connector-file-cos)
 // - pluginName: Plugin display name (e.g., mysql-cdc, cosfile)
-func (s *Service) transferPluginToAgent(ctx context.Context, agentID, artifactID, pluginName, version, installDir string, deps []PluginDependency) error {
+func (s *Service) transferPluginToAgent(ctx context.Context, agentID, artifactID, pluginName, version, installDir string, deps []PluginDependency, profileKeys []string) error {
 	if s.agentCommandSender == nil {
 		return fmt.Errorf("agent command sender not configured / Agent 命令发送器未配置")
 	}
@@ -1590,6 +1604,8 @@ func (s *Service) transferPluginToAgent(ctx context.Context, agentID, artifactID
 		return fmt.Errorf("failed to transfer connector / 传输连接器失败: %w", err)
 	}
 
+	selectedProfiles := normalizeProfileKeys(profileKeys)
+
 	// 2. Transfer dependencies / 传输依赖
 	if len(deps) > 0 {
 		fmt.Printf("[Plugin Transfer] Transferring %d dependencies for plugin %s\n", len(deps), pluginName)
@@ -1598,7 +1614,9 @@ func (s *Service) transferPluginToAgent(ctx context.Context, agentID, artifactID
 			// Check if dependency is downloaded; attempt download if missing
 			// 检查依赖是否已下载；若缺失则尝试同步下载
 			if !s.downloader.IsDependencyDownloaded(dep.ArtifactID, dep.Version, version, dep.TargetDir) {
-				_ = s.DownloadPluginSync(ctx, pluginName, version, "", []string{})
+				if err := s.DownloadPluginSync(ctx, pluginName, version, "", selectedProfiles); err != nil {
+					return fmt.Errorf("failed to download missing dependency for %s / 下载缺失依赖失败 %s: %w", pluginName, pluginName, err)
+				}
 			}
 			if !s.downloader.IsDependencyDownloaded(dep.ArtifactID, dep.Version, version, dep.TargetDir) {
 				return fmt.Errorf("dependency %s-%s is not cached / 依赖 %s-%s 未缓存", dep.ArtifactID, dep.Version, dep.ArtifactID, dep.Version)
@@ -1829,7 +1847,9 @@ func (s *Service) ResolvePluginProfiles(ctx context.Context, pluginName, targetV
 					result = append(result, key)
 				}
 			}
-			if len(result) == 0 && defaultProfile != "" && len(merged) == 0 {
+			// Fall back to default even when candidates were present but all filtered by target version.
+			// 即使候选画像存在但全部被目标版本过滤，也回退到默认画像。
+			if len(result) == 0 && defaultProfile != "" {
 				result = append(result, defaultProfile)
 			}
 		}
@@ -1867,11 +1887,11 @@ func (s *Service) TransferPluginToAgent(ctx context.Context, agentID, pluginName
 	artifactID := s.GetPluginArtifactID(pluginName)
 	deps, err := s.GetPluginDependenciesForVersionAndProfiles(ctx, pluginName, version, profileKeys)
 	if err != nil {
-		deps = nil
+		return fmt.Errorf("failed to resolve plugin dependencies for %s@%s / 解析插件依赖失败 %s@%s: %w", pluginName, version, pluginName, version, err)
 	}
 
 	// Use the existing transferPluginToAgent method / 使用现有的 transferPluginToAgent 方法
-	return s.transferPluginToAgent(ctx, agentID, artifactID, pluginName, version, installDir, deps)
+	return s.transferPluginToAgent(ctx, agentID, artifactID, pluginName, version, installDir, deps, profileKeys)
 }
 
 // GetPluginArtifactID returns the Maven artifact ID for a plugin name.
@@ -1902,11 +1922,14 @@ func (s *Service) DownloadPluginSync(ctx context.Context, pluginName, version, m
 	selectedProfiles := normalizeProfileKeys(profileKeys)
 
 	// Load effective dependencies using selected profiles / 使用选中的画像加载生效依赖
+	// Surface resolve errors (do not silently continue with empty deps).
+	// 解析失败直接返回，禁止静默空依赖继续。
 	deps, err := s.GetPluginDependenciesForVersionAndProfiles(ctx, pluginName, version, selectedProfiles)
-	if err == nil {
-		plugin.Dependencies = deps
-		fmt.Printf("[DownloadPluginSync] Loaded %d dependencies for %s (profiles=%v)\n", len(deps), pluginName, selectedProfiles)
+	if err != nil {
+		return fmt.Errorf("failed to resolve plugin dependencies for %s@%s / 解析插件依赖失败 %s@%s: %w", pluginName, version, pluginName, version, err)
 	}
+	plugin.Dependencies = deps
+	fmt.Printf("[DownloadPluginSync] Loaded %d dependencies for %s (profiles=%v)\n", len(deps), pluginName, selectedProfiles)
 
 	downloadMirror := MirrorSourceApache
 	switch MirrorSource(strings.TrimSpace(mirror)) {
@@ -1980,7 +2003,7 @@ func buildPluginPreparationFingerprint(deps []PluginDependency) (string, error) 
 // 设置分类（如 connector）和 artifact_id，以便一键安装后显示正确分类。
 // This implements the installer.PluginTransferer interface.
 // 这实现了 installer.PluginTransferer 接口。
-func (s *Service) RecordInstalledPlugin(ctx context.Context, clusterID uint, pluginName, version string) error {
+func (s *Service) RecordInstalledPlugin(ctx context.Context, clusterID uint, pluginName, version string, profileKeys []string) error {
 	// Resolve category and artifact_id (for display and DB not-null) / 解析分类与 artifact_id（用于展示及 DB 非空）
 	category := PluginCategoryConnector
 	artifactID := getArtifactID(pluginName)
@@ -1991,10 +2014,15 @@ func (s *Service) RecordInstalledPlugin(ctx context.Context, clusterID uint, plu
 		}
 	}
 
+	selectedProfiles := normalizeProfileKeys(profileKeys)
+	if len(selectedProfiles) == 0 {
+		selectedProfiles = s.ResolvePluginProfiles(ctx, pluginName, version)
+	}
+
 	// Check if already recorded / 检查是否已记录
 	existing, err := s.repo.GetByClusterAndName(ctx, clusterID, pluginName)
 	if err == nil && existing != nil {
-		// Already exists, update version/category/artifact_id if different / 已存在则更新版本/分类/artifact_id
+		// Already exists, update version/category/artifact_id/profiles if different / 已存在则更新版本/分类/artifact_id/画像
 		updated := false
 		if existing.Version != version {
 			existing.Version = version
@@ -2008,6 +2036,10 @@ func (s *Service) RecordInstalledPlugin(ctx context.Context, clusterID uint, plu
 			existing.ArtifactID = artifactID
 			updated = true
 		}
+		if len(selectedProfiles) > 0 {
+			existing.SelectedProfileKeys = append([]string(nil), selectedProfiles...)
+			updated = true
+		}
 		if updated {
 			if err := s.repo.Update(ctx, existing); err != nil {
 				return err
@@ -2016,13 +2048,14 @@ func (s *Service) RecordInstalledPlugin(ctx context.Context, clusterID uint, plu
 	} else {
 		// Create new record / 创建新记录
 		installed := &InstalledPlugin{
-			ClusterID:   clusterID,
-			PluginName:  pluginName,
-			ArtifactID:  artifactID,
-			Category:    category,
-			Version:     version,
-			Status:      PluginStatusInstalled,
-			InstalledAt: time.Now(),
+			ClusterID:           clusterID,
+			PluginName:          pluginName,
+			ArtifactID:          artifactID,
+			Category:            category,
+			Version:             version,
+			Status:              PluginStatusInstalled,
+			InstalledAt:         time.Now(),
+			SelectedProfileKeys: append([]string(nil), selectedProfiles...),
 		}
 
 		if err := s.repo.Create(ctx, installed); err != nil {
@@ -2032,26 +2065,50 @@ func (s *Service) RecordInstalledPlugin(ctx context.Context, clusterID uint, plu
 
 	// Ensure target version has metadata persisted if missing
 	// 确保目标版本本地元数据已持久化（若缺失）
-	s.ensureTargetVersionMetadata(ctx, pluginName, version)
-	return nil
+	return s.ensureTargetVersionMetadata(ctx, pluginName, version, selectedProfiles)
+}
+
+// HasApplicableDependencyProfiles reports whether the plugin has dependency profiles for the target version.
+// HasApplicableDependencyProfiles 报告插件在目标版本下是否存在依赖画像定义。
+func (s *Service) HasApplicableDependencyProfiles(ctx context.Context, pluginName, version string) bool {
+	if s.repo == nil {
+		return false
+	}
+	if strings.TrimSpace(version) == "" {
+		version = seatunnel.DefaultVersion()
+	}
+	profiles, err := s.repo.ListDependencyProfilesByPlugin(ctx, pluginName)
+	if err != nil || len(profiles) == 0 {
+		return false
+	}
+	for _, profile := range profiles {
+		if profileAppliesToVersion(profile, version) {
+			return true
+		}
+	}
+	return false
 }
 
 // ensureTargetVersionMetadata 在本地缺少目标版本的元数据文件时予以补齐。
 // ensureTargetVersionMetadata persists local metadata for a plugin version when missing.
-func (s *Service) ensureTargetVersionMetadata(ctx context.Context, pluginName, version string) {
+func (s *Service) ensureTargetVersionMetadata(ctx context.Context, pluginName, version string, profileKeys []string) error {
 	if s.downloader == nil {
-		return
+		return nil
 	}
 	if meta, err := s.downloader.readPluginMetadata(pluginName, version); err == nil && meta != nil && len(meta.SelectedProfileKeys) > 0 {
-		return
+		return nil
 	}
-	profiles := s.ResolvePluginProfiles(ctx, pluginName, version)
+	profiles := normalizeProfileKeys(profileKeys)
 	if len(profiles) == 0 {
-		return
+		profiles = s.ResolvePluginProfiles(ctx, pluginName, version)
+	}
+	// Never write empty profiles / 永不写入空画像
+	if len(profiles) == 0 {
+		return nil
 	}
 	deps, err := s.GetPluginDependenciesForVersionAndProfiles(ctx, pluginName, version, profiles)
 	if err != nil {
-		deps = nil
+		return fmt.Errorf("failed to resolve dependencies while writing metadata for %s@%s / 写入元数据时解析依赖失败 %s@%s: %w", pluginName, version, pluginName, version, err)
 	}
 	plugin := &Plugin{
 		Name:         pluginName,
@@ -2060,5 +2117,8 @@ func (s *Service) ensureTargetVersionMetadata(ctx context.Context, pluginName, v
 		GroupID:      "org.apache.seatunnel",
 		Dependencies: deps,
 	}
-	_ = s.downloader.writePluginMetadata(plugin, profiles)
+	if err := s.downloader.writePluginMetadata(plugin, profiles); err != nil {
+		return fmt.Errorf("failed to write plugin metadata for %s@%s / 写入插件元数据失败 %s@%s: %w", pluginName, version, pluginName, version, err)
+	}
+	return nil
 }

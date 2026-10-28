@@ -320,64 +320,11 @@ func (s *Service) dispatchLocalAlertPolicy(
 	policy *AlertPolicy,
 	channelMap map[uint]*NotificationChannel,
 ) (alertPolicyDispatchSummary, error) {
-	summary := alertPolicyDispatchSummary{
-		LastExecutionStatus: AlertPolicyExecutionStatusMatched,
-	}
 	if event == nil || policy == nil {
-		return summary, nil
+		return alertPolicyDispatchSummary{LastExecutionStatus: AlertPolicyExecutionStatusMatched}, nil
 	}
-
-	channelIDs := unmarshalAlertPolicyChannelIDs(policy.NotificationChannelIDsJSON)
-	if len(channelIDs) == 0 {
-		return summary, nil
-	}
-
-	var dispatchErrs []error
-	for _, channelID := range channelIDs {
-		channel := channelMap[channelID]
-		if channel == nil || !channel.Enabled {
-			continue
-		}
-
-		summary.AttemptedChannels++
-		result, err := s.dispatchLocalAlertPolicyDelivery(
-			ctx,
-			event,
-			nil,
-			clusterName,
-			policy,
-			channel,
-			NotificationDeliveryEventTypeFiring,
-			buildLocalAlertSourceKey(event.ID),
-			false,
-		)
-		if result != nil {
-			if result.Successful {
-				summary.SuccessfulChannels++
-			}
-			if result.DeliveryCountDelta > 0 {
-				summary.DeliveryCountDelta += result.DeliveryCountDelta
-			}
-			summary.LastDeliveredAt = laterUTCTimePointer(summary.LastDeliveredAt, result.LastDeliveredAt)
-			if strings.TrimSpace(result.LastError) != "" {
-				summary.LastExecutionError = strings.TrimSpace(result.LastError)
-			}
-		}
-		if err != nil {
-			summary.FailedChannels++
-			summary.LastExecutionError = strings.TrimSpace(err.Error())
-			dispatchErrs = append(dispatchErrs, err)
-		}
-	}
-
-	summary.LastExecutionStatus = summarizeAlertPolicyExecutionStatus(summary)
-	if summary.LastExecutionStatus == AlertPolicyExecutionStatusSent {
-		summary.LastExecutionError = ""
-	}
-	if summary.LastExecutionStatus == AlertPolicyExecutionStatusMatched && summary.SuccessfulChannels == 0 && summary.FailedChannels == 0 {
-		summary.LastExecutionError = ""
-	}
-	return summary, errors.Join(dispatchErrs...)
+	message := localProcessEventAlertMessage(event, nil, clusterName, policy, NotificationDeliveryEventTypeFiring)
+	return s.dispatchAlertPolicyChannels(ctx, message, policy, channelMap, NotificationDeliveryEventTypeFiring, buildLocalAlertSourceKey(event.ID), false)
 }
 
 func (s *Service) dispatchLocalResolvedAlertPolicy(
@@ -388,14 +335,70 @@ func (s *Service) dispatchLocalResolvedAlertPolicy(
 	policy *AlertPolicy,
 	channelMap map[uint]*NotificationChannel,
 ) (alertPolicyDispatchSummary, error) {
+	if sourceEvent == nil || recoveryEvent == nil || policy == nil {
+		return alertPolicyDispatchSummary{LastExecutionStatus: AlertPolicyExecutionStatusMatched}, nil
+	}
+	message := localProcessEventAlertMessage(sourceEvent, recoveryEvent, clusterName, policy, NotificationDeliveryEventTypeResolved)
+	return s.dispatchAlertPolicyChannels(ctx, message, policy, channelMap, NotificationDeliveryEventTypeResolved, buildLocalAlertSourceKey(sourceEvent.ID), true)
+}
+
+// alertMessage 是与来源无关的一条待投递通知：投递记录需要的字段，加上按渠道拼消息体的函数。
+// 本地进程事件和同步作业告警都先组装成它，再走同一条投递路径（去重、冷却重发、静默、关闭、恢复前置条件）。
+// alertMessage is one source-agnostic notification to deliver: the fields a delivery record needs plus a function
+// that builds the per-channel body. Local process events and sync job alerts both build one and then share the same
+// delivery path (dedupe, cooldown resend, silence, close, recovery precondition).
+type alertMessage struct {
+	SourceType  AlertSourceType
+	ClusterID   string
+	ClusterName string
+	AlertName   string
+	// ExtraRecipients 是策略接收人之外还要发送的邮件地址（例如任务创建人），解析失败的已经排除。
+	// ExtraRecipients are email addresses to add on top of the policy receivers (such as the task creator); invalid
+	// ones are already dropped.
+	ExtraRecipients []string
+	// Build 按渠道类型和邮件收件人拼出消息体。
+	// Build assembles the body for the channel type and email recipients.
+	Build func(channel *NotificationChannel, recipients []string) (interface{}, error)
+}
+
+// localProcessEventAlertMessage 把本地进程事件包装成 alertMessage，消息内容与重构前一致。
+// localProcessEventAlertMessage wraps a local process event as an alertMessage with the same content as before.
+func localProcessEventAlertMessage(
+	sourceEvent *monitor.ProcessEvent,
+	recoveryEvent *monitor.ProcessEvent,
+	clusterName string,
+	policy *AlertPolicy,
+	deliveryEventType NotificationDeliveryEventType,
+) *alertMessage {
+	return &alertMessage{
+		SourceType:  AlertSourceTypeLocalProcessEvent,
+		ClusterID:   strconv.FormatUint(uint64(sourceEvent.ClusterID), 10),
+		ClusterName: strings.TrimSpace(clusterName),
+		AlertName:   strings.TrimSpace(firstNonEmpty(policy.Name, policy.TemplateKey, policy.LegacyRuleKey, "local alert policy")),
+		Build: func(channel *NotificationChannel, recipients []string) (interface{}, error) {
+			return buildLocalAlertPolicyPayload(channel, sourceEvent, recoveryEvent, clusterName, policy, deliveryEventType, recipients)
+		},
+	}
+}
+
+// dispatchAlertPolicyChannels 把一条通知投递到策略绑定的全部启用渠道，并汇总执行结果。
+// dispatchAlertPolicyChannels delivers one notification to every enabled channel of the policy and summarizes the run.
+func (s *Service) dispatchAlertPolicyChannels(
+	ctx context.Context,
+	message *alertMessage,
+	policy *AlertPolicy,
+	channelMap map[uint]*NotificationChannel,
+	deliveryEventType NotificationDeliveryEventType,
+	sourceKey string,
+	requireFiringSent bool,
+) (alertPolicyDispatchSummary, error) {
 	summary := alertPolicyDispatchSummary{
 		LastExecutionStatus: AlertPolicyExecutionStatusMatched,
 	}
-	if sourceEvent == nil || recoveryEvent == nil || policy == nil {
+	if message == nil || policy == nil {
 		return summary, nil
 	}
 
-	sourceKey := buildLocalAlertSourceKey(sourceEvent.ID)
 	channelIDs := unmarshalAlertPolicyChannelIDs(policy.NotificationChannelIDsJSON)
 	if len(channelIDs) == 0 {
 		return summary, nil
@@ -409,17 +412,7 @@ func (s *Service) dispatchLocalResolvedAlertPolicy(
 		}
 
 		summary.AttemptedChannels++
-		result, err := s.dispatchLocalAlertPolicyDelivery(
-			ctx,
-			sourceEvent,
-			recoveryEvent,
-			clusterName,
-			policy,
-			channel,
-			NotificationDeliveryEventTypeResolved,
-			sourceKey,
-			true,
-		)
+		result, err := s.dispatchAlertDelivery(ctx, message, policy, channel, deliveryEventType, sourceKey, requireFiringSent)
 		if result != nil {
 			if result.Successful {
 				summary.SuccessfulChannels++
@@ -480,22 +473,29 @@ func laterUTCTimePointer(current *time.Time, candidate *time.Time) *time.Time {
 	return current
 }
 
-func (s *Service) dispatchLocalAlertPolicyDelivery(
+// dispatchAlertDelivery 投递一条通知到一个渠道：
+//   - 人工关闭的不发；静默期间不发告警（恢复照发）；
+//   - requireFiringSent 时，只有对应的告警通知发送成功过才发恢复；
+//   - 同一 (source_key, 渠道, 类型) 已发送成功时，只在冷却时间到了之后重发告警（提醒）。
+//
+// dispatchAlertDelivery delivers one notification to one channel:
+//   - manually closed alerts are skipped; firing is skipped while silenced (recovery still goes out);
+//   - with requireFiringSent, recovery only goes out after the firing notification was sent successfully;
+//   - once (source_key, channel, type) was sent, firing is only resent after the cooldown (a reminder).
+func (s *Service) dispatchAlertDelivery(
 	ctx context.Context,
-	sourceEvent *monitor.ProcessEvent,
-	recoveryEvent *monitor.ProcessEvent,
-	clusterName string,
+	message *alertMessage,
 	policy *AlertPolicy,
 	channel *NotificationChannel,
 	deliveryEventType NotificationDeliveryEventType,
 	sourceKey string,
 	requireFiringSent bool,
 ) (*alertPolicyChannelDispatchResult, error) {
-	if sourceEvent == nil || policy == nil || channel == nil {
+	if message == nil || policy == nil || channel == nil {
 		return nil, nil
 	}
 
-	sourceKey = strings.TrimSpace(firstNonEmpty(sourceKey, buildLocalAlertSourceKey(sourceEvent.ID)))
+	sourceKey = strings.TrimSpace(sourceKey)
 	alertState, err := s.repo.GetAlertStateBySourceKey(ctx, sourceKey)
 	if err != nil {
 		return nil, err
@@ -525,12 +525,12 @@ func (s *Service) dispatchLocalAlertPolicyDelivery(
 	if delivery == nil {
 		delivery = &NotificationDelivery{
 			AlertID:      sourceKey,
-			SourceType:   string(AlertSourceTypeLocalProcessEvent),
+			SourceType:   string(message.SourceType),
 			SourceKey:    sourceKey,
 			PolicyID:     policy.ID,
-			ClusterID:    strconv.FormatUint(uint64(sourceEvent.ClusterID), 10),
-			ClusterName:  strings.TrimSpace(clusterName),
-			AlertName:    strings.TrimSpace(firstNonEmpty(policy.Name, policy.TemplateKey, policy.LegacyRuleKey, "local alert policy")),
+			ClusterID:    message.ClusterID,
+			ClusterName:  message.ClusterName,
+			AlertName:    message.AlertName,
 			ChannelID:    channel.ID,
 			ChannelName:  strings.TrimSpace(channel.Name),
 			EventType:    string(deliveryEventType),
@@ -549,8 +549,8 @@ func (s *Service) dispatchLocalAlertPolicyDelivery(
 				}, nil
 			}
 		}
-		delivery.ClusterID = strconv.FormatUint(uint64(sourceEvent.ClusterID), 10)
-		delivery.ClusterName = strings.TrimSpace(clusterName)
+		delivery.ClusterID = message.ClusterID
+		delivery.ClusterName = message.ClusterName
 		delivery.PolicyID = policy.ID
 		delivery.AlertName = strings.TrimSpace(firstNonEmpty(policy.Name, delivery.AlertName))
 		delivery.ChannelName = strings.TrimSpace(channel.Name)
@@ -567,7 +567,7 @@ func (s *Service) dispatchLocalAlertPolicyDelivery(
 		}
 	}
 
-	attempt, sendErr := s.sendLocalAlertPolicyNotification(ctx, channel, sourceEvent, recoveryEvent, clusterName, policy, deliveryEventType)
+	attempt, sendErr := s.sendAlertMessage(ctx, channel, message, policy)
 	if attempt != nil {
 		delivery.RequestPayload = attempt.RequestPayload
 		delivery.ResponseStatusCode = attempt.StatusCode
@@ -615,20 +615,30 @@ func shouldResendLocalAlertPolicyDelivery(
 	return !now.Before(delivery.SentAt.UTC().Add(time.Duration(policy.CooldownMinutes) * time.Minute))
 }
 
-func (s *Service) sendLocalAlertPolicyNotification(
+// mergeAlertRecipients 合并策略接收人与额外收件人，按邮箱去重（忽略大小写）。
+// mergeAlertRecipients merges policy receivers and extra recipients, de-duplicating emails case-insensitively.
+func mergeAlertRecipients(base []string, extra []string) []string {
+	if len(extra) == 0 {
+		return base
+	}
+	return normalizeEmailRecipients(append(append([]string{}, base...), extra...))
+}
+
+// sendAlertMessage 解析邮件收件人（策略接收人加上额外收件人），按渠道拼消息体并发送。
+// sendAlertMessage resolves email recipients (policy receivers plus extra recipients), builds the body for the
+// channel and sends it.
+func (s *Service) sendAlertMessage(
 	ctx context.Context,
 	channel *NotificationChannel,
-	sourceEvent *monitor.ProcessEvent,
-	recoveryEvent *monitor.ProcessEvent,
-	clusterName string,
+	message *alertMessage,
 	policy *AlertPolicy,
-	deliveryEventType NotificationDeliveryEventType,
 ) (*notificationSendAttempt, error) {
 	recipients, err := s.resolveAlertPolicyReceiverEmails(ctx, policy)
 	if err != nil {
 		return nil, err
 	}
-	payload, err := buildLocalAlertPolicyPayload(channel, sourceEvent, recoveryEvent, clusterName, policy, deliveryEventType, recipients)
+	recipients = mergeAlertRecipients(recipients, message.ExtraRecipients)
+	payload, err := message.Build(channel, recipients)
 	if err != nil {
 		return nil, err
 	}
@@ -799,6 +809,12 @@ func buildLocalAlertPolicyMessageHTML(
 	}
 	visual := resolveLocalAlertMessageVisual(deliveryEventType)
 
+	return renderAlertMessageHTML(title, severity, visual, fields)
+}
+
+// renderAlertMessageHTML 渲染告警邮件的 HTML 正文；本地进程事件和同步作业告警共用。
+// renderAlertMessageHTML renders the HTML body of an alert email; shared by local process events and sync job alerts.
+func renderAlertMessageHTML(title string, severity string, visual localAlertMessageVisual, fields []localAlertMessageField) string {
 	var builder strings.Builder
 	builder.WriteString("<!DOCTYPE html><html><body style=\"margin:0;padding:24px;background:#f8fafc;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#0f172a;\">")
 	builder.WriteString("<div style=\"max-width:760px;margin:0 auto;background:#ffffff;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;\">")

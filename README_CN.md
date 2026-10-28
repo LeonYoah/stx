@@ -104,7 +104,7 @@ pnpm dev
 
 ### 在线安装（推荐）
 
-一条命令：自动识别 CPU 架构与 glibc，测速各下载线路后下载**对应的离线整包**，校验 sha256 后安装。
+一条命令：按本机 CPU / glibc 选离线整包，走最快线路下载，校验 sha256 后安装。
 
 ```bash
 # 中国（推荐，gh-proxy v4 线路）
@@ -114,7 +114,7 @@ curl -fsSL https://v4.gh-proxy.org/https://github.com/LeonYoah/stx/releases/late
 curl -fsSL https://github.com/LeonYoah/stx/releases/latest/download/install-online.sh | sudo bash
 ```
 
-- 下载线路：gh-proxy 主站、v4（推荐）、v6、cdn（Fastly）、axisnow、GitHub 直连；脚本逐条测速（显示延迟 / 速度），自动选最快的，交互时可输入编号改选；某条失败自动换下一条。`--mirror v4|2|https://自定义前缀` 或 `STX_MIRROR=...` 可指定。
+- 下载线路：`1) gh-proxy` `2) v4`（推荐）`3) v6` `4) cdn`（Fastly）`5) axisnow` `6) github`（直连），默认自动选最快；`--mirror v4|2|https://自定义前缀` 或 `STX_MIRROR=...` 可指定。
 - 变体：`--variant amd64|arm64|centos7`（默认自动：amd64 且 glibc < 2.28 → centos7）。指定版本：`bash -s -- --version v1.3.0`。
 - 非交互（CI / 批量）：`curl ... | sudo bash -s -- -y --admin-password 'xxx'`。
 - 依赖：`bash`、`curl`、`tar`、`gzip`、`awk`/`sed`/`grep`、`sha256sum`，**不需要 python3**。
@@ -150,33 +150,26 @@ sudo ./install.sh
 
 能联网的机器上也可用脚本测速下载：`curl -fsSL https://v4.gh-proxy.org/https://github.com/LeonYoah/stx/releases/latest/download/download-bundle.sh | bash`（`--variant centos7`、`--print-urls` 只打印以上 6 条链接）。
 
-### 安装过程
+### 常用参数
 
-安装分 7 步，每步显示 `[i/7]` 与 ✔ / ✘，失败时指出出错步骤和日志位置（`/tmp/stx-install-*.log`，安装后复制到 `<安装目录>/logs/install.log`）。
+```bash
+sudo ./install.sh                                    # 交互安装：回车 = 默认值
+sudo ./install.sh -y --admin-password 'xxx'          # 非交互
+sudo ./install.sh --db-type mysql    --db-host 10.0.0.5 --db-user stx --db-name stx
+sudo ./install.sh --db-type postgres --db-host 10.0.0.5 --db-user stx --db-name stx
+sudo ./install.sh --install-dir /data/stx --frontend-port 18880 --http-port 18800 --grpc-port 18890
+```
 
-1. **安装前检查**（先于任何提问）：CPU / glibc、所有端口占用、磁盘空间、systemd，一次性列出结果。
-2. **安装配置**：直接回车 = 默认值，大多数情况一路回车即可：
-   - Web 端口 `17880`、API 端口 `17800`、gRPC 端口 `17890`（Agent 回连）；预检有冲突的端口会强制要求换一个
-   - 对外访问 IP / 域名（自动探测，写入 `app.external_url`，Agent 回连与告警链接用）
-   - 数据库：`1) SQLite`（默认，内置）或 `2) MySQL`（再问地址 / 端口 / 用户 / 密码 / 库名；库需事先 `CREATE DATABASE stx DEFAULT CHARACTER SET utf8mb4;`，表结构首次启动自动创建）
-   - 管理员 `admin` 初始密码（回车保持 `admin123`，输入不回显、需确认）。只在库中还没有管理员时生效；外部 MySQL 或重装时，安装器启动后会用登录结果确认是否生效
-3. 解压 → 4. 复制文件 → 5. 写入配置 → 6. systemd → 7. 启动并等待就绪
-
-`-y` 或无终端（如 CI）时不提问、全部用默认 / 参数值；此时端口冲突会直接报错并提示用哪个参数修改。
-
-其它只通过参数设置（不提问）：`--install-dir`、`--without-observability`、`--prometheus-port` / `--alertmanager-port` / `--grafana-port`、`--without-node`、`--service-user`、`--no-autostart`、`--no-systemd`、`--no-start`；以及 `--admin-password`、`--frontend-port`、`--http-port`、`--grpc-port`、`--external-ip`、`--db-type/--db-host/--db-port/--db-user/--db-password/--db-name`。完整列表：`./install.sh --help`。下载相关参数（`--mirror`、`--variant`、`--version`、`--bundle-file`）只属于 `install-online.sh` / `download-bundle.sh`；`install-online.sh` 会把其余参数原样传给 `install.sh`。
-
-安装完成后会打印：访问地址 `http://<IP>:17880`、账号 `admin` 与密码说明（改过的密码不会回显）、API / gRPC 地址、数据库、监控端口与磁盘占用、目录与日志、启停命令，以及**后续步骤**：
-
-- 还没有 SeaTunnel 集群：「安装包与插件」→「安装包管理」下载 SeaTunnel 版本 →「插件市场」下载连接器 →「主机与集群」→「主机管理」添加主机并安装 Agent →「集群管理」创建集群。
-- 已有 SeaTunnel 集群：跳过前两步；在「主机管理」添加主机并安装 Agent 后，用主机行的「自动发现」导入正在运行的节点，再到「集群管理」管理。
-- STX 不会安装 JDK：SeaTunnel 节点需预装 JDK，版本以所选 SeaTunnel 版本要求为准（2.3.x 常用 JDK 8 / 11）。
+- 数据库：`sqlite`（默认）/ `mysql` / `postgres`（`pg`）；数据库密码会提示输入，也可用 `--db-password` 或 `STX_DB_PASSWORD`（`sudo STX_DB_PASSWORD='xxx' ./install.sh ...`）。
+- 需用 sudo 执行；不用 root 时须同时指定可写的 `--install-dir` 与 `--no-systemd`。
+- 其它参数：`--external-ip`、`--without-observability`、`--service-user`、`--no-systemd`、`--no-start`、`--force`；完整列表：`./install.sh --help`。
+- `--mirror`、`--variant`、`--version`、`--bundle-file` 只用于 `install-online.sh` / `download-bundle.sh`，离线 `install.sh` 不接受；`install-online.sh` 会把其余参数原样传给 `install.sh`（`curl ... | sudo bash -s -- --db-type postgres ...`）。
 
 ### 手动点链接下载（不能跑脚本，按需组装）
 
 1. 下辅助包并解压：[stx-install-helpers.tar.gz](https://github.com/LeonYoah/stx/releases/latest/download/stx-install-helpers.tar.gz)  
 2. 再下下面的包，放进 `packages/`  
-3. `./install.sh --offline`  
+3. `sudo ./install.sh --offline`  
 
 中国：复制链接到 [https://gh-proxy.com/](https://gh-proxy.com/) 打开。
 

@@ -96,7 +96,7 @@ Open `http://localhost:3000` and sign in with `admin` / `admin123` (or the value
 
 ### Online install (recommended)
 
-One command: detects CPU arch and glibc, probes the download lines, downloads the **matching offline bundle**, verifies its sha256 and installs it.
+One command: picks the offline bundle for this CPU / glibc, downloads it over the fastest line, verifies sha256 and installs it.
 
 ```bash
 # China (recommended, gh-proxy v4 line)
@@ -106,7 +106,7 @@ curl -fsSL https://v4.gh-proxy.org/https://github.com/LeonYoah/stx/releases/late
 curl -fsSL https://github.com/LeonYoah/stx/releases/latest/download/install-online.sh | sudo bash
 ```
 
-- Download lines: gh-proxy main, v4 (recommended), v6, cdn (Fastly), axisnow, GitHub direct. Each line is probed (latency / speed shown), the fastest is picked automatically, and interactive users can pick another by number; a failing line falls back to the next. Force one with `--mirror v4|2|https://custom-prefix` or `STX_MIRROR=...`.
+- Download lines: `1) gh-proxy` `2) v4` (recommended) `3) v6` `4) cdn` (Fastly) `5) axisnow` `6) github` (direct); the fastest is picked automatically. Force one with `--mirror v4|2|https://custom-prefix` or `STX_MIRROR=...`.
 - Variant: `--variant amd64|arm64|centos7` (default auto: amd64 with glibc < 2.28 → centos7). Pin a version: `bash -s -- --version v1.3.0`.
 - Non-interactive (CI / fleets): `curl ... | sudo bash -s -- -y --admin-password 'xxx'`.
 - Requirements: `bash`, `curl`, `tar`, `gzip`, `awk`/`sed`/`grep`, `sha256sum` — **no python3**.
@@ -142,33 +142,26 @@ sudo ./install.sh
 
 On a connected host you can also let the script probe and download: `curl -fsSL https://github.com/LeonYoah/stx/releases/latest/download/download-bundle.sh | bash` (`--variant centos7`; `--print-urls` only prints the 6 links above).
 
-### What the installer does
+### Common flags
 
-7 numbered steps, each with `[i/7]` and ✔ / ✘; on failure it names the failed step and the log (`/tmp/stx-install-*.log`, copied to `<install-dir>/logs/install.log`).
+```bash
+sudo ./install.sh                                    # interactive: Enter = default
+sudo ./install.sh -y --admin-password 'xxx'          # non-interactive
+sudo ./install.sh --db-type mysql    --db-host 10.0.0.5 --db-user stx --db-name stx
+sudo ./install.sh --db-type postgres --db-host 10.0.0.5 --db-user stx --db-name stx
+sudo ./install.sh --install-dir /data/stx --frontend-port 18880 --http-port 18800 --grpc-port 18890
+```
 
-1. **Pre-flight** (before any prompt): CPU / glibc, every port, disk space, systemd — one consolidated list.
-2. **Settings** — Enter = default, so most users just press Enter:
-   - web `17880`, API `17800`, gRPC `17890` (Agents connect back); ports that failed pre-flight must be changed
-   - advertised IP / host (auto-detected, written to `app.external_url`, used by Agents and alert links)
-   - database: `1) SQLite` (default, built-in) or `2) MySQL` (then host / port / user / password / name; create the database first with `CREATE DATABASE stx DEFAULT CHARACTER SET utf8mb4;`, tables are created on first start)
-   - initial password of `admin` (Enter keeps `admin123`; hidden, confirmed). It only applies while the database has no admin yet; with external MySQL or on reinstall the installer confirms it by logging in after start
-3. unpack → 4. copy → 5. write config → 6. systemd → 7. start and wait until ready
-
-With `-y` or without a terminal (CI) nothing is asked and defaults / flags are used; port conflicts then fail with the flag to change.
-
-Flag-only settings: `--install-dir`, `--without-observability`, `--prometheus-port` / `--alertmanager-port` / `--grafana-port`, `--without-node`, `--service-user`, `--no-autostart`, `--no-systemd`, `--no-start`; plus `--admin-password`, `--frontend-port`, `--http-port`, `--grpc-port`, `--external-ip`, `--db-type/--db-host/--db-port/--db-user/--db-password/--db-name`. See `./install.sh --help`. Download-only flags (`--mirror`, `--variant`, `--version`, `--bundle-file`) belong to `install-online.sh` / `download-bundle.sh`; `install-online.sh` passes every other flag through to `install.sh`.
-
-The final summary shows the URL `http://<IP>:17880`, account `admin` and the password state (a changed password is never echoed), API / gRPC addresses, database, observability ports and disk usage, directories and logs, service commands, and **next steps** (menu names as shown in the Chinese UI):
-
-- No SeaTunnel cluster yet: 「安装包与插件」(Packages & Plugins) → 「安装包管理」 download a SeaTunnel version → 「插件市场」 download connectors → 「主机与集群」 → 「主机管理」 add hosts and install the Agent → 「集群管理」 create the cluster.
-- Existing cluster: skip the first two; add hosts and install the Agent in 「主机管理」, use the host row action 「自动发现」 to import the running nodes, then manage them in 「集群管理」.
-- STX does not install a JDK: install one on SeaTunnel nodes as required by the chosen SeaTunnel version (2.3.x usually JDK 8 / 11).
+- Database: `sqlite` (default) / `mysql` / `postgres` (`pg`); the database password is prompted, or pass `--db-password` / `STX_DB_PASSWORD` (`sudo STX_DB_PASSWORD='xxx' ./install.sh ...`).
+- Run with sudo. Non-root works only with a writable `--install-dir` plus `--no-systemd`.
+- Other flags: `--external-ip`, `--without-observability`, `--service-user`, `--no-systemd`, `--no-start`, `--force`; full list: `./install.sh --help`.
+- `--mirror`, `--variant`, `--version`, `--bundle-file` belong to `install-online.sh` / `download-bundle.sh` only, not to the offline `install.sh`; `install-online.sh` passes all other flags through (`curl ... | sudo bash -s -- --db-type postgres ...`).
 
 ### Manual download (cannot run scripts, assemble by hand)
 
 1. Download helpers: [stx-install-helpers.tar.gz](https://github.com/LeonYoah/stx/releases/latest/download/stx-install-helpers.tar.gz)  
 2. Put assets below into `packages/`  
-3. `./install.sh --offline`  
+3. `sudo ./install.sh --offline`  
 
 China: paste links into [https://gh-proxy.com/](https://gh-proxy.com/).
 

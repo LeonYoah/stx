@@ -145,12 +145,12 @@ func newClusterRuntimeStoragePreviewCommand(storeProvider authStoreProvider) *co
 }
 
 func newClusterCheckpointInspectCommand(storeProvider authStoreProvider) *cobra.Command {
-	var namespace, requestFile, storagePath, jobConfigFile string
+	var namespace, requestFile, storagePath, jobConfigFile, sourceConnector string
 	command := &cobra.Command{
 		Use:     "inspect <cluster-id>",
 		Short:   "Deserialize and inspect one checkpoint file",
 		Long:    "Deserialize and inspect one checkpoint file. Use the path returned by the list command.",
-		Example: "stx cluster runtime-storage checkpoint inspect 6 --path /tmp/seatunnel/checkpoint/checkpoint.dat",
+		Example: "stx cluster runtime-storage checkpoint inspect 6 --path /tmp/seatunnel/checkpoint/checkpoint.dat\nstx cluster runtime-storage checkpoint inspect 6 --path /tmp/seatunnel/checkpoint/checkpoint.dat --source-connector MySQL-CDC",
 		Args:    usageArgs(cobra.ExactArgs(1)),
 		RunE: func(command *cobra.Command, args []string) error {
 			body, err := runtimeStoragePathBody(command, requestFile, storagePath)
@@ -161,6 +161,9 @@ func newClusterCheckpointInspectCommand(storeProvider authStoreProvider) *cobra.
 				if err := setJSONFileValue(body, "job_config", jobConfigFile); err != nil {
 					return err
 				}
+				if strings.TrimSpace(sourceConnector) != "" {
+					body["source_connector"] = strings.TrimSpace(sourceConnector)
+				}
 			}
 			path := "/api/v1/clusters/" + url.PathEscape(args[0]) + "/runtime-storage/checkpoint/inspect"
 			return executeRuntimeStorageQuery(command, storeProvider, namespace, "cluster.runtime-storage.checkpoint.inspect", path, body)
@@ -169,6 +172,7 @@ func newClusterCheckpointInspectCommand(storeProvider authStoreProvider) *cobra.
 	command.Flags().StringVar(&namespace, "namespace", "", "Local namespace to use")
 	command.Flags().StringVar(&storagePath, "path", "", "Checkpoint file path")
 	command.Flags().StringVar(&jobConfigFile, "job-config-file", "", "JSON file containing content, content_format, and variables")
+	command.Flags().StringVar(&sourceConnector, "source-connector", "", "Specify source connector plugin name (e.g. MySQL-CDC, Kafka) to decode incremental offsets")
 	command.Flags().StringVar(&requestFile, "request-file", "", "JSON file containing the complete request body")
 	return command
 }

@@ -6137,6 +6137,7 @@ export function DataSyncStudio() {
         onOpenChange={setCheckpointInspectDialogOpen}
         result={checkpointInspectDialogResult}
         t={t}
+        onResultUpdate={setCheckpointInspectDialogResult}
       />
 
       <Dialog

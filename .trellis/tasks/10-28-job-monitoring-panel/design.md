@@ -7,7 +7,7 @@
 - 引擎不能 push 指标；事件通道无条数 / CP / busy。
 - Prom 端点只有集群 / 节点维度，无 job。
 - Busy/BP：3.0+、作业 observability 开、master 内存短窗、`/metrics/realtime`；Push Mode 未实现。
-- Checkpoint：`/jobs/checkpoints` 轮询。
+- Checkpoint：`/jobs/checkpoints` 轮询（核心 REST，不依赖 `engine.observability`）。
 - Rows/QPS：复用对账 job-info，不加额外引擎调用。
 → **STX 导出作业指标 + HTTP SD 是正确路径。**
 
@@ -22,8 +22,9 @@
 - 只导出运行中作业；进入终态后 `DeletePartialMatch` 删除其序列（Prometheus 保留历史）。
 - 吞吐 / 条数 / 表级：在对账写入 `result_preview.metrics` 时顺带更新（不新增引擎调用）。
 - CDC 延迟：事件通道 `READER_MESSAGE_DELAYED` 内存最新值写入 gauge。
-- Checkpoint + vertex busy / edge backpressure：**一期就做**，后台低频采集（约 30–60s），
-  **仅当该作业引擎可观测性开启时**采集；关闭则不调引擎、不导出这两类指标。
+- Checkpoint + vertex busy / edge backpressure：**一期就做**，后台低频采集（约 30–60s）。
+  Checkpoint 只要求 STX `observability.enabled`（Zeta `/jobs/checkpoints` 为核心 REST，与 `engine.observability` 无关）；
+  busy / backpressure **仅当该作业引擎可观测性开启时**采集，关闭则不调 realtime、不导出这两类指标。
 - 标签：`cluster_id`、`task_id`、`job_id`（STX 作业实例 ID）；算子级加 `vertex`；边加 `edge`；
   表级加 `table`（每作业前 50 张，其余并入 `other`）。
 
@@ -34,8 +35,8 @@
 | `stx_job_sink_committed_rows_total` | counter | SinkCommittedCount | STX obs on |
 | `stx_job_table_rows_total{direction="read\|write",table}` | counter | Table* maps，前 50 + other | STX obs on |
 | `stx_job_cdc_delay_seconds` | gauge | 事件通道最新值 | STX obs on |
-| `stx_job_checkpoint_duration_seconds` | gauge | `/jobs/checkpoints` overview | STX obs + **引擎 obs** |
-| `stx_job_checkpoint_failed_total` | counter | 同上（失败次数累计） | STX obs + 引擎 obs |
+| `stx_job_checkpoint_duration_seconds` | gauge | `/jobs/checkpoints` overview | STX obs |
+| `stx_job_checkpoint_failed_total` | counter | 同上（失败次数累计） | STX obs |
 | `stx_job_vertex_busy_ratio{vertex}` | gauge | `/metrics/realtime` vertices | STX obs + 引擎 obs |
 | `stx_job_edge_backpressure_ratio{edge}` | gauge | `/metrics/realtime` edges | STX obs + 引擎 obs |
 | `stx_job_up{status}` | gauge | 作业状态 | STX obs on |
@@ -100,5 +101,6 @@
 ## 5. 风险
 
 - 标签基数：表级必须封顶；终态删除 `job_id` 序列。
-- 引擎调用成本：Checkpoint / realtime 后台采集仅对「运行中 + 引擎 obs 开」的作业，间隔 ≥30s，可配置关闭（后续）。
+- 引擎调用成本：Checkpoint 后台采集对「运行中」作业（仅需 STX obs）；realtime（busy/bp）仅对「运行中 + 引擎 obs 开」的作业；间隔 ≥30s，可配置关闭（后续）。
+- 抓取端点公开模型：`/monitoring/prometheus/jobs/metrics` 与现有 HTTP SD / webhook 一样**刻意不加 LoginRequired**（Prometheus 抓取通常无 Bearer）；勿给该路径或 discovery 加登录。
 - Prometheus 未抓到数据时曲线为空：前端用空 series + 来源徽章提示，不假装有本地数据。

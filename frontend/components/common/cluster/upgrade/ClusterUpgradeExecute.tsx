@@ -40,14 +40,6 @@ import {Button} from '@/components/ui/button';
 import {Badge} from '@/components/ui/badge';
 import {WorkspaceHeader} from '@/components/common/layout';
 import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from '@/components/ui/breadcrumb';
-import {
   Card,
   CardContent,
   CardDescription,
@@ -409,6 +401,19 @@ export function ClusterUpgradeExecute({clusterId}: ClusterUpgradeExecuteProps) {
     return (
       <div className='space-y-6' data-testid='upgrade-execute-page'>
         <WorkspaceHeader
+          breadcrumbs={[
+            {
+              label: t('clusterDetailBreadcrumb'),
+              href: `/clusters/${clusterId}`,
+            },
+            {
+              label: t('configTitle'),
+              href: `/clusters/${clusterId}/upgrade/config`,
+            },
+            {
+              label: t('executeTitle'),
+            },
+          ]}
           icon={<PlayCircle />}
           title={t('executeTitle')}
           subtitle={<span>{t('executeDescription')}</span>}
@@ -465,23 +470,20 @@ export function ClusterUpgradeExecute({clusterId}: ClusterUpgradeExecuteProps) {
   return (
     <div className='space-y-6' data-testid='upgrade-execute-page'>
       <div className='space-y-3'>
-        <Breadcrumb>
-          <BreadcrumbList>
-            <BreadcrumbItem>
-              <BreadcrumbLink asChild>
-                <Link href={`/clusters/${clusterId}`}>
-                  {t('clusterDetailBreadcrumb')}
-                </Link>
-              </BreadcrumbLink>
-            </BreadcrumbItem>
-            <BreadcrumbSeparator />
-            <BreadcrumbItem>
-              <BreadcrumbPage>{t('executeTitle')}</BreadcrumbPage>
-            </BreadcrumbItem>
-          </BreadcrumbList>
-        </Breadcrumb>
-
         <WorkspaceHeader
+          breadcrumbs={[
+            {
+              label: t('clusterDetailBreadcrumb'),
+              href: `/clusters/${clusterId}`,
+            },
+            {
+              label: t('configTitle'),
+              href: `/clusters/${clusterId}/upgrade/config`,
+            },
+            {
+              label: t('executeTitle'),
+            },
+          ]}
           icon={<PlayCircle />}
           title={t('executeTitle')}
           subtitle={

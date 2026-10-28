@@ -184,6 +184,10 @@ func (s *Service) InspectCheckpointRuntimeStorage(
 		result := runtimeStorageHostResultFromCommandOutput(success, output)
 		if sendErr == nil && result.Success {
 			inspectResult := decodeRuntimeStorageCheckpointInspectResult(clusterID, result)
+			effectiveJobConfig := jobConfig
+			if effectiveJobConfig == nil || strings.TrimSpace(effectiveJobConfig.Content) == "" {
+				effectiveJobConfig = s.tryResolveJobConfigForCheckpoint(ctx, inspectResult, path)
+			}
 			s.attachCheckpointSourceStateInspect(
 				ctx,
 				clusterObj,
@@ -191,7 +195,7 @@ func (s *Service) InspectCheckpointRuntimeStorage(
 				hostInfo,
 				inspectResult,
 				path,
-				jobConfig,
+				effectiveJobConfig,
 				"",
 			)
 			return inspectResult, nil
@@ -216,6 +220,10 @@ func (s *Service) InspectCheckpointRuntimeStorage(
 		return nil, fmt.Errorf("%s", firstNonEmpty(result.Message, "checkpoint deserialize failed"))
 	}
 	inspectResult := decodeRuntimeStorageCheckpointInspectResult(clusterID, result)
+	effectiveJobConfig := jobConfig
+	if effectiveJobConfig == nil || strings.TrimSpace(effectiveJobConfig.Content) == "" {
+		effectiveJobConfig = s.tryResolveJobConfigForCheckpoint(ctx, inspectResult, path)
+	}
 	s.attachCheckpointSourceStateInspect(
 		ctx,
 		clusterObj,
@@ -223,7 +231,7 @@ func (s *Service) InspectCheckpointRuntimeStorage(
 		hostInfo,
 		inspectResult,
 		path,
-		jobConfig,
+		effectiveJobConfig,
 		contentBase64,
 	)
 	return inspectResult, nil
@@ -281,6 +289,139 @@ func (s *Service) InspectIMAPRuntimeStorage(
 		return nil, fmt.Errorf("%s", firstNonEmpty(result.Message, "imap wal inspect failed"))
 	}
 	return decodeRuntimeStorageIMAPInspectResult(clusterID, result), nil
+}
+
+// buildMinimalHoconJobConfig generates a minimal synthetic HOCON configuration for the given source connector.
+// buildMinimalHoconJobConfig 为指定的源端连接器生成用于反序列化快照位点的最小化 HOCON 配置。
+func buildMinimalHoconJobConfig(pluginName string) *RuntimeStorageCheckpointInspectJobConfig {
+	cleaned := strings.TrimSpace(pluginName)
+	if cleaned == "" {
+		return nil
+	}
+	hocon := fmt.Sprintf("env {\n  job.mode = \"STREAMING\"\n}\nsource {\n  %s {\n    result_table_name = \"src\"\n  }\n}\nsink {\n  Console {}\n}\n", cleaned)
+	return &RuntimeStorageCheckpointInspectJobConfig{
+		Content:       hocon,
+		ContentFormat: "hocon",
+	}
+}
+
+// tryResolveJobConfigForCheckpoint attempts to auto-resolve or infer the job config for a checkpoint snapshot.
+// tryResolveJobConfigForCheckpoint 尝试通过引擎作业 ID 或算子名称自动关联/推断 Checkpoint 快照对应的作业配置。
+func (s *Service) tryResolveJobConfigForCheckpoint(
+	ctx context.Context,
+	inspectResult *RuntimeStorageCheckpointInspectResult,
+	path string,
+) *RuntimeStorageCheckpointInspectJobConfig {
+	if inspectResult == nil {
+		return nil
+	}
+
+	// 1. 尝试从 CompletedCheckpoint、PipelineState 或文件路径中提取引擎作业 ID (engineJobID)
+	// 1. Try to extract engineJobID from CompletedCheckpoint, PipelineState, or file path
+	var engineJobID string
+	if inspectResult.CompletedCheckpoint != nil {
+		if jid, ok := inspectResult.CompletedCheckpoint["jobId"]; ok && jid != nil {
+			engineJobID = strings.TrimSpace(fmt.Sprintf("%v", jid))
+		}
+	}
+	if engineJobID == "" && inspectResult.PipelineState != nil {
+		if jid, ok := inspectResult.PipelineState["jobId"]; ok && jid != nil {
+			engineJobID = strings.TrimSpace(fmt.Sprintf("%v", jid))
+		}
+	}
+	if engineJobID == "" {
+		re := regexp.MustCompile(`/checkpoint[^/]*/([0-9a-zA-Z_-]+)/`)
+		if matches := re.FindStringSubmatch(path); len(matches) > 1 {
+			engineJobID = strings.TrimSpace(matches[1])
+		}
+	}
+
+	// 2. 若找到 engineJobID 且数据库可用，优先从同步任务实例表检索提交配置
+	// 2. If engineJobID is found and DB is available, query sync_job_instances for original submission script
+	if engineJobID != "" && s.repo != nil && s.repo.db != nil {
+		if s.repo.db.Migrator().HasTable("sync_job_instances") {
+			var row struct {
+				SubmitSpec    string `gorm:"column:submit_spec"`
+				ResultPreview string `gorm:"column:result_preview"`
+				TaskID        uint   `gorm:"column:task_id"`
+			}
+			if err := s.repo.db.WithContext(ctx).Table("sync_job_instances").
+				Select("submit_spec, result_preview, task_id").
+				Where("engine_job_id = ?", engineJobID).
+				Order("id DESC").
+				Limit(1).
+				Scan(&row).Error; err == nil {
+				if strings.TrimSpace(row.SubmitSpec) != "" {
+					var spec map[string]interface{}
+					if json.Unmarshal([]byte(row.SubmitSpec), &spec) == nil {
+						if content, ok := spec["submitted_content"].(string); ok && strings.TrimSpace(content) != "" {
+							format := "hocon"
+							if f, ok := spec["submitted_format"].(string); ok && f != "" {
+								format = f
+							} else if f, ok := spec["format"].(string); ok && f != "" {
+								format = f
+							}
+							return &RuntimeStorageCheckpointInspectJobConfig{
+								Content:       content,
+								ContentFormat: format,
+							}
+						}
+					}
+				}
+				if strings.TrimSpace(row.ResultPreview) != "" {
+					var preview map[string]interface{}
+					if json.Unmarshal([]byte(row.ResultPreview), &preview) == nil {
+						if content, ok := preview["preview_content"].(string); ok && strings.TrimSpace(content) != "" {
+							format := "hocon"
+							if f, ok := preview["content_format"].(string); ok && f != "" {
+								format = f
+							}
+							return &RuntimeStorageCheckpointInspectJobConfig{
+								Content:       content,
+								ContentFormat: format,
+							}
+						}
+					}
+				}
+				if row.TaskID > 0 && s.repo.db.Migrator().HasTable("sync_tasks") {
+					var task struct {
+						Content       string `gorm:"column:content"`
+						ContentFormat string `gorm:"column:content_format"`
+					}
+					if err := s.repo.db.WithContext(ctx).Table("sync_tasks").
+						Select("content, content_format").
+						Where("id = ?", row.TaskID).
+						Scan(&task).Error; err == nil && strings.TrimSpace(task.Content) != "" {
+						format := task.ContentFormat
+						if format == "" {
+							format = "hocon"
+						}
+						return &RuntimeStorageCheckpointInspectJobConfig{
+							Content:       task.Content,
+							ContentFormat: format,
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// 3. 若数据库中未匹配到作业配置，从快照 ActionStates 算子标识中推断源端插件类型
+	// 3. If DB has no match, infer source connector plugin name directly from checkpoint ActionStates
+	if len(inspectResult.ActionStates) > 0 {
+		reAction := regexp.MustCompile(`\[Source\[\d+\]-([A-Za-z0-9_-]+)\]`)
+		for _, action := range inspectResult.ActionStates {
+			name, _ := action["name"].(string)
+			if matches := reAction.FindStringSubmatch(name); len(matches) > 1 {
+				pluginName := strings.TrimSpace(matches[1])
+				if pluginName != "" {
+					return buildMinimalHoconJobConfig(pluginName)
+				}
+			}
+		}
+	}
+
+	return nil
 }
 
 func (s *Service) attachCheckpointSourceStateInspect(

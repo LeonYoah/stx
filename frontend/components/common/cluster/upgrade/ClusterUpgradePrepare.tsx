@@ -361,6 +361,15 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
     return (
       <div className='space-y-6' data-testid='upgrade-prepare-page'>
         <WorkspaceHeader
+          breadcrumbs={[
+            {
+              label: t('clusterDetailBreadcrumb'),
+              href: `/clusters/${clusterId}`,
+            },
+            {
+              label: t('prepareTitle'),
+            },
+          ]}
           icon={<FileSearch />}
           title={t('prepareTitle')}
           subtitle={<span>{t('prepareDescription')}</span>}
@@ -405,6 +414,15 @@ export function ClusterUpgradePrepare({clusterId}: ClusterUpgradePrepareProps) {
   return (
     <div className='space-y-6' data-testid='upgrade-prepare-page'>
       <WorkspaceHeader
+        breadcrumbs={[
+          {
+            label: t('clusterDetailBreadcrumb'),
+            href: `/clusters/${clusterId}`,
+          },
+          {
+            label: t('prepareTitle'),
+          },
+        ]}
         icon={<FileSearch />}
         title={t('prepareTitle')}
         subtitle={

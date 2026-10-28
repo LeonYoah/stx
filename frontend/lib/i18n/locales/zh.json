@@ -536,7 +536,7 @@
     "createCluster": "创建集群",
     "createClusterDescription": "注册一个已有的 SeaTunnel 集群",
     "editCluster": "编辑集群",
-    "editClusterDescription": "编辑集群信息",
+    "editClusterDescription": "修改集群的基础元数据信息。",
     "deleteCluster": "删除集群",
     "deleteConfirm": "确定要删除集群 {name} 吗？此操作不可撤销。",
     "deleteConfirmWarning": "删除后将从控制面移除该集群及节点记录，并会通知各主机上的 Agent 停止进程。若勾选「强制删除」，还会通知 Agent 删除主机上的安装目录（如 /opt/seatunnel-xxx），数据将无法恢复。",
@@ -643,7 +643,7 @@
     "clusterMode": "部署模式",
     "nodeList": "节点列表",
     "addNode": "添加节点",
-    "addNodeDescription": "将主机添加为此集群的节点",
+    "addNodeDescription": "在纳管主机上部署或关联新的 SeaTunnel 节点并加入集群拓扑。",
     "addNodeSuccess": "节点添加成功",
     "addNodeError": "添加节点失败",
     "editNode": "编辑节点",
@@ -770,7 +770,7 @@
     "logFilter": "过滤",
     "logDate": "日期后缀",
     "registerCluster": "注册集群",
-    "registerClusterDescription": "注册一个已有的 SeaTunnel 集群",
+    "registerClusterDescription": "输入已有 SeaTunnel 集群的节点与安装信息，纳入平台统一运维管理。",
     "selectHostFirst": "请先选择一个主机",
     "selectAtLeastOneNode": "请至少选择一个已发现的节点进行注册",
     "separatedRequiresMasterAndWorker": "分离模式集群必须至少包含一个 Master 节点和一个 Worker 节点",
@@ -1196,8 +1196,8 @@
       "cancel": "取消",
       "confirmAction": "确认",
       "never": "从未",
-      "description": "开启后引擎把作业状态、表结构变更和 CDC 延迟推送给 STX：作业时间线能看到 DDL 和 CDC 延迟，状态变化会额外触发一次刷新。作业状态仍以轮询结果为准。",
-      "unsupported": "当前集群版本 {version} 不支持作业状态事件（需要 2.3.12 及以上，3.x 支持非终态）。",
+      "description": "开启后引擎把表结构变更和 CDC 延迟推送给 STX，可在作业详情中查看 DDL 事件时间线与 CDC 延迟监控。",
+      "unsupported": "当前集群版本 {version} 不支持事件上报（需要 SeaTunnel 2.3.12 及以上）。",
       "lastEvent": "最近事件：{time}",
       "counters": "已接收 {received} · 重复 {duplicates} · 丢弃 {dropped}",
       "authFails": "令牌校验失败 {count} 次",
@@ -1205,7 +1205,7 @@
       "modeTerminal": "仅上报终态",
       "url": "回调地址：{url}",
       "restartHint": "配置已写入 seatunnel.yaml，需要对集群执行滚动重启后才会开始上报。",
-      "degradedHint": "最近提交的作业没有在预期时间内收到状态事件，时间线和 CDC 延迟可能缺数据，作业状态照常按轮询更新。请检查集群能否访问回调地址，以及令牌是否与配置一致。",
+      "degradedHint": "最近提交的作业未在预期时间内收到状态事件，时间线和 CDC 延迟可能缺失。请检查集群能否访问回调地址，以及令牌是否与配置一致。",
       "applied": "已更新 seatunnel.yaml，滚动重启集群后生效",
       "appliedWithErrors": "部分节点配置写入失败：{errors}",
       "state": {
@@ -1221,11 +1221,11 @@
         },
         "disable": {
           "title": "关闭事件上报？",
-          "body": "将从全部节点的 seatunnel.yaml 中移除 event-report-http，重启后停止上报，时间线和 CDC 延迟不再更新；作业状态照常按轮询更新。"
+          "body": "将从全部节点的 seatunnel.yaml 中移除 event-report-http，重启后停止上报，时间线和 CDC 延迟将不再更新。"
         },
         "rotate": {
           "title": "轮换事件令牌？",
-          "body": "会生成新令牌并写入 seatunnel.yaml。重启前引擎仍使用旧令牌，期间上报会被拒绝；作业状态照常按轮询更新。"
+          "body": "会生成新令牌并写入 seatunnel.yaml。重启前引擎仍使用旧令牌，期间上报将被拒绝。"
         }
       }
     },
@@ -1527,7 +1527,7 @@
     "portChangeConfirmTitle": "确认同步 REST API 端口变更？",
     "portChangeConfirmDesc": "检测到 seatunnel.yaml 中的 seatunnel.engine.http.port 已变更。继续保存后，平台会同步处理相关元数据。",
     "portChangeConfirmSyncConfig": "会把新的 seatunnel.yaml 下发到目标节点。",
-    "portChangeConfirmSyncMetadata": "会同步更新数据库中的 cluster_nodes.api_port。",
+    "portChangeConfirmSyncMetadata": "同步更新平台中节点的 API 端口元数据。",
     "portChangeConfirmImpact": "后续平台 API 调用、Web UI 访问和任务提交通道都会使用新端口。",
     "jobLogModeTitle": "作业日志输出模式",
     "jobLogModePerJobBadge": "单 Job 独立日志模式 (推荐)",
@@ -2209,7 +2209,7 @@
     },
     "javaProxy": {
       "title": "stx-java-proxy",
-      "description": "托管能力代理，用于运行时存储探测等工具能力。",
+      "description": "托管能力代理，用于运行时存储探测与元数据反射。",
       "port": "监听端口",
       "portHint": "默认 18080。服务状态与日志保存在 Agent 主目录下。"
     },
@@ -2756,7 +2756,7 @@
         },
         "sync_event_channel_degraded": {
           "name": "事件通道降级",
-          "description": "集群的 SeaTunnel 事件通道从健康变为降级时触发，作业状态退回定时对账。"
+          "description": "集群的 SeaTunnel 事件通道从健康变为降级时触发，期间作业时间线与 CDC 延迟可能缺失。"
         },
         "cpu_usage_high": {
           "name": "CPU 使用率高",
@@ -3494,6 +3494,8 @@
     },
     "inspections": {
       "title": "巡检",
+      "dialogDescription": "针对集群 {name} 评估节点状态、关键进程与配置健康度。",
+      "dialogDescriptionGlobal": "评估受管集群的节点状态、关键进程与配置健康度。",
       "globalHint": "请选择一个受管集群，先做一次轻量检查，再决定是否继续抓现场证据。",
       "clusterScopedHint": "当前已按集群 {name} 过滤检查记录。",
       "matchedReports": "匹配巡检报告 {count} 条",
@@ -3951,7 +3953,7 @@
     "streamDisconnected": "未连接",
     "streamFallbackActivated": "事件流连接失败，已自动切换为轮询刷新。",
     "executionProgress": "执行进度",
-    "executionProgressDescription": "根据固定步骤编码展示本次升级当前已完成的比例。",
+    "executionProgressDescription": "展示本次升级当前已完成的执行进度比例。",
     "completedPercent": "完成比例",
     "startExecution": "启动升级执行",
     "restartExecution": "重新执行",
@@ -3965,7 +3967,7 @@
     "missingPlan": "未找到升级计划，请先在配置合并页生成计划。",
     "notStarted": "未开始",
     "stepTree": "步骤树",
-    "stepTreeDescription": "展示固定步骤链路及每一步的执行结果。",
+    "stepTreeDescription": "展示升级步骤链路及每一步的执行结果。",
     "executionDetailTitle": "执行详情",
     "executionDetailDescription": "在步骤树与节点执行状态之间切换查看。",
     "stepNodeCount": "节点数",
@@ -3975,7 +3977,7 @@
     "noEarlierLogs": "已是最早一页日志",
     "logsPageIndicator": "第 {page} / {total} 页",
     "upgradeRecordsTitle": "升级记录",
-    "upgradeRecordsDescription": "查看这个集群的历史升级任务，并进入某次任务的执行详情页。",
+    "upgradeRecordsDescription": "展示集群的历史升级记录，支持追溯升级日志与执行明细。",
     "noUpgradeRecords": "当前还没有升级记录。",
     "viewUpgradeDetail": "查看详情",
     "createdAt": "创建时间",
@@ -4752,7 +4754,7 @@
     "observabilityOff": "关闭",
     "observabilityHint": "仅 SeaTunnel 3.x 集群生效。开启后，运行中作业的「详情 › 拓扑」会显示忙碌度、背压与瓶颈提示，完整背压图可在 SeaTunnel Web UI 查看。",
     "timeoutSettings": "超时",
-    "timeoutSettingsHint": "提交没拿到引擎回复时，最多等多久确认作业是否已经启动；点停止后多久仍未停下算停止超时。留空使用全局默认，修改后需重新发布才生效。",
+    "timeoutSettingsHint": "提交未收到引擎响应时，最多等待多久确认作业是否已启动；发起停止后多久未结束判定为停止超时。留空使用全局默认，修改后重新发布生效。",
     "submitTimeoutSetting": "提交超时（分钟）",
     "stopTimeoutSetting": "停止超时（分钟）",
     "timeoutDefaultPlaceholder": "默认 {minutes}",

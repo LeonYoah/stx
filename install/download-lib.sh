@@ -402,3 +402,497 @@ stx_assert_online_allowed() {
     return 1
   fi
 }
+
+# ============================================================================
+# 安装器 UX：分步日志、交互（/dev/tty）、下载线路测速与选择、离线整包。
+# Installer UX: numbered steps, /dev/tty prompts, mirror probing/selection, whole offline bundles.
+# ============================================================================
+
+: "${STX_STEP_TOTAL:=0}"
+: "${STX_STEP_INDEX:=0}"
+STX_STEP_NAME="${STX_STEP_NAME:-}"
+STX_STEP_PREFIX="${STX_STEP_PREFIX:-}"
+
+# 颜色仅在终端且未设置 NO_COLOR 时启用。/ Colors only on a terminal and when NO_COLOR is unset.
+stx_init_colors() {
+  if [[ -z "${NO_COLOR:-}" && -t 2 ]]; then
+    STX_C_BOLD=$'\033[1m'; STX_C_GREEN=$'\033[32m'; STX_C_RED=$'\033[31m'
+    STX_C_YELLOW=$'\033[33m'; STX_C_CYAN=$'\033[36m'; STX_C_RESET=$'\033[0m'
+  else
+    STX_C_BOLD=""; STX_C_GREEN=""; STX_C_RED=""; STX_C_YELLOW=""; STX_C_CYAN=""; STX_C_RESET=""
+  fi
+  export STX_C_BOLD STX_C_GREEN STX_C_RED STX_C_YELLOW STX_C_CYAN STX_C_RESET
+}
+[[ -n "${STX_C_RESET+x}" ]] || stx_init_colors
+
+# 把本脚本后续输出同时写入日志文件（父进程已 tee 时不重复）。
+# Tee all further output into a log file (skipped when a parent already tees).
+# 用法 / Usage: stx_setup_log <default-log-path>
+stx_setup_log() {
+  if [[ "${STX_LOG_TEED:-}" == "1" && -n "${STX_INSTALL_LOG:-}" ]]; then
+    return 0
+  fi
+  STX_INSTALL_LOG="${STX_INSTALL_LOG:-$1}"
+  mkdir -p "$(dirname "$STX_INSTALL_LOG")" 2>/dev/null || true
+  if ! : >>"$STX_INSTALL_LOG" 2>/dev/null; then
+    STX_INSTALL_LOG="${TMPDIR:-/tmp}/$(basename "$STX_INSTALL_LOG")"
+    : >>"$STX_INSTALL_LOG" 2>/dev/null || { STX_INSTALL_LOG=""; return 0; }
+  fi
+  export STX_INSTALL_LOG
+  export STX_LOG_TEED=1
+  exec > >(tee -a "$STX_INSTALL_LOG") 2>&1
+}
+
+# 开始一个编号步骤：[3/8] 解压安装包...  / Start a numbered step.
+stx_step() {
+  STX_STEP_INDEX=$((STX_STEP_INDEX + 1))
+  STX_STEP_NAME="$1"
+  echo
+  echo "${STX_C_BOLD}${STX_C_CYAN}${STX_STEP_PREFIX}[${STX_STEP_INDEX}/${STX_STEP_TOTAL}] ${STX_STEP_NAME}...${STX_C_RESET}"
+}
+
+# 当前步骤成功。/ Mark the current step as done.
+stx_step_ok() {
+  echo "${STX_C_GREEN}  ✔ ${STX_STEP_PREFIX}[${STX_STEP_INDEX}/${STX_STEP_TOTAL}] ${STX_STEP_NAME}${1:+：$1}${STX_C_RESET}"
+}
+
+stx_info() { echo "  $*"; }
+stx_warn() { echo "${STX_C_YELLOW}  [WARN] $*${STX_C_RESET}" >&2; }
+stx_err() { echo "${STX_C_RED}  [ERROR] $*${STX_C_RESET}" >&2; }
+
+# EXIT trap 里调用：非 0 退出时说明哪一步失败、日志在哪。/ From an EXIT trap: report the failed step and log.
+stx_report_failure() {
+  local rc="$1" what="${2:-安装}"
+  [[ "$rc" -eq 0 ]] && return 0
+  echo >&2
+  if [[ "$STX_STEP_INDEX" -gt 0 ]]; then
+    echo "${STX_C_RED}${STX_C_BOLD}✘ ${what}失败：第 ${STX_STEP_INDEX}/${STX_STEP_TOTAL} 步「${STX_STEP_NAME}」出错（退出码 ${rc}）${STX_C_RESET}" >&2
+  else
+    echo "${STX_C_RED}${STX_C_BOLD}✘ ${what}失败（退出码 ${rc}）${STX_C_RESET}" >&2
+  fi
+  if [[ -n "${STX_INSTALL_LOG:-}" ]]; then
+    echo "  完整日志 / full log: ${STX_INSTALL_LOG}" >&2
+  fi
+}
+
+# 路径（或其最近的已存在上级目录）当前用户可写。/ The path, or its nearest existing parent, is writable by us.
+stx_path_writable() {
+  local p="$1"
+  [[ "$p" == /* ]] || p="$(pwd)/$p"
+  while [[ ! -e "$p" && "$p" != / ]]; do p="$(dirname "$p")"; done
+  [[ -d "$p" && -w "$p" && -x "$p" ]]
+}
+
+# 非 root 是否允许安装：必须显式指定可写的安装目录且 --no-systemd（注册 systemd 服务、默认 /opt/stx、
+# --service-user 的 chown 都需要 root）。
+# Non-root install is allowed only with an explicit writable install dir AND --no-systemd (the systemd unit,
+# the default /opt/stx and the --service-user chown all need root).
+# 用法 / Usage: stx_nonroot_install_ok <dir-explicit:true|false> <install-dir> <no-systemd:true|false> <service-user>
+stx_nonroot_install_ok() {
+  [[ "$1" == true && "$3" == true && -z "$4" ]] && stx_path_writable "$2"
+}
+
+# 打印带 sudo 的重跑命令：原参数逐个按 shell 规则加引号，密码值一律替换为 ******。
+# Print the sudo re-run command: original args are shell-quoted one by one, password values become ******.
+# 用法 / Usage: stx_sudo_rerun_cmd <command prefix, e.g. "sudo ./install.sh"> [original args...]
+stx_sudo_rerun_cmd() {
+  local out="$1" a mask=0
+  shift
+  for a in "$@"; do
+    if [[ "$mask" == 1 ]]; then out="$out ******"; mask=0; continue; fi
+    case "$a" in
+      --admin-password|--db-password) out="$out $a"; mask=1 ;;
+      --admin-password=*|--db-password=*) out="$out ${a%%=*}=******" ;;
+      *) out="$out $(printf '%q' "$a")" ;;
+    esac
+  done
+  printf '%s\n' "$out"
+}
+
+# 安装需要 root：不是 root 且不满足非 root 条件时，在任何提问 / 检查之前给出 sudo 命令并退出 1。
+# Installs need root: unless the non-root conditions hold, print the sudo command and exit 1 before any prompt.
+# 用法 / Usage: stx_require_root <command prefix> <dir-explicit> <install-dir> <no-systemd> <service-user> [args...]
+stx_require_root() {
+  local prefix="$1" explicit="$2" dir="$3" nosd="$4" svc="$5" cmd
+  shift 5
+  [[ "$(id -u)" -eq 0 ]] && return 0
+  stx_nonroot_install_ok "$explicit" "$dir" "$nosd" "$svc" && return 0
+  cmd="$(stx_sudo_rerun_cmd "$prefix" "$@")"
+  {
+    echo "${STX_C_RED}  [ERROR] 安装需要 root 权限 / installation requires root${STX_C_RESET}"
+    echo "  请用 sudo 执行：${cmd}"
+    [[ "$cmd" == *"******"* ]] && echo "  （命令中的密码已隐藏，请把 ****** 换成实际密码 / passwords are hidden: replace ******）"
+    echo "  不用 root 安装：同时指定当前用户可写的 --install-dir <目录> 与 --no-systemd（不注册系统服务）"
+    echo "  non-root: pass a writable --install-dir <dir> together with --no-systemd (no system service)"
+  } >&2
+  exit 1
+}
+
+# 是否可以交互：未设置 -y/STX_ASSUME_YES，且 /dev/tty 可读写。
+# Interactive only without -y/STX_ASSUME_YES and with a readable /dev/tty (works under curl | bash).
+# 终端读到 EOF 后的标记文件（$$ 在子 shell 中不变，命令替换里也能看到）。
+# Marker set once /dev/tty hits EOF ($$ is stable in subshells, so command substitutions see it too).
+stx_tty_eof_flag() { echo "${TMPDIR:-/tmp}/.stx-tty-eof-$$"; }
+
+stx_is_interactive() {
+  [[ "${STX_ASSUME_YES:-false}" == "true" || "${STX_ASSUME_YES:-0}" == "1" ]] && return 1
+  [[ "${STX_NONINTERACTIVE:-}" == "1" || "${STX_NONINTERACTIVE:-}" == "true" ]] && return 1
+  # CI 环境（GitHub Actions 等设置 CI=true）一律不提问。/ CI environments never prompt.
+  [[ -n "${CI:-}" && "${CI:-}" != "false" && "${CI:-}" != "0" ]] && return 1
+  [[ -e "$(stx_tty_eof_flag)" ]] && return 1
+  { : </dev/tty >/dev/tty; } 2>/dev/null
+}
+
+# 终端已关闭（EOF）：记下标记，之后按非交互处理。/ The terminal hit EOF: remember it and behave non-interactively.
+stx_mark_tty_eof() {
+  : >"$(stx_tty_eof_flag)" 2>/dev/null || true
+  { echo; echo "  [WARN] 终端输入已结束，其余问题使用默认值 / terminal input closed, using defaults for the rest"; } >/dev/tty 2>/dev/null || true
+}
+
+# 从 /dev/tty 读一行（带提示），回车返回默认值。/ Read a line from /dev/tty; Enter returns the default.
+# 用法 / Usage: v="$(stx_prompt "提示" "默认值" [timeout-seconds])"
+stx_prompt() {
+  local label="$1" def="${2:-}" timeout="${3:-0}" ans=""
+  if ! stx_is_interactive; then
+    echo "$def"
+    return 0
+  fi
+  printf '%s' "${STX_C_BOLD}  ? ${label}${STX_C_RESET} " >/dev/tty
+  local rc=0
+  if [[ "$timeout" -gt 0 ]]; then
+    IFS= read -r -t "$timeout" ans </dev/tty || rc=$?
+  else
+    IFS= read -r ans </dev/tty || rc=$?
+  fi
+  if [[ "$rc" -gt 128 ]]; then
+    echo >/dev/tty; ans=""          # 超时：用默认值。/ Timeout: use the default.
+  elif [[ "$rc" -ne 0 ]]; then
+    [[ -z "$ans" ]] && stx_mark_tty_eof   # EOF：用默认值并切换为非交互。/ EOF: default, then non-interactive.
+  fi
+  ans="${ans#"${ans%%[![:space:]]*}"}"
+  ans="${ans%"${ans##*[![:space:]]}"}"
+  [[ -z "$ans" ]] && ans="$def"
+  echo "$ans"
+}
+
+# 从 /dev/tty 读密码（不回显）。/ Read a secret from /dev/tty without echo.
+stx_prompt_secret() {
+  local label="$1" ans=""
+  if ! stx_is_interactive; then
+    return 0
+  fi
+  printf '%s' "${STX_C_BOLD}  ? ${label}${STX_C_RESET} " >/dev/tty
+  if ! IFS= read -r -s ans </dev/tty && [[ -z "$ans" ]]; then
+    stx_mark_tty_eof
+    return 0
+  fi
+  echo >/dev/tty
+  printf '%s' "$ans"
+}
+
+# ---------------------------------------------------------------------------
+# 下载线路（gh-proxy 加速 + GitHub 直连）。/ Download lines (gh-proxy accelerators + direct GitHub).
+# 每行：id|前缀|说明。/ Each entry: id|prefix|label.
+# ---------------------------------------------------------------------------
+STX_MIRROR_LINES=(
+  "gh-proxy|https://gh-proxy.org|Cloudflare (v4) 主站加速"
+  "v4|https://v4.gh-proxy.org|Cloudflare (v4) 优选，推荐，仅 IPv4"
+  "v6|https://v6.gh-proxy.org|Cloudflare (v4/v6) 优选，支持 IPv6"
+  "cdn|https://cdn.gh-proxy.org|Fastly (v4) CDN"
+  "axisnow|https://axisnow.gh-proxy.org|AxisNow (v4) 三网优选，仅 IPv4"
+  "github||GitHub 直连"
+)
+
+stx_mirror_field() { # <index0> <1=id|2=prefix|3=label>
+  local entry="${STX_MIRROR_LINES[$1]}"
+  echo "$entry" | cut -d'|' -f"$2"
+}
+
+# 把 --mirror / STX_MIRROR 的值解析成线路下标（0 起）；自定义 URL 返回 "custom:<url>"；auto/空 返回空。
+# Resolve a --mirror / STX_MIRROR value into a line index (0-based); custom URL => "custom:<url>"; auto/empty => "".
+stx_mirror_resolve() {
+  local want="${1:-}" i id prefix
+  want="${want%/}"
+  case "$want" in
+    ""|auto) echo ""; return 0 ;;
+    direct|none|https://github.com) want="github" ;;
+  esac
+  if [[ "$want" =~ ^[0-9]+$ ]]; then
+    if (( want >= 1 && want <= ${#STX_MIRROR_LINES[@]} )); then
+      echo $((want - 1)); return 0
+    fi
+    echo "[ERROR] invalid mirror number: $want (1-${#STX_MIRROR_LINES[@]})" >&2
+    return 1
+  fi
+  for i in "${!STX_MIRROR_LINES[@]}"; do
+    id="$(stx_mirror_field "$i" 1)"
+    prefix="$(stx_mirror_field "$i" 2)"
+    if [[ "$want" == "$id" || ( -n "$prefix" && "$want" == "$prefix" ) ]]; then
+      echo "$i"; return 0
+    fi
+  done
+  if [[ "$want" =~ ^https?:// ]]; then
+    echo "custom:$want"; return 0
+  fi
+  echo "[ERROR] unknown mirror: $want (use 1-${#STX_MIRROR_LINES[@]}, gh-proxy|v4|v6|cdn|axisnow|github, or a URL prefix)" >&2
+  return 1
+}
+
+# 探测单条线路：小范围 Range 请求，输出 "<ok:0|1> <首字节毫秒> <KB/s>"。
+# Probe one line with a small ranged request; prints "<ok:0|1> <ttfb-ms> <KB/s>".
+stx_mirror_probe_one() {
+  local url="$1" out code ttfb speed size
+  out="$(curl -sS -L -o /dev/null -r 0-524287 --connect-timeout "${STX_MIRROR_CONNECT_TIMEOUT:-3}" \
+    -m "${STX_MIRROR_PROBE_TIMEOUT:-6}" -w '%{http_code} %{time_starttransfer} %{speed_download} %{size_download}' \
+    "$url" 2>/dev/null || true)"
+  read -r code ttfb speed size <<<"${out:-000 0 0 0}"
+  if [[ "$code" =~ ^(200|206)$ && "${size%.*}" -gt 0 ]]; then
+    awk -v t="$ttfb" -v s="$speed" 'BEGIN { printf "1 %d %d\n", t * 1000, s / 1024 }'
+  else
+    echo "0 0 0"
+  fi
+}
+
+# 测速所有线路并确定下载顺序，结果写入 STX_MIRROR_ORDER（前缀列表，空串=直连）。
+# Probe every line and fix the download order into STX_MIRROR_ORDER (prefixes; empty string = direct).
+# 用法 / Usage: stx_choose_mirror <github-release-url-of-a-probe-asset> [mirror-preference]
+stx_choose_mirror() {
+  local raw_url="$1" pref="${2:-${STX_MIRROR:-}}" forced="" i n ok ms kbs best="" best_kbs=-1 url label id prefix choice
+  STX_MIRROR_ORDER=()
+  n="${#STX_MIRROR_LINES[@]}"
+
+  if [[ -z "$pref" && -n "${STX_DOWNLOAD_MIRROR_PREFIX:-}" ]]; then
+    pref="${STX_DOWNLOAD_MIRROR_PREFIX}"
+  fi
+  forced="$(stx_mirror_resolve "$pref")" || return 1
+  if [[ "$forced" == custom:* ]]; then
+    stx_info "使用自定义下载前缀 / custom mirror: ${forced#custom:}"
+    STX_MIRROR_ORDER=("${forced#custom:}")
+    for i in $(seq 0 $((n - 1))); do STX_MIRROR_ORDER+=("$(stx_mirror_field "$i" 2)"); done
+    STX_SELECTED_MIRROR_PREFIX="${STX_MIRROR_ORDER[0]}"
+    export STX_SELECTED_MIRROR_PREFIX
+    return 0
+  fi
+
+  local -a oks=() kbss=()
+  stx_info "测速各下载线路（每条最多 ${STX_MIRROR_PROBE_TIMEOUT:-6}s）/ probing download lines:"
+  for i in $(seq 0 $((n - 1))); do
+    prefix="$(stx_mirror_field "$i" 2)"
+    label="$(stx_mirror_field "$i" 3)"
+    url="$raw_url"
+    [[ -n "$prefix" ]] && url="${prefix}/${raw_url}"
+    read -r ok ms kbs <<<"$(stx_mirror_probe_one "$url")"
+    oks[i]="$ok"; kbss[i]="$kbs"
+    if [[ "$ok" == "1" ]]; then
+      printf '    %d) %-30s %-34s %6s ms  %8s KB/s\n' $((i + 1)) "${prefix:-https://github.com}" "$label" "$ms" "$kbs"
+      if (( kbs > best_kbs )); then best_kbs="$kbs"; best="$i"; fi
+    else
+      printf '    %d) %-30s %-34s %s\n' $((i + 1)) "${prefix:-https://github.com}" "$label" "不可用 / unreachable"
+    fi
+  done
+
+  if [[ -n "$forced" ]]; then
+    choice="$forced"
+    stx_info "按 --mirror/STX_MIRROR 使用线路 $((choice + 1))：$(stx_mirror_field "$choice" 3)"
+  else
+    [[ -z "$best" ]] && best=1  # 全部失败时先试推荐线路 v4。/ All failed: try the recommended v4 line first.
+    choice="$best"
+    if stx_is_interactive; then
+      local ans
+      while true; do
+        ans="$(stx_prompt "选择下载线路编号 [回车=最快的 $((best + 1))]:" "$((best + 1))" 30)"
+        if [[ "$ans" =~ ^[0-9]+$ ]] && (( ans >= 1 && ans <= n )); then choice=$((ans - 1)); break; fi
+        stx_is_interactive || break
+        echo "    请输入 1-${n} 之间的编号" >/dev/tty
+      done
+    fi
+    stx_info "使用线路 $((choice + 1))：$(stx_mirror_field "$choice" 3) ${STX_C_BOLD}$(stx_mirror_field "$choice" 2)${STX_C_RESET}"
+  fi
+
+  # 下载顺序：所选 → 其余可用（按速度降序）→ 其余不可用。/ Order: chosen -> other OK lines by speed -> the rest.
+  STX_MIRROR_ORDER=("$(stx_mirror_field "$choice" 2)")
+  local -a rest=()
+  for i in $(seq 0 $((n - 1))); do
+    [[ "$i" == "$choice" ]] && continue
+    [[ "${oks[i]}" == "1" ]] && rest+=("${kbss[i]} $i")
+  done
+  if [[ ${#rest[@]} -gt 0 ]]; then
+    while read -r _ i; do STX_MIRROR_ORDER+=("$(stx_mirror_field "$i" 2)"); done < <(printf '%s\n' "${rest[@]}" | sort -rn)
+  fi
+  for i in $(seq 0 $((n - 1))); do
+    [[ "$i" == "$choice" || "${oks[i]}" == "1" ]] && continue
+    STX_MIRROR_ORDER+=("$(stx_mirror_field "$i" 2)")
+  done
+  STX_SELECTED_MIRROR_PREFIX="${STX_MIRROR_ORDER[0]}"
+  export STX_SELECTED_MIRROR_PREFIX
+}
+
+# 带进度条下载（单条线路）。/ Download with a progress bar (one line).
+stx_download_progress() {
+  local url="$1" dest="$2"
+  mkdir -p "$(dirname "$dest")"
+  curl -fL --retry 2 --retry-delay 2 --connect-timeout 10 --speed-limit 1024 --speed-time 60 \
+    --progress-bar -o "$dest" "$url"
+}
+
+# 按 STX_MIRROR_ORDER 依次尝试下载，失败自动换下一条线路。/ Try lines in STX_MIRROR_ORDER, falling back on failure.
+# 用法 / Usage: stx_download_with_fallback <github-url> <dest> [quiet]
+stx_download_with_fallback() {
+  local raw_url="$1" dest="$2" quiet="${3:-}" prefix url tried=0
+  if [[ ${#STX_MIRROR_ORDER[@]} -eq 0 ]]; then
+    STX_MIRROR_ORDER=("")
+  fi
+  for prefix in "${STX_MIRROR_ORDER[@]}"; do
+    url="$raw_url"
+    [[ -n "$prefix" ]] && url="${prefix%/}/${raw_url}"
+    tried=$((tried + 1))
+    [[ "$tried" -gt 1 ]] && stx_warn "上一条线路失败，切换到 / falling back to: ${prefix:-https://github.com}"
+    rm -f "$dest"
+    if [[ -n "$quiet" ]]; then
+      if curl -fsSL --retry 2 --retry-delay 1 --connect-timeout 10 -m 120 -o "$dest" "$url" 2>/dev/null; then
+        return 0
+      fi
+    else
+      stx_info "下载 / downloading: $url"
+      if stx_download_progress "$url" "$dest"; then
+        STX_SELECTED_MIRROR_PREFIX="$prefix"
+        return 0
+      fi
+    fi
+  done
+  rm -f "$dest"
+  stx_err "所有线路均下载失败 / all download lines failed: $raw_url"
+  return 1
+}
+
+# ---------------------------------------------------------------------------
+# 离线整包。/ Whole offline bundles.
+# 变体：amd64（官方 Node，glibc ≥ 2.28）、arm64（官方 Node，glibc ≥ 2.28）、centos7（amd64 + Node 18 glibc217）。
+# Variants: amd64 (official Node, glibc >= 2.28), arm64 (official Node), centos7 (amd64 + Node 18 glibc217).
+# ---------------------------------------------------------------------------
+
+# glibc 版本是否低于 2.28。/ True when glibc is older than 2.28.
+stx_glibc_lt_228() {
+  local ver major minor
+  ver="${1:-$(stx_detect_glibc_version)}"
+  [[ -z "$ver" ]] && return 1
+  major="${ver%%.*}"; minor="${ver#*.}"; minor="${minor%%.*}"
+  (( major < 2 || (major == 2 && minor < 28) ))
+}
+
+# 自动判定离线包变体。/ Auto-detect the bundle variant for this host.
+stx_detect_bundle_variant() {
+  local arch="${1:-}"
+  [[ -z "$arch" ]] && { arch="$(stx_detect_arch)" || return 1; }
+  if [[ "$arch" == "amd64" ]] && stx_glibc_lt_228 ""; then
+    echo "centos7"
+  else
+    echo "$arch"
+  fi
+}
+
+# 变体 → 架构。/ Variant -> CPU arch.
+stx_bundle_variant_arch() {
+  case "$1" in
+    amd64|centos7) echo "amd64" ;;
+    arm64) echo "arm64" ;;
+    *) echo "[ERROR] unknown bundle variant: $1 (amd64|arm64|centos7)" >&2; return 1 ;;
+  esac
+}
+
+# 变体 → 文件名中的平台段。/ Variant -> platform segment in file names.
+stx_bundle_platform() {
+  case "$1" in
+    amd64) echo "linux-amd64" ;;
+    arm64) echo "linux-arm64" ;;
+    centos7) echo "linux-amd64-centos7" ;;
+    *) echo "[ERROR] unknown bundle variant: $1 (amd64|arm64|centos7)" >&2; return 1 ;;
+  esac
+}
+
+# 版本化包名：stx-<ver>-linux-amd64-offline.tar.gz。/ Versioned bundle asset name.
+stx_bundle_asset_name() {
+  local ver="$1" variant="$2" plat
+  plat="$(stx_bundle_platform "$variant")" || return 1
+  echo "stx-${ver}-${plat}-offline.tar.gz"
+}
+
+# 固定别名（供 releases/latest/download 直链）：stx-offline-linux-amd64.tar.gz。
+# Stable alias for releases/latest/download links.
+stx_bundle_alias_name() {
+  local plat
+  plat="$(stx_bundle_platform "$1")" || return 1
+  echo "stx-offline-${plat}.tar.gz"
+}
+
+# 解析 Release 中离线包的 GitHub URL（latest 用固定别名，不需要调用 API）。
+# GitHub URL of the release bundle (latest uses the stable alias, no API call needed).
+# 用法 / Usage: stx_bundle_release_url <tag|latest> <variant> [asset-name-override]
+stx_bundle_release_url() {
+  local tag="$1" variant="$2" asset="${3:-}"
+  if [[ -z "$asset" ]]; then
+    if [[ "$tag" == "latest" ]]; then
+      asset="$(stx_bundle_alias_name "$variant")" || return 1
+    else
+      asset="$(stx_bundle_asset_name "$tag" "$variant")" || return 1
+    fi
+  fi
+  stx_build_github_release_url "$tag" "$asset" ""
+}
+
+# 打印 6 条线路的 wget 命令。/ Print wget commands for all 6 lines.
+stx_print_wget_lines() {
+  local raw_url="$1" i prefix label
+  for i in "${!STX_MIRROR_LINES[@]}"; do
+    prefix="$(stx_mirror_field "$i" 2)"
+    label="$(stx_mirror_field "$i" 3)"
+    echo "# $((i + 1))) ${label}"
+    if [[ -n "$prefix" ]]; then
+      echo "wget \"${prefix}/${raw_url}\""
+    else
+      echo "wget \"${raw_url}\""
+    fi
+  done
+}
+
+# 可用磁盘空间（MB）。/ Free disk space in MB for a path.
+stx_free_mb() {
+  local p="$1"
+  while [[ ! -d "$p" && "$p" != "/" ]]; do p="$(dirname "$p")"; done
+  df -Pm "$p" 2>/dev/null | awk 'NR==2 {print $4}'
+}
+
+# 下载并校验离线整包（测速选线 → 下载 .sha256 → 带进度下载 → 校验），结果写入 STX_BUNDLE_FILE。
+# Download and verify a whole offline bundle (probe lines -> .sha256 -> download with progress -> verify).
+# 调用方需先设置 STX_STEP_TOTAL；本函数占 3 步。/ Caller sets STX_STEP_TOTAL; this function uses 3 steps.
+# 用法 / Usage: stx_fetch_bundle <tag|latest> <variant> <dest-dir> [asset-name-override]
+stx_fetch_bundle() {
+  local tag="$1" variant="$2" dest_dir="$3" asset="${4:-}" url name free
+  url="$(stx_bundle_release_url "$tag" "$variant" "$asset")" || return 1
+  name="${url##*/}"
+  mkdir -p "$dest_dir"
+
+  stx_step "选择下载线路 / choosing a download line"
+  stx_info "离线包 / bundle: $name"
+  stx_choose_mirror "$url" || return 1
+  stx_step_ok "${STX_SELECTED_MIRROR_PREFIX:-https://github.com}"
+
+  stx_step "下载离线包 / downloading the bundle"
+  free="$(stx_free_mb "$dest_dir")"
+  if [[ -n "$free" && "$free" -lt 1500 ]]; then
+    stx_warn "$dest_dir 可用空间只有 ${free} MB，离线包约 500 MB，解压安装需要约 1.5 GB"
+  fi
+  if ! stx_download_with_fallback "${url}.sha256" "$dest_dir/${name}.sha256" quiet; then
+    stx_err "无法下载 ${name}.sha256：该版本可能没有离线包（v1.2.0 及更早版本没有），请用 --version 指定更新的版本"
+    return 1
+  fi
+  stx_download_with_fallback "$url" "$dest_dir/$name" || return 1
+  stx_step_ok "$dest_dir/$name ($(( $(wc -c <"$dest_dir/$name") / 1024 / 1024 )) MB)"
+
+  stx_step "校验 sha256 / verifying sha256"
+  stx_verify_sha256 "$dest_dir/$name" "$dest_dir/${name}.sha256" || return 1
+  stx_step_ok
+  STX_BUNDLE_FILE="$dest_dir/$name"
+  export STX_BUNDLE_FILE
+}
+

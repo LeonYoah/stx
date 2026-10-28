@@ -1690,7 +1690,7 @@ func defaultClusterRules(clusterID uint) []*AlertRule {
 			ClusterID:     clusterID,
 			RuleKey:       syncalert.RuleEventChannelDegraded,
 			RuleName:      "事件通道降级告警",
-			Description:   "当集群的 SeaTunnel 事件通道从健康变为降级时触发告警，作业状态退回定时对账",
+			Description:   "当集群的 SeaTunnel 事件通道从健康变为降级时触发告警，期间时间线与 CDC 延迟数据可能中断",
 			Severity:      AlertSeverityWarning,
 			Enabled:       true,
 			Threshold:     1,

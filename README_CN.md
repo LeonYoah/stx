@@ -69,7 +69,7 @@ STX 就是围绕这些事的控制面：把主机、集群、安装包、插件�
 | Ubuntu / Debian | 支持 | 支持 | 推荐；本机 Node ≥ 18.18 可跳过下载 Node 包 |
 | Rocky Linux / AlmaLinux / CentOS Stream / RHEL 8+ | 支持 | 支持 | 走官方 Node 22 |
 | CentOS 7（glibc 2.17） | 支持 | **不支持** | 仅 amd64；自动选用 `node-18-glibc217`。arm64 无该 Node 构建，故不支持 |
-| 其他带 systemd 的 Linux | 通常可用 | 通常可用 | 需 glibc ≥ 2.17；低于 2.27 按 CentOS 7 规则选 Node |
+| 其他带 systemd 的 Linux | 通常可用 | 通常可用 | 需 glibc ≥ 2.17；低于 2.28 使用 centos7 离线包 |
 
 macOS / Windows 可作本地开发，不是当前一键安装目标。默认端口：API **17800**、前端 **17880**、gRPC **17890**。
 
@@ -104,55 +104,72 @@ pnpm dev
 
 ### 在线安装（推荐）
 
-默认装最新 Release。
+一条命令：按本机 CPU / glibc 选离线整包，走最快线路下载，校验 sha256 后安装。
 
 ```bash
+# 中国（推荐，gh-proxy v4 线路）
+curl -fsSL https://v4.gh-proxy.org/https://github.com/LeonYoah/stx/releases/latest/download/install-online.sh | sudo bash
+
 # 海外
-curl -fsSL https://github.com/LeonYoah/stx/releases/latest/download/install-online.sh | bash
-
-# 中国（链接已带 gh-proxy）
-curl -fsSL https://v4.gh-proxy.org/https://github.com/LeonYoah/stx/releases/latest/download/install-online.sh | bash
+curl -fsSL https://github.com/LeonYoah/stx/releases/latest/download/install-online.sh | sudo bash
 ```
 
-常用参数：`--version v1.2.0`（或环境变量 `STX_VERSION=v1.2.0`，默认 `latest`）、`--install-dir /opt/stx`、`--arch amd64|arm64`、`--without-node`、`--without-observability`、`--no-systemd`、`--no-start`。  
-指定版本：`curl -fsSL .../install-online.sh | bash -s -- --version v1.2.0`。  
-脚本按 glibc 选 Node 变体（&lt;2.27 → glibc217，仅 amd64；arm64 总是 official）；本机 Node ≥ 18.18 自动跳过；也可用 `--without-node`（本机无 Node 或 &lt; 18.18 时直接报错）。  
-依赖：`bash`、`curl`、`tar`、`gzip`、`awk`/`sed`/`grep`、`find`，**不再需要 python3**。有 systemd 时安装器会 enable 并通过 `systemctl start stx` 启动，装完即可 `systemctl status|restart stx`。
+- 下载线路：`1) gh-proxy` `2) v4`（推荐）`3) v6` `4) cdn`（Fastly）`5) axisnow` `6) github`（直连），默认自动选最快；`--mirror v4|2|https://自定义前缀` 或 `STX_MIRROR=...` 可指定。
+- 变体：`--variant amd64|arm64|centos7`（默认自动：amd64 且 glibc < 2.28 → centos7）。指定版本：`bash -s -- --version v1.3.0`。
+- 非交互（CI / 批量）：`curl ... | sudo bash -s -- -y --admin-password 'xxx'`。
+- 依赖：`bash`、`curl`、`tar`、`gzip`、`awk`/`sed`/`grep`、`sha256sum`，**不需要 python3**。
 
-### 离线安装（脚本生成 bundle）
+### 离线安装（下载整包）
+
+每个 Release 附带三个完整离线包（含后端、Agent、前端、Node 运行时、监控三件套、Java 代理），各带 `.sha256`：
+
+| 离线包 | 适用系统 | Node |
+| --- | --- | --- |
+| `stx-<版本>-linux-amd64-offline.tar.gz` | x86_64，glibc ≥ 2.28（Ubuntu 20.04+、Debian 10+、Rocky/Alma/RHEL 8+、openEuler、麒麟 V10 等） | 官方 Node 22 |
+| `stx-<版本>-linux-arm64-offline.tar.gz` | aarch64，glibc ≥ 2.28 | 官方 Node 22 |
+| `stx-<版本>-linux-amd64-centos7-offline.tar.gz` | x86_64，glibc < 2.28（**CentOS 7**、RHEL 7） | Node 18 glibc217 |
+
+不确定选哪个：`uname -m`（x86_64 / aarch64）+ `ldd --version | head -1`（glibc 版本）。
+
+`latest` 也提供固定文件名（`stx-offline-linux-amd64.tar.gz`、`stx-offline-linux-arm64.tar.gz`、`stx-offline-linux-amd64-centos7.tar.gz`），可直接 wget。以 CentOS 7 为例（任选一条，哪条快用哪条）：
 
 ```bash
-# 海外
-curl -fsSL https://github.com/LeonYoah/stx/releases/latest/download/download-bundle.sh | bash
-# 中国
-curl -fsSL https://v4.gh-proxy.org/https://github.com/LeonYoah/stx/releases/latest/download/download-bundle.sh | bash
+F=stx-offline-linux-amd64-centos7.tar.gz   # 或 stx-offline-linux-amd64.tar.gz / stx-offline-linux-arm64.tar.gz
+U=https://github.com/LeonYoah/stx/releases/latest/download/$F
+wget "https://gh-proxy.org/$U"          # 1) gh-proxy 主站
+wget "https://v4.gh-proxy.org/$U"       # 2) v4 优选（推荐）
+wget "https://v6.gh-proxy.org/$U"       # 3) v6 优选（支持 IPv6）
+wget "https://cdn.gh-proxy.org/$U"      # 4) Fastly CDN
+wget "https://axisnow.gh-proxy.org/$U"  # 5) AxisNow 三网优选
+wget "$U"                               # 6) GitHub 直连
+# 同样方式下载 $F.sha256，然后：
+sha256sum -c "$F.sha256"
+tar -xzf "$F" && cd stx-*-offline/
+sudo ./install.sh
 ```
 
-bundle 默认**总是**组装 Node 运行时（与打包机是否装了 Node 无关），因此体积比以前大（多一个几十 MB 的 Node 包）；变体按打包机 glibc 自动选择，可用 `--node-variant` 指定：
+能联网的机器上也可用脚本测速下载：`curl -fsSL https://v4.gh-proxy.org/https://github.com/LeonYoah/stx/releases/latest/download/download-bundle.sh | bash`（`--variant centos7`、`--print-urls` 只打印以上 6 条链接）。
 
-| 打包机 | 组装的 Node |
-|------|----------------|
-| amd64，glibc &lt; 2.27（如 CentOS 7） | `node-18-glibc217` |
-| amd64，glibc ≥ 2.27 | `node-22-official` |
-| arm64（任意 glibc） | `node-22-official`（无 arm64 glibc217 构建；目标机需 glibc ≥ 2.28） |
-| `--without-node` | **不**组装——仅当离线目标机 `PATH` 中已有 Node ≥ 18.18 时使用，否则 `install.sh` 会明确报错退出 |
-
-deps 上缺少所选 Node 包时 bundle 脚本直接失败（并提示 `--node-variant official`），不会产出缺 Node 的包。
-
-CentOS 7：`bash -s -- --node-variant glibc217 --arch amd64`。指定版本：`bash -s -- --version v1.2.0`（或 `STX_VERSION=v1.2.0`）。产出 `dist/offline/stx-offline-bundle-*.tar.gz`。
+### 常用参数
 
 ```bash
-tar -xzf stx-offline-bundle-*-linux-*.tar.gz
-# 末尾的 "/" 只匹配解压出的目录，不会同时匹配旁边的 .tar.gz
-cd stx-offline-bundle-*-linux-*/
-sudo ./install.sh --install-dir /opt/stx --offline
+sudo ./install.sh                                    # 交互安装：回车 = 默认值
+sudo ./install.sh -y --admin-password 'xxx'          # 非交互
+sudo ./install.sh --db-type mysql    --db-host 10.0.0.5 --db-user stx --db-name stx
+sudo ./install.sh --db-type postgres --db-host 10.0.0.5 --db-user stx --db-name stx
+sudo ./install.sh --install-dir /data/stx --frontend-port 18880 --http-port 18800 --grpc-port 18890
 ```
 
-### 手动点链接下载（不能跑脚本）
+- 数据库：`sqlite`（默认）/ `mysql` / `postgres`（`pg`）；数据库密码会提示输入，也可用 `--db-password` 或 `STX_DB_PASSWORD`（`sudo STX_DB_PASSWORD='xxx' ./install.sh ...`）。
+- 需用 sudo 执行；不用 root 时须同时指定可写的 `--install-dir` 与 `--no-systemd`。
+- 其它参数：`--external-ip`、`--without-observability`、`--service-user`、`--no-systemd`、`--no-start`、`--force`；完整列表：`./install.sh --help`。
+- `--mirror`、`--variant`、`--version`、`--bundle-file` 只用于 `install-online.sh` / `download-bundle.sh`，离线 `install.sh` 不接受；`install-online.sh` 会把其余参数原样传给 `install.sh`（`curl ... | sudo bash -s -- --db-type postgres ...`）。
+
+### 手动点链接下载（不能跑脚本，按需组装）
 
 1. 下辅助包并解压：[stx-install-helpers.tar.gz](https://github.com/LeonYoah/stx/releases/latest/download/stx-install-helpers.tar.gz)  
 2. 再下下面的包，放进 `packages/`  
-3. `./install.sh --offline`  
+3. `sudo ./install.sh --offline`  
 
 中国：复制链接到 [https://gh-proxy.com/](https://gh-proxy.com/) 打开。
 
@@ -170,8 +187,8 @@ node -v
 
 | 环境 | amd64 | arm64 |
 | --- | --- | --- |
-| glibc &lt; 2.27（如 CentOS 7）必下 | [node-18-glibc217](https://github.com/LeonYoah/stx/releases/download/deps/node-18-glibc217-linux-amd64.tar.gz) | 不支持 |
-| glibc ≥ 2.27 且无 Node ≥ 18.18 | [node-22-official](https://github.com/LeonYoah/stx/releases/download/deps/node-22-official-linux-amd64.tar.gz) | [node-22-official](https://github.com/LeonYoah/stx/releases/download/deps/node-22-official-linux-arm64.tar.gz) |
+| glibc &lt; 2.28（如 CentOS 7）必下 | [node-18-glibc217](https://github.com/LeonYoah/stx/releases/download/deps/node-18-glibc217-linux-amd64.tar.gz) | 不支持 |
+| glibc ≥ 2.28 且无 Node ≥ 18.18 | [node-22-official](https://github.com/LeonYoah/stx/releases/download/deps/node-22-official-linux-amd64.tar.gz) | [node-22-official](https://github.com/LeonYoah/stx/releases/download/deps/node-22-official-linux-arm64.tar.gz) |
 | 已有 Node ≥ 18.18 | 不用下 | 不用下 |
 
 ### Docker 全量启动

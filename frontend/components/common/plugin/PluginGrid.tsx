@@ -40,6 +40,8 @@ interface PluginGridProps {
   downloadingPlugins?: Set<string>;
   /** Map of plugin name + version to downloaded status / 插件名称+版本到已下载状态的映射 */
   downloadedPlugins?: Set<string>;
+  /** Map of plugin name + version to download progress percentage / 插件名称+版本到下载进度数值(0-100)的映射 */
+  downloadProgressMap?: Map<string, number>;
 }
 
 // Default page size / 默认每页数量
@@ -58,6 +60,7 @@ export function PluginGrid({
   onDownload,
   downloadingPlugins = new Set(),
   downloadedPlugins = new Set(),
+  downloadProgressMap = new Map(),
 }: PluginGridProps) {
   const t = useTranslations();
 
@@ -125,18 +128,30 @@ export function PluginGrid({
     <div className="space-y-6">
       {/* Plugin grid / 插件网格 */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-        {currentPlugins.map((plugin) => (
-          <PluginCard
-            key={plugin.name}
-            plugin={plugin}
-            onClick={() => onViewDetail(plugin)}
-            showInstallButton={showInstallButton}
-            isDownloading={downloadingPlugins.has(`${plugin.name}:${plugin.version}`)}
-            isDownloaded={downloadedPlugins.has(`${plugin.name}:${plugin.version}`)}
-            onInstall={onInstall ? () => onInstall(plugin) : undefined}
-            onDownload={onDownload ? () => onDownload(plugin) : undefined}
-          />
-        ))}
+        {currentPlugins.map((plugin) => {
+          const downloadKey = `${plugin.name}:${plugin.version}`;
+          // 已下载状态优先判定；已就绪的插件不可再标记为下载中。
+          // Check downloaded state first; downloaded plugins must never remain marked as downloading.
+          const isDownloaded = downloadedPlugins.has(downloadKey);
+          const isDownloading = !isDownloaded && downloadingPlugins.has(downloadKey);
+          // 若已下载进度为 100%，否则从进度映射中读取实时百分比。
+          // Progress is 100% when downloaded; otherwise retrieve real-time percentage from progress map.
+          const progress = isDownloaded ? 100 : (downloadProgressMap.get(downloadKey) ?? 0);
+
+          return (
+            <PluginCard
+              key={plugin.name}
+              plugin={plugin}
+              onClick={() => onViewDetail(plugin)}
+              showInstallButton={showInstallButton}
+              isDownloading={isDownloading}
+              isDownloaded={isDownloaded}
+              downloadProgress={progress}
+              onInstall={onInstall ? () => onInstall(plugin) : undefined}
+              onDownload={onDownload ? () => onDownload(plugin) : undefined}
+            />
+          );
+        })}
       </div>
 
       {/* Pagination / 分页 */}

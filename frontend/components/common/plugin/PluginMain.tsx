@@ -319,6 +319,18 @@ export function PluginMain() {
     return filtered;
   }, [filterCategory, plugins, searchKeyword]);
 
+  // 下载进度映射：key -> progress 百分比数值 (0-100)
+  // Download progress mapping: key -> progress percentage (0-100)
+  const downloadProgressMap = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const d of activeDownloads) {
+      if (d.progress !== undefined && d.progress !== null) {
+        map.set(pluginDownloadKey(d.plugin_name, d.version), d.progress);
+      }
+    }
+    return map;
+  }, [activeDownloads]);
+
   const loadPlugins = useCallback(
     async (options?: {force?: boolean}) => {
       // 必须带明确版本请求，禁止空 version 触发后端 DefaultVersion(2.3.12) 锁死 UI。
@@ -406,11 +418,10 @@ export function PluginMain() {
       ]);
 
       setLocalPlugins(localResult || []);
-      setDownloadedPlugins(
-        new Set(
-          (localResult || []).map((item) => pluginDownloadKey(item.name, item.version)),
-        ),
+      const downloadedKeys = new Set(
+        (localResult || []).map((item) => pluginDownloadKey(item.name, item.version)),
       );
+      setDownloadedPlugins(downloadedKeys);
       setActiveDownloads(downloadsResult || []);
       // 同步偏好集群列表，保持默认版本解析与本地 Tab 数据一致。
       // Keep preference clusters in sync with local-tab fetch for default version resolution.
@@ -447,24 +458,44 @@ export function PluginMain() {
         );
       }
 
-      // 活动下载中的 downloading 集合；保留刚入队、尚未出现在列表中的乐观态。
-      // Build downloading set from active tasks; keep optimistic keys not yet listed.
+      // 活动下载中的 downloading 集合；保留刚入队、尚未出现在列表中的乐观态，并剔除已落盘就绪的插件。
+      // Build downloading set from active tasks; retain optimistic queued keys and drop already downloaded ones.
       const downloading = new Set(
         downloadsResult
           ?.filter((d) => d.status === 'downloading')
           .map((d) => pluginDownloadKey(d.plugin_name, d.version)) || [],
       );
       setDownloadingPlugins((prev) => {
-        const next = new Set(downloading);
+        const next = new Set<string>();
+        // 1. 保留后端活跃下载列表中且尚未在本地就绪的插件
+        // 1. In-flight tasks from active downloads reported by backend (excluding downloaded ones)
+        for (const key of downloading) {
+          if (!downloadedKeys.has(key)) {
+            next.add(key);
+          }
+        }
+        // 2. 检查前序乐观任务
+        // 2. Check optimistic tasks from previous state
         for (const key of prev) {
+          // 若已在本地就绪，坚决移出 downloading 状态
+          // If already downloaded locally, strictly remove from downloading state
+          if (downloadedKeys.has(key)) {
+            continue;
+          }
+          // 若后端已有记录，仅在仍处于 downloading 状态时保留
+          // If listed in backend, only retain if still in downloading status
           const listed = (downloadsResult || []).find(
             (d) => pluginDownloadKey(d.plugin_name, d.version) === key,
           );
-          if (!listed) {
-            next.add(key);
+          if (listed) {
+            if (listed.status === 'downloading') {
+              next.add(key);
+            }
             continue;
           }
-          if (listed.status === 'downloading') {
+          // 若尚未进入后端列表但前序存在，且未进入失败记录，短时间保留乐观态
+          // If not listed in backend yet, not downloaded, and not failed, retain optimistic state
+          if (!notifiedFailedDownloadsRef.current.has(key)) {
             next.add(key);
           }
         }
@@ -1520,6 +1551,7 @@ export function PluginMain() {
               onDownload={handleDownloadPlugin}
               downloadingPlugins={downloadingPlugins}
               downloadedPlugins={downloadedPlugins}
+              downloadProgressMap={downloadProgressMap}
             />
           )}
 
@@ -1867,7 +1899,15 @@ export function PluginMain() {
             setIsInstallOpen(next);
             if (!next) {
               setInstallContext(null);
+              // 弹窗关闭时静默同步本地已下载插件与安装状态。
+              // Silently refresh local plugins and cluster install status on dialog close.
+              void loadLocalPlugins();
             }
+          }}
+          onDownloadComplete={() => {
+            // 下载完成时触发主界面数据刷新，使卡片与列表即时呈现就绪状态。
+            // Trigger main view refresh upon download completion to reflect ready state immediately.
+            void loadLocalPlugins();
           }}
           plugin={installContext.plugin}
           version={installContext.version}

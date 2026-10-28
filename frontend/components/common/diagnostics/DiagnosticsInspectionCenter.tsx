@@ -1351,10 +1351,10 @@ export function DiagnosticsInspectionCenter({
             </DialogTitle>
             <DialogDescription>
               {clusterId
-                ? t('inspections.clusterScopedHint', {
+                ? t('inspections.dialogDescription', {
                     name: clusterName || `#${clusterId}`,
                   })
-                : t('inspections.globalHint')}
+                : t('inspections.dialogDescriptionGlobal')}
             </DialogDescription>
           </DialogHeader>
 

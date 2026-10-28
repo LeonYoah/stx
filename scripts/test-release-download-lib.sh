@@ -303,4 +303,40 @@ expect_eq "latest url uses alias" "https://github.com/LeonYoah/stx/releases/late
 expect_eq "tag url uses versioned name" "https://github.com/LeonYoah/stx/releases/download/v1.3.0/stx-v1.3.0-linux-amd64-offline.tar.gz" \
   "$(stx_bundle_release_url v1.3.0 amd64)"
 
+# ---------- 非交互判定 / non-interactive detection ----------
+if (unset STX_ASSUME_YES STX_NONINTERACTIVE; CI=true stx_is_interactive); then
+  echo "FAIL CI=true must be non-interactive"; fail=1
+else
+  echo "OK CI=true is non-interactive"
+fi
+: >"$(stx_tty_eof_flag)"
+if (unset STX_ASSUME_YES STX_NONINTERACTIVE CI; stx_is_interactive); then
+  echo "FAIL tty EOF marker must make it non-interactive"; fail=1
+else
+  echo "OK tty EOF marker => non-interactive"
+fi
+rm -f "$(stx_tty_eof_flag)"
+expect_eq "stx_prompt non-interactive returns default" "dflt" "$(STX_NONINTERACTIVE=1 stx_prompt "x" dflt)"
+forced="$(STX_NONINTERACTIVE=1 STX_PORT_PROBE_LIMIT=50 timeout 20 bash -c 'source "$0/install/download-lib.sh"; source "$0/install/install-core.sh"; stx_ask_port_forced p 40000 ""' "$ROOT_DIR" 2>/dev/null)"
+if [[ "$forced" =~ ^[0-9]+$ && "$forced" -gt 40000 ]]; then echo "OK forced port without tty takes the suggestion (no loop)"; else echo "FAIL forced port without tty: [$forced]"; fail=1; fi
+nosug="$(STX_NONINTERACTIVE=1 STX_PORT_PROBE_LIMIT=0 timeout 20 bash -c 'source "$0/install/download-lib.sh"; source "$0/install/install-core.sh"; stx_ask_port_forced p 40000 "" >/dev/null 2>&1; echo $?' "$ROOT_DIR")"
+expect_eq "forced port without tty and no suggestion fails (no loop)" 1 "$nosug"
+expect_eq "confirm port without tty keeps current" "17880" "$(STX_NONINTERACTIVE=1 stx_ask_port_confirm "p" 17880 "" x "" 2>/dev/null)"
+
+# ---------- 管理员数据库状态 / admin database state ----------
+kd="$(mktemp -d)"
+printf 'database:\n  type: "sqlite"\n  sqlite_path: ./data/stx.db\n' >"$kd/config.yaml"
+expect_eq "sqlite without db file => new" new "$(stx_admin_db_kind "$kd" "$kd/config.yaml")"
+mkdir -p "$kd/data" && echo x >"$kd/data/stx.db"
+expect_eq "sqlite with db file => existing" existing "$(stx_admin_db_kind "$kd" "$kd/config.yaml")"
+printf 'database:\n  type: "mysql"\n  host: "db"\n' >"$kd/mysql.yaml"
+expect_eq "preserved mysql config => external (not 'initialized')" external "$(stx_admin_db_kind "$kd" "$kd/mysql.yaml")"
+expect_eq "chosen mysql overrides sqlite config" external "$(STX_DB_TYPE_OVERRIDE=mysql stx_admin_db_kind "$kd" "$kd/config.yaml")"
+if stx_existing_admin_db "$kd" "$kd/mysql.yaml"; then
+  echo "FAIL external DB must not be treated as initialized"; fail=1
+else
+  echo "OK external DB not treated as initialized"
+fi
+rm -rf "$kd"
+
 exit "$fail"

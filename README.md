@@ -148,15 +148,15 @@ On a connected host you can also let the script probe and download: `curl -fsSL 
 
 1. **Pre-flight** (before any prompt): CPU / glibc, every port, disk space, systemd — one consolidated list.
 2. **Settings** — Enter = default, so most users just press Enter:
-   - initial password of `admin` (Enter keeps `admin123`; hidden, confirmed)
    - web `17880`, API `17800`, gRPC `17890` (Agents connect back); ports that failed pre-flight must be changed
    - advertised IP / host (auto-detected, written to `app.external_url`, used by Agents and alert links)
    - database: `1) SQLite` (default, built-in) or `2) MySQL` (then host / port / user / password / name; create the database first with `CREATE DATABASE stx DEFAULT CHARACTER SET utf8mb4;`, tables are created on first start)
+   - initial password of `admin` (Enter keeps `admin123`; hidden, confirmed). It only applies while the database has no admin yet; with external MySQL or on reinstall the installer confirms it by logging in after start
 3. unpack → 4. copy → 5. write config → 6. systemd → 7. start and wait until ready
 
 With `-y` or without a terminal (CI) nothing is asked and defaults / flags are used; port conflicts then fail with the flag to change.
 
-Flag-only settings: `--install-dir`, `--without-observability`, `--prometheus-port` / `--alertmanager-port` / `--grafana-port`, `--without-node`, `--mirror`, `--service-user`, `--no-autostart`, `--no-systemd`, `--no-start`; plus `--admin-password`, `--frontend-port`, `--http-port`, `--grpc-port`, `--external-ip`, `--db-type/--db-host/--db-port/--db-user/--db-password/--db-name`. See `./install.sh --help`.
+Flag-only settings: `--install-dir`, `--without-observability`, `--prometheus-port` / `--alertmanager-port` / `--grafana-port`, `--without-node`, `--service-user`, `--no-autostart`, `--no-systemd`, `--no-start`; plus `--admin-password`, `--frontend-port`, `--http-port`, `--grpc-port`, `--external-ip`, `--db-type/--db-host/--db-port/--db-user/--db-password/--db-name`. See `./install.sh --help`. Download-only flags (`--mirror`, `--variant`, `--version`, `--bundle-file`) belong to `install-online.sh` / `download-bundle.sh`; `install-online.sh` passes every other flag through to `install.sh`.
 
 The final summary shows the URL `http://<IP>:17880`, account `admin` and the password state (a changed password is never echoed), API / gRPC addresses, database, observability ports and disk usage, directories and logs, service commands, and **next steps** (menu names as shown in the Chinese UI):
 

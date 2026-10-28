@@ -119,6 +119,10 @@ while [[ $# -gt 0 ]]; do
     --without-observability) WITH_OBS=false; shift ;;
     --no-systemd) SKIP_SYSTEMD=true; STX_SKIP_SYSTEMD=true; shift ;;
     -h|--help) usage; exit 0 ;;
+    --mirror|--mirror=*|--variant|--variant=*|--version|--version=*|--bundle-file|--bundle-file=*)
+      echo "[ERROR] $1 只用于下载（install-online.sh / download-bundle.sh），install.sh 安装的是当前目录的离线包" >&2
+      echo "        $1 is a download option of install-online.sh / download-bundle.sh; install.sh installs this bundle" >&2
+      exit 1 ;;
     *) echo "[ERROR] unknown option: $1" >&2; usage; exit 1 ;;
   esac
 done
@@ -138,6 +142,7 @@ on_exit() {
     rm -rf "$STAGE_DIR"
   fi
   stx_report_failure "$rc" "安装"
+  rm -f "$(stx_tty_eof_flag)" 2>/dev/null || true
   if [[ -n "${STX_INSTALL_LOG:-}" && -d "$INSTALL_DIR/logs" ]]; then
     cp "$STX_INSTALL_LOG" "$INSTALL_DIR/logs/install.log" 2>/dev/null || true
   fi
@@ -352,32 +357,7 @@ elif [[ ! -w "$INSTALL_DIR" ]]; then
 fi
 stx_is_interactive && stx_info "直接回车 = 使用 [ ] 中的默认值 / press Enter to accept the default in [ ]"
 
-# 1) 管理员密码（已有数据库时不再修改）。/ Admin password (unchanged with an existing database).
-ADMIN_STATE="default"
-ADMIN_USER="admin"
-cfg_for_auth="${EXISTING_CONFIG:-$SOURCE_DIR/config.example.yaml}"
-v="$(stx_yaml_get "$cfg_for_auth" auth.default_admin_username)"; [[ -n "$v" ]] && ADMIN_USER="$v"
-DEFAULT_ADMIN_PASSWORD="$(stx_yaml_get "$cfg_for_auth" auth.default_admin_password)"
-DEFAULT_ADMIN_PASSWORD="${DEFAULT_ADMIN_PASSWORD:-admin123}"
-if stx_existing_admin_db "$INSTALL_DIR" "$EXISTING_CONFIG"; then
-  ADMIN_STATE="existing"
-  stx_info "检测到已有数据库，管理员账号沿用原密码（安装器不修改）/ existing database: admin password unchanged"
-  if [[ -n "$ADMIN_PASSWORD" ]]; then
-    stx_warn "--admin-password 只在首次初始化数据库时生效，本次忽略；请登录后在控制台修改密码"
-    ADMIN_PASSWORD=""
-  fi
-else
-  if [[ -z "$ADMIN_PASSWORD" ]] && stx_is_interactive; then
-    ADMIN_PASSWORD="$(stx_ask_admin_password "$ADMIN_USER" "$DEFAULT_ADMIN_PASSWORD")"
-  fi
-  if [[ -n "$ADMIN_PASSWORD" && "$ADMIN_PASSWORD" != "$DEFAULT_ADMIN_PASSWORD" ]]; then
-    ADMIN_STATE="changed"
-  else
-    ADMIN_PASSWORD=""
-  fi
-fi
-
-# 2) 端口：Web / API / gRPC 每个都可回车确认；三件套端口只在冲突时提问。
+# 1) 端口：Web / API / gRPC 每个都可回车确认；三件套端口只在冲突时提问。
 #    Ports: web / API / gRPC can each be confirmed with Enter; observability ports are asked only on conflict.
 for k in "${PORT_KEYS[@]}"; do
   taken=""
@@ -385,7 +365,8 @@ for k in "${PORT_KEYS[@]}"; do
   own=""
   [[ " $OWN_PORTS " == *" ${PORT_VAL[$k]} "* ]] && own=1
   if [[ -n "${PORT_CONFLICT[$k]:-}" ]]; then
-    PORT_VAL[$k]="$(stx_ask_port_forced "${PORT_LABEL[$k]}" "${PORT_VAL[$k]}" "$taken")"
+    PORT_VAL[$k]="$(stx_ask_port_forced "${PORT_LABEL[$k]}" "${PORT_VAL[$k]}" "$taken")" \
+      || { stx_err "端口冲突：请用 ${PORT_FLAG[$k]} 指定其它端口 / use ${PORT_FLAG[$k]} to pick another port"; exit 1; }
   elif [[ -z "${PORT_FLAG[$k]}" ]] && [[ "$k" == frontend || "$k" == http || "$k" == grpc ]] && stx_is_interactive; then
     PORT_VAL[$k]="$(stx_ask_port_confirm "${PORT_LABEL[$k]}" "${PORT_VAL[$k]}" "$taken" "$own" "$OWN_PORTS")"
   fi
@@ -398,7 +379,7 @@ STX_ALERTMANAGER_PORT="${PORT_VAL[alertmanager]:-$STX_PREV_AM_PORT}"
 STX_GRAFANA_PORT="${PORT_VAL[grafana]:-$STX_PREV_GF_PORT}"
 export STX_HTTP_PORT STX_FRONTEND_PORT STX_GRPC_PORT STX_PROMETHEUS_PORT STX_ALERTMANAGER_PORT STX_GRAFANA_PORT
 
-# 3) 对外访问 IP：写入 app.external_url（Agent 回连控制面）与 app.console_url（告警链接），也用于最后的访问地址。
+# 2) 对外访问 IP：写入 app.external_url（Agent 回连控制面）与 app.console_url（告警链接），也用于最后的访问地址。
 #    Advertised IP: app.external_url (Agent callback) and app.console_url (alert links), also the final access URL.
 def_ip="${ARG_EXTERNAL_IP:-$STX_PREV_EXTERNAL_IP}"
 [[ -z "$def_ip" ]] && def_ip="$(stx_guess_host_ip)"
@@ -408,12 +389,13 @@ if [[ -z "$ARG_EXTERNAL_IP" ]] && stx_is_interactive; then
   while true; do
     ans="$(stx_prompt "对外访问 IP / 域名（Agent 回连与浏览器访问用）[默认 ${def_ip}]:" "$def_ip")"
     if [[ "$ans" =~ ^[A-Za-z0-9.:_-]+$ ]]; then STX_EXTERNAL_HOST="$ans"; break; fi
+    stx_is_interactive || break
     echo "    只能包含字母、数字、. : - _ / letters, digits, . : - _ only" >/dev/tty
   done
 fi
 export STX_EXTERNAL_HOST
 
-# 4) 数据库：SQLite（默认）或 MySQL；重装且保留配置时不改。/ Database: SQLite (default) or MySQL; kept on reinstall.
+# 3) 数据库：SQLite（默认）或 MySQL；重装且保留配置时不改。/ Database: SQLite (default) or MySQL; kept on reinstall.
 DB_STATE="keep"
 if [[ -n "$EXISTING_CONFIG" && -z "$ARG_DB_TYPE" ]]; then
   DB_TYPE="$(stx_yaml_get "$EXISTING_CONFIG" database.type)"
@@ -427,7 +409,7 @@ else
       case "$ans" in
         1|sqlite|SQLite) DB_TYPE=sqlite; break ;;
         2|mysql|MySQL) DB_TYPE=mysql; break ;;
-        *) echo "    请输入 1 或 2" >/dev/tty ;;
+        *) stx_is_interactive || break; echo "    请输入 1 或 2" >/dev/tty ;;
       esac
     done
   fi
@@ -458,6 +440,52 @@ else
     *) stx_err "unsupported --db-type: $DB_TYPE (sqlite|mysql|postgres)"; exit 1 ;;
   esac
 fi
+# 4) 管理员密码（放在数据库之后，按所选数据库判断是否已初始化）。
+# 4) Admin password (after the database choice, so initialization is judged against the chosen database).
+ADMIN_STATE="default"
+ADMIN_USER="admin"
+cfg_for_auth="${EXISTING_CONFIG:-$SOURCE_DIR/config.example.yaml}"
+v="$(stx_yaml_get "$cfg_for_auth" auth.default_admin_username)"; [[ -n "$v" ]] && ADMIN_USER="$v"
+DEFAULT_ADMIN_PASSWORD="$(stx_yaml_get "$cfg_for_auth" auth.default_admin_password)"
+DEFAULT_ADMIN_PASSWORD="${DEFAULT_ADMIN_PASSWORD:-admin123}"
+ADMIN_DB_KIND="$(STX_DB_TYPE_OVERRIDE="$DB_TYPE" stx_admin_db_kind "$INSTALL_DIR" "$EXISTING_CONFIG")"
+if [[ "$ADMIN_DB_KIND" == external ]]; then
+  # 外部 MySQL/PostgreSQL：安装器看不到库里有没有管理员，统一写入配置；STX 只在用户表为空时采用它，
+  # 启动后再用登录结果判定是否生效。
+  # External MySQL/PostgreSQL: the installer cannot see whether the admin exists, so the password is always
+  # written; STX only uses it when the users table is empty, and the result is checked by logging in after start.
+  if [[ -z "$ADMIN_PASSWORD" ]] && stx_is_interactive; then
+    stx_info "外部数据库：新密码只在库中还没有管理员（首次初始化）时生效 / applies only if the database has no admin yet"
+    ADMIN_PASSWORD="$(stx_ask_admin_password "$ADMIN_USER" "$DEFAULT_ADMIN_PASSWORD")"
+  fi
+  if [[ -n "$ADMIN_PASSWORD" && "$ADMIN_PASSWORD" != "$DEFAULT_ADMIN_PASSWORD" ]]; then
+    ADMIN_STATE="pending"
+  else
+    ADMIN_PASSWORD=""
+    ADMIN_STATE="unknown"
+  fi
+elif [[ "$ADMIN_DB_KIND" == existing ]]; then
+  ADMIN_STATE="existing"
+  stx_info "检测到已有数据库，管理员账号沿用原密码（安装器不修改）/ existing database: admin password unchanged"
+  if [[ -n "$ADMIN_PASSWORD" && "$ADMIN_PASSWORD" != "$DEFAULT_ADMIN_PASSWORD" ]]; then
+    # 仍写入配置：若库里其实还没有管理员，STX 启动时会采用它；启动后用登录结果确认。
+    # Still written: if the database has no admin yet STX uses it on start; confirmed by logging in afterwards.
+    stx_warn "--admin-password 只在库中还没有管理员时生效；已有管理员时请登录后在控制台修改密码"
+    ADMIN_STATE="pending"
+  else
+    ADMIN_PASSWORD=""
+  fi
+else
+  if [[ -z "$ADMIN_PASSWORD" ]] && stx_is_interactive; then
+    ADMIN_PASSWORD="$(stx_ask_admin_password "$ADMIN_USER" "$DEFAULT_ADMIN_PASSWORD")"
+  fi
+  if [[ -n "$ADMIN_PASSWORD" && "$ADMIN_PASSWORD" != "$DEFAULT_ADMIN_PASSWORD" ]]; then
+    ADMIN_STATE="changed"
+  else
+    ADMIN_PASSWORD=""
+  fi
+fi
+
 stx_step_ok "web=$STX_FRONTEND_PORT api=$STX_HTTP_PORT grpc=$STX_GRPC_PORT ip=$STX_EXTERNAL_HOST db=$DB_TYPE admin=${ADMIN_STATE}"
 
 
@@ -738,6 +766,21 @@ if [[ "$AUTO_START" == "true" ]]; then
   fi
   stx_wait_ready "$STX_HTTP_PORT" "$STX_FRONTEND_PORT" "$INSTALL_DIR" || exit 1
   STARTED=true
+  if [[ "$ADMIN_STATE" == pending ]]; then
+    if stx_admin_login_ok "$STX_HTTP_PORT" "$ADMIN_USER" "$ADMIN_PASSWORD"; then
+      ADMIN_STATE="changed"
+    else
+      ADMIN_STATE="existing"
+      stx_warn "数据库中已有管理员账号，新密码未生效（沿用原密码）/ the database already has an admin; password unchanged"
+    fi
+  fi
+  if [[ "$ADMIN_STATE" == unknown ]]; then
+    if stx_admin_login_ok "$STX_HTTP_PORT" "$ADMIN_USER" "$DEFAULT_ADMIN_PASSWORD"; then
+      ADMIN_STATE="default"
+    else
+      ADMIN_STATE="existing"
+    fi
+  fi
   stx_step_ok "API :$STX_HTTP_PORT / Web :$STX_FRONTEND_PORT"
 else
   stx_info "跳过启动（--no-start）"

@@ -81,10 +81,14 @@ jobs:
   # Three complete offline bundles: Linux x86_64, Linux arm64, CentOS 7 x86_64 (Node 18 glibc217).
   # Assembly only (stx / agent are CGO_ENABLED=0 static binaries, the frontend is already trimmed per arch);
   # runs on a native runner; Node / observability come from the `deps` tag with sha256 checks. Each < 2 GiB.
+  # 只读：组装与冒烟不需要写权限；上传在 publish-offline-bundles 中按变体单独进行。
+  # Read-only: building and smoke-testing need no write access; uploads happen per variant in publish-offline-bundles.
   offline-bundles:
     name: Offline bundle (${{ matrix.variant }})
     runs-on: ${{ matrix.runner }}
     needs: package-release
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -99,6 +103,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Download package artifacts
         uses: actions/download-artifact@v4
@@ -147,7 +153,9 @@ jobs:
   publish-github-release:
     name: Publish GitHub Release Assets
     runs-on: ubuntu-latest
-    needs: [package-release, offline-bundles]
+    # 基础资产不等离线包：任一离线包变体失败都不影响二进制 / 前端 / 脚本发布。
+    # Base assets do not wait for offline bundles, so a failed bundle variant never blocks them.
+    needs: package-release
 
     steps:
       - name: Download package artifacts
@@ -155,13 +163,6 @@ jobs:
         with:
           name: stx-packages-${{ github.ref_name }}
           path: release-assets
-
-      - name: Download offline bundles
-        uses: actions/download-artifact@v4
-        with:
-          pattern: stx-offline-*-${{ github.ref_name }}
-          path: release-assets
-          merge-multiple: true
 
       - name: Show release assets
         run: ls -alh release-assets
@@ -203,15 +204,47 @@ jobs:
             release-assets/stx-docker-compose.tar.gz
             release-assets/stx-install-helpers.tar.gz.sha256
             release-assets/stx-docker-compose.tar.gz.sha256
-            release-assets/stx-*-offline.tar.gz
-            release-assets/stx-*-offline.tar.gz.sha256
-            release-assets/stx-offline-*
           generate_release_notes: true
           fail_on_unmatched_files: false
           # 带 '-' 的 tag（如 v1.2.0-beta.1）是预发：标记为 pre-release，且不抢 Latest。
           # Tags containing '-' (e.g. v1.2.0-beta.1) are pre-releases: mark prerelease and never make them Latest.
           prerelease: ${{ contains(github.ref_name, '-') }}
           make_latest: ${{ contains(github.ref_name, '-') && 'false' || 'true' }}
+
+  # 离线整包按变体各自上传：某个变体构建 / 冒烟失败时，只有该变体这一格失败（工作流整体标红），其余变体照常上传。
+  # Offline bundles are uploaded per variant: a failed variant only fails its own leg (the run still shows red),
+  # while the other variants are uploaded normally.
+  publish-offline-bundles:
+    name: Publish offline bundle (${{ matrix.variant }})
+    runs-on: ubuntu-latest
+    needs: [publish-github-release, offline-bundles]
+    if: ${{ !cancelled() && needs.publish-github-release.result == 'success' }}
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [amd64, arm64, centos7]
+
+    steps:
+      - name: Download offline bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: stx-offline-${{ matrix.variant }}-${{ github.ref_name }}
+          path: offline
+
+      - name: Verify bundle checksums
+        working-directory: offline
+        run: |
+          ls -alh
+          for f in *.sha256; do sha256sum -c "$f"; done
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: gh release upload "$TAG" offline/*.tar.gz offline/*.tar.gz.sha256 --repo "$REPO" --clobber
 
   # 原生并发构建镜像（Native Matrix）：在原生硬件 Runner 上完全无仿真并行构建
   # Native matrix image build: compile natively on dedicated hardware runners without QEMU emulation

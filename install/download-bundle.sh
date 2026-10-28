@@ -23,32 +23,83 @@ set -euo pipefail
 STX_GITHUB_OWNER="${STX_GITHUB_OWNER:-LeonYoah}"
 STX_GITHUB_REPO="${STX_GITHUB_REPO:-stx}"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
-ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# 发版时由 package-release.sh 写入本脚本所属的 Release tag（仓库里为空）。
+# Set to this script's release tag by package-release.sh when publishing (empty in the repo).
+STX_SCRIPT_RELEASE_TAG=""
 
-# 定位 download-lib.sh：仓库 install/、离线包根目录，或 curl | bash 时从 GitHub raw（依次尝试各加速线路）拉取。
-# Locate download-lib.sh: repo install/, bundle root, or (curl | bash) fetch it from GitHub raw via each line in turn.
+# 是否以文件方式运行（而不是 curl | bash）。管道模式下 BASH_SOURCE 为空，不能信任当前目录里的同名文件。
+# Running from a real file (not curl | bash)? In pipe mode BASH_SOURCE is empty, so files in cwd are not trusted.
+STX_SCRIPT_FILE="${BASH_SOURCE[0]:-}"
+if [[ -n "$STX_SCRIPT_FILE" && -f "$STX_SCRIPT_FILE" ]]; then
+  SCRIPT_DIR="$(cd "$(dirname "$STX_SCRIPT_FILE")" && pwd)"
+  ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+else
+  SCRIPT_DIR=""
+  ROOT_DIR=""
+fi
+
+# 预读 --version / --mirror（只为选择 download-lib.sh 的来源，正式解析在后面）。
+# Pre-read --version / --mirror (only to pick where download-lib.sh comes from; real parsing happens later).
+stx_preparse_args() {
+  STX_BOOT_VERSION="${STX_VERSION:-latest}"
+  STX_BOOT_MIRROR="${STX_MIRROR:-}"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --version) STX_BOOT_VERSION="${2:-latest}"; shift 2 || break ;;
+      --version=*) STX_BOOT_VERSION="${1#*=}"; shift ;;
+      --mirror) STX_BOOT_MIRROR="${2:-}"; shift 2 || break ;;
+      --mirror=*) STX_BOOT_MIRROR="${1#*=}"; shift ;;
+      *) shift ;;
+    esac
+  done
+}
+
+# 定位 download-lib.sh：从文件运行时用同目录 / 仓库里的；curl | bash 时从 GitHub raw 拉取与所请求版本一致的版本
+# （--version 的 tag → 本脚本所属 Release 的 tag → main），依次尝试各加速线路。
+# Locate download-lib.sh: next to this file / in the repo when run from a file; in curl | bash mode fetch the copy
+# matching the requested version from GitHub raw (--version tag -> this script's release tag -> main), over each line.
 stx_bootstrap_lib() {
   local f
-  for f in "$SCRIPT_DIR/download-lib.sh" "$ROOT_DIR/install/download-lib.sh"; do
-    [[ -f "$f" ]] && { STX_LIB="$f"; return 0; }
-  done
-  local ref="${STX_BOOTSTRAP_REF:-main}" raw prefix boot
-  raw="https://raw.githubusercontent.com/${STX_GITHUB_OWNER}/${STX_GITHUB_REPO}/${ref}/install/download-lib.sh"
-  boot="$(mktemp -d "${TMPDIR:-/tmp}/stx-bootstrap.XXXXXX")"
-  STX_BOOTSTRAP_ROOT="$boot"
-  local -a prefixes=()
-  case "${STX_MIRROR:-}" in
-    http://*|https://*) prefixes+=("${STX_MIRROR%/}") ;;
+  if [[ -n "$SCRIPT_DIR" ]]; then
+    for f in "$SCRIPT_DIR/download-lib.sh" "$ROOT_DIR/install/download-lib.sh"; do
+      [[ -f "$f" ]] && { STX_LIB="$f"; return 0; }
+    done
+  fi
+  local -a refs=() prefixes=()
+  [[ -n "${STX_BOOTSTRAP_REF:-}" ]] && refs+=("$STX_BOOTSTRAP_REF")
+  [[ -n "$STX_BOOT_VERSION" && "$STX_BOOT_VERSION" != latest ]] && refs+=("$STX_BOOT_VERSION")
+  [[ -n "$STX_SCRIPT_RELEASE_TAG" ]] && refs+=("$STX_SCRIPT_RELEASE_TAG")
+  refs+=("main")
+  case "$STX_BOOT_MIRROR" in
+    http://*|https://*) prefixes+=("${STX_BOOT_MIRROR%/}") ;;
+    gh-proxy|1) prefixes+=("https://gh-proxy.org") ;;
+    v4|2) prefixes+=("https://v4.gh-proxy.org") ;;
+    v6|3) prefixes+=("https://v6.gh-proxy.org") ;;
+    cdn|4) prefixes+=("https://cdn.gh-proxy.org") ;;
+    axisnow|5) prefixes+=("https://axisnow.gh-proxy.org") ;;
   esac
   [[ -n "${STX_DOWNLOAD_MIRROR_PREFIX:-}" ]] && prefixes+=("${STX_DOWNLOAD_MIRROR_PREFIX%/}")
   prefixes+=("" "https://v4.gh-proxy.org" "https://gh-proxy.org" "https://cdn.gh-proxy.org" "https://v6.gh-proxy.org" "https://axisnow.gh-proxy.org")
-  for prefix in "${prefixes[@]}"; do
-    if curl -fsSL --connect-timeout 4 -m 20 -o "$boot/download-lib.sh" "${prefix:+${prefix}/}${raw}" 2>/dev/null \
-      && grep -q "stx_fetch_bundle" "$boot/download-lib.sh"; then
-      STX_LIB="$boot/download-lib.sh"
-      return 0
-    fi
+  local boot ref raw prefix
+  boot="$(mktemp -d "${TMPDIR:-/tmp}/stx-bootstrap.XXXXXX")"
+  STX_BOOTSTRAP_ROOT="$boot"
+  for ref in "${refs[@]}"; do
+    raw="https://raw.githubusercontent.com/${STX_GITHUB_OWNER}/${STX_GITHUB_REPO}/${ref}/install/download-lib.sh"
+    for prefix in "${prefixes[@]}"; do
+      local code
+      code="$(curl -sSL --connect-timeout 4 -m 20 -o "$boot/download-lib.sh" -w '%{http_code}' \
+        "${prefix:+${prefix}/}${raw}" 2>/dev/null || true)"
+      if [[ "$code" == 200 ]]; then
+        if grep -q "stx_fetch_bundle" "$boot/download-lib.sh"; then
+          STX_LIB="$boot/download-lib.sh"
+          STX_BOOTSTRAP_LIB_REF="$ref"
+          [[ "$ref" != "${refs[0]}" ]] && echo "[WARN] download-lib.sh for ${refs[0]} has no offline-bundle support; using ${ref}" >&2
+          return 0
+        fi
+        break   # 该 ref 的 lib 太旧，换下一个 ref。/ This ref's lib is too old: next ref.
+      fi
+      [[ "$code" == 404 ]] && break   # 该 ref 不存在。/ No such ref.
+    done
   done
   echo "[ERROR] cannot fetch install/download-lib.sh from GitHub (direct or gh-proxy); check network or set STX_MIRROR=<prefix>" >&2
   return 1
@@ -64,6 +115,8 @@ unset _stx_cmd
 
 STX_LIB=""
 STX_BOOTSTRAP_ROOT=""
+STX_BOOTSTRAP_LIB_REF=""
+stx_preparse_args "$@"
 stx_bootstrap_lib || exit 1
 # shellcheck source=download-lib.sh
 source "$STX_LIB"

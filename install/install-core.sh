@@ -341,23 +341,37 @@ stx_stop_existing_install() {
   fi
 }
 
-# 是否已有管理员数据（数据库已初始化）。/ True when the database already holds the admin user.
-stx_existing_admin_db() {
+# 管理员数据库状态：existing（SQLite 文件已存在）、new（SQLite 尚未创建）、external（MySQL/PostgreSQL，安装器无法判断）。
+# Admin database state: existing (SQLite file present), new (no SQLite file yet), external (MySQL/PostgreSQL; unknown).
+stx_admin_db_kind() {
   local dir="$1" cfg="${2:-}" dbtype path
   [[ -n "$cfg" && -f "$cfg" ]] || cfg="$dir/config.example.yaml"
   dbtype="$(stx_yaml_get "$cfg" database.type)"
-  case "${dbtype:-sqlite}" in
+  case "${STX_DB_TYPE_OVERRIDE:-${dbtype:-sqlite}}" in
     sqlite)
       path="$(stx_yaml_get "$cfg" database.sqlite_path)"
       path="${path:-./data/stx.db}"
       [[ "$path" != /* ]] && path="$dir/${path#./}"
-      [[ -s "$path" ]]
+      if [[ -s "$path" ]]; then echo existing; else echo new; fi
       ;;
-    *)
-      # 外部 MySQL/PostgreSQL：只有保留了旧配置（重装）时才认为已初始化。/ External DB: initialized only on reinstall.
-      [[ -n "${2:-}" ]]
-      ;;
+    *) echo external ;;
   esac
+}
+
+# 兼容旧调用：数据库里是否已有管理员（外部库视为未知 => 否）。/ Back-compat helper: SQLite with data => true.
+stx_existing_admin_db() {
+  [[ "$(stx_admin_db_kind "$@")" == existing ]]
+}
+
+# 用给定账号密码登录，判断初始密码是否生效。/ Log in with the given credentials to see whether the password applied.
+stx_admin_login_ok() {
+  local port="$1" user="$2" pw="$3" body esc_u esc_p
+  esc_u="${user//\\/\\\\}"; esc_u="${esc_u//\"/\\\"}"
+  esc_p="${pw//\\/\\\\}"; esc_p="${esc_p//\"/\\\"}"
+  body="$(curl -s -m 10 -H "Content-Type: application/json" \
+    -d "{\"username\":\"${esc_u}\",\"password\":\"${esc_p}\"}" \
+    "http://127.0.0.1:${port}/api/v1/auth/login" 2>/dev/null || true)"
+  grep -q "\"username\":\"${esc_u}\"" <<<"$body"
 }
 
 # 端口合法且空闲。/ Port is valid and free.
@@ -423,6 +437,10 @@ stx_ask_port_forced() {
       echo "$ans"
       return 0
     fi
+    if ! stx_is_interactive; then
+      stx_err "${label}：端口 ${cur} 被占用，且无法交互输入新端口 / port ${cur} is in use and no terminal input is available"
+      return 1
+    fi
     echo "    ${msg:-请输入端口}" >/dev/tty
   done
 }
@@ -443,6 +461,10 @@ stx_ask_port_confirm() {
     fi
     if msg="$(stx_port_valid_free "$ans" "$taken")"; then
       echo "$ans"
+      return 0
+    fi
+    if ! stx_is_interactive; then
+      echo "$cur"
       return 0
     fi
     echo "    $msg" >/dev/tty
@@ -495,7 +517,7 @@ stx_ask_admin_password() {
   local user="$1" def="$2" p1 p2 tries=0
   while (( tries < 3 )); do
     p1="$(stx_prompt_secret "管理员 ${user} 的初始密码 [回车保持默认 ${def}]:")"
-    if [[ -z "$p1" ]]; then
+    if [[ -z "$p1" ]] || ! stx_is_interactive; then
       return 0
     fi
     if (( ${#p1} < 6 )); then
@@ -504,6 +526,10 @@ stx_ask_admin_password() {
       echo "    密码不能包含空白字符 / no whitespace" >/dev/tty
     else
       p2="$(stx_prompt_secret "再次输入确认 / confirm:")"
+      if ! stx_is_interactive; then
+        stx_warn "终端已关闭，保持默认密码 / terminal closed, keeping the default password"
+        return 0
+      fi
       if [[ "$p1" == "$p2" ]]; then
         printf '%s' "$p1"
         return 0
@@ -593,6 +619,8 @@ stx_print_summary() {
   case "$state" in
     changed) pw_line="（安装时已修改为你设置的密码，出于安全不在此显示）" ;;
     existing) pw_line="（沿用已有数据库中的密码，本次安装未修改）" ;;
+    pending) pw_line="（已写入你设置的密码：外部数据库中还没有管理员时首次启动生效，否则沿用原密码）" ;;
+    unknown) pw_line="（外部数据库：沿用库中已有密码；全新的库使用 ${defpw}）" ;;
     *) pw_line="${defpw}   ← 默认密码，请登录后尽快修改" ;;
   esac
   svc_start="$dir/bin/start.sh"; svc_stop="$dir/bin/stop.sh"

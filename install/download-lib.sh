@@ -477,10 +477,23 @@ stx_report_failure() {
 
 # 是否可以交互：未设置 -y/STX_ASSUME_YES，且 /dev/tty 可读写。
 # Interactive only without -y/STX_ASSUME_YES and with a readable /dev/tty (works under curl | bash).
+# 终端读到 EOF 后的标记文件（$$ 在子 shell 中不变，命令替换里也能看到）。
+# Marker set once /dev/tty hits EOF ($$ is stable in subshells, so command substitutions see it too).
+stx_tty_eof_flag() { echo "${TMPDIR:-/tmp}/.stx-tty-eof-$$"; }
+
 stx_is_interactive() {
   [[ "${STX_ASSUME_YES:-false}" == "true" || "${STX_ASSUME_YES:-0}" == "1" ]] && return 1
   [[ "${STX_NONINTERACTIVE:-}" == "1" || "${STX_NONINTERACTIVE:-}" == "true" ]] && return 1
+  # CI 环境（GitHub Actions 等设置 CI=true）一律不提问。/ CI environments never prompt.
+  [[ -n "${CI:-}" && "${CI:-}" != "false" && "${CI:-}" != "0" ]] && return 1
+  [[ -e "$(stx_tty_eof_flag)" ]] && return 1
   { : </dev/tty >/dev/tty; } 2>/dev/null
+}
+
+# 终端已关闭（EOF）：记下标记，之后按非交互处理。/ The terminal hit EOF: remember it and behave non-interactively.
+stx_mark_tty_eof() {
+  : >"$(stx_tty_eof_flag)" 2>/dev/null || true
+  { echo; echo "  [WARN] 终端输入已结束，其余问题使用默认值 / terminal input closed, using defaults for the rest"; } >/dev/tty 2>/dev/null || true
 }
 
 # 从 /dev/tty 读一行（带提示），回车返回默认值。/ Read a line from /dev/tty; Enter returns the default.
@@ -492,10 +505,16 @@ stx_prompt() {
     return 0
   fi
   printf '%s' "${STX_C_BOLD}  ? ${label}${STX_C_RESET} " >/dev/tty
+  local rc=0
   if [[ "$timeout" -gt 0 ]]; then
-    IFS= read -r -t "$timeout" ans </dev/tty || { echo >/dev/tty; ans=""; }
+    IFS= read -r -t "$timeout" ans </dev/tty || rc=$?
   else
-    IFS= read -r ans </dev/tty || ans=""
+    IFS= read -r ans </dev/tty || rc=$?
+  fi
+  if [[ "$rc" -gt 128 ]]; then
+    echo >/dev/tty; ans=""          # 超时：用默认值。/ Timeout: use the default.
+  elif [[ "$rc" -ne 0 ]]; then
+    [[ -z "$ans" ]] && stx_mark_tty_eof   # EOF：用默认值并切换为非交互。/ EOF: default, then non-interactive.
   fi
   ans="${ans#"${ans%%[![:space:]]*}"}"
   ans="${ans%"${ans##*[![:space:]]}"}"
@@ -506,8 +525,14 @@ stx_prompt() {
 # 从 /dev/tty 读密码（不回显）。/ Read a secret from /dev/tty without echo.
 stx_prompt_secret() {
   local label="$1" ans=""
+  if ! stx_is_interactive; then
+    return 0
+  fi
   printf '%s' "${STX_C_BOLD}  ? ${label}${STX_C_RESET} " >/dev/tty
-  IFS= read -r -s ans </dev/tty || ans=""
+  if ! IFS= read -r -s ans </dev/tty && [[ -z "$ans" ]]; then
+    stx_mark_tty_eof
+    return 0
+  fi
   echo >/dev/tty
   printf '%s' "$ans"
 }
@@ -624,6 +649,7 @@ stx_choose_mirror() {
       while true; do
         ans="$(stx_prompt "选择下载线路编号 [回车=最快的 $((best + 1))]:" "$((best + 1))" 30)"
         if [[ "$ans" =~ ^[0-9]+$ ]] && (( ans >= 1 && ans <= n )); then choice=$((ans - 1)); break; fi
+        stx_is_interactive || break
         echo "    请输入 1-${n} 之间的编号" >/dev/tty
       done
     fi

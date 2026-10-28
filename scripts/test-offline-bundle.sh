@@ -257,6 +257,37 @@ if [[ "$(grep -c '^wget ' "$T/urls.log")" -eq 6 ]]; then ok "print-urls prints 6
 bash "$ROOT_DIR/install/download-bundle.sh" --variant arm64 --version v1.3.0 --print-urls >"$T/urls2.log" 2>&1 || true
 assert_grep "print-urls versioned name" "releases/download/v1.3.0/stx-v1.3.0-linux-arm64-offline.tar.gz" "$T/urls2.log"
 
+# ---------- 2i. curl | bash：不信任当前目录，按版本拉取 download-lib.sh ----------
+# curl | bash: never trust cwd; fetch download-lib.sh matching --version, then the baked release tag, then main.
+mkdir -p "$T/pipe/bin" "$T/pipe/cwd"
+printf 'echo EVIL-CWD-LIB; exit 9\n' >"$T/pipe/cwd/download-lib.sh"
+cat >"$T/pipe/bin/curl" <<CURL
+#!/usr/bin/env bash
+out=""; url=""
+while [[ \$# -gt 0 ]]; do
+  case "\$1" in -o) out="\$2"; shift 2 ;; -w) shift 2 ;; http*) url="\$1"; shift ;; *) shift ;; esac
+done
+echo "\$url" >>"$T/pipe/calls"
+case "\$url" in
+  https://raw.githubusercontent.com/*/v7.7.7/install/download-lib.sh) cp "$ROOT_DIR/install/download-lib.sh" "\$out"; printf 200 ;;
+  https://raw.githubusercontent.com/*/v6.6.6/install/download-lib.sh) echo old >"\$out"; printf 200 ;;
+  *) printf 404 ;;
+esac
+CURL
+chmod +x "$T/pipe/bin/curl"
+sed 's/^STX_SCRIPT_RELEASE_TAG=""$/STX_SCRIPT_RELEASE_TAG="v7.7.7"/' "$ROOT_DIR/install/install-online.sh" >"$T/pipe/baked.sh"
+(cd "$T/pipe/cwd" && PATH="$T/pipe/bin:$PATH" bash -s -- --version v6.6.6 --help <"$T/pipe/baked.sh" >"$T/pipe/out.log" 2>&1) || true
+if grep -q EVIL-CWD-LIB "$T/pipe/out.log"; then bad "curl|bash must not source download-lib.sh from cwd"; else ok "curl|bash ignores download-lib.sh in cwd"; fi
+assert_grep "curl|bash usage printed via fetched lib" "STX 一键安装" "$T/pipe/out.log"
+if [[ "$(sed -n 1p "$T/pipe/calls")" == *"/v6.6.6/install/download-lib.sh" && "$(sed -n 2p "$T/pipe/calls")" == *"/v7.7.7/install/download-lib.sh" ]]; then
+  ok "lib fetch order: --version tag, then baked release tag"
+else
+  bad "lib fetch order wrong"; sed 's/^/    | /' "$T/pipe/calls"
+fi
+assert_grep "fallback warns about the version mismatch" "using v7.7.7" "$T/pipe/out.log"
+grep -q 'STX_SCRIPT_RELEASE_TAG=""' "$ROOT_DIR/install/install-online.sh" && grep -q 'STX_SCRIPT_RELEASE_TAG=""' "$ROOT_DIR/install/download-bundle.sh" \
+  && ok "release-tag placeholder present for package-release.sh" || bad "release-tag placeholder missing"
+
 # ---------- 3. alertmanager launched with --cluster.listen-address= ----------
 # 目录含空格，验证参数已正确加引号。/ Path with spaces verifies the args are quoted.
 OBS_BASE="$T/obs dir"

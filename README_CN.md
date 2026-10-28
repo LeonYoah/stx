@@ -156,15 +156,15 @@ sudo ./install.sh
 
 1. **安装前检查**（先于任何提问）：CPU / glibc、所有端口占用、磁盘空间、systemd，一次性列出结果。
 2. **安装配置**：直接回车 = 默认值，大多数情况一路回车即可：
-   - 管理员 `admin` 初始密码（回车保持 `admin123`，输入不回显、需确认）
    - Web 端口 `17880`、API 端口 `17800`、gRPC 端口 `17890`（Agent 回连）；预检有冲突的端口会强制要求换一个
    - 对外访问 IP / 域名（自动探测，写入 `app.external_url`，Agent 回连与告警链接用）
    - 数据库：`1) SQLite`（默认，内置）或 `2) MySQL`（再问地址 / 端口 / 用户 / 密码 / 库名；库需事先 `CREATE DATABASE stx DEFAULT CHARACTER SET utf8mb4;`，表结构首次启动自动创建）
+   - 管理员 `admin` 初始密码（回车保持 `admin123`，输入不回显、需确认）。只在库中还没有管理员时生效；外部 MySQL 或重装时，安装器启动后会用登录结果确认是否生效
 3. 解压 → 4. 复制文件 → 5. 写入配置 → 6. systemd → 7. 启动并等待就绪
 
 `-y` 或无终端（如 CI）时不提问、全部用默认 / 参数值；此时端口冲突会直接报错并提示用哪个参数修改。
 
-其它只通过参数设置（不提问）：`--install-dir`、`--without-observability`、`--prometheus-port` / `--alertmanager-port` / `--grafana-port`、`--without-node`、`--mirror`、`--service-user`、`--no-autostart`、`--no-systemd`、`--no-start`；以及 `--admin-password`、`--frontend-port`、`--http-port`、`--grpc-port`、`--external-ip`、`--db-type/--db-host/--db-port/--db-user/--db-password/--db-name`。完整列表：`./install.sh --help`。
+其它只通过参数设置（不提问）：`--install-dir`、`--without-observability`、`--prometheus-port` / `--alertmanager-port` / `--grafana-port`、`--without-node`、`--service-user`、`--no-autostart`、`--no-systemd`、`--no-start`；以及 `--admin-password`、`--frontend-port`、`--http-port`、`--grpc-port`、`--external-ip`、`--db-type/--db-host/--db-port/--db-user/--db-password/--db-name`。完整列表：`./install.sh --help`。下载相关参数（`--mirror`、`--variant`、`--version`、`--bundle-file`）只属于 `install-online.sh` / `download-bundle.sh`；`install-online.sh` 会把其余参数原样传给 `install.sh`。
 
 安装完成后会打印：访问地址 `http://<IP>:17880`、账号 `admin` 与密码说明（改过的密码不会回显）、API / gRPC 地址、数据库、监控端口与磁盘占用、目录与日志、启停命令，以及**后续步骤**：
 

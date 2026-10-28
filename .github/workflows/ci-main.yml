@@ -134,7 +134,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mode: [plain, systemd]
+        mode: [plain, systemd, mysql]
 
     steps:
       - name: Checkout

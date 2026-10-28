@@ -14,8 +14,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# 在干净容器里用离线包做端到端安装冒烟（CI 与本地通用，不联网、不用 yum/apt）。
-# End-to-end install smoke of an offline bundle in a clean container (CI and local; no network, no yum/apt).
+# 在干净容器里用离线包做端到端安装冒烟（CI 与本地通用；安装本身不联网）。镜像里没有 curl 时（如 ubuntu）先用 apt 装上
+# curl，以便做 HTTP 检查；STX_SMOKE_NO_APT=1 可跳过（此时 HTTP 检查会失败而不是被跳过）。
+# End-to-end install smoke of an offline bundle in a clean container (CI and local; the install itself is offline).
+# Images without curl (e.g. ubuntu) get curl via apt first so the HTTP checks run; STX_SMOKE_NO_APT=1 skips that
+# (the HTTP checks then fail instead of being skipped).
 #   1. 解压离线包，非交互执行 ./install.sh -y --no-systemd（自定义管理员密码与端口）
 #   2. 校验内置 node --version、/api/v1/health=200、Web 首页 2xx/3xx、用新密码登录成功
 #   3. 安装摘要包含访问地址 / 账号 / 后续步骤，且不回显自定义密码
@@ -49,9 +52,13 @@ inner='
 set -uo pipefail
 fail=0
 check() { if eval "$2"; then echo "[smoke] OK   $1"; else echo "[smoke] FAIL $1"; fail=1; fi; }
-code() {
-  if command -v curl >/dev/null 2>&1; then curl -s -o /dev/null -m 5 -w "%{http_code}" "$1"; else echo skip; fi
-}
+code() { curl -s -o /dev/null -m 5 -w "%{http_code}" "$1" 2>/dev/null || true; }
+if ! command -v curl >/dev/null 2>&1 && [[ "${STX_SMOKE_NO_APT:-0}" != 1 ]] && command -v apt-get >/dev/null 2>&1; then
+  export DEBIAN_FRONTEND=noninteractive
+  for i in 1 2 3; do apt-get update -qq >/dev/null 2>&1 && break; sleep 3; done
+  apt-get install -y -qq --no-install-recommends curl ca-certificates >/dev/null 2>&1 || true
+fi
+check "curl available for HTTP checks" "command -v curl >/dev/null"
 mkdir -p /work && cd /work
 tar -xzf /bundle/b.tar.gz
 cd stx-*-offline
@@ -80,22 +87,18 @@ check "summary URL uses external ip" "grep -q \"http://10.1.2.3:18080\" /tmp/ins
 check "stx.env has observability ports" "grep -q STX_GRAFANA_PORT=13000 /opt/stx/stx.env && grep -q STX_PROMETHEUS_PORT=19090 /opt/stx/stx.env"
 check "prometheus.yml targets alertmanager :19093 and stx :18000" "grep -q 127.0.0.1:19093 /opt/stx/observability/prometheus/prometheus.yml && grep -q 127.0.0.1:18000 /opt/stx/observability/prometheus/prometheus.yml"
 check "summary mentions observability disk usage" "grep -q \"占用磁盘\" /tmp/install1.log"
-if command -v curl >/dev/null 2>&1; then
-  check "GET /api/v1/health -> 200" "[[ \$(code http://127.0.0.1:18000/api/v1/health) == 200 ]]"
-  c="$(code http://127.0.0.1:18080/)"
-  check "GET web / -> $c" "[[ $c =~ ^[23] ]]"
-  login="$(curl -s -m 10 -H "Content-Type: application/json" -d "{\"username\":\"admin\",\"password\":\"S3cret-pw!\"}" http://127.0.0.1:18000/api/v1/auth/login || true)"
-  echo "[smoke] login response: ${login:0:200}"
-  check "login with the new password succeeds" "grep -q \"\\\"username\\\":\\\"admin\\\"\" <<<\"\$login\""
-  bad="$(curl -s -m 10 -H "Content-Type: application/json" -d "{\"username\":\"admin\",\"password\":\"admin123\"}" http://127.0.0.1:18000/api/v1/auth/login || true)"
-  check "login with admin123 is rejected" "! grep -qiE \"\\\"success\\\"[[:space:]]*:[[:space:]]*true\" <<<\"\$bad\""
-fi
-if command -v curl >/dev/null 2>&1; then
-  sleep 5
-  check "prometheus ready on :19090" "[[ \$(code http://127.0.0.1:19090/-/ready) == 200 ]]"
-  check "grafana on :13000" "[[ \$(code http://127.0.0.1:13000/api/health) == 200 ]]"
-  check "alertmanager on :19093" "[[ \$(code http://127.0.0.1:19093/-/ready) == 200 ]]"
-fi
+check "GET /api/v1/health -> 200" "[[ \$(code http://127.0.0.1:18000/api/v1/health) == 200 ]]"
+c="$(code http://127.0.0.1:18080/)"
+check "GET web / -> $c" "[[ $c =~ ^[23] ]]"
+login="$(curl -s -m 10 -H "Content-Type: application/json" -d "{\"username\":\"admin\",\"password\":\"S3cret-pw!\"}" http://127.0.0.1:18000/api/v1/auth/login || true)"
+echo "[smoke] login response: ${login:0:200}"
+check "login with the new password succeeds" "grep -q \"\\\"username\\\":\\\"admin\\\"\" <<<\"\$login\""
+bad="$(curl -s -m 10 -H "Content-Type: application/json" -d "{\"username\":\"admin\",\"password\":\"admin123\"}" http://127.0.0.1:18000/api/v1/auth/login || true)"
+check "login with admin123 is rejected" "! grep -q \"\\\"username\\\":\\\"admin\\\"\" <<<\"\$bad\""
+sleep 5
+check "prometheus ready on :19090" "[[ \$(code http://127.0.0.1:19090/-/ready) == 200 ]]"
+check "grafana on :13000" "[[ \$(code http://127.0.0.1:13000/api/health) == 200 ]]"
+check "alertmanager on :19093" "[[ \$(code http://127.0.0.1:19093/-/ready) == 200 ]]"
 # 端口冲突（非交互）必须明确失败。/ Port conflict in non-interactive mode must fail clearly.
 ./install.sh -y --no-systemd --install-dir /opt/stx-conflict --http-port 18000 --without-observability >/tmp/conflict.log 2>&1; rc=$?
 check "non-interactive port conflict fails (rc=$rc)" "[[ $rc -ne 0 ]]"
@@ -118,4 +121,4 @@ check "reinstall: admin password unchanged notice" "grep -q 沿用已有数据�
 exit $fail
 '
 
-$DOCKER run --rm --name "$name" -v "$bundle:/bundle/b.tar.gz:ro" "$image" bash -c "$inner"
+$DOCKER run --rm --name "$name" -e STX_SMOKE_NO_APT="${STX_SMOKE_NO_APT:-0}" -v "$bundle:/bundle/b.tar.gz:ro" "$image" bash -c "$inner"

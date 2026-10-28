@@ -16,312 +16,262 @@
 
 set -euo pipefail
 
-# Online one-click installer: detect region, download assets, invoke install.sh.
-# 在线一键安装：判定地区、下载资产、调用 install.sh。
+# 一键在线安装：自动识别平台 → 测速选择下载线路 → 下载并校验完整离线包 → 解压 → 调用包内 install.sh。
+# One-line online install: detect platform -> probe/choose a download line -> download + verify the whole
+# offline bundle -> extract -> run the bundled install.sh.
 
 STX_GITHUB_OWNER="${STX_GITHUB_OWNER:-LeonYoah}"
 STX_GITHUB_REPO="${STX_GITHUB_REPO:-stx}"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
-ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# 发版时由 package-release.sh 写入本脚本所属的 Release tag（仓库里为空）。
+# Set to this script's release tag by package-release.sh when publishing (empty in the repo).
+STX_SCRIPT_RELEASE_TAG=""
 
-# curl|bash 时仓库不在本地：从 GitHub raw 拉安装辅助脚本。/ When piped via curl|bash, fetch install helpers from GitHub raw.
-stx_bootstrap_root_if_needed() {
-  if [[ -f "$ROOT_DIR/install/download-lib.sh" ]]; then
-    return 0
-  fi
-  local boot ref prefix base path url
-  boot="${TMPDIR:-/tmp}/stx-bootstrap-$$"
-  mkdir -p "$boot/install/bin/lib"
-  ref="${STX_BOOTSTRAP_REF:-main}"
-  prefix=""
-  if [[ -n "${STX_DOWNLOAD_MIRROR_PREFIX:-}" ]]; then
-    prefix="${STX_DOWNLOAD_MIRROR_PREFIX%/}"
-  elif [[ "${STX_DOWNLOAD_REGION:-}" == "cn" ]]; then
-    prefix="https://v4.gh-proxy.org"
-  fi
-  base="https://raw.githubusercontent.com/${STX_GITHUB_OWNER}/${STX_GITHUB_REPO}/${ref}"
-  echo "[INFO] standalone mode: bootstrap helpers from ${ref}" >&2
-  for path in \
-    install/download-lib.sh \
-    install/install-core.sh \
-    install/install.sh \
-    install/bin/start.sh \
-    install/bin/stop.sh \
-    install/bin/status.sh \
-    install/bin/lib/observability.sh \
-    config.example.yaml
-  do
-    url="${base}/${path}"
-    if [[ -n "$prefix" ]]; then
-      url="${prefix}/${base}/${path}"
-    fi
-    mkdir -p "$(dirname "$boot/$path")"
-    curl -fsSL --retry 3 --retry-delay 1 -o "$boot/$path" "$url"
+# 是否以文件方式运行（而不是 curl | bash）。管道模式下 BASH_SOURCE 为空，不能信任当前目录里的同名文件。
+# Running from a real file (not curl | bash)? In pipe mode BASH_SOURCE is empty, so files in cwd are not trusted.
+STX_SCRIPT_FILE="${BASH_SOURCE[0]:-}"
+if [[ -n "$STX_SCRIPT_FILE" && -f "$STX_SCRIPT_FILE" ]]; then
+  SCRIPT_DIR="$(cd "$(dirname "$STX_SCRIPT_FILE")" && pwd)"
+  ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+else
+  SCRIPT_DIR=""
+  ROOT_DIR=""
+fi
+
+# 预读 --version / --mirror（只为选择 download-lib.sh 的来源，正式解析在后面）。
+# Pre-read --version / --mirror (only to pick where download-lib.sh comes from; real parsing happens later).
+stx_preparse_args() {
+  STX_BOOT_VERSION="${STX_VERSION:-latest}"
+  STX_BOOT_MIRROR="${STX_MIRROR:-}"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --version) STX_BOOT_VERSION="${2:-latest}"; shift 2 || break ;;
+      --version=*) STX_BOOT_VERSION="${1#*=}"; shift ;;
+      --mirror) STX_BOOT_MIRROR="${2:-}"; shift 2 || break ;;
+      --mirror=*) STX_BOOT_MIRROR="${1#*=}"; shift ;;
+      *) shift ;;
+    esac
   done
-  # Agent 启动脚本：Release 资产缺失时（如 v1.2.0）作为兜底来源，失败不致命。
-  # Agent launcher: fallback source when the release asset is missing (e.g. v1.2.0); non-fatal.
-  path="scripts/stx-java-proxy.sh"
-  url="${base}/${path}"
-  [[ -n "$prefix" ]] && url="${prefix}/${base}/${path}"
-  mkdir -p "$boot/scripts"
-  if ! curl -fsSL --retry 3 --retry-delay 1 -o "$boot/$path" "$url"; then
-    rm -f "$boot/$path"
-    echo "[WARN] cannot bootstrap ${path} from ${ref}" >&2
-  fi
-  ROOT_DIR="$boot"
-  export STX_BOOTSTRAP_ROOT="$boot"
 }
 
-# 前置依赖检查（不再需要 python3）。/ Upfront dependency check (python3 is no longer required).
+# 定位 download-lib.sh：从文件运行时用同目录 / 仓库里的；curl | bash 时从 GitHub raw 拉取与所请求版本一致的版本
+# （--version 的 tag → 本脚本所属 Release 的 tag → main），依次尝试各加速线路。
+# Locate download-lib.sh: next to this file / in the repo when run from a file; in curl | bash mode fetch the copy
+# matching the requested version from GitHub raw (--version tag -> this script's release tag -> main), over each line.
+stx_bootstrap_lib() {
+  local f
+  if [[ -n "$SCRIPT_DIR" ]]; then
+    for f in "$SCRIPT_DIR/download-lib.sh" "$ROOT_DIR/install/download-lib.sh"; do
+      [[ -f "$f" ]] && { STX_LIB="$f"; return 0; }
+    done
+  fi
+  local -a refs=() prefixes=()
+  [[ -n "${STX_BOOTSTRAP_REF:-}" ]] && refs+=("$STX_BOOTSTRAP_REF")
+  [[ -n "$STX_BOOT_VERSION" && "$STX_BOOT_VERSION" != latest ]] && refs+=("$STX_BOOT_VERSION")
+  # 发版脚本（已写入所属 tag）不回退到 main，避免装到与该版本不符的脚本库；仓库里的脚本才用 main 兜底。
+  # Published scripts (tag baked in) never fall back to main; only the repo copy uses main as the last resort.
+  if [[ -n "$STX_SCRIPT_RELEASE_TAG" ]]; then
+    refs+=("$STX_SCRIPT_RELEASE_TAG")
+  else
+    refs+=("main")
+  fi
+  case "$STX_BOOT_MIRROR" in
+    http://*|https://*) prefixes+=("${STX_BOOT_MIRROR%/}") ;;
+    gh-proxy|1) prefixes+=("https://gh-proxy.org") ;;
+    v4|2) prefixes+=("https://v4.gh-proxy.org") ;;
+    v6|3) prefixes+=("https://v6.gh-proxy.org") ;;
+    cdn|4) prefixes+=("https://cdn.gh-proxy.org") ;;
+    axisnow|5) prefixes+=("https://axisnow.gh-proxy.org") ;;
+  esac
+  [[ -n "${STX_DOWNLOAD_MIRROR_PREFIX:-}" ]] && prefixes+=("${STX_DOWNLOAD_MIRROR_PREFIX%/}")
+  prefixes+=("" "https://v4.gh-proxy.org" "https://gh-proxy.org" "https://cdn.gh-proxy.org" "https://v6.gh-proxy.org" "https://axisnow.gh-proxy.org")
+  local boot ref raw prefix
+  boot="$(mktemp -d "${TMPDIR:-/tmp}/stx-bootstrap.XXXXXX")"
+  STX_BOOTSTRAP_ROOT="$boot"
+  for ref in "${refs[@]}"; do
+    raw="https://raw.githubusercontent.com/${STX_GITHUB_OWNER}/${STX_GITHUB_REPO}/${ref}/install/download-lib.sh"
+    for prefix in "${prefixes[@]}"; do
+      local code
+      code="$(curl -sSL --connect-timeout 4 -m 20 -o "$boot/download-lib.sh" -w '%{http_code}' \
+        "${prefix:+${prefix}/}${raw}" 2>/dev/null || true)"
+      if [[ "$code" == 200 ]]; then
+        if grep -q "stx_fetch_bundle" "$boot/download-lib.sh"; then
+          STX_LIB="$boot/download-lib.sh"
+          STX_BOOTSTRAP_LIB_REF="$ref"
+          [[ "$ref" != "${refs[0]}" ]] && echo "[WARN] download-lib.sh for ${refs[0]} has no offline-bundle support; using ${ref}" >&2
+          return 0
+        fi
+        break   # 该 ref 的 lib 太旧，换下一个 ref。/ This ref's lib is too old: next ref.
+      fi
+      [[ "$code" == 404 ]] && break   # 该 ref 不存在。/ No such ref.
+    done
+  done
+  echo "[ERROR] cannot fetch install/download-lib.sh from GitHub (direct or gh-proxy); check network or set STX_MIRROR=<prefix>" >&2
+  return 1
+}
+
 for _stx_cmd in curl tar gzip awk sed grep; do
   if ! command -v "$_stx_cmd" >/dev/null 2>&1; then
-    echo "[ERROR] missing required command: $_stx_cmd (please install it first, e.g. apt-get install -y $_stx_cmd)" >&2
+    echo "[ERROR] missing required command: $_stx_cmd (please install it first, e.g. yum/apt-get install -y $_stx_cmd)" >&2
     exit 1
   fi
 done
 unset _stx_cmd
 
-stx_bootstrap_root_if_needed
-# shellcheck source=../install/download-lib.sh
-source "$ROOT_DIR/install/download-lib.sh"
-# shellcheck source=../install/install-core.sh
-source "$ROOT_DIR/install/install-core.sh"
+STX_LIB=""
+STX_BOOTSTRAP_ROOT=""
+STX_BOOTSTRAP_LIB_REF=""
+stx_preparse_args "$@"
+stx_bootstrap_lib || exit 1
+# shellcheck source=download-lib.sh
+source "$STX_LIB"
 
 usage() {
   cat <<'USAGE'
-STX online installer
+STX 一键安装 / online installer
 
 Usage:
-  curl -fsSL <release-or-proxy-url>/install-online.sh | bash
-  install/install-online.sh [options]
+  curl -fsSL https://github.com/LeonYoah/stx/releases/latest/download/install-online.sh | sudo bash
+  curl -fsSL https://v4.gh-proxy.org/https://github.com/LeonYoah/stx/releases/latest/download/install-online.sh | sudo bash
+  ... | sudo bash -s -- [options]
 
-Options:
-  --version <tag>              Release tag, e.g. v1.2.0 (default: latest; env STX_VERSION)
-  --install-dir <path>         Install dir (default: /opt/stx)
-  --arch <amd64|arm64>         Target arch (default: auto)
-  --node-variant <official|glibc217>  Node runtime variant (default: auto by glibc <2.27 => glibc217,
-                               amd64 only; arm64 always official)
-  --without-node               Do not download Node package (requires system Node ≥ 18.18; fails otherwise)
-  --without-observability      Skip bundled Prometheus/Alertmanager/Grafana
-  --region <cn|global>         Force download region
-  --no-start                   Pass through to install.sh
-  --no-systemd                 Pass through to install.sh
-  --deps-tag <tag>             Deps release tag (default: deps)
+下载 / download:
+  --version <tag>          Release 版本，如 v1.3.0（默认 latest；env STX_VERSION）
+  --variant <v>            amd64 | arm64 | centos7（默认自动：x86_64 且 glibc < 2.28 => centos7；env STX_BUNDLE_VARIANT）
+  --arch <amd64|arm64>     只指定 CPU 架构，glibc 仍自动判断
+  --mirror <line>          下载线路：1-6 / gh-proxy | v4 | v6 | cdn | axisnow | github / 自定义前缀 URL（env STX_MIRROR）
+                           默认测速后自动选最快，交互时可按编号改选，失败自动换下一条
+  --bundle-file <path>     使用本地已下载的离线包，不再下载
+  --bundle-name <name>     覆盖 Release 中的离线包文件名（特殊预发包）
+  --work-dir <dir>         下载与解压目录（默认 /tmp；env STX_WORK_DIR）
+  --keep-bundle            安装后保留下载的离线包
+
+安装（透传给 install.sh）/ install (passed to install.sh):
+  -y, --yes                非交互，全部使用默认值 / no prompts
+  --install-dir <path>     安装目录（默认 /opt/stx）
+  --admin-password <pwd>   初始管理员密码（默认 admin123）
+  --frontend-port <port>   Web 控制台端口（默认 17880）
+  --http-port <port>       后端 API 端口（默认 17800）
+  --grpc-port <port>       Agent gRPC 端口（默认 17890，Agent 回连）
+  --external-ip <ip>       对外访问 IP/域名（默认自动探测）
+  --db-type <sqlite|mysql|postgres> 及 --db-host/--db-port/--db-user/--db-password/--db-name
+  --prometheus-port / --alertmanager-port / --grafana-port   三件套端口（只能用参数）
+  --without-node           不用包内 Node（本机需 Node ≥ 18.18）
+  --service-user <user>    systemd 服务运行用户（默认 root）
+  --no-autostart           不设置开机自启
+  --without-observability  不启用内置 Prometheus/Alertmanager/Grafana
+  --force | --no-preserve-config | --no-start | --no-systemd
   -h, --help
 USAGE
 }
 
 VERSION="${STX_VERSION:-latest}"
-INSTALL_DIR="${STX_INSTALL_DIR:-/opt/stx}"
+VARIANT="${STX_BUNDLE_VARIANT:-}"
 ARCH=""
-NODE_VARIANT=""
-WITH_OBS=true
-WITHOUT_OBS=false
-WITHOUT_NODE=false
-REGION=""
-DEPS_TAG="${STX_DEPS_TAG:-deps}"
-NO_START=false
-NO_SYSTEMD=false
-WORK_DIR="${STX_DOWNLOAD_WORK_DIR:-${TMPDIR:-/tmp}/stx-online-$$}"
+BUNDLE_FILE=""
+BUNDLE_NAME=""
+WORK_PARENT="${STX_WORK_DIR:-${TMPDIR:-/tmp}}"
+KEEP_BUNDLE=false
+INSTALL_ARGS=()
+ORIG_ARGS=("$@")
+OPT_INSTALL_DIR="${STX_INSTALL_DIR:-/opt/stx}"
+OPT_DIR_EXPLICIT=false
+[[ -n "${STX_INSTALL_DIR:-}" ]] && OPT_DIR_EXPLICIT=true
+OPT_NO_SYSTEMD=false
+OPT_SERVICE_USER="${STX_SERVICE_USER:-}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --version) VERSION="${2:-}"; shift 2 ;;
-    --install-dir) INSTALL_DIR="${2:-}"; shift 2 ;;
+    --variant) VARIANT="${2:-}"; shift 2 ;;
     --arch) ARCH="${2:-}"; shift 2 ;;
-    --node-variant) NODE_VARIANT="${2:-}"; shift 2 ;;
-    --with-observability) WITH_OBS=true; shift ;;
-    --without-observability) WITHOUT_OBS=true; WITH_OBS=false; shift ;;
-    --without-node) WITHOUT_NODE=true; shift ;;
-    --region) REGION="${2:-}"; shift 2 ;;
-    --deps-tag) DEPS_TAG="${2:-}"; shift 2 ;;
-    --no-start) NO_START=true; shift ;;
-    --no-systemd) NO_SYSTEMD=true; shift ;;
+    --mirror) STX_MIRROR="${2:-}"; export STX_MIRROR; shift 2 ;;
+    --bundle-file) BUNDLE_FILE="${2:-}"; shift 2 ;;
+    --bundle-name) BUNDLE_NAME="${2:-}"; shift 2 ;;
+    --work-dir) WORK_PARENT="${2:-}"; shift 2 ;;
+    --keep-bundle) KEEP_BUNDLE=true; shift ;;
+    -y|--yes) STX_ASSUME_YES=true; export STX_ASSUME_YES; INSTALL_ARGS+=("$1"); shift ;;
+    # 密码经环境变量传给 install.sh，不出现在子进程参数里。/ Passwords reach install.sh via env, not child argv.
+    --admin-password) STX_ADMIN_PASSWORD="${2:-}"; export STX_ADMIN_PASSWORD; shift 2 ;;
+    --db-password) STX_DB_PASSWORD="${2:-}"; export STX_DB_PASSWORD; shift 2 ;;
+    --install-dir) OPT_INSTALL_DIR="${2:-}"; OPT_DIR_EXPLICIT=true; INSTALL_ARGS+=("$1" "${2:-}"); shift 2 ;;
+    --service-user) OPT_SERVICE_USER="${2:-}"; INSTALL_ARGS+=("$1" "${2:-}"); shift 2 ;;
+    --no-systemd) OPT_NO_SYSTEMD=true; INSTALL_ARGS+=("$1"); shift ;;
+    --frontend-port|--http-port|--api-port|--grpc-port|--external-ip|--external-host|\
+    --db-type|--db-host|--db-port|--db-user|--db-name|--prometheus-port|--alertmanager-port|--grafana-port)
+      INSTALL_ARGS+=("$1" "${2:-}"); shift 2 ;;
+    --without-observability|--with-observability|--force|--no-preserve-config|--no-start|--without-node|--no-autostart)
+      INSTALL_ARGS+=("$1"); shift ;;
     -h|--help) usage; exit 0 ;;
-    *) echo "unknown option: $1"; usage; exit 1 ;;
+    *) echo "[ERROR] unknown option: $1" >&2; usage; exit 1 ;;
   esac
 done
 
-if [[ -z "$ARCH" ]]; then
-  ARCH="$(stx_detect_arch)"
-fi
-if [[ -z "$NODE_VARIANT" ]]; then
-  NODE_VARIANT="$(stx_recommend_node_variant "$ARCH")"
-fi
-if [[ -n "$REGION" ]]; then
-  export STX_DOWNLOAD_REGION="$REGION"
-fi
-
-# --without-node 需要本机 Node >= 18.18：下载前就失败，与 install.sh 报错一致。
-# --without-node needs a system Node >= 18.18: fail before downloading, consistent with install.sh.
-if [[ "$WITHOUT_NODE" == "true" ]] && ! stx_probe_system_node; then
-  stx_system_node_error "--without-node was given" \
-    "install Node >= 18.18 on this host (and make sure it is in PATH), or drop --without-node to download the Node package."
-  exit 1
-fi
-
-region="$(stx_detect_download_region)"
-echo "[INFO] region=$region arch=$ARCH node_variant=$NODE_VARIANT version=$VERSION"
-stx_select_mirror_prefix "$region"
-
-mkdir -p "$WORK_DIR/packages"
-cleanup() {
-  rm -rf "$WORK_DIR"
-  if [[ -n "${STX_BOOTSTRAP_ROOT:-}" ]]; then
-    rm -rf "$STX_BOOTSTRAP_ROOT"
-  fi
-}
-trap cleanup EXIT
-
-# Resolve "latest" via GitHub API when needed. / 需要时通过 GitHub API 解析 latest。
-resolve_version() {
-  local v="$1"
-  if [[ "$v" != "latest" ]]; then
-    echo "$v"
-    return 0
-  fi
-  local api="https://api.github.com/repos/${STX_GITHUB_OWNER}/${STX_GITHUB_REPO}/releases/latest"
-  local prefix="${STX_SELECTED_MIRROR_PREFIX:-}"
-  local url="$api"
-  if [[ -n "$prefix" ]]; then
-    url="${prefix%/}/https://api.github.com/repos/${STX_GITHUB_OWNER}/${STX_GITHUB_REPO}/releases/latest"
-  fi
-  local tag
-  tag="$(curl -fsSL "$url" 2>/dev/null | stx_json_tag_name || true)"
-  if [[ -z "$tag" ]]; then
-    echo "[ERROR] cannot resolve latest release tag; pass --version explicitly" >&2
-    exit 1
-  fi
-  echo "$tag"
-}
-
-VERSION="$(resolve_version "$VERSION")"
-echo "[INFO] using release tag: $VERSION"
-
-download_checked() {
-  local tag="$1"
-  local asset="$2"
-  local dest="$3"
-  stx_assert_online_allowed
-  stx_download_release_asset "$tag" "$asset" "$dest"
-  # checksum optional but preferred
-  if stx_download_release_asset "$tag" "${asset}.sha256" "${dest}.sha256" 2>/dev/null; then
-    stx_verify_sha256 "$dest" "${dest}.sha256"
+# 下载之前先判断权限（install.sh 同样的规则），避免下载完才失败。curl | bash 时提示 | sudo bash -s --。
+# Check privileges before downloading (same rule as install.sh); under curl | bash suggest | sudo bash -s --.
+if declare -F stx_require_root >/dev/null; then
+  if [[ -f "${BASH_SOURCE[0]:-}" ]]; then
+    _stx_rerun="sudo bash $(printf '%q' "${BASH_SOURCE[0]}")"
   else
-    echo "[WARN] no ${asset}.sha256; skip checksum"
+    _stx_rerun="curl -fsSL https://github.com/${STX_GITHUB_OWNER:-LeonYoah}/${STX_GITHUB_REPO:-stx}/releases/latest/download/install-online.sh | sudo bash -s --"
   fi
-}
+  stx_require_root "$_stx_rerun" "$OPT_DIR_EXPLICIT" "$OPT_INSTALL_DIR" "$OPT_NO_SYSTEMD" "$OPT_SERVICE_USER" \
+    ${ORIG_ARGS[@]+"${ORIG_ARGS[@]}"}
+  unset _stx_rerun
+fi
 
-download_checked "$VERSION" "stx-linux-${ARCH}" "$WORK_DIR/packages/stx-linux-${ARCH}"
-if stx_download_release_asset "$VERSION" "frontend-standalone-${VERSION}-linux-${ARCH}.tar.gz" \
-  "$WORK_DIR/packages/frontend-standalone-${VERSION}-linux-${ARCH}.tar.gz" 2>/dev/null; then
-  if stx_download_release_asset "$VERSION" "frontend-standalone-${VERSION}-linux-${ARCH}.tar.gz.sha256" \
-    "$WORK_DIR/packages/frontend-standalone-${VERSION}-linux-${ARCH}.tar.gz.sha256" 2>/dev/null; then
-    stx_verify_sha256 "$WORK_DIR/packages/frontend-standalone-${VERSION}-linux-${ARCH}.tar.gz" \
-      "$WORK_DIR/packages/frontend-standalone-${VERSION}-linux-${ARCH}.tar.gz.sha256"
+stx_setup_log "${TMPDIR:-/tmp}/stx-install-$(date +%Y%m%d-%H%M%S).log"
+WORK_DIR=""
+on_exit() {
+  local rc=$?
+  stx_report_failure "$rc" "安装"
+  if [[ -n "$WORK_DIR" && -d "$WORK_DIR" ]]; then
+    if [[ "$KEEP_BUNDLE" == "true" || "$rc" -ne 0 ]]; then
+      find "$WORK_DIR" -mindepth 1 -maxdepth 1 -type d -exec rm -rf {} + 2>/dev/null || true
+      [[ -n "${STX_BUNDLE_FILE:-}" && -f "$STX_BUNDLE_FILE" ]] && echo "  离线包保留在 / bundle kept at: $STX_BUNDLE_FILE" >&2
+    else
+      rm -rf "$WORK_DIR"
+    fi
   fi
+  [[ -n "$STX_BOOTSTRAP_ROOT" ]] && rm -rf "$STX_BOOTSTRAP_ROOT"
+  return 0
+}
+trap on_exit EXIT
+
+STX_STEP_PREFIX="下载 "
+if [[ -n "$BUNDLE_FILE" ]]; then STX_STEP_TOTAL=2; else STX_STEP_TOTAL=5; fi
+echo "${STX_C_BOLD}STX 一键安装 / online installer${STX_C_RESET}"
+[[ -n "${STX_INSTALL_LOG:-}" ]] && echo "安装日志 / install log: $STX_INSTALL_LOG"
+
+stx_step "识别平台 / detecting platform"
+if [[ -z "$VARIANT" ]]; then
+  [[ -z "$ARCH" ]] && ARCH="$(stx_detect_arch)"
+  VARIANT="$(stx_detect_bundle_variant "$ARCH")"
+fi
+stx_bundle_platform "$VARIANT" >/dev/null || exit 1
+glibc="$(stx_detect_glibc_version)"
+stx_info "CPU: $(uname -m)   glibc: ${glibc:-unknown}   版本 / version: $VERSION"
+if [[ "$VARIANT" == "arm64" ]] && stx_glibc_lt_228 "$glibc"; then
+  stx_warn "arm64 只有官方 Node 构建（需要 glibc ≥ 2.28），本机 glibc ${glibc} 可能无法运行前端"
+fi
+stx_step_ok "离线包变体 / variant: $VARIANT"
+
+if [[ -z "$BUNDLE_FILE" ]]; then
+  WORK_DIR="$(mktemp -d "${WORK_PARENT%/}/stx-online.XXXXXX")"
+  stx_fetch_bundle "$VERSION" "$VARIANT" "$WORK_DIR" "$BUNDLE_NAME"
+  BUNDLE_FILE="$STX_BUNDLE_FILE"
 else
-  download_checked "$VERSION" "frontend-standalone-linux-${ARCH}.tar.gz" \
-    "$WORK_DIR/packages/frontend-standalone-${VERSION}-linux-${ARCH}.tar.gz"
+  [[ -f "$BUNDLE_FILE" ]] || { stx_err "bundle file not found: $BUNDLE_FILE"; exit 1; }
+  WORK_DIR="$(mktemp -d "${WORK_PARENT%/}/stx-online.XXXXXX")"
+  KEEP_BUNDLE=true
 fi
 
-# Optional agent
-if stx_download_release_asset "$VERSION" "stx-agent-linux-${ARCH}" "$WORK_DIR/packages/stx-agent-linux-${ARCH}" 2>/dev/null; then
-  stx_download_release_asset "$VERSION" "stx-agent-linux-${ARCH}.sha256" \
-    "$WORK_DIR/packages/stx-agent-linux-${ARCH}.sha256" 2>/dev/null || true
-  if [[ -f "$WORK_DIR/packages/stx-agent-linux-${ARCH}.sha256" ]]; then
-    stx_verify_sha256 "$WORK_DIR/packages/stx-agent-linux-${ARCH}" "$WORK_DIR/packages/stx-agent-linux-${ARCH}.sha256" || true
-  fi
-fi
+stx_step "解压离线包 / extracting the bundle"
+tar -xzf "$BUNDLE_FILE" -C "$WORK_DIR"
+bundle_dir="$(find "$WORK_DIR" -mindepth 1 -maxdepth 1 -type d -name 'stx-*' | head -n1)"
+[[ -n "$bundle_dir" && -f "$bundle_dir/install.sh" ]] || { stx_err "install.sh not found in $BUNDLE_FILE"; exit 1; }
+stx_step_ok "$bundle_dir"
 
-# 可选 capability proxy 代际 jar（v2 + v3）与启动脚本。
-# Optional capability proxy epoch jars (v2 + v3) and launcher script.
-for epoch in v2 v3; do
-  proxy_jar="stx-java-proxy-${epoch}.jar"
-  if stx_download_release_asset "$VERSION" "$proxy_jar" "$WORK_DIR/packages/$proxy_jar" 2>/dev/null; then
-    stx_download_release_asset "$VERSION" "${proxy_jar}.sha256" "$WORK_DIR/packages/${proxy_jar}.sha256" 2>/dev/null || true
-    if [[ -f "$WORK_DIR/packages/${proxy_jar}.sha256" ]]; then
-      stx_verify_sha256 "$WORK_DIR/packages/$proxy_jar" "$WORK_DIR/packages/${proxy_jar}.sha256" || true
-    fi
-  else
-    echo "[WARN] capability proxy jar missing on release $VERSION: $proxy_jar"
-  fi
-done
-
-mkdir -p "$WORK_DIR/scripts"
-stx_stage_java_proxy_script "$VERSION" "$WORK_DIR/scripts/stx-java-proxy.sh" "$ROOT_DIR" || true
-
-# Node: skip when asked, or when local node is good enough. / 显式跳过，或本机 node 足够则跳过。
-need_node=true
-if [[ "$WITHOUT_NODE" == "true" ]]; then
-  echo "[INFO] --without-node: skip node package"
-  need_node=false
-elif command -v node >/dev/null 2>&1; then
-  if stx_node_version_ok "$(node -v 2>/dev/null || true)"; then
-    echo "[INFO] local node $(node -v) is usable; skip node package"
-    need_node=false
-  fi
-fi
-
-if [[ "$need_node" == "true" ]]; then
-  # Try common deps asset names. / 尝试常见 deps 资产名。
-  node_asset=""
-  for major in 22 18; do
-    candidate="node-${major}-${NODE_VARIANT}-linux-${ARCH}.tar.gz"
-    if stx_download_release_asset "$DEPS_TAG" "$candidate" "$WORK_DIR/packages/$candidate" 2>/dev/null; then
-      node_asset="$candidate"
-      break
-    fi
-  done
-  if [[ -z "$node_asset" ]]; then
-    # 本机无合格 Node 才会走到这里（否则上面已跳过下载），继续安装必然失败：直接报错。
-    # Only reached when the host has no usable Node (otherwise download was skipped), so install would fail: stop now.
-    stx_probe_system_node || true
-    stx_node_package_missing_error "$NODE_VARIANT" "$ARCH" "$DEPS_TAG" \
-      "or install Node >= 18.18 on this host (found: ${STX_SYSTEM_NODE_VER:-none}) and re-run (optionally with --without-node)."
-    exit 1
-  fi
-  if stx_download_release_asset "$DEPS_TAG" "${node_asset}.sha256" "$WORK_DIR/packages/${node_asset}.sha256" 2>/dev/null; then
-    stx_verify_sha256 "$WORK_DIR/packages/$node_asset" "$WORK_DIR/packages/${node_asset}.sha256"
-  fi
-fi
-
-if [[ "$WITH_OBS" == "true" && "$WITHOUT_OBS" != "true" ]]; then
-  obs_asset="$(curl -fsSL "$(stx_build_github_release_url "$DEPS_TAG" "MANIFEST.json" "${STX_SELECTED_MIRROR_PREFIX:-}")" 2>/dev/null \
-    | stx_manifest_obs_asset "$ARCH" || true)"
-  if [[ -z "$obs_asset" ]]; then
-    # fallback glob-like name from known versions in package-release defaults
-    obs_asset="observability-prom3.9.1-am0.31.1-gf12.3.3-linux-${ARCH}.tar.gz"
-  fi
-  stx_download_release_asset "$DEPS_TAG" "$obs_asset" "$WORK_DIR/packages/$obs_asset" 2>/dev/null \
-    || echo "[WARN] observability package missing: $obs_asset"
-fi
-
-# Stage installer scripts into work dir. / 将安装脚本放入工作目录。
-cp "$ROOT_DIR/install/install.sh" "$WORK_DIR/install.sh"
-cp "$ROOT_DIR/install/download-lib.sh" "$WORK_DIR/download-lib.sh"
-cp "$ROOT_DIR/install/install-core.sh" "$WORK_DIR/install-core.sh"
-mkdir -p "$WORK_DIR/bin/lib"
-cp "$ROOT_DIR/install/bin/start.sh" "$WORK_DIR/bin/start.sh"
-cp "$ROOT_DIR/install/bin/stop.sh" "$WORK_DIR/bin/stop.sh"
-cp "$ROOT_DIR/install/bin/status.sh" "$WORK_DIR/bin/status.sh"
-cp "$ROOT_DIR/install/bin/lib/observability.sh" "$WORK_DIR/bin/lib/observability.sh"
-cp "$ROOT_DIR/config.example.yaml" "$WORK_DIR/config.example.yaml"
-chmod +x "$WORK_DIR/install.sh" "$WORK_DIR/bin/"*.sh
-
-install_args=(--install-dir "$INSTALL_DIR" --offline)
-if [[ "$WITH_OBS" == "true" && "$WITHOUT_OBS" != "true" ]]; then
-  install_args+=(--with-observability)
-fi
-if [[ "$WITHOUT_OBS" == "true" ]]; then
-  install_args+=(--without-observability)
-fi
-if [[ "$NO_START" == "true" ]]; then
-  install_args+=(--no-start)
-fi
-if [[ "$NO_SYSTEMD" == "true" ]]; then
-  install_args+=(--no-systemd)
-fi
-
-bash "$WORK_DIR/install.sh" "${install_args[@]}"
+echo
+echo "${STX_C_BOLD}==> 运行安装程序 / running install.sh${STX_C_RESET}"
+bash "$bundle_dir/install.sh" --offline ${INSTALL_ARGS[@]+"${INSTALL_ARGS[@]}"}

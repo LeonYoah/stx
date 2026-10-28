@@ -1632,3 +1632,37 @@ func TestListInstalledPlugins_prefersDBSelectedProfileKeys(t *testing.T) {
 		t.Fatalf("expected DB SelectedProfileKeys [mysql] to win over local metadata, got %+v", plugins[0].SelectedProfileKeys)
 	}
 }
+
+// TestGetDownloadStatus_completedWhenConnectorAndMetadataExist 验证当连接器与元数据已落盘时返回 completed 状态。
+// TestGetDownloadStatus_completedWhenConnectorAndMetadataExist verifies status is completed when connector and metadata exist.
+func TestGetDownloadStatus_completedWhenConnectorAndMetadataExist(t *testing.T) {
+	tempDir := t.TempDir()
+	service, _ := newTestPluginServiceWithDownloader(t, tempDir)
+
+	connectorPath := filepath.Join(tempDir, "3.0.0", "connectors", "connector-jdbc-3.0.0.jar")
+	if err := os.MkdirAll(filepath.Dir(connectorPath), 0o755); err != nil {
+		t.Fatalf("failed to create connector dir: %v", err)
+	}
+	if err := os.WriteFile(connectorPath, []byte("jar"), 0o644); err != nil {
+		t.Fatalf("failed to create connector jar: %v", err)
+	}
+
+	metadataPath := filepath.Join(tempDir, "3.0.0", "metadata", "jdbc.json")
+	if err := os.MkdirAll(filepath.Dir(metadataPath), 0o755); err != nil {
+		t.Fatalf("failed to create metadata dir: %v", err)
+	}
+	if err := os.WriteFile(metadataPath, []byte(`{"name":"jdbc","version":"3.0.0","artifactId":"connector-jdbc"}`), 0o644); err != nil {
+		t.Fatalf("failed to write metadata: %v", err)
+	}
+
+	status := service.GetDownloadStatus("jdbc", "3.0.0", []string{"mysql"})
+	if status == nil {
+		t.Fatal("expected non-nil download status")
+	}
+	if status.Status != "completed" {
+		t.Fatalf("expected status completed, got %s", status.Status)
+	}
+	if status.Progress != 100 {
+		t.Fatalf("expected progress 100, got %d", status.Progress)
+	}
+}

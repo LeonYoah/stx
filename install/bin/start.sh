@@ -36,6 +36,18 @@ fi
 FRONTEND_SERVER="$BASE_DIR/frontend/server.js"
 CONFIG_PATH="${CONFIG_PATH:-$BASE_DIR/config.yaml}"
 
+# install.sh 写入的启动参数（只填补未设置的环境变量）。/ Launch settings written by install.sh (fill unset vars only).
+if [[ -f "$BASE_DIR/stx.env" ]]; then
+  while IFS='=' read -r _k _v; do
+    [[ "$_k" =~ ^[A-Z_][A-Z0-9_]*$ ]] || continue
+    [[ -n "${!_k:-}" ]] && continue
+    export "$_k=$_v"
+  done <"$BASE_DIR/stx.env"
+  unset _k _v
+fi
+# 相对路径（如 sqlite ./data/stx.db）一律相对安装目录。/ Relative paths (e.g. sqlite ./data/stx.db) resolve against BASE_DIR.
+cd "$BASE_DIR"
+
 FRONTEND_ENABLE="${FRONTEND_ENABLE:-true}"
 FRONTEND_PORT="${FRONTEND_PORT:-17880}"
 FRONTEND_HOST="${FRONTEND_HOST:-0.0.0.0}"

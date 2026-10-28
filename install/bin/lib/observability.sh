@@ -61,6 +61,10 @@ stx_obs_config_enabled() {
 # Fixed layout under $BASE_DIR/observability/{prometheus,alertmanager,grafana}.
 # 固定目录布局。
 stx_obs_dirs() {
+  # 端口可由 install.sh 写入的 stx.env 覆盖。/ Ports may be overridden via stx.env written by install.sh.
+  STX_PROMETHEUS_PORT="${STX_PROMETHEUS_PORT:-9090}"
+  STX_ALERTMANAGER_PORT="${STX_ALERTMANAGER_PORT:-9093}"
+  STX_GRAFANA_PORT="${STX_GRAFANA_PORT:-3000}"
   OBS_ROOT="${BASE_DIR}/observability"
   PROM_DIR="${OBS_ROOT}/prometheus"
   ALERT_DIR="${OBS_ROOT}/alertmanager"
@@ -149,7 +153,7 @@ stx_obs_alertmanager_args() {
   STX_OBS_ALERTMANAGER_ARGS=(
     "--config.file=$alert_dir/alertmanager.yml"
     "--storage.path=$alert_dir/data"
-    "--web.listen-address=:9093"
+    "--web.listen-address=:${STX_ALERTMANAGER_PORT:-9093}"
     "--cluster.listen-address="
   )
 }
@@ -175,13 +179,19 @@ stx_obs_init_defaults() {
 
   # Render prometheus / alertmanager / grafana provisioning into obs_root.
   # 渲染 prometheus / alertmanager / grafana provisioning 到 obs_root。
+  local prom_port="${STX_PROMETHEUS_PORT:-9090}" am_port="${STX_ALERTMANAGER_PORT:-9093}"
+  local api_port="${STX_HTTP_PORT:-17800}"
   GRAFANA_DASHBOARDS_PATH="$grafana_dir/dashboards" \
+    ALERTMANAGER_TARGET="${ALERTMANAGER_TARGET:-127.0.0.1:${am_port}}" \
+    PROMETHEUS_TARGET="${PROMETHEUS_TARGET:-127.0.0.1:${prom_port}}" \
+    PROMETHEUS_URL="${PROMETHEUS_URL:-http://127.0.0.1:${prom_port}}" \
+    STX_SD_URL="${STX_SD_URL:-http://127.0.0.1:${api_port}/api/v1/monitoring/prometheus/discovery}" \
+    STX_WEBHOOK_URL="${STX_WEBHOOK_URL:-http://127.0.0.1:${api_port}/api/v1/monitoring/alertmanager/webhook}" \
     "$render" bare "$obs_root"
 
   # Binary layout expects configs inside component dirs (already rendered for prom/am).
   # Grafana still needs grafana.ini with local data paths.
-  local prometheus_url="${PROMETHEUS_URL:-http://127.0.0.1:9090}"
-  local grafana_url="${GRAFANA_URL:-http://127.0.0.1:3000}"
+  local grafana_url="${GRAFANA_URL:-http://127.0.0.1:${STX_GRAFANA_PORT:-3000}}"
   grafana_url="${grafana_url%/}"
   local grafana_domain="${GRAFANA_DOMAIN:-}"
   local grafana_proxy_subpath="${GRAFANA_PROXY_SUBPATH:-/api/v1/monitoring/proxy/grafana}"
@@ -313,23 +323,23 @@ stx_obs_start_stack() {
   echo $! >"$ALERT_DIR/alertmanager.pid"
 
   setsid "$PROM_DIR/prometheus" "--config.file=$PROM_DIR/prometheus.yml" "--storage.tsdb.path=$PROM_DIR/data" \
-    --web.listen-address=:9090 --web.enable-lifecycle >>"$PROM_DIR/logs/prometheus.log" 2>&1 </dev/null &
+    "--web.listen-address=:${STX_PROMETHEUS_PORT}" --web.enable-lifecycle >>"$PROM_DIR/logs/prometheus.log" 2>&1 </dev/null &
   echo $! >"$PROM_DIR/prometheus.pid"
 
   if [[ "$(basename "$grafana_bin")" == "grafana" ]]; then
-    setsid "$grafana_bin" server "--homepath=$GRAFANA_DIR" "--config=$GRAFANA_DIR/conf/grafana.ini" \
+    GF_SERVER_HTTP_PORT="$STX_GRAFANA_PORT" setsid "$grafana_bin" server "--homepath=$GRAFANA_DIR" "--config=$GRAFANA_DIR/conf/grafana.ini" \
       >>"$GRAFANA_DIR/logs/grafana.log" 2>&1 </dev/null &
   else
-    setsid "$grafana_bin" "--homepath=$GRAFANA_DIR" "--config=$GRAFANA_DIR/conf/grafana.ini" \
+    GF_SERVER_HTTP_PORT="$STX_GRAFANA_PORT" setsid "$grafana_bin" "--homepath=$GRAFANA_DIR" "--config=$GRAFANA_DIR/conf/grafana.ini" \
       >>"$GRAFANA_DIR/logs/grafana.log" 2>&1 </dev/null &
   fi
   echo $! >"$GRAFANA_DIR/grafana.pid"
 
   sleep 2
   echo "observability started:"
-  echo "  - Grafana     : http://127.0.0.1:3000"
-  echo "  - Prometheus  : http://127.0.0.1:9090"
-  echo "  - Alertmanager: http://127.0.0.1:9093"
+  echo "  - Grafana     : http://127.0.0.1:${STX_GRAFANA_PORT}"
+  echo "  - Prometheus  : http://127.0.0.1:${STX_PROMETHEUS_PORT}"
+  echo "  - Alertmanager: http://127.0.0.1:${STX_ALERTMANAGER_PORT}"
 }
 
 stx_obs_stop_stack() {

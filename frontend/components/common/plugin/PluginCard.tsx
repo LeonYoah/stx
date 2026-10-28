@@ -196,19 +196,6 @@ export function PluginCard({
                 <CheckCircle className='h-4 w-4 mr-2 text-green-600' />
                 {t('plugin.installed')}
               </Button>
-            ) : isDownloading ? (
-              <div className='space-y-2'>
-                <div className='flex items-center justify-between text-xs text-muted-foreground'>
-                  <span>{t('plugin.downloading')}</span>
-                  <span>{downloadProgress}%</span>
-                </div>
-                <div className='w-full bg-gray-200 rounded-full h-1.5 dark:bg-gray-700'>
-                  <div
-                    className='bg-blue-600 h-1.5 rounded-full transition-all duration-300'
-                    style={{width: `${downloadProgress}%`}}
-                  />
-                </div>
-              </div>
             ) : isDownloaded ? (
               <Button
                 variant='outline'
@@ -219,6 +206,19 @@ export function PluginCard({
                 <Download className='h-4 w-4 mr-2' />
                 {t('plugin.install')}
               </Button>
+            ) : isDownloading ? (
+              <div className='space-y-2'>
+                <div className='flex items-center justify-between text-xs text-muted-foreground'>
+                  <span>{t('plugin.downloading')}</span>
+                  <span>{downloadProgress}%</span>
+                </div>
+                <div className='w-full bg-gray-200 rounded-full h-1.5 dark:bg-gray-700'>
+                  <div
+                    className='bg-blue-600 h-1.5 rounded-full transition-all duration-300'
+                    style={{width: `${Math.max(0, Math.min(100, downloadProgress))}%`}}
+                  />
+                </div>
+              </div>
             ) : (
               <Button
                 variant='outline'

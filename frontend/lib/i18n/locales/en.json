@@ -536,7 +536,7 @@
     "createCluster": "Create Cluster",
     "createClusterDescription": "Create a new SeaTunnel cluster",
     "editCluster": "Edit Cluster",
-    "editClusterDescription": "Edit cluster information",
+    "editClusterDescription": "Update the cluster's basic metadata.",
     "deleteCluster": "Delete Cluster",
     "deleteConfirm": "Are you sure you want to delete cluster {name}? This action cannot be undone.",
     "deleteConfirmWarning": "After deletion, the cluster and node records will be removed from the control plane, and agents on each host will be notified to stop processes. If \"Force delete\" is checked, agents will also be told to remove the install directory on the host (e.g. /opt/seatunnel-xxx); data cannot be recovered.",
@@ -643,7 +643,7 @@
     "clusterMode": "Deployment Mode",
     "nodeList": "Node List",
     "addNode": "Add Node",
-    "addNodeDescription": "Add a host as a node to this cluster",
+    "addNodeDescription": "Deploy or associate a new SeaTunnel node on a managed host and join the cluster topology.",
     "addNodeSuccess": "Node added successfully",
     "addNodeError": "Failed to add node",
     "editNode": "Edit Node",
@@ -770,7 +770,7 @@
     "logFilter": "Filter",
     "logDate": "Date Suffix",
     "registerCluster": "Register Cluster",
-    "registerClusterDescription": "Register an existing SeaTunnel cluster",
+    "registerClusterDescription": "Input node and installation details of an existing SeaTunnel cluster to bring it under platform management.",
     "selectHostFirst": "Please select a host first",
     "selectAtLeastOneNode": "Please select at least one discovered node to register",
     "separatedRequiresMasterAndWorker": "Separated mode cluster must contain at least one Master node and one Worker node",
@@ -1196,8 +1196,8 @@
       "cancel": "Cancel",
       "confirmAction": "Confirm",
       "never": "never",
-      "description": "When enabled, the engine pushes job status, schema changes and CDC delay to STX: the job timeline shows DDL and CDC delay, and status changes trigger an extra refresh. Job status still follows the polling results.",
-      "unsupported": "Cluster version {version} does not emit job status events (requires 2.3.12+; 3.x adds non-terminal states).",
+      "description": "When enabled, the engine pushes schema changes and CDC delay to STX, allowing you to view DDL timelines and CDC delay monitoring in job details.",
+      "unsupported": "Cluster version {version} does not support event reporting (requires SeaTunnel 2.3.12+).",
       "lastEvent": "Last event: {time}",
       "counters": "received {received} · duplicates {duplicates} · dropped {dropped}",
       "authFails": "{count} token failures",
@@ -1205,7 +1205,7 @@
       "modeTerminal": "Terminal states only",
       "url": "Callback URL: {url}",
       "restartHint": "The config was written to seatunnel.yaml; reporting starts after a rolling restart of the cluster.",
-      "degradedHint": "A recently submitted job did not produce a status event in time, so the timeline and CDC delay may be missing data; job status keeps updating through polling. Check that the cluster can reach the callback URL and that the token matches.",
+      "degradedHint": "A recently submitted job did not produce a status event in time, so the timeline and CDC delay may be missing data. Check that the cluster can reach the callback URL and that the token matches.",
       "applied": "seatunnel.yaml updated; takes effect after a rolling restart",
       "appliedWithErrors": "Some node configs failed: {errors}",
       "state": {
@@ -1221,11 +1221,11 @@
         },
         "disable": {
           "title": "Disable event reporting?",
-          "body": "This removes event-report-http from seatunnel.yaml on every node; after a restart reporting stops and the timeline and CDC delay stop updating, while job status keeps updating through polling."
+          "body": "This removes event-report-http from seatunnel.yaml on every node; after a restart reporting stops and the timeline and CDC delay stop updating."
         },
         "rotate": {
           "title": "Rotate the event token?",
-          "body": "A new token is written to seatunnel.yaml. Until the restart the engine keeps the old token, so reports are rejected; job status keeps updating through polling."
+          "body": "A new token is written to seatunnel.yaml. Until the restart the engine keeps the old token, so reports are rejected."
         }
       }
     },
@@ -1527,7 +1527,7 @@
     "portChangeConfirmTitle": "Confirm REST API port change sync?",
     "portChangeConfirmDesc": "SeaTunnel YAML now contains a different seatunnel.engine.http.port value. If you continue, the platform will sync the related metadata as well.",
     "portChangeConfirmSyncConfig": "The updated seatunnel.yaml will be pushed to the target nodes.",
-    "portChangeConfirmSyncMetadata": "The database field cluster_nodes.api_port will be updated to the new port.",
+    "portChangeConfirmSyncMetadata": "Synchronize the node API port metadata in the platform.",
     "portChangeConfirmImpact": "Subsequent platform API calls, Web UI access, and job submission will all use the new port.",
     "jobLogModeTitle": "Job Log Output Mode",
     "jobLogModePerJobBadge": "Per-Job Log Mode (Recommended)",
@@ -2209,7 +2209,7 @@
     },
     "javaProxy": {
       "title": "stx-java-proxy",
-      "description": "Managed capability proxy used for runtime storage probes and related tooling.",
+      "description": "Managed capability proxy for runtime storage probes and metadata inspection.",
       "port": "Listen port",
       "portHint": "Default 18080. Service state and logs are stored under the Agent home directory."
     },
@@ -2756,7 +2756,7 @@
         },
         "sync_event_channel_degraded": {
           "name": "Event channel degraded",
-          "description": "Fires when the SeaTunnel event channel of the cluster turns from healthy to degraded; job states fall back to polling."
+          "description": "Fires when the SeaTunnel event channel of the cluster turns from healthy to degraded; job event timeline and CDC delay reporting may be interrupted."
         },
         "cpu_usage_high": {
           "name": "CPU usage high",
@@ -3494,6 +3494,8 @@
     },
     "inspections": {
       "title": "Inspections",
+      "dialogDescription": "Evaluate node health, key processes, and configuration integrity for cluster {name}.",
+      "dialogDescriptionGlobal": "Evaluate node health, key processes, and configuration integrity across managed clusters.",
       "globalHint": "Select a managed cluster to run a lightweight diagnosis check first, and then decide whether to collect live evidence.",
       "clusterScopedHint": "Diagnosis checks are filtered for cluster {name}.",
       "matchedReports": "{count} matched reports",
@@ -3951,7 +3953,7 @@
     "streamDisconnected": "Disconnected",
     "streamFallbackActivated": "The event stream failed, so the page switched to polling automatically.",
     "executionProgress": "Execution Progress",
-    "executionProgressDescription": "Shows the completion ratio using the fixed step codes of the upgrade workflow.",
+    "executionProgressDescription": "Shows the current completion progress of this upgrade.",
     "completedPercent": "Completion",
     "startExecution": "Start Execution",
     "restartExecution": "Run Again",
@@ -3965,7 +3967,7 @@
     "missingPlan": "No upgrade plan found. Please create a plan from the config merge page first.",
     "notStarted": "Not Started",
     "stepTree": "Step Tree",
-    "stepTreeDescription": "Shows the fixed step chain and the execution result of each step.",
+    "stepTreeDescription": "Shows the upgrade step sequence and the result of each step.",
     "executionDetailTitle": "Execution Detail",
     "executionDetailDescription": "Switch between the step tree and node execution status.",
     "stepNodeCount": "Nodes",
@@ -3975,7 +3977,7 @@
     "noEarlierLogs": "Already on the earliest log page",
     "logsPageIndicator": "Page {page} / {total}",
     "upgradeRecordsTitle": "Upgrade Records",
-    "upgradeRecordsDescription": "Review historical upgrade tasks for this cluster and open the execution detail of any task.",
+    "upgradeRecordsDescription": "Shows the historical upgrade tasks for this cluster with step execution logs and details.",
     "noUpgradeRecords": "No upgrade records yet.",
     "viewUpgradeDetail": "View Detail",
     "createdAt": "Created At",
@@ -4752,7 +4754,7 @@
     "observabilityOff": "Off",
     "observabilityHint": "Applies to SeaTunnel 3.x clusters only. When on, a running job's Details › Topology shows busyness, backpressure and bottleneck hints; open the SeaTunnel Web UI for the full backpressure graph.",
     "timeoutSettings": "Timeouts",
-    "timeoutSettingsHint": "How long an unanswered submit waits for the engine to show the job, and how long a stop may take before it is flagged overdue. Leave empty to use the global default; republish to apply changes.",
+    "timeoutSettingsHint": "Maximum time to confirm whether a job has started when submit receives no response, and duration before a stop request is considered timed out. Leave empty to use global defaults; republish to take effect.",
     "submitTimeoutSetting": "Submit timeout (min)",
     "stopTimeoutSetting": "Stop timeout (min)",
     "timeoutDefaultPlaceholder": "Default {minutes}",

@@ -19,6 +19,14 @@ set -euo pipefail
 BASE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 RUN_DIR="$BASE_DIR/run"
 CONFIG_PATH="${CONFIG_PATH:-$BASE_DIR/config.yaml}"
+if [[ -f "$BASE_DIR/stx.env" ]]; then
+  while IFS='=' read -r _k _v; do
+    [[ "$_k" =~ ^[A-Z_][A-Z0-9_]*$ ]] || continue
+    [[ -n "${!_k:-}" ]] && continue
+    export "$_k=$_v"
+  done <"$BASE_DIR/stx.env"
+  unset _k _v
+fi
 FRONTEND_PORT="${FRONTEND_PORT:-17880}"
 
 # shellcheck source=lib/observability.sh
@@ -50,4 +58,4 @@ stx_obs_status_stack
 
 echo
 echo "ports:"
-ss -lntp 2>/dev/null | grep -E ":17800|:17890|:${FRONTEND_PORT}\\b|:9090|:9093|:3000" || true
+ss -lntp 2>/dev/null | grep -E ":(${STX_HTTP_PORT:-17800}|${STX_GRPC_PORT:-17890}|${FRONTEND_PORT}|${STX_PROMETHEUS_PORT:-9090}|${STX_ALERTMANAGER_PORT:-9093}|${STX_GRAFANA_PORT:-3000})\\b" || true

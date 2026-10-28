@@ -960,7 +960,12 @@ func (s *Service) GetDownloadStatus(name, version string, profileKeys []string) 
 	}
 
 	// Check if already downloaded / 检查是否已下载
-	if s.downloader.IsConnectorDownloaded(name, version) && s.arePluginDependenciesDownloaded(plugin) {
+	connectorDownloaded := s.downloader.IsConnectorDownloaded(name, version) ||
+		(plugin.ArtifactID != "" && s.downloader.IsConnectorDownloadedByArtifactID(plugin.ArtifactID, version))
+
+	// 连接器就绪且依赖全量就绪（或无额外依赖）时直接返回已完成。
+	// Return completed when connector is ready and all dependencies are present (or none required).
+	if connectorDownloaded && (len(plugin.Dependencies) == 0 || s.arePluginDependenciesDownloaded(plugin)) {
 		return &DownloadProgress{
 			PluginName:          name,
 			Version:             version,
@@ -972,6 +977,25 @@ func (s *Service) GetDownloadStatus(name, version string, profileKeys []string) 
 			ConnectorCompleted:  1,
 			DependencyCount:     len(plugin.Dependencies),
 			DependencyCompleted: len(plugin.Dependencies),
+		}
+	}
+
+	// 连接器就绪且元数据已落盘时，即便部分可选驱动未配置，也视为已下载就绪。
+	// When connector is ready and metadata is persisted, treat as completed even if optional drivers are omitted.
+	if connectorDownloaded {
+		if _, metaErr := s.downloader.readPluginMetadata(name, version); metaErr == nil {
+			return &DownloadProgress{
+				PluginName:          name,
+				Version:             version,
+				Status:              "completed",
+				Progress:            100,
+				CurrentStep:         "Downloaded / 已下载",
+				SelectedProfileKeys: selectedProfiles,
+				ConnectorCount:      1,
+				ConnectorCompleted:  1,
+				DependencyCount:     len(plugin.Dependencies),
+				DependencyCompleted: len(plugin.Dependencies),
+			}
 		}
 	}
 

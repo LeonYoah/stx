@@ -193,6 +193,17 @@ for clusterID, items := range grouped {
 }
 ```
 
+## 失败作业的错误信息补拉与终态时间
+
+- **引擎错误信息迟到**：SeaTunnel 3.0.0 先报 `FAILED`，约 50 秒后才在 `job-info.errorMsg` 里给出错误（2026-10-28 实测，作业 #33）。
+  作业一进终态，`refreshJobInstance` 就会因为已有终态指标块而跳过，`error_message` 会一直为空。
+  `backfillFailedJobErrors`（`failed_error_backfill.go`）在每轮 `reconcileActiveJobs` 开头（没有活跃作业也执行）后台补拉：
+  只看 `status=failed`、`error_message` 为空、有 `engine_job_id`、`finished_at` 在 5 分钟内的作业，同一作业至少间隔 15 秒，
+  每轮最多 20 个；`awaitingEngineErrorMessage` 为真时刷新不跳过。终态 → 终态不改变状态，不会重复发 B1。
+- **自造终态时间必须带时区**：孤儿分支（引擎已无此作业）和提交过期都会自造 `EngineJobInfo.FinishedTime`，
+  必须用 `time.Now().UTC().Format(time.RFC3339)`。无偏移字符串会被 `parseEngineJobTime` 按 SeaTunnel 时区解析，
+  服务器时区不同就偏移数小时（曾出现结束时间早于开始时间 8 小时）。测试断言 `finished_at` 接近当前时间。
+
 ## 事件模式（自适应轮询）
 
 > **默认关闭。** 事件平均晚到约 8 秒（t1 实测取消后 8.2 秒收到），不比 10 秒轮询快；开启只换来更少的引擎调用，代价是事件悄悄丢失时状态最长滞后一个完整对账间隔。通道健康只在提交后 45 秒内验证，长期不提交的集群发现不了通道失效。只有需要减轻引擎压力的大集群才配置正数开启。默认情况下状态事件只是额外触发一次 `RefreshJobByID`，轮询频率不变。

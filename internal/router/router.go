@@ -751,9 +751,16 @@ func Serve() {
 			syncService.StartPreviewRuntime(ctx)
 			syncService.StartTaskScheduleRuntime(ctx)
 			syncService.StartJobReconciler(ctx)
+			syncService.StartJobObservabilityCollector(ctx)
 			syncService.StartEngineEventRuntime(ctx)
 			syncHandler := syncapp.NewHandler(syncService)
 			syncHandler.SetAuditRepository(auditRepo)
+
+			// 作业级 Prometheus 指标抓取（公开，受 observability.enabled 控制）。
+			// Job-level Prometheus metrics scrape (public, gated by observability.enabled).
+			if config.Config.Observability.Enabled {
+				apiV1Router.GET("/monitoring/prometheus/jobs/metrics", syncHandler.GetJobPrometheusMetrics)
+			}
 
 			apiV1Router.POST("/sync/preview/collect", syncHandler.CollectPreview)
 			// SeaTunnel event-report-http 回调：不走登录，靠集群 token 鉴权。
@@ -846,6 +853,8 @@ func Serve() {
 					syncJobRouter.GET("/:id/checkpoint", syncHandler.GetJobCheckpointSnapshot)
 					syncJobRouter.GET("/:id/logs", syncHandler.GetJobLogs)
 					syncJobRouter.GET("/:id/realtime", syncHandler.GetJobRealtime)
+					syncJobRouter.GET("/:id/plan-dag", syncHandler.GetJobPlanDAG)
+					syncJobRouter.GET("/:id/timeseries", syncHandler.GetJobTimeseries)
 					syncJobRouter.GET("/:id/events", syncHandler.ListJobEvents)
 					syncJobRouter.POST("/:id/recover", syncHandler.RecoverJob)
 					syncJobRouter.POST("/:id/cancel", syncHandler.CancelJob)
@@ -996,6 +1005,9 @@ func Serve() {
 			clusterService.SetRuntimeConfigStore(configService)
 			// Agent 重连后重推离线期间未下发的节点配置
 			// Re-push node configs that could not be delivered while the Agent was offline
+			// Agent 重连（如主机重启）后确保 stx-java-proxy 运行，编辑器校验、DAG、表结构都依赖它。
+			// Ensure stx-java-proxy runs after an Agent reconnects (e.g. host reboot); editor validation, DAG and schemas need it.
+			grpcServer.RegisterAgentReadyHook(clusterService.EnsureSTXJavaProxyOnHost)
 			grpcServer.RegisterAgentReadyHook(func(ctx context.Context, hostID uint) {
 				if committed, err := configService.RetryPendingPushes(ctx, hostID); err != nil {
 					log.Printf("[Config] retry pending pushes for host %d failed: %v", hostID, err)

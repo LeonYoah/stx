@@ -3601,6 +3601,7 @@ definitions:
     - 已安装 / Installed
     - 已启用 / Enabled
     - 已禁用 / Disabled
+    - ""
     x-enum-varnames:
     - PluginStatusAvailable
     - PluginStatusInstalled
@@ -4151,6 +4152,40 @@ definitions:
       updated_at:
         type: string
     type: object
+  sync.JobPlanDAGResponse:
+    properties:
+      data:
+        $ref: '#/definitions/sync.JobPlanDAGResult'
+      error_msg:
+        type: string
+    type: object
+  sync.JobPlanDAGResult:
+    properties:
+      available:
+        type: boolean
+      job_id:
+        type: integer
+      message:
+        description: |-
+          Message 只在 inspect_failed 时出现，已脱敏并截断。
+          Message is only set for inspect_failed, already redacted and truncated.
+        type: string
+      reason:
+        type: string
+      warnings:
+        description: |-
+          Warnings 永远是数组，不为 null。
+          Warnings is always an array, never null.
+        items:
+          type: string
+        type: array
+      webui_job:
+        allOf:
+        - $ref: '#/definitions/sync.JSONMap'
+        description: |-
+          WebUIJob 与 /tasks/:id/dag 的 webui_job 同构（WebUI 兼容 jobDag），前端用同一套解析。
+          WebUIJob has the same shape as webui_job from /tasks/:id/dag (WebUI-compatible jobDag), parsed by the same code.
+    type: object
   sync.JobRealtimeResponse:
     properties:
       data:
@@ -4240,6 +4275,62 @@ definitions:
     - JobSyncStateDegraded
     - JobSyncStateStale
     - JobSyncStateUnknown
+  sync.JobTimeseriesAnnotation:
+    properties:
+      event_id:
+        type: integer
+      kind:
+        type: string
+      summary:
+        type: string
+      ts_ms:
+        type: integer
+    type: object
+  sync.JobTimeseriesResponse:
+    properties:
+      data:
+        $ref: '#/definitions/sync.JobTimeseriesResult'
+      error_msg:
+        type: string
+    type: object
+  sync.JobTimeseriesResult:
+    properties:
+      annotations:
+        items:
+          $ref: '#/definitions/sync.JobTimeseriesAnnotation'
+        type: array
+      engine_observability_enabled:
+        type: boolean
+      range:
+        type: string
+      reason:
+        type: string
+      series:
+        items:
+          $ref: '#/definitions/sync.JobTimeseriesSeries'
+        type: array
+      source:
+        type: string
+      step_seconds:
+        type: integer
+    type: object
+  sync.JobTimeseriesSeries:
+    properties:
+      key:
+        type: string
+      label:
+        type: string
+      points:
+        description: '[ts_ms, value]'
+        items:
+          items:
+            format: float64
+            type: number
+          type: array
+        type: array
+      unit:
+        type: string
+    type: object
   sync.RealtimeEdge:
     properties:
       points:
@@ -7511,6 +7602,36 @@ paths:
       summary: 获取作业事件时间线
       tags:
       - Sync
+  /api/v1/sync/jobs/{id}/plan-dag:
+    get:
+      parameters:
+      - description: 作业 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sync.JobPlanDAGResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/sync.JobPlanDAGResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/sync.JobPlanDAGResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/sync.JobPlanDAGResponse'
+      summary: 获取作业提交配置推导的计划 DAG（表结构与建表计划）
+      tags:
+      - Sync
   /api/v1/sync/jobs/{id}/realtime:
     get:
       parameters:
@@ -7543,6 +7664,49 @@ paths:
           schema:
             $ref: '#/definitions/sync.JobRealtimeResponse'
       summary: 获取作业实时指标与瓶颈提示
+      tags:
+      - Sync
+  /api/v1/sync/jobs/{id}/timeseries:
+    get:
+      parameters:
+      - description: 作业 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - default: 1h
+        description: 时间范围：15m|1h|6h|24h|7d
+        in: query
+        name: range
+        type: string
+      - description: 步长（秒），0 表示按范围自动
+        in: query
+        name: step
+        type: integer
+      - description: 逗号分隔指标：throughput,rows,cdc_delay,checkpoint,busy,backpressure
+        in: query
+        name: metrics
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/sync.JobTimeseriesResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/sync.JobTimeseriesResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/sync.JobTimeseriesResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/sync.JobTimeseriesResponse'
+      summary: 获取作业指标时序（Prometheus）
       tags:
       - Sync
   /api/v1/sync/jobs/cancel-by-ref:

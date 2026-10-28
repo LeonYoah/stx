@@ -18,6 +18,8 @@
 import {describe, expect, it} from 'vitest';
 import {
   buildInsertedCuratedContent,
+  formatRateDisplay,
+  isZeroMetricValue,
   detectVariables,
   dolphinPushBlockedReason,
   filterTree,
@@ -684,3 +686,28 @@ describe('dolphinPushBlockedReason', () => {
   });
 });
 
+
+describe('isZeroMetricValue', () => {
+  // 全 0 的扩展指标折叠显示；按算子 / 按表的 map 要每一项都是 0。
+  // All-zero extended metrics are collapsed; per-vertex / per-table maps must be zero in every entry.
+  it('detects zero numbers, numeric strings and all-zero maps', () => {
+    expect(isZeroMetricValue(0)).toBe(true);
+    expect(isZeroMetricValue('0.0')).toBe(true);
+    expect(isZeroMetricValue({'Source[0]': '0'})).toBe(true);
+    expect(isZeroMetricValue({'Source[0]': '0', 'Sink[0]': '3'})).toBe(false);
+    expect(isZeroMetricValue('12')).toBe(false);
+    expect(isZeroMetricValue('')).toBe(false);
+    expect(isZeroMetricValue({})).toBe(false);
+    expect(isZeroMetricValue(null)).toBe(false);
+  });
+});
+
+describe('formatRateDisplay', () => {
+  it('rounds raw engine floats to two decimals and keeps non-numeric values', () => {
+    expect(formatRateDisplay('1.9704569255360194')).toBe('1.97');
+    expect(formatRateDisplay('3983.0990029341087')).toBe('3983.1');
+    expect(formatRateDisplay('0')).toBe('0');
+    expect(formatRateDisplay('-')).toBe('-');
+    expect(formatRateDisplay(undefined)).toBe('-');
+  });
+});

@@ -180,6 +180,9 @@ CLI 成功结果只向 stdout 写一个 JSON 值。`execution wait` 的进度事
 - 业务模块：创建时绑定执行编号；取消后不会被迟到的成功回调覆盖；不可取消阶段返回稳定原因。
 - 审计：普通用户只能查看自己的记录；管理员可以查看全部；系统记录只允许管理员查看。
 - 敏感内容：大小写字段、嵌套 map、slice、JSON 字符串、HOCON、YAML 风格和 `key=value` 都不会返回秘密原文。
+- 敏感内容：普通键的值里嵌着的赋值也要屏蔽。错误信息 `connect failed: password=xxx` 会先整体匹配成 `failed` 的值，
+  `audit.RedactText` 必须对非敏感键的值递归处理（`redactAssignments`），回归测试见
+  `TestRedactTextMasksAssignmentsInsideOrdinaryValues`。config tool / 引擎返回的错误文本（如计划 DAG 失败摘要、作业告警消息）都依赖这一点。
 - 带掩码更新：可以恢复旧值；缺少旧值时拒绝更新；数据库中不会保存 `******`。
 - CLI：真实二进制连接独立 HTTP 服务，断言 stdout 是单个 JSON、stderr 是 NDJSON、退出码稳定、`next_command` 正确，取消请求包含确认和幂等 Header。
 - 路由契约：新增路由已登记，操作基线和 Swagger 操作数同步更新。

@@ -91,6 +91,8 @@ io/github/leonyoah/stx/proxy/
 - 只有多个功能包共同使用的代码才放入 `service/support/`；领域专用辅助类留在所属功能包。
 - Apache SeaTunnel 依赖继续使用 `org.apache.seatunnel`，STX 自有代码不得回到该命名空间。
 
+- 自动启动：注册集群时拉起一次；Agent（重新）就绪时由 `cluster.Service.EnsureSTXJavaProxyOnHost`（经 `RegisterAgentReadyHook`）对选点落在该主机的集群再拉起一次，覆盖主机重启和进程退出。只有集群配置 `stx_java_proxy.auto_start=false` 才跳过（`stxJavaProxyAutoStartEnabled`）。
+
 ---
 
 ## 命名约定

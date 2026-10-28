@@ -167,6 +167,18 @@ func (s *Service) applyEngineJobInfoUpdate(ctx context.Context, instance *JobIns
 	instance.SyncState = JobSyncStateOK
 	instance.SyncFailCount = 0
 	s.reportJobTransition(ctx, instance, previousStatus)
+	// 顺带更新 / 清理作业 Prometheus 导出（受 observability.enabled 控制）。
+	// Opportunistically refresh or clear the job Prometheus export (gated by observability.enabled).
+	if isFinalNormalizedJobStatus(instance.Status) {
+		getJobPrometheusExporter().deleteJob(instance)
+	} else {
+		if info != nil && info.Metrics != nil {
+			getJobPrometheusExporter().observeJobMetrics(instance, info.Metrics)
+		}
+		if delay := s.jobCDCDelay(instance.ID); delay != nil {
+			getJobPrometheusExporter().observeCDCDelay(instance, float64(delay.LatestMs)/1000.0)
+		}
+	}
 	if err := s.syncPreviewSessionTerminalState(ctx, instance); err != nil {
 		return nil, err
 	}

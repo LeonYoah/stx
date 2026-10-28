@@ -26,3 +26,19 @@ scrape_configs:
     http_sd_configs:
       - url: __STX_SD_URL__
         refresh_interval: 30s
+    relabel_configs:
+      - source_labels: [job]
+        regex: seatunnel_engine_http
+        action: keep
+
+  # STX job-level metrics exported by the control plane.
+  # STX 控制面导出的作业级指标。
+  - job_name: stx_sync_jobs
+    metrics_path: /api/v1/monitoring/prometheus/jobs/metrics
+    http_sd_configs:
+      - url: __STX_SD_URL__
+        refresh_interval: 30s
+    relabel_configs:
+      - source_labels: [job]
+        regex: stx_sync_jobs
+        action: keep

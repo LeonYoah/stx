@@ -412,3 +412,30 @@ func TestTaskAlertServicePermissionsAndDefaults(t *testing.T) {
 		}
 	}
 }
+
+// 任务元数据与提交内容不一致时以内容里的 env.job.mode 为准（线上作业 #26：submit_spec.mode=batch，内容 STREAMING），
+// 否则实时作业的失败告警只会在“成功”时恢复，而实时作业几乎不会成功。
+// When task metadata disagrees with the submitted content, env.job.mode in the content wins (production job #26:
+// submit_spec.mode=batch with STREAMING content); otherwise a streaming job's failure alert would only resolve on a
+// success that streaming jobs almost never reach.
+func TestJobRunModePrefersSubmittedContent(t *testing.T) {
+	streamingContent := "env {\n  job.mode = \"STREAMING\"\n}\nsource { FakeSource {} }"
+	cases := []struct {
+		name  string
+		job   *JobInstance
+		batch bool
+	}{
+		{name: "content streaming beats batch metadata", job: &JobInstance{SubmitSpec: JSONMap{"mode": "batch", "submitted_content": streamingContent}}, batch: false},
+		{name: "content batch beats streaming metadata", job: &JobInstance{Mode: "streaming", SubmitSpec: JSONMap{"submitted_content": `{"env":{"job.mode":"BATCH"}}`}}, batch: true},
+		{name: "no content falls back to job mode", job: &JobInstance{Mode: "batch", SubmitSpec: JSONMap{}}, batch: true},
+		{name: "no content falls back to submit_spec mode", job: &JobInstance{SubmitSpec: JSONMap{"mode": TaskModeBatch}}, batch: true},
+		{name: "unknown counts as streaming", job: &JobInstance{SubmitSpec: JSONMap{}}, batch: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := jobIsBatch(tc.job); got != tc.batch {
+				t.Fatalf("jobIsBatch=%v, want %v (mode %q)", got, tc.batch, jobRunMode(tc.job))
+			}
+		})
+	}
+}

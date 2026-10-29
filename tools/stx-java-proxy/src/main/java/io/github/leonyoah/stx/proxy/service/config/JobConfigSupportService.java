@@ -67,6 +67,12 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.function.Function;
 
 import static org.apache.seatunnel.api.options.ConnectorCommonOptions.PLUGIN_INPUT;
@@ -76,6 +82,21 @@ import static org.apache.seatunnel.api.table.factory.FactoryUtil.DEFAULT_ID;
 
 public class JobConfigSupportService {
     private static final Logger LOG = LoggerFactory.getLogger(JobConfigSupportService.class);
+
+    /** 单个数据源元数据解析最大超时时间（2500ms），避免弱网环境下阻塞 DAG 渲染。 */
+    /**
+     * Maximum timeout (2500ms) for resolving a single source's metadata, preventing DAG stall on
+     * weak network.
+     */
+    private static final long RESOLVE_TIMEOUT_MS = 2500;
+
+    private static final ExecutorService RESOLVE_EXECUTOR =
+            Executors.newCachedThreadPool(
+                    r -> {
+                        Thread t = new Thread(r, "stx-dag-resolver");
+                        t.setDaemon(true);
+                        return t;
+                    });
 
     public JobConfigContext parseJobContext(Map<String, Object> request) {
         return parseJobContext(request, false);
@@ -414,21 +435,34 @@ public class JobConfigSupportService {
                 String output = getOutputDataset(readonlyConfig);
                 try {
                     List<CatalogTable> catalogTables =
-                            resolveSourceCatalogTables(readonlyConfig, classLoader);
+                            resolveSourceCatalogTablesWithTimeout(
+                                    readonlyConfig, classLoader, RESOLVE_TIMEOUT_MS);
                     datasetCatalogTables.put(output, catalogTables);
                     result.put(nodeId, toDisplayInfo(catalogTables));
                 } catch (Exception e) {
-                    LOG.error(
-                            "Official source tablePath resolution failed. index={}, plugin={}, output={}",
+                    if (isPluginNotFound(e, readonlyConfig.get(PLUGIN_NAME))) {
+                        LOG.error(
+                                "Official source connector not found. index={}, plugin={}",
+                                i,
+                                readonlyConfig.get(PLUGIN_NAME),
+                                e);
+                        throw new ProxyException(
+                                400,
+                                buildOfficialResolutionError(
+                                        "Source", i, readonlyConfig.get(PLUGIN_NAME), e),
+                                e);
+                    }
+                    LOG.warn(
+                            "Official source tablePath resolution failed or timed out. index={}, plugin={}, output={}. Falling back to static config display.",
                             i,
                             readonlyConfig.get(PLUGIN_NAME),
                             output,
                             e);
-                    throw new ProxyException(
-                            400,
-                            buildOfficialResolutionError(
-                                    "Source", i, readonlyConfig.get(PLUGIN_NAME), e),
-                            e);
+                    warnings.add(
+                            String.format(
+                                    "Source[%d]-%s 远程元数据解析未就绪（%s），已降级展示静态拓扑。",
+                                    i, readonlyConfig.get(PLUGIN_NAME), firstLine(e.getMessage())));
+                    result.put(nodeId, extractFallbackDisplayInfo(sourceConfig, output));
                 }
             }
 
@@ -446,17 +480,23 @@ public class JobConfigSupportService {
                     datasetCatalogTables.put(output, catalogTables);
                     result.put(nodeId, toDisplayInfo(catalogTables));
                 } catch (Exception e) {
-                    LOG.error(
-                            "Official transform tablePath resolution failed. index={}, plugin={}, output={}",
+                    if (isPluginNotFound(e, readonlyConfig.get(PLUGIN_NAME))) {
+                        throw new ProxyException(
+                                400,
+                                buildOfficialResolutionError(
+                                        "Transform", i, readonlyConfig.get(PLUGIN_NAME), e),
+                                e);
+                    }
+                    LOG.warn(
+                            "Official transform tablePath resolution failed. index={}, plugin={}",
                             i,
                             readonlyConfig.get(PLUGIN_NAME),
-                            output,
                             e);
-                    throw new ProxyException(
-                            400,
-                            buildOfficialResolutionError(
-                                    "Transform", i, readonlyConfig.get(PLUGIN_NAME), e),
-                            e);
+                    warnings.add(
+                            String.format(
+                                    "Transform[%d]-%s 元数据推导未就绪，已降级展示静态拓扑。",
+                                    i, readonlyConfig.get(PLUGIN_NAME)));
+                    result.put(nodeId, extractFallbackDisplayInfo(transformConfig, output));
                 }
             }
 
@@ -472,16 +512,23 @@ public class JobConfigSupportService {
                             resolveSinkDisplayInfo(
                                     readonlyConfig, inputCatalogTables, classLoader));
                 } catch (Exception e) {
-                    LOG.error(
+                    if (isPluginNotFound(e, readonlyConfig.get(PLUGIN_NAME))) {
+                        throw new ProxyException(
+                                400,
+                                buildOfficialResolutionError(
+                                        "Sink", i, readonlyConfig.get(PLUGIN_NAME), e),
+                                e);
+                    }
+                    LOG.warn(
                             "Official sink tablePath resolution failed. index={}, plugin={}",
                             i,
                             readonlyConfig.get(PLUGIN_NAME),
                             e);
-                    throw new ProxyException(
-                            400,
-                            buildOfficialResolutionError(
-                                    "Sink", i, readonlyConfig.get(PLUGIN_NAME), e),
-                            e);
+                    warnings.add(
+                            String.format(
+                                    "Sink[%d]-%s 元数据推导未就绪，已降级展示静态拓扑。",
+                                    i, readonlyConfig.get(PLUGIN_NAME)));
+                    result.put(nodeId, extractFallbackDisplayInfo(sinkConfig, ""));
                 }
             }
 
@@ -511,6 +558,99 @@ public class JobConfigSupportService {
                 createAndPrepareSourceCompat(
                         readonlyConfig, classLoader, factoryId, fallbackCreateSource);
         return tuple._2();
+    }
+
+    /**
+     * 带超时保护的 Source CatalogTable 解析，避免远程数据库连通缓慢或网络不可达时阻塞线程。 Resolves source CatalogTables with
+     * timeout protection to prevent blocking when remote DB is slow or unreachable.
+     */
+    List<CatalogTable> resolveSourceCatalogTablesWithTimeout(
+            ReadonlyConfig readonlyConfig, ClassLoader classLoader, long timeoutMillis)
+            throws Exception {
+        CompletableFuture<List<CatalogTable>> future =
+                CompletableFuture.supplyAsync(
+                        () -> {
+                            ClassLoader original = Thread.currentThread().getContextClassLoader();
+                            try {
+                                if (classLoader != null) {
+                                    Thread.currentThread().setContextClassLoader(classLoader);
+                                }
+                                return resolveSourceCatalogTables(readonlyConfig, classLoader);
+                            } finally {
+                                Thread.currentThread().setContextClassLoader(original);
+                            }
+                        },
+                        RESOLVE_EXECUTOR);
+        try {
+            return future.get(timeoutMillis, TimeUnit.MILLISECONDS);
+        } catch (TimeoutException e) {
+            future.cancel(true);
+            throw new TimeoutException(
+                    "Remote catalog schema resolution timed out after " + timeoutMillis + "ms");
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof Exception) {
+                throw (Exception) cause;
+            }
+            throw new RuntimeException(cause);
+        }
+    }
+
+    /**
+     * 当远程数据库不可达或解析超时时，从配置中静态提取表名与数据集标识，保证 DAG 拓扑永不崩溃。 When remote DB is unreachable or times out,
+     * extract table paths statically from config to keep DAG resilient.
+     */
+    static OfficialNodeDisplayInfo extractFallbackDisplayInfo(Config config, String defaultOutput) {
+        Set<String> tablePaths = new LinkedHashSet<>();
+        if (config.hasPath("table-names")) {
+            try {
+                tablePaths.addAll(config.getStringList("table-names"));
+            } catch (Exception ignored) {
+            }
+        }
+        if (config.hasPath("table_list")) {
+            try {
+                for (Config elem : config.getConfigList("table_list")) {
+                    if (elem.hasPath("table_path")) {
+                        tablePaths.add(elem.getString("table_path"));
+                    } else if (elem.hasPath("table_name")) {
+                        tablePaths.add(elem.getString("table_name"));
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        if (tablePaths.isEmpty() && config.hasPath("table_path")) {
+            try {
+                tablePaths.add(config.getString("table_path"));
+            } catch (Exception ignored) {
+            }
+        }
+        if (tablePaths.isEmpty() && config.hasPath("table_name")) {
+            try {
+                tablePaths.add(config.getString("table_name"));
+            } catch (Exception ignored) {
+            }
+        }
+        if (tablePaths.isEmpty() && config.hasPath("table")) {
+            try {
+                tablePaths.add(config.getString("table"));
+            } catch (Exception ignored) {
+            }
+        }
+        if (tablePaths.isEmpty() && StringUtils.isNotBlank(defaultOutput)) {
+            tablePaths.add(defaultOutput);
+        }
+        return new OfficialNodeDisplayInfo(
+                new ArrayList<>(tablePaths), Collections.emptyMap(), Collections.emptyMap());
+    }
+
+    private static String firstLine(String message) {
+        if (StringUtils.isBlank(message)) {
+            return "";
+        }
+        int idx = message.indexOf('\n');
+        return idx >= 0 ? message.substring(0, idx).trim() : message.trim();
     }
 
     /**
@@ -826,7 +966,7 @@ public class JobConfigSupportService {
         String normalizedPluginName = StringUtils.defaultIfBlank(pluginName, "Unknown");
         if (isPluginNotFound(throwable, normalizedPluginName)) {
             return String.format(
-                    "%s[%d]-%s 连接器未安装，请先给当前集群安装 %s 连接器后再预览配置。",
+                    "%s[%d]-%s 连接器未安装，请先给当前集群安装 %s 连接器后再预览配置。(official tablePath resolution failed)",
                     nodeKind, index, normalizedPluginName, normalizedPluginName);
         }
         return String.format(
@@ -842,12 +982,13 @@ public class JobConfigSupportService {
         String expectedPlugin = StringUtils.trimToEmpty(pluginName).toLowerCase();
         Throwable current = throwable;
         int depth = 0;
-        while (current != null && depth < 6) {
+        while (current != null && depth < 8) {
             String message = StringUtils.defaultString(current.getMessage()).toLowerCase();
-            if (message.contains("pluginidentifier")
-                    && message.contains("not found")
-                    && (StringUtils.isBlank(expectedPlugin)
-                            || message.contains("pluginname='" + expectedPlugin + "'"))) {
+            if (message.contains("could not find any factories that implement")
+                    || message.contains("no factory found for identifier")
+                    || (message.contains("pluginidentifier") && message.contains("not found"))
+                    || (message.contains("not found")
+                            && (message.contains("factory") || message.contains("plugin")))) {
                 return true;
             }
             current = current.getCause();

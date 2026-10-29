@@ -344,7 +344,7 @@ type DefaultConfigToolClient struct {
 // NewDefaultConfigToolClient creates a config tool client.
 func NewDefaultConfigToolClient() *DefaultConfigToolClient {
 	return &DefaultConfigToolClient{
-		httpClient: &http.Client{Timeout: 15 * time.Second},
+		httpClient: &http.Client{Timeout: 30 * time.Second},
 	}
 }
 

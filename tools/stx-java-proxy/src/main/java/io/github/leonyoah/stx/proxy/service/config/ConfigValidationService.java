@@ -78,8 +78,12 @@ public class ConfigValidationService {
                 ProxyRequestUtils.getBoolean(request, "validateOptionRules", !testConnection);
         int timeoutMillis = (int) ProxyRequestUtils.getLong(request, "timeoutMillis", 3500);
 
-        // 如果是仅测试连接，跳过昂贵的表结构全量解析 (skipOfficialDisplayPaths=true)，避免阻塞数十秒
-        // If testing connection, skip expensive official table schema resolution to avoid delays
+        // 纯连接测试时跳过官方元数据推导 (skipOfficialDisplayPaths=true)，避免重复拉取；
+        // 完整校验时执行解析，未安装连接器将快速拦截，外部数据库不可达时将自动带超时保护降级为静态拓扑。
+        // When testing connections, skip official metadata resolution
+        // (skipOfficialDisplayPaths=true);
+        // During full validation, uninstalled connectors are blocked fast, while unreachable DBs
+        // degrade gracefully with timeout protection.
         JobConfigContext context = jobConfigSupportService.parseJobContext(request, testConnection);
         List<String> warnings = filterUserVisibleWarnings(context.getWarnings());
         List<String> infos = new ArrayList<>();

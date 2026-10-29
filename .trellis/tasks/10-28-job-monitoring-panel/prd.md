@@ -14,7 +14,7 @@
   没有条数 / Checkpoint / busy 事件。无 Pushgateway / OTel / 作业 JMX。
 - Busy / backpressure：ST 3.0+ 且作业 `engine.observability` 开启；master 内存 3–10 分钟；`GET /metrics/realtime/...`；
   Push Mode 未实现。STX 在引擎可观测性开启时约 60s 轮询（windowMs）。
-- Checkpoint：引擎可观测性开启时后台约 30–60s 拉 `/jobs/checkpoints`；当前值始终可按需轮询。
+- Checkpoint：Zeta `/jobs/checkpoints` 为核心 REST，与 `engine.observability` 无关；STX `observability.enabled` 时后台约 30–60s 采集导出；当前值始终可按需轮询。
 - Rows / QPS：顺带现有约 10s job-info 对账写入，不另增引擎调用。
 - STX 已有的作业数据都是“当前值”：对账每 10 秒拉 `job-info`（`result_preview.metrics`）；
   `/sync/jobs/:id/realtime` 有算子忙碌度 / 边背压；`sync_engine_events` 有 CDC 延迟、表结构变更、状态变化；
@@ -27,14 +27,15 @@
 
 1. **无 Prometheus → 无进程内 1h 内存兜底，不存储任何时序。**
 2. **不新增「监控」页签。** 现有「指标」页签顶部 segment「快照 | 趋势」；快照 = 现有指标 UI；趋势 = 图表。
-3. **Busy / backpressure / Checkpoint 的采集**跟随作业 `engine.observability.enabled`：开则采，关则不采。
+3. **Busy / backpressure 的采集**跟随作业 `engine.observability.enabled`：开则采，关则不采。
+   **Checkpoint 采集**只跟随 STX `observability.enabled`（与引擎 obs 无关；`GetJobCheckpointSnapshot` 详情 API 亦不检查引擎 obs）。
 
 ### 两个开关
 
 | 开关 | 作用 |
 |---|---|
 | STX `observability.enabled`（接上 Prometheus） | 为真时趋势才能查图；否则空态提示需开启 STX 可观测性 / 接入 Prometheus。快照始终可用。关闭时 STX **不采集、不导出**作业时序。 |
-| 作业 `engine.observability.enabled` | **只**约束忙碌度 / 背压卡片：关时这两张卡显示「该作业未开启引擎可观测性」。吞吐 / 条数 / CDC / Checkpoint 在 Prometheus 开启时仍可出图（Checkpoint 历史依赖采集，采集亦跟随引擎可观测性）。 |
+| 作业 `engine.observability.enabled` | **只**约束忙碌度 / 背压卡片与对应采集：关时这两张卡显示「该作业未开启引擎可观测性」。吞吐 / 条数 / CDC / Checkpoint 在 Prometheus 开启时仍可出图（Checkpoint 历史采集只依赖 STX observability，不依赖引擎 obs）。 |
 
 Hero 当前值（读/写 QPS、CDC、最近 Checkpoint）始终来自 job-info / checkpoints 轮询；历史曲线依赖 STX 导出 + Prometheus。
 

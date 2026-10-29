@@ -354,14 +354,36 @@ export function DagNodeDrawer({
               ) : null}
             </div>
           ) : null}
+          {/* Refresh is decoupled from planNotice: on success planNotice is null but refresh must stay visible. */}
+          {/* 刷新与 planNotice 解耦：加载成功后 planNotice 为 null，仍需保留刷新入口。 */}
           {planNotice ? (
             <div className='mt-3 flex items-start gap-2 rounded-md border border-border/60 bg-muted/20 px-2.5 py-2 text-xs text-muted-foreground'>
               <span className='flex-1'>{planNotice}</span>
-              {plan?.onRefresh && !plan.loading ? (
-                <Button variant='ghost' size='icon' className='size-6' onClick={plan.onRefresh} aria-label={t('refresh')}>
+              {runtime && plan?.onRefresh && !plan.loading ? (
+                <Button
+                  variant='ghost'
+                  size='icon'
+                  className='size-6'
+                  onClick={plan.onRefresh}
+                  aria-label={t('refresh')}
+                  data-testid='plan-dag-refresh'
+                >
                   <RefreshCw className='size-3' />
                 </Button>
               ) : null}
+            </div>
+          ) : runtime && plan?.onRefresh && !plan.loading ? (
+            <div className='mt-3 flex justify-end'>
+              <Button
+                variant='ghost'
+                size='icon'
+                className='size-6'
+                onClick={plan.onRefresh}
+                aria-label={t('refresh')}
+                data-testid='plan-dag-refresh'
+              >
+                <RefreshCw className='size-3' />
+              </Button>
             </div>
           ) : null}
           {runtime && plan?.available ? (

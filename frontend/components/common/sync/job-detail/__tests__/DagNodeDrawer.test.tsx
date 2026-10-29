@@ -63,4 +63,30 @@ describe('DagNodeDrawer', () => {
     expect(screen.getByText('channel')).toBeTruthy();
     expect(screen.queryByText('name')).toBeNull();
   });
+
+  it('keeps the plan-DAG refresh control visible when available=true', () => {
+    const onRefresh = vi.fn();
+    const labels = zh.workbenchStudio.jobDetail;
+    render(
+      wrap(
+        <DagNodeDrawer
+          vertex={sourceVertex()}
+          mode='runtime'
+          full={false}
+          onToggleFull={vi.fn()}
+          onClose={vi.fn()}
+          plan={{loading: false, available: true, onRefresh}}
+        />,
+      ),
+    );
+
+    // Open schema via a table click (same path as production) so TabsContent mounts.
+    // 通过点击表名进入表结构页签（与线上一致），确保 TabsContent 挂载。
+    fireEvent.click(screen.getByText('db.public.mt_customers'));
+    expect(screen.getByText(labels.schemaLiveHint)).toBeTruthy();
+    const refresh = screen.getByTestId('plan-dag-refresh');
+    expect(refresh).toBeTruthy();
+    fireEvent.click(refresh);
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+  });
 });

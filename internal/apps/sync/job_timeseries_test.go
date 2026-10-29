@@ -67,3 +67,18 @@ func TestTimeseriesPromQL_busyGated(t *testing.T) {
 		t.Fatalf("expected templates when engine obs on")
 	}
 }
+
+func TestTimeseriesPromQL_checkpointIgnoresEngineObs(t *testing.T) {
+	t.Parallel()
+	// Checkpoint PromQL must stay available even when engine observability is off.
+	// Checkpoint PromQL 在引擎可观测性关闭时仍应可用。
+	if got := timeseriesPromQL("checkpoint", "1", false); len(got) == 0 {
+		t.Fatalf("expected checkpoint templates when engine obs off")
+	}
+	if got := timeseriesPromQL("backpressure", "1", false); got != nil {
+		t.Fatalf("expected nil backpressure when engine obs off, got %#v", got)
+	}
+	if got := timeseriesPromQL("backpressure", "1", true); len(got) == 0 {
+		t.Fatalf("expected backpressure templates when engine obs on")
+	}
+}

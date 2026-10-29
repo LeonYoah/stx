@@ -34,9 +34,10 @@ const (
 	jobObsCollectorWindowMs int64 = 180000
 )
 
-// StartJobObservabilityCollector 在 STX observability 开启时，后台采集运行中且引擎 obs 开启的作业的 Checkpoint 与 realtime。
-// StartJobObservabilityCollector starts background Checkpoint / realtime collection for running jobs with engine
-// observability when STX observability is enabled.
+// StartJobObservabilityCollector 在 STX observability 开启时，后台采集运行中作业的 Checkpoint；
+// busy/backpressure（realtime）仅在作业开启引擎可观测性时采集。
+// StartJobObservabilityCollector starts background Checkpoint collection for running jobs when STX observability
+// is enabled; busy/backpressure (realtime) still requires the job's engine observability.
 func (s *Service) StartJobObservabilityCollector(ctx context.Context) {
 	if s == nil || s.repo == nil {
 		return
@@ -71,11 +72,14 @@ func (s *Service) collectJobObservabilityMetrics(ctx context.Context) {
 		if job == nil || !isRealtimeObservableStatus(job.Status) {
 			continue
 		}
-		if !jobHasEngineObservability(job) {
-			continue
-		}
+		// Checkpoint is core engine REST (/jobs/checkpoints); gate only on STX observability (checked above).
+		// Checkpoint 是引擎核心 REST（/jobs/checkpoints），只受上方 STX observability 开关约束。
 		s.collectOneJobCheckpoint(ctx, job, exporter)
-		s.collectOneJobRealtime(ctx, job, exporter)
+		// Busy / backpressure still require engine.observability on the job.
+		// 忙碌度 / 背压仍要求作业开启 engine.observability。
+		if jobHasEngineObservability(job) {
+			s.collectOneJobRealtime(ctx, job, exporter)
+		}
 	}
 }
 

@@ -82,7 +82,7 @@ start() {
     echo "Prometheus 已在运行 / Prometheus is already running (pid=$(cat "$PROM_DIR/prometheus.pid"))"
   else
     echo "启动 / Starting Prometheus on :9090..."
-    setsid sh -c "exec $PROM_DIR/prometheus --config.file=$PROM_DIR/prometheus.yml --storage.tsdb.path=$PROM_DIR/data --web.listen-address=:9090 --web.enable-lifecycle >> $PROM_DIR/logs/prometheus.log 2>&1" < /dev/null &
+    setsid sh -c "exec $PROM_DIR/prometheus --config.file=$PROM_DIR/prometheus.yml --storage.tsdb.path=$PROM_DIR/data --storage.tsdb.retention.size=30GB --web.listen-address=:9090 --web.enable-lifecycle >> $PROM_DIR/logs/prometheus.log 2>&1" < /dev/null &
     echo $! >"$PROM_DIR/prometheus.pid"
   fi
 

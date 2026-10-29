@@ -1064,6 +1064,8 @@ func (s *Service) BuildTaskDAG(ctx context.Context, id uint, draft *TaskDraftPay
 	return &DAGResult{Nodes: []JSONMap{{"id": fmt.Sprintf("task-%d", task.ID), "name": task.Name, "type": "pipeline"}}, Edges: []JSONMap{}}, nil
 }
 
+// toValidateChecks 将 proxy 校验条目转换为 sync 领域层契约。
+// toValidateChecks transforms proxy validation checks into sync domain checks.
 func toValidateChecks(items []ConfigToolValidationCheck) []ValidateCheck {
 	if len(items) == 0 {
 		return nil
@@ -1075,6 +1077,7 @@ func toValidateChecks(items []ConfigToolValidationCheck) []ValidateCheck {
 			Kind:          item.Kind,
 			ConnectorType: item.ConnectorType,
 			Target:        item.Target,
+			ProbeMethod:   item.ProbeMethod,
 			Status:        item.Status,
 			Message:       item.Message,
 		})

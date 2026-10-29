@@ -82,12 +82,23 @@ Do not use rigid static scripts. Perform dynamic comparison via shell / git comm
      ```
    - Identify newly added dialects (e.g. `yashandb`, `oceanbase`, `dameng`).
    - Extract official driver maven coordinates (`groupId:artifactId:version`) and JDBC prefix from the dialect factory.
-4. **Prepare Human Review Proposal for Baseline Seed**:
+
+4. **Connection Probing Capability Classification (测试连接能力归类)**:
+   - For every new or modified connector, determine how it should be validated in Studio's "Test Connection" (`testConnectorConnection`):
+     - **Tier 1: DryRun Validation SPI**: Check if the factory implements `SupportSourceDryRunValidation` or `SupportSinkDryRunValidation` (e.g. `Kafka`, `Jdbc`, `S3File`).
+     - **Tier 2: Catalog SPI**: Check if the connector provides a `CatalogFactory` (e.g. `ClickHouse`, `Doris`, `StarRocks`, `MongoDB`, `Elasticsearch`, `Paimon`, `Iceberg`, JDBC dialects).
+     - **Tier 3: CDC Mapping**: Check if it is a CDC connector (`*-CDC`) that can map to an underlying database `Catalog` (e.g. `MySQL-CDC` -> `MySqlCatalog`).
+     - **Tier 4: Dedicated / Network Fallback**: Does it use a custom protocol (e.g. Redis `PING`, HTTP `HEAD`) or require generic TCP socket port probing?
+     - **Tier 5: Native Local Exempt**: Self-contained connectors (`FakeSource`, `Console`, `Assert`, `LocalFile`) that skip external probes (`severity: info`).
+   - Ensure the new connector is appropriately recognized by `stx-java-proxy`'s probe chain so it never yields unintended `failed` or false `warning` skips.
+
+5. **Prepare Human Review Proposal for Baseline Seed**:
    - Structure differences into:
      - New connectors to append to `catalog`
      - Connectors classified as `default_not_required` (self-contained, no external driver needed)
      - Connectors with companion profiles (`default_companion_profiles`)
      - New JDBC database profiles under `connector-jdbc`
+     - Connection probing capability tier for newly added connectors
      - Version bumps to `reviewed_versions`
 
 ---
@@ -158,9 +169,9 @@ SeaTunnelX uses `tools/stx-java-proxy` as an out-of-process Java sidecar to vali
 ### SeaTunnel Version Upgrade Review (Baseline: <base> -> Target: <target>)
 
 #### 1. Connector Catalog Changes
-| Connector | Change Type | Mapping | Recommended Action |
-| --- | --- | --- | --- |
-| connector-xyz | Added | connector-xyz | Add to catalog, default_not_required |
+| Connector | Change Type | Mapping | Probing Tier | Recommended Action |
+| --- | --- | --- | --- | --- |
+| connector-xyz | Added | connector-xyz | Tier 2 (Catalog) | Add to catalog, default_not_required |
 
 #### 2. JDBC Profile Changes
 | Database | Driver Coordinates | Dialect Supported | Recommended Action |

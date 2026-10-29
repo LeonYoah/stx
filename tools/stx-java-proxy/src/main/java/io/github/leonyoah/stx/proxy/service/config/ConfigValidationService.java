@@ -20,23 +20,16 @@ package io.github.leonyoah.stx.proxy.service.config;
 import org.apache.seatunnel.shade.com.typesafe.config.Config;
 import org.apache.seatunnel.shade.org.apache.commons.lang3.StringUtils;
 
-import org.apache.seatunnel.api.configuration.ReadonlyConfig;
-
 import io.github.leonyoah.stx.proxy.model.JobConfigContext;
 import io.github.leonyoah.stx.proxy.model.ProxyNode;
 import io.github.leonyoah.stx.proxy.service.plugin.PluginClassLoaderUtils;
 import io.github.leonyoah.stx.proxy.service.support.ProxyRequestUtils;
 
 import java.net.URLClassLoader;
-import java.sql.Connection;
-import java.sql.Driver;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Properties;
-
-import static org.apache.seatunnel.api.options.ConnectorCommonOptions.PLUGIN_NAME;
 
 public class ConfigValidationService {
 
@@ -99,11 +92,10 @@ public class ConfigValidationService {
                                         "%s 无需连接测试: %s",
                                         check.get("connectorType"), check.get("message")));
                     } else {
-                        warnings.add(
+                        infos.add(
                                 String.format(
                                         "%s 暂未完成连接测试: %s",
                                         check.get("connectorType"), check.get("message")));
-                        allChecksSucceeded = false;
                     }
                 }
             }
@@ -164,67 +156,7 @@ public class ConfigValidationService {
 
     private Map<String, Object> testConnectorConnection(
             ProxyNode node, Config config, ClassLoader classLoader) {
-        ReadonlyConfig readonlyConfig = ReadonlyConfig.fromConfig(config);
-        String pluginName = readonlyConfig.get(PLUGIN_NAME);
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("nodeId", node.getNodeId());
-        result.put("kind", node.getKind().name().toLowerCase());
-        result.put(
-                "connectorType",
-                String.format(
-                        "%s[%d]-%s",
-                        StringUtils.capitalize(node.getKind().name().toLowerCase()),
-                        node.getConfigIndex(),
-                        pluginName));
-        String target = getString(config, "url");
-        if (StringUtils.isBlank(target)) {
-            String host = getString(config, "hostname");
-            if (StringUtils.isNotBlank(host)) {
-                String port = getString(config, "port");
-                target = port != null ? host + ":" + port : host;
-            }
-        }
-        result.put("target", StringUtils.defaultString(target));
-
-        if (doesNotRequireConnectionProbe(pluginName)) {
-            result.put("status", "skipped");
-            result.put("severity", "info");
-            result.put("message", "该连接器不依赖外部服务，无需连接测试。");
-            return result;
-        }
-
-        if (isJdbcProbeableConnector(pluginName, config)) {
-            try {
-                probeJdbc(pluginName, config, classLoader);
-                result.put("status", "success");
-                result.put("message", "Connection succeeded.");
-                return result;
-            } catch (Exception e) {
-                result.put("status", "failed");
-                result.put("message", firstLine(e.getMessage()));
-                return result;
-            }
-        }
-
-        result.put("status", "skipped");
-        result.put("severity", "warning");
-        result.put("message", "该连接器暂不支持连接探测，请通过配置预览或实际运行进一步验证。");
-        return result;
-    }
-
-    /**
-     * 判断连接器是否可以通过 JDBC 驱动进行连接探测（包括标准 JDBC 以及支持 JDBC 探测的 CDC 连接器）。 Checks whether the connector can
-     * be probed via JDBC driver (including standard JDBC and CDC connectors with JDBC endpoints).
-     */
-    private boolean isJdbcProbeableConnector(String pluginName, Config config) {
-        if ("Jdbc".equalsIgnoreCase(pluginName) || "MySQL-CDC".equalsIgnoreCase(pluginName)) {
-            return true;
-        }
-        String url = getString(config, "url");
-        if (StringUtils.isNotBlank(url) && url.toLowerCase().startsWith("jdbc:")) {
-            return true;
-        }
-        return false;
+        return ConnectionProbeSupport.probeConnector(node, config, classLoader);
     }
 
     /**
@@ -240,83 +172,6 @@ public class ConfigValidationService {
             result.add(warning);
         }
         return result;
-    }
-
-    /**
-     * 判断连接器是否天然不需要外部连接探测。 Detects connectors that naturally do not need external connection
-     * probing.
-     */
-    private boolean doesNotRequireConnectionProbe(String pluginName) {
-        return "FakeSource".equalsIgnoreCase(pluginName) || "Console".equalsIgnoreCase(pluginName);
-    }
-
-    private void probeJdbc(String pluginName, Config config, ClassLoader classLoader)
-            throws Exception {
-        String url = getString(config, "url");
-        if (StringUtils.isBlank(url)) {
-            String hostname = getString(config, "hostname");
-            if (StringUtils.isNotBlank(hostname)) {
-                String port = getString(config, "port");
-                if (StringUtils.isBlank(port)) {
-                    port = "3306";
-                }
-                url = String.format("jdbc:mysql://%s:%s/", hostname, port);
-            }
-        }
-        if (StringUtils.isBlank(url)) {
-            throw new IllegalArgumentException(
-                    "Missing required connection option: url or hostname.");
-        }
-
-        String username = getString(config, "username");
-        if (StringUtils.isBlank(username)) {
-            username = getString(config, "user");
-        }
-        String password = getString(config, "password");
-        String driverClassName = getString(config, "driver");
-        if (StringUtils.isBlank(driverClassName)) {
-            driverClassName = resolveDefaultJdbcDriver(pluginName, url);
-        }
-
-        if (StringUtils.isNotBlank(driverClassName)) {
-            Class<?> driverClass = Class.forName(driverClassName, true, classLoader);
-            Driver driver = (Driver) driverClass.getDeclaredConstructor().newInstance();
-            Properties properties = new Properties();
-            if (StringUtils.isNotBlank(username)) {
-                properties.setProperty("user", username);
-            }
-            if (password != null) {
-                properties.setProperty("password", password);
-            }
-            try (Connection ignored = driver.connect(url, properties)) {
-                if (ignored == null) {
-                    throw new IllegalStateException("JDBC driver returned null connection.");
-                }
-            }
-            return;
-        }
-        throw new IllegalArgumentException("Missing jdbc driver option.");
-    }
-
-    private String resolveDefaultJdbcDriver(String pluginName, String url) {
-        String lowerUrl = StringUtils.defaultString(url).toLowerCase();
-        if (lowerUrl.startsWith("jdbc:mysql:") || "MySQL-CDC".equalsIgnoreCase(pluginName)) {
-            return "com.mysql.cj.jdbc.Driver";
-        }
-        if (lowerUrl.startsWith("jdbc:postgresql:")
-                || lowerUrl.startsWith("jdbc:postgres:")
-                || "PostgreSQL-CDC".equalsIgnoreCase(pluginName)
-                || "Postgres-CDC".equalsIgnoreCase(pluginName)) {
-            return "org.postgresql.Driver";
-        }
-        if (lowerUrl.startsWith("jdbc:oracle:") || "Oracle-CDC".equalsIgnoreCase(pluginName)) {
-            return "oracle.jdbc.OracleDriver";
-        }
-        if (lowerUrl.startsWith("jdbc:sqlserver:")
-                || "SqlServer-CDC".equalsIgnoreCase(pluginName)) {
-            return "com.microsoft.sqlserver.jdbc.SQLServerDriver";
-        }
-        return null;
     }
 
     private String getRequiredString(Config config, String path) {

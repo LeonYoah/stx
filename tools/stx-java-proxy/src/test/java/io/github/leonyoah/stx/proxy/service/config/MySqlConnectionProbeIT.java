@@ -28,7 +28,12 @@ import io.github.leonyoah.stx.proxy.model.NodeKind;
 
 import java.util.Map;
 
-import static io.github.leonyoah.stx.proxy.service.config.ProbeITSupport.*;
+import static io.github.leonyoah.stx.proxy.service.config.ProbeITSupport.assertAuthFailure;
+import static io.github.leonyoah.stx.proxy.service.config.ProbeITSupport.assertFastFailure;
+import static io.github.leonyoah.stx.proxy.service.config.ProbeITSupport.assertSuccess;
+import static io.github.leonyoah.stx.proxy.service.config.ProbeITSupport.capped;
+import static io.github.leonyoah.stx.proxy.service.config.ProbeITSupport.closedPort;
+import static io.github.leonyoah.stx.proxy.service.config.ProbeITSupport.probe;
 import static io.github.leonyoah.stx.proxy.service.config.ProbeTestSupport.opts;
 
 /**
@@ -49,7 +54,11 @@ class MySqlConnectionProbeIT {
 
     @BeforeAll
     static void start() {
-        mysql = capped(new FixedMySql()).withDatabaseName("test").withUsername("stx").withPassword("stxpw");
+        mysql =
+                capped(new FixedMySql())
+                        .withDatabaseName("test")
+                        .withUsername("stx")
+                        .withPassword("stxpw");
         mysql.start();
     }
 
@@ -71,23 +80,33 @@ class MySqlConnectionProbeIT {
                 "table", "t");
     }
 
-    private static Map<String, Object> cdc(String form, String host, Integer port, String password) {
+    private static Map<String, Object> cdc(
+            String form, String host, Integer port, String password) {
         if ("base-url".equals(form)) {
             return opts(
                     "base-url",
                     "jdbc:mysql://" + host + (port == null ? "" : ":" + port) + "/test",
-                    "username", "stx",
-                    "password", password,
-                    "database-names", java.util.Collections.singletonList("test"),
-                    "table-names", java.util.Collections.singletonList("test.t"));
+                    "username",
+                    "stx",
+                    "password",
+                    password,
+                    "database-names",
+                    java.util.Collections.singletonList("test"),
+                    "table-names",
+                    java.util.Collections.singletonList("test.t"));
         }
         Map<String, Object> m =
                 opts(
-                        "hostname", host,
-                        "username", "stx",
-                        "password", password,
-                        "database-names", java.util.Collections.singletonList("test"),
-                        "table-names", java.util.Collections.singletonList("test.t"));
+                        "hostname",
+                        host,
+                        "username",
+                        "stx",
+                        "password",
+                        password,
+                        "database-names",
+                        java.util.Collections.singletonList("test"),
+                        "table-names",
+                        java.util.Collections.singletonList("test.t"));
         if (port != null) {
             m.put("port", String.valueOf(port));
         }
@@ -97,26 +116,37 @@ class MySqlConnectionProbeIT {
     // ---------- Jdbc (MySQL) Source & Sink ----------
 
     @ParameterizedTest(name = "Jdbc-MySQL {0} correct creds -> success")
-    @EnumSource(value = NodeKind.class, names = {"SOURCE", "SINK"})
+    @EnumSource(
+            value = NodeKind.class,
+            names = {"SOURCE", "SINK"})
     void jdbcCorrectCreds(NodeKind kind) {
         assertSuccess(probe(kind, "Jdbc", jdbc("jdbc:mysql://127.0.0.1:3306/test", "stxpw")));
     }
 
     @ParameterizedTest(name = "Jdbc-MySQL {0} wrong creds -> auth failure")
-    @EnumSource(value = NodeKind.class, names = {"SOURCE", "SINK"})
+    @EnumSource(
+            value = NodeKind.class,
+            names = {"SOURCE", "SINK"})
     void jdbcWrongCreds(NodeKind kind) {
         assertAuthFailure(probe(kind, "Jdbc", jdbc("jdbc:mysql://127.0.0.1:3306/test", "WRONG")));
     }
 
     @ParameterizedTest(name = "Jdbc-MySQL {0} closed port -> fast failure")
-    @EnumSource(value = NodeKind.class, names = {"SOURCE", "SINK"})
+    @EnumSource(
+            value = NodeKind.class,
+            names = {"SOURCE", "SINK"})
     void jdbcClosedPort(NodeKind kind) throws Exception {
         assertFastFailure(
-                probe(kind, "Jdbc", jdbc("jdbc:mysql://127.0.0.1:" + closedPort() + "/test", "stxpw")));
+                probe(
+                        kind,
+                        "Jdbc",
+                        jdbc("jdbc:mysql://127.0.0.1:" + closedPort() + "/test", "stxpw")));
     }
 
     @ParameterizedTest(name = "Jdbc-MySQL {0} url without port -> default 3306 success")
-    @EnumSource(value = NodeKind.class, names = {"SOURCE", "SINK"})
+    @EnumSource(
+            value = NodeKind.class,
+            names = {"SOURCE", "SINK"})
     void jdbcHostWithoutPort(NodeKind kind) {
         assertSuccess(probe(kind, "Jdbc", jdbc("jdbc:mysql://127.0.0.1/test", "stxpw")));
     }
@@ -132,7 +162,8 @@ class MySqlConnectionProbeIT {
     @ParameterizedTest(name = "MySQL-CDC SOURCE [{0}] wrong creds -> auth failure")
     @ValueSource(strings = {"base-url", "hostname"})
     void cdcWrongCreds(String form) {
-        assertAuthFailure(probe(NodeKind.SOURCE, "MySQL-CDC", cdc(form, "127.0.0.1", 3306, "WRONG")));
+        assertAuthFailure(
+                probe(NodeKind.SOURCE, "MySQL-CDC", cdc(form, "127.0.0.1", 3306, "WRONG")));
     }
 
     @ParameterizedTest(name = "MySQL-CDC SOURCE [{0}] closed port -> fast failure")

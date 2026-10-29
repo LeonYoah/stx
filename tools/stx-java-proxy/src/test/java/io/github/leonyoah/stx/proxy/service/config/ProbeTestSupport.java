@@ -43,8 +43,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
 
 /**
- * PR84 探测测试公共工具：构造节点/配置、注入可控的假 Catalog SPI。 Shared helpers for PR84 probe tests: nodes,
- * configs and a controllable fake Catalog SPI injected through an isolated classloader.
+ * PR84 探测测试公共工具：构造节点/配置、注入可控的假 Catalog SPI。 Shared helpers for PR84 probe tests: nodes, configs and
+ * a controllable fake Catalog SPI injected through an isolated classloader.
  */
 final class ProbeTestSupport {
 
@@ -92,8 +92,8 @@ final class ProbeTestSupport {
     }
 
     /**
-     * 本地 TCP 服务：接受连接后立即关闭（端口"可达"但不说任何协议）。 Local TCP server that accepts and immediately
-     * closes connections: the port is "reachable" but speaks no protocol.
+     * 本地 TCP 服务：接受连接后立即关闭（端口"可达"但不说任何协议）。 Local TCP server that accepts and immediately closes
+     * connections: the port is "reachable" but speaks no protocol.
      */
     static final class ClosingServer implements AutoCloseable {
         final java.net.ServerSocket server;
@@ -145,8 +145,8 @@ final class ProbeTestSupport {
     static final AtomicInteger OPEN_CALLS = new AtomicInteger();
 
     /**
-     * 创建只额外暴露 Fake CatalogFactory SPI 描述文件的隔离类加载器。 Creates an isolated classloader that only adds
-     * a services file registering {@link FakeProbeCatalogFactory}.
+     * 创建只额外暴露 Fake CatalogFactory SPI 描述文件的隔离类加载器。 Creates an isolated classloader that only adds a
+     * services file registering {@link FakeProbeCatalogFactory}.
      */
     static URLClassLoader fakeCatalogClassLoader() throws Exception {
         Path dir = Files.createTempDirectory("stx-probe-spi");
@@ -205,7 +205,9 @@ final class ProbeTestSupport {
                     };
             return (Catalog)
                     Proxy.newProxyInstance(
-                            Catalog.class.getClassLoader(), new Class<?>[] {Catalog.class}, handler);
+                            Catalog.class.getClassLoader(),
+                            new Class<?>[] {Catalog.class},
+                            handler);
         }
     }
 }

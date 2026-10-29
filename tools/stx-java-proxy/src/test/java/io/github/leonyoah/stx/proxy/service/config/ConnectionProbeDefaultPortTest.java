@@ -33,8 +33,8 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 /**
- * PR84：缺省端口必须按连接器协议推导；非 HTTP 连接器绝不能默认 80。 PR84: default ports must follow the connector
- * protocol; non-HTTP connectors must never default to port 80.
+ * PR84：缺省端口必须按连接器协议推导；非 HTTP 连接器绝不能默认 80。 PR84: default ports must follow the connector protocol;
+ * non-HTTP connectors must never default to port 80.
  */
 class ConnectionProbeDefaultPortTest {
 
@@ -43,11 +43,17 @@ class ConnectionProbeDefaultPortTest {
                 // plugin, options, expectedHost, expectedPort, isHttp
                 Arguments.of("MySQL-CDC", opts("hostname", "db.local"), "db.local", 3306, false),
                 Arguments.of("Postgres-CDC", opts("hostname", "db.local"), "db.local", 5432, false),
-                Arguments.of("SqlServer-CDC", opts("hostname", "db.local"), "db.local", 1433, false),
+                Arguments.of(
+                        "SqlServer-CDC", opts("hostname", "db.local"), "db.local", 1433, false),
                 Arguments.of("Oracle-CDC", opts("hostname", "db.local"), "db.local", 1521, false),
                 Arguments.of("FtpFile", opts("host", "ftp.local"), "ftp.local", 21, false),
                 Arguments.of("SftpFile", opts("host", "sftp.local"), "sftp.local", 22, false),
-                Arguments.of("Kafka", opts("bootstrap.servers", "kafka.local"), "kafka.local", 9092, false),
+                Arguments.of(
+                        "Kafka",
+                        opts("bootstrap.servers", "kafka.local"),
+                        "kafka.local",
+                        9092,
+                        false),
                 Arguments.of(
                         "Jdbc", opts("url", "jdbc:mysql://db.local/test"), "db.local", 3306, false),
                 Arguments.of(
@@ -82,8 +88,7 @@ class ConnectionProbeDefaultPortTest {
                         "minio.local",
                         80,
                         true),
-                Arguments.of(
-                        "Http", opts("url", "https://api.local/x"), "api.local", 443, true));
+                Arguments.of("Http", opts("url", "https://api.local/x"), "api.local", 443, true));
     }
 
     @ParameterizedTest(name = "[{index}] {0} {1} -> {2}:{3}")

@@ -35,8 +35,8 @@ import static io.github.leonyoah.stx.proxy.service.config.ProbeTestSupport.opts;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 
 /**
- * PR84：每个 Sink 至少经过 Tier-1（Catalog/JDBC/DryRun），不能直接落到 TCP 探测。 PR84: every sink must go
- * through at least a Tier-1 protocol probe, never straight to TCP.
+ * PR84：每个 Sink 至少经过 Tier-1（Catalog/JDBC/DryRun），不能直接落到 TCP 探测。 PR84: every sink must go through at
+ * least a Tier-1 protocol probe, never straight to TCP.
  */
 class ConnectionProbeSinkTierTest {
 
@@ -68,7 +68,8 @@ class ConnectionProbeSinkTierTest {
                             "password", "x"
                         }),
                 Arguments.of(
-                        "Kafka", new Object[] {"bootstrap.servers", "127.0.0.1:%PORT%", "topic", "t"}),
+                        "Kafka",
+                        new Object[] {"bootstrap.servers", "127.0.0.1:%PORT%", "topic", "t"}),
                 Arguments.of(
                         "S3File",
                         new Object[] {
@@ -81,14 +82,30 @@ class ConnectionProbeSinkTierTest {
                 Arguments.of(
                         "FtpFile",
                         new Object[] {
-                            "host", "127.0.0.1", "port", "%PORT%", "user", "u", "password", "p",
-                            "path", "/x"
+                            "host",
+                            "127.0.0.1",
+                            "port",
+                            "%PORT%",
+                            "user",
+                            "u",
+                            "password",
+                            "p",
+                            "path",
+                            "/x"
                         }),
                 Arguments.of(
                         "SftpFile",
                         new Object[] {
-                            "host", "127.0.0.1", "port", "%PORT%", "user", "u", "password", "p",
-                            "path", "/x"
+                            "host",
+                            "127.0.0.1",
+                            "port",
+                            "%PORT%",
+                            "user",
+                            "u",
+                            "password",
+                            "p",
+                            "path",
+                            "/x"
                         }));
     }
 

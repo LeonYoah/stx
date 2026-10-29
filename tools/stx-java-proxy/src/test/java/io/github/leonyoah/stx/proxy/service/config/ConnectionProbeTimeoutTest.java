@@ -48,8 +48,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * PR84：探测必须在 timeout+2s 内返回失败，且超时后不残留探测线程 / 类加载器。 PR84: a hanging probe must fail within
- * timeout+2s and leave no lingering probe thread or pinned classloader.
+ * PR84：探测必须在 timeout+2s 内返回失败，且超时后不残留探测线程 / 类加载器。 PR84: a hanging probe must fail within timeout+2s
+ * and leave no lingering probe thread or pinned classloader.
  */
 class ConnectionProbeTimeoutTest {
 
@@ -95,7 +95,9 @@ class ConnectionProbeTimeoutTest {
                                                         FAKE_IDENTIFIER,
                                                         opts(
                                                                 "host", "127.0.0.1",
-                                                                "port", String.valueOf(server.port()),
+                                                                "port",
+                                                                        String.valueOf(
+                                                                                server.port()),
                                                                 "fake_behavior", "hang")),
                                                 cl,
                                                 TIMEOUT_MS)),
@@ -116,8 +118,8 @@ class ConnectionProbeTimeoutTest {
     }
 
     /**
-     * JDBC 驱动连接到"接受 TCP 但永不应答"的端口（如端口被别的服务占用）。 JDBC driver against a port that accepts TCP
-     * but never answers the handshake.
+     * JDBC 驱动连接到"接受 TCP 但永不应答"的端口（如端口被别的服务占用）。 JDBC driver against a port that accepts TCP but
+     * never answers the handshake.
      */
     @Test
     void jdbcProbeAgainstSilentPortReturnsWithinTimeout() throws Exception {
@@ -138,7 +140,8 @@ class ConnectionProbeTimeoutTest {
                                                                                 + blackhole
                                                                                         .getLocalPort()
                                                                                 + "/test",
-                                                                "driver", "com.mysql.cj.jdbc.Driver",
+                                                                "driver",
+                                                                        "com.mysql.cj.jdbc.Driver",
                                                                 "user", "root",
                                                                 "password", "x")),
                                                 getClass().getClassLoader(),
@@ -162,9 +165,9 @@ class ConnectionProbeTimeoutTest {
     }
 
     /**
-     * 通过 ConfigValidationService（生产入口）：结果需在时限内返回，且之后不应残留 stx-connection-probe 线程，SeaTunnel
-     * home 类加载器应可被回收。 Through the production entry point: result returned in time, and afterwards
-     * no lingering stx-connection-probe thread and the classloader is collectable.
+     * 通过 ConfigValidationService（生产入口）：结果需在时限内返回，且之后不应残留 stx-connection-probe 线程，SeaTunnel home
+     * 类加载器应可被回收。 Through the production entry point: result returned in time, and afterwards no
+     * lingering stx-connection-probe thread and the classloader is collectable.
      */
     @Test
     void serviceTimeoutLeavesNoLingeringThreadOrClassLoader() throws Exception {
@@ -191,8 +194,7 @@ class ConnectionProbeTimeoutTest {
             cl = null;
         }
         assertTrue(
-                elapsed <= TIMEOUT_MS + GRACE_MS,
-                "validate() took " + elapsed + "ms > timeout+2s");
+                elapsed <= TIMEOUT_MS + GRACE_MS, "validate() took " + elapsed + "ms > timeout+2s");
         assertEquals(Boolean.FALSE, result.get("ok"), "result=" + result);
 
         Thread.sleep(1000);
@@ -220,7 +222,9 @@ class ConnectionProbeTimeoutTest {
         assertTrue(problems.isEmpty(), String.join(" | ", problems));
     }
 
-    /** 返回 1 个 Fake Source + 1 个 Console Sink 的上下文。 Context with one fake source and a Console sink. */
+    /**
+     * 返回 1 个 Fake Source + 1 个 Console Sink 的上下文。 Context with one fake source and a Console sink.
+     */
     static class HangingJobConfigSupportService extends JobConfigSupportService {
         private final int port;
         volatile URLClassLoader cl;

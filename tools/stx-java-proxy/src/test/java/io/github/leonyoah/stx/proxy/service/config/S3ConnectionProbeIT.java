@@ -31,15 +31,23 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.time.Duration;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
-import static io.github.leonyoah.stx.proxy.service.config.ProbeITSupport.*;
+import static io.github.leonyoah.stx.proxy.service.config.ProbeITSupport.assertAuthFailure;
+import static io.github.leonyoah.stx.proxy.service.config.ProbeITSupport.assertFastFailure;
+import static io.github.leonyoah.stx.proxy.service.config.ProbeITSupport.assertSuccess;
+import static io.github.leonyoah.stx.proxy.service.config.ProbeITSupport.capped;
+import static io.github.leonyoah.stx.proxy.service.config.ProbeITSupport.closedPort;
+import static io.github.leonyoah.stx.proxy.service.config.ProbeITSupport.probe;
 import static io.github.leonyoah.stx.proxy.service.config.ProbeTestSupport.opts;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * PR84 Tier-1 IT：S3File + MinIO。官方 minio/minio 在本机无法拉取（Docker Hub 拒绝），改用本仓库 real E2E 同款镜像
- * pgsty/minio（见 frontend/scripts/e2e/run-real-installer.sh）。 S3File against MinIO; minio/minio cannot be
- * pulled here, so the same pgsty/minio image used by this repo's real E2E harness is used.
+ * pgsty/minio（见 frontend/scripts/e2e/run-real-installer.sh）。 S3File against MinIO; minio/minio
+ * cannot be pulled here, so the same pgsty/minio image used by this repo's real E2E harness is
+ * used.
  */
 class S3ConnectionProbeIT {
 
@@ -60,6 +68,24 @@ class S3ConnectionProbeIT {
                                                 .forStatusCode(200)
                                                 .withStartupTimeout(Duration.ofMinutes(2))));
         s3.start();
+        // 预先创建 bucket "stx"：探针会 ListObjects 真实 bucket，不存在的 bucket 应报失败。
+        // Pre-create bucket "stx": the probe lists the real bucket; a missing bucket must fail.
+        try {
+            ConnectionProtocolProbes.S3Response created =
+                    ConnectionProtocolProbes.s3Request(
+                            "PUT",
+                            "",
+                            endpoint(),
+                            "stx",
+                            "us-east-1",
+                            "stxaccess",
+                            "stxsecret",
+                            null,
+                            System.nanoTime() + TimeUnit.SECONDS.toNanos(10));
+            assertEquals(200, created.code, "create bucket stx: " + created.errorCode);
+        } catch (Exception e) {
+            throw new IllegalStateException("failed to create bucket stx", e);
+        }
     }
 
     @AfterAll
@@ -93,20 +119,41 @@ class S3ConnectionProbeIT {
     }
 
     @ParameterizedTest(name = "S3File {0} correct keys -> success")
-    @EnumSource(value = NodeKind.class, names = {"SOURCE", "SINK"})
+    @EnumSource(
+            value = NodeKind.class,
+            names = {"SOURCE", "SINK"})
     void correctCreds(NodeKind kind) {
         assertSuccess(probe(kind, "S3File", cfg(endpoint(), "stxsecret")));
     }
 
     @ParameterizedTest(name = "S3File {0} wrong secret -> auth failure")
-    @EnumSource(value = NodeKind.class, names = {"SOURCE", "SINK"})
+    @EnumSource(
+            value = NodeKind.class,
+            names = {"SOURCE", "SINK"})
     void wrongCreds(NodeKind kind) {
         assertAuthFailure(probe(kind, "S3File", cfg(endpoint(), "WRONG")));
     }
 
+    @ParameterizedTest(name = "S3File {0} correct keys but missing bucket -> failure")
+    @EnumSource(
+            value = NodeKind.class,
+            names = {"SOURCE", "SINK"})
+    void missingBucketFails(NodeKind kind) {
+        Map<String, Object> cfg = cfg(endpoint(), "stxsecret");
+        cfg.put("bucket", "s3a://stx-missing");
+        Map<String, Object> r = probe(kind, "S3File", cfg);
+        assertEquals("failed", r.get("status"), "missing bucket must fail; result=" + r);
+        assertTrue(
+                String.valueOf(r.get("message")).contains("NoSuchBucket"),
+                "message should name NoSuchBucket; result=" + r);
+    }
+
     @ParameterizedTest(name = "S3File {0} closed port -> fast failure")
-    @EnumSource(value = NodeKind.class, names = {"SOURCE", "SINK"})
+    @EnumSource(
+            value = NodeKind.class,
+            names = {"SOURCE", "SINK"})
     void closedPortFails(NodeKind kind) throws Exception {
-        assertFastFailure(probe(kind, "S3File", cfg("http://127.0.0.1:" + closedPort(), "stxsecret")));
+        assertFastFailure(
+                probe(kind, "S3File", cfg("http://127.0.0.1:" + closedPort(), "stxsecret")));
     }
 }

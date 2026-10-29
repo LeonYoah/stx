@@ -20,6 +20,7 @@ package io.github.leonyoah.stx.proxy.service.config;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.common.errors.SaslAuthenticationException;
+
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -38,7 +39,12 @@ import java.util.Properties;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
-import static io.github.leonyoah.stx.proxy.service.config.ProbeITSupport.*;
+import static io.github.leonyoah.stx.proxy.service.config.ProbeITSupport.assertAuthFailure;
+import static io.github.leonyoah.stx.proxy.service.config.ProbeITSupport.assertFastFailure;
+import static io.github.leonyoah.stx.proxy.service.config.ProbeITSupport.assertSuccess;
+import static io.github.leonyoah.stx.proxy.service.config.ProbeITSupport.capped;
+import static io.github.leonyoah.stx.proxy.service.config.ProbeITSupport.closedPort;
+import static io.github.leonyoah.stx.proxy.service.config.ProbeITSupport.probe;
 import static io.github.leonyoah.stx.proxy.service.config.ProbeTestSupport.opts;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -65,8 +71,12 @@ class KafkaConnectionProbeIT {
                                 .withFixedExposedPort(9092, 9092)
                                 .withEnv("KAFKA_NODE_ID", "1")
                                 .withEnv("KAFKA_PROCESS_ROLES", "broker,controller")
-                                .withEnv("KAFKA_LISTENERS", "SASL_PLAINTEXT://:9092,CONTROLLER://:9093")
-                                .withEnv("KAFKA_ADVERTISED_LISTENERS", "SASL_PLAINTEXT://localhost:9092")
+                                .withEnv(
+                                        "KAFKA_LISTENERS",
+                                        "SASL_PLAINTEXT://:9092,CONTROLLER://:9093")
+                                .withEnv(
+                                        "KAFKA_ADVERTISED_LISTENERS",
+                                        "SASL_PLAINTEXT://localhost:9092")
                                 .withEnv("KAFKA_CONTROLLER_LISTENER_NAMES", "CONTROLLER")
                                 .withEnv(
                                         "KAFKA_LISTENER_SECURITY_PROTOCOL_MAP",
@@ -83,7 +93,8 @@ class KafkaConnectionProbeIT {
                                 .withEnv("KAFKA_TRANSACTION_STATE_LOG_MIN_ISR", "1")
                                 .withEnv("KAFKA_HEAP_OPTS", "-Xmx512m -Xms256m")
                                 // apache/kafka 的 SASL 配置脚本要求 KAFKA_OPTS 指向 JAAS 文件。
-                                // The image's SASL configure step requires KAFKA_OPTS with a JAAS file.
+                                // The image's SASL configure step requires KAFKA_OPTS with a JAAS
+                                // file.
                                 .withCopyToContainer(
                                         Transferable.of(
                                                 "KafkaServer {\n org.apache.kafka.common.security.plain.PlainLoginModule required username=\"admin\" password=\"admin-secret\" user_admin=\"admin-secret\";\n};\n"),
@@ -137,25 +148,33 @@ class KafkaConnectionProbeIT {
     }
 
     @ParameterizedTest(name = "Kafka {0} correct SASL creds -> success")
-    @EnumSource(value = NodeKind.class, names = {"SOURCE", "SINK"})
+    @EnumSource(
+            value = NodeKind.class,
+            names = {"SOURCE", "SINK"})
     void correctCreds(NodeKind kind) {
         assertSuccess(probe(kind, "Kafka", cfg("127.0.0.1:9092", JAAS_OK)));
     }
 
     @ParameterizedTest(name = "Kafka {0} wrong SASL creds -> auth failure")
-    @EnumSource(value = NodeKind.class, names = {"SOURCE", "SINK"})
+    @EnumSource(
+            value = NodeKind.class,
+            names = {"SOURCE", "SINK"})
     void wrongCreds(NodeKind kind) {
         assertAuthFailure(probe(kind, "Kafka", cfg("127.0.0.1:9092", JAAS_BAD)));
     }
 
     @ParameterizedTest(name = "Kafka {0} closed port -> fast failure")
-    @EnumSource(value = NodeKind.class, names = {"SOURCE", "SINK"})
+    @EnumSource(
+            value = NodeKind.class,
+            names = {"SOURCE", "SINK"})
     void closedPortFails(NodeKind kind) throws Exception {
         assertFastFailure(probe(kind, "Kafka", cfg("127.0.0.1:" + closedPort(), JAAS_OK)));
     }
 
     @ParameterizedTest(name = "Kafka {0} bootstrap without port -> default 9092 success")
-    @EnumSource(value = NodeKind.class, names = {"SOURCE", "SINK"})
+    @EnumSource(
+            value = NodeKind.class,
+            names = {"SOURCE", "SINK"})
     void hostWithoutPort(NodeKind kind) {
         assertSuccess(probe(kind, "Kafka", cfg("127.0.0.1", JAAS_OK)));
     }

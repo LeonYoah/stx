@@ -41,9 +41,9 @@ final class ProbeITSupport {
     static final long MEM_LIMIT = 1024L * 1024 * 1024;
 
     /**
-     * 隔离的插件类加载器：target/it-plugins 下的 connector jar（如 connector-jdbc），父加载器为测试类路径（含驱动）。
-     * Isolated plugin classloader over target/it-plugins (e.g. connector-jdbc), parent = test
-     * classpath (JDBC drivers), mirroring the SEATUNNEL_HOME classloader used in production.
+     * 隔离的插件类加载器：target/it-plugins 下的 connector jar（如 connector-jdbc），父加载器为测试类路径（含驱动）。 Isolated
+     * plugin classloader over target/it-plugins (e.g. connector-jdbc), parent = test classpath
+     * (JDBC drivers), mirroring the SEATUNNEL_HOME classloader used in production.
      */
     static final ClassLoader PLUGIN_CLASS_LOADER = buildPluginClassLoader();
 
@@ -54,7 +54,9 @@ final class ProbeITSupport {
         java.io.File[] jars = dir.listFiles((d, n) -> n.endsWith(".jar"));
         if (jars == null || jars.length == 0) {
             throw new IllegalStateException(
-                    "no connector jars in " + dir.getAbsolutePath() + " (run mvn generate-test-resources)");
+                    "no connector jars in "
+                            + dir.getAbsolutePath()
+                            + " (run mvn generate-test-resources)");
         }
         java.net.URL[] urls = new java.net.URL[jars.length];
         try {
@@ -85,15 +87,19 @@ final class ProbeITSupport {
     }
 
     static Map<String, Object> probe(NodeKind kind, String plugin, Map<String, Object> options) {
+        return probe(kind, plugin, options, TIMEOUT_MS);
+    }
+
+    static Map<String, Object> probe(
+            NodeKind kind, String plugin, Map<String, Object> options, int timeoutMs) {
         long start = System.nanoTime();
         Map<String, Object> result =
                 ConnectionProbeSupport.probeConnector(
                         node(kind, plugin),
                         config(plugin, options),
                         PLUGIN_CLASS_LOADER,
-                        TIMEOUT_MS);
-        result.put(
-                "_elapsedMs", TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start));
+                        timeoutMs);
+        result.put("_elapsedMs", TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start));
         System.out.println("[PR84-IT] " + kind + " " + plugin + " -> " + result);
         return result;
     }
@@ -103,7 +109,8 @@ final class ProbeITSupport {
     }
 
     static void assertAuthFailure(Map<String, Object> r) {
-        assertNotEquals("tcp-port", r.get("probeMethod"), "auth check fell back to TCP; result=" + r);
+        assertNotEquals(
+                "tcp-port", r.get("probeMethod"), "auth check fell back to TCP; result=" + r);
         assertEquals("failed", r.get("status"), "wrong creds must fail; result=" + r);
         assertTrue(
                 ProbeTestSupport.isAuthReason(r.get("message")),

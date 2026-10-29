@@ -19,6 +19,7 @@ package io.github.leonyoah.stx.proxy.service.config;
 import org.apache.seatunnel.api.table.catalog.exception.CatalogException;
 
 import org.apache.kafka.common.errors.SaslAuthenticationException;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -41,8 +42,8 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * PR84：认证失败必须被判定为失败（带认证原因），且不能回落到 TCP 成功。 PR84: auth failures must be reported as failed with
- * an auth reason, and must never fall back to a TCP "success".
+ * PR84：认证失败必须被判定为失败（带认证原因），且不能回落到 TCP 成功。 PR84: auth failures must be reported as failed with an
+ * auth reason, and must never fall back to a TCP "success".
  */
 class ConnectionProbeAuthClassificationTest {
 
@@ -82,7 +83,8 @@ class ConnectionProbeAuthClassificationTest {
                         (ProbeTestSupport.OpenBehavior)
                                 () -> {
                                     // Catalog.open() 只能抛非受检异常；保留原始 SQL 消息。
-                                    // Catalog.open() can only throw unchecked; keep the SQL message.
+                                    // Catalog.open() can only throw unchecked; keep the SQL
+                                    // message.
                                     SQLException e =
                                             new SQLException(
                                                     "Access denied for user 'bad'@'172.17.0.1' (using password: YES)",
@@ -128,7 +130,8 @@ class ConnectionProbeAuthClassificationTest {
                         "ftp-530",
                         (ProbeTestSupport.OpenBehavior)
                                 () -> {
-                                    java.io.IOException e = new java.io.IOException("530 Login incorrect.");
+                                    java.io.IOException e =
+                                            new java.io.IOException("530 Login incorrect.");
                                     throw new RuntimeException(e.getMessage(), e);
                                 }));
     }
@@ -144,9 +147,12 @@ class ConnectionProbeAuthClassificationTest {
                         config(
                                 FAKE_IDENTIFIER,
                                 opts(
-                                        "host", "127.0.0.1",
-                                        "port", String.valueOf(server.port()),
-                                        "fake_behavior", key)),
+                                        "host",
+                                        "127.0.0.1",
+                                        "port",
+                                        String.valueOf(server.port()),
+                                        "fake_behavior",
+                                        key)),
                         classLoader,
                         3000);
         assertNotEquals(
@@ -168,9 +174,9 @@ class ConnectionProbeAuthClassificationTest {
     }
 
     /**
-     * 真实连接器配置（带错误凭据）指向一个"端口开放但不讲协议"的服务：探测器无法验证凭据，因此绝不能报告 success。 Real connector
-     * configs with wrong credentials against a port-open/no-protocol server: the probe cannot have
-     * verified the credentials, so it must not report success.
+     * 真实连接器配置（带错误凭据）指向一个"端口开放但不讲协议"的服务：探测器无法验证凭据，因此绝不能报告 success。 Real connector configs with wrong
+     * credentials against a port-open/no-protocol server: the probe cannot have verified the
+     * credentials, so it must not report success.
      */
     static Stream<Arguments> credentialedConnectors() {
         return Stream.of(
@@ -196,14 +202,30 @@ class ConnectionProbeAuthClassificationTest {
                 Arguments.of(
                         "FtpFile",
                         new Object[] {
-                            "host", "127.0.0.1", "port", "%PORT%", "user", "bad", "password", "bad",
-                            "path", "/x"
+                            "host",
+                            "127.0.0.1",
+                            "port",
+                            "%PORT%",
+                            "user",
+                            "bad",
+                            "password",
+                            "bad",
+                            "path",
+                            "/x"
                         }),
                 Arguments.of(
                         "SftpFile",
                         new Object[] {
-                            "host", "127.0.0.1", "port", "%PORT%", "user", "bad", "password", "bad",
-                            "path", "/x"
+                            "host",
+                            "127.0.0.1",
+                            "port",
+                            "%PORT%",
+                            "user",
+                            "bad",
+                            "password",
+                            "bad",
+                            "path",
+                            "/x"
                         }));
     }
 
@@ -222,7 +244,11 @@ class ConnectionProbeAuthClassificationTest {
             assertNotEquals(
                     "success",
                     result.get("status"),
-                    kind + " " + plugin + " reported success without verifying creds; result=" + result);
+                    kind
+                            + " "
+                            + plugin
+                            + " reported success without verifying creds; result="
+                            + result);
         }
     }
 }

@@ -136,9 +136,19 @@
             <version>3.9.0</version>
             <scope>test</scope>
         </dependency>
+        <!-- 与 connector-file-sftp 2.3.13 内置版本一致，供 SFTP 探测测试使用。 Same JSch as bundled in connector-file-sftp. -->
+        <dependency>
+            <groupId>com.github.mwiede</groupId>
+            <artifactId>jsch</artifactId>
+            <version>0.2.20</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
+        <!-- 代际标签命名：同一套源码分别产出 stx-java-proxy-v2.jar / stx-java-proxy-v3.jar。 -->
+        <!-- Epoch-based jar name: one source tree produces stx-java-proxy-v2.jar / stx-java-proxy-v3.jar. -->
+        <finalName>stx-java-proxy-${proxy.epoch}</finalName>
         <plugins>
             <plugin>
                 <!-- PR84 tests: single fork, capped heap (shared box resource limits). -->
@@ -158,11 +168,12 @@
                 <executions>
                     <execution>
                         <id>pr84-it-plugins</id>
-                        <phase>generate-test-resources</phase>
                         <goals>
                             <goal>copy</goal>
                         </goals>
+                        <phase>generate-test-resources</phase>
                         <configuration>
+                            <skip>${skipTests}</skip>
                             <outputDirectory>${project.build.directory}/it-plugins</outputDirectory>
                             <artifactItems>
                                 <artifactItem>
@@ -176,9 +187,6 @@
                 </executions>
             </plugin>
         </plugins>
-        <!-- 代际标签命名：同一套源码分别产出 stx-java-proxy-v2.jar / stx-java-proxy-v3.jar。 -->
-        <!-- Epoch-based jar name: one source tree produces stx-java-proxy-v2.jar / stx-java-proxy-v3.jar. -->
-        <finalName>stx-java-proxy-${proxy.epoch}</finalName>
     </build>
 
     <profiles>

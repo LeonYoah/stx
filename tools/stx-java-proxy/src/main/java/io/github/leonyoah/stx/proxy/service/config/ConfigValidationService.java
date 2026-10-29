@@ -21,7 +21,6 @@ import org.apache.seatunnel.shade.com.typesafe.config.Config;
 import org.apache.seatunnel.shade.org.apache.commons.lang3.StringUtils;
 
 import io.github.leonyoah.stx.proxy.model.JobConfigContext;
-import io.github.leonyoah.stx.proxy.model.ProxyNode;
 import io.github.leonyoah.stx.proxy.service.plugin.PluginClassLoaderUtils;
 import io.github.leonyoah.stx.proxy.service.support.ProxyRequestUtils;
 
@@ -31,19 +30,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 
 public class ConfigValidationService {
-
-    private static final ExecutorService PROBE_EXECUTOR =
-            Executors.newCachedThreadPool(
-                    r -> {
-                        Thread t = new Thread(r, "stx-connection-probe");
-                        t.setDaemon(true);
-                        return t;
-                    });
 
     private final JobConfigSupportService jobConfigSupportService;
     private final OptionRuleValidationService optionRuleValidationService;
@@ -103,7 +91,9 @@ public class ConfigValidationService {
                     errors.add(
                             String.format(
                                     "%s 连接失败: %s",
-                                    check.get("connectorType"), check.get("message")));
+                                    StringUtils.defaultIfBlank(
+                                            (String) check.get("connectorType"), "未知连接器"),
+                                    check.get("message")));
                     allChecksSucceeded = false;
                 } else if (!"success".equals(status)) {
                     String severity = String.valueOf(check.get("severity"));
@@ -144,66 +134,61 @@ public class ConfigValidationService {
         ClassLoader originalClassLoader = Thread.currentThread().getContextClassLoader();
         URLClassLoader seatunnelHomeClassLoader = null;
         ClassLoader classLoader = originalClassLoader;
+        List<ConnectionProbeSupport.ProbeHandle> handles = new ArrayList<>();
         try {
             seatunnelHomeClassLoader =
                     jobConfigSupportService.createSeatunnelHomeClassLoader(originalClassLoader);
             if (seatunnelHomeClassLoader != null) {
                 classLoader = seatunnelHomeClassLoader;
-                Thread.currentThread().setContextClassLoader(classLoader);
             }
 
-            final ClassLoader effectiveClassLoader = classLoader;
-            List<CompletableFuture<Map<String, Object>>> futures = new ArrayList<>();
-
+            // 每个节点的探测在独立工作线程中并行执行，并受 timeoutMillis 总时限约束（超时即中断）。
+            // Each node is probed on its own worker thread in parallel, bounded by timeoutMillis
+            // (interrupted on timeout).
             for (int i = 0; i < context.getSources().size(); i++) {
-                final int index = i;
-                futures.add(
-                        CompletableFuture.supplyAsync(
-                                () ->
-                                        testConnectorConnection(
-                                                context.getGraph().getNodes().get(index),
-                                                context.getSources().get(index),
-                                                effectiveClassLoader,
-                                                timeoutMillis),
-                                PROBE_EXECUTOR));
+                handles.add(
+                        ConnectionProbeSupport.startProbe(
+                                context.getGraph().getNodes().get(i),
+                                context.getSources().get(i),
+                                classLoader,
+                                timeoutMillis));
             }
             int sinkOffset = context.getSources().size() + context.getTransforms().size();
             for (int i = 0; i < context.getSinks().size(); i++) {
-                final int index = i;
-                futures.add(
-                        CompletableFuture.supplyAsync(
-                                () ->
-                                        testConnectorConnection(
-                                                context.getGraph()
-                                                        .getNodes()
-                                                        .get(sinkOffset + index),
-                                                context.getSinks().get(index),
-                                                effectiveClassLoader,
-                                                timeoutMillis),
-                                PROBE_EXECUTOR));
+                handles.add(
+                        ConnectionProbeSupport.startProbe(
+                                context.getGraph().getNodes().get(sinkOffset + i),
+                                context.getSinks().get(i),
+                                classLoader,
+                                timeoutMillis));
             }
 
             List<Map<String, Object>> checks = new ArrayList<>();
-            for (CompletableFuture<Map<String, Object>> future : futures) {
-                try {
-                    checks.add(future.get(timeoutMillis + 1500L, TimeUnit.MILLISECONDS));
-                } catch (Exception e) {
-                    Map<String, Object> fallback = new LinkedHashMap<>();
-                    fallback.put("status", "failed");
-                    fallback.put("message", "连接测试超时（超过设定时限），请检查网络或服务配置。");
-                    checks.add(fallback);
-                }
+            for (ConnectionProbeSupport.ProbeHandle handle : handles) {
+                checks.add(handle.await());
             }
             return checks;
         } finally {
-            Thread.currentThread().setContextClassLoader(originalClassLoader);
-            PluginClassLoaderUtils.closeQuietly(seatunnelHomeClassLoader);
+            releaseWhenProbesFinish(handles, seatunnelHomeClassLoader);
         }
     }
 
-    private Map<String, Object> testConnectorConnection(
-            ProxyNode node, Config config, ClassLoader classLoader, int timeoutMillis) {
-        return ConnectionProbeSupport.probeConnector(node, config, classLoader, timeoutMillis);
+    /**
+     * 所有探测工作线程真正结束后再释放 SeaTunnel home 类加载器，避免超时后仍在使用的类加载器被提前关闭。 Releases the SeaTunnel home
+     * classloader only after every probe worker has really finished, so a timed-out probe never
+     * keeps using a closed classloader.
+     */
+    private static void releaseWhenProbesFinish(
+            List<ConnectionProbeSupport.ProbeHandle> handles, URLClassLoader classLoader) {
+        if (classLoader == null) {
+            return;
+        }
+        CompletableFuture<?>[] completions = new CompletableFuture<?>[handles.size()];
+        for (int i = 0; i < handles.size(); i++) {
+            completions[i] = handles.get(i).completion();
+        }
+        CompletableFuture.allOf(completions)
+                .whenComplete((ignored, error) -> PluginClassLoaderUtils.closeQuietly(classLoader));
     }
 
     /**

@@ -18,6 +18,7 @@
 package io.github.leonyoah.stx.proxy.service.config;
 
 import org.apache.commons.net.ftp.FTPClient;
+
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -32,13 +33,20 @@ import io.github.leonyoah.stx.proxy.model.NodeKind;
 import java.time.Duration;
 import java.util.Map;
 
-import static io.github.leonyoah.stx.proxy.service.config.ProbeITSupport.*;
+import static io.github.leonyoah.stx.proxy.service.config.ProbeITSupport.assertAuthFailure;
+import static io.github.leonyoah.stx.proxy.service.config.ProbeITSupport.assertFastFailure;
+import static io.github.leonyoah.stx.proxy.service.config.ProbeITSupport.assertSuccess;
+import static io.github.leonyoah.stx.proxy.service.config.ProbeITSupport.capped;
+import static io.github.leonyoah.stx.proxy.service.config.ProbeITSupport.closedPort;
+import static io.github.leonyoah.stx.proxy.service.config.ProbeITSupport.probe;
 import static io.github.leonyoah.stx.proxy.service.config.ProbeTestSupport.opts;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/** PR84 Tier-1 IT：FtpFile，delfer/alpine-ftp-server，固定宿主 21。 FtpFile probe IT, fixed host port 21. */
+/**
+ * PR84 Tier-1 IT：FtpFile，delfer/alpine-ftp-server，固定宿主 21。 FtpFile probe IT, fixed host port 21.
+ */
 class FtpConnectionProbeIT {
 
     static GenericContainer<?> ftp;
@@ -69,7 +77,17 @@ class FtpConnectionProbeIT {
 
     private static Map<String, Object> cfg(String host, Integer port, String password) {
         Map<String, Object> m =
-                opts("host", host, "user", "stx", "password", password, "path", "/", "file_format_type", "text");
+                opts(
+                        "host",
+                        host,
+                        "user",
+                        "stx",
+                        "password",
+                        password,
+                        "path",
+                        "/",
+                        "file_format_type",
+                        "text");
         if (port != null) {
             m.put("port", String.valueOf(port));
         }
@@ -91,25 +109,37 @@ class FtpConnectionProbeIT {
     }
 
     @ParameterizedTest(name = "FtpFile {0} correct creds -> success")
-    @EnumSource(value = NodeKind.class, names = {"SOURCE", "SINK"})
+    @EnumSource(
+            value = NodeKind.class,
+            names = {"SOURCE", "SINK"})
     void correctCreds(NodeKind kind) {
         assertSuccess(probe(kind, "FtpFile", cfg("127.0.0.1", 21, "stxpw")));
     }
 
     @ParameterizedTest(name = "FtpFile {0} wrong creds -> auth failure")
-    @EnumSource(value = NodeKind.class, names = {"SOURCE", "SINK"})
+    @EnumSource(
+            value = NodeKind.class,
+            names = {"SOURCE", "SINK"})
     void wrongCreds(NodeKind kind) {
-        assertAuthFailure(probe(kind, "FtpFile", cfg("127.0.0.1", 21, "WRONG")));
+        // vsftpd + PAM 会把失败登录的 530 应答延迟约 3s（delay_failed_login + pam_faildelay），
+        // 因此这里放宽探测时限，以验证分类结果而不是服务器的惩罚延迟。
+        // vsftpd + PAM delay the 530 reply of a failed login by ~3s (delay_failed_login +
+        // pam_faildelay); widen the probe timeout so we assert the classification, not the delay.
+        assertAuthFailure(probe(kind, "FtpFile", cfg("127.0.0.1", 21, "WRONG"), 8000));
     }
 
     @ParameterizedTest(name = "FtpFile {0} closed port -> fast failure")
-    @EnumSource(value = NodeKind.class, names = {"SOURCE", "SINK"})
+    @EnumSource(
+            value = NodeKind.class,
+            names = {"SOURCE", "SINK"})
     void closedPortFails(NodeKind kind) throws Exception {
         assertFastFailure(probe(kind, "FtpFile", cfg("127.0.0.1", closedPort(), "stxpw")));
     }
 
     @ParameterizedTest(name = "FtpFile {0} host without port -> default 21 success")
-    @EnumSource(value = NodeKind.class, names = {"SOURCE", "SINK"})
+    @EnumSource(
+            value = NodeKind.class,
+            names = {"SOURCE", "SINK"})
     void hostWithoutPort(NodeKind kind) {
         assertSuccess(probe(kind, "FtpFile", cfg("127.0.0.1", null, "stxpw")));
     }

@@ -1067,7 +1067,7 @@
         {
           "group_id": "org.postgresql",
           "artifact_id": "postgresql",
-          "version": "42.7.10",
+          "version": "42.4.3",
           "target_dir": "plugins/connector-cdc-postgres",
           "required": true,
           "source_url": "https://seatunnel.apache.org/zh-CN/docs/2.3.12/connector-v2",

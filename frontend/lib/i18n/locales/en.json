@@ -5303,6 +5303,7 @@
     "closeReason_rule_removed": "Rule turned off, closed automatically",
     "closeReason_rule_changed": "Rule parameters changed and the delay is within the new limits, closed automatically",
     "closeReason_policy_deleted": "Alert config deleted, closed automatically",
+    "autoClosed": "Auto-closed",
     "remindersPaused": "Reminders stopped",
     "remindersPausedHint": "Recovery could not be confirmed for over 24 hours, so reminders stopped; the alert stays open. Check the job and the event channel."
   }

@@ -19,12 +19,13 @@
 
 import {useEffect, useMemo, useState} from 'react';
 import {useTranslations} from 'next-intl';
-import {Loader2} from 'lucide-react';
+import {Info, Loader2} from 'lucide-react';
 import {Button} from '@/components/ui/button';
 import {Checkbox} from '@/components/ui/checkbox';
 import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';
 import {Switch} from '@/components/ui/switch';
+import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import type {
   NotificationChannel,
   NotificationRecipientUser,
@@ -42,6 +43,8 @@ import {
   buildTaskAlertRequest,
   hasEmailChannel,
   initialTaskAlertForm,
+  parseCdcDelayDuration,
+  parseCdcDelayThreshold,
   validateTaskAlertForm,
   type TaskAlertFormState,
 } from './task-alert-utils';
@@ -125,6 +128,13 @@ export function TaskAlertForm({
           : null
     : null;
   const error = validateTaskAlertForm(form, channels);
+  // B4 参数错误显示在输入框下方（与任务超时输入一致），底部不再重复。
+  // B4 parameter errors show under their inputs (like the task timeout input) and are not repeated at the bottom.
+  const cdcThresholdInvalid = cdcSelected && parseCdcDelayThreshold(form.cdcDelayThreshold) === null;
+  const cdcDurationInvalid = cdcSelected && parseCdcDelayDuration(form.cdcDelayDuration) === null;
+  const bottomError = error === 'errorCdcDelayThreshold' || error === 'errorCdcDelayDuration' ? null : error;
+  const cdcInputClass = (invalid: boolean) =>
+    invalid ? 'h-8 w-28 text-xs border-destructive focus-visible:ring-destructive/40' : 'h-8 w-28 text-xs';
 
   const update = (patch: Partial<TaskAlertFormState>) => setForm((current) => ({...current, ...patch}));
   const toggle = <T,>(values: T[], value: T, checked: boolean) =>
@@ -170,32 +180,58 @@ export function TaskAlertForm({
           disabled={readOnly}
           data-testid='task-alert-cdc-delay'
         >
-          <div className='flex flex-wrap items-end gap-3'>
+          <div className='flex flex-wrap items-start gap-3'>
             <div className='space-y-1'>
-              <Label className='whitespace-nowrap text-xs font-semibold'>{t('cdcDelayThresholdLabel')}</Label>
+              <Label className='flex items-center gap-1 whitespace-nowrap text-xs font-semibold'>
+                {t('cdcDelayThresholdLabel')}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type='button'
+                      className='text-muted-foreground hover:text-foreground'
+                      data-testid='task-alert-cdc-hint'
+                      aria-label={`${t('cdcDelayThresholdHint')} ${t('cdcDelayScopeHint')}`}
+                    >
+                      <Info className='size-3.5' />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent className='max-w-xs space-y-1 text-[11px] leading-snug'>
+                    <p>{t('cdcDelayThresholdHint')}</p>
+                    <p>{t('cdcDelayScopeHint')}</p>
+                  </TooltipContent>
+                </Tooltip>
+              </Label>
               <Input
                 value={form.cdcDelayThreshold}
                 inputMode='numeric'
-                className='h-8 w-28 text-xs'
+                className={cdcInputClass(cdcThresholdInvalid)}
                 data-testid='task-alert-cdc-threshold'
-                aria-invalid={showErrors && error === 'errorCdcDelayThreshold'}
+                aria-invalid={cdcThresholdInvalid}
                 onChange={(event) => update({cdcDelayThreshold: event.target.value})}
               />
+              {cdcThresholdInvalid ? (
+                <p className='max-w-56 text-[10px] text-destructive' data-testid='task-alert-cdc-threshold-error'>
+                  {t('errorCdcDelayThreshold')}
+                </p>
+              ) : null}
             </div>
             <div className='space-y-1'>
               <Label className='whitespace-nowrap text-xs font-semibold'>{t('cdcDelayDurationLabel')}</Label>
               <Input
                 value={form.cdcDelayDuration}
                 inputMode='numeric'
-                className='h-8 w-28 text-xs'
+                className={cdcInputClass(cdcDurationInvalid)}
                 data-testid='task-alert-cdc-duration'
-                aria-invalid={showErrors && error === 'errorCdcDelayDuration'}
+                aria-invalid={cdcDurationInvalid}
                 onChange={(event) => update({cdcDelayDuration: event.target.value})}
               />
+              {cdcDurationInvalid ? (
+                <p className='max-w-56 text-[10px] text-destructive' data-testid='task-alert-cdc-duration-error'>
+                  {t('errorCdcDelayDuration')}
+                </p>
+              ) : null}
             </div>
           </div>
-          <p className='text-[11px] leading-snug text-muted-foreground'>{t('cdcDelayThresholdHint')}</p>
-          <p className='text-[11px] leading-snug text-muted-foreground'>{t('cdcDelayScopeHint')}</p>
           {channelWarning ? (
             <p className='text-[11px] leading-snug text-amber-600 dark:text-amber-400' data-testid='task-alert-cdc-channel-warning'>
               {t(channelWarning)}
@@ -277,9 +313,9 @@ export function TaskAlertForm({
         </label>
       </fieldset>
 
-      {showErrors && error ? (
+      {showErrors && bottomError ? (
         <p className='text-xs text-destructive' data-testid='task-alert-error'>
-          {t(error)}
+          {t(bottomError)}
         </p>
       ) : null}
 

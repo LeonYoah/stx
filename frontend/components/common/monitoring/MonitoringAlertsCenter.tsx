@@ -161,8 +161,6 @@ function resolveLastChangedAt(alert: AlertInstance): string | null {
   return alert.closed_at || alert.resolved_at || alert.last_seen_at || null;
 }
 
-
-
 export function MonitoringAlertsCenter() {
   const t = useTranslations('monitoringCenter');
   const tsT = useTranslations('troubleshooting');
@@ -898,14 +896,24 @@ export function MonitoringAlertsCenter() {
                                 </Badge>
                               ) : null}
                               {/* 作业告警：自动关闭原因、停止提醒 / Job alerts: auto-close reason, reminders paused */}
+                              {/* 徽标只显示"自动关闭"，完整原因放在 Tooltip，不挤压告警名称。/ The badge only says
+                                  "auto-closed"; the full reason is in a Tooltip so the alert name is not squeezed. */}
                               {alert.source_type === 'sync' && syncAutoCloseReason(alert.source_ref?.resolve_reason) ? (
-                                <Badge
-                                  variant='outline'
-                                  className='shrink-0 whitespace-nowrap px-1 py-0 text-[10px] font-normal text-muted-foreground'
-                                  data-testid='sync-alert-close-reason'
-                                >
-                                  {tAlert(`closeReason_${syncAutoCloseReason(alert.source_ref?.resolve_reason)}`)}
-                                </Badge>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Badge
+                                      variant='outline'
+                                      className='shrink-0 whitespace-nowrap px-1 py-0 text-[10px] font-normal text-muted-foreground'
+                                      data-testid='sync-alert-close-reason'
+                                      aria-label={tAlert(`closeReason_${syncAutoCloseReason(alert.source_ref?.resolve_reason)}`)}
+                                    >
+                                      {tAlert('autoClosed')}
+                                    </Badge>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    {tAlert(`closeReason_${syncAutoCloseReason(alert.source_ref?.resolve_reason)}`)}
+                                  </TooltipContent>
+                                </Tooltip>
                               ) : null}
                               {alert.source_type === 'sync' && alert.source_ref?.reminders_paused ? (
                                 <Badge
@@ -921,7 +929,7 @@ export function MonitoringAlertsCenter() {
                                   className='text-[10px] py-0 px-1 border-emerald-500/30 text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 gap-0.5 shrink-0 font-normal'
                                 >
                                   <Lightbulb className='h-2.5 w-2.5 text-emerald-500' />
-                                  已有方案
+                                  {tsT('hasSolution')}
                                 </Badge>
                               )}
                             </div>

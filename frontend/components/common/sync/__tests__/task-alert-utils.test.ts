@@ -91,7 +91,13 @@ describe('task alert form', () => {
     expect(parseCdcDelayThreshold('86401')).toBeNull();
     expect(parseCdcDelayDuration('1')).toBe(1);
     expect(parseCdcDelayDuration('60')).toBe(60);
-    expect(parseCdcDelayDuration('0')).toBeNull();
+    expect(parseCdcDelayDuration('-1')).toBeNull();
+    expect(parseCdcDelayThreshold('abc')).toBeNull();
+    // 留空或 0 按默认值（与后端 PUT 显式 0 按默认一致）。/ Empty or 0 means the default, as on the backend.
+    expect(parseCdcDelayThreshold('')).toBe(60);
+    expect(parseCdcDelayThreshold(' 0 ')).toBe(60);
+    expect(parseCdcDelayDuration('')).toBe(5);
+    expect(parseCdcDelayDuration('0')).toBe(5);
     expect(parseCdcDelayDuration('61')).toBeNull();
 
     const channels = [channel(1, 'webhook')];
@@ -105,6 +111,11 @@ describe('task alert form', () => {
     const withCdc = {...base, rules: [...base.rules, 'sync_cdc_delay_high' as const]};
     expect(validateTaskAlertForm({...withCdc, cdcDelayThreshold: '5'}, channels)).toBe('errorCdcDelayThreshold');
     expect(validateTaskAlertForm({...withCdc, cdcDelayDuration: '61'}, channels)).toBe('errorCdcDelayDuration');
+    expect(validateTaskAlertForm({...withCdc, cdcDelayThreshold: '', cdcDelayDuration: '0'}, channels)).toBeNull();
+    expect(buildTaskAlertRequest({...withCdc, cdcDelayThreshold: '', cdcDelayDuration: '0'}, channels)).toMatchObject({
+      cdc_delay_threshold_seconds: 60,
+      cdc_delay_duration_minutes: 5,
+    });
     expect(
       buildTaskAlertRequest({...withCdc, cdcDelayThreshold: ' 300 ', cdcDelayDuration: '15'}, channels),
     ).toMatchObject({rules: TASK_ALERT_RULES, cdc_delay_threshold_seconds: 300, cdc_delay_duration_minutes: 15});

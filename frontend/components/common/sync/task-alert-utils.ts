@@ -99,8 +99,16 @@ export function initialTaskAlertForm(config: SyncTaskAlertConfig | null | undefi
   };
 }
 
-function parseIntInRange(raw: string, min: number, max: number): number | null {
+/**
+ * 解析 B4 参数：留空或 0 表示按默认值（与后端 PUT 显式 0 按默认一致），返回 fallback；否则必须是 min~max 的整数，
+ * 非法返回 null。/ Parse a B4 parameter: empty or 0 means the default (matching the backend, where an explicit 0
+ * uses the default) and returns fallback; otherwise an integer within min–max, or null.
+ */
+function parseIntInRangeOrDefault(raw: string, min: number, max: number, fallback: number): number | null {
   const trimmed = raw.trim();
+  if (trimmed === '' || /^0+$/.test(trimmed)) {
+    return fallback;
+  }
   if (!/^\d+$/.test(trimmed)) {
     return null;
   }
@@ -108,14 +116,20 @@ function parseIntInRange(raw: string, min: number, max: number): number | null {
   return value >= min && value <= max ? value : null;
 }
 
-/** 解析 B4 阈值：10~86400 的整数秒，非法返回 null。/ Parse the B4 threshold: integer seconds 10–86400, or null. */
+/**
+ * 解析 B4 阈值：10~86400 的整数秒，留空或 0 按默认 60，非法返回 null。
+ * Parse the B4 threshold: integer seconds 10–86400, empty or 0 means the default 60, or null.
+ */
 export function parseCdcDelayThreshold(raw: string): number | null {
-  return parseIntInRange(raw, CDC_DELAY_MIN_THRESHOLD, CDC_DELAY_MAX_THRESHOLD);
+  return parseIntInRangeOrDefault(raw, CDC_DELAY_MIN_THRESHOLD, CDC_DELAY_MAX_THRESHOLD, CDC_DELAY_DEFAULT_THRESHOLD);
 }
 
-/** 解析 B4 持续时间：1~60 的整数分钟，非法返回 null。/ Parse the B4 duration: integer minutes 1–60, or null. */
+/**
+ * 解析 B4 持续时间：1~60 的整数分钟，留空或 0 按默认 5，非法返回 null。
+ * Parse the B4 duration: integer minutes 1–60, empty or 0 means the default 5, or null.
+ */
 export function parseCdcDelayDuration(raw: string): number | null {
-  return parseIntInRange(raw, CDC_DELAY_MIN_DURATION, CDC_DELAY_MAX_DURATION);
+  return parseIntInRangeOrDefault(raw, CDC_DELAY_MIN_DURATION, CDC_DELAY_MAX_DURATION, CDC_DELAY_DEFAULT_DURATION);
 }
 
 /** 解析冷却时间输入：0~1440 的整数，非法返回 null。/ Parse the cooldown input: an integer 0–1440, or null. */

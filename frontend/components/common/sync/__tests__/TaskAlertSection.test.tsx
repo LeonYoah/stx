@@ -181,17 +181,26 @@ describe('TaskAlertSection', () => {
     expect(screen.queryByTestId('task-alert-cdc-delay')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId('task-alert-rule-sync_cdc_delay_high'));
-    expect(await screen.findByTestId('task-alert-cdc-delay')).toHaveTextContent(
+    expect(await screen.findByTestId('task-alert-cdc-delay')).toBeInTheDocument();
+    // 提示收进 Tooltip，触发按钮的 aria-label 带完整提示。/ The hint lives in a Tooltip; its trigger carries it.
+    expect(screen.getByTestId('task-alert-cdc-hint').getAttribute('aria-label')).toContain(
       '建议 ≥30 秒；数据库与 SeaTunnel 节点时间不同步会让延迟偏大',
     );
     expect(await screen.findByTestId('task-alert-cdc-channel-warning')).toHaveTextContent('未开启事件通道');
     expect(getEventChannel).toHaveBeenCalledWith(7);
 
     fireEvent.change(screen.getByTestId('task-alert-cdc-threshold'), {target: {value: '5'}});
+    // 错误显示在输入框下方并标红边框，底部不重复。/ The error shows under the input with a red border, not at the bottom.
+    expect(await screen.findByTestId('task-alert-cdc-threshold-error')).toHaveTextContent('延迟阈值需要是 10 到 86400');
+    expect(screen.getByTestId('task-alert-cdc-threshold').className).toContain('border-destructive');
     fireEvent.click(screen.getByTestId('task-alert-channel-2'));
     fireEvent.click(screen.getByTestId('task-alert-save'));
-    expect(await screen.findByTestId('task-alert-error')).toHaveTextContent('延迟阈值需要是 10 到 86400');
+    expect(screen.queryByTestId('task-alert-error')).not.toBeInTheDocument();
     expect(updateTaskAlert).not.toHaveBeenCalled();
+
+    // 留空按默认值，不报错。/ Empty means the default and is not an error.
+    fireEvent.change(screen.getByTestId('task-alert-cdc-threshold'), {target: {value: ''}});
+    expect(screen.queryByTestId('task-alert-cdc-threshold-error')).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByTestId('task-alert-cdc-threshold'), {target: {value: '30'}});
     fireEvent.click(screen.getByTestId('task-alert-save'));

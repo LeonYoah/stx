@@ -5303,6 +5303,7 @@
     "closeReason_rule_removed": "已取消该规则，自动关闭",
     "closeReason_rule_changed": "规则参数已修改，按新参数未超标，自动关闭",
     "closeReason_policy_deleted": "告警配置已删除，自动关闭",
+    "autoClosed": "自动关闭",
     "remindersPaused": "已停止提醒",
     "remindersPausedHint": "无法确认是否恢复已超过 24 小时，已停止提醒；告警保持未恢复，请检查作业和事件通道。"
   }

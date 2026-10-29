@@ -56,7 +56,8 @@ func (s *Service) ListNotificationDeliveries(ctx context.Context, filter *Notifi
 		switch filter.EventType {
 		case NotificationDeliveryEventTypeFiring,
 			NotificationDeliveryEventTypeResolved,
-			NotificationDeliveryEventTypeTest:
+			NotificationDeliveryEventTypeTest,
+			NotificationDeliveryEventTypeReminder:
 		default:
 			return nil, fmt.Errorf("invalid notification delivery event_type")
 		}

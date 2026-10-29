@@ -473,15 +473,32 @@ func laterUTCTimePointer(current *time.Time, candidate *time.Time) *time.Time {
 	return current
 }
 
+// alertDeliveryOptions 控制 dispatchAlertDeliveryWithOptions 的行为。
+// alertDeliveryOptions controls dispatchAlertDeliveryWithOptions.
+type alertDeliveryOptions struct {
+	// RequireFiringSent 时，只有首次告警（firing）投递成功过才发恢复。
+	// RequireFiringSent sends recovery only after the first alert (firing) delivery succeeded.
+	RequireFiringSent bool
+	// Retry 表示由退避重试发起：允许重发一条已存在但未送达的记录。不带 Retry 时，首次告警发送失败的记录交给退避重试，
+	// 冷却提醒巡检不会去碰它。
+	// Retry marks a call from the backoff retry: an existing undelivered record may be resent. Without it, a first
+	// alert whose delivery failed is left to the backoff retry and the cooldown reminder sweep does not touch it.
+	Retry bool
+}
+
 // dispatchAlertDelivery 投递一条通知到一个渠道：
 //   - 人工关闭的不发；静默期间不发告警（恢复照发）；
-//   - requireFiringSent 时，只有对应的告警通知发送成功过才发恢复；
-//   - 同一 (source_key, 渠道, 类型) 已发送成功时，只在冷却时间到了之后重发告警（提醒）。
+//   - requireFiringSent 时，只有对应的首次告警发送成功过才发恢复；
+//   - 首次告警已送达后，冷却时间到了才发提醒；提醒写独立的 reminder 投递记录，不改首次告警记录的状态；
+//   - 首次告警发送失败的记录只由退避重试重发（见 dispatchAlertDeliveryWithOptions 的 Retry）。
 //
 // dispatchAlertDelivery delivers one notification to one channel:
 //   - manually closed alerts are skipped; firing is skipped while silenced (recovery still goes out);
-//   - with requireFiringSent, recovery only goes out after the firing notification was sent successfully;
-//   - once (source_key, channel, type) was sent, firing is only resent after the cooldown (a reminder).
+//   - with requireFiringSent, recovery only goes out after the first alert was sent successfully;
+//   - once the first alert was delivered, a reminder goes out after the cooldown; reminders write their own reminder
+//     delivery record and never change the first alert record's status;
+//   - a first alert whose delivery failed is only resent by the backoff retry (Retry in
+//     dispatchAlertDeliveryWithOptions).
 func (s *Service) dispatchAlertDelivery(
 	ctx context.Context,
 	message *alertMessage,
@@ -490,6 +507,21 @@ func (s *Service) dispatchAlertDelivery(
 	deliveryEventType NotificationDeliveryEventType,
 	sourceKey string,
 	requireFiringSent bool,
+) (*alertPolicyChannelDispatchResult, error) {
+	return s.dispatchAlertDeliveryWithOptions(ctx, message, policy, channel, deliveryEventType, sourceKey,
+		alertDeliveryOptions{RequireFiringSent: requireFiringSent})
+}
+
+// dispatchAlertDeliveryWithOptions 是 dispatchAlertDelivery 的完整形式。
+// dispatchAlertDeliveryWithOptions is the full form of dispatchAlertDelivery.
+func (s *Service) dispatchAlertDeliveryWithOptions(
+	ctx context.Context,
+	message *alertMessage,
+	policy *AlertPolicy,
+	channel *NotificationChannel,
+	deliveryEventType NotificationDeliveryEventType,
+	sourceKey string,
+	opts alertDeliveryOptions,
 ) (*alertPolicyChannelDispatchResult, error) {
 	if message == nil || policy == nil || channel == nil {
 		return nil, nil
@@ -507,7 +539,7 @@ func (s *Service) dispatchAlertDelivery(
 	if handlingStatus == AlertHandlingStatusSilenced && deliveryEventType == NotificationDeliveryEventTypeFiring {
 		return nil, nil
 	}
-	if requireFiringSent {
+	if opts.RequireFiringSent {
 		firingDelivery, err := s.repo.GetNotificationDeliveryByDedupKey(ctx, sourceKey, channel.ID, string(NotificationDeliveryEventTypeFiring))
 		if err != nil {
 			return nil, err
@@ -522,51 +554,137 @@ func (s *Service) dispatchAlertDelivery(
 		return nil, err
 	}
 
-	if delivery == nil {
-		delivery = &NotificationDelivery{
-			AlertID:      sourceKey,
-			SourceType:   string(message.SourceType),
-			SourceKey:    sourceKey,
-			PolicyID:     policy.ID,
-			ClusterID:    message.ClusterID,
-			ClusterName:  message.ClusterName,
-			AlertName:    message.AlertName,
-			ChannelID:    channel.ID,
-			ChannelName:  strings.TrimSpace(channel.Name),
-			EventType:    string(deliveryEventType),
-			Status:       string(NotificationDeliveryStatusSending),
-			AttemptCount: 1,
+	if delivery != nil && deliveryEventType == NotificationDeliveryEventTypeFiring {
+		if NotificationDeliveryStatus(strings.TrimSpace(delivery.Status)) == NotificationDeliveryStatusSent {
+			return s.dispatchAlertReminder(ctx, message, policy, channel, sourceKey, delivery)
 		}
+		if !opts.Retry {
+			// 首次告警还没送达：交给退避重试，这里不重发，也不算一次新的失败。
+			// The first alert is not delivered yet: the backoff retry owns it, so neither resend nor count a failure.
+			return &alertPolicyChannelDispatchResult{LastError: strings.TrimSpace(delivery.LastError)}, nil
+		}
+	}
+
+	if delivery == nil {
+		delivery = newAlertNotificationDelivery(message, policy, channel, sourceKey, deliveryEventType)
 		if err := s.repo.CreateNotificationDelivery(ctx, delivery); err != nil {
 			return nil, err
 		}
 	} else {
 		if NotificationDeliveryStatus(strings.TrimSpace(delivery.Status)) == NotificationDeliveryStatusSent {
-			if !shouldResendLocalAlertPolicyDelivery(policy, delivery, deliveryEventType, timeNowUTC()) {
-				return &alertPolicyChannelDispatchResult{
-					LastDeliveredAt: toUTCTimePointer(delivery.SentAt),
-					Successful:      true,
-				}, nil
-			}
+			return &alertPolicyChannelDispatchResult{
+				LastDeliveredAt: toUTCTimePointer(delivery.SentAt),
+				Successful:      true,
+			}, nil
 		}
-		delivery.ClusterID = message.ClusterID
-		delivery.ClusterName = message.ClusterName
-		delivery.PolicyID = policy.ID
-		delivery.AlertName = strings.TrimSpace(firstNonEmpty(policy.Name, delivery.AlertName))
-		delivery.ChannelName = strings.TrimSpace(channel.Name)
-		delivery.EventType = string(deliveryEventType)
-		delivery.Status = string(NotificationDeliveryStatusSending)
-		delivery.LastError = ""
-		delivery.RequestPayload = ""
-		delivery.ResponseStatusCode = 0
-		delivery.ResponseBodyExcerpt = ""
-		delivery.SentAt = nil
-		delivery.AttemptCount++
-		if delivery.AttemptCount <= 0 {
-			delivery.AttemptCount = 1
+		resetAlertNotificationDelivery(delivery, message, policy, channel, deliveryEventType)
+	}
+	return s.sendAndRecordAlertDelivery(ctx, delivery, channel, message, policy)
+}
+
+// dispatchAlertReminder 在首次告警已送达且冷却时间已过时发冷却提醒。提醒用 (source_key, 渠道, reminder) 这条独立记录，
+// 冷却从"首次告警送达时间"和"上次提醒尝试时间"中较晚的那个算起；提醒失败只记在提醒记录上，下个冷却周期再试。
+// dispatchAlertReminder sends a cooldown reminder once the first alert was delivered and the cooldown has elapsed. It
+// uses its own (source_key, channel, reminder) record; the cooldown counts from the later of the first alert's send
+// time and the last reminder attempt. A failed reminder is only recorded on the reminder record and is tried again
+// after the next cooldown.
+func (s *Service) dispatchAlertReminder(
+	ctx context.Context,
+	message *alertMessage,
+	policy *AlertPolicy,
+	channel *NotificationChannel,
+	sourceKey string,
+	firing *NotificationDelivery,
+) (*alertPolicyChannelDispatchResult, error) {
+	delivered := &alertPolicyChannelDispatchResult{LastDeliveredAt: toUTCTimePointer(firing.SentAt), Successful: true}
+	if policy.CooldownMinutes <= 0 || firing.SentAt == nil {
+		return delivered, nil
+	}
+	reminder, err := s.repo.GetNotificationDeliveryByDedupKey(ctx, sourceKey, channel.ID, string(NotificationDeliveryEventTypeReminder))
+	if err != nil {
+		return nil, err
+	}
+	last := firing.SentAt.UTC()
+	if reminder != nil {
+		if reminder.SentAt != nil && reminder.SentAt.UTC().After(last) {
+			last = reminder.SentAt.UTC()
+			delivered.LastDeliveredAt = toUTCTimePointer(reminder.SentAt)
+		}
+		if !reminder.UpdatedAt.IsZero() && reminder.UpdatedAt.UTC().After(last) {
+			last = reminder.UpdatedAt.UTC()
 		}
 	}
+	if timeNowUTC().Before(last.Add(time.Duration(policy.CooldownMinutes) * time.Minute)) {
+		return delivered, nil
+	}
+	if reminder == nil {
+		reminder = newAlertNotificationDelivery(message, policy, channel, sourceKey, NotificationDeliveryEventTypeReminder)
+		if err := s.repo.CreateNotificationDelivery(ctx, reminder); err != nil {
+			return nil, err
+		}
+	} else {
+		resetAlertNotificationDelivery(reminder, message, policy, channel, NotificationDeliveryEventTypeReminder)
+	}
+	return s.sendAndRecordAlertDelivery(ctx, reminder, channel, message, policy)
+}
 
+func newAlertNotificationDelivery(
+	message *alertMessage,
+	policy *AlertPolicy,
+	channel *NotificationChannel,
+	sourceKey string,
+	eventType NotificationDeliveryEventType,
+) *NotificationDelivery {
+	return &NotificationDelivery{
+		AlertID:      sourceKey,
+		SourceType:   string(message.SourceType),
+		SourceKey:    sourceKey,
+		PolicyID:     policy.ID,
+		ClusterID:    message.ClusterID,
+		ClusterName:  message.ClusterName,
+		AlertName:    message.AlertName,
+		ChannelID:    channel.ID,
+		ChannelName:  strings.TrimSpace(channel.Name),
+		EventType:    string(eventType),
+		Status:       string(NotificationDeliveryStatusSending),
+		AttemptCount: 1,
+	}
+}
+
+func resetAlertNotificationDelivery(
+	delivery *NotificationDelivery,
+	message *alertMessage,
+	policy *AlertPolicy,
+	channel *NotificationChannel,
+	eventType NotificationDeliveryEventType,
+) {
+	delivery.ClusterID = message.ClusterID
+	delivery.ClusterName = message.ClusterName
+	delivery.PolicyID = policy.ID
+	delivery.AlertName = strings.TrimSpace(firstNonEmpty(policy.Name, delivery.AlertName))
+	delivery.ChannelName = strings.TrimSpace(channel.Name)
+	delivery.EventType = string(eventType)
+	delivery.Status = string(NotificationDeliveryStatusSending)
+	delivery.LastError = ""
+	delivery.RequestPayload = ""
+	delivery.ResponseStatusCode = 0
+	delivery.ResponseBodyExcerpt = ""
+	delivery.SentAt = nil
+	delivery.AttemptCount++
+	if delivery.AttemptCount <= 0 {
+		delivery.AttemptCount = 1
+	}
+}
+
+// sendAndRecordAlertDelivery 发送消息并把结果写回投递记录。
+// sendAndRecordAlertDelivery sends the message and writes the outcome back to the delivery record.
+func (s *Service) sendAndRecordAlertDelivery(
+	ctx context.Context,
+	delivery *NotificationDelivery,
+	channel *NotificationChannel,
+	message *alertMessage,
+	policy *AlertPolicy,
+) (*alertPolicyChannelDispatchResult, error) {
 	attempt, sendErr := s.sendAlertMessage(ctx, channel, message, policy)
 	if attempt != nil {
 		delivery.RequestPayload = attempt.RequestPayload
@@ -595,24 +713,6 @@ func (s *Service) dispatchAlertDelivery(
 		LastDeliveredAt:    toUTCTimePointer(delivery.SentAt),
 		Successful:         true,
 	}, nil
-}
-
-func shouldResendLocalAlertPolicyDelivery(
-	policy *AlertPolicy,
-	delivery *NotificationDelivery,
-	deliveryEventType NotificationDeliveryEventType,
-	now time.Time,
-) bool {
-	if policy == nil || delivery == nil {
-		return false
-	}
-	if deliveryEventType != NotificationDeliveryEventTypeFiring {
-		return false
-	}
-	if policy.CooldownMinutes <= 0 || delivery.SentAt == nil {
-		return false
-	}
-	return !now.Before(delivery.SentAt.UTC().Add(time.Duration(policy.CooldownMinutes) * time.Minute))
 }
 
 // mergeAlertRecipients 合并策略接收人与额外收件人，按邮箱去重（忽略大小写）。

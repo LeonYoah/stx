@@ -146,7 +146,8 @@ func (h *Handler) ListNotificationDeliveries(c *gin.Context) {
 		switch filter.EventType {
 		case NotificationDeliveryEventTypeFiring,
 			NotificationDeliveryEventTypeResolved,
-			NotificationDeliveryEventTypeTest:
+			NotificationDeliveryEventTypeTest,
+			NotificationDeliveryEventTypeReminder:
 		default:
 			c.JSON(http.StatusBadRequest, Response{ErrorMsg: "invalid event_type"})
 			return

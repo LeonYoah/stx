@@ -3401,7 +3401,8 @@
         "events": {
           "firing": "Firing",
           "resolved": "Resolved",
-          "test": "Test"
+          "test": "Test",
+          "reminder": "Reminder"
         },
         "statuses": {
           "sent": "Sent",

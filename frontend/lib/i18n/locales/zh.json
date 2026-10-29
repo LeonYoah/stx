@@ -3401,7 +3401,8 @@
         "events": {
           "firing": "触发",
           "resolved": "恢复",
-          "test": "测试"
+          "test": "测试",
+          "reminder": "提醒"
         },
         "statuses": {
           "sent": "已发送",

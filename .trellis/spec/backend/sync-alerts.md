@@ -55,13 +55,17 @@ func (s *Service) SetTaskAlertPolicyStore(store syncalert.TaskPolicyStore)
 | `sync_submit_timeout` | A2 | 任务 | critical | 提交结果未知过了截止时间被判失败 | `task_run_healthy` |
 | `sync_job_failed` | B1 | 任务 | critical | 状态从非 failed 变为 failed；`submit_outcome=expired` 的不报 | `task_run_healthy` |
 | `sync_stop_timeout` | C1 | 任务 | warning | 首次越过 `cancel_deadline`（`markCancelOverdue` 写入成功后） | `job_terminal`（同一作业） |
+| `sync_cdc_delay_high` | B4 | 任务 | warning | sync 判定器：读取延迟中位数 ≥ 阈值持续 M 分钟且不在追赶（见 §3 B4） | `cdc_delay`（带 `ResolveReason`，见 §3 B4） |
 | `sync_status_unavailable` | D1 | 集群 | 规则配置（默认 warning） | 集群对账提前结束时发 `Observe`，持续时间 ≥ 规则 `WindowSeconds`（默认 300）才成立 | 恢复或进程启动后首次成功：`cluster_rule` |
 | `sync_event_channel_degraded` | D2 | 集群 | 规则配置（默认 warning） | 通道状态从非降级变为 `degraded` | 离开降级（healthy / disabled）：`cluster_rule` |
 
 `task_run_healthy`：批作业状态变为 `success`；实时作业状态变为 `running`，或实时作业提交成功（提交时就记为 running）。模式由 `jobRunMode` 决定：优先取 `submit_spec.submitted_content` 里引擎实际使用的 `env.job.mode`，其次 `job.Mode`、`submit_spec.mode`，仍为空按实时作业处理（提交成功时再参考任务模式）。任务元数据可能与内容不一致（线上作业 #26：`submit_spec.mode=batch`、内容 `STREAMING`），以内容为准，否则实时作业的 B1 只会在“成功”时恢复。
 
 ### 信号
-- 作业级信号的快照字段：`TaskID`、`TaskName`、`TaskCreatorID`、`ClusterID`（`submit_spec.cluster_id`，没有时取任务）、`JobID`、`EngineJobID`、`TriggerSource`（`submit_spec.trigger_source`：manual / schedule / dolphin，Dolphin 触发见 [DolphinScheduler SHELL 接入](./dolphin-scheduler-shell.md)）、`Message`（`audit.RedactText` 脱敏后截断 2000 字符）。
+- 作业级信号的快照字段：`TaskID`、`TaskName`、`TaskCreatorID`、`ClusterID`（`submit_spec.cluster_id`，没有时取任务）、`JobID`、`EngineJobID`、`TriggerSource`（`submit_spec.trigger_source`：manual / schedule / dolphin，Dolphin 触发见 [DolphinScheduler SHELL 接入](./dolphin-scheduler-shell.md)）、`Message`（`audit.RedactText` 脱敏后截断 `syncalert.MaxMessageLength` = **500** 字符；存储和展示统一这一个上限，企业微信 / 钉钉单条约 2048 字节）。
+- `KindRefresh`：只更新告警中、未人工关闭阶段的展示字段（消息、最近作业、`last_detail`），不计次、不通知；没有阶段时忽略。
+- `Signal.ResolveReason`：空或 `recovered` 按策略发恢复通知；`job_ended` / `channel_unavailable` / `rule_removed` / `rule_changed` 只关闭、不通知，原样写进 `resolve_reason`。
+- `Signal.CDCDelay`（`*CDCDelayDetail`）：B4 的结构化明细，存进阶段的 `last_detail`（text JSON）。
 - D2 的通道状态（`healthy` / `degraded` 等）定义见[实时可观测性与事件上报](./engine-events-and-realtime.md)。
 - 集群名由 hub 用 `clusterService.Get` 补齐，sync 不传。
 - `OccurredAt` 为空时按接收时间。
@@ -74,6 +78,33 @@ func (s *Service) SetTaskAlertPolicyStore(store syncalert.TaskPolicyStore)
 - 恢复：`status=resolved`、`resolve_reason=recovered`，按策略 `send_recovery` 投递恢复（要求对应告警通知发送成功过）。
 - 人工处理：`source_key=sync:episode:<id>`，确认、静默、关闭复用 `AlertState`。静默期间不发告警和提醒；关闭后再出问题时，旧阶段记 `resolve_reason=closed`，开新阶段并重新通知。
 - 删除任务告警策略：任务的 firing 阶段记 `resolve_reason=policy_deleted`，不发通知。
+- 自动关闭的阶段在告警中心摘要追加原因（"作业已结束，自动关闭"等），`source_ref.resolve_reason` / `reminders_paused` 供前端显示中英文。
+
+### B4 CDC 延迟（`sync_cdc_delay_high`）
+- **判定在 sync**（`internal/apps/sync/cdc_delay_alert.go`），monitoring 只管阶段和投递；两边只依赖 `syncalert`。
+- 输入：事件通道 `READER_MESSAGE_DELAYED` 样本（`recordCDCDelay` 接入；样本 createdTime 早于 now−2min 不计）、对账写入的 `result_preview.metrics.SourceReceivedCount`、通道状态、作业状态。
+- 候选：运行中、`!jobIsBatch`、非数据预览、`TaskID>0`、任务配置启用了 B4（配置缓存 60 秒，保存 / 删除时失效）。
+- 每 30 秒一轮，按本轮样本**中位数**分类：
+
+| 条件 | 分类 / 动作 |
+|---|---|
+| 去掉 B4 或停用，且 phase≠none | Resolve `rule_removed` |
+| 通道 disabled / pending_restart，或版本明确不支持（版本取不到不算） | Resolve `channel_unavailable`（首次看到的作业也发一次） |
+| 有样本，中位数 ≥ N | high |
+| 有样本，中位数 < N | low（依据：样本） |
+| 无样本，通道降级 | unknown（`channel_degraded`） |
+| 无样本，60 秒内读取条数增长 | low（依据：读取条数） |
+| 其他 | unknown（`no_progress`） |
+
+- phase：`none` / `firing` / `maybe`（STX 启动后首次看到）/ `rearm`（告警中改了阈值或持续时间）。
+  - high：firing → Refresh；maybe / rearm 计时或追赶期间 → Refresh；持续 ≥M 且不在追赶 → Fire。
+  - low 连续两轮：firing / maybe → Resolve `recovered`（带恢复依据）；rearm → Resolve `rule_changed`（**不发恢复**）。
+  - unknown：phase≠none 时进入即 Refresh，之后每 5 分钟一次；持续 ≥24h 带 `reminders_paused`，sweep 不再提醒，阶段保留。
+- 追赶：窗口 `[now−M, now]` 内至少两轮 high，最新一轮中位数 ≤ 最早一轮中位数 × 90%；从第一次判为追赶起最多压 30 分钟。基线**不用第一轮最大值**（单次大事务尖峰会抬高基线导致漏报）。
+- 作业进入终态：`reportJobTransition` → Resolve `job_ended`（带 JobID，只关同一作业的阶段）。
+- 模板：标题 `CDC 延迟过高（3分12秒）`，提醒追加 ` [提醒] 已持续 X 分钟`；不用"错误摘要"，改为当前 / 窗口最大读取延迟、告警条件、已持续、说明、恢复依据；读取条数推断的恢复注明"根据读取条数推断"；webhook 追加 `current_delay_ms`、`threshold_seconds` 等扁平字段和 `resolve_reason`、`reminder`。
+- 文案统一说"读取延迟"；"无法确认"带日期 + 时区（`timex.DisplayLocation`）、可能原因和作业链接。
+- 已知限制：发现不了完全卡住（B3）；通道悄悄断开可能误判恢复；时钟差计入延迟；源库空闲时恢复推迟；重启后计时从零开始（状态只在内存）；多源作业按整体判断。
 
 ### 投递
 - 与来源无关的 `alertMessage`（来源类型、集群、告警名、额外收件人、按渠道拼消息体），本地进程事件和作业告警共用 `dispatchAlertPolicyChannels` / `dispatchAlertDelivery`。
@@ -84,7 +115,8 @@ func (s *Service) SetTaskAlertPolicyStore(store syncalert.TaskPolicyStore)
 - 邮件收件人：策略接收人 + `notify_task_owner` 时的任务创建人邮箱（用户停用或没有邮箱时忽略，不让告警失败），按小写去重。
 
 ### 任务告警配置（TaskConfig）
-- `rules ⊆ {sync_submit_failed, sync_submit_timeout, sync_job_failed, sync_stop_timeout}`，至少一条；`channel_ids` 至少一个、必须存在且启用；`cooldown_minutes` 0–1440；PUT 时 `enabled`、`send_recovery` 默认 true，`cooldown_minutes` 默认 60。
+- `rules ⊆ {sync_submit_failed, sync_submit_timeout, sync_job_failed, sync_stop_timeout, sync_cdc_delay_high}`，至少一条；新配置前端默认不勾选 B4；`channel_ids` 至少一个、必须存在且启用；`cooldown_minutes` 0–1440；PUT 时 `enabled`、`send_recovery` 默认 true，`cooldown_minutes` 默认 60。
+- `cdc_delay_threshold_seconds`（默认 60，10–86400）、`cdc_delay_duration_minutes`（默认 5，1–60）：0 或不填按默认，超范围 400；不论是否勾选 B4 都校验。B4 条件写成 `threshold=<秒> window_minutes=<分钟>`，通用策略接口同样校验（`ErrAlertPolicySyncJobInvalidCDCDelay`）。CLI `--cdc-delay-threshold` / `--cdc-delay-duration`，勾选 B4 而没给参数时先 GET 保留当前值。
 - 底层是 `policy_type=sync_job` 的告警策略：规则写在 `conditions[].metric_key`（`operator=">=" threshold="1"`），`cluster_id` 只用于展示，匹配按 `task_id`；同一任务只能有一条。
 - 通用策略接口也能改 `sync_job`：必须带 `task_id`（创建后不可改，以库里为准），不能在 `sync_job` 与其他类型之间互转。
 - 不跟随任务版本，保存即生效。
@@ -99,7 +131,8 @@ func (s *Service) SetTaskAlertPolicyStore(store syncalert.TaskPolicyStore)
 | 告警模块未注入（`alertStore == nil`） | 任务告警接口 503 `ErrTaskAlertUnavailable` |
 | 任务不可见 / 不可编辑 | 403 `ErrTaskPermissionDenied` |
 | 任务不是文件节点 | 400 `ErrTaskNotFile` |
-| 规则为空或未知、渠道为空 / 不存在 / 停用、冷却超范围 | 400（`syncalert.ErrInvalidConfig`） |
+| 规则为空或未知、渠道为空 / 不存在 / 停用、冷却超范围、B4 阈值 / 持续时间超范围 | 400（`syncalert.ErrInvalidConfig`） |
+| 通用策略接口的 B4 条件非法 | 400 `ErrAlertPolicySyncJobInvalidCDCDelay` |
 | 选了邮件渠道，但没有接收人、没勾选通知创建人、渠道也没配收件人 | 400 |
 | 通用接口给同一任务建第二条 `sync_job` | 409 `ErrAlertPolicySyncJobConflict` |
 | 通用接口在 `sync_job` 与其他类型之间转换 | 400 `ErrAlertPolicySyncJobTypeChange` |
@@ -117,6 +150,8 @@ func (s *Service) SetTaskAlertPolicyStore(store syncalert.TaskPolicyStore)
 
 - sync（`alert_signals_test.go`）：A1 只在引擎失败时发（结果未知、409 不发），消息脱敏；B1 只在状态变化时发一次；批作业成功、实时作业转为运行中 / 提交成功时 Resolve；提交过期只报 A2 不报 B1；C1 只发一次、作业终态时 Resolve；D1 Observe 带首次失败时间、启动后首次成功和恢复时 Resolve、正常轮次不发；D2 只在状态变化时发；任务告警接口的权限、默认值、显式 false / 0、503。
 - monitoring（`sync_alerts_test.go`）：没配置 / 没勾选规则时丢弃；首次通知一次、后续只累计；告警中心条目字段；Resolve 发恢复通知；冷却提醒与静默；关闭后开新阶段；C1 只解除对应作业；集群规则（无策略只建阶段、D1 窗口、规则停用丢弃）；缓冲区满不阻塞；任务配置存取（创建、更新、409、校验包装、邮件收件人、筛选、删除关闭阶段）；创建人邮箱合并。
+- B4 sync（`cdc_delay_alert_test.go`）：持续高于阈值 ≤60 秒内 Fire、两轮低 ≤90 秒恢复、短尖峰不触发、300→260 不触发 / 300→280 触发 / 持平 / 上涨、尖峰不抬高基线、追赶满 30 分钟触发、读取条数推断恢复、unknown 刷新与 24h 停止提醒、重启 maybe Refresh 且只补发一次 Resolve、改参数重新计时不误发恢复、未配置不发、批 / 预览 / 旧样本不计、静默关闭、`-race`。
+- B4 monitoring（`sync_alert_cdc_delay_test.go`）：配置往返与 400、标题 / 字段 / webhook / 提醒、Refresh 不计次不通知、停止提醒与读取条数恢复文案、静默关闭显示原因。
 - 原有本地事件投递测试必须保持通过（投递重构的回归）。
 - CLI：`set` 的正文和安全头、`--disable` 先读后写、校验在网络前、只有 get / set 没有 delete、`alert-policy list` 带筛选参数。
 - 前端：表单校验、摘要、深链解析、侧栏组件。
@@ -135,4 +170,28 @@ if instance.Status == JobStatusFailed {
 ```go
 // 写入成功后只发一条非阻塞信号，判定和投递在告警模块的 worker 里完成。
 s.reportJobTransition(ctx, instance, previousStatus)
+```
+
+#### 错误（B4 追赶基线）
+```go
+// 用第一轮最大值做基线：一次大事务尖峰（例如 900 秒）之后，持续 300 秒的延迟也被当成"在追赶"，一直不告警。
+catchingUp := latestMax <= firstRoundMax*9/10
+```
+
+#### 正确（B4 追赶基线）
+```go
+// 每轮取中位数，窗口内最早一轮作基线；追赶最多压 30 分钟。
+catchingUp := len(history) >= 2 && latest.median*100 <= history[0].median*90
+```
+
+#### 错误（B4 改参数）
+```go
+// 告警中改了阈值，新阈值下没超标就发"恢复"：用户会收到一条并非真实恢复的通知。
+if lowStreak >= 2 { resolve(syncalert.ResolveReasonRecovered) }
+```
+
+#### 正确（B4 改参数）
+```go
+// 改参数后转 rearm 重新计时，回落时静默关闭。
+if phase == cdcPhaseRearm { resolve(syncalert.ResolveReasonRuleChanged) }
 ```

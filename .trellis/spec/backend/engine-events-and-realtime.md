@@ -126,6 +126,8 @@ GET  /api/v1/sync/jobs/:id/events?types=&page=&page_size= (R0, CLI: stx sync job
 - **分发**：
   - `JOB_STATUS` 按作业防抖 1 秒后调 `RefreshJobByID`。**事件里的状态本身不直接写进作业**，状态的准数始终来自引擎 job-info。
   - CDC 延迟只在内存里聚合，按样本原始时间单调更新，通过 `JobInstance.CDCDelay`（`gorm:"-"`）在 `GetJob`/`ListJobs` 里带出；`fresh` 表示 60 秒内收到过样本。
+  - 同一样本也交给 B4 判定器（`addCDCDelaySample`，锁顺序 events → cdcAlerts）；createdTime 早于 now−2min 的积压旧样本不计入 B4，但徽标和时间线照用。
+  - **引擎没有事件时不发空批**，通道安静不能证明通道正常，也不能证明延迟为 0；B4 在没有样本时改看读取条数（`SourceReceivedCount`）是否增长，见[同步作业告警 · B4](./sync-alerts.md)。
   - 作业按 `engine_job_id` 找最新实例，并校验属于该集群，属于别的集群视为未知作业。
 - **健康**：
   - 状态取值 `disabled | pending_restart | healthy | degraded`。

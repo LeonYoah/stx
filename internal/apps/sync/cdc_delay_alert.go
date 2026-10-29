@@ -135,11 +135,17 @@ type cdcDelayJobState struct {
 	catchUpSince     time.Time
 	lowStreak        int
 	// nonHighRounds 是自上一轮 high 以来连续的非 high 轮数（low 和无法确认都算）。不在告警中时，两轮 high 之间隔了
-	// 两轮以上，超标计时从后一轮重新开始：孤立的尖峰不会借着中间的空白时间累计到持续时间。
+	// 两轮以上，且后一轮的最大延迟 < 阈值 + 两轮 high 的间隔（now − lastHighAt），超标计时从后一轮重新开始：孤立的
+	// 尖峰不会借着中间的空白时间累计到持续时间。后一轮的最大延迟 ≥ 阈值 + 间隔时，说明间隔内延迟从未低于阈值（见 onHigh），
+	// 照常累计。
 	// nonHighRounds counts consecutive non-high rounds (low and unconfirmable alike) since the last high one. When not
-	// alerting, two high rounds separated by two or more of them restart timing at the later one, so isolated spikes
-	// never add up to the duration across the gap between them.
-	nonHighRounds    int
+	// alerting, two high rounds separated by two or more of them restart timing at the later one unless the later
+	// round's max delay ≥ threshold + the time between them (now − lastHighAt), so isolated spikes never add up to the
+	// duration across the gap. A max delay ≥ threshold + gap proves the delay never fell below the threshold during
+	// the gap (see onHigh), so timing continues.
+	nonHighRounds int
+	// lastHighAt 是最近一轮 high 的判定时间。 / lastHighAt is when the latest high round was evaluated.
+	lastHighAt       time.Time
 	lowByReadCount   bool
 	unknownSince     time.Time
 	unknownRefreshAt time.Time
@@ -167,6 +173,12 @@ type cdcDelayRoundInput struct {
 	samples         []cdcDelaySample
 	channelDegraded bool
 	readCount       *float64
+	// staleOnly：本轮收到过延迟样本，但全部按时间差判为重投的旧样本、一条都没计入（例如引擎时钟回拨）。这一轮按"无数据"
+	// 处理（无法确认），不按读取条数推断为低：延迟事件还在来，说明读取延迟仍 ≥ 1 秒。
+	// staleOnly: delay samples arrived this round but every one was judged a replayed old sample by its offset and
+	// none counted (e.g. the engine clock stepped back). The round is treated as no data (unconfirmable) and never
+	// inferred as low from the read count: delay events still arriving means the read delay is still ≥ 1s.
+	staleOnly bool
 }
 
 // cdcDelayAction 是判定器要发出的一条信号。
@@ -253,6 +265,9 @@ type cdcDelayAlertState struct {
 	// skewWarnAt 是每个作业最近一次时钟差 warning 的时间（限频）。
 	// skewWarnAt is when each job last logged a clock skew warning (rate limit).
 	skewWarnAt map[uint]time.Time
+	// staleDropped 是每个作业本轮被判为旧样本、没有计入的样本数；判定轮读取并清空。
+	// staleDropped counts each job's samples judged stale (not counted) in the current round; each round drains it.
+	staleDropped map[uint]int
 }
 
 // cdcDelaySkewWarn 打印引擎时钟与 STX 时钟相差过大的 warning；测试里会替换。
@@ -342,6 +357,10 @@ func (s *Service) addCDCDelaySample(jobID uint, delayMs, sampleMs int64, now tim
 	if sampleMs > 0 {
 		offset := now.Sub(time.UnixMilli(sampleMs))
 		if !state.acceptCDCDelayOffset(jobID, offset.Milliseconds(), now) {
+			if state.staleDropped == nil {
+				state.staleDropped = map[uint]int{}
+			}
+			state.staleDropped[jobID]++
 			return false
 		}
 		if offset > cdcDelayStaleSample || offset < -cdcDelayStaleSample {
@@ -385,6 +404,7 @@ func (s *Service) forgetCDCDelayJob(jobID uint) {
 	defer state.mu.Unlock()
 	delete(state.jobs, jobID)
 	delete(state.samples, jobID)
+	delete(state.staleDropped, jobID)
 	delete(state.offsets, jobID)
 	delete(state.skewWarnAt, jobID)
 }
@@ -476,6 +496,11 @@ func (s *Service) evaluateCDCDelayAlerts(ctx context.Context) {
 			delete(state.samples, jobID)
 		}
 	}
+	for jobID := range state.staleDropped {
+		if !running[jobID] {
+			delete(state.staleDropped, jobID)
+		}
+	}
 	for jobID := range state.offsets {
 		if !running[jobID] {
 			delete(state.offsets, jobID)
@@ -524,6 +549,8 @@ func (s *Service) stepCDCDelayJob(job *JobInstance, cfg *syncalert.TaskConfig, c
 	}
 	samples := state.samples[job.ID]
 	delete(state.samples, job.ID)
+	staleDropped := state.staleDropped[job.ID]
+	delete(state.staleDropped, job.ID)
 	current, exists := state.jobs[job.ID]
 
 	enabled := cfg != nil && cfg.Configured && cfg.Enabled && cfg.HasRule(syncalert.RuleCDCDelayHigh)
@@ -550,7 +577,7 @@ func (s *Service) stepCDCDelayJob(job *JobInstance, cfg *syncalert.TaskConfig, c
 		current = &cdcDelayJobState{phase: cdcPhaseMaybe}
 		state.jobs[job.ID] = current
 	}
-	input := cdcDelayRoundInput{samples: samples, channelDegraded: channel.degraded}
+	input := cdcDelayRoundInput{samples: samples, channelDegraded: channel.degraded, staleOnly: len(samples) == 0 && staleDropped > 0}
 	if metrics, ok := job.ResultPreview["metrics"].(map[string]interface{}); ok {
 		input.readCount = metricNumber(metrics, "SourceReceivedCount")
 	}
@@ -576,11 +603,28 @@ func (s *Service) stepCDCDelayJob(job *JobInstance, cfg *syncalert.TaskConfig, c
 			if action.key == current.lastContentKey && now.Sub(current.lastSentAt) < cdcDelayRefreshResendInterval {
 				continue
 			}
-			action.stateChange = action.detail.State != current.lastSentState || action.detail.RemindersPaused != current.lastSentPaused
+			action.stateChange = cdcDelayRefreshIsStateChange(action.detail, current)
 		}
 		out = append(out, action)
 	}
 	return out
+}
+
+// cdcDelayRefreshIsStateChange 判断一条 Refresh 是否算"状态变化"（接收方不按 Refresh 排队上限丢弃）：只有进入"无法确认"
+// 和停止提醒两种。这两种之后状态机不会每轮再发（无法确认每 5 分钟才刷新一次，停止提醒后不再提醒），被丢弃就要等很久；
+// high ↔ 回落待确认之间的切换不算：延迟抖动的作业每轮都在切换，全部绕过上限会让排队上限失效，而这些 Refresh 内容变了，
+// 被丢弃后下一轮就会重发，回落待确认之后的恢复是 Resolve，不受上限影响。
+// cdcDelayRefreshIsStateChange reports whether a Refresh counts as a state change (the receiver does not drop it
+// under the Refresh queue limit): only entering "unconfirmable" and pausing reminders. After those the state machine
+// does not emit every round (unconfirmable refreshes every 5 minutes, paused never reminds), so a drop would linger.
+// Switching between high and recovering does not count: a jittery job switches every round, and letting all of those
+// bypass the limit would defeat it; their content changed, so a dropped one is resent next round, and the recovery
+// after recovering is a Resolve, which the limit does not apply to.
+func cdcDelayRefreshIsStateChange(detail syncalert.CDCDelayDetail, current *cdcDelayJobState) bool {
+	if detail.State == syncalert.CDCDelayStateUnknown && current.lastSentState != syncalert.CDCDelayStateUnknown {
+		return true
+	}
+	return detail.RemindersPaused && !current.lastSentPaused
 }
 
 // markCDCDelaySent 在信号发出后更新作业的发送记录：只有被接收的 Fire / Refresh 才记为已发，被丢弃的下一轮重发。
@@ -718,9 +762,11 @@ func (st *cdcDelayJobState) step(now time.Time, thresholdSeconds, durationMinute
 					break
 				}
 			}
-			return st.onHigh(now, duration, firstAbove, cdcDelayRoundPoint{at: now, median: median, max: maxMs})
+			return st.onHigh(now, duration, thresholdMs, firstAbove, cdcDelayRoundPoint{at: now, median: median, max: maxMs})
 		}
 		return st.onLow(syncalert.CDCDelayRecoveryBySamples)
+	case in.staleOnly:
+		return st.onUnknown(now, syncalert.CDCDelayUnknownStaleSamples)
 	case in.channelDegraded:
 		return st.onUnknown(now, syncalert.CDCDelayUnknownChannelDegraded)
 	case !st.progressAt.IsZero() && now.Sub(st.progressAt) <= cdcDelayProgressWindow:
@@ -738,15 +784,29 @@ func (st *cdcDelayJobState) resetTiming() {
 
 // onHigh 处理高于阈值的一轮。
 // onHigh handles a round above the threshold.
-func (st *cdcDelayJobState) onHigh(now time.Time, duration time.Duration, firstAbove time.Time, point cdcDelayRoundPoint) []cdcDelayAction {
-	// 不在告警中、和上一轮 high 之间隔了两轮以上非 high（low 或无法确认）：从这一轮重新计时。中间收不到数据的时间不算
-	// 超标时间，孤立的尖峰不会凑成"已持续几百分钟"的告警。
-	// Not alerting and two or more non-high rounds (low or unconfirmable) since the previous high one: restart timing
-	// at this round. Time without data never counts as time above the threshold, so isolated spikes never add up to an
-	// alert claiming hundreds of minutes.
+func (st *cdcDelayJobState) onHigh(now time.Time, duration time.Duration, thresholdMs int64, firstAbove time.Time, point cdcDelayRoundPoint) []cdcDelayAction {
+	// 不在告警中、和上一轮 high 之间隔了两轮以上非 high（low 或无法确认）：通常从这一轮重新计时，中间收不到数据的时间
+	// 不算超标时间，孤立的尖峰不会凑成"已持续几百分钟"的告警。
+	// 例外：这一轮最大延迟 ≥ 阈值 + 距上一轮 high 的时间（now − lastHighAt）时照常累计。读取位置只会前进：现在读到的
+	// 是 now − D 时刻的数据，间隔内任一时刻 t 的读取位置都不超过它，延迟 ≥ t − (now − D) ≥ D − (now − lastHighAt)
+	// ≥ 阈值，即间隔内延迟从未低于阈值。下游反压、sink flush 卡住时引擎只在偶尔真正发出记录时才上报事件，延迟一直在涨，
+	// 这样的稀疏上报也能告警；孤立的尖峰（例如间隔 10 分钟后的 200 秒 < 60 秒 + 600 秒）仍然重新计时。
+	// Not alerting and two or more non-high rounds (low or unconfirmable) since the previous high one: normally restart
+	// timing at this round, so time without data never counts as time above the threshold and isolated spikes never
+	// add up to an alert claiming hundreds of minutes.
+	// Exception: when this round's max delay ≥ threshold + the time since the previous high round (now − lastHighAt),
+	// timing continues. The read position only moves forward: it is now at now − D, and at any t in the gap it was no
+	// further, so the delay at t was ≥ t − (now − D) ≥ D − (now − lastHighAt) ≥ threshold, i.e. it never dropped below
+	// the threshold during the gap. With downstream backpressure or a stuck sink flush the engine only reports when it
+	// actually emits records, so such sparse reporting of a growing delay still fires; an isolated spike (e.g. 200s
+	// after a 10-minute gap < 60s + 600s) still restarts timing.
 	if st.phase != cdcPhaseFiring && st.nonHighRounds >= cdcDelayLowRoundsToRecover {
-		st.resetTiming()
+		bridged := !st.lastHighAt.IsZero() && point.max >= thresholdMs+now.Sub(st.lastHighAt).Milliseconds()
+		if !bridged {
+			st.resetTiming()
+		}
 	}
+	st.lastHighAt = now
 	st.nonHighRounds = 0
 	st.lowStreak = 0
 	st.lowByReadCount = false
@@ -960,16 +1020,23 @@ func cdcDelayMessage(action cdcDelayAction, job *JobInstance) string {
 			syncalert.FormatDelayZH(int64(detail.ThresholdSeconds)*1000))
 	case detail.State == syncalert.CDCDelayStateUnknown:
 		var b strings.Builder
-		if detail.UnknownReason == syncalert.CDCDelayUnknownChannelDegraded {
+		switch detail.UnknownReason {
+		case syncalert.CDCDelayUnknownChannelDegraded:
 			b.WriteString("事件通道降级，最近没有收到延迟数据，无法确认读取延迟是否恢复")
-		} else {
+		case syncalert.CDCDelayUnknownStaleSamples:
+			b.WriteString("最近收到的延迟数据引擎时间比 STX 收到时间早 2 分钟以上（引擎时钟回拨或积压重投），暂不计入，无法确认读取延迟是否恢复")
+		default:
 			b.WriteString("最近 1 分钟没有收到延迟数据，读取条数也没有增长，无法确认读取延迟是否恢复")
 		}
 		b.WriteString(fmt.Sprintf("（自 %s 起）", formatCDCDelayTime(detail.UnknownSince)))
 		if !detail.LastSampleAt.IsZero() {
 			b.WriteString(fmt.Sprintf("；最后一次读取延迟 %s（%s）", syncalert.FormatDelayZH(detail.CurrentDelayMs), formatCDCDelayTime(detail.LastSampleAt)))
 		}
-		b.WriteString("。可能原因：源库暂时没有写入；作业读取卡住；事件通道中断。")
+		if detail.UnknownReason == syncalert.CDCDelayUnknownStaleSamples {
+			b.WriteString("。请检查 SeaTunnel 节点与 STX 的时钟是否同步。")
+		} else {
+			b.WriteString("。可能原因：源库暂时没有写入；作业读取卡住；事件通道中断。")
+		}
 		if link := cdcDelayJobLink(job); link != "" {
 			b.WriteString("作业：" + link)
 		}

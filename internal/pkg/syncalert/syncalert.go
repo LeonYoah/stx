@@ -178,6 +178,10 @@ const (
 	// CDCDelayUnknownChannelDegraded 是没有延迟数据、事件通道降级。
 	// CDCDelayUnknownChannelDegraded means no delay data while the event channel is degraded.
 	CDCDelayUnknownChannelDegraded = "channel_degraded"
+	// CDCDelayUnknownStaleSamples 是收到了延迟样本，但全部按时间差判为重投的旧样本（例如引擎时钟回拨），没有可计入的数据。
+	// CDCDelayUnknownStaleSamples means delay samples arrived but all were judged replayed old samples by their offset
+	// (e.g. the engine clock stepped back), so there is no data to count.
+	CDCDelayUnknownStaleSamples = "stale_samples"
 
 	// CDCDelayRecoveryBySamples 是延迟样本连续两轮低于阈值。
 	// CDCDelayRecoveryBySamples means delay samples stayed below the threshold for two rounds.
@@ -248,11 +252,11 @@ type Signal struct {
 	// CDCDelay 只用于 B4 的 Fire、Refresh、Resolve。
 	// CDCDelay is only used by B4 Fire, Refresh and Resolve.
 	CDCDelay *CDCDelayDetail
-	// StateChange 只用于 B4 Refresh：这条 Refresh 改变了阶段状态（进入无法确认、停止提醒、进入回落待确认），接收方不按
+	// StateChange 只用于 B4 Refresh：这条 Refresh 进入"无法确认"或停止提醒（high ↔ 回落待确认的切换不算），接收方不按
 	// Refresh 的排队上限丢弃它（缓冲区真满时仍可能丢）。
-	// StateChange is only used by B4 Refresh: the Refresh changes the episode state (entering unconfirmable, pausing
-	// reminders, entering recovering), so the receiver does not drop it under the Refresh queue limit (it can still be
-	// dropped when the buffer is completely full).
+	// StateChange is only used by B4 Refresh: the Refresh enters "unconfirmable" or pauses reminders (switching between
+	// high and recovering does not count), so the receiver does not drop it under the Refresh queue limit (it can
+	// still be dropped when the buffer is completely full).
 	StateChange bool
 }
 

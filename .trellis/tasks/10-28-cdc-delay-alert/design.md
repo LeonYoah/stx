@@ -76,6 +76,7 @@ CDCDelayDurationMinutes  int `json:"cdc_delay_duration_minutes"`  // 默认 5，
   - 效果：单条快 10 分钟的样本时间差是 −10 分钟，不会抬高基线，后面的样本照常计入；时钟快 3 分钟的 worker（时间差 −3 分钟）不影响时钟正常的 reader；时钟慢 3 分钟的 worker 上卡住的 reader 最多晚 5 分钟计入。
   - 时间差超过 2 分钟（时钟不同步）的样本照常计入，并按作业每 10 分钟最多打一条 warning（"时钟不同步或积压重投"）。
   - 代价：STX 重启后第一批如果全是积压的旧样本（没有新样本可比），会被计入；超过 5 分钟的积压重投也会被计入（见 PR 已知后续）。
+  - 一轮里收到过样本、但全部被判为旧样本、一条都没计入（评审第三轮 M1：例如告警中引擎时钟回拨 5 分钟）：这一轮按**无数据**处理，归为 unknown（`stale_samples`），**不按读取条数推断为 low**——延迟事件还在来，说明读取延迟仍 ≥ 1 秒。之前会误发一次"恢复"，5 分钟后旧样本被改为计入时再告警一次。说明文字：`最近收到的延迟数据引擎时间比 STX 收到时间早 2 分钟以上（引擎时钟回拨或积压重投），暂不计入，无法确认读取延迟是否恢复……请检查 SeaTunnel 节点与 STX 的时钟是否同步。`
 
 ### 4.2 每 30 秒一轮
 - 在 `StartEngineEventRuntime` 里加一个定时器。只有同时注入了 `alertReporter` 和 `alertStore` 才运行。
@@ -107,7 +108,11 @@ CDCDelayDurationMinutes  int `json:"cdc_delay_duration_minutes"`  // 默认 5，
   - 单独一轮低（`lowStreak=1`）**不重新计时**，`aboveSince`、窗口、追赶起点都保留。间歇性高延迟（例如 3 轮 200 秒 + 1 轮 30 秒循环）照样能累计到持续时间并告警。`phase≠none` 时发 Refresh（状态 `recovering`，带当前延迟和当前阈值），阶段内容和之后的提醒都是最新的；rearm 期间的低轮也一样。
   - `lowStreak ≥ 2`（至少 60 秒）：重新计时（清 `aboveSince`、窗口、追赶起点）。`phase ∈ {firing, maybe}` 时发 Resolve（recovered，带恢复依据：样本 / 读取条数），`phase` 变为 none；`phase=rearm` 时发 Resolve（`rule_changed`），静默关闭，不发恢复通知。
   - 根据读取条数推断的低 / 恢复没有当前延迟：明细 `current_delay_ms=0`、`delay_inferred=true`，webhook 的 `current_delay_ms` 输出 null（不再带最后一个旧样本，例如 192000）。
-- **两轮 high 之间隔了两轮以上非 high**（评审第二轮 N1 / Codex P2）：`phase≠firing` 时，`nonHighRounds ≥ 2`（low 和 unknown 都算）的下一轮 high 从本轮重新计时（清 `aboveSince`、窗口、追赶起点）。收不到数据的时间不算超标时间：H、L、无数据 ×N、H 或 H、无数据 ×N、H 都不会立刻告警，"已持续"也不会是几百分钟。只隔一轮非 high 的间歇性高延迟（3 轮 200 秒 + 1 轮 30 秒）照样累计。firing 时不受影响（阶段是连续的）。
+- **两轮 high 之间隔了两轮以上非 high**（评审第二轮 N1 / Codex P2，第三轮 H1 修正）：`phase≠firing` 时，`nonHighRounds ≥ 2`（low 和 unknown 都算）的下一轮 high：
+  - 本轮最大延迟 `D ≥ N + (now − lastHighAt)`（`lastHighAt` = 上一轮 high 的判定时间）：**照常累计**。读取位置只会前进：现在读到的是 now − D 时刻的数据，间隔内任一时刻 t 的读取位置都不超过它，延迟 ≥ t − (now − D) ≥ D − (now − lastHighAt) ≥ N，即间隔内从未低于阈值。下游反压、sink flush 卡住时，引擎只在真正发出（延迟 ≥ 1 秒的）记录时才上报事件，中间会连续几轮没有事件；第二轮的做法会让延迟从 300 秒涨到 3900 秒的作业（隔 2～3 轮上报一次）1 小时都不告警（f57f2a57 会告警）。
+  - 否则从本轮重新计时（清 `aboveSince`、窗口、追赶起点）。孤立尖峰仍不告警：例如阈值 60 秒、隔 10 分钟的 200 秒尖峰（200 < 60 + 600），H、L、无数据 ×N、H 或 H、无数据 ×N、H 都不会立刻告警，"已持续"也不会是几百分钟（Codex P2 仍满足）。
+  - 只隔一轮非 high 的间歇性高延迟（3 轮 200 秒 + 1 轮 30 秒）照样累计。firing 时不受影响（阶段是连续的）。
+  - 注意：持续时间很短（例如 1 分钟）时，恢复后 200 秒、隔 2 轮（90 秒）再来 200 秒，200 ≥ 60 + 90，会按"间隔内一直超标"累计并告警，这是符合定义的。
 - **unknown**：
   - `aboveSince` 暂时不变，`lowStreak` 清零，`nonHighRounds` 加一（见上一条）。
   - `phase≠none` 时发 Refresh，消息注明无法确认（带起始日期+时区、可能原因、作业链接）。只在刚进入 unknown 时发，之后每 5 分钟发一次。
@@ -131,6 +136,7 @@ CDCDelayDurationMinutes  int `json:"cdc_delay_duration_minutes"`  // 默认 5，
 - **unknown**：
   - `最近 1 分钟没有收到延迟数据，读取条数也没有增长，无法确认读取延迟是否恢复（自 2026-10-29 10:20:00 +08:00 (Asia/Shanghai) 起）；最后一次读取延迟 3分12秒（2026-10-29 10:19:30 +08:00 (Asia/Shanghai)）。可能原因：源库暂时没有写入；作业读取卡住；事件通道中断。作业：{console_url}/sync?job=…&task=…`
   - 通道降级时：`事件通道降级，最近没有收到延迟数据，无法确认读取延迟是否恢复……`
+  - 样本全部被判为旧样本时（`stale_samples`）：`最近收到的延迟数据引擎时间比 STX 收到时间早 2 分钟以上（引擎时钟回拨或积压重投），暂不计入，无法确认读取延迟是否恢复……请检查 SeaTunnel 节点与 STX 的时钟是否同步。`
   - 停止提醒后追加：`无法确认已超过 24 小时，已停止提醒，告警保留，请人工确认后关闭。`
 - **恢复**：样本：`读取延迟已连续两轮低于阈值 1分（最近一次 12秒）`；读取条数：`根据读取条数推断已恢复：……`
 - **recovering**（告警中的单独一轮低）：`读取延迟已回落到 12秒，低于阈值 1分；再确认一轮后自动关闭`；读取条数推断时说明"根据读取条数推断"。
@@ -139,7 +145,7 @@ CDCDelayDurationMinutes  int `json:"cdc_delay_duration_minutes"`  // 默认 5，
 ### 4.5 Refresh 只在内容变化时发送
 - 每个作业记下最近一次发出的 Fire / Refresh 的展示内容（状态、恢复依据、阈值、持续时间、停止提醒、是否推断、说明文字）。内容没变的 Refresh 不发。说明文字里已有格式化后的延迟和"已持续 N 分钟"，所以延迟稳定的作业大约每分钟才刷新一次，而不是每 30 秒一次。
 - 内容没变也每 5 分钟重发一次（`cdcDelayRefreshResendInterval`）。发送记录在信号**被接收之后**才更新：`syncalert.AcceptingReporter.TryReportSyncAlert` 返回是否进了队列，被丢弃的 Refresh 下一轮重发（unknown 自己的 5 分钟节流在被丢弃时也清掉）。
-- monitoring 侧再兜底：队列（容量 1024）里已有 512 条信号时直接丢弃普通 Refresh，剩下一半留给 Fire / Resolve（例如 B1），大量高延迟作业不会把它们挤掉。改变阶段状态的 Refresh（`Signal.StateChange`：状态或停止提醒与上次发出的不同，例如进入 unknown、停止提醒、进入 recovering）不受这个限制，只在缓冲区全满时才丢。
+- monitoring 侧再兜底：队列（容量 1024）里已有 512 条信号时直接丢弃普通 Refresh，剩下一半留给 Fire / Resolve（例如 B1），大量高延迟作业不会把它们挤掉。`Signal.StateChange` 的 Refresh 不受这个限制，只在缓冲区全满时才丢。评审第三轮 L1 之后**只有进入 unknown 和停止提醒**算 StateChange（`cdcDelayRefreshIsStateChange`）：这两种之后状态机不会每轮再发（unknown 每 5 分钟才刷新一次，停止提醒后不再提醒），被丢弃就要等很久。high ↔ recovering 的切换不算：延迟抖动的作业每轮都在切换（实测 20 分钟 41 条 Refresh 全部绕过上限），全部绕过会让上限失效；这些 Refresh 内容变了，被丢弃后下一轮就重发，recovering 之后的恢复是 Resolve，不受上限影响。没有选"每个作业每 5 分钟最多绕过一次"：要多记一份状态，且抖动时绕过的仍是意义不大的 high / recovering。
 - 代价：只在亚秒级变化的 `current_delay_ms` 不会单独触发 Refresh，提醒里的 webhook 数值可能差不到 1 秒。
 
 ### 4.6 配置缓存

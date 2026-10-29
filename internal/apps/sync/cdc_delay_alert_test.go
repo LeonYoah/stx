@@ -965,10 +965,14 @@ func TestCDCDelayVersionGate2312(t *testing.T) {
 }
 
 // Codex P2 / 回归：孤立的尖峰之间隔着收不到数据的时间（H、L、无数据 ×N、H，以及 H、无数据 ×N、H），不能把中间的空白算成
-// 超标时间而立刻告警。之后持续超标满 M 分钟照常告警，"已持续"是真实的超标时长，不是几百分钟。
+// 超标时间而立刻告警。之后持续超标满 M 分钟照常告警，"已持续"是真实的超标时长，不是几百分钟。后一个尖峰 100 秒 <
+// 阈值 60 秒 + 间隔（≥ 90 秒），不能证明间隔内一直超标，所以重新计时（≥ 阈值 + 间隔的情况见
+// TestCDCDelaySparseEventsGrowingDelayFires）。
 // Codex P2 / regression: isolated spikes separated by time without data (H, L, no data ×N, H, and H, no data ×N,
 // H) must not count the gap as time above the threshold and fire at once. Sustained high delay afterwards still
-// fires after M minutes, and "已持续" is the real time above the threshold, not hundreds of minutes.
+// fires after M minutes, and "已持续" is the real time above the threshold, not hundreds of minutes. The later spike
+// of 100s < threshold 60s + the gap (≥ 90s) does not prove the delay stayed high through the gap, so timing restarts
+// (for ≥ threshold + gap see TestCDCDelaySparseEventsGrowingDelayFires).
 func TestCDCDelayNoDataGapBetweenSpikesDoesNotFire(t *testing.T) {
 	for _, withLow := range []bool{true, false} {
 		for _, gapRounds := range []int{2, 20, 400} {
@@ -981,7 +985,7 @@ func TestCDCDelayNoDataGapBetweenSpikesDoesNotFire(t *testing.T) {
 				sim.round() // 无样本、读取条数不涨：无法确认。 / No samples, no read progress: unconfirmable.
 			}
 			spikeAt := sim.now
-			sim.round(200)
+			sim.round(100)
 			if n := sim.count(syncalert.KindFire); n != 0 {
 				t.Fatalf("withLow=%v gap=%d: an isolated spike after a gap must not fire, fires=%d", withLow, gapRounds, n)
 			}
@@ -1133,12 +1137,14 @@ func TestCDCDelayDroppedRefreshIsResent(t *testing.T) {
 	if got := len(reporter.find(syncalert.KindRefresh, syncalert.RuleCDCDelayHigh, "")) - before; got < 5 || got > 7 {
 		t.Fatalf("expected a refresh about every 5 minutes over 30 minutes, got %d", got)
 	}
-	// 回落待确认也是状态变化。 / Entering recovering is a state change too.
+	// 回落待确认不算状态变化（L1：抖动的作业每轮都在 high 和回落待确认之间切换，不能全部绕过排队上限）。
+	// Entering recovering is not a state change (L1: a jittery job switches between high and recovering every round
+	// and must not bypass the queue limit every time).
 	f.round(5)
 	refreshes := reporter.find(syncalert.KindRefresh, syncalert.RuleCDCDelayHigh, "")
 	last := refreshes[len(refreshes)-1]
-	if last.CDCDelay == nil || last.CDCDelay.State != syncalert.CDCDelayStateRecovering || !last.StateChange {
-		t.Fatalf("the recovering refresh must be a state change: %+v", last)
+	if last.CDCDelay == nil || last.CDCDelay.State != syncalert.CDCDelayStateRecovering || last.StateChange {
+		t.Fatalf("the recovering refresh must not be a state change: %+v", last)
 	}
 }
 
@@ -1196,5 +1202,193 @@ func TestCDCDelayInterNodeSkewKeepsStuckReader(t *testing.T) {
 	}
 	if took := fires[0].OccurredAt.Sub(start); took > 0 && took > cdcDelayOffsetAdoptAfter+2*time.Minute {
 		t.Fatalf("fired %v after start, want ≤ adopt window + duration + a round", took)
+	}
+}
+
+// H1：下游反压 / sink flush 卡住时引擎只在偶尔真正发出记录时上报延迟事件，两次上报之间隔着 2～3 轮没有事件、读取条数也
+// 不涨的轮次，而延迟一直在涨（300 秒 → 1 小时）。后一轮的最大延迟 ≥ 阈值 + 距上一轮 high 的时间，证明间隔内一直超标，
+// 照常累计并在持续时间后告警；"已持续"是从第一轮 high 算起的真实时长。
+// H1: with downstream backpressure or a stuck sink flush the engine only reports delay events when it actually emits
+// records, so 2–3 rounds without events or read growth separate the reports while the delay keeps growing (300s →
+// 1h). The later round's max ≥ threshold + time since the previous high proves the delay stayed above the threshold
+// through the gap, so timing continues and fires after the duration; "已持续" is the real time since the first high.
+func TestCDCDelaySparseEventsGrowingDelayFires(t *testing.T) {
+	for _, gap := range []int{2, 3, 5} {
+		sim := newCDCSim(t, cdcPhaseNone, 60, 5)
+		start := sim.now
+		delay := int64(300)
+		for sim.now.Sub(start) < time.Hour {
+			sim.round(delay)
+			for i := 0; i < gap; i++ {
+				sim.round()
+			}
+			delay += int64(30 * (gap + 1))
+		}
+		fire, ok := sim.first(syncalert.KindFire)
+		if !ok {
+			t.Fatalf("gap=%d: a growing delay reported sparsely must fire", gap)
+		}
+		if took := fire.at.Sub(start); took < 5*time.Minute || took > 5*time.Minute+time.Duration(gap+2)*cdcDelayEvalInterval {
+			t.Fatalf("gap=%d: fired %v after the first high round, want shortly after 5 minutes", gap, took)
+		}
+		if n := sim.count(syncalert.KindFire); n != 1 {
+			t.Fatalf("gap=%d: want exactly one fire, got %d", gap, n)
+		}
+		if n := sim.count(syncalert.KindResolve); n != 0 {
+			t.Fatalf("gap=%d: no recovery while the delay grows, got %d", gap, n)
+		}
+	}
+}
+
+// H1 对照：孤立的尖峰（间隔里的最大延迟 < 阈值 + 间隔）仍然重新计时，不会借着空白时间告警（Codex P2 仍满足）。
+// 例：60 秒阈值，每 10 分钟一次 200 秒的尖峰：200 秒 < 60 秒 + 600 秒；间隔 2 轮时 140 秒 < 60 秒 + 90 秒。
+// H1 control: isolated spikes (max delay < threshold + gap) still restart timing and never fire across the gap
+// (Codex P2 still holds). E.g. threshold 60s, a 200s spike every 10 minutes: 200s < 60s + 600s; with a 2-round gap,
+// 140s < 60s + 90s.
+func TestCDCDelaySparseIsolatedSpikesDoNotFire(t *testing.T) {
+	cases := []struct {
+		name  string
+		spike int64
+		gap   int
+	}{
+		{"200s every 10min", 200, 19},
+		{"140s every 90s", 140, 2},
+		{"exactly threshold+gap-1s", 149, 2},
+	}
+	for _, tc := range cases {
+		sim := newCDCSim(t, cdcPhaseNone, 60, 5)
+		start := sim.now
+		for sim.now.Sub(start) < 2*time.Hour {
+			sim.round(tc.spike)
+			for i := 0; i < tc.gap; i++ {
+				sim.round()
+			}
+		}
+		if n := sim.count(syncalert.KindFire); n != 0 {
+			t.Fatalf("%s: isolated spikes must not fire, fires=%d", tc.name, n)
+		}
+	}
+	// 边界：恰好等于阈值 + 间隔时累计。 / Boundary: exactly threshold + gap continues timing.
+	sim := newCDCSim(t, cdcPhaseNone, 60, 5)
+	start := sim.now
+	for sim.now.Sub(start) < time.Hour {
+		sim.round(150)
+		sim.round()
+		sim.round()
+	}
+	if n := sim.count(syncalert.KindFire); n != 1 {
+		t.Fatalf("max delay = threshold + gap must keep timing and fire once, fires=%d", n)
+	}
+}
+
+// M1：告警中引擎时钟回拨 5 分钟，样本的时间差都超过基线 + 2 分钟被判为旧样本、没有计入，读取条数仍在涨。这样的轮次按
+// 无数据（无法确认）处理，不能按读取条数推断为低：不发误报的恢复，也不在 5 分钟后再次告警。
+// M1: while firing, the engine clock steps back 5 minutes, so every sample's offset exceeds the baseline + 2
+// minutes and none counts, while the read count keeps growing. Such rounds are no data (unconfirmable), never low by
+// read count: no false recovery and no second Fire 5 minutes later.
+func TestCDCDelayAllStaleRoundIsNoDataNotLow(t *testing.T) {
+	f := newCDCServiceFixture(t)
+	f.configure([]string{syncalert.RuleCDCDelayHigh}, 60, 1)
+	count := 0.0
+	setCount := func() {
+		count += 100
+		f.job.ResultPreview = JSONMap{"metrics": map[string]interface{}{"SourceReceivedCount": count}}
+		if err := f.service.repo.db.Save(f.job).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := 0; i < 6; i++ {
+		setCount()
+		f.round(300)
+	}
+	if len(f.b4(syncalert.KindFire)) != 1 {
+		t.Fatalf("setup: want one fire, got %d", len(f.b4(syncalert.KindFire)))
+	}
+	before := len(f.b4(syncalert.KindRefresh))
+	for r := 0; r < 16; r++ { // 8 分钟，引擎时钟慢 5 分钟。 / 8 minutes with the engine clock 5 minutes behind.
+		setCount()
+		for i := 0; i < 3; i++ {
+			f.now = f.now.Add(10 * time.Second)
+			f.service.recordCDCDelay(f.job.ID, 300_000, f.now.Add(-5*time.Minute).UnixMilli())
+		}
+		f.service.evaluateCDCDelayAlerts(context.Background())
+	}
+	if res := f.b4(syncalert.KindResolve); len(res) != 0 {
+		t.Fatalf("an all-stale round must not be inferred as low: resolves=%+v", res)
+	}
+	if n := len(f.b4(syncalert.KindFire)); n != 1 {
+		t.Fatalf("no second fire after the clock step, fires=%d", n)
+	}
+	var stale, recovering int
+	for _, r := range f.b4(syncalert.KindRefresh)[before:] {
+		if r.CDCDelay == nil {
+			continue
+		}
+		if r.CDCDelay.State == syncalert.CDCDelayStateRecovering {
+			recovering++
+		}
+		if r.CDCDelay.State == syncalert.CDCDelayStateUnknown && r.CDCDelay.UnknownReason == syncalert.CDCDelayUnknownStaleSamples {
+			stale++
+			if !strings.Contains(r.Message, "时钟") {
+				t.Fatalf("the stale-samples note must mention the clock: %q", r.Message)
+			}
+		}
+	}
+	if stale == 0 || recovering != 0 {
+		t.Fatalf("want an unconfirmable (stale samples) refresh and no recovering one, stale=%d recovering=%d", stale, recovering)
+	}
+	// 对照：真正没有样本、读取条数在涨时仍按读取条数推断恢复。 / Control: with truly no samples and a growing read
+	// count, recovery is still inferred from the read count.
+	for i := 0; i < 3; i++ {
+		setCount()
+		f.round(-1)
+	}
+	res := f.b4(syncalert.KindResolve)
+	if len(res) != 1 || res[0].CDCDelay == nil || res[0].CDCDelay.RecoveryBasis != syncalert.CDCDelayRecoveryByReadCount {
+		t.Fatalf("no samples + growing read count must still recover by read count: %+v", res)
+	}
+}
+
+// L1：延迟在阈值上下抖动（high / 回落待确认每轮切换）20 分钟，Refresh 都不带 StateChange，不会绕过 512 的排队上限；
+// 只有进入"无法确认"和停止提醒算状态变化。
+// L1: a delay jittering around the threshold (high / recovering switching every round) for 20 minutes produces no
+// StateChange Refresh, so none bypasses the 512 queue limit; only entering "unconfirmable" and pausing reminders count.
+func TestCDCDelayJitterRefreshesDoNotBypassQueueLimit(t *testing.T) {
+	f := newCDCServiceFixture(t)
+	f.configure([]string{syncalert.RuleCDCDelayHigh}, 60, 1)
+	for i := 0; i < 4; i++ {
+		f.round(200)
+	}
+	if len(f.b4(syncalert.KindFire)) != 1 {
+		t.Fatalf("setup: want one fire")
+	}
+	for i := 0; i < 20; i++ {
+		f.round(30)
+		f.round(200)
+	}
+	refreshes := f.b4(syncalert.KindRefresh)
+	if len(refreshes) < 20 {
+		t.Fatalf("jitter should still refresh, got %d", len(refreshes))
+	}
+	for _, r := range refreshes {
+		if r.StateChange {
+			t.Fatalf("a high/recovering refresh must not bypass the queue limit: %+v", r.CDCDelay)
+		}
+	}
+	// 进入"无法确认"仍算状态变化。 / Entering unconfirmable is still a state change.
+	f.round(-1)
+	f.round(-1)
+	refreshes = f.b4(syncalert.KindRefresh)
+	last := refreshes[len(refreshes)-1]
+	if last.CDCDelay == nil || last.CDCDelay.State != syncalert.CDCDelayStateUnknown || !last.StateChange {
+		t.Fatalf("entering unconfirmable must be a state change: %+v", last)
+	}
+	// 停止提醒算状态变化（纯函数判断）。 / Pausing reminders is a state change (pure check).
+	st := &cdcDelayJobState{lastSentState: syncalert.CDCDelayStateUnknown}
+	if !cdcDelayRefreshIsStateChange(syncalert.CDCDelayDetail{State: syncalert.CDCDelayStateUnknown, RemindersPaused: true}, st) {
+		t.Fatalf("pausing reminders must be a state change")
+	}
+	if cdcDelayRefreshIsStateChange(syncalert.CDCDelayDetail{State: syncalert.CDCDelayStateUnknown}, st) {
+		t.Fatalf("an unconfirmable reminder without a change is not a state change")
 	}
 }

@@ -204,11 +204,8 @@ func TestBuildLocalAlertPolicyMessage_formatsNodeStopEvent(t *testing.T) {
 	if !strings.Contains(text, "主机：host-4") {
 		t.Fatalf("expected host information in text, got %s", text)
 	}
-	if !strings.Contains(text, "2026-03-10 17:40:00 +08:00 (Asia/Shanghai)") {
-		t.Fatalf("expected server-local timestamp in text, got %s", text)
-	}
-	if !strings.Contains(text, "2026-03-10T09:40:00Z (UTC)") {
-		t.Fatalf("expected utc timestamp in text, got %s", text)
+	if !strings.Contains(text, "触发时间：2026-03-10 17:40:00 (UTC+8)\n") {
+		t.Fatalf("expected one-line display-timezone timestamp in text, got %s", text)
 	}
 	if strings.Contains(text, "EventDetails:") {
 		t.Fatalf("expected formatted fields without raw EventDetails dump, got %s", text)
@@ -259,7 +256,7 @@ func TestBuildLocalAlertPolicyMessage_formatsResolvedNotificationDifferently(t *
 	if !strings.Contains(text, "状态：已恢复") {
 		t.Fatalf("expected recovered state in text, got %s", text)
 	}
-	if !strings.Contains(text, "恢复事件：node_recovered") {
+	if !strings.Contains(text, "恢复事件：节点恢复 (node_recovered)") {
 		t.Fatalf("expected recovery event in text, got %s", text)
 	}
 

@@ -451,6 +451,9 @@ func (h *SyncAlertHub) sweep(ctx context.Context) error {
 		}
 		errs = append(errs, h.dispatchEpisode(ctx, episode, reminding, NotificationDeliveryEventTypeFiring, false))
 	}
+	// 失败的恢复通知按退避重试（sync_alert_recovery_retry.go）。
+	// Failed recovery notifications are retried with backoff (sync_alert_recovery_retry.go).
+	errs = append(errs, h.retryFailedRecoveries(ctx))
 	return errors.Join(errs...)
 }
 

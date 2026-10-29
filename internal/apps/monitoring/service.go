@@ -1017,7 +1017,11 @@ func (s *Service) CreateNotificationChannel(ctx context.Context, req *UpsertNoti
 	if s.repo == nil {
 		return nil, fmt.Errorf("monitoring repository is not configured")
 	}
-	channel, err := buildNotificationChannelFromUpsertRequest(req)
+	restoredReq, err := restoreMaskedNotificationChannelFields(req, nil)
+	if err != nil {
+		return nil, err
+	}
+	channel, err := buildNotificationChannelFromUpsertRequest(restoredReq)
 	if err != nil {
 		return nil, err
 	}
@@ -1043,7 +1047,13 @@ func (s *Service) UpdateNotificationChannel(ctx context.Context, id uint, req *U
 		return nil, err
 	}
 
-	nextChannel, err := buildNotificationChannelFromUpsertRequest(req)
+	// GET 返回的是脱敏值；前端原样传回占位符 / 空密钥时沿用已保存的真实值。
+	// GET returns redacted values; a placeholder / empty secret sent back keeps the stored value.
+	restoredReq, err := restoreMaskedNotificationChannelFields(req, channel)
+	if err != nil {
+		return nil, err
+	}
+	nextChannel, err := buildNotificationChannelFromUpsertRequest(restoredReq)
 	if err != nil {
 		return nil, err
 	}
@@ -1558,14 +1568,26 @@ func toNotificationChannelDTO(channel *NotificationChannel) *NotificationChannel
 	if channel == nil {
 		return nil
 	}
+	// 密钥、SMTP 密码和 URL 里的 token 一律脱敏后再返回给前端。
+	// Secrets, SMTP passwords and URL tokens are always redacted before reaching the client.
+	config := unmarshalNotificationChannelConfig(channel.Type, channel.ConfigJSON)
+	endpoint := deriveNotificationChannelEndpoint(channel.Type, channel.Endpoint, config)
+	if channel.Type != NotificationChannelTypeEmail {
+		endpoint = redactEndpointURL(endpoint)
+	}
+	if config != nil && config.Email != nil {
+		email := *config.Email
+		email.Password = maskNotificationSecret(email.Password)
+		config.Email = &email
+	}
 	return &NotificationChannelDTO{
 		ID:          channel.ID,
 		Name:        channel.Name,
 		Type:        channel.Type,
 		Enabled:     channel.Enabled,
-		Endpoint:    deriveNotificationChannelEndpoint(channel.Type, channel.Endpoint, unmarshalNotificationChannelConfig(channel.Type, channel.ConfigJSON)),
-		Secret:      channel.Secret,
-		Config:      unmarshalNotificationChannelConfig(channel.Type, channel.ConfigJSON),
+		Endpoint:    endpoint,
+		Secret:      maskNotificationSecret(channel.Secret),
+		Config:      config,
 		Description: channel.Description,
 		CreatedAt:   channel.CreatedAt,
 		UpdatedAt:   channel.UpdatedAt,

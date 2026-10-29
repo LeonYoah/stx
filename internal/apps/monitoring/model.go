@@ -1009,6 +1009,17 @@ type NotificationChannelTestRequest struct {
 type NotificationChannelDraftTestRequest struct {
 	Channel        *UpsertNotificationChannelRequest `json:"channel"`
 	ReceiverUserID uint64                            `json:"receiver_user_id"`
+	// ChannelID 是正在编辑的已保存渠道；草稿里的脱敏密钥 / 地址会用它的真实值补齐。
+	// ChannelID is the saved channel being edited; masked secrets / addresses in the draft are filled from it.
+	ChannelID uint `json:"channel_id,omitempty"`
+}
+
+// NotificationChannelConnectionTestRequest is the body of the connection test: a channel draft plus the optional saved
+// channel whose masked secrets should be reused.
+// NotificationChannelConnectionTestRequest 是连接测试请求体：渠道草稿，加上可选的已保存渠道 ID（用于补齐脱敏的密钥）。
+type NotificationChannelConnectionTestRequest struct {
+	UpsertNotificationChannelRequest
+	ChannelID uint `json:"channel_id,omitempty"`
 }
 
 // Validate checks whether the draft test request contains a valid channel payload.

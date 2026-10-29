@@ -20,7 +20,9 @@ package monitoring
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/tls"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"mime"
@@ -28,6 +30,7 @@ import (
 	"net"
 	"net/mail"
 	"net/smtp"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -139,10 +142,13 @@ func buildSMTPMessage(config *NotificationChannelEmailConfig, payload *emailNoti
 	}
 
 	subject := mime.QEncoding.Encode("utf-8", strings.TrimSpace(payload.Subject))
+	now := timex.Now()
 	headers := []string{
 		fmt.Sprintf("From: %s", fromHeader),
 		fmt.Sprintf("To: %s", strings.Join(payload.To, ", ")),
 		fmt.Sprintf("Subject: %s", subject),
+		fmt.Sprintf("Date: %s", now.Format(time.RFC1123Z)),
+		fmt.Sprintf("Message-ID: %s", buildSMTPMessageID(config.From, now)),
 		"MIME-Version: 1.0",
 	}
 	if strings.TrimSpace(payload.HTML) == "" {
@@ -158,7 +164,7 @@ func buildSMTPMessage(config *NotificationChannelEmailConfig, payload *emailNoti
 	if err != nil {
 		return nil, err
 	}
-	boundary := fmt.Sprintf("=_STX_%d", timex.Now().UnixNano())
+	boundary := fmt.Sprintf("=_STX_%d", now.UnixNano())
 	headers = append(headers, fmt.Sprintf("Content-Type: multipart/alternative; boundary=%q", boundary))
 
 	var message strings.Builder
@@ -174,6 +180,24 @@ func buildSMTPMessage(config *NotificationChannelEmailConfig, payload *emailNoti
 	message.WriteString(htmlBody)
 	message.WriteString("\r\n--" + boundary + "--\r\n")
 	return []byte(message.String()), nil
+}
+
+// buildSMTPMessageID 生成 RFC 5322 Message-ID：<时间戳.随机数@发件域>，发件域取不到时用本机主机名。
+// buildSMTPMessageID builds an RFC 5322 Message-ID: <timestamp.random@sender-domain>, using the hostname when the sender
+// has no domain.
+func buildSMTPMessageID(from string, now time.Time) string {
+	domain := ""
+	if address, err := mail.ParseAddress(strings.TrimSpace(from)); err == nil {
+		if at := strings.LastIndex(address.Address, "@"); at >= 0 {
+			domain = address.Address[at+1:]
+		}
+	}
+	if domain == "" {
+		domain = smtpHelloName()
+	}
+	random := make([]byte, 8)
+	_, _ = rand.Read(random)
+	return fmt.Sprintf("<%d.%s@%s>", now.UnixNano(), hex.EncodeToString(random), domain)
 }
 
 func encodeQuotedPrintableBody(raw string) (string, error) {
@@ -239,60 +263,105 @@ func deliverSMTPMessage(ctx context.Context, config *NotificationChannelEmailCon
 	return nil
 }
 
+// SMTP 超时：连接超时 + 整个会话的读写截止时间。都是变量，便于测试缩短。
+// SMTP timeouts: the connect timeout and the read/write deadline of the whole session; variables so tests can shorten them.
+var (
+	smtpDialTimeout = 10 * time.Second
+	smtpIOTimeout   = 30 * time.Second
+)
+
+// smtpHelloName 返回 HELO/EHLO 用的本机主机名；取不到或不合法时退回 localhost。
+// smtpHelloName returns the local hostname for HELO/EHLO, falling back to localhost when unavailable or invalid.
+func smtpHelloName() string {
+	name, err := os.Hostname()
+	name = strings.TrimSpace(name)
+	if err != nil || name == "" || strings.ContainsAny(name, " \t\r\n") {
+		return "localhost"
+	}
+	return name
+}
+
+// smtpSessionDeadline 返回会话截止时间：IO 超时与 ctx 截止时间取较早者。
+// smtpSessionDeadline returns the session deadline: the earlier of the IO timeout and the ctx deadline.
+func smtpSessionDeadline(ctx context.Context) time.Time {
+	deadline := time.Now().Add(smtpDialTimeout + smtpIOTimeout)
+	if ctxDeadline, ok := ctx.Deadline(); ok && ctxDeadline.Before(deadline) {
+		deadline = ctxDeadline
+	}
+	return deadline
+}
+
+// openSMTPClient 建立 SMTP 会话。连上之后立刻设置读写截止时间，再读服务器 greeting，
+// 这样只接 TCP 不说话的服务器也会在超时后返回，不会卡住告警队列。
+// openSMTPClient opens an SMTP session. The read/write deadline is set right after connecting and before reading the
+// server greeting, so a server that accepts TCP but never speaks still returns after the timeout instead of stalling
+// the alert queue.
 func openSMTPClient(ctx context.Context, config *NotificationChannelEmailConfig) (*smtp.Client, net.Conn, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	addr := net.JoinHostPort(config.Host, strconv.Itoa(config.Port))
-	dialer := &net.Dialer{Timeout: 10 * time.Second}
+	dialer := &net.Dialer{Timeout: smtpDialTimeout}
+	host := strings.TrimSpace(config.Host)
 
 	var (
-		client *smtp.Client
-		conn   net.Conn
-		err    error
+		conn net.Conn
+		err  error
 	)
-
-	switch config.Security {
-	case NotificationEmailSecuritySSL:
-		conn, err = tls.DialWithDialer(dialer, "tcp", addr, &tls.Config{
-			ServerName: strings.TrimSpace(config.Host),
-			MinVersion: tls.VersionTLS12,
-		})
-		if err != nil {
-			return nil, nil, err
-		}
-		client, err = smtp.NewClient(conn, strings.TrimSpace(config.Host))
-		if err != nil {
-			_ = conn.Close()
-			return nil, nil, err
-		}
-	default:
+	if config.Security == NotificationEmailSecuritySSL {
+		tlsDialer := &tls.Dialer{NetDialer: dialer, Config: &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12}}
+		conn, err = tlsDialer.DialContext(ctx, "tcp", addr)
+	} else {
 		conn, err = dialer.DialContext(ctx, "tcp", addr)
-		if err != nil {
-			return nil, nil, err
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	_ = conn.SetDeadline(smtpSessionDeadline(ctx))
+
+	// ctx 取消时立刻关闭连接，打断正在阻塞的读写。
+	// Close the connection as soon as ctx is canceled to interrupt a blocked read or write.
+	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	fail := func(cause error) (*smtp.Client, net.Conn, error) {
+		stop()
+		_ = conn.Close()
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, nil, fmt.Errorf("smtp %s: %w", ctxErr, cause)
 		}
-		client, err = smtp.NewClient(conn, strings.TrimSpace(config.Host))
-		if err != nil {
-			_ = conn.Close()
-			return nil, nil, err
-		}
-		if config.Security == NotificationEmailSecurityStartTLS {
-			ok, _ := client.Extension("STARTTLS")
-			if !ok {
-				_ = client.Close()
-				_ = conn.Close()
-				return nil, nil, fmt.Errorf("smtp server does not support STARTTLS")
-			}
-			if err := client.StartTLS(&tls.Config{
-				ServerName: strings.TrimSpace(config.Host),
-				MinVersion: tls.VersionTLS12,
-			}); err != nil {
-				_ = client.Close()
-				_ = conn.Close()
-				return nil, nil, err
-			}
-		}
+		return nil, nil, cause
 	}
 
-	_ = conn.SetDeadline(time.Now().Add(15 * time.Second))
-	return client, conn, nil
+	client, err := smtp.NewClient(conn, host)
+	if err != nil {
+		return fail(err)
+	}
+	if err := client.Hello(smtpHelloName()); err != nil {
+		return fail(err)
+	}
+	if config.Security == NotificationEmailSecurityStartTLS {
+		ok, _ := client.Extension("STARTTLS")
+		if !ok {
+			return fail(fmt.Errorf("smtp server does not support STARTTLS"))
+		}
+		if err := client.StartTLS(&tls.Config{ServerName: host, MinVersion: tls.VersionTLS12}); err != nil {
+			return fail(err)
+		}
+	}
+	return client, &smtpConn{Conn: conn, stop: stop}, nil
+}
+
+// smtpConn 在关闭时同时解除 ctx 监听。
+// smtpConn also detaches the ctx watcher when closed.
+type smtpConn struct {
+	net.Conn
+	stop func() bool
+}
+
+func (c *smtpConn) Close() error {
+	if c.stop != nil {
+		c.stop()
+	}
+	return c.Conn.Close()
 }
 
 func authenticateSMTPClient(client *smtp.Client, config *NotificationChannelEmailConfig) error {

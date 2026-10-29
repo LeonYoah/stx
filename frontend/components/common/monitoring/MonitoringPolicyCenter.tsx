@@ -119,6 +119,18 @@ import {
 import {Tabs, TabsList, TabsTrigger} from '@/components/ui/tabs';
 import {Textarea} from '@/components/ui/textarea';
 import {formatDateTimeTz} from '@/lib/timezone';
+import {
+  WEBHOOK_LIKE_CHANNEL_TYPES,
+  buildWebhookChannelPayload,
+  channelTypeSupportsSecret,
+  createDefaultWebhookChannelForm,
+  createWebhookChannelFormFromChannel,
+  endpointPlaceholderForType,
+  formatChannelTestResponseBody,
+  isWebhookLikeChannel,
+  type WebhookChannelFormState,
+  type WebhookLikeChannelType,
+} from './notification-channel-utils';
 
 // 规则与通知三级分段：告警规则 | 通知通道 | 投递记录
 // Tertiary sections for Rules & Notifications: rules | channels | history
@@ -174,15 +186,6 @@ type EmailChannelFormState = {
   from: string;
   fromName: string;
   recipients: string;
-};
-
-type WebhookChannelFormState = {
-  id: number | null;
-  name: string;
-  enabled: boolean;
-  description: string;
-  endpoint: string;
-  secret: string;
 };
 
 type EmailTestReceiverOption = 'none' | string;
@@ -244,17 +247,6 @@ function createDefaultEmailChannelForm(): EmailChannelFormState {
     from: '',
     fromName: '',
     recipients: '',
-  };
-}
-
-function createDefaultWebhookChannelForm(): WebhookChannelFormState {
-  return {
-    id: null,
-    name: '',
-    enabled: true,
-    description: '',
-    endpoint: '',
-    secret: '',
   };
 }
 
@@ -491,33 +483,6 @@ function serializeEmailChannelForm(form: EmailChannelFormState): string {
   return JSON.stringify(form);
 }
 
-function createWebhookChannelFormFromChannel(
-  channel: NotificationChannel,
-): WebhookChannelFormState {
-  return {
-    id: channel.id,
-    name: channel.name,
-    enabled: channel.enabled,
-    description: channel.description || '',
-    endpoint: channel.endpoint || '',
-    secret: channel.secret || '',
-  };
-}
-
-function buildWebhookChannelPayload(
-  form: WebhookChannelFormState,
-  enabledOverride?: boolean,
-): UpsertNotificationChannelRequest {
-  return {
-    name: form.name.trim(),
-    type: 'webhook',
-    enabled: enabledOverride ?? form.enabled,
-    description: form.description.trim(),
-    endpoint: form.endpoint.trim(),
-    secret: form.secret.trim(),
-  };
-}
-
 function serializeWebhookChannelForm(form: WebhookChannelFormState): string {
   return JSON.stringify(form);
 }
@@ -549,7 +514,7 @@ function createPolicyFormFromPolicy(
   const selectedEmailChannel =
     selectedChannels.find((channel) => channel.type === 'email') || null;
   const selectedWebhookChannel =
-    selectedChannels.find((channel) => channel.type === 'webhook') || null;
+    selectedChannels.find((channel) => isWebhookLikeChannel(channel)) || null;
 
   return {
     ...form,
@@ -917,7 +882,7 @@ export function MonitoringPolicyCenter() {
     [channels],
   );
   const webhookChannels = useMemo(
-    () => channels.filter((channel) => channel.type === 'webhook'),
+    () => channels.filter((channel) => isWebhookLikeChannel(channel)),
     [channels],
   );
   const notifiableUsers = useMemo(
@@ -1680,6 +1645,7 @@ export function MonitoringPolicyCenter() {
       const result = isDraftTest
         ? await services.monitoring.testNotificationChannelDraftSafe({
             channel: buildEmailChannelPayload(emailChannelForm),
+            channel_id: emailChannelForm.id ?? undefined,
             receiver_user_id:
               explicitReceiverUserId > 0 ? explicitReceiverUserId : undefined,
           })
@@ -1706,7 +1672,10 @@ export function MonitoringPolicyCenter() {
   };
 
   const handleTestEmailConnection = async () => {
-    const payload = buildEmailChannelPayload(emailChannelForm);
+    const payload = {
+      ...buildEmailChannelPayload(emailChannelForm),
+      channel_id: emailChannelForm.id ?? undefined,
+    };
     setTestingEmailConnection(true);
     try {
       const result =
@@ -1861,6 +1830,7 @@ export function MonitoringPolicyCenter() {
       const result = isDraftTest
         ? await services.monitoring.testNotificationChannelDraftSafe({
             channel: buildWebhookChannelPayload(webhookChannelForm),
+            channel_id: webhookChannelForm.id ?? undefined,
           })
         : await services.monitoring.testNotificationChannelSafe(
             webhookChannelForm.id as number,
@@ -1976,7 +1946,7 @@ export function MonitoringPolicyCenter() {
     if (channelPillFilter === 'email') {
       rows = rows.filter((c) => c.type === 'email');
     } else if (channelPillFilter === 'webhook') {
-      rows = rows.filter((c) => c.type === 'webhook');
+      rows = rows.filter((c) => isWebhookLikeChannel(c));
     } else if (channelPillFilter === 'enabled') {
       rows = rows.filter((c) => c.enabled);
     }
@@ -2001,7 +1971,7 @@ export function MonitoringPolicyCenter() {
 
   const channelPillItems = useMemo<StatPillItem[]>(() => {
     const emailCount = channels.filter((c) => c.type === 'email').length;
-    const webhookCount = channels.filter((c) => c.type === 'webhook').length;
+    const webhookCount = channels.filter((c) => isWebhookLikeChannel(c)).length;
     const enabledCount = channels.filter((c) => c.enabled).length;
     return [
       {key: 'all', label: t('statPills.all'), count: channels.length},
@@ -2522,7 +2492,9 @@ export function MonitoringPolicyCenter() {
                             ) : (
                               <>
                                 <Webhook className='h-3 w-3' />
-                                {t('channelList.typeWebhook')}
+                                {channel.type === 'webhook'
+                                  ? t('channelList.typeWebhook')
+                                  : t(`webhook.types.${channel.type}`)}
                               </>
                             )}
                           </Badge>
@@ -3392,6 +3364,9 @@ export function MonitoringPolicyCenter() {
                       {webhookChannels.map((channel) => (
                         <SelectItem key={channel.id} value={String(channel.id)}>
                           {channel.name}
+                          {channel.type !== 'webhook'
+                            ? ` · ${t(`webhook.types.${channel.type}`)}`
+                            : ''}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -4017,8 +3992,23 @@ export function MonitoringPolicyCenter() {
                         </div>
                       ) : null}
                       {lastWebhookChannelTestResult?.last_error ? (
-                        <div className='mt-2 text-xs text-destructive'>
+                        <div className='mt-2 text-xs text-destructive break-all'>
                           {lastWebhookChannelTestResult.last_error}
+                        </div>
+                      ) : null}
+                      {lastWebhookChannelTestResult?.response_body ? (
+                        <div className='mt-2 space-y-1'>
+                          <div className='text-xs text-muted-foreground'>
+                            {t('webhook.lastTest.responseBody')}
+                          </div>
+                          <pre
+                            data-testid='webhook-test-response-body'
+                            className='max-h-40 overflow-auto whitespace-pre-wrap break-all rounded border bg-background px-2 py-1 font-mono text-[11px]'
+                          >
+                            {formatChannelTestResponseBody(
+                              lastWebhookChannelTestResult.response_body,
+                            )}
+                          </pre>
                         </div>
                       ) : null}
                     </div>
@@ -4064,6 +4054,33 @@ export function MonitoringPolicyCenter() {
                   </CardHeader>
                   <CardContent className='space-y-4'>
                     <div className='space-y-2'>
+                      <Label>{t('webhook.fields.type')}</Label>
+                      <Select
+                        value={webhookChannelForm.type}
+                        onValueChange={(value) =>
+                          updateWebhookChannelForm((prev) => ({
+                            ...prev,
+                            type: value as WebhookLikeChannelType,
+                          }))
+                        }
+                      >
+                        <SelectTrigger data-testid='webhook-channel-type'>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {WEBHOOK_LIKE_CHANNEL_TYPES.map((type) => (
+                            <SelectItem key={type} value={type}>
+                              {t(`webhook.types.${type}`)}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className='text-xs text-muted-foreground'>
+                        {t(`webhook.typeHints.${webhookChannelForm.type}`)}
+                      </p>
+                    </div>
+
+                    <div className='space-y-2'>
                       <Label>{t('webhook.fields.endpoint')}</Label>
                       <Input
                         value={webhookChannelForm.endpoint}
@@ -4073,12 +4090,24 @@ export function MonitoringPolicyCenter() {
                             endpoint: event.target.value,
                           }))
                         }
-                        placeholder='https://hooks.example.com/stx'
+                        placeholder={endpointPlaceholderForType(
+                          webhookChannelForm.type,
+                        )}
                       />
+                      {webhookChannelForm.id !== null ? (
+                        <p className='text-xs text-muted-foreground'>
+                          {t('webhook.maskedKeepHint')}
+                        </p>
+                      ) : null}
                     </div>
 
+                    {channelTypeSupportsSecret(webhookChannelForm.type) ? (
                     <div className='space-y-2'>
-                      <Label>{t('webhook.fields.secret')}</Label>
+                      <Label>
+                        {webhookChannelForm.type === 'webhook'
+                          ? t('webhook.fields.secret')
+                          : t('webhook.fields.signSecret')}
+                      </Label>
                       <div className='relative'>
                         <Input
                           type={showWebhookSecret ? 'text' : 'password'}
@@ -4092,7 +4121,11 @@ export function MonitoringPolicyCenter() {
                             }))
                           }
                           className='pr-20'
-                          placeholder={t('webhook.placeholders.secret')}
+                          placeholder={
+                            webhookChannelForm.type === 'webhook'
+                              ? t('webhook.placeholders.secret')
+                              : t('webhook.placeholders.signSecret')
+                          }
                         />
                         <Button
                           type='button'
@@ -4109,9 +4142,12 @@ export function MonitoringPolicyCenter() {
                         </Button>
                       </div>
                       <p className='text-xs text-muted-foreground'>
-                        {t('webhook.secretHint')}
+                        {webhookChannelForm.type === 'webhook'
+                          ? t('webhook.secretHint')
+                          : t(`webhook.secretHints.${webhookChannelForm.type}`)}
                       </p>
                     </div>
+                    ) : null}
                   </CardContent>
                 </Card>
 

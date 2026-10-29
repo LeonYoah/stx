@@ -889,11 +889,11 @@ func buildLocalAlertPolicyMessageFields(
 		{Label: "状态", Value: resolveLocalAlertDeliveryStateLabel(deliveryEventType)},
 		{Label: "集群", Value: fmt.Sprintf("%s (%d)", strings.TrimSpace(firstNonEmpty(clusterName, "unknown")), event.ClusterID)},
 		{Label: "策略", Value: fmt.Sprintf("%s (%d)", policyName, policyID)},
-		{Label: "触发事件", Value: strings.TrimSpace(firstNonEmpty(string(event.EventType), "unknown"))},
+		{Label: "触发事件", Value: localizeProcessEventType(event.EventType)},
 		{Label: "触发时间", Value: formatAlertNotificationTime(event.CreatedAt)},
 	}
 	if deliveryEventType == NotificationDeliveryEventTypeResolved && recoveryEvent != nil {
-		fields = append(fields, localAlertMessageField{Label: "恢复事件", Value: strings.TrimSpace(firstNonEmpty(string(recoveryEvent.EventType), "unknown"))})
+		fields = append(fields, localAlertMessageField{Label: "恢复事件", Value: localizeProcessEventType(recoveryEvent.EventType)})
 		fields = append(fields, localAlertMessageField{Label: "恢复时间", Value: formatAlertNotificationTime(recoveryEvent.CreatedAt)})
 	}
 
@@ -936,7 +936,7 @@ func buildLocalAlertPolicyMessageFields(
 		appendField("操作人", localAlertPolicyDetailValue(details, "operator"))
 		appendField("触发来源", localAlertPolicyDetailValue(details, "trigger"))
 		appendField("已受理", localAlertPolicyDetailValue(details, "success"))
-		appendField("执行结果", localAlertPolicyDetailValue(details, "message"))
+		appendField("执行结果", truncateAlertFieldText(localAlertPolicyDetailValue(details, "message")))
 		appendField("主机", localAlertPolicyDetailValue(details, "host_name"))
 		appendField("主机 IP", localAlertPolicyDetailValue(details, "host_ip"))
 		appendField("角色", strings.TrimSpace(firstNonEmpty(localAlertPolicyDetailValue(details, "role"), event.Role, "unknown")))
@@ -947,7 +947,7 @@ func buildLocalAlertPolicyMessageFields(
 			appendField("主机 ID", strconv.FormatUint(uint64(event.HostID), 10))
 		}
 	case monitor.EventTypeNodeOffline:
-		appendField("原因", localAlertPolicyDetailValue(details, "reason"))
+		appendField("原因", truncateAlertFieldText(localAlertPolicyDetailValue(details, "reason")))
 		appendField("主机", localAlertPolicyDetailValue(details, "host_name"))
 		appendField("主机 IP", localAlertPolicyDetailValue(details, "host_ip"))
 		appendField("节点状态", localAlertPolicyDetailValue(details, "node_status"))
@@ -966,7 +966,7 @@ func buildLocalAlertPolicyMessageFields(
 			appendField("主机 ID", strconv.FormatUint(uint64(event.HostID), 10))
 		}
 	default:
-		appendField("原因", localAlertPolicyDetailValue(details, "reason"))
+		appendField("原因", truncateAlertFieldText(localAlertPolicyDetailValue(details, "reason")))
 		appendField("进程", strings.TrimSpace(firstNonEmpty(event.ProcessName, "unknown")))
 		appendField("PID", strconv.Itoa(event.PID))
 		appendField("角色", strings.TrimSpace(firstNonEmpty(event.Role, "unknown")))
@@ -977,36 +977,49 @@ func buildLocalAlertPolicyMessageFields(
 			appendField("主机 ID", strconv.FormatUint(uint64(event.HostID), 10))
 		}
 		if prettyDetails := prettyLocalAlertPolicyDetails(event.Details); prettyDetails != "" {
-			appendMultilineField("详情", prettyDetails)
+			appendMultilineField("详情", truncateAlertFieldText(prettyDetails))
 		}
 	}
 
 	if policy != nil {
 		if description := strings.TrimSpace(policy.Description); description != "" {
-			appendField("策略说明", description)
+			appendField("策略说明", truncateAlertFieldText(description))
 		}
 	}
+	appendField("链接", monitoringAlertsConsoleLink(strconv.FormatUint(uint64(event.ClusterID), 10)))
 	return fields
 }
 
+// formatAlertNotificationTime 把时间格式化成一行：展示时区的本地时间加 UTC 偏移，如 "2026-10-29 10:30:00 (UTC+8)"。
+// 展示时区来自 app.display_timezone，而不是进程本地时区；结构化的 webhook 字段仍保留 RFC3339 UTC。
+// formatAlertNotificationTime renders the time on one line: local time in the display timezone plus its UTC offset,
+// e.g. "2026-10-29 10:30:00 (UTC+8)". The display timezone comes from app.display_timezone rather than the process
+// zone; structured webhook fields still carry RFC3339 UTC.
 func formatAlertNotificationTime(value time.Time) string {
 	if value.IsZero() {
 		return ""
 	}
+	localValue := value.UTC().In(timex.DisplayLocation())
+	return fmt.Sprintf("%s (%s)", localValue.Format("2006-01-02 15:04:05"), formatUTCOffsetLabel(localValue))
+}
 
-	utcValue := value.UTC()
-	localValue := utcValue.In(timex.DisplayLocation())
-	localLine := fmt.Sprintf(
-		"%s (%s)",
-		localValue.Format("2006-01-02 15:04:05 -07:00"),
-		timex.DisplayTimezone(),
-	)
-	utcLine := fmt.Sprintf("%s (UTC)", utcValue.Format(time.RFC3339))
-
-	// Always include UTC for cross-region consistency, and include the configured display timezone
-	// (app.display_timezone) instead of the process-local zone.
-	// 始终保留 UTC 以便跨时区排障，同时补充服务器本地时间，减少运维侧阅读歧义。
-	return localLine + "\n" + utcLine
+// formatUTCOffsetLabel 返回 "UTC"、"UTC+8"、"UTC-4"、"UTC+5:30" 这样的偏移标签。
+// formatUTCOffsetLabel returns an offset label such as "UTC", "UTC+8", "UTC-4" or "UTC+5:30".
+func formatUTCOffsetLabel(value time.Time) string {
+	_, offset := value.Zone()
+	if offset == 0 {
+		return "UTC"
+	}
+	sign := "+"
+	if offset < 0 {
+		sign = "-"
+		offset = -offset
+	}
+	hours, minutes := offset/3600, (offset%3600)/60
+	if minutes == 0 {
+		return fmt.Sprintf("UTC%s%d", sign, hours)
+	}
+	return fmt.Sprintf("UTC%s%d:%02d", sign, hours, minutes)
 }
 
 func resolveLocalAlertDeliveryStateLabel(deliveryEventType NotificationDeliveryEventType) string {
@@ -1054,6 +1067,33 @@ func localAlertPolicyDetailValue(payload map[string]interface{}, key string) str
 		return ""
 	}
 	return value
+}
+
+// localizeProcessEventType 把进程事件类型翻成中文，括号里保留原始值便于检索，如 "进程崩溃 (crashed)"。
+// localizeProcessEventType translates a process event type to Chinese and keeps the raw value in parentheses for
+// searching, e.g. "进程崩溃 (crashed)".
+func localizeProcessEventType(eventType monitor.ProcessEventType) string {
+	raw := strings.TrimSpace(string(eventType))
+	labels := map[monitor.ProcessEventType]string{
+		monitor.EventTypeStarted:                 "进程启动",
+		monitor.EventTypeStopped:                 "进程停止",
+		monitor.EventTypeCrashed:                 "进程崩溃",
+		monitor.EventTypeRestarted:               "进程已重启",
+		monitor.EventTypeRestartFailed:           "进程重启失败",
+		monitor.EventTypeRestartLimitReached:     "达到重启次数上限",
+		monitor.EventTypeClusterRestartRequested: "集群重启请求",
+		monitor.EventTypeNodeRestartRequested:    "节点重启请求",
+		monitor.EventTypeNodeStopRequested:       "节点停止请求",
+		monitor.EventTypeNodeOffline:             "节点离线",
+		monitor.EventTypeNodeRecovered:           "节点恢复",
+	}
+	if raw == "" {
+		return "unknown"
+	}
+	if label, ok := labels[monitor.ProcessEventType(raw)]; ok {
+		return fmt.Sprintf("%s (%s)", label, raw)
+	}
+	return raw
 }
 
 func normalizeOperationScope(scope string) string {

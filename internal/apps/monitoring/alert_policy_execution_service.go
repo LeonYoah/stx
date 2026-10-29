@@ -47,12 +47,23 @@ type alertPolicyChannelDispatchResult struct {
 	LastDeliveredAt    *time.Time
 	Successful         bool
 	LastError          string
+	// Failed 表示这个渠道本次没有送达但没有返回 error（首次告警留给退避重试、渠道本轮已失败被跳过），
+	// 汇总时按失败计，策略的最近执行状态不会显示为"命中"。
+	// Failed marks a channel that was not delivered without returning an error (a first alert left to the backoff
+	// retry, a channel skipped because it already failed in this sweep); it counts as a failure in the summary, so
+	// the policy's last execution status does not show "matched".
+	Failed bool
+	// Deferred 表示巡检时间预算用完，本渠道延后到下一轮，不计成功也不计失败。
+	// Deferred means the sweep's time budget ran out and the channel waits for the next sweep; neither success nor
+	// failure.
+	Deferred bool
 }
 
 type alertPolicyDispatchSummary struct {
 	AttemptedChannels   int
 	SuccessfulChannels  int
 	FailedChannels      int
+	DeferredChannels    int
 	DeliveryCountDelta  int
 	LastDeliveredAt     *time.Time
 	LastExecutionStatus AlertPolicyExecutionStatus
@@ -411,8 +422,15 @@ func (s *Service) dispatchAlertPolicyChannels(
 			continue
 		}
 
-		summary.AttemptedChannels++
 		result, err := s.dispatchAlertDelivery(ctx, message, policy, channel, deliveryEventType, sourceKey, requireFiringSent)
+		if result != nil && result.Deferred && err == nil {
+			summary.DeferredChannels++
+			continue
+		}
+		summary.AttemptedChannels++
+		if result != nil && result.Failed && err == nil {
+			summary.FailedChannels++
+		}
 		if result != nil {
 			if result.Successful {
 				summary.SuccessfulChannels++
@@ -433,6 +451,13 @@ func (s *Service) dispatchAlertPolicyChannels(
 	}
 
 	summary.LastExecutionStatus = summarizeAlertPolicyExecutionStatus(summary)
+	if summary.DeferredChannels > 0 && summary.AttemptedChannels == 0 {
+		// 全部渠道都延后到下一轮：不覆盖策略的最近执行状态。
+		// Every channel was deferred to the next sweep: keep the policy's last execution status.
+		summary.LastExecutionStatus = ""
+		summary.LastExecutionError = ""
+		return summary, errors.Join(dispatchErrs...)
+	}
 	if summary.LastExecutionStatus == AlertPolicyExecutionStatusSent {
 		summary.LastExecutionError = ""
 	}
@@ -558,10 +583,18 @@ func (s *Service) dispatchAlertDeliveryWithOptions(
 		if NotificationDeliveryStatus(strings.TrimSpace(delivery.Status)) == NotificationDeliveryStatusSent {
 			return s.dispatchAlertReminder(ctx, message, policy, channel, sourceKey, delivery)
 		}
-		if !opts.Retry {
-			// 首次告警还没送达：交给退避重试，这里不重发，也不算一次新的失败。
-			// The first alert is not delivered yet: the backoff retry owns it, so neither resend nor count a failure.
-			return &alertPolicyChannelDispatchResult{LastError: strings.TrimSpace(delivery.LastError)}, nil
+		if !opts.Retry && message.SourceType == AlertSourceTypeSync {
+			// 同步告警的首次告警还没送达：交给退避重试（sync_alert_delivery_retry.go，只扫同步告警），这里不重发，
+			// 但按失败汇总，策略状态不显示"命中"。本地 / 远程告警没有退避重试，照旧在下一次派发时重发。
+			// A sync alert's first alert is not delivered yet: the backoff retry (sync_alert_delivery_retry.go, which
+			// only scans sync alerts) owns it, so do not resend here, but report it as failed so the policy status does
+			// not show "matched". Local / remote alerts have no backoff retry and are still resent on the next dispatch.
+			return &alertPolicyChannelDispatchResult{LastError: strings.TrimSpace(delivery.LastError), Failed: true}, nil
+		}
+	}
+	if delivery == nil || NotificationDeliveryStatus(strings.TrimSpace(delivery.Status)) != NotificationDeliveryStatusSent {
+		if skipped := alertSweepSkipResult(ctx, channel.ID); skipped != nil {
+			return skipped, nil
 		}
 	}
 
@@ -616,6 +649,9 @@ func (s *Service) dispatchAlertReminder(
 	}
 	if timeNowUTC().Before(last.Add(time.Duration(policy.CooldownMinutes) * time.Minute)) {
 		return delivered, nil
+	}
+	if skipped := alertSweepSkipResult(ctx, channel.ID); skipped != nil {
+		return skipped, nil
 	}
 	if reminder == nil {
 		reminder = newAlertNotificationDelivery(message, policy, channel, sourceKey, NotificationDeliveryEventTypeReminder)
@@ -685,7 +721,13 @@ func (s *Service) sendAndRecordAlertDelivery(
 	message *alertMessage,
 	policy *AlertPolicy,
 ) (*alertPolicyChannelDispatchResult, error) {
-	attempt, sendErr := s.sendAlertMessage(ctx, channel, message, policy)
+	guard := alertSweepGuardFrom(ctx)
+	sendCtx, cancel := guard.sendContext(ctx)
+	attempt, sendErr := s.sendAlertMessage(sendCtx, channel, message, policy)
+	cancel()
+	if sendErr != nil {
+		guard.recordFailure(channel.ID)
+	}
 	if attempt != nil {
 		delivery.RequestPayload = attempt.RequestPayload
 		delivery.ResponseStatusCode = attempt.StatusCode
@@ -713,6 +755,19 @@ func (s *Service) sendAndRecordAlertDelivery(
 		LastDeliveredAt:    toUTCTimePointer(delivery.SentAt),
 		Successful:         true,
 	}, nil
+}
+
+// alertSweepSkipResult 在巡检预算守卫要求跳过该渠道时返回对应结果，否则返回 nil。
+// alertSweepSkipResult returns the matching result when the sweep guard says to skip the channel, nil otherwise.
+func alertSweepSkipResult(ctx context.Context, channelID uint) *alertPolicyChannelDispatchResult {
+	switch alertSweepGuardFrom(ctx).check(channelID) {
+	case alertSweepSkipChannelFailed:
+		return &alertPolicyChannelDispatchResult{LastError: alertSweepChannelFailedError, Failed: true}
+	case alertSweepSkipBudget:
+		return &alertPolicyChannelDispatchResult{Deferred: true}
+	default:
+		return nil
+	}
 }
 
 // mergeAlertRecipients 合并策略接收人与额外收件人，按邮箱去重（忽略大小写）。

@@ -2866,7 +2866,9 @@
           "sent": "已发送",
           "failed": "失败",
           "retrying": "重试中",
-          "canceled": "已取消"
+          "canceled": "已取消",
+
+          "exhausted": "重试已用完"
         }
       },
       "executionLegacyRuntimeRule": "旧运行时规则桥接",
@@ -3048,7 +3050,9 @@
         "sent": "已发送",
         "failed": "失败",
         "retrying": "重试中",
-        "canceled": "已取消"
+        "canceled": "已取消",
+
+        "exhausted": "重试已用完"
       }
     },
     "policyCenterV2": {
@@ -3410,7 +3414,9 @@
           "sending": "发送中",
           "retrying": "重试中",
           "pending": "待发送",
-          "canceled": "已取消"
+          "canceled": "已取消",
+
+          "exhausted": "重试已用完"
         }
       }
     }

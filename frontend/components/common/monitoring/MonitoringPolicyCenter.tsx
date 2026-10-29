@@ -293,6 +293,7 @@ function resolveDeliveryStatusVariant(
     case 'sent':
       return 'default';
     case 'failed':
+    case 'exhausted':
       return 'destructive';
     case 'sending':
     case 'retrying':
@@ -2708,7 +2709,9 @@ export function MonitoringPolicyCenter() {
                                   ? t('deliveryHistory.statuses.retrying')
                                   : delivery.status === 'canceled'
                                     ? t('deliveryHistory.statuses.canceled')
-                                    : t('deliveryHistory.statuses.pending')}
+                                    : delivery.status === 'exhausted'
+                                      ? t('deliveryHistory.statuses.exhausted')
+                                      : t('deliveryHistory.statuses.pending')}
                         </Badge>
                       </TableCell>
                       <TableCell className='py-2 px-3 text-xs font-mono'>

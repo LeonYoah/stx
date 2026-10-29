@@ -443,9 +443,11 @@ func TestSyncAlertHub_FirstAlertRetryStopsOnResolve(t *testing.T) {
 	}
 }
 
-// 2：策略停用、渠道停用或解绑、告警被人工关闭时首次告警重试标记 canceled；静默期间只跳过，静默结束后照常重试。
-// 2: a disabled policy, a disabled or unbound channel, or a manually closed alert cancels the first alert retry;
-// silence only skips it and the retry resumes once the silence ends.
+// 2：策略停用、渠道删除或解绑、告警被人工关闭时首次告警重试标记 canceled；静默期间只跳过，静默结束后照常重试
+// （渠道停用见 TestSyncAlertHub_RetryWaitsForTemporarilyDisabledChannel）。
+// 2: a disabled policy, a deleted or unbound channel, or a manually closed alert cancels the first alert retry;
+// silence only skips it and the retry resumes once the silence ends (disabled channels: see
+// TestSyncAlertHub_RetryWaitsForTemporarilyDisabledChannel).
 func TestSyncAlertHub_FirstAlertRetryStopsWhenDisabled(t *testing.T) {
 	cases := map[string]func(t *testing.T, f *syncAlertFixture, sourceKey string){
 		"policy-disabled": func(t *testing.T, f *syncAlertFixture, _ string) {
@@ -461,14 +463,6 @@ func TestSyncAlertHub_FirstAlertRetryStopsWhenDisabled(t *testing.T) {
 			if err := f.repo.db.Delete(&NotificationChannel{}, f.channel.ID).Error; err != nil {
 				t.Fatal(err)
 			}
-		},
-		"channel-disabled-over-24h": func(t *testing.T, f *syncAlertFixture, sourceKey string) {
-			f.channel.Enabled = false
-			if err := f.repo.SaveNotificationChannel(f.ctx, f.channel); err != nil {
-				t.Fatal(err)
-			}
-			firing := deliveryOf(t, f, sourceKey, NotificationDeliveryEventTypeFiring)
-			ageDelivery(t, f, firing.ID, syncDeliveryRetryDisabledChannelTTL+time.Hour)
 		},
 		"channel-unbound": func(t *testing.T, f *syncAlertFixture, _ string) {
 			policy, err := f.repo.GetSyncJobAlertPolicyByTaskID(f.ctx, 7)
@@ -564,6 +558,47 @@ func TestSyncAlertHub_RetryWaitsForTemporarilyDisabledChannel(t *testing.T) {
 		}
 	})
 
+	// #85 复审 2：恢复通知的 24 小时上限从渠道停用时算起，不是从上次尝试算起。
+	// #85 re-review 2: the recovery's 24 hour limit counts from when the channel was disabled, not from the last attempt.
+	t.Run("recovery-last-attempt-old-but-disabled-recently", func(t *testing.T) {
+		f, capture, sourceKey := setupFailingRecoveryFixture(t)
+		requests := capture.count()
+		capture.set(http.StatusOK, `{}`)
+		setEnabled(t, f, false)
+		delivery := recoveryDelivery(t, f, sourceKey)
+		ageDelivery(t, f, delivery.ID, 48*time.Hour)
+		ageChannelDisabledAt(t, f, time.Hour)
+		_ = f.hub.sweep(f.ctx)
+		if delivery = recoveryDelivery(t, f, sourceKey); delivery.Status != string(NotificationDeliveryStatusFailed) {
+			t.Fatalf("disabled for 1 hour: the recovery must keep waiting: %+v", delivery)
+		}
+		setEnabled(t, f, true)
+		_ = f.hub.sweep(f.ctx)
+		if delivery = recoveryDelivery(t, f, sourceKey); capture.count() != requests+1 || delivery.Status != string(NotificationDeliveryStatusSent) {
+			t.Fatalf("re-enabled channel must catch up the recovery: requests=%d %+v", capture.count()-requests, delivery)
+		}
+	})
+
+	t.Run("recovery-disabled-over-24h", func(t *testing.T) {
+		f, capture, sourceKey := setupFailingRecoveryFixture(t)
+		requests := capture.count()
+		capture.set(http.StatusOK, `{}`)
+		setEnabled(t, f, false)
+		delivery := recoveryDelivery(t, f, sourceKey)
+		ageDelivery(t, f, delivery.ID, time.Hour)
+		ageChannelDisabledAt(t, f, syncDeliveryRetryDisabledChannelTTL+time.Hour)
+		_ = f.hub.sweep(f.ctx)
+		if delivery = recoveryDelivery(t, f, sourceKey); delivery.Status != string(NotificationDeliveryStatusCanceled) ||
+			!strings.Contains(delivery.LastError, "disabled for over 24 hours") {
+			t.Fatalf("a recovery waiting 24+ hours for a disabled channel is given up: %+v", delivery)
+		}
+		setEnabled(t, f, true)
+		_ = f.hub.sweep(f.ctx)
+		if capture.count() != requests {
+			t.Fatalf("a canceled recovery is not sent after re-enabling, got %d requests", capture.count()-requests)
+		}
+	})
+
 	t.Run("first-alert", func(t *testing.T) {
 		f, capture := setupCapturedTaskAlert(t, 0)
 		capture.set(http.StatusBadGateway, `bad gateway`)
@@ -573,6 +608,9 @@ func TestSyncAlertHub_RetryWaitsForTemporarilyDisabledChannel(t *testing.T) {
 		setEnabled(t, f, false)
 		firing := deliveryOf(t, f, sourceKey, NotificationDeliveryEventTypeFiring)
 		ageDelivery(t, f, firing.ID, time.Hour)
+		// 停用超过 24 小时也不放弃首次告警：告警仍在触发。
+		// Even after 24+ hours disabled the first alert is not given up: the alert is still firing.
+		ageChannelDisabledAt(t, f, 48*time.Hour)
 		_ = f.hub.sweep(f.ctx)
 		if firing = deliveryOf(t, f, sourceKey, NotificationDeliveryEventTypeFiring); capture.count() != 1 || firing.Status != string(NotificationDeliveryStatusFailed) {
 			t.Fatalf("disabled channel: skip the first alert retry: requests=%d %+v", capture.count(), firing)
@@ -583,4 +621,13 @@ func TestSyncAlertHub_RetryWaitsForTemporarilyDisabledChannel(t *testing.T) {
 			t.Fatalf("re-enabled channel must catch up the first alert: requests=%d %+v", capture.count(), firing)
 		}
 	})
+}
+
+// ageChannelDisabledAt 把渠道的 disabled_at 往前挪，模拟渠道已经停用了一段时间。
+// ageChannelDisabledAt moves the channel's disabled_at back to simulate it having been disabled for a while.
+func ageChannelDisabledAt(t *testing.T, f *syncAlertFixture, by time.Duration) {
+	t.Helper()
+	if err := f.repo.db.Model(&NotificationChannel{}).Where("id = ?", f.channel.ID).UpdateColumn("disabled_at", time.Now().UTC().Add(-by)).Error; err != nil {
+		t.Fatalf("age channel disabled_at: %v", err)
+	}
 }

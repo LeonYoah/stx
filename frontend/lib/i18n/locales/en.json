@@ -2866,7 +2866,9 @@
           "sent": "Sent",
           "failed": "Failed",
           "retrying": "Retrying",
-          "canceled": "Canceled"
+          "canceled": "Canceled",
+
+          "exhausted": "Retries exhausted"
         }
       },
       "executionLegacyRuntimeRule": "Legacy runtime rule",
@@ -3048,7 +3050,9 @@
         "sent": "Sent",
         "failed": "Failed",
         "retrying": "Retrying",
-        "canceled": "Canceled"
+        "canceled": "Canceled",
+
+        "exhausted": "Retries exhausted"
       }
     },
     "policyCenterV2": {
@@ -3410,7 +3414,9 @@
           "sending": "Sending",
           "retrying": "Retrying",
           "pending": "Pending",
-          "canceled": "Canceled"
+          "canceled": "Canceled",
+
+          "exhausted": "Retries exhausted"
         }
       }
     }

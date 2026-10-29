@@ -1075,6 +1075,11 @@ const (
 	// NotificationDeliveryStatusCanceled indicates delivery is canceled.
 	// NotificationDeliveryStatusCanceled 表示投递已取消。
 	NotificationDeliveryStatusCanceled NotificationDeliveryStatus = "canceled"
+	// NotificationDeliveryStatusExhausted indicates the backoff retries are used up (a sync first alert keeps being
+	// retried every syncDeliveryRetryMaxDelay while the alert is firing).
+	// NotificationDeliveryStatusExhausted 表示退避重试次数已用完（同步告警的首次告警在告警持续期间仍每
+	// syncDeliveryRetryMaxDelay 重试一次）。
+	NotificationDeliveryStatusExhausted NotificationDeliveryStatus = "exhausted"
 )
 
 // NotificationRouteDTO is frontend DTO for notification routes.

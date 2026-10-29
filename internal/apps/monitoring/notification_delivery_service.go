@@ -47,7 +47,8 @@ func (s *Service) ListNotificationDeliveries(ctx context.Context, filter *Notifi
 			NotificationDeliveryStatusSent,
 			NotificationDeliveryStatusFailed,
 			NotificationDeliveryStatusRetrying,
-			NotificationDeliveryStatusCanceled:
+			NotificationDeliveryStatusCanceled,
+			NotificationDeliveryStatusExhausted:
 		default:
 			return nil, fmt.Errorf("invalid notification delivery status")
 		}

@@ -416,6 +416,7 @@ func (h *SyncAlertHub) episodeClosed(ctx context.Context, episode *SyncAlertEpis
 // sweep sends cooldown reminders for firing episodes: it reuses delivery dedupe so a notification is only resent
 // after the policy cooldown, and silence and close still apply.
 func (h *SyncAlertHub) sweep(ctx context.Context) error {
+	ctx = withAlertSweepGuard(ctx) // 巡检预算 / sweep budget (alert_delivery_sweep_guard.go)
 	episodes, err := h.service.repo.ListFiringSyncAlertEpisodes(ctx, 500)
 	if err != nil {
 		return err

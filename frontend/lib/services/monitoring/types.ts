@@ -662,7 +662,8 @@ export type NotificationDeliveryStatus =
   | 'sent'
   | 'failed'
   | 'retrying'
-  | 'canceled';
+  | 'canceled'
+  | 'exhausted';
 
 export interface NotificationDelivery {
   id: number;

@@ -118,6 +118,7 @@ import {
 } from '@/components/ui/table';
 import {Tabs, TabsList, TabsTrigger} from '@/components/ui/tabs';
 import {Textarea} from '@/components/ui/textarea';
+import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
 import {formatDateTimeTz} from '@/lib/timezone';
 import {
   WEBHOOK_LIKE_CHANNEL_TYPES,
@@ -126,6 +127,11 @@ import {
   changeWebhookChannelType,
   channelTypeSupportsSecret,
   clearWebhookChannelSecret,
+  savedWebhookChannelSecret,
+  setWebhookChannelSecret,
+  webhookChannelSaveNeedsClearSecretConfirm,
+  isFailedDeliveryStatus,
+  deliveryRetriedTimes,
   createDefaultWebhookChannelForm,
   createWebhookChannelFormFromChannel,
   endpointPlaceholderForType,
@@ -291,6 +297,7 @@ function resolveDeliveryStatusVariant(
     case 'sent':
       return 'default';
     case 'failed':
+    case 'exhausted':
       return 'destructive';
     case 'sending':
     case 'retrying':
@@ -790,6 +797,11 @@ export function MonitoringPolicyCenter() {
   const [webhookDialogOpen, setWebhookDialogOpen] = useState<boolean>(false);
   const [webhookDiscardDialogOpen, setWebhookDiscardDialogOpen] =
     useState<boolean>(false);
+  const [webhookClearSecretConfirmOpen, setWebhookClearSecretConfirmOpen] =
+    useState(false);
+  const webhookClearSecretSaveRef = useRef<{enabledOverride?: boolean} | null>(
+    null,
+  );
   const webhookDiscardActionRef = useRef<(() => void) | null>(null);
   const webhookChannelFormRef = useRef<WebhookChannelFormState>(
     createDefaultWebhookChannelForm(),
@@ -1761,13 +1773,26 @@ export function MonitoringPolicyCenter() {
     [applyWebhookChannelFormSnapshot, requestWebhookChannelDiscard],
   );
 
-  const handleSaveWebhookChannel = async (enabledOverride?: boolean) => {
+  const handleSaveWebhookChannel = async (
+    enabledOverride?: boolean,
+    clearSecretConfirmed = false,
+  ) => {
     if (!webhookChannelForm.name.trim()) {
       toast.error(t('webhook.nameRequired'));
       return;
     }
     if (!webhookChannelForm.endpoint.trim()) {
       toast.error(t('webhook.endpointRequired'));
+      return;
+    }
+    // 清除已保存的密钥不可恢复：保存前先确认。
+    // Clearing the stored secret cannot be undone: confirm before saving.
+    if (
+      !clearSecretConfirmed &&
+      webhookChannelSaveNeedsClearSecretConfirm(webhookChannelForm)
+    ) {
+      webhookClearSecretSaveRef.current = {enabledOverride};
+      setWebhookClearSecretConfirmOpen(true);
       return;
     }
 
@@ -1999,7 +2024,7 @@ export function MonitoringPolicyCenter() {
     if (historyStatusFilter === 'sent') {
       rows = rows.filter((d) => d.status === 'sent');
     } else if (historyStatusFilter === 'failed') {
-      rows = rows.filter((d) => d.status === 'failed');
+      rows = rows.filter((d) => isFailedDeliveryStatus(d.status));
     }
     const kw = historySearchKeyword.trim().toLowerCase();
     if (!kw) {
@@ -2024,7 +2049,9 @@ export function MonitoringPolicyCenter() {
     // pill 计数基于当前已载入结果集（与告警事件页一致，不假装全局精确）
     // Pill counts reflect the currently loaded result set (same as alerts page)
     const sentCount = deliveries.filter((d) => d.status === 'sent').length;
-    const failedCount = deliveries.filter((d) => d.status === 'failed').length;
+    const failedCount = deliveries.filter((d) =>
+      isFailedDeliveryStatus(d.status),
+    ).length;
     return [
       {
         key: 'all',
@@ -2683,29 +2710,51 @@ export function MonitoringPolicyCenter() {
                         {delivery.channel_name || '-'}
                       </TableCell>
                       <TableCell className='py-2 px-3 text-xs'>
-                        {delivery.event_type === 'resolved'
-                          ? t('deliveryHistory.events.resolved')
-                          : delivery.event_type === 'test'
-                            ? t('deliveryHistory.events.test')
-                            : t('deliveryHistory.events.firing')}
+                        {!delivery.event_type
+                          ? t('deliveryHistory.events.firing')
+                          : t.has(`deliveryHistory.events.${delivery.event_type}`)
+                            ? t(`deliveryHistory.events.${delivery.event_type}`)
+                            : delivery.event_type}
                       </TableCell>
                       <TableCell className='py-2 px-3'>
-                        <Badge
-                          variant={resolveDeliveryStatusVariant(delivery.status)}
-                          className='text-[11px]'
-                        >
-                          {delivery.status === 'sent'
-                            ? t('deliveryHistory.statuses.sent')
-                            : delivery.status === 'failed'
-                              ? t('deliveryHistory.statuses.failed')
-                              : delivery.status === 'sending'
-                                ? t('deliveryHistory.statuses.sending')
-                                : delivery.status === 'retrying'
-                                  ? t('deliveryHistory.statuses.retrying')
-                                  : delivery.status === 'canceled'
-                                    ? t('deliveryHistory.statuses.canceled')
-                                    : t('deliveryHistory.statuses.pending')}
-                        </Badge>
+                        {(() => {
+                          // 没有翻译的状态显示原值，不再落到"待发送"；空状态才算待发送。
+                          // A status without a translation shows its raw value instead of falling back to "pending";
+                          // only an empty status means pending.
+                          const statusLabel = !delivery.status
+                            ? t('deliveryHistory.statuses.pending')
+                            : t.has(`deliveryHistory.statuses.${delivery.status}`)
+                              ? t(`deliveryHistory.statuses.${delivery.status}`)
+                              : delivery.status;
+                          const badge = (
+                            <Badge
+                              variant={resolveDeliveryStatusVariant(
+                                delivery.status,
+                              )}
+                              className='text-[11px]'
+                              data-testid={`delivery-status-${delivery.status || 'pending'}`}
+                            >
+                              {statusLabel}
+                            </Badge>
+                          );
+                          if (delivery.status !== 'exhausted') {
+                            return badge;
+                          }
+                          return (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className='inline-flex'>{badge}</span>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                {t('deliveryHistory.retriedTimes', {
+                                  count: deliveryRetriedTimes(
+                                    delivery.attempt_count,
+                                  ),
+                                })}
+                              </TooltipContent>
+                            </Tooltip>
+                          );
+                        })()}
                       </TableCell>
                       <TableCell className='py-2 px-3 text-xs font-mono'>
                         {delivery.response_status_code || '-'}
@@ -4065,6 +4114,7 @@ export function MonitoringPolicyCenter() {
                             changeWebhookChannelType(
                               prev,
                               value as WebhookLikeChannelType,
+                              savedWebhookChannelSecret(editingWebhookChannel),
                             ),
                           )
                         }
@@ -4120,11 +4170,12 @@ export function MonitoringPolicyCenter() {
                           name='stx-webhook-secret'
                           autoComplete='new-password'
                           onChange={(event) =>
-                            updateWebhookChannelForm((prev) => ({
-                              ...prev,
-                              secret: event.target.value,
-                              clearSecret: false,
-                            }))
+                            updateWebhookChannelForm((prev) =>
+                              setWebhookChannelSecret(
+                                prev,
+                                event.target.value,
+                              ),
+                            )
                           }
                           className='pr-20'
                           placeholder={
@@ -4186,7 +4237,8 @@ export function MonitoringPolicyCenter() {
                             </Button>
                           </div>
                         ) : webhookChannelForm.secret.trim() ===
-                          NOTIFICATION_SECRET_MASK ? (
+                            NOTIFICATION_SECRET_MASK ||
+                          webhookChannelForm.secret.trim() === '' ? (
                           <Button
                             type='button'
                             variant='outline'
@@ -4321,6 +4373,44 @@ export function MonitoringPolicyCenter() {
               }}
             >
               {t('webhook.discardChanges')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Webhook 通道：保存时确认清除已保存的密钥 / Webhook channel: confirm clearing the stored secret on save */}
+      <AlertDialog
+        open={webhookClearSecretConfirmOpen}
+        onOpenChange={(open) => {
+          setWebhookClearSecretConfirmOpen(open);
+          if (!open) {
+            webhookClearSecretSaveRef.current = null;
+          }
+        }}
+      >
+        <AlertDialogContent
+          className='border border-border/80 dark:border-border/60 shadow-2xl'
+          data-testid='webhook-clear-secret-confirm'
+        >
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t('webhook.clearSecretConfirmTitle')}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('webhook.clearSecretConfirmDescription')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('webhook.keepEditing')}</AlertDialogCancel>
+            <AlertDialogAction
+              className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
+              onClick={() => {
+                const pending = webhookClearSecretSaveRef.current;
+                webhookClearSecretSaveRef.current = null;
+                void handleSaveWebhookChannel(pending?.enabledOverride, true);
+              }}
+            >
+              {t('webhook.clearSecretConfirmAction')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

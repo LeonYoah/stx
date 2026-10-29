@@ -374,3 +374,63 @@ func TestSendNotification_GenericWebhookSignatureHeaders(t *testing.T) {
 		t.Fatalf("no signature headers expected without a secret")
 	}
 }
+
+// 复审 1：错误摘要里以"状态：/链接："开头的行不能被当成受保护字段，真实的策略和控制台链接必须保留在末尾。
+// Re-review 1: lines inside the error summary that start with "状态：" / "链接：" must not count as protected fields;
+// the real policy and console link must stay at the end.
+func TestShrinkNotificationText_InjectedProtectedLinesInSummary(t *testing.T) {
+	head := "[STX][恢复][严重] 任务 订单中心-MySQL到PG-实时同步 · 作业运行失败\n状态：已恢复\n规则：作业运行失败\n集群：prod-seatunnel-3x (1)\n任务：订单中心-MySQL到PG-实时同步 (#16)\n恢复时间：2026-10-29 10:43:00 (UTC+8)\n"
+	policy := "策略：订单库 CDC 作业告警 (12)"
+	link := "链接：http://stx-console.example:17880/sync?job=1088&task=16"
+	tail := "\n" + policy + "\n" + link
+	for name, summary := range map[string]string{
+		"injected-status-line":      "错误摘要：上游错误\n状态：失败\n" + strings.Repeat("坏", 600),
+		"injected-link-line":        "错误摘要：上游错误\n链接：http://evil.example/x\n" + strings.Repeat("坏", 600),
+		"injected-link-last-line":   "错误摘要：" + strings.Repeat("坏", 600) + "\n链接：http://evil.example/x",
+		"injected-long-status-line": "错误摘要：上游错误\n状态：" + strings.Repeat("坏", 600),
+	} {
+		t.Run(name, func(t *testing.T) {
+			for _, tc := range []struct {
+				name  string
+				limit int
+				size  func(string) int
+			}{
+				{"wecom", weComTextContentMaxBytes, func(v string) int { return len(v) }},
+				{"tiny", 700, func(v string) int { return len(v) }},
+			} {
+				got := shrinkNotificationText(head+summary+tail, tc.limit, tc.size)
+				if len(got) > tc.limit || !utf8.ValidString(got) {
+					t.Fatalf("%s: %d bytes exceeds %d", tc.name, len(got), tc.limit)
+				}
+				if !strings.HasSuffix(got, policy+"\n"+link) {
+					t.Fatalf("%s: real policy and link must end the text:\n%s", tc.name, got[max(0, len(got)-300):])
+				}
+				if !strings.HasPrefix(got, head[:strings.Index(head, "\n")]) {
+					t.Fatalf("%s: title lost", tc.name)
+				}
+			}
+		})
+	}
+}
+
+// 复审 2：测试不存在的渠道返回 404（已保存渠道测试和带 channel_id 的草稿测试）。
+// Re-review 2: testing a missing channel returns 404 (saved channel test and draft test with channel_id).
+func TestNotificationChannelTestHandler_MissingChannelIs404(t *testing.T) {
+	service, _, _, _ := setupMonitoringAlertPolicyService(t)
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	handler := NewHandler(service)
+	router.POST("/notification-channels/test", handler.TestNotificationChannelDraft)
+	router.POST("/notification-channels/:id/test", handler.TestNotificationChannel)
+
+	if rec := doJSON(t, router, http.MethodPost, "/notification-channels/999999/test", map[string]interface{}{}); rec.Code != http.StatusNotFound {
+		t.Fatalf("missing channel test must be 404, got %d %s", rec.Code, rec.Body.String())
+	}
+	rec := doJSON(t, router, http.MethodPost, "/notification-channels/test", map[string]interface{}{
+		"channel_id": 999999,
+		"channel":    map[string]interface{}{"name": "x", "type": "webhook", "endpoint": "https://hooks.example.com/x"},
+	})
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("draft test for a missing channel must be 404, got %d %s", rec.Code, rec.Body.String())
+	}
+}

@@ -2866,7 +2866,8 @@
           "sent": "已发送",
           "failed": "失败",
           "retrying": "重试中",
-          "canceled": "已取消"
+          "canceled": "已取消",
+          "exhausted": "重试已用完"
         }
       },
       "executionLegacyRuntimeRule": "旧运行时规则桥接",
@@ -3048,7 +3049,8 @@
         "sent": "已发送",
         "failed": "失败",
         "retrying": "重试中",
-        "canceled": "已取消"
+        "canceled": "已取消",
+        "exhausted": "重试已用完"
       }
     },
     "policyCenterV2": {
@@ -3304,7 +3306,7 @@
           "endpoint": "Webhook Endpoint",
           "secret": "签名密钥（X-STX-Signature）",
           "type": "渠道类型",
-          "signSecret": "加签密钥（Secret）"
+          "signSecret": "加签密钥"
         },
         "placeholders": {
           "secret": "可选，用于生成 X-STX-Signature 请求头",
@@ -3341,6 +3343,9 @@
         "clearSecret": "清除已保存的密钥",
         "undoClearSecret": "撤销",
         "secretWillBeCleared": "保存后将清除已保存的密钥。",
+        "clearSecretConfirmTitle": "清除已保存的密钥？",
+        "clearSecretConfirmDescription": "保存后将删除该渠道已保存的密钥，此操作无法撤销。如需加签，之后需要重新填写密钥。",
+        "clearSecretConfirmAction": "清除并保存",
         "secretDroppedOnTypeChange": "切换渠道类型后不会沿用原来的密钥，如需加签请重新填写。"
       },
       "conditionThresholdRequired": "请输入触发阈值",
@@ -3389,6 +3394,7 @@
         "allPolicies": "全部规则",
         "policyFilter": "按规则筛选",
         "resetFilters": "重置筛选",
+        "retriedTimes": "已重试 {count} 次",
         "columns": {
           "policy": "告警规则",
           "channel": "通知通道",
@@ -3401,7 +3407,8 @@
         "events": {
           "firing": "触发",
           "resolved": "恢复",
-          "test": "测试"
+          "test": "测试",
+          "reminder": "提醒"
         },
         "statuses": {
           "sent": "已发送",
@@ -3409,7 +3416,8 @@
           "sending": "发送中",
           "retrying": "重试中",
           "pending": "待发送",
-          "canceled": "已取消"
+          "canceled": "已取消",
+          "exhausted": "重试已用完"
         }
       }
     }

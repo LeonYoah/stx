@@ -136,19 +136,77 @@ export function clearWebhookChannelSecret(
 }
 
 /**
- * 切换渠道类型：已保存的密钥属于旧平台，不能沿用（后端同样会丢弃），所以把占位符清掉。
- * Switching the channel type: the stored secret belongs to the old platform and is not reused (the backend drops it
- * too), so the placeholder is cleared.
+ * 编辑中的已保存渠道：类型和是否有已保存的密钥（GET 返回 ******）。
+ * The saved channel being edited: its type and whether it has a stored secret (GET returns ******).
+ */
+export type SavedWebhookChannelSecret = {
+  type: WebhookLikeChannelType | string;
+  hasSecret: boolean;
+};
+
+export function savedWebhookChannelSecret(
+  channel?: Pick<NotificationChannel, 'type' | 'secret'> | null,
+): SavedWebhookChannelSecret | null {
+  if (!channel) {
+    return null;
+  }
+  return {
+    type: channel.type,
+    hasSecret: Boolean((channel.secret || '').trim()),
+  };
+}
+
+/**
+ * 输入密钥。按规范 §9"留空保持不变"：把输入框清空不会清除已保存的密钥（后端对空值 / 占位符同样保持原密钥）；只有点
+ * "清除"按钮（clearWebhookChannelSecret）才会带 clear_secret，保存前还要确认。输入新密钥会取消已选择的清除。
+ * Types a secret. Per spec §9 ("leave empty to keep"): emptying the input never clears the stored secret (the backend
+ * also keeps it for an empty value or the placeholder); only the explicit "clear" button (clearWebhookChannelSecret)
+ * sends clear_secret, and saving asks for confirmation. Typing a new secret cancels a pending clear.
+ */
+export function setWebhookChannelSecret(
+  form: WebhookChannelFormState,
+  value: string,
+): WebhookChannelFormState {
+  return {
+    ...form,
+    secret: value,
+    clearSecret: value.trim() === '' ? form.clearSecret : false,
+  };
+}
+
+/**
+ * 保存前是否需要确认"清除已保存的密钥"：仅编辑已保存渠道且用户点了"清除"时。
+ * Whether saving must first confirm clearing the stored secret: only for a saved channel the user chose to clear.
+ */
+export function webhookChannelSaveNeedsClearSecretConfirm(
+  form: WebhookChannelFormState,
+): boolean {
+  return form.id !== null && form.clearSecret;
+}
+
+/**
+ * 切换渠道类型：已保存的密钥属于原平台，换到别的类型时不沿用（后端同样会丢弃），所以清掉占位符；切回原类型时恢复
+ * 占位符（表示保持原密钥），除非用户已经选择清除或填了新密钥。
+ * Switching the channel type: the stored secret belongs to the original platform and is not reused for another type
+ * (the backend drops it too), so the placeholder is cleared; switching back restores the placeholder (keep the stored
+ * secret) unless the user chose to clear it or typed a new one.
  */
 export function changeWebhookChannelType(
   form: WebhookChannelFormState,
   type: WebhookLikeChannelType,
+  saved?: SavedWebhookChannelSecret | null,
 ): WebhookChannelFormState {
   if (type === form.type) {
     return form;
   }
-  const secret =
-    form.secret.trim() === NOTIFICATION_SECRET_MASK ? '' : form.secret;
+  const typed = form.secret.trim();
+  if (saved?.hasSecret && form.id !== null && type === saved.type) {
+    if (typed === '' && !form.clearSecret) {
+      return {...form, type, secret: NOTIFICATION_SECRET_MASK};
+    }
+    return {...form, type};
+  }
+  const secret = typed === NOTIFICATION_SECRET_MASK ? '' : form.secret;
   return {...form, type, secret};
 }
 
@@ -165,6 +223,22 @@ export function buildWebhookChannelPayload(
     secret: channelTypeSupportsSecret(form.type) ? form.secret.trim() : '',
     ...(form.clearSecret ? {clear_secret: true} : {}),
   };
+}
+
+/**
+ * "失败"筛选 / 计数包含的投递状态：发送失败和重试已用完（exhausted）。
+ * Delivery statuses the "failed" pill counts and filters: failed and retries exhausted.
+ */
+export function isFailedDeliveryStatus(status?: string | null): boolean {
+  return status === 'failed' || status === 'exhausted';
+}
+
+/**
+ * 投递记录的重试次数：attempt_count 含首次发送，所以重试次数是 attempt_count - 1。
+ * Retries of a delivery: attempt_count includes the first send, so retries are attempt_count - 1.
+ */
+export function deliveryRetriedTimes(attemptCount?: number | null): number {
+  return Math.max((attemptCount ?? 0) - 1, 0);
 }
 
 /**

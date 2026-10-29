@@ -26,6 +26,11 @@ import {
   changeWebhookChannelType,
   channelTypeSupportsSecret,
   clearWebhookChannelSecret,
+  savedWebhookChannelSecret,
+  setWebhookChannelSecret,
+  webhookChannelSaveNeedsClearSecretConfirm,
+  isFailedDeliveryStatus,
+  deliveryRetriedTimes,
   createDefaultWebhookChannelForm,
   createWebhookChannelFormFromChannel,
   endpointPlaceholderForType,
@@ -149,6 +154,125 @@ describe('notification channel form (DingTalk / WeCom / Feishu)', () => {
     const typed = {...saved, secret: 'fresh'};
     expect(changeWebhookChannelType(typed, 'dingtalk').secret).toBe('fresh');
     expect(changeWebhookChannelType(saved, 'webhook')).toBe(saved);
+  });
+
+  it('keeps the saved secret when the input is emptied; only the clear button clears it (spec §9)', () => {
+    const savedChannel = channel({
+      id: 5,
+      type: 'dingtalk',
+      secret: NOTIFICATION_SECRET_MASK,
+    });
+    const form = createWebhookChannelFormFromChannel(savedChannel);
+
+    // 清空输入框不等于清除：不带 clear_secret，后端对空值保持原密钥，保存时也不弹确认。
+    // Emptying the input is not a clear: no clear_secret (the backend keeps the stored secret for an empty value) and
+    // no confirmation on save.
+    const emptied = setWebhookChannelSecret(form, '');
+    expect(emptied).toMatchObject({secret: '', clearSecret: false});
+    expect(buildWebhookChannelPayload(emptied)).not.toHaveProperty(
+      'clear_secret',
+    );
+    expect(buildWebhookChannelPayload(emptied).secret).toBe('');
+    expect(webhookChannelSaveNeedsClearSecretConfirm(emptied)).toBe(false);
+
+    // 只有点"清除"才带 clear_secret，并且保存前需要确认。
+    // Only the explicit clear sends clear_secret, and saving must confirm it first.
+    const cleared = clearWebhookChannelSecret(form);
+    expect(buildWebhookChannelPayload(cleared)).toMatchObject({
+      secret: '',
+      clear_secret: true,
+    });
+    expect(webhookChannelSaveNeedsClearSecretConfirm(cleared)).toBe(true);
+    // 选择清除后输入框仍为空：保持清除状态。
+    // Still empty after choosing to clear: the clear stays pending.
+    expect(setWebhookChannelSecret(cleared, '').clearSecret).toBe(true);
+
+    // 重新输入新密钥：取消清除，提交新密钥，不再需要确认。
+    // Typing a new secret cancels the clear and submits the new one without confirmation.
+    const retyped = setWebhookChannelSecret(cleared, 'SECnew');
+    expect(retyped.clearSecret).toBe(false);
+    expect(buildWebhookChannelPayload(retyped)).not.toHaveProperty(
+      'clear_secret',
+    );
+    expect(webhookChannelSaveNeedsClearSecretConfirm(retyped)).toBe(false);
+
+    // 新建渠道：清空就是空，不带 clear_secret、不确认。
+    // A new channel: empty is just empty, no clear_secret and no confirmation.
+    const created = setWebhookChannelSecret(
+      createDefaultWebhookChannelForm('dingtalk'),
+      '',
+    );
+    expect(created.clearSecret).toBe(false);
+    expect(webhookChannelSaveNeedsClearSecretConfirm(created)).toBe(false);
+  });
+
+  it('counts exhausted deliveries as failed and reports retries without the first send', () => {
+    expect(isFailedDeliveryStatus('failed')).toBe(true);
+    expect(isFailedDeliveryStatus('exhausted')).toBe(true);
+    for (const status of [
+      'sent',
+      'sending',
+      'retrying',
+      'pending',
+      'canceled',
+      '',
+      undefined,
+    ]) {
+      expect(isFailedDeliveryStatus(status)).toBe(false);
+    }
+    expect(deliveryRetriedTimes(6)).toBe(5);
+    expect(deliveryRetriedTimes(1)).toBe(0);
+    expect(deliveryRetriedTimes(0)).toBe(0);
+    expect(deliveryRetriedTimes(undefined)).toBe(0);
+  });
+
+  it('restores the masked secret when switching back to the saved type', () => {
+    const savedChannel = channel({
+      id: 7,
+      type: 'webhook',
+      secret: NOTIFICATION_SECRET_MASK,
+    });
+    const saved = savedWebhookChannelSecret(savedChannel);
+    const form = createWebhookChannelFormFromChannel(savedChannel);
+
+    const away = changeWebhookChannelType(form, 'feishu', saved);
+    expect(away).toMatchObject({
+      type: 'feishu',
+      secret: '',
+      clearSecret: false,
+    });
+    const back = changeWebhookChannelType(away, 'webhook', saved);
+    // 切回原类型：恢复占位符（保持原密钥），清除按钮重新可用，提交时后端保留原密钥。
+    // Back on the saved type: the placeholder returns (keep the stored secret) so the clear button is available again.
+    expect(back).toMatchObject({
+      type: 'webhook',
+      secret: NOTIFICATION_SECRET_MASK,
+      clearSecret: false,
+    });
+    expect(buildWebhookChannelPayload(back).secret).toBe(
+      NOTIFICATION_SECRET_MASK,
+    );
+
+    // 用户已选择清除：切走再切回仍是清除状态。
+    // The user chose to clear: switching away and back keeps the clear.
+    const cleared = clearWebhookChannelSecret(form);
+    const roundTrip = changeWebhookChannelType(
+      changeWebhookChannelType(cleared, 'dingtalk', saved),
+      'webhook',
+      saved,
+    );
+    expect(roundTrip.secret).toBe('');
+    expect(buildWebhookChannelPayload(roundTrip)).toMatchObject({
+      type: 'webhook',
+      secret: '',
+    });
+
+    // 在别的类型上填了新密钥再切回：保留新密钥。
+    // A new secret typed on another type survives switching back.
+    const typed = setWebhookChannelSecret(away, 'fresh');
+    expect(changeWebhookChannelType(typed, 'webhook', saved).secret).toBe(
+      'fresh',
+    );
   });
 
   it('has endpoint placeholders and zh/en labels for every type', () => {

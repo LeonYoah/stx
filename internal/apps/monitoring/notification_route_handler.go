@@ -102,6 +102,8 @@ func getNotificationChannelTestStatusCode(err error) int {
 		errors.Is(err, ErrAlertPolicyReceiverUserEmailMissing),
 		errors.Is(err, ErrInvalidNotificationChannel):
 		return http.StatusBadRequest
+	case errors.Is(err, ErrNotificationChannelNotFound):
+		return http.StatusNotFound
 	default:
 		return http.StatusInternalServerError
 	}
@@ -135,7 +137,8 @@ func (h *Handler) ListNotificationDeliveries(c *gin.Context) {
 			NotificationDeliveryStatusSent,
 			NotificationDeliveryStatusFailed,
 			NotificationDeliveryStatusRetrying,
-			NotificationDeliveryStatusCanceled:
+			NotificationDeliveryStatusCanceled,
+			NotificationDeliveryStatusExhausted:
 		default:
 			c.JSON(http.StatusBadRequest, Response{ErrorMsg: "invalid status"})
 			return
@@ -146,7 +149,8 @@ func (h *Handler) ListNotificationDeliveries(c *gin.Context) {
 		switch filter.EventType {
 		case NotificationDeliveryEventTypeFiring,
 			NotificationDeliveryEventTypeResolved,
-			NotificationDeliveryEventTypeTest:
+			NotificationDeliveryEventTypeTest,
+			NotificationDeliveryEventTypeReminder:
 		default:
 			c.JSON(http.StatusBadRequest, Response{ErrorMsg: "invalid event_type"})
 			return

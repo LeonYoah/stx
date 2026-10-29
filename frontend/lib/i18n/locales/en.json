@@ -2866,7 +2866,8 @@
           "sent": "Sent",
           "failed": "Failed",
           "retrying": "Retrying",
-          "canceled": "Canceled"
+          "canceled": "Canceled",
+          "exhausted": "Retries exhausted"
         }
       },
       "executionLegacyRuntimeRule": "Legacy runtime rule",
@@ -3048,7 +3049,8 @@
         "sent": "Sent",
         "failed": "Failed",
         "retrying": "Retrying",
-        "canceled": "Canceled"
+        "canceled": "Canceled",
+        "exhausted": "Retries exhausted"
       }
     },
     "policyCenterV2": {
@@ -3341,6 +3343,9 @@
         "clearSecret": "Clear saved secret",
         "undoClearSecret": "Undo",
         "secretWillBeCleared": "The saved secret will be removed when you save.",
+        "clearSecretConfirmTitle": "Clear the saved secret?",
+        "clearSecretConfirmDescription": "Saving will delete the secret stored for this channel. This cannot be undone; enter a new secret later if signing is needed.",
+        "clearSecretConfirmAction": "Clear and save",
         "secretDroppedOnTypeChange": "The previous secret is not reused after changing the channel type; enter a new one if signing is needed."
       },
       "conditionThresholdRequired": "Please enter a trigger threshold",
@@ -3389,6 +3394,7 @@
         "allPolicies": "All rules",
         "policyFilter": "Filter by rule",
         "resetFilters": "Reset filters",
+        "retriedTimes": "Retried {count} times",
         "columns": {
           "policy": "Alert Rule",
           "channel": "Channel",
@@ -3401,7 +3407,8 @@
         "events": {
           "firing": "Firing",
           "resolved": "Resolved",
-          "test": "Test"
+          "test": "Test",
+          "reminder": "Reminder"
         },
         "statuses": {
           "sent": "Sent",
@@ -3409,7 +3416,8 @@
           "sending": "Sending",
           "retrying": "Retrying",
           "pending": "Pending",
-          "canceled": "Canceled"
+          "canceled": "Canceled",
+          "exhausted": "Retries exhausted"
         }
       }
     }

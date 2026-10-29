@@ -416,6 +416,7 @@ func (h *SyncAlertHub) episodeClosed(ctx context.Context, episode *SyncAlertEpis
 // sweep sends cooldown reminders for firing episodes: it reuses delivery dedupe so a notification is only resent
 // after the policy cooldown, and silence and close still apply.
 func (h *SyncAlertHub) sweep(ctx context.Context) error {
+	ctx = withAlertSweepGuard(ctx) // 巡检预算 / sweep budget (alert_delivery_sweep_guard.go)
 	episodes, err := h.service.repo.ListFiringSyncAlertEpisodes(ctx, 500)
 	if err != nil {
 		return err
@@ -681,12 +682,17 @@ func buildSyncAlertMessage(episode *SyncAlertEpisode, policy *AlertPolicy, event
 	link := syncAlertJobLink(snapshot.TaskID, snapshot.LastJobID)
 	title := buildSyncAlertTitle(&snapshot, eventType)
 	fields := buildSyncAlertFields(&snapshot, policy, eventType, link)
+	renderHTML := func(note string) string {
+		severity := strings.ToUpper(string(normalizeAlertPolicySeverity(snapshot.Severity)))
+		return renderAlertMessageHTML(title, severity, resolveLocalAlertMessageVisual(eventType), fields, note)
+	}
 	return &alertMessage{
 		SourceType:      AlertSourceTypeSync,
 		ClusterID:       strconv.FormatUint(uint64(snapshot.ClusterID), 10),
 		ClusterName:     snapshot.ClusterName,
 		AlertName:       strings.TrimSpace(firstNonEmpty(policy.Name, syncAlertRuleName(snapshot.RuleKey))),
 		ExtraRecipients: extraRecipients,
+		RenderEmailHTML: renderHTML,
 		Build: func(channel *NotificationChannel, recipients []string) (interface{}, error) {
 			if channel == nil {
 				return nil, fmt.Errorf("notification channel not found")
@@ -705,11 +711,10 @@ func buildSyncAlertMessage(episode *SyncAlertEpisode, policy *AlertPolicy, event
 			case NotificationChannelTypeFeishu:
 				return map[string]interface{}{"msg_type": "text", "content": map[string]string{"text": text}}, nil
 			case NotificationChannelTypeEmail:
-				severity := strings.ToUpper(string(normalizeAlertPolicySeverity(snapshot.Severity)))
 				return &emailNotificationPayload{
 					Subject: title,
 					Text:    text,
-					HTML:    renderAlertMessageHTML(title, severity, resolveLocalAlertMessageVisual(eventType), fields),
+					HTML:    renderHTML(""),
 					To:      recipients,
 				}, nil
 			default:

@@ -651,14 +651,19 @@ export interface NotificationRouteListData {
   routes: NotificationRoute[];
 }
 
-export type NotificationDeliveryEventType = 'firing' | 'resolved' | 'test';
+export type NotificationDeliveryEventType =
+  | 'firing'
+  | 'resolved'
+  | 'test'
+  | 'reminder';
 export type NotificationDeliveryStatus =
   | 'pending'
   | 'sending'
   | 'sent'
   | 'failed'
   | 'retrying'
-  | 'canceled';
+  | 'canceled'
+  | 'exhausted';
 
 export interface NotificationDelivery {
   id: number;

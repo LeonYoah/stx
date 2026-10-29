@@ -1045,6 +1045,11 @@ const (
 	// NotificationDeliveryEventTypeTest indicates a manual test notification.
 	// NotificationDeliveryEventTypeTest 表示手动测试通知。
 	NotificationDeliveryEventTypeTest NotificationDeliveryEventType = "test"
+	// NotificationDeliveryEventTypeReminder 表示冷却提醒（告警仍在持续时按冷却时间重发）；提醒有自己的投递记录，
+	// 不会覆盖首次告警（firing）的投递状态。
+	// NotificationDeliveryEventTypeReminder indicates a cooldown reminder (resent while the alert keeps firing); it has
+	// its own delivery record and never overwrites the first alert (firing) delivery status.
+	NotificationDeliveryEventTypeReminder NotificationDeliveryEventType = "reminder"
 )
 
 // NotificationDeliveryStatus represents current delivery execution state.
@@ -1070,6 +1075,11 @@ const (
 	// NotificationDeliveryStatusCanceled indicates delivery is canceled.
 	// NotificationDeliveryStatusCanceled 表示投递已取消。
 	NotificationDeliveryStatusCanceled NotificationDeliveryStatus = "canceled"
+	// NotificationDeliveryStatusExhausted indicates the backoff retries are used up (a sync first alert keeps being
+	// retried every syncDeliveryRetryMaxDelay while the alert is firing).
+	// NotificationDeliveryStatusExhausted 表示退避重试次数已用完（同步告警的首次告警在告警持续期间仍每
+	// syncDeliveryRetryMaxDelay 重试一次）。
+	NotificationDeliveryStatusExhausted NotificationDeliveryStatus = "exhausted"
 )
 
 // NotificationRouteDTO is frontend DTO for notification routes.

@@ -85,10 +85,14 @@ type SyncAlertEpisode struct {
 	LastEngineJobID   string                 `json:"last_engine_job_id" gorm:"size:64"`
 	LastTriggerSource string                 `json:"last_trigger_source" gorm:"size:40"`
 	LastMessage       string                 `json:"last_message" gorm:"type:text"`
-	ResolvedAt        *time.Time             `json:"resolved_at" gorm:"index"`
-	ResolveReason     string                 `json:"resolve_reason" gorm:"size:40"`
-	CreatedAt         time.Time              `json:"created_at" gorm:"autoCreateTime"`
-	UpdatedAt         time.Time              `json:"updated_at" gorm:"autoUpdateTime"`
+	// LastDetail 是最近一次信号带的结构化明细（JSON），目前只有 B4 的 syncalert.CDCDelayDetail；新增列，旧版本忽略。
+	// LastDetail is the structured detail (JSON) of the latest signal, currently only B4's syncalert.CDCDelayDetail;
+	// an added column that older versions ignore.
+	LastDetail    string     `json:"last_detail,omitempty" gorm:"type:text"`
+	ResolvedAt    *time.Time `json:"resolved_at" gorm:"index"`
+	ResolveReason string     `json:"resolve_reason" gorm:"size:40"`
+	CreatedAt     time.Time  `json:"created_at" gorm:"autoCreateTime"`
+	UpdatedAt     time.Time  `json:"updated_at" gorm:"autoUpdateTime"`
 }
 
 // TableName 指定告警阶段表名。
@@ -349,6 +353,8 @@ func (s *Service) buildSyncAlertInstances(ctx context.Context, filter *AlertInst
 				TriggerSource:   episode.LastTriggerSource,
 				OccurrenceCount: episode.OccurrenceCount,
 				Link:            syncAlertRelativeLink(episode),
+				ResolveReason:   episode.ResolveReason,
+				RemindersPaused: syncAlertRemindersPaused(episode),
 			},
 		}
 		applyAlertStateToInstance(item, state)
@@ -366,6 +372,16 @@ func buildSyncAlertInstanceSummary(episode *SyncAlertEpisode) string {
 	}
 	if episode.OccurrenceCount > 1 {
 		parts = append(parts, fmt.Sprintf("累计 %d 次", episode.OccurrenceCount))
+	}
+	if episode.Status == SyncAlertEpisodeFiring {
+		if detail := episodeCDCDelayDetail(episode); detail != nil && detail.RemindersPaused {
+			parts = append(parts, "无法确认已超过 24 小时，已停止提醒")
+		}
+	}
+	if episode.Status == SyncAlertEpisodeResolved {
+		if note := syncAlertAutoCloseNote(episode.ResolveReason); note != "" {
+			parts = append(parts, note)
+		}
 	}
 	return strings.Join(parts, " · ")
 }

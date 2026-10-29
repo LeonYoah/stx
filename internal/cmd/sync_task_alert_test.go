@@ -179,3 +179,59 @@ func TestMonitoringAlertPolicyListFiltersJobAlerts(t *testing.T) {
 		t.Fatalf("筛选参数没有带上 / filters not sent: %q", query)
 	}
 }
+
+func TestSyncTaskAlertSetCDCDelayFlags(t *testing.T) {
+	var methods []string
+	var body map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		if request.URL.Path == "/api/v1/capabilities" {
+			writeConfigCapabilities(t, writer, "sync.task.alert.set", "R1")
+			return
+		}
+		methods = append(methods, request.Method)
+		if request.Method == http.MethodGet {
+			_ = json.NewEncoder(writer).Encode(map[string]any{"data": map[string]any{
+				"configured": true, "enabled": true, "rules": []string{"sync_cdc_delay_high"}, "channel_ids": []uint{5},
+				"cooldown_minutes": 30, "send_recovery": true, "cdc_delay_threshold_seconds": 120, "cdc_delay_duration_minutes": 10,
+			}})
+			return
+		}
+		body = nil
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(writer).Encode(map[string]any{"data": map[string]any{"configured": true}})
+	}))
+	defer server.Close()
+	store := newExecutionTestStore(t, server.URL, "test-token")
+
+	// 给了两个参数：直接写入，不读现有配置。 / Both flags given: written directly, no read.
+	if _, stderr, code := runSyncWriteCommand(t, store, "sync", "task", "alert", "set", "4", "--rules", "sync_cdc_delay_high",
+		"--channel", "2", "--cdc-delay-threshold", "300", "--cdc-delay-duration", "15", "--confirm"); code != int(clioutput.ExitSuccess) {
+		t.Fatalf("set failed: %s", stderr)
+	}
+	if !reflect.DeepEqual(methods, []string{http.MethodPut}) || body["cdc_delay_threshold_seconds"] != float64(300) || body["cdc_delay_duration_minutes"] != float64(15) {
+		t.Fatalf("flags not sent: methods=%v body=%#v", methods, body)
+	}
+	// 勾选 B4 但没给参数：保留现有值。 / B4 without flags keeps the current values.
+	methods = nil
+	if _, stderr, code := runSyncWriteCommand(t, store, "sync", "task", "alert", "set", "4", "--rules", "sync_job_failed,sync_cdc_delay_high",
+		"--channel", "2", "--confirm"); code != int(clioutput.ExitSuccess) {
+		t.Fatalf("set failed: %s", stderr)
+	}
+	if !reflect.DeepEqual(methods, []string{http.MethodGet, http.MethodPut}) || body["cdc_delay_threshold_seconds"] != float64(120) || body["cdc_delay_duration_minutes"] != float64(10) {
+		t.Fatalf("current B4 params should be kept: methods=%v body=%#v", methods, body)
+	}
+	// 超出范围是用法错误，不发请求。 / Out of range is a usage error before the network.
+	methods = nil
+	for _, args := range [][]string{{"--cdc-delay-threshold", "9"}, {"--cdc-delay-threshold", "86401"}, {"--cdc-delay-duration", "61"}} {
+		full := append([]string{"sync", "task", "alert", "set", "4", "--rules", "sync_cdc_delay_high", "--channel", "2", "--confirm"}, args...)
+		if _, _, code := runSyncWriteCommand(t, store, full...); code != int(clioutput.ExitUsage) {
+			t.Fatalf("%v should be a usage error, got %d", args, code)
+		}
+	}
+	if len(methods) != 0 {
+		t.Fatalf("invalid B4 flags must not reach the network: %v", methods)
+	}
+}

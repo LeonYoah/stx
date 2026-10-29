@@ -808,6 +808,9 @@ func (s *Service) recordCDCDelay(jobID uint, delayMs int64, sampleMs int64) {
 	}
 	current.lastSampleMs = sampleMs
 	current.at = state.clock()
+	// B4 判定器也用这条样本（锁顺序固定为 events → cdcAlerts）。
+	// The B4 evaluator takes the same sample (lock order is always events → cdcAlerts).
+	s.addCDCDelaySample(jobID, delayMs, sampleMs, current.at)
 }
 
 // jobCDCDelay 返回作业的 CDC 延迟摘要，没有记录时返回 nil。
@@ -840,8 +843,9 @@ func (s *Service) decorateJobRuntime(job *JobInstance) {
 	job.CDCDelay = s.jobCDCDelay(job.ID)
 }
 
-// StartEngineEventRuntime 启动事件运行时：防抖刷新、预期检查、过期清理。
-// StartEngineEventRuntime starts the event runtime: debounced refreshes, expectation checks and retention purge.
+// StartEngineEventRuntime 启动事件运行时：防抖刷新、预期检查、B4 延迟告警判定、过期清理。
+// StartEngineEventRuntime starts the event runtime: debounced refreshes, expectation checks, B4 delay alert rounds
+// and retention purge.
 func (s *Service) StartEngineEventRuntime(ctx context.Context) {
 	if s == nil || s.repo == nil {
 		return
@@ -850,6 +854,10 @@ func (s *Service) StartEngineEventRuntime(ctx context.Context) {
 		refreshTicker := time.NewTicker(250 * time.Millisecond)
 		expectTicker := time.NewTicker(5 * time.Second)
 		purgeTicker := time.NewTicker(time.Hour)
+		// B4（CDC 延迟告警）每 30 秒一轮；没有注入告警模块时这一轮直接返回。
+		// B4 (CDC delay alert) runs every 30s; each round returns at once without the alert module.
+		cdcDelayTicker := time.NewTicker(cdcDelayEvalInterval)
+		defer cdcDelayTicker.Stop()
 		defer refreshTicker.Stop()
 		defer expectTicker.Stop()
 		defer purgeTicker.Stop()
@@ -876,6 +884,8 @@ func (s *Service) StartEngineEventRuntime(ctx context.Context) {
 					logger.WarnF(ctx, "[Sync] expected engine status event not received in time: cluster=%d", clusterID)
 					_ = s.updateEventChannelStatsWithAlert(ctx, clusterID, nil, map[string]any{"expect_missed_at": now})
 				}
+			case <-cdcDelayTicker.C:
+				s.evaluateCDCDelayAlerts(ctx)
 			case <-purgeTicker.C:
 				if removed, err := s.repo.PurgeEngineEventsBefore(ctx, s.events.clock().Add(-engineEventRetention)); err != nil {
 					logger.WarnF(ctx, "[Sync] purge engine events failed: %v", err)

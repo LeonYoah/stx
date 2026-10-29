@@ -48,6 +48,12 @@ type TaskAlertRequest struct {
 	NotifyTaskOwner bool     `json:"notify_task_owner"`
 	CooldownMinutes *int     `json:"cooldown_minutes"`
 	SendRecovery    *bool    `json:"send_recovery"`
+	// CDCDelayThresholdSeconds 是 B4 阈值（秒），0 或不填按默认 60，范围 10~86400，超出返回 400。
+	// CDCDelayThresholdSeconds is the B4 threshold in seconds; 0 or omitted means 60, range 10..86400, else 400.
+	CDCDelayThresholdSeconds int `json:"cdc_delay_threshold_seconds"`
+	// CDCDelayDurationMinutes 是 B4 持续时间（分钟），0 或不填按默认 5，范围 1~60，超出返回 400。
+	// CDCDelayDurationMinutes is the B4 duration in minutes; 0 or omitted means 5, range 1..60, else 400.
+	CDCDelayDurationMinutes int `json:"cdc_delay_duration_minutes"`
 }
 
 // toTaskConfig 补齐默认值后转成告警配置。
@@ -61,6 +67,9 @@ func (r *TaskAlertRequest) toTaskConfig() *syncalert.TaskConfig {
 		NotifyTaskOwner: r.NotifyTaskOwner,
 		CooldownMinutes: syncalert.DefaultCooldownMinutes,
 		SendRecovery:    true,
+		// 0 由 Normalize 补成默认值。 / Normalize turns 0 into the default.
+		CDCDelayThresholdSeconds: r.CDCDelayThresholdSeconds,
+		CDCDelayDurationMinutes:  r.CDCDelayDurationMinutes,
 	}
 	if r.Enabled != nil {
 		cfg.Enabled = *r.Enabled
@@ -126,6 +135,7 @@ func (s *Service) UpdateTaskAlertForActor(ctx context.Context, actor executionap
 		req = &TaskAlertRequest{}
 	}
 	ref := syncalert.TaskRef{ID: task.ID, Name: task.Name, ClusterID: task.ClusterID, CreatorID: task.CreatedBy}
+	defer s.invalidateCDCDelayConfig(task.ID)
 	return s.alertStore.SaveTaskAlertConfig(ctx, ref, req.toTaskConfig())
 }
 
@@ -135,6 +145,7 @@ func (s *Service) DeleteTaskAlertForActor(ctx context.Context, actor executionap
 	if _, err := s.loadTaskForAlert(ctx, actor, taskID, true); err != nil {
 		return err
 	}
+	defer s.invalidateCDCDelayConfig(taskID)
 	return s.alertStore.DeleteTaskAlertConfig(ctx, taskID)
 }
 
@@ -216,15 +227,17 @@ func (h *Handler) UpdateTaskAlert(c *gin.Context) {
 	}
 	_ = audit.RecordFromGin(c, h.auditRepo, auth.GetUserIDFromContext(c), auth.GetUsernameFromContext(c),
 		"update", "sync_task_alert", moduleRef, "", audit.AuditDetails{
-			"operation_id":      taskAlertUpdateOperationID,
-			"policy_id":         cfg.PolicyID,
-			"enabled":           cfg.Enabled,
-			"rules":             cfg.Rules,
-			"channel_ids":       cfg.ChannelIDs,
-			"receiver_user_ids": cfg.ReceiverUserIDs,
-			"notify_task_owner": cfg.NotifyTaskOwner,
-			"cooldown_minutes":  cfg.CooldownMinutes,
-			"send_recovery":     cfg.SendRecovery,
+			"operation_id":                taskAlertUpdateOperationID,
+			"policy_id":                   cfg.PolicyID,
+			"enabled":                     cfg.Enabled,
+			"rules":                       cfg.Rules,
+			"channel_ids":                 cfg.ChannelIDs,
+			"receiver_user_ids":           cfg.ReceiverUserIDs,
+			"notify_task_owner":           cfg.NotifyTaskOwner,
+			"cooldown_minutes":            cfg.CooldownMinutes,
+			"send_recovery":               cfg.SendRecovery,
+			"cdc_delay_threshold_seconds": cfg.CDCDelayThresholdSeconds,
+			"cdc_delay_duration_minutes":  cfg.CDCDelayDurationMinutes,
 		})
 	c.JSON(http.StatusOK, TaskAlertResponse{Data: cfg})
 }

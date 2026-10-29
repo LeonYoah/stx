@@ -85,7 +85,14 @@ func (s *Service) validateSyncJobPolicy(ctx context.Context, repo *Repository, c
 // closeSyncTaskEpisodes 结束任务全部 firing 阶段（不发通知），用于删除策略。
 // closeSyncTaskEpisodes ends every firing episode of the task without notifications; used when a policy is deleted.
 func closeSyncTaskEpisodes(ctx context.Context, repo *Repository, taskID uint, reason string) error {
-	episodes, err := repo.ListFiringSyncAlertEpisodesByTask(ctx, taskID, nil)
+	return closeSyncTaskEpisodesByRules(ctx, repo, taskID, nil, reason)
+}
+
+// closeSyncTaskEpisodesByRules 结束任务在给定规则上的 firing 阶段（rules 为空表示全部），不发通知。
+// closeSyncTaskEpisodesByRules ends the task's firing episodes for the given rules (all when empty) without
+// notifications.
+func closeSyncTaskEpisodesByRules(ctx context.Context, repo *Repository, taskID uint, rules []string, reason string) error {
+	episodes, err := repo.ListFiringSyncAlertEpisodesByTask(ctx, taskID, rules)
 	if err != nil {
 		return err
 	}
@@ -190,7 +197,14 @@ func wrapSyncJobPolicyError(err error) error {
 func taskConfigToPolicyRequest(task syncalert.TaskRef, cfg *syncalert.TaskConfig) *UpsertAlertPolicyRequest {
 	conditions := make([]*AlertPolicyConditionDTO, 0, len(cfg.Rules))
 	for _, rule := range cfg.Rules {
-		conditions = append(conditions, &AlertPolicyConditionDTO{MetricKey: rule, Operator: ">=", Threshold: "1"})
+		condition := &AlertPolicyConditionDTO{MetricKey: rule, Operator: ">=", Threshold: "1"}
+		if rule == syncalert.RuleCDCDelayHigh {
+			// B4 的阈值（秒）和持续时间（分钟）写进同一条条件，不改表。
+			// B4 keeps its threshold (seconds) and duration (minutes) in the same condition; no schema change.
+			condition.Threshold = strconv.Itoa(cfg.CDCDelayThresholdSeconds)
+			condition.WindowMinutes = cfg.CDCDelayDurationMinutes
+		}
+		conditions = append(conditions, condition)
 	}
 	receivers := make([]uint64, 0, len(cfg.ReceiverUserIDs))
 	for _, id := range cfg.ReceiverUserIDs {
@@ -241,15 +255,59 @@ func syncJobPolicyToTaskConfig(policy *AlertPolicy) *syncalert.TaskConfig {
 	if rules == nil {
 		rules = []string{}
 	}
+	threshold, duration := syncJobPolicyCDCDelayParams(policy)
 	return &syncalert.TaskConfig{
-		Configured:      true,
-		PolicyID:        policy.ID,
-		Enabled:         policy.Enabled,
-		Rules:           rules,
-		ChannelIDs:      channelIDs,
-		ReceiverUserIDs: receiverIDs,
-		NotifyTaskOwner: policy.NotifyTaskOwner,
-		CooldownMinutes: policy.CooldownMinutes,
-		SendRecovery:    policy.SendRecovery,
+		Configured:               true,
+		PolicyID:                 policy.ID,
+		Enabled:                  policy.Enabled,
+		Rules:                    rules,
+		ChannelIDs:               channelIDs,
+		ReceiverUserIDs:          receiverIDs,
+		NotifyTaskOwner:          policy.NotifyTaskOwner,
+		CooldownMinutes:          policy.CooldownMinutes,
+		SendRecovery:             policy.SendRecovery,
+		CDCDelayThresholdSeconds: threshold,
+		CDCDelayDurationMinutes:  duration,
 	}
+}
+
+// syncJobPolicyCDCDelayParams 从策略的 B4 条件取阈值和持续时间；没有 B4 条件或取不到时返回默认值。
+// syncJobPolicyCDCDelayParams reads the threshold and duration from the policy's B4 condition; without one (or when
+// unreadable) it returns the defaults.
+func syncJobPolicyCDCDelayParams(policy *AlertPolicy) (int, int) {
+	if policy != nil {
+		for _, condition := range unmarshalAlertPolicyConditions(policy.ConditionsJSON) {
+			if condition == nil || strings.TrimSpace(condition.MetricKey) != syncalert.RuleCDCDelayHigh {
+				continue
+			}
+			if threshold, duration, err := cdcDelayConditionParams(condition); err == nil {
+				return threshold, duration
+			}
+		}
+	}
+	return syncalert.DefaultCDCDelayThresholdSeconds, syncalert.DefaultCDCDelayDurationMinutes
+}
+
+// cdcDelayConditionParams 解析并校验 B4 条件：threshold 为秒（整数），window_minutes 为分钟；0 或空表示默认值。
+// cdcDelayConditionParams parses and checks a B4 condition: threshold in whole seconds, window_minutes in minutes;
+// 0 or empty means the default.
+func cdcDelayConditionParams(condition *AlertPolicyConditionDTO) (int, int, error) {
+	threshold := syncalert.DefaultCDCDelayThresholdSeconds
+	if text := strings.TrimSpace(condition.Threshold); text != "" {
+		value, err := strconv.Atoi(text)
+		if err != nil {
+			return 0, 0, ErrAlertPolicySyncJobInvalidCDCDelay
+		}
+		if value != 0 {
+			threshold = value
+		}
+	}
+	duration := condition.WindowMinutes
+	if duration == 0 {
+		duration = syncalert.DefaultCDCDelayDurationMinutes
+	}
+	if syncalert.ValidateCDCDelayParams(threshold, duration) != nil {
+		return 0, 0, ErrAlertPolicySyncJobInvalidCDCDelay
+	}
+	return threshold, duration, nil
 }

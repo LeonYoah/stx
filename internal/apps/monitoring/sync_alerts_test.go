@@ -534,7 +534,7 @@ func TestSyncAlertOwnerRecipients(t *testing.T) {
 	}
 
 	episode := &SyncAlertEpisode{ID: 1, Scope: SyncAlertEpisodeScopeTask, TaskID: 7, TaskName: "orders", RuleKey: syncalert.RuleJobFailed, Severity: AlertSeverityCritical, OccurrenceCount: 1}
-	message := buildSyncAlertMessage(episode, &AlertPolicy{Name: "p"}, NotificationDeliveryEventTypeFiring, []string{"owner@example.com"}, f.now)
+	message := buildSyncAlertMessage(episode, &AlertPolicy{Name: "p"}, NotificationDeliveryEventTypeFiring, []string{"owner@example.com"}, f.now, false)
 	payload, err := message.Build(&NotificationChannel{Type: NotificationChannelTypeEmail}, mergeAlertRecipients(nil, message.ExtraRecipients))
 	if err != nil {
 		t.Fatalf("build email: %v", err)

@@ -348,6 +348,14 @@ type AlertInstanceSourceRef struct {
 	TriggerSource   string `json:"trigger_source,omitempty"`
 	OccurrenceCount int    `json:"occurrence_count,omitempty"`
 	Link            string `json:"link,omitempty"`
+	// ResolveReason 是 sync 阶段结束的原因（recovered、job_ended、channel_unavailable、rule_removed、rule_changed、
+	// policy_deleted、closed），前端按它显示中英文的关闭原因。
+	// ResolveReason is why a sync episode ended (recovered, job_ended, channel_unavailable, rule_removed,
+	// rule_changed, policy_deleted, closed); the frontend renders the localized close reason from it.
+	ResolveReason string `json:"resolve_reason,omitempty"`
+	// RemindersPaused 表示 B4 "无法确认"超过 24 小时，已停止提醒（阶段保留）。
+	// RemindersPaused means B4 has been "unconfirmable" for over 24 hours and reminders stopped (episode kept).
+	RemindersPaused bool `json:"reminders_paused,omitempty"`
 }
 
 // AlertInstanceListData represents unified alert list response payload.
@@ -916,6 +924,14 @@ func (r *UpsertAlertPolicyRequest) Validate() error {
 		for _, condition := range r.Conditions {
 			if condition == nil || !syncalert.IsTaskRule(strings.TrimSpace(condition.MetricKey)) {
 				return ErrAlertPolicySyncJobInvalidRule
+			}
+			// B4 的阈值、持续时间放在条件里；直接调策略接口也要校验范围（0 或空表示默认值）。
+			// B4 keeps its threshold and duration in the condition; direct policy API calls are range-checked too
+			// (0 or empty means the default).
+			if strings.TrimSpace(condition.MetricKey) == syncalert.RuleCDCDelayHigh {
+				if _, _, err := cdcDelayConditionParams(condition); err != nil {
+					return err
+				}
 			}
 		}
 		if len(r.NotificationChannelIDs) == 0 {

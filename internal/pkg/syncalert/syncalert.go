@@ -44,6 +44,10 @@ const (
 	// RuleStopTimeout 是停止请求过了截止时间作业仍未停下（C1）。
 	// RuleStopTimeout fires when a job is still running after its stop deadline (C1).
 	RuleStopTimeout = "sync_stop_timeout"
+	// RuleCDCDelayHigh 是 CDC 实时作业读取延迟持续高于阈值（B4）；阈值与持续时间按任务配置，判定在 sync 里完成。
+	// RuleCDCDelayHigh fires when a CDC streaming job's read delay stays above its threshold (B4); the threshold and
+	// duration are configured per task and evaluated in sync.
+	RuleCDCDelayHigh = "sync_cdc_delay_high"
 )
 
 // 集群级规则：每个集群默认开启，与"节点离线"一样作为默认规则。
@@ -60,7 +64,7 @@ const (
 // TaskRules 返回任务上可以勾选的规则，顺序固定。
 // TaskRules returns the rules a task can select, in a fixed order.
 func TaskRules() []string {
-	return []string{RuleSubmitFailed, RuleSubmitTimeout, RuleJobFailed, RuleStopTimeout}
+	return []string{RuleSubmitFailed, RuleSubmitTimeout, RuleJobFailed, RuleStopTimeout, RuleCDCDelayHigh}
 }
 
 // ClusterRules 返回集群级默认规则。
@@ -105,6 +109,10 @@ const (
 	// KindObserve 表示 D1 的持续失败观测，带 Since；由 monitoring 按规则窗口判断是否成熟。
 	// KindObserve is a D1 sustained-failure observation carrying Since; monitoring decides maturity by the rule window.
 	KindObserve SignalKind = "observe"
+	// KindRefresh 只更新告警中阶段的展示内容（消息、延迟明细、最近发生时间），不计次、不通知；没有对应阶段时忽略。
+	// KindRefresh only refreshes a firing episode's display content (message, delay detail, last occurrence); it
+	// neither counts nor notifies and is ignored when there is no matching episode.
+	KindRefresh SignalKind = "refresh"
 )
 
 // ResolveScope 指定 Resolve 关闭哪些告警阶段。
@@ -121,11 +129,85 @@ const (
 	// ResolveClusterRule 关闭集群这条规则的阶段。
 	// ResolveClusterRule closes the cluster's episode for this rule.
 	ResolveClusterRule ResolveScope = "cluster_rule"
+	// ResolveCDCDelay 关闭任务的 B4 阶段；JobID > 0 时只关闭最近作业为该作业的阶段。按 ResolveReason 决定是否发恢复通知。
+	// ResolveCDCDelay closes the task's B4 episode; with JobID > 0 only an episode whose last job is that job. Whether
+	// a recovery notification goes out depends on ResolveReason.
+	ResolveCDCDelay ResolveScope = "cdc_delay"
 )
 
-// MaxMessageLength 是信号里错误信息的最大长度（字符）。
-// MaxMessageLength is the maximum length (in characters) of a signal's message.
-const MaxMessageLength = 2000
+// Resolve 的原因：空或 recovered 表示恢复，按策略发恢复通知；其余原因只关闭阶段、不发通知，告警中心显示原因。
+// Resolve reasons: empty or recovered means recovery and sends a recovery notification per policy; every other reason
+// only closes the episode silently and the alert center shows the reason.
+const (
+	ResolveReasonRecovered = "recovered"
+	// ResolveReasonJobEnded 是作业已停止、失败或完成。
+	// ResolveReasonJobEnded means the job stopped, failed or finished.
+	ResolveReasonJobEnded = "job_ended"
+	// ResolveReasonChannelOff 是事件通道已关闭、待重启，或集群不支持事件通道。
+	// ResolveReasonChannelOff means the event channel is off, pending restart, or unsupported by the cluster.
+	ResolveReasonChannelOff = "channel_unavailable"
+	// ResolveReasonRuleRemoved 是任务告警配置去掉了 B4，或策略被停用。
+	// ResolveReasonRuleRemoved means B4 was removed from the task alert config or the policy was disabled.
+	ResolveReasonRuleRemoved = "rule_removed"
+	// ResolveReasonRuleChanged 是告警中修改了阈值或持续时间、按新参数重新计时后延迟已不再超标；不算恢复，不发恢复通知。
+	// ResolveReasonRuleChanged means the threshold or duration changed while alerting and, re-timed with the new
+	// values, the delay is no longer above it; this is not a recovery and sends no recovery notification.
+	ResolveReasonRuleChanged = "rule_changed"
+)
+
+// CDC 延迟明细里的状态与依据。
+// States and bases used in the CDC delay detail.
+const (
+	// CDCDelayStateHigh 是本轮延迟高于阈值。
+	// CDCDelayStateHigh means the delay of this round is above the threshold.
+	CDCDelayStateHigh = "high"
+	// CDCDelayStateUnknown 是收不到延迟数据，无法确认是否恢复。
+	// CDCDelayStateUnknown means no delay data arrives and recovery cannot be confirmed.
+	CDCDelayStateUnknown = "unknown"
+	// CDCDelayStateRecovered 是延迟已回落。
+	// CDCDelayStateRecovered means the delay dropped back.
+	CDCDelayStateRecovered = "recovered"
+
+	// CDCDelayUnknownNoProgress 是没有延迟数据、读取条数也没有增长。
+	// CDCDelayUnknownNoProgress means no delay data and no growth in the read count.
+	CDCDelayUnknownNoProgress = "no_progress"
+	// CDCDelayUnknownChannelDegraded 是没有延迟数据、事件通道降级。
+	// CDCDelayUnknownChannelDegraded means no delay data while the event channel is degraded.
+	CDCDelayUnknownChannelDegraded = "channel_degraded"
+
+	// CDCDelayRecoveryBySamples 是延迟样本连续两轮低于阈值。
+	// CDCDelayRecoveryBySamples means delay samples stayed below the threshold for two rounds.
+	CDCDelayRecoveryBySamples = "delay_samples"
+	// CDCDelayRecoveryByReadCount 是没有延迟事件、读取条数在增长，据此推断延迟已低于 1 秒。
+	// CDCDelayRecoveryByReadCount means no delay events while the read count grows, so the delay is inferred below 1s.
+	CDCDelayRecoveryByReadCount = "read_count"
+)
+
+// CDCDelayDetail 是 B4 信号携带的结构化延迟明细；通知模板和 webhook 用它展示当前延迟等数值，而不是塞进错误摘要。
+// CDCDelayDetail is the structured delay detail carried by B4 signals; notification templates and webhooks render the
+// current delay and friends from it instead of stuffing them into the error summary.
+type CDCDelayDetail struct {
+	State            string    `json:"state"`
+	CurrentDelayMs   int64     `json:"current_delay_ms"`
+	WindowMaxDelayMs int64     `json:"window_max_delay_ms"`
+	ThresholdSeconds int       `json:"threshold_seconds"`
+	DurationMinutes  int       `json:"duration_minutes"`
+	AboveSince       time.Time `json:"above_since,omitempty"`
+	LastSampleAt     time.Time `json:"last_sample_at,omitempty"`
+	UnknownReason    string    `json:"unknown_reason,omitempty"`
+	UnknownSince     time.Time `json:"unknown_since,omitempty"`
+	// RemindersPaused 为 true 时 monitoring 不再发冷却提醒（"无法确认"超过 24 小时）；阶段保留。
+	// RemindersPaused stops monitoring's cooldown reminders ("unconfirmable" for over 24h); the episode stays open.
+	RemindersPaused bool   `json:"reminders_paused,omitempty"`
+	RecoveryBasis   string `json:"recovery_basis,omitempty"`
+}
+
+// MaxMessageLength 是信号里错误信息的最大长度（字符），也是告警中心与通知里展示的上限：存多少就展示多少，
+// 避免存 2000、展示 500 两套口径。500 字符在企业微信、钉钉单条文本（约 2048 字节）里仍能放下其余字段。
+// MaxMessageLength is the maximum length (in characters) of a signal's message and also the display cap in the alert
+// center and notifications: what is stored is what is shown, instead of storing 2000 and showing 500. 500 characters
+// still leave room for the other fields within a WeCom / DingTalk text message (about 2048 bytes).
+const MaxMessageLength = 500
 
 // Signal 是 sync 发给告警模块的一条信号；所有字段都是快照，告警模块不回查 sync。
 // Signal is one signal sync sends to the alert module; every field is a snapshot and monitoring never calls back.
@@ -151,6 +233,36 @@ type Signal struct {
 	// Since is only used by Observe: when the current run of failures started.
 	Since      time.Time
 	OccurredAt time.Time
+	// ResolveReason 只用于 Resolve：空或 recovered 发恢复通知，其余原因静默关闭。
+	// ResolveReason is only used by Resolve: empty or recovered sends recovery, other reasons close silently.
+	ResolveReason string
+	// CDCDelay 只用于 B4 的 Fire、Refresh、Resolve。
+	// CDCDelay is only used by B4 Fire, Refresh and Resolve.
+	CDCDelay *CDCDelayDetail
+}
+
+// FormatDelayZH 把毫秒延迟格式化为"3分12秒"这样的中文时长（不足 1 分钟为"45秒"，超过 1 小时为"1小时2分"）。
+// FormatDelayZH formats a delay in milliseconds as a Chinese duration such as "3分12秒" ("45秒" under a minute,
+// "1小时2分" over an hour).
+func FormatDelayZH(ms int64) string {
+	if ms < 0 {
+		ms = 0
+	}
+	seconds := ms / 1000
+	switch {
+	case seconds < 60:
+		return fmt.Sprintf("%d秒", seconds)
+	case seconds < 3600:
+		if seconds%60 == 0 {
+			return fmt.Sprintf("%d分", seconds/60)
+		}
+		return fmt.Sprintf("%d分%d秒", seconds/60, seconds%60)
+	default:
+		if (seconds%3600)/60 == 0 {
+			return fmt.Sprintf("%d小时", seconds/3600)
+		}
+		return fmt.Sprintf("%d小时%d分", seconds/3600, (seconds%3600)/60)
+	}
 }
 
 // Reporter 接收 sync 产生的告警信号；实现必须非阻塞。
@@ -179,6 +291,23 @@ const (
 	// MaxCooldownMinutes 是提醒间隔上限（一天）。
 	// MaxCooldownMinutes caps the reminder interval (one day).
 	MaxCooldownMinutes = 1440
+
+	// DefaultCDCDelayThresholdSeconds 是 B4 未填写阈值（或填 0）时的默认值。
+	// DefaultCDCDelayThresholdSeconds is the B4 threshold when none (or 0) is given.
+	DefaultCDCDelayThresholdSeconds = 60
+	// MinCDCDelayThresholdSeconds 是阈值下限：引擎每 10 秒投递一批，数据库与 worker 的时钟差也会算进延迟。
+	// MinCDCDelayThresholdSeconds is the lower bound: the engine delivers every 10s and DB/worker clock skew adds up.
+	MinCDCDelayThresholdSeconds = 10
+	// MaxCDCDelayThresholdSeconds 是阈值上限（24 小时）。
+	// MaxCDCDelayThresholdSeconds is the upper bound (24 hours).
+	MaxCDCDelayThresholdSeconds = 86400
+	// DefaultCDCDelayDurationMinutes 是 B4 未填写持续时间（或填 0）时的默认值。
+	// DefaultCDCDelayDurationMinutes is the B4 duration when none (or 0) is given.
+	DefaultCDCDelayDurationMinutes = 5
+	// MinCDCDelayDurationMinutes、MaxCDCDelayDurationMinutes 是持续时间范围。
+	// MinCDCDelayDurationMinutes and MaxCDCDelayDurationMinutes bound the duration.
+	MinCDCDelayDurationMinutes = 1
+	MaxCDCDelayDurationMinutes = 60
 )
 
 // TaskConfig 是任务告警配置，也是 GET/PUT /api/v1/sync/tasks/:id/alert 的数据结构。
@@ -193,6 +322,27 @@ type TaskConfig struct {
 	NotifyTaskOwner bool     `json:"notify_task_owner"`
 	CooldownMinutes int      `json:"cooldown_minutes"`
 	SendRecovery    bool     `json:"send_recovery"`
+	// CDCDelayThresholdSeconds 是 B4 阈值（秒），0 或不填按默认 60，范围 10~86400；不论是否勾选 B4 都会返回。
+	// CDCDelayThresholdSeconds is the B4 threshold in seconds; 0 or omitted means the default 60, range 10..86400.
+	// It is always returned, whether or not B4 is selected.
+	CDCDelayThresholdSeconds int `json:"cdc_delay_threshold_seconds"`
+	// CDCDelayDurationMinutes 是 B4 持续时间（分钟），0 或不填按默认 5，范围 1~60。
+	// CDCDelayDurationMinutes is the B4 duration in minutes; 0 or omitted means the default 5, range 1..60.
+	CDCDelayDurationMinutes int `json:"cdc_delay_duration_minutes"`
+}
+
+// HasRule 判断配置是否勾选了规则。
+// HasRule reports whether the config selects the rule.
+func (c *TaskConfig) HasRule(rule string) bool {
+	if c == nil {
+		return false
+	}
+	for _, candidate := range c.Rules {
+		if candidate == rule {
+			return true
+		}
+	}
+	return false
 }
 
 // TaskRef 是告警模块保存任务策略时需要的任务快照。
@@ -258,6 +408,12 @@ func (c *TaskConfig) Normalize() *TaskConfig {
 	normalized.Rules = rules
 	normalized.ChannelIDs = uniqueIDs(c.ChannelIDs)
 	normalized.ReceiverUserIDs = uniqueIDs(c.ReceiverUserIDs)
+	if normalized.CDCDelayThresholdSeconds == 0 {
+		normalized.CDCDelayThresholdSeconds = DefaultCDCDelayThresholdSeconds
+	}
+	if normalized.CDCDelayDurationMinutes == 0 {
+		normalized.CDCDelayDurationMinutes = DefaultCDCDelayDurationMinutes
+	}
 	return &normalized
 }
 
@@ -290,6 +446,21 @@ func (c *TaskConfig) Validate() error {
 	}
 	if c.CooldownMinutes < 0 || c.CooldownMinutes > MaxCooldownMinutes {
 		return InvalidConfig("cooldown_minutes must be between 0 and %d", MaxCooldownMinutes)
+	}
+	if err := ValidateCDCDelayParams(c.CDCDelayThresholdSeconds, c.CDCDelayDurationMinutes); err != nil {
+		return err
+	}
+	return nil
+}
+
+// ValidateCDCDelayParams 校验 B4 的阈值与持续时间；调用前应已补默认值（0 视为非法）。
+// ValidateCDCDelayParams checks the B4 threshold and duration; defaults must already be applied (0 is invalid).
+func ValidateCDCDelayParams(thresholdSeconds, durationMinutes int) error {
+	if thresholdSeconds < MinCDCDelayThresholdSeconds || thresholdSeconds > MaxCDCDelayThresholdSeconds {
+		return InvalidConfig("cdc_delay_threshold_seconds must be between %d and %d", MinCDCDelayThresholdSeconds, MaxCDCDelayThresholdSeconds)
+	}
+	if durationMinutes < MinCDCDelayDurationMinutes || durationMinutes > MaxCDCDelayDurationMinutes {
+		return InvalidConfig("cdc_delay_duration_minutes must be between %d and %d", MinCDCDelayDurationMinutes, MaxCDCDelayDurationMinutes)
 	}
 	return nil
 }

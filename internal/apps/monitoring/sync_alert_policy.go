@@ -101,6 +101,7 @@ func closeSyncTaskEpisodesByRules(ctx context.Context, repo *Repository, taskID 
 		episode.Status = SyncAlertEpisodeResolved
 		episode.ResolvedAt = &now
 		episode.ResolveReason = reason
+		markEpisodeCDCDelayClosed(episode, reason)
 		if err := repo.SaveSyncAlertEpisode(ctx, episode); err != nil {
 			return err
 		}
@@ -206,6 +207,17 @@ func taskConfigToPolicyRequest(task syncalert.TaskRef, cfg *syncalert.TaskConfig
 		}
 		conditions = append(conditions, condition)
 	}
+	if !containsSyncRule(cfg.Rules, syncalert.RuleCDCDelayHigh) {
+		// 没勾选 B4 时阈值、持续时间存进一条只保存参数的条件（不是规则），去掉 B4 再勾回时还是原来的值。
+		// Without B4 the threshold and duration go into a params-only condition (not a rule), so removing B4 and
+		// adding it back keeps the original values.
+		conditions = append(conditions, &AlertPolicyConditionDTO{
+			MetricKey:     syncJobCDCDelayParamsKey,
+			Operator:      ">=",
+			Threshold:     strconv.Itoa(cfg.CDCDelayThresholdSeconds),
+			WindowMinutes: cfg.CDCDelayDurationMinutes,
+		})
+	}
 	receivers := make([]uint64, 0, len(cfg.ReceiverUserIDs))
 	for _, id := range cfg.ReceiverUserIDs {
 		receivers = append(receivers, uint64(id))
@@ -271,13 +283,32 @@ func syncJobPolicyToTaskConfig(policy *AlertPolicy) *syncalert.TaskConfig {
 	}
 }
 
-// syncJobPolicyCDCDelayParams 从策略的 B4 条件取阈值和持续时间；没有 B4 条件或取不到时返回默认值。
-// syncJobPolicyCDCDelayParams reads the threshold and duration from the policy's B4 condition; without one (or when
-// unreadable) it returns the defaults.
+// syncJobCDCDelayParamsKey 是只保存 B4 参数的条件的 metric_key：没勾选 B4 时用它保留阈值和持续时间。它不是规则，
+// syncJobPolicyRules 不会把它当成勾选的规则。
+// syncJobCDCDelayParamsKey is the metric_key of the params-only condition that keeps the B4 threshold and duration
+// while B4 is not selected. It is not a rule and syncJobPolicyRules never reports it as a selected one.
+const syncJobCDCDelayParamsKey = "sync_cdc_delay_params"
+
+func containsSyncRule(rules []string, rule string) bool {
+	for _, candidate := range rules {
+		if strings.TrimSpace(candidate) == rule {
+			return true
+		}
+	}
+	return false
+}
+
+// syncJobPolicyCDCDelayParams 从策略的 B4 条件（没勾选 B4 时为只保存参数的条件）取阈值和持续时间；都没有或取不到时
+// 返回默认值。
+// syncJobPolicyCDCDelayParams reads the threshold and duration from the policy's B4 condition (the params-only
+// condition while B4 is not selected); without either (or when unreadable) it returns the defaults.
 func syncJobPolicyCDCDelayParams(policy *AlertPolicy) (int, int) {
 	if policy != nil {
 		for _, condition := range unmarshalAlertPolicyConditions(policy.ConditionsJSON) {
-			if condition == nil || strings.TrimSpace(condition.MetricKey) != syncalert.RuleCDCDelayHigh {
+			if condition == nil {
+				continue
+			}
+			if key := strings.TrimSpace(condition.MetricKey); key != syncalert.RuleCDCDelayHigh && key != syncJobCDCDelayParamsKey {
 				continue
 			}
 			if threshold, duration, err := cdcDelayConditionParams(condition); err == nil {

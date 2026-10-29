@@ -223,6 +223,20 @@ func TestSyncTaskAlertSetCDCDelayFlags(t *testing.T) {
 	if !reflect.DeepEqual(methods, []string{http.MethodGet, http.MethodPut}) || body["cdc_delay_threshold_seconds"] != float64(120) || body["cdc_delay_duration_minutes"] != float64(10) {
 		t.Fatalf("current B4 params should be kept: methods=%v body=%#v", methods, body)
 	}
+	// 去掉 B4 且没给参数：请求里不带 cdc_delay_*（缺省 = 服务端保留原值），也不补默认值。
+	// Removing B4 without the flags: the body carries no cdc_delay_* (absent = the server keeps the stored values) and
+	// no defaults are filled in.
+	methods = nil
+	if _, stderr, code := runSyncWriteCommand(t, store, "sync", "task", "alert", "set", "4", "--rules", "sync_job_failed",
+		"--channel", "2", "--confirm"); code != int(clioutput.ExitSuccess) {
+		t.Fatalf("set failed: %s", stderr)
+	}
+	if _, ok := body["cdc_delay_threshold_seconds"]; ok || !reflect.DeepEqual(methods, []string{http.MethodPut}) {
+		t.Fatalf("removing B4 must not send a threshold: methods=%v body=%#v", methods, body)
+	}
+	if _, ok := body["cdc_delay_duration_minutes"]; ok {
+		t.Fatalf("removing B4 must not send a duration: body=%#v", body)
+	}
 	// 超出范围是用法错误，不发请求。 / Out of range is a usage error before the network.
 	methods = nil
 	for _, args := range [][]string{{"--cdc-delay-threshold", "9"}, {"--cdc-delay-threshold", "86401"}, {"--cdc-delay-duration", "61"}} {

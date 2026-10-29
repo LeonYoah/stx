@@ -918,21 +918,34 @@ func (r *UpsertAlertPolicyRequest) Validate() error {
 		if r.TaskID == 0 {
 			return ErrAlertPolicySyncJobTaskRequired
 		}
-		if len(r.Conditions) == 0 {
-			return ErrAlertPolicySyncJobInvalidRule
-		}
+		ruleCount := 0
+		paramsCount := 0
 		for _, condition := range r.Conditions {
-			if condition == nil || !syncalert.IsTaskRule(strings.TrimSpace(condition.MetricKey)) {
+			if condition == nil {
+				return ErrAlertPolicySyncJobInvalidRule
+			}
+			key := strings.TrimSpace(condition.MetricKey)
+			switch {
+			case key == syncJobCDCDelayParamsKey:
+				// 没勾选 B4 时保留参数的条件，不算规则，最多一条。
+				// The params-only condition kept while B4 is not selected; it is not a rule and appears at most once.
+				paramsCount++
+			case syncalert.IsTaskRule(key):
+				ruleCount++
+			default:
 				return ErrAlertPolicySyncJobInvalidRule
 			}
 			// B4 的阈值、持续时间放在条件里；直接调策略接口也要校验范围（0 或空表示默认值）。
 			// B4 keeps its threshold and duration in the condition; direct policy API calls are range-checked too
 			// (0 or empty means the default).
-			if strings.TrimSpace(condition.MetricKey) == syncalert.RuleCDCDelayHigh {
+			if key == syncalert.RuleCDCDelayHigh || key == syncJobCDCDelayParamsKey {
 				if _, _, err := cdcDelayConditionParams(condition); err != nil {
 					return err
 				}
 			}
+		}
+		if ruleCount == 0 || paramsCount > 1 {
+			return ErrAlertPolicySyncJobInvalidRule
 		}
 		if len(r.NotificationChannelIDs) == 0 {
 			return ErrAlertPolicySyncJobChannelRequired

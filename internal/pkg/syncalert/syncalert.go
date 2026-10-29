@@ -171,6 +171,12 @@ const (
 	// CDCDelayStateRecovering means one round below the threshold while alerting: not yet two in a row, so the
 	// episode stays open and is only refreshed with the current values.
 	CDCDelayStateRecovering = "recovering"
+	// CDCDelayStateClosed 是阶段因恢复以外的原因关闭（作业结束、去掉规则、改参数、事件通道不可用、配置删除、人工关闭），
+	// 原因见明细的 resolve_reason；不再沿用关闭前的 high / recovering / unknown。
+	// CDCDelayStateClosed means the episode closed for a reason other than recovery (job ended, rule removed, rule
+	// changed, channel unavailable, config deleted, manual close); the reason is the detail's resolve_reason. The
+	// pre-close high / recovering / unknown is no longer kept.
+	CDCDelayStateClosed = "closed"
 
 	// CDCDelayUnknownNoProgress 是没有延迟数据、读取条数也没有增长。
 	// CDCDelayUnknownNoProgress means no delay data and no growth in the read count.
@@ -213,6 +219,9 @@ type CDCDelayDetail struct {
 	// DelayInferred means no delay sample backs this state and it was inferred from the read count: CurrentDelayMs is
 	// not a current value (it is 0) and the webhook sends current_delay_ms as null.
 	DelayInferred bool `json:"delay_inferred,omitempty"`
+	// ResolveReason 只在 State 为 closed 时填写，与阶段的 resolve_reason 相同。
+	// ResolveReason is only set when State is closed and equals the episode's resolve_reason.
+	ResolveReason string `json:"resolve_reason,omitempty"`
 }
 
 // MaxMessageLength 是信号里错误信息的最大长度（字符），也是告警中心与通知里展示的上限：存多少就展示多少，

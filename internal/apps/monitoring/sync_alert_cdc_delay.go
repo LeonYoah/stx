@@ -122,6 +122,24 @@ func setEpisodeCDCDelayDetail(episode *SyncAlertEpisode, detail *syncalert.CDCDe
 	}
 }
 
+// markEpisodeCDCDelayClosed 在 B4 阶段因恢复以外的原因关闭时，把明细状态改成 closed 并记下原因，避免关闭后
+// last_detail.state 还停在 high / recovering / unknown；恢复关闭保留 sync 送来的 recovered 明细。没有明细时不处理。
+// markEpisodeCDCDelayClosed sets the detail state to closed with the reason when a B4 episode closes for a reason
+// other than recovery, so last_detail.state no longer stays at high / recovering / unknown after the close; a
+// recovery keeps the recovered detail sent by sync. Episodes without a detail are left alone.
+func markEpisodeCDCDelayClosed(episode *SyncAlertEpisode, reason string) {
+	if reason == "" || reason == syncalert.ResolveReasonRecovered {
+		return
+	}
+	detail := episodeCDCDelayDetail(episode)
+	if detail == nil {
+		return
+	}
+	detail.State = syncalert.CDCDelayStateClosed
+	detail.ResolveReason = reason
+	setEpisodeCDCDelayDetail(episode, detail)
+}
+
 // syncAlertRemindersPaused 判断阶段是否因 B4 "无法确认"超过 24 小时而停止提醒。
 // syncAlertRemindersPaused reports whether reminders stopped because B4 was "unconfirmable" for over 24 hours.
 func syncAlertRemindersPaused(episode *SyncAlertEpisode) bool {

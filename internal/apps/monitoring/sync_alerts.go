@@ -365,6 +365,7 @@ func (h *SyncAlertHub) resolveEpisode(ctx context.Context, episode *SyncAlertEpi
 	episode.Status = SyncAlertEpisodeResolved
 	episode.ResolvedAt = &resolvedAt
 	episode.ResolveReason = reason
+	markEpisodeCDCDelayClosed(episode, reason)
 	if err := h.service.repo.SaveSyncAlertEpisode(ctx, episode); err != nil {
 		return err
 	}

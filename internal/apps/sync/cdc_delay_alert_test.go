@@ -929,6 +929,14 @@ func TestTaskAlertOmittedCDCDelayKeepsStoredValues(t *testing.T) {
 	if cfg, err = service.UpdateTaskAlertForActor(ctx, owner, task.ID, &TaskAlertRequest{Rules: rules, ChannelIDs: []uint{1}, CDCDelayThresholdSeconds: &threshold}); err != nil || cfg.CDCDelayThresholdSeconds != 120 || cfg.CDCDelayDurationMinutes != 10 {
 		t.Fatalf("one field given keeps the other: %+v err=%v", cfg, err)
 	}
+	// 去掉 B4 再勾回，都不带参数：仍是 120 / 10（t1 实测 B1）。
+	// Removing B4 and adding it back, both without the fields, still yields 120 / 10 (t1 live test B1).
+	if cfg, err = service.UpdateTaskAlertForActor(ctx, owner, task.ID, &TaskAlertRequest{Rules: []string{syncalert.RuleJobFailed}, ChannelIDs: []uint{1}}); err != nil || cfg.CDCDelayThresholdSeconds != 120 || cfg.CDCDelayDurationMinutes != 10 {
+		t.Fatalf("removing B4 must keep 120 / 10: %+v err=%v", cfg, err)
+	}
+	if cfg, err = service.UpdateTaskAlertForActor(ctx, owner, task.ID, &TaskAlertRequest{Rules: rules, ChannelIDs: []uint{1}}); err != nil || cfg.CDCDelayThresholdSeconds != 120 || cfg.CDCDelayDurationMinutes != 10 {
+		t.Fatalf("adding B4 back must keep 120 / 10: %+v err=%v", cfg, err)
+	}
 	zero := 0
 	cfg, err = service.UpdateTaskAlertForActor(ctx, owner, task.ID, &TaskAlertRequest{Rules: rules, ChannelIDs: []uint{1}, CDCDelayThresholdSeconds: &zero, CDCDelayDurationMinutes: &zero})
 	if err != nil || cfg.CDCDelayThresholdSeconds != syncalert.DefaultCDCDelayThresholdSeconds || cfg.CDCDelayDurationMinutes != syncalert.DefaultCDCDelayDurationMinutes {

@@ -23,6 +23,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -544,5 +545,172 @@ func TestOpenSMTPClient_silentServerTimesOut(t *testing.T) {
 		}
 	case <-time.After(15 * time.Second): // 远大于测试里的 300 毫秒，留给合并 #83 后的"连接 + 读写"截止时间。 / Far above 300ms; room for #83's dial + IO deadline.
 		t.Fatalf("openSMTPClient still blocked on a server that never greets")
+	}
+}
+
+// t1 实测 B1：去掉 B4（不带参数）再勾回，阈值和持续时间仍是原来的 120 / 2；去掉期间读出的配置也是 120 / 2，
+// 只保存参数的条件不算规则；策略中心按原样回写条件（快捷启停）也能通过校验并保留参数。
+// t1 live test B1: removing B4 (without params) and adding it back keeps the original 120 / 2; the config read while
+// B4 is off is 120 / 2 too and the params-only condition is not a rule; the policy center writing the conditions back
+// as-is (quick enable toggle) passes validation and keeps the params.
+func TestSyncAlertCDCDelay_paramsKeptWhenRuleRemovedAndAddedBack(t *testing.T) {
+	f := setupSyncAlertFixture(t)
+	f.configureCDC(t, 7, []string{syncalert.RuleJobFailed, syncalert.RuleCDCDelayHigh}, 5, 120, 2)
+	// sync 的 PUT 不带 cdc_delay_* 时用已保存的值（TaskAlertRequest.toTaskConfig），这里模拟同样的调用。
+	// A sync PUT without cdc_delay_* uses the stored values (TaskAlertRequest.toTaskConfig); simulate that call.
+	stored, err := f.service.GetTaskAlertConfig(f.ctx, 7)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	removed := f.configureCDC(t, 7, []string{syncalert.RuleJobFailed}, 5, stored.CDCDelayThresholdSeconds, stored.CDCDelayDurationMinutes)
+	if removed.HasRule(syncalert.RuleCDCDelayHigh) || len(removed.Rules) != 1 || removed.CDCDelayThresholdSeconds != 120 || removed.CDCDelayDurationMinutes != 2 {
+		t.Fatalf("removing B4 must keep 120 / 2 and report only sync_job_failed: %+v", removed)
+	}
+	got, err := f.service.GetTaskAlertConfig(f.ctx, 7)
+	if err != nil || got.CDCDelayThresholdSeconds != 120 || got.CDCDelayDurationMinutes != 2 || !reflect.DeepEqual(got.Rules, []string{syncalert.RuleJobFailed}) {
+		t.Fatalf("stored config while B4 is off: %+v err=%v", got, err)
+	}
+
+	// 策略中心快捷停用 / 启用：按 DTO 原样回写条件。 / Policy center quick toggle: conditions written back as-is.
+	policy, err := f.repo.GetSyncJobAlertPolicyByTaskID(f.ctx, 7)
+	if err != nil || policy == nil {
+		t.Fatalf("policy: %v", err)
+	}
+	dto := toAlertPolicyDTO(policy)
+	enabled := false
+	cooldown := dto.CooldownMinutes
+	sendRecovery := dto.SendRecovery
+	notifyOwner := dto.NotifyTaskOwner
+	if _, err := f.service.UpdateAlertPolicy(f.ctx, policy.ID, &UpsertAlertPolicyRequest{
+		Name: dto.Name, PolicyType: dto.PolicyType, TemplateKey: dto.TemplateKey, ClusterID: dto.ClusterID, Severity: dto.Severity,
+		Enabled: &enabled, CooldownMinutes: &cooldown, SendRecovery: &sendRecovery, Conditions: dto.Conditions,
+		NotificationChannelIDs: dto.NotificationChannelIDs, ReceiverUserIDs: dto.ReceiverUserIDs, TaskID: dto.TaskID, NotifyTaskOwner: &notifyOwner,
+	}); err != nil {
+		t.Fatalf("quick toggle with the params-only condition must pass: %v", err)
+	}
+	if got, err = f.service.GetTaskAlertConfig(f.ctx, 7); err != nil || got.Enabled || got.CDCDelayThresholdSeconds != 120 || got.CDCDelayDurationMinutes != 2 {
+		t.Fatalf("quick toggle must keep the params: %+v err=%v", got, err)
+	}
+
+	stored = got
+	back := f.configureCDC(t, 7, []string{syncalert.RuleJobFailed, syncalert.RuleCDCDelayHigh}, 5, stored.CDCDelayThresholdSeconds, stored.CDCDelayDurationMinutes)
+	if !back.HasRule(syncalert.RuleCDCDelayHigh) || back.CDCDelayThresholdSeconds != 120 || back.CDCDelayDurationMinutes != 2 {
+		t.Fatalf("adding B4 back must restore 120 / 2: %+v", back)
+	}
+	policy, _ = f.repo.GetSyncJobAlertPolicyByTaskID(f.ctx, 7)
+	if strings.Contains(policy.ConditionsJSON, syncJobCDCDelayParamsKey) {
+		t.Fatalf("with B4 selected the params live in the B4 condition only: %s", policy.ConditionsJSON)
+	}
+
+	// 只保存参数的条件不能单独存在，也不能重复；参数同样校验范围。
+	// The params-only condition cannot stand alone or repeat, and its params are range-checked too.
+	params := &AlertPolicyConditionDTO{MetricKey: syncJobCDCDelayParamsKey, Operator: ">=", Threshold: "120", WindowMinutes: 2}
+	rule := &AlertPolicyConditionDTO{MetricKey: syncalert.RuleJobFailed, Operator: ">=", Threshold: "1"}
+	base := func(conditions ...*AlertPolicyConditionDTO) *UpsertAlertPolicyRequest {
+		return &UpsertAlertPolicyRequest{Name: "x", PolicyType: AlertPolicyBuilderKindSyncJob, Severity: AlertSeverityCritical, TaskID: 7, Conditions: conditions, NotificationChannelIDs: []uint{f.channel.ID}}
+	}
+	if err := base(params).Validate(); !errors.Is(err, ErrAlertPolicySyncJobInvalidRule) {
+		t.Fatalf("params alone is not a rule: %v", err)
+	}
+	if err := base(rule, params, params).Validate(); !errors.Is(err, ErrAlertPolicySyncJobInvalidRule) {
+		t.Fatalf("params twice must be rejected: %v", err)
+	}
+	bad := *params
+	bad.Threshold = "5"
+	if err := base(rule, &bad).Validate(); !errors.Is(err, ErrAlertPolicySyncJobInvalidCDCDelay) {
+		t.Fatalf("params out of range must be rejected: %v", err)
+	}
+	if err := base(rule, params).Validate(); err != nil {
+		t.Fatalf("rule + params is valid: %v", err)
+	}
+}
+
+// t1 实测 B3：B4 阶段因恢复以外的原因关闭（job_ended、channel_unavailable、rule_changed、rule_removed、policy_deleted）后，
+// last_detail.state 改成 closed 并带 resolve_reason，不再停在 high / recovering；恢复关闭保留 recovered。
+// t1 live test B3: after a B4 episode closes for a reason other than recovery (job_ended, channel_unavailable,
+// rule_changed, rule_removed, policy_deleted) last_detail.state becomes closed with resolve_reason instead of staying
+// at high / recovering; a recovery keeps recovered.
+func TestSyncAlertCDCDelay_closedEpisodeDetailStateIsClosed(t *testing.T) {
+	f := setupSyncAlertFixture(t)
+	above := f.now.Add(-6 * time.Minute)
+	recovering := highDetail(20_000, above)
+	recovering.State = syncalert.CDCDelayStateRecovering
+
+	b4Episode := func(taskID uint) *SyncAlertEpisode {
+		t.Helper()
+		for _, episode := range f.episodes(t) {
+			if episode.TaskID == taskID && episode.RuleKey == syncalert.RuleCDCDelayHigh {
+				return episode
+			}
+		}
+		t.Fatalf("task %d: B4 episode missing", taskID)
+		return nil
+	}
+	expectClosed := func(taskID uint, reason string) {
+		t.Helper()
+		episode := b4Episode(taskID)
+		detail := episodeCDCDelayDetail(episode)
+		if episode.Status != SyncAlertEpisodeResolved || episode.ResolveReason != reason || detail == nil ||
+			detail.State != syncalert.CDCDelayStateClosed || detail.ResolveReason != reason {
+			t.Fatalf("%s: detail state must be closed: %+v detail=%+v", reason, episode, detail)
+		}
+		if detail.ThresholdSeconds != 60 || detail.CurrentDelayMs == 0 {
+			t.Fatalf("%s: the rest of the last detail is kept: %+v", reason, detail)
+		}
+	}
+
+	// sync 发来的 Resolve：job_ended / channel_unavailable 停在 high，rule_changed 停在 recovering（rearm 期间的 Refresh）。
+	// Resolves from sync: job_ended / channel_unavailable were at high, rule_changed at recovering (Refresh while rearmed).
+	cases := []struct {
+		reason     string
+		recovering bool
+	}{
+		{syncalert.ResolveReasonJobEnded, false},
+		{syncalert.ResolveReasonChannelOff, false},
+		{syncalert.ResolveReasonRuleChanged, true},
+	}
+	for i, tc := range cases {
+		taskID := uint(40 + i)
+		f.configureCDC(t, taskID, []string{syncalert.RuleCDCDelayHigh}, 60, 60, 5)
+		f.handle(t, f.cdcSignal(syncalert.KindFire, taskID, 70, highDetail(120_000, above), "high"))
+		if tc.recovering {
+			f.handle(t, f.cdcSignal(syncalert.KindRefresh, taskID, 70, recovering, "recovering"))
+			if detail := episodeCDCDelayDetail(b4Episode(taskID)); detail == nil || detail.State != syncalert.CDCDelayStateRecovering {
+				t.Fatalf("precondition: recovering detail, got %+v", detail)
+			}
+		}
+		closeSignal := f.cdcSignal(syncalert.KindResolve, taskID, 70, syncalert.CDCDelayDetail{}, "")
+		closeSignal.CDCDelay = nil
+		closeSignal.ResolveReason = tc.reason
+		f.handle(t, closeSignal)
+		expectClosed(taskID, tc.reason)
+	}
+
+	// 保存配置去掉 B4：rule_removed。 / Saving the config without B4: rule_removed.
+	f.configureCDC(t, 50, []string{syncalert.RuleJobFailed, syncalert.RuleCDCDelayHigh}, 60, 60, 5)
+	f.handle(t, f.cdcSignal(syncalert.KindFire, 50, 70, highDetail(120_000, above), "high"))
+	f.handle(t, f.cdcSignal(syncalert.KindRefresh, 50, 70, recovering, "recovering"))
+	f.configureCDC(t, 50, []string{syncalert.RuleJobFailed}, 60, 60, 5)
+	expectClosed(50, syncalert.ResolveReasonRuleRemoved)
+
+	// 删除配置：policy_deleted。 / Deleting the config: policy_deleted.
+	f.configureCDC(t, 51, []string{syncalert.RuleCDCDelayHigh}, 60, 60, 5)
+	f.handle(t, f.cdcSignal(syncalert.KindFire, 51, 70, highDetail(120_000, above), "high"))
+	if err := f.service.DeleteTaskAlertConfig(f.ctx, 51); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	expectClosed(51, syncAlertResolvePolicyDeleted)
+
+	// 恢复：保留 sync 送来的 recovered 明细。 / Recovery keeps the recovered detail sent by sync.
+	f.configureCDC(t, 52, []string{syncalert.RuleCDCDelayHigh}, 60, 60, 5)
+	f.handle(t, f.cdcSignal(syncalert.KindFire, 52, 70, highDetail(120_000, above), "high"))
+	recovered := highDetail(20_000, above)
+	recovered.State = syncalert.CDCDelayStateRecovered
+	recovered.RecoveryBasis = syncalert.CDCDelayRecoveryBySamples
+	f.handle(t, f.cdcSignal(syncalert.KindResolve, 52, 70, recovered, "recovered"))
+	episode := b4Episode(52)
+	if detail := episodeCDCDelayDetail(episode); episode.Status != SyncAlertEpisodeResolved || detail == nil ||
+		detail.State != syncalert.CDCDelayStateRecovered || detail.ResolveReason != "" {
+		t.Fatalf("recovery keeps recovered: %+v detail=%+v", episode, detail)
 	}
 }

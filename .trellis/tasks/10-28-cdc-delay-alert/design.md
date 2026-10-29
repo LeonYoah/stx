@@ -59,6 +59,7 @@ CDCDelayDurationMinutes  int `json:"cdc_delay_duration_minutes"`  // 默认 5，
 ```
 
 - `taskConfigToPolicyRequest` 和 `syncJobPolicyToTaskConfig` 双向转换。没有 B4 条件时，返回默认的 60 和 5。
+- 没勾选 B4 时，参数写进一条只保存参数的条件 `{"metric_key": "sync_cdc_delay_params", "threshold": "120", "window_minutes": 2}`。它不是规则：`syncJobPolicyRules` 不返回它，`Validate` 要求至少还有一条真正的规则、它最多一条，并同样校验范围。这样去掉 B4 再勾回时阈值和持续时间不变（t1 实测 B1：此前参数只存在 B4 条件里，去掉 B4 后读回变成默认 60 / 5）。回滚到旧版本后旧代码忽略这条条件（不是任务规则）；只有在旧版策略中心对这类策略点快捷启停会因为未知条件被 400 拒绝，到任务设置里保存一次即可去掉它。
 - `UpsertAlertPolicyRequest.Validate` 在 sync_job 分支里校验 B4 条件：threshold 必须是 10~86400 的整数，window_minutes 必须在 1~60。这样直接调策略中心 API 也绕不过校验。
 - 已有策略不受影响：不会自动加上 B4。
 - 阶段表 `monitoring_sync_alert_episodes` 新增 `last_detail`（text，JSON）。只做加法，AutoMigrate 自动加列，旧版本忽略。

@@ -113,12 +113,6 @@
             <scope>test</scope>
         </dependency>
         <dependency>
-            <groupId>org.apache.seatunnel</groupId>
-            <artifactId>connector-jdbc</artifactId>
-            <version>${seatunnel.version}</version>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
             <groupId>com.mysql</groupId>
             <artifactId>mysql-connector-j</artifactId>
             <version>8.0.33</version>
@@ -154,6 +148,32 @@
                     <reuseForks>true</reuseForks>
                     <argLine>-Xmx1g</argLine>
                 </configuration>
+            </plugin>
+            <plugin>
+                <!-- PR84 ITs: connector-jdbc is NOT put on the shared test classpath (it would leak
+                     its Factory SPI into other unit tests); it is copied to target/it-plugins and
+                     loaded through an isolated classloader, like SEATUNNEL_HOME/connectors in prod. -->
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>pr84-it-plugins</id>
+                        <phase>generate-test-resources</phase>
+                        <goals>
+                            <goal>copy</goal>
+                        </goals>
+                        <configuration>
+                            <outputDirectory>${project.build.directory}/it-plugins</outputDirectory>
+                            <artifactItems>
+                                <artifactItem>
+                                    <groupId>org.apache.seatunnel</groupId>
+                                    <artifactId>connector-jdbc</artifactId>
+                                    <version>${seatunnel.version}</version>
+                                </artifactItem>
+                            </artifactItems>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
         <!-- 代际标签命名：同一套源码分别产出 stx-java-proxy-v2.jar / stx-java-proxy-v3.jar。 -->

@@ -177,6 +177,12 @@ const (
 	// changed, channel unavailable, config deleted, manual close); the reason is the detail's resolve_reason. The
 	// pre-close high / recovering / unknown is no longer kept.
 	CDCDelayStateClosed = "closed"
+	// CDCDelayCloseManual 是人工关闭时明细 resolve_reason 的取值（阶段本身记为 closed）。closed 状态只存在于已关闭
+	// 阶段的明细里，不会出现在 webhook 的 delay_state 中（静默关闭不发通知）。
+	// CDCDelayCloseManual is the detail resolve_reason of a manual close (the episode itself records closed). The
+	// closed state only lives in a closed episode's detail and never appears in a webhook delay_state (silent closes
+	// send nothing).
+	CDCDelayCloseManual = "manual"
 
 	// CDCDelayUnknownNoProgress 是没有延迟数据、读取条数也没有增长。
 	// CDCDelayUnknownNoProgress means no delay data and no growth in the read count.
@@ -219,8 +225,9 @@ type CDCDelayDetail struct {
 	// DelayInferred means no delay sample backs this state and it was inferred from the read count: CurrentDelayMs is
 	// not a current value (it is 0) and the webhook sends current_delay_ms as null.
 	DelayInferred bool `json:"delay_inferred,omitempty"`
-	// ResolveReason 只在 State 为 closed 时填写，与阶段的 resolve_reason 相同。
-	// ResolveReason is only set when State is closed and equals the episode's resolve_reason.
+	// ResolveReason 只在 State 为 closed 时填写，与阶段的 resolve_reason 相同；人工关闭记为 manual（阶段为 closed）。
+	// ResolveReason is only set when State is closed and equals the episode's resolve_reason; a manual close is
+	// recorded as manual (the episode says closed).
 	ResolveReason string `json:"resolve_reason,omitempty"`
 }
 

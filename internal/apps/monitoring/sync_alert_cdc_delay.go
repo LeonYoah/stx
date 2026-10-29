@@ -137,6 +137,12 @@ func markEpisodeCDCDelayClosed(episode *SyncAlertEpisode, reason string) {
 	}
 	detail.State = syncalert.CDCDelayStateClosed
 	detail.ResolveReason = reason
+	if reason == syncAlertResolveClosed {
+		// 人工关闭在明细里记为 manual，避免和状态值 closed 混淆；阶段的 resolve_reason 仍是 closed（告警中心沿用）。
+		// A manual close is recorded as manual in the detail so it does not read like the closed state; the
+		// episode's resolve_reason stays closed (used by the alert center).
+		detail.ResolveReason = syncalert.CDCDelayCloseManual
+	}
 	setEpisodeCDCDelayDetail(episode, detail)
 }
 

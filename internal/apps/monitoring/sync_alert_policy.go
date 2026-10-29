@@ -304,15 +304,18 @@ func containsSyncRule(rules []string, rule string) bool {
 // condition while B4 is not selected); without either (or when unreadable) it returns the defaults.
 func syncJobPolicyCDCDelayParams(policy *AlertPolicy) (int, int) {
 	if policy != nil {
-		for _, condition := range unmarshalAlertPolicyConditions(policy.ConditionsJSON) {
-			if condition == nil {
-				continue
-			}
-			if key := strings.TrimSpace(condition.MetricKey); key != syncalert.RuleCDCDelayHigh && key != syncJobCDCDelayParamsKey {
-				continue
-			}
-			if threshold, duration, err := cdcDelayConditionParams(condition); err == nil {
-				return threshold, duration
+		conditions := unmarshalAlertPolicyConditions(policy.ConditionsJSON)
+		// 先认 B4 条件，再认只保存参数的条件，与条件在数组里的顺序无关（校验已不允许两者并存，这里是兜底）。
+		// The B4 condition wins over the params-only one regardless of array order (validation already forbids
+		// both; this is a fallback).
+		for _, key := range []string{syncalert.RuleCDCDelayHigh, syncJobCDCDelayParamsKey} {
+			for _, condition := range conditions {
+				if condition == nil || strings.TrimSpace(condition.MetricKey) != key {
+					continue
+				}
+				if threshold, duration, err := cdcDelayConditionParams(condition); err == nil {
+					return threshold, duration
+				}
 			}
 		}
 	}

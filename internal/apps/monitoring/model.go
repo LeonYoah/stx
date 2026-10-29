@@ -920,6 +920,7 @@ func (r *UpsertAlertPolicyRequest) Validate() error {
 		}
 		ruleCount := 0
 		paramsCount := 0
+		hasCDCDelay := false
 		for _, condition := range r.Conditions {
 			if condition == nil {
 				return ErrAlertPolicySyncJobInvalidRule
@@ -932,6 +933,7 @@ func (r *UpsertAlertPolicyRequest) Validate() error {
 				paramsCount++
 			case syncalert.IsTaskRule(key):
 				ruleCount++
+				hasCDCDelay = hasCDCDelay || key == syncalert.RuleCDCDelayHigh
 			default:
 				return ErrAlertPolicySyncJobInvalidRule
 			}
@@ -944,7 +946,10 @@ func (r *UpsertAlertPolicyRequest) Validate() error {
 				}
 			}
 		}
-		if ruleCount == 0 || paramsCount > 1 {
+		// 勾选了 B4 时参数只放在 B4 条件里，不能再带只保存参数的条件，否则两处的值可能不一致。
+		// With B4 selected the params live only in the B4 condition; a params-only condition alongside it could
+		// disagree, so the two cannot coexist.
+		if ruleCount == 0 || paramsCount > 1 || (hasCDCDelay && paramsCount > 0) {
 			return ErrAlertPolicySyncJobInvalidRule
 		}
 		if len(r.NotificationChannelIDs) == 0 {

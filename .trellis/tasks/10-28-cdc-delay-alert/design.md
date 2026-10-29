@@ -59,7 +59,7 @@ CDCDelayDurationMinutes  int `json:"cdc_delay_duration_minutes"`  // 默认 5，
 ```
 
 - `taskConfigToPolicyRequest` 和 `syncJobPolicyToTaskConfig` 双向转换。没有 B4 条件时，返回默认的 60 和 5。
-- 没勾选 B4 时，参数写进一条只保存参数的条件 `{"metric_key": "sync_cdc_delay_params", "threshold": "120", "window_minutes": 2}`。它不是规则：`syncJobPolicyRules` 不返回它，`Validate` 要求至少还有一条真正的规则、它最多一条，并同样校验范围。这样去掉 B4 再勾回时阈值和持续时间不变（t1 实测 B1：此前参数只存在 B4 条件里，去掉 B4 后读回变成默认 60 / 5）。回滚到旧版本后旧代码忽略这条条件（不是任务规则）；只有在旧版策略中心对这类策略点快捷启停会因为未知条件被 400 拒绝，到任务设置里保存一次即可去掉它。
+- 没勾选 B4 时，参数写进一条只保存参数的条件 `{"metric_key": "sync_cdc_delay_params", "threshold": "120", "window_minutes": 2}`。它不是规则：`syncJobPolicyRules` 不返回它，`Validate` 要求至少还有一条真正的规则、它最多一条、不能和 B4 条件并存，并同样校验范围；读取时先认 B4 条件，与数组顺序无关。这样去掉 B4 再勾回时阈值和持续时间不变（t1 实测 B1：此前参数只存在 B4 条件里，去掉 B4 后读回变成默认 60 / 5）。回滚到旧版本后旧代码忽略这条条件（不是任务规则）；只有在旧版策略中心对这类策略点快捷启停会因为未知条件被 400 拒绝，到任务设置里保存一次即可去掉它。
 - `UpsertAlertPolicyRequest.Validate` 在 sync_job 分支里校验 B4 条件：threshold 必须是 10~86400 的整数，window_minutes 必须在 1~60。这样直接调策略中心 API 也绕不过校验。
 - 已有策略不受影响：不会自动加上 B4。
 - 阶段表 `monitoring_sync_alert_episodes` 新增 `last_detail`（text，JSON）。只做加法，AutoMigrate 自动加列，旧版本忽略。
@@ -170,7 +170,7 @@ CDCDelayDurationMinutes  int `json:"cdc_delay_duration_minutes"`  // 默认 5，
 - **模板**：
   - 标题：`CDC 延迟过高（3分12秒）`；提醒追加 ` [提醒] 已持续 X 分钟`；无法确认 `（无法确认是否恢复）`；读取条数推断的恢复 `（根据读取条数推断）`。
   - B4 不用"错误摘要"字段，改为：当前读取延迟、近 M 分钟最大读取延迟、告警条件、已持续、说明（仅无法确认）、恢复依据。
-  - Webhook JSON 追加 `resolve_reason`、`reminder` 和 B4 扁平字段：`delay_state`（high / unknown / recovering / recovered）、`current_delay_ms`（推断时为 null）、`delay_inferred`、`window_max_delay_ms`、`threshold_seconds`、`duration_minutes`、`above_since`、`last_sample_at`、`unknown_reason`、`unknown_since`、`reminders_paused`、`recovery_basis`。
+  - Webhook JSON 追加 `resolve_reason`、`reminder` 和 B4 扁平字段：`delay_state`（high / unknown / recovering / recovered；`closed` 只写在以恢复以外的原因关闭的阶段的 `last_detail` 里，这类关闭不发通知，所以 webhook 里永远不会出现 `closed`）、`current_delay_ms`（推断时为 null）、`delay_inferred`、`window_max_delay_ms`、`threshold_seconds`、`duration_minutes`、`above_since`、`last_sample_at`、`unknown_reason`、`unknown_since`、`reminders_paused`、`recovery_basis`。
   - recovering：标题 `（已回落，待确认）`，字段"当前读取延迟""说明：已低于阈值，再确认一轮后自动关闭"。
 
 ## 6. API、CLI、前端

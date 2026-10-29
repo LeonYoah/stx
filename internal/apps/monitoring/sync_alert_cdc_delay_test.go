@@ -714,3 +714,68 @@ func TestSyncAlertCDCDelay_closedEpisodeDetailStateIsClosed(t *testing.T) {
 		t.Fatalf("recovery keeps recovered: %+v detail=%+v", episode, detail)
 	}
 }
+
+// 评审第五轮：B4 条件和只保存参数的条件不能并存（两种顺序都拒绝）；库里已有并存数据时读取先认 B4 条件，与数组顺序无关。
+// Review round 5: the B4 condition and the params-only condition cannot coexist (rejected in both orders); for
+// stored data that already has both, reading prefers the B4 condition regardless of array order.
+func TestSyncAlertCDCDelay_paramsConditionCannotCoexistWithB4(t *testing.T) {
+	b4 := &AlertPolicyConditionDTO{MetricKey: syncalert.RuleCDCDelayHigh, Operator: ">=", Threshold: "300", WindowMinutes: 10}
+	params := &AlertPolicyConditionDTO{MetricKey: syncJobCDCDelayParamsKey, Operator: ">=", Threshold: "120", WindowMinutes: 2}
+	rule := &AlertPolicyConditionDTO{MetricKey: syncalert.RuleJobFailed, Operator: ">=", Threshold: "1"}
+	for _, conditions := range [][]*AlertPolicyConditionDTO{{params, b4}, {b4, params}, {rule, params, b4}} {
+		req := &UpsertAlertPolicyRequest{Name: "x", PolicyType: AlertPolicyBuilderKindSyncJob, Severity: AlertSeverityCritical, TaskID: 7, Conditions: conditions, NotificationChannelIDs: []uint{1}}
+		if err := req.Validate(); !errors.Is(err, ErrAlertPolicySyncJobInvalidRule) {
+			t.Fatalf("B4 + params must be rejected (%d conditions, first %s): %v", len(conditions), conditions[0].MetricKey, err)
+		}
+	}
+	if err := (&UpsertAlertPolicyRequest{Name: "x", PolicyType: AlertPolicyBuilderKindSyncJob, Severity: AlertSeverityCritical, TaskID: 7, Conditions: []*AlertPolicyConditionDTO{rule, b4}, NotificationChannelIDs: []uint{1}}).Validate(); err != nil {
+		t.Fatalf("B4 alone is valid: %v", err)
+	}
+	for _, conditions := range [][]*AlertPolicyConditionDTO{{params, b4}, {b4, params}} {
+		raw, err := marshalAlertPolicyConditions(conditions)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		if threshold, duration := syncJobPolicyCDCDelayParams(&AlertPolicy{ConditionsJSON: raw}); threshold != 300 || duration != 10 {
+			t.Fatalf("the B4 condition must win regardless of order (%s first): %d / %d", conditions[0].MetricKey, threshold, duration)
+		}
+	}
+	raw, _ := marshalAlertPolicyConditions([]*AlertPolicyConditionDTO{rule, params})
+	if threshold, duration := syncJobPolicyCDCDelayParams(&AlertPolicy{ConditionsJSON: raw}); threshold != 120 || duration != 2 {
+		t.Fatalf("without B4 the params condition is read: %d / %d", threshold, duration)
+	}
+}
+
+// 评审第五轮：人工关闭后再出问题，旧 B4 阶段记 resolve_reason=closed，明细 state=closed、resolve_reason=manual。
+// Review round 5: a problem after a manual close ends the old B4 episode with resolve_reason=closed; its detail has
+// state=closed and resolve_reason=manual.
+func TestSyncAlertCDCDelay_manualCloseDetailReasonIsManual(t *testing.T) {
+	f := setupSyncAlertFixture(t)
+	f.configureCDC(t, 7, []string{syncalert.RuleCDCDelayHigh}, 60, 60, 5)
+	above := f.now.Add(-6 * time.Minute)
+	f.handle(t, f.cdcSignal(syncalert.KindFire, 7, 70, highDetail(120_000, above), "high"))
+	first := f.episodes(t)[0]
+	if _, err := f.service.CloseAlertInstance(f.ctx, buildSyncAlertSourceKey(first.ID), "ops", "known issue"); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	f.handle(t, f.cdcSignal(syncalert.KindFire, 7, 70, highDetail(130_000, above), "high again"))
+	var closed, fresh *SyncAlertEpisode
+	for _, episode := range f.episodes(t) {
+		if episode.ID == first.ID {
+			closed = episode
+		} else {
+			fresh = episode
+		}
+	}
+	if closed == nil || fresh == nil {
+		t.Fatalf("expected the closed episode and a new one: %+v", f.episodes(t))
+	}
+	detail := episodeCDCDelayDetail(closed)
+	if closed.Status != SyncAlertEpisodeResolved || closed.ResolveReason != syncAlertResolveClosed || detail == nil ||
+		detail.State != syncalert.CDCDelayStateClosed || detail.ResolveReason != syncalert.CDCDelayCloseManual {
+		t.Fatalf("manual close: episode reason closed, detail state closed + reason manual: %+v detail=%+v", closed, detail)
+	}
+	if freshDetail := episodeCDCDelayDetail(fresh); fresh.Status != SyncAlertEpisodeFiring || freshDetail == nil || freshDetail.State != syncalert.CDCDelayStateHigh {
+		t.Fatalf("the new episode is firing with a high detail: %+v detail=%+v", fresh, freshDetail)
+	}
+}

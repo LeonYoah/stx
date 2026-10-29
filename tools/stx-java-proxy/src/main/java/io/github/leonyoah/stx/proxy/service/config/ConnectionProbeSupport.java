@@ -319,11 +319,36 @@ class ConnectionProbeSupport {
 
     /** 判断连接器是否可以通过 JDBC 驱动进行连接探测。 Checks whether the connector can be probed via JDBC driver. */
     static boolean isJdbcProbeableConnector(String pluginName, Config config) {
-        if ("Jdbc".equalsIgnoreCase(pluginName) || "MySQL-CDC".equalsIgnoreCase(pluginName)) {
+        if ("Jdbc".equalsIgnoreCase(pluginName)
+                || "MySQL-CDC".equalsIgnoreCase(pluginName)
+                || "Postgres-CDC".equalsIgnoreCase(pluginName)
+                || "SqlServer-CDC".equalsIgnoreCase(pluginName)
+                || "Oracle-CDC".equalsIgnoreCase(pluginName)) {
             return true;
         }
         String url = getString(config, "url");
         return StringUtils.isNotBlank(url) && url.toLowerCase().startsWith("jdbc:");
+    }
+
+    /**
+     * 解析配置中的数据库名称（兼容 database-name 与 database-names 列表）。 Resolves the database name from config
+     * (supports database-name and database-names list).
+     */
+    private static String resolveDatabaseName(Config config, String defaultDb) {
+        String db = getString(config, "database-name");
+        if (StringUtils.isNotBlank(db)) {
+            return db;
+        }
+        if (config.hasPath("database-names")) {
+            try {
+                List<String> list = config.getStringList("database-names");
+                if (list != null && !list.isEmpty() && StringUtils.isNotBlank(list.get(0))) {
+                    return list.get(0);
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        return defaultDb;
     }
 
     /** 执行 JDBC 驱动物理建连探测。 Probe JDBC connection via driver directly. */
@@ -338,12 +363,37 @@ class ConnectionProbeSupport {
         String url = getString(config, "url");
         if (StringUtils.isBlank(url)) {
             String hostname = getString(config, "hostname");
+            if (StringUtils.isBlank(hostname)) {
+                hostname = getString(config, "host");
+            }
             if (StringUtils.isNotBlank(hostname)) {
                 String port = getString(config, "port");
-                if (StringUtils.isBlank(port)) {
-                    port = "3306";
+                if ("MySQL-CDC".equalsIgnoreCase(pluginName)) {
+                    if (StringUtils.isBlank(port)) {
+                        port = "3306";
+                    }
+                    url = String.format("jdbc:mysql://%s:%s/", hostname, port);
+                } else if ("Postgres-CDC".equalsIgnoreCase(pluginName)) {
+                    if (StringUtils.isBlank(port)) {
+                        port = "5432";
+                    }
+                    String db = resolveDatabaseName(config, "postgres");
+                    url = String.format("jdbc:postgresql://%s:%s/%s", hostname, port, db);
+                } else if ("SqlServer-CDC".equalsIgnoreCase(pluginName)) {
+                    if (StringUtils.isBlank(port)) {
+                        port = "1433";
+                    }
+                    String db = resolveDatabaseName(config, "master");
+                    url =
+                            String.format(
+                                    "jdbc:sqlserver://%s:%s;databaseName=%s", hostname, port, db);
+                } else if ("Oracle-CDC".equalsIgnoreCase(pluginName)) {
+                    if (StringUtils.isBlank(port)) {
+                        port = "1521";
+                    }
+                    String db = resolveDatabaseName(config, "XE");
+                    url = String.format("jdbc:oracle:thin:@//%s:%s/%s", hostname, port, db);
                 }
-                url = String.format("jdbc:mysql://%s:%s/", hostname, port);
             }
         }
         if (StringUtils.isBlank(url)) {

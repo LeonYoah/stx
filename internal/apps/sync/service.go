@@ -704,19 +704,39 @@ func (s *Service) getTaskForExecution(ctx context.Context, id uint, draft *TaskD
 	if draft == nil {
 		return task, nil
 	}
-	name, err := normalizeTaskName(draft.Name)
+	// 兜底草稿缺失字段，优先保留已持久化任务的基础属性（名称、模式、格式、集群）。
+	// Fall back missing draft fields to preserved task metadata (name, mode, format, cluster).
+	draftName := draft.Name
+	if strings.TrimSpace(draftName) == "" {
+		draftName = task.Name
+	}
+	name, err := normalizeTaskName(draftName)
 	if err != nil {
 		return nil, err
 	}
-	mode, err := normalizeTaskMode(draft.Mode)
+	draftMode := draft.Mode
+	if strings.TrimSpace(draftMode) == "" {
+		draftMode = string(task.Mode)
+	}
+	mode, err := normalizeTaskMode(draftMode)
 	if err != nil {
 		return nil, err
 	}
-	format, err := normalizeContentFormat(draft.ContentFormat)
+	draftFormat := draft.ContentFormat
+	if strings.TrimSpace(draftFormat) == "" {
+		draftFormat = string(task.ContentFormat)
+	}
+	format, err := normalizeContentFormat(draftFormat)
 	if err != nil {
 		return nil, err
 	}
-	definition, err := restoreMaskedJSONMap(task.Definition, cloneJSONMap(draft.Definition))
+	var draftDef map[string]any
+	if draft.Definition != nil {
+		draftDef = cloneJSONMap(draft.Definition)
+	} else {
+		draftDef = cloneJSONMap(task.Definition)
+	}
+	definition, err := restoreMaskedJSONMap(task.Definition, draftDef)
 	if err != nil {
 		return nil, err
 	}
@@ -728,9 +748,15 @@ func (s *Service) getTaskForExecution(ctx context.Context, id uint, draft *TaskD
 		return nil, err
 	}
 	task.Name = name
-	task.Description = strings.TrimSpace(draft.Description)
-	task.ClusterID = draft.ClusterID
-	task.EngineVersion = strings.TrimSpace(draft.EngineVersion)
+	if strings.TrimSpace(draft.Description) != "" {
+		task.Description = strings.TrimSpace(draft.Description)
+	}
+	if draft.ClusterID != 0 {
+		task.ClusterID = draft.ClusterID
+	}
+	if strings.TrimSpace(draft.EngineVersion) != "" {
+		task.EngineVersion = strings.TrimSpace(draft.EngineVersion)
+	}
 	task.Mode = mode
 	task.ContentFormat = format
 	task.Content = db.ScriptText(content)

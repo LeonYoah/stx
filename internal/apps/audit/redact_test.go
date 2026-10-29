@@ -216,3 +216,19 @@ imap:
 		}
 	}
 }
+
+// 非敏感键的值里嵌着的赋值也要脱敏，例如错误信息 "failed: password=xxx"。
+// Assignments embedded in a non-sensitive value must be masked too, e.g. the error text "failed: password=xxx".
+func TestRedactTextMasksAssignmentsInsideOrdinaryValues(t *testing.T) {
+	got := RedactText(`connect failed: password=secret123, user=reader; error: token:abc-token`)
+	for _, secret := range []string{"secret123", "abc-token"} {
+		if strings.Contains(got, secret) {
+			t.Fatalf("credential %q remained in redacted text: %q", secret, got)
+		}
+	}
+	for _, ordinary := range []string{"connect failed: password=******", "user=reader"} {
+		if !strings.Contains(got, ordinary) {
+			t.Fatalf("expected ordinary text %q to remain, got %q", ordinary, got)
+		}
+	}
+}

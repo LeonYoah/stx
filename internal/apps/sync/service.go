@@ -72,6 +72,9 @@ type Service struct {
 	// reconcile 负责各集群并行对账、跳过进行中的集群与按集群退避。
 	// reconcile runs per-cluster reconciles in parallel, skips clusters still in flight and backs off per cluster.
 	reconcile clusterReconcileScheduler
+	// errorBackfill 为刚失败、错误信息还没到的作业低频补拉 job-info。
+	// errorBackfill re-fetches job-info at a low rate for recently failed jobs whose error has not arrived yet.
+	errorBackfill failedErrorBackfill
 	// alertReporter 接收作业告警信号（由 monitoring 注入，非阻塞）；alertStore 读写任务告警配置。
 	// alertReporter receives job alert signals (injected by monitoring, non-blocking); alertStore reads and writes
 	// task alert configs.
@@ -1264,9 +1267,24 @@ func (s *Service) GetPreviewSnapshot(ctx context.Context, jobID uint, tablePath 
 	if err != nil {
 		return nil, err
 	}
+	// 提取 Schema 声明的列顺序（来自 preview_content 或任务内容）
+	// Extract schema declared column order (from preview_content or task content)
+	schemaOrder := extractPreviewSchemaOrderFromJob(instance, "")
+	if len(schemaOrder) == 0 && instance != nil && instance.TaskID > 0 {
+		if task, taskErr := s.repo.GetTaskByID(ctx, instance.TaskID); taskErr == nil && task != nil {
+			schemaOrder = extractPreviewSchemaOrderFromJob(instance, string(task.Content))
+		}
+	}
 	tableData := make([]*PreviewTableData, 0, len(tables))
 	var selected *PreviewTable
 	for _, table := range tables {
+		if len(schemaOrder) > 0 {
+			aligned := alignPreviewColumnsOrder(table.Columns, schemaOrder, nil)
+			if !equalStringSlices(table.Columns, aligned) {
+				table.Columns = append(JSONStringSlice{}, aligned...)
+				_ = s.repo.UpdatePreviewTable(ctx, table)
+			}
+		}
 		tableData = append(tableData, &PreviewTableData{
 			ID:        table.ID,
 			TablePath: table.TablePath,
@@ -1290,10 +1308,14 @@ func (s *Service) GetPreviewSnapshot(ctx context.Context, jobID uint, tablePath 
 		for _, row := range rows {
 			selectedRows = append(selectedRows, cloneJSONMap(row.RowData))
 		}
+		selectedCols := selected.Columns
+		if len(schemaOrder) > 0 {
+			selectedCols = alignPreviewColumnsOrder(selectedCols, schemaOrder, nil)
+		}
 		selectedData = &PreviewTableData{
 			ID:        selected.ID,
 			TablePath: selected.TablePath,
-			Columns:   append([]string(nil), selected.Columns...),
+			Columns:   append([]string(nil), selectedCols...),
 			RowCount:  selected.RowCount,
 			Rows:      selectedRows,
 		}
@@ -1323,6 +1345,34 @@ func (s *Service) GetPreviewSnapshot(ctx context.Context, jobID uint, tablePath 
 			snapshot.ContentFormat = format
 		}
 		snapshot.Warnings = stringSliceValue(instance.ResultPreview, "warnings")
+		if len(schemaOrder) > 0 {
+			previewChanged := false
+			if dsVal, ok := instance.ResultPreview["datasets"]; ok {
+				datasets := toDatasetSlice(dsVal)
+				for _, ds := range datasets {
+					if cols := stringSliceValue(ds, "columns"); len(cols) > 0 {
+						alignedDsCols := alignPreviewColumnsOrder(cols, schemaOrder, nil)
+						if !equalStringSlices(cols, alignedDsCols) {
+							ds["columns"] = alignedDsCols
+							previewChanged = true
+						}
+					}
+				}
+				if previewChanged {
+					instance.ResultPreview["datasets"] = datasets
+				}
+			}
+			if cols := stringSliceValue(instance.ResultPreview, "columns"); len(cols) > 0 {
+				alignedResCols := alignPreviewColumnsOrder(cols, schemaOrder, nil)
+				if !equalStringSlices(cols, alignedResCols) {
+					instance.ResultPreview["columns"] = alignedResCols
+					previewChanged = true
+				}
+			}
+			if previewChanged {
+				_ = s.repo.UpdateJobInstance(ctx, instance)
+			}
+		}
 	}
 	return snapshot, nil
 }
@@ -2438,6 +2488,8 @@ func injectPreviewCollectIdentifiers(httpSink map[string]interface{}, platformJo
 	return cloned
 }
 
+// normalizePreviewCollectRequest 解析并规范化预览收集请求及原始请求体中的列顺序。
+// normalizePreviewCollectRequest parses and normalizes preview collect request and raw body column ordering.
 func normalizePreviewCollectRequest(req *PreviewCollectRequest, rawBody []byte) {
 	if req == nil {
 		return
@@ -2452,7 +2504,32 @@ func normalizePreviewCollectRequest(req *PreviewCollectRequest, rawBody []byte) 
 			if err := json.Unmarshal(rawBody, &payload); err == nil {
 				switch typed := payload.(type) {
 				case map[string]interface{}:
-					req.Rows = []map[string]interface{}{typed}
+					if req.PlatformJobID == "" {
+						if p, ok := typed["platform_job_id"].(string); ok {
+							req.PlatformJobID = strings.TrimSpace(p)
+						}
+					}
+					if req.EngineJobID == "" {
+						if e, ok := typed["engine_job_id"].(string); ok {
+							req.EngineJobID = strings.TrimSpace(e)
+						}
+					}
+					if req.Dataset == "" {
+						if d, ok := typed["dataset"].(string); ok {
+							req.Dataset = strings.TrimSpace(d)
+						}
+					}
+					if rawRows, hasRows := typed["rows"].([]interface{}); hasRows {
+						rows := make([]map[string]interface{}, 0, len(rawRows))
+						for _, item := range rawRows {
+							if mapped, ok := item.(map[string]interface{}); ok {
+								rows = append(rows, mapped)
+							}
+						}
+						req.Rows = rows
+					} else {
+						req.Rows = []map[string]interface{}{typed}
+					}
 				case []interface{}:
 					rows := make([]map[string]interface{}, 0, len(typed))
 					for _, item := range typed {
@@ -2465,12 +2542,19 @@ func normalizePreviewCollectRequest(req *PreviewCollectRequest, rawBody []byte) 
 			}
 		}
 	}
-	normalizePreviewRowsAndDataset(req)
+	rawOrderedKeys := extractOrderedKeysFromJSON(rawBody)
+	normalizePreviewRowsAndDataset(req, rawOrderedKeys)
 }
 
-func normalizePreviewRowsAndDataset(req *PreviewCollectRequest) {
+// normalizePreviewRowsAndDataset 规范化预览上报请求的行数据、数据集名和列顺序。
+// normalizePreviewRowsAndDataset normalizes preview collect request rows, dataset name, and column order.
+func normalizePreviewRowsAndDataset(req *PreviewCollectRequest, rawOrderedKeys ...[]string) {
 	if req == nil || len(req.Rows) == 0 {
 		return
+	}
+	var rawKeys []string
+	if len(rawOrderedKeys) > 0 {
+		rawKeys = rawOrderedKeys[0]
 	}
 	columnsSeen := map[string]struct{}{}
 	columns := make([]string, 0)
@@ -2516,22 +2600,24 @@ func normalizePreviewRowsAndDataset(req *PreviewCollectRequest) {
 			columns = append(columns, trimmed)
 		}
 	}
-	if _, exists := columnsSeen["RowKind"]; exists {
-		reordered := make([]string, 0, len(columns))
-		reordered = append(reordered, "RowKind")
-		for _, column := range columns {
-			if column == "RowKind" {
-				continue
+	targetCols := columns
+	if len(req.Columns) > 0 {
+		reqColStrs := interfaceSliceToStrings(req.Columns)
+		reqColSet := make(map[string]struct{}, len(reqColStrs))
+		for _, c := range reqColStrs {
+			reqColSet[strings.ToLower(strings.TrimSpace(c))] = struct{}{}
+		}
+		targetCols = reqColStrs
+		for _, c := range columns {
+			if _, exists := reqColSet[strings.ToLower(c)]; !exists {
+				targetCols = append(targetCols, c)
 			}
-			reordered = append(reordered, column)
 		}
-		columns = reordered
 	}
-	if len(req.Columns) == 0 && len(columns) > 0 {
-		req.Columns = make([]interface{}, 0, len(columns))
-		for _, column := range columns {
-			req.Columns = append(req.Columns, column)
-		}
+	aligned := alignPreviewColumnsOrder(targetCols, nil, rawKeys)
+	req.Columns = make([]interface{}, 0, len(aligned))
+	for _, col := range aligned {
+		req.Columns = append(req.Columns, col)
 	}
 }
 
@@ -2631,8 +2717,10 @@ func (s *Service) refreshJobInstance(ctx context.Context, instance *JobInstance)
 	if isFinalNormalizedJobStatus(instance.Status) {
 		jobStatus := strings.ToUpper(strings.TrimSpace(stringValue(instance.ResultPreview, "job_status")))
 		// Skip only after a true final metrics block exists. Mid-run snapshot/metrics alone must not freeze refresh.
-		// 仅在已有终态指标块时跳过；只有中途 snapshot/metrics 时继续补拉 job-info。
-		if (jobStatus == "" || isFinalEngineJobStatus(jobStatus)) && hasFinalMetricsLog(instance.ResultPreview) {
+		// Failed jobs still waiting for the engine's late errorMsg are not skipped.
+		// 仅在已有终态指标块时跳过；只有中途 snapshot/metrics 时继续补拉 job-info；还在等引擎补错误信息的失败作业也不跳过。
+		if (jobStatus == "" || isFinalEngineJobStatus(jobStatus)) && hasFinalMetricsLog(instance.ResultPreview) &&
+			!awaitingEngineErrorMessage(instance, time.Now()) {
 			return instance, nil
 		}
 	}

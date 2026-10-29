@@ -106,9 +106,24 @@ func RedactText(value string) string {
 		}
 		return parts[1] + parts[2] + parts[3] + redactedValue
 	})
-	redacted := assignmentPattern.ReplaceAllStringFunc(value, func(match string) string {
+	redacted := redactAssignments(value)
+	return urlUserinfoPattern.ReplaceAllString(redacted, `${1}******${2}`)
+}
+
+// redactAssignments 屏蔽 key=value / key: value 中敏感键的值。非敏感键的值里可能还嵌着赋值
+// （如错误信息 "failed: password=xxx" 会被整体匹配成 failed 的值），所以对这类值递归处理。
+// redactAssignments masks values of sensitive keys in key=value / key: value text. A non-sensitive value may embed
+// another assignment (e.g. "failed: password=xxx" matches as the value of failed), so such values are redacted recursively.
+func redactAssignments(value string) string {
+	return assignmentPattern.ReplaceAllStringFunc(value, func(match string) string {
 		parts := assignmentPattern.FindStringSubmatch(match)
-		if len(parts) < 6 || !isSensitiveKey(parts[2]) {
+		if len(parts) < 6 {
+			return match
+		}
+		if !isSensitiveKey(parts[2]) {
+			if inner := redactAssignments(parts[5]); inner != parts[5] {
+				return parts[1] + parts[2] + parts[3] + parts[4] + inner
+			}
 			return match
 		}
 		if IsVariablePlaceholder(parts[5]) {
@@ -116,7 +131,6 @@ func RedactText(value string) string {
 		}
 		return parts[1] + parts[2] + parts[3] + parts[4] + redactedValue
 	})
-	return urlUserinfoPattern.ReplaceAllString(redacted, `${1}******${2}`)
 }
 
 // redactSensitiveBlockScalars 移除敏感字段对应的 YAML 多行正文，同时保留其余行。

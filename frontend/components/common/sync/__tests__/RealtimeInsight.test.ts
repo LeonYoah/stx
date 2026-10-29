@@ -19,7 +19,7 @@
 // Unit tests for realtime insight entry and tone helpers
 
 import {describe, expect, it} from 'vitest';
-import {backpressureTone, latestVertexBusy} from '../RealtimeInsightPanel';
+import {backpressureTone, latestVertexBusy} from '../job-detail/dag-model';
 import {getObservabilityMode, getRealtimeEntry} from '../sync-studio-utils';
 import {
   buildTimelineRows,
@@ -149,6 +149,23 @@ describe('job event timeline helpers', () => {
         ],
       }),
     ).toBe('seatunnel_test.public.cdc_orders · +remark, -old');
+    // MySQL CDC 实测形状：删列的 column 是字符串，增列 / 改列带 sourceType。
+    // Real MySQL CDC shapes: DROP carries the column as a string, ADD / MODIFY include sourceType.
+    expect(
+      schemaChangeSummary({
+        tableIdentifier: {databaseName: 'stx_demo', tableName: 'customers'},
+        events: [{eventType: 'SCHEMA_CHANGE_DROP_COLUMN', column: 'city'}],
+      }),
+    ).toBe('stx_demo.customers · -city');
+    expect(
+      schemaChangeSummary({
+        tableIdentifier: {databaseName: 'stx_demo', tableName: 'orders'},
+        events: [
+          {eventType: 'SCHEMA_CHANGE_ADD_COLUMN', column: {name: 'coupon_code', sourceType: 'VARCHAR(32)'}},
+          {eventType: 'SCHEMA_CHANGE_MODIFY_COLUMN', column: {name: 'status', sourceType: 'VARCHAR(32)'}},
+        ],
+      }),
+    ).toBe('stx_demo.orders · +coupon_code VARCHAR(32), ~status VARCHAR(32)');
   });
 });
 

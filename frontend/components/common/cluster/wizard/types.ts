@@ -157,6 +157,8 @@ export interface DeployStepItem {
 export interface ClusterDeployConfig {
   // Basic info / 基本信息
   name: string;
+  /** Physical cluster code identifier / 物理集群唯一标识 */
+  clusterCode: string;
   description: string;
   deploymentMode: DeploymentMode;
   // Install config / 安装配置
@@ -184,6 +186,7 @@ export interface ClusterDeployConfig {
  */
 export const defaultClusterDeployConfig: ClusterDeployConfig = {
   name: '',
+  clusterCode: '',
   description: '',
   deploymentMode: DeploymentMode.SEPARATED,
   version: '',

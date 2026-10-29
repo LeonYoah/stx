@@ -86,14 +86,95 @@ export interface ApiError {
 ## Scenario: 实时诊断与事件入口（3.x）
 
 - **入口判定只看后端记录**：`getRealtimeEntry(job)` 读取 `submit_spec.observability.supported / injected` 和作业状态，**不在前端比较 SeaTunnel 版本**。
-- **背压 DAG 不自建，统一用"跳转到 SeaTunnel 集群观测"**：`SeaTunnelObserveMenu`（`components/common/cluster/`）是唯一入口，作业行、实时诊断面板和集群详情都复用它。
+- **跳转 SeaTunnel 只有一个入口**：`SeaTunnelObserveMenu`（`components/common/cluster/`）是唯一入口，作业详情头部和集群详情都复用它。
+  忙碌度 / 背压已直接画在作业详情的拓扑上（见下方「作业详情与 Flink 风格拓扑」），完整背压历史曲线仍跳转引擎 Web UI，不自建。
   - 可选代理地址或原生地址，地址取自 `GET /api/v1/clusters/:id/webui-endpoints`。前端**不自己拼直连地址**，也不判断版本或 `enable_http`，这些都由后端返回的 `available/reason` 决定。
   - 带作业时追加 `job_path_template`（引擎 UI 是 hash 路由）。
-  - 实时和离线作业都显示。`RealtimeInsightPanel` 只显示瓶颈提示、速览和不可用原因。
-- **轮询**：实时面板每 5 秒一次（和引擎采集桶对齐），页面不可见时暂停，作业到终态时停止；事件时间线每 10 秒一次（和引擎上报批次对齐）。
+  - 实时和离线作业都显示。拓扑上方的提示条（`JobTopology` 内的 `RealtimeHintsBar`）只显示状态、瓶颈提示和不可用原因，节点与连线承载忙碌度 / 背压数值。
+- **轮询**：实时数据每 5 秒一次（和引擎采集桶对齐，`useJobRealtime`），只在详情「拓扑」页签可见时请求，页面不可见时暂停，作业到终态时停止；事件时间线每 10 秒一次（和引擎上报批次对齐），只在「事件」页签可见时请求。
 - **数组兜底**：`getJobRealtime` 在 service 层把 `vertices/edges/hints/points` 归一成 `[]`，`listJobEvents` 把 `events` 归一成 `[]`。
 - **CDC 延迟**：只在 `job.cdc_delay?.fresh` 为真时显示徽标。引擎只在延迟 ≥1 秒时上报，60 秒内没有样本就视为已恢复。
 - **事件通道开关**：网页端直接 PUT，不带执行请求头，后端对 web 客户端跳过执行协议（和 config 写接口一致）；确认交互用 AlertDialog，并提示需要滚动重启。
+
+## Scenario: 作业详情与 Flink 风格拓扑
+
+### 1. Scope / Trigger
+- 运行记录的作业详情（`components/common/sync/job-detail/`）与编辑器「DAG」预览共用一个拓扑组件。设计对照 Flink web-dashboard
+  源码（`apache/flink@eead57e`，记录在 `.trellis/tasks/*/10-27-job-detail-dag/research/flink-web-ui.md`）。
+- 修改作业行操作、详情页签、拓扑数据合并、节点配色或布局时，必须同步本节。
+
+### 2. Signatures
+```ts
+// 入口：DataSyncStudio 持有 detailJobId / detailTab；作业对象从 jobs 取，随轮询刷新
+openJobDetail(job: SyncJobInstance, tab?: JobDetailTab): void      // 同时 setSelectedJobId(job.id)
+type JobDetailTab = 'topology' | 'metrics' | 'checkpoint' | 'logs' | 'events' | 'config' | 'script';
+getJobActionState(job, {isAdmin, isOwner, canRun, currentUserId, disableRecover})
+  // → {showRecover, canRecover, showStop, canStop}，作业行与详情头部唯一的判断来源
+<JobTopology mode='runtime' | 'plan' jobDag metrics? jobId? realtimeEnabled? running? warnings? />
+services.sync.getJobPlanDag(jobId)                                   // GET /sync/jobs/:id/plan-dag，warnings 兜底 []
+```
+
+### 3. Contracts
+- **入口**：点击运行记录行任意处 = 选中作业 + 打开详情；行内只留「详情 / 恢复 / 保存点停止 / 停止」；多表徽标打开「指标」页签；
+  告警深链 `/sync?task=&job=` 选中作业后直接打开详情。行内按钮必须 `stopPropagation`。
+- **页签**：拓扑｜指标｜Checkpoint｜日志｜事件｜配置｜脚本，只渲染当前页签。日志与 Checkpoint 由工作台以插槽传入，加载条件为
+  `bottomConsoleTab === X || (detailJob && detailTab === X)`，与底部面板共用同一份数据，不重复请求。
+- **数据合并**（`dag-model.ts`）：拓扑以运行时 `result_preview.job_dag` 为准；计划 DAG（`webui_job.jobDag`）按 `vertexId + type`
+  → `type + tablePaths 集合` → `type + 指标前缀` 依次匹配补表结构，匹配不上标 `planMatched=false`。指标按 `Source[0].<表>` 前缀一次索引。
+- **实时叠加**：节点忙碌度取 `latestVertexBusy`；连线背压按 `target_vertex_id` 取最新 `bpRatio`；节点“被反压” = 出边背压最大值。
+  节点配色照 Flink：默认 `#1890ff`，按忙碌度向 `#ee2222` 混合，再按被反压向 `#888888` 混合（`nodeColors`）。连线只标背压 %（引擎没有按边的吞吐）。
+- **布局与性能**：`dag-layout.ts` 用 dagre，参数照 Flink（`LR` / `network-simplex` / `DL` / `ranksep 150` / `edgesep 150`），节点固定
+  260px 宽；布局只按 `structureKey` 缓存，轮询刷新只改节点 data。React Flow、dagre 只能在 `job-detail/JobTopology` 动态导入的 chunk 里，
+  `dag-model.ts`、`JobDetailDialog.tsx` 等会被工作台静态导入的文件不得引入它们（复制函数在 `copy-text.ts`）。
+- **多表**：节点只显示首表 + 数量（`shortTablePath`：去掉库名再中间省略，保证表名结尾可见；可复制）；抽屉表列表 / 选择器 /
+  按表指标每次最多渲染 200 行，搜索收窄。
+- **卡片配色**：一种颜色只表达一个意思。类型只靠小图标 + 灰色元信息（`SOURCE[0] · #1 · P1`），不加类型色条；运行模式下健康度
+  （忙碌 / 被反压）≥ 20% 才给边框和底色染 Flink 混色，低负载保持中性；Sink 没有下游，不显示 BP。
+- **抽屉状态**：作业列表轮询会换掉 `tablePaths` 数组引用，抽屉的选中表 / 搜索词 / 分页只能按 `vertexId + tablePaths 内容` 重置，
+  不能按数组引用（回归测试 `DagNodeDrawer.test.tsx`）。
+- **语义文案**：表结构与建表计划都由提交时配置对照数据库**当前**状态推导，界面必须写明；目标表已存在时建表计划显示无需建表，
+  不代表作业启动时没有建表。
+- **指标页**：引擎原始扩展指标里全为 0 的（如 `FlushSignal*`、`IntermediateQueueSize`，相关能力未触发或没有积压）用
+  `isZeroMetricValue` 识别后折叠成一行，可展开；非零的照常分组。不删除这些指标，非零时它们有诊断价值。
+- **日志加载**：`logsResult === null`（还没拿到第一份结果）显示骨架，只有拿到空结果才显示“暂无日志 / 切换日志模式”引导；
+  自动刷新时保留已显示内容，只用 `TableLoadingBar` 提示，头部固定显示上次更新时间；刷新失败不清空已有日志（回归测试 `ConsoleLogs.test.tsx`）。
+- **事件原始数据**：时间线每条事件（含生命周期分组里的子事件）点击展开 `ExpandableTextPanel` 显示完整 JSON（服务端已脱敏），
+  格式化摘要只是速览。schema change 摘要：增 / 改列的 `column` 是对象（显示 `name sourceType`），删列的 `column` 是字符串（MySQL CDC 实测）。
+- **动态码**：计划 DAG 原因码、实时 reason / hint 码都来自后端，翻译前用 `t.has()`，未知值显示原码。
+
+### 4. Validation & Error Matrix
+| 情况 | 表现 |
+|---|---|
+| 运行时 `job_dag` 缺失 | 拓扑页签显示“引擎还没有返回该作业的执行拓扑” |
+| 计划 DAG 加载中 / `available=false` / 请求失败 | 拓扑照常显示；抽屉“表结构 / 建表计划”给一行原因（可刷新） |
+| 节点未对应上计划 DAG | 抽屉提示“未能对应到提交配置中的节点” |
+| 非 3.x 或非运行中 | 不显示提示条，节点 Busy / BP 显示 `N/A`；「事件」页签在不支持时禁用 |
+| 选中节点 | 视口适配“选中节点 + 上下游”（等抽屉改变画布宽度后再 fit），其余节点与连线淡化 |
+
+### 5. Good/Base/Bad Cases
+- Good：运行中的 CDC 作业，Source 忙碌 100% 显示为红色，连线 `BP 0%`，提示条给出“读取占用 100% 且下游无背压”，点 Sink 看到建表计划。
+- Base：已结束的作业，拓扑与按表指标正常，Busy / BP 为 `N/A`，表结构来自计划 DAG。
+- Bad：在画布上 `setCenter` 选中节点却不考虑抽屉，导致下游节点被挤出视口、`onlyRenderVisibleElements` 把它移出 DOM。
+
+### 6. Tests Required
+- `job-detail/__tests__/dag-model.test.ts`：作业 #26 真实结构归一化与合并、多 pipeline 去重、500 表索引、实时叠加、Flink 配色、扇入扇出布局不重叠、`structureKey` 稳定。
+- `job-detail/__tests__/table-schema.test.ts`：列 / 主键 / 唯一键 / 可空解析，`__default__` 建表计划兜底。
+- `job-detail/__tests__/DagNodeDrawer.test.tsx`：同样的表集合、新的对象引用重新渲染后，选中表与搜索词保留。
+- `job-detail/__tests__/JobRunsPanel.test.tsx`：点行打开详情并选中、行内按钮数量与禁用、按钮不冒泡、多表徽标打开指标页签、`getJobActionState` 权限矩阵。
+- `pnpm build` 后确认 `react-flow__` / `network-simplex` 只出现在非 `/workbench` 首屏 chunk 中。
+
+### 7. Wrong vs Correct
+#### Wrong
+```ts
+// 布局依赖 graph 对象：作业列表每次轮询都会换掉 job_dag 引用，dagre 每几秒重排一次，视口还会跳。
+const positions = useMemo(() => layoutDag(graph, size), [graph]);
+```
+#### Correct
+```ts
+// 只在结构签名变化时重排，指标与实时数据只更新节点 data。
+const layoutKey = `${structureKey(graph)}|${mode}`;
+const positions = useMemo(() => layoutDag(graph, size), [layoutKey]);
+```
 
 ## Scenario: Sync 工作台 Config DAG 兼容 WebUI `jobDag`
 

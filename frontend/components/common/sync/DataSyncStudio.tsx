@@ -111,7 +111,6 @@ import type {
   SyncGlobalVariable,
   SyncJobInstance,
   SyncJobLogsResult,
-  SyncJSON,
   SyncPluginFactoryInfo,
   SyncPluginType,
   SyncPreviewDataset,
@@ -121,8 +120,6 @@ import type {
   SyncTaskTreeNode,
   SyncTaskVersion,
   SyncValidateResult,
-  SyncWebUIDagPreviewJob,
-  SyncWebUIJobDag,
 } from '@/lib/services/sync';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
@@ -178,9 +175,8 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@/components/ui/tooltip';
-import {WebUiDagPreview} from '@/components/common/sync/WebUiDagPreview';
-import {RealtimeInsightPanel} from '@/components/common/sync/RealtimeInsightPanel';
-import {JobEventTimelineDialog} from '@/components/common/sync/JobEventTimelineDialog';
+import {JobDetailDialog} from '@/components/common/sync/job-detail/JobDetailDialog';
+import type {JobDetailTab} from '@/components/common/sync/job-detail/types';
 import {
   TaskScheduleSidebarPanel,
   type TaskScheduleValue,
@@ -209,6 +205,11 @@ const MonacoDiffEditor = dynamic(
   },
 );
 
+// 拓扑（React Flow + dagre）只在打开 DAG 时加载。/ The topology (React Flow + dagre) loads only when a DAG opens.
+const JobTopology = dynamic(() => import('@/components/common/sync/job-detail/JobTopology'), {
+  ssr: false,
+});
+
 
 import {
   SidebarIconTab,
@@ -236,8 +237,6 @@ import {
 import {
   ValidationResultPanel,
   StudioErrorDiagnosticsView,
-  MetricsDialogContent,
-  JobScriptDialogContent,
   VirtualizedLogViewer,
 } from './StudioDialogs';
 import {
@@ -330,7 +329,6 @@ import {
   getEngineEndpointLabel,
   getExecutionMode,
   getObservabilityMode,
-  getRealtimeEntry,
   getTaskTimeoutMinutes,
   isCancelOutcomeUnknown,
   isSubmitOutcomeUnknown,
@@ -499,13 +497,10 @@ export function DataSyncStudio() {
   const [dagOpen, setDagOpen] = useState(false);
   // 查看运行中/已结束作业的实时执行拓扑
   // View execution DAG of running or finished jobs
-  const [viewingJobDag, setViewingJobDag] = useState<SyncWebUIDagPreviewJob | null>(null);
-  // 正在查看 DAG 的作业实例，用于挂载实时诊断面板
-  // Job instance whose DAG is being viewed, used to mount the realtime insight panel
-  const [viewingJobInstance, setViewingJobInstance] = useState<SyncJobInstance | null>(null);
-  // 正在查看事件时间线的作业
-  // Job whose event timeline is open
-  const [eventsJob, setEventsJob] = useState<SyncJobInstance | null>(null);
+  // 作业详情：只记作业 ID，作业对象从 jobs 取，随轮询刷新状态。
+  // Job detail: only the job id is kept; the job itself comes from jobs so its status refreshes with polling.
+  const [detailJobId, setDetailJobId] = useState<number | null>(null);
+  const [detailTab, setDetailTab] = useState<JobDetailTab>('topology');
   const [validationOpen, setValidationOpen] = useState(false);
   const [validationTitle, setValidationTitle] = useState('');
   const [validationResult, setValidationResult] =
@@ -567,9 +562,6 @@ export function DataSyncStudio() {
   const [actionPending, setActionPending] = useState<PendingActionKind | null>(
     null,
   );
-  const [jobScriptOpen, setJobScriptOpen] = useState(false);
-  const [jobScriptTarget, setJobScriptTarget] =
-    useState<SyncJobInstance | null>(null);
   const [previewRunDialog, setPreviewRunDialog] =
     useState<PreviewRunDialogState>({
       open: false,
@@ -677,9 +669,6 @@ export function DataSyncStudio() {
     useState(false);
   const [editingCustomVariable, setEditingCustomVariable] =
     useState<VariableRow | null>(null);
-  const [jobMetricsDialogOpen, setJobMetricsDialogOpen] = useState(false);
-  const [metricsDialogJob, setMetricsDialogJob] =
-    useState<SyncJobInstance | null>(null);
   const [logsDialogOpen, setLogsDialogOpen] = useState(false);
   const [logFilterMode, setLogFilterMode] = useState<LogFilterMode>('all');
   const [logSearchTerm, setLogSearchTerm] = useState('');
@@ -803,6 +792,25 @@ export function DataSyncStudio() {
     () => jobs.find((job) => job.id === selectedJobId) || jobs[0] || null,
     [jobs, selectedJobId],
   );
+  const detailJob = useMemo(
+    () => (detailJobId === null ? null : jobs.find((job) => job.id === detailJobId) ?? null),
+    [jobs, detailJobId],
+  );
+  // 日志与 Checkpoint 在底部面板或作业详情对应页签可见时都要加载，两处共用同一份数据。
+  // Logs and checkpoint load when visible in either the bottom console or the job detail tab; both share one copy.
+  const logsVisible = bottomConsoleTab === 'logs' || (detailJob !== null && detailTab === 'logs');
+  const checkpointVisible =
+    bottomConsoleTab === 'checkpoint' || (detailJob !== null && detailTab === 'checkpoint');
+
+  /**
+   * 打开作业详情：同时选中该作业，让日志 / Checkpoint 跟随它。
+   * Open the job detail and select the job so logs / checkpoint follow it.
+   */
+  const openJobDetail = useCallback((job: SyncJobInstance, tab: JobDetailTab = 'topology') => {
+    setSelectedJobId(job.id);
+    setDetailJobId(job.id);
+    setDetailTab(tab);
+  }, []);
   const previewDatasets = useMemo(
     () =>
       previewSnapshot
@@ -1252,6 +1260,11 @@ export function DataSyncStudio() {
         }
       }
       setJobs(items);
+      // 告警深链带作业时直接打开作业详情。/ A deep link carrying a job opens its detail directly.
+      if (deepLinkedJobId) {
+        setDetailJobId(deepLinkedJobId);
+        setDetailTab('topology');
+      }
       setSelectedJobId((prev) => {
         if (deepLinkedJobId) {
           return deepLinkedJobId;
@@ -1569,18 +1582,18 @@ export function DataSyncStudio() {
   }, [previewJob?.id, previewDatasetName, loadPreviewSnapshot]);
 
   useEffect(() => {
-    if (bottomConsoleTab !== 'checkpoint') {
+    if (!checkpointVisible) {
       return;
     }
     void loadCheckpointSnapshot(selectedJobId);
-  }, [bottomConsoleTab, selectedJobId, loadCheckpointSnapshot]);
+  }, [checkpointVisible, selectedJobId, loadCheckpointSnapshot]);
 
   useEffect(() => {
-    if (bottomConsoleTab !== 'checkpoint') {
+    if (!checkpointVisible) {
       return;
     }
     void loadCheckpointFiles(selectedJob);
-  }, [bottomConsoleTab, loadCheckpointFiles, selectedJob]);
+  }, [checkpointVisible, loadCheckpointFiles, selectedJob]);
 
   // 同步编辑器定义中的自定义变量与类型到状态
   // Sync custom variables and types from editor definition into state
@@ -1610,7 +1623,7 @@ export function DataSyncStudio() {
 
   const loadSelectedJobLogs = useCallback(
     async (all = false) => {
-      if (!selectedJobId || (bottomConsoleTab !== 'logs' && !all)) {
+      if (!selectedJobId || (!logsVisible && !all)) {
         return;
       }
       const requestVersion = jobLogsRequestVersionRef.current;
@@ -1675,13 +1688,18 @@ export function DataSyncStudio() {
         ) {
           return;
         }
+        // 自动刷新偶发失败时保留已显示的日志（只在下次从头拉），避免页面闪空；从没拿到过结果时给一个空结果，结束骨架态。
+        // A failed auto-refresh keeps the logs on screen (the next poll restarts from the beginning) to avoid flashing
+        // empty; if nothing was ever loaded, store an empty result so the skeleton ends.
+        const emptyResult = (previous: SyncJobLogsResult | null): SyncJobLogsResult =>
+          previous ?? {mode: '', source: '', logs: '', updated_at: ''};
         if (all) {
-          setExpandedJobLogs(null);
+          setExpandedJobLogs(emptyResult);
           setExpandedJobLogsOffset('');
           expandedJobLogsOffsetRef.current = '';
           expandedJobLogChunkSizeRef.current = EXPANDED_LOG_CHUNK_BASE_BYTES;
         } else {
-          setJobLogs(null);
+          setJobLogs(emptyResult);
           setJobLogsOffset('');
           jobLogsOffsetRef.current = '';
           jobLogChunkSizeRef.current = LOG_CHUNK_BASE_BYTES;
@@ -1700,16 +1718,16 @@ export function DataSyncStudio() {
         }
       }
     },
-    [bottomConsoleTab, logFilterMode, logSearchTerm, selectedJobId],
+    [logsVisible, logFilterMode, logSearchTerm, selectedJobId],
   );
 
   useEffect(() => {
-    if (!selectedJobId || bottomConsoleTab !== 'logs') {
+    if (!selectedJobId || !logsVisible) {
       return;
     }
     void loadSelectedJobLogs();
   }, [
-    bottomConsoleTab,
+    logsVisible,
     loadSelectedJobLogs,
     selectedJobId,
     logFilterMode,
@@ -1725,11 +1743,11 @@ export function DataSyncStudio() {
   }, [logsDialogOpen, selectedJobId, loadSelectedJobLogs]);
 
   useEffect(() => {
-    if (bottomConsoleTab === 'logs') {
+    if (logsVisible) {
       return;
     }
     jobLogsAbortRef.current?.abort();
-  }, [bottomConsoleTab]);
+  }, [logsVisible]);
 
   useEffect(() => {
     return () => {
@@ -1791,14 +1809,14 @@ export function DataSyncStudio() {
   ]);
 
   useEffect(() => {
-    if (!selectedJobId || bottomConsoleTab !== 'logs') {
+    if (!selectedJobId || !logsVisible) {
       return;
     }
     const timer = window.setInterval(() => {
       void loadSelectedJobLogs();
     }, 3000);
     return () => window.clearInterval(timer);
-  }, [bottomConsoleTab, loadSelectedJobLogs, selectedJobId]);
+  }, [logsVisible, loadSelectedJobLogs, selectedJobId]);
 
   useEffect(() => {
     if (!logsDialogOpen || !selectedJobId) {
@@ -1812,7 +1830,7 @@ export function DataSyncStudio() {
 
   useEffect(() => {
     if (
-      bottomConsoleTab !== 'checkpoint' ||
+      !checkpointVisible ||
       !selectedJobId ||
       !selectedJob ||
       (selectedJob.status !== 'pending' && selectedJob.status !== 'running')
@@ -1825,7 +1843,7 @@ export function DataSyncStudio() {
     }, 3000);
     return () => window.clearInterval(timer);
   }, [
-    bottomConsoleTab,
+    checkpointVisible,
     loadCheckpointFiles,
     loadCheckpointSnapshot,
     selectedJob,
@@ -2305,6 +2323,7 @@ export function DataSyncStudio() {
               keyCtx.snapshot.values,
             );
             const prefix = (keyCtx.prefix || '').toLowerCase();
+            const normalizedPrefix = prefix.replace(/[-_.]/g, '');
             const word = model.getWordUntilPosition(position);
             const range = {
               startLineNumber: position.lineNumber,
@@ -2313,12 +2332,19 @@ export function DataSyncStudio() {
               endColumn: word?.endColumn || position.column,
             };
             const suggestions = ranks
-              .filter((item) =>
-                prefix
-                  ? item.key.toLowerCase().startsWith(prefix) ||
-                    item.key.toLowerCase().includes(prefix)
-                  : true,
-              )
+              .filter((item) => {
+                if (!prefix) {
+                  return true;
+                }
+                const keyLower = item.key.toLowerCase();
+                const keyNormalized = keyLower.replace(/[-_.]/g, '');
+                return (
+                  keyLower.startsWith(prefix) ||
+                  keyLower.includes(prefix) ||
+                  (normalizedPrefix.length > 0 &&
+                    keyNormalized.includes(normalizedPrefix))
+                );
+              })
               .slice(0, 80)
               .map((item, index) => ({
                 label: item.key,
@@ -3531,9 +3557,11 @@ export function DataSyncStudio() {
       setValidationTitle(t('validateConfigTitle'));
       setValidationResult(result);
       setValidationOpen(true);
-      toast.success(
-        result.valid ? t('validatePassed') : t('validateCompleted'),
-      );
+      // 校验通过时轻提示成功，未通过时详情已在 ValidationDialog 内展示，避免双重弹窗。
+      // Toast success when passed; failure details are shown in ValidationDialog to avoid duplicate popups.
+      if (result.valid) {
+        toast.success(t('validatePassed'));
+      }
     } catch (error) {
       const uiError = formatSyncUserFacingError(
         error,
@@ -3548,7 +3576,8 @@ export function DataSyncStudio() {
         summary: uiError.title,
       });
       setValidationOpen(true);
-      toast.error(uiError.description);
+      // 错误已在 ValidationDialog 居中模态展示，不再重复弹出 toast 气泡，避免双重弹窗。
+      // Error is displayed in the modal ValidationDialog, omit duplicate toast to prevent double popups.
     }
   };
 
@@ -3569,9 +3598,11 @@ export function DataSyncStudio() {
       setValidationTitle(t('testConnections'));
       setValidationResult(result);
       setValidationOpen(true);
-      toast.success(
-        result.valid ? t('connectionsPassed') : t('connectionsCompleted'),
-      );
+      // 测试通过时轻提示成功，未通过时详情已在 ValidationDialog 内展示，避免双重弹窗。
+      // Toast success when passed; failure details are shown in ValidationDialog to avoid duplicate popups.
+      if (result.valid) {
+        toast.success(t('connectionsPassed'));
+      }
     } catch (error) {
       const uiError = formatSyncUserFacingError(
         error,
@@ -3586,7 +3617,8 @@ export function DataSyncStudio() {
         summary: uiError.title,
       });
       setValidationOpen(true);
-      toast.error(uiError.description);
+      // 错误已在 ValidationDialog 居中模态展示，不再重复弹出 toast 气泡，避免双重弹窗。
+      // Error is displayed in the modal ValidationDialog, omit duplicate toast to prevent double popups.
     } finally {
       setActionPending((current) =>
         current === 'test_connections' ? null : current,
@@ -5409,32 +5441,7 @@ export function DataSyncStudio() {
                   onRecover={handleRecoverFromHistory}
                   onCancel={handleCancelJob}
                   onSavepointStop={(jobId) => void handleCancelJob(jobId, true)}
-                  onViewMetrics={(job) => {
-                    setMetricsDialogJob(job);
-                    setJobMetricsDialogOpen(true);
-                  }}
-                  onViewScript={(job) => {
-                    setJobScriptTarget(job);
-                    setJobScriptOpen(true);
-                  }}
-                  onViewJobEvents={(job) => setEventsJob(job)}
-                  onViewJobDag={(job) => {
-                    const rawJobDag = job.result_preview?.job_dag as SyncWebUIJobDag | undefined;
-                    if (rawJobDag) {
-                      setViewingJobInstance(job);
-                      setViewingJobDag({
-                        jobId: String(job.platform_job_id || job.engine_job_id || job.id),
-                        jobName: String(job.result_preview?.job_name || `Job #${job.id}`),
-                        jobStatus: job.status,
-                        createTime: job.started_at || undefined,
-                        finishTime: job.finished_at || undefined,
-                        jobDag: rawJobDag,
-                        metrics: job.result_preview?.metrics as SyncJSON,
-                      });
-                      setDagError(null);
-                      setDagOpen(true);
-                    }
-                  }}
+                  onOpenDetail={openJobDetail}
                   disableRecover={hasActiveRun || hasActivePreview}
                 />
               ) : bottomConsoleTab === 'logs' ? (
@@ -5828,15 +5835,6 @@ export function DataSyncStudio() {
         </DialogContent>
       </Dialog>
 
-      <JobEventTimelineDialog
-        job={eventsJob}
-        open={eventsJob !== null}
-        onOpenChange={(open) => {
-          if (!open) {
-            setEventsJob(null);
-          }
-        }}
-      />
 
       <Dialog
         open={dagOpen}
@@ -5844,8 +5842,6 @@ export function DataSyncStudio() {
           setDagOpen(open);
           if (!open) {
             setDagError(null);
-            setViewingJobDag(null);
-            setViewingJobInstance(null);
           }
         }}
       >
@@ -5854,29 +5850,17 @@ export function DataSyncStudio() {
             'flex flex-col overflow-hidden transition-all',
             dagError
               ? 'h-auto max-h-[85vh] w-[94vw] max-w-2xl p-6'
-              : 'h-[88vh] w-[96vw] max-w-[96vw] gap-0 p-0 sm:max-w-[1400px]',
+              : 'h-[88vh] w-[92vw] max-w-[92vw] gap-0 p-0 sm:max-w-[1400px]',
           )}
         >
-          <DialogHeader className={cn(dagError ? 'pb-2' : 'px-6 pt-6')}>
-            <DialogTitle>
-              {dagError
-                ? 'DAG 生成未通过'
-                : viewingJobDag
-                  ? t('jobExecutionDagTitle', {id: viewingJobDag.jobId})
-                  : t('dagPreview')}
-            </DialogTitle>
+          <DialogHeader className={cn(dagError ? 'pb-2' : 'border-b border-border/60 px-5 pb-3 pt-4')}>
+            <DialogTitle>{dagError ? 'DAG 生成未通过' : t('dagPreview')}</DialogTitle>
             {!dagError ? (
               <DialogDescription>
-                {viewingJobDag
-                  ? `状态: ${viewingJobDag.jobStatus || '-'} · 顶点: ${
-                      Array.isArray(viewingJobDag.jobDag?.vertexInfoMap)
-                        ? viewingJobDag.jobDag.vertexInfoMap.length
-                        : Object.keys(viewingJobDag.jobDag?.vertexInfoMap || {}).length
-                    }`
-                  : t('dagSummary', {
-                      nodes: dagNodes.length,
-                      edges: dagEdges.length,
-                    })}
+                {t('dagSummary', {
+                  nodes: dagNodes.length,
+                  edges: dagEdges.length,
+                })}
               </DialogDescription>
             ) : null}
           </DialogHeader>
@@ -5885,46 +5869,78 @@ export function DataSyncStudio() {
             <div className='min-h-0 flex-1 overflow-auto pr-1'>
               <StudioErrorDiagnosticsView error={dagError} />
             </div>
+          ) : dagWebUIJob ? (
+            <div className='min-h-0 flex-1 px-5 pb-4 pt-3'>
+              {/* 编辑器 DAG 与作业详情共用拓扑组件（plan 模式：无指标，列信息与建表计划在节点抽屉里）。 */}
+              {/* The editor DAG shares the topology with the job detail (plan mode: no metrics; columns and save-mode plans live in the node drawer). */}
+              <JobTopology mode='plan' jobDag={dagWebUIJob.jobDag} warnings={dagWarnings} />
+            </div>
           ) : (
             <div className='min-h-0 flex-1 overflow-auto px-6 pb-6'>
-              <div className='space-y-4'>
-                {dagWarnings.length > 0 ? (
-                  <div className='flex flex-wrap gap-2'>
-                    {dagWarnings.map((warning, index) => (
-                      <Badge key={`${warning}-${index}`} variant='outline'>
-                        {warning}
-                      </Badge>
-                    ))}
-                  </div>
-                ) : null}
-                {viewingJobDag ? (
-                  <>
-                    {viewingJobInstance &&
-                    getRealtimeEntry(viewingJobInstance).supported &&
-                    getRealtimeEntry(viewingJobInstance).running ? (
-                      <RealtimeInsightPanel jobId={viewingJobInstance.id} running />
-                    ) : null}
-                    <WebUiDagPreview job={viewingJobDag} />
-                  </>
-                ) : dagWebUIJob ? (
-                  <WebUiDagPreview job={dagWebUIJob} />
-                ) : (
-                  <Card>
-                    <CardHeader className='pb-3'>
-                      <CardTitle className='text-sm'>{t('rawDagJson')}</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <pre className='max-h-[560px] overflow-auto whitespace-pre-wrap break-all text-xs text-muted-foreground'>
-                        {JSON.stringify(dagResult, null, 2)}
-                      </pre>
-                    </CardContent>
-                  </Card>
-                )}
-              </div>
+              <Card>
+                <CardHeader className='pb-3'>
+                  <CardTitle className='text-sm'>{t('rawDagJson')}</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <pre className='max-h-[560px] overflow-auto whitespace-pre-wrap break-all text-xs text-muted-foreground'>
+                    {JSON.stringify(dagResult, null, 2)}
+                  </pre>
+                </CardContent>
+              </Card>
             </div>
           )}
         </DialogContent>
       </Dialog>
+
+      <JobDetailDialog
+        job={detailJob}
+        open={detailJob !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDetailJobId(null);
+          }
+        }}
+        tab={detailTab}
+        onTabChange={setDetailTab}
+        actionContext={{
+          isAdmin: currentUser?.is_admin ?? false,
+          isOwner: editor.isOwner ?? true,
+          canRun: editor.canRun ?? true,
+          currentUserId: currentUser?.id,
+          disableRecover: hasActiveRun || hasActivePreview,
+        }}
+        onRecover={handleRecoverFromHistory}
+        onCancel={handleCancelJob}
+        onSavepointStop={(jobId) => void handleCancelJob(jobId, true)}
+        monacoTheme={monacoTheme}
+        logsSlot={
+          <ConsolePanel
+            job={detailJob}
+            logsResult={jobLogs}
+            loading={logsLoading}
+            filterMode={logFilterMode}
+            onFilterChange={setLogFilterMode}
+            onExpand={() => {
+              setLogsDialogOpen(true);
+            }}
+          />
+        }
+        checkpointSlot={
+          <CheckpointWorkspacePanel
+            job={detailJob}
+            checkpointSnapshot={checkpointSnapshot}
+            loading={checkpointLoading}
+            checkpointFiles={checkpointFiles}
+            checkpointFilesLoading={checkpointFilesLoading}
+            onInspectCheckpointFile={handleInspectCheckpointFile}
+            inspectLoadingPath={checkpointInspectDialogLoading}
+            onRefresh={() => {
+              void loadCheckpointSnapshot(selectedJobId);
+              void loadCheckpointFiles(selectedJob);
+            }}
+          />
+        }
+      />
 
       <Dialog
         open={Boolean(versionPreview)}
@@ -6027,44 +6043,6 @@ export function DataSyncStudio() {
         </DialogContent>
       </Dialog>
 
-      <Dialog
-        open={jobMetricsDialogOpen}
-        onOpenChange={setJobMetricsDialogOpen}
-      >
-        <DialogContent className='flex h-[86vh] w-[94vw] max-w-[94vw] flex-col overflow-hidden sm:max-w-[1380px]'>
-          <DialogHeader>
-            <DialogTitle>
-              {t('metricsDetails')}{' '}
-              {metricsDialogJob ? `#${metricsDialogJob.id}` : ''}
-            </DialogTitle>
-          </DialogHeader>
-          <MetricsDialogContent job={metricsDialogJob} />
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
-        open={jobScriptOpen}
-        onOpenChange={(open) => {
-          setJobScriptOpen(open);
-          if (!open) {
-            setJobScriptTarget(null);
-          }
-        }}
-      >
-        <DialogContent className='flex h-[86vh] w-[92vw] max-w-[92vw] flex-col overflow-hidden sm:max-w-[1200px]'>
-          <DialogHeader>
-            <DialogTitle>
-              {t('actualExecutedScript')}{' '}
-              {jobScriptTarget ? `#${jobScriptTarget.id}` : ''}
-            </DialogTitle>
-          </DialogHeader>
-          <JobScriptDialogContent
-            job={jobScriptTarget}
-            monacoTheme={monacoTheme}
-          />
-        </DialogContent>
-      </Dialog>
-
       <Dialog open={logsDialogOpen} onOpenChange={setLogsDialogOpen}>
         <DialogContent className='flex h-[88vh] w-[96vw] max-w-[96vw] flex-col overflow-hidden sm:max-w-[1400px]'>
           <DialogHeader>
@@ -6110,9 +6088,10 @@ export function DataSyncStudio() {
               </span>
             </div>
           </div>
+          {/* 日志区占满弹窗剩余高度，不再固定 620px 在大屏上留白。/ Fill the dialog's remaining height instead of a fixed 620px. */}
+          <div className='min-h-0 flex-1'>
           <VirtualizedLogViewer
             lines={splitLogLines(expandedJobLogs?.logs || jobLogs?.logs || '')}
-            height={620}
             emptyText={t('noLogs')}
             emptyNode={
               expandedJobLogs?.empty_reason === 'mixed_log_mode' ||
@@ -6129,6 +6108,7 @@ export function DataSyncStudio() {
               ) : undefined
             }
           />
+          </div>
         </DialogContent>
       </Dialog>
 
@@ -6137,6 +6117,7 @@ export function DataSyncStudio() {
         onOpenChange={setCheckpointInspectDialogOpen}
         result={checkpointInspectDialogResult}
         t={t}
+        onResultUpdate={setCheckpointInspectDialogResult}
       />
 
       <Dialog

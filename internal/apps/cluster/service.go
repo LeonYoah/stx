@@ -351,10 +351,33 @@ func (s *Service) Create(ctx context.Context, req *CreateClusterRequest) (*Clust
 		}
 	}
 
+	clusterCode := strings.TrimSpace(req.ClusterCode)
+	// 若未显式传入集群标识，优先从纳管/发现节点或本地配置中提取真实的 cluster-name
+	// If cluster code is omitted, prefer extracting real cluster-name from discovered nodes or local config
+	if clusterCode == "" && len(req.Nodes) > 0 {
+		for _, n := range req.Nodes {
+			if strings.TrimSpace(n.ClusterName) != "" {
+				clusterCode = SanitizeClusterCode(n.ClusterName, 0)
+				break
+			}
+		}
+	}
+	if clusterCode == "" && installDir != "" {
+		if localName := TryExtractClusterNameFromLocalInstallDir(installDir); localName != "" {
+			clusterCode = SanitizeClusterCode(localName, 0)
+		}
+	}
+	if clusterCode != "" {
+		clusterCode = SanitizeClusterCode(clusterCode, 0)
+	} else {
+		clusterCode = SanitizeClusterCode(req.Name, 0)
+	}
+
 	// Create cluster
 	// 创建集群
 	cluster := &Cluster{
 		Name:           req.Name,
+		ClusterCode:    clusterCode,
 		Description:    req.Description,
 		DeploymentMode: req.DeploymentMode,
 		Version:        req.Version,
@@ -365,6 +388,13 @@ func (s *Service) Create(ctx context.Context, req *CreateClusterRequest) (*Clust
 
 	if err := s.repo.Create(ctx, cluster); err != nil {
 		return nil, err
+	}
+
+	// 若未指定且清洗后回退为默认无编号前缀 "stxcluster"，在入库后带上主键 ID 保证全局唯一
+	// If defaulted to unnumbered "stxcluster", append primary key ID after insert to ensure uniqueness
+	if cluster.ClusterCode == "stxcluster" && cluster.ID > 0 {
+		cluster.ClusterCode = fmt.Sprintf("stxcluster%d", cluster.ID)
+		_ = s.repo.Update(ctx, cluster)
 	}
 
 	// Auto-create nodes from discovery if provided
@@ -435,12 +465,7 @@ func (s *Service) Create(ctx context.Context, req *CreateClusterRequest) (*Clust
 
 		// Auto-start stx-java-proxy service in background if nodes exist and not explicitly disabled
 		// 如果存在发现节点且未显式禁用，在后台异步拉起 stx-java-proxy 辅助服务
-		shouldAutoStartProxy := len(req.Nodes) > 0
-		if rawProxy, ok := clusterConfig["stx_java_proxy"].(map[string]interface{}); ok {
-			if autoStart, exists := rawProxy["auto_start"].(bool); exists && !autoStart {
-				shouldAutoStartProxy = false
-			}
-		}
+		shouldAutoStartProxy := len(req.Nodes) > 0 && stxJavaProxyAutoStartEnabled(clusterConfig)
 		if shouldAutoStartProxy && s.agentSender != nil && s.hostProvider != nil {
 			go func(cid uint) {
 				bgCtx, cancel := context.WithTimeout(context.Background(), 45*time.Second)

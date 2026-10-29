@@ -30,7 +30,9 @@ import type {
   SyncJobInstance,
   SyncJobListData,
   SyncJobLogsResult,
+  SyncJobPlanDag,
   SyncJobRealtime,
+  SyncJobTimeseries,
   SyncJobEventList,
   SyncEventChannelStatus,
   SyncCheckpointSnapshot,
@@ -352,6 +354,46 @@ export class SyncService extends BaseService {
       vertices: (data?.vertices ?? []).map((vertex) => ({...vertex, points: vertex.points ?? []})),
       edges: (data?.edges ?? []).map((edge) => ({...edge, points: edge.points ?? []})),
       hints: data?.hints ?? [],
+    };
+  }
+
+  /**
+   * 读取作业提交配置推导的计划 DAG（表结构、列、建表计划），用于补齐运行时 DAG；warnings 兜底为 []。
+   * Fetch the plan DAG derived from a job's submitted config (schemas, columns, save-mode plans) to enrich the
+   * runtime DAG; warnings default to [].
+   */
+    static async getJobTimeseries(
+    jobId: number,
+    params?: {range?: string; step?: number; metrics?: string; signal?: AbortSignal},
+  ): Promise<SyncJobTimeseries> {
+    const {signal, ...query} = params || {};
+    const response = await apiClient.get<ApiResponse<SyncJobTimeseries>>(
+      `${this.basePath}/jobs/${jobId}/timeseries`,
+      {params: query, signal},
+    );
+    const data = response.data.data;
+    return {
+      source: data?.source ?? 'none',
+      reason: data?.reason,
+      range: data?.range ?? '1h',
+      step_seconds: data?.step_seconds ?? 0,
+      engine_observability_enabled: Boolean(data?.engine_observability_enabled),
+      series: data?.series ?? [],
+      annotations: data?.annotations ?? [],
+    };
+  }
+
+  static async getJobPlanDag(jobId: number, params?: {signal?: AbortSignal}): Promise<SyncJobPlanDag> {
+    const response = await apiClient.get<ApiResponse<SyncJobPlanDag>>(
+      `${this.basePath}/jobs/${jobId}/plan-dag`,
+      {signal: params?.signal},
+    );
+    const data = response.data.data;
+    return {
+      ...data,
+      available: Boolean(data?.available),
+      reason: data?.reason ?? '',
+      warnings: data?.warnings ?? [],
     };
   }
 

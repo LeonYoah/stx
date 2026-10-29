@@ -22,6 +22,7 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 )
 
@@ -189,6 +190,9 @@ func (o *NodeOverrides) Scan(value interface{}) error {
 type Cluster struct {
 	ID             uint           `json:"id" gorm:"primaryKey;autoIncrement"`
 	Name           string         `json:"name" gorm:"size:100;uniqueIndex;not null"`
+	// ClusterCode 是底层的不可变集群标识，仅包含字符与数字 [a-z0-9]
+	// ClusterCode is the immutable engine cluster identifier containing only characters and digits [a-z0-9]
+	ClusterCode    string         `json:"cluster_code" gorm:"column:cluster_code;size:64;index"`
 	Description    string         `json:"description" gorm:"type:text"`
 	DeploymentMode DeploymentMode `json:"deployment_mode" gorm:"size:20;not null"`
 	Version        string         `json:"version" gorm:"size:20"`
@@ -199,6 +203,15 @@ type Cluster struct {
 	UpdatedAt      time.Time      `json:"updated_at" gorm:"autoUpdateTime"`
 	CreatedBy      uint           `json:"created_by"`
 	Nodes          []ClusterNode  `json:"nodes" gorm:"foreignKey:ClusterID"`
+}
+
+// EffectiveClusterCode 返回当前集群的有效底层标识；若为空则返回兜底默认值 "seatunnel"。
+// EffectiveClusterCode returns the effective engine cluster code; falls back to "seatunnel" if empty.
+func (c *Cluster) EffectiveClusterCode() string {
+	if c != nil && strings.TrimSpace(c.ClusterCode) != "" {
+		return strings.TrimSpace(c.ClusterCode)
+	}
+	return "seatunnel"
 }
 
 // TableName specifies the table name for the Cluster model.
@@ -243,6 +256,7 @@ type ClusterFilter struct {
 type ClusterInfo struct {
 	ID             uint           `json:"id"`
 	Name           string         `json:"name"`
+	ClusterCode    string         `json:"cluster_code"`
 	Description    string         `json:"description"`
 	DeploymentMode DeploymentMode `json:"deployment_mode"`
 	Version        string         `json:"version"`
@@ -261,6 +275,7 @@ func (c *Cluster) ToClusterInfo() *ClusterInfo {
 	return &ClusterInfo{
 		ID:             c.ID,
 		Name:           c.Name,
+		ClusterCode:    c.EffectiveClusterCode(),
 		Description:    c.Description,
 		DeploymentMode: c.DeploymentMode,
 		Version:        c.Version,
@@ -277,6 +292,7 @@ func (c *Cluster) ToClusterInfo() *ClusterInfo {
 // CreateClusterRequest 表示创建新集群的请求。
 type CreateClusterRequest struct {
 	Name           string         `json:"name" binding:"required,max=100"`
+	ClusterCode    string         `json:"cluster_code,omitempty"`
 	Description    string         `json:"description"`
 	DeploymentMode DeploymentMode `json:"deployment_mode" binding:"required"`
 	Version        string         `json:"version" binding:"required"`
@@ -296,6 +312,7 @@ type CreateNodeFromDiscovery struct {
 	PID           int    `json:"pid,omitempty"`            // Process ID / 进程 ID
 	HazelcastPort int    `json:"hazelcast_port,omitempty"` // Hazelcast cluster port (optional) / Hazelcast 集群端口（可选）
 	APIPort       int    `json:"api_port,omitempty"`       // REST API port (optional) / REST API 端口（可选）
+	ClusterName   string `json:"cluster_name,omitempty"`   // Hazelcast cluster-name (optional) / Hazelcast 集群标识（可选）
 }
 
 // UpdateClusterRequest represents a request to update an existing cluster.

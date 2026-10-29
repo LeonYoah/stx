@@ -405,6 +405,30 @@ export interface SyncWebUIDagPreviewJob {
 }
 
 /**
+ * 计划 DAG 不可用原因码（后端稳定常量，前端负责本地化）。
+ * Plan DAG unavailability reason codes (stable backend constants, localized by the frontend).
+ */
+export type SyncPlanDagReason =
+  | ''
+  | 'no_submitted_content'
+  | 'local_mode'
+  | 'config_tool_unavailable'
+  | 'inspect_failed';
+
+/**
+ * 作业提交配置推导的计划 DAG；webui_job 与任务 DAG 的 webui_job 同构。
+ * Plan DAG derived from a job's submitted config; webui_job has the same shape as the task DAG's webui_job.
+ */
+export interface SyncJobPlanDag {
+  job_id: number;
+  available: boolean;
+  reason: SyncPlanDagReason;
+  message?: string;
+  webui_job?: SyncWebUIDagPreviewJob;
+  warnings: string[];
+}
+
+/**
  * 实时可观测性不可用原因码（后端稳定常量，前端负责本地化）。
  * Realtime observability unavailability reason codes (stable backend constants, localized by the frontend).
  */
@@ -850,4 +874,30 @@ export interface SyncCuratedComboParseResult {
   sink: string;
   present: SyncCuratedSection[];
   combined: string;
+}
+
+
+/** GET /sync/jobs/:id/timeseries 返回 / Response of GET /sync/jobs/:id/timeseries. */
+export interface SyncJobTimeseries {
+  source: 'prometheus' | 'none' | string;
+  reason?: string;
+  range: string;
+  step_seconds: number;
+  engine_observability_enabled: boolean;
+  series: SyncJobTimeseriesSeries[];
+  annotations: SyncJobTimeseriesAnnotation[];
+}
+
+export interface SyncJobTimeseriesSeries {
+  key: string;
+  label: string;
+  unit: string;
+  points: [number, number][];
+}
+
+export interface SyncJobTimeseriesAnnotation {
+  ts_ms: number;
+  kind: string;
+  summary: string;
+  event_id?: number;
 }

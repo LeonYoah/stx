@@ -25,7 +25,7 @@
  * 显示集群的详细信息，包括节点和状态。
  */
 
-import {useState, useEffect, useCallback} from 'react';
+import {useState, useEffect, useCallback, useRef} from 'react';
 import {useRouter} from 'next/navigation';
 import {useTranslations} from 'next-intl';
 import {Button} from '@/components/ui/button';
@@ -90,6 +90,7 @@ import {
   Bug,
   AlertTriangle,
   Loader2,
+  File,
   FileText,
   MonitorSmartphone,
   FolderOpen,
@@ -119,6 +120,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import services from '@/lib/services';
@@ -157,6 +159,7 @@ import {ClusterConfigs} from './ClusterConfigs';
 import {EngineEventChannelCard} from './EngineEventChannelCard';
 import {SeaTunnelObserveMenu} from './SeaTunnelObserveMenu';
 import {RuntimeStorageEditor} from './RuntimeStorageEditor';
+import {RuntimeStorageFileExplorer} from './RuntimeStorageFileExplorer';
 import {MonitorConfigPanel} from './MonitorConfigPanel';
 import {ProcessEventList} from './ProcessEventList';
 import {ClusterActions} from './ClusterActions';
@@ -386,6 +389,11 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
   const [runtimeStorageListing, setRuntimeStorageListing] = useState<
     Partial<Record<'checkpoint' | 'imap', RuntimeStorageListResult>>
   >({});
+  // 运行时存储目录列表轻量内存缓存，提升在各层级目录间前进/后退/点击面包屑时的瞬时感知。
+  // Lightweight in-memory directory listing cache to make back/forward navigation instant.
+  const runtimeStorageListCacheRef = useRef<Map<string, RuntimeStorageListResult>>(
+    new Map(),
+  );
   const [runtimeStorageBrowsePath, setRuntimeStorageBrowsePath] = useState<
     Partial<Record<'checkpoint' | 'imap', string>>
   >({});
@@ -568,7 +576,24 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
   }, [clusterId]);
 
   const loadRuntimeStorageList = useCallback(
-    async (kind: 'checkpoint' | 'imap', path?: string) => {
+    async (
+      kind: 'checkpoint' | 'imap',
+      path?: string,
+      forceRefresh = false,
+    ) => {
+      const cacheKey = `${clusterId}:${kind}:${path ?? ''}`;
+      if (!forceRefresh && runtimeStorageListCacheRef.current.has(cacheKey)) {
+        const cached = runtimeStorageListCacheRef.current.get(cacheKey);
+        if (cached) {
+          if (path !== undefined) {
+            setRuntimeStorageBrowsePath((prev) => ({...prev, [kind]: path}));
+          }
+          setRuntimeStoragePage((prev) => ({...prev, [kind]: 1}));
+          setRuntimeStorageListing((prev) => ({...prev, [kind]: cached}));
+          return;
+        }
+      }
+
       setRuntimeStorageListingLoading(kind);
       try {
         if (path !== undefined) {
@@ -587,6 +612,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
           setRuntimeStorageListing((prev) => ({...prev, [kind]: undefined}));
           return;
         }
+        runtimeStorageListCacheRef.current.set(cacheKey, result.data);
         setRuntimeStorageListing((prev) => ({...prev, [kind]: result.data}));
       } finally {
         setRuntimeStorageListingLoading(null);
@@ -595,32 +621,43 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
     [clusterId],
   );
 
-  const loadRuntimeStorage = useCallback(async () => {
-    setRuntimeStorageLoading(true);
-    try {
-      const result = await services.cluster.getRuntimeStorageSafe(clusterId);
-      if (!result.success || !result.data) {
-        setRuntimeStorage(null);
-        return;
+  const loadRuntimeStorage = useCallback(
+    async (forceRefresh = false) => {
+      if (forceRefresh) {
+        runtimeStorageListCacheRef.current.clear();
       }
-      setRuntimeStorage(result.data);
-      setRuntimeStorageBrowsePath({
-        checkpoint: result.data.checkpoint?.namespace || '',
-        imap: result.data.imap?.namespace || '',
-      });
-      if (result.data.checkpoint?.enabled) {
-        void loadRuntimeStorageList(
-          'checkpoint',
-          result.data.checkpoint.namespace,
-        );
+      setRuntimeStorageLoading(true);
+      try {
+        const result = await services.cluster.getRuntimeStorageSafe(clusterId);
+        if (!result.success || !result.data) {
+          setRuntimeStorage(null);
+          return;
+        }
+        setRuntimeStorage(result.data);
+        setRuntimeStorageBrowsePath({
+          checkpoint: result.data.checkpoint?.namespace || '',
+          imap: result.data.imap?.namespace || '',
+        });
+        if (result.data.checkpoint?.enabled) {
+          void loadRuntimeStorageList(
+            'checkpoint',
+            result.data.checkpoint.namespace,
+            forceRefresh,
+          );
+        }
+        if (result.data.imap?.enabled) {
+          void loadRuntimeStorageList(
+            'imap',
+            result.data.imap.namespace,
+            forceRefresh,
+          );
+        }
+      } finally {
+        setRuntimeStorageLoading(false);
       }
-      if (result.data.imap?.enabled) {
-        void loadRuntimeStorageList('imap', result.data.imap.namespace);
-      }
-    } finally {
-      setRuntimeStorageLoading(false);
-    }
-  }, [clusterId, loadRuntimeStorageList]);
+    },
+    [clusterId, loadRuntimeStorageList],
+  );
 
   const handlePreviewRuntimeStorage = useCallback(
     async (kind: 'checkpoint' | 'imap', path: string) => {
@@ -1402,24 +1439,6 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
     }
     const kind = spec.kind as 'checkpoint' | 'imap';
     const listing = runtimeStorageListing[kind];
-    const searchKeyword = (runtimeStorageSearch[kind] || '')
-      .trim()
-      .toLowerCase();
-    const filteredItems = (listing?.items || []).filter((item) => {
-      if (!searchKeyword) {
-        return true;
-      }
-      const haystack = `${item.name || ''} ${item.path || ''}`.toLowerCase();
-      return haystack.includes(searchKeyword);
-    });
-    const pageSize = 20;
-    const currentPage = Math.max(1, runtimeStoragePage[kind] || 1);
-    const totalPages = Math.max(1, Math.ceil(filteredItems.length / pageSize));
-    const normalizedPage = Math.min(currentPage, totalPages);
-    const pagedItems = filteredItems.slice(
-      (normalizedPage - 1) * pageSize,
-      normalizedPage * pageSize,
-    );
     return (
       <Card>
         <CardHeader className='pb-3'>
@@ -1562,223 +1581,38 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
               ))}
             </div>
           )}
-          <div className='relative overflow-hidden rounded-lg border'>
-            <TableLoadingBar
-              loading={runtimeStorageListingLoading === kind && Boolean(listing)}
-            />
-            <div className='flex flex-wrap items-center justify-between gap-2 px-3 py-2'>
-              <div className='text-xs font-medium'>
-                {t('cluster.runtimeStorage.fileList')}
-              </div>
-              <div className='flex items-center gap-2'>
-                <Button
-                  variant='outline'
-                  size='sm'
-                  onClick={() =>
-                    void loadRuntimeStorageList(
-                      spec.kind as 'checkpoint' | 'imap',
-                      parentBrowsePath(
-                        runtimeStorageBrowsePath[
-                          spec.kind as 'checkpoint' | 'imap'
-                        ],
-                        spec.namespace,
-                      ),
-                    )
-                  }
-                  disabled={
-                    runtimeStorageListingLoading === kind ||
-                    trimTrailingSlashes(runtimeStorageBrowsePath[kind]) ===
-                      trimTrailingSlashes(spec.namespace)
-                  }
-                >
-                  <ChevronUp className='mr-2 h-4 w-4' />
-                  {t('cluster.runtimeStorage.upLevel')}
-                </Button>
-                <Button
-                  variant='outline'
-                  size='sm'
-                  onClick={() =>
-                    void loadRuntimeStorageList(
-                      kind,
-                      runtimeStorageBrowsePath[kind] || spec.namespace,
-                    )
-                  }
-                  disabled={runtimeStorageListingLoading === kind}
-                >
-                  {runtimeStorageListingLoading === kind ? (
-                    <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                  ) : (
-                    <RefreshCw className='mr-2 h-4 w-4' />
-                  )}
-                  {t('common.refresh')}
-                </Button>
-              </div>
-            </div>
-            <div className='flex flex-col gap-2 px-3 pb-2 md:flex-row md:items-center'>
-              <div className='relative max-w-md flex-1'>
-                <Search className='pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground' />
-                <Input
-                  value={runtimeStorageSearch[kind] || ''}
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    setRuntimeStorageSearch((prev) => ({
-                      ...prev,
-                      [kind]: value,
-                    }));
-                    setRuntimeStoragePage((prev) => ({...prev, [kind]: 1}));
-                  }}
-                  className='pl-9'
-                  placeholder={t('cluster.runtimeStorage.searchEntries')}
-                />
-              </div>
-              <div className='truncate text-xs text-muted-foreground'>
-                {runtimeStorageBrowsePath[kind] || spec.namespace || '-'}
-              </div>
-            </div>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{t('cluster.runtimeStorage.fileName')}</TableHead>
-                  <TableHead>{t('cluster.runtimeStorage.size')}</TableHead>
-                  <TableHead>{t('cluster.runtimeStorage.modifiedAt')}</TableHead>
-                  <TableHead className='text-right'>
-                    {t('common.actions')}
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody
-                className={
-                  runtimeStorageListingLoading === kind && listing
-                    ? 'pointer-events-none opacity-60 transition-opacity duration-200'
-                    : undefined
-                }
-              >
-                {runtimeStorageListingLoading === kind && !listing ? (
-                  <TableSkeletonRows columns={4} rows={4} />
-                ) : filteredItems.length === 0 ? (
-                  <TableRow>
-                    <TableCell
-                      colSpan={4}
-                      className='py-8 text-center text-xs text-muted-foreground'
-                    >
-                      {searchKeyword
-                        ? t('cluster.runtimeStorage.noFilteredEntries')
-                        : t('cluster.runtimeStorage.noEntries')}
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  pagedItems.map((item) => {
-                    const itemPath = item.path || item.name || '';
-                    const previewKey = `${kind}:${itemPath}`;
-                    const isPreviewing =
-                      runtimeStoragePreviewLoading === previewKey;
-                    const isInspecting = checkpointInspectLoading === itemPath;
-                    const isInspectingWal = imapInspectLoading === itemPath;
-                    return (
-                      <TableRow key={`${spec.kind}-item-${item.path}`}>
-                        <TableCell className='max-w-[280px]'>
-                          <div className='truncate font-medium'>
-                            {item.name || item.path || '-'}
-                          </div>
-                        </TableCell>
-                        <TableCell className='whitespace-nowrap text-xs text-muted-foreground'>
-                          {item.directory
-                            ? item.size_bytes && item.size_bytes > 0
-                              ? `${t('cluster.runtimeStorage.directory')} · ${formatBytes(item.size_bytes)}`
-                              : t('cluster.runtimeStorage.directory')
-                            : formatBytes(item.size_bytes || 0)}
-                        </TableCell>
-                        <TableCell className='whitespace-nowrap text-xs text-muted-foreground'>
-                          {item.modified_at || '-'}
-                        </TableCell>
-                        <TableCell className='text-right'>
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button
-                                variant='ghost'
-                                size='icon'
-                                className='size-8'
-                                aria-label={t('common.actions')}
-                              >
-                                <MoreHorizontal className='size-4' />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align='end'>
-                              {item.directory ? (
-                                <DropdownMenuItem
-                                  onClick={() =>
-                                    void loadRuntimeStorageList(kind, itemPath)
-                                  }
-                                >
-                                  <FolderOpen className='mr-2 size-4' />
-                                  {t('cluster.runtimeStorage.openDirectory')}
-                                </DropdownMenuItem>
-                              ) : (
-                                <>
-                                  <DropdownMenuItem
-                                    disabled={isPreviewing}
-                                    onClick={() =>
-                                      void handlePreviewRuntimeStorage(
-                                        kind,
-                                        itemPath,
-                                      )
-                                    }
-                                  >
-                                    <Eye className='mr-2 size-4' />
-                                    {t('cluster.runtimeStorage.preview')}
-                                  </DropdownMenuItem>
-                                  {kind === 'checkpoint' &&
-                                    itemPath.endsWith('.ser') && (
-                                      <DropdownMenuItem
-                                        disabled={isInspecting}
-                                        onClick={() =>
-                                          void handleInspectCheckpoint(itemPath)
-                                        }
-                                      >
-                                        <Database className='mr-2 size-4' />
-                                        {t(
-                                          'cluster.runtimeStorage.deserializeCheckpoint',
-                                        )}
-                                      </DropdownMenuItem>
-                                    )}
-                                  {kind === 'imap' &&
-                                    itemPath.endsWith('_wal.txt') && (
-                                      <DropdownMenuItem
-                                        disabled={isInspectingWal}
-                                        onClick={() =>
-                                          void handleInspectIMAPWAL(itemPath)
-                                        }
-                                      >
-                                        <Database className='mr-2 size-4' />
-                                        {t('cluster.runtimeStorage.inspectWal')}
-                                      </DropdownMenuItem>
-                                    )}
-                                </>
-                              )}
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })
-                )}
-              </TableBody>
-            </Table>
-            {filteredItems.length > 0 && (
-              <div className='border-t px-2'>
-                <Pagination
-                  currentPage={normalizedPage}
-                  totalPages={totalPages}
-                  pageSize={pageSize}
-                  totalItems={filteredItems.length}
-                  showPageSizeSelector={false}
-                  onPageChange={(page) =>
-                    setRuntimeStoragePage((prev) => ({...prev, [kind]: page}))
-                  }
-                />
-              </div>
-            )}
-          </div>
+          {/* 类似电脑资源管理器的文件与目录浏览器 */}
+          {/* Desktop-like file explorer for runtime storage inspection & navigation */}
+          <RuntimeStorageFileExplorer
+            clusterId={clusterId}
+            kind={kind}
+            spec={spec}
+            listing={listing}
+            loading={runtimeStorageListingLoading === kind}
+            currentPath={runtimeStorageBrowsePath[kind]}
+            onNavigate={(path) => void loadRuntimeStorageList(kind, path)}
+            onRefresh={() =>
+              void loadRuntimeStorageList(
+                kind,
+                runtimeStorageBrowsePath[kind] || spec.namespace,
+                true,
+              )
+            }
+            onPreviewFile={(path) => void handlePreviewRuntimeStorage(kind, path)}
+            previewLoadingKey={runtimeStoragePreviewLoading}
+            onInspectCheckpoint={
+              kind === 'checkpoint'
+                ? (path) => void handleInspectCheckpoint(path)
+                : undefined
+            }
+            inspectCheckpointLoadingPath={checkpointInspectLoading}
+            onInspectIMAPWAL={
+              kind === 'imap'
+                ? (path) => void handleInspectIMAPWAL(path)
+                : undefined
+            }
+            inspectIMAPWALLoadingPath={imapInspectLoading}
+          />
           {spec.kind === 'imap' && spec.cleanup_supported && (
             <div className='flex justify-end'>
               <Button
@@ -1834,6 +1668,15 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
       {/* 标准化页面头部 / Standardized Workspace Header */}
       <motion.div variants={itemVariants}>
         <WorkspaceHeader
+          breadcrumbs={[
+            {
+              label: t('cluster.title'),
+              href: '/clusters',
+            },
+            {
+              label: cluster.name,
+            },
+          ]}
           icon={<Layers />}
           title={cluster.name}
           badge={
@@ -1873,27 +1716,21 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                   v{cluster.version}
                 </Badge>
               )}
+              {cluster.cluster_code && (
+                <Badge
+                  variant='outline'
+                  className='font-mono text-xs bg-muted/40 text-muted-foreground'
+                  title={t('cluster.clusterCodeHint')}
+                >
+                  {cluster.cluster_code}
+                </Badge>
+              )}
             </div>
           }
           subtitle={
-            <div className='flex items-center gap-1.5 text-xs text-muted-foreground flex-wrap'>
-              <button
-                type='button'
-                onClick={() => router.push('/clusters')}
-                className='hover:text-foreground transition-colors inline-flex items-center gap-1 hover:underline cursor-pointer'
-              >
-                <ArrowLeft className='size-3' />
-                <span>{t('cluster.title')}</span>
-              </button>
-              <span>/</span>
-              <span className='text-foreground font-medium'>{cluster.name}</span>
-              {cluster.description && (
-                <>
-                  <span>·</span>
-                  <span className='truncate max-w-sm'>{cluster.description}</span>
-                </>
-              )}
-            </div>
+            cluster.description ? (
+              <span className='truncate max-w-lg'>{cluster.description}</span>
+            ) : null
           }
           actions={
             <div className='flex items-center gap-2 flex-wrap'>
@@ -1908,55 +1745,62 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                 onClick={handleRefresh}
                 disabled={refreshing}
                 className='h-8'
+                title={t('common.refresh')}
               >
                 <RefreshCw
                   className={`h-3.5 w-3.5 mr-1.5 ${refreshing ? 'animate-spin' : ''}`}
                 />
                 {t('common.refresh')}
               </Button>
-              <Button
-                variant='outline'
-                size='sm'
-                onClick={() =>
-                  router.push(
-                    `/diagnostics?tab=errors&cluster_id=${clusterId}&source=cluster-detail`,
-                  )
-                }
-                className='h-8'
-              >
-                <Bug className='h-3.5 w-3.5 mr-1.5' />
-                {t('cluster.openDiagnostics')}
-              </Button>
-              <Button
-                variant='outline'
-                size='sm'
-                onClick={() =>
-                  router.push(`/clusters/${clusterId}/upgrade/prepare`)
-                }
-                className='h-8'
-              >
-                <Activity className='h-3.5 w-3.5 mr-1.5' />
-                {t('stUpgrade.entry')}
-              </Button>
-              <Button
-                variant='outline'
-                size='sm'
-                onClick={() => setIsEditDialogOpen(true)}
-                className='h-8'
-              >
-                <Pencil className='h-3.5 w-3.5 mr-1.5' />
-                {t('common.edit')}
-              </Button>
-              <Button
-                variant='destructive'
-                size='sm'
-                onClick={() => setIsDeleteDialogOpen(true)}
-                disabled={!canDelete}
-                className='h-8'
-              >
-                <Trash2 className='h-3.5 w-3.5 mr-1.5' />
-                {t('common.delete')}
-              </Button>
+
+              {/* 更多辅助与低频/高危操作收纳进下拉菜单 */}
+              {/* Secondary, low-frequency, and dangerous actions grouped into more dropdown */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant='outline'
+                    size='sm'
+                    className='h-8 px-2.5'
+                    aria-label={t('common.moreActions')}
+                  >
+                    <MoreHorizontal className='h-4 w-4 mr-1' />
+                    <span className='text-xs'>{t('common.more')}</span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align='end' className='w-44'>
+                  <DropdownMenuItem
+                    onClick={() =>
+                      router.push(
+                        `/diagnostics?tab=errors&cluster_id=${clusterId}&source=cluster-detail`,
+                      )
+                    }
+                  >
+                    <Bug className='h-3.5 w-3.5 mr-2 text-muted-foreground' />
+                    {t('cluster.openDiagnostics')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() =>
+                      router.push(`/clusters/${clusterId}/upgrade/prepare`)
+                    }
+                  >
+                    <Activity className='h-3.5 w-3.5 mr-2 text-muted-foreground' />
+                    {t('stUpgrade.entry')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setIsEditDialogOpen(true)}>
+                    <Pencil className='h-3.5 w-3.5 mr-2 text-muted-foreground' />
+                    {t('common.edit')}
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    disabled={!canDelete}
+                    onClick={() => setIsDeleteDialogOpen(true)}
+                    className='text-destructive focus:text-destructive'
+                  >
+                    <Trash2 className='h-3.5 w-3.5 mr-2' />
+                    {t('common.delete')}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           }
         />
@@ -2570,7 +2414,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
                 <Button
                   variant='outline'
                   size='sm'
-                  onClick={() => void loadRuntimeStorage()}
+                  onClick={() => void loadRuntimeStorage(true)}
                   disabled={runtimeStorageLoading}
                 >
                   {runtimeStorageLoading ? (
@@ -3666,17 +3510,76 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
       >
         <DialogContent className='max-w-4xl'>
           <DialogHeader>
-            <DialogTitle>{t('cluster.runtimeStorage.preview')}</DialogTitle>
-            <DialogDescription className='break-all'>
-              {runtimeStoragePreview?.path || '-'}
-            </DialogDescription>
+            <div className='flex items-center justify-between gap-3 pr-6'>
+              <div className='min-w-0'>
+                <DialogTitle className='flex items-center gap-2'>
+                  {runtimeStoragePreview?.file_name?.endsWith('.ser') ? (
+                    <Database className='size-5 text-purple-400' />
+                  ) : runtimeStoragePreview?.binary ? (
+                    <File className='size-5 text-muted-foreground' />
+                  ) : (
+                    <FileText className='size-5 text-sky-400' />
+                  )}
+                  <span className='truncate font-mono'>
+                    {runtimeStoragePreview?.file_name ||
+                      t('cluster.runtimeStorage.preview')}
+                  </span>
+                </DialogTitle>
+                <DialogDescription className='mt-1 break-all font-mono text-xs text-muted-foreground flex items-center gap-1.5'>
+                  <span className='truncate'>
+                    {runtimeStoragePreview?.path || '-'}
+                  </span>
+                  {runtimeStoragePreview?.path && (
+                    <Button
+                      variant='ghost'
+                      size='icon'
+                      className='size-5 shrink-0 text-muted-foreground hover:text-foreground'
+                      onClick={() => {
+                        if (runtimeStoragePreview?.path) {
+                          void navigator.clipboard.writeText(
+                            runtimeStoragePreview.path,
+                          );
+                          toast.success(
+                            t('cluster.runtimeStorage.copyPathSuccess'),
+                          );
+                        }
+                      }}
+                      title={t('cluster.runtimeStorage.copyPath')}
+                    >
+                      <Copy className='size-3' />
+                    </Button>
+                  )}
+                </DialogDescription>
+              </div>
+
+              {/* 若为 Checkpoint 序列化文件，提供一键反序列化直达动作 */}
+              {/* If it's a Checkpoint serialization file, provide a quick deserialize action */}
+              {runtimeStoragePreview?.path?.endsWith('.ser') && (
+                <Button
+                  size='sm'
+                  variant='default'
+                  className='bg-purple-600 hover:bg-purple-700 text-white shrink-0 active:scale-95'
+                  onClick={() => {
+                    const p = runtimeStoragePreview?.path;
+                    if (p) {
+                      setRuntimeStoragePreviewOpen(false);
+                      void handleInspectCheckpoint(p);
+                    }
+                  }}
+                >
+                  <Database className='mr-1.5 size-3.5' />
+                  {t('cluster.runtimeStorage.deserializeCheckpoint')}
+                </Button>
+              )}
+            </div>
           </DialogHeader>
-          <div className='grid gap-3 text-sm md:grid-cols-4'>
+
+          <div className='grid gap-3 rounded-lg border bg-muted/20 p-3 text-xs md:grid-cols-4'>
             <div>
               <div className='text-muted-foreground'>
                 {t('cluster.runtimeStorage.fileName')}
               </div>
-              <div className='font-medium break-all'>
+              <div className='font-mono font-medium break-all text-foreground mt-0.5'>
                 {runtimeStoragePreview?.file_name || '-'}
               </div>
             </div>
@@ -3684,7 +3587,7 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
               <div className='text-muted-foreground'>
                 {t('cluster.runtimeStorage.size')}
               </div>
-              <div className='font-medium'>
+              <div className='font-mono font-medium text-foreground mt-0.5'>
                 {formatBytes(runtimeStoragePreview?.size_bytes)}
               </div>
             </div>
@@ -3692,19 +3595,23 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
               <div className='text-muted-foreground'>
                 {t('cluster.runtimeStorage.encoding')}
               </div>
-              <div className='font-medium'>
-                {runtimeStoragePreview?.encoding || '-'}
+              <div className='font-mono font-medium text-foreground mt-0.5 flex items-center gap-1.5'>
+                <span>{runtimeStoragePreview?.encoding || '-'}</span>
+                <Badge variant='outline' className='text-[10px] px-1 py-0'>
+                  {runtimeStoragePreview?.binary ? 'Binary' : 'Text'}
+                </Badge>
               </div>
             </div>
             <div>
               <div className='text-muted-foreground'>
                 {t('cluster.runtimeStorage.truncated')}
               </div>
-              <div className='font-medium'>
-                {runtimeStoragePreview?.truncated ? 'Yes' : 'No'}
+              <div className='font-mono font-medium text-foreground mt-0.5'>
+                {runtimeStoragePreview?.truncated ? 'Yes (64KB max)' : 'No'}
               </div>
             </div>
           </div>
+
           <ExpandableTextPanel
             title={t('cluster.runtimeStorage.fileName')}
             subtitle={runtimeStoragePreview?.file_name || '-'}
@@ -3868,13 +3775,14 @@ export function ClusterDetail({clusterId}: ClusterDetailProps) {
         </DialogContent>
       </Dialog>
 
-      {/* 与工作台共用 Checkpoint 双看板；存储侧不传 job_config，位点区无数据时自动隐藏。
-          Reuse workbench Checkpoint dual-pane dialog; without job_config, source highlights stay hidden. */}
+      {/* 与工作台共用 Checkpoint 双看板；支持自动关联作业或手动指定连接器解析位点。
+          Reuse workbench Checkpoint dual-pane dialog; supports auto job config association and manual connector decode. */}
       <CheckpointInspectDialog
         open={checkpointInspectOpen}
         onOpenChange={setCheckpointInspectOpen}
         result={checkpointInspectResult}
         t={tCheckpoint}
+        onResultUpdate={setCheckpointInspectResult}
       />
 
       <Dialog open={imapInspectOpen} onOpenChange={setImapInspectOpen}>

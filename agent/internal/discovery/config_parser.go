@@ -31,6 +31,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 // VersionDetector detects SeaTunnel version from installation directory
@@ -161,6 +163,67 @@ func (r *ConfigReader) ReadHazelcastPort(installDir, role string) int {
 	}
 
 	return port
+}
+
+// ReadHazelcastClusterName 从配置文件中读取 Hazelcast 集群名称。
+// ReadHazelcastClusterName reads hazelcast cluster-name from configuration file.
+func (r *ConfigReader) ReadHazelcastClusterName(installDir, role string) string {
+	configDir := filepath.Join(installDir, "config")
+
+	var configFile string
+	switch role {
+	case "master":
+		configFile = filepath.Join(configDir, "hazelcast-master.yaml")
+	case "worker":
+		configFile = filepath.Join(configDir, "hazelcast-worker.yaml")
+	default:
+		configFile = filepath.Join(configDir, "hazelcast.yaml")
+	}
+
+	name := r.parseHazelcastClusterName(configFile)
+	if name == "" && configFile != filepath.Join(configDir, "hazelcast.yaml") {
+		name = r.parseHazelcastClusterName(filepath.Join(configDir, "hazelcast.yaml"))
+	}
+
+	return name
+}
+
+// parseHazelcastClusterName 从 YAML 文件解析 Hazelcast 集群名称。
+// parseHazelcastClusterName parses hazelcast cluster-name from YAML file.
+func (r *ConfigReader) parseHazelcastClusterName(filePath string) string {
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return ""
+	}
+
+	var root yaml.Node
+	if err := yaml.Unmarshal(content, &root); err != nil {
+		return ""
+	}
+	if len(root.Content) == 0 {
+		return ""
+	}
+
+	doc := root.Content[0]
+	if doc.Kind != yaml.MappingNode {
+		return ""
+	}
+
+	for i := 0; i+1 < len(doc.Content); i += 2 {
+		keyNode := doc.Content[i]
+		valNode := doc.Content[i+1]
+		if keyNode.Value == "hazelcast" && valNode.Kind == yaml.MappingNode {
+			for j := 0; j+1 < len(valNode.Content); j += 2 {
+				k := valNode.Content[j]
+				v := valNode.Content[j+1]
+				if k.Value == "cluster-name" {
+					return strings.TrimSpace(v.Value)
+				}
+			}
+		}
+	}
+
+	return ""
 }
 
 // parseHazelcastPort parses hazelcast port from YAML file

@@ -342,6 +342,10 @@ func TestReconcileExpiresUnknownSubmitAfterDeadline(t *testing.T) {
 	if !strings.Contains(stored.ErrorMessage, "submit timed out") || !strings.Contains(stored.ErrorMessage, "5m") {
 		t.Fatalf("error_message = %q", stored.ErrorMessage)
 	}
+	// 结束时间是判定时刻，不能因时区解析偏移数小时。/ The finish time is the moment of expiry, not shifted by hours.
+	if stored.FinishedAt == nil || time.Since(*stored.FinishedAt).Abs() > time.Minute {
+		t.Fatalf("finished_at = %v, want close to now", stored.FinishedAt)
+	}
 }
 
 func TestReconcileIgnoresPreviousRunTerminalForUnknownRecover(t *testing.T) {

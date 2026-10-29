@@ -1130,6 +1130,7 @@ func (a *Agent) handleInstallCommand(ctx context.Context, cmd *pb.CommandRequest
 		HTTPPort:       getParamInt(cmd.Parameters, "http_port", 8080),
 		JavaProxyPort:  getParamInt(cmd.Parameters, "java_proxy_port", 0),
 		ClusterID:      getParamString(cmd.Parameters, "cluster_id", ""),
+		ClusterName:    getParamString(cmd.Parameters, "cluster_name", ""),
 	}
 	if enableHTTPValue := strings.TrimSpace(getParamString(cmd.Parameters, "enable_http", "")); enableHTTPValue != "" {
 		enableHTTP := strings.EqualFold(enableHTTPValue, "true")
@@ -2286,8 +2287,7 @@ func (a *Agent) handleDiscoverClustersCommand(ctx context.Context, cmd *pb.Comma
 	reporter.Report(80, fmt.Sprintf("Found %d process(es) / 发现 %d 个进程", len(processes), len(processes)))
 
 	// Format output as JSON for easier parsing / 格式化输出为 JSON 以便于解析
-	// Include all discovered fields: PID, role, install_dir, version, hazelcast_port, api_port
-	// 包含所有发现的字段：PID、角色、安装目录、版本、hazelcast端口、api端口
+	// 包含所有发现的字段：PID、角色、安装目录、版本、hazelcast端口、api端口、集群标识 / Include all discovered fields: PID, role, install_dir, version, hazelcast_port, api_port, cluster_name
 	type ProcessInfo struct {
 		PID           int    `json:"pid"`
 		Role          string `json:"role"`
@@ -2295,6 +2295,7 @@ func (a *Agent) handleDiscoverClustersCommand(ctx context.Context, cmd *pb.Comma
 		Version       string `json:"version"`
 		HazelcastPort int    `json:"hazelcast_port"`
 		APIPort       int    `json:"api_port"`
+		ClusterName   string `json:"cluster_name,omitempty"`
 	}
 	type DiscoveryResult struct {
 		Success   bool          `json:"success"`
@@ -2315,6 +2316,7 @@ func (a *Agent) handleDiscoverClustersCommand(ctx context.Context, cmd *pb.Comma
 			Version:       p.Version,
 			HazelcastPort: p.HazelcastPort,
 			APIPort:       p.APIPort,
+			ClusterName:   p.ClusterName,
 		})
 	}
 

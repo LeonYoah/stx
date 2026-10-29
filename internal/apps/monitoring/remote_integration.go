@@ -23,12 +23,14 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/LeonYoah/stx/internal/apps/cluster"
+	"github.com/LeonYoah/stx/internal/config"
 	"github.com/LeonYoah/stx/internal/pkg/timex"
 )
 
@@ -91,13 +93,37 @@ func (s *Service) BuildPrometheusSDTargets(ctx context.Context) ([]*PrometheusSD
 	}
 
 	sort.Strings(groupKeys)
-	result := make([]*PrometheusSDTargetGroup, 0, len(groupKeys))
+	result := make([]*PrometheusSDTargetGroup, 0, len(groupKeys)+1)
 	for _, key := range groupKeys {
 		group := groupMap[key]
 		sort.Strings(group.Targets)
 		result = append(result, group)
 	}
+	if stxGroup := buildSTXSyncJobsSDTarget(); stxGroup != nil {
+		result = append(result, stxGroup)
+	}
 	return result, nil
+}
+
+// buildSTXSyncJobsSDTarget 构造 STX 自身作业指标抓取目标（job=stx_sync_jobs）。
+// buildSTXSyncJobsSDTarget builds the STX self scrape target for job metrics (job=stx_sync_jobs).
+func buildSTXSyncJobsSDTarget() *PrometheusSDTargetGroup {
+	external := strings.TrimSpace(config.GetExternalURL())
+	if external == "" {
+		return nil
+	}
+	u, err := url.Parse(external)
+	if err != nil || u.Host == "" {
+		return nil
+	}
+	return &PrometheusSDTargetGroup{
+		Targets: []string{u.Host},
+		Labels: map[string]string{
+			"job":             "stx_sync_jobs",
+			"__metrics_path__": "/api/v1/monitoring/prometheus/jobs/metrics",
+			"__scheme__":       firstNonEmpty(u.Scheme, "http"),
+		},
+	}
 }
 
 // HandleAlertmanagerWebhook ingests one Alertmanager webhook payload into persistent records.

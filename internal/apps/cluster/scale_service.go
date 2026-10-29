@@ -92,6 +92,7 @@ type ScaleDiscoveredProcess struct {
 	Version       string
 	HazelcastPort int
 	APIPort       int
+	ClusterName   string
 }
 
 // ScaleProcessDiscoverer 读取主机上运行中的 SeaTunnel 进程（由 router 适配 discovery 服务注入）。

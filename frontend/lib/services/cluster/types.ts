@@ -165,6 +165,8 @@ export interface ClusterInfo {
   id: number;
   /** Cluster name / 集群名称 */
   name: string;
+  /** Cluster code / 集群唯一标识 */
+  cluster_code?: string;
   /** Description / 描述 */
   description: string;
   /** Deployment mode / 部署模式 */
@@ -599,6 +601,8 @@ export interface OperationResult {
 export interface CreateClusterRequest {
   /** Cluster name (required) / 集群名称（必填） */
   name: string;
+  /** Cluster code (optional, immutable after creation) / 集群唯一标识（可选，创建后不可变） */
+  cluster_code?: string;
   /** Description / 描述 */
   description?: string;
   /** Deployment mode (required) / 部署模式（必填） */
@@ -617,6 +621,7 @@ export interface CreateClusterRequest {
     pid?: number;
     hazelcast_port?: number;
     api_port?: number;
+    cluster_name?: string;
   }>;
 }
 

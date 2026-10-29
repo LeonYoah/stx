@@ -98,7 +98,7 @@ func TestValidateRejectsRepeatedNonQueryInput(t *testing.T) {
 }
 
 func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
-	require.Len(t, Registry(), 270)
+	require.Len(t, Registry(), 272)
 
 	expected := map[string]struct{}{
 		"auth.user-info.get": {}, "auth.profile.update": {}, "admin.user.list": {}, "admin.user.get": {}, "admin.token.list": {},
@@ -144,7 +144,7 @@ func TestRegistryContainsGeneratedCLIReadBatches(t *testing.T) {
 		"sync.task.version.list":   {},
 		"sync.task.dolphin.status": {}, "sync.task.dolphin.script": {},
 		"sync.job.list": {}, "sync.job.get": {}, "sync.job.logs": {},
-		"sync.job.checkpoint": {}, "sync.job.preview": {}, "sync.job.realtime": {}, "sync.job.events": {},
+		"sync.job.checkpoint": {}, "sync.job.preview": {}, "sync.job.realtime": {}, "sync.job.plan-dag": {}, "sync.job.timeseries": {}, "sync.job.events": {},
 		"sync.event-channel.get": {}, "sync.task.alert.get": {},
 		"sync.variable.list":             {},
 		"sync.scheduler.connection.list": {}, "sync.scheduler.connection.projects": {},
@@ -328,9 +328,10 @@ func TestRegistryContainsDiscoveryOperationAndLegacyExceptions(t *testing.T) {
 	for _, exception := range RouteExceptions() {
 		exceptions[exception.Method+" "+exception.Route] = exception
 	}
-	require.Len(t, RouteExceptions(), 34)
+	require.Len(t, RouteExceptions(), 35)
 	require.Contains(t, exceptions, "GET /api/v1/version")
 	require.Contains(t, exceptions, "POST /api/v1/sync/engine-events/:cluster_id")
+	require.Contains(t, exceptions, "GET /api/v1/monitoring/prometheus/jobs/metrics")
 	require.Contains(t, exceptions, "POST /api/v1/auth/login")
 	require.Contains(t, exceptions, "POST /api/v1/auth/logout")
 	require.Contains(t, exceptions, "GET /api/v1/oauth/login")

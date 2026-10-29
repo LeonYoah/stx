@@ -648,6 +648,7 @@ func buildScaleInstallRequest(view *scaleView, plan *ScalePlan) *installerapp.In
 	return &installerapp.InstallationRequest{
 		HostID:          strconv.FormatUint(uint64(target.HostID), 10),
 		ClusterID:       strconv.FormatUint(uint64(view.cluster.ID), 10),
+		ClusterName:     view.cluster.EffectiveClusterCode(),
 		Version:         view.cluster.Version,
 		InstallDir:      target.InstallDir,
 		InstallMode:     installerapp.InstallModeOnline,

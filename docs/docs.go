@@ -4749,6 +4749,52 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/sync/jobs/{id}/plan-dag": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sync"
+                ],
+                "summary": "获取作业提交配置推导的计划 DAG（表结构与建表计划）",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "作业 ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sync.JobPlanDAGResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/sync.JobPlanDAGResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/sync.JobPlanDAGResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/sync.JobPlanDAGResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/sync/jobs/{id}/realtime": {
             "get": {
                 "produces": [
@@ -4796,6 +4842,71 @@ const docTemplate = `{
                         "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/sync.JobRealtimeResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/sync/jobs/{id}/timeseries": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Sync"
+                ],
+                "summary": "获取作业指标时序（Prometheus）",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "作业 ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "default": "1h",
+                        "description": "时间范围：15m|1h|6h|24h|7d",
+                        "name": "range",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "步长（秒），0 表示按范围自动",
+                        "name": "step",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "逗号分隔指标：throughput,rows,cdc_delay,checkpoint,busy,backpressure",
+                        "name": "metrics",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/sync.JobTimeseriesResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/sync.JobTimeseriesResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/sync.JobTimeseriesResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/sync.JobTimeseriesResponse"
                         }
                     }
                 }
@@ -10681,7 +10792,8 @@ const docTemplate = `{
                 "可用 / Available",
                 "已安装 / Installed",
                 "已启用 / Enabled",
-                "已禁用 / Disabled"
+                "已禁用 / Disabled",
+                ""
             ],
             "x-enum-varnames": [
                 "PluginStatusAvailable",
@@ -11472,6 +11584,50 @@ const docTemplate = `{
                 }
             }
         },
+        "sync.JobPlanDAGResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/sync.JobPlanDAGResult"
+                },
+                "error_msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "sync.JobPlanDAGResult": {
+            "type": "object",
+            "properties": {
+                "available": {
+                    "type": "boolean"
+                },
+                "job_id": {
+                    "type": "integer"
+                },
+                "message": {
+                    "description": "Message 只在 inspect_failed 时出现，已脱敏并截断。\nMessage is only set for inspect_failed, already redacted and truncated.",
+                    "type": "string"
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "warnings": {
+                    "description": "Warnings 永远是数组，不为 null。\nWarnings is always an array, never null.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "webui_job": {
+                    "description": "WebUIJob 与 /tasks/:id/dag 的 webui_job 同构（WebUI 兼容 jobDag），前端用同一套解析。\nWebUIJob has the same shape as webui_job from /tasks/:id/dag (WebUI-compatible jobDag), parsed by the same code.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/sync.JSONMap"
+                        }
+                    ]
+                }
+            }
+        },
         "sync.JobRealtimeResponse": {
             "type": "object",
             "properties": {
@@ -11594,6 +11750,91 @@ const docTemplate = `{
                 "JobSyncStateStale",
                 "JobSyncStateUnknown"
             ]
+        },
+        "sync.JobTimeseriesAnnotation": {
+            "type": "object",
+            "properties": {
+                "event_id": {
+                    "type": "integer"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "summary": {
+                    "type": "string"
+                },
+                "ts_ms": {
+                    "type": "integer"
+                }
+            }
+        },
+        "sync.JobTimeseriesResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/sync.JobTimeseriesResult"
+                },
+                "error_msg": {
+                    "type": "string"
+                }
+            }
+        },
+        "sync.JobTimeseriesResult": {
+            "type": "object",
+            "properties": {
+                "annotations": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/sync.JobTimeseriesAnnotation"
+                    }
+                },
+                "engine_observability_enabled": {
+                    "type": "boolean"
+                },
+                "range": {
+                    "type": "string"
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "series": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/sync.JobTimeseriesSeries"
+                    }
+                },
+                "source": {
+                    "type": "string"
+                },
+                "step_seconds": {
+                    "type": "integer"
+                }
+            }
+        },
+        "sync.JobTimeseriesSeries": {
+            "type": "object",
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "points": {
+                    "description": "[ts_ms, value]",
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "number",
+                            "format": "float64"
+                        }
+                    }
+                },
+                "unit": {
+                    "type": "string"
+                }
+            }
         },
         "sync.RealtimeEdge": {
             "type": "object",

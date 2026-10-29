@@ -751,9 +751,16 @@ func Serve() {
 			syncService.StartPreviewRuntime(ctx)
 			syncService.StartTaskScheduleRuntime(ctx)
 			syncService.StartJobReconciler(ctx)
+			syncService.StartJobObservabilityCollector(ctx)
 			syncService.StartEngineEventRuntime(ctx)
 			syncHandler := syncapp.NewHandler(syncService)
 			syncHandler.SetAuditRepository(auditRepo)
+
+			// 作业级 Prometheus 指标抓取（公开，受 observability.enabled 控制）。
+			// Job-level Prometheus metrics scrape (public, gated by observability.enabled).
+			if config.Config.Observability.Enabled {
+				apiV1Router.GET("/monitoring/prometheus/jobs/metrics", syncHandler.GetJobPrometheusMetrics)
+			}
 
 			apiV1Router.POST("/sync/preview/collect", syncHandler.CollectPreview)
 			// SeaTunnel event-report-http 回调：不走登录，靠集群 token 鉴权。
@@ -846,6 +853,8 @@ func Serve() {
 					syncJobRouter.GET("/:id/checkpoint", syncHandler.GetJobCheckpointSnapshot)
 					syncJobRouter.GET("/:id/logs", syncHandler.GetJobLogs)
 					syncJobRouter.GET("/:id/realtime", syncHandler.GetJobRealtime)
+					syncJobRouter.GET("/:id/plan-dag", syncHandler.GetJobPlanDAG)
+					syncJobRouter.GET("/:id/timeseries", syncHandler.GetJobTimeseries)
 					syncJobRouter.GET("/:id/events", syncHandler.ListJobEvents)
 					syncJobRouter.POST("/:id/recover", syncHandler.RecoverJob)
 					syncJobRouter.POST("/:id/cancel", syncHandler.CancelJob)
@@ -996,6 +1005,9 @@ func Serve() {
 			clusterService.SetRuntimeConfigStore(configService)
 			// Agent 重连后重推离线期间未下发的节点配置
 			// Re-push node configs that could not be delivered while the Agent was offline
+			// Agent 重连（如主机重启）后确保 stx-java-proxy 运行，编辑器校验、DAG、表结构都依赖它。
+			// Ensure stx-java-proxy runs after an Agent reconnects (e.g. host reboot); editor validation, DAG and schemas need it.
+			grpcServer.RegisterAgentReadyHook(clusterService.EnsureSTXJavaProxyOnHost)
 			grpcServer.RegisterAgentReadyHook(func(ctx context.Context, hostID uint) {
 				if committed, err := configService.RetryPendingPushes(ctx, hostID); err != nil {
 					log.Printf("[Config] retry pending pushes for host %d failed: %v", hostID, err)
@@ -2160,9 +2172,10 @@ func parseDiscoveredProcessesJSON(output string) ([]*discovery.DiscoveredProcess
 		PID           int    `json:"pid"`
 		Role          string `json:"role"`
 		InstallDir    string `json:"install_dir"`
-		Version       string `json:"version"`        // SeaTunnel version / SeaTunnel 版本
-		HazelcastPort int    `json:"hazelcast_port"` // Hazelcast cluster port / Hazelcast 集群端口
-		APIPort       int    `json:"api_port"`       // REST API port / REST API 端口
+		Version       string `json:"version"`                  // SeaTunnel version / SeaTunnel 版本
+		HazelcastPort int    `json:"hazelcast_port"`           // Hazelcast cluster port / Hazelcast 集群端口
+		APIPort       int    `json:"api_port"`                 // REST API port / REST API 端口
+		ClusterName   string `json:"cluster_name,omitempty"`   // Hazelcast cluster-name / Hazelcast 集群标识
 	}
 	type DiscoveryResult struct {
 		Success   bool          `json:"success"`
@@ -2192,6 +2205,7 @@ func parseDiscoveredProcessesJSON(output string) ([]*discovery.DiscoveredProcess
 			Version:       p.Version,
 			HazelcastPort: p.HazelcastPort,
 			APIPort:       p.APIPort,
+			ClusterName:   p.ClusterName,
 		})
 	}
 
@@ -2465,6 +2479,7 @@ func (a *clusterProcessDiscovererAdapter) DiscoverSeaTunnelProcesses(ctx context
 			Version:       process.Version,
 			HazelcastPort: process.HazelcastPort,
 			APIPort:       process.APIPort,
+			ClusterName:   process.ClusterName,
 		})
 	}
 	return processes, nil

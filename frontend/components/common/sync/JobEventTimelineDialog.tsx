@@ -19,16 +19,10 @@
 
 import {useEffect, useMemo, useRef, useState} from 'react';
 import {useTranslations} from 'next-intl';
+import {Braces} from 'lucide-react';
 import {Badge} from '@/components/ui/badge';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import {Skeleton} from '@/components/ui/skeleton';
-import {TableLoadingBar} from '@/components/common/layout';
+import {ExpandableTextPanel, TableLoadingBar} from '@/components/common/layout';
 import {cn} from '@/lib/utils';
 import {formatDateTimeTz} from '@/lib/timezone';
 import services from '@/lib/services';
@@ -93,9 +87,16 @@ export function schemaChangeSummary(payload: Record<string, unknown>): string {
   const tableName = table
     ? [table.databaseName, table.schemaName, table.tableName].filter(Boolean).join('.')
     : '';
+  // 增列 / 改列的 column 是对象（带 sourceType），删列的 column 是列名字符串（如 MySQL DROP COLUMN）。
+  // ADD / MODIFY carry a column object (with sourceType); DROP carries the column name as a string (e.g. MySQL DROP COLUMN).
   const columnOf = (item: Record<string, unknown>) => {
+    if (typeof item.column === 'string') {
+      return item.column.trim();
+    }
     const column = item.column as Record<string, unknown> | undefined;
-    return String(column?.name ?? item.columnName ?? item.oldColumn ?? '').trim();
+    const name = String(column?.name ?? item.columnName ?? item.oldColumn ?? '').trim();
+    const sourceType = String(column?.sourceType ?? '').trim();
+    return name && sourceType ? `${name} ${sourceType}` : name;
   };
   // UPDATE_COLUMNS 把多个子变更放在 events 里（如 PG 的 ADD COLUMN），逐个取列名并标注操作。
   // UPDATE_COLUMNS carries several sub-changes in `events` (e.g. PG ADD COLUMN); list each column with its operation.
@@ -122,6 +123,27 @@ export function schemaChangeSummary(payload: Record<string, unknown>): string {
   return [tableName, columns].filter(Boolean).join(' · ');
 }
 
+/**
+ * 事件原始数据：完整字段格式化成 JSON（服务端已脱敏），可复制、可放大。
+ * Raw event data: every field as formatted JSON (already redacted server-side), copyable and expandable.
+ */
+function EventRawData({event}: {event: SyncEngineEvent}) {
+  const content = JSON.stringify(
+    {
+      id: event.id,
+      event_type: event.event_type,
+      job_status: event.job_status,
+      engine_job_id: event.engine_job_id,
+      event_time_ms: event.event_time_ms,
+      received_at: event.received_at,
+      payload: event.payload,
+    },
+    null,
+    2,
+  );
+  return <ExpandableTextPanel content={content} height={240} className='mt-1.5' />;
+}
+
 function familyClass(family: EngineEventFamily): string {
   switch (family) {
     case 'status':
@@ -136,17 +158,17 @@ function familyClass(family: EngineEventFamily): string {
 }
 
 /**
- * 作业事件时间线：引擎上报的状态变化、DDL（schema change）、CDC 延迟与生命周期事件。
- * Job event timeline: engine-reported status changes, DDL (schema change), CDC delay and lifecycle events.
+ * 作业事件时间线：引擎上报的状态变化、DDL（schema change）、CDC 延迟与生命周期事件。作为作业详情的页签内嵌，
+ * active 为假（页签不可见）时不请求也不轮询。
+ * Job event timeline: engine-reported status changes, DDL (schema change), CDC delay and lifecycle events. Embedded
+ * as a job detail tab; nothing is requested or polled while active is false (tab hidden).
  */
-export function JobEventTimelineDialog({
+export function JobEventTimelineContent({
   job,
-  open,
-  onOpenChange,
+  active,
 }: {
   job: SyncJobInstance | null;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
+  active: boolean;
 }) {
   const t = useTranslations('workbenchStudio.jobEvents');
   const [events, setEvents] = useState<SyncEngineEvent[]>([]);
@@ -155,12 +177,15 @@ export function JobEventTimelineDialog({
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Record<number, boolean>>({});
+  // 按事件 ID 记录哪些事件展开了原始数据。/ Which events (by id) show their raw data.
+  const [rawOpen, setRawOpen] = useState<Record<number, boolean>>({});
+  const toggleRaw = (eventId: number) => setRawOpen((current) => ({...current, [eventId]: !current[eventId]}));
   const loadedRef = useRef(false);
   const jobId = job?.id ?? 0;
   const running = getRealtimeEntry(job).running;
 
   useEffect(() => {
-    if (!open || !jobId) {
+    if (!active || !jobId) {
       return;
     }
     let disposed = false;
@@ -198,7 +223,7 @@ export function JobEventTimelineDialog({
         window.clearInterval(timer);
       }
     };
-  }, [open, jobId, running]);
+  }, [active, jobId, running]);
 
   const rows = useMemo(() => buildTimelineRows(events), [events]);
 
@@ -217,12 +242,8 @@ export function JobEventTimelineDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className='flex max-h-[85vh] w-[94vw] max-w-3xl flex-col overflow-hidden border border-border/80 shadow-2xl dark:border-border/60'>
-        <DialogHeader>
-          <DialogTitle>{t('title', {id: jobId})}</DialogTitle>
-          <DialogDescription>{t('description', {total})}</DialogDescription>
-        </DialogHeader>
+    <div className='flex h-full min-h-0 flex-col'>
+        <p className='pb-2 text-xs text-muted-foreground'>{t('description', {total})}</p>
         <div className='relative min-h-0 flex-1 overflow-auto'>
           <TableLoadingBar loading={refreshing} />
           {loading ? (
@@ -261,9 +282,17 @@ export function JobEventTimelineDialog({
                       {isOpen ? (
                         <ul className='mt-1 space-y-0.5 pl-6'>
                           {row.events.map((event) => (
-                            <li key={event.id} className='flex flex-wrap gap-2 font-mono text-[11px] text-muted-foreground'>
-                              <span className='whitespace-nowrap'>{formatDateTimeTz(event.event_time_ms)}</span>
-                              <span>{event.event_type}</span>
+                            <li key={event.id}>
+                              <button
+                                type='button'
+                                className='flex w-full flex-wrap gap-2 text-left font-mono text-[11px] text-muted-foreground hover:text-foreground'
+                                onClick={() => toggleRaw(event.id)}
+                                aria-expanded={Boolean(rawOpen[event.id])}
+                              >
+                                <span className='whitespace-nowrap'>{formatDateTimeTz(event.event_time_ms)}</span>
+                                <span>{event.event_type}</span>
+                              </button>
+                              {rawOpen[event.id] ? <EventRawData event={event} /> : null}
                             </li>
                           ))}
                         </ul>
@@ -272,24 +301,37 @@ export function JobEventTimelineDialog({
                   );
                 }
                 const family = engineEventFamily(row.event.event_type);
+                const rawShown = Boolean(rawOpen[row.event.id]);
                 return (
-                  <li key={row.event.id} className='flex flex-wrap items-center gap-2 py-1.5 text-xs'>
-                    <span className='whitespace-nowrap font-mono text-[11px] text-muted-foreground'>
-                      {formatDateTimeTz(row.event.event_time_ms)}
-                    </span>
-                    <Badge variant='outline' className={cn('whitespace-nowrap text-[10px]', familyClass(family))}>
-                      {t(`family.${family}`)}
-                    </Badge>
-                    <span className='min-w-0 break-words font-mono text-[11px]' title={row.event.event_type}>
-                      {eventDetail(row.event)}
-                    </span>
+                  <li key={row.event.id} className='py-1.5'>
+                    {/* 点击整行查看原始数据：格式化摘要可能漏掉细节。/ Click the row for raw data: the summary may omit details. */}
+                    <button
+                      type='button'
+                      className='group flex w-full flex-wrap items-center gap-2 text-left text-xs'
+                      onClick={() => toggleRaw(row.event.id)}
+                      aria-expanded={rawShown}
+                    >
+                      <span className='whitespace-nowrap font-mono text-[11px] text-muted-foreground'>
+                        {formatDateTimeTz(row.event.event_time_ms)}
+                      </span>
+                      <Badge variant='outline' className={cn('whitespace-nowrap text-[10px]', familyClass(family))}>
+                        {t(`family.${family}`)}
+                      </Badge>
+                      <span className='min-w-0 flex-1 break-words font-mono text-[11px]' title={row.event.event_type}>
+                        {eventDetail(row.event)}
+                      </span>
+                      <span className='inline-flex shrink-0 items-center gap-0.5 text-[11px] text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100'>
+                        <Braces className='size-3' />
+                        {rawShown ? t('hideRaw') : t('viewRaw')}
+                      </span>
+                    </button>
+                    {rawShown ? <EventRawData event={row.event} /> : null}
                   </li>
                 );
               })}
             </ul>
           )}
         </div>
-      </DialogContent>
-    </Dialog>
+    </div>
   );
 }

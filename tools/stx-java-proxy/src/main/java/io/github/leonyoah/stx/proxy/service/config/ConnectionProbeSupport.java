@@ -545,13 +545,90 @@ class ConnectionProbeSupport {
         String bootstrap = getString(config, "bootstrap.servers");
         if (StringUtils.isNotBlank(bootstrap)) {
             String first = bootstrap.split(",")[0].trim();
-            String[] parts = first.split(":");
-            if (parts.length >= 2) {
+            HostAndPort hp = parseHostAndPortString(first, 9092);
+            if (hp != null) {
+                return hp;
+            }
+        }
+        // Doris: 提取 fenodes (如 "127.0.0.1:8030")
+        // Doris: Extract fenodes (e.g. "127.0.0.1:8030")
+        String fenodes = getString(config, "fenodes");
+        if (StringUtils.isNotBlank(fenodes)) {
+            String first = fenodes.split(",")[0].trim();
+            HostAndPort hp = parseHostAndPortString(first, 8030);
+            if (hp != null) {
+                return hp;
+            }
+        }
+        // Hive: 提取 metastore_uri / hive.metastore.uris (如 "thrift://127.0.0.1:9083")
+        // Hive: Extract metastore_uri / hive.metastore.uris (e.g. "thrift://127.0.0.1:9083")
+        String metastoreUri = getString(config, "metastore_uri");
+        if (StringUtils.isBlank(metastoreUri)) {
+            metastoreUri = getString(config, "hive.metastore.uris");
+        }
+        if (StringUtils.isNotBlank(metastoreUri)) {
+            String first = metastoreUri.split(",")[0].trim();
+            if (first.startsWith("thrift://")) {
+                first = first.substring("thrift://".length());
+            }
+            HostAndPort hp = parseHostAndPortString(first, 9083);
+            if (hp != null) {
+                return hp;
+            }
+        }
+        // S3 / MinIO / OSS: 提取 fs.s3a.endpoint / s3.endpoint / endpoint
+        // S3 / MinIO / OSS: Extract fs.s3a.endpoint / s3.endpoint / endpoint
+        String s3Endpoint = getString(config, "fs.s3a.endpoint");
+        if (StringUtils.isBlank(s3Endpoint)) {
+            s3Endpoint = getString(config, "s3.endpoint");
+        }
+        if (StringUtils.isBlank(s3Endpoint)) {
+            s3Endpoint = getString(config, "endpoint");
+        }
+        if (StringUtils.isNotBlank(s3Endpoint)) {
+            String ep = s3Endpoint.trim();
+            if (ep.startsWith("http://") || ep.startsWith("https://")) {
                 try {
-                    return new HostAndPort(parts[0], Integer.parseInt(parts[1]));
-                } catch (NumberFormatException ignored) {
+                    URI uri = URI.create(ep);
+                    int port =
+                            uri.getPort() != -1
+                                    ? uri.getPort()
+                                    : (ep.startsWith("https") ? 443 : 80);
+                    if (StringUtils.isNotBlank(uri.getHost())) {
+                        return new HostAndPort(uri.getHost(), port);
+                    }
+                } catch (Exception ignored) {
+                }
+            } else {
+                HostAndPort hp = parseHostAndPortString(ep, 443);
+                if (hp != null) {
+                    return hp;
                 }
             }
+        }
+        return null;
+    }
+
+    /**
+     * 解析形如 host:port 的字符串，缺省端口时使用默认值。 Parses host:port string, falling back to default port when
+     * omitted.
+     */
+    private static HostAndPort parseHostAndPortString(String hostPortStr, int defaultPort) {
+        if (StringUtils.isBlank(hostPortStr)) {
+            return null;
+        }
+        String cleaned = hostPortStr.trim();
+        if (cleaned.contains("/")) {
+            cleaned = cleaned.substring(0, cleaned.indexOf('/'));
+        }
+        String[] parts = cleaned.split(":");
+        if (parts.length >= 2) {
+            try {
+                return new HostAndPort(parts[0].trim(), Integer.parseInt(parts[1].trim()));
+            } catch (NumberFormatException ignored) {
+            }
+        } else if (parts.length == 1 && StringUtils.isNotBlank(parts[0])) {
+            return new HostAndPort(parts[0].trim(), defaultPort);
         }
         return null;
     }
@@ -572,6 +649,33 @@ class ConnectionProbeSupport {
             String bootstrap = getString(config, "bootstrap.servers");
             if (StringUtils.isNotBlank(bootstrap)) {
                 target = bootstrap;
+            }
+        }
+        if (StringUtils.isBlank(target)) {
+            String fenodes = getString(config, "fenodes");
+            if (StringUtils.isNotBlank(fenodes)) {
+                target = fenodes;
+            }
+        }
+        if (StringUtils.isBlank(target)) {
+            String metastoreUri = getString(config, "metastore_uri");
+            if (StringUtils.isBlank(metastoreUri)) {
+                metastoreUri = getString(config, "hive.metastore.uris");
+            }
+            if (StringUtils.isNotBlank(metastoreUri)) {
+                target = metastoreUri;
+            }
+        }
+        if (StringUtils.isBlank(target)) {
+            String s3Endpoint = getString(config, "fs.s3a.endpoint");
+            if (StringUtils.isBlank(s3Endpoint)) {
+                s3Endpoint = getString(config, "s3.endpoint");
+            }
+            if (StringUtils.isBlank(s3Endpoint)) {
+                s3Endpoint = getString(config, "endpoint");
+            }
+            if (StringUtils.isNotBlank(s3Endpoint)) {
+                target = s3Endpoint;
             }
         }
         return target;

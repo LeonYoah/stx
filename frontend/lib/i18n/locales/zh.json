@@ -5291,7 +5291,7 @@
     "cdcDelayThresholdLabel": "延迟阈值（秒）",
     "cdcDelayDurationLabel": "持续时间（分钟）",
     "cdcDelayThresholdHint": "建议 ≥30 秒；数据库与 SeaTunnel 节点时间不同步会让延迟偏大。留空或填 0 按默认 60 秒 / 5 分钟。",
-    "cdcDelayScopeHint": "仅对 3.x 集群、已开启事件通道的 CDC 实时作业生效；多源作业按整体判断。",
+    "cdcDelayScopeHint": "仅对 SeaTunnel 2.3.12 及以上、已开启事件通道的集群上的 CDC 实时作业生效；多源作业按最慢的源判断。",
     "cdcDelayChannelOff": "该集群未开启事件通道，这条规则不会触发。可在集群设置中开启。",
     "cdcDelayChannelPendingRestart": "该集群事件通道配置待重启生效，重启前这条规则不会触发。",
     "cdcDelayChannelUnsupported": "该集群版本不支持事件通道，这条规则不会触发。",

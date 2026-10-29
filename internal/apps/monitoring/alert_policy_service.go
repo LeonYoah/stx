@@ -229,6 +229,10 @@ func (s *Service) UpdateAlertPolicy(ctx context.Context, id uint, req *UpsertAle
 	}
 
 	var updated *AlertPolicy
+	// 与冷却提醒互斥：停用或删除策略时关闭的阶段不会在同一时刻再被提醒。
+	// Serialised with reminders: an episode closed by disabling or deleting the policy is never reminded at the same moment.
+	s.syncAlertEpisodeMu.Lock()
+	defer s.syncAlertEpisodeMu.Unlock()
 	if err := s.repo.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		txRepo := &Repository{db: tx}
 		policy, err := txRepo.GetAlertPolicyByID(ctx, id)
@@ -325,6 +329,10 @@ func (s *Service) DeleteAlertPolicy(ctx context.Context, id uint) error {
 	if id == 0 {
 		return ErrAlertPolicyInvalidID
 	}
+	// 与冷却提醒互斥：停用或删除策略时关闭的阶段不会在同一时刻再被提醒。
+	// Serialised with reminders: an episode closed by disabling or deleting the policy is never reminded at the same moment.
+	s.syncAlertEpisodeMu.Lock()
+	defer s.syncAlertEpisodeMu.Unlock()
 	return s.repo.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		txRepo := &Repository{db: tx}
 		policy, err := txRepo.GetAlertPolicyByID(ctx, id)

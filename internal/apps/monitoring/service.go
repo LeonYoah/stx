@@ -62,6 +62,11 @@ type Service struct {
 	// syncTaskNames 由 sync 注入，用于策略列表显示任务名；未注入时不显示。
 	// syncTaskNames is injected by sync so the policy list can show task names; nothing is shown without it.
 	syncTaskNames SyncTaskNameResolver
+
+	// syncAlertEpisodeMu 让"保存 / 删除策略时关闭阶段"和"冷却提醒的检查 + 投递"互斥：策略停用的那一刻不会再发出旧提醒。
+	// syncAlertEpisodeMu serialises closing episodes on policy save / delete with the reminder check + dispatch, so no
+	// stale reminder goes out at the moment a policy is disabled.
+	syncAlertEpisodeMu sync.Mutex
 }
 
 // NewService creates a monitoring service.

@@ -5291,7 +5291,7 @@
     "cdcDelayThresholdLabel": "Delay threshold (seconds)",
     "cdcDelayDurationLabel": "Duration (minutes)",
     "cdcDelayThresholdHint": "30 seconds or more is recommended; clock skew between the database and SeaTunnel nodes inflates the delay. Empty or 0 uses the defaults of 60 seconds / 5 minutes.",
-    "cdcDelayScopeHint": "Only applies to CDC streaming jobs on 3.x clusters with the event channel on; multi-source jobs are judged as a whole.",
+    "cdcDelayScopeHint": "Only applies to CDC streaming jobs on SeaTunnel 2.3.12+ clusters with the event channel on; a multi-source job alerts when its slowest source is above the threshold.",
     "cdcDelayChannelOff": "The event channel is off for this cluster, so this rule will not fire. Turn it on in cluster settings.",
     "cdcDelayChannelPendingRestart": "The event channel config of this cluster takes effect after a restart; this rule will not fire until then.",
     "cdcDelayChannelUnsupported": "This cluster version does not support the event channel, so this rule will not fire.",

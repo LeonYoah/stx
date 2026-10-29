@@ -140,6 +140,10 @@ func TestRealtimeAndEventCapabilities(t *testing.T) {
 			if got := SupportsJobStateEvents(tc.version); got != tc.stateEvents {
 				t.Fatalf("SupportsJobStateEvents(%q)=%v, want %v", tc.version, got, tc.stateEvents)
 			}
+			// B4 与事件通道同一门槛（2.3.12）。 / B4 shares the event channel gate (2.3.12).
+			if got := SupportsCDCDelayEvents(tc.version); got != tc.stateEvents {
+				t.Fatalf("SupportsCDCDelayEvents(%q)=%v, want %v", tc.version, got, tc.stateEvents)
+			}
 			if got := SupportsNonTerminalJobStateEvents(tc.version); got != tc.nonTerminal {
 				t.Fatalf("SupportsNonTerminalJobStateEvents(%q)=%v, want %v", tc.version, got, tc.nonTerminal)
 			}

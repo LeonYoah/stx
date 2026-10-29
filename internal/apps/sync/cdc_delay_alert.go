@@ -40,9 +40,16 @@ const (
 	// cdcDelayEvalInterval 是判定轮次间隔。
 	// cdcDelayEvalInterval is the interval between evaluation rounds.
 	cdcDelayEvalInterval = 30 * time.Second
-	// cdcDelayStaleSample：样本时间早于"现在 − 2 分钟"的不计入 B4（STX 停机后引擎重投的积压旧批次）。
-	// cdcDelayStaleSample: samples older than now − 2 minutes are not counted (backlog replayed after STX downtime).
+	// cdcDelayStaleSample：样本的引擎时间比该作业见过的最新引擎时间早 2 分钟以上的不计入 B4（STX 停机后引擎重投的积压
+	// 旧批次）。两边都是引擎时钟，引擎与 STX 的时钟差不影响判断。
+	// cdcDelayStaleSample: a sample whose engine time is more than 2 minutes older than the newest engine time seen for
+	// the job is not counted (backlog replayed after STX downtime). Both sides use the engine clock, so engine/STX clock
+	// skew does not matter.
 	cdcDelayStaleSample = 2 * time.Minute
+	// cdcDelaySkewWarnInterval：引擎时间与 STX 收到时间相差超过 cdcDelayStaleSample 时，每个作业最多每 10 分钟打一条 warning。
+	// cdcDelaySkewWarnInterval: when engine time and STX receive time differ by more than cdcDelayStaleSample, warn at
+	// most once per job every 10 minutes.
+	cdcDelaySkewWarnInterval = 10 * time.Minute
 	// cdcDelayProgressWindow 内读取条数增长过，没有延迟样本时就判为低（延迟已低于 1 秒）。
 	// cdcDelayProgressWindow: a read count that grew within it counts as low when there are no delay samples.
 	cdcDelayProgressWindow = 60 * time.Second
@@ -121,6 +128,10 @@ type cdcDelayJobState struct {
 	readCount        float64
 	readCountKnown   bool
 	progressAt       time.Time
+	// lastContentKey 是最近一次发出的 Fire / Refresh 的展示内容；内容没变的 Refresh 不再发，避免占满告警队列。
+	// lastContentKey is the display content of the latest Fire / Refresh sent; a Refresh with unchanged content is
+	// skipped so it never fills the alert queue.
+	lastContentKey string
 }
 
 // cdcDelayRoundInput 是一轮判定的输入。
@@ -153,21 +164,81 @@ type cdcDelayAlertState struct {
 	samples map[uint][]cdcDelaySample
 	jobs    map[uint]*cdcDelayJobState
 	configs map[uint]cdcDelayConfigEntry
+	// configGen 在配置失效时加一；读配置期间被改过的结果不进缓存，避免缓存住改之前的旧配置。
+	// configGen is bumped on invalidation; a read that raced with a change is not cached, so the pre-change config
+	// never sticks in the cache.
+	configGen map[uint]uint64
+	// engineNewestMs 是每个作业见过的最新引擎时间（毫秒），用于判断重投的旧样本。
+	// engineNewestMs is the newest engine time (ms) seen per job, used to spot replayed old samples.
+	engineNewestMs map[uint]int64
+	// skewWarnAt 是每个作业最近一次时钟差 warning 的时间（限频）。
+	// skewWarnAt is when each job last logged a clock skew warning (rate limit).
+	skewWarnAt map[uint]time.Time
 }
 
-// addCDCDelaySample 把一条样本计入本轮；sampleMs 是引擎记录的时间，早于"现在 − 2 分钟"的不计入。
-// addCDCDelaySample adds one sample to the current round; sampleMs is the engine time and samples older than
-// now − 2 minutes are skipped.
-func (s *Service) addCDCDelaySample(jobID uint, delayMs, sampleMs int64, now time.Time) {
-	if s == nil || jobID == 0 {
-		return
-	}
-	if sampleMs > 0 && now.Sub(time.UnixMilli(sampleMs)) > cdcDelayStaleSample {
+// cdcDelaySkewWarn 打印引擎时钟与 STX 时钟相差过大的 warning；测试里会替换。
+// cdcDelaySkewWarn logs a warning about a large engine/STX clock difference; tests replace it.
+var cdcDelaySkewWarn = func(jobID uint, skew time.Duration) {
+	logger.WarnF(context.Background(), "[Sync] CDC delay samples of job %d carry engine times %s away from STX receive time "+
+		"(clock skew between SeaTunnel and STX, or a replayed backlog); B4 keeps judging by receive time / "+
+		"READER_MESSAGE_DELAYED 的引擎时间与 STX 收到时间相差 %s（时钟不同步或积压重投），B4 按收到时间继续判断",
+		jobID, skew.Round(time.Second), skew.Round(time.Second))
+}
+
+// noteCDCDelayEngineTime 记下作业在一批事件里的最新引擎时间；先于这一批的样本写入调用，同一批里较早的重投样本才能被识别。
+// noteCDCDelayEngineTime records a job's newest engine time in a batch; it is called before the batch's samples are
+// added so older replayed samples in the same batch are recognised.
+func (s *Service) noteCDCDelayEngineTime(jobID uint, sampleMs int64) {
+	if s == nil || jobID == 0 || sampleMs <= 0 {
 		return
 	}
 	state := &s.cdcAlerts
 	state.mu.Lock()
 	defer state.mu.Unlock()
+	if state.engineNewestMs == nil {
+		state.engineNewestMs = map[uint]int64{}
+	}
+	if sampleMs > state.engineNewestMs[jobID] {
+		state.engineNewestMs[jobID] = sampleMs
+	}
+}
+
+// addCDCDelaySample 把一条样本计入本轮，样本时间记为 STX 收到的时间 now。sampleMs 是引擎时间，只和同一作业的最新引擎
+// 时间比较：早 2 分钟以上的是重投的旧样本，不计入。引擎时间与 now 相差超过 2 分钟（时钟不同步）时照常计入，并限频打
+// warning。多个 reader 交错上报、时间不递增的样本都计入。
+// addCDCDelaySample adds one sample to the current round, timestamped with the STX receive time now. sampleMs is the
+// engine time and is only compared with the job's newest engine time: more than 2 minutes older means a replayed old
+// sample, which is skipped. An engine time more than 2 minutes away from now (clock skew) is still counted, with a
+// rate-limited warning. Interleaved samples from several readers, whose times do not increase, are all counted.
+func (s *Service) addCDCDelaySample(jobID uint, delayMs, sampleMs int64, now time.Time) {
+	if s == nil || jobID == 0 {
+		return
+	}
+	state := &s.cdcAlerts
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if sampleMs > 0 {
+		if state.engineNewestMs == nil {
+			state.engineNewestMs = map[uint]int64{}
+		}
+		newest := state.engineNewestMs[jobID]
+		if sampleMs > newest {
+			newest = sampleMs
+			state.engineNewestMs[jobID] = newest
+		}
+		if time.Duration(newest-sampleMs)*time.Millisecond > cdcDelayStaleSample {
+			return
+		}
+		if skew := now.Sub(time.UnixMilli(newest)); skew > cdcDelayStaleSample || skew < -cdcDelayStaleSample {
+			if state.skewWarnAt == nil {
+				state.skewWarnAt = map[uint]time.Time{}
+			}
+			if last, ok := state.skewWarnAt[jobID]; !ok || now.Sub(last) >= cdcDelaySkewWarnInterval {
+				state.skewWarnAt[jobID] = now
+				cdcDelaySkewWarn(jobID, skew)
+			}
+		}
+	}
 	if state.samples == nil {
 		state.samples = map[uint][]cdcDelaySample{}
 	}
@@ -184,6 +255,10 @@ func (s *Service) invalidateCDCDelayConfig(taskID uint) {
 	state.mu.Lock()
 	defer state.mu.Unlock()
 	delete(state.configs, taskID)
+	if state.configGen == nil {
+		state.configGen = map[uint]uint64{}
+	}
+	state.configGen[taskID]++
 }
 
 // forgetCDCDelayJob 清掉作业的判定状态和样本。
@@ -194,6 +269,8 @@ func (s *Service) forgetCDCDelayJob(jobID uint) {
 	defer state.mu.Unlock()
 	delete(state.jobs, jobID)
 	delete(state.samples, jobID)
+	delete(state.engineNewestMs, jobID)
+	delete(state.skewWarnAt, jobID)
 }
 
 // cdcDelayTaskConfig 返回任务告警配置（按任务缓存 60 秒）；读取失败返回 nil 和错误，不改变判定状态。
@@ -206,6 +283,7 @@ func (s *Service) cdcDelayTaskConfig(ctx context.Context, taskID uint, now time.
 		state.mu.Unlock()
 		return entry.cfg, nil
 	}
+	gen := state.configGen[taskID]
 	state.mu.Unlock()
 	cfg, err := s.alertStore.GetTaskAlertConfig(ctx, taskID)
 	if err != nil {
@@ -215,7 +293,11 @@ func (s *Service) cdcDelayTaskConfig(ctx context.Context, taskID uint, now time.
 	if state.configs == nil {
 		state.configs = map[uint]cdcDelayConfigEntry{}
 	}
-	state.configs[taskID] = cdcDelayConfigEntry{cfg: cfg, at: now}
+	// 读取期间配置被改过：本轮用读到的值，但不缓存，下一轮重新读。
+	// The config changed during the read: use it for this round only and read again next round.
+	if state.configGen[taskID] == gen {
+		state.configs[taskID] = cdcDelayConfigEntry{cfg: cfg, at: now}
+	}
 	state.mu.Unlock()
 	return cfg, nil
 }
@@ -277,12 +359,19 @@ func (s *Service) evaluateCDCDelayAlerts(ctx context.Context) {
 			delete(state.samples, jobID)
 		}
 	}
+	for jobID := range state.engineNewestMs {
+		if !running[jobID] {
+			delete(state.engineNewestMs, jobID)
+			delete(state.skewWarnAt, jobID)
+		}
+	}
 	state.mu.Unlock()
 }
 
-// cdcDelayChannelVerdict 判断集群事件通道：关闭、待重启或集群版本明确不支持时不可用；版本取不到时不当作不支持。
+// cdcDelayChannelVerdict 判断集群事件通道：关闭、待重启或集群版本明确不支持（<2.3.12，见 seatunnel.SupportsCDCDelayEvents）
+// 时不可用；版本取不到时不当作不支持。
 // cdcDelayChannelVerdict judges the cluster event channel: off, pending restart, or a version known not to support it
-// is unavailable; an unknown version is not treated as unsupported.
+// (<2.3.12, see seatunnel.SupportsCDCDelayEvents) is unavailable; an unknown version is not treated as unsupported.
 func (s *Service) cdcDelayChannelVerdict(ctx context.Context, clusterID uint) cdcDelayChannel {
 	if clusterID == 0 {
 		return cdcDelayChannel{unavailable: true}
@@ -301,7 +390,7 @@ func (s *Service) cdcDelayChannelVerdict(ctx context.Context, clusterID uint) cd
 	case EventChannelStateDegraded:
 		return cdcDelayChannel{degraded: true}
 	}
-	if version := s.clusterVersion(ctx, clusterID); version != "" && !seatunnel.SupportsJobStateEvents(version) {
+	if version := s.clusterVersion(ctx, clusterID); version != "" && !seatunnel.SupportsCDCDelayEvents(version) {
 		return cdcDelayChannel{unavailable: true}
 	}
 	return cdcDelayChannel{}
@@ -357,10 +446,35 @@ func (s *Service) stepCDCDelayJob(job *JobInstance, cfg *syncalert.TaskConfig, c
 		duration = syncalert.DefaultCDCDelayDurationMinutes
 	}
 	actions := current.step(now, threshold, duration, input)
-	for i := range actions {
-		actions[i].message = cdcDelayMessage(actions[i], job)
+	out := make([]cdcDelayAction, 0, len(actions))
+	for _, action := range actions {
+		action.message = cdcDelayMessage(action, job)
+		key := cdcDelayContentKey(action)
+		switch action.kind {
+		case syncalert.KindRefresh:
+			// 内容没变就不发：大量高延迟作业每 30 秒一次的 Refresh 不会占满告警队列、挤掉 B1 等信号。
+			// Skip unchanged content: many high-delay jobs refreshing every 30s never fill the alert queue and crowd
+			// out B1 and other signals.
+			if key == current.lastContentKey {
+				continue
+			}
+			current.lastContentKey = key
+		case syncalert.KindFire:
+			current.lastContentKey = key
+		case syncalert.KindResolve:
+			current.lastContentKey = ""
+		}
+		out = append(out, action)
 	}
-	return actions
+	return out
+}
+
+// cdcDelayContentKey 是一条信号的展示内容：说明文字（已含格式化后的延迟、阈值、时长）加状态与提醒开关。
+// cdcDelayContentKey is a signal's display content: the note (which already carries the formatted delay, threshold
+// and elapsed time) plus the state and the reminder switch.
+func cdcDelayContentKey(action cdcDelayAction) string {
+	d := action.detail
+	return fmt.Sprintf("%s|%s|%d|%d|%t|%t|%s", d.State, d.RecoveryBasis, d.ThresholdSeconds, d.DurationMinutes, d.RemindersPaused, d.DelayInferred, action.message)
 }
 
 // emitCDCDelayAction 把判定结果转成信号发出。
@@ -437,10 +551,14 @@ func (st *cdcDelayJobState) step(now time.Time, thresholdSeconds, durationMinute
 			}
 		}
 		last := in.samples[len(in.samples)-1]
-		st.lastDelayMs = last.ms
+		// 作业的延迟取本轮最慢的 reader：多源作业里一个源卡在高位，其他源正常，也要算高。
+		// The job delay is the slowest reader of the round: one source stuck high among healthy ones still counts.
+		st.lastDelayMs = maxMs
 		st.lastSampleAt = last.at
 		median := medianInt64(values)
-		if median >= thresholdMs {
+		// 高低按本轮最大值判断；中位数只用作追赶判定的基线（见 catchingUp）。
+		// High/low is judged by the round maximum; the median only feeds the catch-up baseline (see catchingUp).
+		if maxMs >= thresholdMs {
 			firstAbove := now
 			for _, sample := range in.samples {
 				if sample.ms >= thresholdMs {
@@ -529,20 +647,36 @@ func (st *cdcDelayJobState) catchingUp() bool {
 	return baseline > 0 && latest*100 <= baseline*cdcDelayCatchUpPercent
 }
 
-// onLow 处理低于阈值的一轮；连续两轮后按阶段发恢复或静默关闭。
-// onLow handles a round below the threshold; after two in a row it recovers or closes silently depending on phase.
+// onLow 处理低于阈值的一轮。和恢复一样，连续两轮低才算数：单独一轮低不重新计时（间歇性高延迟照样能累计到持续时间），
+// 告警中只把阶段刷新为当前值；连续两轮后重新计时，并按阶段发恢复或静默关闭。
+// onLow handles a round below the threshold. Like recovery, only two low rounds in a row count: a single low round
+// does not restart timing (so intermittent high delay still adds up to the duration) and only refreshes an open
+// episode with the current values; after two in a row timing restarts and the episode recovers or closes silently
+// depending on phase.
 func (st *cdcDelayJobState) onLow(basis string) []cdcDelayAction {
-	st.resetTiming()
 	st.unknownSince = time.Time{}
 	st.unknownRefreshAt = time.Time{}
 	st.pausedSent = false
 	st.lowStreak++
-	if basis == syncalert.CDCDelayRecoveryByReadCount {
+	byReadCount := basis == syncalert.CDCDelayRecoveryByReadCount
+	if byReadCount {
 		st.lowByReadCount = true
 	}
 	if st.lowStreak < cdcDelayLowRoundsToRecover {
-		return nil
+		if st.phase == cdcPhaseNone {
+			return nil
+		}
+		// 告警中（或重启后、改参数后）的第一轮低：阶段内容更新为当前值，提醒不会再带着旧的延迟或旧阈值发出。
+		// First low round of an open (maybe / re-armed) episode: refresh it with current values so a reminder never
+		// carries a stale delay or threshold.
+		detail := st.baseDetail(syncalert.CDCDelayStateRecovering)
+		if byReadCount {
+			detail.RecoveryBasis = syncalert.CDCDelayRecoveryByReadCount
+			markCDCDelayInferred(&detail)
+		}
+		return []cdcDelayAction{{kind: syncalert.KindRefresh, detail: detail}}
 	}
+	st.resetTiming()
 	recoveryBasis := syncalert.CDCDelayRecoveryBySamples
 	if st.lowByReadCount {
 		recoveryBasis = syncalert.CDCDelayRecoveryByReadCount
@@ -553,6 +687,11 @@ func (st *cdcDelayJobState) onLow(basis string) []cdcDelayAction {
 	case cdcPhaseFiring, cdcPhaseMaybe:
 		detail := st.baseDetail(syncalert.CDCDelayStateRecovered)
 		detail.RecoveryBasis = recoveryBasis
+		if recoveryBasis == syncalert.CDCDelayRecoveryByReadCount {
+			// 推断出的恢复没有当前延迟：不带最后一个旧样本（例如 192000），由 DelayInferred 标明。
+			// An inferred recovery has no current delay: drop the last old sample (e.g. 192000) and flag DelayInferred.
+			markCDCDelayInferred(&detail)
+		}
 		return []cdcDelayAction{{kind: syncalert.KindResolve, reason: syncalert.ResolveReasonRecovered, detail: detail}}
 	case cdcPhaseRearm:
 		return []cdcDelayAction{{kind: syncalert.KindResolve, reason: syncalert.ResolveReasonRuleChanged}}
@@ -587,6 +726,13 @@ func (st *cdcDelayJobState) onUnknown(now time.Time, reason string) []cdcDelayAc
 	detail.UnknownSince = st.unknownSince
 	detail.RemindersPaused = paused
 	return []cdcDelayAction{{kind: syncalert.KindRefresh, detail: detail}}
+}
+
+// markCDCDelayInferred 标记明细里的延迟是推断的：清掉旧的当前延迟。
+// markCDCDelayInferred flags the detail's delay as inferred and clears the stale current delay.
+func markCDCDelayInferred(detail *syncalert.CDCDelayDetail) {
+	detail.CurrentDelayMs = 0
+	detail.DelayInferred = true
 }
 
 func (st *cdcDelayJobState) baseDetail(state string) syncalert.CDCDelayDetail {
@@ -639,6 +785,13 @@ func cdcDelayMessage(action cdcDelayAction, job *JobInstance) string {
 			return "根据读取条数推断已恢复：最近没有延迟事件，读取条数在增长，读取延迟应已低于 1 秒"
 		}
 		return fmt.Sprintf("读取延迟已连续两轮低于阈值 %s（最近一次 %s）", syncalert.FormatDelayZH(int64(detail.ThresholdSeconds)*1000), syncalert.FormatDelayZH(detail.CurrentDelayMs))
+	case detail.State == syncalert.CDCDelayStateRecovering:
+		if detail.DelayInferred {
+			return fmt.Sprintf("最近没有延迟事件，读取条数在增长，读取延迟应已低于 1 秒（根据读取条数推断），阈值 %s；再确认一轮后自动关闭",
+				syncalert.FormatDelayZH(int64(detail.ThresholdSeconds)*1000))
+		}
+		return fmt.Sprintf("读取延迟已回落到 %s，低于阈值 %s；再确认一轮后自动关闭", syncalert.FormatDelayZH(detail.CurrentDelayMs),
+			syncalert.FormatDelayZH(int64(detail.ThresholdSeconds)*1000))
 	case detail.State == syncalert.CDCDelayStateUnknown:
 		var b strings.Builder
 		if detail.UnknownReason == syncalert.CDCDelayUnknownChannelDegraded {

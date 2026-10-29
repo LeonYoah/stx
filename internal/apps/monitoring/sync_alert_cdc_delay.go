@@ -182,6 +182,8 @@ func cdcDelayTitleSuffix(episode *SyncAlertEpisode, eventType NotificationDelive
 		}
 	case detail.State == syncalert.CDCDelayStateUnknown:
 		suffix = "（无法确认是否恢复）"
+	case detail.State == syncalert.CDCDelayStateRecovering:
+		suffix = "（已回落，待确认）"
 	case detail.CurrentDelayMs > 0:
 		suffix = "（" + syncalert.FormatDelayZH(detail.CurrentDelayMs) + "）"
 	}
@@ -221,6 +223,13 @@ func cdcDelayFields(episode *SyncAlertEpisode, eventType NotificationDeliveryEve
 		if detail.CurrentDelayMs > 0 {
 			add("最后一次读取延迟", syncalert.FormatDelayZH(detail.CurrentDelayMs), false)
 		}
+	case detail.State == syncalert.CDCDelayStateRecovering:
+		if detail.DelayInferred {
+			add("当前读取延迟", "根据读取条数推断应已低于 1 秒", false)
+		} else {
+			add("当前读取延迟", syncalert.FormatDelayZH(detail.CurrentDelayMs), false)
+		}
+		add("说明", "已低于阈值，再确认一轮后自动关闭", false)
 	default:
 		add("当前读取延迟", syncalert.FormatDelayZH(detail.CurrentDelayMs), false)
 		if detail.WindowMaxDelayMs > 0 {
@@ -246,7 +255,15 @@ func appendCDCDelayWebhookFields(alert map[string]interface{}, episode *SyncAler
 		return
 	}
 	alert["delay_state"] = detail.State
-	alert["current_delay_ms"] = detail.CurrentDelayMs
+	// 根据读取条数推断的状态没有当前延迟：current_delay_ms 为 null（不是最后一个旧样本），delay_inferred=true。
+	// A state inferred from the read count has no current delay: current_delay_ms is null (not the last old sample)
+	// and delay_inferred=true.
+	if detail.DelayInferred || (detail.State == syncalert.CDCDelayStateRecovered && detail.RecoveryBasis == syncalert.CDCDelayRecoveryByReadCount) {
+		alert["current_delay_ms"] = nil
+		alert["delay_inferred"] = true
+	} else {
+		alert["current_delay_ms"] = detail.CurrentDelayMs
+	}
 	alert["window_max_delay_ms"] = detail.WindowMaxDelayMs
 	alert["threshold_seconds"] = detail.ThresholdSeconds
 	alert["duration_minutes"] = detail.DurationMinutes

@@ -46,7 +46,8 @@ CDCDelayThresholdSeconds int `json:"cdc_delay_threshold_seconds"` // 默认 60�
 CDCDelayDurationMinutes  int `json:"cdc_delay_duration_minutes"`  // 默认 5，范围 1~60
 ```
 
-- `Normalize`：两个字段为 0 时补默认值。这样旧客户端不带这两个字段时，PUT 也能通过。
+- `Normalize`：两个字段为 0 时补默认值。
+- PUT 请求体里两个字段是 `*int`：**不填时保留已保存的值**（老客户端不认识这两个字段，保存一次不会把自定义的 300 / 10 冲回 60 / 5）；新建时不填、或明确填 0，才用默认值。
 - `Validate`：两个字段超出范围时返回 `ErrInvalidConfig`（400）。不管有没有勾选 B4 都校验，因为补默认值后一定有值。
 
 ## 3. 存储
@@ -66,8 +67,11 @@ CDCDelayDurationMinutes  int `json:"cdc_delay_duration_minutes"`  // 默认 5，
 ## 4. 判定器（sync，新文件 `internal/apps/sync/cdc_delay_alert.go`）
 
 ### 4.1 样本接入
-- `recordCDCDelay` 通过单调时间检查后，把样本放进判定器本轮的样本列表（每作业每轮最多 256 条；锁顺序 events → cdcAlerts）。
-- 样本时间（引擎 createdTime）早于"现在 − 2 分钟"的不计入 B4。STX 停机后，引擎会重投积压的旧批次，这些旧值不代表当前延迟。延迟徽标和时间线照旧使用它们。
+- `recordCDCDelay` 把**每一条**样本放进判定器本轮的样本列表（每作业每轮最多 256 条；锁顺序 events → cdcAlerts），样本时间记为 STX 收到的时间。
+  - 多源作业有多个 reader 各自上报，引擎时间会交错、不递增，所以**不能**按"时间不前进就丢弃"处理。延迟摘要（徽标）的窗口最大值同样计入交错样本，只忽略比最新引擎时间早 1 分钟以上的（换主重放）；"最近值"只随引擎时间前进。
+- 旧样本：样本的引擎时间（createdTime）比**该作业见过的最新引擎时间**早 2 分钟以上的不计入 B4（STX 停机后引擎重投的积压旧批次）。`IngestEngineEvents` 先记下一批里每个作业的最新引擎时间，再逐条写入，同一批里的旧样本才能被识别。
+  - 两边都是引擎时钟，不再拿引擎时间和 STX 时钟比较：引擎与 STX 时钟差超过 2 分钟时样本照常计入（之前会被全部静默丢弃），并按作业每 10 分钟最多打一条 warning（"时钟不同步或积压重投"）。
+  - 代价：STX 重启后第一批如果全是积压的旧样本（没有新样本可比），这一批会被计入；单独一轮 high 不会触发告警（需要持续 M 分钟）。
 
 ### 4.2 每 30 秒一轮
 - 在 `StartEngineEventRuntime` 里加一个定时器。只有同时注入了 `alertReporter` 和 `alertStore` 才运行。
@@ -81,11 +85,13 @@ CDCDelayDurationMinutes  int `json:"cdc_delay_duration_minutes"`  // 默认 5，
 | 条件 | 分类 |
 |---|---|
 | 通道未开启、待重启，或集群不支持 | 退出：阶段静默关闭（`channel_unavailable`），清掉状态 |
-| 本轮有样本，**中位数** ≥ N | high |
-| 本轮有样本，中位数 < N | low |
+| 本轮有样本，**最大值** ≥ N | high |
+| 本轮有样本，最大值 < N | low |
 | 无样本，通道降级 | unknown |
 | 无样本，最近 60 秒内 `SourceReceivedCount` 增长了 | low（延迟已低于 1 秒） |
 | 无样本，读取条数没有增长 | unknown |
+
+- 高低按本轮**最大值**判断：多源作业里两个源 5 秒、一个源卡在 900 秒，本轮按 900 秒算 high（之前按中位数 5 秒，会完全漏掉）。作业的当前延迟也取本轮最大值。**中位数只用作追赶判定的基线**（见下）。
 
 **状态转移**（每个作业一份：`phase ∈ {none, firing, maybe, rearm}`、`aboveSince`、`lowStreak`、最近 M 分钟内各轮 high 的中位数与最大值、`catchUpSince`、`unknownSince`）：
 - **high**：
@@ -93,10 +99,10 @@ CDCDelayDurationMinutes  int `json:"cdc_delay_duration_minutes"`  // 默认 5，
   - `phase=firing`：发 Refresh。
   - `phase ∈ {maybe, rearm}` 且还在计时或追赶：发 Refresh（已有阶段按当前值更新，不用旧值提醒）。
   - 满足 `now − aboveSince ≥ M` 并且**不在追赶**（或追赶已满 30 分钟），就发 Fire，`phase` 变为 firing。
-- **low**：
-  - `aboveSince` 清空，`lowStreak++`。
-  - `lowStreak ≥ 2`（至少 60 秒）并且 `phase ∈ {firing, maybe}` 时，发 Resolve（recovered，带恢复依据：样本 / 读取条数），`phase` 变为 none。
-  - `phase=rearm` 时发 Resolve（`rule_changed`），静默关闭，不发恢复通知。
+- **low**：`lowStreak++`。和恢复一样，**连续两轮低才算数**：
+  - 单独一轮低（`lowStreak=1`）**不重新计时**，`aboveSince`、窗口、追赶起点都保留。间歇性高延迟（例如 3 轮 200 秒 + 1 轮 30 秒循环）照样能累计到持续时间并告警。`phase≠none` 时发 Refresh（状态 `recovering`，带当前延迟和当前阈值），阶段内容和之后的提醒都是最新的；rearm 期间的低轮也一样。
+  - `lowStreak ≥ 2`（至少 60 秒）：重新计时（清 `aboveSince`、窗口、追赶起点）。`phase ∈ {firing, maybe}` 时发 Resolve（recovered，带恢复依据：样本 / 读取条数），`phase` 变为 none；`phase=rearm` 时发 Resolve（`rule_changed`），静默关闭，不发恢复通知。
+  - 根据读取条数推断的低 / 恢复没有当前延迟：明细 `current_delay_ms=0`、`delay_inferred=true`，webhook 的 `current_delay_ms` 输出 null（不再带最后一个旧样本，例如 192000）。
 - **unknown**：
   - `aboveSince` 不变，`lowStreak` 清零。
   - `phase≠none` 时发 Refresh，消息注明无法确认（带起始日期+时区、可能原因、作业链接）。只在刚进入 unknown 时发，之后每 5 分钟发一次。
@@ -104,7 +110,7 @@ CDCDelayDurationMinutes  int `json:"cdc_delay_duration_minutes"`  // 默认 5，
 - **追赶判定**（选定方案：**每轮中位数**）：窗口 `[now−M, now]` 内至少两轮 high；取最早一轮的中位数作基线 `base`，和最新一轮的中位数 `last` 比较，`last ≤ 0.9 × base` 就算正在追赶。
   - 为什么不用第一轮最大值：一次大事务尖峰会把基线抬高，之后正常的高延迟都显得"在下降"，漏报。
   - 为什么不用"连续下降"：引擎 10 秒一批、样本抖动大，逐轮单调下降的要求太脆，正常追赶也会被打断。
-  - 追赶期最长 30 分钟（`cdcDelayCatchUpCap`），从第一次判为追赶算起，到点照常 Fire。
+  - 追赶期最长 30 分钟（`cdcDelayCatchUpCap`），从第一次判为追赶算起，到点照常 Fire。追赶最早在超标满 M 分钟时开始判定，所以**持续超标的作业最晚在首次超标后 M + 30 分钟告警**（再加一轮 30 秒的判定间隔）。
 - **改参数**：阈值或持续时间变化时重新计时（清 `aboveSince`、窗口、追赶起点）；`phase ∈ {firing, maybe}` 转为 `rearm`。之后按新参数满足条件会再 Fire（合并到已有阶段），回落则 `rule_changed` 静默关闭。
 - **重启**：STX 启动后第一次看到某个作业时，`phase=maybe`。
   - 如果持续高：计时期间发 Refresh；满足条件后按正常规则再发一次 Fire。monitoring 会合并到已有阶段，不会重复通知。
@@ -122,7 +128,16 @@ CDCDelayDurationMinutes  int `json:"cdc_delay_duration_minutes"`  // 默认 5，
   - 通道降级时：`事件通道降级，最近没有收到延迟数据，无法确认读取延迟是否恢复……`
   - 停止提醒后追加：`无法确认已超过 24 小时，已停止提醒，告警保留，请人工确认后关闭。`
 - **恢复**：样本：`读取延迟已连续两轮低于阈值 1分（最近一次 12秒）`；读取条数：`根据读取条数推断已恢复：……`
+- **recovering**（告警中的单独一轮低）：`读取延迟已回落到 12秒，低于阈值 1分；再确认一轮后自动关闭`；读取条数推断时说明"根据读取条数推断"。
 - 时间用 `timex.DisplayLocation()`，带日期和时区；没有配置控制台地址时不带链接。
+
+### 4.5 Refresh 只在内容变化时发送
+- 每个作业记下最近一次发出的 Fire / Refresh 的展示内容（状态、恢复依据、阈值、持续时间、停止提醒、是否推断、说明文字）。内容没变的 Refresh 不发。说明文字里已有格式化后的延迟和"已持续 N 分钟"，所以延迟稳定的作业大约每分钟才刷新一次，而不是每 30 秒一次。
+- monitoring 侧再兜底：队列（容量 1024）里已有 512 条信号时直接丢弃 Refresh，剩下一半留给 Fire / Resolve（例如 B1），大量高延迟作业不会把它们挤掉。
+- 代价：只在亚秒级变化的 `current_delay_ms` 不会单独触发 Refresh，提醒里的 webhook 数值可能差不到 1 秒。
+
+### 4.6 配置缓存
+- 任务配置按任务缓存 60 秒，保存 / 删除时失效。失效时递增该任务的代数；读取期间代数变了（读的同时配置被改）就不缓存读到的结果，避免把改之前的配置缓存 60 秒。
 
 ## 5. monitoring 变更
 
@@ -136,10 +151,13 @@ CDCDelayDurationMinutes  int `json:"cdc_delay_duration_minutes"`  // 默认 5，
 - **告警中心摘要**：`buildSyncAlertInstanceSummary` 对已解决、并且原因是 `job_ended`、`channel_unavailable`、`rule_removed`、`rule_changed` 或 `policy_deleted` 的阶段，追加"（作业已结束，自动关闭）"之类的说明；停止提醒的阶段追加"无法确认已超过 24 小时，已停止提醒"。
   `source_ref` 新增 `resolve_reason`、`reminders_paused`，前端按它显示中英文的关闭原因。
 - **冷却提醒**：沿用 sweep，跳过 `reminders_paused` 的阶段。提醒内容用阶段的 `LastMessage` 和 `last_detail`；Refresh 会让它保持最新。
+  - 30 秒判定和 1 分钟巡检的定时器是对齐的。巡检前先处理队列里已经排着的信号（同一时刻的 Refresh / 静默关闭），提醒用的是最新内容。
+  - 每个阶段的"检查 + 投递"和策略保存 / 删除（会关闭阶段）用同一把锁互斥，并且按 ID 重读阶段：停用告警的那一刻不会再发出旧提醒（例如"无法确认、阈值 60 秒"）。
 - **模板**：
   - 标题：`CDC 延迟过高（3分12秒）`；提醒追加 ` [提醒] 已持续 X 分钟`；无法确认 `（无法确认是否恢复）`；读取条数推断的恢复 `（根据读取条数推断）`。
   - B4 不用"错误摘要"字段，改为：当前读取延迟、近 M 分钟最大读取延迟、告警条件、已持续、说明（仅无法确认）、恢复依据。
-  - Webhook JSON 追加 `resolve_reason`、`reminder` 和 B4 扁平字段：`delay_state`、`current_delay_ms`、`window_max_delay_ms`、`threshold_seconds`、`duration_minutes`、`above_since`、`last_sample_at`、`unknown_reason`、`unknown_since`、`reminders_paused`、`recovery_basis`。
+  - Webhook JSON 追加 `resolve_reason`、`reminder` 和 B4 扁平字段：`delay_state`（high / unknown / recovering / recovered）、`current_delay_ms`（推断时为 null）、`delay_inferred`、`window_max_delay_ms`、`threshold_seconds`、`duration_minutes`、`above_since`、`last_sample_at`、`unknown_reason`、`unknown_since`、`reminders_paused`、`recovery_basis`。
+  - recovering：标题 `（已回落，待确认）`，字段"当前读取延迟""说明：已低于阈值，再确认一轮后自动关闭"。
 
 ## 6. API、CLI、前端
 
@@ -151,7 +169,7 @@ CDCDelayDurationMinutes  int `json:"cdc_delay_duration_minutes"`  // 默认 5，
   - 同步更新 `registry_sync.go` 里的参数说明。
 - **前端**：
   - 类型、`task-alert-utils.ts`：规则列表加上 B4。新配置默认**不勾选** B4，因为它有前置条件，需要用户主动开启。表单状态新增两个字段，带校验和默认值。
-  - `TaskAlertForm.tsx`：勾选 B4 后才展开两个参数输入框（渐进披露），并显示提示："建议 ≥30 秒；数据库与 SeaTunnel 节点时间不同步会让延迟偏大"和"仅对 3.x 集群、已开启事件通道的 CDC 实时作业生效；多源作业按整体判断"。
+  - `TaskAlertForm.tsx`：勾选 B4 后才展开两个参数输入框（渐进披露），并显示提示："建议 ≥30 秒；数据库与 SeaTunnel 节点时间不同步会让延迟偏大"和"仅对 SeaTunnel 2.3.12 及以上、已开启事件通道的集群上的 CDC 实时作业生效；多源作业按最慢的源判断"。版本门槛见 §9。
   - 能拿到集群 ID 时，查询集群的事件通道状态；未开启或不支持时，显示琥珀色提示"该集群未开启事件通道，这条规则不会触发"。
   - 摘要里的规则名包含 B4。
   - 告警中心：作业告警显示自动关闭原因（`closeReason_*`）和"已停止提醒"。
@@ -170,4 +188,12 @@ CDCDelayDurationMinutes  int `json:"cdc_delay_duration_minutes"`  // 默认 5，
 - 数据库和 worker 的时钟差会直接算进延迟。
 - 源库空闲时，恢复通知会推迟到下一次有数据写入。
 - STX 重启后，持续时间和"无法确认"的起始时间从零开始计算（判定状态只在内存）。
-- 多源作业按整体判断：所有 reader 的样本合在一起取中位数，不区分是哪个 source 慢。
+- 多源作业按最慢的源判断（本轮最大值），但不区分是哪个 source 慢。
+
+## 9. 版本门槛：SeaTunnel ≥ 2.3.12（后端、前端、文档一致）
+
+- 依据（apache/seatunnel 源码，按 release tag / 分支核对）：
+  - `READER_MESSAGE_DELAYED` 由 CDC 的 `IncrementalSourceRecordEmitter.reportMetrics` 发出（`MessageDelayedEvent` + `MessageDelayedEventLimiter`），2.3.5 引入（#6634 "Support listening for message delayed events in cdc source"，2024-04）；同一版本 #6419 引入 event-report-http 的 `JobEventHttpReportHandler`。2.3.4 没有这个 handler。
+  - 2.3.12 到 `3.0.0-release` 之间，`MessageDelayedEvent`、`IncrementalSourceRecordEmitter`、`MessageDelayedEventLimiter` 没有任何提交；`JobEventHttpReportHandler` 只多了本地缓冲（不影响事件内容）。
+  - 所以引擎侧 ≥2.3.5 就会上报；但 STX 只允许在 ≥2.3.12 的集群上开启事件通道（`SupportsJobStateEvents`，2.3.12 起才有 JOB_STATUS），B4 又依赖事件通道，实际生效的门槛就是 **2.3.12**。
+- 代码：`seatunnel.SupportsCDCDelayEvents`（= 事件通道门槛）用于判定器的通道判断；前端的"不支持"提示来自后端的 `supported`，文案改为"SeaTunnel 2.3.12 及以上"；CLI 帮助同步。之前写的"仅 3.x"是错的。

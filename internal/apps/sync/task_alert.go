@@ -48,17 +48,24 @@ type TaskAlertRequest struct {
 	NotifyTaskOwner bool     `json:"notify_task_owner"`
 	CooldownMinutes *int     `json:"cooldown_minutes"`
 	SendRecovery    *bool    `json:"send_recovery"`
-	// CDCDelayThresholdSeconds 是 B4 阈值（秒），0 或不填按默认 60，范围 10~86400，超出返回 400。
-	// CDCDelayThresholdSeconds is the B4 threshold in seconds; 0 or omitted means 60, range 10..86400, else 400.
-	CDCDelayThresholdSeconds int `json:"cdc_delay_threshold_seconds"`
-	// CDCDelayDurationMinutes 是 B4 持续时间（分钟），0 或不填按默认 5，范围 1~60，超出返回 400。
-	// CDCDelayDurationMinutes is the B4 duration in minutes; 0 or omitted means 5, range 1..60, else 400.
-	CDCDelayDurationMinutes int `json:"cdc_delay_duration_minutes"`
+	// CDCDelayThresholdSeconds 是 B4 阈值（秒），范围 10~86400，超出返回 400。不填时保留已保存的值（新建时为默认 60）；
+	// 明确填 0 表示恢复默认 60。
+	// CDCDelayThresholdSeconds is the B4 threshold in seconds, range 10..86400, else 400. Omitted keeps the stored
+	// value (the default 60 on create); an explicit 0 resets to the default 60.
+	CDCDelayThresholdSeconds *int `json:"cdc_delay_threshold_seconds"`
+	// CDCDelayDurationMinutes 是 B4 持续时间（分钟），范围 1~60，超出返回 400。不填时保留已保存的值（新建时为默认 5）；
+	// 明确填 0 表示恢复默认 5。
+	// CDCDelayDurationMinutes is the B4 duration in minutes, range 1..60, else 400. Omitted keeps the stored value
+	// (the default 5 on create); an explicit 0 resets to the default 5.
+	CDCDelayDurationMinutes *int `json:"cdc_delay_duration_minutes"`
 }
 
-// toTaskConfig 补齐默认值后转成告警配置。
-// toTaskConfig fills defaults and converts the request into an alert config.
-func (r *TaskAlertRequest) toTaskConfig() *syncalert.TaskConfig {
+// toTaskConfig 补齐默认值后转成告警配置；stored 是已保存的配置（没有时为 nil），不填的 B4 参数沿用它的值，
+// 老客户端（不认识 cdc_delay_*）保存一次不会把自定义的阈值、持续时间冲回默认值。
+// toTaskConfig fills defaults and converts the request into an alert config; stored is the saved config (nil when
+// none) and omitted B4 parameters keep its values, so an old client that does not know cdc_delay_* never resets a
+// custom threshold or duration to the defaults.
+func (r *TaskAlertRequest) toTaskConfig(stored *syncalert.TaskConfig) *syncalert.TaskConfig {
 	cfg := &syncalert.TaskConfig{
 		Enabled:         true,
 		Rules:           r.Rules,
@@ -67,9 +74,17 @@ func (r *TaskAlertRequest) toTaskConfig() *syncalert.TaskConfig {
 		NotifyTaskOwner: r.NotifyTaskOwner,
 		CooldownMinutes: syncalert.DefaultCooldownMinutes,
 		SendRecovery:    true,
-		// 0 由 Normalize 补成默认值。 / Normalize turns 0 into the default.
-		CDCDelayThresholdSeconds: r.CDCDelayThresholdSeconds,
-		CDCDelayDurationMinutes:  r.CDCDelayDurationMinutes,
+	}
+	// 0 由 Normalize 补成默认值。 / Normalize turns 0 into the default.
+	if stored != nil && stored.Configured {
+		cfg.CDCDelayThresholdSeconds = stored.CDCDelayThresholdSeconds
+		cfg.CDCDelayDurationMinutes = stored.CDCDelayDurationMinutes
+	}
+	if r.CDCDelayThresholdSeconds != nil {
+		cfg.CDCDelayThresholdSeconds = *r.CDCDelayThresholdSeconds
+	}
+	if r.CDCDelayDurationMinutes != nil {
+		cfg.CDCDelayDurationMinutes = *r.CDCDelayDurationMinutes
 	}
 	if r.Enabled != nil {
 		cfg.Enabled = *r.Enabled
@@ -134,9 +149,15 @@ func (s *Service) UpdateTaskAlertForActor(ctx context.Context, actor executionap
 	if req == nil {
 		req = &TaskAlertRequest{}
 	}
+	var stored *syncalert.TaskConfig
+	if req.CDCDelayThresholdSeconds == nil || req.CDCDelayDurationMinutes == nil {
+		if stored, err = s.alertStore.GetTaskAlertConfig(ctx, task.ID); err != nil {
+			return nil, err
+		}
+	}
 	ref := syncalert.TaskRef{ID: task.ID, Name: task.Name, ClusterID: task.ClusterID, CreatorID: task.CreatedBy}
 	defer s.invalidateCDCDelayConfig(task.ID)
-	return s.alertStore.SaveTaskAlertConfig(ctx, ref, req.toTaskConfig())
+	return s.alertStore.SaveTaskAlertConfig(ctx, ref, req.toTaskConfig(stored))
 }
 
 // DeleteTaskAlertForActor 删除任务告警配置并结束告警中的阶段；需要任务编辑权限。

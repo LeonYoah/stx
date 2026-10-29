@@ -70,7 +70,7 @@ func newSyncTaskAlertSetCommand(storeProvider authStoreProvider) *cobra.Command 
 		Long: "Create or update the job alert configuration of a sync task. It takes effect immediately and is not\n" +
 			"versioned with the task. Rules: " + syncTaskAlertRulesHelp + ".\n" +
 			"sync_cdc_delay_high (B4) alerts when a CDC streaming job's read delay stays above --cdc-delay-threshold seconds\n" +
-			"for --cdc-delay-duration minutes; it needs a 3.x cluster with the event channel enabled. Without the two flags the\n" +
+			"for --cdc-delay-duration minutes; it needs a SeaTunnel 2.3.12+ cluster with the event channel enabled. Without the two flags the\n" +
 			"current values are kept (defaults 60 s / 5 min).\n" +
 			"Use --disable to stop alerting while keeping the configuration; deleting is only offered in the web UI and API.",
 		Example: "stx sync task alert set 1 --rules sync_job_failed,sync_submit_timeout --channel 2 --confirm\n" +

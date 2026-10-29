@@ -12024,11 +12024,11 @@
             "type": "object",
             "properties": {
                 "cdc_delay_duration_minutes": {
-                    "description": "CDCDelayDurationMinutes 是 B4 持续时间（分钟），0 或不填按默认 5，范围 1~60，超出返回 400。\nCDCDelayDurationMinutes is the B4 duration in minutes; 0 or omitted means 5, range 1..60, else 400.",
+                    "description": "CDCDelayDurationMinutes 是 B4 持续时间（分钟），范围 1~60，超出返回 400。不填时保留已保存的值（新建时为默认 5）；\n明确填 0 表示恢复默认 5。\nCDCDelayDurationMinutes is the B4 duration in minutes, range 1..60, else 400. Omitted keeps the stored value\n(the default 5 on create); an explicit 0 resets to the default 5.",
                     "type": "integer"
                 },
                 "cdc_delay_threshold_seconds": {
-                    "description": "CDCDelayThresholdSeconds 是 B4 阈值（秒），0 或不填按默认 60，范围 10~86400，超出返回 400。\nCDCDelayThresholdSeconds is the B4 threshold in seconds; 0 or omitted means 60, range 10..86400, else 400.",
+                    "description": "CDCDelayThresholdSeconds 是 B4 阈值（秒），范围 10~86400，超出返回 400。不填时保留已保存的值（新建时为默认 60）；\n明确填 0 表示恢复默认 60。\nCDCDelayThresholdSeconds is the B4 threshold in seconds, range 10..86400, else 400. Omitted keeps the stored\nvalue (the default 60 on create); an explicit 0 resets to the default 60.",
                     "type": "integer"
                 },
                 "channel_ids": {

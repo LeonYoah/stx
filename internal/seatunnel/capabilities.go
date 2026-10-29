@@ -124,6 +124,21 @@ func SupportsJobStateEvents(version string) bool {
 	return strings.TrimSpace(version) != "" && CompareVersions(version, "2.3.12") >= 0
 }
 
+// SupportsCDCDelayEvents 判断 STX 能否从该版本收到 READER_MESSAGE_DELAYED（B4 CDC 延迟告警的数据来源），门槛 2.3.12。
+// 依据（apache/seatunnel 源码）：引擎侧自 2.3.5 起就由 CDC 的 IncrementalSourceRecordEmitter 发 MessageDelayedEvent
+// （#6634，同版本 #6419 引入 event-report-http 的 JobEventHttpReportHandler），2.3.12 到 3.0.0-release 之间
+// MessageDelayedEvent、IncrementalSourceRecordEmitter、MessageDelayedEventLimiter 都没有改动；STX 只在 ≥2.3.12 的集群上允许
+// 开启事件通道（SupportsJobStateEvents），所以 B4 实际生效的门槛就是事件通道的门槛 2.3.12。
+// SupportsCDCDelayEvents reports whether STX can receive READER_MESSAGE_DELAYED (the data source of the B4 CDC delay
+// alert) from the version; the gate is 2.3.12. Evidence (apache/seatunnel sources): the engine has emitted
+// MessageDelayedEvent from the CDC IncrementalSourceRecordEmitter since 2.3.5 (#6634; #6419 in the same release added
+// event-report-http's JobEventHttpReportHandler), and MessageDelayedEvent, IncrementalSourceRecordEmitter and
+// MessageDelayedEventLimiter are unchanged between 2.3.12 and 3.0.0-release; STX only lets the event channel be
+// enabled on ≥2.3.12 clusters (SupportsJobStateEvents), so the effective B4 gate is the event channel gate, 2.3.12.
+func SupportsCDCDelayEvents(version string) bool {
+	return SupportsJobStateEvents(version)
+}
+
 // SupportsNonTerminalJobStateEvents 判断版本是否支持 report-non-terminal-job-state 上报非终态（3.0.0 起）。
 // SupportsNonTerminalJobStateEvents reports whether report-non-terminal-job-state is supported for non-terminal states (since 3.0.0).
 func SupportsNonTerminalJobStateEvents(version string) bool {

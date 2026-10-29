@@ -272,3 +272,135 @@ func TestSyncAlertCDCDelay_silentClosesShowReason(t *testing.T) {
 		}
 	}
 }
+
+// 根据读取条数推断的恢复：webhook 的 current_delay_ms 为 null（不是旧值 192000），并带 delay_inferred=true；
+// 旧版本留下的明细（没有 delay_inferred 但依据为 read_count）同样输出 null。
+// A recovery inferred from read counts sends current_delay_ms as null (not the old 192000) with delay_inferred=true;
+// a detail left by an older version (no delay_inferred but basis read_count) is sent as null too.
+func TestSyncAlertCDCDelay_inferredRecoveryClearsWebhookDelay(t *testing.T) {
+	for _, legacy := range []bool{false, true} {
+		f := setupSyncAlertFixture(t)
+		f.configureCDC(t, 7, []string{syncalert.RuleCDCDelayHigh}, 60, 60, 5)
+		f.handle(t, f.cdcSignal(syncalert.KindFire, 7, 70, highDetail(192_000, f.now.Add(-6*time.Minute)), "high"))
+		recovered := syncalert.CDCDelayDetail{State: syncalert.CDCDelayStateRecovered, ThresholdSeconds: 60, DurationMinutes: 5, RecoveryBasis: syncalert.CDCDelayRecoveryByReadCount, DelayInferred: true}
+		if legacy {
+			recovered.DelayInferred = false
+			recovered.CurrentDelayMs = 192_000
+		}
+		signal := f.cdcSignal(syncalert.KindResolve, 7, 70, recovered, "根据读取条数推断已恢复")
+		signal.ResolveReason = syncalert.ResolveReasonRecovered
+		f.handle(t, signal)
+		alert, _ := f.webhook.last()["alert"].(map[string]any)
+		value, present := alert["current_delay_ms"]
+		if !present || value != nil || alert["delay_inferred"] != true {
+			t.Fatalf("legacy=%v: inferred recovery must send current_delay_ms=null and delay_inferred=true: %#v", legacy, alert)
+		}
+	}
+}
+
+// 队列过半时丢弃 B4 Refresh，剩下的容量留给 Fire / Resolve（例如 B1），大量高延迟作业不会把它们挤掉。
+// Past half capacity B4 Refreshes are dropped and the rest stays for Fire / Resolve (e.g. B1), so many high-delay
+// jobs never crowd them out.
+func TestSyncAlertCDCDelay_refreshDroppedWhenQueueHalfFull(t *testing.T) {
+	f := setupSyncAlertFixture(t)
+	hub := f.service.NewSyncAlertHub() // 不启动，信号留在队列里。 / Not started; signals stay queued.
+	refresh := f.cdcSignal(syncalert.KindRefresh, 7, 70, highDetail(120_000, f.now), "refresh")
+	for i := 0; i < syncAlertRefreshQueueLimit; i++ {
+		hub.ReportSyncAlert(refresh)
+	}
+	if len(hub.queue) != syncAlertRefreshQueueLimit {
+		t.Fatalf("refreshes below the limit are queued, got %d", len(hub.queue))
+	}
+	hub.ReportSyncAlert(refresh)
+	if len(hub.queue) != syncAlertRefreshQueueLimit || hub.droppedRefresh.Load() != 1 {
+		t.Fatalf("a refresh past half capacity must be dropped (queue=%d dropped=%d)", len(hub.queue), hub.droppedRefresh.Load())
+	}
+	hub.ReportSyncAlert(f.signal(syncalert.KindFire, syncalert.RuleJobFailed, 8, 80))
+	if len(hub.queue) != syncAlertRefreshQueueLimit+1 || hub.dropped.Load() != 0 {
+		t.Fatalf("B1 fire must still be queued (queue=%d)", len(hub.queue))
+	}
+}
+
+// 停用告警的那一刻不发旧提醒：巡检按 ID 重读阶段，已被停用关闭的不再提醒；停用与提醒互斥。
+// No stale reminder at the moment the alert is disabled: the sweep re-reads each episode by ID and skips one closed
+// by the disable; disabling and reminding are mutually exclusive.
+func TestSyncAlertCDCDelay_noReminderWhenDisabled(t *testing.T) {
+	f := setupSyncAlertFixture(t)
+	f.configureCDC(t, 7, []string{syncalert.RuleCDCDelayHigh}, 1, 60, 5)
+	unknown := highDetail(192_000, f.now.Add(-6*time.Minute))
+	unknown.State = syncalert.CDCDelayStateUnknown
+	f.handle(t, f.cdcSignal(syncalert.KindFire, 7, 70, highDetail(192_000, f.now.Add(-6*time.Minute)), "high"))
+	f.handle(t, f.cdcSignal(syncalert.KindRefresh, 7, 70, unknown, "无法确认"))
+	listed, err := f.repo.ListFiringSyncAlertEpisodes(f.ctx, 10)
+	if err != nil || len(listed) != 1 {
+		t.Fatalf("list: %v %d", err, len(listed))
+	}
+	backdateDelivery(t, f, buildSyncAlertSourceKey(listed[0].ID), 2*time.Minute)
+
+	// 停用会等正在进行的提醒检查 + 投递结束。 / Disabling waits for an in-flight reminder check + dispatch.
+	f.service.syncAlertEpisodeMu.Lock()
+	done := make(chan error, 1)
+	go func() {
+		_, err := f.service.SaveTaskAlertConfig(f.ctx, syncalert.TaskRef{ID: 7, Name: "orders-sync", ClusterID: f.clusterID, CreatorID: 1}, &syncalert.TaskConfig{
+			Enabled: false, Rules: []string{syncalert.RuleCDCDelayHigh}, ChannelIDs: []uint{f.channel.ID}, CooldownMinutes: 1, SendRecovery: true,
+		})
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		f.service.syncAlertEpisodeMu.Unlock()
+		t.Fatalf("disabling must wait for the reminder lock, finished early: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	f.service.syncAlertEpisodeMu.Unlock()
+	if err := <-done; err != nil {
+		t.Fatalf("disable: %v", err)
+	}
+
+	// 巡检拿着停用之前列出的阶段：按 ID 重读后已关闭，不发提醒。
+	// The sweep holds the episode listed before the disable: re-read by ID it is closed, so nothing is sent.
+	before := f.webhook.count()
+	if err := f.hub.remindEpisode(f.ctx, listed[0].ID); err != nil {
+		t.Fatalf("remind: %v", err)
+	}
+	if err := f.hub.sweep(f.ctx); err != nil {
+		t.Fatalf("sweep: %v", err)
+	}
+	if f.webhook.count() != before {
+		t.Fatalf("no reminder may be sent once disabled, got %d new", f.webhook.count()-before)
+	}
+	if episode := f.episodes(t)[0]; episode.Status != SyncAlertEpisodeResolved || episode.ResolveReason != syncalert.ResolveReasonRuleRemoved {
+		t.Fatalf("disable closes the episode silently: %+v", episode)
+	}
+}
+
+// 提醒内容是最新的：巡检前先处理已排队的 Refresh（与 30 秒判定同一时刻到达）。
+// Reminder content is current: Refreshes already queued (arriving with the 30s round) are handled before the sweep.
+func TestSyncAlertCDCDelay_reminderUsesQueuedRefresh(t *testing.T) {
+	f := setupSyncAlertFixture(t)
+	f.configureCDC(t, 7, []string{syncalert.RuleCDCDelayHigh}, 1, 300, 5)
+	above := f.now.Add(-6 * time.Minute)
+	f.handle(t, f.cdcSignal(syncalert.KindFire, 7, 70, highDetail(400_000, above), "high"))
+	episode := f.episodes(t)[0]
+	backdateDelivery(t, f, buildSyncAlertSourceKey(episode.ID), 2*time.Minute)
+	recovering := highDetail(120_000, above)
+	recovering.State = syncalert.CDCDelayStateRecovering
+	recovering.ThresholdSeconds = 300
+	f.hub.ReportSyncAlert(f.cdcSignal(syncalert.KindRefresh, 7, 70, recovering, "读取延迟已回落到 2分，低于阈值 5分；再确认一轮后自动关闭"))
+	f.hub.drainQueued(f.ctx)
+	if len(f.hub.queue) != 0 {
+		t.Fatalf("queued signals must be handled before the sweep")
+	}
+	if err := f.hub.sweep(f.ctx); err != nil {
+		t.Fatalf("sweep: %v", err)
+	}
+	reminder := f.webhook.last()
+	title, _ := reminder["title"].(string)
+	text, _ := reminder["message"].(string)
+	if !strings.Contains(title, "（已回落，待确认） [提醒]") || !strings.Contains(text, "当前读取延迟：2分") || !strings.Contains(text, "读取延迟超过 5分") {
+		t.Fatalf("reminder must use the queued refresh content:\n%s\n%s", title, text)
+	}
+	if alert, _ := reminder["alert"].(map[string]any); alert["delay_state"] != "recovering" || alert["threshold_seconds"] != float64(300) {
+		t.Fatalf("reminder webhook must be current: %#v", alert)
+	}
+}

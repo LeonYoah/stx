@@ -19,11 +19,14 @@ package sync
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"strings"
 	gosync "sync"
 	"testing"
 	"time"
 
+	executionapp "github.com/LeonYoah/stx/internal/apps/execution"
 	"github.com/LeonYoah/stx/internal/pkg/syncalert"
 )
 
@@ -164,9 +167,9 @@ func TestCDCDelayRecoversWithin90s(t *testing.T) {
 	}
 }
 
-// 短暂尖峰（短于持续时间）不告警；大事务单个尖峰也不会让一轮变成 high（按中位数分类）。
-// A short spike (shorter than the duration) never fires; a single big-transaction spike does not make a round high
-// either (rounds are classified by median).
+// 短暂尖峰（短于持续时间）不告警；之后每个尖峰轮次（按最大值算 high）后面都跟着连续两轮低，计时每次都重新开始，也不告警。
+// A short spike (shorter than the duration) never fires; isolated spike rounds (high by the round max) each followed
+// by two low rounds restart timing every time and never fire either.
 func TestCDCDelayShortSpikeDoesNotFire(t *testing.T) {
 	sim := newCDCSim(t, cdcPhaseNone, 60, 5)
 	for i := 0; i < 8; i++ { // 4 分钟高 / 4 minutes high
@@ -176,10 +179,85 @@ func TestCDCDelayShortSpikeDoesNotFire(t *testing.T) {
 		sim.round(3)
 	}
 	for i := 0; i < 20; i++ {
-		sim.round(3, 900, 3) // 每轮一个 15 分钟的尖峰 / one 15-minute spike per round
+		sim.round(3, 900, 3) // 一个 15 分钟的大事务尖峰 / one 15-minute big-transaction spike
+		sim.round(3)
+		sim.round(3)
 	}
 	if n := sim.count(syncalert.KindFire); n != 0 {
-		t.Fatalf("short or single-sample spikes must not fire, got %d", n)
+		t.Fatalf("short or isolated spikes must not fire, got %d", n)
+	}
+}
+
+// 验收（产品复现）：阈值 60 秒、持续 2 分钟，"3 轮 200 秒 + 1 轮 30 秒"循环 1 小时，必须告警。单独一轮低不重新计时。
+// Acceptance (product repro): threshold 60s, duration 2 minutes, "3 rounds at 200s + 1 round at 30s" for one hour
+// must fire. A single low round does not restart timing.
+func TestCDCDelayIntermittentHighFires(t *testing.T) {
+	sim := newCDCSim(t, cdcPhaseNone, 60, 2)
+	start := sim.now
+	for sim.now.Sub(start) < time.Hour {
+		sim.round(200)
+		sim.round(200)
+		sim.round(200)
+		sim.round(30)
+	}
+	fire, ok := sim.first(syncalert.KindFire)
+	if !ok {
+		t.Fatalf("intermittent high delay (3×200s + 1×30s) must fire")
+	}
+	// 第 5 轮（150 秒）时已超标 140 秒 ≥ 2 分钟。 / By round 5 (150s) the delay has been high for 140s ≥ 2 minutes.
+	if got := fire.at.Sub(start); got > 150*time.Second {
+		t.Fatalf("fire came %v after start, want ≤150s", got)
+	}
+	if sim.count(syncalert.KindFire) != 1 || sim.count(syncalert.KindResolve) != 0 {
+		t.Fatalf("want one fire and no recovery for the hour, got fire=%d resolve=%d", sim.count(syncalert.KindFire), sim.count(syncalert.KindResolve))
+	}
+	// 单独一轮低：只把阶段刷新为"已回落、待确认"，不发恢复。
+	// A single low round only refreshes the episode as recovering and never recovers.
+	var recovering int
+	for _, a := range sim.actions {
+		if a.action.kind == syncalert.KindRefresh && a.action.detail.State == syncalert.CDCDelayStateRecovering {
+			recovering++
+			if a.action.detail.CurrentDelayMs != 30_000 {
+				t.Fatalf("recovering refresh must carry the current delay, got %+v", a.action.detail)
+			}
+		}
+	}
+	if recovering == 0 {
+		t.Fatalf("a low round while firing should refresh the episode with current values")
+	}
+	// 连续两轮低才重新计时：之后再高要重新攒满 2 分钟。
+	// Only two low rounds in a row restart timing: high again afterwards needs a fresh 2 minutes.
+	sim2 := newCDCSim(t, cdcPhaseNone, 60, 2)
+	for i := 0; i < 20; i++ {
+		sim2.round(200)
+		sim2.round(200)
+		sim2.round(30)
+		sim2.round(30)
+	}
+	if n := sim2.count(syncalert.KindFire); n != 0 {
+		t.Fatalf("two low rounds in a row restart timing; 60s highs must never fire, got %d", n)
+	}
+}
+
+// 验收：多源作业两个源 5 秒、一个源卡在 900 秒，按本轮最大值判为高并告警；中位数只用作追赶基线。
+// Acceptance: a multi-source job with two sources at 5s and one stuck at 900s is high by the round maximum and fires;
+// the median only feeds the catch-up baseline.
+func TestCDCDelayMultiSourceUsesRoundMax(t *testing.T) {
+	sim := newCDCSim(t, cdcPhaseNone, 60, 1)
+	for i := 0; i < 4; i++ {
+		sim.round(5, 900, 5)
+	}
+	fire, ok := sim.first(syncalert.KindFire)
+	if !ok {
+		t.Fatalf("one source stuck at 900s among 5s sources must fire")
+	}
+	if fire.action.detail.CurrentDelayMs != 900_000 || fire.action.detail.WindowMaxDelayMs != 900_000 {
+		t.Fatalf("the current delay is the slowest source: %+v", fire.action.detail)
+	}
+	for _, point := range sim.st.history {
+		if point.median != 5_000 || point.max != 900_000 {
+			t.Fatalf("history keeps the median for catch-up and the max for display: %+v", point)
+		}
 	}
 }
 
@@ -280,6 +358,10 @@ func TestCDCDelayRecoveryInferredFromReadCount(t *testing.T) {
 	}
 	if msg := cdcDelayMessage(resolve.action, &JobInstance{ID: 3, TaskID: 1}); !strings.Contains(msg, "根据读取条数推断") {
 		t.Fatalf("recovery message must say it is inferred from read counts: %q", msg)
+	}
+	// 推断的恢复不带最后一个旧样本（120 秒）作为当前延迟。 / An inferred recovery never reports the old 120s sample.
+	if d := resolve.action.detail; d.CurrentDelayMs != 0 || !d.DelayInferred {
+		t.Fatalf("inferred recovery must clear the current delay and flag it: %+v", d)
 	}
 }
 
@@ -437,8 +519,13 @@ type cdcServiceFixture struct {
 
 func newCDCServiceFixture(t *testing.T) *cdcServiceFixture {
 	t.Helper()
+	return newCDCServiceFixtureVersion(t, "3.0.0")
+}
+
+func newCDCServiceFixtureVersion(t *testing.T, version string) *cdcServiceFixture {
+	t.Helper()
 	withEventConfig(t, "secret", "http://stx")
-	service, _ := newEventTestService(t, "3.0.0")
+	service, _ := newEventTestService(t, version)
 	f := &cdcServiceFixture{service: service, now: time.Now().UTC()}
 	service.events.now = func() time.Time { return f.now }
 	f.reporter = attachReporter(service)
@@ -532,15 +619,98 @@ func TestCDCDelayServiceSkipsBatchPreviewAndStaleSamples(t *testing.T) {
 		job.Status = JobStatusCanceled
 		f.service.repo.db.Save(job)
 	}
-	// 超过 2 分钟的旧样本（STX 停机后重投的积压）不计入。
-	// Samples older than 2 minutes (backlog replayed after downtime) are not counted.
+	// 比该作业最新引擎时间早 2 分钟以上的样本（STX 停机后重投的积压）不计入：同一批里有新样本 5 秒，旧样本 120 秒。
+	// Samples more than 2 minutes older than the job's newest engine time (backlog replayed after downtime) are not
+	// counted: each batch carries a fresh 5s sample and old 120s ones.
+	auth := enableChannel(t, f.service, 5)
 	for i := 0; i < 8; i++ {
 		f.now = f.now.Add(30 * time.Second)
-		f.service.recordCDCDelay(f.job.ID, 120_000, f.now.Add(-10*time.Minute).UnixMilli()+int64(i))
+		fresh := f.now.UnixMilli()
+		old := f.now.Add(-10 * time.Minute).UnixMilli()
+		body := fmt.Sprintf(`[{"jobId":"2001","createdTime":%d,"eventType":"READER_MESSAGE_DELAYED","delayTime":120000},`+
+			`{"jobId":"2001","createdTime":%d,"eventType":"READER_MESSAGE_DELAYED","delayTime":5000}]`, old+int64(i), fresh)
+		if _, err := f.service.IngestEngineEvents(ctx, 5, auth, []byte(body)); err != nil {
+			t.Fatalf("ingest: %v", err)
+		}
 		f.service.evaluateCDCDelayAlerts(ctx)
 	}
 	if len(f.b4(syncalert.KindFire)) != 0 {
 		t.Fatalf("stale samples must not fire")
+	}
+	// 对照：同样的通道上，新样本持续 120 秒会告警。 / Control: fresh 120s samples on the same channel fire.
+	for i := 0; i < 4; i++ {
+		f.now = f.now.Add(30 * time.Second)
+		body := fmt.Sprintf(`[{"jobId":"2001","createdTime":%d,"eventType":"READER_MESSAGE_DELAYED","delayTime":120000}]`, f.now.UnixMilli())
+		if _, err := f.service.IngestEngineEvents(ctx, 5, auth, []byte(body)); err != nil {
+			t.Fatalf("ingest: %v", err)
+		}
+		f.service.evaluateCDCDelayAlerts(ctx)
+	}
+	if len(f.b4(syncalert.KindFire)) != 1 {
+		t.Fatalf("fresh samples must still fire after the stale ones")
+	}
+}
+
+// 引擎时钟比 STX 慢 5 分钟（时钟差 > 2 分钟）：样本照常计入（按 STX 收到时间判断），并限频打 warning，不会全部被静默丢弃。
+// The engine clock runs 5 minutes behind STX (skew > 2 minutes): samples still count (judged by STX receive time)
+// and a rate-limited warning is logged instead of every sample being silently dropped.
+func TestCDCDelayClockSkewStillCountsAndWarns(t *testing.T) {
+	f := newCDCServiceFixture(t)
+	f.configure([]string{syncalert.RuleCDCDelayHigh}, 30, 1)
+	var warnings []time.Duration
+	previous := cdcDelaySkewWarn
+	cdcDelaySkewWarn = func(_ uint, skew time.Duration) { warnings = append(warnings, skew) }
+	t.Cleanup(func() { cdcDelaySkewWarn = previous })
+	for i := 0; i < 4; i++ {
+		for j := 0; j < 3; j++ {
+			f.now = f.now.Add(10 * time.Second)
+			f.service.recordCDCDelay(f.job.ID, 120_000, f.now.Add(-5*time.Minute).UnixMilli())
+		}
+		f.service.evaluateCDCDelayAlerts(context.Background())
+	}
+	if len(f.b4(syncalert.KindFire)) != 1 {
+		t.Fatalf("a skewed engine clock must not hide the delay, fires=%d", len(f.b4(syncalert.KindFire)))
+	}
+	if len(warnings) != 1 || warnings[0] < 4*time.Minute {
+		t.Fatalf("expected one rate-limited skew warning, got %v", warnings)
+	}
+	// 10 分钟后再打一条。 / Another one after 10 minutes.
+	for i := 0; i < 22; i++ {
+		f.now = f.now.Add(30 * time.Second)
+		f.service.recordCDCDelay(f.job.ID, 120_000, f.now.Add(-5*time.Minute).UnixMilli())
+	}
+	if len(warnings) != 2 {
+		t.Fatalf("expected a second warning after the rate-limit interval, got %d", len(warnings))
+	}
+}
+
+// 多个 reader 交错上报：引擎时间不递增的样本也计入 B4（以及摘要的窗口最大值），不会被当成重放丢弃。
+// Interleaved reports from several readers: samples whose engine time does not increase still reach B4 (and the
+// summary window max) instead of being dropped as replays.
+func TestCDCDelayInterleavedReadersNotDropped(t *testing.T) {
+	f := newCDCServiceFixture(t)
+	f.configure([]string{syncalert.RuleCDCDelayHigh}, 60, 1)
+	auth := enableChannel(t, f.service, 5)
+	ctx := context.Background()
+	for i := 0; i < 4; i++ {
+		f.now = f.now.Add(30 * time.Second)
+		base := f.now.UnixMilli()
+		// reader A 的时间更新、延迟低；reader B 慢一些上报，时间更早、延迟 900 秒。
+		// Reader A has the newer time and a low delay; reader B reports later with an older time and 900s delay.
+		body := fmt.Sprintf(`[{"jobId":"2001","createdTime":%d,"eventType":"READER_MESSAGE_DELAYED","delayTime":5000},`+
+			`{"jobId":"2001","createdTime":%d,"eventType":"READER_MESSAGE_DELAYED","delayTime":900000},`+
+			`{"jobId":"2001","createdTime":%d,"eventType":"READER_MESSAGE_DELAYED","delayTime":5000}]`, base, base-1500, base)
+		if _, err := f.service.IngestEngineEvents(ctx, 5, auth, []byte(body)); err != nil {
+			t.Fatalf("ingest: %v", err)
+		}
+		f.service.evaluateCDCDelayAlerts(ctx)
+	}
+	if len(f.b4(syncalert.KindFire)) != 1 {
+		t.Fatalf("an interleaved 900s sample must count, fires=%d", len(f.b4(syncalert.KindFire)))
+	}
+	summary := f.service.jobCDCDelay(f.job.ID)
+	if summary == nil || summary.MaxMs != 900_000 || summary.LatestMs != 5000 {
+		t.Fatalf("summary should keep the interleaved max and the newest latest value: %+v", summary)
 	}
 }
 
@@ -618,4 +788,178 @@ func TestCDCDelayConcurrentSamplesAndRounds(t *testing.T) {
 		f.service.evaluateCDCDelayAlerts(context.Background())
 	}
 	wg.Wait()
+}
+
+// 内容没变的 Refresh 不发：持续 120 秒的作业每 30 秒一轮，只在展示内容（例如"已持续 N 分钟"）变化时才发 Refresh。
+// Refreshes with unchanged content are skipped: a job steady at 120s only refreshes when the displayed content (such
+// as "已持续 N 分钟") changes, not every 30s round.
+func TestCDCDelayRefreshOnlyWhenContentChanges(t *testing.T) {
+	f := newCDCServiceFixture(t)
+	f.configure([]string{syncalert.RuleCDCDelayHigh}, 30, 1)
+	for i := 0; i < 4; i++ {
+		f.round(120)
+	}
+	if len(f.b4(syncalert.KindFire)) != 1 {
+		t.Fatalf("expected fire")
+	}
+	before := len(f.b4(syncalert.KindRefresh))
+	const rounds = 20
+	for i := 0; i < rounds; i++ {
+		f.round(120)
+	}
+	refreshes := f.b4(syncalert.KindRefresh)[before:]
+	if len(refreshes) == 0 || len(refreshes) > rounds/2+1 {
+		t.Fatalf("steady delay should refresh about once a minute (elapsed minutes change), got %d in %d rounds", len(refreshes), rounds)
+	}
+	previous := f.b4(syncalert.KindFire)[0].Message
+	for _, r := range refreshes {
+		if r.Message == previous {
+			t.Fatalf("a refresh with unchanged content was sent: %q", r.Message)
+		}
+		previous = r.Message
+	}
+	// 延迟变了就立刻刷新。 / A changed delay refreshes right away.
+	n := len(f.b4(syncalert.KindRefresh))
+	f.round(300)
+	if len(f.b4(syncalert.KindRefresh)) != n+1 {
+		t.Fatalf("a changed delay must refresh")
+	}
+}
+
+// 告警中改了阈值（rearm）后出现低于新阈值的一轮：阶段内容立刻刷新为新阈值和当前延迟，不再保留"无法确认、阈值 60 秒"的旧内容。
+// After the threshold changes while alerting (rearm), a round below the new threshold refreshes the episode with the
+// new threshold and current delay at once instead of keeping the stale "unconfirmable, threshold 60s" content.
+func TestCDCDelayRearmLowRoundRefreshesCurrentContent(t *testing.T) {
+	sim := newCDCSim(t, cdcPhaseNone, 60, 1)
+	count := 100.0
+	sim.readCount = &count
+	for i := 0; i < 4; i++ {
+		sim.round(120)
+	}
+	sim.round() // 无法确认（阈值 60 秒）。 / Unconfirmable at threshold 60s.
+	if last := sim.actions[len(sim.actions)-1].action; last.detail.State != syncalert.CDCDelayStateUnknown || last.detail.ThresholdSeconds != 60 {
+		t.Fatalf("expected an unknown refresh at threshold 60, got %+v", last)
+	}
+	sim.threshold = 300
+	actions := sim.round(120)
+	if len(actions) != 1 || actions[0].kind != syncalert.KindRefresh {
+		t.Fatalf("a low round during rearm must refresh the content, got %+v", actions)
+	}
+	d := actions[0].detail
+	if d.State != syncalert.CDCDelayStateRecovering || d.ThresholdSeconds != 300 || d.CurrentDelayMs != 120_000 {
+		t.Fatalf("refresh must carry the new threshold and the current delay: %+v", d)
+	}
+	msg := cdcDelayMessage(actions[0], &JobInstance{ID: 3, TaskID: 1})
+	if strings.Contains(msg, "无法确认") || !strings.Contains(msg, "5分") {
+		t.Fatalf("refreshed message must be current: %q", msg)
+	}
+	if actions := sim.round(120); len(actions) != 1 || actions[0].kind != syncalert.KindResolve || actions[0].reason != syncalert.ResolveReasonRuleChanged {
+		t.Fatalf("second low round closes silently with rule_changed, got %+v", actions)
+	}
+}
+
+// 读配置期间配置被改（停用）：读到的旧配置不进缓存，下一轮立刻用新配置，不会带着旧配置继续 60 秒。
+// The config changes (disabled) while it is being read: the old result is not cached, so the next round uses the new
+// config at once instead of the old one for another 60s.
+type racingTaskAlertStore struct {
+	*memoryTaskAlertStore
+	duringRead func()
+	reads      int
+}
+
+func (r *racingTaskAlertStore) GetTaskAlertConfig(ctx context.Context, taskID uint) (*syncalert.TaskConfig, error) {
+	r.reads++
+	cfg, err := r.memoryTaskAlertStore.GetTaskAlertConfig(ctx, taskID)
+	if hook := r.duringRead; hook != nil {
+		r.duringRead = nil
+		hook()
+	}
+	return cfg, err
+}
+
+func TestCDCDelayConfigCacheSkipsRacedRead(t *testing.T) {
+	f := newCDCServiceFixture(t)
+	store := &racingTaskAlertStore{memoryTaskAlertStore: f.store}
+	f.service.SetTaskAlertPolicyStore(store)
+	f.configure([]string{syncalert.RuleCDCDelayHigh}, 30, 1)
+	ctx := context.Background()
+	store.duringRead = func() {
+		// 保存停用：存储已更新，失效在读取返回之前完成。 / Save disables it; invalidation lands before the read returns.
+		f.store.configs[f.job.TaskID] = (&syncalert.TaskConfig{Configured: true, Enabled: false, Rules: []string{syncalert.RuleCDCDelayHigh}, ChannelIDs: []uint{1}}).Normalize()
+		f.service.invalidateCDCDelayConfig(f.job.TaskID)
+	}
+	if cfg, err := f.service.cdcDelayTaskConfig(ctx, f.job.TaskID, f.now); err != nil || cfg == nil || !cfg.Enabled {
+		t.Fatalf("the raced read still returns what it read: %+v err=%v", cfg, err)
+	}
+	cfg, err := f.service.cdcDelayTaskConfig(ctx, f.job.TaskID, f.now)
+	if err != nil || cfg.Enabled || store.reads != 2 {
+		t.Fatalf("the raced result must not be cached (reads=%d cfg=%+v)", store.reads, cfg)
+	}
+	if _, err := f.service.cdcDelayTaskConfig(ctx, f.job.TaskID, f.now); err != nil || store.reads != 2 {
+		t.Fatalf("a clean read is cached (reads=%d)", store.reads)
+	}
+}
+
+// 老客户端的 PUT 不带 cdc_delay_*：保留已保存的自定义值（300 / 10）；明确填 0 才恢复默认；新建时不填用默认值。
+// An old client's PUT without cdc_delay_* keeps the stored custom values (300 / 10); only an explicit 0 resets to the
+// defaults, and a create without them uses the defaults.
+func TestTaskAlertOmittedCDCDelayKeepsStoredValues(t *testing.T) {
+	service, _, task := newOutcomeTestService(t, nil)
+	ctx := context.Background()
+	owner := executionapp.Actor{UserID: 1}
+	store := &memoryTaskAlertStore{configs: map[uint]*syncalert.TaskConfig{}, refs: map[uint]syncalert.TaskRef{}}
+	service.SetTaskAlertPolicyStore(store)
+	rules := []string{syncalert.RuleJobFailed, syncalert.RuleCDCDelayHigh}
+
+	cfg, err := service.UpdateTaskAlertForActor(ctx, owner, task.ID, &TaskAlertRequest{Rules: rules, ChannelIDs: []uint{1}})
+	if err != nil || cfg.CDCDelayThresholdSeconds != syncalert.DefaultCDCDelayThresholdSeconds || cfg.CDCDelayDurationMinutes != syncalert.DefaultCDCDelayDurationMinutes {
+		t.Fatalf("create without the fields uses the defaults: %+v err=%v", cfg, err)
+	}
+	threshold, duration := 300, 10
+	if cfg, err = service.UpdateTaskAlertForActor(ctx, owner, task.ID, &TaskAlertRequest{Rules: rules, ChannelIDs: []uint{1}, CDCDelayThresholdSeconds: &threshold, CDCDelayDurationMinutes: &duration}); err != nil || cfg.CDCDelayThresholdSeconds != 300 {
+		t.Fatalf("custom values: %+v err=%v", cfg, err)
+	}
+	// 老客户端：只改了接收人，不认识 cdc_delay_*。 / Old client: only changes receivers and knows nothing of cdc_delay_*.
+	cfg, err = service.UpdateTaskAlertForActor(ctx, owner, task.ID, &TaskAlertRequest{Rules: rules, ChannelIDs: []uint{1}, ReceiverUserIDs: []uint{7}})
+	if err != nil || cfg.CDCDelayThresholdSeconds != 300 || cfg.CDCDelayDurationMinutes != 10 {
+		t.Fatalf("omitted fields must keep the stored 300 / 10: %+v err=%v", cfg, err)
+	}
+	// 只带一个字段：另一个保留。 / Only one field given: the other is kept.
+	threshold = 120
+	if cfg, err = service.UpdateTaskAlertForActor(ctx, owner, task.ID, &TaskAlertRequest{Rules: rules, ChannelIDs: []uint{1}, CDCDelayThresholdSeconds: &threshold}); err != nil || cfg.CDCDelayThresholdSeconds != 120 || cfg.CDCDelayDurationMinutes != 10 {
+		t.Fatalf("one field given keeps the other: %+v err=%v", cfg, err)
+	}
+	zero := 0
+	cfg, err = service.UpdateTaskAlertForActor(ctx, owner, task.ID, &TaskAlertRequest{Rules: rules, ChannelIDs: []uint{1}, CDCDelayThresholdSeconds: &zero, CDCDelayDurationMinutes: &zero})
+	if err != nil || cfg.CDCDelayThresholdSeconds != syncalert.DefaultCDCDelayThresholdSeconds || cfg.CDCDelayDurationMinutes != syncalert.DefaultCDCDelayDurationMinutes {
+		t.Fatalf("explicit 0 resets to the defaults: %+v err=%v", cfg, err)
+	}
+	// JSON 层：字段缺失解码为 nil，明确 0 解码为 0。 / JSON: a missing field decodes to nil, an explicit 0 to 0.
+	var req TaskAlertRequest
+	if err := json.Unmarshal([]byte(`{"rules":["sync_job_failed"],"cdc_delay_duration_minutes":0}`), &req); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if req.CDCDelayThresholdSeconds != nil || req.CDCDelayDurationMinutes == nil || *req.CDCDelayDurationMinutes != 0 {
+		t.Fatalf("omitted vs explicit 0 must be distinguishable: %+v", req)
+	}
+}
+
+// 版本门槛：2.3.12 起引擎经事件通道上报 READER_MESSAGE_DELAYED，B4 在 2.3.12 集群上照常告警；版本降到 2.3.11 时静默关闭。
+// Version gate: from 2.3.12 the engine reports READER_MESSAGE_DELAYED through the event channel, so B4 fires on a
+// 2.3.12 cluster; once the version reads 2.3.11 it closes silently.
+func TestCDCDelayVersionGate2312(t *testing.T) {
+	f := newCDCServiceFixtureVersion(t, "2.3.12")
+	f.configure([]string{syncalert.RuleCDCDelayHigh}, 30, 1)
+	for i := 0; i < 4; i++ {
+		f.round(120)
+	}
+	if len(f.b4(syncalert.KindFire)) != 1 {
+		t.Fatalf("B4 must fire on a 2.3.12 cluster, got %d", len(f.b4(syncalert.KindFire)))
+	}
+	f.service.SetClusterVersionProvider(fixedClusterVersionProvider{version: "2.3.11"})
+	f.round(120)
+	resolves := f.b4(syncalert.KindResolve)
+	if len(resolves) != 1 || resolves[0].ResolveReason != syncalert.ResolveReasonChannelOff {
+		t.Fatalf("an unsupported version closes silently, got %+v", resolves)
+	}
 }

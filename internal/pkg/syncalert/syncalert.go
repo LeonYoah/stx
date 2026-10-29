@@ -167,6 +167,10 @@ const (
 	// CDCDelayStateRecovered 是延迟已回落。
 	// CDCDelayStateRecovered means the delay dropped back.
 	CDCDelayStateRecovered = "recovered"
+	// CDCDelayStateRecovering 是告警中出现一轮低于阈值：还没连续两轮，阶段保留，只刷新为当前值。
+	// CDCDelayStateRecovering means one round below the threshold while alerting: not yet two in a row, so the
+	// episode stays open and is only refreshed with the current values.
+	CDCDelayStateRecovering = "recovering"
 
 	// CDCDelayUnknownNoProgress 是没有延迟数据、读取条数也没有增长。
 	// CDCDelayUnknownNoProgress means no delay data and no growth in the read count.
@@ -200,6 +204,11 @@ type CDCDelayDetail struct {
 	// RemindersPaused stops monitoring's cooldown reminders ("unconfirmable" for over 24h); the episode stays open.
 	RemindersPaused bool   `json:"reminders_paused,omitempty"`
 	RecoveryBasis   string `json:"recovery_basis,omitempty"`
+	// DelayInferred 为 true 时没有可用的延迟样本，状态是根据读取条数推断的：CurrentDelayMs 不是当前值（为 0），
+	// webhook 的 current_delay_ms 输出 null。
+	// DelayInferred means no delay sample backs this state and it was inferred from the read count: CurrentDelayMs is
+	// not a current value (it is 0) and the webhook sends current_delay_ms as null.
+	DelayInferred bool `json:"delay_inferred,omitempty"`
 }
 
 // MaxMessageLength 是信号里错误信息的最大长度（字符），也是告警中心与通知里展示的上限：存多少就展示多少，

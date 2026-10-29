@@ -38,6 +38,11 @@ const (
 	// syncAlertQueueSize 是信号缓冲区容量；满了丢弃新信号，保证 sync 侧永不阻塞。
 	// syncAlertQueueSize is the signal buffer capacity; when full new signals are dropped so sync never blocks.
 	syncAlertQueueSize = 1024
+	// syncAlertRefreshQueueLimit：队列里已有这么多信号时丢弃 B4 Refresh（只更新展示内容，下一轮内容变了还会再发），
+	// 把剩下的一半留给 Fire / Resolve 等会通知的信号。
+	// syncAlertRefreshQueueLimit: with this many signals queued, B4 Refreshes (display-only; a later content change
+	// sends another) are dropped so the other half stays free for notifying signals such as Fire / Resolve.
+	syncAlertRefreshQueueLimit = syncAlertQueueSize / 2
 	// syncAlertSweepInterval 是冷却提醒巡检的间隔。
 	// syncAlertSweepInterval is how often the cooldown reminder sweep runs.
 	syncAlertSweepInterval = time.Minute
@@ -88,7 +93,9 @@ type SyncAlertHub struct {
 	// lastDropLogMinute 让缓冲区满的 warning 每分钟最多打一条。
 	// lastDropLogMinute keeps the buffer-full warning to at most one per minute.
 	lastDropLogMinute atomic.Int64
-	now               func() time.Time
+	// droppedRefresh 是队列过半时丢弃的 B4 Refresh 数。 / droppedRefresh counts B4 Refreshes dropped past half capacity.
+	droppedRefresh atomic.Int64
+	now            func() time.Time
 }
 
 // NewSyncAlertHub 创建告警 hub；调用 Start 之前收到的信号会留在缓冲区里。
@@ -112,6 +119,10 @@ func (h *SyncAlertHub) ReportSyncAlert(signal syncalert.Signal) {
 	}
 	if signal.OccurredAt.IsZero() {
 		signal.OccurredAt = h.clock()
+	}
+	if signal.Kind == syncalert.KindRefresh && len(h.queue) >= syncAlertRefreshQueueLimit {
+		h.droppedRefresh.Add(1)
+		return
 	}
 	select {
 	case h.queue <- signal:
@@ -145,12 +156,32 @@ func (h *SyncAlertHub) Start(ctx context.Context) {
 						signal.RuleKey, signal.TaskID, signal.ClusterID, err)
 				}
 			case <-ticker.C:
+				// 先处理已经排队的信号（例如同一时刻的 B4 Refresh / 静默关闭），提醒用的是最新内容。
+				// Handle already-queued signals first (e.g. a B4 Refresh or silent close from the same moment) so
+				// reminders use the latest content.
+				h.drainQueued(ctx)
 				if err := h.sweep(ctx); err != nil {
 					log.Printf("[Monitoring] sweep sync alert reminders failed: %v / 同步告警提醒巡检失败", err)
 				}
 			}
 		}
 	}()
+}
+
+// drainQueued 处理调用时已在队列里的信号（不等待新信号）。
+// drainQueued handles the signals already queued when called (it never waits for new ones).
+func (h *SyncAlertHub) drainQueued(ctx context.Context) {
+	for n := len(h.queue); n > 0; n-- {
+		select {
+		case signal := <-h.queue:
+			if err := h.handle(ctx, signal); err != nil {
+				log.Printf("[Monitoring] handle sync alert failed: rule=%s task=%d cluster=%d err=%v / 处理同步告警失败",
+					signal.RuleKey, signal.TaskID, signal.ClusterID, err)
+			}
+		default:
+			return
+		}
+	}
 }
 
 // handle 处理一条信号。
@@ -431,41 +462,54 @@ func (h *SyncAlertHub) sweep(ctx context.Context) error {
 	}
 	var errs []error
 	for _, episode := range episodes {
-		var policies []*AlertPolicy
-		if episode.Scope == SyncAlertEpisodeScopeTask {
-			policy, err := h.service.repo.GetSyncJobAlertPolicyByTaskID(ctx, episode.TaskID)
-			if err != nil {
-				errs = append(errs, err)
-				continue
-			}
-			if policy == nil || !policy.Enabled || !syncJobPolicyHasRule(policy, episode.RuleKey) {
-				continue
-			}
-			// B4 "无法确认"超过 24 小时：停止提醒，阶段保留。
-			// B4 "unconfirmable" for over 24 hours: reminders stop while the episode stays open.
-			if syncAlertRemindersPaused(episode) {
-				continue
-			}
-			policies = []*AlertPolicy{policy}
-		} else {
-			policies, err = h.clusterPolicies(ctx, episode.ClusterID, episode.RuleKey)
-			if err != nil {
-				errs = append(errs, err)
-				continue
-			}
-		}
-		reminding := make([]*AlertPolicy, 0, len(policies))
-		for _, policy := range policies {
-			if policy.CooldownMinutes > 0 {
-				reminding = append(reminding, policy)
-			}
-		}
-		if len(reminding) == 0 {
-			continue
-		}
-		errs = append(errs, h.dispatchEpisode(ctx, episode, reminding, NotificationDeliveryEventTypeFiring, false, true))
+		errs = append(errs, h.remindEpisode(ctx, episode.ID))
 	}
 	return errors.Join(errs...)
+}
+
+// remindEpisode 给一个阶段发冷却提醒。检查和投递与策略保存互斥，并按 ID 重读阶段：列表之后被关闭（例如刚停用策略）或
+// 内容被刷新过的阶段，按当前状态处理。
+// remindEpisode sends the cooldown reminder for one episode. The check and the dispatch are serialised with policy
+// saves and the episode is re-read by ID, so one closed after listing (e.g. a policy just disabled) or refreshed since
+// is handled by its current state.
+func (h *SyncAlertHub) remindEpisode(ctx context.Context, episodeID uint) error {
+	h.service.syncAlertEpisodeMu.Lock()
+	defer h.service.syncAlertEpisodeMu.Unlock()
+	episode, err := h.service.repo.GetSyncAlertEpisodeByID(ctx, episodeID)
+	if err != nil || episode == nil || episode.Status != SyncAlertEpisodeFiring {
+		return err
+	}
+	var policies []*AlertPolicy
+	if episode.Scope == SyncAlertEpisodeScopeTask {
+		policy, err := h.service.repo.GetSyncJobAlertPolicyByTaskID(ctx, episode.TaskID)
+		if err != nil {
+			return err
+		}
+		if policy == nil || !policy.Enabled || !syncJobPolicyHasRule(policy, episode.RuleKey) {
+			return nil
+		}
+		// B4 "无法确认"超过 24 小时：停止提醒，阶段保留。
+		// B4 "unconfirmable" for over 24 hours: reminders stop while the episode stays open.
+		if syncAlertRemindersPaused(episode) {
+			return nil
+		}
+		policies = []*AlertPolicy{policy}
+	} else {
+		policies, err = h.clusterPolicies(ctx, episode.ClusterID, episode.RuleKey)
+		if err != nil {
+			return err
+		}
+	}
+	reminding := make([]*AlertPolicy, 0, len(policies))
+	for _, policy := range policies {
+		if policy.CooldownMinutes > 0 {
+			reminding = append(reminding, policy)
+		}
+	}
+	if len(reminding) == 0 {
+		return nil
+	}
+	return h.dispatchEpisode(ctx, episode, reminding, NotificationDeliveryEventTypeFiring, false, true)
 }
 
 // dispatchEpisode 把阶段投递到每条策略的渠道，并更新策略的执行统计；reminder 表示冷却提醒（标题不同）。

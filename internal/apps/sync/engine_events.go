@@ -515,6 +515,11 @@ func (s *Service) IngestEngineEvents(ctx context.Context, clusterID uint, author
 			satisfied = true
 		}
 	}
+	// 先记下每个作业在这一批里的最新引擎时间，同一批里较早的重投样本才能被 B4 识别。
+	// Note each job's newest engine time in the batch first so B4 recognises older replayed samples in it.
+	for _, sample := range delaySamples {
+		s.noteCDCDelayEngineTime(sample.jobID, sample.atMs)
+	}
 	for _, sample := range delaySamples {
 		s.recordCDCDelay(sample.jobID, sample.delay, sample.atMs)
 	}
@@ -783,10 +788,20 @@ func (s *Service) takeMissedEventExpectations() []uint {
 	return out
 }
 
-// recordCDCDelay 用一条延迟样本更新作业的 CDC 延迟摘要（最近值与 1 分钟窗口最大值）。
-// 按样本的原始时间单调推进：换主重放的旧样本时间更早，会被自然忽略。
-// recordCDCDelay updates a job's CDC delay summary (latest value and 1-minute window max) from one sample. It only
-// moves forward by the sample's original time, so older samples replayed after a master failover are ignored.
+// recordCDCDelay 用一条延迟样本更新作业的 CDC 延迟摘要（最近值与 1 分钟窗口最大值），并交给 B4 判定器。
+// 多源作业有多个 reader，各自上报，样本的引擎时间会交错、不递增，所以不能按"时间不前进就丢弃"处理：
+//   - B4 判定器拿到每一条样本（旧样本由 addCDCDelaySample 按同一作业的最新引擎时间判断）；
+//   - 摘要的窗口最大值也计入交错的样本，只有比最新引擎时间早 1 分钟以上的（换主重放）才忽略；
+//   - "最近值"只随引擎时间前进更新。
+//
+// recordCDCDelay updates a job's CDC delay summary (latest value and 1-minute window max) and hands the sample to the
+// B4 evaluator. A multi-source job has several readers reporting on their own, so engine times interleave and do not
+// increase; samples are therefore not dropped just because their time does not move forward:
+//   - the B4 evaluator gets every sample (old ones are judged by addCDCDelaySample against the job's newest engine
+//     time);
+//   - the summary window max also counts interleaved samples and only ignores those more than 1 minute older than the
+//     newest engine time (replay after a master failover);
+//   - the "latest" value only moves forward with engine time.
 func (s *Service) recordCDCDelay(jobID uint, delayMs int64, sampleMs int64) {
 	state := &s.events
 	state.mu.Lock()
@@ -794,23 +809,27 @@ func (s *Service) recordCDCDelay(jobID uint, delayMs int64, sampleMs int64) {
 	if state.cdcDelays == nil {
 		state.cdcDelays = map[uint]*cdcDelayState{}
 	}
+	now := state.clock()
+	// B4 判定器也用这条样本（锁顺序固定为 events → cdcAlerts）。
+	// The B4 evaluator takes the same sample (lock order is always events → cdcAlerts).
+	s.addCDCDelaySample(jobID, delayMs, sampleMs, now)
+
 	current, ok := state.cdcDelays[jobID]
-	if ok && sampleMs > 0 && sampleMs <= current.lastSampleMs {
+	if ok && sampleMs > 0 && current.lastSampleMs-sampleMs > time.Minute.Milliseconds() {
 		return
 	}
 	if !ok || sampleMs-current.windowStartMs > time.Minute.Milliseconds() {
-		current = &cdcDelayState{windowStartMs: sampleMs}
+		current = &cdcDelayState{windowStartMs: sampleMs, lastSampleMs: sampleMs, latestMs: delayMs}
 		state.cdcDelays[jobID] = current
 	}
-	current.latestMs = delayMs
 	if delayMs > current.maxMs {
 		current.maxMs = delayMs
 	}
-	current.lastSampleMs = sampleMs
-	current.at = state.clock()
-	// B4 判定器也用这条样本（锁顺序固定为 events → cdcAlerts）。
-	// The B4 evaluator takes the same sample (lock order is always events → cdcAlerts).
-	s.addCDCDelaySample(jobID, delayMs, sampleMs, current.at)
+	if sampleMs >= current.lastSampleMs {
+		current.latestMs = delayMs
+		current.lastSampleMs = sampleMs
+	}
+	current.at = now
 }
 
 // jobCDCDelay 返回作业的 CDC 延迟摘要，没有记录时返回 nil。

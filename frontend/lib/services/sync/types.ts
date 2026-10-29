@@ -115,9 +115,9 @@ export interface SyncTaskAlertRequest {
   notify_task_owner?: boolean;
   cooldown_minutes?: number;
   send_recovery?: boolean;
-  /** 0 或不填按默认 60，范围 10–86400 / 0 or omitted means 60, range 10–86400 */
+  /** 不填保留已保存的值（新建时 60），0 恢复默认 60，范围 10–86400 / Omitted keeps the stored value (60 on create), 0 resets to 60, range 10–86400 */
   cdc_delay_threshold_seconds?: number;
-  /** 0 或不填按默认 5，范围 1–60 / 0 or omitted means 5, range 1–60 */
+  /** 不填保留已保存的值（新建时 5），0 恢复默认 5，范围 1–60 / Omitted keeps the stored value (5 on create), 0 resets to 5, range 1–60 */
   cdc_delay_duration_minutes?: number;
 }
 

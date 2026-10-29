@@ -35,8 +35,8 @@ export const TASK_ALERT_RULES: SyncTaskAlertRule[] = [
 export const TASK_ALERT_RULE_CDC_DELAY: SyncTaskAlertRule = 'sync_cdc_delay_high';
 
 /**
- * 新配置默认勾选的规则：B4 有前置条件（3.x 集群、开启事件通道），需要用户主动开启，所以不默认勾选。
- * Rules selected by default for a new config: B4 has prerequisites (3.x cluster, event channel on) so users opt in.
+ * 新配置默认勾选的规则：B4 有前置条件（SeaTunnel 2.3.12 及以上、开启事件通道），需要用户主动开启，所以不默认勾选。
+ * Rules selected by default for a new config: B4 has prerequisites (SeaTunnel 2.3.12+, event channel on) so users opt in.
  */
 export const TASK_ALERT_DEFAULT_RULES: SyncTaskAlertRule[] = TASK_ALERT_RULES.filter(
   (rule) => rule !== TASK_ALERT_RULE_CDC_DELAY,

@@ -37,7 +37,7 @@ if (messageTimestamp != null && messageTimestamp > 0L) {
 - **不落库**：STX 重启后汇总清零。时间线表 `sync_engine_events` 里有每分钟一个点（保留 7 天）。
 - 前端只在控制台作业行显示徽标（`ConsolePanel.tsx`），≥60 秒标红。
 - 事件通道：
-  - 默认关闭，需要用户在集群上开启并滚动重启；只有 3.x 集群支持。
+  - 默认关闭，需要用户在集群上开启并滚动重启；STX 只允许 ≥2.3.12 的集群开启（引擎 2.3.5 起就有 event-report-http 和 `READER_MESSAGE_DELAYED`，#6419 / #6634；2.3.12→3.0.0-release 这几个类没有改动）。
   - 健康状态只在提交作业后的 45 秒预期窗口里判定（收到状态事件算健康，没收到算降级）。
   - 降级时上报 D2。
 

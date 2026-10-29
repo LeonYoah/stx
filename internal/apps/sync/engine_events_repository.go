@@ -97,6 +97,44 @@ func (r *Repository) ExistingEngineEventDedupeKeys(ctx context.Context, keys []s
 	return existing, nil
 }
 
+// BumpEngineEventDelayIfGreater 在同一分钟桶已有 READER_MESSAGE_DELAYED 时，若新样本延迟更大则更新 payload.delay_ms，
+// 避免跨批次入库时只保留第一批、界面时间线系统性低估。返回实际更新的行数。
+// BumpEngineEventDelayIfGreater updates payload.delay_ms when an existing READER_MESSAGE_DELAYED minute bucket has a
+// smaller delay, so later batches do not leave the timeline stuck on the first sample. Returns how many rows changed.
+func (r *Repository) BumpEngineEventDelayIfGreater(ctx context.Context, events []*EngineEvent) (int, error) {
+	updated := 0
+	for _, event := range events {
+		if event == nil || event.EventType != EngineEventTypeMessageDelayed || event.DedupeKey == "" {
+			continue
+		}
+		newDelay := int64Field(event.Payload, "delay_ms")
+		if newDelay <= 0 {
+			continue
+		}
+		var existing EngineEvent
+		if err := r.db.WithContext(ctx).Where("dedupe_key = ?", event.DedupeKey).First(&existing).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				continue
+			}
+			return updated, err
+		}
+		oldDelay := int64Field(existing.Payload, "delay_ms")
+		if newDelay <= oldDelay {
+			continue
+		}
+		payload := existing.Payload
+		if payload == nil {
+			payload = JSONMap{}
+		}
+		payload["delay_ms"] = newDelay
+		if err := r.db.WithContext(ctx).Model(&existing).Update("payload", payload).Error; err != nil {
+			return updated, err
+		}
+		updated++
+	}
+	return updated, nil
+}
+
 // InsertEngineEventsIgnoreDuplicates 批量写入事件，去重键冲突的行直接忽略（并发与重放安全）。
 // InsertEngineEventsIgnoreDuplicates bulk-inserts events and ignores rows whose dedupe key already exists
 // (safe under concurrency and replays).

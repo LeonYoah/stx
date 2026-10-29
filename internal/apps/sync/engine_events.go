@@ -485,14 +485,23 @@ func (s *Service) IngestEngineEvents(ctx context.Context, clusterID uint, author
 		return nil, err
 	}
 	fresh := make([]*EngineEvent, 0, len(events))
+	var delayBumps []*EngineEvent
 	for _, event := range events {
 		if existing[event.DedupeKey] {
+			// 同一分钟桶跨批次：若新延迟更大则抬高已入库值，避免时间线低估。
+			// Across batches in the same minute bucket: raise the stored delay when the new one is larger so the timeline is not understated.
+			if event.EventType == EngineEventTypeMessageDelayed {
+				delayBumps = append(delayBumps, event)
+			}
 			result.Duplicates++
 			continue
 		}
 		fresh = append(fresh, event)
 	}
 	if err := s.repo.InsertEngineEventsIgnoreDuplicates(ctx, fresh); err != nil {
+		return nil, err
+	}
+	if _, err := s.repo.BumpEngineEventDelayIfGreater(ctx, delayBumps); err != nil {
 		return nil, err
 	}
 	result.Accepted = len(fresh)

@@ -765,7 +765,11 @@ func buildSyncAlertFields(episode *SyncAlertEpisode, policy *AlertPolicy, eventT
 		appendField("作业", fmt.Sprintf("#%d", episode.LastJobID), false)
 	}
 	appendField("引擎作业 ID", episode.LastEngineJobID, false)
-	appendField("触发来源", syncAlertTriggerSourceLabel(episode.LastTriggerSource), false)
+	// B4 是延迟告警，触发来源（作业提交方式）与延迟无关，不展示以免误解。
+	// B4 is a delay alert; trigger source (how the job was submitted) is unrelated, so omit it to avoid confusion.
+	if episode.RuleKey != syncalert.RuleCDCDelayHigh {
+		appendField("触发来源", syncAlertTriggerSourceLabel(episode.LastTriggerSource), false)
+	}
 	appendField("累计次数", strconv.Itoa(episode.OccurrenceCount), false)
 	appendField("首次发生", formatAlertNotificationTime(episode.FirstFiredAt), false)
 	appendField("最近发生", formatAlertNotificationTime(episode.LastOccurredAt), false)
@@ -871,7 +875,9 @@ func buildSyncAlertWebhookPayload(episode *SyncAlertEpisode, policy *AlertPolicy
 	if episode.LastJobID > 0 {
 		alert["job_id"] = episode.LastJobID
 		alert["engine_job_id"] = episode.LastEngineJobID
-		alert["trigger_source"] = episode.LastTriggerSource
+		if episode.RuleKey != syncalert.RuleCDCDelayHigh {
+			alert["trigger_source"] = episode.LastTriggerSource
+		}
 	}
 	if episode.ResolvedAt != nil {
 		alert["resolved_at"] = episode.ResolvedAt.UTC().Format(time.RFC3339)

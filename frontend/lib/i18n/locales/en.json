@@ -3376,7 +3376,8 @@
         "events": {
           "firing": "Firing",
           "resolved": "Resolved",
-          "test": "Test"
+          "test": "Test",
+          "reminder": "Reminder"
         },
         "statuses": {
           "sent": "Sent",
@@ -4791,6 +4792,9 @@
     "stopTimeoutSetting": "Stop timeout (min)",
     "timeoutDefaultPlaceholder": "Default {minutes}",
     "timeoutInvalid": "Enter a whole number from 1 to 120",
+    "timeoutSummaryDefault": "Default (submit {submit} min · stop {stop} min)",
+    "timeoutSummary": "Submit {submit} min · stop {stop} min",
+    "timeoutCustomBadge": "Custom",
     "submitOutcomeUnknownToast": "The submit request timed out. The engine may already have the job; STX is confirming it. Do not resubmit.",
     "recoverOutcomeUnknownToast": "The recovery request timed out. The engine may already have the job; STX is confirming it. Do not recover again.",
     "cancelOutcomeUnknownToast": "The stop request timed out. The engine may already be stopping the job; STX is confirming it.",

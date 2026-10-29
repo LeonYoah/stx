@@ -207,8 +207,11 @@ const (
 // CDCDelayDetail is the structured delay detail carried by B4 signals; notification templates and webhooks render the
 // current delay and friends from it instead of stuffing them into the error summary.
 type CDCDelayDetail struct {
-	State            string    `json:"state"`
-	CurrentDelayMs   int64     `json:"current_delay_ms"`
+	State          string `json:"state"`
+	CurrentDelayMs int64  `json:"current_delay_ms"`
+	// LastDelayMs 是最后一次有效延迟样本；delay_state=unknown 时 current_delay_ms 为 null，用本字段保留旧值。
+	// LastDelayMs is the last valid delay sample; when delay_state=unknown, current_delay_ms is null and this keeps the old value.
+	LastDelayMs      int64     `json:"last_delay_ms,omitempty"`
 	WindowMaxDelayMs int64     `json:"window_max_delay_ms"`
 	ThresholdSeconds int       `json:"threshold_seconds"`
 	DurationMinutes  int       `json:"duration_minutes"`
@@ -283,7 +286,9 @@ func FormatDelayZH(ms int64) string {
 	if ms < 0 {
 		ms = 0
 	}
-	seconds := ms / 1000
+	// 四舍五入到秒，避免 300963ms 被截成「5分」而正文最大延迟显示「5分1秒」。
+	// Round to the nearest second so 300963ms becomes "5分1秒" instead of truncating to "5分".
+	seconds := (ms + 500) / 1000
 	switch {
 	case seconds < 60:
 		return fmt.Sprintf("%d秒", seconds)

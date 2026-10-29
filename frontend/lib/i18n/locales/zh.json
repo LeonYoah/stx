@@ -3376,7 +3376,8 @@
         "events": {
           "firing": "触发",
           "resolved": "恢复",
-          "test": "测试"
+          "test": "测试",
+          "reminder": "提醒"
         },
         "statuses": {
           "sent": "已发送",
@@ -4791,6 +4792,9 @@
     "stopTimeoutSetting": "停止超时（分钟）",
     "timeoutDefaultPlaceholder": "默认 {minutes}",
     "timeoutInvalid": "请输入 1~120 的整数",
+    "timeoutSummaryDefault": "默认（提交 {submit} 分钟 · 停止 {stop} 分钟）",
+    "timeoutSummary": "提交 {submit} 分钟 · 停止 {stop} 分钟",
+    "timeoutCustomBadge": "自定义",
     "submitOutcomeUnknownToast": "提交请求超时，引擎可能已经收到作业，STX 正在确认，请勿重复提交",
     "recoverOutcomeUnknownToast": "恢复请求超时，引擎可能已经收到作业，STX 正在确认，请勿重复恢复",
     "cancelOutcomeUnknownToast": "停止请求超时，引擎可能已经在停，STX 正在确认",

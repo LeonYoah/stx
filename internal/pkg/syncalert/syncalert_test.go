@@ -100,7 +100,7 @@ func TestTaskConfigCDCDelayDefaultsAndRange(t *testing.T) {
 }
 
 func TestFormatDelayZH(t *testing.T) {
-	cases := map[int64]string{0: "0秒", 45_000: "45秒", 192_000: "3分12秒", 180_000: "3分", 3_720_000: "1小时2分", 7_200_000: "2小时"}
+	cases := map[int64]string{0: "0秒", 45_000: "45秒", 192_000: "3分12秒", 180_000: "3分", 300_963: "5分1秒", 3_720_000: "1小时2分", 7_200_000: "2小时"}
 	for ms, want := range cases {
 		if got := FormatDelayZH(ms); got != want {
 			t.Fatalf("FormatDelayZH(%d)=%q want %q", ms, got, want)

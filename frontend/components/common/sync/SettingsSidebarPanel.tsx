@@ -19,6 +19,7 @@
 
 import {useEffect, useMemo, useState} from 'react';
 import {useTranslations} from 'next-intl';
+import {Collapsible as CollapsiblePrimitive} from 'radix-ui';
 import {isSoleDefaultCluster} from '@/lib/cluster-preference';
 import {
   Check,
@@ -32,6 +33,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import {Badge} from '@/components/ui/badge';
+import {cn} from '@/lib/utils';
 import {Button} from '@/components/ui/button';
 import {
   Command,
@@ -84,12 +86,14 @@ function TaskTimeoutInput({
   defaultSeconds,
   testId,
   onChange,
+  onInvalidChange,
 }: {
   label: string;
   value: string;
   defaultSeconds?: number;
   testId: string;
   onChange: (minutes: number | null) => void;
+  onInvalidChange?: (invalid: boolean) => void;
 }) {
   const t = useTranslations('workbenchStudio');
   const [draft, setDraft] = useState(value);
@@ -98,6 +102,9 @@ function TaskTimeoutInput({
   }, [value]);
   const parsed = parseTaskTimeoutInput(draft);
   const invalid = parsed === undefined;
+  useEffect(() => {
+    onInvalidChange?.(invalid);
+  }, [invalid, onInvalidChange]);
   const defaultMinutes = defaultSeconds && defaultSeconds > 0 ? Math.max(1, Math.round(defaultSeconds / 60)) : 5;
   return (
     <div className='min-w-0 space-y-1'>
@@ -120,6 +127,152 @@ function TaskTimeoutInput({
       />
       {invalid ? <p className='text-[10px] text-destructive'>{t('timeoutInvalid')}</p> : null}
     </div>
+  );
+}
+
+const TIMEOUT_OPEN_STORAGE_KEY = 'stx_studio_sidebar_timeout_open';
+
+/** 默认分钟：默认秒缺失时用 5。 / Default minutes: 5 when default seconds are missing. */
+function defaultTimeoutMinutes(defaultSeconds?: number): number {
+  return defaultSeconds && defaultSeconds > 0 ? Math.max(1, Math.round(defaultSeconds / 60)) : 5;
+}
+
+/**
+ * 工作台右侧超时区：默认折叠，摘要显示默认/自定义值；非法输入强制展开；forceMount 保草稿。
+ * Workbench right-panel timeouts: collapsed by default with a default/custom summary; invalid input forces open; forceMount keeps drafts.
+ */
+function TimeoutSettingsSection({
+  submitTimeoutMinutes,
+  stopTimeoutMinutes,
+  timeoutDefaults,
+  onTaskTimeoutChange,
+}: {
+  submitTimeoutMinutes: string;
+  stopTimeoutMinutes: string;
+  timeoutDefaults?: SyncTaskTimeoutDefaults | null;
+  onTaskTimeoutChange: (key: TaskTimeoutKey, minutes: number | null) => void;
+}) {
+  const t = useTranslations('workbenchStudio');
+  const [open, setOpen] = useState(false);
+  const [hydrated, setHydrated] = useState(false);
+  const [submitInvalid, setSubmitInvalid] = useState(false);
+  const [stopInvalid, setStopInvalid] = useState(false);
+  const invalid = submitInvalid || stopInvalid;
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(TIMEOUT_OPEN_STORAGE_KEY);
+      if (raw === '1' || raw === 'true') {
+        setOpen(true);
+      } else if (raw === '0' || raw === 'false') {
+        setOpen(false);
+      }
+    } catch {
+      // ignore storage errors
+    }
+    setHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated || invalid) {
+      return;
+    }
+    try {
+      window.localStorage.setItem(TIMEOUT_OPEN_STORAGE_KEY, open ? '1' : '0');
+    } catch {
+      // ignore
+    }
+  }, [open, hydrated, invalid]);
+
+  const forcedOpen = invalid || open;
+  const submitDefault = defaultTimeoutMinutes(timeoutDefaults?.submit_timeout_seconds);
+  const stopDefault = defaultTimeoutMinutes(timeoutDefaults?.stop_timeout_seconds);
+  const submitParsed = parseTaskTimeoutInput(submitTimeoutMinutes);
+  const stopParsed = parseTaskTimeoutInput(stopTimeoutMinutes);
+  const submitCustom = submitParsed !== null && submitParsed !== undefined;
+  const stopCustom = stopParsed !== null && stopParsed !== undefined;
+  const custom = submitCustom || stopCustom;
+  const submitLabel = submitCustom ? String(submitParsed) : String(submitDefault);
+  const stopLabel = stopCustom ? String(stopParsed) : String(stopDefault);
+  const summary = t('timeoutSummary', {
+    submit: submitLabel,
+    stop: stopLabel,
+  });
+
+  return (
+    <CollapsiblePrimitive.Root
+      open={forcedOpen}
+      onOpenChange={(next) => {
+        if (invalid) {
+          setOpen(true);
+          return;
+        }
+        setOpen(next);
+      }}
+      className='space-y-1.5 border-t border-border/40 pt-2'
+    >
+      <div className='flex min-w-0 items-center gap-1'>
+        <CollapsiblePrimitive.Trigger
+          type='button'
+          data-testid='sync-timeout-section-trigger'
+          className='flex min-w-0 flex-1 items-center gap-1 rounded-md px-0.5 py-0.5 text-left hover:bg-muted/40'
+        >
+          <ChevronRight
+            className={cn(
+              'size-3.5 shrink-0 text-muted-foreground transition-transform duration-200',
+              forcedOpen && 'rotate-90',
+            )}
+          />
+          <span className='w-0 min-w-0 flex-1 truncate text-[11px] text-muted-foreground'>
+            {t('timeoutSettings')}
+            {'：'}
+            {custom ? summary : t('timeoutSummaryDefault', {submit: submitLabel, stop: stopLabel})}
+          </span>
+          {custom ? (
+            <Badge variant='secondary' className='h-4 shrink-0 px-1 text-[10px]'>
+              {t('timeoutCustomBadge')}
+            </Badge>
+          ) : null}
+        </CollapsiblePrimitive.Trigger>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <HelpCircle className='size-3 shrink-0 cursor-help text-muted-foreground/70' />
+          </TooltipTrigger>
+          <TooltipContent side='top' className='max-w-[260px] text-xs'>
+            {t('timeoutSettingsHint')}
+          </TooltipContent>
+        </Tooltip>
+      </div>
+      <CollapsiblePrimitive.Content forceMount asChild>
+        <div
+          className={cn(
+            'grid transition-[grid-template-rows] duration-200 ease-out',
+            forcedOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]',
+          )}
+        >
+          <div className='overflow-hidden'>
+            <div className='grid grid-cols-2 gap-2 pt-1'>
+              <TaskTimeoutInput
+                label={t('submitTimeoutSetting')}
+                value={submitTimeoutMinutes}
+                defaultSeconds={timeoutDefaults?.submit_timeout_seconds}
+                testId='sync-submit-timeout-minutes'
+                onChange={(minutes) => onTaskTimeoutChange('submit_timeout_minutes', minutes)}
+                onInvalidChange={setSubmitInvalid}
+              />
+              <TaskTimeoutInput
+                label={t('stopTimeoutSetting')}
+                value={stopTimeoutMinutes}
+                defaultSeconds={timeoutDefaults?.stop_timeout_seconds}
+                testId='sync-stop-timeout-minutes'
+                onChange={(minutes) => onTaskTimeoutChange('stop_timeout_minutes', minutes)}
+                onInvalidChange={setStopInvalid}
+              />
+            </div>
+          </div>
+        </div>
+      </CollapsiblePrimitive.Content>
+    </CollapsiblePrimitive.Root>
   );
 }
 
@@ -352,38 +505,15 @@ export function SettingsSidebarPanel({
           </div>
         ) : null}
 
-        {/* 提交/停止超时：留空用全局默认，跟随任务版本，重新发布后生效 */}
-        {/* Submit/stop timeouts: empty means the global default; versioned with the task and applied after republishing */}
+        {/* 提交/停止超时：默认折叠；留空用全局默认，跟随任务版本，重新发布后生效 */}
+        {/* Submit/stop timeouts: collapsed by default; empty means the global default; versioned with the task and applied after republishing */}
         {executionMode === 'cluster' && onTaskTimeoutChange ? (
-          <div className='space-y-1.5 pt-2 border-t border-border/40'>
-            <div className='flex items-center gap-1'>
-              <Label className='text-[11px] text-muted-foreground'>{t('timeoutSettings')}</Label>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <HelpCircle className='size-3 cursor-help text-muted-foreground/70' />
-                </TooltipTrigger>
-                <TooltipContent side='top' className='max-w-[260px] text-xs'>
-                  {t('timeoutSettingsHint')}
-                </TooltipContent>
-              </Tooltip>
-            </div>
-            <div className='grid grid-cols-2 gap-2'>
-              <TaskTimeoutInput
-                label={t('submitTimeoutSetting')}
-                value={submitTimeoutMinutes}
-                defaultSeconds={timeoutDefaults?.submit_timeout_seconds}
-                testId='sync-submit-timeout-minutes'
-                onChange={(minutes) => onTaskTimeoutChange('submit_timeout_minutes', minutes)}
-              />
-              <TaskTimeoutInput
-                label={t('stopTimeoutSetting')}
-                value={stopTimeoutMinutes}
-                defaultSeconds={timeoutDefaults?.stop_timeout_seconds}
-                testId='sync-stop-timeout-minutes'
-                onChange={(minutes) => onTaskTimeoutChange('stop_timeout_minutes', minutes)}
-              />
-            </div>
-          </div>
+          <TimeoutSettingsSection
+            submitTimeoutMinutes={submitTimeoutMinutes}
+            stopTimeoutMinutes={stopTimeoutMinutes}
+            timeoutDefaults={timeoutDefaults}
+            onTaskTimeoutChange={onTaskTimeoutChange}
+          />
         ) : null}
         {/* 作业告警：不跟随任务版本，保存即生效 / Job alerts: not versioned with the task, effective on save */}
         {alertTaskId ? (

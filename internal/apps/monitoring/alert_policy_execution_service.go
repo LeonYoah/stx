@@ -475,13 +475,15 @@ func laterUTCTimePointer(current *time.Time, candidate *time.Time) *time.Time {
 
 // dispatchAlertDelivery 投递一条通知到一个渠道：
 //   - 人工关闭的不发；静默期间不发告警（恢复照发）；
-//   - requireFiringSent 时，只有对应的告警通知发送成功过才发恢复；
-//   - 同一 (source_key, 渠道, 类型) 已发送成功时，只在冷却时间到了之后重发告警（提醒）。
+//   - requireFiringSent 时，只有对应的首次告警发送成功过才发恢复；
+//   - 首次告警已送达后，冷却时间到了才发提醒；提醒写独立的 reminder 投递记录，不改首次告警记录的状态 / payload
+//     （与 #85 语义对齐）。
 //
 // dispatchAlertDelivery delivers one notification to one channel:
 //   - manually closed alerts are skipped; firing is skipped while silenced (recovery still goes out);
 //   - with requireFiringSent, recovery only goes out after the firing notification was sent successfully;
-//   - once (source_key, channel, type) was sent, firing is only resent after the cooldown (a reminder).
+//   - once the first alert was delivered, a reminder goes out after the cooldown; reminders write their own
+//     reminder delivery record and never change the first alert record's status / payload (aligned with #85).
 func (s *Service) dispatchAlertDelivery(
 	ctx context.Context,
 	message *alertMessage,
@@ -522,6 +524,13 @@ func (s *Service) dispatchAlertDelivery(
 		return nil, err
 	}
 
+	// 首次告警已送达后再来的 firing：走独立 reminder 记录，不覆盖首次告警 payload。
+	// A later firing after the first alert was sent uses its own reminder record and does not overwrite the first alert payload.
+	if delivery != nil && deliveryEventType == NotificationDeliveryEventTypeFiring &&
+		NotificationDeliveryStatus(strings.TrimSpace(delivery.Status)) == NotificationDeliveryStatusSent {
+		return s.dispatchAlertReminder(ctx, message, policy, channel, sourceKey, delivery)
+	}
+
 	if delivery == nil {
 		delivery = &NotificationDelivery{
 			AlertID:      sourceKey,
@@ -542,12 +551,10 @@ func (s *Service) dispatchAlertDelivery(
 		}
 	} else {
 		if NotificationDeliveryStatus(strings.TrimSpace(delivery.Status)) == NotificationDeliveryStatusSent {
-			if !shouldResendLocalAlertPolicyDelivery(policy, delivery, deliveryEventType, timeNowUTC()) {
-				return &alertPolicyChannelDispatchResult{
-					LastDeliveredAt: toUTCTimePointer(delivery.SentAt),
-					Successful:      true,
-				}, nil
-			}
+			return &alertPolicyChannelDispatchResult{
+				LastDeliveredAt: toUTCTimePointer(delivery.SentAt),
+				Successful:      true,
+			}, nil
 		}
 		delivery.ClusterID = message.ClusterID
 		delivery.ClusterName = message.ClusterName
@@ -567,6 +574,93 @@ func (s *Service) dispatchAlertDelivery(
 		}
 	}
 
+	return s.sendAndRecordAlertDelivery(ctx, delivery, channel, message, policy)
+}
+
+// dispatchAlertReminder 在首次告警已送达且冷却时间已过时发冷却提醒。提醒用 (source_key, 渠道, reminder) 这条独立记录，
+// 冷却从"首次告警送达时间"和"上次提醒尝试时间"中较晚的那个算起；提醒失败只记在提醒记录上，下个冷却周期再试。
+// 与 #85 语义对齐：首次告警记录的状态、次数、发送时间不再被提醒修改。
+// dispatchAlertReminder sends a cooldown reminder once the first alert was delivered and the cooldown has elapsed. It
+// uses its own (source_key, channel, reminder) record; the cooldown counts from the later of the first alert's send
+// time and the last reminder attempt. A failed reminder is only recorded on the reminder record and is tried again
+// after the next cooldown. Aligned with #85: the first alert record's status, attempts and sent time are never changed by a reminder.
+func (s *Service) dispatchAlertReminder(
+	ctx context.Context,
+	message *alertMessage,
+	policy *AlertPolicy,
+	channel *NotificationChannel,
+	sourceKey string,
+	firing *NotificationDelivery,
+) (*alertPolicyChannelDispatchResult, error) {
+	delivered := &alertPolicyChannelDispatchResult{LastDeliveredAt: toUTCTimePointer(firing.SentAt), Successful: true}
+	if policy.CooldownMinutes <= 0 || firing.SentAt == nil {
+		return delivered, nil
+	}
+	reminder, err := s.repo.GetNotificationDeliveryByDedupKey(ctx, sourceKey, channel.ID, string(NotificationDeliveryEventTypeReminder))
+	if err != nil {
+		return nil, err
+	}
+	last := firing.SentAt.UTC()
+	if reminder != nil {
+		if reminder.SentAt != nil && reminder.SentAt.UTC().After(last) {
+			last = reminder.SentAt.UTC()
+			delivered.LastDeliveredAt = toUTCTimePointer(reminder.SentAt)
+		}
+		if !reminder.UpdatedAt.IsZero() && reminder.UpdatedAt.UTC().After(last) {
+			last = reminder.UpdatedAt.UTC()
+		}
+	}
+	if timeNowUTC().Before(last.Add(time.Duration(policy.CooldownMinutes) * time.Minute)) {
+		return delivered, nil
+	}
+	if reminder == nil {
+		reminder = &NotificationDelivery{
+			AlertID:      sourceKey,
+			SourceType:   string(message.SourceType),
+			SourceKey:    sourceKey,
+			PolicyID:     policy.ID,
+			ClusterID:    message.ClusterID,
+			ClusterName:  message.ClusterName,
+			AlertName:    message.AlertName,
+			ChannelID:    channel.ID,
+			ChannelName:  strings.TrimSpace(channel.Name),
+			EventType:    string(NotificationDeliveryEventTypeReminder),
+			Status:       string(NotificationDeliveryStatusSending),
+			AttemptCount: 1,
+		}
+		if err := s.repo.CreateNotificationDelivery(ctx, reminder); err != nil {
+			return nil, err
+		}
+	} else {
+		reminder.ClusterID = message.ClusterID
+		reminder.ClusterName = message.ClusterName
+		reminder.PolicyID = policy.ID
+		reminder.AlertName = strings.TrimSpace(firstNonEmpty(policy.Name, reminder.AlertName))
+		reminder.ChannelName = strings.TrimSpace(channel.Name)
+		reminder.EventType = string(NotificationDeliveryEventTypeReminder)
+		reminder.Status = string(NotificationDeliveryStatusSending)
+		reminder.LastError = ""
+		reminder.RequestPayload = ""
+		reminder.ResponseStatusCode = 0
+		reminder.ResponseBodyExcerpt = ""
+		reminder.SentAt = nil
+		reminder.AttemptCount++
+		if reminder.AttemptCount <= 0 {
+			reminder.AttemptCount = 1
+		}
+	}
+	return s.sendAndRecordAlertDelivery(ctx, reminder, channel, message, policy)
+}
+
+// sendAndRecordAlertDelivery 发送并回写投递记录（成功 / 失败）。
+// sendAndRecordAlertDelivery sends and writes back the delivery record (success / failure).
+func (s *Service) sendAndRecordAlertDelivery(
+	ctx context.Context,
+	delivery *NotificationDelivery,
+	channel *NotificationChannel,
+	message *alertMessage,
+	policy *AlertPolicy,
+) (*alertPolicyChannelDispatchResult, error) {
 	attempt, sendErr := s.sendAlertMessage(ctx, channel, message, policy)
 	if attempt != nil {
 		delivery.RequestPayload = attempt.RequestPayload
@@ -595,24 +689,6 @@ func (s *Service) dispatchAlertDelivery(
 		LastDeliveredAt:    toUTCTimePointer(delivery.SentAt),
 		Successful:         true,
 	}, nil
-}
-
-func shouldResendLocalAlertPolicyDelivery(
-	policy *AlertPolicy,
-	delivery *NotificationDelivery,
-	deliveryEventType NotificationDeliveryEventType,
-	now time.Time,
-) bool {
-	if policy == nil || delivery == nil {
-		return false
-	}
-	if deliveryEventType != NotificationDeliveryEventTypeFiring {
-		return false
-	}
-	if policy.CooldownMinutes <= 0 || delivery.SentAt == nil {
-		return false
-	}
-	return !now.Before(delivery.SentAt.UTC().Add(time.Duration(policy.CooldownMinutes) * time.Minute))
 }
 
 // mergeAlertRecipients 合并策略接收人与额外收件人，按邮箱去重（忽略大小写）。
@@ -996,17 +1072,16 @@ func formatAlertNotificationTime(value time.Time) string {
 
 	utcValue := value.UTC()
 	localValue := utcValue.In(timex.DisplayLocation())
-	localLine := fmt.Sprintf(
+	localPart := fmt.Sprintf(
 		"%s (%s)",
 		localValue.Format("2006-01-02 15:04:05 -07:00"),
 		timex.DisplayTimezone(),
 	)
-	utcLine := fmt.Sprintf("%s (UTC)", utcValue.Format(time.RFC3339))
+	utcPart := fmt.Sprintf("%s (UTC)", utcValue.Format(time.RFC3339))
 
-	// Always include UTC for cross-region consistency, and include the configured display timezone
-	// (app.display_timezone) instead of the process-local zone.
-	// 始终保留 UTC 以便跨时区排障，同时补充服务器本地时间，减少运维侧阅读歧义。
-	return localLine + "\n" + utcLine
+	// 本地时间与 UTC 合成一行，避免 IM / 邮件里每个时间再另起一行无标签的 “…Z (UTC)”。
+	// Merge local time and UTC on one line so IM / email do not show a bare “…Z (UTC)” line under every timestamp.
+	return localPart + " · " + utcPart
 }
 
 func resolveLocalAlertDeliveryStateLabel(deliveryEventType NotificationDeliveryEventType) string {

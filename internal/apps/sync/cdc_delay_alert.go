@@ -83,6 +83,9 @@ const (
 	// cdcDelayUnknownReminderCutoff："无法确认"超过 24 小时后停止提醒（阶段保留）。
 	// cdcDelayUnknownReminderCutoff: reminders stop after 24 hours of "unconfirmable" (the episode stays).
 	cdcDelayUnknownReminderCutoff = 24 * time.Hour
+	// cdcDelayEvalLogInterval：同状态连续判定最多每 5 分钟打一条 debug；状态变化必打。
+	// cdcDelayEvalLogInterval: at most one debug line per 5 minutes while the state stays the same; state changes always log.
+	cdcDelayEvalLogInterval = 5 * time.Minute
 	// cdcDelayConfigCacheTTL 是任务告警配置的缓存时间。
 	// cdcDelayConfigCacheTTL is how long a task alert config is cached.
 	cdcDelayConfigCacheTTL = 60 * time.Second
@@ -165,6 +168,10 @@ type cdcDelayJobState struct {
 	lastSentAt     time.Time
 	lastSentState  string
 	lastSentPaused bool
+	// lastEvalLogKey / lastEvalLogAt 用于限频 debug：状态变化必打，同状态最多每 5 分钟一条。
+	// lastEvalLogKey / lastEvalLogAt rate-limit debug logs: always on state change, else at most once per 5 minutes.
+	lastEvalLogKey string
+	lastEvalLogAt  time.Time
 }
 
 // cdcDelayRoundInput 是一轮判定的输入。
@@ -268,6 +275,12 @@ type cdcDelayAlertState struct {
 	// staleDropped 是每个作业本轮被判为旧样本、没有计入的样本数；判定轮读取并清空。
 	// staleDropped counts each job's samples judged stale (not counted) in the current round; each round drains it.
 	staleDropped map[uint]int
+	// evalLogCount 统计写出的判定 debug 条数（状态变化必计）；测试可断言。
+	// evalLogCount counts written evaluation debug lines (always on state change); tests may assert it.
+	evalLogCount int
+	// evalLogHook 测试钩子：每次写出判定日志时调用。
+	// evalLogHook is a test hook invoked whenever an evaluation log line is written.
+	evalLogHook func(jobID uint, key string)
 }
 
 // cdcDelaySkewWarn 打印引擎时钟与 STX 时钟相差过大的 warning；测试里会替换。
@@ -590,6 +603,7 @@ func (s *Service) stepCDCDelayJob(job *JobInstance, cfg *syncalert.TaskConfig, c
 		duration = syncalert.DefaultCDCDelayDurationMinutes
 	}
 	actions := current.step(now, threshold, duration, input)
+	s.logCDCDelayEval(job, current, input, actions, now)
 	out := make([]cdcDelayAction, 0, len(actions))
 	for _, action := range actions {
 		action.message = cdcDelayMessage(action, job)
@@ -689,6 +703,57 @@ func (s *Service) emitCDCDelayAction(ctx context.Context, job *JobInstance, acti
 		signal.CDCDelay = &detail
 	}
 	return s.reportAlert(signal)
+}
+
+// logCDCDelayEval 打一条限频 debug：结果 high/low/unknown、样本数、是否 bridged / 重新计时、关键阈值；状态变化必打。
+// logCDCDelayEval writes a rate-limited debug line: result high/low/unknown, sample count, bridged / rearm, and the
+// key threshold; state changes always log.
+func (s *Service) logCDCDelayEval(job *JobInstance, st *cdcDelayJobState, in cdcDelayRoundInput, actions []cdcDelayAction, now time.Time) {
+	if s == nil || job == nil || st == nil {
+		return
+	}
+	result := "none"
+	bridged := false
+	switch {
+	case len(in.samples) > 0:
+		result = "high_or_low"
+	case in.channelDegraded || in.staleOnly:
+		result = "unknown"
+	default:
+		result = "low_or_unknown"
+	}
+	if len(actions) > 0 {
+		d := actions[0].detail
+		if d.State != "" {
+			result = d.State
+		} else if actions[0].kind == syncalert.KindResolve {
+			result = "resolve:" + actions[0].reason
+		} else {
+			result = string(actions[0].kind)
+		}
+	}
+	// bridged：本轮 high 且用了 lastHighAt 桥接（nonHighRounds 被清零前的路径难以从外面看，这里用 phase+history 近似：
+	// 有 lastHighAt 且本轮有样本且 delay >= threshold 时在 onHigh 里可能桥接）。用动作后的 nonHighRounds==0 且 lastHighAt 接近 now 表示本轮记为 high。
+	// Bridged: approximate from post-step state — a high round resets nonHighRounds and refreshes lastHighAt.
+	if !st.lastHighAt.IsZero() && now.Sub(st.lastHighAt) < time.Second && st.nonHighRounds == 0 && len(in.samples) > 0 {
+		bridged = st.phase == cdcPhaseFiring || st.phase == cdcPhaseMaybe || st.phase == cdcPhaseRearm
+	}
+	rearm := st.phase == cdcPhaseRearm
+	key := fmt.Sprintf("%s|phase=%d|samples=%d|bridged=%t|rearm=%t|th=%d|dur=%d",
+		result, st.phase, len(in.samples), bridged, rearm, st.thresholdSeconds, st.durationMinutes)
+	if key == st.lastEvalLogKey && !st.lastEvalLogAt.IsZero() && now.Sub(st.lastEvalLogAt) < cdcDelayEvalLogInterval {
+		return
+	}
+	st.lastEvalLogKey = key
+	st.lastEvalLogAt = now
+	state := &s.cdcAlerts
+	state.evalLogCount++
+	if hook := state.evalLogHook; hook != nil {
+		hook(job.ID, key)
+	}
+	logger.DebugF(context.Background(),
+		"[Sync] CDC delay eval job=%d task=%d result=%s samples=%d bridged=%v rearm=%v threshold=%ds duration=%dm delay_ms=%d phase=%d actions=%d",
+		job.ID, job.TaskID, result, len(in.samples), bridged, rearm, st.thresholdSeconds, st.durationMinutes, st.lastDelayMs, st.phase, len(actions))
 }
 
 // reportCDCDelayJobEnded 在实时作业进入终态时静默关闭它的 B4 阶段并清掉判定状态。
@@ -951,12 +1016,19 @@ func (st *cdcDelayJobState) onUnknown(now time.Time, reason string) []cdcDelayAc
 	detail.UnknownReason = reason
 	detail.UnknownSince = st.unknownSince
 	detail.RemindersPaused = paused
+	// unknown 没有当前延迟：CurrentDelayMs 清零，LastDelayMs 保留最后一次有效样本供文案 / webhook。
+	// Unknown has no current delay: clear CurrentDelayMs and keep LastDelayMs as the last valid sample for copy / webhook.
+	detail.LastDelayMs = st.lastDelayMs
+	detail.CurrentDelayMs = 0
 	return []cdcDelayAction{{kind: syncalert.KindRefresh, detail: detail}}
 }
 
 // markCDCDelayInferred 标记明细里的延迟是推断的：清掉旧的当前延迟。
 // markCDCDelayInferred flags the detail's delay as inferred and clears the stale current delay.
 func markCDCDelayInferred(detail *syncalert.CDCDelayDetail) {
+	if detail.LastDelayMs <= 0 && detail.CurrentDelayMs > 0 {
+		detail.LastDelayMs = detail.CurrentDelayMs
+	}
 	detail.CurrentDelayMs = 0
 	detail.DelayInferred = true
 }
@@ -1030,7 +1102,11 @@ func cdcDelayMessage(action cdcDelayAction, job *JobInstance) string {
 		}
 		b.WriteString(fmt.Sprintf("（自 %s 起）", formatCDCDelayTime(detail.UnknownSince)))
 		if !detail.LastSampleAt.IsZero() {
-			b.WriteString(fmt.Sprintf("；最后一次读取延迟 %s（%s）", syncalert.FormatDelayZH(detail.CurrentDelayMs), formatCDCDelayTime(detail.LastSampleAt)))
+			lastMs := detail.LastDelayMs
+			if lastMs <= 0 {
+				lastMs = detail.CurrentDelayMs
+			}
+			b.WriteString(fmt.Sprintf("；最后一次读取延迟 %s（%s）", syncalert.FormatDelayZH(lastMs), formatCDCDelayTime(detail.LastSampleAt)))
 		}
 		if detail.UnknownReason == syncalert.CDCDelayUnknownStaleSamples {
 			b.WriteString("。请检查 SeaTunnel 节点与 STX 的时钟是否同步。")

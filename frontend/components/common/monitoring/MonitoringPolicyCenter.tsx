@@ -2713,7 +2713,9 @@ export function MonitoringPolicyCenter() {
                           ? t('deliveryHistory.events.resolved')
                           : delivery.event_type === 'test'
                             ? t('deliveryHistory.events.test')
-                            : t('deliveryHistory.events.firing')}
+                            : delivery.event_type === 'reminder'
+                              ? t('deliveryHistory.events.reminder')
+                              : t('deliveryHistory.events.firing')}
                       </TableCell>
                       <TableCell className='py-2 px-3'>
                         <Badge

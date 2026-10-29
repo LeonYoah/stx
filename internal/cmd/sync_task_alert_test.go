@@ -249,3 +249,62 @@ func TestSyncTaskAlertSetCDCDelayFlags(t *testing.T) {
 		t.Fatalf("invalid B4 flags must not reach the network: %v", methods)
 	}
 }
+
+func TestSyncTaskAlertSetCDCDelayParamsOnly(t *testing.T) {
+	var methods []string
+	var body map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		if request.URL.Path == "/api/v1/capabilities" {
+			writeConfigCapabilities(t, writer, "sync.task.alert.set", "R1")
+			return
+		}
+		methods = append(methods, request.Method)
+		if request.Method == http.MethodGet {
+			_ = json.NewEncoder(writer).Encode(map[string]any{"data": map[string]any{
+				"configured": true, "enabled": true, "rules": []string{"sync_job_failed", "sync_cdc_delay_high"},
+				"channel_ids": []uint{5}, "cooldown_minutes": 30, "send_recovery": true,
+				"cdc_delay_threshold_seconds": 60, "cdc_delay_duration_minutes": 5,
+			}})
+			return
+		}
+		body = nil
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(writer).Encode(map[string]any{"data": map[string]any{"configured": true}})
+	}))
+	defer server.Close()
+	store := newExecutionTestStore(t, server.URL, "test-token")
+
+	cases := []struct {
+		name string
+		args []string
+		want map[string]any
+	}{
+		{"threshold only", []string{"--cdc-delay-threshold", "120"}, map[string]any{"cdc_delay_threshold_seconds": float64(120), "cdc_delay_duration_minutes": float64(5)}},
+		{"duration only", []string{"--cdc-delay-duration", "2"}, map[string]any{"cdc_delay_threshold_seconds": float64(60), "cdc_delay_duration_minutes": float64(2)}},
+		{"both", []string{"--cdc-delay-threshold", "180", "--cdc-delay-duration", "3"}, map[string]any{"cdc_delay_threshold_seconds": float64(180), "cdc_delay_duration_minutes": float64(3)}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			methods = nil
+			body = nil
+			full := append([]string{"sync", "task", "alert", "set", "4"}, append(tc.args, "--confirm")...)
+			if _, stderr, code := runSyncWriteCommand(t, store, full...); code != int(clioutput.ExitSuccess) {
+				t.Fatalf("params-only failed: %s", stderr)
+			}
+			if !reflect.DeepEqual(methods, []string{http.MethodGet, http.MethodPut}) {
+				t.Fatalf("expected GET then PUT, got %v", methods)
+			}
+			if body["rules"] == nil || body["channel_ids"] == nil {
+				t.Fatalf("must keep rules/channels: %#v", body)
+			}
+			for key, want := range tc.want {
+				if body[key] != want {
+					t.Fatalf("%s: got %#v want %#v in %#v", key, body[key], want, body)
+				}
+			}
+		})
+	}
+}

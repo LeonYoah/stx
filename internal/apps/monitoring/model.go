@@ -1068,6 +1068,12 @@ const (
 	// NotificationDeliveryEventTypeTest indicates a manual test notification.
 	// NotificationDeliveryEventTypeTest 表示手动测试通知。
 	NotificationDeliveryEventTypeTest NotificationDeliveryEventType = "test"
+	// NotificationDeliveryEventTypeReminder 表示冷却提醒（告警仍在持续时按冷却时间重发）；提醒有自己的投递记录，
+	// 不覆盖首次告警（firing）记录的状态、次数与 payload（与 #85 语义对齐，便于后续叠合）。
+	// NotificationDeliveryEventTypeReminder indicates a cooldown reminder (resent while the alert keeps firing); it has
+	// its own delivery record and never overwrites the first alert (firing) record's status, attempts or payload
+	// (aligned with #85 so a later stack merge stays straightforward).
+	NotificationDeliveryEventTypeReminder NotificationDeliveryEventType = "reminder"
 )
 
 // NotificationDeliveryStatus represents current delivery execution state.

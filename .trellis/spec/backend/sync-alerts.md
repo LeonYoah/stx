@@ -115,7 +115,7 @@ func (s *Service) SetTaskAlertPolicyStore(store syncalert.TaskPolicyStore)
 - 冷却提醒：巡检前先处理队列里已有的信号；按 ID 重读阶段和策略的**检查**与策略保存 / 删除互斥（`syncAlertEpisodeMu`），**网络投递不持锁**（渠道卡住不会拖住保存策略）；投递前再核对一次策略版本（`syncAlertPolicyVersion`，每次保存 / 删除加一）和阶段状态，检查之后策略被保存 / 删除或阶段被关闭的，这次不发。
 - SMTP：连上之后、读服务器问候语之前就设置连接截止时间（15 秒），不发问候语的服务器不会让投递一直卡住。
 - 作业进入终态：`reportJobTransition` → Resolve `job_ended`（带 JobID，只关同一作业的阶段）。
-- 模板：标题 `CDC 延迟过高（3分12秒）`，提醒追加 ` [提醒] 已持续 X 分钟`；不用"错误摘要"，改为当前 / 窗口最大读取延迟、告警条件、已持续、说明、恢复依据；读取条数推断的恢复注明"根据读取条数推断"；webhook 追加 `current_delay_ms`（推断时 null）、`delay_inferred`、`threshold_seconds` 等扁平字段和 `resolve_reason`、`reminder`；recovering 标题 `（已回落，待确认）`。
+- 模板：标题 `CDC 延迟过高（3分12秒）`（延迟四舍五入到秒）；提醒追加 ` [提醒] 已持续 X 分钟`（含无法确认区间时注明「含无法确认 X 分钟」）；恢复标题带当时延迟如 `已恢复（20秒）`；B4 不展示「触发来源」；时间本地+UTC 合成一行；不用"错误摘要"，改为当前 / 窗口最大读取延迟、告警条件、已持续、说明、恢复依据；读取条数推断的恢复注明"根据读取条数推断"；webhook 追加 `current_delay_ms`（推断或 unknown 时 null）、`last_delay_ms`（unknown）、`delay_inferred`、`threshold_seconds` 等与 `resolve_reason`、`reminder`；recovering 标题 `（已回落，待确认）`。通用 Webhook 未配置 secret 时不带签名头（有 secret 才签）。
 - 文案统一说"读取延迟"；"无法确认"带日期 + 时区（`timex.DisplayLocation`）、可能原因和作业链接。
 - 已知限制：时钟偏慢超过 2 分钟的 worker 上卡住的 reader 最多晚 5 分钟计入；超过 5 分钟的积压重投会被计入；发现不了完全卡住（B3）；通道悄悄断开可能误判恢复；时钟差计入延迟；源库空闲时恢复推迟；重启后计时从零开始（状态只在内存）；多源作业按最慢的源判断，但不区分是哪个源；重启后第一批全是积压旧样本时会计入一轮。
 
@@ -129,7 +129,7 @@ func (s *Service) SetTaskAlertPolicyStore(store syncalert.TaskPolicyStore)
 
 ### 任务告警配置（TaskConfig）
 - `rules ⊆ {sync_submit_failed, sync_submit_timeout, sync_job_failed, sync_stop_timeout, sync_cdc_delay_high}`，至少一条；新配置前端默认不勾选 B4；`channel_ids` 至少一个、必须存在且启用；`cooldown_minutes` 0–1440；PUT 时 `enabled`、`send_recovery` 默认 true，`cooldown_minutes` 默认 60。
-- `cdc_delay_threshold_seconds`（默认 60，10–86400）、`cdc_delay_duration_minutes`（默认 5，1–60）：PUT **不填时保留已保存的值**（老客户端不会把自定义值冲回默认），新建时不填或明确填 0 按默认，超范围 400；不论是否勾选 B4 都校验。B4 条件写成 `threshold=<秒> window_minutes=<分钟>`，通用策略接口同样校验（`ErrAlertPolicySyncJobInvalidCDCDelay`）。没勾选 B4 时参数存进一条 `metric_key=sync_cdc_delay_params` 的只保存参数的条件（不是规则：不出现在 `rules`，不能单独存在、最多一条、不能和 B4 条件并存、同样校验范围；读取先认 B4 条件），所以去掉 B4 再勾回仍是原来的阈值和持续时间（t1 实测 B1：此前去掉 B4 时参数随条件一起丢失，读回变成默认 5 分钟）。CLI `--cdc-delay-threshold` / `--cdc-delay-duration`，勾选 B4 而没给参数时先 GET 保留当前值。
+- `cdc_delay_threshold_seconds`（默认 60，10–86400）、`cdc_delay_duration_minutes`（默认 5，1–60）：PUT **不填时保留已保存的值**（老客户端不会把自定义值冲回默认），新建时不填或明确填 0 按默认，超范围 400；不论是否勾选 B4 都校验。B4 条件写成 `threshold=<秒> window_minutes=<分钟>`，通用策略接口同样校验（`ErrAlertPolicySyncJobInvalidCDCDelay`）。没勾选 B4 时参数存进一条 `metric_key=sync_cdc_delay_params` 的只保存参数的条件（不是规则：不出现在 `rules`，不能单独存在、最多一条、不能和 B4 条件并存、同样校验范围；读取先认 B4 条件），所以去掉 B4 再勾回仍是原来的阈值和持续时间（t1 实测 B1：此前去掉 B4 时参数随条件一起丢失，读回变成默认 5 分钟）。CLI `--cdc-delay-threshold` / `--cdc-delay-duration`，勾选 B4 而没给参数时先 GET 保留当前值；只改这两个参数时不要求 `--rules` / `--channel`，先 GET 再 PUT 保留其余字段。
 - 底层是 `policy_type=sync_job` 的告警策略：规则写在 `conditions[].metric_key`（`operator=">=" threshold="1"`），`cluster_id` 只用于展示，匹配按 `task_id`；同一任务只能有一条。
 - 通用策略接口也能改 `sync_job`：必须带 `task_id`（创建后不可改，以库里为准），不能在 `sync_job` 与其他类型之间互转。
 - 不跟随任务版本，保存即生效。

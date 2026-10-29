@@ -201,8 +201,14 @@ func cdcDelayTitleSuffix(episode *SyncAlertEpisode, eventType NotificationDelive
 	switch {
 	case detail == nil:
 	case eventType == NotificationDeliveryEventTypeResolved:
+		// 恢复标题带当时延迟，例如「已恢复（20秒）」；按读取条数推断时注明依据。
+		// Recovery titles carry the delay at recover time, e.g. "已恢复（20秒）"; inferred recoveries note the basis.
 		if detail.RecoveryBasis == syncalert.CDCDelayRecoveryByReadCount {
-			suffix = "（根据读取条数推断）"
+			suffix = "已恢复（根据读取条数推断）"
+		} else if detail.CurrentDelayMs > 0 {
+			suffix = "已恢复（" + syncalert.FormatDelayZH(detail.CurrentDelayMs) + "）"
+		} else {
+			suffix = "已恢复"
 		}
 	case detail.State == syncalert.CDCDelayStateUnknown:
 		suffix = "（无法确认是否恢复）"
@@ -212,9 +218,29 @@ func cdcDelayTitleSuffix(episode *SyncAlertEpisode, eventType NotificationDelive
 		suffix = "（" + syncalert.FormatDelayZH(detail.CurrentDelayMs) + "）"
 	}
 	if reminder && eventType != NotificationDeliveryEventTypeResolved {
-		suffix += fmt.Sprintf(" [提醒] 已持续 %d 分钟", cdcDelayElapsedMinutes(episode, detail, now))
+		suffix += " [提醒] " + cdcDelayElapsedLabel(episode, detail, now)
 	}
 	return suffix
+}
+
+// cdcDelayUnknownMinutes 返回无法确认已持续的分钟数。
+// cdcDelayUnknownMinutes returns how many minutes the unconfirmable state has lasted.
+func cdcDelayUnknownMinutes(detail *syncalert.CDCDelayDetail, now time.Time) int {
+	if detail == nil || detail.UnknownSince.IsZero() || now.Before(detail.UnknownSince) {
+		return 0
+	}
+	return int(now.Sub(detail.UnknownSince) / time.Minute)
+}
+
+// cdcDelayElapsedLabel 返回「已持续」文案；含无法确认区间时注明「含无法确认 X 分钟」。
+// cdcDelayElapsedLabel returns the "已持续" label and notes "含无法确认 X 分钟" when the span includes unconfirmable time.
+func cdcDelayElapsedLabel(episode *SyncAlertEpisode, detail *syncalert.CDCDelayDetail, now time.Time) string {
+	elapsed := cdcDelayElapsedMinutes(episode, detail, now)
+	unknown := cdcDelayUnknownMinutes(detail, now)
+	if unknown > 0 {
+		return fmt.Sprintf("已持续 %d 分钟（含无法确认 %d 分钟）", elapsed, unknown)
+	}
+	return fmt.Sprintf("已持续 %d 分钟", elapsed)
 }
 
 // cdcDelayFields 返回 B4 通知的专用字段，取代"错误摘要"。
@@ -244,8 +270,12 @@ func cdcDelayFields(episode *SyncAlertEpisode, eventType NotificationDeliveryEve
 			}
 		}
 	case detail.State == syncalert.CDCDelayStateUnknown:
-		if detail.CurrentDelayMs > 0 {
-			add("最后一次读取延迟", syncalert.FormatDelayZH(detail.CurrentDelayMs), false)
+		lastMs := detail.LastDelayMs
+		if lastMs <= 0 {
+			lastMs = detail.CurrentDelayMs
+		}
+		if lastMs > 0 {
+			add("最后一次读取延迟", syncalert.FormatDelayZH(lastMs), false)
 		}
 	case detail.State == syncalert.CDCDelayStateRecovering:
 		if detail.DelayInferred {
@@ -262,7 +292,13 @@ func cdcDelayFields(episode *SyncAlertEpisode, eventType NotificationDeliveryEve
 	}
 	add("告警条件", fmt.Sprintf("读取延迟超过 %s 并持续 %d 分钟", syncalert.FormatDelayZH(int64(detail.ThresholdSeconds)*1000), detail.DurationMinutes), false)
 	if !resolved {
-		add("已持续", fmt.Sprintf("%d 分钟", cdcDelayElapsedMinutes(episode, detail, now)), false)
+		elapsed := cdcDelayElapsedMinutes(episode, detail, now)
+		unknown := cdcDelayUnknownMinutes(detail, now)
+		if unknown > 0 {
+			add("已持续", fmt.Sprintf("%d 分钟（含无法确认 %d 分钟）", elapsed, unknown), false)
+		} else {
+			add("已持续", fmt.Sprintf("%d 分钟", elapsed), false)
+		}
 	}
 	if !resolved && detail.State == syncalert.CDCDelayStateUnknown {
 		add("说明", syncalert.TruncateMessage(episode.LastMessage, syncAlertMessageDisplayLimit), true)
@@ -279,12 +315,21 @@ func appendCDCDelayWebhookFields(alert map[string]interface{}, episode *SyncAler
 		return
 	}
 	alert["delay_state"] = detail.State
-	// 根据读取条数推断的状态没有当前延迟：current_delay_ms 为 null（不是最后一个旧样本），delay_inferred=true。
-	// A state inferred from the read count has no current delay: current_delay_ms is null (not the last old sample)
-	// and delay_inferred=true.
-	if detail.DelayInferred || (detail.State == syncalert.CDCDelayStateRecovered && detail.RecoveryBasis == syncalert.CDCDelayRecoveryByReadCount) {
+	// 根据读取条数推断、或 unknown：current_delay_ms 为 null（不是最后一个旧样本）；unknown 另加 last_delay_ms。
+	// Inferred-from-read-count or unknown: current_delay_ms is null (not the last old sample); unknown also adds last_delay_ms.
+	if detail.DelayInferred || detail.State == syncalert.CDCDelayStateUnknown ||
+		(detail.State == syncalert.CDCDelayStateRecovered && detail.RecoveryBasis == syncalert.CDCDelayRecoveryByReadCount) {
 		alert["current_delay_ms"] = nil
-		alert["delay_inferred"] = true
+		if detail.DelayInferred || (detail.State == syncalert.CDCDelayStateRecovered && detail.RecoveryBasis == syncalert.CDCDelayRecoveryByReadCount) {
+			alert["delay_inferred"] = true
+		}
+		lastMs := detail.LastDelayMs
+		if lastMs <= 0 {
+			lastMs = detail.CurrentDelayMs
+		}
+		if lastMs > 0 && detail.State == syncalert.CDCDelayStateUnknown {
+			alert["last_delay_ms"] = lastMs
+		}
 	} else {
 		alert["current_delay_ms"] = detail.CurrentDelayMs
 	}

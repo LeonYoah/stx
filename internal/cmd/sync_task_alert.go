@@ -37,6 +37,7 @@ const (
 // other fields.
 type syncTaskAlertConfig struct {
 	Configured      bool     `json:"configured"`
+	Enabled         bool     `json:"enabled"`
 	Rules           []string `json:"rules"`
 	ChannelIDs      []uint   `json:"channel_ids"`
 	ReceiverUserIDs []uint   `json:"receiver_user_ids"`
@@ -71,10 +72,12 @@ func newSyncTaskAlertSetCommand(storeProvider authStoreProvider) *cobra.Command 
 			"versioned with the task. Rules: " + syncTaskAlertRulesHelp + ".\n" +
 			"sync_cdc_delay_high (B4) alerts when a CDC streaming job's read delay stays above --cdc-delay-threshold seconds\n" +
 			"for --cdc-delay-duration minutes; it needs a SeaTunnel 2.3.12+ cluster with the event channel enabled. Without the two flags the\n" +
-			"current values are kept (defaults 60 s / 5 min).\n" +
+			"current values are kept (defaults 60 s / 5 min). Omitting --rules / --channel / --cooldown keeps those fields too, so you can\n" +
+			"change only --cdc-delay-threshold and/or --cdc-delay-duration.\n" +
 			"Use --disable to stop alerting while keeping the configuration; deleting is only offered in the web UI and API.",
 		Example: "stx sync task alert set 1 --rules sync_job_failed,sync_submit_timeout --channel 2 --confirm\n" +
 			"stx sync task alert set 1 --rules sync_job_failed,sync_cdc_delay_high --cdc-delay-threshold 120 --cdc-delay-duration 10 --channel 2 --confirm\n" +
+			"stx sync task alert set 1 --cdc-delay-threshold 120 --confirm\n" +
 			"stx sync task alert set 1 --disable --confirm",
 		Args: usageArgs(cobra.ExactArgs(1)),
 		RunE: func(command *cobra.Command, args []string) error {
@@ -83,18 +86,25 @@ func newSyncTaskAlertSetCommand(storeProvider authStoreProvider) *cobra.Command 
 				return clioutput.NewError(clioutput.CodeUsage, "task_id must be a positive integer", clioutput.ExitUsage, false)
 			}
 			ruleList := splitAlertRules(rules)
-			keepCurrent := disable && len(ruleList) == 0 && len(channelIDs) == 0
-			if !keepCurrent && len(ruleList) == 0 {
-				return clioutput.NewError(clioutput.CodeUsage, "--rules is required (or use --disable alone to disable the current config)", clioutput.ExitUsage, false)
-			}
-			if !keepCurrent && len(channelIDs) == 0 {
-				return clioutput.NewError(clioutput.CodeUsage, "--channel is required", clioutput.ExitUsage, false)
-			}
-			if command.Flags().Changed("cooldown") && (cooldown < 0 || cooldown > 1440) {
-				return clioutput.NewError(clioutput.CodeUsage, "--cooldown must be between 0 and 1440 minutes", clioutput.ExitUsage, false)
-			}
 			thresholdSet := command.Flags().Changed("cdc-delay-threshold")
 			durationSet := command.Flags().Changed("cdc-delay-duration")
+			cooldownSet := command.Flags().Changed("cooldown")
+			keepCurrent := disable && len(ruleList) == 0 && len(channelIDs) == 0
+			// 只改 B4 阈值 / 持续时间：不要求 --rules / --channel，读出现有配置后只覆盖传入的字段。
+			// Changing only B4 threshold / duration: --rules / --channel are not required; load the current config and
+			// overwrite only the flags that were passed.
+			paramsOnly := !disable && len(ruleList) == 0 && len(channelIDs) == 0 && len(receiverIDs) == 0 &&
+				!command.Flags().Changed("notify-owner") && !command.Flags().Changed("no-recovery") && !cooldownSet &&
+				(thresholdSet || durationSet)
+			if !keepCurrent && !paramsOnly && len(ruleList) == 0 {
+				return clioutput.NewError(clioutput.CodeUsage, "--rules is required (or use --disable alone to disable the current config, or pass only --cdc-delay-threshold / --cdc-delay-duration to keep the rest)", clioutput.ExitUsage, false)
+			}
+			if !keepCurrent && !paramsOnly && len(channelIDs) == 0 {
+				return clioutput.NewError(clioutput.CodeUsage, "--channel is required", clioutput.ExitUsage, false)
+			}
+			if cooldownSet && (cooldown < 0 || cooldown > 1440) {
+				return clioutput.NewError(clioutput.CodeUsage, "--cooldown must be between 0 and 1440 minutes", clioutput.ExitUsage, false)
+			}
 			// 0 表示默认值，与 API 一致。 / 0 means the default, as in the API.
 			if thresholdSet && cdcThreshold != 0 && (cdcThreshold < 10 || cdcThreshold > 86400) {
 				return clioutput.NewError(clioutput.CodeUsage, "--cdc-delay-threshold must be between 10 and 86400 seconds (0 = default 60)", clioutput.ExitUsage, false)
@@ -107,51 +117,26 @@ func newSyncTaskAlertSetCommand(storeProvider authStoreProvider) *cobra.Command 
 				return err
 			}
 			path := fmt.Sprintf("/api/v1/sync/tasks/%d/alert", taskID)
-			body := map[string]any{
-				"enabled":           !disable,
-				"rules":             ruleList,
-				"channel_ids":       channelIDs,
-				"receiver_user_ids": receiverIDs,
-				"notify_task_owner": notifyOwner,
-				"send_recovery":     !noRecovery,
-			}
-			if command.Flags().Changed("cooldown") {
-				body["cooldown_minutes"] = cooldown
-			}
-			if thresholdSet {
-				body["cdc_delay_threshold_seconds"] = cdcThreshold
-			}
-			if durationSet {
-				body["cdc_delay_duration_minutes"] = cdcDuration
-			}
-			if !keepCurrent && containsString(ruleList, syncTaskAlertRuleCDCDelay) && (!thresholdSet || !durationSet) {
-				// 勾选了 B4 但没给参数：读出现有配置保留原值，没有配置时由服务端补默认值。
-				// B4 selected without its flags: keep the current values; without a config the server fills defaults.
-				var current syncTaskAlertConfig
-				if _, err := client.Request(command.Context(), http.MethodGet, path, nil, &current); err != nil {
-					return err
-				}
-				if current.Configured {
-					if !thresholdSet {
-						body["cdc_delay_threshold_seconds"] = current.CDCDelayThresholdSeconds
-					}
-					if !durationSet {
-						body["cdc_delay_duration_minutes"] = current.CDCDelayDurationMinutes
-					}
-				}
-			}
-			if keepCurrent {
-				// 只停用：读出现有配置原样写回，只把 enabled 改成 false。
-				// Disable only: read the current config and write it back with enabled=false.
+			var body map[string]any
+			if keepCurrent || paramsOnly {
+				// 只停用，或只改 B4 参数：读出现有配置写回，再覆盖本次传入的字段。
+				// Disable-only, or B4 params-only: read the current config, write it back, then overwrite flags from this call.
 				var current syncTaskAlertConfig
 				if _, err := client.Request(command.Context(), http.MethodGet, path, nil, &current); err != nil {
 					return err
 				}
 				if !current.Configured {
-					return clioutput.NewError(clioutput.CodeUsage, "the task has no alert configuration to disable", clioutput.ExitUsage, false)
+					if keepCurrent {
+						return clioutput.NewError(clioutput.CodeUsage, "the task has no alert configuration to disable", clioutput.ExitUsage, false)
+					}
+					return clioutput.NewError(clioutput.CodeUsage, "the task has no alert configuration; pass --rules and --channel to create one", clioutput.ExitUsage, false)
+				}
+				enabled := current.Enabled
+				if keepCurrent {
+					enabled = false
 				}
 				body = map[string]any{
-					"enabled":                     false,
+					"enabled":                     enabled,
 					"rules":                       current.Rules,
 					"channel_ids":                 current.ChannelIDs,
 					"receiver_user_ids":           current.ReceiverUserIDs,
@@ -160,6 +145,46 @@ func newSyncTaskAlertSetCommand(storeProvider authStoreProvider) *cobra.Command 
 					"send_recovery":               current.SendRecovery,
 					"cdc_delay_threshold_seconds": current.CDCDelayThresholdSeconds,
 					"cdc_delay_duration_minutes":  current.CDCDelayDurationMinutes,
+				}
+				if thresholdSet {
+					body["cdc_delay_threshold_seconds"] = cdcThreshold
+				}
+				if durationSet {
+					body["cdc_delay_duration_minutes"] = cdcDuration
+				}
+			} else {
+				body = map[string]any{
+					"enabled":           !disable,
+					"rules":             ruleList,
+					"channel_ids":       channelIDs,
+					"receiver_user_ids": receiverIDs,
+					"notify_task_owner": notifyOwner,
+					"send_recovery":     !noRecovery,
+				}
+				if cooldownSet {
+					body["cooldown_minutes"] = cooldown
+				}
+				if thresholdSet {
+					body["cdc_delay_threshold_seconds"] = cdcThreshold
+				}
+				if durationSet {
+					body["cdc_delay_duration_minutes"] = cdcDuration
+				}
+				if containsString(ruleList, syncTaskAlertRuleCDCDelay) && (!thresholdSet || !durationSet) {
+					// 勾选了 B4 但没给参数：读出现有配置保留原值，没有配置时由服务端补默认值。
+					// B4 selected without its flags: keep the current values; without a config the server fills defaults.
+					var current syncTaskAlertConfig
+					if _, err := client.Request(command.Context(), http.MethodGet, path, nil, &current); err != nil {
+						return err
+					}
+					if current.Configured {
+						if !thresholdSet {
+							body["cdc_delay_threshold_seconds"] = current.CDCDelayThresholdSeconds
+						}
+						if !durationSet {
+							body["cdc_delay_duration_minutes"] = current.CDCDelayDurationMinutes
+						}
+					}
 				}
 			}
 			var data any

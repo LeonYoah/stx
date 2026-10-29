@@ -1400,3 +1400,23 @@ func TestCDCDelayJitterRefreshesDoNotBypassQueueLimit(t *testing.T) {
 		t.Fatalf("an unconfirmable reminder without a change is not a state change")
 	}
 }
+
+func TestCDCDelayEvalLogsOnStateChange(t *testing.T) {
+	f := newCDCServiceFixture(t)
+	f.configure([]string{syncalert.RuleCDCDelayHigh}, 30, 1)
+	var keys []string
+	f.service.cdcAlerts.evalLogHook = func(jobID uint, key string) {
+		keys = append(keys, key)
+	}
+	f.round(120)
+	if len(keys) == 0 || f.service.cdcAlerts.evalLogCount < 1 {
+		t.Fatalf("expected eval debug on first round, keys=%v count=%d", keys, f.service.cdcAlerts.evalLogCount)
+	}
+	before := f.service.cdcAlerts.evalLogCount
+	f.round(120)
+	// 同状态 5 分钟内可降频；计数不应因同 key 暴涨。
+	// Same state may be rate-limited within 5 minutes; the count must not explode for the same key.
+	if f.service.cdcAlerts.evalLogCount > before+1 {
+		t.Fatalf("same-state rounds should be rate-limited, before=%d after=%d", before, f.service.cdcAlerts.evalLogCount)
+	}
+}

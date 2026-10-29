@@ -34,16 +34,22 @@ func (s *Service) SetAlertReporter(reporter syncalert.Reporter) { s.alertReporte
 // SetTaskAlertPolicyStore injects the task alert config store; without it the task alert API returns 503.
 func (s *Service) SetTaskAlertPolicyStore(store syncalert.TaskPolicyStore) { s.alertStore = store }
 
-// reportAlert 发出一条信号；接收方必须非阻塞，这里不做任何等待。
-// reportAlert emits one signal; the receiver must not block and nothing here waits.
-func (s *Service) reportAlert(signal syncalert.Signal) {
+// reportAlert 发出一条信号；接收方必须非阻塞，这里不做任何等待。返回信号是否被接收（接收方不支持
+// syncalert.AcceptingReporter 时总是 true）。
+// reportAlert emits one signal; the receiver must not block and nothing here waits. It returns whether the signal was
+// accepted (always true when the receiver does not implement syncalert.AcceptingReporter).
+func (s *Service) reportAlert(signal syncalert.Signal) bool {
 	if s == nil || s.alertReporter == nil {
-		return
+		return false
 	}
 	if signal.OccurredAt.IsZero() {
 		signal.OccurredAt = time.Now().UTC()
 	}
+	if accepting, ok := s.alertReporter.(syncalert.AcceptingReporter); ok {
+		return accepting.TryReportSyncAlert(signal)
+	}
 	s.alertReporter.ReportSyncAlert(signal)
+	return true
 }
 
 // alertSignalForJob 用作业和任务的快照组装作业级信号；数据预览不产生信号，返回 false。

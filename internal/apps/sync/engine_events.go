@@ -172,11 +172,10 @@ type eventExpectation struct {
 }
 
 type cdcDelayState struct {
-	latestMs      int64
-	maxMs         int64
-	windowStartMs int64
-	lastSampleMs  int64
-	at            time.Time
+	latestMs    int64
+	maxMs       int64
+	windowStart time.Time
+	at          time.Time
 }
 
 func (e *engineEventState) clock() time.Time {
@@ -515,10 +514,17 @@ func (s *Service) IngestEngineEvents(ctx context.Context, clusterID uint, author
 			satisfied = true
 		}
 	}
-	// 先记下每个作业在这一批里的最新引擎时间，同一批里较早的重投样本才能被 B4 识别。
-	// Note each job's newest engine time in the batch first so B4 recognises older replayed samples in it.
+	// 先用每个作业在这一批里的最新引擎时间建立时间差基线（没有基线时），同一批里较早的重投样本才能被 B4 识别。
+	// Seed each job's offset baseline (when it has none) from its newest engine time in the batch first, so B4
+	// recognises older replayed samples in it.
+	newestByJob := map[uint]int64{}
 	for _, sample := range delaySamples {
-		s.noteCDCDelayEngineTime(sample.jobID, sample.atMs)
+		if sample.atMs > newestByJob[sample.jobID] {
+			newestByJob[sample.jobID] = sample.atMs
+		}
+	}
+	for jobID, newest := range newestByJob {
+		s.noteCDCDelayBatch(jobID, newest, now)
 	}
 	for _, sample := range delaySamples {
 		s.recordCDCDelay(sample.jobID, sample.delay, sample.atMs)
@@ -789,19 +795,12 @@ func (s *Service) takeMissedEventExpectations() []uint {
 }
 
 // recordCDCDelay 用一条延迟样本更新作业的 CDC 延迟摘要（最近值与 1 分钟窗口最大值），并交给 B4 判定器。
-// 多源作业有多个 reader，各自上报，样本的引擎时间会交错、不递增，所以不能按"时间不前进就丢弃"处理：
-//   - B4 判定器拿到每一条样本（旧样本由 addCDCDelaySample 按同一作业的最新引擎时间判断）；
-//   - 摘要的窗口最大值也计入交错的样本，只有比最新引擎时间早 1 分钟以上的（换主重放）才忽略；
-//   - "最近值"只随引擎时间前进更新。
-//
+// 是否计入由 addCDCDelaySample 按时间差判断（重投的旧样本不计入），摘要和 B4 用同一个结论；摘要的窗口和"最近值"都按
+// STX 收到时间，不按引擎时间：多个 reader 交错上报、个别时间不准的样本都不会让后面的样本被忽略。
 // recordCDCDelay updates a job's CDC delay summary (latest value and 1-minute window max) and hands the sample to the
-// B4 evaluator. A multi-source job has several readers reporting on their own, so engine times interleave and do not
-// increase; samples are therefore not dropped just because their time does not move forward:
-//   - the B4 evaluator gets every sample (old ones are judged by addCDCDelaySample against the job's newest engine
-//     time);
-//   - the summary window max also counts interleaved samples and only ignores those more than 1 minute older than the
-//     newest engine time (replay after a master failover);
-//   - the "latest" value only moves forward with engine time.
+// B4 evaluator. Whether it counts is decided by addCDCDelaySample from its offset (replayed old samples do not), and
+// the summary follows the same verdict; the summary window and "latest" value use the STX receive time rather than
+// engine time, so neither interleaved readers nor one bad timestamp make later samples be ignored.
 func (s *Service) recordCDCDelay(jobID uint, delayMs int64, sampleMs int64) {
 	state := &s.events
 	state.mu.Lock()
@@ -812,23 +811,18 @@ func (s *Service) recordCDCDelay(jobID uint, delayMs int64, sampleMs int64) {
 	now := state.clock()
 	// B4 判定器也用这条样本（锁顺序固定为 events → cdcAlerts）。
 	// The B4 evaluator takes the same sample (lock order is always events → cdcAlerts).
-	s.addCDCDelaySample(jobID, delayMs, sampleMs, now)
-
-	current, ok := state.cdcDelays[jobID]
-	if ok && sampleMs > 0 && current.lastSampleMs-sampleMs > time.Minute.Milliseconds() {
+	if !s.addCDCDelaySample(jobID, delayMs, sampleMs, now) {
 		return
 	}
-	if !ok || sampleMs-current.windowStartMs > time.Minute.Milliseconds() {
-		current = &cdcDelayState{windowStartMs: sampleMs, lastSampleMs: sampleMs, latestMs: delayMs}
+	current, ok := state.cdcDelays[jobID]
+	if !ok || now.Sub(current.windowStart) > time.Minute {
+		current = &cdcDelayState{windowStart: now}
 		state.cdcDelays[jobID] = current
 	}
 	if delayMs > current.maxMs {
 		current.maxMs = delayMs
 	}
-	if sampleMs >= current.lastSampleMs {
-		current.latestMs = delayMs
-		current.lastSampleMs = sampleMs
-	}
+	current.latestMs = delayMs
 	current.at = now
 }
 

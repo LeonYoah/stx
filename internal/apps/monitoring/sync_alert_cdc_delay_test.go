@@ -18,7 +18,11 @@
 package monitoring
 
 import (
+	"context"
 	"errors"
+	"net"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -337,7 +341,8 @@ func TestSyncAlertCDCDelay_noReminderWhenDisabled(t *testing.T) {
 	}
 	backdateDelivery(t, f, buildSyncAlertSourceKey(listed[0].ID), 2*time.Minute)
 
-	// 停用会等正在进行的提醒检查 + 投递结束。 / Disabling waits for an in-flight reminder check + dispatch.
+	// 停用会等正在进行的提醒检查结束（只是检查，不含网络投递）。 / Disabling waits for an in-flight reminder check (only the
+	// check, never the network delivery).
 	f.service.syncAlertEpisodeMu.Lock()
 	done := make(chan error, 1)
 	go func() {
@@ -402,5 +407,142 @@ func TestSyncAlertCDCDelay_reminderUsesQueuedRefresh(t *testing.T) {
 	}
 	if alert, _ := reminder["alert"].(map[string]any); alert["delay_state"] != "recovering" || alert["threshold_seconds"] != float64(300) {
 		t.Fatalf("reminder webhook must be current: %#v", alert)
+	}
+}
+
+// 改变阶段状态的 Refresh（进入无法确认、停止提醒、回落待确认）不受队列过半的限制；TryReportSyncAlert 告诉调用方是否进了队列。
+// State-changing Refreshes (entering unconfirmable, pausing reminders, recovering) bypass the half-queue limit, and
+// TryReportSyncAlert tells the caller whether the signal was queued.
+func TestSyncAlertCDCDelay_stateChangeRefreshBypassesHalfQueueLimit(t *testing.T) {
+	f := setupSyncAlertFixture(t)
+	hub := f.service.NewSyncAlertHub() // 不启动。 / Not started.
+	refresh := f.cdcSignal(syncalert.KindRefresh, 7, 70, highDetail(120_000, f.now), "refresh")
+	for i := 0; i < syncAlertRefreshQueueLimit; i++ {
+		if !hub.TryReportSyncAlert(refresh) {
+			t.Fatalf("refresh %d below the limit must be accepted", i)
+		}
+	}
+	if hub.TryReportSyncAlert(refresh) {
+		t.Fatalf("an ordinary refresh past half capacity must be rejected")
+	}
+	unknown := highDetail(120_000, f.now)
+	unknown.State = syncalert.CDCDelayStateUnknown
+	transition := f.cdcSignal(syncalert.KindRefresh, 7, 70, unknown, "无法确认")
+	transition.StateChange = true
+	if !hub.TryReportSyncAlert(transition) || len(hub.queue) != syncAlertRefreshQueueLimit+1 {
+		t.Fatalf("a state-changing refresh must still be queued (queue=%d)", len(hub.queue))
+	}
+	// 缓冲区真满时照样拒绝并告诉调用方。 / A completely full buffer still rejects and says so.
+	for len(hub.queue) < syncAlertQueueSize {
+		hub.queue <- refresh
+	}
+	if hub.TryReportSyncAlert(transition) {
+		t.Fatalf("a full buffer must reject")
+	}
+}
+
+// 提醒投递不持锁：webhook 卡住时保存策略立刻返回；检查之后策略被保存（停用）的，投递前核对版本，这次提醒不发。
+// Reminder delivery holds no lock: saving a policy returns at once while a webhook hangs; and a policy saved
+// (disabled) after the check is caught by the version re-check before delivery, so that reminder is not sent.
+func TestSyncAlertCDCDelay_hungWebhookDoesNotBlockPolicySave(t *testing.T) {
+	f := setupSyncAlertFixture(t)
+	f.configureCDC(t, 7, []string{syncalert.RuleCDCDelayHigh}, 1, 60, 5)
+	f.handle(t, f.cdcSignal(syncalert.KindFire, 7, 70, highDetail(192_000, f.now.Add(-6*time.Minute)), "high"))
+	episode := f.episodes(t)[0]
+	backdateDelivery(t, f, buildSyncAlertSourceKey(episode.ID), 2*time.Minute)
+
+	release := make(chan struct{})
+	hung := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-release:
+		case <-time.After(30 * time.Second):
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer hung.Close()
+	defer close(release)
+	f.channel.Endpoint = hung.URL
+	if err := f.repo.SaveNotificationChannel(f.ctx, f.channel); err != nil {
+		t.Fatalf("save channel: %v", err)
+	}
+	remindDone := make(chan error, 1)
+	go func() { remindDone <- f.hub.remindEpisode(f.ctx, episode.ID) }()
+	time.Sleep(300 * time.Millisecond) // 提醒已在投递，卡在 webhook。 / The reminder is delivering, stuck on the webhook.
+	start := time.Now()
+	f.configureCDC(t, 7, []string{syncalert.RuleCDCDelayHigh}, 1, 60, 5)
+	if took := time.Since(start); took > 2*time.Second {
+		t.Fatalf("policy save blocked %v behind a reminder to a hung webhook", took)
+	}
+	release <- struct{}{}
+	<-remindDone
+
+	// 检查之后、投递之前保存了策略（停用）：版本变了，不发。
+	// A policy saved (disabled) between the check and the delivery: the version changed, nothing is sent.
+	f.channel.Endpoint = f.webhook.server.URL
+	if err := f.repo.SaveNotificationChannel(f.ctx, f.channel); err != nil {
+		t.Fatalf("save channel: %v", err)
+	}
+	backdateDelivery(t, f, buildSyncAlertSourceKey(episode.ID), 2*time.Minute)
+	before := f.webhook.count()
+	f.hub.beforeRemindDispatch = func() {
+		if _, err := f.service.SaveTaskAlertConfig(f.ctx, syncalert.TaskRef{ID: 7, Name: "orders-sync", ClusterID: f.clusterID, CreatorID: 1}, &syncalert.TaskConfig{
+			Enabled: false, Rules: []string{syncalert.RuleCDCDelayHigh}, ChannelIDs: []uint{f.channel.ID}, CooldownMinutes: 1, SendRecovery: true,
+		}); err != nil {
+			t.Errorf("disable: %v", err)
+		}
+	}
+	defer func() { f.hub.beforeRemindDispatch = nil }()
+	if err := f.hub.remindEpisode(f.ctx, episode.ID); err != nil {
+		t.Fatalf("remind: %v", err)
+	}
+	if f.webhook.count() != before {
+		t.Fatalf("a reminder checked before the disable must not be delivered, got %d new", f.webhook.count()-before)
+	}
+}
+
+// 只接受 TCP、不发问候语的 SMTP 服务器：连接截止时间在读问候语之前就设置，openSMTPClient 按超时返回，不会一直卡住。
+// An SMTP server that accepts TCP but never greets: the deadline is set before the greeting is read, so
+// openSMTPClient returns on timeout instead of hanging.
+func TestOpenSMTPClient_silentServerTimesOut(t *testing.T) {
+	previous := smtpIOTimeout
+	smtpIOTimeout = 300 * time.Millisecond
+	t.Cleanup(func() { smtpIOTimeout = previous })
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer ln.Close()
+	accepted := make(chan net.Conn, 4)
+	defer func() {
+		select {
+		case c := <-accepted:
+			_ = c.Close()
+		default:
+		}
+	}()
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		accepted <- c // 接受后什么也不发。 / Accept and never say anything.
+	}()
+	port := ln.Addr().(*net.TCPAddr).Port
+	done := make(chan error, 1)
+	go func() {
+		_, _, err := openSMTPClient(context.Background(), &NotificationChannelEmailConfig{Host: "127.0.0.1", Port: port, Security: NotificationEmailSecurityNone})
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatalf("a silent server must fail, not succeed")
+		}
+		var netErr net.Error
+		if !errors.As(err, &netErr) || !netErr.Timeout() {
+			t.Fatalf("expected a timeout error, got %v", err)
+		}
+	case <-time.After(15 * time.Second): // 远大于测试里的 300 毫秒，留给合并 #83 后的"连接 + 读写"截止时间。 / Far above 300ms; room for #83's dial + IO deadline.
+		t.Fatalf("openSMTPClient still blocked on a server that never greets")
 	}
 }

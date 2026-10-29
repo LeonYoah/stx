@@ -619,8 +619,8 @@ func TestCDCDelayServiceSkipsBatchPreviewAndStaleSamples(t *testing.T) {
 		job.Status = JobStatusCanceled
 		f.service.repo.db.Save(job)
 	}
-	// 比该作业最新引擎时间早 2 分钟以上的样本（STX 停机后重投的积压）不计入：同一批里有新样本 5 秒，旧样本 120 秒。
-	// Samples more than 2 minutes older than the job's newest engine time (backlog replayed after downtime) are not
+	// 时间差比作业基线大 2 分钟以上的样本（STX 停机后重投的积压）不计入：同一批里有新样本 5 秒，旧样本 120 秒。
+	// Samples whose offset exceeds the job's baseline by more than 2 minutes (backlog replayed after downtime) are not
 	// counted: each batch carries a fresh 5s sample and old 120s ones.
 	auth := enableChannel(t, f.service, 5)
 	for i := 0; i < 8; i++ {
@@ -961,5 +961,240 @@ func TestCDCDelayVersionGate2312(t *testing.T) {
 	resolves := f.b4(syncalert.KindResolve)
 	if len(resolves) != 1 || resolves[0].ResolveReason != syncalert.ResolveReasonChannelOff {
 		t.Fatalf("an unsupported version closes silently, got %+v", resolves)
+	}
+}
+
+// Codex P2 / 回归：孤立的尖峰之间隔着收不到数据的时间（H、L、无数据 ×N、H，以及 H、无数据 ×N、H），不能把中间的空白算成
+// 超标时间而立刻告警。之后持续超标满 M 分钟照常告警，"已持续"是真实的超标时长，不是几百分钟。
+// Codex P2 / regression: isolated spikes separated by time without data (H, L, no data ×N, H, and H, no data ×N,
+// H) must not count the gap as time above the threshold and fire at once. Sustained high delay afterwards still
+// fires after M minutes, and "已持续" is the real time above the threshold, not hundreds of minutes.
+func TestCDCDelayNoDataGapBetweenSpikesDoesNotFire(t *testing.T) {
+	for _, withLow := range []bool{true, false} {
+		for _, gapRounds := range []int{2, 20, 400} {
+			sim := newCDCSim(t, cdcPhaseNone, 60, 5)
+			sim.round(200)
+			if withLow {
+				sim.round(30)
+			}
+			for i := 0; i < gapRounds; i++ {
+				sim.round() // 无样本、读取条数不涨：无法确认。 / No samples, no read progress: unconfirmable.
+			}
+			spikeAt := sim.now
+			sim.round(200)
+			if n := sim.count(syncalert.KindFire); n != 0 {
+				t.Fatalf("withLow=%v gap=%d: an isolated spike after a gap must not fire, fires=%d", withLow, gapRounds, n)
+			}
+			for i := 0; i < 12; i++ {
+				sim.round(200)
+			}
+			fire, ok := sim.first(syncalert.KindFire)
+			if !ok {
+				t.Fatalf("withLow=%v gap=%d: sustained high delay must still fire", withLow, gapRounds)
+			}
+			if took := fire.at.Sub(spikeAt); took < 5*time.Minute || took > 6*time.Minute {
+				t.Fatalf("withLow=%v gap=%d: fire %v after timing restarted, want 5–6 minutes", withLow, gapRounds, took)
+			}
+			msg := cdcDelayMessage(fire.action, &JobInstance{ID: 3, TaskID: 1})
+			var elapsed int
+			if i := strings.Index(msg, "已持续 "); i < 0 {
+				t.Fatalf("fire message lacks the elapsed time: %q", msg)
+			} else if _, err := fmt.Sscanf(msg[i+len("已持续 "):], "%d", &elapsed); err != nil || elapsed < 5 || elapsed > 6 {
+				t.Fatalf("withLow=%v gap=%d: fire message must claim 5–6 minutes, not the gap: %q", withLow, gapRounds, msg)
+			}
+		}
+	}
+	// 对照：中间只隔一轮非 high（间歇性高延迟）仍然累计。 / Control: a single non-high round in between still adds up.
+	sim := newCDCSim(t, cdcPhaseNone, 60, 2)
+	for i := 0; i < 10; i++ {
+		sim.round(200)
+		sim.round()
+	}
+	if sim.count(syncalert.KindFire) != 1 {
+		t.Fatalf("one no-data round between highs must not restart timing, fires=%d", sim.count(syncalert.KindFire))
+	}
+}
+
+// 多源追赶：一个 reader 卡住越来越慢，其他 reader 在追赶（中位数在降）。最大值没有降到基线最大值的 90% 以下，不算追赶，
+// 超标满 M 分钟就告警，不会拖到第 12 分钟。
+// Multi-source catch-up: one reader is stuck and growing while the others catch up (the median falls). The max does
+// not drop to ≤90% of the baseline max, so it is not catching up and fires once M minutes are reached, not at minute
+// 12.
+func TestCDCDelayCatchUpRequiresMaxToDrop(t *testing.T) {
+	sim := newCDCSim(t, cdcPhaseNone, 60, 5)
+	start := sim.now
+	stuck := int64(100)
+	healthy := []int64{40, 40, 40, 40}
+	for sim.now.Sub(start) < 15*time.Minute {
+		sim.tick(append([]int64{stuck}, healthy...)...)
+		stuck += 10
+		for j := range healthy {
+			if healthy[j] > 2 {
+				healthy[j]--
+			}
+		}
+	}
+	fire, ok := sim.first(syncalert.KindFire)
+	if !ok {
+		t.Fatalf("the stuck reader must fire")
+	}
+	if took := fire.at.Sub(start); took > 6*time.Minute {
+		t.Fatalf("a stuck reader among catching-up readers fired after %v, want ≤6m", took)
+	}
+	// 对照：所有 reader 一起下降（最大值也降一成以上）仍算追赶，不告警。
+	// Control: all readers falling together (the max drops by more than a tenth too) is still catching up.
+	sim = newCDCSim(t, cdcPhaseNone, 60, 5)
+	value := int64(900)
+	for i := 0; i < 36; i++ { // 6 分钟，每 10 秒降 5 秒。 / 6 minutes, 5s lower every 10s.
+		sim.tick(value, value-50)
+		value -= 5
+	}
+	if sim.count(syncalert.KindFire) != 0 {
+		t.Fatalf("a real catch-up must not fire")
+	}
+}
+
+// acceptingReporter 记录信号，并可以按规则拒收（模拟队列过半丢弃 Refresh）。
+// acceptingReporter records signals and can reject some (simulating Refreshes dropped past half capacity).
+type acceptingReporter struct {
+	recordingAlertReporter
+	reject func(syncalert.Signal) bool
+	tried  []syncalert.Signal
+}
+
+func (r *acceptingReporter) TryReportSyncAlert(signal syncalert.Signal) bool {
+	r.mu.Lock()
+	r.tried = append(r.tried, signal)
+	reject := r.reject != nil && r.reject(signal)
+	r.mu.Unlock()
+	if reject {
+		return false
+	}
+	r.ReportSyncAlert(signal)
+	return true
+}
+
+// 被丢弃的 Refresh 会重发：发送记录在信号被接收之后才更新，所以下一轮重发；改变状态的 Refresh 带 StateChange（接收方
+// 不按排队上限丢弃）；内容不变时也每 5 分钟重发一次。
+// A dropped Refresh is resent: the send record only updates once a signal is accepted, so the next round sends it
+// again; state-changing Refreshes carry StateChange (the receiver does not drop them under the queue limit); and
+// unchanged content is still resent every 5 minutes.
+func TestCDCDelayDroppedRefreshIsResent(t *testing.T) {
+	f := newCDCServiceFixture(t)
+	reporter := &acceptingReporter{}
+	f.service.SetAlertReporter(reporter)
+	f.configure([]string{syncalert.RuleCDCDelayHigh}, 30, 1)
+	for i := 0; i < 4; i++ {
+		f.round(120)
+	}
+	if len(reporter.find(syncalert.KindFire, syncalert.RuleCDCDelayHigh, "")) != 1 {
+		t.Fatalf("expected fire")
+	}
+	// 告警后的普通高延迟 Refresh 不是状态变化（重启后第一次看到作业的 maybe Refresh 是）。
+	// Ordinary high Refreshes after the Fire are not state changes (the maybe Refresh on first sight after a restart
+	// is).
+	seen := len(reporter.find(syncalert.KindRefresh, syncalert.RuleCDCDelayHigh, ""))
+	f.round(150)
+	f.round(180)
+	highs := reporter.find(syncalert.KindRefresh, syncalert.RuleCDCDelayHigh, "")[seen:]
+	if len(highs) == 0 {
+		t.Fatalf("a changed delay must refresh")
+	}
+	for _, r := range highs {
+		if r.StateChange {
+			t.Fatalf("an ordinary high refresh is not a state change: %+v", r.CDCDelay)
+		}
+	}
+	// 进入"无法确认"的 Refresh 第一次被丢弃。 / The Refresh entering "unconfirmable" is dropped the first time.
+	dropped := 0
+	reporter.reject = func(s syncalert.Signal) bool {
+		if s.Kind == syncalert.KindRefresh && dropped == 0 {
+			dropped++
+			return true
+		}
+		return false
+	}
+	f.round(-1)
+	f.round(-1)
+	var unknown []syncalert.Signal
+	for _, r := range reporter.find(syncalert.KindRefresh, syncalert.RuleCDCDelayHigh, "") {
+		if r.CDCDelay != nil && r.CDCDelay.State == syncalert.CDCDelayStateUnknown {
+			unknown = append(unknown, r)
+		}
+	}
+	if dropped != 1 || len(unknown) != 1 || !unknown[0].StateChange {
+		t.Fatalf("the dropped unknown-entry refresh must be resent next round as a state change (dropped=%d accepted=%+v)", dropped, unknown)
+	}
+	// 30 分钟无法确认：内容不变，也每 5 分钟重发一次。 / 30 minutes unconfirmable: unchanged content still resends every 5 min.
+	before := len(reporter.find(syncalert.KindRefresh, syncalert.RuleCDCDelayHigh, ""))
+	for i := 0; i < 60; i++ {
+		f.round(-1)
+	}
+	if got := len(reporter.find(syncalert.KindRefresh, syncalert.RuleCDCDelayHigh, "")) - before; got < 5 || got > 7 {
+		t.Fatalf("expected a refresh about every 5 minutes over 30 minutes, got %d", got)
+	}
+	// 回落待确认也是状态变化。 / Entering recovering is a state change too.
+	f.round(5)
+	refreshes := reporter.find(syncalert.KindRefresh, syncalert.RuleCDCDelayHigh, "")
+	last := refreshes[len(refreshes)-1]
+	if last.CDCDelay == nil || last.CDCDelay.State != syncalert.CDCDelayStateRecovering || !last.StateChange {
+		t.Fatalf("the recovering refresh must be a state change: %+v", last)
+	}
+}
+
+// 一条引擎时间快 10 分钟的样本（时钟跳变 / 节点时间不准）不会让后面的样本都被当成旧样本：持续 300 秒的延迟照常告警。
+// One sample whose engine time is 10 minutes ahead (clock jump / bad node) does not make later samples look stale:
+// a sustained 300s delay still fires.
+func TestCDCDelayFutureEngineSampleDoesNotPoisonLaterSamples(t *testing.T) {
+	f := newCDCServiceFixture(t)
+	f.configure([]string{syncalert.RuleCDCDelayHigh}, 60, 1)
+	f.service.recordCDCDelay(f.job.ID, 5_000, f.now.Add(10*time.Minute).UnixMilli())
+	for i := 0; i < 10; i++ {
+		f.round(300)
+	}
+	if len(f.b4(syncalert.KindFire)) != 1 {
+		t.Fatalf("a single future engine timestamp must not hide later samples, fires=%d", len(f.b4(syncalert.KindFire)))
+	}
+	if summary := f.service.jobCDCDelay(f.job.ID); summary == nil || summary.LatestMs != 300_000 {
+		t.Fatalf("the summary must keep updating after a future sample: %+v", summary)
+	}
+}
+
+// 多节点时钟差超过 2 分钟：reader A 所在节点时钟快 3 分钟（正常），reader B 卡住 600 秒，B 的样本照常计入并告警；
+// 反过来 A 所在节点慢 3 分钟、A 卡住，A 的样本在持续 5 分钟后计入（不是一次性的积压重投），也会告警。
+// Inter-node skew over 2 minutes: reader A's node runs 3 minutes ahead (healthy) and reader B is stuck at 600s, so B
+// still counts and fires; mirrored, A's node runs 3 minutes behind and A is stuck, and A counts once this has lasted
+// 5 minutes (not a one-off replay), so it fires too.
+func TestCDCDelayInterNodeSkewKeepsStuckReader(t *testing.T) {
+	run := func(skewA time.Duration, stuckA bool, rounds int) (*cdcServiceFixture, time.Time) {
+		f := newCDCServiceFixture(t)
+		f.configure([]string{syncalert.RuleCDCDelayHigh}, 60, 1)
+		start := f.now
+		for r := 0; r < rounds; r++ {
+			for i := 0; i < 3; i++ {
+				f.now = f.now.Add(10 * time.Second)
+				delayA, delayB := int64(2_000), int64(600_000)
+				if stuckA {
+					delayA, delayB = 600_000, 2_000
+				}
+				f.service.noteCDCDelayBatch(f.job.ID, f.now.UnixMilli(), f.now)
+				f.service.recordCDCDelay(f.job.ID, delayB, f.now.UnixMilli())
+				f.service.recordCDCDelay(f.job.ID, delayA, f.now.Add(skewA).UnixMilli())
+			}
+			f.service.evaluateCDCDelayAlerts(context.Background())
+		}
+		return f, start
+	}
+	f, _ := run(3*time.Minute, false, 4)
+	if len(f.b4(syncalert.KindFire)) != 1 {
+		t.Fatalf("a reader on a node 3 minutes ahead must not hide the stuck reader, fires=%d", len(f.b4(syncalert.KindFire)))
+	}
+	f, start := run(-3*time.Minute, true, 20)
+	fires := f.b4(syncalert.KindFire)
+	if len(fires) != 1 {
+		t.Fatalf("a stuck reader on a node 3 minutes behind must fire once its offset is adopted, fires=%d", len(fires))
+	}
+	if took := fires[0].OccurredAt.Sub(start); took > 0 && took > cdcDelayOffsetAdoptAfter+2*time.Minute {
+		t.Fatalf("fired %v after start, want ≤ adopt window + duration + a round", took)
 	}
 }

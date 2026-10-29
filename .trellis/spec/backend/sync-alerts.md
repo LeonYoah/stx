@@ -84,8 +84,10 @@ func (s *Service) SetTaskAlertPolicyStore(store syncalert.TaskPolicyStore)
 - **判定在 sync**（`internal/apps/sync/cdc_delay_alert.go`），monitoring 只管阶段和投递；两边只依赖 `syncalert`。
 - 版本门槛：SeaTunnel **≥ 2.3.12**（`seatunnel.SupportsCDCDelayEvents`，与事件通道同一门槛；引擎 2.3.5 起就上报 `READER_MESSAGE_DELAYED`，但 STX 的事件通道要求 2.3.12）。前端提示、CLI 帮助、文档都写 2.3.12，不写"3.x"。
 - 输入：事件通道 `READER_MESSAGE_DELAYED` 样本（`recordCDCDelay` 接入**每一条**，样本时间记 STX 收到时间）、对账写入的 `result_preview.metrics.SourceReceivedCount`、通道状态、作业状态。
-  - 旧样本：引擎 createdTime 比**该作业见过的最新引擎时间**早 2 分钟以上的不计（`IngestEngineEvents` 先记下整批的最新引擎时间）。不和 STX 时钟比较；引擎与 STX 时差 >2 分钟时照常计入，按作业每 10 分钟最多一条 warning。
-  - 多个 reader 交错上报、时间不递增的样本都计入（延迟摘要的窗口最大值也计入，只忽略比最新时间早 1 分钟以上的）。
+  - 旧样本按**时间差**（STX 收到时间 − 引擎 createdTime）判断：超过 `max(基线, 0) + 2 分钟` 的是重投的积压，不计。基线 = 该作业最近 10 分钟内计入样本的最大时间差，10 分钟没有计入的样本就过期重建；作业没有基线时，`IngestEngineEvents` 先用整批里最新的引擎时间建立基线（同一批里更早的重投样本才能识别）。
+  - 被判为旧样本的情况连续 5 分钟以上（不是一次性的重投，而是某个 worker 时钟长期偏慢），改为计入并抬高基线。所以一条时间不准的样本（例如快 10 分钟）不会让后面的样本一直被丢；worker 之间时钟差 >2 分钟时，卡住的 reader 也照常计入（时钟偏慢的节点最多晚 5 分钟）。
+  - 时间差 >2 分钟（时钟不同步）的样本照常计入，按作业每 10 分钟最多一条 warning。
+  - 多个 reader 交错上报、时间不递增的样本都计入。延迟摘要（最近值、1 分钟窗口最大值）用同一个计入结论，窗口和"最近值"按 STX 收到时间，不按引擎时间。
 - 候选：运行中、`!jobIsBatch`、非数据预览、`TaskID>0`、任务配置启用了 B4（配置缓存 60 秒，保存 / 删除时失效；读取期间被改过的结果不缓存）。
 - 每 30 秒一轮，按本轮样本**最大值**分类（中位数只用作追赶基线）：
 
@@ -101,17 +103,20 @@ func (s *Service) SetTaskAlertPolicyStore(store syncalert.TaskPolicyStore)
 
 - phase：`none` / `firing` / `maybe`（STX 启动后首次看到）/ `rearm`（告警中改了阈值或持续时间）。
   - high：firing → Refresh；maybe / rearm 计时或追赶期间 → Refresh；持续 ≥M 且不在追赶 → Fire。
+  - phase≠firing 时，和上一轮 high 之间隔了**两轮以上非 high**（low 和 unknown 都算）的 high 从本轮重新计时：收不到数据的时间不算超标时间，孤立尖峰（H、L、无数据 ×N、H 或 H、无数据 ×N、H）不会告警，也不会出现"已持续几百分钟"。只隔一轮非 high 的间歇性高延迟照样累计。
   - low 第一轮：**不重新计时**（`aboveSince`、窗口、追赶起点保留）；phase≠none 时 Refresh（状态 `recovering`，当前延迟 + 当前阈值，rearm 期间同样刷新）。
   - low 连续两轮：重新计时；firing / maybe → Resolve `recovered`（带恢复依据）；rearm → Resolve `rule_changed`（**不发恢复**）。
   - 读取条数推断的 low / 恢复：明细 `current_delay_ms=0` + `delay_inferred=true`，webhook `current_delay_ms` 为 null。
   - unknown：phase≠none 时进入即 Refresh，之后每 5 分钟一次；持续 ≥24h 带 `reminders_paused`，sweep 不再提醒，阶段保留。
-- 追赶：窗口 `[now−M, now]` 内至少两轮 high，最新一轮中位数 ≤ 最早一轮中位数 × 90%；从第一次判为追赶起最多压 30 分钟。基线**不用第一轮最大值**（单次大事务尖峰会抬高基线导致漏报）。持续超标的作业**最晚在首次超标后 M + 30 分钟告警**（+ 一轮 30 秒判定间隔）。
-- Refresh 只在展示内容（状态、依据、阈值、时长、停止提醒、是否推断、说明文字）变化时发送；hub 队列 ≥512 时丢弃 Refresh，留一半给 Fire / Resolve。
-- 冷却提醒：巡检前先处理队列里已有的信号；每个阶段的"检查 + 投递"与策略保存 / 删除互斥（`syncAlertEpisodeMu`），并按 ID 重读阶段——停用告警的那一刻不发旧提醒。
+- 追赶：窗口 `[now−M, now]` 内至少两轮 high，最新一轮中位数 ≤ 最早一轮中位数 × 90%，**并且**最新一轮最大值 ≤ 最早一轮最大值 × 90%（多源作业里其他 reader 在追赶、一个 reader 卡住越来越慢时，混在一起的中位数在降，但不算追赶）；从第一次判为追赶起最多压 30 分钟。基线**不用第一轮最大值**（单次大事务尖峰会抬高基线导致漏报）。持续超标的作业**最晚在首次超标后 M + 30 分钟告警**（+ 一轮 30 秒判定间隔）。
+- Refresh 只在展示内容（状态、依据、阈值、时长、停止提醒、是否推断、说明文字）变化时发送，内容不变也每 5 分钟重发一次。发送记录在信号**被接收之后**才更新（`syncalert.AcceptingReporter.TryReportSyncAlert` 返回是否进了队列），被丢弃的下一轮重发（unknown 的 5 分钟节流也会清掉）。
+- hub 队列 ≥512 时丢弃普通 Refresh，留一半给 Fire / Resolve；改变阶段状态的 Refresh（进入 unknown、停止提醒、进入 recovering 等，`Signal.StateChange`）不受这个限制，只在缓冲区全满时才丢。
+- 冷却提醒：巡检前先处理队列里已有的信号；按 ID 重读阶段和策略的**检查**与策略保存 / 删除互斥（`syncAlertEpisodeMu`），**网络投递不持锁**（渠道卡住不会拖住保存策略）；投递前再核对一次策略版本（`syncAlertPolicyVersion`，每次保存 / 删除加一）和阶段状态，检查之后策略被保存 / 删除或阶段被关闭的，这次不发。
+- SMTP：连上之后、读服务器问候语之前就设置连接截止时间（15 秒），不发问候语的服务器不会让投递一直卡住。
 - 作业进入终态：`reportJobTransition` → Resolve `job_ended`（带 JobID，只关同一作业的阶段）。
 - 模板：标题 `CDC 延迟过高（3分12秒）`，提醒追加 ` [提醒] 已持续 X 分钟`；不用"错误摘要"，改为当前 / 窗口最大读取延迟、告警条件、已持续、说明、恢复依据；读取条数推断的恢复注明"根据读取条数推断"；webhook 追加 `current_delay_ms`（推断时 null）、`delay_inferred`、`threshold_seconds` 等扁平字段和 `resolve_reason`、`reminder`；recovering 标题 `（已回落，待确认）`。
 - 文案统一说"读取延迟"；"无法确认"带日期 + 时区（`timex.DisplayLocation`）、可能原因和作业链接。
-- 已知限制：发现不了完全卡住（B3）；通道悄悄断开可能误判恢复；时钟差计入延迟；源库空闲时恢复推迟；重启后计时从零开始（状态只在内存）；多源作业按最慢的源判断，但不区分是哪个源；重启后第一批全是积压旧样本时会计入一轮。
+- 已知限制：时钟偏慢超过 2 分钟的 worker 上卡住的 reader 最多晚 5 分钟计入；超过 5 分钟的积压重投会被计入；发现不了完全卡住（B3）；通道悄悄断开可能误判恢复；时钟差计入延迟；源库空闲时恢复推迟；重启后计时从零开始（状态只在内存）；多源作业按最慢的源判断，但不区分是哪个源；重启后第一批全是积压旧样本时会计入一轮。
 
 ### 投递
 - 与来源无关的 `alertMessage`（来源类型、集群、告警名、额外收件人、按渠道拼消息体），本地进程事件和作业告警共用 `dispatchAlertPolicyChannels` / `dispatchAlertDelivery`。
@@ -157,8 +162,8 @@ func (s *Service) SetTaskAlertPolicyStore(store syncalert.TaskPolicyStore)
 
 - sync（`alert_signals_test.go`）：A1 只在引擎失败时发（结果未知、409 不发），消息脱敏；B1 只在状态变化时发一次；批作业成功、实时作业转为运行中 / 提交成功时 Resolve；提交过期只报 A2 不报 B1；C1 只发一次、作业终态时 Resolve；D1 Observe 带首次失败时间、启动后首次成功和恢复时 Resolve、正常轮次不发；D2 只在状态变化时发；任务告警接口的权限、默认值、显式 false / 0、503。
 - monitoring（`sync_alerts_test.go`）：没配置 / 没勾选规则时丢弃；首次通知一次、后续只累计；告警中心条目字段；Resolve 发恢复通知；冷却提醒与静默；关闭后开新阶段；C1 只解除对应作业；集群规则（无策略只建阶段、D1 窗口、规则停用丢弃）；缓冲区满不阻塞；任务配置存取（创建、更新、409、校验包装、邮件收件人、筛选、删除关闭阶段）；创建人邮箱合并。
-- B4 sync（`cdc_delay_alert_test.go`）：持续高于阈值 ≤60 秒内 Fire、两轮低 ≤90 秒恢复、短尖峰不触发、300→260 不触发 / 300→280 触发 / 持平 / 上涨、尖峰不抬高基线、追赶满 30 分钟触发、读取条数推断恢复、unknown 刷新与 24h 停止提醒、重启 maybe Refresh 且只补发一次 Resolve、改参数重新计时不误发恢复、未配置不发、批 / 预览 / 旧样本不计、静默关闭、`-race`；间歇性高延迟（3×200 秒 + 1×30 秒）告警、多源按最大值、多 reader 交错样本不丢、时钟差照常计入并限频 warning、rearm 低轮刷新内容、读配置竞态不缓存、Refresh 只在内容变化时发、推断恢复清掉当前延迟、PUT 不带 `cdc_delay_*` 保留原值、2.3.12 版本门槛。
-- B4 monitoring（`sync_alert_cdc_delay_test.go`）：配置往返与 400、标题 / 字段 / webhook / 提醒、Refresh 不计次不通知、停止提醒与读取条数恢复文案、静默关闭显示原因；推断恢复的 webhook `current_delay_ms=null`、队列过半丢 Refresh、停用时不发提醒（锁 + 按 ID 重读）、巡检前先处理排队信号。
+- B4 sync（`cdc_delay_alert_test.go`）：持续高于阈值 ≤60 秒内 Fire、两轮低 ≤90 秒恢复、短尖峰不触发、300→260 不触发 / 300→280 触发 / 持平 / 上涨、尖峰不抬高基线、追赶满 30 分钟触发、读取条数推断恢复、unknown 刷新与 24h 停止提醒、重启 maybe Refresh 且只补发一次 Resolve、改参数重新计时不误发恢复、未配置不发、批 / 预览 / 旧样本不计、静默关闭、`-race`；间歇性高延迟（3×200 秒 + 1×30 秒）告警、多源按最大值、多 reader 交错样本不丢、时钟差照常计入并限频 warning、rearm 低轮刷新内容、读配置竞态不缓存、Refresh 只在内容变化时发、推断恢复清掉当前延迟、PUT 不带 `cdc_delay_*` 保留原值、2.3.12 版本门槛；H、L、无数据 ×N、H 不告警且"已持续"不含空白时间（Codex P2）；一个 reader 卡住、其他在追赶时按时告警；被丢弃的 Refresh 下一轮重发、StateChange、5 分钟重发；快 10 分钟的单条样本不影响后续样本；节点间时钟差 ±3 分钟时卡住的 reader 照常告警。
+- B4 monitoring（`sync_alert_cdc_delay_test.go`）：配置往返与 400、标题 / 字段 / webhook / 提醒、Refresh 不计次不通知、停止提醒与读取条数恢复文案、静默关闭显示原因；推断恢复的 webhook `current_delay_ms=null`、队列过半丢 Refresh、停用时不发提醒（锁 + 按 ID 重读）、巡检前先处理排队信号；StateChange Refresh 不受队列过半限制、TryReportSyncAlert 返回结果；webhook 卡住时保存策略不被阻塞、检查后策略被保存则不发；不发问候语的 SMTP 服务器按超时返回。
 - 原有本地事件投递测试必须保持通过（投递重构的回归）。
 - CLI：`set` 的正文和安全头、`--disable` 先读后写、校验在网络前、只有 get / set 没有 delete、`alert-policy list` 带筛选参数。
 - 前端：表单校验、摘要、深链解析、侧栏组件。
@@ -222,10 +227,38 @@ if !high && lowStreak+1 >= cdcDelayLowRoundsToRecover { resetTiming() }
 ```go
 // 拿引擎时间和 STX 时钟比：两边时差超过 2 分钟时，所有样本都被静默丢弃。
 if now.Sub(time.UnixMilli(sampleMs)) > 2*time.Minute { return }
+// 和"作业见过的最新引擎时间"比：一条快 10 分钟的样本之后，所有样本都被当成旧样本；节点间时钟差 >2 分钟时卡住的 reader 被丢。
+if time.Duration(newestMs-sampleMs)*time.Millisecond > cdcDelayStaleSample { return }
 ```
 
 #### 正确（B4 旧样本）
 ```go
-// 只和同一作业的最新引擎时间比；时差过大照常计入并限频 warning。
-if time.Duration(newestMs-sampleMs)*time.Millisecond > cdcDelayStaleSample { return }
+// 按时间差（收到时间 − 引擎时间）对比作业最近 10 分钟计入样本的最大时间差；持续 5 分钟的"旧样本"改为计入。
+offset := now.Sub(time.UnixMilli(sampleMs))
+if !state.acceptCDCDelayOffset(jobID, offset.Milliseconds(), now) { return false }
+```
+
+#### 错误（B4 孤立尖峰）
+```go
+// 无法确认只清 lowStreak，不清超标计时：H、L、10 分钟无数据、H 会立刻告警，说"已持续几百分钟"。
+func (st *cdcDelayJobState) onUnknown(...) { st.lowStreak = 0 }
+```
+
+#### 正确（B4 孤立尖峰）
+```go
+// 两轮 high 之间隔了两轮以上非 high（low、unknown 都算），从后一轮重新计时。
+if st.phase != cdcPhaseFiring && st.nonHighRounds >= cdcDelayLowRoundsToRecover { st.resetTiming() }
+```
+
+#### 错误（冷却提醒持锁投递）
+```go
+// 锁住整个网络投递：webhook 卡住时保存策略一直等。
+mu.Lock(); defer mu.Unlock(); check(); dispatch()
+```
+
+#### 正确（冷却提醒持锁投递）
+```go
+// 锁只覆盖检查；投递前核对策略版本，检查之后被保存 / 删除的不发。
+episode, policies, version := h.remindCheck(ctx, id)
+if h.remindStillValid(ctx, id, version) { h.dispatchEpisode(...) }
 ```

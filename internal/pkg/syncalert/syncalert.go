@@ -248,6 +248,12 @@ type Signal struct {
 	// CDCDelay 只用于 B4 的 Fire、Refresh、Resolve。
 	// CDCDelay is only used by B4 Fire, Refresh and Resolve.
 	CDCDelay *CDCDelayDetail
+	// StateChange 只用于 B4 Refresh：这条 Refresh 改变了阶段状态（进入无法确认、停止提醒、进入回落待确认），接收方不按
+	// Refresh 的排队上限丢弃它（缓冲区真满时仍可能丢）。
+	// StateChange is only used by B4 Refresh: the Refresh changes the episode state (entering unconfirmable, pausing
+	// reminders, entering recovering), so the receiver does not drop it under the Refresh queue limit (it can still be
+	// dropped when the buffer is completely full).
+	StateChange bool
 }
 
 // FormatDelayZH 把毫秒延迟格式化为"3分12秒"这样的中文时长（不足 1 分钟为"45秒"，超过 1 小时为"1小时2分"）。
@@ -278,6 +284,14 @@ func FormatDelayZH(ms int64) string {
 // Reporter receives alert signals produced by sync; implementations must not block.
 type Reporter interface {
 	ReportSyncAlert(signal Signal)
+}
+
+// AcceptingReporter 是可选接口：TryReportSyncAlert 与 ReportSyncAlert 相同（非阻塞），但返回信号是否进了队列；
+// 被丢弃的 B4 Refresh 由 sync 在下一轮重发。
+// AcceptingReporter is optional: TryReportSyncAlert works like ReportSyncAlert (non-blocking) but reports whether the
+// signal was queued, so sync can resend a dropped B4 Refresh next round.
+type AcceptingReporter interface {
+	TryReportSyncAlert(signal Signal) bool
 }
 
 // TruncateMessage 把错误信息截到 limit 个字符，超出部分用省略号表示。

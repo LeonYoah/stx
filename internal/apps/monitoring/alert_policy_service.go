@@ -233,6 +233,7 @@ func (s *Service) UpdateAlertPolicy(ctx context.Context, id uint, req *UpsertAle
 	// Serialised with reminders: an episode closed by disabling or deleting the policy is never reminded at the same moment.
 	s.syncAlertEpisodeMu.Lock()
 	defer s.syncAlertEpisodeMu.Unlock()
+	s.syncAlertPolicyVersion++
 	if err := s.repo.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		txRepo := &Repository{db: tx}
 		policy, err := txRepo.GetAlertPolicyByID(ctx, id)
@@ -333,6 +334,7 @@ func (s *Service) DeleteAlertPolicy(ctx context.Context, id uint) error {
 	// Serialised with reminders: an episode closed by disabling or deleting the policy is never reminded at the same moment.
 	s.syncAlertEpisodeMu.Lock()
 	defer s.syncAlertEpisodeMu.Unlock()
+	s.syncAlertPolicyVersion++
 	return s.repo.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		txRepo := &Repository{db: tx}
 		policy, err := txRepo.GetAlertPolicyByID(ctx, id)

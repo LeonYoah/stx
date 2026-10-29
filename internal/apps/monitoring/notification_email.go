@@ -239,6 +239,11 @@ func deliverSMTPMessage(ctx context.Context, config *NotificationChannelEmailCon
 	return nil
 }
 
+// smtpIOTimeout 是 SMTP 连接的读写截止时间；连上之后、读服务器问候语之前就设置，不发问候语的服务器不会让投递一直卡住。
+// smtpIOTimeout is the SMTP connection read/write deadline; it is set right after connecting, before the server
+// greeting is read, so a server that never greets cannot hang delivery.
+var smtpIOTimeout = 15 * time.Second
+
 func openSMTPClient(ctx context.Context, config *NotificationChannelEmailConfig) (*smtp.Client, net.Conn, error) {
 	addr := net.JoinHostPort(config.Host, strconv.Itoa(config.Port))
 	dialer := &net.Dialer{Timeout: 10 * time.Second}
@@ -258,6 +263,7 @@ func openSMTPClient(ctx context.Context, config *NotificationChannelEmailConfig)
 		if err != nil {
 			return nil, nil, err
 		}
+		_ = conn.SetDeadline(time.Now().Add(smtpIOTimeout))
 		client, err = smtp.NewClient(conn, strings.TrimSpace(config.Host))
 		if err != nil {
 			_ = conn.Close()
@@ -268,6 +274,7 @@ func openSMTPClient(ctx context.Context, config *NotificationChannelEmailConfig)
 		if err != nil {
 			return nil, nil, err
 		}
+		_ = conn.SetDeadline(time.Now().Add(smtpIOTimeout))
 		client, err = smtp.NewClient(conn, strings.TrimSpace(config.Host))
 		if err != nil {
 			_ = conn.Close()
@@ -291,7 +298,7 @@ func openSMTPClient(ctx context.Context, config *NotificationChannelEmailConfig)
 		}
 	}
 
-	_ = conn.SetDeadline(time.Now().Add(15 * time.Second))
+	_ = conn.SetDeadline(time.Now().Add(smtpIOTimeout))
 	return client, conn, nil
 }
 

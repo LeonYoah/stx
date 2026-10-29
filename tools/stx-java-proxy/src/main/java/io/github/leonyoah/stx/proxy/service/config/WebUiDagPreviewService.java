@@ -40,22 +40,10 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 
 public class WebUiDagPreviewService {
 
     private static final String PREVIEW_JOB_ID = "preview";
-    private static final ExecutorService SAVE_MODE_EXECUTOR =
-            Executors.newCachedThreadPool(
-                    r -> {
-                        Thread t = new Thread(r, "stx-savemode-preview");
-                        t.setDaemon(true);
-                        return t;
-                    });
 
     private final JobConfigSupportService jobConfigSupportService;
     private final SinkSaveModePreviewService sinkSaveModePreviewService;
@@ -140,32 +128,19 @@ public class WebUiDagPreviewService {
             return SaveModePreviewAttachment.empty();
         }
         try {
-            CompletableFuture<Map<String, Object>> future =
-                    CompletableFuture.supplyAsync(
-                            () ->
-                                    sinkSaveModePreviewService.preview(
-                                            context, request, node.getConfigIndex()),
-                            SAVE_MODE_EXECUTOR);
-            Map<String, Object> previewResult = future.get(2000, TimeUnit.MILLISECONDS);
+            Map<String, Object> previewResult =
+                    sinkSaveModePreviewService.preview(context, request, node.getConfigIndex());
             return new SaveModePreviewAttachment(
                     sinkSaveModePreviewService.toVertexTablePreviews(
                             previewResult, buildTablePaths(node)),
                     ProxyRequestUtils.getStringList(previewResult, "warnings"));
-        } catch (TimeoutException e) {
-            return new SaveModePreviewAttachment(
-                    Collections.emptyMap(),
-                    Collections.singletonList(
-                            String.format(
-                                    "SaveMode 预览超时（%s，可能由于网络缓慢或远端库不可达）",
-                                    buildConnectorType(node))));
         } catch (Exception e) {
-            Throwable cause = e.getCause() != null ? e.getCause() : e;
             return new SaveModePreviewAttachment(
                     Collections.emptyMap(),
                     Collections.singletonList(
                             String.format(
                                     "SaveMode preview skipped for %s: %s",
-                                    buildConnectorType(node), cause.getMessage())));
+                                    buildConnectorType(node), e.getMessage())));
         }
     }
 

@@ -388,7 +388,13 @@ export function SettingsSidebarPanel({
         {/* 作业告警：不跟随任务版本，保存即生效 / Job alerts: not versioned with the task, effective on save */}
         {alertTaskId ? (
           <div className='space-y-1.5 border-t border-border/40 pt-2.5'>
-            <TaskAlertSection taskId={alertTaskId} taskName={alertTaskName} canEdit={alertCanEdit} users={alertUsers} />
+            <TaskAlertSection
+              taskId={alertTaskId}
+              taskName={alertTaskName}
+              clusterId={Number(clusterId) || null}
+              canEdit={alertCanEdit}
+              users={alertUsers}
+            />
           </div>
         ) : null}
       </div>

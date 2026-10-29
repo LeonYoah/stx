@@ -180,6 +180,13 @@ export interface AlertInstanceSourceRef {
   trigger_source?: string;
   occurrence_count?: number;
   link?: string;
+  /**
+   * sync 告警阶段的结束原因：recovered、job_ended、channel_unavailable、rule_removed、rule_changed、policy_deleted、closed。
+   * Why a sync episode ended: recovered, job_ended, channel_unavailable, rule_removed, rule_changed, policy_deleted, closed.
+   */
+  resolve_reason?: string;
+  /** B4 无法确认超过 24 小时，已停止提醒 / B4 unconfirmable for over 24h, reminders stopped */
+  reminders_paused?: boolean;
 }
 
 export interface AlertInstance {

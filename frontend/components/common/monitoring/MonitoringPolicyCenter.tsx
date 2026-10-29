@@ -766,6 +766,7 @@ export function MonitoringPolicyCenter() {
   const [taskAlertEditing, setTaskAlertEditing] = useState<{
     taskId: number;
     taskName?: string;
+    clusterId?: number | null;
     config: SyncTaskAlertConfig | null;
   } | null>(null);
   const [deletingPolicyId, setDeletingPolicyId] = useState<number | null>(null);
@@ -1374,7 +1375,7 @@ export function MonitoringPolicyCenter() {
       // Job alert policies are edited with the same form as task settings and saved through the task alert API.
       if (policy.policy_type === 'sync_job' && policy.task_id) {
         const taskId = policy.task_id;
-        setTaskAlertEditing({taskId, taskName: policy.task_name, config: null});
+        setTaskAlertEditing({taskId, taskName: policy.task_name, clusterId: Number(policy.cluster_id) || null, config: null});
         void services.sync
           .getTaskAlert(taskId)
           .then((config) => setTaskAlertEditing((current) => (current?.taskId === taskId ? {...current, config} : current)))
@@ -2757,6 +2758,7 @@ export function MonitoringPolicyCenter() {
           open
           taskId={taskAlertEditing.taskId}
           taskName={taskAlertEditing.taskName}
+          clusterId={taskAlertEditing.clusterId}
           config={taskAlertEditing.config}
           channels={channels}
           users={notifiableUsers}

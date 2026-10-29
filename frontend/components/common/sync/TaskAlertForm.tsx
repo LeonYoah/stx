@@ -29,13 +29,16 @@ import type {
   NotificationChannel,
   NotificationRecipientUser,
 } from '@/lib/services/monitoring';
+import services from '@/lib/services';
 import type {
+  SyncEventChannelStatus,
   SyncTaskAlertConfig,
   SyncTaskAlertRequest,
   SyncTaskAlertRule,
 } from '@/lib/services/sync';
 import {
   TASK_ALERT_RULES,
+  TASK_ALERT_RULE_CDC_DELAY,
   buildTaskAlertRequest,
   hasEmailChannel,
   initialTaskAlertForm,
@@ -50,6 +53,7 @@ import {
  */
 export function TaskAlertForm({
   initial,
+  clusterId,
   channels,
   users,
   saving,
@@ -59,6 +63,8 @@ export function TaskAlertForm({
   onDelete,
 }: {
   initial: SyncTaskAlertConfig | null;
+  /** 任务所在集群，用于提示 B4 的事件通道前置条件；拿不到时不提示。/ Task cluster for the B4 channel hint. */
+  clusterId?: number | null;
   channels: NotificationChannel[];
   users: NotificationRecipientUser[];
   saving?: boolean;
@@ -82,6 +88,42 @@ export function TaskAlertForm({
     [channels, form.channelIds],
   );
   const emailSelected = hasEmailChannel(form.channelIds, channels);
+  const cdcSelected = form.rules.includes(TASK_ALERT_RULE_CDC_DELAY);
+
+  // 勾选 B4 后查询集群事件通道：未开启或不支持时提示这条规则不会触发（保存不拦截）。
+  // Once B4 is selected, look up the cluster event channel: warn when it is off or unsupported (saving is allowed).
+  const [channelStatus, setChannelStatus] = useState<SyncEventChannelStatus | null>(null);
+  useEffect(() => {
+    if (!cdcSelected || !clusterId) {
+      setChannelStatus(null);
+      return;
+    }
+    let cancelled = false;
+    services.sync
+      .getEventChannel(clusterId)
+      .then((status) => {
+        if (!cancelled) {
+          setChannelStatus(status);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setChannelStatus(null);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [cdcSelected, clusterId]);
+  const channelWarning = channelStatus
+    ? !channelStatus.supported
+      ? 'cdcDelayChannelUnsupported'
+      : !channelStatus.enabled || channelStatus.state === 'disabled'
+        ? 'cdcDelayChannelOff'
+        : channelStatus.state === 'pending_restart'
+          ? 'cdcDelayChannelPendingRestart'
+          : null
+    : null;
   const error = validateTaskAlertForm(form, channels);
 
   const update = (patch: Partial<TaskAlertFormState>) => setForm((current) => ({...current, ...patch}));
@@ -121,6 +163,46 @@ export function TaskAlertForm({
           ))}
         </div>
       </fieldset>
+
+      {cdcSelected ? (
+        <fieldset
+          className='space-y-2 rounded-md border border-dashed border-border/70 p-2.5'
+          disabled={readOnly}
+          data-testid='task-alert-cdc-delay'
+        >
+          <div className='flex flex-wrap items-end gap-3'>
+            <div className='space-y-1'>
+              <Label className='whitespace-nowrap text-xs font-semibold'>{t('cdcDelayThresholdLabel')}</Label>
+              <Input
+                value={form.cdcDelayThreshold}
+                inputMode='numeric'
+                className='h-8 w-28 text-xs'
+                data-testid='task-alert-cdc-threshold'
+                aria-invalid={showErrors && error === 'errorCdcDelayThreshold'}
+                onChange={(event) => update({cdcDelayThreshold: event.target.value})}
+              />
+            </div>
+            <div className='space-y-1'>
+              <Label className='whitespace-nowrap text-xs font-semibold'>{t('cdcDelayDurationLabel')}</Label>
+              <Input
+                value={form.cdcDelayDuration}
+                inputMode='numeric'
+                className='h-8 w-28 text-xs'
+                data-testid='task-alert-cdc-duration'
+                aria-invalid={showErrors && error === 'errorCdcDelayDuration'}
+                onChange={(event) => update({cdcDelayDuration: event.target.value})}
+              />
+            </div>
+          </div>
+          <p className='text-[11px] leading-snug text-muted-foreground'>{t('cdcDelayThresholdHint')}</p>
+          <p className='text-[11px] leading-snug text-muted-foreground'>{t('cdcDelayScopeHint')}</p>
+          {channelWarning ? (
+            <p className='text-[11px] leading-snug text-amber-600 dark:text-amber-400' data-testid='task-alert-cdc-channel-warning'>
+              {t(channelWarning)}
+            </p>
+          ) : null}
+        </fieldset>
+      ) : null}
 
       <fieldset className='space-y-2' disabled={readOnly}>
         <Label className='text-xs font-semibold'>{t('channelsLabel')}</Label>

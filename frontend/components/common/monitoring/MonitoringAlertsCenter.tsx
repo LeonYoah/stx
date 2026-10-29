@@ -73,6 +73,7 @@ import {
   TroubleshootingMemoryCard,
   SaveMemoryDialog,
 } from '@/components/common/troubleshooting';
+import {syncAutoCloseReason} from '@/components/common/sync/task-alert-utils';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
 import {Card} from '@/components/ui/card';
@@ -159,6 +160,8 @@ function isSilenceActive(value?: string | null): boolean {
 function resolveLastChangedAt(alert: AlertInstance): string | null {
   return alert.closed_at || alert.resolved_at || alert.last_seen_at || null;
 }
+
+
 
 export function MonitoringAlertsCenter() {
   const t = useTranslations('monitoringCenter');
@@ -894,6 +897,24 @@ export function MonitoringAlertsCenter() {
                                   {tAlert('occurrences', {count: alert.source_ref?.occurrence_count ?? 0})}
                                 </Badge>
                               ) : null}
+                              {/* 作业告警：自动关闭原因、停止提醒 / Job alerts: auto-close reason, reminders paused */}
+                              {alert.source_type === 'sync' && syncAutoCloseReason(alert.source_ref?.resolve_reason) ? (
+                                <Badge
+                                  variant='outline'
+                                  className='shrink-0 whitespace-nowrap px-1 py-0 text-[10px] font-normal text-muted-foreground'
+                                  data-testid='sync-alert-close-reason'
+                                >
+                                  {tAlert(`closeReason_${syncAutoCloseReason(alert.source_ref?.resolve_reason)}`)}
+                                </Badge>
+                              ) : null}
+                              {alert.source_type === 'sync' && alert.source_ref?.reminders_paused ? (
+                                <Badge
+                                  variant='outline'
+                                  className='shrink-0 whitespace-nowrap border-amber-500/30 px-1 py-0 text-[10px] font-normal text-amber-600 dark:text-amber-400'
+                                >
+                                  {tAlert('remindersPaused')}
+                                </Badge>
+                              ) : null}
                               {alertMemoryMap.get(alert.alert_id) && (
                                 <Badge
                                   variant='outline'
@@ -1178,6 +1199,17 @@ export function MonitoringAlertsCenter() {
                               {selectedAlert.source_ref.engine_job_id ? ` · ${selectedAlert.source_ref.engine_job_id}` : ''}
                             </span>
                           </div>
+                        ) : null}
+                        {selectedAlert.source_type === 'sync' && syncAutoCloseReason(selectedAlert.source_ref.resolve_reason) ? (
+                          <div className='flex items-center justify-between gap-3 p-3'>
+                            <span className='whitespace-nowrap text-muted-foreground'>{tAlert('closeReasonLabel')}</span>
+                            <span className='min-w-0 text-right'>
+                              {tAlert(`closeReason_${syncAutoCloseReason(selectedAlert.source_ref.resolve_reason)}`)}
+                            </span>
+                          </div>
+                        ) : null}
+                        {selectedAlert.source_type === 'sync' && selectedAlert.source_ref.reminders_paused ? (
+                          <div className='p-3 text-amber-600 dark:text-amber-400'>{tAlert('remindersPausedHint')}</div>
                         ) : null}
                         {selectedAlert.source_type === 'sync' && selectedAlert.source_ref.occurrence_count ? (
                           <div className='flex items-center justify-between p-3'>

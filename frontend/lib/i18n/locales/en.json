@@ -5254,6 +5254,8 @@
     "rule_sync_job_failed_hint": "The job failed, including when the engine no longer has it",
     "rule_sync_stop_timeout": "Stop timed out",
     "rule_sync_stop_timeout_hint": "The job has not stopped after the stop timeout",
+    "rule_sync_cdc_delay_high": "CDC delay high",
+    "rule_sync_cdc_delay_high_hint": "The read delay of a CDC streaming job stays above the threshold (needs the event channel)",
     "channelsLabel": "Notification channels",
     "noChannels": "No notification channel yet. Add one in the monitoring center first",
     "receiversLabel": "Email receivers",
@@ -5285,6 +5287,23 @@
     "jobLabel": "Job",
     "occurrences": "{count} occurrences",
     "deepLinkTaskNotFound": "Task #{id} does not exist or you cannot view it",
-    "deepLinkJobNotFound": "Job #{id} does not exist or does not belong to this task"
+    "deepLinkJobNotFound": "Job #{id} does not exist or does not belong to this task",
+    "cdcDelayThresholdLabel": "Delay threshold (seconds)",
+    "cdcDelayDurationLabel": "Duration (minutes)",
+    "cdcDelayThresholdHint": "30 seconds or more is recommended; clock skew between the database and SeaTunnel nodes inflates the delay. Empty or 0 uses the defaults of 60 seconds / 5 minutes.",
+    "cdcDelayScopeHint": "Only applies to CDC streaming jobs on 3.x clusters with the event channel on; multi-source jobs are judged as a whole.",
+    "cdcDelayChannelOff": "The event channel is off for this cluster, so this rule will not fire. Turn it on in cluster settings.",
+    "cdcDelayChannelPendingRestart": "The event channel config of this cluster takes effect after a restart; this rule will not fire until then.",
+    "cdcDelayChannelUnsupported": "This cluster version does not support the event channel, so this rule will not fire.",
+    "errorCdcDelayThreshold": "The delay threshold must be an integer from 10 to 86400 (seconds)",
+    "errorCdcDelayDuration": "The duration must be an integer from 1 to 60 (minutes)",
+    "closeReasonLabel": "Close reason",
+    "closeReason_job_ended": "Job ended, closed automatically",
+    "closeReason_channel_unavailable": "Event channel unavailable, closed automatically",
+    "closeReason_rule_removed": "Rule turned off, closed automatically",
+    "closeReason_rule_changed": "Rule parameters changed and the delay is within the new limits, closed automatically",
+    "closeReason_policy_deleted": "Alert config deleted, closed automatically",
+    "remindersPaused": "Reminders stopped",
+    "remindersPausedHint": "Recovery could not be confirmed for over 24 hours, so reminders stopped; the alert stays open. Check the job and the event channel."
   }
 }

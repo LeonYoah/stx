@@ -46,6 +46,11 @@ export type WebhookChannelFormState = {
   description: string;
   endpoint: string;
   secret: string;
+  /**
+   * 用户点了"清除密钥"：保存时带 clear_secret=true，后端清空已保存的密钥。
+   * The user chose "clear secret": saving sends clear_secret=true and the backend drops the stored secret.
+   */
+  clearSecret: boolean;
 };
 
 export function isWebhookLikeChannelType(
@@ -63,9 +68,9 @@ export function isWebhookLikeChannel(
 }
 
 /**
- * 是否显示"加签密钥"：钉钉、飞书支持加签；通用 Webhook 保留原有共享密钥；企业微信不支持。
- * Whether to show the signing secret: DingTalk and Feishu sign requests, the generic webhook keeps its shared secret,
- * WeCom has none.
+ * 是否显示"加签密钥"：钉钉、飞书按平台规则加签；通用 Webhook 用它生成 X-STX-Signature 请求头；企业微信不支持。
+ * Whether to show the signing secret: DingTalk and Feishu sign per platform rules, the generic webhook uses it for the
+ * X-STX-Signature header, WeCom has none.
  */
 export function channelTypeSupportsSecret(
   type: WebhookLikeChannelType,
@@ -99,6 +104,7 @@ export function createDefaultWebhookChannelForm(
     description: '',
     endpoint: '',
     secret: '',
+    clearSecret: false,
   };
 }
 
@@ -118,7 +124,32 @@ export function createWebhookChannelFormFromChannel(
     description: channel.description || '',
     endpoint: channel.endpoint || '',
     secret: channel.secret || '',
+    clearSecret: false,
   };
+}
+
+/** 标记清除已保存的密钥。/ Marks the stored secret for removal. */
+export function clearWebhookChannelSecret(
+  form: WebhookChannelFormState,
+): WebhookChannelFormState {
+  return {...form, secret: '', clearSecret: true};
+}
+
+/**
+ * 切换渠道类型：已保存的密钥属于旧平台，不能沿用（后端同样会丢弃），所以把占位符清掉。
+ * Switching the channel type: the stored secret belongs to the old platform and is not reused (the backend drops it
+ * too), so the placeholder is cleared.
+ */
+export function changeWebhookChannelType(
+  form: WebhookChannelFormState,
+  type: WebhookLikeChannelType,
+): WebhookChannelFormState {
+  if (type === form.type) {
+    return form;
+  }
+  const secret =
+    form.secret.trim() === NOTIFICATION_SECRET_MASK ? '' : form.secret;
+  return {...form, type, secret};
 }
 
 export function buildWebhookChannelPayload(
@@ -132,6 +163,7 @@ export function buildWebhookChannelPayload(
     description: form.description.trim(),
     endpoint: form.endpoint.trim(),
     secret: channelTypeSupportsSecret(form.type) ? form.secret.trim() : '',
+    ...(form.clearSecret ? {clear_secret: true} : {}),
   };
 }
 

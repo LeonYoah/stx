@@ -455,7 +455,7 @@ func TestSendNotification_WeComTruncatesTo2048Bytes(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(body.Text.Content) > weComTextContentMaxBytes || !utf8.ValidString(body.Text.Content) ||
-		!strings.HasSuffix(body.Text.Content, notificationTruncatedSuffix) || !strings.HasPrefix(body.Text.Content, "[STX][告警][严重]") {
+		!strings.HasSuffix(body.Text.Content, notificationFieldTruncatedSuffix) || !strings.HasPrefix(body.Text.Content, "[STX][告警][严重]") {
 		t.Fatalf("wecom content must be <=2048 valid UTF-8 bytes with a marker, got %d bytes", len(body.Text.Content))
 	}
 }

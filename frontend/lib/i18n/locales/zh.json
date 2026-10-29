@@ -3293,7 +3293,7 @@
         "deleteError": "删除 Webhook 配置失败",
         "statusOutdated": "当前表单已发生变更，上面的测试结果可能已过期",
         "unsavedChangesConfirm": "当前 Webhook 配置存在未保存变更，确认放弃吗？",
-        "secretHint": "如对端需要签名或共享密钥，可填写；没有则可留空。",
+        "secretHint": "可选。填写后每次推送都会带 X-STX-Timestamp 与 X-STX-Signature 请求头：sha256=hex(HMAC-SHA256(密钥, 时间戳 + \".\" + 原始请求体))，接收方可用同一密钥校验。",
         "sections": {
           "basic": "基本信息",
           "connection": "推送配置"
@@ -3302,12 +3302,12 @@
           "name": "名称",
           "description": "描述",
           "endpoint": "Webhook Endpoint",
-          "secret": "签名密钥",
+          "secret": "签名密钥（X-STX-Signature）",
           "type": "渠道类型",
           "signSecret": "加签密钥（Secret）"
         },
         "placeholders": {
-          "secret": "可选，用于签名或共享密钥",
+          "secret": "可选，用于生成 X-STX-Signature 请求头",
           "signSecret": "可选，机器人安全设置里的加签密钥（如 SEC 开头）"
         },
         "lastTest": {
@@ -3337,7 +3337,11 @@
           "dingtalk": "开启“加签”后必填；STX 会按钉钉规则在 URL 上附加 timestamp 和 sign。",
           "feishu": "开启“签名校验”后必填；STX 会按飞书规则在请求体里附加 timestamp 和 sign。"
         },
-        "maskedKeepHint": "已保存的地址 token 和密钥以 ****** 显示；不修改则保持原值，修改地址时请填写完整 URL。"
+        "maskedKeepHint": "已保存的地址 token 和密钥以 ****** 显示；不修改则保持原值，修改地址时请填写完整 URL。",
+        "clearSecret": "清除已保存的密钥",
+        "undoClearSecret": "撤销",
+        "secretWillBeCleared": "保存后将清除已保存的密钥。",
+        "secretDroppedOnTypeChange": "切换渠道类型后不会沿用原来的密钥，如需加签请重新填写。"
       },
       "conditionThresholdRequired": "请输入触发阈值",
       "conditionWindowInvalid": "持续时间必须在 0 到 10080 分钟之间",

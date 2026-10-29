@@ -1023,7 +1023,7 @@ func (s *Service) CreateNotificationChannel(ctx context.Context, req *UpsertNoti
 	}
 	channel, err := buildNotificationChannelFromUpsertRequest(restoredReq)
 	if err != nil {
-		return nil, err
+		return nil, newInvalidNotificationChannelError("%s", err.Error())
 	}
 
 	if err := s.repo.CreateNotificationChannel(ctx, channel); err != nil {
@@ -1055,7 +1055,7 @@ func (s *Service) UpdateNotificationChannel(ctx context.Context, id uint, req *U
 	}
 	nextChannel, err := buildNotificationChannelFromUpsertRequest(restoredReq)
 	if err != nil {
-		return nil, err
+		return nil, newInvalidNotificationChannelError("%s", err.Error())
 	}
 	channel.Name = nextChannel.Name
 	channel.Type = nextChannel.Type

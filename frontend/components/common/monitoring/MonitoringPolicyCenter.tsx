@@ -121,8 +121,11 @@ import {Textarea} from '@/components/ui/textarea';
 import {formatDateTimeTz} from '@/lib/timezone';
 import {
   WEBHOOK_LIKE_CHANNEL_TYPES,
+  NOTIFICATION_SECRET_MASK,
   buildWebhookChannelPayload,
+  changeWebhookChannelType,
   channelTypeSupportsSecret,
+  clearWebhookChannelSecret,
   createDefaultWebhookChannelForm,
   createWebhookChannelFormFromChannel,
   endpointPlaceholderForType,
@@ -4058,10 +4061,12 @@ export function MonitoringPolicyCenter() {
                       <Select
                         value={webhookChannelForm.type}
                         onValueChange={(value) =>
-                          updateWebhookChannelForm((prev) => ({
-                            ...prev,
-                            type: value as WebhookLikeChannelType,
-                          }))
+                          updateWebhookChannelForm((prev) =>
+                            changeWebhookChannelType(
+                              prev,
+                              value as WebhookLikeChannelType,
+                            ),
+                          )
                         }
                       >
                         <SelectTrigger data-testid='webhook-channel-type'>
@@ -4118,6 +4123,7 @@ export function MonitoringPolicyCenter() {
                             updateWebhookChannelForm((prev) => ({
                               ...prev,
                               secret: event.target.value,
+                              clearSecret: false,
                             }))
                           }
                           className='pr-20'
@@ -4146,6 +4152,56 @@ export function MonitoringPolicyCenter() {
                           ? t('webhook.secretHint')
                           : t(`webhook.secretHints.${webhookChannelForm.type}`)}
                       </p>
+                      {editingWebhookChannel?.secret &&
+                      editingWebhookChannel.type !== webhookChannelForm.type &&
+                      !webhookChannelForm.secret.trim() ? (
+                        <p
+                          className='text-xs text-amber-600'
+                          data-testid='webhook-secret-type-change-hint'
+                        >
+                          {t('webhook.secretDroppedOnTypeChange')}
+                        </p>
+                      ) : null}
+                      {editingWebhookChannel?.secret &&
+                      editingWebhookChannel.type === webhookChannelForm.type ? (
+                        webhookChannelForm.clearSecret ? (
+                          <div className='flex items-center gap-2 text-xs text-amber-600'>
+                            <span data-testid='webhook-secret-will-clear'>
+                              {t('webhook.secretWillBeCleared')}
+                            </span>
+                            <Button
+                              type='button'
+                              variant='link'
+                              size='sm'
+                              className='h-auto p-0 text-xs'
+                              onClick={() =>
+                                updateWebhookChannelForm((prev) => ({
+                                  ...prev,
+                                  secret: NOTIFICATION_SECRET_MASK,
+                                  clearSecret: false,
+                                }))
+                              }
+                            >
+                              {t('webhook.undoClearSecret')}
+                            </Button>
+                          </div>
+                        ) : webhookChannelForm.secret.trim() ===
+                          NOTIFICATION_SECRET_MASK ? (
+                          <Button
+                            type='button'
+                            variant='outline'
+                            size='sm'
+                            data-testid='webhook-clear-secret'
+                            onClick={() =>
+                              updateWebhookChannelForm((prev) =>
+                                clearWebhookChannelSecret(prev),
+                              )
+                            }
+                          >
+                            {t('webhook.clearSecret')}
+                          </Button>
+                        ) : null
+                      ) : null}
                     </div>
                     ) : null}
                   </CardContent>

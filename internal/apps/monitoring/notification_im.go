@@ -21,9 +21,11 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"regexp"
 	"sort"
@@ -153,6 +155,39 @@ func signNotificationRequest(channel *NotificationChannel, endpoint string, payl
 	}
 }
 
+const (
+	// webhookSignatureHeader / webhookTimestampHeader 是通用 Webhook 配置了签名密钥时附带的请求头。
+	// webhookSignatureHeader / webhookTimestampHeader are sent by generic webhooks that have a signing secret.
+	webhookSignatureHeader = "X-STX-Signature"
+	webhookTimestampHeader = "X-STX-Timestamp"
+)
+
+// signWebhookBody 计算通用 Webhook 签名：hex(HmacSHA256(key=secret, msg="<timestamp_s>.<body>"))。
+// signWebhookBody computes the generic webhook signature: hex(HmacSHA256(key=secret, msg="<timestamp_s>.<body>")).
+func signWebhookBody(secret string, timestampSeconds int64, body []byte) string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write([]byte(strconv.FormatInt(timestampSeconds, 10) + "."))
+	_, _ = mac.Write(body)
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+// applyWebhookSignatureHeaders 给配置了密钥的通用 Webhook 请求加上 X-STX-Timestamp 和
+// X-STX-Signature: sha256=<hex>；接收方用同一密钥对 "<timestamp>.<原始请求体>" 计算 HMAC-SHA256 校验。
+// applyWebhookSignatureHeaders adds X-STX-Timestamp and X-STX-Signature: sha256=<hex> to generic webhook requests
+// with a secret; receivers verify with HMAC-SHA256 over "<timestamp>.<raw body>" using the same secret.
+func applyWebhookSignatureHeaders(header http.Header, channel *NotificationChannel, body []byte, now time.Time) {
+	if channel == nil || channel.Type != NotificationChannelTypeWebhook {
+		return
+	}
+	secret := strings.TrimSpace(channel.Secret)
+	if secret == "" {
+		return
+	}
+	timestamp := now.Unix()
+	header.Set(webhookTimestampHeader, strconv.FormatInt(timestamp, 10))
+	header.Set(webhookSignatureHeader, "sha256="+signWebhookBody(secret, timestamp, body))
+}
+
 // checkPlatformResponse 解析 IM 平台在 HTTP 200 里返回的业务错误码：钉钉 / 企业微信看 errcode，飞书看 code（旧版为
 // StatusCode）；非 0 或无法解析都算失败。
 // checkPlatformResponse parses the business error code IM platforms return inside HTTP 200: DingTalk / WeCom use
@@ -251,60 +286,178 @@ func imTextPayload(channelType NotificationChannelType, payload interface{}) (st
 	return text, rebuild, true
 }
 
-// fitNotificationPayload 按平台限制裁剪 IM 文本消息：企业微信正文 ≤2048 字节，飞书 / 钉钉请求体 ≤20KB。
-// fitNotificationPayload trims IM text messages to platform limits: WeCom text ≤2048 bytes, Feishu / DingTalk request
-// body ≤20KB.
-func fitNotificationPayload(channelType NotificationChannelType, payload interface{}) interface{} {
-	var contentLimit, bodyLimit int
-	switch channelType {
-	case NotificationChannelTypeWeCom:
-		contentLimit = weComTextContentMaxBytes
-	case NotificationChannelTypeFeishu:
-		bodyLimit = feishuRequestBodyMaxBytes - imSignatureReserveBytes
-	case NotificationChannelTypeDingTalk:
-		bodyLimit = dingTalkRequestBodyMaxBytes
-	default:
-		return payload
+// notificationProtectedFieldLabels 是裁剪时必须原样保留的字段（标题总是保留）。
+// notificationProtectedFieldLabels are the fields kept verbatim when fitting (the title is always kept).
+var notificationProtectedFieldLabels = map[string]bool{
+	"状态":   true,
+	"策略":   true,
+	"规则":   true,
+	"告警名称": true,
+	"级别":   true,
+	"链接":   true,
+}
+
+// notificationFieldLinePattern 匹配 "标签：值" 形式的字段首行；不匹配的行是上一字段的续行（比如堆栈）。
+// notificationFieldLinePattern matches the first line of a "label：value" field; other lines continue the previous
+// field (a stack trace, for example).
+var notificationFieldLinePattern = regexp.MustCompile(`^([\p{Han}A-Za-z0-9 _\-]{1,16})：`)
+
+const (
+	// notificationFieldMinBytes 是可裁剪字段至少保留的字节数。
+	// notificationFieldMinBytes is the minimum a shrinkable field keeps.
+	notificationFieldMinBytes        = 48
+	notificationFieldTruncatedSuffix = "…（已截断）"
+)
+
+type notificationTextSegment struct {
+	text      string
+	protected bool
+}
+
+// splitNotificationText 把通知正文拆成段：第一行是标题，之后每个 "标签：值" 字段一段（续行并入当前字段）。
+// splitNotificationText splits a notification text into segments: the title line, then one segment per
+// "label：value" field (continuation lines join the current field).
+func splitNotificationText(text string) []notificationTextSegment {
+	lines := strings.Split(text, "\n")
+	segments := []notificationTextSegment{{text: lines[0], protected: true}}
+	for _, line := range lines[1:] {
+		if match := notificationFieldLinePattern.FindStringSubmatch(line); match != nil {
+			segments = append(segments, notificationTextSegment{text: line, protected: notificationProtectedFieldLabels[match[1]]})
+			continue
+		}
+		last := &segments[len(segments)-1]
+		last.text += "\n" + line
 	}
+	return segments
+}
+
+func joinNotificationSegments(segments []notificationTextSegment) string {
+	parts := make([]string, len(segments))
+	for i, segment := range segments {
+		parts[i] = segment.text
+	}
+	return strings.Join(parts, "\n")
+}
+
+// shrinkNotificationText 把正文压到 size(text) ≤ limit：先依次截短最长的可裁剪字段（错误摘要、详情等），标题、
+// 状态、策略、规则和链接保持原样；仍然放不下时才截断其余内容，并把链接行接回末尾。
+// shrinkNotificationText fits the text so size(text) ≤ limit: it first shortens the longest shrinkable fields (error
+// summary, details, ...) while the title, status, policy, rule and link stay intact; only when that is not enough does
+// it cut the rest and re-append the link line.
+func shrinkNotificationText(text string, limit int, size func(string) int) string {
+	if size(text) <= limit {
+		return text
+	}
+	segments := splitNotificationText(text)
+	for guard := 0; guard < 8*len(segments)+8; guard++ {
+		current := joinNotificationSegments(segments)
+		excess := size(current) - limit
+		if excess <= 0 {
+			return current
+		}
+		longest := -1
+		for i, segment := range segments {
+			if segment.protected || len(segment.text) <= notificationFieldMinBytes {
+				continue
+			}
+			if longest < 0 || len(segment.text) > len(segments[longest].text) {
+				longest = i
+			}
+		}
+		if longest < 0 {
+			break
+		}
+		target := len(segments[longest].text) - rawBytesToDrop(excess, size(current), len(current)) - len(notificationFieldTruncatedSuffix)
+		if target < notificationFieldMinBytes {
+			target = notificationFieldMinBytes
+		}
+		segments[longest].text = truncateUTF8Bytes(segments[longest].text, target, notificationFieldTruncatedSuffix)
+	}
+
+	// 可裁剪字段都已压到最小仍超限：截断除链接外的内容，链接接在最后。
+	// Every shrinkable field is at its minimum and it still does not fit: cut everything but the link and append it.
+	var link string
+	rest := make([]notificationTextSegment, 0, len(segments))
+	for _, segment := range segments {
+		if link == "" && strings.HasPrefix(segment.text, "链接：") {
+			link = segment.text
+			continue
+		}
+		rest = append(rest, segment)
+	}
+	body := joinNotificationSegments(rest)
+	tail := ""
+	if link != "" {
+		tail = "\n" + link
+	}
+	budget := len(body)
+	for guard := 0; guard < 16; guard++ {
+		candidate := truncateUTF8Bytes(body, budget, notificationTruncatedSuffix) + tail
+		candidateSize := size(candidate)
+		excess := candidateSize - limit
+		if excess <= 0 {
+			return candidate
+		}
+		budget -= rawBytesToDrop(excess, candidateSize, len(candidate))
+		if budget <= len(notificationTruncatedSuffix) {
+			break
+		}
+	}
+	// 理论上到不了这里；保守地按最坏转义放大（\u00xx 为 6 倍）截断。
+	// Should be unreachable; conservatively cut assuming the worst escaping blow-up (\u00xx is 6x).
+	return truncateUTF8Bytes(text, limit/6, notificationTruncatedSuffix)
+}
+
+// rawBytesToDrop 估算要去掉多少原始字节才能让序列化后的体积少 excess 字节：JSON 转义会放大（\n、\u003c 等），
+// 按当前"序列化字节 / 原始字节"的比例折算，至少去掉 1 字节，循环里会再次测量。
+// rawBytesToDrop estimates how many raw bytes to remove so the serialized size drops by excess: JSON escaping inflates
+// (\n, \u003c, ...), so scale by the current serialized/raw ratio, drop at least one byte, and re-measure in the loop.
+func rawBytesToDrop(excess, serializedSize, rawSize int) int {
+	if rawSize <= 0 || serializedSize <= rawSize {
+		return excess
+	}
+	ratio := float64(serializedSize) / float64(rawSize)
+	drop := int(float64(excess)/ratio) + 1
+	if drop < 1 {
+		drop = 1
+	}
+	return drop
+}
+
+// fitNotificationPayload 按平台限制裁剪 IM 文本消息：企业微信正文 ≤2048 字节，飞书 / 钉钉请求体 ≤20KB。
+// 先截短长字段（错误摘要、详情），标题、状态、策略名称和链接保持完整。
+// fitNotificationPayload trims IM text messages to platform limits: WeCom text ≤2048 bytes, Feishu / DingTalk request
+// body ≤20KB. Long fields (error summary, details) shrink first; title, status, policy name and link stay intact.
+func fitNotificationPayload(channelType NotificationChannelType, payload interface{}) interface{} {
 	text, rebuild, ok := imTextPayload(channelType, payload)
 	if !ok {
 		return payload
 	}
-	if contentLimit > 0 && len(text) > contentLimit {
-		text = truncateUTF8Bytes(text, contentLimit, notificationTruncatedSuffix)
-		payload = rebuild(text)
-	}
-	if bodyLimit > 0 {
-		// JSON 转义会让体积变大（\n、\u003c 等），按"正文 JSON 字节 / 正文原始字节"的放大比例估算可保留的长度，
-		// 反复收缩直到整个请求体落在上限内。
-		// JSON escaping inflates the size (\n, \u003c, ...), so estimate how much text fits from the ratio of escaped to
-		// raw text bytes and shrink until the whole body fits.
-		emptyRaw, err := json.Marshal(rebuild(""))
-		if err != nil {
-			return payload
+	var limit int
+	var size func(string) int
+	switch channelType {
+	case NotificationChannelTypeWeCom:
+		limit = weComTextContentMaxBytes
+		size = func(value string) int { return len(value) }
+	case NotificationChannelTypeFeishu, NotificationChannelTypeDingTalk:
+		limit = dingTalkRequestBodyMaxBytes
+		if channelType == NotificationChannelTypeFeishu {
+			limit = feishuRequestBodyMaxBytes - imSignatureReserveBytes
 		}
-		overhead := len(emptyRaw)
-		for i := 0; i < 8; i++ {
-			raw, err := json.Marshal(payload)
-			if err != nil || len(raw) <= bodyLimit || len(text) == 0 {
-				break
+		size = func(value string) int {
+			raw, err := json.Marshal(rebuild(value))
+			if err != nil {
+				return len(value)
 			}
-			ratio := float64(len(raw)-overhead) / float64(len(text))
-			if ratio < 1 {
-				ratio = 1
-			}
-			target := int(float64(bodyLimit-overhead-16) / ratio)
-			if target >= len(text) {
-				target = len(text) - 16
-			}
-			if target <= len(notificationTruncatedSuffix) {
-				target = len(notificationTruncatedSuffix) + 1
-			}
-			text = truncateUTF8Bytes(text, target, notificationTruncatedSuffix)
-			payload = rebuild(text)
+			return len(raw)
 		}
+	default:
+		return payload
 	}
-	return payload
+	if size(text) <= limit {
+		return payload
+	}
+	return rebuild(shrinkNotificationText(text, limit, size))
 }
 
 var (
@@ -366,12 +519,42 @@ func redactEndpointURL(raw string) string {
 		}
 		parsed.RawQuery = strings.Join(parts, "&")
 	}
+	// 保留 #fragment（钉钉 errmsg 里的帮助链接靠它定位），但 fragment 里形如 key=value 的值同样脱敏。
+	// Keep the #fragment (DingTalk errmsg help links rely on it) but redact key=value pairs inside it as well.
+	// fragment 按原文拼回，避免 url.String 把 ] 等字符转义。
+	// The fragment is re-attached verbatim so url.String does not escape characters such as ].
+	fragment := ""
+	if idx := strings.Index(raw, "#"); idx >= 0 {
+		fragment = raw[idx+1:]
+	}
 	parsed.Fragment = ""
 	parsed.RawFragment = ""
 	result := parsed.String()
 	// url.String 会把 userinfo 里的 * 转义，这里换回占位符便于阅读。
 	// url.String escapes * inside userinfo; restore the placeholder for readability.
-	return strings.ReplaceAll(result, url.PathEscape(notificationSecretMask), notificationSecretMask)
+	result = strings.ReplaceAll(result, url.PathEscape(notificationSecretMask), notificationSecretMask)
+	if fragment != "" {
+		result += "#" + redactURLFragment(fragment)
+	}
+	return result
+}
+
+// redactURLFragment 脱敏 fragment 中 key=value 形式的值和形似 token 的片段，其他内容保持原样。
+// redactURLFragment redacts key=value values and token-like parts of a fragment and keeps everything else.
+func redactURLFragment(fragment string) string {
+	if strings.Contains(fragment, "=") {
+		pairs := strings.Split(fragment, "&")
+		for i, pair := range pairs {
+			if key, _, found := strings.Cut(pair, "="); found {
+				pairs[i] = key + "=" + notificationSecretMask
+			}
+		}
+		return strings.Join(pairs, "&")
+	}
+	if notificationTokenSegmentRe.MatchString(fragment) && notificationDigitRe.MatchString(fragment) {
+		return notificationSecretMask
+	}
+	return fragment
 }
 
 // redactURLsInText 把文本里出现的每个 URL 都替换成脱敏后的形式。
@@ -483,12 +666,33 @@ func isMaskedOrEmptySecret(value string) bool {
 	return trimmed == "" || trimmed == notificationSecretMask
 }
 
+// ErrInvalidNotificationChannel 标记通知渠道请求本身不合法（HTTP 400），而不是服务端故障。
+// ErrInvalidNotificationChannel marks an invalid notification channel request (HTTP 400) rather than a server failure.
+var ErrInvalidNotificationChannel = errors.New("invalid notification channel")
+
+// invalidNotificationChannelError 用 ErrInvalidNotificationChannel 包装一条校验错误，错误文本保持原样。
+// invalidNotificationChannelError wraps a validation error with ErrInvalidNotificationChannel, keeping its text.
+type invalidNotificationChannelError struct{ message string }
+
+func (e *invalidNotificationChannelError) Error() string { return e.message }
+func (e *invalidNotificationChannelError) Is(target error) bool {
+	return target == ErrInvalidNotificationChannel
+}
+
+func newInvalidNotificationChannelError(format string, args ...interface{}) error {
+	return &invalidNotificationChannelError{message: fmt.Sprintf(format, args...)}
+}
+
 // restoreMaskedNotificationChannelFields 把请求里的占位符 / 空密钥换回已保存的真实值：
-//   - secret、SMTP 密码为空或为占位符时沿用已有值；
+//   - secret 为空或为占位符时沿用已有值；但渠道类型变了（比如通用 Webhook 改成飞书）或 clear_secret=true 时清空，
+//     避免拿旧渠道的密钥去签新平台的请求；
+//   - SMTP 密码为空或为占位符时沿用已有值；
 //   - endpoint 与已保存地址的脱敏形式相同时沿用已有地址；仍含占位符但被改过时报错，避免把 ****** 存进去。
 //
 // restoreMaskedNotificationChannelFields swaps placeholders / empty secrets in the request for the stored values:
-//   - an empty or masked secret / SMTP password keeps the stored one;
+//   - an empty or masked secret keeps the stored one, except when the channel type changed (e.g. generic webhook to
+//     Feishu) or clear_secret=true, which clear it so an old secret never signs requests for another platform;
+//   - an empty or masked SMTP password keeps the stored one;
 //   - an endpoint equal to the stored address's redacted form keeps the stored address; one that still holds the
 //     placeholder but was edited is rejected so ****** is never saved.
 func restoreMaskedNotificationChannelFields(req *UpsertNotificationChannelRequest, existing *NotificationChannel) (*UpsertNotificationChannelRequest, error) {
@@ -501,20 +705,25 @@ func restoreMaskedNotificationChannelFields(req *UpsertNotificationChannelReques
 			cloned.Secret = ""
 		}
 		if strings.Contains(cloned.Endpoint, notificationSecretMask) {
-			return nil, fmt.Errorf("endpoint contains a masked value, please enter the full webhook URL")
+			return nil, newInvalidNotificationChannelError("endpoint contains a masked value, please enter the full webhook URL")
 		}
 		return &cloned, nil
 	}
 
 	if cloned.Type != NotificationChannelTypeEmail {
 		if isMaskedOrEmptySecret(cloned.Secret) {
-			cloned.Secret = existing.Secret
+			switch {
+			case cloned.ClearSecret, cloned.Type != existing.Type:
+				cloned.Secret = ""
+			default:
+				cloned.Secret = existing.Secret
+			}
 		}
 		endpoint := strings.TrimSpace(cloned.Endpoint)
 		if endpoint != "" && endpoint == redactEndpointURL(existing.Endpoint) {
 			cloned.Endpoint = existing.Endpoint
 		} else if strings.Contains(endpoint, notificationSecretMask) {
-			return nil, fmt.Errorf("endpoint contains a masked value, please enter the full webhook URL")
+			return nil, newInvalidNotificationChannelError("endpoint contains a masked value, please enter the full webhook URL")
 		}
 	}
 

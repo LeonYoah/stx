@@ -574,6 +574,11 @@ export interface UpsertNotificationChannelRequest {
   enabled?: boolean;
   endpoint?: string;
   secret?: string;
+  /**
+   * 清空已保存的签名密钥（secret 为空或占位符时生效）。
+   * Clears the stored signing secret (applies when secret is empty or the placeholder).
+   */
+  clear_secret?: boolean;
   config?: NotificationChannelConfig | null;
   description?: string;
 }

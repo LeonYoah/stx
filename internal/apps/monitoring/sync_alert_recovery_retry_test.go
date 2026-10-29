@@ -180,3 +180,75 @@ func TestSyncAlertHub_RecoveryRetryStopsAtLimitAndOnRefire(t *testing.T) {
 func containsJSON(body []byte, fragment string) bool {
 	return strings.Contains(string(body), fragment)
 }
+
+// 100+ 条可跳过的失败恢复投递（阶段已删除 / 无策略）和 100+ 条未到退避时间的记录排在真实恢复投递前面时，真实投递
+// 必须在一轮巡检内发出；可跳过的记录被标成 canceled，不再进入后续扫描。
+// With 100+ skippable failed recovery deliveries (episode deleted / no policy) and 100+ rows still in backoff ahead of
+// a real due recovery, the real one must go out in a single sweep; skippable rows become canceled and leave later scans.
+func TestSyncAlertHub_RecoveryRetrySkippableRowsDoNotStarveDueRecovery(t *testing.T) {
+	f, capture, sourceKey := setupFailingRecoveryFixture(t)
+	capture.set(http.StatusOK, `{}`)
+	requests := capture.count()
+
+	const skippable = syncRecoveryRetryBatchSize + 20
+	const inBackoff = syncRecoveryRetryBatchSize + 20
+	skippedIDs := make([]uint, 0, skippable)
+	for i := 0; i < skippable+inBackoff; i++ {
+		row := &NotificationDelivery{
+			SourceType:   string(AlertSourceTypeSync),
+			SourceKey:    buildSyncAlertSourceKey(uint(900000 + i)),
+			ChannelID:    f.channel.ID,
+			ChannelName:  f.channel.Name,
+			EventType:    string(NotificationDeliveryEventTypeResolved),
+			Status:       string(NotificationDeliveryStatusFailed),
+			AttemptCount: 1,
+			LastError:    "bad gateway",
+		}
+		if i%2 == 1 {
+			row.PolicyID = 1
+		}
+		if i >= skippable {
+			row.AttemptCount = syncRecoveryRetryMaxAttempts - 1
+		}
+		if err := f.repo.CreateNotificationDelivery(f.ctx, row); err != nil {
+			t.Fatalf("create stale delivery: %v", err)
+		}
+		if i < skippable {
+			ageDelivery(t, f, row.ID, 2*time.Hour)
+			skippedIDs = append(skippedIDs, row.ID)
+		}
+	}
+	// 把真实恢复投递挪到所有干扰记录之后（更大的 id、更新的 updated_at），复现它排在批次之外的情况。
+	// Move the real recovery delivery behind every distractor (larger id, newer updated_at) so it starts outside the
+	// first batch.
+	real := recoveryDelivery(t, f, sourceKey)
+	if err := f.repo.db.Model(&NotificationDelivery{}).Where("id = ?", real.ID).UpdateColumn("id", 10_000_000).Error; err != nil {
+		t.Fatal(err)
+	}
+	ageDelivery(t, f, 10_000_000, 61*time.Second)
+
+	_ = f.hub.sweep(f.ctx)
+	if capture.count() != requests+1 {
+		t.Fatalf("the due recovery must be sent in one sweep despite %d skippable and %d in-backoff rows, got %d requests",
+			skippable, inBackoff, capture.count()-requests)
+	}
+	if delivery := recoveryDelivery(t, f, sourceKey); delivery.Status != string(NotificationDeliveryStatusSent) {
+		t.Fatalf("real recovery should be sent: %+v", delivery)
+	}
+	for _, id := range skippedIDs {
+		var row NotificationDelivery
+		if err := f.repo.db.First(&row, id).Error; err != nil {
+			t.Fatal(err)
+		}
+		if row.Status != string(NotificationDeliveryStatusCanceled) || !strings.Contains(row.LastError, "recovery retry canceled") {
+			t.Fatalf("skippable row %d should be canceled: %+v", id, row)
+		}
+	}
+	remaining, err := f.repo.ListRetryableSyncRecoveryDeliveries(f.ctx, syncRecoveryRetryMaxAttempts, 0, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(remaining) != inBackoff {
+		t.Fatalf("only the in-backoff rows should stay retryable, got %d", len(remaining))
+	}
+}

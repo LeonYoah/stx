@@ -99,7 +99,8 @@ func getNotificationChannelTestStatusCode(err error) int {
 		return http.StatusOK
 	case errors.Is(err, ErrAlertPolicyReceiverUserNotFound),
 		errors.Is(err, ErrAlertPolicyReceiverUserInactive),
-		errors.Is(err, ErrAlertPolicyReceiverUserEmailMissing):
+		errors.Is(err, ErrAlertPolicyReceiverUserEmailMissing),
+		errors.Is(err, ErrInvalidNotificationChannel):
 		return http.StatusBadRequest
 	default:
 		return http.StatusInternalServerError

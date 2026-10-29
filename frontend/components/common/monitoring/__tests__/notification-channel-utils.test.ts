@@ -23,7 +23,9 @@ import {
   NOTIFICATION_SECRET_MASK,
   WEBHOOK_LIKE_CHANNEL_TYPES,
   buildWebhookChannelPayload,
+  changeWebhookChannelType,
   channelTypeSupportsSecret,
+  clearWebhookChannelSecret,
   createDefaultWebhookChannelForm,
   createWebhookChannelFormFromChannel,
   endpointPlaceholderForType,
@@ -117,6 +119,38 @@ describe('notification channel form (DingTalk / WeCom / Feishu)', () => {
     });
   });
 
+  it('sends clear_secret only when the user clears the saved secret', () => {
+    const saved = createWebhookChannelFormFromChannel(
+      channel({id: 3, type: 'dingtalk', secret: NOTIFICATION_SECRET_MASK}),
+    );
+    expect(saved.clearSecret).toBe(false);
+    expect(buildWebhookChannelPayload(saved)).not.toHaveProperty(
+      'clear_secret',
+    );
+
+    const cleared = clearWebhookChannelSecret(saved);
+    expect(cleared).toMatchObject({secret: '', clearSecret: true});
+    expect(buildWebhookChannelPayload(cleared)).toMatchObject({
+      type: 'dingtalk',
+      secret: '',
+      clear_secret: true,
+    });
+  });
+
+  it('drops the masked secret when the channel type changes', () => {
+    const saved = createWebhookChannelFormFromChannel(
+      channel({id: 4, type: 'webhook', secret: NOTIFICATION_SECRET_MASK}),
+    );
+    const feishu = changeWebhookChannelType(saved, 'feishu');
+    expect(feishu).toMatchObject({type: 'feishu', secret: ''});
+    expect(buildWebhookChannelPayload(feishu).secret).toBe('');
+    // 新填的密钥在切换类型时保留；同类型不变。
+    // A newly typed secret survives a type switch; the same type is a no-op.
+    const typed = {...saved, secret: 'fresh'};
+    expect(changeWebhookChannelType(typed, 'dingtalk').secret).toBe('fresh');
+    expect(changeWebhookChannelType(saved, 'webhook')).toBe(saved);
+  });
+
   it('has endpoint placeholders and zh/en labels for every type', () => {
     for (const type of WEBHOOK_LIKE_CHANNEL_TYPES) {
       expect(endpointPlaceholderForType(type)).toMatch(/^https:\/\//);
@@ -131,6 +165,11 @@ describe('notification channel form (DingTalk / WeCom / Feishu)', () => {
       expect(webhook.secretHints.dingtalk).toBeTruthy();
       expect(webhook.secretHints.feishu).toBeTruthy();
       expect(webhook.fields.signSecret).toBeTruthy();
+      expect(webhook.clearSecret).toBeTruthy();
+      expect(webhook.undoClearSecret).toBeTruthy();
+      expect(webhook.secretWillBeCleared).toBeTruthy();
+      expect(webhook.secretDroppedOnTypeChange).toBeTruthy();
+      expect(webhook.secretHint).toContain('X-STX-Signature');
       expect(webhook.lastTest.responseBody).toBeTruthy();
       expect(webhook.maskedKeepHint).toBeTruthy();
     }

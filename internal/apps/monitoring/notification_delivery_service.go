@@ -270,7 +270,8 @@ func sendNotificationRaw(ctx context.Context, channel *NotificationChannel, payl
 	}
 
 	payload = fitNotificationPayload(channel.Type, payload)
-	endpoint, payload, err := signNotificationRequest(channel, endpoint, payload, timex.Now())
+	signedAt := timex.Now()
+	endpoint, payload, err := signNotificationRequest(channel, endpoint, payload, signedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -285,6 +286,7 @@ func sendNotificationRaw(ctx context.Context, channel *NotificationChannel, payl
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	applyWebhookSignatureHeaders(req.Header, channel, payloadBytes, signedAt)
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)

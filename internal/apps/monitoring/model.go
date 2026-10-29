@@ -1192,11 +1192,15 @@ func (r *UpsertNotificationRouteRequest) Validate() error {
 // UpsertNotificationChannelRequest represents create/update channel payload.
 // UpsertNotificationChannelRequest 表示新增/更新通知渠道请求。
 type UpsertNotificationChannelRequest struct {
-	Name        string                     `json:"name"`
-	Type        NotificationChannelType    `json:"type"`
-	Enabled     *bool                      `json:"enabled"`
-	Endpoint    string                     `json:"endpoint"`
-	Secret      string                     `json:"secret"`
+	Name     string                  `json:"name"`
+	Type     NotificationChannelType `json:"type"`
+	Enabled  *bool                   `json:"enabled"`
+	Endpoint string                  `json:"endpoint"`
+	Secret   string                  `json:"secret"`
+	// ClearSecret 为 true 时清空已保存的签名密钥（Secret 为空或占位符时生效；同时传了新密钥则以新密钥为准）。
+	// ClearSecret clears the stored signing secret (applies when Secret is empty or the placeholder; a new secret in
+	// the same request wins).
+	ClearSecret bool                       `json:"clear_secret,omitempty"`
 	Config      *NotificationChannelConfig `json:"config,omitempty"`
 	Description string                     `json:"description"`
 }

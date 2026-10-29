@@ -136,19 +136,69 @@ export function clearWebhookChannelSecret(
 }
 
 /**
- * 切换渠道类型：已保存的密钥属于旧平台，不能沿用（后端同样会丢弃），所以把占位符清掉。
- * Switching the channel type: the stored secret belongs to the old platform and is not reused (the backend drops it
- * too), so the placeholder is cleared.
+ * 编辑中的已保存渠道：类型和是否有已保存的密钥（GET 返回 ******）。
+ * The saved channel being edited: its type and whether it has a stored secret (GET returns ******).
+ */
+export type SavedWebhookChannelSecret = {
+  type: WebhookLikeChannelType | string;
+  hasSecret: boolean;
+};
+
+export function savedWebhookChannelSecret(
+  channel?: Pick<NotificationChannel, 'type' | 'secret'> | null,
+): SavedWebhookChannelSecret | null {
+  if (!channel) {
+    return null;
+  }
+  return {
+    type: channel.type,
+    hasSecret: Boolean((channel.secret || '').trim()),
+  };
+}
+
+/**
+ * 输入密钥。已保存渠道（同类型）有密钥时，把输入框清空等同于"清除已保存的密钥"，与后端行为一致；重新输入则取消清除。
+ * Types a secret. For a saved channel (same type) with a stored secret, emptying the input means "clear the saved
+ * secret", matching the backend; typing again cancels the clear.
+ */
+export function setWebhookChannelSecret(
+  form: WebhookChannelFormState,
+  value: string,
+  saved?: SavedWebhookChannelSecret | null,
+): WebhookChannelFormState {
+  const storedForThisType = Boolean(
+    saved?.hasSecret && saved.type === form.type && form.id !== null,
+  );
+  return {
+    ...form,
+    secret: value,
+    clearSecret: storedForThisType && value.trim() === '',
+  };
+}
+
+/**
+ * 切换渠道类型：已保存的密钥属于原平台，换到别的类型时不沿用（后端同样会丢弃），所以清掉占位符；切回原类型时恢复
+ * 占位符（表示保持原密钥），除非用户已经选择清除或填了新密钥。
+ * Switching the channel type: the stored secret belongs to the original platform and is not reused for another type
+ * (the backend drops it too), so the placeholder is cleared; switching back restores the placeholder (keep the stored
+ * secret) unless the user chose to clear it or typed a new one.
  */
 export function changeWebhookChannelType(
   form: WebhookChannelFormState,
   type: WebhookLikeChannelType,
+  saved?: SavedWebhookChannelSecret | null,
 ): WebhookChannelFormState {
   if (type === form.type) {
     return form;
   }
-  const secret =
-    form.secret.trim() === NOTIFICATION_SECRET_MASK ? '' : form.secret;
+  const typed = form.secret.trim();
+  if (saved?.hasSecret && form.id !== null && type === saved.type) {
+    if (typed === '' && !form.clearSecret) {
+      return {...form, type, secret: NOTIFICATION_SECRET_MASK};
+    }
+    return {...form, type};
+  }
+  const secret = typed === NOTIFICATION_SECRET_MASK ? '' : form.secret;
   return {...form, type, secret};
 }
 

@@ -126,6 +126,8 @@ import {
   changeWebhookChannelType,
   channelTypeSupportsSecret,
   clearWebhookChannelSecret,
+  savedWebhookChannelSecret,
+  setWebhookChannelSecret,
   createDefaultWebhookChannelForm,
   createWebhookChannelFormFromChannel,
   endpointPlaceholderForType,
@@ -4067,6 +4069,7 @@ export function MonitoringPolicyCenter() {
                             changeWebhookChannelType(
                               prev,
                               value as WebhookLikeChannelType,
+                              savedWebhookChannelSecret(editingWebhookChannel),
                             ),
                           )
                         }
@@ -4122,11 +4125,15 @@ export function MonitoringPolicyCenter() {
                           name='stx-webhook-secret'
                           autoComplete='new-password'
                           onChange={(event) =>
-                            updateWebhookChannelForm((prev) => ({
-                              ...prev,
-                              secret: event.target.value,
-                              clearSecret: false,
-                            }))
+                            updateWebhookChannelForm((prev) =>
+                              setWebhookChannelSecret(
+                                prev,
+                                event.target.value,
+                                savedWebhookChannelSecret(
+                                  editingWebhookChannel,
+                                ),
+                              ),
+                            )
                           }
                           className='pr-20'
                           placeholder={

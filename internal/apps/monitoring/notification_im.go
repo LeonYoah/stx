@@ -307,10 +307,14 @@ const (
 	// notificationFieldMinBytes is the minimum a shrinkable field keeps.
 	notificationFieldMinBytes        = 48
 	notificationFieldTruncatedSuffix = "…（已截断）"
+	// notificationProtectedFieldMaxBytes 是受保护字段（单行）的最大长度，超过就按普通长字段裁剪。
+	// notificationProtectedFieldMaxBytes caps a protected (single-line) field; longer ones are shrunk like any field.
+	notificationProtectedFieldMaxBytes = 1024
 )
 
 type notificationTextSegment struct {
 	text      string
+	label     string
 	protected bool
 }
 
@@ -322,11 +326,21 @@ func splitNotificationText(text string) []notificationTextSegment {
 	segments := []notificationTextSegment{{text: lines[0], protected: true}}
 	for _, line := range lines[1:] {
 		if match := notificationFieldLinePattern.FindStringSubmatch(line); match != nil {
-			segments = append(segments, notificationTextSegment{text: line, protected: notificationProtectedFieldLabels[match[1]]})
+			segments = append(segments, notificationTextSegment{text: line, label: match[1], protected: notificationProtectedFieldLabels[match[1]]})
 			continue
 		}
 		last := &segments[len(segments)-1]
 		last.text += "\n" + line
+	}
+	// 模板自己的受保护字段都是单行短值；带续行或超长的"受保护"段其实是长字段内容里恰好以"状态：/链接："等开头的行
+	// （比如错误摘要里的一行），不能保护，否则会把后面的整段内容一起锁住。
+	// The template's own protected fields are short single-line values; a "protected" segment with continuation lines
+	// or an oversized value is really a line inside a long field that happens to start with "状态：" / "链接：" (e.g. a
+	// line of the error summary) and must not be protected, or it would lock the rest of that content with it.
+	for i := 1; i < len(segments); i++ {
+		if segments[i].protected && (strings.Contains(segments[i].text, "\n") || len(segments[i].text) > notificationProtectedFieldMaxBytes) {
+			segments[i].protected = false
+		}
 	}
 	return segments
 }
@@ -374,22 +388,28 @@ func shrinkNotificationText(text string, limit int, size func(string) int) strin
 		segments[longest].text = truncateUTF8Bytes(segments[longest].text, target, notificationFieldTruncatedSuffix)
 	}
 
-	// 可裁剪字段都已压到最小仍超限：截断除链接外的内容，链接接在最后。
-	// Every shrinkable field is at its minimum and it still does not fit: cut everything but the link and append it.
-	var link string
+	// 可裁剪字段都已压到最小仍超限：截断其余内容，把最后一个受保护的"策略"和"链接"行（模板总把它们放在末尾）接回去。
+	// Every shrinkable field is at its minimum and it still does not fit: cut the rest and re-append the last protected
+	// policy and link lines (the templates always put them last).
+	keep := map[int]bool{}
+	for _, label := range []string{"策略", "链接"} {
+		for i := len(segments) - 1; i > 0; i-- {
+			if segments[i].protected && segments[i].label == label {
+				keep[i] = true
+				break
+			}
+		}
+	}
 	rest := make([]notificationTextSegment, 0, len(segments))
-	for _, segment := range segments {
-		if link == "" && strings.HasPrefix(segment.text, "链接：") {
-			link = segment.text
+	var tail string
+	for i, segment := range segments {
+		if keep[i] {
+			tail += "\n" + segment.text
 			continue
 		}
 		rest = append(rest, segment)
 	}
 	body := joinNotificationSegments(rest)
-	tail := ""
-	if link != "" {
-		tail = "\n" + link
-	}
 	budget := len(body)
 	for guard := 0; guard < 16; guard++ {
 		candidate := truncateUTF8Bytes(body, budget, notificationTruncatedSuffix) + tail
@@ -669,6 +689,10 @@ func isMaskedOrEmptySecret(value string) bool {
 // ErrInvalidNotificationChannel 标记通知渠道请求本身不合法（HTTP 400），而不是服务端故障。
 // ErrInvalidNotificationChannel marks an invalid notification channel request (HTTP 400) rather than a server failure.
 var ErrInvalidNotificationChannel = errors.New("invalid notification channel")
+
+// ErrNotificationChannelNotFound 表示请求的通知渠道不存在（HTTP 404）。
+// ErrNotificationChannelNotFound means the requested notification channel does not exist (HTTP 404).
+var ErrNotificationChannelNotFound = errors.New("notification channel not found")
 
 // invalidNotificationChannelError 用 ErrInvalidNotificationChannel 包装一条校验错误，错误文本保持原样。
 // invalidNotificationChannelError wraps a validation error with ErrInvalidNotificationChannel, keeping its text.

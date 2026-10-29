@@ -72,7 +72,7 @@ func (s *Service) CreateNotificationRoute(ctx context.Context, req *UpsertNotifi
 
 	if _, err := s.repo.GetNotificationChannelByID(ctx, req.ChannelID); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, fmt.Errorf("notification channel not found")
+			return nil, ErrNotificationChannelNotFound
 		}
 		return nil, err
 	}
@@ -135,7 +135,7 @@ func (s *Service) UpdateNotificationRoute(ctx context.Context, id uint, req *Ups
 	}
 	if _, err := s.repo.GetNotificationChannelByID(ctx, req.ChannelID); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, fmt.Errorf("notification channel not found")
+			return nil, ErrNotificationChannelNotFound
 		}
 		return nil, err
 	}
@@ -190,7 +190,7 @@ func (s *Service) TestNotificationChannel(ctx context.Context, id uint, req *Not
 	channel, err := s.repo.GetNotificationChannelByID(ctx, id)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, fmt.Errorf("notification channel not found")
+			return nil, ErrNotificationChannelNotFound
 		}
 		return nil, err
 	}
@@ -311,7 +311,7 @@ func (s *Service) restoreDraftNotificationChannel(ctx context.Context, channelID
 		channel, err := s.repo.GetNotificationChannelByID(ctx, channelID)
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return nil, fmt.Errorf("notification channel not found")
+				return nil, ErrNotificationChannelNotFound
 			}
 			return nil, err
 		}

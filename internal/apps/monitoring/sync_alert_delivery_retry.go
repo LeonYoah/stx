@@ -50,6 +50,10 @@ const (
 	// syncDeliveryRetryMaxScanPages 限制每轮巡检扫描的页数。
 	// syncDeliveryRetryMaxScanPages bounds how many pages one sweep scans.
 	syncDeliveryRetryMaxScanPages = 20
+	// syncDeliveryRetryDisabledChannelTTL 是渠道停用期间保留待重试投递的最长时间（从上次尝试算起）。
+	// syncDeliveryRetryDisabledChannelTTL is how long a retryable delivery waits for a disabled channel (counted from
+	// the last attempt).
+	syncDeliveryRetryDisabledChannelTTL = 24 * time.Hour
 )
 
 // syncDeliveryRetryDelay 返回第 attempt 次失败之后需要等待的时间。
@@ -166,14 +170,15 @@ func (h *SyncAlertHub) retryFailedDeliveries(ctx context.Context) error {
 // retrySyncAlertDelivery 重发一条失败的首次告警或恢复投递；返回是否真的发了一次。
 //   - 首次告警：阶段必须仍在告警中、未被人工关闭（静默期间先跳过，不标终态），策略仍启用且仍匹配这条规则；
 //   - 恢复：阶段必须已恢复、之后没有新的告警阶段，策略仍启用且开启恢复通知（首次告警必须已送达，见 RequireFiringSent）；
-//   - 两者都要求渠道仍存在、启用且仍绑定在策略上；不满足时标记 canceled。
+//   - 两者都要求渠道仍存在且仍绑定在策略上，否则标记 canceled；渠道临时停用时先跳过，24 小时内重新启用会补发。
 //
 // retrySyncAlertDelivery resends one failed first alert or recovery delivery and reports whether it really sent.
 //   - first alert: the episode must still be firing and not manually closed (silenced is skipped without a terminal
 //     state), and the policy must still be enabled and match the rule;
 //   - recovery: the episode must be recovered with no newer firing episode, and the policy must still be enabled with
 //     recovery notifications on (the first alert must have been delivered, see RequireFiringSent);
-//   - both need the channel to exist, be enabled and still be bound to the policy; otherwise the row is canceled.
+//   - both need the channel to exist and still be bound to the policy, otherwise the row is canceled; a temporarily
+//     disabled channel is skipped and catches up if re-enabled within 24 hours.
 func (h *SyncAlertHub) retrySyncAlertDelivery(ctx context.Context, delivery *NotificationDelivery, channelMap map[uint]*NotificationChannel) (bool, error) {
 	repo := h.service.repo
 	eventType := NotificationDeliveryEventType(strings.TrimSpace(delivery.EventType))
@@ -234,8 +239,19 @@ func (h *SyncAlertHub) retrySyncAlertDelivery(ctx context.Context, delivery *Not
 	}
 
 	channel := channelMap[delivery.ChannelID]
-	if channel == nil || !channel.Enabled {
-		return false, h.cancelDeliveryRetry(ctx, delivery, "notification channel is missing or disabled")
+	if channel == nil {
+		return false, h.cancelDeliveryRetry(ctx, delivery, "notification channel no longer exists")
+	}
+	if !channel.Enabled {
+		// 渠道临时停用（比如排查期间）：先跳过、不消耗次数，重新启用后照常补发；停用超过
+		// syncDeliveryRetryDisabledChannelTTL 仍未启用才放弃，避免迟到太久的通知。
+		// A temporarily disabled channel (e.g. while debugging) is skipped without using an attempt and catches up
+		// once re-enabled; only after syncDeliveryRetryDisabledChannelTTL without re-enabling is the row given up, so
+		// a very late notification is not sent.
+		if !delivery.UpdatedAt.IsZero() && timeNowUTC().Sub(delivery.UpdatedAt.UTC()) > syncDeliveryRetryDisabledChannelTTL {
+			return false, h.cancelDeliveryRetry(ctx, delivery, "notification channel stayed disabled")
+		}
+		return false, nil
 	}
 	if !alertPolicyHasChannel(policy, channel.ID) {
 		return false, h.cancelDeliveryRetry(ctx, delivery, "notification channel is no longer bound to the policy")
@@ -245,6 +261,9 @@ func (h *SyncAlertHub) retrySyncAlertDelivery(ctx context.Context, delivery *Not
 	if episode.Scope == SyncAlertEpisodeScopeTask && policy.NotifyTaskOwner {
 		extra = h.service.resolveUserEmails(ctx, episode.TaskCreatorID)
 	}
+	// 本文件唯一的 buildSyncAlertMessage 调用；重试只补发首次告警/恢复（非提醒），签名增加 reminder 参数时这里传 false。
+	// The only buildSyncAlertMessage call in this file; retries only cover the first alert/recovery (never a reminder),
+	// so if the signature gains a reminder flag pass false here.
 	message := buildSyncAlertMessage(episode, policy, eventType, extra, h.clock())
 	result, sendErr := h.service.dispatchAlertDeliveryWithOptions(ctx, message, policy, channel, eventType, delivery.SourceKey,
 		alertDeliveryOptions{RequireFiringSent: eventType == NotificationDeliveryEventTypeResolved, Retry: true})

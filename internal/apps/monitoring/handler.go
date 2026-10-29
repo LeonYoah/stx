@@ -484,7 +484,7 @@ func notificationChannelUpsertStatusCode(err error) int {
 	switch {
 	case errors.Is(err, ErrInvalidNotificationChannel):
 		return http.StatusBadRequest
-	case errors.Is(err, gorm.ErrRecordNotFound):
+	case errors.Is(err, gorm.ErrRecordNotFound), errors.Is(err, ErrNotificationChannelNotFound):
 		return http.StatusNotFound
 	default:
 		return http.StatusInternalServerError

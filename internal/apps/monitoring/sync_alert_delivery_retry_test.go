@@ -457,11 +457,18 @@ func TestSyncAlertHub_FirstAlertRetryStopsWhenDisabled(t *testing.T) {
 				t.Fatal(err)
 			}
 		},
-		"channel-disabled": func(t *testing.T, f *syncAlertFixture, _ string) {
+		"channel-deleted": func(t *testing.T, f *syncAlertFixture, _ string) {
+			if err := f.repo.db.Delete(&NotificationChannel{}, f.channel.ID).Error; err != nil {
+				t.Fatal(err)
+			}
+		},
+		"channel-disabled-over-24h": func(t *testing.T, f *syncAlertFixture, sourceKey string) {
 			f.channel.Enabled = false
 			if err := f.repo.SaveNotificationChannel(f.ctx, f.channel); err != nil {
 				t.Fatal(err)
 			}
+			firing := deliveryOf(t, f, sourceKey, NotificationDeliveryEventTypeFiring)
+			ageDelivery(t, f, firing.ID, syncDeliveryRetryDisabledChannelTTL+time.Hour)
 		},
 		"channel-unbound": func(t *testing.T, f *syncAlertFixture, _ string) {
 			policy, err := f.repo.GetSyncJobAlertPolicyByTaskID(f.ctx, 7)
@@ -485,15 +492,19 @@ func TestSyncAlertHub_FirstAlertRetryStopsWhenDisabled(t *testing.T) {
 			_ = f.hub.handle(f.ctx, f.signal(syncalert.KindFire, syncalert.RuleJobFailed, 7, 70))
 			sourceKey := buildSyncAlertSourceKey(f.episodes(t)[0].ID)
 			capture.set(http.StatusOK, `{}`)
-			disable(t, f, sourceKey)
 			firing := deliveryOf(t, f, sourceKey, NotificationDeliveryEventTypeFiring)
 			ageDelivery(t, f, firing.ID, time.Hour)
+			disable(t, f, sourceKey)
 			_ = f.hub.sweep(f.ctx)
 			if capture.count() != 1 {
 				t.Fatalf("%s: first alert must not be retried, got %d requests", name, capture.count())
 			}
-			if firing = deliveryOf(t, f, sourceKey, NotificationDeliveryEventTypeFiring); firing.Status != string(NotificationDeliveryStatusCanceled) {
-				t.Fatalf("%s: first alert retry should be canceled: %+v", name, firing)
+			var row NotificationDelivery
+			if err := f.repo.db.First(&row, firing.ID).Error; err != nil {
+				t.Fatal(err)
+			}
+			if row.Status != string(NotificationDeliveryStatusCanceled) {
+				t.Fatalf("%s: first alert retry should be canceled: %+v", name, row)
 			}
 		})
 	}
@@ -519,6 +530,57 @@ func TestSyncAlertHub_FirstAlertRetryStopsWhenDisabled(t *testing.T) {
 		_ = f.hub.sweep(f.ctx)
 		if firing = deliveryOf(t, f, sourceKey, NotificationDeliveryEventTypeFiring); capture.count() != 2 || firing.Status != string(NotificationDeliveryStatusSent) {
 			t.Fatalf("after the silence the retry resumes: requests=%d %+v", capture.count(), firing)
+		}
+	})
+}
+
+// 复审 4：渠道临时停用时恢复通知不标终态，重新启用后补发；首次告警同理。
+// Re-review 4: while the channel is temporarily disabled the recovery is not made terminal and goes out once the
+// channel is re-enabled; the first alert behaves the same.
+func TestSyncAlertHub_RetryWaitsForTemporarilyDisabledChannel(t *testing.T) {
+	setEnabled := func(t *testing.T, f *syncAlertFixture, enabled bool) {
+		t.Helper()
+		f.channel.Enabled = enabled
+		if err := f.repo.SaveNotificationChannel(f.ctx, f.channel); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	t.Run("recovery", func(t *testing.T) {
+		f, capture, sourceKey := setupFailingRecoveryFixture(t)
+		requests := capture.count()
+		capture.set(http.StatusOK, `{}`)
+		setEnabled(t, f, false)
+		delivery := recoveryDelivery(t, f, sourceKey)
+		ageDelivery(t, f, delivery.ID, time.Hour)
+		_ = f.hub.sweep(f.ctx)
+		if delivery = recoveryDelivery(t, f, sourceKey); capture.count() != requests || delivery.Status != string(NotificationDeliveryStatusFailed) || delivery.AttemptCount != 1 {
+			t.Fatalf("disabled channel: skip without using an attempt: requests=%d %+v", capture.count()-requests, delivery)
+		}
+		setEnabled(t, f, true)
+		_ = f.hub.sweep(f.ctx)
+		if delivery = recoveryDelivery(t, f, sourceKey); capture.count() != requests+1 || delivery.Status != string(NotificationDeliveryStatusSent) {
+			t.Fatalf("re-enabled channel must catch up the recovery: requests=%d %+v", capture.count()-requests, delivery)
+		}
+	})
+
+	t.Run("first-alert", func(t *testing.T) {
+		f, capture := setupCapturedTaskAlert(t, 0)
+		capture.set(http.StatusBadGateway, `bad gateway`)
+		_ = f.hub.handle(f.ctx, f.signal(syncalert.KindFire, syncalert.RuleJobFailed, 7, 70))
+		sourceKey := buildSyncAlertSourceKey(f.episodes(t)[0].ID)
+		capture.set(http.StatusOK, `{}`)
+		setEnabled(t, f, false)
+		firing := deliveryOf(t, f, sourceKey, NotificationDeliveryEventTypeFiring)
+		ageDelivery(t, f, firing.ID, time.Hour)
+		_ = f.hub.sweep(f.ctx)
+		if firing = deliveryOf(t, f, sourceKey, NotificationDeliveryEventTypeFiring); capture.count() != 1 || firing.Status != string(NotificationDeliveryStatusFailed) {
+			t.Fatalf("disabled channel: skip the first alert retry: requests=%d %+v", capture.count(), firing)
+		}
+		setEnabled(t, f, true)
+		_ = f.hub.sweep(f.ctx)
+		if firing = deliveryOf(t, f, sourceKey, NotificationDeliveryEventTypeFiring); capture.count() != 2 || firing.Status != string(NotificationDeliveryStatusSent) {
+			t.Fatalf("re-enabled channel must catch up the first alert: requests=%d %+v", capture.count(), firing)
 		}
 	})
 }

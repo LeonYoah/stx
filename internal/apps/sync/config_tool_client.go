@@ -295,12 +295,14 @@ type ConfigToolWebUIDAGResponse struct {
 	Warnings       []string               `json:"warnings"`
 }
 
-// ConfigToolValidationCheck represents one connector validation result.
+// ConfigToolValidationCheck 表示 java-proxy 返回的单个连接器探测条目。
+// ConfigToolValidationCheck represents one connector validation result from java-proxy.
 type ConfigToolValidationCheck struct {
 	NodeID        string `json:"nodeId"`
 	Kind          string `json:"kind"`
 	ConnectorType string `json:"connectorType"`
 	Target        string `json:"target"`
+	ProbeMethod   string `json:"probeMethod,omitempty"`
 	Status        string `json:"status"`
 	Message       string `json:"message"`
 }
@@ -342,7 +344,7 @@ type DefaultConfigToolClient struct {
 // NewDefaultConfigToolClient creates a config tool client.
 func NewDefaultConfigToolClient() *DefaultConfigToolClient {
 	return &DefaultConfigToolClient{
-		httpClient: &http.Client{Timeout: 15 * time.Second},
+		httpClient: &http.Client{Timeout: 30 * time.Second},
 	}
 }
 

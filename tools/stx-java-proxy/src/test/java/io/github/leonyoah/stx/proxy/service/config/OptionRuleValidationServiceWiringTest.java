@@ -69,6 +69,12 @@ class OptionRuleValidationServiceWiringTest {
     private static class EmptyJobConfigSupportService extends JobConfigSupportService {
         @Override
         public JobConfigContext parseJobContext(Map<String, Object> request) {
+            return parseJobContext(request, false);
+        }
+
+        @Override
+        public JobConfigContext parseJobContext(
+                Map<String, Object> request, boolean skipOfficialDisplayPaths) {
             return new JobConfigContext(
                     ConfigFactory.empty(),
                     Collections.emptyList(),

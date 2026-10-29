@@ -337,6 +337,7 @@ export interface SyncValidationCheck {
   kind: string;
   connector_type: string;
   target?: string;
+  probe_method?: string;
   status: string;
   message: string;
 }

@@ -51,7 +51,7 @@ class ConfigValidationServiceTest {
     private final ConfigValidationService service = new ConfigValidationService();
 
     @Test
-    void testConnectionSkippedDoesNotPass() {
+    void testUnreachableEndpointFailsConnection() {
         Map<String, Object> request = new LinkedHashMap<>();
         request.put(
                 "content",
@@ -80,9 +80,44 @@ class ConfigValidationServiceTest {
         assertFalse((Boolean) result.get("ok"));
         assertFalse((Boolean) result.get("valid"));
         @SuppressWarnings("unchecked")
-        List<String> warnings = (List<String>) result.get("warnings");
-        assertTrue(warnings.stream().anyMatch(item -> item.contains("暂未完成连接测试")));
-        assertFalse(warnings.stream().anyMatch(item -> item.contains("Console")));
+        List<String> errors = (List<String>) result.get("errors");
+        assertTrue(
+                errors.stream().anyMatch(item -> item.contains("连接失败") || item.contains("failed")));
+        assertFalse(errors.stream().anyMatch(item -> item.contains("Console")));
+    }
+
+    @Test
+    void testUnsupportedConnectorWithoutEndpointPassesAsInfo() {
+        Map<String, Object> request = new LinkedHashMap<>();
+        request.put(
+                "content",
+                String.join(
+                        "\n",
+                        "env {",
+                        "  job.mode = \"batch\"",
+                        "}",
+                        "source {",
+                        "  CustomMockSource {",
+                        "    plugin_output = \"src\"",
+                        "  }",
+                        "}",
+                        "sink {",
+                        "  Console {",
+                        "    plugin_input = [\"src\"]",
+                        "  }",
+                        "}"));
+        request.put("contentFormat", "hocon");
+        request.put("testConnection", true);
+
+        Map<String, Object> result =
+                new ConfigValidationService(new FakeJobConfigSupportService("CustomMockSource"))
+                        .validate(request);
+
+        assertTrue((Boolean) result.get("ok"));
+        assertTrue((Boolean) result.get("valid"));
+        @SuppressWarnings("unchecked")
+        List<String> infos = (List<String>) result.get("infos");
+        assertTrue(infos.stream().anyMatch(item -> item.contains("暂未配置专用协议探针")));
     }
 
     @Test
@@ -197,17 +232,40 @@ class ConfigValidationServiceTest {
     }
 
     private static class FakeJobConfigSupportService extends JobConfigSupportService {
+        private final String sourcePluginName;
+
+        FakeJobConfigSupportService() {
+            this(null);
+        }
+
+        FakeJobConfigSupportService(String sourcePluginName) {
+            this.sourcePluginName = sourcePluginName;
+        }
+
         @Override
         public JobConfigContext parseJobContext(Map<String, Object> request) {
+            return parseJobContext(request, false);
+        }
+
+        @Override
+        public JobConfigContext parseJobContext(
+                Map<String, Object> request, boolean skipOfficialDisplayPaths) {
+            String plugin = sourcePluginName;
+            if (plugin == null) {
+                plugin =
+                        String.valueOf(request.get("content")).contains("FakeSource")
+                                ? "FakeSource"
+                                : "Http";
+            }
             Config sourceConfig =
                     ConfigFactory.parseString(
                             "plugin_name = \""
-                                    + (String.valueOf(request.get("content")).contains("FakeSource")
-                                            ? "FakeSource"
-                                            : "Http")
+                                    + plugin
                                     + "\"\n"
                                     + "plugin_output = \"fake\"\n"
-                                    + "url = \"http://127.0.0.1:8080\"\n");
+                                    + (plugin.equals("CustomMockSource")
+                                            ? ""
+                                            : "url = \"http://127.0.0.1:8080\"\n"));
             Config sinkConfig =
                     ConfigFactory.parseString(
                             "plugin_name = \"Console\"\n" + "plugin_input = [\"fake\"]\n");
@@ -240,7 +298,9 @@ class ConfigValidationServiceTest {
                     Collections.singletonList(sinkConfig),
                     true,
                     Collections.singletonList(
-                            "Simple graph compatibility linked FakeSource to Console by source/transform output 'fake'."),
+                            "Simple graph compatibility linked "
+                                    + plugin
+                                    + " to Console by source/transform output 'fake'."),
                     new DatasetDag(
                             nodes,
                             Collections.singletonList(

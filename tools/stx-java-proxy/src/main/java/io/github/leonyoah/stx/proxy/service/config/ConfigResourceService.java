@@ -46,7 +46,10 @@ public class ConfigResourceService {
     }
 
     public DagParseResult inspectDag(Map<String, Object> request) {
-        JobConfigContext context = jobConfigSupportService.parseJobContext(request);
+        // 纯 DAG 拓扑解析无需加载官方远程元数据，始终跳过以保证低延迟与鲁棒性。
+        // Pure DAG topology inspection does not require official remote metadata; skip to ensure
+        // low latency and resilience.
+        JobConfigContext context = jobConfigSupportService.parseJobContext(request, true);
         return new DagParseResult(
                 true,
                 context.isSimpleGraph(),

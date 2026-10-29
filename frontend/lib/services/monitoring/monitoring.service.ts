@@ -42,6 +42,7 @@ import type {
   MonitoringOverviewData,
   NotificationChannel,
   NotificationChannelConnectionTestResult,
+  NotificationChannelConnectionTestRequest,
   NotificationChannelDraftTestRequest,
   NotificationChannelListData,
   NotificationDeliveryFilterParams,
@@ -482,7 +483,7 @@ export class MonitoringService extends BaseService {
    * 使用当前草稿配置测试邮件渠道连接。
    */
   static async testNotificationChannelConnection(
-    payload: UpsertNotificationChannelRequest,
+    payload: NotificationChannelConnectionTestRequest,
   ): Promise<NotificationChannelConnectionTestResult> {
     return this.post<NotificationChannelConnectionTestResult>(
       '/notification-channels/test-connection',
@@ -1090,7 +1091,7 @@ export class MonitoringService extends BaseService {
   }
 
   static async testNotificationChannelConnectionSafe(
-    payload: UpsertNotificationChannelRequest,
+    payload: NotificationChannelConnectionTestRequest,
   ): Promise<{
     success: boolean;
     data?: NotificationChannelConnectionTestResult;

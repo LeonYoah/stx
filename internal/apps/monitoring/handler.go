@@ -30,6 +30,7 @@ import (
 	"github.com/LeonYoah/stx/internal/apps/auth"
 	"github.com/LeonYoah/stx/internal/config"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // Handler handles monitoring overview HTTP requests.
@@ -443,7 +444,7 @@ func (h *Handler) CreateNotificationChannel(c *gin.Context) {
 
 	data, err := h.service.CreateNotificationChannel(c.Request.Context(), &req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, Response{ErrorMsg: "Failed to create notification channel: " + err.Error()})
+		c.JSON(notificationChannelUpsertStatusCode(err), Response{ErrorMsg: "Failed to create notification channel: " + err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, Response{Data: data})
@@ -470,10 +471,24 @@ func (h *Handler) UpdateNotificationChannel(c *gin.Context) {
 
 	data, err := h.service.UpdateNotificationChannel(c.Request.Context(), uint(channelID), &req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, Response{ErrorMsg: "Failed to update notification channel: " + err.Error()})
+		c.JSON(notificationChannelUpsertStatusCode(err), Response{ErrorMsg: "Failed to update notification channel: " + err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, Response{Data: data})
+}
+
+// notificationChannelUpsertStatusCode 把渠道创建 / 更新错误映射为 HTTP 状态码：校验错误 400，渠道不存在 404，其余 500。
+// notificationChannelUpsertStatusCode maps channel create / update errors to HTTP codes: validation 400, missing
+// channel 404, anything else 500.
+func notificationChannelUpsertStatusCode(err error) int {
+	switch {
+	case errors.Is(err, ErrInvalidNotificationChannel):
+		return http.StatusBadRequest
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		return http.StatusNotFound
+	default:
+		return http.StatusInternalServerError
+	}
 }
 
 // DeleteNotificationChannel handles DELETE /api/v1/monitoring/notification-channels/:id

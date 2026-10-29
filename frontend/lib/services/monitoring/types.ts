@@ -574,6 +574,11 @@ export interface UpsertNotificationChannelRequest {
   enabled?: boolean;
   endpoint?: string;
   secret?: string;
+  /**
+   * 清空已保存的签名密钥（secret 为空或占位符时生效）。
+   * Clears the stored signing secret (applies when secret is empty or the placeholder).
+   */
+  clear_secret?: boolean;
   config?: NotificationChannelConfig | null;
   description?: string;
 }
@@ -596,6 +601,20 @@ export interface NotificationChannelTestRequest {
 export interface NotificationChannelDraftTestRequest {
   channel: UpsertNotificationChannelRequest;
   receiver_user_id?: number;
+  /**
+   * 正在编辑的已保存渠道；草稿里的脱敏密钥 / 地址由后端用真实值补齐。
+   * The saved channel being edited; the backend fills masked secrets / addresses in the draft with the real values.
+   */
+  channel_id?: number;
+}
+
+/**
+ * 连接测试请求：渠道草稿 + 可选的已保存渠道 ID。
+ * Connection test request: a channel draft plus the optional saved channel ID.
+ */
+export interface NotificationChannelConnectionTestRequest
+  extends UpsertNotificationChannelRequest {
+  channel_id?: number;
 }
 
 export interface NotificationChannelConnectionTestResult {

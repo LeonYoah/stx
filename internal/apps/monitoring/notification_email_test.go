@@ -35,6 +35,7 @@ type fakeSMTPServer struct {
 	wg         sync.WaitGroup
 	mu         sync.Mutex
 	mailFrom   string
+	hello      string
 	recipients []string
 	data       string
 }
@@ -85,6 +86,9 @@ func (s *fakeSMTPServer) serve(t *testing.T) {
 		trimmed := strings.TrimSpace(line)
 		switch {
 		case strings.HasPrefix(trimmed, "EHLO") || strings.HasPrefix(trimmed, "HELO"):
+			s.mu.Lock()
+			s.hello = strings.TrimSpace(trimmed[4:])
+			s.mu.Unlock()
 			_, _ = writer.WriteString("250-fake-smtp\r\n")
 			_, _ = writer.WriteString("250 OK\r\n")
 			_ = writer.Flush()
@@ -318,7 +322,7 @@ func TestService_TestNotificationChannelDraft_SMTPPlain(t *testing.T) {
 	if len(server.recipients) != 1 || !strings.Contains(server.recipients[0], user.Email) {
 		t.Fatalf("unexpected recipients: %+v", server.recipients)
 	}
-	if !strings.Contains(server.data, "STX notification test") {
+	if !strings.Contains(server.data, "Subject: =?utf-8?q?[STX]_=E9=80=9A=E7=9F=A5=E6=B5=8B=E8=AF=95?=") {
 		t.Fatalf("unexpected message data: %s", server.data)
 	}
 }

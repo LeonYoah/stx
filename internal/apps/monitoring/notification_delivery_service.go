@@ -234,15 +234,46 @@ func sendRemoteAlertNotification(ctx context.Context, channel *NotificationChann
 	return sendNotification(ctx, channel, payload)
 }
 
+// notificationSendTimeout 是单次投递（含 SMTP 会话）的总超时，避免一个卡住的渠道拖住整个告警队列。
+// notificationSendTimeout bounds one delivery (SMTP session included) so a hung channel cannot stall the alert queue.
+var notificationSendTimeout = 60 * time.Second
+
+// notificationResponseExcerptBytes 是投递记录 / 测试结果里保留的平台响应长度。
+// notificationResponseExcerptBytes is how much of the platform response is kept in delivery records / test results.
+const notificationResponseExcerptBytes = 1000
+
 func sendNotification(ctx context.Context, channel *NotificationChannel, payload interface{}) (*notificationSendAttempt, error) {
 	if channel == nil {
 		return nil, fmt.Errorf("notification channel not found")
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(ctx, notificationSendTimeout)
+	defer cancel()
+
+	attempt, err := sendNotificationRaw(ctx, channel, payload)
+	if attempt != nil {
+		attempt.RequestPayload = redactChannelValues(attempt.RequestPayload, channel)
+		attempt.ResponseBody = redactChannelValues(attempt.ResponseBody, channel)
+	}
+	return attempt, redactNotificationError(err, channel)
+}
+
+func sendNotificationRaw(ctx context.Context, channel *NotificationChannel, payload interface{}) (*notificationSendAttempt, error) {
 	if channel.Type == NotificationChannelTypeEmail {
 		return sendEmailNotification(ctx, channel, payload)
 	}
-	if strings.TrimSpace(channel.Endpoint) == "" {
+	endpoint := strings.TrimSpace(channel.Endpoint)
+	if endpoint == "" {
 		return nil, fmt.Errorf("channel endpoint is empty")
+	}
+
+	payload = fitNotificationPayload(channel.Type, payload)
+	signedAt := timex.Now()
+	endpoint, payload, err := signNotificationRequest(channel, endpoint, payload, signedAt)
+	if err != nil {
+		return nil, err
 	}
 
 	payloadBytes, err := json.Marshal(payload)
@@ -250,11 +281,12 @@ func sendNotification(ctx context.Context, channel *NotificationChannel, payload
 		return nil, err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimSpace(channel.Endpoint), bytes.NewReader(payloadBytes))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payloadBytes))
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	applyWebhookSignatureHeaders(req.Header, channel, payloadBytes, signedAt)
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
@@ -263,20 +295,21 @@ func sendNotification(ctx context.Context, channel *NotificationChannel, payload
 	}
 	defer resp.Body.Close()
 
-	bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-	body := string(bodyBytes)
-	if len(body) > 1000 {
-		body = body[:1000]
-	}
+	bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 	now := timex.Now()
 	attempt := &notificationSendAttempt{
 		RequestPayload: string(payloadBytes),
 		StatusCode:     resp.StatusCode,
-		ResponseBody:   body,
+		ResponseBody:   truncateUTF8Bytes(string(bodyBytes), notificationResponseExcerptBytes, "…"),
 		SentAt:         &now,
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return attempt, fmt.Errorf("http status %d", resp.StatusCode)
+	}
+	// 钉钉 / 企业微信 / 飞书出错时也返回 HTTP 200，必须看响应体里的业务错误码。
+	// DingTalk / WeCom / Feishu return HTTP 200 on errors too, so the business code in the body decides.
+	if err := checkPlatformResponse(channel.Type, bodyBytes); err != nil {
+		return attempt, err
 	}
 	return attempt, nil
 }
@@ -453,9 +486,10 @@ func buildRemoteAlertMessageFields(record *RemoteAlertRecord, eventType Notifica
 	appendField("通知接收器", strings.TrimSpace(firstNonEmpty(record.Receiver, managedAlertmanagerDefaultReceiver)))
 	appendField("当前值", strings.TrimSpace(firstNonEmpty(annotations["current_value"], annotations["value"])))
 	appendField("触发条件", annotations["condition"])
-	appendField("摘要", strings.TrimSpace(firstNonEmpty(record.Summary, annotations["summary"])))
-	appendField("说明", strings.TrimSpace(firstNonEmpty(record.Description, annotations["description"])))
+	appendField("摘要", truncateAlertFieldText(firstNonEmpty(record.Summary, annotations["summary"])))
+	appendField("说明", truncateAlertFieldText(firstNonEmpty(record.Description, annotations["description"])))
 	appendField("指纹", strings.TrimSpace(firstNonEmpty(record.Fingerprint, "unknown")))
+	appendField("链接", monitoringAlertsConsoleLink(record.ClusterID))
 	return fields
 }
 
@@ -528,7 +562,7 @@ func toNotificationDeliveryDTO(delivery *NotificationDelivery) *NotificationDeli
 		EventType:          delivery.EventType,
 		Status:             delivery.Status,
 		AttemptCount:       delivery.AttemptCount,
-		LastError:          delivery.LastError,
+		LastError:          redactURLsInText(delivery.LastError),
 		ResponseStatusCode: delivery.ResponseStatusCode,
 		SentAt:             toUTCTimePointer(delivery.SentAt),
 		CreatedAt:          delivery.CreatedAt.UTC(),

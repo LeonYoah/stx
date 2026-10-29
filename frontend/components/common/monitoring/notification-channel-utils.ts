@@ -157,23 +157,31 @@ export function savedWebhookChannelSecret(
 }
 
 /**
- * 输入密钥。已保存渠道（同类型）有密钥时，把输入框清空等同于"清除已保存的密钥"，与后端行为一致；重新输入则取消清除。
- * Types a secret. For a saved channel (same type) with a stored secret, emptying the input means "clear the saved
- * secret", matching the backend; typing again cancels the clear.
+ * 输入密钥。按规范 §9"留空保持不变"：把输入框清空不会清除已保存的密钥（后端对空值 / 占位符同样保持原密钥）；只有点
+ * "清除"按钮（clearWebhookChannelSecret）才会带 clear_secret，保存前还要确认。输入新密钥会取消已选择的清除。
+ * Types a secret. Per spec §9 ("leave empty to keep"): emptying the input never clears the stored secret (the backend
+ * also keeps it for an empty value or the placeholder); only the explicit "clear" button (clearWebhookChannelSecret)
+ * sends clear_secret, and saving asks for confirmation. Typing a new secret cancels a pending clear.
  */
 export function setWebhookChannelSecret(
   form: WebhookChannelFormState,
   value: string,
-  saved?: SavedWebhookChannelSecret | null,
 ): WebhookChannelFormState {
-  const storedForThisType = Boolean(
-    saved?.hasSecret && saved.type === form.type && form.id !== null,
-  );
   return {
     ...form,
     secret: value,
-    clearSecret: storedForThisType && value.trim() === '',
+    clearSecret: value.trim() === '' ? form.clearSecret : false,
   };
+}
+
+/**
+ * 保存前是否需要确认"清除已保存的密钥"：仅编辑已保存渠道且用户点了"清除"时。
+ * Whether saving must first confirm clearing the stored secret: only for a saved channel the user chose to clear.
+ */
+export function webhookChannelSaveNeedsClearSecretConfirm(
+  form: WebhookChannelFormState,
+): boolean {
+  return form.id !== null && form.clearSecret;
 }
 
 /**
@@ -215,6 +223,22 @@ export function buildWebhookChannelPayload(
     secret: channelTypeSupportsSecret(form.type) ? form.secret.trim() : '',
     ...(form.clearSecret ? {clear_secret: true} : {}),
   };
+}
+
+/**
+ * "失败"筛选 / 计数包含的投递状态：发送失败和重试已用完（exhausted）。
+ * Delivery statuses the "failed" pill counts and filters: failed and retries exhausted.
+ */
+export function isFailedDeliveryStatus(status?: string | null): boolean {
+  return status === 'failed' || status === 'exhausted';
+}
+
+/**
+ * 投递记录的重试次数：attempt_count 含首次发送，所以重试次数是 attempt_count - 1。
+ * Retries of a delivery: attempt_count includes the first send, so retries are attempt_count - 1.
+ */
+export function deliveryRetriedTimes(attemptCount?: number | null): number {
+  return Math.max((attemptCount ?? 0) - 1, 0);
 }
 
 /**

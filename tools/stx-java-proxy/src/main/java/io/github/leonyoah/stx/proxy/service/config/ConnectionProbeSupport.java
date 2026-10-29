@@ -111,10 +111,29 @@ class ConnectionProbeSupport {
                             + "|timed out|timeout|no route to host|unknown host|connection reset"
                             + "|network is unreachable|connection attempt failed).*");
 
-    /** 执行连接器连通性探测（默认 3500ms 超时）。 Execute connector connectivity probe with default timeout. */
+    /** 全局默认探测超时（毫秒）。 Global default probe timeout in milliseconds. */
+    static final int DEFAULT_TIMEOUT_MS = 3500;
+
+    /**
+     * FtpFile 生产默认超时：vsftpd+PAM 对错误密码的 530 常延迟约 2.4–3s，需比全局默认更宽裕。 FtpFile production default:
+     * vsftpd+PAM often delays 530 for bad passwords by ~2.4–3s.
+     */
+    static final int FTP_DEFAULT_TIMEOUT_MS = 6000;
+
+    /**
+     * 执行连接器连通性探测（默认超时，FtpFile 使用更宽裕的预算）。 Execute connector connectivity probe with default timeout.
+     */
     static Map<String, Object> probeConnector(
             ProxyNode node, Config config, ClassLoader classLoader) {
-        return probeConnector(node, config, classLoader, 3500);
+        String pluginName = getString(config, "plugin_name");
+        if (StringUtils.isBlank(pluginName) && node != null) {
+            pluginName = node.getPluginName();
+        }
+        int timeout = DEFAULT_TIMEOUT_MS;
+        if (pluginName != null && "FtpFile".equalsIgnoreCase(pluginName)) {
+            timeout = FTP_DEFAULT_TIMEOUT_MS;
+        }
+        return probeConnector(node, config, classLoader, timeout);
     }
 
     /**
@@ -294,6 +313,22 @@ class ConnectionProbeSupport {
     static Map<String, Object> timeoutResult(Map<String, Object> base, int timeoutMillis) {
         Map<String, Object> failed = new LinkedHashMap<>(base);
         failed.put("status", "failed");
+        String connectorType =
+                String.valueOf(base != null ? base.getOrDefault("connectorType", "") : "");
+        // FtpFile：vsftpd 对错误密码的 530 常卡到整体超时；按认证失败提示，避免误报纯 timeout。
+        // FtpFile: vsftpd often delays 530 until the overall deadline; classify as auth, not bare
+        // timeout.
+        if (connectorType.toLowerCase(Locale.ROOT).contains("ftpfile")) {
+            failed.put("probeMethod", "ftp-login");
+            failed.put(
+                    "message",
+                    String.format(
+                            "认证失败 (authentication failed): FTP 登录在超时前未完成（超过 %d ms），"
+                                    + "可能是凭据错误触发的延迟拒绝 (如 vsftpd 530 Login incorrect)。"
+                                    + "请核对用户名密码，或适当增大超时。",
+                            timeoutMillis));
+            return failed;
+        }
         failed.put("probeMethod", "timeout");
         failed.put("message", String.format("连接测试超时（超过 %d ms），请检查网络或服务配置。", timeoutMillis));
         return failed;
@@ -333,20 +368,24 @@ class ConnectionProbeSupport {
             }
         }
 
-        // Tier 2: 官方 DryRun SPI 探测 (反射调用以兼容 2.3.x 与 3.0.x 双版本)
-        Map<String, Object> dryRunResult =
-                tryProbeOfficialDryRun(node, readonlyConfig, classLoader);
-        if (dryRunResult != null) {
-            return dryRunResult;
-        }
-
-        // Tier 3: 协议级探针 (Kafka / S3 / FTP / SFTP)：真正验证认证信息，而不是只看 TCP。
-        // Tier 3: protocol-level probes that really verify credentials instead of TCP only.
+        // Tier 2: 协议级探针 (Kafka / S3 / FTP / SFTP) 优先于 DryRun。
+        // SeaTunnel 3.0 KafkaSource DryRun 在部分类加载器组合下可能阻塞数十秒，而 AdminClient /
+        // FTP 登录 / SFTP 认证能在预算内给出明确的鉴权结果。
+        // Tier 2: protocol-level probes before DryRun. KafkaSource DryRun on SeaTunnel 3.0 can
+        // block for tens of seconds under some classloader setups; AdminClient / FTP login /
+        // SFTP auth return a definitive auth result within the budget.
         Map<String, Object> protocolResult =
                 ConnectionProtocolProbes.probe(
                         pluginName, config, classLoader, remainingMillis(deadlineNanos));
         if (protocolResult != null) {
             return protocolResult;
+        }
+
+        // Tier 3: 官方 DryRun SPI 探测 (反射调用以兼容 2.3.x 与 3.0.x 双版本)
+        Map<String, Object> dryRunResult =
+                tryProbeOfficialDryRun(node, readonlyConfig, classLoader);
+        if (dryRunResult != null) {
+            return dryRunResult;
         }
 
         // Tier 4: 官方 Catalog SPI 探测

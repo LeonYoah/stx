@@ -597,6 +597,7 @@ final class ConnectionProtocolProbes {
             user = "anonymous";
         }
         int timeout = Math.max(500, timeoutMillis);
+        boolean credentialsSent = false;
         try (Socket socket = new Socket()) {
             socket.connect(new InetSocketAddress(host.trim(), port), timeout);
             socket.setSoTimeout(timeout);
@@ -612,7 +613,12 @@ final class ConnectionProtocolProbes {
             String reply = readFtpReply(reader);
             if (reply.startsWith("331") || reply.startsWith("332")) {
                 sendFtp(out, "PASS " + StringUtils.defaultString(password));
+                credentialsSent = true;
                 reply = readFtpReply(reader);
+            } else if (reply.startsWith("230") || reply.startsWith("202")) {
+                // USER alone accepted (rare); treat as success below.
+            } else if (reply.startsWith("530") || reply.startsWith("430")) {
+                return failedMessage(method, "认证失败 (authentication failed): " + reply);
             }
             if (reply.startsWith("230") || reply.startsWith("202")) {
                 try {
@@ -630,6 +636,20 @@ final class ConnectionProtocolProbes {
                 return failedMessage(method, "认证失败 (authentication failed): " + reply);
             }
             return failedMessage(method, "FTP 登录失败: " + reply);
+        } catch (java.io.InterruptedIOException e) {
+            // vsftpd+PAM 常把错误密码的 530 延迟到接近探测超时；超时/中断发生在 PASS 之后时按认证失败提示，
+            // 避免生产默认 3500ms 下被误报为纯 timeout。
+            // vsftpd+PAM often delays 530 for bad passwords until near the probe deadline; when the
+            // timeout/interrupt happens after PASS, surface it as a possible auth failure rather
+            // than a bare timeout.
+            if (credentialsSent) {
+                return failedMessage(
+                        method,
+                        "认证失败 (authentication failed): FTP 登录在超时前未返回应答，"
+                                + "可能是凭据错误触发的延迟拒绝 (如 vsftpd 530 Login incorrect)。"
+                                + "请核对用户名密码，或适当增大超时。");
+            }
+            return failed(method, e);
         } catch (Throwable t) {
             return failed(method, t);
         }
@@ -711,7 +731,20 @@ final class ConnectionProtocolProbes {
             res.put("message", "SFTP authentication succeeded (" + host.trim() + ":" + port + ").");
             return res;
         } catch (Throwable t) {
-            return failed(method, unwrap(t));
+            Throwable cause = unwrap(t);
+            String detail = ConnectionProbeSupport.describeFailure(cause);
+            String lower = detail == null ? "" : detail.toLowerCase(Locale.ROOT);
+            // OpenSSH PerSourcePenalties 在连续认证失败后会对来源施加约 15s 惩罚并重置连接。
+            // OpenSSH PerSourcePenalties can reset the connection after repeated auth failures.
+            if (lower.contains("connection reset")
+                    || lower.contains("closed by foreign host")
+                    || lower.contains("connection is closed")) {
+                detail =
+                        detail
+                                + " (possible SSH source penalty after failed authentication;"
+                                + " retry later or check credentials; disable PerSourcePenalties in tests)";
+            }
+            return failedMessage(method, detail);
         } finally {
             if (session != null && sessionClass != null) {
                 try {

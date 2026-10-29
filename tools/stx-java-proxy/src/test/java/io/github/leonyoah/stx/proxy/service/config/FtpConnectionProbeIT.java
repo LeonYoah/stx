@@ -42,6 +42,7 @@ import static io.github.leonyoah.stx.proxy.service.config.ProbeITSupport.probe;
 import static io.github.leonyoah.stx.proxy.service.config.ProbeTestSupport.opts;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -126,6 +127,45 @@ class FtpConnectionProbeIT {
         // vsftpd + PAM delay the 530 reply of a failed login by ~3s (delay_failed_login +
         // pam_faildelay); widen the probe timeout so we assert the classification, not the delay.
         assertAuthFailure(probe(kind, "FtpFile", cfg("127.0.0.1", 21, "WRONG"), 8000));
+    }
+
+    /**
+     * 使用生产默认超时（FtpFile 为 {@link ConnectionProbeSupport#FTP_DEFAULT_TIMEOUT_MS}）断言错误密码判为认证失败， 避免仅靠
+     * IT 的 8s 放宽掩盖生产路径回归。 Uses the production default timeout so an 8s IT budget cannot mask a
+     * production-path regression.
+     */
+    @ParameterizedTest(
+            name = "FtpFile {0} wrong creds at production default timeout -> auth failure")
+    @EnumSource(
+            value = NodeKind.class,
+            names = {"SOURCE", "SINK"})
+    void wrongCredsAtProductionDefault(NodeKind kind) {
+        assertAuthFailure(
+                probe(
+                        kind,
+                        "FtpFile",
+                        cfg("127.0.0.1", 21, "WRONG"),
+                        ConnectionProbeSupport.FTP_DEFAULT_TIMEOUT_MS));
+    }
+
+    /**
+     * 即使仍按全局 3500ms 收紧，PASS 之后超时也必须带认证提示（不能只报纯 timeout）。 Even under the global 3500ms budget, a
+     * timeout after PASS must carry an auth hint (never a bare timeout).
+     */
+    @ParameterizedTest(name = "FtpFile {0} wrong creds at 3500ms -> auth-classified failure")
+    @EnumSource(
+            value = NodeKind.class,
+            names = {"SOURCE", "SINK"})
+    void wrongCredsAtGlobalDefault3500(NodeKind kind) {
+        Map<String, Object> r = probe(kind, "FtpFile", cfg("127.0.0.1", 21, "WRONG"), 3500);
+        assertEquals("failed", r.get("status"), "wrong creds must fail; result=" + r);
+        assertNotEquals(
+                "timeout",
+                r.get("probeMethod"),
+                "3500ms path must not surface as bare timeout; result=" + r);
+        assertTrue(
+                ProbeTestSupport.isAuthReason(r.get("message")),
+                "failure message must carry an auth reason; result=" + r);
     }
 
     @ParameterizedTest(name = "FtpFile {0} closed port -> fast failure")

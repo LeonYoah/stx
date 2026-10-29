@@ -53,6 +53,9 @@ type Service struct {
 	clusterService *cluster.Service
 	monitorService *monitor.Service
 	repo           *Repository
+	// channelHealth 记录渠道最近的投递结果（notification_channel_health.go）。
+	// channelHealth tracks recent per-channel delivery outcomes (notification_channel_health.go).
+	channelHealth notificationChannelHealth
 
 	nodeHealthEvaluatorStartedAt time.Time
 	nodeHealthStartupSuppression time.Duration
@@ -1068,6 +1071,7 @@ func (s *Service) UpdateNotificationChannel(ctx context.Context, id uint, req *U
 	if err := s.repo.SaveNotificationChannel(ctx, channel); err != nil {
 		return nil, err
 	}
+	s.channelHealth.recordChanged(channel.ID)
 	return toNotificationChannelDTO(channel), nil
 }
 

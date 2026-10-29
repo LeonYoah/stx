@@ -416,9 +416,11 @@ func TestSyncAlertHub_FirstAlertFailureRetriedWithBackoff(t *testing.T) {
 	}
 }
 
-// 2：阶段在首次告警送达前就恢复：不发恢复（用户没收到告警），首次告警重试标记 canceled。
-// 2: the episode recovers before the first alert was delivered: no recovery (the user never saw the alert) and the
-// first alert retry is canceled.
+// 2（#85 复审 P3 更新）：阶段在首次告警送达前就恢复：发一条带"首次告警未送达"说明的恢复通知（用户至少知道出过告警、
+// 已恢复），首次告警重试标记 canceled，不再补发过时的告警。
+// 2 (updated for #85 review P3): the episode recovers before the first alert was delivered: one recovery that notes
+// the first alert was not delivered goes out (the user at least learns there was an alert and it recovered), and the
+// first alert retry is canceled so no stale alert follows.
 func TestSyncAlertHub_FirstAlertRetryStopsOnResolve(t *testing.T) {
 	f, capture := setupCapturedTaskAlert(t, 0)
 	capture.set(http.StatusBadGateway, `bad gateway`)
@@ -428,13 +430,17 @@ func TestSyncAlertHub_FirstAlertRetryStopsOnResolve(t *testing.T) {
 	if err := resolveTask7(t, f); err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
-	if capture.count() != 1 || deliveryOf(t, f, sourceKey, NotificationDeliveryEventTypeResolved) != nil {
-		t.Fatalf("no recovery without a delivered first alert, got %d requests", capture.count())
+	if capture.count() != 2 || !containsJSON(capture.lastBody(t), `"status":"resolved"`) ||
+		!containsJSON(capture.lastBody(t), `"first_alert_delivered":false`) || !strings.Contains(string(capture.lastBody(t)), "此前的告警通知未能送达") {
+		t.Fatalf("expected one recovery noting the undelivered first alert, got %d requests: %s", capture.count(), capture.lastBody(t))
+	}
+	if resolved := deliveryOf(t, f, sourceKey, NotificationDeliveryEventTypeResolved); resolved == nil || resolved.Status != string(NotificationDeliveryStatusSent) {
+		t.Fatalf("the recovery should be recorded as sent: %+v", resolved)
 	}
 	firing := deliveryOf(t, f, sourceKey, NotificationDeliveryEventTypeFiring)
 	ageDelivery(t, f, firing.ID, time.Hour)
 	_ = f.hub.sweep(f.ctx)
-	if capture.count() != 1 {
+	if capture.count() != 2 {
 		t.Fatalf("a resolved episode must not retry its first alert, got %d requests", capture.count())
 	}
 	if firing = deliveryOf(t, f, sourceKey, NotificationDeliveryEventTypeFiring); firing.Status != string(NotificationDeliveryStatusCanceled) ||

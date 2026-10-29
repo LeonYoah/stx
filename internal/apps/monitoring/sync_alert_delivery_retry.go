@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"sort"
 	"strings"
 	"time"
 
@@ -132,23 +133,36 @@ func (h *SyncAlertHub) retryFailedRecoveries(ctx context.Context) error {
 }
 
 // retryFailedDeliveries 重试到期的失败首次告警 / 恢复投递；返回的错误只用于日志，不影响其他巡检。
-// 按 id 分页扫描全部可重试记录（最多 syncDeliveryRetryMaxScanPages 页），每轮最多重发 syncDeliveryRetryBatchSize 条；
-// 不再需要重试的记录会被标成 canceled，未到退避时间的记录直接跳过，二者都不会挡住后面真正到期的投递。
-// retryFailedDeliveries retries failed first alert / recovery deliveries whose backoff has elapsed; the returned error
-// is only logged and never blocks the rest of the sweep. It pages by id through every retryable row (at most
-// syncDeliveryRetryMaxScanPages pages) and resends at most syncDeliveryRetryBatchSize per sweep; rows that no longer
-// need a retry are canceled and rows still in backoff are skipped, so neither can block a later row that is due.
+//   - 按 id 分页扫描全部可重试记录（最多 syncDeliveryRetryMaxScanPages 页），按渠道分组后轮转发送：每轮每个渠道发一条，
+//     健康渠道排在前面，可疑渠道（最近一次发送失败）排在后面并按最近失败时间从早到晚轮换；同一渠道本轮失败后跳过它
+//     剩下的记录。这样排在后面的健康渠道不会因为前面卡住的渠道用完巡检预算而一直轮不到。
+//   - 记录到期的条件：退避时间已过，或者渠道在失败之后已经恢复（之前的巡检 / 本轮冷却提醒 / 其他告警发送成功，或被
+//     重新保存 / 启用），此时不再等退避（首次告警用完退避后最长要等 30 分钟）。
+//   - 每轮最多重发 syncDeliveryRetryBatchSize 条；不再需要重试的记录被标成 canceled，不占发送名额。
+//
+// retryFailedDeliveries retries failed first alert / recovery deliveries that are due; the returned error is only
+// logged and never blocks the rest of the sweep.
+//   - It pages by id through every retryable row (at most syncDeliveryRetryMaxScanPages pages), groups them by
+//     channel and round-robins: one row per channel per round, healthy channels first, suspect channels (latest send
+//     failed) after them rotated by least recent failure; a channel that fails in this sweep is skipped for the rest
+//     of it. A healthy channel that sorts late is therefore never starved by hung channels using up the sweep budget.
+//   - A row is due when its backoff has elapsed, or when its channel recovered after a failure (a send succeeded in an
+//     earlier sweep, in this sweep's reminders or for another alert, or the channel was saved / re-enabled): then the
+//     backoff (up to 30 minutes after a first alert's retries are used up) is not waited out.
+//   - At most syncDeliveryRetryBatchSize resends per sweep; rows that no longer need a retry are canceled and do not
+//     take a send slot.
 func (h *SyncAlertHub) retryFailedDeliveries(ctx context.Context) error {
 	repo := h.service.repo
+	health := &h.service.channelHealth
 	now := timeNowUTC()
 	guard := alertSweepGuardFrom(ctx)
 	var (
-		channelMap map[uint]*NotificationChannel
-		errs       []error
-		afterID    uint
-		attempted  int
+		errs    []error
+		afterID uint
+		queues  = map[uint][]*NotificationDelivery{}
+		order   []uint
 	)
-	for page := 0; page < syncDeliveryRetryMaxScanPages && attempted < syncDeliveryRetryBatchSize; page++ {
+	for page := 0; page < syncDeliveryRetryMaxScanPages; page++ {
 		deliveries, err := repo.ListRetryableSyncAlertDeliveries(ctx, syncDeliveryRetryMaxAttempts, afterID, syncDeliveryRetryBatchSize)
 		if err != nil {
 			errs = append(errs, err)
@@ -159,28 +173,93 @@ func (h *SyncAlertHub) retryFailedDeliveries(ctx context.Context) error {
 		}
 		afterID = deliveries[len(deliveries)-1].ID
 		for _, delivery := range deliveries {
-			if attempted >= syncDeliveryRetryBatchSize || guard.budgetExceeded() {
-				break
+			if _, seen := queues[delivery.ChannelID]; !seen {
+				order = append(order, delivery.ChannelID)
 			}
-			if guard.check(delivery.ChannelID) == alertSweepSkipChannelFailed {
+			queues[delivery.ChannelID] = append(queues[delivery.ChannelID], delivery)
+		}
+		if len(deliveries) < syncDeliveryRetryBatchSize {
+			break
+		}
+	}
+	if len(order) == 0 {
+		return errors.Join(errs...)
+	}
+
+	// 渠道顺序：健康渠道在前（保持最早记录的顺序），可疑渠道在后、最近失败越早越靠前。
+	// Channel order: healthy channels first (keeping their earliest row's order), suspect ones after, least recently
+	// failed first.
+	type channelOrder struct {
+		suspect       bool
+		lastFailureAt time.Time
+		recovered     bool
+	}
+	info := make(map[uint]channelOrder, len(order))
+	for _, channelID := range order {
+		suspect, lastFailureAt, recovered := health.snapshot(channelID)
+		info[channelID] = channelOrder{suspect: suspect, lastFailureAt: lastFailureAt, recovered: recovered}
+	}
+	sort.SliceStable(order, func(i, j int) bool {
+		a, b := info[order[i]], info[order[j]]
+		if a.suspect != b.suspect {
+			return !a.suspect
+		}
+		if a.suspect {
+			return a.lastFailureAt.Before(b.lastFailureAt)
+		}
+		return false
+	})
+
+	channels, err := repo.ListNotificationChannels(ctx)
+	if err != nil {
+		return errors.Join(append(errs, err)...)
+	}
+	channelMap := make(map[uint]*NotificationChannel, len(channels))
+	for _, channel := range channels {
+		if channel != nil {
+			channelMap[channel.ID] = channel
+		}
+	}
+
+	due := func(delivery *NotificationDelivery) bool {
+		if delivery.UpdatedAt.IsZero() || !now.Before(delivery.UpdatedAt.UTC().Add(syncDeliveryRetryDelay(delivery.AttemptCount))) {
+			return true
+		}
+		// 渠道在失败之后恢复了（重试阶段开始前记录到发送成功或重新保存 / 启用）：不等退避。
+		// The channel recovered after a failure (a success or a re-save / re-enable recorded before the retry phase
+		// started): do not wait out the backoff.
+		return info[delivery.ChannelID].recovered
+	}
+
+	attempted := 0
+	early := map[uint]bool{}
+	for progress := true; progress; {
+		progress = false
+		for _, channelID := range order {
+			if attempted >= syncDeliveryRetryBatchSize || guard.budgetExceeded() {
+				return errors.Join(errs...)
+			}
+			if guard.check(channelID) == alertSweepSkipChannelFailed {
 				// 渠道本轮已失败：本轮不再发它，不消耗次数，下一轮再试。
 				// The channel already failed in this sweep: skip it for now without using an attempt.
 				continue
 			}
-			if !delivery.UpdatedAt.IsZero() && now.Before(delivery.UpdatedAt.UTC().Add(syncDeliveryRetryDelay(delivery.AttemptCount))) {
+			queue := queues[channelID]
+			pick := -1
+			for i, delivery := range queue {
+				if due(delivery) {
+					pick = i
+					break
+				}
+			}
+			if pick < 0 {
 				continue
 			}
-			if channelMap == nil {
-				channels, err := repo.ListNotificationChannels(ctx)
-				if err != nil {
-					return errors.Join(append(errs, err)...)
-				}
-				channelMap = make(map[uint]*NotificationChannel, len(channels))
-				for _, channel := range channels {
-					if channel != nil {
-						channelMap[channel.ID] = channel
-					}
-				}
+			delivery := queue[pick]
+			queues[channelID] = append(queue[:pick:pick], queue[pick+1:]...)
+			progress = true
+			if !delivery.UpdatedAt.IsZero() && now.Before(delivery.UpdatedAt.UTC().Add(syncDeliveryRetryDelay(delivery.AttemptCount))) {
+				early[channelID] = true
 			}
 			sent, err := h.retrySyncAlertDelivery(ctx, delivery, channelMap)
 			if sent {
@@ -190,9 +269,11 @@ func (h *SyncAlertHub) retryFailedDeliveries(ctx context.Context) error {
 				errs = append(errs, err)
 			}
 		}
-		if len(deliveries) < syncDeliveryRetryBatchSize || guard.budgetExceeded() {
-			break
-		}
+	}
+	// 提前重试过的渠道清掉"已恢复"标记：之后再失败就重新按退避来。
+	// Channels retried early drop their recovered mark: later failures follow the backoff again.
+	for channelID := range early {
+		health.consumeRecovered(channelID)
 	}
 	return errors.Join(errs...)
 }
@@ -315,10 +396,11 @@ func (h *SyncAlertHub) retrySyncAlertDelivery(ctx context.Context, delivery *Not
 				return true, errors.Join(sendErr, err)
 			}
 		}
-		// 重试失败也写回策略的最近执行状态，不让它停在"命中"。
-		// A failed retry is written to the policy's last execution status too, so it never stays at "matched".
+		// 重试失败也写回策略的最近执行状态，不让它停在"命中"；其他渠道已送达时是 partial，不降级成 failed。
+		// A failed retry is written to the policy's last execution status too, so it never stays at "matched"; when
+		// other channels did deliver it is partial, not downgraded to failed.
 		if err := repo.ApplyAlertPolicyExecutionState(ctx, policy.ID, &AlertPolicyExecutionStateUpdate{
-			LastExecutionStatus: AlertPolicyExecutionStatusFailed,
+			LastExecutionStatus: h.retryPolicyStatus(ctx, policy, delivery, channelMap),
 			LastExecutionError:  lastError,
 		}); err != nil {
 			return true, errors.Join(sendErr, err)
@@ -337,13 +419,54 @@ func (h *SyncAlertHub) retrySyncAlertDelivery(ctx context.Context, delivery *Not
 		return false, h.cancelDeliveryRetry(ctx, delivery, "delivery preconditions no longer hold")
 	}
 	if result.DeliveryCountDelta > 0 {
-		return true, repo.ApplyAlertPolicyExecutionState(ctx, policy.ID, &AlertPolicyExecutionStateUpdate{
+		status := h.retryPolicyStatus(ctx, policy, delivery, channelMap)
+		update := &AlertPolicyExecutionStateUpdate{
 			DeliveryCountDelta:  result.DeliveryCountDelta,
 			LastDeliveredAt:     result.LastDeliveredAt,
-			LastExecutionStatus: AlertPolicyExecutionStatusSent,
-		})
+			LastExecutionStatus: status,
+		}
+		if status == AlertPolicyExecutionStatusPartial {
+			// 还有渠道没送达：保留原来的错误说明。
+			// Some channel is still undelivered: keep the existing error text.
+			if current, err := repo.GetAlertPolicyByID(ctx, policy.ID); err == nil && current != nil {
+				update.LastExecutionError = current.LastExecutionError
+			}
+		}
+		return true, repo.ApplyAlertPolicyExecutionState(ctx, policy.ID, update)
 	}
 	return true, nil
+}
+
+// retryPolicyStatus 在一次重试之后按策略的全部启用渠道汇总同一告警、同一事件的投递结果：全部送达为 sent，部分送达为
+// partial，都没送达为 failed。重试只补发失败的那个渠道，不会把其他渠道已经成功的 partial 降级成 failed。
+// retryPolicyStatus summarizes, after one retry, the same alert and event across every enabled channel of the policy:
+// all delivered is sent, some is partial, none is failed. A retry only resends the failed channel, so it never
+// downgrades a partial (other channels delivered) to failed.
+func (h *SyncAlertHub) retryPolicyStatus(ctx context.Context, policy *AlertPolicy, delivery *NotificationDelivery, channelMap map[uint]*NotificationChannel) AlertPolicyExecutionStatus {
+	delivered, undelivered := 0, 0
+	for _, channelID := range unmarshalAlertPolicyChannelIDs(policy.NotificationChannelIDsJSON) {
+		channel := channelMap[channelID]
+		if channel == nil || !channel.Enabled {
+			continue
+		}
+		row, err := h.service.repo.GetNotificationDeliveryByDedupKey(ctx, delivery.SourceKey, channelID, delivery.EventType)
+		if err != nil || row == nil {
+			continue
+		}
+		if NotificationDeliveryStatus(strings.TrimSpace(row.Status)) == NotificationDeliveryStatusSent {
+			delivered++
+		} else {
+			undelivered++
+		}
+	}
+	switch {
+	case delivered > 0 && undelivered > 0:
+		return AlertPolicyExecutionStatusPartial
+	case delivered > 0:
+		return AlertPolicyExecutionStatusSent
+	default:
+		return AlertPolicyExecutionStatusFailed
+	}
 }
 
 // loadRetryPolicy 读取投递记录上的策略；策略缺失或停用时标记 canceled 并返回 nil。

@@ -569,8 +569,19 @@ func (s *Service) dispatchAlertDeliveryWithOptions(
 		if err != nil {
 			return nil, err
 		}
-		if firingDelivery == nil || NotificationDeliveryStatus(strings.TrimSpace(firingDelivery.Status)) != NotificationDeliveryStatusSent {
+		if firingDelivery == nil {
 			return nil, nil
+		}
+		if NotificationDeliveryStatus(strings.TrimSpace(firingDelivery.Status)) != NotificationDeliveryStatusSent {
+			if message.SourceType != AlertSourceTypeSync {
+				return nil, nil
+			}
+			// 同步告警的首次告警尝试过但没送达（渠道当时不可用）就恢复了：仍然发恢复，并在正文里说明首次告警没送达，
+			// 让这一条同时告诉用户"出过告警、现在已恢复"，而不是什么都收不到。
+			// A sync alert recovered while its first alert was attempted but never delivered (the channel was down):
+			// still send the recovery, noting in the body that the alert itself was not delivered, so this one
+			// notification tells the user "there was an alert and it has recovered" instead of nothing at all.
+			message = withUndeliveredFirstAlertNote(message)
 		}
 	}
 
@@ -593,7 +604,7 @@ func (s *Service) dispatchAlertDeliveryWithOptions(
 		}
 	}
 	if delivery == nil || NotificationDeliveryStatus(strings.TrimSpace(delivery.Status)) != NotificationDeliveryStatusSent {
-		if skipped := alertSweepSkipResult(ctx, channel.ID); skipped != nil {
+		if skipped := alertSweepSkipResult(ctx, channel.ID, opts.Retry); skipped != nil {
 			return skipped, nil
 		}
 	}
@@ -650,7 +661,7 @@ func (s *Service) dispatchAlertReminder(
 	if timeNowUTC().Before(last.Add(time.Duration(policy.CooldownMinutes) * time.Minute)) {
 		return delivered, nil
 	}
-	if skipped := alertSweepSkipResult(ctx, channel.ID); skipped != nil {
+	if skipped := alertSweepSkipResult(ctx, channel.ID, false); skipped != nil {
 		return skipped, nil
 	}
 	if reminder == nil {
@@ -727,6 +738,9 @@ func (s *Service) sendAndRecordAlertDelivery(
 	cancel()
 	if sendErr != nil {
 		guard.recordFailure(channel.ID)
+		s.channelHealth.recordFailure(channel.ID, time.Now())
+	} else {
+		s.channelHealth.recordSuccess(channel.ID)
 	}
 	if attempt != nil {
 		delivery.RequestPayload = attempt.RequestPayload
@@ -759,8 +773,8 @@ func (s *Service) sendAndRecordAlertDelivery(
 
 // alertSweepSkipResult 在巡检预算守卫要求跳过该渠道时返回对应结果，否则返回 nil。
 // alertSweepSkipResult returns the matching result when the sweep guard says to skip the channel, nil otherwise.
-func alertSweepSkipResult(ctx context.Context, channelID uint) *alertPolicyChannelDispatchResult {
-	switch alertSweepGuardFrom(ctx).check(channelID) {
+func alertSweepSkipResult(ctx context.Context, channelID uint, retry bool) *alertPolicyChannelDispatchResult {
+	switch alertSweepGuardFrom(ctx).checkPhase(channelID, retry) {
 	case alertSweepSkipChannelFailed:
 		return &alertPolicyChannelDispatchResult{LastError: alertSweepChannelFailedError, Failed: true}
 	case alertSweepSkipBudget:

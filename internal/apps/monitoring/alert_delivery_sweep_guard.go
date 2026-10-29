@@ -27,14 +27,18 @@ import (
 // 会让一轮巡检拖上十几分钟，期间信号队列可能写满丢信号。所以每轮巡检：
 //   - 超过 syncAlertSweepBudget 后不再发起新的发送（剩下的留到下一轮）；
 //   - 每次发送最多等 syncAlertSweepSendTimeout；
-//   - 同一个渠道本轮失败一次后，跳过它本轮剩下的所有投递。
+//   - 同一个渠道本轮失败一次后，跳过它本轮剩下的所有投递；
+//   - 冷却提醒最多用一半预算；退避重试按渠道轮转（健康渠道优先，见 retryFailedDeliveries），排在后面的健康渠道不会被
+//     卡住的渠道饿死。
 //
 // Sweep budget: the sync alert sweep and signal handling run serially on one goroutine, so a hung channel (each send
 // may wait notificationSendTimeout) could stretch one sweep past ten minutes while the signal queue fills up and drops
 // signals. Each sweep therefore:
 //   - starts no new send after syncAlertSweepBudget (the rest waits for the next sweep);
 //   - waits at most syncAlertSweepSendTimeout for one send;
-//   - skips every remaining delivery of a channel for the rest of the sweep once it failed in this sweep.
+//   - skips every remaining delivery of a channel for the rest of the sweep once it failed in this sweep;
+//   - lets cooldown reminders use at most half the budget; backoff retries round-robin across channels (healthy ones
+//     first, see retryFailedDeliveries), so a healthy channel sorting late is not starved by hung ones.
 var (
 	syncAlertSweepBudget      = 30 * time.Second
 	syncAlertSweepSendTimeout = 20 * time.Second
@@ -89,6 +93,13 @@ func alertSweepGuardFrom(ctx context.Context) *alertSweepGuard {
 // check reports whether the sweep may still send to the channel. Without a guard (signal handling, manual tests) the
 // answer is always yes.
 func (g *alertSweepGuard) check(channelID uint) alertSweepSkip {
+	return g.checkPhase(channelID, true)
+}
+
+// checkPhase 同 check，但区分巡检阶段：冷却提醒（retry=false）最多用一半预算，保证排在后面的退避重试总有时间。
+// checkPhase is check with the sweep phase: cooldown reminders (retry=false) may use at most half the budget, so the
+// backoff retries that run afterwards always get time.
+func (g *alertSweepGuard) checkPhase(channelID uint, retry bool) alertSweepSkip {
 	if g == nil {
 		return alertSweepSend
 	}
@@ -97,7 +108,11 @@ func (g *alertSweepGuard) check(channelID uint) alertSweepSkip {
 	if _, failed := g.failed[channelID]; failed {
 		return alertSweepSkipChannelFailed
 	}
-	if time.Since(g.startedAt) >= g.budget {
+	limit := g.budget
+	if !retry {
+		limit = g.budget / 2
+	}
+	if time.Since(g.startedAt) >= limit {
 		return alertSweepSkipBudget
 	}
 	return alertSweepSend

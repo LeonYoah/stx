@@ -30,8 +30,20 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 public class ConfigValidationService {
+
+    private static final ExecutorService PROBE_EXECUTOR =
+            Executors.newCachedThreadPool(
+                    r -> {
+                        Thread t = new Thread(r, "stx-connection-probe");
+                        t.setDaemon(true);
+                        return t;
+                    });
 
     private final JobConfigSupportService jobConfigSupportService;
     private final OptionRuleValidationService optionRuleValidationService;
@@ -59,11 +71,16 @@ public class ConfigValidationService {
 
     public Map<String, Object> validate(Map<String, Object> request) {
         boolean testConnection = ProxyRequestUtils.getBoolean(request, "testConnection", false);
-        // 默认开启 OptionRule 校验；草稿探测可显式关闭。
-        // OptionRule validation is on by default; draft probes may disable it explicitly.
+        // 默认开启 OptionRule 校验；纯连接测试或草稿探测可显式关闭。
+        // OptionRule validation is on by default; pure connection tests or draft probes may disable
+        // it.
         boolean validateOptionRules =
-                ProxyRequestUtils.getBoolean(request, "validateOptionRules", true);
-        JobConfigContext context = jobConfigSupportService.parseJobContext(request);
+                ProxyRequestUtils.getBoolean(request, "validateOptionRules", !testConnection);
+        int timeoutMillis = (int) ProxyRequestUtils.getLong(request, "timeoutMillis", 3500);
+
+        // 如果是仅测试连接，跳过昂贵的表结构全量解析 (skipOfficialDisplayPaths=true)，避免阻塞数十秒
+        // If testing connection, skip expensive official table schema resolution to avoid delays
+        JobConfigContext context = jobConfigSupportService.parseJobContext(request, testConnection);
         List<String> warnings = filterUserVisibleWarnings(context.getWarnings());
         List<String> infos = new ArrayList<>();
         List<String> errors = new ArrayList<>();
@@ -75,7 +92,7 @@ public class ConfigValidationService {
 
         boolean allChecksSucceeded = true;
         if (testConnection) {
-            checks = testConnections(context);
+            checks = testConnections(context, timeoutMillis);
             for (Map<String, Object> check : checks) {
                 String status = String.valueOf(check.get("status"));
                 if ("failed".equals(status)) {
@@ -119,7 +136,7 @@ public class ConfigValidationService {
         return result;
     }
 
-    private List<Map<String, Object>> testConnections(JobConfigContext context) {
+    private List<Map<String, Object>> testConnections(JobConfigContext context, int timeoutMillis) {
         ClassLoader originalClassLoader = Thread.currentThread().getContextClassLoader();
         URLClassLoader seatunnelHomeClassLoader = null;
         ClassLoader classLoader = originalClassLoader;
@@ -131,21 +148,47 @@ public class ConfigValidationService {
                 Thread.currentThread().setContextClassLoader(classLoader);
             }
 
-            List<Map<String, Object>> checks = new ArrayList<>();
+            final ClassLoader effectiveClassLoader = classLoader;
+            List<CompletableFuture<Map<String, Object>>> futures = new ArrayList<>();
+
             for (int i = 0; i < context.getSources().size(); i++) {
-                checks.add(
-                        testConnectorConnection(
-                                context.getGraph().getNodes().get(i),
-                                context.getSources().get(i),
-                                classLoader));
+                final int index = i;
+                futures.add(
+                        CompletableFuture.supplyAsync(
+                                () ->
+                                        testConnectorConnection(
+                                                context.getGraph().getNodes().get(index),
+                                                context.getSources().get(index),
+                                                effectiveClassLoader,
+                                                timeoutMillis),
+                                PROBE_EXECUTOR));
             }
             int sinkOffset = context.getSources().size() + context.getTransforms().size();
             for (int i = 0; i < context.getSinks().size(); i++) {
-                checks.add(
-                        testConnectorConnection(
-                                context.getGraph().getNodes().get(sinkOffset + i),
-                                context.getSinks().get(i),
-                                classLoader));
+                final int index = i;
+                futures.add(
+                        CompletableFuture.supplyAsync(
+                                () ->
+                                        testConnectorConnection(
+                                                context.getGraph()
+                                                        .getNodes()
+                                                        .get(sinkOffset + index),
+                                                context.getSinks().get(index),
+                                                effectiveClassLoader,
+                                                timeoutMillis),
+                                PROBE_EXECUTOR));
+            }
+
+            List<Map<String, Object>> checks = new ArrayList<>();
+            for (CompletableFuture<Map<String, Object>> future : futures) {
+                try {
+                    checks.add(future.get(timeoutMillis + 1500L, TimeUnit.MILLISECONDS));
+                } catch (Exception e) {
+                    Map<String, Object> fallback = new LinkedHashMap<>();
+                    fallback.put("status", "failed");
+                    fallback.put("message", "连接测试超时（超过设定时限），请检查网络或服务配置。");
+                    checks.add(fallback);
+                }
             }
             return checks;
         } finally {
@@ -155,8 +198,8 @@ public class ConfigValidationService {
     }
 
     private Map<String, Object> testConnectorConnection(
-            ProxyNode node, Config config, ClassLoader classLoader) {
-        return ConnectionProbeSupport.probeConnector(node, config, classLoader);
+            ProxyNode node, Config config, ClassLoader classLoader, int timeoutMillis) {
+        return ConnectionProbeSupport.probeConnector(node, config, classLoader, timeoutMillis);
     }
 
     /**

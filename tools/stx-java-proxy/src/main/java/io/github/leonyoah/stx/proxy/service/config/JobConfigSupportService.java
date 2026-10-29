@@ -78,6 +78,15 @@ public class JobConfigSupportService {
     private static final Logger LOG = LoggerFactory.getLogger(JobConfigSupportService.class);
 
     public JobConfigContext parseJobContext(Map<String, Object> request) {
+        return parseJobContext(request, false);
+    }
+
+    /**
+     * 解析任务配置上下文。支持按需跳过耗时的官方元数据推导（如连接测试场景）。 Parses job configuration context. Supports skipping
+     * expensive official metadata resolution on demand (e.g. for connection test probes).
+     */
+    public JobConfigContext parseJobContext(
+            Map<String, Object> request, boolean skipOfficialDisplayPaths) {
         try {
             Config jobConfig = loadJobConfig(request);
             List<Config> sources = getConfigList(jobConfig, "source");
@@ -89,7 +98,14 @@ public class JobConfigSupportService {
             boolean simpleGraph = isSimpleGraph(sources, transforms, sinks);
             List<String> warnings = new ArrayList<>();
             DatasetDag graph =
-                    buildGraph(jobConfig, sources, transforms, sinks, simpleGraph, warnings);
+                    buildGraph(
+                            jobConfig,
+                            sources,
+                            transforms,
+                            sinks,
+                            simpleGraph,
+                            warnings,
+                            skipOfficialDisplayPaths);
             return new JobConfigContext(
                     jobConfig, sources, transforms, sinks, simpleGraph, warnings, graph);
         } catch (ConfigException e) {
@@ -120,11 +136,25 @@ public class JobConfigSupportService {
             List<Config> sinks,
             boolean simpleGraph,
             List<String> warnings) {
+        return buildGraph(jobConfig, sources, transforms, sinks, simpleGraph, warnings, false);
+    }
+
+    private DatasetDag buildGraph(
+            Config jobConfig,
+            List<Config> sources,
+            List<Config> transforms,
+            List<Config> sinks,
+            boolean simpleGraph,
+            List<String> warnings,
+            boolean skipOfficialDisplayPaths) {
         List<ProxyNode> nodes = new ArrayList<>();
         List<ProxyEdge> edges = new ArrayList<>();
         Map<String, String> producers = new LinkedHashMap<>();
         Map<String, OfficialNodeDisplayInfo> displayPaths =
-                resolveOfficialDisplayPaths(jobConfig, sources, transforms, sinks, warnings);
+                skipOfficialDisplayPaths
+                        ? Collections.emptyMap()
+                        : resolveOfficialDisplayPaths(
+                                jobConfig, sources, transforms, sinks, warnings);
 
         for (int i = 0; i < sources.size(); i++) {
             ReadonlyConfig readonlyConfig = ReadonlyConfig.fromConfig(sources.get(i));

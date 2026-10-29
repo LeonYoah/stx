@@ -33,6 +33,7 @@ import java.net.Socket;
 import java.net.URI;
 import java.sql.Connection;
 import java.sql.Driver;
+import java.sql.DriverManager;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -55,11 +56,17 @@ import static org.apache.seatunnel.api.options.ConnectorCommonOptions.PLUGIN_NAM
  */
 class ConnectionProbeSupport {
 
-    private static final int TCP_TIMEOUT_MS = 2000;
+    private static final int TCP_TIMEOUT_MS = 1500;
 
-    /** 执行连接器连通性探测。 Execute connector connectivity probe. */
+    /** 执行连接器连通性探测（默认 3500ms 超时）。 Execute connector connectivity probe with default timeout. */
     static Map<String, Object> probeConnector(
             ProxyNode node, Config config, ClassLoader classLoader) {
+        return probeConnector(node, config, classLoader, 3500);
+    }
+
+    /** 执行连接器连通性探测。 Execute connector connectivity probe with specified timeout. */
+    static Map<String, Object> probeConnector(
+            ProxyNode node, Config config, ClassLoader classLoader, int timeoutMillis) {
         ReadonlyConfig readonlyConfig = ReadonlyConfig.fromConfig(config);
         String pluginName = readonlyConfig.get(PLUGIN_NAME);
         Map<String, Object> result = new LinkedHashMap<>();
@@ -85,6 +92,25 @@ class ConnectionProbeSupport {
             return result;
         }
 
+        // 快速 TCP 端口预检 (Fast TCP Pre-flight):
+        // 若配置包含可解析的 Host/Port 或 URL，先执行快速 TCP 握手 (超时 1500ms)。
+        // 若端口完全不可达，立即快速失败，避免后续 Catalog/JDBC 阻塞 30 秒操作系统 SYN 超时。
+        HostAndPort endpoint = extractEndpoint(config);
+        if (endpoint != null) {
+            String tcpError =
+                    testTcpReachability(
+                            endpoint.host, endpoint.port, Math.min(TCP_TIMEOUT_MS, timeoutMillis));
+            if (tcpError != null) {
+                result.put("status", "failed");
+                result.put("probeMethod", "tcp-port");
+                result.put(
+                        "message",
+                        String.format(
+                                "目标地址网络不可达 (%s:%d): %s", endpoint.host, endpoint.port, tcpError));
+                return result;
+            }
+        }
+
         // Tier 2: 官方 DryRun SPI 探测 (反射调用以兼容 2.3.x 与 3.0.x 双版本)
         // Tier 2: Official DryRun SPI Probe (reflectively invoked for dual 2.3.x / 3.0.x
         // compatibility)
@@ -108,7 +134,7 @@ class ConnectionProbeSupport {
         // Tier 4: Direct JDBC driver probe (for standard JDBC and CDC connectors with JDBC URLs)
         if (isJdbcProbeableConnector(pluginName, config)) {
             try {
-                probeJdbc(pluginName, config, classLoader);
+                probeJdbc(pluginName, config, classLoader, timeoutMillis);
                 result.put("status", "success");
                 result.put("probeMethod", "jdbc-driver");
                 result.put("message", "Connection succeeded via JDBC driver.");
@@ -121,11 +147,18 @@ class ConnectionProbeSupport {
             }
         }
 
-        // Tier 5: 通用 TCP 端口连通性探针 (基于 URL 或 Host:Port 执行 TCP 3 次握手)
-        // Tier 5: Generic TCP Socket Probe (verifies 3-way handshake against URL or Host:Port)
-        Map<String, Object> tcpResult = tryProbeGenericTcp(config);
-        if (tcpResult != null) {
-            result.putAll(tcpResult);
+        // Tier 5: 通用 TCP 端口连通性探针 (因已通过快速预检，直接返回已验证)
+        // Tier 5: Generic TCP Socket Probe (already verified via pre-flight handshake)
+        if (endpoint != null) {
+            Map<String, Object> res = new LinkedHashMap<>();
+            res.put("status", "success");
+            res.put("probeMethod", "tcp-port");
+            res.put(
+                    "message",
+                    String.format(
+                            "TCP network reachability verified (%s:%d).",
+                            endpoint.host, endpoint.port));
+            result.putAll(res);
             return result;
         }
 
@@ -296,6 +329,12 @@ class ConnectionProbeSupport {
     /** 执行 JDBC 驱动物理建连探测。 Probe JDBC connection via driver directly. */
     static void probeJdbc(String pluginName, Config config, ClassLoader classLoader)
             throws Exception {
+        probeJdbc(pluginName, config, classLoader, 3500);
+    }
+
+    static void probeJdbc(
+            String pluginName, Config config, ClassLoader classLoader, int timeoutMillis)
+            throws Exception {
         String url = getString(config, "url");
         if (StringUtils.isBlank(url)) {
             String hostname = getString(config, "hostname");
@@ -332,6 +371,7 @@ class ConnectionProbeSupport {
             if (password != null) {
                 properties.setProperty("password", password);
             }
+            DriverManager.setLoginTimeout(Math.max(1, timeoutMillis / 1000));
             try (Connection ignored = driver.connect(url, properties)) {
                 if (ignored == null) {
                     throw new IllegalStateException("JDBC driver returned null connection.");
@@ -340,6 +380,16 @@ class ConnectionProbeSupport {
             return;
         }
         throw new IllegalArgumentException("Missing jdbc driver option.");
+    }
+
+    /** 测试指定主机端口的 TCP 握手连通性。 Tests TCP handshake reachability for given host and port. */
+    static String testTcpReachability(String host, int port, int timeoutMs) {
+        try (Socket socket = new Socket()) {
+            socket.connect(new InetSocketAddress(host, port), Math.max(500, timeoutMs));
+            return null;
+        } catch (Exception e) {
+            return firstLine(e.getMessage());
+        }
     }
 
     /** 通用 TCP Socket 端口连通性探针（三次握手探活）。 Generic TCP Socket Port Probe (3-way handshake). */
@@ -381,6 +431,23 @@ class ConnectionProbeSupport {
         }
     }
 
+    private static int resolveDefaultJdbcPort(String url) {
+        String lower = url.toLowerCase();
+        if (lower.startsWith("jdbc:postgresql")) {
+            return 5432;
+        }
+        if (lower.startsWith("jdbc:oracle")) {
+            return 1521;
+        }
+        if (lower.startsWith("jdbc:sqlserver")) {
+            return 1433;
+        }
+        if (lower.startsWith("jdbc:clickhouse")) {
+            return 8123;
+        }
+        return 3306;
+    }
+
     private static HostAndPort extractEndpoint(Config config) {
         String url = getString(config, "url");
         if (StringUtils.isNotBlank(url)) {
@@ -392,7 +459,9 @@ class ConnectionProbeSupport {
                         String host = matcher.group(1);
                         String portStr = matcher.group(2);
                         int port =
-                                StringUtils.isNotBlank(portStr) ? Integer.parseInt(portStr) : 3306;
+                                StringUtils.isNotBlank(portStr)
+                                        ? Integer.parseInt(portStr)
+                                        : resolveDefaultJdbcPort(url);
                         return new HostAndPort(host, port);
                     }
                 } else if (url.startsWith("http://") || url.startsWith("https://")) {

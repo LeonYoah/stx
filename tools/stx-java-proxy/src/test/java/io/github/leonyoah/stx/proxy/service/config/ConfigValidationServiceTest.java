@@ -244,6 +244,12 @@ class ConfigValidationServiceTest {
 
         @Override
         public JobConfigContext parseJobContext(Map<String, Object> request) {
+            return parseJobContext(request, false);
+        }
+
+        @Override
+        public JobConfigContext parseJobContext(
+                Map<String, Object> request, boolean skipOfficialDisplayPaths) {
             String plugin = sourcePluginName;
             if (plugin == null) {
                 plugin =
